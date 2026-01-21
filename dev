@@ -1,0 +1,45 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+cd "$(dirname "$0")"
+
+usage() {
+    echo "Usage: ./dev <tool> [args...]"
+    echo ""
+    echo "Tools:"
+    echo "  vauxhall     - Build and run Vauxhall"
+    echo "  praude       - Build and run Praude"
+    echo "  tandemonium  - Build and run Tandemonium"
+    echo ""
+    echo "Examples:"
+    echo "  ./dev vauxhall --tui"
+    echo "  ./dev praude list"
+    echo "  ./dev tandemonium status"
+    exit 1
+}
+
+if [ $# -lt 1 ]; then
+    usage
+fi
+
+TOOL="$1"
+shift
+
+case "$TOOL" in
+    vauxhall)
+        go build -o vauxhall ./cmd/vauxhall
+        exec ./vauxhall "$@"
+        ;;
+    praude)
+        go build -o praude ./cmd/praude
+        exec ./praude "$@"
+        ;;
+    tandemonium)
+        go build -o tandemonium ./cmd/tandemonium
+        exec ./tandemonium "$@"
+        ;;
+    *)
+        echo "Unknown tool: $TOOL"
+        usage
+        ;;
+esac
