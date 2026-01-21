@@ -1,0 +1,17 @@
+/Users/sma/Tandemonium/prototypes/m0-yaml/target/release/deps/libthiserror_impl-f4af782067bd3f89.dylib: /Users/sma/.cargo/registry/src/index.crates.io-6f17d22bba15001f/thiserror-impl-2.0.17/src/lib.rs /Users/sma/.cargo/registry/src/index.crates.io-6f17d22bba15001f/thiserror-impl-2.0.17/src/ast.rs /Users/sma/.cargo/registry/src/index.crates.io-6f17d22bba15001f/thiserror-impl-2.0.17/src/attr.rs /Users/sma/.cargo/registry/src/index.crates.io-6f17d22bba15001f/thiserror-impl-2.0.17/src/expand.rs /Users/sma/.cargo/registry/src/index.crates.io-6f17d22bba15001f/thiserror-impl-2.0.17/src/fallback.rs /Users/sma/.cargo/registry/src/index.crates.io-6f17d22bba15001f/thiserror-impl-2.0.17/src/fmt.rs /Users/sma/.cargo/registry/src/index.crates.io-6f17d22bba15001f/thiserror-impl-2.0.17/src/generics.rs /Users/sma/.cargo/registry/src/index.crates.io-6f17d22bba15001f/thiserror-impl-2.0.17/src/prop.rs /Users/sma/.cargo/registry/src/index.crates.io-6f17d22bba15001f/thiserror-impl-2.0.17/src/scan_expr.rs /Users/sma/.cargo/registry/src/index.crates.io-6f17d22bba15001f/thiserror-impl-2.0.17/src/unraw.rs /Users/sma/.cargo/registry/src/index.crates.io-6f17d22bba15001f/thiserror-impl-2.0.17/src/valid.rs
+
+/Users/sma/Tandemonium/prototypes/m0-yaml/target/release/deps/thiserror_impl-f4af782067bd3f89.d: /Users/sma/.cargo/registry/src/index.crates.io-6f17d22bba15001f/thiserror-impl-2.0.17/src/lib.rs /Users/sma/.cargo/registry/src/index.crates.io-6f17d22bba15001f/thiserror-impl-2.0.17/src/ast.rs /Users/sma/.cargo/registry/src/index.crates.io-6f17d22bba15001f/thiserror-impl-2.0.17/src/attr.rs /Users/sma/.cargo/registry/src/index.crates.io-6f17d22bba15001f/thiserror-impl-2.0.17/src/expand.rs /Users/sma/.cargo/registry/src/index.crates.io-6f17d22bba15001f/thiserror-impl-2.0.17/src/fallback.rs /Users/sma/.cargo/registry/src/index.crates.io-6f17d22bba15001f/thiserror-impl-2.0.17/src/fmt.rs /Users/sma/.cargo/registry/src/index.crates.io-6f17d22bba15001f/thiserror-impl-2.0.17/src/generics.rs /Users/sma/.cargo/registry/src/index.crates.io-6f17d22bba15001f/thiserror-impl-2.0.17/src/prop.rs /Users/sma/.cargo/registry/src/index.crates.io-6f17d22bba15001f/thiserror-impl-2.0.17/src/scan_expr.rs /Users/sma/.cargo/registry/src/index.crates.io-6f17d22bba15001f/thiserror-impl-2.0.17/src/unraw.rs /Users/sma/.cargo/registry/src/index.crates.io-6f17d22bba15001f/thiserror-impl-2.0.17/src/valid.rs
+
+/Users/sma/.cargo/registry/src/index.crates.io-6f17d22bba15001f/thiserror-impl-2.0.17/src/lib.rs:
+/Users/sma/.cargo/registry/src/index.crates.io-6f17d22bba15001f/thiserror-impl-2.0.17/src/ast.rs:
+/Users/sma/.cargo/registry/src/index.crates.io-6f17d22bba15001f/thiserror-impl-2.0.17/src/attr.rs:
+/Users/sma/.cargo/registry/src/index.crates.io-6f17d22bba15001f/thiserror-impl-2.0.17/src/expand.rs:
+/Users/sma/.cargo/registry/src/index.crates.io-6f17d22bba15001f/thiserror-impl-2.0.17/src/fallback.rs:
+/Users/sma/.cargo/registry/src/index.crates.io-6f17d22bba15001f/thiserror-impl-2.0.17/src/fmt.rs:
+/Users/sma/.cargo/registry/src/index.crates.io-6f17d22bba15001f/thiserror-impl-2.0.17/src/generics.rs:
+/Users/sma/.cargo/registry/src/index.crates.io-6f17d22bba15001f/thiserror-impl-2.0.17/src/prop.rs:
+/Users/sma/.cargo/registry/src/index.crates.io-6f17d22bba15001f/thiserror-impl-2.0.17/src/scan_expr.rs:
+/Users/sma/.cargo/registry/src/index.crates.io-6f17d22bba15001f/thiserror-impl-2.0.17/src/unraw.rs:
+/Users/sma/.cargo/registry/src/index.crates.io-6f17d22bba15001f/thiserror-impl-2.0.17/src/valid.rs:
+
+# env-dep:CARGO_PKG_VERSION_PATCH=17

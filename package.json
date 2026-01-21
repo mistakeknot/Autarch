@@ -1,0 +1,21 @@
+{
+  "name": "tandemonium",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Native macOS task orchestration platform with AI-powered task breakdown",
+  "scripts": {
+    "dev:tauri": "cd app && pnpm tauri dev",
+    "build:tauri": "cd app && pnpm tauri build",
+    "dev:frontend": "cd app && pnpm dev",
+    "test": "cd app && pnpm test",
+    "test:rust": "cd app/src-tauri && cargo test"
+  },
+  "keywords": [
+    "tauri",
+    "task-management",
+    "ai",
+    "worktrees"
+  ],
+  "author": "",
+  "license": "MIT"
+}

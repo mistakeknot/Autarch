@@ -1,0 +1,112 @@
+{{define "dashboard.html"}}
+{{template "layout" .}}
+{{end}}
+
+{{define "Title"}}Dashboard{{end}}
+
+{{define "content"}}
+<div class="space-y-6">
+    <!-- Header -->
+    <div class="flex items-center justify-between">
+        <h1 class="text-2xl font-bold">Mission Control</h1>
+        <span class="text-sm text-gray-400">
+            Updated: {{.State.UpdatedAt.Format "15:04:05"}}
+        </span>
+    </div>
+
+    <!-- Active Agents -->
+    <section class="bg-gray-800 rounded-lg p-4">
+        <h2 class="text-lg font-semibold mb-4 flex items-center">
+            <span class="w-2 h-2 bg-green-500 rounded-full mr-2 animate-pulse"></span>
+            Active Agents
+        </h2>
+        {{if .State.Agents}}
+        <div class="space-y-3">
+            {{range .State.Agents}}
+            <div class="flex items-center justify-between p-3 bg-gray-700 rounded">
+                <div class="flex items-center space-x-3">
+                    <span class="w-3 h-3 rounded-full {{if .SessionName}}bg-green-500{{else}}bg-yellow-500{{end}}"></span>
+                    <div>
+                        <span class="font-medium">{{.Name}}</span>
+                        <span class="text-gray-400 text-sm">({{.Program}})</span>
+                    </div>
+                </div>
+                <div class="text-right text-sm">
+                    <div class="text-gray-300">{{.ProjectPath | basename}}</div>
+                    {{if .TaskID}}<div class="text-gray-500">{{.TaskID}}</div>{{end}}
+                </div>
+            </div>
+            {{end}}
+        </div>
+        {{else}}
+        <p class="text-gray-500 text-center py-8">No active agents detected</p>
+        {{end}}
+    </section>
+
+    <!-- Projects -->
+    <section class="bg-gray-800 rounded-lg p-4">
+        <h2 class="text-lg font-semibold mb-4">Projects</h2>
+        {{if .State.Projects}}
+        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+            {{range .State.Projects}}
+            <a href="/projects?path={{.Path}}" class="block p-4 bg-gray-700 rounded hover:bg-gray-600 transition">
+                <div class="font-medium">{{.Name}}</div>
+                <div class="flex space-x-2 mt-2">
+                    {{if .HasPraude}}
+                    <span class="text-xs bg-blue-900 text-blue-300 px-2 py-1 rounded">praude</span>
+                    {{end}}
+                    {{if .HasTandemonium}}
+                    <span class="text-xs bg-purple-900 text-purple-300 px-2 py-1 rounded">tandemonium</span>
+                    {{end}}
+                    {{if .HasAgentMail}}
+                    <span class="text-xs bg-green-900 text-green-300 px-2 py-1 rounded">agent-mail</span>
+                    {{end}}
+                </div>
+            </a>
+            {{end}}
+        </div>
+        {{else}}
+        <p class="text-gray-500 text-center py-8">No projects found. Check scan roots in config.</p>
+        {{end}}
+    </section>
+
+    <!-- Recent Activity -->
+    <section class="bg-gray-800 rounded-lg p-4">
+        <h2 class="text-lg font-semibold mb-4">Recent Activity</h2>
+        {{if .State.Activities}}
+        <div class="space-y-2">
+            {{range .State.Activities}}
+            <div class="flex items-start space-x-3 text-sm p-2 hover:bg-gray-700 rounded">
+                <span class="text-gray-500 w-16 flex-shrink-0">{{.Time.Format "15:04"}}</span>
+                <span class="text-gray-300">{{.Summary}}</span>
+            </div>
+            {{end}}
+        </div>
+        {{else}}
+        <p class="text-gray-500 text-center py-8">No recent activity</p>
+        {{end}}
+    </section>
+
+    <!-- tmux Sessions -->
+    <section class="bg-gray-800 rounded-lg p-4">
+        <h2 class="text-lg font-semibold mb-4">tmux Sessions</h2>
+        {{if .State.Sessions}}
+        <div class="space-y-2">
+            {{range .State.Sessions}}
+            <div class="flex items-center justify-between p-3 bg-gray-700 rounded">
+                <div class="flex items-center space-x-3">
+                    <span class="w-2 h-2 rounded-full {{if .Attached}}bg-green-500{{else}}bg-gray-500{{end}}"></span>
+                    <span class="font-mono">{{.Name}}</span>
+                </div>
+                <div class="text-sm text-gray-400">
+                    {{.WindowCount}} windows
+                </div>
+            </div>
+            {{end}}
+        </div>
+        {{else}}
+        <p class="text-gray-500 text-center py-8">No tmux sessions found</p>
+        {{end}}
+    </section>
+</div>
+{{end}}

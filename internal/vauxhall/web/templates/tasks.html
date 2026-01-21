@@ -1,0 +1,129 @@
+{{define "tasks.html"}}
+{{template "layout" .}}
+{{end}}
+
+{{define "Title"}}Tasks - {{.Project.Name}}{{end}}
+
+{{define "content"}}
+<div class="space-y-6">
+    <div class="flex items-center justify-between">
+        <div>
+            <a href="/projects" class="text-gray-400 hover:text-white text-sm">← Projects</a>
+            <h1 class="text-2xl font-bold mt-1">{{.Project.Name}} Tasks</h1>
+            <p class="text-gray-400 text-sm font-mono">{{.Project.Path}}</p>
+        </div>
+        {{if .Project.TaskStats}}
+        <div class="text-right">
+            <div class="text-2xl font-bold">{{.Project.TaskStats.Done}}/{{.Project.TaskStats.Total}}</div>
+            <div class="text-sm text-gray-400">{{.Project.TaskStats.PercentDone}}% complete</div>
+        </div>
+        {{end}}
+    </div>
+
+    <div class="grid grid-cols-1 md:grid-cols-4 gap-4">
+        <!-- Todo Column -->
+        <div class="bg-gray-800 rounded-lg p-4">
+            <h3 class="font-semibold text-gray-300 mb-3 flex items-center">
+                <span class="w-3 h-3 rounded-full bg-gray-500 mr-2"></span>
+                Todo
+                <span class="ml-auto text-sm text-gray-500">{{len .TodoTasks}}</span>
+            </h3>
+            <div class="space-y-2">
+                {{range .TodoTasks}}
+                {{template "task_card" .}}
+                {{end}}
+                {{if not .TodoTasks}}
+                <p class="text-gray-500 text-sm text-center py-4">No tasks</p>
+                {{end}}
+            </div>
+        </div>
+
+        <!-- In Progress Column -->
+        <div class="bg-gray-800 rounded-lg p-4">
+            <h3 class="font-semibold text-yellow-400 mb-3 flex items-center">
+                <span class="w-3 h-3 rounded-full bg-yellow-500 mr-2"></span>
+                In Progress
+                <span class="ml-auto text-sm text-gray-500">{{len .InProgressTasks}}</span>
+            </h3>
+            <div class="space-y-2">
+                {{range .InProgressTasks}}
+                {{template "task_card" .}}
+                {{end}}
+                {{if not .InProgressTasks}}
+                <p class="text-gray-500 text-sm text-center py-4">No tasks</p>
+                {{end}}
+            </div>
+        </div>
+
+        <!-- Review Column -->
+        <div class="bg-gray-800 rounded-lg p-4">
+            <h3 class="font-semibold text-blue-400 mb-3 flex items-center">
+                <span class="w-3 h-3 rounded-full bg-blue-500 mr-2"></span>
+                Review
+                <span class="ml-auto text-sm text-gray-500">{{len .ReviewTasks}}</span>
+            </h3>
+            <div class="space-y-2">
+                {{range .ReviewTasks}}
+                {{template "task_card" .}}
+                {{end}}
+                {{if not .ReviewTasks}}
+                <p class="text-gray-500 text-sm text-center py-4">No tasks</p>
+                {{end}}
+            </div>
+        </div>
+
+        <!-- Done Column -->
+        <div class="bg-gray-800 rounded-lg p-4">
+            <h3 class="font-semibold text-green-400 mb-3 flex items-center">
+                <span class="w-3 h-3 rounded-full bg-green-500 mr-2"></span>
+                Done
+                <span class="ml-auto text-sm text-gray-500">{{len .DoneTasks}}</span>
+            </h3>
+            <div class="space-y-2 max-h-96 overflow-y-auto">
+                {{range .DoneTasks}}
+                {{template "task_card" .}}
+                {{end}}
+                {{if not .DoneTasks}}
+                <p class="text-gray-500 text-sm text-center py-4">No tasks</p>
+                {{end}}
+            </div>
+        </div>
+    </div>
+
+    {{if .BlockedTasks}}
+    <div class="bg-red-900/20 border border-red-800 rounded-lg p-4">
+        <h3 class="font-semibold text-red-400 mb-3 flex items-center">
+            <span class="w-3 h-3 rounded-full bg-red-500 mr-2"></span>
+            Blocked
+            <span class="ml-2 text-sm text-gray-500">{{len .BlockedTasks}}</span>
+        </h3>
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-2">
+            {{range .BlockedTasks}}
+            {{template "task_card" .}}
+            {{end}}
+        </div>
+    </div>
+    {{end}}
+</div>
+{{end}}
+
+{{define "task_card"}}
+<div class="bg-gray-900 rounded p-3 hover:bg-gray-850 transition-colors">
+    <div class="flex items-start justify-between">
+        <span class="text-xs text-gray-500 font-mono">{{.Slug}}</span>
+        {{if .AcceptanceCriteria}}
+        <span class="text-xs text-gray-500">
+            {{.CompletedCriteriaCount}}/{{len .AcceptanceCriteria}}
+        </span>
+        {{end}}
+    </div>
+    <h4 class="text-sm font-medium mt-1 line-clamp-2">{{.Title}}</h4>
+    {{if .DependsOn}}
+    <div class="mt-2 flex flex-wrap gap-1">
+        {{range .DependsOn}}
+        <span class="text-xs bg-gray-700 text-gray-400 px-1 rounded">→{{.}}</span>
+        {{end}}
+    </div>
+    {{end}}
+</div>
+{{end}}

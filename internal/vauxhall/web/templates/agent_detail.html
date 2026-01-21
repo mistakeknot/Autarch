@@ -1,0 +1,103 @@
+{{define "agent_detail.html"}}
+{{template "layout" .}}
+{{end}}
+
+{{define "Title"}}Agent: {{.Agent.Name}}{{end}}
+
+{{define "content"}}
+<div class="space-y-6">
+    <!-- Header -->
+    <div class="flex items-center justify-between">
+        <div class="flex items-center space-x-4">
+            <a href="/agents" class="text-gray-400 hover:text-white">&larr; Back</a>
+            <h1 class="text-2xl font-bold">{{.Agent.Name}}</h1>
+        </div>
+        {{if gt .Agent.UnreadCount 0}}
+        <span class="bg-red-500 text-white text-sm px-3 py-1 rounded-full">{{.Agent.UnreadCount}} unread</span>
+        {{end}}
+    </div>
+
+    <!-- Agent Info Card -->
+    <div class="bg-gray-800 rounded-lg p-6">
+        <h2 class="text-lg font-semibold mb-4">Agent Details</h2>
+        <dl class="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
+            <div>
+                <dt class="text-gray-400">Program</dt>
+                <dd class="font-mono text-blue-400 mt-1">{{.Agent.Program}}</dd>
+            </div>
+            <div>
+                <dt class="text-gray-400">Model</dt>
+                <dd class="font-mono text-purple-400 mt-1">{{.Agent.Model}}</dd>
+            </div>
+            <div>
+                <dt class="text-gray-400">Project</dt>
+                <dd class="font-mono text-green-400 mt-1">{{.Agent.ProjectPath | basename}}</dd>
+            </div>
+            <div>
+                <dt class="text-gray-400">Last Active</dt>
+                <dd class="text-gray-300 mt-1">{{.Agent.LastActive.Format "Jan 2, 2006 15:04"}}</dd>
+            </div>
+        </dl>
+    </div>
+
+    <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        <!-- Messages -->
+        <div class="bg-gray-800 rounded-lg p-6">
+            <h2 class="text-lg font-semibold mb-4">Recent Messages ({{.Agent.InboxCount}} total)</h2>
+            {{if .Messages}}
+            <div class="space-y-3">
+                {{range .Messages}}
+                <div class="bg-gray-700 rounded p-3">
+                    <div class="flex items-center justify-between mb-2">
+                        <span class="font-semibold text-blue-400">{{.SenderName}}</span>
+                        <span class="text-xs text-gray-400">{{.CreatedTS.Format "Jan 2, 15:04"}}</span>
+                    </div>
+                    <div class="text-sm font-medium mb-1">{{.Subject}}</div>
+                    {{if .Importance}}
+                    <span class="text-xs px-2 py-0.5 rounded
+                        {{if eq .Importance "urgent"}}bg-red-600
+                        {{else if eq .Importance "high"}}bg-orange-600
+                        {{else}}bg-gray-600{{end}}">
+                        {{.Importance}}
+                    </span>
+                    {{end}}
+                </div>
+                {{end}}
+            </div>
+            {{else}}
+            <p class="text-gray-500 text-center py-4">No messages</p>
+            {{end}}
+        </div>
+
+        <!-- File Reservations -->
+        <div class="bg-gray-800 rounded-lg p-6">
+            <h2 class="text-lg font-semibold mb-4">File Reservations</h2>
+            {{if .Reservations}}
+            <div class="space-y-3">
+                {{range .Reservations}}
+                <div class="bg-gray-700 rounded p-3">
+                    <div class="flex items-center justify-between mb-2">
+                        <span class="font-mono text-sm text-yellow-400">{{.PathPattern}}</span>
+                        {{if .IsActive}}
+                        <span class="text-xs px-2 py-0.5 rounded bg-green-600">Active</span>
+                        {{else}}
+                        <span class="text-xs px-2 py-0.5 rounded bg-gray-600">Expired</span>
+                        {{end}}
+                    </div>
+                    <div class="text-xs text-gray-400 flex justify-between">
+                        <span>{{if .Exclusive}}Exclusive{{else}}Shared{{end}}</span>
+                        <span>Expires: {{.ExpiresTS.Format "Jan 2, 15:04"}}</span>
+                    </div>
+                    {{if .Reason}}
+                    <div class="text-xs text-gray-500 mt-1">{{.Reason}}</div>
+                    {{end}}
+                </div>
+                {{end}}
+            </div>
+            {{else}}
+            <p class="text-gray-500 text-center py-4">No file reservations</p>
+            {{end}}
+        </div>
+    </div>
+</div>
+{{end}}

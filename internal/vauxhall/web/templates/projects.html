@@ -1,0 +1,107 @@
+{{define "projects.html"}}
+{{template "layout" .}}
+{{end}}
+
+{{define "Title"}}Projects{{end}}
+
+{{define "content"}}
+<div class="space-y-6">
+    <div class="flex items-center justify-between">
+        <h1 class="text-2xl font-bold">Projects</h1>
+        <button
+            hx-post="/api/refresh"
+            hx-target="body"
+            class="px-3 py-1 text-sm bg-gray-700 hover:bg-gray-600 rounded">
+            Refresh
+        </button>
+    </div>
+
+    {{if .Projects}}
+    <div class="grid grid-cols-1 gap-4">
+        {{range .Projects}}
+        <div class="bg-gray-800 rounded-lg p-6">
+            <div class="flex items-start justify-between">
+                <div>
+                    <h2 class="text-xl font-semibold">
+                        <a href="/projects/{{.Path}}" class="hover:text-blue-400">{{.Name}}</a>
+                    </h2>
+                    <p class="text-gray-400 text-sm font-mono mt-1">{{.Path}}</p>
+                </div>
+                <div class="flex space-x-2">
+                    {{if .HasPraude}}
+                    <span class="text-xs bg-blue-900 text-blue-300 px-2 py-1 rounded">praude</span>
+                    {{end}}
+                    {{if .HasTandemonium}}
+                    <span class="text-xs bg-purple-900 text-purple-300 px-2 py-1 rounded">tandemonium</span>
+                    {{end}}
+                    {{if .HasAgentMail}}
+                    <span class="text-xs bg-green-900 text-green-300 px-2 py-1 rounded">agent-mail</span>
+                    {{end}}
+                </div>
+            </div>
+
+            {{if .TaskStats}}
+            <div class="mt-4">
+                <div class="flex items-center justify-between text-sm text-gray-400 mb-2">
+                    <span>Task Progress</span>
+                    <span>{{.TaskStats.Done}}/{{.TaskStats.Total}} ({{.TaskStats.PercentDone}}%)</span>
+                </div>
+                <div class="w-full bg-gray-700 rounded-full h-2">
+                    <div class="bg-green-500 h-2 rounded-full" style="width: {{.TaskStats.PercentDone}}%"></div>
+                </div>
+            </div>
+
+            <div class="mt-4 grid grid-cols-5 gap-2 text-center text-xs">
+                <div class="bg-gray-700 rounded p-2">
+                    <div class="text-lg font-bold text-gray-300">{{.TaskStats.Todo}}</div>
+                    <div class="text-gray-500">Todo</div>
+                </div>
+                <div class="bg-yellow-900/30 rounded p-2">
+                    <div class="text-lg font-bold text-yellow-400">{{.TaskStats.InProgress}}</div>
+                    <div class="text-gray-500">In Progress</div>
+                </div>
+                <div class="bg-blue-900/30 rounded p-2">
+                    <div class="text-lg font-bold text-blue-400">{{.TaskStats.Review}}</div>
+                    <div class="text-gray-500">Review</div>
+                </div>
+                <div class="bg-green-900/30 rounded p-2">
+                    <div class="text-lg font-bold text-green-400">{{.TaskStats.Done}}</div>
+                    <div class="text-gray-500">Done</div>
+                </div>
+                <div class="bg-red-900/30 rounded p-2">
+                    <div class="text-lg font-bold text-red-400">{{.TaskStats.Blocked}}</div>
+                    <div class="text-gray-500">Blocked</div>
+                </div>
+            </div>
+
+            <div class="mt-4">
+                <a href="/projects/{{.Path}}/tasks" class="text-sm text-blue-400 hover:underline">
+                    View Task Board →
+                </a>
+            </div>
+            {{else}}
+            <div class="mt-4 grid grid-cols-3 gap-4 text-center">
+                <div class="bg-gray-700 rounded p-3">
+                    <div class="text-2xl font-bold">-</div>
+                    <div class="text-sm text-gray-400">PRDs</div>
+                </div>
+                <div class="bg-gray-700 rounded p-3">
+                    <div class="text-2xl font-bold">-</div>
+                    <div class="text-sm text-gray-400">Tasks</div>
+                </div>
+                <div class="bg-gray-700 rounded p-3">
+                    <div class="text-2xl font-bold">-</div>
+                    <div class="text-sm text-gray-400">Agents</div>
+                </div>
+            </div>
+            {{end}}
+        </div>
+        {{end}}
+    </div>
+    {{else}}
+    <div class="bg-gray-800 rounded-lg p-8 text-center">
+        <p class="text-gray-500">No projects found</p>
+    </div>
+    {{end}}
+</div>
+{{end}}

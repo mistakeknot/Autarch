@@ -1,0 +1,10 @@
+[package]
+name = "terminal-prototype"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+tokio = { version = "1.42", features = ["full"] }
+nix = { version = "0.29", features = ["signal", "process"] }
+anyhow = "1.0"
+futures = "0.3"

@@ -1,0 +1,9 @@
+[package]
+name = "pathlock-prototype"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+glob = "0.3"
+anyhow = "1.0"
+thiserror = "2.0"
