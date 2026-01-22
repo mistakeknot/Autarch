@@ -35,7 +35,6 @@ type Tab int
 
 const (
 	TabDashboard Tab = iota
-	TabProjects
 	TabSessions
 	TabAgents
 )
@@ -44,8 +43,6 @@ func (t Tab) String() string {
 	switch t {
 	case TabDashboard:
 		return "Dashboard"
-	case TabProjects:
-		return "Projects"
 	case TabSessions:
 		return "Sessions"
 	case TabAgents:
@@ -70,6 +67,48 @@ const (
 	promptRenameSession
 	promptForkSession
 )
+
+type FilterState struct {
+	Raw      string
+	Terms    []string
+	Statuses map[tmux.Status]bool
+}
+
+func parseFilter(input string) FilterState {
+	raw := strings.TrimSpace(input)
+	if raw == "" {
+		return FilterState{Raw: ""}
+	}
+	terms := []string{}
+	statuses := map[tmux.Status]bool{}
+	for _, token := range strings.Fields(strings.ToLower(raw)) {
+		if strings.HasPrefix(token, "!") {
+			switch strings.TrimPrefix(token, "!") {
+			case "running":
+				statuses[tmux.StatusRunning] = true
+				continue
+			case "waiting":
+				statuses[tmux.StatusWaiting] = true
+				continue
+			case "idle":
+				statuses[tmux.StatusIdle] = true
+				continue
+			case "error":
+				statuses[tmux.StatusError] = true
+				continue
+			default:
+				token = strings.TrimPrefix(token, "!")
+			}
+		}
+		if token != "" {
+			terms = append(terms, token)
+		}
+	}
+	if len(statuses) == 0 {
+		statuses = nil
+	}
+	return FilterState{Raw: raw, Terms: terms, Statuses: statuses}
+}
 
 // Model is the main TUI model
 type Model struct {
@@ -244,9 +283,8 @@ var keys = keyMap{
 	),
 	Number: []key.Binding{
 		key.NewBinding(key.WithKeys("1"), key.WithHelp("1", "dashboard")),
-		key.NewBinding(key.WithKeys("2"), key.WithHelp("2", "projects")),
-		key.NewBinding(key.WithKeys("3"), key.WithHelp("3", "sessions")),
-		key.NewBinding(key.WithKeys("4"), key.WithHelp("4", "agents")),
+		key.NewBinding(key.WithKeys("2"), key.WithHelp("2", "sessions")),
+		key.NewBinding(key.WithKeys("3"), key.WithHelp("3", "agents")),
 	},
 }
 
@@ -380,21 +418,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, tea.Quit
 
 		case key.Matches(msg, keys.Tab):
-			m.activeTab = Tab((int(m.activeTab) + 1) % 4)
-			if m.activeTab == TabProjects {
-				m.activePane = PaneProjects
-			} else {
-				m.activePane = PaneMain
-			}
+			m.activeTab = Tab((int(m.activeTab) + 1) % 3)
+			m.activePane = PaneMain
 			return m, nil
 
 		case key.Matches(msg, keys.ShiftTab):
-			m.activeTab = Tab((int(m.activeTab) + 3) % 4)
-			if m.activeTab == TabProjects {
-				m.activePane = PaneProjects
-			} else {
-				m.activePane = PaneMain
-			}
+			m.activeTab = Tab((int(m.activeTab) + 2) % 3)
+			m.activePane = PaneMain
 			return m, nil
 
 		case key.Matches(msg, keys.Refresh):
@@ -500,14 +530,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.activePane = PaneMain
 			return m, nil
 		case key.Matches(msg, keys.Number[1]):
-			m.activeTab = TabProjects
-			m.activePane = PaneProjects
-			return m, nil
-		case key.Matches(msg, keys.Number[2]):
 			m.activeTab = TabSessions
 			m.activePane = PaneMain
 			return m, nil
-		case key.Matches(msg, keys.Number[3]):
+		case key.Matches(msg, keys.Number[2]):
 			m.activeTab = TabAgents
 			m.activePane = PaneMain
 			return m, nil
@@ -695,8 +721,6 @@ func (m Model) View() string {
 	switch m.activeTab {
 	case TabDashboard:
 		content = m.renderDashboard()
-	case TabProjects:
-		content = LabelStyle.Render("Projects are pinned on the left.")
 	case TabSessions:
 		content = m.sessionList.View()
 	case TabAgents:
@@ -724,8 +748,8 @@ func (m Model) renderHeader() string {
 	}
 
 	// Render tabs
-	tabs := make([]string, 4)
-	for i := 0; i < 4; i++ {
+	tabs := make([]string, 3)
+	for i := 0; i < 3; i++ {
 		tab := Tab(i)
 		style := TabStyle
 		if tab == m.activeTab {
