@@ -432,6 +432,7 @@ func (m Model) interviewMarkdown() string {
 	b.WriteString("# Interview\n")
 	b.WriteString("**PM-focused agent:** Codex CLI / Claude Code\n\n")
 	b.WriteString(fmt.Sprintf("**Step %d/%d: %s**\n\n", stepNum, total, prompt.title))
+	b.WriteString("Hint: Enter iterate · [ / ] move steps\n\n")
 	b.WriteString("Question:\n")
 	b.WriteString(prompt.question)
 	b.WriteString("\n\n")

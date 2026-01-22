@@ -70,6 +70,18 @@ func TestInterviewMentionsPMFocusedAgent(t *testing.T) {
 	}
 }
 
+func TestInterviewShowsIterationHint(t *testing.T) {
+	m := NewModel()
+	m.mode = "interview"
+	m.interview = startInterview(m.root, specs.Spec{}, "")
+	m.interview.step = stepVision
+	m.input = ""
+	out := stripANSI(m.View())
+	if !strings.Contains(out, "Enter: iterate") {
+		t.Fatalf("expected iterate hint")
+	}
+}
+
 func TestInterviewShowsStepAndInputField(t *testing.T) {
 	root := t.TempDir()
 	if err := os.MkdirAll(filepath.Join(root, ".praude", "specs"), 0o755); err != nil {

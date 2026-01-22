@@ -9,6 +9,7 @@ import (
 
 	"github.com/mistakeknot/vauxpraudemonium/internal/praude/project"
 	"github.com/mistakeknot/vauxpraudemonium/internal/praude/specs"
+	"gopkg.in/yaml.v3"
 )
 
 func writeInterviewBrief(root, id string, step interviewStep, answer, draft string, spec specs.Spec) (string, error) {
@@ -45,13 +46,27 @@ Summary: %s
 Requirements: %v
 
 Instructions:
-- Return ONLY the updated draft text for this step.
+- Return YAML only, in this format:
+  draft: |
+    <updated draft text>
 - No extra commentary or markdown.
 `, prompt.title, prompt.question, strings.TrimSpace(answer), strings.TrimSpace(draft), spec.Title, spec.Summary, spec.Requirements)
 }
 
 func parseAgentDraft(output []byte) string {
-	return strings.TrimSpace(string(output))
+	trimmed := strings.TrimSpace(string(output))
+	if trimmed == "" {
+		return ""
+	}
+	var payload struct {
+		Draft string `yaml:"draft"`
+	}
+	if err := yaml.Unmarshal(output, &payload); err == nil {
+		if strings.TrimSpace(payload.Draft) != "" {
+			return strings.TrimSpace(payload.Draft)
+		}
+	}
+	return trimmed
 }
 
 func interviewStepName(step interviewStep) string {
