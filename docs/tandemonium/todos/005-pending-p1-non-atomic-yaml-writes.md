@@ -1,5 +1,5 @@
 ---
-status: pending
+status: done
 priority: p1
 issue_id: "005"
 tags: [data-integrity, code-review]
@@ -82,18 +82,23 @@ Implement Option 1 (atomic writes) AND Option 2 (file locking) for complete prot
 - **Components:** Specs, potentially all file writes
 - **Database changes:** None
 
+## Resolution
+
+Added shared atomic write + advisory lock helper and updated specs writes to use it.
+
 ## Acceptance Criteria
 
-- [ ] Atomic write utility function created
-- [ ] All spec file writes use atomic pattern
-- [ ] Test verifies partial writes don't corrupt files
-- [ ] Test verifies concurrent writes are handled safely
+- [x] Atomic write utility function created
+- [x] All spec file writes use atomic pattern
+- [x] Test verifies partial writes don't corrupt files
+- [x] Test verifies concurrent writes are handled safely
 
 ## Work Log
 
 | Date | Action | Learnings |
 |------|--------|-----------|
 | 2026-01-12 | Finding identified during data integrity review | Rust prototype has the right pattern - port it |
+| 2026-01-22 | Implemented atomic writes + advisory locking with tests | Prevents corrupted YAML under crash/concurrency |
 
 ## Resources
 

@@ -5,6 +5,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	fileutil "github.com/mistakeknot/vauxpraudemonium/internal/file"
 )
 
 func TestUpdateUserStory(t *testing.T) {
@@ -94,13 +96,19 @@ func TestWriteFileAtomic(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "out.yaml")
 	data := []byte("id: T1\n")
-	if err := writeFileAtomic(path, data); err != nil {
+	if err := fileutil.AtomicWriteFile(path, data, 0o644); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	if _, err := os.Stat(path); err != nil {
 		t.Fatalf("expected output file")
 	}
-	if _, err := os.Stat(path + ".tmp"); err == nil {
-		t.Fatalf("expected temp file removed")
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, entry := range entries {
+		if strings.HasPrefix(entry.Name(), ".tmp-") {
+			t.Fatalf("expected temp file removed")
+		}
 	}
 }

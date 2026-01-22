@@ -7,6 +7,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	fileutil "github.com/mistakeknot/vauxpraudemonium/internal/file"
 )
 
 func CreateQuickSpec(dir, raw string, now time.Time) (string, error) {
@@ -20,7 +22,7 @@ func CreateQuickSpec(dir, raw string, now time.Time) (string, error) {
 	payload += "summary: |\n"
 	payload += "  " + strings.TrimSpace(raw) + "\n\n"
 	payload += "  (Quick task - no PM refinement performed)\n"
-	return path, os.WriteFile(path, []byte(payload), 0o644)
+	return path, fileutil.AtomicWriteFile(path, []byte(payload), 0o644)
 }
 
 func firstLine(raw string) string {

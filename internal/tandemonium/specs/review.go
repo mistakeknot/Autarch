@@ -2,8 +2,8 @@ package specs
 
 import (
 	"os"
-	"path/filepath"
 
+	fileutil "github.com/mistakeknot/vauxpraudemonium/internal/file"
 	"gopkg.in/yaml.v3"
 )
 
@@ -25,7 +25,7 @@ func UpdateUserStory(path, text string) error {
 	if err != nil {
 		return err
 	}
-	return writeFileAtomic(path, out)
+	return fileutil.AtomicWriteFile(path, out, 0o644)
 }
 
 func AppendReviewFeedback(path, text string) error {
@@ -49,7 +49,7 @@ func AppendReviewFeedback(path, text string) error {
 	if err != nil {
 		return err
 	}
-	return writeFileAtomic(path, out)
+	return fileutil.AtomicWriteFile(path, out, 0o644)
 }
 
 func AppendMVPExplanation(path, text string) error {
@@ -73,7 +73,7 @@ func AppendMVPExplanation(path, text string) error {
 	if err != nil {
 		return err
 	}
-	return writeFileAtomic(path, out)
+	return fileutil.AtomicWriteFile(path, out, 0o644)
 }
 
 func AcknowledgeMVPOverride(path string) error {
@@ -90,34 +90,5 @@ func AcknowledgeMVPOverride(path string) error {
 	if err != nil {
 		return err
 	}
-	return writeFileAtomic(path, out)
-}
-
-func writeFileAtomic(path string, data []byte) error {
-	dir := filepath.Dir(path)
-	tmpPath := path + ".tmp"
-	file, err := os.OpenFile(tmpPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o644)
-	if err != nil {
-		return err
-	}
-	if _, err := file.Write(data); err != nil {
-		_ = file.Close()
-		return err
-	}
-	if err := file.Sync(); err != nil {
-		_ = file.Close()
-		return err
-	}
-	if err := file.Close(); err != nil {
-		return err
-	}
-	if err := os.Rename(tmpPath, path); err != nil {
-		return err
-	}
-	dirHandle, err := os.Open(dir)
-	if err != nil {
-		return err
-	}
-	defer dirHandle.Close()
-	return dirHandle.Sync()
+	return fileutil.AtomicWriteFile(path, out, 0o644)
 }
