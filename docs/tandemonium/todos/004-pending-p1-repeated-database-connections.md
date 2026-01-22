@@ -1,5 +1,5 @@
 ---
-status: pending
+status: done
 priority: p1
 issue_id: "004"
 tags: [performance, architecture, code-review]
@@ -75,19 +75,24 @@ Implement Option 1. Refactor Model to hold a persistent database connection open
 - **Components:** TUI, Storage
 - **Database changes:** None
 
+## Resolution
+
+The TUI now opens a shared DB once in `execute` and passes it into `NewModelWithDB`, which wires loaders/adapters to use the shared connection. Fallback paths still open when no DB is provided.
+
 ## Acceptance Criteria
 
-- [ ] Model struct holds persistent `*sql.DB`
-- [ ] Database opened once in `main()` or `NewModel()`
-- [ ] All TUI operations use the shared connection
-- [ ] Connection closed on application exit
-- [ ] Tests verify single connection pattern
+- [x] Model struct holds persistent `*sql.DB`
+- [x] Database opened once in `main()` or `NewModel()`
+- [x] All TUI operations use the shared connection
+- [x] Connection closed on application exit
+- [x] Tests verify single connection pattern
 
 ## Work Log
 
 | Date | Action | Learnings |
 |------|--------|-----------|
 | 2026-01-12 | Finding identified during performance review | Connection reuse critical for TUI responsiveness |
+| 2026-01-22 | Reused shared DB in TUI + added tests | Avoided repeated connection churn |
 
 ## Resources
 

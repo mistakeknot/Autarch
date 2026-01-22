@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"database/sql"
 	"os"
 	"path/filepath"
 	"strings"
@@ -24,6 +25,18 @@ func LoadTaskDetail(taskID string) (TaskDetail, error) {
 	if err != nil {
 		return TaskDetail{}, err
 	}
+	db, err := storage.OpenShared(project.StateDBPath(root))
+	if err != nil {
+		db = nil
+	}
+	return LoadTaskDetailWithDB(db, taskID)
+}
+
+func LoadTaskDetailWithDB(db *sql.DB, taskID string) (TaskDetail, error) {
+	root, err := project.FindRoot(".")
+	if err != nil {
+		return TaskDetail{}, err
+	}
 	detail := TaskDetail{ID: taskID}
 	if specPath, err := project.TaskSpecPath(root, taskID); err == nil {
 		if spec, err := specs.LoadDetail(specPath); err == nil {
@@ -35,8 +48,7 @@ func LoadTaskDetail(taskID string) (TaskDetail, error) {
 			}
 		}
 	}
-	db, err := storage.OpenShared(project.StateDBPath(root))
-	if err == nil {
+	if db != nil {
 		_ = storage.Migrate(db)
 		if task, err := storage.GetTask(db, taskID); err == nil {
 			if detail.Title == "" {

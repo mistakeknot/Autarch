@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"database/sql"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -20,6 +21,7 @@ import (
 
 type Model struct {
 	Title                string
+	DB                   *sql.DB
 	CurrentPRD           string
 	RepoPath             string
 	StatusBadges         []string
@@ -163,6 +165,26 @@ func NewModel() Model {
 		Now:                  time.Now,
 		FilterMode:           "all",
 	}
+}
+
+func NewModelWithDB(db *sql.DB) Model {
+	m := NewModel()
+	m.DB = db
+	if db == nil {
+		return m
+	}
+	m.ReviewLoader = func() ([]string, error) { return LoadReviewQueue(db) }
+	m.TaskLoader = func() ([]TaskItem, error) { return LoadTasks(db) }
+	m.TaskDetailLoader = func(id string) (TaskDetail, error) { return LoadTaskDetailWithDB(db, id) }
+	m.ReviewDetailLoader = func(taskID string) (ReviewDetail, error) { return LoadReviewDetailWithDB(db, taskID) }
+	m.CoordInboxLoader = func(recipient string, limit int, urgentOnly bool) ([]storage.MessageDelivery, error) {
+		return LoadCoordInbox(db, recipient, limit, urgentOnly)
+	}
+	m.CoordLocksLoader = func(limit int) ([]storage.Reservation, error) {
+		return LoadCoordLocks(db, limit)
+	}
+	m.Approver = &ApproveAdapter{DB: db, Runner: &git.ExecRunner{}}
+	return m
 }
 
 func (m Model) Init() tea.Cmd {
@@ -755,26 +777,29 @@ func (m *Model) handleQuickTaskSubmit() {
 		return
 	}
 	creator := m.QuickTaskCreator
-	if creator == nil {
-		creator = func(input string) (string, error) {
-			root, err := project.FindRoot(".")
-			if err != nil {
-				return "", err
-			}
-			path, err := specs.CreateQuickSpec(project.SpecsDir(root), input, time.Now())
-			if err != nil {
-				return "", err
-			}
-			id := strings.TrimSuffix(filepath.Base(path), filepath.Ext(path))
-			db, err := storage.OpenShared(project.StateDBPath(root))
-			if err != nil {
-				return "", err
-			}
-			if err := storage.Migrate(db); err != nil {
-				return "", err
-			}
-			if err := storage.InsertTask(db, storage.Task{ID: id, Title: firstLine(input), Status: "assigned"}); err != nil {
-				return "", err
+		if creator == nil {
+			creator = func(input string) (string, error) {
+				root, err := project.FindRoot(".")
+				if err != nil {
+					return "", err
+				}
+				path, err := specs.CreateQuickSpec(project.SpecsDir(root), input, time.Now())
+				if err != nil {
+					return "", err
+				}
+				id := strings.TrimSuffix(filepath.Base(path), filepath.Ext(path))
+				db := m.DB
+				if db == nil {
+					db, err = storage.OpenShared(project.StateDBPath(root))
+					if err != nil {
+						return "", err
+					}
+				}
+				if err := storage.Migrate(db); err != nil {
+					return "", err
+				}
+				if err := storage.InsertTask(db, storage.Task{ID: id, Title: firstLine(input), Status: "assigned"}); err != nil {
+					return "", err
 			}
 			return id, nil
 		}
@@ -1153,20 +1178,23 @@ func (m *Model) handleReviewSubmit() {
 		}
 		if m.ReviewPendingReject {
 			rejecter := m.ReviewRejecter
-			if rejecter == nil {
-				rejecter = func(id string) error {
-					root, err := project.FindRoot(".")
-					if err != nil {
-						return err
+				if rejecter == nil {
+					rejecter = func(id string) error {
+						root, err := project.FindRoot(".")
+						if err != nil {
+							return err
+						}
+						db := m.DB
+						if db == nil {
+							db, err = storage.OpenShared(project.StateDBPath(root))
+							if err != nil {
+								return err
+							}
+						}
+						return storage.RejectTask(db, id)
 					}
-					db, err := storage.OpenShared(project.StateDBPath(root))
-					if err != nil {
-						return err
-					}
-					return storage.RejectTask(db, id)
+					m.ReviewRejecter = rejecter
 				}
-				m.ReviewRejecter = rejecter
-			}
 			if err := rejecter(taskID); err != nil {
 				m.SetStatusError(err.Error())
 				return
@@ -1502,9 +1530,12 @@ func (m *Model) handleTaskStart() {
 			if err := tmux.StartSession(&tmux.ExecRunner{}, session); err != nil {
 				return err
 			}
-			db, err := storage.OpenShared(project.StateDBPath(root))
-			if err != nil {
-				return err
+			db := m.DB
+			if db == nil {
+				db, err = storage.OpenShared(project.StateDBPath(root))
+				if err != nil {
+					return err
+				}
 			}
 			if err := storage.Migrate(db); err != nil {
 				return err
@@ -1543,9 +1574,12 @@ func (m *Model) handleTaskStop() {
 			if err != nil {
 				return err
 			}
-			db, err := storage.OpenShared(project.StateDBPath(root))
-			if err != nil {
-				return err
+			db := m.DB
+			if db == nil {
+				db, err = storage.OpenShared(project.StateDBPath(root))
+				if err != nil {
+					return err
+				}
 			}
 			if err := storage.Migrate(db); err != nil {
 				return err

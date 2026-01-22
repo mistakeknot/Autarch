@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"database/sql"
 	"errors"
 	"os"
 	"path/filepath"
@@ -31,6 +32,18 @@ type ReviewDetail struct {
 }
 
 func LoadReviewDetail(taskID string) (ReviewDetail, error) {
+	root, err := project.FindRoot(".")
+	if err != nil {
+		return ReviewDetail{}, err
+	}
+	db, err := storage.OpenShared(project.StateDBPath(root))
+	if err != nil {
+		db = nil
+	}
+	return LoadReviewDetailWithDB(db, taskID)
+}
+
+func LoadReviewDetailWithDB(db *sql.DB, taskID string) (ReviewDetail, error) {
 	root, err := project.FindRoot(".")
 	if err != nil {
 		return ReviewDetail{}, err
@@ -69,8 +82,7 @@ func LoadReviewDetail(taskID string) (ReviewDetail, error) {
 		})
 	}
 	testsSummary := "Tests: unknown"
-	db, err := storage.OpenShared(project.StateDBPath(root))
-	if err == nil {
+	if db != nil {
 		if session, err := storage.FindSessionByTask(db, taskID); err == nil {
 			logPath := filepath.Join(project.SessionsDir(root), session.ID+".log")
 			if raw, err := os.ReadFile(logPath); err == nil {
