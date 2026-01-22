@@ -1,6 +1,10 @@
 package tui
 
-import "strings"
+import (
+	"strings"
+
+	sharedtui "github.com/mistakeknot/vauxpraudemonium/pkg/tui"
+)
 
 const (
 	layoutBreakpointSingle  = 50
@@ -103,6 +107,8 @@ func renderDualColumnLayout(leftTitle, leftContent, rightTitle, rightContent str
 
 	leftPanel := renderPanelTitle(leftTitle, leftWidth) + "\n" + ensureExactHeight(leftContent, panelContentHeight)
 	rightPanel := renderPanelTitle(rightTitle, rightWidth) + "\n" + ensureExactHeight(rightContent, panelContentHeight)
+	leftPanel = stylePanel(leftPanel, leftWidth, height)
+	rightPanel = stylePanel(rightPanel, rightWidth, height)
 
 	leftPanel = ensureExactHeight(leftPanel, height)
 	rightPanel = ensureExactHeight(rightPanel, height)
@@ -132,8 +138,9 @@ func renderStackedLayout(listTitle, listContent, detailTitle, detailContent stri
 	}
 	listPanel := renderPanelTitle(listTitle, width) + "\n" + ensureExactHeight(listContent, listHeight-2)
 	previewPanel := renderPanelTitle(detailTitle, width) + "\n" + ensureExactHeight(detailContent, previewHeight-2)
-	separator := strings.Repeat("─", max(0, width))
-	return listPanel + "\n" + separator + "\n" + previewPanel
+	listPanel = stylePanel(listPanel, width, listHeight)
+	previewPanel = stylePanel(previewPanel, width, previewHeight)
+	return listPanel + "\n" + previewPanel
 }
 
 func renderSingleColumnLayout(listTitle, listContent string, width, height int) string {
@@ -141,7 +148,7 @@ func renderSingleColumnLayout(listTitle, listContent string, width, height int) 
 		return ""
 	}
 	listPanel := renderPanelTitle(listTitle, width) + "\n" + ensureExactHeight(listContent, height-2)
-	return listPanel
+	return stylePanel(listPanel, width, height)
 }
 
 func joinHorizontal(left, separator, right string, height int) string {
@@ -177,4 +184,15 @@ func joinHorizontal(left, separator, right string, height int) string {
 		}
 	}
 	return b.String()
+}
+
+func stylePanel(content string, width, height int) string {
+	style := sharedtui.PanelStyle.Copy()
+	if width > 0 {
+		style = style.Width(width)
+	}
+	if height > 0 {
+		style = style.Height(height)
+	}
+	return style.Render(content)
 }
