@@ -64,3 +64,21 @@ func RejectTask(db *sql.DB, id string) error {
 	}
 	return tx.Commit()
 }
+
+func ApplyDetectionAtomic(db *sql.DB, taskID, sessionID, state string) error {
+	tx, err := db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	if _, err := tx.Exec(`UPDATE sessions SET state = ? WHERE id = ?`, state, sessionID); err != nil {
+		return err
+	}
+	if state == "done" || state == "blocked" {
+		if _, err := tx.Exec(`UPDATE tasks SET status = ? WHERE id = ?`, state, taskID); err != nil {
+			return err
+		}
+	}
+	return tx.Commit()
+}

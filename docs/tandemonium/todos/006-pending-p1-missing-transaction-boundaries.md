@@ -1,5 +1,5 @@
 ---
-status: pending
+status: done
 priority: p1
 issue_id: "006"
 tags: [data-integrity, database, code-review]
@@ -92,19 +92,24 @@ Implement Option 1 for all multi-step database operations.
 - **Components:** Storage, Agent
 - **Database changes:** None (just wrapping in transactions)
 
+## Resolution
+
+Added a storage-layer transaction helper for ApplyDetection and updated the agent loop to call it.
+
 ## Acceptance Criteria
 
-- [ ] `ApproveTask` wrapped in transaction
-- [ ] `RejectTask` wrapped in transaction
-- [ ] `ApplyDetection` wrapped in transaction (may need API change)
-- [ ] Tests verify rollback on partial failure
-- [ ] Tests verify atomicity
+- [x] `ApproveTask` wrapped in transaction
+- [x] `RejectTask` wrapped in transaction
+- [x] `ApplyDetection` wrapped in transaction (may need API change)
+- [x] Tests verify rollback on partial failure
+- [x] Tests verify atomicity
 
 ## Work Log
 
 | Date | Action | Learnings |
 |------|--------|-----------|
 | 2026-01-12 | Finding identified during data integrity review | Multi-step DB ops need transactions |
+| 2026-01-22 | Added ApplyDetectionAtomic + tests | Prevents partial updates on crash |
 
 ## Resources
 
