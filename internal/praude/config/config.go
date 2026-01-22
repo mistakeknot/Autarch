@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 
 	"github.com/BurntSushi/toml"
+	"github.com/mistakeknot/vauxpraudemonium/pkg/agenttargets"
 )
 
 type Config struct {
@@ -50,5 +51,32 @@ func LoadFromRoot(root string) (Config, error) {
 	if err := toml.Unmarshal(raw, &cfg); err != nil {
 		return Config{}, err
 	}
+	if merged, err := loadSharedAgents(root); err == nil && len(merged) > 0 {
+		cfg.Agents = merged
+	}
 	return cfg, nil
+}
+
+func loadSharedAgents(projectRoot string) (map[string]AgentProfile, error) {
+	configDir, err := os.UserConfigDir()
+	if err != nil {
+		return nil, nil
+	}
+	globalPath := filepath.Join(configDir, "vauxpraudemonium", "agents.toml")
+	globalReg, projectReg, err := agenttargets.Load(globalPath, projectRoot)
+	if err != nil {
+		return nil, err
+	}
+	merged := agenttargets.Merge(globalReg, projectReg)
+	if len(merged.Targets) == 0 {
+		return nil, nil
+	}
+	out := make(map[string]AgentProfile, len(merged.Targets))
+	for name, target := range merged.Targets {
+		if target.Command == "" {
+			continue
+		}
+		out[name] = AgentProfile{Command: target.Command, Args: target.Args}
+	}
+	return out, nil
 }
