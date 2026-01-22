@@ -48,6 +48,9 @@ func NewRoot() *cobra.Command {
 		commands.SuggestCmd(),
 		commands.SuggestionsCmd(),
 		commands.ValidateCmd(),
+		commands.ArchiveCmd(),
+		commands.DeleteCmd(),
+		commands.UndoCmd(),
 	)
 	return root
 }
