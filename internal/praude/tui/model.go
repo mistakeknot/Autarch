@@ -31,6 +31,7 @@ type Model struct {
 	overlay        string
 	focus          string
 	search         SearchState
+	searchOverlay  *SearchOverlay
 	interview      interviewState
 	suggestions    suggestionsState
 	input          string
@@ -43,10 +44,15 @@ func NewModel() Model {
 		return Model{err: err.Error(), mode: "list"}
 	}
 	if _, err := os.Stat(project.RootDir(cwd)); err != nil {
-		return Model{err: "Not initialized", root: cwd, mode: "list", router: Router{active: "list"}, width: 120, mdCache: NewMarkdownCache(), focus: "LIST"}
+		model := Model{err: "Not initialized", root: cwd, mode: "list", router: Router{active: "list"}, width: 120, mdCache: NewMarkdownCache(), focus: "LIST"}
+		model.searchOverlay = NewSearchOverlay()
+		return model
 	}
 	list, _ := specs.LoadSummaries(project.SpecsDir(cwd))
-	return Model{summaries: list, root: cwd, mode: "list", router: Router{active: "list"}, width: 120, mdCache: NewMarkdownCache(), focus: "LIST"}
+	model := Model{summaries: list, root: cwd, mode: "list", router: Router{active: "list"}, width: 120, mdCache: NewMarkdownCache(), focus: "LIST"}
+	model.searchOverlay = NewSearchOverlay()
+	model.searchOverlay.SetItems(list)
+	return model
 }
 
 func (m Model) Init() tea.Cmd { return nil }
@@ -79,6 +85,19 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 			}
 			return m, nil
+		}
+		if m.searchOverlay != nil && m.searchOverlay.Visible() {
+			var cmd tea.Cmd
+			m.searchOverlay, cmd = m.searchOverlay.Update(msg)
+			if !m.searchOverlay.Visible() && key == "enter" {
+				if sel := m.searchOverlay.Selected(); sel != nil {
+					m.search.Query = ""
+					if idx := indexOfSummaryID(m.summaries, sel.ID); idx >= 0 {
+						m.selected = idx
+					}
+				}
+			}
+			return m, cmd
 		}
 		if m.search.Active {
 			done, canceled := updateSearch(&m.search, key)
@@ -125,8 +144,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "q", "ctrl+c":
 			return m, tea.Quit
 		case "/":
-			m.search.Active = true
-			m.search.Query = ""
+			if m.searchOverlay != nil {
+				m.searchOverlay.SetItems(m.summaries)
+				m.searchOverlay.Show()
+			} else {
+				m.search.Active = true
+				m.search.Query = ""
+			}
 		case "tab":
 			if m.focus == "LIST" {
 				m.focus = "DETAIL"
@@ -280,6 +304,9 @@ func (m *Model) reloadSummaries() {
 	}
 	list, _ := specs.LoadSummaries(project.SpecsDir(m.root))
 	m.summaries = list
+	if m.searchOverlay != nil {
+		m.searchOverlay.SetItems(list)
+	}
 	if m.selected >= len(m.summaries) {
 		m.selected = 0
 	}
@@ -401,6 +428,15 @@ func formatCUJDetail(spec specs.Spec) string {
 		label += " (" + cuj.Priority + ")"
 	}
 	return "CUJ: " + label
+}
+
+func indexOfSummaryID(summaries []specs.Summary, id string) int {
+	for i, summary := range summaries {
+		if summary.ID == id {
+			return i
+		}
+	}
+	return -1
 }
 
 func formatResearchDetail(spec specs.Spec) string {
