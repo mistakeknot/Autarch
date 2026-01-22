@@ -139,6 +139,38 @@ func filterSessionItems(items []list.Item, state FilterState) []list.Item {
 	return filtered
 }
 
+func filterAgentItems(items []list.Item, state FilterState, statusByAgent map[string]tmux.Status) []list.Item {
+	if state.Raw == "" {
+		return items
+	}
+	filtered := make([]list.Item, 0, len(items))
+	for _, item := range items {
+		agentItem, ok := item.(AgentItem)
+		if !ok {
+			filtered = append(filtered, item)
+			continue
+		}
+		if len(state.Statuses) > 0 {
+			status, ok := statusByAgent[agentItem.Agent.Name]
+			if !ok || !state.Statuses[status] {
+				continue
+			}
+		}
+		haystack := strings.ToLower(agentItem.Title() + " " + agentItem.Description())
+		matches := true
+		for _, term := range state.Terms {
+			if !strings.Contains(haystack, term) {
+				matches = false
+				break
+			}
+		}
+		if matches {
+			filtered = append(filtered, item)
+		}
+	}
+	return filtered
+}
+
 // Model is the main TUI model
 type Model struct {
 	agg         aggregatorAPI

@@ -35,3 +35,23 @@ func TestSessionFilterAppliesStatusAndText(t *testing.T) {
 		t.Fatalf("unexpected session: %s", got.Session.Name)
 	}
 }
+
+func TestAgentFilterUsesLinkedSessionStatus(t *testing.T) {
+	items := []list.Item{
+		AgentItem{Agent: aggregator.Agent{Name: "Copper"}},
+		AgentItem{Agent: aggregator.Agent{Name: "Rose"}},
+	}
+	statusByAgent := map[string]tmux.Status{
+		"Copper": tmux.StatusWaiting,
+		"Rose":   tmux.StatusRunning,
+	}
+	state := parseFilter("!waiting")
+	filtered := filterAgentItems(items, state, statusByAgent)
+	if len(filtered) != 1 {
+		t.Fatalf("expected 1 item, got %d", len(filtered))
+	}
+	got := filtered[0].(AgentItem)
+	if got.Agent.Name != "Copper" {
+		t.Fatalf("unexpected agent: %s", got.Agent.Name)
+	}
+}
