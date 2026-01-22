@@ -24,17 +24,6 @@ func layoutMode(width int) string {
 	}
 }
 
-func renderHeader(title, focus string) string {
-	return "PRAUDE | " + title + " | [" + focus + "]"
-}
-
-func renderFooter(keys, status string) string {
-	if strings.TrimSpace(status) == "" {
-		status = "ready"
-	}
-	return "KEYS: " + keys + " | " + status
-}
-
 func renderFrame(header, body, footer string) string {
 	return strings.Join([]string{header, body, footer}, "\n")
 }
@@ -44,11 +33,6 @@ func renderSplitView(width int, left, right []string) string {
 		return strings.Join(left, "\n")
 	}
 	return joinColumns(left, right, 42)
-}
-
-func renderPanelTitle(title string, width int) string {
-	line := strings.Repeat("─", max(0, width))
-	return title + "\n" + line
 }
 
 func ensureExactHeight(content string, n int) string {
