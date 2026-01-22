@@ -51,7 +51,21 @@ func NewModel() Model {
 		model := Model{err: "Not initialized", root: cwd, mode: "list", router: Router{active: "list"}, width: 120, height: 40, mdCache: NewMarkdownCache(), focus: "LIST"}
 		model.searchOverlay = NewSearchOverlay()
 		model.groupExpanded = defaultExpanded()
-		model.rebuildGroups()
+		if state, err := LoadUIState(project.StatePath(cwd)); err == nil {
+			if state.Expanded != nil {
+				model.groupExpanded = state.Expanded
+			}
+			model.rebuildGroups()
+			if state.SelectedID != "" {
+				model.selected = selectedIndexFromID(model.flatItems, state.SelectedID)
+				model.viewOffset = clampViewOffset(model.selected, model.viewOffset, model.listContentHeight(), len(model.flatItems))
+			}
+		} else {
+			if !os.IsNotExist(err) {
+				model.status = "state load failed"
+			}
+			model.rebuildGroups()
+		}
 		return model
 	}
 	list, _ := specs.LoadSummaries(project.SpecsDir(cwd))
@@ -59,7 +73,21 @@ func NewModel() Model {
 	model.searchOverlay = NewSearchOverlay()
 	model.searchOverlay.SetItems(list)
 	model.groupExpanded = defaultExpanded()
-	model.rebuildGroups()
+	if state, err := LoadUIState(project.StatePath(cwd)); err == nil {
+		if state.Expanded != nil {
+			model.groupExpanded = state.Expanded
+		}
+		model.rebuildGroups()
+		if state.SelectedID != "" {
+			model.selected = selectedIndexFromID(model.flatItems, state.SelectedID)
+			model.viewOffset = clampViewOffset(model.selected, model.viewOffset, model.listContentHeight(), len(model.flatItems))
+		}
+	} else {
+		if !os.IsNotExist(err) {
+			model.status = "state load failed"
+		}
+		model.rebuildGroups()
+	}
 	return model
 }
 
@@ -103,6 +131,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					if idx := indexOfSummaryID(m.summaries, sel.ID); idx >= 0 {
 						m.selected = idx
 					}
+					m.persistUIState()
 				}
 			}
 			return m, cmd
@@ -205,6 +234,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		}
 		m.viewOffset = clampViewOffset(m.selected, m.viewOffset, m.listContentHeight(), len(m.flatItems))
+		m.persistUIState()
 	case tea.WindowSizeMsg:
 		if msg.Width > 0 {
 			m.width = msg.Width
@@ -327,11 +357,19 @@ func (m *Model) reloadSummaries() {
 		return
 	}
 	list, _ := specs.LoadSummaries(project.SpecsDir(m.root))
+	selectedID := ""
+	if sel := m.selectedSummary(); sel != nil {
+		selectedID = sel.ID
+	}
 	m.summaries = list
 	if m.searchOverlay != nil {
 		m.searchOverlay.SetItems(list)
 	}
 	m.rebuildGroups()
+	if selectedID != "" {
+		m.selected = selectedIndexFromID(m.flatItems, selectedID)
+		m.viewOffset = clampViewOffset(m.selected, m.viewOffset, m.listContentHeight(), len(m.flatItems))
+	}
 }
 
 func (m *Model) rebuildGroups() {
@@ -394,6 +432,7 @@ func (m *Model) toggleSelectedGroup() {
 	}
 	m.groupExpanded[item.Group.Name] = !item.Group.Expanded
 	m.rebuildGroups()
+	m.persistUIState()
 }
 
 func (m Model) listContentHeight() int {
@@ -550,6 +589,29 @@ func defaultExpanded() map[string]bool {
 	return expanded
 }
 
+func (m *Model) persistUIState() {
+	if m.root == "" || m.groupExpanded == nil {
+		return
+	}
+	selectedID := ""
+	if sel := m.selectedSummary(); sel != nil {
+		selectedID = sel.ID
+	}
+	state := UIState{Expanded: m.groupExpanded, SelectedID: selectedID}
+	if err := SaveUIState(project.StatePath(m.root), state); err != nil {
+		m.status = "state save failed: " + err.Error()
+	}
+}
+
+func selectedIndexFromID(items []Item, id string) int {
+	for i, item := range items {
+		if item.Type == ItemTypePRD && item.Summary != nil && item.Summary.ID == id {
+			return i
+		}
+	}
+	return 0
+}
+
 func clampViewOffset(cursor, viewOffset, height, total int) int {
 	if total <= 0 {
 		return 0
@@ -661,7 +723,7 @@ func visibleWidth(s string) int {
 }
 
 func defaultKeys() string {
-	return "j/k move  / search  tab focus  g interview  r research  p suggestions  s review  ? help  q quit"
+	return "j/k move  enter toggle  / search  tab focus  g interview  r research  p suggestions  s review  ? help  q quit"
 }
 
 func padBodyToHeight(body string, height int) string {

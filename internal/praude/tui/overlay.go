@@ -5,7 +5,7 @@ import "strings"
 func renderHelpOverlay() string {
 	lines := []string{
 		"Help",
-		"j/k: move  /: search",
+		"j/k: move  enter: toggle group  /: search",
 		"g: interview  r: research  p: suggestions  s: review",
 		"?: help  `: tutorial  q: quit",
 		"Esc: close",
