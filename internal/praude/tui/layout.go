@@ -131,7 +131,7 @@ func renderDualColumnLayout(leftTitle, leftContent, rightTitle, rightContent str
 	}
 	separator := strings.Join(separatorLines, "\n")
 
-	return leftPanel + separator + rightPanel
+	return joinHorizontal(leftPanel, separator, rightPanel, height)
 }
 
 func renderStackedLayout(listTitle, listContent, detailTitle, detailContent string, width, height int) string {
@@ -158,4 +158,39 @@ func renderSingleColumnLayout(listTitle, listContent string, width, height int) 
 	}
 	listPanel := renderPanelTitle(listTitle, width) + "\n" + ensureExactHeight(listContent, height-2)
 	return listPanel
+}
+
+func joinHorizontal(left, separator, right string, height int) string {
+	if height <= 0 {
+		return ""
+	}
+	leftLines := strings.Split(left, "\n")
+	rightLines := strings.Split(right, "\n")
+	sepLines := strings.Split(separator, "\n")
+	maxLines := height
+	if len(leftLines) < maxLines {
+		for len(leftLines) < maxLines {
+			leftLines = append(leftLines, "")
+		}
+	}
+	if len(rightLines) < maxLines {
+		for len(rightLines) < maxLines {
+			rightLines = append(rightLines, "")
+		}
+	}
+	if len(sepLines) < maxLines {
+		for len(sepLines) < maxLines {
+			sepLines = append(sepLines, " │ ")
+		}
+	}
+	var b strings.Builder
+	for i := 0; i < maxLines; i++ {
+		b.WriteString(leftLines[i])
+		b.WriteString(sepLines[i])
+		b.WriteString(rightLines[i])
+		if i < maxLines-1 {
+			b.WriteString("\n")
+		}
+	}
+	return b.String()
 }
