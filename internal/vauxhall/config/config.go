@@ -12,6 +12,8 @@ type Config struct {
 	Server    ServerConfig    `toml:"server"`
 	Discovery DiscoveryConfig `toml:"discovery"`
 	Tmux      TmuxConfig      `toml:"tmux"`
+	Agents    map[string]AgentCommand `toml:"agents"`
+	MCP       MCPConfig       `toml:"mcp"`
 }
 
 type ServerConfig struct {
@@ -27,6 +29,22 @@ type DiscoveryConfig struct {
 
 type TmuxConfig struct {
 	SocketPath string `toml:"socket_path"`
+}
+
+type AgentCommand struct {
+	Command string   `toml:"command"`
+	Args    []string `toml:"args"`
+}
+
+type MCPComponentConfig struct {
+	Command string   `toml:"command"`
+	Args    []string `toml:"args"`
+	Workdir string   `toml:"workdir"`
+}
+
+type MCPConfig struct {
+	Server MCPComponentConfig `toml:"server"`
+	Client MCPComponentConfig `toml:"client"`
 }
 
 func Load(path string) (*Config, error) {
