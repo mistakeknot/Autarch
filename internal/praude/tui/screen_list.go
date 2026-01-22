@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
+	sharedtui "github.com/mistakeknot/vauxpraudemonium/pkg/tui"
 )
 
 type ListScreen struct{}
@@ -80,8 +81,10 @@ func renderGroupList(items []Item, cursor, viewOffset, height int) string {
 }
 
 func renderGroupListItem(item Item, selected bool) string {
+	rowStyle := sharedtui.UnselectedStyle
 	prefix := " "
 	if selected {
+		rowStyle = sharedtui.SelectedStyle
 		prefix = "▶"
 	}
 	if item.Type == ItemTypeGroup && item.Group != nil {
@@ -89,16 +92,19 @@ func renderGroupListItem(item Item, selected bool) string {
 		if item.Group.Expanded {
 			expand = "▾"
 		}
-		name := strings.ToUpper(item.Group.Name)
-		count := len(item.Group.Items)
-		return fmt.Sprintf("%s %s %s (%d)", prefix, expand, name, count)
+		name := sharedtui.TitleStyle.Render(strings.ToUpper(item.Group.Name))
+		count := sharedtui.LabelStyle.Render(fmt.Sprintf("(%d)", len(item.Group.Items)))
+		line := fmt.Sprintf("%s %s %s %s", prefix, sharedtui.LabelStyle.Render(expand), name, count)
+		return rowStyle.Render(line)
 	}
 	if item.Summary == nil {
-		return prefix + " ..."
+		return rowStyle.Render(prefix + " ...")
 	}
 	connector := "├─"
 	if item.IsLastInGroup {
 		connector = "└─"
 	}
-	return fmt.Sprintf("%s %s %s %s", prefix, connector, item.Summary.ID, item.Summary.Title)
+	id := sharedtui.LabelStyle.Render(item.Summary.ID)
+	line := fmt.Sprintf("%s %s %s %s", prefix, sharedtui.LabelStyle.Render(connector), id, item.Summary.Title)
+	return rowStyle.Render(line)
 }
