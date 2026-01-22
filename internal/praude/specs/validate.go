@@ -40,6 +40,9 @@ func Validate(raw []byte, opts ValidationOptions) (ValidationResult, error) {
 	if doc.ID == "" || doc.Title == "" || doc.Summary == "" {
 		res.Errors = append(res.Errors, "missing required fields")
 	}
+	if doc.Status != "" && !validStatus(doc.Status) {
+		res.Warnings = append(res.Warnings, "invalid status: "+doc.Status)
+	}
 	reqIDs := requirementIDs(doc.Requirements)
 	validateCUJs(&res, doc.CriticalUserJourneys, reqIDs, opts.Mode)
 	validateMarketResearch(&res, doc.MarketResearch, opts)
@@ -143,6 +146,15 @@ func addModeIssue(res *ValidationResult, mode ValidationMode, msg string) {
 func validCUJPriority(priority string) bool {
 	switch strings.ToLower(priority) {
 	case "critical", "high", "med", "low":
+		return true
+	default:
+		return false
+	}
+}
+
+func validStatus(status string) bool {
+	switch strings.ToLower(strings.TrimSpace(status)) {
+	case "interview", "draft", "research", "suggestions", "validated", "archived":
 		return true
 	default:
 		return false

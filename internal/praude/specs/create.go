@@ -16,6 +16,7 @@ func CreateTemplate(dir string, now time.Time) (string, error) {
 	doc := fmt.Sprintf(`id: "%s"
 title: "Example PRD Title"
 created_at: "%s"
+status: "draft"
 strategic_context:
   cuj_id: "CUJ-1"
   cuj_name: "Example Journey"

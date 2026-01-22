@@ -17,6 +17,17 @@ func TestValidateMissingTitle(t *testing.T) {
 	}
 }
 
+func TestValidateStatus(t *testing.T) {
+	raw := []byte("id: \"PRD-001\"\ntitle: \"A\"\nsummary: \"S\"\nstatus: \"bogus\"\n")
+	res, err := Validate(raw, ValidationOptions{Mode: ValidationSoft})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !containsWarning(res.Warnings, "invalid status: bogus") {
+		t.Fatalf("expected status warning")
+	}
+}
+
 func TestValidateHardErrorsOnMissingLinkedRequirement(t *testing.T) {
 	root := t.TempDir()
 	raw := baseSpecYAML()
@@ -238,4 +249,13 @@ summary: "Summary"
 requirements:
   - "REQ-001: Requirement one"
 `)
+}
+
+func containsWarning(warnings []string, needle string) bool {
+	for _, warning := range warnings {
+		if warning == needle {
+			return true
+		}
+	}
+	return false
 }
