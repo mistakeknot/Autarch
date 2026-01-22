@@ -61,3 +61,9 @@ func TestFocusSwitching(t *testing.T) {
 		t.Fatalf("expected projects pane")
 	}
 }
+
+func TestRightPaneTabs(t *testing.T) {
+	if TabAgents != 2 {
+		t.Fatalf("expected tabs: Dashboard, Sessions, Agents (TabAgents=2)")
+	}
+}

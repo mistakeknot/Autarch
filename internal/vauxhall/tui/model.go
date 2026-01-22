@@ -36,7 +36,6 @@ type Tab int
 const (
 	TabDashboard Tab = iota
 	TabSessions
-	TabProjects
 	TabAgents
 )
 
@@ -46,8 +45,6 @@ func (t Tab) String() string {
 		return "Dashboard"
 	case TabSessions:
 		return "Sessions"
-	case TabProjects:
-		return "Projects"
 	case TabAgents:
 		return "Agents"
 	default:
@@ -244,8 +241,7 @@ var keys = keyMap{
 	Number: []key.Binding{
 		key.NewBinding(key.WithKeys("1"), key.WithHelp("1", "dashboard")),
 		key.NewBinding(key.WithKeys("2"), key.WithHelp("2", "sessions")),
-		key.NewBinding(key.WithKeys("3"), key.WithHelp("3", "projects")),
-		key.NewBinding(key.WithKeys("4"), key.WithHelp("4", "agents")),
+		key.NewBinding(key.WithKeys("3"), key.WithHelp("3", "agents")),
 	},
 }
 
@@ -378,11 +374,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, tea.Quit
 
 		case key.Matches(msg, keys.Tab):
-			m.activeTab = Tab((int(m.activeTab) + 1) % 4)
+			m.activeTab = Tab((int(m.activeTab) + 1) % 3)
 			return m, nil
 
 		case key.Matches(msg, keys.ShiftTab):
-			m.activeTab = Tab((int(m.activeTab) + 3) % 4)
+			m.activeTab = Tab((int(m.activeTab) + 2) % 3)
 			return m, nil
 
 		case key.Matches(msg, keys.Refresh):
@@ -458,7 +454,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 
 		case key.Matches(msg, keys.ToggleMCP):
-			if m.activeTab == TabProjects {
+			if m.activeTab == TabDashboard {
 				m.showMCP = !m.showMCP
 				if m.showMCP {
 					if project, ok := m.selectedProject(); ok {
@@ -471,7 +467,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 
 		case key.Matches(msg, keys.Toggle):
-			if m.activeTab == TabProjects && m.showMCP {
+			if m.activeTab == TabDashboard && m.showMCP {
 				if item, ok := m.mcpList.SelectedItem().(MCPItem); ok {
 					if item.Status.Status == mcp.StatusRunning {
 						m.err = m.agg.StopMCP(m.mcpProject, item.Status.Component)
@@ -490,9 +486,6 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.activeTab = TabSessions
 			return m, nil
 		case key.Matches(msg, keys.Number[2]):
-			m.activeTab = TabProjects
-			return m, nil
-		case key.Matches(msg, keys.Number[3]):
 			m.activeTab = TabAgents
 			return m, nil
 		}
@@ -540,12 +533,6 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		switch m.activeTab {
 		case TabSessions:
 			m.sessionList, cmd = m.sessionList.Update(msg)
-		case TabProjects:
-			if m.showMCP {
-				m.mcpList, cmd = m.mcpList.Update(msg)
-			} else {
-				m.projectsList, cmd = m.projectsList.Update(msg)
-			}
 		case TabAgents:
 			m.agentList, cmd = m.agentList.Update(msg)
 		}
@@ -686,20 +673,6 @@ func (m Model) View() string {
 		content = m.renderDashboard()
 	case TabSessions:
 		content = m.sessionList.View()
-	case TabProjects:
-		if m.showMCP {
-			projectTitle := SubtitleStyle.Render("Projects")
-			mcpTitle := SubtitleStyle.Render("MCP")
-			content = lipgloss.JoinVertical(lipgloss.Left,
-				projectTitle,
-				m.projectsList.View(),
-				"",
-				mcpTitle,
-				m.mcpList.View(),
-			)
-		} else {
-			content = m.projectsList.View()
-		}
 	case TabAgents:
 		content = m.agentList.View()
 	}
@@ -719,8 +692,8 @@ func (m Model) renderHeader() string {
 	title := TitleStyle.Render("⚡ Vauxhall")
 
 	// Render tabs
-	tabs := make([]string, 4)
-	for i := 0; i < 4; i++ {
+	tabs := make([]string, 3)
+	for i := 0; i < 3; i++ {
 		tab := Tab(i)
 		style := TabStyle
 		if tab == m.activeTab {

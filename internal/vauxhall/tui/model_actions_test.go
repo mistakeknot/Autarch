@@ -75,7 +75,7 @@ func TestMCPPanelToggle(t *testing.T) {
 		},
 	}}
 	m := New(agg)
-	m.activeTab = TabProjects
+	m.activeTab = TabDashboard
 	m.projectsList.SetItems([]list.Item{ProjectItem{Path: "/root/projects/demo", Name: "demo"}})
 
 	mm, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'m'}})
