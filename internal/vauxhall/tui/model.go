@@ -687,9 +687,13 @@ func (m Model) renderFooter() string {
 		lastUpdate = LabelStyle.Render(fmt.Sprintf("Updated %s ago", time.Since(m.lastRefresh).Round(time.Second)))
 	}
 
+	padding := m.width - lipgloss.Width(help) - lipgloss.Width(lastUpdate) - 4
+	if padding < 1 {
+		padding = 1
+	}
 	return lipgloss.JoinHorizontal(lipgloss.Center,
 		help,
-		strings.Repeat(" ", m.width-lipgloss.Width(help)-lipgloss.Width(lastUpdate)-4),
+		strings.Repeat(" ", padding),
 		lastUpdate,
 	)
 }
