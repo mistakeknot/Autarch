@@ -37,6 +37,46 @@ func StatePath(root string) string {
 	return filepath.Join(RootDir(root), "state.json")
 }
 
+func ArchivedDir(root string) string {
+	return filepath.Join(RootDir(root), "archived")
+}
+
+func ArchivedSpecsDir(root string) string {
+	return filepath.Join(ArchivedDir(root), "specs")
+}
+
+func ArchivedResearchDir(root string) string {
+	return filepath.Join(ArchivedDir(root), "research")
+}
+
+func ArchivedSuggestionsDir(root string) string {
+	return filepath.Join(ArchivedDir(root), "suggestions")
+}
+
+func ArchivedBriefsDir(root string) string {
+	return filepath.Join(ArchivedDir(root), "briefs")
+}
+
+func TrashDir(root string) string {
+	return filepath.Join(RootDir(root), "trash")
+}
+
+func TrashSpecsDir(root string) string {
+	return filepath.Join(TrashDir(root), "specs")
+}
+
+func TrashResearchDir(root string) string {
+	return filepath.Join(TrashDir(root), "research")
+}
+
+func TrashSuggestionsDir(root string) string {
+	return filepath.Join(TrashDir(root), "suggestions")
+}
+
+func TrashBriefsDir(root string) string {
+	return filepath.Join(TrashDir(root), "briefs")
+}
+
 func Init(root string) error {
 	dirs := []string{
 		RootDir(root),

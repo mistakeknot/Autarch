@@ -6,8 +6,17 @@ import (
 )
 
 type UIState struct {
-	Expanded   map[string]bool `json:"expanded"`
-	SelectedID string          `json:"selected_id"`
+	Expanded     map[string]bool `json:"expanded"`
+	SelectedID   string          `json:"selected_id"`
+	ShowArchived bool            `json:"show_archived"`
+	LastAction   *LastAction     `json:"last_action"`
+}
+
+type LastAction struct {
+	Type string   `json:"type"`
+	ID   string   `json:"id"`
+	From []string `json:"from"`
+	To   []string `json:"to"`
 }
 
 func LoadUIState(path string) (UIState, error) {
