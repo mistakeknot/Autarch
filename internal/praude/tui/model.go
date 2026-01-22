@@ -45,7 +45,7 @@ type Model struct {
 	lastAction        *LastAction
 	interview         interviewState
 	suggestions       suggestionsState
-	input             string
+	input             TextBuffer
 	interviewFocus    string
 }
 
@@ -174,7 +174,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			case "q", "ctrl+c":
 				return m, tea.Quit
 			default:
-				m.handleInterviewInput(key)
+				m.handleInterviewInput(msg)
 			}
 			return m, nil
 		}
@@ -629,7 +629,7 @@ func (m *Model) enterInterview(spec specs.Spec, path string) {
 	m.mode = "interview"
 	m.interview = startInterview(m.root, spec, path)
 	m.interviewFocus = "question"
-	m.input = m.interview.answerForStep(m.interview.step)
+	m.input.SetText(m.interview.answerForStep(m.interview.step))
 }
 
 func formatCompleteness(spec specs.Spec) string {

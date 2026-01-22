@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	tea "github.com/charmbracelet/bubbletea"
 	"github.com/mistakeknot/vauxpraudemonium/internal/praude/agents"
 	"github.com/mistakeknot/vauxpraudemonium/internal/praude/config"
 	"github.com/mistakeknot/vauxpraudemonium/internal/praude/project"
@@ -77,7 +78,8 @@ func (s interviewState) answerForStep(step interviewStep) string {
 	return s.answers[step]
 }
 
-func (m *Model) handleInterviewInput(key string) {
+func (m *Model) handleInterviewInput(msg tea.KeyMsg) {
+	key := msg.String()
 	if key == "tab" {
 		m.toggleInterviewFocus()
 		return
@@ -109,13 +111,13 @@ func (m *Model) handleInterviewInput(key string) {
 			m.exitInterview()
 		})
 	case stepVision:
-		m.handleTextStep(key, stepVision)
+		m.handleTextStep(msg, stepVision)
 	case stepUsers:
-		m.handleTextStep(key, stepUsers)
+		m.handleTextStep(msg, stepUsers)
 	case stepProblem:
-		m.handleTextStep(key, stepProblem)
+		m.handleTextStep(msg, stepProblem)
 	case stepRequirements:
-		m.handleTextStep(key, stepRequirements)
+		m.handleTextStep(msg, stepRequirements)
 	case stepResearchPrompt:
 		m.handleOptionStep(key, func() {
 			m.finishInterview(true)
@@ -133,17 +135,61 @@ func (m *Model) toggleInterviewFocus() {
 	m.interviewFocus = "steps"
 }
 
-func (m *Model) handleTextStep(key string, step interviewStep) {
+func (m *Model) handleTextStep(msg tea.KeyMsg, step interviewStep) {
+	key := msg.String()
+	if msg.Alt && msg.Type == tea.KeyRunes && len(msg.Runes) == 1 {
+		switch msg.Runes[0] {
+		case 'b':
+			m.input.MoveWordLeft()
+			m.storeInterviewAnswer(step)
+			return
+		case 'f':
+			m.input.MoveWordRight()
+			m.storeInterviewAnswer(step)
+			return
+		}
+	}
 	switch key {
 	case "enter":
 		m.storeInterviewAnswer(step)
 		m.iterateInterviewStep(step)
+		return
 	case "backspace":
-		if len(m.input) > 0 {
-			m.input = m.input[:len(m.input)-1]
+		if msg.Alt {
+			m.input.DeleteWordLeft()
+		} else {
+			m.input.Backspace()
 		}
+	case "left":
+		if msg.Alt {
+			m.input.MoveWordLeft()
+		} else {
+			m.input.MoveLeft()
+		}
+	case "right":
+		if msg.Alt {
+			m.input.MoveWordRight()
+		} else {
+			m.input.MoveRight()
+		}
+	case "up":
+		m.input.MoveUp()
+	case "down":
+		m.input.MoveDown()
+	case "alt+left":
+		m.input.MoveWordLeft()
+	case "alt+right":
+		m.input.MoveWordRight()
+	case "alt+backspace":
+		m.input.DeleteWordLeft()
+	case "ctrl+j":
+		m.input.InsertRune('\n')
 	default:
-		m.input += key
+		if msg.Type == tea.KeyRunes {
+			for _, r := range msg.Runes {
+				m.input.InsertRune(r)
+			}
+		}
 	}
 	m.storeInterviewAnswer(step)
 }
@@ -187,16 +233,16 @@ func (m *Model) storeInterviewAnswer(step interviewStep) {
 	if m.interview.answers == nil {
 		m.interview.answers = map[interviewStep]string{}
 	}
-	m.interview.answers[step] = m.input
+	m.interview.answers[step] = m.input.Text()
 }
 
 func (m *Model) loadInterviewInput() {
 	prompt, _, _ := interviewStepInfo(m.interview.step)
 	if !prompt.expectsText {
-		m.input = ""
+		m.input.SetText("")
 		return
 	}
-	m.input = m.interview.answerForStep(m.interview.step)
+	m.input.SetText(m.interview.answerForStep(m.interview.step))
 }
 
 func (m *Model) prevInterviewStep() {
@@ -410,7 +456,7 @@ func (m *Model) autoApplySuggestions() {
 
 func (m *Model) exitInterview() {
 	m.mode = "list"
-	m.input = ""
+	m.input.SetText("")
 	m.interview = interviewState{}
 }
 
@@ -469,10 +515,13 @@ func (m Model) interviewMarkdown() string {
 			b.WriteString(draft)
 			b.WriteString("\n```\n\n")
 		}
+		b.WriteString("Input:\n")
 		b.WriteString("```\n")
-		b.WriteString("> ")
-		b.WriteString(m.input)
-		b.WriteString("\n```\n")
+		for _, line := range m.input.Render(4) {
+			b.WriteString(line)
+			b.WriteString("\n")
+		}
+		b.WriteString("```\n")
 		b.WriteString("Enter: iterate  [ / ]: prev/next\n")
 	} else {
 		b.WriteString("```\n")

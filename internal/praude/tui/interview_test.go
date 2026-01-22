@@ -75,10 +75,24 @@ func TestInterviewShowsIterationHint(t *testing.T) {
 	m.mode = "interview"
 	m.interview = startInterview(m.root, specs.Spec{}, "")
 	m.interview.step = stepVision
-	m.input = ""
+	m.input.SetText("")
 	out := stripANSI(m.View())
 	if !strings.Contains(out, "Enter: iterate") {
 		t.Fatalf("expected iterate hint")
+	}
+}
+
+func TestInterviewInputArrowLeftMovesCursor(t *testing.T) {
+	m := NewModel()
+	m.mode = "interview"
+	m.interview = startInterview(m.root, specs.Spec{}, "")
+	m.interview.step = stepVision
+	m.interviewFocus = "question"
+	m.input.SetText("hello")
+	m = pressKey(m, "left")
+	m = typeText(m, "X")
+	if got := m.input.Text(); got != "hellXo" {
+		t.Fatalf("expected cursor insert, got %q", got)
 	}
 }
 
@@ -107,7 +121,7 @@ func TestInterviewShowsStepAndInputField(t *testing.T) {
 	if !strings.Contains(clean, "Step 3/7") {
 		t.Fatalf("expected step indicator")
 	}
-	if !strings.Contains(clean, ">") {
+	if !strings.Contains(clean, "Input:") {
 		t.Fatalf("expected input field indicator")
 	}
 }
@@ -239,6 +253,27 @@ func pressKey(m Model, key string) Model {
 	}
 	if key == "esc" {
 		msg = tea.KeyMsg{Type: tea.KeyEsc}
+	}
+	if key == "left" {
+		msg = tea.KeyMsg{Type: tea.KeyLeft}
+	}
+	if key == "right" {
+		msg = tea.KeyMsg{Type: tea.KeyRight}
+	}
+	if key == "up" {
+		msg = tea.KeyMsg{Type: tea.KeyUp}
+	}
+	if key == "down" {
+		msg = tea.KeyMsg{Type: tea.KeyDown}
+	}
+	if key == "alt+left" {
+		msg = tea.KeyMsg{Type: tea.KeyLeft, Alt: true}
+	}
+	if key == "alt+right" {
+		msg = tea.KeyMsg{Type: tea.KeyRight, Alt: true}
+	}
+	if key == "alt+backspace" {
+		msg = tea.KeyMsg{Type: tea.KeyBackspace, Alt: true}
 	}
 	updated, _ := m.Update(msg)
 	return updated.(Model)
