@@ -77,6 +77,7 @@ Vauxpraudemonium/
 │       ├── tmux/           # tmux integration
 │       └── tui/            # Bubble Tea TUI
 ├── pkg/
+│   ├── agenttargets/       # Shared run-target registry/resolver
 │   └── tui/                # Shared TUI styles (Tokyo Night)
 │       ├── colors.go       # Color palette
 │       ├── styles.go       # Base styles
@@ -124,6 +125,23 @@ go test ./internal/vauxhall/tmux -v
 ```
 
 ### Configuration
+
+**Shared agent targets** (global + per-project overrides):
+
+- Global: `~/.config/vauxpraudemonium/agents.toml`
+- Project: `.praude/agents.toml`
+- Compat: `.praude/config.toml` `[agents]` (used if `.praude/agents.toml` missing)
+
+Example:
+```toml
+[targets.codex]
+command = "codex"
+args = []
+
+[targets.claude]
+command = "claude"
+args = []
+```
 
 **Vauxhall** (`~/.config/vauxhall/config.toml`):
 ```toml
