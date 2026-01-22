@@ -494,20 +494,21 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.width = msg.Width
 		m.height = msg.Height
 		h := m.height - 6 // Account for header and footer
-		w := m.width - 4
-		m.sessionList.SetSize(w, h)
-		if m.showMCP {
-			half := h / 2
-			if half < 4 {
-				half = h
-			}
-			m.projectsList.SetSize(w, half)
-			m.mcpList.SetSize(w, h-half)
+		leftW, rightW, _ := m.paneWidths()
+		if leftW > 0 {
+			m.projectsList.SetSize(leftW, h)
 		} else {
-			m.projectsList.SetSize(w, h)
-			m.mcpList.SetSize(w, h/2)
+			m.projectsList.SetSize(m.width, h)
 		}
-		m.agentList.SetSize(w, h)
+		if rightW > 0 {
+			m.sessionList.SetSize(rightW, h)
+			m.agentList.SetSize(rightW, h)
+			m.mcpList.SetSize(rightW, h/2)
+		} else {
+			m.sessionList.SetSize(m.width, h)
+			m.agentList.SetSize(m.width, h)
+			m.mcpList.SetSize(m.width, h/2)
+		}
 		return m, nil
 
 	case refreshMsg:
@@ -676,13 +677,16 @@ func (m Model) View() string {
 	case TabAgents:
 		content = m.agentList.View()
 	}
+	if m.activeTab == TabDashboard && m.showMCP {
+		content = lipgloss.JoinVertical(lipgloss.Left, content, "", m.mcpList.View())
+	}
 
 	// Build footer
 	footer := m.renderFooter()
 
 	return lipgloss.JoinVertical(lipgloss.Left,
 		header,
-		content,
+		m.renderTwoPane(m.projectsList.View(), content),
 		m.renderPrompt(),
 		footer,
 	)
@@ -736,6 +740,38 @@ func (m Model) renderFooter() string {
 		strings.Repeat(" ", padding),
 		lastUpdate,
 	)
+}
+
+func (m Model) paneWidths() (int, int, bool) {
+	width := m.width
+	if width <= 0 {
+		return 0, 0, true
+	}
+	minLeft := 20
+	minRight := 30
+	gap := 2
+	if width < minLeft+minRight+gap {
+		return 0, width, true
+	}
+	left := width / 3
+	if left < minLeft {
+		left = minLeft
+	}
+	if width-left < minRight+gap {
+		left = width - minRight - gap
+	}
+	right := width - left - gap
+	return left, right, false
+}
+
+func (m Model) renderTwoPane(left, right string) string {
+	leftW, rightW, single := m.paneWidths()
+	if single {
+		return right
+	}
+	leftView := lipgloss.NewStyle().Width(leftW).Render(left)
+	rightView := lipgloss.NewStyle().Width(rightW).Render(right)
+	return lipgloss.JoinHorizontal(lipgloss.Top, leftView, "  ", rightView)
 }
 
 func (m Model) renderPrompt() string {

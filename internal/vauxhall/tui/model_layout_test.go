@@ -67,3 +67,15 @@ func TestRightPaneTabs(t *testing.T) {
 		t.Fatalf("expected tabs: Dashboard, Sessions, Agents (TabAgents=2)")
 	}
 }
+
+func TestTwoPaneLayoutClamp(t *testing.T) {
+	m := New(&fakeAggLayout{})
+	m.width = 40
+	m.height = 10
+	defer func() {
+		if r := recover(); r != nil {
+			t.Fatalf("renderTwoPane panicked: %v", r)
+		}
+	}()
+	_ = m.renderTwoPane("left", "right")
+}
