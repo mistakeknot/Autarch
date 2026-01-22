@@ -16,6 +16,7 @@ import (
 	"github.com/mistakeknot/vauxpraudemonium/internal/praude/scan"
 	"github.com/mistakeknot/vauxpraudemonium/internal/praude/specs"
 	"github.com/mistakeknot/vauxpraudemonium/internal/praude/suggestions"
+	sharedtui "github.com/mistakeknot/vauxpraudemonium/pkg/tui"
 	"gopkg.in/yaml.v3"
 )
 
@@ -154,6 +155,10 @@ func (m *Model) handleTextStep(msg tea.KeyMsg, step interviewStep) {
 		m.storeInterviewAnswer(step)
 		m.iterateInterviewStep(step)
 		return
+	case " ":
+		m.input.InsertRune(' ')
+	case "space":
+		m.input.InsertRune(' ')
 	case "backspace":
 		if msg.Alt {
 			m.input.DeleteWordLeft()
@@ -516,12 +521,10 @@ func (m Model) interviewMarkdown() string {
 			b.WriteString("\n```\n\n")
 		}
 		b.WriteString("Input:\n")
-		b.WriteString("```\n")
-		for _, line := range m.input.Render(4) {
-			b.WriteString(line)
-			b.WriteString("\n")
-		}
-		b.WriteString("```\n")
+		inputLines := m.input.Render(4)
+		inputBlock := strings.Join(inputLines, "\n")
+		b.WriteString(sharedtui.PanelStyle.Render(inputBlock))
+		b.WriteString("\n")
 		b.WriteString("Enter: iterate  [ / ]: prev/next\n")
 	} else {
 		b.WriteString("```\n")

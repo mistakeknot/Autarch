@@ -96,6 +96,20 @@ func TestInterviewInputArrowLeftMovesCursor(t *testing.T) {
 	}
 }
 
+func TestInterviewInputSpaceInserts(t *testing.T) {
+	m := NewModel()
+	m.mode = "interview"
+	m.interview = startInterview(m.root, specs.Spec{}, "")
+	m.interview.step = stepVision
+	m.interviewFocus = "question"
+	m.input.SetText("hi")
+	m = pressKey(m, "left")
+	m = pressKey(m, "space")
+	if got := m.input.Text(); got != "h i" {
+		t.Fatalf("expected space insert, got %q", got)
+	}
+}
+
 func TestInterviewShowsStepAndInputField(t *testing.T) {
 	root := t.TempDir()
 	if err := os.MkdirAll(filepath.Join(root, ".praude", "specs"), 0o755); err != nil {
@@ -274,6 +288,9 @@ func pressKey(m Model, key string) Model {
 	}
 	if key == "alt+backspace" {
 		msg = tea.KeyMsg{Type: tea.KeyBackspace, Alt: true}
+	}
+	if key == "space" {
+		msg = tea.KeyMsg{Type: tea.KeySpace}
 	}
 	updated, _ := m.Update(msg)
 	return updated.(Model)
