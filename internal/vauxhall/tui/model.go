@@ -831,6 +831,7 @@ func (m Model) View() string {
 
 	// Build header
 	header := m.renderHeader()
+	filterLine := m.renderFilterLine()
 
 	// Build content based on active tab
 	var content string
@@ -849,12 +850,16 @@ func (m Model) View() string {
 	// Build footer
 	footer := m.renderFooter()
 
-	return lipgloss.JoinVertical(lipgloss.Left,
-		header,
+	parts := []string{header}
+	if filterLine != "" {
+		parts = append(parts, filterLine)
+	}
+	parts = append(parts,
 		m.renderTwoPane(m.projectsList.View(), content),
 		m.renderPrompt(),
 		footer,
 	)
+	return lipgloss.JoinVertical(lipgloss.Left, parts...)
 }
 
 func (m Model) renderHeader() string {
@@ -880,6 +885,16 @@ func (m Model) renderHeader() string {
 		strings.Repeat(" ", 4),
 		tabBar,
 	) + "\n"
+}
+
+func (m Model) renderFilterLine() string {
+	if m.filterState.Raw == "" && m.filterInput.Value() == "" {
+		return ""
+	}
+	if m.filterActive {
+		return LabelStyle.Render("Filter: ") + m.filterInput.View()
+	}
+	return LabelStyle.Render("Filter: " + m.filterState.Raw)
 }
 
 func (m Model) renderFooter() string {
