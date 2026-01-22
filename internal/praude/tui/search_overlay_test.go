@@ -16,3 +16,12 @@ func TestSearchOverlayFilters(t *testing.T) {
 		t.Fatalf("expected results")
 	}
 }
+
+func TestSearchOverlayViewStyled(t *testing.T) {
+	overlay := NewSearchOverlay()
+	overlay.Show()
+	out := overlay.View(60)
+	if out == "" {
+		t.Fatalf("expected styled overlay")
+	}
+}

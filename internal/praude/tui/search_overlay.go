@@ -5,7 +5,7 @@ import (
 
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
+	sharedtui "github.com/mistakeknot/vauxpraudemonium/pkg/tui"
 	"github.com/mistakeknot/vauxpraudemonium/internal/praude/specs"
 )
 
@@ -92,8 +92,8 @@ func (s *SearchOverlay) View(width int) string {
 	if !s.visible {
 		return ""
 	}
-	boxStyle := lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).Padding(1, 2)
-	content := "Search: " + s.input.View()
+	boxStyle := sharedtui.PanelStyle.Copy().Padding(1, 2).BorderForeground(sharedtui.ColorPrimary)
+	content := sharedtui.TitleStyle.Render("Search") + "\n" + s.input.View()
 	if width > 0 {
 		boxStyle = boxStyle.Width(width)
 	}
