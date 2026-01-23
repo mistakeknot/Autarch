@@ -19,34 +19,35 @@ import (
 )
 
 type Model struct {
-	summaries         []specs.Summary
-	selected          int
-	viewOffset        int
-	groupExpanded     map[string]bool
-	groupTree         *GroupTree
-	flatItems         []Item
-	err               string
-	root              string
-	mode              string
-	status            string
-	router            Router
-	width             int
-	height            int
-	mdCache           *MarkdownCache
-	overlay           string
-	focus             string
-	search            SearchState
-	searchOverlay     *SearchOverlay
-	showArchived      bool
-	confirmAction     string
-	confirmMessage    string
-	confirmID         string
-	pendingPrevStatus string
-	lastAction        *LastAction
-	interview         interviewState
-	suggestions       suggestionsState
-	input             TextBuffer
-	interviewFocus    string
+	summaries           []specs.Summary
+	selected            int
+	viewOffset          int
+	groupExpanded       map[string]bool
+	groupTree           *GroupTree
+	flatItems           []Item
+	err                 string
+	root                string
+	mode                string
+	status              string
+	router              Router
+	width               int
+	height              int
+	mdCache             *MarkdownCache
+	overlay             string
+	focus               string
+	search              SearchState
+	searchOverlay       *SearchOverlay
+	showArchived        bool
+	confirmAction       string
+	confirmMessage      string
+	confirmID           string
+	pendingPrevStatus   string
+	lastAction          *LastAction
+	interview           interviewState
+	suggestions         suggestionsState
+	input               TextBuffer
+	interviewFocus      string
+	interviewLayoutSwap bool
 }
 
 func NewModel() Model {
@@ -54,8 +55,8 @@ func NewModel() Model {
 	if err != nil {
 		return Model{err: err.Error(), mode: "list"}
 	}
-	if _, err := os.Stat(project.RootDir(cwd)); err != nil {
-		model := Model{err: "Not initialized", root: cwd, mode: "list", router: Router{active: "list"}, width: 120, height: 40, mdCache: NewMarkdownCache(), focus: "LIST"}
+	if err := project.EnsureInitialized(cwd); err != nil {
+		model := Model{err: err.Error(), root: cwd, mode: "list", router: Router{active: "list"}, width: 120, height: 40, mdCache: NewMarkdownCache(), focus: "LIST"}
 		model.searchOverlay = NewSearchOverlay()
 		model.groupExpanded = defaultExpanded()
 		if state, err := LoadUIState(project.StatePath(cwd)); err == nil {
@@ -310,18 +311,7 @@ func (m Model) View() string {
 			m.interviewFocus = "question"
 		}
 		focus = strings.ToUpper(m.interviewFocus)
-		if m.width < 100 {
-			left := m.renderInterviewPanel(m.width)
-			body = renderSplitView(m.width, left, nil)
-		} else {
-			left := m.renderInterviewStepsPanel(42)
-			rightWidth := m.width - 45
-			if rightWidth < 40 {
-				rightWidth = 40
-			}
-			right := m.renderInterviewPanel(rightWidth)
-			body = renderSplitView(m.width, left, right)
-		}
+		body = m.renderInterviewLayout(m.width, m.height-2)
 	} else if m.mode == "suggestions" {
 		title = "SUGGESTIONS"
 		left := []string{"SUGGESTIONS"}
@@ -609,6 +599,7 @@ func (m *Model) startNewInterview() {
 	m.viewOffset = clampViewOffset(m.selected, m.viewOffset, m.listContentHeight(), len(m.flatItems))
 	m.status = "Created " + id
 	m.enterInterview(spec, path)
+	m.interview.bootstrapEligible = true
 }
 
 func (m *Model) startInterviewForSelected() {
@@ -937,7 +928,7 @@ func visibleWidth(s string) int {
 }
 
 func defaultKeys() string {
-	return "j/k move  enter toggle  / search  tab focus  n new  g interview  [ ] prev/next  a archive  d delete  u undo  h archived  r research  p suggestions  s review  ? help  q quit"
+	return "j/k move  enter toggle  / search  tab focus  n new  g interview  [ ] prev/next  ctrl+o open  \\ swap  a archive  d delete  u undo  h archived  r research  p suggestions  s review  ? help  q quit"
 }
 
 func padBodyToHeight(body string, height int) string {

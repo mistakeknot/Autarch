@@ -20,9 +20,11 @@ func TestSearchFiltersList(t *testing.T) {
 }
 
 func TestSearchModalConsumesKeys(t *testing.T) {
-	m := NewModel()
-	m = pressKey(m, "/")
-	if m.searchOverlay == nil || !m.searchOverlay.Visible() {
-		t.Fatalf("expected search overlay visible")
-	}
+	withTempRoot(t, func(root string) {
+		m := NewModel()
+		m = pressKey(m, "/")
+		if m.searchOverlay == nil || !m.searchOverlay.Visible() {
+			t.Fatalf("expected search overlay visible")
+		}
+	})
 }

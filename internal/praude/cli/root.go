@@ -1,7 +1,6 @@
 package cli
 
 import (
-	"fmt"
 	"os"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -31,9 +30,8 @@ func NewRoot() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			if _, err := os.Stat(project.RootDir(cwd)); err != nil {
-				fmt.Fprintln(cmd.OutOrStdout(), "Not initialized. Run `praude init` first.")
-				return nil
+			if err := project.EnsureInitialized(cwd); err != nil {
+				return err
 			}
 			return runTUI()
 		},

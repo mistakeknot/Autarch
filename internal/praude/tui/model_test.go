@@ -11,11 +11,13 @@ import (
 )
 
 func TestViewIncludesHeaders(t *testing.T) {
-	m := NewModel()
-	out := m.View()
-	if !strings.Contains(out, "PRDs") || !strings.Contains(out, "DETAILS") {
-		t.Fatalf("expected headers")
-	}
+	withTempRoot(t, func(root string) {
+		m := NewModel()
+		out := m.View()
+		if !strings.Contains(out, "PRDs") || !strings.Contains(out, "DETAILS") {
+			t.Fatalf("expected headers")
+		}
+	})
 }
 
 func TestViewShowsFirstSpec(t *testing.T) {
@@ -195,16 +197,18 @@ metadata:
 }
 
 func TestFocusIndicatorShown(t *testing.T) {
-	m := NewModel()
-	out := stripANSI(m.View())
-	if !strings.Contains(out, "[LIST]") {
-		t.Fatalf("expected focus indicator")
-	}
-	m = pressKey(m, "tab")
-	out = stripANSI(m.View())
-	if !strings.Contains(out, "[DETAIL]") {
-		t.Fatalf("expected detail focus indicator")
-	}
+	withTempRoot(t, func(root string) {
+		m := NewModel()
+		out := stripANSI(m.View())
+		if !strings.Contains(out, "[LIST]") {
+			t.Fatalf("expected focus indicator")
+		}
+		m = pressKey(m, "tab")
+		out = stripANSI(m.View())
+		if !strings.Contains(out, "[DETAIL]") {
+			t.Fatalf("expected detail focus indicator")
+		}
+	})
 }
 
 func TestKeyLaunchesResearchAndSetsStatus(t *testing.T) {
