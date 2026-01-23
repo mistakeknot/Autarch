@@ -7,8 +7,8 @@ Make `tandemonium init` an agent-assisted bootstrap that scans the repo, writes 
 - Use shared run-target registry; default agent is `claude`.
 - `init` scans the whole repo and writes `.tandemonium/plan/exploration.md`.
 - Generate epic specs in `.tandemonium/specs/EPIC-###.yaml` with story IDs `EPIC-###-S##`.
-- Show a summary preview and prompt before writing specs.
-- Reruns prompt: skip/overwrite/prompt-per-epic. Non-interactive defaults to skip.
+- `init` prompts for depth (1/2/3) unless `--depth` is set, then confirms before writing specs.
+- Reruns prompt: skip/overwrite/prompt-per-epic. Non-interactive defaults to skip (`--existing`).
 - Continuous scanning: `tandemonium scan` + TUI background loop every 15m and on new commits.
 
 ## Spec Schema (Detailed)
@@ -34,13 +34,19 @@ Story object:
 4. Write exploration summary to `.tandemonium/plan/exploration.md`.
 5. Build an agent prompt from exploration summary + repo metadata.
 6. Request epics + stories; if agent fails, fall back to heuristic generator and note it.
-7. Show preview summary and prompt to write specs.
+7. Prompt to write specs (summary is saved to `.tandemonium/plan/exploration.md`).
 8. On rerun, prompt for skip/overwrite/prompt-per-epic; non-interactive defaults to skip.
+
+**Init Flags:**
+- `--agent` (default `claude`)
+- `--depth` (1-3, default 2 when prompted)
+- `--existing` (`skip|overwrite|prompt`, default `skip`)
+- `--tui` (optional progress UI)
 
 ## Continuous Scanning
 - New command: `tandemonium scan` (on-demand).
 - TUI background loop every 15m.
-- Also trigger when `git rev-parse HEAD` changes.
+- Also trigger when `git rev-parse HEAD` changes (polled in the background).
 - Scans update exploration summary and can propose new epics.
 
 ## Progress Indicators

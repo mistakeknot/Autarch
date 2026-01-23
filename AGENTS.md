@@ -165,10 +165,13 @@ command = "codex"
 args = ["--approval-mode", "full-auto"]
 ```
 
-**Tandemonium** (`.tandemonium/config.yml`):
-```yaml
-default_branch: main
-worktree_root: .tandemonium/worktrees
+**Tandemonium** (`.tandemonium/config.toml`):
+```toml
+[tui]
+confirm_approve = true
+
+[review]
+target_branch = ""
 ```
 
 ---
@@ -218,8 +221,9 @@ praude run <brief>  # Spawn agent with brief
 Task orchestration with git worktree isolation.
 
 **Key Paths:**
-- `.tandemonium/tasks.yml` - Task definitions
-- `.tandemonium/config.yml` - Configuration
+- `.tandemonium/specs/` - Epic/story YAML specs
+- `.tandemonium/plan/` - Exploration summary + init prompts
+- `.tandemonium/config.toml` - Configuration
 - `.tandemonium/activity.log` - Audit log (JSONL)
 - `.tandemonium/worktrees/` - Isolated git worktrees
 
@@ -228,10 +232,11 @@ Task orchestration with git worktree isolation.
 **Commands:**
 ```bash
 tandemonium              # Launch TUI
-tandemonium init         # Initialize
-tandemonium add "Title"  # Create task
+tandemonium init         # Initialize + generate epics/stories from scan
+tandemonium scan         # Re-scan repo and update exploration summary
+tandemonium status       # Show current task status
 tandemonium start <id>   # Start task (creates worktree)
-tandemonium complete <id>
+tandemonium stop <id>    # Stop task
 ```
 
 ---
@@ -292,7 +297,7 @@ tui.PriorityBadge(1)  // "P1" (yellow)
 | `VAUXHALL_PORT` | Vauxhall | 8099 |
 | `VAUXHALL_SCAN_ROOTS` | Vauxhall | ~/projects |
 | `PRAUDE_CONFIG` | Praude | .praude/config.toml |
-| `TANDEMONIUM_CONFIG` | Tandemonium | .tandemonium/config.yml |
+| `TANDEMONIUM_CONFIG` | Tandemonium | .tandemonium/config.toml |
 
 ---
 
