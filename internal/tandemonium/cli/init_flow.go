@@ -240,7 +240,7 @@ func (g *agentGenerator) Generate(ctx context.Context, input initflow.Input) (in
 	if err := cmd.Run(); err != nil {
 		return initflow.Result{}, fmt.Errorf("agent run failed: %w: %s", err, output.String())
 	}
-	epicsList, err := parseAgentEpics(output.Bytes())
+	epicsList, err := parseAndValidateEpics(output.Bytes(), filepath.Join(g.root, ".tandemonium", "plan"))
 	if err != nil {
 		return initflow.Result{}, err
 	}
@@ -262,7 +262,11 @@ func writeAgentPrompt(root string, input initflow.Input) (string, error) {
 
 func buildAgentPrompt(input initflow.Input) string {
 	return fmt.Sprintf("# Tandemonium Init: Epic + Story Generation\n\n"+
-		"You are generating epic/story specs for a repo. Read the exploration summary and output YAML only.\n\n"+
+		"You are generating epic/story specs for a repo. Read the exploration summary and output YAML only.\n"+
+		"Allowed status: todo|in_progress|review|blocked|done\n"+
+		"Allowed priority: p0|p1|p2|p3\n"+
+		"Use estimates (plural).\n"+
+		"Output YAML only (no prose).\n\n"+
 		"Output schema:\n\n"+
 		"```yaml\n"+
 		"epics:\n"+
@@ -309,4 +313,20 @@ func parseAgentEpics(raw []byte) ([]epics.Epic, error) {
 		}
 	}
 	return nil, fmt.Errorf("agent output missing epics")
+}
+
+func parseAndValidateEpics(raw []byte, planDir string) ([]epics.Epic, error) {
+	list, err := parseAgentEpics(raw)
+	if err != nil {
+		return nil, err
+	}
+	errList := epics.Validate(list)
+	if len(errList) == 0 {
+		return list, nil
+	}
+	outPath, errPath, writeErr := epics.WriteValidationReport(planDir, raw, errList)
+	if writeErr != nil {
+		return nil, writeErr
+	}
+	return nil, fmt.Errorf("agent output invalid; wrote %s and %s", outPath, errPath)
 }
