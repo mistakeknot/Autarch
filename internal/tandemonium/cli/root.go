@@ -64,7 +64,7 @@ func newRootCommand() *cobra.Command {
 				return err
 			}
 			fmt.Fprintln(cmd.OutOrStdout(), "Would you like to start planning? [Y/n]")
-			return plan.Run(cmd.InOrStdin(), filepath.Join(".", ".tandemonium", "plan"))
+			return plan.Run(cmd.InOrStdin(), cmd.OutOrStdout(), filepath.Join(".", ".tandemonium", "plan"))
 		},
 	})
 	root.AddCommand(

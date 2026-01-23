@@ -22,7 +22,7 @@ func PlanCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			return plan.Run(cmd.InOrStdin(), filepath.Join(root, ".tandemonium", "plan"))
+			return plan.Run(cmd.InOrStdin(), cmd.OutOrStdout(), filepath.Join(root, ".tandemonium", "plan"))
 		},
 	}
 }
