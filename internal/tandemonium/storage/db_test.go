@@ -87,3 +87,49 @@ func TestOpenSharedReturnsSameInstance(t *testing.T) {
 		t.Fatalf("expected shared db instance")
 	}
 }
+
+func TestForeignKeysPreventOrphans(t *testing.T) {
+	db, err := OpenTemp()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	if err := Migrate(db); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec("INSERT INTO sessions (id, task_id, state, offset) VALUES ('S1', 'MISSING', 'working', 0)"); err == nil {
+		t.Fatalf("expected FK violation")
+	}
+}
+
+func TestForeignKeysCascadeDelete(t *testing.T) {
+	db, err := OpenTemp()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	if err := Migrate(db); err != nil {
+		t.Fatal(err)
+	}
+	if err := InsertTask(db, Task{ID: "T1", Title: "Test", Status: "todo"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec("INSERT INTO review_queue (task_id) VALUES ('T1')"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec("INSERT INTO sessions (id, task_id, state, offset) VALUES ('S1', 'T1', 'working', 0)"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec("DELETE FROM tasks WHERE id = 'T1'"); err != nil {
+		t.Fatal(err)
+	}
+	var count int
+	_ = db.QueryRow("SELECT COUNT(*) FROM review_queue WHERE task_id = 'T1'").Scan(&count)
+	if count != 0 {
+		t.Fatalf("expected review_queue cleared")
+	}
+	_ = db.QueryRow("SELECT COUNT(*) FROM sessions WHERE task_id = 'T1'").Scan(&count)
+	if count != 0 {
+		t.Fatalf("expected sessions cleared")
+	}
+}

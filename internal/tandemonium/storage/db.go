@@ -11,7 +11,15 @@ import (
 )
 
 func Open(path string) (*sql.DB, error) {
-	return sql.Open("sqlite", path)
+	db, err := sql.Open("sqlite", path)
+	if err != nil {
+		return nil, err
+	}
+	if _, err := db.Exec("PRAGMA foreign_keys = ON"); err != nil {
+		_ = db.Close()
+		return nil, err
+	}
+	return db, nil
 }
 
 func OpenTemp() (*sql.DB, error) {
@@ -47,11 +55,11 @@ CREATE TABLE IF NOT EXISTS tasks (
   status TEXT NOT NULL
 );
 CREATE TABLE IF NOT EXISTS review_queue (
-  task_id TEXT PRIMARY KEY
+  task_id TEXT PRIMARY KEY REFERENCES tasks(id) ON DELETE CASCADE
 );
 CREATE TABLE IF NOT EXISTS sessions (
   id TEXT PRIMARY KEY,
-  task_id TEXT NOT NULL,
+  task_id TEXT NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
   state TEXT NOT NULL,
   offset INTEGER NOT NULL DEFAULT 0
 );
