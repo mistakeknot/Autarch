@@ -8,12 +8,15 @@ func TestReviewQueueAdd(t *testing.T) {
         t.Fatal(err)
     }
     defer db.Close()
-    if err := Migrate(db); err != nil {
-        t.Fatal(err)
-    }
-    if err := AddToReviewQueue(db, "TAND-001"); err != nil {
-        t.Fatal(err)
-    }
+	if err := Migrate(db); err != nil {
+		t.Fatal(err)
+	}
+	if err := InsertTask(db, Task{ID: "TAND-001", Title: "Test", Status: "review"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := AddToReviewQueue(db, "TAND-001"); err != nil {
+		t.Fatal(err)
+	}
     ids, err := ListReviewQueue(db)
     if err != nil {
         t.Fatal(err)

@@ -12,6 +12,9 @@ func TestSessionCRUD(t *testing.T) {
         t.Fatal(err)
     }
 
+    if err := InsertTask(db, Task{ID: "TAND-001", Title: "Test", Status: "todo"}); err != nil {
+        t.Fatal(err)
+    }
     s := Session{ID: "tand-TAND-001", TaskID: "TAND-001", State: "working", Offset: 10}
     if err := InsertSession(db, s); err != nil {
         t.Fatal(err)
