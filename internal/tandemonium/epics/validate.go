@@ -1,6 +1,9 @@
 package epics
 
 import (
+	"fmt"
+	"os"
+	"path/filepath"
 	"regexp"
 	"strconv"
 	"strings"
@@ -61,6 +64,29 @@ func Validate(list []Epic) []ValidationError {
 		}
 	}
 	return errs
+}
+
+func WriteValidationReport(dir string, raw []byte, errs []ValidationError) (string, string, error) {
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return "", "", err
+	}
+	outPath := filepath.Join(dir, "init-epics-output.yaml")
+	errPath := filepath.Join(dir, "init-epics-errors.txt")
+	if err := os.WriteFile(outPath, raw, 0o644); err != nil {
+		return "", "", err
+	}
+	if err := os.WriteFile(errPath, []byte(FormatValidationErrors(errs)), 0o644); err != nil {
+		return "", "", err
+	}
+	return outPath, errPath, nil
+}
+
+func FormatValidationErrors(errs []ValidationError) string {
+	var b strings.Builder
+	for _, err := range errs {
+		fmt.Fprintf(&b, "%s: %s\n", err.Path, err.Message)
+	}
+	return b.String()
 }
 
 func validStatus(s Status) bool {
