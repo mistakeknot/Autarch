@@ -23,6 +23,11 @@ node_modules/
 .env
 .env.local
 
+# Local state/cache
+.praude/
+.tandemonium/
+.tldrs/
+
 # Build artifacts
 dist/
 build/
