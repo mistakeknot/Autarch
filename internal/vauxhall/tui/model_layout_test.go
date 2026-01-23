@@ -7,6 +7,7 @@ import (
 
 	"github.com/charmbracelet/bubbles/list"
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 
 	"github.com/mistakeknot/vauxpraudemonium/internal/vauxhall/aggregator"
 	"github.com/mistakeknot/vauxpraudemonium/internal/vauxhall/discovery"
@@ -51,6 +52,13 @@ func TestFilterSessionsByProject(t *testing.T) {
 	}
 }
 
+func TestDefaultFocusIsProjects(t *testing.T) {
+	m := New(&fakeAggLayout{}, "")
+	if m.activePane != PaneProjects {
+		t.Fatalf("expected default focus on projects")
+	}
+}
+
 func TestFocusSwitching(t *testing.T) {
 	agg := &fakeAggLayout{state: aggregator.State{}}
 	m := New(agg, "")
@@ -64,8 +72,8 @@ func TestFocusSwitching(t *testing.T) {
 }
 
 func TestRightPaneTabs(t *testing.T) {
-	if TabProjects != 1 || TabSessions != 2 || TabAgents != 3 {
-		t.Fatalf("expected tabs: Dashboard, Projects, Sessions, Agents (Projects=1 Sessions=2 Agents=3)")
+	if TabDashboard != 0 || TabSessions != 1 || TabAgents != 2 {
+		t.Fatalf("expected tabs: Dashboard, Sessions, Agents (Sessions=1 Agents=2)")
 	}
 }
 
@@ -81,10 +89,44 @@ func TestTwoPaneLayoutClamp(t *testing.T) {
 	_ = m.renderTwoPane("left", "right")
 }
 
+func TestFocusedPaneBorderRendered(t *testing.T) {
+	m := New(&fakeAggLayout{}, "")
+	m.width = 80
+	m.height = 20
+	m.activePane = PaneProjects
+	view := m.renderTwoPane("left", "right")
+	border := lipgloss.RoundedBorder()
+	if !strings.Contains(view, border.TopLeft) {
+		t.Fatalf("expected border to render")
+	}
+}
+
+func TestFocusedPaneChangesRendering(t *testing.T) {
+	m := New(&fakeAggLayout{}, "")
+	m.width = 80
+	m.height = 20
+	m.activePane = PaneProjects
+	leftFocus := m.renderTwoPane("left", "right")
+	m.activePane = PaneMain
+	rightFocus := m.renderTwoPane("left", "right")
+	if leftFocus == rightFocus {
+		t.Fatalf("expected different rendering when focus changes")
+	}
+}
+
 func TestHeaderIncludesBuildInfo(t *testing.T) {
 	m := New(&fakeAggLayout{}, "rev abc123")
 	header := m.renderHeader()
 	if !strings.Contains(header, "rev abc123") {
 		t.Fatalf("expected build info in header")
+	}
+}
+
+func TestHeaderTabsExcludeProjects(t *testing.T) {
+	m := New(&fakeAggLayout{}, "")
+	m.activeTab = TabDashboard
+	header := m.renderHeader()
+	if strings.Contains(header, "Projects") {
+		t.Fatalf("did not expect Projects in header tabs")
 	}
 }

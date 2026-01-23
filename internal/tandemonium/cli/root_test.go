@@ -2,13 +2,23 @@ package cli
 
 import (
 	"bytes"
+	"context"
+	"errors"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
+	"github.com/mistakeknot/vauxpraudemonium/internal/tandemonium/initflow"
 	"github.com/mistakeknot/vauxpraudemonium/internal/tandemonium/project"
 )
+
+type failingGenerator struct{}
+
+func (f failingGenerator) Generate(_ context.Context, _ initflow.Input) (initflow.Result, error) {
+	return initflow.Result{}, errors.New("boom")
+}
 
 func TestInitRunsPlanningWhenConfirmed(t *testing.T) {
 	dir := t.TempDir()
@@ -22,20 +32,27 @@ func TestInitRunsPlanningWhenConfirmed(t *testing.T) {
 	if err := os.Chdir(dir); err != nil {
 		t.Fatal(err)
 	}
+	prevFactory := initGeneratorFactory
+	initGeneratorFactory = func(root, agentName string, out io.Writer) initflow.Generator {
+		return failingGenerator{}
+	}
+	defer func() {
+		initGeneratorFactory = prevFactory
+	}()
 	cmd := newRootCommand()
 	cmd.SetArgs([]string{"init"})
-	cmd.SetIn(strings.NewReader("y\nmy vision\nmy mvp\n"))
+	cmd.SetIn(strings.NewReader("2\ny\n"))
 	out := bytes.NewBuffer(nil)
 	cmd.SetOut(out)
 	cmd.SetErr(out)
 	if err := cmd.Execute(); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := os.Stat(filepath.Join(dir, ".tandemonium", "plan", "vision.md")); err != nil {
-		t.Fatalf("expected vision.md: %v", err)
+	if _, err := os.Stat(filepath.Join(dir, ".tandemonium", "plan", "exploration.md")); err != nil {
+		t.Fatalf("expected exploration.md: %v", err)
 	}
-	if _, err := os.Stat(filepath.Join(dir, ".tandemonium", "plan", "mvp.md")); err != nil {
-		t.Fatalf("expected mvp.md: %v", err)
+	if _, err := os.Stat(filepath.Join(dir, ".tandemonium", "specs", "EPIC-001.yaml")); err != nil {
+		t.Fatalf("expected EPIC-001.yaml: %v", err)
 	}
 }
 

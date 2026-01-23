@@ -238,6 +238,10 @@ func (b *TextBuffer) Render(height int) []string {
 	return lines
 }
 
+func (b *TextBuffer) CursorPosition() (int, int) {
+	return b.row + 1, b.col + 1
+}
+
 func (b *TextBuffer) lineRunes(row int) []rune {
 	if row < 0 || row >= len(b.lines) {
 		return []rune{}

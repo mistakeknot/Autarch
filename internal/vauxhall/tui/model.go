@@ -472,7 +472,7 @@ func New(agg aggregatorAPI, buildInfo string) Model {
 		statusTTL:   2 * time.Second,
 		now:         time.Now,
 		activeTab:   TabDashboard,
-		activePane:  PaneMain,
+		activePane:  PaneProjects,
 		buildInfo:   buildInfo,
 		sessionList: sessionList,
 		projectsList: projectsList,
@@ -768,15 +768,23 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.height = msg.Height
 		h := m.height - 6 // Account for header and footer
 		leftW, rightW, _ := m.paneWidths()
+		leftH := h
+		rightH := h
+		if leftW > 0 && rightW > 0 {
+			leftW = max(1, leftW-2)
+			rightW = max(1, rightW-2)
+			leftH = max(1, h-2)
+			rightH = max(1, h-2)
+		}
 		if leftW > 0 {
-			m.projectsList.SetSize(leftW, h)
+			m.projectsList.SetSize(leftW, leftH)
 		} else {
 			m.projectsList.SetSize(m.width, h)
 		}
 		if rightW > 0 {
-			m.sessionList.SetSize(rightW, h)
-			m.agentList.SetSize(rightW, h)
-			m.mcpList.SetSize(rightW, h/2)
+			m.sessionList.SetSize(rightW, rightH)
+			m.agentList.SetSize(rightW, rightH)
+			m.mcpList.SetSize(rightW, rightH/2)
 		} else {
 			m.sessionList.SetSize(m.width, h)
 			m.agentList.SetSize(m.width, h)
@@ -1068,13 +1076,27 @@ func (m Model) paneWidths() (int, int, bool) {
 	return left, right, false
 }
 
+func max(a, b int) int {
+	if a > b {
+		return a
+	}
+	return b
+}
+
 func (m Model) renderTwoPane(left, right string) string {
 	leftW, rightW, single := m.paneWidths()
 	if single {
 		return right
 	}
-	leftView := lipgloss.NewStyle().Width(leftW).Render(left)
-	rightView := lipgloss.NewStyle().Width(rightW).Render(right)
+	leftStyle := PaneUnfocusedStyle
+	rightStyle := PaneUnfocusedStyle
+	if m.activePane == PaneProjects {
+		leftStyle = PaneFocusedStyle
+	} else {
+		rightStyle = PaneFocusedStyle
+	}
+	leftView := leftStyle.Width(leftW).Render(left)
+	rightView := rightStyle.Width(rightW).Render(right)
 	return lipgloss.JoinHorizontal(lipgloss.Top, leftView, "  ", rightView)
 }
 

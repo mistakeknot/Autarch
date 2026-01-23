@@ -1,6 +1,9 @@
 package tui
 
-import "testing"
+import (
+	"testing"
+	"time"
+)
 
 func TestInitialModelHasTitle(t *testing.T) {
 	m := NewModel()
@@ -22,5 +25,14 @@ func TestRefreshTasksLoadsFromProject(t *testing.T) {
 	m.RefreshTasks()
 	if len(m.TaskList) != 1 {
 		t.Fatalf("expected tasks loaded")
+	}
+}
+
+func TestBackgroundScanTick(t *testing.T) {
+	m := NewModel()
+	m.ScanInterval = time.Minute
+	_, cmd := m.Update(scanTickMsg{})
+	if cmd == nil {
+		t.Fatalf("expected scan cmd")
 	}
 }

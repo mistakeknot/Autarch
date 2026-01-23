@@ -12,6 +12,7 @@ import (
 
 	"github.com/mistakeknot/vauxpraudemonium/internal/tandemonium/agent"
 	"github.com/mistakeknot/vauxpraudemonium/internal/tandemonium/config"
+	"github.com/mistakeknot/vauxpraudemonium/internal/tandemonium/explore"
 	"github.com/mistakeknot/vauxpraudemonium/internal/tandemonium/git"
 	"github.com/mistakeknot/vauxpraudemonium/internal/tandemonium/project"
 	"github.com/mistakeknot/vauxpraudemonium/internal/tandemonium/specs"
@@ -63,6 +64,9 @@ type Model struct {
 	QuickTaskMode        bool
 	QuickTaskInput       string
 	QuickTaskCreator     func(raw string) (string, error)
+	ScanInterval         time.Duration
+	ScanOnCommit         bool
+	LastHead             string
 }
 
 type BranchLookup func(taskID string) (string, error)
@@ -81,9 +85,9 @@ type ReviewState struct {
 	MVPRevertSelect    bool
 	MVPRevertIndex     int
 	Detail             ReviewDetail
-	DetailLoader        func(taskID string) (ReviewDetail, error)
+	DetailLoader       func(taskID string) (ReviewDetail, error)
 	Diff               ReviewDiffState
-	DiffLoader          func(taskID string) (ReviewDiffState, error)
+	DiffLoader         func(taskID string) (ReviewDiffState, error)
 	Loader             ReviewLoader
 	ActionWriter       func(taskID, text string) error
 	StoryUpdater       func(taskID, text string) error
@@ -133,8 +137,20 @@ const (
 )
 
 type tickMsg struct{}
+type scanTickMsg struct{}
+type scanCommitTickMsg struct{}
+type scanResultMsg struct {
+	err  error
+	head string
+}
+type scanCommitResultMsg struct {
+	err     error
+	head    string
+	changed bool
+}
 
 const refreshInterval = 2 * time.Second
+const scanCommitInterval = time.Minute
 const ctrlCWindow = 2 * time.Second
 
 type StatusLevel string
@@ -166,6 +182,8 @@ func NewModel() Model {
 		CoordRecipientFilter: CoordRecipientFilterAll,
 		Now:                  time.Now,
 		FilterMode:           "all",
+		ScanInterval:         15 * time.Minute,
+		ScanOnCommit:         true,
 		Review: ReviewState{
 			Queue:    []string{},
 			Branches: map[string]string{},
@@ -194,7 +212,12 @@ func NewModelWithDB(db *sql.DB) Model {
 }
 
 func (m Model) Init() tea.Cmd {
-	return tea.Batch(tickCmd(), watchCmd())
+	return tea.Batch(
+		tickCmd(),
+		watchCmd(),
+		scanTickCmd(m.ScanInterval),
+		scanCommitTickCmd(m.ScanOnCommit, scanCommitInterval),
+	)
 }
 
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -213,6 +236,34 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.RefreshTaskDetail()
 		m.RefreshCoordination()
 		return m, tickCmd()
+	case scanTickMsg:
+		return m, tea.Batch(scanCmd(), scanTickCmd(m.ScanInterval))
+	case scanCommitTickMsg:
+		if !m.ScanOnCommit {
+			return m, scanCommitTickCmd(false, scanCommitInterval)
+		}
+		return m, tea.Batch(scanCommitCmd(m.LastHead), scanCommitTickCmd(true, scanCommitInterval))
+	case scanResultMsg:
+		if msg.err != nil {
+			m.SetStatusError("scan failed: " + msg.err.Error())
+			return m, nil
+		}
+		if msg.head != "" {
+			m.LastHead = msg.head
+		}
+		m.SetStatusInfo("scan complete")
+		return m, nil
+	case scanCommitResultMsg:
+		if msg.err != nil {
+			return m, nil
+		}
+		if msg.head != "" {
+			m.LastHead = msg.head
+		}
+		if msg.changed {
+			return m, scanCmd()
+		}
+		return m, nil
 	case tea.KeyMsg:
 		if msg.Type == tea.KeyCtrlC {
 			nowFn := m.Now
@@ -783,29 +834,29 @@ func (m *Model) handleQuickTaskSubmit() {
 		return
 	}
 	creator := m.QuickTaskCreator
-		if creator == nil {
-			creator = func(input string) (string, error) {
-				root, err := project.FindRoot(".")
+	if creator == nil {
+		creator = func(input string) (string, error) {
+			root, err := project.FindRoot(".")
+			if err != nil {
+				return "", err
+			}
+			path, err := specs.CreateQuickSpec(project.SpecsDir(root), input, time.Now())
+			if err != nil {
+				return "", err
+			}
+			id := strings.TrimSuffix(filepath.Base(path), filepath.Ext(path))
+			db := m.DB
+			if db == nil {
+				db, err = storage.OpenShared(project.StateDBPath(root))
 				if err != nil {
 					return "", err
 				}
-				path, err := specs.CreateQuickSpec(project.SpecsDir(root), input, time.Now())
-				if err != nil {
-					return "", err
-				}
-				id := strings.TrimSuffix(filepath.Base(path), filepath.Ext(path))
-				db := m.DB
-				if db == nil {
-					db, err = storage.OpenShared(project.StateDBPath(root))
-					if err != nil {
-						return "", err
-					}
-				}
-				if err := storage.Migrate(db); err != nil {
-					return "", err
-				}
-				if err := storage.InsertTask(db, storage.Task{ID: id, Title: firstLine(input), Status: "assigned"}); err != nil {
-					return "", err
+			}
+			if err := storage.Migrate(db); err != nil {
+				return "", err
+			}
+			if err := storage.InsertTask(db, storage.Task{ID: id, Title: firstLine(input), Status: "assigned"}); err != nil {
+				return "", err
 			}
 			return id, nil
 		}
@@ -1184,23 +1235,23 @@ func (m *Model) handleReviewSubmit() {
 		}
 		if m.Review.PendingReject {
 			rejecter := m.Review.Rejecter
-				if rejecter == nil {
-					rejecter = func(id string) error {
-						root, err := project.FindRoot(".")
+			if rejecter == nil {
+				rejecter = func(id string) error {
+					root, err := project.FindRoot(".")
+					if err != nil {
+						return err
+					}
+					db := m.DB
+					if db == nil {
+						db, err = storage.OpenShared(project.StateDBPath(root))
 						if err != nil {
 							return err
 						}
-						db := m.DB
-						if db == nil {
-							db, err = storage.OpenShared(project.StateDBPath(root))
-							if err != nil {
-								return err
-							}
-						}
-						return storage.RejectTask(db, id)
 					}
-					m.Review.Rejecter = rejecter
+					return storage.RejectTask(db, id)
 				}
+				m.Review.Rejecter = rejecter
+			}
 			if err := rejecter(taskID); err != nil {
 				m.SetStatusError(err.Error())
 				return
@@ -2016,6 +2067,59 @@ func tickCmd() tea.Cmd {
 	return tea.Tick(refreshInterval, func(time.Time) tea.Msg {
 		return tickMsg{}
 	})
+}
+
+func scanTickCmd(interval time.Duration) tea.Cmd {
+	if interval <= 0 {
+		return nil
+	}
+	return tea.Tick(interval, func(time.Time) tea.Msg {
+		return scanTickMsg{}
+	})
+}
+
+func scanCommitTickCmd(enabled bool, interval time.Duration) tea.Cmd {
+	if !enabled || interval <= 0 {
+		return nil
+	}
+	return tea.Tick(interval, func(time.Time) tea.Msg {
+		return scanCommitTickMsg{}
+	})
+}
+
+func scanCmd() tea.Cmd {
+	return func() tea.Msg {
+		root, err := project.FindRoot(".")
+		if err != nil {
+			return scanResultMsg{err: err}
+		}
+		planDir := filepath.Join(root, ".tandemonium", "plan")
+		_, err = explore.Run(root, planDir, explore.Options{Depth: 2})
+		head := ""
+		if out, headErr := (&git.ExecRunner{}).Run("git", "rev-parse", "HEAD"); headErr == nil {
+			head = strings.TrimSpace(out)
+		}
+		return scanResultMsg{err: err, head: head}
+	}
+}
+
+func scanCommitCmd(lastHead string) tea.Cmd {
+	return func() tea.Msg {
+		root, err := project.FindRoot(".")
+		if err != nil {
+			return scanCommitResultMsg{err: err}
+		}
+		if _, err := os.Stat(filepath.Join(root, ".git")); err != nil {
+			return scanCommitResultMsg{}
+		}
+		out, err := (&git.ExecRunner{}).Run("git", "rev-parse", "HEAD")
+		if err != nil {
+			return scanCommitResultMsg{err: err}
+		}
+		head := strings.TrimSpace(out)
+		changed := head != "" && lastHead != "" && head != lastHead
+		return scanCommitResultMsg{head: head, changed: changed}
+	}
 }
 
 func (m *Model) ensureTaskDetail() {

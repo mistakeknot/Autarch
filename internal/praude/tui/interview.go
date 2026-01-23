@@ -3,6 +3,7 @@ package tui
 import (
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -24,6 +25,7 @@ type interviewStep int
 const (
 	stepScanPrompt interviewStep = iota
 	stepDraftConfirm
+	stepBootstrapPrompt
 	stepVision
 	stepUsers
 	stepProblem
@@ -31,18 +33,25 @@ const (
 	stepResearchPrompt
 )
 
+type interviewMessage struct {
+	Role string
+	Text string
+}
+
 type interviewState struct {
-	step        interviewStep
-	root        string
-	scanSummary string
-	warnings    []string
-	targetID    string
-	targetPath  string
-	baseSpec    specs.Spec
-	answers     map[interviewStep]string
-	drafts      map[interviewStep]string
-	optionIndex int
-	finalized   bool
+	step              interviewStep
+	root              string
+	scanSummary       string
+	warnings          []string
+	targetID          string
+	targetPath        string
+	baseSpec          specs.Spec
+	answers           map[interviewStep]string
+	drafts            map[interviewStep]string
+	optionIndex       int
+	finalized         bool
+	chat              []interviewMessage
+	bootstrapEligible bool
 }
 
 func startInterview(root string, base specs.Spec, targetPath string) interviewState {
@@ -80,6 +89,14 @@ func (s interviewState) answerForStep(step interviewStep) string {
 
 func (m *Model) handleInterviewInput(msg tea.KeyMsg) {
 	key := msg.String()
+	switch key {
+	case "ctrl+o":
+		m.openInterviewSpec()
+		return
+	case "ctrl+`", "\\":
+		m.interviewLayoutSwap = !m.interviewLayoutSwap
+		return
+	}
 	if key == "tab" {
 		m.toggleInterviewFocus()
 		return
@@ -105,10 +122,22 @@ func (m *Model) handleInterviewInput(msg tea.KeyMsg) {
 		})
 	case stepDraftConfirm:
 		m.handleOptionStep(key, func() {
+			if m.interview.bootstrapEligible {
+				m.interview.step = stepBootstrapPrompt
+				m.interview.optionIndex = 0
+				return
+			}
 			m.interview.step = stepVision
 			m.loadInterviewInput()
 		}, func() {
 			m.exitInterview()
+		})
+	case stepBootstrapPrompt:
+		m.handleOptionStep(key, func() {
+			m.runInterviewBootstrap()
+		}, func() {
+			m.interview.step = stepVision
+			m.loadInterviewInput()
 		})
 	case stepVision:
 		m.handleTextStep(msg, stepVision)
@@ -152,6 +181,7 @@ func (m *Model) handleTextStep(msg tea.KeyMsg, step interviewStep) {
 	switch key {
 	case "enter":
 		m.storeInterviewAnswer(step)
+		m.appendInterviewMessage("user", m.interview.answerForStep(step))
 		m.iterateInterviewStep(step)
 		return
 	case " ":
@@ -196,6 +226,44 @@ func (m *Model) handleTextStep(msg tea.KeyMsg, step interviewStep) {
 		}
 	}
 	m.storeInterviewAnswer(step)
+}
+
+func (m *Model) appendInterviewMessage(role, text string) {
+	trimmed := strings.TrimSpace(text)
+	if trimmed == "" {
+		return
+	}
+	m.interview.chat = append(m.interview.chat, interviewMessage{Role: role, Text: trimmed})
+}
+
+func (m *Model) openInterviewSpec() {
+	path := strings.TrimSpace(m.interview.targetPath)
+	if path == "" {
+		m.status = "No PRD file to open"
+		return
+	}
+	editor := strings.TrimSpace(os.Getenv("EDITOR"))
+	if editor == "" {
+		editor = "vi"
+	}
+	parts := strings.Fields(editor)
+	cmdName := editor
+	args := []string{path}
+	if len(parts) > 0 {
+		cmdName = parts[0]
+		if len(parts) > 1 {
+			args = append(parts[1:], path)
+		}
+	}
+	cmd := exec.Command(cmdName, args...)
+	cmd.Stdin = os.Stdin
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	if err := cmd.Run(); err != nil {
+		m.status = "Open failed: " + err.Error()
+		return
+	}
+	m.status = "Opened " + filepath.Base(path)
 }
 
 func (m *Model) handleOptionStep(key string, onYes func(), onNo func()) {
@@ -354,6 +422,7 @@ func (m *Model) iterateInterviewStep(step interviewStep) {
 		m.interview.drafts = map[interviewStep]string{}
 	}
 	m.interview.drafts[step] = newDraft
+	m.appendInterviewMessage("agent", newDraft)
 	m.status = "draft updated"
 }
 
@@ -476,6 +545,169 @@ func (m Model) renderInterviewStepsPanel(width int) []string {
 	return renderMarkdownLines(m.interviewStepsMarkdown(), width)
 }
 
+func (m Model) renderInterviewLayout(width, height int) string {
+	if height <= 0 {
+		return ""
+	}
+	nav := m.renderInterviewHeaderNav(width)
+	navLines := strings.Split(nav, "\n")
+	remaining := height - len(navLines)
+	if remaining <= 0 {
+		return nav
+	}
+	topHeight := remaining / 2
+	bottomHeight := remaining - topHeight
+	if remaining >= 6 {
+		if topHeight < 3 {
+			topHeight = 3
+			bottomHeight = remaining - topHeight
+		}
+		if bottomHeight < 3 {
+			bottomHeight = 3
+			topHeight = remaining - bottomHeight
+		}
+	}
+	topContentHeight := max(1, topHeight-2)
+	bottomContentHeight := max(1, bottomHeight-2)
+
+	listContent := m.renderGroupListContent(topContentHeight)
+	sectionTitle := m.interviewSectionTitle()
+	sectionContent := m.interviewSectionContent()
+	chatTop := m.renderInterviewChatContent(topContentHeight)
+	chatBottom := m.renderInterviewChatContent(bottomContentHeight)
+
+	if width < 100 {
+		topTitle := sectionTitle
+		topRightContent := sectionContent
+		bottomTitle := "CHAT"
+		bottomContent := chatBottom
+		if m.interviewLayoutSwap {
+			topTitle = "CHAT"
+			topRightContent = chatTop
+			bottomTitle = sectionTitle
+			bottomContent = sectionContent
+		}
+		top := renderStackedLayout("PRDs", listContent, topTitle, topRightContent, width, topHeight)
+		bottom := renderSingleColumnLayout(bottomTitle, bottomContent, width, bottomHeight)
+		return strings.Join([]string{nav, top, bottom}, "\n")
+	}
+
+	topTitle := sectionTitle
+	topRightContent := sectionContent
+	bottomTitle := "CHAT"
+	bottomContent := chatBottom
+	if m.interviewLayoutSwap {
+		topTitle = "CHAT"
+		topRightContent = chatTop
+		bottomTitle = sectionTitle
+		bottomContent = sectionContent
+	}
+	top := renderDualColumnLayout("PRDs", listContent, topTitle, topRightContent, width, topHeight)
+	bottom := renderSingleColumnLayout(bottomTitle, bottomContent, width, bottomHeight)
+	return strings.Join([]string{nav, top, bottom}, "\n")
+}
+
+func (m Model) renderInterviewHeaderNav(width int) string {
+	steps := []interviewStep{
+		stepScanPrompt,
+		stepDraftConfirm,
+		stepBootstrapPrompt,
+		stepVision,
+		stepUsers,
+		stepProblem,
+		stepRequirements,
+		stepResearchPrompt,
+	}
+	labels := make([]string, 0, len(steps))
+	for _, step := range steps {
+		prompt, _, _ := interviewStepInfo(step)
+		label := prompt.title
+		if step == m.interview.step {
+			label = "[" + label + "]"
+		}
+		labels = append(labels, label)
+	}
+	nav := strings.Join(labels, "  ")
+	return ensureExactWidth(nav, width)
+}
+
+func (m Model) interviewSectionTitle() string {
+	prompt, _, _ := interviewStepInfo(m.interview.step)
+	return "SECTION · " + prompt.title
+}
+
+func (m Model) interviewSectionContent() string {
+	prompt, _, _ := interviewStepInfo(m.interview.step)
+	content := "No content yet."
+	if prompt.expectsText {
+		if draft := strings.TrimSpace(m.interview.drafts[m.interview.step]); draft != "" {
+			content = draft
+		} else if answer := strings.TrimSpace(m.interview.answers[m.interview.step]); answer != "" {
+			content = answer
+		}
+	} else {
+		switch m.interview.step {
+		case stepScanPrompt:
+			if strings.TrimSpace(m.interview.scanSummary) != "" {
+				content = m.interview.scanSummary
+			} else {
+				content = "Scan the repo to capture context."
+			}
+		case stepDraftConfirm:
+			content = "Blank PRD ready."
+		case stepResearchPrompt:
+			content = "Research step pending."
+		}
+	}
+	return "Open file: Ctrl+O\n\n" + content
+}
+
+func (m Model) renderInterviewChatContent(height int) string {
+	if height <= 0 {
+		return ""
+	}
+	composer := m.renderInterviewComposerLines()
+	if height <= len(composer) {
+		start := len(composer) - height
+		if start < 0 {
+			start = 0
+		}
+		return strings.Join(composer[start:], "\n")
+	}
+	transcriptHeight := height - len(composer) - 1
+	transcript := m.renderInterviewTranscriptLines(transcriptHeight)
+	lines := make([]string, 0, len(transcript)+1+len(composer))
+	lines = append(lines, transcript...)
+	lines = append(lines, "")
+	lines = append(lines, composer...)
+	return strings.Join(lines, "\n")
+}
+
+func (m Model) renderInterviewTranscriptLines(height int) []string {
+	lines := []string{"PM-focused agent: Codex CLI / Claude Code"}
+	if len(m.interview.chat) == 0 {
+		lines = append(lines, "No messages yet.")
+	} else {
+		for _, msg := range m.interview.chat {
+			role := formatInterviewRole(msg.Role)
+			lines = append(lines, role+": "+msg.Text)
+		}
+	}
+	if height <= 0 || len(lines) <= height {
+		return lines
+	}
+	return lines[len(lines)-height:]
+}
+
+func (m Model) renderInterviewComposerLines() []string {
+	lines := []string{"Compose:"}
+	lines = append(lines, renderInputBoxLines(m.input.Render(6))...)
+	lineNum, colNum := m.input.CursorPosition()
+	lines = append(lines, fmt.Sprintf("Input (line %d, col %d)", lineNum, colNum))
+	lines = append(lines, "Enter: iterate  [ / ]: prev/next")
+	return lines
+}
+
 func (m Model) interviewMarkdown() string {
 	prompt, stepNum, total := interviewStepInfo(m.interview.step)
 	var b strings.Builder
@@ -519,14 +751,30 @@ func (m Model) interviewMarkdown() string {
 			b.WriteString(draft)
 			b.WriteString("\n```\n\n")
 		}
+		b.WriteString("Conversation:\n")
+		if len(m.interview.chat) == 0 {
+			b.WriteString("No messages yet.\n\n")
+		} else {
+			for _, msg := range m.interview.chat {
+				role := formatInterviewRole(msg.Role)
+				b.WriteString(role)
+				b.WriteString(": ")
+				b.WriteString(msg.Text)
+				b.WriteString("\n")
+			}
+			b.WriteString("\n")
+		}
+		b.WriteString("Compose:\n")
 		b.WriteString("Input:\n")
-		inputLines := renderInputBoxLines(m.input.Render(4))
+		inputLines := renderInputBoxLines(m.input.Render(6))
 		b.WriteString("```\n")
 		for _, line := range inputLines {
 			b.WriteString(line)
 			b.WriteString("\n")
 		}
 		b.WriteString("```\n")
+		lineNum, colNum := m.input.CursorPosition()
+		b.WriteString(fmt.Sprintf("Input (line %d, col %d)\n", lineNum, colNum))
 		b.WriteString("Enter: iterate  [ / ]: prev/next\n")
 	} else {
 		b.WriteString("```\n")
@@ -536,10 +784,22 @@ func (m Model) interviewMarkdown() string {
 	return b.String()
 }
 
+func formatInterviewRole(role string) string {
+	trimmed := strings.TrimSpace(role)
+	if trimmed == "" {
+		return "Agent"
+	}
+	if len(trimmed) == 1 {
+		return strings.ToUpper(trimmed)
+	}
+	return strings.ToUpper(trimmed[:1]) + trimmed[1:]
+}
+
 func (m Model) interviewStepsMarkdown() string {
 	steps := []interviewStep{
 		stepScanPrompt,
 		stepDraftConfirm,
+		stepBootstrapPrompt,
 		stepVision,
 		stepUsers,
 		stepProblem,
@@ -856,7 +1116,7 @@ type interviewPrompt struct {
 }
 
 func interviewStepInfo(step interviewStep) (interviewPrompt, int, int) {
-	total := 7
+	total := 8
 	switch step {
 	case stepScanPrompt:
 		return interviewPrompt{
@@ -870,36 +1130,42 @@ func interviewStepInfo(step interviewStep) (interviewPrompt, int, int) {
 			question: "Confirm draft?",
 			options:  []string{"1) Yes - continue interview", "2) No - cancel interview"},
 		}, 2, total
+	case stepBootstrapPrompt:
+		return interviewPrompt{
+			title:    "Bootstrap",
+			question: "Generate initial answers from the codebase?",
+			options:  []string{"1) Yes - run coding agent", "2) No - skip bootstrap"},
+		}, 3, total
 	case stepVision:
 		return interviewPrompt{
 			title:       "Vision",
 			question:    "What is the vision?",
 			expectsText: true,
-		}, 3, total
+		}, 4, total
 	case stepUsers:
 		return interviewPrompt{
 			title:       "Users",
 			question:    "Who are the primary users?",
 			expectsText: true,
-		}, 4, total
+		}, 5, total
 	case stepProblem:
 		return interviewPrompt{
 			title:       "Problem",
 			question:    "What problem are we solving?",
 			expectsText: true,
-		}, 5, total
+		}, 6, total
 	case stepRequirements:
 		return interviewPrompt{
 			title:       "Requirements",
 			question:    "List requirements (comma or newline separated).",
 			expectsText: true,
-		}, 6, total
+		}, 7, total
 	case stepResearchPrompt:
 		return interviewPrompt{
 			title:    "Research",
 			question: "Run research now?",
 			options:  []string{"1) Yes - create research brief", "2) No - skip for now"},
-		}, 7, total
+		}, 8, total
 	default:
 		return interviewPrompt{
 			title:    "Interview",

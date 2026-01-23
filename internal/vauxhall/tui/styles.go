@@ -28,6 +28,14 @@ var (
 			BorderForeground(ColorMuted).
 			Padding(0, 1)
 
+	PaneFocusedStyle = lipgloss.NewStyle().
+			Border(lipgloss.ThickBorder()).
+			BorderForeground(ColorPrimary)
+
+	PaneUnfocusedStyle = lipgloss.NewStyle().
+			Border(lipgloss.RoundedBorder()).
+			BorderForeground(ColorMuted)
+
 	// Text styles
 	TitleStyle = lipgloss.NewStyle().
 			Foreground(ColorPrimary).

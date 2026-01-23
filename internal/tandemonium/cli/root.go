@@ -2,14 +2,12 @@ package cli
 
 import (
 	"fmt"
-	"path/filepath"
 	"strings"
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/mistakeknot/vauxpraudemonium/internal/tandemonium/cli/commands"
 	"github.com/mistakeknot/vauxpraudemonium/internal/tandemonium/config"
-	"github.com/mistakeknot/vauxpraudemonium/internal/tandemonium/plan"
 	"github.com/mistakeknot/vauxpraudemonium/internal/tandemonium/project"
 	"github.com/mistakeknot/vauxpraudemonium/internal/tandemonium/specs"
 	"github.com/mistakeknot/vauxpraudemonium/internal/tandemonium/tui"
@@ -23,6 +21,10 @@ func Execute() error {
 
 func newRootCommand() *cobra.Command {
 	var quickMode bool
+	var initAgent string
+	var initExisting string
+	var initDepth int
+	var initUseTUI bool
 	root := &cobra.Command{
 		Use:   "tandemonium",
 		Short: "Task orchestration for human-AI collaboration",
@@ -56,17 +58,26 @@ func newRootCommand() *cobra.Command {
 			return err
 		},
 	}
-	root.AddCommand(&cobra.Command{
+	initCmd := &cobra.Command{
 		Use:   "init",
 		Short: "Initialize .tandemonium in current directory",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			if err := project.Init("."); err != nil {
-				return err
+			opts := initOptions{
+				Agent:       initAgent,
+				Existing:    initExisting,
+				ExistingSet: cmd.Flags().Changed("existing"),
+				Depth:       initDepth,
+				DepthSet:    cmd.Flags().Changed("depth"),
+				UseTUI:      initUseTUI,
 			}
-			fmt.Fprintln(cmd.OutOrStdout(), "Would you like to start planning? [Y/n]")
-			return plan.Run(cmd.InOrStdin(), cmd.OutOrStdout(), filepath.Join(".", ".tandemonium", "plan"))
+			return runInit(cmd.OutOrStdout(), cmd.InOrStdin(), opts)
 		},
-	})
+	}
+	initCmd.Flags().StringVar(&initAgent, "agent", "claude", "Agent target to use for init")
+	initCmd.Flags().StringVar(&initExisting, "existing", "skip", "Existing epic handling (skip|overwrite|prompt)")
+	initCmd.Flags().IntVar(&initDepth, "depth", 0, "Exploration depth (1-3)")
+	initCmd.Flags().BoolVar(&initUseTUI, "tui", false, "Show progress UI")
+	root.AddCommand(initCmd)
 	root.AddCommand(
 		commands.AgentCmd(),
 		commands.StatusCmd(),
@@ -81,6 +92,7 @@ func newRootCommand() *cobra.Command {
 		commands.StopCmd(),
 		commands.ExportCmd(),
 		commands.ImportCmd(),
+		commands.ScanCmd(),
 	)
 	root.Flags().BoolVarP(&quickMode, "quick", "q", false, "Create task in quick mode")
 	return root

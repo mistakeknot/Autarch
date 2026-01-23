@@ -29,8 +29,11 @@ func TestRootCommandHasValidate(t *testing.T) {
 	}
 }
 
-func TestRootRunPromptsWhenNotInitialized(t *testing.T) {
+func TestRootRunAutoInitCreatesPraudeDir(t *testing.T) {
 	root := t.TempDir()
+	origRun := runTUI
+	runTUI = func() error { return nil }
+	defer func() { runTUI = origRun }()
 	cwd, err := os.Getwd()
 	if err != nil {
 		t.Fatal(err)
@@ -47,8 +50,11 @@ func TestRootRunPromptsWhenNotInitialized(t *testing.T) {
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if !strings.Contains(buf.String(), "praude init") {
-		t.Fatalf("expected init prompt, got %q", buf.String())
+	if _, err := os.Stat(filepath.Join(root, ".praude", "config.toml")); err != nil {
+		t.Fatalf("expected auto-init config, got %v", err)
+	}
+	if strings.Contains(buf.String(), "praude init") {
+		t.Fatalf("did not expect init prompt, got %q", buf.String())
 	}
 }
 
