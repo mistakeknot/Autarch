@@ -23,3 +23,7 @@ func renderPanelTitle(title string, width int) string {
 	line := strings.Repeat("─", max(0, width))
 	return sharedtui.TitleStyle.Render(title) + "\n" + sharedtui.LabelStyle.Render(line)
 }
+
+func renderComposerTitle(title string) string {
+	return sharedtui.TitleStyle.Render(title)
+}

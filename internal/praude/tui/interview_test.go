@@ -143,6 +143,55 @@ func TestInterviewChatRendersTranscript(t *testing.T) {
 	})
 }
 
+func TestInterviewComposerShowsTitleAndHints(t *testing.T) {
+	withTempRoot(t, func(root string) {
+		m := NewModel()
+		m.mode = "interview"
+		m.interview = startInterview(m.root, specs.Spec{}, "")
+		m.interview.step = stepVision
+		out := stripANSI(m.View())
+		if !strings.Contains(out, "Compose · Vision") {
+			t.Fatalf("expected composer title with step")
+		}
+		if !strings.Contains(out, "Ctrl+O") || !strings.Contains(out, "\\") {
+			t.Fatalf("expected compact composer hints")
+		}
+	})
+}
+
+func TestInterviewTranscriptUsesRoleBadges(t *testing.T) {
+	withTempRoot(t, func(root string) {
+		m := NewModel()
+		m.mode = "interview"
+		m.interview = startInterview(m.root, specs.Spec{}, "")
+		m.interview.chat = []interviewMessage{{Role: "user", Text: "Hello"}}
+		out := stripANSI(m.View())
+		if !strings.Contains(out, "[User]") {
+			t.Fatalf("expected user badge")
+		}
+		if !strings.Contains(out, "  Hello") {
+			t.Fatalf("expected indented message")
+		}
+	})
+}
+
+func TestInterviewHeaderNavActiveAndCollapsed(t *testing.T) {
+	withTempRoot(t, func(root string) {
+		m := NewModel()
+		m.mode = "interview"
+		m.interview = startInterview(m.root, specs.Spec{}, "")
+		m.interview.step = stepProblem
+		m.width = 60
+		out := stripANSI(m.View())
+		if !strings.Contains(out, "[[Problem]]") {
+			t.Fatalf("expected active step emphasis")
+		}
+		if !strings.Contains(out, "...") {
+			t.Fatalf("expected collapsed nav")
+		}
+	})
+}
+
 func TestInterviewLayoutShowsHeaderAndPanels(t *testing.T) {
 	withTempRoot(t, func(root string) {
 		m := NewModel()
@@ -173,8 +222,8 @@ func TestInterviewShowsStepAndInputField(t *testing.T) {
 		m = pressKey(m, "2")
 		out := m.View()
 		clean := stripANSI(out)
-		if !strings.Contains(clean, "Compose:") {
-			t.Fatalf("expected composer label")
+		if !strings.Contains(clean, "Compose ·") {
+			t.Fatalf("expected composer title")
 		}
 		if !strings.Contains(clean, "Enter: iterate") {
 			t.Fatalf("expected iterate hint")

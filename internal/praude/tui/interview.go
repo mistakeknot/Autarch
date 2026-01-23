@@ -619,13 +619,35 @@ func (m Model) renderInterviewHeaderNav(width int) string {
 		stepResearchPrompt,
 	}
 	labels := make([]string, 0, len(steps))
-	for _, step := range steps {
+	activeIndex := 0
+	for idx, step := range steps {
 		prompt, _, _ := interviewStepInfo(step)
-		label := prompt.title
+		label := "[" + prompt.title + "]"
 		if step == m.interview.step {
-			label = "[" + label + "]"
+			label = "[[" + prompt.title + "]]"
+			activeIndex = idx
 		}
 		labels = append(labels, label)
+	}
+	if width < 80 {
+		start := activeIndex - 1
+		if start < 0 {
+			start = 0
+		}
+		end := activeIndex + 1
+		if end >= len(labels) {
+			end = len(labels) - 1
+		}
+		collapsed := make([]string, 0, 5)
+		if start > 0 {
+			collapsed = append(collapsed, "...")
+		}
+		collapsed = append(collapsed, labels[start:end+1]...)
+		if end < len(labels)-1 {
+			collapsed = append(collapsed, "...")
+		}
+		nav := strings.Join(collapsed, "  ")
+		return ensureExactWidth(nav, width)
 	}
 	nav := strings.Join(labels, "  ")
 	return ensureExactWidth(nav, width)
@@ -690,7 +712,9 @@ func (m Model) renderInterviewTranscriptLines(height int) []string {
 	} else {
 		for _, msg := range m.interview.chat {
 			role := formatInterviewRole(msg.Role)
-			lines = append(lines, role+": "+msg.Text)
+			lines = append(lines, "["+role+"]")
+			lines = append(lines, "  "+msg.Text)
+			lines = append(lines, "")
 		}
 	}
 	if height <= 0 || len(lines) <= height {
@@ -700,11 +724,12 @@ func (m Model) renderInterviewTranscriptLines(height int) []string {
 }
 
 func (m Model) renderInterviewComposerLines() []string {
-	lines := []string{"Compose:"}
+	prompt, _, _ := interviewStepInfo(m.interview.step)
+	title := "Compose · " + prompt.title
+	lines := []string{renderComposerTitle(title)}
 	lines = append(lines, renderInputBoxLines(m.input.Render(6))...)
 	lineNum, colNum := m.input.CursorPosition()
-	lines = append(lines, fmt.Sprintf("Input (line %d, col %d)", lineNum, colNum))
-	lines = append(lines, "Enter: iterate  [ / ]: prev/next")
+	lines = append(lines, fmt.Sprintf("Enter: iterate · [ / ]: prev/next · Ctrl+O: open · \\: swap · (line %d, col %d)", lineNum, colNum))
 	return lines
 }
 
