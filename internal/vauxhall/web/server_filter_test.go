@@ -44,7 +44,17 @@ func TestSessionsTemplateShowsQueryValue(t *testing.T) {
 	req := httptest.NewRequest(http.MethodGet, "/sessions?q=codex", nil)
 	w := httptest.NewRecorder()
 	srv.handleSessions(w, req)
-	if !strings.Contains(w.Body.String(), "value=\"codex\"") {
+	body := w.Body.String()
+	if !strings.Contains(body, "id=\"sessions-search\"") {
+		t.Fatalf("expected search input in response")
+	}
+	start := strings.Index(body, "id=\"sessions-search\"")
+	end := strings.Index(body[start:], ">")
+	if start == -1 || end == -1 {
+		t.Fatalf("expected search input markup")
+	}
+	chunk := body[start : start+end]
+	if !strings.Contains(chunk, "value=\"codex\"") {
 		t.Fatalf("expected query value in input")
 	}
 }

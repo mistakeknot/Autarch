@@ -11,11 +11,27 @@
         <button
             hx-get="/sessions"
             hx-target="#sessions-list"
+            hx-select="#sessions-list"
             hx-swap="innerHTML"
             class="px-3 py-1 text-sm bg-gray-700 hover:bg-gray-600 rounded">
             Refresh
         </button>
     </div>
+
+    <form method="get" action="/sessions" class="bg-gray-800 rounded-lg p-4 flex flex-wrap items-center gap-3 text-sm">
+        <span class="text-gray-400">Search</span>
+        <input
+            id="sessions-search"
+            name="q"
+            value="{{.Query}}"
+            placeholder="Search sessions"
+            hx-get="/sessions"
+            hx-trigger="input changed delay:300ms"
+            hx-target="#sessions-list"
+            hx-select="#sessions-list"
+            class="px-2 py-1 bg-gray-900 rounded border border-gray-700 text-gray-200 flex-1 min-w-[16rem]" />
+        <span class="text-xs text-gray-500">Tokens: !running !waiting !idle !error !unknown</span>
+    </form>
 
     <form
         hx-post="/api/sessions/new"
