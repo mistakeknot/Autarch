@@ -9,6 +9,7 @@ import (
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 
 	"github.com/mistakeknot/vauxpraudemonium/internal/tandemonium/agent"
 	"github.com/mistakeknot/vauxpraudemonium/internal/tandemonium/config"
@@ -1987,21 +1988,21 @@ func coordSnippet(value string, max int) string {
 func (m *Model) topBarLine() string {
 	title := strings.TrimSpace(m.Title)
 	if title == "" {
-		title = "Praude"
+		title = "Tandemonium"
 	}
-	prd := strings.TrimSpace(m.CurrentPRD)
-	if prd == "" {
-		prd = "-"
+	header := TitleStyle.Render(title)
+	if strings.TrimSpace(m.FilterMode) != "" {
+		header += " " + LabelStyle.Render("("+m.FilterMode+")")
 	}
-	repo := strings.TrimSpace(m.RepoPath)
-	if repo == "" {
-		repo = "-"
+	tabs := []string{
+		renderTab("Fleet", m.ViewMode == ViewFleet),
+		renderTab("Review", m.ViewMode == ViewReview),
 	}
-	status := "-"
-	if len(m.StatusBadges) > 0 {
-		status = strings.Join(m.StatusBadges, ",")
+	if m.RightTab == RightTabCoord {
+		tabs = append(tabs, renderTab("Coord", true))
 	}
-	return fmt.Sprintf("%s | PRD: %s | repo: %s | status: %s", title, prd, repo, status)
+	tabBar := lipgloss.JoinHorizontal(lipgloss.Center, tabs...)
+	return lipgloss.JoinVertical(lipgloss.Left, header, tabBar)
 }
 
 func (m *Model) bottomBarLine() string {
@@ -2012,7 +2013,16 @@ func (m *Model) bottomBarLine() string {
 	if m.StatusLevel == StatusError && status != "-" {
 		status = "ERROR: " + status
 	}
-	return fmt.Sprintf("MODE: %s | FOCUS: %s | STATUS: %s", m.modeLabel(), m.focusLabel(), status)
+	line := fmt.Sprintf("MODE: %s | FOCUS: %s | STATUS: %s", m.modeLabel(), m.focusLabel(), status)
+	return LabelStyle.Render(line)
+}
+
+func renderTab(label string, active bool) string {
+	style := TabStyle
+	if active {
+		style = ActiveTabStyle
+	}
+	return style.Render(label)
 }
 
 func (m *Model) modeLabel() string {

@@ -35,3 +35,12 @@ func TestReviewViewIncludesActions(t *testing.T) {
 		t.Fatalf("expected review actions, got %q", out)
 	}
 }
+
+func TestTabBarRenders(t *testing.T) {
+	m := NewModel()
+	m.Width = 120
+	out := stripANSI(m.View())
+	if !strings.Contains(out, "Fleet") || !strings.Contains(out, "Review") {
+		t.Fatalf("expected tab bar")
+	}
+}
