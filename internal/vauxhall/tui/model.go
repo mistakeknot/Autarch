@@ -472,7 +472,7 @@ func New(agg aggregatorAPI, buildInfo string) Model {
 		statusTTL:   2 * time.Second,
 		now:         time.Now,
 		activeTab:   TabDashboard,
-		activePane:  PaneMain,
+		activePane:  PaneProjects,
 		buildInfo:   buildInfo,
 		sessionList: sessionList,
 		projectsList: projectsList,

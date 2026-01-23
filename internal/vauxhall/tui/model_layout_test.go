@@ -51,6 +51,13 @@ func TestFilterSessionsByProject(t *testing.T) {
 	}
 }
 
+func TestDefaultFocusIsProjects(t *testing.T) {
+	m := New(&fakeAggLayout{}, "")
+	if m.activePane != PaneProjects {
+		t.Fatalf("expected default focus on projects")
+	}
+}
+
 func TestFocusSwitching(t *testing.T) {
 	agg := &fakeAggLayout{state: aggregator.State{}}
 	m := New(agg, "")
@@ -64,8 +71,8 @@ func TestFocusSwitching(t *testing.T) {
 }
 
 func TestRightPaneTabs(t *testing.T) {
-	if TabProjects != 1 || TabSessions != 2 || TabAgents != 3 {
-		t.Fatalf("expected tabs: Dashboard, Projects, Sessions, Agents (Projects=1 Sessions=2 Agents=3)")
+	if TabDashboard != 0 || TabSessions != 1 || TabAgents != 2 {
+		t.Fatalf("expected tabs: Dashboard, Sessions, Agents (Sessions=1 Agents=2)")
 	}
 }
 
@@ -86,5 +93,14 @@ func TestHeaderIncludesBuildInfo(t *testing.T) {
 	header := m.renderHeader()
 	if !strings.Contains(header, "rev abc123") {
 		t.Fatalf("expected build info in header")
+	}
+}
+
+func TestHeaderTabsExcludeProjects(t *testing.T) {
+	m := New(&fakeAggLayout{}, "")
+	m.activeTab = TabDashboard
+	header := m.renderHeader()
+	if strings.Contains(header, "Projects") {
+		t.Fatalf("did not expect Projects in header tabs")
 	}
 }
