@@ -44,3 +44,13 @@ func TestTabBarRenders(t *testing.T) {
 		t.Fatalf("expected tab bar")
 	}
 }
+
+func TestTwoPaneLayoutRenders(t *testing.T) {
+	m := NewModel()
+	m.Width = 120
+	m.Height = 40
+	out := stripANSI(m.View())
+	if !strings.Contains(out, "│") && !strings.Contains(out, "┐") {
+		t.Fatalf("expected pane borders")
+	}
+}

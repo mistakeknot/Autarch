@@ -814,7 +814,16 @@ func (m Model) View() string {
 			}
 		}
 	}
-	out += renderTwoPane(left, right, leftWidth, 1)
+	leftStyle := PaneUnfocusedStyle
+	rightStyle := PaneUnfocusedStyle
+	if m.FocusPane == FocusTasks {
+		leftStyle = PaneFocusedStyle
+	} else {
+		rightStyle = PaneFocusedStyle
+	}
+	leftView := leftStyle.Width(leftWidth).Render(strings.Join(left, "\n"))
+	rightView := rightStyle.Width(rightWidth).Render(strings.Join(right, "\n"))
+	out += lipgloss.JoinHorizontal(lipgloss.Top, leftView, "  ", rightView)
 
 	if len(m.TaskList) == 0 {
 		out += "\nKEYS: n new task, i init, ? help\n"
