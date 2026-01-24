@@ -138,7 +138,7 @@ func runProposePlan(cwd string) error {
 	return nil
 }
 
-// runDirectPropose scans, invokes agent, and saves proposals directly.
+// runDirectPropose scans, invokes agent, saves proposals, then prompts for selection.
 func runDirectPropose(cwd string) error {
 	scanner := proposal.NewContextScanner(cwd)
 	var ctx *proposal.ProjectContext
@@ -188,24 +188,130 @@ func runDirectPropose(cwd string) error {
 		return fmt.Errorf("failed to save proposals: %w", err)
 	}
 
-	// Display results
-	fmt.Printf("\nGenerated %d research agenda(s):\n\n", len(result.Agendas))
+	// Display results for review
+	displayProposalsForReview(result)
+
+	// Prompt for selection
+	return promptAndApplySelection(cwd, result)
+}
+
+// displayProposalsForReview shows proposals in a review-friendly format.
+func displayProposalsForReview(result *proposal.ProposalResult) {
+	fmt.Printf("\n")
+	fmt.Println("═══════════════════════════════════════════════════════════════")
+	fmt.Printf(" RESEARCH AGENDA PROPOSALS (%d generated)\n", len(result.Agendas))
+	fmt.Println("═══════════════════════════════════════════════════════════════")
+
 	for i, agenda := range result.Agendas {
-		fmt.Printf("%d. %s [%s] (%s priority)\n", i+1, agenda.Title, agenda.ID, agenda.Priority)
+		fmt.Println()
+		priorityIcon := "○"
+		switch agenda.Priority {
+		case "high":
+			priorityIcon = "●"
+		case "medium":
+			priorityIcon = "◐"
+		}
+		fmt.Printf("%s %d. [%s] %s\n", priorityIcon, i+1, agenda.ID, agenda.Title)
+		fmt.Printf("   Priority: %s | Scope: %s\n", agenda.Priority, agenda.EstimatedScope)
 		fmt.Printf("   %s\n", agenda.Description)
-		if len(agenda.Questions) > 0 {
-			fmt.Printf("   Questions: %d\n", len(agenda.Questions))
+		fmt.Println()
+		fmt.Println("   Research Questions:")
+		for _, q := range agenda.Questions {
+			fmt.Printf("     • %s\n", q)
 		}
 		if len(agenda.SuggestedHunters) > 0 {
 			fmt.Printf("   Hunters: %s\n", strings.Join(agenda.SuggestedHunters, ", "))
 		}
+	}
+	fmt.Println()
+	fmt.Println("───────────────────────────────────────────────────────────────")
+}
+
+// promptAndApplySelection prompts user to select agendas and applies them.
+func promptAndApplySelection(cwd string, result *proposal.ProposalResult) error {
+	fmt.Println("Review the agendas above.")
+	fmt.Println()
+	fmt.Println("Options:")
+	fmt.Println("  • Enter numbers (e.g., 1,2) to select specific agendas")
+	fmt.Println("  • Enter 'all' to select all agendas")
+	fmt.Println("  • Enter 'none' or press Enter to skip (proposals saved for later)")
+	fmt.Println()
+	fmt.Print("Select agendas to apply: ")
+
+	var input string
+	fmt.Scanln(&input)
+	input = strings.TrimSpace(input)
+
+	if input == "" || strings.ToLower(input) == "none" {
 		fmt.Println()
+		fmt.Println("No agendas applied. Proposals saved to .pollard/proposals/current.yaml")
+		fmt.Println("Run 'pollard propose --select' later to apply agendas.")
+		return nil
 	}
 
-	fmt.Println("Proposals saved to .pollard/proposals/current.yaml")
-	fmt.Println("Run 'pollard propose --select' to choose which agendas to pursue")
+	var selectedIDs []string
+	if strings.ToLower(input) == "all" {
+		for _, agenda := range result.Agendas {
+			selectedIDs = append(selectedIDs, agenda.ID)
+		}
+	} else {
+		// Parse comma-separated numbers or IDs
+		parts := strings.Split(input, ",")
+		for _, part := range parts {
+			part = strings.TrimSpace(part)
+			// Handle numeric selection (1, 2, 3, etc.)
+			if idx := parseNumber(part); idx > 0 && idx <= len(result.Agendas) {
+				selectedIDs = append(selectedIDs, result.Agendas[idx-1].ID)
+			} else if part != "" {
+				// Assume it's an ID
+				selectedIDs = append(selectedIDs, part)
+			}
+		}
+	}
+
+	if len(selectedIDs) == 0 {
+		fmt.Println("No valid agendas selected")
+		return nil
+	}
+
+	// Show what will be applied
+	fmt.Println()
+	fmt.Println("Applying selected agendas:")
+	for _, id := range selectedIDs {
+		for _, agenda := range result.Agendas {
+			if agenda.ID == id {
+				fmt.Printf("  • %s\n", agenda.Title)
+				break
+			}
+		}
+	}
+	fmt.Println()
+
+	// Apply selected agendas
+	selector := proposal.NewAgendaSelector(cwd)
+	selResult, err := selector.ApplySelectedAgendasWithResult(selectedIDs, result)
+	if err != nil {
+		return fmt.Errorf("failed to apply agendas: %w", err)
+	}
+
+	// Display results
+	fmt.Println(proposal.FormatSelectionResult(selResult))
+	fmt.Println()
+	fmt.Println("Next step: Run 'pollard scan' to execute research with the new queries")
 
 	return nil
+}
+
+// parseNumber parses a string as a positive integer, returns 0 if invalid.
+func parseNumber(s string) int {
+	n := 0
+	for _, c := range s {
+		if c < '0' || c > '9' {
+			return 0
+		}
+		n = n*10 + int(c-'0')
+	}
+	return n
 }
 
 // runAgendaSelection allows interactive selection of agendas.
