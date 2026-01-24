@@ -227,31 +227,32 @@ func filterAgentItems(items []list.Item, state FilterState, statusByAgent map[st
 
 // Model is the main TUI model
 type Model struct {
-	agg          aggregatorAPI
-	tmuxClient   statusClient
-	statusCache  map[string]cachedStatus
-	statusTTL    time.Duration
-	now          func() time.Time
-	width        int
-	height       int
-	activeTab    Tab
-	activePane   Pane
-	buildInfo    string
-	sessionList  list.Model
-	projectsList list.Model
-	agentList    list.Model
-	mcpList      list.Model
-	mcpProject   string
-	showMCP      bool
-	filterActive bool
-	filterInput  textinput.Model
-	filterStates map[Tab]FilterState
-	promptMode   promptMode
-	promptInput  textinput.Model
-	promptSess   *aggregator.TmuxSession
-	err          error
-	lastRefresh  time.Time
-	quitting     bool
+	agg           aggregatorAPI
+	tmuxClient    statusClient
+	statusCache   map[string]cachedStatus
+	statusTTL     time.Duration
+	now           func() time.Time
+	width         int
+	height        int
+	activeTab     Tab
+	activePane    Pane
+	buildInfo     string
+	sessionList   list.Model
+	projectsList  list.Model
+	agentList     list.Model
+	mcpList       list.Model
+	mcpProject    string
+	showMCP       bool
+	filterActive  bool
+	filterInput   textinput.Model
+	filterStates  map[Tab]FilterState
+	groupExpanded map[string]bool
+	promptMode    promptMode
+	promptInput   textinput.Model
+	promptSess    *aggregator.TmuxSession
+	err           error
+	lastRefresh   time.Time
+	quitting      bool
 }
 
 // SessionItem represents a session in the list
@@ -339,7 +340,7 @@ func (i AgentItem) Description() string {
 }
 func (i AgentItem) FilterValue() string { return i.Agent.Name + " " + i.Agent.Program }
 
-func groupSessionItemsByProject(items []list.Item) []list.Item {
+func (m *Model) groupSessionItemsByProject(items []list.Item) []list.Item {
 	if len(items) == 0 {
 		return items
 	}
@@ -363,20 +364,56 @@ func groupSessionItemsByProject(items []list.Item) []list.Item {
 			name = "Unassigned"
 		}
 		groupItems := grouped[key]
+		expanded := m.isGroupExpanded(TabSessions, key)
 		out = append(out, GroupHeaderItem{
 			ProjectPath: key,
 			Name:        name,
 			Count:       len(groupItems),
-			Expanded:    true,
+			Expanded:    expanded,
 		})
-		for _, session := range groupItems {
-			out = append(out, session)
+		if expanded {
+			for _, session := range groupItems {
+				out = append(out, session)
+			}
 		}
 	}
 	return out
 }
 
-func groupAgentItemsByProject(items []list.Item) []list.Item {
+func (m *Model) isGroupExpanded(tab Tab, projectPath string) bool {
+	if m.groupExpanded == nil {
+		m.groupExpanded = map[string]bool{}
+	}
+	key := groupKey(tab, projectPath)
+	expanded, ok := m.groupExpanded[key]
+	if !ok {
+		return true
+	}
+	return expanded
+}
+
+func (m *Model) toggleGroup(tab Tab, projectPath string) {
+	if m.groupExpanded == nil {
+		m.groupExpanded = map[string]bool{}
+	}
+	key := groupKey(tab, projectPath)
+	current := m.groupExpanded[key]
+	if !current {
+		m.groupExpanded[key] = true
+		return
+	}
+	m.groupExpanded[key] = false
+}
+
+func groupKey(tab Tab, projectPath string) string {
+	prefix := "sessions"
+	if tab == TabAgents {
+		prefix = "agents"
+	}
+	return prefix + ":" + projectPath
+}
+
+func (m *Model) groupAgentItemsByProject(items []list.Item) []list.Item {
 	if len(items) == 0 {
 		return items
 	}
@@ -400,14 +437,17 @@ func groupAgentItemsByProject(items []list.Item) []list.Item {
 			name = "Unassigned"
 		}
 		groupItems := grouped[key]
+		expanded := m.isGroupExpanded(TabAgents, key)
 		out = append(out, GroupHeaderItem{
 			ProjectPath: key,
 			Name:        name,
 			Count:       len(groupItems),
-			Expanded:    true,
+			Expanded:    expanded,
 		})
-		for _, agent := range groupItems {
-			out = append(out, agent)
+		if expanded {
+			for _, agent := range groupItems {
+				out = append(out, agent)
+			}
 		}
 	}
 	return out
@@ -576,7 +616,8 @@ func New(agg aggregatorAPI, buildInfo string) Model {
 			TabSessions: {Raw: ""},
 			TabAgents:   {Raw: ""},
 		},
-		promptInput: promptInput,
+		groupExpanded: map[string]bool{},
+		promptInput:   promptInput,
 	}
 }
 
@@ -714,6 +755,20 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 		switch {
+		case key.Matches(msg, keys.Toggle):
+			if m.activeTab == TabSessions || m.activeTab == TabAgents {
+				var selected list.Item
+				if m.activeTab == TabSessions {
+					selected = m.sessionList.SelectedItem()
+				} else {
+					selected = m.agentList.SelectedItem()
+				}
+				if header, ok := selected.(GroupHeaderItem); ok {
+					m.toggleGroup(m.activeTab, header.ProjectPath)
+					m.updateLists()
+					return m, nil
+				}
+			}
 
 		case key.Matches(msg, keys.Tab):
 			m.stopFilterEditing()
@@ -746,6 +801,19 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.syncFilterInputForTab(m.activeTab)
 				m.filterInput.Focus()
 				return m, nil
+			}
+			return m, nil
+
+		case key.Matches(msg, keys.Toggle):
+			if m.activeTab == TabDashboard && m.showMCP {
+				if item, ok := m.mcpList.SelectedItem().(MCPItem); ok {
+					if item.Status.Status == mcp.StatusRunning {
+						m.err = m.agg.StopMCP(m.mcpProject, item.Status.Component)
+					} else {
+						m.err = m.agg.StartMCP(context.Background(), m.mcpProject, item.Status.Component)
+					}
+					return m, m.refresh()
+				}
 			}
 			return m, nil
 
@@ -820,19 +888,6 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					}
 				}
 				return m, nil
-			}
-			return m, nil
-
-		case key.Matches(msg, keys.Toggle):
-			if m.activeTab == TabDashboard && m.showMCP {
-				if item, ok := m.mcpList.SelectedItem().(MCPItem); ok {
-					if item.Status.Status == mcp.StatusRunning {
-						m.err = m.agg.StopMCP(m.mcpProject, item.Status.Component)
-					} else {
-						m.err = m.agg.StartMCP(context.Background(), m.mcpProject, item.Status.Component)
-					}
-					return m, m.refresh()
-				}
 			}
 			return m, nil
 
@@ -1012,7 +1067,7 @@ func (m *Model) updateLists() {
 		})
 	}
 	filteredSessions := filterSessionItems(sessionItems, m.filterStateFor(TabSessions))
-	m.sessionList.SetItems(groupSessionItemsByProject(filteredSessions))
+	m.sessionList.SetItems(m.groupSessionItemsByProject(filteredSessions))
 
 	// Update agent list
 	agentItems := make([]list.Item, 0, len(state.Agents))
@@ -1023,7 +1078,7 @@ func (m *Model) updateLists() {
 		agentItems = append(agentItems, AgentItem{Agent: a})
 	}
 	filteredAgents := filterAgentItems(agentItems, m.filterStateFor(TabAgents), statusByAgent)
-	m.agentList.SetItems(groupAgentItemsByProject(filteredAgents))
+	m.agentList.SetItems(m.groupAgentItemsByProject(filteredAgents))
 }
 
 func (m *Model) updateMCPList() {

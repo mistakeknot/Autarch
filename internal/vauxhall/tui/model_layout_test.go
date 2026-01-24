@@ -89,6 +89,23 @@ func TestAgentGroupingBuildsHeaders(t *testing.T) {
 	}
 }
 
+func TestGroupCollapseHidesItems(t *testing.T) {
+	agg := &fakeAggLayout{state: aggregator.State{
+		Sessions: []aggregator.TmuxSession{{Name: "a", ProjectPath: "/p/one"}},
+	}}
+	m := New(agg, "")
+	m.activeTab = TabSessions
+	m.groupExpanded = map[string]bool{"sessions:/p/one": false}
+	m.updateLists()
+	items := m.sessionList.Items()
+	if len(items) != 1 {
+		t.Fatalf("expected only header when collapsed")
+	}
+	if _, ok := items[0].(GroupHeaderItem); !ok {
+		t.Fatalf("expected header item")
+	}
+}
+
 func TestDefaultFocusIsProjects(t *testing.T) {
 	m := New(&fakeAggLayout{}, "")
 	if m.activePane != PaneProjects {
