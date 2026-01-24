@@ -106,6 +106,23 @@ func TestGroupCollapseHidesItems(t *testing.T) {
 	}
 }
 
+func TestGroupingAppliesAfterFilter(t *testing.T) {
+	agg := &fakeAggLayout{state: aggregator.State{
+		Sessions: []aggregator.TmuxSession{
+			{Name: "codex", ProjectPath: "/p/one"},
+			{Name: "claude", ProjectPath: "/p/two"},
+		},
+	}}
+	m := New(agg, "")
+	m.activeTab = TabSessions
+	m.filterStates[TabSessions] = parseFilter("codex")
+	m.updateLists()
+	items := m.sessionList.Items()
+	if len(items) != 2 {
+		t.Fatalf("expected 1 header + 1 item after filter")
+	}
+}
+
 func TestDefaultFocusIsProjects(t *testing.T) {
 	m := New(&fakeAggLayout{}, "")
 	if m.activePane != PaneProjects {
