@@ -17,6 +17,7 @@ import (
 
 	"github.com/mistakeknot/vauxpraudemonium/internal/vauxhall/aggregator"
 	"github.com/mistakeknot/vauxpraudemonium/internal/vauxhall/config"
+	"github.com/mistakeknot/vauxpraudemonium/internal/vauxhall/daemon"
 	"github.com/mistakeknot/vauxpraudemonium/internal/vauxhall/discovery"
 	"github.com/mistakeknot/vauxpraudemonium/internal/vauxhall/tui"
 	"github.com/mistakeknot/vauxpraudemonium/internal/vauxhall/web"
@@ -24,11 +25,13 @@ import (
 
 func main() {
 	var (
-		port     = flag.Int("port", 8099, "HTTP server port")
-		host     = flag.String("host", "0.0.0.0", "HTTP server bind address")
-		scanRoot = flag.String("scan-root", "", "Root directory to scan for projects")
-		cfgPath  = flag.String("config", "", "Path to config file")
-		tuiMode  = flag.Bool("tui", false, "Run in TUI mode instead of web server")
+		port       = flag.Int("port", 8099, "HTTP server port")
+		host       = flag.String("host", "0.0.0.0", "HTTP server bind address")
+		scanRoot   = flag.String("scan-root", "", "Root directory to scan for projects")
+		cfgPath    = flag.String("config", "", "Path to config file")
+		tuiMode    = flag.Bool("tui", false, "Run in TUI mode instead of web server")
+		daemonMode = flag.Bool("daemon", false, "Run as daemon with HTTP API (schmux-style)")
+		daemonAddr = flag.String("daemon-addr", "127.0.0.1:8100", "Daemon HTTP API address")
 	)
 	flag.Parse()
 
@@ -75,10 +78,36 @@ func main() {
 		slog.Error("initial scan failed", "error", err)
 	}
 
-	if *tuiMode {
+	if *daemonMode {
+		runDaemon(*daemonAddr, cfg.Discovery.ScanRoots)
+	} else if *tuiMode {
 		runTUI(agg)
 	} else {
 		runWeb(cfg, agg)
+	}
+}
+
+func runDaemon(addr string, scanRoots []string) {
+	srv := daemon.NewServer(daemon.Config{
+		Addr:        addr,
+		ProjectDirs: scanRoots,
+	})
+
+	// Setup signal handling
+	quit := make(chan os.Signal, 1)
+	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
+
+	go func() {
+		<-quit
+		slog.Info("shutting down daemon")
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		_ = srv.Shutdown(ctx)
+	}()
+
+	if err := srv.Start(); err != nil && err != http.ErrServerClosed {
+		slog.Error("daemon error", "error", err)
+		os.Exit(1)
 	}
 }
 

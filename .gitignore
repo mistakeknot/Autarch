@@ -1,5 +1,6 @@
 # Binaries
 /vauxhall
+/pollard
 /praude
 /tandemonium
 *.exe
@@ -25,6 +26,7 @@ node_modules/
 
 # Local state/cache
 .praude/
+.pollard/
 .tandemonium/
 .tldrs/
 

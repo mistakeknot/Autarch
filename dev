@@ -7,14 +7,18 @@ usage() {
     echo "Usage: ./dev <tool> [args...]"
     echo ""
     echo "Tools:"
-    echo "  vauxhall     - Build and run Vauxhall"
-    echo "  praude       - Build and run Praude"
-    echo "  tandemonium  - Build and run Tandemonium"
+    echo "  vauxhall     - Build and run Vauxhall (mission control)"
+    echo "  pollard      - Build and run Pollard (research intelligence)"
+    echo "  praude       - Build and run Praude (PRD generation)"
+    echo "  tandemonium  - Build and run Tandemonium (task tracker)"
     echo ""
     echo "Examples:"
-    echo "  ./dev vauxhall --tui"
-    echo "  ./dev praude list"
-    echo "  ./dev tandemonium status"
+    echo "  ./dev vauxhall --tui       # TUI mode"
+    echo "  ./dev vauxhall --daemon    # Daemon mode (schmux-style)"
+    echo "  ./dev pollard init         # Initialize Pollard in project"
+    echo "  ./dev pollard scan         # Run research agents"
+    echo "  ./dev praude list          # List PRDs/specs"
+    echo "  ./dev tandemonium status   # Show task status"
     exit 1
 }
 
@@ -29,6 +33,10 @@ case "$TOOL" in
     vauxhall)
         go build -o vauxhall ./cmd/vauxhall
         exec ./vauxhall "$@"
+        ;;
+    pollard)
+        go build -o pollard ./cmd/pollard
+        exec ./pollard "$@"
         ;;
     praude)
         go build -o praude ./cmd/praude
