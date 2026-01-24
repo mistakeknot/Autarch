@@ -164,7 +164,7 @@ type openAlexResult struct {
 	Authorships     []openAlexAuthor  `json:"authorships"`
 	PrimaryLocation *openAlexLocation `json:"primary_location"`
 	Topics          []openAlexTopic   `json:"topics"`
-	Abstract        string            `json:"abstract_inverted_index"` // Actually an inverted index, handled specially
+	// abstract_inverted_index is a map, not a string - we ignore it
 }
 
 type openAlexOA struct {
