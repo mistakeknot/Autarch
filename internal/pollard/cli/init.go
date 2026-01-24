@@ -27,7 +27,7 @@ var initCmd = &cobra.Command{
 
 		// Check if config already exists
 		existingCfg, err := config.Load(cwd)
-		if err == nil && len(existingCfg.Agents) > 0 {
+		if err == nil && len(existingCfg.Hunters) > 0 {
 			fmt.Println("Pollard already initialized. Config exists at .pollard/config.yaml")
 			return nil
 		}

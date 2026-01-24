@@ -19,6 +19,8 @@ const (
 	TypeScreenshot  Type = "screenshot"
 	TypeHackerNews  Type = "hackernews"
 	TypeProductHunt Type = "producthunt"
+	TypeArxiv       Type = "arxiv"
+	TypeCompetitor  Type = "competitor"
 )
 
 // GitHubRepo represents a GitHub repository source
@@ -52,13 +54,70 @@ type Screenshot struct {
 	CapturedAt  time.Time `yaml:"captured_at"`
 }
 
+// ResearchPaper represents an academic paper from arXiv or Semantic Scholar
+type ResearchPaper struct {
+	ArxivID     string    `yaml:"arxiv_id"`
+	Title       string    `yaml:"title"`
+	Authors     []string  `yaml:"authors"`
+	Abstract    string    `yaml:"abstract"`
+	URL         string    `yaml:"url"`
+	PDFURL      string    `yaml:"pdf_url,omitempty"`
+	Published   time.Time `yaml:"published"`
+	Categories  []string  `yaml:"categories"`
+	Citations   int       `yaml:"citations,omitempty"`
+	Relevance   string    `yaml:"relevance"` // high, medium, low
+	HasCode     bool      `yaml:"has_code,omitempty"`
+	CodeURL     string    `yaml:"code_url,omitempty"`
+	Signal      string    `yaml:"signal,omitempty"` // Brief note on why this matters
+	CollectedAt time.Time `yaml:"collected_at"`
+}
+
+// TrendItem represents a trending discussion from HackerNews or similar
+type TrendItem struct {
+	Title       string    `yaml:"title"`
+	Source      string    `yaml:"source"` // hackernews, reddit, producthunt
+	URL         string    `yaml:"url"`
+	SourceURL   string    `yaml:"source_url"` // HN/Reddit discussion URL
+	Points      int       `yaml:"points"`
+	Comments    int       `yaml:"comments"`
+	Author      string    `yaml:"author,omitempty"`
+	CreatedAt   time.Time `yaml:"created_at"`
+	Relevance   string    `yaml:"relevance"` // high, medium, low
+	Signal      string    `yaml:"signal,omitempty"`
+	CollectedAt time.Time `yaml:"collected_at"`
+}
+
+// CompetitorChange represents a detected change from a competitor
+type CompetitorChange struct {
+	Competitor  string    `yaml:"competitor"`
+	Date        time.Time `yaml:"date,omitempty"`
+	Title       string    `yaml:"title"`
+	Description string    `yaml:"description,omitempty"`
+	URL         string    `yaml:"url,omitempty"`
+	Relevance   string    `yaml:"relevance"` // high, medium, low
+	ThreatLevel string    `yaml:"threat_level,omitempty"` // high, medium, low
+	Recommendation *CompetitorRecommendation `yaml:"recommendation,omitempty"`
+	CollectedAt time.Time `yaml:"collected_at"`
+}
+
+// CompetitorRecommendation suggests action based on competitor change
+type CompetitorRecommendation struct {
+	FeatureHint string `yaml:"feature_hint"`
+	Priority    string `yaml:"priority"` // p0, p1, p2, p3
+	Rationale   string `yaml:"rationale"`
+}
+
 // SourceCollection holds collected data from a research run
 type SourceCollection struct {
-	AgentName   string       `yaml:"agent_name"`
-	CollectedAt time.Time    `yaml:"collected_at"`
-	Repos       []GitHubRepo `yaml:"repos,omitempty"`
-	Articles    []Article    `yaml:"articles,omitempty"`
-	Screenshots []Screenshot `yaml:"screenshots,omitempty"`
+	AgentName   string             `yaml:"agent_name"`
+	Query       string             `yaml:"query,omitempty"`
+	CollectedAt time.Time          `yaml:"collected_at"`
+	Repos       []GitHubRepo       `yaml:"repos,omitempty"`
+	Articles    []Article          `yaml:"articles,omitempty"`
+	Screenshots []Screenshot       `yaml:"screenshots,omitempty"`
+	Papers      []ResearchPaper    `yaml:"papers,omitempty"`
+	Trends      []TrendItem        `yaml:"trends,omitempty"`
+	Changes     []CompetitorChange `yaml:"changes,omitempty"`
 }
 
 // Save writes the collection to a YAML file
@@ -95,9 +154,12 @@ func EnsureDirectories(projectPath string) error {
 	dirs := []string{
 		filepath.Join(projectPath, ".pollard"),
 		filepath.Join(projectPath, ".pollard", "insights"),
+		filepath.Join(projectPath, ".pollard", "insights", "trends"),
+		filepath.Join(projectPath, ".pollard", "insights", "competitive"),
 		filepath.Join(projectPath, ".pollard", "patterns"),
 		filepath.Join(projectPath, ".pollard", "sources"),
 		filepath.Join(projectPath, ".pollard", "sources", "github"),
+		filepath.Join(projectPath, ".pollard", "sources", "research"),
 		filepath.Join(projectPath, ".pollard", "sources", "articles"),
 		filepath.Join(projectPath, ".pollard", "sources", "screenshots"),
 		filepath.Join(projectPath, ".pollard", "reports"),
