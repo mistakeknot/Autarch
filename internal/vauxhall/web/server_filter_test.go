@@ -58,3 +58,20 @@ func TestSessionsTemplateShowsQueryValue(t *testing.T) {
 		t.Fatalf("expected query value in input")
 	}
 }
+
+func TestSessionsGroupedByProject(t *testing.T) {
+	agg := &fakeAgg{state: aggregator.State{
+		Sessions: []aggregator.TmuxSession{
+			{Name: "a", ProjectPath: "/p/one"},
+			{Name: "b", ProjectPath: "/p/two"},
+		},
+	}}
+	srv := NewServer(config.ServerConfig{}, agg)
+	req := httptest.NewRequest(http.MethodGet, "/sessions", nil)
+	w := httptest.NewRecorder()
+	srv.handleSessions(w, req)
+	body := w.Body.String()
+	if !strings.Contains(body, "Project: one") || !strings.Contains(body, "Project: two") {
+		t.Fatalf("expected project group headers in response")
+	}
+}

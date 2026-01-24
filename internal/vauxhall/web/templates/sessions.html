@@ -48,68 +48,78 @@
     </form>
 
     <div id="sessions-list">
-    {{if .Sessions}}
-    <div class="space-y-4">
-        {{range .Sessions}}
-        <div class="bg-gray-800 rounded-lg p-6">
-            <div class="flex items-center justify-between mb-4">
-                <div class="flex items-center space-x-3">
-                    <span class="w-3 h-3 rounded-full {{if .Attached}}bg-green-500{{else}}bg-gray-500{{end}}" title="{{if .Attached}}Attached{{else}}Detached{{end}}"></span>
-                    <h2 class="text-xl font-mono">{{.Name}}</h2>
-                    {{if .AgentName}}
-                    <span class="px-2 py-0.5 text-xs rounded-full
-                        {{if eq .AgentType "claude"}}bg-purple-900 text-purple-300
-                        {{else if eq .AgentType "codex"}}bg-blue-900 text-blue-300
-                        {{else if eq .AgentType "aider"}}bg-green-900 text-green-300
-                        {{else}}bg-gray-700 text-gray-300{{end}}">
-                        {{.AgentName}}
-                    </span>
+    {{if .Groups}}
+    <div class="space-y-6">
+        {{range .Groups}}
+        <div class="space-y-4">
+            <div class="flex items-center justify-between text-sm text-gray-400 uppercase tracking-wide">
+                <span>Project: {{.Name}}</span>
+                <span>{{len .Items}} session{{if ne (len .Items) 1}}s{{end}}</span>
+            </div>
+            <div class="space-y-4">
+            {{range .Items}}
+                <div class="bg-gray-800 rounded-lg p-6">
+                    <div class="flex items-center justify-between mb-4">
+                        <div class="flex items-center space-x-3">
+                            <span class="w-3 h-3 rounded-full {{if .Attached}}bg-green-500{{else}}bg-gray-500{{end}}" title="{{if .Attached}}Attached{{else}}Detached{{end}}"></span>
+                            <h2 class="text-xl font-mono">{{.Name}}</h2>
+                            {{if .AgentName}}
+                            <span class="px-2 py-0.5 text-xs rounded-full
+                                {{if eq .AgentType "claude"}}bg-purple-900 text-purple-300
+                                {{else if eq .AgentType "codex"}}bg-blue-900 text-blue-300
+                                {{else if eq .AgentType "aider"}}bg-green-900 text-green-300
+                                {{else}}bg-gray-700 text-gray-300{{end}}">
+                                {{.AgentName}}
+                            </span>
+                            {{end}}
+                        </div>
+                        <div class="flex items-center space-x-4 text-sm text-gray-400">
+                            <span>{{.WindowCount}} window{{if ne .WindowCount 1}}s{{end}}</span>
+                            <span title="Created">{{.Created.Format "Jan 2 15:04"}}</span>
+                        </div>
+                    </div>
+
+                    {{if .ProjectPath}}
+                    <div class="mb-4 text-sm">
+                        <span class="text-gray-500">Project:</span>
+                        <a href="/projects/{{.ProjectPath}}" class="text-blue-400 hover:underline font-mono">
+                            {{.ProjectPath}}
+                        </a>
+                    </div>
                     {{end}}
-                </div>
-                <div class="flex items-center space-x-4 text-sm text-gray-400">
-                    <span>{{.WindowCount}} window{{if ne .WindowCount 1}}s{{end}}</span>
-                    <span title="Created">{{.Created.Format "Jan 2 15:04"}}</span>
-                </div>
-            </div>
 
-            {{if .ProjectPath}}
-            <div class="mb-4 text-sm">
-                <span class="text-gray-500">Project:</span>
-                <a href="/projects/{{.ProjectPath}}" class="text-blue-400 hover:underline font-mono">
-                    {{.ProjectPath}}
-                </a>
-            </div>
+                    <div class="bg-gray-900 rounded p-4 font-mono text-sm text-green-400 h-32 overflow-auto">
+                        <p class="text-gray-500">Terminal output will appear here (M5)...</p>
+                    </div>
+
+                    <div class="mt-4 space-y-3 text-xs text-gray-500">
+                        <div class="flex items-center justify-between">
+                            <span>Last activity: {{.LastActivity.Format "Jan 2 15:04:05"}}</span>
+                            <span class="{{if .Attached}}text-green-500{{else}}text-gray-500{{end}}">
+                                {{if .Attached}}Attached{{else}}Detached{{end}}
+                            </span>
+                        </div>
+                        <div class="flex flex-wrap items-center gap-2">
+                            <button
+                                hx-post="/api/sessions/{{.Name}}/restart"
+                                hx-swap="none"
+                                class="px-2 py-1 bg-red-900/40 hover:bg-red-900/70 rounded">
+                                Restart
+                            </button>
+                            <form hx-post="/api/sessions/{{.Name}}/rename" hx-swap="none" class="flex items-center gap-2">
+                                <input name="name" placeholder="new name" class="px-2 py-1 bg-gray-900 rounded border border-gray-700 text-gray-200" />
+                                <button class="px-2 py-1 bg-gray-700 hover:bg-gray-600 rounded">Rename</button>
+                            </form>
+                            <form hx-post="/api/sessions/{{.Name}}/fork" hx-swap="none" class="flex items-center gap-2">
+                                <input name="name" placeholder="fork name (optional)" class="px-2 py-1 bg-gray-900 rounded border border-gray-700 text-gray-200" />
+                                <button class="px-2 py-1 bg-gray-700 hover:bg-gray-600 rounded">Fork</button>
+                            </form>
+                            <span class="text-gray-600">Attach:</span>
+                            <code class="px-2 py-1 bg-gray-900 rounded text-gray-300">tmux attach -t {{.Name}}</code>
+                        </div>
+                    </div>
+                </div>
             {{end}}
-
-            <div class="bg-gray-900 rounded p-4 font-mono text-sm text-green-400 h-32 overflow-auto">
-                <p class="text-gray-500">Terminal output will appear here (M5)...</p>
-            </div>
-
-            <div class="mt-4 space-y-3 text-xs text-gray-500">
-                <div class="flex items-center justify-between">
-                    <span>Last activity: {{.LastActivity.Format "Jan 2 15:04:05"}}</span>
-                    <span class="{{if .Attached}}text-green-500{{else}}text-gray-500{{end}}">
-                        {{if .Attached}}Attached{{else}}Detached{{end}}
-                    </span>
-                </div>
-                <div class="flex flex-wrap items-center gap-2">
-                    <button
-                        hx-post="/api/sessions/{{.Name}}/restart"
-                        hx-swap="none"
-                        class="px-2 py-1 bg-red-900/40 hover:bg-red-900/70 rounded">
-                        Restart
-                    </button>
-                    <form hx-post="/api/sessions/{{.Name}}/rename" hx-swap="none" class="flex items-center gap-2">
-                        <input name="name" placeholder="new name" class="px-2 py-1 bg-gray-900 rounded border border-gray-700 text-gray-200" />
-                        <button class="px-2 py-1 bg-gray-700 hover:bg-gray-600 rounded">Rename</button>
-                    </form>
-                    <form hx-post="/api/sessions/{{.Name}}/fork" hx-swap="none" class="flex items-center gap-2">
-                        <input name="name" placeholder="fork name (optional)" class="px-2 py-1 bg-gray-900 rounded border border-gray-700 text-gray-200" />
-                        <button class="px-2 py-1 bg-gray-700 hover:bg-gray-600 rounded">Fork</button>
-                    </form>
-                    <span class="text-gray-600">Attach:</span>
-                    <code class="px-2 py-1 bg-gray-900 rounded text-gray-300">tmux attach -t {{.Name}}</code>
-                </div>
             </div>
         </div>
         {{end}}

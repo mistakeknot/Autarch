@@ -9,6 +9,7 @@ import (
 	"log/slog"
 	"net/http"
 	"path/filepath"
+	"sort"
 	"strings"
 
 	"github.com/mistakeknot/vauxpraudemonium/internal/vauxhall/agentmail"
@@ -52,6 +53,12 @@ type aggregatorAPI interface {
 
 type statusClient interface {
 	DetectStatus(name string) tmux.Status
+}
+
+type webGroup[T any] struct {
+	Name  string
+	Path  string
+	Items []T
 }
 
 // NewServer creates a new web server
@@ -158,8 +165,10 @@ func (s *Server) handleAgents(w http.ResponseWriter, r *http.Request) {
 		}
 		agents = filterAgents(agents, filterState, statusBySession)
 	}
+	groups := groupAgentsForWeb(agents)
 	s.render(w, "agents.html", map[string]any{
 		"Agents": agents,
+		"Groups": groups,
 		"Query":  filterState.Raw,
 	})
 }
@@ -231,8 +240,10 @@ func (s *Server) handleSessions(w http.ResponseWriter, r *http.Request) {
 		}
 		sessions = filterSessions(sessions, filterState, statusBySession)
 	}
+	groups := groupSessionsForWeb(sessions)
 	s.render(w, "sessions.html", map[string]any{
 		"Sessions": sessions,
+		"Groups":   groups,
 		"Query":    filterState.Raw,
 	})
 }
@@ -533,4 +544,57 @@ func (s *Server) handleProjectTasks(w http.ResponseWriter, r *http.Request, proj
 	}
 
 	s.render(w, "tasks.html", data)
+}
+
+func groupSessionsForWeb(sessions []aggregator.TmuxSession) []webGroup[aggregator.TmuxSession] {
+	grouped := map[string][]aggregator.TmuxSession{}
+	for _, session := range sessions {
+		grouped[session.ProjectPath] = append(grouped[session.ProjectPath], session)
+	}
+	return finalizeWebGroups(grouped, func(path string, items []aggregator.TmuxSession) webGroup[aggregator.TmuxSession] {
+		return webGroup[aggregator.TmuxSession]{Name: groupName(path), Path: path, Items: items}
+	})
+}
+
+func groupAgentsForWeb(agents []aggregator.Agent) []webGroup[aggregator.Agent] {
+	grouped := map[string][]aggregator.Agent{}
+	for _, agent := range agents {
+		grouped[agent.ProjectPath] = append(grouped[agent.ProjectPath], agent)
+	}
+	return finalizeWebGroups(grouped, func(path string, items []aggregator.Agent) webGroup[aggregator.Agent] {
+		return webGroup[aggregator.Agent]{Name: groupName(path), Path: path, Items: items}
+	})
+}
+
+func finalizeWebGroups[T any](grouped map[string][]T, build func(path string, items []T) webGroup[T]) []webGroup[T] {
+	keys := make([]string, 0, len(grouped))
+	for key, items := range grouped {
+		if len(items) == 0 {
+			continue
+		}
+		keys = append(keys, key)
+	}
+	sort.Slice(keys, func(i, j int) bool {
+		ai := groupName(keys[i])
+		aj := groupName(keys[j])
+		if ai == "Unassigned" && aj != "Unassigned" {
+			return false
+		}
+		if aj == "Unassigned" && ai != "Unassigned" {
+			return true
+		}
+		return ai < aj
+	})
+	out := make([]webGroup[T], 0, len(keys))
+	for _, key := range keys {
+		out = append(out, build(key, grouped[key]))
+	}
+	return out
+}
+
+func groupName(path string) string {
+	if path == "" {
+		return "Unassigned"
+	}
+	return filepath.Base(path)
 }
