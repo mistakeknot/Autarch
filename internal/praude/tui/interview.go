@@ -549,11 +549,13 @@ func (m Model) renderInterviewLayout(width, height int) string {
 	if height <= 0 {
 		return ""
 	}
+	breadcrumbs := m.renderInterviewBreadcrumbs(width)
 	nav := m.renderInterviewHeaderNav(width)
-	navLines := strings.Split(nav, "\n")
-	remaining := height - len(navLines)
+	header := strings.Join([]string{breadcrumbs, nav}, "\n")
+	headerLines := strings.Split(header, "\n")
+	remaining := height - len(headerLines)
 	if remaining <= 0 {
-		return nav
+		return header
 	}
 	topHeight := remaining / 2
 	bottomHeight := remaining - topHeight
@@ -589,7 +591,7 @@ func (m Model) renderInterviewLayout(width, height int) string {
 		}
 		top := renderStackedLayout("PRDs", listContent, topTitle, topRightContent, width, topHeight)
 		bottom := renderSingleColumnLayout(bottomTitle, bottomContent, width, bottomHeight)
-		return strings.Join([]string{nav, top, bottom}, "\n")
+		return strings.Join([]string{header, top, bottom}, "\n")
 	}
 
 	topTitle := sectionTitle
@@ -604,7 +606,15 @@ func (m Model) renderInterviewLayout(width, height int) string {
 	}
 	top := renderDualColumnLayout("PRDs", listContent, topTitle, topRightContent, width, topHeight)
 	bottom := renderSingleColumnLayout(bottomTitle, bottomContent, width, bottomHeight)
-	return strings.Join([]string{nav, top, bottom}, "\n")
+	return strings.Join([]string{header, top, bottom}, "\n")
+}
+
+func (m Model) renderInterviewBreadcrumbs(width int) string {
+	label := "PRDs > Interview"
+	if strings.TrimSpace(m.interview.targetID) != "" {
+		label = "PRDs > " + m.interview.targetID + " > Interview"
+	}
+	return ensureExactWidth(label, width)
 }
 
 func (m Model) renderInterviewHeaderNav(width int) string {

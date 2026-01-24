@@ -213,6 +213,30 @@ func TestInterviewLayoutShowsHeaderAndPanels(t *testing.T) {
 	})
 }
 
+func TestInterviewBreadcrumbsShown(t *testing.T) {
+	withTempRoot(t, func(root string) {
+		m := NewModel()
+		m.mode = "interview"
+		m.interview = startInterview(m.root, specs.Spec{ID: "PRD-001"}, "")
+		out := stripANSI(m.View())
+		if !strings.Contains(out, "PRDs > PRD-001 > Interview") {
+			t.Fatalf("expected breadcrumbs")
+		}
+	})
+}
+
+func TestInterviewEscExitsToList(t *testing.T) {
+	withTempRoot(t, func(root string) {
+		m := NewModel()
+		m.mode = "interview"
+		m.interview = startInterview(m.root, specs.Spec{}, "")
+		m = pressKey(m, "esc")
+		if m.mode != "list" {
+			t.Fatalf("expected exit to list")
+		}
+	})
+}
+
 func TestInterviewShowsStepAndInputField(t *testing.T) {
 	withTempRootInitialized(t, func(root string) {
 		m := NewModel()

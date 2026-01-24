@@ -172,6 +172,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		if m.mode == "interview" {
 			switch key {
+			case "esc":
+				m.exitInterview()
+				m.status = "Interview canceled"
+				return m, nil
 			case "q", "ctrl+c":
 				return m, tea.Quit
 			default:
