@@ -213,18 +213,34 @@ func (s *Server) handleAttach(w http.ResponseWriter, r *http.Request) {
 
 // Project represents a discovered project
 type Project struct {
-	Path           string     `json:"path"`
-	Name           string     `json:"name"`
-	HasPraude      bool       `json:"has_praude"`
-	HasTandemonium bool       `json:"has_tandemonium"`
-	HasPollard     bool       `json:"has_pollard"`
-	TaskStats      *TaskStats `json:"task_stats,omitempty"`
+	Path           string        `json:"path"`
+	Name           string        `json:"name"`
+	HasPraude      bool          `json:"has_praude"`
+	HasTandemonium bool          `json:"has_tandemonium"`
+	HasPollard     bool          `json:"has_pollard"`
+	TaskStats      *TaskStats    `json:"task_stats,omitempty"`
+	PraudeStats    *PraudeStats  `json:"praude_stats,omitempty"`
+	PollardStats   *PollardStats `json:"pollard_stats,omitempty"`
 }
 
 type TaskStats struct {
 	Todo       int `json:"todo"`
 	InProgress int `json:"in_progress"`
 	Done       int `json:"done"`
+}
+
+type PraudeStats struct {
+	Total  int `json:"total"`
+	Draft  int `json:"draft"`
+	Active int `json:"active"`
+	Done   int `json:"done"`
+}
+
+type PollardStats struct {
+	Sources    int    `json:"sources"`
+	Insights   int    `json:"insights"`
+	Reports    int    `json:"reports"`
+	LastReport string `json:"last_report,omitempty"`
 }
 
 func (s *Server) handleListProjects(w http.ResponseWriter, r *http.Request) {
