@@ -174,3 +174,79 @@ func RecentPollardInsights(root string, days int) ([]PollardInsight, error) {
 	}
 	return recent, nil
 }
+
+// PollardPattern represents a pattern identified by Pollard research.
+type PollardPattern struct {
+	ID                  string    `yaml:"id"`
+	Title               string    `yaml:"title"`
+	Category            string    `yaml:"category"` // architecture, ux, anti
+	Description         string    `yaml:"description"`
+	Examples            []string  `yaml:"examples"`
+	ImplementationHints []string  `yaml:"implementation_hints"`
+	AntiPatterns        []string  `yaml:"anti_patterns,omitempty"`
+	CollectedAt         time.Time `yaml:"collected_at"`
+}
+
+// PollardPatterns loads all patterns from a project's .pollard/patterns directory.
+func PollardPatterns(root string) ([]PollardPattern, error) {
+	patternsDir := filepath.Join(root, ".pollard", "patterns")
+	return loadPatternsRecursive(patternsDir)
+}
+
+func loadPatternsRecursive(dir string) ([]PollardPattern, error) {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return []PollardPattern{}, nil
+		}
+		return nil, err
+	}
+
+	var patterns []PollardPattern
+	for _, entry := range entries {
+		path := filepath.Join(dir, entry.Name())
+		if entry.IsDir() {
+			sub, err := loadPatternsRecursive(path)
+			if err != nil {
+				continue
+			}
+			patterns = append(patterns, sub...)
+			continue
+		}
+		if filepath.Ext(entry.Name()) != ".yaml" {
+			continue
+		}
+		data, err := os.ReadFile(path)
+		if err != nil {
+			continue
+		}
+		var pattern PollardPattern
+		if err := yaml.Unmarshal(data, &pattern); err != nil {
+			continue
+		}
+		patterns = append(patterns, pattern)
+	}
+	return patterns, nil
+}
+
+// CountPollardPatterns returns the total number of patterns available.
+func CountPollardPatterns(root string) int {
+	patterns, _ := PollardPatterns(root)
+	return len(patterns)
+}
+
+// PollardAntiPatterns returns only the anti-patterns.
+func PollardAntiPatterns(root string) ([]PollardPattern, error) {
+	patterns, err := PollardPatterns(root)
+	if err != nil {
+		return nil, err
+	}
+
+	var antiPatterns []PollardPattern
+	for _, p := range patterns {
+		if p.Category == "anti" || len(p.AntiPatterns) > 0 {
+			antiPatterns = append(antiPatterns, p)
+		}
+	}
+	return antiPatterns, nil
+}

@@ -43,6 +43,7 @@ func NewRoot() *cobra.Command {
 		commands.InterviewCmd(),
 		commands.RunCmd(),
 		commands.ResearchCmd(),
+		commands.ImportResearchCmd(),
 		commands.SuggestCmd(),
 		commands.SuggestionsCmd(),
 		commands.ValidateCmd(),

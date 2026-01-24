@@ -15,6 +15,64 @@ type Config struct {
 	Hunters  map[string]HunterConfig `yaml:"hunters"`
 	Linking  LinkingConfig           `yaml:"linking,omitempty"`
 	Defaults DefaultsConfig          `yaml:"defaults,omitempty"`
+	Pipeline PipelineConfig          `yaml:"pipeline,omitempty"`
+	Scoring  ScoringConfig           `yaml:"scoring,omitempty"`
+}
+
+// PipelineConfig controls the 4-stage research pipeline.
+type PipelineConfig struct {
+	Synthesizer SynthesizerConfig `yaml:"synthesizer,omitempty"`
+	Modes       ModeConfigs       `yaml:"modes,omitempty"`
+}
+
+// SynthesizerConfig controls agent-spawned synthesis.
+type SynthesizerConfig struct {
+	Agent       string `yaml:"agent,omitempty"`       // Agent command (e.g., "claude", "cursor --ask")
+	Parallelism int    `yaml:"parallelism,omitempty"` // Max concurrent agent instances
+	Timeout     string `yaml:"timeout,omitempty"`     // Per-item timeout (e.g., "2m")
+}
+
+// ModeConfigs defines behavior for different pipeline modes.
+type ModeConfigs struct {
+	Quick    ModeConfig `yaml:"quick,omitempty"`
+	Balanced ModeConfig `yaml:"balanced,omitempty"`
+	Deep     ModeConfig `yaml:"deep,omitempty"`
+}
+
+// ModeConfig controls a single pipeline mode.
+type ModeConfig struct {
+	Synthesize      bool   `yaml:"synthesize"`
+	SynthesizeLimit int    `yaml:"synthesize_limit,omitempty"` // 0 = all items
+	FetchDepth      string `yaml:"fetch_depth,omitempty"`      // basic, standard, full
+}
+
+// ScoringConfig controls unified quality scoring.
+type ScoringConfig struct {
+	Weights    ScoreWeightsConfig    `yaml:"weights,omitempty"`
+	HalfLives  HalfLivesConfig       `yaml:"half_lives,omitempty"`
+	Thresholds ScoreThresholdsConfig `yaml:"thresholds,omitempty"`
+}
+
+// ScoreWeightsConfig defines the relative importance of scoring factors.
+type ScoreWeightsConfig struct {
+	Engagement float64 `yaml:"engagement,omitempty"` // points, comments, stars
+	Citations  float64 `yaml:"citations,omitempty"`  // academic citations
+	Recency    float64 `yaml:"recency,omitempty"`    // temporal decay
+	QueryMatch float64 `yaml:"query_match,omitempty"` // title/content match
+	Synthesis  float64 `yaml:"synthesis,omitempty"`  // agent analysis confidence
+}
+
+// HalfLivesConfig defines temporal decay rates.
+type HalfLivesConfig struct {
+	Trends   string `yaml:"trends,omitempty"`   // e.g., "168h" (7 days)
+	Research string `yaml:"research,omitempty"` // e.g., "8760h" (365 days)
+	Repos    string `yaml:"repos,omitempty"`    // e.g., "2160h" (90 days)
+}
+
+// ScoreThresholdsConfig defines quality level cutoffs.
+type ScoreThresholdsConfig struct {
+	High   float64 `yaml:"high,omitempty"`   // 0.7
+	Medium float64 `yaml:"medium,omitempty"` // 0.4
 }
 
 // HunterConfig defines a research hunter
@@ -111,6 +169,61 @@ func (c *Config) applyDefaults() {
 			hunter.Interval = c.Defaults.Interval
 		}
 		c.Hunters[name] = hunter
+	}
+
+	// Pipeline defaults
+	if c.Pipeline.Synthesizer.Parallelism == 0 {
+		c.Pipeline.Synthesizer.Parallelism = 3
+	}
+	if c.Pipeline.Synthesizer.Timeout == "" {
+		c.Pipeline.Synthesizer.Timeout = "2m"
+	}
+	// Mode defaults
+	if c.Pipeline.Modes.Quick.FetchDepth == "" {
+		c.Pipeline.Modes.Quick.FetchDepth = "basic"
+		c.Pipeline.Modes.Quick.Synthesize = false
+	}
+	if c.Pipeline.Modes.Balanced.FetchDepth == "" {
+		c.Pipeline.Modes.Balanced.FetchDepth = "standard"
+		c.Pipeline.Modes.Balanced.Synthesize = true
+		c.Pipeline.Modes.Balanced.SynthesizeLimit = 10
+	}
+	if c.Pipeline.Modes.Deep.FetchDepth == "" {
+		c.Pipeline.Modes.Deep.FetchDepth = "full"
+		c.Pipeline.Modes.Deep.Synthesize = true
+		c.Pipeline.Modes.Deep.SynthesizeLimit = 0 // All items
+	}
+
+	// Scoring defaults
+	if c.Scoring.Weights.Engagement == 0 {
+		c.Scoring.Weights.Engagement = 0.25
+	}
+	if c.Scoring.Weights.Citations == 0 {
+		c.Scoring.Weights.Citations = 0.20
+	}
+	if c.Scoring.Weights.Recency == 0 {
+		c.Scoring.Weights.Recency = 0.25
+	}
+	if c.Scoring.Weights.QueryMatch == 0 {
+		c.Scoring.Weights.QueryMatch = 0.15
+	}
+	if c.Scoring.Weights.Synthesis == 0 {
+		c.Scoring.Weights.Synthesis = 0.15
+	}
+	if c.Scoring.HalfLives.Trends == "" {
+		c.Scoring.HalfLives.Trends = "168h" // 7 days
+	}
+	if c.Scoring.HalfLives.Research == "" {
+		c.Scoring.HalfLives.Research = "8760h" // 365 days
+	}
+	if c.Scoring.HalfLives.Repos == "" {
+		c.Scoring.HalfLives.Repos = "2160h" // 90 days
+	}
+	if c.Scoring.Thresholds.High == 0 {
+		c.Scoring.Thresholds.High = 0.7
+	}
+	if c.Scoring.Thresholds.Medium == 0 {
+		c.Scoring.Thresholds.Medium = 0.4
 	}
 }
 
@@ -340,4 +453,35 @@ func (c *Config) EnabledHunters() []string {
 		}
 	}
 	return result
+}
+
+// GetSynthesizerTimeout parses the synthesizer timeout.
+func (c *Config) GetSynthesizerTimeout() time.Duration {
+	return parseInterval(c.Pipeline.Synthesizer.Timeout)
+}
+
+// GetHalfLife parses a half-life duration by type.
+func (c *Config) GetHalfLife(halfLifeType string) time.Duration {
+	switch halfLifeType {
+	case "trends":
+		return parseInterval(c.Scoring.HalfLives.Trends)
+	case "research":
+		return parseInterval(c.Scoring.HalfLives.Research)
+	case "repos":
+		return parseInterval(c.Scoring.HalfLives.Repos)
+	default:
+		return 90 * 24 * time.Hour // Default to repos
+	}
+}
+
+// GetModeConfig returns configuration for a specific pipeline mode.
+func (c *Config) GetModeConfig(mode string) ModeConfig {
+	switch mode {
+	case "quick":
+		return c.Pipeline.Modes.Quick
+	case "deep":
+		return c.Pipeline.Modes.Deep
+	default:
+		return c.Pipeline.Modes.Balanced
+	}
 }

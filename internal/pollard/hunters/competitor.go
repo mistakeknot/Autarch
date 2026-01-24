@@ -12,12 +12,18 @@ import (
 	"strings"
 	"time"
 
+	"github.com/mistakeknot/vauxpraudemonium/internal/pollard/pipeline"
+	"github.com/mistakeknot/vauxpraudemonium/internal/pollard/scoring"
 	"gopkg.in/yaml.v3"
 )
 
 // CompetitorTracker monitors competitor changelogs and updates.
+// It implements the 4-stage pipeline: Search → Fetch → Synthesize → Score.
 type CompetitorTracker struct {
-	client *http.Client
+	client      *http.Client
+	fetcher     *pipeline.Fetcher
+	synthesizer *pipeline.Synthesizer
+	scorer      *scoring.Scorer
 }
 
 // NewCompetitorTracker creates a new competitor tracking hunter.
@@ -26,6 +32,8 @@ func NewCompetitorTracker() *CompetitorTracker {
 		client: &http.Client{
 			Timeout: 30 * time.Second,
 		},
+		fetcher: pipeline.NewFetcher(5),
+		scorer:  scoring.NewDefaultScorer(),
 	}
 }
 

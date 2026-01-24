@@ -29,17 +29,36 @@ const (
 	TypeWiki        Type = "wiki"
 )
 
+// Synthesis contains agent-generated analysis for a source.
+type Synthesis struct {
+	Summary            string   `yaml:"summary,omitempty" json:"summary"`
+	KeyFeatures        []string `yaml:"key_features,omitempty" json:"key_features"`
+	RelevanceRationale string   `yaml:"relevance_rationale,omitempty" json:"relevance_rationale"`
+	Recommendations    []string `yaml:"recommendations,omitempty" json:"recommendations"`
+	Confidence         float64  `yaml:"confidence,omitempty" json:"confidence"`
+}
+
+// QualityScore represents unified quality assessment.
+type QualityScore struct {
+	Value      float64            `yaml:"value"`              // 0.0-1.0
+	Level      string             `yaml:"level"`              // high, medium, low
+	Factors    map[string]float64 `yaml:"factors,omitempty"`  // engagement, recency, etc.
+	Confidence float64            `yaml:"confidence"`
+}
+
 // GitHubRepo represents a GitHub repository source
 type GitHubRepo struct {
-	Owner       string    `yaml:"owner"`
-	Name        string    `yaml:"name"`
-	Description string    `yaml:"description"`
-	URL         string    `yaml:"url"`
-	Stars       int       `yaml:"stars"`
-	Language    string    `yaml:"language"`
-	Topics      []string  `yaml:"topics"`
-	UpdatedAt   time.Time `yaml:"updated_at"`
-	CollectedAt time.Time `yaml:"collected_at"`
+	Owner        string        `yaml:"owner"`
+	Name         string        `yaml:"name"`
+	Description  string        `yaml:"description"`
+	URL          string        `yaml:"url"`
+	Stars        int           `yaml:"stars"`
+	Language     string        `yaml:"language"`
+	Topics       []string      `yaml:"topics"`
+	UpdatedAt    time.Time     `yaml:"updated_at"`
+	CollectedAt  time.Time     `yaml:"collected_at"`
+	Synthesis    *Synthesis    `yaml:"synthesis,omitempty"`
+	QualityScore *QualityScore `yaml:"quality_score,omitempty"`
 }
 
 // Article represents an article or blog post source
@@ -62,35 +81,39 @@ type Screenshot struct {
 
 // ResearchPaper represents an academic paper from arXiv or Semantic Scholar
 type ResearchPaper struct {
-	ArxivID     string    `yaml:"arxiv_id"`
-	Title       string    `yaml:"title"`
-	Authors     []string  `yaml:"authors"`
-	Abstract    string    `yaml:"abstract"`
-	URL         string    `yaml:"url"`
-	PDFURL      string    `yaml:"pdf_url,omitempty"`
-	Published   time.Time `yaml:"published"`
-	Categories  []string  `yaml:"categories"`
-	Citations   int       `yaml:"citations,omitempty"`
-	Relevance   string    `yaml:"relevance"` // high, medium, low
-	HasCode     bool      `yaml:"has_code,omitempty"`
-	CodeURL     string    `yaml:"code_url,omitempty"`
-	Signal      string    `yaml:"signal,omitempty"` // Brief note on why this matters
-	CollectedAt time.Time `yaml:"collected_at"`
+	ArxivID      string        `yaml:"arxiv_id"`
+	Title        string        `yaml:"title"`
+	Authors      []string      `yaml:"authors"`
+	Abstract     string        `yaml:"abstract"`
+	URL          string        `yaml:"url"`
+	PDFURL       string        `yaml:"pdf_url,omitempty"`
+	Published    time.Time     `yaml:"published"`
+	Categories   []string      `yaml:"categories"`
+	Citations    int           `yaml:"citations,omitempty"`
+	Relevance    string        `yaml:"relevance"` // high, medium, low
+	HasCode      bool          `yaml:"has_code,omitempty"`
+	CodeURL      string        `yaml:"code_url,omitempty"`
+	Signal       string        `yaml:"signal,omitempty"` // Brief note on why this matters
+	CollectedAt  time.Time     `yaml:"collected_at"`
+	Synthesis    *Synthesis    `yaml:"synthesis,omitempty"`
+	QualityScore *QualityScore `yaml:"quality_score,omitempty"`
 }
 
 // TrendItem represents a trending discussion from HackerNews or similar
 type TrendItem struct {
-	Title       string    `yaml:"title"`
-	Source      string    `yaml:"source"` // hackernews, reddit, producthunt
-	URL         string    `yaml:"url"`
-	SourceURL   string    `yaml:"source_url"` // HN/Reddit discussion URL
-	Points      int       `yaml:"points"`
-	Comments    int       `yaml:"comments"`
-	Author      string    `yaml:"author,omitempty"`
-	CreatedAt   time.Time `yaml:"created_at"`
-	Relevance   string    `yaml:"relevance"` // high, medium, low
-	Signal      string    `yaml:"signal,omitempty"`
-	CollectedAt time.Time `yaml:"collected_at"`
+	Title        string        `yaml:"title"`
+	Source       string        `yaml:"source"` // hackernews, reddit, producthunt
+	URL          string        `yaml:"url"`
+	SourceURL    string        `yaml:"source_url"` // HN/Reddit discussion URL
+	Points       int           `yaml:"points"`
+	Comments     int           `yaml:"comments"`
+	Author       string        `yaml:"author,omitempty"`
+	CreatedAt    time.Time     `yaml:"created_at"`
+	Relevance    string        `yaml:"relevance"` // high, medium, low
+	Signal       string        `yaml:"signal,omitempty"`
+	CollectedAt  time.Time     `yaml:"collected_at"`
+	Synthesis    *Synthesis    `yaml:"synthesis,omitempty"`
+	QualityScore *QualityScore `yaml:"quality_score,omitempty"`
 }
 
 // CompetitorChange represents a detected change from a competitor
@@ -115,20 +138,22 @@ type CompetitorRecommendation struct {
 
 // AcademicWork represents an academic paper from OpenAlex/CrossRef
 type AcademicWork struct {
-	ID          string    `yaml:"id"`
-	DOI         string    `yaml:"doi,omitempty"`
-	Title       string    `yaml:"title"`
-	Authors     []string  `yaml:"authors"`
-	Abstract    string    `yaml:"abstract,omitempty"`
-	PublishedAt time.Time `yaml:"published_at"`
-	Journal     string    `yaml:"journal,omitempty"`
-	Citations   int       `yaml:"citations"`
-	OpenAccess  bool      `yaml:"open_access"`
-	URL         string    `yaml:"url"`
-	PDFURL      string    `yaml:"pdf_url,omitempty"`
-	Topics      []string  `yaml:"topics,omitempty"`
-	Relevance   string    `yaml:"relevance"`
-	CollectedAt time.Time `yaml:"collected_at"`
+	ID           string        `yaml:"id"`
+	DOI          string        `yaml:"doi,omitempty"`
+	Title        string        `yaml:"title"`
+	Authors      []string      `yaml:"authors"`
+	Abstract     string        `yaml:"abstract,omitempty"`
+	PublishedAt  time.Time     `yaml:"published_at"`
+	Journal      string        `yaml:"journal,omitempty"`
+	Citations    int           `yaml:"citations"`
+	OpenAccess   bool          `yaml:"open_access"`
+	URL          string        `yaml:"url"`
+	PDFURL       string        `yaml:"pdf_url,omitempty"`
+	Topics       []string      `yaml:"topics,omitempty"`
+	Relevance    string        `yaml:"relevance"`
+	CollectedAt  time.Time     `yaml:"collected_at"`
+	Synthesis    *Synthesis    `yaml:"synthesis,omitempty"`
+	QualityScore *QualityScore `yaml:"quality_score,omitempty"`
 }
 
 // MedicalArticle represents a medical/biomedical article from PubMed

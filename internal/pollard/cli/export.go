@@ -11,7 +11,10 @@ import (
 	"github.com/mistakeknot/vauxpraudemonium/internal/pollard/patterns"
 )
 
-var exportFormat string
+var (
+	exportFormat string
+	exportOutput string
+)
 
 var exportCmd = &cobra.Command{
 	Use:   "export",
@@ -33,14 +36,32 @@ var exportCmd = &cobra.Command{
 			return fmt.Errorf("failed to load patterns: %w", err)
 		}
 
+		var data []byte
+
 		switch exportFormat {
 		case "praude":
-			return exportForPraude(allInsights, allPatterns)
+			data, err = generatePraudeExport(allInsights, allPatterns)
 		case "tandemonium":
-			return exportForTandemonium(allPatterns)
+			data, err = generateTandemoniumExport(allPatterns)
 		default:
-			return exportForPraude(allInsights, allPatterns)
+			data, err = generatePraudeExport(allInsights, allPatterns)
 		}
+
+		if err != nil {
+			return err
+		}
+
+		// Write to file or stdout
+		if exportOutput != "" {
+			if err := os.WriteFile(exportOutput, data, 0644); err != nil {
+				return fmt.Errorf("failed to write output file: %w", err)
+			}
+			fmt.Printf("Exported to: %s\n", exportOutput)
+			return nil
+		}
+
+		fmt.Print(string(data))
+		return nil
 	},
 }
 
@@ -66,7 +87,7 @@ type LinkedInsight struct {
 	Features []string `yaml:"linked_features,omitempty"`
 }
 
-func exportForPraude(allInsights []*insights.Insight, allPatterns []*patterns.Pattern) error {
+func generatePraudeExport(allInsights []*insights.Insight, allPatterns []*patterns.Pattern) ([]byte, error) {
 	ctx := PraudeContext{
 		ResearchSummary: fmt.Sprintf("Based on %d insights and %d patterns", len(allInsights), len(allPatterns)),
 	}
@@ -106,12 +127,7 @@ func exportForPraude(allInsights []*insights.Insight, allPatterns []*patterns.Pa
 		})
 	}
 
-	data, err := yaml.Marshal(ctx)
-	if err != nil {
-		return err
-	}
-	fmt.Print(string(data))
-	return nil
+	return yaml.Marshal(ctx)
 }
 
 // TandemoniumContext is the export format for Tandemonium
@@ -133,7 +149,7 @@ type AntiPattern struct {
 	Description string `yaml:"description"`
 }
 
-func exportForTandemonium(allPatterns []*patterns.Pattern) error {
+func generateTandemoniumExport(allPatterns []*patterns.Pattern) ([]byte, error) {
 	ctx := TandemoniumContext{}
 
 	for _, p := range allPatterns {
@@ -159,14 +175,10 @@ func exportForTandemonium(allPatterns []*patterns.Pattern) error {
 		}
 	}
 
-	data, err := yaml.Marshal(ctx)
-	if err != nil {
-		return err
-	}
-	fmt.Print(string(data))
-	return nil
+	return yaml.Marshal(ctx)
 }
 
 func init() {
 	exportCmd.Flags().StringVar(&exportFormat, "format", "praude", "Export format: praude, tandemonium")
+	exportCmd.Flags().StringVarP(&exportOutput, "output", "o", "", "Output file path (default: stdout)")
 }

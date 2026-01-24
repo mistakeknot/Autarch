@@ -143,6 +143,9 @@ func addCrossToolRecommendations(p *plan.Plan, root string) {
 				Suggestion: "Consider linking insights to epics for context",
 			})
 		}
+
+		// Check for Pollard patterns
+		addPollardPatternRecommendations(p, root)
 	}
 
 	// Check for blocked epics from existing data
@@ -155,6 +158,42 @@ func addCrossToolRecommendations(p *plan.Plan, root string) {
 				Message:  itoa(len(blocked)) + " existing epic(s) are blocked",
 			})
 		}
+	}
+}
+
+// addPollardPatternRecommendations adds recommendations based on Pollard patterns.
+func addPollardPatternRecommendations(p *plan.Plan, root string) {
+	patternCount := discovery.CountPollardPatterns(root)
+	if patternCount == 0 {
+		return
+	}
+
+	// Check for anti-patterns specifically
+	antiPatterns, err := discovery.PollardAntiPatterns(root)
+	if err != nil {
+		return
+	}
+
+	if len(antiPatterns) > 0 {
+		p.AddRecommendation(plan.Recommendation{
+			Type:       plan.TypeQuality,
+			Severity:   plan.SeverityWarning,
+			SourceTool: "pollard",
+			Message:    itoa(len(antiPatterns)) + " anti-pattern(s) may apply to this implementation",
+			Suggestion: "Review patterns before implementation to avoid known pitfalls",
+		})
+	}
+
+	// Add general pattern info
+	if patternCount > len(antiPatterns) {
+		implPatterns := patternCount - len(antiPatterns)
+		p.AddRecommendation(plan.Recommendation{
+			Type:       plan.TypeIntegration,
+			Severity:   plan.SeverityInfo,
+			SourceTool: "pollard",
+			Message:    itoa(implPatterns) + " implementation pattern(s) available",
+			Suggestion: "See .pollard/patterns/ for architecture and UX patterns",
+		})
 	}
 }
 

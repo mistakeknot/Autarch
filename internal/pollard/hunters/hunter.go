@@ -44,6 +44,33 @@ type HunterConfig struct {
 
 	// APIToken for authenticated access (optional)
 	APIToken string
+
+	// Mode controls pipeline depth: quick, balanced, deep
+	Mode string
+
+	// PipelineConfig for fetch/synthesize/score options
+	Pipeline PipelineOptions
+}
+
+// PipelineOptions controls the 4-stage pipeline behavior.
+type PipelineOptions struct {
+	// FetchREADME enables README fetching for GitHub repos
+	FetchREADME bool
+
+	// Synthesize enables agent-based synthesis
+	Synthesize bool
+
+	// SynthesizeLimit limits synthesis to top N items (0 = all)
+	SynthesizeLimit int
+
+	// AgentCmd is the command to spawn agents (e.g., "claude --print")
+	AgentCmd string
+
+	// AgentParallelism is max concurrent agent instances
+	AgentParallelism int
+
+	// AgentTimeout is per-item timeout for synthesis
+	AgentTimeout time.Duration
 }
 
 // CompetitorTarget represents a competitor to track.

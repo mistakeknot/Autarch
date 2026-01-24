@@ -14,13 +14,19 @@ import (
 	"strings"
 	"time"
 
+	"github.com/mistakeknot/vauxpraudemonium/internal/pollard/pipeline"
+	"github.com/mistakeknot/vauxpraudemonium/internal/pollard/scoring"
 	"gopkg.in/yaml.v3"
 )
 
 // ArxivHunter searches academic papers from arXiv.
+// It implements the 4-stage pipeline: Search → Fetch → Synthesize → Score.
 type ArxivHunter struct {
 	client      *http.Client
 	rateLimiter *RateLimiter
+	fetcher     *pipeline.Fetcher
+	synthesizer *pipeline.Synthesizer
+	scorer      *scoring.Scorer
 }
 
 // NewArxivHunter creates a new arXiv research hunter.
@@ -31,6 +37,8 @@ func NewArxivHunter() *ArxivHunter {
 		},
 		// arXiv rate limit: 1 request per 3 seconds
 		rateLimiter: NewRateLimiter(1, 3*time.Second, false),
+		fetcher:     pipeline.NewFetcher(5),
+		scorer:      scoring.NewDefaultScorer(),
 	}
 }
 
@@ -40,10 +48,29 @@ func (h *ArxivHunter) Name() string {
 }
 
 // Hunt performs the research collection from arXiv.
+// It uses the 4-stage pipeline (Search → Fetch → Synthesize → Score) based on mode.
 func (h *ArxivHunter) Hunt(ctx context.Context, cfg HunterConfig) (*HuntResult, error) {
 	result := &HuntResult{
 		HunterName: h.Name(),
 		StartedAt:  time.Now(),
+	}
+
+	// Configure synthesizer if pipeline options specify it
+	if cfg.Pipeline.Synthesize && cfg.Pipeline.AgentCmd != "" {
+		h.synthesizer = pipeline.NewSynthesizer(
+			cfg.Pipeline.AgentCmd,
+			cfg.Pipeline.AgentParallelism,
+			cfg.Pipeline.AgentTimeout,
+		)
+	}
+
+	// Determine pipeline mode
+	mode := pipeline.ModeBalanced
+	switch cfg.Mode {
+	case "quick":
+		mode = pipeline.ModeQuick
+	case "deep":
+		mode = pipeline.ModeDeep
 	}
 
 	maxResults := cfg.MaxResults
@@ -51,9 +78,11 @@ func (h *ArxivHunter) Hunt(ctx context.Context, cfg HunterConfig) (*HuntResult, 
 		maxResults = 50
 	}
 
-	var allPapers []ArxivPaper
 	var errors []error
+	seen := make(map[string]bool)
+	var allRawItems []pipeline.RawItem
 
+	// Stage 1: SEARCH - Find papers matching queries
 	for _, query := range cfg.Queries {
 		select {
 		case <-ctx.Done():
@@ -63,46 +92,115 @@ func (h *ArxivHunter) Hunt(ctx context.Context, cfg HunterConfig) (*HuntResult, 
 		default:
 		}
 
-		// Wait for rate limiter
 		if err := h.rateLimiter.Wait(ctx); err != nil {
 			errors = append(errors, fmt.Errorf("rate limit wait for query %q: %w", query, err))
 			continue
 		}
 
-		papers, err := h.searchArxiv(ctx, query, cfg.Categories, maxResults)
+		rawItems, err := h.searchToRawItems(ctx, query, cfg.Categories, maxResults)
 		if err != nil {
 			errors = append(errors, fmt.Errorf("search %q: %w", query, err))
 			continue
 		}
 
-		allPapers = append(allPapers, papers...)
-	}
-
-	// Deduplicate papers by arXiv ID
-	seen := make(map[string]bool)
-	uniquePapers := make([]ArxivPaper, 0, len(allPapers))
-	for _, p := range allPapers {
-		if !seen[p.ArxivID] {
-			seen[p.ArxivID] = true
-			uniquePapers = append(uniquePapers, p)
+		// Deduplicate
+		for _, item := range rawItems {
+			if seen[item.ID] {
+				continue
+			}
+			seen[item.ID] = true
+			allRawItems = append(allRawItems, item)
 		}
 	}
 
-	// Save results
-	if len(uniquePapers) > 0 {
-		outputFile, err := h.saveResults(cfg, uniquePapers, cfg.Queries)
+	if len(allRawItems) == 0 {
+		result.Errors = errors
+		result.CompletedAt = time.Now()
+		return result, nil
+	}
+
+	// Stage 2: FETCH - Get additional content (abstracts already included from search)
+	fetchOpts := pipeline.FetchOpts{
+		Mode:      mode,
+		FetchDocs: true,
+		Timeout:   30 * time.Second,
+	}
+	fetchedItems, err := h.fetcher.FetchBatch(ctx, allRawItems, fetchOpts)
+	if err != nil {
+		errors = append(errors, fmt.Errorf("fetch failed: %w", err))
+		fetchedItems = make([]pipeline.FetchedItem, len(allRawItems))
+		for i, item := range allRawItems {
+			fetchedItems[i] = pipeline.FetchedItem{Raw: item, FetchSuccess: true}
+		}
+	}
+
+	// Stage 3: SYNTHESIZE - Use agent to analyze papers (mode-dependent)
+	var synthesizedItems []pipeline.SynthesizedItem
+	if h.synthesizer != nil && mode != pipeline.ModeQuick {
+		itemsToSynthesize := fetchedItems
+		if mode == pipeline.ModeBalanced && cfg.Pipeline.SynthesizeLimit > 0 {
+			if len(itemsToSynthesize) > cfg.Pipeline.SynthesizeLimit {
+				itemsToSynthesize = itemsToSynthesize[:cfg.Pipeline.SynthesizeLimit]
+			}
+		}
+		synthesizedItems, err = h.synthesizer.SynthesizeBatch(ctx, itemsToSynthesize, strings.Join(cfg.Queries, " "))
 		if err != nil {
-			errors = append(errors, fmt.Errorf("save results: %w", err))
-		} else {
-			result.OutputFiles = append(result.OutputFiles, outputFile)
+			errors = append(errors, fmt.Errorf("synthesize failed: %w", err))
+			synthesizedItems = wrapWithoutSynthesis(fetchedItems)
 		}
+		if len(itemsToSynthesize) < len(fetchedItems) {
+			remaining := wrapWithoutSynthesis(fetchedItems[len(itemsToSynthesize):])
+			synthesizedItems = append(synthesizedItems, remaining...)
+		}
+	} else {
+		synthesizedItems = wrapWithoutSynthesis(fetchedItems)
 	}
 
-	result.SourcesCollected = len(uniquePapers)
+	// Stage 4: SCORE - Calculate quality scores
+	scoredItems := h.scorer.ScoreBatch(synthesizedItems, strings.Join(cfg.Queries, " "))
+
+	// Save results with scores
+	outputFile, err := h.saveResultsWithScores(cfg, scoredItems, cfg.Queries)
+	if err != nil {
+		errors = append(errors, fmt.Errorf("save results: %w", err))
+	} else {
+		result.OutputFiles = append(result.OutputFiles, outputFile)
+	}
+
+	result.SourcesCollected = len(scoredItems)
 	result.Errors = errors
 	result.CompletedAt = time.Now()
 
 	return result, nil
+}
+
+// searchToRawItems performs search and converts to RawItem format.
+func (h *ArxivHunter) searchToRawItems(ctx context.Context, query string, categories []string, maxResults int) ([]pipeline.RawItem, error) {
+	papers, err := h.searchArxiv(ctx, query, categories, maxResults)
+	if err != nil {
+		return nil, err
+	}
+
+	now := time.Now()
+	items := make([]pipeline.RawItem, len(papers))
+	for i, paper := range papers {
+		items[i] = pipeline.RawItem{
+			ID:    "arxiv:" + paper.ArxivID,
+			Type:  "arxiv_paper",
+			Title: paper.Title,
+			URL:   paper.URL,
+			Metadata: map[string]any{
+				"arxiv_id":   paper.ArxivID,
+				"authors":    paper.Authors,
+				"abstract":   paper.Abstract,
+				"pdf_url":    paper.PDFURL,
+				"published":  paper.Published,
+				"categories": paper.Categories,
+			},
+			CollectedAt: now,
+		}
+	}
+	return items, nil
 }
 
 // searchArxiv queries the arXiv API for papers matching the query.
@@ -242,6 +340,27 @@ type ArxivOutput struct {
 	Query       string       `yaml:"query"`
 	CollectedAt time.Time    `yaml:"collected_at"`
 	Papers      []ArxivPaper `yaml:"papers"`
+}
+
+// V2 output structures with pipeline data
+
+type arxivOutputV2 struct {
+	Query       string         `yaml:"query"`
+	CollectedAt time.Time      `yaml:"collected_at"`
+	Papers      []arxivPaperV2 `yaml:"papers"`
+}
+
+type arxivPaperV2 struct {
+	ArxivID      string             `yaml:"arxiv_id"`
+	Title        string             `yaml:"title"`
+	Authors      []string           `yaml:"authors"`
+	Abstract     string             `yaml:"abstract,omitempty"`
+	URL          string             `yaml:"url"`
+	PDFURL       string             `yaml:"pdf_url,omitempty"`
+	Published    string             `yaml:"published"`
+	Categories   []string           `yaml:"categories,omitempty"`
+	QualityScore qualityScoreOutput `yaml:"quality_score"`
+	Synthesis    *synthesisOutput   `yaml:"synthesis,omitempty"`
 }
 
 // extractArxivID extracts the arXiv ID from the full URL.
@@ -397,7 +516,80 @@ func generateSignal(entry arxivEntry, query string) string {
 	return strings.Join(signals, ", ")
 }
 
-// saveResults saves the collected papers to a YAML file.
+// saveResultsWithScores saves scored papers to a YAML file.
+func (h *ArxivHunter) saveResultsWithScores(cfg HunterConfig, items []pipeline.ScoredItem, queries []string) (string, error) {
+	outputDir := cfg.OutputDir
+	if outputDir == "" {
+		outputDir = "sources/research"
+	}
+
+	fullOutputDir := filepath.Join(cfg.ProjectPath, ".pollard", outputDir)
+	if err := os.MkdirAll(fullOutputDir, 0755); err != nil {
+		return "", fmt.Errorf("create output directory: %w", err)
+	}
+
+	filename := fmt.Sprintf("%s-arxiv.yaml", time.Now().Format("2006-01-02"))
+	fullPath := filepath.Join(fullOutputDir, filename)
+
+	output := arxivOutputV2{
+		Query:       strings.Join(queries, ", "),
+		CollectedAt: time.Now().UTC(),
+		Papers:      make([]arxivPaperV2, 0, len(items)),
+	}
+
+	for _, item := range items {
+		raw := item.Synthesized.Fetched.Raw
+		arxivID, _ := raw.Metadata["arxiv_id"].(string)
+		authors, _ := raw.Metadata["authors"].([]string)
+		abstract, _ := raw.Metadata["abstract"].(string)
+		pdfURL, _ := raw.Metadata["pdf_url"].(string)
+		published, _ := raw.Metadata["published"].(string)
+		categories, _ := raw.Metadata["categories"].([]string)
+
+		paper := arxivPaperV2{
+			ArxivID:    arxivID,
+			Title:      raw.Title,
+			Authors:    authors,
+			Abstract:   abstract,
+			URL:        raw.URL,
+			PDFURL:     pdfURL,
+			Published:  published,
+			Categories: categories,
+			QualityScore: qualityScoreOutput{
+				Value:      item.Score.Value,
+				Level:      item.Score.Level,
+				Factors:    item.Score.Factors,
+				Confidence: item.Score.Confidence,
+			},
+		}
+
+		synthesis := item.Synthesized.Synthesis
+		if synthesis.Summary != "" {
+			paper.Synthesis = &synthesisOutput{
+				Summary:            synthesis.Summary,
+				KeyFeatures:        synthesis.KeyFeatures,
+				RelevanceRationale: synthesis.RelevanceRationale,
+				Recommendations:    synthesis.Recommendations,
+				Confidence:         synthesis.Confidence,
+			}
+		}
+
+		output.Papers = append(output.Papers, paper)
+	}
+
+	data, err := yaml.Marshal(&output)
+	if err != nil {
+		return "", fmt.Errorf("marshal YAML: %w", err)
+	}
+
+	if err := os.WriteFile(fullPath, data, 0644); err != nil {
+		return "", fmt.Errorf("write file: %w", err)
+	}
+
+	return fullPath, nil
+}
+
+// saveResults saves the collected papers to a YAML file (legacy).
 func (h *ArxivHunter) saveResults(cfg HunterConfig, papers []ArxivPaper, queries []string) (string, error) {
 	// Determine output directory
 	outputDir := cfg.OutputDir

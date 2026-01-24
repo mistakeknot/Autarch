@@ -13,15 +13,21 @@ import (
 	"strings"
 	"time"
 
+	"github.com/mistakeknot/vauxpraudemonium/internal/pollard/pipeline"
+	"github.com/mistakeknot/vauxpraudemonium/internal/pollard/scoring"
 	"gopkg.in/yaml.v3"
 )
 
 // OpenAlexHunter searches academic papers from OpenAlex.
 // OpenAlex indexes 260M+ works across all academic disciplines.
+// It implements the 4-stage pipeline: Search → Fetch → Synthesize → Score.
 type OpenAlexHunter struct {
 	client      *http.Client
 	rateLimiter *RateLimiter
 	email       string // For polite pool access (faster rate limits)
+	fetcher     *pipeline.Fetcher
+	synthesizer *pipeline.Synthesizer
+	scorer      *scoring.Scorer
 }
 
 // NewOpenAlexHunter creates a new OpenAlex research hunter.
@@ -34,6 +40,8 @@ func NewOpenAlexHunter() *OpenAlexHunter {
 		// OpenAlex rate limit: 10 req/s for polite pool, 100k/day
 		rateLimiter: NewRateLimiter(10, time.Second, email != ""),
 		email:       email,
+		fetcher:     pipeline.NewFetcher(5),
+		scorer:      scoring.NewDefaultScorer(),
 	}
 }
 
@@ -43,10 +51,29 @@ func (h *OpenAlexHunter) Name() string {
 }
 
 // Hunt performs the research collection from OpenAlex.
+// It uses the 4-stage pipeline (Search → Fetch → Synthesize → Score) based on mode.
 func (h *OpenAlexHunter) Hunt(ctx context.Context, cfg HunterConfig) (*HuntResult, error) {
 	result := &HuntResult{
 		HunterName: h.Name(),
 		StartedAt:  time.Now(),
+	}
+
+	// Configure synthesizer if pipeline options specify it
+	if cfg.Pipeline.Synthesize && cfg.Pipeline.AgentCmd != "" {
+		h.synthesizer = pipeline.NewSynthesizer(
+			cfg.Pipeline.AgentCmd,
+			cfg.Pipeline.AgentParallelism,
+			cfg.Pipeline.AgentTimeout,
+		)
+	}
+
+	// Determine pipeline mode
+	mode := pipeline.ModeBalanced
+	switch cfg.Mode {
+	case "quick":
+		mode = pipeline.ModeQuick
+	case "deep":
+		mode = pipeline.ModeDeep
 	}
 
 	maxResults := cfg.MaxResults
@@ -54,9 +81,11 @@ func (h *OpenAlexHunter) Hunt(ctx context.Context, cfg HunterConfig) (*HuntResul
 		maxResults = 100
 	}
 
-	var allWorks []OpenAlexWork
 	var errors []error
+	seen := make(map[string]bool)
+	var allRawItems []pipeline.RawItem
 
+	// Stage 1: SEARCH - Find works matching queries
 	for _, query := range cfg.Queries {
 		select {
 		case <-ctx.Done():
@@ -66,46 +95,117 @@ func (h *OpenAlexHunter) Hunt(ctx context.Context, cfg HunterConfig) (*HuntResul
 		default:
 		}
 
-		// Wait for rate limiter
 		if err := h.rateLimiter.Wait(ctx); err != nil {
 			errors = append(errors, fmt.Errorf("rate limit wait for query %q: %w", query, err))
 			continue
 		}
 
-		works, err := h.searchOpenAlex(ctx, query, maxResults)
+		rawItems, err := h.searchToRawItems(ctx, query, maxResults)
 		if err != nil {
 			errors = append(errors, fmt.Errorf("search %q: %w", query, err))
 			continue
 		}
 
-		allWorks = append(allWorks, works...)
-	}
-
-	// Deduplicate works by OpenAlex ID
-	seen := make(map[string]bool)
-	uniqueWorks := make([]OpenAlexWork, 0, len(allWorks))
-	for _, w := range allWorks {
-		if !seen[w.ID] {
-			seen[w.ID] = true
-			uniqueWorks = append(uniqueWorks, w)
+		// Deduplicate
+		for _, item := range rawItems {
+			if seen[item.ID] {
+				continue
+			}
+			seen[item.ID] = true
+			allRawItems = append(allRawItems, item)
 		}
 	}
 
-	// Save results
-	if len(uniqueWorks) > 0 {
-		outputFile, err := h.saveResults(cfg, uniqueWorks, cfg.Queries)
+	if len(allRawItems) == 0 {
+		result.Errors = errors
+		result.CompletedAt = time.Now()
+		return result, nil
+	}
+
+	// Stage 2: FETCH - Get additional content (abstracts may not be in search results)
+	fetchOpts := pipeline.FetchOpts{
+		Mode:      mode,
+		FetchDocs: true,
+		Timeout:   30 * time.Second,
+	}
+	fetchedItems, err := h.fetcher.FetchBatch(ctx, allRawItems, fetchOpts)
+	if err != nil {
+		errors = append(errors, fmt.Errorf("fetch failed: %w", err))
+		fetchedItems = make([]pipeline.FetchedItem, len(allRawItems))
+		for i, item := range allRawItems {
+			fetchedItems[i] = pipeline.FetchedItem{Raw: item, FetchSuccess: true}
+		}
+	}
+
+	// Stage 3: SYNTHESIZE - Use agent to analyze works (mode-dependent)
+	var synthesizedItems []pipeline.SynthesizedItem
+	if h.synthesizer != nil && mode != pipeline.ModeQuick {
+		itemsToSynthesize := fetchedItems
+		if mode == pipeline.ModeBalanced && cfg.Pipeline.SynthesizeLimit > 0 {
+			if len(itemsToSynthesize) > cfg.Pipeline.SynthesizeLimit {
+				itemsToSynthesize = itemsToSynthesize[:cfg.Pipeline.SynthesizeLimit]
+			}
+		}
+		synthesizedItems, err = h.synthesizer.SynthesizeBatch(ctx, itemsToSynthesize, strings.Join(cfg.Queries, " "))
 		if err != nil {
-			errors = append(errors, fmt.Errorf("save results: %w", err))
-		} else {
-			result.OutputFiles = append(result.OutputFiles, outputFile)
+			errors = append(errors, fmt.Errorf("synthesize failed: %w", err))
+			synthesizedItems = wrapWithoutSynthesis(fetchedItems)
 		}
+		if len(itemsToSynthesize) < len(fetchedItems) {
+			remaining := wrapWithoutSynthesis(fetchedItems[len(itemsToSynthesize):])
+			synthesizedItems = append(synthesizedItems, remaining...)
+		}
+	} else {
+		synthesizedItems = wrapWithoutSynthesis(fetchedItems)
 	}
 
-	result.SourcesCollected = len(uniqueWorks)
+	// Stage 4: SCORE - Calculate quality scores
+	scoredItems := h.scorer.ScoreBatch(synthesizedItems, strings.Join(cfg.Queries, " "))
+
+	// Save results with scores
+	outputFile, err := h.saveResultsWithScores(cfg, scoredItems, cfg.Queries)
+	if err != nil {
+		errors = append(errors, fmt.Errorf("save results: %w", err))
+	} else {
+		result.OutputFiles = append(result.OutputFiles, outputFile)
+	}
+
+	result.SourcesCollected = len(scoredItems)
 	result.Errors = errors
 	result.CompletedAt = time.Now()
 
 	return result, nil
+}
+
+// searchToRawItems performs search and converts to RawItem format.
+func (h *OpenAlexHunter) searchToRawItems(ctx context.Context, query string, maxResults int) ([]pipeline.RawItem, error) {
+	works, err := h.searchOpenAlex(ctx, query, maxResults)
+	if err != nil {
+		return nil, err
+	}
+
+	now := time.Now()
+	items := make([]pipeline.RawItem, len(works))
+	for i, work := range works {
+		items[i] = pipeline.RawItem{
+			ID:    work.ID,
+			Type:  "openalex_work",
+			Title: work.Title,
+			URL:   work.URL,
+			Metadata: map[string]any{
+				"doi":          work.DOI,
+				"authors":      work.Authors,
+				"published_at": work.PublishedAt,
+				"journal":      work.Journal,
+				"citations":    work.Citations,
+				"open_access":  work.OpenAccess,
+				"pdf_url":      work.PDFURL,
+				"topics":       work.Topics,
+			},
+			CollectedAt: now,
+		}
+	}
+	return items, nil
 }
 
 // searchOpenAlex queries the OpenAlex API for works matching the query.
@@ -309,7 +409,109 @@ type OpenAlexOutput struct {
 	Works       []OpenAlexWork `yaml:"works"`
 }
 
-// saveResults saves the collected works to a YAML file.
+// V2 output structures with pipeline data
+
+type openAlexOutputV2 struct {
+	Query       string           `yaml:"query"`
+	CollectedAt time.Time        `yaml:"collected_at"`
+	Works       []openAlexWorkV2 `yaml:"works"`
+}
+
+type openAlexWorkV2 struct {
+	ID           string             `yaml:"id"`
+	DOI          string             `yaml:"doi,omitempty"`
+	Title        string             `yaml:"title"`
+	Authors      []string           `yaml:"authors"`
+	PublishedAt  string             `yaml:"published_at"`
+	Journal      string             `yaml:"journal,omitempty"`
+	Citations    int                `yaml:"citations"`
+	OpenAccess   bool               `yaml:"open_access"`
+	URL          string             `yaml:"url"`
+	PDFURL       string             `yaml:"pdf_url,omitempty"`
+	Topics       []string           `yaml:"topics,omitempty"`
+	QualityScore qualityScoreOutput `yaml:"quality_score"`
+	Synthesis    *synthesisOutput   `yaml:"synthesis,omitempty"`
+}
+
+// saveResultsWithScores saves scored works to a YAML file.
+func (h *OpenAlexHunter) saveResultsWithScores(cfg HunterConfig, items []pipeline.ScoredItem, queries []string) (string, error) {
+	outputDir := cfg.OutputDir
+	if outputDir == "" {
+		outputDir = "sources/openalex"
+	}
+
+	fullOutputDir := filepath.Join(cfg.ProjectPath, ".pollard", outputDir)
+	if err := os.MkdirAll(fullOutputDir, 0755); err != nil {
+		return "", fmt.Errorf("create output directory: %w", err)
+	}
+
+	filename := fmt.Sprintf("%s-openalex.yaml", time.Now().Format("2006-01-02"))
+	fullPath := filepath.Join(fullOutputDir, filename)
+
+	output := openAlexOutputV2{
+		Query:       strings.Join(queries, ", "),
+		CollectedAt: time.Now().UTC(),
+		Works:       make([]openAlexWorkV2, 0, len(items)),
+	}
+
+	for _, item := range items {
+		raw := item.Synthesized.Fetched.Raw
+		doi, _ := raw.Metadata["doi"].(string)
+		authors, _ := raw.Metadata["authors"].([]string)
+		publishedAt, _ := raw.Metadata["published_at"].(string)
+		journal, _ := raw.Metadata["journal"].(string)
+		citations, _ := raw.Metadata["citations"].(int)
+		openAccess, _ := raw.Metadata["open_access"].(bool)
+		pdfURL, _ := raw.Metadata["pdf_url"].(string)
+		topics, _ := raw.Metadata["topics"].([]string)
+
+		work := openAlexWorkV2{
+			ID:          raw.ID,
+			DOI:         doi,
+			Title:       raw.Title,
+			Authors:     authors,
+			PublishedAt: publishedAt,
+			Journal:     journal,
+			Citations:   citations,
+			OpenAccess:  openAccess,
+			URL:         raw.URL,
+			PDFURL:      pdfURL,
+			Topics:      topics,
+			QualityScore: qualityScoreOutput{
+				Value:      item.Score.Value,
+				Level:      item.Score.Level,
+				Factors:    item.Score.Factors,
+				Confidence: item.Score.Confidence,
+			},
+		}
+
+		synthesis := item.Synthesized.Synthesis
+		if synthesis.Summary != "" {
+			work.Synthesis = &synthesisOutput{
+				Summary:            synthesis.Summary,
+				KeyFeatures:        synthesis.KeyFeatures,
+				RelevanceRationale: synthesis.RelevanceRationale,
+				Recommendations:    synthesis.Recommendations,
+				Confidence:         synthesis.Confidence,
+			}
+		}
+
+		output.Works = append(output.Works, work)
+	}
+
+	data, err := yaml.Marshal(&output)
+	if err != nil {
+		return "", fmt.Errorf("marshal YAML: %w", err)
+	}
+
+	if err := os.WriteFile(fullPath, data, 0644); err != nil {
+		return "", fmt.Errorf("write file: %w", err)
+	}
+
+	return fullPath, nil
+}
+
+// saveResults saves the collected works to a YAML file (legacy).
 func (h *OpenAlexHunter) saveResults(cfg HunterConfig, works []OpenAlexWork, queries []string) (string, error) {
 	// Determine output directory
 	outputDir := cfg.OutputDir

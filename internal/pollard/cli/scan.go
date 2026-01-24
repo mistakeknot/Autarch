@@ -21,6 +21,7 @@ var (
 	scanHunter   string
 	scanDryRun   bool
 	scanPlanMode bool
+	scanMode     string // quick, balanced, deep
 )
 
 var scanCmd = &cobra.Command{
@@ -36,6 +37,11 @@ var scanCmd = &cobra.Command{
 		cfg, err := config.Load(cwd)
 		if err != nil {
 			return fmt.Errorf("failed to load config: %w", err)
+		}
+
+		// Validate scan mode
+		if !validateScanMode(scanMode) {
+			return fmt.Errorf("invalid mode %q: must be quick, balanced, or deep", scanMode)
 		}
 
 		// Ensure directories exist
@@ -125,12 +131,18 @@ var scanCmd = &cobra.Command{
 
 		// Dry run mode - just show what would run
 		if scanDryRun {
-			fmt.Println("Dry run - would execute these hunters:")
+			modeCfg := cfg.GetModeConfig(scanMode)
+			fmt.Printf("Dry run (mode: %s) - would execute these hunters:\n", scanMode)
 			for _, name := range hunterNames {
 				hunterCfg, _ := cfg.GetHunterConfig(name)
 				fmt.Printf("  %s:\n", name)
 				fmt.Printf("    interval: %s\n", hunterCfg.Interval)
 				fmt.Printf("    output: %s\n", hunterCfg.Output)
+				fmt.Printf("    fetch_depth: %s\n", modeCfg.FetchDepth)
+				fmt.Printf("    synthesize: %v\n", modeCfg.Synthesize)
+				if modeCfg.Synthesize && modeCfg.SynthesizeLimit > 0 {
+					fmt.Printf("    synthesize_limit: %d\n", modeCfg.SynthesizeLimit)
+				}
 				if len(hunterCfg.Queries) > 0 {
 					fmt.Printf("    queries: %d\n", len(hunterCfg.Queries))
 				}
@@ -156,7 +168,7 @@ var scanCmd = &cobra.Command{
 			}
 
 			hunterCfg, _ := cfg.GetHunterConfig(name)
-			fmt.Printf("Running hunter: %s\n", name)
+			fmt.Printf("Running hunter: %s (mode: %s)\n", name, scanMode)
 
 			// Record run start
 			runID, err := db.StartRun(name)
@@ -164,7 +176,8 @@ var scanCmd = &cobra.Command{
 				fmt.Printf("  Warning: failed to record run start: %v\n", err)
 			}
 
-			// Build hunter config
+			// Build hunter config with pipeline options
+			modeCfg := cfg.GetModeConfig(scanMode)
 			hCfg := hunters.HunterConfig{
 				Queries:     hunterCfg.Queries,
 				MaxResults:  hunterCfg.MaxResults,
@@ -173,6 +186,15 @@ var scanCmd = &cobra.Command{
 				Categories:  hunterCfg.Categories,
 				OutputDir:   hunterCfg.Output,
 				ProjectPath: cwd,
+				Mode:        scanMode,
+				Pipeline: hunters.PipelineOptions{
+					FetchREADME:      modeCfg.FetchDepth != "basic",
+					Synthesize:       modeCfg.Synthesize,
+					SynthesizeLimit:  modeCfg.SynthesizeLimit,
+					AgentCmd:         cfg.Pipeline.Synthesizer.Agent,
+					AgentParallelism: cfg.Pipeline.Synthesizer.Parallelism,
+					AgentTimeout:     cfg.GetSynthesizerTimeout(),
+				},
 			}
 
 			// Add targets for competitor tracker
@@ -229,4 +251,10 @@ func init() {
 	scanCmd.Flags().StringVar(&scanHunter, "hunter", "", "Run a specific hunter by name")
 	scanCmd.Flags().BoolVar(&scanDryRun, "dry-run", false, "Show what would run without executing")
 	scanCmd.Flags().BoolVar(&scanPlanMode, "plan", false, "Generate plan JSON instead of executing")
+	scanCmd.Flags().StringVar(&scanMode, "mode", "balanced", "Pipeline mode: quick (no synthesis), balanced (sample), deep (all)")
+}
+
+// validateScanMode checks if the mode is valid.
+func validateScanMode(mode string) bool {
+	return mode == "quick" || mode == "balanced" || mode == "deep"
 }
