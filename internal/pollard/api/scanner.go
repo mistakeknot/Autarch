@@ -16,10 +16,12 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/mistakeknot/vauxpraudemonium/internal/pollard/config"
 	"github.com/mistakeknot/vauxpraudemonium/internal/pollard/hunters"
+	"github.com/mistakeknot/vauxpraudemonium/internal/pollard/insights"
 	"github.com/mistakeknot/vauxpraudemonium/internal/pollard/sources"
 	"github.com/mistakeknot/vauxpraudemonium/internal/pollard/state"
 	"gopkg.in/yaml.v3"
@@ -379,6 +381,97 @@ func (s *Scanner) ResearchForEpic(ctx context.Context, epicTitle, epicDescriptio
 // GetGitHubToken returns the configured GitHub token for API access.
 func GetGitHubToken() string {
 	return os.Getenv("GITHUB_TOKEN")
+}
+
+// GetInsightsForFeature returns insights linked to a specific feature.
+// This is designed to be called from Tandemonium when assigning stories.
+func (s *Scanner) GetInsightsForFeature(ctx context.Context, featureRef string) ([]*insights.Insight, error) {
+	allInsights, err := insights.LoadAll(s.projectPath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to load insights: %w", err)
+	}
+
+	// Filter insights that have this feature in LinkedFeatures
+	var matched []*insights.Insight
+	for _, insight := range allInsights {
+		for _, linkedFeature := range insight.LinkedFeatures {
+			if strings.EqualFold(linkedFeature, featureRef) {
+				matched = append(matched, insight)
+				break
+			}
+		}
+	}
+
+	return matched, nil
+}
+
+// GenerateResearchBrief creates a summary of research for a feature/epic.
+// This is attached to Tandemonium mail messages when assigning work.
+func (s *Scanner) GenerateResearchBrief(ctx context.Context, featureRef string) (string, error) {
+	linkedInsights, err := s.GetInsightsForFeature(ctx, featureRef)
+	if err != nil {
+		return "", err
+	}
+
+	if len(linkedInsights) == 0 {
+		return "", nil
+	}
+
+	var brief strings.Builder
+	brief.WriteString("## Research Context\n\n")
+
+	// Group by relevance
+	var highRelevance, mediumRelevance []string
+	for _, insight := range linkedInsights {
+		for _, finding := range insight.Findings {
+			entry := fmt.Sprintf("**%s**: %s", finding.Title, finding.Description)
+			if finding.Relevance == insights.RelevanceHigh {
+				highRelevance = append(highRelevance, entry)
+			} else if finding.Relevance == insights.RelevanceMedium {
+				mediumRelevance = append(mediumRelevance, entry)
+			}
+		}
+	}
+
+	if len(highRelevance) > 0 {
+		brief.WriteString("### Key Insights (HIGH relevance)\n")
+		for i, entry := range highRelevance {
+			if i >= 3 {
+				break // Limit to top 3
+			}
+			brief.WriteString(fmt.Sprintf("- %s\n", entry))
+		}
+		brief.WriteString("\n")
+	}
+
+	if len(mediumRelevance) > 0 {
+		brief.WriteString("### Additional Context (MEDIUM relevance)\n")
+		for i, entry := range mediumRelevance {
+			if i >= 2 {
+				break // Limit to top 2
+			}
+			brief.WriteString(fmt.Sprintf("- %s\n", entry))
+		}
+		brief.WriteString("\n")
+	}
+
+	// Add recommendations if any
+	var recommendations []string
+	for _, insight := range linkedInsights {
+		for _, rec := range insight.Recommendations {
+			recommendations = append(recommendations, fmt.Sprintf("- **%s** (%s): %s",
+				rec.FeatureHint, rec.Priority, rec.Rationale))
+		}
+	}
+
+	if len(recommendations) > 0 {
+		brief.WriteString("### Recommendations\n")
+		for _, rec := range recommendations {
+			brief.WriteString(rec + "\n")
+		}
+	}
+
+	return brief.String(), nil
 }
 
 // =============================================================================

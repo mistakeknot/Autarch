@@ -29,6 +29,19 @@ type HunterConfig struct {
 	MaxResults int            `yaml:"max_results,omitempty"`
 	Targets    []TargetConfig `yaml:"targets,omitempty"` // for competitor tracker
 	Output     string         `yaml:"output"`
+
+	// New hunter-specific config fields
+	Email           string   `yaml:"email,omitempty"`            // for OpenAlex polite pool
+	MeSHTerms       []string `yaml:"mesh_terms,omitempty"`       // for PubMed
+	DataTypes       []string `yaml:"data_types,omitempty"`       // for USDA (Foundation, SR Legacy)
+	IncludeAllergens bool    `yaml:"include_allergens,omitempty"` // for USDA
+	Courts          []string `yaml:"courts,omitempty"`           // for CourtListener
+	DateFiledAfter  string   `yaml:"date_filed_after,omitempty"` // for CourtListener
+	Indicators      []string `yaml:"indicators,omitempty"`       // for economics
+	Countries       []string `yaml:"countries,omitempty"`        // for economics
+	IncludeWikipedia bool    `yaml:"include_wikipedia,omitempty"` // for wiki
+	IncludeWikidata  bool    `yaml:"include_wikidata,omitempty"`  // for wiki
+	Languages       []string `yaml:"languages,omitempty"`        // for wiki
 }
 
 // TargetConfig defines a target for competitor tracking
@@ -222,6 +235,89 @@ func DefaultConfig() *Config {
 					},
 				},
 				Output: "insights/competitive/",
+			},
+			// New general-purpose hunters (disabled by default - enable as needed)
+			"openalex": {
+				Enabled:  false,
+				Interval: "6h",
+				Queries: []string{
+					"artificial intelligence",
+					"machine learning",
+				},
+				MaxResults: 100,
+				Output:     "sources/openalex/",
+			},
+			"pubmed": {
+				Enabled:  false,
+				Interval: "6h",
+				Queries: []string{
+					"food allergy treatment",
+					"celiac disease",
+				},
+				MeSHTerms: []string{
+					"Food Hypersensitivity",
+				},
+				MaxResults: 50,
+				Output:     "sources/pubmed/",
+			},
+			"usda-nutrition": {
+				Enabled:  false,
+				Interval: "24h",
+				Queries: []string{
+					"peanut",
+					"gluten",
+				},
+				DataTypes: []string{
+					"Foundation",
+					"SR Legacy",
+				},
+				IncludeAllergens: true,
+				MaxResults:       50,
+				Output:           "sources/nutrition/",
+			},
+			"legal": {
+				Enabled:  false,
+				Interval: "24h",
+				Queries: []string{
+					"first amendment",
+					"patent infringement",
+				},
+				Courts: []string{
+					"scotus",
+					"ca9",
+				},
+				DateFiledAfter: "2020-01-01",
+				MaxResults:     50,
+				Output:         "sources/legal/",
+			},
+			"economics": {
+				Enabled:  false,
+				Interval: "24h",
+				Indicators: []string{
+					"GDP",
+					"CPI",
+					"UNEMP",
+				},
+				Countries: []string{
+					"USA",
+					"GBR",
+					"DEU",
+				},
+				MaxResults: 50,
+				Output:     "sources/economics/",
+			},
+			"wiki": {
+				Enabled:  false,
+				Interval: "24h",
+				Queries: []string{
+					"democratic institutions",
+					"number theory",
+				},
+				IncludeWikipedia: true,
+				IncludeWikidata:  true,
+				Languages:        []string{"en"},
+				MaxResults:       20,
+				Output:           "sources/wiki/",
 			},
 		},
 		Linking: LinkingConfig{

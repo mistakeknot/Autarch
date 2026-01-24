@@ -161,9 +161,17 @@ func (r *Registry) All() []Hunter {
 // DefaultRegistry returns a registry with all default hunters.
 func DefaultRegistry() *Registry {
 	reg := NewRegistry()
+	// Original tech-focused hunters
 	reg.Register(NewGitHubScout())
 	reg.Register(NewHackerNewsHunter())
 	reg.Register(NewArxivHunter())
 	reg.Register(NewCompetitorTracker())
+	// New general-purpose hunters
+	reg.Register(NewOpenAlexHunter())
+	reg.Register(NewPubMedHunter())
+	reg.Register(NewUSDAHunter())
+	reg.Register(NewLegalHunter())
+	reg.Register(NewEconomicsHunter())
+	reg.Register(NewWikiHunter())
 	return reg
 }
