@@ -159,6 +159,7 @@ func EnsureDirectories(projectPath string) error {
 		filepath.Join(projectPath, ".pollard", "patterns"),
 		filepath.Join(projectPath, ".pollard", "sources"),
 		filepath.Join(projectPath, ".pollard", "sources", "github"),
+		filepath.Join(projectPath, ".pollard", "sources", "hackernews"),
 		filepath.Join(projectPath, ".pollard", "sources", "research"),
 		filepath.Join(projectPath, ".pollard", "sources", "articles"),
 		filepath.Join(projectPath, ".pollard", "sources", "screenshots"),

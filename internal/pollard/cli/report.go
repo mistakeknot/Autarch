@@ -6,106 +6,73 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/mistakeknot/vauxpraudemonium/internal/pollard/insights"
-	"github.com/mistakeknot/vauxpraudemonium/internal/pollard/patterns"
+	"github.com/mistakeknot/vauxpraudemonium/internal/pollard/reports"
 )
 
-var reportType string
+var (
+	reportType   string
+	reportStdout bool
+)
 
 var reportCmd = &cobra.Command{
 	Use:   "report",
 	Short: "Generate a research report",
-	Long:  `Generate a landscape report summarizing all collected insights and patterns.`,
+	Long: `Generate a research report summarizing collected intelligence.
+
+Report types:
+  landscape   - Comprehensive overview of all collected data (default)
+  competitive - Focus on competitor activity and threats
+  trends      - Industry trends from HackerNews and other sources
+  research    - Academic papers from arXiv and research sources
+
+Examples:
+  pollard report                    # Generate landscape report
+  pollard report --type competitive # Generate competitive analysis
+  pollard report --type trends      # Generate trends report
+  pollard report --stdout           # Output to stdout instead of file`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		cwd, err := os.Getwd()
 		if err != nil {
 			return err
 		}
 
-		allInsights, err := insights.LoadAll(cwd)
-		if err != nil {
-			return fmt.Errorf("failed to load insights: %w", err)
-		}
+		generator := reports.NewGenerator(cwd)
 
-		allPatterns, err := patterns.LoadAll(cwd)
-		if err != nil {
-			return fmt.Errorf("failed to load patterns: %w", err)
-		}
-
+		var rType reports.ReportType
 		switch reportType {
 		case "landscape":
-			return generateLandscapeReport(allInsights, allPatterns)
+			rType = reports.TypeLandscape
 		case "competitive":
-			competitive := insights.FilterByCategory(allInsights, insights.CategoryCompetitive)
-			return generateCategoryReport("Competitive Analysis", competitive)
+			rType = reports.TypeCompetitive
 		case "trends":
-			trends := insights.FilterByCategory(allInsights, insights.CategoryTrends)
-			return generateCategoryReport("Industry Trends", trends)
+			rType = reports.TypeTrends
+		case "research":
+			rType = reports.TypeResearch
 		default:
-			return generateLandscapeReport(allInsights, allPatterns)
+			rType = reports.TypeLandscape
 		}
+
+		filePath, err := generator.Generate(rType)
+		if err != nil {
+			return fmt.Errorf("failed to generate report: %w", err)
+		}
+
+		if reportStdout {
+			// Read and print the file
+			content, err := os.ReadFile(filePath)
+			if err != nil {
+				return fmt.Errorf("failed to read report: %w", err)
+			}
+			fmt.Print(string(content))
+		} else {
+			fmt.Printf("Report generated: %s\n", filePath)
+		}
+
+		return nil
 	},
 }
 
-func generateLandscapeReport(allInsights []*insights.Insight, allPatterns []*patterns.Pattern) error {
-	fmt.Println("# Landscape Report")
-	fmt.Println()
-	fmt.Printf("Total Insights: %d\n", len(allInsights))
-	fmt.Printf("Total Patterns: %d\n", len(allPatterns))
-	fmt.Println()
-
-	// Group by category
-	competitive := insights.FilterByCategory(allInsights, insights.CategoryCompetitive)
-	trends := insights.FilterByCategory(allInsights, insights.CategoryTrends)
-	user := insights.FilterByCategory(allInsights, insights.CategoryUser)
-
-	fmt.Printf("## Insights by Category\n")
-	fmt.Printf("- Competitive: %d\n", len(competitive))
-	fmt.Printf("- Trends: %d\n", len(trends))
-	fmt.Printf("- User Research: %d\n", len(user))
-	fmt.Println()
-
-	ui := patterns.FilterByCategory(allPatterns, patterns.CategoryUI)
-	arch := patterns.FilterByCategory(allPatterns, patterns.CategoryArch)
-	anti := patterns.FilterByCategory(allPatterns, patterns.CategoryAnti)
-
-	fmt.Printf("## Patterns by Category\n")
-	fmt.Printf("- UI: %d\n", len(ui))
-	fmt.Printf("- Architecture: %d\n", len(arch))
-	fmt.Printf("- Anti-patterns: %d\n", len(anti))
-
-	return nil
-}
-
-func generateCategoryReport(title string, items []*insights.Insight) error {
-	fmt.Printf("# %s\n\n", title)
-	fmt.Printf("Total: %d insights\n\n", len(items))
-
-	for _, item := range items {
-		fmt.Printf("## %s (%s)\n", item.Title, item.ID)
-		fmt.Printf("Collected: %s\n", item.CollectedAt.Format("2006-01-02"))
-		fmt.Println()
-
-		if len(item.Findings) > 0 {
-			fmt.Println("### Findings")
-			for _, f := range item.Findings {
-				fmt.Printf("- **%s** [%s]: %s\n", f.Title, f.Relevance, f.Description)
-			}
-			fmt.Println()
-		}
-
-		if len(item.Recommendations) > 0 {
-			fmt.Println("### Recommendations")
-			for _, r := range item.Recommendations {
-				fmt.Printf("- [%s] %s: %s\n", r.Priority, r.FeatureHint, r.Rationale)
-			}
-			fmt.Println()
-		}
-	}
-
-	return nil
-}
-
 func init() {
-	reportCmd.Flags().StringVar(&reportType, "type", "landscape", "Report type: landscape, competitive, trends")
+	reportCmd.Flags().StringVar(&reportType, "type", "landscape", "Report type: landscape, competitive, trends, research")
+	reportCmd.Flags().BoolVar(&reportStdout, "stdout", false, "Output report to stdout instead of file")
 }
