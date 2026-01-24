@@ -8,6 +8,8 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/mistakeknot/vauxpraudemonium/internal/tandemonium/cli/commands"
 	"github.com/mistakeknot/vauxpraudemonium/internal/tandemonium/config"
+	"github.com/mistakeknot/vauxpraudemonium/internal/tandemonium/epics"
+	"github.com/mistakeknot/vauxpraudemonium/internal/tandemonium/prd"
 	"github.com/mistakeknot/vauxpraudemonium/internal/tandemonium/project"
 	"github.com/mistakeknot/vauxpraudemonium/internal/tandemonium/specs"
 	"github.com/mistakeknot/vauxpraudemonium/internal/tandemonium/tui"
@@ -58,10 +60,23 @@ func newRootCommand() *cobra.Command {
 			return err
 		},
 	}
+	var initFromPRD string
 	initCmd := &cobra.Command{
 		Use:   "init",
 		Short: "Initialize .tandemonium in current directory",
+		Long: `Initialize .tandemonium in current directory.
+
+By default, runs exploration and generates epics with an AI agent.
+Use --from-prd to import epics from an existing Praude PRD instead:
+
+  tandemonium init --from-prd PRD-001
+  tandemonium init --from-prd mvp
+`,
 		RunE: func(cmd *cobra.Command, args []string) error {
+			// Handle --from-prd flag
+			if initFromPRD != "" {
+				return runInitFromPRD(cmd, initFromPRD, initExisting, cmd.Flags().Changed("existing"))
+			}
 			opts := initOptions{
 				Agent:       initAgent,
 				Existing:    initExisting,
@@ -77,6 +92,7 @@ func newRootCommand() *cobra.Command {
 	initCmd.Flags().StringVar(&initExisting, "existing", "skip", "Existing epic handling (skip|overwrite|prompt)")
 	initCmd.Flags().IntVar(&initDepth, "depth", 0, "Exploration depth (1-3)")
 	initCmd.Flags().BoolVar(&initUseTUI, "tui", false, "Show progress UI")
+	initCmd.Flags().StringVar(&initFromPRD, "from-prd", "", "Import epics from a Praude PRD (e.g., PRD-001, mvp)")
 	root.AddCommand(initCmd)
 	root.AddCommand(
 		commands.AgentCmd(),
@@ -96,4 +112,68 @@ func newRootCommand() *cobra.Command {
 	)
 	root.Flags().BoolVarP(&quickMode, "quick", "q", false, "Create task in quick mode")
 	return root
+}
+
+// runInitFromPRD imports epics from a Praude PRD.
+func runInitFromPRD(cmd *cobra.Command, prdID, existing string, existingSet bool) error {
+	out := cmd.OutOrStdout()
+
+	// Initialize the .tandemonium directory
+	if err := project.Init("."); err != nil {
+		return err
+	}
+
+	root, err := project.FindRoot(".")
+	if err != nil {
+		return err
+	}
+
+	fmt.Fprintf(out, "Importing epics from PRD %s...\n", prdID)
+
+	result, err := prd.ImportFromPRD(prd.ImportOptions{
+		Root:  root,
+		PRDID: prdID,
+	})
+	if err != nil {
+		return fmt.Errorf("failed to import PRD: %w", err)
+	}
+
+	if len(result.Warnings) > 0 {
+		fmt.Fprintln(out, "Warnings:")
+		for _, w := range result.Warnings {
+			fmt.Fprintf(out, "  - %s\n", w)
+		}
+	}
+
+	if len(result.Epics) == 0 {
+		fmt.Fprintln(out, "No epics generated from PRD.")
+		return nil
+	}
+
+	fmt.Fprintf(out, "Generated %d epic(s) from PRD %s\n", len(result.Epics), result.SourcePRD)
+	for _, e := range result.Epics {
+		storyCount := len(e.Stories)
+		fmt.Fprintf(out, "  - %s: %s (%d stories)\n", e.ID, e.Title, storyCount)
+	}
+
+	specsDir := project.SpecsDir(root)
+	existingMode := existing
+	if existingMode == "" {
+		existingMode = "skip"
+	}
+
+	var writeOpts epics.WriteOptions
+	switch strings.ToLower(existingMode) {
+	case "overwrite":
+		writeOpts.Existing = epics.ExistingOverwrite
+	default:
+		writeOpts.Existing = epics.ExistingSkip
+	}
+
+	if err := epics.WriteEpics(specsDir, result.Epics, writeOpts); err != nil {
+		return fmt.Errorf("failed to write epics: %w", err)
+	}
+
+	fmt.Fprintf(out, "Wrote epics to %s\n", specsDir)
+	return nil
 }

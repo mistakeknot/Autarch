@@ -141,6 +141,12 @@ func (r *Reader) GetTaskStats() (*TaskStats, error) {
 			stats.Done++
 		case StatusBlocked:
 			stats.Blocked++
+		case "draft", "assigned":
+			// Count draft and assigned specs as todo items
+			stats.Todo++
+		default:
+			// Unknown status defaults to todo
+			stats.Todo++
 		}
 	}
 	return stats, nil

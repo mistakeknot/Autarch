@@ -20,11 +20,45 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
+// InterviewConfig holds configuration for non-interactive interview mode
+type InterviewConfig struct {
+	Vision       string   `yaml:"vision"`
+	Users        string   `yaml:"users"`
+	Problem      string   `yaml:"problem"`
+	Requirements []string `yaml:"requirements"`
+}
+
 func InterviewCmd() *cobra.Command {
-	var agent string
+	var (
+		agent         string
+		vision        string
+		users         string
+		problem       string
+		requirements  string
+		skipScan      bool
+		skipBootstrap bool
+		skipResearch  bool
+		configFile    string
+	)
 	cmd := &cobra.Command{
 		Use:   "interview",
 		Short: "Run guided interview to create a PRD",
+		Long: `Run guided interview to create a PRD.
+
+In interactive mode (default), prompts for input at each step.
+In non-interactive mode (via flags or --config), uses provided values:
+
+  praude interview --vision "..." --users "..." --problem "..." --requirements "req1,req2"
+  praude interview --config answers.yaml
+
+The config file format:
+  vision: "Your vision statement"
+  users: "Target users"
+  problem: "Problem to solve"
+  requirements:
+    - "First requirement"
+    - "Second requirement"
+`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			root, err := os.Getwd()
 			if err != nil {
@@ -34,46 +68,102 @@ func InterviewCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
+
+			// Load config from file if provided
+			var interviewCfg InterviewConfig
+			if configFile != "" {
+				data, err := os.ReadFile(configFile)
+				if err != nil {
+					return fmt.Errorf("failed to read config file: %w", err)
+				}
+				if err := yaml.Unmarshal(data, &interviewCfg); err != nil {
+					return fmt.Errorf("failed to parse config file: %w", err)
+				}
+			}
+
+			// Override with command-line flags (flags take precedence)
+			if vision != "" {
+				interviewCfg.Vision = vision
+			}
+			if users != "" {
+				interviewCfg.Users = users
+			}
+			if problem != "" {
+				interviewCfg.Problem = problem
+			}
+			if requirements != "" {
+				interviewCfg.Requirements = splitInput(requirements)
+			}
+
+			// Determine if we're in non-interactive mode
+			nonInteractive := configFile != "" || vision != "" || users != "" || problem != "" || requirements != ""
+
 			reader := bufio.NewReader(cmd.InOrStdin())
 			out := cmd.OutOrStdout()
-			scanNow, err := promptYesNo(reader, out, "Scan repo now? (y/n) ")
-			if err != nil {
-				return err
-			}
+
+			// Handle scanning
 			summary := ""
-			if scanNow {
-				res, _ := scan.ScanRepo(root, scan.Options{})
-				summary = renderScanSummary(res)
+			if !skipScan {
+				if nonInteractive {
+					// In non-interactive mode, always scan unless skipped
+					res, _ := scan.ScanRepo(root, scan.Options{})
+					summary = renderScanSummary(res)
+				} else {
+					scanNow, err := promptYesNo(reader, out, "Scan repo now? (y/n) ")
+					if err != nil {
+						return err
+					}
+					if scanNow {
+						res, _ := scan.ScanRepo(root, scan.Options{})
+						summary = renderScanSummary(res)
+					}
+				}
 			}
+
 			draft := buildDraftSpec(summary)
 			fmt.Fprintln(out, "Draft PRD ready.")
 			if draft.Summary != "" {
 				fmt.Fprintln(out, draft.Summary)
 			}
-			confirm, err := promptYesNo(reader, out, "Confirm draft? (y/n) ")
-			if err != nil {
-				return err
+
+			// Confirm draft in interactive mode only
+			if !nonInteractive {
+				confirm, err := promptYesNo(reader, out, "Confirm draft? (y/n) ")
+				if err != nil {
+					return err
+				}
+				if !confirm {
+					return nil
+				}
 			}
-			if !confirm {
-				return nil
+
+			// Get interview inputs
+			var finalVision, finalUsers, finalProblem, finalRequirements string
+			if nonInteractive {
+				finalVision = interviewCfg.Vision
+				finalUsers = interviewCfg.Users
+				finalProblem = interviewCfg.Problem
+				finalRequirements = strings.Join(interviewCfg.Requirements, ",")
+			} else {
+				finalVision, err = promptLine(reader, out, "Vision: ")
+				if err != nil {
+					return err
+				}
+				finalUsers, err = promptLine(reader, out, "Users: ")
+				if err != nil {
+					return err
+				}
+				finalProblem, err = promptLine(reader, out, "Problem: ")
+				if err != nil {
+					return err
+				}
+				finalRequirements, err = promptLine(reader, out, "Requirements (comma or newline separated): ")
+				if err != nil {
+					return err
+				}
 			}
-			vision, err := promptLine(reader, out, "Vision: ")
-			if err != nil {
-				return err
-			}
-			users, err := promptLine(reader, out, "Users: ")
-			if err != nil {
-				return err
-			}
-			problem, err := promptLine(reader, out, "Problem: ")
-			if err != nil {
-				return err
-			}
-			requirements, err := promptLine(reader, out, "Requirements (comma or newline separated): ")
-			if err != nil {
-				return err
-			}
-			spec := buildSpecFromInterview(vision, users, problem, requirements)
+
+			spec := buildSpecFromInterview(finalVision, finalUsers, finalProblem, finalRequirements)
 			path, id, warnings, err := writeSpec(root, spec)
 			if err != nil {
 				return err
@@ -85,16 +175,30 @@ func InterviewCmd() *cobra.Command {
 					fmt.Fprintln(out, "- "+warning)
 				}
 			}
-			if err := autoApplySuggestions(root, id, cfg, agent, out); err != nil {
-				fmt.Fprintln(out, "Suggestions failed:", err.Error())
+
+			// Auto-apply suggestions (skip if --skip-bootstrap)
+			if !skipBootstrap {
+				if err := autoApplySuggestions(root, id, cfg, agent, out); err != nil {
+					fmt.Fprintln(out, "Suggestions failed:", err.Error())
+				}
 			}
-			runResearch, err := promptYesNo(reader, out, "Run research now? (y/n) ")
-			if err != nil {
-				return err
+
+			// Handle research
+			if skipResearch {
+				return nil
+			}
+
+			runResearch := true
+			if !nonInteractive {
+				runResearch, err = promptYesNo(reader, out, "Run research now? (y/n) ")
+				if err != nil {
+					return err
+				}
 			}
 			if !runResearch {
 				return nil
 			}
+
 			now := time.Now()
 			researchDir := project.ResearchDir(root)
 			if err := os.MkdirAll(researchDir, 0o755); err != nil {
@@ -124,6 +228,14 @@ func InterviewCmd() *cobra.Command {
 		},
 	}
 	cmd.Flags().StringVar(&agent, "agent", "codex", "Agent profile to use")
+	cmd.Flags().StringVar(&vision, "vision", "", "Vision statement (non-interactive)")
+	cmd.Flags().StringVar(&users, "users", "", "Target users (non-interactive)")
+	cmd.Flags().StringVar(&problem, "problem", "", "Problem statement (non-interactive)")
+	cmd.Flags().StringVar(&requirements, "requirements", "", "Requirements, comma-separated (non-interactive)")
+	cmd.Flags().BoolVar(&skipScan, "skip-scan", false, "Skip repository scan")
+	cmd.Flags().BoolVar(&skipBootstrap, "skip-bootstrap", false, "Skip agent bootstrap/suggestions")
+	cmd.Flags().BoolVar(&skipResearch, "skip-research", false, "Skip research step")
+	cmd.Flags().StringVar(&configFile, "config", "", "YAML config file with interview answers")
 	return cmd
 }
 

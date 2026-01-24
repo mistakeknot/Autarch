@@ -3,9 +3,11 @@ package aggregator
 import (
 	"context"
 	"fmt"
+	"io/fs"
 	"log/slog"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
@@ -16,6 +18,7 @@ import (
 	"github.com/mistakeknot/vauxpraudemonium/internal/vauxhall/mcp"
 	"github.com/mistakeknot/vauxpraudemonium/internal/vauxhall/tandemonium"
 	"github.com/mistakeknot/vauxpraudemonium/internal/vauxhall/tmux"
+	praudeSpecs "github.com/mistakeknot/vauxpraudemonium/internal/praude/specs"
 )
 
 // Agent represents a detected AI agent
@@ -119,6 +122,12 @@ func (a *Aggregator) Refresh(ctx context.Context) error {
 	// Enrich projects with Tandemonium task stats
 	a.enrichWithTaskStats(projects)
 
+	// Enrich projects with Praude stats
+	a.enrichWithPraudeStats(projects)
+
+	// Enrich projects with Pollard stats
+	a.enrichWithPollardStats(projects)
+
 	// Load agents from MCP Agent Mail
 	agents := a.loadAgents()
 
@@ -168,6 +177,103 @@ func (a *Aggregator) enrichWithTaskStats(projects []discovery.Project) {
 			Blocked:    stats.Blocked,
 		}
 	}
+}
+
+// enrichWithPraudeStats loads Praude PRD statistics for each project
+func (a *Aggregator) enrichWithPraudeStats(projects []discovery.Project) {
+	for i := range projects {
+		if !projects[i].HasPraude {
+			continue
+		}
+		praudeDir := filepath.Join(projects[i].Path, ".praude", "specs")
+		summaries, _ := praudeSpecs.LoadSummaries(praudeDir)
+
+		stats := &discovery.PraudeStats{}
+		for _, s := range summaries {
+			stats.Total++
+			switch strings.ToLower(s.Status) {
+			case "draft":
+				stats.Draft++
+			case "active", "in_progress", "approved":
+				stats.Active++
+			case "done", "complete":
+				stats.Done++
+			default:
+				stats.Draft++ // Default unknown status to draft
+			}
+		}
+		projects[i].PraudeStats = stats
+	}
+}
+
+// enrichWithPollardStats loads Pollard research statistics for each project
+func (a *Aggregator) enrichWithPollardStats(projects []discovery.Project) {
+	for i := range projects {
+		if !projects[i].HasPollard {
+			continue
+		}
+		pollardPath := filepath.Join(projects[i].Path, ".pollard")
+
+		// Count sources
+		sourcesDir := filepath.Join(pollardPath, "sources")
+		sourceCount := countYAMLFiles(sourcesDir)
+
+		// Count insights
+		insightsDir := filepath.Join(pollardPath, "insights")
+		insightCount := countYAMLFiles(insightsDir)
+
+		// Count reports and find latest
+		reportsDir := filepath.Join(pollardPath, "reports")
+		reportCount, lastReport := countReportsAndFindLatest(reportsDir)
+
+		projects[i].PollardStats = &discovery.PollardStats{
+			Sources:    sourceCount,
+			Insights:   insightCount,
+			Reports:    reportCount,
+			LastReport: lastReport,
+		}
+	}
+}
+
+// countYAMLFiles counts YAML files in a directory
+func countYAMLFiles(dir string) int {
+	count := 0
+	filepath.WalkDir(dir, func(path string, d fs.DirEntry, err error) error {
+		if err == nil && !d.IsDir() && (strings.HasSuffix(d.Name(), ".yaml") || strings.HasSuffix(d.Name(), ".yml")) {
+			count++
+		}
+		return nil
+	})
+	return count
+}
+
+// countReportsAndFindLatest counts report files and finds the most recent
+func countReportsAndFindLatest(dir string) (int, string) {
+	count := 0
+	var latestPath string
+	var latestTime time.Time
+
+	filepath.WalkDir(dir, func(path string, d fs.DirEntry, err error) error {
+		if err != nil || d.IsDir() {
+			return nil
+		}
+		name := d.Name()
+		if strings.HasSuffix(name, ".md") || strings.HasSuffix(name, ".yaml") || strings.HasSuffix(name, ".yml") {
+			count++
+			info, err := d.Info()
+			if err == nil && info.ModTime().After(latestTime) {
+				latestTime = info.ModTime()
+				latestPath = path
+			}
+		}
+		return nil
+	})
+
+	// Return just the filename for the latest report
+	if latestPath != "" {
+		return count, filepath.Base(latestPath)
+	}
+	return count, ""
 }
 
 // loadAgents fetches registered agents from MCP Agent Mail
