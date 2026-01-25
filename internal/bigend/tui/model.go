@@ -17,6 +17,33 @@ import (
 	"github.com/mistakeknot/autarch/internal/bigend/aggregator"
 	"github.com/mistakeknot/autarch/internal/bigend/mcp"
 	"github.com/mistakeknot/autarch/internal/bigend/tmux"
+	shared "github.com/mistakeknot/autarch/pkg/tui"
+)
+
+// Re-export shared styles for convenience
+var (
+	TitleStyle         = shared.TitleStyle
+	SubtitleStyle      = shared.SubtitleStyle
+	LabelStyle         = shared.LabelStyle
+	SelectedStyle      = shared.SelectedStyle
+	UnselectedStyle    = shared.UnselectedStyle
+	PanelStyle         = shared.PanelStyle
+	PaneFocusedStyle   = shared.PaneFocusedStyle
+	PaneUnfocusedStyle = shared.PaneUnfocusedStyle
+	TabStyle           = shared.TabStyle
+	ActiveTabStyle     = shared.ActiveTabStyle
+	HelpKeyStyle       = shared.HelpKeyStyle
+	HelpDescStyle      = shared.HelpDescStyle
+	StatusRunning      = shared.StatusRunning
+	StatusWaiting      = shared.StatusWaiting
+	StatusIdle         = shared.StatusIdle
+	StatusError        = shared.StatusError
+)
+
+// Use shared functions
+var (
+	StatusIndicator = shared.StatusIndicator
+	AgentBadge      = shared.AgentBadge
 )
 
 type aggregatorAPI interface {

@@ -1,7 +1,6 @@
 package tui
 
 import (
-	"github.com/charmbracelet/lipgloss"
 	shared "github.com/mistakeknot/autarch/pkg/tui"
 )
 
@@ -26,10 +25,10 @@ var (
 	StatusIdleStyle    = shared.StatusIdle
 	StatusErrorStyle   = shared.StatusError
 
-	PaneFocusedStyle = lipgloss.NewStyle().
-				Border(lipgloss.ThickBorder()).
-				BorderForeground(shared.ColorPrimary)
-	PaneUnfocusedStyle = lipgloss.NewStyle().
-				Border(lipgloss.RoundedBorder()).
-				BorderForeground(shared.ColorMuted)
+	// Use shared pane styles
+	PaneFocusedStyle   = shared.PaneFocusedStyle
+	PaneUnfocusedStyle = shared.PaneUnfocusedStyle
 )
+
+// StatusSymbol returns just the symbol for a status (re-exported from shared)
+var StatusSymbol = shared.StatusSymbol

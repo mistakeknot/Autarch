@@ -57,7 +57,18 @@ type Insight struct {
 	Sources         []Source         `yaml:"sources"`
 	Findings        []Finding        `yaml:"findings"`
 	Recommendations []Recommendation `yaml:"recommendations,omitempty"`
-	LinkedFeatures  []string         `yaml:"linked_features,omitempty"` // FEAT-001, FEAT-002
+	LinkedFeatures  []string         `yaml:"linked_features,omitempty"` // FEAT-001, FEAT-002 (Gurgeh spec IDs)
+	InitiativeRef   string           `yaml:"initiative_ref,omitempty"`  // Link to Initiative ID
+	LinkedBy        string           `yaml:"linked_by,omitempty"`       // Agent or user who created the link
+	LinkedAt        *time.Time       `yaml:"linked_at,omitempty"`       // When the link was created
+}
+
+// LinkToInitiative sets the initiative reference with metadata
+func (i *Insight) LinkToInitiative(initiativeID, linkedBy string) {
+	i.InitiativeRef = initiativeID
+	i.LinkedBy = linkedBy
+	now := time.Now()
+	i.LinkedAt = &now
 }
 
 // Load reads an insight from a YAML file

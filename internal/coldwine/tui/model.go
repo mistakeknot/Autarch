@@ -909,39 +909,42 @@ func (m *Model) currentTaskDetail() TaskDetail {
 	}
 }
 
+// statusBadge returns a styled status badge using consistent symbols across all TUIs.
+// Symbols: ● running, ○ waiting/todo, ◐ in progress, ◌ idle, ✓ done, ✗ error/blocked
 func statusBadge(status string) string {
 	switch status {
 	case "in_progress":
-		return StatusRunningStyle.Render("[RUN]")
+		return StatusRunningStyle.Render("● RUN")
 	case "review":
-		return StatusWaitingStyle.Render("[REV]")
+		return StatusWaitingStyle.Render("◐ REV")
 	case "blocked":
-		return StatusErrorStyle.Render("[BLK]")
+		return StatusErrorStyle.Render("✗ BLK")
 	case "done":
-		return StatusRunningStyle.Render("[DONE]")
+		return StatusRunningStyle.Render("✓ DONE")
 	case "assigned":
-		return StatusWaitingStyle.Render("[ASGN]")
+		return StatusWaitingStyle.Render("○ ASGN")
 	case "todo":
-		return StatusIdleStyle.Render("[TODO]")
+		return StatusIdleStyle.Render("○ TODO")
 	default:
-		return StatusIdleStyle.Render("[UNKN]")
+		return StatusIdleStyle.Render("? UNKN")
 	}
 }
 
+// sessionBadge returns a styled session state badge using consistent symbols.
 func sessionBadge(state string) string {
 	switch state {
 	case "working":
-		return StatusRunningStyle.Render("[RUN]")
+		return StatusRunningStyle.Render("● RUN")
 	case "paused":
-		return StatusWaitingStyle.Render("[PAUS]")
+		return StatusWaitingStyle.Render("○ PAUS")
 	case "done":
-		return StatusRunningStyle.Render("[DONE]")
+		return StatusRunningStyle.Render("✓ DONE")
 	case "stopped":
-		return StatusErrorStyle.Render("[STOP]")
+		return StatusErrorStyle.Render("✗ STOP")
 	case "":
-		return StatusIdleStyle.Render("[----]")
+		return StatusIdleStyle.Render("◌ ----")
 	default:
-		return StatusIdleStyle.Render("[....]")
+		return StatusIdleStyle.Render("? ....")
 	}
 }
 

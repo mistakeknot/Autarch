@@ -17,10 +17,10 @@ func TestTaskDetailShowsStatusBadges(t *testing.T) {
 	}
 	out := m.View()
 	clean := stripANSI(out)
-	if !strings.Contains(clean, "Status: [RUN]") {
+	if !strings.Contains(clean, "Status: ● RUN") {
 		t.Fatalf("expected status badge, got %q", clean)
 	}
-	if !strings.Contains(clean, "Session: [RUN]") {
+	if !strings.Contains(clean, "Session: ● RUN") {
 		t.Fatalf("expected session badge")
 	}
 	if !strings.Contains(clean, "Did the thing.") {
