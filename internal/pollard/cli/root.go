@@ -31,6 +31,11 @@ func Execute() {
 	}
 }
 
+// RootCmd returns the root command for embedding in other CLIs
+func RootCmd() *cobra.Command {
+	return rootCmd
+}
+
 func init() {
 	rootCmd.AddCommand(scanCmd)
 	rootCmd.AddCommand(reportCmd)

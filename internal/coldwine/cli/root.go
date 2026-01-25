@@ -24,6 +24,11 @@ func Execute() error {
 	return root.Execute()
 }
 
+// RootCmd returns the root command for embedding in other CLIs
+func RootCmd() *cobra.Command {
+	return newRootCommand()
+}
+
 func newRootCommand() *cobra.Command {
 	var quickMode bool
 	var initAgent string
