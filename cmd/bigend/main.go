@@ -19,6 +19,7 @@ import (
 	"github.com/mistakeknot/autarch/internal/bigend/config"
 	"github.com/mistakeknot/autarch/internal/bigend/daemon"
 	"github.com/mistakeknot/autarch/internal/bigend/discovery"
+	"github.com/mistakeknot/autarch/internal/bigend/intermute"
 	"github.com/mistakeknot/autarch/internal/bigend/tui"
 	"github.com/mistakeknot/autarch/internal/bigend/web"
 )
@@ -45,6 +46,12 @@ func main() {
 		Level: logLevel,
 	}))
 	slog.SetDefault(logger)
+
+	if stop, err := intermute.Start(context.Background()); err != nil {
+		slog.Warn("intermute registration failed", "error", err)
+	} else if stop != nil {
+		defer stop()
+	}
 
 	// Load config
 	cfg, err := config.Load(*cfgPath)
