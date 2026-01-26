@@ -1,13 +1,35 @@
 package events
 
 import (
+	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
 	"time"
 
+	ic "github.com/mistakeknot/intermute/client"
 	"github.com/mistakeknot/autarch/pkg/contract"
 )
+
+// mockMessenger implements MessageSender for testing Writer bridge integration
+type mockMessenger struct {
+	messages []mockMessage
+	sendErr  error
+}
+
+type mockMessage struct {
+	subject string
+	body    string
+}
+
+func (m *mockMessenger) SendMessage(ctx context.Context, msg ic.Message) (ic.SendResponse, error) {
+	if m.sendErr != nil {
+		return ic.SendResponse{}, m.sendErr
+	}
+	m.messages = append(m.messages, mockMessage{subject: msg.Subject, body: msg.Body})
+	return ic.SendResponse{MessageID: "test-id", Cursor: 1}, nil
+}
 
 func TestStoreOpenAndMigrate(t *testing.T) {
 	dir := t.TempDir()
@@ -221,6 +243,99 @@ func TestReaderBuildState(t *testing.T) {
 
 	if taskState.Assignee != "claude" {
 		t.Errorf("expected assignee claude, got %s", taskState.Assignee)
+	}
+}
+
+func TestWriterWithBridge(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "events.db")
+
+	store, err := OpenStore(path)
+	if err != nil {
+		t.Fatalf("failed to open store: %v", err)
+	}
+	defer store.Close()
+
+	// Create mock messenger and bridge
+	mock := &mockMessenger{messages: make([]mockMessage, 0)}
+	bridge := NewIntermuteBridge(mock, "autarch", "writer-test")
+
+	writer := NewWriter(store, SourceColdwine)
+	writer.AttachBridge(bridge)
+
+	// Emit a task event
+	task := &contract.Task{
+		ID:         "TASK-BRIDGE-001",
+		Title:      "Test Bridge Integration",
+		Status:     contract.TaskStatusTodo,
+		SourceTool: contract.SourceColdwine,
+		CreatedAt:  time.Now(),
+		UpdatedAt:  time.Now(),
+	}
+
+	if err := writer.EmitTaskCreated(task); err != nil {
+		t.Fatalf("failed to emit task created: %v", err)
+	}
+
+	// Verify local event was stored
+	events, err := store.Query(nil)
+	if err != nil {
+		t.Fatalf("failed to query events: %v", err)
+	}
+	if len(events) != 1 {
+		t.Errorf("expected 1 local event, got %d", len(events))
+	}
+
+	// Verify event was forwarded to bridge
+	if len(mock.messages) != 1 {
+		t.Errorf("expected 1 bridged message, got %d", len(mock.messages))
+	}
+	if mock.messages[0].subject == "" {
+		t.Error("expected non-empty message subject")
+	}
+}
+
+func TestWriterBridgeErrorDoesNotFailEmit(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "events.db")
+
+	store, err := OpenStore(path)
+	if err != nil {
+		t.Fatalf("failed to open store: %v", err)
+	}
+	defer store.Close()
+
+	// Create mock that returns errors
+	mock := &mockMessenger{
+		messages: make([]mockMessage, 0),
+		sendErr:  fmt.Errorf("network error"),
+	}
+	bridge := NewIntermuteBridge(mock, "autarch", "writer-test")
+
+	writer := NewWriter(store, SourceColdwine)
+	writer.AttachBridge(bridge)
+
+	// Emit should succeed even when bridge fails
+	task := &contract.Task{
+		ID:         "TASK-BRIDGE-002",
+		Title:      "Test Error Handling",
+		Status:     contract.TaskStatusTodo,
+		SourceTool: contract.SourceColdwine,
+		CreatedAt:  time.Now(),
+		UpdatedAt:  time.Now(),
+	}
+
+	if err := writer.EmitTaskCreated(task); err != nil {
+		t.Fatalf("emit should succeed even when bridge fails: %v", err)
+	}
+
+	// Verify local event was stored
+	events, err := store.Query(nil)
+	if err != nil {
+		t.Fatalf("failed to query events: %v", err)
+	}
+	if len(events) != 1 {
+		t.Errorf("expected 1 local event, got %d", len(events))
 	}
 }
 

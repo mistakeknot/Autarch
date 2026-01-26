@@ -34,11 +34,10 @@ func NewComposer(contentHeight int) *Composer {
 	ta.ShowLineNumbers = false
 
 	// Style the textarea to match Tokyo Night theme
+	// NO Background() - inherit terminal background for clean look
 	ta.FocusedStyle.Base = lipgloss.NewStyle().
-		Foreground(ColorFg).
-		Background(ColorBg)
-	ta.FocusedStyle.CursorLine = lipgloss.NewStyle().
-		Background(ColorBgLight)
+		Foreground(ColorFg)
+	ta.FocusedStyle.CursorLine = lipgloss.NewStyle() // No background highlight
 	ta.FocusedStyle.Placeholder = lipgloss.NewStyle().
 		Foreground(ColorMuted)
 	ta.FocusedStyle.Text = lipgloss.NewStyle().
@@ -149,9 +148,9 @@ func (c *Composer) View() string {
 	boxStyle := lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
 		BorderForeground(borderColor).
-		Padding(0, 1).
-		Width(width - 2).    // Total width minus border
-		MaxWidth(width - 2)  // Hard constraint to prevent overflow
+		Padding(0, 1)
+	// Removed: .Width(width - 2).MaxWidth(width - 2)
+	// Let lipgloss auto-size to content - the textarea is already sized via SetSize()
 
 	boxedContent := boxStyle.Render(content)
 

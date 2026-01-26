@@ -83,6 +83,18 @@ type tmuxAPI interface {
 	AttachSession(name string) error
 }
 
+// EventHandler processes aggregator events (spec changes, agent updates, etc.)
+type EventHandler func(Event)
+
+// Event represents a domain event from Intermute or local detection
+type Event struct {
+	Type      string      `json:"type"`       // spec.created, task.updated, message.sent, etc.
+	Project   string      `json:"project"`    // Project context
+	EntityID  string      `json:"entity_id"`  // ID of affected entity
+	Data      interface{} `json:"data"`       // Event-specific data
+	Timestamp time.Time   `json:"timestamp"`
+}
+
 // Aggregator combines data from multiple sources
 type Aggregator struct {
 	scanner         *discovery.Scanner
@@ -94,6 +106,13 @@ type Aggregator struct {
 	cfg             *config.Config
 	mu              sync.RWMutex
 	state           State
+
+	// WebSocket event handling
+	handlers   map[string][]EventHandler
+	handlersMu sync.RWMutex
+	wsCtx      context.Context
+	wsCancel   context.CancelFunc
+	wsConnected bool
 }
 
 // New creates a new aggregator
@@ -119,6 +138,7 @@ func New(scanner *discovery.Scanner, cfg *config.Config) *Aggregator {
 		mcpManager:      mcp.NewManager(),
 		resolver:        agentcmd.NewResolver(cfg),
 		cfg:             cfg,
+		handlers:        make(map[string][]EventHandler),
 		state: State{
 			Projects:   []discovery.Project{},
 			Agents:     []Agent{},
@@ -126,6 +146,210 @@ func New(scanner *discovery.Scanner, cfg *config.Config) *Aggregator {
 			MCP:        map[string][]mcp.ComponentStatus{},
 			Activities: []Activity{},
 		},
+	}
+}
+
+// ConnectWebSocket establishes a WebSocket connection to Intermute for real-time events.
+// This enables reactive updates instead of polling.
+func (a *Aggregator) ConnectWebSocket(ctx context.Context) error {
+	if a.intermuteClient == nil {
+		return fmt.Errorf("intermute client not available")
+	}
+
+	// Create cancellable context for the WebSocket connection
+	a.wsCtx, a.wsCancel = context.WithCancel(ctx)
+
+	// Connect to Intermute WebSocket
+	if err := a.intermuteClient.Connect(a.wsCtx); err != nil {
+		return fmt.Errorf("websocket connect: %w", err)
+	}
+
+	// Register event handler
+	a.intermuteClient.On("*", func(evt intermute.Event) {
+		a.handleIntermuteEvent(evt)
+	})
+
+	// Subscribe to all relevant event types
+	eventTypes := []string{
+		"spec.created", "spec.updated", "spec.deleted",
+		"epic.created", "epic.updated", "epic.deleted",
+		"story.created", "story.updated", "story.deleted",
+		"task.created", "task.updated", "task.deleted", "task.assigned",
+		"insight.created", "insight.updated",
+		"cuj.created", "cuj.updated", "cuj.deleted",
+		"agent.registered", "agent.updated",
+		"message.sent", "message.read",
+		"reservation.created", "reservation.released",
+	}
+
+	if err := a.intermuteClient.Subscribe(a.wsCtx, eventTypes...); err != nil {
+		return fmt.Errorf("websocket subscribe: %w", err)
+	}
+
+	a.wsConnected = true
+	slog.Info("connected to Intermute WebSocket", "events", len(eventTypes))
+	return nil
+}
+
+// DisconnectWebSocket closes the WebSocket connection
+func (a *Aggregator) DisconnectWebSocket() error {
+	if a.wsCancel != nil {
+		a.wsCancel()
+	}
+	a.wsConnected = false
+	if a.intermuteClient != nil {
+		return a.intermuteClient.Close()
+	}
+	return nil
+}
+
+// IsWebSocketConnected returns whether the WebSocket connection is active
+func (a *Aggregator) IsWebSocketConnected() bool {
+	return a.wsConnected
+}
+
+// On registers an event handler for specific event types.
+// Pass "*" to receive all events.
+func (a *Aggregator) On(eventType string, handler EventHandler) {
+	a.handlersMu.Lock()
+	defer a.handlersMu.Unlock()
+	a.handlers[eventType] = append(a.handlers[eventType], handler)
+}
+
+// handleIntermuteEvent processes events from Intermute and triggers appropriate updates
+func (a *Aggregator) handleIntermuteEvent(evt intermute.Event) {
+	// Convert to aggregator event
+	aggEvt := Event{
+		Type:      evt.Type,
+		Project:   evt.Project,
+		EntityID:  evt.EntityID,
+		Data:      evt.Data,
+		Timestamp: evt.Timestamp,
+	}
+
+	// Add to activities feed
+	a.addActivity(aggEvt)
+
+	// Trigger targeted refresh based on event type
+	a.refreshForEvent(evt.Type)
+
+	// Dispatch to registered handlers
+	a.dispatchEvent(aggEvt)
+}
+
+// addActivity adds an event to the activities feed
+func (a *Aggregator) addActivity(evt Event) {
+	activity := Activity{
+		Time:        evt.Timestamp,
+		Type:        evt.Type,
+		ProjectPath: evt.Project,
+		Summary:     summarizeEvent(evt),
+	}
+
+	a.mu.Lock()
+	defer a.mu.Unlock()
+
+	// Prepend new activity (most recent first)
+	a.state.Activities = append([]Activity{activity}, a.state.Activities...)
+
+	// Keep only last 100 activities
+	if len(a.state.Activities) > 100 {
+		a.state.Activities = a.state.Activities[:100]
+	}
+
+	a.state.UpdatedAt = time.Now()
+}
+
+// refreshForEvent triggers targeted refresh based on event type
+func (a *Aggregator) refreshForEvent(eventType string) {
+	ctx := context.Background()
+
+	switch {
+	case strings.HasPrefix(eventType, "spec.") ||
+		strings.HasPrefix(eventType, "epic.") ||
+		strings.HasPrefix(eventType, "story.") ||
+		strings.HasPrefix(eventType, "task."):
+		// Spec/task events - refresh Gurgeh stats
+		go func() {
+			a.mu.Lock()
+			a.enrichWithGurgStats(a.state.Projects)
+			a.state.UpdatedAt = time.Now()
+			a.mu.Unlock()
+		}()
+
+	case strings.HasPrefix(eventType, "agent.") ||
+		strings.HasPrefix(eventType, "message."):
+		// Agent events - refresh agent list
+		go func() {
+			agents := a.loadAgents()
+			a.mu.Lock()
+			a.state.Agents = agents
+			a.state.UpdatedAt = time.Now()
+			a.mu.Unlock()
+		}()
+
+	case strings.HasPrefix(eventType, "insight."):
+		// Insight events - refresh Pollard stats
+		go func() {
+			a.mu.Lock()
+			a.enrichWithPollardStats(a.state.Projects)
+			a.state.UpdatedAt = time.Now()
+			a.mu.Unlock()
+		}()
+
+	case strings.HasPrefix(eventType, "reservation."):
+		// Reservation events - no specific refresh needed, just activity logged
+		slog.Debug("reservation event", "type", eventType)
+	}
+
+	// Full refresh can be requested externally
+	_ = ctx // silence unused variable if needed
+}
+
+// dispatchEvent dispatches an event to all registered handlers
+func (a *Aggregator) dispatchEvent(evt Event) {
+	a.handlersMu.RLock()
+	// Get handlers for this specific event type
+	handlers := make([]EventHandler, 0)
+	handlers = append(handlers, a.handlers[evt.Type]...)
+	// Get handlers for wildcard
+	handlers = append(handlers, a.handlers["*"]...)
+	a.handlersMu.RUnlock()
+
+	for _, h := range handlers {
+		h(evt)
+	}
+}
+
+// summarizeEvent creates a human-readable summary of an event
+func summarizeEvent(evt Event) string {
+	parts := strings.Split(evt.Type, ".")
+	if len(parts) != 2 {
+		return evt.Type
+	}
+
+	entity := parts[0]
+	action := parts[1]
+
+	switch action {
+	case "created":
+		return fmt.Sprintf("New %s created: %s", entity, evt.EntityID)
+	case "updated":
+		return fmt.Sprintf("%s updated: %s", strings.Title(entity), evt.EntityID)
+	case "deleted":
+		return fmt.Sprintf("%s deleted: %s", strings.Title(entity), evt.EntityID)
+	case "assigned":
+		return fmt.Sprintf("%s assigned: %s", strings.Title(entity), evt.EntityID)
+	case "sent":
+		return fmt.Sprintf("Message sent: %s", evt.EntityID)
+	case "read":
+		return fmt.Sprintf("Message read: %s", evt.EntityID)
+	case "registered":
+		return fmt.Sprintf("Agent registered: %s", evt.EntityID)
+	case "released":
+		return fmt.Sprintf("Reservation released: %s", evt.EntityID)
+	default:
+		return fmt.Sprintf("%s %s: %s", strings.Title(entity), action, evt.EntityID)
 	}
 }
 

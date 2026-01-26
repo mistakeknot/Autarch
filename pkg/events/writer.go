@@ -1,7 +1,9 @@
 package events
 
 import (
+	"context"
 	"encoding/json"
+	"log"
 	"sync"
 	"time"
 
@@ -10,11 +12,12 @@ import (
 
 // Writer provides a high-level API for emitting events
 type Writer struct {
-	store      *Store
-	sourceTool SourceTool
+	store       *Store
+	sourceTool  SourceTool
 	projectPath string
-	mu         sync.Mutex
-	subs       []*Subscription
+	mu          sync.Mutex
+	subs        []*Subscription
+	bridge      *IntermuteBridge
 }
 
 // NewWriter creates a new event writer
@@ -29,6 +32,30 @@ func NewWriter(store *Store, sourceTool SourceTool) *Writer {
 // SetProjectPath sets the default project path for events
 func (w *Writer) SetProjectPath(path string) {
 	w.projectPath = path
+}
+
+// AttachBridge attaches an IntermuteBridge to forward events to Intermute.
+// When attached, events are forwarded after being stored locally.
+// Bridge errors are logged but do not fail local event emission (graceful degradation).
+func (w *Writer) AttachBridge(bridge *IntermuteBridge) {
+	w.bridge = bridge
+}
+
+// forwardToBridge sends an event to the attached Intermute bridge if present.
+// This is non-blocking and errors are logged but do not propagate.
+func (w *Writer) forwardToBridge(event *Event) {
+	if w.bridge == nil {
+		return
+	}
+
+	// Use a background context with timeout for bridge operations
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	if err := w.bridge.Forward(ctx, event); err != nil {
+		log.Printf("[events] bridge forward failed for %s/%s: %v",
+			event.EventType, event.EntityID, err)
+	}
 }
 
 // emit writes an event and notifies subscribers
@@ -54,6 +81,10 @@ func (w *Writer) emit(eventType EventType, entityType EntityType, entityID strin
 
 	// Notify subscribers
 	w.notifySubscribers(event)
+
+	// Forward to Intermute bridge if attached (non-blocking, errors logged)
+	w.forwardToBridge(event)
+
 	return nil
 }
 
