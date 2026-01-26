@@ -541,6 +541,86 @@ Scopes: bigend, gurgeh, coldwine, tui, build
 - Autarch uses `pkg/intermute` client wrapper
 - Environment: `INTERMUTE_URL`, `INTERMUTE_API_KEY`, `INTERMUTE_PROJECT`
 
+### Deep Intermute Integration (January 2025)
+
+All Autarch tools now have dedicated Intermute bridges for cross-tool coordination:
+
+#### Coldwine → Intermute (`internal/coldwine/intermute`)
+
+| Component | Purpose |
+|-----------|---------|
+| **TaskBroadcaster** | Broadcasts task lifecycle events (created, assigned, blocked, completed) |
+| **SessionTracker** | Tracks agent session lifecycle in Intermute |
+| **Mapper** | Bidirectional type conversion between Coldwine and Intermute |
+
+```go
+// Task broadcasting
+broadcaster := intermute.NewTaskBroadcaster(sender, "autarch", "coldwine-agent")
+broadcaster.BroadcastStatusChange(ctx, task, storage.TaskStatusInProgress)
+broadcaster.BroadcastBlocked(ctx, task, "waiting for review")
+
+// Session tracking
+tracker := intermute.NewSessionTracker(client, "autarch")
+intermuteSession, _ := tracker.SessionStarted(ctx, agentSession)
+tracker.SessionStateChanged(ctx, intermuteID, agentSession)
+```
+
+**Status Mapping:** `todo`→`pending`, `in_progress`→`running`, `blocked`→`blocked`, `done`→`done`
+
+#### Gurgeh → Intermute (`internal/gurgeh/intermute`)
+
+**PRDSyncer** synchronizes Gurgeh PRDs with Intermute Specs:
+
+```go
+syncer := intermute.NewPRDSyncer(client, "autarch")
+spec, _ := syncer.SyncPRD(ctx, prd)           // Create new spec
+spec, _ := syncer.SyncPRDWithID(ctx, prd, id) // Update existing
+```
+
+**Status Mapping:** `draft`→`draft`, `approved`→`research`, `in_progress`→`validated`, `done`→`archived`
+
+**Feature Extraction:** Vision from titles/summaries, users from CUJs, problems from requirements.
+
+#### Pollard → Intermute (`internal/pollard/intermute`)
+
+**Publisher** publishes research findings as Intermute Insights:
+
+```go
+pub := intermute.NewPublisher(client, "autarch")
+pub = pub.WithSpecID("spec-123") // Optional: link to spec
+
+insight, _ := pub.PublishFinding(ctx, finding)
+insights, _ := pub.PublishFindings(ctx, findings) // Batch
+```
+
+**Category Mapping from Tags:**
+- `"competitive"` → `competitive`
+- `"trend"` → `trends`
+- `"user"` → `user`
+- Default → `research`
+
+#### Event Spine Bridge (`pkg/events`)
+
+**IntermuteBridge** forwards local events to Intermute messaging:
+
+```go
+bridge := events.NewIntermuteBridge(client, "autarch", "coldwine-agent")
+bridge.WithRecipients([]string{"bigend-agent"})
+writer.AttachBridge(bridge)
+
+// Events now automatically forward after local storage
+```
+
+#### Graceful Degradation
+
+All integrations implement graceful degradation - if the Intermute client is nil, operations become no-ops:
+
+```go
+// These work without Intermute configured
+syncer := intermute.NewPRDSyncer(nil, "autarch")  // nil client
+spec, err := syncer.SyncPRD(ctx, prd)             // Returns empty spec, nil error
+```
+
 ## Landing the Plane (Session Completion)
 
 **When ending a work session**, you MUST complete ALL steps below. Work is NOT complete until `git push` succeeds.

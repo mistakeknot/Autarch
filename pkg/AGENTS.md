@@ -169,6 +169,55 @@ for event := range sub.Channel {
 }
 ```
 
+### Intermute Bridge (Cross-Tool Coordination)
+
+The `IntermuteBridge` forwards local events to Intermute for cross-tool visibility. This enables tools like Bigend, Gurgeh, and Coldwine to broadcast their events via Intermute's coordination layer.
+
+**Initialization:**
+
+```go
+import "github.com/mistakeknot/autarch/pkg/events"
+import "github.com/mistakeknot/autarch/pkg/intermute"
+
+// Create bridge with Intermute client
+bridge := events.NewIntermuteBridge(
+    client,              // MessageSender (intermute.Client or mock)
+    "autarch",           // Intermute project
+    "coldwine-agent",    // Agent identifier
+)
+
+// Optional: set specific recipients
+bridge.WithRecipients([]string{"bigend-agent", "gurgeh-agent"})
+
+// Attach to writer for automatic forwarding
+writer.AttachBridge(bridge)
+```
+
+**Key Behaviors:**
+
+| Behavior | Details |
+|----------|---------|
+| **Forwarding** | Events forwarded after local storage (non-blocking) |
+| **Message Format** | Event serialized to JSON with metadata |
+| **Importance** | Events with 'failed', 'blocked', 'error' marked "high"; others "normal" |
+| **Error Handling** | Bridge errors logged but don't fail local emission (graceful degradation) |
+| **Timeout** | 5-second timeout for bridge operations |
+
+**Payload Structure:**
+
+```json
+{
+  "event_id": 42,
+  "event_type": "task_completed",
+  "entity_type": "task",
+  "entity_id": "task-123",
+  "source_tool": "coldwine",
+  "payload": { /* custom event data */ },
+  "project_path": "/path/to/project",
+  "created_at": "2024-01-15T10:30:00Z"
+}
+```
+
 ### Database Location
 
 - Default: `~/.autarch/events.db`
