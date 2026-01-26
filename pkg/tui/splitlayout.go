@@ -4,6 +4,7 @@ import (
 	"strings"
 
 	"github.com/charmbracelet/lipgloss"
+	"github.com/muesli/reflow/ansi"
 )
 
 // SplitLayout renders a 2/3 + 1/3 horizontal split layout.
@@ -169,21 +170,24 @@ func ensureSize(content string, width, height int) string {
 
 // padToWidth pads a line to exactly the specified width.
 // Truncates if too long, pads with spaces if too short.
+// Properly handles ANSI escape codes (they don't count toward display width).
 func padToWidth(line string, width int) string {
-	runeLen := len([]rune(line))
-	if runeLen == width {
+	// Use ansi.PrintableRuneWidth to get the actual display width
+	// This ignores ANSI escape codes which have zero display width
+	displayWidth := ansi.PrintableRuneWidth(line)
+
+	if displayWidth == width {
 		return line
 	}
-	if runeLen > width {
-		// Truncate with ellipsis if possible
-		runes := []rune(line)
+	if displayWidth > width {
+		// Truncate using lipgloss which handles ANSI properly
 		if width > 3 {
-			return string(runes[:width-3]) + "..."
+			return lipgloss.NewStyle().Width(width - 3).Render(line) + "..."
 		}
-		return string(runes[:width])
+		return lipgloss.NewStyle().Width(width).Render(line)
 	}
 	// Pad with spaces
-	return line + strings.Repeat(" ", width-runeLen)
+	return line + strings.Repeat(" ", width-displayWidth)
 }
 
 // RenderWithPanels is a convenience method that renders left and right

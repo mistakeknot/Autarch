@@ -17,16 +17,16 @@ import (
 )
 
 // KickoffView is the initial view for starting new projects or resuming drafts.
-// It uses a Cursor-style split layout with document panel (left) and composer (right).
+// It uses a Cursor-style split layout with document panel (left) and chat panel (right).
 type KickoffView struct {
 	// Shared components for Cursor-style layout
-	composer    *pkgtui.Composer
+	chatPanel   *pkgtui.ChatPanel
 	docPanel    *pkgtui.DocPanel
 	splitLayout *pkgtui.SplitLayout
 
 	recents    []RecentProject
 	selected   int
-	focusInput bool // true = composer focused, false = recents focused
+	focusInput bool // true = chat panel focused, false = recents focused
 	width      int
 	height     int
 	loading    bool
@@ -72,21 +72,20 @@ type Project struct {
 
 // NewKickoffView creates a new kickoff view with Cursor-style split layout.
 func NewKickoffView() *KickoffView {
-	// Create shared components - use Composer directly (no chat history needed for kickoff)
-	composer := pkgtui.NewComposer(8) // 8 lines for project description
-	composer.SetPlaceholder("Describe what you want to build...\n\nInclude your vision, key features, and any constraints.")
-	composer.SetHint("ctrl+g: create  ctrl+s: scan  tab: switch")
-	composer.SetTitle("Project Description")
+	// Create shared components
+	chatPanel := pkgtui.NewChatPanel()
+	chatPanel.SetComposerPlaceholder("Describe what you want to build...")
+	chatPanel.SetComposerHint("ctrl+g: create  ctrl+s: scan")
 
 	docPanel := pkgtui.NewDocPanel()
 	docPanel.SetTitle("What do you want to build?")
 	docPanel.SetSubtitle("Describe your project vision and goals")
 
-	splitLayout := pkgtui.NewSplitLayout(0.45) // 45% left (tips), 55% right (input)
-	splitLayout.SetMinWidth(80)                // Fall back to stacked on narrow terminals
+	splitLayout := pkgtui.NewSplitLayout(0.40) // 40% left (doc), 60% right (chat)
+	splitLayout.SetMinWidth(80)
 
 	v := &KickoffView{
-		composer:    composer,
+		chatPanel:   chatPanel,
 		docPanel:    docPanel,
 		splitLayout: splitLayout,
 		focusInput:  true,
@@ -152,7 +151,7 @@ func (v *KickoffView) updateDocPanel() {
 // Init implements View
 func (v *KickoffView) Init() tea.Cmd {
 	return tea.Batch(
-		v.composer.Focus(),
+		v.chatPanel.Focus(),
 		v.loadRecentProjects(),
 	)
 }
@@ -254,9 +253,7 @@ func (v *KickoffView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
 		v.height = msg.Height - 4
 		v.splitLayout.SetSize(v.width, v.height)
 		v.docPanel.SetSize(v.splitLayout.LeftWidth(), v.splitLayout.LeftHeight())
-		// Composer gets the right side - give it good height for multi-line input
-		composerHeight := min(12, v.splitLayout.RightHeight())
-		v.composer.SetSize(v.splitLayout.RightWidth(), composerHeight)
+		v.chatPanel.SetSize(v.splitLayout.RightWidth(), v.splitLayout.RightHeight())
 		return v, nil
 
 	case recentsLoadedMsg:
@@ -308,7 +305,7 @@ func (v *KickoffView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
 		}
 		// Store scan result and pre-fill the description
 		v.scanResult = &msg
-		v.composer.SetValue(msg.Description)
+		v.chatPanel.SetValue(msg.Description)
 		v.updateDocPanel()
 		return v, nil
 
@@ -334,7 +331,7 @@ func (v *KickoffView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
 		// If no more recents, switch focus to input
 		if len(v.recents) == 0 {
 			v.focusInput = true
-			return v, v.composer.Focus()
+			return v, v.chatPanel.Focus()
 		}
 		return v, nil
 
@@ -370,16 +367,16 @@ func (v *KickoffView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
 				// Toggle focus to recents
 				if len(v.recents) > 0 {
 					v.focusInput = false
-					v.composer.Blur()
+					v.chatPanel.Blur()
 				}
 				return v, nil
 
 			case "ctrl+g":
 				// Submit the project description (ctrl+g = "go")
-				if strings.TrimSpace(v.composer.Value()) != "" {
+				if strings.TrimSpace(v.chatPanel.Value()) != "" {
 					v.loading = true
 					v.loadingMsg = "Creating project..."
-					return v, v.createProject(v.composer.Value())
+					return v, v.createProject(v.chatPanel.Value())
 				}
 				return v, nil
 
@@ -404,14 +401,14 @@ func (v *KickoffView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
 				// If there's content, clear focus; otherwise do nothing
 				if len(v.recents) > 0 {
 					v.focusInput = false
-					v.composer.Blur()
+					v.chatPanel.Blur()
 				}
 				return v, nil
 
 			default:
 				// Pass all other keys to the composer (including Enter for newlines)
 				var cmd tea.Cmd
-				v.composer, cmd = v.composer.Update(msg)
+				v.chatPanel, cmd = v.chatPanel.Update(msg)
 				return v, cmd
 			}
 		}
@@ -421,7 +418,7 @@ func (v *KickoffView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
 		case "tab":
 			// Toggle focus to input
 			v.focusInput = true
-			return v, v.composer.Focus()
+			return v, v.chatPanel.Focus()
 
 		case "up", "k":
 			if v.selected > 0 {
@@ -658,7 +655,7 @@ func (v *KickoffView) renderRightPane() string {
 	var sections []string
 
 	// Composer for project description
-	sections = append(sections, v.composer.View())
+	sections = append(sections, v.chatPanel.View())
 
 	// Recent projects section (if any)
 	if len(v.recents) > 0 {
@@ -773,12 +770,12 @@ func timeAgoString(t time.Time) string {
 // Focus implements View
 func (v *KickoffView) Focus() tea.Cmd {
 	v.focusInput = true
-	return v.composer.Focus()
+	return v.chatPanel.Focus()
 }
 
 // Blur implements View
 func (v *KickoffView) Blur() {
-	v.composer.Blur()
+	v.chatPanel.Blur()
 }
 
 // Name implements View
@@ -819,7 +816,7 @@ func (v *KickoffView) Commands() []tui.Command {
 			Description: "Start a new project",
 			Action: func() tea.Cmd {
 				v.focusInput = true
-				return v.composer.Focus()
+				return v.chatPanel.Focus()
 			},
 		},
 	}
