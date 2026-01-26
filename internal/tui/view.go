@@ -26,6 +26,18 @@ type View interface {
 	ShortHelp() string
 }
 
+// HelpBinding represents a single keybinding for the help overlay
+type HelpBinding struct {
+	Key         string // The key(s) to press (e.g., "j/k", "enter", "A")
+	Description string // What the key does
+}
+
+// FullHelpProvider can provide complete keybinding documentation
+type FullHelpProvider interface {
+	// FullHelp returns all available keybindings for the help overlay
+	FullHelp() []HelpBinding
+}
+
 // Command represents an action that can be invoked from the command palette
 type Command struct {
 	Name        string

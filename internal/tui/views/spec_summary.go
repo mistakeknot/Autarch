@@ -11,6 +11,10 @@ import (
 	pkgtui "github.com/mistakeknot/autarch/pkg/tui"
 )
 
+// Type aliases to avoid import cycles
+type SpecSummary = tui.SpecSummary
+type SpecDecision = tui.SpecDecision
+
 // SpecSummaryView displays a completed spec with key decisions and research attributions.
 type SpecSummaryView struct {
 	spec        *SpecSummary
@@ -28,27 +32,6 @@ type SpecSummaryView struct {
 	onGenerateEpics func(spec *SpecSummary) tea.Cmd
 	onEditSpec      func(spec *SpecSummary) tea.Cmd
 	onWaitResearch  func() tea.Cmd
-}
-
-// SpecSummary represents a completed spec ready for review.
-type SpecSummary struct {
-	ProjectID   string
-	Name        string
-	Vision      string
-	Users       string
-	Problem     string
-	Platform    string
-	Language    string
-	Requirements []string
-	Decisions   []SpecDecision
-}
-
-// SpecDecision represents a decision made during the interview.
-type SpecDecision struct {
-	Key       string // e.g., "platform", "language"
-	Value     string
-	Source    string // "user" or InsightID
-	InsightID string // If from research
 }
 
 // NewSpecSummaryView creates a new spec summary view.
@@ -145,8 +128,14 @@ func (v *SpecSummaryView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
 			}
 			return v, nil
 
-		case "space":
+		case " ":
+			// Toggle expand (space key returns " " in Bubble Tea)
 			v.expanded[v.selected] = !v.expanded[v.selected]
+			return v, nil
+
+		case "esc", "b", "backspace":
+			// Back navigation (note: spec_summary may need a back callback)
+			// For now, esc cancels any pending operation
 			return v, nil
 		}
 	}
@@ -324,42 +313,25 @@ func (v *SpecSummaryView) Name() string {
 
 // ShortHelp implements View
 func (v *SpecSummaryView) ShortHelp() string {
-	return "enter generate  e edit  r refresh"
+	return "enter generate  e edit  r refresh  space expand"
+}
+
+// FullHelp implements FullHelpProvider
+func (v *SpecSummaryView) FullHelp() []tui.HelpBinding {
+	return []tui.HelpBinding{
+		{Key: "j/k", Description: "Navigate down/up"},
+		{Key: "enter", Description: "Generate epics from spec"},
+		{Key: "e", Description: "Edit spec (go back to interview)"},
+		{Key: "r", Description: "Refresh/wait for research"},
+		{Key: "ctrl+r", Description: "View research findings"},
+		{Key: "space", Description: "Toggle expand selected"},
+		{Key: "esc", Description: "Go back"},
+		{Key: "b", Description: "Go back"},
+	}
 }
 
 // CreateSpecSummaryFromAnswers creates a SpecSummary from interview answers.
+// This is a convenience wrapper around tui.CreateSpecSummaryFromAnswers.
 func CreateSpecSummaryFromAnswers(projectID string, answers map[string]string, decisions []SpecDecision) *SpecSummary {
-	spec := &SpecSummary{
-		ProjectID: projectID,
-		Name:      answers["vision"],
-		Vision:    answers["vision"],
-		Users:     answers["users"],
-		Problem:   answers["problem"],
-		Platform:  answers["platform"],
-		Language:  answers["language"],
-		Decisions: decisions,
-	}
-
-	// Parse requirements
-	if reqs := answers["requirements"]; reqs != "" {
-		lines := strings.Split(reqs, "\n")
-		for _, line := range lines {
-			line = strings.TrimSpace(line)
-			if line != "" {
-				spec.Requirements = append(spec.Requirements, line)
-			}
-		}
-		// Also handle comma-separated
-		if len(spec.Requirements) == 1 && strings.Contains(spec.Requirements[0], ",") {
-			spec.Requirements = nil
-			for _, req := range strings.Split(answers["requirements"], ",") {
-				req = strings.TrimSpace(req)
-				if req != "" {
-					spec.Requirements = append(spec.Requirements, req)
-				}
-			}
-		}
-	}
-
-	return spec
+	return tui.CreateSpecSummaryFromAnswers(projectID, answers, decisions)
 }

@@ -24,6 +24,7 @@ type EpicReviewView struct {
 	// Callbacks
 	onAccept     func(proposals []epics.EpicProposal) tea.Cmd
 	onRegenerate func() tea.Cmd
+	onBack       func() tea.Cmd
 }
 
 // NewEpicReviewView creates a new epic review view.
@@ -38,9 +39,11 @@ func NewEpicReviewView(proposals []epics.EpicProposal) *EpicReviewView {
 func (v *EpicReviewView) SetCallbacks(
 	onAccept func([]epics.EpicProposal) tea.Cmd,
 	onRegenerate func() tea.Cmd,
+	onBack func() tea.Cmd,
 ) {
 	v.onAccept = onAccept
 	v.onRegenerate = onRegenerate
+	v.onBack = onBack
 }
 
 // Init implements View
@@ -59,14 +62,20 @@ func (v *EpicReviewView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
 	case tea.KeyMsg:
 		switch msg.String() {
 		case "enter":
-			// Accept all
+			// Toggle expand selected (same as space for consistency)
+			v.expanded[v.selected] = !v.expanded[v.selected]
+			return v, nil
+
+		case "A":
+			// Accept ALL proposals (uppercase A for intentional action)
 			if v.onAccept != nil {
 				return v, v.onAccept(v.proposals)
 			}
 			return v, nil
 
-		case "r":
-			// Regenerate (with warning if edited)
+		case "R":
+			// Regenerate (uppercase R to differentiate from refresh)
+			// Warning: destructive if user has edits
 			if v.hasEdits() {
 				// Show warning - for now just regenerate
 				// TODO: Add confirmation dialog
@@ -103,14 +112,22 @@ func (v *EpicReviewView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
 			}
 			return v, nil
 
-		case "space":
-			// Toggle expand
+		case " ":
+			// Toggle expand (space key returns " " in Bubble Tea)
 			v.expanded[v.selected] = !v.expanded[v.selected]
 			return v, nil
 
 		case "esc":
 			if v.editing {
 				v.editing = false
+			} else if v.onBack != nil {
+				return v, v.onBack()
+			}
+			return v, nil
+
+		case "backspace", "b":
+			if !v.editing && v.onBack != nil {
+				return v, v.onBack()
 			}
 			return v, nil
 
@@ -161,32 +178,46 @@ func (v *EpicReviewView) hasEdits() bool {
 // View implements View
 func (v *EpicReviewView) View() string {
 	if len(v.proposals) == 0 {
-		return pkgtui.LabelStyle.Render("No epics proposed")
+		emptyStyle := lipgloss.NewStyle().
+			Foreground(pkgtui.ColorMuted).
+			Italic(true)
+		return emptyStyle.Render("No epics proposed. Press b to go back and try a different description.")
 	}
 
 	var sections []string
 
-	// Header
+	// Header with summary stats
 	headerStyle := lipgloss.NewStyle().
 		Foreground(pkgtui.ColorPrimary).
-		Bold(true).
-		MarginBottom(1)
+		Bold(true)
 	totalTasks := epics.EstimateTotalTasks(v.proposals)
-	header := fmt.Sprintf("Epic Review (%d epics, ~%d tasks)", len(v.proposals), totalTasks)
+	header := fmt.Sprintf("Review Epics")
 	sections = append(sections, headerStyle.Render(header))
 
-	// Epic list
+	// Stats line
+	statsStyle := lipgloss.NewStyle().
+		Foreground(pkgtui.ColorMuted).
+		MarginBottom(1)
+	stats := fmt.Sprintf("%d epics  •  ~%d estimated tasks", len(v.proposals), totalTasks)
+	sections = append(sections, statsStyle.Render(stats))
+	sections = append(sections, "")
+
+	// Epic list in a styled container
+	var epicLines []string
 	for i, p := range v.proposals {
 		isSelected := i == v.selected
 		isExpanded := v.expanded[i]
 		epicView := v.renderEpic(p, isSelected, isExpanded)
-		sections = append(sections, epicView)
+		epicLines = append(epicLines, epicView)
 	}
 
-	sections = append(sections, "")
+	epicsContent := strings.Join(epicLines, "\n")
+	listStyle := lipgloss.NewStyle().
+		Background(pkgtui.ColorBgLight).
+		Padding(1, 2).
+		Width(v.width - 8)
 
-	// Actions
-	sections = append(sections, v.renderActions())
+	sections = append(sections, listStyle.Render(epicsContent))
 
 	return lipgloss.JoinVertical(lipgloss.Left, sections...)
 }
@@ -298,8 +329,12 @@ func (v *EpicReviewView) renderActions() string {
 	descStyle := pkgtui.HelpDescStyle
 
 	actions = append(actions, fmt.Sprintf("%s %s",
-		keyStyle.Render("Enter"),
+		keyStyle.Render("A"),
 		descStyle.Render("accept all")))
+
+	actions = append(actions, fmt.Sprintf("%s %s",
+		keyStyle.Render("Enter"),
+		descStyle.Render("expand")))
 
 	actions = append(actions, fmt.Sprintf("%s %s",
 		keyStyle.Render("e"),
@@ -314,7 +349,7 @@ func (v *EpicReviewView) renderActions() string {
 		descStyle.Render("priority")))
 
 	actions = append(actions, fmt.Sprintf("%s %s",
-		keyStyle.Render("r"),
+		keyStyle.Render("R"),
 		descStyle.Render("regenerate")))
 
 	actions = append(actions, fmt.Sprintf("%s %s",
@@ -339,7 +374,24 @@ func (v *EpicReviewView) Name() string {
 
 // ShortHelp implements View
 func (v *EpicReviewView) ShortHelp() string {
-	return "enter accept  e edit  d delete  space expand"
+	return "A accept  b back  d delete  +/- priority  space expand"
+}
+
+// FullHelp implements FullHelpProvider
+func (v *EpicReviewView) FullHelp() []tui.HelpBinding {
+	return []tui.HelpBinding{
+		{Key: "j/k", Description: "Navigate down/up"},
+		{Key: "enter", Description: "Toggle expand selected"},
+		{Key: "space", Description: "Toggle expand selected"},
+		{Key: "A", Description: "Accept ALL proposals"},
+		{Key: "e", Description: "Edit selected epic"},
+		{Key: "d", Description: "Delete selected epic"},
+		{Key: "+/-", Description: "Increase/decrease priority"},
+		{Key: "R", Description: "Regenerate proposals"},
+		{Key: "b", Description: "Go back"},
+		{Key: "esc", Description: "Cancel edit / go back"},
+		{Key: "backspace", Description: "Go back"},
+	}
 }
 
 // GetProposals returns the current proposals (potentially edited).

@@ -8,10 +8,11 @@ import (
 	"strings"
 	"time"
 
-	"github.com/charmbracelet/bubbles/textinput"
+	"github.com/charmbracelet/bubbles/textarea"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/google/uuid"
+	"github.com/mistakeknot/autarch/internal/autarch/agent"
 	"github.com/mistakeknot/autarch/internal/tui"
 	pkgtui "github.com/mistakeknot/autarch/pkg/tui"
 )
@@ -19,17 +20,31 @@ import (
 // KickoffView is the initial view for starting new projects or resuming drafts.
 // It provides a text input for project description and a list of recent projects.
 type KickoffView struct {
-	input      textinput.Model
+	input      textarea.Model
 	recents    []RecentProject
 	selected   int
 	focusInput bool // true = input focused, false = recents focused
 	width      int
 	height     int
 	loading    bool
+	loadingMsg string
 	err        error
+
+	// Delete confirmation state
+	confirmingDelete bool
+	deleteTarget     *RecentProject
+
+	// Scan state
+	scanning       bool
+	scanResult     *tui.CodebaseScanResultMsg // Stored scan result for passing to interview
+	scanPath       string                     // Path being scanned
+	scanFiles      []string                   // Files found during scan
+	scanAgentName  string                     // Name of agent being used
+	scanAgentLines []string                   // Recent lines of agent output
 
 	// Callbacks for navigation
 	onProjectStart func(project *Project) tea.Cmd
+	onScanCodebase func(path string) tea.Cmd
 }
 
 // RecentProject represents a project that can be resumed or continued.
@@ -48,17 +63,38 @@ type Project struct {
 	Description string
 	Path        string
 	CreatedAt   time.Time
+	// Pre-populated answers from codebase scan (optional)
+	ScanResult *tui.CodebaseScanResultMsg
 }
 
 // NewKickoffView creates a new kickoff view.
 func NewKickoffView() *KickoffView {
-	ti := textinput.New()
-	ti.Placeholder = "Describe what you want to build..."
-	ti.CharLimit = 500
-	ti.Width = 60
+	ta := textarea.New()
+	ta.Placeholder = "Describe what you want to build...\n\nYou can write multiple lines here to describe your project vision, goals, and key features."
+	ta.CharLimit = 2000
+	ta.SetWidth(70)
+	ta.SetHeight(6)
+	ta.ShowLineNumbers = false
+
+	// Style the textarea to match our theme
+	ta.FocusedStyle.Base = lipgloss.NewStyle().
+		Foreground(pkgtui.ColorFg).
+		Background(pkgtui.ColorBg)
+	ta.FocusedStyle.CursorLine = lipgloss.NewStyle().
+		Background(pkgtui.ColorBgLight)
+	ta.FocusedStyle.Placeholder = lipgloss.NewStyle().
+		Foreground(pkgtui.ColorMuted)
+	ta.FocusedStyle.Text = lipgloss.NewStyle().
+		Foreground(pkgtui.ColorFg)
+	ta.BlurredStyle = ta.FocusedStyle
+
+	// Cursor style
+	ta.Cursor.Style = lipgloss.NewStyle().
+		Foreground(pkgtui.ColorBg).
+		Background(pkgtui.ColorPrimary)
 
 	return &KickoffView{
-		input:      ti,
+		input:      ta,
 		focusInput: true,
 	}
 }
@@ -68,10 +104,20 @@ func (v *KickoffView) SetProjectStartCallback(cb func(*Project) tea.Cmd) {
 	v.onProjectStart = cb
 }
 
+// SetScanCodebaseCallback sets the callback for when codebase scanning is requested.
+func (v *KickoffView) SetScanCodebaseCallback(cb func(path string) tea.Cmd) {
+	v.onScanCodebase = cb
+}
+
+// SetAgentName sets the name of the agent being used for display.
+func (v *KickoffView) SetAgentName(name string) {
+	v.scanAgentName = name
+}
+
 // Init implements View
 func (v *KickoffView) Init() tea.Cmd {
 	return tea.Batch(
-		textinput.Blink,
+		textarea.Blink,
 		v.loadRecentProjects(),
 	)
 }
@@ -86,6 +132,12 @@ type recentsLoadedMsg struct {
 type projectCreatedMsg struct {
 	project *Project
 	err     error
+}
+
+// projectDeletedMsg is sent when a project is deleted.
+type projectDeletedMsg struct {
+	projectID string
+	err       error
 }
 
 func (v *KickoffView) loadRecentProjects() tea.Cmd {
@@ -165,7 +217,7 @@ func (v *KickoffView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		v.width = msg.Width
 		v.height = msg.Height - 4
-		v.input.Width = min(60, v.width-10)
+		v.input.SetWidth(min(70, v.width-10))
 		return v, nil
 
 	case recentsLoadedMsg:
@@ -179,6 +231,7 @@ func (v *KickoffView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
 
 	case projectCreatedMsg:
 		v.loading = false
+		v.scanning = false
 		if msg.err != nil {
 			v.err = msg.err
 			return v, nil
@@ -188,39 +241,163 @@ func (v *KickoffView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
 		}
 		return v, nil
 
+	case tui.ScanProgressMsg:
+		// Update agent output display
+		if msg.AgentLine != "" {
+			// Keep last 8 lines
+			v.scanAgentLines = append(v.scanAgentLines, msg.AgentLine)
+			if len(v.scanAgentLines) > 8 {
+				v.scanAgentLines = v.scanAgentLines[len(v.scanAgentLines)-8:]
+			}
+		}
+		// Update step info
+		if msg.Step != "" && msg.Step != "Analyzing" {
+			v.loadingMsg = msg.Details
+		}
+		if len(msg.Files) > 0 {
+			v.scanFiles = msg.Files
+		}
+		return v, nil
+
+	case tui.CodebaseScanResultMsg:
+		v.loading = false
+		v.scanning = false
+		v.scanAgentLines = nil // Clear agent output
+		if msg.Error != nil {
+			v.err = msg.Error
+			return v, nil
+		}
+		// Store scan result and pre-fill the description
+		v.scanResult = &msg
+		v.input.SetValue(msg.Description)
+		return v, nil
+
+	case projectDeletedMsg:
+		if msg.err != nil {
+			v.err = msg.err
+			return v, nil
+		}
+		// Remove from the recents list
+		for i, r := range v.recents {
+			if r.ID == msg.projectID {
+				v.recents = append(v.recents[:i], v.recents[i+1:]...)
+				break
+			}
+		}
+		// Adjust selection if needed
+		if v.selected >= len(v.recents) {
+			v.selected = len(v.recents) - 1
+		}
+		if v.selected < 0 {
+			v.selected = 0
+		}
+		// If no more recents, switch focus to input
+		if len(v.recents) == 0 {
+			v.focusInput = true
+			v.input.Focus()
+		}
+		return v, nil
+
 	case tea.KeyMsg:
-		switch msg.String() {
-		case "tab":
-			// Toggle focus between input and recents
-			if len(v.recents) > 0 {
-				v.focusInput = !v.focusInput
-				if v.focusInput {
-					v.input.Focus()
-				} else {
+		// Handle delete confirmation first
+		if v.confirmingDelete {
+			switch msg.String() {
+			case "y", "Y":
+				// Confirmed - delete the project
+				if v.deleteTarget != nil {
+					target := *v.deleteTarget
+					v.confirmingDelete = false
+					v.deleteTarget = nil
+					return v, v.deleteProject(target)
+				}
+				v.confirmingDelete = false
+				v.deleteTarget = nil
+				return v, nil
+			case "n", "N", "esc":
+				// Cancelled
+				v.confirmingDelete = false
+				v.deleteTarget = nil
+				return v, nil
+			}
+			// Ignore other keys during confirmation
+			return v, nil
+		}
+
+		// Pass most keys to input if focused
+		if v.focusInput {
+			switch msg.String() {
+			case "tab":
+				// Toggle focus to recents
+				if len(v.recents) > 0 {
+					v.focusInput = false
 					v.input.Blur()
 				}
+				return v, nil
+
+			case "ctrl+enter":
+				// Submit the project description
+				if strings.TrimSpace(v.input.Value()) != "" {
+					v.loading = true
+					v.loadingMsg = "Creating project..."
+					return v, v.createProject(v.input.Value())
+				}
+				return v, nil
+
+			case "ctrl+s":
+				// Scan current directory
+				if v.onScanCodebase != nil {
+					cwd, _ := os.Getwd()
+					v.scanning = true
+					v.loading = true
+					v.scanPath = cwd
+					v.scanFiles = findProjectFiles(cwd)
+					v.loadingMsg = "Scanning codebase..."
+					// Detect which agent will be used
+					if detected, err := agent.DetectAgent(); err == nil && detected != nil {
+						v.scanAgentName = string(detected.Type)
+					}
+					return v, v.onScanCodebase(cwd)
+				}
+				return v, nil
+
+			case "esc":
+				// If there's content, clear focus; otherwise do nothing
+				if len(v.recents) > 0 {
+					v.focusInput = false
+					v.input.Blur()
+				}
+				return v, nil
+
+			default:
+				// Pass all other keys to the textarea (including Enter for newlines)
+				var cmd tea.Cmd
+				v.input, cmd = v.input.Update(msg)
+				return v, cmd
 			}
+		}
+
+		// Recents list is focused - handle navigation
+		switch msg.String() {
+		case "tab":
+			// Toggle focus to input
+			v.focusInput = true
+			v.input.Focus()
 			return v, nil
 
 		case "up", "k":
-			if !v.focusInput && v.selected > 0 {
+			if v.selected > 0 {
 				v.selected--
 			}
 			return v, nil
 
 		case "down", "j":
-			if !v.focusInput && v.selected < len(v.recents)-1 {
+			if v.selected < len(v.recents)-1 {
 				v.selected++
 			}
 			return v, nil
 
 		case "enter":
-			if v.focusInput && strings.TrimSpace(v.input.Value()) != "" {
-				// Create new project
-				v.loading = true
-				return v, v.createProject(v.input.Value())
-			} else if !v.focusInput && len(v.recents) > 0 {
-				// Resume/open existing project
+			if len(v.recents) > 0 {
 				recent := v.recents[v.selected]
 				project := &Project{
 					ID:        recent.ID,
@@ -233,13 +410,14 @@ func (v *KickoffView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
 				}
 			}
 			return v, nil
-		}
 
-		// Pass key to input if focused
-		if v.focusInput {
-			var cmd tea.Cmd
-			v.input, cmd = v.input.Update(msg)
-			return v, cmd
+		case "d", "delete":
+			// Show delete confirmation
+			if len(v.recents) > 0 && v.selected >= 0 && v.selected < len(v.recents) {
+				v.confirmingDelete = true
+				v.deleteTarget = &v.recents[v.selected]
+			}
+			return v, nil
 		}
 	}
 
@@ -247,6 +425,9 @@ func (v *KickoffView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
 }
 
 func (v *KickoffView) createProject(description string) tea.Cmd {
+	// Capture scan result before the goroutine
+	scanResult := v.scanResult
+
 	return func() tea.Msg {
 		home, err := os.UserHomeDir()
 		if err != nil {
@@ -272,10 +453,52 @@ func (v *KickoffView) createProject(description string) tea.Cmd {
 			Description: description,
 			Path:        projectPath,
 			CreatedAt:   time.Now(),
+			ScanResult:  scanResult,
 		}
 
 		return projectCreatedMsg{project: project}
 	}
+}
+
+func (v *KickoffView) deleteProject(recent RecentProject) tea.Cmd {
+	return func() tea.Msg {
+		// Delete the project directory
+		if recent.Path != "" {
+			if err := os.RemoveAll(recent.Path); err != nil {
+				return projectDeletedMsg{projectID: recent.ID, err: err}
+			}
+		}
+		return projectDeletedMsg{projectID: recent.ID}
+	}
+}
+
+// findProjectFiles looks for relevant project files and returns their names.
+func findProjectFiles(path string) []string {
+	priorities := []string{
+		"README.md",
+		"README",
+		"readme.md",
+		"CLAUDE.md",
+		"AGENTS.md",
+		"docs/README.md",
+		"docs/index.md",
+		"PRD.md",
+		"SPEC.md",
+		"package.json",
+		"go.mod",
+		"Cargo.toml",
+		"pyproject.toml",
+		"requirements.txt",
+	}
+
+	var found []string
+	for _, f := range priorities {
+		fullPath := filepath.Join(path, f)
+		if _, err := os.Stat(fullPath); err == nil {
+			found = append(found, f)
+		}
+	}
+	return found
 }
 
 // slugify converts a description to a URL-friendly slug.
@@ -303,7 +526,75 @@ func slugify(s string) string {
 // View implements View
 func (v *KickoffView) View() string {
 	if v.loading {
-		return pkgtui.LabelStyle.Render("Creating project...")
+		var sections []string
+
+		spinnerStyle := lipgloss.NewStyle().
+			Foreground(pkgtui.ColorPrimary).
+			Bold(true)
+		msg := v.loadingMsg
+		if msg == "" {
+			msg = "Loading..."
+		}
+		sections = append(sections, spinnerStyle.Render(msg))
+
+		// Show more details during scanning
+		if v.scanning {
+			detailStyle := lipgloss.NewStyle().
+				Foreground(pkgtui.ColorMuted).
+				Italic(true)
+			pathStyle := lipgloss.NewStyle().
+				Foreground(pkgtui.ColorSecondary)
+			fileStyle := lipgloss.NewStyle().
+				Foreground(pkgtui.ColorSuccess)
+			agentStyle := lipgloss.NewStyle().
+				Foreground(pkgtui.ColorPrimary).
+				Bold(true)
+
+			sections = append(sections, "")
+			sections = append(sections, detailStyle.Render("Path: ")+pathStyle.Render(v.scanPath))
+			sections = append(sections, "")
+
+			// Show files found
+			if len(v.scanFiles) > 0 {
+				sections = append(sections, detailStyle.Render("Files found:"))
+				for _, f := range v.scanFiles {
+					sections = append(sections, "  "+fileStyle.Render("✓ "+f))
+				}
+			} else {
+				sections = append(sections, detailStyle.Render("No project files found"))
+			}
+
+			sections = append(sections, "")
+			agentName := v.scanAgentName
+			if agentName == "" {
+				agentName = "coding agent"
+			}
+			sections = append(sections, detailStyle.Render("Analyzing with ")+agentStyle.Render(agentName)+detailStyle.Render("..."))
+
+			// Show live agent output
+			if len(v.scanAgentLines) > 0 {
+				sections = append(sections, "")
+				outputStyle := lipgloss.NewStyle().
+					Foreground(pkgtui.ColorFgDim).
+					Background(pkgtui.ColorBgLight).
+					Padding(0, 1).
+					Width(min(70, v.width-8))
+
+				// Show agent output in a box
+				var outputLines []string
+				for _, line := range v.scanAgentLines {
+					// Truncate long lines
+					if len(line) > 66 {
+						line = line[:63] + "..."
+					}
+					outputLines = append(outputLines, line)
+				}
+				outputBox := outputStyle.Render(strings.Join(outputLines, "\n"))
+				sections = append(sections, outputBox)
+			}
+		}
+
+		return lipgloss.JoinVertical(lipgloss.Left, sections...)
 	}
 
 	if v.err != nil {
@@ -312,18 +603,29 @@ func (v *KickoffView) View() string {
 
 	var sections []string
 
-	// Header
-	header := lipgloss.NewStyle().
+	// Header with welcome message
+	headerStyle := lipgloss.NewStyle().
 		Foreground(pkgtui.ColorPrimary).
 		Bold(true).
-		MarginBottom(1).
-		Render("What do you want to build?")
-	sections = append(sections, header)
+		MarginBottom(1)
+	sections = append(sections, headerStyle.Render("What do you want to build?"))
 
-	// Input field
+	// Subheader hint
+	subheaderStyle := lipgloss.NewStyle().
+		Foreground(pkgtui.ColorMuted).
+		Italic(true).
+		MarginBottom(1)
+	sections = append(sections, subheaderStyle.Render("Describe your project - use multiple lines if needed"))
+	sections = append(sections, "")
+
+	// Textarea with card-like styling
+	inputWidth := min(72, v.width-8)
+	v.input.SetWidth(inputWidth - 4) // Account for border padding
+
 	inputStyle := lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
-		Padding(0, 1)
+		Padding(1, 1).
+		Width(inputWidth)
 
 	if v.focusInput {
 		inputStyle = inputStyle.BorderForeground(pkgtui.ColorPrimary)
@@ -334,29 +636,67 @@ func (v *KickoffView) View() string {
 	inputBox := inputStyle.Render(v.input.View())
 	sections = append(sections, inputBox)
 
-	// Hint
-	hint := pkgtui.LabelStyle.Render("Describe your project idea in a sentence or two")
-	sections = append(sections, hint)
+	// Submit hint
+	submitHint := lipgloss.NewStyle().
+		Foreground(pkgtui.ColorMuted).
+		Italic(true)
+	sections = append(sections, submitHint.Render("Press Ctrl+Enter to create project"))
 
-	// Recent projects
+	// Scan hint
+	if v.onScanCodebase != nil {
+		scanHint := lipgloss.NewStyle().
+			Foreground(pkgtui.ColorMuted).
+			Italic(true)
+		sections = append(sections, scanHint.Render("Press Ctrl+S to scan current directory for an existing project"))
+	}
+	sections = append(sections, "")
+
+	// Recent projects section
 	if len(v.recents) > 0 {
 		sections = append(sections, "")
-		recentHeader := pkgtui.SubtitleStyle.Render("Recent Projects")
-		sections = append(sections, recentHeader)
 
+		recentHeaderStyle := lipgloss.NewStyle().
+			Foreground(pkgtui.ColorSecondary).
+			Bold(true).
+			MarginBottom(1)
+		sections = append(sections, recentHeaderStyle.Render("Recent Projects"))
+
+		// Recent projects in a subtle card
+		var recentLines []string
 		for i, r := range v.recents {
 			line := v.renderRecentProject(r, i == v.selected && !v.focusInput)
-			sections = append(sections, line)
+			recentLines = append(recentLines, line)
 		}
+
+		recentsContent := strings.Join(recentLines, "\n")
+		recentsStyle := lipgloss.NewStyle().
+			Padding(1, 2).
+			Width(inputWidth).
+			Border(lipgloss.RoundedBorder())
+
+		if !v.focusInput {
+			recentsStyle = recentsStyle.BorderForeground(pkgtui.ColorPrimary)
+		} else {
+			recentsStyle = recentsStyle.BorderForeground(pkgtui.ColorMuted)
+		}
+
+		sections = append(sections, recentsStyle.Render(recentsContent))
 	}
 
-	// Help
+	// Delete confirmation or contextual help
 	sections = append(sections, "")
-	helpStyle := pkgtui.LabelStyle
-	if len(v.recents) > 0 {
-		sections = append(sections, helpStyle.Render("Tab to switch focus  Enter to select"))
-	} else {
-		sections = append(sections, helpStyle.Render("Enter to create project"))
+	if v.confirmingDelete && v.deleteTarget != nil {
+		// Show confirmation dialog with emphasis
+		confirmBox := lipgloss.NewStyle().
+			Background(pkgtui.ColorBgLight).
+			Foreground(pkgtui.ColorWarning).
+			Bold(true).
+			Padding(0, 2).
+			Border(lipgloss.RoundedBorder()).
+			BorderForeground(pkgtui.ColorWarning)
+		sections = append(sections, confirmBox.Render(
+			fmt.Sprintf("Delete \"%s\"? Press y to confirm, n to cancel", v.deleteTarget.Name),
+		))
 	}
 
 	return lipgloss.JoinVertical(lipgloss.Left, sections...)
@@ -376,18 +716,31 @@ func (v *KickoffView) renderRecentProject(r RecentProject, selected bool) string
 
 	// Time ago
 	timeAgo := timeAgoString(r.LastOpen)
-
-	// Line content
-	content := fmt.Sprintf("%s %s  %s",
-		iconStyle.Render(icon),
-		r.Name,
-		pkgtui.LabelStyle.Render(timeAgo),
-	)
+	timeStyle := lipgloss.NewStyle().Foreground(pkgtui.ColorMuted)
 
 	if selected {
-		return pkgtui.SelectedStyle.Render("> " + content)
+		// Selected row - subtle highlight
+		selectedStyle := lipgloss.NewStyle().
+			Foreground(pkgtui.ColorPrimary).
+			Bold(true)
+		selectorStyle := lipgloss.NewStyle().
+			Foreground(pkgtui.ColorPrimary)
+
+		return fmt.Sprintf("%s %s %s  %s",
+			selectorStyle.Render("›"),
+			iconStyle.Render(icon),
+			selectedStyle.Render(r.Name),
+			timeStyle.Render(timeAgo),
+		)
 	}
-	return "  " + content
+
+	// Unselected row
+	nameStyle := lipgloss.NewStyle().Foreground(pkgtui.ColorFg)
+	return fmt.Sprintf("  %s %s  %s",
+		iconStyle.Render(icon),
+		nameStyle.Render(r.Name),
+		timeStyle.Render(timeAgo),
+	)
 }
 
 func timeAgoString(t time.Time) string {
@@ -410,7 +763,7 @@ func timeAgoString(t time.Time) string {
 func (v *KickoffView) Focus() tea.Cmd {
 	v.focusInput = true
 	v.input.Focus()
-	return textinput.Blink
+	return textarea.Blink
 }
 
 // Blur implements View
@@ -425,7 +778,27 @@ func (v *KickoffView) Name() string {
 
 // ShortHelp implements View
 func (v *KickoffView) ShortHelp() string {
-	return "enter create  tab switch"
+	if v.focusInput {
+		if v.onScanCodebase != nil {
+			return "ctrl+enter create  ctrl+s scan  tab switch"
+		}
+		return "ctrl+enter create  tab switch"
+	}
+	// Recents list focused
+	return "enter open  d delete  tab switch"
+}
+
+// FullHelp implements FullHelpProvider
+func (v *KickoffView) FullHelp() []tui.HelpBinding {
+	return []tui.HelpBinding{
+		{Key: "ctrl+enter", Description: "Create new project from description"},
+		{Key: "ctrl+s", Description: "Scan current directory for existing project"},
+		{Key: "tab", Description: "Switch between input and recent projects"},
+		{Key: "j/k", Description: "Navigate recent projects list"},
+		{Key: "enter", Description: "Open selected project"},
+		{Key: "d", Description: "Delete selected project"},
+		{Key: "esc", Description: "Switch to recent projects list"},
+	}
 }
 
 // Commands implements CommandProvider
@@ -437,7 +810,7 @@ func (v *KickoffView) Commands() []tui.Command {
 			Action: func() tea.Cmd {
 				v.focusInput = true
 				v.input.Focus()
-				return textinput.Blink
+				return textarea.Blink
 			},
 		},
 	}

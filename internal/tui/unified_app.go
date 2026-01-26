@@ -2,10 +2,12 @@ package tui
 
 import (
 	"context"
+	"fmt"
 	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/mistakeknot/autarch/internal/autarch/agent"
 	"github.com/mistakeknot/autarch/internal/coldwine/epics"
 	"github.com/mistakeknot/autarch/internal/coldwine/tasks"
 	"github.com/mistakeknot/autarch/internal/pollard/research"
@@ -27,16 +29,25 @@ type UnifiedApp struct {
 	mode   AppMode
 
 	// Onboarding state
-	onboardingState   OnboardingState
-	currentView       View
-	projectID         string
-	projectName       string
-	projectDesc       string
-	generatedEpics    []epics.EpicProposal
-	generatedTasks    []tasks.TaskProposal
-	researchCoord     *research.Coordinator
-	ctx               context.Context
-	cancel            context.CancelFunc
+	onboardingState    OnboardingState
+	breadcrumb         *Breadcrumb
+	currentView        View
+	projectID          string
+	projectName        string
+	projectDesc        string
+	interviewAnswers   map[string]string
+	generatedEpics     []epics.EpicProposal
+	generatedTasks     []tasks.TaskProposal
+	researchCoord      *research.Coordinator
+	ctx                context.Context
+	cancel             context.CancelFunc
+
+	// Agent for AI generation
+	codingAgent *agent.Agent
+
+	// Loading state
+	generating     bool
+	generatingWhat string
 
 	// Dashboard state
 	tabs      *TabBar
@@ -44,27 +55,34 @@ type UnifiedApp struct {
 	palette   *Palette
 
 	// UI state
-	width  int
-	height int
-	err    error
+	width      int
+	height     int
+	err        error
+	showHelp   bool // Help overlay visible
 
 	// View factories (injected from main.go)
-	createKickoffView     func() View
-	createEpicReviewView  func([]epics.EpicProposal) View
-	createTaskReviewView  func([]tasks.TaskProposal) View
-	createTaskDetailView  func(tasks.TaskProposal, *research.Coordinator) View
-	createDashboardViews  func(*autarch.Client) []View
+	createKickoffView      func() View
+	createInterviewView    func([]InterviewQuestion, *research.Coordinator) View
+	createSpecSummaryView  func(*SpecSummary, *research.Coordinator) View
+	createEpicReviewView   func([]epics.EpicProposal) View
+	createTaskReviewView   func([]tasks.TaskProposal) View
+	createTaskDetailView   func(tasks.TaskProposal, *research.Coordinator) View
+	createDashboardViews   func(*autarch.Client) []View
 }
 
 // NewUnifiedApp creates a new unified application
 func NewUnifiedApp(client *autarch.Client) *UnifiedApp {
 	ctx, cancel := context.WithCancel(context.Background())
 
+	breadcrumb := NewBreadcrumb()
+	breadcrumb.SetCurrent(OnboardingKickoff)
+
 	tabNames := []string{"Bigend", "Gurgeh", "Coldwine", "Pollard"}
 	app := &UnifiedApp{
 		client:          client,
 		mode:            ModeOnboarding,
 		onboardingState: OnboardingKickoff,
+		breadcrumb:      breadcrumb,
 		tabs:            NewTabBar(tabNames),
 		palette:         NewPalette(),
 		researchCoord:   research.NewCoordinator(nil),
@@ -78,12 +96,16 @@ func NewUnifiedApp(client *autarch.Client) *UnifiedApp {
 // SetViewFactories sets the factory functions for creating views
 func (a *UnifiedApp) SetViewFactories(
 	kickoff func() View,
+	interview func([]InterviewQuestion, *research.Coordinator) View,
+	specSummary func(*SpecSummary, *research.Coordinator) View,
 	epicReview func([]epics.EpicProposal) View,
 	taskReview func([]tasks.TaskProposal) View,
 	taskDetail func(tasks.TaskProposal, *research.Coordinator) View,
 	dashViews func(*autarch.Client) []View,
 ) {
 	a.createKickoffView = kickoff
+	a.createInterviewView = interview
+	a.createSpecSummaryView = specSummary
 	a.createEpicReviewView = epicReview
 	a.createTaskReviewView = taskReview
 	a.createTaskDetailView = taskDetail
@@ -92,10 +114,20 @@ func (a *UnifiedApp) SetViewFactories(
 
 // Init implements tea.Model
 func (a *UnifiedApp) Init() tea.Cmd {
+	// Detect coding agent
+	detectedAgent, err := agent.DetectAgent()
+	if err == nil {
+		a.codingAgent = detectedAgent
+	}
+	// Note: We don't error here - we'll handle missing agent when we need it
+
 	// Start with kickoff view
 	if a.createKickoffView != nil {
 		a.currentView = a.createKickoffView()
-		return a.currentView.Init()
+		return tea.Batch(
+			a.currentView.Init(),
+			a.currentView.Focus(),
+		)
 	}
 	return nil
 }
@@ -118,6 +150,13 @@ func (a *UnifiedApp) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return a, nil
 
 	case tea.KeyMsg:
+		// Handle help overlay first
+		if a.showHelp {
+			// Any key closes help
+			a.showHelp = false
+			return a, nil
+		}
+
 		// Handle palette if visible
 		if a.palette.Visible() {
 			var cmd tea.Cmd
@@ -125,7 +164,19 @@ func (a *UnifiedApp) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return a, cmd
 		}
 
+		// Handle breadcrumb navigation in onboarding mode
+		if a.mode == ModeOnboarding && a.breadcrumb.IsNavigating() {
+			var cmd tea.Cmd
+			a.breadcrumb, cmd = a.breadcrumb.Update(msg)
+			return a, cmd
+		}
+
 		switch msg.String() {
+		case "?":
+			// Toggle help overlay
+			a.showHelp = true
+			return a, nil
+
 		case "ctrl+c":
 			a.cancel()
 			return a, tea.Quit
@@ -133,6 +184,17 @@ func (a *UnifiedApp) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "ctrl+p":
 			if a.mode == ModeDashboard {
 				return a, a.palette.Show()
+			}
+
+		case "ctrl+b":
+			// Toggle breadcrumb navigation in onboarding mode
+			if a.mode == ModeOnboarding {
+				if a.breadcrumb.IsNavigating() {
+					a.breadcrumb.StopNavigation()
+				} else {
+					a.breadcrumb.StartNavigation()
+				}
+				return a, nil
 			}
 		}
 
@@ -149,21 +211,53 @@ func (a *UnifiedApp) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		}
 
+		// Pass unhandled keys to current view
+		if a.currentView != nil {
+			var cmd tea.Cmd
+			a.currentView, cmd = a.currentView.Update(msg)
+			return a, cmd
+		}
+
 	// Handle view transition messages
 	case ProjectCreatedMsg:
 		return a, a.handleProjectCreated(msg)
 
+	case InterviewCompleteMsg:
+		return a, a.handleInterviewComplete(msg)
+
+	case SuggestionsReadyMsg:
+		return a, a.handleSuggestionsReady(msg)
+
+	case SpecAcceptedMsg:
+		return a, a.handleSpecAccepted(msg)
+
 	case EpicsGeneratedMsg:
+		a.generating = false
 		return a, a.handleEpicsGenerated(msg)
 
 	case EpicsAcceptedMsg:
 		return a, a.handleEpicsAccepted(msg)
 
 	case TasksGeneratedMsg:
+		a.generating = false
 		return a, a.handleTasksGenerated(msg)
 
 	case TasksAcceptedMsg:
 		return a, a.handleTasksAccepted(msg)
+
+	case GeneratingMsg:
+		a.generating = true
+		a.generatingWhat = msg.What
+		return a, nil
+
+	case GenerationErrorMsg:
+		a.generating = false
+		a.err = msg.Error
+		return a, nil
+
+	case AgentNotFoundMsg:
+		a.err = &agent.NoAgentError{}
+		return a, nil
 
 	case NavigateToTaskDetailMsg:
 		return a, a.showTaskDetail(msg.Task)
@@ -171,8 +265,29 @@ func (a *UnifiedApp) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case NavigateBackMsg:
 		return a, a.navigateBack()
 
+	case NavigateToKickoffMsg:
+		return a, a.navigateToKickoff()
+
+	case NavigateToStepMsg:
+		return a, a.navigateToStep(msg.State)
+
 	case OnboardingCompleteMsg:
 		return a, a.enterDashboard()
+
+	case ScanCodebaseMsg:
+		return a, a.scanCodebase(msg.Path)
+
+	case CodebaseScanResultMsg:
+		// Pass to kickoff view - it will handle the result
+
+	case scanProgressWithContinuation:
+		// Forward progress to current view and schedule next read
+		if a.currentView != nil {
+			var cmd tea.Cmd
+			a.currentView, cmd = a.currentView.Update(msg.ScanProgressMsg)
+			return a, tea.Batch(cmd, msg.nextCmd)
+		}
+		return a, msg.nextCmd
 	}
 
 	// Pass to current view
@@ -189,29 +304,304 @@ func (a *UnifiedApp) handleProjectCreated(msg ProjectCreatedMsg) tea.Cmd {
 	a.projectID = msg.ProjectID
 	a.projectName = msg.ProjectName
 	a.projectDesc = msg.Description
+	a.interviewAnswers = make(map[string]string)
 
-	// Transition to epic generation (skip interview for now, generate from description)
-	a.onboardingState = OnboardingEpicReview
-	return a.generateEpicsFromDescription()
+	// Transition to interview
+	a.onboardingState = OnboardingInterview
+	a.breadcrumb.SetCurrent(OnboardingInterview)
+
+	// Create interview view with default questions
+	if a.createInterviewView != nil {
+		questions := DefaultInterviewQuestions()
+		a.currentView = a.createInterviewView(questions, a.researchCoord)
+
+		// Set up callback for when interview completes
+		if iv, ok := a.currentView.(InterviewViewSetter); ok {
+			iv.SetCompleteCallback(func(answers map[string]string) tea.Cmd {
+				return func() tea.Msg {
+					return InterviewCompleteMsg{Answers: answers}
+				}
+			})
+
+			// If we have scan results, use them as suggestions immediately
+			if msg.ScanResult != nil {
+				suggestions := make(map[string]string)
+				if msg.ScanResult.Vision != "" {
+					suggestions["vision"] = msg.ScanResult.Vision
+				}
+				if msg.ScanResult.Users != "" {
+					suggestions["users"] = msg.ScanResult.Users
+				}
+				if msg.ScanResult.Problem != "" {
+					suggestions["problem"] = msg.ScanResult.Problem
+				}
+				if msg.ScanResult.Platform != "" {
+					suggestions["platform"] = msg.ScanResult.Platform
+				}
+				if msg.ScanResult.Language != "" {
+					suggestions["language"] = msg.ScanResult.Language
+				}
+				if len(msg.ScanResult.Requirements) > 0 {
+					suggestions["requirements"] = strings.Join(msg.ScanResult.Requirements, "\n")
+				}
+				iv.SetSuggestions(suggestions)
+			}
+		}
+
+		// Start generating suggestions in background (only if no scan result)
+		cmds := []tea.Cmd{
+			a.currentView.Init(),
+			a.currentView.Focus(),
+			a.sendWindowSize(),
+		}
+		if msg.ScanResult == nil {
+			cmds = append(cmds, a.generateSuggestions())
+		}
+		return tea.Batch(cmds...)
+	}
+	return nil
 }
 
-func (a *UnifiedApp) generateEpicsFromDescription() tea.Cmd {
+func (a *UnifiedApp) generateSuggestions() tea.Cmd {
+	if a.codingAgent == nil {
+		// No agent available, user will type manually
+		return nil
+	}
+
 	return func() tea.Msg {
-		// Create a simple epic generator based on the description
-		gen := epics.NewGenerator()
-		proposals := gen.GenerateFromDescription(a.projectDesc)
+		questions := []string{
+			"What is your project vision? Describe what you want to build.",
+			"Who are the primary users of this project?",
+			"What problem are you solving?",
+			"What platform(s) will this run on? (Web, CLI, Desktop, Mobile, API/Backend)",
+			"What programming language(s) will you use? (Go, TypeScript, Python, Rust, Other)",
+			"List the key requirements (one per line).",
+		}
+
+		suggestions, err := agent.SuggestAnswers(context.Background(), a.codingAgent, a.projectDesc, questions)
+		return SuggestionsReadyMsg{Suggestions: suggestions, Error: err}
+	}
+}
+
+func (a *UnifiedApp) scanCodebase(path string) tea.Cmd {
+	if a.codingAgent == nil {
+		// No agent - show error with instructions
+		return func() tea.Msg {
+			return CodebaseScanResultMsg{
+				Error: &agent.NoAgentError{},
+			}
+		}
+	}
+
+	// Create a channel for progress updates
+	progressChan := make(chan agent.ScanProgress, 100)
+
+	// Start the scan in a goroutine
+	go func() {
+		defer close(progressChan)
+
+		result, err := agent.ScanCodebaseWithProgress(
+			context.Background(),
+			a.codingAgent,
+			path,
+			func(p agent.ScanProgress) {
+				// Non-blocking send to avoid deadlock
+				select {
+				case progressChan <- p:
+				default:
+				}
+			},
+		)
+
+		// Send final result through the channel as a special progress message
+		if err != nil {
+			progressChan <- agent.ScanProgress{Step: "_error", Details: err.Error()}
+		} else {
+			// Encode result in progress for simplicity
+			progressChan <- agent.ScanProgress{
+				Step:    "_complete",
+				Details: result.ProjectName,
+				Files: []string{
+					result.Description,
+					result.Vision,
+					result.Users,
+					result.Problem,
+					result.Platform,
+					result.Language,
+					strings.Join(result.Requirements, "|||"),
+				},
+			}
+		}
+	}()
+
+	// Return a command that reads from the progress channel
+	return a.waitForScanProgress(progressChan)
+}
+
+// waitForScanProgress reads one progress update from the channel and returns it as a message.
+func (a *UnifiedApp) waitForScanProgress(ch <-chan agent.ScanProgress) tea.Cmd {
+	return func() tea.Msg {
+		p, ok := <-ch
+		if !ok {
+			// Channel closed unexpectedly
+			return CodebaseScanResultMsg{Error: fmt.Errorf("scan interrupted")}
+		}
+
+		// Check for special completion messages
+		if p.Step == "_error" {
+			return CodebaseScanResultMsg{Error: fmt.Errorf("%s", p.Details)}
+		}
+		if p.Step == "_complete" {
+			// Decode result from Files array
+			var requirements []string
+			if len(p.Files) >= 7 && p.Files[6] != "" {
+				requirements = strings.Split(p.Files[6], "|||")
+			}
+			return CodebaseScanResultMsg{
+				ProjectName:  p.Details,
+				Description:  safeIndex(p.Files, 0),
+				Vision:       safeIndex(p.Files, 1),
+				Users:        safeIndex(p.Files, 2),
+				Problem:      safeIndex(p.Files, 3),
+				Platform:     safeIndex(p.Files, 4),
+				Language:     safeIndex(p.Files, 5),
+				Requirements: requirements,
+			}
+		}
+
+		// Return progress message and schedule next read
+		return scanProgressWithContinuation{
+			ScanProgressMsg: ScanProgressMsg{
+				Step:      p.Step,
+				Details:   p.Details,
+				Files:     p.Files,
+				AgentLine: p.AgentLine,
+			},
+			nextCmd: a.waitForScanProgress(ch),
+		}
+	}
+}
+
+func safeIndex(s []string, i int) string {
+	if i < len(s) {
+		return s[i]
+	}
+	return ""
+}
+
+// scanProgressWithContinuation wraps a progress message with a continuation command.
+type scanProgressWithContinuation struct {
+	ScanProgressMsg
+	nextCmd tea.Cmd
+}
+
+func (a *UnifiedApp) handleSuggestionsReady(msg SuggestionsReadyMsg) tea.Cmd {
+	if msg.Error != nil {
+		// Suggestions failed, user will type manually - this is not fatal
+		return nil
+	}
+
+	// Pass suggestions to the interview view
+	if iv, ok := a.currentView.(InterviewViewSetter); ok {
+		iv.SetSuggestions(msg.Suggestions)
+	}
+	return nil
+}
+
+func (a *UnifiedApp) handleInterviewComplete(msg InterviewCompleteMsg) tea.Cmd {
+	a.interviewAnswers = msg.Answers
+	a.onboardingState = OnboardingSpecSummary
+	a.breadcrumb.SetCurrent(OnboardingSpecSummary)
+
+	// Create spec summary from answers
+	spec := CreateSpecSummaryFromAnswers(a.projectID, msg.Answers, nil)
+
+	if a.createSpecSummaryView != nil {
+		a.currentView = a.createSpecSummaryView(spec, a.researchCoord)
+
+		// Set up callbacks
+		if sv, ok := a.currentView.(SpecSummaryViewSetter); ok {
+			sv.SetCallbacks(
+				// onGenerateEpics
+				func(s *SpecSummary) tea.Cmd {
+					return func() tea.Msg {
+						return SpecAcceptedMsg{
+							Vision:       s.Vision,
+							Users:        s.Users,
+							Problem:      s.Problem,
+							Platform:     s.Platform,
+							Language:     s.Language,
+							Requirements: s.Requirements,
+						}
+					}
+				},
+				// onEditSpec - go back to interview
+				func(s *SpecSummary) tea.Cmd {
+					return func() tea.Msg {
+						return NavigateBackMsg{}
+					}
+				},
+				// onWaitResearch
+				nil,
+			)
+		}
+
+		return tea.Batch(
+			a.currentView.Init(),
+			a.currentView.Focus(),
+			a.sendWindowSize(),
+		)
+	}
+	return nil
+}
+
+func (a *UnifiedApp) handleSpecAccepted(msg SpecAcceptedMsg) tea.Cmd {
+	a.onboardingState = OnboardingEpicReview
+	a.generating = true
+	a.generatingWhat = "epics"
+
+	// Generate epics using the agent
+	return a.generateEpicsWithAgent(msg)
+}
+
+func (a *UnifiedApp) generateEpicsWithAgent(spec SpecAcceptedMsg) tea.Cmd {
+	if a.codingAgent == nil {
+		// No agent - show error with instructions
+		return func() tea.Msg {
+			return AgentNotFoundMsg{
+				Instructions: (&agent.NoAgentError{}).Instructions(),
+			}
+		}
+	}
+
+	return func() tea.Msg {
+		input := agent.SpecInput{
+			Vision:       spec.Vision,
+			Users:        spec.Users,
+			Problem:      spec.Problem,
+			Platform:     spec.Platform,
+			Language:     spec.Language,
+			Requirements: spec.Requirements,
+		}
+
+		proposals, err := agent.GenerateEpics(context.Background(), a.codingAgent, input)
+		if err != nil {
+			return GenerationErrorMsg{What: "epics", Error: err}
+		}
 		return EpicsGeneratedMsg{Epics: proposals}
 	}
 }
 
 func (a *UnifiedApp) handleEpicsGenerated(msg EpicsGeneratedMsg) tea.Cmd {
 	a.generatedEpics = msg.Epics
+	a.breadcrumb.SetCurrent(OnboardingEpicReview)
 
 	// Show epic review view
 	if a.createEpicReviewView != nil {
 		a.currentView = a.createEpicReviewView(msg.Epics)
 		return tea.Batch(
 			a.currentView.Init(),
+			a.currentView.Focus(),
 			a.sendWindowSize(),
 		)
 	}
@@ -221,18 +611,27 @@ func (a *UnifiedApp) handleEpicsGenerated(msg EpicsGeneratedMsg) tea.Cmd {
 func (a *UnifiedApp) handleEpicsAccepted(msg EpicsAcceptedMsg) tea.Cmd {
 	a.generatedEpics = msg.Epics
 	a.onboardingState = OnboardingTaskReview
+	a.generating = true
+	a.generatingWhat = "tasks"
 
-	// Generate tasks from epics
-	return a.generateTasksFromEpics()
+	// Generate tasks from epics using the agent
+	return a.generateTasksWithAgent()
 }
 
-func (a *UnifiedApp) generateTasksFromEpics() tea.Cmd {
+func (a *UnifiedApp) generateTasksWithAgent() tea.Cmd {
+	if a.codingAgent == nil {
+		// No agent - show error with instructions
+		return func() tea.Msg {
+			return AgentNotFoundMsg{
+				Instructions: (&agent.NoAgentError{}).Instructions(),
+			}
+		}
+	}
+
 	return func() tea.Msg {
-		gen := tasks.NewGenerator()
-		taskList, err := gen.GenerateFromEpics(a.generatedEpics)
+		taskList, err := agent.GenerateTasks(context.Background(), a.codingAgent, a.generatedEpics)
 		if err != nil {
-			// Return empty list on error for now
-			return TasksGeneratedMsg{Tasks: nil}
+			return GenerationErrorMsg{What: "tasks", Error: err}
 		}
 		return TasksGeneratedMsg{Tasks: taskList}
 	}
@@ -240,12 +639,14 @@ func (a *UnifiedApp) generateTasksFromEpics() tea.Cmd {
 
 func (a *UnifiedApp) handleTasksGenerated(msg TasksGeneratedMsg) tea.Cmd {
 	a.generatedTasks = msg.Tasks
+	a.breadcrumb.SetCurrent(OnboardingTaskReview)
 
 	// Show task review view
 	if a.createTaskReviewView != nil {
 		a.currentView = a.createTaskReviewView(msg.Tasks)
 		return tea.Batch(
 			a.currentView.Init(),
+			a.currentView.Focus(),
 			a.sendWindowSize(),
 		)
 	}
@@ -255,6 +656,7 @@ func (a *UnifiedApp) handleTasksGenerated(msg TasksGeneratedMsg) tea.Cmd {
 func (a *UnifiedApp) handleTasksAccepted(msg TasksAcceptedMsg) tea.Cmd {
 	a.generatedTasks = msg.Tasks
 	a.onboardingState = OnboardingComplete
+	a.breadcrumb.SetCurrent(OnboardingComplete)
 
 	// Transition to dashboard
 	return func() tea.Msg {
@@ -270,6 +672,7 @@ func (a *UnifiedApp) showTaskDetail(task tasks.TaskProposal) tea.Cmd {
 		a.currentView = a.createTaskDetailView(task, a.researchCoord)
 		return tea.Batch(
 			a.currentView.Init(),
+			a.currentView.Focus(),
 			a.sendWindowSize(),
 		)
 	}
@@ -279,10 +682,15 @@ func (a *UnifiedApp) showTaskDetail(task tasks.TaskProposal) tea.Cmd {
 func (a *UnifiedApp) navigateBack() tea.Cmd {
 	// Return to appropriate view based on state
 	switch a.onboardingState {
+	case OnboardingEpicReview:
+		return a.navigateToKickoff()
 	case OnboardingTaskReview:
-		if a.createTaskReviewView != nil {
-			a.currentView = a.createTaskReviewView(a.generatedTasks)
-			return tea.Batch(a.currentView.Init(), a.sendWindowSize())
+		// Go back to epic review
+		a.onboardingState = OnboardingEpicReview
+		a.breadcrumb.SetCurrent(OnboardingEpicReview)
+		if a.createEpicReviewView != nil {
+			a.currentView = a.createEpicReviewView(a.generatedEpics)
+			return tea.Batch(a.currentView.Init(), a.currentView.Focus(), a.sendWindowSize())
 		}
 	case OnboardingComplete:
 		// In dashboard mode, go back to Bigend
@@ -291,6 +699,70 @@ func (a *UnifiedApp) navigateBack() tea.Cmd {
 			return a.currentView.Focus()
 		}
 	}
+	return nil
+}
+
+func (a *UnifiedApp) navigateToKickoff() tea.Cmd {
+	a.onboardingState = OnboardingKickoff
+	a.breadcrumb.SetCurrent(OnboardingKickoff)
+	// Clear any generated data
+	a.generatedEpics = nil
+	a.generatedTasks = nil
+	a.projectID = ""
+	a.projectName = ""
+	a.projectDesc = ""
+
+	if a.createKickoffView != nil {
+		a.currentView = a.createKickoffView()
+		return tea.Batch(
+			a.currentView.Init(),
+			a.currentView.Focus(),
+			a.sendWindowSize(),
+		)
+	}
+	return nil
+}
+
+func (a *UnifiedApp) navigateToStep(state OnboardingState) tea.Cmd {
+	// Only allow navigation to unlocked steps
+	switch state {
+	case OnboardingKickoff:
+		return a.navigateToKickoff()
+
+	case OnboardingEpicReview:
+		// Only if we have generated epics
+		if len(a.generatedEpics) > 0 {
+			a.onboardingState = OnboardingEpicReview
+			a.breadcrumb.SetCurrent(OnboardingEpicReview)
+			if a.createEpicReviewView != nil {
+				a.currentView = a.createEpicReviewView(a.generatedEpics)
+				return tea.Batch(
+					a.currentView.Init(),
+					a.currentView.Focus(),
+					a.sendWindowSize(),
+				)
+			}
+		}
+
+	case OnboardingTaskReview:
+		// Only if we have generated tasks
+		if len(a.generatedTasks) > 0 {
+			a.onboardingState = OnboardingTaskReview
+			a.breadcrumb.SetCurrent(OnboardingTaskReview)
+			if a.createTaskReviewView != nil {
+				a.currentView = a.createTaskReviewView(a.generatedTasks)
+				return tea.Batch(
+					a.currentView.Init(),
+					a.currentView.Focus(),
+					a.sendWindowSize(),
+				)
+			}
+		}
+
+	case OnboardingComplete:
+		return a.enterDashboard()
+	}
+
 	return nil
 }
 
@@ -348,53 +820,65 @@ func (a *UnifiedApp) View() string {
 		return "Loading..."
 	}
 
-	var b strings.Builder
+	// Calculate heights
+	headerHeight := 3 // Header with padding
+	footerHeight := 3 // Footer with padding
+	contentHeight := a.height - headerHeight - footerHeight
 
-	// In dashboard mode, show tabs
+	// Header area
+	var header string
 	if a.mode == ModeDashboard {
-		b.WriteString(a.tabs.View())
-		b.WriteString("\n")
+		header = a.tabs.View()
 	} else {
-		// Onboarding header
-		headerStyle := lipgloss.NewStyle().
-			Foreground(pkgtui.ColorPrimary).
-			Bold(true).
-			MarginBottom(1)
-		b.WriteString(headerStyle.Render(a.onboardingHeader()))
-		b.WriteString("\n\n")
+		// Onboarding: show breadcrumb
+		a.breadcrumb.SetWidth(a.width - 6) // Account for padding
+		header = a.breadcrumb.View()
 	}
+	headerStyle := pkgtui.HeaderStyle.
+		Width(a.width).
+		Height(headerHeight)
+	headerRendered := headerStyle.Render(header)
 
 	// Content area
-	contentHeight := a.height - 4
-	if a.mode == ModeDashboard {
-		contentHeight -= 2 // Account for tabs
-	}
-
 	var content string
 	if a.currentView != nil {
 		content = a.currentView.View()
 	}
 
-	// Ensure content fills the space
-	contentLines := strings.Split(content, "\n")
-	for len(contentLines) < contentHeight {
-		contentLines = append(contentLines, "")
-	}
-	if len(contentLines) > contentHeight {
-		contentLines = contentLines[:contentHeight]
-	}
-	b.WriteString(strings.Join(contentLines, "\n"))
-	b.WriteString("\n")
+	// Apply content styling with padding
+	contentStyle := lipgloss.NewStyle().
+		Background(pkgtui.ColorBg).
+		Foreground(pkgtui.ColorFg).
+		Padding(1, 3).
+		Width(a.width).
+		Height(contentHeight)
+
+	contentRendered := contentStyle.Render(content)
 
 	// Footer
-	b.WriteString(a.renderFooter())
+	footerStyle := pkgtui.FooterStyle.
+		Width(a.width).
+		Height(footerHeight)
+	footerRendered := footerStyle.Render(a.renderFooterContent())
+
+	// Join all sections vertically
+	result := lipgloss.JoinVertical(lipgloss.Left,
+		headerRendered,
+		contentRendered,
+		footerRendered,
+	)
 
 	// Overlay palette if visible
 	if a.palette.Visible() {
-		return a.overlay(b.String(), a.palette.View())
+		return a.overlay(result, a.palette.View())
 	}
 
-	return b.String()
+	// Overlay help if visible
+	if a.showHelp {
+		return a.overlay(result, a.renderHelpOverlay())
+	}
+
+	return result
 }
 
 func (a *UnifiedApp) onboardingHeader() string {
@@ -414,23 +898,118 @@ func (a *UnifiedApp) onboardingHeader() string {
 	}
 }
 
-func (a *UnifiedApp) renderFooter() string {
+func (a *UnifiedApp) renderFooterContent() string {
 	help := ""
 	if a.currentView != nil {
 		help = a.currentView.ShortHelp()
 	}
 
 	if a.mode == ModeDashboard {
-		help += "  1-4 tabs  ctrl+p palette  q quit"
+		help += "  │  1-4 tabs  ctrl+p palette  q quit"
 	} else {
-		help += "  ctrl+c cancel"
+		if a.breadcrumb.IsNavigating() {
+			help = "←/→ navigate  enter select  esc cancel"
+		} else {
+			help += "  │  ctrl+b jump  ctrl+c quit"
+		}
 	}
 
-	style := lipgloss.NewStyle().
-		Foreground(pkgtui.ColorMuted).
-		Width(a.width)
+	return help
+}
 
-	return style.Render(help)
+// renderFooter is deprecated, use renderFooterContent
+func (a *UnifiedApp) renderFooter() string {
+	return a.renderFooterContent()
+}
+
+// renderHelpOverlay renders the full keybinding help overlay
+func (a *UnifiedApp) renderHelpOverlay() string {
+	var lines []string
+
+	// Title
+	titleStyle := lipgloss.NewStyle().
+		Foreground(pkgtui.ColorPrimary).
+		Bold(true).
+		MarginBottom(1)
+
+	viewName := "Help"
+	if a.currentView != nil {
+		viewName = a.currentView.Name() + " Help"
+	}
+	lines = append(lines, titleStyle.Render(viewName))
+	lines = append(lines, "")
+
+	// Get full help from view if it supports it
+	var bindings []HelpBinding
+	if provider, ok := a.currentView.(FullHelpProvider); ok {
+		bindings = provider.FullHelp()
+	} else {
+		// Fall back to generic help from ShortHelp
+		bindings = a.defaultHelpBindings()
+	}
+
+	// Render bindings
+	keyStyle := pkgtui.HelpKeyStyle.Width(12)
+	descStyle := pkgtui.HelpDescStyle
+
+	for _, b := range bindings {
+		line := keyStyle.Render(b.Key) + " " + descStyle.Render(b.Description)
+		lines = append(lines, line)
+	}
+
+	// Global keys section
+	lines = append(lines, "")
+	lines = append(lines, titleStyle.Render("Global"))
+
+	globalBindings := []HelpBinding{
+		{Key: "?", Description: "Show this help"},
+		{Key: "ctrl+c", Description: "Quit"},
+	}
+
+	if a.mode == ModeDashboard {
+		globalBindings = append(globalBindings,
+			HelpBinding{Key: "1-4", Description: "Switch tabs"},
+			HelpBinding{Key: "tab", Description: "Next tab"},
+			HelpBinding{Key: "ctrl+p", Description: "Command palette"},
+			HelpBinding{Key: "q", Description: "Quit"},
+		)
+	} else {
+		globalBindings = append(globalBindings,
+			HelpBinding{Key: "ctrl+b", Description: "Jump to step"},
+		)
+	}
+
+	for _, b := range globalBindings {
+		line := keyStyle.Render(b.Key) + " " + descStyle.Render(b.Description)
+		lines = append(lines, line)
+	}
+
+	lines = append(lines, "")
+	lines = append(lines, pkgtui.LabelStyle.Render("Press any key to close"))
+
+	content := lipgloss.JoinVertical(lipgloss.Left, lines...)
+
+	// Wrap in a box
+	boxStyle := lipgloss.NewStyle().
+		Background(pkgtui.ColorBgLight).
+		Foreground(pkgtui.ColorFg).
+		Border(lipgloss.RoundedBorder()).
+		BorderForeground(pkgtui.ColorPrimary).
+		Padding(1, 3).
+		Width(50)
+
+	return boxStyle.Render(content)
+}
+
+// defaultHelpBindings returns generic navigation help
+func (a *UnifiedApp) defaultHelpBindings() []HelpBinding {
+	return []HelpBinding{
+		{Key: "j/k", Description: "Navigate down/up"},
+		{Key: "enter", Description: "Select/expand"},
+		{Key: "space", Description: "Toggle expand"},
+		{Key: "esc", Description: "Back/cancel"},
+		{Key: "b", Description: "Go back"},
+	}
 }
 
 func (a *UnifiedApp) overlay(base, overlay string) string {

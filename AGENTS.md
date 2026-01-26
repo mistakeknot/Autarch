@@ -218,6 +218,69 @@ target_branch = ""
 
 ---
 
+## TUI Keybindings
+
+### Global Keys (All Views)
+
+| Key | Action |
+|-----|--------|
+| `?` | Show full keybinding help overlay |
+| `ctrl+c` | Quit |
+| `1-4` | Switch tabs (dashboard mode) |
+| `tab` | Next tab (dashboard mode) |
+| `ctrl+p` | Command palette (dashboard mode) |
+| `ctrl+b` | Jump to step (onboarding mode) |
+| `q` | Quit (dashboard mode) |
+
+### Navigation (List Views)
+
+| Key | Action |
+|-----|--------|
+| `j` / `down` | Move down |
+| `k` / `up` | Move up |
+| `enter` | Select/expand item |
+| `space` | Toggle expand |
+
+### Back Navigation (Consistent Across Views)
+
+| Key | Action |
+|-----|--------|
+| `esc` | Cancel/close/go back |
+| `b` | Go back |
+| `backspace` | Go back |
+
+### Review Views (Epic Review, Task Review)
+
+| Key | Action |
+|-----|--------|
+| `A` | Accept ALL proposals (uppercase, intentional action) |
+| `e` | Edit selected item |
+| `d` | Delete selected item |
+| `+` / `-` | Adjust priority (Epic Review only) |
+| `g` | Toggle grouped view (Task Review only) |
+| `tab` | Cycle task type (Task Review only) |
+| `R` | Regenerate proposals (Epic Review only, uppercase) |
+
+### Kickoff View (Project Selection)
+
+| Key | Action |
+|-----|--------|
+| `ctrl+enter` | Create new project from description |
+| `ctrl+s` | Scan current directory for existing project |
+| `tab` | Switch between input and recent projects |
+| `j` / `k` | Navigate recent projects list |
+| `enter` | Open selected project |
+| `d` | Delete selected project |
+
+### Key Design Principles
+
+1. **Lowercase `r` = refresh** - Consistent across all views
+2. **Uppercase for destructive actions** - `A` for accept all, `R` for regenerate
+3. **`enter` = non-destructive** - Expands/selects, never batch actions
+4. **Multiple back aliases** - `esc`, `b`, `backspace` all work everywhere
+
+---
+
 ## Tool-Specific Details
 
 ### Bigend

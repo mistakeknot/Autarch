@@ -23,6 +23,7 @@ type TaskReviewView struct {
 
 	// Callbacks
 	onAccept func(tasks []tasks.TaskProposal) tea.Cmd
+	onBack   func() tea.Cmd
 }
 
 // NewTaskReviewView creates a new task review view.
@@ -42,6 +43,11 @@ func (v *TaskReviewView) SetAcceptCallback(cb func([]tasks.TaskProposal) tea.Cmd
 	v.onAccept = cb
 }
 
+// SetBackCallback sets the callback for going back.
+func (v *TaskReviewView) SetBackCallback(cb func() tea.Cmd) {
+	v.onBack = cb
+}
+
 // Init implements View
 func (v *TaskReviewView) Init() tea.Cmd {
 	return nil
@@ -58,7 +64,12 @@ func (v *TaskReviewView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
 	case tea.KeyMsg:
 		switch msg.String() {
 		case "enter":
-			// Accept all
+			// Toggle expand selected (same as space for consistency)
+			v.expanded[v.selected] = !v.expanded[v.selected]
+			return v, nil
+
+		case "A":
+			// Accept ALL tasks (uppercase A for intentional action)
 			if v.onAccept != nil {
 				return v, v.onAccept(v.tasks)
 			}
@@ -100,8 +111,15 @@ func (v *TaskReviewView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
 			}
 			return v, nil
 
-		case "space":
+		case " ":
+			// Toggle expand (space key returns " " in Bubble Tea)
 			v.expanded[v.selected] = !v.expanded[v.selected]
+			return v, nil
+
+		case "b", "backspace", "esc":
+			if v.onBack != nil {
+				return v, v.onBack()
+			}
 			return v, nil
 
 		case "tab":
@@ -142,7 +160,10 @@ func (v *TaskReviewView) ensureVisible() {
 // View implements View
 func (v *TaskReviewView) View() string {
 	if len(v.tasks) == 0 {
-		return pkgtui.LabelStyle.Render("No tasks proposed")
+		emptyStyle := lipgloss.NewStyle().
+			Foreground(pkgtui.ColorMuted).
+			Italic(true)
+		return emptyStyle.Render("No tasks proposed. Press b to go back.")
 	}
 
 	var sections []string
@@ -150,33 +171,43 @@ func (v *TaskReviewView) View() string {
 	// Header
 	headerStyle := lipgloss.NewStyle().
 		Foreground(pkgtui.ColorPrimary).
-		Bold(true).
-		MarginBottom(1)
+		Bold(true)
+	sections = append(sections, headerStyle.Render("Review Tasks"))
 
+	// Stats line
 	readyCount := tasks.CountReady(v.tasks)
-	header := fmt.Sprintf("Task Review (%d tasks, %d ready)", len(v.tasks), readyCount)
-	sections = append(sections, headerStyle.Render(header))
+	statsStyle := lipgloss.NewStyle().
+		Foreground(pkgtui.ColorMuted)
+	stats := fmt.Sprintf("%d tasks  •  %d ready to start", len(v.tasks), readyCount)
+	sections = append(sections, statsStyle.Render(stats))
 
 	// View mode indicator
-	modeStyle := pkgtui.LabelStyle
+	modeStyle := lipgloss.NewStyle().
+		Foreground(pkgtui.ColorSecondary).
+		Italic(true).
+		MarginBottom(1)
 	if v.groupedView {
-		sections = append(sections, modeStyle.Render("Grouped by Epic (g to toggle)"))
+		sections = append(sections, modeStyle.Render("Grouped by Epic"))
 	} else {
-		sections = append(sections, modeStyle.Render("Flat list (g to toggle)"))
+		sections = append(sections, modeStyle.Render("Flat list"))
 	}
 	sections = append(sections, "")
 
-	// Task list
+	// Task list in styled container
+	var taskLines []string
 	if v.groupedView {
-		sections = append(sections, v.renderGroupedTasks()...)
+		taskLines = v.renderGroupedTasks()
 	} else {
-		sections = append(sections, v.renderFlatTasks()...)
+		taskLines = v.renderFlatTasks()
 	}
 
-	sections = append(sections, "")
+	tasksContent := strings.Join(taskLines, "\n")
+	listStyle := lipgloss.NewStyle().
+		Background(pkgtui.ColorBgLight).
+		Padding(1, 2).
+		Width(v.width - 8)
 
-	// Actions
-	sections = append(sections, v.renderActions())
+	sections = append(sections, listStyle.Render(tasksContent))
 
 	return lipgloss.JoinVertical(lipgloss.Left, sections...)
 }
@@ -330,8 +361,12 @@ func (v *TaskReviewView) renderActions() string {
 	descStyle := pkgtui.HelpDescStyle
 
 	actions = append(actions, fmt.Sprintf("%s %s",
-		keyStyle.Render("Enter"),
+		keyStyle.Render("A"),
 		descStyle.Render("accept all")))
+
+	actions = append(actions, fmt.Sprintf("%s %s",
+		keyStyle.Render("Enter"),
+		descStyle.Render("expand")))
 
 	actions = append(actions, fmt.Sprintf("%s %s",
 		keyStyle.Render("e"),
@@ -371,7 +406,24 @@ func (v *TaskReviewView) Name() string {
 
 // ShortHelp implements View
 func (v *TaskReviewView) ShortHelp() string {
-	return "enter accept  e edit  d delete  g group"
+	return "A accept  b back  d delete  g group  tab type"
+}
+
+// FullHelp implements FullHelpProvider
+func (v *TaskReviewView) FullHelp() []tui.HelpBinding {
+	return []tui.HelpBinding{
+		{Key: "j/k", Description: "Navigate down/up"},
+		{Key: "enter", Description: "Toggle expand selected"},
+		{Key: "space", Description: "Toggle expand selected"},
+		{Key: "A", Description: "Accept ALL tasks"},
+		{Key: "e", Description: "Edit selected task"},
+		{Key: "d", Description: "Delete selected task"},
+		{Key: "tab", Description: "Cycle task type"},
+		{Key: "g", Description: "Toggle grouped view"},
+		{Key: "b", Description: "Go back"},
+		{Key: "esc", Description: "Go back"},
+		{Key: "backspace", Description: "Go back"},
+	}
 }
 
 // GetTasks returns the current tasks (potentially edited).

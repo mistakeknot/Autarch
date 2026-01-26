@@ -89,7 +89,7 @@ func (v *TaskDetailView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
 
 	case tea.KeyMsg:
 		switch msg.String() {
-		case "esc":
+		case "esc", "b", "backspace":
 			if v.onBack != nil {
 				return v, v.onBack()
 			}
@@ -367,6 +367,19 @@ func (v *TaskDetailView) Name() string {
 // ShortHelp implements View
 func (v *TaskDetailView) ShortHelp() string {
 	return "enter start  ←→ agent  w worktree  esc back"
+}
+
+// FullHelp implements FullHelpProvider
+func (v *TaskDetailView) FullHelp() []tui.HelpBinding {
+	return []tui.HelpBinding{
+		{Key: "enter", Description: "Start task with selected agent"},
+		{Key: "←/h", Description: "Select previous agent"},
+		{Key: "→/l", Description: "Select next agent"},
+		{Key: "w", Description: "Toggle worktree mode"},
+		{Key: "esc", Description: "Go back"},
+		{Key: "b", Description: "Go back"},
+		{Key: "backspace", Description: "Go back"},
+	}
 }
 
 // GetSelectedAgent returns the currently selected agent.
