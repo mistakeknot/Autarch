@@ -19,6 +19,31 @@ Unified monorepo for AI agent development tools: Bigend, Gurgeh, Coldwine, and P
 | Web Framework | net/http + htmx + Tailwind |
 | Database | SQLite (WAL mode) |
 
+## Related Repositories
+
+| Repo | Relationship | Location |
+|------|--------------|----------|
+| Intermute | Dependency (embedded server, domain API) | `/root/projects/Intermute` |
+
+**Before starting Autarch work:**
+```bash
+# 1. Check Intermute for uncommitted changes
+cd /root/projects/Intermute && git status
+
+# 2. If changes exist, commit and push
+git add -A && git commit -m "..." && git push
+
+# 3. Update Autarch's go.mod to latest
+cd /root/projects/Autarch
+go get github.com/mistakeknot/intermute@latest
+go mod tidy
+```
+
+**Key integration points:**
+- `pkg/autarch/` - Client for Intermute domain API
+- `internal/embedded/` - Wrapper for embedded Intermute server
+- Domain types (Spec, Epic, Story, Task, Insight, Session) defined in Intermute
+
 ## Project Status
 
 ### Done
@@ -94,12 +119,11 @@ Autarch/
 │       ├── reports/        # Markdown report generation
 │       ├── sources/        # Raw collected data types
 │       └── state/          # SQLite state management
-├── pkg/
-│   ├── agenttargets/       # Shared run-target registry/resolver
-│   └── tui/                # Shared TUI styles (Tokyo Night)
-│       ├── colors.go       # Color palette
-│       ├── styles.go       # Base styles
-│       └── components.go   # StatusIndicator, AgentBadge, etc.
+├── pkg/                    # Shared packages (see pkg/AGENTS.md)
+│   ├── agenttargets/       # Run-target registry/resolver
+│   ├── contract/           # Cross-tool entity types
+│   ├── events/             # Event spine (SQLite)
+│   └── tui/                # TUI styles (Tokyo Night)
 ├── mcp-client/             # TypeScript MCP client
 ├── mcp-server/             # TypeScript MCP server
 ├── prototypes/             # Experimental code
@@ -352,36 +376,16 @@ brief, _ := scanner.GenerateResearchBrief(ctx, "FEAT-001")
 
 ---
 
-## Shared TUI Package
+## Shared Packages
 
-`pkg/tui` provides consistent styling across all tools.
+See [`pkg/AGENTS.md`](pkg/AGENTS.md) for detailed documentation on shared packages:
 
-**Colors (Tokyo Night):**
-```go
-ColorPrimary   = "#7aa2f7"  // Blue
-ColorSecondary = "#bb9af7"  // Purple
-ColorSuccess   = "#9ece6a"  // Green
-ColorWarning   = "#e0af68"  // Yellow
-ColorError     = "#f7768e"  // Red
-ColorMuted     = "#565f89"  // Gray
-```
-
-**Components:**
-```go
-// Status indicators
-tui.StatusIndicator("running")  // "● RUNNING" (green)
-tui.StatusIndicator("waiting")  // "○ WAITING" (yellow)
-tui.StatusIndicator("idle")     // "◌ IDLE" (gray)
-tui.StatusIndicator("error")    // "✗ ERROR" (red)
-
-// Agent badges
-tui.AgentBadge("claude")  // Orange badge
-tui.AgentBadge("codex")   // Teal badge
-
-// Priority badges
-tui.PriorityBadge(0)  // "P0" (red)
-tui.PriorityBadge(1)  // "P1" (yellow)
-```
+| Package | Purpose |
+|---------|---------|
+| `contract` | Cross-tool entity types (Initiative, Epic, Story, Task, Run, Outcome) |
+| `events` | Event spine for cross-tool communication (SQLite at `~/.autarch/events.db`) |
+| `tui` | Shared TUI styles (Tokyo Night palette) |
+| `agenttargets` | Run-target registry/resolver |
 
 ---
 
@@ -469,3 +473,29 @@ Scopes: bigend, gurgeh, coldwine, tui, build
 - Replaces MCP Agent Mail
 - File-based messaging now, HTTP API planned
 - Message format in `.pollard/inbox/` and `.pollard/outbox/`
+
+## Landing the Plane (Session Completion)
+
+**When ending a work session**, you MUST complete ALL steps below. Work is NOT complete until `git push` succeeds.
+
+**MANDATORY WORKFLOW:**
+
+1. **File issues for remaining work** - Create issues for anything that needs follow-up
+2. **Run quality gates** (if code changed) - Tests, linters, builds
+3. **Update issue status** - Close finished work, update in-progress items
+4. **PUSH TO REMOTE** - This is MANDATORY:
+   ```bash
+   git pull --rebase
+   bd sync
+   git push
+   git status  # MUST show "up to date with origin"
+   ```
+5. **Clean up** - Clear stashes, prune remote branches
+6. **Verify** - All changes committed AND pushed
+7. **Hand off** - Provide context for next session
+
+**CRITICAL RULES:**
+- Work is NOT complete until `git push` succeeds
+- NEVER stop before pushing - that leaves work stranded locally
+- NEVER say "ready to push when you are" - YOU must push
+- If push fails, resolve and retry until it succeeds
