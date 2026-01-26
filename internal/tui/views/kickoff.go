@@ -396,7 +396,8 @@ func (v *KickoffView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
 			}
 			return v, nil
 
-		case "enter":
+		case "enter", "ctrl+enter":
+			// Enter or Ctrl+Enter on a selected project opens it
 			if len(v.recents) > 0 {
 				recent := v.recents[v.selected]
 				project := &Project{

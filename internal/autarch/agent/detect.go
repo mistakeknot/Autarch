@@ -2,6 +2,7 @@
 package agent
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"encoding/json"
@@ -120,65 +121,24 @@ func (a *Agent) GenerateWithOutput(ctx context.Context, req GenerateRequest, onO
 }
 
 func (a *Agent) generateClaudeStreaming(ctx context.Context, req GenerateRequest, onOutput OutputCallback) (*GenerateResponse, error) {
-	// Claude Code CLI: claude -p "prompt" --output-format json
+	if onOutput != nil {
+		// Use stream-json for real-time output
+		return a.generateClaudeStreamJSON(ctx, req, onOutput)
+	}
+
+	// No callback - use simple JSON output
 	args := []string{
 		"-p", req.Prompt,
 		"--output-format", "json",
 	}
 
 	cmd := exec.CommandContext(ctx, a.Path, args...)
-
-	// If we have an output callback, stream stderr (where claude shows progress)
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
 
-	if onOutput != nil {
-		// Create a pipe to read stderr line by line
-		stderrPipe, err := cmd.StderrPipe()
-		if err != nil {
-			return nil, fmt.Errorf("failed to create stderr pipe: %w", err)
-		}
-
-		if err := cmd.Start(); err != nil {
-			return nil, fmt.Errorf("failed to start claude: %w", err)
-		}
-
-		// Read stderr line by line and send to callback
-		go func() {
-			buf := make([]byte, 1024)
-			var line strings.Builder
-			for {
-				n, err := stderrPipe.Read(buf)
-				if n > 0 {
-					for _, b := range buf[:n] {
-						if b == '\n' || b == '\r' {
-							if line.Len() > 0 {
-								onOutput(line.String())
-								line.Reset()
-							}
-						} else {
-							line.WriteByte(b)
-						}
-					}
-					// Also send partial lines for real-time feedback
-					if line.Len() > 0 {
-						onOutput(line.String())
-					}
-				}
-				if err != nil {
-					break
-				}
-			}
-		}()
-
-		if err := cmd.Wait(); err != nil {
-			return nil, fmt.Errorf("claude execution failed: %w", err)
-		}
-	} else {
-		cmd.Stderr = &stderr
-		if err := cmd.Run(); err != nil {
-			return nil, fmt.Errorf("claude execution failed: %w\nstderr: %s", err, stderr.String())
-		}
+	if err := cmd.Run(); err != nil {
+		return nil, fmt.Errorf("claude execution failed: %w\nstderr: %s", err, stderr.String())
 	}
 
 	// Parse JSON output
@@ -200,6 +160,98 @@ func (a *Agent) generateClaudeStreaming(ctx context.Context, req GenerateRequest
 
 	return &GenerateResponse{
 		Content: result.Result,
+	}, nil
+}
+
+// streamMessage represents a message in the stream-json format
+type streamMessage struct {
+	Type    string `json:"type"`
+	Subtype string `json:"subtype,omitempty"`
+	Message struct {
+		Content []struct {
+			Type string `json:"type"`
+			Text string `json:"text,omitempty"`
+		} `json:"content,omitempty"`
+	} `json:"message,omitempty"`
+	Result string `json:"result,omitempty"`
+}
+
+func (a *Agent) generateClaudeStreamJSON(ctx context.Context, req GenerateRequest, onOutput OutputCallback) (*GenerateResponse, error) {
+	// Use stream-json with verbose for real-time streaming
+	args := []string{
+		"-p", req.Prompt,
+		"--output-format", "stream-json",
+		"--verbose",
+	}
+
+	cmd := exec.CommandContext(ctx, a.Path, args...)
+
+	// Create pipe to read stdout line by line
+	stdoutPipe, err := cmd.StdoutPipe()
+	if err != nil {
+		return nil, fmt.Errorf("failed to create stdout pipe: %w", err)
+	}
+
+	if err := cmd.Start(); err != nil {
+		return nil, fmt.Errorf("failed to start claude: %w", err)
+	}
+
+	// Read stdout line by line, parse JSON, extract useful info
+	var finalResult string
+	var contentBuilder strings.Builder
+
+	scanner := bufio.NewScanner(stdoutPipe)
+	// Increase buffer size for large JSON lines
+	buf := make([]byte, 0, 64*1024)
+	scanner.Buffer(buf, 1024*1024)
+
+	for scanner.Scan() {
+		line := scanner.Text()
+		if line == "" {
+			continue
+		}
+
+		var msg streamMessage
+		if err := json.Unmarshal([]byte(line), &msg); err != nil {
+			// Not valid JSON, skip
+			continue
+		}
+
+		switch msg.Type {
+		case "assistant":
+			// Extract text from content blocks
+			for _, block := range msg.Message.Content {
+				if block.Type == "text" && block.Text != "" {
+					contentBuilder.WriteString(block.Text)
+					// Send incremental text to callback
+					onOutput(block.Text)
+				}
+			}
+		case "result":
+			// Final result
+			if msg.Result != "" {
+				finalResult = msg.Result
+			}
+		case "system":
+			// System messages (hooks, init, etc.) - could show status
+			if msg.Subtype == "init" {
+				onOutput("Session started...")
+			}
+		}
+	}
+
+	if err := cmd.Wait(); err != nil {
+		return nil, fmt.Errorf("claude execution failed: %w", err)
+	}
+
+	// Prefer the explicit result if available, otherwise use accumulated content
+	content := finalResult
+	if content == "" {
+		content = contentBuilder.String()
+	}
+
+	return &GenerateResponse{
+		Content: content,
 	}, nil
 }
 
