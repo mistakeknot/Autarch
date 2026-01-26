@@ -11,13 +11,15 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/mistakeknot/autarch/internal/bigend/agentmail"
 	"github.com/mistakeknot/autarch/internal/bigend/aggregator"
+	"github.com/mistakeknot/autarch/internal/bigend/coldwine"
 	"github.com/mistakeknot/autarch/internal/bigend/config"
 	"github.com/mistakeknot/autarch/internal/bigend/discovery"
-	"github.com/mistakeknot/autarch/internal/bigend/coldwine"
 	"github.com/mistakeknot/autarch/internal/bigend/tmux"
+	"nhooyr.io/websocket"
 )
 
 //go:embed templates/*.html
@@ -113,6 +115,9 @@ func (s *Server) ListenAndServe(addr string) error {
 	mux.HandleFunc("/api/projects/", s.handleProjectMCPAction)
 	mux.HandleFunc("/api/refresh", s.handleRefresh)
 	mux.HandleFunc("/api/agents", s.handleAgentsAPI)
+
+	// WebSocket for terminal streaming
+	mux.HandleFunc("/ws/terminal/", s.handleTerminalWS)
 
 	// Static files
 	mux.Handle("/static/", http.StripPrefix("/static/", http.FileServer(http.Dir("static"))))
@@ -399,6 +404,107 @@ func (s *Server) handleAgentsAPI(w http.ResponseWriter, r *http.Request) {
 	state := s.agg.GetState()
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(state.Agents)
+}
+
+// handleTerminalWS streams terminal output for a session via WebSocket.
+//
+// Path format: /ws/terminal/{session_name}
+//
+// The server sends JSON messages with two types:
+//   - {"type": "output", "content": "..."} - terminal output
+//   - {"type": "error", "message": "..."} - error message
+func (s *Server) handleTerminalWS(w http.ResponseWriter, r *http.Request) {
+	// Extract session name from path
+	sessionName := strings.TrimPrefix(r.URL.Path, "/ws/terminal/")
+	if sessionName == "" {
+		http.Error(w, "session name required", http.StatusBadRequest)
+		return
+	}
+
+	// Verify session exists
+	state := s.agg.GetState()
+	var found bool
+	for _, session := range state.Sessions {
+		if session.Name == sessionName {
+			found = true
+			break
+		}
+	}
+	if !found {
+		http.NotFound(w, r)
+		return
+	}
+
+	// Accept WebSocket connection
+	conn, err := websocket.Accept(w, r, &websocket.AcceptOptions{
+		OriginPatterns: []string{"*"}, // Allow all origins for local development
+	})
+	if err != nil {
+		slog.Error("websocket accept failed", "error", err)
+		return
+	}
+	defer conn.Close(websocket.StatusNormalClosure, "closing")
+
+	ctx := r.Context()
+
+	// Get tmux client for capturing pane
+	tmuxClient, ok := s.statusClient.(*tmux.Client)
+	if !ok {
+		errMsg := struct {
+			Type    string `json:"type"`
+			Message string `json:"message"`
+		}{
+			Type:    "error",
+			Message: "tmux client not available",
+		}
+		data, _ := json.Marshal(errMsg)
+		conn.Write(ctx, websocket.MessageText, data)
+		return
+	}
+
+	// Stream terminal output at ~10 FPS
+	ticker := time.NewTicker(100 * time.Millisecond)
+	defer ticker.Stop()
+
+	var lastOutput string
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			// Capture pane output
+			output, err := tmuxClient.CapturePane(sessionName, 50)
+			if err != nil {
+				errMsg := struct {
+					Type    string `json:"type"`
+					Message string `json:"message"`
+				}{
+					Type:    "error",
+					Message: "session ended or capture failed",
+				}
+				data, _ := json.Marshal(errMsg)
+				conn.Write(ctx, websocket.MessageText, data)
+				return
+			}
+
+			// Only send if output changed
+			if output != lastOutput {
+				msg := struct {
+					Type    string `json:"type"`
+					Content string `json:"content"`
+				}{
+					Type:    "output",
+					Content: output,
+				}
+				data, _ := json.Marshal(msg)
+
+				if err := conn.Write(ctx, websocket.MessageText, data); err != nil {
+					return // Client disconnected
+				}
+				lastOutput = output
+			}
+		}
+	}
 }
 
 func (s *Server) handleProjectMCPAction(w http.ResponseWriter, r *http.Request) {

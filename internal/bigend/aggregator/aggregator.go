@@ -13,10 +13,11 @@ import (
 
 	"github.com/mistakeknot/autarch/internal/bigend/agentcmd"
 	"github.com/mistakeknot/autarch/internal/bigend/agentmail"
+	"github.com/mistakeknot/autarch/internal/bigend/coldwine"
 	"github.com/mistakeknot/autarch/internal/bigend/config"
 	"github.com/mistakeknot/autarch/internal/bigend/discovery"
 	"github.com/mistakeknot/autarch/internal/bigend/mcp"
-	"github.com/mistakeknot/autarch/internal/bigend/coldwine"
+	"github.com/mistakeknot/autarch/internal/bigend/statedetect"
 	"github.com/mistakeknot/autarch/internal/bigend/tmux"
 	gurgSpecs "github.com/mistakeknot/autarch/internal/gurgeh/specs"
 )
@@ -44,6 +45,12 @@ type TmuxSession struct {
 	AgentName    string    `json:"agent_name,omitempty"`
 	AgentType    string    `json:"agent_type,omitempty"`
 	ProjectPath  string    `json:"project_path,omitempty"`
+
+	// State detection fields (NudgeNik-style)
+	State           string    `json:"state"`            // working, waiting, blocked, stalled, done, error
+	StateConfidence float64   `json:"state_confidence"` // 0.0-1.0 detection certainty
+	StateSource     string    `json:"state_source"`     // pattern, repetition, activity, llm
+	StateAt         time.Time `json:"state_at"`         // when state was last detected
 }
 
 // Activity represents a recent event
@@ -69,6 +76,7 @@ type tmuxAPI interface {
 	IsAvailable() bool
 	ListSessions() ([]tmux.Session, error)
 	DetectStatus(name string) tmux.Status
+	CapturePane(sessionName string, lines int) (string, error)
 	NewSession(name, path string, cmd []string) error
 	RenameSession(oldName, newName string) error
 	KillSession(name string) error
@@ -79,6 +87,7 @@ type tmuxAPI interface {
 type Aggregator struct {
 	scanner         *discovery.Scanner
 	tmuxClient      tmuxAPI
+	stateDetector   *statedetect.Detector
 	agentMailReader *agentmail.Reader
 	mcpManager      *mcp.Manager
 	resolver        *agentcmd.Resolver
@@ -95,6 +104,7 @@ func New(scanner *discovery.Scanner, cfg *config.Config) *Aggregator {
 	return &Aggregator{
 		scanner:         scanner,
 		tmuxClient:      tmux.NewClient(),
+		stateDetector:   statedetect.NewDetector(),
 		agentMailReader: agentmail.NewReader(),
 		mcpManager:      mcp.NewManager(),
 		resolver:        agentcmd.NewResolver(cfg),
@@ -310,7 +320,7 @@ func (a *Aggregator) loadAgents() []Agent {
 	return agents
 }
 
-// loadTmuxSessions fetches and enriches tmux sessions with agent detection
+// loadTmuxSessions fetches and enriches tmux sessions with agent detection and state
 func (a *Aggregator) loadTmuxSessions(projects []discovery.Project) []TmuxSession {
 	if !a.tmuxClient.IsAvailable() {
 		slog.Debug("tmux not available")
@@ -333,7 +343,7 @@ func (a *Aggregator) loadTmuxSessions(projects []discovery.Project) []TmuxSessio
 	detector := tmux.NewDetector(projectPaths)
 	enriched := detector.EnrichSessions(rawSessions)
 
-	// Convert to aggregator type
+	// Convert to aggregator type with state detection
 	sessions := make([]TmuxSession, len(enriched))
 	for i, e := range enriched {
 		sessions[i] = TmuxSession{
@@ -351,9 +361,47 @@ func (a *Aggregator) loadTmuxSessions(projects []discovery.Project) []TmuxSessio
 				sessions[i].ProjectPath = e.Agent.ProjectPath
 			}
 		}
+
+		// Detect agent state (NudgeNik-style)
+		a.detectSessionState(&sessions[i])
 	}
 
 	return sessions
+}
+
+// detectSessionState uses the statedetect package to determine agent state.
+func (a *Aggregator) detectSessionState(session *TmuxSession) {
+	// Only detect state for agent sessions
+	if session.AgentType == "" {
+		session.State = string(statedetect.StateUnknown)
+		session.StateConfidence = 0.0
+		session.StateSource = string(statedetect.SourceDefault)
+		return
+	}
+
+	// Capture recent pane output
+	output, err := a.tmuxClient.CapturePane(session.Name, 50)
+	if err != nil {
+		slog.Debug("failed to capture pane for state detection",
+			"session", session.Name, "error", err)
+		session.State = string(statedetect.StateUnknown)
+		session.StateConfidence = 0.0
+		session.StateSource = string(statedetect.SourceDefault)
+		return
+	}
+
+	// Run detection
+	result := a.stateDetector.Detect(
+		session.Name,
+		output,
+		session.AgentType,
+		session.LastActivity,
+	)
+
+	session.State = string(result.State)
+	session.StateConfidence = result.Confidence
+	session.StateSource = string(result.Source)
+	session.StateAt = result.DetectedAt
 }
 
 func (a *Aggregator) loadMCPStatuses(projects []discovery.Project) map[string][]mcp.ComponentStatus {

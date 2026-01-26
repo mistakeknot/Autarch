@@ -10,6 +10,9 @@ import (
 	"os"
 	"sync"
 	"time"
+
+	"github.com/mistakeknot/autarch/internal/bigend/tmux"
+	"nhooyr.io/websocket"
 )
 
 // Server is the Vauxhall daemon HTTP server
@@ -19,6 +22,7 @@ type Server struct {
 	server     *http.Server
 	sessions   *SessionManager
 	projects   *ProjectManager
+	tmuxClient *tmux.Client
 	mu         sync.RWMutex
 	startedAt  time.Time
 }
@@ -32,11 +36,12 @@ type Config struct {
 // NewServer creates a new daemon server
 func NewServer(cfg Config) *Server {
 	s := &Server{
-		addr:      cfg.Addr,
-		mux:       http.NewServeMux(),
-		sessions:  NewSessionManager(),
-		projects:  NewProjectManager(cfg.ProjectDirs),
-		startedAt: time.Now(),
+		addr:       cfg.Addr,
+		mux:        http.NewServeMux(),
+		sessions:   NewSessionManager(),
+		projects:   NewProjectManager(cfg.ProjectDirs),
+		tmuxClient: tmux.NewClient(),
+		startedAt:  time.Now(),
 	}
 	s.setupRoutes()
 	return s
@@ -289,9 +294,84 @@ func (s *Server) handleGetAgent(w http.ResponseWriter, r *http.Request) {
 	writeError(w, http.StatusNotFound, "agent not found")
 }
 
+// handleWebSocket streams terminal output for a session in real-time.
+//
+// Protocol:
+// - Server sends terminal output as text messages at ~10 FPS
+// - Server sends only changed content (diff-based updates)
+// - Client can send "ping" to keep connection alive
+// - Connection closes when session ends or client disconnects
 func (s *Server) handleWebSocket(w http.ResponseWriter, r *http.Request) {
-	// TODO: Implement WebSocket terminal streaming
-	writeError(w, http.StatusNotImplemented, "websocket not yet implemented")
+	sessionID := r.PathValue("id")
+	if sessionID == "" {
+		writeError(w, http.StatusBadRequest, "session id required")
+		return
+	}
+
+	// Find the session
+	session, ok := s.sessions.Get(sessionID)
+	if !ok {
+		writeError(w, http.StatusNotFound, "session not found")
+		return
+	}
+
+	// Accept the WebSocket connection
+	conn, err := websocket.Accept(w, r, &websocket.AcceptOptions{
+		OriginPatterns: []string{"*"}, // Allow all origins for local development
+	})
+	if err != nil {
+		log.Printf("websocket accept failed: %v", err)
+		return
+	}
+	defer conn.Close(websocket.StatusNormalClosure, "closing")
+
+	ctx := r.Context()
+
+	// Stream terminal output at ~10 FPS
+	ticker := time.NewTicker(100 * time.Millisecond)
+	defer ticker.Stop()
+
+	var lastOutput string
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			// Capture pane output
+			output, err := s.tmuxClient.CapturePane(session.Name, 50)
+			if err != nil {
+				// Session may have ended
+				errMsg := struct {
+					Type    string `json:"type"`
+					Message string `json:"message"`
+				}{
+					Type:    "error",
+					Message: "session ended or capture failed",
+				}
+				data, _ := json.Marshal(errMsg)
+				conn.Write(ctx, websocket.MessageText, data)
+				return
+			}
+
+			// Only send if output changed (reduces bandwidth)
+			if output != lastOutput {
+				msg := struct {
+					Type    string `json:"type"`
+					Content string `json:"content"`
+				}{
+					Type:    "output",
+					Content: output,
+				}
+				data, _ := json.Marshal(msg)
+
+				err = conn.Write(ctx, websocket.MessageText, data)
+				if err != nil {
+					return // Client disconnected
+				}
+				lastOutput = output
+			}
+		}
+	}
 }
 
 // Helper functions

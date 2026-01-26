@@ -16,6 +16,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/spf13/cobra"
 
+	"github.com/mistakeknot/autarch/internal/autarch/setup"
 	"github.com/mistakeknot/autarch/internal/bigend/aggregator"
 	"github.com/mistakeknot/autarch/internal/bigend/config"
 	"github.com/mistakeknot/autarch/internal/bigend/daemon"
@@ -56,6 +57,7 @@ Available tools:
 	root.AddCommand(gurgehCmd())
 	root.AddCommand(coldwineCmd())
 	root.AddCommand(pollardCmd())
+	root.AddCommand(setupCmd())
 
 	if err := root.Execute(); err != nil {
 		os.Exit(1)
@@ -92,6 +94,16 @@ Navigation:
 				Level: slog.LevelError,
 			}))
 			slog.SetDefault(logger)
+
+			// Auto-setup on first run
+			if setup.NeedsSetup() {
+				fmt.Println("First run detected. Setting up Autarch...")
+				if err := setup.Run(); err != nil {
+					fmt.Fprintf(os.Stderr, "Warning: setup incomplete: %v\n", err)
+				} else {
+					fmt.Println("Setup complete!")
+				}
+			}
 
 			// Resolve data directory
 			if dataDir == "" {
@@ -150,10 +162,24 @@ Navigation:
 								ProjectID:   project.ID,
 								ProjectName: project.Name,
 								Description: project.Description,
+								ScanResult:  project.ScanResult,
 							}
 						}
 					})
+					v.SetScanCodebaseCallback(func(path string) tea.Cmd {
+						return func() tea.Msg {
+							return tui.ScanCodebaseMsg{Path: path}
+						}
+					})
 					return v
+				},
+				// Interview view factory
+				func(questions []tui.InterviewQuestion, coord *research.Coordinator) tui.View {
+					return views.NewInterviewView(questions, coord)
+				},
+				// Spec summary view factory
+				func(spec *tui.SpecSummary, coord *research.Coordinator) tui.View {
+					return views.NewSpecSummaryView(spec, coord)
 				},
 				// Epic review view factory
 				func(proposals []epics.EpicProposal) tui.View {
@@ -165,6 +191,11 @@ Navigation:
 							}
 						},
 						nil, // regenerate callback
+						func() tea.Cmd {
+							return func() tea.Msg {
+								return tui.NavigateBackMsg{}
+							}
+						},
 					)
 					return v
 				},
@@ -174,6 +205,11 @@ Navigation:
 					v.SetAcceptCallback(func(accepted []tasks.TaskProposal) tea.Cmd {
 						return func() tea.Msg {
 							return tui.TasksAcceptedMsg{Tasks: accepted}
+						}
+					})
+					v.SetBackCallback(func() tea.Cmd {
+						return func() tea.Msg {
+							return tui.NavigateBackMsg{}
 						}
 					})
 					return v
@@ -470,4 +506,59 @@ func pollardCmd() *cobra.Command {
 	}
 
 	return cmd
+}
+
+func setupCmd() *cobra.Command {
+	var force bool
+
+	cmd := &cobra.Command{
+		Use:   "setup",
+		Short: "Configure Autarch hooks and directories",
+		Long: `Set up Autarch for first-time use.
+
+This command:
+  - Creates ~/.autarch/ directory structure
+  - Installs agent state hooks for Claude Code and Codex CLI
+  - Verifies required dependencies (tmux, etc.)
+
+Run this once after installing Autarch, or use --force to reconfigure.`,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			status := setup.Check()
+
+			if !force && !setup.NeedsSetup() {
+				fmt.Println("Autarch is already configured:")
+				printSetupStatus(status)
+				fmt.Println("\nUse --force to reconfigure.")
+				return nil
+			}
+
+			fmt.Println("Setting up Autarch...")
+			if err := setup.Run(); err != nil {
+				return fmt.Errorf("setup failed: %w", err)
+			}
+
+			fmt.Println("\nSetup complete!")
+			printSetupStatus(setup.Check())
+			return nil
+		},
+	}
+
+	cmd.Flags().BoolVarP(&force, "force", "f", false, "Force reconfiguration even if already set up")
+
+	return cmd
+}
+
+func printSetupStatus(s setup.Status) {
+	check := func(b bool) string {
+		if b {
+			return "✓"
+		}
+		return "✗"
+	}
+
+	fmt.Printf("  %s Data directory (~/.autarch/)\n", check(s.DataDirExists))
+	fmt.Printf("  %s Hook scripts installed\n", check(s.HooksInstalled))
+	fmt.Printf("  %s Claude Code configured\n", check(s.ClaudeConfigured))
+	fmt.Printf("  %s Codex CLI configured\n", check(s.CodexConfigured))
+	fmt.Printf("  %s tmux available\n", check(s.TmuxAvailable))
 }
