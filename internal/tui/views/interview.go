@@ -161,8 +161,9 @@ func (v *InterviewView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
 
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
-		v.width = msg.Width
-		v.height = msg.Height - 4
+		// Account for unified_app's content padding (Padding(1, 3) = 6 horizontal, 2 vertical)
+		v.width = msg.Width - 6
+		v.height = msg.Height - 4 - 2
 
 		// Update layout dimensions
 		v.splitLayout.SetSize(v.width, v.height)

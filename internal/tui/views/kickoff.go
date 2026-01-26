@@ -249,8 +249,9 @@ func loadRecentProjectsFromDisk() ([]RecentProject, error) {
 func (v *KickoffView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
-		v.width = msg.Width
-		v.height = msg.Height - 4
+		// Account for unified_app's content padding (Padding(1, 3) = 6 horizontal, 2 vertical)
+		v.width = msg.Width - 6
+		v.height = msg.Height - 4 - 2
 		v.splitLayout.SetSize(v.width, v.height)
 		v.docPanel.SetSize(v.splitLayout.LeftWidth(), v.splitLayout.LeftHeight())
 		v.chatPanel.SetSize(v.splitLayout.RightWidth(), v.splitLayout.RightHeight())
@@ -629,9 +630,9 @@ func (v *KickoffView) renderLoadingView() string {
 			sections = append(sections, "")
 			outputStyle := lipgloss.NewStyle().
 				Foreground(pkgtui.ColorFgDim).
-				Background(pkgtui.ColorBgLight).
 				Padding(0, 1).
 				Width(min(70, v.width-8))
+			// Removed: .Background(pkgtui.ColorBgLight) - causes blue bar artifact
 
 			// Show agent output in a box
 			var outputLines []string

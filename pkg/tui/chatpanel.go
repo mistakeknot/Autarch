@@ -93,30 +93,21 @@ func (p *ChatPanel) View() string {
 	// Render history
 	historyView := p.renderHistory(historyHeight)
 
-	// Separator - use panel width minus some padding
-	sepWidth := p.width - 2
-	if sepWidth < 1 {
-		sepWidth = 1
-	}
+	// Simple separator - don't try to match exact width, let SplitLayout handle padding
 	separatorStyle := lipgloss.NewStyle().
 		Foreground(ColorMuted)
-	separator := separatorStyle.Render(strings.Repeat("─", sepWidth))
+	separator := separatorStyle.Render(strings.Repeat("─", 40))
 
 	// Render composer
 	composerView := p.composer.View()
 
-	// Join and constrain to panel width
-	content := lipgloss.JoinVertical(lipgloss.Left,
+	// Join vertically - don't add Width constraints here
+	// The SplitLayout.ensureSize() handles width normalization
+	return lipgloss.JoinVertical(lipgloss.Left,
 		historyView,
 		separator,
 		composerView,
 	)
-
-	// Constrain output to panel width using lipgloss
-	return lipgloss.NewStyle().
-		Width(p.width).
-		MaxWidth(p.width).
-		Render(content)
 }
 
 // renderHistory renders the chat history area.
@@ -129,8 +120,8 @@ func (p *ChatPanel) renderHistory(height int) string {
 		emptyStyle := lipgloss.NewStyle().
 			Foreground(ColorMuted).
 			Italic(true)
-		empty := emptyStyle.Render("No messages yet.")
-		return ensureHeight(empty, height)
+		// Don't use ensureHeight here - SplitLayout.ensureSize handles height normalization
+		return emptyStyle.Render("No messages yet.")
 	}
 
 	// Build message lines
@@ -174,9 +165,8 @@ func (p *ChatPanel) renderHistory(height int) string {
 		lines = lines[start:end]
 	}
 
-	// Ensure exact height
-	content := strings.Join(lines, "\n")
-	return ensureHeight(content, height)
+	// Don't use ensureHeight - SplitLayout.ensureSize handles height normalization
+	return strings.Join(lines, "\n")
 }
 
 // roleStyle returns the style for a given role.

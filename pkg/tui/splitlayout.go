@@ -4,7 +4,7 @@ import (
 	"strings"
 
 	"github.com/charmbracelet/lipgloss"
-	"github.com/mattn/go-runewidth"
+	"github.com/charmbracelet/x/ansi"
 )
 
 // SplitLayout renders a 2/3 + 1/3 horizontal split layout.
@@ -170,15 +170,15 @@ func ensureSize(content string, width, height int) string {
 
 // padToWidth pads a line to exactly the specified width.
 // Truncates if too long, pads with spaces if too short.
-// Uses go-runewidth which properly handles ANSI escape codes and East Asian Width.
+// Uses charmbracelet/x/ansi which properly handles ANSI escape codes.
 func padToWidth(line string, width int) string {
-	displayWidth := runewidth.StringWidth(line)
+	displayWidth := ansi.StringWidth(line)
 
 	if displayWidth == width {
 		return line
 	}
 	if displayWidth > width {
-		return runewidth.Truncate(line, width, "")
+		return ansi.Truncate(line, width, "")
 	}
 	// Pad with spaces
 	return line + strings.Repeat(" ", width-displayWidth)

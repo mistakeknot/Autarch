@@ -144,9 +144,8 @@ func (p *DocPanel) View() string {
 		lines = lines[start:end]
 	}
 
-	// Ensure exact height
-	content := strings.Join(lines, "\n")
-	return ensureHeight(content, p.height)
+	// Don't use ensureHeight - SplitLayout.ensureSize handles height normalization
+	return strings.Join(lines, "\n")
 }
 
 // ScrollUp scrolls the content up.
