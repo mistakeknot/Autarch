@@ -8,7 +8,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/charmbracelet/bubbles/textarea"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/google/uuid"
@@ -18,12 +17,16 @@ import (
 )
 
 // KickoffView is the initial view for starting new projects or resuming drafts.
-// It provides a text input for project description and a list of recent projects.
+// It uses a Cursor-style split layout with document panel (left) and chat panel (right).
 type KickoffView struct {
-	input      textarea.Model
+	// Shared components for Cursor-style layout
+	chatPanel   *pkgtui.ChatPanel
+	docPanel    *pkgtui.DocPanel
+	splitLayout *pkgtui.SplitLayout
+
 	recents    []RecentProject
 	selected   int
-	focusInput bool // true = input focused, false = recents focused
+	focusInput bool // true = chat/input focused, false = recents focused
 	width      int
 	height     int
 	loading    bool
@@ -67,36 +70,29 @@ type Project struct {
 	ScanResult *tui.CodebaseScanResultMsg
 }
 
-// NewKickoffView creates a new kickoff view.
+// NewKickoffView creates a new kickoff view with Cursor-style split layout.
 func NewKickoffView() *KickoffView {
-	ta := textarea.New()
-	ta.Placeholder = "Describe what you want to build...\n\nYou can write multiple lines here to describe your project vision, goals, and key features."
-	ta.CharLimit = 2000
-	ta.SetWidth(70)
-	ta.SetHeight(6)
-	ta.ShowLineNumbers = false
+	// Create shared components
+	chatPanel := pkgtui.NewChatPanel()
+	chatPanel.SetComposerPlaceholder("Describe what you want to build...")
+	chatPanel.SetComposerHint("ctrl+g: create  ctrl+s: scan  tab: switch")
 
-	// Style the textarea to match our theme
-	ta.FocusedStyle.Base = lipgloss.NewStyle().
-		Foreground(pkgtui.ColorFg).
-		Background(pkgtui.ColorBg)
-	ta.FocusedStyle.CursorLine = lipgloss.NewStyle().
-		Background(pkgtui.ColorBgLight)
-	ta.FocusedStyle.Placeholder = lipgloss.NewStyle().
-		Foreground(pkgtui.ColorMuted)
-	ta.FocusedStyle.Text = lipgloss.NewStyle().
-		Foreground(pkgtui.ColorFg)
-	ta.BlurredStyle = ta.FocusedStyle
+	docPanel := pkgtui.NewDocPanel()
+	docPanel.SetTitle("What do you want to build?")
+	docPanel.SetSubtitle("Describe your project - use multiple lines if needed")
 
-	// Cursor style
-	ta.Cursor.Style = lipgloss.NewStyle().
-		Foreground(pkgtui.ColorBg).
-		Background(pkgtui.ColorPrimary)
+	splitLayout := pkgtui.NewSplitLayout(0.50) // 50/50 split for kickoff
+	splitLayout.SetMinWidth(80)                // Fall back to stacked on narrow terminals
 
-	return &KickoffView{
-		input:      ta,
-		focusInput: true,
+	v := &KickoffView{
+		chatPanel:   chatPanel,
+		docPanel:    docPanel,
+		splitLayout: splitLayout,
+		focusInput:  true,
 	}
+	v.updateDocPanel()
+
+	return v
 }
 
 // SetProjectStartCallback sets the callback for when a project is started.
@@ -114,10 +110,48 @@ func (v *KickoffView) SetAgentName(name string) {
 	v.scanAgentName = name
 }
 
+// updateDocPanel updates the document panel with current content.
+func (v *KickoffView) updateDocPanel() {
+	v.docPanel.ClearSections()
+
+	// Add tips section
+	v.docPanel.AddSection(pkgtui.DocSection{
+		Title:   "Tips",
+		Content: "• Be specific about what you're building\n• Include key features or requirements\n• Mention any constraints or preferences",
+		Style:   lipgloss.NewStyle().Foreground(pkgtui.ColorMuted),
+	})
+
+	// Add keyboard shortcuts section
+	v.docPanel.AddSection(pkgtui.DocSection{
+		Title:   "Shortcuts",
+		Content: "Ctrl+G → Create project\nCtrl+S → Scan current directory\nTab → Switch between panels",
+		Style:   lipgloss.NewStyle().Foreground(pkgtui.ColorFgDim),
+	})
+
+	// If we have a scan result, show it
+	if v.scanResult != nil {
+		techInfo := ""
+		if v.scanResult.Language != "" {
+			techInfo = v.scanResult.Language
+		}
+		if v.scanResult.Platform != "" {
+			if techInfo != "" {
+				techInfo += " / "
+			}
+			techInfo += v.scanResult.Platform
+		}
+		v.docPanel.AddSection(pkgtui.DocSection{
+			Title:   "Scanned Project",
+			Content: fmt.Sprintf("Found: %s\nTech: %s", v.scanPath, techInfo),
+			Style:   lipgloss.NewStyle().Foreground(pkgtui.ColorSuccess),
+		})
+	}
+}
+
 // Init implements View
 func (v *KickoffView) Init() tea.Cmd {
 	return tea.Batch(
-		textarea.Blink,
+		v.chatPanel.Focus(),
 		v.loadRecentProjects(),
 	)
 }
@@ -217,7 +251,9 @@ func (v *KickoffView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		v.width = msg.Width
 		v.height = msg.Height - 4
-		v.input.SetWidth(min(70, v.width-10))
+		v.splitLayout.SetSize(v.width, v.height)
+		v.docPanel.SetSize(v.splitLayout.LeftWidth(), v.splitLayout.LeftHeight())
+		v.chatPanel.SetSize(v.splitLayout.RightWidth(), v.splitLayout.RightHeight())
 		return v, nil
 
 	case recentsLoadedMsg:
@@ -269,7 +305,8 @@ func (v *KickoffView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
 		}
 		// Store scan result and pre-fill the description
 		v.scanResult = &msg
-		v.input.SetValue(msg.Description)
+		v.chatPanel.SetValue(msg.Description)
+		v.updateDocPanel()
 		return v, nil
 
 	case projectDeletedMsg:
@@ -294,7 +331,7 @@ func (v *KickoffView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
 		// If no more recents, switch focus to input
 		if len(v.recents) == 0 {
 			v.focusInput = true
-			v.input.Focus()
+			return v, v.chatPanel.Focus()
 		}
 		return v, nil
 
@@ -330,16 +367,16 @@ func (v *KickoffView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
 				// Toggle focus to recents
 				if len(v.recents) > 0 {
 					v.focusInput = false
-					v.input.Blur()
+					v.chatPanel.Blur()
 				}
 				return v, nil
 
 			case "ctrl+g":
 				// Submit the project description (ctrl+g = "go")
-				if strings.TrimSpace(v.input.Value()) != "" {
+				if strings.TrimSpace(v.chatPanel.Value()) != "" {
 					v.loading = true
 					v.loadingMsg = "Creating project..."
-					return v, v.createProject(v.input.Value())
+					return v, v.createProject(v.chatPanel.Value())
 				}
 				return v, nil
 
@@ -364,14 +401,14 @@ func (v *KickoffView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
 				// If there's content, clear focus; otherwise do nothing
 				if len(v.recents) > 0 {
 					v.focusInput = false
-					v.input.Blur()
+					v.chatPanel.Blur()
 				}
 				return v, nil
 
 			default:
-				// Pass all other keys to the textarea (including Enter for newlines)
+				// Pass all other keys to the chat panel (including Enter for newlines)
 				var cmd tea.Cmd
-				v.input, cmd = v.input.Update(msg)
+				v.chatPanel, cmd = v.chatPanel.Update(msg)
 				return v, cmd
 			}
 		}
@@ -381,8 +418,7 @@ func (v *KickoffView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
 		case "tab":
 			// Toggle focus to input
 			v.focusInput = true
-			v.input.Focus()
-			return v, nil
+			return v, v.chatPanel.Focus()
 
 		case "up", "k":
 			if v.selected > 0 {
@@ -527,142 +563,110 @@ func slugify(s string) string {
 // View implements View
 func (v *KickoffView) View() string {
 	if v.loading {
-		var sections []string
-
-		spinnerStyle := lipgloss.NewStyle().
-			Foreground(pkgtui.ColorPrimary).
-			Bold(true)
-		msg := v.loadingMsg
-		if msg == "" {
-			msg = "Loading..."
-		}
-		sections = append(sections, spinnerStyle.Render(msg))
-
-		// Show more details during scanning
-		if v.scanning {
-			detailStyle := lipgloss.NewStyle().
-				Foreground(pkgtui.ColorMuted).
-				Italic(true)
-			pathStyle := lipgloss.NewStyle().
-				Foreground(pkgtui.ColorSecondary)
-			fileStyle := lipgloss.NewStyle().
-				Foreground(pkgtui.ColorSuccess)
-			agentStyle := lipgloss.NewStyle().
-				Foreground(pkgtui.ColorPrimary).
-				Bold(true)
-
-			sections = append(sections, "")
-			sections = append(sections, detailStyle.Render("Path: ")+pathStyle.Render(v.scanPath))
-			sections = append(sections, "")
-
-			// Show files found
-			if len(v.scanFiles) > 0 {
-				sections = append(sections, detailStyle.Render("Files found:"))
-				for _, f := range v.scanFiles {
-					sections = append(sections, "  "+fileStyle.Render("✓ "+f))
-				}
-			} else {
-				sections = append(sections, detailStyle.Render("No project files found"))
-			}
-
-			sections = append(sections, "")
-			agentName := v.scanAgentName
-			if agentName == "" {
-				agentName = "coding agent"
-			}
-			sections = append(sections, detailStyle.Render("Analyzing with ")+agentStyle.Render(agentName)+detailStyle.Render("..."))
-
-			// Show live agent output
-			if len(v.scanAgentLines) > 0 {
-				sections = append(sections, "")
-				outputStyle := lipgloss.NewStyle().
-					Foreground(pkgtui.ColorFgDim).
-					Background(pkgtui.ColorBgLight).
-					Padding(0, 1).
-					Width(min(70, v.width-8))
-
-				// Show agent output in a box
-				var outputLines []string
-				for _, line := range v.scanAgentLines {
-					// Truncate long lines
-					if len(line) > 66 {
-						line = line[:63] + "..."
-					}
-					outputLines = append(outputLines, line)
-				}
-				outputBox := outputStyle.Render(strings.Join(outputLines, "\n"))
-				sections = append(sections, outputBox)
-			}
-		}
-
-		return lipgloss.JoinVertical(lipgloss.Left, sections...)
+		return v.renderLoadingView()
 	}
 
 	if v.err != nil {
 		return tui.ErrorView(v.err)
 	}
 
+	// Use split layout: left = doc panel, right = chat panel + recents
+	leftContent := v.docPanel.View()
+	rightContent := v.renderRightPane()
+
+	return v.splitLayout.Render(leftContent, rightContent)
+}
+
+// renderLoadingView renders the loading/scanning state.
+func (v *KickoffView) renderLoadingView() string {
 	var sections []string
 
-	// Header with welcome message
-	headerStyle := lipgloss.NewStyle().
+	spinnerStyle := lipgloss.NewStyle().
 		Foreground(pkgtui.ColorPrimary).
-		Bold(true).
-		MarginBottom(1)
-	sections = append(sections, headerStyle.Render("What do you want to build?"))
-
-	// Subheader hint
-	subheaderStyle := lipgloss.NewStyle().
-		Foreground(pkgtui.ColorMuted).
-		Italic(true).
-		MarginBottom(1)
-	sections = append(sections, subheaderStyle.Render("Describe your project - use multiple lines if needed"))
-	sections = append(sections, "")
-
-	// Textarea with card-like styling
-	inputWidth := min(72, v.width-8)
-	v.input.SetWidth(inputWidth - 4) // Account for border padding
-
-	inputStyle := lipgloss.NewStyle().
-		Border(lipgloss.RoundedBorder()).
-		Padding(1, 1).
-		Width(inputWidth)
-
-	if v.focusInput {
-		inputStyle = inputStyle.BorderForeground(pkgtui.ColorPrimary)
-	} else {
-		inputStyle = inputStyle.BorderForeground(pkgtui.ColorMuted)
+		Bold(true)
+	msg := v.loadingMsg
+	if msg == "" {
+		msg = "Loading..."
 	}
+	sections = append(sections, spinnerStyle.Render(msg))
 
-	inputBox := inputStyle.Render(v.input.View())
-	sections = append(sections, inputBox)
-
-	// Submit hint
-	submitHint := lipgloss.NewStyle().
-		Foreground(pkgtui.ColorMuted).
-		Italic(true)
-	sections = append(sections, submitHint.Render("Press Ctrl+G to create project"))
-
-	// Scan hint
-	if v.onScanCodebase != nil {
-		scanHint := lipgloss.NewStyle().
+	// Show more details during scanning
+	if v.scanning {
+		detailStyle := lipgloss.NewStyle().
 			Foreground(pkgtui.ColorMuted).
 			Italic(true)
-		sections = append(sections, scanHint.Render("Press Ctrl+S to scan current directory for an existing project"))
-	}
-	sections = append(sections, "")
+		pathStyle := lipgloss.NewStyle().
+			Foreground(pkgtui.ColorSecondary)
+		fileStyle := lipgloss.NewStyle().
+			Foreground(pkgtui.ColorSuccess)
+		agentStyle := lipgloss.NewStyle().
+			Foreground(pkgtui.ColorPrimary).
+			Bold(true)
 
-	// Recent projects section
+		sections = append(sections, "")
+		sections = append(sections, detailStyle.Render("Path: ")+pathStyle.Render(v.scanPath))
+		sections = append(sections, "")
+
+		// Show files found
+		if len(v.scanFiles) > 0 {
+			sections = append(sections, detailStyle.Render("Files found:"))
+			for _, f := range v.scanFiles {
+				sections = append(sections, "  "+fileStyle.Render("✓ "+f))
+			}
+		} else {
+			sections = append(sections, detailStyle.Render("No project files found"))
+		}
+
+		sections = append(sections, "")
+		agentName := v.scanAgentName
+		if agentName == "" {
+			agentName = "coding agent"
+		}
+		sections = append(sections, detailStyle.Render("Analyzing with ")+agentStyle.Render(agentName)+detailStyle.Render("..."))
+
+		// Show live agent output
+		if len(v.scanAgentLines) > 0 {
+			sections = append(sections, "")
+			outputStyle := lipgloss.NewStyle().
+				Foreground(pkgtui.ColorFgDim).
+				Background(pkgtui.ColorBgLight).
+				Padding(0, 1).
+				Width(min(70, v.width-8))
+
+			// Show agent output in a box
+			var outputLines []string
+			for _, line := range v.scanAgentLines {
+				// Truncate long lines
+				if len(line) > 66 {
+					line = line[:63] + "..."
+				}
+				outputLines = append(outputLines, line)
+			}
+			outputBox := outputStyle.Render(strings.Join(outputLines, "\n"))
+			sections = append(sections, outputBox)
+		}
+	}
+
+	return lipgloss.JoinVertical(lipgloss.Left, sections...)
+}
+
+// renderRightPane renders the right side: chat panel with recents below.
+func (v *KickoffView) renderRightPane() string {
+	var sections []string
+
+	// Chat panel (composer)
+	sections = append(sections, v.chatPanel.View())
+
+	// Recent projects section (if any)
 	if len(v.recents) > 0 {
 		sections = append(sections, "")
 
 		recentHeaderStyle := lipgloss.NewStyle().
 			Foreground(pkgtui.ColorSecondary).
-			Bold(true).
-			MarginBottom(1)
+			Bold(true)
 		sections = append(sections, recentHeaderStyle.Render("Recent Projects"))
 
-		// Recent projects in a subtle card
+		// Recent projects list
 		var recentLines []string
 		for i, r := range v.recents {
 			line := v.renderRecentProject(r, i == v.selected && !v.focusInput)
@@ -671,8 +675,7 @@ func (v *KickoffView) View() string {
 
 		recentsContent := strings.Join(recentLines, "\n")
 		recentsStyle := lipgloss.NewStyle().
-			Padding(1, 2).
-			Width(inputWidth).
+			Padding(0, 1).
 			Border(lipgloss.RoundedBorder())
 
 		if !v.focusInput {
@@ -684,10 +687,9 @@ func (v *KickoffView) View() string {
 		sections = append(sections, recentsStyle.Render(recentsContent))
 	}
 
-	// Delete confirmation or contextual help
-	sections = append(sections, "")
+	// Delete confirmation
 	if v.confirmingDelete && v.deleteTarget != nil {
-		// Show confirmation dialog with emphasis
+		sections = append(sections, "")
 		confirmBox := lipgloss.NewStyle().
 			Background(pkgtui.ColorBgLight).
 			Foreground(pkgtui.ColorWarning).
@@ -696,7 +698,7 @@ func (v *KickoffView) View() string {
 			Border(lipgloss.RoundedBorder()).
 			BorderForeground(pkgtui.ColorWarning)
 		sections = append(sections, confirmBox.Render(
-			fmt.Sprintf("Delete \"%s\"? Press y to confirm, n to cancel", v.deleteTarget.Name),
+			fmt.Sprintf("Delete \"%s\"? y/n", v.deleteTarget.Name),
 		))
 	}
 
@@ -763,13 +765,12 @@ func timeAgoString(t time.Time) string {
 // Focus implements View
 func (v *KickoffView) Focus() tea.Cmd {
 	v.focusInput = true
-	v.input.Focus()
-	return textarea.Blink
+	return v.chatPanel.Focus()
 }
 
 // Blur implements View
 func (v *KickoffView) Blur() {
-	v.input.Blur()
+	v.chatPanel.Blur()
 }
 
 // Name implements View
@@ -810,8 +811,7 @@ func (v *KickoffView) Commands() []tui.Command {
 			Description: "Start a new project",
 			Action: func() tea.Cmd {
 				v.focusInput = true
-				v.input.Focus()
-				return textarea.Blink
+				return v.chatPanel.Focus()
 			},
 		},
 	}
