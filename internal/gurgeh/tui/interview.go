@@ -10,6 +10,7 @@ import (
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 	"github.com/mistakeknot/autarch/internal/gurgeh/agents"
 	"github.com/mistakeknot/autarch/internal/gurgeh/config"
 	"github.com/mistakeknot/autarch/internal/gurgeh/project"
@@ -166,63 +167,17 @@ func (m *Model) toggleInterviewFocus() {
 
 func (m *Model) handleTextStep(msg tea.KeyMsg, step interviewStep) {
 	key := msg.String()
-	if msg.Alt && msg.Type == tea.KeyRunes && len(msg.Runes) == 1 {
-		switch msg.Runes[0] {
-		case 'b':
-			m.input.MoveWordLeft()
-			m.storeInterviewAnswer(step)
-			return
-		case 'f':
-			m.input.MoveWordRight()
-			m.storeInterviewAnswer(step)
-			return
-		}
-	}
+
 	switch key {
 	case "enter":
 		m.storeInterviewAnswer(step)
 		m.appendInterviewMessage("user", m.interview.answerForStep(step))
 		m.iterateInterviewStep(step)
 		return
-	case " ":
-		m.input.InsertRune(' ')
-	case "space":
-		m.input.InsertRune(' ')
-	case "backspace":
-		if msg.Alt {
-			m.input.DeleteWordLeft()
-		} else {
-			m.input.Backspace()
-		}
-	case "left":
-		if msg.Alt {
-			m.input.MoveWordLeft()
-		} else {
-			m.input.MoveLeft()
-		}
-	case "right":
-		if msg.Alt {
-			m.input.MoveWordRight()
-		} else {
-			m.input.MoveRight()
-		}
-	case "up":
-		m.input.MoveUp()
-	case "down":
-		m.input.MoveDown()
-	case "alt+left":
-		m.input.MoveWordLeft()
-	case "alt+right":
-		m.input.MoveWordRight()
-	case "alt+backspace":
-		m.input.DeleteWordLeft()
-	case "ctrl+j":
-		m.input.InsertRune('\n')
 	default:
-		if msg.Type == tea.KeyRunes {
-			for _, r := range msg.Runes {
-				m.input.InsertRune(r)
-			}
+		// Pass all other keys to the chat panel (handles input, cursor movement, etc.)
+		if m.chatPanel != nil {
+			m.chatPanel, _ = m.chatPanel.Update(msg)
 		}
 	}
 	m.storeInterviewAnswer(step)
@@ -233,6 +188,11 @@ func (m *Model) appendInterviewMessage(role, text string) {
 	if trimmed == "" {
 		return
 	}
+	// Add to chat panel (primary)
+	if m.chatPanel != nil {
+		m.chatPanel.AddMessage(role, trimmed)
+	}
+	// Also keep in interview state for backward compatibility with existing logic
 	m.interview.chat = append(m.interview.chat, interviewMessage{Role: role, Text: trimmed})
 }
 
@@ -305,16 +265,22 @@ func (m *Model) storeInterviewAnswer(step interviewStep) {
 	if m.interview.answers == nil {
 		m.interview.answers = map[interviewStep]string{}
 	}
-	m.interview.answers[step] = m.input.Text()
+	if m.chatPanel != nil {
+		m.interview.answers[step] = m.chatPanel.Value()
+	}
 }
 
 func (m *Model) loadInterviewInput() {
 	prompt, _, _ := interviewStepInfo(m.interview.step)
-	if !prompt.expectsText {
-		m.input.SetText("")
+	if m.chatPanel == nil {
 		return
 	}
-	m.input.SetText(m.interview.answerForStep(m.interview.step))
+	if !prompt.expectsText {
+		m.chatPanel.SetValue("")
+		return
+	}
+	m.chatPanel.SetValue(m.interview.answerForStep(m.interview.step))
+	m.updateInterviewDocPanel()
 }
 
 func (m *Model) prevInterviewStep() {
@@ -529,7 +495,10 @@ func (m *Model) autoApplySuggestions() {
 
 func (m *Model) exitInterview() {
 	m.mode = "list"
-	m.input.SetText("")
+	if m.chatPanel != nil {
+		m.chatPanel.ClearComposer()
+		m.chatPanel.ClearMessages()
+	}
 	m.interview = interviewState{}
 }
 
@@ -549,6 +518,8 @@ func (m Model) renderInterviewLayout(width, height int) string {
 	if height <= 0 {
 		return ""
 	}
+
+	// Header with breadcrumbs and navigation
 	breadcrumbs := m.renderInterviewBreadcrumbs(width)
 	nav := m.renderInterviewHeaderNav(width)
 	header := strings.Join([]string{breadcrumbs, nav}, "\n")
@@ -557,16 +528,38 @@ func (m Model) renderInterviewLayout(width, height int) string {
 	if remaining <= 0 {
 		return header
 	}
-	topHeight := remaining / 2
-	bottomHeight := remaining - topHeight
-	if remaining >= 6 {
+
+	// Use shared split layout for Cursor-style view
+	if m.splitLayout == nil || m.docPanel == nil || m.chatPanel == nil {
+		// Fallback if components not initialized
+		return header + "\n" + m.renderInterviewLayoutLegacy(width, remaining)
+	}
+
+	// Update layout dimensions
+	m.splitLayout.SetSize(width, remaining)
+	m.docPanel.SetSize(m.splitLayout.LeftWidth(), m.splitLayout.LeftHeight())
+	m.chatPanel.SetSize(m.splitLayout.RightWidth(), m.splitLayout.RightHeight())
+
+	// Render split layout: document on left, chat on right
+	leftContent := m.docPanel.View()
+	rightContent := m.chatPanel.View()
+
+	splitView := m.splitLayout.Render(leftContent, rightContent)
+	return lipgloss.JoinVertical(lipgloss.Left, header, splitView)
+}
+
+// renderInterviewLayoutLegacy is the old rendering logic for fallback.
+func (m Model) renderInterviewLayoutLegacy(width, height int) string {
+	topHeight := height / 2
+	bottomHeight := height - topHeight
+	if height >= 6 {
 		if topHeight < 3 {
 			topHeight = 3
-			bottomHeight = remaining - topHeight
+			bottomHeight = height - topHeight
 		}
 		if bottomHeight < 3 {
 			bottomHeight = 3
-			topHeight = remaining - bottomHeight
+			topHeight = height - bottomHeight
 		}
 	}
 	topContentHeight := max(1, topHeight-2)
@@ -575,38 +568,17 @@ func (m Model) renderInterviewLayout(width, height int) string {
 	listContent := m.renderGroupListContent(topContentHeight)
 	sectionTitle := m.interviewSectionTitle()
 	sectionContent := m.interviewSectionContent()
-	chatTop := m.renderInterviewChatContent(topContentHeight)
-	chatBottom := m.renderInterviewChatContent(bottomContentHeight)
+	chatBottom := m.renderInterviewChatContentLegacy(bottomContentHeight)
 
 	if width < 100 {
-		topTitle := sectionTitle
-		topRightContent := sectionContent
-		bottomTitle := "CHAT"
-		bottomContent := chatBottom
-		if m.interviewLayoutSwap {
-			topTitle = "CHAT"
-			topRightContent = chatTop
-			bottomTitle = sectionTitle
-			bottomContent = sectionContent
-		}
-		top := renderStackedLayout("PRDs", listContent, topTitle, topRightContent, width, topHeight)
-		bottom := renderSingleColumnLayout(bottomTitle, bottomContent, width, bottomHeight)
-		return strings.Join([]string{header, top, bottom}, "\n")
+		top := renderStackedLayout("PRDs", listContent, sectionTitle, sectionContent, width, topHeight)
+		bottom := renderSingleColumnLayout("CHAT", chatBottom, width, bottomHeight)
+		return strings.Join([]string{top, bottom}, "\n")
 	}
 
-	topTitle := sectionTitle
-	topRightContent := sectionContent
-	bottomTitle := "CHAT"
-	bottomContent := chatBottom
-	if m.interviewLayoutSwap {
-		topTitle = "CHAT"
-		topRightContent = chatTop
-		bottomTitle = sectionTitle
-		bottomContent = sectionContent
-	}
-	top := renderDualColumnLayout("PRDs", listContent, topTitle, topRightContent, width, topHeight)
-	bottom := renderSingleColumnLayout(bottomTitle, bottomContent, width, bottomHeight)
-	return strings.Join([]string{header, top, bottom}, "\n")
+	top := renderDualColumnLayout("PRDs", listContent, sectionTitle, sectionContent, width, topHeight)
+	bottom := renderSingleColumnLayout("CHAT", chatBottom, width, bottomHeight)
+	return strings.Join([]string{top, bottom}, "\n")
 }
 
 func (m Model) renderInterviewBreadcrumbs(width int) string {
@@ -694,11 +666,12 @@ func (m Model) interviewSectionContent() string {
 	return "Open file: Ctrl+O\n\n" + content
 }
 
-func (m Model) renderInterviewChatContent(height int) string {
+// renderInterviewChatContentLegacy is the old chat rendering for fallback mode.
+func (m Model) renderInterviewChatContentLegacy(height int) string {
 	if height <= 0 {
 		return ""
 	}
-	composer := m.renderInterviewComposerLines()
+	composer := m.renderInterviewComposerLinesLegacy()
 	if height <= len(composer) {
 		start := len(composer) - height
 		if start < 0 {
@@ -733,13 +706,26 @@ func (m Model) renderInterviewTranscriptLines(height int) []string {
 	return lines[len(lines)-height:]
 }
 
-func (m Model) renderInterviewComposerLines() []string {
+// renderInterviewComposerLinesLegacy is the old composer rendering for fallback mode.
+func (m Model) renderInterviewComposerLinesLegacy() []string {
 	prompt, _, _ := interviewStepInfo(m.interview.step)
 	title := "Compose · " + prompt.title
 	lines := []string{renderComposerTitle(title)}
-	lines = append(lines, renderInputBoxLines(m.input.Render(6))...)
-	lineNum, colNum := m.input.CursorPosition()
-	lines = append(lines, fmt.Sprintf("Enter: iterate · [ / ]: prev/next · Ctrl+O: open · \\: swap · (line %d, col %d)", lineNum, colNum))
+	// Create a simple text display since TextBuffer is no longer used
+	text := ""
+	if m.chatPanel != nil {
+		text = m.chatPanel.Value()
+	}
+	textLines := strings.Split(text, "\n")
+	if len(textLines) == 0 {
+		textLines = []string{""}
+	}
+	// Limit to 6 lines for display
+	if len(textLines) > 6 {
+		textLines = textLines[len(textLines)-6:]
+	}
+	lines = append(lines, renderInputBoxLines(textLines)...)
+	lines = append(lines, "enter: send  ctrl+j: newline  [/]: nav  ctrl+o: open")
 	return lines
 }
 
@@ -801,15 +787,24 @@ func (m Model) interviewMarkdown() string {
 		}
 		b.WriteString("Compose:\n")
 		b.WriteString("Input:\n")
-		inputLines := renderInputBoxLines(m.input.Render(6))
+		text := ""
+		if m.chatPanel != nil {
+			text = m.chatPanel.Value()
+		}
+		textLines := strings.Split(text, "\n")
+		if len(textLines) == 0 {
+			textLines = []string{""}
+		}
+		if len(textLines) > 6 {
+			textLines = textLines[len(textLines)-6:]
+		}
+		inputLines := renderInputBoxLines(textLines)
 		b.WriteString("```\n")
 		for _, line := range inputLines {
 			b.WriteString(line)
 			b.WriteString("\n")
 		}
 		b.WriteString("```\n")
-		lineNum, colNum := m.input.CursorPosition()
-		b.WriteString(fmt.Sprintf("Input (line %d, col %d)\n", lineNum, colNum))
 		b.WriteString("Enter: iterate  [ / ]: prev/next\n")
 	} else {
 		b.WriteString("```\n")
@@ -1130,12 +1125,13 @@ func renderInputBoxLines(lines []string) []string {
 	if width < 20 {
 		width = 20
 	}
-	top := "+" + strings.Repeat("-", width+2) + "+"
-	bottom := top
+	// Use lipgloss-style rounded corners for consistency with other views
+	top := "╭" + strings.Repeat("─", width+2) + "╮"
+	bottom := "╰" + strings.Repeat("─", width+2) + "╯"
 	box := []string{top}
 	for _, line := range lines {
 		padding := width - runeCount(line)
-		box = append(box, "| "+line+strings.Repeat(" ", padding)+" |")
+		box = append(box, "│ "+line+strings.Repeat(" ", padding)+" │")
 	}
 	box = append(box, bottom)
 	return box
