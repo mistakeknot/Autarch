@@ -127,14 +127,34 @@ func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, resp)
 }
 
+// SessionStatus represents the lifecycle state of a session
+type SessionStatus string
+
+const (
+	SessionSpawning SessionStatus = "spawning" // Session being created
+	SessionRunning  SessionStatus = "running"  // Session actively running
+	SessionDone     SessionStatus = "done"     // Agent completed work
+	SessionDisposed SessionStatus = "disposed" // Session destroyed
+)
+
 // Session represents a managed tmux session
 type Session struct {
-	ID          string    `json:"id"`
-	Name        string    `json:"name"`
-	ProjectPath string    `json:"project_path"`
-	AgentType   string    `json:"agent_type"`
-	Status      string    `json:"status"`
-	CreatedAt   time.Time `json:"created_at"`
+	ID          string        `json:"id"`
+	Name        string        `json:"name"`
+	ProjectPath string        `json:"project_path"`
+	AgentType   string        `json:"agent_type"`
+	Status      SessionStatus `json:"status"`
+	CreatedAt   time.Time     `json:"created_at"`
+
+	// Lifecycle tracking
+	LastOutputAt time.Time `json:"last_output_at,omitempty"` // Last terminal output
+	LastViewedAt time.Time `json:"last_viewed_at,omitempty"` // Last time user viewed
+
+	// Git status (updated periodically)
+	GitBranch     string `json:"git_branch,omitempty"`
+	GitDirty      bool   `json:"git_dirty,omitempty"`
+	CommitsAhead  int    `json:"commits_ahead,omitempty"`
+	CommitsBehind int    `json:"commits_behind,omitempty"`
 }
 
 func (s *Server) handleListSessions(w http.ResponseWriter, r *http.Request) {

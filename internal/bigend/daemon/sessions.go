@@ -83,7 +83,7 @@ func (m *SessionManager) Spawn(name, projectPath, agentType string) (*Session, e
 		Name:        name,
 		ProjectPath: projectPath,
 		AgentType:   agentType,
-		Status:      "running",
+		Status:      SessionRunning,
 		CreatedAt:   time.Now(),
 	}
 	m.sessions[id] = session
@@ -137,7 +137,7 @@ func (m *SessionManager) Restart(id string) (*Session, error) {
 		}
 	}
 
-	session.Status = "running"
+	session.Status = SessionRunning
 	session.CreatedAt = time.Now()
 	return session, nil
 }
@@ -174,6 +174,36 @@ func (m *SessionManager) DiscoverExisting() error {
 	_ = output // TODO: Parse and add existing sessions
 
 	return nil
+}
+
+// UpdateGitStatuses refreshes git status for all sessions.
+func (m *SessionManager) UpdateGitStatuses() {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	for _, s := range m.sessions {
+		UpdateSessionGitStatus(s)
+	}
+}
+
+// UpdateLastViewed marks a session as recently viewed.
+func (m *SessionManager) UpdateLastViewed(id string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	if s, ok := m.sessions[id]; ok {
+		s.LastViewedAt = time.Now()
+	}
+}
+
+// UpdateLastOutput updates the last output timestamp.
+func (m *SessionManager) UpdateLastOutput(id string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	if s, ok := m.sessions[id]; ok {
+		s.LastOutputAt = time.Now()
+	}
 }
 
 // agentCommand returns the command to start an agent type

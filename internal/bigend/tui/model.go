@@ -89,6 +89,7 @@ type Pane int
 const (
 	PaneProjects Pane = iota
 	PaneMain
+	PaneTerminal
 )
 
 type promptMode int
@@ -256,6 +257,7 @@ func filterAgentItems(items []list.Item, state FilterState, statusByAgent map[st
 type Model struct {
 	agg           aggregatorAPI
 	tmuxClient    statusClient
+	tmuxCapture   *tmux.Client // For terminal capture (separate from status detection)
 	statusCache   map[string]cachedStatus
 	statusTTL     time.Duration
 	now           func() time.Time
@@ -270,6 +272,8 @@ type Model struct {
 	mcpList       list.Model
 	mcpProject    string
 	showMCP       bool
+	showTerminal  bool           // Terminal preview pane visible
+	terminalPane  *TerminalPane  // Terminal preview component
 	filterActive  bool
 	filterInput   textinput.Model
 	filterStates  map[Tab]FilterState
@@ -482,23 +486,24 @@ func (m *Model) groupAgentItemsByProject(items []list.Item) []list.Item {
 
 // Key bindings
 type keyMap struct {
-	Tab        key.Binding
-	ShiftTab   key.Binding
-	Refresh    key.Binding
-	FocusLeft  key.Binding
-	FocusRight key.Binding
-	Filter     key.Binding
-	New        key.Binding
-	Rename     key.Binding
-	Fork       key.Binding
-	Restart    key.Binding
-	Attach     key.Binding
-	ToggleMCP  key.Binding
-	Toggle     key.Binding
-	Enter      key.Binding
-	Quit       key.Binding
-	Help       key.Binding
-	Number     []key.Binding
+	Tab            key.Binding
+	ShiftTab       key.Binding
+	Refresh        key.Binding
+	FocusLeft      key.Binding
+	FocusRight     key.Binding
+	Filter         key.Binding
+	New            key.Binding
+	Rename         key.Binding
+	Fork           key.Binding
+	Restart        key.Binding
+	Attach         key.Binding
+	ToggleMCP      key.Binding
+	ToggleTerminal key.Binding
+	Toggle         key.Binding
+	Enter          key.Binding
+	Quit           key.Binding
+	Help           key.Binding
+	Number         []key.Binding
 }
 
 var keys = keyMap{
@@ -549,6 +554,10 @@ var keys = keyMap{
 	ToggleMCP: key.NewBinding(
 		key.WithKeys("m"),
 		key.WithHelp("m", "mcp"),
+	),
+	ToggleTerminal: key.NewBinding(
+		key.WithKeys("p"),
+		key.WithHelp("p", "preview"),
 	),
 	Toggle: key.NewBinding(
 		key.WithKeys(" "),
@@ -625,9 +634,12 @@ func New(agg aggregatorAPI, buildInfo string) Model {
 	promptInput.CharLimit = 80
 	promptInput.Width = 40
 
+	tmuxCapture := tmux.NewClient()
+
 	return Model{
 		agg:          agg,
 		tmuxClient:   tmux.NewClient(),
+		tmuxCapture:  tmuxCapture,
 		statusCache:  make(map[string]cachedStatus),
 		statusTTL:    2 * time.Second,
 		now:          time.Now,
@@ -638,6 +650,7 @@ func New(agg aggregatorAPI, buildInfo string) Model {
 		projectsList: projectsList,
 		agentList:    agentList,
 		mcpList:      mcpList,
+		terminalPane: NewTerminalPane(tmuxCapture),
 		filterInput:  filterInput,
 		filterStates: map[Tab]FilterState{
 			TabSessions: {Raw: ""},
@@ -815,11 +828,25 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, m.refresh()
 
 		case key.Matches(msg, keys.FocusLeft):
-			m.activePane = PaneProjects
+			switch m.activePane {
+			case PaneTerminal:
+				m.activePane = PaneMain
+				m.terminalPane.SetFocused(false)
+			case PaneMain:
+				m.activePane = PaneProjects
+			}
 			return m, nil
 
 		case key.Matches(msg, keys.FocusRight):
-			m.activePane = PaneMain
+			switch m.activePane {
+			case PaneProjects:
+				m.activePane = PaneMain
+			case PaneMain:
+				if m.showTerminal {
+					m.activePane = PaneTerminal
+					m.terminalPane.SetFocused(true)
+				}
+			}
 			return m, nil
 
 		case key.Matches(msg, keys.Filter):
@@ -918,6 +945,24 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			return m, nil
 
+		case key.Matches(msg, keys.ToggleTerminal):
+			if m.activeTab == TabSessions {
+				m.showTerminal = !m.showTerminal
+				if m.showTerminal {
+					// Start terminal preview for selected session
+					if session, ok := m.selectedSession(); ok {
+						cmd := m.terminalPane.SetSession(session.Name)
+						m.terminalPane.SetFocused(false)
+						return m, tea.Batch(cmd, TickTerminal(200*time.Millisecond))
+					}
+				} else {
+					m.terminalPane.SetSession("")
+					m.activePane = PaneMain
+				}
+				return m, nil
+			}
+			return m, nil
+
 		case key.Matches(msg, keys.Number[0]):
 			m.stopFilterEditing()
 			m.activeTab = TabDashboard
@@ -956,6 +1001,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		} else {
 			m.projectsList.SetSize(m.width, h)
 		}
+		// Adjust for terminal pane if visible
+		if m.showTerminal {
+			termW := rightW / 2
+			rightW = rightW - termW - 2 // gap
+			m.terminalPane.SetSize(termW, rightH)
+		}
 		if rightW > 0 {
 			m.sessionList.SetSize(rightW, rightH)
 			m.agentList.SetSize(rightW, rightH)
@@ -966,6 +1017,15 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.mcpList.SetSize(m.width, h/2)
 		}
 		return m, nil
+
+	case terminalContentMsg, terminalTickMsg:
+		// Forward to terminal pane
+		if m.terminalPane != nil && m.showTerminal {
+			var cmd tea.Cmd
+			m.terminalPane, cmd = m.terminalPane.Update(msg)
+			cmds = append(cmds, cmd)
+		}
+		return m, tea.Batch(cmds...)
 
 	case refreshMsg:
 		m.lastRefresh = time.Now()
@@ -1146,6 +1206,14 @@ func (m Model) View() string {
 		content = lipgloss.JoinVertical(lipgloss.Left, content, "", m.mcpList.View())
 	}
 
+	// Build main pane content (with optional terminal preview)
+	var mainContent string
+	if m.showTerminal && m.activeTab == TabSessions && m.terminalPane != nil {
+		mainContent = m.renderThreePane(m.projectsList.View(), content, m.terminalPane.View())
+	} else {
+		mainContent = m.renderTwoPane(m.projectsList.View(), content)
+	}
+
 	// Build footer
 	footer := m.renderFooter()
 
@@ -1154,7 +1222,7 @@ func (m Model) View() string {
 		parts = append(parts, filterLine)
 	}
 	parts = append(parts,
-		m.renderTwoPane(m.projectsList.View(), content),
+		mainContent,
 		m.renderPrompt(),
 		footer,
 	)
@@ -1208,6 +1276,7 @@ func (m Model) renderFooter() string {
 		HelpKeyStyle.Render("k") + HelpDescStyle.Render(" restart • ") +
 		HelpKeyStyle.Render("f") + HelpDescStyle.Render(" fork • ") +
 		HelpKeyStyle.Render("a") + HelpDescStyle.Render(" attach • ") +
+		HelpKeyStyle.Render("p") + HelpDescStyle.Render(" preview • ") +
 		HelpKeyStyle.Render("m") + HelpDescStyle.Render(" mcp • ") +
 		HelpKeyStyle.Render("space") + HelpDescStyle.Render(" toggle • ") +
 		HelpKeyStyle.Render("q") + HelpDescStyle.Render(" quit")
@@ -1275,6 +1344,43 @@ func (m Model) renderTwoPane(left, right string) string {
 	leftView := leftStyle.Width(leftW).Render(left)
 	rightView := rightStyle.Width(rightW).Render(right)
 	return lipgloss.JoinHorizontal(lipgloss.Top, leftView, "  ", rightView)
+}
+
+func (m Model) renderThreePane(left, middle, right string) string {
+	width := m.width
+	gap := 2
+
+	// Calculate widths: 20% left, 40% middle, 40% right
+	leftW := width / 5
+	remaining := width - leftW - gap
+	middleW := remaining / 2
+	rightW := remaining - middleW - gap
+
+	// Ensure minimum widths
+	minPane := 15
+	if leftW < minPane || middleW < minPane || rightW < minPane {
+		// Fall back to two panes if too narrow
+		return m.renderTwoPane(left, middle)
+	}
+
+	leftStyle := PaneUnfocusedStyle
+	middleStyle := PaneUnfocusedStyle
+	rightStyle := PaneUnfocusedStyle
+
+	switch m.activePane {
+	case PaneProjects:
+		leftStyle = PaneFocusedStyle
+	case PaneMain:
+		middleStyle = PaneFocusedStyle
+	case PaneTerminal:
+		rightStyle = PaneFocusedStyle
+	}
+
+	leftView := leftStyle.Width(leftW).Render(left)
+	middleView := middleStyle.Width(middleW).Render(middle)
+	rightView := rightStyle.Width(rightW).Render(right)
+
+	return lipgloss.JoinHorizontal(lipgloss.Top, leftView, "  ", middleView, "  ", rightView)
 }
 
 func (m Model) renderPrompt() string {
