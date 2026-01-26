@@ -13,12 +13,12 @@ import (
 	"strings"
 	"time"
 
-	"github.com/mistakeknot/autarch/internal/bigend/agentmail"
 	"github.com/mistakeknot/autarch/internal/bigend/aggregator"
 	"github.com/mistakeknot/autarch/internal/bigend/coldwine"
 	"github.com/mistakeknot/autarch/internal/bigend/config"
 	"github.com/mistakeknot/autarch/internal/bigend/discovery"
 	"github.com/mistakeknot/autarch/internal/bigend/tmux"
+	"github.com/mistakeknot/autarch/pkg/intermute"
 	"nhooyr.io/websocket"
 )
 
@@ -40,10 +40,10 @@ type aggregatorAPI interface {
 	GetProject(path string) *discovery.Project
 	GetProjectTasks(projectPath string) (map[string][]coldwine.Task, error)
 	GetAgent(name string) *aggregator.Agent
-	GetAgentMailAgent(name string) (*agentmail.Agent, error)
-	GetAgentMessages(agentID int, limit int) ([]agentmail.Message, error)
-	GetAgentReservations(agentID int) ([]agentmail.FileReservation, error)
-	GetActiveReservations() ([]agentmail.FileReservation, error)
+	GetIntermuteAgent(name string) (*intermute.Agent, error)
+	GetAgentMessages(agentID string, limit int) ([]intermute.Message, error)
+	GetAgentReservations(agentID string) ([]intermute.Reservation, error)
+	GetActiveReservations() ([]intermute.Reservation, error)
 	NewSession(name, projectPath, agentType string) error
 	RestartSession(name, projectPath, agentType string) error
 	RenameSession(oldName, newName string) error
@@ -194,17 +194,17 @@ func (s *Server) handleAgentDetail(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Get detailed agent info from agent mail
-	mailAgent, err := s.agg.GetAgentMailAgent(agentName)
+	// Get detailed agent info from Intermute
+	intermuteAgent, err := s.agg.GetIntermuteAgent(agentName)
 	if err != nil {
-		slog.Error("failed to get agent mail agent", "name", agentName, "error", err)
+		slog.Debug("failed to get intermute agent", "name", agentName, "error", err)
 	}
 
-	// Get messages and reservations if we have agent mail data
+	// Get messages and reservations if we have Intermute agent data
 	var messages []any
 	var reservations []any
-	if mailAgent != nil {
-		msgs, err := s.agg.GetAgentMessages(mailAgent.ID, 20)
+	if intermuteAgent != nil {
+		msgs, err := s.agg.GetAgentMessages(intermuteAgent.ID, 20)
 		if err != nil {
 			slog.Error("failed to get agent messages", "error", err)
 		} else {
@@ -213,7 +213,7 @@ func (s *Server) handleAgentDetail(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 
-		res, err := s.agg.GetAgentReservations(mailAgent.ID)
+		res, err := s.agg.GetAgentReservations(intermuteAgent.ID)
 		if err != nil {
 			slog.Error("failed to get agent reservations", "error", err)
 		} else {

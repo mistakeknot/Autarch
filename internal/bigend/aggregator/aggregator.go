@@ -12,7 +12,6 @@ import (
 	"time"
 
 	"github.com/mistakeknot/autarch/internal/bigend/agentcmd"
-	"github.com/mistakeknot/autarch/internal/bigend/agentmail"
 	"github.com/mistakeknot/autarch/internal/bigend/coldwine"
 	"github.com/mistakeknot/autarch/internal/bigend/config"
 	"github.com/mistakeknot/autarch/internal/bigend/discovery"
@@ -20,6 +19,7 @@ import (
 	"github.com/mistakeknot/autarch/internal/bigend/statedetect"
 	"github.com/mistakeknot/autarch/internal/bigend/tmux"
 	gurgSpecs "github.com/mistakeknot/autarch/internal/gurgeh/specs"
+	"github.com/mistakeknot/autarch/pkg/intermute"
 )
 
 // Agent represents a detected AI agent
@@ -88,7 +88,7 @@ type Aggregator struct {
 	scanner         *discovery.Scanner
 	tmuxClient      tmuxAPI
 	stateDetector   *statedetect.Detector
-	agentMailReader *agentmail.Reader
+	intermuteClient *intermute.Client
 	mcpManager      *mcp.Manager
 	resolver        *agentcmd.Resolver
 	cfg             *config.Config
@@ -101,11 +101,21 @@ func New(scanner *discovery.Scanner, cfg *config.Config) *Aggregator {
 	if cfg == nil {
 		cfg = &config.Config{}
 	}
+
+	// Initialize Intermute client (optional - may not be available)
+	var ic *intermute.Client
+	icClient, err := intermute.NewClient(nil) // Uses environment variables
+	if err != nil {
+		slog.Debug("intermute client unavailable", "error", err)
+	} else {
+		ic = icClient
+	}
+
 	return &Aggregator{
 		scanner:         scanner,
 		tmuxClient:      tmux.NewClient(),
 		stateDetector:   statedetect.NewDetector(),
-		agentMailReader: agentmail.NewReader(),
+		intermuteClient: ic,
 		mcpManager:      mcp.NewManager(),
 		resolver:        agentcmd.NewResolver(cfg),
 		cfg:             cfg,
@@ -290,30 +300,36 @@ func countReportsAndFindLatest(dir string) (int, string) {
 	return count, ""
 }
 
-// loadAgents fetches registered agents from MCP Agent Mail
+// loadAgents fetches registered agents from Intermute
 func (a *Aggregator) loadAgents() []Agent {
-	if !a.agentMailReader.IsAvailable() {
-		slog.Debug("agent mail database not available")
+	if a.intermuteClient == nil {
+		slog.Debug("intermute client not available")
 		return []Agent{}
 	}
 
-	mailAgents, err := a.agentMailReader.GetAllAgents()
+	ctx := context.Background()
+	intermuteAgents, err := a.intermuteClient.ListAgentsEnriched(ctx)
 	if err != nil {
-		slog.Error("failed to load agents", "error", err)
+		slog.Error("failed to load agents from intermute", "error", err)
 		return []Agent{}
 	}
 
-	agents := make([]Agent, len(mailAgents))
-	for i, ma := range mailAgents {
-		slog.Debug("loading agent", "name", ma.Name, "lastActiveTS", ma.LastActiveTS)
+	agents := make([]Agent, len(intermuteAgents))
+	for i, ia := range intermuteAgents {
+		slog.Debug("loading agent", "name", ia.Name, "lastSeen", ia.LastSeen)
+		// Extract program and model from metadata if available
+		program := ia.Metadata["program"]
+		model := ia.Metadata["model"]
+		projectPath := ia.Metadata["project_path"]
+
 		agents[i] = Agent{
-			Name:        ma.Name,
-			Program:     ma.Program,
-			Model:       ma.Model,
-			ProjectPath: ma.ProjectPath,
-			LastActive:  ma.LastActiveTS,
-			InboxCount:  ma.InboxCount,
-			UnreadCount: ma.UnreadCount,
+			Name:        ia.Name,
+			Program:     program,
+			Model:       model,
+			ProjectPath: projectPath,
+			LastActive:  ia.LastSeen,
+			InboxCount:  ia.InboxCount,
+			UnreadCount: ia.UnreadCount,
 		}
 	}
 
@@ -492,24 +508,36 @@ func (a *Aggregator) GetProjectTaskList(projectPath string) ([]coldwine.Task, er
 	return reader.ReadTasks()
 }
 
-// GetAgentMailAgent returns detailed agent info from MCP Agent Mail
-func (a *Aggregator) GetAgentMailAgent(name string) (*agentmail.Agent, error) {
-	return a.agentMailReader.GetAgent(name)
+// GetIntermuteAgent returns detailed agent info from Intermute
+func (a *Aggregator) GetIntermuteAgent(name string) (*intermute.Agent, error) {
+	if a.intermuteClient == nil {
+		return nil, fmt.Errorf("intermute client not available")
+	}
+	return a.intermuteClient.GetAgent(context.Background(), name)
 }
 
 // GetAgentMessages returns recent messages for an agent
-func (a *Aggregator) GetAgentMessages(agentID int, limit int) ([]agentmail.Message, error) {
-	return a.agentMailReader.GetAgentMessages(agentID, limit)
+func (a *Aggregator) GetAgentMessages(agentID string, limit int) ([]intermute.Message, error) {
+	if a.intermuteClient == nil {
+		return nil, fmt.Errorf("intermute client not available")
+	}
+	return a.intermuteClient.AgentMessages(context.Background(), agentID, limit)
 }
 
 // GetAgentReservations returns file reservations for an agent
-func (a *Aggregator) GetAgentReservations(agentID int) ([]agentmail.FileReservation, error) {
-	return a.agentMailReader.GetAgentReservations(agentID)
+func (a *Aggregator) GetAgentReservations(agentID string) ([]intermute.Reservation, error) {
+	if a.intermuteClient == nil {
+		return nil, fmt.Errorf("intermute client not available")
+	}
+	return a.intermuteClient.AgentReservations(context.Background(), agentID)
 }
 
 // GetActiveReservations returns all active file reservations
-func (a *Aggregator) GetActiveReservations() ([]agentmail.FileReservation, error) {
-	return a.agentMailReader.GetActiveReservations()
+func (a *Aggregator) GetActiveReservations() ([]intermute.Reservation, error) {
+	if a.intermuteClient == nil {
+		return nil, fmt.Errorf("intermute client not available")
+	}
+	return a.intermuteClient.ActiveReservations(context.Background())
 }
 
 // NewSession creates a new tmux session for an agent.
