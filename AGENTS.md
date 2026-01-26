@@ -80,7 +80,6 @@ Autarch/
 ├── internal/
 │   ├── bigend/           # Bigend-specific code
 │   │   ├── aggregator/     # Data aggregation
-│   │   ├── agentmail/      # MCP Agent Mail integration
 │   │   ├── claude/         # Claude session detection
 │   │   ├── config/         # Configuration
 │   │   ├── discovery/      # Project scanner
@@ -292,7 +291,7 @@ Mission control dashboard for monitoring AI agents across projects.
 |--------|----------|------|
 | Gurgeh | `.gurgeh/specs/*.yaml` | PRDs, requirements |
 | Coldwine | `.coldwine/specs/*.yaml` | Tasks, states |
-| MCP Agent Mail | `~/.agent_mail/` | Cross-project messages |
+| Intermute | HTTP API (`INTERMUTE_URL`) | Agents, messages, reservations |
 | tmux | `tmux list-sessions` | Active sessions |
 
 **Key Features:**
@@ -447,6 +446,7 @@ See [`pkg/AGENTS.md`](pkg/AGENTS.md) for detailed documentation on shared packag
 |---------|---------|
 | `contract` | Cross-tool entity types (Initiative, Epic, Story, Task, Run, Outcome) |
 | `events` | Event spine for cross-tool communication (SQLite at `~/.autarch/events.db`) |
+| `intermute` | Intermute client wrapper for agent coordination (agents, messages, reservations) |
 | `tui` | Shared TUI styles (Tokyo Night palette) |
 | `agenttargets` | Run-target registry/resolver |
 
@@ -474,6 +474,9 @@ See [`pkg/AGENTS.md`](pkg/AGENTS.md) for detailed documentation on shared packag
 |----------|------|---------|
 | `VAUXHALL_PORT` | Bigend | 8099 |
 | `VAUXHALL_SCAN_ROOTS` | Bigend | ~/projects |
+| `INTERMUTE_URL` | Bigend | (required for agent coordination) |
+| `INTERMUTE_API_KEY` | Bigend | (optional, for authenticated access) |
+| `INTERMUTE_PROJECT` | Bigend | (optional, project scope) |
 | `PRAUDE_CONFIG` | Gurgeh | .gurgeh/config.toml |
 | `TANDEMONIUM_CONFIG` | Coldwine | .coldwine/config.toml |
 | `GITHUB_TOKEN` | Pollard | (optional, faster rate limit) |
@@ -531,11 +534,12 @@ Scopes: bigend, gurgeh, coldwine, tui, build
 - Read-only aggregation (observes, doesn't control)
 - Future: Runs Pollard hunters via daemon
 
-### Intermute (Future)
+### Intermute
 - Cross-tool agent coordination layer
-- Replaces MCP Agent Mail
-- File-based messaging now, HTTP API planned
-- Message format in `.pollard/inbox/` and `.pollard/outbox/`
+- Full HTTP API for agents, messages, and file reservations
+- WebSocket support for real-time event delivery
+- Autarch uses `pkg/intermute` client wrapper
+- Environment: `INTERMUTE_URL`, `INTERMUTE_API_KEY`, `INTERMUTE_PROJECT`
 
 ## Landing the Plane (Session Completion)
 
