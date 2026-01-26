@@ -3,12 +3,20 @@ package research
 import (
 	"context"
 	"fmt"
+	"log"
 	"sync"
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/mistakeknot/autarch/internal/pollard/hunters"
+	"github.com/mistakeknot/autarch/pkg/intermute"
 )
+
+// InsightCreator defines the interface for creating insights in Intermute.
+// Defined here to avoid import cycles with pollard/intermute package.
+type InsightCreator interface {
+	CreateInsight(ctx context.Context, insight intermute.Insight) (intermute.Insight, error)
+}
 
 // Coordinator manages research runs and dispatches updates to the TUI.
 // It ensures only one run is active per project and handles cancellation
@@ -19,6 +27,10 @@ type Coordinator struct {
 	mu        sync.RWMutex
 	activeRun *Run
 	program   *tea.Program // For sending messages to TUI
+
+	// Intermute integration for cross-tool visibility (optional)
+	insightClient InsightCreator
+	project       string
 }
 
 // NewCoordinator creates a new research coordinator.
@@ -36,6 +48,15 @@ func (c *Coordinator) SetProgram(p *tea.Program) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.program = p
+}
+
+// SetIntermutePublisher sets a client for publishing findings to Intermute.
+// If client is nil, publishing becomes a no-op (graceful degradation).
+func (c *Coordinator) SetIntermutePublisher(client InsightCreator, project string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.insightClient = client
+	c.project = project
 }
 
 // StartRun begins a new research run for a project.
@@ -157,7 +178,7 @@ func (c *Coordinator) executeHunter(run *Run, hunter hunters.Hunter, name string
 	}
 
 	// Process results into topic-scoped findings
-	findings := c.processHuntResult(run.RunID, name, result, topicMap)
+	findings := c.processHuntResult(run.Context, run.RunID, name, result, topicMap)
 	for topicKey, topicFindings := range findings {
 		update := Update{
 			RunID:      run.RunID,
@@ -185,7 +206,7 @@ func (c *Coordinator) executeHunter(run *Run, hunter hunters.Hunter, name string
 }
 
 // processHuntResult converts hunt results to topic-scoped findings.
-func (c *Coordinator) processHuntResult(runID, hunterName string, result *hunters.HuntResult, topicMap map[string]string) map[string][]Finding {
+func (c *Coordinator) processHuntResult(ctx context.Context, runID, hunterName string, result *hunters.HuntResult, topicMap map[string]string) map[string][]Finding {
 	// Group findings by topic
 	findings := make(map[string][]Finding)
 
@@ -215,7 +236,101 @@ func (c *Coordinator) processHuntResult(runID, hunterName string, result *hunter
 		findings[topicKey] = append(findings[topicKey], finding)
 	}
 
+	// Publish findings to Intermute (non-blocking, graceful degradation)
+	c.publishToIntermute(ctx, findings)
+
 	return findings
+}
+
+// publishToIntermute publishes all findings to Intermute.
+// This is non-blocking and logs errors without failing the research run.
+func (c *Coordinator) publishToIntermute(ctx context.Context, topicFindings map[string][]Finding) {
+	c.mu.RLock()
+	client := c.insightClient
+	project := c.project
+	c.mu.RUnlock()
+
+	if client == nil {
+		return
+	}
+
+	// Collect all findings across topics
+	var allFindings []Finding
+	for _, findings := range topicFindings {
+		allFindings = append(allFindings, findings...)
+	}
+
+	// Publish in background to avoid blocking research
+	go func() {
+		for _, finding := range allFindings {
+			insight := mapFindingToInsight(finding, project)
+			_, err := client.CreateInsight(ctx, insight)
+			if err != nil {
+				log.Printf("warn: failed to publish finding to Intermute: %v", err)
+				// Continue with other findings
+			}
+		}
+	}()
+}
+
+// mapFindingToInsight converts a research Finding to an Intermute Insight.
+func mapFindingToInsight(finding Finding, project string) intermute.Insight {
+	return intermute.Insight{
+		Project:   project,
+		Source:    finding.SourceType,
+		Category:  mapCategoryFromTags(finding.Tags),
+		Title:     finding.Title,
+		Body:      finding.Summary,
+		URL:       finding.Source,
+		Score:     finding.Relevance,
+		CreatedAt: finding.CollectedAt,
+	}
+}
+
+// mapCategoryFromTags determines the insight category based on finding tags.
+// Returns "competitive", "trends", "user", or "research" (default).
+func mapCategoryFromTags(tags []string) string {
+	for _, tag := range tags {
+		switch {
+		case contains(tag, "competitive"):
+			return "competitive"
+		case contains(tag, "trend"):
+			return "trends"
+		case contains(tag, "user"):
+			return "user"
+		}
+	}
+	return "research"
+}
+
+// contains checks if s contains substr (case-insensitive).
+func contains(s, substr string) bool {
+	return len(s) >= len(substr) && (s == substr || len(s) > len(substr) && findLower(s, substr))
+}
+
+// findLower does case-insensitive substring search.
+func findLower(s, substr string) bool {
+	for i := 0; i <= len(s)-len(substr); i++ {
+		match := true
+		for j := 0; j < len(substr); j++ {
+			sc := s[i+j]
+			tc := substr[j]
+			if sc >= 'A' && sc <= 'Z' {
+				sc += 32
+			}
+			if tc >= 'A' && tc <= 'Z' {
+				tc += 32
+			}
+			if sc != tc {
+				match = false
+				break
+			}
+		}
+		if match {
+			return true
+		}
+	}
+	return false
 }
 
 // CancelActiveRun cancels the current research run if one is active.

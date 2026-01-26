@@ -269,3 +269,10 @@ func (r *Run) TotalFindings() int {
 	}
 	return total
 }
+
+// IsDone returns true if the run has been marked as done via MarkDone().
+func (r *Run) IsDone() bool {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	return r.done
+}
