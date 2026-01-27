@@ -358,22 +358,22 @@ Mechanical migration applying the same pattern.
 ### Test Cases
 
 **Sidebar tests:**
-- [ ] Toggle collapsed/expanded state
-- [ ] Selection navigation (j/k moves cursor)
-- [ ] Selection wraps or clamps at boundaries
-- [ ] Truncation at 17 chars with ellipsis
-- [ ] Empty state renders "No items yet"
+- [x] Toggle collapsed/expanded state
+- [x] Selection navigation (j/k moves cursor)
+- [x] Selection wraps or clamps at boundaries
+- [x] Truncation at 17 chars with ellipsis
+- [x] Empty state renders "No items yet"
 
 **ShellLayout tests:**
-- [ ] Dimension invariant: `sidebar + separator + left + separator + right == width`
-- [ ] Focus cycling skips collapsed sidebar
-- [ ] Focus recovery when sidebar collapses while focused
-- [ ] Error shown when width < 100
+- [x] Dimension invariant: `sidebar + separator + left + separator + right == width`
+- [x] Focus cycling skips collapsed sidebar
+- [x] Focus recovery when sidebar collapses while focused
+- [x] Error shown when width < 100
 
 **ChatService tests:**
-- [ ] Agent nil returns error message
-- [ ] Timeout handling (30s context)
-- [ ] ChatResponseMsg contains viewID for routing
+- [x] Agent nil returns error message
+- [x] Timeout handling (30s context)
+- [x] ChatResponseMsg contains viewID for routing
 
 **Compile-time assertions:**
 ```go
@@ -416,12 +416,12 @@ var _ SidebarProvider = (*ColdwineView)(nil)
 
 ## Implementation Order
 
-1. **Create `pkg/tui/sidebar.go`** - Can be tested in isolation
-2. **Create `pkg/tui/shelllayout.go`** - Composes sidebar + splitlayout
-3. **Create `internal/tui/services/chat.go`** - Simple service with timeout
-4. **Migrate GurgehView** - Prove the pattern works
+1. ✅ **Create `pkg/tui/sidebar.go`** - Can be tested in isolation
+2. ✅ **Create `pkg/tui/shelllayout.go`** - Composes sidebar + splitlayout
+3. ✅ **Create `internal/tui/services/chat.go`** - Simple service with timeout
+4. ✅ **Migrate GurgehView** - Prove the pattern works
 5. **Migrate remaining 8 views** - Mechanical application
-6. **Add tests** - Per the test cases above
+6. ✅ **Add tests** - Per the test cases above
 
 ---
 

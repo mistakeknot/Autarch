@@ -11,7 +11,7 @@ import (
 	pkgtui "github.com/mistakeknot/autarch/pkg/tui"
 )
 
-// GurgehView displays specs (PRDs)
+// GurgehView displays specs (PRDs) with the unified shell layout.
 type GurgehView struct {
 	client   *autarch.Client
 	specs    []autarch.Spec
@@ -20,14 +20,21 @@ type GurgehView struct {
 	height   int
 	loading  bool
 	err      error
+
+	// Shell layout for unified 3-pane layout
+	shell *pkgtui.ShellLayout
 }
 
 // NewGurgehView creates a new Gurgeh view
 func NewGurgehView(client *autarch.Client) *GurgehView {
 	return &GurgehView{
 		client: client,
+		shell:  pkgtui.NewShellLayout(),
 	}
 }
+
+// Compile-time interface assertion for SidebarProvider
+var _ pkgtui.SidebarProvider = (*GurgehView)(nil)
 
 type specsLoadedMsg struct {
 	specs []autarch.Spec
@@ -48,10 +55,13 @@ func (v *GurgehView) loadSpecs() tea.Cmd {
 
 // Update implements View
 func (v *GurgehView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
+	var cmd tea.Cmd
+
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
 		v.width = msg.Width
 		v.height = msg.Height - 4
+		v.shell.SetSize(v.width, v.height)
 		return v, nil
 
 	case specsLoadedMsg:
@@ -63,19 +73,43 @@ func (v *GurgehView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
 		}
 		return v, nil
 
+	case pkgtui.SidebarSelectMsg:
+		// Find spec by ID and select it
+		for i, s := range v.specs {
+			if s.ID == msg.ItemID {
+				v.selected = i
+				break
+			}
+		}
+		return v, nil
+
 	case tea.KeyMsg:
-		switch msg.String() {
-		case "j", "down":
-			if v.selected < len(v.specs)-1 {
-				v.selected++
+		// Let shell handle global keys first
+		v.shell, cmd = v.shell.Update(msg)
+		if cmd != nil {
+			return v, cmd
+		}
+
+		// Handle view-specific keys based on focus
+		switch v.shell.Focus() {
+		case pkgtui.FocusSidebar:
+			// Navigation handled by shell/sidebar
+		case pkgtui.FocusDocument:
+			switch msg.String() {
+			case "j", "down":
+				if v.selected < len(v.specs)-1 {
+					v.selected++
+				}
+			case "k", "up":
+				if v.selected > 0 {
+					v.selected--
+				}
+			case "r":
+				v.loading = true
+				return v, v.loadSpecs()
 			}
-		case "k", "up":
-			if v.selected > 0 {
-				v.selected--
-			}
-		case "r":
-			v.loading = true
-			return v, v.loadSpecs()
+		case pkgtui.FocusChat:
+			// Chat input handled by chat panel (future)
 		}
 	}
 
@@ -92,106 +126,72 @@ func (v *GurgehView) View() string {
 		return tui.ErrorView(v.err)
 	}
 
+	// Render using shell layout
+	sidebarItems := v.SidebarItems()
+	document := v.renderDocument()
+	chat := v.renderChat()
+
+	return v.shell.Render(sidebarItems, document, chat)
+}
+
+// SidebarItems implements SidebarProvider.
+func (v *GurgehView) SidebarItems() []pkgtui.SidebarItem {
 	if len(v.specs) == 0 {
-		return v.renderEmptyState()
+		return nil
 	}
 
-	return v.renderSplitView()
-}
-
-func (v *GurgehView) renderEmptyState() string {
-	return lipgloss.JoinVertical(lipgloss.Left,
-		"",
-		pkgtui.TitleStyle.Render("Specs"),
-		"",
-		pkgtui.LabelStyle.Render("No specs found"),
-		"",
-		pkgtui.LabelStyle.Render("Create a new spec with 'n' or use the command palette."),
-	)
-}
-
-func (v *GurgehView) renderSplitView() string {
-	listWidth := v.width / 3
-	detailWidth := v.width - listWidth - 3
-
-	list := v.renderList(listWidth)
-	detail := v.renderDetail(detailWidth)
-
-	listStyle := lipgloss.NewStyle().
-		Width(listWidth).
-		Height(v.height)
-
-	detailStyle := lipgloss.NewStyle().
-		Width(detailWidth).
-		Height(v.height).
-		BorderLeft(true).
-		BorderStyle(lipgloss.NormalBorder()).
-		BorderForeground(pkgtui.ColorMuted).
-		PaddingLeft(1)
-
-	return lipgloss.JoinHorizontal(lipgloss.Top,
-		listStyle.Render(list),
-		detailStyle.Render(detail),
-	)
-}
-
-func (v *GurgehView) renderList(width int) string {
-	var lines []string
-
-	// Group by status
-	grouped := map[autarch.SpecStatus][]autarch.Spec{}
-	statusOrder := []autarch.SpecStatus{
-		autarch.SpecStatusDraft,
-		autarch.SpecStatusResearch,
-		autarch.SpecStatusValidated,
-		autarch.SpecStatusArchived,
-	}
-
-	for _, s := range v.specs {
-		grouped[s.Status] = append(grouped[s.Status], s)
-	}
-
-	lines = append(lines, pkgtui.TitleStyle.Render("Specs"))
-	lines = append(lines, "")
-
-	idx := 0
-	for _, status := range statusOrder {
-		specs := grouped[status]
-		if len(specs) == 0 {
-			continue
+	items := make([]pkgtui.SidebarItem, len(v.specs))
+	for i, s := range v.specs {
+		title := s.Title
+		if title == "" && len(s.ID) >= 8 {
+			title = s.ID[:8]
 		}
 
-		// Status header
-		header := fmt.Sprintf("▾ %s (%d)", status, len(specs))
-		lines = append(lines, pkgtui.SubtitleStyle.Render(header))
-
-		for _, s := range specs {
-			title := s.Title
-			if title == "" {
-				title = s.ID[:8]
-			}
-
-			line := "  " + title
-			if idx == v.selected {
-				line = pkgtui.SelectedStyle.Render(line)
-			} else {
-				line = pkgtui.UnselectedStyle.Render(line)
-			}
-			lines = append(lines, line)
-			idx++
+		items[i] = pkgtui.SidebarItem{
+			ID:    s.ID,
+			Label: title,
+			Icon:  statusIcon(s.Status),
 		}
 	}
-
-	return strings.Join(lines, "\n")
+	return items
 }
 
-func (v *GurgehView) renderDetail(width int) string {
+// statusIcon returns an icon for the spec status.
+func statusIcon(status autarch.SpecStatus) string {
+	switch status {
+	case autarch.SpecStatusDraft:
+		return "◐"
+	case autarch.SpecStatusResearch:
+		return "◑"
+	case autarch.SpecStatusValidated:
+		return "✓"
+	case autarch.SpecStatusArchived:
+		return "○"
+	default:
+		return "•"
+	}
+}
+
+// renderDocument renders the main document pane (spec details).
+func (v *GurgehView) renderDocument() string {
+	width := v.shell.LeftWidth()
+	if width <= 0 {
+		width = v.width / 2
+	}
+
 	var lines []string
 
-	lines = append(lines, pkgtui.TitleStyle.Render("Details"))
+	lines = append(lines, pkgtui.TitleStyle.Render("Spec Details"))
 	lines = append(lines, "")
 
-	if len(v.specs) == 0 || v.selected >= len(v.specs) {
+	if len(v.specs) == 0 {
+		lines = append(lines, pkgtui.LabelStyle.Render("No specs found"))
+		lines = append(lines, "")
+		lines = append(lines, pkgtui.LabelStyle.Render("Create a new spec with 'n' or use the command palette."))
+		return strings.Join(lines, "\n")
+	}
+
+	if v.selected >= len(v.specs) {
 		lines = append(lines, pkgtui.LabelStyle.Render("No spec selected"))
 		return strings.Join(lines, "\n")
 	}
@@ -223,6 +223,32 @@ func (v *GurgehView) renderDetail(width int) string {
 	return strings.Join(lines, "\n")
 }
 
+// renderChat renders the chat pane (placeholder for now).
+func (v *GurgehView) renderChat() string {
+	var lines []string
+
+	chatTitle := lipgloss.NewStyle().
+		Foreground(pkgtui.ColorPrimary).
+		Bold(true)
+
+	lines = append(lines, chatTitle.Render("Chat"))
+	lines = append(lines, "")
+
+	mutedStyle := lipgloss.NewStyle().
+		Foreground(pkgtui.ColorMuted).
+		Italic(true)
+
+	lines = append(lines, mutedStyle.Render("Ask questions about this spec..."))
+	lines = append(lines, "")
+
+	hintStyle := lipgloss.NewStyle().
+		Foreground(pkgtui.ColorMuted)
+
+	lines = append(lines, hintStyle.Render("Tab to focus • Ctrl+B toggle sidebar"))
+
+	return strings.Join(lines, "\n")
+}
+
 // Focus implements View
 func (v *GurgehView) Focus() tea.Cmd {
 	return v.loadSpecs()
@@ -238,7 +264,7 @@ func (v *GurgehView) Name() string {
 
 // ShortHelp implements View
 func (v *GurgehView) ShortHelp() string {
-	return "j/k navigate  r refresh"
+	return "j/k navigate  r refresh  Tab focus  Ctrl+B sidebar"
 }
 
 // Commands implements CommandProvider
