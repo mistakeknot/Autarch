@@ -14,7 +14,7 @@ import (
 func TestInterviewCreatesSpecWithWarnings(t *testing.T) {
 	withTempRootInitialized(t, func(root string) {
 		m := NewModel()
-		m = pressKey(m, "n")
+		m.startNewInterview()
 		m = pressKey(m, "2")
 		m = pressKey(m, "1")
 		m = pressKey(m, "2")
@@ -266,7 +266,7 @@ func TestInterviewEscExitsToList(t *testing.T) {
 func TestInterviewShowsStepAndInputField(t *testing.T) {
 	withTempRootInitialized(t, func(root string) {
 		m := NewModel()
-		m = pressKey(m, "n")
+		m.startNewInterview()
 		m = pressKey(m, "2")
 		m = pressKey(m, "1")
 		m = pressKey(m, "2")
@@ -293,7 +293,7 @@ func min(a, b int) int {
 func TestInterviewShowsStepSidebar(t *testing.T) {
 	withTempRootInitialized(t, func(root string) {
 		m := NewModel()
-		m = pressKey(m, "n")
+		m.startNewInterview()
 		out := m.View()
 		clean := stripANSI(out)
 		if !strings.Contains(clean, "Scan repo") {
@@ -348,7 +348,7 @@ args = []
 			launchSubagent = oldSub
 		}()
 		m := NewModel()
-		m = pressKey(m, "n")
+		m.startNewInterview()
 		m = pressKey(m, "2")
 		m = pressKey(m, "1")
 		m = pressKey(m, "2")

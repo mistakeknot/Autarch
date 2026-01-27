@@ -10,6 +10,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/mistakeknot/autarch/internal/gurgeh/agents"
+	"github.com/mistakeknot/autarch/internal/gurgeh/arbiter"
 	"github.com/mistakeknot/autarch/internal/gurgeh/archive"
 	"github.com/mistakeknot/autarch/internal/gurgeh/config"
 	"github.com/mistakeknot/autarch/internal/gurgeh/project"
@@ -44,6 +45,7 @@ type Model struct {
 	confirmID           string
 	pendingPrevStatus   string
 	lastAction          *LastAction
+	sprint              *SprintView
 	interview           interviewState
 	suggestions         suggestionsState
 	chatPanel           *pkgtui.ChatPanel
@@ -175,6 +177,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.rebuildGroups()
 			return m, nil
 		}
+		if m.mode == "sprint" {
+			newSprint, cmd := m.sprint.Update(msg)
+			m.sprint = newSprint.(*SprintView)
+			return m, cmd
+		}
 		if m.mode == "interview" {
 			switch key {
 			case "esc":
@@ -249,7 +256,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		case "n":
 			if m.err == "" {
-				m.startNewInterview()
+				m.startSprint()
 			}
 		case "r":
 			if m.err == "" {
@@ -314,7 +321,11 @@ func (m Model) View() string {
 		footer := renderFooter(defaultKeys(), m.status)
 		return renderFrame(header, body, footer)
 	}
-	if m.mode == "interview" {
+	if m.mode == "sprint" {
+		title = "SPRINT"
+		focus = "SPRINT"
+		body = m.sprint.View()
+	} else if m.mode == "interview" {
 		title = "INTERVIEW"
 		if strings.TrimSpace(m.interviewFocus) == "" {
 			m.interviewFocus = "question"
@@ -581,6 +592,12 @@ func (m *Model) runSuggestionsForSelected() {
 		return
 	}
 	m.status = "launched suggestions agent " + agentName
+}
+
+func (m *Model) startSprint() {
+	state := arbiter.NewSprintState(m.root)
+	m.sprint = NewSprintView(state)
+	m.mode = "sprint"
 }
 
 func (m *Model) startNewInterview() {

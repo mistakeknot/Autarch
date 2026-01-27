@@ -12,7 +12,7 @@ import (
 func TestNewKeyStartsInterviewForNewSpec(t *testing.T) {
 	withTempRootInitialized(t, func(root string) {
 		m := NewModel()
-		m = pressKey(m, "n")
+		m.startNewInterview()
 		if m.mode != "interview" {
 			t.Fatalf("expected interview mode")
 		}
@@ -44,7 +44,7 @@ args = []
 		defer func() { runAgent = oldRun }()
 
 		m := NewModel()
-		m = pressKey(m, "n")
+		m.startNewInterview()
 		m = pressKey(m, "2")
 		m = pressKey(m, "1")
 		m = pressKey(m, "2")
@@ -60,7 +60,7 @@ args = []
 func TestInterviewIncludesBootstrapStep(t *testing.T) {
 	withTempRootInitialized(t, func(root string) {
 		m := NewModel()
-		m = pressKey(m, "n")
+		m.startNewInterview()
 		if m.interview.step != stepScanPrompt {
 			t.Fatalf("expected scan step")
 		}
