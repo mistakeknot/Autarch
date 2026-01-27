@@ -7,11 +7,11 @@ import (
 	"strings"
 	"sync"
 
-	_ "modernc.org/sqlite"
+	autarchdb "github.com/mistakeknot/autarch/pkg/db"
 )
 
 func Open(path string) (*sql.DB, error) {
-	db, err := sql.Open("sqlite", path)
+	db, err := autarchdb.Open(path)
 	if err != nil {
 		return nil, err
 	}

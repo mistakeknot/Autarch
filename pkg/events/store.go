@@ -9,7 +9,7 @@ import (
 	"strings"
 	"time"
 
-	_ "modernc.org/sqlite" // Pure-Go SQLite driver
+	autarchdb "github.com/mistakeknot/autarch/pkg/db"
 )
 
 // DefaultDBPath returns the default path for the events database
@@ -39,17 +39,9 @@ func OpenStore(path string) (*Store, error) {
 		return nil, fmt.Errorf("failed to create directory: %w", err)
 	}
 
-	// Open with WAL mode for better concurrency
-	dsn := path + "?_journal_mode=WAL&_synchronous=NORMAL&_busy_timeout=5000"
-	db, err := sql.Open("sqlite", dsn)
+	db, err := autarchdb.Open(path)
 	if err != nil {
 		return nil, fmt.Errorf("failed to open database: %w", err)
-	}
-
-	// Test connection
-	if err := db.Ping(); err != nil {
-		db.Close()
-		return nil, fmt.Errorf("failed to ping database: %w", err)
 	}
 
 	store := &Store{db: db, path: path}

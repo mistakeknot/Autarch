@@ -5,14 +5,31 @@ package intermute
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"net/http"
 	"os"
 	"strings"
 	"sync"
 	"time"
 
 	ic "github.com/mistakeknot/intermute/client"
+	"github.com/mistakeknot/autarch/pkg/timeout"
 )
+
+// ErrOffline is returned by all methods when the client is in no-op mode
+// because no Intermute URL was configured.
+var ErrOffline = errors.New("intermute: client offline (no URL configured)")
+
+// ClientOption configures the Intermute client.
+type ClientOption func(*Client)
+
+// WithTimeout sets the per-request timeout for REST calls.
+func WithTimeout(d time.Duration) ClientOption {
+	return func(c *Client) {
+		c.timeout = d
+	}
+}
 
 // Client provides a unified interface to the Intermute coordination server
 // for all Autarch tools (Gurgeh, Coldwine, Pollard, Bigend).
@@ -22,6 +39,8 @@ type Client struct {
 	project   string
 	agentID   string
 	agentName string
+	offline   bool
+	timeout   time.Duration
 
 	mu       sync.RWMutex
 	handlers map[string][]EventHandler
@@ -50,7 +69,9 @@ type Config struct {
 
 // NewClient creates a new Intermute client with the given configuration.
 // If config is nil, it uses environment variables for configuration.
-func NewClient(cfg *Config) (*Client, error) {
+// When no URL is configured, NewClient succeeds and returns a no-op client
+// that returns ErrOffline from all operations. Check Available() first.
+func NewClient(cfg *Config, opts ...ClientOption) (*Client, error) {
 	if cfg == nil {
 		cfg = &Config{}
 	}
@@ -66,8 +87,21 @@ func NewClient(cfg *Config) (*Client, error) {
 		cfg.Project = strings.TrimSpace(os.Getenv("INTERMUTE_PROJECT"))
 	}
 
+	c := &Client{
+		project:   cfg.Project,
+		agentName: cfg.AgentName,
+		agentID:   cfg.AgentID,
+		handlers:  make(map[string][]EventHandler),
+		timeout:   timeout.HTTPDefault,
+	}
+
+	for _, opt := range opts {
+		opt(c)
+	}
+
 	if cfg.URL == "" {
-		return nil, fmt.Errorf("INTERMUTE_URL required: set environment variable or config.URL")
+		c.offline = true
+		return c, nil
 	}
 
 	var clientOpts []ic.Option
@@ -79,21 +113,51 @@ func NewClient(cfg *Config) (*Client, error) {
 	}
 
 	base := ic.New(cfg.URL, clientOpts...)
-
-	c := &Client{
-		base:      base,
-		project:   cfg.Project,
-		agentName: cfg.AgentName,
-		agentID:   cfg.AgentID,
-		handlers:  make(map[string][]EventHandler),
-	}
+	c.base = base
 
 	return c, nil
+}
+
+// Available reports whether the client has a configured Intermute URL.
+func (c *Client) Available() bool {
+	return !c.offline
+}
+
+// Ping checks connectivity to the Intermute server.
+// Returns ErrOffline if the client is in no-op mode.
+func (c *Client) Ping(ctx context.Context) error {
+	if c.offline {
+		return ErrOffline
+	}
+	ctx, cancel := context.WithTimeout(ctx, c.timeout)
+	defer cancel()
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.base.BaseURL+"/healthz", nil)
+	if err != nil {
+		return fmt.Errorf("intermute ping: %w", err)
+	}
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return fmt.Errorf("intermute ping: %w", err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode >= 400 {
+		return fmt.Errorf("intermute ping: status %d", resp.StatusCode)
+	}
+	return nil
+}
+
+// withTimeout returns a context with the client's configured timeout applied.
+// If the parent context already has an earlier deadline, that is preserved.
+func (c *Client) withTimeout(ctx context.Context) (context.Context, context.CancelFunc) {
+	return context.WithTimeout(ctx, c.timeout)
 }
 
 // Connect establishes WebSocket connection for real-time events.
 // Call this after NewClient if you need real-time event subscriptions.
 func (c *Client) Connect(ctx context.Context) error {
+	if c.offline {
+		return ErrOffline
+	}
 	var wsOpts []ic.WSOption
 	if c.project != "" {
 		wsOpts = append(wsOpts, ic.WithWSProject(c.project))
@@ -121,10 +185,10 @@ func (c *Client) Connect(ctx context.Context) error {
 
 // Close closes the client connections
 func (c *Client) Close() error {
-	if c.ws != nil {
-		return c.ws.Close()
+	if c.offline || c.ws == nil {
+		return nil
 	}
-	return nil
+	return c.ws.Close()
 }
 
 // On registers an event handler for specific event types.
@@ -137,6 +201,9 @@ func (c *Client) On(eventType string, handler EventHandler) {
 
 // Subscribe subscribes to specific event types via WebSocket
 func (c *Client) Subscribe(ctx context.Context, eventTypes ...string) error {
+	if c.offline {
+		return ErrOffline
+	}
 	if c.ws == nil {
 		return fmt.Errorf("not connected: call Connect first")
 	}
@@ -161,6 +228,11 @@ func (c *Client) dispatchEvent(evt Event) {
 
 // CreateSpec creates a new specification in Intermute
 func (c *Client) CreateSpec(ctx context.Context, spec Spec) (Spec, error) {
+	if c.offline {
+		return Spec{}, ErrOffline
+	}
+	ctx, cancel := c.withTimeout(ctx)
+	defer cancel()
 	created, err := c.base.CreateSpec(ctx, toIntermuteSpec(spec))
 	if err != nil {
 		return Spec{}, err
@@ -170,6 +242,11 @@ func (c *Client) CreateSpec(ctx context.Context, spec Spec) (Spec, error) {
 
 // GetSpec retrieves a specification by ID
 func (c *Client) GetSpec(ctx context.Context, id string) (Spec, error) {
+	if c.offline {
+		return Spec{}, ErrOffline
+	}
+	ctx, cancel := c.withTimeout(ctx)
+	defer cancel()
 	spec, err := c.base.GetSpec(ctx, id)
 	if err != nil {
 		return Spec{}, err
@@ -179,6 +256,11 @@ func (c *Client) GetSpec(ctx context.Context, id string) (Spec, error) {
 
 // ListSpecs lists specifications with optional status filter
 func (c *Client) ListSpecs(ctx context.Context, status string) ([]Spec, error) {
+	if c.offline {
+		return nil, ErrOffline
+	}
+	ctx, cancel := c.withTimeout(ctx)
+	defer cancel()
 	specs, err := c.base.ListSpecs(ctx, status)
 	if err != nil {
 		return nil, err
@@ -192,6 +274,11 @@ func (c *Client) ListSpecs(ctx context.Context, status string) ([]Spec, error) {
 
 // UpdateSpec updates a specification
 func (c *Client) UpdateSpec(ctx context.Context, spec Spec) (Spec, error) {
+	if c.offline {
+		return Spec{}, ErrOffline
+	}
+	ctx, cancel := c.withTimeout(ctx)
+	defer cancel()
 	updated, err := c.base.UpdateSpec(ctx, toIntermuteSpec(spec))
 	if err != nil {
 		return Spec{}, err
@@ -201,6 +288,11 @@ func (c *Client) UpdateSpec(ctx context.Context, spec Spec) (Spec, error) {
 
 // DeleteSpec deletes a specification
 func (c *Client) DeleteSpec(ctx context.Context, id string) error {
+	if c.offline {
+		return ErrOffline
+	}
+	ctx, cancel := c.withTimeout(ctx)
+	defer cancel()
 	return c.base.DeleteSpec(ctx, id)
 }
 
@@ -208,6 +300,11 @@ func (c *Client) DeleteSpec(ctx context.Context, id string) error {
 
 // CreateEpic creates a new epic in Intermute
 func (c *Client) CreateEpic(ctx context.Context, epic Epic) (Epic, error) {
+	if c.offline {
+		return Epic{}, ErrOffline
+	}
+	ctx, cancel := c.withTimeout(ctx)
+	defer cancel()
 	created, err := c.base.CreateEpic(ctx, toIntermuteEpic(epic))
 	if err != nil {
 		return Epic{}, err
@@ -217,6 +314,11 @@ func (c *Client) CreateEpic(ctx context.Context, epic Epic) (Epic, error) {
 
 // GetEpic retrieves an epic by ID
 func (c *Client) GetEpic(ctx context.Context, id string) (Epic, error) {
+	if c.offline {
+		return Epic{}, ErrOffline
+	}
+	ctx, cancel := c.withTimeout(ctx)
+	defer cancel()
 	epic, err := c.base.GetEpic(ctx, id)
 	if err != nil {
 		return Epic{}, err
@@ -226,6 +328,11 @@ func (c *Client) GetEpic(ctx context.Context, id string) (Epic, error) {
 
 // ListEpics lists epics with optional spec filter
 func (c *Client) ListEpics(ctx context.Context, specID string) ([]Epic, error) {
+	if c.offline {
+		return nil, ErrOffline
+	}
+	ctx, cancel := c.withTimeout(ctx)
+	defer cancel()
 	epics, err := c.base.ListEpics(ctx, specID)
 	if err != nil {
 		return nil, err
@@ -239,6 +346,11 @@ func (c *Client) ListEpics(ctx context.Context, specID string) ([]Epic, error) {
 
 // UpdateEpic updates an epic
 func (c *Client) UpdateEpic(ctx context.Context, epic Epic) (Epic, error) {
+	if c.offline {
+		return Epic{}, ErrOffline
+	}
+	ctx, cancel := c.withTimeout(ctx)
+	defer cancel()
 	updated, err := c.base.UpdateEpic(ctx, toIntermuteEpic(epic))
 	if err != nil {
 		return Epic{}, err
@@ -248,6 +360,11 @@ func (c *Client) UpdateEpic(ctx context.Context, epic Epic) (Epic, error) {
 
 // DeleteEpic deletes an epic
 func (c *Client) DeleteEpic(ctx context.Context, id string) error {
+	if c.offline {
+		return ErrOffline
+	}
+	ctx, cancel := c.withTimeout(ctx)
+	defer cancel()
 	return c.base.DeleteEpic(ctx, id)
 }
 
@@ -255,6 +372,11 @@ func (c *Client) DeleteEpic(ctx context.Context, id string) error {
 
 // CreateStory creates a new story in Intermute
 func (c *Client) CreateStory(ctx context.Context, story Story) (Story, error) {
+	if c.offline {
+		return Story{}, ErrOffline
+	}
+	ctx, cancel := c.withTimeout(ctx)
+	defer cancel()
 	created, err := c.base.CreateStory(ctx, toIntermuteStory(story))
 	if err != nil {
 		return Story{}, err
@@ -264,6 +386,11 @@ func (c *Client) CreateStory(ctx context.Context, story Story) (Story, error) {
 
 // GetStory retrieves a story by ID
 func (c *Client) GetStory(ctx context.Context, id string) (Story, error) {
+	if c.offline {
+		return Story{}, ErrOffline
+	}
+	ctx, cancel := c.withTimeout(ctx)
+	defer cancel()
 	story, err := c.base.GetStory(ctx, id)
 	if err != nil {
 		return Story{}, err
@@ -273,6 +400,11 @@ func (c *Client) GetStory(ctx context.Context, id string) (Story, error) {
 
 // ListStories lists stories with optional epic filter
 func (c *Client) ListStories(ctx context.Context, epicID string) ([]Story, error) {
+	if c.offline {
+		return nil, ErrOffline
+	}
+	ctx, cancel := c.withTimeout(ctx)
+	defer cancel()
 	stories, err := c.base.ListStories(ctx, epicID)
 	if err != nil {
 		return nil, err
@@ -286,6 +418,11 @@ func (c *Client) ListStories(ctx context.Context, epicID string) ([]Story, error
 
 // UpdateStory updates a story
 func (c *Client) UpdateStory(ctx context.Context, story Story) (Story, error) {
+	if c.offline {
+		return Story{}, ErrOffline
+	}
+	ctx, cancel := c.withTimeout(ctx)
+	defer cancel()
 	updated, err := c.base.UpdateStory(ctx, toIntermuteStory(story))
 	if err != nil {
 		return Story{}, err
@@ -295,6 +432,11 @@ func (c *Client) UpdateStory(ctx context.Context, story Story) (Story, error) {
 
 // DeleteStory deletes a story
 func (c *Client) DeleteStory(ctx context.Context, id string) error {
+	if c.offline {
+		return ErrOffline
+	}
+	ctx, cancel := c.withTimeout(ctx)
+	defer cancel()
 	return c.base.DeleteStory(ctx, id)
 }
 
@@ -302,6 +444,11 @@ func (c *Client) DeleteStory(ctx context.Context, id string) error {
 
 // CreateTask creates a new task in Intermute
 func (c *Client) CreateTask(ctx context.Context, task Task) (Task, error) {
+	if c.offline {
+		return Task{}, ErrOffline
+	}
+	ctx, cancel := c.withTimeout(ctx)
+	defer cancel()
 	created, err := c.base.CreateTask(ctx, toIntermuteTask(task))
 	if err != nil {
 		return Task{}, err
@@ -311,6 +458,11 @@ func (c *Client) CreateTask(ctx context.Context, task Task) (Task, error) {
 
 // GetTask retrieves a task by ID
 func (c *Client) GetTask(ctx context.Context, id string) (Task, error) {
+	if c.offline {
+		return Task{}, ErrOffline
+	}
+	ctx, cancel := c.withTimeout(ctx)
+	defer cancel()
 	task, err := c.base.GetTask(ctx, id)
 	if err != nil {
 		return Task{}, err
@@ -320,6 +472,11 @@ func (c *Client) GetTask(ctx context.Context, id string) (Task, error) {
 
 // ListTasks lists tasks with optional filters
 func (c *Client) ListTasks(ctx context.Context, status, agent string) ([]Task, error) {
+	if c.offline {
+		return nil, ErrOffline
+	}
+	ctx, cancel := c.withTimeout(ctx)
+	defer cancel()
 	tasks, err := c.base.ListTasks(ctx, status, agent)
 	if err != nil {
 		return nil, err
@@ -333,6 +490,11 @@ func (c *Client) ListTasks(ctx context.Context, status, agent string) ([]Task, e
 
 // UpdateTask updates a task
 func (c *Client) UpdateTask(ctx context.Context, task Task) (Task, error) {
+	if c.offline {
+		return Task{}, ErrOffline
+	}
+	ctx, cancel := c.withTimeout(ctx)
+	defer cancel()
 	updated, err := c.base.UpdateTask(ctx, toIntermuteTask(task))
 	if err != nil {
 		return Task{}, err
@@ -342,6 +504,11 @@ func (c *Client) UpdateTask(ctx context.Context, task Task) (Task, error) {
 
 // AssignTask assigns a task to an agent
 func (c *Client) AssignTask(ctx context.Context, taskID, agent string) (Task, error) {
+	if c.offline {
+		return Task{}, ErrOffline
+	}
+	ctx, cancel := c.withTimeout(ctx)
+	defer cancel()
 	assigned, err := c.base.AssignTask(ctx, taskID, agent)
 	if err != nil {
 		return Task{}, err
@@ -351,6 +518,11 @@ func (c *Client) AssignTask(ctx context.Context, taskID, agent string) (Task, er
 
 // DeleteTask deletes a task
 func (c *Client) DeleteTask(ctx context.Context, id string) error {
+	if c.offline {
+		return ErrOffline
+	}
+	ctx, cancel := c.withTimeout(ctx)
+	defer cancel()
 	return c.base.DeleteTask(ctx, id)
 }
 
@@ -358,6 +530,11 @@ func (c *Client) DeleteTask(ctx context.Context, id string) error {
 
 // CreateInsight creates a new insight in Intermute
 func (c *Client) CreateInsight(ctx context.Context, insight Insight) (Insight, error) {
+	if c.offline {
+		return Insight{}, ErrOffline
+	}
+	ctx, cancel := c.withTimeout(ctx)
+	defer cancel()
 	created, err := c.base.CreateInsight(ctx, toIntermuteInsight(insight))
 	if err != nil {
 		return Insight{}, err
@@ -367,6 +544,11 @@ func (c *Client) CreateInsight(ctx context.Context, insight Insight) (Insight, e
 
 // GetInsight retrieves an insight by ID
 func (c *Client) GetInsight(ctx context.Context, id string) (Insight, error) {
+	if c.offline {
+		return Insight{}, ErrOffline
+	}
+	ctx, cancel := c.withTimeout(ctx)
+	defer cancel()
 	insight, err := c.base.GetInsight(ctx, id)
 	if err != nil {
 		return Insight{}, err
@@ -376,6 +558,11 @@ func (c *Client) GetInsight(ctx context.Context, id string) (Insight, error) {
 
 // ListInsights lists insights with optional filters
 func (c *Client) ListInsights(ctx context.Context, specID, category string) ([]Insight, error) {
+	if c.offline {
+		return nil, ErrOffline
+	}
+	ctx, cancel := c.withTimeout(ctx)
+	defer cancel()
 	insights, err := c.base.ListInsights(ctx, specID, category)
 	if err != nil {
 		return nil, err
@@ -389,11 +576,21 @@ func (c *Client) ListInsights(ctx context.Context, specID, category string) ([]I
 
 // LinkInsightToSpec links an insight to a specification
 func (c *Client) LinkInsightToSpec(ctx context.Context, insightID, specID string) error {
+	if c.offline {
+		return ErrOffline
+	}
+	ctx, cancel := c.withTimeout(ctx)
+	defer cancel()
 	return c.base.LinkInsightToSpec(ctx, insightID, specID)
 }
 
 // DeleteInsight deletes an insight
 func (c *Client) DeleteInsight(ctx context.Context, id string) error {
+	if c.offline {
+		return ErrOffline
+	}
+	ctx, cancel := c.withTimeout(ctx)
+	defer cancel()
 	return c.base.DeleteInsight(ctx, id)
 }
 

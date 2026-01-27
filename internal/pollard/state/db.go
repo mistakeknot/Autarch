@@ -8,7 +8,7 @@ import (
 	"path/filepath"
 	"time"
 
-	_ "modernc.org/sqlite"
+	autarchdb "github.com/mistakeknot/autarch/pkg/db"
 )
 
 // DB wraps the SQLite database connection.
@@ -44,7 +44,7 @@ func Open(projectPath string) (*DB, error) {
 	}
 
 	dbPath := filepath.Join(pollardDir, "state.db")
-	db, err := sql.Open("sqlite", dbPath+"?_journal_mode=WAL")
+	db, err := autarchdb.Open(dbPath)
 	if err != nil {
 		return nil, fmt.Errorf("open database: %w", err)
 	}
