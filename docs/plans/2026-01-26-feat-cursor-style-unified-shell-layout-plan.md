@@ -343,17 +343,17 @@ Mechanical migration applying the same pattern.
 
 ### Functional Requirements
 
-- [ ] 9 views migrated: Gurgeh, Pollard, Coldwine, EpicReview, TaskReview, SpecSummary, Kickoff, Interview, TaskDetail
-- [ ] Sidebar collapsible via `Ctrl+B`
-- [ ] Tab cycles focus correctly (skips sidebar when collapsed)
-- [ ] Browse views (Gurgeh, Pollard, Coldwine) show sidebar with items
-- [ ] Onboarding/review views show chat but no sidebar
+- [x] 9 views migrated: Gurgeh, Pollard, Coldwine, EpicReview, TaskReview, SpecSummary, Kickoff, Interview, TaskDetail
+- [x] Sidebar collapsible via `Ctrl+B`
+- [x] Tab cycles focus correctly (skips sidebar when collapsed)
+- [x] Browse views (Gurgeh, Pollard, Coldwine) show sidebar with items
+- [x] Onboarding/review views show chat but no sidebar
 
 ### Non-Functional Requirements
 
-- [ ] Minimum terminal width: 100 chars (show error if smaller)
-- [ ] ANSI-aware width calculations (use `ansi.StringWidth`)
-- [ ] No layout flicker during loading states
+- [x] Minimum terminal width: 100 chars (show error if smaller)
+- [x] ANSI-aware width calculations (use `ansi.StringWidth`)
+- [x] No layout flicker during loading states
 
 ### Test Cases
 
@@ -420,7 +420,7 @@ var _ SidebarProvider = (*ColdwineView)(nil)
 2. ✅ **Create `pkg/tui/shelllayout.go`** - Composes sidebar + splitlayout
 3. ✅ **Create `internal/tui/services/chat.go`** - Simple service with timeout
 4. ✅ **Migrate GurgehView** - Prove the pattern works
-5. **Migrate remaining 8 views** - Mechanical application
+5. ✅ **Migrate remaining 8 views** - Mechanical application
 6. ✅ **Add tests** - Per the test cases above
 
 ---
