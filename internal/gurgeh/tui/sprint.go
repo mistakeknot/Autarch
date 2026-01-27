@@ -19,8 +19,9 @@ type SprintView struct {
 	orchestrator *arbiter.Orchestrator
 	width        int
 	height       int
-	focused      string // "draft" or "options"
-	optionIndex  int
+	focused       string // "draft" or "options"
+	optionIndex   int
+	showResearch  bool // toggle research panel
 }
 
 // NewSprintView creates a new SprintView for the given sprint state.
@@ -77,6 +78,8 @@ func (v *SprintView) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if v.optionIndex > 0 {
 				v.optionIndex--
 			}
+		case "r":
+			v.showResearch = !v.showResearch
 		case "q", "esc":
 			return v, tea.Quit
 		}
@@ -107,6 +110,13 @@ func (v *SprintView) View() string {
 	if len(v.state.Conflicts) > 0 {
 		b.WriteString("\n")
 		b.WriteString(v.renderConflicts())
+		b.WriteString("\n")
+	}
+
+	// Research panel
+	if v.showResearch {
+		b.WriteString("\n")
+		b.WriteString(v.renderResearchPanel())
 		b.WriteString("\n")
 	}
 
@@ -213,7 +223,53 @@ func (v *SprintView) renderConflicts() string {
 
 func (v *SprintView) renderHelp() string {
 	helpStyle := lipgloss.NewStyle().Foreground(pkgtui.ColorMuted)
-	return helpStyle.Render("a accept  e edit  1-3 alternatives  j/k navigate  q quit")
+	return helpStyle.Render("a accept  e edit  r research  1-3 alternatives  j/k navigate  q quit")
+}
+
+func (v *SprintView) renderResearchPanel() string {
+	panelStyle := lipgloss.NewStyle().
+		Border(lipgloss.RoundedBorder()).
+		BorderForeground(pkgtui.ColorSecondary).
+		Padding(0, 1).
+		Width(min(v.width-4, 76))
+
+	titleStyle := lipgloss.NewStyle().
+		Foreground(pkgtui.ColorSecondary).
+		Bold(true)
+
+	var lines []string
+	lines = append(lines, titleStyle.Render("Research Findings"))
+
+	// Deep scan status
+	switch v.state.DeepScan.Status {
+	case arbiter.DeepScanRunning:
+		lines = append(lines, "🔄 Deep scan in progress...")
+	case arbiter.DeepScanComplete:
+		lines = append(lines, "✅ Deep scan complete")
+	case arbiter.DeepScanFailed:
+		lines = append(lines, fmt.Sprintf("❌ Deep scan failed: %s", v.state.DeepScan.Error))
+	}
+
+	if len(v.state.Findings) == 0 {
+		mutedStyle := lipgloss.NewStyle().Foreground(pkgtui.ColorMuted)
+		lines = append(lines, mutedStyle.Render("No research findings yet"))
+	} else {
+		for i, f := range v.state.Findings {
+			if i >= 8 {
+				mutedStyle := lipgloss.NewStyle().Foreground(pkgtui.ColorMuted)
+				lines = append(lines, mutedStyle.Render(fmt.Sprintf("  ... and %d more", len(v.state.Findings)-8)))
+				break
+			}
+			relevance := fmt.Sprintf("%.0f%%", f.Relevance*100)
+			tagStr := ""
+			if len(f.Tags) > 0 {
+				tagStr = " [" + strings.Join(f.Tags, ", ") + "]"
+			}
+			lines = append(lines, fmt.Sprintf("  %s %s (%s)%s", f.SourceType, f.Title, relevance, tagStr))
+		}
+	}
+
+	return panelStyle.Render(strings.Join(lines, "\n"))
 }
 
 func statusIcon(status arbiter.DraftStatus) string {

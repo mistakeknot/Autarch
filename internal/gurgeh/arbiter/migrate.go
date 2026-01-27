@@ -15,6 +15,12 @@ func MigrateFromSpec(spec *specs.Spec, projectPath string) *SprintState {
 		return state
 	}
 
+	// Map Title → Vision section
+	if spec.Title != "" {
+		state.Sections[PhaseVision].Content = fmt.Sprintf("## Vision\n\n%s", spec.Title)
+		state.Sections[PhaseVision].Status = DraftAccepted
+	}
+
 	// Map Summary → Problem section
 	if spec.Summary != "" {
 		state.Sections[PhaseProblem].Content = spec.Summary
@@ -32,6 +38,17 @@ func MigrateFromSpec(spec *specs.Spec, projectPath string) *SprintState {
 	if featuresGoalsContent != "" {
 		state.Sections[PhaseFeaturesGoals].Content = featuresGoalsContent
 		state.Sections[PhaseFeaturesGoals].Status = DraftAccepted
+	}
+
+	// Map Requirements → Requirements section
+	if len(spec.Requirements) > 0 {
+		var reqParts []string
+		reqParts = append(reqParts, "## Requirements")
+		for _, req := range spec.Requirements {
+			reqParts = append(reqParts, fmt.Sprintf("- %s", req))
+		}
+		state.Sections[PhaseRequirements].Content = strings.Join(reqParts, "\n")
+		state.Sections[PhaseRequirements].Status = DraftAccepted
 	}
 
 	// Map Goals + NonGoals → Scope+Assumptions

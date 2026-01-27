@@ -18,7 +18,8 @@ func NewCalculator() *Calculator {
 }
 
 // Calculate computes a confidence score from section stats.
-func (c *Calculator) Calculate(totalPhases, acceptedPhases, conflictCount int, hasResearch bool) Score {
+// researchQuality should be 0.0 (no research) to 1.0 (high-quality findings).
+func (c *Calculator) Calculate(totalPhases, acceptedPhases, conflictCount int, researchQuality float64) Score {
 	if totalPhases <= 0 {
 		return Score{}
 	}
@@ -30,9 +31,13 @@ func (c *Calculator) Calculate(totalPhases, acceptedPhases, conflictCount int, h
 		consistency = 1.0 / float64(1+conflictCount)
 	}
 
-	research := 0.5
-	if hasResearch {
-		research = 1.0
+	// Clamp research quality to [0, 1]
+	research := researchQuality
+	if research < 0 {
+		research = 0
+	}
+	if research > 1 {
+		research = 1
 	}
 
 	return Score{

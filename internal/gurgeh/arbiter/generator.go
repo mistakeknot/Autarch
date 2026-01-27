@@ -31,12 +31,16 @@ func (g *Generator) GenerateDraft(_ context.Context, phase Phase, projectCtx *Pr
 	var options []string
 
 	switch phase {
+	case PhaseVision:
+		content, options = g.generateVision(projectCtx, userInput)
 	case PhaseProblem:
 		content, options = g.generateProblem(projectCtx, userInput)
 	case PhaseUsers:
 		content, options = g.generateUsers(projectCtx, userInput)
 	case PhaseFeaturesGoals:
 		content, options = g.generateFeaturesGoals(projectCtx, userInput)
+	case PhaseRequirements:
+		content, options = g.generateRequirements(projectCtx, userInput)
 	case PhaseScopeAssumptions:
 		content, options = g.generateScopeAssumptions(projectCtx, userInput)
 	case PhaseCUJs:
@@ -133,6 +137,36 @@ func (g *Generator) generateAcceptanceCriteria(_ *ProjectContext, userInput stri
 	return base, []string{
 		"Functional criteria only",
 		"Include non-functional (performance, accessibility)",
+	}
+}
+
+func (g *Generator) generateVision(projectCtx *ProjectContext, userInput string) (string, []string) {
+	var base string
+	if userInput != "" {
+		base = fmt.Sprintf("## Vision\n\n%s", userInput)
+	} else if projectCtx != nil && projectCtx.HasReadme && projectCtx.ReadmeSnippet != "" {
+		base = fmt.Sprintf("## Vision\n\n%s", projectCtx.ReadmeSnippet)
+	} else {
+		base = "## Vision\n\n[What does the world look like when this product succeeds? One paragraph describing the future state.]"
+	}
+	return base, []string{
+		"User-centric vision (focus on user outcomes)",
+		"Market-centric vision (focus on market position)",
+		"Technical vision (focus on capabilities enabled)",
+	}
+}
+
+func (g *Generator) generateRequirements(_ *ProjectContext, userInput string) (string, []string) {
+	var base string
+	if userInput != "" {
+		base = fmt.Sprintf("## Requirements\n\n- %s\n- [Requirement 2]\n- [Requirement 3]", userInput)
+	} else {
+		base = "## Requirements\n\n- [Functional requirement 1]\n- [Functional requirement 2]\n- [Non-functional requirement 1]"
+	}
+	return base, []string{
+		"Functional requirements only",
+		"Include non-functional (performance, security, scale)",
+		"Prioritized MoSCoW style (must/should/could/won't)",
 	}
 }
 

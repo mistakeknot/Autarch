@@ -1,25 +1,36 @@
 package arbiter
 
-import "time"
+import (
+	"crypto/rand"
+	"encoding/hex"
+	"time"
+)
 
 // Phase represents a section of the PRD sprint
 type Phase int
 
 const (
-	PhaseProblem Phase = iota
+	PhaseVision Phase = iota
+	PhaseProblem
 	PhaseUsers
 	PhaseFeaturesGoals
+	PhaseRequirements
 	PhaseScopeAssumptions
 	PhaseCUJs
 	PhaseAcceptanceCriteria
 )
 
+// PhaseCount is the total number of sprint phases.
+const PhaseCount = 8
+
 // AllPhases returns phases in order
 func AllPhases() []Phase {
 	return []Phase{
+		PhaseVision,
 		PhaseProblem,
 		PhaseUsers,
 		PhaseFeaturesGoals,
+		PhaseRequirements,
 		PhaseScopeAssumptions,
 		PhaseCUJs,
 		PhaseAcceptanceCriteria,
@@ -29,9 +40,11 @@ func AllPhases() []Phase {
 // String returns the display name for a phase
 func (p Phase) String() string {
 	names := []string{
+		"Vision",
 		"Problem",
 		"Users",
 		"Features + Goals",
+		"Requirements",
 		"Scope + Assumptions",
 		"Critical User Journeys",
 		"Acceptance Criteria",
@@ -90,17 +103,21 @@ func (c ConfidenceScore) Total() float64 {
 // SprintState holds the full state of a PRD sprint session
 type SprintState struct {
 	ID          string
+	SpecID      string // Intermute Spec ID (empty if no research provider)
 	ProjectPath string
 	Phase       Phase
 	Sections    map[Phase]*SectionDraft
 	Conflicts   []Conflict
 	Confidence  ConfidenceScore
 	ResearchCtx *QuickScanResult
+	Findings    []ResearchFinding // Intermute research findings
+	DeepScan    DeepScanState     // Async deep scan tracking
 	StartedAt   time.Time
 	UpdatedAt   time.Time
 }
 
-// NewSprintState creates a new sprint with all sections initialized
+// NewSprintState creates a new sprint with all sections initialized.
+// It generates a unique 32-character hex ID using crypto/rand.
 func NewSprintState(projectPath string) *SprintState {
 	sections := make(map[Phase]*SectionDraft)
 	for _, p := range AllPhases() {
@@ -110,13 +127,21 @@ func NewSprintState(projectPath string) *SprintState {
 	}
 
 	return &SprintState{
+		ID:          generateID(),
 		ProjectPath: projectPath,
-		Phase:       PhaseProblem,
+		Phase:       PhaseVision,
 		Sections:    sections,
 		Conflicts:   []Conflict{},
 		StartedAt:   time.Now(),
 		UpdatedAt:   time.Now(),
 	}
+}
+
+// generateID returns a 32-character hex string from 16 random bytes.
+func generateID() string {
+	b := make([]byte, 16)
+	_, _ = rand.Read(b)
+	return hex.EncodeToString(b)
 }
 
 // QuickScanResult holds Ranger's research findings
@@ -143,6 +168,35 @@ type HNFinding struct {
 	Comments int
 	URL      string
 	Theme    string // Extracted theme from discussion
+}
+
+// ResearchFinding represents a research insight from Intermute.
+type ResearchFinding struct {
+	ID         string
+	Title      string
+	Summary    string
+	Source     string   // URL
+	SourceType string   // "github", "hackernews", "arxiv", etc.
+	Relevance  float64  // 0.0-1.0
+	Tags       []string
+}
+
+// DeepScanStatus tracks the state of an async deep scan.
+type DeepScanStatus int
+
+const (
+	DeepScanNone       DeepScanStatus = iota // No deep scan requested
+	DeepScanRunning                          // Scan in progress
+	DeepScanComplete                         // Results ready to import
+	DeepScanFailed                           // Scan encountered an error
+)
+
+// DeepScanState holds the tracking info for an async deep scan.
+type DeepScanState struct {
+	Status    DeepScanStatus
+	ScanID    string // Intermute scan job ID
+	StartedAt time.Time
+	Error     string // Non-empty if DeepScanFailed
 }
 
 // Conflict represents a consistency issue between sections

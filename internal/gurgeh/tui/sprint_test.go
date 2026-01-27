@@ -110,6 +110,55 @@ func TestSprintViewSelectOption(t *testing.T) {
 	}
 }
 
+func TestSprintViewResearchToggle(t *testing.T) {
+	state := arbiter.NewSprintState("/tmp/test")
+	state.Sections[arbiter.PhaseProblem].Content = "Test"
+	state.Sections[arbiter.PhaseProblem].Status = arbiter.DraftProposed
+	state.Findings = []arbiter.ResearchFinding{
+		{Title: "Competitor X", SourceType: "github", Relevance: 0.85, Tags: []string{"competitive"}},
+	}
+	view := NewSprintView(state)
+
+	// Research panel hidden by default
+	output := view.View()
+	if strings.Contains(output, "Competitor X") {
+		t.Error("research panel should be hidden by default")
+	}
+
+	// Toggle with 'r'
+	newView, _ := view.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'r'}})
+	sv := newView.(*SprintView)
+	output = sv.View()
+	if !strings.Contains(output, "Competitor X") {
+		t.Error("expected research panel to show finding after toggle")
+	}
+	if !strings.Contains(output, "85%") {
+		t.Error("expected relevance percentage")
+	}
+
+	// Toggle off
+	newView, _ = sv.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'r'}})
+	sv = newView.(*SprintView)
+	output = sv.View()
+	if strings.Contains(output, "Competitor X") {
+		t.Error("research panel should be hidden after second toggle")
+	}
+}
+
+func TestSprintViewResearchDeepScanStatus(t *testing.T) {
+	state := arbiter.NewSprintState("/tmp/test")
+	state.Sections[arbiter.PhaseProblem].Content = "Test"
+	state.Sections[arbiter.PhaseProblem].Status = arbiter.DraftProposed
+	state.DeepScan = arbiter.DeepScanState{Status: arbiter.DeepScanRunning, ScanID: "scan-1"}
+	view := NewSprintView(state)
+	view.showResearch = true
+
+	output := view.View()
+	if !strings.Contains(output, "Deep scan in progress") {
+		t.Error("expected deep scan running status")
+	}
+}
+
 func TestSprintViewQuit(t *testing.T) {
 	state := arbiter.NewSprintState("/tmp/test")
 	view := NewSprintView(state)

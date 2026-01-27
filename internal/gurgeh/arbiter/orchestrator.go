@@ -10,6 +10,7 @@ import (
 	"github.com/mistakeknot/autarch/internal/gurgeh/arbiter/confidence"
 	"github.com/mistakeknot/autarch/internal/gurgeh/arbiter/consistency"
 	"github.com/mistakeknot/autarch/internal/gurgeh/arbiter/quick"
+	"github.com/mistakeknot/autarch/internal/gurgeh/specs"
 )
 
 // ErrBlocker is returned when a blocker conflict prevents advancing.
@@ -35,6 +36,7 @@ type Orchestrator struct {
 	consistency *consistency.Engine
 	confidence  *confidence.Calculator
 	scanner     *quick.Scanner
+	research    ResearchProvider // nil = no-research mode
 }
 
 // NewOrchestrator creates a new Orchestrator for the given project path.
@@ -48,18 +50,67 @@ func NewOrchestrator(projectPath string) *Orchestrator {
 	}
 }
 
+// NewOrchestratorWithResearch creates an Orchestrator with Intermute research integration.
+func NewOrchestratorWithResearch(projectPath string, research ResearchProvider) *Orchestrator {
+	o := NewOrchestrator(projectPath)
+	o.research = research
+	return o
+}
+
 // Start initializes a new sprint and generates the Problem draft.
+// If a ResearchProvider is configured, it also creates an Intermute Spec
+// to track research findings for this sprint.
 func (o *Orchestrator) Start(ctx context.Context, userInput string) (*SprintState, error) {
 	state := NewSprintState(o.projectPath)
 	projectCtx := o.readProjectContext()
 
-	draft, err := o.generator.GenerateDraft(ctx, PhaseProblem, projectCtx, userInput)
-	if err != nil {
-		return nil, fmt.Errorf("generating problem draft: %w", err)
+	// Create Intermute Spec if research provider is available
+	if o.research != nil {
+		title := userInput
+		if len(title) > 200 {
+			title = title[:200]
+		}
+		specID, err := o.research.CreateSpec(ctx, state.ID, title)
+		if err != nil {
+			// Non-fatal: sprint can proceed without research tracking
+			_ = err
+		} else {
+			state.SpecID = specID
+		}
 	}
 
-	state.Sections[PhaseProblem] = draft
+	draft, err := o.generator.GenerateDraft(ctx, PhaseVision, projectCtx, userInput)
+	if err != nil {
+		return nil, fmt.Errorf("generating vision draft: %w", err)
+	}
+
+	state.Sections[PhaseVision] = draft
 	state.UpdatedAt = time.Now()
+	return state, nil
+}
+
+// StartWithResearch initializes a sprint and imports Pollard insights.
+// Each Pollard finding is published as an Intermute insight linked to the sprint's spec.
+// Requires a ResearchProvider; returns an error if none is configured.
+func (o *Orchestrator) StartWithResearch(ctx context.Context, userInput string, pollardFindings []ResearchFinding) (*SprintState, error) {
+	state, err := o.Start(ctx, userInput)
+	if err != nil {
+		return nil, err
+	}
+
+	if o.research == nil || state.SpecID == "" || len(pollardFindings) == 0 {
+		return state, nil
+	}
+
+	for _, f := range pollardFindings {
+		_, _ = o.research.PublishInsight(ctx, state.SpecID, f)
+	}
+
+	findings, err := o.research.FetchLinkedInsights(ctx, state.SpecID)
+	if err == nil && len(findings) > 0 {
+		state.Findings = findings
+	}
+
 	return state, nil
 }
 
@@ -153,12 +204,23 @@ func (o *Orchestrator) GetHandoffOptions(state *SprintState) []HandoffOption {
 			Recommended: state.Confidence.Total() >= 0.7,
 		},
 		{
+			ID:          "spec",
+			Label:       "Export Spec",
+			Description: "Export as a structured Spec (YAML-compatible)",
+			Recommended: false,
+		},
+		{
 			ID:          "export",
 			Label:       "Export PRD",
 			Description: "Export the spec as Markdown",
 			Recommended: false,
 		},
 	}
+}
+
+// ExportSpec converts a sprint state to a structured Spec.
+func (o *Orchestrator) ExportSpec(state *SprintState) (*specs.Spec, error) {
+	return ExportToSpec(state)
 }
 
 // readProjectContext is a stub that will eventually read project metadata.
@@ -193,6 +255,23 @@ func (o *Orchestrator) checkConsistency(state *SprintState) []Conflict {
 	return conflicts
 }
 
+// researchQuality computes a 0.0–1.0 score from sprint research state.
+// Returns 0 if no research was done, uses average finding relevance if
+// Intermute findings exist, and falls back to 0.5 for legacy quick-scan only.
+func researchQuality(state *SprintState) float64 {
+	if len(state.Findings) > 0 {
+		var sum float64
+		for _, f := range state.Findings {
+			sum += f.Relevance
+		}
+		return sum / float64(len(state.Findings))
+	}
+	if state.ResearchCtx != nil {
+		return 0.5
+	}
+	return 0.0
+}
+
 // updateConfidence computes and sets the confidence score on the state.
 func (o *Orchestrator) updateConfidence(state *SprintState) {
 	phases := AllPhases()
@@ -203,7 +282,7 @@ func (o *Orchestrator) updateConfidence(state *SprintState) {
 		}
 	}
 
-	score := o.confidence.Calculate(len(phases), accepted, len(state.Conflicts), state.ResearchCtx != nil)
+	score := o.confidence.Calculate(len(phases), accepted, len(state.Conflicts), researchQuality(state))
 	state.Confidence = ConfidenceScore{
 		Completeness: score.Completeness,
 		Consistency:  score.Consistency,
@@ -235,5 +314,21 @@ func (o *Orchestrator) runQuickScan(ctx context.Context, state *SprintState) {
 		Topic:     result.Topic,
 		Summary:   result.Summary,
 		ScannedAt: result.ScannedAt,
+	}
+
+	// Publish scan result as an Intermute Insight and fetch all linked findings
+	if o.research != nil && state.SpecID != "" {
+		_, _ = o.research.PublishInsight(ctx, state.SpecID, ResearchFinding{
+			Title:      "Quick Scan: " + result.Topic,
+			Summary:    result.Summary,
+			SourceType: "quick-scan",
+			Relevance:  0.5,
+			Tags:       []string{"quick-scan"},
+		})
+
+		findings, err := o.research.FetchLinkedInsights(ctx, state.SpecID)
+		if err == nil && len(findings) > 0 {
+			state.Findings = findings
+		}
 	}
 }

@@ -397,6 +397,32 @@ func (c *Client) DeleteInsight(ctx context.Context, id string) error {
 	return c.base.DeleteInsight(ctx, id)
 }
 
+// --- Deep Scan Operations (backed by Tasks) ---
+
+// StartDeepScan creates a Task representing an async deep scan job for a spec.
+// Returns the task ID as the scan job ID.
+func (c *Client) StartDeepScan(ctx context.Context, specID string) (string, error) {
+	task, err := c.CreateTask(ctx, Task{
+		Project: c.project,
+		Title:   "deep-scan:" + specID,
+		Agent:   "pollard",
+		Status:  TaskStatusPending,
+	})
+	if err != nil {
+		return "", err
+	}
+	return task.ID, nil
+}
+
+// CheckDeepScan checks whether a deep scan task has completed.
+func (c *Client) CheckDeepScan(ctx context.Context, scanID string) (bool, error) {
+	task, err := c.GetTask(ctx, scanID)
+	if err != nil {
+		return false, err
+	}
+	return task.Status == TaskStatusDone, nil
+}
+
 // --- Session Operations ---
 
 // CreateSession creates a new agent session in Intermute
