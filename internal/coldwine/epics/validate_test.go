@@ -25,6 +25,71 @@ func TestValidateEpicsReportsErrors(t *testing.T) {
 	}
 }
 
+func TestValidateErrorsHaveSeverityAndFix(t *testing.T) {
+	list := []Epic{
+		{ID: "BAD", Title: "Auth", Status: "nope", Priority: "p9"},
+	}
+	errs := Validate(list)
+	for _, e := range errs {
+		if e.Severity == "" {
+			t.Errorf("error at %s missing severity", e.Path)
+		}
+		if e.Fix == "" {
+			t.Errorf("error at %s missing fix guidance", e.Path)
+		}
+	}
+}
+
+func TestAutoFixRepairsBadIDs(t *testing.T) {
+	list := []Epic{
+		{
+			ID: "bad-id", Title: "Auth", Status: "nope", Priority: "high",
+			Stories: []Story{
+				{ID: "also-bad", Title: "Login", Status: "xyz", Priority: "low"},
+			},
+		},
+	}
+	remaining := AutoFix(list)
+	if len(remaining) != 0 {
+		t.Fatalf("expected 0 remaining errors after auto-fix, got %d: %v", len(remaining), remaining)
+	}
+	if list[0].ID != "EPIC-001" {
+		t.Errorf("expected EPIC-001, got %s", list[0].ID)
+	}
+	if list[0].Status != StatusTodo {
+		t.Errorf("expected status todo, got %s", list[0].Status)
+	}
+	if list[0].Stories[0].ID != "EPIC-001-S01" {
+		t.Errorf("expected EPIC-001-S01, got %s", list[0].Stories[0].ID)
+	}
+}
+
+func TestAutoFixCannotFixMissingTitle(t *testing.T) {
+	list := []Epic{
+		{ID: "EPIC-001", Title: "", Status: StatusTodo, Priority: PriorityP1},
+	}
+	remaining := AutoFix(list)
+	if len(remaining) == 0 {
+		t.Fatal("expected remaining errors for missing title")
+	}
+	if !HasFatalErrors(remaining) {
+		t.Error("missing title should be fatal")
+	}
+}
+
+func TestFormatValidationErrorsIncludesFix(t *testing.T) {
+	errs := []ValidationError{
+		{Path: "epics[0].id", Message: "invalid", Severity: SeverityFixable, Fix: "use EPIC-NNN"},
+	}
+	out := FormatValidationErrors(errs)
+	if !strings.Contains(out, "[FIXABLE]") {
+		t.Error("expected [FIXABLE] prefix")
+	}
+	if !strings.Contains(out, "fix: use EPIC-NNN") {
+		t.Error("expected fix guidance in output")
+	}
+}
+
 func TestWriteValidationReport(t *testing.T) {
 	dir := t.TempDir()
 	errList := []ValidationError{{Path: "epics[0].id", Message: "invalid epic id"}}

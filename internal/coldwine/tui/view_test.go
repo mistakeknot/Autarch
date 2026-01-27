@@ -21,9 +21,9 @@ func TestViewIncludesReviewHeader(t *testing.T) {
 
 func TestViewIncludesHelpFooter(t *testing.T) {
 	m := NewModel()
-	out := m.View()
-	if !strings.Contains(out, "KEYS: n new task") {
-		t.Fatalf("expected help footer, got %q", out)
+	out := stripANSI(m.View())
+	if !strings.Contains(out, "n new") || !strings.Contains(out, "? help") {
+		t.Fatalf("expected help footer with key hints, got %q", out)
 	}
 }
 

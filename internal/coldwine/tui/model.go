@@ -614,18 +614,16 @@ func (m Model) View() string {
 		return fitToHeight(composed, m.Height)
 	}
 	if m.PaletteOpen {
-		return render("COMMAND PALETTE\n\nType to search (stub)\n\n[esc] close\n")
+		return render(renderOverlayCard("Command Palette", "Type to search (stub)", []keyDesc{{"esc", "close"}}))
 	}
 	if m.SettingsOpen {
-		return render("SETTINGS\n\nSettings UI (stub)\n\n[esc] close\n")
+		return render(renderOverlayCard("Settings", "Settings UI (stub)", []keyDesc{{"esc", "close"}}))
 	}
 	if m.HelpOpen {
-		return render("HELP\n\nHelp modal (stub)\n\n[esc] close\n")
+		return render(renderHelpOverlay())
 	}
 	if m.QuickTaskMode {
-		return render("NEW QUICK TASK\n\n" +
-			"Describe task:\n" + m.QuickTaskInput + "\n\n" +
-			"[enter] create  [esc] cancel\n")
+		return render(renderOverlayCard("New Quick Task", "Describe task:\n"+m.QuickTaskInput, []keyDesc{{"enter", "create"}, {"esc", "cancel"}}))
 	}
 	if m.ViewMode == ViewReview {
 		if m.Review.ShowDiffs {
@@ -823,13 +821,21 @@ func (m Model) View() string {
 	out += lipgloss.JoinHorizontal(lipgloss.Top, leftView, "  ", rightView)
 
 	if len(m.TaskList) == 0 {
-		out += "\nKEYS: n new task, i init, ? help\n"
+		out += "\n" + renderKeyHelpLine([]keyDesc{{"n", "new"}, {"i", "init"}, {"?", "help"}}) + "\n"
 	} else {
-		keysLine := "n new task, s start, x stop, r review, c coord, / search, a/o/v/d filter, tab focus, ? help"
-		if m.RightTab == RightTabCoord && m.FocusPane == FocusDetail {
-			keysLine = "n new task, s start, x stop, r recipients, u urgent, c coord, / search, a/o/v/d filter, tab focus, ? help"
+		keys := []keyDesc{
+			{"n", "new"}, {"s", "start"}, {"x", "stop"}, {"r", "review"},
+			{"c", "coord"}, {"/", "search"}, {"a/o/v/d", "filter"},
+			{"tab", "focus"}, {"?", "help"},
 		}
-		out += "\nKEYS: " + keysLine + "\n"
+		if m.RightTab == RightTabCoord && m.FocusPane == FocusDetail {
+			keys = []keyDesc{
+				{"n", "new"}, {"s", "start"}, {"x", "stop"}, {"r", "recipients"},
+				{"u", "urgent"}, {"c", "coord"}, {"/", "search"}, {"a/o/v/d", "filter"},
+				{"tab", "focus"}, {"?", "help"},
+			}
+		}
+		out += "\n" + renderKeyHelpLine(keys) + "\n"
 	}
 	return render(out)
 }

@@ -31,24 +31,37 @@ func BuildPrompt(input Input) Prompt {
 	}
 }
 
+// GenerateEpics runs the generator and returns epics.
+// If the generator fails or returns empty, it returns the error
+// rather than silently falling back — callers should handle the error
+// and decide whether to retry or use FallbackEpics.
 func GenerateEpics(gen Generator, input Input) (Result, error) {
 	out, err := gen.Generate(context.Background(), input)
-	if err == nil && len(out.Epics) > 0 {
-		return out, nil
+	if err != nil {
+		return Result{}, fmt.Errorf("epic generation: %w", err)
 	}
-	fallback := epics.Epic{
-		ID:       "EPIC-001",
-		Title:    "Initial backlog",
-		Status:   epics.StatusTodo,
-		Priority: epics.PriorityP2,
-		Stories: []epics.Story{
-			{
-				ID:       "EPIC-001-S01",
-				Title:    "Inventory existing tasks",
-				Status:   epics.StatusTodo,
-				Priority: epics.PriorityP2,
+	if len(out.Epics) == 0 {
+		return Result{}, fmt.Errorf("epic generation returned no epics")
+	}
+	return out, nil
+}
+
+// FallbackEpics returns a minimal starter backlog when generation fails.
+func FallbackEpics() []epics.Epic {
+	return []epics.Epic{
+		{
+			ID:       "EPIC-001",
+			Title:    "Initial backlog",
+			Status:   epics.StatusTodo,
+			Priority: epics.PriorityP2,
+			Stories: []epics.Story{
+				{
+					ID:       "EPIC-001-S01",
+					Title:    "Inventory existing tasks",
+					Status:   epics.StatusTodo,
+					Priority: epics.PriorityP2,
+				},
 			},
 		},
 	}
-	return Result{Epics: []epics.Epic{fallback}}, nil
 }

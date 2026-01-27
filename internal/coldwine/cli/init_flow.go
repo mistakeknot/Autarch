@@ -86,7 +86,11 @@ func runInit(cmdOut io.Writer, in io.Reader, opts initOptions) error {
 		Repo:    root,
 	})
 	if err != nil {
-		return err
+		fmt.Fprintf(cmdOut, "⚠  Agent generation failed: %v\n", err)
+		if !promptConfirm(reader, cmdOut, "Use fallback starter backlog? [Y/n]", true) {
+			return err
+		}
+		result = initflow.Result{Epics: initflow.FallbackEpics()}
 	}
 
 	if !promptConfirm(reader, cmdOut, "Write epic specs now? [Y/n]", true) {
@@ -324,9 +328,49 @@ func parseAndValidateEpics(raw []byte, planDir string) ([]epics.Epic, error) {
 	if len(errList) == 0 {
 		return list, nil
 	}
+
+	// Attempt auto-fix for fixable errors (bad IDs, missing status/priority)
+	if !epics.HasFatalErrors(errList) {
+		remaining := epics.AutoFix(list)
+		if len(remaining) == 0 {
+			return list, nil
+		}
+	}
+
+	// Write report with guidance
 	outPath, errPath, writeErr := epics.WriteValidationReport(planDir, raw, errList)
 	if writeErr != nil {
 		return nil, writeErr
 	}
-	return nil, fmt.Errorf("agent output invalid; wrote %s and %s", outPath, errPath)
+	return nil, &InitValidationError{
+		Errors:  errList,
+		OutPath: outPath,
+		ErrPath: errPath,
+	}
+}
+
+// InitValidationError provides structured validation failure information.
+type InitValidationError struct {
+	Errors  []epics.ValidationError
+	OutPath string
+	ErrPath string
+}
+
+func (e *InitValidationError) Error() string {
+	fatal := 0
+	fixable := 0
+	for _, err := range e.Errors {
+		if err.Severity == epics.SeverityFatal {
+			fatal++
+		} else {
+			fixable++
+		}
+	}
+	var b strings.Builder
+	fmt.Fprintf(&b, "validation failed: %d error(s) (%d fatal, %d fixable)\n", len(e.Errors), fatal, fixable)
+	fmt.Fprintf(&b, "  raw output: %s\n", e.OutPath)
+	fmt.Fprintf(&b, "  error log:  %s\n", e.ErrPath)
+	b.WriteString("\nErrors:\n")
+	b.WriteString(epics.FormatValidationErrors(e.Errors))
+	return b.String()
 }
