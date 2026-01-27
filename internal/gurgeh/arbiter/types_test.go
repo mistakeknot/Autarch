@@ -7,11 +7,11 @@ import (
 func TestNewSprintState(t *testing.T) {
 	state := NewSprintState("test-project")
 
-	if state.Phase != PhaseProblem {
-		t.Errorf("expected initial phase %v, got %v", PhaseProblem, state.Phase)
+	if state.Phase != PhaseVision {
+		t.Errorf("expected initial phase %v, got %v", PhaseVision, state.Phase)
 	}
-	if len(state.Sections) != 6 {
-		t.Errorf("expected 6 sections, got %d", len(state.Sections))
+	if len(state.Sections) != PhaseCount {
+		t.Errorf("expected %d sections, got %d", PhaseCount, len(state.Sections))
 	}
 	if state.Confidence.Total() != 0 {
 		t.Errorf("expected initial confidence 0, got %f", state.Confidence.Total())
@@ -40,9 +40,11 @@ func TestPhaseString(t *testing.T) {
 func TestPhaseOrder(t *testing.T) {
 	phases := AllPhases()
 	expected := []Phase{
+		PhaseVision,
 		PhaseProblem,
 		PhaseUsers,
 		PhaseFeaturesGoals,
+		PhaseRequirements,
 		PhaseScopeAssumptions,
 		PhaseCUJs,
 		PhaseAcceptanceCriteria,

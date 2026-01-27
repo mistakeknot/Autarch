@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"regexp"
@@ -17,7 +18,6 @@ import (
 	"github.com/mistakeknot/autarch/internal/gurgeh/research"
 	"github.com/mistakeknot/autarch/internal/gurgeh/specs"
 	"github.com/mistakeknot/autarch/internal/gurgeh/suggestions"
-	pkgtui "github.com/mistakeknot/autarch/pkg/tui"
 )
 
 type Model struct {
@@ -45,14 +45,8 @@ type Model struct {
 	confirmID           string
 	pendingPrevStatus   string
 	lastAction          *LastAction
-	sprint              *SprintView
-	interview           interviewState
-	suggestions         suggestionsState
-	chatPanel           *pkgtui.ChatPanel
-	docPanel            *pkgtui.DocPanel
-	splitLayout         *pkgtui.SplitLayout
-	interviewFocus      string
-	interviewLayoutSwap bool
+	sprint      *SprintView
+	suggestions suggestionsState
 }
 
 func NewModel() Model {
@@ -64,7 +58,7 @@ func NewModel() Model {
 		model := Model{err: err.Error(), root: cwd, mode: "list", router: Router{active: "list"}, width: 120, height: 40, mdCache: NewMarkdownCache(), focus: "LIST"}
 		model.searchOverlay = NewSearchOverlay()
 		model.groupExpanded = defaultExpanded()
-		model.initInterviewComponents()
+	
 		if state, err := LoadUIState(project.StatePath(cwd)); err == nil {
 			if state.Expanded != nil {
 				model.groupExpanded = state.Expanded
@@ -91,7 +85,7 @@ func NewModel() Model {
 	model.searchOverlay = NewSearchOverlay()
 	model.searchOverlay.SetItems(list)
 	model.groupExpanded = defaultExpanded()
-	model.initInterviewComponents()
+
 	if stateErr == nil {
 		if state.Expanded != nil {
 			model.groupExpanded = state.Expanded
@@ -182,19 +176,6 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.sprint = newSprint.(*SprintView)
 			return m, cmd
 		}
-		if m.mode == "interview" {
-			switch key {
-			case "esc":
-				m.exitInterview()
-				m.status = "Interview canceled"
-				return m, nil
-			case "q", "ctrl+c":
-				return m, tea.Quit
-			default:
-				m.handleInterviewInput(msg)
-			}
-			return m, nil
-		}
 		if m.mode == "suggestions" {
 			switch key {
 			case "q", "ctrl+c":
@@ -252,7 +233,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.overlay = "tutorial"
 		case "g":
 			if m.err == "" {
-				m.startInterviewForSelected()
+				m.startSprintForSelected()
 			}
 		case "n":
 			if m.err == "" {
@@ -325,13 +306,6 @@ func (m Model) View() string {
 		title = "SPRINT"
 		focus = "SPRINT"
 		body = m.sprint.View()
-	} else if m.mode == "interview" {
-		title = "INTERVIEW"
-		if strings.TrimSpace(m.interviewFocus) == "" {
-			m.interviewFocus = "question"
-		}
-		focus = strings.ToUpper(m.interviewFocus)
-		body = m.renderInterviewLayout(m.width, m.height-2)
 	} else if m.mode == "suggestions" {
 		title = "SUGGESTIONS"
 		left := []string{"SUGGESTIONS"}
@@ -349,7 +323,7 @@ func (m Model) View() string {
 		case LayoutModeStacked:
 			body = renderStackedLayout("PRDs", listContent, "DETAILS", detailContent, m.width, contentHeight)
 		default:
-			body = renderDualColumnLayout("PRDs", listContent, "DETAILS", detailContent, m.width, contentHeight)
+			body = renderDualColumnLayoutFocused("PRDs", listContent, "DETAILS", detailContent, m.width, contentHeight, m.focus)
 		}
 	}
 	header := renderHeader(title, focus)
@@ -595,40 +569,18 @@ func (m *Model) runSuggestionsForSelected() {
 }
 
 func (m *Model) startSprint() {
-	state := arbiter.NewSprintState(m.root)
+	orch := arbiter.NewOrchestrator(m.root)
+	state, err := orch.Start(context.Background(), "")
+	if err != nil {
+		m.status = "Sprint failed: " + err.Error()
+		return
+	}
 	m.sprint = NewSprintView(state)
 	m.mode = "sprint"
 }
 
-func (m *Model) startNewInterview() {
-	if m.root == "" {
-		m.status = "Not initialized"
-		return
-	}
-	specDir := project.SpecsDir(m.root)
-	if err := os.MkdirAll(specDir, 0o755); err != nil {
-		m.status = "New PRD failed: " + err.Error()
-		return
-	}
-	path, id, err := specs.CreateBlank(specDir, time.Now())
-	if err != nil {
-		m.status = "New PRD failed: " + err.Error()
-		return
-	}
-	spec, err := specs.LoadSpec(path)
-	if err != nil {
-		m.status = "New PRD failed: " + err.Error()
-		return
-	}
-	m.reloadSummaries()
-	m.selected = selectedIndexFromID(m.flatItems, id)
-	m.viewOffset = clampViewOffset(m.selected, m.viewOffset, m.listContentHeight(), len(m.flatItems))
-	m.status = "Created " + id
-	m.enterInterview(spec, path)
-	m.interview.bootstrapEligible = true
-}
 
-func (m *Model) startInterviewForSelected() {
+func (m *Model) startSprintForSelected() {
 	sel := m.selectedSummary()
 	if sel == nil {
 		m.status = "Select a PRD first"
@@ -639,83 +591,12 @@ func (m *Model) startInterviewForSelected() {
 		m.status = "Load failed: " + err.Error()
 		return
 	}
-	m.enterInterview(spec, sel.Path)
-}
-
-func (m *Model) enterInterview(spec specs.Spec, path string) {
-	m.mode = "interview"
-	m.interview = startInterview(m.root, spec, path)
-	m.interviewFocus = "question"
-
-	// Initialize shared interview components if not already done
-	if m.chatPanel == nil {
-		m.initInterviewComponents()
-	}
-
-	// Clear previous interview state
-	m.chatPanel.ClearMessages()
-	m.chatPanel.ClearComposer()
-
-	// Load the current answer into the composer
-	m.chatPanel.SetValue(m.interview.answerForStep(m.interview.step))
-	m.updateInterviewDocPanel()
-}
-
-// initInterviewComponents initializes the shared TUI components for the interview view.
-func (m *Model) initInterviewComponents() {
-	m.chatPanel = pkgtui.NewChatPanel()
-	m.chatPanel.SetComposerHint("enter: send  ctrl+j: newline  [/]: nav  ctrl+o: open")
-
-	m.docPanel = pkgtui.NewDocPanel()
-
-	m.splitLayout = pkgtui.NewSplitLayout(0.66) // 2/3 left, 1/3 right
-	m.splitLayout.SetMinWidth(100)              // Fall back to stacked below 100 chars
-}
-
-// updateInterviewDocPanel updates the document panel content for the current interview step.
-func (m *Model) updateInterviewDocPanel() {
-	if m.docPanel == nil {
-		return
-	}
-
-	prompt, stepNum, total := interviewStepInfo(m.interview.step)
-
-	m.docPanel.ClearSections()
-	m.docPanel.SetTitle(fmt.Sprintf("Step %d/%d: %s", stepNum, total, prompt.title))
-	m.docPanel.SetSubtitle(prompt.question)
-
-	// Add options section for option steps
-	if len(prompt.options) > 0 {
-		var optContent string
-		for idx, opt := range prompt.options {
-			marker := "  "
-			if idx == m.interview.optionIndex {
-				marker = "> "
-			}
-			optContent += marker + opt + "\n"
-		}
-		m.docPanel.AddSection(pkgtui.InfoSection("Options", strings.TrimRight(optContent, "\n")))
-	}
-
-	// Add draft section if present
-	if prompt.expectsText {
-		if draft := strings.TrimSpace(m.interview.drafts[m.interview.step]); draft != "" {
-			m.docPanel.AddSection(pkgtui.InfoSection("Draft", draft))
-		}
-	}
-
-	// Add context for specific steps
-	switch m.interview.step {
-	case stepScanPrompt:
-		if strings.TrimSpace(m.interview.scanSummary) != "" {
-			m.docPanel.AddSection(pkgtui.InfoSection("Context", m.interview.scanSummary))
-		}
-	case stepDraftConfirm:
-		m.docPanel.AddSection(pkgtui.InfoSection("Status", "Blank PRD ready."))
-	}
-
-	// Update composer title
-	m.chatPanel.SetComposerTitle(prompt.title)
+	// Migrate existing spec into a sprint state
+	orch := arbiter.NewOrchestrator(m.root)
+	state := arbiter.MigrateFromSpec(&spec, sel.Path)
+	_ = orch // orchestrator available for future phase advancement
+	m.sprint = NewSprintView(state)
+	m.mode = "sprint"
 }
 
 func formatCompleteness(spec specs.Spec) string {
@@ -1023,7 +904,7 @@ func visibleWidth(s string) int {
 }
 
 func defaultKeys() string {
-	return "j/k move  enter toggle  / search  tab focus  n new  g interview  [ ] prev/next  ctrl+o open  \\ swap  a archive  d delete  u undo  h archived  r research  p suggestions  s review  ? help  q quit"
+	return "j/k move  enter toggle  / search  tab focus  n new  g sprint  [ ] prev/next  ctrl+o open  \\ swap  a archive  d delete  u undo  h archived  r research  p suggestions  s review  ? help  q quit"
 }
 
 func padBodyToHeight(body string, height int) string {

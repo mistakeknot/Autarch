@@ -200,13 +200,13 @@ func TestFocusIndicatorShown(t *testing.T) {
 	withTempRoot(t, func(root string) {
 		m := NewModel()
 		out := stripANSI(m.View())
-		if !strings.Contains(out, "[LIST]") {
-			t.Fatalf("expected focus indicator")
+		if !strings.Contains(out, "PRDs") {
+			t.Fatalf("expected PRDs tab in header, got: %s", out[:min(len(out), 200)])
 		}
 		m = pressKey(m, "tab")
 		out = stripANSI(m.View())
-		if !strings.Contains(out, "[DETAIL]") {
-			t.Fatalf("expected detail focus indicator")
+		if !strings.Contains(out, "Detail") {
+			t.Fatalf("expected Detail tab in header, got: %s", out[:min(len(out), 200)])
 		}
 	})
 }

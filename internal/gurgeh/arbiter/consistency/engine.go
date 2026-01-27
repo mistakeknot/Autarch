@@ -34,8 +34,8 @@ func NewEngine() *Engine {
 func (e *Engine) Check(sections map[int]*SectionInfo) []Conflict {
 	var conflicts []Conflict
 
-	problem := sections[0]    // PhaseProblem
-	features := sections[2]   // PhaseFeaturesGoals
+	problem := sections[1]    // PhaseProblem (after PhaseVision=0)
+	features := sections[3]   // PhaseFeaturesGoals (after PhaseVision=0, PhaseProblem=1, PhaseUsers=2)
 
 	if problem != nil && features != nil &&
 		problem.Accepted && features.Accepted {
@@ -55,7 +55,7 @@ func (e *Engine) checkUserFeatureAlignment(problem, features *SectionInfo) []Con
 			TypeCode: 0, // ConflictUserFeature
 			Severity: 0, // SeverityBlocker
 			Message:  "Feature targets enterprise users but problem describes solo/individual users",
-			Sections: []int{0, 2},
+			Sections: []int{1, 3},
 		}}
 	}
 

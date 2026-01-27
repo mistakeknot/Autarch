@@ -17,12 +17,16 @@ func TestEmptyStateHasZeroConfidence(t *testing.T) {
 
 func TestCompleteStateHasHighConfidence(t *testing.T) {
 	state := arbiter.NewSprintState("/tmp/test")
+	state.Sections[arbiter.PhaseVision].Content = "A world where automation handles the boring parts of software development"
+	state.Sections[arbiter.PhaseVision].Status = arbiter.DraftAccepted
 	state.Sections[arbiter.PhaseProblem].Content = "Users waste time on repetitive tasks"
 	state.Sections[arbiter.PhaseProblem].Status = arbiter.DraftAccepted
 	state.Sections[arbiter.PhaseUsers].Content = "Software developers, 25-45, building side projects"
 	state.Sections[arbiter.PhaseUsers].Status = arbiter.DraftAccepted
 	state.Sections[arbiter.PhaseFeaturesGoals].Content = "Features:\n- Automated task scheduling\n- Integration with GitHub\nGoals:\n- Reduce manual work by 50%"
 	state.Sections[arbiter.PhaseFeaturesGoals].Status = arbiter.DraftAccepted
+	state.Sections[arbiter.PhaseRequirements].Content = "- Must support GitHub Actions\n- Must handle 100 concurrent users"
+	state.Sections[arbiter.PhaseRequirements].Status = arbiter.DraftAccepted
 	state.Sections[arbiter.PhaseScopeAssumptions].Content = "In scope: Core automation\nOut of scope: Mobile app\nAssumptions: Users have GitHub accounts"
 	state.Sections[arbiter.PhaseScopeAssumptions].Status = arbiter.DraftAccepted
 	state.Sections[arbiter.PhaseCUJs].Content = "CUJ 1: User connects GitHub → creates first automation → sees results"

@@ -2,6 +2,7 @@ package commands
 
 import (
 	"bufio"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -11,6 +12,7 @@ import (
 	"time"
 
 	"github.com/mistakeknot/autarch/internal/gurgeh/agents"
+	"github.com/mistakeknot/autarch/internal/gurgeh/arbiter"
 	"github.com/mistakeknot/autarch/internal/gurgeh/config"
 	praudePlan "github.com/mistakeknot/autarch/internal/gurgeh/plan"
 	"github.com/mistakeknot/autarch/internal/gurgeh/project"
@@ -43,6 +45,7 @@ func InterviewCmd() *cobra.Command {
 		skipResearch  bool
 		configFile    string
 		planMode      bool
+		sprintMode    bool
 	)
 	cmd := &cobra.Command{
 		Use:   "interview",
@@ -105,6 +108,11 @@ The config file format:
 			// Handle plan mode
 			if planMode {
 				return runInterviewPlan(cmd.OutOrStdout(), root, interviewCfg)
+			}
+
+			// Handle sprint mode (Arbiter-based)
+			if sprintMode || (nonInteractive && interviewCfg.Vision != "") {
+				return runArbiterSprint(cmd.OutOrStdout(), root, interviewCfg)
 			}
 
 			reader := bufio.NewReader(cmd.InOrStdin())
@@ -246,7 +254,74 @@ The config file format:
 	cmd.Flags().BoolVar(&skipResearch, "skip-research", false, "Skip research step")
 	cmd.Flags().StringVar(&configFile, "config", "", "YAML config file with interview answers")
 	cmd.Flags().BoolVar(&planMode, "plan", false, "Generate plan JSON instead of executing")
+	cmd.Flags().BoolVar(&sprintMode, "sprint", false, "Use Arbiter sprint engine (propose-first flow)")
 	return cmd
+}
+
+// runArbiterSprint uses the Arbiter orchestrator to programmatically walk through
+// all phases, accepting each draft automatically. Outputs the resulting spec.
+func runArbiterSprint(out io.Writer, root string, cfg InterviewConfig) error {
+	orch := arbiter.NewOrchestrator(root)
+	ctx := context.Background()
+
+	state, err := orch.Start(ctx, cfg.Vision)
+	if err != nil {
+		return fmt.Errorf("starting sprint: %w", err)
+	}
+
+	// Accept vision and advance through all phases
+	state = orch.AcceptDraft(state)
+
+	for {
+		state, err = orch.Advance(ctx, state)
+		if err != nil {
+			return fmt.Errorf("advancing sprint: %w", err)
+		}
+
+		// Inject known content for specific phases
+		switch state.Phase {
+		case arbiter.PhaseProblem:
+			if cfg.Problem != "" {
+				orch.ReviseDraft(state, cfg.Problem, "cli input")
+			}
+		case arbiter.PhaseUsers:
+			if cfg.Users != "" {
+				orch.ReviseDraft(state, cfg.Users, "cli input")
+			}
+		case arbiter.PhaseRequirements:
+			if len(cfg.Requirements) > 0 {
+				orch.ReviseDraft(state, strings.Join(cfg.Requirements, "\n- "), "cli input")
+			}
+		}
+
+		state = orch.AcceptDraft(state)
+
+		// Check if we've reached the last phase
+		phases := arbiter.AllPhases()
+		if state.Phase == phases[len(phases)-1] {
+			break
+		}
+	}
+
+	// Export to spec
+	spec, err := orch.ExportSpec(state)
+	if err != nil {
+		return fmt.Errorf("exporting spec: %w", err)
+	}
+
+	path, id, warnings, err := writeSpec(root, *spec)
+	if err != nil {
+		return err
+	}
+	fmt.Fprintf(out, "Created %s at %s (via Arbiter sprint)\n", id, path)
+	if len(warnings) > 0 {
+		fmt.Fprintln(out, "Validation warnings:")
+		for _, w := range warnings {
+			fmt.Fprintln(out, "- "+w)
+		}
+	}
+	fmt.Fprintf(out, "Confidence: %.0f%%\n", state.Confidence.Total()*100)
+	return nil
 }
 
 func autoApplySuggestions(root, id string, cfg config.Config, agent string, out io.Writer) error {

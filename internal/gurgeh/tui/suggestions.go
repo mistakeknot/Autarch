@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"fmt"
 	"path/filepath"
 
 	"github.com/mistakeknot/autarch/internal/gurgeh/git"
@@ -113,5 +114,5 @@ func countToggle(accepted bool, count int) string {
 	if accepted {
 		label = "[accept]"
 	}
-	return label + " " + itoa(count)
+	return label + " " + fmt.Sprint(count)
 }

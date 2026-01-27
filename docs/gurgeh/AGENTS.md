@@ -95,15 +95,19 @@ The Arbiter manages guided PRD creation through sprint state, consistency checki
 ### Sprint State Machine
 
 ```
-Phase flow: Discovery → Definition → Validation → Refinement → Review → Complete
+Phase flow: Vision → Problem → Users → Features+Goals → Requirements → Scope+Assumptions → CUJs → Acceptance Criteria
 ```
 
 | Type | Description |
 |------|-------------|
 | `SprintState` | Active sprint with phase, sections, drafts |
-| `Phase` | 6-stage enum (Discovery → Complete) |
-| `DraftStatus` | Section completion: Empty, Draft, Review, Final |
-| `SectionDraft` | Content + status + confidence for each PRD section |
+| `Phase` | 8-stage enum (Vision → AcceptanceCriteria) |
+| `DraftStatus` | Section completion: Pending, Proposed, Accepted, NeedsRevision |
+| `SectionDraft` | Content + options + status + user edits for each PRD section |
+
+### Export
+
+`ExportToSpec()` converts a completed `SprintState` back to a `specs.Spec`, enabling round-trip migration. `MigrateFromSpec()` converts in the other direction.
 
 **Persistence:** YAML files in `.gurgeh/sprints/`. Auto-saves on state transitions.
 

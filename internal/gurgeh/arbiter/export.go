@@ -157,13 +157,16 @@ func parseCUJs(content string) []specs.CriticalUserJourney {
 
 	for _, line := range strings.Split(content, "\n") {
 		trimmed := strings.TrimSpace(line)
-		if strings.HasPrefix(trimmed, "### ") || strings.HasPrefix(trimmed, "**") && strings.Contains(trimmed, "(Priority:") {
+		if strings.HasPrefix(trimmed, "### ") || (strings.HasPrefix(trimmed, "**") && strings.Contains(trimmed, "(Priority:")) {
 			if current != nil {
 				cujs = append(cujs, *current)
 			}
 			title := strings.TrimPrefix(trimmed, "### ")
 			title = strings.TrimPrefix(title, "**")
-			title = strings.TrimSuffix(title, "**")
+			// Remove trailing ** before parsing priority
+			if idx := strings.Index(title, "**"); idx != -1 {
+				title = title[:idx] + title[idx+2:]
+			}
 			// Extract priority if present
 			if idx := strings.Index(title, "(Priority:"); idx != -1 {
 				prio := strings.TrimSpace(title[idx+len("(Priority:"):])

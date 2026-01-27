@@ -5,8 +5,15 @@ import (
 	"path/filepath"
 	"testing"
 
+	tea "github.com/charmbracelet/bubbletea"
 	"github.com/mistakeknot/autarch/internal/gurgeh/project"
 )
+
+func pressKey(m Model, key string) Model {
+	msg := tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(key)}
+	newM, _ := m.Update(msg)
+	return newM.(Model)
+}
 
 func withTempRoot(t *testing.T, fn func(root string)) {
 	t.Helper()

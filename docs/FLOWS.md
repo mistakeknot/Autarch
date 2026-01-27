@@ -56,19 +56,23 @@ A new project moves through Gurgeh (spec creation) → Coldwine (task generation
 ```mermaid
 flowchart TD
     A[User runs autarch or gurgeh] --> B[Kickoff View]
-    B -->|project name + description| C[Interview View]
-    C -->|optional: scan repo| C1[Codebase scan → pre-fill answers]
-    C1 --> C
-    C -->|answer questions| D{Arbiter Spec Sprint}
-    D -->|Phase 1| D1[Problem draft]
+    B -->|project name + description| D{Arbiter Spec Sprint}
+    B -->|optional: scan repo| B1[Codebase scan → pre-fill vision]
+    B1 --> D
+    D -->|Phase 1| D0[Vision draft]
+    D0 -->|accept/revise| D1[Problem draft]
     D1 -->|accept/revise| D2[Users draft]
     D2 -->|accept/revise| D3[Features & Goals draft]
     D3 -->|triggers| R[Pollard Quick Scan]
     R -->|GitHub + HN findings| D3
-    D3 -->|accept/revise| D4[Scope & Assumptions draft]
+    D3 -->|accept/revise| D3b[Requirements draft]
+    D3b -->|accept/revise| D4[Scope & Assumptions draft]
     D4 -->|accept/revise| D5[CUJs draft]
     D5 -->|accept/revise| D6[Acceptance Criteria draft]
-    D6 --> E[Spec Summary View]
+    D6 --> DH{Handoff Options}
+    DH -->|Export Spec| E[Spec Summary View]
+    DH -->|Deep Research| PR[Pollard Deep Scan]
+    DH -->|Generate Tasks| TC[Coldwine Task Gen]
     E -->|review complete spec| F[Epic Review View]
     F -->|review/edit epics| G[Task Review View]
     G -->|review/edit tasks| H[Onboarding Complete → Dashboard]
@@ -81,14 +85,9 @@ flowchart TD
    - `UnifiedApp` creates an `Initiative` via `pkg/contract`.
    - Emits `EventInitiativeCreated` on the event spine.
 
-2. **Interview** (`internal/gurgeh/tui/interview.go`)
-   - 11-step interview state machine (scan → draft → bootstrap → vision → users → problem → goals → non-goals → assumptions → requirements → research).
-   - Each step uses a dual-pane layout: form on left, chat transcript on right.
-   - **Agent iteration loop**: user enters answer → AI agent refines → user accepts or re-enters.
-   - Optional repo scan pre-fills answers from codebase analysis.
-
-3. **Arbiter Spec Sprint** (`internal/gurgeh/arbiter/orchestrator.go`)
-   - Six-phase propose-first flow: Problem → Users → Features/Goals → Scope/Assumptions → CUJs → Acceptance Criteria.
+2. **Arbiter Spec Sprint** (`internal/gurgeh/arbiter/orchestrator.go`)
+   - Eight-phase propose-first flow: Vision → Problem → Users → Features/Goals → Requirements → Scope/Assumptions → CUJs → Acceptance Criteria.
+   - Replaces the legacy 11-step interview state machine.
    - Each phase produces a `SectionDraft` with 2–3 alternative phrasings (`Options`).
    - User can `AcceptDraft()` or `ReviseDraft()` with tracked edit history.
    - **Consistency engine** (`arbiter/consistency/`) validates cross-section coherence after each advance.

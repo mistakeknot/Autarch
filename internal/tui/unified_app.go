@@ -62,7 +62,7 @@ type UnifiedApp struct {
 
 	// View factories (injected from main.go)
 	createKickoffView      func() View
-	createInterviewView    func([]InterviewQuestion, *research.Coordinator) View
+	createArbiterView      func(*research.Coordinator) View
 	createSpecSummaryView  func(*SpecSummary, *research.Coordinator) View
 	createEpicReviewView   func([]epics.EpicProposal) View
 	createTaskReviewView   func([]tasks.TaskProposal) View
@@ -93,10 +93,14 @@ func NewUnifiedApp(client *autarch.Client) *UnifiedApp {
 	return app
 }
 
+// SetArbiterViewFactory sets the factory for the Arbiter sprint view (replaces interview).
+func (a *UnifiedApp) SetArbiterViewFactory(factory func(*research.Coordinator) View) {
+	a.createArbiterView = factory
+}
+
 // SetViewFactories sets the factory functions for creating views
 func (a *UnifiedApp) SetViewFactories(
 	kickoff func() View,
-	interview func([]InterviewQuestion, *research.Coordinator) View,
 	specSummary func(*SpecSummary, *research.Coordinator) View,
 	epicReview func([]epics.EpicProposal) View,
 	taskReview func([]tasks.TaskProposal) View,
@@ -104,7 +108,6 @@ func (a *UnifiedApp) SetViewFactories(
 	dashViews func(*autarch.Client) []View,
 ) {
 	a.createKickoffView = kickoff
-	a.createInterviewView = interview
 	a.createSpecSummaryView = specSummary
 	a.createEpicReviewView = epicReview
 	a.createTaskReviewView = taskReview
@@ -306,16 +309,15 @@ func (a *UnifiedApp) handleProjectCreated(msg ProjectCreatedMsg) tea.Cmd {
 	a.projectDesc = msg.Description
 	a.interviewAnswers = make(map[string]string)
 
-	// Transition to interview
+	// Transition to interview/arbiter
 	a.onboardingState = OnboardingInterview
 	a.breadcrumb.SetCurrent(OnboardingInterview)
 
-	// Create interview view with default questions
-	if a.createInterviewView != nil {
-		questions := DefaultInterviewQuestions()
-		a.currentView = a.createInterviewView(questions, a.researchCoord)
+	// Prefer Arbiter view if available
+	if a.createArbiterView != nil {
+		a.currentView = a.createArbiterView(a.researchCoord)
 
-		// Set up callback for when interview completes
+		// Set up callback for when sprint completes (backward-compatible)
 		if iv, ok := a.currentView.(InterviewViewSetter); ok {
 			iv.SetCompleteCallback(func(answers map[string]string) tea.Cmd {
 				return func() tea.Msg {
@@ -323,7 +325,7 @@ func (a *UnifiedApp) handleProjectCreated(msg ProjectCreatedMsg) tea.Cmd {
 				}
 			})
 
-			// If we have scan results, use them as suggestions immediately
+			// If we have scan results, use them as suggestions
 			if msg.ScanResult != nil {
 				suggestions := make(map[string]string)
 				if msg.ScanResult.Vision != "" {
@@ -335,30 +337,18 @@ func (a *UnifiedApp) handleProjectCreated(msg ProjectCreatedMsg) tea.Cmd {
 				if msg.ScanResult.Problem != "" {
 					suggestions["problem"] = msg.ScanResult.Problem
 				}
-				if msg.ScanResult.Platform != "" {
-					suggestions["platform"] = msg.ScanResult.Platform
-				}
-				if msg.ScanResult.Language != "" {
-					suggestions["language"] = msg.ScanResult.Language
-				}
-				if len(msg.ScanResult.Requirements) > 0 {
-					suggestions["requirements"] = strings.Join(msg.ScanResult.Requirements, "\n")
-				}
 				iv.SetSuggestions(suggestions)
 			}
 		}
 
-		// Start generating suggestions in background (only if no scan result)
 		cmds := []tea.Cmd{
 			a.currentView.Init(),
 			a.currentView.Focus(),
 			a.sendWindowSize(),
 		}
-		if msg.ScanResult == nil {
-			cmds = append(cmds, a.generateSuggestions())
-		}
 		return tea.Batch(cmds...)
 	}
+
 	return nil
 }
 

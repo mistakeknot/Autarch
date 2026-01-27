@@ -3,6 +3,7 @@ package tui
 import (
 	"strings"
 
+	"github.com/charmbracelet/lipgloss"
 	sharedtui "github.com/mistakeknot/autarch/pkg/tui"
 )
 
@@ -91,6 +92,10 @@ func max(a, b int) int {
 }
 
 func renderDualColumnLayout(leftTitle, leftContent, rightTitle, rightContent string, width, height int) string {
+	return renderDualColumnLayoutFocused(leftTitle, leftContent, rightTitle, rightContent, width, height, "LIST")
+}
+
+func renderDualColumnLayoutFocused(leftTitle, leftContent, rightTitle, rightContent string, width, height int, focus string) string {
 	if height <= 0 {
 		return ""
 	}
@@ -107,19 +112,19 @@ func renderDualColumnLayout(leftTitle, leftContent, rightTitle, rightContent str
 
 	leftPanel := renderPanelTitle(leftTitle, leftWidth) + "\n" + ensureExactHeight(leftContent, panelContentHeight)
 	rightPanel := renderPanelTitle(rightTitle, rightWidth) + "\n" + ensureExactHeight(rightContent, panelContentHeight)
-	leftPanel = stylePanel(leftPanel, leftWidth, height)
-	rightPanel = stylePanel(rightPanel, rightWidth, height)
 
-	leftPanel = ensureExactHeight(leftPanel, height)
-	rightPanel = ensureExactHeight(rightPanel, height)
-
-	separatorLines := make([]string, height)
-	for i := range separatorLines {
-		separatorLines[i] = " │ "
+	// Use focused/unfocused borders matching Vauxhall
+	leftStyle := sharedtui.PaneUnfocusedStyle
+	rightStyle := sharedtui.PaneUnfocusedStyle
+	if focus == "LIST" {
+		leftStyle = sharedtui.PaneFocusedStyle
+	} else {
+		rightStyle = sharedtui.PaneFocusedStyle
 	}
-	separator := strings.Join(separatorLines, "\n")
+	leftPanel = leftStyle.Width(leftWidth).Height(height).Render(leftPanel)
+	rightPanel = rightStyle.Width(rightWidth).Height(height).Render(rightPanel)
 
-	return joinHorizontal(leftPanel, separator, rightPanel, height)
+	return lipgloss.JoinHorizontal(lipgloss.Top, leftPanel, " ", rightPanel)
 }
 
 func renderStackedLayout(listTitle, listContent, detailTitle, detailContent string, width, height int) string {

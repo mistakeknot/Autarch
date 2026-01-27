@@ -170,10 +170,6 @@ Navigation:
 					})
 					return v
 				},
-				// Interview view factory
-				func(questions []tui.InterviewQuestion, coord *research.Coordinator) tui.View {
-					return views.NewInterviewView(questions, coord)
-				},
 				// Spec summary view factory
 				func(spec *tui.SpecSummary, coord *research.Coordinator) tui.View {
 					return views.NewSpecSummaryView(spec, coord)

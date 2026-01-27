@@ -10,6 +10,7 @@ import (
 
 func TestSprintViewRendersDraft(t *testing.T) {
 	state := arbiter.NewSprintState("/tmp/test")
+	state.Phase = arbiter.PhaseProblem
 	state.Sections[arbiter.PhaseProblem].Content = "Test problem"
 	state.Sections[arbiter.PhaseProblem].Status = arbiter.DraftProposed
 	view := NewSprintView(state)
@@ -27,6 +28,7 @@ func TestSprintViewRendersDraft(t *testing.T) {
 
 func TestSprintViewHandlesAccept(t *testing.T) {
 	state := arbiter.NewSprintState("/tmp/test")
+	state.Phase = arbiter.PhaseProblem
 	state.Sections[arbiter.PhaseProblem].Content = "Test problem"
 	state.Sections[arbiter.PhaseProblem].Status = arbiter.DraftProposed
 	view := NewSprintView(state)
@@ -39,6 +41,7 @@ func TestSprintViewHandlesAccept(t *testing.T) {
 
 func TestSprintViewHandlesNavigation(t *testing.T) {
 	state := arbiter.NewSprintState("/tmp/test")
+	state.Phase = arbiter.PhaseProblem
 	state.Sections[arbiter.PhaseProblem].Content = "Test problem"
 	state.Sections[arbiter.PhaseProblem].Options = []string{"Option A", "Option B", "Option C"}
 	state.Sections[arbiter.PhaseProblem].Status = arbiter.DraftProposed
@@ -61,6 +64,7 @@ func TestSprintViewHandlesNavigation(t *testing.T) {
 
 func TestSprintViewRendersConflicts(t *testing.T) {
 	state := arbiter.NewSprintState("/tmp/test")
+	state.Phase = arbiter.PhaseProblem
 	state.Sections[arbiter.PhaseProblem].Content = "Test problem"
 	state.Sections[arbiter.PhaseProblem].Status = arbiter.DraftProposed
 	state.Conflicts = []arbiter.Conflict{
@@ -79,6 +83,7 @@ func TestSprintViewRendersConflicts(t *testing.T) {
 
 func TestSprintViewShowsConfidence(t *testing.T) {
 	state := arbiter.NewSprintState("/tmp/test")
+	state.Phase = arbiter.PhaseProblem
 	state.Sections[arbiter.PhaseProblem].Content = "Test problem"
 	state.Sections[arbiter.PhaseProblem].Status = arbiter.DraftProposed
 	state.Confidence = arbiter.ConfidenceScore{
@@ -98,6 +103,7 @@ func TestSprintViewShowsConfidence(t *testing.T) {
 
 func TestSprintViewSelectOption(t *testing.T) {
 	state := arbiter.NewSprintState("/tmp/test")
+	state.Phase = arbiter.PhaseProblem
 	state.Sections[arbiter.PhaseProblem].Content = "Original"
 	state.Sections[arbiter.PhaseProblem].Options = []string{"Alt A", "Alt B", "Alt C"}
 	state.Sections[arbiter.PhaseProblem].Status = arbiter.DraftProposed
@@ -112,6 +118,7 @@ func TestSprintViewSelectOption(t *testing.T) {
 
 func TestSprintViewResearchToggle(t *testing.T) {
 	state := arbiter.NewSprintState("/tmp/test")
+	state.Phase = arbiter.PhaseProblem
 	state.Sections[arbiter.PhaseProblem].Content = "Test"
 	state.Sections[arbiter.PhaseProblem].Status = arbiter.DraftProposed
 	state.Findings = []arbiter.ResearchFinding{
@@ -147,6 +154,7 @@ func TestSprintViewResearchToggle(t *testing.T) {
 
 func TestSprintViewResearchDeepScanStatus(t *testing.T) {
 	state := arbiter.NewSprintState("/tmp/test")
+	state.Phase = arbiter.PhaseProblem
 	state.Sections[arbiter.PhaseProblem].Content = "Test"
 	state.Sections[arbiter.PhaseProblem].Status = arbiter.DraftProposed
 	state.DeepScan = arbiter.DeepScanState{Status: arbiter.DeepScanRunning, ScanID: "scan-1"}
