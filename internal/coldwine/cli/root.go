@@ -109,6 +109,7 @@ Use --from-prd to import epics from an existing Praude PRD instead:
 	root.AddCommand(initCmd)
 	root.AddCommand(
 		commands.AgentCmd(),
+		commands.TaskCmd(),
 		commands.StatusCmd(),
 		commands.DoctorCmd(),
 		commands.RecoverCmd(),

@@ -38,8 +38,10 @@ func NewRoot() *cobra.Command {
 	}
 	root.AddCommand(
 		commands.InitCmd(),
+		commands.CreateCmd(),
 		commands.ListCmd(),
 		commands.ShowCmd(),
+		commands.EditCmd(),
 		commands.InterviewCmd(),
 		commands.RunCmd(),
 		commands.ResearchCmd(),
@@ -47,6 +49,8 @@ func NewRoot() *cobra.Command {
 		commands.SuggestCmd(),
 		commands.SuggestionsCmd(),
 		commands.ValidateCmd(),
+		commands.ReviewCmd(),
+		commands.ApproveCmd(),
 		commands.ArchiveCmd(),
 		commands.DeleteCmd(),
 		commands.UndoCmd(),

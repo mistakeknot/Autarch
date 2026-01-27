@@ -18,6 +18,9 @@ type interviewBootstrapAnswers struct {
 	Vision       string `yaml:"vision"`
 	Users        string `yaml:"users"`
 	Problem      string `yaml:"problem"`
+	Goals        string `yaml:"goals"`
+	NonGoals     string `yaml:"non_goals"`
+	Assumptions  string `yaml:"assumptions"`
 	Requirements string `yaml:"requirements"`
 }
 
@@ -81,6 +84,18 @@ func (m *Model) applyInterviewBootstrapAnswers(ans interviewBootstrapAnswers) {
 		m.interview.answers[stepProblem] = strings.TrimSpace(ans.Problem)
 		m.interview.drafts[stepProblem] = strings.TrimSpace(ans.Problem)
 	}
+	if strings.TrimSpace(ans.Goals) != "" {
+		m.interview.answers[stepGoals] = strings.TrimSpace(ans.Goals)
+		m.interview.drafts[stepGoals] = strings.TrimSpace(ans.Goals)
+	}
+	if strings.TrimSpace(ans.NonGoals) != "" {
+		m.interview.answers[stepNonGoals] = strings.TrimSpace(ans.NonGoals)
+		m.interview.drafts[stepNonGoals] = strings.TrimSpace(ans.NonGoals)
+	}
+	if strings.TrimSpace(ans.Assumptions) != "" {
+		m.interview.answers[stepAssumptions] = strings.TrimSpace(ans.Assumptions)
+		m.interview.drafts[stepAssumptions] = strings.TrimSpace(ans.Assumptions)
+	}
 	if strings.TrimSpace(ans.Requirements) != "" {
 		m.interview.answers[stepRequirements] = strings.TrimSpace(ans.Requirements)
 		m.interview.drafts[stepRequirements] = strings.TrimSpace(ans.Requirements)
@@ -117,6 +132,12 @@ Instructions:
     <primary users>
   problem: |
     <problem statement>
+  goals: |
+    <measurable goals, newline-separated>
+  non_goals: |
+    <what is out of scope, newline-separated>
+  assumptions: |
+    <assumptions the PRD relies on, newline-separated>
   requirements: |
     <requirements, newline-separated>
 - No extra commentary or markdown.
@@ -139,5 +160,8 @@ func (a interviewBootstrapAnswers) isEmpty() bool {
 	return strings.TrimSpace(a.Vision) == "" &&
 		strings.TrimSpace(a.Users) == "" &&
 		strings.TrimSpace(a.Problem) == "" &&
+		strings.TrimSpace(a.Goals) == "" &&
+		strings.TrimSpace(a.NonGoals) == "" &&
+		strings.TrimSpace(a.Assumptions) == "" &&
 		strings.TrimSpace(a.Requirements) == ""
 }

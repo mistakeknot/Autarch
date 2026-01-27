@@ -1,0 +1,39 @@
+{
+  "name": "autarch",
+  "version": "0.1.0",
+  "description": "AI agent development tools: PRD generation (Gurgeh), task orchestration (Coldwine), research intelligence (Pollard), and project aggregation (Bigend)",
+  "author": "Autarch",
+  "repository": "https://github.com/mistakeknot/autarch",
+  "license": "MIT",
+  "keywords": [
+    "prd",
+    "product-requirements",
+    "task-orchestration",
+    "research",
+    "ai-agents",
+    "compound-engineering"
+  ],
+  "engines": {
+    "claude-code": ">=1.0.0"
+  },
+  "capabilities": {
+    "commands": true,
+    "agents": true,
+    "skills": true,
+    "hooks": true,
+    "mcp": true
+  },
+  "mcp": {
+    "servers": [
+      {
+        "name": "autarch",
+        "command": "autarch-mcp",
+        "args": ["--project", "."],
+        "description": "Autarch MCP server for PRD, task, and research tools"
+      }
+    ]
+  },
+  "dependencies": {
+    "go": ">=1.21"
+  }
+}

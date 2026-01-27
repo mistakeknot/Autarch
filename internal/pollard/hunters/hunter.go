@@ -202,5 +202,7 @@ func DefaultRegistry() *Registry {
 	reg.Register(NewWikiHunter())
 	// Agent-native hunter (primary research mechanism)
 	reg.Register(NewAgentHunter())
+	// Framework documentation hunter
+	reg.Register(NewContext7Hunter())
 	return reg
 }

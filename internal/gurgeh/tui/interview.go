@@ -30,6 +30,9 @@ const (
 	stepVision
 	stepUsers
 	stepProblem
+	stepGoals
+	stepNonGoals
+	stepAssumptions
 	stepRequirements
 	stepResearchPrompt
 )
@@ -146,6 +149,12 @@ func (m *Model) handleInterviewInput(msg tea.KeyMsg) {
 		m.handleTextStep(msg, stepUsers)
 	case stepProblem:
 		m.handleTextStep(msg, stepProblem)
+	case stepGoals:
+		m.handleTextStep(msg, stepGoals)
+	case stepNonGoals:
+		m.handleTextStep(msg, stepNonGoals)
+	case stepAssumptions:
+		m.handleTextStep(msg, stepAssumptions)
 	case stepRequirements:
 		m.handleTextStep(msg, stepRequirements)
 	case stepResearchPrompt:
@@ -296,8 +305,14 @@ func (m *Model) prevInterviewStep() {
 		m.interview.step = stepVision
 	case stepProblem:
 		m.interview.step = stepUsers
-	case stepRequirements:
+	case stepGoals:
 		m.interview.step = stepProblem
+	case stepNonGoals:
+		m.interview.step = stepGoals
+	case stepAssumptions:
+		m.interview.step = stepNonGoals
+	case stepRequirements:
+		m.interview.step = stepAssumptions
 	case stepResearchPrompt:
 		m.interview.step = stepRequirements
 	}
@@ -328,6 +343,12 @@ func (m *Model) nextInterviewStep() {
 	case stepUsers:
 		m.advanceTextStep(stepProblem)
 	case stepProblem:
+		m.advanceTextStep(stepGoals)
+	case stepGoals:
+		m.advanceTextStep(stepNonGoals)
+	case stepNonGoals:
+		m.advanceTextStep(stepAssumptions)
+	case stepAssumptions:
 		m.advanceTextStep(stepRequirements)
 	case stepRequirements:
 		m.advanceTextStep(stepResearchPrompt)
@@ -597,6 +618,9 @@ func (m Model) renderInterviewHeaderNav(width int) string {
 		stepVision,
 		stepUsers,
 		stepProblem,
+		stepGoals,
+		stepNonGoals,
+		stepAssumptions,
 		stepRequirements,
 		stepResearchPrompt,
 	}
@@ -833,6 +857,9 @@ func (m Model) interviewStepsMarkdown() string {
 		stepVision,
 		stepUsers,
 		stepProblem,
+		stepGoals,
+		stepNonGoals,
+		stepAssumptions,
 		stepRequirements,
 		stepResearchPrompt,
 	}
@@ -922,6 +949,9 @@ func mergeInterviewSpec(base specs.Spec, answers, drafts map[interviewStep]strin
 	vision := strings.TrimSpace(interviewValue(stepVision, answers, drafts))
 	users := strings.TrimSpace(interviewValue(stepUsers, answers, drafts))
 	problem := strings.TrimSpace(interviewValue(stepProblem, answers, drafts))
+	goals := strings.TrimSpace(interviewValue(stepGoals, answers, drafts))
+	nonGoals := strings.TrimSpace(interviewValue(stepNonGoals, answers, drafts))
+	assumptions := strings.TrimSpace(interviewValue(stepAssumptions, answers, drafts))
 	requirements := strings.TrimSpace(interviewValue(stepRequirements, answers, drafts))
 
 	updated := base
@@ -936,6 +966,15 @@ func mergeInterviewSpec(base specs.Spec, answers, drafts map[interviewStep]strin
 	}
 	if problem != "" {
 		updated.Summary = problem
+	}
+	if goals != "" {
+		updated.Goals = parseGoals(goals)
+	}
+	if nonGoals != "" {
+		updated.NonGoals = parseNonGoals(nonGoals)
+	}
+	if assumptions != "" {
+		updated.Assumptions = parseAssumptions(assumptions)
 	}
 	if requirements != "" {
 		reqList := parseRequirements(requirements)
@@ -1063,6 +1102,50 @@ func parseRequirements(input string) []string {
 	return out
 }
 
+// parseGoals converts comma/newline separated goals into structured Goal objects.
+func parseGoals(input string) []specs.Goal {
+	parts := splitInput(input)
+	var out []specs.Goal
+	for i, part := range parts {
+		out = append(out, specs.Goal{
+			ID:          fmt.Sprintf("GOAL-%s", pad3(i+1)),
+			Description: part,
+			Metric:      "", // User can refine later
+			Target:      "", // User can refine later
+		})
+	}
+	return out
+}
+
+// parseNonGoals converts comma/newline separated non-goals into structured NonGoal objects.
+func parseNonGoals(input string) []specs.NonGoal {
+	parts := splitInput(input)
+	var out []specs.NonGoal
+	for i, part := range parts {
+		out = append(out, specs.NonGoal{
+			ID:          fmt.Sprintf("NG-%s", pad3(i+1)),
+			Description: part,
+			Rationale:   "", // User can refine later
+		})
+	}
+	return out
+}
+
+// parseAssumptions converts comma/newline separated assumptions into structured Assumption objects.
+func parseAssumptions(input string) []specs.Assumption {
+	parts := splitInput(input)
+	var out []specs.Assumption
+	for i, part := range parts {
+		out = append(out, specs.Assumption{
+			ID:            fmt.Sprintf("ASSM-%s", pad3(i+1)),
+			Description:   part,
+			ImpactIfFalse: "", // User can refine later
+			Confidence:    "medium",
+		})
+	}
+	return out
+}
+
 func splitInput(input string) []string {
 	input = strings.ReplaceAll(input, "\n", ",")
 	parts := strings.Split(input, ",")
@@ -1147,7 +1230,7 @@ type interviewPrompt struct {
 }
 
 func interviewStepInfo(step interviewStep) (interviewPrompt, int, int) {
-	total := 8
+	total := 11 // Updated for new steps
 	switch step {
 	case stepScanPrompt:
 		return interviewPrompt{
@@ -1185,18 +1268,36 @@ func interviewStepInfo(step interviewStep) (interviewPrompt, int, int) {
 			question:    "What problem are we solving?",
 			expectsText: true,
 		}, 6, total
+	case stepGoals:
+		return interviewPrompt{
+			title:       "Goals",
+			question:    "What are the measurable goals? (comma or newline separated)",
+			expectsText: true,
+		}, 7, total
+	case stepNonGoals:
+		return interviewPrompt{
+			title:       "Non-Goals",
+			question:    "What is explicitly out of scope? (comma or newline separated)",
+			expectsText: true,
+		}, 8, total
+	case stepAssumptions:
+		return interviewPrompt{
+			title:       "Assumptions",
+			question:    "What assumptions does this PRD rely on? (comma or newline separated)",
+			expectsText: true,
+		}, 9, total
 	case stepRequirements:
 		return interviewPrompt{
 			title:       "Requirements",
 			question:    "List requirements (comma or newline separated).",
 			expectsText: true,
-		}, 7, total
+		}, 10, total
 	case stepResearchPrompt:
 		return interviewPrompt{
 			title:    "Research",
 			question: "Run research now?",
 			options:  []string{"1) Yes - create research brief", "2) No - skip for now"},
-		}, 8, total
+		}, 11, total
 	default:
 		return interviewPrompt{
 			title:    "Interview",

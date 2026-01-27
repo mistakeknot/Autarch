@@ -4,6 +4,9 @@
 
 This guide covers data flow between Autarch tools and integration with Intermute for cross-tool coordination.
 
+**Related Documentation:**
+- [COMPOUND_INTEGRATION.md](COMPOUND_INTEGRATION.md) - Compound Engineering patterns (multi-agent review, knowledge capture, Claude Code plugin)
+
 ---
 
 ## Overview

@@ -60,6 +60,32 @@ type Metadata struct {
 	ValidationWarnings []string `yaml:"validation_warnings"`
 }
 
+// Goal represents a measurable outcome the PRD aims to achieve.
+// Goals should be specific, measurable, and time-bound where possible.
+type Goal struct {
+	ID          string `yaml:"id"`          // e.g., "GOAL-001"
+	Description string `yaml:"description"` // What success looks like
+	Metric      string `yaml:"metric"`      // How to measure (optional)
+	Target      string `yaml:"target"`      // Target value (optional)
+}
+
+// NonGoal explicitly defines what is out of scope.
+// Non-goals prevent scope creep and clarify boundaries.
+type NonGoal struct {
+	ID          string `yaml:"id"`          // e.g., "NG-001"
+	Description string `yaml:"description"` // What we're NOT doing
+	Rationale   string `yaml:"rationale"`   // Why it's out of scope
+}
+
+// Assumption represents a foundational belief the PRD relies on.
+// Tracking assumptions enables early detection when they prove false.
+type Assumption struct {
+	ID            string `yaml:"id"`              // e.g., "ASSM-001"
+	Description   string `yaml:"description"`    // The assumption
+	ImpactIfFalse string `yaml:"impact_if_false"` // What breaks if wrong
+	Confidence    string `yaml:"confidence"`      // high, medium, low
+}
+
 type Spec struct {
 	ID                   string                     `yaml:"id"`
 	Title                string                     `yaml:"title"`
@@ -68,6 +94,9 @@ type Spec struct {
 	StrategicContext     StrategicContext           `yaml:"strategic_context"`
 	UserStory            UserStory                  `yaml:"user_story"`
 	Summary              string                     `yaml:"summary"`
+	Goals                []Goal                     `yaml:"goals,omitempty"`
+	NonGoals             []NonGoal                  `yaml:"non_goals,omitempty"`
+	Assumptions          []Assumption               `yaml:"assumptions,omitempty"`
 	Requirements         []string                   `yaml:"requirements"`
 	Acceptance           []AcceptanceCriterion      `yaml:"acceptance_criteria"`
 	FilesToModify        []FileChange               `yaml:"files_to_modify"`

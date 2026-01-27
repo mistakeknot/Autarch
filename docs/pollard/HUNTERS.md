@@ -28,6 +28,12 @@ Pollard uses **hunters** to gather research data from various APIs and sources. 
 | `economics` | Global economic indicators | World Bank | None |
 | `wiki` | Millions of entities, all domains | Wikipedia/Wikidata | None |
 
+### Framework Documentation Hunter
+
+| Hunter | Purpose | API | Auth Needed |
+|--------|---------|-----|-------------|
+| `context7` | Framework docs for 100+ libraries | Context7 MCP | None |
+
 ### Agent-Native Hunter
 
 | Hunter | Purpose | API | Auth Needed |
@@ -404,6 +410,52 @@ wiki:
 - Background research
 - Competitive landscape mapping
 - Feature naming research
+
+---
+
+## Framework Documentation Hunter
+
+### context7
+
+**Purpose:** Fetch up-to-date documentation for frameworks and libraries.
+
+**API:** [Context7 MCP](https://context7.com/) - Documentation for 100+ popular libraries.
+
+**Output:** `.pollard/sources/context7/YYYY-MM-DD-context7.yaml`
+
+**Features:**
+- Library name resolution (e.g., "react" → "facebook/react")
+- Topic-based documentation queries
+- Supports React, Vue, Angular, Tailwind, Prisma, and 100+ more libraries
+- Current, version-specific documentation
+
+**Configuration:**
+```yaml
+context7:
+  enabled: true
+  queries:
+    - "react hooks"
+    - "tailwind responsive design"
+    - "prisma relations"
+  max_results: 10
+  output: sources/context7
+```
+
+**Rate Limits:** 10 req/s (polite use).
+
+**Use Cases:**
+- Framework documentation lookup
+- Learning new libraries
+- Best practices research
+- API reference gathering
+
+**Supported Libraries (examples):**
+- Frontend: React, Vue, Angular, Svelte, Solid
+- CSS: Tailwind, Bootstrap, Material UI
+- Backend: Express, Fastify, NestJS, Django, Rails
+- Databases: Prisma, Drizzle, Mongoose, SQLAlchemy
+- Build: Vite, Webpack, esbuild, Turbopack
+- And 100+ more...
 
 ---
 
