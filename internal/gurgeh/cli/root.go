@@ -55,6 +55,11 @@ func NewRoot() *cobra.Command {
 		commands.DeleteCmd(),
 		commands.UndoCmd(),
 		commands.ApplyCmd(),
+		commands.HistoryCmd(),
+		commands.DiffCmd(),
+		commands.PrioritizeCmd(),
+		commands.SignalsCmd(),
+		commands.VisionReviewCmd(),
 	)
 	return root
 }
