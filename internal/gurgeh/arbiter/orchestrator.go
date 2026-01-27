@@ -4,12 +4,14 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
 	"strings"
 	"time"
 
 	"github.com/mistakeknot/autarch/internal/gurgeh/arbiter/confidence"
 	"github.com/mistakeknot/autarch/internal/gurgeh/arbiter/consistency"
 	"github.com/mistakeknot/autarch/internal/gurgeh/specs"
+	"gopkg.in/yaml.v3"
 )
 
 // ErrBlocker is returned when a blocker conflict prevents advancing.
@@ -92,6 +94,10 @@ func (o *Orchestrator) Start(ctx context.Context, userInput string) (*SprintStat
 
 	state.Sections[PhaseVision] = draft
 	state.UpdatedAt = time.Now()
+
+	// Auto-discover vision spec for vertical consistency
+	state.VisionContext = o.LoadVisionContext()
+
 	return state, nil
 }
 
@@ -149,9 +155,14 @@ func (o *Orchestrator) Advance(ctx context.Context, state *SprintState) (*Sprint
 		}
 	}
 
-	// Trigger quick scan when advancing to FeaturesGoals
+	// Trigger quick scan when advancing to FeaturesGoals (legacy)
 	if state.Phase == PhaseFeaturesGoals {
 		o.runQuickScan(ctx, state)
+	}
+
+	// Trigger phase-specific deep research if research provider is available
+	if o.research != nil && state.SpecID != "" {
+		o.runPhaseResearch(ctx, state)
 	}
 
 	// Generate draft for the new phase
@@ -227,6 +238,60 @@ func (o *Orchestrator) GetHandoffOptions(state *SprintState) []HandoffOption {
 // ExportSpec converts a sprint state to a structured Spec.
 func (o *Orchestrator) ExportSpec(state *SprintState) (*specs.Spec, error) {
 	return ExportToSpec(state)
+}
+
+// StartVision initializes a new sprint for a vision-type spec.
+func (o *Orchestrator) StartVision(ctx context.Context, userInput string) (*SprintState, error) {
+	state, err := o.Start(ctx, userInput)
+	if err != nil {
+		return nil, err
+	}
+	// Mark the sprint as producing a vision spec (used by ExportSpec)
+	state.IsReview = false
+	return state, nil
+}
+
+// LoadVisionContext scans .gurgeh/specs/ for a type=vision spec and loads it
+// as VisionContext for vertical consistency checks. Returns nil if no vision spec exists.
+func (o *Orchestrator) LoadVisionContext() *VisionContext {
+	specsDir := o.projectPath + "/.gurgeh/specs"
+	entries, err := os.ReadDir(specsDir)
+	if err != nil {
+		return nil
+	}
+
+	for _, entry := range entries {
+		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".yaml") {
+			continue
+		}
+		data, err := os.ReadFile(specsDir + "/" + entry.Name())
+		if err != nil {
+			continue
+		}
+		var spec specs.Spec
+		if err := yaml.Unmarshal(data, &spec); err != nil {
+			continue
+		}
+		if spec.EffectiveType() != specs.SpecTypeVision {
+			continue
+		}
+		// Found a vision spec — extract context
+		vc := &VisionContext{SpecID: spec.ID}
+		for _, g := range spec.Goals {
+			vc.Goals = append(vc.Goals, g.Description)
+		}
+		for _, a := range spec.Assumptions {
+			vc.Assumptions = append(vc.Assumptions, a.Description)
+		}
+		for _, c := range spec.CriticalUserJourneys {
+			vc.CUJs = append(vc.CUJs, c.Title)
+		}
+		for _, h := range spec.Hypotheses {
+			vc.Hypotheses = append(vc.Hypotheses, h.Statement)
+		}
+		return vc
+	}
+	return nil
 }
 
 // stubScanner is a no-op scanner used when no real scanner is injected.
@@ -356,6 +421,28 @@ func (o *Orchestrator) updateConfidence(state *SprintState) {
 		Specificity:  score.Specificity,
 		Research:     score.Research,
 		Assumptions:  score.Assumptions,
+	}
+}
+
+// runPhaseResearch triggers Pollard targeted research for the current phase.
+func (o *Orchestrator) runPhaseResearch(ctx context.Context, state *SprintState) {
+	cfg := ResearchConfigForPhase(state.Phase)
+	if cfg == nil {
+		return
+	}
+
+	query := cfg.QueryExtractor(state)
+	if query == "" {
+		return
+	}
+
+	// Fire targeted research via the provider (non-blocking, best-effort)
+	_ = o.research.RunTargetedScan(ctx, state.SpecID, cfg.Hunters, cfg.Mode, query)
+
+	// Refresh findings after research
+	findings, err := o.research.FetchLinkedInsights(ctx, state.SpecID)
+	if err == nil && len(findings) > 0 {
+		state.Findings = findings
 	}
 }
 

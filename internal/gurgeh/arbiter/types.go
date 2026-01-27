@@ -68,11 +68,13 @@ const (
 
 // SectionDraft holds Arbiter's proposal for a section
 type SectionDraft struct {
-	Content   string      // Arbiter's current proposal
-	Options   []string    // Alternative phrasings (2-3 options)
-	Status    DraftStatus
-	UserEdits []Edit      // History of user changes
-	UpdatedAt time.Time
+	Content       string      // Arbiter's current proposal
+	Options       []string    // Alternative phrasings (2-3 options)
+	Status        DraftStatus
+	AutoAccept    bool        // true = no signals/decay, skip in review
+	ActiveSignals []string    // signal IDs relevant to this section
+	UserEdits     []Edit      // History of user changes
+	UpdatedAt     time.Time
 }
 
 // Edit records a user modification
@@ -101,20 +103,32 @@ func (c ConfidenceScore) Total() float64 {
 		c.Assumptions*0.15
 }
 
+// VisionContext holds a loaded vision spec for vertical consistency checks.
+type VisionContext struct {
+	SpecID      string
+	Goals       []string // vision principles
+	Assumptions []string // strategic bets
+	CUJs        []string // key workflows
+	Hypotheses  []string // predictions
+}
+
 // SprintState holds the full state of a PRD sprint session
 type SprintState struct {
-	ID          string
-	SpecID      string // Intermute Spec ID (empty if no research provider)
-	ProjectPath string
-	Phase       Phase
-	Sections    map[Phase]*SectionDraft
-	Conflicts   []Conflict
-	Confidence  ConfidenceScore
-	ResearchCtx *QuickScanResult
-	Findings    []ResearchFinding // Intermute research findings
-	DeepScan    DeepScanState     // Async deep scan tracking
-	StartedAt   time.Time
-	UpdatedAt   time.Time
+	ID              string
+	SpecID          string // Intermute Spec ID (empty if no research provider)
+	ProjectPath     string
+	Phase           Phase
+	Sections        map[Phase]*SectionDraft
+	Conflicts       []Conflict
+	Confidence      ConfidenceScore
+	ResearchCtx     *QuickScanResult
+	Findings        []ResearchFinding // Intermute research findings
+	DeepScan        DeepScanState     // Async deep scan tracking
+	VisionContext   *VisionContext    // loaded vision spec for vertical checks (nil if none)
+	IsReview        bool              // true when reviewing an existing spec
+	ReviewingSpecID string            // ID of spec being reviewed
+	StartedAt       time.Time
+	UpdatedAt       time.Time
 }
 
 // NewSprintState creates a new sprint with all sections initialized.
@@ -207,6 +221,27 @@ type QuickScanner interface {
 	Scan(ctx context.Context, topic string, projectPath string) (*QuickScanResult, error)
 }
 
+// PriorArtResult aggregates deep research findings for a spec phase.
+type PriorArtResult struct {
+	SimilarProjects []SimilarProject
+	AcademicPapers  []AcademicPaper
+	FeasibilityNote string
+}
+
+// SimilarProject is a discovered open-source project relevant to the spec.
+type SimilarProject struct {
+	Name, URL, Architecture string
+	Stars                   int
+	Strengths, Gaps         []string
+}
+
+// AcademicPaper is a research paper relevant to the spec's problem domain.
+type AcademicPaper struct {
+	Title, URL, Abstract string
+	Year                 int
+	Relevance            float64
+}
+
 // Conflict represents a consistency issue between sections
 type Conflict struct {
 	Type     ConflictType
@@ -223,6 +258,7 @@ const (
 	ConflictGoalFeature                     // Goal not supported by features
 	ConflictScopeCreep                      // Feature contradicts non-goals
 	ConflictAssumption                      // Assumption conflicts with other content
+	ConflictVisionAlignment                 // PRD section misaligned with vision spec
 )
 
 // Severity indicates if the conflict blocks progress

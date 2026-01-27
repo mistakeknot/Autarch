@@ -79,18 +79,59 @@ type NonGoal struct {
 
 // Assumption represents a foundational belief the PRD relies on.
 // Tracking assumptions enables early detection when they prove false.
+// Confidence decays one level (high→medium→low) when age exceeds DecayDays
+// without validation — checked on spec load, no background process.
 type Assumption struct {
-	ID            string `yaml:"id"`              // e.g., "ASSM-001"
-	Description   string `yaml:"description"`    // The assumption
-	ImpactIfFalse string `yaml:"impact_if_false"` // What breaks if wrong
-	Confidence    string `yaml:"confidence"`      // high, medium, low
+	ID            string `yaml:"id"`                          // e.g., "ASSM-001"
+	Description   string `yaml:"description"`                // The assumption
+	ImpactIfFalse string `yaml:"impact_if_false"`             // What breaks if wrong
+	Confidence    string `yaml:"confidence"`                  // high, medium, low
+	ValidatedAt   string `yaml:"validated_at,omitempty"`      // RFC3339 timestamp of last validation
+	DecayDays     int    `yaml:"decay_days,omitempty"`        // default: 30
+	LinkedInsight string `yaml:"linked_insight,omitempty"`    // Pollard insight ID
 }
+
+// Hypothesis represents a falsifiable outcome prediction tied to a feature.
+// "If we build X, then Y will change by Z within T days."
+type Hypothesis struct {
+	ID          string `yaml:"id"`           // "HYP-001"
+	FeatureRef  string `yaml:"feature_ref"`
+	Statement   string `yaml:"statement"`    // "If we build X, then Y"
+	Metric      string `yaml:"metric"`
+	Baseline    string `yaml:"baseline"`
+	Target      string `yaml:"target"`       // ">50 within 30 days"
+	TimeboxDays int    `yaml:"timebox_days"`
+	Status      string `yaml:"status"`       // "untested", "validated", "invalidated"
+	Result      string `yaml:"result,omitempty"`
+}
+
+// Requirement represents a structured Given/When/Then requirement.
+type Requirement struct {
+	ID          string   `yaml:"id"`                       // "REQ-001"
+	FeatureRef  string   `yaml:"feature_ref"`
+	Type        string   `yaml:"type"`                     // "functional", "performance", "security"
+	Given       string   `yaml:"given"`
+	When        string   `yaml:"when"`
+	Then        string   `yaml:"then"`
+	Constraints []string `yaml:"constraints,omitempty"`    // "latency < 200ms"
+	Status      string   `yaml:"status"`                   // "draft", "approved", "implemented"
+}
+
+// SpecType constants for the Type field.
+const (
+	SpecTypePRD    = "prd"
+	SpecTypeVision = "vision"
+)
 
 type Spec struct {
 	ID                   string                     `yaml:"id"`
 	Title                string                     `yaml:"title"`
+	Type                 string                     `yaml:"type,omitempty"` // "prd" (default), "vision"
 	CreatedAt            string                     `yaml:"created_at"`
 	Status               string                     `yaml:"status"`
+	VisionRef            string                     `yaml:"vision_ref,omitempty"`          // ID of vision spec this PRD aligns to
+	LastReviewedAt       string                     `yaml:"last_reviewed_at,omitempty"`    // RFC3339
+	ReviewCadenceDays    int                        `yaml:"review_cadence_days,omitempty"` // default 30
 	StrategicContext     StrategicContext           `yaml:"strategic_context"`
 	UserStory            UserStory                  `yaml:"user_story"`
 	Summary              string                     `yaml:"summary"`
@@ -104,8 +145,33 @@ type Spec struct {
 	CriticalUserJourneys []CriticalUserJourney      `yaml:"critical_user_journeys"`
 	MarketResearch       []MarketResearchItem       `yaml:"market_research"`
 	CompetitiveLandscape []CompetitiveLandscapeItem `yaml:"competitive_landscape"`
-	Metadata             Metadata                   `yaml:"metadata"`
-	Complexity           string                     `yaml:"complexity"`
+	Hypotheses              []Hypothesis               `yaml:"hypotheses,omitempty"`
+	StructuredRequirements  []Requirement              `yaml:"structured_requirements,omitempty"`
+	Version                 int                        `yaml:"version,omitempty"`
+	Metadata                Metadata                   `yaml:"metadata"`
+	Complexity              string                     `yaml:"complexity"`
 	EstimatedMinutes     int                        `yaml:"estimated_minutes"`
 	Priority             int                        `yaml:"priority"`
+	DismissedConflicts   []string                   `yaml:"dismissed_conflicts,omitempty"` // vision conflict IDs intentionally dismissed
+}
+
+// EffectiveType returns the spec type, defaulting to "prd" if empty.
+func (s *Spec) EffectiveType() string {
+	if s.Type == "" {
+		return SpecTypePRD
+	}
+	return s.Type
+}
+
+// IsVision returns true if this is a vision-type spec.
+func (s *Spec) IsVision() bool {
+	return s.EffectiveType() == SpecTypeVision
+}
+
+// EffectiveReviewCadenceDays returns the review cadence, defaulting to 30.
+func (s *Spec) EffectiveReviewCadenceDays() int {
+	if s.ReviewCadenceDays <= 0 {
+		return 30
+	}
+	return s.ReviewCadenceDays
 }

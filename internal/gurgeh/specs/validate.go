@@ -43,6 +43,15 @@ func Validate(raw []byte, opts ValidationOptions) (ValidationResult, error) {
 	if doc.Status != "" && !validStatus(doc.Status) {
 		res.Warnings = append(res.Warnings, "invalid status: "+doc.Status)
 	}
+	if doc.Type != "" && !validSpecType(doc.Type) {
+		res.Errors = append(res.Errors, "invalid spec type: "+doc.Type)
+	}
+
+	// Vision specs skip PRD-specific validations (CUJs, market research, etc.)
+	if doc.EffectiveType() == SpecTypeVision {
+		return res, nil
+	}
+
 	reqIDs := requirementIDs(doc.Requirements)
 	validateCUJs(&res, doc.CriticalUserJourneys, reqIDs, opts.Mode)
 	validateMarketResearch(&res, doc.MarketResearch, opts)
@@ -146,6 +155,15 @@ func addModeIssue(res *ValidationResult, mode ValidationMode, msg string) {
 func validCUJPriority(priority string) bool {
 	switch strings.ToLower(priority) {
 	case "critical", "high", "med", "low":
+		return true
+	default:
+		return false
+	}
+}
+
+func validSpecType(t string) bool {
+	switch strings.ToLower(t) {
+	case SpecTypePRD, SpecTypeVision:
 		return true
 	default:
 		return false
