@@ -167,6 +167,55 @@ Compound research agents → Pollard .pollard/insights/
                            Gurgeh PRD enrichment
 ```
 
+### Pollard ↔ Arbiter via Intermute (First-Class Research)
+
+Pollard findings are published as Intermute Insights and linked to the sprint's Spec:
+
+```
+                           ┌──────────────────────┐
+                           │  Pollard Hunters      │
+                           │  (github-scout, HN)   │
+                           └──────────┬───────────┘
+                                      │ QuickScanner.Scan()
+                                      ▼
+                           ┌──────────────────────┐
+                           │  Arbiter Orchestrator │
+                           │  runQuickScan()       │
+                           └──────────┬───────────┘
+                                      │ ResearchProvider.PublishInsight()
+                                      ▼
+                           ┌──────────────────────┐
+                           │  Intermute Server     │
+                           │  Spec ← Insight links │
+                           └──────────┬───────────┘
+                                      │ FetchLinkedInsights()
+                                      ▼
+                           ┌──────────────────────┐
+                           │  SprintState          │
+                           │  .Findings[]          │
+                           │  .ResearchCtx         │
+                           │  .Confidence.Research  │
+                           └──────────────────────┘
+```
+
+**Key files:**
+- `internal/gurgeh/arbiter/intermute.go` — `ResearchProvider` interface + `ResearchBridge`
+- `internal/gurgeh/arbiter/deepscan.go` — Async deep scan handoff
+- `internal/gurgeh/arbiter/orchestrator.go` — `researchQuality()` scoring formula
+- `internal/pollard/quick/scan.go` — Real Pollard scanner (implements `QuickScanner`)
+
+**Research quality scoring** (30% count + 30% diversity + 40% relevance):
+- Count: `min(findingCount / 10, 1.0)` — scales linearly up to 10 findings
+- Diversity: `min(sourceTypes / 3, 1.0)` — rewards distinct sources (github, hackernews, arxiv)
+- Relevance: average of all finding relevance scores (0.0–1.0)
+
+**Pre-sprint research import:**
+```go
+// Import existing Pollard findings before starting sprint
+state, err := orch.StartWithResearch(ctx, userInput, pollardFindings)
+// Each finding → Intermute Insight → linked to sprint Spec
+```
+
 ### PRD → Implementation Planning
 
 Autarch PRD feeds into Compound's planning workflow:

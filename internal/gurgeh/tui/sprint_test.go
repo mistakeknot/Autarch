@@ -167,6 +167,39 @@ func TestSprintViewResearchDeepScanStatus(t *testing.T) {
 	}
 }
 
+func TestSprintViewShowsQuickScanResults(t *testing.T) {
+	state := arbiter.NewSprintState("/tmp/test")
+	state.Phase = arbiter.PhaseProblem
+	state.Sections[arbiter.PhaseProblem].Content = "Test"
+	state.Sections[arbiter.PhaseProblem].Status = arbiter.DraftProposed
+	state.ResearchCtx = &arbiter.QuickScanResult{
+		Topic:   "search tools",
+		Summary: "Found 3 relevant GitHub projects.",
+		GitHubHits: []arbiter.GitHubFinding{
+			{Name: "elastic/elasticsearch", Description: "Distributed search", Stars: 65000, URL: "https://github.com/elastic/elasticsearch"},
+		},
+		HNHits: []arbiter.HNFinding{
+			{Title: "Why search is hard", Points: 200, Comments: 50, URL: "https://hn.example.com", Theme: "infrastructure"},
+		},
+	}
+	view := NewSprintView(state)
+	view.showResearch = true
+
+	output := view.View()
+	if !strings.Contains(output, "elasticsearch") {
+		t.Error("expected GitHub finding in research panel")
+	}
+	if !strings.Contains(output, "65000") {
+		t.Error("expected star count in research panel")
+	}
+	if !strings.Contains(output, "Why search is hard") {
+		t.Error("expected HN finding in research panel")
+	}
+	if !strings.Contains(output, "Found 3 relevant") {
+		t.Error("expected summary in research panel")
+	}
+}
+
 func TestSprintViewQuit(t *testing.T) {
 	state := arbiter.NewSprintState("/tmp/test")
 	view := NewSprintView(state)

@@ -9,6 +9,7 @@ import (
 	"github.com/charmbracelet/lipgloss"
 	"github.com/mistakeknot/autarch/internal/gurgeh/arbiter"
 	"github.com/mistakeknot/autarch/internal/gurgeh/specs"
+	pollardquick "github.com/mistakeknot/autarch/internal/pollard/quick"
 	"github.com/mistakeknot/autarch/internal/pollard/research"
 	pkgtui "github.com/mistakeknot/autarch/pkg/tui"
 )
@@ -55,6 +56,7 @@ func NewArbiterView(projectPath string, coordinator *research.Coordinator) *Arbi
 	} else {
 		orch = arbiter.NewOrchestrator(projectPath)
 	}
+	orch.SetScanner(pollardquick.NewScanner())
 
 	chatPanel := pkgtui.NewChatPanel()
 	chatPanel.SetComposerHint("enter: send  a: accept  e: edit  1-3: alternatives")

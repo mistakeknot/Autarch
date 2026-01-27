@@ -364,7 +364,8 @@ Low-confidence proposals show warnings but don't block. Users can refine or acce
 | `internal/gurgeh/arbiter/migrate.go` | Legacy Spec → SprintState migration |
 | `internal/gurgeh/arbiter/consistency/` | Local adapter for cross-section validation |
 | `internal/gurgeh/arbiter/confidence/` | Local adapter for 0.0-1.0 scoring |
-| `internal/gurgeh/arbiter/quick/` | Local adapter for Ranger quick scan |
+| `internal/gurgeh/arbiter/intermute.go` | ResearchProvider interface + ResearchBridge (Intermute client wrapper) |
+| `internal/gurgeh/arbiter/deepscan.go` | Async deep scan handoff via Intermute messaging |
 | `internal/gurgeh/tui/sprint.go` | Bubble Tea sprint TUI view |
 
 ### CLI Commands

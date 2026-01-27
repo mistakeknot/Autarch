@@ -1,6 +1,7 @@
 package arbiter
 
 import (
+	"context"
 	"crypto/rand"
 	"encoding/hex"
 	"time"
@@ -197,6 +198,13 @@ type DeepScanState struct {
 	ScanID    string // Intermute scan job ID
 	StartedAt time.Time
 	Error     string // Non-empty if DeepScanFailed
+}
+
+// QuickScanner performs a fast research scan and returns findings.
+// The default stub returns placeholder text; the real implementation
+// in internal/pollard/quick runs GitHub Scout + HackerNews hunters.
+type QuickScanner interface {
+	Scan(ctx context.Context, topic string, projectPath string) (*QuickScanResult, error)
 }
 
 // Conflict represents a consistency issue between sections

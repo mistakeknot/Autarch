@@ -28,7 +28,7 @@ type SprintView struct {
 func NewSprintView(state *arbiter.SprintState) *SprintView {
 	return &SprintView{
 		state:        state,
-		orchestrator: arbiter.NewOrchestrator(state.ProjectPath),
+		orchestrator: newOrchestratorWithScanner(state.ProjectPath),
 		width:        80,
 		height:       24,
 		focused:      "draft",
@@ -250,10 +250,30 @@ func (v *SprintView) renderResearchPanel() string {
 		lines = append(lines, fmt.Sprintf("❌ Deep scan failed: %s", v.state.DeepScan.Error))
 	}
 
-	if len(v.state.Findings) == 0 {
-		mutedStyle := lipgloss.NewStyle().Foreground(pkgtui.ColorMuted)
-		lines = append(lines, mutedStyle.Render("No research findings yet"))
-	} else {
+	// Quick scan results (GitHub + HN)
+	if v.state.ResearchCtx != nil {
+		ctx := v.state.ResearchCtx
+		if len(ctx.GitHubHits) > 0 {
+			lines = append(lines, titleStyle.Render("GitHub"))
+			for _, gh := range ctx.GitHubHits {
+				lines = append(lines, fmt.Sprintf("  ★ %d  %s — %s", gh.Stars, gh.Name, gh.Description))
+			}
+		}
+		if len(ctx.HNHits) > 0 {
+			lines = append(lines, titleStyle.Render("HackerNews"))
+			for _, hn := range ctx.HNHits {
+				lines = append(lines, fmt.Sprintf("  ▲ %d  %s — %s", hn.Points, hn.Title, hn.Theme))
+			}
+		}
+		if ctx.Summary != "" {
+			lines = append(lines, "")
+			lines = append(lines, ctx.Summary)
+		}
+	}
+
+	// Intermute findings
+	if len(v.state.Findings) > 0 {
+		lines = append(lines, titleStyle.Render("Insights"))
 		for i, f := range v.state.Findings {
 			if i >= 8 {
 				mutedStyle := lipgloss.NewStyle().Foreground(pkgtui.ColorMuted)
@@ -267,6 +287,11 @@ func (v *SprintView) renderResearchPanel() string {
 			}
 			lines = append(lines, fmt.Sprintf("  %s %s (%s)%s", f.SourceType, f.Title, relevance, tagStr))
 		}
+	}
+
+	if v.state.ResearchCtx == nil && len(v.state.Findings) == 0 {
+		mutedStyle := lipgloss.NewStyle().Foreground(pkgtui.ColorMuted)
+		lines = append(lines, mutedStyle.Render("No research findings yet"))
 	}
 
 	return panelStyle.Render(strings.Join(lines, "\n"))

@@ -14,6 +14,7 @@ import (
 	"github.com/mistakeknot/autarch/internal/gurgeh/agents"
 	"github.com/mistakeknot/autarch/internal/gurgeh/arbiter"
 	"github.com/mistakeknot/autarch/internal/gurgeh/config"
+	pollardquick "github.com/mistakeknot/autarch/internal/pollard/quick"
 	praudePlan "github.com/mistakeknot/autarch/internal/gurgeh/plan"
 	"github.com/mistakeknot/autarch/internal/gurgeh/project"
 	"github.com/mistakeknot/autarch/internal/gurgeh/research"
@@ -262,6 +263,7 @@ The config file format:
 // all phases, accepting each draft automatically. Outputs the resulting spec.
 func runArbiterSprint(out io.Writer, root string, cfg InterviewConfig) error {
 	orch := arbiter.NewOrchestrator(root)
+	orch.SetScanner(pollardquick.NewScanner())
 	ctx := context.Background()
 
 	state, err := orch.Start(ctx, cfg.Vision)

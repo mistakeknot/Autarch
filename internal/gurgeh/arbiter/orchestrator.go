@@ -9,7 +9,6 @@ import (
 
 	"github.com/mistakeknot/autarch/internal/gurgeh/arbiter/confidence"
 	"github.com/mistakeknot/autarch/internal/gurgeh/arbiter/consistency"
-	"github.com/mistakeknot/autarch/internal/gurgeh/arbiter/quick"
 	"github.com/mistakeknot/autarch/internal/gurgeh/specs"
 )
 
@@ -35,19 +34,26 @@ type Orchestrator struct {
 	generator   *Generator
 	consistency *consistency.Engine
 	confidence  *confidence.Calculator
-	scanner     *quick.Scanner
+	scanner     QuickScanner
 	research    ResearchProvider // nil = no-research mode
 }
 
 // NewOrchestrator creates a new Orchestrator for the given project path.
+// Uses a stub scanner; call SetScanner to inject the real Pollard scanner.
 func NewOrchestrator(projectPath string) *Orchestrator {
 	return &Orchestrator{
 		projectPath: projectPath,
 		generator:   NewGenerator(),
 		consistency: consistency.NewEngine(),
 		confidence:  confidence.NewCalculator(),
-		scanner:     quick.NewScanner(),
+		scanner:     &stubScanner{},
 	}
+}
+
+// SetScanner replaces the quick scanner implementation.
+// Use this to inject the real Pollard scanner (internal/pollard/quick.Scanner).
+func (o *Orchestrator) SetScanner(s QuickScanner) {
+	o.scanner = s
 }
 
 // NewOrchestratorWithResearch creates an Orchestrator with Intermute research integration.
@@ -223,6 +229,17 @@ func (o *Orchestrator) ExportSpec(state *SprintState) (*specs.Spec, error) {
 	return ExportToSpec(state)
 }
 
+// stubScanner is a no-op scanner used when no real scanner is injected.
+type stubScanner struct{}
+
+func (s *stubScanner) Scan(_ context.Context, topic string, _ string) (*QuickScanResult, error) {
+	return &QuickScanResult{
+		Topic:     topic,
+		Summary:   "Quick scan results for: " + topic,
+		ScannedAt: time.Now(),
+	}, nil
+}
+
 // readProjectContext is a stub that will eventually read project metadata.
 func (o *Orchestrator) readProjectContext() *ProjectContext {
 	return nil
@@ -256,20 +273,70 @@ func (o *Orchestrator) checkConsistency(state *SprintState) []Conflict {
 }
 
 // researchQuality computes a 0.0–1.0 score from sprint research state.
-// Returns 0 if no research was done, uses average finding relevance if
-// Intermute findings exist, and falls back to 0.5 for legacy quick-scan only.
+// The score combines finding count (30%), source diversity (30%), and
+// average relevance (40%). Returns 0.0 if no research has been performed.
 func researchQuality(state *SprintState) float64 {
-	if len(state.Findings) > 0 {
-		var sum float64
-		for _, f := range state.Findings {
-			sum += f.Relevance
+	// Count all findings across Intermute and legacy quick scan
+	findingCount := len(state.Findings)
+	if state.ResearchCtx != nil {
+		findingCount += len(state.ResearchCtx.GitHubHits) + len(state.ResearchCtx.HNHits)
+	}
+	if findingCount == 0 {
+		return 0.0
+	}
+
+	// Source diversity: count distinct source types
+	sources := make(map[string]bool)
+	for _, f := range state.Findings {
+		if f.SourceType != "" {
+			sources[f.SourceType] = true
 		}
-		return sum / float64(len(state.Findings))
 	}
 	if state.ResearchCtx != nil {
-		return 0.5
+		if len(state.ResearchCtx.GitHubHits) > 0 {
+			sources["github"] = true
+		}
+		if len(state.ResearchCtx.HNHits) > 0 {
+			sources["hackernews"] = true
+		}
 	}
-	return 0.0
+
+	// Average relevance (default 0.5 for GitHub/HN hits without scores)
+	var relevanceSum float64
+	var relevanceCount int
+	for _, f := range state.Findings {
+		relevanceSum += f.Relevance
+		relevanceCount++
+	}
+	if state.ResearchCtx != nil {
+		for range state.ResearchCtx.GitHubHits {
+			relevanceSum += 0.5
+			relevanceCount++
+		}
+		for range state.ResearchCtx.HNHits {
+			relevanceSum += 0.5
+			relevanceCount++
+		}
+	}
+	avgRelevance := 0.0
+	if relevanceCount > 0 {
+		avgRelevance = relevanceSum / float64(relevanceCount)
+	}
+
+	// Weighted formula: 30% count + 30% diversity + 40% relevance
+	countScore := clamp01(float64(findingCount) / 10.0)
+	diversityScore := clamp01(float64(len(sources)) / 3.0)
+	return 0.3*countScore + 0.3*diversityScore + 0.4*avgRelevance
+}
+
+func clamp01(v float64) float64 {
+	if v < 0 {
+		return 0
+	}
+	if v > 1 {
+		return 1
+	}
+	return v
 }
 
 // updateConfidence computes and sets the confidence score on the state.
@@ -310,11 +377,7 @@ func (o *Orchestrator) runQuickScan(ctx context.Context, state *SprintState) {
 	if err != nil {
 		return
 	}
-	state.ResearchCtx = &QuickScanResult{
-		Topic:     result.Topic,
-		Summary:   result.Summary,
-		ScannedAt: result.ScannedAt,
-	}
+	state.ResearchCtx = result
 
 	// Publish scan result as an Intermute Insight and fetch all linked findings
 	if o.research != nil && state.SpecID != "" {

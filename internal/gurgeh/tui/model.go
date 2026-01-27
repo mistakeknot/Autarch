@@ -18,6 +18,7 @@ import (
 	"github.com/mistakeknot/autarch/internal/gurgeh/research"
 	"github.com/mistakeknot/autarch/internal/gurgeh/specs"
 	"github.com/mistakeknot/autarch/internal/gurgeh/suggestions"
+	pollardquick "github.com/mistakeknot/autarch/internal/pollard/quick"
 )
 
 type Model struct {
@@ -568,8 +569,15 @@ func (m *Model) runSuggestionsForSelected() {
 	m.status = "launched suggestions agent " + agentName
 }
 
+// newOrchestratorWithScanner creates an orchestrator with the real Pollard scanner.
+func newOrchestratorWithScanner(projectPath string) *arbiter.Orchestrator {
+	o := arbiter.NewOrchestrator(projectPath)
+	o.SetScanner(pollardquick.NewScanner())
+	return o
+}
+
 func (m *Model) startSprint() {
-	orch := arbiter.NewOrchestrator(m.root)
+	orch := newOrchestratorWithScanner(m.root)
 	state, err := orch.Start(context.Background(), "")
 	if err != nil {
 		m.status = "Sprint failed: " + err.Error()
@@ -592,7 +600,7 @@ func (m *Model) startSprintForSelected() {
 		return
 	}
 	// Migrate existing spec into a sprint state
-	orch := arbiter.NewOrchestrator(m.root)
+	orch := newOrchestratorWithScanner(m.root)
 	state := arbiter.MigrateFromSpec(&spec, sel.Path)
 	_ = orch // orchestrator available for future phase advancement
 	m.sprint = NewSprintView(state)
