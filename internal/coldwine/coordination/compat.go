@@ -11,9 +11,12 @@ import (
 
 	"github.com/mistakeknot/autarch/internal/coldwine/config"
 	"github.com/mistakeknot/autarch/internal/coldwine/storage"
+	"github.com/mistakeknot/autarch/pkg/timeout"
 )
 
 const maxInlineAttachmentBytes int64 = 64 * 1024
+
+var llmSummaryTimeout = timeout.HTTPDefault
 
 type SendMessageRequest struct {
 	MessageID     string
@@ -385,7 +388,9 @@ func SummarizeThread(db *sql.DB, req SummarizeThreadRequest) (SummarizeThreadRes
 			Body:    msg.Body,
 		})
 	}
-	output, err := RunLLMSummaryCommand(context.Background(), req.LLMConfig, LLMSummaryInput{
+	ctx, cancel := context.WithTimeout(context.Background(), llmSummaryTimeout)
+	defer cancel()
+	output, err := RunLLMSummaryCommand(ctx, req.LLMConfig, LLMSummaryInput{
 		ThreadID:        req.ThreadID,
 		Messages:        llmMessages,
 		IncludeExamples: req.IncludeExamples,

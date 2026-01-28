@@ -41,12 +41,13 @@ Out of scope:
 - Add tests in `pkg/intermute/register_test.go`
 
 **Steps:**
-1. Change `Register()` to return a no-op stop (`func(){}`) and nil error when `INTERMUTE_URL` is empty.
-2. Ensure `RegisterTool()` inherits the same behavior.
-3. Update `internal/intermute/intermute.go` (deprecated) to match the no-op behavior.
-4. Add tests:
-   - `TestRegisterNoURLNoop` (missing URL returns nil error and non-nil stop).
-   - `TestRegisterNoURLSkipsClient` (`newClient` is not called when URL is empty; use test hooks).
+- [x] Change `Register()` to return a no-op stop (`func(){}`) and nil error when `INTERMUTE_URL` is empty.
+- [x] Ensure `RegisterTool()` inherits the same behavior.
+- [x] Update `internal/intermute/intermute.go` (deprecated) to match the no-op behavior.
+- [x] Add tests:
+  - [x] `TestRegisterNoURLNoop` (missing URL returns nil error and non-nil stop).
+  - [x] `TestRegisterNoURLSkipsClient` (`newClient` is not called when URL is empty; use test hooks).
+  - [x] `TestRegisterHeartbeatHasDeadline` (heartbeat context has a deadline).
 
 **Acceptance:**
 - Tools no longer log an “INTERMUTE_URL required” error on startup when unset.
@@ -59,9 +60,9 @@ Out of scope:
 - `pkg/timeout/timeout.go` (if a new constant is needed)
 
 **Steps:**
-1. Wrap heartbeat calls with `context.WithTimeout` using `timeout.HTTPDefault`.
-2. Ensure ticker loop uses the bounded context on every heartbeat.
-3. Add tests that assert heartbeat receives a context with a deadline (via test hook).
+- [x] Wrap heartbeat calls with `context.WithTimeout` using `timeout.HTTPDefault`.
+- [x] Ensure ticker loop uses the bounded context on every heartbeat.
+- [x] Add tests that assert heartbeat receives a context with a deadline (via test hook).
 
 **Acceptance:**
 - Heartbeats can’t block indefinitely.
@@ -72,9 +73,9 @@ Out of scope:
 - `internal/coldwine/coordination/llm_summary_test.go`
 
 **Steps:**
-1. Update `SummarizeThread` to use a bounded context for `RunLLMSummaryCommand`.
-2. Use `timeout.HTTPDefault` for the LLM summary call.
-3. Update tests to reflect the new timeout behavior.
+- [x] Update `SummarizeThread` to use a bounded context for `RunLLMSummaryCommand`.
+- [x] Use `timeout.HTTPDefault` for the LLM summary call.
+- [x] Update tests to reflect the new timeout behavior.
 
 **Acceptance:**
 - LLM summary work uses a timeout instead of `context.Background()`.
@@ -87,8 +88,8 @@ Out of scope:
   - `internal/intermute/intermute.go` (heartbeat)
 
 **Steps:**
-1. Re-run `rg "context.Background()"` and confirm remaining matches are in tests or CLI startup.
-2. If any non-test IO path remains, convert it to a bounded context.
+- [x] Re-run `rg "context.Background()"` and confirm remaining matches are in tests or CLI startup.
+- [x] If any non-test IO path remains, convert it to a bounded context (no changes required for this plan’s scoped paths).
 
 **Acceptance:**
 - No unbounded `context.Background()` in production IO paths.

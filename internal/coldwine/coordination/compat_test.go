@@ -1,10 +1,14 @@
 package coordination
 
 import (
+	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
+	"time"
 
 	"github.com/mistakeknot/autarch/internal/coldwine/config"
 	"github.com/mistakeknot/autarch/internal/coldwine/project"
@@ -497,5 +501,50 @@ func TestSummarizeThreadWithLLM(t *testing.T) {
 	}
 	if len(resp.Examples) == 0 || len(resp.KeyPoints) == 0 {
 		t.Fatalf("expected examples and key points")
+	}
+}
+
+func TestSummarizeThreadLLMTimeout(t *testing.T) {
+	db, err := storage.OpenTemp()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	if err := storage.Migrate(db); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := SendMessage(db, SendMessageRequest{
+		MessageID: "m-timeout",
+		ThreadID:  "thread-timeout",
+		Sender:    "alice",
+		Subject:   "Hello",
+		Body:      "Body",
+		To:        []string{"bob"},
+	}); err != nil {
+		t.Fatalf("send: %v", err)
+	}
+
+	tmp := t.TempDir()
+	cmdPath := filepath.Join(tmp, "summary.sh")
+	script := "#!/bin/sh\nsleep 0.05\necho '{\"summary\":{\"participants\":[\"alice\"],\"key_points\":[\"p1\"],\"action_items\":[]},\"examples\":[]}'\n"
+	if err := os.WriteFile(cmdPath, []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	origTimeout := llmSummaryTimeout
+	llmSummaryTimeout = 10 * time.Millisecond
+	t.Cleanup(func() { llmSummaryTimeout = origTimeout })
+
+	_, err = SummarizeThread(db, SummarizeThreadRequest{
+		ThreadID:  "thread-timeout",
+		LLMMode:   true,
+		LLMConfig: config.LLMSummaryConfig{Command: cmdPath, TimeoutSeconds: 5},
+	})
+	if err == nil {
+		t.Fatalf("expected timeout error")
+	}
+	if !errors.Is(err, context.DeadlineExceeded) && !strings.Contains(err.Error(), "signal: killed") {
+		t.Fatalf("expected deadline exceeded, got %v", err)
 	}
 }

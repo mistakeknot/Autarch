@@ -5,11 +5,14 @@ package intermute
 import (
 	"context"
 	"fmt"
+	"log"
 	"os"
 	"strings"
+	"sync"
 	"time"
 
 	ic "github.com/mistakeknot/intermute/client"
+	"github.com/mistakeknot/autarch/pkg/timeout"
 )
 
 // Options configures agent registration with Intermute
@@ -30,6 +33,7 @@ var (
 	heartbeat = func(ctx context.Context, c *ic.Client, id string) error {
 		return c.Heartbeat(ctx, id)
 	}
+	warnOfflineOnce sync.Once
 )
 
 // Register connects an agent to the Intermute server and returns a cleanup function.
@@ -44,7 +48,12 @@ var (
 func Register(ctx context.Context, opts Options) (func(), error) {
 	url := strings.TrimSpace(os.Getenv("INTERMUTE_URL"))
 	if url == "" {
-		return nil, fmt.Errorf("INTERMUTE_URL required: set environment variable to Intermute server URL")
+		if strings.TrimSpace(os.Getenv("INTERMUTE_API_KEY")) != "" || strings.TrimSpace(os.Getenv("INTERMUTE_PROJECT")) != "" {
+			warnOfflineOnce.Do(func() {
+				log.Printf("intermute offline: INTERMUTE_URL missing while other Intermute env vars are set")
+			})
+		}
+		return func() {}, nil
 	}
 
 	name := opts.Name
@@ -97,7 +106,9 @@ func Register(ctx context.Context, opts Options) (func(), error) {
 		for {
 			select {
 			case <-ticker.C:
-				_ = heartbeat(context.Background(), client, agent.ID)
+				hbCtx, cancel := context.WithTimeout(context.Background(), timeout.HTTPDefault)
+				_ = heartbeat(hbCtx, client, agent.ID)
+				cancel()
 			case <-stop:
 				return
 			}
