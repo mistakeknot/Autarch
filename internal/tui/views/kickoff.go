@@ -24,6 +24,7 @@ type KickoffView struct {
 	chatPanel   *pkgtui.ChatPanel
 	docPanel    *pkgtui.DocPanel
 	splitLayout *pkgtui.SplitLayout
+	chatSettings pkgtui.ChatSettings
 
 	recents    []RecentProject
 	selected   int
@@ -90,6 +91,7 @@ func NewKickoffView() *KickoffView {
 		docPanel:    docPanel,
 		splitLayout: splitLayout,
 		focusInput:  true,
+		chatSettings: pkgtui.DefaultChatSettings(),
 	}
 	v.seedChat()
 	v.updateDocPanel()
@@ -102,9 +104,18 @@ func (v *KickoffView) SetAgentSelector(selector *pkgtui.AgentSelector) {
 	v.chatPanel.SetAgentSelector(selector)
 }
 
+// SetChatSettings sets persisted chat settings.
+func (v *KickoffView) SetChatSettings(settings pkgtui.ChatSettings) {
+	v.chatSettings = settings
+	v.chatPanel.SetSettings(settings)
+}
+
 // seedChat resets the chat history with kickoff guidance.
 func (v *KickoffView) seedChat() {
 	v.chatPanel.ClearMessages()
+	if !v.chatSettings.ShowHistoryOnNewChat {
+		return
+	}
 	v.chatPanel.AddMessage("system", "What do you want to build?")
 	v.chatPanel.AddMessage("system", "Tips:\n• Be specific about what you're building\n• Include key features or requirements\n• Mention any constraints or preferences")
 	v.chatPanel.AddMessage("system", "Shortcuts:\n• Ctrl+G → Create project\n• Ctrl+S → Scan current directory\n• Tab → Switch between panels\n• F2 → Agent selector")

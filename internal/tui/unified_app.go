@@ -65,6 +65,10 @@ type UnifiedApp struct {
 	err      error
 	showHelp bool // Help overlay visible
 	keys     pkgtui.CommonKeys
+	// Chat settings
+	chatSettings     pkgtui.ChatSettings
+	chatSettingsOpen bool
+	chatSettingsView *pkgtui.ChatSettingsPanel
 
 	// View factories (injected from main.go)
 	createKickoffView     func() View
@@ -95,6 +99,7 @@ func NewUnifiedApp(client *autarch.Client) *UnifiedApp {
 		ctx:             ctx,
 		cancel:          cancel,
 		keys:            pkgtui.NewCommonKeys(),
+		chatSettings:    pkgtui.DefaultChatSettings(),
 	}
 
 	return app
@@ -128,6 +133,10 @@ type agentSelectorSetter interface {
 
 type agentNameSetter interface {
 	SetAgentName(string)
+}
+
+type chatSettingsSetter interface {
+	SetChatSettings(pkgtui.ChatSettings)
 }
 
 func (a *UnifiedApp) initAgentSelector() {
@@ -180,13 +189,16 @@ func (a *UnifiedApp) setSelectorIndex(name string) {
 }
 
 func (a *UnifiedApp) attachAgentSelector(view View) {
-	if a.agentSelector == nil || view == nil {
+	if view == nil {
 		return
 	}
-	if setter, ok := view.(agentSelectorSetter); ok {
-		setter.SetAgentSelector(a.agentSelector)
+	if a.agentSelector != nil {
+		if setter, ok := view.(agentSelectorSetter); ok {
+			setter.SetAgentSelector(a.agentSelector)
+		}
 	}
 	a.attachAgentName(view)
+	a.attachChatSettings(view)
 }
 
 func (a *UnifiedApp) attachAgentName(view View) {
@@ -195,6 +207,15 @@ func (a *UnifiedApp) attachAgentName(view View) {
 	}
 	if setter, ok := view.(agentNameSetter); ok {
 		setter.SetAgentName(a.selectedAgent)
+	}
+}
+
+func (a *UnifiedApp) attachChatSettings(view View) {
+	if view == nil {
+		return
+	}
+	if setter, ok := view.(chatSettingsSetter); ok {
+		setter.SetChatSettings(a.chatSettings)
 	}
 }
 
@@ -214,6 +235,11 @@ func filterSupportedAgentOptions(options []pkgtui.AgentOption) []pkgtui.AgentOpt
 
 // Init implements tea.Model
 func (a *UnifiedApp) Init() tea.Cmd {
+	if settings, err := LoadChatSettings(); err == nil {
+		a.chatSettings = settings
+	}
+	a.chatSettingsView = pkgtui.NewChatSettingsPanel(a.chatSettings)
+
 	// Detect coding agent
 	detectedAgent, err := agent.DetectAgent()
 	if err == nil {
@@ -274,12 +300,26 @@ func (a *UnifiedApp) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return a, nil
 		}
 
-		// Handle palette if visible
-		if a.palette.Visible() {
-			var cmd tea.Cmd
-			a.palette, cmd = a.palette.Update(msg)
-			return a, cmd
+	// Handle palette if visible
+	if a.palette.Visible() {
+		var cmd tea.Cmd
+		a.palette, cmd = a.palette.Update(msg)
+		return a, cmd
+	}
+	if a.chatSettingsOpen {
+		if msg.String() == "esc" {
+			a.chatSettingsOpen = false
+			return a, nil
 		}
+		if a.chatSettingsView != nil {
+			if a.chatSettingsView.Update(msg) {
+				a.chatSettings = a.chatSettingsView.Settings
+				_ = SaveChatSettings(a.chatSettings)
+				a.attachChatSettings(a.currentView)
+			}
+		}
+		return a, nil
+	}
 
 		// Handle breadcrumb navigation in onboarding mode
 		if a.mode == ModeOnboarding && a.breadcrumb.IsNavigating() {
@@ -310,6 +350,9 @@ func (a *UnifiedApp) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 				return a, nil
 			}
+		case ",", "ctrl+,":
+			a.openChatSettings()
+			return a, nil
 		}
 
 		// In dashboard mode, handle tab switching
@@ -956,6 +999,15 @@ func (a *UnifiedApp) updateCommands() {
 			}
 		},
 	})
+	cmds = append(cmds, Command{
+		Name:        "Chat settings",
+		Description: "Configure chat panel",
+		Action: func() tea.Cmd {
+			return func() tea.Msg {
+				return tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{','}}
+			}
+		},
+	})
 
 	for i, v := range a.dashViews {
 		idx := i
@@ -972,6 +1024,15 @@ func (a *UnifiedApp) updateCommands() {
 	}
 
 	a.palette.SetCommands(cmds)
+}
+
+func (a *UnifiedApp) openChatSettings() {
+	a.chatSettingsOpen = true
+	if a.chatSettingsView == nil {
+		a.chatSettingsView = pkgtui.NewChatSettingsPanel(a.chatSettings)
+	} else {
+		a.chatSettingsView.Settings = a.chatSettings
+	}
 }
 
 func (a *UnifiedApp) switchDashboardTab(idx int) tea.Cmd {
@@ -1059,6 +1120,10 @@ func (a *UnifiedApp) View() string {
 		return a.overlay(result, a.palette.View())
 	}
 
+	if a.chatSettingsOpen && a.chatSettingsView != nil {
+		return a.overlay(result, a.chatSettingsView.View())
+	}
+
 	// Overlay help if visible
 	if a.showHelp {
 		return a.overlay(result, a.renderHelpOverlay())
@@ -1091,12 +1156,12 @@ func (a *UnifiedApp) renderFooterContent() string {
 	}
 
 	if a.mode == ModeDashboard {
-		help += "  │  1-4 tabs  ctrl+p palette  F2 agent  ctrl+c quit"
+		help += "  │  1-4 tabs  ctrl+p palette  , settings  F2 agent  ctrl+c quit"
 	} else {
 		if a.breadcrumb.IsNavigating() {
-			help = "←/→ navigate  enter select  esc cancel  F2 agent"
+			help = "←/→ navigate  enter select  esc cancel  , settings  F2 agent"
 		} else {
-			help += "  │  ctrl+b jump  F2 agent  ctrl+c quit"
+			help += "  │  ctrl+b jump  , settings  F2 agent  ctrl+c quit"
 		}
 	}
 

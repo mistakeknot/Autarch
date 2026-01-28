@@ -1,6 +1,10 @@
 package tui
 
-import tea "github.com/charmbracelet/bubbletea"
+import (
+	tea "github.com/charmbracelet/bubbletea"
+
+	pkgtui "github.com/mistakeknot/autarch/pkg/tui"
+)
 
 // InterviewQuestion represents a single interview question with research integration.
 // This type is defined here to avoid import cycles between tui and tui/views packages.
@@ -192,4 +196,9 @@ type SpecSummaryViewSetter interface {
 		onEditSpec func(*SpecSummary) tea.Cmd,
 		onWaitResearch func() tea.Cmd,
 	)
+}
+
+// ChatSettingsSetter allows views to receive persisted chat settings.
+type ChatSettingsSetter interface {
+	SetChatSettings(settings pkgtui.ChatSettings)
 }

@@ -49,3 +49,24 @@ func TestUnifiedAppCtrlCQuitsWithHelpVisible(t *testing.T) {
 		t.Fatalf("expected QuitMsg")
 	}
 }
+
+func TestChatSettingsTogglePersistsAndApplies(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", dir)
+
+	app := NewUnifiedApp(nil)
+	app.chatSettings = DefaultChatSettings()
+
+	app.chatSettings.AutoScroll = false
+	if err := SaveChatSettings(app.chatSettings); err != nil {
+		t.Fatalf("save settings: %v", err)
+	}
+
+	loaded, err := LoadChatSettings()
+	if err != nil {
+		t.Fatalf("reload settings: %v", err)
+	}
+	if loaded.AutoScroll {
+		t.Fatalf("expected autos-scroll off")
+	}
+}
