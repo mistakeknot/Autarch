@@ -202,3 +202,8 @@ type SpecSummaryViewSetter interface {
 type ChatSettingsSetter interface {
 	SetChatSettings(settings pkgtui.ChatSettings)
 }
+
+// ChatStreamSetter allows views to append streaming agent output.
+type ChatStreamSetter interface {
+	AppendChatLine(line string)
+}

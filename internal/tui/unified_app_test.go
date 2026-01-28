@@ -19,6 +19,23 @@ func (v *noopDashboardView) Blur()                                     {}
 func (v *noopDashboardView) Name() string                              { return v.name }
 func (v *noopDashboardView) ShortHelp() string                         { return "Tab focus" }
 
+type chatStreamView struct {
+	last   string
+	called bool
+}
+
+func (v *chatStreamView) Init() tea.Cmd                             { return nil }
+func (v *chatStreamView) Update(msg tea.Msg) (pkgtui.View, tea.Cmd) { return v, nil }
+func (v *chatStreamView) View() string                              { return "content" }
+func (v *chatStreamView) Focus() tea.Cmd                            { return nil }
+func (v *chatStreamView) Blur()                                     {}
+func (v *chatStreamView) Name() string                              { return "chat" }
+func (v *chatStreamView) ShortHelp() string                         { return "Tab focus" }
+func (v *chatStreamView) AppendChatLine(line string) {
+	v.called = true
+	v.last = line
+}
+
 func TestUnifiedAppShiftTabCyclesBack(t *testing.T) {
 	app := NewUnifiedApp(nil)
 	app.mode = ModeDashboard
@@ -68,5 +85,20 @@ func TestChatSettingsTogglePersistsAndApplies(t *testing.T) {
 	}
 	if loaded.AutoScroll {
 		t.Fatalf("expected autos-scroll off")
+	}
+}
+
+func TestAgentStreamMessagesRouteToChat(t *testing.T) {
+	app := NewUnifiedApp(nil)
+	view := &chatStreamView{}
+	app.currentView = view
+
+	_, _ = app.Update(AgentStreamMsg{Line: "hello"})
+
+	if !view.called {
+		t.Fatalf("expected AppendChatLine to be called")
+	}
+	if view.last != "hello" {
+		t.Fatalf("expected line to be forwarded")
 	}
 }

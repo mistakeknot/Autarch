@@ -110,6 +110,11 @@ func (v *KickoffView) SetChatSettings(settings pkgtui.ChatSettings) {
 	v.chatPanel.SetSettings(settings)
 }
 
+// AppendChatLine appends a streaming agent line to the chat panel.
+func (v *KickoffView) AppendChatLine(line string) {
+	v.chatPanel.AddMessage("agent", line)
+}
+
 // seedChat resets the chat history with kickoff guidance.
 func (v *KickoffView) seedChat() {
 	v.chatPanel.ClearMessages()
@@ -318,6 +323,7 @@ func (v *KickoffView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
 	case tui.ScanProgressMsg:
 		// Update agent output display
 		if msg.AgentLine != "" {
+			v.chatPanel.AddMessage("agent", msg.AgentLine)
 			// Keep last 8 lines
 			v.scanAgentLines = append(v.scanAgentLines, msg.AgentLine)
 			if len(v.scanAgentLines) > 8 {

@@ -20,17 +20,22 @@ type SpecInput struct {
 	Requirements []string
 }
 
-// GenerateEpics uses the coding agent to generate epic proposals from a spec
+// GenerateEpics uses the coding agent to generate epic proposals from a spec.
 func GenerateEpics(ctx context.Context, agent *Agent, spec SpecInput) ([]epics.EpicProposal, error) {
+	return GenerateEpicsWithOutput(ctx, agent, spec, nil)
+}
+
+// GenerateEpicsWithOutput streams agent output while generating epic proposals.
+func GenerateEpicsWithOutput(ctx context.Context, agent *Agent, spec SpecInput, onOutput OutputCallback) ([]epics.EpicProposal, error) {
 	prompt := buildEpicPrompt(spec)
 
 	// Set a reasonable timeout for LLM generation
 	ctx, cancel := context.WithTimeout(ctx, 2*time.Minute)
 	defer cancel()
 
-	resp, err := agent.Generate(ctx, GenerateRequest{
+	resp, err := agent.GenerateWithOutput(ctx, GenerateRequest{
 		Prompt: prompt,
-	})
+	}, onOutput)
 	if err != nil {
 		return nil, fmt.Errorf("agent generation failed: %w", err)
 	}

@@ -116,6 +116,27 @@ type ScanProgressMsg struct {
 	AgentLine string   // Live output line from agent (if streaming)
 }
 
+// AgentRunStartedMsg indicates an agent run has started.
+type AgentRunStartedMsg struct {
+	What string
+}
+
+// AgentStreamMsg reports a live output line from an agent run.
+type AgentStreamMsg struct {
+	Line string
+}
+
+// AgentRunFinishedMsg indicates an agent run has finished.
+type AgentRunFinishedMsg struct {
+	What string
+	Err  error
+}
+
+// AgentEditSummaryMsg reports a summary of edits after an agent run.
+type AgentEditSummaryMsg struct {
+	Summary string
+}
+
 // CodebaseScanResultMsg contains the results of a codebase scan
 type CodebaseScanResultMsg struct {
 	ProjectName  string

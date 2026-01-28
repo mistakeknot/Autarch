@@ -11,17 +11,22 @@ import (
 	"github.com/mistakeknot/autarch/internal/coldwine/tasks"
 )
 
-// GenerateTasks uses the coding agent to generate task proposals from epics
+// GenerateTasks uses the coding agent to generate task proposals from epics.
 func GenerateTasks(ctx context.Context, agent *Agent, epicList []epics.EpicProposal) ([]tasks.TaskProposal, error) {
+	return GenerateTasksWithOutput(ctx, agent, epicList, nil)
+}
+
+// GenerateTasksWithOutput streams agent output while generating task proposals.
+func GenerateTasksWithOutput(ctx context.Context, agent *Agent, epicList []epics.EpicProposal, onOutput OutputCallback) ([]tasks.TaskProposal, error) {
 	prompt := buildTaskPrompt(epicList)
 
 	// Set a reasonable timeout for LLM generation
 	ctx, cancel := context.WithTimeout(ctx, 3*time.Minute)
 	defer cancel()
 
-	resp, err := agent.Generate(ctx, GenerateRequest{
+	resp, err := agent.GenerateWithOutput(ctx, GenerateRequest{
 		Prompt: prompt,
-	})
+	}, onOutput)
 	if err != nil {
 		return nil, fmt.Errorf("agent generation failed: %w", err)
 	}

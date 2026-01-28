@@ -22,6 +22,7 @@ type EpicReviewView struct {
 	height    int
 	editing   bool // In inline edit mode
 	editField string
+	chatLines []string
 
 	// Shell layout for unified 3-pane layout (chat only, no sidebar)
 	shell *pkgtui.ShellLayout
@@ -46,6 +47,18 @@ func NewEpicReviewView(proposals []epics.EpicProposal) *EpicReviewView {
 // SetAgentSelector sets the shared agent selector.
 func (v *EpicReviewView) SetAgentSelector(selector *pkgtui.AgentSelector) {
 	v.agentSelector = selector
+}
+
+// AppendChatLine appends a streaming agent line to the chat pane.
+func (v *EpicReviewView) AppendChatLine(line string) {
+	line = strings.TrimSpace(line)
+	if line == "" {
+		return
+	}
+	v.chatLines = append(v.chatLines, line)
+	if len(v.chatLines) > 200 {
+		v.chatLines = v.chatLines[len(v.chatLines)-200:]
+	}
 }
 
 // SetCallbacks sets the action callbacks.
@@ -284,6 +297,28 @@ func (v *EpicReviewView) renderChat() string {
 		Foreground(pkgtui.ColorMuted)
 
 	lines = append(lines, hintStyle.Render("Tab to focus chat"))
+
+	if len(v.chatLines) > 0 {
+		lines = append(lines, "")
+		lines = append(lines, pkgtui.SubtitleStyle.Render("Live output"))
+		contentStyle := lipgloss.NewStyle().
+			Foreground(pkgtui.ColorFg).
+			PaddingLeft(2)
+		contentWidth := v.shell.SplitLayout().RightWidth() - 4
+		if contentWidth < 10 {
+			contentWidth = 10
+		}
+		start := 0
+		if len(v.chatLines) > 12 {
+			start = len(v.chatLines) - 12
+		}
+		for _, line := range v.chatLines[start:] {
+			wrapped := pkgtui.WrapText(line, contentWidth)
+			for _, part := range strings.Split(wrapped, "\n") {
+				lines = append(lines, contentStyle.Render(part))
+			}
+		}
+	}
 
 	if v.agentSelector != nil {
 		lines = append(lines, "")

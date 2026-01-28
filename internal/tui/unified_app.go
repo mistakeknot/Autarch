@@ -300,26 +300,26 @@ func (a *UnifiedApp) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return a, nil
 		}
 
-	// Handle palette if visible
-	if a.palette.Visible() {
-		var cmd tea.Cmd
-		a.palette, cmd = a.palette.Update(msg)
-		return a, cmd
-	}
-	if a.chatSettingsOpen {
-		if msg.String() == "esc" {
-			a.chatSettingsOpen = false
+		// Handle palette if visible
+		if a.palette.Visible() {
+			var cmd tea.Cmd
+			a.palette, cmd = a.palette.Update(msg)
+			return a, cmd
+		}
+		if a.chatSettingsOpen {
+			if msg.String() == "esc" {
+				a.chatSettingsOpen = false
+				return a, nil
+			}
+			if a.chatSettingsView != nil {
+				if a.chatSettingsView.Update(msg) {
+					a.chatSettings = a.chatSettingsView.Settings
+					_ = SaveChatSettings(a.chatSettings)
+					a.attachChatSettings(a.currentView)
+				}
+			}
 			return a, nil
 		}
-		if a.chatSettingsView != nil {
-			if a.chatSettingsView.Update(msg) {
-				a.chatSettings = a.chatSettingsView.Settings
-				_ = SaveChatSettings(a.chatSettings)
-				a.attachChatSettings(a.currentView)
-			}
-		}
-		return a, nil
-	}
 
 		// Handle breadcrumb navigation in onboarding mode
 		if a.mode == ModeOnboarding && a.breadcrumb.IsNavigating() {
@@ -460,6 +460,17 @@ func (a *UnifiedApp) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return a, tea.Batch(cmd, msg.nextCmd)
 		}
 		return a, msg.nextCmd
+	case agentStreamWithContinuation:
+		if setter, ok := a.currentView.(ChatStreamSetter); ok {
+			setter.AppendChatLine(msg.Line)
+		}
+		return a, msg.nextCmd
+
+	case AgentStreamMsg:
+		if setter, ok := a.currentView.(ChatStreamSetter); ok {
+			setter.AppendChatLine(msg.Line)
+		}
+		return a, nil
 	}
 
 	// Pass to current view
@@ -682,6 +693,50 @@ type scanProgressWithContinuation struct {
 	nextCmd tea.Cmd
 }
 
+// agentStreamEvent represents a single streaming output or final result.
+type agentStreamEvent struct {
+	line  string
+	epics []epics.EpicProposal
+	tasks []tasks.TaskProposal
+	err   error
+}
+
+// agentStreamWithContinuation wraps a stream message with a continuation command.
+type agentStreamWithContinuation struct {
+	AgentStreamMsg
+	nextCmd tea.Cmd
+}
+
+func (a *UnifiedApp) waitForAgentStream(ch <-chan agentStreamEvent, what string) tea.Cmd {
+	return func() tea.Msg {
+		ev, ok := <-ch
+		if !ok {
+			return GenerationErrorMsg{What: what, Error: fmt.Errorf("%s generation interrupted", what)}
+		}
+
+		if ev.line != "" {
+			return agentStreamWithContinuation{
+				AgentStreamMsg: AgentStreamMsg{Line: ev.line},
+				nextCmd:        a.waitForAgentStream(ch, what),
+			}
+		}
+
+		if ev.err != nil {
+			return GenerationErrorMsg{What: what, Error: ev.err}
+		}
+
+		if len(ev.epics) > 0 {
+			return EpicsGeneratedMsg{Epics: ev.epics}
+		}
+
+		if len(ev.tasks) > 0 {
+			return TasksGeneratedMsg{Tasks: ev.tasks}
+		}
+
+		return GenerationErrorMsg{What: what, Error: fmt.Errorf("%s generation interrupted", what)}
+	}
+}
+
 func (a *UnifiedApp) handleSuggestionsReady(msg SuggestionsReadyMsg) tea.Cmd {
 	if msg.Error != nil {
 		// Suggestions failed, user will type manually - this is not fatal
@@ -762,22 +817,38 @@ func (a *UnifiedApp) generateEpicsWithAgent(spec SpecAcceptedMsg) tea.Cmd {
 		}
 	}
 
-	return func() tea.Msg {
-		input := agent.SpecInput{
-			Vision:       spec.Vision,
-			Users:        spec.Users,
-			Problem:      spec.Problem,
-			Platform:     spec.Platform,
-			Language:     spec.Language,
-			Requirements: spec.Requirements,
+	input := agent.SpecInput{
+		Vision:       spec.Vision,
+		Users:        spec.Users,
+		Problem:      spec.Problem,
+		Platform:     spec.Platform,
+		Language:     spec.Language,
+		Requirements: spec.Requirements,
+	}
+
+	stream := make(chan agentStreamEvent, 100)
+	go func() {
+		defer close(stream)
+		outputCallback := func(line string) {
+			line = strings.TrimSpace(line)
+			if line == "" {
+				return
+			}
+			select {
+			case stream <- agentStreamEvent{line: line}:
+			default:
+			}
 		}
 
-		proposals, err := agent.GenerateEpics(context.Background(), a.codingAgent, input)
+		proposals, err := agent.GenerateEpicsWithOutput(context.Background(), a.codingAgent, input, outputCallback)
 		if err != nil {
-			return GenerationErrorMsg{What: "epics", Error: err}
+			stream <- agentStreamEvent{err: err}
+			return
 		}
-		return EpicsGeneratedMsg{Epics: proposals}
-	}
+		stream <- agentStreamEvent{epics: proposals}
+	}()
+
+	return a.waitForAgentStream(stream, "epics")
 }
 
 func (a *UnifiedApp) handleEpicsGenerated(msg EpicsGeneratedMsg) tea.Cmd {
@@ -817,13 +888,29 @@ func (a *UnifiedApp) generateTasksWithAgent() tea.Cmd {
 		}
 	}
 
-	return func() tea.Msg {
-		taskList, err := agent.GenerateTasks(context.Background(), a.codingAgent, a.generatedEpics)
-		if err != nil {
-			return GenerationErrorMsg{What: "tasks", Error: err}
+	stream := make(chan agentStreamEvent, 100)
+	go func() {
+		defer close(stream)
+		outputCallback := func(line string) {
+			line = strings.TrimSpace(line)
+			if line == "" {
+				return
+			}
+			select {
+			case stream <- agentStreamEvent{line: line}:
+			default:
+			}
 		}
-		return TasksGeneratedMsg{Tasks: taskList}
-	}
+
+		taskList, err := agent.GenerateTasksWithOutput(context.Background(), a.codingAgent, a.generatedEpics, outputCallback)
+		if err != nil {
+			stream <- agentStreamEvent{err: err}
+			return
+		}
+		stream <- agentStreamEvent{tasks: taskList}
+	}()
+
+	return a.waitForAgentStream(stream, "tasks")
 }
 
 func (a *UnifiedApp) handleTasksGenerated(msg TasksGeneratedMsg) tea.Cmd {
