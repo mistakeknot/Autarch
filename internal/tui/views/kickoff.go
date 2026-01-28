@@ -134,6 +134,12 @@ func (v *KickoffView) SetAgentName(name string) {
 func (v *KickoffView) updateDocPanel() {
 	v.docPanel.ClearSections()
 
+	v.docPanel.AddSection(pkgtui.DocSection{
+		Title:   "Autarch",
+		Content: "Autarch is a platform for a suite of agentic tools to help you build better products. Use the chat panel on the right to start creating a PRD that will provide a solid foundation to build upon.",
+		Style:   lipgloss.NewStyle().Foreground(pkgtui.ColorFg),
+	})
+
 	// Add tips section
 	v.docPanel.AddSection(pkgtui.DocSection{
 		Title:   "Tips",
