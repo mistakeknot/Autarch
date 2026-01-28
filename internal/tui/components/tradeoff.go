@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/charmbracelet/bubbles/key"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/mistakeknot/autarch/internal/pollard/research"
@@ -17,12 +18,14 @@ type Tradeoff struct {
 	selected  int
 	width     int
 	collapsed bool // Show only header when collapsed
+	keys      pkgtui.CommonKeys
 }
 
 // NewTradeoff creates a new tradeoff component.
 func NewTradeoff() *Tradeoff {
 	return &Tradeoff{
 		selected: -1, // No selection by default
+		keys:     pkgtui.NewCommonKeys(),
 	}
 }
 
@@ -91,18 +94,48 @@ type TradeoffSelectedMsg struct {
 func (t *Tradeoff) Update(msg tea.Msg) (*Tradeoff, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
-		switch msg.String() {
-		case "1":
+		maxOptions := min(3, len(t.options))
+		switch {
+		case key.Matches(msg, t.keys.NavDown):
+			if maxOptions == 0 {
+				return t, nil
+			}
+			if t.selected < 0 {
+				t.selected = 0
+				return t, nil
+			}
+			if t.selected < maxOptions-1 {
+				t.selected++
+			}
+			return t, nil
+		case key.Matches(msg, t.keys.NavUp):
+			if maxOptions == 0 {
+				return t, nil
+			}
+			if t.selected < 0 {
+				t.selected = maxOptions - 1
+				return t, nil
+			}
+			if t.selected > 0 {
+				t.selected--
+			}
+			return t, nil
+		case key.Matches(msg, t.keys.Select):
+			if t.selected >= 0 && t.selected < maxOptions {
+				return t, t.createSelectedCmd(t.selected)
+			}
+			return t, nil
+		case msg.String() == "1":
 			if len(t.options) >= 1 {
 				t.selected = 0
 				return t, t.createSelectedCmd(0)
 			}
-		case "2":
+		case msg.String() == "2":
 			if len(t.options) >= 2 {
 				t.selected = 1
 				return t, t.createSelectedCmd(1)
 			}
-		case "3":
+		case msg.String() == "3":
 			if len(t.options) >= 3 {
 				t.selected = 2
 				return t, t.createSelectedCmd(2)
