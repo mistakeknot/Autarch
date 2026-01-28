@@ -13,6 +13,7 @@ import (
 
 	"github.com/mistakeknot/autarch/internal/bigend/agentcmd"
 	"github.com/mistakeknot/autarch/internal/bigend/coldwine"
+	"github.com/mistakeknot/autarch/internal/bigend/colony"
 	"github.com/mistakeknot/autarch/internal/bigend/config"
 	"github.com/mistakeknot/autarch/internal/bigend/discovery"
 	"github.com/mistakeknot/autarch/internal/bigend/mcp"
@@ -64,12 +65,13 @@ type Activity struct {
 
 // State holds the aggregated view of all projects and agents
 type State struct {
-	Projects   []discovery.Project `json:"projects"`
-	Agents     []Agent             `json:"agents"`
-	Sessions   []TmuxSession       `json:"sessions"`
+	Projects   []discovery.Project              `json:"projects"`
+	Agents     []Agent                          `json:"agents"`
+	Sessions   []TmuxSession                    `json:"sessions"`
+	Colonies   []colony.Colony                  `json:"colonies"`
 	MCP        map[string][]mcp.ComponentStatus `json:"mcp"`
-	Activities []Activity          `json:"activities"`
-	UpdatedAt  time.Time           `json:"updated_at"`
+	Activities []Activity                       `json:"activities"`
+	UpdatedAt  time.Time                        `json:"updated_at"`
 }
 
 type tmuxAPI interface {
@@ -88,10 +90,10 @@ type EventHandler func(Event)
 
 // Event represents a domain event from Intermute or local detection
 type Event struct {
-	Type      string      `json:"type"`       // spec.created, task.updated, message.sent, etc.
-	Project   string      `json:"project"`    // Project context
-	EntityID  string      `json:"entity_id"`  // ID of affected entity
-	Data      interface{} `json:"data"`       // Event-specific data
+	Type      string      `json:"type"`      // spec.created, task.updated, message.sent, etc.
+	Project   string      `json:"project"`   // Project context
+	EntityID  string      `json:"entity_id"` // ID of affected entity
+	Data      interface{} `json:"data"`      // Event-specific data
 	Timestamp time.Time   `json:"timestamp"`
 }
 
@@ -108,10 +110,10 @@ type Aggregator struct {
 	state           State
 
 	// WebSocket event handling
-	handlers   map[string][]EventHandler
-	handlersMu sync.RWMutex
-	wsCtx      context.Context
-	wsCancel   context.CancelFunc
+	handlers    map[string][]EventHandler
+	handlersMu  sync.RWMutex
+	wsCtx       context.Context
+	wsCancel    context.CancelFunc
 	wsConnected bool
 }
 
@@ -143,6 +145,7 @@ func New(scanner *discovery.Scanner, cfg *config.Config) *Aggregator {
 			Projects:   []discovery.Project{},
 			Agents:     []Agent{},
 			Sessions:   []TmuxSession{},
+			Colonies:   []colony.Colony{},
 			MCP:        map[string][]mcp.ComponentStatus{},
 			Activities: []Activity{},
 		},
@@ -378,6 +381,9 @@ func (a *Aggregator) Refresh(ctx context.Context) error {
 	// Load tmux sessions
 	sessions := a.loadTmuxSessions(projects)
 
+	// Detect colonies
+	colonies := colony.Detect(projects)
+
 	// Load MCP statuses
 	mcpStatuses := a.loadMCPStatuses(projects)
 
@@ -390,6 +396,7 @@ func (a *Aggregator) Refresh(ctx context.Context) error {
 		Projects:   projects,
 		Agents:     agents,
 		Sessions:   sessions,
+		Colonies:   colonies,
 		MCP:        mcpStatuses,
 		Activities: activities,
 		UpdatedAt:  time.Now(),
