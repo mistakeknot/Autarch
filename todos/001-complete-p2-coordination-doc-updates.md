@@ -1,5 +1,5 @@
 ---
-status: pending
+status: complete
 priority: p2
 issue_id: "001"
 tags: [docs, coordination]
@@ -53,7 +53,7 @@ Phase 0 of the coordination infrastructure plan requires documentation updates (
 
 ## Recommended Action
 
-**To be filled during triage.**
+Update AGENTS.md and docs/FLOWS.md to reflect coordination API surfaces, local-only policy, and colony detection.
 
 ## Technical Details
 
@@ -68,10 +68,10 @@ Phase 0 of the coordination infrastructure plan requires documentation updates (
 
 ## Acceptance Criteria
 
-- [ ] AGENTS.md TODO includes Pollard API, Gurgeh API, Signals WS, colony detection, Intermute request/response
-- [ ] AGENTS.md Documentation Map includes docs/VISION.md and docs/brainstorms/
-- [ ] docs/FLOWS.md includes new Section 17: Coordination Infrastructure (API Surfaces)
-- [ ] docs/FLOWS.md includes colony detection and signal broadcast notes in the referenced sections
+- [x] AGENTS.md TODO includes Pollard API, Gurgeh API, Signals WS, colony detection, Intermute request/response
+- [x] AGENTS.md Documentation Map includes docs/VISION.md and docs/brainstorms/
+- [x] docs/FLOWS.md includes new Section 17: Coordination Infrastructure (API Surfaces)
+- [x] docs/FLOWS.md includes colony detection and signal broadcast notes in the referenced sections
 
 ## Work Log
 
@@ -85,6 +85,18 @@ Phase 0 of the coordination infrastructure plan requires documentation updates (
 
 **Learnings:**
 - Documentation drift exists between plan and current repo docs
+
+### 2026-01-28 - Implementation
+
+**By:** Codex
+
+**Actions:**
+- Updated AGENTS.md docs map + project status to reflect coordination APIs and local-only surfaces
+- Added colony detection note to Bigend flow and signal broadcast note to signals section
+- Added Section 17: Coordination Infrastructure (API Surfaces)
+
+**Learnings:**
+- Coordination docs were missing newly shipped local-only endpoints
 
 ## Notes
 

@@ -268,6 +268,7 @@ type State struct {
     Projects   []discovery.Project
     Agents     []Agent
     Sessions   []TmuxSession
+    Colonies   []Colony
     MCP        map[string][]mcp.ComponentStatus
     Activities []Activity
     UpdatedAt  time.Time
@@ -279,6 +280,7 @@ type State struct {
 2. tmux client lists sessions; `statedetect.Detector` classifies each as working/waiting/blocked/stalled.
 3. Intermute WebSocket delivers real-time events (task completions, agent messages).
 4. Enrichment methods pull tool-specific stats from each project's local data.
+5. Colony detection scans git worktrees + convention markers; `/proc` scan is Linux-only.
 
 **Event handlers** (`Aggregator.On()`) allow reactive updates — e.g., when a task completes, the dashboard refreshes immediately.
 
@@ -637,6 +639,14 @@ flowchart TD
 
 Signals are checked **on spec load** (no background process). Bigend aggregates all signals in `internal/bigend/tui/signals.go`.
 
+Signals can also be streamed to local subscribers via the standalone WebSocket server:
+
+```bash
+go run ./cmd/signals serve --addr 127.0.0.1:8092
+```
+
+Publish from tools via `POST /api/signals` (local-only). Override the server URL with `AUTARCH_SIGNALS_URL`.
+
 ---
 
 ## 13. Spec Evolution & Versioning
@@ -720,6 +730,53 @@ Input: Spec + Signals + Research → Agent Prompt → JSON → RankedItems
 Each `RankedItem` has: feature_id, title, rank, reasoning (2-3 sentences), confidence.
 
 Implementation: `internal/gurgeh/prioritize/` (ranker.go, prompt.go)
+
+---
+
+## 17. Coordination Infrastructure (API Surfaces)
+
+All coordination APIs are **local-only by default** (loopback binds enforced).
+
+### Pollard Research API
+
+```bash
+go run ./cmd/pollard serve --addr 127.0.0.1:8090
+```
+
+**Endpoints:**
+- `GET /health`
+- `POST /api/scan`
+- `POST /api/scan/targeted`
+- `POST /api/research`
+- `GET /api/jobs/{id}`
+- `GET /api/jobs/{id}/result`
+- `GET /api/insights`
+- `GET /api/hunters`
+
+### Gurgeh Spec API (read-only)
+
+```bash
+go run ./cmd/gurgeh serve --addr 127.0.0.1:8091
+```
+
+**Endpoints:**
+- `GET /health`
+- `GET /api/specs`
+- `GET /api/specs/{id}`
+- `GET /api/specs/{id}/requirements`
+- `GET /api/specs/{id}/cujs`
+- `GET /api/specs/{id}/hypotheses`
+- `GET /api/specs/{id}/history`
+
+### Signals WebSocket Server
+
+```bash
+go run ./cmd/signals serve --addr 127.0.0.1:8092
+```
+
+**Endpoints:**
+- `GET /ws` (optional filter: `?types=competitor_shipped,assumption_decayed`)
+- `POST /api/signals` (publish a signal; local-only)
 
 ---
 

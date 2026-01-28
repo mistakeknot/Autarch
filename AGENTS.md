@@ -30,6 +30,8 @@ Unified monorepo for AI agent development tools: Bigend, Gurgeh, Coldwine, and P
 | [docs/QUICK_REFERENCE.md](docs/QUICK_REFERENCE.md) | Command cheat sheet |
 | [docs/tui/SHORTCUTS.md](docs/tui/SHORTCUTS.md) | TUI keyboard shortcut conventions |
 | [docs/plans/INDEX.md](docs/plans/INDEX.md) | Planning documents index |
+| [docs/VISION.md](docs/VISION.md) | Strategic vision and coordination infrastructure |
+| [docs/brainstorms/](docs/brainstorms/) | Design brainstorms |
 | [docs/solutions/](docs/solutions/) | Bug fixes and gotchas (check before debugging!) |
 
 ## Related Repositories
@@ -71,6 +73,10 @@ go mod tidy
 - Phase-specific deep research: Pollard targeted scans per Arbiter phase
 - Competitor watch mode: `pollard watch [--once]`
 - Agent-powered ranking: `gurgeh prioritize <spec-id>`
+- Pollard HTTP API server (local-only)
+- Gurgeh read-only Spec API (local-only)
+- Signals WebSocket server + publish endpoint (local-only)
+- Bigend colony detection (git worktrees + markers + /proc on Linux)
 
 ### In Progress
 - Bigend TUI mode
@@ -81,6 +87,7 @@ go mod tidy
 - Pollard integration into Bigend daemon
 - Agent-powered ranking: wire real LLM agent call (currently uses goal-order placeholder)
 - Signal TUI integration: inline signal display in each tool's TUI
+- Intermute request/response pattern (async agent-to-Pollard queries)
 
 ## Operating Principles
 
