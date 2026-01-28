@@ -16,6 +16,7 @@ import (
 	"github.com/mistakeknot/autarch/internal/coldwine/explore"
 	"github.com/mistakeknot/autarch/internal/coldwine/initflow"
 	"github.com/mistakeknot/autarch/internal/coldwine/project"
+	"github.com/mistakeknot/autarch/pkg/agenttargets"
 	"gopkg.in/yaml.v3"
 )
 
@@ -211,6 +212,7 @@ type agentGenerator struct {
 	root      string
 	agentName string
 	out       io.Writer
+	runner    agenttargets.AgentRunner
 }
 
 func (g *agentGenerator) Generate(ctx context.Context, input initflow.Input) (initflow.Result, error) {
@@ -228,23 +230,15 @@ func (g *agentGenerator) Generate(ctx context.Context, input initflow.Input) (in
 	if err != nil {
 		return initflow.Result{}, err
 	}
-	args := append([]string{}, target.Args...)
-	args = append(args, promptPath)
-	cmd := exec.CommandContext(ctx, target.Command, args...)
-	if len(target.Env) > 0 {
-		env := os.Environ()
-		for key, value := range target.Env {
-			env = append(env, key+"="+value)
-		}
-		cmd.Env = env
+	runner := g.runner
+	if runner == nil {
+		runner = agenttargets.NewExecAgentRunner()
 	}
-	var output bytes.Buffer
-	cmd.Stdout = &output
-	cmd.Stderr = &output
-	if err := cmd.Run(); err != nil {
-		return initflow.Result{}, fmt.Errorf("agent run failed: %w: %s", err, output.String())
+	output, err := runAgentWithRunner(ctx, runner, target, agenttargets.DefaultSafetyPolicy(), g.root, promptPath)
+	if err != nil {
+		return initflow.Result{}, err
 	}
-	epicsList, err := parseAndValidateEpics(output.Bytes(), filepath.Join(g.root, ".tandemonium", "plan"))
+	epicsList, err := parseAndValidateEpics(output, filepath.Join(g.root, ".tandemonium", "plan"))
 	if err != nil {
 		return initflow.Result{}, err
 	}
@@ -262,6 +256,27 @@ func writeAgentPrompt(root string, input initflow.Input) (string, error) {
 		return "", err
 	}
 	return path, nil
+}
+
+func runAgentWithRunner(ctx context.Context, runner agenttargets.AgentRunner, target agenttargets.ResolvedTarget, policy agenttargets.SafetyPolicy, workDir, promptPath string) ([]byte, error) {
+	if runner == nil {
+		return nil, fmt.Errorf("agent runner not configured")
+	}
+	handle, err := runner.Run(ctx, target, policy, workDir, promptPath)
+	if err != nil {
+		return nil, fmt.Errorf("agent run failed: %w", err)
+	}
+	result, waitErr := handle.Wait()
+	if waitErr != nil {
+		return nil, fmt.Errorf("agent run failed: %w", waitErr)
+	}
+	if result.TimedOut {
+		return nil, fmt.Errorf("agent run timed out")
+	}
+	if result.ExitCode != 0 {
+		return nil, fmt.Errorf("agent run failed (exit %d): %s", result.ExitCode, string(result.Output))
+	}
+	return result.Output, nil
 }
 
 func buildAgentPrompt(input initflow.Input) string {

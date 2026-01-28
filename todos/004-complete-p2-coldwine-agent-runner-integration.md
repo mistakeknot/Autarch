@@ -1,5 +1,5 @@
 ---
-status: pending
+status: complete
 priority: p2
 issue_id: "004"
 tags: [coldwine, agents, safety]
@@ -57,7 +57,7 @@ The AgentRunner abstraction exists in `pkg/agenttargets`, but Coldwine still sta
 
 ## Recommended Action
 
-**To be filled during triage.**
+Use `agenttargets.AgentRunner` for Coldwine's init agent execution to enforce safety policy and output caps; keep tmux session lifecycle unchanged for interactive task sessions.
 
 ## Technical Details
 
@@ -69,10 +69,10 @@ The AgentRunner abstraction exists in `pkg/agenttargets`, but Coldwine still sta
 
 ## Acceptance Criteria
 
-- [ ] Coldwine starts agents through AgentRunner with SafetyPolicy
-- [ ] Agent output caps and timeouts enforced
-- [ ] Coldwine session lifecycle still functions (start/stop)
-- [ ] Tests cover integration path
+- [x] Coldwine starts agents through AgentRunner with SafetyPolicy
+- [x] Agent output caps and timeouts enforced
+- [x] Coldwine session lifecycle still functions (start/stop)
+- [x] Tests cover integration path
 
 ## Work Log
 
@@ -86,3 +86,15 @@ The AgentRunner abstraction exists in `pkg/agenttargets`, but Coldwine still sta
 
 **Learnings:**
 - Safety abstraction not yet integrated into task execution
+
+### 2026-01-28 - Implementation
+
+**By:** Codex
+
+**Actions:**
+- Wired Coldwine init agent execution to `agenttargets.ExecAgentRunner` with `DefaultSafetyPolicy`
+- Added runner helper + tests for runner integration
+- Preserved tmux-based session lifecycle for task start/stop
+
+**Learnings:**
+- Coldwine's automated agent execution currently happens in init flow; task sessions remain interactive via tmux

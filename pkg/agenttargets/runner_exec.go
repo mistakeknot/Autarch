@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"os"
 	"os/exec"
 	"strings"
 	"sync"
@@ -55,9 +56,11 @@ func (r *ExecAgentRunner) Run(ctx context.Context, target ResolvedTarget, policy
 
 	// Apply environment.
 	if len(target.Env) > 0 {
+		env := append([]string{}, os.Environ()...)
 		for k, v := range target.Env {
-			cmd.Env = append(cmd.Env, k+"="+v)
+			env = append(env, k+"="+v)
 		}
+		cmd.Env = env
 	}
 
 	// Capture output with optional limit.
