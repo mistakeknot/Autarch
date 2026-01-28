@@ -3,6 +3,7 @@ package tui
 import (
 	"context"
 
+	"github.com/charmbracelet/bubbles/key"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	pkgtui "github.com/mistakeknot/autarch/pkg/tui"
@@ -88,6 +89,7 @@ type OnboardingOrchestrator struct {
 	// Callbacks to notify parent
 	onComplete func(projectID, projectName string) tea.Cmd
 	onCancel   func() tea.Cmd
+	keys       pkgtui.CommonKeys
 }
 
 // NewOnboardingOrchestrator creates a new onboarding orchestrator
@@ -97,6 +99,7 @@ func NewOnboardingOrchestrator() *OnboardingOrchestrator {
 		state:  OnboardingKickoff,
 		ctx:    ctx,
 		cancel: cancel,
+		keys:   pkgtui.NewCommonKeys(),
 	}
 }
 
@@ -158,7 +161,7 @@ func (o *OnboardingOrchestrator) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case tea.KeyMsg:
 		// Global escape to cancel onboarding
-		if msg.String() == "ctrl+c" {
+		if key.Matches(msg, o.keys.Quit) {
 			o.cancel()
 			if o.onCancel != nil {
 				return o, o.onCancel()
