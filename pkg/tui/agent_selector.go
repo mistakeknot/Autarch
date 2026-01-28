@@ -78,7 +78,8 @@ func (s *AgentSelector) View() string {
 		return ""
 	}
 	if !s.Open {
-		return lipgloss.NewStyle().Foreground(ColorMuted).Render("F2: agent")
+		label := fmt.Sprintf("Model: %s (F2)", s.currentName())
+		return lipgloss.NewStyle().Foreground(ColorMuted).Render(label)
 	}
 
 	var parts []string
@@ -92,5 +93,15 @@ func (s *AgentSelector) View() string {
 		parts = append(parts, label)
 	}
 
-	return lipgloss.NewStyle().Foreground(ColorFgDim).Render("Agent: ") + strings.Join(parts, "  ")
+	return lipgloss.NewStyle().Foreground(ColorFgDim).Render("Model: ") + strings.Join(parts, "  ")
+}
+
+func (s *AgentSelector) currentName() string {
+	if len(s.Options) == 0 {
+		return "Unknown"
+	}
+	if s.Index < 0 || s.Index >= len(s.Options) {
+		return s.Options[0].Name
+	}
+	return s.Options[s.Index].Name
 }

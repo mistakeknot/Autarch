@@ -118,7 +118,7 @@ func (v *KickoffView) seedChat() {
 	}
 	v.chatPanel.AddMessage("system", "What do you want to build?")
 	v.chatPanel.AddMessage("system", "Tips:\n• Be specific about what you're building\n• Include key features or requirements\n• Mention any constraints or preferences")
-	v.chatPanel.AddMessage("system", "Shortcuts:\n• Ctrl+G → Create project\n• Ctrl+S → Scan current directory\n• Tab → Switch between panels\n• F2 → Agent selector")
+	v.chatPanel.AddMessage("system", "Shortcuts:\n• Ctrl+G → Create project\n• Ctrl+S → Scan current directory\n• Tab → Switch between panels\n• F2 → Model selector")
 }
 
 // ChatMessagesForTest exposes chat history for tests.
@@ -834,12 +834,12 @@ func (v *KickoffView) Name() string {
 func (v *KickoffView) ShortHelp() string {
 	if v.focusInput {
 		if v.onScanCodebase != nil {
-			return "ctrl+g create  ctrl+s scan  F2 agent  tab switch"
+			return "ctrl+g create  ctrl+s scan  F2 model  tab switch"
 		}
-		return "ctrl+g create  F2 agent  tab switch"
+		return "ctrl+g create  F2 model  tab switch"
 	}
 	// Recents list focused
-	return "enter open  d delete  F2 agent  tab switch"
+	return "enter open  d delete  F2 model  tab switch"
 }
 
 // FullHelp implements FullHelpProvider

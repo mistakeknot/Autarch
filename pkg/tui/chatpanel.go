@@ -120,6 +120,11 @@ func (p *ChatPanel) View() string {
 	separator := separatorStyle.Render(strings.Repeat("─", 40))
 
 	// Render composer
+	if p.selector != nil {
+		p.composer.SetTitle("Model: " + p.selector.currentName())
+	} else {
+		p.composer.SetTitle("")
+	}
 	composerView := p.composer.View()
 
 	// Join vertically - don't add Width constraints here
@@ -130,7 +135,7 @@ func (p *ChatPanel) View() string {
 		composerView,
 	}
 
-	if p.selector != nil {
+	if p.selector != nil && p.selector.Open {
 		sections = append(sections, p.selector.View())
 	}
 

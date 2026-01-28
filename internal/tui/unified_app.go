@@ -991,8 +991,8 @@ func (a *UnifiedApp) updateCommands() {
 	var cmds []Command
 
 	cmds = append(cmds, Command{
-		Name:        "Switch agent/model",
-		Description: "Toggle agent selector",
+		Name:        "Switch model",
+		Description: "Toggle model selector",
 		Action: func() tea.Cmd {
 			return func() tea.Msg {
 				return tea.KeyMsg{Type: tea.KeyF2}
@@ -1156,12 +1156,12 @@ func (a *UnifiedApp) renderFooterContent() string {
 	}
 
 	if a.mode == ModeDashboard {
-		help += "  │  1-4 tabs  ctrl+p palette  , settings  F2 agent  ctrl+c quit"
+		help += "  │  1-4 tabs  ctrl+p palette  , settings  F2 model  ctrl+c quit"
 	} else {
 		if a.breadcrumb.IsNavigating() {
-			help = "←/→ navigate  enter select  esc cancel  , settings  F2 agent"
+			help = "←/→ navigate  enter select  esc cancel  , settings  F2 model"
 		} else {
-			help += "  │  ctrl+b jump  , settings  F2 agent  ctrl+c quit"
+			help += "  │  ctrl+b jump  , settings  F2 model  ctrl+c quit"
 		}
 	}
 

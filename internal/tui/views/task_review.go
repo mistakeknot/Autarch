@@ -25,7 +25,7 @@ type TaskReviewView struct {
 
 	// Shell layout for unified 3-pane layout (chat only, no sidebar)
 	shell *pkgtui.ShellLayout
-	// Agent selector shown under chat pane
+	// Model selector shown under chat pane
 	agentSelector *pkgtui.AgentSelector
 
 	// Callbacks
@@ -476,7 +476,7 @@ func (v *TaskReviewView) Name() string {
 
 // ShortHelp implements View
 func (v *TaskReviewView) ShortHelp() string {
-	return "A accept  b back  d delete  g group  F2 agent  Tab focus"
+	return "A accept  b back  d delete  g group  F2 model  Tab focus"
 }
 
 // FullHelp implements FullHelpProvider

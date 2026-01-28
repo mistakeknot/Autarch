@@ -33,7 +33,7 @@ type TaskDetailView struct {
 
 	// Shell layout for unified 3-pane layout (chat only, no sidebar)
 	shell *pkgtui.ShellLayout
-	// Agent selector shown under chat pane
+	// Model selector shown under chat pane
 	agentSelector *pkgtui.AgentSelector
 
 	// Agent selection
@@ -205,7 +205,7 @@ func (v *TaskDetailView) renderDocument() string {
 		sections = append(sections, "")
 	}
 
-	// Agent selector
+	// Model selector
 	sections = append(sections, v.renderAgentSelector())
 	sections = append(sections, "")
 
@@ -441,7 +441,7 @@ func (v *TaskDetailView) Name() string {
 
 // ShortHelp implements View
 func (v *TaskDetailView) ShortHelp() string {
-	return "enter start  ←→ agent  w worktree  F2 agent  Tab focus"
+	return "enter start  ←→ agent  w worktree  F2 model  Tab focus"
 }
 
 // FullHelp implements FullHelpProvider

@@ -28,7 +28,7 @@ type SpecSummaryView struct {
 
 	// Shell layout for unified 3-pane layout (chat only, no sidebar)
 	shell *pkgtui.ShellLayout
-	// Agent selector shown under chat pane
+	// Model selector shown under chat pane
 	agentSelector *pkgtui.AgentSelector
 
 	// Research state
@@ -384,7 +384,7 @@ func (v *SpecSummaryView) Name() string {
 
 // ShortHelp implements View
 func (v *SpecSummaryView) ShortHelp() string {
-	return "enter generate  e edit  r refresh  F2 agent  Tab focus"
+	return "enter generate  e edit  r refresh  F2 model  Tab focus"
 }
 
 // FullHelp implements FullHelpProvider

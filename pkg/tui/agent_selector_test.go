@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"strings"
 	"testing"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -33,5 +34,13 @@ func TestAgentSelectorQuickPick(t *testing.T) {
 	msg, _ := s.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'2'}})
 	if sel, ok := msg.(AgentSelectedMsg); !ok || sel.Name != "claude" {
 		t.Fatalf("expected selection of claude, got %#v", msg)
+	}
+}
+
+func TestAgentSelectorRendersAsModelControl(t *testing.T) {
+	sel := NewAgentSelector([]AgentOption{{Name: "codex"}})
+	view := sel.View()
+	if !strings.Contains(view, "Model") {
+		t.Fatalf("expected model label")
 	}
 }

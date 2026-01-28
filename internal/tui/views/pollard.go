@@ -24,7 +24,7 @@ type PollardView struct {
 
 	// Shell layout for unified 3-pane layout
 	shell *pkgtui.ShellLayout
-	// Agent selector shown under chat pane
+	// Model selector shown under chat pane
 	agentSelector *pkgtui.AgentSelector
 }
 
@@ -315,7 +315,7 @@ func (v *PollardView) Name() string {
 
 // ShortHelp implements View
 func (v *PollardView) ShortHelp() string {
-	return "j/k navigate  r refresh  F2 agent  Tab focus  Ctrl+B sidebar"
+	return "j/k navigate  r refresh  F2 model  Tab focus  Ctrl+B sidebar"
 }
 
 // Commands implements CommandProvider

@@ -52,8 +52,8 @@ func (a *App) updateCommands() {
 	// Global commands
 	cmds = append(cmds,
 		Command{
-			Name:        "Switch agent/model",
-			Description: "Toggle agent selector",
+			Name:        "Switch model",
+			Description: "Toggle model selector",
 			Action: func() tea.Cmd {
 				return func() tea.Msg {
 					return tea.KeyMsg{Type: tea.KeyF2}
