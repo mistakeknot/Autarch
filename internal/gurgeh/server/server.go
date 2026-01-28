@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"net/http"
 	"path/filepath"
 	"sort"
@@ -8,9 +9,11 @@ import (
 	"strings"
 	"time"
 
+	gsignals "github.com/mistakeknot/autarch/internal/gurgeh/signals"
 	"github.com/mistakeknot/autarch/internal/gurgeh/specs"
 	"github.com/mistakeknot/autarch/pkg/httpapi"
 	"github.com/mistakeknot/autarch/pkg/netguard"
+	psignals "github.com/mistakeknot/autarch/pkg/signals"
 )
 
 type Server struct {
@@ -88,6 +91,7 @@ func (s *Server) handleSpec(w http.ResponseWriter, r *http.Request) {
 		httpapi.WriteError(w, http.StatusInternalServerError, httpapi.ErrInternal, "failed to load spec", nil, false)
 		return
 	}
+	s.refreshSignals(r.Context(), spec)
 	if len(parts) == 1 {
 		if r.Method != http.MethodGet {
 			methodNotAllowed(w)
@@ -122,6 +126,28 @@ func (s *Server) handleSpec(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	httpapi.WriteError(w, http.StatusNotFound, httpapi.ErrNotFound, "spec not found", nil, false)
+}
+
+func (s *Server) refreshSignals(ctx context.Context, spec specs.Spec) {
+	store, err := gsignals.NewStore(s.root)
+	if err != nil {
+		return
+	}
+	defer store.Close()
+
+	emitter := gsignals.NewEmitter()
+	sigs := emitter.CheckSpec(&spec)
+	if len(sigs) == 0 {
+		return
+	}
+	_ = store.EmitAll(sigs)
+
+	client := psignals.NewClient(psignals.DefaultServerURL())
+	publishCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
+	defer cancel()
+	for _, sig := range sigs {
+		_ = client.Publish(publishCtx, sig)
+	}
 }
 
 func specsDir(root string) string {

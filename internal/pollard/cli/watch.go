@@ -10,6 +10,7 @@ import (
 	"github.com/mistakeknot/autarch/internal/pollard/api"
 	"github.com/mistakeknot/autarch/internal/pollard/config"
 	"github.com/mistakeknot/autarch/internal/pollard/watch"
+	"github.com/mistakeknot/autarch/pkg/signals"
 )
 
 var watchOnce bool
@@ -55,7 +56,8 @@ func runWatch(cmd *cobra.Command, args []string) error {
 		watchCfg.Interval = "24h"
 	}
 
-	w := watch.NewWatcher(cwd, scanner, cfg, watchCfg)
+	publisher := signals.NewClient(signals.DefaultServerURL())
+	w := watch.NewWatcher(cwd, scanner, cfg, watchCfg, publisher)
 
 	ctx := context.Background()
 

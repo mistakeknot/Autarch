@@ -5,14 +5,18 @@ package watch
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/mistakeknot/autarch/internal/pollard/api"
 	"github.com/mistakeknot/autarch/internal/pollard/config"
+	"github.com/mistakeknot/autarch/pkg/signals"
 )
 
 // WatchConfig extends Pollard config with watch-specific settings.
@@ -29,15 +33,17 @@ type Watcher struct {
 	scanner     *api.Scanner
 	config      *config.Config
 	watchCfg    WatchConfig
+	publisher   SignalPublisher
 }
 
 // NewWatcher creates a Watcher from project config.
-func NewWatcher(projectPath string, scanner *api.Scanner, cfg *config.Config, watchCfg WatchConfig) *Watcher {
+func NewWatcher(projectPath string, scanner *api.Scanner, cfg *config.Config, watchCfg WatchConfig, publisher SignalPublisher) *Watcher {
 	return &Watcher{
 		projectPath: projectPath,
 		scanner:     scanner,
 		config:      cfg,
 		watchCfg:    watchCfg,
+		publisher:   publisher,
 	}
 }
 
@@ -75,6 +81,8 @@ func (w *Watcher) RunOnce(ctx context.Context) (*WatchResult, error) {
 		return nil, fmt.Errorf("saving watch snapshot: %w", err)
 	}
 
+	w.emitSignals(ctx, diff)
+
 	return &WatchResult{
 		Snapshot: current,
 		Diff:     diff,
@@ -107,6 +115,55 @@ func (w *Watcher) Run(ctx context.Context) error {
 			}
 		}
 	}
+}
+
+type SignalPublisher interface {
+	Publish(ctx context.Context, sig signals.Signal) error
+}
+
+func (w *Watcher) emitSignals(ctx context.Context, diff *WatchDiff) {
+	if diff == nil || !diff.HasChanges() || w.publisher == nil {
+		return
+	}
+	if !w.notifyEnabled(signals.SignalCompetitorShipped) {
+		return
+	}
+	detail := diff.Summary
+	if len(diff.NewFiles) > 0 {
+		detail = detail + " | new files: " + strings.Join(diff.NewFiles, ", ")
+	}
+	sig := signals.Signal{
+		ID:            newSignalID(),
+		Type:          signals.SignalCompetitorShipped,
+		Source:        "pollard",
+		AffectedField: "watch",
+		Severity:      signals.SeverityWarning,
+		Title:         "Competitor watch update",
+		Detail:        detail,
+		CreatedAt:     time.Now(),
+	}
+	if err := w.publisher.Publish(ctx, sig); err != nil {
+		fmt.Fprintf(os.Stderr, "signals publish failed: %v\n", err)
+	}
+}
+
+func (w *Watcher) notifyEnabled(t signals.SignalType) bool {
+	if len(w.watchCfg.NotifyOn) == 0 {
+		return true
+	}
+	want := strings.ToLower(string(t))
+	for _, entry := range w.watchCfg.NotifyOn {
+		if strings.ToLower(strings.TrimSpace(entry)) == want {
+			return true
+		}
+	}
+	return false
+}
+
+func newSignalID() string {
+	b := make([]byte, 8)
+	_, _ = rand.Read(b)
+	return "sig-" + hex.EncodeToString(b)
 }
 
 // WatchSnapshot captures the state of a watch scan.
