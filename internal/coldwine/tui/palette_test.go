@@ -35,10 +35,10 @@ func TestHelpOpensOnQuestion(t *testing.T) {
 	m := NewModel()
 	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("?")})
 	got := updated.(Model)
-	if !got.HelpOpen {
+	if !got.helpOverlay.Visible {
 		t.Fatal("expected help to open")
 	}
-	if !strings.Contains(stripANSI(got.View()), "Help") {
+	if !strings.Contains(stripANSI(got.View()), "Keyboard Shortcuts") {
 		t.Fatal("expected help view")
 	}
 }

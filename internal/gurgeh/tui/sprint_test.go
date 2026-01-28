@@ -133,7 +133,7 @@ func TestSprintViewResearchToggle(t *testing.T) {
 	}
 
 	// Toggle with 'r'
-	newView, _ := view.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'r'}})
+	newView, _ := view.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'R'}})
 	sv := newView.(*SprintView)
 	output = sv.View()
 	if !strings.Contains(output, "Competitor X") {
@@ -144,7 +144,7 @@ func TestSprintViewResearchToggle(t *testing.T) {
 	}
 
 	// Toggle off
-	newView, _ = sv.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'r'}})
+	newView, _ = sv.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'R'}})
 	sv = newView.(*SprintView)
 	output = sv.View()
 	if strings.Contains(output, "Competitor X") {

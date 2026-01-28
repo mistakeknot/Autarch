@@ -272,8 +272,8 @@ type Model struct {
 	mcpList       list.Model
 	mcpProject    string
 	showMCP       bool
-	showTerminal  bool           // Terminal preview pane visible
-	terminalPane  *TerminalPane  // Terminal preview component
+	showTerminal  bool          // Terminal preview pane visible
+	terminalPane  *TerminalPane // Terminal preview component
 	filterActive  bool
 	filterInput   textinput.Model
 	filterStates  map[Tab]FilterState
@@ -284,6 +284,8 @@ type Model struct {
 	err           error
 	lastRefresh   time.Time
 	quitting      bool
+	keys          shared.CommonKeys
+	helpOverlay   shared.HelpOverlay
 }
 
 // SessionItem represents a session in the list
@@ -319,10 +321,10 @@ func (i SessionItem) FilterValue() string {
 
 // ProjectItem represents a project in the list
 type ProjectItem struct {
-	Path           string
-	Name           string
+	Path        string
+	Name        string
 	HasColdwine bool
-	TaskStats      *struct {
+	TaskStats   *struct {
 		Todo       int
 		InProgress int
 		Done       int
@@ -486,12 +488,8 @@ func (m *Model) groupAgentItemsByProject(items []list.Item) []list.Item {
 
 // Key bindings
 type keyMap struct {
-	Tab            key.Binding
-	ShiftTab       key.Binding
-	Refresh        key.Binding
 	FocusLeft      key.Binding
 	FocusRight     key.Binding
-	Filter         key.Binding
 	New            key.Binding
 	Rename         key.Binding
 	Fork           key.Binding
@@ -499,26 +497,9 @@ type keyMap struct {
 	Attach         key.Binding
 	ToggleMCP      key.Binding
 	ToggleTerminal key.Binding
-	Toggle         key.Binding
-	Enter          key.Binding
-	Quit           key.Binding
-	Help           key.Binding
-	Number         []key.Binding
 }
 
 var keys = keyMap{
-	Tab: key.NewBinding(
-		key.WithKeys("tab"),
-		key.WithHelp("tab", "next tab"),
-	),
-	ShiftTab: key.NewBinding(
-		key.WithKeys("shift+tab"),
-		key.WithHelp("shift+tab", "prev tab"),
-	),
-	Refresh: key.NewBinding(
-		key.WithKeys("ctrl+r", "R"),
-		key.WithHelp("ctrl+r", "refresh"),
-	),
 	FocusLeft: key.NewBinding(
 		key.WithKeys("["),
 		key.WithHelp("[", "focus projects"),
@@ -527,17 +508,13 @@ var keys = keyMap{
 		key.WithKeys("]"),
 		key.WithHelp("]", "focus main"),
 	),
-	Filter: key.NewBinding(
-		key.WithKeys("/"),
-		key.WithHelp("/", "filter"),
-	),
 	New: key.NewBinding(
 		key.WithKeys("n"),
 		key.WithHelp("n", "new"),
 	),
 	Rename: key.NewBinding(
-		key.WithKeys("r"),
-		key.WithHelp("r", "rename"),
+		key.WithKeys("e"),
+		key.WithHelp("e", "rename"),
 	),
 	Fork: key.NewBinding(
 		key.WithKeys("f"),
@@ -559,27 +536,6 @@ var keys = keyMap{
 		key.WithKeys("p"),
 		key.WithHelp("p", "preview"),
 	),
-	Toggle: key.NewBinding(
-		key.WithKeys(" "),
-		key.WithHelp("space", "toggle"),
-	),
-	Enter: key.NewBinding(
-		key.WithKeys("enter"),
-		key.WithHelp("enter", "select"),
-	),
-	Quit: key.NewBinding(
-		key.WithKeys("q", "ctrl+c"),
-		key.WithHelp("q", "quit"),
-	),
-	Help: key.NewBinding(
-		key.WithKeys("?"),
-		key.WithHelp("?", "help"),
-	),
-	Number: []key.Binding{
-		key.NewBinding(key.WithKeys("1"), key.WithHelp("1", "dashboard")),
-		key.NewBinding(key.WithKeys("2"), key.WithHelp("2", "sessions")),
-		key.NewBinding(key.WithKeys("3"), key.WithHelp("3", "agents")),
-	},
 }
 
 // Messages
@@ -658,6 +614,8 @@ func New(agg aggregatorAPI, buildInfo string) Model {
 		},
 		groupExpanded: map[string]bool{},
 		promptInput:   promptInput,
+		keys:          shared.NewCommonKeys(),
+		helpOverlay:   shared.NewHelpOverlay(),
 	}
 }
 
@@ -763,11 +721,16 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.promptInput, cmd = m.promptInput.Update(msg)
 			return m, cmd
 		}
-		// Global key handling
-		switch {
-		case key.Matches(msg, keys.Quit):
-			m.quitting = true
-			return m, tea.Quit
+		if m.helpOverlay.Visible {
+			switch {
+			case key.Matches(msg, m.keys.Help), key.Matches(msg, m.keys.Back):
+				m.helpOverlay.Toggle()
+			}
+			return m, nil
+		}
+
+		if cmd := shared.HandleCommon(msg, m.keys); cmd != nil {
+			return m, cmd
 		}
 
 		if m.filterActive {
@@ -795,7 +758,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 		switch {
-		case key.Matches(msg, keys.Toggle):
+		case key.Matches(msg, m.keys.Toggle):
 			if m.activeTab == TabSessions || m.activeTab == TabAgents {
 				var selected list.Item
 				if m.activeTab == TabSessions {
@@ -810,21 +773,18 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 			}
 
-		case key.Matches(msg, keys.Tab):
+		case key.Matches(msg, m.keys.TabCycle):
 			m.stopFilterEditing()
-			m.activeTab = Tab((int(m.activeTab) + 1) % 3)
+			if msg.String() == "shift+tab" {
+				m.activeTab = Tab((int(m.activeTab) + 2) % 3)
+			} else {
+				m.activeTab = Tab((int(m.activeTab) + 1) % 3)
+			}
 			m.activePane = PaneMain
 			m.syncFilterInputForTab(m.activeTab)
 			return m, nil
 
-		case key.Matches(msg, keys.ShiftTab):
-			m.stopFilterEditing()
-			m.activeTab = Tab((int(m.activeTab) + 2) % 3)
-			m.activePane = PaneMain
-			m.syncFilterInputForTab(m.activeTab)
-			return m, nil
-
-		case key.Matches(msg, keys.Refresh):
+		case key.Matches(msg, m.keys.Refresh):
 			return m, m.refresh()
 
 		case key.Matches(msg, keys.FocusLeft):
@@ -849,7 +809,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			return m, nil
 
-		case key.Matches(msg, keys.Filter):
+		case key.Matches(msg, m.keys.Search):
 			if m.activeTab == TabSessions || m.activeTab == TabAgents {
 				m.filterActive = true
 				m.syncFilterInputForTab(m.activeTab)
@@ -858,7 +818,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			return m, nil
 
-		case key.Matches(msg, keys.Toggle):
+		case key.Matches(msg, m.keys.Toggle):
 			if m.activeTab == TabDashboard && m.showMCP {
 				if item, ok := m.mcpList.SelectedItem().(MCPItem); ok {
 					if item.Status.Status == mcp.StatusRunning {
@@ -963,19 +923,19 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			return m, nil
 
-		case key.Matches(msg, keys.Number[0]):
+		case len(m.keys.Sections) >= 3 && key.Matches(msg, m.keys.Sections[0]):
 			m.stopFilterEditing()
 			m.activeTab = TabDashboard
 			m.activePane = PaneMain
 			m.syncFilterInputForTab(m.activeTab)
 			return m, nil
-		case key.Matches(msg, keys.Number[1]):
+		case len(m.keys.Sections) >= 3 && key.Matches(msg, m.keys.Sections[1]):
 			m.stopFilterEditing()
 			m.activeTab = TabSessions
 			m.activePane = PaneMain
 			m.syncFilterInputForTab(m.activeTab)
 			return m, nil
-		case key.Matches(msg, keys.Number[2]):
+		case len(m.keys.Sections) >= 3 && key.Matches(msg, m.keys.Sections[2]):
 			m.stopFilterEditing()
 			m.activeTab = TabAgents
 			m.activePane = PaneMain
@@ -1026,6 +986,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			cmds = append(cmds, cmd)
 		}
 		return m, tea.Batch(cmds...)
+
+	case shared.ToggleHelpMsg:
+		m.helpOverlay.Toggle()
+		return m, nil
 
 	case refreshMsg:
 		m.lastRefresh = time.Now()
@@ -1109,8 +1073,8 @@ func (m *Model) updateLists() {
 	projectItems = append(projectItems, ProjectItem{Path: "", Name: "All Projects"})
 	for _, p := range state.Projects {
 		item := ProjectItem{
-			Path:           p.Path,
-			Name:           filepath.Base(p.Path),
+			Path:        p.Path,
+			Name:        filepath.Base(p.Path),
 			HasColdwine: p.HasColdwine,
 		}
 		if p.TaskStats != nil {
@@ -1218,14 +1182,14 @@ func (m Model) View() string {
 	footer := m.renderFooter()
 
 	parts := []string{header}
+	if m.helpOverlay.Visible {
+		parts = append(parts, m.helpOverlay.Render(m.keys, m.helpExtras(), m.width), footer)
+		return lipgloss.JoinVertical(lipgloss.Left, parts...)
+	}
 	if filterLine != "" {
 		parts = append(parts, filterLine)
 	}
-	parts = append(parts,
-		mainContent,
-		m.renderPrompt(),
-		footer,
-	)
+	parts = append(parts, mainContent, m.renderPrompt(), footer)
 	return lipgloss.JoinVertical(lipgloss.Left, parts...)
 }
 
@@ -1270,9 +1234,9 @@ func (m Model) renderFilterLine() string {
 
 func (m Model) renderFooter() string {
 	help := HelpKeyStyle.Render("tab") + HelpDescStyle.Render(" switch • ") +
-		HelpKeyStyle.Render("ctrl+r") + HelpDescStyle.Render(" refresh • ") +
+		HelpKeyStyle.Render("r") + HelpDescStyle.Render(" refresh • ") +
 		HelpKeyStyle.Render("n") + HelpDescStyle.Render(" new • ") +
-		HelpKeyStyle.Render("r") + HelpDescStyle.Render(" rename • ") +
+		HelpKeyStyle.Render("e") + HelpDescStyle.Render(" rename • ") +
 		HelpKeyStyle.Render("k") + HelpDescStyle.Render(" restart • ") +
 		HelpKeyStyle.Render("f") + HelpDescStyle.Render(" fork • ") +
 		HelpKeyStyle.Render("a") + HelpDescStyle.Render(" attach • ") +
@@ -1298,6 +1262,20 @@ func (m Model) renderFooter() string {
 		strings.Repeat(" ", padding),
 		lastUpdate,
 	)
+}
+
+func (m Model) helpExtras() []shared.HelpBinding {
+	return []shared.HelpBinding{
+		shared.HelpBindingFromKey(keys.FocusLeft),
+		shared.HelpBindingFromKey(keys.FocusRight),
+		shared.HelpBindingFromKey(keys.New),
+		shared.HelpBindingFromKey(keys.Rename),
+		shared.HelpBindingFromKey(keys.Fork),
+		shared.HelpBindingFromKey(keys.Restart),
+		shared.HelpBindingFromKey(keys.Attach),
+		shared.HelpBindingFromKey(keys.ToggleMCP),
+		shared.HelpBindingFromKey(keys.ToggleTerminal),
+	}
 }
 
 func (m Model) paneWidths() (int, int, bool) {

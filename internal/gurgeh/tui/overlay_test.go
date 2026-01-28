@@ -9,7 +9,7 @@ func TestHelpOverlayToggle(t *testing.T) {
 	withTempRoot(t, func(root string) {
 		m := NewModel()
 		m = pressKey(m, "?")
-		if !strings.Contains(stripANSI(m.View()), "Help") {
+		if !strings.Contains(stripANSI(m.View()), "Keyboard Shortcuts") {
 			t.Fatalf("expected help overlay")
 		}
 	})

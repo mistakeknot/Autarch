@@ -32,18 +32,26 @@ func (h *HelpOverlay) Toggle() {
 
 // commonBindings returns the standard bindings from CommonKeys as HelpBindings.
 func commonBindings(keys CommonKeys) []HelpBinding {
-	return []HelpBinding{
+	bindings := []HelpBinding{
 		HelpBindingFromKey(keys.Quit),
 		HelpBindingFromKey(keys.Help),
 		HelpBindingFromKey(keys.Search),
 		HelpBindingFromKey(keys.Back),
 		HelpBindingFromKey(keys.NavUp),
 		HelpBindingFromKey(keys.NavDown),
+		HelpBindingFromKey(keys.Top),
+		HelpBindingFromKey(keys.Bottom),
+		HelpBindingFromKey(keys.Next),
+		HelpBindingFromKey(keys.Prev),
 		HelpBindingFromKey(keys.Refresh),
 		HelpBindingFromKey(keys.TabCycle),
 		HelpBindingFromKey(keys.Select),
 		HelpBindingFromKey(keys.Toggle),
 	}
+	if len(keys.Sections) > 0 {
+		bindings = append(bindings, HelpBinding{Key: "1-9", Description: "sections"})
+	}
+	return bindings
 }
 
 // Render produces the help overlay string. extras are appended after the

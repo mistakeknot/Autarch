@@ -14,10 +14,14 @@ import (
 type fakeAgg struct {
 	state         aggregator.State
 	restartCalled bool
+	refreshCalled bool
 }
 
-func (f *fakeAgg) GetState() aggregator.State                           { return f.state }
-func (f *fakeAgg) Refresh(ctx context.Context) error                    { return nil }
+func (f *fakeAgg) GetState() aggregator.State { return f.state }
+func (f *fakeAgg) Refresh(ctx context.Context) error {
+	f.refreshCalled = true
+	return nil
+}
 func (f *fakeAgg) NewSession(name, projectPath, agentType string) error { return nil }
 func (f *fakeAgg) RestartSession(name, projectPath, agentType string) error {
 	f.restartCalled = true
@@ -61,6 +65,38 @@ func TestForkKeyShowsPrompt(t *testing.T) {
 	updated := mm.(Model)
 	if updated.promptMode != promptForkSession {
 		t.Fatalf("expected fork prompt, got %v", updated.promptMode)
+	}
+}
+
+func TestRefreshKeyTriggersAction(t *testing.T) {
+	agg := &fakeAgg{}
+	m := New(agg, "")
+
+	_, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'r'}})
+	if cmd == nil {
+		t.Fatalf("expected refresh command")
+	}
+	_ = cmd()
+	if !agg.refreshCalled {
+		t.Fatalf("expected refresh to be called")
+	}
+}
+
+func TestRenameKeyShowsPrompt(t *testing.T) {
+	agg := &fakeAgg{state: aggregator.State{Sessions: []aggregator.TmuxSession{{
+		Name:        "demo",
+		ProjectPath: "/root/projects/demo",
+		AgentType:   "claude",
+	}}}}
+	m := New(agg, "")
+	m.activeTab = TabSessions
+	m.updateLists()
+	m.sessionList.Select(1)
+
+	mm, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'e'}})
+	updated := mm.(Model)
+	if updated.promptMode != promptRenameSession {
+		t.Fatalf("expected rename prompt, got %v", updated.promptMode)
 	}
 }
 

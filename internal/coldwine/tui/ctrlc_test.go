@@ -47,3 +47,14 @@ func TestCtrlCOutsideWindowDoesNotQuit(t *testing.T) {
 		}
 	}
 }
+
+func TestQuitKeyQuits(t *testing.T) {
+	m := NewModel()
+	_, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'q'}})
+	if cmd == nil {
+		t.Fatalf("expected quit command")
+	}
+	if _, ok := cmd().(tea.QuitMsg); !ok {
+		t.Fatalf("expected QuitMsg")
+	}
+}

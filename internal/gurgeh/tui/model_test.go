@@ -262,7 +262,7 @@ args = []
 		t.Fatal(err)
 	}
 	m := NewModel()
-	m = pressKey(m, "r")
+	m = pressKey(m, "R")
 	entries, err := os.ReadDir(filepath.Join(root, ".gurgeh", "research"))
 	if err != nil {
 		t.Fatal(err)

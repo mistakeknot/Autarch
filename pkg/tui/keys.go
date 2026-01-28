@@ -13,10 +13,15 @@ type CommonKeys struct {
 	Back     key.Binding
 	NavUp    key.Binding
 	NavDown  key.Binding
+	Top      key.Binding
+	Bottom   key.Binding
+	Next     key.Binding
+	Prev     key.Binding
 	Refresh  key.Binding
 	TabCycle key.Binding
 	Select   key.Binding
 	Toggle   key.Binding
+	Sections []key.Binding
 }
 
 // NewCommonKeys returns a CommonKeys with the canonical Autarch keybindings.
@@ -35,8 +40,8 @@ func NewCommonKeys() CommonKeys {
 			key.WithHelp("/", "search"),
 		),
 		Back: key.NewBinding(
-			key.WithKeys("esc"),
-			key.WithHelp("esc", "back"),
+			key.WithKeys("esc", "h"),
+			key.WithHelp("esc/h", "back"),
 		),
 		NavUp: key.NewBinding(
 			key.WithKeys("k", "up"),
@@ -45,6 +50,22 @@ func NewCommonKeys() CommonKeys {
 		NavDown: key.NewBinding(
 			key.WithKeys("j", "down"),
 			key.WithHelp("j/down", "down"),
+		),
+		Top: key.NewBinding(
+			key.WithKeys("g", "home"),
+			key.WithHelp("g/home", "top"),
+		),
+		Bottom: key.NewBinding(
+			key.WithKeys("G", "end"),
+			key.WithHelp("G/end", "bottom"),
+		),
+		Next: key.NewBinding(
+			key.WithKeys("n"),
+			key.WithHelp("n", "next"),
+		),
+		Prev: key.NewBinding(
+			key.WithKeys("p"),
+			key.WithHelp("p", "prev"),
 		),
 		Refresh: key.NewBinding(
 			key.WithKeys("r"),
@@ -62,6 +83,17 @@ func NewCommonKeys() CommonKeys {
 			key.WithKeys(" "),
 			key.WithHelp("space", "toggle"),
 		),
+		Sections: []key.Binding{
+			key.NewBinding(key.WithKeys("1"), key.WithHelp("1", "section 1")),
+			key.NewBinding(key.WithKeys("2"), key.WithHelp("2", "section 2")),
+			key.NewBinding(key.WithKeys("3"), key.WithHelp("3", "section 3")),
+			key.NewBinding(key.WithKeys("4"), key.WithHelp("4", "section 4")),
+			key.NewBinding(key.WithKeys("5"), key.WithHelp("5", "section 5")),
+			key.NewBinding(key.WithKeys("6"), key.WithHelp("6", "section 6")),
+			key.NewBinding(key.WithKeys("7"), key.WithHelp("7", "section 7")),
+			key.NewBinding(key.WithKeys("8"), key.WithHelp("8", "section 8")),
+			key.NewBinding(key.WithKeys("9"), key.WithHelp("9", "section 9")),
+		},
 	}
 }
 

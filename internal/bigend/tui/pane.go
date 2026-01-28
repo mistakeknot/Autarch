@@ -15,26 +15,28 @@ import (
 	"github.com/mistakeknot/autarch/internal/bigend/mcp"
 	"github.com/mistakeknot/autarch/internal/bigend/tmux"
 	"github.com/mistakeknot/autarch/pkg/toolpane"
+	shared "github.com/mistakeknot/autarch/pkg/tui"
 )
 
 // VauxhallPane implements toolpane.Pane for the Vauxhall tool
 type VauxhallPane struct {
-	agg          aggregatorAPI
-	tmuxClient   statusClient
-	statusCache  map[string]cachedStatus
-	statusTTL    time.Duration
-	now          func() time.Time
-	width        int
-	height       int
-	activeTab    Tab
-	sessionList  list.Model
-	agentList    list.Model
-	mcpList      list.Model
-	mcpProject   string
-	showMCP      bool
+	agg           aggregatorAPI
+	tmuxClient    statusClient
+	statusCache   map[string]cachedStatus
+	statusTTL     time.Duration
+	now           func() time.Time
+	width         int
+	height        int
+	activeTab     Tab
+	sessionList   list.Model
+	agentList     list.Model
+	mcpList       list.Model
+	mcpProject    string
+	showMCP       bool
 	groupExpanded map[string]bool
-	lastRefresh  time.Time
-	err          error
+	lastRefresh   time.Time
+	err           error
+	keys          shared.CommonKeys
 }
 
 // NewPane creates a new VauxhallPane
@@ -76,6 +78,7 @@ func NewPane(agg aggregatorAPI) *VauxhallPane {
 		agentList:     agentList,
 		mcpList:       mcpList,
 		groupExpanded: map[string]bool{},
+		keys:          shared.NewCommonKeys(),
 	}
 }
 
@@ -94,18 +97,18 @@ func (p *VauxhallPane) Update(msg tea.Msg, ctx toolpane.Context) (toolpane.Pane,
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
 		switch {
-		case key.Matches(msg, keys.Tab):
-			p.activeTab = Tab((int(p.activeTab) + 1) % 3)
+		case key.Matches(msg, p.keys.TabCycle):
+			if msg.String() == "shift+tab" {
+				p.activeTab = Tab((int(p.activeTab) + 2) % 3)
+			} else {
+				p.activeTab = Tab((int(p.activeTab) + 1) % 3)
+			}
 			return p, nil
 
-		case key.Matches(msg, keys.ShiftTab):
-			p.activeTab = Tab((int(p.activeTab) + 2) % 3)
-			return p, nil
-
-		case key.Matches(msg, keys.Refresh):
+		case key.Matches(msg, p.keys.Refresh):
 			return p, p.refresh()
 
-		case key.Matches(msg, keys.Toggle):
+		case key.Matches(msg, p.keys.Toggle):
 			if p.activeTab == TabSessions || p.activeTab == TabAgents {
 				var selected list.Item
 				if p.activeTab == TabSessions {
@@ -142,13 +145,13 @@ func (p *VauxhallPane) Update(msg tea.Msg, ctx toolpane.Context) (toolpane.Pane,
 			}
 			return p, nil
 
-		case key.Matches(msg, keys.Number[0]):
+		case len(p.keys.Sections) >= 3 && key.Matches(msg, p.keys.Sections[0]):
 			p.activeTab = TabDashboard
 			return p, nil
-		case key.Matches(msg, keys.Number[1]):
+		case len(p.keys.Sections) >= 3 && key.Matches(msg, p.keys.Sections[1]):
 			p.activeTab = TabSessions
 			return p, nil
-		case key.Matches(msg, keys.Number[2]):
+		case len(p.keys.Sections) >= 3 && key.Matches(msg, p.keys.Sections[2]):
 			p.activeTab = TabAgents
 			return p, nil
 		}

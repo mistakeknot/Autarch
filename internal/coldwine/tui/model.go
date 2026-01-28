@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/charmbracelet/bubbles/key"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 
@@ -19,6 +20,7 @@ import (
 	"github.com/mistakeknot/autarch/internal/coldwine/specs"
 	"github.com/mistakeknot/autarch/internal/coldwine/storage"
 	"github.com/mistakeknot/autarch/internal/coldwine/tmux"
+	pkgtui "github.com/mistakeknot/autarch/pkg/tui"
 )
 
 type Model struct {
@@ -61,13 +63,14 @@ type Model struct {
 	FilterMode           string
 	PaletteOpen          bool
 	SettingsOpen         bool
-	HelpOpen             bool
 	QuickTaskMode        bool
 	QuickTaskInput       string
 	QuickTaskCreator     func(raw string) (string, error)
 	ScanInterval         time.Duration
 	ScanOnCommit         bool
 	LastHead             string
+	keys                 pkgtui.CommonKeys
+	helpOverlay          pkgtui.HelpOverlay
 }
 
 type BranchLookup func(taskID string) (string, error)
@@ -185,6 +188,8 @@ func NewModel() Model {
 		FilterMode:           "all",
 		ScanInterval:         15 * time.Minute,
 		ScanOnCommit:         true,
+		keys:                 pkgtui.NewCommonKeys(),
+		helpOverlay:          pkgtui.NewHelpOverlay(),
 		Review: ReviewState{
 			Queue:    []string{},
 			Branches: map[string]string{},
@@ -279,37 +284,44 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.SetStatusInfo("press ctrl+c again to quit")
 			return m, nil
 		}
+		keyStr := msg.String()
 		if msg.Type == tea.KeyCtrlK {
 			m.PaletteOpen = !m.PaletteOpen
 			if m.PaletteOpen {
 				m.SettingsOpen = false
-				m.HelpOpen = false
+				if m.helpOverlay.Visible {
+					m.helpOverlay.Toggle()
+				}
 			}
 			return m, nil
 		}
-		if msg.String() == "," {
+		if keyStr == "," {
 			m.SettingsOpen = !m.SettingsOpen
 			if m.SettingsOpen {
 				m.PaletteOpen = false
-				m.HelpOpen = false
+				if m.helpOverlay.Visible {
+					m.helpOverlay.Toggle()
+				}
 			}
 			return m, nil
 		}
-		if msg.String() == "?" {
-			m.HelpOpen = !m.HelpOpen
-			if m.HelpOpen {
+		if key.Matches(msg, m.keys.Help) {
+			m.helpOverlay.Toggle()
+			if m.helpOverlay.Visible {
 				m.PaletteOpen = false
 				m.SettingsOpen = false
 			}
 			return m, nil
 		}
-		if msg.String() == "esc" && (m.PaletteOpen || m.SettingsOpen || m.HelpOpen) {
+		if msg.Type == tea.KeyEsc && (m.PaletteOpen || m.SettingsOpen || m.helpOverlay.Visible) {
 			m.PaletteOpen = false
 			m.SettingsOpen = false
-			m.HelpOpen = false
+			if m.helpOverlay.Visible {
+				m.helpOverlay.Toggle()
+			}
 			return m, nil
 		}
-		if m.PaletteOpen || m.SettingsOpen || m.HelpOpen {
+		if m.PaletteOpen || m.SettingsOpen || m.helpOverlay.Visible {
 			return m, nil
 		}
 		if m.SearchMode {
@@ -346,7 +358,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			return m, nil
 		}
-		if msg.Type == tea.KeyTab && m.ViewMode == ViewFleet {
+		if key.Matches(msg, m.keys.Quit) {
+			return m, tea.Quit
+		}
+		if key.Matches(msg, m.keys.TabCycle) && m.ViewMode == ViewFleet {
 			if m.FocusPane == FocusTasks {
 				m.FocusPane = FocusDetail
 			} else {
@@ -354,7 +369,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			return m, nil
 		}
-		if msg.String() == "c" && m.ViewMode == ViewFleet {
+		if keyStr == "c" && m.ViewMode == ViewFleet {
 			if m.RightTab == RightTabDetails {
 				m.RightTab = RightTabCoord
 				m.CoordScroll = 0
@@ -365,28 +380,27 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			return m, nil
 		}
-		if msg.String() == "n" && m.ViewMode == ViewFleet && m.Review.PendingApproveTask == "" {
+		if keyStr == "n" && m.ViewMode == ViewFleet && m.Review.PendingApproveTask == "" {
 			m.QuickTaskMode = true
 			m.QuickTaskInput = ""
 			return m, nil
 		}
-		if msg.String() == "/" && m.ViewMode == ViewFleet {
+		if key.Matches(msg, m.keys.Search) && m.ViewMode == ViewFleet {
 			m.SearchMode = true
 			return m, nil
 		}
-		if msg.String() == "x" && m.ViewMode == ViewFleet {
+		if keyStr == "x" && m.ViewMode == ViewFleet {
 			m.handleTaskStop()
 			return m, nil
 		}
-		if msg.String() == "r" && m.ViewMode == ViewFleet {
+		if key.Matches(msg, m.keys.Refresh) && m.ViewMode == ViewFleet {
 			if m.FocusPane == FocusDetail && m.RightTab == RightTabCoord {
 				m.cycleCoordRecipientFilter()
 				return m, nil
 			}
-			m.handleTaskReview()
-			return m, nil
+			return m, scanCmd()
 		}
-		if msg.String() == "u" && m.ViewMode == ViewFleet {
+		if keyStr == "u" && m.ViewMode == ViewFleet {
 			if m.FocusPane == FocusDetail && m.RightTab == RightTabCoord {
 				m.CoordUrgentOnly = !m.CoordUrgentOnly
 				m.ClampCoordSelection()
@@ -395,31 +409,89 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		}
 		if m.ViewMode == ViewReview && m.Review.MVPRevertSelect {
-			switch msg.String() {
-			case "j", "down":
+			switch {
+			case key.Matches(msg, m.keys.NavDown):
 				if m.Review.MVPRevertIndex < len(m.Review.Detail.Files)-1 {
 					m.Review.MVPRevertIndex++
 				}
-			case "k", "up":
+			case key.Matches(msg, m.keys.NavUp):
 				if m.Review.MVPRevertIndex > 0 {
 					m.Review.MVPRevertIndex--
 				}
-			case "enter":
+			case key.Matches(msg, m.keys.Select):
 				m.handleMVPRevertConfirm()
-			case "b", "esc":
+			case keyStr == "b" || msg.Type == tea.KeyEsc:
 				m.Review.MVPRevertSelect = false
 			}
 			return m, nil
 		}
 		if m.ViewMode == ViewReview && m.Review.ShowDiffs {
-			if msg.String() == "b" {
+			if keyStr == "b" {
 				m.Review.ShowDiffs = false
 				return m, nil
 			}
-			m.handleReviewDiffKey(msg.String())
+			m.handleReviewDiffKey(keyStr)
 			return m, nil
 		}
-		switch msg.String() {
+		if key.Matches(msg, m.keys.NavDown) {
+			if m.ViewMode == ViewFleet {
+				if m.FocusPane == FocusDetail && m.RightTab == RightTabCoord {
+					m.moveCoordSelection(1)
+					return m, nil
+				}
+				filtered := m.filteredTasks()
+				if m.FocusPane == FocusTasks && len(filtered) > 0 && m.SelectedTask < len(filtered)-1 {
+					m.SelectedTask++
+					m.ensureTaskDetail()
+				}
+			} else if len(m.Review.Queue) > 0 && m.Review.Selected < len(m.Review.Queue)-1 {
+				m.Review.Selected++
+			}
+			return m, nil
+		}
+		if key.Matches(msg, m.keys.NavUp) {
+			if m.ViewMode == ViewFleet {
+				if m.FocusPane == FocusDetail && m.RightTab == RightTabCoord {
+					m.moveCoordSelection(-1)
+					return m, nil
+				}
+				if m.FocusPane == FocusTasks && m.SelectedTask > 0 {
+					m.SelectedTask--
+					m.ensureTaskDetail()
+				}
+			} else if m.Review.Selected > 0 {
+				m.Review.Selected--
+			}
+			return m, nil
+		}
+		if key.Matches(msg, m.keys.Select) {
+			if m.ViewMode == ViewReview {
+				if m.Review.InputMode != ReviewInputNone {
+					m.handleReviewSubmit()
+					return m, nil
+				}
+				m.handleReviewEnter()
+				return m, nil
+			}
+			if len(m.Review.Queue) > 0 {
+				idx := m.Review.Selected
+				if idx < 0 || idx >= len(m.Review.Queue) {
+					idx = 0
+				}
+				taskID := m.Review.Queue[idx]
+				if m.ConfirmApprove {
+					m.Review.PendingApproveTask = taskID
+					m.SetStatusInfo("confirm approve " + taskID + " (y/n)")
+					return m, nil
+				}
+				if err := m.approveTaskByID(taskID); err != nil {
+					m.SetStatusError(err.Error())
+					return m, nil
+				}
+			}
+			return m, nil
+		}
+		switch keyStr {
 		case "R":
 			if m.ViewMode == ViewReview && m.Review.Detail.Alignment == "out" {
 				m.handleMVPRevertStart()
@@ -454,58 +526,6 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if m.ViewMode == ViewFleet {
 				m.handleTaskStart()
 				return m, nil
-			}
-		case "j", "down":
-			if m.ViewMode == ViewFleet {
-				if m.FocusPane == FocusDetail && m.RightTab == RightTabCoord {
-					m.moveCoordSelection(1)
-					return m, nil
-				}
-				filtered := m.filteredTasks()
-				if m.FocusPane == FocusTasks && len(filtered) > 0 && m.SelectedTask < len(filtered)-1 {
-					m.SelectedTask++
-					m.ensureTaskDetail()
-				}
-			} else if len(m.Review.Queue) > 0 && m.Review.Selected < len(m.Review.Queue)-1 {
-				m.Review.Selected++
-			}
-		case "k", "up":
-			if m.ViewMode == ViewFleet {
-				if m.FocusPane == FocusDetail && m.RightTab == RightTabCoord {
-					m.moveCoordSelection(-1)
-					return m, nil
-				}
-				if m.FocusPane == FocusTasks && m.SelectedTask > 0 {
-					m.SelectedTask--
-					m.ensureTaskDetail()
-				}
-			} else if m.Review.Selected > 0 {
-				m.Review.Selected--
-			}
-		case "enter":
-			if m.ViewMode == ViewReview {
-				if m.Review.InputMode != ReviewInputNone {
-					m.handleReviewSubmit()
-					return m, nil
-				}
-				m.handleReviewEnter()
-				return m, nil
-			}
-			if len(m.Review.Queue) > 0 {
-				idx := m.Review.Selected
-				if idx < 0 || idx >= len(m.Review.Queue) {
-					idx = 0
-				}
-				taskID := m.Review.Queue[idx]
-				if m.ConfirmApprove {
-					m.Review.PendingApproveTask = taskID
-					m.SetStatusInfo("confirm approve " + taskID + " (y/n)")
-					return m, nil
-				}
-				if err := m.approveTaskByID(taskID); err != nil {
-					m.SetStatusError(err.Error())
-					return m, nil
-				}
 			}
 		case "a":
 			if m.ViewMode == ViewReview {
@@ -578,7 +598,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.Review.Input = ""
 				m.Review.MVPExplainPending = true
 			}
-		case "r":
+		case "X":
 			if m.ViewMode == ViewReview {
 				m.Review.InputMode = ReviewInputFeedback
 				m.Review.Input = ""
@@ -619,8 +639,8 @@ func (m Model) View() string {
 	if m.SettingsOpen {
 		return render(renderOverlayCard("Settings", "Settings UI (stub)", []keyDesc{{"esc", "close"}}))
 	}
-	if m.HelpOpen {
-		return render(renderHelpOverlay())
+	if m.helpOverlay.Visible {
+		return render(m.helpOverlay.Render(m.keys, m.helpExtras(), m.Width))
 	}
 	if m.QuickTaskMode {
 		return render(renderOverlayCard("New Quick Task", "Describe task:\n"+m.QuickTaskInput, []keyDesc{{"enter", "create"}, {"esc", "cancel"}}))
@@ -677,7 +697,7 @@ func (m Model) View() string {
 		for _, ac := range m.Review.Detail.AcceptanceCriteria {
 			out += "- " + ac + "\n"
 		}
-		out += "\n[d]iff  [a]pprove  [f]eedback  [r]eject  [e]dit story  [b]ack\n"
+		out += "\n[d]iff  [a]pprove  [f]eedback  [X]reject  [e]dit story  [b]ack\n"
 		return render(out)
 	}
 	header := m.Title + " / Tasks\n"
@@ -2020,6 +2040,23 @@ func (m *Model) bottomBarLine() string {
 	}
 	line := fmt.Sprintf("MODE: %s | FOCUS: %s | STATUS: %s", m.modeLabel(), m.focusLabel(), status)
 	return LabelStyle.Render(line)
+}
+
+func (m Model) helpExtras() []pkgtui.HelpBinding {
+	return []pkgtui.HelpBinding{
+		{Key: "n", Description: "new task"},
+		{Key: "s", Description: "start"},
+		{Key: "x", Description: "stop"},
+		{Key: "R", Description: "review view"},
+		{Key: "c", Description: "coord"},
+		{Key: "a/o/v/d", Description: "filter"},
+		{Key: "i", Description: "init"},
+		{Key: "f", Description: "feedback"},
+		{Key: "X", Description: "reject"},
+		{Key: "e", Description: "edit story"},
+		{Key: "ctrl+k", Description: "palette"},
+		{Key: ",", Description: "settings"},
+	}
 }
 
 func renderTab(label string, active bool) string {

@@ -17,7 +17,7 @@ behavior consistent across tools.
 - `?` help
 - `q` quit
 - `j`/`k` down/up
-- `h`/`l` back/forward
+- `h`/`l` back/forward (esc is also back)
 - `g`/`G` top/bottom
 - `/` search
 - `n`/`p` next/prev

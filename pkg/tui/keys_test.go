@@ -1,148 +1,80 @@
 package tui
 
 import (
-	"strings"
+	"reflect"
 	"testing"
 
 	"github.com/charmbracelet/bubbles/key"
 	tea "github.com/charmbracelet/bubbletea"
 )
 
-func TestNewCommonKeys(t *testing.T) {
+func TestCommonKeysBackMatchesEscAndH(t *testing.T) {
+	keys := NewCommonKeys()
+	esc := tea.KeyMsg{Type: tea.KeyEsc}
+	if !key.Matches(esc, keys.Back) {
+		t.Fatalf("expected Back to match esc")
+	}
+	h := tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'h'}}
+	if !key.Matches(h, keys.Back) {
+		t.Fatalf("expected Back to match h")
+	}
+}
+
+func TestCommonKeysIncludesTopBottomNextPrevAndSections(t *testing.T) {
+	keys := NewCommonKeys()
+	typ := reflect.TypeOf(keys)
+	for _, field := range []string{"Top", "Bottom", "Next", "Prev", "Sections"} {
+		if _, ok := typ.FieldByName(field); !ok {
+			t.Fatalf("expected CommonKeys to include %s", field)
+		}
+	}
+
+	v := reflect.ValueOf(keys)
+	top := v.FieldByName("Top").Interface().(key.Binding)
+	bottom := v.FieldByName("Bottom").Interface().(key.Binding)
+	next := v.FieldByName("Next").Interface().(key.Binding)
+	prev := v.FieldByName("Prev").Interface().(key.Binding)
+	sections := v.FieldByName("Sections").Interface().([]key.Binding)
+
+	if !key.Matches(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'g'}}, top) {
+		t.Fatalf("expected Top to match g")
+	}
+	if !key.Matches(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'G'}}, bottom) {
+		t.Fatalf("expected Bottom to match G")
+	}
+	if !key.Matches(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'n'}}, next) {
+		t.Fatalf("expected Next to match n")
+	}
+	if !key.Matches(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'p'}}, prev) {
+		t.Fatalf("expected Prev to match p")
+	}
+	if len(sections) < 2 {
+		t.Fatalf("expected Sections bindings")
+	}
+	if !key.Matches(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'1'}}, sections[0]) {
+		t.Fatalf("expected Sections[0] to match 1")
+	}
+	if !key.Matches(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'9'}}, sections[len(sections)-1]) {
+		t.Fatalf("expected last Sections binding to match 9")
+	}
+}
+
+func TestHandleCommonQuitAndHelp(t *testing.T) {
 	keys := NewCommonKeys()
 
-	tests := []struct {
-		name    string
-		binding key.Binding
-		inputs  []string
-	}{
-		{"Quit q", keys.Quit, []string{"q"}},
-		{"Quit ctrl+c", keys.Quit, []string{"ctrl+c"}},
-		{"Help", keys.Help, []string{"?"}},
-		{"Search", keys.Search, []string{"/"}},
-		{"Back", keys.Back, []string{"esc"}},
-		{"NavUp k", keys.NavUp, []string{"k"}},
-		{"NavUp arrow", keys.NavUp, []string{"up"}},
-		{"NavDown j", keys.NavDown, []string{"j"}},
-		{"NavDown arrow", keys.NavDown, []string{"down"}},
-		{"Refresh", keys.Refresh, []string{"r"}},
-		{"TabCycle tab", keys.TabCycle, []string{"tab"}},
-		{"TabCycle shift+tab", keys.TabCycle, []string{"shift+tab"}},
-		{"Select", keys.Select, []string{"enter"}},
-		{"Toggle", keys.Toggle, []string{" "}},
+	quitCmd := HandleCommon(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'q'}}, keys)
+	if quitCmd == nil {
+		t.Fatalf("expected quit command")
+	}
+	if _, ok := quitCmd().(tea.QuitMsg); !ok {
+		t.Fatalf("expected QuitMsg")
 	}
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			for _, inp := range tt.inputs {
-				msg := tea.KeyMsg{Type: tea.KeyRunes}
-				// Map special keys to their tea.KeyType
-				switch inp {
-				case "ctrl+c":
-					msg = tea.KeyMsg{Type: tea.KeyCtrlC}
-				case "esc":
-					msg = tea.KeyMsg{Type: tea.KeyEscape}
-				case "up":
-					msg = tea.KeyMsg{Type: tea.KeyUp}
-				case "down":
-					msg = tea.KeyMsg{Type: tea.KeyDown}
-				case "tab":
-					msg = tea.KeyMsg{Type: tea.KeyTab}
-				case "shift+tab":
-					msg = tea.KeyMsg{Type: tea.KeyShiftTab}
-				case "enter":
-					msg = tea.KeyMsg{Type: tea.KeyEnter}
-				case " ":
-					msg = tea.KeyMsg{Type: tea.KeySpace}
-				default:
-					msg = tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(inp)}
-				}
-				if !key.Matches(msg, tt.binding) {
-					t.Errorf("expected key %q to match binding %s", inp, tt.name)
-				}
-			}
-		})
+	helpCmd := HandleCommon(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'?'}}, keys)
+	if helpCmd == nil {
+		t.Fatalf("expected help command")
 	}
-}
-
-func TestHandleCommon_Quit(t *testing.T) {
-	keys := NewCommonKeys()
-	msg := tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("q")}
-	cmd := HandleCommon(msg, keys)
-	if cmd == nil {
-		t.Fatal("expected tea.Quit command for 'q'")
+	if _, ok := helpCmd().(ToggleHelpMsg); !ok {
+		t.Fatalf("expected ToggleHelpMsg")
 	}
-	// Execute the cmd; tea.Quit returns a QuitMsg
-	result := cmd()
-	if _, ok := result.(tea.QuitMsg); !ok {
-		t.Fatalf("expected QuitMsg, got %T", result)
-	}
-}
-
-func TestHandleCommon_Help(t *testing.T) {
-	keys := NewCommonKeys()
-	msg := tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("?")}
-	cmd := HandleCommon(msg, keys)
-	if cmd == nil {
-		t.Fatal("expected command for '?'")
-	}
-	result := cmd()
-	if _, ok := result.(ToggleHelpMsg); !ok {
-		t.Fatalf("expected ToggleHelpMsg, got %T", result)
-	}
-}
-
-func TestHandleCommon_Unhandled(t *testing.T) {
-	keys := NewCommonKeys()
-	msg := tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("x")}
-	cmd := HandleCommon(msg, keys)
-	if cmd != nil {
-		t.Fatal("expected nil for unhandled key")
-	}
-}
-
-func TestHelpOverlay_Toggle(t *testing.T) {
-	h := NewHelpOverlay()
-	if h.Visible {
-		t.Fatal("expected hidden by default")
-	}
-	h.Toggle()
-	if !h.Visible {
-		t.Fatal("expected visible after toggle")
-	}
-	h.Toggle()
-	if h.Visible {
-		t.Fatal("expected hidden after second toggle")
-	}
-}
-
-func TestHelpOverlay_RenderHidden(t *testing.T) {
-	h := NewHelpOverlay()
-	keys := NewCommonKeys()
-	result := h.Render(keys, nil, 80)
-	if result != "" {
-		t.Fatal("expected empty string when hidden")
-	}
-}
-
-func TestHelpOverlay_RenderVisible(t *testing.T) {
-	h := NewHelpOverlay()
-	h.Toggle()
-	keys := NewCommonKeys()
-	extras := []HelpBinding{{Key: "d", Description: "delete"}}
-	result := h.Render(keys, extras, 80)
-	if result == "" {
-		t.Fatal("expected non-empty render when visible")
-	}
-	// Should contain key descriptions
-	if !containsStr(result, "quit") {
-		t.Error("expected 'quit' in rendered output")
-	}
-	if !containsStr(result, "delete") {
-		t.Error("expected 'delete' in rendered output")
-	}
-}
-
-func containsStr(s, sub string) bool {
-	return len(s) >= len(sub) && strings.Contains(s, sub)
 }

@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/charmbracelet/bubbles/key"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/mistakeknot/autarch/internal/gurgeh/arbiter"
@@ -19,9 +20,10 @@ type SprintView struct {
 	orchestrator *arbiter.Orchestrator
 	width        int
 	height       int
-	focused       string // "draft" or "options"
-	optionIndex   int
-	showResearch  bool // toggle research panel
+	focused      string // "draft" or "options"
+	optionIndex  int
+	showResearch bool // toggle research panel
+	keys         pkgtui.CommonKeys
 }
 
 // NewSprintView creates a new SprintView for the given sprint state.
@@ -33,6 +35,7 @@ func NewSprintView(state *arbiter.SprintState) *SprintView {
 		height:       24,
 		focused:      "draft",
 		optionIndex:  0,
+		keys:         pkgtui.NewCommonKeys(),
 	}
 }
 
@@ -55,32 +58,32 @@ func (v *SprintView) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			v.height = msg.Height
 		}
 	case tea.KeyMsg:
-		key := msg.String()
-		switch key {
-		case "a", "A":
+		keyStr := msg.String()
+		switch {
+		case keyStr == "a" || keyStr == "A":
 			v.orchestrator.AcceptDraft(v.state)
 			return v, nil
-		case "e", "E":
+		case keyStr == "e" || keyStr == "E":
 			// Edit stub - future implementation
 			return v, nil
-		case "1":
+		case len(v.keys.Sections) > 0 && key.Matches(msg, v.keys.Sections[0]):
 			v.selectOption(0)
-		case "2":
+		case len(v.keys.Sections) > 1 && key.Matches(msg, v.keys.Sections[1]):
 			v.selectOption(1)
-		case "3":
+		case len(v.keys.Sections) > 2 && key.Matches(msg, v.keys.Sections[2]):
 			v.selectOption(2)
-		case "j", "down":
+		case key.Matches(msg, v.keys.NavDown):
 			section := v.currentSection()
 			if section != nil && v.optionIndex < len(section.Options)-1 {
 				v.optionIndex++
 			}
-		case "k", "up":
+		case key.Matches(msg, v.keys.NavUp):
 			if v.optionIndex > 0 {
 				v.optionIndex--
 			}
-		case "r":
+		case keyStr == "R":
 			v.showResearch = !v.showResearch
-		case "q", "esc":
+		case key.Matches(msg, v.keys.Quit), key.Matches(msg, v.keys.Back):
 			return v, tea.Quit
 		}
 	}

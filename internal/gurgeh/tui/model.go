@@ -9,6 +9,7 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/charmbracelet/bubbles/key"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/mistakeknot/autarch/internal/gurgeh/agents"
 	"github.com/mistakeknot/autarch/internal/gurgeh/arbiter"
@@ -19,47 +20,61 @@ import (
 	"github.com/mistakeknot/autarch/internal/gurgeh/specs"
 	"github.com/mistakeknot/autarch/internal/gurgeh/suggestions"
 	pollardquick "github.com/mistakeknot/autarch/internal/pollard/quick"
+	pkgtui "github.com/mistakeknot/autarch/pkg/tui"
 )
 
 type Model struct {
-	summaries           []specs.Summary
-	selected            int
-	viewOffset          int
-	groupExpanded       map[string]bool
-	groupTree           *GroupTree
-	flatItems           []Item
-	err                 string
-	root                string
-	mode                string
-	status              string
-	router              Router
-	width               int
-	height              int
-	mdCache             *MarkdownCache
-	overlay             string
-	focus               string
-	search              SearchState
-	searchOverlay       *SearchOverlay
-	showArchived        bool
-	confirmAction       string
-	confirmMessage      string
-	confirmID           string
-	pendingPrevStatus   string
-	lastAction          *LastAction
-	sprint      *SprintView
-	suggestions suggestionsState
+	summaries         []specs.Summary
+	selected          int
+	viewOffset        int
+	groupExpanded     map[string]bool
+	groupTree         *GroupTree
+	flatItems         []Item
+	err               string
+	root              string
+	mode              string
+	status            string
+	router            Router
+	width             int
+	height            int
+	mdCache           *MarkdownCache
+	overlay           string
+	focus             string
+	search            SearchState
+	searchOverlay     *SearchOverlay
+	showArchived      bool
+	confirmAction     string
+	confirmMessage    string
+	confirmID         string
+	pendingPrevStatus string
+	lastAction        *LastAction
+	keys              pkgtui.CommonKeys
+	helpOverlay       pkgtui.HelpOverlay
+	sprint            *SprintView
+	suggestions       suggestionsState
 }
 
 func NewModel() Model {
 	cwd, err := os.Getwd()
 	if err != nil {
-		return Model{err: err.Error(), mode: "list"}
+		return Model{err: err.Error(), mode: "list", keys: pkgtui.NewCommonKeys(), helpOverlay: pkgtui.NewHelpOverlay()}
 	}
 	if err := project.EnsureInitialized(cwd); err != nil {
-		model := Model{err: err.Error(), root: cwd, mode: "list", router: Router{active: "list"}, width: 120, height: 40, mdCache: NewMarkdownCache(), focus: "LIST"}
+		model := Model{
+			err:         err.Error(),
+			root:        cwd,
+			mode:        "list",
+			router:      Router{active: "list"},
+			width:       120,
+			height:      40,
+			mdCache:     NewMarkdownCache(),
+			focus:       "LIST",
+			keys:        pkgtui.NewCommonKeys(),
+			helpOverlay: pkgtui.NewHelpOverlay(),
+		}
 		model.searchOverlay = NewSearchOverlay()
 		model.groupExpanded = defaultExpanded()
-	
+
 		if state, err := LoadUIState(project.StatePath(cwd)); err == nil {
 			if state.Expanded != nil {
 				model.groupExpanded = state.Expanded
@@ -82,7 +97,19 @@ func NewModel() Model {
 	state, stateErr := LoadUIState(project.StatePath(cwd))
 	includeArchived := stateErr == nil && state.ShowArchived
 	list, _ := specs.LoadSummariesWithArchived(project.SpecsDir(cwd), project.ArchivedSpecsDir(cwd), includeArchived)
-	model := Model{summaries: list, root: cwd, mode: "list", router: Router{active: "list"}, width: 120, height: 40, mdCache: NewMarkdownCache(), focus: "LIST", showArchived: includeArchived}
+	model := Model{
+		summaries:    list,
+		root:         cwd,
+		mode:         "list",
+		router:       Router{active: "list"},
+		width:        120,
+		height:       40,
+		mdCache:      NewMarkdownCache(),
+		focus:        "LIST",
+		showArchived: includeArchived,
+		keys:         pkgtui.NewCommonKeys(),
+		helpOverlay:  pkgtui.NewHelpOverlay(),
+	}
 	model.searchOverlay = NewSearchOverlay()
 	model.searchOverlay.SetItems(list)
 	model.groupExpanded = defaultExpanded()
@@ -112,45 +139,45 @@ func (m Model) Init() tea.Cmd { return nil }
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
-		key := msg.String()
+		keyStr := msg.String()
 		if msg.Type == tea.KeyEnter {
-			key = "enter"
+			keyStr = "enter"
 		}
 		if msg.Type == tea.KeyBackspace {
-			key = "backspace"
+			keyStr = "backspace"
 		}
 		if m.confirmAction != "" {
-			switch key {
-			case "enter":
+			switch {
+			case key.Matches(msg, m.keys.Select):
 				m.applyConfirmAction()
-			case "esc", "q":
+			case key.Matches(msg, m.keys.Back), key.Matches(msg, m.keys.Quit):
 				m.clearConfirm()
 			}
 			return m, nil
 		}
-		if m.overlay != "" {
-			switch key {
-			case "esc", "q":
+		if m.overlay == "tutorial" {
+			switch {
+			case key.Matches(msg, m.keys.Back), key.Matches(msg, m.keys.Quit):
 				m.overlay = ""
-			case "?":
-				if m.overlay == "help" {
-					m.overlay = ""
-				} else {
-					m.overlay = "help"
-				}
-			case "`":
-				if m.overlay == "tutorial" {
-					m.overlay = ""
-				} else {
-					m.overlay = "tutorial"
-				}
+			case key.Matches(msg, m.keys.Help):
+				m.overlay = ""
+				m.helpOverlay.Toggle()
+			case keyStr == "`":
+				m.overlay = ""
+			}
+			return m, nil
+		}
+		if m.helpOverlay.Visible {
+			switch {
+			case key.Matches(msg, m.keys.Help), key.Matches(msg, m.keys.Back):
+				m.helpOverlay.Toggle()
 			}
 			return m, nil
 		}
 		if m.searchOverlay != nil && m.searchOverlay.Visible() {
 			var cmd tea.Cmd
 			m.searchOverlay, cmd = m.searchOverlay.Update(msg)
-			if !m.searchOverlay.Visible() && key == "enter" {
+			if !m.searchOverlay.Visible() && keyStr == "enter" {
 				if sel := m.searchOverlay.Selected(); sel != nil {
 					m.search.Query = ""
 					if idx := indexOfSummaryID(m.summaries, sel.ID); idx >= 0 {
@@ -162,7 +189,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, cmd
 		}
 		if m.search.Active {
-			done, canceled := updateSearch(&m.search, key)
+			done, canceled := updateSearch(&m.search, keyStr)
 			if done {
 				m.search.Active = false
 				if canceled {
@@ -178,43 +205,41 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, cmd
 		}
 		if m.mode == "suggestions" {
-			switch key {
-			case "q", "ctrl+c":
+			switch {
+			case key.Matches(msg, m.keys.Quit), key.Matches(msg, m.keys.Back):
 				m.mode = "list"
-			case "a":
+			case keyStr == "a":
 				m.applySuggestions()
 				m.mode = "list"
-			case "r":
-				m.mode = "list"
-			case "1":
+			case keyStr == "1":
 				m.suggestions.acceptSummary = !m.suggestions.acceptSummary
-			case "2":
+			case keyStr == "2":
 				m.suggestions.acceptRequirements = !m.suggestions.acceptRequirements
-			case "3":
+			case keyStr == "3":
 				m.suggestions.acceptCUJ = !m.suggestions.acceptCUJ
-			case "4":
+			case keyStr == "4":
 				m.suggestions.acceptMarket = !m.suggestions.acceptMarket
-			case "5":
+			case keyStr == "5":
 				m.suggestions.acceptCompetitive = !m.suggestions.acceptCompetitive
 			}
 			return m, nil
 		}
-		switch key {
-		case "q", "ctrl+c":
+		switch {
+		case key.Matches(msg, m.keys.Quit):
 			return m, tea.Quit
-		case "enter":
+		case key.Matches(msg, m.keys.Select):
 			m.toggleSelectedGroup()
-		case "a":
+		case keyStr == "a":
 			m.confirmArchive()
-		case "d":
+		case keyStr == "d":
 			m.confirmDelete()
-		case "u":
+		case keyStr == "u":
 			m.confirmUndo()
-		case "h":
+		case keyStr == "H":
 			m.showArchived = !m.showArchived
 			m.reloadSummaries()
 			m.persistUIState()
-		case "/":
+		case key.Matches(msg, m.keys.Search):
 			if m.searchOverlay != nil {
 				m.searchOverlay.SetItems(m.summaries)
 				m.searchOverlay.Show()
@@ -222,47 +247,54 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.search.Active = true
 				m.search.Query = ""
 			}
-		case "tab":
+		case key.Matches(msg, m.keys.TabCycle):
 			if m.focus == "LIST" {
 				m.focus = "DETAIL"
 			} else {
 				m.focus = "LIST"
 			}
-		case "?":
-			m.overlay = "help"
-		case "`":
+		case key.Matches(msg, m.keys.Help):
+			m.helpOverlay.Toggle()
+		case key.Matches(msg, m.keys.Refresh):
+			m.reloadSummaries()
+			m.persistUIState()
+		case keyStr == "`":
 			m.overlay = "tutorial"
-		case "g":
+		case keyStr == "g":
 			if m.err == "" {
 				m.startSprintForSelected()
 			}
-		case "n":
+		case keyStr == "n":
 			if m.err == "" {
 				m.startSprint()
 			}
-		case "r":
+		case keyStr == "R":
 			if m.err == "" {
 				m.runResearchForSelected()
 			}
-		case "p":
+		case keyStr == "p":
 			if m.err == "" {
 				m.runSuggestionsForSelected()
 			}
-		case "s":
+		case keyStr == "s":
 			if m.err == "" {
 				m.enterSuggestions()
 			}
-		case "j", "down":
+		case key.Matches(msg, m.keys.NavDown):
 			if m.selected < len(m.flatItems)-1 {
 				m.selected++
 			}
-		case "k", "up":
+		case key.Matches(msg, m.keys.NavUp):
 			if m.selected > 0 {
 				m.selected--
 			}
-		case "G":
+		case key.Matches(msg, m.keys.Bottom):
 			if len(m.flatItems) > 0 {
 				m.selected = len(m.flatItems) - 1
+			}
+		case key.Matches(msg, m.keys.Top):
+			if len(m.flatItems) > 0 {
+				m.selected = 0
 			}
 		}
 		m.viewOffset = clampViewOffset(m.selected, m.viewOffset, m.listContentHeight(), len(m.flatItems))
@@ -291,14 +323,17 @@ func (m Model) View() string {
 		body = padBodyToHeight(body, m.height-2)
 		return renderFrame(header, body, footer)
 	}
-	if m.overlay != "" {
+	if m.helpOverlay.Visible {
 		title = "HELP"
-		overlay := renderHelpOverlay()
-		if m.overlay == "tutorial" {
-			title = "TUTORIAL"
-			overlay = renderTutorialOverlay()
-		}
-		body = overlay
+		body = m.helpOverlay.Render(m.keys, m.helpExtras(), m.width)
+		header := renderHeader(title, focus)
+		footer := renderFooter(defaultKeys(), m.status)
+		body = padBodyToHeight(body, m.height-2)
+		return renderFrame(header, body, footer)
+	}
+	if m.overlay == "tutorial" {
+		title = "TUTORIAL"
+		body = renderTutorialOverlay()
 		header := renderHeader(title, focus)
 		footer := renderFooter(defaultKeys(), m.status)
 		return renderFrame(header, body, footer)
@@ -597,7 +632,6 @@ func (m *Model) startSprint() {
 	m.sprint = NewSprintView(state)
 	m.mode = "sprint"
 }
-
 
 func (m *Model) startSprintForSelected() {
 	sel := m.selectedSummary()
@@ -923,7 +957,22 @@ func visibleWidth(s string) int {
 }
 
 func defaultKeys() string {
-	return "j/k move  enter toggle  / search  tab focus  n new  g sprint  [ ] prev/next  ctrl+o open  \\ swap  a archive  d delete  u undo  h archived  r research  p suggestions  s review  ? help  q quit"
+	return "j/k move  enter toggle  / search  tab focus  n new  g sprint  [ ] prev/next  ctrl+o open  \\ swap  a archive  d delete  u undo  H archived  R research  p suggestions  s review  ? help  q quit"
+}
+
+func (m Model) helpExtras() []pkgtui.HelpBinding {
+	return []pkgtui.HelpBinding{
+		{Key: "a", Description: "archive"},
+		{Key: "d", Description: "delete"},
+		{Key: "u", Description: "undo"},
+		{Key: "H", Description: "archived"},
+		{Key: "g", Description: "sprint from PRD"},
+		{Key: "n", Description: "new sprint"},
+		{Key: "R", Description: "research"},
+		{Key: "p", Description: "suggestions"},
+		{Key: "s", Description: "review"},
+		{Key: "`", Description: "tutorial"},
+	}
 }
 
 func padBodyToHeight(body string, height int) string {
