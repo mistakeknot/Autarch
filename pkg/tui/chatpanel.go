@@ -150,9 +150,11 @@ func (p *ChatPanel) renderHistory(height int) string {
 	// Build message lines
 	var lines []string
 	for _, msg := range p.messages {
-		// Role header
-		roleStyle := p.roleStyle(msg.Role)
-		lines = append(lines, roleStyle.Render(formatRole(msg.Role)+":"))
+		// Role header (omit system labels)
+		if strings.ToLower(msg.Role) != "system" {
+			roleStyle := p.roleStyle(msg.Role)
+			lines = append(lines, roleStyle.Render(formatRole(msg.Role)+":"))
+		}
 
 		// Content with indent
 		contentStyle := lipgloss.NewStyle().
