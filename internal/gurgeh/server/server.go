@@ -3,12 +3,12 @@ package server
 import (
 	"context"
 	"net/http"
-	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
 	"time"
 
+	"github.com/mistakeknot/autarch/internal/gurgeh/project"
 	gsignals "github.com/mistakeknot/autarch/internal/gurgeh/signals"
 	"github.com/mistakeknot/autarch/internal/gurgeh/specs"
 	"github.com/mistakeknot/autarch/pkg/httpapi"
@@ -61,13 +61,14 @@ func (s *Server) handleSpecs(w http.ResponseWriter, r *http.Request) {
 		methodNotAllowed(w)
 		return
 	}
-	list, _ := specs.LoadSummaries(specsDir(s.root))
+	includeArchived := parseIncludeArchived(r)
+	list, _ := specs.LoadSummariesWithArchived(specsDir(s.root), archivedSpecsDir(s.root), includeArchived)
 	// Stable ordering by ID for pagination.
 	sort.Slice(list, func(i, j int) bool {
 		return list[i].ID < list[j].ID
 	})
-	cursor, limit := parsePagination(r, 50)
-	paged, next := paginate(list, cursor, limit)
+	offset, limit := parsePagination(r, 50)
+	paged, next := paginate(list, offset, limit)
 	meta := &httpapi.Meta{Cursor: next, Limit: limit}
 	httpapi.WriteOK(w, http.StatusOK, paged, meta)
 }
@@ -151,11 +152,15 @@ func (s *Server) refreshSignals(ctx context.Context, spec specs.Spec) {
 }
 
 func specsDir(root string) string {
-	return filepath.Join(root, ".gurgeh", "specs")
+	return project.SpecsDir(root)
+}
+
+func archivedSpecsDir(root string) string {
+	return project.ArchivedSpecsDir(root)
 }
 
 func specPathForID(root, id string) (string, bool) {
-	list, _ := specs.LoadSummaries(specsDir(root))
+	list, _ := specs.LoadSummariesWithArchived(specsDir(root), archivedSpecsDir(root), true)
 	for _, s := range list {
 		if s.ID == id {
 			return s.Path, true
@@ -165,10 +170,14 @@ func specPathForID(root, id string) (string, bool) {
 }
 
 func parsePagination(r *http.Request, defaultLimit int) (int, int) {
-	cursor := 0
-	if v := r.URL.Query().Get("cursor"); v != "" {
+	offset := 0
+	if v := r.URL.Query().Get("offset"); v != "" {
 		if parsed, err := strconv.Atoi(v); err == nil && parsed >= 0 {
-			cursor = parsed
+			offset = parsed
+		}
+	} else if v := r.URL.Query().Get("cursor"); v != "" {
+		if parsed, err := strconv.Atoi(v); err == nil && parsed >= 0 {
+			offset = parsed
 		}
 	}
 	limit := defaultLimit
@@ -177,7 +186,20 @@ func parsePagination(r *http.Request, defaultLimit int) (int, int) {
 			limit = parsed
 		}
 	}
-	return cursor, limit
+	return offset, limit
+}
+
+func parseIncludeArchived(r *http.Request) bool {
+	raw := strings.TrimSpace(r.URL.Query().Get("include_archived"))
+	if raw == "" {
+		return false
+	}
+	switch strings.ToLower(raw) {
+	case "true", "1", "yes":
+		return true
+	default:
+		return false
+	}
 }
 
 func paginate[T any](items []T, cursor int, limit int) ([]T, string) {

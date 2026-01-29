@@ -768,6 +768,8 @@ go run ./cmd/gurgeh serve --addr 127.0.0.1:8091
 - `GET /api/specs/{id}/hypotheses`
 - `GET /api/specs/{id}/history`
 
+List params: `offset`, `limit`, `include_archived` (legacy `cursor` supported as offset alias).
+
 ### Signals WebSocket Server
 
 ```bash
