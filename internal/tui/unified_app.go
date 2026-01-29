@@ -54,6 +54,10 @@ type UnifiedApp struct {
 	generating     bool
 	generatingWhat string
 
+	// Last agent run snapshot
+	lastRunLabel    string
+	lastRunSnapshot string
+
 	// Dashboard state
 	tabs      *TabBar
 	dashViews []View
@@ -353,6 +357,8 @@ func (a *UnifiedApp) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case ",", "ctrl+,":
 			a.openChatSettings()
 			return a, nil
+		case "ctrl+u":
+			return a, a.revertLastRun()
 		}
 
 		// In dashboard mode, handle tab switching
@@ -693,6 +699,73 @@ type scanProgressWithContinuation struct {
 	nextCmd tea.Cmd
 }
 
+func (a *UnifiedApp) captureRunSnapshot() {
+	a.lastRunLabel = ""
+	a.lastRunSnapshot = ""
+	if snapper, ok := a.currentView.(DocumentSnapshotter); ok {
+		label, content := snapper.DocumentSnapshot()
+		a.lastRunLabel = label
+		a.lastRunSnapshot = content
+	}
+}
+
+func (a *UnifiedApp) finalizeAgentRun(what string) {
+	var diff []string
+	var diffErr error
+
+	if a.lastRunSnapshot != "" {
+		if snapper, ok := a.currentView.(DocumentSnapshotter); ok {
+			label, after := snapper.DocumentSnapshot()
+			if label != "" {
+				a.lastRunLabel = label
+			}
+			diff, diffErr = pkgtui.UnifiedDiff(a.lastRunSnapshot, after, a.lastRunLabel)
+		}
+	}
+
+	a.sendToCurrentView(AgentRunFinishedMsg{
+		What: what,
+		Err:  diffErr,
+		Diff: diff,
+	})
+
+	summary := summarizeDiff(diff, diffErr)
+	if summary != "" {
+		a.sendToCurrentView(AgentEditSummaryMsg{Summary: summary})
+	}
+}
+
+func summarizeDiff(diff []string, err error) string {
+	if err != nil {
+		return "Agent run complete. Diff unavailable."
+	}
+	if len(diff) == 0 {
+		return "Agent run complete. No document changes detected."
+	}
+
+	adds := 0
+	dels := 0
+	for _, line := range diff {
+		switch {
+		case strings.HasPrefix(line, "+") && !strings.HasPrefix(line, "+++"):
+			adds++
+		case strings.HasPrefix(line, "-") && !strings.HasPrefix(line, "---"):
+			dels++
+		}
+	}
+
+	return fmt.Sprintf("Agent run complete. +%d -%d lines.", adds, dels)
+}
+
+func (a *UnifiedApp) sendToCurrentView(msg tea.Msg) {
+	if a.currentView == nil {
+		return
+	}
+	var cmd tea.Cmd
+	a.currentView, cmd = a.currentView.Update(msg)
+	_ = cmd
+}
+
 // agentStreamEvent represents a single streaming output or final result.
 type agentStreamEvent struct {
 	line  string
@@ -817,6 +890,7 @@ func (a *UnifiedApp) generateEpicsWithAgent(spec SpecAcceptedMsg) tea.Cmd {
 		}
 	}
 
+	a.captureRunSnapshot()
 	input := agent.SpecInput{
 		Vision:       spec.Vision,
 		Users:        spec.Users,
@@ -848,10 +922,14 @@ func (a *UnifiedApp) generateEpicsWithAgent(spec SpecAcceptedMsg) tea.Cmd {
 		stream <- agentStreamEvent{epics: proposals}
 	}()
 
-	return a.waitForAgentStream(stream, "epics")
+	return tea.Batch(
+		func() tea.Msg { return AgentRunStartedMsg{What: "epics"} },
+		a.waitForAgentStream(stream, "epics"),
+	)
 }
 
 func (a *UnifiedApp) handleEpicsGenerated(msg EpicsGeneratedMsg) tea.Cmd {
+	a.finalizeAgentRun("epics")
 	a.generatedEpics = msg.Epics
 	a.breadcrumb.SetCurrent(OnboardingEpicReview)
 
@@ -888,6 +966,7 @@ func (a *UnifiedApp) generateTasksWithAgent() tea.Cmd {
 		}
 	}
 
+	a.captureRunSnapshot()
 	stream := make(chan agentStreamEvent, 100)
 	go func() {
 		defer close(stream)
@@ -910,10 +989,14 @@ func (a *UnifiedApp) generateTasksWithAgent() tea.Cmd {
 		stream <- agentStreamEvent{tasks: taskList}
 	}()
 
-	return a.waitForAgentStream(stream, "tasks")
+	return tea.Batch(
+		func() tea.Msg { return AgentRunStartedMsg{What: "tasks"} },
+		a.waitForAgentStream(stream, "tasks"),
+	)
 }
 
 func (a *UnifiedApp) handleTasksGenerated(msg TasksGeneratedMsg) tea.Cmd {
+	a.finalizeAgentRun("tasks")
 	a.generatedTasks = msg.Tasks
 	a.breadcrumb.SetCurrent(OnboardingTaskReview)
 
@@ -1095,6 +1178,15 @@ func (a *UnifiedApp) updateCommands() {
 			}
 		},
 	})
+	cmds = append(cmds, Command{
+		Name:        "Revert last run",
+		Description: "Restore last agent snapshot",
+		Action: func() tea.Cmd {
+			return func() tea.Msg {
+				return tea.KeyMsg{Type: tea.KeyCtrlU}
+			}
+		},
+	})
 
 	for i, v := range a.dashViews {
 		idx := i
@@ -1120,6 +1212,14 @@ func (a *UnifiedApp) openChatSettings() {
 	} else {
 		a.chatSettingsView.Settings = a.chatSettings
 	}
+}
+
+func (a *UnifiedApp) revertLastRun() tea.Cmd {
+	if a.lastRunSnapshot == "" {
+		return nil
+	}
+	a.sendToCurrentView(RevertLastRunMsg{Snapshot: a.lastRunSnapshot})
+	return nil
 }
 
 func (a *UnifiedApp) switchDashboardTab(idx int) tea.Cmd {

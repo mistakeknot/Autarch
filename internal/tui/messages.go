@@ -61,9 +61,9 @@ type NavigateToKickoffMsg struct{}
 
 // StartAgentMsg requests starting an agent for a task
 type StartAgentMsg struct {
-	Task      tasks.TaskProposal
-	Agent     string
-	Worktree  bool
+	Task     tasks.TaskProposal
+	Agent    string
+	Worktree bool
 }
 
 // InterviewCompleteMsg is sent when the interview is complete
@@ -130,11 +130,17 @@ type AgentStreamMsg struct {
 type AgentRunFinishedMsg struct {
 	What string
 	Err  error
+	Diff []string
 }
 
 // AgentEditSummaryMsg reports a summary of edits after an agent run.
 type AgentEditSummaryMsg struct {
 	Summary string
+}
+
+// RevertLastRunMsg requests reverting the last agent run snapshot.
+type RevertLastRunMsg struct {
+	Snapshot string
 }
 
 // CodebaseScanResultMsg contains the results of a codebase scan

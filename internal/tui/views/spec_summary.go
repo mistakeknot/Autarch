@@ -26,6 +26,9 @@ type SpecSummaryView struct {
 	selected    int
 	expanded    map[int]bool
 	chatLines   []string
+	diffVisible bool
+	diffLines   []string
+	docOverride string
 
 	// Shell layout for unified 3-pane layout (chat only, no sidebar)
 	shell *pkgtui.ShellLayout
@@ -55,6 +58,14 @@ func NewSpecSummaryView(spec *SpecSummary, coordinator *research.Coordinator) *S
 // SetAgentSelector sets the shared agent selector.
 func (v *SpecSummaryView) SetAgentSelector(selector *pkgtui.AgentSelector) {
 	v.agentSelector = selector
+}
+
+// DocumentSnapshot returns a plain-text snapshot of the spec summary.
+func (v *SpecSummaryView) DocumentSnapshot() (string, string) {
+	if v.docOverride != "" {
+		return "PRD.md", v.docOverride
+	}
+	return "PRD.md", v.renderPlainDocument()
 }
 
 // AppendChatLine appends a streaming agent line to the chat pane.
@@ -115,6 +126,38 @@ func (v *SpecSummaryView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
 
 	case research.HunterUpdateMsg:
 		v.updateResearchStatus()
+		return v, nil
+
+	case tui.AgentRunStartedMsg:
+		v.docOverride = ""
+		v.diffVisible = true
+		v.diffLines = []string{"Generating diff..."}
+		return v, nil
+
+	case tui.AgentRunFinishedMsg:
+		if msg.Err != nil {
+			v.diffVisible = false
+			v.diffLines = []string{fmt.Sprintf("Diff unavailable: %v", msg.Err)}
+			return v, nil
+		}
+		v.diffVisible = true
+		if len(msg.Diff) == 0 {
+			v.diffLines = []string{"No changes detected."}
+		} else {
+			v.diffLines = msg.Diff
+		}
+		return v, nil
+
+	case tui.AgentEditSummaryMsg:
+		v.AppendChatLine(msg.Summary)
+		return v, nil
+
+	case tui.RevertLastRunMsg:
+		if msg.Snapshot != "" {
+			v.docOverride = msg.Snapshot
+		}
+		v.diffVisible = false
+		v.diffLines = nil
 		return v, nil
 
 	case tea.KeyMsg:
@@ -213,6 +256,12 @@ func (v *SpecSummaryView) View() string {
 
 // renderDocument renders the main document pane (spec summary).
 func (v *SpecSummaryView) renderDocument() string {
+	if v.diffVisible {
+		return v.renderDiff()
+	}
+	if v.docOverride != "" {
+		return v.renderOverride()
+	}
 	if v.spec == nil {
 		return pkgtui.LabelStyle.Render("No spec to display")
 	}
@@ -258,6 +307,87 @@ func (v *SpecSummaryView) renderDocument() string {
 	sections = append(sections, v.renderActions())
 
 	return lipgloss.JoinVertical(lipgloss.Left, sections...)
+}
+
+func (v *SpecSummaryView) renderOverride() string {
+	if v.docOverride == "" {
+		return ""
+	}
+	lines := strings.Split(v.docOverride, "\n")
+	var wrapped []string
+	width := v.shell.SplitLayout().LeftWidth()
+	if width <= 0 {
+		width = v.width / 2
+	}
+	for _, line := range lines {
+		if line == "" {
+			wrapped = append(wrapped, "")
+			continue
+		}
+		for _, part := range strings.Split(pkgtui.WrapText(line, width-2), "\n") {
+			wrapped = append(wrapped, part)
+		}
+	}
+	return strings.Join(wrapped, "\n")
+}
+
+func (v *SpecSummaryView) renderPlainDocument() string {
+	if v.spec == nil {
+		return "No spec to display"
+	}
+	notSpecified := "(not specified)"
+	value := func(s string) string {
+		if strings.TrimSpace(s) == "" {
+			return notSpecified
+		}
+		return s
+	}
+
+	lines := []string{
+		"Spec Summary",
+		"",
+		"Vision: " + value(v.spec.Vision),
+		"Users: " + value(v.spec.Users),
+		"Problem: " + value(v.spec.Problem),
+		"",
+		"Platform: " + value(v.spec.Platform),
+		"Language: " + value(v.spec.Language),
+		"",
+		"Requirements:",
+	}
+
+	if len(v.spec.Requirements) == 0 {
+		lines = append(lines, "  (none)")
+	} else {
+		for _, req := range v.spec.Requirements {
+			lines = append(lines, "  - "+req)
+		}
+	}
+
+	return strings.Join(lines, "\n")
+}
+
+func (v *SpecSummaryView) renderDiff() string {
+	if len(v.diffLines) == 0 {
+		return pkgtui.LabelStyle.Render("No diff available")
+	}
+
+	var out []string
+	for _, line := range v.diffLines {
+		switch {
+		case strings.HasPrefix(line, "+") && !strings.HasPrefix(line, "+++"):
+			out = append(out, lipgloss.NewStyle().Foreground(pkgtui.ColorSuccess).Render(line))
+		case strings.HasPrefix(line, "-") && !strings.HasPrefix(line, "---"):
+			out = append(out, lipgloss.NewStyle().Foreground(pkgtui.ColorError).Render(line))
+		case strings.HasPrefix(line, "@@"):
+			out = append(out, lipgloss.NewStyle().Foreground(pkgtui.ColorPrimary).Render(line))
+		case strings.HasPrefix(line, "diff --git") || strings.HasPrefix(line, "index") || strings.HasPrefix(line, "---") || strings.HasPrefix(line, "+++"):
+			out = append(out, lipgloss.NewStyle().Foreground(pkgtui.ColorMuted).Render(line))
+		default:
+			out = append(out, line)
+		}
+	}
+	return strings.Join(out, "\n")
 }
 
 // renderChat renders the chat pane.
@@ -419,7 +549,7 @@ func (v *SpecSummaryView) Name() string {
 
 // ShortHelp implements View
 func (v *SpecSummaryView) ShortHelp() string {
-	return "enter generate  e edit  r refresh  F2 model  Tab focus"
+	return "enter generate  e edit  r refresh  ctrl+u revert  F2 model  Tab focus"
 }
 
 // FullHelp implements FullHelpProvider
@@ -430,6 +560,7 @@ func (v *SpecSummaryView) FullHelp() []tui.HelpBinding {
 		{Key: "e", Description: "Edit spec (go back to interview)"},
 		{Key: "r", Description: "Refresh/wait for research"},
 		{Key: "ctrl+r", Description: "View research findings"},
+		{Key: "ctrl+u", Description: "Revert last run"},
 		{Key: "space", Description: "Toggle expand selected"},
 		{Key: "esc", Description: "Go back"},
 		{Key: "b", Description: "Go back"},

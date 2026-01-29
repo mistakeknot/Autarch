@@ -207,3 +207,8 @@ type ChatSettingsSetter interface {
 type ChatStreamSetter interface {
 	AppendChatLine(line string)
 }
+
+// DocumentSnapshotter allows views to provide a plain document snapshot.
+type DocumentSnapshotter interface {
+	DocumentSnapshot() (label, content string)
+}

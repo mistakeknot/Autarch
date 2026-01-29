@@ -15,14 +15,16 @@ import (
 // EpicReviewView displays proposed epics for review and editing.
 // Uses the unified shell layout with chat for Q&A during review (no sidebar).
 type EpicReviewView struct {
-	proposals []epics.EpicProposal
-	selected  int
-	expanded  map[int]bool
-	width     int
-	height    int
-	editing   bool // In inline edit mode
-	editField string
-	chatLines []string
+	proposals   []epics.EpicProposal
+	selected    int
+	expanded    map[int]bool
+	width       int
+	height      int
+	editing     bool // In inline edit mode
+	editField   string
+	chatLines   []string
+	diffVisible bool
+	diffLines   []string
 
 	// Shell layout for unified 3-pane layout (chat only, no sidebar)
 	shell *pkgtui.ShellLayout
@@ -47,6 +49,11 @@ func NewEpicReviewView(proposals []epics.EpicProposal) *EpicReviewView {
 // SetAgentSelector sets the shared agent selector.
 func (v *EpicReviewView) SetAgentSelector(selector *pkgtui.AgentSelector) {
 	v.agentSelector = selector
+}
+
+// DocumentSnapshot returns a plain-text snapshot of the epic review document.
+func (v *EpicReviewView) DocumentSnapshot() (string, string) {
+	return "Epics.md", v.renderPlainDocument()
 }
 
 // AppendChatLine appends a streaming agent line to the chat pane.
@@ -86,6 +93,34 @@ func (v *EpicReviewView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
 		v.width = msg.Width
 		v.height = msg.Height - 4
 		v.shell.SetSize(v.width, v.height)
+		return v, nil
+
+	case tui.AgentRunStartedMsg:
+		v.diffVisible = true
+		v.diffLines = []string{"Generating diff..."}
+		return v, nil
+
+	case tui.AgentRunFinishedMsg:
+		if msg.Err != nil {
+			v.diffVisible = false
+			v.diffLines = []string{fmt.Sprintf("Diff unavailable: %v", msg.Err)}
+			return v, nil
+		}
+		v.diffVisible = true
+		if len(msg.Diff) == 0 {
+			v.diffLines = []string{"No changes detected."}
+		} else {
+			v.diffLines = msg.Diff
+		}
+		return v, nil
+
+	case tui.AgentEditSummaryMsg:
+		v.AppendChatLine(msg.Summary)
+		return v, nil
+
+	case tui.RevertLastRunMsg:
+		v.diffVisible = false
+		v.diffLines = nil
 		return v, nil
 
 	case tea.KeyMsg:
@@ -226,6 +261,9 @@ func (v *EpicReviewView) View() string {
 
 // renderDocument renders the main document pane (epic list).
 func (v *EpicReviewView) renderDocument() string {
+	if v.diffVisible {
+		return v.renderDiff()
+	}
 	if len(v.proposals) == 0 {
 		emptyStyle := lipgloss.NewStyle().
 			Foreground(pkgtui.ColorMuted).
@@ -273,6 +311,55 @@ func (v *EpicReviewView) renderDocument() string {
 	sections = append(sections, listStyle.Render(epicsContent))
 
 	return lipgloss.JoinVertical(lipgloss.Left, sections...)
+}
+
+func (v *EpicReviewView) renderPlainDocument() string {
+	if len(v.proposals) == 0 {
+		return "No epics proposed."
+	}
+
+	lines := []string{
+		"Epic Review",
+		fmt.Sprintf("%d epics", len(v.proposals)),
+		"",
+	}
+
+	for _, epic := range v.proposals {
+		lines = append(lines, fmt.Sprintf("%s: %s", epic.ID, epic.Title))
+		if epic.Description != "" {
+			lines = append(lines, "  "+epic.Description)
+		}
+		if len(epic.Dependencies) > 0 {
+			lines = append(lines, "  Depends on: "+strings.Join(epic.Dependencies, ", "))
+		}
+		lines = append(lines, fmt.Sprintf("  Size: %s  Priority: %s", epic.Size, epic.Priority))
+		lines = append(lines, "")
+	}
+
+	return strings.Join(lines, "\n")
+}
+
+func (v *EpicReviewView) renderDiff() string {
+	if len(v.diffLines) == 0 {
+		return pkgtui.LabelStyle.Render("No diff available")
+	}
+
+	var out []string
+	for _, line := range v.diffLines {
+		switch {
+		case strings.HasPrefix(line, "+") && !strings.HasPrefix(line, "+++"):
+			out = append(out, lipgloss.NewStyle().Foreground(pkgtui.ColorSuccess).Render(line))
+		case strings.HasPrefix(line, "-") && !strings.HasPrefix(line, "---"):
+			out = append(out, lipgloss.NewStyle().Foreground(pkgtui.ColorError).Render(line))
+		case strings.HasPrefix(line, "@@"):
+			out = append(out, lipgloss.NewStyle().Foreground(pkgtui.ColorPrimary).Render(line))
+		case strings.HasPrefix(line, "diff --git") || strings.HasPrefix(line, "index") || strings.HasPrefix(line, "---") || strings.HasPrefix(line, "+++"):
+			out = append(out, lipgloss.NewStyle().Foreground(pkgtui.ColorMuted).Render(line))
+		default:
+			out = append(out, line)
+		}
+	}
+	return strings.Join(out, "\n")
 }
 
 // renderChat renders the chat pane.
