@@ -21,9 +21,9 @@ import (
 // It uses a Cursor-style split layout with document panel (left) and chat panel (right).
 type KickoffView struct {
 	// Shared components for Cursor-style layout
-	chatPanel   *pkgtui.ChatPanel
-	docPanel    *pkgtui.DocPanel
-	splitLayout *pkgtui.SplitLayout
+	chatPanel    *pkgtui.ChatPanel
+	docPanel     *pkgtui.DocPanel
+	splitLayout  *pkgtui.SplitLayout
 	chatSettings pkgtui.ChatSettings
 
 	recents    []RecentProject
@@ -87,10 +87,10 @@ func NewKickoffView() *KickoffView {
 	splitLayout.SetMinWidth(100)
 
 	v := &KickoffView{
-		chatPanel:   chatPanel,
-		docPanel:    docPanel,
-		splitLayout: splitLayout,
-		focusInput:  true,
+		chatPanel:    chatPanel,
+		docPanel:     docPanel,
+		splitLayout:  splitLayout,
+		focusInput:   true,
 		chatSettings: pkgtui.DefaultChatSettings(),
 	}
 	v.seedChat()
@@ -331,7 +331,12 @@ func (v *KickoffView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
 			}
 		}
 		// Update step info
-		if msg.Step != "" && msg.Step != "Analyzing" {
+		if msg.Step == "Preparing" && msg.Details != "" {
+			v.chatPanel.AddMessage("system", msg.Details)
+			if v.loadingMsg == "" || v.loadingMsg == msg.Details {
+				v.loadingMsg = "Preparing..."
+			}
+		} else if msg.Step != "" && msg.Step != "Analyzing" {
 			v.loadingMsg = msg.Details
 		}
 		if len(msg.Files) > 0 {
