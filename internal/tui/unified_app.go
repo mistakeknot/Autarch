@@ -461,8 +461,10 @@ func (a *UnifiedApp) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case CodebaseScanResultMsg:
 		// Pass to kickoff view - it will handle the result
 		if a.mode == ModeOnboarding {
-			a.onboardingState = OnboardingInterview
-			a.breadcrumb.SetCurrent(OnboardingInterview)
+			if len(msg.ValidationErrors) == 0 {
+				a.onboardingState = OnboardingInterview
+				a.breadcrumb.SetCurrent(OnboardingInterview)
+			}
 		}
 
 	case scanProgressWithContinuation:
@@ -641,6 +643,7 @@ func (a *UnifiedApp) scanCodebase(path string) tea.Cmd {
 					result.Language,
 					strings.Join(result.Requirements, "|||"),
 				},
+				ValidationErrors: result.ValidationErrors,
 			}
 		}
 	}()
@@ -669,14 +672,15 @@ func (a *UnifiedApp) waitForScanProgress(ch <-chan agent.ScanProgress) tea.Cmd {
 				requirements = strings.Split(p.Files[6], "|||")
 			}
 			return CodebaseScanResultMsg{
-				ProjectName:  p.Details,
-				Description:  safeIndex(p.Files, 0),
-				Vision:       safeIndex(p.Files, 1),
-				Users:        safeIndex(p.Files, 2),
-				Problem:      safeIndex(p.Files, 3),
-				Platform:     safeIndex(p.Files, 4),
-				Language:     safeIndex(p.Files, 5),
-				Requirements: requirements,
+				ProjectName:      p.Details,
+				Description:      safeIndex(p.Files, 0),
+				Vision:           safeIndex(p.Files, 1),
+				Users:            safeIndex(p.Files, 2),
+				Problem:          safeIndex(p.Files, 3),
+				Platform:         safeIndex(p.Files, 4),
+				Language:         safeIndex(p.Files, 5),
+				Requirements:     requirements,
+				ValidationErrors: toValidationErrors(p.ValidationErrors),
 			}
 		}
 
@@ -698,6 +702,21 @@ func safeIndex(s []string, i int) string {
 		return s[i]
 	}
 	return ""
+}
+
+func toValidationErrors(errs []agent.ValidationError) []ValidationError {
+	if len(errs) == 0 {
+		return nil
+	}
+	out := make([]ValidationError, 0, len(errs))
+	for _, err := range errs {
+		out = append(out, ValidationError{
+			Code:    err.Code,
+			Field:   err.Field,
+			Message: err.Message,
+		})
+	}
+	return out
 }
 
 // scanProgressWithContinuation wraps a progress message with a continuation command.

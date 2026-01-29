@@ -145,15 +145,23 @@ type RevertLastRunMsg struct {
 
 // CodebaseScanResultMsg contains the results of a codebase scan
 type CodebaseScanResultMsg struct {
-	ProjectName  string
-	Description  string
-	Vision       string
-	Users        string
-	Problem      string
-	Platform     string
-	Language     string
-	Requirements []string
-	Error        error
+	ProjectName      string
+	Description      string
+	Vision           string
+	Users            string
+	Problem          string
+	Platform         string
+	Language         string
+	Requirements     []string
+	ValidationErrors []ValidationError
+	Error            error
+}
+
+// ValidationError represents a scan validation issue surfaced to the UI.
+type ValidationError struct {
+	Code    string
+	Field   string
+	Message string
 }
 
 // ScanSignoffCompleteMsg signals scan signoff completion.

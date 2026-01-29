@@ -7,13 +7,13 @@ import (
 )
 
 const (
-	minEvidenceItems        = 2
-	minEvidenceConfidence   = 0.35
-	minQualityClarity       = 0.55
-	minQualityCompleteness  = 0.55
-	minQualityGrounding     = 0.60
-	minQualityConsistency   = 0.50
-	minCrossPhaseAlignment  = 0.60
+	minEvidenceItems       = 2
+	minEvidenceConfidence  = 0.35
+	minQualityClarity      = 0.55
+	minQualityCompleteness = 0.55
+	minQualityGrounding    = 0.60
+	minQualityConsistency  = 0.50
+	minCrossPhaseAlignment = 0.60
 )
 
 func ValidatePhaseArtifact(phase string, raw []byte, lookup EvidenceLookup) ValidationResult {

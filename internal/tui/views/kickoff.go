@@ -591,6 +591,18 @@ func (v *KickoffView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
 			v.err = msg.Error
 			return v, nil
 		}
+		if len(msg.ValidationErrors) > 0 {
+			v.scanReview = false
+			v.scanResult = nil
+			v.chatPanel.AddMessage("system", "Scan validation failed. Fix issues and rescan.")
+			for _, err := range msg.ValidationErrors {
+				if err.Message != "" {
+					v.chatPanel.AddMessage("system", fmt.Sprintf("- %s", err.Message))
+				}
+			}
+			v.chatPanel.AddMessage("system", "Press ctrl+s to rescan.")
+			return v, nil
+		}
 		// Store scan result and pre-fill the description
 		v.scanReview = true
 		if v.scanStep == 0 {

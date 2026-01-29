@@ -122,3 +122,24 @@ func TestKickoffAcceptDoesNotNavigateBreadcrumb(t *testing.T) {
 		}
 	}
 }
+
+func TestKickoffShowsScanValidationErrors(t *testing.T) {
+	v := NewKickoffView()
+	_, _ = v.Update(tui.CodebaseScanResultMsg{
+		ValidationErrors: []tui.ValidationError{
+			{Code: "missing_evidence", Message: "At least 2 evidence items required"},
+		},
+	})
+
+	msgs := v.ChatMessagesForTest()
+	found := false
+	for _, msg := range msgs {
+		if strings.Contains(msg.Content, "At least 2 evidence items required") {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("expected validation error in chat messages")
+	}
+}

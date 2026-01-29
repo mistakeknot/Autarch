@@ -26,12 +26,12 @@ type QualityScores struct {
 }
 
 type ScanArtifactBase struct {
-	Phase         string        `json:"phase"`
-	Version       string        `json:"version"`
+	Phase         string         `json:"phase"`
+	Version       string         `json:"version"`
 	Evidence      []EvidenceItem `json:"evidence"`
-	OpenQuestions []string      `json:"open_questions"`
-	Quality       QualityScores `json:"quality"`
-	Assumptions   []string      `json:"assumptions,omitempty"`
+	OpenQuestions []string       `json:"open_questions"`
+	Quality       QualityScores  `json:"quality"`
+	Assumptions   []string       `json:"assumptions,omitempty"`
 }
 
 type VisionArtifact struct {
@@ -93,11 +93,11 @@ type AcceptanceArtifact struct {
 }
 
 type SynthesisArtifact struct {
-	Version          string              `json:"version"`
-	Inputs           []string            `json:"inputs"`
-	ConsistencyNotes []ConsistencyNote   `json:"consistency_notes"`
-	UpdatesSuggested []SynthesisUpdate   `json:"updates_suggested"`
-	Quality          SynthesisQuality    `json:"quality"`
+	Version          string            `json:"version"`
+	Inputs           []string          `json:"inputs"`
+	ConsistencyNotes []ConsistencyNote `json:"consistency_notes"`
+	UpdatesSuggested []SynthesisUpdate `json:"updates_suggested"`
+	Quality          SynthesisQuality  `json:"quality"`
 }
 
 type ConsistencyNote struct {

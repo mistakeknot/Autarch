@@ -134,3 +134,22 @@ func TestSchemaRegistry(t *testing.T) {
 		t.Fatal("expected synthesis schema data")
 	}
 }
+
+func TestValidateLegacyScanResult_ReportsValidationErrors(t *testing.T) {
+	res := ValidateLegacyScanResult(&ScanResult{
+		ProjectName:  "Test",
+		Description:  "Desc",
+		Vision:       "vision text",
+		Users:        "users text",
+		Problem:      "problem text",
+		Platform:     "CLI",
+		Language:     "Go",
+		Requirements: []string{"req1"},
+	}, map[string]string{
+		"README.md": "only one file for evidence",
+	})
+
+	if len(res) == 0 {
+		t.Fatal("expected validation errors")
+	}
+}

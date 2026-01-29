@@ -12,22 +12,24 @@ import (
 
 // ScanResult contains extracted information from a codebase scan.
 type ScanResult struct {
-	ProjectName  string   `json:"project_name"`
-	Description  string   `json:"description"`
-	Vision       string   `json:"vision"`
-	Users        string   `json:"users"`
-	Problem      string   `json:"problem"`
-	Platform     string   `json:"platform"`
-	Language     string   `json:"language"`
-	Requirements []string `json:"requirements"`
+	ProjectName      string            `json:"project_name"`
+	Description      string            `json:"description"`
+	Vision           string            `json:"vision"`
+	Users            string            `json:"users"`
+	Problem          string            `json:"problem"`
+	Platform         string            `json:"platform"`
+	Language         string            `json:"language"`
+	Requirements     []string          `json:"requirements"`
+	ValidationErrors []ValidationError `json:"validation_errors,omitempty"`
 }
 
 // ScanProgress reports progress during codebase scanning.
 type ScanProgress struct {
-	Step       string   // Current step name
-	Details    string   // What's happening
-	Files      []string // Files found/being analyzed
-	AgentLine  string   // Live output line from agent (if streaming)
+	Step             string            // Current step name
+	Details          string            // What's happening
+	Files            []string          // Files found/being analyzed
+	AgentLine        string            // Live output line from agent (if streaming)
+	ValidationErrors []ValidationError // Validation errors on completion
 }
 
 // ScanProgressFunc is called to report scan progress.
@@ -99,6 +101,7 @@ func ScanCodebaseWithProgress(ctx context.Context, agent *Agent, path string, pr
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse scan response: %w", err)
 	}
+	result.ValidationErrors = ValidateLegacyScanResult(result, files)
 
 	report("Complete", fmt.Sprintf("Found: %s", result.ProjectName), nil)
 	return result, nil
