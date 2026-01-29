@@ -89,7 +89,15 @@ func (l fileEvidenceLookup) ContainsQuote(path, quote string) bool {
 	if !ok {
 		return false
 	}
-	return strings.Contains(content, quote)
+	if strings.Contains(content, quote) {
+		return true
+	}
+	normalizedContent := normalizeEvidenceText(content)
+	normalizedQuote := normalizeEvidenceText(quote)
+	if normalizedQuote == "" {
+		return false
+	}
+	return strings.Contains(normalizedContent, normalizedQuote)
 }
 
 func buildEvidenceFromFiles(files map[string]string) []EvidenceItem {
@@ -142,6 +150,11 @@ func truncateQuote(value string, limit int) string {
 		return value
 	}
 	return value[:limit]
+}
+
+func normalizeEvidenceText(value string) string {
+	fields := strings.Fields(strings.ToLower(value))
+	return strings.Join(fields, " ")
 }
 
 func firstNonEmpty(values ...string) string {

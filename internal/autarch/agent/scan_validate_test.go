@@ -153,3 +153,27 @@ func TestValidateLegacyScanResult_ReportsValidationErrors(t *testing.T) {
 		t.Fatal("expected validation errors")
 	}
 }
+
+func TestValidatePhaseArtifact_QuoteMatchesNormalizedWhitespace(t *testing.T) {
+	input := []byte(`{
+"phase":"vision",
+"version":"v1",
+"summary":"This is a sufficiently long summary for validation.",
+"goals":["g"],
+"non_goals":[],
+"evidence":[
+  {"type":"file","path":"README.md","quote":"Autarch is a platform for a suite","confidence":0.9},
+  {"type":"doc","path":"docs/ARCHITECTURE.md","quote":"Architecture docs","confidence":0.9}
+],
+"open_questions":[],
+"quality":{"clarity":1,"completeness":1,"grounding":1,"consistency":1}
+}`)
+	lookup := fileEvidenceLookup{files: map[string]string{
+		"README.md":            "Autarch is a platform\nfor a suite",
+		"docs/ARCHITECTURE.md": "Architecture docs",
+	}}
+	res := ValidatePhaseArtifact("vision", input, lookup)
+	if !res.OK {
+		t.Fatalf("expected validation to pass, got errors: %+v", res.Errors)
+	}
+}
