@@ -2,6 +2,9 @@
 package tui
 
 import (
+	"regexp"
+	"strings"
+
 	"github.com/charmbracelet/bubbles/textarea"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
@@ -17,6 +20,8 @@ type Composer struct {
 	height   int // Total height including borders and hint
 	focused  bool
 }
+
+var mouseEscapePattern = regexp.MustCompile(`\[\<\d+;\d+;\d+[mM]`)
 
 // NewComposer creates a new Composer with the specified content height (lines).
 // The total height will include borders and the hint line.
@@ -103,6 +108,11 @@ func (c *Composer) SetSize(width, height int) {
 // Update handles tea.Msg for the composer.
 func (c *Composer) Update(msg tea.Msg) (*Composer, tea.Cmd) {
 	var cmd tea.Cmd
+	if keyMsg, ok := msg.(tea.KeyMsg); ok && keyMsg.Type == tea.KeyRunes {
+		if isMouseEscapeSequence(keyMsg.String()) {
+			return c, nil
+		}
+	}
 	c.textarea, cmd = c.textarea.Update(msg)
 	return c, cmd
 }
@@ -200,4 +210,17 @@ func (c *Composer) Focused() bool {
 // CursorPosition returns the current cursor position (line, column).
 func (c *Composer) CursorPosition() (int, int) {
 	return c.textarea.Line(), c.textarea.LineInfo().ColumnOffset
+}
+
+func isMouseEscapeSequence(s string) bool {
+	if s == "" {
+		return false
+	}
+	if strings.HasPrefix(s, "\x1b[<") {
+		return true
+	}
+	if strings.HasPrefix(s, "[<") && mouseEscapePattern.MatchString(s) {
+		return true
+	}
+	return false
 }
