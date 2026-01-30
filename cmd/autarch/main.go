@@ -197,6 +197,11 @@ Navigation:
 							return tui.ScanCodebaseMsg{Path: path}
 						}
 					})
+					v.SetResolveOpenQuestionsCallback(func(req tui.OpenQuestionsRequest) tea.Cmd {
+						return func() tea.Msg {
+							return req
+						}
+					})
 					return v
 				},
 				// Spec summary view factory

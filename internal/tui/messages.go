@@ -158,6 +158,29 @@ type CodebaseScanResultMsg struct {
 	Error            error
 }
 
+// OpenQuestionsRequest asks the agent to resolve open questions for a scan phase.
+type OpenQuestionsRequest struct {
+	Phase         string
+	Summary       string
+	Evidence      []EvidenceItem
+	OpenQuestions []string
+	UserAnswer    string
+	Vision        string
+	Problem       string
+	Users         string
+	Platform      string
+	Language      string
+	Requirements  []string
+}
+
+// OpenQuestionsResolvedMsg returns resolved and remaining questions for a phase.
+type OpenQuestionsResolvedMsg struct {
+	Phase     string
+	Resolved  []ResolvedQuestion
+	Remaining []string
+	Err       error
+}
+
 // ValidationError represents a scan validation issue surfaced to the UI.
 type ValidationError struct {
 	Code    string

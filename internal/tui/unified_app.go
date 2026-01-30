@@ -397,6 +397,9 @@ func (a *UnifiedApp) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case ScanSignoffCompleteMsg:
 		return a, a.handleInterviewComplete(InterviewCompleteMsg{Answers: msg.Answers})
 
+	case OpenQuestionsRequest:
+		return a, a.resolveOpenQuestionsWithAgent(msg)
+
 	case SuggestionsReadyMsg:
 		return a, a.handleSuggestionsReady(msg)
 
@@ -785,6 +788,22 @@ func toEvidenceItems(items []agent.EvidenceItem) []EvidenceItem {
 	return out
 }
 
+func toAgentEvidenceItems(items []EvidenceItem) []agent.EvidenceItem {
+	if len(items) == 0 {
+		return nil
+	}
+	out := make([]agent.EvidenceItem, 0, len(items))
+	for _, item := range items {
+		out = append(out, agent.EvidenceItem{
+			Type:       item.Type,
+			Path:       item.Path,
+			Quote:      item.Quote,
+			Confidence: item.Confidence,
+		})
+	}
+	return out
+}
+
 func toPersonas(items []agent.Persona) []Persona {
 	if len(items) == 0 {
 		return nil
@@ -795,6 +814,20 @@ func toPersonas(items []agent.Persona) []Persona {
 			Name:    item.Name,
 			Needs:   append([]string{}, item.Needs...),
 			Context: item.Context,
+		})
+	}
+	return out
+}
+
+func toResolvedQuestions(items []agent.ResolvedQuestion) []ResolvedQuestion {
+	if len(items) == 0 {
+		return nil
+	}
+	out := make([]ResolvedQuestion, 0, len(items))
+	for _, item := range items {
+		out = append(out, ResolvedQuestion{
+			Question: item.Question,
+			Answer:   item.Answer,
 		})
 	}
 	return out
@@ -884,10 +917,11 @@ func (a *UnifiedApp) sendToCurrentView(msg tea.Msg) {
 
 // agentStreamEvent represents a single streaming output or final result.
 type agentStreamEvent struct {
-	line  string
-	epics []epics.EpicProposal
-	tasks []tasks.TaskProposal
-	err   error
+	line          string
+	epics         []epics.EpicProposal
+	tasks         []tasks.TaskProposal
+	err           error
+	openQuestions *OpenQuestionsResolvedMsg
 }
 
 // agentStreamWithContinuation wraps a stream message with a continuation command.
@@ -908,6 +942,10 @@ func (a *UnifiedApp) waitForAgentStream(ch <-chan agentStreamEvent, what string)
 				AgentStreamMsg: AgentStreamMsg{Line: ev.line},
 				nextCmd:        a.waitForAgentStream(ch, what),
 			}
+		}
+
+		if ev.openQuestions != nil {
+			return *ev.openQuestions
 		}
 
 		if ev.err != nil {
@@ -1109,6 +1147,58 @@ func (a *UnifiedApp) generateTasksWithAgent() tea.Cmd {
 		func() tea.Msg { return AgentRunStartedMsg{What: "tasks"} },
 		a.waitForAgentStream(stream, "tasks"),
 	)
+}
+
+func (a *UnifiedApp) resolveOpenQuestionsWithAgent(req OpenQuestionsRequest) tea.Cmd {
+	if a.codingAgent == nil {
+		return func() tea.Msg {
+			return AgentNotFoundMsg{
+				Instructions: (&agent.NoAgentError{}).Instructions(),
+			}
+		}
+	}
+
+	input := agent.ResolveOpenQuestionsInput{
+		Phase:         req.Phase,
+		Summary:       req.Summary,
+		Evidence:      toAgentEvidenceItems(req.Evidence),
+		OpenQuestions: append([]string{}, req.OpenQuestions...),
+		UserAnswer:    req.UserAnswer,
+		Vision:        req.Vision,
+		Problem:       req.Problem,
+		Users:         req.Users,
+		Platform:      req.Platform,
+		Language:      req.Language,
+		Requirements:  append([]string{}, req.Requirements...),
+	}
+
+	stream := make(chan agentStreamEvent, 100)
+	go func() {
+		defer close(stream)
+		outputCallback := func(line string) {
+			line = strings.TrimSpace(line)
+			if line == "" {
+				return
+			}
+			select {
+			case stream <- agentStreamEvent{line: line}:
+			default:
+			}
+		}
+
+		resolution, err := agent.ResolveOpenQuestionsWithOutput(context.Background(), a.codingAgent, input, outputCallback)
+		if err != nil {
+			stream <- agentStreamEvent{openQuestions: &OpenQuestionsResolvedMsg{Phase: req.Phase, Err: err}}
+			return
+		}
+		stream <- agentStreamEvent{openQuestions: &OpenQuestionsResolvedMsg{
+			Phase:     req.Phase,
+			Resolved:  toResolvedQuestions(resolution.Resolved),
+			Remaining: append([]string{}, resolution.Remaining...),
+		}}
+	}()
+
+	return a.waitForAgentStream(stream, "open-questions")
 }
 
 func (a *UnifiedApp) handleTasksGenerated(msg TasksGeneratedMsg) tea.Cmd {

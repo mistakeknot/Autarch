@@ -143,3 +143,26 @@ func TestKickoffShowsScanValidationErrors(t *testing.T) {
 		t.Fatalf("expected validation error in chat messages")
 	}
 }
+
+func TestKickoffEnterSendsOpenQuestionAnswer(t *testing.T) {
+	v := NewKickoffView()
+	v.scanReview = true
+	v.scanResult = &tui.CodebaseScanResultMsg{
+		PhaseArtifacts: &tui.PhaseArtifacts{
+			Vision: &tui.VisionArtifact{OpenQuestions: []string{"Q1?"}},
+		},
+	}
+	v.SetScanStepForTest(tui.OnboardingScanVision)
+	v.chatPanel.SetValue("Answer text")
+
+	called := false
+	v.SetResolveOpenQuestionsCallback(func(req tui.OpenQuestionsRequest) tea.Cmd {
+		called = true
+		return nil
+	})
+
+	_, _ = v.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	if !called {
+		t.Fatalf("expected resolve callback to fire")
+	}
+}

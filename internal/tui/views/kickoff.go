@@ -51,8 +51,9 @@ type KickoffView struct {
 	scanAccepted   map[string]string
 
 	// Callbacks for navigation
-	onProjectStart func(project *Project) tea.Cmd
-	onScanCodebase func(path string) tea.Cmd
+	onProjectStart         func(project *Project) tea.Cmd
+	onScanCodebase         func(path string) tea.Cmd
+	onResolveOpenQuestions func(req tui.OpenQuestionsRequest) tea.Cmd
 }
 
 // RecentProject represents a project that can be resumed or continued.
@@ -141,6 +142,11 @@ func (v *KickoffView) SetProjectStartCallback(cb func(*Project) tea.Cmd) {
 // SetScanCodebaseCallback sets the callback for when codebase scanning is requested.
 func (v *KickoffView) SetScanCodebaseCallback(cb func(path string) tea.Cmd) {
 	v.onScanCodebase = cb
+}
+
+// SetResolveOpenQuestionsCallback sets the callback for resolving open questions.
+func (v *KickoffView) SetResolveOpenQuestionsCallback(cb func(req tui.OpenQuestionsRequest) tea.Cmd) {
+	v.onResolveOpenQuestions = cb
 }
 
 // SetAgentName sets the name of the agent being used for display.
@@ -553,6 +559,86 @@ func (v *KickoffView) buildSignoffAnswers() map[string]string {
 	return answers
 }
 
+func (v *KickoffView) buildOpenQuestionsRequest(answer string, artifact *scanArtifactSummary) tui.OpenQuestionsRequest {
+	req := tui.OpenQuestionsRequest{
+		Phase:         v.scanStepKey(v.scanStep),
+		Summary:       v.scanStepValue(v.scanStep),
+		UserAnswer:    answer,
+		Evidence:      nil,
+		OpenQuestions: nil,
+	}
+	if artifact != nil {
+		req.Evidence = append([]tui.EvidenceItem{}, artifact.Evidence...)
+		req.OpenQuestions = append([]string{}, artifact.OpenQuestions...)
+	}
+	if v.scanResult != nil {
+		req.Vision = v.scanResult.Vision
+		req.Users = v.scanResult.Users
+		req.Problem = v.scanResult.Problem
+		req.Platform = v.scanResult.Platform
+		req.Language = v.scanResult.Language
+		req.Requirements = append([]string{}, v.scanResult.Requirements...)
+	}
+	return req
+}
+
+func (v *KickoffView) applyOpenQuestionResolution(msg tui.OpenQuestionsResolvedMsg) {
+	if v.scanResult == nil {
+		return
+	}
+	if v.scanResult.PhaseArtifacts == nil {
+		v.scanResult.PhaseArtifacts = &tui.PhaseArtifacts{}
+	}
+	switch msg.Phase {
+	case "vision":
+		if v.scanResult.PhaseArtifacts.Vision == nil {
+			v.scanResult.PhaseArtifacts.Vision = &tui.VisionArtifact{}
+		}
+		artifact := v.scanResult.PhaseArtifacts.Vision
+		artifact.ResolvedQuestions = mergeResolvedQuestions(artifact.ResolvedQuestions, msg.Resolved)
+		artifact.OpenQuestions = append([]string{}, msg.Remaining...)
+	case "problem":
+		if v.scanResult.PhaseArtifacts.Problem == nil {
+			v.scanResult.PhaseArtifacts.Problem = &tui.ProblemArtifact{}
+		}
+		artifact := v.scanResult.PhaseArtifacts.Problem
+		artifact.ResolvedQuestions = mergeResolvedQuestions(artifact.ResolvedQuestions, msg.Resolved)
+		artifact.OpenQuestions = append([]string{}, msg.Remaining...)
+	case "users":
+		if v.scanResult.PhaseArtifacts.Users == nil {
+			v.scanResult.PhaseArtifacts.Users = &tui.UsersArtifact{}
+		}
+		artifact := v.scanResult.PhaseArtifacts.Users
+		artifact.ResolvedQuestions = mergeResolvedQuestions(artifact.ResolvedQuestions, msg.Resolved)
+		artifact.OpenQuestions = append([]string{}, msg.Remaining...)
+	}
+}
+
+func mergeResolvedQuestions(existing, add []tui.ResolvedQuestion) []tui.ResolvedQuestion {
+	if len(add) == 0 {
+		return existing
+	}
+	out := append([]tui.ResolvedQuestion{}, existing...)
+	index := make(map[string]int, len(out))
+	for i, rq := range out {
+		if rq.Question != "" {
+			index[rq.Question] = i
+		}
+	}
+	for _, rq := range add {
+		if rq.Question == "" {
+			continue
+		}
+		if idx, ok := index[rq.Question]; ok {
+			out[idx] = rq
+			continue
+		}
+		index[rq.Question] = len(out)
+		out = append(out, rq)
+	}
+	return out
+}
+
 // Init implements View
 func (v *KickoffView) Init() tea.Cmd {
 	return tea.Batch(
@@ -737,6 +823,15 @@ func (v *KickoffView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
 		v.updateDocPanel()
 		return v, nil
 
+	case tui.OpenQuestionsResolvedMsg:
+		if msg.Err != nil {
+			v.chatPanel.AddMessage("system", fmt.Sprintf("Open question resolution failed: %v", msg.Err))
+			return v, nil
+		}
+		v.applyOpenQuestionResolution(msg)
+		v.updateDocPanel()
+		return v, nil
+
 	case projectDeletedMsg:
 		if msg.err != nil {
 			v.err = msg.err
@@ -791,6 +886,25 @@ func (v *KickoffView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
 		// Pass most keys to input if focused
 		if v.focusInput {
 			switch {
+			case v.scanReview && msg.Type == tea.KeyEnter:
+				artifact := v.phaseArtifactForStep()
+				if artifact == nil || len(artifact.OpenQuestions) == 0 {
+					break
+				}
+				answer := strings.TrimSpace(v.chatPanel.Value())
+				if answer == "" {
+					v.chatPanel.SetComposerHint("Type an answer, then Enter")
+					return v, nil
+				}
+				v.chatPanel.AddMessage("user", answer)
+				v.chatPanel.ClearComposer()
+				if v.onResolveOpenQuestions == nil {
+					v.chatPanel.AddMessage("system", "No agent configured to resolve open questions.")
+					return v, nil
+				}
+				v.chatPanel.AddMessage("system", "Resolving open questions...")
+				return v, v.onResolveOpenQuestions(v.buildOpenQuestionsRequest(answer, artifact))
+
 			case v.scanReview && msg.Type == tea.KeyCtrlRight:
 				return v, v.acceptScanStep()
 

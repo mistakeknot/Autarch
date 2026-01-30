@@ -92,6 +92,11 @@ func runKickoff() error {
 	view.SetProjectStartCallback(func(project *views.Project) tea.Cmd {
 		return tea.Printf("Project created: %s (%s)", project.Name, project.ID)
 	})
+	view.SetResolveOpenQuestionsCallback(func(req tui.OpenQuestionsRequest) tea.Cmd {
+		return func() tea.Msg {
+			return req
+		}
+	})
 	p := tea.NewProgram(wrap(view), tea.WithAltScreen())
 	_, err := p.Run()
 	return err
@@ -244,6 +249,11 @@ func runFullFlow() error {
 						ProjectName: project.Name,
 						Description: project.Description,
 					}
+				}
+			})
+			v.SetResolveOpenQuestionsCallback(func(req tui.OpenQuestionsRequest) tea.Cmd {
+				return func() tea.Msg {
+					return req
 				}
 			})
 			return v
