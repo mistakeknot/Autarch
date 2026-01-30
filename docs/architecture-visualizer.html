@@ -1,0 +1,901 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Autarch Architecture Visualizer</title>
+<style>
+/* ── Tokyo Night Theme ─────────────────────── */
+:root {
+  --bg:          #1a1b26;
+  --bg-dark:     #16161e;
+  --bg-light:    #24283b;
+  --bg-lighter:  #292e42;
+  --fg:          #c0caf5;
+  --fg-dim:      #a9b1d6;
+  --border:      #3b4261;
+  --muted:       #565f89;
+  --primary:     #7aa2f7;
+  --secondary:   #bb9af7;
+  --success:     #9ece6a;
+  --warning:     #e0af68;
+  --error:       #f7768e;
+  --claude:      #e07353;
+  --codex:       #00D4AA;
+  --aider:       #14B8A6;
+  --cursor-blue: #0066FF;
+  --radius:      8px;
+  --transition:  0.25s ease;
+}
+
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+html { scroll-behavior: smooth; }
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', sans-serif;
+  background: var(--bg); color: var(--fg); line-height: 1.6;
+}
+
+/* ── Sticky Nav ────────────────────────────── */
+nav {
+  position: sticky; top: 0; z-index: 100;
+  background: var(--bg-dark); border-bottom: 1px solid var(--border);
+  display: flex; align-items: center; gap: 0.25rem;
+  padding: 0.5rem 1.5rem; overflow-x: auto;
+}
+nav a {
+  color: var(--muted); text-decoration: none;
+  padding: 0.4rem 0.75rem; border-radius: var(--radius);
+  font-size: 0.85rem; white-space: nowrap;
+  transition: color var(--transition), background var(--transition);
+}
+nav a:hover, nav a.active { color: var(--primary); background: var(--bg-light); }
+.nav-brand { color: var(--primary); font-weight: 700; font-size: 1rem; margin-right: 1rem; }
+
+/* ── Layout ────────────────────────────────── */
+.container { max-width: 1200px; margin: 0 auto; padding: 0 1.5rem; }
+section { padding: 3rem 0; }
+h2 { color: var(--primary); font-size: 1.5rem; margin-bottom: 1.5rem; display: flex; align-items: center; gap: 0.5rem; }
+h2 .icon { font-size: 1.2rem; }
+h3 { color: var(--fg); font-size: 1.1rem; margin-bottom: 0.75rem; }
+p { color: var(--fg-dim); margin-bottom: 0.75rem; }
+code { background: var(--bg-light); padding: 0.15em 0.4em; border-radius: 4px; font-size: 0.9em; color: var(--secondary); }
+
+/* ── Hero ──────────────────────────────────── */
+.hero { text-align: center; padding: 4rem 0 2rem; }
+.hero h1 {
+  font-size: 2.5rem; color: var(--fg);
+  background: linear-gradient(135deg, var(--primary), var(--secondary));
+  -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text;
+}
+.hero p { font-size: 1.1rem; color: var(--fg-dim); max-width: 600px; margin: 0.75rem auto 0; }
+
+/* ── Module Cards ──────────────────────────── */
+.card-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 1rem; margin-top: 2rem; }
+.card {
+  background: var(--bg-light); border: 1px solid var(--border); border-radius: var(--radius); padding: 1.25rem;
+  cursor: pointer; transition: transform var(--transition), border-color var(--transition), box-shadow var(--transition);
+}
+.card:hover { transform: translateY(-2px); box-shadow: 0 4px 20px rgba(0,0,0,0.3); }
+.card.bigend   { border-top: 3px solid var(--primary); }
+.card.gurgeh   { border-top: 3px solid var(--secondary); }
+.card.coldwine { border-top: 3px solid var(--success); }
+.card.pollard  { border-top: 3px solid var(--warning); }
+.card:hover.bigend   { border-color: var(--primary); }
+.card:hover.gurgeh   { border-color: var(--secondary); }
+.card:hover.coldwine { border-color: var(--success); }
+.card:hover.pollard  { border-color: var(--warning); }
+.card h3 { margin-bottom: 0.35rem; }
+.card .subtitle { font-size: 0.85rem; color: var(--muted); margin-bottom: 0.5rem; }
+.card .paths { font-size: 0.8rem; color: var(--fg-dim); }
+.card .paths span { display: inline-block; background: var(--bg); padding: 0.1em 0.5em; border-radius: 4px; margin: 0.15rem 0.25rem 0.15rem 0; }
+
+.card-detail {
+  display: none; background: var(--bg-dark); border: 1px solid var(--border);
+  border-radius: var(--radius); padding: 1.25rem; margin-top: -0.5rem;
+  grid-column: 1 / -1; animation: fadeIn 0.2s ease;
+}
+.card-detail.open { display: block; }
+.card-detail ul { list-style: none; padding-left: 0; }
+.card-detail li { padding: 0.25rem 0; color: var(--fg-dim); }
+.card-detail li::before { content: ''; display: inline-block; width: 6px; height: 6px; border-radius: 50%; margin-right: 0.5rem; vertical-align: middle; }
+.detail-bigend li::before   { background: var(--primary); }
+.detail-gurgeh li::before   { background: var(--secondary); }
+.detail-coldwine li::before { background: var(--success); }
+.detail-pollard li::before  { background: var(--warning); }
+
+@keyframes fadeIn { from { opacity: 0; transform: translateY(-8px); } to { opacity: 1; transform: translateY(0); } }
+
+/* ── Architecture Diagram ──────────────────── */
+.diagram-wrap {
+  background: var(--bg-dark); border: 1px solid var(--border);
+  border-radius: var(--radius); padding: 1.5rem; overflow-x: auto;
+}
+.diagram-wrap svg { display: block; margin: 0 auto; max-width: 100%; height: auto; }
+.diagram-wrap svg .node { cursor: pointer; transition: opacity var(--transition); }
+.diagram-wrap svg .node:hover rect { filter: brightness(1.3); }
+
+.node-detail-panel {
+  display: none; background: var(--bg-light); border: 1px solid var(--border);
+  border-radius: var(--radius); padding: 1rem; margin-top: 1rem; animation: fadeIn 0.2s ease;
+}
+.node-detail-panel.open { display: block; }
+.node-detail-panel h4 { color: var(--primary); margin-bottom: 0.5rem; }
+
+/* ── Accordion ─────────────────────────────── */
+.accordion { border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; }
+.accordion-item + .accordion-item { border-top: 1px solid var(--border); }
+.accordion-header {
+  background: var(--bg-light); padding: 1rem 1.25rem; cursor: pointer;
+  display: flex; justify-content: space-between; align-items: center;
+  transition: background var(--transition); user-select: none;
+}
+.accordion-header:hover { background: var(--bg-lighter); }
+.accordion-header .chevron { transition: transform var(--transition); font-size: 0.8rem; color: var(--muted); }
+.accordion-item.open .accordion-header .chevron { transform: rotate(90deg); }
+.accordion-body { max-height: 0; overflow: hidden; transition: max-height 0.35s ease; background: var(--bg-dark); }
+.accordion-item.open .accordion-body { max-height: 800px; }
+.accordion-content { padding: 1rem 1.25rem; }
+.layer-badge { display: inline-block; padding: 0.15em 0.6em; border-radius: 4px; font-size: 0.75rem; font-weight: 600; margin-right: 0.5rem; }
+.layer-1 { background: var(--success); color: var(--bg); }
+.layer-2 { background: var(--warning); color: var(--bg); }
+.layer-3 { background: var(--primary); color: var(--bg); }
+
+/* ── Agent Model ───────────────────────────── */
+.agent-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 1rem; }
+.agent-card { background: var(--bg-light); border: 1px solid var(--border); border-radius: var(--radius); padding: 1rem; }
+.agent-card h4 { font-size: 0.95rem; margin-bottom: 0.35rem; }
+.agent-card p { font-size: 0.85rem; color: var(--fg-dim); margin-bottom: 0; }
+.tag { display: inline-block; padding: 0.1em 0.5em; border-radius: 4px; font-size: 0.75rem; margin: 0.2rem 0.15rem; }
+.tag-config { background: var(--warning); color: var(--bg); }
+.tag-auto { background: var(--primary); color: var(--bg); }
+
+/* ── Signals ───────────────────────────────── */
+.signals-wrap { display: flex; flex-wrap: wrap; gap: 1rem; justify-content: center; }
+.signal-chip {
+  background: var(--bg-light); border: 1px solid var(--border); border-radius: var(--radius);
+  padding: 0.75rem 1rem; min-width: 180px; text-align: center;
+  transition: transform var(--transition);
+}
+.signal-chip:hover { transform: scale(1.05); }
+.signal-chip .name { font-weight: 600; font-size: 0.9rem; }
+.signal-chip .desc { font-size: 0.8rem; color: var(--fg-dim); margin-top: 0.25rem; }
+.signal-chip .sev { font-size: 0.7rem; margin-top: 0.35rem; }
+.sev-info { color: var(--primary); }
+.sev-warning { color: var(--warning); }
+.sev-critical { color: var(--error); }
+
+/* ── Walkthrough ───────────────────────────── */
+.walkthrough-tabs { display: flex; gap: 0.5rem; margin-bottom: 1rem; }
+.wt-tab {
+  padding: 0.5rem 1.25rem; border-radius: var(--radius);
+  border: 1px solid var(--border); background: var(--bg-light);
+  color: var(--fg-dim); cursor: pointer; font-size: 0.9rem;
+  transition: all var(--transition);
+}
+.wt-tab.active { background: var(--primary); color: var(--bg); border-color: var(--primary); }
+.wt-container { background: var(--bg-dark); border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; }
+.wt-diagram { padding: 1.5rem; border-bottom: 1px solid var(--border); overflow-x: auto; }
+.wt-step-info { padding: 1.25rem 1.5rem; }
+.wt-step-title { font-size: 1.1rem; color: var(--fg); font-weight: 600; margin-bottom: 0.35rem; }
+.wt-step-desc { color: var(--fg-dim); font-size: 0.95rem; line-height: 1.5; }
+.wt-controls {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 0.75rem 1.5rem; background: var(--bg-light); border-top: 1px solid var(--border);
+}
+.wt-controls button {
+  padding: 0.4rem 1rem; border-radius: var(--radius);
+  border: 1px solid var(--border); background: var(--bg-lighter);
+  color: var(--fg); cursor: pointer; font-size: 0.85rem;
+  transition: all var(--transition);
+}
+.wt-controls button:hover:not(:disabled) { background: var(--primary); color: var(--bg); border-color: var(--primary); }
+.wt-controls button:disabled { opacity: 0.3; cursor: default; }
+.wt-progress { display: flex; gap: 4px; align-items: center; }
+.wt-dot {
+  width: 8px; height: 8px; border-radius: 50%;
+  background: var(--muted); transition: background var(--transition), transform var(--transition);
+}
+.wt-dot.active { background: var(--primary); transform: scale(1.4); }
+.wt-dot.done { background: var(--success); }
+
+/* ── Pipeline ──────────────────────────────── */
+.pipeline { display: flex; align-items: center; gap: 0; overflow-x: auto; padding: 1rem 0; }
+.pipeline-stage {
+  flex-shrink: 0; text-align: center; padding: 0.75rem 1.25rem;
+  background: var(--bg-light); border: 1px solid var(--border);
+  border-radius: var(--radius); min-width: 110px; transition: transform var(--transition);
+}
+.pipeline-stage:hover { transform: translateY(-2px); }
+.pipeline-stage .stage-name { font-weight: 600; font-size: 0.9rem; }
+.pipeline-stage .stage-type { font-size: 0.75rem; color: var(--muted); margin-top: 0.15rem; }
+.pipeline-stage .stage-tool { font-size: 0.7rem; color: var(--fg-dim); margin-top: 0.25rem; }
+.pipeline-arrow { flex-shrink: 0; color: var(--muted); font-size: 1.2rem; padding: 0 0.25rem; }
+
+/* ── Responsive ────────────────────────────── */
+@media (max-width: 768px) {
+  .hero h1 { font-size: 1.8rem; }
+  .card-grid { grid-template-columns: 1fr; }
+  nav { padding: 0.5rem 0.75rem; }
+  .pipeline { flex-direction: column; align-items: stretch; }
+  .pipeline-arrow { transform: rotate(90deg); text-align: center; }
+  section { padding: 2rem 0; }
+}
+</style>
+</head>
+<body>
+
+<!-- Nav -->
+<nav>
+  <span class="nav-brand">Autarch</span>
+  <a href="#modules">Modules</a>
+  <a href="#architecture">Architecture</a>
+  <a href="#layers">Communication</a>
+  <a href="#agents">Agents</a>
+  <a href="#signals">Signals</a>
+  <a href="#walkthrough">Walkthrough</a>
+  <a href="#pipeline">Pipeline</a>
+</nav>
+
+<div class="container">
+
+<!-- Hero -->
+<section class="hero">
+  <h1>Autarch Architecture</h1>
+  <p>Unified monorepo for AI agent development: research, specification, orchestration, and monitoring.</p>
+</section>
+
+<!-- 1. Module Cards -->
+<section id="modules">
+  <h2><span class="icon">&#9632;</span> Modules</h2>
+  <div class="card-grid" id="cardGrid">
+    <div class="card bigend" data-module="bigend">
+      <h3 style="color:var(--primary)">Bigend</h3>
+      <div class="subtitle">Multi-project agent mission control</div>
+      <p style="font-size:0.85rem">Web + TUI dashboard. Discovers projects, monitors agent sessions via tmux pane scraping, classifies run states in real time.</p>
+      <div class="paths"><span>cmd/bigend</span><span>internal/bigend/</span></div>
+    </div>
+    <div class="card gurgeh" data-module="gurgeh">
+      <h3 style="color:var(--secondary)">Gurgeh</h3>
+      <div class="subtitle">TUI-first PRD generation &amp; validation</div>
+      <p style="font-size:0.85rem">Arbiter sprint with 8 phases. Subagents (strategist, navigator, sentinel, etc.) enrich specs. Version history &amp; diff.</p>
+      <div class="paths"><span>cmd/gurgeh</span><span>.gurgeh/specs/</span></div>
+    </div>
+    <div class="card coldwine" data-module="coldwine">
+      <h3 style="color:var(--success)">Coldwine</h3>
+      <div class="subtitle">Task orchestration for human-AI collab</div>
+      <p style="font-size:0.85rem">Reads specs, generates epics, stories, tasks. Assigns agents to git worktrees. Tracks run outcomes.</p>
+      <div class="paths"><span>cmd/coldwine</span><span>internal/coldwine/</span></div>
+    </div>
+    <div class="card pollard" data-module="pollard">
+      <h3 style="color:var(--warning)">Pollard</h3>
+      <div class="subtitle">General-purpose research intelligence</div>
+      <p style="font-size:0.85rem">Pluggable hunters (GitHub, OpenAlex, PubMed, USDA, etc.). Competitor watch. Signals when landscape changes.</p>
+      <div class="paths"><span>cmd/pollard</span><span>.pollard/</span></div>
+    </div>
+  </div>
+  <div id="cardDetailArea"></div>
+</section>
+
+<!-- 2. Architecture Diagram -->
+<section id="architecture">
+  <h2><span class="icon">&#9670;</span> Architecture Diagram</h2>
+  <div class="diagram-wrap">
+    <svg id="archDiagram" viewBox="0 0 800 520" xmlns="http://www.w3.org/2000/svg" font-family="-apple-system, sans-serif">
+      <defs>
+        <marker id="arrow" viewBox="0 0 10 6" refX="10" refY="3" markerWidth="8" markerHeight="6" orient="auto-start-reverse">
+          <path d="M0,0 L10,3 L0,6 Z" fill="#565f89"/>
+        </marker>
+        <marker id="arrow-hi" viewBox="0 0 10 6" refX="10" refY="3" markerWidth="8" markerHeight="6" orient="auto-start-reverse">
+          <path d="M0,0 L10,3 L0,6 Z" fill="#7aa2f7"/>
+        </marker>
+      </defs>
+
+      <!-- Shared infra box -->
+      <rect x="200" y="300" width="400" height="100" rx="8" fill="#16161e" stroke="#3b4261" stroke-dasharray="6,3"/>
+      <text x="400" y="325" text-anchor="middle" fill="#565f89" font-size="11">Shared Infrastructure</text>
+
+      <!-- Module nodes -->
+      <g class="node" id="n-bigend" data-info="bigend">
+        <rect x="20" y="40" width="160" height="60" rx="8" fill="#24283b" stroke="#7aa2f7"/>
+        <text x="100" y="68" text-anchor="middle" fill="#7aa2f7" font-weight="bold" font-size="14">Bigend</text>
+        <text x="100" y="86" text-anchor="middle" fill="#a9b1d6" font-size="10">Mission Control</text>
+      </g>
+      <g class="node" id="n-gurgeh" data-info="gurgeh">
+        <rect x="220" y="40" width="160" height="60" rx="8" fill="#24283b" stroke="#bb9af7"/>
+        <text x="300" y="68" text-anchor="middle" fill="#bb9af7" font-weight="bold" font-size="14">Gurgeh</text>
+        <text x="300" y="86" text-anchor="middle" fill="#a9b1d6" font-size="10">Spec Generation</text>
+      </g>
+      <g class="node" id="n-coldwine" data-info="coldwine">
+        <rect x="420" y="40" width="160" height="60" rx="8" fill="#24283b" stroke="#9ece6a"/>
+        <text x="500" y="68" text-anchor="middle" fill="#9ece6a" font-weight="bold" font-size="14">Coldwine</text>
+        <text x="500" y="86" text-anchor="middle" fill="#a9b1d6" font-size="10">Orchestration</text>
+      </g>
+      <g class="node" id="n-pollard" data-info="pollard">
+        <rect x="620" y="40" width="160" height="60" rx="8" fill="#24283b" stroke="#e0af68"/>
+        <text x="700" y="68" text-anchor="middle" fill="#e0af68" font-weight="bold" font-size="14">Pollard</text>
+        <text x="700" y="86" text-anchor="middle" fill="#a9b1d6" font-size="10">Research Intel</text>
+      </g>
+
+      <!-- Shared nodes -->
+      <g class="node" id="n-signals" data-info="signals">
+        <rect x="220" y="340" width="110" height="44" rx="6" fill="#292e42" stroke="#f7768e"/>
+        <text x="275" y="367" text-anchor="middle" fill="#f7768e" font-size="12" font-weight="600">Signals</text>
+      </g>
+      <g class="node" id="n-events" data-info="events">
+        <rect x="345" y="340" width="110" height="44" rx="6" fill="#292e42" stroke="#e0af68"/>
+        <text x="400" y="367" text-anchor="middle" fill="#e0af68" font-size="12" font-weight="600">Event Spine</text>
+      </g>
+      <g class="node" id="n-intermute" data-info="intermute">
+        <rect x="470" y="340" width="110" height="44" rx="6" fill="#292e42" stroke="#7aa2f7"/>
+        <text x="525" y="367" text-anchor="middle" fill="#7aa2f7" font-size="12" font-weight="600">Intermute</text>
+      </g>
+
+      <!-- Contract node -->
+      <g class="node" id="n-contract" data-info="contract">
+        <rect x="280" y="440" width="240" height="44" rx="6" fill="#292e42" stroke="#9ece6a"/>
+        <text x="400" y="467" text-anchor="middle" fill="#9ece6a" font-size="12" font-weight="600">pkg/contract — shared types</text>
+      </g>
+
+      <!-- Agents node -->
+      <g class="node" id="n-agents" data-info="agents-detail">
+        <rect x="20" y="180" width="160" height="50" rx="6" fill="#292e42" stroke="#e07353"/>
+        <text x="100" y="202" text-anchor="middle" fill="#e07353" font-size="12" font-weight="600">Agent Sessions</text>
+        <text x="100" y="218" text-anchor="middle" fill="#a9b1d6" font-size="9">Claude / Codex / Aider</text>
+      </g>
+
+      <!-- Subagents node -->
+      <g class="node" id="n-subagents" data-info="subagents-detail">
+        <rect x="620" y="180" width="160" height="50" rx="6" fill="#292e42" stroke="#bb9af7"/>
+        <text x="700" y="202" text-anchor="middle" fill="#bb9af7" font-size="12" font-weight="600">Gurgeh Subagents</text>
+        <text x="700" y="218" text-anchor="middle" fill="#a9b1d6" font-size="9">strategist, navigator, ...</text>
+      </g>
+
+      <!-- Edges -->
+      <g class="edge" id="e-bigend-agents"><line x1="100" y1="100" x2="100" y2="180" stroke="#565f89" marker-end="url(#arrow)"/></g>
+      <g class="edge" id="e-gurgeh-sub"><line x1="380" y1="70" x2="620" y2="200" stroke="#565f89" stroke-dasharray="4,3" marker-end="url(#arrow)"/></g>
+      <g class="edge" id="e-gurgeh-events"><line x1="300" y1="100" x2="350" y2="340" stroke="#565f89" marker-end="url(#arrow)"/></g>
+      <g class="edge" id="e-coldwine-events"><line x1="500" y1="100" x2="430" y2="340" stroke="#565f89" marker-end="url(#arrow)"/></g>
+      <g class="edge" id="e-pollard-signals"><line x1="700" y1="100" x2="330" y2="345" stroke="#565f89" stroke-dasharray="4,3" marker-end="url(#arrow)"/></g>
+      <g class="edge" id="e-coldwine-agents"><line x1="420" y1="80" x2="180" y2="200" stroke="#565f89" marker-end="url(#arrow)"/></g>
+      <g class="edge" id="e-events-intermute"><line x1="455" y1="362" x2="470" y2="362" stroke="#565f89" marker-end="url(#arrow)"/></g>
+      <g class="edge" id="e-signals-events"><line x1="330" y1="362" x2="345" y2="362" stroke="#565f89" marker-end="url(#arrow)"/></g>
+      <g class="edge" id="e-contract-up"><line x1="400" y1="440" x2="400" y2="400" stroke="#3b4261" stroke-dasharray="3,3"/></g>
+    </svg>
+  </div>
+  <div id="nodeDetailPanel" class="node-detail-panel"></div>
+</section>
+
+<!-- 3. Communication Layers -->
+<section id="layers">
+  <h2><span class="icon">&#9776;</span> Communication Layers</h2>
+  <div class="accordion" id="layersAccordion">
+    <div class="accordion-item open">
+      <div class="accordion-header">
+        <span><span class="layer-badge layer-1">L1</span> File-Based (always works)</span>
+        <span class="chevron">&#9654;</span>
+      </div>
+      <div class="accordion-body"><div class="accordion-content">
+        <p>The foundation layer. Every tool reads/writes YAML files to well-known paths. Works even when no servers are running.</p>
+        <ul style="list-style:none;padding:0">
+          <li style="padding:0.3rem 0"><code>.gurgeh/specs/*.yaml</code> — PRD specs (Gurgeh writes, Coldwine reads)</li>
+          <li style="padding:0.3rem 0"><code>.pollard/insights/*.json</code> — Research insights (Pollard writes, Gurgeh reads)</li>
+          <li style="padding:0.3rem 0"><code>.coldwine/tasks/*.yaml</code> — Task definitions (Coldwine writes, agents read)</li>
+          <li style="padding:0.3rem 0"><code>autarch.yaml</code> — Project config (all tools read)</li>
+        </ul>
+      </div></div>
+    </div>
+    <div class="accordion-item">
+      <div class="accordion-header">
+        <span><span class="layer-badge layer-2">L2</span> Event Spine (SQLite)</span>
+        <span class="chevron">&#9654;</span>
+      </div>
+      <div class="accordion-body"><div class="accordion-content">
+        <p>Global event log stored in <code>~/.autarch/events.db</code>. All tools append events; any tool can query with filters.</p>
+        <p><strong>18 event types</strong> across 5 categories:</p>
+        <ul style="list-style:none;padding:0;columns:2">
+          <li style="padding:0.15rem 0"><code>initiative_created</code></li>
+          <li style="padding:0.15rem 0"><code>initiative_updated</code></li>
+          <li style="padding:0.15rem 0"><code>initiative_closed</code></li>
+          <li style="padding:0.15rem 0"><code>epic_created</code></li>
+          <li style="padding:0.15rem 0"><code>epic_updated</code></li>
+          <li style="padding:0.15rem 0"><code>epic_closed</code></li>
+          <li style="padding:0.15rem 0"><code>story_created</code></li>
+          <li style="padding:0.15rem 0"><code>story_updated</code></li>
+          <li style="padding:0.15rem 0"><code>story_closed</code></li>
+          <li style="padding:0.15rem 0"><code>task_created</code></li>
+          <li style="padding:0.15rem 0"><code>task_assigned</code></li>
+          <li style="padding:0.15rem 0"><code>task_started</code></li>
+          <li style="padding:0.15rem 0"><code>task_blocked</code></li>
+          <li style="padding:0.15rem 0"><code>task_completed</code></li>
+          <li style="padding:0.15rem 0"><code>run_started</code></li>
+          <li style="padding:0.15rem 0"><code>run_completed</code></li>
+          <li style="padding:0.15rem 0"><code>run_failed</code></li>
+          <li style="padding:0.15rem 0"><code>outcome_recorded</code></li>
+        </ul>
+        <p style="margin-top:0.5rem">Plus domain events: <code>insight_linked</code>, <code>spec_revised</code>, <code>signal_raised</code>, <code>signal_dismissed</code></p>
+      </div></div>
+    </div>
+    <div class="accordion-item">
+      <div class="accordion-header">
+        <span><span class="layer-badge layer-3">L3</span> Intermute (enhanced coordination)</span>
+        <span class="chevron">&#9654;</span>
+      </div>
+      <div class="accordion-body"><div class="accordion-content">
+        <p>Optional REST + WebSocket server at <code>127.0.0.1:7338</code>. Provides CRUD for domain entities, real-time event streaming, and file reservations.</p>
+        <p><strong>REST endpoints</strong> for: Specs, Epics, Stories, Tasks, Sessions, Agents, Insights, CUJs, Reservations.</p>
+        <p><strong>WebSocket</strong>: subscribe to event types with <code>?types=spec_revised,signal_raised</code></p>
+        <p><strong>File Reservations</strong>: agents lock file paths to avoid conflicts. TTL-based with auto-expiry.</p>
+        <p><strong>Offline mode</strong>: if <code>INTERMUTE_URL</code> not set, client returns <code>ErrOffline</code> gracefully — all tools still work via L1 + L2.</p>
+      </div></div>
+    </div>
+  </div>
+</section>
+
+<!-- 4. Agent/Subagent Model -->
+<section id="agents">
+  <h2><span class="icon">&#9881;</span> Agent &amp; Subagent Model</h2>
+
+  <h3>Resolution Hierarchy</h3>
+  <div style="display:flex;gap:0.5rem;flex-wrap:wrap;margin-bottom:1.5rem">
+    <span class="tag tag-config">1. Project config (autarch.yaml)</span>
+    <span style="color:var(--muted)">→</span>
+    <span class="tag tag-config">2. Global config (~/.autarch/)</span>
+    <span style="color:var(--muted)">→</span>
+    <span class="tag tag-auto">3. Auto-detect (PATH)</span>
+  </div>
+
+  <h3>Spawn Pattern</h3>
+  <div style="background:var(--bg-light);border:1px solid var(--border);border-radius:var(--radius);padding:1rem;margin-bottom:1.5rem;font-size:0.9rem;color:var(--fg-dim)">
+    <strong style="color:var(--fg)">Brief file</strong> → <strong style="color:var(--fg)">Agent process</strong> → <strong style="color:var(--fg)">Monitor output</strong><br>
+    <span style="margin-top:0.5rem;display:inline-block">Subagent flag: <code>PRAUDE_SUBAGENT=1</code> env var distinguishes child agents.</span>
+  </div>
+
+  <h3>Gurgeh Subagents</h3>
+  <div class="agent-grid">
+    <div class="agent-card"><h4 style="color:var(--secondary)">Strategist</h4><p>Architecture recommendations</p></div>
+    <div class="agent-card"><h4 style="color:var(--secondary)">Navigator</h4><p>User journey mapping</p></div>
+    <div class="agent-card"><h4 style="color:var(--secondary)">Recognizer</h4><p>Pattern detection</p></div>
+    <div class="agent-card"><h4 style="color:var(--secondary)">Prophet</h4><p>Performance prediction</p></div>
+    <div class="agent-card"><h4 style="color:var(--secondary)">Tracer</h4><p>Dependency analysis</p></div>
+    <div class="agent-card"><h4 style="color:var(--secondary)">Broker</h4><p>Alignment negotiation</p></div>
+    <div class="agent-card"><h4 style="color:var(--secondary)">Sentinel</h4><p>Security vulnerability detection</p></div>
+    <div class="agent-card"><h4 style="color:var(--secondary)">Scribe</h4><p>OpenAPI contract generation</p></div>
+    <div class="agent-card"><h4 style="color:var(--secondary)">Smith</h4><p>Acceptance criteria forging</p></div>
+  </div>
+
+  <h3 style="margin-top:1.5rem">Bigend Monitoring</h3>
+  <p>Discovers projects via filesystem scan. Monitors agent sessions by scraping tmux panes, then classifying state: <code>working</code>, <code>waiting</code>, <code>blocked</code>, <code>done</code>.</p>
+</section>
+
+<!-- 5. Signal System -->
+<section id="signals">
+  <h2><span class="icon">&#9888;</span> Signal System (7 types)</h2>
+  <p>Signals propagate cross-tool awareness. Published via REST <code>/api/signals</code> or WebSocket. Three severity levels: <span class="sev-info">info</span>, <span class="sev-warning">warning</span>, <span class="sev-critical">critical</span>.</p>
+  <div class="signals-wrap">
+    <div class="signal-chip" style="border-color:var(--warning)">
+      <div class="name">competitor_shipped</div>
+      <div class="desc">Competitor product launch detected</div>
+      <div class="sev sev-warning">Source: Pollard</div>
+    </div>
+    <div class="signal-chip" style="border-color:var(--error)">
+      <div class="name">research_invalidation</div>
+      <div class="desc">Research assumptions proven wrong</div>
+      <div class="sev sev-critical">Source: Pollard</div>
+    </div>
+    <div class="signal-chip" style="border-color:var(--warning)">
+      <div class="name">assumption_decayed</div>
+      <div class="desc">Assumptions lost validity over time</div>
+      <div class="sev sev-warning">Source: Gurgeh</div>
+    </div>
+    <div class="signal-chip" style="border-color:var(--primary)">
+      <div class="name">hypothesis_stale</div>
+      <div class="desc">Hypothesis no longer relevant</div>
+      <div class="sev sev-info">Source: Gurgeh</div>
+    </div>
+    <div class="signal-chip" style="border-color:var(--error)">
+      <div class="name">spec_health_low</div>
+      <div class="desc">Spec quality declining</div>
+      <div class="sev sev-critical">Source: Gurgeh</div>
+    </div>
+    <div class="signal-chip" style="border-color:var(--warning)">
+      <div class="name">execution_drift</div>
+      <div class="desc">Implementation drifting from spec</div>
+      <div class="sev sev-warning">Source: Coldwine</div>
+    </div>
+    <div class="signal-chip" style="border-color:var(--error)">
+      <div class="name">vision_drift</div>
+      <div class="desc">Product vision shifting</div>
+      <div class="sev sev-critical">Source: Gurgeh</div>
+    </div>
+  </div>
+</section>
+
+<!-- 6. Walkthroughs -->
+<section id="walkthrough">
+  <h2><span class="icon">&#9654;</span> Step-Through Walkthroughs</h2>
+  <div class="walkthrough-tabs">
+    <button class="wt-tab active" data-scenario="new">Scenario A: New Project</button>
+    <button class="wt-tab" data-scenario="existing">Scenario B: Existing Project</button>
+  </div>
+  <div class="wt-container">
+    <div class="wt-diagram">
+      <svg id="wtDiagram" viewBox="0 0 760 130" xmlns="http://www.w3.org/2000/svg" font-family="-apple-system, sans-serif">
+        <g id="wt-pollard">
+          <rect x="10" y="10" width="110" height="40" rx="6" fill="#24283b" stroke="#e0af68" stroke-width="1.5"/>
+          <text x="65" y="35" text-anchor="middle" fill="#e0af68" font-size="12" font-weight="600">Pollard</text>
+        </g>
+        <g id="wt-gurgeh">
+          <rect x="170" y="10" width="110" height="40" rx="6" fill="#24283b" stroke="#bb9af7" stroke-width="1.5"/>
+          <text x="225" y="35" text-anchor="middle" fill="#bb9af7" font-size="12" font-weight="600">Gurgeh</text>
+        </g>
+        <g id="wt-coldwine">
+          <rect x="330" y="10" width="110" height="40" rx="6" fill="#24283b" stroke="#9ece6a" stroke-width="1.5"/>
+          <text x="385" y="35" text-anchor="middle" fill="#9ece6a" font-size="12" font-weight="600">Coldwine</text>
+        </g>
+        <g id="wt-agents-box">
+          <rect x="490" y="10" width="110" height="40" rx="6" fill="#24283b" stroke="#e07353" stroke-width="1.5"/>
+          <text x="545" y="35" text-anchor="middle" fill="#e07353" font-size="12" font-weight="600">Agents</text>
+        </g>
+        <g id="wt-bigend">
+          <rect x="650" y="10" width="100" height="40" rx="6" fill="#24283b" stroke="#7aa2f7" stroke-width="1.5"/>
+          <text x="700" y="35" text-anchor="middle" fill="#7aa2f7" font-size="12" font-weight="600">Bigend</text>
+        </g>
+        <!-- Shared layer -->
+        <rect x="10" y="75" width="740" height="36" rx="6" fill="#16161e" stroke="#3b4261"/>
+        <text x="380" y="98" text-anchor="middle" fill="#565f89" font-size="10">Event Spine · Signals · Intermute · pkg/contract</text>
+        <!-- Flow arrows -->
+        <g id="wt-flow-pollard-gurgeh" class="wt-flow" style="opacity:0">
+          <line x1="120" y1="30" x2="170" y2="30" stroke="#e0af68" stroke-width="2" marker-end="url(#arrow-hi)"/>
+        </g>
+        <g id="wt-flow-gurgeh-coldwine" class="wt-flow" style="opacity:0">
+          <line x1="280" y1="30" x2="330" y2="30" stroke="#bb9af7" stroke-width="2" marker-end="url(#arrow-hi)"/>
+        </g>
+        <g id="wt-flow-coldwine-agents" class="wt-flow" style="opacity:0">
+          <line x1="440" y1="30" x2="490" y2="30" stroke="#9ece6a" stroke-width="2" marker-end="url(#arrow-hi)"/>
+        </g>
+        <g id="wt-flow-agents-bigend" class="wt-flow" style="opacity:0">
+          <line x1="600" y1="30" x2="650" y2="30" stroke="#e07353" stroke-width="2" marker-end="url(#arrow-hi)"/>
+        </g>
+        <g id="wt-flow-pollard-spine" class="wt-flow" style="opacity:0">
+          <line x1="65" y1="50" x2="65" y2="75" stroke="#e0af68" stroke-width="2" marker-end="url(#arrow-hi)"/>
+        </g>
+        <g id="wt-flow-spine-gurgeh" class="wt-flow" style="opacity:0">
+          <line x1="225" y1="75" x2="225" y2="50" stroke="#f7768e" stroke-width="2" marker-end="url(#arrow-hi)"/>
+        </g>
+        <g id="wt-flow-spine-coldwine" class="wt-flow" style="opacity:0">
+          <line x1="385" y1="75" x2="385" y2="50" stroke="#f7768e" stroke-width="2" marker-end="url(#arrow-hi)"/>
+        </g>
+        <g id="wt-flow-spine-bigend" class="wt-flow" style="opacity:0">
+          <line x1="700" y1="75" x2="700" y2="50" stroke="#7aa2f7" stroke-width="2" marker-end="url(#arrow-hi)"/>
+        </g>
+      </svg>
+    </div>
+    <div class="wt-step-info">
+      <div class="wt-step-title" id="wtTitle"></div>
+      <div class="wt-step-desc" id="wtDesc"></div>
+    </div>
+    <div class="wt-controls">
+      <button id="wtPrev" aria-label="Previous step">&#9664; Prev</button>
+      <div class="wt-progress" id="wtProgress"></div>
+      <button id="wtNext" aria-label="Next step">Next &#9654;</button>
+    </div>
+  </div>
+</section>
+
+<!-- 7. Data Flow Pipeline -->
+<section id="pipeline">
+  <h2><span class="icon">→</span> Data Flow Pipeline</h2>
+  <p>Maps to <code>pkg/contract</code> types. Each stage is owned by a specific tool.</p>
+  <div class="pipeline">
+    <div class="pipeline-stage" style="border-color:var(--warning)">
+      <div class="stage-name">Research</div>
+      <div class="stage-type">Insight</div>
+      <div class="stage-tool">Pollard</div>
+    </div>
+    <div class="pipeline-arrow">→</div>
+    <div class="pipeline-stage" style="border-color:var(--secondary)">
+      <div class="stage-name">Spec</div>
+      <div class="stage-type">Initiative</div>
+      <div class="stage-tool">Gurgeh</div>
+    </div>
+    <div class="pipeline-arrow">→</div>
+    <div class="pipeline-stage" style="border-color:var(--success)">
+      <div class="stage-name">Epic</div>
+      <div class="stage-type">Epic</div>
+      <div class="stage-tool">Coldwine</div>
+    </div>
+    <div class="pipeline-arrow">→</div>
+    <div class="pipeline-stage" style="border-color:var(--success)">
+      <div class="stage-name">Story</div>
+      <div class="stage-type">Story</div>
+      <div class="stage-tool">Coldwine</div>
+    </div>
+    <div class="pipeline-arrow">→</div>
+    <div class="pipeline-stage" style="border-color:var(--success)">
+      <div class="stage-name">Task</div>
+      <div class="stage-type">Task</div>
+      <div class="stage-tool">Coldwine</div>
+    </div>
+    <div class="pipeline-arrow">→</div>
+    <div class="pipeline-stage" style="border-color:var(--claude)">
+      <div class="stage-name">Run</div>
+      <div class="stage-type">Run</div>
+      <div class="stage-tool">Agent</div>
+    </div>
+    <div class="pipeline-arrow">→</div>
+    <div class="pipeline-stage" style="border-color:var(--primary)">
+      <div class="stage-name">Outcome</div>
+      <div class="stage-type">Outcome</div>
+      <div class="stage-tool">Bigend</div>
+    </div>
+  </div>
+</section>
+
+</div>
+
+<footer style="text-align:center;padding:2rem;color:var(--muted);font-size:0.8rem;border-top:1px solid var(--border)">
+  Autarch Architecture Visualizer — generated from codebase analysis
+</footer>
+
+<script>
+(function() {
+  'use strict';
+
+  /* ── Accordion ─────────────────────────── */
+  document.querySelectorAll('.accordion-header').forEach(function(h) {
+    h.addEventListener('click', function() {
+      h.parentElement.classList.toggle('open');
+    });
+  });
+
+  /* ── Card expand (safe DOM methods) ──── */
+  var cardDetails = {
+    bigend: {
+      title: 'Bigend Details',
+      items: [
+        'Web mode: htmx + Tailwind dashboard',
+        'TUI mode: Bubble Tea with split-pane layout',
+        'Discovers projects via filesystem scan',
+        'Monitors agents by scraping tmux panes',
+        'Classifies run state: working / waiting / blocked / done',
+        'Key paths: cmd/bigend, internal/bigend/'
+      ]
+    },
+    gurgeh: {
+      title: 'Gurgeh Details',
+      items: [
+        'Arbiter sprint: 8 phases (Vision \u2192 Acceptance)',
+        '9 subagents enrich spec sections',
+        'Spec versioning with history & structured diff',
+        'Confidence scoring per section',
+        'Read-only serve mode at :8091',
+        'Key paths: cmd/gurgeh, .gurgeh/specs/'
+      ]
+    },
+    coldwine: {
+      title: 'Coldwine Details',
+      items: [
+        'Reads Gurgeh specs \u2192 generates epics/stories/tasks',
+        'Assigns agents to git worktrees',
+        'Tracks runs and outcomes',
+        'Re-prioritizes on spec changes or signals',
+        'Contract types: Initiative \u2192 Epic \u2192 Story \u2192 Task \u2192 Run \u2192 Outcome',
+        'Key paths: cmd/coldwine, internal/coldwine/'
+      ]
+    },
+    pollard: {
+      title: 'Pollard Details',
+      items: [
+        'Pluggable hunters: GitHub Scout, OpenAlex, PubMed, CourtListener, USDA',
+        'Competitor watch with continuous monitoring',
+        'Weaver synthesizer: parallel agent batch analysis',
+        'Emits signals: competitor_shipped, research_invalidation',
+        'REST API at :8090',
+        'Key paths: cmd/pollard, .pollard/'
+      ]
+    }
+  };
+
+  var detailColorMap = {
+    bigend: 'var(--primary)',
+    gurgeh: 'var(--secondary)',
+    coldwine: 'var(--success)',
+    pollard: 'var(--warning)'
+  };
+
+  var openDetail = null;
+
+  document.querySelectorAll('.card[data-module]').forEach(function(card) {
+    card.addEventListener('click', function() {
+      var mod = card.dataset.module;
+      var area = document.getElementById('cardDetailArea');
+
+      if (openDetail && openDetail.dataset.module === mod) {
+        area.removeChild(openDetail);
+        openDetail = null;
+        return;
+      }
+      if (openDetail) {
+        area.removeChild(openDetail);
+        openDetail = null;
+      }
+
+      var d = cardDetails[mod];
+      var panel = document.createElement('div');
+      panel.className = 'card-detail detail-' + mod + ' open';
+      panel.dataset.module = mod;
+
+      var h = document.createElement('h3');
+      h.textContent = d.title;
+      panel.appendChild(h);
+
+      var ul = document.createElement('ul');
+      d.items.forEach(function(text) {
+        var li = document.createElement('li');
+        li.textContent = text;
+        ul.appendChild(li);
+      });
+      panel.appendChild(ul);
+      area.appendChild(panel);
+      openDetail = panel;
+    });
+  });
+
+  /* ── Diagram node click (safe DOM) ───── */
+  var nodeInfo = {
+    bigend:    'Mission control. Discovers projects, monitors agent tmux sessions, classifies state (working/waiting/blocked/done). Web (htmx) + TUI (Bubble Tea).',
+    gurgeh:    'Spec generation via Arbiter sprint (8 phases). 9 subagents (strategist, navigator, sentinel, etc.). Version history & diff. Confidence scoring.',
+    coldwine:  'Reads specs, generates epics/stories/tasks. Assigns agents to git worktrees. Tracks runs & outcomes. Re-prioritizes on signals.',
+    pollard:   'Research intelligence. Pluggable hunters (GitHub, OpenAlex, PubMed, etc.). Competitor watch. Emits signals when landscape changes.',
+    signals:   '7 signal types across 3 severities (info/warning/critical). Published via REST POST /api/signals. Consumed via WebSocket subscription.',
+    events:    'SQLite event log at ~/.autarch/events.db. 18+ event types. All tools append; any tool queries with filters (type, entity, source, time range).',
+    intermute: 'REST + WebSocket server at 127.0.0.1:7338. CRUD for domain entities (Specs, Epics, Tasks, Sessions, Agents). File reservations with TTL. Offline-safe.',
+    contract:  'Shared Go types in pkg/contract: Initiative, Epic, Story, Task, Run, Outcome, InsightLink. Status enums, SourceTool identifiers.',
+    'agents-detail':   'Flat peer network. Registered via Intermute. Agent types: Claude, Codex, Aider, Cursor. 30s heartbeat.',
+    'subagents-detail': 'Gurgeh\'s 9 subagents: strategist, navigator, recognizer, prophet, tracer, broker, sentinel, scribe, smith. Spawned with PRAUDE_SUBAGENT=1.'
+  };
+
+  var activeNodeKey = null;
+  document.querySelectorAll('.node').forEach(function(n) {
+    n.addEventListener('click', function() {
+      var key = n.dataset.info;
+      var panel = document.getElementById('nodeDetailPanel');
+      if (panel.classList.contains('open') && activeNodeKey === key) {
+        panel.classList.remove('open');
+        activeNodeKey = null;
+        return;
+      }
+      activeNodeKey = key;
+      // Clear children safely
+      while (panel.firstChild) panel.removeChild(panel.firstChild);
+      var h4 = document.createElement('h4');
+      h4.textContent = key.replace(/-/g, ' ').replace(/\b\w/g, function(c) { return c.toUpperCase(); });
+      var p = document.createElement('p');
+      p.textContent = nodeInfo[key] || '';
+      panel.appendChild(h4);
+      panel.appendChild(p);
+      panel.classList.add('open');
+    });
+  });
+
+  /* ── Walkthrough Controller ──────────── */
+  var scenarios = {
+    'new': [
+      { title: '1. Empty project directory', desc: 'You start with a new project directory. No specs, no tasks, no research yet.', highlight: [], flows: [] },
+      { title: '2. pollard scan runs hunters', desc: 'Pollard\'s pluggable hunters (GitHub Scout, OpenAlex, PubMed, etc.) gather landscape intelligence. Results saved to .pollard/insights/.', highlight: ['wt-pollard'], flows: [] },
+      { title: '3. ./dev gurgeh launches Arbiter sprint', desc: 'The TUI launches with the Arbiter sprint workflow. Eight phases guide spec creation from vision to acceptance criteria.', highlight: ['wt-gurgeh'], flows: ['wt-flow-pollard-gurgeh'] },
+      { title: '4. Phase 1: Vision \u2192 deep research', desc: 'Vision statement triggers Pollard deep research. The strategist subagent provides architecture recommendations.', highlight: ['wt-pollard', 'wt-gurgeh'], flows: ['wt-flow-pollard-gurgeh'] },
+      { title: '5. Phase 2: Problem \u2192 research on problem space', desc: 'Problem definition refined with Pollard insights. Navigator subagent maps user journeys.', highlight: ['wt-pollard', 'wt-gurgeh'], flows: ['wt-flow-pollard-gurgeh'] },
+      { title: '6. Phases 3-4: Users, Features/Goals', desc: 'User personas defined. Features enumerated with priority. Recognizer subagent detects patterns from research.', highlight: ['wt-gurgeh'], flows: [] },
+      { title: '7. Phase 5: Requirements (Given/When/Then)', desc: 'Formal requirements written in Given/When/Then format. Prophet predicts performance implications.', highlight: ['wt-gurgeh'], flows: [] },
+      { title: '8. Phases 6-8: Scope, CUJs, Acceptance', desc: 'Scope bounded. Critical User Journeys mapped. Smith forges acceptance criteria for Coldwine.', highlight: ['wt-gurgeh'], flows: [] },
+      { title: '9. Spec committed \u2192 .gurgeh/specs/PRD-001.yaml', desc: 'Validated spec written to disk and event spine. spec_revised event published. Version 1 snapshot saved.', highlight: ['wt-gurgeh'], flows: ['wt-flow-pollard-spine'] },
+      { title: '10. Coldwine reads spec \u2192 generates epics/stories/tasks', desc: 'Coldwine consumes the spec (via file or Intermute) and decomposes it into an Initiative \u2192 Epic \u2192 Story \u2192 Task hierarchy.', highlight: ['wt-coldwine'], flows: ['wt-flow-gurgeh-coldwine'] },
+      { title: '11. Agents assigned \u2192 git worktrees \u2192 execution', desc: 'Tasks assigned to agents (Claude, Codex, Aider). Each gets a git worktree. Runs tracked with state: working \u2192 done.', highlight: ['wt-agents-box'], flows: ['wt-flow-coldwine-agents'] },
+      { title: '12. Bigend discovers project \u2192 real-time monitoring', desc: 'Bigend auto-discovers the project, scrapes tmux panes, classifies agent states, and displays everything in its dashboard.', highlight: ['wt-bigend'], flows: ['wt-flow-agents-bigend', 'wt-flow-spine-bigend'] }
+    ],
+    existing: [
+      { title: '1. competitor_shipped signal from Pollard watch', desc: 'Pollard\'s competitor watch detects a rival product launch and emits a competitor_shipped signal (severity: warning).', highlight: ['wt-pollard'], flows: ['wt-flow-pollard-spine'] },
+      { title: '2. Signal propagates via event spine / Intermute', desc: 'The signal is written to the event spine (signal_raised event) and broadcast via Intermute WebSocket to all subscribers.', highlight: [], flows: ['wt-flow-pollard-spine'] },
+      { title: '3. Gurgeh recalculates \u2192 assumption_decayed', desc: 'Gurgeh receives the signal, re-evaluates affected spec sections, and finds assumptions that no longer hold. Emits assumption_decayed.', highlight: ['wt-gurgeh'], flows: ['wt-flow-spine-gurgeh'] },
+      { title: '4. Multiple decays \u2192 spec_health_low', desc: 'When enough assumptions decay, Gurgeh\'s confidence score drops below threshold, triggering a spec_health_low signal (severity: critical).', highlight: ['wt-gurgeh'], flows: ['wt-flow-spine-gurgeh'] },
+      { title: '5. User reviews affected spec sections in TUI', desc: 'The TUI highlights affected sections with decay indicators. User reviews and approves/revises the spec. New version snapshot created.', highlight: ['wt-gurgeh'], flows: [] },
+      { title: '6. Coldwine re-prioritizes from updated spec', desc: 'Coldwine detects spec_revised, re-reads the spec, and re-prioritizes its task hierarchy. Some tasks may be cancelled, new ones created.', highlight: ['wt-coldwine'], flows: ['wt-flow-gurgeh-coldwine', 'wt-flow-spine-coldwine'] },
+      { title: '7. Agents re-assigned to high-priority work', desc: 'Agents on deprioritized tasks finish or are redirected. New high-priority tasks assigned with fresh git worktrees.', highlight: ['wt-agents-box'], flows: ['wt-flow-coldwine-agents'] },
+      { title: '8. Bigend dashboard reflects changes', desc: 'Bigend shows the full cascade: signal \u2192 spec revision \u2192 task changes \u2192 agent reassignment. All visible in real-time.', highlight: ['wt-bigend'], flows: ['wt-flow-agents-bigend', 'wt-flow-spine-bigend'] }
+    ]
+  };
+
+  var currentScenario = 'new';
+  var currentStep = 0;
+
+  var wtModules = ['wt-pollard', 'wt-gurgeh', 'wt-coldwine', 'wt-agents-box', 'wt-bigend'];
+
+  function renderStep() {
+    var steps = scenarios[currentScenario];
+    var step = steps[currentStep];
+
+    document.getElementById('wtTitle').textContent = step.title;
+    document.getElementById('wtDesc').textContent = step.desc;
+
+    document.getElementById('wtPrev').disabled = currentStep === 0;
+    document.getElementById('wtNext').disabled = currentStep === steps.length - 1;
+
+    // Progress dots (safe DOM)
+    var prog = document.getElementById('wtProgress');
+    while (prog.firstChild) prog.removeChild(prog.firstChild);
+    steps.forEach(function(_, i) {
+      var dot = document.createElement('div');
+      dot.className = 'wt-dot';
+      if (i === currentStep) dot.classList.add('active');
+      else if (i < currentStep) dot.classList.add('done');
+      prog.appendChild(dot);
+    });
+
+    // Reset highlights
+    wtModules.forEach(function(id) {
+      var el = document.getElementById(id);
+      if (el) {
+        var rect = el.querySelector('rect');
+        if (rect) rect.setAttribute('stroke-width', '1.5');
+      }
+    });
+    document.querySelectorAll('.wt-flow').forEach(function(f) { f.style.opacity = '0'; });
+
+    // Apply highlights
+    step.highlight.forEach(function(id) {
+      var el = document.getElementById(id);
+      if (el) {
+        var rect = el.querySelector('rect');
+        if (rect) rect.setAttribute('stroke-width', '3');
+      }
+    });
+    step.flows.forEach(function(id) {
+      var el = document.getElementById(id);
+      if (el) el.style.opacity = '1';
+    });
+  }
+
+  document.getElementById('wtPrev').addEventListener('click', function() {
+    if (currentStep > 0) { currentStep--; renderStep(); }
+  });
+  document.getElementById('wtNext').addEventListener('click', function() {
+    if (currentStep < scenarios[currentScenario].length - 1) { currentStep++; renderStep(); }
+  });
+
+  document.querySelectorAll('.wt-tab').forEach(function(tab) {
+    tab.addEventListener('click', function() {
+      document.querySelectorAll('.wt-tab').forEach(function(t) { t.classList.remove('active'); });
+      tab.classList.add('active');
+      currentScenario = tab.dataset.scenario;
+      currentStep = 0;
+      renderStep();
+    });
+  });
+
+  // Keyboard nav
+  document.addEventListener('keydown', function(e) {
+    if (e.key === 'ArrowRight' || e.key === 'ArrowDown') { document.getElementById('wtNext').click(); e.preventDefault(); }
+    if (e.key === 'ArrowLeft' || e.key === 'ArrowUp') { document.getElementById('wtPrev').click(); e.preventDefault(); }
+  });
+
+  renderStep();
+
+  /* ── Nav active state ────────────────── */
+  var sections = document.querySelectorAll('section[id]');
+  var navLinks = document.querySelectorAll('nav a');
+  var observer = new IntersectionObserver(function(entries) {
+    entries.forEach(function(entry) {
+      if (entry.isIntersecting) {
+        navLinks.forEach(function(a) {
+          a.classList.toggle('active', a.getAttribute('href') === '#' + entry.target.id);
+        });
+      }
+    });
+  }, { rootMargin: '-20% 0px -70% 0px' });
+  sections.forEach(function(s) { observer.observe(s); });
+
+})();
+</script>
+</body>
+</html>
