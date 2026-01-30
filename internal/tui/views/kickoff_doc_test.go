@@ -166,3 +166,25 @@ func TestKickoffDocPanelShowsResolvedQuestions(t *testing.T) {
 		t.Fatalf("expected resolved question answer")
 	}
 }
+
+func TestKickoffRescanKeepsResolvedQuestions(t *testing.T) {
+	v := NewKickoffView()
+	v.scanResult = &tui.CodebaseScanResultMsg{
+		PhaseArtifacts: &tui.PhaseArtifacts{
+			Vision: &tui.VisionArtifact{
+				ResolvedQuestions: []tui.ResolvedQuestion{{Question: "Q1?", Answer: "A1"}},
+			},
+		},
+	}
+
+	msg := tui.CodebaseScanResultMsg{PhaseArtifacts: &tui.PhaseArtifacts{Vision: &tui.VisionArtifact{OpenQuestions: []string{"Q1?", "Q2?"}}}}
+	updated := v.applyAcceptedToScanResult(&msg)
+	if len(updated.PhaseArtifacts.Vision.ResolvedQuestions) == 0 {
+		t.Fatalf("expected resolved questions to carry over")
+	}
+	for _, q := range updated.PhaseArtifacts.Vision.OpenQuestions {
+		if q == "Q1?" {
+			t.Fatalf("expected resolved question removed from open list")
+		}
+	}
+}

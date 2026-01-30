@@ -518,7 +518,9 @@ func (v *KickoffView) applyAcceptedToScanResult(msg *tui.CodebaseScanResultMsg) 
 		return nil
 	}
 	if len(v.scanAccepted) == 0 {
-		return msg
+		updated := *msg
+		v.mergeResolvedQuestionsInto(&updated)
+		return &updated
 	}
 	updated := *msg
 	if val, ok := v.scanAccepted["vision"]; ok {
@@ -530,6 +532,7 @@ func (v *KickoffView) applyAcceptedToScanResult(msg *tui.CodebaseScanResultMsg) 
 	if val, ok := v.scanAccepted["users"]; ok {
 		updated.Users = val
 	}
+	v.mergeResolvedQuestionsInto(&updated)
 	return &updated
 }
 
@@ -635,6 +638,66 @@ func mergeResolvedQuestions(existing, add []tui.ResolvedQuestion) []tui.Resolved
 		}
 		index[rq.Question] = len(out)
 		out = append(out, rq)
+	}
+	return out
+}
+
+func (v *KickoffView) mergeResolvedQuestionsInto(updated *tui.CodebaseScanResultMsg) {
+	if v.scanResult == nil || v.scanResult.PhaseArtifacts == nil || updated == nil || updated.PhaseArtifacts == nil {
+		return
+	}
+	mergePhase := func(prev *tui.VisionArtifact, next **tui.VisionArtifact) {
+		if prev == nil || len(prev.ResolvedQuestions) == 0 {
+			return
+		}
+		if *next == nil {
+			*next = &tui.VisionArtifact{}
+		}
+		(*next).ResolvedQuestions = mergeResolvedQuestions((*next).ResolvedQuestions, prev.ResolvedQuestions)
+		(*next).OpenQuestions = removeResolvedFromOpen((*next).OpenQuestions, (*next).ResolvedQuestions)
+	}
+	mergeProblem := func(prev *tui.ProblemArtifact, next **tui.ProblemArtifact) {
+		if prev == nil || len(prev.ResolvedQuestions) == 0 {
+			return
+		}
+		if *next == nil {
+			*next = &tui.ProblemArtifact{}
+		}
+		(*next).ResolvedQuestions = mergeResolvedQuestions((*next).ResolvedQuestions, prev.ResolvedQuestions)
+		(*next).OpenQuestions = removeResolvedFromOpen((*next).OpenQuestions, (*next).ResolvedQuestions)
+	}
+	mergeUsers := func(prev *tui.UsersArtifact, next **tui.UsersArtifact) {
+		if prev == nil || len(prev.ResolvedQuestions) == 0 {
+			return
+		}
+		if *next == nil {
+			*next = &tui.UsersArtifact{}
+		}
+		(*next).ResolvedQuestions = mergeResolvedQuestions((*next).ResolvedQuestions, prev.ResolvedQuestions)
+		(*next).OpenQuestions = removeResolvedFromOpen((*next).OpenQuestions, (*next).ResolvedQuestions)
+	}
+
+	mergePhase(v.scanResult.PhaseArtifacts.Vision, &updated.PhaseArtifacts.Vision)
+	mergeProblem(v.scanResult.PhaseArtifacts.Problem, &updated.PhaseArtifacts.Problem)
+	mergeUsers(v.scanResult.PhaseArtifacts.Users, &updated.PhaseArtifacts.Users)
+}
+
+func removeResolvedFromOpen(open []string, resolved []tui.ResolvedQuestion) []string {
+	if len(open) == 0 || len(resolved) == 0 {
+		return open
+	}
+	resolvedSet := make(map[string]struct{}, len(resolved))
+	for _, rq := range resolved {
+		if rq.Question != "" {
+			resolvedSet[rq.Question] = struct{}{}
+		}
+	}
+	out := make([]string, 0, len(open))
+	for _, q := range open {
+		if _, ok := resolvedSet[q]; ok {
+			continue
+		}
+		out = append(out, q)
 	}
 	return out
 }
