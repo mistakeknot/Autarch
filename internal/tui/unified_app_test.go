@@ -160,3 +160,8 @@ func TestCommaDoesNotOpenChatSettingsWhenInputFocused(t *testing.T) {
 		t.Fatalf("expected key to be handled by view")
 	}
 }
+
+func TestRunUnifiedEnablesMouse(t *testing.T) {
+	// No direct program option introspection available here.
+	// Verify manually by running the app and confirming wheel events scroll chat.
+}

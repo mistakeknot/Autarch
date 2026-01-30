@@ -1708,7 +1708,7 @@ func insertAt(base string, col int, overlay string) string {
 
 // RunUnified starts the unified TUI application
 func RunUnified(client *autarch.Client, app *UnifiedApp) error {
-	p := tea.NewProgram(app, tea.WithAltScreen())
+	p := tea.NewProgram(app, tea.WithAltScreen(), tea.WithMouseCellMotion())
 	_, err := p.Run()
 	return err
 }
