@@ -181,3 +181,45 @@ func TestKickoffMouseWheelScrollsChatWhenFocused(t *testing.T) {
 		t.Fatalf("expected chat scroll offset to increase")
 	}
 }
+
+func TestKickoffScanDoesNotOverrideDocPane(t *testing.T) {
+	v := NewKickoffView()
+	updated, _ := v.Update(tea.WindowSizeMsg{Width: 140, Height: 40})
+	v = updated.(*KickoffView)
+	v.loading = true
+	v.scanning = true
+	v.loadingMsg = "Found 5 files to analyze"
+	v.scanPath = "/tmp/project"
+
+	view := v.View()
+	if strings.Contains(view, "Found 5 files") {
+		t.Fatalf("expected scan status not to render in doc pane")
+	}
+}
+
+func TestKickoffScanProgressRendersInChatOnly(t *testing.T) {
+	v := NewKickoffView()
+	updated, _ := v.Update(tea.WindowSizeMsg{Width: 140, Height: 40})
+	v = updated.(*KickoffView)
+	v.loading = true
+	v.scanning = true
+	v.loadingMsg = "Found 5 files to analyze"
+
+	_, _ = v.Update(tui.ScanProgressMsg{Step: "Found files", Details: "Found 5 files to analyze", Files: []string{"README.md"}})
+
+	docView := v.docPanel.View()
+	if strings.Contains(docView, "Found 5 files") {
+		t.Fatalf("expected scan progress not to render in doc pane")
+	}
+	msgs := v.ChatMessagesForTest()
+	found := false
+	for _, msg := range msgs {
+		if strings.Contains(msg.Content, "Found 5 files") {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("expected scan progress in chat messages")
+	}
+}

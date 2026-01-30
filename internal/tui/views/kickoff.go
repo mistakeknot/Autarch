@@ -879,13 +879,11 @@ func (v *KickoffView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
 				v.scanAgentLines = v.scanAgentLines[len(v.scanAgentLines)-8:]
 			}
 		}
-		// Update step info
-		if msg.Step == "Preparing" && msg.Details != "" {
+		// Update step info in chat (keep doc pane stable)
+		if msg.Details != "" && msg.Step != "Analyzing" {
 			v.chatPanel.AddMessage("system", msg.Details)
-			if v.loadingMsg == "" || v.loadingMsg == msg.Details {
-				v.loadingMsg = "Preparing..."
-			}
-		} else if msg.Step != "" && msg.Step != "Analyzing" {
+		}
+		if msg.Step != "" && msg.Step != "Analyzing" {
 			v.loadingMsg = msg.Details
 		}
 		if len(msg.Files) > 0 {
@@ -1266,12 +1264,6 @@ func (v *KickoffView) View() string {
 	// Right pane (1/3): Chat panel for conversation/input
 	leftContent := v.docPanel.View()
 	rightContent := v.renderRightPane()
-
-	if v.loading {
-		// During loading, show progress in the LEFT (main document) pane
-		// The right chat pane remains available for the user
-		leftContent = v.renderScanProgressPane()
-	}
 
 	return v.shell.Render(v.SidebarItems(), leftContent, rightContent)
 }
