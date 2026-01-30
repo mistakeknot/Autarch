@@ -153,8 +153,25 @@ func truncateQuote(value string, limit int) string {
 }
 
 func normalizeEvidenceText(value string) string {
-	fields := strings.Fields(strings.ToLower(value))
-	return strings.Join(fields, " ")
+	trimmed := strings.TrimSpace(value)
+	if trimmed == "" {
+		return ""
+	}
+	builder := strings.Builder{}
+	builder.Grow(len(trimmed))
+	space := false
+	for _, r := range strings.ToLower(trimmed) {
+		if (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') {
+			if space && builder.Len() > 0 {
+				builder.WriteByte(' ')
+				space = false
+			}
+			builder.WriteRune(r)
+			continue
+		}
+		space = true
+	}
+	return strings.TrimSpace(builder.String())
 }
 
 func firstNonEmpty(values ...string) string {

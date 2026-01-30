@@ -177,3 +177,61 @@ func TestValidatePhaseArtifact_QuoteMatchesNormalizedWhitespace(t *testing.T) {
 		t.Fatalf("expected validation to pass, got errors: %+v", res.Errors)
 	}
 }
+
+func TestValidatePhaseArtifact_QuoteMatchesIgnoringPunctuation(t *testing.T) {
+	input := []byte(`{
+"phase":"vision",
+"version":"v1",
+"summary":"This is a sufficiently long summary for validation.",
+"goals":["g"],
+"non_goals":[],
+"evidence":[
+  {"type":"file","path":"README.md","quote":"Autarch platform for agents","confidence":0.9},
+  {"type":"doc","path":"docs/ARCHITECTURE.md","quote":"Architecture docs","confidence":0.9}
+],
+"open_questions":[],
+"quality":{"clarity":1,"completeness":1,"grounding":1,"consistency":1}
+}`)
+	lookup := fileEvidenceLookup{files: map[string]string{
+		"README.md":            "Autarch—platform for agents.",
+		"docs/ARCHITECTURE.md": "Architecture docs",
+	}}
+	res := ValidatePhaseArtifact("vision", input, lookup)
+	if !res.OK {
+		t.Fatalf("expected validation to pass, got errors: %+v", res.Errors)
+	}
+}
+
+func TestValidatePhaseArtifact_QuoteMissingIncludesPath(t *testing.T) {
+	input := []byte(`{
+"phase":"vision",
+"version":"v1",
+"summary":"This is a sufficiently long summary for validation.",
+"goals":["g"],
+"non_goals":[],
+"evidence":[
+  {"type":"file","path":"README.md","quote":"missing quote","confidence":0.9},
+  {"type":"doc","path":"docs/ARCHITECTURE.md","quote":"Architecture docs","confidence":0.9}
+],
+"open_questions":[],
+"quality":{"clarity":1,"completeness":1,"grounding":1,"consistency":1}
+}`)
+	lookup := fileEvidenceLookup{files: map[string]string{
+		"README.md":            "Autarch platform for agents",
+		"docs/ARCHITECTURE.md": "Architecture docs",
+	}}
+	res := ValidatePhaseArtifact("vision", input, lookup)
+	if res.OK {
+		t.Fatal("expected validation to fail")
+	}
+	found := false
+	for _, err := range res.Errors {
+		if err.Code == "evidence_quote_missing" && strings.Contains(err.Message, "README.md") {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("expected missing quote error to include path, got: %+v", res.Errors)
+	}
+}

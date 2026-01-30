@@ -106,7 +106,7 @@ func validateEvidence(res *ValidationResult, evidence []EvidenceItem, lookup Evi
 			continue
 		}
 		if ev.Confidence < minEvidenceConfidence {
-			res.Errors = append(res.Errors, ValidationError{Code: "evidence_low_confidence", Field: fmt.Sprintf("evidence[%d].confidence", i), Message: "Evidence confidence too low"})
+			res.Errors = append(res.Errors, ValidationError{Code: "evidence_low_confidence", Field: fmt.Sprintf("evidence[%d].confidence", i), Message: fmt.Sprintf("Evidence confidence too low (%s)", ev.Path)})
 		}
 		if lookup == nil {
 			continue
@@ -116,7 +116,7 @@ func validateEvidence(res *ValidationResult, evidence []EvidenceItem, lookup Evi
 			continue
 		}
 		if !lookup.ContainsQuote(ev.Path, ev.Quote) {
-			res.Errors = append(res.Errors, ValidationError{Code: "evidence_quote_missing", Field: fmt.Sprintf("evidence[%d].quote", i), Message: "Evidence quote not found in file"})
+			res.Errors = append(res.Errors, ValidationError{Code: "evidence_quote_missing", Field: fmt.Sprintf("evidence[%d].quote", i), Message: fmt.Sprintf("Evidence quote not found in file (%s)", ev.Path)})
 		}
 	}
 }
