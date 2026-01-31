@@ -134,3 +134,11 @@ Execute the plan in `docs/plans/2026-01-30-coordination-reconciliation-plan.md` 
 **Actions:**
 - Added `docs/SCHEMA_VERSIONING.md`
 - Linked schema policy from `docs/INTEGRATION.md`
+
+### 2026-01-30 - Local-only policy docs
+
+**By:** Codex
+
+**Actions:**
+- Documented local-only default in `docs/ARCHITECTURE.md`
+- Added local-only note to `docs/FLOWS.md`

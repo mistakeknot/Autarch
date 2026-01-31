@@ -29,7 +29,7 @@
 - [x] Task 3: Run Artifact Schema + Capture Hooks
 - [x] Task 4: Event Spine Query Utilities
 - [x] Task 5: Schema Versioning Docs (soft versioning)
-- [ ] Task 6: Local-Only Policy Docs
+- [x] Task 6: Local-Only Policy Docs
 - [ ] Task 7: Golden Path (doc + smoke test)
 - [ ] Task 8: Full Test Pass
 - [ ] Task 9: Commit + Push

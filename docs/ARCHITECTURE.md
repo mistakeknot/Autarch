@@ -107,6 +107,14 @@ User Requirements
 
 ---
 
+## Local-Only Default
+
+Autarch is **local-only by default**. All tools function without any remote services running. Optional local services (Intermute coordination server and the Signals server) run on `127.0.0.1` and are not required for core workflows.
+
+The only expected outbound traffic is from **research hunters** (Pollard) when explicitly invoked.
+
+---
+
 ## Directory Structure
 
 ```

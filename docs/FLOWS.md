@@ -52,6 +52,8 @@
 
 > **Note:** The Event Spine is a **passive write-only log** — events are recorded but not subscribed to. Intermute is the **reactive** system with cursor-based event sourcing and WebSocket broadcast (`internal/ws/hub.go`). A future bridge will forward Event Spine writes to Intermute for unified reactivity.
 
+**Local-only default:** Autarch runs fully local. Intermute and Signals are optional local services on `127.0.0.1`. The only expected outbound traffic is from Pollard hunters when explicitly invoked.
+
 ---
 
 ## 2. New Project Flow
