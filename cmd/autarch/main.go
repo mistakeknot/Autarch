@@ -26,6 +26,7 @@ import (
 	coldwineCli "github.com/mistakeknot/autarch/internal/coldwine/cli"
 	"github.com/mistakeknot/autarch/internal/coldwine/epics"
 	"github.com/mistakeknot/autarch/internal/coldwine/tasks"
+	"github.com/mistakeknot/autarch/internal/planstatus"
 	gurgehCli "github.com/mistakeknot/autarch/internal/gurgeh/cli"
 	internalIntermute "github.com/mistakeknot/autarch/internal/intermute"
 	pollardCli "github.com/mistakeknot/autarch/internal/pollard/cli"
@@ -58,6 +59,7 @@ Available tools:
 	root.AddCommand(setupCmd())
 	root.AddCommand(reconcileCmd())
 	root.AddCommand(eventsCmd())
+	root.AddCommand(planstatus.NewCommand())
 
 	if err := root.Execute(); err != nil {
 		os.Exit(1)
