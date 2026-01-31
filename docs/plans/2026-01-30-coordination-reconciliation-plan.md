@@ -32,7 +32,7 @@
 - [x] Task 6: Local-Only Policy Docs
 - [x] Task 7: Golden Path (doc + smoke test)
 - [x] Task 8: Full Test Pass
-- [ ] Task 9: Commit + Push
+- [x] Task 9: Commit + Push
 
 ---
 
