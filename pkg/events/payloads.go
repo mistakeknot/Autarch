@@ -114,5 +114,21 @@ type OutcomeRecordedPayload struct {
 	Outcome contract.Outcome `json:"outcome"`
 }
 
+// SpecSnapshot captures essential spec metadata for reconciliation events.
+type SpecSnapshot struct {
+	ID        string    `json:"id"`
+	Title     string    `json:"title,omitempty"`
+	Status    string    `json:"status,omitempty"`
+	Type      string    `json:"type,omitempty"`
+	Version   int       `json:"version,omitempty"`
+	Path      string    `json:"path,omitempty"`
+	UpdatedAt time.Time `json:"updated_at,omitempty"`
+}
+
+// SpecRevisedPayload contains data for spec_revised events.
+type SpecRevisedPayload struct {
+	Spec SpecSnapshot `json:"spec"`
+}
+
 // Note: InsightLinkedPayload is already defined in writer.go
 // It's kept there for backward compatibility since it's part of the public API.

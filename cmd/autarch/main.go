@@ -56,6 +56,7 @@ Available tools:
 	root.AddCommand(coldwineCmd())
 	root.AddCommand(pollardCmd())
 	root.AddCommand(setupCmd())
+	root.AddCommand(reconcileCmd())
 
 	if err := root.Execute(); err != nil {
 		os.Exit(1)

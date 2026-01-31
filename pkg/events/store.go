@@ -72,6 +72,33 @@ CREATE INDEX IF NOT EXISTS idx_events_entity ON events(entity_type, entity_id);
 CREATE INDEX IF NOT EXISTS idx_events_source ON events(source_tool);
 CREATE INDEX IF NOT EXISTS idx_events_time ON events(created_at);
 CREATE INDEX IF NOT EXISTS idx_events_project ON events(project_path);
+
+CREATE TABLE IF NOT EXISTS reconcile_cursors (
+    project_path TEXT NOT NULL,
+    entity_type TEXT NOT NULL,
+    entity_id TEXT NOT NULL,
+    fingerprint TEXT NOT NULL,
+    status TEXT,
+    version INTEGER,
+    updated_at TEXT NOT NULL,
+    PRIMARY KEY (project_path, entity_type, entity_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_reconcile_cursors_project ON reconcile_cursors(project_path);
+CREATE INDEX IF NOT EXISTS idx_reconcile_cursors_entity ON reconcile_cursors(entity_type, entity_id);
+
+CREATE TABLE IF NOT EXISTS reconcile_conflicts (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    project_path TEXT NOT NULL,
+    entity_type TEXT NOT NULL,
+    entity_id TEXT NOT NULL,
+    reason TEXT NOT NULL,
+    details JSON,
+    created_at TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_reconcile_conflicts_project ON reconcile_conflicts(project_path);
+CREATE INDEX IF NOT EXISTS idx_reconcile_conflicts_entity ON reconcile_conflicts(entity_type, entity_id);
 `
 	_, err := s.db.Exec(schema)
 	return err

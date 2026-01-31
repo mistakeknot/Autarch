@@ -289,6 +289,15 @@ func (w *Writer) EmitOutcomeRecorded(outcome *contract.Outcome) error {
 	return w.emit(EventOutcomeRecorded, EntityOutcome, outcome.ID, outcome)
 }
 
+// Spec events
+
+// EmitSpecRevised emits a spec revised event.
+func (w *Writer) EmitSpecRevised(spec SpecSnapshot) error {
+	return w.emit(EventSpecRevised, EntitySpec, spec.ID, SpecRevisedPayload{
+		Spec: spec,
+	})
+}
+
 // Insight events
 
 // InsightLinkedPayload contains data for insight link events
