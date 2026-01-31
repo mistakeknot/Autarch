@@ -31,7 +31,7 @@
 - [x] Task 5: Schema Versioning Docs (soft versioning)
 - [x] Task 6: Local-Only Policy Docs
 - [x] Task 7: Golden Path (doc + smoke test)
-- [ ] Task 8: Full Test Pass
+- [x] Task 8: Full Test Pass
 - [ ] Task 9: Commit + Push
 
 ---
