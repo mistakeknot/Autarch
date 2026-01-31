@@ -80,7 +80,7 @@
 | 2026-01-30-coordination-reconciliation-plan.md | todo:ready | 007-ready-p1-coordination-reconciliation-mvp.md |
 | 2026-01-30-open-questions-chat-resolution.md | preexisting | paths:3 |
 | 2026-01-30-scan-progress-chatpane.md | commit | paths:2 latest:2026-01-30 |
-| 2026-01-31-plan-status-precommit-hook.md | commit | paths:6 latest:2026-01-31 |
+| 2026-01-31-plan-status-precommit-hook.md | commit | paths:7 latest:2026-01-31 |
 
 ## Derived Evidence Details
 

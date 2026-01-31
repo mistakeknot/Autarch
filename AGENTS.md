@@ -150,6 +150,18 @@ go test ./...
 go test ./internal/<pkg> -v  # Specific package
 ```
 
+### Plan Status Hook
+
+The plan status report is the single source of truth and is regenerated on every commit via a repo pre-commit hook.
+
+```bash
+# Install repo git hooks (one-time)
+./scripts/hooks/install-git-hooks.sh
+
+# Generate manually if needed
+./dev autarch plan-status --output docs/plans/STATUS.md
+```
+
 ### Configuration
 
 **Shared agent targets** (global + per-project overrides):
