@@ -90,3 +90,17 @@ Execute the plan in `docs/plans/2026-01-30-coordination-reconciliation-plan.md` 
 
 **Learnings:**
 - File-based tasks use `pending/in_progress/blocked/completed` status names
+
+### 2026-01-30 - Signals/events panel
+
+**By:** Codex
+
+**Actions:**
+- Added unified Signals view with filters and sidebar categories
+- Wired Intermute WS refresh with event spine fallback
+- Added reconcile conflict listing helper
+- Updated dashboard tab order to include Signals
+- Ran `GOCACHE=/tmp/go-build go test ./internal/tui/...`
+
+**Learnings:**
+- Intermute events can trigger refresh without hard dependency

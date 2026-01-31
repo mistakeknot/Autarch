@@ -25,7 +25,7 @@
 ## Progress
 
 - [x] Task 1: Reconciliation MVP (specs + tasks + events)
-- [ ] Task 2: Unified Signals/Events Panel (global TUI)
+- [x] Task 2: Unified Signals/Events Panel (global TUI)
 - [ ] Task 3: Run Artifact Schema + Capture Hooks
 - [ ] Task 4: Event Spine Query Utilities
 - [ ] Task 5: Schema Versioning Docs (soft versioning)

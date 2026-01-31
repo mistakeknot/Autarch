@@ -93,3 +93,44 @@ func (s *Store) LogConflict(conflict *ReconcileConflict) error {
 	`, conflict.ProjectPath, string(conflict.EntityType), conflict.EntityID, conflict.Reason, detailsJSON, conflict.CreatedAt.Format(time.RFC3339Nano))
 	return err
 }
+
+// ListConflicts returns recent reconciliation conflicts.
+func (s *Store) ListConflicts(projectPath string, limit int) ([]ReconcileConflict, error) {
+	query := `SELECT id, project_path, entity_type, entity_id, reason, details, created_at FROM reconcile_conflicts`
+	var args []interface{}
+	if projectPath != "" {
+		query += " WHERE project_path = ?"
+		args = append(args, projectPath)
+	}
+	query += " ORDER BY id DESC"
+	if limit > 0 {
+		query += " LIMIT ?"
+		args = append(args, limit)
+	}
+
+	rows, err := s.db.Query(query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var conflicts []ReconcileConflict
+	for rows.Next() {
+		var c ReconcileConflict
+		var details sql.NullString
+		var createdAt string
+		if err := rows.Scan(&c.ID, &c.ProjectPath, &c.EntityType, &c.EntityID, &c.Reason, &details, &createdAt); err != nil {
+			return nil, err
+		}
+		if details.Valid {
+			var parsed map[string]interface{}
+			if err := json.Unmarshal([]byte(details.String), &parsed); err == nil {
+				c.Details = parsed
+			}
+		}
+		c.CreatedAt, _ = time.Parse(time.RFC3339Nano, createdAt)
+		conflicts = append(conflicts, c)
+	}
+
+	return conflicts, rows.Err()
+}

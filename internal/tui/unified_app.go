@@ -91,7 +91,7 @@ func NewUnifiedApp(client *autarch.Client) *UnifiedApp {
 	breadcrumb := NewBreadcrumb()
 	breadcrumb.SetCurrent(OnboardingKickoff)
 
-	tabNames := []string{"Bigend", "Gurgeh", "Coldwine", "Pollard"}
+	tabNames := []string{"Bigend", "Signals", "Gurgeh", "Coldwine", "Pollard"}
 	app := &UnifiedApp{
 		client:          client,
 		mode:            ModeOnboarding,

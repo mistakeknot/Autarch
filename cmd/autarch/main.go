@@ -151,6 +151,7 @@ Navigation:
 
 				// Skip onboarding, go directly to dashboard
 				bigendView := views.NewBigendView(client)
+				signalsView := views.NewSignalsView(client)
 				gurgehView := views.NewGurgehView(client)
 				coldwineView := views.NewColdwineView(client)
 				pollardView := views.NewPollardView(client)
@@ -169,6 +170,7 @@ Navigation:
 
 				return tui.Run(client,
 					bigendView,
+					signalsView,
 					gurgehView,
 					coldwineView,
 					pollardView,
@@ -267,6 +269,7 @@ Navigation:
 				func(c *autarch.Client) []tui.View {
 					return []tui.View{
 						views.NewBigendView(c),
+						views.NewSignalsView(c),
 						views.NewGurgehView(c),
 						views.NewColdwineView(c),
 						views.NewPollardView(c),
