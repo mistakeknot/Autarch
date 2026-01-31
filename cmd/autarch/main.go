@@ -57,6 +57,7 @@ Available tools:
 	root.AddCommand(pollardCmd())
 	root.AddCommand(setupCmd())
 	root.AddCommand(reconcileCmd())
+	root.AddCommand(eventsCmd())
 
 	if err := root.Execute(); err != nil {
 		os.Exit(1)

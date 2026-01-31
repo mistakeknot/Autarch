@@ -117,3 +117,12 @@ Execute the plan in `docs/plans/2026-01-30-coordination-reconciliation-plan.md` 
 
 **Learnings:**
 - Coldwine task start already produces a stable session ID usable as run ID
+
+### 2026-01-30 - Event query CLI
+
+**By:** Codex
+
+**Actions:**
+- Added `autarch events query` and `autarch events since` commands
+- Added project/time/type filters with event spine output
+- Ran `GOCACHE=/tmp/go-build go test ./cmd/autarch`
