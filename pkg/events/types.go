@@ -40,6 +40,7 @@ const (
 	EventRunWaiting   EventType = "run_waiting"
 	EventRunCompleted EventType = "run_completed"
 	EventRunFailed    EventType = "run_failed"
+	EventRunArtifactAdded EventType = "run_artifact_added"
 
 	// Outcome events
 	EventOutcomeRecorded EventType = "outcome_recorded"

@@ -140,6 +140,17 @@ type Outcome struct {
 	CreatedAt  time.Time  `json:"created_at" yaml:"created_at"`
 }
 
+// RunArtifact represents a stored artifact produced during a run.
+type RunArtifact struct {
+	ID        string    `json:"id" yaml:"id"`
+	RunID     string    `json:"run_id" yaml:"run_id"`
+	Type      string    `json:"type" yaml:"type"` // log, diff, note, etc.
+	Label     string    `json:"label,omitempty" yaml:"label,omitempty"`
+	Path      string    `json:"path" yaml:"path"`
+	MimeType  string    `json:"mime_type,omitempty" yaml:"mime_type,omitempty"`
+	CreatedAt time.Time `json:"created_at" yaml:"created_at"`
+}
+
 // InsightLink represents a connection between a Pollard insight and an initiative/feature.
 type InsightLink struct {
 	InsightID     string    `json:"insight_id" yaml:"insight_id"`

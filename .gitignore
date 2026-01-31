@@ -26,6 +26,7 @@ node_modules/
 .env.local
 
 # Local state/cache
+.autarch/
 .praude/
 .pollard/
 .tandemonium/

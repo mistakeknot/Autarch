@@ -289,6 +289,13 @@ func (w *Writer) EmitOutcomeRecorded(outcome *contract.Outcome) error {
 	return w.emit(EventOutcomeRecorded, EntityOutcome, outcome.ID, outcome)
 }
 
+// EmitRunArtifactAdded emits a run artifact added event.
+func (w *Writer) EmitRunArtifactAdded(artifact contract.RunArtifact) error {
+	return w.emit(EventRunArtifactAdded, EntityRun, artifact.RunID, RunArtifactAddedPayload{
+		Artifact: artifact,
+	})
+}
+
 // Spec events
 
 // EmitSpecRevised emits a spec revised event.

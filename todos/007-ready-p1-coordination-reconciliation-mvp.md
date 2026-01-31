@@ -104,3 +104,16 @@ Execute the plan in `docs/plans/2026-01-30-coordination-reconciliation-plan.md` 
 
 **Learnings:**
 - Intermute events can trigger refresh without hard dependency
+
+### 2026-01-30 - Run artifact schema + capture hook
+
+**By:** Codex
+
+**Actions:**
+- Added `RunArtifact` to `pkg/contract`
+- Added `run_artifact_added` event + emitter
+- Captured session log as a run artifact on task start (symlink into `.autarch/artifacts/<run-id>/`)
+- Ignored `.autarch/` in `.gitignore`
+
+**Learnings:**
+- Coldwine task start already produces a stable session ID usable as run ID

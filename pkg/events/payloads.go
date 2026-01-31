@@ -114,6 +114,11 @@ type OutcomeRecordedPayload struct {
 	Outcome contract.Outcome `json:"outcome"`
 }
 
+// RunArtifactAddedPayload contains data for run_artifact_added events.
+type RunArtifactAddedPayload struct {
+	Artifact contract.RunArtifact `json:"artifact"`
+}
+
 // SpecSnapshot captures essential spec metadata for reconciliation events.
 type SpecSnapshot struct {
 	ID        string    `json:"id"`

@@ -525,6 +525,7 @@ var eventTypeFilters = []string{
 	string(events.EventRunWaiting),
 	string(events.EventRunCompleted),
 	string(events.EventRunFailed),
+	string(events.EventRunArtifactAdded),
 	string(events.EventOutcomeRecorded),
 }
 

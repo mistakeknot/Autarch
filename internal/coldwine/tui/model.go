@@ -1615,6 +1615,7 @@ func (m *Model) handleTaskStart() {
 				return err
 			}
 			_ = storage.InsertSession(db, storage.Session{ID: session.ID, TaskID: id, State: "working", Offset: 0})
+			_ = recordRunLogArtifact(root, session.ID, logPath)
 			return nil
 		}
 		m.TaskStarter = starter
