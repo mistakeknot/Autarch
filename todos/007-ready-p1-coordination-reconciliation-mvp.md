@@ -126,3 +126,11 @@ Execute the plan in `docs/plans/2026-01-30-coordination-reconciliation-plan.md` 
 - Added `autarch events query` and `autarch events since` commands
 - Added project/time/type filters with event spine output
 - Ran `GOCACHE=/tmp/go-build go test ./cmd/autarch`
+
+### 2026-01-30 - Schema versioning docs
+
+**By:** Codex
+
+**Actions:**
+- Added `docs/SCHEMA_VERSIONING.md`
+- Linked schema policy from `docs/INTEGRATION.md`

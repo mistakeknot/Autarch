@@ -454,6 +454,8 @@ writer.AttachBridge(bridge)
 writer.Write(evt)
 ```
 
+**Schema policy:** See `docs/SCHEMA_VERSIONING.md` for event + contract compatibility rules.
+
 ### pkg/contract
 
 Cross-tool entity types:
