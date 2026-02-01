@@ -82,7 +82,7 @@ func NewKickoffView() *KickoffView {
 	// Create shared components
 	chatPanel := pkgtui.NewChatPanel()
 	chatPanel.SetComposerPlaceholder("Describe what you want to build...")
-	chatPanel.SetComposerHint("F3 create  F4 scan")
+	chatPanel.SetComposerHint("enter create  F4 scan")
 
 	docPanel := pkgtui.NewDocPanel()
 	docPanel.SetTitle("What do you want to build?")
@@ -127,7 +127,7 @@ func (v *KickoffView) seedChat() {
 	}
 	v.chatPanel.AddMessage("system", "What do you want to build?")
 	v.chatPanel.AddMessage("system", "Tips:\n• Be specific about what you're building\n• Include key features or requirements\n• Mention any constraints or preferences")
-	v.chatPanel.AddMessage("system", "Shortcuts:\n• F3 → Create project\n• F4 → Scan current directory\n• F5 → Toggle input/recents\n• Tab → Switch panes\n• F2 → Model selector")
+	v.chatPanel.AddMessage("system", "Shortcuts:\n• Enter → Create project\n• F4 → Scan current directory\n• F5 → Toggle input/recents\n• Tab → Switch panes\n• F2 → Model selector")
 }
 
 // ChatMessagesForTest exposes chat history for tests.
@@ -289,7 +289,7 @@ func (v *KickoffView) updateDocPanel() {
 		// Add keyboard shortcuts section
 		v.docPanel.AddSection(pkgtui.DocSection{
 			Title:   "Shortcuts",
-			Content: "F3 → Create project\nF4 → Scan current directory\nF5 → Toggle input/recents\nTab → Switch panes",
+			Content: "Enter → Create project\nF4 → Scan current directory\nF5 → Toggle input/recents\nTab → Switch panes",
 			Style:   lipgloss.NewStyle().Foreground(pkgtui.ColorFgDim),
 		})
 	}
@@ -1040,10 +1040,7 @@ func (v *KickoffView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
 				}
 				return v, nil
 
-			case msg.Type == tea.KeyF3:
-				if v.scanReview {
-					return v, nil
-				}
+			case !v.scanReview && msg.Type == tea.KeyEnter:
 				// Submit the project description
 				val := v.chatPanel.Value()
 				if strings.TrimSpace(val) != "" {
@@ -1051,8 +1048,6 @@ func (v *KickoffView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
 					v.loadingMsg = "Creating project..."
 					return v, v.createProject(val)
 				}
-				// Empty input — show hint
-				v.chatPanel.SetComposerHint("Type a description first, then F3")
 				return v, nil
 
 			case msg.Type == tea.KeyF4:
@@ -1081,7 +1076,6 @@ func (v *KickoffView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
 				return v, nil
 
 			default:
-				// Pass all other keys to the composer (including Enter for newlines)
 				var cmd tea.Cmd
 				v.chatPanel, cmd = v.chatPanel.Update(msg)
 				return v, cmd
@@ -1483,9 +1477,9 @@ func (v *KickoffView) ShortHelp() string {
 			return "ctrl+left back  ctrl+right next  F2 model  F5 focus"
 		}
 		if v.onScanCodebase != nil {
-			return "F3 create  F4 scan  F2 model  F5 focus"
+			return "enter create  F4 scan  F2 model  F5 focus"
 		}
-		return "F3 create  F2 model  F5 focus"
+		return "enter create  F2 model  F5 focus"
 	}
 	// Recents list focused
 	return "enter open  F8 delete  F2 model  F5 focus"
@@ -1504,7 +1498,7 @@ func (v *KickoffView) FullHelp() []tui.HelpBinding {
 		}
 	}
 	return []tui.HelpBinding{
-		{Key: "F3", Description: "Create new project from description"},
+		{Key: "enter", Description: "Create new project from description"},
 		{Key: "F4", Description: "Scan current directory for existing project"},
 		{Key: "F5", Description: "Toggle input/recents focus"},
 		{Key: "up/down", Description: "Navigate recent projects list"},
