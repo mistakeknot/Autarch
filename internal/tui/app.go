@@ -7,6 +7,7 @@ import (
 	"github.com/charmbracelet/bubbles/key"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/charmbracelet/x/ansi"
 	"github.com/mistakeknot/autarch/pkg/autarch"
 	pkgtui "github.com/mistakeknot/autarch/pkg/tui"
 )
@@ -333,32 +334,27 @@ func (a *App) overlay(base, overlay string) string {
 }
 
 func (a *App) insertAt(base string, col int, overlay string) string {
-	// Handle ANSI sequences in base
-	baseRunes := []rune(base)
-
-	// Pad base if needed
-	for len(baseRunes) < col {
-		baseRunes = append(baseRunes, ' ')
-	}
-
-	// Calculate visible width of overlay
+	baseWidth := ansi.StringWidth(base)
 	overlayWidth := lipgloss.Width(overlay)
 
-	// Build result
 	var result strings.Builder
 
-	// Write prefix
-	if col > 0 && col < len(baseRunes) {
-		result.WriteString(string(baseRunes[:col]))
+	if col > 0 {
+		if baseWidth >= col {
+			result.WriteString(ansi.Truncate(base, col, ""))
+		} else {
+			result.WriteString(base)
+			for i := baseWidth; i < col; i++ {
+				result.WriteByte(' ')
+			}
+		}
 	}
 
-	// Write overlay
 	result.WriteString(overlay)
 
-	// Write suffix (skip overlayed chars)
 	end := col + overlayWidth
-	if end < len(baseRunes) {
-		result.WriteString(string(baseRunes[end:]))
+	if baseWidth > end {
+		result.WriteString(ansi.TruncateLeft(base, end, ""))
 	}
 
 	return result.String()
