@@ -10,6 +10,7 @@ import (
 	"github.com/charmbracelet/bubbles/key"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/charmbracelet/x/ansi"
 	"github.com/mistakeknot/autarch/internal/autarch/agent"
 	"github.com/mistakeknot/autarch/internal/coldwine/epics"
 	"github.com/mistakeknot/autarch/internal/coldwine/tasks"
@@ -1715,22 +1716,29 @@ func (a *UnifiedApp) overlay(base, overlay string) string {
 }
 
 func insertAt(base string, col int, overlay string) string {
-	baseRunes := []rune(base)
-	for len(baseRunes) < col {
-		baseRunes = append(baseRunes, ' ')
-	}
-
+	baseWidth := ansi.StringWidth(base)
 	overlayWidth := lipgloss.Width(overlay)
+
 	var result strings.Builder
 
-	if col > 0 && col < len(baseRunes) {
-		result.WriteString(string(baseRunes[:col]))
+	// Left portion: ANSI-aware truncation to visual column
+	if col > 0 {
+		if baseWidth >= col {
+			result.WriteString(ansi.Truncate(base, col, ""))
+		} else {
+			result.WriteString(base)
+			for i := baseWidth; i < col; i++ {
+				result.WriteByte(' ')
+			}
+		}
 	}
+
 	result.WriteString(overlay)
 
+	// Right portion: skip past overlay width using ANSI-aware left truncation
 	end := col + overlayWidth
-	if end < len(baseRunes) {
-		result.WriteString(string(baseRunes[end:]))
+	if baseWidth > end {
+		result.WriteString(ansi.TruncateLeft(base, end, ""))
 	}
 
 	return result.String()
