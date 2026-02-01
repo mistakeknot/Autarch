@@ -46,7 +46,7 @@ type SprintView struct {
 func NewSprintView(projectPath string) *SprintView {
 	chatPanel := pkgtui.NewChatPanel()
 	chatPanel.SetComposerPlaceholder("Chat about the current phase...")
-	chatPanel.SetComposerHint("enter send · \"accept\" to advance · esc back")
+	chatPanel.SetComposerHint("enter send · ctrl+→ accept · esc back")
 
 	v := &SprintView{
 		orch:      arbiter.NewOrchestrator(projectPath),
@@ -194,6 +194,8 @@ func (v *SprintView) Update(msg tea.Msg) (pkgtui.View, tea.Cmd) {
 			switch {
 			case msg.Type == tea.KeyEnter:
 				return v, v.handleChatSubmit()
+			case msg.Type == tea.KeyCtrlRight:
+				return v, v.handleAccept()
 			case msg.Type == tea.KeyEscape:
 				if v.onBack != nil {
 					v.cancelStreaming()
@@ -244,7 +246,7 @@ func (v *SprintView) Name() string {
 
 // ShortHelp implements View.
 func (v *SprintView) ShortHelp() string {
-	return "enter send  F2 model  esc back"
+	return "enter send  ctrl+right accept  F2 model  esc back"
 }
 
 // ChatPanelValueForTest returns the current composer value (test helper).

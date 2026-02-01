@@ -1,4 +1,4 @@
-# Plan Status Report — 2026-01-31
+# Plan Status Report — 2026-02-01
 
 > Generated from todos, git history, and codebase evidence. Status labels are heuristics unless backed by a todo.
 
