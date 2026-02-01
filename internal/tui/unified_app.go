@@ -13,6 +13,7 @@ import (
 	"github.com/mistakeknot/autarch/internal/autarch/agent"
 	"github.com/mistakeknot/autarch/internal/coldwine/epics"
 	"github.com/mistakeknot/autarch/internal/coldwine/tasks"
+	"github.com/mistakeknot/autarch/internal/gurgeh/arbiter/scan"
 	"github.com/mistakeknot/autarch/internal/pollard/research"
 	"github.com/mistakeknot/autarch/pkg/autarch"
 	pkgtui "github.com/mistakeknot/autarch/pkg/tui"
@@ -400,12 +401,6 @@ func (a *UnifiedApp) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case InterviewCompleteMsg:
 		return a, a.handleInterviewComplete(msg)
 
-	case ScanSignoffCompleteMsg:
-		return a, a.handleInterviewComplete(InterviewCompleteMsg{Answers: msg.Answers})
-
-	case OpenQuestionsRequest:
-		return a, a.resolveOpenQuestionsWithAgent(msg)
-
 	case SuggestionsReadyMsg:
 		return a, a.handleSuggestionsReady(msg)
 
@@ -524,10 +519,19 @@ func (a *UnifiedApp) handleProjectCreated(msg ProjectCreatedMsg) tea.Cmd {
 			})
 		}
 
-		// Start the sprint with the project description
+		// Start the sprint, seeding with scan artifacts if available
 		var startCmd tea.Cmd
-		if starter, ok := a.currentView.(SprintStarter); ok {
-			startCmd = starter.StartSprint(msg.Description)
+		if msg.ScanResult != nil {
+			if starter, ok := a.currentView.(interface {
+				StartSprintWithScan(string, *scan.Artifacts) tea.Cmd
+			}); ok {
+				startCmd = starter.StartSprintWithScan(msg.Description, scanResultToArtifacts(msg.ScanResult))
+			}
+		}
+		if startCmd == nil {
+			if starter, ok := a.currentView.(SprintStarter); ok {
+				startCmd = starter.StartSprint(msg.Description)
+			}
 		}
 
 		cmds := []tea.Cmd{
@@ -827,22 +831,6 @@ func toEvidenceItems(items []agent.EvidenceItem) []EvidenceItem {
 	return out
 }
 
-func toAgentEvidenceItems(items []EvidenceItem) []agent.EvidenceItem {
-	if len(items) == 0 {
-		return nil
-	}
-	out := make([]agent.EvidenceItem, 0, len(items))
-	for _, item := range items {
-		out = append(out, agent.EvidenceItem{
-			Type:       item.Type,
-			Path:       item.Path,
-			Quote:      item.Quote,
-			Confidence: item.Confidence,
-		})
-	}
-	return out
-}
-
 func toPersonas(items []agent.Persona) []Persona {
 	if len(items) == 0 {
 		return nil
@@ -858,20 +846,6 @@ func toPersonas(items []agent.Persona) []Persona {
 	return out
 }
 
-func toResolvedQuestions(items []agent.ResolvedQuestion) []ResolvedQuestion {
-	if len(items) == 0 {
-		return nil
-	}
-	out := make([]ResolvedQuestion, 0, len(items))
-	for _, item := range items {
-		out = append(out, ResolvedQuestion{
-			Question: item.Question,
-			Answer:   item.Answer,
-		})
-	}
-	return out
-}
-
 func toQualityScores(scores agent.QualityScores) QualityScores {
 	return QualityScores{
 		Clarity:      scores.Clarity,
@@ -879,6 +853,80 @@ func toQualityScores(scores agent.QualityScores) QualityScores {
 		Grounding:    scores.Grounding,
 		Consistency:  scores.Consistency,
 	}
+}
+
+// scanResultToArtifacts converts a CodebaseScanResultMsg to scan.Artifacts
+// for seeding the SprintView's orchestrator.
+func scanResultToArtifacts(r *CodebaseScanResultMsg) *scan.Artifacts {
+	if r == nil {
+		return nil
+	}
+	a := &scan.Artifacts{}
+	if r.PhaseArtifacts != nil {
+		if v := r.PhaseArtifacts.Vision; v != nil {
+			a.Vision = &scan.PhaseData{
+				Summary:           v.Summary,
+				Evidence:          toScanEvidence(v.Evidence),
+				ResolvedQuestions: toScanResolved(v.ResolvedQuestions),
+				Quality:           scan.QualityScores{Clarity: v.Quality.Clarity, Completeness: v.Quality.Completeness, Grounding: v.Quality.Grounding, Consistency: v.Quality.Consistency},
+			}
+		}
+		if p := r.PhaseArtifacts.Problem; p != nil {
+			a.Problem = &scan.PhaseData{
+				Summary:           p.Summary,
+				Evidence:          toScanEvidence(p.Evidence),
+				ResolvedQuestions: toScanResolved(p.ResolvedQuestions),
+				Quality:           scan.QualityScores{Clarity: p.Quality.Clarity, Completeness: p.Quality.Completeness, Grounding: p.Quality.Grounding, Consistency: p.Quality.Consistency},
+			}
+		}
+		if u := r.PhaseArtifacts.Users; u != nil {
+			summary := r.Users
+			if summary == "" && len(u.Personas) > 0 {
+				summary = u.Personas[0].Name
+			}
+			a.Users = &scan.PhaseData{
+				Summary:           summary,
+				Evidence:          toScanEvidence(u.Evidence),
+				ResolvedQuestions: toScanResolved(u.ResolvedQuestions),
+				Quality:           scan.QualityScores{Clarity: u.Quality.Clarity, Completeness: u.Quality.Completeness, Grounding: u.Quality.Grounding, Consistency: u.Quality.Consistency},
+			}
+		}
+	}
+	// If no phase artifacts, create minimal ones from top-level fields
+	if a.Vision == nil && r.Vision != "" {
+		a.Vision = &scan.PhaseData{Summary: r.Vision}
+	}
+	if a.Problem == nil && r.Problem != "" {
+		a.Problem = &scan.PhaseData{Summary: r.Problem}
+	}
+	if a.Users == nil && r.Users != "" {
+		a.Users = &scan.PhaseData{Summary: r.Users}
+	}
+	return a
+}
+
+func toScanEvidence(items []EvidenceItem) []scan.EvidenceItem {
+	out := make([]scan.EvidenceItem, 0, len(items))
+	for _, item := range items {
+		out = append(out, scan.EvidenceItem{
+			Type:       item.Type,
+			FilePath:   item.Path,
+			Quote:      item.Quote,
+			Confidence: item.Confidence,
+		})
+	}
+	return out
+}
+
+func toScanResolved(items []ResolvedQuestion) []scan.ResolvedQuestion {
+	out := make([]scan.ResolvedQuestion, 0, len(items))
+	for _, item := range items {
+		out = append(out, scan.ResolvedQuestion{
+			Question: item.Question,
+			Answer:   item.Answer,
+		})
+	}
+	return out
 }
 
 // scanProgressWithContinuation wraps a progress message with a continuation command.
@@ -956,11 +1004,10 @@ func (a *UnifiedApp) sendToCurrentView(msg tea.Msg) {
 
 // agentStreamEvent represents a single streaming output or final result.
 type agentStreamEvent struct {
-	line          string
-	epics         []epics.EpicProposal
-	tasks         []tasks.TaskProposal
-	err           error
-	openQuestions *OpenQuestionsResolvedMsg
+	line  string
+	epics []epics.EpicProposal
+	tasks []tasks.TaskProposal
+	err   error
 }
 
 // agentStreamWithContinuation wraps a stream message with a continuation command.
@@ -981,10 +1028,6 @@ func (a *UnifiedApp) waitForAgentStream(ch <-chan agentStreamEvent, what string)
 				AgentStreamMsg: AgentStreamMsg{Line: ev.line},
 				nextCmd:        a.waitForAgentStream(ch, what),
 			}
-		}
-
-		if ev.openQuestions != nil {
-			return *ev.openQuestions
 		}
 
 		if ev.err != nil {
@@ -1186,58 +1229,6 @@ func (a *UnifiedApp) generateTasksWithAgent() tea.Cmd {
 		func() tea.Msg { return AgentRunStartedMsg{What: "tasks"} },
 		a.waitForAgentStream(stream, "tasks"),
 	)
-}
-
-func (a *UnifiedApp) resolveOpenQuestionsWithAgent(req OpenQuestionsRequest) tea.Cmd {
-	if a.codingAgent == nil {
-		return func() tea.Msg {
-			return AgentNotFoundMsg{
-				Instructions: (&agent.NoAgentError{}).Instructions(),
-			}
-		}
-	}
-
-	input := agent.ResolveOpenQuestionsInput{
-		Phase:         req.Phase,
-		Summary:       req.Summary,
-		Evidence:      toAgentEvidenceItems(req.Evidence),
-		OpenQuestions: append([]string{}, req.OpenQuestions...),
-		UserAnswer:    req.UserAnswer,
-		Vision:        req.Vision,
-		Problem:       req.Problem,
-		Users:         req.Users,
-		Platform:      req.Platform,
-		Language:      req.Language,
-		Requirements:  append([]string{}, req.Requirements...),
-	}
-
-	stream := make(chan agentStreamEvent, 100)
-	go func() {
-		defer close(stream)
-		outputCallback := func(line string) {
-			line = strings.TrimSpace(line)
-			if line == "" {
-				return
-			}
-			select {
-			case stream <- agentStreamEvent{line: line}:
-			default:
-			}
-		}
-
-		resolution, err := agent.ResolveOpenQuestionsWithOutput(context.Background(), a.codingAgent, input, outputCallback)
-		if err != nil {
-			stream <- agentStreamEvent{openQuestions: &OpenQuestionsResolvedMsg{Phase: req.Phase, Err: err}}
-			return
-		}
-		stream <- agentStreamEvent{openQuestions: &OpenQuestionsResolvedMsg{
-			Phase:     req.Phase,
-			Resolved:  toResolvedQuestions(resolution.Resolved),
-			Remaining: append([]string{}, resolution.Remaining...),
-		}}
-	}()
-
-	return a.waitForAgentStream(stream, "open-questions")
 }
 
 func (a *UnifiedApp) handleTasksGenerated(msg TasksGeneratedMsg) tea.Cmd {

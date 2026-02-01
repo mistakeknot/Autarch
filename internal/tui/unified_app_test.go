@@ -103,23 +103,6 @@ func TestAgentStreamMessagesRouteToChat(t *testing.T) {
 	}
 }
 
-func TestScanSignoffCompletesToSpecSummary(t *testing.T) {
-	app := NewUnifiedApp(nil)
-	app.onboardingState = OnboardingScanUsers
-	app.breadcrumb.SetCurrent(OnboardingScanUsers)
-
-	_, _ = app.Update(ScanSignoffCompleteMsg{
-		Answers: map[string]string{
-			"vision": "Vision text",
-			"users":  "Users text",
-		},
-	})
-
-	if app.onboardingState != OnboardingSpecSummary {
-		t.Fatalf("expected to enter spec summary after scan signoff")
-	}
-}
-
 func TestScanResultSetsInterviewBreadcrumb(t *testing.T) {
 	app := NewUnifiedApp(nil)
 	app.onboardingState = OnboardingKickoff

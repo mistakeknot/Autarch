@@ -47,79 +47,24 @@ func TestKickoffScanPreparingMessageRoutesToChat(t *testing.T) {
 	}
 }
 
-func TestKickoffAcceptsVisionStepAndAdvances(t *testing.T) {
+func TestKickoffScanCompletionAutoCreatesProject(t *testing.T) {
 	v := NewKickoffView()
-	v.scanResult = &tui.CodebaseScanResultMsg{Vision: "Vision text"}
-	v.SetScanStepForTest(tui.OnboardingScanVision)
-
-	_, _ = v.Update(tea.KeyMsg{Type: tea.KeyCtrlRight})
-
-	if v.ScanStepForTest() != tui.OnboardingScanProblem {
-		t.Fatalf("expected step advance to problem")
-	}
-}
-
-func TestKickoffAcceptTriggersResuggest(t *testing.T) {
-	v := NewKickoffView()
-	v.scanResult = &tui.CodebaseScanResultMsg{Vision: "Vision text"}
-	v.scanPath = "/tmp/project"
-	v.SetScanStepForTest(tui.OnboardingScanVision)
-
-	called := false
-	v.SetScanCodebaseCallback(func(path string) tea.Cmd {
-		if path != "/tmp/project" {
-			t.Fatalf("expected resuggest path %q, got %q", "/tmp/project", path)
-		}
-		called = true
+	v.SetProjectStartCallback(func(project *Project) tea.Cmd {
 		return nil
 	})
 
-	_, _ = v.Update(tea.KeyMsg{Type: tea.KeyCtrlRight})
-
-	if !called {
-		t.Fatalf("expected resuggest callback to fire")
-	}
-}
-
-func TestKickoffCtrlLeftMovesBackWithoutResuggest(t *testing.T) {
-	v := NewKickoffView()
-	v.scanResult = &tui.CodebaseScanResultMsg{
-		Vision:  "Vision text",
-		Problem: "Problem text",
-	}
-	v.scanPath = "/tmp/project"
-	v.SetScanStepForTest(tui.OnboardingScanProblem)
-
-	called := false
-	v.SetScanCodebaseCallback(func(path string) tea.Cmd {
-		called = true
-		return nil
+	_, cmd := v.Update(tui.CodebaseScanResultMsg{
+		ProjectName: "TestProject",
+		Description: "A test project",
+		Vision:      "Build great things",
 	})
 
-	_, _ = v.Update(tea.KeyMsg{Type: tea.KeyCtrlLeft})
-
-	if v.ScanStepForTest() != tui.OnboardingScanVision {
-		t.Fatalf("expected step move back to vision")
-	}
-	if called {
-		t.Fatalf("did not expect resuggest when moving back")
-	}
-}
-
-func TestKickoffAcceptDoesNotNavigateBreadcrumb(t *testing.T) {
-	v := NewKickoffView()
-	v.scanResult = &tui.CodebaseScanResultMsg{Vision: "Vision text"}
-	v.SetScanStepForTest(tui.OnboardingScanVision)
-	v.SetScanCodebaseCallback(nil)
-
-	_, cmd := v.Update(tea.KeyMsg{Type: tea.KeyCtrlRight})
+	// Should have returned a command to create the project
 	if cmd == nil {
-		return
+		t.Fatalf("expected createProject command after scan completion")
 	}
-	if msg := cmd(); msg != nil {
-		if _, ok := msg.(tui.NavigateToStepMsg); ok {
-			t.Fatalf("did not expect NavigateToStepMsg during scan review")
-		}
+	if v.scanResult == nil {
+		t.Fatalf("expected scan result to be stored")
 	}
 }
 
@@ -141,29 +86,6 @@ func TestKickoffShowsScanValidationErrors(t *testing.T) {
 	}
 	if !found {
 		t.Fatalf("expected validation error in chat messages")
-	}
-}
-
-func TestKickoffEnterSendsOpenQuestionAnswer(t *testing.T) {
-	v := NewKickoffView()
-	v.scanReview = true
-	v.scanResult = &tui.CodebaseScanResultMsg{
-		PhaseArtifacts: &tui.PhaseArtifacts{
-			Vision: &tui.VisionArtifact{OpenQuestions: []string{"Q1?"}},
-		},
-	}
-	v.SetScanStepForTest(tui.OnboardingScanVision)
-	v.chatPanel.SetValue("Answer text")
-
-	called := false
-	v.SetResolveOpenQuestionsCallback(func(req tui.OpenQuestionsRequest) tea.Cmd {
-		called = true
-		return nil
-	})
-
-	_, _ = v.Update(tea.KeyMsg{Type: tea.KeyEnter})
-	if !called {
-		t.Fatalf("expected resolve callback to fire")
 	}
 }
 
