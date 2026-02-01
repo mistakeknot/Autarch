@@ -257,3 +257,28 @@ type ResolvedQuestion struct {
 type ScanSignoffCompleteMsg struct {
 	Answers map[string]string
 }
+
+// SprintStreamLineMsg carries a streaming agent response chunk.
+type SprintStreamLineMsg struct {
+	Content string
+}
+
+// SprintStreamDoneMsg signals the agent response stream is complete.
+type SprintStreamDoneMsg struct{}
+
+// SprintDraftUpdatedMsg signals the current phase draft has been updated.
+type SprintDraftUpdatedMsg struct {
+	Phase   string
+	Content string
+}
+
+// SprintPhaseAdvancedMsg signals the sprint has advanced to a new phase.
+type SprintPhaseAdvancedMsg struct {
+	Phase string
+}
+
+// SprintConflictMsg signals consistency conflicts were found.
+type SprintConflictMsg struct {
+	Phase    string
+	Messages []string
+}

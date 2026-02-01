@@ -280,6 +280,15 @@ Navigation:
 				},
 			)
 
+			// Wire unified sprint view (chat-driven 8-phase flow)
+			app.SetSprintViewFactory(func(projectPath string) tui.View {
+				v := views.NewSprintView(projectPath)
+				v.SetCallbacks(func() tea.Cmd {
+					return func() tea.Msg { return tui.NavigateBackMsg{} }
+				})
+				return v
+			})
+
 			return tui.RunUnified(client, app)
 		},
 	}

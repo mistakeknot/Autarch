@@ -198,6 +198,11 @@ type SpecSummaryViewSetter interface {
 	)
 }
 
+// SprintStarter is an interface for views that can start a sprint.
+type SprintStarter interface {
+	StartSprint(userInput string) tea.Cmd
+}
+
 // ChatSettingsSetter allows views to receive persisted chat settings.
 type ChatSettingsSetter interface {
 	SetChatSettings(settings pkgtui.ChatSettings)

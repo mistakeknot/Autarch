@@ -6,6 +6,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/mistakeknot/autarch/internal/gurgeh/arbiter/scan"
 	"github.com/mistakeknot/autarch/pkg/thinking"
 )
 
@@ -47,12 +48,19 @@ func (g *Generator) thinkingPreamble(phase Phase) string {
 }
 
 // GenerateDraft produces a SectionDraft for the given phase using available context.
-func (g *Generator) GenerateDraft(_ context.Context, phase Phase, projectCtx *ProjectContext, userInput string) (*SectionDraft, error) {
+// If scanData is non-nil, evidence and resolved questions are injected into the draft.
+func (g *Generator) GenerateDraft(_ context.Context, phase Phase, projectCtx *ProjectContext, userInput string, scanData ...*scan.PhaseData) (*SectionDraft, error) {
 	var content string
 	var options []string
 
 	// Prepend thinking preamble before phase-specific generation
 	preamble := g.thinkingPreamble(phase)
+
+	// Build evidence context from scan data (if available)
+	var evidenceCtx string
+	if len(scanData) > 0 && scanData[0] != nil {
+		evidenceCtx = g.formatEvidenceContext(scanData[0])
+	}
 
 	switch phase {
 	case PhaseVision:
@@ -76,11 +84,43 @@ func (g *Generator) GenerateDraft(_ context.Context, phase Phase, projectCtx *Pr
 	}
 
 	return &SectionDraft{
-		Content:   preamble + content,
+		Content:   preamble + evidenceCtx + content,
 		Options:   options,
 		Status:    DraftProposed,
 		UpdatedAt: time.Now(),
 	}, nil
+}
+
+// formatEvidenceContext renders scan evidence and resolved questions as a context
+// block for draft generation. Evidence quotes are wrapped in <evidence> delimiters
+// for prompt injection safety.
+func (g *Generator) formatEvidenceContext(pd *scan.PhaseData) string {
+	if pd == nil {
+		return ""
+	}
+	var parts []string
+
+	if len(pd.Evidence) > 0 {
+		parts = append(parts, "### Codebase Evidence\n")
+		for _, ev := range pd.Evidence {
+			parts = append(parts, fmt.Sprintf("- **%s** (`%s`):\n<evidence>\n%s\n</evidence>",
+				ev.Type, ev.FilePath, ev.Quote))
+		}
+		parts = append(parts, "")
+	}
+
+	if len(pd.ResolvedQuestions) > 0 {
+		parts = append(parts, "### Resolved Questions\n")
+		for _, rq := range pd.ResolvedQuestions {
+			parts = append(parts, fmt.Sprintf("- **Q:** %s\n  **A:** %s", rq.Question, rq.Answer))
+		}
+		parts = append(parts, "")
+	}
+
+	if len(parts) == 0 {
+		return ""
+	}
+	return strings.Join(parts, "\n") + "\n"
 }
 
 func (g *Generator) generateProblem(projectCtx *ProjectContext, userInput string) (string, []string) {

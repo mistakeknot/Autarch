@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"time"
 
+	"github.com/mistakeknot/autarch/internal/gurgeh/arbiter/scan"
 	"github.com/mistakeknot/autarch/pkg/thinking"
 )
 
@@ -131,6 +132,7 @@ type SprintState struct {
 	IsReview        bool                        // true when reviewing an existing spec
 	ReviewingSpecID string                      // ID of spec being reviewed
 	ShapeOverrides  map[Phase]thinking.Shape    // per-sprint user overrides for thinking shapes
+	ScanArtifacts   *scan.Artifacts             // lossless kickoff scan results (nil if no scan)
 	StartedAt       time.Time
 	UpdatedAt       time.Time
 }

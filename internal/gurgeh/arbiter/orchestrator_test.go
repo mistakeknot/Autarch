@@ -306,3 +306,140 @@ func TestOrchestratorAdvanceNilState(t *testing.T) {
 		t.Error("expected error for nil state")
 	}
 }
+
+func TestProcessChatMessage_NoSprint(t *testing.T) {
+	o := arbiter.NewOrchestrator("/tmp/test")
+	ctx := context.Background()
+	ch := o.ProcessChatMessage(ctx, "hello")
+	var msgs []string
+	for msg := range ch {
+		msgs = append(msgs, msg)
+	}
+	if len(msgs) != 1 || msgs[0] != "No active sprint. Start a sprint first." {
+		t.Errorf("unexpected messages: %v", msgs)
+	}
+}
+
+func TestProcessChatMessage_StreamsResponse(t *testing.T) {
+	o := arbiter.NewOrchestrator("/tmp/test")
+	ctx := context.Background()
+
+	_, err := o.Start(ctx, "build a task tracker")
+	if err != nil {
+		t.Fatalf("Start failed: %v", err)
+	}
+
+	ch := o.ProcessChatMessage(ctx, "make it about developers")
+	var msgs []string
+	for msg := range ch {
+		msgs = append(msgs, msg)
+	}
+	if len(msgs) == 0 {
+		t.Fatal("expected at least one message")
+	}
+	if msgs[0] == "" {
+		t.Error("expected non-empty response")
+	}
+}
+
+func TestProcessChatMessage_CancelCtx(t *testing.T) {
+	o := arbiter.NewOrchestrator("/tmp/test")
+	ctx := context.Background()
+
+	_, err := o.Start(ctx, "build a tracker")
+	if err != nil {
+		t.Fatalf("Start failed: %v", err)
+	}
+
+	cancelCtx, cancel := context.WithCancel(ctx)
+	cancel() // cancel immediately
+
+	ch := o.ProcessChatMessage(cancelCtx, "should be cancelled")
+	var msgs []string
+	for msg := range ch {
+		msgs = append(msgs, msg)
+	}
+	// Channel should close quickly; may or may not have messages
+	// The key thing is no goroutine leak (channel closes)
+}
+
+func TestChatAcceptDraft_AdvancesPhase(t *testing.T) {
+	o := arbiter.NewOrchestrator("/tmp/test")
+	ctx := context.Background()
+
+	_, err := o.Start(ctx, "build a tool")
+	if err != nil {
+		t.Fatalf("Start failed: %v", err)
+	}
+
+	err = o.ChatAcceptDraft(ctx)
+	if err != nil {
+		t.Fatalf("ChatAcceptDraft failed: %v", err)
+	}
+
+	state := o.State()
+	if state.Phase != arbiter.PhaseProblem {
+		t.Errorf("expected PhaseProblem after accept, got %v", state.Phase)
+	}
+}
+
+func TestChatAcceptDraft_NoSprint(t *testing.T) {
+	o := arbiter.NewOrchestrator("/tmp/test")
+	err := o.ChatAcceptDraft(context.Background())
+	if err == nil {
+		t.Error("expected error with no active sprint")
+	}
+}
+
+func TestChatReviseDraft_RecordsFeedback(t *testing.T) {
+	o := arbiter.NewOrchestrator("/tmp/test")
+	ctx := context.Background()
+
+	_, err := o.Start(ctx, "build a tool")
+	if err != nil {
+		t.Fatalf("Start failed: %v", err)
+	}
+
+	err = o.ChatReviseDraft("needs more focus on developers")
+	if err != nil {
+		t.Fatalf("ChatReviseDraft failed: %v", err)
+	}
+
+	state := o.State()
+	section := state.Sections[arbiter.PhaseVision]
+	if section.Status != arbiter.DraftNeedsRevision {
+		t.Errorf("expected DraftNeedsRevision, got %v", section.Status)
+	}
+	if len(section.UserEdits) != 1 {
+		t.Fatalf("expected 1 edit, got %d", len(section.UserEdits))
+	}
+	if section.UserEdits[0].Reason != "needs more focus on developers" {
+		t.Errorf("unexpected edit reason: %q", section.UserEdits[0].Reason)
+	}
+}
+
+func TestChatReviseDraft_NoSprint(t *testing.T) {
+	o := arbiter.NewOrchestrator("/tmp/test")
+	err := o.ChatReviseDraft("feedback")
+	if err == nil {
+		t.Error("expected error with no active sprint")
+	}
+}
+
+func TestState_ReturnsNilBeforeStart(t *testing.T) {
+	o := arbiter.NewOrchestrator("/tmp/test")
+	if o.State() != nil {
+		t.Error("expected nil state before Start")
+	}
+}
+
+func TestState_ReturnsStateAfterStart(t *testing.T) {
+	o := arbiter.NewOrchestrator("/tmp/test")
+	_, err := o.Start(context.Background(), "test")
+	if err != nil {
+		t.Fatalf("Start failed: %v", err)
+	}
+	if o.State() == nil {
+		t.Error("expected non-nil state after Start")
+	}
+}

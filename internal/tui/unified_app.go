@@ -82,6 +82,7 @@ type UnifiedApp struct {
 	createTaskReviewView  func([]tasks.TaskProposal) View
 	createTaskDetailView  func(tasks.TaskProposal, *research.Coordinator) View
 	createDashboardViews  func(*autarch.Client) []View
+	createSprintView      func(string) View // projectPath → SprintView
 }
 
 // NewUnifiedApp creates a new unified application
@@ -112,6 +113,11 @@ func NewUnifiedApp(client *autarch.Client) *UnifiedApp {
 // SetArbiterViewFactory sets the factory for the Arbiter sprint view (replaces interview).
 func (a *UnifiedApp) SetArbiterViewFactory(factory func(*research.Coordinator) View) {
 	a.createArbiterView = factory
+}
+
+// SetSprintViewFactory sets the factory for the unified chat-driven sprint view.
+func (a *UnifiedApp) SetSprintViewFactory(factory func(string) View) {
+	a.createSprintView = factory
 }
 
 // SetViewFactories sets the factory functions for creating views
@@ -502,7 +508,40 @@ func (a *UnifiedApp) handleProjectCreated(msg ProjectCreatedMsg) tea.Cmd {
 	a.onboardingState = OnboardingInterview
 	a.breadcrumb.SetCurrent(OnboardingInterview)
 
-	// Prefer Arbiter view if available
+	// Prefer unified SprintView (chat-driven 8-phase flow)
+	if a.createSprintView != nil {
+		projectPath := ""
+		if cwd, err := os.Getwd(); err == nil {
+			projectPath = cwd
+		}
+		a.currentView = a.createSprintView(projectPath)
+		a.attachAgentSelector(a.currentView)
+
+		// Set up back callback
+		if cb, ok := a.currentView.(interface{ SetCallbacks(func() tea.Cmd) }); ok {
+			cb.SetCallbacks(func() tea.Cmd {
+				return func() tea.Msg { return NavigateBackMsg{} }
+			})
+		}
+
+		// Start the sprint with the project description
+		var startCmd tea.Cmd
+		if starter, ok := a.currentView.(SprintStarter); ok {
+			startCmd = starter.StartSprint(msg.Description)
+		}
+
+		cmds := []tea.Cmd{
+			a.currentView.Init(),
+			a.currentView.Focus(),
+			a.sendWindowSize(),
+		}
+		if startCmd != nil {
+			cmds = append(cmds, startCmd)
+		}
+		return tea.Batch(cmds...)
+	}
+
+	// Fall back to Arbiter view if available
 	if a.createArbiterView != nil {
 		a.currentView = a.createArbiterView(a.researchCoord)
 		a.attachAgentSelector(a.currentView)
