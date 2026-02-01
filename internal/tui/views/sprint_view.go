@@ -3,6 +3,7 @@ package views
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"github.com/charmbracelet/bubbles/key"
 	tea "github.com/charmbracelet/bubbletea"
@@ -45,7 +46,7 @@ type SprintView struct {
 func NewSprintView(projectPath string) *SprintView {
 	chatPanel := pkgtui.NewChatPanel()
 	chatPanel.SetComposerPlaceholder("Chat about the current phase...")
-	chatPanel.SetComposerHint("enter send  a accept  e revise  d details  esc back")
+	chatPanel.SetComposerHint("enter send · \"accept\" to advance · esc back")
 
 	v := &SprintView{
 		orch:      arbiter.NewOrchestrator(projectPath),
@@ -119,7 +120,7 @@ func (v *SprintView) Update(msg tea.Msg) (pkgtui.View, tea.Cmd) {
 
 	case tui.SprintDraftUpdatedMsg:
 		v.chatPanel.AddMessage("system", fmt.Sprintf("Draft for %s is ready. Review in the left panel.", msg.Phase))
-		v.chatPanel.AddMessage("system", "Type feedback, press 'a' to accept, or 'e' to revise.")
+		v.chatPanel.AddMessage("system", "Type feedback to iterate, or \"accept\" to advance to the next phase.")
 		v.syncDocPanel()
 		return v, nil
 
@@ -199,15 +200,6 @@ func (v *SprintView) Update(msg tea.Msg) (pkgtui.View, tea.Cmd) {
 					return v, v.onBack()
 				}
 				return v, nil
-			case msg.String() == "a" && v.chatPanel.Value() == "":
-				return v, v.handleAccept()
-			case msg.String() == "e" && v.chatPanel.Value() == "":
-				v.chatPanel.SetValue("Edit: ")
-				return v, nil
-			case msg.String() == "d" && v.chatPanel.Value() == "":
-				v.docPanel.ToggleDetails()
-				v.syncDocPanel()
-				return v, nil
 			default:
 				v.chatPanel, cmd = v.chatPanel.Update(msg)
 				return v, cmd
@@ -252,7 +244,7 @@ func (v *SprintView) Name() string {
 
 // ShortHelp implements View.
 func (v *SprintView) ShortHelp() string {
-	return "enter send  a accept  e revise  d details  F2 model  esc back"
+	return "enter send  F2 model  esc back"
 }
 
 // ChatPanelValueForTest returns the current composer value (test helper).
@@ -292,6 +284,11 @@ func (v *SprintView) handleChatSubmit() tea.Cmd {
 	v.chatPanel.ClearComposer()
 	v.chatPanel.AddMessage("user", msg)
 
+	// Detect accept intent from natural language
+	if isAcceptIntent(msg) {
+		return v.handleAccept()
+	}
+
 	// Cancel any in-progress streaming
 	v.cancelStreaming()
 
@@ -300,6 +297,16 @@ func (v *SprintView) handleChatSubmit() tea.Cmd {
 	v.responseCh = v.orch.ProcessChatMessage(ctx, msg)
 
 	return v.waitForResponse()
+}
+
+// isAcceptIntent returns true if the message signals the user wants to accept the draft.
+func isAcceptIntent(msg string) bool {
+	lower := strings.ToLower(strings.TrimSpace(msg))
+	switch lower {
+	case "accept", "approve", "looks good", "lgtm", "ok", "yes", "ship it", "done":
+		return true
+	}
+	return false
 }
 
 func (v *SprintView) waitForResponse() tea.Cmd {
