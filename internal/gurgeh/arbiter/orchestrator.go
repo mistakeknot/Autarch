@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/mistakeknot/autarch/internal/gurgeh/arbiter/confidence"
@@ -34,12 +35,14 @@ type HandoffOption struct {
 
 // Orchestrator manages the full spec sprint flow.
 type Orchestrator struct {
+	mu          sync.Mutex
 	projectPath string
 	generator   *Generator
 	consistency *consistency.Engine
 	confidence  *confidence.Calculator
 	scanner     QuickScanner
 	research    ResearchProvider // nil = no-research mode
+	state       *SprintState    // current sprint state (nil before Start)
 }
 
 // NewOrchestrator creates a new Orchestrator for the given project path.
@@ -65,6 +68,13 @@ func NewOrchestratorWithResearch(projectPath string, research ResearchProvider) 
 	o := NewOrchestrator(projectPath)
 	o.research = research
 	return o
+}
+
+// State returns the current sprint state, or nil if no sprint is active.
+func (o *Orchestrator) State() *SprintState {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	return o.state
 }
 
 // Start initializes a new sprint and generates the Problem draft.
@@ -99,6 +109,10 @@ func (o *Orchestrator) Start(ctx context.Context, userInput string) (*SprintStat
 
 	// Auto-discover vision spec for vertical consistency
 	state.VisionContext = o.LoadVisionContext()
+
+	o.mu.Lock()
+	o.state = state
+	o.mu.Unlock()
 
 	return state, nil
 }
@@ -666,4 +680,146 @@ func (o *Orchestrator) runQuickScan(ctx context.Context, state *SprintState) {
 			state.Findings = findings
 		}
 	}
+}
+
+// ProcessChatMessage handles a user message in the context of the current phase.
+// It returns a channel that streams the agent's response chunks. The channel is
+// closed when the response is complete.
+//
+// The caller MUST cancel ctx when navigating away to prevent goroutine leaks.
+// Basic retry with backoff (3 attempts) is applied on generation failure.
+func (o *Orchestrator) ProcessChatMessage(ctx context.Context, msg string) <-chan string {
+	ch := make(chan string, 8)
+
+	go func() {
+		defer close(ch)
+
+		o.mu.Lock()
+		state := o.state
+		o.mu.Unlock()
+
+		if state == nil {
+			select {
+			case ch <- "No active sprint. Start a sprint first.":
+			case <-ctx.Done():
+			}
+			return
+		}
+
+		projectCtx := o.readProjectContext()
+
+		// Retry with backoff: 3 attempts
+		var draft *SectionDraft
+		var err error
+		for attempt := 0; attempt < 3; attempt++ {
+			select {
+			case <-ctx.Done():
+				return
+			default:
+			}
+
+			// Inject user message as additional context for draft generation
+			combined := msg
+			if section, ok := state.Sections[state.Phase]; ok && section.Content != "" {
+				combined = section.Content + "\n\nUser feedback: " + msg
+			}
+
+			draft, err = o.generator.GenerateDraft(ctx, state.Phase, projectCtx, combined)
+			if err == nil {
+				break
+			}
+
+			// Backoff: 100ms, 300ms, 900ms
+			backoff := time.Duration(100*(attempt*3+1)) * time.Millisecond
+			select {
+			case <-time.After(backoff):
+			case <-ctx.Done():
+				return
+			}
+		}
+
+		if err != nil {
+			select {
+			case ch <- fmt.Sprintf("Failed to generate response: %v", err):
+			case <-ctx.Done():
+			}
+			return
+		}
+
+		// Update state with the new draft
+		o.mu.Lock()
+		if o.state != nil {
+			o.state.Sections[state.Phase] = draft
+			o.state.UpdatedAt = time.Now()
+		}
+		o.mu.Unlock()
+
+		// Stream the response (single chunk for template-based generation)
+		select {
+		case ch <- draft.Content:
+		case <-ctx.Done():
+		}
+	}()
+
+	return ch
+}
+
+// ChatAcceptDraft accepts the current phase draft, runs consistency checks,
+// and advances to the next phase. Returns the updated state or an error
+// if a blocker conflict prevents advancing.
+func (o *Orchestrator) ChatAcceptDraft(ctx context.Context) error {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+
+	if o.state == nil {
+		return fmt.Errorf("no active sprint")
+	}
+
+	// Mark current draft as accepted
+	if section, ok := o.state.Sections[o.state.Phase]; ok {
+		section.Status = DraftAccepted
+		section.UpdatedAt = time.Now()
+	}
+	o.state.UpdatedAt = time.Now()
+
+	// Run consistency + advance (unlock briefly for potentially slow operations)
+	state := o.state
+	o.mu.Unlock()
+
+	updated, err := o.Advance(ctx, state)
+
+	o.mu.Lock()
+	if updated != nil {
+		o.state = updated
+	}
+	return err
+}
+
+// ChatReviseDraft requests revision of the current phase draft with user feedback.
+// The feedback is recorded as an edit and the draft status is set to NeedsRevision.
+func (o *Orchestrator) ChatReviseDraft(feedback string) error {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+
+	if o.state == nil {
+		return fmt.Errorf("no active sprint")
+	}
+
+	section, ok := o.state.Sections[o.state.Phase]
+	if !ok {
+		return fmt.Errorf("no draft for current phase %s", o.state.Phase)
+	}
+
+	edit := Edit{
+		Before:    section.Content,
+		After:     section.Content, // content unchanged until ProcessChatMessage regenerates
+		Reason:    feedback,
+		Timestamp: time.Now(),
+	}
+	section.UserEdits = append(section.UserEdits, edit)
+	section.Status = DraftNeedsRevision
+	section.UpdatedAt = time.Now()
+	o.state.UpdatedAt = time.Now()
+
+	return nil
 }

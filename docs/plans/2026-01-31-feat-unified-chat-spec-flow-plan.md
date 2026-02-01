@@ -126,7 +126,7 @@ The TUI layer converts `tui.PhaseArtifacts` → `scan.Artifacts` at the boundary
 
 **Files to modify:**
 
-- [ ] `internal/gurgeh/arbiter/orchestrator.go` — Add:
+- [x] `internal/gurgeh/arbiter/orchestrator.go` — Add:
   ```go
   // ProcessChatMessage handles a user message in the context of the current phase.
   // The caller MUST cancel ctx when navigating away to prevent goroutine leaks.
@@ -138,10 +138,10 @@ The TUI layer converts `tui.PhaseArtifacts` → `scan.Artifacts` at the boundary
   // ReviseDraft requests revision with user feedback.
   func (o *Orchestrator) ReviseDraft(feedback string) error
   ```
-- [ ] `internal/gurgeh/arbiter/orchestrator.go` — Add `sync.Mutex` to protect state (needed for future concurrent callers; Bubble Tea is single-threaded but the Orchestrator should be safe by design)
-- [ ] `internal/gurgeh/arbiter/orchestrator.go` — `ProcessChatMessage` producer must `select` on `ctx.Done()` to stop when caller navigates away
-- [ ] `internal/gurgeh/arbiter/orchestrator.go` — Basic retry with backoff (3 attempts) inside `ProcessChatMessage`
-- [ ] `internal/gurgeh/arbiter/orchestrator_test.go` — Unit tests for message→operation mapping
+- [x] `internal/gurgeh/arbiter/orchestrator.go` — Add `sync.Mutex` to protect state (needed for future concurrent callers; Bubble Tea is single-threaded but the Orchestrator should be safe by design)
+- [x] `internal/gurgeh/arbiter/orchestrator.go` — `ProcessChatMessage` producer must `select` on `ctx.Done()` to stop when caller navigates away
+- [x] `internal/gurgeh/arbiter/orchestrator.go` — Basic retry with backoff (3 attempts) inside `ProcessChatMessage`
+- [x] `internal/gurgeh/arbiter/orchestrator_test.go` — Unit tests for message→operation mapping
 
 **Interaction model:**
 

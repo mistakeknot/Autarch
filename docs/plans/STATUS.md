@@ -51,9 +51,9 @@
 | 2026-01-23-vauxhall-grouping-plan.md | commit | paths:2 latest:2026-01-29 |
 | 2026-01-23-vauxhall-web-search-filters-plan.md | commit | paths:4 latest:2026-01-26 |
 | 2026-01-25-intermute-mvp-implementation-plan.md | commit | paths:16 latest:2026-01-26 |
-| 2026-01-26-arbiter-spec-sprint-implementation.md | commit | paths:11 latest:2026-01-30 |
+| 2026-01-26-arbiter-spec-sprint-implementation.md | commit | paths:11 latest:2026-01-31 |
 | 2026-01-26-feat-cursor-style-unified-shell-layout-plan.md | commit | paths:1 latest:2026-01-26 |
-| 2026-01-26-feat-pollard-first-class-research-input-plan.md | commit | paths:8 latest:2026-01-30 |
+| 2026-01-26-feat-pollard-first-class-research-input-plan.md | commit | paths:8 latest:2026-01-31 |
 | 2026-01-27-coordination-infrastructure-plan.md | todo:complete | 001-complete-p2-coordination-doc-updates.md |
 | 2026-01-27-feat-agent-runner-abstraction-plan.md | todo:complete | 004-complete-p2-coldwine-agent-runner-integration.md |
 | 2026-01-27-feat-unified-ui-grammar-plan.md | todo:pending | 005-pending-p2-unified-ui-grammar-migration.md |
