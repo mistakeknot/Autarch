@@ -10,6 +10,7 @@ import (
 
 	"github.com/mistakeknot/autarch/internal/gurgeh/arbiter/confidence"
 	"github.com/mistakeknot/autarch/internal/gurgeh/arbiter/consistency"
+	"github.com/mistakeknot/autarch/internal/gurgeh/arbiter/scan"
 	"github.com/mistakeknot/autarch/internal/gurgeh/specs"
 	"github.com/mistakeknot/autarch/pkg/thinking"
 	"gopkg.in/yaml.v3"
@@ -98,6 +99,40 @@ func (o *Orchestrator) Start(ctx context.Context, userInput string) (*SprintStat
 
 	// Auto-discover vision spec for vertical consistency
 	state.VisionContext = o.LoadVisionContext()
+
+	return state, nil
+}
+
+// StartWithScan initializes a sprint seeded with lossless codebase scan artifacts.
+// The first three phases (Vision, Problem, Users) incorporate evidence, quality
+// scores, and resolved questions from the kickoff scan.
+func (o *Orchestrator) StartWithScan(ctx context.Context, userInput string, artifacts *scan.Artifacts) (*SprintState, error) {
+	state, err := o.Start(ctx, userInput)
+	if err != nil {
+		return nil, err
+	}
+	if artifacts == nil {
+		return state, nil
+	}
+	state.ScanArtifacts = artifacts
+
+	// Re-generate first 3 phases with scan evidence injected
+	projectCtx := o.readProjectContext()
+	phaseMap := map[Phase]*scan.PhaseData{
+		PhaseVision:  artifacts.Vision,
+		PhaseProblem: artifacts.Problem,
+		PhaseUsers:   artifacts.Users,
+	}
+	for phase, pd := range phaseMap {
+		if pd == nil {
+			continue
+		}
+		draft, err := o.generator.GenerateDraft(ctx, phase, projectCtx, userInput, pd)
+		if err != nil {
+			continue // best-effort: fall back to draft without evidence
+		}
+		state.Sections[phase] = draft
+	}
 
 	return state, nil
 }
@@ -538,6 +573,33 @@ func (o *Orchestrator) updateConfidence(state *SprintState) {
 		}
 	}
 	score := o.confidence.Calculate(len(phases), accepted, len(state.Conflicts), researchQuality(state), shapesUsed)
+
+	// Blend scan quality scores if available
+	if state.ScanArtifacts != nil {
+		// Average quality across all available scan phases
+		var qualities []scan.QualityScores
+		for _, pd := range []*scan.PhaseData{state.ScanArtifacts.Vision, state.ScanArtifacts.Problem, state.ScanArtifacts.Users} {
+			if pd != nil {
+				qualities = append(qualities, pd.Quality)
+			}
+		}
+		if len(qualities) > 0 {
+			avg := &scan.QualityScores{}
+			for _, q := range qualities {
+				avg.Clarity += q.Clarity
+				avg.Completeness += q.Completeness
+				avg.Grounding += q.Grounding
+				avg.Consistency += q.Consistency
+			}
+			n := float64(len(qualities))
+			avg.Clarity /= n
+			avg.Completeness /= n
+			avg.Grounding /= n
+			avg.Consistency /= n
+			score = o.confidence.ApplyQualityScores(score, avg)
+		}
+	}
+
 	state.Confidence = ConfidenceScore{
 		Completeness: score.Completeness,
 		Consistency:  score.Consistency,

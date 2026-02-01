@@ -4,6 +4,7 @@ import (
 	"math"
 	"testing"
 
+	"github.com/mistakeknot/autarch/internal/gurgeh/arbiter/scan"
 	"github.com/mistakeknot/autarch/pkg/thinking"
 )
 
@@ -104,5 +105,36 @@ func TestCalculate_ShapeAwareAssumptions(t *testing.T) {
 	sContra := c.Calculate(5, 3, 0, 0.5, shapes)
 	if !approxEqual(sContra.Assumptions, 0.7) {
 		t.Errorf("expected Assumptions=0.7 with contrapositive, got %f", sContra.Assumptions)
+	}
+}
+
+func TestApplyQualityScores(t *testing.T) {
+	c := NewCalculator()
+
+	base := c.Calculate(5, 3, 0, 0.5, nil)
+	// base: Research=0.5, Specificity=0.5, Completeness=0.6, Consistency=1.0
+
+	quality := &scan.QualityScores{
+		Grounding:    0.8, // → Research
+		Clarity:      0.9, // → Specificity
+		Completeness: 0.7, // → Completeness
+		Consistency:  0.6, // → Consistency
+	}
+	result := c.ApplyQualityScores(base, quality)
+
+	if !approxEqual(result.Research, (0.5+0.8)/2.0) {
+		t.Errorf("expected Research=%f, got %f", (0.5+0.8)/2.0, result.Research)
+	}
+	if !approxEqual(result.Specificity, (0.5+0.9)/2.0) {
+		t.Errorf("expected Specificity=%f, got %f", (0.5+0.9)/2.0, result.Specificity)
+	}
+}
+
+func TestApplyQualityScores_Nil(t *testing.T) {
+	c := NewCalculator()
+	base := Score{Research: 0.5, Specificity: 0.5}
+	result := c.ApplyQualityScores(base, nil)
+	if !approxEqual(result.Research, 0.5) {
+		t.Error("nil quality should not change scores")
 	}
 }

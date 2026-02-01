@@ -4,6 +4,8 @@ import (
 	"context"
 	"strings"
 	"testing"
+
+	"github.com/mistakeknot/autarch/internal/gurgeh/arbiter/scan"
 )
 
 func TestGenerateDraftFromContext(t *testing.T) {
@@ -97,6 +99,46 @@ func TestGenerateUnknownPhase(t *testing.T) {
 	_, err := gen.GenerateDraft(ctx, Phase(99), nil, "test")
 	if err == nil {
 		t.Error("expected error for unknown phase")
+	}
+}
+
+func TestGenerateDraftWithScanEvidence(t *testing.T) {
+	gen := NewGenerator()
+	ctx := context.Background()
+	pd := &scan.PhaseData{
+		Summary: "Project manages reading lists",
+		Evidence: []scan.EvidenceItem{
+			{Type: "readme", FilePath: "README.md", Quote: "A CLI for curating reading lists", Confidence: 0.9},
+		},
+		ResolvedQuestions: []scan.ResolvedQuestion{
+			{Question: "Who is the target user?", Answer: "Developers who read technical content"},
+		},
+	}
+	draft, err := gen.GenerateDraft(ctx, PhaseVision, nil, "reading list tool", pd)
+	if err != nil {
+		t.Fatalf("generate failed: %v", err)
+	}
+	if !strings.Contains(draft.Content, "<evidence>") {
+		t.Error("expected evidence to be wrapped in <evidence> delimiters")
+	}
+	if !strings.Contains(draft.Content, "README.md") {
+		t.Error("expected evidence file path in draft")
+	}
+	if !strings.Contains(draft.Content, "Resolved Questions") {
+		t.Error("expected resolved questions section in draft")
+	}
+}
+
+func TestGenerateDraftWithNilScanData(t *testing.T) {
+	gen := NewGenerator()
+	ctx := context.Background()
+	// Passing nil scan data should produce same output as no scan data
+	draft, err := gen.GenerateDraft(ctx, PhaseVision, nil, "test", (*scan.PhaseData)(nil))
+	if err != nil {
+		t.Fatalf("generate failed: %v", err)
+	}
+	if strings.Contains(draft.Content, "<evidence>") {
+		t.Error("nil scan data should not produce evidence block")
 	}
 }
 

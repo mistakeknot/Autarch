@@ -1,6 +1,9 @@
 package confidence
 
-import "github.com/mistakeknot/autarch/pkg/thinking"
+import (
+	"github.com/mistakeknot/autarch/internal/gurgeh/arbiter/scan"
+	"github.com/mistakeknot/autarch/pkg/thinking"
+)
 
 // Score holds confidence metrics.
 type Score struct {
@@ -72,4 +75,22 @@ func (c *Calculator) Calculate(totalPhases, acceptedPhases, conflictCount int, r
 		Research:     research,
 		Assumptions:  assumptions,
 	}
+}
+
+// ApplyQualityScores blends scan quality scores into an existing Score.
+// Mapping: Grounding→Research, Clarity→Specificity, Completeness→Completeness,
+// Consistency→Consistency. Values are averaged with existing scores.
+func (c *Calculator) ApplyQualityScores(s Score, quality *scan.QualityScores) Score {
+	if quality == nil {
+		return s
+	}
+	s.Research = avg(s.Research, quality.Grounding)
+	s.Specificity = avg(s.Specificity, quality.Clarity)
+	s.Completeness = avg(s.Completeness, quality.Completeness)
+	s.Consistency = avg(s.Consistency, quality.Consistency)
+	return s
+}
+
+func avg(a, b float64) float64 {
+	return (a + b) / 2.0
 }
