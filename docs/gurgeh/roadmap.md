@@ -88,6 +88,8 @@ The north star: **a spec that makes agents succeed on the first try.**
 
 **Why third:** Without validation, thinking shapes are cargo cult prompting.
 
+> **Note:** `internal/gurgeh/validation/` exists but validates *stakeholder alignment* (Broker pattern for Product/Design/Engineering perspectives), not shape output compliance. Shape-specific validators are a different system.
+
 | Task | Status | Notes |
 |------|--------|-------|
 | Per-shape output validators | ⬜ | Check structural compliance (e.g., DSL output has schema fields) |
@@ -97,17 +99,24 @@ The north star: **a spec that makes agents succeed on the first try.**
 
 ### M6: Subagent Enrichment Passes
 
-**Goal:** The 9 subagents automatically critique and enrich drafts during the sprint
+**Goal:** The 8 subagent types automatically critique and enrich drafts during the sprint
 
 **Why fourth:** Moves from "user catches problems" to "system catches problems."
 
+> **Existing:** 8 subagent modules are individually implemented (Strategist, Navigator, Sentinel, Recognizer, Prophet, Scribe, Tracer, Broker) but not orchestrated into the sprint flow. The gap is the dispatch pipeline, not the agents themselves.
+
 | Task | Status | Notes |
 |------|--------|-------|
-| Phase → subagent mapping | ⬜ | Which subagents run on which phases |
+| Phase → subagent mapping | ⬜ | Which subagents run on which phases (dispatch registry) |
 | Enrichment pass pipeline | ⬜ | Draft → subagent critique → merge suggestions → propose to user |
-| Strategist: architecture implications | ⬜ | Auto-flag technical risks in features |
-| Navigator: journey completeness | ⬜ | Check CUJs cover all features |
-| Sentinel: security surface analysis | ⬜ | Flag features that need security requirements |
+| Strategist: architecture implications | ✅ | Implemented in architecture/strategist.go; needs sprint wiring |
+| Navigator: journey completeness | ✅ | Implemented in navigator/navigator.go; needs sprint wiring |
+| Sentinel: security surface analysis | ✅ | Implemented in nfr/nfr.go (STRIDE); needs sprint wiring |
+| Recognizer: anti-pattern detection | ✅ | Implemented in patterns/recognizer.go; needs sprint wiring |
+| Prophet: performance prediction | ✅ | Implemented in performance/prophet.go; needs sprint wiring |
+| Scribe: contract generation | ✅ | Implemented in contracts/contracts.go; needs sprint wiring |
+| Tracer: dependency analysis | ✅ | Implemented in dependency/tracer.go; needs sprint wiring |
+| Broker: stakeholder alignment | ✅ | Implemented in validation/validation.go; needs sprint wiring |
 | Configurable subagent depth | ⬜ | none / quick / thorough |
 
 ### M7: Research-Annotated Drafts
@@ -129,12 +138,14 @@ The north star: **a spec that makes agents succeed on the first try.**
 
 **Why sixth:** Without this, specs are write-once documents that rot. Hypotheses must be trackable.
 
+> **Existing:** Hypothesis struct in `specs/schema.go` has Status/Metric/Target fields. `specs/evolution.go` has `CheckAssumptionDecay()` with DecayDays logic. The schema is ready; what's missing is the state machine, automation, and signal emission.
+
 | Task | Status | Notes |
 |------|--------|-------|
-| Hypothesis status tracking | ⬜ | untested → testing → validated / invalidated |
-| Link hypotheses to metrics | ⬜ | Connect "metric Y changes by Z" to actual measurement |
+| Hypothesis status tracking | 🔶 | Schema exists (untested/validated/invalidated); needs state machine + transitions |
+| Link hypotheses to metrics | 🔶 | Metric/Target fields exist; needs connection to actual measurement |
 | Invalidation → spec revision trigger | ⬜ | Failed hypothesis flags affected sections for review |
-| Assumption decay automation | ⬜ | Background check on DecayDays, emit signals, nudge user |
+| Assumption decay automation | 🔶 | CheckAssumptionDecay() exists; needs background scheduling + signal emission |
 
 ### M9: Spec Versioning & Diff
 
@@ -142,12 +153,14 @@ The north star: **a spec that makes agents succeed on the first try.**
 
 **Why seventh:** Vibecoders iterate across sessions. They need to see what changed and why.
 
+> **Existing:** `specs/evolution.go` has `SaveRevision()` creating `{spec_id}_v{N}.yaml` snapshots with revision metadata. `diff/diff.go` has `DiffSpecs()` returning per-section changes. The backend works; the TUI and user-facing annotation are missing.
+
 | Task | Status | Notes |
 |------|--------|-------|
-| Version snapshots on save | ⬜ | .gurgeh/specs/history/{spec-id}/v{N}.yaml |
-| Structured diff between versions | ⬜ | Per-section change summary, not raw text diff |
+| Version snapshots on save | ✅ | evolution.go SaveRevision() → .gurgeh/specs/history/ |
+| Structured diff between versions | ✅ | diff.go DiffSpecs() — per-section change summary |
 | Side-by-side TUI comparison | ⬜ | View two versions simultaneously |
-| Change reason tracking | ⬜ | Why was this section revised? (user annotation or auto-detected) |
+| Change reason tracking | 🔶 | Trigger field exists (manual/signal:competitive/etc.); needs detailed user annotations |
 
 ### M10: Agent-Native Export
 
