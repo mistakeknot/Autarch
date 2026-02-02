@@ -118,14 +118,14 @@ func TestGenerateDraftWithScanEvidence(t *testing.T) {
 	if err != nil {
 		t.Fatalf("generate failed: %v", err)
 	}
-	if !strings.Contains(draft.Content, "<evidence>") {
-		t.Error("expected evidence to be wrapped in <evidence> delimiters")
+	if !strings.Contains(draft.Preamble, "<evidence>") {
+		t.Error("expected evidence to be wrapped in <evidence> delimiters in Preamble")
 	}
-	if !strings.Contains(draft.Content, "README.md") {
-		t.Error("expected evidence file path in draft")
+	if !strings.Contains(draft.Preamble, "README.md") {
+		t.Error("expected evidence file path in Preamble")
 	}
-	if !strings.Contains(draft.Content, "Resolved Questions") {
-		t.Error("expected resolved questions section in draft")
+	if !strings.Contains(draft.Preamble, "Resolved Questions") {
+		t.Error("expected resolved questions section in Preamble")
 	}
 }
 

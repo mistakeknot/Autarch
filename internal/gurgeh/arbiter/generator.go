@@ -84,7 +84,8 @@ func (g *Generator) GenerateDraft(_ context.Context, phase Phase, projectCtx *Pr
 	}
 
 	return &SectionDraft{
-		Content:   preamble + evidenceCtx + content,
+		Preamble:  preamble + evidenceCtx,
+		Content:   content,
 		Options:   options,
 		Status:    DraftProposed,
 		UpdatedAt: time.Now(),

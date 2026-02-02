@@ -71,6 +71,7 @@ const (
 
 // SectionDraft holds Arbiter's proposal for a section
 type SectionDraft struct {
+	Preamble      string      // LLM thinking preamble (not displayed to user)
 	Content       string      // Arbiter's current proposal
 	Options       []string    // Alternative phrasings (2-3 options)
 	Status        DraftStatus
