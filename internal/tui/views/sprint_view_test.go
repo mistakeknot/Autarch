@@ -10,7 +10,7 @@ import (
 
 func TestSprintView_ChatSubmitProducesResponse(t *testing.T) {
 	// Create a sprint view and start a sprint
-	v := NewSprintView("/tmp/test-project")
+	v := NewSprintView("/tmp/test-project", SprintViewOpts{})
 
 	// Initialize and set size
 	v.Init()
@@ -64,7 +64,7 @@ func TestSprintView_ChatSubmitProducesResponse(t *testing.T) {
 }
 
 func TestSprintView_FocusedAndValueWorks(t *testing.T) {
-	v := NewSprintView("/tmp/test-project")
+	v := NewSprintView("/tmp/test-project", SprintViewOpts{})
 	v.Init()
 	v.Update(tea.WindowSizeMsg{Width: 120, Height: 40})
 
@@ -85,7 +85,7 @@ func TestSprintView_FocusedAndValueWorks(t *testing.T) {
 }
 
 func TestSprintView_TypingViaUpdateReachesComposer(t *testing.T) {
-	v := NewSprintView("/tmp/test-project")
+	v := NewSprintView("/tmp/test-project", SprintViewOpts{})
 	v.Init()
 	v.Update(tea.WindowSizeMsg{Width: 120, Height: 40})
 

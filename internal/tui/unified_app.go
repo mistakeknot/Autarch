@@ -448,6 +448,14 @@ func (a *UnifiedApp) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case NavigateToStepMsg:
 		return a, a.navigateToStep(msg.State)
 
+	case SprintCompleteMsg:
+		return a, func() tea.Msg {
+			return OnboardingCompleteMsg{
+				ProjectID:   a.projectID,
+				ProjectName: a.projectName,
+			}
+		}
+
 	case OnboardingCompleteMsg:
 		return a, a.enterDashboard()
 
@@ -1278,6 +1286,7 @@ func (a *UnifiedApp) showTaskDetail(task tasks.TaskProposal) tea.Cmd {
 }
 
 func (a *UnifiedApp) navigateBack() tea.Cmd {
+	a.blurCurrentView()
 	// Return to appropriate view based on state
 	switch a.onboardingState {
 	case OnboardingEpicReview:
@@ -1301,7 +1310,14 @@ func (a *UnifiedApp) navigateBack() tea.Cmd {
 	return nil
 }
 
+func (a *UnifiedApp) blurCurrentView() {
+	if a.currentView != nil {
+		a.currentView.Blur()
+	}
+}
+
 func (a *UnifiedApp) navigateToKickoff() tea.Cmd {
+	a.blurCurrentView()
 	a.onboardingState = OnboardingKickoff
 	a.breadcrumb.SetCurrent(OnboardingKickoff)
 	// Clear any generated data
@@ -1374,6 +1390,7 @@ func (a *UnifiedApp) navigateToStep(state OnboardingState) tea.Cmd {
 }
 
 func (a *UnifiedApp) enterDashboard() tea.Cmd {
+	a.blurCurrentView()
 	a.mode = ModeDashboard
 
 	// Create dashboard views

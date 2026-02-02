@@ -9,6 +9,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/mistakeknot/autarch/internal/gurgeh/arbiter"
 	"github.com/mistakeknot/autarch/internal/gurgeh/arbiter/scan"
+	pollardquick "github.com/mistakeknot/autarch/internal/pollard/quick"
 	"github.com/mistakeknot/autarch/internal/tui"
 	pkgtui "github.com/mistakeknot/autarch/pkg/tui"
 )
@@ -41,15 +42,32 @@ type SprintView struct {
 	keys pkgtui.CommonKeys
 }
 
+// SprintViewOpts holds optional configuration for NewSprintView.
+type SprintViewOpts struct {
+	IntermuteURL string // empty = no research integration
+}
+
 // NewSprintView creates a new sprint view. Call StartSprint or StartSprintWithScan
 // to begin.
-func NewSprintView(projectPath string) *SprintView {
+func NewSprintView(projectPath string, opts SprintViewOpts) *SprintView {
 	chatPanel := pkgtui.NewChatPanel()
 	chatPanel.SetComposerPlaceholder("Chat about the current phase...")
 	chatPanel.SetComposerHint("enter send · ctrl+→ accept · esc back")
 
+	var orch *arbiter.Orchestrator
+	if opts.IntermuteURL != "" {
+		bridge, err := arbiter.NewResearchBridge(opts.IntermuteURL, projectPath)
+		if err == nil {
+			orch = arbiter.NewOrchestratorWithResearch(projectPath, bridge)
+		}
+	}
+	if orch == nil {
+		orch = arbiter.NewOrchestrator(projectPath)
+	}
+	orch.SetScanner(pollardquick.NewScanner())
+
 	v := &SprintView{
-		orch:      arbiter.NewOrchestrator(projectPath),
+		orch:      orch,
 		chatPanel: chatPanel,
 		docPanel:  NewSprintDocPanel(),
 		sidebar:   NewPhaseSidebar(),

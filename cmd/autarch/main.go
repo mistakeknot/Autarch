@@ -276,8 +276,11 @@ Navigation:
 			)
 
 			// Wire unified sprint view (chat-driven 8-phase flow)
+			intermuteURL := mgr.URL()
 			app.SetSprintViewFactory(func(projectPath string) tui.View {
-				v := views.NewSprintView(projectPath)
+				v := views.NewSprintView(projectPath, views.SprintViewOpts{
+					IntermuteURL: intermuteURL,
+				})
 				v.SetCallbacks(func() tea.Cmd {
 					return func() tea.Msg { return tui.NavigateBackMsg{} }
 				})

@@ -250,6 +250,9 @@ type SprintPhaseAdvancedMsg struct {
 	Phase string
 }
 
+// SprintCompleteMsg signals all sprint phases have been accepted.
+type SprintCompleteMsg struct{}
+
 // SprintConflictMsg signals consistency conflicts were found.
 type SprintConflictMsg struct {
 	Phase    string

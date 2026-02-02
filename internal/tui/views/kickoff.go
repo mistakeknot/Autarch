@@ -564,7 +564,11 @@ func (v *KickoffView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
 			case msg.Type == tea.KeyF4:
 				// Scan current directory
 				if v.onScanCodebase != nil {
-					cwd, _ := os.Getwd()
+					cwd, err := os.Getwd()
+					if err != nil {
+						v.chatPanel.AddMessage("system", "Error: could not determine working directory: "+err.Error())
+						return v, nil
+					}
 					v.scanning = true
 					v.loading = true
 					v.scanPath = cwd

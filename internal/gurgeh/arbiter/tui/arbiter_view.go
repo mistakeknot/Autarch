@@ -3,6 +3,7 @@ package tui
 import (
 	"context"
 	"fmt"
+	"os"
 	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -52,8 +53,13 @@ type ArbiterView struct {
 func NewArbiterView(projectPath string, coordinator *research.Coordinator) *ArbiterView {
 	var orch *arbiter.Orchestrator
 	if coordinator != nil {
-		orch = arbiter.NewOrchestratorWithResearch(projectPath, nil)
-	} else {
+		if url := os.Getenv("INTERMUTE_URL"); url != "" {
+			if bridge, err := arbiter.NewResearchBridge(url, projectPath); err == nil {
+				orch = arbiter.NewOrchestratorWithResearch(projectPath, bridge)
+			}
+		}
+	}
+	if orch == nil {
 		orch = arbiter.NewOrchestrator(projectPath)
 	}
 	orch.SetScanner(pollardquick.NewScanner())
