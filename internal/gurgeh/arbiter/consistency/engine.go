@@ -2,6 +2,14 @@ package consistency
 
 import "strings"
 
+// Phase indices mirror arbiter.Phase to avoid import cycles.
+const (
+	PhaseVision        = 0
+	PhaseProblem       = 1
+	PhaseUsers         = 2
+	PhaseFeaturesGoals = 3
+)
+
 // SprintState mirrors the fields needed for consistency checking.
 // This avoids import cycles with the parent arbiter package.
 type SprintState struct {
@@ -41,8 +49,8 @@ func (e *Engine) SetVision(vision *VisionInfo) {
 func (e *Engine) Check(sections map[int]*SectionInfo) []Conflict {
 	var conflicts []Conflict
 
-	problem := sections[1]    // PhaseProblem (after PhaseVision=0)
-	features := sections[3]   // PhaseFeaturesGoals (after PhaseVision=0, PhaseProblem=1, PhaseUsers=2)
+	problem := sections[int(PhaseProblem)]
+	features := sections[int(PhaseFeaturesGoals)]
 
 	if problem != nil && features != nil &&
 		problem.Accepted && features.Accepted {
@@ -67,7 +75,7 @@ func (e *Engine) checkUserFeatureAlignment(problem, features *SectionInfo) []Con
 			TypeCode: 0, // ConflictUserFeature
 			Severity: 0, // SeverityBlocker
 			Message:  "Feature targets enterprise users but problem describes solo/individual users",
-			Sections: []int{1, 3},
+			Sections: []int{int(PhaseProblem), int(PhaseFeaturesGoals)},
 		}}
 	}
 

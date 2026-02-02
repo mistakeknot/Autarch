@@ -93,7 +93,7 @@ func (o *Orchestrator) Start(ctx context.Context, userInput string) (*SprintStat
 		specID, err := o.research.CreateSpec(ctx, state.ID, title)
 		if err != nil {
 			// Non-fatal: sprint can proceed without research tracking
-			_ = err
+			fmt.Fprintf(os.Stderr, "warning: Intermute spec creation failed: %v\n", err)
 		} else {
 			state.SpecID = specID
 		}
@@ -205,8 +205,8 @@ func (o *Orchestrator) Advance(ctx context.Context, state *SprintState) (*Sprint
 		}
 	}
 
-	// Trigger quick scan when advancing to FeaturesGoals (legacy)
-	if state.Phase == PhaseFeaturesGoals {
+	// Trigger quick scan when advancing to Users so scan evidence informs the Users phase
+	if state.Phase == PhaseUsers {
 		o.runQuickScan(ctx, state)
 	}
 
@@ -345,6 +345,7 @@ func extractSectionFromSpec(spec *specs.Spec, phase Phase) *SectionDraft {
 	case PhaseProblem:
 		content = spec.UserStory.Text
 	case PhaseUsers:
+		// TODO: UserStory only has Text — needs a distinct Actors/Personas field for Users phase
 		content = spec.UserStory.Text
 	case PhaseFeaturesGoals:
 		var parts []string
@@ -636,7 +637,9 @@ func (o *Orchestrator) runPhaseResearch(ctx context.Context, state *SprintState)
 	}
 
 	// Fire targeted research via the provider (non-blocking, best-effort)
-	_ = o.research.RunTargetedScan(ctx, state.SpecID, cfg.Hunters, cfg.Mode, query)
+	if err := o.research.RunTargetedScan(ctx, state.SpecID, cfg.Hunters, cfg.Mode, query); err != nil {
+		fmt.Fprintf(os.Stderr, "warning: phase research failed for %s: %v\n", state.Phase, err)
+	}
 
 	// Refresh findings after research
 	findings, err := o.research.FetchLinkedInsights(ctx, state.SpecID)
@@ -661,6 +664,7 @@ func (o *Orchestrator) runQuickScan(ctx context.Context, state *SprintState) {
 
 	result, err := o.scanner.Scan(ctx, topic, o.projectPath)
 	if err != nil {
+		fmt.Fprintf(os.Stderr, "warning: quick scan failed: %v\n", err)
 		return
 	}
 	state.ResearchCtx = result

@@ -101,6 +101,7 @@ func (v *SprintView) StartSprintWithScan(userInput string, artifacts *scan.Artif
 
 // Init implements View.
 func (v *SprintView) Init() tea.Cmd {
+	v.shell.SetFocus(pkgtui.FocusChat)
 	return v.chatPanel.Focus()
 }
 
@@ -121,6 +122,12 @@ func (v *SprintView) Update(msg tea.Msg) (pkgtui.View, tea.Cmd) {
 	case tui.SprintDraftUpdatedMsg:
 		v.chatPanel.AddMessage("system", fmt.Sprintf("Draft for %s is ready. Review in the left panel.", msg.Phase))
 		v.chatPanel.AddMessage("system", "Type feedback to iterate, or \"accept\" to advance to the next phase.")
+		v.syncDocPanel()
+		return v, nil
+
+	case tui.SprintCompleteMsg:
+		v.chatPanel.AddMessage("system", "🎉 All phases complete! Your PRD sprint is finished.")
+		v.chatPanel.SetComposerPlaceholder("Sprint complete — press Esc to continue")
 		v.syncDocPanel()
 		return v, nil
 
@@ -189,8 +196,23 @@ func (v *SprintView) Update(msg tea.Msg) (pkgtui.View, tea.Cmd) {
 			return v, cmd
 		}
 
-		// View-specific keys
-		if v.chatPanel.Focused() {
+		// Route keys based on shell focus target
+		switch v.shell.Focus() {
+		case pkgtui.FocusDocument:
+			switch {
+			case key.Matches(msg, v.keys.Back):
+				if v.onBack != nil {
+					v.cancelStreaming()
+					return v, v.onBack()
+				}
+			case key.Matches(msg, v.keys.NavUp):
+				v.docPanel.ScrollUp()
+			case key.Matches(msg, v.keys.NavDown):
+				v.docPanel.ScrollDown()
+			}
+			return v, nil
+
+		default: // FocusChat
 			switch {
 			case msg.Type == tea.KeyEnter:
 				return v, v.handleChatSubmit()
@@ -205,15 +227,6 @@ func (v *SprintView) Update(msg tea.Msg) (pkgtui.View, tea.Cmd) {
 			default:
 				v.chatPanel, cmd = v.chatPanel.Update(msg)
 				return v, cmd
-			}
-		}
-
-		// Non-focused keys
-		switch {
-		case key.Matches(msg, v.keys.Back):
-			if v.onBack != nil {
-				v.cancelStreaming()
-				return v, v.onBack()
 			}
 		}
 	}
@@ -305,7 +318,8 @@ func (v *SprintView) handleChatSubmit() tea.Cmd {
 func isAcceptIntent(msg string) bool {
 	lower := strings.ToLower(strings.TrimSpace(msg))
 	switch lower {
-	case "accept", "approve", "looks good", "lgtm", "ok", "yes", "ship it", "done":
+	case "accept", "approve", "looks good", "lgtm", "ok", "yes", "ship it", "done",
+		"yep", "yup", "perfect", "great", "next", "proceed", "ready":
 		return true
 	}
 	return false
@@ -327,6 +341,10 @@ func (v *SprintView) waitForResponse() tea.Cmd {
 
 func (v *SprintView) handleAccept() tea.Cmd {
 	v.chatPanel.AddMessage("user", "Accept draft")
+
+	// Check if we're already on the last phase before accepting
+	prevPhase := v.orch.State().Phase
+
 	return func() tea.Msg {
 		err := v.orch.ChatAcceptDraft(context.Background())
 		if err != nil {
@@ -339,6 +357,10 @@ func (v *SprintView) handleAccept() tea.Cmd {
 			return tui.GenerationErrorMsg{What: "accept", Error: err}
 		}
 		state := v.orch.State()
+		// If phase didn't change, all phases are done
+		if state.Phase == prevPhase {
+			return tui.SprintCompleteMsg{}
+		}
 		return tui.SprintPhaseAdvancedMsg{Phase: state.Phase.String()}
 	}
 }
