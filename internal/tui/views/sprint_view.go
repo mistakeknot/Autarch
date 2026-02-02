@@ -76,7 +76,7 @@ func (v *SprintView) StartSprint(userInput string) tea.Cmd {
 		if err != nil {
 			return tui.GenerationErrorMsg{What: "sprint", Error: err}
 		}
-		state := v.orch.State()
+		state, _ := v.orch.State()
 		return tui.SprintDraftUpdatedMsg{
 			Phase:   state.Phase.String(),
 			Content: state.Sections[state.Phase].Content,
@@ -91,7 +91,7 @@ func (v *SprintView) StartSprintWithScan(userInput string, artifacts *scan.Artif
 		if err != nil {
 			return tui.GenerationErrorMsg{What: "sprint", Error: err}
 		}
-		state := v.orch.State()
+		state, _ := v.orch.State()
 		return tui.SprintDraftUpdatedMsg{
 			Phase:   state.Phase.String(),
 			Content: state.Sections[state.Phase].Content,
@@ -236,8 +236,13 @@ func (v *SprintView) Update(msg tea.Msg) (pkgtui.View, tea.Cmd) {
 
 // View implements View.
 func (v *SprintView) View() string {
-	state := v.orch.State()
-	sidebarItems := v.sidebar.Items(state)
+	state, ok := v.orch.State()
+	var sidebarItems []pkgtui.SidebarItem
+	if ok {
+		sidebarItems = v.sidebar.Items(&state)
+	} else {
+		sidebarItems = v.sidebar.Items(nil)
+	}
 	return v.shell.Render(sidebarItems, v.docPanel.View(), v.chatPanel.View())
 }
 
@@ -274,13 +279,20 @@ func (v *SprintView) ChatPanelMessagesForTest() []pkgtui.ChatMessage {
 
 // SidebarItems returns the current phase sidebar items.
 func (v *SprintView) SidebarItems() []pkgtui.SidebarItem {
-	return v.sidebar.Items(v.orch.State())
+	state, ok := v.orch.State()
+	if !ok {
+		return v.sidebar.Items(nil)
+	}
+	return v.sidebar.Items(&state)
 }
 
 // --- internal helpers ---
 
 func (v *SprintView) syncDocPanel() {
-	v.docPanel.Update(v.orch.State())
+	state, ok := v.orch.State()
+	if ok {
+		v.docPanel.Update(&state)
+	}
 }
 
 func (v *SprintView) cancelStreaming() {
@@ -343,20 +355,22 @@ func (v *SprintView) handleAccept() tea.Cmd {
 	v.chatPanel.AddMessage("user", "Accept draft")
 
 	// Check if we're already on the last phase before accepting
-	prevPhase := v.orch.State().Phase
+	prevState, _ := v.orch.State()
+	prevPhase := prevState.Phase
 
 	return func() tea.Msg {
 		err := v.orch.ChatAcceptDraft(context.Background())
 		if err != nil {
 			if arbiter.IsBlockerError(err) {
+				state, _ := v.orch.State()
 				return tui.SprintConflictMsg{
-					Phase:    v.orch.State().Phase.String(),
+					Phase:    state.Phase.String(),
 					Messages: []string{err.Error()},
 				}
 			}
 			return tui.GenerationErrorMsg{What: "accept", Error: err}
 		}
-		state := v.orch.State()
+		state, _ := v.orch.State()
 		// If phase didn't change, all phases are done
 		if state.Phase == prevPhase {
 			return tui.SprintCompleteMsg{}

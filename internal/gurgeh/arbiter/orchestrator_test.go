@@ -377,7 +377,10 @@ func TestChatAcceptDraft_AdvancesPhase(t *testing.T) {
 		t.Fatalf("ChatAcceptDraft failed: %v", err)
 	}
 
-	state := o.State()
+	state, ok := o.State()
+	if !ok {
+		t.Fatal("expected state after accept")
+	}
 	if state.Phase != arbiter.PhaseProblem {
 		t.Errorf("expected PhaseProblem after accept, got %v", state.Phase)
 	}
@@ -405,7 +408,10 @@ func TestChatReviseDraft_RecordsFeedback(t *testing.T) {
 		t.Fatalf("ChatReviseDraft failed: %v", err)
 	}
 
-	state := o.State()
+	state, ok := o.State()
+	if !ok {
+		t.Fatal("expected state after revise")
+	}
 	section := state.Sections[arbiter.PhaseVision]
 	if section.Status != arbiter.DraftNeedsRevision {
 		t.Errorf("expected DraftNeedsRevision, got %v", section.Status)
@@ -426,20 +432,22 @@ func TestChatReviseDraft_NoSprint(t *testing.T) {
 	}
 }
 
-func TestState_ReturnsNilBeforeStart(t *testing.T) {
+func TestState_ReturnsFalseBeforeStart(t *testing.T) {
 	o := arbiter.NewOrchestrator("/tmp/test")
-	if o.State() != nil {
-		t.Error("expected nil state before Start")
+	_, ok := o.State()
+	if ok {
+		t.Error("expected ok=false before Start")
 	}
 }
 
-func TestState_ReturnsStateAfterStart(t *testing.T) {
+func TestState_ReturnsTrueAfterStart(t *testing.T) {
 	o := arbiter.NewOrchestrator("/tmp/test")
 	_, err := o.Start(context.Background(), "test")
 	if err != nil {
 		t.Fatalf("Start failed: %v", err)
 	}
-	if o.State() == nil {
-		t.Error("expected non-nil state after Start")
+	_, ok := o.State()
+	if !ok {
+		t.Error("expected ok=true after Start")
 	}
 }

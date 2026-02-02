@@ -70,11 +70,17 @@ func NewOrchestratorWithResearch(projectPath string, research ResearchProvider) 
 	return o
 }
 
-// State returns the current sprint state, or nil if no sprint is active.
-func (o *Orchestrator) State() *SprintState {
+// State returns a deep-copied snapshot of the current sprint state.
+// Returns (snapshot, true) if a sprint is active, or (SprintState{}, false) if not.
+// The returned value is safe to read without locks — mutations to the
+// orchestrator's internal state will not affect it.
+func (o *Orchestrator) State() (SprintState, bool) {
 	o.mu.Lock()
 	defer o.mu.Unlock()
-	return o.state
+	if o.state == nil {
+		return SprintState{}, false
+	}
+	return o.state.Clone(), true
 }
 
 // Start initializes a new sprint and generates the Problem draft.
@@ -114,21 +120,22 @@ func (o *Orchestrator) Start(ctx context.Context, userInput string) (*SprintStat
 	o.state = state
 	o.mu.Unlock()
 
-	return state, nil
+	clone := state.Clone()
+	return &clone, nil
 }
 
 // StartWithScan initializes a sprint seeded with lossless codebase scan artifacts.
 // The first three phases (Vision, Problem, Users) incorporate evidence, quality
 // scores, and resolved questions from the kickoff scan.
 func (o *Orchestrator) StartWithScan(ctx context.Context, userInput string, artifacts *scan.Artifacts) (*SprintState, error) {
-	state, err := o.Start(ctx, userInput)
+	_, err := o.Start(ctx, userInput)
 	if err != nil {
 		return nil, err
 	}
 	if artifacts == nil {
-		return state, nil
+		clone, _ := o.State()
+		return &clone, nil
 	}
-	state.ScanArtifacts = artifacts
 
 	// Re-generate first 3 phases with scan evidence injected
 	projectCtx := o.readProjectContext()
@@ -137,6 +144,9 @@ func (o *Orchestrator) StartWithScan(ctx context.Context, userInput string, arti
 		PhaseProblem: artifacts.Problem,
 		PhaseUsers:   artifacts.Users,
 	}
+
+	o.mu.Lock()
+	o.state.ScanArtifacts = artifacts
 	for phase, pd := range phaseMap {
 		if pd == nil {
 			continue
@@ -145,35 +155,46 @@ func (o *Orchestrator) StartWithScan(ctx context.Context, userInput string, arti
 		if err != nil {
 			continue // best-effort: fall back to draft without evidence
 		}
-		state.Sections[phase] = draft
+		o.state.Sections[phase] = draft
 	}
+	clone := o.state.Clone()
+	o.mu.Unlock()
 
-	return state, nil
+	return &clone, nil
 }
 
 // StartWithResearch initializes a sprint and imports Pollard insights.
 // Each Pollard finding is published as an Intermute insight linked to the sprint's spec.
 // Requires a ResearchProvider; returns an error if none is configured.
 func (o *Orchestrator) StartWithResearch(ctx context.Context, userInput string, pollardFindings []ResearchFinding) (*SprintState, error) {
-	state, err := o.Start(ctx, userInput)
+	_, err := o.Start(ctx, userInput)
 	if err != nil {
 		return nil, err
 	}
 
-	if o.research == nil || state.SpecID == "" || len(pollardFindings) == 0 {
-		return state, nil
+	o.mu.Lock()
+	specID := o.state.SpecID
+	o.mu.Unlock()
+
+	if o.research == nil || specID == "" || len(pollardFindings) == 0 {
+		clone, _ := o.State()
+		return &clone, nil
 	}
 
 	for _, f := range pollardFindings {
-		_, _ = o.research.PublishInsight(ctx, state.SpecID, f)
+		_, _ = o.research.PublishInsight(ctx, specID, f)
 	}
 
-	findings, err := o.research.FetchLinkedInsights(ctx, state.SpecID)
-	if err == nil && len(findings) > 0 {
-		state.Findings = findings
-	}
+	findings, err := o.research.FetchLinkedInsights(ctx, specID)
 
-	return state, nil
+	o.mu.Lock()
+	if err == nil && len(findings) > 0 && o.state != nil {
+		o.state.Findings = findings
+	}
+	clone := o.state.Clone()
+	o.mu.Unlock()
+
+	return &clone, nil
 }
 
 // Advance runs consistency checks, updates confidence, and moves to the next phase.
@@ -292,14 +313,17 @@ func (o *Orchestrator) ExportSpec(state *SprintState) (*specs.Spec, error) {
 
 // StartVision initializes a new sprint for a vision-type spec.
 func (o *Orchestrator) StartVision(ctx context.Context, userInput string) (*SprintState, error) {
-	state, err := o.Start(ctx, userInput)
+	_, err := o.Start(ctx, userInput)
 	if err != nil {
 		return nil, err
 	}
 	// Mark the sprint as producing a vision spec (used by ExportSpec)
-	state.SpecType = "vision"
-	state.IsReview = false
-	return state, nil
+	o.mu.Lock()
+	o.state.SpecType = "vision"
+	o.state.IsReview = false
+	clone := o.state.Clone()
+	o.mu.Unlock()
+	return &clone, nil
 }
 
 // StartReview loads an existing vision spec into a new sprint for review.
@@ -333,7 +357,13 @@ func (o *Orchestrator) StartReview(ctx context.Context, spec *specs.Spec, active
 	}
 
 	state.VisionContext = o.LoadVisionContext()
-	return state, nil
+
+	o.mu.Lock()
+	o.state = state
+	o.mu.Unlock()
+
+	clone := state.Clone()
+	return &clone, nil
 }
 
 // extractSectionFromSpec pulls content from a Spec for the given phase.
@@ -699,16 +729,17 @@ func (o *Orchestrator) ProcessChatMessage(ctx context.Context, msg string) <-cha
 		defer close(ch)
 
 		o.mu.Lock()
-		state := o.state
-		o.mu.Unlock()
-
-		if state == nil {
+		if o.state == nil {
+			o.mu.Unlock()
 			select {
 			case ch <- "No active sprint. Start a sprint first.":
 			case <-ctx.Done():
 			}
 			return
 		}
+		state := o.state.Clone()
+		phase := state.Phase
+		o.mu.Unlock()
 
 		projectCtx := o.readProjectContext()
 
@@ -724,11 +755,11 @@ func (o *Orchestrator) ProcessChatMessage(ctx context.Context, msg string) <-cha
 
 			// Inject user message as additional context for draft generation
 			combined := msg
-			if section, ok := state.Sections[state.Phase]; ok && section.Content != "" {
+			if section, ok := state.Sections[phase]; ok && section.Content != "" {
 				combined = section.Content + "\n\nUser feedback: " + msg
 			}
 
-			draft, err = o.generator.GenerateDraft(ctx, state.Phase, projectCtx, combined)
+			draft, err = o.generator.GenerateDraft(ctx, phase, projectCtx, combined)
 			if err == nil {
 				break
 			}
@@ -750,10 +781,10 @@ func (o *Orchestrator) ProcessChatMessage(ctx context.Context, msg string) <-cha
 			return
 		}
 
-		// Update state with the new draft
+		// Write back only the new draft
 		o.mu.Lock()
 		if o.state != nil {
-			o.state.Sections[state.Phase] = draft
+			o.state.Sections[phase] = draft
 			o.state.UpdatedAt = time.Now()
 		}
 		o.mu.Unlock()
@@ -773,9 +804,8 @@ func (o *Orchestrator) ProcessChatMessage(ctx context.Context, msg string) <-cha
 // if a blocker conflict prevents advancing.
 func (o *Orchestrator) ChatAcceptDraft(ctx context.Context) error {
 	o.mu.Lock()
-	defer o.mu.Unlock()
-
 	if o.state == nil {
+		o.mu.Unlock()
 		return fmt.Errorf("no active sprint")
 	}
 
@@ -786,13 +816,15 @@ func (o *Orchestrator) ChatAcceptDraft(ctx context.Context) error {
 	}
 	o.state.UpdatedAt = time.Now()
 
-	// Run consistency + advance (unlock briefly for potentially slow operations)
-	state := o.state
+	// Clone state for Advance to work on outside the lock
+	state := o.state.Clone()
+	statePtr := &state
 	o.mu.Unlock()
 
-	updated, err := o.Advance(ctx, state)
+	updated, err := o.Advance(ctx, statePtr)
 
 	o.mu.Lock()
+	defer o.mu.Unlock()
 	if updated != nil {
 		o.state = updated
 	}

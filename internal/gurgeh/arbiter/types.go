@@ -275,3 +275,97 @@ const (
 	SeverityBlocker Severity = iota // Must resolve before continuing
 	SeverityWarning                 // Can dismiss with acknowledgment
 )
+
+// --- Clone methods for concurrency-safe snapshots ---
+
+// Clone returns a deep copy of the SectionDraft.
+func (d *SectionDraft) Clone() SectionDraft {
+	out := *d
+	out.Options = append([]string(nil), d.Options...)
+	out.ActiveSignals = append([]string(nil), d.ActiveSignals...)
+	out.UserEdits = make([]Edit, len(d.UserEdits))
+	copy(out.UserEdits, d.UserEdits)
+	return out
+}
+
+// Clone returns a deep copy of the QuickScanResult.
+func (q *QuickScanResult) Clone() QuickScanResult {
+	out := *q
+	out.GitHubHits = make([]GitHubFinding, len(q.GitHubHits))
+	copy(out.GitHubHits, q.GitHubHits)
+	out.HNHits = make([]HNFinding, len(q.HNHits))
+	copy(out.HNHits, q.HNHits)
+	return out
+}
+
+// Clone returns a deep copy of the VisionContext.
+func (vc *VisionContext) Clone() VisionContext {
+	out := *vc
+	out.Goals = append([]string(nil), vc.Goals...)
+	out.Assumptions = append([]string(nil), vc.Assumptions...)
+	out.CUJs = append([]string(nil), vc.CUJs...)
+	out.Hypotheses = append([]string(nil), vc.Hypotheses...)
+	return out
+}
+
+// Clone returns a deep copy of the SprintState.
+// ScanArtifacts is shared (immutable after creation) and not deep-copied.
+func (s *SprintState) Clone() SprintState {
+	out := *s
+
+	// Deep copy Sections map
+	out.Sections = make(map[Phase]*SectionDraft, len(s.Sections))
+	for k, v := range s.Sections {
+		c := v.Clone()
+		out.Sections[k] = &c
+	}
+
+	// Deep copy slices with interior slices/structs
+	out.Conflicts = cloneConflicts(s.Conflicts)
+	out.Findings = cloneFindings(s.Findings)
+
+	// Deep copy optional pointers
+	if s.ResearchCtx != nil {
+		rc := s.ResearchCtx.Clone()
+		out.ResearchCtx = &rc
+	}
+	if s.VisionContext != nil {
+		vc := s.VisionContext.Clone()
+		out.VisionContext = &vc
+	}
+
+	// ShapeOverrides: map of int→int values, needs shallow map copy
+	if s.ShapeOverrides != nil {
+		out.ShapeOverrides = make(map[Phase]thinking.Shape, len(s.ShapeOverrides))
+		for k, v := range s.ShapeOverrides {
+			out.ShapeOverrides[k] = v
+		}
+	}
+
+	// ScanArtifacts: shared pointer (immutable after creation), not cloned
+	return out
+}
+
+func cloneConflicts(src []Conflict) []Conflict {
+	if src == nil {
+		return nil
+	}
+	out := make([]Conflict, len(src))
+	for i, c := range src {
+		out[i] = c
+		out[i].Sections = append([]Phase(nil), c.Sections...)
+	}
+	return out
+}
+
+func cloneFindings(src []ResearchFinding) []ResearchFinding {
+	if src == nil {
+		return nil
+	}
+	out := make([]ResearchFinding, len(src))
+	for i, f := range src {
+		out[i] = f
+		out[i].Tags = append([]string(nil), f.Tags...)
+	}
+	return out
+}
