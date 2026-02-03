@@ -32,7 +32,7 @@ Unified monorepo for AI agent development tools: Bigend, Gurgeh, Coldwine, and P
 | [docs/plans/INDEX.md](docs/plans/INDEX.md) | Planning documents index |
 | [docs/VISION.md](docs/VISION.md) | Strategic vision and coordination infrastructure |
 | [docs/brainstorms/](docs/brainstorms/) | Design brainstorms |
-| [docs/solutions/](docs/solutions/) | Bug fixes and gotchas (check before debugging!) |
+| [docs/solutions/](docs/solutions/) | Solved problems by category (9 docs) - **check before debugging!** |
 
 ## Related Repositories
 
@@ -257,17 +257,48 @@ See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for details.
 
 **Before debugging, check solutions:**
 ```bash
+# Browse by category
 ls docs/solutions/
-grep -r "keyword" docs/solutions/
+
+# Search by keyword in content
+grep -r "race condition" docs/solutions/
+
+# Search by YAML frontmatter tags
+grep -l "tags:.*concurrency" docs/solutions/**/*.md
+
+# Use learnings-researcher agent (in Claude Code)
+# Automatically filters by tags, category, module, symptoms
 ```
 
-The `docs/solutions/` directory contains documented solutions to past bugs (managed by compound-engineering plugin). Each file has YAML frontmatter for searchability.
+The `docs/solutions/` directory contains documented solutions organized by category:
 
-**After fixing a bug**, run `/compound` to capture:
+| Category | Purpose | Example Topics |
+|----------|---------|----------------|
+| `runtime-errors/` | Concurrency, panics, crashes | Pointer escape, race conditions |
+| `ui-bugs/` | TUI rendering, message routing | ANSI splicing, swallowed messages |
+| `patterns/` | Architecture, design decisions | Oracle reviews, sprint architecture |
+| `workflow-issues/` | Process, methodology learnings | Over-planning, debugging approach |
+| `integration/` | Cross-tool, API issues | Intermute, external services |
+
+Each file has YAML frontmatter for searchability:
+```yaml
+---
+title: "Descriptive title"
+category: runtime-errors
+tags: [concurrency, race-condition, deep-copy]
+module: internal/gurgeh/arbiter
+symptom: "Observable error or behavior"
+root_cause: "Technical explanation"
+date_resolved: "YYYY-MM-DD"
+---
+```
+
+**After fixing a non-trivial bug**, run `/workflows:compound` to capture:
 - Problem symptoms and error messages
+- Investigation steps tried
 - Root cause analysis
-- The fix applied
-- Prevention tips
+- The fix applied (with code examples)
+- Prevention strategies
 
 ---
 
@@ -457,14 +488,24 @@ gurgeh review PRD-001 --gaps
 
 ### Knowledge Compounding
 
-Solved problems are captured in `docs/solutions/` for future reference:
+Solved problems are captured in `docs/solutions/` for future reference. Each solution compounds team knowledge—first occurrence takes research, subsequent occurrences take minutes.
+
+**Current categories:** `runtime-errors/`, `ui-bugs/`, `patterns/`, `workflow-issues/`, `integration/`
 
 ```bash
-# Before debugging
+# Before debugging - search existing solutions
 grep -r "error message" docs/solutions/
+grep -l "tags:.*bubble-tea" docs/solutions/**/*.md
 
-# After fixing (run /compound to capture)
+# After fixing - capture the learning
+/workflows:compound
 ```
+
+**Key solutions documented:**
+- Concurrency: State pointer escape, deep-copy patterns
+- TUI: Message swallowing, ANSI-aware string operations, dimension mismatches
+- Process: Reproduce before planning (over-engineering anti-pattern)
+- Architecture: Oracle review findings, arbiter sprint patterns
 
 ### SpecFlow Gap Analysis
 
