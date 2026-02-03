@@ -3,6 +3,7 @@ package tui
 import (
 	tea "github.com/charmbracelet/bubbletea"
 
+	"github.com/mistakeknot/autarch/internal/gurgeh/arbiter"
 	pkgtui "github.com/mistakeknot/autarch/pkg/tui"
 )
 
@@ -201,6 +202,12 @@ type SpecSummaryViewSetter interface {
 // SprintStarter is an interface for views that can start a sprint.
 type SprintStarter interface {
 	StartSprint(userInput string) tea.Cmd
+}
+
+// SprintStateProvider is an interface for views that can provide sprint state.
+// Used by UnifiedApp to extract state for SpecSummary creation on sprint completion.
+type SprintStateProvider interface {
+	Orchestrator() *arbiter.Orchestrator
 }
 
 // ChatSettingsSetter allows views to receive persisted chat settings.

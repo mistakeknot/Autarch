@@ -304,6 +304,12 @@ func (v *SprintView) SidebarItems() []pkgtui.SidebarItem {
 	return v.sidebar.Items(&state)
 }
 
+// Orchestrator returns the underlying orchestrator for state extraction.
+// Used by parent views to build SpecSummary on sprint completion.
+func (v *SprintView) Orchestrator() *arbiter.Orchestrator {
+	return v.orch
+}
+
 // --- internal helpers ---
 
 func (v *SprintView) syncDocPanel() {

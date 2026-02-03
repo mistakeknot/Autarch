@@ -4,6 +4,8 @@ import (
 	"testing"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/mistakeknot/autarch/internal/gurgeh/arbiter"
+	"github.com/mistakeknot/autarch/internal/pollard/research"
 	pkgtui "github.com/mistakeknot/autarch/pkg/tui"
 )
 
@@ -154,6 +156,7 @@ func TestRunUnifiedEnablesMouse(t *testing.T) {
 type mockSprintView struct {
 	startCalled bool
 	userInput   string
+	orch        *arbiter.Orchestrator
 }
 
 func (v *mockSprintView) Init() tea.Cmd                             { return nil }
@@ -170,6 +173,7 @@ func (v *mockSprintView) StartSprint(userInput string) tea.Cmd {
 		return SprintDraftUpdatedMsg{Phase: "vision", Content: "test draft"}
 	}
 }
+func (v *mockSprintView) Orchestrator() *arbiter.Orchestrator { return v.orch }
 
 // TestProjectCreatedMsgTransitionsToSprintView verifies that sending
 // ProjectCreatedMsg switches from Kickoff to SprintView and starts the sprint.
@@ -274,5 +278,94 @@ func TestProjectCreatedMsgFallsBackWithoutSprintFactory(t *testing.T) {
 	// State should still update to Interview
 	if app.onboardingState != OnboardingInterview {
 		t.Errorf("Expected OnboardingInterview state even with fallback, got %v", app.onboardingState)
+	}
+}
+
+// TestSprintCompleteMsgTransitionsToSpecSummary verifies that sending
+// SprintCompleteMsg switches from SprintView to SpecSummaryView.
+func TestSprintCompleteMsgTransitionsToSpecSummary(t *testing.T) {
+	app := NewUnifiedApp(nil)
+
+	// Create orchestrator with test state
+	orch := arbiter.NewOrchestrator("")
+	state := arbiter.NewSprintState("")
+	state.Sections[arbiter.PhaseVision].Content = "Build an amazing app"
+	state.Sections[arbiter.PhaseProblem].Content = "Users struggle with X"
+	state.Sections[arbiter.PhaseUsers].Content = "Developers and teams"
+	state.Sections[arbiter.PhaseRequirements].Content = "- Fast\n- Reliable\n- Easy to use"
+	orch.SetStateForTest(state)
+
+	sprintView := &mockSprintView{orch: orch}
+	app.currentView = sprintView
+	app.onboardingState = OnboardingInterview // SprintView is shown during Interview state
+
+	// Track SpecSummary creation
+	var createdSpec *SpecSummary
+	app.createSpecSummaryView = func(spec *SpecSummary, coord *research.Coordinator) View {
+		createdSpec = spec
+		return &noopDashboardView{name: "SpecSummary"}
+	}
+
+	// Send SprintCompleteMsg
+	msg := SprintCompleteMsg{}
+	updated, cmd := app.Update(msg)
+	app = updated.(*UnifiedApp)
+
+	// Should return commands (Init, Focus, sendWindowSize)
+	if cmd == nil {
+		t.Error("Expected commands from transition, got nil")
+	}
+
+	// Verify SpecSummary factory was called with extracted state
+	if createdSpec == nil {
+		t.Fatal("SpecSummary factory was not called")
+	}
+	if createdSpec.Vision != "Build an amazing app" {
+		t.Errorf("Expected Vision 'Build an amazing app', got %q", createdSpec.Vision)
+	}
+	if createdSpec.Problem != "Users struggle with X" {
+		t.Errorf("Expected Problem 'Users struggle with X', got %q", createdSpec.Problem)
+	}
+	if createdSpec.Users != "Developers and teams" {
+		t.Errorf("Expected Users 'Developers and teams', got %q", createdSpec.Users)
+	}
+	if len(createdSpec.Requirements) != 3 {
+		t.Errorf("Expected 3 requirements, got %d: %v", len(createdSpec.Requirements), createdSpec.Requirements)
+	}
+
+	// Verify state transitioned
+	if app.onboardingState != OnboardingSpecSummary {
+		t.Errorf("Expected OnboardingSpecSummary state, got %v", app.onboardingState)
+	}
+
+	// Verify current view changed
+	if app.currentView.Name() != "SpecSummary" {
+		t.Errorf("Expected SpecSummary view, got %s", app.currentView.Name())
+	}
+}
+
+// TestSprintCompleteMsgFallsBackToOnboardingComplete verifies graceful handling
+// when SprintView or SpecSummaryView factory is unavailable.
+func TestSprintCompleteMsgFallsBackToOnboardingComplete(t *testing.T) {
+	app := NewUnifiedApp(nil)
+
+	// Set up a view that doesn't implement SprintStateProvider
+	app.currentView = &noopDashboardView{name: "NotASprint"}
+
+	// No SpecSummary factory
+	app.createSpecSummaryView = nil
+
+	msg := SprintCompleteMsg{}
+	_, cmd := app.Update(msg)
+
+	// Should return a fallback command
+	if cmd == nil {
+		t.Error("Expected fallback command, got nil")
+	}
+
+	// Execute the command to get OnboardingCompleteMsg
+	resultMsg := cmd()
+	if _, ok := resultMsg.(OnboardingCompleteMsg); !ok {
+		t.Errorf("Expected OnboardingCompleteMsg fallback, got %T", resultMsg)
 	}
 }

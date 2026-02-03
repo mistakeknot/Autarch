@@ -14,6 +14,7 @@ import (
 	"github.com/mistakeknot/autarch/internal/autarch/agent"
 	"github.com/mistakeknot/autarch/internal/coldwine/epics"
 	"github.com/mistakeknot/autarch/internal/coldwine/tasks"
+	"github.com/mistakeknot/autarch/internal/gurgeh/arbiter"
 	"github.com/mistakeknot/autarch/internal/gurgeh/arbiter/scan"
 	"github.com/mistakeknot/autarch/internal/pollard/research"
 	"github.com/mistakeknot/autarch/pkg/autarch"
@@ -449,6 +450,47 @@ func (a *UnifiedApp) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return a, a.navigateToStep(msg.State)
 
 	case SprintCompleteMsg:
+		// Handle at parent level: transition to SpecSummaryView with sprint results.
+		// No message pass-through needed since we're replacing the view, not retaining it.
+		if provider, ok := a.currentView.(SprintStateProvider); ok {
+			state, stateOK := provider.Orchestrator().State()
+			if stateOK && a.createSpecSummaryView != nil {
+				spec := createSpecSummaryFromSprintState(&state)
+				a.onboardingState = OnboardingSpecSummary
+				a.breadcrumb.SetCurrent(OnboardingSpecSummary)
+				a.currentView = a.createSpecSummaryView(spec, a.researchCoord)
+				a.attachAgentSelector(a.currentView)
+
+				// Set up callbacks (same as handleInterviewComplete)
+				if sv, ok := a.currentView.(SpecSummaryViewSetter); ok {
+					sv.SetCallbacks(
+						func(s *SpecSummary) tea.Cmd {
+							return func() tea.Msg {
+								return SpecAcceptedMsg{
+									Vision:       s.Vision,
+									Users:        s.Users,
+									Problem:      s.Problem,
+									Platform:     s.Platform,
+									Language:     s.Language,
+									Requirements: s.Requirements,
+								}
+							}
+						},
+						func(s *SpecSummary) tea.Cmd {
+							return func() tea.Msg { return NavigateBackMsg{} }
+						},
+						nil,
+					)
+				}
+
+				return a, tea.Batch(
+					a.currentView.Init(),
+					a.currentView.Focus(),
+					a.sendWindowSize(),
+				)
+			}
+		}
+		// Fallback: proceed to dashboard if view transition fails
 		return a, func() tea.Msg {
 			return OnboardingCompleteMsg{
 				ProjectID:   a.projectID,
@@ -1053,6 +1095,56 @@ func (a *UnifiedApp) waitForAgentStream(ch <-chan agentStreamEvent, what string)
 
 		return GenerationErrorMsg{What: what, Error: fmt.Errorf("%s generation interrupted", what)}
 	}
+}
+
+// createSpecSummaryFromSprintState extracts display fields from a completed sprint.
+// The state pointer is read-only; it was already cloned by Orchestrator.State().
+func createSpecSummaryFromSprintState(state *arbiter.SprintState) *SpecSummary {
+	spec := &SpecSummary{
+		ProjectID: state.ID,
+	}
+
+	if s, ok := state.Sections[arbiter.PhaseVision]; ok && s.Content != "" {
+		spec.Vision = s.Content
+		spec.Name = extractFirstLine(s.Content)
+	}
+	if s, ok := state.Sections[arbiter.PhaseProblem]; ok && s.Content != "" {
+		spec.Problem = s.Content
+	}
+	if s, ok := state.Sections[arbiter.PhaseUsers]; ok && s.Content != "" {
+		spec.Users = s.Content
+	}
+	if s, ok := state.Sections[arbiter.PhaseRequirements]; ok && s.Content != "" {
+		spec.Requirements = parseBulletItems(s.Content)
+	}
+	// Note: Platform/Language not in 8-phase sprint - leave empty
+
+	return spec
+}
+
+// extractFirstLine returns the first non-empty line of content.
+func extractFirstLine(content string) string {
+	if idx := strings.Index(content, "\n"); idx > 0 {
+		return strings.TrimSpace(content[:idx])
+	}
+	return strings.TrimSpace(content)
+}
+
+// parseBulletItems splits content on newlines and strips bullet prefixes.
+func parseBulletItems(content string) []string {
+	lines := strings.Split(content, "\n")
+	var items []string
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		// Strip common bullet prefixes
+		line = strings.TrimPrefix(line, "- ")
+		line = strings.TrimPrefix(line, "* ")
+		line = strings.TrimPrefix(line, "• ")
+		if line != "" {
+			items = append(items, line)
+		}
+	}
+	return items
 }
 
 func (a *UnifiedApp) handleSuggestionsReady(msg SuggestionsReadyMsg) tea.Cmd {

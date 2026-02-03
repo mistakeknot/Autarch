@@ -105,7 +105,7 @@ func (o *Orchestrator) Start(ctx context.Context, userInput string) (*SprintStat
 		}
 	}
 
-	draft, err := o.generator.GenerateDraft(ctx, PhaseVision, projectCtx, userInput)
+	draft, err := o.generator.GenerateDraft(ctx, PhaseVision, projectCtx, userInput, nil)
 	if err != nil {
 		return nil, fmt.Errorf("generating vision draft: %w", err)
 	}
@@ -151,7 +151,7 @@ func (o *Orchestrator) StartWithScan(ctx context.Context, userInput string, arti
 		if pd == nil {
 			continue
 		}
-		draft, err := o.generator.GenerateDraft(ctx, phase, projectCtx, userInput, pd)
+		draft, err := o.generator.GenerateDraft(ctx, phase, projectCtx, userInput, o.state.Findings, pd)
 		if err != nil {
 			continue // best-effort: fall back to draft without evidence
 		}
@@ -238,7 +238,7 @@ func (o *Orchestrator) Advance(ctx context.Context, state *SprintState) (*Sprint
 
 	// Generate draft for the new phase
 	projectCtx := o.readProjectContext()
-	draft, err := o.generator.GenerateDraft(ctx, state.Phase, projectCtx, "")
+	draft, err := o.generator.GenerateDraft(ctx, state.Phase, projectCtx, "", state.Findings)
 	if err != nil {
 		return nil, fmt.Errorf("generating draft for %s: %w", state.Phase, err)
 	}
@@ -759,7 +759,7 @@ func (o *Orchestrator) ProcessChatMessage(ctx context.Context, msg string) <-cha
 				combined = section.Content + "\n\nUser feedback: " + msg
 			}
 
-			draft, err = o.generator.GenerateDraft(ctx, phase, projectCtx, combined)
+			draft, err = o.generator.GenerateDraft(ctx, phase, projectCtx, combined, state.Findings)
 			if err == nil {
 				break
 			}
@@ -858,4 +858,12 @@ func (o *Orchestrator) ChatReviseDraft(feedback string) error {
 	o.state.UpdatedAt = time.Now()
 
 	return nil
+}
+
+// SetStateForTest sets the internal state for testing purposes.
+// This bypasses the normal Start() flow and should only be used in tests.
+func (o *Orchestrator) SetStateForTest(state *SprintState) {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	o.state = state
 }
