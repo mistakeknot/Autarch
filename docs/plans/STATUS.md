@@ -1,4 +1,4 @@
-# Plan Status Report — 2026-02-01
+# Plan Status Report — 2026-02-03
 
 > Generated from todos, git history, and codebase evidence. Status labels are heuristics unless backed by a todo.
 
@@ -14,7 +14,7 @@
 - Derived evidence: 1
 - Commit evidence: 45
 - Preexisting paths (no git evidence): 1
-- No evidence: 2
+- No evidence: 3
 
 ## Status Legend
 
@@ -73,7 +73,7 @@
 | 2026-01-29-scan-artifact-ui-display.md | commit | paths:4 latest:2026-02-01 |
 | 2026-01-29-scan-artifact-validation.md | commit | paths:14 latest:2026-01-29 |
 | 2026-01-29-scan-open-questions-ui.md | commit | paths:2 latest:2026-02-01 |
-| 2026-01-29-scan-signoff-breadcrumb-plan.md | commit | paths:3 latest:2026-02-01 |
+| 2026-01-29-scan-signoff-breadcrumb-plan.md | commit | paths:4 latest:2026-02-01 |
 | 2026-01-29-scan-validation-wiring.md | commit | paths:3 latest:2026-02-01 |
 | 2026-01-29-structured-scan-output.md | commit | paths:3 latest:2026-01-29 |
 | 2026-01-30-chat-panel-mouse-scroll.md | commit | paths:2 latest:2026-02-01 |
@@ -82,6 +82,7 @@
 | 2026-01-30-scan-progress-chatpane.md | commit | paths:2 latest:2026-02-01 |
 | 2026-01-31-feat-unified-chat-spec-flow-plan.md | none | no referenced paths found |
 | 2026-01-31-plan-status-precommit-hook.md | commit | paths:7 latest:2026-02-01 |
+| 2026-02-02-fix-kickoff-arbiter-transition-plan.md | none | no referenced paths found |
 
 ## Derived Evidence Details
 

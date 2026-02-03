@@ -7,7 +7,11 @@ import (
 	"strings"
 	"time"
 
+	"log"
+
+	"github.com/mistakeknot/autarch/internal/coldwine/intermute"
 	"github.com/mistakeknot/autarch/internal/coldwine/project"
+	"github.com/mistakeknot/autarch/internal/coldwine/storage"
 	"github.com/spf13/cobra"
 	"gopkg.in/yaml.v3"
 )
@@ -228,6 +232,19 @@ func taskBlockCmd() *cobra.Command {
 
 			if err := saveTask(taskPath, task); err != nil {
 				return err
+			}
+
+			// Best-effort broadcast of blocked event
+			specID, _ := task["spec_id"].(string)
+			broadcaster := intermute.NewTaskBroadcaster(nil, "", "coldwine-cli")
+			wt := storage.WorkTask{
+				ID:       fmt.Sprintf("%v", task["id"]),
+				StoryID:  fmt.Sprintf("%v", task["story_id"]),
+				Title:    fmt.Sprintf("%v", task["title"]),
+				Assignee: fmt.Sprintf("%v", task["assignee"]),
+			}
+			if err := broadcaster.BroadcastBlocked(cmd.Context(), wt, reason, specID); err != nil {
+				log.Printf("warning: failed to broadcast blocked event: %v", err)
 			}
 
 			if jsonOut {

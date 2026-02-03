@@ -16,6 +16,7 @@ const (
 	SignalSpecHealthLow        SignalType = "spec_health_low"
 	SignalExecutionDrift       SignalType = "execution_drift"
 	SignalVisionDrift          SignalType = "vision_drift"
+	SignalTaskBlocked          SignalType = "task_blocked"
 )
 
 // Severity indicates urgency of a signal.

@@ -183,6 +183,8 @@ func mapSpecStatus(status string) intermute.SpecStatus {
 		return intermute.SpecStatusValidated
 	case "archived", "done":
 		return intermute.SpecStatusArchived
+	case "needs_revision":
+		return intermute.SpecStatusNeedsRevision
 	default:
 		return intermute.SpecStatusDraft
 	}

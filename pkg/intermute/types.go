@@ -13,7 +13,8 @@ const (
 	SpecStatusDraft     SpecStatus = "draft"
 	SpecStatusResearch  SpecStatus = "research"
 	SpecStatusValidated SpecStatus = "validated"
-	SpecStatusArchived  SpecStatus = "archived"
+	SpecStatusArchived       SpecStatus = "archived"
+	SpecStatusNeedsRevision SpecStatus = "needs_revision"
 )
 
 // EpicStatus represents the status of an epic

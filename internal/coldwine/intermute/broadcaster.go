@@ -43,14 +43,15 @@ func (b *TaskBroadcaster) WithRecipients(recipients []string) *TaskBroadcaster {
 
 // TaskEventPayload is the structured payload for task events
 type TaskEventPayload struct {
-	EventType    string `json:"event_type"`
-	TaskID       string `json:"task_id"`
-	StoryID      string `json:"story_id,omitempty"`
-	Title        string `json:"title"`
-	Status       string `json:"status"`
+	EventType      string `json:"event_type"`
+	TaskID         string `json:"task_id"`
+	StoryID        string `json:"story_id,omitempty"`
+	SpecID         string `json:"spec_id,omitempty"`
+	Title          string `json:"title"`
+	Status         string `json:"status"`
 	PreviousStatus string `json:"previous_status,omitempty"`
-	Assignee     string `json:"assignee,omitempty"`
-	Priority     int    `json:"priority,omitempty"`
+	Assignee       string `json:"assignee,omitempty"`
+	Priority       int    `json:"priority,omitempty"`
 }
 
 // BroadcastCreated sends a task.created event
@@ -111,8 +112,8 @@ func (b *TaskBroadcaster) BroadcastAssigned(ctx context.Context, task storage.Wo
 	return b.send(ctx, "task.assigned", payload)
 }
 
-// BroadcastBlocked sends a task.blocked event with reason
-func (b *TaskBroadcaster) BroadcastBlocked(ctx context.Context, task storage.WorkTask, reason string) error {
+// BroadcastBlocked sends a task.blocked event with reason and optional spec linkage.
+func (b *TaskBroadcaster) BroadcastBlocked(ctx context.Context, task storage.WorkTask, reason, specID string) error {
 	if b.sender == nil {
 		return nil
 	}
@@ -127,6 +128,7 @@ func (b *TaskBroadcaster) BroadcastBlocked(ctx context.Context, task storage.Wor
 			EventType: "task.blocked",
 			TaskID:    task.ID,
 			StoryID:   task.StoryID,
+			SpecID:    specID,
 			Title:     task.Title,
 			Status:    "blocked",
 			Assignee:  task.Assignee,
