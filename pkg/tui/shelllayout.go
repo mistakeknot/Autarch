@@ -35,7 +35,7 @@ type ShellLayout struct {
 func NewShellLayout() *ShellLayout {
 	return &ShellLayout{
 		sidebar:     NewSidebar(),
-		splitLayout: NewSplitLayout(0.66),
+		splitLayout: NewSplitLayout(0.5),
 		showSidebar: true,
 		focus:       FocusDocument,
 	}
