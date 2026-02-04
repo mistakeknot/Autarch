@@ -31,7 +31,7 @@ func NewLogPane() *LogPane {
 func (p *LogPane) SetSize(width, height int) {
 	p.width = width
 	p.height = height
-	p.viewport = viewport.New(width-4, height-3) // Account for border, padding, and header
+	p.viewport = viewport.New(width-2, height-1) // Account for padding and header
 	p.viewport.MouseWheelEnabled = true
 	p.updateContent()
 }
@@ -97,22 +97,26 @@ func (p *LogPane) formatEntry(e LogMsg) string {
 	return fmt.Sprintf("%s %s %s", ts, level, e.Message)
 }
 
-// View renders the log pane with border and header.
+// View renders the log pane with header (no border, matches other panes).
 func (p *LogPane) View() string {
+	// Match the padding style used by other panes (1 char on each side)
 	style := lipgloss.NewStyle().
-		Border(lipgloss.RoundedBorder()).
-		BorderForeground(ColorMuted).
-		Padding(0, 1). // Match other panes
-		Width(p.width - 2).
-		Height(p.height - 2)
+		Padding(0, 1).
+		Width(p.width).
+		Height(p.height)
 
 	header := lipgloss.NewStyle().
 		Foreground(ColorPrimary).
 		Bold(true).
+		Background(ColorBgDark).
+		Padding(0, 1).
 		Render("Logs")
 
+	// Pad header to full width like SplitLayout does
+	headerLine := padToWidth(header, p.width-2)
+
 	return style.Render(
-		lipgloss.JoinVertical(lipgloss.Left, header, p.viewport.View()),
+		lipgloss.JoinVertical(lipgloss.Left, headerLine, p.viewport.View()),
 	)
 }
 
