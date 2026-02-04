@@ -56,6 +56,15 @@ func Validate(raw []byte, opts ValidationOptions) (ValidationResult, error) {
 	validateCUJs(&res, doc.CriticalUserJourneys, reqIDs, opts.Mode)
 	validateMarketResearch(&res, doc.MarketResearch, opts)
 	validateCompetitiveLandscape(&res, doc.CompetitiveLandscape, opts)
+	validateAcceptanceCriteria(&res, doc.Acceptance, opts.Mode)
+	validateFilesToModify(&res, doc.FilesToModify, opts.Mode)
+	validateComplexityPriority(&res, doc.Complexity, doc.Priority, opts.Mode)
+	validateGoals(&res, doc.Goals, opts.Mode)
+	validateNonGoals(&res, doc.NonGoals, opts.Mode)
+	validateStructuredRequirements(&res, doc.StructuredRequirements, opts.Mode)
+	validateHypotheses(&res, doc.Hypotheses, opts.Mode)
+	validateUserStoryHash(&res, doc.UserStory, opts.Mode)
+	validateVisionRef(&res, doc.VisionRef, opts)
 	return res, nil
 }
 
@@ -194,6 +203,178 @@ func requirementIDs(requirements []string) map[string]struct{} {
 	return ids
 }
 
+func validateAcceptanceCriteria(res *ValidationResult, items []AcceptanceCriterion, mode ValidationMode) {
+	seen := make(map[string]struct{})
+	for _, ac := range items {
+		if ac.ID == "" {
+			res.Errors = append(res.Errors, "acceptance criterion id is required")
+		} else {
+			if _, ok := seen[ac.ID]; ok {
+				res.Errors = append(res.Errors, "duplicate acceptance criterion id: "+ac.ID)
+			}
+			seen[ac.ID] = struct{}{}
+		}
+	}
+}
+
+func validateFilesToModify(res *ValidationResult, items []FileChange, mode ValidationMode) {
+	for _, fc := range items {
+		if fc.Path == "" {
+			res.Errors = append(res.Errors, "file change path is required")
+		}
+		if fc.Action != "" && !validFileAction(fc.Action) {
+			res.Errors = append(res.Errors, "invalid file action: "+fc.Action)
+		}
+	}
+}
+
+func validFileAction(action string) bool {
+	switch strings.ToLower(action) {
+	case "create", "modify", "delete":
+		return true
+	default:
+		return false
+	}
+}
+
+func validateComplexityPriority(res *ValidationResult, complexity string, priority int, mode ValidationMode) {
+	if complexity != "" && !validComplexity(complexity) {
+		res.Errors = append(res.Errors, "invalid complexity: "+complexity)
+	}
+	if priority < 0 || priority > 4 {
+		addModeIssue(res, mode, "priority out of range 0-4")
+	}
+}
+
+func validComplexity(c string) bool {
+	switch strings.ToLower(c) {
+	case "trivial", "low", "medium", "high", "critical":
+		return true
+	default:
+		return false
+	}
+}
+
+func validateGoals(res *ValidationResult, items []Goal, mode ValidationMode) {
+	seen := make(map[string]struct{})
+	for _, g := range items {
+		if g.ID == "" {
+			res.Errors = append(res.Errors, "goal id is required")
+		} else {
+			if _, ok := seen[g.ID]; ok {
+				res.Errors = append(res.Errors, "duplicate goal id: "+g.ID)
+			}
+			seen[g.ID] = struct{}{}
+		}
+		if g.Description == "" {
+			addModeIssue(res, mode, "goal missing description: "+g.ID)
+		}
+	}
+}
+
+func validateNonGoals(res *ValidationResult, items []NonGoal, mode ValidationMode) {
+	seen := make(map[string]struct{})
+	for _, ng := range items {
+		if ng.ID == "" {
+			res.Errors = append(res.Errors, "non-goal id is required")
+		} else {
+			if _, ok := seen[ng.ID]; ok {
+				res.Errors = append(res.Errors, "duplicate non-goal id: "+ng.ID)
+			}
+			seen[ng.ID] = struct{}{}
+		}
+	}
+}
+
+func validateStructuredRequirements(res *ValidationResult, items []Requirement, mode ValidationMode) {
+	seen := make(map[string]struct{})
+	for _, r := range items {
+		if r.ID == "" {
+			res.Errors = append(res.Errors, "structured requirement id is required")
+		} else {
+			if _, ok := seen[r.ID]; ok {
+				res.Errors = append(res.Errors, "duplicate structured requirement id: "+r.ID)
+			}
+			seen[r.ID] = struct{}{}
+		}
+		if r.Type != "" && !validRequirementType(r.Type) {
+			res.Errors = append(res.Errors, "invalid requirement type: "+r.Type)
+		}
+		if r.Given == "" && r.When == "" && r.Then == "" {
+			addModeIssue(res, mode, "structured requirement has empty GWT: "+r.ID)
+		}
+		if r.Status != "" && !validRequirementStatus(r.Status) {
+			addModeIssue(res, mode, "invalid requirement status: "+r.Status)
+		}
+	}
+}
+
+func validRequirementType(t string) bool {
+	switch strings.ToLower(t) {
+	case "functional", "performance", "security":
+		return true
+	default:
+		return false
+	}
+}
+
+func validRequirementStatus(s string) bool {
+	switch strings.ToLower(s) {
+	case "draft", "approved", "implemented":
+		return true
+	default:
+		return false
+	}
+}
+
+func validateHypotheses(res *ValidationResult, items []Hypothesis, mode ValidationMode) {
+	seen := make(map[string]struct{})
+	for _, h := range items {
+		if h.ID == "" {
+			res.Errors = append(res.Errors, "hypothesis id is required")
+		} else {
+			if _, ok := seen[h.ID]; ok {
+				res.Errors = append(res.Errors, "duplicate hypothesis id: "+h.ID)
+			}
+			seen[h.ID] = struct{}{}
+		}
+		if h.Statement == "" {
+			addModeIssue(res, mode, "hypothesis missing statement: "+h.ID)
+		}
+		if h.Status != "" && !validHypothesisStatus(h.Status) {
+			res.Errors = append(res.Errors, "invalid hypothesis status: "+h.Status)
+		}
+	}
+}
+
+func validHypothesisStatus(s string) bool {
+	switch strings.ToLower(s) {
+	case "untested", "validated", "invalidated":
+		return true
+	default:
+		return false
+	}
+}
+
+func validateUserStoryHash(res *ValidationResult, us UserStory, mode ValidationMode) {
+	if us.Text != "" && us.Hash == "" {
+		addModeIssue(res, mode, "user story has text but no hash")
+	}
+}
+
+func validateVisionRef(res *ValidationResult, visionRef string, opts ValidationOptions) {
+	if visionRef == "" {
+		return
+	}
+	for _, dir := range []string{gurgDir, legacyPraudeDir} {
+		specPath := filepath.Join(opts.Root, dir, "specs", visionRef+".yaml")
+		if _, err := os.Stat(specPath); err == nil {
+			return
+		}
+	}
+	res.Warnings = append(res.Warnings, "vision_ref not found: "+visionRef)
+}
+
 func isResearchPath(path string) bool {
 	if filepath.IsAbs(path) {
 		return false
@@ -202,9 +383,11 @@ func isResearchPath(path string) bool {
 	if clean == "." {
 		return false
 	}
-	prefix := filepath.Clean(filepath.Join(".praude", "research"))
-	if clean == prefix {
-		return true
+	for _, dir := range []string{gurgDir, legacyPraudeDir} {
+		prefix := filepath.Clean(filepath.Join(dir, "research"))
+		if clean == prefix || strings.HasPrefix(clean, prefix+string(os.PathSeparator)) {
+			return true
+		}
 	}
-	return strings.HasPrefix(clean, prefix+string(os.PathSeparator))
+	return false
 }
