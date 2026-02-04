@@ -72,6 +72,7 @@ func tuiCmd() *cobra.Command {
 		port        int
 		dataDir     string
 		skipOnboard bool
+		inlineMode  bool
 	)
 
 	cmd := &cobra.Command{
@@ -172,7 +173,7 @@ Navigation:
 					}
 				}
 
-				return tui.Run(client,
+				return tui.RunWithOpts(client, tui.RunOpts{InlineMode: inlineMode},
 					bigendView,
 					signalsView,
 					gurgehView,
@@ -288,13 +289,14 @@ Navigation:
 				return v
 			})
 
-			return tui.RunUnified(client, app)
+			return tui.RunUnifiedWithOpts(client, app, tui.RunOpts{InlineMode: inlineMode})
 		},
 	}
 
 	cmd.Flags().IntVar(&port, "port", 7338, "Intermute server port")
 	cmd.Flags().StringVar(&dataDir, "data-dir", "", "Data directory (default: ~/.autarch)")
 	cmd.Flags().BoolVar(&skipOnboard, "skip-onboard", false, "Skip onboarding and go directly to dashboard")
+	cmd.Flags().BoolVar(&inlineMode, "inline", false, "Enable inline mode with log pane (preserves scrollback)")
 
 	return cmd
 }

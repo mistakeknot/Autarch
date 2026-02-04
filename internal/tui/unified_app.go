@@ -3,6 +3,7 @@ package tui
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"os"
 	"os/exec"
 	"strings"
@@ -79,6 +80,10 @@ type UnifiedApp struct {
 	chatSettingsOpen bool
 	chatSettingsView *pkgtui.ChatSettingsPanel
 
+	// Inline mode (log pane)
+	logPane     *pkgtui.LogPane
+	showLogPane bool
+
 	// View factories (injected from main.go)
 	createKickoffView     func() View
 	createArbiterView     func(*research.Coordinator) View
@@ -113,6 +118,19 @@ func NewUnifiedApp(client *autarch.Client) *UnifiedApp {
 	}
 
 	return app
+}
+
+// SetInlineMode enables inline mode with a log pane at the bottom.
+func (a *UnifiedApp) SetInlineMode(enabled bool) {
+	a.showLogPane = enabled
+	if enabled {
+		a.logPane = pkgtui.NewLogPane()
+	}
+}
+
+// LogPane returns the log pane (nil if not in inline mode).
+func (a *UnifiedApp) LogPane() *pkgtui.LogPane {
+	return a.logPane
 }
 
 // SetArbiterViewFactory sets the factory for the Arbiter sprint view (replaces interview).
@@ -286,6 +304,12 @@ func (a *UnifiedApp) Init() tea.Cmd {
 
 // Update implements tea.Model
 func (a *UnifiedApp) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	// Route log batches to pane before other handling
+	if batch, ok := msg.(pkgtui.LogBatchMsg); ok && a.logPane != nil {
+		cmd := a.logPane.Update(batch)
+		return a, cmd
+	}
+
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
 		a.width = msg.Width
@@ -293,13 +317,20 @@ func (a *UnifiedApp) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		a.tabs.SetWidth(msg.Width)
 		a.palette.SetSize(msg.Width, msg.Height)
 
-		// Pass reduced size to current view (account for header + footer)
+		// Size log pane if in inline mode
+		logPaneHeight := 0
+		if a.logPane != nil {
+			logPaneHeight = 10
+			a.logPane.SetSize(msg.Width, logPaneHeight)
+		}
+
+		// Pass reduced size to current view (account for header + footer + log pane)
 		if a.currentView != nil {
 			headerHeight := 3
 			footerHeight := 3
 			contentMsg := tea.WindowSizeMsg{
 				Width:  msg.Width,
-				Height: msg.Height - headerHeight - footerHeight,
+				Height: msg.Height - headerHeight - footerHeight - logPaneHeight,
 			}
 			var cmd tea.Cmd
 			a.currentView, cmd = a.currentView.Update(contentMsg)
@@ -1678,7 +1709,11 @@ func (a *UnifiedApp) View() string {
 	// Calculate heights
 	headerHeight := 3 // Header with padding
 	footerHeight := 3 // Footer with padding
-	contentHeight := a.height - headerHeight - footerHeight
+	logPaneHeight := 0
+	if a.showLogPane && a.logPane != nil {
+		logPaneHeight = 10
+	}
+	contentHeight := a.height - headerHeight - footerHeight - logPaneHeight
 
 	// Header area
 	var header string
@@ -1710,6 +1745,12 @@ func (a *UnifiedApp) View() string {
 
 	contentRendered := contentStyle.Render(content)
 
+	// Log pane (if inline mode)
+	var logPaneRendered string
+	if a.showLogPane && a.logPane != nil {
+		logPaneRendered = a.logPane.View()
+	}
+
 	// Footer
 	footerStyle := pkgtui.FooterStyle.
 		Width(a.width).
@@ -1717,11 +1758,12 @@ func (a *UnifiedApp) View() string {
 	footerRendered := footerStyle.Render(a.renderFooterContent())
 
 	// Join all sections vertically
-	result := lipgloss.JoinVertical(lipgloss.Left,
-		headerRendered,
-		contentRendered,
-		footerRendered,
-	)
+	sections := []string{headerRendered, contentRendered}
+	if logPaneRendered != "" {
+		sections = append(sections, logPaneRendered)
+	}
+	sections = append(sections, footerRendered)
+	result := lipgloss.JoinVertical(lipgloss.Left, sections...)
 
 	// Overlay palette if visible
 	if a.palette.Visible() {
@@ -1925,7 +1967,43 @@ func insertAt(base string, col int, overlay string) string {
 
 // RunUnified starts the unified TUI application
 func RunUnified(client *autarch.Client, app *UnifiedApp) error {
-	p := tea.NewProgram(app, tea.WithAltScreen(), tea.WithMouseCellMotion())
+	return RunUnifiedWithOpts(client, app, RunOpts{})
+}
+
+// RunUnifiedWithOpts starts the unified TUI application with configurable options.
+func RunUnifiedWithOpts(client *autarch.Client, app *UnifiedApp, opts RunOpts) error {
+	app.SetInlineMode(opts.InlineMode)
+
+	var progOpts []tea.ProgramOption
+	if !opts.InlineMode {
+		progOpts = append(progOpts, tea.WithAltScreen())
+	}
+	progOpts = append(progOpts, tea.WithMouseCellMotion())
+
+	p := tea.NewProgram(app, progOpts...)
+
+	// Set up log handler for inline mode
+	var handler *pkgtui.LogHandler
+	if opts.InlineMode {
+		handler = pkgtui.NewLogHandler(slog.LevelDebug)
+		handler.SetProgram(p)
+		slog.SetDefault(slog.New(handler))
+	}
+
 	_, err := p.Run()
+
+	// Cleanup
+	if handler != nil {
+		handler.Close()
+	}
+
+	// Dump logs for scrollback
+	if opts.InlineMode && app.LogPane() != nil {
+		fmt.Println("\n--- Log History ---")
+		for _, e := range app.LogPane().Entries() {
+			fmt.Printf("[%s] %s: %s\n", e.Time.Format("15:04:05"), e.Level, e.Message)
+		}
+	}
+
 	return err
 }

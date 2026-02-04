@@ -2,6 +2,7 @@ package tui
 
 import (
 	"fmt"
+	"log/slog"
 	"strings"
 
 	"github.com/charmbracelet/bubbles/key"
@@ -14,15 +15,17 @@ import (
 
 // App is the main unified TUI application
 type App struct {
-	client  *autarch.Client
-	tabs    *TabBar
-	views   []View
-	palette *Palette
-	width   int
-	height  int
-	err     error
-	keys    pkgtui.CommonKeys
-	help    pkgtui.HelpOverlay
+	client      *autarch.Client
+	tabs        *TabBar
+	views       []View
+	palette     *Palette
+	width       int
+	height      int
+	err         error
+	keys        pkgtui.CommonKeys
+	help        pkgtui.HelpOverlay
+	logPane     *pkgtui.LogPane
+	showLogPane bool
 }
 
 // NewApp creates a new unified TUI app
@@ -45,6 +48,19 @@ func NewApp(client *autarch.Client, views ...View) *App {
 	app.updateCommands()
 
 	return app
+}
+
+// SetInlineMode enables inline mode with a log pane at the bottom.
+func (a *App) SetInlineMode(enabled bool) {
+	a.showLogPane = enabled
+	if enabled {
+		a.logPane = pkgtui.NewLogPane()
+	}
+}
+
+// LogPane returns the log pane (nil if not in inline mode).
+func (a *App) LogPane() *pkgtui.LogPane {
+	return a.logPane
 }
 
 func (a *App) updateCommands() {
@@ -124,12 +140,25 @@ func (a *App) Init() tea.Cmd {
 func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	var cmds []tea.Cmd
 
+	// Route log batches to pane before other handling
+	if batch, ok := msg.(pkgtui.LogBatchMsg); ok && a.logPane != nil {
+		cmd := a.logPane.Update(batch)
+		cmds = append(cmds, cmd)
+		return a, tea.Batch(cmds...)
+	}
+
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
 		a.width = msg.Width
 		a.height = msg.Height
 		a.tabs.SetWidth(msg.Width)
 		a.palette.SetSize(msg.Width, msg.Height)
+
+		// Size log pane if in inline mode
+		if a.logPane != nil {
+			logHeight := 10 // Fixed height for log pane
+			a.logPane.SetSize(msg.Width, logHeight)
+		}
 
 		// Pass size to active view
 		if len(a.views) > 0 {
@@ -236,8 +265,12 @@ func (a *App) View() string {
 	b.WriteString(a.tabs.View())
 	b.WriteString("\n")
 
-	// Calculate content height (total - tabs - footer)
-	contentHeight := a.height - 4
+	// Calculate content height (total - tabs - footer - log pane if visible)
+	logPaneHeight := 0
+	if a.showLogPane && a.logPane != nil {
+		logPaneHeight = 10
+	}
+	contentHeight := a.height - 4 - logPaneHeight
 
 	// Active view content
 	var content string
@@ -258,6 +291,12 @@ func (a *App) View() string {
 	}
 	b.WriteString(strings.Join(contentLines, "\n"))
 	b.WriteString("\n")
+
+	// Log pane (if inline mode)
+	if a.showLogPane && a.logPane != nil {
+		b.WriteString(a.logPane.View())
+		b.WriteString("\n")
+	}
 
 	// Footer
 	b.WriteString(a.renderFooter())
@@ -360,11 +399,52 @@ func (a *App) insertAt(base string, col int, overlay string) string {
 	return result.String()
 }
 
+// RunOpts configures TUI execution options.
+type RunOpts struct {
+	InlineMode bool // Inline mode preserves scrollback and shows log pane
+}
+
 // Run starts the TUI application
 func Run(client *autarch.Client, views ...View) error {
+	return RunWithOpts(client, RunOpts{}, views...)
+}
+
+// RunWithOpts starts the TUI application with configurable options.
+func RunWithOpts(client *autarch.Client, opts RunOpts, views ...View) error {
 	app := NewApp(client, views...)
-	p := tea.NewProgram(app, tea.WithAltScreen())
+	app.SetInlineMode(opts.InlineMode)
+
+	var progOpts []tea.ProgramOption
+	if !opts.InlineMode {
+		progOpts = append(progOpts, tea.WithAltScreen())
+	}
+	progOpts = append(progOpts, tea.WithMouseCellMotion())
+
+	p := tea.NewProgram(app, progOpts...)
+
+	// Set up log handler for inline mode
+	var handler *pkgtui.LogHandler
+	if opts.InlineMode {
+		handler = pkgtui.NewLogHandler(slog.LevelDebug)
+		handler.SetProgram(p)
+		slog.SetDefault(slog.New(handler))
+	}
+
 	_, err := p.Run()
+
+	// Cleanup
+	if handler != nil {
+		handler.Close()
+	}
+
+	// Dump logs for scrollback
+	if opts.InlineMode && app.LogPane() != nil {
+		fmt.Println("\n--- Log History ---")
+		for _, e := range app.LogPane().Entries() {
+			fmt.Printf("[%s] %s: %s\n", e.Time.Format("15:04:05"), e.Level, e.Message)
+		}
+	}
+
 	return err
 }
 
