@@ -176,7 +176,6 @@ todo → in_progress → review → done
 | `Ctrl+P` | Command palette |
 | `Ctrl+G` | Model selector |
 | `Ctrl+A` | Accept (context-dependent) |
-| `Ctrl+E` | Edit (context-dependent) |
 | `Ctrl+X` | Delete (context-dependent) |
 | `Ctrl+S` | Scan (in kickoff) |
 

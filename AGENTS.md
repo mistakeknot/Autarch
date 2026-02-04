@@ -192,7 +192,9 @@ When adding or editing shortcuts, review
 
 ### Design Philosophy
 
-**Chat-focused TUI:** All TUIs are built around a chat composer. Keybindings use `Ctrl+` combinations to avoid conflicts with typing. Single-letter shortcuts are avoided. Function keys work as fallbacks for external keyboards.
+**Chat-focused TUI:** All TUIs are built around a chat composer with a 50/50 split layout (context pane + chat pane). Keybindings use `Ctrl+` combinations to avoid conflicts with typing. Single-letter shortcuts are avoided. Function keys work as fallbacks for external keyboards.
+
+**Chat-first editing:** There is no "edit mode" — users refine content by chatting with the agent ("make it more focused on developers") or by opening spec files directly in their editor. This keeps the TUI simple and conversation-centric.
 
 ### Universal Keys
 
@@ -207,7 +209,6 @@ When adding or editing shortcuts, review
 | `Ctrl+G` | Model selector |
 | `Ctrl+R` | Refresh |
 | `Ctrl+A` | Accept (context-dependent) |
-| `Ctrl+E` | Edit (context-dependent) |
 | `Ctrl+X` | Delete (context-dependent) |
 | `Ctrl+S` | Scan (in kickoff) |
 
@@ -217,7 +218,7 @@ Type `/` in the chat composer to open a fuzzy command picker. Use `↑`/`↓` to
 
 **Global Commands:** `/help`, `/quit`, `/settings`, `/model`, `/refresh`, `/back`
 
-**View-Specific:** Commands like `/scan`, `/accept`, `/edit` vary by view. The picker shows only commands available in the current context.
+**View-Specific:** Commands like `/scan`, `/accept` vary by view. The picker shows only commands available in the current context.
 
 See [docs/QUICK_REFERENCE.md](docs/QUICK_REFERENCE.md) for the complete command list.
 
@@ -364,26 +365,26 @@ In Gurgeh TUI, press `n` (new sprint) to begin:
 ```
 Section 1: Problem
   ├─ Arbiter proposes problem statement
-  ├─ You accept / edit / propose alternative
+  ├─ You accept or chat to refine ("focus more on...")
   ├─ Consistency check (passes → continue)
   └─ ✓ Quick Ranger scan triggers automatically
 
 Section 2: Users
   ├─ Arbiter proposes user personas
   ├─ (Ranger scan results inform proposals)
-  └─ You accept / edit
+  └─ You accept or chat to refine
 
 Section 3: Features + Goals
   ├─ Arbiter proposes feature list
-  └─ You accept / edit
+  └─ You accept or chat to refine
 
 Section 4: Scope + Assumptions
   ├─ Arbiter sets boundaries
-  └─ You accept / edit
+  └─ You accept or chat to refine
 
 Section 5: Critical User Journeys
   ├─ Arbiter generates CUJ flows
-  └─ You accept / edit
+  └─ You accept or chat to refine
 
 Section 6: Acceptance Criteria
   ├─ Arbiter generates AC for each CUJ
