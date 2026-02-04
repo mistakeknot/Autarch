@@ -158,11 +158,14 @@ func (v *SignalsView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
 				v.selected = clamp(v.selected+1, 0, v.currentListLen()-1)
 			case key.Matches(msg, commonKeys.NavUp):
 				v.selected = clamp(v.selected-1, 0, v.currentListLen()-1)
-			case msg.Type == tea.KeyF3:
+			case msg.Type == tea.KeyF3, msg.Type == tea.KeyCtrlS:
+				// Cycle source filter (ctrl+s or F3 for compatibility)
 				v.sourceFilter = (v.sourceFilter + 1) % len(sourceFilters)
-			case msg.Type == tea.KeyF4:
+			case msg.Type == tea.KeyF4, msg.Type == tea.KeyCtrlT:
+				// Cycle type filter (ctrl+t or F4 for compatibility)
 				v.cycleTypeFilter()
-			case msg.Type == tea.KeyF5:
+			case msg.Type == tea.KeyF5, msg.Type == tea.KeyCtrlV:
+				// Cycle severity filter (ctrl+v or F5 for compatibility)
 				v.severityFilter = (v.severityFilter + 1) % len(severityFilters)
 			}
 		}
@@ -289,7 +292,7 @@ func (v *SignalsView) Name() string {
 
 // ShortHelp implements View.
 func (v *SignalsView) ShortHelp() string {
-	return "↑/↓ navigate  ctrl+r refresh  F3 source  F4 type  F5 severity  Tab focus  ctrl+b sidebar"
+	return "↑/↓ navigate  ctrl+r refresh  ctrl+s source  ctrl+t type  ctrl+v severity  tab focus  ctrl+b sidebar"
 }
 
 // Commands implements CommandProvider.

@@ -22,7 +22,7 @@ func TestViewIncludesReviewHeader(t *testing.T) {
 func TestViewIncludesHelpFooter(t *testing.T) {
 	m := NewModel()
 	out := stripANSI(m.View())
-	if !strings.Contains(out, "n new") || !strings.Contains(out, "F1 help") {
+	if !strings.Contains(out, "n new") || !strings.Contains(out, "/help") {
 		t.Fatalf("expected help footer with key hints, got %q", out)
 	}
 }

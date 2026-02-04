@@ -315,7 +315,7 @@ func (v *PollardView) Name() string {
 
 // ShortHelp implements View
 func (v *PollardView) ShortHelp() string {
-	return "↑/↓ navigate  ctrl+r refresh  F2 model  Tab focus  ctrl+b sidebar"
+	return "↑/↓ navigate  ctrl+r refresh  ctrl+g model  tab focus  ctrl+b sidebar"
 }
 
 // Commands implements CommandProvider

@@ -733,7 +733,7 @@ func (m Model) View() string {
 	}
 	if len(m.TaskList) == 0 {
 		left = append(left, "No tasks yet.")
-		left = append(left, "[n] new quick task  [i] init  [F1] help")
+		left = append(left, "[n] new quick task  [i] init  /help")
 		left = append(left, renderEmptyState()...)
 	} else if len(filtered) == 0 {
 		left = append(left, "No tasks match filters.")
@@ -829,18 +829,18 @@ func (m Model) View() string {
 	out += lipgloss.JoinHorizontal(lipgloss.Top, leftView, "  ", rightView)
 
 	if len(m.TaskList) == 0 {
-	out += "\n" + renderKeyHelpLine([]keyDesc{{"n", "new"}, {"i", "init"}, {"F1", "help"}}) + "\n"
+	out += "\n" + renderKeyHelpLine([]keyDesc{{"n", "new"}, {"i", "init"}, {"/help", "help"}}) + "\n"
 	} else {
 		keys := []keyDesc{
 			{"n", "new"}, {"s", "start"}, {"x", "stop"}, {"r", "review"},
 			{"c", "coord"}, {"/", "search"}, {"a/o/v/d", "filter"},
-			{"tab", "focus"}, {"F1", "help"},
+			{"tab", "focus"}, {"/help", "help"},
 		}
 		if m.RightTab == RightTabCoord && m.FocusPane == FocusDetail {
 			keys = []keyDesc{
 				{"n", "new"}, {"s", "start"}, {"x", "stop"}, {"r", "recipients"},
 				{"u", "urgent"}, {"c", "coord"}, {"/", "search"}, {"a/o/v/d", "filter"},
-				{"tab", "focus"}, {"F1", "help"},
+				{"tab", "focus"}, {"/help", "help"},
 			}
 		}
 		out += "\n" + renderKeyHelpLine(keys) + "\n"

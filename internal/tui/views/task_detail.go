@@ -159,7 +159,8 @@ func (v *TaskDetailView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
 			}
 			return v, nil
 
-		case msg.Type == tea.KeyF3:
+		case msg.Type == tea.KeyF3, msg.Type == tea.KeyCtrlW:
+			// Toggle worktree (ctrl+w or F3 for compatibility)
 			v.useWorktree = !v.useWorktree
 			return v, nil
 		}
@@ -450,7 +451,7 @@ func (v *TaskDetailView) Name() string {
 
 // ShortHelp implements View
 func (v *TaskDetailView) ShortHelp() string {
-	return "enter start  ←→ agent  F3 worktree  F2 model  Tab focus"
+	return "enter start  ←→ agent  ctrl+w worktree  tab focus"
 }
 
 // FullHelp implements FullHelpProvider
@@ -459,7 +460,7 @@ func (v *TaskDetailView) FullHelp() []tui.HelpBinding {
 		{Key: "enter", Description: "Start task with selected agent"},
 		{Key: "←", Description: "Select previous agent"},
 		{Key: "→", Description: "Select next agent"},
-		{Key: "F3", Description: "Toggle worktree mode"},
+		{Key: "ctrl+w", Description: "Toggle worktree mode"},
 		{Key: "esc", Description: "Go back"},
 	}
 }

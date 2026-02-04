@@ -282,7 +282,7 @@ func (v *SprintView) Name() string {
 
 // ShortHelp implements View.
 func (v *SprintView) ShortHelp() string {
-	return "enter send  ctrl+right accept  F2 model  esc back"
+	return "enter send  ctrl+right accept  ctrl+g model  esc back"
 }
 
 // ChatPanelValueForTest returns the current composer value (test helper).
@@ -328,6 +328,10 @@ func (v *SprintView) cancelStreaming() {
 }
 
 func (v *SprintView) handleChatSubmit() tea.Cmd {
+	// Check for slash command first
+	if slashCmd := v.chatPanel.SubmitInput(); slashCmd != nil {
+		return slashCmd
+	}
 	msg := v.chatPanel.Value()
 	if msg == "" {
 		return nil
@@ -401,4 +405,9 @@ func (v *SprintView) handleAccept() tea.Cmd {
 		}
 		return tui.SprintPhaseAdvancedMsg{Phase: state.Phase.String()}
 	}
+}
+
+// ClearInput clears the chat composer (for ctrl+c soft cancel)
+func (v *SprintView) ClearInput() {
+	v.chatPanel.ClearComposer()
 }

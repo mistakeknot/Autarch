@@ -13,7 +13,7 @@
 - Todo-tracked: 5
 - Derived evidence: 1
 - Commit evidence: 45
-- Preexisting paths (no git evidence): 1
+- Preexisting paths (no git evidence): 2
 - No evidence: 4
 
 ## Status Legend
@@ -84,6 +84,7 @@
 | 2026-01-31-plan-status-precommit-hook.md | commit | paths:7 latest:2026-02-04 |
 | 2026-02-02-fix-kickoff-arbiter-transition-plan.md | none | no referenced paths found |
 | 2026-02-03-fix-sprint-completion-spec-summary-transition-plan.md | none | no referenced paths found |
+| 2026-02-04-feat-claude-code-style-codebase-scan-plan.md | preexisting | paths:1 |
 
 ## Derived Evidence Details
 

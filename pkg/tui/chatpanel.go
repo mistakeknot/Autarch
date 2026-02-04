@@ -7,6 +7,21 @@ import (
 	"github.com/charmbracelet/lipgloss"
 )
 
+// ParseSlashCommand checks if the text starts with '/' and parses it as a slash command.
+// Returns (command, args, true) if it's a slash command, or ("", nil, false) otherwise.
+func ParseSlashCommand(text string) (string, []string, bool) {
+	text = strings.TrimSpace(text)
+	if !strings.HasPrefix(text, "/") {
+		return "", nil, false
+	}
+	// Remove the leading slash and split into parts
+	parts := strings.Fields(text[1:])
+	if len(parts) == 0 {
+		return "", nil, false
+	}
+	return strings.ToLower(parts[0]), parts[1:], true
+}
+
 // ChatMessage represents a single message in the chat history.
 type ChatMessage struct {
 	Role    string // "user", "agent", "system"
@@ -319,6 +334,21 @@ func (p *ChatPanel) ScrollToBottom() {
 // ScrollOffsetForTest exposes the scroll offset for tests.
 func (p *ChatPanel) ScrollOffsetForTest() int {
 	return p.scroll
+}
+
+// SubmitInput returns the current composer value and checks if it's a slash command.
+// If it's a slash command, it returns a SlashCommandMsg command and clears the composer.
+// If it's regular text, it returns nil and leaves the value for the caller to handle.
+// Use this when the user presses Enter to submit input.
+func (p *ChatPanel) SubmitInput() tea.Cmd {
+	value := p.Value()
+	if cmd, args, isSlash := ParseSlashCommand(value); isSlash {
+		p.ClearComposer()
+		return func() tea.Msg {
+			return SlashCommandMsg{Command: cmd, Args: args}
+		}
+	}
+	return nil
 }
 
 // ensureHeight pads or truncates content to exactly n lines.

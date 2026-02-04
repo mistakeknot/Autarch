@@ -121,20 +121,20 @@ func (v *TaskReviewView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
 			v.expanded[v.selected] = !v.expanded[v.selected]
 			return v, nil
 
-		case msg.Type == tea.KeyF7:
-			// Accept ALL tasks (uppercase A for intentional action)
+		case msg.Type == tea.KeyF7, msg.Type == tea.KeyCtrlA:
+			// Accept ALL tasks (ctrl+a or F7 for compatibility)
 			if v.onAccept != nil {
 				return v, v.onAccept(v.tasks)
 			}
 			return v, nil
 
-		case msg.Type == tea.KeyF3:
-			// Toggle grouped view
+		case msg.Type == tea.KeyF3, msg.Type == tea.KeyCtrlO:
+			// Toggle grouped view (ctrl+o or F3 for compatibility)
 			v.groupedView = !v.groupedView
 			return v, nil
 
-		case msg.Type == tea.KeyF8:
-			// Delete selected
+		case msg.Type == tea.KeyF8, msg.Type == tea.KeyCtrlX:
+			// Delete selected (ctrl+x or F8 for compatibility)
 			if v.selected >= 0 && v.selected < len(v.tasks) {
 				v.tasks = append(v.tasks[:v.selected], v.tasks[v.selected+1:]...)
 				if v.selected >= len(v.tasks) {
@@ -165,8 +165,8 @@ func (v *TaskReviewView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
 			}
 			return v, nil
 
-		case msg.Type == tea.KeyF4:
-			// Cycle through types
+		case msg.Type == tea.KeyF4, msg.Type == tea.KeyCtrlT:
+			// Cycle through types (ctrl+t or F4 for compatibility)
 			if v.selected >= 0 && v.selected < len(v.tasks) {
 				v.tasks[v.selected].Edited = true
 				switch v.tasks[v.selected].Type {
@@ -448,7 +448,7 @@ func (v *TaskReviewView) renderActions() string {
 	descStyle := pkgtui.HelpDescStyle
 
 	actions = append(actions, fmt.Sprintf("%s %s",
-		keyStyle.Render("F7"),
+		keyStyle.Render("ctrl+a"),
 		descStyle.Render("accept all")))
 
 	actions = append(actions, fmt.Sprintf("%s %s",
@@ -456,15 +456,15 @@ func (v *TaskReviewView) renderActions() string {
 		descStyle.Render("expand")))
 
 	actions = append(actions, fmt.Sprintf("%s %s",
-		keyStyle.Render("F8"),
+		keyStyle.Render("ctrl+x"),
 		descStyle.Render("delete")))
 
 	actions = append(actions, fmt.Sprintf("%s %s",
-		keyStyle.Render("F4"),
+		keyStyle.Render("ctrl+t"),
 		descStyle.Render("change type")))
 
 	actions = append(actions, fmt.Sprintf("%s %s",
-		keyStyle.Render("F3"),
+		keyStyle.Render("ctrl+o"),
 		descStyle.Render("toggle grouping")))
 
 	return strings.Join(actions, "  ")
@@ -485,7 +485,7 @@ func (v *TaskReviewView) Name() string {
 
 // ShortHelp implements View
 func (v *TaskReviewView) ShortHelp() string {
-	return "F3 group  F4 type  F7 accept all  F8 delete  F2 model  Tab focus"
+	return "ctrl+o group  ctrl+t type  ctrl+a accept  ctrl+x delete  tab focus"
 }
 
 // FullHelp implements FullHelpProvider
@@ -493,10 +493,10 @@ func (v *TaskReviewView) FullHelp() []tui.HelpBinding {
 	return []tui.HelpBinding{
 		{Key: "up/down", Description: "Navigate"},
 		{Key: "enter", Description: "Toggle expand selected"},
-		{Key: "F3", Description: "Toggle grouped view"},
-		{Key: "F4", Description: "Cycle task type"},
-		{Key: "F7", Description: "Accept ALL tasks"},
-		{Key: "F8", Description: "Delete selected task"},
+		{Key: "ctrl+o", Description: "Toggle grouped view"},
+		{Key: "ctrl+t", Description: "Cycle task type"},
+		{Key: "ctrl+a", Description: "Accept ALL tasks"},
+		{Key: "ctrl+x", Description: "Delete selected task"},
 		{Key: "esc", Description: "Go back"},
 	}
 }

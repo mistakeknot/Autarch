@@ -10,7 +10,14 @@ import (
 func TestAgentSelectorToggleAndSelect(t *testing.T) {
 	s := NewAgentSelector([]AgentOption{{Name: "codex"}, {Name: "claude"}})
 
-	// F2 opens
+	// ctrl+g opens (MacBook-friendly alternative to F2)
+	_, _ = s.Update(tea.KeyMsg{Type: tea.KeyCtrlG})
+	if !s.Open {
+		t.Fatal("expected selector open after ctrl+g")
+	}
+
+	// Close it and test F2 still works
+	_, _ = s.Update(tea.KeyMsg{Type: tea.KeyEsc})
 	_, _ = s.Update(tea.KeyMsg{Type: tea.KeyF2})
 	if !s.Open {
 		t.Fatal("expected selector open after F2")

@@ -25,15 +25,17 @@ type CommonKeys struct {
 }
 
 // NewCommonKeys returns a CommonKeys with the canonical Autarch keybindings.
+// Note: Function keys (F1-F12) are awkward on MacBooks where they're bound to
+// system functions by default. We provide Ctrl-based alternatives for all actions.
 func NewCommonKeys() CommonKeys {
 	return CommonKeys{
 		Quit: key.NewBinding(
 			key.WithKeys("ctrl+c"),
-			key.WithHelp("ctrl+c", "quit"),
+			key.WithHelp("ctrl+c×2", "quit"),
 		),
 		Help: key.NewBinding(
-			key.WithKeys("f1"),
-			key.WithHelp("f1", "help"),
+			key.WithKeys("?", "f1"),
+			key.WithHelp("/help", "help"),
 		),
 		Search: key.NewBinding(
 			key.WithKeys("ctrl+f"),
@@ -89,6 +91,12 @@ func NewCommonKeys() CommonKeys {
 
 // ToggleHelpMsg is sent when the user presses the help key.
 type ToggleHelpMsg struct{}
+
+// SlashCommandMsg is sent when the user submits a slash command (e.g., /help, /quit).
+type SlashCommandMsg struct {
+	Command string   // The command name without the leading slash
+	Args    []string // Any arguments after the command
+}
 
 // HandleCommon processes a key message against the common keybindings.
 // It returns a tea.Cmd if the key was handled (tea.Quit for quit,

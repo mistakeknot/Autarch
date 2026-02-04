@@ -48,7 +48,7 @@
 | `d` | Delete PRD |
 | `r` | Refresh list |
 | `Enter` | View PRD details |
-| `F1` | Show help |
+| `?` | Show help |
 | `Ctrl+C` | Quit |
 
 ---
@@ -79,7 +79,7 @@
 | `g` | Toggle grouped view |
 | `tab` | Cycle task type |
 | `R` | Regenerate proposals |
-| `F1` | Show help |
+| `?` | Show help |
 | `Ctrl+C` | Quit |
 
 ### Task States
@@ -144,7 +144,7 @@ todo → in_progress → review → done
 | `k` | Kill session |
 | `Ctrl+R` | Refresh |
 | `Tab` / `Ctrl+Left/Right` | Switch tabs |
-| `F1` | Show help |
+| `?` | Show help |
 | `Ctrl+C` | Quit |
 
 ### Web Routes
@@ -164,19 +164,32 @@ todo → in_progress → review → done
 
 | Key | Action |
 |-----|--------|
-| `F1` | Show help overlay |
-| `Ctrl+C` | Quit |
-| `↓` | Move down |
-| `↑` | Move up |
+| `Ctrl+C` | Clear input (once) / Quit (twice) |
+| `↓` / `↑` | Move down / up |
 | `Enter` | Select / confirm |
 | `Esc` | Cancel / go back |
-| `Tab` / `Shift+Tab` | Cycle pane focus |
+| `Tab` | Cycle pane focus |
 | `Ctrl+Left/Right` | Switch tabs |
 | `Ctrl+PgUp/PgDn` | Switch tabs (fallback) |
 | `Ctrl+F` | Search |
 | `Ctrl+R` | Refresh |
 | `Ctrl+P` | Command palette |
-| `F2` | Model selector |
+| `Ctrl+G` | Model selector |
+| `Ctrl+A` | Accept (context-dependent) |
+| `Ctrl+E` | Edit (context-dependent) |
+| `Ctrl+X` | Delete (context-dependent) |
+| `Ctrl+S` | Scan (in kickoff) |
+
+### Slash Commands
+
+Type these in the chat composer and press Enter:
+
+| Command | Action |
+|---------|--------|
+| `/help` | Show help overlay |
+| `/quit` | Quit the application |
+
+> **Chat-focused design:** All shortcuts use `Ctrl+` combinations to avoid conflicts with typing in the chat composer. Function keys (F1-F12) still work as fallbacks for external keyboards. Slash commands work in any chat input.
 
 ---
 

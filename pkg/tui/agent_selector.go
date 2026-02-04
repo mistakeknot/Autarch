@@ -32,9 +32,15 @@ func NewAgentSelector(opts []AgentOption) *AgentSelector {
 }
 
 // Update handles key input for toggling and selecting agents.
+// Responds to ctrl+g (MacBook-friendly) and F2 (external keyboard).
 func (s *AgentSelector) Update(msg tea.KeyMsg) (tea.Msg, tea.Cmd) {
 	switch msg.Type {
 	case tea.KeyF2:
+		s.Open = !s.Open
+		return nil, nil
+	}
+	// ctrl+g is more reliable on MacBooks where F-keys are bound to system functions
+	if msg.String() == "ctrl+g" {
 		s.Open = !s.Open
 		return nil, nil
 	}
@@ -70,7 +76,7 @@ func (s *AgentSelector) View() string {
 		return ""
 	}
 	if !s.Open {
-		label := fmt.Sprintf("Model: %s (F2)", s.currentName())
+		label := fmt.Sprintf("Model: %s (ctrl+g)", s.currentName())
 		return lipgloss.NewStyle().Foreground(ColorMuted).Render(label)
 	}
 

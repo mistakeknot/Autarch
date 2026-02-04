@@ -66,7 +66,7 @@ func NewArbiterView(projectPath string, coordinator *research.Coordinator) *Arbi
 
 	chatPanel := pkgtui.NewChatPanel()
 	chatPanel.SetComposerTitle("Chat")
-	chatPanel.SetComposerHint("enter send · a accept · e edit · 1-3 alternatives")
+	chatPanel.SetComposerHint("enter send · ctrl+a accept · ctrl+e edit · ctrl+1/2/3 alternatives")
 	chatPanel.SetComposerPlaceholder("Type to revise the draft...")
 
 	docPanel := pkgtui.NewDocPanel()
@@ -186,10 +186,11 @@ func (v *ArbiterView) Update(msg tea.Msg) (pkgtui.View, tea.Cmd) {
 			return v.handleHandoffKey(key)
 		}
 
+		// Use ctrl+ combinations to avoid conflict with typing in the chat composer
 		switch key {
-		case "a", "A":
+		case "ctrl+a":
 			return v.acceptDraft()
-		case "e", "E":
+		case "ctrl+e":
 			// Start editing - put current content in composer
 			if section := v.currentSection(); section != nil {
 				v.chatPanel.SetValue(section.Content)
@@ -197,17 +198,17 @@ func (v *ArbiterView) Update(msg tea.Msg) (pkgtui.View, tea.Cmd) {
 			return v, nil
 		case "enter":
 			return v.submitComposerContent()
-		case "1":
+		case "ctrl+1":
 			v.selectOption(0)
-		case "2":
+		case "ctrl+2":
 			v.selectOption(1)
-		case "3":
+		case "ctrl+3":
 			v.selectOption(2)
-		case "j", "down":
+		case "down":
 			if section := v.currentSection(); section != nil && v.optionIndex < len(section.Options)-1 {
 				v.optionIndex++
 			}
-		case "k", "up":
+		case "up":
 			if v.optionIndex > 0 {
 				v.optionIndex--
 			}
@@ -225,11 +226,11 @@ func (v *ArbiterView) Update(msg tea.Msg) (pkgtui.View, tea.Cmd) {
 func (v *ArbiterView) handleHandoffKey(key string) (pkgtui.View, tea.Cmd) {
 	options := v.orchestrator.GetHandoffOptions(v.state)
 	switch key {
-	case "j", "down":
+	case "down":
 		if v.handoffIndex < len(options)-1 {
 			v.handoffIndex++
 		}
-	case "k", "up":
+	case "up":
 		if v.handoffIndex > 0 {
 			v.handoffIndex--
 		}
@@ -288,6 +289,10 @@ func (v *ArbiterView) acceptDraft() (pkgtui.View, tea.Cmd) {
 }
 
 func (v *ArbiterView) submitComposerContent() (pkgtui.View, tea.Cmd) {
+	// Check for slash command first
+	if slashCmd := v.chatPanel.SubmitInput(); slashCmd != nil {
+		return v, slashCmd
+	}
 	content := v.chatPanel.Value()
 	if strings.TrimSpace(content) == "" {
 		return v, nil
@@ -432,7 +437,12 @@ func (v *ArbiterView) Name() string {
 // ShortHelp implements pkgtui.View.
 func (v *ArbiterView) ShortHelp() string {
 	if v.handoffMode {
-		return "j/k navigate  enter select  esc back  F2 agent"
+		return "↑/↓ navigate  enter select  esc back"
 	}
-	return "a accept  e edit  1-3 alternatives  enter submit  esc cancel  F2 agent"
+	return "ctrl+a accept  ctrl+e edit  ctrl+1/2/3 alternatives  enter submit  esc cancel"
+}
+
+// ClearInput clears the chat composer (for ctrl+c soft cancel)
+func (v *ArbiterView) ClearInput() {
+	v.chatPanel.ClearComposer()
 }

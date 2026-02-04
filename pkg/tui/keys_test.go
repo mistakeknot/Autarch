@@ -68,11 +68,21 @@ func TestHandleCommonQuitAndHelp(t *testing.T) {
 		t.Fatalf("expected q to no longer trigger quit")
 	}
 
+	// F1 still works for external keyboards
 	helpCmd := HandleCommon(tea.KeyMsg{Type: tea.KeyF1}, keys)
 	if helpCmd == nil {
-		t.Fatalf("expected help command")
+		t.Fatalf("expected help command from F1")
 	}
 	if _, ok := helpCmd().(ToggleHelpMsg); !ok {
-		t.Fatalf("expected ToggleHelpMsg")
+		t.Fatalf("expected ToggleHelpMsg from F1")
+	}
+
+	// ? is the MacBook-friendly alternative
+	helpCmd2 := HandleCommon(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'?'}}, keys)
+	if helpCmd2 == nil {
+		t.Fatalf("expected help command from ?")
+	}
+	if _, ok := helpCmd2().(ToggleHelpMsg); !ok {
+		t.Fatalf("expected ToggleHelpMsg from ?")
 	}
 }

@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"strings"
+	"time"
 
 	"github.com/charmbracelet/bubbles/key"
 	tea "github.com/charmbracelet/bubbletea"
@@ -67,11 +68,12 @@ type UnifiedApp struct {
 	palette   *Palette
 
 	// UI state
-	width    int
-	height   int
-	err      error
-	showHelp bool // Help overlay visible
-	keys     pkgtui.CommonKeys
+	width       int
+	height      int
+	err         error
+	showHelp    bool      // Help overlay visible
+	lastCtrlC   time.Time // For double ctrl+c to quit
+	keys        pkgtui.CommonKeys
 	// Chat settings
 	chatSettings     pkgtui.ChatSettings
 	chatSettingsOpen bool
@@ -150,6 +152,10 @@ type agentNameSetter interface {
 
 type chatSettingsSetter interface {
 	SetChatSettings(pkgtui.ChatSettings)
+}
+
+type inputClearer interface {
+	ClearInput()
 }
 
 func (a *UnifiedApp) initAgentSelector() {
@@ -297,12 +303,38 @@ func (a *UnifiedApp) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return a, nil
 
-	case tea.KeyMsg:
-		if key.Matches(msg, a.keys.Quit) {
+	case pkgtui.SlashCommandMsg:
+		// Handle slash commands from chat input
+		switch msg.Command {
+		case "help":
+			a.showHelp = true
+			return a, nil
+		case "quit", "exit":
 			if a.cancel != nil {
 				a.cancel()
 			}
 			return a, tea.Quit
+		}
+		// Unknown command - could add error feedback here
+		return a, nil
+
+	case tea.KeyMsg:
+		if key.Matches(msg, a.keys.Quit) {
+			now := time.Now()
+			// Double ctrl+c within 500ms quits
+			if now.Sub(a.lastCtrlC) < 500*time.Millisecond {
+				if a.cancel != nil {
+					a.cancel()
+				}
+				return a, tea.Quit
+			}
+			// First ctrl+c: clear input and record time
+			a.lastCtrlC = now
+			// Try to clear the current view's chat input
+			if clearer, ok := a.currentView.(inputClearer); ok {
+				clearer.ClearInput()
+			}
+			return a, nil
 		}
 		// Handle help overlay first
 		if a.showHelp {
@@ -1694,12 +1726,12 @@ func (a *UnifiedApp) renderFooterContent() string {
 	}
 
 	if a.mode == ModeDashboard {
-		help += "  │  ctrl+left/right tabs  ctrl+pgup/pgdn tabs  ctrl+p palette  ctrl+, settings  F1 help  F2 model  ctrl+c quit"
+		help += "  │  ctrl+left/right tabs  ctrl+pgup/pgdn tabs  ctrl+p palette  ctrl+, settings  /help  ctrl+g model  ctrl+c×2 quit"
 	} else {
 		if a.breadcrumb.IsNavigating() {
-			help = "←/→ navigate  enter select  esc cancel  ctrl+, settings  F1 help  F2 model"
+			help = "←/→ navigate  enter select  esc cancel  ctrl+, settings  /help  ctrl+g model"
 		} else {
-			help += "  │  ctrl+b jump  ctrl+, settings  F1 help  F2 model  ctrl+c quit"
+			help += "  │  ctrl+b jump  ctrl+, settings  /help  ctrl+g model  ctrl+c×2 quit"
 		}
 	}
 
@@ -1751,9 +1783,9 @@ func (a *UnifiedApp) renderHelpOverlay() string {
 	lines = append(lines, titleStyle.Render("Global"))
 
 	globalBindings := []HelpBinding{
-		{Key: "F1", Description: "Show this help"},
+		{Key: "?", Description: "Show this help"},
 		{Key: "ctrl+c", Description: "Quit"},
-		{Key: "F2", Description: "Agent selector"},
+		{Key: "ctrl+g", Description: "Agent selector"},
 	}
 
 	if a.mode == ModeDashboard {
@@ -1774,7 +1806,7 @@ func (a *UnifiedApp) renderHelpOverlay() string {
 	}
 
 	lines = append(lines, "")
-	lines = append(lines, pkgtui.LabelStyle.Render("Press F1 or Esc to close"))
+	lines = append(lines, pkgtui.LabelStyle.Render("Press ? or Esc to close"))
 
 	content := lipgloss.JoinVertical(lipgloss.Left, lines...)
 

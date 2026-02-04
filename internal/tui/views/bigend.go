@@ -128,8 +128,8 @@ func (v *BigendView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
 					v.taskSelected--
 				}
 			}
-		case msg.Type == tea.KeyF3:
-			// Toggle focus between panes
+		case msg.Type == tea.KeyF3, key.Matches(msg, commonKeys.TabCycle):
+			// Toggle focus between panes (tab or F3 for compatibility)
 			if v.focusPane == FocusSessions {
 				v.focusPane = FocusTasks
 			} else {
@@ -445,7 +445,7 @@ func (v *BigendView) Name() string {
 
 // ShortHelp implements View
 func (v *BigendView) ShortHelp() string {
-	return "↑/↓ navigate  F3 switch pane  enter select  ctrl+r refresh"
+	return "↑/↓ navigate  tab switch pane  enter select  ctrl+r refresh"
 }
 
 // Commands implements CommandProvider

@@ -56,16 +56,25 @@ func TestUnifiedAppCtrlLeftCyclesBack(t *testing.T) {
 	}
 }
 
-func TestUnifiedAppCtrlCQuitsWithHelpVisible(t *testing.T) {
+func TestUnifiedAppDoubleCtrlCQuitsWithHelpVisible(t *testing.T) {
 	app := NewUnifiedApp(nil)
 	app.showHelp = true
 
+	// First ctrl+c should clear input (not quit)
 	_, cmd := app.Update(tea.KeyMsg{Type: tea.KeyCtrlC})
+	if cmd != nil {
+		if _, ok := cmd().(tea.QuitMsg); ok {
+			t.Fatalf("first ctrl+c should not quit")
+		}
+	}
+
+	// Second ctrl+c (within 500ms) should quit
+	_, cmd = app.Update(tea.KeyMsg{Type: tea.KeyCtrlC})
 	if cmd == nil {
-		t.Fatalf("expected quit command")
+		t.Fatalf("expected quit command on second ctrl+c")
 	}
 	if _, ok := cmd().(tea.QuitMsg); !ok {
-		t.Fatalf("expected QuitMsg")
+		t.Fatalf("expected QuitMsg on second ctrl+c")
 	}
 }
 
