@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -48,6 +49,17 @@ func ScanCodebaseWithProgress(ctx context.Context, agent *Agent, path string, pr
 		if progress != nil {
 			progress(ScanProgress{Step: step, Details: details, Files: files})
 		}
+	}
+
+	// Step 0: Deterministic tech stack detection (fast, no LLM)
+	techEvidence := detectTechStack(path)
+	if len(techEvidence) > 0 {
+		// Report tech stack immediately for progress UX
+		var techSummary []string
+		for _, ev := range techEvidence {
+			techSummary = append(techSummary, ev.Quote)
+		}
+		report("Tech stack", strings.Join(techSummary, " + "), nil)
 	}
 
 	// Step 1: Gather context from the codebase
@@ -103,6 +115,13 @@ func ScanCodebaseWithProgress(ctx context.Context, agent *Agent, path string, pr
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse scan response: %w", err)
 	}
+
+	// Step 5: Merge deterministic tech stack evidence into Vision phase
+	if result.PhaseArtifacts != nil && result.PhaseArtifacts.Vision != nil && len(techEvidence) > 0 {
+		// Prepend deterministic evidence (high confidence) before LLM evidence
+		result.PhaseArtifacts.Vision.Evidence = append(techEvidence, result.PhaseArtifacts.Vision.Evidence...)
+	}
+
 	if result.PhaseArtifacts != nil {
 		result.ValidationErrors = ValidateStructuredScanArtifacts(result, files)
 	} else {
@@ -212,8 +231,8 @@ Output ONLY valid JSON in this exact format (no markdown, no explanation):
       "goals": ["Goal 1"],
       "non_goals": [],
       "evidence": [
-        {"type":"file","path":"README.md","quote":"...","confidence":0.7},
-        {"type":"doc","path":"docs/ARCHITECTURE.md","quote":"...","confidence":0.7}
+        {"type":"readme","path":"README.md","quote":"Copy the EXACT sentence from README that describes project purpose","confidence":0.9},
+        {"type":"doc","path":"CLAUDE.md","quote":"Copy VERBATIM text that supports the vision","confidence":0.7}
       ],
       "open_questions": [],
       "quality": {"clarity":0.7,"completeness":0.7,"grounding":0.7,"consistency":0.7}
@@ -225,8 +244,8 @@ Output ONLY valid JSON in this exact format (no markdown, no explanation):
       "pain_points": ["Pain 1"],
       "impact": "Impact text",
       "evidence": [
-        {"type":"file","path":"README.md","quote":"...","confidence":0.7},
-        {"type":"doc","path":"docs/ARCHITECTURE.md","quote":"...","confidence":0.7}
+        {"type":"readme","path":"README.md","quote":"Copy EXACT sentence describing the problem or pain point","confidence":0.9},
+        {"type":"doc","path":"AGENTS.md","quote":"Copy VERBATIM text about challenges or issues","confidence":0.7}
       ],
       "open_questions": [],
       "quality": {"clarity":0.7,"completeness":0.7,"grounding":0.7,"consistency":0.7}
@@ -238,8 +257,8 @@ Output ONLY valid JSON in this exact format (no markdown, no explanation):
         {"name":"Primary user","needs":["Need 1"],"context":"Context text"}
       ],
       "evidence": [
-        {"type":"file","path":"README.md","quote":"...","confidence":0.7},
-        {"type":"doc","path":"docs/ARCHITECTURE.md","quote":"...","confidence":0.7}
+        {"type":"readme","path":"README.md","quote":"Copy EXACT sentence describing who uses this","confidence":0.9},
+        {"type":"doc","path":"CLAUDE.md","quote":"Copy VERBATIM text about target users or audience","confidence":0.7}
       ],
       "open_questions": [],
       "quality": {"clarity":0.7,"completeness":0.7,"grounding":0.7,"consistency":0.7}
@@ -247,14 +266,220 @@ Output ONLY valid JSON in this exact format (no markdown, no explanation):
   }
 }
 
+CRITICAL EVIDENCE INSTRUCTIONS:
+- For each artifact, find VERBATIM QUOTES from the provided files
+- Copy exact sentences/phrases - do NOT paraphrase or summarize
+- Include the FULL sentence that provides evidence
+- Vision evidence: sentences describing what the project does or its purpose
+- Problem evidence: sentences describing pain points, challenges, or what the project solves
+- Users evidence: sentences describing who uses the project or target audience
+- Set confidence based on how directly the quote supports the claim:
+  - 0.9: Quote explicitly states the claim
+  - 0.7: Quote strongly implies the claim
+  - 0.5: Quote is tangentially related
+
 If you cannot determine a field, use a reasonable guess based on the context.
 For "platform" and "language", choose the most appropriate option from the list.
 List 3-7 key requirements/features based on the documentation.
-Every artifact must include at least 2 evidence items with quotes from the provided files.
+Every artifact must include at least 2 evidence items with VERBATIM QUOTES from the provided files.
 
 Generate the JSON now:`)
 
 	return sb.String()
+}
+
+// detectTechStack extracts tech stack evidence from manifest files.
+// Returns []EvidenceItem suitable for injection into PhaseArtifacts.Vision.Evidence.
+func detectTechStack(root string) []EvidenceItem {
+	var evidence []EvidenceItem
+
+	// Go: go.mod
+	if data, err := os.ReadFile(filepath.Join(root, "go.mod")); err == nil {
+		lang := "Go"
+		var frameworks []string
+		var version string
+
+		// Extract Go version (simple line parsing)
+		for _, line := range strings.Split(string(data), "\n") {
+			if strings.HasPrefix(line, "go ") {
+				version = strings.TrimPrefix(line, "go ")
+				break
+			}
+		}
+
+		// Detect frameworks using simple bytes.Contains
+		if bytes.Contains(data, []byte("bubbletea")) {
+			frameworks = append(frameworks, "Bubble Tea")
+		}
+		if bytes.Contains(data, []byte("gorm.io")) {
+			frameworks = append(frameworks, "GORM")
+		}
+		if bytes.Contains(data, []byte("cobra")) {
+			frameworks = append(frameworks, "Cobra")
+		}
+		if bytes.Contains(data, []byte("gin-gonic")) {
+			frameworks = append(frameworks, "Gin")
+		}
+		if bytes.Contains(data, []byte("echo")) && bytes.Contains(data, []byte("labstack")) {
+			frameworks = append(frameworks, "Echo")
+		}
+		if bytes.Contains(data, []byte("fiber")) {
+			frameworks = append(frameworks, "Fiber")
+		}
+
+		quote := lang
+		if version != "" {
+			quote = fmt.Sprintf("%s %s", lang, version)
+		}
+		if len(frameworks) > 0 {
+			quote = fmt.Sprintf("%s with %s", quote, strings.Join(frameworks, ", "))
+		}
+
+		evidence = append(evidence, EvidenceItem{
+			Type:       "tech_stack",
+			Path:       "go.mod",
+			Quote:      quote,
+			Confidence: 1.0, // deterministic
+		})
+	}
+
+	// JavaScript/TypeScript: package.json
+	if data, err := os.ReadFile(filepath.Join(root, "package.json")); err == nil {
+		lang := "JavaScript"
+		var frameworks []string
+
+		// Detect TypeScript
+		if bytes.Contains(data, []byte(`"typescript"`)) {
+			lang = "TypeScript"
+		}
+
+		// Detect frameworks
+		if bytes.Contains(data, []byte(`"next"`)) {
+			frameworks = append(frameworks, "Next.js")
+		}
+		if bytes.Contains(data, []byte(`"react"`)) && !bytes.Contains(data, []byte(`"next"`)) {
+			frameworks = append(frameworks, "React")
+		}
+		if bytes.Contains(data, []byte(`"vue"`)) {
+			frameworks = append(frameworks, "Vue")
+		}
+		if bytes.Contains(data, []byte(`"svelte"`)) {
+			frameworks = append(frameworks, "Svelte")
+		}
+		if bytes.Contains(data, []byte(`"express"`)) {
+			frameworks = append(frameworks, "Express")
+		}
+		if bytes.Contains(data, []byte(`"fastify"`)) {
+			frameworks = append(frameworks, "Fastify")
+		}
+		if bytes.Contains(data, []byte(`"tailwindcss"`)) {
+			frameworks = append(frameworks, "Tailwind")
+		}
+
+		quote := lang
+		if len(frameworks) > 0 {
+			quote = fmt.Sprintf("%s with %s", lang, strings.Join(frameworks, ", "))
+		}
+
+		evidence = append(evidence, EvidenceItem{
+			Type:       "tech_stack",
+			Path:       "package.json",
+			Quote:      quote,
+			Confidence: 1.0,
+		})
+	}
+
+	// Rust: Cargo.toml
+	if data, err := os.ReadFile(filepath.Join(root, "Cargo.toml")); err == nil {
+		lang := "Rust"
+		var frameworks []string
+
+		if bytes.Contains(data, []byte("tokio")) {
+			frameworks = append(frameworks, "Tokio")
+		}
+		if bytes.Contains(data, []byte("actix")) {
+			frameworks = append(frameworks, "Actix")
+		}
+		if bytes.Contains(data, []byte("axum")) {
+			frameworks = append(frameworks, "Axum")
+		}
+		if bytes.Contains(data, []byte("tauri")) {
+			frameworks = append(frameworks, "Tauri")
+		}
+		if bytes.Contains(data, []byte("serde")) {
+			frameworks = append(frameworks, "Serde")
+		}
+
+		quote := lang
+		if len(frameworks) > 0 {
+			quote = fmt.Sprintf("%s with %s", lang, strings.Join(frameworks, ", "))
+		}
+
+		evidence = append(evidence, EvidenceItem{
+			Type:       "tech_stack",
+			Path:       "Cargo.toml",
+			Quote:      quote,
+			Confidence: 1.0,
+		})
+	}
+
+	// Python: pyproject.toml or requirements.txt
+	if data, err := os.ReadFile(filepath.Join(root, "pyproject.toml")); err == nil {
+		lang := "Python"
+		var frameworks []string
+
+		if bytes.Contains(data, []byte("django")) {
+			frameworks = append(frameworks, "Django")
+		}
+		if bytes.Contains(data, []byte("fastapi")) {
+			frameworks = append(frameworks, "FastAPI")
+		}
+		if bytes.Contains(data, []byte("flask")) {
+			frameworks = append(frameworks, "Flask")
+		}
+		if bytes.Contains(data, []byte("pytorch")) || bytes.Contains(data, []byte("torch")) {
+			frameworks = append(frameworks, "PyTorch")
+		}
+
+		quote := lang
+		if len(frameworks) > 0 {
+			quote = fmt.Sprintf("%s with %s", lang, strings.Join(frameworks, ", "))
+		}
+
+		evidence = append(evidence, EvidenceItem{
+			Type:       "tech_stack",
+			Path:       "pyproject.toml",
+			Quote:      quote,
+			Confidence: 1.0,
+		})
+	} else if data, err := os.ReadFile(filepath.Join(root, "requirements.txt")); err == nil {
+		lang := "Python"
+		var frameworks []string
+
+		if bytes.Contains(data, []byte("django")) || bytes.Contains(data, []byte("Django")) {
+			frameworks = append(frameworks, "Django")
+		}
+		if bytes.Contains(data, []byte("fastapi")) {
+			frameworks = append(frameworks, "FastAPI")
+		}
+		if bytes.Contains(data, []byte("flask")) || bytes.Contains(data, []byte("Flask")) {
+			frameworks = append(frameworks, "Flask")
+		}
+
+		quote := lang
+		if len(frameworks) > 0 {
+			quote = fmt.Sprintf("%s with %s", lang, strings.Join(frameworks, ", "))
+		}
+
+		evidence = append(evidence, EvidenceItem{
+			Type:       "tech_stack",
+			Path:       "requirements.txt",
+			Quote:      quote,
+			Confidence: 1.0,
+		})
+	}
+
+	return evidence
 }
 
 func parseScanResponse(content string) (*ScanResult, error) {
