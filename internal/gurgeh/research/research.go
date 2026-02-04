@@ -15,14 +15,14 @@ func Create(dir, id string, now time.Time) (string, error) {
 ## Market Summary
 - Claim: "Replace with a specific market claim."
   - Evidence refs:
-    - path: ".praude/research/%s-YYYYMMDD-HHMMSS.md"
+    - path: ".gurgeh/research/%s-YYYYMMDD-HHMMSS.md"
     - anchor: "section-1"
     - note: "Source quote"
 
 ## Competitive Analysis
 - Claim: "Replace with a specific competitor claim."
   - Evidence refs:
-    - path: ".praude/research/%s-YYYYMMDD-HHMMSS.md"
+    - path: ".gurgeh/research/%s-YYYYMMDD-HHMMSS.md"
     - anchor: "section-2"
     - note: "Source quote"
 
@@ -32,7 +32,7 @@ func Create(dir, id string, now time.Time) (string, error) {
   - bootstrapping: "What can be reused"
   - insights: "Product or UX notes"
   - Evidence refs:
-    - path: ".praude/research/%s-YYYYMMDD-HHMMSS.md"
+    - path: ".gurgeh/research/%s-YYYYMMDD-HHMMSS.md"
     - anchor: "section-3"
     - note: "Source quote"
 `, id, id, id, id)

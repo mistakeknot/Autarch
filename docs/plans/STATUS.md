@@ -51,7 +51,7 @@
 | 2026-01-23-vauxhall-grouping-plan.md | commit | paths:2 latest:2026-01-29 |
 | 2026-01-23-vauxhall-web-search-filters-plan.md | commit | paths:4 latest:2026-01-26 |
 | 2026-01-25-intermute-mvp-implementation-plan.md | commit | paths:16 latest:2026-01-26 |
-| 2026-01-26-arbiter-spec-sprint-implementation.md | commit | paths:9 latest:2026-02-03 |
+| 2026-01-26-arbiter-spec-sprint-implementation.md | commit | paths:9 latest:2026-02-04 |
 | 2026-01-26-feat-cursor-style-unified-shell-layout-plan.md | commit | paths:1 latest:2026-01-26 |
 | 2026-01-26-feat-pollard-first-class-research-input-plan.md | commit | paths:8 latest:2026-02-03 |
 | 2026-01-27-coordination-infrastructure-plan.md | todo:complete | 001-complete-p2-coordination-doc-updates.md |

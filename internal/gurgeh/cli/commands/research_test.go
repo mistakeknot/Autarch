@@ -156,7 +156,7 @@ func TestBuildResearchBriefIncludesOssScan(t *testing.T) {
 		Summary:      "Summary",
 		Requirements: []string{"REQ-1"},
 	}
-	brief := buildResearchBrief(spec, ".praude/research/PRD-001-20260115-120000.md", []string{"Do thing"})
+	brief := buildResearchBrief(spec, ".gurgeh/research/PRD-001-20260115-120000.md", []string{"Do thing"}, "")
 	if !strings.Contains(brief, "OSS project scan") {
 		t.Fatalf("expected OSS scan instructions")
 	}
