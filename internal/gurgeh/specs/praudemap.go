@@ -31,7 +31,7 @@ type Praudemap struct {
 
 // LoadPraudemap reads the praudemap from a project
 func LoadPraudemap(projectPath string) (*Praudemap, error) {
-	path := filepath.Join(projectPath, ".praude", "praudemap.yaml")
+	path := filepath.Join(resolveRootDir(projectPath), "praudemap.yaml")
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return nil, err
@@ -46,8 +46,8 @@ func LoadPraudemap(projectPath string) (*Praudemap, error) {
 
 // Save writes the praudemap to a project
 func (pm *Praudemap) Save(projectPath string) error {
-	praudeDir := filepath.Join(projectPath, ".praude")
-	if err := os.MkdirAll(praudeDir, 0755); err != nil {
+	rootDir := resolveRootDir(projectPath)
+	if err := os.MkdirAll(rootDir, 0755); err != nil {
 		return err
 	}
 
@@ -56,7 +56,7 @@ func (pm *Praudemap) Save(projectPath string) error {
 		return err
 	}
 
-	return os.WriteFile(filepath.Join(praudeDir, "praudemap.yaml"), data, 0644)
+	return os.WriteFile(filepath.Join(rootDir, "praudemap.yaml"), data, 0644)
 }
 
 // GetActiveVersion returns the version currently in progress

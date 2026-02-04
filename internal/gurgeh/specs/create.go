@@ -59,7 +59,7 @@ market_research:
   - id: "MR-001"
     claim: "Market is growing"
     evidence_refs:
-      - path: ".praude/research/PRD-001-YYYYMMDD-HHMMSS.md"
+      - path: ".gurgeh/research/PRD-001-YYYYMMDD-HHMMSS.md"
         anchor: "section-1"
         note: "Source quote"
     confidence: "medium"
@@ -74,11 +74,11 @@ competitive_landscape:
       - "Reliability"
     risk: "Medium"
     evidence_refs:
-      - path: ".praude/research/PRD-001-YYYYMMDD-HHMMSS.md"
+      - path: ".gurgeh/research/PRD-001-YYYYMMDD-HHMMSS.md"
         anchor: "section-2"
         note: "Source quote"
 research:
-  - ".praude/research/PRD-001-YYYYMMDD-HHMMSS.md"
+  - ".gurgeh/research/PRD-001-YYYYMMDD-HHMMSS.md"
 complexity: "medium"
 estimated_minutes: 25
 priority: 1

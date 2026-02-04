@@ -8,6 +8,31 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
+const gurgDir = ".gurgeh"
+const legacyPraudeDir = ".praude"
+
+// resolveRootDir returns the data directory for a project, preferring .gurgeh
+// and falling back to .praude for legacy projects.
+func resolveRootDir(projectPath string) string {
+	gurgPath := filepath.Join(projectPath, gurgDir)
+	if _, err := os.Stat(gurgPath); err == nil {
+		return gurgPath
+	}
+	praudePath := filepath.Join(projectPath, legacyPraudeDir)
+	if _, err := os.Stat(praudePath); err == nil {
+		return praudePath
+	}
+	return gurgPath
+}
+
+func resolveSpecsDir(projectPath string) string {
+	return filepath.Join(resolveRootDir(projectPath), "specs")
+}
+
+func resolveResearchDir(projectPath string) string {
+	return filepath.Join(resolveRootDir(projectPath), "research")
+}
+
 // PRDStatus represents the status of a PRD
 type PRDStatus string
 
@@ -69,7 +94,7 @@ func LoadPRD(path string) (*PRD, error) {
 
 // Save writes a PRD to a YAML file
 func (p *PRD) Save(projectPath string) error {
-	specsDir := filepath.Join(projectPath, ".praude", "specs")
+	specsDir := resolveSpecsDir(projectPath)
 	if err := os.MkdirAll(specsDir, 0755); err != nil {
 		return err
 	}
@@ -85,9 +110,9 @@ func (p *PRD) Save(projectPath string) error {
 	return os.WriteFile(filepath.Join(specsDir, filename), data, 0644)
 }
 
-// LoadAllPRDs reads all PRDs from a project's .praude/specs directory
+// LoadAllPRDs reads all PRDs from a project's specs directory
 func LoadAllPRDs(projectPath string) ([]*PRD, error) {
-	specsDir := filepath.Join(projectPath, ".praude", "specs")
+	specsDir := resolveSpecsDir(projectPath)
 	entries, err := os.ReadDir(specsDir)
 	if err != nil {
 		if os.IsNotExist(err) {

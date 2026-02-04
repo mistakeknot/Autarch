@@ -32,9 +32,9 @@ type Change struct {
 	InsightRef string `yaml:"insight_ref,omitempty"` // Pollard insight ID
 }
 
-// historyDir returns the path to .gurgeh/specs/history/
+// historyDir returns the path to specs/history/ under the resolved data directory.
 func historyDir(root string) string {
-	return filepath.Join(root, ".gurgeh", "specs", "history")
+	return filepath.Join(resolveSpecsDir(root), "history")
 }
 
 // SaveRevision persists a spec revision as a full snapshot.
