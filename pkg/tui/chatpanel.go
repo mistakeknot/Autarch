@@ -31,22 +31,25 @@ type ChatMessage struct {
 // ChatPanel combines a scrollable chat history with a composer at the bottom.
 // This is the right-side panel in the Cursor-style split layout.
 type ChatPanel struct {
-	messages []ChatMessage
-	composer *Composer
-	selector *AgentSelector
-	settings ChatSettings
-	width    int
-	height   int
-	scroll   int // Scroll offset for history (0 = bottom)
+	messages      []ChatMessage
+	composer      *Composer
+	selector      *AgentSelector
+	commandPicker *CommandPicker
+	settings      ChatSettings
+	width         int
+	height        int
+	scroll        int // Scroll offset for history (0 = bottom)
 }
 
 // NewChatPanel creates a new chat panel with default settings.
 func NewChatPanel() *ChatPanel {
 	composer := NewComposer(4)
+	picker := NewCommandPicker(GlobalCommands())
 	return &ChatPanel{
-		messages: []ChatMessage{},
-		composer: composer,
-		settings: DefaultChatSettings(),
+		messages:      []ChatMessage{},
+		composer:      composer,
+		commandPicker: picker,
+		settings:      DefaultChatSettings(),
 	}
 }
 
@@ -91,21 +94,67 @@ func (p *ChatPanel) SetSize(width, height int) {
 
 // Update handles tea.Msg for the chat panel.
 func (p *ChatPanel) Update(msg tea.Msg) (*ChatPanel, tea.Cmd) {
-	if keyMsg, ok := msg.(tea.KeyMsg); ok && p.selector != nil {
-		wasOpen := p.selector.Open
-		selectorMsg, selectorCmd := p.selector.Update(keyMsg)
-		if selectorMsg != nil {
-			return p, tea.Batch(selectorCmd, func() tea.Msg { return selectorMsg })
+	if keyMsg, ok := msg.(tea.KeyMsg); ok {
+		// Handle command picker first if visible
+		if p.commandPicker != nil && p.commandPicker.Visible() {
+			selectedCmd, consumed := p.commandPicker.Update(keyMsg)
+			if selectedCmd != "" {
+				// User selected a command - put it in the composer
+				p.composer.SetValue("/" + selectedCmd + " ")
+				return p, nil
+			}
+			if consumed {
+				return p, nil
+			}
 		}
-		if p.selector.Open || wasOpen || keyMsg.Type == tea.KeyF2 {
-			return p, selectorCmd
+
+		// Handle agent selector
+		if p.selector != nil {
+			wasOpen := p.selector.Open
+			selectorMsg, selectorCmd := p.selector.Update(keyMsg)
+			if selectorMsg != nil {
+				return p, tea.Batch(selectorCmd, func() tea.Msg { return selectorMsg })
+			}
+			if p.selector.Open || wasOpen || keyMsg.Type == tea.KeyF2 {
+				return p, selectorCmd
+			}
 		}
 	}
 
 	// Pass messages to composer
 	var cmd tea.Cmd
 	p.composer, cmd = p.composer.Update(msg)
+
+	// Check if we should show/update the command picker
+	p.updateCommandPicker()
+
 	return p, cmd
+}
+
+// updateCommandPicker shows or hides the picker based on composer content.
+func (p *ChatPanel) updateCommandPicker() {
+	if p.commandPicker == nil {
+		return
+	}
+
+	value := p.composer.Value()
+
+	// Show picker when typing starts with /
+	if strings.HasPrefix(value, "/") {
+		query := strings.TrimPrefix(value, "/")
+		// Only show if we're still typing the command (no space yet, or query is short)
+		if !strings.Contains(query, " ") || len(query) < 20 {
+			if !p.commandPicker.Visible() {
+				p.commandPicker.Show(query)
+			} else {
+				p.commandPicker.UpdateQuery(query)
+			}
+		} else {
+			p.commandPicker.Hide()
+		}
+	} else {
+		p.commandPicker.Hide()
+	}
 }
 
 // View renders the complete chat panel (history + composer).
@@ -147,8 +196,15 @@ func (p *ChatPanel) View() string {
 	sections := []string{
 		historyView,
 		separator,
-		composerView,
 	}
+
+	// Add command picker above composer if visible
+	if p.commandPicker != nil && p.commandPicker.Visible() {
+		p.commandPicker.SetSize(p.width-4, 12)
+		sections = append(sections, p.commandPicker.View())
+	}
+
+	sections = append(sections, composerView)
 
 	if p.selector != nil && p.selector.Open {
 		sections = append(sections, p.selector.View())

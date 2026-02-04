@@ -182,7 +182,7 @@ todo → in_progress → review → done
 
 ### Slash Commands
 
-Type these in the chat composer and press Enter:
+Type `/` in the chat composer to open a fuzzy finder for commands. Use `↑`/`↓` to navigate, `Tab` or `Enter` to select, `Esc` to dismiss.
 
 #### Global Commands (work everywhere)
 
