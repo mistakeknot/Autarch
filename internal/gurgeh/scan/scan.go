@@ -170,7 +170,7 @@ func isDefaultIgnored(rel string) bool {
 	if rel == ".git" || strings.HasPrefix(rel, ".git/") {
 		return true
 	}
-	if rel == ".praude" || strings.HasPrefix(rel, ".praude/") {
+	if rel == ".gurgeh" || strings.HasPrefix(rel, ".gurgeh/") || rel == ".praude" || strings.HasPrefix(rel, ".praude/") {
 		return true
 	}
 	return false

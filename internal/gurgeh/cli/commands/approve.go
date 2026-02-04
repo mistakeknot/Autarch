@@ -46,7 +46,7 @@ Examples:
 			}
 
 			// Read the PRD
-			specPath := filepath.Join(cwd, ".gurgeh", "specs", prdID+".yaml")
+			specPath := filepath.Join(project.SpecsDir(cwd), prdID+".yaml")
 			data, err := os.ReadFile(specPath)
 			if err != nil {
 				if os.IsNotExist(err) {

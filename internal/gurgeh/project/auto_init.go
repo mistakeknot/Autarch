@@ -7,8 +7,8 @@ import (
 	"github.com/mistakeknot/autarch/internal/gurgeh/specs"
 )
 
-// EnsureInitialized creates .praude and a template spec on first run.
-// If .praude already exists, it leaves the workspace untouched.
+// EnsureInitialized creates .gurgeh and a template spec on first run.
+// If the data directory already exists, it leaves the workspace untouched.
 func EnsureInitialized(root string) error {
 	if _, err := os.Stat(RootDir(root)); err == nil {
 		return nil

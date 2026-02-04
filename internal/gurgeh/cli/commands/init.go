@@ -12,7 +12,7 @@ import (
 func InitCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "init",
-		Short: "Initialize .praude/ in current directory",
+		Short: "Initialize .gurgeh/ in current directory",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			root, err := os.Getwd()
 			if err != nil {

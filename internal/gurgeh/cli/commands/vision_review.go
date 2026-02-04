@@ -68,7 +68,7 @@ func visionReviewCheckCmd() *cobra.Command {
 
 // findVisionSpec locates a vision spec by ID or auto-detects the first one.
 func findVisionSpec(root string, specID string) (*specs.Spec, error) {
-	specsDir := filepath.Join(root, ".gurgeh", "specs")
+	specsDir := project.SpecsDir(root)
 	entries, err := os.ReadDir(specsDir)
 	if err != nil {
 		return nil, fmt.Errorf("reading specs dir: %w", err)

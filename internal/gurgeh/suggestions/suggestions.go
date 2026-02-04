@@ -82,7 +82,7 @@ func Create(dir, id string, now time.Time) (string, error) {
   - id: "MR-001"
     claim: "Market claim"
     evidence_refs:
-      - path: ".praude/research/%s-YYYYMMDD-HHMMSS.md"
+      - path: ".gurgeh/research/%s-YYYYMMDD-HHMMSS.md"
         anchor: "section-1"
         note: "Source quote"
     confidence: "medium"
@@ -100,7 +100,7 @@ func Create(dir, id string, now time.Time) (string, error) {
       - "Weakness"
     risk: "Medium"
     evidence_refs:
-      - path: ".praude/research/%s-YYYYMMDD-HHMMSS.md"
+      - path: ".gurgeh/research/%s-YYYYMMDD-HHMMSS.md"
         anchor: "section-2"
         note: "Source quote"
 `, id, id, id)

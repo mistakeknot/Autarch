@@ -29,7 +29,7 @@ a specific plan file.
 
 Examples:
   praude apply
-  praude apply --plan .praude/pending/interview-plan.json
+  praude apply --plan .gurgeh/pending/interview-plan.json
 `,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			root, err := os.Getwd()

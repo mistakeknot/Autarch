@@ -42,7 +42,7 @@ Examples:
 			}
 
 			// Find the PRD file
-			specPath := filepath.Join(cwd, ".gurgeh", "specs", prdID+".yaml")
+			specPath := filepath.Join(project.SpecsDir(cwd), prdID+".yaml")
 			if _, err := os.Stat(specPath); os.IsNotExist(err) {
 				return fmt.Errorf("PRD not found: %s", prdID)
 			}

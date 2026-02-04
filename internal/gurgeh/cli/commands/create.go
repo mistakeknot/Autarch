@@ -41,9 +41,12 @@ Examples:
 			}
 
 			if interactive {
-				// Delegate to interview command
 				interviewCmd := InterviewCmd()
-				return interviewCmd.RunE(cmd, args)
+				interviewCmd.SetOut(cmd.OutOrStdout())
+				interviewCmd.SetErr(cmd.ErrOrStderr())
+				interviewCmd.SetIn(cmd.InOrStdin())
+				interviewCmd.SetArgs(args)
+				return interviewCmd.Execute()
 			}
 
 			// Quick creation with title/summary
@@ -63,7 +66,7 @@ Examples:
 			}
 
 			// Write the spec
-			specsDir := filepath.Join(cwd, ".gurgeh", "specs")
+			specsDir := project.SpecsDir(cwd)
 			if err := os.MkdirAll(specsDir, 0755); err != nil {
 				return fmt.Errorf("failed to create specs directory: %w", err)
 			}
@@ -98,7 +101,7 @@ Examples:
 }
 
 func generatePRDID(cwd string) string {
-	specsDir := filepath.Join(cwd, ".gurgeh", "specs")
+	specsDir := project.SpecsDir(cwd)
 	entries, _ := os.ReadDir(specsDir)
 
 	maxNum := 0
