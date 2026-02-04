@@ -8,9 +8,11 @@ import (
 )
 
 type Input struct {
-	Summary string
-	Depth   int
-	Repo    string
+	Summary         string
+	Depth           int
+	Repo            string
+	ResearchContext string // Pollard insights/report summary (optional)
+	SpecContext     string // Gurgeh spec summaries (optional)
 }
 
 type Result struct {

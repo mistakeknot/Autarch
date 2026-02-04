@@ -16,6 +16,9 @@ import (
 	"github.com/mistakeknot/autarch/internal/coldwine/explore"
 	"github.com/mistakeknot/autarch/internal/coldwine/initflow"
 	"github.com/mistakeknot/autarch/internal/coldwine/project"
+	gurgehProject "github.com/mistakeknot/autarch/internal/gurgeh/project"
+	"github.com/mistakeknot/autarch/internal/gurgeh/specs"
+	"github.com/mistakeknot/autarch/internal/pollard/insights"
 	"github.com/mistakeknot/autarch/pkg/agenttargets"
 	"gopkg.in/yaml.v3"
 )
@@ -82,9 +85,11 @@ func runInit(cmdOut io.Writer, in io.Reader, opts initOptions) error {
 
 	generator := initGeneratorFactory(root, opts.Agent, cmdOut)
 	result, err := initflow.GenerateEpics(generator, initflow.Input{
-		Summary: loadSummary(planDir),
-		Depth:   depth,
-		Repo:    root,
+		Summary:         loadSummary(planDir),
+		Depth:           depth,
+		Repo:            root,
+		ResearchContext: loadPollardContext(root),
+		SpecContext:     loadGurgehContext(root),
 	})
 	if err != nil {
 		fmt.Fprintf(cmdOut, "⚠  Agent generation failed: %v\n", err)
@@ -280,38 +285,56 @@ func runAgentWithRunner(ctx context.Context, runner agenttargets.AgentRunner, ta
 }
 
 func buildAgentPrompt(input initflow.Input) string {
-	return fmt.Sprintf("# Tandemonium Init: Epic + Story Generation\n\n"+
-		"You are generating epic/story specs for a repo. Read the exploration summary and output YAML only.\n"+
-		"Allowed status: todo|in_progress|review|blocked|done\n"+
-		"Allowed priority: p0|p1|p2|p3\n"+
-		"Use estimates (plural).\n"+
-		"Output YAML only (no prose).\n\n"+
-		"Output schema:\n\n"+
-		"```yaml\n"+
-		"epics:\n"+
-		"  - id: EPIC-001\n"+
-		"    title: Example\n"+
-		"    summary: Short description\n"+
-		"    status: todo\n"+
-		"    priority: p1\n"+
-		"    acceptance_criteria:\n"+
-		"      - ...\n"+
-		"    risks:\n"+
-		"      - ...\n"+
-		"    estimates: \"S\"\n"+
-		"    stories:\n"+
-		"      - id: EPIC-001-S01\n"+
-		"        title: Story title\n"+
-		"        summary: Story summary\n"+
-		"        status: todo\n"+
-		"        priority: p1\n"+
-		"        acceptance_criteria:\n"+
-		"          - ...\n"+
-		"        risks:\n"+
-		"          - ...\n"+
-		"        estimates: \"S\"\n"+
-		"```\n\n"+
-		"Exploration Summary:\n\n%s\n", input.Summary)
+	var b strings.Builder
+	b.WriteString("# Coldwine Init: Epic + Story Generation\n\n")
+	b.WriteString("You are generating epic/story specs for a repo. Read the context below and output YAML only.\n")
+	b.WriteString("Allowed status: todo|in_progress|review|blocked|done\n")
+	b.WriteString("Allowed priority: p0|p1|p2|p3\n")
+	b.WriteString("Use estimates (plural).\n")
+	b.WriteString("Output YAML only (no prose).\n\n")
+
+	b.WriteString("Output schema:\n\n")
+	b.WriteString("```yaml\n")
+	b.WriteString("epics:\n")
+	b.WriteString("  - id: EPIC-001\n")
+	b.WriteString("    title: Example\n")
+	b.WriteString("    summary: Short description\n")
+	b.WriteString("    status: todo\n")
+	b.WriteString("    priority: p1\n")
+	b.WriteString("    acceptance_criteria:\n")
+	b.WriteString("      - ...\n")
+	b.WriteString("    risks:\n")
+	b.WriteString("      - ...\n")
+	b.WriteString("    estimates: \"S\"\n")
+	b.WriteString("    stories:\n")
+	b.WriteString("      - id: EPIC-001-S01\n")
+	b.WriteString("        title: Story title\n")
+	b.WriteString("        summary: Story summary\n")
+	b.WriteString("        status: todo\n")
+	b.WriteString("        priority: p1\n")
+	b.WriteString("        acceptance_criteria:\n")
+	b.WriteString("          - ...\n")
+	b.WriteString("        risks:\n")
+	b.WriteString("          - ...\n")
+	b.WriteString("        estimates: \"S\"\n")
+	b.WriteString("```\n\n")
+
+	if input.SpecContext != "" {
+		b.WriteString("## Gurgeh Specs (existing PRDs)\n\n")
+		b.WriteString(input.SpecContext)
+		b.WriteString("\n\n")
+	}
+
+	if input.ResearchContext != "" {
+		b.WriteString("## Pollard Research Insights\n\n")
+		b.WriteString(input.ResearchContext)
+		b.WriteString("\n\n")
+	}
+
+	b.WriteString("## Exploration Summary\n\n")
+	b.WriteString(input.Summary)
+	b.WriteString("\n")
+	return b.String()
 }
 
 func parseAgentEpics(raw []byte) ([]epics.Epic, error) {
@@ -387,5 +410,56 @@ func (e *InitValidationError) Error() string {
 	fmt.Fprintf(&b, "  error log:  %s\n", e.ErrPath)
 	b.WriteString("\nErrors:\n")
 	b.WriteString(epics.FormatValidationErrors(e.Errors))
+	return b.String()
+}
+
+// loadPollardContext loads Pollard insights as a summary string for the agent prompt.
+// Returns empty string if no insights are available.
+func loadPollardContext(root string) string {
+	allInsights, err := insights.LoadAll(root)
+	if err != nil || len(allInsights) == 0 {
+		return ""
+	}
+	var b strings.Builder
+	for _, ins := range allInsights {
+		b.WriteString("- **")
+		b.WriteString(ins.Title)
+		b.WriteString("** (")
+		b.WriteString(string(ins.Category))
+		b.WriteString(")")
+		if len(ins.Findings) > 0 {
+			b.WriteString(": ")
+			b.WriteString(ins.Findings[0].Description)
+		}
+		b.WriteString("\n")
+	}
+	return b.String()
+}
+
+// loadGurgehContext loads Gurgeh spec summaries for the agent prompt.
+// Returns empty string if no specs are available.
+func loadGurgehContext(root string) string {
+	specsDir := gurgehProject.SpecsDir(root)
+	summaries, _ := specs.LoadSummaries(specsDir)
+	if len(summaries) == 0 {
+		return ""
+	}
+	var b strings.Builder
+	for _, s := range summaries {
+		b.WriteString("- **")
+		b.WriteString(s.ID)
+		b.WriteString("**: ")
+		b.WriteString(s.Title)
+		if s.Status != "" {
+			b.WriteString(" [")
+			b.WriteString(s.Status)
+			b.WriteString("]")
+		}
+		if s.Summary != "" {
+			b.WriteString(" — ")
+			b.WriteString(s.Summary)
+		}
+		b.WriteString("\n")
+	}
 	return b.String()
 }

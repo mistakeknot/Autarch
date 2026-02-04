@@ -28,7 +28,11 @@ type ImportResult struct {
 // ImportFromPRD reads a Praude PRD and generates Tandemonium epics.
 // It supports both the new PRD format (version-based) and legacy Spec format.
 func ImportFromPRD(opts ImportOptions) (*ImportResult, error) {
-	specsDir := filepath.Join(opts.Root, ".praude", "specs")
+	// Prefer .gurgeh, fall back to .praude for legacy projects
+	specsDir := filepath.Join(opts.Root, ".gurgeh", "specs")
+	if _, err := os.Stat(specsDir); os.IsNotExist(err) {
+		specsDir = filepath.Join(opts.Root, ".praude", "specs")
+	}
 
 	// First try to load as new PRD format (version-based)
 	prds, err := praudeSpecs.LoadAllPRDs(opts.Root)
