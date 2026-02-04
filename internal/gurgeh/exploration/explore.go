@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"os/exec"
+	"regexp"
+	"strings"
 	"time"
 )
 
@@ -42,12 +44,43 @@ func Explore(ctx context.Context, cwd string) (map[string]any, error) {
 	}
 
 	// Parse the inner result JSON
+	// First try direct JSON parse
 	var result map[string]any
-	if err := json.Unmarshal([]byte(envelope.Result), &result); err != nil {
-		// Result might be plain text, not JSON - return as-is
-		return map[string]any{"raw": envelope.Result}, nil
+	if err := json.Unmarshal([]byte(envelope.Result), &result); err == nil {
+		return result, nil
 	}
-	return result, nil
+
+	// Try extracting JSON from markdown code fence
+	extracted := extractJSONFromMarkdown(envelope.Result)
+	if extracted != "" {
+		if err := json.Unmarshal([]byte(extracted), &result); err == nil {
+			return result, nil
+		}
+	}
+
+	// Fallback: return raw text
+	return map[string]any{"raw": envelope.Result}, nil
+}
+
+// extractJSONFromMarkdown extracts JSON content from markdown code fences.
+// Handles ```json ... ``` and ``` ... ``` patterns.
+var jsonFenceRe = regexp.MustCompile("(?s)```(?:json)?\\s*\\n?(\\{.*?\\})\\s*```")
+
+func extractJSONFromMarkdown(text string) string {
+	// Try regex extraction first
+	matches := jsonFenceRe.FindStringSubmatch(text)
+	if len(matches) > 1 {
+		return strings.TrimSpace(matches[1])
+	}
+
+	// Fallback: look for first { to last }
+	start := strings.Index(text, "{")
+	end := strings.LastIndex(text, "}")
+	if start >= 0 && end > start {
+		return text[start : end+1]
+	}
+
+	return ""
 }
 
 const prompt = `Explore this codebase for PRD generation.
