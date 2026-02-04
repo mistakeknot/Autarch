@@ -407,6 +407,17 @@ func (p *ChatPanel) SubmitInput() tea.Cmd {
 	return nil
 }
 
+// SetViewCommands sets view-specific slash commands for the picker.
+// These are added to the global commands.
+func (p *ChatPanel) SetViewCommands(commands []SlashCommandDef) {
+	if p.commandPicker == nil {
+		return
+	}
+	// Combine global commands with view-specific commands
+	all := append(GlobalCommands(), commands...)
+	p.commandPicker.SetCommands(all)
+}
+
 // ensureHeight pads or truncates content to exactly n lines.
 func ensureHeight(content string, n int) string {
 	if n <= 0 {

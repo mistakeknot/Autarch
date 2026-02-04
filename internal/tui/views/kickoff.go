@@ -79,6 +79,7 @@ func NewKickoffView() *KickoffView {
 	chatPanel := pkgtui.NewChatPanel()
 	chatPanel.SetComposerPlaceholder("Describe what you want to build...")
 	chatPanel.SetComposerHint("enter create  ctrl+s scan")
+	chatPanel.SetViewCommands(pkgtui.KickoffCommands())
 
 	docPanel := pkgtui.NewDocPanel()
 	docPanel.SetTitle("What do you want to build?")

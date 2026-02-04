@@ -53,6 +53,7 @@ func NewSprintView(projectPath string, opts SprintViewOpts) *SprintView {
 	chatPanel := pkgtui.NewChatPanel()
 	chatPanel.SetComposerPlaceholder("Chat about the current phase...")
 	chatPanel.SetComposerHint("enter send · ctrl+→ accept · esc back")
+	chatPanel.SetViewCommands(pkgtui.SprintCommands())
 
 	var orch *arbiter.Orchestrator
 	if opts.IntermuteURL != "" {
