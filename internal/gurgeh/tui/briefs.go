@@ -9,6 +9,7 @@ import (
 	"github.com/mistakeknot/autarch/internal/gurgeh/brief"
 	"github.com/mistakeknot/autarch/internal/gurgeh/project"
 	"github.com/mistakeknot/autarch/internal/gurgeh/specs"
+	"github.com/mistakeknot/autarch/internal/pollard/insights"
 )
 
 func writeResearchBrief(root, id, researchPath string, now time.Time) (string, error) {
@@ -29,7 +30,8 @@ func writeResearchBrief(root, id, researchPath string, now time.Time) (string, e
 			acceptance = append(acceptance, item.Description)
 		}
 	}
-	content := buildResearchBrief(spec, researchPath, acceptance)
+	pollardFindings := loadPollardFindings(root, spec.ID)
+	content := buildResearchBrief(spec, researchPath, acceptance, pollardFindings)
 	if err := os.WriteFile(briefPath, []byte(content), 0o644); err != nil {
 		return "", err
 	}
@@ -55,7 +57,7 @@ func writeSuggestionBrief(root, id, suggPath string, now time.Time) (string, err
 	return briefPath, nil
 }
 
-func buildResearchBrief(spec specs.Spec, researchPath string, acceptance []string) string {
+func buildResearchBrief(spec specs.Spec, researchPath string, acceptance []string, pollardFindings string) string {
 	base := brief.Compose(brief.Input{
 		ID:            spec.ID,
 		Title:         spec.Title,
@@ -69,7 +71,54 @@ func buildResearchBrief(spec specs.Spec, researchPath string, acceptance []strin
 		"- Include an OSS project scan with evidence refs.\n" +
 		"- Use evidence refs for all claims.\n" +
 		"- Write results into the research template at:\n  " + researchPath + "\n"
+	if pollardFindings != "" {
+		instructions += "\n## Existing Pollard Research\n\n" +
+			"The following insights are already available from Pollard. " +
+			"Use these as a starting point and cite them where relevant:\n\n" +
+			pollardFindings
+	}
 	return base + instructions
+}
+
+// loadPollardFindings loads Pollard insights relevant to a spec ID.
+// Returns linked insights first, then general insights as context.
+func loadPollardFindings(root, specID string) string {
+	allInsights, err := insights.LoadAll(root)
+	if err != nil || len(allInsights) == 0 {
+		return ""
+	}
+	var linked, general []string
+	for _, ins := range allInsights {
+		summary := ins.Title
+		if len(ins.Findings) > 0 {
+			summary += ": " + ins.Findings[0].Description
+		}
+		isLinked := false
+		for _, feat := range ins.LinkedFeatures {
+			if feat == specID {
+				isLinked = true
+				break
+			}
+		}
+		if isLinked {
+			linked = append(linked, "- [linked] "+summary)
+		} else {
+			general = append(general, "- "+summary)
+		}
+	}
+	// Show linked first, then up to 10 general for context
+	var b strings.Builder
+	for _, l := range linked {
+		b.WriteString(l + "\n")
+	}
+	limit := 10
+	if len(general) < limit {
+		limit = len(general)
+	}
+	for _, g := range general[:limit] {
+		b.WriteString(g + "\n")
+	}
+	return b.String()
 }
 
 func buildSuggestionBrief(spec specs.Spec, suggPath string) string {
