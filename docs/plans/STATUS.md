@@ -14,7 +14,7 @@
 - Derived evidence: 1
 - Commit evidence: 47
 - Preexisting paths (no git evidence): 1
-- No evidence: 5
+- No evidence: 6
 
 ## Status Legend
 
@@ -87,6 +87,7 @@
 | 2026-02-04-feat-claude-code-style-codebase-scan-plan.md | commit | paths:1 latest:2026-02-04 |
 | 2026-02-04-feat-frankentui-inline-mode-log-pane-plan.md | none | no referenced paths found |
 | 2026-02-04-feat-inline-mode-log-pane-simplified-plan.md | commit | paths:2 latest:2026-02-04 |
+| 2026-02-04-feat-iterative-codebase-exploration-plan.md | none | no referenced paths found |
 
 ## Derived Evidence Details
 

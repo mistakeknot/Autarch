@@ -31,7 +31,7 @@ func NewLogPane() *LogPane {
 func (p *LogPane) SetSize(width, height int) {
 	p.width = width
 	p.height = height
-	p.viewport = viewport.New(width-2, height-3) // Account for border and header
+	p.viewport = viewport.New(width-4, height-3) // Account for border, padding, and header
 	p.viewport.MouseWheelEnabled = true
 	p.updateContent()
 }
@@ -102,6 +102,7 @@ func (p *LogPane) View() string {
 	style := lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
 		BorderForeground(ColorMuted).
+		Padding(0, 1). // Match other panes
 		Width(p.width - 2).
 		Height(p.height - 2)
 
