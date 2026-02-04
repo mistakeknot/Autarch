@@ -77,12 +77,9 @@ func TestHandleCommonQuitAndHelp(t *testing.T) {
 		t.Fatalf("expected ToggleHelpMsg from F1")
 	}
 
-	// ? is the MacBook-friendly alternative
+	// ? should NOT trigger help (use /help slash command instead)
 	helpCmd2 := HandleCommon(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'?'}}, keys)
-	if helpCmd2 == nil {
-		t.Fatalf("expected help command from ?")
-	}
-	if _, ok := helpCmd2().(ToggleHelpMsg); !ok {
-		t.Fatalf("expected ToggleHelpMsg from ?")
+	if helpCmd2 != nil {
+		t.Fatalf("expected ? to NOT trigger help (reserved for typing in chat)")
 	}
 }

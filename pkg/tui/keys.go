@@ -34,7 +34,7 @@ func NewCommonKeys() CommonKeys {
 			key.WithHelp("ctrl+c×2", "quit"),
 		),
 		Help: key.NewBinding(
-			key.WithKeys("?", "f1"),
+			key.WithKeys("f1"),
 			key.WithHelp("/help", "help"),
 		),
 		Search: key.NewBinding(
