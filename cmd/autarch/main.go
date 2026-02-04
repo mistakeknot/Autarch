@@ -57,6 +57,7 @@ Available tools:
 	root.AddCommand(coldwineCmd())
 	root.AddCommand(pollardCmd())
 	root.AddCommand(setupCmd())
+	root.AddCommand(migrateCmd())
 	root.AddCommand(reconcileCmd())
 	root.AddCommand(eventsCmd())
 	root.AddCommand(planstatus.NewCommand())

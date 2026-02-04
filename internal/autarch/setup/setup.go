@@ -100,6 +100,11 @@ func Run() error {
 		fmt.Fprintf(os.Stderr, "Note: Could not configure Codex CLI hooks: %v\n", err)
 	}
 
+	// Install archviz post-commit hook in the repo's .git/hooks
+	if err := installArchvizHook(); err != nil {
+		fmt.Fprintf(os.Stderr, "Note: Could not install archviz post-commit hook: %v\n", err)
+	}
+
 	return nil
 }
 
@@ -231,6 +236,59 @@ func buildClaudeHooks(emitScript string) map[string]interface{} {
 		"Stop":               makeHook("waiting"),
 		"SessionEnd":         makeHook("done"),
 	}
+}
+
+// installArchvizHook appends the archviz post-commit hook to the repo's
+// .git/hooks/post-commit if not already present.
+func installArchvizHook() error {
+	// Find repo root by walking up from cwd
+	dir, err := os.Getwd()
+	if err != nil {
+		return err
+	}
+	for {
+		if fileExists(filepath.Join(dir, "go.mod")) {
+			break
+		}
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			return fmt.Errorf("not inside a git repo")
+		}
+		dir = parent
+	}
+
+	gitHooksDir := filepath.Join(dir, ".git", "hooks")
+	if !dirExists(gitHooksDir) {
+		if err := os.MkdirAll(gitHooksDir, 0755); err != nil {
+			return err
+		}
+	}
+
+	hookPath := filepath.Join(gitHooksDir, "post-commit")
+	marker := "scripts/update-archviz.sh"
+
+	// Check if already installed
+	if data, err := os.ReadFile(hookPath); err == nil {
+		if strings.Contains(string(data), marker) {
+			return nil
+		}
+	}
+
+	// Append to existing or create new
+	f, err := os.OpenFile(hookPath, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0755)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+
+	info, _ := f.Stat()
+	if info != nil && info.Size() == 0 {
+		fmt.Fprintln(f, "#!/bin/sh")
+	}
+	fmt.Fprintf(f, "\n# Archviz: regenerate architecture visualizer on relevant changes\n")
+	fmt.Fprintf(f, "\"$(git rev-parse --show-toplevel)/%s\"\n", marker)
+
+	return nil
 }
 
 // Helper functions

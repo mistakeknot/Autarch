@@ -62,7 +62,7 @@
 | 2026-01-28-agent-model-selector-implementation-plan.md | commit | paths:7 latest:2026-01-30 |
 | 2026-01-28-agent-panel-streaming-diff-plan.md | commit | paths:5 latest:2026-01-30 |
 | 2026-01-28-feat-coordination-api-foundation-plan.md | derived | pkg/httpapi/envelope.go, internal/pollard/server/server.go, pkg/jobs/jobs.go, internal/pollard/server/cache.go, pkg/netguard/bind.go, internal/gurgeh/server/server.go, internal/signals/cli/serve.go, pkg/signals/server.go |
-| 2026-01-28-feat-gurgeh-readonly-spec-api-plan.md | commit | paths:6 latest:2026-02-04 |
+| 2026-01-28-feat-gurgeh-readonly-spec-api-plan.md | commit | paths:7 latest:2026-02-04 |
 | 2026-01-28-fix-guardrails-followthrough-plan.md | commit | paths:6 latest:2026-01-30 |
 | 2026-01-28-hide-system-labels-chat-panel-plan.md | commit | paths:2 latest:2026-01-30 |
 | 2026-01-28-kickoff-chat-initial-system-messages-plan.md | commit | paths:2 latest:2026-02-01 |

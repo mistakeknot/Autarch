@@ -39,3 +39,6 @@ build/
 
 # Local external clones
 .external/
+
+.gemini/
+gha-creds-*.json
