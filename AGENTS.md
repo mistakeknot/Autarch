@@ -77,6 +77,9 @@ go mod tidy
 - Gurgeh read-only Spec API (local-only)
 - Signals WebSocket server + publish endpoint (local-only)
 - Bigend colony detection (git worktrees + markers + /proc on Linux)
+- Chat-focused TUI with Ctrl+ keybindings (no single-letter shortcuts)
+- Slash commands with fuzzy finder (`/` opens picker)
+- Deterministic tech stack detection with verbatim evidence
 
 ### In Progress
 - Bigend TUI mode
@@ -187,40 +190,36 @@ See tool-specific AGENTS.md files for tool configuration.
 When adding or editing shortcuts, review
 [docs/tui/SHORTCUTS.md](docs/tui/SHORTCUTS.md).
 
-### Shell Layout Keys (All Views)
+### Design Philosophy
 
-| Key | Action |
-|-----|--------|
-| `Tab` | Cycle focus: sidebar → document → chat |
-| `Ctrl+B` | Toggle sidebar |
+**Chat-focused TUI:** All TUIs are built around a chat composer. Keybindings use `Ctrl+` combinations to avoid conflicts with typing. Single-letter shortcuts are avoided. Function keys work as fallbacks for external keyboards.
 
 ### Universal Keys
 
 | Key | Action |
 |-----|--------|
-| `?` | Show help overlay |
-| `ctrl+c` | Quit |
-| `q` | Quit |
-| `j` / `k` | Navigate down/up |
-| `enter` | Select/expand |
-| `esc` / `b` / `backspace` | Go back |
-| `F2` | Agent selector |
-| `1-4` | Switch tabs |
+| `Ctrl+C` | Clear input (once) / Quit (twice) |
+| `↓` / `↑` | Move down / up |
+| `Enter` | Select / confirm |
+| `Esc` | Cancel / go back |
+| `Tab` | Cycle pane focus |
+| `Ctrl+B` | Toggle sidebar |
+| `Ctrl+G` | Model selector |
+| `Ctrl+R` | Refresh |
+| `Ctrl+A` | Accept (context-dependent) |
+| `Ctrl+E` | Edit (context-dependent) |
+| `Ctrl+X` | Delete (context-dependent) |
+| `Ctrl+S` | Scan (in kickoff) |
 
-### Review Views (Epic/Task Review)
+### Slash Commands (Fuzzy Finder)
 
-| Key | Action |
-|-----|--------|
-| `A` | Accept ALL proposals (uppercase) |
-| `e` | Edit selected |
-| `d` | Delete selected |
-| `R` | Regenerate (uppercase) |
-| `g` | Toggle grouped view |
+Type `/` in the chat composer to open a fuzzy command picker. Use `↑`/`↓` to navigate, `Tab` or `Enter` to select, `Esc` to dismiss.
 
-**Design Principles:**
-- Lowercase `r` = refresh
-- Uppercase for destructive actions
-- `enter` = non-destructive only
+**Global Commands:** `/help`, `/quit`, `/settings`, `/model`, `/refresh`, `/back`
+
+**View-Specific:** Commands like `/scan`, `/accept`, `/edit` vary by view. The picker shows only commands available in the current context.
+
+See [docs/QUICK_REFERENCE.md](docs/QUICK_REFERENCE.md) for the complete command list.
 
 ---
 
@@ -232,7 +231,7 @@ When adding or editing shortcuts, review
 | `events` | Event spine for communication (SQLite at `~/.autarch/events.db`) |
 | `intermute` | Intermute client wrapper (agents, messages, reservations) |
 | `signals` | Typed alerts: competitor shipped, assumption decayed, execution drifted |
-| `tui` | Shared TUI styles + unified shell layout (Sidebar, ShellLayout, SplitLayout) |
+| `tui` | Shared TUI: styles, layouts (Shell, Split), ChatPanel, CommandPicker, Composer |
 | `agenttargets` | Run-target registry/resolver |
 | `discovery` | Project discovery |
 
