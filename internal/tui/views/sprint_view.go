@@ -418,14 +418,6 @@ func (v *SprintView) HandleSlashCommand(command string, args []string) tea.Cmd {
 	switch command {
 	case "accept", "a":
 		return v.handleAccept()
-	case "edit", "e":
-		// Put current content in composer for editing
-		state, ok := v.orch.State()
-		if ok {
-			if section, exists := state.Sections[state.Phase]; exists {
-				v.chatPanel.SetValue(section.Content)
-			}
-		}
 	}
 	return nil
 }

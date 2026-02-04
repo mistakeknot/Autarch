@@ -92,7 +92,7 @@ func renderHelpOverlay() string {
 			HelpDescStyle.Render(" • ") +
 			HelpKeyStyle.Render("i") + HelpDescStyle.Render(" init") +
 			HelpDescStyle.Render(" • ") +
-			HelpKeyStyle.Render("F1") + HelpDescStyle.Render(" help"),
+			HelpKeyStyle.Render("?") + HelpDescStyle.Render(" help"),
 		HelpKeyStyle.Render("ctrl+c") + HelpDescStyle.Render(" quit") +
 			HelpDescStyle.Render(" • ") +
 			HelpKeyStyle.Render("ctrl+k") + HelpDescStyle.Render(" palette") +

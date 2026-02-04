@@ -209,8 +209,9 @@ Type `/` in the chat composer to open a fuzzy finder for commands. Use `â†‘`/`â†
 | Command | Alias | Action |
 |---------|-------|--------|
 | `/accept` | `/a` | Accept current draft |
-| `/edit` | `/e` | Edit current content |
 | `/1`, `/2`, `/3` | - | Select alternative option |
+
+> **Editing drafts:** Chat with the agent to refine content, or open the spec file directly in your editor.
 
 #### Epic / Task Review Views
 

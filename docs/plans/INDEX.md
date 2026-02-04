@@ -20,6 +20,8 @@ This index organizes all planning documents by tool, type, and date. Documents f
 
 | Date | Document | Type | Description |
 |------|----------|------|-------------|
+| 2026-02-04 | [feat-inline-mode-log-pane-simplified-plan](./2026-02-04-feat-inline-mode-log-pane-simplified-plan.md) | Plan | **ACTIVE** Inline mode with log pane (simplified) |
+| 2026-02-04 | [feat-frankentui-inline-mode-log-pane-plan](./2026-02-04-feat-frankentui-inline-mode-log-pane-plan.md) | Plan | Inline mode comprehensive research (superseded by simplified) |
 | 2026-01-23 | [unified-architecture-design](./2026-01-23-unified-architecture-design.md) | Design | Unified Autarch architecture with agent-native principles |
 | 2026-01-22 | [agent-targets-design](./2026-01-22-agent-targets-design.md) | Design | Agent target configuration system |
 | 2026-01-22 | [agent-targets-implementation-plan](./2026-01-22-agent-targets-implementation-plan.md) | Plan | Agent targets implementation |

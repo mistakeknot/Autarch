@@ -332,7 +332,6 @@ func KickoffCommands() []SlashCommandDef {
 func SprintCommands() []SlashCommandDef {
 	return []SlashCommandDef{
 		{Command: "accept", Aliases: []string{"a"}, Description: "Accept current draft", Category: "sprint"},
-		{Command: "edit", Aliases: []string{"e"}, Description: "Edit current content", Category: "sprint"},
 		{Command: "1", Description: "Select option 1", Category: "sprint"},
 		{Command: "2", Description: "Select option 2", Category: "sprint"},
 		{Command: "3", Description: "Select option 3", Category: "sprint"},

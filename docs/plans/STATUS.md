@@ -12,8 +12,8 @@
 
 - Todo-tracked: 5
 - Derived evidence: 1
-- Commit evidence: 46
-- Preexisting paths (no git evidence): 2
+- Commit evidence: 47
+- Preexisting paths (no git evidence): 1
 - No evidence: 5
 
 ## Status Legend
@@ -86,7 +86,7 @@
 | 2026-02-03-fix-sprint-completion-spec-summary-transition-plan.md | none | no referenced paths found |
 | 2026-02-04-feat-claude-code-style-codebase-scan-plan.md | commit | paths:1 latest:2026-02-04 |
 | 2026-02-04-feat-frankentui-inline-mode-log-pane-plan.md | none | no referenced paths found |
-| 2026-02-04-feat-inline-mode-log-pane-simplified-plan.md | preexisting | paths:3 |
+| 2026-02-04-feat-inline-mode-log-pane-simplified-plan.md | commit | paths:1 latest:2026-02-04 |
 
 ## Derived Evidence Details
 
