@@ -18,6 +18,7 @@ import (
 	"github.com/mistakeknot/autarch/internal/coldwine/tasks"
 	"github.com/mistakeknot/autarch/internal/gurgeh/arbiter"
 	"github.com/mistakeknot/autarch/internal/gurgeh/arbiter/scan"
+	"github.com/mistakeknot/autarch/internal/gurgeh/exploration"
 	"github.com/mistakeknot/autarch/internal/pollard/research"
 	"github.com/mistakeknot/autarch/pkg/autarch"
 	pkgtui "github.com/mistakeknot/autarch/pkg/tui"
@@ -814,6 +815,20 @@ func (a *UnifiedApp) scanCodebase(path string) tea.Cmd {
 				}
 			},
 		)
+
+		// Try to enhance with Claude Code exploration (non-blocking)
+		if err == nil {
+			progressChan <- agent.ScanProgress{Step: "Exploring", Details: "Running Claude Code exploration..."}
+			exploreCtx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+			defer cancel()
+			if exploreResult, exploreErr := exploration.Explore(exploreCtx, path); exploreErr == nil {
+				// Merge exploration evidence into scan results
+				result.PhaseArtifacts = exploration.MergeIntoArtifacts(exploreResult, result.PhaseArtifacts)
+			} else {
+				// Log but don't fail - exploration is optional enhancement
+				slog.Debug("exploration enhancement failed", "error", exploreErr)
+			}
+		}
 
 		// Send final result through the channel as a special progress message
 		if err != nil {
