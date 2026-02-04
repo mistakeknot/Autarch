@@ -446,3 +446,24 @@ func (v *ArbiterView) ShortHelp() string {
 func (v *ArbiterView) ClearInput() {
 	v.chatPanel.ClearComposer()
 }
+
+// HandleSlashCommand handles view-specific slash commands
+func (v *ArbiterView) HandleSlashCommand(command string, args []string) tea.Cmd {
+	switch command {
+	case "accept", "a":
+		_, cmd := v.acceptDraft()
+		return cmd
+	case "edit", "e":
+		// Put current content in composer for editing
+		if section := v.currentSection(); section != nil {
+			v.chatPanel.SetValue(section.Content)
+		}
+	case "1":
+		v.selectOption(0)
+	case "2":
+		v.selectOption(1)
+	case "3":
+		v.selectOption(2)
+	}
+	return nil
+}

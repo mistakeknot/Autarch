@@ -158,6 +158,10 @@ type inputClearer interface {
 	ClearInput()
 }
 
+type slashCommandHandler interface {
+	HandleSlashCommand(command string, args []string) tea.Cmd
+}
+
 func (a *UnifiedApp) initAgentSelector() {
 	if a.agentSelector != nil {
 		return
@@ -304,18 +308,52 @@ func (a *UnifiedApp) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return a, nil
 
 	case pkgtui.SlashCommandMsg:
-		// Handle slash commands from chat input
+		// Handle global slash commands from chat input
 		switch msg.Command {
-		case "help":
+		case "help", "h":
 			a.showHelp = true
 			return a, nil
-		case "quit", "exit":
+		case "quit", "exit", "q":
 			if a.cancel != nil {
 				a.cancel()
 			}
 			return a, tea.Quit
+		case "settings", "config":
+			a.openChatSettings()
+			return a, nil
+		case "model", "m":
+			// Toggle model selector
+			if a.agentSelector != nil {
+				a.agentSelector.Open = !a.agentSelector.Open
+			}
+			return a, nil
+		case "palette", "p":
+			if a.mode == ModeDashboard {
+				return a, a.palette.Show()
+			}
+			return a, nil
+		case "refresh", "r":
+			// Send refresh to current view
+			if a.currentView != nil {
+				var cmd tea.Cmd
+				a.currentView, cmd = a.currentView.Update(tea.KeyMsg{Type: tea.KeyCtrlR})
+				return a, cmd
+			}
+			return a, nil
+		case "back", "b":
+			// Send escape to go back
+			if a.currentView != nil {
+				var cmd tea.Cmd
+				a.currentView, cmd = a.currentView.Update(tea.KeyMsg{Type: tea.KeyEsc})
+				return a, cmd
+			}
+			return a, nil
 		}
-		// Unknown command - could add error feedback here
+		// Pass unknown commands to view-specific handler
+		if handler, ok := a.currentView.(slashCommandHandler); ok {
+			return a, handler.HandleSlashCommand(msg.Command, msg.Args)
+		}
+		// Unknown command - ignore silently
 		return a, nil
 
 	case tea.KeyMsg:

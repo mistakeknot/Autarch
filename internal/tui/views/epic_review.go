@@ -600,3 +600,28 @@ func (v *EpicReviewView) FullHelp() []tui.HelpBinding {
 func (v *EpicReviewView) GetProposals() []epics.EpicProposal {
 	return v.proposals
 }
+
+// HandleSlashCommand handles view-specific slash commands
+func (v *EpicReviewView) HandleSlashCommand(command string, args []string) tea.Cmd {
+	switch command {
+	case "accept", "a":
+		// Accept all proposals
+		if v.onAccept != nil {
+			return v.onAccept(v.proposals)
+		}
+	case "edit", "e":
+		v.editing = true
+	case "delete", "d":
+		if v.selected >= 0 && v.selected < len(v.proposals) {
+			v.proposals = append(v.proposals[:v.selected], v.proposals[v.selected+1:]...)
+			if v.selected >= len(v.proposals) {
+				v.selected = len(v.proposals) - 1
+			}
+		}
+	case "regen", "regenerate":
+		if v.onRegenerate != nil {
+			return v.onRegenerate()
+		}
+	}
+	return nil
+}

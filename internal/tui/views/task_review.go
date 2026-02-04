@@ -505,3 +505,37 @@ func (v *TaskReviewView) FullHelp() []tui.HelpBinding {
 func (v *TaskReviewView) GetTasks() []tasks.TaskProposal {
 	return v.tasks
 }
+
+// HandleSlashCommand handles view-specific slash commands
+func (v *TaskReviewView) HandleSlashCommand(command string, args []string) tea.Cmd {
+	switch command {
+	case "accept", "a":
+		// Accept all tasks
+		if v.onAccept != nil {
+			return v.onAccept(v.tasks)
+		}
+	case "delete", "d":
+		if v.selected >= 0 && v.selected < len(v.tasks) {
+			v.tasks = append(v.tasks[:v.selected], v.tasks[v.selected+1:]...)
+			if v.selected >= len(v.tasks) {
+				v.selected = len(v.tasks) - 1
+			}
+			tasks.ResolveCrossEpicDependencies(v.tasks)
+		}
+	case "group", "g":
+		v.groupedView = !v.groupedView
+	case "type", "t":
+		// Cycle task type for selected
+		if v.selected >= 0 && v.selected < len(v.tasks) {
+			types := []tasks.TaskType{tasks.TaskTypeImplementation, tasks.TaskTypeTest, tasks.TaskTypeDocumentation, tasks.TaskTypeResearch}
+			current := v.tasks[v.selected].Type
+			for i, tt := range types {
+				if tt == current {
+					v.tasks[v.selected].Type = types[(i+1)%len(types)]
+					break
+				}
+			}
+		}
+	}
+	return nil
+}

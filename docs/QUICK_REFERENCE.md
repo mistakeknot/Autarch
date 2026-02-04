@@ -184,10 +184,44 @@ todo → in_progress → review → done
 
 Type these in the chat composer and press Enter:
 
-| Command | Action |
-|---------|--------|
-| `/help` | Show help overlay |
-| `/quit` | Quit the application |
+#### Global Commands (work everywhere)
+
+| Command | Alias | Action |
+|---------|-------|--------|
+| `/help` | `/h` | Show help overlay |
+| `/quit` | `/q`, `/exit` | Quit the application |
+| `/settings` | `/config` | Open chat settings |
+| `/model` | `/m` | Toggle model selector |
+| `/palette` | `/p` | Open command palette (dashboard) |
+| `/refresh` | `/r` | Refresh current view |
+| `/back` | `/b` | Go back / cancel |
+
+#### Kickoff View
+
+| Command | Alias | Action |
+|---------|-------|--------|
+| `/scan` | `/s` | Scan current directory |
+| `/new` | `/n` | Focus on new project input |
+| `/delete` | `/d` | Delete selected project |
+
+#### Sprint / Arbiter Views
+
+| Command | Alias | Action |
+|---------|-------|--------|
+| `/accept` | `/a` | Accept current draft |
+| `/edit` | `/e` | Edit current content |
+| `/1`, `/2`, `/3` | - | Select alternative option |
+
+#### Epic / Task Review Views
+
+| Command | Alias | Action |
+|---------|-------|--------|
+| `/accept` | `/a` | Accept all proposals |
+| `/delete` | `/d` | Delete selected item |
+| `/edit` | `/e` | Edit selected (epics) |
+| `/group` | `/g` | Toggle grouped view (tasks) |
+| `/type` | `/t` | Cycle task type (tasks) |
+| `/regen` | `/regenerate` | Regenerate proposals (epics) |
 
 > **Chat-focused design:** All shortcuts use `Ctrl+` combinations to avoid conflicts with typing in the chat composer. Function keys (F1-F12) still work as fallbacks for external keyboards. Slash commands work in any chat input.
 

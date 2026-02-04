@@ -1032,3 +1032,38 @@ func (v *KickoffView) Commands() []tui.Command {
 func (v *KickoffView) ClearInput() {
 	v.chatPanel.ClearComposer()
 }
+
+// HandleSlashCommand handles view-specific slash commands
+func (v *KickoffView) HandleSlashCommand(command string, args []string) tea.Cmd {
+	switch command {
+	case "scan", "s":
+		// Scan current directory
+		if v.onScanCodebase != nil {
+			cwd, err := os.Getwd()
+			if err != nil {
+				v.chatPanel.AddMessage("system", "Error: could not determine working directory: "+err.Error())
+				return nil
+			}
+			v.scanning = true
+			v.loading = true
+			v.scanPath = cwd
+			v.scanFiles = findProjectFiles(cwd)
+			v.loadingMsg = "Scanning codebase..."
+			if detected, err := agent.DetectAgent(); err == nil && detected != nil {
+				v.scanAgentName = string(detected.Type)
+			}
+			return v.onScanCodebase(cwd)
+		}
+	case "new", "n":
+		// Focus on input for new project
+		v.focusInput = true
+		return v.chatPanel.Focus()
+	case "delete", "d":
+		// Delete selected project
+		if len(v.recents) > 0 && v.selected >= 0 && v.selected < len(v.recents) {
+			v.confirmingDelete = true
+			v.deleteTarget = &v.recents[v.selected]
+		}
+	}
+	return nil
+}
