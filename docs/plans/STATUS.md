@@ -44,7 +44,7 @@
 | 2026-01-22-vauxhall-tui-two-pane-layout-implementation-plan.md | commit | paths:2 latest:2026-01-29 |
 | 2026-01-23-praude-interview-layout-init-answers-plan.md | commit | paths:5 latest:2026-01-30 |
 | 2026-01-23-praude-interview-polish-implementation-plan.md | commit | paths:2 latest:2026-01-30 |
-| 2026-01-23-tandemonium-init-epics-implementation-plan.md | commit | paths:7 latest:2026-01-27 |
+| 2026-01-23-tandemonium-init-epics-implementation-plan.md | commit | paths:7 latest:2026-02-04 |
 | 2026-01-23-tandemonium-init-epics-validation-plan.md | commit | paths:3 latest:2026-01-27 |
 | 2026-01-23-tandemonium-tui-vauxhall-port-plan.md | commit | paths:4 latest:2026-01-30 |
 | 2026-01-23-vauxhall-focus-pane-plan.md | commit | paths:2 latest:2026-01-29 |

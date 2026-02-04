@@ -49,7 +49,7 @@ func (g *Generator) thinkingPreamble(phase Phase) string {
 
 // GenerateDraft produces a SectionDraft for the given phase using available context.
 // If scanData is non-nil, evidence and resolved questions are injected into the draft.
-func (g *Generator) GenerateDraft(_ context.Context, phase Phase, projectCtx *ProjectContext, userInput string, scanData ...*scan.PhaseData) (*SectionDraft, error) {
+func (g *Generator) GenerateDraft(_ context.Context, phase Phase, projectCtx *ProjectContext, userInput string, findings []ResearchFinding, scanData ...*scan.PhaseData) (*SectionDraft, error) {
 	var content string
 	var options []string
 
@@ -61,6 +61,9 @@ func (g *Generator) GenerateDraft(_ context.Context, phase Phase, projectCtx *Pr
 	if len(scanData) > 0 && scanData[0] != nil {
 		evidenceCtx = g.formatEvidenceContext(scanData[0])
 	}
+
+	// Build research context from Pollard/Intermute findings (if available)
+	researchCtx := g.formatResearchContext(findings)
 
 	switch phase {
 	case PhaseVision:
@@ -84,7 +87,7 @@ func (g *Generator) GenerateDraft(_ context.Context, phase Phase, projectCtx *Pr
 	}
 
 	return &SectionDraft{
-		Preamble:  preamble + evidenceCtx,
+		Preamble:  preamble + evidenceCtx + researchCtx,
 		Content:   content,
 		Options:   options,
 		Status:    DraftProposed,
@@ -121,6 +124,24 @@ func (g *Generator) formatEvidenceContext(pd *scan.PhaseData) string {
 	if len(parts) == 0 {
 		return ""
 	}
+	return strings.Join(parts, "\n") + "\n"
+}
+
+// formatResearchContext renders Pollard/Intermute research findings as a context
+// block for draft generation. Findings are wrapped in <research> delimiters
+// for prompt injection safety (mirrors the <evidence> pattern).
+func (g *Generator) formatResearchContext(findings []ResearchFinding) string {
+	if len(findings) == 0 {
+		return ""
+	}
+	var parts []string
+	parts = append(parts, "### Research Insights\n")
+	for _, f := range findings {
+		relevancePct := int(f.Relevance * 100)
+		parts = append(parts, fmt.Sprintf("- **%s** (relevance: %d%%) — %s\n<research>\n%s\n</research>",
+			f.Title, relevancePct, f.SourceType, f.Summary))
+	}
+	parts = append(parts, "")
 	return strings.Join(parts, "\n") + "\n"
 }
 

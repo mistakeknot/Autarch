@@ -16,7 +16,7 @@ func TestGenerateDraftFromContext(t *testing.T) {
 		ReadmeSnippet:  "A CLI tool for managing reading lists",
 		HasPackageJSON: false,
 	}
-	draft, err := gen.GenerateDraft(ctx, PhaseProblem, projectCtx, "")
+	draft, err := gen.GenerateDraft(ctx, PhaseProblem, projectCtx, "", nil)
 	if err != nil {
 		t.Fatalf("generate failed: %v", err)
 	}
@@ -37,7 +37,7 @@ func TestGenerateDraftFromContext(t *testing.T) {
 func TestGenerateDraftFromUserInput(t *testing.T) {
 	gen := NewGenerator()
 	ctx := context.Background()
-	draft, err := gen.GenerateDraft(ctx, PhaseProblem, nil, "I want to build a habit tracker for developers")
+	draft, err := gen.GenerateDraft(ctx, PhaseProblem, nil, "I want to build a habit tracker for developers", nil)
 	if err != nil {
 		t.Fatalf("generate failed: %v", err)
 	}
@@ -52,7 +52,7 @@ func TestGenerateDraftFromUserInput(t *testing.T) {
 func TestGenerateDraftFromInputWithBecause(t *testing.T) {
 	gen := NewGenerator()
 	ctx := context.Background()
-	draft, err := gen.GenerateDraft(ctx, PhaseProblem, nil, "I want to build a task manager because existing tools are too complex")
+	draft, err := gen.GenerateDraft(ctx, PhaseProblem, nil, "I want to build a task manager because existing tools are too complex", nil)
 	if err != nil {
 		t.Fatalf("generate failed: %v", err)
 	}
@@ -64,7 +64,7 @@ func TestGenerateDraftFromInputWithBecause(t *testing.T) {
 func TestGenerateDraftFallback(t *testing.T) {
 	gen := NewGenerator()
 	ctx := context.Background()
-	draft, err := gen.GenerateDraft(ctx, PhaseProblem, nil, "")
+	draft, err := gen.GenerateDraft(ctx, PhaseProblem, nil, "", nil)
 	if err != nil {
 		t.Fatalf("generate failed: %v", err)
 	}
@@ -77,7 +77,7 @@ func TestGenerateAllPhases(t *testing.T) {
 	gen := NewGenerator()
 	ctx := context.Background()
 	for _, phase := range AllPhases() {
-		draft, err := gen.GenerateDraft(ctx, phase, nil, "test input")
+		draft, err := gen.GenerateDraft(ctx, phase, nil, "test input", nil)
 		if err != nil {
 			t.Fatalf("phase %s: generate failed: %v", phase, err)
 		}
@@ -96,7 +96,7 @@ func TestGenerateAllPhases(t *testing.T) {
 func TestGenerateUnknownPhase(t *testing.T) {
 	gen := NewGenerator()
 	ctx := context.Background()
-	_, err := gen.GenerateDraft(ctx, Phase(99), nil, "test")
+	_, err := gen.GenerateDraft(ctx, Phase(99), nil, "test", nil)
 	if err == nil {
 		t.Error("expected error for unknown phase")
 	}
@@ -114,7 +114,7 @@ func TestGenerateDraftWithScanEvidence(t *testing.T) {
 			{Question: "Who is the target user?", Answer: "Developers who read technical content"},
 		},
 	}
-	draft, err := gen.GenerateDraft(ctx, PhaseVision, nil, "reading list tool", pd)
+	draft, err := gen.GenerateDraft(ctx, PhaseVision, nil, "reading list tool", nil, pd)
 	if err != nil {
 		t.Fatalf("generate failed: %v", err)
 	}
@@ -133,7 +133,7 @@ func TestGenerateDraftWithNilScanData(t *testing.T) {
 	gen := NewGenerator()
 	ctx := context.Background()
 	// Passing nil scan data should produce same output as no scan data
-	draft, err := gen.GenerateDraft(ctx, PhaseVision, nil, "test", (*scan.PhaseData)(nil))
+	draft, err := gen.GenerateDraft(ctx, PhaseVision, nil, "test", nil, (*scan.PhaseData)(nil))
 	if err != nil {
 		t.Fatalf("generate failed: %v", err)
 	}
@@ -145,7 +145,7 @@ func TestGenerateDraftWithNilScanData(t *testing.T) {
 func TestGenerateDraftFallbackNoContext(t *testing.T) {
 	gen := NewGenerator()
 	ctx := context.Background()
-	draft, err := gen.GenerateDraft(ctx, PhaseProblem, nil, "")
+	draft, err := gen.GenerateDraft(ctx, PhaseProblem, nil, "", nil)
 	if err != nil {
 		t.Fatalf("generate failed: %v", err)
 	}
@@ -154,5 +154,42 @@ func TestGenerateDraftFallbackNoContext(t *testing.T) {
 	}
 	if len(draft.Options) < 2 {
 		t.Errorf("expected options, got %d", len(draft.Options))
+	}
+}
+
+func TestGenerateDraftWithResearchFindings(t *testing.T) {
+	gen := NewGenerator()
+	ctx := context.Background()
+	findings := []ResearchFinding{
+		{Title: "Competing Tool X", Summary: "Tool X solves reading lists with AI", SourceType: "github", Relevance: 0.85},
+		{Title: "Academic Paper Y", Summary: "Study on reading habit formation", SourceType: "arxiv", Relevance: 0.7},
+	}
+	draft, err := gen.GenerateDraft(ctx, PhaseVision, nil, "reading list tool", findings)
+	if err != nil {
+		t.Fatalf("generate failed: %v", err)
+	}
+	if !strings.Contains(draft.Preamble, "<research>") {
+		t.Error("expected research findings wrapped in <research> delimiters")
+	}
+	if !strings.Contains(draft.Preamble, "Competing Tool X") {
+		t.Error("expected finding title in preamble")
+	}
+	if !strings.Contains(draft.Preamble, "85%") {
+		t.Error("expected relevance percentage in preamble")
+	}
+	if !strings.Contains(draft.Preamble, "arxiv") {
+		t.Error("expected source type in preamble")
+	}
+}
+
+func TestFormatResearchContextEmpty(t *testing.T) {
+	gen := NewGenerator()
+	result := gen.formatResearchContext(nil)
+	if result != "" {
+		t.Error("expected empty string for nil findings")
+	}
+	result = gen.formatResearchContext([]ResearchFinding{})
+	if result != "" {
+		t.Error("expected empty string for empty findings")
 	}
 }
