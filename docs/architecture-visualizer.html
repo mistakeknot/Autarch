@@ -257,8 +257,8 @@ code { background: var(--bg-light); padding: 0.15em 0.4em; border-radius: 4px; f
     <div class="card gurgeh" data-module="gurgeh">
       <h3 style="color:var(--secondary)">Gurgeh</h3>
       <div class="subtitle">TUI-first PRD generation &amp; validation</div>
-      <p style="font-size:0.85rem">Arbiter sprint with 6 sections (Problem \u2192 Acceptance Criteria). Subagents (strategist, navigator, sentinel, etc.) enrich specs. Version history &amp; diff.</p>
-      <div class="paths"><span>cmd/gurgeh</span><span>.gurgeh/specs/</span></div>
+      <p style="font-size:0.85rem">Arbiter sprint with 6 sections (Problem → Acceptance Criteria). Subagents (strategist, navigator, sentinel, etc.) enrich specs. Version history &amp; diff.</p>
+      <div class="paths"><span>cmd/gurgeh</span><span>internal/gurgeh/</span><span>.gurgeh/specs/</span></div>
     </div>
     <div class="card coldwine" data-module="coldwine">
       <h3 style="color:var(--success)">Coldwine</h3>
@@ -270,7 +270,7 @@ code { background: var(--bg-light); padding: 0.15em 0.4em; border-radius: 4px; f
       <h3 style="color:var(--warning)">Pollard</h3>
       <div class="subtitle">General-purpose research intelligence</div>
       <p style="font-size:0.85rem">Pluggable hunters (GitHub, OpenAlex, PubMed, USDA, etc.). Competitor watch. Signals when landscape changes.</p>
-      <div class="paths"><span>cmd/pollard</span><span>.pollard/</span></div>
+      <div class="paths"><span>cmd/pollard</span><span>internal/pollard/</span><span>.pollard/</span></div>
     </div>
   </div>
   <div id="cardDetailArea"></div>
@@ -481,6 +481,7 @@ code { background: var(--bg-light); padding: 0.15em 0.4em; border-radius: 4px; f
   <h2><span class="icon">&#9888;</span> Signal System (7 types)</h2>
   <p>Signals propagate cross-tool awareness. Published via REST <code>/api/signals</code> or WebSocket. Three severity levels: <span class="sev-info">info</span>, <span class="sev-warning">warning</span>, <span class="sev-critical">critical</span>.</p>
   <div class="signals-wrap">
+<!-- AUTOGEN:signals -->
     <div class="signal-chip" style="border-color:var(--warning)">
       <div class="name">competitor_shipped</div>
       <div class="desc">Competitor product launch detected</div>
@@ -516,6 +517,7 @@ code { background: var(--bg-light); padding: 0.15em 0.4em; border-radius: 4px; f
       <div class="desc">Product vision shifting</div>
       <div class="sev sev-critical">Source: Gurgeh</div>
     </div>
+<!-- /AUTOGEN:signals -->
   </div>
 </section>
 
@@ -673,11 +675,16 @@ code { background: var(--bg-light); padding: 0.15em 0.4em; border-radius: 4px; f
     gurgeh: {
       title: 'Gurgeh Details',
       items: [
-        'Arbiter sprint: 8 sections (Vision \u2192 Acceptance Criteria)',
+<!-- AUTOGEN:phases -->
+        'Arbiter sprint: 8 sections (Vision → Acceptance Criteria)',
+<!-- /AUTOGEN:phases -->
         '9 subagents enrich spec sections',
         'Thinking Shapes: 5 metacognitive preambles per phase (Deductive, Inductive, Abductive, Contrapositive, DSL)',
         'Spec versioning with history & structured diff',
         'Shape-aware confidence scoring (specificity + assumptions)',
+<!-- AUTOGEN:messages -->
+        '31 TUI message types (e.g. AgentEditSummaryMsg, ProjectCreatedMsg, TasksGeneratedMsg)',
+<!-- /AUTOGEN:messages -->
         'Read-only serve mode at :8091',
         'Key paths: cmd/gurgeh, .gurgeh/specs/'
       ]

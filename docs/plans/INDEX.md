@@ -6,6 +6,14 @@ This index organizes all planning documents by tool, type, and date. Documents f
 
 ---
 
+## Status Reports
+
+| Document | Description |
+|----------|-------------|
+| [STATUS](./STATUS.md) | Auto-generated plan status report (updated on commit) |
+
+---
+
 ## By Tool
 
 ### Architecture (Cross-Cutting)
