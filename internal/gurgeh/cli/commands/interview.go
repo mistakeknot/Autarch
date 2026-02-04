@@ -1,26 +1,22 @@
 package commands
 
 import (
-	"bufio"
 	"context"
 	"encoding/json"
 	"fmt"
 	"io"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"time"
 
-	"github.com/mistakeknot/autarch/internal/gurgeh/agents"
 	"github.com/mistakeknot/autarch/internal/gurgeh/arbiter"
 	"github.com/mistakeknot/autarch/internal/gurgeh/config"
 	pollardquick "github.com/mistakeknot/autarch/internal/pollard/quick"
 	praudePlan "github.com/mistakeknot/autarch/internal/gurgeh/plan"
 	"github.com/mistakeknot/autarch/internal/gurgeh/project"
-	"github.com/mistakeknot/autarch/internal/gurgeh/research"
-	"github.com/mistakeknot/autarch/internal/gurgeh/scan"
 	"github.com/mistakeknot/autarch/internal/gurgeh/specs"
-	"github.com/mistakeknot/autarch/internal/gurgeh/suggestions"
 	"github.com/mistakeknot/autarch/pkg/plan"
 	"github.com/spf13/cobra"
 	"gopkg.in/yaml.v3"
@@ -36,25 +32,20 @@ type InterviewConfig struct {
 
 func InterviewCmd() *cobra.Command {
 	var (
-		agent         string
-		vision        string
-		users         string
-		problem       string
-		requirements  string
-		skipScan      bool
-		skipBootstrap bool
-		skipResearch  bool
-		configFile    string
-		planMode      bool
-		sprintMode    bool
+		vision       string
+		users        string
+		problem      string
+		requirements string
+		configFile   string
+		planMode     bool
 	)
 	cmd := &cobra.Command{
 		Use:   "interview",
 		Short: "Run guided interview to create a PRD",
-		Long: `Run guided interview to create a PRD.
+		Long: `Run guided interview to create a PRD using the Arbiter sprint engine.
 
-In interactive mode (default), prompts for input at each step.
-In non-interactive mode (via flags or --config), uses provided values:
+All interviews use the full 8-phase Arbiter engine. Pre-populate phases
+via flags or --config for non-interactive use:
 
   praude interview --vision "..." --users "..." --problem "..." --requirements "req1,req2"
   praude interview --config answers.yaml
@@ -72,8 +63,7 @@ The config file format:
 			if err != nil {
 				return err
 			}
-			cfg, err := config.LoadFromRoot(root)
-			if err != nil {
+			if _, err := config.LoadFromRoot(root); err != nil {
 				return err
 			}
 
@@ -103,9 +93,6 @@ The config file format:
 				interviewCfg.Requirements = splitInput(requirements)
 			}
 
-			// Determine if we're in non-interactive mode
-			nonInteractive := configFile != "" || vision != "" || users != "" || problem != "" || requirements != ""
-
 			// Check if vision spec is required before allowing another PRD
 			summaries, _ := specs.LoadSummaries(project.SpecsDir(root))
 			if specs.NeedsVisionSpec(summaries) {
@@ -118,151 +105,16 @@ The config file format:
 				return runInterviewPlan(cmd.OutOrStdout(), root, interviewCfg)
 			}
 
-			// Handle sprint mode (Arbiter-based)
-			if sprintMode || (nonInteractive && interviewCfg.Vision != "") {
-				return runArbiterSprint(cmd.OutOrStdout(), root, interviewCfg)
-			}
-
-			reader := bufio.NewReader(cmd.InOrStdin())
-			out := cmd.OutOrStdout()
-
-			// Handle scanning
-			summary := ""
-			if !skipScan {
-				if nonInteractive {
-					// In non-interactive mode, always scan unless skipped
-					res, _ := scan.ScanRepo(root, scan.Options{})
-					summary = renderScanSummary(res)
-				} else {
-					scanNow, err := promptYesNo(reader, out, "Scan repo now? (y/n) ")
-					if err != nil {
-						return err
-					}
-					if scanNow {
-						res, _ := scan.ScanRepo(root, scan.Options{})
-						summary = renderScanSummary(res)
-					}
-				}
-			}
-
-			draft := buildDraftSpec(summary)
-			fmt.Fprintln(out, "Draft PRD ready.")
-			if draft.Summary != "" {
-				fmt.Fprintln(out, draft.Summary)
-			}
-
-			// Confirm draft in interactive mode only
-			if !nonInteractive {
-				confirm, err := promptYesNo(reader, out, "Confirm draft? (y/n) ")
-				if err != nil {
-					return err
-				}
-				if !confirm {
-					return nil
-				}
-			}
-
-			// Get interview inputs
-			var finalVision, finalUsers, finalProblem, finalRequirements string
-			if nonInteractive {
-				finalVision = interviewCfg.Vision
-				finalUsers = interviewCfg.Users
-				finalProblem = interviewCfg.Problem
-				finalRequirements = strings.Join(interviewCfg.Requirements, ",")
-			} else {
-				finalVision, err = promptLine(reader, out, "Vision: ")
-				if err != nil {
-					return err
-				}
-				finalUsers, err = promptLine(reader, out, "Users: ")
-				if err != nil {
-					return err
-				}
-				finalProblem, err = promptLine(reader, out, "Problem: ")
-				if err != nil {
-					return err
-				}
-				finalRequirements, err = promptLine(reader, out, "Requirements (comma or newline separated): ")
-				if err != nil {
-					return err
-				}
-			}
-
-			spec := buildSpecFromInterview(finalVision, finalUsers, finalProblem, finalRequirements)
-			path, id, warnings, err := writeSpec(root, spec)
-			if err != nil {
-				return err
-			}
-			fmt.Fprintf(out, "Created %s at %s\n", id, path)
-			if len(warnings) > 0 {
-				fmt.Fprintln(out, "Validation warnings:")
-				for _, warning := range warnings {
-					fmt.Fprintln(out, "- "+warning)
-				}
-			}
-
-			// Auto-apply suggestions (skip if --skip-bootstrap)
-			if !skipBootstrap {
-				if err := autoApplySuggestions(root, id, cfg, agent, out); err != nil {
-					fmt.Fprintln(out, "Suggestions failed:", err.Error())
-				}
-			}
-
-			// Handle research
-			if skipResearch {
-				return nil
-			}
-
-			runResearch := true
-			if !nonInteractive {
-				runResearch, err = promptYesNo(reader, out, "Run research now? (y/n) ")
-				if err != nil {
-					return err
-				}
-			}
-			if !runResearch {
-				return nil
-			}
-
-			now := time.Now()
-			researchDir := project.ResearchDir(root)
-			if err := os.MkdirAll(researchDir, 0o755); err != nil {
-				return err
-			}
-			researchPath, err := research.Create(researchDir, id, now)
-			if err != nil {
-				return err
-			}
-			briefPath, err := writeResearchBrief(root, id, researchPath, now)
-			if err != nil {
-				return err
-			}
-			profile, err := agents.Resolve(agentProfiles(cfg), agent)
-			if err != nil {
-				return err
-			}
-			launcher := launchAgent
-			if isClaudeProfile(agent, profile) {
-				launcher = launchSubagent
-			}
-			if err := launcher(profile, briefPath); err != nil {
-				fmt.Fprintf(out, "agent not found; brief at %s\n", briefPath)
-				return nil
-			}
-			return nil
+			// Always use Arbiter sprint
+			return runArbiterSprint(cmd.OutOrStdout(), root, interviewCfg)
 		},
 	}
-	cmd.Flags().StringVar(&agent, "agent", "codex", "Agent profile to use")
 	cmd.Flags().StringVar(&vision, "vision", "", "Vision statement (non-interactive)")
 	cmd.Flags().StringVar(&users, "users", "", "Target users (non-interactive)")
 	cmd.Flags().StringVar(&problem, "problem", "", "Problem statement (non-interactive)")
 	cmd.Flags().StringVar(&requirements, "requirements", "", "Requirements, comma-separated (non-interactive)")
-	cmd.Flags().BoolVar(&skipScan, "skip-scan", false, "Skip repository scan")
-	cmd.Flags().BoolVar(&skipBootstrap, "skip-bootstrap", false, "Skip agent bootstrap/suggestions")
-	cmd.Flags().BoolVar(&skipResearch, "skip-research", false, "Skip research step")
 	cmd.Flags().StringVar(&configFile, "config", "", "YAML config file with interview answers")
 	cmd.Flags().BoolVar(&planMode, "plan", false, "Generate plan JSON instead of executing")
-	cmd.Flags().BoolVar(&sprintMode, "sprint", false, "Use Arbiter sprint engine (propose-first flow)")
 	return cmd
 }
 
@@ -318,15 +170,21 @@ func runArbiterSprint(out io.Writer, root string, cfg InterviewConfig) error {
 		return fmt.Errorf("exporting spec: %w", err)
 	}
 
-	path, id, warnings, err := writeSpec(root, *spec)
+	path, id, vres, err := writeSpec(root, *spec)
 	if err != nil {
 		return err
 	}
 	fmt.Fprintf(out, "Created %s at %s (via Arbiter sprint)\n", id, path)
-	if len(warnings) > 0 {
+	if len(vres.Errors) > 0 {
+		fmt.Fprintln(out, "Validation errors:")
+		for _, e := range vres.Errors {
+			fmt.Fprintln(out, "  ✗ "+e)
+		}
+	}
+	if len(vres.Warnings) > 0 {
 		fmt.Fprintln(out, "Validation warnings:")
-		for _, w := range warnings {
-			fmt.Fprintln(out, "- "+w)
+		for _, w := range vres.Warnings {
+			fmt.Fprintln(out, "  - "+w)
 		}
 	}
 	fmt.Fprintf(out, "Confidence: %.0f%%\n", state.Confidence.Total()*100)
@@ -364,187 +222,102 @@ func runVisionSprint(out io.Writer, root string, cfg InterviewConfig) error {
 		return fmt.Errorf("exporting vision spec: %w", err)
 	}
 
-	path, id, warnings, err := writeSpec(root, *spec)
+	path, id, vres, err := writeSpec(root, *spec)
 	if err != nil {
 		return err
 	}
 	fmt.Fprintf(out, "Created vision spec %s at %s\n", id, path)
-	if len(warnings) > 0 {
+	if len(vres.Errors) > 0 {
+		fmt.Fprintln(out, "Validation errors:")
+		for _, e := range vres.Errors {
+			fmt.Fprintln(out, "  ✗ "+e)
+		}
+	}
+	if len(vres.Warnings) > 0 {
 		fmt.Fprintln(out, "Validation warnings:")
-		for _, w := range warnings {
-			fmt.Fprintln(out, "- "+w)
+		for _, w := range vres.Warnings {
+			fmt.Fprintln(out, "  - "+w)
 		}
 	}
 	return nil
 }
 
-func autoApplySuggestions(root, id string, cfg config.Config, agent string, out io.Writer) error {
-	if strings.TrimSpace(id) == "" {
-		return nil
-	}
-	suggDir := project.SuggestionsDir(root)
-	if err := os.MkdirAll(suggDir, 0o755); err != nil {
-		return err
-	}
-	now := time.Now()
-	suggPath, err := suggestions.Create(suggDir, id, now)
-	if err != nil {
-		return err
-	}
-	briefPath, err := writeSuggestionBrief(root, id, suggPath, now)
-	if err != nil {
-		return err
-	}
-	profile, err := agents.Resolve(agentProfiles(cfg), agent)
-	if err != nil {
-		return err
-	}
-	launcher := launchAgent
-	if isClaudeProfile(agent, profile) {
-		launcher = launchSubagent
-	}
-	if err := launcher(profile, briefPath); err != nil {
-		fmt.Fprintf(out, "agent not found; brief at %s\n", briefPath)
-		return nil
-	}
-	applied, err := applyReadySuggestions(root, id, suggPath)
-	if err != nil {
-		return err
-	}
-	if applied {
-		fmt.Fprintf(out, "Applied agent suggestions to %s\n", id)
-	}
-	return nil
-}
 
-func applyReadySuggestions(root, id, suggPath string) (bool, error) {
-	raw, err := os.ReadFile(suggPath)
-	if err != nil {
-		return false, err
-	}
-	ready := suggestions.ParseReady(raw)
-	if suggestions.IsEmpty(ready) {
-		return false, nil
-	}
-	specPath, err := resolveSpecPath(project.SpecsDir(root), id)
-	if err != nil {
-		return false, err
-	}
-	if err := suggestions.Apply(specPath, ready); err != nil {
-		return false, err
-	}
-	updated, err := os.ReadFile(specPath)
-	if err != nil {
-		return true, err
-	}
-	res, err := specs.Validate(updated, specs.ValidationOptions{Mode: specs.ValidationSoft, Root: root})
-	if err != nil {
-		return true, err
-	}
-	if len(res.Warnings) > 0 {
-		_ = specs.StoreValidationWarnings(specPath, res.Warnings)
-	}
-	return true, nil
-}
-
-func renderScanSummary(res scan.Result) string {
-	return "Scan summary: " + itoa(len(res.Entries)) + " files, " + itoa(int(res.TotalBytes)) + " bytes"
-}
-
-func buildDraftSpec(summary string) specs.Spec {
-	text := summary
-	if strings.TrimSpace(text) == "" {
-		text = "Draft from scan"
-	}
-	return specs.Spec{Title: "Draft PRD", Summary: text}
-}
-
-func buildSpecFromInterview(vision, users, problem, requirements string) specs.Spec {
-	reqList := parseRequirements(requirements)
-	if len(reqList) == 0 {
-		reqList = []string{"REQ-001: TBD"}
-	}
-	firstReq := extractReqID(reqList[0])
-	title := firstNonEmpty(vision, problem, "New PRD")
-	summary := firstNonEmpty(problem, vision, "Summary pending")
-	return specs.Spec{
-		Title:        title,
-		Summary:      summary,
-		Requirements: reqList,
-		StrategicContext: specs.StrategicContext{
-			CUJID:       "CUJ-001",
-			CUJName:     "Primary Journey",
-			FeatureID:   "",
-			MVPIncluded: true,
-		},
-		UserStory: specs.UserStory{
-			Text: "As a user, " + firstNonEmpty(users, "I need", "I need") + ", " + summary,
-			Hash: "pending",
-		},
-		CriticalUserJourneys: []specs.CriticalUserJourney{
-			{
-				ID:                 "CUJ-001",
-				Title:              "Primary Journey",
-				Priority:           "high",
-				Steps:              []string{"Start", "Finish"},
-				SuccessCriteria:    []string{"Goal achieved"},
-				LinkedRequirements: []string{firstReq},
-			},
-			{
-				ID:                 "CUJ-002",
-				Title:              "Maintenance",
-				Priority:           "low",
-				Steps:              []string{"Routine upkeep"},
-				SuccessCriteria:    []string{"System remains stable"},
-				LinkedRequirements: []string{firstReq},
-			},
-		},
-	}
-}
-
-func writeSpec(root string, spec specs.Spec) (string, string, []string, error) {
+func writeSpec(root string, spec specs.Spec) (string, string, specs.ValidationResult, error) {
 	specDir := project.SpecsDir(root)
 	if err := os.MkdirAll(specDir, 0o755); err != nil {
-		return "", "", nil, err
+		return "", "", specs.ValidationResult{}, err
 	}
 	id, err := specs.NextID(specDir)
 	if err != nil {
-		return "", "", nil, err
+		return "", "", specs.ValidationResult{}, err
 	}
 	spec.ID = id
 	if spec.CreatedAt == "" {
 		spec.CreatedAt = time.Now().UTC().Format(time.RFC3339)
 	}
+	if spec.Status == "" {
+		spec.Status = "draft"
+	}
 	raw, err := yaml.Marshal(spec)
 	if err != nil {
-		return "", id, nil, err
+		return "", id, specs.ValidationResult{}, err
 	}
 	path := filepath.Join(specDir, id+".yaml")
 	if err := os.WriteFile(path, raw, 0o644); err != nil {
-		return path, id, nil, err
+		return path, id, specs.ValidationResult{}, err
 	}
 	res, err := specs.Validate(raw, specs.ValidationOptions{Mode: specs.ValidationSoft, Root: root})
 	if err != nil {
-		return path, id, nil, err
+		return path, id, specs.ValidationResult{}, err
 	}
 	if len(res.Warnings) > 0 {
 		if err := specs.StoreValidationWarnings(path, res.Warnings); err != nil {
-			return path, id, res.Warnings, err
+			return path, id, res, err
 		}
 	}
-	return path, id, res.Warnings, nil
+	return path, id, res, nil
 }
 
+// reqIDPrefix matches an existing REQ-NNN: prefix at the start of a requirement.
+var reqIDPrefix = regexp.MustCompile(`^REQ-\d{3}:\s*`)
+
 func parseRequirements(input string) []string {
-	parts := splitInput(input)
+	parts := splitRequirements(input)
 	var out []string
-	for i, part := range parts {
-		id := formatReqID(i + 1)
-		out = append(out, id+": "+part)
+	nextID := 1
+	for _, part := range parts {
+		if reqIDPrefix.MatchString(part) {
+			// Already has a requirement ID — keep it as-is
+			out = append(out, part)
+		} else {
+			id := formatReqID(nextID)
+			out = append(out, id+": "+part)
+		}
+		nextID++
 	}
 	return out
 }
 
+// splitRequirements splits on newlines only — NOT commas, which are valid
+// punctuation inside requirement text (e.g. "Must support SSO, SAML, and OIDC").
+func splitRequirements(input string) []string {
+	lines := strings.Split(input, "\n")
+	var out []string
+	for _, line := range lines {
+		trim := strings.TrimSpace(line)
+		// Strip leading list markers ("- ", "* ", "1. ", etc.)
+		trim = strings.TrimLeft(trim, "-*•")
+		trim = strings.TrimSpace(trim)
+		if trim != "" {
+			out = append(out, trim)
+		}
+	}
+	return out
+}
+
+// splitInput splits on commas or newlines. Used for non-requirement fields
+// where comma separation is the documented interface (e.g. --requirements flag).
 func splitInput(input string) []string {
 	input = strings.ReplaceAll(input, "\n", ",")
 	parts := strings.Split(input, ",")
@@ -582,15 +355,6 @@ func extractReqID(req string) string {
 		return id
 	}
 	return "REQ-001"
-}
-
-func firstNonEmpty(values ...string) string {
-	for _, val := range values {
-		if strings.TrimSpace(val) != "" {
-			return val
-		}
-	}
-	return ""
 }
 
 // runInterviewPlan generates a plan for the interview command.

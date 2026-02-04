@@ -62,7 +62,7 @@
 | 2026-01-28-agent-model-selector-implementation-plan.md | commit | paths:7 latest:2026-01-30 |
 | 2026-01-28-agent-panel-streaming-diff-plan.md | commit | paths:5 latest:2026-01-30 |
 | 2026-01-28-feat-coordination-api-foundation-plan.md | derived | pkg/httpapi/envelope.go, internal/pollard/server/server.go, pkg/jobs/jobs.go, internal/pollard/server/cache.go, pkg/netguard/bind.go, internal/gurgeh/server/server.go, internal/signals/cli/serve.go, pkg/signals/server.go |
-| 2026-01-28-feat-gurgeh-readonly-spec-api-plan.md | commit | paths:5 latest:2026-01-30 |
+| 2026-01-28-feat-gurgeh-readonly-spec-api-plan.md | commit | paths:6 latest:2026-02-04 |
 | 2026-01-28-fix-guardrails-followthrough-plan.md | commit | paths:6 latest:2026-01-30 |
 | 2026-01-28-hide-system-labels-chat-panel-plan.md | commit | paths:2 latest:2026-01-30 |
 | 2026-01-28-kickoff-chat-initial-system-messages-plan.md | commit | paths:2 latest:2026-02-01 |
@@ -81,7 +81,7 @@
 | 2026-01-30-open-questions-chat-resolution.md | preexisting | paths:3 |
 | 2026-01-30-scan-progress-chatpane.md | commit | paths:2 latest:2026-02-01 |
 | 2026-01-31-feat-unified-chat-spec-flow-plan.md | none | no referenced paths found |
-| 2026-01-31-plan-status-precommit-hook.md | commit | paths:7 latest:2026-02-03 |
+| 2026-01-31-plan-status-precommit-hook.md | commit | paths:7 latest:2026-02-04 |
 | 2026-02-02-fix-kickoff-arbiter-transition-plan.md | none | no referenced paths found |
 | 2026-02-03-fix-sprint-completion-spec-summary-transition-plan.md | none | no referenced paths found |
 
