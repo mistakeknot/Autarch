@@ -13,8 +13,8 @@
 - Todo-tracked: 5
 - Derived evidence: 1
 - Commit evidence: 47
-- Preexisting paths (no git evidence): 2
-- No evidence: 8
+- Preexisting paths (no git evidence): 3
+- No evidence: 7
 
 ## Status Legend
 
@@ -81,7 +81,7 @@
 | 2026-01-30-open-questions-chat-resolution.md | preexisting | paths:3 |
 | 2026-01-30-scan-progress-chatpane.md | commit | paths:2 latest:2026-02-04 |
 | 2026-01-31-feat-unified-chat-spec-flow-plan.md | none | no referenced paths found |
-| 2026-01-31-plan-status-precommit-hook.md | commit | paths:7 latest:2026-02-04 |
+| 2026-01-31-plan-status-precommit-hook.md | commit | paths:7 latest:2026-02-05 |
 | 2026-02-02-fix-kickoff-arbiter-transition-plan.md | none | no referenced paths found |
 | 2026-02-03-fix-sprint-completion-spec-summary-transition-plan.md | none | no referenced paths found |
 | 2026-02-04-feat-claude-code-style-codebase-scan-plan.md | commit | paths:1 latest:2026-02-04 |
@@ -90,7 +90,7 @@
 | 2026-02-04-feat-inline-mode-log-pane-simplified-plan.md | commit | paths:2 latest:2026-02-04 |
 | 2026-02-04-feat-iterative-codebase-exploration-plan.md | none | no referenced paths found |
 | 2026-02-05-acceptance-criteria-plan.md | preexisting | paths:3 |
-| 2026-02-05-perf-claude-session-reuse-token-efficiency-plan.md | none | no referenced paths found |
+| 2026-02-05-perf-claude-session-reuse-token-efficiency-plan.md | preexisting | paths:1 |
 
 ## Derived Evidence Details
 
