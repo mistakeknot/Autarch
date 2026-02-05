@@ -49,9 +49,8 @@ Gurgeh invokes Claude Code via subprocess CLI, passes an exploration prompt, and
 | Exploration strategy | Interleaved | Build architecture understanding AND gather PRD evidence together |
 | Output target | Rich PhaseArtifacts | Vision, Problem, Users, Scope with deep evidence |
 | Integration method | Subprocess CLI | Works today, validates concept |
-| Timeout strategy | Adaptive by complexity | Scale time/turns based on file count, language count, monorepo markers |
-| Cost control | No hard limits | Turn limits implicitly cap cost; typical exploration ~$0.50-$2.00 |
-| Budget override | None | Agent decides tier autonomously |
+| Timeout strategy | /init-style | No turn limits - explore until satisfied. 10 min emergency timeout only. |
+| Cost control | Trust the agent | No artificial limits. Agent scales exploration naturally like /init does. |
 | Caching | Git hash keyed | Invalidate on any commit, cheap for repeated iterations |
 | Progress display | Verbose streaming | Show tool calls AND findings via stream-json |
 | Error handling | Save partial + warn | Keep gathered evidence, warn if incomplete |
@@ -84,20 +83,28 @@ Claude Code orchestrator spawns parallel `Task` subagents for speed:
 | **Structure Mapper** | Architecture, entry points, patterns | Directory tree, main.*, index.*, cmd/ |
 | **Evidence Hunter** | User scenarios, test coverage, UI strings | *_test.*, Grep for errors/help text |
 
-### Why Parallel Subagents
+### Why Parallel Subagents (vs /init's simpler approach)
 
-| Aspect | Benefit |
-|--------|---------|
-| **Speed** | 3 parallel explorations vs sequential (~2x faster) |
-| **Simplicity** | Gurgeh manages 1 subprocess, Claude Code orchestrates internally |
-| **Natural merge** | Orchestrator has all context, synthesizes coherently |
-| **Scalability** | Can add more subagents for larger codebases |
+Note: Claude Code's `/init` doesn't use subagents - it just makes parallel tool calls. We chose subagents because:
 
-### Sequential Fallback
+| Aspect | /init Approach | Our Subagent Approach |
+|--------|---------------|----------------------|
+| **Output** | CLAUDE.md (instructions) | PhaseArtifacts (structured PRD evidence) |
+| **Depth** | Surface-level (commands, structure) | Deep (verbatim quotes, user evidence) |
+| **Focus** | Single purpose | 3 specialized hunters |
+| **Thoroughness** | Good for setup | Better for PRD grounding |
 
-For small codebases (<100 files), parallel overhead may not help. The orchestrator can choose:
-- **Small codebase**: Single-threaded exploration (simpler, fewer tokens)
-- **Medium/Large**: Parallel subagents (faster wall-clock time)
+The PRD evidence task is more complex than generating CLAUDE.md. Subagents let us:
+- **Docs Analyst**: Deep-read README/docs for Vision/Problem/Users
+- **Structure Mapper**: Trace architecture patterns thoroughly
+- **Evidence Hunter**: Exhaustively search for user scenarios
+
+### No Sequential Fallback
+
+Unlike the original design with complexity tiers, we now let Claude decide:
+- Agent uses subagents when beneficial
+- Agent uses direct tool calls when simpler
+- No artificial constraints - explore until satisfied
 
 ## Integration Points
 
@@ -105,10 +112,16 @@ For small codebases (<100 files), parallel overhead may not help. The orchestrat
 ```go
 cmd := exec.Command("claude",
     "-p", explorationPrompt,
-    "--output-format", "json",
-    "--max-turns", "10",
-    "--cwd", targetCodebase,
+    "--output-format", "stream-json",
+    "--print",
+    "--verbose",
 )
+cmd.Dir = targetCodebase  // Set working directory
+
+// No --max-turns: let Claude explore until satisfied (like /init)
+// 10 min context timeout as emergency stop
+ctx, cancel := context.WithTimeout(ctx, 10*time.Minute)
+defer cancel()
 ```
 
 ### Prompt Structure
@@ -162,25 +175,26 @@ OUTPUT FORMAT:
 
 ## Timeout and Cost Control (Refined)
 
-### Adaptive Budget Based on Codebase Complexity
+### Match /init Approach: No Turn Limits
 
-The agent detects complexity automatically and sets appropriate limits:
+After investigating Claude Code's `/init` command, we learned:
+- `/init` has **no turn limits** - it explores until satisfied
+- For a 3-file project: 7 tool calls
+- For larger projects: scales up naturally (20-50+ calls)
+- Uses **parallel tool calls** when tasks are independent
 
-| Tier | Signals | Time Budget | Turn Limit |
-|------|---------|-------------|------------|
-| **Small** | <100 files, 1 language | 2 min | 5 turns |
-| **Medium** | 100-1000 files, 1-2 languages | 4 min | 10 turns |
-| **Large** | 1000-5000 files or 3+ languages | 6 min | 15 turns |
-| **Monorepo** | Monorepo markers OR >5000 files | 10 min | 20 turns |
+**Our approach matches this:**
 
-**Complexity signals** (fast to compute):
-- File count (`find . -type f | wc -l`)
-- Language count (distinct manifest files)
-- Monorepo markers (`lerna.json`, `packages/`, `apps/`)
+| Aspect | /init | Our Design |
+|--------|-------|------------|
+| Turn limits | None | **None** |
+| Safety timeout | Implicit | 10 min max (emergency stop) |
+| Parallel calls | Yes (3 Globs at once) | Yes (via subagents) |
+| Scaling | Adapts to codebase | Same |
 
-**Cost control**: No hard limits. Turn limits implicitly cap cost (~$0.50-$2.00 per exploration).
+**Cost control**: No artificial limits. Claude will naturally use fewer turns for simple codebases. Emergency timeout prevents runaway costs.
 
-**Override**: None - agent decides complexity tier autonomously.
+**Rationale**: Arbitrary turn limits (5, 10, 20) were guesswork. Better to trust the agent's judgment, same as `/init` does.
 
 ## Progress Visibility (Refined)
 
@@ -209,8 +223,9 @@ cmd := exec.Command("claude",
     "-p", prompt,
     "--output-format", "stream-json",  // Realtime events
     "--print",                          // Non-interactive
-    "--max-turns", strconv.Itoa(budget.MaxTurns),
+    "--verbose",                        // Required for stream-json
 )
+cmd.Dir = targetCodebase
 stdout, _ := cmd.StdoutPipe()
 
 // Parse JSON events as they arrive
@@ -290,9 +305,10 @@ None - all questions resolved!
 
 - [ ] Claude Code subprocess invocation works from Gurgeh
 - [ ] Exploration prompt produces structured JSON output
-- [ ] PhaseArtifacts populated with evidence from exploration
-- [ ] Exploration completes in <5 minutes for typical codebase
-- [ ] Evidence quality noticeably better than single-shot scan
+- [ ] PhaseArtifacts populated with rich evidence from exploration
+- [ ] Evidence quality matches or approaches interactive Claude Code exploration
+- [ ] Verbatim quotes extracted from codebase (not paraphrased)
+- [ ] Works on codebases of varying sizes (small to monorepo)
 
 ## Next Steps
 

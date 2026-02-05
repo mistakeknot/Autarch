@@ -103,6 +103,87 @@ func Explore(ctx context.Context, cwd string) (map[string]any, error) {
 	return map[string]any{"raw": finalResult}, nil
 }
 
+// Revise takes a spec section and user feedback, returns a revised version.
+// This runs Claude Code to intelligently revise the content based on feedback.
+func Revise(ctx context.Context, cwd string, phase string, currentContent string, feedback string) (string, error) {
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Minute)
+	defer cancel()
+
+	revisePrompt := fmt.Sprintf(`Revise this %s section based on user feedback.
+
+CURRENT CONTENT:
+%s
+
+USER FEEDBACK:
+%s
+
+Revise the content to address the feedback. Keep it concise and focused.
+Return ONLY the revised content, no explanation or markdown fences.`, phase, currentContent, feedback)
+
+	slog.Info("revising spec", "phase", phase)
+
+	cmd := exec.CommandContext(ctx, "claude",
+		"-p", revisePrompt,
+		"--output-format", "stream-json",
+		"--verbose",
+		"--print",
+	)
+	cmd.Dir = cwd
+
+	stdout, err := cmd.StdoutPipe()
+	if err != nil {
+		return "", fmt.Errorf("failed to create stdout pipe: %w", err)
+	}
+
+	if err := cmd.Start(); err != nil {
+		return "", fmt.Errorf("failed to start claude: %w", err)
+	}
+
+	// Parse streaming output, log tool usage, capture result
+	var finalResult string
+	var isError bool
+	scanner := bufio.NewScanner(stdout)
+	scanner.Buffer(make([]byte, 1024*1024), 1024*1024)
+
+	for scanner.Scan() {
+		line := scanner.Text()
+		if line == "" {
+			continue
+		}
+
+		var msg streamMessage
+		if err := json.Unmarshal([]byte(line), &msg); err != nil {
+			continue
+		}
+
+		// Log tool usage
+		if msg.Type == "assistant" && msg.Message != nil {
+			for _, content := range msg.Message.Content {
+				if content.Type == "tool_use" {
+					logToolUse(content.Name, content.Input)
+				}
+			}
+		}
+
+		// Capture final result
+		if msg.Type == "result" {
+			finalResult = msg.Result
+			isError = msg.IsError
+		}
+	}
+
+	if err := cmd.Wait(); err != nil {
+		return "", fmt.Errorf("claude failed: %w", err)
+	}
+
+	if isError {
+		return "", fmt.Errorf("claude returned error: %s", finalResult)
+	}
+
+	slog.Info("revision complete")
+	return strings.TrimSpace(finalResult), nil
+}
+
 // extractJSONFromMarkdown extracts JSON content from markdown code fences.
 // Handles ```json ... ``` and ``` ... ``` patterns.
 var jsonFenceRe = regexp.MustCompile("(?s)```(?:json)?\\s*\\n?(\\{.*?\\})\\s*```")
@@ -226,84 +307,3 @@ Return JSON:
   "problem": {"summary": "...", "evidence": [{"quote": "...", "source": "file:line"}]},
   "users": {"summary": "...", "evidence": [{"quote": "...", "source": "file:line"}]}
 }`
-
-// Revise takes a spec section and user feedback, returns a revised version.
-// This runs Claude Code to intelligently revise the content based on feedback.
-func Revise(ctx context.Context, cwd string, phase string, currentContent string, feedback string) (string, error) {
-	ctx, cancel := context.WithTimeout(ctx, 5*time.Minute)
-	defer cancel()
-
-	revisePrompt := fmt.Sprintf(`Revise this %s section based on user feedback.
-
-CURRENT CONTENT:
-%s
-
-USER FEEDBACK:
-%s
-
-Revise the content to address the feedback. Keep it concise and focused.
-Return ONLY the revised content, no explanation or markdown fences.`, phase, currentContent, feedback)
-
-	slog.Info("revising spec", "phase", phase)
-
-	cmd := exec.CommandContext(ctx, "claude",
-		"-p", revisePrompt,
-		"--output-format", "stream-json",
-		"--verbose",
-		"--print",
-	)
-	cmd.Dir = cwd
-
-	stdout, err := cmd.StdoutPipe()
-	if err != nil {
-		return "", fmt.Errorf("failed to create stdout pipe: %w", err)
-	}
-
-	if err := cmd.Start(); err != nil {
-		return "", fmt.Errorf("failed to start claude: %w", err)
-	}
-
-	// Parse streaming output, log tool usage, capture result
-	var finalResult string
-	var isError bool
-	scanner := bufio.NewScanner(stdout)
-	scanner.Buffer(make([]byte, 1024*1024), 1024*1024)
-
-	for scanner.Scan() {
-		line := scanner.Text()
-		if line == "" {
-			continue
-		}
-
-		var msg streamMessage
-		if err := json.Unmarshal([]byte(line), &msg); err != nil {
-			continue
-		}
-
-		// Log tool usage
-		if msg.Type == "assistant" && msg.Message != nil {
-			for _, content := range msg.Message.Content {
-				if content.Type == "tool_use" {
-					logToolUse(content.Name, content.Input)
-				}
-			}
-		}
-
-		// Capture final result
-		if msg.Type == "result" {
-			finalResult = msg.Result
-			isError = msg.IsError
-		}
-	}
-
-	if err := cmd.Wait(); err != nil {
-		return "", fmt.Errorf("claude failed: %w", err)
-	}
-
-	if isError {
-		return "", fmt.Errorf("claude returned error: %s", finalResult)
-	}
-
-	slog.Info("revision complete")
-	return strings.TrimSpace(finalResult), nil
-}
