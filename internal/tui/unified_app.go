@@ -787,74 +787,95 @@ func (a *UnifiedApp) generateSuggestions() tea.Cmd {
 }
 
 func (a *UnifiedApp) scanCodebase(path string) tea.Cmd {
-	if a.codingAgent == nil {
-		// No agent - show error with instructions
-		return func() tea.Msg {
-			return CodebaseScanResultMsg{
-				Error: &agent.NoAgentError{},
-			}
-		}
-	}
-
 	// Create a channel for progress updates
 	progressChan := make(chan agent.ScanProgress, 100)
 
-	// Start the scan in a goroutine
+	// Start exploration in a goroutine (Claude Code is the primary scan method)
 	go func() {
 		defer close(progressChan)
 
-		result, err := agent.ScanCodebaseWithProgress(
+		// Run Claude Code exploration as the primary scan
+		exploreResult, err := exploration.ExploreWithProgress(
 			context.Background(),
-			a.codingAgent,
 			path,
-			func(p agent.ScanProgress) {
-				// Non-blocking send to avoid deadlock
+			func(step, details string) {
 				select {
-				case progressChan <- p:
+				case progressChan <- agent.ScanProgress{Step: step, Details: details}:
 				default:
 				}
 			},
 		)
 
-		// Try to enhance with Claude Code exploration (non-blocking)
-		if err == nil {
-			progressChan <- agent.ScanProgress{Step: "Exploring", Details: "Running Claude Code exploration..."}
-			exploreCtx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
-			defer cancel()
-			if exploreResult, exploreErr := exploration.Explore(exploreCtx, path); exploreErr == nil {
-				// Merge exploration evidence into scan results
-				result.PhaseArtifacts = exploration.MergeIntoArtifacts(exploreResult, result.PhaseArtifacts)
-			} else {
-				// Log but don't fail - exploration is optional enhancement
-				slog.Debug("exploration enhancement failed", "error", exploreErr)
-			}
-		}
-
-		// Send final result through the channel as a special progress message
 		if err != nil {
 			progressChan <- agent.ScanProgress{Step: "_error", Details: err.Error()}
-		} else {
-			// Encode result in progress for simplicity
-			progressChan <- agent.ScanProgress{
-				Step:    "_complete",
-				Details: result.ProjectName,
-				Files: []string{
-					result.Description,
-					result.Vision,
-					result.Users,
-					result.Problem,
-					result.Platform,
-					result.Language,
-					strings.Join(result.Requirements, "|||"),
-				},
-				ValidationErrors: result.ValidationErrors,
-				PhaseArtifacts:   result.PhaseArtifacts,
-			}
+			return
+		}
+
+		// Convert exploration results to ScanResult format
+		progressChan <- agent.ScanProgress{Step: "Building", Details: "Converting to spec format..."}
+		artifacts := exploration.MergeIntoArtifacts(exploreResult, nil)
+
+		// Extract basic info from exploration results for backward compatibility
+		projectName := extractString(exploreResult, "project_name")
+		if projectName == "" {
+			projectName = "Unknown Project"
+		}
+
+		result := &agent.ScanResult{
+			ProjectName:    projectName,
+			Description:    extractString(exploreResult, "description"),
+			Vision:         extractVisionSummary(artifacts),
+			Users:          extractUsersSummary(artifacts),
+			Problem:        extractProblemSummary(artifacts),
+			Platform:       extractString(exploreResult, "platform"),
+			Language:       extractString(exploreResult, "language"),
+			PhaseArtifacts: artifacts,
+		}
+
+		// Encode result in progress for simplicity
+		progressChan <- agent.ScanProgress{
+			Step:           "_complete",
+			Details:        result.ProjectName,
+			Files:          []string{result.Description, result.Vision, result.Users, result.Problem, result.Platform, result.Language, strings.Join(result.Requirements, "|||")},
+			PhaseArtifacts: result.PhaseArtifacts,
 		}
 	}()
 
 	// Return a command that reads from the progress channel
 	return a.waitForScanProgress(progressChan)
+}
+
+// Helper functions to extract data from exploration results
+func extractString(m map[string]any, key string) string {
+	if v, ok := m[key].(string); ok {
+		return v
+	}
+	return ""
+}
+
+func extractVisionSummary(a *agent.PhaseArtifacts) string {
+	if a != nil && a.Vision != nil && a.Vision.Summary != "" {
+		return a.Vision.Summary
+	}
+	return ""
+}
+
+func extractProblemSummary(a *agent.PhaseArtifacts) string {
+	if a != nil && a.Problem != nil && a.Problem.Summary != "" {
+		return a.Problem.Summary
+	}
+	return ""
+}
+
+func extractUsersSummary(a *agent.PhaseArtifacts) string {
+	if a != nil && a.Users != nil && len(a.Users.Personas) > 0 {
+		var names []string
+		for _, p := range a.Users.Personas {
+			names = append(names, p.Name)
+		}
+		return strings.Join(names, ", ")
+	}
+	return ""
 }
 
 // waitForScanProgress reads one progress update from the channel and returns it as a message.

@@ -10,11 +10,27 @@ import (
 	"time"
 )
 
+// ProgressFunc reports exploration progress.
+type ProgressFunc func(step, details string)
+
 // Explore runs Claude Code and returns parsed output.
 // Returns map[string]any - don't define types until we see real output.
 func Explore(ctx context.Context, cwd string) (map[string]any, error) {
+	return ExploreWithProgress(ctx, cwd, nil)
+}
+
+// ExploreWithProgress runs Claude Code exploration with progress reporting.
+func ExploreWithProgress(ctx context.Context, cwd string, progress ProgressFunc) (map[string]any, error) {
+	report := func(step, details string) {
+		if progress != nil {
+			progress(step, details)
+		}
+	}
+
 	ctx, cancel := context.WithTimeout(ctx, 10*time.Minute)
 	defer cancel()
+
+	report("Starting", "Launching Claude Code exploration...")
 
 	cmd := exec.CommandContext(ctx, "claude",
 		"-p", prompt,
@@ -23,13 +39,17 @@ func Explore(ctx context.Context, cwd string) (map[string]any, error) {
 	)
 	cmd.Dir = cwd
 
+	report("Exploring", "Claude is analyzing the codebase...")
+
 	out, err := cmd.Output()
 	if err != nil {
 		if execErr, ok := err.(*exec.Error); ok && execErr.Err == exec.ErrNotFound {
-			return nil, fmt.Errorf("claude not found: install Claude Code CLI")
+			return nil, fmt.Errorf("claude CLI not found: install with 'npm install -g @anthropic-ai/claude-code'")
 		}
 		return nil, fmt.Errorf("claude failed: %w", err)
 	}
+
+	report("Parsing", "Processing exploration results...")
 
 	// Parse the outer result envelope
 	var envelope struct {
