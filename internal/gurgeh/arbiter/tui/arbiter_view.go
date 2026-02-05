@@ -66,7 +66,7 @@ func NewArbiterView(projectPath string, coordinator *research.Coordinator) *Arbi
 
 	chatPanel := pkgtui.NewChatPanel()
 	chatPanel.SetComposerTitle("Chat")
-	chatPanel.SetComposerHint("enter send · ctrl+a accept · ctrl+e edit · ctrl+1/2/3 alternatives")
+	chatPanel.SetComposerHint("enter send · ctrl+a accept · ctrl+e edit · /1 /2 /3 alternatives")
 	chatPanel.SetComposerPlaceholder("Type to revise the draft...")
 
 	docPanel := pkgtui.NewDocPanel()
@@ -198,12 +198,6 @@ func (v *ArbiterView) Update(msg tea.Msg) (pkgtui.View, tea.Cmd) {
 			return v, nil
 		case "enter":
 			return v.submitComposerContent()
-		case "ctrl+1":
-			v.selectOption(0)
-		case "ctrl+2":
-			v.selectOption(1)
-		case "ctrl+3":
-			v.selectOption(2)
 		case "down":
 			if section := v.currentSection(); section != nil && v.optionIndex < len(section.Options)-1 {
 				v.optionIndex++
@@ -439,7 +433,7 @@ func (v *ArbiterView) ShortHelp() string {
 	if v.handoffMode {
 		return "↑/↓ navigate  enter select  esc back"
 	}
-	return "ctrl+a accept  ctrl+e edit  ctrl+1/2/3 alternatives  enter submit  esc cancel"
+	return "ctrl+a accept  ctrl+e edit  /1 /2 /3 alternatives  enter submit  esc cancel"
 }
 
 // ClearInput clears the chat composer (for ctrl+c soft cancel)
