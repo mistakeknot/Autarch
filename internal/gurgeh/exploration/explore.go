@@ -280,6 +280,162 @@ Return ONLY the revised content, no explanation or markdown fences.`, phase, cur
 	return strings.TrimSpace(finalResult), nil
 }
 
+// PhaseUpdate represents a single phase's content update from propagation.
+type PhaseUpdate struct {
+	Phase   string
+	Content string
+	Changed bool // true if content differs from previous
+}
+
+// PropagateChanges regenerates all phases in a single Claude Code call.
+// It takes the current phase content map and user feedback (if any), then returns
+// updated content for all phases. The agent decides which phases need changes
+// based on the feedback and maintains consistency across the spec.
+//
+// This is more efficient than calling GeneratePhase multiple times because:
+// 1. Single Claude Code invocation (one context load)
+// 2. Agent sees the full spec and can make intelligent decisions about what to update
+// 3. Returns only changed content (phases that don't need changes return unchanged)
+func PropagateChanges(ctx context.Context, cwd string, currentPhases map[string]string, changedPhase string, feedback string) (map[string]PhaseUpdate, error) {
+	ctx, cancel := context.WithTimeout(ctx, 8*time.Minute)
+	defer cancel()
+
+	// Build the current spec state
+	phaseOrder := []string{"vision", "problem", "users", "features", "requirements", "scope", "cujs", "acceptance"}
+	var specParts []string
+	for _, p := range phaseOrder {
+		if content, ok := currentPhases[p]; ok && content != "" {
+			specParts = append(specParts, fmt.Sprintf("## %s\n%s", strings.Title(p), content))
+		}
+	}
+	currentSpec := strings.Join(specParts, "\n\n")
+
+	propagatePrompt := fmt.Sprintf(`You are updating a PRD (Product Requirements Document) after changes.
+
+CURRENT SPEC:
+%s
+
+CHANGED PHASE: %s
+USER FEEDBACK: %s
+
+Your task:
+1. First, explore this codebase to understand the project
+2. Apply the user's feedback to the %s section
+3. Review ALL other sections - if the change to %s affects them, update them too
+4. Return ONLY sections that changed (to save tokens)
+
+For example:
+- If "features" changes, "requirements" and "cujs" likely need updates
+- If "users" changes, "cujs" (user journeys) likely need updates
+- If "vision" changes, everything might need review
+
+Return JSON with ONLY the phases that need changes:
+{
+  "updates": {
+    "phase_name": "new content for this phase",
+    "another_phase": "new content if it changed"
+  }
+}
+
+Guidelines:
+- Be concise and specific to THIS project
+- Maintain consistency across all sections
+- Only include phases that actually changed
+- If a phase doesn't need changes, don't include it`, currentSpec, changedPhase, feedback, changedPhase, changedPhase)
+
+	slog.Info("propagating changes", "changed_phase", changedPhase)
+
+	cmd := exec.CommandContext(ctx, "claude",
+		"-p", propagatePrompt,
+		"--output-format", "stream-json",
+		"--verbose",
+		"--print",
+	)
+	cmd.Dir = cwd
+
+	stdout, err := cmd.StdoutPipe()
+	if err != nil {
+		return nil, fmt.Errorf("failed to create stdout pipe: %w", err)
+	}
+
+	if err := cmd.Start(); err != nil {
+		return nil, fmt.Errorf("failed to start claude: %w", err)
+	}
+
+	// Parse streaming output, log tool usage, capture result
+	var finalResult string
+	var isError bool
+	scanner := bufio.NewScanner(stdout)
+	scanner.Buffer(make([]byte, 1024*1024), 1024*1024)
+
+	for scanner.Scan() {
+		line := scanner.Text()
+		if line == "" {
+			continue
+		}
+
+		var msg streamMessage
+		if err := json.Unmarshal([]byte(line), &msg); err != nil {
+			continue
+		}
+
+		// Log tool usage
+		if msg.Type == "assistant" && msg.Message != nil {
+			for _, content := range msg.Message.Content {
+				if content.Type == "tool_use" {
+					logToolUse(content.Name, content.Input)
+				}
+			}
+		}
+
+		// Capture final result
+		if msg.Type == "result" {
+			finalResult = msg.Result
+			isError = msg.IsError
+		}
+	}
+
+	if err := cmd.Wait(); err != nil {
+		return nil, fmt.Errorf("claude failed: %w", err)
+	}
+
+	if isError {
+		return nil, fmt.Errorf("claude returned error: %s", finalResult)
+	}
+
+	// Parse the JSON response
+	var response struct {
+		Updates map[string]string `json:"updates"`
+	}
+
+	// Try direct JSON parse
+	if err := json.Unmarshal([]byte(finalResult), &response); err != nil {
+		// Try extracting from markdown code fence
+		extracted := extractJSONFromMarkdown(finalResult)
+		if extracted != "" {
+			if err := json.Unmarshal([]byte(extracted), &response); err != nil {
+				return nil, fmt.Errorf("failed to parse response JSON: %w", err)
+			}
+		} else {
+			return nil, fmt.Errorf("failed to parse response: %w", err)
+		}
+	}
+
+	// Convert to PhaseUpdate map
+	updates := make(map[string]PhaseUpdate)
+	for phase, content := range response.Updates {
+		oldContent := currentPhases[phase]
+		updates[phase] = PhaseUpdate{
+			Phase:   phase,
+			Content: content,
+			Changed: content != oldContent,
+		}
+	}
+
+	slog.Info("propagation complete", "phases_updated", len(updates))
+	return updates, nil
+}
+
 // extractJSONFromMarkdown extracts JSON content from markdown code fences.
 // Handles ```json ... ``` and ``` ... ``` patterns.
 var jsonFenceRe = regexp.MustCompile("(?s)```(?:json)?\\s*\\n?(\\{.*?\\})\\s*```")

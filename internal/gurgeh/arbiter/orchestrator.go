@@ -423,20 +423,34 @@ func (o *Orchestrator) shouldUseDynamicGeneration(phase Phase) bool {
 	}
 }
 
+// phaseKeyMap maps Phase enums to string keys used in exploration.
+var phaseKeyMap = map[Phase]string{
+	PhaseVision:           "vision",
+	PhaseProblem:          "problem",
+	PhaseUsers:            "users",
+	PhaseFeaturesGoals:    "features",
+	PhaseRequirements:     "requirements",
+	PhaseScopeAssumptions: "scope",
+	PhaseCUJs:             "cujs",
+	PhaseAcceptanceCriteria: "acceptance",
+}
+
+// keyPhaseMap is the reverse mapping from string keys to Phase enums.
+var keyPhaseMap = map[string]Phase{
+	"vision":      PhaseVision,
+	"problem":     PhaseProblem,
+	"users":       PhaseUsers,
+	"features":    PhaseFeaturesGoals,
+	"requirements": PhaseRequirements,
+	"scope":       PhaseScopeAssumptions,
+	"cujs":        PhaseCUJs,
+	"acceptance":  PhaseAcceptanceCriteria,
+}
+
 // buildPriorContext extracts accepted phase content to provide context for later phase generation.
 func (o *Orchestrator) buildPriorContext(state *SprintState) map[string]string {
 	ctx := make(map[string]string)
-	phaseKeys := map[Phase]string{
-		PhaseVision:          "vision",
-		PhaseProblem:         "problem",
-		PhaseUsers:           "users",
-		PhaseFeaturesGoals:   "features",
-		PhaseRequirements:    "requirements",
-		PhaseScopeAssumptions: "scope",
-		PhaseCUJs:            "cujs",
-	}
-
-	for phase, key := range phaseKeys {
+	for phase, key := range phaseKeyMap {
 		if section, ok := state.Sections[phase]; ok && section != nil {
 			// Include all accepted or proposed content as context
 			if section.Content != "" {
@@ -445,6 +459,36 @@ func (o *Orchestrator) buildPriorContext(state *SprintState) map[string]string {
 		}
 	}
 	return ctx
+}
+
+// buildAllPhasesContext builds a map of all phase content for propagation.
+func (o *Orchestrator) buildAllPhasesContext(state *SprintState) map[string]string {
+	return o.buildPriorContext(state) // Same logic, different semantic meaning
+}
+
+// applyPropagatedUpdates applies phase updates from propagation to the sprint state.
+func (o *Orchestrator) applyPropagatedUpdates(state *SprintState, updates map[string]exploration.PhaseUpdate) {
+	for key, update := range updates {
+		if !update.Changed {
+			continue
+		}
+		phase, ok := keyPhaseMap[key]
+		if !ok {
+			continue
+		}
+		if section, exists := state.Sections[phase]; exists {
+			section.Content = update.Content
+			section.Status = DraftProposed
+			section.UpdatedAt = time.Now()
+		} else {
+			state.Sections[phase] = &SectionDraft{
+				Content:   update.Content,
+				Status:    DraftProposed,
+				UpdatedAt: time.Now(),
+			}
+		}
+	}
+	state.UpdatedAt = time.Now()
 }
 
 // AcceptDraft marks the current phase's draft as accepted.
@@ -985,8 +1029,10 @@ func (o *Orchestrator) runQuickScanBackground(ctx context.Context) {
 // It returns a channel that streams the agent's response chunks. The channel is
 // closed when the response is complete.
 //
+// This uses PropagateChanges to update all affected phases in a single Claude Code
+// call, saving tokens while maintaining consistency across the entire spec.
+//
 // The caller MUST cancel ctx when navigating away to prevent goroutine leaks.
-// Basic retry with backoff (3 attempts) is applied on generation failure.
 func (o *Orchestrator) ProcessChatMessage(ctx context.Context, msg string) <-chan string {
 	ch := make(chan string, 8)
 
@@ -1004,43 +1050,62 @@ func (o *Orchestrator) ProcessChatMessage(ctx context.Context, msg string) <-cha
 		}
 		state := o.state.Clone()
 		phase := state.Phase
+		phaseKey := phaseKeyMap[phase]
 		o.mu.Unlock()
 
-		// Get current content for the phase
-		currentContent := ""
-		if section, ok := state.Sections[phase]; ok {
-			currentContent = section.Content
-		}
+		// Build context of all current phases
+		currentPhases := o.buildAllPhasesContext(&state)
 
-		// Use Claude Code exploration to revise the spec based on feedback
-		revised, err := exploration.Revise(ctx, o.projectPath, phase.String(), currentContent, msg)
+		// Use Claude Code to propagate changes across all phases
+		updates, err := exploration.PropagateChanges(ctx, o.projectPath, currentPhases, phaseKey, msg)
 		if err != nil {
-			select {
-			case ch <- fmt.Sprintf("Failed to revise: %v", err):
-			case <-ctx.Done():
+			// Fallback to simple revision if propagation fails
+			currentContent := ""
+			if section, ok := state.Sections[phase]; ok {
+				currentContent = section.Content
 			}
-			return
+			revised, revErr := exploration.Revise(ctx, o.projectPath, phase.String(), currentContent, msg)
+			if revErr != nil {
+				select {
+				case ch <- fmt.Sprintf("Failed to revise: %v", revErr):
+				case <-ctx.Done():
+				}
+				return
+			}
+			updates = map[string]exploration.PhaseUpdate{
+				phaseKey: {Phase: phaseKey, Content: revised, Changed: true},
+			}
 		}
 
-		// Create new draft with revised content
-		draft := &SectionDraft{
-			Content:   revised,
-			Status:    DraftProposed,
-			UpdatedAt: time.Now(),
-		}
-
-		// Write back the revised draft
+		// Apply all updates to state
 		o.mu.Lock()
 		if o.state != nil {
-			o.state.Sections[phase] = draft
-			o.state.UpdatedAt = time.Now()
+			o.applyPropagatedUpdates(o.state, updates)
 			o.saveLocked()
 		}
 		o.mu.Unlock()
 
-		// Stream the response
+		// Build response showing what was updated
+		var response strings.Builder
+		changedPhases := []string{}
+		for key, update := range updates {
+			if update.Changed {
+				changedPhases = append(changedPhases, key)
+			}
+		}
+
+		// Show the current phase's updated content
+		if update, ok := updates[phaseKey]; ok && update.Changed {
+			response.WriteString(update.Content)
+		}
+
+		// Note other phases that were updated
+		if len(changedPhases) > 1 {
+			response.WriteString(fmt.Sprintf("\n\n---\n_Also updated: %s_", strings.Join(changedPhases, ", ")))
+		}
+
 		select {
-		case ch <- revised:
+		case ch <- response.String():
 		case <-ctx.Done():
 		}
 	}()
