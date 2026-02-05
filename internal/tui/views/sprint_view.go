@@ -105,10 +105,20 @@ func (v *SprintView) StartSprint(userInput string) tea.Cmd {
 
 // StartSprintWithScan starts a sprint seeded with scan artifacts.
 func (v *SprintView) StartSprintWithScan(userInput string, artifacts *scan.Artifacts) tea.Cmd {
+	return v.StartSprintWithExploration(userInput, artifacts, nil)
+}
+
+// StartSprintWithExploration starts a sprint seeded with scan artifacts and exploration results.
+// The exploration result is cached for instant phase transitions (no re-scanning).
+func (v *SprintView) StartSprintWithExploration(userInput string, artifacts *scan.Artifacts, exploration map[string]any) tea.Cmd {
 	return func() tea.Msg {
 		_, err := v.orch.StartWithScan(context.Background(), userInput, artifacts)
 		if err != nil {
 			return tui.GenerationErrorMsg{What: "sprint", Error: err}
+		}
+		// Cache exploration result for phase transitions
+		if exploration != nil {
+			v.orch.SetExplorationResult(exploration)
 		}
 		state, _ := v.orch.State()
 		return tui.SprintDraftUpdatedMsg{

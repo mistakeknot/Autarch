@@ -164,6 +164,16 @@ func (o *Orchestrator) StartWithScan(ctx context.Context, userInput string, arti
 	return &clone, nil
 }
 
+// SetExplorationResult stores the raw exploration output for use in phase transitions.
+// Call this after StartWithScan to enable instant phase transitions from cached data.
+func (o *Orchestrator) SetExplorationResult(result map[string]any) {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	if o.state != nil {
+		o.state.ExplorationResult = result
+	}
+}
+
 // StartWithResearch initializes a sprint and imports Pollard insights.
 // Each Pollard finding is published as an Intermute insight linked to the sprint's spec.
 // Requires a ResearchProvider; returns an error if none is configured.
@@ -237,27 +247,58 @@ func (o *Orchestrator) Advance(ctx context.Context, state *SprintState) (*Sprint
 		o.runPhaseResearch(ctx, state)
 	}
 
-	// Generate draft for the new phase using Claude Code exploration
-	priorContext := make(map[string]string)
-	for phase, section := range state.Sections {
-		if section.Status == DraftAccepted || section.Status == DraftProposed {
-			priorContext[strings.ToLower(phase.String())] = section.Content
+	// Generate draft for the new phase from cached exploration or fallback
+	content := o.extractPhaseContent(state.ExplorationResult, state.Phase)
+	if content == "" {
+		// Fallback to template-based generation if no cached data
+		projectCtx := o.readProjectContext()
+		draft, err := o.generator.GenerateDraft(ctx, state.Phase, projectCtx, "", state.Findings)
+		if err != nil {
+			return nil, fmt.Errorf("generating draft for %s: %w", state.Phase, err)
 		}
-	}
-
-	content, err := exploration.GeneratePhase(ctx, o.projectPath, state.Phase.String(), priorContext)
-	if err != nil {
-		return nil, fmt.Errorf("generating draft for %s: %w", state.Phase, err)
-	}
-
-	state.Sections[state.Phase] = &SectionDraft{
-		Content:   content,
-		Status:    DraftProposed,
-		UpdatedAt: time.Now(),
+		state.Sections[state.Phase] = draft
+	} else {
+		state.Sections[state.Phase] = &SectionDraft{
+			Content:   content,
+			Status:    DraftProposed,
+			UpdatedAt: time.Now(),
+		}
 	}
 	state.UpdatedAt = time.Now()
 
 	return state, nil
+}
+
+// extractPhaseContent extracts content for a phase from cached exploration results.
+// Returns empty string if no data available for the phase.
+func (o *Orchestrator) extractPhaseContent(result map[string]any, phase Phase) string {
+	if result == nil {
+		return ""
+	}
+
+	// Map phase to exploration result key
+	// Initial exploration extracts: vision, problem, users, features, tech, risks
+	key := ""
+	switch phase {
+	case PhaseVision:
+		key = "vision"
+	case PhaseProblem:
+		key = "problem"
+	case PhaseUsers:
+		key = "users"
+	case PhaseFeaturesGoals:
+		key = "features"
+	default:
+		return "" // Later phases (Requirements, CUJs, etc.) not covered by initial exploration
+	}
+
+	// Extract summary from the phase data
+	if phaseData, ok := result[key].(map[string]any); ok {
+		if summary, ok := phaseData["summary"].(string); ok {
+			return summary
+		}
+	}
+	return ""
 }
 
 // AcceptDraft marks the current phase's draft as accepted.

@@ -145,17 +145,18 @@ type RevertLastRunMsg struct {
 
 // CodebaseScanResultMsg contains the results of a codebase scan
 type CodebaseScanResultMsg struct {
-	ProjectName      string
-	Description      string
-	Vision           string
-	Users            string
-	Problem          string
-	Platform         string
-	Language         string
-	Requirements     []string
-	ValidationErrors []ValidationError
-	PhaseArtifacts   *PhaseArtifacts
-	Error            error
+	ProjectName       string
+	Description       string
+	Vision            string
+	Users             string
+	Problem           string
+	Platform          string
+	Language          string
+	Requirements      []string
+	ValidationErrors  []ValidationError
+	PhaseArtifacts    *PhaseArtifacts
+	ExplorationResult map[string]any // Raw exploration output for reuse in phase transitions
+	Error             error
 }
 
 

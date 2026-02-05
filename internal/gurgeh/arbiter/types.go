@@ -133,9 +133,10 @@ type SprintState struct {
 	IsReview        bool                        // true when reviewing an existing spec
 	ReviewingSpecID string                      // ID of spec being reviewed
 	ShapeOverrides  map[Phase]thinking.Shape    // per-sprint user overrides for thinking shapes
-	ScanArtifacts   *scan.Artifacts             // lossless kickoff scan results (nil if no scan)
-	StartedAt       time.Time
-	UpdatedAt       time.Time
+	ScanArtifacts     *scan.Artifacts             // lossless kickoff scan results (nil if no scan)
+	ExplorationResult map[string]any              // raw Claude Code exploration output (reused across phases)
+	StartedAt         time.Time
+	UpdatedAt         time.Time
 }
 
 // NewSprintState creates a new sprint with all sections initialized.

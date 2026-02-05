@@ -673,10 +673,19 @@ func (a *UnifiedApp) handleProjectCreated(msg ProjectCreatedMsg) tea.Cmd {
 			})
 		}
 
-		// Start the sprint, seeding with scan artifacts if available
+		// Start the sprint, seeding with scan artifacts and exploration results
 		var startCmd tea.Cmd
 		if msg.ScanResult != nil {
+			// Prefer the full method with exploration results for instant phase transitions
 			if starter, ok := a.currentView.(interface {
+				StartSprintWithExploration(string, *scan.Artifacts, map[string]any) tea.Cmd
+			}); ok {
+				startCmd = starter.StartSprintWithExploration(
+					msg.Description,
+					scanResultToArtifacts(msg.ScanResult),
+					msg.ScanResult.ExplorationResult,
+				)
+			} else if starter, ok := a.currentView.(interface {
 				StartSprintWithScan(string, *scan.Artifacts) tea.Cmd
 			}); ok {
 				startCmd = starter.StartSprintWithScan(msg.Description, scanResultToArtifacts(msg.ScanResult))
@@ -830,10 +839,11 @@ func (a *UnifiedApp) scanCodebase(path string) tea.Cmd {
 
 		// Encode result in progress for simplicity
 		progressChan <- agent.ScanProgress{
-			Step:           "_complete",
-			Details:        result.ProjectName,
-			Files:          []string{result.Description, result.Vision, result.Users, result.Problem, result.Platform, result.Language, strings.Join(result.Requirements, "|||")},
-			PhaseArtifacts: result.PhaseArtifacts,
+			Step:              "_complete",
+			Details:           result.ProjectName,
+			Files:             []string{result.Description, result.Vision, result.Users, result.Problem, result.Platform, result.Language, strings.Join(result.Requirements, "|||")},
+			PhaseArtifacts:    result.PhaseArtifacts,
+			ExplorationResult: exploreResult,
 		}
 	}()
 
@@ -901,16 +911,17 @@ func (a *UnifiedApp) waitForScanProgress(ch <-chan agent.ScanProgress) tea.Cmd {
 				requirements = strings.Split(p.Files[6], "|||")
 			}
 			return CodebaseScanResultMsg{
-				ProjectName:      p.Details,
-				Description:      safeIndex(p.Files, 0),
-				Vision:           safeIndex(p.Files, 1),
-				Users:            safeIndex(p.Files, 2),
-				Problem:          safeIndex(p.Files, 3),
-				Platform:         safeIndex(p.Files, 4),
-				Language:         safeIndex(p.Files, 5),
-				Requirements:     requirements,
-				ValidationErrors: toValidationErrors(p.ValidationErrors),
-				PhaseArtifacts:   toPhaseArtifacts(p.PhaseArtifacts),
+				ProjectName:       p.Details,
+				Description:       safeIndex(p.Files, 0),
+				Vision:            safeIndex(p.Files, 1),
+				Users:             safeIndex(p.Files, 2),
+				Problem:           safeIndex(p.Files, 3),
+				Platform:          safeIndex(p.Files, 4),
+				Language:          safeIndex(p.Files, 5),
+				Requirements:      requirements,
+				ValidationErrors:  toValidationErrors(p.ValidationErrors),
+				PhaseArtifacts:    toPhaseArtifacts(p.PhaseArtifacts),
+				ExplorationResult: p.ExplorationResult,
 			}
 		}
 

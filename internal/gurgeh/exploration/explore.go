@@ -388,11 +388,14 @@ func truncatePath(path string, max int) string {
 
 const prompt = `Explore this codebase for PRD generation.
 
-Find:
+Find ALL of the following by reading code, docs, and config:
 - Project name: What is this project called?
 - Vision: What does this project do? Why does it exist?
 - Problem: What pain points does it solve?
-- Users: Who uses this?
+- Users: Who uses this? What are their workflows?
+- Features: What are the main capabilities/features?
+- Tech: What technologies, frameworks, and architecture patterns are used?
+- Risks: What are potential technical risks or challenges?
 
 Extract VERBATIM QUOTES as evidence. Skip .env files.
 
@@ -401,5 +404,8 @@ Return JSON:
   "project_name": "Name of the project",
   "vision": {"summary": "...", "evidence": [{"quote": "...", "source": "file:line"}]},
   "problem": {"summary": "...", "evidence": [{"quote": "...", "source": "file:line"}]},
-  "users": {"summary": "...", "evidence": [{"quote": "...", "source": "file:line"}]}
+  "users": {"summary": "...", "evidence": [{"quote": "...", "source": "file:line"}]},
+  "features": {"summary": "...", "evidence": [{"quote": "...", "source": "file:line"}]},
+  "tech": {"summary": "...", "evidence": [{"quote": "...", "source": "file:line"}]},
+  "risks": {"summary": "...", "evidence": [{"quote": "...", "source": "file:line"}]}
 }`

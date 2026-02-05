@@ -27,12 +27,13 @@ type ScanResult struct {
 
 // ScanProgress reports progress during codebase scanning.
 type ScanProgress struct {
-	Step             string            // Current step name
-	Details          string            // What's happening
-	Files            []string          // Files found/being analyzed
-	AgentLine        string            // Live output line from agent (if streaming)
-	ValidationErrors []ValidationError // Validation errors on completion
-	PhaseArtifacts   *PhaseArtifacts   // Structured scan artifacts
+	Step              string            // Current step name
+	Details           string            // What's happening
+	Files             []string          // Files found/being analyzed
+	AgentLine         string            // Live output line from agent (if streaming)
+	ValidationErrors  []ValidationError // Validation errors on completion
+	PhaseArtifacts    *PhaseArtifacts   // Structured scan artifacts
+	ExplorationResult map[string]any    // Raw Claude Code exploration output for phase transitions
 }
 
 // ScanProgressFunc is called to report scan progress.
