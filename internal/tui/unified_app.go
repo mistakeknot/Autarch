@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -812,7 +813,8 @@ func (a *UnifiedApp) scanCodebase(path string) tea.Cmd {
 		// Extract basic info from exploration results for backward compatibility
 		projectName := extractString(exploreResult, "project_name")
 		if projectName == "" {
-			projectName = "Unknown Project"
+			// Fallback to directory name
+			projectName = filepath.Base(path)
 		}
 
 		result := &agent.ScanResult{
