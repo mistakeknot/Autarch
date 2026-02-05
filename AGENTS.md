@@ -432,11 +432,36 @@ See [docs/QUICK_REFERENCE.md](docs/QUICK_REFERENCE.md) for complete list.
 ```
 
 **Key Integrations:**
-- Gurgeh → Coldwine: PRDs generate tasks
+- Gurgeh → Coldwine: PRDs generate tasks (via Briefs or direct import)
 - Gurgeh → Pollard: Research enriches PRDs
 - Coldwine → Pollard: Research informs implementation
 - Bigend → All: Read-only aggregation
 - Intermute: Cross-tool messaging and coordination
+
+### Brief vs Task (Concept Clarification)
+
+These are **intentionally separate** concepts with different purposes:
+
+| Aspect | Gurgeh Brief | Coldwine Task |
+|--------|--------------|---------------|
+| **Purpose** | Agent instruction | Orchestration tracking |
+| **Fields** | 3 (title, outcome, criteria) | 12+ (status, assignee, worktree, session...) |
+| **Storage** | Markdown in `.gurgeh/briefs/` | SQLite in `.coldwine/` |
+| **Lifecycle** | Stateless (create → execute → discard) | Stateful (pending → in_progress → completed) |
+| **Consumer** | Claude Code (`claude -p "$(cat brief.md)"`) | Coldwine TUI/orchestrator |
+
+**Mental model:**
+> **Brief** = "What Claude Code should do" (instruction for agent execution)
+> **Task** = "How to track what Claude Code is doing" (orchestration state)
+
+The shared fields (title, outcome, criteria) form the **handoff contract** - they must match so Task can track Brief execution. This is intentional separation of concerns, not duplication.
+
+**Integration flow:**
+```
+Gurgeh Spec → Decompose → Briefs (.md) → Import → Coldwine Tasks (SQLite)
+```
+
+See [docs/brainstorms/2026-02-04-briefs-vs-tasks-unification-brainstorm.md](docs/brainstorms/2026-02-04-briefs-vs-tasks-unification-brainstorm.md) for the design decision rationale.
 
 See [docs/INTEGRATION.md](docs/INTEGRATION.md) for details.
 
