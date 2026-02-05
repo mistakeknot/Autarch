@@ -4,33 +4,21 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"os/exec"
 	"regexp"
 	"strings"
 	"time"
 )
 
-// ProgressFunc reports exploration progress.
-type ProgressFunc func(step, details string)
-
 // Explore runs Claude Code and returns parsed output.
 // Returns map[string]any - don't define types until we see real output.
+// Progress is reported via slog (appears in log pane when TUI is running).
 func Explore(ctx context.Context, cwd string) (map[string]any, error) {
-	return ExploreWithProgress(ctx, cwd, nil)
-}
-
-// ExploreWithProgress runs Claude Code exploration with progress reporting.
-func ExploreWithProgress(ctx context.Context, cwd string, progress ProgressFunc) (map[string]any, error) {
-	report := func(step, details string) {
-		if progress != nil {
-			progress(step, details)
-		}
-	}
-
 	ctx, cancel := context.WithTimeout(ctx, 10*time.Minute)
 	defer cancel()
 
-	report("Starting", "Launching Claude Code exploration...")
+	slog.Info("exploration starting", "path", cwd)
 
 	cmd := exec.CommandContext(ctx, "claude",
 		"-p", prompt,
@@ -39,7 +27,7 @@ func ExploreWithProgress(ctx context.Context, cwd string, progress ProgressFunc)
 	)
 	cmd.Dir = cwd
 
-	report("Exploring", "Claude is analyzing the codebase...")
+	slog.Info("claude exploring codebase...")
 
 	out, err := cmd.Output()
 	if err != nil {
@@ -49,7 +37,7 @@ func ExploreWithProgress(ctx context.Context, cwd string, progress ProgressFunc)
 		return nil, fmt.Errorf("claude failed: %w", err)
 	}
 
-	report("Parsing", "Processing exploration results...")
+	slog.Info("parsing exploration results...")
 
 	// Parse the outer result envelope
 	var envelope struct {

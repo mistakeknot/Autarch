@@ -791,20 +791,15 @@ func (a *UnifiedApp) scanCodebase(path string) tea.Cmd {
 	progressChan := make(chan agent.ScanProgress, 100)
 
 	// Start exploration in a goroutine (Claude Code is the primary scan method)
+	// Progress is reported via slog, which appears in the log pane
 	go func() {
 		defer close(progressChan)
 
-		// Run Claude Code exploration as the primary scan
-		exploreResult, err := exploration.ExploreWithProgress(
-			context.Background(),
-			path,
-			func(step, details string) {
-				select {
-				case progressChan <- agent.ScanProgress{Step: step, Details: details}:
-				default:
-				}
-			},
-		)
+		// Send initial progress to TUI
+		progressChan <- agent.ScanProgress{Step: "Exploring", Details: "Running Claude Code..."}
+
+		// Run Claude Code exploration (progress logged via slog)
+		exploreResult, err := exploration.Explore(context.Background(), path)
 
 		if err != nil {
 			progressChan <- agent.ScanProgress{Step: "_error", Details: err.Error()}
@@ -812,7 +807,6 @@ func (a *UnifiedApp) scanCodebase(path string) tea.Cmd {
 		}
 
 		// Convert exploration results to ScanResult format
-		progressChan <- agent.ScanProgress{Step: "Building", Details: "Converting to spec format..."}
 		artifacts := exploration.MergeIntoArtifacts(exploreResult, nil)
 
 		// Extract basic info from exploration results for backward compatibility
