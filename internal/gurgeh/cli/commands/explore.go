@@ -59,7 +59,7 @@ Example:
 			defer cancel()
 
 			start := time.Now()
-			result, err := exploration.Explore(ctx, path)
+			result, _, err := exploration.Explore(ctx, path)
 			elapsed := time.Since(start)
 
 			if err != nil {

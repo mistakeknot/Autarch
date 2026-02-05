@@ -231,13 +231,15 @@ func (o *Orchestrator) StartWithScan(ctx context.Context, userInput string, arti
 	return &clone, nil
 }
 
-// SetExplorationResult stores the raw exploration output for use in phase transitions.
+// SetExplorationResult stores the raw exploration output and session ID for use in phase transitions.
 // Call this after StartWithScan to enable instant phase transitions from cached data.
-func (o *Orchestrator) SetExplorationResult(result map[string]any) {
+// Session ID enables resuming the Claude Code session in later phases (avoids re-exploring).
+func (o *Orchestrator) SetExplorationResult(result map[string]any, sessionID string) {
 	o.mu.Lock()
 	defer o.mu.Unlock()
 	if o.state != nil {
 		o.state.ExplorationResult = result
+		o.state.ExplorationSessionID = sessionID
 		o.saveLocked()
 	}
 }
@@ -353,7 +355,7 @@ func (o *Orchestrator) advanceInternal(ctx context.Context, state *SprintState, 
 			ctx, o.projectPath, state.Phase.String(), priorContext, state.ExplorationResult)
 		if err != nil {
 			// Fallback to full exploration if context-aware generation fails
-			genContent, err = exploration.GeneratePhase(ctx, o.projectPath, state.Phase.String(), priorContext)
+			genContent, err = exploration.GeneratePhase(ctx, o.projectPath, state.Phase.String(), priorContext, state.ExplorationSessionID)
 			if err != nil {
 				// Final fallback to template
 				projectCtx := o.readProjectContext()
@@ -380,7 +382,7 @@ func (o *Orchestrator) advanceInternal(ctx context.Context, state *SprintState, 
 		// No cache at all - use original logic
 		if o.shouldUseDynamicGeneration(state.Phase) {
 			priorContext := o.buildPriorContext(state)
-			genContent, err := exploration.GeneratePhase(ctx, o.projectPath, state.Phase.String(), priorContext)
+			genContent, err := exploration.GeneratePhase(ctx, o.projectPath, state.Phase.String(), priorContext, state.ExplorationSessionID)
 			if err != nil {
 				projectCtx := o.readProjectContext()
 				draft, fallbackErr := o.generator.GenerateDraft(ctx, state.Phase, projectCtx, "", state.Findings)

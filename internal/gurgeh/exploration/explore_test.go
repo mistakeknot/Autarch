@@ -13,7 +13,7 @@ func TestExplore_RequiresClaude(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	_, err := Explore(ctx, "/nonexistent/path")
+	_, _, err := Explore(ctx, "/nonexistent/path")
 	if err == nil {
 		t.Skip("Claude Code is installed and reachable - skipping error path test")
 	}
@@ -51,7 +51,7 @@ Developers testing the exploration feature.
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
 
-	result, err := Explore(ctx, tmpDir)
+	result, _, err := Explore(ctx, tmpDir)
 	if err != nil {
 		t.Fatalf("Explore failed: %v", err)
 	}

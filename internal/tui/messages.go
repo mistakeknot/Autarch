@@ -155,8 +155,9 @@ type CodebaseScanResultMsg struct {
 	Requirements      []string
 	ValidationErrors  []ValidationError
 	PhaseArtifacts    *PhaseArtifacts
-	ExplorationResult map[string]any // Raw exploration output for reuse in phase transitions
-	Error             error
+	ExplorationResult    map[string]any // Raw exploration output for reuse in phase transitions
+	ExplorationSessionID string         // Claude Code session ID for reuse in later phases
+	Error                error
 }
 
 

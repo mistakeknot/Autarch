@@ -33,7 +33,8 @@ type ScanProgress struct {
 	AgentLine         string            // Live output line from agent (if streaming)
 	ValidationErrors  []ValidationError // Validation errors on completion
 	PhaseArtifacts    *PhaseArtifacts   // Structured scan artifacts
-	ExplorationResult map[string]any    // Raw Claude Code exploration output for phase transitions
+	ExplorationResult    map[string]any // Raw Claude Code exploration output for phase transitions
+	ExplorationSessionID string         // Claude Code session ID for reuse in later phases
 }
 
 // ScanProgressFunc is called to report scan progress.

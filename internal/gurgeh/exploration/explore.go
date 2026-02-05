@@ -10,12 +10,15 @@ import (
 	"regexp"
 	"strings"
 	"time"
+
+	"golang.org/x/text/cases"
+	"golang.org/x/text/language"
 )
 
-// Explore runs Claude Code and returns parsed output.
-// Returns map[string]any - don't define types until we see real output.
+// Explore runs Claude Code and returns parsed output plus session ID.
+// Session ID can be used with GeneratePhase() to avoid re-exploration.
 // Tool usage is streamed to slog (appears in log pane when TUI is running).
-func Explore(ctx context.Context, cwd string) (map[string]any, error) {
+func Explore(ctx context.Context, cwd string) (map[string]any, string, error) {
 	ctx, cancel := context.WithTimeout(ctx, 10*time.Minute)
 	defer cancel()
 
@@ -31,17 +34,18 @@ func Explore(ctx context.Context, cwd string) (map[string]any, error) {
 
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
-		return nil, fmt.Errorf("failed to create stdout pipe: %w", err)
+		return nil, "", fmt.Errorf("failed to create stdout pipe: %w", err)
 	}
 
 	if err := cmd.Start(); err != nil {
 		if execErr, ok := err.(*exec.Error); ok && execErr.Err == exec.ErrNotFound {
-			return nil, fmt.Errorf("claude CLI not found: install with 'npm install -g @anthropic-ai/claude-code'")
+			return nil, "", fmt.Errorf("claude CLI not found: install with 'npm install -g @anthropic-ai/claude-code'")
 		}
-		return nil, fmt.Errorf("failed to start claude: %w", err)
+		return nil, "", fmt.Errorf("failed to start claude: %w", err)
 	}
 
 	// Parse streaming JSON output, log tool usage, capture final result
+	var sessionID string
 	var finalResult string
 	var isError bool
 	scanner := bufio.NewScanner(stdout)
@@ -59,6 +63,12 @@ func Explore(ctx context.Context, cwd string) (map[string]any, error) {
 			continue // Skip malformed lines
 		}
 
+		// Capture session ID (first non-empty one wins)
+		if msg.SessionID != "" && sessionID == "" {
+			sessionID = msg.SessionID
+			slog.Info("exploration session", "id", sessionID)
+		}
+
 		// Log tool usage
 		if msg.Type == "assistant" && msg.Message != nil {
 			for _, content := range msg.Message.Content {
@@ -76,11 +86,11 @@ func Explore(ctx context.Context, cwd string) (map[string]any, error) {
 	}
 
 	if err := cmd.Wait(); err != nil {
-		return nil, fmt.Errorf("claude failed: %w", err)
+		return nil, "", fmt.Errorf("claude failed: %w", err)
 	}
 
 	if isError {
-		return nil, fmt.Errorf("claude returned error: %s", finalResult)
+		return nil, "", fmt.Errorf("claude returned error: %s", finalResult)
 	}
 
 	slog.Info("exploration complete")
@@ -88,115 +98,85 @@ func Explore(ctx context.Context, cwd string) (map[string]any, error) {
 	// Parse the result JSON (stream-json gives us the result directly)
 	var result map[string]any
 	if err := json.Unmarshal([]byte(finalResult), &result); err == nil {
-		return result, nil
+		return result, sessionID, nil
 	}
 
 	// Try extracting JSON from markdown code fence
 	extracted := extractJSONFromMarkdown(finalResult)
 	if extracted != "" {
 		if err := json.Unmarshal([]byte(extracted), &result); err == nil {
-			return result, nil
+			return result, sessionID, nil
 		}
 	}
 
 	// Fallback: return raw text
-	return map[string]any{"raw": finalResult}, nil
+	return map[string]any{"raw": finalResult}, sessionID, nil
 }
 
 // GeneratePhase asks Claude Code to generate content for a specific phase.
-// It uses prior phase content as context to maintain consistency.
-func GeneratePhase(ctx context.Context, cwd string, phase string, priorContext map[string]string) (string, error) {
+// If sessionID is non-empty, resumes that session to avoid re-exploring.
+// Falls back to fresh exploration if resumed session fails.
+func GeneratePhase(ctx context.Context, cwd string, phase string,
+	priorContext map[string]string, sessionID string) (string, error) {
+
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Minute)
 	defer cancel()
 
 	// Build context from prior phases
 	var contextParts []string
+	titler := cases.Title(language.English)
 	phaseOrder := []string{"vision", "problem", "users", "features", "cujs", "requirements", "scope", "acceptance"}
 	for _, p := range phaseOrder {
 		if content, ok := priorContext[p]; ok && content != "" {
-			contextParts = append(contextParts, fmt.Sprintf("## %s\n%s", strings.Title(p), content))
+			contextParts = append(contextParts, fmt.Sprintf("## %s\n%s", titler.String(p), content))
 		}
 	}
+	priorContextStr := strings.Join(contextParts, "\n\n")
 
-	priorContextStr := ""
-	if len(contextParts) > 0 {
-		priorContextStr = fmt.Sprintf("\n\nPRIOR CONTEXT (approved phases):\n%s\n", strings.Join(contextParts, "\n\n"))
-	}
+	// Choose prompt based on whether we have a session to resume
+	var phasePrompt string
+	if sessionID != "" {
+		phasePrompt = fmt.Sprintf(`Generate the %s section for this PRD.
 
-	phasePrompt := fmt.Sprintf(`Generate content for the %s section of a PRD.
+You already explored this codebase. Use that knowledge.
+
+PRIOR SECTIONS:
+%s
+
+Be specific to THIS project. 2-4 paragraphs max. No placeholders.
+Return ONLY the section content.`, phase, priorContextStr)
+	} else {
+		phasePrompt = fmt.Sprintf(`Generate content for the %s section of a PRD.
 
 Explore this codebase to understand what it does, then write the %s section.
+
+PRIOR CONTEXT (approved phases):
 %s
-Guidelines:
-- Be concise and specific to THIS project
-- Extract evidence from the actual codebase
-- No generic placeholder content
-- 2-4 paragraphs max
 
-Return ONLY the section content, no headers or markdown fences.`, phase, phase, priorContextStr)
-
-	slog.Info("generating phase", "phase", phase)
-
-	cmd := exec.CommandContext(ctx, "claude",
-		"-p", phasePrompt,
-		"--output-format", "stream-json",
-		"--verbose",
-		"--print",
-	)
-	cmd.Dir = cwd
-
-	stdout, err := cmd.StdoutPipe()
-	if err != nil {
-		return "", fmt.Errorf("failed to create stdout pipe: %w", err)
+Be concise and specific to THIS project. Extract evidence from the codebase.
+2-4 paragraphs max. Return ONLY the section content.`, phase, phase, priorContextStr)
 	}
 
-	if err := cmd.Start(); err != nil {
-		return "", fmt.Errorf("failed to start claude: %w", err)
+	slog.Info("generating phase", "phase", phase, "resumed", sessionID != "")
+
+	// Build command args
+	args := []string{"-p", phasePrompt, "--output-format", "stream-json",
+		"--verbose", "--print"}
+	if sessionID != "" {
+		args = append(args, "--resume", sessionID)
 	}
 
-	// Parse streaming output, log tool usage, capture result
-	var finalResult string
-	var isError bool
-	scanner := bufio.NewScanner(stdout)
-	scanner.Buffer(make([]byte, 1024*1024), 1024*1024)
+	result, err := runClaude(ctx, cwd, args)
 
-	for scanner.Scan() {
-		line := scanner.Text()
-		if line == "" {
-			continue
-		}
-
-		var msg streamMessage
-		if err := json.Unmarshal([]byte(line), &msg); err != nil {
-			continue
-		}
-
-		// Log tool usage
-		if msg.Type == "assistant" && msg.Message != nil {
-			for _, content := range msg.Message.Content {
-				if content.Type == "tool_use" {
-					logToolUse(content.Name, content.Input)
-				}
-			}
-		}
-
-		// Capture final result
-		if msg.Type == "result" {
-			finalResult = msg.Result
-			isError = msg.IsError
-		}
+	// If resumed session failed, retry without session
+	if err != nil && sessionID != "" {
+		slog.Warn("session resume failed, retrying fresh", "phase", phase, "err", err)
+		args = []string{"-p", phasePrompt, "--output-format", "stream-json",
+			"--verbose", "--print"}
+		result, err = runClaude(ctx, cwd, args)
 	}
 
-	if err := cmd.Wait(); err != nil {
-		return "", fmt.Errorf("claude failed: %w", err)
-	}
-
-	if isError {
-		return "", fmt.Errorf("claude returned error: %s", finalResult)
-	}
-
-	slog.Info("phase generation complete", "phase", phase)
-	return strings.TrimSpace(finalResult), nil
+	return result, err
 }
 
 // GeneratePhaseFromContext generates phase content using cached exploration context.
@@ -214,7 +194,7 @@ func GeneratePhaseFromContext(ctx context.Context, cwd string, phase string,
 		if m, ok := data.(map[string]any); ok {
 			if summary, ok := m["summary"].(string); ok && summary != "" {
 				explorationParts = append(explorationParts,
-					fmt.Sprintf("### %s\n%s", strings.Title(key), summary))
+					fmt.Sprintf("### %s\n%s", cases.Title(language.English).String(key), summary))
 			}
 		}
 	}
@@ -224,7 +204,7 @@ func GeneratePhaseFromContext(ctx context.Context, cwd string, phase string,
 	phaseOrder := []string{"vision", "problem", "users", "features", "cujs", "requirements", "scope", "acceptance"}
 	for _, p := range phaseOrder {
 		if content, ok := priorContext[p]; ok && content != "" {
-			priorParts = append(priorParts, fmt.Sprintf("## %s\n%s", strings.Title(p), content))
+			priorParts = append(priorParts, fmt.Sprintf("## %s\n%s", cases.Title(language.English).String(p), content))
 		}
 	}
 
@@ -418,7 +398,7 @@ func PropagateChanges(ctx context.Context, cwd string, currentPhases map[string]
 	var specParts []string
 	for _, p := range phaseOrder {
 		if content, ok := currentPhases[p]; ok && content != "" {
-			specParts = append(specParts, fmt.Sprintf("## %s\n%s", strings.Title(p), content))
+			specParts = append(specParts, fmt.Sprintf("## %s\n%s", cases.Title(language.English).String(p), content))
 		}
 	}
 	currentSpec := strings.Join(specParts, "\n\n")
@@ -570,12 +550,69 @@ func extractJSONFromMarkdown(text string) string {
 	return ""
 }
 
+// runClaude executes Claude Code with the given args and returns the result text.
+// Handles streaming JSON parsing, tool logging, and error detection.
+func runClaude(ctx context.Context, cwd string, args []string) (string, error) {
+	cmd := exec.CommandContext(ctx, "claude", args...)
+	cmd.Dir = cwd
+
+	stdout, err := cmd.StdoutPipe()
+	if err != nil {
+		return "", fmt.Errorf("failed to create stdout pipe: %w", err)
+	}
+
+	if err := cmd.Start(); err != nil {
+		return "", fmt.Errorf("failed to start claude: %w", err)
+	}
+
+	var finalResult string
+	var isError bool
+	scanner := bufio.NewScanner(stdout)
+	scanner.Buffer(make([]byte, 1024*1024), 1024*1024)
+
+	for scanner.Scan() {
+		line := scanner.Text()
+		if line == "" {
+			continue
+		}
+
+		var msg streamMessage
+		if err := json.Unmarshal([]byte(line), &msg); err != nil {
+			continue
+		}
+
+		if msg.Type == "assistant" && msg.Message != nil {
+			for _, content := range msg.Message.Content {
+				if content.Type == "tool_use" {
+					logToolUse(content.Name, content.Input)
+				}
+			}
+		}
+
+		if msg.Type == "result" {
+			finalResult = msg.Result
+			isError = msg.IsError
+		}
+	}
+
+	if err := cmd.Wait(); err != nil {
+		return "", fmt.Errorf("claude failed: %w", err)
+	}
+
+	if isError {
+		return "", fmt.Errorf("claude returned error: %s", finalResult)
+	}
+
+	return strings.TrimSpace(finalResult), nil
+}
+
 // streamMessage represents a line from Claude's stream-json output.
 type streamMessage struct {
-	Type    string         `json:"type"`
-	Result  string         `json:"result"`
-	IsError bool           `json:"is_error"`
-	Message *streamContent `json:"message"`
+	Type      string         `json:"type"`
+	SessionID string         `json:"session_id"`
+	Result    string         `json:"result"`
+	IsError   bool           `json:"is_error"`
+	Message   *streamContent `json:"message"`
 }
 
 type streamContent struct {
