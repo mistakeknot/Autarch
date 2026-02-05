@@ -40,6 +40,7 @@ func NewRoot() *cobra.Command {
 		commands.InitCmd(),
 		commands.CreateCmd(),
 		commands.ExploreCmd(),
+		commands.ExportCmd(),
 		commands.ListCmd(),
 		commands.ShowCmd(),
 		commands.EditCmd(),
