@@ -1,4 +1,4 @@
-# Plan Status Report — 2026-02-04
+# Plan Status Report — 2026-02-05
 
 > Generated from todos, git history, and codebase evidence. Status labels are heuristics unless backed by a todo.
 
@@ -13,8 +13,8 @@
 - Todo-tracked: 5
 - Derived evidence: 1
 - Commit evidence: 47
-- Preexisting paths (no git evidence): 1
-- No evidence: 7
+- Preexisting paths (no git evidence): 2
+- No evidence: 8
 
 ## Status Legend
 
@@ -89,6 +89,8 @@
 | 2026-02-04-feat-gurgeh-self-hosting-claude-integration-plan.md | none | no referenced paths found |
 | 2026-02-04-feat-inline-mode-log-pane-simplified-plan.md | commit | paths:2 latest:2026-02-04 |
 | 2026-02-04-feat-iterative-codebase-exploration-plan.md | none | no referenced paths found |
+| 2026-02-05-acceptance-criteria-plan.md | preexisting | paths:3 |
+| 2026-02-05-perf-claude-session-reuse-token-efficiency-plan.md | none | no referenced paths found |
 
 ## Derived Evidence Details
 
