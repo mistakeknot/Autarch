@@ -257,11 +257,12 @@ func (v *SprintView) Update(msg tea.Msg) (pkgtui.View, tea.Cmd) {
 		switch v.shell.Focus() {
 		case pkgtui.FocusDocument:
 			// Doc panel is focused - handle scrolling and navigation
+			// Note: Don't use j/k here - they're needed for typing in chat
 			switch msg.String() {
-			case "up", "k":
+			case "up":
 				v.docPanel.ScrollUp()
 				return v, nil
-			case "down", "j":
+			case "down":
 				v.docPanel.ScrollDown()
 				return v, nil
 			case "pgup", "ctrl+u":
@@ -274,7 +275,7 @@ func (v *SprintView) Update(msg tea.Msg) (pkgtui.View, tea.Cmd) {
 					v.docPanel.ScrollDown()
 				}
 				return v, nil
-			case "home", "g":
+			case "home":
 				v.docPanel.ScrollToTop()
 				return v, nil
 			case "esc":
