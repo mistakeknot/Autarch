@@ -253,6 +253,31 @@ See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for details.
 - Small unit tests over broad integration tests
 - Run targeted tests: `go test ./internal/<pkg> -v`
 
+### End-to-End Data Flow Verification
+
+When modifying data pipelines (especially exploration → artifacts → UI), verify:
+
+1. **Data produced correctly at source** - Check logs or intermediate output
+2. **Data transforms correctly at each step** - Inspect struct fields between transforms
+3. **Data displays correctly in UI** - Actually run the TUI and look at the screen
+
+**Common failure mode:** Tool execution succeeds but results don't propagate to UI. The pipeline completes without error, but the view shows default values ("Unknown Project").
+
+### Integration Test Patterns
+
+For TUI features that involve data pipelines:
+- Test the full message flow, not just individual functions
+- Verify tea.Msg reaches the view layer and triggers re-render
+- For CLI → TUI flows, trace: subprocess output → parsing → state update → view render
+
+Example verification for exploration flow:
+```bash
+# Run with --inline to see logs while UI renders
+autarch tui --inline
+
+# Check that exploration results appear in spec view, not "Unknown Project"
+```
+
 ### Debugging
 
 **Before debugging, check solutions:**
@@ -299,6 +324,51 @@ date_resolved: "YYYY-MM-DD"
 - Root cause analysis
 - The fix applied (with code examples)
 - Prevention strategies
+
+### Known Issues & Gotchas
+
+**"Unknown Project" in Spec View:**
+Exploration succeeds but results don't display. Root cause: `extractString()` can't find expected keys in the `map[string]any` returned by Claude Code. The keys depend on Claude's output format, which varies.
+
+**Fix:** Check the actual keys in `exploreResult` before assuming field names. Log the raw result during debugging:
+```go
+slog.Debug("exploration result", "keys", maps.Keys(exploreResult))
+```
+
+### Key Data Flow: Exploration → Spec View
+
+```
+exploration.Explore(ctx, path)
+  │
+  ▼ returns map[string]any (raw JSON from Claude Code)
+  │
+exploration.MergeIntoArtifacts(exploreResult, nil)
+  │
+  ▼ returns *agent.PhaseArtifacts
+  │
+extractString(exploreResult, "project_name") // May fail if key missing!
+extractVisionSummary(artifacts)
+extractProblemSummary(artifacts)
+extractUsersSummary(artifacts)
+  │
+  ▼ builds agent.ScanResult
+  │
+CodebaseScanResultMsg{Result: result}
+  │
+  ▼ sent via progressChan
+  │
+unified_app.Update() receives msg
+  │
+  ▼ updates state, transitions to spec view
+  │
+spec view renders PhaseArtifacts
+```
+
+**Breakpoints for debugging:**
+- `internal/gurgeh/exploration/explore.go` - Raw Claude output
+- `internal/gurgeh/exploration/merge.go` - Artifact construction
+- `internal/tui/unified_app.go:scanCodebase()` - ScanResult building
+- `internal/tui/unified_app.go:Update()` - Message handling
 
 ---
 

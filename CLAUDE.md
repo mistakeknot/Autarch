@@ -60,6 +60,14 @@ go test ./...
 | `.pollard/watch/` | Competitor watch state |
 | `.gurgeh/specs/history/` | Spec version snapshots |
 
+## Workflow Discipline
+
+**Review before implement:** When asked to "review", "look at", or "check" a plan/implementation, do NOT start implementing. First use the requested workflow tools to analyze and discuss. Only implement after explicit approval.
+
+**Verify end-to-end before completion:** After making changes to data flow, exploration, or TUI features, verify the full user-facing result—don't assume success from tool execution alone. Run the actual flow and confirm data displays correctly.
+
+**Pause after major refactoring:** For multi-file refactoring, pause after changes to run the affected flow manually. Confirm data propagates correctly through the pipeline before continuing.
+
 ## Design Decisions (Do Not Re-Ask)
 
 - Module: `github.com/mistakeknot/autarch`
