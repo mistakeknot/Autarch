@@ -143,11 +143,12 @@ type contentBlock struct {
 }
 
 // logToolUse logs a tool invocation in a human-readable format.
+// Attributes are embedded in the message since the log pane only shows messages.
 func logToolUse(toolName string, input map[string]any) {
 	switch toolName {
 	case "Read":
 		if path, ok := input["file_path"].(string); ok {
-			slog.Info("📖 Read", "file", path)
+			slog.Info("📖 Read " + truncatePath(path, 60))
 		}
 	case "Grep":
 		pattern, _ := input["pattern"].(string)
@@ -155,29 +156,57 @@ func logToolUse(toolName string, input map[string]any) {
 		if path == "" {
 			path = "."
 		}
-		slog.Info("🔍 Grep", "pattern", pattern, "path", path)
+		slog.Info(fmt.Sprintf("🔍 Grep %q in %s", truncate(pattern, 30), truncatePath(path, 30)))
 	case "Glob":
 		pattern, _ := input["pattern"].(string)
-		slog.Info("📁 Glob", "pattern", pattern)
+		slog.Info("📁 Glob " + pattern)
 	case "Bash":
 		if desc, ok := input["description"].(string); ok {
-			slog.Info("💻 Bash", "desc", desc)
+			slog.Info("💻 " + truncate(desc, 60))
 		} else if cmd, ok := input["command"].(string); ok {
-			// Truncate long commands
-			if len(cmd) > 50 {
-				cmd = cmd[:47] + "..."
-			}
-			slog.Info("💻 Bash", "cmd", cmd)
+			slog.Info("💻 " + truncate(cmd, 60))
 		}
 	case "LS":
 		path, _ := input["path"].(string)
 		if path == "" {
 			path = "."
 		}
-		slog.Info("📂 LS", "path", path)
+		slog.Info("📂 LS " + truncatePath(path, 60))
+	case "Task":
+		// Subagent invocation
+		desc, _ := input["description"].(string)
+		agentType, _ := input["subagent_type"].(string)
+		if desc != "" {
+			slog.Info(fmt.Sprintf("🤖 Task(%s) %s", agentType, truncate(desc, 50)))
+		} else {
+			slog.Info("🤖 Task(" + agentType + ")")
+		}
 	default:
-		slog.Info("🔧 "+toolName, "input", input)
+		slog.Info("🔧 " + toolName)
 	}
+}
+
+// truncate shortens a string to max length with ellipsis.
+func truncate(s string, max int) string {
+	if len(s) <= max {
+		return s
+	}
+	return s[:max-3] + "..."
+}
+
+// truncatePath shortens a path, keeping the filename visible.
+func truncatePath(path string, max int) string {
+	if len(path) <= max {
+		return path
+	}
+	// Keep the last part (filename) and truncate the beginning
+	if idx := strings.LastIndex(path, "/"); idx > 0 && len(path)-idx < max-3 {
+		remaining := max - 3 - (len(path) - idx)
+		if remaining > 0 {
+			return path[:remaining] + "..." + path[idx:]
+		}
+	}
+	return "..." + path[len(path)-max+3:]
 }
 
 const prompt = `Explore this codebase for PRD generation.
