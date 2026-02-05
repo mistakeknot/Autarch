@@ -856,6 +856,21 @@ func (v *KickoffView) renderScanProgressPane() string {
 func (v *KickoffView) renderRightPane() string {
 	var sections []string
 
+	// Delete confirmation at the TOP so it's always visible
+	if v.confirmingDelete && v.deleteTarget != nil {
+		confirmBox := lipgloss.NewStyle().
+			Background(pkgtui.ColorBgLight).
+			Foreground(pkgtui.ColorWarning).
+			Bold(true).
+			Padding(0, 2).
+			Border(lipgloss.RoundedBorder()).
+			BorderForeground(pkgtui.ColorWarning)
+		sections = append(sections, confirmBox.Render(
+			fmt.Sprintf("Delete \"%s\"? Enter to confirm / Esc to cancel", v.deleteTarget.Name),
+		))
+		sections = append(sections, "")
+	}
+
 	// Composer for project description
 	sections = append(sections, v.chatPanel.View())
 
@@ -892,21 +907,6 @@ func (v *KickoffView) renderRightPane() string {
 		}
 
 		sections = append(sections, recentsStyle.Render(recentsContent))
-	}
-
-	// Delete confirmation
-	if v.confirmingDelete && v.deleteTarget != nil {
-		sections = append(sections, "")
-		confirmBox := lipgloss.NewStyle().
-			Background(pkgtui.ColorBgLight).
-			Foreground(pkgtui.ColorWarning).
-			Bold(true).
-			Padding(0, 2).
-			Border(lipgloss.RoundedBorder()).
-			BorderForeground(pkgtui.ColorWarning)
-		sections = append(sections, confirmBox.Render(
-			fmt.Sprintf("Delete \"%s\"? Enter to confirm / Esc to cancel", v.deleteTarget.Name),
-		))
 	}
 
 	return lipgloss.JoinVertical(lipgloss.Left, sections...)
