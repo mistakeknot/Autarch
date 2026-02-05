@@ -237,13 +237,24 @@ func (o *Orchestrator) Advance(ctx context.Context, state *SprintState) (*Sprint
 		o.runPhaseResearch(ctx, state)
 	}
 
-	// Generate draft for the new phase
-	projectCtx := o.readProjectContext()
-	draft, err := o.generator.GenerateDraft(ctx, state.Phase, projectCtx, "", state.Findings)
+	// Generate draft for the new phase using Claude Code exploration
+	priorContext := make(map[string]string)
+	for phase, section := range state.Sections {
+		if section.Status == DraftAccepted || section.Status == DraftProposed {
+			priorContext[strings.ToLower(phase.String())] = section.Content
+		}
+	}
+
+	content, err := exploration.GeneratePhase(ctx, o.projectPath, state.Phase.String(), priorContext)
 	if err != nil {
 		return nil, fmt.Errorf("generating draft for %s: %w", state.Phase, err)
 	}
-	state.Sections[state.Phase] = draft
+
+	state.Sections[state.Phase] = &SectionDraft{
+		Content:   content,
+		Status:    DraftProposed,
+		UpdatedAt: time.Now(),
+	}
 	state.UpdatedAt = time.Now()
 
 	return state, nil

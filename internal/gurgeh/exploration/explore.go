@@ -103,6 +103,102 @@ func Explore(ctx context.Context, cwd string) (map[string]any, error) {
 	return map[string]any{"raw": finalResult}, nil
 }
 
+// GeneratePhase asks Claude Code to generate content for a specific phase.
+// It uses prior phase content as context to maintain consistency.
+func GeneratePhase(ctx context.Context, cwd string, phase string, priorContext map[string]string) (string, error) {
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Minute)
+	defer cancel()
+
+	// Build context from prior phases
+	var contextParts []string
+	phaseOrder := []string{"vision", "problem", "users", "features", "ux", "tech", "risks", "mvp"}
+	for _, p := range phaseOrder {
+		if content, ok := priorContext[p]; ok && content != "" {
+			contextParts = append(contextParts, fmt.Sprintf("## %s\n%s", strings.Title(p), content))
+		}
+	}
+
+	priorContextStr := ""
+	if len(contextParts) > 0 {
+		priorContextStr = fmt.Sprintf("\n\nPRIOR CONTEXT (approved phases):\n%s\n", strings.Join(contextParts, "\n\n"))
+	}
+
+	phasePrompt := fmt.Sprintf(`Generate content for the %s section of a PRD.
+
+Explore this codebase to understand what it does, then write the %s section.
+%s
+Guidelines:
+- Be concise and specific to THIS project
+- Extract evidence from the actual codebase
+- No generic placeholder content
+- 2-4 paragraphs max
+
+Return ONLY the section content, no headers or markdown fences.`, phase, phase, priorContextStr)
+
+	slog.Info("generating phase", "phase", phase)
+
+	cmd := exec.CommandContext(ctx, "claude",
+		"-p", phasePrompt,
+		"--output-format", "stream-json",
+		"--verbose",
+		"--print",
+	)
+	cmd.Dir = cwd
+
+	stdout, err := cmd.StdoutPipe()
+	if err != nil {
+		return "", fmt.Errorf("failed to create stdout pipe: %w", err)
+	}
+
+	if err := cmd.Start(); err != nil {
+		return "", fmt.Errorf("failed to start claude: %w", err)
+	}
+
+	// Parse streaming output, log tool usage, capture result
+	var finalResult string
+	var isError bool
+	scanner := bufio.NewScanner(stdout)
+	scanner.Buffer(make([]byte, 1024*1024), 1024*1024)
+
+	for scanner.Scan() {
+		line := scanner.Text()
+		if line == "" {
+			continue
+		}
+
+		var msg streamMessage
+		if err := json.Unmarshal([]byte(line), &msg); err != nil {
+			continue
+		}
+
+		// Log tool usage
+		if msg.Type == "assistant" && msg.Message != nil {
+			for _, content := range msg.Message.Content {
+				if content.Type == "tool_use" {
+					logToolUse(content.Name, content.Input)
+				}
+			}
+		}
+
+		// Capture final result
+		if msg.Type == "result" {
+			finalResult = msg.Result
+			isError = msg.IsError
+		}
+	}
+
+	if err := cmd.Wait(); err != nil {
+		return "", fmt.Errorf("claude failed: %w", err)
+	}
+
+	if isError {
+		return "", fmt.Errorf("claude returned error: %s", finalResult)
+	}
+
+	slog.Info("phase generation complete", "phase", phase)
+	return strings.TrimSpace(finalResult), nil
+}
+
 // Revise takes a spec section and user feedback, returns a revised version.
 // This runs Claude Code to intelligently revise the content based on feedback.
 func Revise(ctx context.Context, cwd string, phase string, currentContent string, feedback string) (string, error) {
