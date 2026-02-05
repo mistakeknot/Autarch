@@ -13,7 +13,6 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/google/uuid"
-	"github.com/mistakeknot/autarch/internal/autarch/agent"
 	"github.com/mistakeknot/autarch/internal/tui"
 	pkgtui "github.com/mistakeknot/autarch/pkg/tui"
 )
@@ -579,10 +578,7 @@ func (v *KickoffView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
 					v.scanPath = cwd
 					v.scanFiles = findProjectFiles(cwd)
 					v.loadingMsg = "Scanning codebase..."
-					// Detect which agent will be used
-					if detected, err := agent.DetectAgent(); err == nil && detected != nil {
-						v.scanAgentName = string(detected.Type)
-					}
+					v.scanAgentName = "Claude Code"
 					return v, v.onScanCodebase(cwd)
 				}
 				return v, nil
@@ -1050,9 +1046,7 @@ func (v *KickoffView) HandleSlashCommand(command string, args []string) tea.Cmd 
 			v.scanPath = cwd
 			v.scanFiles = findProjectFiles(cwd)
 			v.loadingMsg = "Scanning codebase..."
-			if detected, err := agent.DetectAgent(); err == nil && detected != nil {
-				v.scanAgentName = string(detected.Type)
-			}
+			v.scanAgentName = "Claude Code"
 			return v.onScanCodebase(cwd)
 		}
 	case "new", "n":
