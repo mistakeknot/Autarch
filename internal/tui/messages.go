@@ -259,3 +259,13 @@ type SprintConflictMsg struct {
 	Phase    string
 	Messages []string
 }
+
+// SprintPhaseRevertedMsg signals the sprint has reverted to a previous phase.
+type SprintPhaseRevertedMsg struct {
+	Phase   string
+	Content string
+}
+
+// SprintExitRequestedMsg signals user wants to exit the sprint view.
+// This is sent when user presses Esc while already on the first phase.
+type SprintExitRequestedMsg struct{}

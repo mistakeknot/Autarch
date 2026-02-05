@@ -100,6 +100,39 @@ func (o *Orchestrator) Resume(sprintID string) (*SprintState, error) {
 	return &clone, nil
 }
 
+// Revert moves to the previous phase if not already on the first phase.
+// Returns the updated state and true if a revert occurred, or false if already on first phase.
+func (o *Orchestrator) Revert() (SprintState, bool) {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+
+	if o.state == nil {
+		return SprintState{}, false
+	}
+
+	// Find current phase index
+	phases := AllPhases()
+	currentIdx := -1
+	for i, p := range phases {
+		if p == o.state.Phase {
+			currentIdx = i
+			break
+		}
+	}
+
+	// Can't go back from first phase
+	if currentIdx <= 0 {
+		return o.state.Clone(), false
+	}
+
+	// Move to previous phase
+	o.state.Phase = phases[currentIdx-1]
+	o.state.UpdatedAt = time.Now()
+	o.saveLocked()
+
+	return o.state.Clone(), true
+}
+
 // ListSprints returns all sprint IDs for this project.
 func (o *Orchestrator) ListSprints() ([]string, error) {
 	return ListSprints(o.projectPath)
@@ -244,7 +277,18 @@ func (o *Orchestrator) StartWithResearch(ctx context.Context, userInput string, 
 }
 
 // Advance runs consistency checks, updates confidence, and moves to the next phase.
+// Quick scan runs asynchronously by default. Use AdvanceSync for synchronous behavior in tests.
 func (o *Orchestrator) Advance(ctx context.Context, state *SprintState) (*SprintState, error) {
+	return o.advanceInternal(ctx, state, false)
+}
+
+// AdvanceSync is like Advance but runs the quick scan synchronously.
+// Use this in tests where you need to verify scan results immediately.
+func (o *Orchestrator) AdvanceSync(ctx context.Context, state *SprintState) (*SprintState, error) {
+	return o.advanceInternal(ctx, state, true)
+}
+
+func (o *Orchestrator) advanceInternal(ctx context.Context, state *SprintState, sync bool) (*SprintState, error) {
 	if state == nil {
 		return nil, fmt.Errorf("state cannot be nil")
 	}
@@ -272,9 +316,19 @@ func (o *Orchestrator) Advance(ctx context.Context, state *SprintState) (*Sprint
 		}
 	}
 
-	// Trigger quick scan when advancing to Users so scan evidence informs the Users phase
+	// Trigger quick scan when advancing to Users
 	if state.Phase == PhaseUsers {
-		o.runQuickScan(ctx, state)
+		if sync {
+			// Synchronous mode for tests - run directly on state
+			o.runQuickScanSync(ctx, state)
+		} else {
+			// Async mode for UI - run in background
+			go func() {
+				bgCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+				defer cancel()
+				o.runQuickScanBackground(bgCtx)
+			}()
+		}
 	}
 
 	// Trigger phase-specific deep research if research provider is available
@@ -766,8 +820,9 @@ func (o *Orchestrator) runPhaseResearch(ctx context.Context, state *SprintState)
 	}
 }
 
-// runQuickScan extracts a topic from the sprint state and runs a quick scan.
-func (o *Orchestrator) runQuickScan(ctx context.Context, state *SprintState) {
+// runQuickScanSync extracts a topic and runs a quick scan synchronously on the provided state.
+// Used by AdvanceSync for tests.
+func (o *Orchestrator) runQuickScanSync(ctx context.Context, state *SprintState) {
 	topic := ""
 	if section, ok := state.Sections[PhaseProblem]; ok && section.Content != "" {
 		topic = section.Content
@@ -801,6 +856,71 @@ func (o *Orchestrator) runQuickScan(ctx context.Context, state *SprintState) {
 		if err == nil && len(findings) > 0 {
 			state.Findings = findings
 		}
+	}
+}
+
+// runQuickScanBackground extracts a topic from the sprint state and runs a quick scan in the background.
+// Results are written back to state and persisted when complete.
+func (o *Orchestrator) runQuickScanBackground(ctx context.Context) {
+	o.mu.Lock()
+	if o.state == nil {
+		o.mu.Unlock()
+		return
+	}
+	topic := ""
+	if section, ok := o.state.Sections[PhaseProblem]; ok && section.Content != "" {
+		topic = section.Content
+		if len(topic) > 100 {
+			topic = topic[:100]
+		}
+	}
+	topic = strings.TrimSpace(topic)
+	specID := o.state.SpecID
+	o.mu.Unlock()
+
+	if topic == "" {
+		return
+	}
+
+	result, err := o.scanner.Scan(ctx, topic, o.projectPath)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "warning: quick scan failed: %v\n", err)
+		return
+	}
+
+	// Write results back to state
+	o.mu.Lock()
+	if o.state != nil {
+		o.state.ResearchCtx = result
+	}
+	o.mu.Unlock()
+
+	// Publish scan result as an Intermute Insight and fetch all linked findings
+	if o.research != nil && specID != "" {
+		_, _ = o.research.PublishInsight(ctx, specID, ResearchFinding{
+			Title:      "Quick Scan: " + result.Topic,
+			Summary:    result.Summary,
+			SourceType: "quick-scan",
+			Relevance:  0.5,
+			Tags:       []string{"quick-scan"},
+		})
+
+		findings, err := o.research.FetchLinkedInsights(ctx, specID)
+		o.mu.Lock()
+		if err == nil && len(findings) > 0 && o.state != nil {
+			o.state.Findings = findings
+		}
+		if o.state != nil {
+			o.saveLocked()
+		}
+		o.mu.Unlock()
+	} else {
+		// Save even without research provider
+		o.mu.Lock()
+		if o.state != nil {
+			o.saveLocked()
+		}
+		o.mu.Unlock()
 	}
 }
 

@@ -36,11 +36,11 @@ func TestIntegration_FullSprintWithResearch(t *testing.T) {
 		t.Errorf("expected PhaseVision, got %v", state.Phase)
 	}
 
-	// Walk through all phases
+	// Walk through all phases (use AdvanceSync for synchronous scan behavior in tests)
 	phases := arbiter.AllPhases()
 	for i := 1; i < len(phases); i++ {
 		state = o.AcceptDraft(state)
-		state, err = o.Advance(ctx, state)
+		state, err = o.AdvanceSync(ctx, state)
 		if err != nil {
 			t.Fatalf("Advance to phase %d (%v) failed: %v", i, phases[i], err)
 		}
@@ -183,7 +183,7 @@ func TestIntegration_ConfidenceReflectsResearchQuality(t *testing.T) {
 		}
 		for i := 0; i < n; i++ {
 			s = o.AcceptDraft(s)
-			s, err = o.Advance(ctx, s)
+			s, err = o.AdvanceSync(ctx, s) // Use sync for tests
 			if err != nil {
 				t.Fatalf("Advance %d failed: %v", i, err)
 			}

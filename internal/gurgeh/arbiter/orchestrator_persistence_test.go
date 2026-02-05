@@ -97,3 +97,55 @@ func TestOrchestratorSavesOnAdvance(t *testing.T) {
 		t.Errorf("Phase not persisted after advance: got %s, want %s", resumed.Phase, currentState.Phase)
 	}
 }
+
+func TestOrchestratorRevert(t *testing.T) {
+	tmpDir, err := os.MkdirTemp("", "orch-revert-test")
+	if err != nil {
+		t.Fatalf("failed to create temp dir: %v", err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	orch := NewOrchestrator(tmpDir)
+	_, err = orch.Start(context.Background(), "Test project")
+	if err != nil {
+		t.Fatalf("failed to start: %v", err)
+	}
+
+	// Verify starting on first phase (Vision)
+	state, _ := orch.State()
+	if state.Phase != PhaseVision {
+		t.Fatalf("expected to start on PhaseVision, got %s", state.Phase)
+	}
+
+	// Try to revert from first phase - should fail
+	_, reverted := orch.Revert()
+	if reverted {
+		t.Error("should not be able to revert from first phase")
+	}
+
+	// Advance to next phase
+	err = orch.ChatAcceptDraft(context.Background())
+	if err != nil {
+		t.Fatalf("failed to advance: %v", err)
+	}
+
+	state, _ = orch.State()
+	if state.Phase != PhaseProblem {
+		t.Fatalf("expected PhaseProblem after advance, got %s", state.Phase)
+	}
+
+	// Revert should now work
+	revertedState, reverted := orch.Revert()
+	if !reverted {
+		t.Error("should be able to revert from second phase")
+	}
+	if revertedState.Phase != PhaseVision {
+		t.Errorf("expected to revert to PhaseVision, got %s", revertedState.Phase)
+	}
+
+	// Verify state is updated
+	state, _ = orch.State()
+	if state.Phase != PhaseVision {
+		t.Errorf("orchestrator state should be on PhaseVision, got %s", state.Phase)
+	}
+}

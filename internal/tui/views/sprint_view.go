@@ -185,6 +185,18 @@ func (v *SprintView) Update(msg tea.Msg) (pkgtui.View, tea.Cmd) {
 		v.syncDocPanel()
 		return v, nil
 
+	case tui.SprintPhaseRevertedMsg:
+		v.chatPanel.AddMessage("system", fmt.Sprintf("Reverted to %s phase.", msg.Phase))
+		v.syncDocPanel()
+		return v, nil
+
+	case tui.SprintExitRequestedMsg:
+		// User pressed Esc while on first phase - exit sprint view
+		if v.onBack != nil {
+			return v, v.onBack()
+		}
+		return v, nil
+
 	case tui.SprintConflictMsg:
 		for _, m := range msg.Messages {
 			v.chatPanel.AddMessage("system", "⚠ Conflict: "+m)
@@ -250,10 +262,9 @@ func (v *SprintView) Update(msg tea.Msg) (pkgtui.View, tea.Cmd) {
 		case pkgtui.FocusDocument:
 			switch {
 			case key.Matches(msg, v.keys.Back):
-				if v.onBack != nil {
-					v.cancelStreaming()
-					return v, v.onBack()
-				}
+				v.cancelStreaming()
+				// First try to go back to previous phase
+				return v, v.handleRevert()
 			case key.Matches(msg, v.keys.NavUp):
 				v.docPanel.ScrollUp()
 			case key.Matches(msg, v.keys.NavDown):
@@ -268,11 +279,9 @@ func (v *SprintView) Update(msg tea.Msg) (pkgtui.View, tea.Cmd) {
 			case msg.Type == tea.KeyCtrlRight:
 				return v, v.handleAccept()
 			case msg.Type == tea.KeyEscape:
-				if v.onBack != nil {
-					v.cancelStreaming()
-					return v, v.onBack()
-				}
-				return v, nil
+				v.cancelStreaming()
+				// First try to go back to previous phase
+				return v, v.handleRevert()
 			case msg.Type == tea.KeyTab:
 				// Tab switches focus to doc panel (handled by shell.Update above)
 				return v, nil
@@ -328,7 +337,7 @@ func (v *SprintView) Name() string {
 
 // ShortHelp implements View.
 func (v *SprintView) ShortHelp() string {
-	return "enter send  ctrl+right accept  ctrl+g model  esc back"
+	return "enter send  ctrl+right accept  ctrl+g model  esc prev phase"
 }
 
 // ChatPanelValueForTest returns the current composer value (test helper).
@@ -465,4 +474,19 @@ func (v *SprintView) HandleSlashCommand(command string, args []string) tea.Cmd {
 		return v.handleAccept()
 	}
 	return nil
+}
+
+func (v *SprintView) handleRevert() tea.Cmd {
+	return func() tea.Msg {
+		state, reverted := v.orch.Revert()
+		if !reverted {
+			// Already on first phase - exit the sprint view
+			return tui.SprintExitRequestedMsg{}
+		}
+		// Successfully reverted to previous phase
+		return tui.SprintPhaseRevertedMsg{
+			Phase:   state.Phase.String(),
+			Content: state.Sections[state.Phase].Content,
+		}
+	}
 }
