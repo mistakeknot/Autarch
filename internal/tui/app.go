@@ -63,6 +63,21 @@ func (a *App) LogPane() *pkgtui.LogPane {
 	return a.logPane
 }
 
+// SetInitialTab sets the active tab by name (case-insensitive).
+// Valid names: bigend, signals, gurgeh, coldwine, pollard.
+func (a *App) SetInitialTab(name string) {
+	if name == "" {
+		return
+	}
+	name = strings.ToLower(name)
+	for i, v := range a.views {
+		if strings.ToLower(v.Name()) == name {
+			a.tabs.SetActive(i)
+			return
+		}
+	}
+}
+
 func (a *App) updateCommands() {
 	var cmds []Command
 
@@ -401,7 +416,8 @@ func (a *App) insertAt(base string, col int, overlay string) string {
 
 // RunOpts configures TUI execution options.
 type RunOpts struct {
-	InlineMode bool // Inline mode preserves scrollback and shows log pane
+	InlineMode  bool   // Inline mode preserves scrollback and shows log pane
+	InitialTool string // Jump directly to this tool tab (bigend, signals, gurgeh, coldwine, pollard)
 }
 
 // Run starts the TUI application
@@ -413,6 +429,7 @@ func Run(client *autarch.Client, views ...View) error {
 func RunWithOpts(client *autarch.Client, opts RunOpts, views ...View) error {
 	app := NewApp(client, views...)
 	app.SetInlineMode(opts.InlineMode)
+	app.SetInitialTab(opts.InitialTool)
 
 	var progOpts []tea.ProgramOption
 	if !opts.InlineMode {

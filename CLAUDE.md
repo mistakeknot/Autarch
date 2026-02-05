@@ -13,11 +13,17 @@ Unified monorepo for AI agent development tools:
 ## Quick Commands
 
 ```bash
-# Build and run
-./dev bigend --tui    # Bigend TUI mode
-./dev bigend          # Bigend web mode
-./dev gurgeh          # Gurgeh TUI
-./dev coldwine        # Coldwine TUI
+# Unified TUI (recommended)
+./dev autarch tui                    # Full onboarding flow
+./dev autarch tui --skip-onboard     # Direct to dashboard
+./dev autarch tui --tool=gurgeh      # Jump to Gurgeh tab
+./dev autarch tui --inline           # Inline mode (preserves scrollback)
+
+# Standalone CLI operations (no TUI)
+./dev gurgeh list                    # List specs
+./dev gurgeh export PRD-001          # Export spec to briefs
+./dev coldwine status                # Show task status
+./dev bigend                         # Web server mode
 
 # Pollard CLI
 go run ./cmd/pollard init           # Initialize .pollard/

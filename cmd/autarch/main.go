@@ -73,6 +73,7 @@ func tuiCmd() *cobra.Command {
 		dataDir     string
 		skipOnboard bool
 		inlineMode  bool
+		toolFlag    string
 	)
 
 	cmd := &cobra.Command{
@@ -173,7 +174,7 @@ Navigation:
 					}
 				}
 
-				return tui.RunWithOpts(client, tui.RunOpts{InlineMode: inlineMode},
+				return tui.RunWithOpts(client, tui.RunOpts{InlineMode: inlineMode, InitialTool: toolFlag},
 					bigendView,
 					signalsView,
 					gurgehView,
@@ -289,7 +290,7 @@ Navigation:
 				return v
 			})
 
-			return tui.RunUnifiedWithOpts(client, app, tui.RunOpts{InlineMode: inlineMode})
+			return tui.RunUnifiedWithOpts(client, app, tui.RunOpts{InlineMode: inlineMode, InitialTool: toolFlag})
 		},
 	}
 
@@ -297,6 +298,7 @@ Navigation:
 	cmd.Flags().StringVar(&dataDir, "data-dir", "", "Data directory (default: ~/.autarch)")
 	cmd.Flags().BoolVar(&skipOnboard, "skip-onboard", false, "Skip onboarding and go directly to dashboard")
 	cmd.Flags().BoolVar(&inlineMode, "inline", false, "Enable inline mode with log pane (preserves scrollback)")
+	cmd.Flags().StringVar(&toolFlag, "tool", "", "Jump directly to a tool tab (bigend, signals, gurgeh, coldwine, pollard)")
 
 	return cmd
 }
@@ -405,6 +407,12 @@ func runBigendDaemon(addr string, scanRoots []string) error {
 }
 
 func runBigendTUI(agg *aggregator.Aggregator) error {
+	// Deprecation warning for standalone TUI
+	fmt.Fprintln(os.Stderr, "\033[33m⚠ Deprecation warning: bigend --tui is deprecated.\033[0m")
+	fmt.Fprintln(os.Stderr, "  Use: autarch tui --tool=bigend")
+	fmt.Fprintln(os.Stderr, "  Web server mode (bigend without --tui) remains available.")
+	fmt.Fprintln(os.Stderr)
+
 	m := bigendTui.New(agg, buildInfoString())
 	p := tea.NewProgram(m, tea.WithAltScreen())
 	_, err := p.Run()

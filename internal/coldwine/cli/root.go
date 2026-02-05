@@ -56,6 +56,12 @@ func newRootCommand() *cobra.Command {
 				fmt.Fprintf(cmd.OutOrStdout(), "Created quick task spec: %s\n", path)
 				return nil
 			}
+			// Deprecation warning for standalone TUI
+			fmt.Fprintln(cmd.ErrOrStderr(), "\033[33m⚠ Deprecation warning: standalone coldwine TUI is deprecated.\033[0m")
+			fmt.Fprintln(cmd.ErrOrStderr(), "  Use: autarch tui --tool=coldwine")
+			fmt.Fprintln(cmd.ErrOrStderr(), "  CLI commands (init, status, etc.) remain available.")
+			fmt.Fprintln(cmd.ErrOrStderr())
+
 			cfg, err := config.LoadFromProject(".")
 			if err != nil {
 				return err

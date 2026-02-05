@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"fmt"
 	"os"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -26,6 +27,12 @@ func NewRoot() *cobra.Command {
 		Use:   "gurgeh",
 		Short: "PM-focused PRD CLI",
 		RunE: func(cmd *cobra.Command, args []string) error {
+			// Deprecation warning for standalone TUI
+			fmt.Fprintln(cmd.ErrOrStderr(), "\033[33m⚠ Deprecation warning: standalone gurgeh TUI is deprecated.\033[0m")
+			fmt.Fprintln(cmd.ErrOrStderr(), "  Use: autarch tui --tool=gurgeh")
+			fmt.Fprintln(cmd.ErrOrStderr(), "  CLI commands (list, create, export, etc.) remain available.")
+			fmt.Fprintln(cmd.ErrOrStderr())
+
 			cwd, err := os.Getwd()
 			if err != nil {
 				return err

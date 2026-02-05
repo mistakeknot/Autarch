@@ -86,6 +86,9 @@ type UnifiedApp struct {
 	logPane     *pkgtui.LogPane
 	showLogPane bool
 
+	// Initial tab to jump to when entering dashboard
+	initialTab string
+
 	// View factories (injected from main.go)
 	createKickoffView     func() View
 	createArbiterView     func(*research.Coordinator) View
@@ -133,6 +136,16 @@ func (a *UnifiedApp) SetInlineMode(enabled bool) {
 // LogPane returns the log pane (nil if not in inline mode).
 func (a *UnifiedApp) LogPane() *pkgtui.LogPane {
 	return a.logPane
+}
+
+// SetInitialTab sets the tab to jump to when entering dashboard mode.
+// Valid names: bigend, signals, gurgeh, coldwine, pollard (case-insensitive).
+func (a *UnifiedApp) SetInitialTab(name string) {
+	if name == "" {
+		return
+	}
+	// Store for later - we'll apply it when dashViews are created
+	a.initialTab = strings.ToLower(name)
 }
 
 // SetArbiterViewFactory sets the factory for the Arbiter sprint view (replaces interview).
@@ -1644,7 +1657,19 @@ func (a *UnifiedApp) enterDashboard() tea.Cmd {
 				a.attachAgentSelector(v)
 			}
 			a.updateCommands()
-			a.currentView = a.dashViews[0]
+
+			// Determine initial tab index
+			initialIdx := 0
+			if a.initialTab != "" {
+				for i, v := range a.dashViews {
+					if strings.ToLower(v.Name()) == a.initialTab {
+						initialIdx = i
+						break
+					}
+				}
+			}
+			a.tabs.SetActive(initialIdx)
+			a.currentView = a.dashViews[initialIdx]
 
 			// Initialize all views
 			var cmds []tea.Cmd
@@ -2023,6 +2048,7 @@ func RunUnified(client *autarch.Client, app *UnifiedApp) error {
 // RunUnifiedWithOpts starts the unified TUI application with configurable options.
 func RunUnifiedWithOpts(client *autarch.Client, app *UnifiedApp, opts RunOpts) error {
 	app.SetInlineMode(opts.InlineMode)
+	app.SetInitialTab(opts.InitialTool)
 
 	var progOpts []tea.ProgramOption
 	if !opts.InlineMode {
