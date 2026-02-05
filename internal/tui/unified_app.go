@@ -107,7 +107,7 @@ func NewUnifiedApp(client *autarch.Client) *UnifiedApp {
 	breadcrumb := NewBreadcrumb()
 	breadcrumb.SetCurrent(OnboardingKickoff)
 
-	tabNames := []string{"Bigend", "Signals", "Gurgeh", "Coldwine", "Pollard"}
+	tabNames := []string{"Bigend", "Gurgeh", "Coldwine", "Pollard"}
 	app := &UnifiedApp{
 		client:          client,
 		mode:            ModeOnboarding,
@@ -139,7 +139,7 @@ func (a *UnifiedApp) LogPane() *pkgtui.LogPane {
 }
 
 // SetInitialTab sets the tab to jump to when entering dashboard mode.
-// Valid names: bigend, signals, gurgeh, coldwine, pollard (case-insensitive).
+// Valid names: bigend, gurgeh, coldwine, pollard (case-insensitive).
 func (a *UnifiedApp) SetInitialTab(name string) {
 	if name == "" {
 		return
@@ -305,6 +305,9 @@ func (a *UnifiedApp) Init() tea.Cmd {
 	// Note: We don't error here - we'll handle missing agent when we need it
 	a.initAgentSelector()
 
+	// Populate palette with tab-switching commands (available in all modes)
+	a.initPaletteCommands()
+
 	// Start with kickoff view
 	if a.createKickoffView != nil {
 		a.currentView = a.createKickoffView()
@@ -374,10 +377,7 @@ func (a *UnifiedApp) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			return a, nil
 		case "palette", "p":
-			if a.mode == ModeDashboard {
-				return a, a.palette.Show()
-			}
-			return a, nil
+			return a, a.palette.Show()
 		case "refresh", "r":
 			// Send refresh to current view
 			if a.currentView != nil {
@@ -393,6 +393,18 @@ func (a *UnifiedApp) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				a.currentView, cmd = a.currentView.Update(tea.KeyMsg{Type: tea.KeyEsc})
 				return a, cmd
 			}
+			return a, nil
+		// Tool-switching slash commands
+		case "bigend", "big":
+			return a, a.switchToTab(0)
+		case "gurgeh", "gur":
+			return a, a.switchToTab(1)
+		case "coldwine", "cold":
+			return a, a.switchToTab(2)
+		case "pollard", "pol":
+			return a, a.switchToTab(3)
+		case "signals", "sig":
+			// Signals overlay (Phase 3) - no-op for now
 			return a, nil
 		}
 		// Pass unknown commands to view-specific handler
@@ -465,9 +477,7 @@ func (a *UnifiedApp) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		switch msg.String() {
 
 		case "ctrl+p":
-			if a.mode == ModeDashboard {
-				return a, a.palette.Show()
-			}
+			return a, a.palette.Show()
 
 		case "ctrl+b":
 			// Toggle breadcrumb navigation in onboarding mode
@@ -486,14 +496,20 @@ func (a *UnifiedApp) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return a, a.revertLastRun()
 		}
 
-		// In dashboard mode, handle tab switching
-		if a.mode == ModeDashboard {
-			switch {
-			case msg.String() == "ctrl+left" || msg.String() == "ctrl+pgup":
-				return a, a.switchDashboardTab((a.tabs.Active() - 1 + len(a.dashViews)) % len(a.dashViews))
-			case msg.String() == "ctrl+right" || msg.String() == "ctrl+pgdown":
-				return a, a.switchDashboardTab((a.tabs.Active() + 1) % len(a.dashViews))
-			}
+		// Handle tab switching (works in both modes)
+		switch {
+		case msg.String() == "ctrl+1":
+			return a, a.switchToTab(0)
+		case msg.String() == "ctrl+2":
+			return a, a.switchToTab(1)
+		case msg.String() == "ctrl+3":
+			return a, a.switchToTab(2)
+		case msg.String() == "ctrl+4":
+			return a, a.switchToTab(3)
+		case msg.String() == "ctrl+left" || msg.String() == "ctrl+pgup":
+			return a, a.switchToTab((a.tabs.Active() - 1 + len(a.tabs.TabNames())) % len(a.tabs.TabNames()))
+		case msg.String() == "ctrl+right" || msg.String() == "ctrl+pgdown":
+			return a, a.switchToTab((a.tabs.Active() + 1) % len(a.tabs.TabNames()))
 		}
 
 		// Pass unhandled keys to current view
@@ -705,12 +721,13 @@ func (a *UnifiedApp) handleProjectCreated(msg ProjectCreatedMsg) tea.Cmd {
 			if msg.ScanResult != nil {
 				// Prefer the full method with exploration results for instant phase transitions
 				if starter, ok := a.currentView.(interface {
-					StartSprintWithExploration(string, *scan.Artifacts, map[string]any) tea.Cmd
+					StartSprintWithExploration(string, *scan.Artifacts, map[string]any, string) tea.Cmd
 				}); ok {
 					startCmd = starter.StartSprintWithExploration(
 						msg.Description,
 						scanResultToArtifacts(msg.ScanResult),
 						msg.ScanResult.ExplorationResult,
+						msg.ScanResult.ExplorationSessionID,
 					)
 				} else if starter, ok := a.currentView.(interface {
 					StartSprintWithScan(string, *scan.Artifacts) tea.Cmd
@@ -837,7 +854,7 @@ func (a *UnifiedApp) scanCodebase(path string) tea.Cmd {
 		progressChan <- agent.ScanProgress{Step: "Exploring", Details: "Running Claude Code..."}
 
 		// Run Claude Code exploration (progress logged via slog)
-		exploreResult, err := exploration.Explore(context.Background(), path)
+		exploreResult, sessionID, err := exploration.Explore(context.Background(), path)
 
 		if err != nil {
 			progressChan <- agent.ScanProgress{Step: "_error", Details: err.Error()}
@@ -867,11 +884,12 @@ func (a *UnifiedApp) scanCodebase(path string) tea.Cmd {
 
 		// Encode result in progress for simplicity
 		progressChan <- agent.ScanProgress{
-			Step:              "_complete",
-			Details:           result.ProjectName,
-			Files:             []string{result.Description, result.Vision, result.Users, result.Problem, result.Platform, result.Language, strings.Join(result.Requirements, "|||")},
-			PhaseArtifacts:    result.PhaseArtifacts,
-			ExplorationResult: exploreResult,
+			Step:                 "_complete",
+			Details:              result.ProjectName,
+			Files:                []string{result.Description, result.Vision, result.Users, result.Problem, result.Platform, result.Language, strings.Join(result.Requirements, "|||")},
+			PhaseArtifacts:       result.PhaseArtifacts,
+			ExplorationResult:    exploreResult,
+			ExplorationSessionID: sessionID,
 		}
 	}()
 
@@ -949,7 +967,8 @@ func (a *UnifiedApp) waitForScanProgress(ch <-chan agent.ScanProgress) tea.Cmd {
 				Requirements:      requirements,
 				ValidationErrors:  toValidationErrors(p.ValidationErrors),
 				PhaseArtifacts:    toPhaseArtifacts(p.PhaseArtifacts),
-				ExplorationResult: p.ExplorationResult,
+				ExplorationResult:    p.ExplorationResult,
+				ExplorationSessionID: p.ExplorationSessionID,
 			}
 		}
 
@@ -1699,6 +1718,38 @@ func (a *UnifiedApp) enterDashboard() tea.Cmd {
 	return nil
 }
 
+// initPaletteCommands sets up palette commands available in all modes (including onboarding).
+func (a *UnifiedApp) initPaletteCommands() {
+	var cmds []Command
+	for i, name := range a.tabs.TabNames() {
+		idx := i
+		cmds = append(cmds, Command{
+			Name:        "Switch to " + name,
+			Description: fmt.Sprintf("View %s", strings.ToLower(name)),
+			Action:      func() tea.Cmd { return a.switchToTab(idx) },
+		})
+	}
+	cmds = append(cmds, Command{
+		Name:        "Switch model",
+		Description: "Toggle model selector",
+		Action: func() tea.Cmd {
+			return func() tea.Msg {
+				return tea.KeyMsg{Type: tea.KeyF2}
+			}
+		},
+	})
+	cmds = append(cmds, Command{
+		Name:        "Chat settings",
+		Description: "Configure chat panel",
+		Action: func() tea.Cmd {
+			return func() tea.Msg {
+				return tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{','}}
+			}
+		},
+	})
+	a.palette.SetCommands(cmds)
+}
+
 func (a *UnifiedApp) updateCommands() {
 	var cmds []Command
 
@@ -1737,7 +1788,7 @@ func (a *UnifiedApp) updateCommands() {
 		cmds = append(cmds, Command{
 			Name:        "Switch to " + name,
 			Description: desc,
-			Action:      func() tea.Cmd { return a.switchDashboardTab(idx) },
+			Action:      func() tea.Cmd { return a.switchToTab(idx) },
 		})
 		if provider, ok := v.(CommandProvider); ok {
 			cmds = append(cmds, provider.Commands()...)
@@ -1784,6 +1835,21 @@ func (a *UnifiedApp) switchDashboardTab(idx int) tea.Cmd {
 	return a.currentView.Focus()
 }
 
+// switchToTab handles tab switching from any mode.
+// In dashboard mode, it delegates to switchDashboardTab.
+// In onboarding mode, it exits onboarding and enters dashboard at the requested tab.
+func (a *UnifiedApp) switchToTab(idx int) tea.Cmd {
+	if a.mode == ModeDashboard {
+		return a.switchDashboardTab(idx)
+	}
+	// In onboarding mode: set initialTab and enter dashboard
+	tabNames := a.tabs.TabNames()
+	if idx >= 0 && idx < len(tabNames) {
+		a.initialTab = strings.ToLower(tabNames[idx])
+	}
+	return a.enterDashboard()
+}
+
 func (a *UnifiedApp) sendWindowSize() tea.Cmd {
 	return func() tea.Msg {
 		return tea.WindowSizeMsg{Width: a.width, Height: a.height}
@@ -1805,14 +1871,12 @@ func (a *UnifiedApp) View() string {
 	}
 	contentHeight := a.height - headerHeight - footerHeight - logPaneHeight
 
-	// Header area
-	var header string
-	if a.mode == ModeDashboard {
-		header = a.tabs.View()
-	} else {
-		// Onboarding: show breadcrumb
+	// Header area: always show tabs
+	header := a.tabs.View()
+	if a.mode == ModeOnboarding {
+		// Show breadcrumb below tabs in onboarding mode
 		a.breadcrumb.SetWidth(a.width - 6) // Account for padding
-		header = a.breadcrumb.View()
+		header += "\n" + a.breadcrumb.View()
 	}
 	headerStyle := pkgtui.HeaderStyle.
 		Width(a.width).
@@ -1895,14 +1959,10 @@ func (a *UnifiedApp) renderFooterContent() string {
 		help = a.currentView.ShortHelp()
 	}
 
-	if a.mode == ModeDashboard {
-		help += "  │  ctrl+left/right tabs  ctrl+pgup/pgdn tabs  ctrl+p palette  ctrl+, settings  /help  ctrl+g model  ctrl+c×2 quit"
+	if a.mode == ModeOnboarding && a.breadcrumb.IsNavigating() {
+		help = "←/→ navigate  enter select  esc cancel  ctrl+, settings  /help  ctrl+g model"
 	} else {
-		if a.breadcrumb.IsNavigating() {
-			help = "←/→ navigate  enter select  esc cancel  ctrl+, settings  /help  ctrl+g model"
-		} else {
-			help += "  │  ctrl+b jump  ctrl+, settings  /help  ctrl+g model  ctrl+c×2 quit"
-		}
+		help += "  │  ctrl+1-4 tabs  ctrl+p palette  ctrl+, settings  /help  ctrl+c×2 quit"
 	}
 
 	return help
@@ -1955,16 +2015,13 @@ func (a *UnifiedApp) renderHelpOverlay() string {
 	globalBindings := []HelpBinding{
 		{Key: "?", Description: "Show this help"},
 		{Key: "ctrl+c", Description: "Quit"},
+		{Key: "ctrl+1-4", Description: "Switch tabs (Bigend/Gurgeh/Coldwine/Pollard)"},
+		{Key: "ctrl+left/right", Description: "Cycle tabs"},
+		{Key: "ctrl+p", Description: "Command palette"},
 		{Key: "ctrl+g", Description: "Agent selector"},
+		{Key: "/bigend, etc.", Description: "Switch to tool by name"},
 	}
-
-	if a.mode == ModeDashboard {
-		globalBindings = append(globalBindings,
-			HelpBinding{Key: "ctrl+left/right", Description: "Switch tabs"},
-			HelpBinding{Key: "ctrl+pgup/pgdn", Description: "Switch tabs (fallback)"},
-			HelpBinding{Key: "ctrl+p", Description: "Command palette"},
-		)
-	} else {
+	if a.mode == ModeOnboarding {
 		globalBindings = append(globalBindings,
 			HelpBinding{Key: "ctrl+b", Description: "Jump to step"},
 		)

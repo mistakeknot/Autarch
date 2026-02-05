@@ -316,6 +316,12 @@ func GlobalCommands() []SlashCommandDef {
 		{Command: "palette", Aliases: []string{"p"}, Description: "Command palette", Category: "global"},
 		{Command: "refresh", Aliases: []string{"r"}, Description: "Refresh current view", Category: "global"},
 		{Command: "back", Aliases: []string{"b"}, Description: "Go back / cancel", Category: "global"},
+		// Tool-switching commands
+		{Command: "bigend", Aliases: []string{"big"}, Description: "Switch to Bigend", Category: "navigation"},
+		{Command: "gurgeh", Aliases: []string{"gur"}, Description: "Switch to Gurgeh", Category: "navigation"},
+		{Command: "coldwine", Aliases: []string{"cold"}, Description: "Switch to Coldwine", Category: "navigation"},
+		{Command: "pollard", Aliases: []string{"pol"}, Description: "Switch to Pollard", Category: "navigation"},
+		{Command: "signals", Aliases: []string{"sig"}, Description: "Toggle Signals overlay", Category: "navigation"},
 	}
 }
 

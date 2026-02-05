@@ -89,10 +89,12 @@ New users start with the onboarding flow to create their first project.
 Use --skip-onboard to go directly to the dashboard.
 
 Navigation:
-  1-4       Switch between tabs (Bigend, Gurgeh, Coldwine, Pollard)
-  Ctrl+P    Open command palette
-  ?         Show help
-  Ctrl+C    Quit`,
+  Ctrl+1-4       Switch between tabs (Bigend, Gurgeh, Coldwine, Pollard)
+  Ctrl+Left/Right  Cycle tabs
+  Ctrl+P         Open command palette
+  /bigend, etc.  Switch to tool by name (/big, /gur, /cold, /pol)
+  ?              Show help
+  Ctrl+C         Quit`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			// Suppress logging in TUI mode
 			logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{
@@ -157,7 +159,6 @@ Navigation:
 
 				// Skip onboarding, go directly to dashboard
 				bigendView := views.NewBigendView(client)
-				signalsView := views.NewSignalsView(client)
 				gurgehView := views.NewGurgehView(client)
 				coldwineView := views.NewColdwineView(client)
 				pollardView := views.NewPollardView(client)
@@ -176,7 +177,6 @@ Navigation:
 
 				return tui.RunWithOpts(client, tui.RunOpts{InlineMode: inlineMode, InitialTool: toolFlag},
 					bigendView,
-					signalsView,
 					gurgehView,
 					coldwineView,
 					pollardView,
@@ -270,7 +270,6 @@ Navigation:
 				func(c *autarch.Client) []tui.View {
 					return []tui.View{
 						views.NewBigendView(c),
-						views.NewSignalsView(c),
 						views.NewGurgehView(c),
 						views.NewColdwineView(c),
 						views.NewPollardView(c),
@@ -298,7 +297,7 @@ Navigation:
 	cmd.Flags().StringVar(&dataDir, "data-dir", "", "Data directory (default: ~/.autarch)")
 	cmd.Flags().BoolVar(&skipOnboard, "skip-onboard", false, "Skip onboarding and go directly to dashboard")
 	cmd.Flags().BoolVar(&inlineMode, "inline", false, "Enable inline mode with log pane (preserves scrollback)")
-	cmd.Flags().StringVar(&toolFlag, "tool", "", "Jump directly to a tool tab (bigend, signals, gurgeh, coldwine, pollard)")
+	cmd.Flags().StringVar(&toolFlag, "tool", "", "Jump directly to a tool tab (bigend, gurgeh, coldwine, pollard)")
 
 	return cmd
 }

@@ -89,7 +89,7 @@
 | 2026-02-04-feat-gurgeh-self-hosting-claude-integration-plan.md | none | no referenced paths found |
 | 2026-02-04-feat-inline-mode-log-pane-simplified-plan.md | commit | paths:2 latest:2026-02-04 |
 | 2026-02-04-feat-iterative-codebase-exploration-plan.md | none | no referenced paths found |
-| 2026-02-05-acceptance-criteria-plan.md | preexisting | paths:3 |
+| 2026-02-05-acceptance-criteria-plan.md | preexisting | paths:12 |
 | 2026-02-05-perf-claude-session-reuse-token-efficiency-plan.md | preexisting | paths:1 |
 
 ## Derived Evidence Details

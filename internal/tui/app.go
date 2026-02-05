@@ -64,7 +64,7 @@ func (a *App) LogPane() *pkgtui.LogPane {
 }
 
 // SetInitialTab sets the active tab by name (case-insensitive).
-// Valid names: bigend, signals, gurgeh, coldwine, pollard.
+// Valid names: bigend, gurgeh, coldwine, pollard.
 func (a *App) SetInitialTab(name string) {
 	if name == "" {
 		return
@@ -92,27 +92,17 @@ func (a *App) updateCommands() {
 				}
 			},
 		},
-		Command{
-			Name:        "Switch to Bigend",
-			Description: "View sessions",
-			Action:      func() tea.Cmd { return a.switchTab(0) },
-		},
-		Command{
-			Name:        "Switch to Gurgeh",
-			Description: "View specs",
-			Action:      func() tea.Cmd { return a.switchTab(1) },
-		},
-		Command{
-			Name:        "Switch to Coldwine",
-			Description: "View epics and tasks",
-			Action:      func() tea.Cmd { return a.switchTab(2) },
-		},
-		Command{
-			Name:        "Switch to Pollard",
-			Description: "View insights",
-			Action:      func() tea.Cmd { return a.switchTab(3) },
-		},
 	)
+	// Add "Switch to X" commands dynamically from view names
+	for i, v := range a.views {
+		idx := i
+		name := v.Name()
+		cmds = append(cmds, Command{
+			Name:        "Switch to " + name,
+			Description: fmt.Sprintf("View %s", strings.ToLower(name)),
+			Action:      func() tea.Cmd { return a.switchTab(idx) },
+		})
+	}
 
 	// Collect commands from views
 	for _, v := range a.views {
@@ -211,7 +201,14 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		switch msg.String() {
 		case "ctrl+p":
 			return a, a.palette.Show()
-
+		case "ctrl+1":
+			return a, a.doSwitchTab(0)
+		case "ctrl+2":
+			return a, a.doSwitchTab(1)
+		case "ctrl+3":
+			return a, a.doSwitchTab(2)
+		case "ctrl+4":
+			return a, a.doSwitchTab(3)
 		default:
 			switch {
 			case msg.String() == "ctrl+left" || msg.String() == "ctrl+pgup":
@@ -341,7 +338,7 @@ func (a *App) helpExtras() []pkgtui.HelpBinding {
 
 func (a *App) renderFooter() string {
 	// Get help from active view
-	help := "ctrl+left/right tabs  ctrl+pgup/pgdn tabs  ctrl+p palette  F1 help  ctrl+c quit"
+	help := "ctrl+1-4 tabs  ctrl+left/right cycle  ctrl+p palette  F1 help  ctrl+c quit"
 	if len(a.views) > 0 {
 		active := a.tabs.Active()
 		if active < len(a.views) {
