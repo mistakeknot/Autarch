@@ -52,7 +52,7 @@ type SprintViewOpts struct {
 func NewSprintView(projectPath string, opts SprintViewOpts) *SprintView {
 	chatPanel := pkgtui.NewChatPanel()
 	chatPanel.SetComposerPlaceholder("Chat about the current phase...")
-	chatPanel.SetComposerHint("enter send · ctrl+→ accept · esc back")
+	chatPanel.SetComposerHint("enter send · ctrl+→ accept · tab focus doc · pgup/pgdn scroll")
 	chatPanel.SetViewCommands(pkgtui.SprintCommands())
 
 	var orch *arbiter.Orchestrator
@@ -252,6 +252,21 @@ func (v *SprintView) Update(msg tea.Msg) (pkgtui.View, tea.Cmd) {
 					v.cancelStreaming()
 					return v, v.onBack()
 				}
+				return v, nil
+			case msg.Type == tea.KeyTab:
+				// Tab switches focus to doc panel (handled by shell.Update above)
+				return v, nil
+			case msg.Type == tea.KeyPgUp, msg.Type == tea.KeyCtrlUp:
+				// Scroll doc panel even when chat is focused
+				v.docPanel.ScrollUp()
+				v.docPanel.ScrollUp()
+				v.docPanel.ScrollUp()
+				return v, nil
+			case msg.Type == tea.KeyPgDown, msg.Type == tea.KeyCtrlDown:
+				// Scroll doc panel even when chat is focused
+				v.docPanel.ScrollDown()
+				v.docPanel.ScrollDown()
+				v.docPanel.ScrollDown()
 				return v, nil
 			default:
 				v.chatPanel, cmd = v.chatPanel.Update(msg)
