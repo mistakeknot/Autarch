@@ -36,6 +36,12 @@ func (d *SprintDocPanel) ScrollUp() { d.panel.ScrollUp() }
 // ScrollDown scrolls the panel down.
 func (d *SprintDocPanel) ScrollDown() { d.panel.ScrollDown() }
 
+// Focus sets the panel as focused.
+func (d *SprintDocPanel) Focus() { d.panel.Focus() }
+
+// Blur removes focus from the panel.
+func (d *SprintDocPanel) Blur() { d.panel.Blur() }
+
 // Update refreshes the panel content from sprint state.
 func (d *SprintDocPanel) Update(state *arbiter.SprintState) {
 	d.panel.ClearSections()

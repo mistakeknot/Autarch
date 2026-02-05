@@ -316,6 +316,14 @@ func (v *SprintView) View() string {
 	} else {
 		sidebarItems = v.sidebar.Items(nil)
 	}
+
+	// Sync focus state to doc panel before rendering
+	if v.shell.Focus() == pkgtui.FocusDocument {
+		v.docPanel.Focus()
+	} else {
+		v.docPanel.Blur()
+	}
+
 	return v.shell.Render(sidebarItems, v.docPanel.View(), v.chatPanel.View())
 }
 

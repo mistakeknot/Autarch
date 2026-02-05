@@ -21,7 +21,8 @@ type DocPanel struct {
 	sections []DocSection
 	width    int
 	height   int
-	scroll   int // Scroll offset
+	scroll   int  // Scroll offset
+	focused  bool // Whether this panel has focus
 }
 
 // NewDocPanel creates a new document panel.
@@ -74,12 +75,18 @@ func (p *DocPanel) View() string {
 		contentWidth = 10
 	}
 
-	// Title
+	// Title with focus indicator
 	if p.title != "" {
 		titleStyle := lipgloss.NewStyle().
 			Foreground(ColorPrimary).
 			Bold(true)
-		lines = append(lines, titleStyle.Render(p.title))
+		titleText := p.title
+		if p.focused {
+			// Add focus indicator (cyan/teal for active focus)
+			titleText = "● " + titleText
+			titleStyle = titleStyle.Foreground(ColorSuccess)
+		}
+		lines = append(lines, titleStyle.Render(titleText))
 	}
 
 	// Subtitle
@@ -127,20 +134,33 @@ func (p *DocPanel) View() string {
 		}
 	}
 
-	// Apply scrolling
-	if len(lines) > p.height {
+	// Apply scrolling with indicators
+	totalLines := len(lines)
+	if totalLines > p.height {
 		start := p.scroll
 		if start < 0 {
 			start = 0
 		}
 		end := start + p.height
-		if end > len(lines) {
-			end = len(lines)
+		if end > totalLines {
+			end = totalLines
 			start = end - p.height
 			if start < 0 {
 				start = 0
 			}
 		}
+
+		// Add scroll indicators
+		indicatorStyle := lipgloss.NewStyle().Foreground(ColorMuted)
+		if start > 0 {
+			// Show "more above" indicator
+			lines[start] = indicatorStyle.Render("↑ more above ↑")
+		}
+		if end < totalLines {
+			// Show "more below" indicator on the last visible line
+			lines[end-1] = indicatorStyle.Render("↓ more below ↓")
+		}
+
 		lines = lines[start:end]
 	}
 
@@ -163,6 +183,21 @@ func (p *DocPanel) ScrollDown() {
 // ScrollToTop scrolls to the top of the document.
 func (p *DocPanel) ScrollToTop() {
 	p.scroll = 0
+}
+
+// Focus sets the panel as focused.
+func (p *DocPanel) Focus() {
+	p.focused = true
+}
+
+// Blur removes focus from the panel.
+func (p *DocPanel) Blur() {
+	p.focused = false
+}
+
+// Focused returns whether the panel has focus.
+func (p *DocPanel) Focused() bool {
+	return p.focused
 }
 
 // QuestionSection creates a section styled for an interview question.
