@@ -339,13 +339,35 @@ func (o *Orchestrator) advanceInternal(ctx context.Context, state *SprintState, 
 	// Generate draft for the new phase from cached exploration or fallback
 	content := o.extractPhaseContent(state.ExplorationResult, state.Phase)
 	if content == "" {
-		// Fallback to template-based generation if no cached data
-		projectCtx := o.readProjectContext()
-		draft, err := o.generator.GenerateDraft(ctx, state.Phase, projectCtx, "", state.Findings)
-		if err != nil {
-			return nil, fmt.Errorf("generating draft for %s: %w", state.Phase, err)
+		// For later phases (Requirements, ScopeAssumptions, CUJs, AcceptanceCriteria),
+		// use Claude Code to generate content based on prior accepted phases
+		if o.shouldUseDynamicGeneration(state.Phase) {
+			priorContext := o.buildPriorContext(state)
+			genContent, err := exploration.GeneratePhase(ctx, o.projectPath, state.Phase.String(), priorContext)
+			if err != nil {
+				// Fallback to template if Claude Code fails
+				projectCtx := o.readProjectContext()
+				draft, fallbackErr := o.generator.GenerateDraft(ctx, state.Phase, projectCtx, "", state.Findings)
+				if fallbackErr != nil {
+					return nil, fmt.Errorf("generating draft for %s: %w", state.Phase, fallbackErr)
+				}
+				state.Sections[state.Phase] = draft
+			} else {
+				state.Sections[state.Phase] = &SectionDraft{
+					Content:   genContent,
+					Status:    DraftProposed,
+					UpdatedAt: time.Now(),
+				}
+			}
+		} else {
+			// Fallback to template-based generation for early phases if no cached data
+			projectCtx := o.readProjectContext()
+			draft, err := o.generator.GenerateDraft(ctx, state.Phase, projectCtx, "", state.Findings)
+			if err != nil {
+				return nil, fmt.Errorf("generating draft for %s: %w", state.Phase, err)
+			}
+			state.Sections[state.Phase] = draft
 		}
-		state.Sections[state.Phase] = draft
 	} else {
 		state.Sections[state.Phase] = &SectionDraft{
 			Content:   content,
@@ -388,6 +410,41 @@ func (o *Orchestrator) extractPhaseContent(result map[string]any, phase Phase) s
 		}
 	}
 	return ""
+}
+
+// shouldUseDynamicGeneration returns true for phases that need Claude Code
+// to generate content dynamically based on prior context (not from initial exploration).
+func (o *Orchestrator) shouldUseDynamicGeneration(phase Phase) bool {
+	switch phase {
+	case PhaseRequirements, PhaseScopeAssumptions, PhaseCUJs, PhaseAcceptanceCriteria:
+		return true
+	default:
+		return false
+	}
+}
+
+// buildPriorContext extracts accepted phase content to provide context for later phase generation.
+func (o *Orchestrator) buildPriorContext(state *SprintState) map[string]string {
+	ctx := make(map[string]string)
+	phaseKeys := map[Phase]string{
+		PhaseVision:          "vision",
+		PhaseProblem:         "problem",
+		PhaseUsers:           "users",
+		PhaseFeaturesGoals:   "features",
+		PhaseRequirements:    "requirements",
+		PhaseScopeAssumptions: "scope",
+		PhaseCUJs:            "cujs",
+	}
+
+	for phase, key := range phaseKeys {
+		if section, ok := state.Sections[phase]; ok && section != nil {
+			// Include all accepted or proposed content as context
+			if section.Content != "" {
+				ctx[key] = section.Content
+			}
+		}
+	}
+	return ctx
 }
 
 // AcceptDraft marks the current phase's draft as accepted.
