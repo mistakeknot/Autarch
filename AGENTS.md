@@ -87,17 +87,22 @@ go mod tidy
 - **Inline mode:** `--inline` flag preserves terminal scrollback with log pane
 - **Sprint persistence:** Auto-save and resume interrupted sprints (state saved to `.gurgeh/sprints/`)
 - **Doc panel scrolling:** PgUp/PgDn scroll doc panel while chat is focused
+- **Cached phase exploration:** All 8 arbiter phases cached in initial exploration for instant transitions
 
 ### In Progress
 - Bigend TUI mode
 - Intermute messaging (REST + WebSocket + embedded in-process; domain entities: Spec, Insight, CUJ, Epic, Session)
+- **Unified TUI navigation** ([plan](docs/plans/2026-02-05-unified-tui-navigation-design.md)): 3-phase plan
+  - Phase 1: Always-visible tabs (Bigend, Gurgeh, Coldwine, Pollard) + `Ctrl+1-4` + slash commands
+  - Phase 2: Gurgeh absorbs onboarding flow (large refactor)
+  - Phase 3: Signals overlay (`Ctrl+Shift+S`)
 
 ### TODO
 - Remote host support for Bigend (deferred; local-only default)
 - Pollard integration into Bigend daemon
 - Agent-powered ranking: wire real LLM agent call (currently uses goal-order placeholder)
-- Signal TUI integration: inline signal display in each tool's TUI
 - Intermute request/response pattern (async agent-to-Pollard queries)
+- Bigend agent intelligence: agent reviews signals, surfaces suggestions/alerts/questions (needs separate design)
 
 ## Operating Principles
 
@@ -234,7 +239,9 @@ When adding or editing shortcuts, review
 
 Type `/` in the chat composer to open a fuzzy command picker. Use `↑`/`↓` to navigate, `Tab` or `Enter` to select, `Esc` to dismiss.
 
-**Global Commands:** `/help`, `/quit`, `/settings`, `/model`, `/refresh`, `/back`
+**Global Commands:** `/help`, `/quit`, `/settings`, `/model`, `/palette`, `/refresh`, `/back`
+
+**Tool Switching (planned — Phase 1):** `/bigend` (`/big`), `/gurgeh` (`/gur`), `/coldwine` (`/cold`), `/pollard` (`/pol`), `/signals` (`/sig`)
 
 **View-Specific:** Commands like `/scan`, `/accept` vary by view. The picker shows only commands available in the current context.
 
@@ -469,37 +476,44 @@ See [docs/INTEGRATION.md](docs/INTEGRATION.md) for details.
 
 ## Arbiter Spec Sprint (NEW)
 
-**Primary workflow for PRD creation:** Propose-first 6-section flow with integrated research and confidence scoring.
+**Primary workflow for PRD creation:** Propose-first 8-phase flow with integrated research and confidence scoring.
 
 ### Quick Start
 
-In Gurgeh TUI, press `n` (new sprint) to begin:
+In Gurgeh TUI, start a new sprint to begin:
 
 ```
-Section 1: Problem
-  ├─ Arbiter proposes problem statement
+Phase 1: Vision
+  ├─ Arbiter proposes project vision
   ├─ You accept or chat to refine ("focus more on...")
-  ├─ Consistency check (passes → continue)
   └─ ✓ Quick Ranger scan triggers automatically
 
-Section 2: Users
+Phase 2: Problem
+  ├─ Arbiter proposes problem statement
+  └─ Consistency check (passes → continue)
+
+Phase 3: Users
   ├─ Arbiter proposes user personas
   ├─ (Ranger scan results inform proposals)
   └─ You accept or chat to refine
 
-Section 3: Features + Goals
+Phase 4: Features + Goals
   ├─ Arbiter proposes feature list
   └─ You accept or chat to refine
 
-Section 4: Scope + Assumptions
+Phase 5: Critical User Journeys
+  ├─ CUJs flow naturally from users + features
+  └─ You accept or chat to refine
+
+Phase 6: Requirements
+  ├─ Requirements derived from CUJs
+  └─ Given/When/Then format
+
+Phase 7: Scope + Assumptions
   ├─ Arbiter sets boundaries
   └─ You accept or chat to refine
 
-Section 5: Critical User Journeys
-  ├─ Arbiter generates CUJ flows
-  └─ You accept or chat to refine
-
-Section 6: Acceptance Criteria
+Phase 8: Acceptance Criteria
   ├─ Arbiter generates AC for each CUJ
   └─ You finalize
 

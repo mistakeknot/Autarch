@@ -73,7 +73,7 @@
 | 2026-01-29-scan-artifact-ui-display.md | commit | paths:4 latest:2026-02-04 |
 | 2026-01-29-scan-artifact-validation.md | commit | paths:14 latest:2026-01-29 |
 | 2026-01-29-scan-open-questions-ui.md | commit | paths:2 latest:2026-02-04 |
-| 2026-01-29-scan-signoff-breadcrumb-plan.md | commit | paths:4 latest:2026-02-04 |
+| 2026-01-29-scan-signoff-breadcrumb-plan.md | commit | paths:4 latest:2026-02-05 |
 | 2026-01-29-scan-validation-wiring.md | commit | paths:3 latest:2026-02-04 |
 | 2026-01-29-structured-scan-output.md | commit | paths:3 latest:2026-02-04 |
 | 2026-01-30-chat-panel-mouse-scroll.md | commit | paths:2 latest:2026-02-04 |
