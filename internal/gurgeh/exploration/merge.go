@@ -64,6 +64,9 @@ func mergeProblem(src map[string]any, dst *agent.ProblemArtifact) {
 }
 
 func mergeUsers(src map[string]any, dst *agent.UsersArtifact) {
+	// Note: UsersArtifact doesn't have a Summary field, so we extract
+	// users summary directly from the exploration result in the TUI
+
 	evidence := extractEvidence(src)
 	dst.Evidence = append(dst.Evidence, evidence...)
 
@@ -129,11 +132,16 @@ func extractEvidence(src map[string]any) []agent.EvidenceItem {
 					Type:       "exploration",
 					Confidence: 0.9,
 				}
+				// Support both "text"/"quote" and "path"/"source" keys
 				if text, ok := ev["text"].(string); ok {
 					item.Quote = text
+				} else if quote, ok := ev["quote"].(string); ok {
+					item.Quote = quote
 				}
 				if path, ok := ev["path"].(string); ok {
 					item.Path = path
+				} else if source, ok := ev["source"].(string); ok {
+					item.Path = source
 				}
 				if item.Quote != "" {
 					items = append(items, item)

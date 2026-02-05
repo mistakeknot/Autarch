@@ -819,7 +819,7 @@ func (a *UnifiedApp) scanCodebase(path string) tea.Cmd {
 			ProjectName:    projectName,
 			Description:    extractString(exploreResult, "description"),
 			Vision:         extractVisionSummary(artifacts),
-			Users:          extractUsersSummary(artifacts),
+			Users:          extractUsersSummary(artifacts, exploreResult),
 			Problem:        extractProblemSummary(artifacts),
 			Platform:       extractString(exploreResult, "platform"),
 			Language:       extractString(exploreResult, "language"),
@@ -861,13 +861,20 @@ func extractProblemSummary(a *agent.PhaseArtifacts) string {
 	return ""
 }
 
-func extractUsersSummary(a *agent.PhaseArtifacts) string {
+func extractUsersSummary(a *agent.PhaseArtifacts, exploreResult map[string]any) string {
+	// Try personas from artifacts first
 	if a != nil && a.Users != nil && len(a.Users.Personas) > 0 {
 		var names []string
 		for _, p := range a.Users.Personas {
 			names = append(names, p.Name)
 		}
 		return strings.Join(names, ", ")
+	}
+	// Fall back to summary from exploration result
+	if users, ok := exploreResult["users"].(map[string]any); ok {
+		if summary, ok := users["summary"].(string); ok {
+			return summary
+		}
 	}
 	return ""
 }
