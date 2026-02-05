@@ -220,14 +220,15 @@ func (v *SprintView) Update(msg tea.Msg) (pkgtui.View, tea.Cmd) {
 	case tea.MouseMsg:
 		switch msg.Type {
 		case tea.MouseWheelUp:
-			if v.chatPanel.Focused() {
+			// Use shell focus state, not chatPanel.Focused() which doesn't update on Tab
+			if v.shell.Focus() == pkgtui.FocusChat {
 				v.chatPanel.ScrollUp()
 			} else {
 				v.docPanel.ScrollUp()
 			}
 			return v, nil
 		case tea.MouseWheelDown:
-			if v.chatPanel.Focused() {
+			if v.shell.Focus() == pkgtui.FocusChat {
 				v.chatPanel.ScrollDown()
 			} else {
 				v.docPanel.ScrollDown()
