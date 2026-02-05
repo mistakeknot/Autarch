@@ -199,6 +199,119 @@ Return ONLY the section content, no headers or markdown fences.`, phase, phase, 
 	return strings.TrimSpace(finalResult), nil
 }
 
+// GeneratePhaseFromContext generates phase content using cached exploration context.
+// This avoids re-scanning the codebase when we already have exploration data but
+// the specific phase wasn't included or needs regeneration.
+func GeneratePhaseFromContext(ctx context.Context, cwd string, phase string,
+	priorContext map[string]string, explorationCtx map[string]any) (string, error) {
+
+	ctx, cancel := context.WithTimeout(ctx, 3*time.Minute)
+	defer cancel()
+
+	// Build exploration summary from cached data
+	var explorationParts []string
+	for key, data := range explorationCtx {
+		if m, ok := data.(map[string]any); ok {
+			if summary, ok := m["summary"].(string); ok && summary != "" {
+				explorationParts = append(explorationParts,
+					fmt.Sprintf("### %s\n%s", strings.Title(key), summary))
+			}
+		}
+	}
+
+	// Build prior context from accepted phases
+	var priorParts []string
+	phaseOrder := []string{"vision", "problem", "users", "features", "cujs", "requirements", "scope", "acceptance"}
+	for _, p := range phaseOrder {
+		if content, ok := priorContext[p]; ok && content != "" {
+			priorParts = append(priorParts, fmt.Sprintf("## %s\n%s", strings.Title(p), content))
+		}
+	}
+
+	priorContextStr := ""
+	if len(priorParts) > 0 {
+		priorContextStr = fmt.Sprintf("\nPRIOR PHASES (approved):\n%s\n", strings.Join(priorParts, "\n\n"))
+	}
+
+	explorationContextStr := ""
+	if len(explorationParts) > 0 {
+		explorationContextStr = fmt.Sprintf("\nCODEBASE CONTEXT (from exploration):\n%s\n", strings.Join(explorationParts, "\n\n"))
+	}
+
+	phasePrompt := fmt.Sprintf(`Generate the %s section of a PRD.
+%s%s
+Guidelines:
+- Be concise and specific to THIS project
+- Use the codebase context and prior phases as your source of truth
+- No generic placeholder content
+- 2-4 paragraphs max
+
+Return ONLY the section content, no headers or markdown fences.`, phase, explorationContextStr, priorContextStr)
+
+	slog.Info("generating phase from context", "phase", phase)
+
+	cmd := exec.CommandContext(ctx, "claude",
+		"-p", phasePrompt,
+		"--output-format", "stream-json",
+		"--verbose",
+		"--print",
+	)
+	cmd.Dir = cwd
+
+	stdout, err := cmd.StdoutPipe()
+	if err != nil {
+		return "", fmt.Errorf("failed to create stdout pipe: %w", err)
+	}
+
+	if err := cmd.Start(); err != nil {
+		return "", fmt.Errorf("failed to start claude: %w", err)
+	}
+
+	// Parse streaming output, log tool usage, capture result
+	var finalResult string
+	var isError bool
+	scanner := bufio.NewScanner(stdout)
+	scanner.Buffer(make([]byte, 1024*1024), 1024*1024)
+
+	for scanner.Scan() {
+		line := scanner.Text()
+		if line == "" {
+			continue
+		}
+
+		var msg streamMessage
+		if err := json.Unmarshal([]byte(line), &msg); err != nil {
+			continue
+		}
+
+		// Log tool usage
+		if msg.Type == "assistant" && msg.Message != nil {
+			for _, content := range msg.Message.Content {
+				if content.Type == "tool_use" {
+					logToolUse(content.Name, content.Input)
+				}
+			}
+		}
+
+		// Capture final result
+		if msg.Type == "result" {
+			finalResult = msg.Result
+			isError = msg.IsError
+		}
+	}
+
+	if err := cmd.Wait(); err != nil {
+		return "", fmt.Errorf("claude failed: %w", err)
+	}
+
+	if isError {
+		return "", fmt.Errorf("claude returned error: %s", finalResult)
+	}
+
+	slog.Info("phase generation from context complete", "phase", phase)
+	return strings.TrimSpace(finalResult), nil
+}
+
 // Revise takes a spec section and user feedback, returns a revised version.
 // This runs Claude Code to intelligently revise the content based on feedback.
 func Revise(ctx context.Context, cwd string, phase string, currentContent string, feedback string) (string, error) {
@@ -550,6 +663,10 @@ Find ALL of the following by reading code, docs, and config:
 - Problem: What pain points does it solve?
 - Users: Who uses this? What are their workflows?
 - Features: What are the main capabilities/features?
+- CUJs: 2-3 critical user journeys (e.g., "User creates account and verifies email")
+- Requirements: Key requirements implied by the code (functional and non-functional)
+- Scope: What's in scope vs out of scope (based on TODOs, comments, roadmap)
+- Acceptance: Acceptance criteria implied by tests, docs, or code comments
 - Tech: What technologies, frameworks, and architecture patterns are used?
 - Risks: What are potential technical risks or challenges?
 
@@ -562,6 +679,10 @@ Return JSON:
   "problem": {"summary": "...", "evidence": [{"quote": "...", "source": "file:line"}]},
   "users": {"summary": "...", "evidence": [{"quote": "...", "source": "file:line"}]},
   "features": {"summary": "...", "evidence": [{"quote": "...", "source": "file:line"}]},
+  "cujs": {"summary": "...", "journeys": ["Journey 1", "Journey 2"], "evidence": [{"quote": "...", "source": "file:line"}]},
+  "requirements": {"summary": "...", "items": ["Requirement 1", "Requirement 2"], "evidence": [{"quote": "...", "source": "file:line"}]},
+  "scope": {"summary": "...", "in_scope": ["Item 1"], "out_of_scope": ["Item 2"], "evidence": [{"quote": "...", "source": "file:line"}]},
+  "acceptance": {"summary": "...", "criteria": ["Criterion 1", "Criterion 2"], "evidence": [{"quote": "...", "source": "file:line"}]},
   "tech": {"summary": "...", "evidence": [{"quote": "...", "source": "file:line"}]},
   "risks": {"summary": "...", "evidence": [{"quote": "...", "source": "file:line"}]}
 }`

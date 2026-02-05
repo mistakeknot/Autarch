@@ -48,9 +48,9 @@ func TestPhaseOrder(t *testing.T) {
 		PhaseProblem,
 		PhaseUsers,
 		PhaseFeaturesGoals,
-		PhaseRequirements,
+		PhaseCUJs,             // User journeys flow from users + features
+		PhaseRequirements,     // Requirements derived from CUJs
 		PhaseScopeAssumptions,
-		PhaseCUJs,
 		PhaseAcceptanceCriteria,
 	}
 

@@ -337,15 +337,25 @@ func (o *Orchestrator) advanceInternal(ctx context.Context, state *SprintState, 
 	}
 
 	// Generate draft for the new phase from cached exploration or fallback
+	// Priority: 1) cached extraction, 2) context-aware generation, 3) full exploration
 	content := o.extractPhaseContent(state.ExplorationResult, state.Phase)
-	if content == "" {
-		// For later phases (Requirements, ScopeAssumptions, CUJs, AcceptanceCriteria),
-		// use Claude Code to generate content based on prior accepted phases
-		if o.shouldUseDynamicGeneration(state.Phase) {
-			priorContext := o.buildPriorContext(state)
-			genContent, err := exploration.GeneratePhase(ctx, o.projectPath, state.Phase.String(), priorContext)
+	if content != "" {
+		// Use cached exploration content directly (most efficient)
+		state.Sections[state.Phase] = &SectionDraft{
+			Content:   content,
+			Status:    DraftProposed,
+			UpdatedAt: time.Now(),
+		}
+	} else if state.ExplorationResult != nil {
+		// Cache exists but missing this phase - generate from context (avoids re-exploring)
+		priorContext := o.buildPriorContext(state)
+		genContent, err := exploration.GeneratePhaseFromContext(
+			ctx, o.projectPath, state.Phase.String(), priorContext, state.ExplorationResult)
+		if err != nil {
+			// Fallback to full exploration if context-aware generation fails
+			genContent, err = exploration.GeneratePhase(ctx, o.projectPath, state.Phase.String(), priorContext)
 			if err != nil {
-				// Fallback to template if Claude Code fails
+				// Final fallback to template
 				projectCtx := o.readProjectContext()
 				draft, fallbackErr := o.generator.GenerateDraft(ctx, state.Phase, projectCtx, "", state.Findings)
 				if fallbackErr != nil {
@@ -360,19 +370,38 @@ func (o *Orchestrator) advanceInternal(ctx context.Context, state *SprintState, 
 				}
 			}
 		} else {
-			// Fallback to template-based generation for early phases if no cached data
+			state.Sections[state.Phase] = &SectionDraft{
+				Content:   genContent,
+				Status:    DraftProposed,
+				UpdatedAt: time.Now(),
+			}
+		}
+	} else {
+		// No cache at all - use original logic
+		if o.shouldUseDynamicGeneration(state.Phase) {
+			priorContext := o.buildPriorContext(state)
+			genContent, err := exploration.GeneratePhase(ctx, o.projectPath, state.Phase.String(), priorContext)
+			if err != nil {
+				projectCtx := o.readProjectContext()
+				draft, fallbackErr := o.generator.GenerateDraft(ctx, state.Phase, projectCtx, "", state.Findings)
+				if fallbackErr != nil {
+					return nil, fmt.Errorf("generating draft for %s: %w", state.Phase, fallbackErr)
+				}
+				state.Sections[state.Phase] = draft
+			} else {
+				state.Sections[state.Phase] = &SectionDraft{
+					Content:   genContent,
+					Status:    DraftProposed,
+					UpdatedAt: time.Now(),
+				}
+			}
+		} else {
 			projectCtx := o.readProjectContext()
 			draft, err := o.generator.GenerateDraft(ctx, state.Phase, projectCtx, "", state.Findings)
 			if err != nil {
 				return nil, fmt.Errorf("generating draft for %s: %w", state.Phase, err)
 			}
 			state.Sections[state.Phase] = draft
-		}
-	} else {
-		state.Sections[state.Phase] = &SectionDraft{
-			Content:   content,
-			Status:    DraftProposed,
-			UpdatedAt: time.Now(),
 		}
 	}
 	state.UpdatedAt = time.Now()
@@ -387,29 +416,65 @@ func (o *Orchestrator) extractPhaseContent(result map[string]any, phase Phase) s
 		return ""
 	}
 
-	// Map phase to exploration result key
-	// Initial exploration extracts: vision, problem, users, features, tech, risks
-	key := ""
-	switch phase {
-	case PhaseVision:
-		key = "vision"
-	case PhaseProblem:
-		key = "problem"
-	case PhaseUsers:
-		key = "users"
-	case PhaseFeaturesGoals:
-		key = "features"
-	default:
-		return "" // Later phases (Requirements, CUJs, etc.) not covered by initial exploration
+	key := phaseKeyMap[phase]
+	if key == "" {
+		return ""
 	}
 
-	// Extract summary from the phase data
-	if phaseData, ok := result[key].(map[string]any); ok {
-		if summary, ok := phaseData["summary"].(string); ok {
-			return summary
+	phaseData, ok := result[key].(map[string]any)
+	if !ok {
+		return ""
+	}
+
+	// Try summary first
+	if summary, ok := phaseData["summary"].(string); ok && summary != "" {
+		// For phases with structured lists, append them to the summary
+		if listContent := extractListFields(phaseData); listContent != "" {
+			return summary + "\n\n" + listContent
+		}
+		return summary
+	}
+
+	// Fallback to structured fields only
+	return extractListFields(phaseData)
+}
+
+// extractListFields extracts list-style fields from phase data and formats as bullet points.
+// Handles: journeys, items, criteria, in_scope, out_of_scope
+func extractListFields(data map[string]any) string {
+	var parts []string
+
+	// Try each known list field
+	listFields := []struct {
+		key    string
+		header string
+	}{
+		{"journeys", "User Journeys"},
+		{"items", ""},
+		{"criteria", "Acceptance Criteria"},
+		{"in_scope", "In Scope"},
+		{"out_of_scope", "Out of Scope"},
+	}
+
+	for _, lf := range listFields {
+		if list, ok := data[lf.key].([]any); ok && len(list) > 0 {
+			var items []string
+			for _, item := range list {
+				if s, ok := item.(string); ok && s != "" {
+					items = append(items, "- "+s)
+				}
+			}
+			if len(items) > 0 {
+				content := strings.Join(items, "\n")
+				if lf.header != "" {
+					content = "**" + lf.header + ":**\n" + content
+				}
+				parts = append(parts, content)
+			}
 		}
 	}
-	return ""
+
+	return strings.Join(parts, "\n\n")
 }
 
 // shouldUseDynamicGeneration returns true for phases that need Claude Code

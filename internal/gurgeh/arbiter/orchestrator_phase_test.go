@@ -26,9 +26,9 @@ func TestFullSprintWalkAllPhases(t *testing.T) {
 		arbiter.PhaseProblem,
 		arbiter.PhaseUsers,
 		arbiter.PhaseFeaturesGoals,
-		arbiter.PhaseRequirements,
+		arbiter.PhaseCUJs,             // User journeys flow from users + features
+		arbiter.PhaseRequirements,     // Requirements derived from CUJs
 		arbiter.PhaseScopeAssumptions,
-		arbiter.PhaseCUJs,
 		arbiter.PhaseAcceptanceCriteria,
 	}
 
@@ -136,8 +136,8 @@ func TestBlockerResolution_EditAndRetry(t *testing.T) {
 	if err != nil {
 		t.Fatalf("expected advance after resolution, got error: %v", err)
 	}
-	if state.Phase != arbiter.PhaseRequirements {
-		t.Errorf("expected PhaseRequirements after resolution, got %v", state.Phase)
+	if state.Phase != arbiter.PhaseCUJs {
+		t.Errorf("expected PhaseCUJs after resolution, got %v", state.Phase)
 	}
 }
 
