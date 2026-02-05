@@ -12,6 +12,7 @@ import (
 	"github.com/mistakeknot/autarch/internal/gurgeh/arbiter/confidence"
 	"github.com/mistakeknot/autarch/internal/gurgeh/arbiter/consistency"
 	"github.com/mistakeknot/autarch/internal/gurgeh/arbiter/scan"
+	"github.com/mistakeknot/autarch/internal/gurgeh/exploration"
 	"github.com/mistakeknot/autarch/internal/gurgeh/specs"
 	"github.com/mistakeknot/autarch/pkg/thinking"
 	"gopkg.in/yaml.v3"
@@ -236,13 +237,24 @@ func (o *Orchestrator) Advance(ctx context.Context, state *SprintState) (*Sprint
 		o.runPhaseResearch(ctx, state)
 	}
 
-	// Generate draft for the new phase
-	projectCtx := o.readProjectContext()
-	draft, err := o.generator.GenerateDraft(ctx, state.Phase, projectCtx, "", state.Findings)
+	// Generate draft for the new phase using Claude Code exploration
+	priorContext := make(map[string]string)
+	for phase, section := range state.Sections {
+		if section.Status == DraftAccepted || section.Status == DraftProposed {
+			priorContext[strings.ToLower(phase.String())] = section.Content
+		}
+	}
+
+	content, err := exploration.GeneratePhase(ctx, o.projectPath, state.Phase.String(), priorContext)
 	if err != nil {
 		return nil, fmt.Errorf("generating draft for %s: %w", state.Phase, err)
 	}
-	state.Sections[state.Phase] = draft
+
+	state.Sections[state.Phase] = &SectionDraft{
+		Content:   content,
+		Status:    DraftProposed,
+		UpdatedAt: time.Now(),
+	}
 	state.UpdatedAt = time.Now()
 
 	return state, nil
@@ -741,47 +753,30 @@ func (o *Orchestrator) ProcessChatMessage(ctx context.Context, msg string) <-cha
 		phase := state.Phase
 		o.mu.Unlock()
 
-		projectCtx := o.readProjectContext()
-
-		// Retry with backoff: 3 attempts
-		var draft *SectionDraft
-		var err error
-		for attempt := 0; attempt < 3; attempt++ {
-			select {
-			case <-ctx.Done():
-				return
-			default:
-			}
-
-			// Inject user message as additional context for draft generation
-			combined := msg
-			if section, ok := state.Sections[phase]; ok && section.Content != "" {
-				combined = section.Content + "\n\nUser feedback: " + msg
-			}
-
-			draft, err = o.generator.GenerateDraft(ctx, phase, projectCtx, combined, state.Findings)
-			if err == nil {
-				break
-			}
-
-			// Backoff: 100ms, 300ms, 900ms
-			backoff := time.Duration(100*(attempt*3+1)) * time.Millisecond
-			select {
-			case <-time.After(backoff):
-			case <-ctx.Done():
-				return
-			}
+		// Get current content for the phase
+		currentContent := ""
+		if section, ok := state.Sections[phase]; ok {
+			currentContent = section.Content
 		}
 
+		// Use Claude Code exploration to revise the spec based on feedback
+		revised, err := exploration.Revise(ctx, o.projectPath, phase.String(), currentContent, msg)
 		if err != nil {
 			select {
-			case ch <- fmt.Sprintf("Failed to generate response: %v", err):
+			case ch <- fmt.Sprintf("Failed to revise: %v", err):
 			case <-ctx.Done():
 			}
 			return
 		}
 
-		// Write back only the new draft
+		// Create new draft with revised content
+		draft := &SectionDraft{
+			Content:   revised,
+			Status:    DraftProposed,
+			UpdatedAt: time.Now(),
+		}
+
+		// Write back the revised draft
 		o.mu.Lock()
 		if o.state != nil {
 			o.state.Sections[phase] = draft
@@ -789,9 +784,9 @@ func (o *Orchestrator) ProcessChatMessage(ctx context.Context, msg string) <-cha
 		}
 		o.mu.Unlock()
 
-		// Stream the response (single chunk for template-based generation)
+		// Stream the response
 		select {
-		case ch <- draft.Content:
+		case ch <- revised:
 		case <-ctx.Done():
 		}
 	}()
