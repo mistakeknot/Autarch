@@ -36,6 +36,9 @@ func (d *SprintDocPanel) ScrollUp() { d.panel.ScrollUp() }
 // ScrollDown scrolls the panel down.
 func (d *SprintDocPanel) ScrollDown() { d.panel.ScrollDown() }
 
+// ScrollToTop scrolls to the top of the panel.
+func (d *SprintDocPanel) ScrollToTop() { d.panel.ScrollToTop() }
+
 // Focus sets the panel as focused.
 func (d *SprintDocPanel) Focus() { d.panel.Focus() }
 

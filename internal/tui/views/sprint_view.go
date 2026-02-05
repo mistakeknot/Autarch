@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/charmbracelet/bubbles/key"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/mistakeknot/autarch/internal/gurgeh/arbiter"
 	"github.com/mistakeknot/autarch/internal/gurgeh/arbiter/scan"
@@ -38,8 +37,6 @@ type SprintView struct {
 
 	// Callbacks
 	onBack func() tea.Cmd
-
-	keys pkgtui.CommonKeys
 }
 
 // SprintViewOpts holds optional configuration for NewSprintView.
@@ -73,7 +70,6 @@ func NewSprintView(projectPath string, opts SprintViewOpts) *SprintView {
 		docPanel:  NewSprintDocPanel(),
 		sidebar:   NewPhaseSidebar(),
 		shell:     pkgtui.NewShellLayout(),
-		keys:      pkgtui.NewCommonKeys(),
 	}
 	return v
 }
@@ -260,15 +256,39 @@ func (v *SprintView) Update(msg tea.Msg) (pkgtui.View, tea.Cmd) {
 		// Route keys based on shell focus target
 		switch v.shell.Focus() {
 		case pkgtui.FocusDocument:
-			switch {
-			case key.Matches(msg, v.keys.Back):
-				v.cancelStreaming()
-				// First try to go back to previous phase
-				return v, v.handleRevert()
-			case key.Matches(msg, v.keys.NavUp):
+			// Doc panel is focused - handle scrolling and navigation
+			switch msg.String() {
+			case "up", "k":
 				v.docPanel.ScrollUp()
-			case key.Matches(msg, v.keys.NavDown):
+				return v, nil
+			case "down", "j":
 				v.docPanel.ScrollDown()
+				return v, nil
+			case "pgup", "ctrl+u":
+				for i := 0; i < 5; i++ {
+					v.docPanel.ScrollUp()
+				}
+				return v, nil
+			case "pgdown", "ctrl+d":
+				for i := 0; i < 5; i++ {
+					v.docPanel.ScrollDown()
+				}
+				return v, nil
+			case "home", "g":
+				v.docPanel.ScrollToTop()
+				return v, nil
+			case "esc":
+				v.cancelStreaming()
+				return v, v.handleRevert()
+			}
+			return v, nil
+
+		case pkgtui.FocusSidebar:
+			// Sidebar is focused - let shell handle navigation
+			// Only handle escape to exit
+			if msg.Type == tea.KeyEscape {
+				v.cancelStreaming()
+				return v, v.handleRevert()
 			}
 			return v, nil
 
