@@ -46,7 +46,7 @@ Code coupling points:
 
 ### 2.1 Phase model
 
-8 phases in `types.go:14–61`: Vision → Problem → Users → Features&Goals → Requirements → Scope&Assumptions → CUJs → AcceptanceCriteria
+8 phases in `types.go:14–61`: Vision → Problem → Users → Features&Goals → CUJs → Requirements → Scope&Assumptions → AcceptanceCriteria
 
 ### 2.2 Orchestrator lifecycle
 

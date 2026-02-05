@@ -93,7 +93,7 @@ flowchart TD
    - Emits `EventInitiativeCreated` on the event spine.
 
 2. **Arbiter Spec Sprint** (`internal/gurgeh/arbiter/orchestrator.go`)
-   - Eight-phase propose-first flow: Vision → Problem → Users → Features/Goals → Requirements → Scope/Assumptions → CUJs → Acceptance Criteria.
+   - Eight-phase propose-first flow: Vision → Problem → Users → Features/Goals → CUJs → Requirements → Scope/Assumptions → Acceptance Criteria.
    - Replaces the legacy interview state machine.
    - Each phase produces a `SectionDraft` with 2–3 alternative phrasings (`Options`).
    - User can `AcceptDraft()` or `ReviseDraft()` with tracked edit history.

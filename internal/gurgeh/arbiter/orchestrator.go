@@ -414,9 +414,10 @@ func (o *Orchestrator) extractPhaseContent(result map[string]any, phase Phase) s
 
 // shouldUseDynamicGeneration returns true for phases that need Claude Code
 // to generate content dynamically based on prior context (not from initial exploration).
+// These are phases after FeaturesGoals that build on earlier accepted content.
 func (o *Orchestrator) shouldUseDynamicGeneration(phase Phase) bool {
 	switch phase {
-	case PhaseRequirements, PhaseScopeAssumptions, PhaseCUJs, PhaseAcceptanceCriteria:
+	case PhaseCUJs, PhaseRequirements, PhaseScopeAssumptions, PhaseAcceptanceCriteria:
 		return true
 	default:
 		return false

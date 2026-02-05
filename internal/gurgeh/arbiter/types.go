@@ -18,9 +18,9 @@ const (
 	PhaseProblem
 	PhaseUsers
 	PhaseFeaturesGoals
-	PhaseRequirements
+	PhaseCUJs             // Moved up: user journeys flow from users + features
+	PhaseRequirements     // Requirements derived from CUJs
 	PhaseScopeAssumptions
-	PhaseCUJs
 	PhaseAcceptanceCriteria
 )
 
@@ -34,9 +34,9 @@ func AllPhases() []Phase {
 		PhaseProblem,
 		PhaseUsers,
 		PhaseFeaturesGoals,
-		PhaseRequirements,
+		PhaseCUJs,             // User journeys flow from users + features
+		PhaseRequirements,     // Requirements derived from CUJs
 		PhaseScopeAssumptions,
-		PhaseCUJs,
 		PhaseAcceptanceCriteria,
 	}
 }
@@ -48,9 +48,9 @@ func (p Phase) String() string {
 		"Problem",
 		"Users",
 		"Features + Goals",
+		"Critical User Journeys",
 		"Requirements",
 		"Scope + Assumptions",
-		"Critical User Journeys",
 		"Acceptance Criteria",
 	}
 	if p >= 0 && int(p) < len(names) {

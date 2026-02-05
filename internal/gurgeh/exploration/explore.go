@@ -111,7 +111,7 @@ func GeneratePhase(ctx context.Context, cwd string, phase string, priorContext m
 
 	// Build context from prior phases
 	var contextParts []string
-	phaseOrder := []string{"vision", "problem", "users", "features", "ux", "tech", "risks", "mvp"}
+	phaseOrder := []string{"vision", "problem", "users", "features", "cujs", "requirements", "scope", "acceptance"}
 	for _, p := range phaseOrder {
 		if content, ok := priorContext[p]; ok && content != "" {
 			contextParts = append(contextParts, fmt.Sprintf("## %s\n%s", strings.Title(p), content))
@@ -301,7 +301,7 @@ func PropagateChanges(ctx context.Context, cwd string, currentPhases map[string]
 	defer cancel()
 
 	// Build the current spec state
-	phaseOrder := []string{"vision", "problem", "users", "features", "requirements", "scope", "cujs", "acceptance"}
+	phaseOrder := []string{"vision", "problem", "users", "features", "cujs", "requirements", "scope", "acceptance"}
 	var specParts []string
 	for _, p := range phaseOrder {
 		if content, ok := currentPhases[p]; ok && content != "" {

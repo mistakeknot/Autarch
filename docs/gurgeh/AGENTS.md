@@ -95,7 +95,7 @@ The Arbiter manages guided PRD creation through sprint state, consistency checki
 ### Sprint State Machine
 
 ```
-Phase flow: Vision → Problem → Users → Features+Goals → Requirements → Scope+Assumptions → CUJs → Acceptance Criteria
+Phase flow: Vision → Problem → Users → Features+Goals → CUJs → Requirements → Scope+Assumptions → Acceptance Criteria
 ```
 
 | Type | Description |
