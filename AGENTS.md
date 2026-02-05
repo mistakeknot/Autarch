@@ -85,6 +85,8 @@ go mod tidy
 - Deterministic tech stack detection with verbatim evidence
 - **Unified TUI access:** `autarch tui` as single entry point with `--tool` flag for direct tab access
 - **Inline mode:** `--inline` flag preserves terminal scrollback with log pane
+- **Sprint persistence:** Auto-save and resume interrupted sprints (state saved to `.gurgeh/sprints/`)
+- **Doc panel scrolling:** PgUp/PgDn scroll doc panel while chat is focused
 
 ### In Progress
 - Bigend TUI mode
@@ -225,6 +227,8 @@ When adding or editing shortcuts, review
 | `Ctrl+A` | Accept (context-dependent) |
 | `Ctrl+X` | Delete (context-dependent) |
 | `Ctrl+S` | Scan (in kickoff) |
+| `PgUp` / `Ctrl+↑` | Scroll doc panel up (works from chat) |
+| `PgDn` / `Ctrl+↓` | Scroll doc panel down (works from chat) |
 
 ### Slash Commands (Fuzzy Finder)
 
@@ -521,6 +525,21 @@ Low-confidence proposals show warnings but don't block. Users can refine or acce
 | `internal/gurgeh/specs/diff.go` | Structured spec diff between versions |
 | `internal/gurgeh/prioritize/ranker.go` | Agent-powered feature ranking |
 | `internal/gurgeh/tui/sprint.go` | Bubble Tea sprint TUI view |
+
+### Sprint Persistence
+
+Sprints auto-save after each phase transition. Resume interrupted sprints:
+
+```bash
+# List in-progress sprints
+ls .gurgeh/sprints/
+
+# Resume via TUI (select from list)
+./dev autarch tui --tool=gurgeh
+# → Shows "Resume Sprint" option if in-progress sprints exist
+```
+
+State is saved to `.gurgeh/sprints/<sprint-id>.json` with all phase content, exploration cache, and current phase pointer.
 
 ### CLI Commands
 
