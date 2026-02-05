@@ -84,6 +84,38 @@ func (o *Orchestrator) State() (SprintState, bool) {
 	return o.state.Clone(), true
 }
 
+// Resume loads a previously saved sprint from disk.
+// Returns an error if the sprint doesn't exist or can't be loaded.
+func (o *Orchestrator) Resume(sprintID string) (*SprintState, error) {
+	state, err := LoadSprintState(o.projectPath, sprintID)
+	if err != nil {
+		return nil, err
+	}
+
+	o.mu.Lock()
+	o.state = state
+	o.mu.Unlock()
+
+	clone := state.Clone()
+	return &clone, nil
+}
+
+// ListSprints returns all sprint IDs for this project.
+func (o *Orchestrator) ListSprints() ([]string, error) {
+	return ListSprints(o.projectPath)
+}
+
+// save persists the current sprint state to disk (internal helper).
+// Caller must hold o.mu lock.
+func (o *Orchestrator) saveLocked() {
+	if o.state == nil {
+		return
+	}
+	if err := SaveSprintState(o.state); err != nil {
+		fmt.Fprintf(os.Stderr, "warning: failed to save sprint state: %v\n", err)
+	}
+}
+
 // Start initializes a new sprint and generates the Problem draft.
 // If a ResearchProvider is configured, it also creates an Intermute Spec
 // to track research findings for this sprint.
@@ -119,6 +151,7 @@ func (o *Orchestrator) Start(ctx context.Context, userInput string) (*SprintStat
 
 	o.mu.Lock()
 	o.state = state
+	o.saveLocked()
 	o.mu.Unlock()
 
 	clone := state.Clone()
@@ -158,6 +191,7 @@ func (o *Orchestrator) StartWithScan(ctx context.Context, userInput string, arti
 		}
 		o.state.Sections[phase] = draft
 	}
+	o.saveLocked()
 	clone := o.state.Clone()
 	o.mu.Unlock()
 
@@ -171,6 +205,7 @@ func (o *Orchestrator) SetExplorationResult(result map[string]any) {
 	defer o.mu.Unlock()
 	if o.state != nil {
 		o.state.ExplorationResult = result
+		o.saveLocked()
 	}
 }
 
@@ -822,6 +857,7 @@ func (o *Orchestrator) ProcessChatMessage(ctx context.Context, msg string) <-cha
 		if o.state != nil {
 			o.state.Sections[phase] = draft
 			o.state.UpdatedAt = time.Now()
+			o.saveLocked()
 		}
 		o.mu.Unlock()
 
@@ -863,6 +899,7 @@ func (o *Orchestrator) ChatAcceptDraft(ctx context.Context) error {
 	defer o.mu.Unlock()
 	if updated != nil {
 		o.state = updated
+		o.saveLocked()
 	}
 	return err
 }
@@ -892,6 +929,7 @@ func (o *Orchestrator) ChatReviseDraft(feedback string) error {
 	section.Status = DraftNeedsRevision
 	section.UpdatedAt = time.Now()
 	o.state.UpdatedAt = time.Now()
+	o.saveLocked()
 
 	return nil
 }

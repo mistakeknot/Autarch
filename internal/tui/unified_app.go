@@ -686,27 +686,42 @@ func (a *UnifiedApp) handleProjectCreated(msg ProjectCreatedMsg) tea.Cmd {
 			})
 		}
 
-		// Start the sprint, seeding with scan artifacts and exploration results
+		// Check for existing sprints to resume
 		var startCmd tea.Cmd
-		if msg.ScanResult != nil {
-			// Prefer the full method with exploration results for instant phase transitions
-			if starter, ok := a.currentView.(interface {
-				StartSprintWithExploration(string, *scan.Artifacts, map[string]any) tea.Cmd
-			}); ok {
-				startCmd = starter.StartSprintWithExploration(
-					msg.Description,
-					scanResultToArtifacts(msg.ScanResult),
-					msg.ScanResult.ExplorationResult,
-				)
-			} else if starter, ok := a.currentView.(interface {
-				StartSprintWithScan(string, *scan.Artifacts) tea.Cmd
-			}); ok {
-				startCmd = starter.StartSprintWithScan(msg.Description, scanResultToArtifacts(msg.ScanResult))
+		if lister, ok := a.currentView.(interface{ ListSprints() ([]string, error) }); ok {
+			if ids, err := lister.ListSprints(); err == nil && len(ids) > 0 {
+				// Resume the most recent sprint (IDs are sorted by list order)
+				// Use the last one as it's typically most recent
+				mostRecent := ids[len(ids)-1]
+				if resumer, ok := a.currentView.(interface{ ResumeSprint(string) tea.Cmd }); ok {
+					startCmd = resumer.ResumeSprint(mostRecent)
+					slog.Info("resuming sprint", "id", mostRecent)
+				}
 			}
 		}
+
+		// If no existing sprint to resume, start a new one
 		if startCmd == nil {
-			if starter, ok := a.currentView.(SprintStarter); ok {
-				startCmd = starter.StartSprint(msg.Description)
+			if msg.ScanResult != nil {
+				// Prefer the full method with exploration results for instant phase transitions
+				if starter, ok := a.currentView.(interface {
+					StartSprintWithExploration(string, *scan.Artifacts, map[string]any) tea.Cmd
+				}); ok {
+					startCmd = starter.StartSprintWithExploration(
+						msg.Description,
+						scanResultToArtifacts(msg.ScanResult),
+						msg.ScanResult.ExplorationResult,
+					)
+				} else if starter, ok := a.currentView.(interface {
+					StartSprintWithScan(string, *scan.Artifacts) tea.Cmd
+				}); ok {
+					startCmd = starter.StartSprintWithScan(msg.Description, scanResultToArtifacts(msg.ScanResult))
+				}
+			}
+			if startCmd == nil {
+				if starter, ok := a.currentView.(SprintStarter); ok {
+					startCmd = starter.StartSprint(msg.Description)
+				}
 			}
 		}
 

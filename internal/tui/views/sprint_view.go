@@ -128,6 +128,26 @@ func (v *SprintView) StartSprintWithExploration(userInput string, artifacts *sca
 	}
 }
 
+// ResumeSprint loads a previously saved sprint from disk.
+func (v *SprintView) ResumeSprint(sprintID string) tea.Cmd {
+	return func() tea.Msg {
+		_, err := v.orch.Resume(sprintID)
+		if err != nil {
+			return tui.GenerationErrorMsg{What: "resume", Error: err}
+		}
+		state, _ := v.orch.State()
+		return tui.SprintDraftUpdatedMsg{
+			Phase:   state.Phase.String(),
+			Content: state.Sections[state.Phase].Content,
+		}
+	}
+}
+
+// ListSprints returns all sprint IDs for this project.
+func (v *SprintView) ListSprints() ([]string, error) {
+	return v.orch.ListSprints()
+}
+
 // Init implements View.
 func (v *SprintView) Init() tea.Cmd {
 	v.shell.SetFocus(pkgtui.FocusChat)
