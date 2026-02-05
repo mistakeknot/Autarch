@@ -4,12 +4,15 @@ Unified monorepo for AI agent development tools: Bigend, Gurgeh, Coldwine, and P
 
 ## Quick Reference
 
-| Tool | Purpose | Entry Point | Docs |
-|------|---------|-------------|------|
-| **Bigend** | Multi-project agent mission control (web + TUI) | `./dev bigend` | [docs/bigend/](docs/bigend/AGENTS.md) |
-| **Gurgeh** | TUI-first PRD generation and validation | `./dev gurgeh` | [docs/gurgeh/](docs/gurgeh/AGENTS.md) |
-| **Coldwine** | Task orchestration for human-AI collaboration | `./dev coldwine` | [docs/coldwine/](docs/coldwine/AGENTS.md) |
-| **Pollard** | Continuous research intelligence (hunters + reports) | `go run ./cmd/pollard` | [docs/pollard/](docs/pollard/AGENTS.md) |
+| Tool | Purpose | CLI | Docs |
+|------|---------|-----|------|
+| **Autarch** | Unified TUI (all tools in tabs) | `./dev autarch tui` | This file |
+| **Bigend** | Multi-project agent mission control | `./dev bigend` (web) | [docs/bigend/](docs/bigend/AGENTS.md) |
+| **Gurgeh** | PRD generation and validation | `./dev gurgeh list` (CLI) | [docs/gurgeh/](docs/gurgeh/AGENTS.md) |
+| **Coldwine** | Task orchestration | `./dev coldwine status` (CLI) | [docs/coldwine/](docs/coldwine/AGENTS.md) |
+| **Pollard** | Research intelligence (hunters + reports) | `./dev pollard scan` (CLI) | [docs/pollard/](docs/pollard/AGENTS.md) |
+
+**Recommended:** Use `./dev autarch tui` for all TUI access. Standalone TUI modes are deprecated.
 
 | Item | Value |
 |------|-------|
@@ -80,6 +83,8 @@ go mod tidy
 - Chat-focused TUI with Ctrl+ keybindings (no single-letter shortcuts)
 - Slash commands with fuzzy finder (`/` opens picker)
 - Deterministic tech stack detection with verbatim evidence
+- **Unified TUI access:** `autarch tui` as single entry point with `--tool` flag for direct tab access
+- **Inline mode:** `--inline` flag preserves terminal scrollback with log pane
 
 ### In Progress
 - Bigend TUI mode
@@ -142,16 +147,25 @@ See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for full directory structure.
 # Build all
 go build ./cmd/...
 
-# Build and run individual tools
-./dev bigend           # Web mode
-./dev bigend --tui     # TUI mode
-./dev gurgeh           # TUI mode
-./dev coldwine         # TUI mode
+# Unified TUI (recommended)
+./dev autarch tui                    # Full onboarding flow
+./dev autarch tui --skip-onboard     # Direct to dashboard
+./dev autarch tui --tool=gurgeh      # Jump to specific tab
+./dev autarch tui --inline           # Inline mode (preserves scrollback)
+
+# Standalone CLI (no TUI)
+./dev gurgeh list                    # List specs
+./dev gurgeh export PRD-001          # Export spec
+./dev coldwine status                # Task status
+./dev bigend                         # Web server
+./dev pollard scan                   # Run research
 
 # Test
 go test ./...
 go test ./internal/<pkg> -v  # Specific package
 ```
+
+**Note:** Standalone TUI modes (`./dev gurgeh`, `./dev coldwine`, `./dev bigend --tui`) are deprecated. Use `autarch tui --tool=X` instead.
 
 ### Plan Status Hook
 
