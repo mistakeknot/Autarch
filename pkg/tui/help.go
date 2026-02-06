@@ -46,6 +46,7 @@ func commonBindings(keys CommonKeys) []HelpBinding {
 		HelpBindingFromKey(keys.Refresh),
 		HelpBindingFromKey(keys.TabCycle),
 		HelpBindingFromKey(keys.Select),
+		{Key: "ctrl+l", Description: "Toggle log pane"},
 	}
 	return bindings
 }

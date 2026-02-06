@@ -11,7 +11,7 @@ Simplify Autarch TUI navigation by always showing tool tabs and removing the sep
 ## Goals
 
 1. Always-visible tabs for the 4 core tools (Bigend, Gurgeh, Coldwine, Pollard)
-2. Direct keybindings (`Ctrl+1-4`) for instant tab switching
+2. Slash commands (`/big`, `/gur`, `/cold`, `/pol`) for instant tab switching
 3. Slash commands (`/bigend`, `/gurgeh`, etc.) for discoverability
 4. Move Signals from a tab to an overlay (accessible via `Ctrl+Shift+S` or `/signals`)
 5. Eliminate `ModeOnboarding`/`ModeDashboard` distinction — Gurgeh manages its own internal flow
@@ -49,15 +49,17 @@ Simplify Autarch TUI navigation by always showing tool tabs and removing the sep
 
 | Key | Action |
 |-----|--------|
-| `Ctrl+1` | Switch to Bigend |
-| `Ctrl+2` | Switch to Gurgeh |
-| `Ctrl+3` | Switch to Coldwine |
-| `Ctrl+4` | Switch to Pollard |
-| `Ctrl+Shift+S` | Toggle Signals overlay |
+| `/bigend` (`/big`) | Switch to Bigend |
+| `/gurgeh` (`/gur`) | Switch to Gurgeh |
+| `/coldwine` (`/cold`) | Switch to Coldwine |
+| `/pollard` (`/pol`) | Switch to Pollard |
+| `/signals` (`/sig`) | Toggle Signals overlay |
+| `Ctrl+Left/Right` | Cycle tabs |
 
-> **Conflict resolved:** `Ctrl+1/2/3` was previously used by the Arbiter view for selecting
-> alternative proposals, but this was removed (redundant with `/1`, `/2`, `/3` slash commands
-> and `up/down` + `enter` navigation). `Ctrl+N` is the familiar browser/IDE pattern.
+> **Note:** Direct keybindings (Ctrl+N, Alt+N) were explored but dropped due to Bubble Tea v1
+> limitations — Ctrl+number has no standard terminal encoding, and Alt+number requires
+> per-terminal configuration (macOS Option-as-Alt, tmux escape-time). Slash commands are
+> portable and discoverable.
 
 **Existing (unchanged):**
 
@@ -135,7 +137,7 @@ Thorough review of the codebase uncovered several issues with the original flat 
 for selecting alternative proposals during sprint phases.
 
 **Resolution:** Removed `Ctrl+1-3` from ArbiterView. These were redundant with `/1`, `/2`, `/3`
-slash commands and `up/down` + `enter` navigation. This frees `Ctrl+1-4` for tab switching.
+slash commands and `up/down` + `enter` navigation.
 
 ### Finding 2: Slash Command Alias Collisions
 
@@ -183,7 +185,7 @@ Given the review findings, implementation is split into three phases to reduce r
 
 **Changes:**
 - Show tab bar in both `ModeOnboarding` and `ModeDashboard` (change View() rendering only)
-- Add `Ctrl+1-4` keybindings for direct tab switching
+- Add slash command handlers for tab switching (`/bigend`, `/gurgeh`, `/coldwine`, `/pollard`)
 - Add `/bigend`, `/gurgeh`, `/coldwine`, `/pollard`, `/signals` slash commands
 - Tab switching during onboarding exits onboarding and enters dashboard for the selected tool
 - Palette (`Ctrl+P`) works in onboarding mode too (currently gated to `ModeDashboard`)
@@ -193,7 +195,7 @@ Given the review findings, implementation is split into three phases to reduce r
 
 | File | Changes |
 |------|---------|
-| `internal/tui/unified_app.go` | Always render tabs in `View()`; add `Ctrl+1-4` tab handlers; allow palette in onboarding; handle tab-switch-during-onboarding; remove Signals from tab list |
+| `internal/tui/unified_app.go` | Always render tabs in `View()`; add slash command tab handlers; allow palette in onboarding; handle tab-switch-during-onboarding; remove Signals from tab list |
 | `pkg/tui/command_picker.go` | Add tool-switching slash commands to `GlobalCommands()` |
 | `cmd/autarch/main.go` | Remove SignalsView from dashboard views factory; update `--tool` flag docs |
 
@@ -250,7 +252,7 @@ view that manages kickoff → sprint → spec → epics → tasks internally.
 |----------|--------|-----------|
 | Tab count | 4 (not 5) | Signals is infrastructure, not a workspace |
 | Signals access | Overlay (Phase 3) | Keeps tabs focused on tools users work *in* |
-| Direct keybindings | `Ctrl+1-4` | Familiar browser/IDE pattern; Arbiter `Ctrl+1-3` conflict resolved by removal |
+| Slash commands | `/big`, `/gur`, `/cold`, `/pol` | Portable across all terminals; discoverable via command picker; no modifier key issues |
 | Slash aliases | 3-letter (`/big`, `/gur`) | Single-letter aliases collide with `/back`, `/palette`, `/group` |
 | Onboarding mode | Removed in Phase 2 | Gurgeh manages its own flow; simpler mental model |
 | Implementation | 3 phases | Phase 1 is low-risk and delivers most UX value immediately |

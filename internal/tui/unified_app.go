@@ -82,9 +82,10 @@ type UnifiedApp struct {
 	chatSettingsOpen bool
 	chatSettingsView *pkgtui.ChatSettingsPanel
 
-	// Inline mode (log pane)
-	logPane     *pkgtui.LogPane
-	showLogPane bool
+	// Log pane (always created, toggled with Ctrl+L)
+	logPane          *pkgtui.LogPane
+	logPaneVisible   bool // toggled by Ctrl+L or /logs
+	logPaneAutoShown bool // true when auto-shown by scan (for auto-hide)
 
 	// Initial tab to jump to when entering dashboard
 	initialTab string
@@ -115,6 +116,7 @@ func NewUnifiedApp(client *autarch.Client) *UnifiedApp {
 		breadcrumb:      breadcrumb,
 		tabs:            NewTabBar(tabNames),
 		palette:         NewPalette(),
+		logPane:         pkgtui.NewLogPane(),
 		researchCoord:   research.NewCoordinator(nil),
 		ctx:             ctx,
 		cancel:          cancel,
@@ -125,15 +127,14 @@ func NewUnifiedApp(client *autarch.Client) *UnifiedApp {
 	return app
 }
 
-// SetInlineMode enables inline mode with a log pane at the bottom.
+// SetInlineMode enables inline mode (log pane visible by default).
 func (a *UnifiedApp) SetInlineMode(enabled bool) {
-	a.showLogPane = enabled
 	if enabled {
-		a.logPane = pkgtui.NewLogPane()
+		a.logPaneVisible = true
 	}
 }
 
-// LogPane returns the log pane (nil if not in inline mode).
+// LogPane returns the log pane.
 func (a *UnifiedApp) LogPane() *pkgtui.LogPane {
 	return a.logPane
 }
@@ -322,8 +323,8 @@ func (a *UnifiedApp) Init() tea.Cmd {
 
 // Update implements tea.Model
 func (a *UnifiedApp) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
-	// Route log batches to pane before other handling
-	if batch, ok := msg.(pkgtui.LogBatchMsg); ok && a.logPane != nil {
+	// Route log batches to pane (always active, accumulates regardless of visibility)
+	if batch, ok := msg.(pkgtui.LogBatchMsg); ok {
 		cmd := a.logPane.Update(batch)
 		return a, cmd
 	}
@@ -335,16 +336,19 @@ func (a *UnifiedApp) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		a.tabs.SetWidth(msg.Width)
 		a.palette.SetSize(msg.Width, msg.Height)
 
-		// Size log pane if in inline mode
+		// Always size the log pane (so it's ready when toggled visible)
 		logPaneHeight := 0
-		if a.logPane != nil {
+		a.logPane.SetSize(msg.Width, 10)
+		if a.logPaneVisible {
 			logPaneHeight = 10
-			a.logPane.SetSize(msg.Width, logPaneHeight)
 		}
 
 		// Pass reduced size to current view (account for header + footer + log pane)
 		if a.currentView != nil {
 			headerHeight := 3
+			if a.mode == ModeOnboarding {
+				headerHeight = 4
+			}
 			footerHeight := 3
 			contentMsg := tea.WindowSizeMsg{
 				Width:  msg.Width,
@@ -406,6 +410,10 @@ func (a *UnifiedApp) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "signals", "sig":
 			// Signals overlay (Phase 3) - no-op for now
 			return a, nil
+		case "logs", "log", "l":
+			a.logPaneVisible = !a.logPaneVisible
+			a.logPaneAutoShown = false
+			return a, a.sendWindowSize()
 		}
 		// Pass unknown commands to view-specific handler
 		if handler, ok := a.currentView.(slashCommandHandler); ok {
@@ -492,20 +500,16 @@ func (a *UnifiedApp) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "ctrl+,":
 			a.openChatSettings()
 			return a, nil
+		case "ctrl+l":
+			a.logPaneVisible = !a.logPaneVisible
+			a.logPaneAutoShown = false
+			return a, a.sendWindowSize()
 		case "ctrl+u":
 			return a, a.revertLastRun()
 		}
 
 		// Handle tab switching (works in both modes)
 		switch {
-		case msg.String() == "ctrl+1":
-			return a, a.switchToTab(0)
-		case msg.String() == "ctrl+2":
-			return a, a.switchToTab(1)
-		case msg.String() == "ctrl+3":
-			return a, a.switchToTab(2)
-		case msg.String() == "ctrl+4":
-			return a, a.switchToTab(3)
 		case msg.String() == "ctrl+left" || msg.String() == "ctrl+pgup":
 			return a, a.switchToTab((a.tabs.Active() - 1 + len(a.tabs.TabNames())) % len(a.tabs.TabNames()))
 		case msg.String() == "ctrl+right" || msg.String() == "ctrl+pgdown":
@@ -636,7 +640,21 @@ func (a *UnifiedApp) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case ScanCodebaseMsg:
 		return a, a.scanCodebase(msg.Path)
 
+	case logPaneAutoHideMsg:
+		if a.logPaneAutoShown {
+			a.logPaneVisible = false
+			a.logPaneAutoShown = false
+		}
+		return a, nil
+
 	case CodebaseScanResultMsg:
+		// Auto-hide log pane after scan completes (3s delay)
+		var autoHideCmd tea.Cmd
+		if a.logPaneAutoShown {
+			autoHideCmd = tea.Tick(3*time.Second, func(time.Time) tea.Msg {
+				return logPaneAutoHideMsg{}
+			})
+		}
 		// Pass to kickoff view - it will handle the result
 		if a.mode == ModeOnboarding {
 			if len(msg.ValidationErrors) == 0 {
@@ -644,8 +662,22 @@ func (a *UnifiedApp) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				a.breadcrumb.SetCurrent(OnboardingInterview)
 			}
 		}
+		// Fall through to pass to currentView, but also schedule auto-hide
+		if autoHideCmd != nil {
+			if a.currentView != nil {
+				var cmd tea.Cmd
+				a.currentView, cmd = a.currentView.Update(msg)
+				return a, tea.Batch(cmd, autoHideCmd)
+			}
+			return a, autoHideCmd
+		}
 
 	case scanProgressWithContinuation:
+		// Auto-show log pane during scan
+		if !a.logPaneVisible {
+			a.logPaneVisible = true
+			a.logPaneAutoShown = true
+		}
 		// Forward progress to current view and schedule next read
 		if a.currentView != nil {
 			var cmd tea.Cmd
@@ -1183,6 +1215,9 @@ type scanProgressWithContinuation struct {
 	ScanProgressMsg
 	nextCmd tea.Cmd
 }
+
+// logPaneAutoHideMsg is sent after a timer to auto-hide the log pane.
+type logPaneAutoHideMsg struct{}
 
 func (a *UnifiedApp) captureRunSnapshot() {
 	a.lastRunLabel = ""
@@ -1863,10 +1898,16 @@ func (a *UnifiedApp) View() string {
 	}
 
 	// Calculate heights
-	headerHeight := 3 // Header with padding
+	// Header: Padding(1,3) = 2 rows padding + content rows
+	// In onboarding mode, header has tabs + breadcrumb (2 content lines → height 4)
+	// In dashboard mode, header has tabs only (1 content line → height 3)
+	headerHeight := 3
+	if a.mode == ModeOnboarding {
+		headerHeight = 4
+	}
 	footerHeight := 3 // Footer with padding
 	logPaneHeight := 0
-	if a.showLogPane && a.logPane != nil {
+	if a.logPaneVisible {
 		logPaneHeight = 10
 	}
 	contentHeight := a.height - headerHeight - footerHeight - logPaneHeight
@@ -1889,9 +1930,9 @@ func (a *UnifiedApp) View() string {
 		content = a.currentView.View()
 	}
 
-	// Apply content styling with padding
+	// Apply content styling with padding (use ColorBgDark for uniform background)
 	contentStyle := lipgloss.NewStyle().
-		Background(pkgtui.ColorBg).
+		Background(pkgtui.ColorBgDark).
 		Foreground(pkgtui.ColorFg).
 		Padding(1, 3).
 		Width(a.width).
@@ -1899,9 +1940,9 @@ func (a *UnifiedApp) View() string {
 
 	contentRendered := contentStyle.Render(content)
 
-	// Log pane (if inline mode)
+	// Log pane (visible when toggled or auto-shown)
 	var logPaneRendered string
-	if a.showLogPane && a.logPane != nil {
+	if a.logPaneVisible {
 		logPaneRendered = a.logPane.View()
 	}
 
@@ -1962,7 +2003,7 @@ func (a *UnifiedApp) renderFooterContent() string {
 	if a.mode == ModeOnboarding && a.breadcrumb.IsNavigating() {
 		help = "←/→ navigate  enter select  esc cancel  ctrl+, settings  /help  ctrl+g model"
 	} else {
-		help += "  │  ctrl+1-4 tabs  ctrl+p palette  ctrl+, settings  /help  ctrl+c×2 quit"
+		help += "  │  /big /gur /cold /pol  ctrl+l logs  ctrl+p palette  ctrl+, settings  /help  ctrl+c×2 quit"
 	}
 
 	return help
@@ -2015,11 +2056,12 @@ func (a *UnifiedApp) renderHelpOverlay() string {
 	globalBindings := []HelpBinding{
 		{Key: "?", Description: "Show this help"},
 		{Key: "ctrl+c", Description: "Quit"},
-		{Key: "ctrl+1-4", Description: "Switch tabs (Bigend/Gurgeh/Coldwine/Pollard)"},
+		{Key: "/big /gur etc.", Description: "Switch tabs (Bigend/Gurgeh/Coldwine/Pollard)"},
 		{Key: "ctrl+left/right", Description: "Cycle tabs"},
 		{Key: "ctrl+p", Description: "Command palette"},
 		{Key: "ctrl+g", Description: "Agent selector"},
 		{Key: "/bigend, etc.", Description: "Switch to tool by name"},
+		{Key: "ctrl+l", Description: "Toggle log pane"},
 	}
 	if a.mode == ModeOnboarding {
 		globalBindings = append(globalBindings,
@@ -2130,23 +2172,18 @@ func RunUnifiedWithOpts(client *autarch.Client, app *UnifiedApp, opts RunOpts) e
 
 	p := tea.NewProgram(app, progOpts...)
 
-	// Set up log handler for inline mode
-	var handler *pkgtui.LogHandler
-	if opts.InlineMode {
-		handler = pkgtui.NewLogHandler(slog.LevelDebug)
-		handler.SetProgram(p)
-		slog.SetDefault(slog.New(handler))
-	}
+	// Always create log handler so slog messages route to the log pane
+	handler := pkgtui.NewLogHandler(slog.LevelDebug)
+	handler.SetProgram(p)
+	slog.SetDefault(slog.New(handler))
 
 	_, err := p.Run()
 
 	// Cleanup
-	if handler != nil {
-		handler.Close()
-	}
+	handler.Close()
 
-	// Dump logs for scrollback
-	if opts.InlineMode && app.LogPane() != nil {
+	// Dump logs for scrollback (inline mode only — alt-screen is gone)
+	if opts.InlineMode {
 		fmt.Println("\n--- Log History ---")
 		for _, e := range app.LogPane().Entries() {
 			fmt.Printf("[%s] %s: %s\n", e.Time.Format("15:04:05"), e.Level, e.Message)

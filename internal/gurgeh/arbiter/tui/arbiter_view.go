@@ -68,6 +68,7 @@ func NewArbiterView(projectPath string, coordinator *research.Coordinator) *Arbi
 	chatPanel.SetComposerTitle("Chat")
 	chatPanel.SetComposerHint("enter send · ctrl+a accept · ctrl+e edit · /1 /2 /3 alternatives")
 	chatPanel.SetComposerPlaceholder("Type to revise the draft...")
+	chatPanel.SetViewCommands(pkgtui.SprintCommands())
 
 	docPanel := pkgtui.NewDocPanel()
 
@@ -433,7 +434,7 @@ func (v *ArbiterView) ShortHelp() string {
 	if v.handoffMode {
 		return "↑/↓ navigate  enter select  esc back"
 	}
-	return "ctrl+a accept  ctrl+e edit  /1 /2 /3 alternatives  enter submit  esc cancel"
+	return "/vision /problem etc. navigate  ctrl+a accept  ctrl+e edit  /1 /2 /3 alternatives"
 }
 
 // ClearInput clears the chat composer (for ctrl+c soft cancel)
@@ -458,6 +459,35 @@ func (v *ArbiterView) HandleSlashCommand(command string, args []string) tea.Cmd 
 		v.selectOption(1)
 	case "3":
 		v.selectOption(2)
+	// Phase navigation
+	case "vision", "vis":
+		return v.jumpToPhase(arbiter.PhaseVision)
+	case "problem", "prob":
+		return v.jumpToPhase(arbiter.PhaseProblem)
+	case "users", "usr":
+		return v.jumpToPhase(arbiter.PhaseUsers)
+	case "features", "feat":
+		return v.jumpToPhase(arbiter.PhaseFeaturesGoals)
+	case "cujs", "cuj":
+		return v.jumpToPhase(arbiter.PhaseCUJs)
+	case "reqs", "req":
+		return v.jumpToPhase(arbiter.PhaseRequirements)
+	case "scope", "scp":
+		return v.jumpToPhase(arbiter.PhaseScopeAssumptions)
+	case "acceptance", "ac":
+		return v.jumpToPhase(arbiter.PhaseAcceptanceCriteria)
 	}
+	return nil
+}
+
+// jumpToPhase switches the sprint view to the specified phase.
+func (v *ArbiterView) jumpToPhase(phase arbiter.Phase) tea.Cmd {
+	if v.state == nil || v.handoffMode {
+		return nil
+	}
+	v.state.Phase = phase
+	v.optionIndex = 0
+	v.updateDocPanel()
+	v.chatPanel.AddMessage("system", fmt.Sprintf("Jumped to %s", phase.String()))
 	return nil
 }

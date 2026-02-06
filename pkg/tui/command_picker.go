@@ -322,6 +322,7 @@ func GlobalCommands() []SlashCommandDef {
 		{Command: "coldwine", Aliases: []string{"cold"}, Description: "Switch to Coldwine", Category: "navigation"},
 		{Command: "pollard", Aliases: []string{"pol"}, Description: "Switch to Pollard", Category: "navigation"},
 		{Command: "signals", Aliases: []string{"sig"}, Description: "Toggle Signals overlay", Category: "navigation"},
+		{Command: "logs", Aliases: []string{"log", "l"}, Description: "Toggle log pane", Category: "global"},
 	}
 }
 
@@ -341,6 +342,15 @@ func SprintCommands() []SlashCommandDef {
 		{Command: "1", Description: "Select option 1", Category: "sprint"},
 		{Command: "2", Description: "Select option 2", Category: "sprint"},
 		{Command: "3", Description: "Select option 3", Category: "sprint"},
+		// Phase navigation
+		{Command: "vision", Aliases: []string{"vis"}, Description: "Jump to Vision", Category: "sprint"},
+		{Command: "problem", Aliases: []string{"prob"}, Description: "Jump to Problem", Category: "sprint"},
+		{Command: "users", Aliases: []string{"usr"}, Description: "Jump to Users", Category: "sprint"},
+		{Command: "features", Aliases: []string{"feat"}, Description: "Jump to Features + Goals", Category: "sprint"},
+		{Command: "cujs", Aliases: []string{"cuj"}, Description: "Jump to Critical User Journeys", Category: "sprint"},
+		{Command: "reqs", Aliases: []string{"req"}, Description: "Jump to Requirements", Category: "sprint"},
+		{Command: "scope", Aliases: []string{"scp"}, Description: "Jump to Scope + Assumptions", Category: "sprint"},
+		{Command: "acceptance", Aliases: []string{"ac"}, Description: "Jump to Acceptance Criteria", Category: "sprint"},
 	}
 }
 

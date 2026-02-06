@@ -12,8 +12,8 @@
 
 - Todo-tracked: 5
 - Derived evidence: 1
-- Commit evidence: 48
-- Preexisting paths (no git evidence): 2
+- Commit evidence: 49
+- Preexisting paths (no git evidence): 1
 - No evidence: 7
 
 ## Status Legend
@@ -51,9 +51,9 @@
 | 2026-01-23-vauxhall-grouping-plan.md | commit | paths:2 latest:2026-01-29 |
 | 2026-01-23-vauxhall-web-search-filters-plan.md | commit | paths:4 latest:2026-01-26 |
 | 2026-01-25-intermute-mvp-implementation-plan.md | commit | paths:16 latest:2026-01-26 |
-| 2026-01-26-arbiter-spec-sprint-implementation.md | commit | paths:9 latest:2026-02-04 |
+| 2026-01-26-arbiter-spec-sprint-implementation.md | commit | paths:9 latest:2026-02-05 |
 | 2026-01-26-feat-cursor-style-unified-shell-layout-plan.md | commit | paths:1 latest:2026-01-26 |
-| 2026-01-26-feat-pollard-first-class-research-input-plan.md | commit | paths:8 latest:2026-02-04 |
+| 2026-01-26-feat-pollard-first-class-research-input-plan.md | commit | paths:8 latest:2026-02-05 |
 | 2026-01-27-coordination-infrastructure-plan.md | todo:complete | 001-complete-p2-coordination-doc-updates.md |
 | 2026-01-27-feat-agent-runner-abstraction-plan.md | todo:complete | 004-complete-p2-coldwine-agent-runner-integration.md |
 | 2026-01-27-feat-unified-ui-grammar-plan.md | todo:pending | 005-pending-p2-unified-ui-grammar-migration.md |
@@ -74,8 +74,8 @@
 | 2026-01-29-scan-artifact-validation.md | commit | paths:14 latest:2026-01-29 |
 | 2026-01-29-scan-open-questions-ui.md | commit | paths:2 latest:2026-02-04 |
 | 2026-01-29-scan-signoff-breadcrumb-plan.md | commit | paths:4 latest:2026-02-05 |
-| 2026-01-29-scan-validation-wiring.md | commit | paths:3 latest:2026-02-04 |
-| 2026-01-29-structured-scan-output.md | commit | paths:3 latest:2026-02-04 |
+| 2026-01-29-scan-validation-wiring.md | commit | paths:3 latest:2026-02-05 |
+| 2026-01-29-structured-scan-output.md | commit | paths:3 latest:2026-02-05 |
 | 2026-01-30-chat-panel-mouse-scroll.md | commit | paths:2 latest:2026-02-04 |
 | 2026-01-30-coordination-reconciliation-plan.md | todo:ready | 007-ready-p1-coordination-reconciliation-mvp.md |
 | 2026-01-30-open-questions-chat-resolution.md | preexisting | paths:3 |
@@ -84,13 +84,13 @@
 | 2026-01-31-plan-status-precommit-hook.md | commit | paths:7 latest:2026-02-05 |
 | 2026-02-02-fix-kickoff-arbiter-transition-plan.md | none | no referenced paths found |
 | 2026-02-03-fix-sprint-completion-spec-summary-transition-plan.md | none | no referenced paths found |
-| 2026-02-04-feat-claude-code-style-codebase-scan-plan.md | commit | paths:1 latest:2026-02-04 |
+| 2026-02-04-feat-claude-code-style-codebase-scan-plan.md | commit | paths:1 latest:2026-02-05 |
 | 2026-02-04-feat-frankentui-inline-mode-log-pane-plan.md | none | no referenced paths found |
 | 2026-02-04-feat-gurgeh-self-hosting-claude-integration-plan.md | none | no referenced paths found |
 | 2026-02-04-feat-inline-mode-log-pane-simplified-plan.md | commit | paths:2 latest:2026-02-04 |
 | 2026-02-04-feat-iterative-codebase-exploration-plan.md | none | no referenced paths found |
 | 2026-02-05-acceptance-criteria-plan.md | commit | paths:1 latest:2026-02-05 |
-| 2026-02-05-perf-claude-session-reuse-token-efficiency-plan.md | preexisting | paths:1 |
+| 2026-02-05-perf-claude-session-reuse-token-efficiency-plan.md | commit | paths:1 latest:2026-02-05 |
 
 ## Derived Evidence Details
 

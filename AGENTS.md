@@ -93,7 +93,7 @@ go mod tidy
 - Bigend TUI mode
 - Intermute messaging (REST + WebSocket + embedded in-process; domain entities: Spec, Insight, CUJ, Epic, Session)
 - **Unified TUI navigation** ([plan](docs/plans/2026-02-05-unified-tui-navigation-design.md)): 3-phase plan
-  - Phase 1: Always-visible tabs (Bigend, Gurgeh, Coldwine, Pollard) + `Ctrl+1-4` + slash commands
+  - Phase 1: Always-visible tabs (Bigend, Gurgeh, Coldwine, Pollard) + slash commands (`/big`, `/gur`, `/cold`, `/pol`) + `Ctrl+Left/Right` cycling
   - Phase 2: Gurgeh absorbs onboarding flow (large refactor)
   - Phase 3: Signals overlay (`Ctrl+Shift+S`)
 

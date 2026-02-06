@@ -120,6 +120,11 @@ func (p *LogPane) View() string {
 	)
 }
 
+// Empty returns true when no log entries have been recorded yet.
+func (p *LogPane) Empty() bool {
+	return len(p.entries) == 0
+}
+
 // Entries returns all log entries for scrollback dump on exit.
 func (p *LogPane) Entries() []LogMsg {
 	return p.entries

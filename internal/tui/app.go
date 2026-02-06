@@ -24,8 +24,8 @@ type App struct {
 	err         error
 	keys        pkgtui.CommonKeys
 	help        pkgtui.HelpOverlay
-	logPane     *pkgtui.LogPane
-	showLogPane bool
+	logPane        *pkgtui.LogPane
+	logPaneVisible bool
 }
 
 // NewApp creates a new unified TUI app
@@ -40,6 +40,7 @@ func NewApp(client *autarch.Client, views ...View) *App {
 		tabs:    NewTabBar(names),
 		views:   views,
 		palette: NewPalette(),
+		logPane: pkgtui.NewLogPane(),
 		keys:    pkgtui.NewCommonKeys(),
 		help:    pkgtui.NewHelpOverlay(),
 	}
@@ -50,15 +51,14 @@ func NewApp(client *autarch.Client, views ...View) *App {
 	return app
 }
 
-// SetInlineMode enables inline mode with a log pane at the bottom.
+// SetInlineMode enables inline mode (log pane visible by default).
 func (a *App) SetInlineMode(enabled bool) {
-	a.showLogPane = enabled
 	if enabled {
-		a.logPane = pkgtui.NewLogPane()
+		a.logPaneVisible = true
 	}
 }
 
-// LogPane returns the log pane (nil if not in inline mode).
+// LogPane returns the log pane.
 func (a *App) LogPane() *pkgtui.LogPane {
 	return a.logPane
 }
@@ -145,8 +145,8 @@ func (a *App) Init() tea.Cmd {
 func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	var cmds []tea.Cmd
 
-	// Route log batches to pane before other handling
-	if batch, ok := msg.(pkgtui.LogBatchMsg); ok && a.logPane != nil {
+	// Route log batches to pane (always active, accumulates regardless of visibility)
+	if batch, ok := msg.(pkgtui.LogBatchMsg); ok {
 		cmd := a.logPane.Update(batch)
 		cmds = append(cmds, cmd)
 		return a, tea.Batch(cmds...)
@@ -159,11 +159,8 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		a.tabs.SetWidth(msg.Width)
 		a.palette.SetSize(msg.Width, msg.Height)
 
-		// Size log pane if in inline mode
-		if a.logPane != nil {
-			logHeight := 10 // Fixed height for log pane
-			a.logPane.SetSize(msg.Width, logHeight)
-		}
+		// Always size the log pane (so it's ready when toggled visible)
+		a.logPane.SetSize(msg.Width, 10)
 
 		// Pass size to active view
 		if len(a.views) > 0 {
@@ -199,16 +196,13 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 		switch msg.String() {
+		case "ctrl+l":
+			a.logPaneVisible = !a.logPaneVisible
+			return a, func() tea.Msg {
+				return tea.WindowSizeMsg{Width: a.width, Height: a.height}
+			}
 		case "ctrl+p":
 			return a, a.palette.Show()
-		case "ctrl+1":
-			return a, a.doSwitchTab(0)
-		case "ctrl+2":
-			return a, a.doSwitchTab(1)
-		case "ctrl+3":
-			return a, a.doSwitchTab(2)
-		case "ctrl+4":
-			return a, a.doSwitchTab(3)
 		default:
 			switch {
 			case msg.String() == "ctrl+left" || msg.String() == "ctrl+pgup":
@@ -279,7 +273,7 @@ func (a *App) View() string {
 
 	// Calculate content height (total - tabs - footer - log pane if visible)
 	logPaneHeight := 0
-	if a.showLogPane && a.logPane != nil {
+	if a.logPaneVisible {
 		logPaneHeight = 10
 	}
 	contentHeight := a.height - 4 - logPaneHeight
@@ -304,8 +298,8 @@ func (a *App) View() string {
 	b.WriteString(strings.Join(contentLines, "\n"))
 	b.WriteString("\n")
 
-	// Log pane (if inline mode)
-	if a.showLogPane && a.logPane != nil {
+	// Log pane (visible when toggled or auto-shown)
+	if a.logPaneVisible {
 		b.WriteString(a.logPane.View())
 		b.WriteString("\n")
 	}
@@ -338,7 +332,7 @@ func (a *App) helpExtras() []pkgtui.HelpBinding {
 
 func (a *App) renderFooter() string {
 	// Get help from active view
-	help := "ctrl+1-4 tabs  ctrl+left/right cycle  ctrl+p palette  F1 help  ctrl+c quit"
+	help := "/big /gur /cold /pol tabs  ctrl+l logs  ctrl+left/right cycle  ctrl+p palette  F1 help  ctrl+c quit"
 	if len(a.views) > 0 {
 		active := a.tabs.Active()
 		if active < len(a.views) {
@@ -436,23 +430,18 @@ func RunWithOpts(client *autarch.Client, opts RunOpts, views ...View) error {
 
 	p := tea.NewProgram(app, progOpts...)
 
-	// Set up log handler for inline mode
-	var handler *pkgtui.LogHandler
-	if opts.InlineMode {
-		handler = pkgtui.NewLogHandler(slog.LevelDebug)
-		handler.SetProgram(p)
-		slog.SetDefault(slog.New(handler))
-	}
+	// Always create log handler so slog messages route to the log pane
+	handler := pkgtui.NewLogHandler(slog.LevelDebug)
+	handler.SetProgram(p)
+	slog.SetDefault(slog.New(handler))
 
 	_, err := p.Run()
 
 	// Cleanup
-	if handler != nil {
-		handler.Close()
-	}
+	handler.Close()
 
-	// Dump logs for scrollback
-	if opts.InlineMode && app.LogPane() != nil {
+	// Dump logs for scrollback (inline mode only — alt-screen is gone)
+	if opts.InlineMode {
 		fmt.Println("\n--- Log History ---")
 		for _, e := range app.LogPane().Entries() {
 			fmt.Printf("[%s] %s: %s\n", e.Time.Format("15:04:05"), e.Level, e.Message)

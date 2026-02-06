@@ -89,19 +89,13 @@ New users start with the onboarding flow to create their first project.
 Use --skip-onboard to go directly to the dashboard.
 
 Navigation:
-  Ctrl+1-4       Switch between tabs (Bigend, Gurgeh, Coldwine, Pollard)
-  Ctrl+Left/Right  Cycle tabs
+  /big, /gur, etc  Switch between tabs (Bigend, Gurgeh, Coldwine, Pollard)
+  Ctrl+Left/Right   Cycle tabs
   Ctrl+P         Open command palette
   /bigend, etc.  Switch to tool by name (/big, /gur, /cold, /pol)
   ?              Show help
   Ctrl+C         Quit`,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			// Suppress logging in TUI mode
-			logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{
-				Level: slog.LevelError,
-			}))
-			slog.SetDefault(logger)
-
 			// Auto-setup on first run
 			if setup.NeedsSetup() {
 				fmt.Println("First run detected. Setting up Autarch...")
