@@ -1,4 +1,4 @@
-# Plan Status Report — 2026-02-05
+# Plan Status Report — 2026-02-06
 
 > Generated from todos, git history, and codebase evidence. Status labels are heuristics unless backed by a todo.
 
@@ -50,7 +50,7 @@
 | 2026-01-23-vauxhall-focus-pane-plan.md | commit | paths:2 latest:2026-01-29 |
 | 2026-01-23-vauxhall-grouping-plan.md | commit | paths:2 latest:2026-01-29 |
 | 2026-01-23-vauxhall-web-search-filters-plan.md | commit | paths:4 latest:2026-01-26 |
-| 2026-01-25-intermute-mvp-implementation-plan.md | commit | paths:16 latest:2026-01-26 |
+| 2026-01-25-intermute-mvp-implementation-plan.md | commit | paths:16 latest:2026-02-05 |
 | 2026-01-26-arbiter-spec-sprint-implementation.md | commit | paths:9 latest:2026-02-05 |
 | 2026-01-26-feat-cursor-style-unified-shell-layout-plan.md | commit | paths:1 latest:2026-01-26 |
 | 2026-01-26-feat-pollard-first-class-research-input-plan.md | commit | paths:8 latest:2026-02-05 |
@@ -62,7 +62,7 @@
 | 2026-01-28-agent-model-selector-implementation-plan.md | commit | paths:7 latest:2026-02-05 |
 | 2026-01-28-agent-panel-streaming-diff-plan.md | commit | paths:5 latest:2026-02-04 |
 | 2026-01-28-feat-coordination-api-foundation-plan.md | derived | pkg/httpapi/envelope.go, internal/pollard/server/server.go, pkg/jobs/jobs.go, internal/pollard/server/cache.go, pkg/netguard/bind.go, internal/gurgeh/server/server.go, internal/signals/cli/serve.go, pkg/signals/server.go |
-| 2026-01-28-feat-gurgeh-readonly-spec-api-plan.md | commit | paths:7 latest:2026-02-04 |
+| 2026-01-28-feat-gurgeh-readonly-spec-api-plan.md | commit | paths:7 latest:2026-02-05 |
 | 2026-01-28-fix-guardrails-followthrough-plan.md | commit | paths:6 latest:2026-01-30 |
 | 2026-01-28-hide-system-labels-chat-panel-plan.md | commit | paths:2 latest:2026-02-04 |
 | 2026-01-28-kickoff-chat-initial-system-messages-plan.md | commit | paths:2 latest:2026-02-04 |
@@ -89,7 +89,7 @@
 | 2026-02-04-feat-gurgeh-self-hosting-claude-integration-plan.md | none | no referenced paths found |
 | 2026-02-04-feat-inline-mode-log-pane-simplified-plan.md | commit | paths:2 latest:2026-02-04 |
 | 2026-02-04-feat-iterative-codebase-exploration-plan.md | none | no referenced paths found |
-| 2026-02-05-acceptance-criteria-plan.md | commit | paths:1 latest:2026-02-05 |
+| 2026-02-05-acceptance-criteria-plan.md | commit | paths:2 latest:2026-02-05 |
 | 2026-02-05-perf-claude-session-reuse-token-efficiency-plan.md | commit | paths:1 latest:2026-02-05 |
 
 ## Derived Evidence Details

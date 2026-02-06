@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/http"
 	"sync"
+	"sync/atomic"
 
 	"nhooyr.io/websocket"
 	"nhooyr.io/websocket/wsjson"
@@ -16,8 +17,9 @@ type subscriber struct {
 
 // Broker fans out signals to subscribers.
 type Broker struct {
-	mu   sync.Mutex
-	subs map[*subscriber]struct{}
+	mu      sync.Mutex
+	subs    map[*subscriber]struct{}
+	Dropped atomic.Int64
 }
 
 // NewBroker creates a new broker.
@@ -51,7 +53,13 @@ func (b *Broker) Publish(sig Signal) {
 		select {
 		case sub.ch <- sig:
 		default:
-			// Drop if subscriber is slow.
+			// Channel is full: evict oldest queued signal so newest wins.
+			select {
+			case <-sub.ch:
+				b.Dropped.Add(1)
+			default:
+			}
+			sub.ch <- sig
 		}
 	}
 }

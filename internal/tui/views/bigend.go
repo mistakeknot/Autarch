@@ -93,7 +93,7 @@ func (v *BigendView) loadSessions() tea.Cmd {
 func (v *BigendView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
-		v.width = msg.Width
+		v.width = msg.Width - 6
 		v.height = msg.Height - 4 // Account for tabs and footer
 		return v, nil
 

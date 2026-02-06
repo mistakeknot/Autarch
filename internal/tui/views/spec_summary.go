@@ -123,7 +123,7 @@ func (v *SpecSummaryView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
 
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
-		v.width = msg.Width
+		v.width = msg.Width - 6
 		v.height = msg.Height - 4
 		v.shell.SetSize(v.width, v.height)
 		return v, nil
