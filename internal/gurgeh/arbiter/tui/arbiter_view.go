@@ -21,6 +21,10 @@ type ArbiterCompleteMsg struct {
 	Spec  *specs.Spec
 }
 
+type arbiterStartedMsg struct {
+	err error
+}
+
 // ArbiterView is a reusable Bubble Tea component for the Arbiter spec sprint.
 // It implements the pkgtui.View interface and uses shared ChatPanel + DocPanel + SplitLayout.
 type ArbiterView struct {
@@ -140,32 +144,33 @@ func (v *ArbiterView) SetCompleteCallback(cb func(answers map[string]string) tea
 // Init implements pkgtui.View.
 func (v *ArbiterView) Init() tea.Cmd {
 	return func() tea.Msg {
-		state, err := v.orchestrator.Start(context.Background(), "")
-		if err != nil {
-			return nil
-		}
-		v.state = state
-		v.updateDocPanel()
-		return nil
+		_, err := v.orchestrator.Start(context.Background(), "")
+		return arbiterStartedMsg{err: err}
 	}
 }
 
 // StartWithInput initializes the sprint with user-provided input.
 func (v *ArbiterView) StartWithInput(input string) tea.Cmd {
 	return func() tea.Msg {
-		state, err := v.orchestrator.Start(context.Background(), input)
-		if err != nil {
-			return nil
-		}
-		v.state = state
-		v.updateDocPanel()
-		return nil
+		_, err := v.orchestrator.Start(context.Background(), input)
+		return arbiterStartedMsg{err: err}
 	}
 }
 
 // Update implements pkgtui.View.
 func (v *ArbiterView) Update(msg tea.Msg) (pkgtui.View, tea.Cmd) {
+	v.syncStateSnapshot()
+
 	switch msg := msg.(type) {
+	case arbiterStartedMsg:
+		if msg.err != nil {
+			v.chatPanel.AddMessage("system", "Failed to start sprint: "+msg.err.Error())
+			return v, nil
+		}
+		v.syncStateSnapshot()
+		v.updateDocPanel()
+		return v, nil
+
 	case tea.WindowSizeMsg:
 		if msg.Width > 0 {
 			v.width = msg.Width
@@ -177,11 +182,13 @@ func (v *ArbiterView) Update(msg tea.Msg) (pkgtui.View, tea.Cmd) {
 		return v, nil
 
 	case tea.KeyMsg:
+		key := msg.String()
+		if key == "ctrl+c" {
+			return v, tea.Quit
+		}
 		if v.state == nil {
 			return v, nil
 		}
-
-		key := msg.String()
 
 		if v.handoffMode {
 			return v.handleHandoffKey(key)
@@ -210,8 +217,6 @@ func (v *ArbiterView) Update(msg tea.Msg) (pkgtui.View, tea.Cmd) {
 		case "esc":
 			// Cancel / go back
 			return v, nil
-		case "ctrl+c":
-			return v, tea.Quit
 		}
 		v.updateDocPanel()
 	}
@@ -256,6 +261,7 @@ func (v *ArbiterView) handleHandoffKey(key string) (pkgtui.View, tea.Cmd) {
 func (v *ArbiterView) acceptDraft() (pkgtui.View, tea.Cmd) {
 	v.chatPanel.AddMessage("user", fmt.Sprintf("✓ Accepted %s", v.state.Phase.String()))
 	v.orchestrator.AcceptDraft(v.state)
+	v.persistStateSnapshot()
 
 	// Check if this is the last phase
 	phases := arbiter.AllPhases()
@@ -270,13 +276,17 @@ func (v *ArbiterView) acceptDraft() (pkgtui.View, tea.Cmd) {
 
 	// Advance to next phase
 	newState, err := v.orchestrator.Advance(context.Background(), v.state)
+	if newState != nil {
+		v.state = newState
+		v.persistStateSnapshot()
+	}
 	if err != nil {
 		if arbiter.IsBlockerError(err) {
 			v.chatPanel.AddMessage("system", "⚠️ Blocker: "+err.Error())
 		}
+		v.updateDocPanel()
 		return v, nil
 	}
-	v.state = newState
 	v.optionIndex = 0
 	v.chatPanel.AddMessage("agent", fmt.Sprintf("Proposing %s draft...", v.state.Phase.String()))
 	v.updateDocPanel()
@@ -293,6 +303,7 @@ func (v *ArbiterView) submitComposerContent() (pkgtui.View, tea.Cmd) {
 		return v, nil
 	}
 	v.orchestrator.ReviseDraft(v.state, content, "user edit")
+	v.persistStateSnapshot()
 	v.chatPanel.ClearComposer()
 	v.updateDocPanel()
 	return v, nil
@@ -304,7 +315,24 @@ func (v *ArbiterView) selectOption(idx int) {
 		return
 	}
 	section.Content = section.Options[idx]
+	v.persistStateSnapshot()
 	v.updateDocPanel()
+}
+
+func (v *ArbiterView) syncStateSnapshot() {
+	state, ok := v.orchestrator.State()
+	if !ok {
+		return
+	}
+	snapshot := state
+	v.state = &snapshot
+}
+
+func (v *ArbiterView) persistStateSnapshot() {
+	if v.state == nil {
+		return
+	}
+	v.orchestrator.SetState(v.state)
 }
 
 func (v *ArbiterView) currentSection() *arbiter.SectionDraft {
@@ -486,6 +514,7 @@ func (v *ArbiterView) jumpToPhase(phase arbiter.Phase) tea.Cmd {
 		return nil
 	}
 	v.state.Phase = phase
+	v.persistStateSnapshot()
 	v.optionIndex = 0
 	v.updateDocPanel()
 	v.chatPanel.AddMessage("system", fmt.Sprintf("Jumped to %s", phase.String()))

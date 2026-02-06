@@ -43,7 +43,7 @@ type Orchestrator struct {
 	confidence  *confidence.Calculator
 	scanner     QuickScanner
 	research    ResearchProvider // nil = no-research mode
-	state       *SprintState    // current sprint state (nil before Start)
+	state       *SprintState     // current sprint state (nil before Start)
 }
 
 // NewOrchestrator creates a new Orchestrator for the given project path.
@@ -82,6 +82,20 @@ func (o *Orchestrator) State() (SprintState, bool) {
 		return SprintState{}, false
 	}
 	return o.state.Clone(), true
+}
+
+// SetState replaces the current sprint state with a cloned snapshot.
+// This keeps orchestrator-owned state synchronized with UI-local mutations.
+func (o *Orchestrator) SetState(state *SprintState) {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	if state == nil {
+		o.state = nil
+		return
+	}
+	clone := state.Clone()
+	o.state = &clone
+	o.saveLocked()
 }
 
 // Resume loads a previously saved sprint from disk.
@@ -493,26 +507,26 @@ func (o *Orchestrator) shouldUseDynamicGeneration(phase Phase) bool {
 
 // phaseKeyMap maps Phase enums to string keys used in exploration.
 var phaseKeyMap = map[Phase]string{
-	PhaseVision:           "vision",
-	PhaseProblem:          "problem",
-	PhaseUsers:            "users",
-	PhaseFeaturesGoals:    "features",
-	PhaseRequirements:     "requirements",
-	PhaseScopeAssumptions: "scope",
-	PhaseCUJs:             "cujs",
+	PhaseVision:             "vision",
+	PhaseProblem:            "problem",
+	PhaseUsers:              "users",
+	PhaseFeaturesGoals:      "features",
+	PhaseRequirements:       "requirements",
+	PhaseScopeAssumptions:   "scope",
+	PhaseCUJs:               "cujs",
 	PhaseAcceptanceCriteria: "acceptance",
 }
 
 // keyPhaseMap is the reverse mapping from string keys to Phase enums.
 var keyPhaseMap = map[string]Phase{
-	"vision":      PhaseVision,
-	"problem":     PhaseProblem,
-	"users":       PhaseUsers,
-	"features":    PhaseFeaturesGoals,
+	"vision":       PhaseVision,
+	"problem":      PhaseProblem,
+	"users":        PhaseUsers,
+	"features":     PhaseFeaturesGoals,
 	"requirements": PhaseRequirements,
-	"scope":       PhaseScopeAssumptions,
-	"cujs":        PhaseCUJs,
-	"acceptance":  PhaseAcceptanceCriteria,
+	"scope":        PhaseScopeAssumptions,
+	"cujs":         PhaseCUJs,
+	"acceptance":   PhaseAcceptanceCriteria,
 }
 
 // buildPriorContext extracts accepted phase content to provide context for later phase generation.

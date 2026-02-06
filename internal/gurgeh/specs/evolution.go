@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	fileutil "github.com/mistakeknot/autarch/internal/file"
 	"gopkg.in/yaml.v3"
 )
 
@@ -39,13 +40,31 @@ func historyDir(root string) string {
 
 // SaveRevision persists a spec revision as a full snapshot.
 func SaveRevision(root string, spec *Spec, author, trigger string, changes []Change) (*SpecRevision, error) {
+	if spec == nil {
+		return nil, fmt.Errorf("nil spec")
+	}
+
 	dir := historyDir(root)
-	if err := os.MkdirAll(dir, 0755); err != nil {
+	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return nil, fmt.Errorf("creating history dir: %w", err)
 	}
 
-	version := spec.Version + 1
-	spec.Version = version
+	// Serialize revisions per spec ID so concurrent writers cannot pick the same version.
+	lockPath := filepath.Join(dir, "."+StoryHash(spec.ID)+".history")
+	lock, err := fileutil.LockFile(lockPath)
+	if err != nil {
+		return nil, fmt.Errorf("acquiring history lock: %w", err)
+	}
+	if lock != nil {
+		defer func() {
+			_ = lock.Unlock()
+		}()
+	}
+
+	version, err := nextHistoryVersion(dir, spec.ID)
+	if err != nil {
+		return nil, fmt.Errorf("computing next version: %w", err)
+	}
 
 	rev := &SpecRevision{
 		ID:        fmt.Sprintf("%s_v%d", spec.ID, version),
@@ -54,16 +73,19 @@ func SaveRevision(root string, spec *Spec, author, trigger string, changes []Cha
 		Timestamp: time.Now(),
 		Author:    author,
 		Trigger:   trigger,
-		Changes:   changes,
+		Changes:   append([]Change(nil), changes...),
 	}
 
+	snapshot := *spec
+	snapshot.Version = version
+
 	// Save full snapshot
-	data, err := yaml.Marshal(spec)
+	data, err := yaml.Marshal(snapshot)
 	if err != nil {
 		return nil, fmt.Errorf("marshaling spec: %w", err)
 	}
 	snapPath := filepath.Join(dir, fmt.Sprintf("%s_v%d.yaml", spec.ID, version))
-	if err := os.WriteFile(snapPath, data, 0644); err != nil {
+	if err := fileutil.AtomicWriteFile(snapPath, data, 0o644); err != nil {
 		return nil, fmt.Errorf("writing snapshot: %w", err)
 	}
 
@@ -73,11 +95,58 @@ func SaveRevision(root string, spec *Spec, author, trigger string, changes []Cha
 		return nil, fmt.Errorf("marshaling revision: %w", err)
 	}
 	revPath := filepath.Join(dir, fmt.Sprintf("%s_v%d_rev.yaml", spec.ID, version))
-	if err := os.WriteFile(revPath, revData, 0644); err != nil {
+	if err := fileutil.AtomicWriteFile(revPath, revData, 0o644); err != nil {
+		// Best-effort rollback so we do not keep a snapshot without metadata when metadata write fails.
+		_ = os.Remove(snapPath)
 		return nil, fmt.Errorf("writing revision: %w", err)
 	}
 
 	return rev, nil
+}
+
+func nextHistoryVersion(dir, specID string) (int, error) {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return 0, err
+	}
+
+	prefix := specID + "_v"
+	maxVersion := 0
+	for _, e := range entries {
+		if e.IsDir() {
+			continue
+		}
+		version, ok := parseHistoryVersion(e.Name(), prefix)
+		if !ok {
+			continue
+		}
+		if version > maxVersion {
+			maxVersion = version
+		}
+	}
+	return maxVersion + 1, nil
+}
+
+func parseHistoryVersion(name, prefix string) (int, bool) {
+	if !strings.HasPrefix(name, prefix) {
+		return 0, false
+	}
+
+	versionPart := strings.TrimPrefix(name, prefix)
+	switch {
+	case strings.HasSuffix(versionPart, "_rev.yaml"):
+		versionPart = strings.TrimSuffix(versionPart, "_rev.yaml")
+	case strings.HasSuffix(versionPart, ".yaml"):
+		versionPart = strings.TrimSuffix(versionPart, ".yaml")
+	default:
+		return 0, false
+	}
+
+	version, err := strconv.Atoi(versionPart)
+	if err != nil || version <= 0 {
+		return 0, false
+	}
+	return version, true
 }
 
 // LoadHistory returns all revisions for a spec, ordered by version.
