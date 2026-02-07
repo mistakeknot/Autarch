@@ -90,6 +90,9 @@ type UnifiedApp struct {
 	// Initial tab to jump to when entering dashboard
 	initialTab string
 
+	// Skip onboarding and go directly to dashboard
+	skipOnboarding bool
+
 	// View factories (injected from main.go)
 	createKickoffView     func() View
 	createArbiterView     func(*research.Coordinator) View
@@ -147,6 +150,11 @@ func (a *UnifiedApp) SetInitialTab(name string) {
 	}
 	// Store for later - we'll apply it when dashViews are created
 	a.initialTab = strings.ToLower(name)
+}
+
+// SetSkipOnboarding skips onboarding and enters dashboard mode immediately.
+func (a *UnifiedApp) SetSkipOnboarding(skip bool) {
+	a.skipOnboarding = skip
 }
 
 // SetArbiterViewFactory sets the factory for the Arbiter sprint view (replaces interview).
@@ -308,6 +316,11 @@ func (a *UnifiedApp) Init() tea.Cmd {
 
 	// Populate palette with tab-switching commands (available in all modes)
 	a.initPaletteCommands()
+
+	// Skip onboarding if requested — go directly to dashboard
+	if a.skipOnboarding {
+		return a.enterDashboard()
+	}
 
 	// Start with kickoff view
 	if a.createKickoffView != nil {

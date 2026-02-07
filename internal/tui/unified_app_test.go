@@ -6,6 +6,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/mistakeknot/autarch/internal/gurgeh/arbiter"
 	"github.com/mistakeknot/autarch/internal/pollard/research"
+	"github.com/mistakeknot/autarch/pkg/autarch"
 	pkgtui "github.com/mistakeknot/autarch/pkg/tui"
 )
 
@@ -376,5 +377,29 @@ func TestSprintCompleteMsgFallsBackToOnboardingComplete(t *testing.T) {
 	resultMsg := cmd()
 	if _, ok := resultMsg.(OnboardingCompleteMsg); !ok {
 		t.Errorf("Expected OnboardingCompleteMsg fallback, got %T", resultMsg)
+	}
+}
+
+func TestUnifiedAppSkipOnboardingGoesToDashboard(t *testing.T) {
+	app := NewUnifiedApp(nil)
+	app.SetSkipOnboarding(true)
+	app.SetViewFactories(
+		func() View { return &noopDashboardView{name: "Kickoff"} },
+		nil, nil, nil, nil,
+		func(c *autarch.Client) []View {
+			return []View{
+				&noopDashboardView{name: "Bigend"},
+				&noopDashboardView{name: "Gurgeh"},
+			}
+		},
+	)
+
+	app.Init()
+
+	if app.mode != ModeDashboard {
+		t.Fatalf("expected ModeDashboard, got %v", app.mode)
+	}
+	if len(app.dashViews) != 2 {
+		t.Fatalf("expected 2 dashboard views, got %d", len(app.dashViews))
 	}
 }
