@@ -21,6 +21,9 @@ import (
 // ErrBlocker is returned when a blocker conflict prevents advancing.
 var ErrBlocker = errors.New("blocker conflict prevents advance")
 
+// ErrFinalPhaseAccepted indicates the current draft was accepted at the last phase.
+var ErrFinalPhaseAccepted = errors.New("draft accepted at final phase")
+
 // IsBlockerError returns true if the error is or wraps ErrBlocker.
 func IsBlockerError(err error) bool {
 	return errors.Is(err, ErrBlocker)
@@ -574,6 +577,7 @@ func (o *Orchestrator) applyPropagatedUpdates(state *SprintState, updates map[st
 }
 
 // AcceptDraft marks the current phase's draft as accepted.
+// NOT concurrency-safe: callers must synchronize access to state.
 func (o *Orchestrator) AcceptDraft(state *SprintState) *SprintState {
 	if section, ok := state.Sections[state.Phase]; ok {
 		section.Status = DraftAccepted
@@ -581,6 +585,41 @@ func (o *Orchestrator) AcceptDraft(state *SprintState) *SprintState {
 	}
 	state.UpdatedAt = time.Now()
 	return state
+}
+
+// AcceptAndAdvance accepts the current draft and advances to the next phase.
+// Returns ErrFinalPhaseAccepted when accepting the last phase.
+func (o *Orchestrator) AcceptAndAdvance(ctx context.Context) (*SprintState, error) {
+	o.mu.Lock()
+	if o.state == nil {
+		o.mu.Unlock()
+		return nil, fmt.Errorf("no active sprint")
+	}
+
+	state := o.AcceptDraft(o.state)
+	phases := AllPhases()
+	isLast := state.Phase == phases[len(phases)-1]
+	clone := state.Clone()
+	if isLast {
+		o.saveLocked()
+		o.mu.Unlock()
+		return &clone, ErrFinalPhaseAccepted
+	}
+	o.mu.Unlock()
+
+	updated, err := o.Advance(ctx, &clone)
+
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	if updated != nil {
+		o.state = updated
+		o.saveLocked()
+	}
+	if o.state == nil {
+		return nil, err
+	}
+	result := o.state.Clone()
+	return &result, err
 }
 
 // ReviseDraft updates the current phase's draft with new content.
@@ -1199,31 +1238,9 @@ func (o *Orchestrator) ProcessChatMessage(ctx context.Context, msg string) <-cha
 // and advances to the next phase. Returns the updated state or an error
 // if a blocker conflict prevents advancing.
 func (o *Orchestrator) ChatAcceptDraft(ctx context.Context) error {
-	o.mu.Lock()
-	if o.state == nil {
-		o.mu.Unlock()
-		return fmt.Errorf("no active sprint")
-	}
-
-	// Mark current draft as accepted
-	if section, ok := o.state.Sections[o.state.Phase]; ok {
-		section.Status = DraftAccepted
-		section.UpdatedAt = time.Now()
-	}
-	o.state.UpdatedAt = time.Now()
-
-	// Clone state for Advance to work on outside the lock
-	state := o.state.Clone()
-	statePtr := &state
-	o.mu.Unlock()
-
-	updated, err := o.Advance(ctx, statePtr)
-
-	o.mu.Lock()
-	defer o.mu.Unlock()
-	if updated != nil {
-		o.state = updated
-		o.saveLocked()
+	_, err := o.AcceptAndAdvance(ctx)
+	if errors.Is(err, ErrFinalPhaseAccepted) {
+		return nil
 	}
 	return err
 }

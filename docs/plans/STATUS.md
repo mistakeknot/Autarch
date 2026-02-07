@@ -49,7 +49,7 @@
 | 2026-01-23-tandemonium-tui-vauxhall-port-plan.md | commit | paths:4 latest:2026-02-05 |
 | 2026-01-23-vauxhall-focus-pane-plan.md | commit | paths:2 latest:2026-01-29 |
 | 2026-01-23-vauxhall-grouping-plan.md | commit | paths:2 latest:2026-01-29 |
-| 2026-01-23-vauxhall-web-search-filters-plan.md | commit | paths:4 latest:2026-01-26 |
+| 2026-01-23-vauxhall-web-search-filters-plan.md | commit | paths:4 latest:2026-02-06 |
 | 2026-01-25-intermute-mvp-implementation-plan.md | commit | paths:16 latest:2026-02-05 |
 | 2026-01-26-arbiter-spec-sprint-implementation.md | commit | paths:9 latest:2026-02-05 |
 | 2026-01-26-feat-cursor-style-unified-shell-layout-plan.md | commit | paths:1 latest:2026-01-26 |

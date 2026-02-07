@@ -2,6 +2,7 @@ package tui
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"strings"
@@ -260,26 +261,18 @@ func (v *ArbiterView) handleHandoffKey(key string) (pkgtui.View, tea.Cmd) {
 
 func (v *ArbiterView) acceptDraft() (pkgtui.View, tea.Cmd) {
 	v.chatPanel.AddMessage("user", fmt.Sprintf("✓ Accepted %s", v.state.Phase.String()))
-	v.orchestrator.AcceptDraft(v.state)
-	v.persistStateSnapshot()
+	newState, err := v.orchestrator.AcceptAndAdvance(context.Background())
+	if newState != nil {
+		v.state = newState
+	}
 
-	// Check if this is the last phase
-	phases := arbiter.AllPhases()
-	isLast := v.state.Phase == phases[len(phases)-1]
-
-	if isLast {
+	if errors.Is(err, arbiter.ErrFinalPhaseAccepted) {
 		v.handoffMode = true
 		v.chatPanel.AddMessage("system", "Sprint complete — choose a handoff option")
 		v.updateDocPanel()
 		return v, nil
 	}
 
-	// Advance to next phase
-	newState, err := v.orchestrator.Advance(context.Background(), v.state)
-	if newState != nil {
-		v.state = newState
-		v.persistStateSnapshot()
-	}
 	if err != nil {
 		if arbiter.IsBlockerError(err) {
 			v.chatPanel.AddMessage("system", "⚠️ Blocker: "+err.Error())
