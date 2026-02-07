@@ -74,6 +74,9 @@ go test ./...
 
 **Pause after major refactoring:** For multi-file refactoring, pause after changes to run the affected flow manually. Confirm data propagates correctly through the pipeline before continuing.
 
+## Execution Mode
+codex-first: true
+
 ## Design Decisions (Do Not Re-Ask)
 
 - Module: `github.com/mistakeknot/autarch`
