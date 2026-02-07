@@ -36,7 +36,6 @@ func (v *inputFocusView) InputFocused() bool                        { return v.f
 
 func TestUnifiedAppCtrlLeftCyclesBack(t *testing.T) {
 	app := NewUnifiedApp(nil)
-	app.mode = ModeDashboard
 	app.dashViews = []View{
 		&noopDashboardView{name: "A"},
 		&noopDashboardView{name: "B"},
@@ -142,9 +141,6 @@ func TestInitAlwaysEntersDashboard(t *testing.T) {
 
 	app.Init()
 
-	if app.mode != ModeDashboard {
-		t.Fatalf("expected ModeDashboard, got %v", app.mode)
-	}
 	if len(app.dashViews) != 2 {
 		t.Fatalf("expected 2 dashboard views, got %d", len(app.dashViews))
 	}
@@ -163,8 +159,8 @@ func TestSkipOnboardingWithInitAlwaysEntersDashboard(t *testing.T) {
 
 	app.Init()
 
-	if app.mode != ModeDashboard {
-		t.Fatalf("expected ModeDashboard, got %v", app.mode)
+	if len(app.dashViews) == 0 {
+		t.Fatalf("expected dashboard views to be created")
 	}
 }
 
@@ -172,7 +168,6 @@ func TestSkipOnboardingWithInitAlwaysEntersDashboard(t *testing.T) {
 // is a no-op in UnifiedApp (since we're always in dashboard mode).
 func TestOnboardingCompleteMsgIsNoOp(t *testing.T) {
 	app := NewUnifiedApp(nil)
-	app.mode = ModeDashboard
 	app.dashViews = []View{
 		&noopDashboardView{name: "Bigend"},
 	}
@@ -186,10 +181,6 @@ func TestOnboardingCompleteMsgIsNoOp(t *testing.T) {
 
 	if cmd != nil {
 		t.Fatalf("expected nil cmd from OnboardingCompleteMsg, got non-nil")
-	}
-	// Should still be in dashboard mode with same view
-	if app.mode != ModeDashboard {
-		t.Fatalf("expected ModeDashboard after OnboardingCompleteMsg")
 	}
 }
 
@@ -239,7 +230,6 @@ func TestLogPaneScheduleAutoHideMsgNoOpWhenNotAutoShown(t *testing.T) {
 // TestTabSwitchingWorksInDashboardMode verifies Ctrl+Left/Right tab cycling.
 func TestTabSwitchingWorksInDashboardMode(t *testing.T) {
 	app := NewUnifiedApp(nil)
-	app.mode = ModeDashboard
 	app.dashViews = []View{
 		&noopDashboardView{name: "Bigend"},
 		&noopDashboardView{name: "Gurgeh"},

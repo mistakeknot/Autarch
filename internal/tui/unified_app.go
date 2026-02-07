@@ -1,7 +1,6 @@
 package tui
 
 import (
-	"context"
 	"fmt"
 	"log/slog"
 	"os"
@@ -14,31 +13,15 @@ import (
 	"github.com/charmbracelet/lipgloss"
 	"github.com/charmbracelet/x/ansi"
 	"github.com/mistakeknot/autarch/internal/autarch/agent"
-	"github.com/mistakeknot/autarch/internal/pollard/research"
 	"github.com/mistakeknot/autarch/pkg/autarch"
 	pkgtui "github.com/mistakeknot/autarch/pkg/tui"
 )
 
-// AppMode represents the current mode of the app
-type AppMode int
-
-const (
-	ModeOnboarding AppMode = iota
-	ModeDashboard
-)
-
-// UnifiedApp is the main application that handles both onboarding and dashboard modes
+// UnifiedApp is the main application shell that provides tabs, palette, log pane,
+// and routes messages to the active dashboard view.
 type UnifiedApp struct {
-	client *autarch.Client
-	mode   AppMode
-
-	// Onboarding state (breadcrumb kept for header rendering during onboarding)
-	onboardingState OnboardingState
-	breadcrumb      *Breadcrumb
-	currentView     View
-	researchCoord   *research.Coordinator
-	ctx             context.Context
-	cancel          context.CancelFunc
+	client      *autarch.Client
+	currentView View
 
 	// Agent for AI generation
 	codingAgent   *agent.Agent
@@ -79,33 +62,15 @@ type UnifiedApp struct {
 
 // NewUnifiedApp creates a new unified application
 func NewUnifiedApp(client *autarch.Client) *UnifiedApp {
-	ctx, cancel := context.WithCancel(context.Background())
-
-	breadcrumb := NewBreadcrumb()
-	breadcrumb.SetCurrent(OnboardingKickoff)
-
 	tabNames := []string{"Bigend", "Gurgeh", "Coldwine", "Pollard"}
-	app := &UnifiedApp{
-		client:          client,
-		mode:            ModeOnboarding,
-		onboardingState: OnboardingKickoff,
-		breadcrumb:      breadcrumb,
-		tabs:            NewTabBar(tabNames),
-		palette:         NewPalette(),
-		logPane:         pkgtui.NewLogPane(),
-		researchCoord:   research.NewCoordinator(nil),
-		ctx:             ctx,
-		cancel:          cancel,
-		keys:            pkgtui.NewCommonKeys(),
-		chatSettings:    pkgtui.DefaultChatSettings(),
+	return &UnifiedApp{
+		client:       client,
+		tabs:         NewTabBar(tabNames),
+		palette:      NewPalette(),
+		logPane:      pkgtui.NewLogPane(),
+		keys:         pkgtui.NewCommonKeys(),
+		chatSettings: pkgtui.DefaultChatSettings(),
 	}
-
-	return app
-}
-
-// SetDashboardViewsFactory sets the factory for creating dashboard views.
-func (a *UnifiedApp) SetDashboardViewsFactory(factory func(*autarch.Client) []View) {
-	a.createDashboardViews = factory
 }
 
 // SetInlineMode enables inline mode (log pane visible by default).
@@ -303,9 +268,6 @@ func (a *UnifiedApp) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// Pass reduced size to current view (account for header + footer + log pane)
 		if a.currentView != nil {
 			headerHeight := 3
-			if a.mode == ModeOnboarding {
-				headerHeight = 4
-			}
 			footerHeight := 3
 			contentMsg := tea.WindowSizeMsg{
 				Width:  msg.Width,
@@ -324,9 +286,6 @@ func (a *UnifiedApp) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			a.showHelp = true
 			return a, nil
 		case "quit", "exit", "q":
-			if a.cancel != nil {
-				a.cancel()
-			}
 			return a, tea.Quit
 		case "settings", "config":
 			a.openChatSettings()
@@ -384,9 +343,6 @@ func (a *UnifiedApp) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			now := time.Now()
 			// Double ctrl+c within 500ms quits
 			if now.Sub(a.lastCtrlC) < 500*time.Millisecond {
-				if a.cancel != nil {
-					a.cancel()
-				}
 				return a, tea.Quit
 			}
 			// First ctrl+c: clear input and record time
@@ -427,13 +383,6 @@ func (a *UnifiedApp) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return a, nil
 		}
 
-		// Handle breadcrumb navigation in onboarding mode
-		if a.mode == ModeOnboarding && a.breadcrumb.IsNavigating() {
-			var cmd tea.Cmd
-			a.breadcrumb, cmd = a.breadcrumb.Update(msg)
-			return a, cmd
-		}
-
 		if key.Matches(msg, a.keys.Help) {
 			a.showHelp = true
 			return a, nil
@@ -444,16 +393,6 @@ func (a *UnifiedApp) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "ctrl+p":
 			return a, a.palette.Show()
 
-		case "ctrl+b":
-			// Toggle breadcrumb navigation in onboarding mode
-			if a.mode == ModeOnboarding {
-				if a.breadcrumb.IsNavigating() {
-					a.breadcrumb.StopNavigation()
-				} else {
-					a.breadcrumb.StartNavigation()
-				}
-				return a, nil
-			}
 		case "ctrl+,":
 			a.openChatSettings()
 			return a, nil
@@ -461,8 +400,6 @@ func (a *UnifiedApp) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			a.logPaneVisible = !a.logPaneVisible
 			a.logPaneAutoShown = false
 			return a, a.sendWindowSize()
-		case "ctrl+u":
-			return a, a.revertLastRun()
 		}
 
 		// Handle tab switching (works in both modes)
@@ -536,15 +473,8 @@ func (a *UnifiedApp) blurCurrentView() {
 	}
 }
 
-func (a *UnifiedApp) revertLastRun() tea.Cmd {
-	// Revert is no longer handled at the UnifiedApp level since agent runs
-	// moved to GurgehOnboardingView. Forward to current view.
-	return nil
-}
-
 func (a *UnifiedApp) enterDashboard() tea.Cmd {
 	a.blurCurrentView()
-	a.mode = ModeDashboard
 
 	// Create dashboard views
 	if a.createDashboardViews != nil {
@@ -634,16 +564,6 @@ func (a *UnifiedApp) updateCommands() {
 			}
 		},
 	})
-	cmds = append(cmds, Command{
-		Name:        "Revert last run",
-		Description: "Restore last agent snapshot",
-		Action: func() tea.Cmd {
-			return func() tea.Msg {
-				return tea.KeyMsg{Type: tea.KeyCtrlU}
-			}
-		},
-	})
-
 	for i, v := range a.dashViews {
 		idx := i
 		name := v.Name()
@@ -690,19 +610,9 @@ func (a *UnifiedApp) switchDashboardTab(idx int) tea.Cmd {
 	return a.currentView.Focus()
 }
 
-// switchToTab handles tab switching from any mode.
-// In dashboard mode, it delegates to switchDashboardTab.
-// In onboarding mode, it exits onboarding and enters dashboard at the requested tab.
+// switchToTab switches the active dashboard tab.
 func (a *UnifiedApp) switchToTab(idx int) tea.Cmd {
-	if a.mode == ModeDashboard {
-		return a.switchDashboardTab(idx)
-	}
-	// In onboarding mode: set initialTab and enter dashboard
-	tabNames := a.tabs.TabNames()
-	if idx >= 0 && idx < len(tabNames) {
-		a.initialTab = strings.ToLower(tabNames[idx])
-	}
-	return a.enterDashboard()
+	return a.switchDashboardTab(idx)
 }
 
 func (a *UnifiedApp) sendWindowSize() tea.Cmd {
@@ -718,13 +628,8 @@ func (a *UnifiedApp) View() string {
 	}
 
 	// Calculate heights
-	// Header: Padding(1,3) = 2 rows padding + content rows
-	// In onboarding mode, header has tabs + breadcrumb (2 content lines → height 4)
-	// In dashboard mode, header has tabs only (1 content line → height 3)
+	// Header: Padding(1,3) = 2 rows padding + 1 row tabs = 3
 	headerHeight := 3
-	if a.mode == ModeOnboarding {
-		headerHeight = 4
-	}
 	footerHeight := 3 // Footer with padding
 	logPaneHeight := 0
 	if a.logPaneVisible {
@@ -732,13 +637,8 @@ func (a *UnifiedApp) View() string {
 	}
 	contentHeight := a.height - headerHeight - footerHeight - logPaneHeight
 
-	// Header area: always show tabs
+	// Header area: tabs
 	header := a.tabs.View()
-	if a.mode == ModeOnboarding {
-		// Show breadcrumb below tabs in onboarding mode
-		a.breadcrumb.SetWidth(a.width - 6) // Account for padding
-		header += "\n" + a.breadcrumb.View()
-	}
 	headerStyle := pkgtui.HeaderStyle.
 		Width(a.width).
 		Height(headerHeight)
@@ -802,13 +702,7 @@ func (a *UnifiedApp) renderFooterContent() string {
 	if a.currentView != nil {
 		help = a.currentView.ShortHelp()
 	}
-
-	if a.mode == ModeOnboarding && a.breadcrumb.IsNavigating() {
-		help = "←/→ navigate  enter select  esc cancel  ctrl+, settings  /help  ctrl+g model"
-	} else {
-		help += "  │  /big /gur /cold /pol  ctrl+l logs  ctrl+p palette  ctrl+, settings  /help  ctrl+c×2 quit"
-	}
-
+	help += "  │  /big /gur /cold /pol  ctrl+l logs  ctrl+p palette  ctrl+, settings  /help  ctrl+c×2 quit"
 	return help
 }
 // renderHelpOverlay renders the full keybinding help overlay
@@ -860,12 +754,6 @@ func (a *UnifiedApp) renderHelpOverlay() string {
 		{Key: "/bigend, etc.", Description: "Switch to tool by name"},
 		{Key: "ctrl+l", Description: "Toggle log pane"},
 	}
-	if a.mode == ModeOnboarding {
-		globalBindings = append(globalBindings,
-			HelpBinding{Key: "ctrl+b", Description: "Jump to step"},
-		)
-	}
-
 	for _, b := range globalBindings {
 		line := keyStyle.Render(b.Key) + " " + descStyle.Render(b.Description)
 		lines = append(lines, line)
