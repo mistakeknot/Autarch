@@ -310,7 +310,7 @@ func runFullFlow() error {
 		func(c *autarch.Client) []tui.View {
 			return []tui.View{
 				views.NewBigendView(c),
-				views.NewGurgehView(c),
+				views.NewGurgehView(c, nil),
 				views.NewColdwineView(c),
 				views.NewPollardView(c),
 			}

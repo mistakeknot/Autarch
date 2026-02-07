@@ -270,3 +270,9 @@ type SprintPhaseRevertedMsg struct {
 // SprintExitRequestedMsg signals user wants to exit the sprint view.
 // This is sent when user presses Esc while already on the first phase.
 type SprintExitRequestedMsg struct{}
+
+// LogPaneAutoShowMsg requests the shell to auto-show the log pane.
+type LogPaneAutoShowMsg struct{}
+
+// LogPaneScheduleAutoHideMsg requests the shell to schedule auto-hide of the log pane.
+type LogPaneScheduleAutoHideMsg struct{}

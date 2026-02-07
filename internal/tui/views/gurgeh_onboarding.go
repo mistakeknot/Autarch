@@ -196,7 +196,11 @@ func (v *GurgehOnboardingView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
 		return v, v.handleSprintComplete()
 
 	case tui.ScanCodebaseMsg:
-		return v, v.scanCodebase(msg.Path)
+		// Auto-show log pane during scan, then start scan
+		return v, tea.Batch(
+			func() tea.Msg { return tui.LogPaneAutoShowMsg{} },
+			v.scanCodebase(msg.Path),
+		)
 
 	case tui.CodebaseScanResultMsg:
 		// Update onboarding state on successful scan
@@ -204,7 +208,15 @@ func (v *GurgehOnboardingView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
 			v.state = tui.OnboardingInterview
 			v.breadcrumb.SetCurrent(tui.OnboardingInterview)
 		}
-		// Fall through to pass to currentView
+		// Schedule auto-hide of log pane now that scan is done, then fall through to currentView
+		var cmds []tea.Cmd
+		cmds = append(cmds, func() tea.Msg { return tui.LogPaneScheduleAutoHideMsg{} })
+		if v.currentView != nil {
+			var viewCmd tea.Cmd
+			v.currentView, viewCmd = v.currentView.Update(msg)
+			cmds = append(cmds, viewCmd)
+		}
+		return v, tea.Batch(cmds...)
 
 	case scanProgressWithContinuation:
 		// Forward progress to current view and schedule next read
@@ -285,6 +297,18 @@ func (v *GurgehOnboardingView) Breadcrumb() *tui.Breadcrumb {
 // State returns the current onboarding state.
 func (v *GurgehOnboardingView) State() tui.OnboardingState {
 	return v.state
+}
+
+// SetAgentSelector sets the shared agent selector.
+func (v *GurgehOnboardingView) SetAgentSelector(selector *pkgtui.AgentSelector) {
+	v.agentSelector = selector
+	v.attachAgentSelector(v.currentView)
+}
+
+// SetAgentName sets the selected agent name.
+func (v *GurgehOnboardingView) SetAgentName(name string) {
+	v.selectedAgent = name
+	v.attachAgentName(v.currentView)
 }
 
 // SetChatSettings sets the chat settings to propagate to child views.

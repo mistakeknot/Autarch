@@ -225,24 +225,15 @@ Navigation:
 				func(c *autarch.Client) []tui.View {
 					return []tui.View{
 						views.NewBigendView(c),
-						views.NewGurgehView(c),
+						views.NewGurgehView(c, nil), // nil config = skip onboarding (Task 3 wires GurgehConfig)
 						views.NewColdwineView(c),
 						views.NewPollardView(c),
 					}
 				},
 			)
 
-			// Wire unified sprint view (chat-driven 8-phase flow)
-			intermuteURL := mgr.URL()
-			app.SetSprintViewFactory(func(projectPath string) tui.View {
-				v := views.NewSprintView(projectPath, views.SprintViewOpts{
-					IntermuteURL: intermuteURL,
-				})
-				v.SetCallbacks(func() tea.Cmd {
-					return func() tea.Msg { return tui.NavigateBackMsg{} }
-				})
-				return v
-			})
+			// NOTE: Sprint view factory is now wired through GurgehConfig in Task 3.
+			// For now the sprint view factory is in GurgehConfig (nil above).
 
 			return tui.Run(client, app, tui.RunOpts{InlineMode: inlineMode, InitialTool: toolFlag})
 		},

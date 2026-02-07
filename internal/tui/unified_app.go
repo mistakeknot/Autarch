@@ -6,7 +6,6 @@ import (
 	"log/slog"
 	"os"
 	"os/exec"
-	"path/filepath"
 	"strings"
 	"time"
 
@@ -17,9 +16,6 @@ import (
 	"github.com/mistakeknot/autarch/internal/autarch/agent"
 	"github.com/mistakeknot/autarch/internal/coldwine/epics"
 	"github.com/mistakeknot/autarch/internal/coldwine/tasks"
-	"github.com/mistakeknot/autarch/internal/gurgeh/arbiter"
-	"github.com/mistakeknot/autarch/internal/gurgeh/arbiter/scan"
-	"github.com/mistakeknot/autarch/internal/gurgeh/exploration"
 	"github.com/mistakeknot/autarch/internal/pollard/research"
 	"github.com/mistakeknot/autarch/pkg/autarch"
 	pkgtui "github.com/mistakeknot/autarch/pkg/tui"
@@ -38,32 +34,18 @@ type UnifiedApp struct {
 	client *autarch.Client
 	mode   AppMode
 
-	// Onboarding state
-	onboardingState  OnboardingState
-	breadcrumb       *Breadcrumb
-	currentView      View
-	projectID        string
-	projectName      string
-	projectDesc      string
-	interviewAnswers map[string]string
-	generatedEpics   []epics.EpicProposal
-	generatedTasks   []tasks.TaskProposal
-	researchCoord    *research.Coordinator
-	ctx              context.Context
-	cancel           context.CancelFunc
+	// Onboarding state (breadcrumb kept for header rendering during onboarding)
+	onboardingState OnboardingState
+	breadcrumb      *Breadcrumb
+	currentView     View
+	researchCoord   *research.Coordinator
+	ctx             context.Context
+	cancel          context.CancelFunc
 
 	// Agent for AI generation
 	codingAgent   *agent.Agent
 	agentSelector *pkgtui.AgentSelector
 	selectedAgent string
-
-	// Loading state
-	generating     bool
-	generatingWhat string
-
-	// Last agent run snapshot
-	lastRunLabel    string
-	lastRunSnapshot string
 
 	// Dashboard state
 	tabs      *TabBar
@@ -94,14 +76,7 @@ type UnifiedApp struct {
 	skipOnboarding bool
 
 	// View factories (injected from main.go)
-	createKickoffView     func() View
-	createArbiterView     func(*research.Coordinator) View
-	createSpecSummaryView func(*SpecSummary, *research.Coordinator) View
-	createEpicReviewView  func([]epics.EpicProposal) View
-	createTaskReviewView  func([]tasks.TaskProposal) View
-	createTaskDetailView  func(tasks.TaskProposal, *research.Coordinator) View
-	createDashboardViews  func(*autarch.Client) []View
-	createSprintView      func(string) View // projectPath → SprintView
+	createDashboardViews func(*autarch.Client) []View
 }
 
 // NewUnifiedApp creates a new unified application
@@ -128,6 +103,11 @@ func NewUnifiedApp(client *autarch.Client) *UnifiedApp {
 	}
 
 	return app
+}
+
+// SetDashboardViewsFactory sets the factory for creating dashboard views.
+func (a *UnifiedApp) SetDashboardViewsFactory(factory func(*autarch.Client) []View) {
+	a.createDashboardViews = factory
 }
 
 // SetInlineMode enables inline mode (log pane visible by default).
@@ -157,30 +137,17 @@ func (a *UnifiedApp) SetSkipOnboarding(skip bool) {
 	a.skipOnboarding = skip
 }
 
-// SetArbiterViewFactory sets the factory for the Arbiter sprint view (replaces interview).
-func (a *UnifiedApp) SetArbiterViewFactory(factory func(*research.Coordinator) View) {
-	a.createArbiterView = factory
-}
-
-// SetSprintViewFactory sets the factory for the unified chat-driven sprint view.
-func (a *UnifiedApp) SetSprintViewFactory(factory func(string) View) {
-	a.createSprintView = factory
-}
-
-// SetViewFactories sets the factory functions for creating views
+// SetViewFactories sets the factory functions for creating views.
+// Only the dashboard views factory is still used directly by UnifiedApp;
+// onboarding view factories are now in GurgehConfig, passed to GurgehView.
 func (a *UnifiedApp) SetViewFactories(
-	kickoff func() View,
-	specSummary func(*SpecSummary, *research.Coordinator) View,
-	epicReview func([]epics.EpicProposal) View,
-	taskReview func([]tasks.TaskProposal) View,
-	taskDetail func(tasks.TaskProposal, *research.Coordinator) View,
+	_ func() View, // kickoff — now in GurgehConfig
+	_ func(*SpecSummary, *research.Coordinator) View, // specSummary — now in GurgehConfig
+	_ func([]epics.EpicProposal) View, // epicReview — now in GurgehConfig
+	_ func([]tasks.TaskProposal) View, // taskReview — now in GurgehConfig
+	_ func(tasks.TaskProposal, *research.Coordinator) View, // taskDetail — now in GurgehConfig
 	dashViews func(*autarch.Client) []View,
 ) {
-	a.createKickoffView = kickoff
-	a.createSpecSummaryView = specSummary
-	a.createEpicReviewView = epicReview
-	a.createTaskReviewView = taskReview
-	a.createTaskDetailView = taskDetail
 	a.createDashboardViews = dashViews
 }
 
@@ -317,21 +284,9 @@ func (a *UnifiedApp) Init() tea.Cmd {
 	// Populate palette with tab-switching commands (available in all modes)
 	a.initPaletteCommands()
 
-	// Skip onboarding if requested — go directly to dashboard
-	if a.skipOnboarding {
-		return a.enterDashboard()
-	}
-
-	// Start with kickoff view
-	if a.createKickoffView != nil {
-		a.currentView = a.createKickoffView()
-		a.attachAgentSelector(a.currentView)
-		return tea.Batch(
-			a.currentView.Init(),
-			a.currentView.Focus(),
-		)
-	}
-	return nil
+	// Always enter dashboard. If not skipping onboarding, the Gurgeh tab's
+	// GurgehView.Init() will start the onboarding flow internally.
+	return a.enterDashboard()
 }
 
 // Update implements tea.Model
@@ -545,113 +500,10 @@ func (a *UnifiedApp) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		a.attachAgentName(a.currentView)
 		return a, nil
 
-	// Handle view transition messages
-	case ProjectCreatedMsg:
-		return a, a.handleProjectCreated(msg)
-
-	case InterviewCompleteMsg:
-		return a, a.handleInterviewComplete(msg)
-
-	case SuggestionsReadyMsg:
-		return a, a.handleSuggestionsReady(msg)
-
-	case SpecAcceptedMsg:
-		return a, a.handleSpecAccepted(msg)
-
-	case EpicsGeneratedMsg:
-		a.generating = false
-		return a, a.handleEpicsGenerated(msg)
-
-	case EpicsAcceptedMsg:
-		return a, a.handleEpicsAccepted(msg)
-
-	case TasksGeneratedMsg:
-		a.generating = false
-		return a, a.handleTasksGenerated(msg)
-
-	case TasksAcceptedMsg:
-		return a, a.handleTasksAccepted(msg)
-
-	case GeneratingMsg:
-		a.generating = true
-		a.generatingWhat = msg.What
-		return a, nil
-
-	case GenerationErrorMsg:
-		a.generating = false
-		a.err = msg.Error
-		// Fall through to pass to currentView so SprintView can show errors in chat
-
-	case AgentNotFoundMsg:
-		a.err = &agent.NoAgentError{}
-		return a, nil
-
-	case NavigateToTaskDetailMsg:
-		return a, a.showTaskDetail(msg.Task)
-
-	case NavigateBackMsg:
-		return a, a.navigateBack()
-
-	case NavigateToKickoffMsg:
-		return a, a.navigateToKickoff()
-
-	case NavigateToStepMsg:
-		return a, a.navigateToStep(msg.State)
-
-	case SprintCompleteMsg:
-		// Handle at parent level: transition to SpecSummaryView with sprint results.
-		// No message pass-through needed since we're replacing the view, not retaining it.
-		if provider, ok := a.currentView.(SprintStateProvider); ok {
-			state, stateOK := provider.Orchestrator().State()
-			if stateOK && a.createSpecSummaryView != nil {
-				spec := createSpecSummaryFromSprintState(&state)
-				a.onboardingState = OnboardingSpecSummary
-				a.breadcrumb.SetCurrent(OnboardingSpecSummary)
-				a.currentView = a.createSpecSummaryView(spec, a.researchCoord)
-				a.attachAgentSelector(a.currentView)
-
-				// Set up callbacks (same as handleInterviewComplete)
-				if sv, ok := a.currentView.(SpecSummaryViewSetter); ok {
-					sv.SetCallbacks(
-						func(s *SpecSummary) tea.Cmd {
-							return func() tea.Msg {
-								return SpecAcceptedMsg{
-									Vision:       s.Vision,
-									Users:        s.Users,
-									Problem:      s.Problem,
-									Platform:     s.Platform,
-									Language:     s.Language,
-									Requirements: s.Requirements,
-								}
-							}
-						},
-						func(s *SpecSummary) tea.Cmd {
-							return func() tea.Msg { return NavigateBackMsg{} }
-						},
-						nil,
-					)
-				}
-
-				return a, tea.Batch(
-					a.currentView.Init(),
-					a.currentView.Focus(),
-					a.sendWindowSize(),
-				)
-			}
-		}
-		// Fallback: proceed to dashboard if view transition fails
-		return a, func() tea.Msg {
-			return OnboardingCompleteMsg{
-				ProjectID:   a.projectID,
-				ProjectName: a.projectName,
-			}
-		}
-
 	case OnboardingCompleteMsg:
-		return a, a.enterDashboard()
-
-	case ScanCodebaseMsg:
-		return a, a.scanCodebase(msg.Path)
+		// Onboarding finished inside GurgehView — no-op since we're already in dashboard mode.
+		// The GurgehView internally sets showBrowser=true.
+		return a, nil
 
 	case logPaneAutoHideMsg:
 		if a.logPaneAutoShown {
@@ -660,53 +512,18 @@ func (a *UnifiedApp) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return a, nil
 
-	case CodebaseScanResultMsg:
-		// Auto-hide log pane after scan completes (3s delay)
-		var autoHideCmd tea.Cmd
-		if a.logPaneAutoShown {
-			autoHideCmd = tea.Tick(3*time.Second, func(time.Time) tea.Msg {
-				return logPaneAutoHideMsg{}
-			})
-		}
-		// Pass to kickoff view - it will handle the result
-		if a.mode == ModeOnboarding {
-			if len(msg.ValidationErrors) == 0 {
-				a.onboardingState = OnboardingInterview
-				a.breadcrumb.SetCurrent(OnboardingInterview)
-			}
-		}
-		// Fall through to pass to currentView, but also schedule auto-hide
-		if autoHideCmd != nil {
-			if a.currentView != nil {
-				var cmd tea.Cmd
-				a.currentView, cmd = a.currentView.Update(msg)
-				return a, tea.Batch(cmd, autoHideCmd)
-			}
-			return a, autoHideCmd
-		}
-
-	case scanProgressWithContinuation:
-		// Auto-show log pane during scan
+	case LogPaneAutoShowMsg:
 		if !a.logPaneVisible {
 			a.logPaneVisible = true
 			a.logPaneAutoShown = true
 		}
-		// Forward progress to current view and schedule next read
-		if a.currentView != nil {
-			var cmd tea.Cmd
-			a.currentView, cmd = a.currentView.Update(msg.ScanProgressMsg)
-			return a, tea.Batch(cmd, msg.nextCmd)
-		}
-		return a, msg.nextCmd
-	case agentStreamWithContinuation:
-		if setter, ok := a.currentView.(ChatStreamSetter); ok {
-			setter.AppendChatLine(msg.Line)
-		}
-		return a, msg.nextCmd
+		return a, a.sendWindowSize()
 
-	case AgentStreamMsg:
-		if setter, ok := a.currentView.(ChatStreamSetter); ok {
-			setter.AppendChatLine(msg.Line)
+	case LogPaneScheduleAutoHideMsg:
+		if a.logPaneAutoShown {
+			return a, tea.Tick(3*time.Second, func(time.Time) tea.Msg {
+				return logPaneAutoHideMsg{}
+			})
 		}
 		return a, nil
 	}
@@ -721,934 +538,8 @@ func (a *UnifiedApp) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return a, nil
 }
 
-func (a *UnifiedApp) handleProjectCreated(msg ProjectCreatedMsg) tea.Cmd {
-	a.projectID = msg.ProjectID
-	a.projectName = msg.ProjectName
-	a.projectDesc = msg.Description
-	a.interviewAnswers = make(map[string]string)
-
-	// Transition to interview/arbiter
-	a.onboardingState = OnboardingInterview
-	a.breadcrumb.SetCurrent(OnboardingInterview)
-
-	// Prefer unified SprintView (chat-driven 8-phase flow)
-	if a.createSprintView != nil {
-		projectPath := ""
-		if cwd, err := os.Getwd(); err == nil {
-			projectPath = cwd
-		}
-		a.currentView = a.createSprintView(projectPath)
-		a.attachAgentSelector(a.currentView)
-
-		// Set up back callback
-		if cb, ok := a.currentView.(interface{ SetCallbacks(func() tea.Cmd) }); ok {
-			cb.SetCallbacks(func() tea.Cmd {
-				return func() tea.Msg { return NavigateBackMsg{} }
-			})
-		}
-
-		// Check for existing sprints to resume
-		var startCmd tea.Cmd
-		if lister, ok := a.currentView.(interface{ ListSprints() ([]string, error) }); ok {
-			if ids, err := lister.ListSprints(); err == nil && len(ids) > 0 {
-				// Resume the most recent sprint (IDs are sorted by list order)
-				// Use the last one as it's typically most recent
-				mostRecent := ids[len(ids)-1]
-				if resumer, ok := a.currentView.(interface{ ResumeSprint(string) tea.Cmd }); ok {
-					startCmd = resumer.ResumeSprint(mostRecent)
-					slog.Info("resuming sprint", "id", mostRecent)
-				}
-			}
-		}
-
-		// If no existing sprint to resume, start a new one
-		if startCmd == nil {
-			if msg.ScanResult != nil {
-				// Prefer the full method with exploration results for instant phase transitions
-				if starter, ok := a.currentView.(interface {
-					StartSprintWithExploration(string, *scan.Artifacts, map[string]any, string) tea.Cmd
-				}); ok {
-					startCmd = starter.StartSprintWithExploration(
-						msg.Description,
-						scanResultToArtifacts(msg.ScanResult),
-						msg.ScanResult.ExplorationResult,
-						msg.ScanResult.ExplorationSessionID,
-					)
-				} else if starter, ok := a.currentView.(interface {
-					StartSprintWithScan(string, *scan.Artifacts) tea.Cmd
-				}); ok {
-					startCmd = starter.StartSprintWithScan(msg.Description, scanResultToArtifacts(msg.ScanResult))
-				}
-			}
-			if startCmd == nil {
-				if starter, ok := a.currentView.(SprintStarter); ok {
-					startCmd = starter.StartSprint(msg.Description)
-				}
-			}
-		}
-
-		cmds := []tea.Cmd{
-			a.currentView.Init(),
-			a.currentView.Focus(),
-			a.sendWindowSize(),
-		}
-		if startCmd != nil {
-			cmds = append(cmds, startCmd)
-		}
-		return tea.Batch(cmds...)
-	}
-
-	// Fall back to Arbiter view if available
-	if a.createArbiterView != nil {
-		a.currentView = a.createArbiterView(a.researchCoord)
-		a.attachAgentSelector(a.currentView)
-
-		// Set up callback for when sprint completes (backward-compatible)
-		if iv, ok := a.currentView.(InterviewViewSetter); ok {
-			iv.SetCompleteCallback(func(answers map[string]string) tea.Cmd {
-				return func() tea.Msg {
-					return InterviewCompleteMsg{Answers: answers}
-				}
-			})
-
-			// If we have scan results, use them as suggestions
-			if msg.ScanResult != nil {
-				suggestions := make(map[string]string)
-				if msg.ScanResult.Vision != "" {
-					suggestions["vision"] = msg.ScanResult.Vision
-				}
-				if msg.ScanResult.Users != "" {
-					suggestions["users"] = msg.ScanResult.Users
-				}
-				if msg.ScanResult.Problem != "" {
-					suggestions["problem"] = msg.ScanResult.Problem
-				}
-				iv.SetSuggestions(suggestions)
-			}
-		}
-
-		cmds := []tea.Cmd{
-			a.currentView.Init(),
-			a.currentView.Focus(),
-			a.sendWindowSize(),
-		}
-		return tea.Batch(cmds...)
-	}
-
-	// No arbiter view — skip interview and go directly to spec summary
-	// using the project description and scan results as answers.
-	answers := map[string]string{
-		"vision": msg.Description,
-	}
-	if msg.ScanResult != nil {
-		if msg.ScanResult.Vision != "" {
-			answers["vision"] = msg.ScanResult.Vision
-		}
-		if msg.ScanResult.Users != "" {
-			answers["users"] = msg.ScanResult.Users
-		}
-		if msg.ScanResult.Problem != "" {
-			answers["problem"] = msg.ScanResult.Problem
-		}
-		if msg.ScanResult.Platform != "" {
-			answers["platform"] = msg.ScanResult.Platform
-		}
-		if msg.ScanResult.Language != "" {
-			answers["language"] = msg.ScanResult.Language
-		}
-		if len(msg.ScanResult.Requirements) > 0 {
-			answers["requirements"] = strings.Join(msg.ScanResult.Requirements, "\n")
-		}
-	}
-	return func() tea.Msg {
-		return InterviewCompleteMsg{Answers: answers}
-	}
-}
-
-func (a *UnifiedApp) generateSuggestions() tea.Cmd {
-	if a.codingAgent == nil {
-		// No agent available, user will type manually
-		return nil
-	}
-
-	return func() tea.Msg {
-		questions := []string{
-			"What is your project vision? Describe what you want to build.",
-			"Who are the primary users of this project?",
-			"What problem are you solving?",
-			"What platform(s) will this run on? (Web, CLI, Desktop, Mobile, API/Backend)",
-			"What programming language(s) will you use? (Go, TypeScript, Python, Rust, Other)",
-			"List the key requirements (one per line).",
-		}
-
-		suggestions, err := agent.SuggestAnswers(context.Background(), a.codingAgent, a.projectDesc, questions)
-		return SuggestionsReadyMsg{Suggestions: suggestions, Error: err}
-	}
-}
-
-func (a *UnifiedApp) scanCodebase(path string) tea.Cmd {
-	// Create a channel for progress updates
-	progressChan := make(chan agent.ScanProgress, 100)
-
-	// Start exploration in a goroutine (Claude Code is the primary scan method)
-	// Progress is reported via slog, which appears in the log pane
-	go func() {
-		defer close(progressChan)
-
-		// Send initial progress to TUI
-		progressChan <- agent.ScanProgress{Step: "Exploring", Details: "Running Claude Code..."}
-
-		// Run Claude Code exploration (progress logged via slog)
-		exploreResult, sessionID, err := exploration.Explore(context.Background(), path)
-
-		if err != nil {
-			progressChan <- agent.ScanProgress{Step: "_error", Details: err.Error()}
-			return
-		}
-
-		// Convert exploration results to ScanResult format
-		artifacts := exploration.MergeIntoArtifacts(exploreResult, nil)
-
-		// Extract basic info from exploration results for backward compatibility
-		projectName := extractString(exploreResult, "project_name")
-		if projectName == "" {
-			// Fallback to directory name
-			projectName = filepath.Base(path)
-		}
-
-		result := &agent.ScanResult{
-			ProjectName:    projectName,
-			Description:    extractString(exploreResult, "description"),
-			Vision:         extractVisionSummary(artifacts),
-			Users:          extractUsersSummary(artifacts, exploreResult),
-			Problem:        extractProblemSummary(artifacts),
-			Platform:       extractString(exploreResult, "platform"),
-			Language:       extractString(exploreResult, "language"),
-			PhaseArtifacts: artifacts,
-		}
-
-		// Encode result in progress for simplicity
-		progressChan <- agent.ScanProgress{
-			Step:                 "_complete",
-			Details:              result.ProjectName,
-			Files:                []string{result.Description, result.Vision, result.Users, result.Problem, result.Platform, result.Language, strings.Join(result.Requirements, "|||")},
-			PhaseArtifacts:       result.PhaseArtifacts,
-			ExplorationResult:    exploreResult,
-			ExplorationSessionID: sessionID,
-		}
-	}()
-
-	// Return a command that reads from the progress channel
-	return a.waitForScanProgress(progressChan)
-}
-
-// Helper functions to extract data from exploration results
-func extractString(m map[string]any, key string) string {
-	if v, ok := m[key].(string); ok {
-		return v
-	}
-	return ""
-}
-
-func extractVisionSummary(a *agent.PhaseArtifacts) string {
-	if a != nil && a.Vision != nil && a.Vision.Summary != "" {
-		return a.Vision.Summary
-	}
-	return ""
-}
-
-func extractProblemSummary(a *agent.PhaseArtifacts) string {
-	if a != nil && a.Problem != nil && a.Problem.Summary != "" {
-		return a.Problem.Summary
-	}
-	return ""
-}
-
-func extractUsersSummary(a *agent.PhaseArtifacts, exploreResult map[string]any) string {
-	// Try personas from artifacts first
-	if a != nil && a.Users != nil && len(a.Users.Personas) > 0 {
-		var names []string
-		for _, p := range a.Users.Personas {
-			names = append(names, p.Name)
-		}
-		return strings.Join(names, ", ")
-	}
-	// Fall back to summary from exploration result
-	if users, ok := exploreResult["users"].(map[string]any); ok {
-		if summary, ok := users["summary"].(string); ok {
-			return summary
-		}
-	}
-	return ""
-}
-
-// waitForScanProgress reads one progress update from the channel and returns it as a message.
-func (a *UnifiedApp) waitForScanProgress(ch <-chan agent.ScanProgress) tea.Cmd {
-	return func() tea.Msg {
-		p, ok := <-ch
-		if !ok {
-			// Channel closed unexpectedly
-			return CodebaseScanResultMsg{Error: fmt.Errorf("scan interrupted")}
-		}
-
-		// Check for special completion messages
-		if p.Step == "_error" {
-			return CodebaseScanResultMsg{Error: fmt.Errorf("%s", p.Details)}
-		}
-		if p.Step == "_complete" {
-			// Decode result from Files array
-			var requirements []string
-			if len(p.Files) >= 7 && p.Files[6] != "" {
-				requirements = strings.Split(p.Files[6], "|||")
-			}
-			return CodebaseScanResultMsg{
-				ProjectName:       p.Details,
-				Description:       safeIndex(p.Files, 0),
-				Vision:            safeIndex(p.Files, 1),
-				Users:             safeIndex(p.Files, 2),
-				Problem:           safeIndex(p.Files, 3),
-				Platform:          safeIndex(p.Files, 4),
-				Language:          safeIndex(p.Files, 5),
-				Requirements:      requirements,
-				ValidationErrors:  toValidationErrors(p.ValidationErrors),
-				PhaseArtifacts:    toPhaseArtifacts(p.PhaseArtifacts),
-				ExplorationResult:    p.ExplorationResult,
-				ExplorationSessionID: p.ExplorationSessionID,
-			}
-		}
-
-		// Return progress message and schedule next read
-		return scanProgressWithContinuation{
-			ScanProgressMsg: ScanProgressMsg{
-				Step:      p.Step,
-				Details:   p.Details,
-				Files:     p.Files,
-				AgentLine: p.AgentLine,
-			},
-			nextCmd: a.waitForScanProgress(ch),
-		}
-	}
-}
-
-func safeIndex(s []string, i int) string {
-	if i < len(s) {
-		return s[i]
-	}
-	return ""
-}
-
-func toValidationErrors(errs []agent.ValidationError) []ValidationError {
-	if len(errs) == 0 {
-		return nil
-	}
-	out := make([]ValidationError, 0, len(errs))
-	for _, err := range errs {
-		out = append(out, ValidationError{
-			Code:    err.Code,
-			Field:   err.Field,
-			Message: err.Message,
-		})
-	}
-	return out
-}
-
-func toPhaseArtifacts(artifacts *agent.PhaseArtifacts) *PhaseArtifacts {
-	if artifacts == nil {
-		return nil
-	}
-	return &PhaseArtifacts{
-		Vision:  toVisionArtifact(artifacts.Vision),
-		Problem: toProblemArtifact(artifacts.Problem),
-		Users:   toUsersArtifact(artifacts.Users),
-	}
-}
-
-func toVisionArtifact(artifact *agent.VisionArtifact) *VisionArtifact {
-	if artifact == nil {
-		return nil
-	}
-	return &VisionArtifact{
-		Phase:         artifact.Phase,
-		Version:       artifact.Version,
-		Summary:       artifact.Summary,
-		Goals:         append([]string{}, artifact.Goals...),
-		NonGoals:      append([]string{}, artifact.NonGoals...),
-		Evidence:      toEvidenceItems(artifact.Evidence),
-		OpenQuestions: append([]string{}, artifact.OpenQuestions...),
-		Quality:       toQualityScores(artifact.Quality),
-	}
-}
-
-func toProblemArtifact(artifact *agent.ProblemArtifact) *ProblemArtifact {
-	if artifact == nil {
-		return nil
-	}
-	return &ProblemArtifact{
-		Phase:         artifact.Phase,
-		Version:       artifact.Version,
-		Summary:       artifact.Summary,
-		PainPoints:    append([]string{}, artifact.PainPoints...),
-		Impact:        artifact.Impact,
-		Evidence:      toEvidenceItems(artifact.Evidence),
-		OpenQuestions: append([]string{}, artifact.OpenQuestions...),
-		Quality:       toQualityScores(artifact.Quality),
-	}
-}
-
-func toUsersArtifact(artifact *agent.UsersArtifact) *UsersArtifact {
-	if artifact == nil {
-		return nil
-	}
-	return &UsersArtifact{
-		Phase:         artifact.Phase,
-		Version:       artifact.Version,
-		Personas:      toPersonas(artifact.Personas),
-		Evidence:      toEvidenceItems(artifact.Evidence),
-		OpenQuestions: append([]string{}, artifact.OpenQuestions...),
-		Quality:       toQualityScores(artifact.Quality),
-	}
-}
-
-func toEvidenceItems(items []agent.EvidenceItem) []EvidenceItem {
-	if len(items) == 0 {
-		return nil
-	}
-	out := make([]EvidenceItem, 0, len(items))
-	for _, item := range items {
-		out = append(out, EvidenceItem{
-			Type:       item.Type,
-			Path:       item.Path,
-			Quote:      item.Quote,
-			Confidence: item.Confidence,
-		})
-	}
-	return out
-}
-
-func toPersonas(items []agent.Persona) []Persona {
-	if len(items) == 0 {
-		return nil
-	}
-	out := make([]Persona, 0, len(items))
-	for _, item := range items {
-		out = append(out, Persona{
-			Name:    item.Name,
-			Needs:   append([]string{}, item.Needs...),
-			Context: item.Context,
-		})
-	}
-	return out
-}
-
-func toQualityScores(scores agent.QualityScores) QualityScores {
-	return QualityScores{
-		Clarity:      scores.Clarity,
-		Completeness: scores.Completeness,
-		Grounding:    scores.Grounding,
-		Consistency:  scores.Consistency,
-	}
-}
-
-// scanResultToArtifacts converts a CodebaseScanResultMsg to scan.Artifacts
-// for seeding the SprintView's orchestrator.
-func scanResultToArtifacts(r *CodebaseScanResultMsg) *scan.Artifacts {
-	if r == nil {
-		return nil
-	}
-	a := &scan.Artifacts{}
-	if r.PhaseArtifacts != nil {
-		if v := r.PhaseArtifacts.Vision; v != nil {
-			a.Vision = &scan.PhaseData{
-				Summary:           v.Summary,
-				Evidence:          toScanEvidence(v.Evidence),
-				ResolvedQuestions: toScanResolved(v.ResolvedQuestions),
-				Quality:           scan.QualityScores{Clarity: v.Quality.Clarity, Completeness: v.Quality.Completeness, Grounding: v.Quality.Grounding, Consistency: v.Quality.Consistency},
-			}
-		}
-		if p := r.PhaseArtifacts.Problem; p != nil {
-			a.Problem = &scan.PhaseData{
-				Summary:           p.Summary,
-				Evidence:          toScanEvidence(p.Evidence),
-				ResolvedQuestions: toScanResolved(p.ResolvedQuestions),
-				Quality:           scan.QualityScores{Clarity: p.Quality.Clarity, Completeness: p.Quality.Completeness, Grounding: p.Quality.Grounding, Consistency: p.Quality.Consistency},
-			}
-		}
-		if u := r.PhaseArtifacts.Users; u != nil {
-			summary := r.Users
-			if summary == "" && len(u.Personas) > 0 {
-				summary = u.Personas[0].Name
-			}
-			a.Users = &scan.PhaseData{
-				Summary:           summary,
-				Evidence:          toScanEvidence(u.Evidence),
-				ResolvedQuestions: toScanResolved(u.ResolvedQuestions),
-				Quality:           scan.QualityScores{Clarity: u.Quality.Clarity, Completeness: u.Quality.Completeness, Grounding: u.Quality.Grounding, Consistency: u.Quality.Consistency},
-			}
-		}
-	}
-	// If no phase artifacts, create minimal ones from top-level fields
-	if a.Vision == nil && r.Vision != "" {
-		a.Vision = &scan.PhaseData{Summary: r.Vision}
-	}
-	if a.Problem == nil && r.Problem != "" {
-		a.Problem = &scan.PhaseData{Summary: r.Problem}
-	}
-	if a.Users == nil && r.Users != "" {
-		a.Users = &scan.PhaseData{Summary: r.Users}
-	}
-	return a
-}
-
-func toScanEvidence(items []EvidenceItem) []scan.EvidenceItem {
-	out := make([]scan.EvidenceItem, 0, len(items))
-	for _, item := range items {
-		out = append(out, scan.EvidenceItem{
-			Type:       item.Type,
-			FilePath:   item.Path,
-			Quote:      item.Quote,
-			Confidence: item.Confidence,
-		})
-	}
-	return out
-}
-
-func toScanResolved(items []ResolvedQuestion) []scan.ResolvedQuestion {
-	out := make([]scan.ResolvedQuestion, 0, len(items))
-	for _, item := range items {
-		out = append(out, scan.ResolvedQuestion{
-			Question: item.Question,
-			Answer:   item.Answer,
-		})
-	}
-	return out
-}
-
-// scanProgressWithContinuation wraps a progress message with a continuation command.
-type scanProgressWithContinuation struct {
-	ScanProgressMsg
-	nextCmd tea.Cmd
-}
-
 // logPaneAutoHideMsg is sent after a timer to auto-hide the log pane.
 type logPaneAutoHideMsg struct{}
-
-func (a *UnifiedApp) captureRunSnapshot() {
-	a.lastRunLabel = ""
-	a.lastRunSnapshot = ""
-	if snapper, ok := a.currentView.(DocumentSnapshotter); ok {
-		label, content := snapper.DocumentSnapshot()
-		a.lastRunLabel = label
-		a.lastRunSnapshot = content
-	}
-}
-
-func (a *UnifiedApp) finalizeAgentRun(what string) {
-	var diff []string
-	var diffErr error
-
-	if a.lastRunSnapshot != "" {
-		if snapper, ok := a.currentView.(DocumentSnapshotter); ok {
-			label, after := snapper.DocumentSnapshot()
-			if label != "" {
-				a.lastRunLabel = label
-			}
-			diff, diffErr = pkgtui.UnifiedDiff(a.lastRunSnapshot, after, a.lastRunLabel)
-		}
-	}
-
-	a.sendToCurrentView(AgentRunFinishedMsg{
-		What: what,
-		Err:  diffErr,
-		Diff: diff,
-	})
-
-	summary := summarizeDiff(diff, diffErr)
-	if summary != "" {
-		a.sendToCurrentView(AgentEditSummaryMsg{Summary: summary})
-	}
-}
-
-func summarizeDiff(diff []string, err error) string {
-	if err != nil {
-		return "Agent run complete. Diff unavailable."
-	}
-	if len(diff) == 0 {
-		return "Agent run complete. No document changes detected."
-	}
-
-	adds := 0
-	dels := 0
-	for _, line := range diff {
-		switch {
-		case strings.HasPrefix(line, "+") && !strings.HasPrefix(line, "+++"):
-			adds++
-		case strings.HasPrefix(line, "-") && !strings.HasPrefix(line, "---"):
-			dels++
-		}
-	}
-
-	return fmt.Sprintf("Agent run complete. +%d -%d lines.", adds, dels)
-}
-
-// BUG(phase2c): sendToCurrentView discards the tea.Cmd returned by Update().
-// Any commands the view returns (timers, IO, focus requests) are silently lost.
-// This is called from goroutines (handleAgentRun) which cannot return commands
-// to the Bubble Tea runtime. Fix in Phase 2c by converting to p.Send() pattern.
-func (a *UnifiedApp) sendToCurrentView(msg tea.Msg) {
-	if a.currentView == nil {
-		return
-	}
-	a.currentView, _ = a.currentView.Update(msg)
-}
-
-// agentStreamEvent represents a single streaming output or final result.
-type agentStreamEvent struct {
-	line  string
-	epics []epics.EpicProposal
-	tasks []tasks.TaskProposal
-	err   error
-}
-
-// agentStreamWithContinuation wraps a stream message with a continuation command.
-type agentStreamWithContinuation struct {
-	AgentStreamMsg
-	nextCmd tea.Cmd
-}
-
-func (a *UnifiedApp) waitForAgentStream(ch <-chan agentStreamEvent, what string) tea.Cmd {
-	return func() tea.Msg {
-		ev, ok := <-ch
-		if !ok {
-			return GenerationErrorMsg{What: what, Error: fmt.Errorf("%s generation interrupted", what)}
-		}
-
-		if ev.line != "" {
-			return agentStreamWithContinuation{
-				AgentStreamMsg: AgentStreamMsg{Line: ev.line},
-				nextCmd:        a.waitForAgentStream(ch, what),
-			}
-		}
-
-		if ev.err != nil {
-			return GenerationErrorMsg{What: what, Error: ev.err}
-		}
-
-		if len(ev.epics) > 0 {
-			return EpicsGeneratedMsg{Epics: ev.epics}
-		}
-
-		if len(ev.tasks) > 0 {
-			return TasksGeneratedMsg{Tasks: ev.tasks}
-		}
-
-		return GenerationErrorMsg{What: what, Error: fmt.Errorf("%s generation interrupted", what)}
-	}
-}
-
-// createSpecSummaryFromSprintState extracts display fields from a completed sprint.
-// The state pointer is read-only; it was already cloned by Orchestrator.State().
-func createSpecSummaryFromSprintState(state *arbiter.SprintState) *SpecSummary {
-	spec := &SpecSummary{
-		ProjectID: state.ID,
-	}
-
-	if s, ok := state.Sections[arbiter.PhaseVision]; ok && s.Content != "" {
-		spec.Vision = s.Content
-		spec.Name = extractFirstLine(s.Content)
-	}
-	if s, ok := state.Sections[arbiter.PhaseProblem]; ok && s.Content != "" {
-		spec.Problem = s.Content
-	}
-	if s, ok := state.Sections[arbiter.PhaseUsers]; ok && s.Content != "" {
-		spec.Users = s.Content
-	}
-	if s, ok := state.Sections[arbiter.PhaseRequirements]; ok && s.Content != "" {
-		spec.Requirements = parseBulletItems(s.Content)
-	}
-	// Note: Platform/Language not in 8-phase sprint - leave empty
-
-	return spec
-}
-
-// extractFirstLine returns the first non-empty line of content.
-func extractFirstLine(content string) string {
-	if idx := strings.Index(content, "\n"); idx > 0 {
-		return strings.TrimSpace(content[:idx])
-	}
-	return strings.TrimSpace(content)
-}
-
-// parseBulletItems splits content on newlines and strips bullet prefixes.
-func parseBulletItems(content string) []string {
-	lines := strings.Split(content, "\n")
-	var items []string
-	for _, line := range lines {
-		line = strings.TrimSpace(line)
-		// Strip common bullet prefixes
-		line = strings.TrimPrefix(line, "- ")
-		line = strings.TrimPrefix(line, "* ")
-		line = strings.TrimPrefix(line, "• ")
-		if line != "" {
-			items = append(items, line)
-		}
-	}
-	return items
-}
-
-func (a *UnifiedApp) handleSuggestionsReady(msg SuggestionsReadyMsg) tea.Cmd {
-	if msg.Error != nil {
-		// Suggestions failed, user will type manually - this is not fatal
-		return nil
-	}
-
-	// Pass suggestions to the interview view
-	if iv, ok := a.currentView.(InterviewViewSetter); ok {
-		iv.SetSuggestions(msg.Suggestions)
-	}
-	return nil
-}
-
-func (a *UnifiedApp) handleInterviewComplete(msg InterviewCompleteMsg) tea.Cmd {
-	a.interviewAnswers = msg.Answers
-	a.onboardingState = OnboardingSpecSummary
-	a.breadcrumb.SetCurrent(OnboardingSpecSummary)
-
-	// Create spec summary from answers
-	spec := CreateSpecSummaryFromAnswers(a.projectID, msg.Answers, nil)
-
-	if a.createSpecSummaryView != nil {
-		a.currentView = a.createSpecSummaryView(spec, a.researchCoord)
-		a.attachAgentSelector(a.currentView)
-
-		// Set up callbacks
-		if sv, ok := a.currentView.(SpecSummaryViewSetter); ok {
-			sv.SetCallbacks(
-				// onGenerateEpics
-				func(s *SpecSummary) tea.Cmd {
-					return func() tea.Msg {
-						return SpecAcceptedMsg{
-							Vision:       s.Vision,
-							Users:        s.Users,
-							Problem:      s.Problem,
-							Platform:     s.Platform,
-							Language:     s.Language,
-							Requirements: s.Requirements,
-						}
-					}
-				},
-				// onEditSpec - go back to interview
-				func(s *SpecSummary) tea.Cmd {
-					return func() tea.Msg {
-						return NavigateBackMsg{}
-					}
-				},
-				// onWaitResearch
-				nil,
-			)
-		}
-
-		return tea.Batch(
-			a.currentView.Init(),
-			a.currentView.Focus(),
-			a.sendWindowSize(),
-		)
-	}
-	return nil
-}
-
-func (a *UnifiedApp) handleSpecAccepted(msg SpecAcceptedMsg) tea.Cmd {
-	a.onboardingState = OnboardingEpicReview
-	a.generating = true
-	a.generatingWhat = "epics"
-
-	// Generate epics using the agent
-	return a.generateEpicsWithAgent(msg)
-}
-
-func (a *UnifiedApp) generateEpicsWithAgent(spec SpecAcceptedMsg) tea.Cmd {
-	if a.codingAgent == nil {
-		// No agent - show error with instructions
-		return func() tea.Msg {
-			return AgentNotFoundMsg{
-				Instructions: (&agent.NoAgentError{}).Instructions(),
-			}
-		}
-	}
-
-	a.captureRunSnapshot()
-	input := agent.SpecInput{
-		Vision:       spec.Vision,
-		Users:        spec.Users,
-		Problem:      spec.Problem,
-		Platform:     spec.Platform,
-		Language:     spec.Language,
-		Requirements: spec.Requirements,
-	}
-
-	stream := make(chan agentStreamEvent, 100)
-	go func() {
-		defer close(stream)
-		outputCallback := func(line string) {
-			line = strings.TrimSpace(line)
-			if line == "" {
-				return
-			}
-			select {
-			case stream <- agentStreamEvent{line: line}:
-			default:
-			}
-		}
-
-		proposals, err := agent.GenerateEpicsWithOutput(context.Background(), a.codingAgent, input, outputCallback)
-		if err != nil {
-			stream <- agentStreamEvent{err: err}
-			return
-		}
-		stream <- agentStreamEvent{epics: proposals}
-	}()
-
-	return tea.Batch(
-		func() tea.Msg { return AgentRunStartedMsg{What: "epics"} },
-		a.waitForAgentStream(stream, "epics"),
-	)
-}
-
-func (a *UnifiedApp) handleEpicsGenerated(msg EpicsGeneratedMsg) tea.Cmd {
-	a.finalizeAgentRun("epics")
-	a.generatedEpics = msg.Epics
-	a.breadcrumb.SetCurrent(OnboardingEpicReview)
-
-	// Show epic review view
-	if a.createEpicReviewView != nil {
-		a.currentView = a.createEpicReviewView(msg.Epics)
-		a.attachAgentSelector(a.currentView)
-		return tea.Batch(
-			a.currentView.Init(),
-			a.currentView.Focus(),
-			a.sendWindowSize(),
-		)
-	}
-	return nil
-}
-
-func (a *UnifiedApp) handleEpicsAccepted(msg EpicsAcceptedMsg) tea.Cmd {
-	a.generatedEpics = msg.Epics
-	a.onboardingState = OnboardingTaskReview
-	a.generating = true
-	a.generatingWhat = "tasks"
-
-	// Generate tasks from epics using the agent
-	return a.generateTasksWithAgent()
-}
-
-func (a *UnifiedApp) generateTasksWithAgent() tea.Cmd {
-	if a.codingAgent == nil {
-		// No agent - show error with instructions
-		return func() tea.Msg {
-			return AgentNotFoundMsg{
-				Instructions: (&agent.NoAgentError{}).Instructions(),
-			}
-		}
-	}
-
-	a.captureRunSnapshot()
-	stream := make(chan agentStreamEvent, 100)
-	go func() {
-		defer close(stream)
-		outputCallback := func(line string) {
-			line = strings.TrimSpace(line)
-			if line == "" {
-				return
-			}
-			select {
-			case stream <- agentStreamEvent{line: line}:
-			default:
-			}
-		}
-
-		taskList, err := agent.GenerateTasksWithOutput(context.Background(), a.codingAgent, a.generatedEpics, outputCallback)
-		if err != nil {
-			stream <- agentStreamEvent{err: err}
-			return
-		}
-		stream <- agentStreamEvent{tasks: taskList}
-	}()
-
-	return tea.Batch(
-		func() tea.Msg { return AgentRunStartedMsg{What: "tasks"} },
-		a.waitForAgentStream(stream, "tasks"),
-	)
-}
-
-func (a *UnifiedApp) handleTasksGenerated(msg TasksGeneratedMsg) tea.Cmd {
-	a.finalizeAgentRun("tasks")
-	a.generatedTasks = msg.Tasks
-	a.breadcrumb.SetCurrent(OnboardingTaskReview)
-
-	// Show task review view
-	if a.createTaskReviewView != nil {
-		a.currentView = a.createTaskReviewView(msg.Tasks)
-		a.attachAgentSelector(a.currentView)
-		return tea.Batch(
-			a.currentView.Init(),
-			a.currentView.Focus(),
-			a.sendWindowSize(),
-		)
-	}
-	return nil
-}
-
-func (a *UnifiedApp) handleTasksAccepted(msg TasksAcceptedMsg) tea.Cmd {
-	a.generatedTasks = msg.Tasks
-	a.onboardingState = OnboardingComplete
-	a.breadcrumb.SetCurrent(OnboardingComplete)
-
-	// Transition to dashboard
-	return func() tea.Msg {
-		return OnboardingCompleteMsg{
-			ProjectID:   a.projectID,
-			ProjectName: a.projectName,
-		}
-	}
-}
-
-func (a *UnifiedApp) showTaskDetail(task tasks.TaskProposal) tea.Cmd {
-	if a.createTaskDetailView != nil {
-		a.currentView = a.createTaskDetailView(task, a.researchCoord)
-		a.attachAgentSelector(a.currentView)
-		return tea.Batch(
-			a.currentView.Init(),
-			a.currentView.Focus(),
-			a.sendWindowSize(),
-		)
-	}
-	return nil
-}
-
-func (a *UnifiedApp) navigateBack() tea.Cmd {
-	a.blurCurrentView()
-	// Return to appropriate view based on state
-	switch a.onboardingState {
-	case OnboardingEpicReview:
-		return a.navigateToKickoff()
-	case OnboardingTaskReview:
-		// Go back to epic review
-		a.onboardingState = OnboardingEpicReview
-		a.breadcrumb.SetCurrent(OnboardingEpicReview)
-		if a.createEpicReviewView != nil {
-			a.currentView = a.createEpicReviewView(a.generatedEpics)
-			a.attachAgentSelector(a.currentView)
-			return tea.Batch(a.currentView.Init(), a.currentView.Focus(), a.sendWindowSize())
-		}
-	case OnboardingComplete:
-		// In dashboard mode, go back to Bigend
-		if len(a.dashViews) > 0 {
-			a.currentView = a.dashViews[0]
-			return a.currentView.Focus()
-		}
-	}
-	return nil
-}
 
 func (a *UnifiedApp) blurCurrentView() {
 	if a.currentView != nil {
@@ -1656,76 +547,9 @@ func (a *UnifiedApp) blurCurrentView() {
 	}
 }
 
-func (a *UnifiedApp) navigateToKickoff() tea.Cmd {
-	a.blurCurrentView()
-	a.onboardingState = OnboardingKickoff
-	a.breadcrumb.SetCurrent(OnboardingKickoff)
-	// Clear any generated data
-	a.generatedEpics = nil
-	a.generatedTasks = nil
-	a.projectID = ""
-	a.projectName = ""
-	a.projectDesc = ""
-
-	if a.createKickoffView != nil {
-		a.currentView = a.createKickoffView()
-		a.attachAgentSelector(a.currentView)
-		return tea.Batch(
-			a.currentView.Init(),
-			a.currentView.Focus(),
-			a.sendWindowSize(),
-		)
-	}
-	return nil
-}
-
-func (a *UnifiedApp) navigateToStep(state OnboardingState) tea.Cmd {
-	// Only allow navigation to unlocked steps
-	switch state {
-	case OnboardingKickoff:
-		return a.navigateToKickoff()
-
-	case OnboardingScanVision, OnboardingScanProblem, OnboardingScanUsers:
-		a.onboardingState = state
-		a.breadcrumb.SetCurrent(state)
-		return nil
-
-	case OnboardingEpicReview:
-		// Only if we have generated epics
-		if len(a.generatedEpics) > 0 {
-			a.onboardingState = OnboardingEpicReview
-			a.breadcrumb.SetCurrent(OnboardingEpicReview)
-			if a.createEpicReviewView != nil {
-				a.currentView = a.createEpicReviewView(a.generatedEpics)
-				a.attachAgentSelector(a.currentView)
-				return tea.Batch(
-					a.currentView.Init(),
-					a.currentView.Focus(),
-					a.sendWindowSize(),
-				)
-			}
-		}
-
-	case OnboardingTaskReview:
-		// Only if we have generated tasks
-		if len(a.generatedTasks) > 0 {
-			a.onboardingState = OnboardingTaskReview
-			a.breadcrumb.SetCurrent(OnboardingTaskReview)
-			if a.createTaskReviewView != nil {
-				a.currentView = a.createTaskReviewView(a.generatedTasks)
-				a.attachAgentSelector(a.currentView)
-				return tea.Batch(
-					a.currentView.Init(),
-					a.currentView.Focus(),
-					a.sendWindowSize(),
-				)
-			}
-		}
-
-	case OnboardingComplete:
-		return a.enterDashboard()
-	}
-
+func (a *UnifiedApp) revertLastRun() tea.Cmd {
+	// Revert is no longer handled at the UnifiedApp level since agent runs
+	// moved to GurgehOnboardingView. Forward to current view.
 	return nil
 }
 
@@ -1855,14 +679,6 @@ func (a *UnifiedApp) openChatSettings() {
 	} else {
 		a.chatSettingsView.Settings = a.chatSettings
 	}
-}
-
-func (a *UnifiedApp) revertLastRun() tea.Cmd {
-	if a.lastRunSnapshot == "" {
-		return nil
-	}
-	a.sendToCurrentView(RevertLastRunMsg{Snapshot: a.lastRunSnapshot})
-	return nil
 }
 
 func (a *UnifiedApp) switchDashboardTab(idx int) tea.Cmd {

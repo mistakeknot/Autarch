@@ -12,7 +12,14 @@ import (
 	pkgtui "github.com/mistakeknot/autarch/pkg/tui"
 )
 
+// gurgehViewAgentSelectorSetter is a local interface for views that accept an agent selector.
+type gurgehViewAgentSelectorSetter interface {
+	SetAgentSelector(*pkgtui.AgentSelector)
+}
+
 // GurgehView displays specs (PRDs) with the unified shell layout.
+// It also acts as a container: when onboarding config is provided, it delegates
+// to GurgehOnboardingView until onboarding completes, then shows the spec browser.
 type GurgehView struct {
 	client   *autarch.Client
 	specs    []autarch.Spec
@@ -26,19 +33,48 @@ type GurgehView struct {
 	shell *pkgtui.ShellLayout
 	// Model selector shown under chat pane
 	agentSelector *pkgtui.AgentSelector
+
+	// Onboarding sub-view (nil when no config provided, or after onboarding completes)
+	onboarding *GurgehOnboardingView
+	// If true, show spec browser; else show onboarding
+	showBrowser bool
 }
 
-// NewGurgehView creates a new Gurgeh view
-func NewGurgehView(client *autarch.Client) *GurgehView {
-	return &GurgehView{
+// NewGurgehView creates a new Gurgeh view.
+// If cfg is non-nil, onboarding is shown first; otherwise the spec browser is shown immediately.
+func NewGurgehView(client *autarch.Client, cfg *tui.GurgehConfig) *GurgehView {
+	v := &GurgehView{
 		client: client,
 		shell:  pkgtui.NewShellLayout(),
 	}
+	if cfg != nil {
+		v.onboarding = NewGurgehOnboardingView(*cfg)
+	} else {
+		v.showBrowser = true // No config = skip onboarding
+	}
+	return v
 }
 
 // SetAgentSelector sets the shared agent selector.
 func (v *GurgehView) SetAgentSelector(selector *pkgtui.AgentSelector) {
 	v.agentSelector = selector
+	if v.onboarding != nil {
+		v.onboarding.SetAgentSelector(selector)
+	}
+}
+
+// SetAgentName sets the selected agent name on the onboarding sub-view.
+func (v *GurgehView) SetAgentName(name string) {
+	if v.onboarding != nil {
+		v.onboarding.SetAgentName(name)
+	}
+}
+
+// SetChatSettings sets chat settings on the onboarding sub-view.
+func (v *GurgehView) SetChatSettings(settings pkgtui.ChatSettings) {
+	if v.onboarding != nil {
+		v.onboarding.SetChatSettings(settings)
+	}
 }
 
 // Compile-time interface assertion for SidebarProvider
@@ -51,6 +87,9 @@ type specsLoadedMsg struct {
 
 // Init implements View
 func (v *GurgehView) Init() tea.Cmd {
+	if !v.showBrowser && v.onboarding != nil {
+		return v.onboarding.Init()
+	}
 	return v.loadSpecs()
 }
 
@@ -63,6 +102,32 @@ func (v *GurgehView) loadSpecs() tea.Cmd {
 
 // Update implements View
 func (v *GurgehView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
+	// --- Onboarding delegation ---
+	if !v.showBrowser && v.onboarding != nil {
+		switch msg := msg.(type) {
+		case tea.WindowSizeMsg:
+			// Pass to BOTH onboarding and spec browser so browser is sized when we switch
+			v.width = msg.Width - 6
+			v.height = msg.Height - 4
+			v.shell.SetSize(v.width, v.height)
+			_, cmd := v.onboarding.Update(msg)
+			return v, cmd
+
+		case tui.OnboardingCompleteMsg:
+			// Onboarding finished — switch to spec browser
+			v.showBrowser = true
+			// Return the message so UnifiedApp can call enterDashboard
+			return v, func() tea.Msg { return msg }
+		}
+
+		// Default pass-through: all other messages go to onboarding.
+		// CRITICAL: This ensures SprintConflictMsg, SprintStreamLineMsg, etc.
+		// reach the SprintView inside onboarding.
+		_, cmd := v.onboarding.Update(msg)
+		return v, cmd
+	}
+
+	// --- Spec browser mode ---
 	var cmd tea.Cmd
 
 	switch msg := msg.(type) {
@@ -136,6 +201,10 @@ func (v *GurgehView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
 
 // View implements View
 func (v *GurgehView) View() string {
+	if !v.showBrowser && v.onboarding != nil {
+		return v.onboarding.View()
+	}
+
 	if v.loading {
 		return pkgtui.LabelStyle.Render("Loading specs...")
 	}
@@ -274,11 +343,18 @@ func (v *GurgehView) renderChat() string {
 
 // Focus implements View
 func (v *GurgehView) Focus() tea.Cmd {
+	if !v.showBrowser && v.onboarding != nil {
+		return v.onboarding.Focus()
+	}
 	return v.loadSpecs()
 }
 
 // Blur implements View
-func (v *GurgehView) Blur() {}
+func (v *GurgehView) Blur() {
+	if v.onboarding != nil {
+		v.onboarding.Blur()
+	}
+}
 
 // Name implements View
 func (v *GurgehView) Name() string {
@@ -287,6 +363,9 @@ func (v *GurgehView) Name() string {
 
 // ShortHelp implements View
 func (v *GurgehView) ShortHelp() string {
+	if !v.showBrowser && v.onboarding != nil {
+		return v.onboarding.ShortHelp()
+	}
 	return "↑/↓ navigate  ctrl+r refresh  ctrl+g model  tab focus  ctrl+b sidebar"
 }
 

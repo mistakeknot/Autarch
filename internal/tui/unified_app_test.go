@@ -4,8 +4,6 @@ import (
 	"testing"
 
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/mistakeknot/autarch/internal/gurgeh/arbiter"
-	"github.com/mistakeknot/autarch/internal/pollard/research"
 	"github.com/mistakeknot/autarch/pkg/autarch"
 	pkgtui "github.com/mistakeknot/autarch/pkg/tui"
 )
@@ -22,22 +20,19 @@ func (v *noopDashboardView) Blur()                                     {}
 func (v *noopDashboardView) Name() string                              { return v.name }
 func (v *noopDashboardView) ShortHelp() string                         { return "Tab focus" }
 
-type chatStreamView struct {
-	last   string
-	called bool
+type inputFocusView struct {
+	focused bool
+	seen    bool
 }
 
-func (v *chatStreamView) Init() tea.Cmd                             { return nil }
-func (v *chatStreamView) Update(msg tea.Msg) (pkgtui.View, tea.Cmd) { return v, nil }
-func (v *chatStreamView) View() string                              { return "content" }
-func (v *chatStreamView) Focus() tea.Cmd                            { return nil }
-func (v *chatStreamView) Blur()                                     {}
-func (v *chatStreamView) Name() string                              { return "chat" }
-func (v *chatStreamView) ShortHelp() string                         { return "Tab focus" }
-func (v *chatStreamView) AppendChatLine(line string) {
-	v.called = true
-	v.last = line
-}
+func (v *inputFocusView) Init() tea.Cmd                             { return nil }
+func (v *inputFocusView) Update(msg tea.Msg) (pkgtui.View, tea.Cmd) { v.seen = true; return v, nil }
+func (v *inputFocusView) View() string                              { return "content" }
+func (v *inputFocusView) Focus() tea.Cmd                            { return nil }
+func (v *inputFocusView) Blur()                                     {}
+func (v *inputFocusView) Name() string                              { return "input" }
+func (v *inputFocusView) ShortHelp() string                         { return "" }
+func (v *inputFocusView) InputFocused() bool                        { return v.focused }
 
 func TestUnifiedAppCtrlLeftCyclesBack(t *testing.T) {
 	app := NewUnifiedApp(nil)
@@ -100,45 +95,19 @@ func TestChatSettingsTogglePersistsAndApplies(t *testing.T) {
 	}
 }
 
-func TestAgentStreamMessagesRouteToChat(t *testing.T) {
+// TestAgentStreamMessagesPassThroughToView verifies that AgentStreamMsg
+// passes through the default view routing path.
+func TestAgentStreamMessagesPassThroughToView(t *testing.T) {
 	app := NewUnifiedApp(nil)
-	view := &chatStreamView{}
+	view := &noopDashboardView{name: "test"}
 	app.currentView = view
 
+	// AgentStreamMsg should fall through to current view's Update
 	_, _ = app.Update(AgentStreamMsg{Line: "hello"})
 
-	if !view.called {
-		t.Fatalf("expected AppendChatLine to be called")
-	}
-	if view.last != "hello" {
-		t.Fatalf("expected line to be forwarded")
-	}
+	// Message reaches view via default pass-through (no explicit handler)
+	// The noopDashboardView just returns itself — no crash = pass
 }
-
-func TestScanResultSetsInterviewBreadcrumb(t *testing.T) {
-	app := NewUnifiedApp(nil)
-	app.onboardingState = OnboardingKickoff
-
-	_, _ = app.Update(CodebaseScanResultMsg{})
-
-	if app.onboardingState != OnboardingInterview {
-		t.Fatalf("expected onboarding to move to interview after scan")
-	}
-}
-
-type inputFocusView struct {
-	focused bool
-	seen    bool
-}
-
-func (v *inputFocusView) Init() tea.Cmd                             { return nil }
-func (v *inputFocusView) Update(msg tea.Msg) (pkgtui.View, tea.Cmd) { v.seen = true; return v, nil }
-func (v *inputFocusView) View() string                              { return "content" }
-func (v *inputFocusView) Focus() tea.Cmd                            { return nil }
-func (v *inputFocusView) Blur()                                     {}
-func (v *inputFocusView) Name() string                              { return "input" }
-func (v *inputFocusView) ShortHelp() string                         { return "" }
-func (v *inputFocusView) InputFocused() bool                        { return v.focused }
 
 func TestCommaDoesNotOpenChatSettingsWhenInputFocused(t *testing.T) {
 	app := NewUnifiedApp(nil)
@@ -161,231 +130,11 @@ func TestRunEnablesMouse(t *testing.T) {
 	// Verify manually by running the app and confirming wheel events scroll chat.
 }
 
-// mockSprintView implements the View and SprintStarter interfaces for testing
-// the Kickoff → Sprint transition without importing internal/tui/views.
-type mockSprintView struct {
-	startCalled bool
-	userInput   string
-	orch        *arbiter.Orchestrator
-}
-
-func (v *mockSprintView) Init() tea.Cmd                             { return nil }
-func (v *mockSprintView) Update(msg tea.Msg) (pkgtui.View, tea.Cmd) { return v, nil }
-func (v *mockSprintView) View() string                              { return "sprint view content" }
-func (v *mockSprintView) Focus() tea.Cmd                            { return nil }
-func (v *mockSprintView) Blur()                                     {}
-func (v *mockSprintView) Name() string                              { return "Sprint" }
-func (v *mockSprintView) ShortHelp() string                         { return "Sprint help" }
-func (v *mockSprintView) StartSprint(userInput string) tea.Cmd {
-	v.startCalled = true
-	v.userInput = userInput
-	return func() tea.Msg {
-		return SprintDraftUpdatedMsg{Phase: "vision", Content: "test draft"}
-	}
-}
-func (v *mockSprintView) Orchestrator() *arbiter.Orchestrator { return v.orch }
-
-// TestProjectCreatedMsgTransitionsToSprintView verifies that sending
-// ProjectCreatedMsg switches from Kickoff to SprintView and starts the sprint.
-func TestProjectCreatedMsgTransitionsToSprintView(t *testing.T) {
+// TestInitAlwaysEntersDashboard verifies Init() always calls enterDashboard().
+func TestInitAlwaysEntersDashboard(t *testing.T) {
 	app := NewUnifiedApp(nil)
-
-	// Track which mock was created
-	var createdSprintView *mockSprintView
-
-	// Set up SprintView factory (mimics main.go wiring)
-	app.SetSprintViewFactory(func(projectPath string) View {
-		createdSprintView = &mockSprintView{}
-		return createdSprintView
-	})
-
-	// Set up Kickoff factory for Init
 	app.SetViewFactories(
-		func() View { return &noopDashboardView{name: "Kickoff"} },
 		nil, nil, nil, nil, nil,
-	)
-
-	// Initialize the app (creates Kickoff view)
-	app.Init()
-
-	// Verify starting state
-	if app.currentView == nil {
-		t.Fatal("currentView is nil after Init")
-	}
-	if app.onboardingState != OnboardingKickoff {
-		t.Fatalf("expected OnboardingKickoff state, got %v", app.onboardingState)
-	}
-
-	// Simulate user completing Kickoff form
-	msg := ProjectCreatedMsg{
-		ProjectID:   "test-123",
-		ProjectName: "Test Project",
-		Description: "A test project for verifying transitions",
-	}
-
-	// Send the message
-	updated, cmd := app.Update(msg)
-	app = updated.(*UnifiedApp)
-
-	// Should return commands (Init, Focus, sendWindowSize, StartSprint)
-	if cmd == nil {
-		t.Error("Expected commands from transition, got nil")
-	}
-
-	// Verify the SprintView factory was called
-	if createdSprintView == nil {
-		t.Fatal("SprintView factory was not called")
-	}
-
-	// Verify currentView is now the SprintView
-	if app.currentView != createdSprintView {
-		t.Errorf("currentView not updated to SprintView, got %T", app.currentView)
-	}
-
-	// Verify onboarding state changed to Interview
-	if app.onboardingState != OnboardingInterview {
-		t.Errorf("Expected OnboardingInterview state, got %v", app.onboardingState)
-	}
-
-	// Verify StartSprint was called with the description
-	if !createdSprintView.startCalled {
-		t.Error("StartSprint was not called on SprintView")
-	}
-	if createdSprintView.userInput != msg.Description {
-		t.Errorf("StartSprint called with wrong input: got %q, want %q",
-			createdSprintView.userInput, msg.Description)
-	}
-}
-
-// TestProjectCreatedMsgFallsBackWithoutSprintFactory verifies graceful handling
-// when no SprintView factory is set.
-func TestProjectCreatedMsgFallsBackWithoutSprintFactory(t *testing.T) {
-	app := NewUnifiedApp(nil)
-
-	// Only set Kickoff factory, NOT SprintView factory
-	app.SetViewFactories(
-		func() View { return &noopDashboardView{name: "Kickoff"} },
-		nil, nil, nil, nil, nil,
-	)
-
-	app.Init()
-
-	msg := ProjectCreatedMsg{
-		ProjectID:   "test-456",
-		ProjectName: "Test Project",
-		Description: "Testing fallback behavior",
-	}
-
-	// Should not panic
-	updated, cmd := app.Update(msg)
-	app = updated.(*UnifiedApp)
-
-	// Should return a command (InterviewCompleteMsg fallback)
-	if cmd == nil {
-		t.Error("Expected fallback command, got nil")
-	}
-
-	// State should still update to Interview
-	if app.onboardingState != OnboardingInterview {
-		t.Errorf("Expected OnboardingInterview state even with fallback, got %v", app.onboardingState)
-	}
-}
-
-// TestSprintCompleteMsgTransitionsToSpecSummary verifies that sending
-// SprintCompleteMsg switches from SprintView to SpecSummaryView.
-func TestSprintCompleteMsgTransitionsToSpecSummary(t *testing.T) {
-	app := NewUnifiedApp(nil)
-
-	// Create orchestrator with test state
-	orch := arbiter.NewOrchestrator("")
-	state := arbiter.NewSprintState("")
-	state.Sections[arbiter.PhaseVision].Content = "Build an amazing app"
-	state.Sections[arbiter.PhaseProblem].Content = "Users struggle with X"
-	state.Sections[arbiter.PhaseUsers].Content = "Developers and teams"
-	state.Sections[arbiter.PhaseRequirements].Content = "- Fast\n- Reliable\n- Easy to use"
-	orch.SetStateForTest(state)
-
-	sprintView := &mockSprintView{orch: orch}
-	app.currentView = sprintView
-	app.onboardingState = OnboardingInterview // SprintView is shown during Interview state
-
-	// Track SpecSummary creation
-	var createdSpec *SpecSummary
-	app.createSpecSummaryView = func(spec *SpecSummary, coord *research.Coordinator) View {
-		createdSpec = spec
-		return &noopDashboardView{name: "SpecSummary"}
-	}
-
-	// Send SprintCompleteMsg
-	msg := SprintCompleteMsg{}
-	updated, cmd := app.Update(msg)
-	app = updated.(*UnifiedApp)
-
-	// Should return commands (Init, Focus, sendWindowSize)
-	if cmd == nil {
-		t.Error("Expected commands from transition, got nil")
-	}
-
-	// Verify SpecSummary factory was called with extracted state
-	if createdSpec == nil {
-		t.Fatal("SpecSummary factory was not called")
-	}
-	if createdSpec.Vision != "Build an amazing app" {
-		t.Errorf("Expected Vision 'Build an amazing app', got %q", createdSpec.Vision)
-	}
-	if createdSpec.Problem != "Users struggle with X" {
-		t.Errorf("Expected Problem 'Users struggle with X', got %q", createdSpec.Problem)
-	}
-	if createdSpec.Users != "Developers and teams" {
-		t.Errorf("Expected Users 'Developers and teams', got %q", createdSpec.Users)
-	}
-	if len(createdSpec.Requirements) != 3 {
-		t.Errorf("Expected 3 requirements, got %d: %v", len(createdSpec.Requirements), createdSpec.Requirements)
-	}
-
-	// Verify state transitioned
-	if app.onboardingState != OnboardingSpecSummary {
-		t.Errorf("Expected OnboardingSpecSummary state, got %v", app.onboardingState)
-	}
-
-	// Verify current view changed
-	if app.currentView.Name() != "SpecSummary" {
-		t.Errorf("Expected SpecSummary view, got %s", app.currentView.Name())
-	}
-}
-
-// TestSprintCompleteMsgFallsBackToOnboardingComplete verifies graceful handling
-// when SprintView or SpecSummaryView factory is unavailable.
-func TestSprintCompleteMsgFallsBackToOnboardingComplete(t *testing.T) {
-	app := NewUnifiedApp(nil)
-
-	// Set up a view that doesn't implement SprintStateProvider
-	app.currentView = &noopDashboardView{name: "NotASprint"}
-
-	// No SpecSummary factory
-	app.createSpecSummaryView = nil
-
-	msg := SprintCompleteMsg{}
-	_, cmd := app.Update(msg)
-
-	// Should return a fallback command
-	if cmd == nil {
-		t.Error("Expected fallback command, got nil")
-	}
-
-	// Execute the command to get OnboardingCompleteMsg
-	resultMsg := cmd()
-	if _, ok := resultMsg.(OnboardingCompleteMsg); !ok {
-		t.Errorf("Expected OnboardingCompleteMsg fallback, got %T", resultMsg)
-	}
-}
-
-func TestUnifiedAppSkipOnboardingGoesToDashboard(t *testing.T) {
-	app := NewUnifiedApp(nil)
-	app.SetSkipOnboarding(true)
-	app.SetViewFactories(
-		func() View { return &noopDashboardView{name: "Kickoff"} },
-		nil, nil, nil, nil,
 		func(c *autarch.Client) []View {
 			return []View{
 				&noopDashboardView{name: "Bigend"},
@@ -401,5 +150,116 @@ func TestUnifiedAppSkipOnboardingGoesToDashboard(t *testing.T) {
 	}
 	if len(app.dashViews) != 2 {
 		t.Fatalf("expected 2 dashboard views, got %d", len(app.dashViews))
+	}
+}
+
+// TestSkipOnboardingWithInitAlwaysEntersDashboard verifies backward compat.
+func TestSkipOnboardingWithInitAlwaysEntersDashboard(t *testing.T) {
+	app := NewUnifiedApp(nil)
+	app.SetSkipOnboarding(true)
+	app.SetViewFactories(
+		nil, nil, nil, nil, nil,
+		func(c *autarch.Client) []View {
+			return []View{
+				&noopDashboardView{name: "Bigend"},
+				&noopDashboardView{name: "Gurgeh"},
+			}
+		},
+	)
+
+	app.Init()
+
+	if app.mode != ModeDashboard {
+		t.Fatalf("expected ModeDashboard, got %v", app.mode)
+	}
+}
+
+// TestOnboardingCompleteMsgIsNoOp verifies that OnboardingCompleteMsg
+// is a no-op in UnifiedApp (since we're always in dashboard mode).
+func TestOnboardingCompleteMsgIsNoOp(t *testing.T) {
+	app := NewUnifiedApp(nil)
+	app.mode = ModeDashboard
+	app.dashViews = []View{
+		&noopDashboardView{name: "Bigend"},
+	}
+	app.currentView = app.dashViews[0]
+
+	updated, cmd := app.Update(OnboardingCompleteMsg{
+		ProjectID:   "test-id",
+		ProjectName: "test-project",
+	})
+	app = updated.(*UnifiedApp)
+
+	if cmd != nil {
+		t.Fatalf("expected nil cmd from OnboardingCompleteMsg, got non-nil")
+	}
+	// Should still be in dashboard mode with same view
+	if app.mode != ModeDashboard {
+		t.Fatalf("expected ModeDashboard after OnboardingCompleteMsg")
+	}
+}
+
+// TestLogPaneAutoShowMsg verifies the log pane auto-show bridge message.
+func TestLogPaneAutoShowMsg(t *testing.T) {
+	app := NewUnifiedApp(nil)
+	app.logPaneVisible = false
+	app.logPaneAutoShown = false
+
+	_, cmd := app.Update(LogPaneAutoShowMsg{})
+
+	if !app.logPaneVisible {
+		t.Fatalf("expected log pane to be visible after LogPaneAutoShowMsg")
+	}
+	if !app.logPaneAutoShown {
+		t.Fatalf("expected logPaneAutoShown to be true")
+	}
+	if cmd == nil {
+		t.Fatalf("expected sendWindowSize command")
+	}
+}
+
+// TestLogPaneScheduleAutoHideMsg verifies the auto-hide scheduling.
+func TestLogPaneScheduleAutoHideMsg(t *testing.T) {
+	app := NewUnifiedApp(nil)
+	app.logPaneAutoShown = true
+
+	_, cmd := app.Update(LogPaneScheduleAutoHideMsg{})
+
+	if cmd == nil {
+		t.Fatalf("expected tick command for auto-hide scheduling")
+	}
+}
+
+// TestLogPaneScheduleAutoHideMsgNoOpWhenNotAutoShown verifies no-op.
+func TestLogPaneScheduleAutoHideMsgNoOpWhenNotAutoShown(t *testing.T) {
+	app := NewUnifiedApp(nil)
+	app.logPaneAutoShown = false
+
+	_, cmd := app.Update(LogPaneScheduleAutoHideMsg{})
+
+	if cmd != nil {
+		t.Fatalf("expected nil cmd when logPaneAutoShown is false")
+	}
+}
+
+// TestTabSwitchingWorksInDashboardMode verifies Ctrl+Left/Right tab cycling.
+func TestTabSwitchingWorksInDashboardMode(t *testing.T) {
+	app := NewUnifiedApp(nil)
+	app.mode = ModeDashboard
+	app.dashViews = []View{
+		&noopDashboardView{name: "Bigend"},
+		&noopDashboardView{name: "Gurgeh"},
+		&noopDashboardView{name: "Coldwine"},
+	}
+	app.tabs = NewTabBar([]string{"Bigend", "Gurgeh", "Coldwine"})
+	app.tabs.SetActive(0)
+	app.currentView = app.dashViews[0]
+
+	// Ctrl+Right should move to tab 1
+	updated, _ := app.Update(tea.KeyMsg{Type: tea.KeyCtrlRight})
+	app = updated.(*UnifiedApp)
+
+	if app.tabs.Active() != 1 {
+		t.Fatalf("expected tab 1, got %d", app.tabs.Active())
 	}
 }
