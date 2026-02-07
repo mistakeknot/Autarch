@@ -12,8 +12,8 @@
 
 - Todo-tracked: 5
 - Derived evidence: 1
-- Commit evidence: 49
-- Preexisting paths (no git evidence): 2
+- Commit evidence: 50
+- Preexisting paths (no git evidence): 1
 - No evidence: 7
 
 ## Status Legend
@@ -91,7 +91,7 @@
 | 2026-02-04-feat-iterative-codebase-exploration-plan.md | none | no referenced paths found |
 | 2026-02-05-acceptance-criteria-plan.md | commit | paths:3 latest:2026-02-06 |
 | 2026-02-05-perf-claude-session-reuse-token-efficiency-plan.md | commit | paths:1 latest:2026-02-05 |
-| 2026-02-06-phase-2a-dead-code-cleanup.md | preexisting | paths:1 |
+| 2026-02-06-phase-2a-dead-code-cleanup.md | commit | paths:1 latest:2026-02-06 |
 
 ## Derived Evidence Details
 

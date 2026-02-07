@@ -1977,23 +1977,6 @@ func (a *UnifiedApp) View() string {
 	return result
 }
 
-func (a *UnifiedApp) onboardingHeader() string {
-	switch a.onboardingState {
-	case OnboardingKickoff:
-		return "New Project"
-	case OnboardingScanVision, OnboardingScanProblem, OnboardingScanUsers, OnboardingInterview:
-		return "Project Setup"
-	case OnboardingSpecSummary:
-		return "Review Spec"
-	case OnboardingEpicReview:
-		return "Review Epics"
-	case OnboardingTaskReview:
-		return "Review Tasks"
-	default:
-		return "Autarch"
-	}
-}
-
 func (a *UnifiedApp) renderFooterContent() string {
 	help := ""
 	if a.currentView != nil {
