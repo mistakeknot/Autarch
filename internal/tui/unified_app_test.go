@@ -133,15 +133,12 @@ func TestRunEnablesMouse(t *testing.T) {
 // TestInitAlwaysEntersDashboard verifies Init() always calls enterDashboard().
 func TestInitAlwaysEntersDashboard(t *testing.T) {
 	app := NewUnifiedApp(nil)
-	app.SetViewFactories(
-		nil, nil, nil, nil, nil,
-		func(c *autarch.Client) []View {
-			return []View{
-				&noopDashboardView{name: "Bigend"},
-				&noopDashboardView{name: "Gurgeh"},
-			}
-		},
-	)
+	app.SetDashboardViewFactory(func(c *autarch.Client) []View {
+		return []View{
+			&noopDashboardView{name: "Bigend"},
+			&noopDashboardView{name: "Gurgeh"},
+		}
+	})
 
 	app.Init()
 
@@ -157,15 +154,12 @@ func TestInitAlwaysEntersDashboard(t *testing.T) {
 func TestSkipOnboardingWithInitAlwaysEntersDashboard(t *testing.T) {
 	app := NewUnifiedApp(nil)
 	app.SetSkipOnboarding(true)
-	app.SetViewFactories(
-		nil, nil, nil, nil, nil,
-		func(c *autarch.Client) []View {
-			return []View{
-				&noopDashboardView{name: "Bigend"},
-				&noopDashboardView{name: "Gurgeh"},
-			}
-		},
-	)
+	app.SetDashboardViewFactory(func(c *autarch.Client) []View {
+		return []View{
+			&noopDashboardView{name: "Bigend"},
+			&noopDashboardView{name: "Gurgeh"},
+		}
+	})
 
 	app.Init()
 

@@ -14,8 +14,6 @@ import (
 	"github.com/charmbracelet/lipgloss"
 	"github.com/charmbracelet/x/ansi"
 	"github.com/mistakeknot/autarch/internal/autarch/agent"
-	"github.com/mistakeknot/autarch/internal/coldwine/epics"
-	"github.com/mistakeknot/autarch/internal/coldwine/tasks"
 	"github.com/mistakeknot/autarch/internal/pollard/research"
 	"github.com/mistakeknot/autarch/pkg/autarch"
 	pkgtui "github.com/mistakeknot/autarch/pkg/tui"
@@ -137,18 +135,9 @@ func (a *UnifiedApp) SetSkipOnboarding(skip bool) {
 	a.skipOnboarding = skip
 }
 
-// SetViewFactories sets the factory functions for creating views.
-// Only the dashboard views factory is still used directly by UnifiedApp;
-// onboarding view factories are now in GurgehConfig, passed to GurgehView.
-func (a *UnifiedApp) SetViewFactories(
-	_ func() View, // kickoff — now in GurgehConfig
-	_ func(*SpecSummary, *research.Coordinator) View, // specSummary — now in GurgehConfig
-	_ func([]epics.EpicProposal) View, // epicReview — now in GurgehConfig
-	_ func([]tasks.TaskProposal) View, // taskReview — now in GurgehConfig
-	_ func(tasks.TaskProposal, *research.Coordinator) View, // taskDetail — now in GurgehConfig
-	dashViews func(*autarch.Client) []View,
-) {
-	a.createDashboardViews = dashViews
+// SetDashboardViewFactory sets the factory for creating dashboard tab views.
+func (a *UnifiedApp) SetDashboardViewFactory(factory func(*autarch.Client) []View) {
+	a.createDashboardViews = factory
 }
 
 type agentSelectorSetter interface {

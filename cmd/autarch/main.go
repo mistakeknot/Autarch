@@ -141,10 +141,11 @@ Navigation:
 				fmt.Fprintln(os.Stderr, "Warning: --skip-onboard is deprecated. Use --tool=gurgeh or omit the flag.")
 			}
 
-			// Set up view factories for state transitions
-			app.SetViewFactories(
-				// Kickoff view factory
-				func() tui.View {
+			// Build GurgehConfig with all onboarding view factories
+			intermuteURL := mgr.URL()
+			gurgehCfg := &tui.GurgehConfig{
+				ResearchCoord: research.NewCoordinator(nil),
+				CreateKickoffView: func() tui.View {
 					v := views.NewKickoffView()
 					v.SetProjectStartCallback(func(project *views.Project) tea.Cmd {
 						return func() tea.Msg {
@@ -163,12 +164,10 @@ Navigation:
 					})
 					return v
 				},
-				// Spec summary view factory
-				func(spec *tui.SpecSummary, coord *research.Coordinator) tui.View {
+				CreateSpecSummaryView: func(spec *tui.SpecSummary, coord *research.Coordinator) tui.View {
 					return views.NewSpecSummaryView(spec, coord)
 				},
-				// Epic review view factory
-				func(proposals []epics.EpicProposal) tui.View {
+				CreateEpicReviewView: func(proposals []epics.EpicProposal) tui.View {
 					v := views.NewEpicReviewView(proposals)
 					v.SetCallbacks(
 						func(accepted []epics.EpicProposal) tea.Cmd {
@@ -185,8 +184,7 @@ Navigation:
 					)
 					return v
 				},
-				// Task review view factory
-				func(taskList []tasks.TaskProposal) tui.View {
+				CreateTaskReviewView: func(taskList []tasks.TaskProposal) tui.View {
 					v := views.NewTaskReviewView(taskList)
 					v.SetAcceptCallback(func(accepted []tasks.TaskProposal) tea.Cmd {
 						return func() tea.Msg {
@@ -200,8 +198,7 @@ Navigation:
 					})
 					return v
 				},
-				// Task detail view factory
-				func(task tasks.TaskProposal, coord *research.Coordinator) tui.View {
+				CreateTaskDetailView: func(task tasks.TaskProposal, coord *research.Coordinator) tui.View {
 					v := views.NewTaskDetailView(task, coord)
 					v.SetCallbacks(
 						func(t tasks.TaskProposal, agent views.AgentType, worktree bool) tea.Cmd {
@@ -221,19 +218,26 @@ Navigation:
 					)
 					return v
 				},
-				// Dashboard views factory
-				func(c *autarch.Client) []tui.View {
-					return []tui.View{
-						views.NewBigendView(c),
-						views.NewGurgehView(c, nil), // nil config = skip onboarding (Task 3 wires GurgehConfig)
-						views.NewColdwineView(c),
-						views.NewPollardView(c),
-					}
+				CreateSprintView: func(projectPath string) tui.View {
+					v := views.NewSprintView(projectPath, views.SprintViewOpts{
+						IntermuteURL: intermuteURL,
+					})
+					v.SetCallbacks(func() tea.Cmd {
+						return func() tea.Msg { return tui.NavigateBackMsg{} }
+					})
+					return v
 				},
-			)
+			}
 
-			// NOTE: Sprint view factory is now wired through GurgehConfig in Task 3.
-			// For now the sprint view factory is in GurgehConfig (nil above).
+			// Wire dashboard factory (GurgehConfig flows into GurgehView)
+			app.SetDashboardViewFactory(func(c *autarch.Client) []tui.View {
+				return []tui.View{
+					views.NewBigendView(c),
+					views.NewGurgehView(c, gurgehCfg),
+					views.NewColdwineView(c),
+					views.NewPollardView(c),
+				}
+			})
 
 			return tui.Run(client, app, tui.RunOpts{InlineMode: inlineMode, InitialTool: toolFlag})
 		},
