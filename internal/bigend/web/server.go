@@ -8,6 +8,7 @@ import (
 	"io/fs"
 	"log/slog"
 	"net/http"
+	"net/url"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -102,6 +103,7 @@ func NewServer(cfg config.ServerConfig, agg aggregatorAPI) *Server {
 // ListenAndServe starts the HTTP server
 func (s *Server) ListenAndServe(addr string) error {
 	mux := http.NewServeMux()
+	api := s.withLocalhostOriginCheck
 
 	// Routes
 	mux.HandleFunc("/", s.handleDashboard)
@@ -110,11 +112,11 @@ func (s *Server) ListenAndServe(addr string) error {
 	mux.HandleFunc("/agents", s.handleAgents)
 	mux.HandleFunc("/agents/", s.handleAgentDetail)
 	mux.HandleFunc("/sessions", s.handleSessions)
-	mux.HandleFunc("/api/sessions/new", s.handleSessionNew)
-	mux.HandleFunc("/api/sessions/", s.handleSessionAction)
-	mux.HandleFunc("/api/projects/", s.handleProjectMCPAction)
-	mux.HandleFunc("/api/refresh", s.handleRefresh)
-	mux.HandleFunc("/api/agents", s.handleAgentsAPI)
+	mux.HandleFunc("/api/sessions/new", api(s.handleSessionNew))
+	mux.HandleFunc("/api/sessions/", api(s.handleSessionAction))
+	mux.HandleFunc("/api/projects/", api(s.handleProjectMCPAction))
+	mux.HandleFunc("/api/refresh", api(s.handleRefresh))
+	mux.HandleFunc("/api/agents", api(s.handleAgentsAPI))
 
 	// WebSocket for terminal streaming
 	mux.HandleFunc("/ws/terminal/", s.handleTerminalWS)
@@ -133,6 +135,33 @@ func (s *Server) ListenAndServe(addr string) error {
 // Shutdown gracefully stops the server
 func (s *Server) Shutdown(ctx context.Context) error {
 	return s.srv.Shutdown(ctx)
+}
+
+func (s *Server) withLocalhostOriginCheck(next http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		switch r.Method {
+		case http.MethodPost, http.MethodPut, http.MethodDelete:
+			origin := r.Header.Get("Origin")
+			if origin != "" && !isLocalhostOrigin(origin) {
+				http.Error(w, "forbidden origin", http.StatusForbidden)
+				return
+			}
+		}
+		next(w, r)
+	}
+}
+
+func isLocalhostOrigin(origin string) bool {
+	u, err := url.Parse(origin)
+	if err != nil || u.Host == "" {
+		return false
+	}
+	switch u.Hostname() {
+	case "localhost", "127.0.0.1", "::1":
+		return true
+	default:
+		return false
+	}
 }
 
 func (s *Server) handleDashboard(w http.ResponseWriter, r *http.Request) {
@@ -437,7 +466,11 @@ func (s *Server) handleTerminalWS(w http.ResponseWriter, r *http.Request) {
 
 	// Accept WebSocket connection
 	conn, err := websocket.Accept(w, r, &websocket.AcceptOptions{
-		OriginPatterns: []string{"*"}, // Allow all origins for local development
+		OriginPatterns: []string{
+			"localhost:*",
+			"127.0.0.1:*",
+			"::1:*",
+		},
 	})
 	if err != nil {
 		slog.Error("websocket accept failed", "error", err)
