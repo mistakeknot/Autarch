@@ -1991,12 +1991,6 @@ func (a *UnifiedApp) renderFooterContent() string {
 
 	return help
 }
-
-// renderFooter is deprecated, use renderFooterContent
-func (a *UnifiedApp) renderFooter() string {
-	return a.renderFooterContent()
-}
-
 // renderHelpOverlay renders the full keybinding help overlay
 func (a *UnifiedApp) renderHelpOverlay() string {
 	var lines []string

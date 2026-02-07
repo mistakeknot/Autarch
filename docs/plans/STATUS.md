@@ -70,7 +70,7 @@
 | 2026-01-28-refactor-extract-shared-async-jobs-package-plan.md | commit | paths:7 latest:2026-02-06 |
 | 2026-01-29-feat-unified-tui-non-printable-shortcuts-plan.md | commit | paths:9 latest:2026-02-06 |
 | 2026-01-29-interview-breadcrumb-scan-nav.md | commit | paths:3 latest:2026-02-04 |
-| 2026-01-29-scan-artifact-ui-display.md | commit | paths:4 latest:2026-02-05 |
+| 2026-01-29-scan-artifact-ui-display.md | commit | paths:4 latest:2026-02-06 |
 | 2026-01-29-scan-artifact-validation.md | commit | paths:14 latest:2026-01-29 |
 | 2026-01-29-scan-open-questions-ui.md | commit | paths:2 latest:2026-02-04 |
 | 2026-01-29-scan-signoff-breadcrumb-plan.md | commit | paths:4 latest:2026-02-06 |
