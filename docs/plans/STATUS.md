@@ -13,7 +13,7 @@
 - Todo-tracked: 5
 - Derived evidence: 1
 - Commit evidence: 49
-- Preexisting paths (no git evidence): 1
+- Preexisting paths (no git evidence): 2
 - No evidence: 7
 
 ## Status Legend
@@ -50,7 +50,7 @@
 | 2026-01-23-vauxhall-focus-pane-plan.md | commit | paths:2 latest:2026-01-29 |
 | 2026-01-23-vauxhall-grouping-plan.md | commit | paths:2 latest:2026-01-29 |
 | 2026-01-23-vauxhall-web-search-filters-plan.md | commit | paths:4 latest:2026-02-06 |
-| 2026-01-25-intermute-mvp-implementation-plan.md | commit | paths:16 latest:2026-02-05 |
+| 2026-01-25-intermute-mvp-implementation-plan.md | commit | paths:17 latest:2026-02-06 |
 | 2026-01-26-arbiter-spec-sprint-implementation.md | commit | paths:9 latest:2026-02-06 |
 | 2026-01-26-feat-cursor-style-unified-shell-layout-plan.md | commit | paths:1 latest:2026-01-26 |
 | 2026-01-26-feat-pollard-first-class-research-input-plan.md | commit | paths:8 latest:2026-02-06 |
@@ -91,6 +91,7 @@
 | 2026-02-04-feat-iterative-codebase-exploration-plan.md | none | no referenced paths found |
 | 2026-02-05-acceptance-criteria-plan.md | commit | paths:3 latest:2026-02-06 |
 | 2026-02-05-perf-claude-session-reuse-token-efficiency-plan.md | commit | paths:1 latest:2026-02-05 |
+| 2026-02-06-phase-2a-dead-code-cleanup.md | preexisting | paths:1 |
 
 ## Derived Evidence Details
 
