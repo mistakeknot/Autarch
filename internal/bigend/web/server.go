@@ -42,10 +42,10 @@ type aggregatorAPI interface {
 	GetProject(path string) *discovery.Project
 	GetProjectTasks(projectPath string) (map[string][]coldwine.Task, error)
 	GetAgent(name string) *aggregator.Agent
-	GetIntermuteAgent(name string) (*intermute.Agent, error)
-	GetAgentMessages(agentID string, limit int) ([]intermute.Message, error)
-	GetAgentReservations(agentID string) ([]intermute.Reservation, error)
-	GetActiveReservations() ([]intermute.Reservation, error)
+	GetIntermuteAgent(ctx context.Context, name string) (*intermute.Agent, error)
+	GetAgentMessages(ctx context.Context, agentID string, limit int) ([]intermute.Message, error)
+	GetAgentReservations(ctx context.Context, agentID string) ([]intermute.Reservation, error)
+	GetActiveReservations(ctx context.Context) ([]intermute.Reservation, error)
 	NewSession(name, projectPath, agentType string) error
 	RestartSession(name, projectPath, agentType string) error
 	RenameSession(oldName, newName string) error
@@ -228,7 +228,7 @@ func (s *Server) handleAgentDetail(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Get detailed agent info from Intermute
-	intermuteAgent, err := s.agg.GetIntermuteAgent(agentName)
+	intermuteAgent, err := s.agg.GetIntermuteAgent(r.Context(), agentName)
 	if err != nil {
 		slog.Debug("failed to get intermute agent", "name", agentName, "error", err)
 	}
@@ -237,7 +237,7 @@ func (s *Server) handleAgentDetail(w http.ResponseWriter, r *http.Request) {
 	var messages []any
 	var reservations []any
 	if intermuteAgent != nil {
-		msgs, err := s.agg.GetAgentMessages(intermuteAgent.ID, 20)
+		msgs, err := s.agg.GetAgentMessages(r.Context(), intermuteAgent.ID, 20)
 		if err != nil {
 			slog.Error("failed to get agent messages", "error", err)
 		} else {
@@ -246,7 +246,7 @@ func (s *Server) handleAgentDetail(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 
-		res, err := s.agg.GetAgentReservations(intermuteAgent.ID)
+		res, err := s.agg.GetAgentReservations(r.Context(), intermuteAgent.ID)
 		if err != nil {
 			slog.Error("failed to get agent reservations", "error", err)
 		} else {

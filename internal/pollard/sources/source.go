@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"time"
 
+	"github.com/mistakeknot/autarch/pkg/yamlsafe"
 	"gopkg.in/yaml.v3"
 )
 
@@ -40,9 +41,9 @@ type Synthesis struct {
 
 // QualityScore represents unified quality assessment.
 type QualityScore struct {
-	Value      float64            `yaml:"value"`              // 0.0-1.0
-	Level      string             `yaml:"level"`              // high, medium, low
-	Factors    map[string]float64 `yaml:"factors,omitempty"`  // engagement, recency, etc.
+	Value      float64            `yaml:"value"`             // 0.0-1.0
+	Level      string             `yaml:"level"`             // high, medium, low
+	Factors    map[string]float64 `yaml:"factors,omitempty"` // engagement, recency, etc.
 	Confidence float64            `yaml:"confidence"`
 }
 
@@ -118,15 +119,15 @@ type TrendItem struct {
 
 // CompetitorChange represents a detected change from a competitor
 type CompetitorChange struct {
-	Competitor  string    `yaml:"competitor"`
-	Date        time.Time `yaml:"date,omitempty"`
-	Title       string    `yaml:"title"`
-	Description string    `yaml:"description,omitempty"`
-	URL         string    `yaml:"url,omitempty"`
-	Relevance   string    `yaml:"relevance"` // high, medium, low
-	ThreatLevel string    `yaml:"threat_level,omitempty"` // high, medium, low
+	Competitor     string                    `yaml:"competitor"`
+	Date           time.Time                 `yaml:"date,omitempty"`
+	Title          string                    `yaml:"title"`
+	Description    string                    `yaml:"description,omitempty"`
+	URL            string                    `yaml:"url,omitempty"`
+	Relevance      string                    `yaml:"relevance"`              // high, medium, low
+	ThreatLevel    string                    `yaml:"threat_level,omitempty"` // high, medium, low
 	Recommendation *CompetitorRecommendation `yaml:"recommendation,omitempty"`
-	CollectedAt time.Time `yaml:"collected_at"`
+	CollectedAt    time.Time                 `yaml:"collected_at"`
 }
 
 // CompetitorRecommendation suggests action based on competitor change
@@ -181,14 +182,14 @@ type Nutrient struct {
 
 // FoodItem represents a food/nutrition item from USDA FoodData Central
 type FoodItem struct {
-	FDCID       int       `yaml:"fdc_id"`
-	Description string    `yaml:"description"`
-	DataType    string    `yaml:"data_type"`
-	BrandOwner  string    `yaml:"brand_owner,omitempty"`
+	FDCID       int        `yaml:"fdc_id"`
+	Description string     `yaml:"description"`
+	DataType    string     `yaml:"data_type"`
+	BrandOwner  string     `yaml:"brand_owner,omitempty"`
 	Nutrients   []Nutrient `yaml:"nutrients,omitempty"`
-	Allergens   []string  `yaml:"allergens,omitempty"`
-	Ingredients string    `yaml:"ingredients,omitempty"`
-	CollectedAt time.Time `yaml:"collected_at"`
+	Allergens   []string   `yaml:"allergens,omitempty"`
+	Ingredients string     `yaml:"ingredients,omitempty"`
+	CollectedAt time.Time  `yaml:"collected_at"`
 }
 
 // CourtCase represents a court decision from CourtListener
@@ -257,13 +258,8 @@ func (c *SourceCollection) Save(projectPath, filename string) error {
 
 // Load reads a source collection from a YAML file
 func Load(path string) (*SourceCollection, error) {
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return nil, err
-	}
-
 	var collection SourceCollection
-	if err := yaml.Unmarshal(data, &collection); err != nil {
+	if _, err := yamlsafe.UnmarshalFile(path, &collection); err != nil {
 		return nil, err
 	}
 	return &collection, nil

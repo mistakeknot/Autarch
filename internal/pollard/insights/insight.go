@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"time"
 
+	"github.com/mistakeknot/autarch/pkg/yamlsafe"
 	"gopkg.in/yaml.v3"
 )
 
@@ -73,13 +74,8 @@ func (i *Insight) LinkToInitiative(initiativeID, linkedBy string) {
 
 // Load reads an insight from a YAML file
 func Load(path string) (*Insight, error) {
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return nil, err
-	}
-
 	var insight Insight
-	if err := yaml.Unmarshal(data, &insight); err != nil {
+	if _, err := yamlsafe.UnmarshalFile(path, &insight); err != nil {
 		return nil, err
 	}
 	return &insight, nil

@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"time"
 
+	"github.com/mistakeknot/autarch/pkg/yamlsafe"
 	"gopkg.in/yaml.v3"
 )
 
@@ -64,11 +65,11 @@ type ScoringConfig struct {
 
 // ScoreWeightsConfig defines the relative importance of scoring factors.
 type ScoreWeightsConfig struct {
-	Engagement float64 `yaml:"engagement,omitempty"` // points, comments, stars
-	Citations  float64 `yaml:"citations,omitempty"`  // academic citations
-	Recency    float64 `yaml:"recency,omitempty"`    // temporal decay
+	Engagement float64 `yaml:"engagement,omitempty"`  // points, comments, stars
+	Citations  float64 `yaml:"citations,omitempty"`   // academic citations
+	Recency    float64 `yaml:"recency,omitempty"`     // temporal decay
 	QueryMatch float64 `yaml:"query_match,omitempty"` // title/content match
-	Synthesis  float64 `yaml:"synthesis,omitempty"`  // agent analysis confidence
+	Synthesis  float64 `yaml:"synthesis,omitempty"`   // agent analysis confidence
 }
 
 // HalfLivesConfig defines temporal decay rates.
@@ -87,8 +88,8 @@ type ScoreThresholdsConfig struct {
 // HunterConfig defines a research hunter
 type HunterConfig struct {
 	Enabled    bool           `yaml:"enabled"`
-	Interval   string         `yaml:"interval,omitempty"`  // e.g., "6h", "2h", "15m"
-	Schedule   string         `yaml:"schedule,omitempty"`  // legacy: daily, weekly
+	Interval   string         `yaml:"interval,omitempty"` // e.g., "6h", "2h", "15m"
+	Schedule   string         `yaml:"schedule,omitempty"` // legacy: daily, weekly
 	Queries    []string       `yaml:"queries,omitempty"`
 	Categories []string       `yaml:"categories,omitempty"` // for arXiv
 	MinStars   int            `yaml:"min_stars,omitempty"`  // for GitHub
@@ -98,17 +99,17 @@ type HunterConfig struct {
 	Output     string         `yaml:"output"`
 
 	// New hunter-specific config fields
-	Email           string   `yaml:"email,omitempty"`            // for OpenAlex polite pool
-	MeSHTerms       []string `yaml:"mesh_terms,omitempty"`       // for PubMed
-	DataTypes       []string `yaml:"data_types,omitempty"`       // for USDA (Foundation, SR Legacy)
-	IncludeAllergens bool    `yaml:"include_allergens,omitempty"` // for USDA
-	Courts          []string `yaml:"courts,omitempty"`           // for CourtListener
-	DateFiledAfter  string   `yaml:"date_filed_after,omitempty"` // for CourtListener
-	Indicators      []string `yaml:"indicators,omitempty"`       // for economics
-	Countries       []string `yaml:"countries,omitempty"`        // for economics
-	IncludeWikipedia bool    `yaml:"include_wikipedia,omitempty"` // for wiki
-	IncludeWikidata  bool    `yaml:"include_wikidata,omitempty"`  // for wiki
-	Languages       []string `yaml:"languages,omitempty"`        // for wiki
+	Email            string   `yaml:"email,omitempty"`             // for OpenAlex polite pool
+	MeSHTerms        []string `yaml:"mesh_terms,omitempty"`        // for PubMed
+	DataTypes        []string `yaml:"data_types,omitempty"`        // for USDA (Foundation, SR Legacy)
+	IncludeAllergens bool     `yaml:"include_allergens,omitempty"` // for USDA
+	Courts           []string `yaml:"courts,omitempty"`            // for CourtListener
+	DateFiledAfter   string   `yaml:"date_filed_after,omitempty"`  // for CourtListener
+	Indicators       []string `yaml:"indicators,omitempty"`        // for economics
+	Countries        []string `yaml:"countries,omitempty"`         // for economics
+	IncludeWikipedia bool     `yaml:"include_wikipedia,omitempty"` // for wiki
+	IncludeWikidata  bool     `yaml:"include_wikidata,omitempty"`  // for wiki
+	Languages        []string `yaml:"languages,omitempty"`         // for wiki
 }
 
 // TargetConfig defines a target for competitor tracking
@@ -134,16 +135,11 @@ type DefaultsConfig struct {
 // Load reads the config from a project's .pollard/config.yaml
 func Load(projectPath string) (*Config, error) {
 	configPath := filepath.Join(projectPath, ".pollard", "config.yaml")
-	data, err := os.ReadFile(configPath)
-	if err != nil {
+	var cfg Config
+	if _, err := yamlsafe.UnmarshalFileStrict(configPath, &cfg); err != nil {
 		if os.IsNotExist(err) {
 			return DefaultConfig(), nil
 		}
-		return nil, err
-	}
-
-	var cfg Config
-	if err := yaml.Unmarshal(data, &cfg); err != nil {
 		return nil, err
 	}
 

@@ -1,6 +1,7 @@
 package events
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"testing"
@@ -28,7 +29,7 @@ func TestReconcileSpecsEmitsAndIsIdempotent(t *testing.T) {
 	}
 	defer store.Close()
 
-	if _, err := ReconcileProject(root, store); err != nil {
+	if _, err := ReconcileProject(context.TODO(), root, store); err != nil {
 		t.Fatalf("reconcile: %v", err)
 	}
 
@@ -40,7 +41,7 @@ func TestReconcileSpecsEmitsAndIsIdempotent(t *testing.T) {
 		t.Fatalf("expected 1 spec event, got %d", len(events))
 	}
 
-	if _, err := ReconcileProject(root, store); err != nil {
+	if _, err := ReconcileProject(context.TODO(), root, store); err != nil {
 		t.Fatalf("reconcile second: %v", err)
 	}
 	events, err = store.Query((&EventFilter{}).WithEventTypes(EventSpecRevised))
@@ -59,7 +60,7 @@ func TestReconcileSpecsEmitsAndIsIdempotent(t *testing.T) {
 		t.Fatalf("write spec v2: %v", err)
 	}
 
-	if _, err := ReconcileProject(root, store); err != nil {
+	if _, err := ReconcileProject(context.TODO(), root, store); err != nil {
 		t.Fatalf("reconcile third: %v", err)
 	}
 	events, err = store.Query((&EventFilter{}).WithEventTypes(EventSpecRevised))
@@ -92,7 +93,7 @@ func TestReconcileTasksEmitsStatusTransitions(t *testing.T) {
 	}
 	defer store.Close()
 
-	if _, err := ReconcileProject(root, store); err != nil {
+	if _, err := ReconcileProject(context.TODO(), root, store); err != nil {
 		t.Fatalf("reconcile: %v", err)
 	}
 
@@ -111,7 +112,7 @@ func TestReconcileTasksEmitsStatusTransitions(t *testing.T) {
 		t.Fatalf("write task in_progress: %v", err)
 	}
 
-	if _, err := ReconcileProject(root, store); err != nil {
+	if _, err := ReconcileProject(context.TODO(), root, store); err != nil {
 		t.Fatalf("reconcile second: %v", err)
 	}
 
@@ -123,7 +124,7 @@ func TestReconcileTasksEmitsStatusTransitions(t *testing.T) {
 		t.Fatalf("expected 1 task_started event, got %d", len(started))
 	}
 
-	if _, err := ReconcileProject(root, store); err != nil {
+	if _, err := ReconcileProject(context.TODO(), root, store); err != nil {
 		t.Fatalf("reconcile idempotent: %v", err)
 	}
 	started, err = store.Query((&EventFilter{}).WithEventTypes(EventTaskStarted))

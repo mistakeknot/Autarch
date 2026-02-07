@@ -41,7 +41,7 @@ func reconcileCmd() *cobra.Command {
 			}
 			defer store.Close()
 
-			summary, err := events.ReconcileProject(absPath, store)
+			summary, err := events.ReconcileProject(cmd.Context(), absPath, store)
 			if err != nil {
 				return err
 			}

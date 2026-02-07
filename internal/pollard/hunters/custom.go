@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/mistakeknot/autarch/pkg/yamlsafe"
 	"gopkg.in/yaml.v3"
 )
 
@@ -45,13 +46,8 @@ type CustomHunter struct {
 
 // NewCustomHunter creates a hunter from a spec file.
 func NewCustomHunter(specPath string) (*CustomHunter, error) {
-	data, err := os.ReadFile(specPath)
-	if err != nil {
-		return nil, fmt.Errorf("read spec: %w", err)
-	}
-
 	var spec CustomHunterSpec
-	if err := yaml.Unmarshal(data, &spec); err != nil {
+	if _, err := yamlsafe.UnmarshalFile(specPath, &spec); err != nil {
 		return nil, fmt.Errorf("parse spec: %w", err)
 	}
 

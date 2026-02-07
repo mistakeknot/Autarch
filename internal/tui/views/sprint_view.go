@@ -87,7 +87,7 @@ func (v *SprintView) SetAgentSelector(selector *pkgtui.AgentSelector) {
 // StartSprint starts a new sprint and returns the initial command.
 func (v *SprintView) StartSprint(userInput string) tea.Cmd {
 	return func() tea.Msg {
-		_, err := v.orch.Start(context.Background(), userInput)
+		_, err := v.orch.Start(context.TODO(), userInput)
 		if err != nil {
 			return tui.GenerationErrorMsg{What: "sprint", Error: err}
 		}
@@ -109,7 +109,7 @@ func (v *SprintView) StartSprintWithScan(userInput string, artifacts *scan.Artif
 // Session ID enables resuming the Claude Code session in later phases.
 func (v *SprintView) StartSprintWithExploration(userInput string, artifacts *scan.Artifacts, exploration map[string]any, sessionID string) tea.Cmd {
 	return func() tea.Msg {
-		_, err := v.orch.StartWithScan(context.Background(), userInput, artifacts)
+		_, err := v.orch.StartWithScan(context.TODO(), userInput, artifacts)
 		if err != nil {
 			return tui.GenerationErrorMsg{What: "sprint", Error: err}
 		}
@@ -433,7 +433,7 @@ func (v *SprintView) handleChatSubmit() tea.Cmd {
 	// Cancel any in-progress streaming
 	v.cancelStreaming()
 
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(context.TODO())
 	v.cancelChat = cancel
 	v.responseCh = v.orch.ProcessChatMessage(ctx, msg)
 
@@ -473,7 +473,7 @@ func (v *SprintView) handleAccept() tea.Cmd {
 	prevPhase := prevState.Phase
 
 	return func() tea.Msg {
-		err := v.orch.ChatAcceptDraft(context.Background())
+		err := v.orch.ChatAcceptDraft(context.TODO())
 		if err != nil {
 			if arbiter.IsBlockerError(err) {
 				state, _ := v.orch.State()

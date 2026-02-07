@@ -135,5 +135,16 @@ type SpecRevisedPayload struct {
 	Spec SpecSnapshot `json:"spec"`
 }
 
+// UntrackedItemDetectedPayload contains data for untracked item detection events.
+type UntrackedItemDetectedPayload struct {
+	ID         string `json:"id"`
+	SourcePath string `json:"source_path"`
+	Kind       string `json:"kind"`
+	Text       string `json:"text"`
+	Confidence int    `json:"confidence"`
+	Line       int    `json:"line"`
+	Matched    string `json:"matched,omitempty"`
+}
+
 // Note: InsightLinkedPayload is already defined in writer.go
 // It's kept there for backward compatibility since it's part of the public API.

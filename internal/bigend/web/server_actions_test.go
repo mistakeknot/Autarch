@@ -21,27 +21,31 @@ type fakeAgg struct {
 	restartType    string
 }
 
-func (f *fakeAgg) GetState() aggregator.State                 { return f.state }
-func (f *fakeAgg) Refresh(ctx context.Context) error          { return nil }
-func (f *fakeAgg) GetProject(path string) *discovery.Project  { return nil }
+func (f *fakeAgg) GetState() aggregator.State                { return f.state }
+func (f *fakeAgg) Refresh(ctx context.Context) error         { return nil }
+func (f *fakeAgg) GetProject(path string) *discovery.Project { return nil }
 func (f *fakeAgg) GetProjectTasks(projectPath string) (map[string][]coldwine.Task, error) {
 	return nil, nil
 }
-func (f *fakeAgg) GetAgent(name string) *aggregator.Agent                       { return nil }
-func (f *fakeAgg) GetIntermuteAgent(name string) (*intermute.Agent, error)      { return nil, nil }
-func (f *fakeAgg) GetAgentMessages(agentID string, limit int) ([]intermute.Message, error) {
+func (f *fakeAgg) GetAgent(name string) *aggregator.Agent { return nil }
+func (f *fakeAgg) GetIntermuteAgent(ctx context.Context, name string) (*intermute.Agent, error) {
 	return nil, nil
 }
-func (f *fakeAgg) GetAgentReservations(agentID string) ([]intermute.Reservation, error) {
+func (f *fakeAgg) GetAgentMessages(ctx context.Context, agentID string, limit int) ([]intermute.Message, error) {
 	return nil, nil
 }
-func (f *fakeAgg) GetActiveReservations() ([]intermute.Reservation, error)      { return nil, nil }
-func (f *fakeAgg) NewSession(name, projectPath, agentType string) error         { return nil }
-func (f *fakeAgg) RenameSession(oldName, newName string) error                  { return nil }
-func (f *fakeAgg) ForkSession(name, projectPath, agentType string) error        { return nil }
-func (f *fakeAgg) AttachSession(name string) error                              { return nil }
+func (f *fakeAgg) GetAgentReservations(ctx context.Context, agentID string) ([]intermute.Reservation, error) {
+	return nil, nil
+}
+func (f *fakeAgg) GetActiveReservations(ctx context.Context) ([]intermute.Reservation, error) {
+	return nil, nil
+}
+func (f *fakeAgg) NewSession(name, projectPath, agentType string) error              { return nil }
+func (f *fakeAgg) RenameSession(oldName, newName string) error                       { return nil }
+func (f *fakeAgg) ForkSession(name, projectPath, agentType string) error             { return nil }
+func (f *fakeAgg) AttachSession(name string) error                                   { return nil }
 func (f *fakeAgg) StartMCP(ctx context.Context, projectPath, component string) error { return nil }
-func (f *fakeAgg) StopMCP(projectPath, component string) error                  { return nil }
+func (f *fakeAgg) StopMCP(projectPath, component string) error                       { return nil }
 
 func (f *fakeAgg) RestartSession(name, projectPath, agentType string) error {
 	f.restartCalled = true

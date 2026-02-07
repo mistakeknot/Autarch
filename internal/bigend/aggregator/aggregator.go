@@ -21,6 +21,7 @@ import (
 	"github.com/mistakeknot/autarch/internal/bigend/tmux"
 	gurgSpecs "github.com/mistakeknot/autarch/internal/gurgeh/specs"
 	"github.com/mistakeknot/autarch/pkg/intermute"
+	"github.com/mistakeknot/autarch/pkg/timeout"
 )
 
 // Agent represents a detected AI agent
@@ -265,8 +266,6 @@ func (a *Aggregator) addActivity(evt Event) {
 
 // refreshForEvent triggers targeted refresh based on event type
 func (a *Aggregator) refreshForEvent(eventType string) {
-	ctx := context.Background()
-
 	switch {
 	case strings.HasPrefix(eventType, "spec.") ||
 		strings.HasPrefix(eventType, "epic.") ||
@@ -284,7 +283,9 @@ func (a *Aggregator) refreshForEvent(eventType string) {
 		strings.HasPrefix(eventType, "message."):
 		// Agent events - refresh agent list
 		go func() {
-			agents := a.loadAgents()
+			ctx, cancel := withTimeoutOrCancel(context.TODO(), timeout.HTTPDefault)
+			defer cancel()
+			agents := a.loadAgents(ctx)
 			a.mu.Lock()
 			a.state.Agents = agents
 			a.state.UpdatedAt = time.Now()
@@ -304,9 +305,6 @@ func (a *Aggregator) refreshForEvent(eventType string) {
 		// Reservation events - no specific refresh needed, just activity logged
 		slog.Debug("reservation event", "type", eventType)
 	}
-
-	// Full refresh can be requested externally
-	_ = ctx // silence unused variable if needed
 }
 
 // dispatchEvent dispatches an event to all registered handlers
@@ -376,7 +374,9 @@ func (a *Aggregator) Refresh(ctx context.Context) error {
 	a.enrichWithPollardStats(projects)
 
 	// Load agents from MCP Agent Mail
-	agents := a.loadAgents()
+	loadCtx, cancelLoad := withTimeoutOrCancel(ctx, timeout.HTTPDefault)
+	defer cancelLoad()
+	agents := a.loadAgents(loadCtx)
 
 	// Load tmux sessions
 	sessions := a.loadTmuxSessions(projects)
@@ -532,13 +532,12 @@ func countReportsAndFindLatest(dir string) (int, string) {
 }
 
 // loadAgents fetches registered agents from Intermute
-func (a *Aggregator) loadAgents() []Agent {
+func (a *Aggregator) loadAgents(ctx context.Context) []Agent {
 	if a.intermuteClient == nil {
 		slog.Debug("intermute client not available")
 		return []Agent{}
 	}
 
-	ctx := context.Background()
 	intermuteAgents, err := a.intermuteClient.ListAgentsEnriched(ctx)
 	if err != nil {
 		slog.Error("failed to load agents from intermute", "error", err)
@@ -740,35 +739,53 @@ func (a *Aggregator) GetProjectTaskList(projectPath string) ([]coldwine.Task, er
 }
 
 // GetIntermuteAgent returns detailed agent info from Intermute
-func (a *Aggregator) GetIntermuteAgent(name string) (*intermute.Agent, error) {
+func (a *Aggregator) GetIntermuteAgent(ctx context.Context, name string) (*intermute.Agent, error) {
 	if a.intermuteClient == nil {
 		return nil, fmt.Errorf("intermute client not available")
 	}
-	return a.intermuteClient.GetAgent(context.Background(), name)
+	reqCtx, cancel := withTimeoutOrCancel(ctx, timeout.HTTPDefault)
+	defer cancel()
+	return a.intermuteClient.GetAgent(reqCtx, name)
 }
 
 // GetAgentMessages returns recent messages for an agent
-func (a *Aggregator) GetAgentMessages(agentID string, limit int) ([]intermute.Message, error) {
+func (a *Aggregator) GetAgentMessages(ctx context.Context, agentID string, limit int) ([]intermute.Message, error) {
 	if a.intermuteClient == nil {
 		return nil, fmt.Errorf("intermute client not available")
 	}
-	return a.intermuteClient.AgentMessages(context.Background(), agentID, limit)
+	reqCtx, cancel := withTimeoutOrCancel(ctx, timeout.HTTPDefault)
+	defer cancel()
+	return a.intermuteClient.AgentMessages(reqCtx, agentID, limit)
 }
 
 // GetAgentReservations returns file reservations for an agent
-func (a *Aggregator) GetAgentReservations(agentID string) ([]intermute.Reservation, error) {
+func (a *Aggregator) GetAgentReservations(ctx context.Context, agentID string) ([]intermute.Reservation, error) {
 	if a.intermuteClient == nil {
 		return nil, fmt.Errorf("intermute client not available")
 	}
-	return a.intermuteClient.AgentReservations(context.Background(), agentID)
+	reqCtx, cancel := withTimeoutOrCancel(ctx, timeout.HTTPDefault)
+	defer cancel()
+	return a.intermuteClient.AgentReservations(reqCtx, agentID)
 }
 
 // GetActiveReservations returns all active file reservations
-func (a *Aggregator) GetActiveReservations() ([]intermute.Reservation, error) {
+func (a *Aggregator) GetActiveReservations(ctx context.Context) ([]intermute.Reservation, error) {
 	if a.intermuteClient == nil {
 		return nil, fmt.Errorf("intermute client not available")
 	}
-	return a.intermuteClient.ActiveReservations(context.Background())
+	reqCtx, cancel := withTimeoutOrCancel(ctx, timeout.HTTPDefault)
+	defer cancel()
+	return a.intermuteClient.ActiveReservations(reqCtx)
+}
+
+func withTimeoutOrCancel(parent context.Context, d time.Duration) (context.Context, context.CancelFunc) {
+	if parent == nil {
+		parent = context.TODO()
+	}
+	if _, ok := parent.Deadline(); ok {
+		return context.WithCancel(parent)
+	}
+	return context.WithTimeout(parent, d)
 }
 
 // NewSession creates a new tmux session for an agent.

@@ -3,7 +3,7 @@ package specs
 import (
 	"fmt"
 
-	"gopkg.in/yaml.v3"
+	"github.com/mistakeknot/autarch/pkg/yamlsafe"
 )
 
 func Validate(raw []byte) error {
@@ -12,7 +12,7 @@ func Validate(raw []byte) error {
 		Title  string `yaml:"title"`
 		Status string `yaml:"status"`
 	}
-	if err := yaml.Unmarshal(raw, &doc); err != nil {
+	if err := yamlsafe.Decode(raw, &doc); err != nil {
 		return err
 	}
 	if doc.ID == "" || doc.Title == "" || doc.Status == "" {

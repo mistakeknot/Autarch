@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"time"
 
+	"github.com/mistakeknot/autarch/pkg/yamlsafe"
 	"gopkg.in/yaml.v3"
 )
 
@@ -41,13 +42,8 @@ type Pattern struct {
 
 // Load reads a pattern from a YAML file
 func Load(path string) (*Pattern, error) {
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return nil, err
-	}
-
 	var pattern Pattern
-	if err := yaml.Unmarshal(data, &pattern); err != nil {
+	if _, err := yamlsafe.UnmarshalFile(path, &pattern); err != nil {
 		return nil, err
 	}
 	return &pattern, nil

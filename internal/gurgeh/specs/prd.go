@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"time"
 
+	"github.com/mistakeknot/autarch/pkg/yamlsafe"
 	"gopkg.in/yaml.v3"
 )
 
@@ -55,7 +56,7 @@ const (
 
 // Feature represents a major capability within a PRD
 type Feature struct {
-	ID                   string                `yaml:"id"`       // "FEAT-001"
+	ID                   string                `yaml:"id"` // "FEAT-001"
 	Title                string                `yaml:"title"`
 	Status               FeatureStatus         `yaml:"status"`
 	Summary              string                `yaml:"summary"`
@@ -69,24 +70,19 @@ type Feature struct {
 
 // PRD represents a Product Requirements Document (version scope)
 type PRD struct {
-	ID        string       `yaml:"id"`         // "MVP", "V1", "V2"
-	Title     string       `yaml:"title"`      // "Vauxhall MVP"
-	Version   string       `yaml:"version"`    // "mvp", "v1", "v2"
-	Status    PRDStatus    `yaml:"status"`
-	CreatedAt string       `yaml:"created_at"`
-	UpdatedAt string       `yaml:"updated_at,omitempty"`
-	Features  []Feature    `yaml:"features"`
+	ID        string    `yaml:"id"`      // "MVP", "V1", "V2"
+	Title     string    `yaml:"title"`   // "Vauxhall MVP"
+	Version   string    `yaml:"version"` // "mvp", "v1", "v2"
+	Status    PRDStatus `yaml:"status"`
+	CreatedAt string    `yaml:"created_at"`
+	UpdatedAt string    `yaml:"updated_at,omitempty"`
+	Features  []Feature `yaml:"features"`
 }
 
 // LoadPRD reads a PRD from a YAML file
 func LoadPRD(path string) (*PRD, error) {
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return nil, err
-	}
-
 	var prd PRD
-	if err := yaml.Unmarshal(data, &prd); err != nil {
+	if _, err := yamlsafe.UnmarshalFile(path, &prd); err != nil {
 		return nil, err
 	}
 	return &prd, nil

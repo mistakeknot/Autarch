@@ -1,7 +1,9 @@
 package yamlsafe
 
 import (
+	"bytes"
 	"fmt"
+	"io"
 	"os"
 
 	"gopkg.in/yaml.v3"
@@ -21,10 +23,48 @@ func UnmarshalFile(path string, out interface{}) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	if err := yaml.Unmarshal(data, out); err != nil {
-		return nil, fmt.Errorf("yaml decode failed: %w", err)
+	if err := Decode(data, out); err != nil {
+		return nil, err
 	}
 	return data, nil
+}
+
+// UnmarshalFileStrict loads and unmarshals a YAML file with strict field checks.
+// Unknown fields are rejected.
+func UnmarshalFileStrict(path string, out interface{}) ([]byte, error) {
+	data, err := ReadFile(path)
+	if err != nil {
+		return nil, err
+	}
+	if err := DecodeStrict(data, out); err != nil {
+		return nil, err
+	}
+	return data, nil
+}
+
+// Decode unmarshals YAML bytes into out.
+func Decode(data []byte, out interface{}) error {
+	if err := yaml.Unmarshal(data, out); err != nil {
+		return fmt.Errorf("yaml decode failed: %w", err)
+	}
+	return nil
+}
+
+// DecodeStrict unmarshals YAML bytes into out and rejects unknown fields.
+func DecodeStrict(data []byte, out interface{}) error {
+	dec := yaml.NewDecoder(bytes.NewReader(data))
+	dec.KnownFields(true)
+	if err := dec.Decode(out); err != nil {
+		return fmt.Errorf("yaml strict decode failed: %w", err)
+	}
+	var extra interface{}
+	if err := dec.Decode(&extra); err != io.EOF {
+		if err == nil {
+			return fmt.Errorf("yaml strict decode failed: multiple yaml documents are not supported")
+		}
+		return fmt.Errorf("yaml strict decode failed: %w", err)
+	}
+	return nil
 }
 
 func readFileWithLimit(path string, limit int64) ([]byte, error) {

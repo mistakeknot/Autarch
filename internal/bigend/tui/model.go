@@ -17,6 +17,7 @@ import (
 	"github.com/mistakeknot/autarch/internal/bigend/aggregator"
 	"github.com/mistakeknot/autarch/internal/bigend/mcp"
 	"github.com/mistakeknot/autarch/internal/bigend/tmux"
+	"github.com/mistakeknot/autarch/pkg/timeout"
 	shared "github.com/mistakeknot/autarch/pkg/tui"
 )
 
@@ -669,7 +670,9 @@ func (m Model) Init() tea.Cmd {
 
 func (m Model) refresh() tea.Cmd {
 	return func() tea.Msg {
-		if err := m.agg.Refresh(context.Background()); err != nil {
+		ctx, cancel := context.WithTimeout(context.TODO(), timeout.HTTPDefault)
+		defer cancel()
+		if err := m.agg.Refresh(ctx); err != nil {
 			return errMsg(err)
 		}
 		return refreshMsg{}
@@ -824,7 +827,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					if item.Status.Status == mcp.StatusRunning {
 						m.err = m.agg.StopMCP(m.mcpProject, item.Status.Component)
 					} else {
-						m.err = m.agg.StartMCP(context.Background(), m.mcpProject, item.Status.Component)
+						ctx, cancel := context.WithTimeout(context.TODO(), timeout.HTTPDefault)
+						m.err = m.agg.StartMCP(ctx, m.mcpProject, item.Status.Component)
+						cancel()
 					}
 					return m, m.refresh()
 				}

@@ -1,9 +1,7 @@
 package specs
 
 import (
-	"os"
-
-	"gopkg.in/yaml.v3"
+	"github.com/mistakeknot/autarch/pkg/yamlsafe"
 )
 
 type SpecDetail struct {
@@ -17,12 +15,8 @@ type SpecDetail struct {
 }
 
 func LoadDetail(path string) (SpecDetail, error) {
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return SpecDetail{}, err
-	}
 	doc := map[string]interface{}{}
-	if err := yaml.Unmarshal(data, &doc); err != nil {
+	if _, err := yamlsafe.UnmarshalFile(path, &doc); err != nil {
 		return SpecDetail{}, err
 	}
 	detail := SpecDetail{}

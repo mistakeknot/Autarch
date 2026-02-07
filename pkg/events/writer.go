@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/mistakeknot/autarch/pkg/contract"
+	"github.com/mistakeknot/autarch/pkg/timeout"
 )
 
 // Writer provides a high-level API for emitting events
@@ -15,6 +16,7 @@ type Writer struct {
 	store       *Store
 	sourceTool  SourceTool
 	projectPath string
+	forwardCtx  context.Context
 	mu          sync.Mutex
 	subs        []*Subscription
 	bridge      *IntermuteBridge
@@ -34,6 +36,13 @@ func (w *Writer) SetProjectPath(path string) {
 	w.projectPath = path
 }
 
+// SetContext sets the forwarding context used for bridge operations.
+func (w *Writer) SetContext(ctx context.Context) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	w.forwardCtx = ctx
+}
+
 // AttachBridge attaches an IntermuteBridge to forward events to Intermute.
 // When attached, events are forwarded after being stored locally.
 // Bridge errors are logged but do not fail local event emission (graceful degradation).
@@ -48,8 +57,20 @@ func (w *Writer) forwardToBridge(event *Event) {
 		return
 	}
 
-	// Use a background context with timeout for bridge operations
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	w.mu.Lock()
+	ctx := w.forwardCtx
+	w.mu.Unlock()
+	if ctx == nil {
+		ctx = context.TODO()
+	}
+
+	// Bound forward calls when caller context has no deadline.
+	var cancel context.CancelFunc
+	if _, ok := ctx.Deadline(); ok {
+		ctx, cancel = context.WithCancel(ctx)
+	} else {
+		ctx, cancel = context.WithTimeout(ctx, timeout.HTTPDefault)
+	}
 	defer cancel()
 
 	if err := w.bridge.Forward(ctx, event); err != nil {
@@ -303,6 +324,12 @@ func (w *Writer) EmitSpecRevised(spec SpecSnapshot) error {
 	return w.emit(EventSpecRevised, EntitySpec, spec.ID, SpecRevisedPayload{
 		Spec: spec,
 	})
+}
+
+// EmitUntrackedItemDetected emits a doc action-item event when no tracked work
+// item is found for the extracted action item.
+func (w *Writer) EmitUntrackedItemDetected(payload UntrackedItemDetectedPayload) error {
+	return w.emit(EventUntrackedItemDetected, EntityDocItem, payload.ID, payload)
 }
 
 // Insight events

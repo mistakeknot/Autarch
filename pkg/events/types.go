@@ -36,10 +36,10 @@ const (
 	EventTaskCompleted EventType = "task_completed"
 
 	// Run events
-	EventRunStarted   EventType = "run_started"
-	EventRunWaiting   EventType = "run_waiting"
-	EventRunCompleted EventType = "run_completed"
-	EventRunFailed    EventType = "run_failed"
+	EventRunStarted       EventType = "run_started"
+	EventRunWaiting       EventType = "run_waiting"
+	EventRunCompleted     EventType = "run_completed"
+	EventRunFailed        EventType = "run_failed"
 	EventRunArtifactAdded EventType = "run_artifact_added"
 
 	// Outcome events
@@ -49,7 +49,8 @@ const (
 	EventInsightLinked EventType = "insight_linked"
 
 	// Spec evolution events
-	EventSpecRevised EventType = "spec_revised"
+	EventSpecRevised           EventType = "spec_revised"
+	EventUntrackedItemDetected EventType = "untracked_item_detected"
 
 	// Signal events
 	EventSignalRaised    EventType = "signal_raised"
@@ -69,6 +70,7 @@ const (
 	EntityInsight    EntityType = "insight"
 	EntitySignal     EntityType = "signal"
 	EntitySpec       EntityType = "spec"
+	EntityDocItem    EntityType = "doc_item"
 )
 
 // SourceTool is an alias to contract.SourceTool for backward compatibility
@@ -84,14 +86,14 @@ const (
 
 // Event represents a single event in the event log
 type Event struct {
-	ID         int64      `json:"id"`
-	EventType  EventType  `json:"event_type"`
-	EntityType EntityType `json:"entity_type"`
-	EntityID   string     `json:"entity_id"`
-	SourceTool SourceTool `json:"source_tool"`
-	Payload    []byte     `json:"payload"`     // JSON payload
-	ProjectPath string    `json:"project_path,omitempty"`
-	CreatedAt  time.Time  `json:"created_at"`
+	ID          int64      `json:"id"`
+	EventType   EventType  `json:"event_type"`
+	EntityType  EntityType `json:"entity_type"`
+	EntityID    string     `json:"entity_id"`
+	SourceTool  SourceTool `json:"source_tool"`
+	Payload     []byte     `json:"payload"` // JSON payload
+	ProjectPath string     `json:"project_path,omitempty"`
+	CreatedAt   time.Time  `json:"created_at"`
 }
 
 // PayloadJSON returns the payload as parsed JSON

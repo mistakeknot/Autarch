@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/mistakeknot/autarch/pkg/yamlsafe"
 	"gopkg.in/yaml.v3"
 )
 
@@ -18,12 +19,8 @@ type Summary struct {
 }
 
 func LoadSpec(path string) (Spec, error) {
-	raw, err := os.ReadFile(path)
-	if err != nil {
-		return Spec{}, err
-	}
 	var doc Spec
-	if err := yaml.Unmarshal(raw, &doc); err != nil {
+	if _, err := yamlsafe.UnmarshalFile(path, &doc); err != nil {
 		return Spec{}, err
 	}
 	return doc, nil
@@ -45,11 +42,6 @@ func LoadSummaries(dir string) ([]Summary, []string) {
 			continue
 		}
 		path := filepath.Join(dir, name)
-		raw, err := os.ReadFile(path)
-		if err != nil {
-			warnings = append(warnings, "read failed: "+path)
-			continue
-		}
 		var doc struct {
 			ID      string `yaml:"id"`
 			Title   string `yaml:"title"`
@@ -57,8 +49,8 @@ func LoadSummaries(dir string) ([]Summary, []string) {
 			Status  string `yaml:"status"`
 			Type    string `yaml:"type"`
 		}
-		if err := yaml.Unmarshal(raw, &doc); err != nil {
-			warnings = append(warnings, "parse failed: "+path)
+		if _, err := yamlsafe.UnmarshalFile(path, &doc); err != nil {
+			warnings = append(warnings, "read failed: "+path)
 			continue
 		}
 		status := strings.TrimSpace(doc.Status)

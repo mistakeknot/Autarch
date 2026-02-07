@@ -5,7 +5,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"gopkg.in/yaml.v3"
+	"github.com/mistakeknot/autarch/pkg/yamlsafe"
 )
 
 type SpecSummary struct {
@@ -39,18 +39,14 @@ func LoadSummaries(dir string) ([]SpecSummary, []string) {
 			continue
 		}
 		path := filepath.Join(dir, name)
-		raw, err := os.ReadFile(path)
+		var doc specDoc
+		data, err := yamlsafe.UnmarshalFile(path, &doc)
 		if err != nil {
 			warnings = append(warnings, "read failed: "+path)
 			continue
 		}
-		if err := Validate(raw); err != nil {
+		if err := Validate(data); err != nil {
 			warnings = append(warnings, "validation failed: "+path)
-		}
-		var doc specDoc
-		if err := yaml.Unmarshal(raw, &doc); err != nil {
-			warnings = append(warnings, "parse failed: "+path)
-			continue
 		}
 		id := doc.ID
 		if id == "" {

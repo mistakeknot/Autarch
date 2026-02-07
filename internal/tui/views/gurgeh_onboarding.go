@@ -86,7 +86,7 @@ type GurgehOnboardingView struct {
 
 // NewGurgehOnboardingView creates a new onboarding view from a GurgehConfig.
 func NewGurgehOnboardingView(cfg tui.GurgehConfig) *GurgehOnboardingView {
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(context.TODO())
 
 	breadcrumb := tui.NewBreadcrumb()
 	breadcrumb.SetCurrent(tui.OnboardingKickoff)
@@ -771,7 +771,7 @@ func (v *GurgehOnboardingView) generateSuggestions() tea.Cmd {
 			"List the key requirements (one per line).",
 		}
 
-		suggestions, err := agent.SuggestAnswers(context.Background(), v.codingAgent, v.projectDesc, questions)
+		suggestions, err := agent.SuggestAnswers(v.ctx, v.codingAgent, v.projectDesc, questions)
 		return tui.SuggestionsReadyMsg{Suggestions: suggestions, Error: err}
 	}
 }
@@ -810,7 +810,7 @@ func (v *GurgehOnboardingView) generateEpicsWithAgent(spec tui.SpecAcceptedMsg) 
 			}
 		}
 
-		proposals, err := agent.GenerateEpicsWithOutput(context.Background(), v.codingAgent, input, outputCallback)
+		proposals, err := agent.GenerateEpicsWithOutput(v.ctx, v.codingAgent, input, outputCallback)
 		if err != nil {
 			stream <- agentStreamEvent{err: err}
 			return
@@ -849,7 +849,7 @@ func (v *GurgehOnboardingView) generateTasksWithAgent() tea.Cmd {
 			}
 		}
 
-		taskList, err := agent.GenerateTasksWithOutput(context.Background(), v.codingAgent, v.generatedEpics, outputCallback)
+		taskList, err := agent.GenerateTasksWithOutput(v.ctx, v.codingAgent, v.generatedEpics, outputCallback)
 		if err != nil {
 			stream <- agentStreamEvent{err: err}
 			return
@@ -878,7 +878,7 @@ func (v *GurgehOnboardingView) scanCodebase(path string) tea.Cmd {
 		progressChan <- agent.ScanProgress{Step: "Exploring", Details: "Running Claude Code..."}
 
 		// Run Claude Code exploration (progress logged via slog)
-		exploreResult, sessionID, err := exploration.Explore(context.Background(), path)
+		exploreResult, sessionID, err := exploration.Explore(v.ctx, path)
 
 		if err != nil {
 			progressChan <- agent.ScanProgress{Step: "_error", Details: err.Error()}

@@ -6,7 +6,7 @@ import (
 	"strings"
 
 	"github.com/mistakeknot/autarch/internal/coldwine/project"
-	"gopkg.in/yaml.v3"
+	"github.com/mistakeknot/autarch/pkg/yamlsafe"
 )
 
 type specTask struct {
@@ -36,12 +36,8 @@ func RebuildFromSpecs(root string) error {
 		if !strings.HasSuffix(name, ".yaml") && !strings.HasSuffix(name, ".yml") {
 			continue
 		}
-		data, err := os.ReadFile(filepath.Join(specDir, name))
-		if err != nil {
-			continue
-		}
 		var spec specTask
-		if err := yaml.Unmarshal(data, &spec); err != nil {
+		if _, err := yamlsafe.UnmarshalFile(filepath.Join(specDir, name), &spec); err != nil {
 			continue
 		}
 		if spec.ID == "" {

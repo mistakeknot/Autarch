@@ -14,6 +14,7 @@ import (
 
 	"github.com/mistakeknot/autarch/internal/bigend/mcp"
 	"github.com/mistakeknot/autarch/internal/bigend/tmux"
+	"github.com/mistakeknot/autarch/pkg/timeout"
 	"github.com/mistakeknot/autarch/pkg/toolpane"
 	shared "github.com/mistakeknot/autarch/pkg/tui"
 )
@@ -127,7 +128,9 @@ func (p *VauxhallPane) Update(msg tea.Msg, ctx toolpane.Context) (toolpane.Pane,
 					if item.Status.Status == mcp.StatusRunning {
 						p.err = p.agg.StopMCP(p.mcpProject, item.Status.Component)
 					} else {
-						p.err = p.agg.StartMCP(context.Background(), p.mcpProject, item.Status.Component)
+						startCtx, cancel := context.WithTimeout(context.TODO(), timeout.HTTPDefault)
+						p.err = p.agg.StartMCP(startCtx, p.mcpProject, item.Status.Component)
+						cancel()
 					}
 					return p, p.refresh()
 				}
@@ -238,7 +241,9 @@ func (p *VauxhallPane) NeedsProject() bool {
 
 func (p *VauxhallPane) refresh() tea.Cmd {
 	return func() tea.Msg {
-		if err := p.agg.Refresh(context.Background()); err != nil {
+		refreshCtx, cancel := context.WithTimeout(context.TODO(), timeout.HTTPDefault)
+		defer cancel()
+		if err := p.agg.Refresh(refreshCtx); err != nil {
 			return errMsg(err)
 		}
 		return refreshMsg{}

@@ -1,6 +1,7 @@
 package events
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"os"
@@ -22,13 +23,15 @@ type ReconcileSummary struct {
 }
 
 // ReconcileProject scans file-first sources and emits derived events.
-func ReconcileProject(root string, store *Store) (*ReconcileSummary, error) {
+func ReconcileProject(ctx context.Context, root string, store *Store) (*ReconcileSummary, error) {
 	summary := &ReconcileSummary{}
 
 	specWriter := NewWriter(store, SourceGurgeh)
 	specWriter.SetProjectPath(root)
+	specWriter.SetContext(ctx)
 	taskWriter := NewWriter(store, SourceColdwine)
 	taskWriter.SetProjectPath(root)
+	taskWriter.SetContext(ctx)
 
 	if err := reconcileSpecs(root, store, specWriter, summary); err != nil {
 		return summary, err

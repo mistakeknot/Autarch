@@ -20,8 +20,8 @@ import (
 )
 
 const (
-	categorySignals  = "signals"
-	categoryEvents   = "events"
+	categorySignals   = "signals"
+	categoryEvents    = "events"
 	categoryConflicts = "conflicts"
 )
 
@@ -38,15 +38,15 @@ type SignalsView struct {
 
 	category string
 
-	signals  []signals.Signal
-	events   []*events.Event
+	signals   []signals.Signal
+	events    []*events.Event
 	conflicts []events.ReconcileConflict
 
 	selected int
 
 	projectPath string
 
-	sourceFilter    int
+	sourceFilter     int
 	signalTypeFilter int
 	eventTypeFilter  int
 	severityFilter   int
@@ -524,6 +524,7 @@ var eventTypeFilters = []string{
 	string(events.EventTaskStarted),
 	string(events.EventTaskBlocked),
 	string(events.EventTaskCompleted),
+	string(events.EventUntrackedItemDetected),
 	string(events.EventRunStarted),
 	string(events.EventRunWaiting),
 	string(events.EventRunCompleted),
