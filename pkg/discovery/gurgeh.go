@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/mistakeknot/autarch/pkg/yamlsafe"
 	"gopkg.in/yaml.v3"
 )
 
@@ -75,7 +76,7 @@ func GurgSpecsWithErrors(root string) ([]GurgSpec, []ParseError) {
 			continue
 		}
 		path := filepath.Join(specsDir, entry.Name())
-		data, err := os.ReadFile(path)
+		data, err := yamlsafe.ReadFile(path)
 		if err != nil {
 			errs = append(errs, ParseError{Path: path, Err: err})
 			continue
@@ -123,13 +124,8 @@ func GurgPRDsWithErrors(root string) ([]GurgPRD, []ParseError) {
 			continue
 		}
 		path := filepath.Join(specsDir, entry.Name())
-		data, err := os.ReadFile(path)
-		if err != nil {
-			errs = append(errs, ParseError{Path: path, Err: err})
-			continue
-		}
 		var prd GurgPRD
-		if err := yaml.Unmarshal(data, &prd); err != nil {
+		if _, err := yamlsafe.UnmarshalFile(path, &prd); err != nil {
 			errs = append(errs, ParseError{Path: path, Err: err})
 			continue
 		}

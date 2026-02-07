@@ -20,6 +20,7 @@ import (
 	"github.com/mistakeknot/autarch/internal/bigend/discovery"
 	"github.com/mistakeknot/autarch/internal/bigend/tmux"
 	"github.com/mistakeknot/autarch/pkg/intermute"
+	"github.com/mistakeknot/autarch/pkg/netguard"
 	"nhooyr.io/websocket"
 )
 
@@ -102,6 +103,9 @@ func NewServer(cfg config.ServerConfig, agg aggregatorAPI) *Server {
 
 // ListenAndServe starts the HTTP server
 func (s *Server) ListenAndServe(addr string) error {
+	if err := netguard.EnsureLocalOnly(addr); err != nil {
+		return err
+	}
 	mux := http.NewServeMux()
 	api := s.withLocalhostOriginCheck
 

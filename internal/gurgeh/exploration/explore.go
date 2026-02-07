@@ -117,7 +117,7 @@ func Explore(ctx context.Context, cwd string) (map[string]any, string, error) {
 // If sessionID is non-empty, resumes that session to avoid re-exploring.
 // Falls back to fresh exploration if resumed session fails.
 func GeneratePhase(ctx context.Context, cwd string, phase string,
-	priorContext map[string]string, sessionID string) (string, error) {
+	priorContext map[string]string, sessionID string, researchContext string) (string, error) {
 
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Minute)
 	defer cancel()
@@ -132,6 +132,11 @@ func GeneratePhase(ctx context.Context, cwd string, phase string,
 		}
 	}
 	priorContextStr := strings.Join(contextParts, "\n\n")
+	researchContext = strings.TrimSpace(researchContext)
+	researchContextStr := ""
+	if researchContext != "" {
+		researchContextStr = fmt.Sprintf("\nRESEARCH FINDINGS:\n%s\n", researchContext)
+	}
 
 	// Choose prompt based on whether we have a session to resume
 	var phasePrompt string
@@ -142,9 +147,10 @@ You already explored this codebase. Use that knowledge.
 
 PRIOR SECTIONS:
 %s
+%s
 
 Be specific to THIS project. 2-4 paragraphs max. No placeholders.
-Return ONLY the section content.`, phase, priorContextStr)
+Return ONLY the section content.`, phase, priorContextStr, researchContextStr)
 	} else {
 		phasePrompt = fmt.Sprintf(`Generate content for the %s section of a PRD.
 
@@ -152,9 +158,10 @@ Explore this codebase to understand what it does, then write the %s section.
 
 PRIOR CONTEXT (approved phases):
 %s
+%s
 
 Be concise and specific to THIS project. Extract evidence from the codebase.
-2-4 paragraphs max. Return ONLY the section content.`, phase, phase, priorContextStr)
+2-4 paragraphs max. Return ONLY the section content.`, phase, phase, priorContextStr, researchContextStr)
 	}
 
 	slog.Info("generating phase", "phase", phase, "resumed", sessionID != "")
@@ -183,7 +190,7 @@ Be concise and specific to THIS project. Extract evidence from the codebase.
 // This avoids re-scanning the codebase when we already have exploration data but
 // the specific phase wasn't included or needs regeneration.
 func GeneratePhaseFromContext(ctx context.Context, cwd string, phase string,
-	priorContext map[string]string, explorationCtx map[string]any) (string, error) {
+	priorContext map[string]string, explorationCtx map[string]any, researchContext string) (string, error) {
 
 	ctx, cancel := context.WithTimeout(ctx, 3*time.Minute)
 	defer cancel()
@@ -212,6 +219,11 @@ func GeneratePhaseFromContext(ctx context.Context, cwd string, phase string,
 	if len(priorParts) > 0 {
 		priorContextStr = fmt.Sprintf("\nPRIOR PHASES (approved):\n%s\n", strings.Join(priorParts, "\n\n"))
 	}
+	researchContext = strings.TrimSpace(researchContext)
+	researchContextStr := ""
+	if researchContext != "" {
+		researchContextStr = fmt.Sprintf("\nRESEARCH FINDINGS:\n%s\n", researchContext)
+	}
 
 	explorationContextStr := ""
 	if len(explorationParts) > 0 {
@@ -219,14 +231,15 @@ func GeneratePhaseFromContext(ctx context.Context, cwd string, phase string,
 	}
 
 	phasePrompt := fmt.Sprintf(`Generate the %s section of a PRD.
-%s%s
+%s%s%s
 Guidelines:
 - Be concise and specific to THIS project
 - Use the codebase context and prior phases as your source of truth
+- Incorporate relevant research findings when they materially affect the section
 - No generic placeholder content
 - 2-4 paragraphs max
 
-Return ONLY the section content, no headers or markdown fences.`, phase, explorationContextStr, priorContextStr)
+Return ONLY the section content, no headers or markdown fences.`, phase, explorationContextStr, priorContextStr, researchContextStr)
 
 	slog.Info("generating phase from context", "phase", phase)
 
@@ -389,7 +402,7 @@ type PhaseUpdate struct {
 // 1. Single Claude Code invocation (one context load)
 // 2. Agent sees the full spec and can make intelligent decisions about what to update
 // 3. Returns only changed content (phases that don't need changes return unchanged)
-func PropagateChanges(ctx context.Context, cwd string, currentPhases map[string]string, changedPhase string, feedback string) (map[string]PhaseUpdate, error) {
+func PropagateChanges(ctx context.Context, cwd string, currentPhases map[string]string, changedPhase string, feedback string, researchContext string) (map[string]PhaseUpdate, error) {
 	ctx, cancel := context.WithTimeout(ctx, 8*time.Minute)
 	defer cancel()
 
@@ -402,10 +415,16 @@ func PropagateChanges(ctx context.Context, cwd string, currentPhases map[string]
 		}
 	}
 	currentSpec := strings.Join(specParts, "\n\n")
+	researchContext = strings.TrimSpace(researchContext)
+	researchContextStr := ""
+	if researchContext != "" {
+		researchContextStr = fmt.Sprintf("\nRESEARCH FINDINGS:\n%s\n", researchContext)
+	}
 
 	propagatePrompt := fmt.Sprintf(`You are updating a PRD (Product Requirements Document) after changes.
 
 CURRENT SPEC:
+%s
 %s
 
 CHANGED PHASE: %s
@@ -421,6 +440,7 @@ For example:
 - If "features" changes, "requirements" and "cujs" likely need updates
 - If "users" changes, "cujs" (user journeys) likely need updates
 - If "vision" changes, everything might need review
+- If research findings introduce constraints or risks, reflect them across affected sections
 
 Return JSON with ONLY the phases that need changes:
 {
@@ -433,8 +453,9 @@ Return JSON with ONLY the phases that need changes:
 Guidelines:
 - Be concise and specific to THIS project
 - Maintain consistency across all sections
+- Use research findings where relevant and do not invent unsupported claims
 - Only include phases that actually changed
-- If a phase doesn't need changes, don't include it`, currentSpec, changedPhase, feedback, changedPhase, changedPhase)
+- If a phase doesn't need changes, don't include it`, currentSpec, researchContextStr, changedPhase, feedback, changedPhase, changedPhase)
 
 	slog.Info("propagating changes", "changed_phase", changedPhase)
 

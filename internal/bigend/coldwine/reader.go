@@ -6,7 +6,7 @@ import (
 	"os"
 	"path/filepath"
 
-	"gopkg.in/yaml.v3"
+	"github.com/mistakeknot/autarch/pkg/yamlsafe"
 )
 
 // Reader reads Tandemonium data from a project directory
@@ -33,17 +33,12 @@ func (r *Reader) Exists() bool {
 func (r *Reader) ReadTasks() ([]Task, error) {
 	tasksPath := filepath.Join(r.tandoPath, "tasks.yml")
 
-	data, err := os.ReadFile(tasksPath)
-	if err != nil {
+	var tasksFile TasksFile
+	if _, err := yamlsafe.UnmarshalFile(tasksPath, &tasksFile); err != nil {
 		if os.IsNotExist(err) {
 			return []Task{}, nil
 		}
 		return nil, fmt.Errorf("failed to read tasks.yml: %w", err)
-	}
-
-	var tasksFile TasksFile
-	if err := yaml.Unmarshal(data, &tasksFile); err != nil {
-		return nil, fmt.Errorf("failed to parse tasks.yml: %w", err)
 	}
 
 	slog.Debug("read tasks", "project", r.projectPath, "count", len(tasksFile.Data.Tasks))
@@ -54,17 +49,12 @@ func (r *Reader) ReadTasks() ([]Task, error) {
 func (r *Reader) ReadConfig() (*ConfigFile, error) {
 	configPath := filepath.Join(r.tandoPath, "config.yml")
 
-	data, err := os.ReadFile(configPath)
-	if err != nil {
+	var config ConfigFile
+	if _, err := yamlsafe.UnmarshalFile(configPath, &config); err != nil {
 		if os.IsNotExist(err) {
 			return nil, nil
 		}
 		return nil, fmt.Errorf("failed to read config.yml: %w", err)
-	}
-
-	var config ConfigFile
-	if err := yaml.Unmarshal(data, &config); err != nil {
-		return nil, fmt.Errorf("failed to parse config.yml: %w", err)
 	}
 
 	return &config, nil

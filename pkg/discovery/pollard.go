@@ -5,7 +5,7 @@ import (
 	"path/filepath"
 	"time"
 
-	"gopkg.in/yaml.v3"
+	"github.com/mistakeknot/autarch/pkg/yamlsafe"
 )
 
 // PollardInsight represents a research insight discovered by Pollard.
@@ -75,13 +75,8 @@ func loadInsightsRecursiveWithErrors(dir string) ([]PollardInsight, []ParseError
 		if filepath.Ext(entry.Name()) != ".yaml" {
 			continue
 		}
-		data, err := os.ReadFile(path)
-		if err != nil {
-			errs = append(errs, ParseError{Path: path, Err: err})
-			continue
-		}
 		var insight PollardInsight
-		if err := yaml.Unmarshal(data, &insight); err != nil {
+		if _, err := yamlsafe.UnmarshalFile(path, &insight); err != nil {
 			errs = append(errs, ParseError{Path: path, Err: err})
 			continue
 		}
@@ -127,11 +122,6 @@ func loadSourcesRecursiveWithErrors(dir string) ([]PollardSource, []ParseError) 
 		if filepath.Ext(entry.Name()) != ".yaml" {
 			continue
 		}
-		data, err := os.ReadFile(path)
-		if err != nil {
-			errs = append(errs, ParseError{Path: path, Err: err})
-			continue
-		}
 		var raw struct {
 			AgentName   string    `yaml:"agent_name"`
 			Query       string    `yaml:"query"`
@@ -143,7 +133,7 @@ func loadSourcesRecursiveWithErrors(dir string) ([]PollardSource, []ParseError) 
 			Trends []struct {
 			} `yaml:"trends"`
 		}
-		if err := yaml.Unmarshal(data, &raw); err != nil {
+		if _, err := yamlsafe.UnmarshalFile(path, &raw); err != nil {
 			errs = append(errs, ParseError{Path: path, Err: err})
 			continue
 		}
@@ -241,13 +231,8 @@ func loadPatternsRecursiveWithErrors(dir string) ([]PollardPattern, []ParseError
 		if filepath.Ext(entry.Name()) != ".yaml" {
 			continue
 		}
-		data, err := os.ReadFile(path)
-		if err != nil {
-			errs = append(errs, ParseError{Path: path, Err: err})
-			continue
-		}
 		var pattern PollardPattern
-		if err := yaml.Unmarshal(data, &pattern); err != nil {
+		if _, err := yamlsafe.UnmarshalFile(path, &pattern); err != nil {
 			errs = append(errs, ParseError{Path: path, Err: err})
 			continue
 		}

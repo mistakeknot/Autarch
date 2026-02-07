@@ -13,6 +13,7 @@ package api
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -823,7 +824,9 @@ func SendResearchRequest(projectPath string, payload ResearchPayload, from strin
 		if err != nil {
 			return nil, err
 		}
-		resp, err := client.SendMessage(context.Background(), ic.Message{
+		sendCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+		resp, err := client.SendMessage(sendCtx, ic.Message{
 			From: from,
 			To:   []string{"pollard"},
 			Body: string(body),
@@ -884,11 +887,19 @@ func WaitForResponse(projectPath, msgID string, timeout time.Duration) (*Researc
 		if err != nil {
 			return nil, err
 		}
+		pollCtx, pollCancel := context.WithTimeout(context.Background(), timeout)
+		defer pollCancel()
 		deadline := time.Now().Add(timeout)
 		var cursor uint64
 		for time.Now().Before(deadline) {
-			inbox, err := client.InboxSince(context.Background(), agent, cursor)
+			inbox, err := client.InboxSince(pollCtx, agent, cursor)
 			if err != nil {
+				if errors.Is(pollCtx.Err(), context.DeadlineExceeded) {
+					return nil, fmt.Errorf("timeout waiting for response")
+				}
+				if pollCtx.Err() != nil {
+					return nil, pollCtx.Err()
+				}
 				return nil, err
 			}
 			cursor = inbox.Cursor
@@ -910,7 +921,11 @@ func WaitForResponse(projectPath, msgID string, timeout time.Duration) (*Researc
 					Response:  &resp.Response,
 				}, nil
 			}
-			time.Sleep(250 * time.Millisecond)
+			select {
+			case <-pollCtx.Done():
+				return nil, fmt.Errorf("timeout waiting for response")
+			case <-time.After(250 * time.Millisecond):
+			}
 		}
 		return nil, fmt.Errorf("timeout waiting for response")
 	}

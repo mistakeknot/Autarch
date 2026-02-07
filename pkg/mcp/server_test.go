@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -311,5 +312,209 @@ func TestServer_ProjectStatus(t *testing.T) {
 	tasks := status["tasks"].(map[string]interface{})
 	if total := tasks["total"].(float64); total != 4 {
 		t.Errorf("expected 4 tasks, got %v", total)
+	}
+}
+
+func TestMCP_WriteToolRequiresWriteScope(t *testing.T) {
+	tmpDir := t.TempDir()
+	tasksDir := filepath.Join(tmpDir, ".coldwine", "tasks")
+	if err := os.MkdirAll(tasksDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	taskData := []byte("id: TASK-001\nstatus: pending\n")
+	if err := os.WriteFile(filepath.Join(tasksDir, "TASK-001.yaml"), taskData, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	server := NewServer(tmpDir)
+	ctx := WithCaller(context.Background(), CallerInfo{
+		AgentID: "reader-agent",
+		Scopes:  []string{"read"},
+	})
+
+	call := map[string]any{
+		"name": "autarch_update_task",
+		"arguments": map[string]any{
+			"id":     "TASK-001",
+			"status": "completed",
+		},
+	}
+	raw, _ := json.Marshal(call)
+	req := &JSONRPCRequest{
+		JSONRPC: "2.0",
+		ID:      1,
+		Method:  "tools/call",
+		Params:  raw,
+	}
+	var output bytes.Buffer
+	server.WithIO(strings.NewReader(""), &output, os.Stderr)
+
+	server.handleToolsCall(ctx, req)
+
+	var resp JSONRPCResponse
+	if err := json.Unmarshal(output.Bytes(), &resp); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if resp.Error == nil {
+		t.Fatal("expected forbidden error")
+	}
+	if resp.Error.Code != -32603 {
+		t.Fatalf("expected error code -32603, got %d", resp.Error.Code)
+	}
+	if !strings.Contains(resp.Error.Message, "Forbidden") {
+		t.Fatalf("expected forbidden message, got %q", resp.Error.Message)
+	}
+}
+
+func TestMCP_ReadToolAllowedWithReadScope(t *testing.T) {
+	tmpDir := t.TempDir()
+	specsDir := filepath.Join(tmpDir, ".gurgeh", "specs")
+	if err := os.MkdirAll(specsDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	prdData := []byte("id: PRD-001\ntitle: Test\nstatus: draft\n")
+	if err := os.WriteFile(filepath.Join(specsDir, "PRD-001.yaml"), prdData, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	server := NewServer(tmpDir)
+	ctx := WithCaller(context.Background(), CallerInfo{
+		AgentID: "reader-agent",
+		Scopes:  []string{"read"},
+	})
+
+	call := map[string]any{
+		"name":      "autarch_list_prds",
+		"arguments": map[string]any{},
+	}
+	raw, _ := json.Marshal(call)
+	req := &JSONRPCRequest{
+		JSONRPC: "2.0",
+		ID:      1,
+		Method:  "tools/call",
+		Params:  raw,
+	}
+	var output bytes.Buffer
+	server.WithIO(strings.NewReader(""), &output, os.Stderr)
+
+	server.handleToolsCall(ctx, req)
+
+	var resp JSONRPCResponse
+	if err := json.Unmarshal(output.Bytes(), &resp); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if resp.Error != nil {
+		t.Fatalf("unexpected error: %+v", resp.Error)
+	}
+}
+
+func TestMCP_NoCallerInfo_DefaultAllowsLegacyBehavior(t *testing.T) {
+	tmpDir := t.TempDir()
+	tasksDir := filepath.Join(tmpDir, ".coldwine", "tasks")
+	if err := os.MkdirAll(tasksDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	taskData := []byte("id: TASK-001\nstatus: pending\n")
+	taskPath := filepath.Join(tasksDir, "TASK-001.yaml")
+	if err := os.WriteFile(taskPath, taskData, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	server := NewServer(tmpDir)
+
+	call := map[string]any{
+		"name": "autarch_update_task",
+		"arguments": map[string]any{
+			"id":     "TASK-001",
+			"status": "completed",
+		},
+	}
+	raw, _ := json.Marshal(call)
+	req := &JSONRPCRequest{
+		JSONRPC: "2.0",
+		ID:      1,
+		Method:  "tools/call",
+		Params:  raw,
+	}
+	var output bytes.Buffer
+	server.WithIO(strings.NewReader(""), &output, os.Stderr)
+
+	server.handleToolsCall(context.Background(), req)
+
+	var resp JSONRPCResponse
+	if err := json.Unmarshal(output.Bytes(), &resp); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if resp.Error != nil {
+		t.Fatalf("unexpected error: %+v", resp.Error)
+	}
+
+	updated, err := os.ReadFile(taskPath)
+	if err != nil {
+		t.Fatalf("read updated task: %v", err)
+	}
+	if !strings.Contains(string(updated), "status: completed") {
+		t.Fatalf("expected status update in task file, got:\n%s", string(updated))
+	}
+}
+
+func TestMCP_PathTraversal_GetPRDRejected(t *testing.T) {
+	server := NewServer(t.TempDir())
+	_, err := server.handleGetPRD(context.Background(), map[string]interface{}{
+		"id": "../../etc/passwd",
+	})
+	if err == nil {
+		t.Fatal("expected path traversal to be rejected")
+	}
+}
+
+func TestMCP_PathTraversal_UpdateTaskRejected(t *testing.T) {
+	server := NewServer(t.TempDir())
+	_, err := server.handleUpdateTask(context.Background(), map[string]interface{}{
+		"id":     "../../malicious",
+		"status": "completed",
+	})
+	if err == nil {
+		t.Fatal("expected path traversal to be rejected")
+	}
+}
+
+func TestMCP_SendMessageUsesCallerIdentity(t *testing.T) {
+	tmpDir := t.TempDir()
+	server := NewServer(tmpDir)
+
+	ctx := WithCaller(context.Background(), CallerInfo{
+		AgentID: "agent-007",
+		Scopes:  []string{"write"},
+	})
+
+	_, err := server.handleSendMessage(ctx, map[string]interface{}{
+		"to":      "gurgeh",
+		"subject": "hello",
+		"body":    "world",
+	})
+	if err != nil {
+		t.Fatalf("handleSendMessage: %v", err)
+	}
+
+	queueDir := filepath.Join(tmpDir, ".intermute", "queues", "gurgeh")
+	entries, err := os.ReadDir(queueDir)
+	if err != nil {
+		t.Fatalf("read queue dir: %v", err)
+	}
+	if len(entries) != 1 {
+		t.Fatalf("expected 1 queued message, got %d", len(entries))
+	}
+
+	raw, err := os.ReadFile(filepath.Join(queueDir, entries[0].Name()))
+	if err != nil {
+		t.Fatalf("read queued message: %v", err)
+	}
+	var msg map[string]interface{}
+	if err := yaml.Unmarshal(raw, &msg); err != nil {
+		t.Fatalf("unmarshal queued message: %v", err)
+	}
+	if from := fmt.Sprint(msg["from"]); from != "agent-007" {
+		t.Fatalf("expected sender agent-007, got %q", from)
 	}
 }

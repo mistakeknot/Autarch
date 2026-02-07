@@ -9,11 +9,11 @@ import (
 )
 
 type Config struct {
-	Server    ServerConfig    `toml:"server"`
-	Discovery DiscoveryConfig `toml:"discovery"`
-	Tmux      TmuxConfig      `toml:"tmux"`
+	Server    ServerConfig            `toml:"server"`
+	Discovery DiscoveryConfig         `toml:"discovery"`
+	Tmux      TmuxConfig              `toml:"tmux"`
 	Agents    map[string]AgentCommand `toml:"agents"`
-	MCP       MCPConfig       `toml:"mcp"`
+	MCP       MCPConfig               `toml:"mcp"`
 }
 
 type ServerConfig struct {
@@ -51,7 +51,7 @@ func Load(path string) (*Config, error) {
 	cfg := &Config{
 		Server: ServerConfig{
 			Port: 8099,
-			Host: "0.0.0.0",
+			Host: "127.0.0.1",
 		},
 		Discovery: DiscoveryConfig{
 			ScanRoots:       []string{expandHome("~/projects")},

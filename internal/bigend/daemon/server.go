@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/mistakeknot/autarch/internal/bigend/tmux"
+	"github.com/mistakeknot/autarch/pkg/netguard"
 	"nhooyr.io/websocket"
 )
 
@@ -73,6 +74,9 @@ func (s *Server) setupRoutes() {
 
 // Start starts the HTTP server
 func (s *Server) Start() error {
+	if err := netguard.EnsureLocalOnly(s.addr); err != nil {
+		return err
+	}
 	s.server = &http.Server{
 		Addr:    s.addr,
 		Handler: s.mux,
@@ -106,10 +110,10 @@ func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 
 // Status response with counts
 type StatusResponse struct {
-	Health      HealthResponse `json:"health"`
-	SessionCount int           `json:"session_count"`
-	ProjectCount int           `json:"project_count"`
-	AgentCount   int           `json:"agent_count"`
+	Health       HealthResponse `json:"health"`
+	SessionCount int            `json:"session_count"`
+	ProjectCount int            `json:"project_count"`
+	AgentCount   int            `json:"agent_count"`
 }
 
 func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
@@ -244,7 +248,7 @@ type Project struct {
 	HasTandemonium bool          `json:"has_tandemonium"`
 	HasPollard     bool          `json:"has_pollard"`
 	TaskStats      *TaskStats    `json:"task_stats,omitempty"`
-	GurgStats    *GurgStats  `json:"gurg_stats,omitempty"`
+	GurgStats      *GurgStats    `json:"gurg_stats,omitempty"`
 	PollardStats   *PollardStats `json:"pollard_stats,omitempty"`
 }
 

@@ -5,11 +5,16 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"time"
 
 	"gopkg.in/yaml.v3"
 )
+
+const maxYAMLBytes = int64(1 << 20) // 1 MiB
+
+var validDocIDRe = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]*$`)
 
 // Tool handlers for Autarch MCP server
 
@@ -66,23 +71,21 @@ func (s *Server) handleGetPRD(ctx context.Context, params map[string]interface{}
 		return nil, fmt.Errorf("id parameter is required")
 	}
 
-	// Normalize ID to filename
-	filename := id
-	if !strings.HasSuffix(filename, ".yaml") {
-		filename = filename + ".yaml"
+	filename, err := sanitizeYAMLDocID(id)
+	if err != nil {
+		return nil, err
 	}
 
-	prdPath := filepath.Join(s.projectPath, ".gurgeh", "specs", filename)
-	data, err := os.ReadFile(prdPath)
+	specsDir := filepath.Join(s.projectPath, ".gurgeh", "specs")
+	prdPath, err := resolvePathWithin(specsDir, filename)
 	if err != nil {
+		return nil, err
+	}
+	var prd map[string]interface{}
+	if err := unmarshalYAMLFile(prdPath, &prd); err != nil {
 		if os.IsNotExist(err) {
 			return nil, fmt.Errorf("PRD not found: %s", id)
 		}
-		return nil, fmt.Errorf("failed to read PRD: %w", err)
-	}
-
-	var prd map[string]interface{}
-	if err := yaml.Unmarshal(data, &prd); err != nil {
 		return nil, fmt.Errorf("failed to parse PRD: %w", err)
 	}
 
@@ -164,23 +167,20 @@ func (s *Server) handleUpdateTask(ctx context.Context, params map[string]interfa
 		return nil, fmt.Errorf("invalid status: %s", newStatus)
 	}
 
-	// Read existing task
-	filename := id
-	if !strings.HasSuffix(filename, ".yaml") {
-		filename = filename + ".yaml"
-	}
-	taskPath := filepath.Join(s.projectPath, ".coldwine", "tasks", filename)
-
-	data, err := os.ReadFile(taskPath)
+	filename, err := sanitizeYAMLDocID(id)
 	if err != nil {
+		return nil, err
+	}
+	tasksDir := filepath.Join(s.projectPath, ".coldwine", "tasks")
+	taskPath, err := resolvePathWithin(tasksDir, filename)
+	if err != nil {
+		return nil, err
+	}
+	var task map[string]interface{}
+	if err := unmarshalYAMLFile(taskPath, &task); err != nil {
 		if os.IsNotExist(err) {
 			return nil, fmt.Errorf("task not found: %s", id)
 		}
-		return nil, fmt.Errorf("failed to read task: %w", err)
-	}
-
-	var task map[string]interface{}
-	if err := yaml.Unmarshal(data, &task); err != nil {
 		return nil, fmt.Errorf("failed to parse task: %w", err)
 	}
 
@@ -334,11 +334,11 @@ func (s *Server) handleProjectStatus(ctx context.Context, params map[string]inte
 	result := map[string]interface{}{
 		"project": s.projectPath,
 		"prds": map[string]interface{}{
-			"total":    sumValues(prdStats),
+			"total":     sumValues(prdStats),
 			"by_status": prdStats,
 		},
 		"tasks": map[string]interface{}{
-			"total":    sumValues(taskStats),
+			"total":     sumValues(taskStats),
 			"by_status": taskStats,
 		},
 		"research": map[string]interface{}{
@@ -392,7 +392,7 @@ func (s *Server) handleSendMessage(ctx context.Context, params map[string]interf
 
 	msg := map[string]interface{}{
 		"id":      msgID,
-		"from":    "mcp-agent",
+		"from":    senderFromContext(ctx),
 		"to":      to,
 		"subject": subject,
 		"body":    body,
@@ -418,13 +418,8 @@ func (s *Server) handleSendMessage(ctx context.Context, params map[string]interf
 // Helper functions
 
 func readPRDSummary(path string) (map[string]interface{}, error) {
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return nil, err
-	}
-
 	var prd map[string]interface{}
-	if err := yaml.Unmarshal(data, &prd); err != nil {
+	if err := unmarshalYAMLFile(path, &prd); err != nil {
 		return nil, err
 	}
 
@@ -437,13 +432,8 @@ func readPRDSummary(path string) (map[string]interface{}, error) {
 }
 
 func readTaskSummary(path string) (map[string]interface{}, error) {
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return nil, err
-	}
-
 	var task map[string]interface{}
-	if err := yaml.Unmarshal(data, &task); err != nil {
+	if err := unmarshalYAMLFile(path, &task); err != nil {
 		return nil, err
 	}
 
@@ -470,11 +460,10 @@ func countFilesByStatus(dir, statusField string) map[string]int {
 			continue
 		}
 
-		data, err := os.ReadFile(filepath.Join(dir, entry.Name()))
+		data, err := safeReadYAML(filepath.Join(dir, entry.Name()), maxYAMLBytes)
 		if err != nil {
 			continue
 		}
-
 		var doc map[string]interface{}
 		if err := yaml.Unmarshal(data, &doc); err != nil {
 			continue
@@ -518,6 +507,99 @@ func containsAny(s string, patterns []string) bool {
 		}
 	}
 	return false
+}
+
+func senderFromContext(ctx context.Context) string {
+	const fallback = "mcp-agent"
+	caller, ok := CallerFromContext(ctx)
+	if !ok {
+		return fallback
+	}
+	agentID := strings.TrimSpace(caller.AgentID)
+	if agentID == "" {
+		return fallback
+	}
+	return agentID
+}
+
+func sanitizeYAMLDocID(id string) (string, error) {
+	id = strings.TrimSpace(id)
+	if id == "" {
+		return "", fmt.Errorf("id parameter is required")
+	}
+	if strings.ContainsAny(id, `/\`) {
+		return "", fmt.Errorf("invalid id %q: path separators are not allowed", id)
+	}
+	base := filepath.Base(id)
+	if base != id || strings.Contains(id, "..") {
+		return "", fmt.Errorf("invalid id %q: path traversal is not allowed", id)
+	}
+	name := base
+	if strings.HasSuffix(name, ".yaml") {
+		name = strings.TrimSuffix(name, ".yaml")
+	}
+	if !validDocIDRe.MatchString(name) {
+		return "", fmt.Errorf("invalid id %q: only [A-Za-z0-9._-] are allowed", id)
+	}
+	return name + ".yaml", nil
+}
+
+func resolvePathWithin(rootDir, filename string) (string, error) {
+	rootAbs, err := filepath.Abs(rootDir)
+	if err != nil {
+		return "", fmt.Errorf("resolve root dir: %w", err)
+	}
+	candidate := filepath.Join(rootAbs, filename)
+	candidateAbs, err := filepath.Abs(candidate)
+	if err != nil {
+		return "", fmt.Errorf("resolve path: %w", err)
+	}
+	rel, err := filepath.Rel(rootAbs, candidateAbs)
+	if err != nil {
+		return "", fmt.Errorf("resolve relative path: %w", err)
+	}
+	if rel == ".." || strings.HasPrefix(rel, ".."+string(os.PathSeparator)) {
+		return "", fmt.Errorf("invalid path outside allowed directory")
+	}
+	return candidateAbs, nil
+}
+
+func unmarshalYAMLFile(path string, out interface{}) error {
+	data, err := safeReadYAML(path, maxYAMLBytes)
+	if err != nil {
+		return err
+	}
+	if err := yaml.Unmarshal(data, out); err != nil {
+		return fmt.Errorf("yaml decode failed: %w", err)
+	}
+	return nil
+}
+
+func safeReadYAML(path string, limit int64) ([]byte, error) {
+	meta, err := os.Lstat(path)
+	if err != nil {
+		return nil, err
+	}
+	if meta.Mode()&os.ModeSymlink != 0 {
+		return nil, fmt.Errorf("refusing to read symlinked file: %s", path)
+	}
+	if !meta.Mode().IsRegular() {
+		return nil, fmt.Errorf("refusing to read non-regular file: %s", path)
+	}
+	if meta.Mode().Perm()&0o022 != 0 {
+		return nil, fmt.Errorf("refusing to read writable YAML file: %s", path)
+	}
+	if meta.Size() > limit {
+		return nil, fmt.Errorf("yaml file too large: %d bytes (limit %d)", meta.Size(), limit)
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, err
+	}
+	if int64(len(data)) > limit {
+		return nil, fmt.Errorf("yaml file too large: %d bytes (limit %d)", len(data), limit)
+	}
+	return data, nil
 }
 
 // timeNow is a variable for testing

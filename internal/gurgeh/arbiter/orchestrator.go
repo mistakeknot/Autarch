@@ -356,6 +356,9 @@ func (o *Orchestrator) advanceInternal(ctx context.Context, state *SprintState, 
 	}
 
 	// Generate draft for the new phase from cached exploration or fallback
+	researchContext := buildResearchPromptContext(state.Findings)
+
+	// Generate draft for the new phase from cached exploration or fallback
 	// Priority: 1) cached extraction, 2) context-aware generation, 3) full exploration
 	content := o.extractPhaseContent(state.ExplorationResult, state.Phase)
 	if content != "" {
@@ -369,10 +372,10 @@ func (o *Orchestrator) advanceInternal(ctx context.Context, state *SprintState, 
 		// Cache exists but missing this phase - generate from context (avoids re-exploring)
 		priorContext := o.buildPriorContext(state)
 		genContent, err := exploration.GeneratePhaseFromContext(
-			ctx, o.projectPath, state.Phase.String(), priorContext, state.ExplorationResult)
+			ctx, o.projectPath, state.Phase.String(), priorContext, state.ExplorationResult, researchContext)
 		if err != nil {
 			// Fallback to full exploration if context-aware generation fails
-			genContent, err = exploration.GeneratePhase(ctx, o.projectPath, state.Phase.String(), priorContext, state.ExplorationSessionID)
+			genContent, err = exploration.GeneratePhase(ctx, o.projectPath, state.Phase.String(), priorContext, state.ExplorationSessionID, researchContext)
 			if err != nil {
 				// Final fallback to template
 				projectCtx := o.readProjectContext()
@@ -399,7 +402,7 @@ func (o *Orchestrator) advanceInternal(ctx context.Context, state *SprintState, 
 		// No cache at all - use original logic
 		if o.shouldUseDynamicGeneration(state.Phase) {
 			priorContext := o.buildPriorContext(state)
-			genContent, err := exploration.GeneratePhase(ctx, o.projectPath, state.Phase.String(), priorContext, state.ExplorationSessionID)
+			genContent, err := exploration.GeneratePhase(ctx, o.projectPath, state.Phase.String(), priorContext, state.ExplorationSessionID, researchContext)
 			if err != nil {
 				projectCtx := o.readProjectContext()
 				draft, fallbackErr := o.generator.GenerateDraft(ctx, state.Phase, projectCtx, "", state.Findings)
@@ -544,6 +547,30 @@ func (o *Orchestrator) buildPriorContext(state *SprintState) map[string]string {
 		}
 	}
 	return ctx
+}
+
+func buildResearchPromptContext(findings []ResearchFinding) string {
+	if len(findings) == 0 {
+		return ""
+	}
+	var b strings.Builder
+	for _, f := range findings {
+		title := strings.TrimSpace(f.Title)
+		if title == "" {
+			title = "Untitled finding"
+		}
+		summary := strings.TrimSpace(f.Summary)
+		if summary == "" {
+			summary = "(no summary)"
+		}
+		source := strings.TrimSpace(f.SourceType)
+		if source == "" {
+			source = "unknown"
+		}
+		relevance := int(f.Relevance * 100)
+		b.WriteString(fmt.Sprintf("- [%s | %d%%] %s: %s\n", source, relevance, title, summary))
+	}
+	return strings.TrimSpace(b.String())
 }
 
 // buildAllPhasesContext builds a map of all phase content for propagation.
@@ -1178,7 +1205,8 @@ func (o *Orchestrator) ProcessChatMessage(ctx context.Context, msg string) <-cha
 		currentPhases := o.buildAllPhasesContext(&state)
 
 		// Use Claude Code to propagate changes across all phases
-		updates, err := exploration.PropagateChanges(ctx, o.projectPath, currentPhases, phaseKey, msg)
+		researchContext := buildResearchPromptContext(state.Findings)
+		updates, err := exploration.PropagateChanges(ctx, o.projectPath, currentPhases, phaseKey, msg, researchContext)
 		if err != nil {
 			// Fallback to simple revision if propagation fails
 			currentContent := ""

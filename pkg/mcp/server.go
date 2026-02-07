@@ -47,10 +47,11 @@ func (s *Server) WithIO(stdin io.Reader, stdout, stderr io.Writer) *Server {
 
 // Tool represents an MCP tool that can be invoked by agents.
 type Tool struct {
-	Name        string                 `json:"name"`
-	Description string                 `json:"description"`
-	InputSchema map[string]interface{} `json:"inputSchema"`
-	Handler     ToolHandler            `json:"-"`
+	Name          string                 `json:"name"`
+	Description   string                 `json:"description"`
+	InputSchema   map[string]interface{} `json:"inputSchema"`
+	RequiredScope string                 `json:"-"`
+	Handler       ToolHandler            `json:"-"`
 }
 
 // ToolHandler is the function signature for tool implementations.
@@ -66,8 +67,9 @@ func (s *Server) RegisterTool(tool Tool) {
 // registerDefaultTools adds the standard Autarch tools.
 func (s *Server) registerDefaultTools() {
 	s.RegisterTool(Tool{
-		Name:        "autarch_list_prds",
-		Description: "List all PRD specifications in the project",
+		Name:          "autarch_list_prds",
+		Description:   "List all PRD specifications in the project",
+		RequiredScope: "read",
 		InputSchema: map[string]interface{}{
 			"type": "object",
 			"properties": map[string]interface{}{
@@ -81,8 +83,9 @@ func (s *Server) registerDefaultTools() {
 	})
 
 	s.RegisterTool(Tool{
-		Name:        "autarch_get_prd",
-		Description: "Get a specific PRD by ID",
+		Name:          "autarch_get_prd",
+		Description:   "Get a specific PRD by ID",
+		RequiredScope: "read",
 		InputSchema: map[string]interface{}{
 			"type":     "object",
 			"required": []string{"id"},
@@ -97,8 +100,9 @@ func (s *Server) registerDefaultTools() {
 	})
 
 	s.RegisterTool(Tool{
-		Name:        "autarch_list_tasks",
-		Description: "List Coldwine tasks for a PRD or epic",
+		Name:          "autarch_list_tasks",
+		Description:   "List Coldwine tasks for a PRD or epic",
+		RequiredScope: "read",
 		InputSchema: map[string]interface{}{
 			"type": "object",
 			"properties": map[string]interface{}{
@@ -116,8 +120,9 @@ func (s *Server) registerDefaultTools() {
 	})
 
 	s.RegisterTool(Tool{
-		Name:        "autarch_update_task",
-		Description: "Update a Coldwine task status",
+		Name:          "autarch_update_task",
+		Description:   "Update a Coldwine task status",
+		RequiredScope: "write",
 		InputSchema: map[string]interface{}{
 			"type":     "object",
 			"required": []string{"id", "status"},
@@ -140,8 +145,9 @@ func (s *Server) registerDefaultTools() {
 	})
 
 	s.RegisterTool(Tool{
-		Name:        "autarch_research",
-		Description: "Run Pollard research on a topic",
+		Name:          "autarch_research",
+		Description:   "Run Pollard research on a topic",
+		RequiredScope: "write",
 		InputSchema: map[string]interface{}{
 			"type":     "object",
 			"required": []string{"query"},
@@ -161,8 +167,9 @@ func (s *Server) registerDefaultTools() {
 	})
 
 	s.RegisterTool(Tool{
-		Name:        "autarch_suggest_hunters",
-		Description: "Get recommended Pollard hunters for a topic",
+		Name:          "autarch_suggest_hunters",
+		Description:   "Get recommended Pollard hunters for a topic",
+		RequiredScope: "read",
 		InputSchema: map[string]interface{}{
 			"type":     "object",
 			"required": []string{"query"},
@@ -177,8 +184,9 @@ func (s *Server) registerDefaultTools() {
 	})
 
 	s.RegisterTool(Tool{
-		Name:        "autarch_project_status",
-		Description: "Get Bigend project status aggregation",
+		Name:          "autarch_project_status",
+		Description:   "Get Bigend project status aggregation",
+		RequiredScope: "read",
 		InputSchema: map[string]interface{}{
 			"type": "object",
 			"properties": map[string]interface{}{
@@ -192,8 +200,9 @@ func (s *Server) registerDefaultTools() {
 	})
 
 	s.RegisterTool(Tool{
-		Name:        "autarch_send_message",
-		Description: "Send a message via Intermute",
+		Name:          "autarch_send_message",
+		Description:   "Send a message via Intermute",
+		RequiredScope: "write",
 		InputSchema: map[string]interface{}{
 			"type":     "object",
 			"required": []string{"to", "subject", "body"},
@@ -303,6 +312,13 @@ func (s *Server) handleToolsCall(ctx context.Context, req *JSONRPCRequest) {
 	if !ok {
 		s.sendError(req.ID, -32602, "Unknown tool", params.Name)
 		return
+	}
+
+	if caller, hasCaller := CallerFromContext(ctx); hasCaller && tool.RequiredScope != "" {
+		if !caller.HasScope(tool.RequiredScope) {
+			s.sendError(req.ID, -32603, "Forbidden", fmt.Sprintf("tool %s requires scope %q", params.Name, tool.RequiredScope))
+			return
+		}
 	}
 
 	result, err := tool.Handler(ctx, params.Arguments)

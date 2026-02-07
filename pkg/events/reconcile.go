@@ -9,16 +9,16 @@ import (
 	"time"
 
 	"github.com/mistakeknot/autarch/pkg/contract"
-	"gopkg.in/yaml.v3"
+	"github.com/mistakeknot/autarch/pkg/yamlsafe"
 )
 
 // ReconcileSummary reports reconciliation activity for a project.
 type ReconcileSummary struct {
-	SpecsSeen        int
-	SpecsEmitted     int
-	TasksSeen        int
+	SpecsSeen         int
+	SpecsEmitted      int
+	TasksSeen         int
 	TaskEventsEmitted int
-	Conflicts        int
+	Conflicts         int
 }
 
 // ReconcileProject scans file-first sources and emits derived events.
@@ -68,13 +68,9 @@ func reconcileSpecs(root string, store *Store, writer *Writer, summary *Reconcil
 			continue
 		}
 		path := filepath.Join(specDir, name)
-		data, err := os.ReadFile(path)
-		if err != nil {
-			continue
-		}
-
 		var doc specDoc
-		if err := yaml.Unmarshal(data, &doc); err != nil {
+		data, err := yamlsafe.UnmarshalFile(path, &doc)
+		if err != nil {
 			continue
 		}
 
@@ -106,9 +102,9 @@ func reconcileSpecs(root string, store *Store, writer *Writer, summary *Reconcil
 						EntityID:    specID,
 						Reason:      "spec_version_regression",
 						Details: map[string]interface{}{
-							"path":            path,
-							"file_version":    doc.Version,
-							"cursor_version":  cursor.Version,
+							"path":             path,
+							"file_version":     doc.Version,
+							"cursor_version":   cursor.Version,
 							"file_fingerprint": fingerprint,
 						},
 					}); err != nil {
@@ -124,9 +120,9 @@ func reconcileSpecs(root string, store *Store, writer *Writer, summary *Reconcil
 						EntityID:    specID,
 						Reason:      "spec_version_mismatch",
 						Details: map[string]interface{}{
-							"path":             path,
-							"version":          doc.Version,
-							"file_fingerprint": fingerprint,
+							"path":               path,
+							"version":            doc.Version,
+							"file_fingerprint":   fingerprint,
 							"cursor_fingerprint": cursor.Fingerprint,
 						},
 					}); err != nil {
@@ -225,13 +221,9 @@ func reconcileTasks(root string, store *Store, writer *Writer, summary *Reconcil
 			continue
 		}
 		path := filepath.Join(tasksDir, name)
-		data, err := os.ReadFile(path)
-		if err != nil {
-			continue
-		}
-
 		var doc taskDoc
-		if err := yaml.Unmarshal(data, &doc); err != nil {
+		data, err := yamlsafe.UnmarshalFile(path, &doc)
+		if err != nil {
 			continue
 		}
 
@@ -269,10 +261,10 @@ func reconcileTasks(root string, store *Store, writer *Writer, summary *Reconcil
 						EntityID:    taskID,
 						Reason:      "task_status_regression",
 						Details: map[string]interface{}{
-							"path":          path,
-							"prev_status":   cursor.Status,
-							"next_status":   status,
-							"fingerprint":   fingerprint,
+							"path":        path,
+							"prev_status": cursor.Status,
+							"next_status": status,
+							"fingerprint": fingerprint,
 						},
 					}); err != nil {
 						return err

@@ -22,12 +22,13 @@ import (
 	"github.com/mistakeknot/autarch/internal/bigend/tui"
 	"github.com/mistakeknot/autarch/internal/bigend/web"
 	"github.com/mistakeknot/autarch/pkg/intermute"
+	"github.com/mistakeknot/autarch/pkg/timeout"
 )
 
 func main() {
 	var (
 		port       = flag.Int("port", 8099, "HTTP server port")
-		host       = flag.String("host", "0.0.0.0", "HTTP server bind address")
+		host       = flag.String("host", "127.0.0.1", "HTTP server bind address")
 		scanRoot   = flag.String("scan-root", "", "Root directory to scan for projects")
 		cfgPath    = flag.String("config", "", "Path to config file")
 		tuiMode    = flag.Bool("tui", false, "Run in TUI mode instead of web server")
@@ -47,7 +48,9 @@ func main() {
 	}))
 	slog.SetDefault(logger)
 
-	if stop, err := intermute.RegisterTool(context.Background(), "bigend"); err != nil {
+	registerCtx, cancelRegister := context.WithTimeout(context.Background(), timeout.HTTPDefault)
+	defer cancelRegister()
+	if stop, err := intermute.RegisterTool(registerCtx, "bigend"); err != nil {
 		slog.Warn("intermute registration failed", "error", err)
 	} else if stop != nil {
 		defer stop()
@@ -81,7 +84,9 @@ func main() {
 	if !*tuiMode {
 		slog.Info("scanning for projects", "roots", cfg.Discovery.ScanRoots)
 	}
-	if err := agg.Refresh(context.Background()); err != nil {
+	refreshCtx, cancelRefresh := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancelRefresh()
+	if err := agg.Refresh(refreshCtx); err != nil {
 		slog.Error("initial scan failed", "error", err)
 	}
 
@@ -107,7 +112,7 @@ func runDaemon(addr string, scanRoots []string) {
 	go func() {
 		<-quit
 		slog.Info("shutting down daemon")
-		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		ctx, cancel := context.WithTimeout(context.Background(), timeout.Shutdown)
 		defer cancel()
 		_ = srv.Shutdown(ctx)
 	}()
@@ -201,7 +206,7 @@ func runWeb(cfg *config.Config, agg *aggregator.Aggregator) {
 	slog.Info("shutting down")
 	cancel()
 
-	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 5*time.Second)
+	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), timeout.Shutdown)
 	defer shutdownCancel()
 
 	if err := srv.Shutdown(shutdownCtx); err != nil {

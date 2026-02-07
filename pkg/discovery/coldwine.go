@@ -4,7 +4,7 @@ import (
 	"os"
 	"path/filepath"
 
-	"gopkg.in/yaml.v3"
+	"github.com/mistakeknot/autarch/pkg/yamlsafe"
 )
 
 // ColdwineDir is the config directory for coldwine
@@ -12,11 +12,11 @@ const ColdwineDir = ".coldwine"
 
 // ColdwineEpic represents an epic from Coldwine.
 type ColdwineEpic struct {
-	ID                 string `yaml:"id"`
-	Title              string `yaml:"title"`
-	Summary            string `yaml:"summary"`
-	Status             string `yaml:"status"`
-	Priority           string `yaml:"priority"`
+	ID                 string   `yaml:"id"`
+	Title              string   `yaml:"title"`
+	Summary            string   `yaml:"summary"`
+	Status             string   `yaml:"status"`
+	Priority           string   `yaml:"priority"`
 	AcceptanceCriteria []string `yaml:"acceptance_criteria"`
 	Stories            []struct {
 		ID                 string   `yaml:"id"`
@@ -53,13 +53,8 @@ func ColdwineEpicsWithErrors(root string) ([]ColdwineEpic, []ParseError) {
 			continue
 		}
 		path := filepath.Join(specsDir, entry.Name())
-		data, err := os.ReadFile(path)
-		if err != nil {
-			errs = append(errs, ParseError{Path: path, Err: err})
-			continue
-		}
 		var epic ColdwineEpic
-		if err := yaml.Unmarshal(data, &epic); err != nil {
+		if _, err := yamlsafe.UnmarshalFile(path, &epic); err != nil {
 			errs = append(errs, ParseError{Path: path, Err: err})
 			continue
 		}
