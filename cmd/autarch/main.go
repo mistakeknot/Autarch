@@ -35,7 +35,6 @@ import (
 	"github.com/mistakeknot/autarch/internal/tui/views"
 	"github.com/mistakeknot/autarch/pkg/autarch"
 	"github.com/mistakeknot/autarch/pkg/intermute"
-	pkgtui "github.com/mistakeknot/autarch/pkg/tui"
 )
 
 func main() {
@@ -134,51 +133,13 @@ Navigation:
 			// Create client connecting to Intermute server
 			client := autarch.NewClient(mgr.URL())
 
-			if skipOnboard {
-				var selector *pkgtui.AgentSelector
-				if cwd, err := os.Getwd(); err == nil {
-					if options, err := tui.LoadAgentOptions(cwd); err == nil {
-						filtered := make([]pkgtui.AgentOption, 0, len(options))
-						for _, opt := range options {
-							switch strings.ToLower(opt.Name) {
-							case "codex", "claude":
-								filtered = append(filtered, opt)
-							}
-						}
-						if len(filtered) > 0 {
-							selector = pkgtui.NewAgentSelector(filtered)
-						}
-					}
-				}
-
-				// Skip onboarding, go directly to dashboard
-				bigendView := views.NewBigendView(client)
-				gurgehView := views.NewGurgehView(client)
-				coldwineView := views.NewColdwineView(client)
-				pollardView := views.NewPollardView(client)
-
-				if selector != nil {
-					if setter, ok := any(gurgehView).(interface{ SetAgentSelector(*pkgtui.AgentSelector) }); ok {
-						setter.SetAgentSelector(selector)
-					}
-					if setter, ok := any(coldwineView).(interface{ SetAgentSelector(*pkgtui.AgentSelector) }); ok {
-						setter.SetAgentSelector(selector)
-					}
-					if setter, ok := any(pollardView).(interface{ SetAgentSelector(*pkgtui.AgentSelector) }); ok {
-						setter.SetAgentSelector(selector)
-					}
-				}
-
-				return tui.RunWithOpts(client, tui.RunOpts{InlineMode: inlineMode, InitialTool: toolFlag},
-					bigendView,
-					gurgehView,
-					coldwineView,
-					pollardView,
-				)
-			}
-
-			// Create unified app with onboarding flow
+			// Create unified app (serves both onboarding and skip-onboard paths)
 			app := tui.NewUnifiedApp(client)
+
+			if skipOnboard {
+				app.SetSkipOnboarding(true)
+				fmt.Fprintln(os.Stderr, "Warning: --skip-onboard is deprecated. Use --tool=gurgeh or omit the flag.")
+			}
 
 			// Set up view factories for state transitions
 			app.SetViewFactories(
