@@ -1,6 +1,8 @@
 package tui
 
 import (
+	"strings"
+
 	tea "github.com/charmbracelet/bubbletea"
 
 	"github.com/mistakeknot/autarch/internal/gurgeh/arbiter"
@@ -110,18 +112,18 @@ func CreateSpecSummaryFromAnswers(projectID string, answers map[string]string, d
 
 	// Parse requirements
 	if reqs := answers["requirements"]; reqs != "" {
-		lines := splitLines(reqs)
+		lines := strings.Split(reqs, "\n")
 		for _, line := range lines {
-			line = trimSpace(line)
+			line = strings.TrimSpace(line)
 			if line != "" {
 				spec.Requirements = append(spec.Requirements, line)
 			}
 		}
 		// Also handle comma-separated
-		if len(spec.Requirements) == 1 && containsComma(spec.Requirements[0]) {
+		if len(spec.Requirements) == 1 && strings.Contains(spec.Requirements[0], ",") {
 			spec.Requirements = nil
-			for _, req := range splitComma(answers["requirements"]) {
-				req = trimSpace(req)
+			for _, req := range strings.Split(answers["requirements"], ",") {
+				req = strings.TrimSpace(req)
 				if req != "" {
 					spec.Requirements = append(spec.Requirements, req)
 				}
@@ -130,58 +132,6 @@ func CreateSpecSummaryFromAnswers(projectID string, answers map[string]string, d
 	}
 
 	return spec
-}
-
-// Helper functions to avoid importing strings package in views
-func splitLines(s string) []string {
-	var lines []string
-	start := 0
-	for i := 0; i < len(s); i++ {
-		if s[i] == '\n' {
-			lines = append(lines, s[start:i])
-			start = i + 1
-		}
-	}
-	if start < len(s) {
-		lines = append(lines, s[start:])
-	}
-	return lines
-}
-
-func splitComma(s string) []string {
-	var parts []string
-	start := 0
-	for i := 0; i < len(s); i++ {
-		if s[i] == ',' {
-			parts = append(parts, s[start:i])
-			start = i + 1
-		}
-	}
-	if start < len(s) {
-		parts = append(parts, s[start:])
-	}
-	return parts
-}
-
-func containsComma(s string) bool {
-	for i := 0; i < len(s); i++ {
-		if s[i] == ',' {
-			return true
-		}
-	}
-	return false
-}
-
-func trimSpace(s string) string {
-	start := 0
-	end := len(s)
-	for start < end && (s[start] == ' ' || s[start] == '\t' || s[start] == '\n' || s[start] == '\r') {
-		start++
-	}
-	for end > start && (s[end-1] == ' ' || s[end-1] == '\t' || s[end-1] == '\n' || s[end-1] == '\r') {
-		end--
-	}
-	return s[start:end]
 }
 
 // InterviewViewSetter is an interface for views that can receive AI suggestions.
