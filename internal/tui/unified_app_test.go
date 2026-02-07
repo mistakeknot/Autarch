@@ -156,7 +156,7 @@ func TestCommaDoesNotOpenChatSettingsWhenInputFocused(t *testing.T) {
 	}
 }
 
-func TestRunUnifiedEnablesMouse(t *testing.T) {
+func TestRunEnablesMouse(t *testing.T) {
 	// No direct program option introspection available here.
 	// Verify manually by running the app and confirming wheel events scroll chat.
 }

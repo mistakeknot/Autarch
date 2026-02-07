@@ -2146,13 +2146,27 @@ func insertAt(base string, col int, overlay string) string {
 	return result.String()
 }
 
-// RunUnified starts the unified TUI application
-func RunUnified(client *autarch.Client, app *UnifiedApp) error {
-	return RunUnifiedWithOpts(client, app, RunOpts{})
+// RunOpts configures TUI execution options.
+type RunOpts struct {
+	InlineMode  bool   // Inline mode preserves scrollback and shows log pane
+	InitialTool string // Jump directly to this tool tab (bigend, signals, gurgeh, coldwine, pollard)
 }
 
-// RunUnifiedWithOpts starts the unified TUI application with configurable options.
-func RunUnifiedWithOpts(client *autarch.Client, app *UnifiedApp, opts RunOpts) error {
+// ErrorView shows an error state
+func ErrorView(err error) string {
+	return fmt.Sprintf("%s\n\n%s",
+		pkgtui.StatusError.Render("Error"),
+		pkgtui.LabelStyle.Render(err.Error()),
+	)
+}
+
+// EmptyView shows an empty state
+func EmptyView(message string) string {
+	return pkgtui.LabelStyle.Render(message)
+}
+
+// Run starts the unified TUI application with configurable options.
+func Run(client *autarch.Client, app *UnifiedApp, opts RunOpts) error {
 	app.SetInlineMode(opts.InlineMode)
 	app.SetInitialTab(opts.InitialTool)
 

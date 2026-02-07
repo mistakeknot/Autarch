@@ -244,7 +244,7 @@ Navigation:
 				return v
 			})
 
-			return tui.RunUnifiedWithOpts(client, app, tui.RunOpts{InlineMode: inlineMode, InitialTool: toolFlag})
+			return tui.Run(client, app, tui.RunOpts{InlineMode: inlineMode, InitialTool: toolFlag})
 		},
 	}
 

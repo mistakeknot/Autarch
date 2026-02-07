@@ -317,5 +317,5 @@ func runFullFlow() error {
 		},
 	)
 
-	return tui.RunUnified(client, app)
+	return tui.Run(client, app, tui.RunOpts{})
 }
