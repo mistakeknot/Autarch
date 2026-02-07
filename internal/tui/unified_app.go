@@ -1277,13 +1277,15 @@ func summarizeDiff(diff []string, err error) string {
 	return fmt.Sprintf("Agent run complete. +%d -%d lines.", adds, dels)
 }
 
+// BUG(phase2c): sendToCurrentView discards the tea.Cmd returned by Update().
+// Any commands the view returns (timers, IO, focus requests) are silently lost.
+// This is called from goroutines (handleAgentRun) which cannot return commands
+// to the Bubble Tea runtime. Fix in Phase 2c by converting to p.Send() pattern.
 func (a *UnifiedApp) sendToCurrentView(msg tea.Msg) {
 	if a.currentView == nil {
 		return
 	}
-	var cmd tea.Cmd
-	a.currentView, cmd = a.currentView.Update(msg)
-	_ = cmd
+	a.currentView, _ = a.currentView.Update(msg)
 }
 
 // agentStreamEvent represents a single streaming output or final result.
