@@ -717,3 +717,27 @@ For detailed information about each tool, see:
 | Gurgeh | [docs/gurgeh/AGENTS.md](docs/gurgeh/AGENTS.md) | |
 | Coldwine | [docs/coldwine/AGENTS.md](docs/coldwine/AGENTS.md) | |
 | Pollard | [docs/pollard/AGENTS.md](docs/pollard/AGENTS.md) | [HUNTERS.md](docs/pollard/HUNTERS.md), [API.md](docs/pollard/API.md) |
+
+<!-- auracoil:begin -->
+## Auracoil Review Notes
+
+_This section is maintained by Auracoil (GPT-5.2 Pro reviewer). Do not edit manually._
+
+### Review metadata
+- **Last reviewed:** 2026-02-07
+- **Reviewed commit:** d69fee4
+- **Reviewer:** Auracoil (GPT-5.2 Pro)
+
+### Scope
+- Root AGENTS.md (719 lines) — full project overview, architecture, quick commands
+- 38 source files provided as evidence (Go entrypoints, TS MCP server, Rust prototypes, docs, todos)
+
+### Open verification items (from existing reviews)
+- _Oracle review (2026-02-01) flagged potential drift/bugs around:_
+  - Quick scan timing vs docs (phase trigger)
+  - Targeted research wiring (`RunTargetedScan`) behavior
+  - SprintView focus handling (Tab focus vs keystroke routing)
+  - Review mapping consistency (Problem vs Users field mapping)
+
+_Note: keep these as "verify current behavior" items (not asserted truths) until reconfirmed in code._
+<!-- auracoil:end -->

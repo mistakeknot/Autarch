@@ -1,0 +1,31 @@
+```json
+{
+  "suggestions": [
+    {
+      "id": "auracoil-add-review-template",
+      "severity": "high",
+      "section": "Auracoil Review Notes",
+      "type": "add",
+      "suggestion": "Inside the `<!-- auracoil:begin -->` block, immediately after the existing italic maintenance note, insert the following markdown:\n\n### Review metadata\n- **Last reviewed:** <YYYY-MM-DD>\n- **Reviewed commit:** <git-sha>\n- **Reviewer:** Auracoil (GPT-5.2 Pro)\n\n### Scope\n- _List the docs/code areas actually checked for this review (paths + brief rationale)._\n\n### Evidence\n- _Paste the minimal evidence used (e.g., relevant `git log -1 -- <path>` / key file paths / pointers to internal review docs)._",
+      "evidence": "The Auracoil block currently contains only a header + a “do not edit manually” note and no actual review data, so it provides no actionable value to agents/maintainers.:contentReference[oaicite:0]{index=0} Additionally, the repo already includes formal review artifacts (e.g., the Oracle architecture review doc), which suggests this section should capture at least review provenance/scope pointers rather than remaining empty.:contentReference[oaicite:1]{index=1} :contentReference[oaicite:2]{index=2}"
+    },
+    {
+      "id": "auracoil-add-open-review-flags",
+      "severity": "medium",
+      "section": "Auracoil Review Notes",
+      "type": "add",
+      "suggestion": "Inside the `<!-- auracoil:begin -->` block (after the template fields above), add a small “open items” list sourced from existing review notes to help AI coding agents avoid relying on potentially-drifting behavior:\n\n### Open verification items (from existing reviews)\n- _Oracle review (2026-02-01) flagged potential drift/bugs around:_\n  - Quick scan timing vs docs (phase trigger)\n  - Targeted research wiring (`RunTargetedScan`) behavior\n  - SprintView focus handling (Tab focus vs keystroke routing)\n  - Review mapping consistency (Problem vs Users field mapping)\n\n_Note: keep these as “verify current behavior” items (not asserted truths) until reconfirmed in code._",
+      "evidence": "The repo’s Oracle architecture review explicitly lists these specific issues (including scan timing drift and research wiring concerns), making them strong candidates for an “items to re-check” list so agents don’t assume behavior that may have changed since the review.:contentReference[oaicite:3]{index=3}"
+    },
+    {
+      "id": "auracoil-fix-model-name-format",
+      "severity": "low",
+      "section": "Auracoil Review Notes",
+      "type": "correct",
+      "suggestion": "Change the maintenance note line from:\n\n`_This section is maintained by Auracoil (GPT 5.2 Pro reviewer). Do not edit manually._`\n\nto:\n\n`_This section is maintained by Auracoil (GPT-5.2 Pro reviewer). Do not edit manually._`",
+      "evidence": "The Auracoil note currently spells the model as “GPT 5.2 Pro”.:contentReference[oaicite:4]{index=4} Elsewhere in-repo, the same model is referenced as “GPT-5.2 Pro” (with hyphen), so aligning reduces inconsistency/confusion.:contentReference[oaicite:5]{index=5}"
+    }
+  ],
+  "summary": "The Auracoil region is currently a placeholder (no review scope, provenance, or findings), so it isn’t useful to AI coding agents. Adding a minimal structured review stamp plus a short list of “verify these” items grounded in existing review docs would make this section operational rather than decorative. :contentReference[oaicite:6]{index=6}"
+}
+```
