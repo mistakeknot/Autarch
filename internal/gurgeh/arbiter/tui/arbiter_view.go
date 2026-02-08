@@ -5,15 +5,20 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/mistakeknot/autarch/internal/coldwine/prd"
 	"github.com/mistakeknot/autarch/internal/gurgeh/arbiter"
+	"github.com/mistakeknot/autarch/internal/gurgeh/brief"
+	gproject "github.com/mistakeknot/autarch/internal/gurgeh/project"
 	"github.com/mistakeknot/autarch/internal/gurgeh/specs"
 	pollardquick "github.com/mistakeknot/autarch/internal/pollard/quick"
 	"github.com/mistakeknot/autarch/internal/pollard/research"
 	apptui "github.com/mistakeknot/autarch/internal/tui"
 	pkgtui "github.com/mistakeknot/autarch/pkg/tui"
+	"gopkg.in/yaml.v3"
 )
 
 // ArbiterCompleteMsg is sent when the sprint finishes with a spec export.
@@ -26,9 +31,16 @@ type arbiterStartedMsg struct {
 	err error
 }
 
+type handoffActionCompletedMsg struct {
+	actionID string
+	summary  string
+	err      error
+}
+
 // ArbiterView is a reusable Bubble Tea component for the Arbiter spec sprint.
 // It implements the pkgtui.View interface and uses shared ChatPanel + DocPanel + SplitLayout.
 type ArbiterView struct {
+	projectPath  string
 	orchestrator *arbiter.Orchestrator
 	state        *arbiter.SprintState
 	coordinator  *research.Coordinator
@@ -80,6 +92,7 @@ func NewArbiterView(projectPath string, coordinator *research.Coordinator) *Arbi
 	shell := pkgtui.NewShellLayout()
 
 	return &ArbiterView{
+		projectPath:  projectPath,
 		orchestrator: orch,
 		coordinator:  coordinator,
 		chatPanel:    chatPanel,
@@ -172,6 +185,22 @@ func (v *ArbiterView) Update(msg tea.Msg) (pkgtui.View, tea.Cmd) {
 		v.updateDocPanel()
 		return v, nil
 
+	case handoffActionCompletedMsg:
+		if msg.err != nil {
+			v.chatPanel.AddMessage("system", fmt.Sprintf("Handoff failed (%s): %v", msg.actionID, msg.err))
+			v.updateDocPanel()
+			return v, nil
+		}
+		if strings.TrimSpace(msg.summary) != "" {
+			v.chatPanel.AddMessage("system", msg.summary)
+		}
+		v.updateDocPanel()
+		if v.onComplete != nil {
+			v.finished = true
+			return v, v.onComplete(v.state)
+		}
+		return v, nil
+
 	case tea.WindowSizeMsg:
 		if msg.Width > 0 {
 			v.width = msg.Width
@@ -247,6 +276,10 @@ func (v *ArbiterView) handleHandoffKey(key string) (pkgtui.View, tea.Cmd) {
 					}
 				}
 			}
+			if opt.ID == "tasks" || opt.ID == "research" {
+				v.chatPanel.AddMessage("system", fmt.Sprintf("Running handoff: %s...", opt.Label))
+				return v, v.runHandoffAction(opt.ID)
+			}
 			if v.onComplete != nil {
 				v.finished = true
 				return v, v.onComplete(v.state)
@@ -257,6 +290,121 @@ func (v *ArbiterView) handleHandoffKey(key string) (pkgtui.View, tea.Cmd) {
 	}
 	v.updateDocPanel()
 	return v, nil
+}
+
+func (v *ArbiterView) runHandoffAction(actionID string) tea.Cmd {
+	return func() tea.Msg {
+		switch actionID {
+		case "tasks":
+			summary, err := v.runTasksHandoff()
+			return handoffActionCompletedMsg{actionID: actionID, summary: summary, err: err}
+		case "research":
+			summary, err := v.runResearchHandoff()
+			return handoffActionCompletedMsg{actionID: actionID, summary: summary, err: err}
+		default:
+			return handoffActionCompletedMsg{actionID: actionID, summary: "No handoff action executed."}
+		}
+	}
+}
+
+func (v *ArbiterView) runTasksHandoff() (string, error) {
+	if v.state == nil {
+		return "", fmt.Errorf("no sprint state available")
+	}
+
+	spec, err := v.orchestrator.ExportSpec(v.state)
+	if err != nil {
+		return "", fmt.Errorf("export spec: %w", err)
+	}
+	if err := persistExportedSpec(v.projectPath, spec); err != nil {
+		return "", fmt.Errorf("persist spec: %w", err)
+	}
+
+	briefs, err := brief.Decompose(context.TODO(), spec, v.projectPath)
+	if err != nil {
+		return "", fmt.Errorf("decompose briefs: %w", err)
+	}
+	if err := brief.SaveBriefsAt(v.projectPath, spec.ID, briefs); err != nil {
+		return "", fmt.Errorf("save briefs: %w", err)
+	}
+
+	imported, err := prd.ImportFromBriefs(prd.BriefImportOptions{
+		Root:   v.projectPath,
+		SpecID: spec.ID,
+	})
+	if err != nil {
+		return "", fmt.Errorf("import briefs: %w", err)
+	}
+	persisted, err := prd.PersistBriefTasks(v.projectPath, imported.Tasks)
+	if err != nil {
+		return "", fmt.Errorf("persist imported tasks: %w", err)
+	}
+
+	return fmt.Sprintf(
+		"Generated %d briefs and imported %d tasks (%s).",
+		len(briefs),
+		persisted.TaskCount,
+		persisted.StateDBPath,
+	), nil
+}
+
+func (v *ArbiterView) runResearchHandoff() (string, error) {
+	if v.state == nil {
+		return "", fmt.Errorf("no sprint state available")
+	}
+
+	if err := v.orchestrator.StartDeepScan(context.TODO(), v.state); err == nil {
+		return "Deep research scan started via Intermute provider.", nil
+	}
+
+	if v.coordinator == nil {
+		return "", fmt.Errorf("deep research unavailable and no research coordinator configured")
+	}
+
+	query := deriveResearchQuery(v.state)
+	run, err := v.coordinator.StartRun(context.TODO(), v.state.ID,
+		[]string{"github-scout", "hackernews-trendwatcher", "competitor-tracker"},
+		[]research.TopicConfig{{Key: "handoff", Queries: []string{query}}},
+	)
+	if err != nil {
+		return "", fmt.Errorf("start coordinator run: %w", err)
+	}
+	return fmt.Sprintf("Research run started (run %s).", run.RunID), nil
+}
+
+func deriveResearchQuery(state *arbiter.SprintState) string {
+	if state == nil {
+		return "product roadmap and competitor analysis"
+	}
+	if section, ok := state.Sections[arbiter.PhaseVision]; ok && strings.TrimSpace(section.Content) != "" {
+		return strings.TrimSpace(section.Content)
+	}
+	if section, ok := state.Sections[arbiter.PhaseProblem]; ok && strings.TrimSpace(section.Content) != "" {
+		return strings.TrimSpace(section.Content)
+	}
+	return "product roadmap and competitor analysis"
+}
+
+func persistExportedSpec(projectPath string, spec *specs.Spec) error {
+	if spec == nil {
+		return fmt.Errorf("spec is nil")
+	}
+	if projectPath == "" {
+		return fmt.Errorf("project path is required")
+	}
+	if err := gproject.Init(projectPath); err != nil {
+		return err
+	}
+	specsDir := gproject.SpecsDir(projectPath)
+	if err := os.MkdirAll(specsDir, 0o755); err != nil {
+		return err
+	}
+	data, err := yaml.Marshal(spec)
+	if err != nil {
+		return err
+	}
+	path := filepath.Join(specsDir, spec.ID+".yaml")
+	return os.WriteFile(path, data, 0o644)
 }
 
 func (v *ArbiterView) acceptDraft() (pkgtui.View, tea.Cmd) {

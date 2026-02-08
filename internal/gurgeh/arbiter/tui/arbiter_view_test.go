@@ -1,10 +1,13 @@
 package tui
 
 import (
+	"os"
+	"path/filepath"
 	"testing"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/mistakeknot/autarch/internal/gurgeh/arbiter"
+	"github.com/mistakeknot/autarch/internal/gurgeh/specs"
 )
 
 func TestArbiterViewCtrlCQuits(t *testing.T) {
@@ -48,5 +51,43 @@ func TestArbiterSidebarUsesInterviewSteps(t *testing.T) {
 		items[6].Label != "Critical User Journeys" ||
 		items[7].Label != "Acceptance Criteria" {
 		t.Fatalf("unexpected sidebar labels: %#v", items)
+	}
+}
+
+func TestDeriveResearchQueryPrefersVision(t *testing.T) {
+	state := arbiter.NewSprintState("/tmp/test")
+	state.Sections[arbiter.PhaseVision].Content = "vision text"
+	state.Sections[arbiter.PhaseProblem].Content = "problem text"
+
+	got := deriveResearchQuery(state)
+	if got != "vision text" {
+		t.Fatalf("expected vision query, got %q", got)
+	}
+}
+
+func TestDeriveResearchQueryFallsBackToProblem(t *testing.T) {
+	state := arbiter.NewSprintState("/tmp/test")
+	state.Sections[arbiter.PhaseProblem].Content = "problem text"
+
+	got := deriveResearchQuery(state)
+	if got != "problem text" {
+		t.Fatalf("expected problem query, got %q", got)
+	}
+}
+
+func TestPersistExportedSpecWritesSpecFile(t *testing.T) {
+	root := t.TempDir()
+	spec := &specs.Spec{
+		ID:    "PRD-TEST",
+		Title: "Test",
+	}
+
+	if err := persistExportedSpec(root, spec); err != nil {
+		t.Fatalf("persistExportedSpec failed: %v", err)
+	}
+
+	path := filepath.Join(root, ".gurgeh", "specs", "PRD-TEST.yaml")
+	if _, err := os.Stat(path); err != nil {
+		t.Fatalf("expected persisted spec file: %v", err)
 	}
 }

@@ -1,16 +1,12 @@
 package commands
 
 import (
-	"database/sql"
 	"fmt"
 	"os"
 	"path/filepath"
 
 	"github.com/mistakeknot/autarch/internal/coldwine/prd"
-	"github.com/mistakeknot/autarch/internal/coldwine/project"
-	"github.com/mistakeknot/autarch/internal/coldwine/storage"
 	"github.com/spf13/cobra"
-	"gopkg.in/yaml.v3"
 )
 
 func ImportCmd() *cobra.Command {
@@ -92,30 +88,9 @@ func importFromBriefs(cmd *cobra.Command, specID, storyID string, dryRun bool) e
 		return nil
 	}
 
-	// Ensure Coldwine project + DB exist before persisting.
-	if err := project.Init(root); err != nil {
-		return fmt.Errorf("failed to initialize coldwine project: %w", err)
-	}
-	db, err := storage.Open(project.StateDBPath(root))
+	persisted, err := prd.PersistBriefTasks(root, result.Tasks)
 	if err != nil {
-		return fmt.Errorf("failed to open state db: %w", err)
-	}
-	defer db.Close()
-	if err := storage.Migrate(db); err != nil {
-		return fmt.Errorf("failed to migrate state db: %w", err)
-	}
-
-	specsDir := project.SpecsDir(root)
-	if err := os.MkdirAll(specsDir, 0o755); err != nil {
-		return fmt.Errorf("failed to create specs dir: %w", err)
-	}
-	for _, t := range result.Tasks {
-		if err := upsertTask(db, t); err != nil {
-			return fmt.Errorf("failed to persist task %s: %w", t.ID, err)
-		}
-		if err := writeTaskSpec(specsDir, t); err != nil {
-			return fmt.Errorf("failed to write task spec %s: %w", t.ID, err)
-		}
+		return err
 	}
 
 	fmt.Fprintf(cmd.OutOrStdout(), "\n✓ Imported %d tasks from briefs:\n\n", len(result.Tasks))
@@ -123,43 +98,10 @@ func importFromBriefs(cmd *cobra.Command, specID, storyID string, dryRun bool) e
 		fmt.Fprintf(cmd.OutOrStdout(), "  %s: %s\n", t.ID, t.Title)
 	}
 	fmt.Fprintf(cmd.OutOrStdout(), "\nAttached to story: %s\n", result.StoryID)
-	fmt.Fprintf(cmd.OutOrStdout(), "Persisted to: %s\n", project.StateDBPath(root))
-	fmt.Fprintf(cmd.OutOrStdout(), "Task specs written to: %s\n", specsDir)
+	fmt.Fprintf(cmd.OutOrStdout(), "Persisted to: %s\n", persisted.StateDBPath)
+	fmt.Fprintf(cmd.OutOrStdout(), "Task specs written to: %s\n", persisted.SpecsDir)
 
 	return nil
-}
-
-func upsertTask(db *sql.DB, t storage.WorkTask) error {
-	_, err := db.Exec(
-		`INSERT INTO tasks (id, title, status)
-		 VALUES (?, ?, ?)
-		 ON CONFLICT(id) DO UPDATE SET title = excluded.title, status = excluded.status`,
-		t.ID, t.Title, string(t.Status),
-	)
-	return err
-}
-
-func writeTaskSpec(specsDir string, t storage.WorkTask) error {
-	payload := map[string]any{
-		"id":          t.ID,
-		"title":       t.Title,
-		"description": t.Description,
-		"status":      string(t.Status),
-		"story_id":    t.StoryID,
-		"priority":    t.Priority,
-	}
-	if t.Assignee != "" {
-		payload["assignee"] = t.Assignee
-	}
-	data, err := yaml.Marshal(payload)
-	if err != nil {
-		return err
-	}
-	path, err := project.SafePath(specsDir, t.ID+".yaml")
-	if err != nil {
-		return err
-	}
-	return os.WriteFile(path, data, 0o644)
 }
 
 func findRootWithBriefs(start, specID string) string {

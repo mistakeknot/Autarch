@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/mistakeknot/autarch/internal/gurgeh/project"
 	"github.com/mistakeknot/autarch/internal/gurgeh/specs"
 )
 
@@ -65,7 +66,12 @@ func Decompose(ctx context.Context, spec *specs.Spec, workingDir string) ([]Brie
 
 // SaveBriefs writes each brief as a markdown file.
 func SaveBriefs(specID string, briefs []Brief) error {
-	dir := filepath.Join(".gurgeh", "briefs", specID)
+	return SaveBriefsAt(".", specID, briefs)
+}
+
+// SaveBriefsAt writes each brief as a markdown file under the given project root.
+func SaveBriefsAt(root string, specID string, briefs []Brief) error {
+	dir := filepath.Join(project.BriefsDir(root), specID)
 	if err := os.MkdirAll(dir, 0755); err != nil {
 		return fmt.Errorf("failed to create briefs directory: %w", err)
 	}
