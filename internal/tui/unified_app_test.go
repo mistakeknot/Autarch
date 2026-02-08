@@ -247,3 +247,43 @@ func TestTabSwitchingWorksInDashboardMode(t *testing.T) {
 		t.Fatalf("expected tab 1, got %d", app.tabs.Active())
 	}
 }
+
+func TestSignalsOverlayToggleViaSig(t *testing.T) {
+	app := NewUnifiedApp(nil)
+	app.currentView = &noopDashboardView{name: "test"}
+
+	updated, _ := app.Update(pkgtui.SlashCommandMsg{Command: "sig"})
+	app = updated.(*UnifiedApp)
+	if !app.signalsOverlay.Visible() {
+		t.Fatal("expected signals overlay to be visible after /sig")
+	}
+
+	updated, _ = app.Update(pkgtui.SlashCommandMsg{Command: "sig"})
+	app = updated.(*UnifiedApp)
+	if app.signalsOverlay.Visible() {
+		t.Fatal("expected signals overlay to be hidden after second /sig")
+	}
+}
+
+func TestSignalsOverlayEscCloses(t *testing.T) {
+	app := NewUnifiedApp(nil)
+	app.signalsOverlay.Toggle()
+
+	updated, _ := app.Update(tea.KeyMsg{Type: tea.KeyEsc})
+	app = updated.(*UnifiedApp)
+	if app.signalsOverlay.Visible() {
+		t.Fatal("expected signals overlay to close on Esc")
+	}
+}
+
+func TestSignalsOverlayBlocksKeysToView(t *testing.T) {
+	app := NewUnifiedApp(nil)
+	view := &inputFocusView{}
+	app.currentView = view
+	app.signalsOverlay.Toggle()
+
+	app.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'x'}})
+	if view.seen {
+		t.Fatal("expected overlay to consume key, but view saw it")
+	}
+}

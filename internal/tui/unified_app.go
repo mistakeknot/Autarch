@@ -34,12 +34,13 @@ type UnifiedApp struct {
 	palette   *Palette
 
 	// UI state
-	width       int
-	height      int
-	err         error
-	showHelp    bool      // Help overlay visible
-	lastCtrlC   time.Time // For double ctrl+c to quit
-	keys        pkgtui.CommonKeys
+	width          int
+	height         int
+	err            error
+	showHelp       bool // Help overlay visible
+	signalsOverlay *SignalsOverlay
+	lastCtrlC      time.Time // For double ctrl+c to quit
+	keys           pkgtui.CommonKeys
 	// Chat settings
 	chatSettings     pkgtui.ChatSettings
 	chatSettingsOpen bool
@@ -64,12 +65,13 @@ type UnifiedApp struct {
 func NewUnifiedApp(client *autarch.Client) *UnifiedApp {
 	tabNames := []string{"Bigend", "Gurgeh", "Coldwine", "Pollard"}
 	return &UnifiedApp{
-		client:       client,
-		tabs:         NewTabBar(tabNames),
-		palette:      NewPalette(),
-		logPane:      pkgtui.NewLogPane(),
-		keys:         pkgtui.NewCommonKeys(),
-		chatSettings: pkgtui.DefaultChatSettings(),
+		client:         client,
+		tabs:           NewTabBar(tabNames),
+		palette:        NewPalette(),
+		signalsOverlay: NewSignalsOverlay(),
+		logPane:        pkgtui.NewLogPane(),
+		keys:           pkgtui.NewCommonKeys(),
+		chatSettings:   pkgtui.DefaultChatSettings(),
 	}
 }
 
@@ -257,6 +259,7 @@ func (a *UnifiedApp) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		a.height = msg.Height
 		a.tabs.SetWidth(msg.Width)
 		a.palette.SetSize(msg.Width, msg.Height)
+		a.signalsOverlay.SetSize(msg.Width, msg.Height)
 
 		// Always size the log pane (so it's ready when toggled visible)
 		logPaneHeight := 0
@@ -324,8 +327,7 @@ func (a *UnifiedApp) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "pollard", "pol":
 			return a, a.switchToTab(3)
 		case "signals", "sig":
-			// Signals overlay (Phase 3) - no-op for now
-			return a, nil
+			return a, a.signalsOverlay.Toggle()
 		case "logs", "log", "l":
 			a.logPaneVisible = !a.logPaneVisible
 			a.logPaneAutoShown = false
@@ -383,6 +385,14 @@ func (a *UnifiedApp) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return a, nil
 		}
 
+		// Handle signals overlay
+		if a.signalsOverlay.Visible() {
+			consumed, cmd := a.signalsOverlay.Update(msg)
+			if consumed {
+				return a, cmd
+			}
+		}
+
 		if key.Matches(msg, a.keys.Help) {
 			a.showHelp = true
 			return a, nil
@@ -430,6 +440,10 @@ func (a *UnifiedApp) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// Onboarding finished inside GurgehView — no-op since we're already in dashboard mode.
 		// The GurgehView internally sets showBrowser=true.
 		return a, nil
+
+	case signalsOverlayLoadedMsg:
+		_, cmd := a.signalsOverlay.Update(msg)
+		return a, cmd
 
 	case logPaneAutoHideMsg:
 		if a.logPaneAutoShown {
@@ -540,6 +554,13 @@ func (a *UnifiedApp) initPaletteCommands() {
 			}
 		},
 	})
+	cmds = append(cmds, Command{
+		Name:        "Signals overlay",
+		Description: "Toggle signals and events overlay",
+		Action: func() tea.Cmd {
+			return a.signalsOverlay.Toggle()
+		},
+	})
 	a.palette.SetCommands(cmds)
 }
 
@@ -577,6 +598,13 @@ func (a *UnifiedApp) updateCommands() {
 			cmds = append(cmds, provider.Commands()...)
 		}
 	}
+	cmds = append(cmds, Command{
+		Name:        "Signals overlay",
+		Description: "Toggle signals and events overlay",
+		Action: func() tea.Cmd {
+			return a.signalsOverlay.Toggle()
+		},
+	})
 
 	a.palette.SetCommands(cmds)
 }
@@ -689,6 +717,11 @@ func (a *UnifiedApp) View() string {
 		return a.overlay(result, a.chatSettingsView.View())
 	}
 
+	// Overlay signals if visible
+	if a.signalsOverlay.Visible() {
+		return a.overlay(result, a.signalsOverlay.View())
+	}
+
 	// Overlay help if visible
 	if a.showHelp {
 		return a.overlay(result, a.renderHelpOverlay())
@@ -702,9 +735,10 @@ func (a *UnifiedApp) renderFooterContent() string {
 	if a.currentView != nil {
 		help = a.currentView.ShortHelp()
 	}
-	help += "  │  /big /gur /cold /pol  ctrl+l logs  ctrl+p palette  ctrl+, settings  /help  ctrl+c×2 quit"
+	help += "  │  /big /gur /cold /pol /sig  ctrl+l logs  ctrl+p palette  ctrl+, settings  /help  ctrl+c×2 quit"
 	return help
 }
+
 // renderHelpOverlay renders the full keybinding help overlay
 func (a *UnifiedApp) renderHelpOverlay() string {
 	var lines []string
@@ -753,6 +787,7 @@ func (a *UnifiedApp) renderHelpOverlay() string {
 		{Key: "ctrl+g", Description: "Agent selector"},
 		{Key: "/bigend, etc.", Description: "Switch to tool by name"},
 		{Key: "ctrl+l", Description: "Toggle log pane"},
+		{Key: "/sig", Description: "Toggle signals overlay"},
 	}
 	for _, b := range globalBindings {
 		line := keyStyle.Render(b.Key) + " " + descStyle.Render(b.Description)

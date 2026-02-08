@@ -94,7 +94,7 @@
 | 2026-02-06-phase-2a-dead-code-cleanup.md | commit | paths:1 latest:2026-02-06 |
 | 2026-02-06-phase-2b-app-unifiedapp-merge.md | commit | paths:2 latest:2026-02-07 |
 | 2026-02-07-phase-2c-onboarding-into-gurgeh.md | commit | paths:4 latest:2026-02-07 |
-| 2026-02-07-phase-3-signals-overlay.md | commit | paths:2 latest:2026-02-07 |
+| 2026-02-07-phase-3-signals-overlay.md | commit | paths:4 latest:2026-02-07 |
 
 ## Derived Evidence Details
 
