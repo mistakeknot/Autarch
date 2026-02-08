@@ -20,13 +20,14 @@ type gurgehViewAgentSelectorSetter interface {
 // It also acts as a container: when onboarding config is provided, it delegates
 // to GurgehOnboardingView until onboarding completes, then shows the spec browser.
 type GurgehView struct {
-	client   *autarch.Client
-	specs    []autarch.Spec
-	selected int
-	width    int
-	height   int
-	loading  bool
-	err      error
+	client        *autarch.Client
+	specs         []autarch.Spec
+	selected      int
+	pendingSpecID string
+	width         int
+	height        int
+	loading       bool
+	err           error
 
 	// Shell layout for unified 3-pane layout
 	shell *pkgtui.ShellLayout
@@ -52,6 +53,7 @@ func NewGurgehView(client *autarch.Client, cfg *tui.GurgehConfig) *GurgehView {
 		chatPanel: chatPanel,
 	}
 	if cfg != nil {
+		cfg.Client = client
 		v.onboarding = NewGurgehOnboardingView(*cfg)
 	} else {
 		v.showBrowser = true // No config = skip onboarding
@@ -126,8 +128,12 @@ func (v *GurgehView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
 		case tui.OnboardingCompleteMsg:
 			// Onboarding finished — switch to spec browser
 			v.showBrowser = true
+			v.pendingSpecID = msg.SpecID
 			// Return the message so UnifiedApp can call enterDashboard
-			return v, func() tea.Msg { return msg }
+			return v, tea.Batch(
+				v.loadSpecs(),
+				func() tea.Msg { return msg },
+			)
 		}
 
 		// Default pass-through: all other messages go to onboarding.
@@ -154,6 +160,15 @@ func (v *GurgehView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
 			v.err = msg.err
 		} else {
 			v.specs = msg.specs
+			if v.pendingSpecID != "" {
+				for i, s := range v.specs {
+					if s.ID == v.pendingSpecID {
+						v.selected = i
+						break
+					}
+				}
+				v.pendingSpecID = ""
+			}
 		}
 		return v, nil
 

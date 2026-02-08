@@ -5,6 +5,7 @@ import (
 	"github.com/mistakeknot/autarch/internal/coldwine/epics"
 	"github.com/mistakeknot/autarch/internal/coldwine/tasks"
 	"github.com/mistakeknot/autarch/internal/pollard/research"
+	"github.com/mistakeknot/autarch/pkg/autarch"
 	pkgtui "github.com/mistakeknot/autarch/pkg/tui"
 )
 
@@ -12,6 +13,7 @@ import (
 type GurgehConfig struct {
 	ResearchCoord *research.Coordinator
 	CodingAgent   *agent.Agent
+	Client        *autarch.Client
 	AgentSelector *pkgtui.AgentSelector
 	SelectedAgent string
 

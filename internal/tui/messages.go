@@ -46,6 +46,7 @@ type TasksAcceptedMsg struct {
 type OnboardingCompleteMsg struct {
 	ProjectID   string
 	ProjectName string
+	SpecID      string // ID of the persisted spec (empty if persistence failed)
 }
 
 // NavigateToTaskDetailMsg requests navigation to task detail view

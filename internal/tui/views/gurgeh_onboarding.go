@@ -16,6 +16,7 @@ import (
 	"github.com/mistakeknot/autarch/internal/gurgeh/exploration"
 	"github.com/mistakeknot/autarch/internal/pollard/research"
 	"github.com/mistakeknot/autarch/internal/tui"
+	"github.com/mistakeknot/autarch/pkg/autarch"
 	pkgtui "github.com/mistakeknot/autarch/pkg/tui"
 )
 
@@ -41,6 +42,7 @@ type GurgehOnboardingView struct {
 	// Dependencies (from GurgehConfig)
 	researchCoord *research.Coordinator
 	codingAgent   *agent.Agent
+	client        *autarch.Client
 	agentSelector *pkgtui.AgentSelector
 	selectedAgent string
 
@@ -54,6 +56,9 @@ type GurgehOnboardingView struct {
 	interviewAnswers map[string]string
 	generatedEpics   []epics.EpicProposal
 	generatedTasks   []tasks.TaskProposal
+	acceptedVision   string
+	acceptedUsers    string
+	acceptedProblem  string
 
 	// Loading state
 	generating     bool
@@ -94,6 +99,7 @@ func NewGurgehOnboardingView(cfg tui.GurgehConfig) *GurgehOnboardingView {
 	return &GurgehOnboardingView{
 		researchCoord: cfg.ResearchCoord,
 		codingAgent:   cfg.CodingAgent,
+		client:        cfg.Client,
 		agentSelector: cfg.AgentSelector,
 		selectedAgent: cfg.SelectedAgent,
 
@@ -524,6 +530,9 @@ func (v *GurgehOnboardingView) handleSuggestionsReady(msg tui.SuggestionsReadyMs
 }
 
 func (v *GurgehOnboardingView) handleSpecAccepted(msg tui.SpecAcceptedMsg) tea.Cmd {
+	v.acceptedVision = msg.Vision
+	v.acceptedUsers = msg.Users
+	v.acceptedProblem = msg.Problem
 	v.state = tui.OnboardingEpicReview
 	v.generating = true
 	v.generatingWhat = "epics"
@@ -583,11 +592,30 @@ func (v *GurgehOnboardingView) handleTasksAccepted(msg tui.TasksAcceptedMsg) tea
 	v.state = tui.OnboardingComplete
 	v.breadcrumb.SetCurrent(tui.OnboardingComplete)
 
-	// Transition to dashboard
+	return v.persistAndComplete()
+}
+
+func (v *GurgehOnboardingView) persistAndComplete() tea.Cmd {
 	return func() tea.Msg {
+		specID := ""
+		if v.client != nil {
+			spec := autarch.Spec{
+				Title:   v.projectName,
+				Project: v.projectID,
+				Vision:  v.acceptedVision,
+				Users:   v.acceptedUsers,
+				Problem: v.acceptedProblem,
+				Status:  autarch.SpecStatusDraft,
+			}
+			created, err := v.client.CreateSpec(spec)
+			if err == nil {
+				specID = created.ID
+			}
+		}
 		return tui.OnboardingCompleteMsg{
 			ProjectID:   v.projectID,
 			ProjectName: v.projectName,
+			SpecID:      specID,
 		}
 	}
 }
