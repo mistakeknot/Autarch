@@ -248,6 +248,101 @@ func TestTabSwitchingWorksInDashboardMode(t *testing.T) {
 	}
 }
 
+// sizingView records the last WindowSizeMsg it received.
+type sizingView struct {
+	name      string
+	lastWidth int
+}
+
+func (v *sizingView) Init() tea.Cmd { return nil }
+func (v *sizingView) Update(msg tea.Msg) (pkgtui.View, tea.Cmd) {
+	if wsm, ok := msg.(tea.WindowSizeMsg); ok {
+		v.lastWidth = wsm.Width
+	}
+	return v, nil
+}
+func (v *sizingView) View() string    { return "content" }
+func (v *sizingView) Focus() tea.Cmd  { return nil }
+func (v *sizingView) Blur()           {}
+func (v *sizingView) Name() string    { return v.name }
+func (v *sizingView) ShortHelp() string { return "" }
+
+func TestTabSwitchSendsWindowSizeToNewView(t *testing.T) {
+	app := NewUnifiedApp(nil)
+	viewA := &sizingView{name: "A"}
+	viewB := &sizingView{name: "B"}
+	app.dashViews = []View{viewA, viewB}
+	app.tabs = NewTabBar([]string{"A", "B"})
+	app.tabs.SetActive(0)
+	app.currentView = viewA
+
+	// Give the app a size so sendWindowSize has something to send
+	app.width = 120
+	app.height = 40
+
+	// Size viewA via WindowSizeMsg (simulates initial sizing)
+	app.Update(tea.WindowSizeMsg{Width: 120, Height: 40})
+
+	if viewA.lastWidth == 0 {
+		t.Fatal("viewA should have received WindowSizeMsg")
+	}
+	if viewB.lastWidth != 0 {
+		t.Fatal("viewB should NOT have received WindowSizeMsg yet")
+	}
+
+	// Switch to tab B via slash command
+	updated, cmd := app.Update(pkgtui.SlashCommandMsg{Command: "b_tab"})
+	// Slash command won't work for arbitrary names, use Ctrl+Right instead
+	_ = updated
+	_ = cmd
+
+	// Use direct tab switch
+	app.currentView = viewA // reset
+	app.tabs.SetActive(0)
+	switchCmd := app.switchDashboardTab(1)
+
+	if switchCmd == nil {
+		t.Fatal("expected non-nil command from tab switch")
+	}
+
+	// Execute the batched commands — one of them should be a WindowSizeMsg
+	// We can't easily extract batched commands, but verify viewB gets sized
+	// by processing the WindowSizeMsg that sendWindowSize produces
+	msgs := collectBatchMsgs(switchCmd)
+	foundWSM := false
+	for _, m := range msgs {
+		if wsm, ok := m.(tea.WindowSizeMsg); ok {
+			foundWSM = true
+			// Process it through Update to deliver to the new currentView
+			app.Update(wsm)
+		}
+	}
+
+	if !foundWSM {
+		t.Fatal("expected WindowSizeMsg in batched commands from tab switch")
+	}
+	if viewB.lastWidth == 0 {
+		t.Fatal("viewB should have received WindowSizeMsg after tab switch")
+	}
+}
+
+// collectBatchMsgs executes a tea.Cmd and collects the resulting messages.
+// For tea.Batch, it recursively collects from all sub-commands.
+func collectBatchMsgs(cmd tea.Cmd) []tea.Msg {
+	if cmd == nil {
+		return nil
+	}
+	msg := cmd()
+	if batchMsg, ok := msg.(tea.BatchMsg); ok {
+		var msgs []tea.Msg
+		for _, subCmd := range batchMsg {
+			msgs = append(msgs, collectBatchMsgs(subCmd)...)
+		}
+		return msgs
+	}
+	return []tea.Msg{msg}
+}
+
 func TestSignalsOverlayToggleViaSig(t *testing.T) {
 	app := NewUnifiedApp(nil)
 	app.currentView = &noopDashboardView{name: "test"}

@@ -635,7 +635,7 @@ func (a *UnifiedApp) switchDashboardTab(idx int) tea.Cmd {
 
 	a.tabs.SetActive(idx)
 	a.currentView = a.dashViews[idx]
-	return a.currentView.Focus()
+	return tea.Batch(a.currentView.Focus(), a.sendWindowSize())
 }
 
 // switchToTab switches the active dashboard tab.
