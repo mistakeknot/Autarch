@@ -6,7 +6,6 @@ import (
 
 	"github.com/charmbracelet/bubbles/key"
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
 	"github.com/mistakeknot/autarch/internal/tui"
 	"github.com/mistakeknot/autarch/pkg/autarch"
 	pkgtui "github.com/mistakeknot/autarch/pkg/tui"
@@ -31,8 +30,8 @@ type GurgehView struct {
 
 	// Shell layout for unified 3-pane layout
 	shell *pkgtui.ShellLayout
-	// Model selector shown under chat pane
-	agentSelector *pkgtui.AgentSelector
+	// Chat panel for interactive input
+	chatPanel *pkgtui.ChatPanel
 
 	// Onboarding sub-view (nil when no config provided, or after onboarding completes)
 	onboarding *GurgehOnboardingView
@@ -43,9 +42,14 @@ type GurgehView struct {
 // NewGurgehView creates a new Gurgeh view.
 // If cfg is non-nil, onboarding is shown first; otherwise the spec browser is shown immediately.
 func NewGurgehView(client *autarch.Client, cfg *tui.GurgehConfig) *GurgehView {
+	chatPanel := pkgtui.NewChatPanel()
+	chatPanel.SetComposerPlaceholder("Ask questions about this spec...")
+	chatPanel.SetComposerHint("enter send  tab focus  ctrl+b sidebar")
+
 	v := &GurgehView{
-		client: client,
-		shell:  pkgtui.NewShellLayout(),
+		client:    client,
+		shell:     pkgtui.NewShellLayout(),
+		chatPanel: chatPanel,
 	}
 	if cfg != nil {
 		v.onboarding = NewGurgehOnboardingView(*cfg)
@@ -57,7 +61,7 @@ func NewGurgehView(client *autarch.Client, cfg *tui.GurgehConfig) *GurgehView {
 
 // SetAgentSelector sets the shared agent selector.
 func (v *GurgehView) SetAgentSelector(selector *pkgtui.AgentSelector) {
-	v.agentSelector = selector
+	v.chatPanel.SetAgentSelector(selector)
 	if v.onboarding != nil {
 		v.onboarding.SetAgentSelector(selector)
 	}
@@ -70,11 +74,17 @@ func (v *GurgehView) SetAgentName(name string) {
 	}
 }
 
-// SetChatSettings sets chat settings on the onboarding sub-view.
+// SetChatSettings sets chat settings on the onboarding sub-view and browser chat panel.
 func (v *GurgehView) SetChatSettings(settings pkgtui.ChatSettings) {
+	v.chatPanel.SetSettings(settings)
 	if v.onboarding != nil {
 		v.onboarding.SetChatSettings(settings)
 	}
+}
+
+// ClearInput clears the chat composer (for ctrl+c soft cancel).
+func (v *GurgehView) ClearInput() {
+	v.chatPanel.ClearComposer()
 }
 
 // Compile-time interface assertion for SidebarProvider
@@ -108,7 +118,7 @@ func (v *GurgehView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
 		case tea.WindowSizeMsg:
 			// Pass to BOTH onboarding and spec browser so browser is sized when we switch
 			v.width = msg.Width - 6
-			v.height = msg.Height - 4
+			v.height = msg.Height - 4 - 2
 			v.shell.SetSize(v.width, v.height)
 			_, cmd := v.onboarding.Update(msg)
 			return v, cmd
@@ -133,8 +143,9 @@ func (v *GurgehView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
 		v.width = msg.Width - 6
-		v.height = msg.Height - 4
+		v.height = msg.Height - 4 - 2
 		v.shell.SetSize(v.width, v.height)
+		v.chatPanel.SetSize(v.shell.RightWidth(), v.shell.Height())
 		return v, nil
 
 	case specsLoadedMsg:
@@ -157,17 +168,7 @@ func (v *GurgehView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
 		return v, nil
 
 	case tea.KeyMsg:
-		if v.agentSelector != nil {
-			selectorMsg, selectorCmd := v.agentSelector.Update(msg)
-			if selectorMsg != nil {
-				return v, tea.Batch(selectorCmd, func() tea.Msg { return selectorMsg })
-			}
-			if v.agentSelector.Open || msg.Type == tea.KeyF2 {
-				return v, selectorCmd
-			}
-		}
-
-		// Let shell handle global keys first
+		// Let shell handle global keys first (Tab, Shift-Tab, Ctrl+B)
 		v.shell, cmd = v.shell.Update(msg)
 		if cmd != nil {
 			return v, cmd
@@ -192,7 +193,14 @@ func (v *GurgehView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
 				return v, v.loadSpecs()
 			}
 		case pkgtui.FocusChat:
-			// Chat input handled by chat panel (future)
+			if msg.Type == tea.KeyEnter {
+				if slashCmd := v.chatPanel.SubmitInput(); slashCmd != nil {
+					return v, slashCmd
+				}
+				return v, nil
+			}
+			v.chatPanel, cmd = v.chatPanel.Update(msg)
+			return v, cmd
 		}
 	}
 
@@ -216,7 +224,7 @@ func (v *GurgehView) View() string {
 	// Render using shell layout
 	sidebarItems := v.SidebarItems()
 	document := v.renderDocument()
-	chat := v.renderChat()
+	chat := v.chatPanel.View()
 
 	return v.shell.Render(sidebarItems, document, chat)
 }
@@ -310,47 +318,18 @@ func (v *GurgehView) renderDocument() string {
 	return strings.Join(lines, "\n")
 }
 
-// renderChat renders the chat pane (placeholder for now).
-func (v *GurgehView) renderChat() string {
-	var lines []string
-
-	chatTitle := lipgloss.NewStyle().
-		Foreground(pkgtui.ColorPrimary).
-		Bold(true)
-
-	lines = append(lines, chatTitle.Render("Chat"))
-	lines = append(lines, "")
-
-	mutedStyle := lipgloss.NewStyle().
-		Foreground(pkgtui.ColorMuted).
-		Italic(true)
-
-	lines = append(lines, mutedStyle.Render("Ask questions about this spec..."))
-	lines = append(lines, "")
-
-	hintStyle := lipgloss.NewStyle().
-		Foreground(pkgtui.ColorMuted)
-
-	lines = append(lines, hintStyle.Render("Tab to focus • Ctrl+B toggle sidebar"))
-
-	if v.agentSelector != nil {
-		lines = append(lines, "")
-		lines = append(lines, v.agentSelector.View())
-	}
-
-	return strings.Join(lines, "\n")
-}
-
 // Focus implements View
 func (v *GurgehView) Focus() tea.Cmd {
 	if !v.showBrowser && v.onboarding != nil {
 		return v.onboarding.Focus()
 	}
-	return v.loadSpecs()
+	v.shell.SetFocus(pkgtui.FocusChat)
+	return tea.Batch(v.chatPanel.Focus(), v.loadSpecs())
 }
 
 // Blur implements View
 func (v *GurgehView) Blur() {
+	v.chatPanel.Blur()
 	if v.onboarding != nil {
 		v.onboarding.Blur()
 	}

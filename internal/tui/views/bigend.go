@@ -13,7 +13,7 @@ import (
 	pkgtui "github.com/mistakeknot/autarch/pkg/tui"
 )
 
-// FocusPane indicates which pane is focused in Bigend.
+// FocusPane indicates which sub-pane is focused within the document area.
 type FocusPane int
 
 const (
@@ -42,14 +42,43 @@ type BigendView struct {
 
 	// Callbacks
 	onTaskSelect func(task tasks.TaskProposal) tea.Cmd
+
+	// Shell layout for unified 3-pane layout
+	shell *pkgtui.ShellLayout
+	// Chat panel for interactive input
+	chatPanel *pkgtui.ChatPanel
 }
 
 // NewBigendView creates a new Bigend view
 func NewBigendView(client *autarch.Client) *BigendView {
+	chatPanel := pkgtui.NewChatPanel()
+	chatPanel.SetComposerPlaceholder("Type / for commands, or ask about tasks...")
+	chatPanel.SetComposerHint("enter send  tab focus  F3 panes")
+
 	return &BigendView{
 		client:    client,
 		focusPane: FocusTasks,
+		shell:     pkgtui.NewShellLayout(),
+		chatPanel: chatPanel,
 	}
+}
+
+// SetAgentSelector sets the shared agent selector.
+func (v *BigendView) SetAgentSelector(selector *pkgtui.AgentSelector) {
+	v.chatPanel.SetAgentSelector(selector)
+}
+
+// SetAgentName sets the selected agent name (satisfies interface).
+func (v *BigendView) SetAgentName(name string) {}
+
+// SetChatSettings sets chat settings on the chat panel.
+func (v *BigendView) SetChatSettings(settings pkgtui.ChatSettings) {
+	v.chatPanel.SetSettings(settings)
+}
+
+// ClearInput clears the chat composer (for ctrl+c soft cancel).
+func (v *BigendView) ClearInput() {
+	v.chatPanel.ClearComposer()
 }
 
 // SetProjectContext sets the current project context.
@@ -91,10 +120,14 @@ func (v *BigendView) loadSessions() tea.Cmd {
 
 // Update implements View
 func (v *BigendView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
+	var cmd tea.Cmd
+
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
 		v.width = msg.Width - 6
-		v.height = msg.Height - 4 // Account for tabs and footer
+		v.height = msg.Height - 4 - 2
+		v.shell.SetSize(v.width, v.height)
+		v.chatPanel.SetSize(v.shell.RightWidth(), v.shell.Height())
 		return v, nil
 
 	case sessionsLoadedMsg:
@@ -107,42 +140,62 @@ func (v *BigendView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
 		return v, nil
 
 	case tea.KeyMsg:
-		switch {
-		case key.Matches(msg, commonKeys.NavDown):
-			if v.focusPane == FocusSessions {
-				if v.selected < len(v.sessions)-1 {
-					v.selected++
+		// Let shell handle global keys first (Tab, Shift-Tab, Ctrl+B)
+		v.shell, cmd = v.shell.Update(msg)
+		if cmd != nil {
+			return v, cmd
+		}
+
+		// Handle view-specific keys based on focus
+		switch v.shell.Focus() {
+		case pkgtui.FocusSidebar:
+			// No sidebar items for Bigend
+		case pkgtui.FocusDocument:
+			switch {
+			case key.Matches(msg, commonKeys.NavDown):
+				if v.focusPane == FocusSessions {
+					if v.selected < len(v.sessions)-1 {
+						v.selected++
+					}
+				} else {
+					if v.taskSelected < len(v.readyTasks)-1 {
+						v.taskSelected++
+					}
 				}
-			} else {
-				if v.taskSelected < len(v.readyTasks)-1 {
-					v.taskSelected++
+			case key.Matches(msg, commonKeys.NavUp):
+				if v.focusPane == FocusSessions {
+					if v.selected > 0 {
+						v.selected--
+					}
+				} else {
+					if v.taskSelected > 0 {
+						v.taskSelected--
+					}
 				}
-			}
-		case key.Matches(msg, commonKeys.NavUp):
-			if v.focusPane == FocusSessions {
-				if v.selected > 0 {
-					v.selected--
+			case msg.Type == tea.KeyF3:
+				// Toggle focus between tasks and sessions sub-panes
+				if v.focusPane == FocusSessions {
+					v.focusPane = FocusTasks
+				} else {
+					v.focusPane = FocusSessions
 				}
-			} else {
-				if v.taskSelected > 0 {
-					v.taskSelected--
+			case key.Matches(msg, commonKeys.Select):
+				if v.focusPane == FocusTasks && len(v.readyTasks) > 0 && v.onTaskSelect != nil {
+					return v, v.onTaskSelect(v.readyTasks[v.taskSelected])
 				}
+			case key.Matches(msg, commonKeys.Refresh):
+				v.loading = true
+				return v, v.loadSessions()
 			}
-		case msg.Type == tea.KeyF3, key.Matches(msg, commonKeys.TabCycle):
-			// Toggle focus between panes (tab or F3 for compatibility)
-			if v.focusPane == FocusSessions {
-				v.focusPane = FocusTasks
-			} else {
-				v.focusPane = FocusSessions
+		case pkgtui.FocusChat:
+			if msg.Type == tea.KeyEnter {
+				if slashCmd := v.chatPanel.SubmitInput(); slashCmd != nil {
+					return v, slashCmd
+				}
+				return v, nil
 			}
-		case key.Matches(msg, commonKeys.Select):
-			// Select task to view details
-			if v.focusPane == FocusTasks && len(v.readyTasks) > 0 && v.onTaskSelect != nil {
-				return v, v.onTaskSelect(v.readyTasks[v.taskSelected])
-			}
-		case key.Matches(msg, commonKeys.Refresh):
-			v.loading = true
-			return v, v.loadSessions()
+			v.chatPanel, cmd = v.chatPanel.Update(msg)
+			return v, cmd
 		}
 	}
 
@@ -159,7 +212,11 @@ func (v *BigendView) View() string {
 		return tui.ErrorView(v.err)
 	}
 
-	return v.renderDashboard()
+	// Render dashboard as document pane, chatPanel as chat pane
+	document := v.renderDashboard()
+	chat := v.chatPanel.View()
+
+	return v.shell.Render(nil, document, chat)
 }
 
 func (v *BigendView) renderDashboard() string {
@@ -174,19 +231,24 @@ func (v *BigendView) renderDashboard() string {
 		sections = append(sections, headerStyle.Render("Project: "+v.projectName))
 	}
 
-	// Main content: two panes
-	if v.width >= 80 {
-		sections = append(sections, v.renderTwoPaneLayout())
+	// Main content: two panes within the document area
+	docWidth := v.shell.LeftWidth()
+	if docWidth <= 0 {
+		docWidth = v.width / 2
+	}
+
+	if docWidth >= 80 {
+		sections = append(sections, v.renderTwoPaneLayout(docWidth))
 	} else {
-		sections = append(sections, v.renderStackedLayout())
+		sections = append(sections, v.renderStackedLayout(docWidth))
 	}
 
 	return lipgloss.JoinVertical(lipgloss.Left, sections...)
 }
 
-func (v *BigendView) renderTwoPaneLayout() string {
-	leftWidth := v.width / 2
-	rightWidth := v.width - leftWidth - 2
+func (v *BigendView) renderTwoPaneLayout(totalWidth int) string {
+	leftWidth := totalWidth / 2
+	rightWidth := totalWidth - leftWidth - 2
 
 	left := v.renderTasksPane(leftWidth)
 	right := v.renderSessionsPane(rightWidth)
@@ -205,11 +267,11 @@ func (v *BigendView) renderTwoPaneLayout() string {
 	)
 }
 
-func (v *BigendView) renderStackedLayout() string {
+func (v *BigendView) renderStackedLayout(totalWidth int) string {
 	var sections []string
-	sections = append(sections, v.renderTasksPane(v.width))
+	sections = append(sections, v.renderTasksPane(totalWidth))
 	sections = append(sections, "")
-	sections = append(sections, v.renderSessionsPane(v.width))
+	sections = append(sections, v.renderSessionsPane(totalWidth))
 	return lipgloss.JoinVertical(lipgloss.Left, sections...)
 }
 
@@ -324,99 +386,6 @@ func (v *BigendView) renderSessionsPane(width int) string {
 	return strings.Join(lines, "\n")
 }
 
-func (v *BigendView) renderEmptyState() string {
-	return lipgloss.JoinVertical(lipgloss.Left,
-		"",
-		pkgtui.TitleStyle.Render("Sessions"),
-		"",
-		pkgtui.LabelStyle.Render("No sessions running"),
-		"",
-		pkgtui.LabelStyle.Render("Sessions will appear here when agents are started."),
-	)
-}
-
-func (v *BigendView) renderSplitView() string {
-	// Calculate widths
-	listWidth := v.width / 3
-	detailWidth := v.width - listWidth - 3
-
-	// Render list
-	list := v.renderList(listWidth)
-
-	// Render detail
-	detail := v.renderDetail(detailWidth)
-
-	// Join horizontally
-	listStyle := lipgloss.NewStyle().
-		Width(listWidth).
-		Height(v.height)
-
-	detailStyle := lipgloss.NewStyle().
-		Width(detailWidth).
-		Height(v.height).
-		BorderLeft(true).
-		BorderStyle(lipgloss.NormalBorder()).
-		BorderForeground(pkgtui.ColorMuted).
-		PaddingLeft(1)
-
-	return lipgloss.JoinHorizontal(lipgloss.Top,
-		listStyle.Render(list),
-		detailStyle.Render(detail),
-	)
-}
-
-func (v *BigendView) renderList(width int) string {
-	var lines []string
-
-	lines = append(lines, pkgtui.TitleStyle.Render("Sessions"))
-	lines = append(lines, "")
-
-	for i, s := range v.sessions {
-		icon := v.statusIcon(s.Status)
-		name := s.Name
-		if name == "" {
-			name = s.ID[:8]
-		}
-
-		line := fmt.Sprintf("%s %s", icon, name)
-		if i == v.selected {
-			line = pkgtui.SelectedStyle.Render(line)
-		} else {
-			line = pkgtui.UnselectedStyle.Render(line)
-		}
-		lines = append(lines, line)
-	}
-
-	return strings.Join(lines, "\n")
-}
-
-func (v *BigendView) renderDetail(width int) string {
-	var lines []string
-
-	lines = append(lines, pkgtui.TitleStyle.Render("Details"))
-	lines = append(lines, "")
-
-	if len(v.sessions) == 0 || v.selected >= len(v.sessions) {
-		lines = append(lines, pkgtui.LabelStyle.Render("No session selected"))
-		return strings.Join(lines, "\n")
-	}
-
-	s := v.sessions[v.selected]
-
-	lines = append(lines, fmt.Sprintf("Name: %s", s.Name))
-	lines = append(lines, fmt.Sprintf("Agent: %s", s.Agent))
-	lines = append(lines, fmt.Sprintf("Status: %s", s.Status))
-	lines = append(lines, fmt.Sprintf("Project: %s", s.Project))
-
-	if s.TaskID != "" {
-		lines = append(lines, fmt.Sprintf("Task: %s", s.TaskID))
-	}
-
-	lines = append(lines, fmt.Sprintf("Started: %s", s.StartedAt.Format("2006-01-02 15:04")))
-
-	return strings.Join(lines, "\n")
-}
-
 func (v *BigendView) statusIcon(status autarch.SessionStatus) string {
 	switch status {
 	case autarch.SessionStatusRunning:
@@ -432,11 +401,14 @@ func (v *BigendView) statusIcon(status autarch.SessionStatus) string {
 
 // Focus implements View
 func (v *BigendView) Focus() tea.Cmd {
-	return v.loadSessions()
+	v.shell.SetFocus(pkgtui.FocusChat)
+	return tea.Batch(v.chatPanel.Focus(), v.loadSessions())
 }
 
 // Blur implements View
-func (v *BigendView) Blur() {}
+func (v *BigendView) Blur() {
+	v.chatPanel.Blur()
+}
 
 // Name implements View
 func (v *BigendView) Name() string {
@@ -445,7 +417,7 @@ func (v *BigendView) Name() string {
 
 // ShortHelp implements View
 func (v *BigendView) ShortHelp() string {
-	return "↑/↓ navigate  tab switch pane  enter select  ctrl+r refresh"
+	return "↑/↓ navigate  F3 switch pane  enter select  ctrl+r refresh  tab focus"
 }
 
 // Commands implements CommandProvider

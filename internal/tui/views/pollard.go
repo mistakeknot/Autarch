@@ -6,7 +6,6 @@ import (
 
 	"github.com/charmbracelet/bubbles/key"
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
 	"github.com/mistakeknot/autarch/internal/tui"
 	"github.com/mistakeknot/autarch/pkg/autarch"
 	pkgtui "github.com/mistakeknot/autarch/pkg/tui"
@@ -24,21 +23,39 @@ type PollardView struct {
 
 	// Shell layout for unified 3-pane layout
 	shell *pkgtui.ShellLayout
-	// Model selector shown under chat pane
-	agentSelector *pkgtui.AgentSelector
+	// Chat panel for interactive input
+	chatPanel *pkgtui.ChatPanel
 }
 
 // NewPollardView creates a new Pollard view
 func NewPollardView(client *autarch.Client) *PollardView {
+	chatPanel := pkgtui.NewChatPanel()
+	chatPanel.SetComposerPlaceholder("Ask questions about this insight...")
+	chatPanel.SetComposerHint("enter send  tab focus  ctrl+b sidebar")
+
 	return &PollardView{
-		client: client,
-		shell:  pkgtui.NewShellLayout(),
+		client:    client,
+		shell:     pkgtui.NewShellLayout(),
+		chatPanel: chatPanel,
 	}
 }
 
 // SetAgentSelector sets the shared agent selector.
 func (v *PollardView) SetAgentSelector(selector *pkgtui.AgentSelector) {
-	v.agentSelector = selector
+	v.chatPanel.SetAgentSelector(selector)
+}
+
+// SetAgentName sets the selected agent name (satisfies interface).
+func (v *PollardView) SetAgentName(name string) {}
+
+// SetChatSettings sets chat settings on the chat panel.
+func (v *PollardView) SetChatSettings(settings pkgtui.ChatSettings) {
+	v.chatPanel.SetSettings(settings)
+}
+
+// ClearInput clears the chat composer (for ctrl+c soft cancel).
+func (v *PollardView) ClearInput() {
+	v.chatPanel.ClearComposer()
 }
 
 // Compile-time interface assertion for SidebarProvider
@@ -68,8 +85,9 @@ func (v *PollardView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
 		v.width = msg.Width - 6
-		v.height = msg.Height - 4
+		v.height = msg.Height - 4 - 2
 		v.shell.SetSize(v.width, v.height)
+		v.chatPanel.SetSize(v.shell.RightWidth(), v.shell.Height())
 		return v, nil
 
 	case insightsLoadedMsg:
@@ -92,17 +110,7 @@ func (v *PollardView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
 		return v, nil
 
 	case tea.KeyMsg:
-		if v.agentSelector != nil {
-			selectorMsg, selectorCmd := v.agentSelector.Update(msg)
-			if selectorMsg != nil {
-				return v, tea.Batch(selectorCmd, func() tea.Msg { return selectorMsg })
-			}
-			if v.agentSelector.Open || msg.Type == tea.KeyF2 {
-				return v, selectorCmd
-			}
-		}
-
-		// Let shell handle global keys first
+		// Let shell handle global keys first (Tab, Shift-Tab, Ctrl+B)
 		v.shell, cmd = v.shell.Update(msg)
 		if cmd != nil {
 			return v, cmd
@@ -127,7 +135,14 @@ func (v *PollardView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
 				return v, v.loadInsights()
 			}
 		case pkgtui.FocusChat:
-			// Chat input handled by chat panel (future)
+			if msg.Type == tea.KeyEnter {
+				if slashCmd := v.chatPanel.SubmitInput(); slashCmd != nil {
+					return v, slashCmd
+				}
+				return v, nil
+			}
+			v.chatPanel, cmd = v.chatPanel.Update(msg)
+			return v, cmd
 		}
 	}
 
@@ -147,7 +162,7 @@ func (v *PollardView) View() string {
 	// Render using shell layout
 	sidebarItems := v.SidebarItems()
 	document := v.renderDocument()
-	chat := v.renderChat()
+	chat := v.chatPanel.View()
 
 	return v.shell.Render(sidebarItems, document, chat)
 }
@@ -240,37 +255,6 @@ func (v *PollardView) renderDocument() string {
 	return strings.Join(lines, "\n")
 }
 
-// renderChat renders the chat pane.
-func (v *PollardView) renderChat() string {
-	var lines []string
-
-	chatTitle := lipgloss.NewStyle().
-		Foreground(pkgtui.ColorPrimary).
-		Bold(true)
-
-	lines = append(lines, chatTitle.Render("Research Chat"))
-	lines = append(lines, "")
-
-	mutedStyle := lipgloss.NewStyle().
-		Foreground(pkgtui.ColorMuted).
-		Italic(true)
-
-	lines = append(lines, mutedStyle.Render("Ask questions about this insight..."))
-	lines = append(lines, "")
-
-	hintStyle := lipgloss.NewStyle().
-		Foreground(pkgtui.ColorMuted)
-
-	lines = append(lines, hintStyle.Render("Tab to focus • Ctrl+B toggle sidebar"))
-
-	if v.agentSelector != nil {
-		lines = append(lines, "")
-		lines = append(lines, v.agentSelector.View())
-	}
-
-	return strings.Join(lines, "\n")
-}
-
 func wordWrap(text string, width int) []string {
 	if width <= 0 {
 		return []string{text}
@@ -302,11 +286,14 @@ func wordWrap(text string, width int) []string {
 
 // Focus implements View
 func (v *PollardView) Focus() tea.Cmd {
-	return v.loadInsights()
+	v.shell.SetFocus(pkgtui.FocusChat)
+	return tea.Batch(v.chatPanel.Focus(), v.loadInsights())
 }
 
 // Blur implements View
-func (v *PollardView) Blur() {}
+func (v *PollardView) Blur() {
+	v.chatPanel.Blur()
+}
 
 // Name implements View
 func (v *PollardView) Name() string {
