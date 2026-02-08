@@ -9,10 +9,9 @@ import (
 	"strings"
 	"time"
 
+	"github.com/mistakeknot/autarch/pkg/yamlsafe"
 	"gopkg.in/yaml.v3"
 )
-
-const maxYAMLBytes = int64(1 << 20) // 1 MiB
 
 var validDocIDRe = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]*$`)
 
@@ -460,12 +459,9 @@ func countFilesByStatus(dir, statusField string) map[string]int {
 			continue
 		}
 
-		data, err := safeReadYAML(filepath.Join(dir, entry.Name()), maxYAMLBytes)
-		if err != nil {
-			continue
-		}
+		path := filepath.Join(dir, entry.Name())
 		var doc map[string]interface{}
-		if err := yaml.Unmarshal(data, &doc); err != nil {
+		if err := unmarshalYAMLFile(path, &doc); err != nil {
 			continue
 		}
 
@@ -565,41 +561,10 @@ func resolvePathWithin(rootDir, filename string) (string, error) {
 }
 
 func unmarshalYAMLFile(path string, out interface{}) error {
-	data, err := safeReadYAML(path, maxYAMLBytes)
-	if err != nil {
+	if _, err := yamlsafe.UnmarshalFile(path, out); err != nil {
 		return err
 	}
-	if err := yaml.Unmarshal(data, out); err != nil {
-		return fmt.Errorf("yaml decode failed: %w", err)
-	}
 	return nil
-}
-
-func safeReadYAML(path string, limit int64) ([]byte, error) {
-	meta, err := os.Lstat(path)
-	if err != nil {
-		return nil, err
-	}
-	if meta.Mode()&os.ModeSymlink != 0 {
-		return nil, fmt.Errorf("refusing to read symlinked file: %s", path)
-	}
-	if !meta.Mode().IsRegular() {
-		return nil, fmt.Errorf("refusing to read non-regular file: %s", path)
-	}
-	if meta.Mode().Perm()&0o022 != 0 {
-		return nil, fmt.Errorf("refusing to read writable YAML file: %s", path)
-	}
-	if meta.Size() > limit {
-		return nil, fmt.Errorf("yaml file too large: %d bytes (limit %d)", meta.Size(), limit)
-	}
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return nil, err
-	}
-	if int64(len(data)) > limit {
-		return nil, fmt.Errorf("yaml file too large: %d bytes (limit %d)", len(data), limit)
-	}
-	return data, nil
 }
 
 // timeNow is a variable for testing

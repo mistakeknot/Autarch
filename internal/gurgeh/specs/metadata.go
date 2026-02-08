@@ -3,6 +3,7 @@ package specs
 import (
 	"os"
 
+	"github.com/mistakeknot/autarch/pkg/yamlsafe"
 	"gopkg.in/yaml.v3"
 )
 
@@ -12,7 +13,7 @@ func StoreValidationWarnings(path string, warnings []string) error {
 		return err
 	}
 	var doc yaml.Node
-	if err := yaml.Unmarshal(raw, &doc); err != nil {
+	if err := yamlsafe.Decode(raw, &doc); err != nil {
 		return err
 	}
 	root := firstMapping(&doc)

@@ -5,7 +5,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"gopkg.in/yaml.v3"
+	"github.com/mistakeknot/autarch/pkg/yamlsafe"
 )
 
 type ValidationMode string
@@ -34,7 +34,7 @@ func Validate(raw []byte, opts ValidationOptions) (ValidationResult, error) {
 		opts.Root = "."
 	}
 	var doc Spec
-	if err := yaml.Unmarshal(raw, &doc); err != nil {
+	if err := yamlsafe.Decode(raw, &doc); err != nil {
 		return res, err
 	}
 	if doc.ID == "" || doc.Title == "" || doc.Summary == "" {

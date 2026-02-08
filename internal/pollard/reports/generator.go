@@ -10,11 +10,10 @@ import (
 	"strings"
 	"time"
 
-	"gopkg.in/yaml.v3"
-
 	"github.com/mistakeknot/autarch/internal/pollard/insights"
 	"github.com/mistakeknot/autarch/internal/pollard/patterns"
 	"github.com/mistakeknot/autarch/internal/pollard/sources"
+	"github.com/mistakeknot/autarch/pkg/yamlsafe"
 )
 
 // ReportType defines the type of report to generate.
@@ -397,15 +396,10 @@ func (g *Generator) loadGitHubSources() []sources.GitHubRepo {
 			return nil
 		}
 
-		data, err := os.ReadFile(path)
-		if err != nil {
-			return nil
-		}
-
 		var output struct {
 			Repos []sources.GitHubRepo `yaml:"repos"`
 		}
-		if err := yaml.Unmarshal(data, &output); err != nil {
+		if _, err := yamlsafe.UnmarshalFile(path, &output); err != nil {
 			return nil
 		}
 
@@ -427,15 +421,10 @@ func (g *Generator) loadTrendSources() []sources.TrendItem {
 			return nil
 		}
 
-		data, err := os.ReadFile(path)
-		if err != nil {
-			return nil
-		}
-
 		var output struct {
 			Trends []sources.TrendItem `yaml:"trends"`
 		}
-		if err := yaml.Unmarshal(data, &output); err != nil {
+		if _, err := yamlsafe.UnmarshalFile(path, &output); err != nil {
 			return nil
 		}
 
@@ -456,15 +445,10 @@ func (g *Generator) loadResearchSources() []sources.ResearchPaper {
 			return nil
 		}
 
-		data, err := os.ReadFile(path)
-		if err != nil {
-			return nil
-		}
-
 		var output struct {
 			Papers []sources.ResearchPaper `yaml:"papers"`
 		}
-		if err := yaml.Unmarshal(data, &output); err != nil {
+		if _, err := yamlsafe.UnmarshalFile(path, &output); err != nil {
 			return nil
 		}
 
@@ -486,15 +470,10 @@ func (g *Generator) loadCompetitorSources() []sources.CompetitorChange {
 			return nil
 		}
 
-		data, err := os.ReadFile(path)
-		if err != nil {
-			return nil
-		}
-
 		var output struct {
 			Changes []sources.CompetitorChange `yaml:"changes"`
 		}
-		if err := yaml.Unmarshal(data, &output); err != nil {
+		if _, err := yamlsafe.UnmarshalFile(path, &output); err != nil {
 			return nil
 		}
 

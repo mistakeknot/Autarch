@@ -37,7 +37,7 @@
 | 2026-01-22-tandemonium-atomic-yaml-writes-plan.md | commit | paths:7 latest:2026-02-07 |
 | 2026-01-22-tandemonium-foreign-keys-implementation-plan.md | commit | paths:1 latest:2026-01-24 |
 | 2026-01-22-tandemonium-reject-task-fix-plan.md | commit | paths:1 latest:2026-01-24 |
-| 2026-01-22-tandemonium-reviewstate-extraction-plan.md | commit | paths:3 latest:2026-02-04 |
+| 2026-01-22-tandemonium-reviewstate-extraction-plan.md | commit | paths:3 latest:2026-02-07 |
 | 2026-01-22-tandemonium-tui-db-reuse-plan.md | commit | paths:2 latest:2026-01-24 |
 | 2026-01-22-vauxhall-m1b-parity-implementation-plan.md | commit | paths:6 latest:2026-01-28 |
 | 2026-01-22-vauxhall-search-filters-plan.md | commit | paths:2 latest:2026-02-07 |
@@ -46,7 +46,7 @@
 | 2026-01-23-praude-interview-polish-implementation-plan.md | commit | paths:2 latest:2026-02-05 |
 | 2026-01-23-tandemonium-init-epics-implementation-plan.md | commit | paths:7 latest:2026-02-07 |
 | 2026-01-23-tandemonium-init-epics-validation-plan.md | commit | paths:3 latest:2026-01-27 |
-| 2026-01-23-tandemonium-tui-vauxhall-port-plan.md | commit | paths:4 latest:2026-02-05 |
+| 2026-01-23-tandemonium-tui-vauxhall-port-plan.md | commit | paths:4 latest:2026-02-07 |
 | 2026-01-23-vauxhall-focus-pane-plan.md | commit | paths:2 latest:2026-02-07 |
 | 2026-01-23-vauxhall-grouping-plan.md | commit | paths:2 latest:2026-02-07 |
 | 2026-01-23-vauxhall-web-search-filters-plan.md | commit | paths:4 latest:2026-02-07 |
@@ -95,7 +95,7 @@
 | 2026-02-06-phase-2b-app-unifiedapp-merge.md | commit | paths:2 latest:2026-02-07 |
 | 2026-02-07-phase-2c-onboarding-into-gurgeh.md | commit | paths:4 latest:2026-02-07 |
 | 2026-02-07-phase-3-signals-overlay.md | commit | paths:4 latest:2026-02-07 |
-| 2026-02-07-ui-grammar-migration.md | commit | paths:1 latest:2026-02-07 |
+| 2026-02-07-ui-grammar-migration.md | commit | paths:2 latest:2026-02-07 |
 | 2026-02-07-yaml-security-migration.md | commit | paths:1 latest:2026-02-07 |
 
 ## Derived Evidence Details

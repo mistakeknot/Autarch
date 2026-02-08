@@ -9,7 +9,7 @@ import (
 	"strings"
 	"time"
 
-	"gopkg.in/yaml.v3"
+	"github.com/mistakeknot/autarch/pkg/yamlsafe"
 )
 
 // Search finds solutions matching the given criteria.
@@ -84,7 +84,7 @@ func parseSolutionFile(path, projectRoot string) (SearchResult, error) {
 	}
 
 	// Parse YAML
-	if err := yaml.Unmarshal(frontmatter, &result.Solution); err != nil {
+	if err := yamlsafe.Decode(frontmatter, &result.Solution); err != nil {
 		return SearchResult{}, fmt.Errorf("parse yaml: %w", err)
 	}
 

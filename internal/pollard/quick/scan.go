@@ -8,10 +8,9 @@ import (
 	"sync"
 	"time"
 
-	"gopkg.in/yaml.v3"
-
 	"github.com/mistakeknot/autarch/internal/gurgeh/arbiter"
 	"github.com/mistakeknot/autarch/internal/pollard/hunters"
+	"github.com/mistakeknot/autarch/pkg/yamlsafe"
 )
 
 // Scanner performs quick research scans for PRD context
@@ -115,13 +114,8 @@ type hnOutput struct {
 func parseGitHubOutput(files []string) []arbiter.GitHubFinding {
 	var findings []arbiter.GitHubFinding
 	for _, f := range files {
-		data, err := os.ReadFile(f)
-		if err != nil {
-			continue
-		}
-
 		var output gitHubOutput
-		if err := yaml.Unmarshal(data, &output); err != nil {
+		if _, err := yamlsafe.UnmarshalFile(f, &output); err != nil {
 			continue
 		}
 
@@ -140,13 +134,8 @@ func parseGitHubOutput(files []string) []arbiter.GitHubFinding {
 func parseHNOutput(files []string) []arbiter.HNFinding {
 	var findings []arbiter.HNFinding
 	for _, f := range files {
-		data, err := os.ReadFile(f)
-		if err != nil {
-			continue
-		}
-
 		var output hnOutput
-		if err := yaml.Unmarshal(data, &output); err != nil {
+		if _, err := yamlsafe.UnmarshalFile(f, &output); err != nil {
 			continue
 		}
 

@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/mistakeknot/autarch/pkg/yamlsafe"
 	"gopkg.in/yaml.v3"
 
 	"github.com/mistakeknot/autarch/pkg/thinking"
@@ -203,7 +204,7 @@ func (h *AgentHunter) parseAgentOutput(output string) ([]AgentSource, error) {
 	var result struct {
 		Sources []AgentSource `yaml:"sources"`
 	}
-	if err := yaml.Unmarshal([]byte(yamlContent), &result); err != nil {
+	if err := yamlsafe.Decode([]byte(yamlContent), &result); err != nil {
 		// If YAML parsing fails, try line-by-line extraction
 		return h.extractSourcesFromText(output)
 	}

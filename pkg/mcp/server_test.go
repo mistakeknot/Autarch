@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/mistakeknot/autarch/pkg/yamlsafe"
 	"gopkg.in/yaml.v3"
 )
 
@@ -511,7 +512,7 @@ func TestMCP_SendMessageUsesCallerIdentity(t *testing.T) {
 		t.Fatalf("read queued message: %v", err)
 	}
 	var msg map[string]interface{}
-	if err := yaml.Unmarshal(raw, &msg); err != nil {
+	if err := yamlsafe.Decode(raw, &msg); err != nil {
 		t.Fatalf("unmarshal queued message: %v", err)
 	}
 	if from := fmt.Sprint(msg["from"]); from != "agent-007" {

@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/mistakeknot/autarch/pkg/yamlsafe"
 	"gopkg.in/yaml.v3"
 )
 
@@ -192,7 +193,7 @@ func (g *AgendaGenerator) parseAgentOutput(output string) ([]ResearchAgenda, err
 		Agendas []ResearchAgenda `yaml:"agendas"`
 	}
 
-	if err := yaml.Unmarshal([]byte(yamlContent), &result); err != nil {
+	if err := yamlsafe.Decode([]byte(yamlContent), &result); err != nil {
 		return nil, fmt.Errorf("failed to parse YAML: %w", err)
 	}
 
@@ -280,7 +281,7 @@ func LoadResult(projectPath string) (*ProposalResult, error) {
 	}
 
 	var result ProposalResult
-	if err := yaml.Unmarshal(data, &result); err != nil {
+	if err := yamlsafe.Decode(data, &result); err != nil {
 		return nil, fmt.Errorf("failed to parse proposals: %w", err)
 	}
 

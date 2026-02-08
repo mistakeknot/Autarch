@@ -311,7 +311,7 @@ func parseBlock(lines []string, out interface{}) bool {
 		b.WriteString(line)
 		b.WriteString("\n")
 	}
-	if err := yaml.Unmarshal([]byte(b.String()), out); err != nil {
+	if err := yamlsafe.Decode([]byte(b.String()), out); err != nil {
 		return false
 	}
 	return true

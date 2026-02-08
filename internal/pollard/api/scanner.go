@@ -27,6 +27,7 @@ import (
 	"github.com/mistakeknot/autarch/internal/pollard/insights"
 	"github.com/mistakeknot/autarch/internal/pollard/sources"
 	"github.com/mistakeknot/autarch/internal/pollard/state"
+	"github.com/mistakeknot/autarch/pkg/yamlsafe"
 	"gopkg.in/yaml.v3"
 )
 
@@ -689,13 +690,8 @@ func (s *Scanner) ProcessInbox(ctx context.Context) error {
 
 // processMessage handles a single inbox message.
 func (s *Scanner) processMessage(ctx context.Context, msgPath string) error {
-	data, err := os.ReadFile(msgPath)
-	if err != nil {
-		return err
-	}
-
 	var msg ResearchMessage
-	if err := yaml.Unmarshal(data, &msg); err != nil {
+	if _, err := yamlsafe.UnmarshalFile(msgPath, &msg); err != nil {
 		return err
 	}
 
@@ -945,13 +941,8 @@ func WaitForResponse(projectPath, msgID string, timeout time.Duration) (*Researc
 			}
 
 			path := filepath.Join(inboxDir, entry.Name())
-			data, err := os.ReadFile(path)
-			if err != nil {
-				continue
-			}
-
 			var msg ResearchMessage
-			if err := yaml.Unmarshal(data, &msg); err != nil {
+			if _, err := yamlsafe.UnmarshalFile(path, &msg); err != nil {
 				continue
 			}
 

@@ -1,13 +1,14 @@
 package specs
 
 import (
+	"strings"
 	"testing"
 
-	"gopkg.in/yaml.v3"
+	"github.com/mistakeknot/autarch/pkg/yamlsafe"
 )
 
 func TestSpecSchemaIncludesEvidenceSections(t *testing.T) {
-	raw := []byte(`id: "PRD-001"
+	raw := []byte(strings.TrimSpace(`id: "PRD-001"
 title: "Example"
 summary: "Summary"
 critical_user_journeys:
@@ -42,9 +43,9 @@ competitive_landscape:
       - path: ".praude/research/PRD-001-20260115-000000.md"
         anchor: "section-2"
         note: "Source quote"
-`)
+`))
 	var doc Spec
-	if err := yaml.Unmarshal(raw, &doc); err != nil {
+	if err := yamlsafe.Decode(raw, &doc); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	if len(doc.CriticalUserJourneys) != 1 {

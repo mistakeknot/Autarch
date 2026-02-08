@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/mistakeknot/autarch/pkg/yamlsafe"
 	"gopkg.in/yaml.v3"
 )
 
@@ -128,7 +129,7 @@ func (c *HunterCreator) parseSpecFromOutput(output string) (*CustomHunterSpec, e
 	}
 
 	var spec CustomHunterSpec
-	if err := yaml.Unmarshal([]byte(yamlContent), &spec); err != nil {
+	if err := yamlsafe.Decode([]byte(yamlContent), &spec); err != nil {
 		return nil, err
 	}
 
@@ -146,13 +147,13 @@ func (c *HunterCreator) SuggestHunterForQuery(query string) (string, bool) {
 
 	// Domain patterns that might benefit from custom hunters
 	patterns := map[string][]string{
-		"recipe-hunter":       {"recipe", "cooking", "food prep", "ingredients for"},
-		"weather-hunter":      {"weather", "forecast", "temperature", "precipitation"},
-		"sports-hunter":       {"sports", "game score", "team", "league", "player stats"},
-		"real-estate-hunter":  {"property", "housing", "real estate", "listing", "rental"},
-		"job-hunter":          {"job opening", "career", "hiring", "employment"},
-		"product-hunter":      {"product review", "price comparison", "shopping"},
-		"travel-hunter":       {"flights", "hotels", "travel", "vacation", "booking"},
+		"recipe-hunter":         {"recipe", "cooking", "food prep", "ingredients for"},
+		"weather-hunter":        {"weather", "forecast", "temperature", "precipitation"},
+		"sports-hunter":         {"sports", "game score", "team", "league", "player stats"},
+		"real-estate-hunter":    {"property", "housing", "real estate", "listing", "rental"},
+		"job-hunter":            {"job opening", "career", "hiring", "employment"},
+		"product-hunter":        {"product review", "price comparison", "shopping"},
+		"travel-hunter":         {"flights", "hotels", "travel", "vacation", "booking"},
 		"cryptocurrency-hunter": {"crypto", "bitcoin", "ethereum", "blockchain"},
 	}
 
@@ -198,13 +199,8 @@ func ListCustomHunters(projectPath string) ([]string, error) {
 // GetCustomHunterSpec loads a custom hunter spec by name.
 func GetCustomHunterSpec(projectPath, name string) (*CustomHunterSpec, error) {
 	specPath := filepath.Join(projectPath, ".pollard", "hunters", "custom", name+".yaml")
-	data, err := os.ReadFile(specPath)
-	if err != nil {
-		return nil, err
-	}
-
 	var spec CustomHunterSpec
-	if err := yaml.Unmarshal(data, &spec); err != nil {
+	if _, err := yamlsafe.UnmarshalFile(specPath, &spec); err != nil {
 		return nil, err
 	}
 

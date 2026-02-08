@@ -20,7 +20,7 @@ import (
 	"github.com/mistakeknot/autarch/internal/gurgeh/specs"
 	"github.com/mistakeknot/autarch/internal/pollard/insights"
 	"github.com/mistakeknot/autarch/pkg/agenttargets"
-	"gopkg.in/yaml.v3"
+	"github.com/mistakeknot/autarch/pkg/yamlsafe"
 )
 
 type initOptions struct {
@@ -341,16 +341,16 @@ func parseAgentEpics(raw []byte) ([]epics.Epic, error) {
 	var wrapper struct {
 		Epics []epics.Epic `yaml:"epics"`
 	}
-	if err := yaml.Unmarshal(raw, &wrapper); err == nil && len(wrapper.Epics) > 0 {
+	if err := yamlsafe.Decode(raw, &wrapper); err == nil && len(wrapper.Epics) > 0 {
 		return wrapper.Epics, nil
 	}
 	var list []epics.Epic
-	if err := yaml.Unmarshal(raw, &list); err == nil && len(list) > 0 {
+	if err := yamlsafe.Decode(raw, &list); err == nil && len(list) > 0 {
 		return list, nil
 	}
 	if idx := bytes.Index(raw, []byte("epics:")); idx >= 0 {
 		trimmed := raw[idx:]
-		if err := yaml.Unmarshal(trimmed, &wrapper); err == nil && len(wrapper.Epics) > 0 {
+		if err := yamlsafe.Decode(trimmed, &wrapper); err == nil && len(wrapper.Epics) > 0 {
 			return wrapper.Epics, nil
 		}
 	}
