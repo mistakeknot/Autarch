@@ -12,7 +12,7 @@
 
 - Todo-tracked: 5
 - Derived evidence: 1
-- Commit evidence: 53
+- Commit evidence: 55
 - Preexisting paths (no git evidence): 1
 - No evidence: 7
 
@@ -95,6 +95,8 @@
 | 2026-02-06-phase-2b-app-unifiedapp-merge.md | commit | paths:2 latest:2026-02-07 |
 | 2026-02-07-phase-2c-onboarding-into-gurgeh.md | commit | paths:4 latest:2026-02-07 |
 | 2026-02-07-phase-3-signals-overlay.md | commit | paths:4 latest:2026-02-07 |
+| 2026-02-07-ui-grammar-migration.md | commit | paths:1 latest:2026-02-07 |
+| 2026-02-07-yaml-security-migration.md | commit | paths:1 latest:2026-02-07 |
 
 ## Derived Evidence Details
 

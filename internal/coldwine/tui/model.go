@@ -628,7 +628,7 @@ func (m Model) View() string {
 		return render(renderOverlayCard("Settings", "Settings UI (stub)", []keyDesc{{"esc", "close"}}))
 	}
 	if m.helpOverlay.Visible {
-		return render(m.helpOverlay.Render(m.keys, m.helpExtras(), m.Width))
+		return render(m.helpOverlay.Render(m.keys, coldwineHelpExtras(), m.Width))
 	}
 	if m.QuickTaskMode {
 		return render(renderOverlayCard("New Quick Task", "Describe task:\n"+m.QuickTaskInput, []keyDesc{{"enter", "create"}, {"esc", "cancel"}}))
@@ -829,7 +829,7 @@ func (m Model) View() string {
 	out += lipgloss.JoinHorizontal(lipgloss.Top, leftView, "  ", rightView)
 
 	if len(m.TaskList) == 0 {
-	out += "\n" + renderKeyHelpLine([]keyDesc{{"n", "new"}, {"i", "init"}, {"/help", "help"}}) + "\n"
+		out += "\n" + renderKeyHelpLine([]keyDesc{{"n", "new"}, {"i", "init"}, {"/help", "help"}}) + "\n"
 	} else {
 		keys := []keyDesc{
 			{"n", "new"}, {"s", "start"}, {"x", "stop"}, {"r", "review"},
@@ -2031,18 +2031,16 @@ func (m *Model) bottomBarLine() string {
 	return LabelStyle.Render(line)
 }
 
-func (m Model) helpExtras() []pkgtui.HelpBinding {
+func coldwineHelpExtras() []pkgtui.HelpBinding {
 	return []pkgtui.HelpBinding{
 		{Key: "n", Description: "new task"},
 		{Key: "s", Description: "start"},
 		{Key: "x", Description: "stop"},
+		{Key: "r", Description: "review"},
 		{Key: "R", Description: "review view"},
 		{Key: "c", Description: "coord"},
 		{Key: "a/o/v/d", Description: "filter"},
 		{Key: "i", Description: "init"},
-		{Key: "f", Description: "feedback"},
-		{Key: "X", Description: "reject"},
-		{Key: "e", Description: "edit story"},
 		{Key: "ctrl+k", Description: "palette"},
 		{Key: ",", Description: "settings"},
 	}

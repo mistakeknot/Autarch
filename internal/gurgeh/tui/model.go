@@ -325,7 +325,7 @@ func (m Model) View() string {
 	}
 	if m.helpOverlay.Visible {
 		title = "HELP"
-		body = m.helpOverlay.Render(m.keys, m.helpExtras(), m.width)
+		body = m.helpOverlay.Render(m.keys, gurgehHelpExtras(), m.width)
 		header := renderHeader(title, focus)
 		footer := renderFooter(defaultKeys(), m.status)
 		body = padBodyToHeight(body, m.height-2)
@@ -960,18 +960,20 @@ func defaultKeys() string {
 	return "↑/↓ move  enter toggle  ctrl+f search  tab focus  n new  g sprint  a archive  d delete  u undo  H archived  R research  p suggestions  s review  /help  ctrl+c×2 quit"
 }
 
-func (m Model) helpExtras() []pkgtui.HelpBinding {
+func gurgehHelpExtras() []pkgtui.HelpBinding {
 	return []pkgtui.HelpBinding{
+		{Key: "j/k", Description: "move"},
+		{Key: "enter", Description: "toggle"},
+		{Key: "/", Description: "search"},
+		{Key: "n", Description: "new sprint"},
+		{Key: "g", Description: "sprint from PRD"},
+		{Key: "r", Description: "research"},
+		{Key: "p", Description: "suggestions"},
+		{Key: "s", Description: "review"},
 		{Key: "a", Description: "archive"},
 		{Key: "d", Description: "delete"},
 		{Key: "u", Description: "undo"},
-		{Key: "H", Description: "archived"},
-		{Key: "g", Description: "sprint from PRD"},
-		{Key: "n", Description: "new sprint"},
-		{Key: "R", Description: "research"},
-		{Key: "p", Description: "suggestions"},
-		{Key: "s", Description: "review"},
-		{Key: "`", Description: "tutorial"},
+		{Key: "h", Description: "archived"},
 	}
 }
 
