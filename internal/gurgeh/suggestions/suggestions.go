@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/mistakeknot/autarch/internal/gurgeh/specs"
+	"github.com/mistakeknot/autarch/pkg/yamlsafe"
 	"gopkg.in/yaml.v3"
 )
 
@@ -108,12 +109,8 @@ func Create(dir, id string, now time.Time) (string, error) {
 }
 
 func Apply(path string, suggestion Suggestion) error {
-	raw, err := os.ReadFile(path)
-	if err != nil {
-		return err
-	}
 	var doc specs.Spec
-	if err := yaml.Unmarshal(raw, &doc); err != nil {
+	if _, err := yamlsafe.UnmarshalFile(path, &doc); err != nil {
 		return err
 	}
 	if suggestion.Summary != "" {

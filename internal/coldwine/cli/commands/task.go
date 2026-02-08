@@ -12,6 +12,7 @@ import (
 	"github.com/mistakeknot/autarch/internal/coldwine/intermute"
 	"github.com/mistakeknot/autarch/internal/coldwine/project"
 	"github.com/mistakeknot/autarch/internal/coldwine/storage"
+	"github.com/mistakeknot/autarch/pkg/yamlsafe"
 	"github.com/spf13/cobra"
 	"gopkg.in/yaml.v3"
 )
@@ -386,13 +387,8 @@ func loadTasks(root string) ([]map[string]interface{}, error) {
 			continue
 		}
 
-		data, err := os.ReadFile(filepath.Join(tasksDir, entry.Name()))
-		if err != nil {
-			continue
-		}
-
 		var task map[string]interface{}
-		if err := yaml.Unmarshal(data, &task); err != nil {
+		if _, err := yamlsafe.UnmarshalFile(filepath.Join(tasksDir, entry.Name()), &task); err != nil {
 			continue
 		}
 
@@ -422,16 +418,11 @@ func loadTaskWithPath(root, taskID string) (map[string]interface{}, string, erro
 		taskPath = filepath.Join(tasksDir, taskID)
 	}
 
-	data, err := os.ReadFile(taskPath)
-	if err != nil {
+	var task map[string]interface{}
+	if _, err := yamlsafe.UnmarshalFile(taskPath, &task); err != nil {
 		if os.IsNotExist(err) {
 			return nil, "", fmt.Errorf("task not found: %s", taskID)
 		}
-		return nil, "", err
-	}
-
-	var task map[string]interface{}
-	if err := yaml.Unmarshal(data, &task); err != nil {
 		return nil, "", err
 	}
 

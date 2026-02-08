@@ -1,7 +1,6 @@
 package cli
 
 import (
-	"context"
 	"fmt"
 	"os"
 	"strings"
@@ -29,7 +28,7 @@ func serveCmd() *cobra.Command {
 			defer srv.Close()
 			if strings.TrimSpace(os.Getenv("INTERMUTE_URL")) != "" {
 				handler := inbox.NewHandler(srv.Scanner(), 2*time.Second)
-				go handler.Run(context.Background())
+				go handler.Run(cmd.Context())
 				fmt.Fprintln(cmd.OutOrStdout(), "Intermute inbox polling enabled")
 			}
 			fmt.Fprintf(cmd.OutOrStdout(), "Pollard API listening on %s\n", addr)

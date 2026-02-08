@@ -5,7 +5,6 @@ import (
 	"path/filepath"
 
 	"github.com/mistakeknot/autarch/pkg/yamlsafe"
-	"gopkg.in/yaml.v3"
 )
 
 // GurgDir is the config directory for gurgeh
@@ -82,13 +81,13 @@ func GurgSpecsWithErrors(root string) ([]GurgSpec, []ParseError) {
 			continue
 		}
 		var spec GurgSpec
-		if err := yaml.Unmarshal(data, &spec); err != nil {
+		if err := yamlsafe.Decode(data, &spec); err != nil {
 			errs = append(errs, ParseError{Path: path, Err: err})
 			continue
 		}
 		// Skip if it looks like a PRD (has version field)
 		var prd GurgPRD
-		if yaml.Unmarshal(data, &prd) == nil && prd.Version != "" {
+		if yamlsafe.Decode(data, &prd) == nil && prd.Version != "" {
 			continue
 		}
 		if spec.ID != "" {

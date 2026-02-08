@@ -10,8 +10,8 @@ import (
 	"github.com/mistakeknot/autarch/internal/gurgeh/project"
 	gsignals "github.com/mistakeknot/autarch/internal/gurgeh/signals"
 	"github.com/mistakeknot/autarch/internal/gurgeh/specs"
+	"github.com/mistakeknot/autarch/pkg/yamlsafe"
 	"github.com/spf13/cobra"
-	"gopkg.in/yaml.v3"
 )
 
 // VisionReviewCmd manages vision spec review lifecycle.
@@ -78,12 +78,8 @@ func findVisionSpec(root string, specID string) (*specs.Spec, error) {
 		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".yaml") {
 			continue
 		}
-		data, err := os.ReadFile(filepath.Join(specsDir, entry.Name()))
-		if err != nil {
-			continue
-		}
 		var s specs.Spec
-		if err := yaml.Unmarshal(data, &s); err != nil {
+		if _, err := yamlsafe.UnmarshalFile(filepath.Join(specsDir, entry.Name()), &s); err != nil {
 			continue
 		}
 		if s.EffectiveType() != specs.SpecTypeVision {

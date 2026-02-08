@@ -13,6 +13,7 @@ import (
 func ScanCmd() *cobra.Command {
 	var depth int
 	var actionItems bool
+	var minConfidence int
 	cmd := &cobra.Command{
 		Use:   "scan [path]",
 		Short: "Scan repo for new epics",
@@ -22,8 +23,11 @@ func ScanCmd() *cobra.Command {
 			if len(args) == 1 {
 				root = args[0]
 			}
+			if minConfidence < 0 || minConfidence > 100 {
+				return fmt.Errorf("--min-confidence must be between 0 and 100")
+			}
 			if actionItems {
-				return runActionItemScan(cmd, root)
+				return runActionItemScan(cmd, root, minConfidence)
 			}
 			planDir := filepath.Join(root, ".tandemonium", "plan")
 			_, err := explore.Run(root, planDir, explore.Options{Depth: depth})
@@ -32,10 +36,11 @@ func ScanCmd() *cobra.Command {
 	}
 	cmd.Flags().IntVar(&depth, "depth", 2, "scan depth (1-3)")
 	cmd.Flags().BoolVar(&actionItems, "action-items", false, "scan docs for untracked action items and emit events")
+	cmd.Flags().IntVar(&minConfidence, "min-confidence", 75, "minimum confidence threshold (0-100) for --action-items")
 	return cmd
 }
 
-func runActionItemScan(cmd *cobra.Command, root string) error {
+func runActionItemScan(cmd *cobra.Command, root string, minConfidence int) error {
 	absRoot, err := filepath.Abs(root)
 	if err != nil {
 		return err
@@ -60,12 +65,8 @@ func runActionItemScan(cmd *cobra.Command, root string) error {
 	writer.SetProjectPath(absRoot)
 	writer.SetContext(cmd.Context())
 
-	untracked := make([]drift.ReconciledActionItem, 0)
-	for _, item := range reconciled {
-		if item.Tracked {
-			continue
-		}
-		untracked = append(untracked, item)
+	untracked := selectUntrackedByConfidence(reconciled, minConfidence)
+	for _, item := range untracked {
 		payload := events.UntrackedItemDetectedPayload{
 			ID:         item.ID,
 			SourcePath: item.SourcePath,
@@ -80,9 +81,20 @@ func runActionItemScan(cmd *cobra.Command, root string) error {
 		}
 	}
 
-	fmt.Fprintf(cmd.OutOrStdout(), "Found %d action items (%d untracked)\n", len(reconciled), len(untracked))
+	fmt.Fprintf(cmd.OutOrStdout(), "Found %d untracked action items >= %d%% confidence\n", len(untracked), minConfidence)
 	for _, item := range untracked {
 		fmt.Fprintf(cmd.OutOrStdout(), "- [%d%%] %s:%d %s\n", item.Confidence, item.SourcePath, item.Line, item.Text)
 	}
 	return nil
+}
+
+func selectUntrackedByConfidence(items []drift.ReconciledActionItem, minConfidence int) []drift.ReconciledActionItem {
+	untracked := make([]drift.ReconciledActionItem, 0)
+	for _, item := range items {
+		if item.Tracked || item.Confidence < minConfidence {
+			continue
+		}
+		untracked = append(untracked, item)
+	}
+	return untracked
 }

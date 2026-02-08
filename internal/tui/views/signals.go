@@ -16,6 +16,7 @@ import (
 	"github.com/mistakeknot/autarch/pkg/events"
 	"github.com/mistakeknot/autarch/pkg/intermute"
 	"github.com/mistakeknot/autarch/pkg/signals"
+	"github.com/mistakeknot/autarch/pkg/timeout"
 	pkgtui "github.com/mistakeknot/autarch/pkg/tui"
 )
 
@@ -384,7 +385,9 @@ func (v *SignalsView) connectIntermute() tea.Cmd {
 			default:
 			}
 		})
-		if err := client.Connect(context.Background()); err != nil {
+		connectCtx, cancel := context.WithTimeout(context.TODO(), timeout.HTTPDefault)
+		defer cancel()
+		if err := client.Connect(connectCtx); err != nil {
 			return intermuteReadyMsg{err: err}
 		}
 		return intermuteReadyMsg{client: client}

@@ -15,7 +15,7 @@ import (
 	"github.com/mistakeknot/autarch/internal/gurgeh/exploration"
 	"github.com/mistakeknot/autarch/internal/gurgeh/specs"
 	"github.com/mistakeknot/autarch/pkg/thinking"
-	"gopkg.in/yaml.v3"
+	"github.com/mistakeknot/autarch/pkg/yamlsafe"
 )
 
 // ErrBlocker is returned when a blocker conflict prevents advancing.
@@ -833,12 +833,8 @@ func (o *Orchestrator) LoadVisionContext() *VisionContext {
 		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".yaml") {
 			continue
 		}
-		data, err := os.ReadFile(specsDir + "/" + entry.Name())
-		if err != nil {
-			continue
-		}
 		var spec specs.Spec
-		if err := yaml.Unmarshal(data, &spec); err != nil {
+		if _, err := yamlsafe.UnmarshalFile(specsDir+"/"+entry.Name(), &spec); err != nil {
 			continue
 		}
 		if spec.EffectiveType() != specs.SpecTypeVision {

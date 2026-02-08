@@ -9,6 +9,7 @@ import (
 
 	"github.com/mistakeknot/autarch/internal/gurgeh/project"
 	"github.com/mistakeknot/autarch/internal/gurgeh/specs"
+	"github.com/mistakeknot/autarch/pkg/yamlsafe"
 	"github.com/spf13/cobra"
 	"gopkg.in/yaml.v3"
 )
@@ -47,17 +48,12 @@ Examples:
 
 			// Read the PRD
 			specPath := filepath.Join(project.SpecsDir(cwd), prdID+".yaml")
-			data, err := os.ReadFile(specPath)
-			if err != nil {
+			var spec specs.Spec
+			if _, err := yamlsafe.UnmarshalFile(specPath, &spec); err != nil {
 				if os.IsNotExist(err) {
 					return fmt.Errorf("PRD not found: %s", prdID)
 				}
 				return fmt.Errorf("failed to read PRD: %w", err)
-			}
-
-			var spec specs.Spec
-			if err := yaml.Unmarshal(data, &spec); err != nil {
-				return fmt.Errorf("failed to parse PRD: %w", err)
 			}
 
 			// Check current status

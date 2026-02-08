@@ -13,11 +13,12 @@ import (
 
 	"github.com/mistakeknot/autarch/internal/gurgeh/arbiter"
 	"github.com/mistakeknot/autarch/internal/gurgeh/config"
-	pollardquick "github.com/mistakeknot/autarch/internal/pollard/quick"
 	praudePlan "github.com/mistakeknot/autarch/internal/gurgeh/plan"
 	"github.com/mistakeknot/autarch/internal/gurgeh/project"
 	"github.com/mistakeknot/autarch/internal/gurgeh/specs"
+	pollardquick "github.com/mistakeknot/autarch/internal/pollard/quick"
 	"github.com/mistakeknot/autarch/pkg/plan"
+	"github.com/mistakeknot/autarch/pkg/yamlsafe"
 	"github.com/spf13/cobra"
 	"gopkg.in/yaml.v3"
 )
@@ -70,11 +71,7 @@ The config file format:
 			// Load config from file if provided
 			var interviewCfg InterviewConfig
 			if configFile != "" {
-				data, err := os.ReadFile(configFile)
-				if err != nil {
-					return fmt.Errorf("failed to read config file: %w", err)
-				}
-				if err := yaml.Unmarshal(data, &interviewCfg); err != nil {
+				if _, err := yamlsafe.UnmarshalFile(configFile, &interviewCfg); err != nil {
 					return fmt.Errorf("failed to parse config file: %w", err)
 				}
 			}
@@ -97,7 +94,7 @@ The config file format:
 			summaries, _ := specs.LoadSummaries(project.SpecsDir(root))
 			if specs.NeedsVisionSpec(summaries) {
 				fmt.Fprintln(cmd.OutOrStdout(), "Vision spec required before creating another PRD. Starting vision sprint...")
-				return runVisionSprint(cmd.OutOrStdout(), root, interviewCfg)
+				return runVisionSprint(cmd.Context(), cmd.OutOrStdout(), root, interviewCfg)
 			}
 
 			// Handle plan mode
@@ -106,7 +103,7 @@ The config file format:
 			}
 
 			// Always use Arbiter sprint
-			return runArbiterSprint(cmd.OutOrStdout(), root, interviewCfg)
+			return runArbiterSprint(cmd.Context(), cmd.OutOrStdout(), root, interviewCfg)
 		},
 	}
 	cmd.Flags().StringVar(&vision, "vision", "", "Vision statement (non-interactive)")
@@ -120,10 +117,12 @@ The config file format:
 
 // runArbiterSprint uses the Arbiter orchestrator to programmatically walk through
 // all phases, accepting each draft automatically. Outputs the resulting spec.
-func runArbiterSprint(out io.Writer, root string, cfg InterviewConfig) error {
+func runArbiterSprint(ctx context.Context, out io.Writer, root string, cfg InterviewConfig) error {
 	orch := arbiter.NewOrchestrator(root)
 	orch.SetScanner(pollardquick.NewScanner())
-	ctx := context.Background()
+	if ctx == nil {
+		ctx = context.TODO()
+	}
 
 	state, err := orch.Start(ctx, cfg.Vision)
 	if err != nil {
@@ -192,10 +191,12 @@ func runArbiterSprint(out io.Writer, root string, cfg InterviewConfig) error {
 }
 
 // runVisionSprint runs an Arbiter sprint in vision mode.
-func runVisionSprint(out io.Writer, root string, cfg InterviewConfig) error {
+func runVisionSprint(ctx context.Context, out io.Writer, root string, cfg InterviewConfig) error {
 	orch := arbiter.NewOrchestrator(root)
 	orch.SetScanner(pollardquick.NewScanner())
-	ctx := context.Background()
+	if ctx == nil {
+		ctx = context.TODO()
+	}
 
 	state, err := orch.StartVision(ctx, cfg.Vision)
 	if err != nil {
@@ -241,7 +242,6 @@ func runVisionSprint(out io.Writer, root string, cfg InterviewConfig) error {
 	}
 	return nil
 }
-
 
 func writeSpec(root string, spec specs.Spec) (string, string, specs.ValidationResult, error) {
 	specDir := project.SpecsDir(root)

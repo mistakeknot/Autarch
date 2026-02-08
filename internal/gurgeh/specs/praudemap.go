@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/mistakeknot/autarch/pkg/yamlsafe"
 	"gopkg.in/yaml.v3"
 )
 
@@ -32,13 +33,8 @@ type Praudemap struct {
 // LoadPraudemap reads the praudemap from a project
 func LoadPraudemap(projectPath string) (*Praudemap, error) {
 	path := filepath.Join(resolveRootDir(projectPath), "praudemap.yaml")
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return nil, err
-	}
-
 	var pm Praudemap
-	if err := yaml.Unmarshal(data, &pm); err != nil {
+	if _, err := yamlsafe.UnmarshalFile(path, &pm); err != nil {
 		return nil, err
 	}
 	return &pm, nil

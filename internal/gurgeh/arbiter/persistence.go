@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/mistakeknot/autarch/pkg/yamlsafe"
 	"gopkg.in/yaml.v3"
 )
 
@@ -45,13 +46,8 @@ func LoadSprintState(projectPath, id string) (*SprintState, error) {
 
 	path := filepath.Join(projectPath, sprintsDir, id+".yaml")
 
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return nil, fmt.Errorf("read state: %w", err)
-	}
-
 	var state SprintState
-	if err := yaml.Unmarshal(data, &state); err != nil {
+	if _, err := yamlsafe.UnmarshalFile(path, &state); err != nil {
 		return nil, fmt.Errorf("unmarshal state: %w", err)
 	}
 

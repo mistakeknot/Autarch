@@ -613,7 +613,7 @@ func newOrchestratorWithScanner(projectPath string) *arbiter.Orchestrator {
 
 func (m *Model) startSprint() {
 	orch := newOrchestratorWithScanner(m.root)
-	ctx := context.Background()
+	ctx := context.TODO()
 
 	var state *arbiter.SprintState
 	var err error

@@ -59,7 +59,10 @@ func runWatch(cmd *cobra.Command, args []string) error {
 	publisher := signals.NewClient(signals.DefaultServerURL())
 	w := watch.NewWatcher(cwd, scanner, cfg, watchCfg, publisher)
 
-	ctx := context.Background()
+	ctx := cmd.Context()
+	if ctx == nil {
+		ctx = context.TODO()
+	}
 
 	if watchOnce {
 		result, err := w.RunOnce(ctx)

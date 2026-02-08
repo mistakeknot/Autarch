@@ -1,7 +1,6 @@
 package commands
 
 import (
-	"context"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -11,8 +10,8 @@ import (
 	"github.com/mistakeknot/autarch/internal/gurgeh/review"
 	"github.com/mistakeknot/autarch/internal/gurgeh/spec"
 	"github.com/mistakeknot/autarch/internal/gurgeh/specs"
+	"github.com/mistakeknot/autarch/pkg/yamlsafe"
 	"github.com/spf13/cobra"
-	"gopkg.in/yaml.v3"
 )
 
 // ReviewCmd runs multi-agent PRD review.
@@ -57,17 +56,12 @@ Examples:
 
 			// Read the PRD
 			specPath := filepath.Join(project.SpecsDir(cwd), prdID+".yaml")
-			data, err := os.ReadFile(specPath)
-			if err != nil {
+			var prdSpec specs.Spec
+			if _, err := yamlsafe.UnmarshalFile(specPath, &prdSpec); err != nil {
 				if os.IsNotExist(err) {
 					return fmt.Errorf("PRD not found: %s", prdID)
 				}
 				return fmt.Errorf("failed to read PRD: %w", err)
-			}
-
-			var prdSpec specs.Spec
-			if err := yaml.Unmarshal(data, &prdSpec); err != nil {
-				return fmt.Errorf("failed to parse PRD: %w", err)
 			}
 
 			// Run parallel review
@@ -75,7 +69,7 @@ Examples:
 			fmt.Println("Running reviewers...")
 
 			reviewers := review.DefaultReviewers()
-			result, err := review.RunParallelReview(context.Background(), &prdSpec, reviewers)
+			result, err := review.RunParallelReview(cmd.Context(), &prdSpec, reviewers)
 			if err != nil {
 				return fmt.Errorf("review failed: %w", err)
 			}

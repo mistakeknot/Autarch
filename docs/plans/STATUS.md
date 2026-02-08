@@ -31,7 +31,7 @@
 | 2026-01-22-agent-targets-implementation-plan.md | commit | paths:6 latest:2026-01-28 |
 | 2026-01-22-praude-archive-delete-plan.md | commit | paths:8 latest:2026-01-24 |
 | 2026-01-22-praude-interview-agent-iteration-plan.md | commit | paths:1 latest:2026-01-24 |
-| 2026-01-22-praude-status-list-ux-plan.md | commit | paths:11 latest:2026-01-27 |
+| 2026-01-22-praude-status-list-ux-plan.md | commit | paths:11 latest:2026-02-07 |
 | 2026-01-22-praude-vauxhall-style-parity-plan.md | commit | paths:4 latest:2026-02-05 |
 | 2026-01-22-tandemonium-apply-detection-atomic-plan.md | commit | paths:2 latest:2026-01-24 |
 | 2026-01-22-tandemonium-atomic-yaml-writes-plan.md | commit | paths:7 latest:2026-01-24 |
@@ -40,15 +40,15 @@
 | 2026-01-22-tandemonium-reviewstate-extraction-plan.md | commit | paths:3 latest:2026-02-04 |
 | 2026-01-22-tandemonium-tui-db-reuse-plan.md | commit | paths:2 latest:2026-01-24 |
 | 2026-01-22-vauxhall-m1b-parity-implementation-plan.md | commit | paths:6 latest:2026-01-28 |
-| 2026-01-22-vauxhall-search-filters-plan.md | commit | paths:2 latest:2026-01-29 |
-| 2026-01-22-vauxhall-tui-two-pane-layout-implementation-plan.md | commit | paths:2 latest:2026-01-29 |
+| 2026-01-22-vauxhall-search-filters-plan.md | commit | paths:2 latest:2026-02-07 |
+| 2026-01-22-vauxhall-tui-two-pane-layout-implementation-plan.md | commit | paths:2 latest:2026-02-07 |
 | 2026-01-23-praude-interview-layout-init-answers-plan.md | commit | paths:5 latest:2026-02-05 |
 | 2026-01-23-praude-interview-polish-implementation-plan.md | commit | paths:2 latest:2026-02-05 |
-| 2026-01-23-tandemonium-init-epics-implementation-plan.md | commit | paths:7 latest:2026-02-04 |
+| 2026-01-23-tandemonium-init-epics-implementation-plan.md | commit | paths:7 latest:2026-02-07 |
 | 2026-01-23-tandemonium-init-epics-validation-plan.md | commit | paths:3 latest:2026-01-27 |
 | 2026-01-23-tandemonium-tui-vauxhall-port-plan.md | commit | paths:4 latest:2026-02-05 |
-| 2026-01-23-vauxhall-focus-pane-plan.md | commit | paths:2 latest:2026-01-29 |
-| 2026-01-23-vauxhall-grouping-plan.md | commit | paths:2 latest:2026-01-29 |
+| 2026-01-23-vauxhall-focus-pane-plan.md | commit | paths:2 latest:2026-02-07 |
+| 2026-01-23-vauxhall-grouping-plan.md | commit | paths:2 latest:2026-02-07 |
 | 2026-01-23-vauxhall-web-search-filters-plan.md | commit | paths:4 latest:2026-02-07 |
 | 2026-01-25-intermute-mvp-implementation-plan.md | commit | paths:17 latest:2026-02-06 |
 | 2026-01-26-arbiter-spec-sprint-implementation.md | commit | paths:9 latest:2026-02-07 |
@@ -63,7 +63,7 @@
 | 2026-01-28-agent-panel-streaming-diff-plan.md | commit | paths:5 latest:2026-02-04 |
 | 2026-01-28-feat-coordination-api-foundation-plan.md | derived | pkg/httpapi/envelope.go, internal/pollard/server/server.go, pkg/jobs/jobs.go, internal/pollard/server/cache.go, pkg/netguard/bind.go, internal/gurgeh/server/server.go, internal/signals/cli/serve.go, pkg/signals/server.go |
 | 2026-01-28-feat-gurgeh-readonly-spec-api-plan.md | commit | paths:7 latest:2026-02-07 |
-| 2026-01-28-fix-guardrails-followthrough-plan.md | commit | paths:6 latest:2026-01-30 |
+| 2026-01-28-fix-guardrails-followthrough-plan.md | commit | paths:6 latest:2026-02-07 |
 | 2026-01-28-hide-system-labels-chat-panel-plan.md | commit | paths:2 latest:2026-02-04 |
 | 2026-01-28-kickoff-chat-initial-system-messages-plan.md | commit | paths:2 latest:2026-02-04 |
 | 2026-01-28-kickoff-doc-template-copy-plan.md | commit | paths:2 latest:2026-02-04 |

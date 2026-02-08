@@ -66,7 +66,7 @@ func exportBriefs(cmd *cobra.Command, spec *specs.Spec, root string, timeout tim
 	fmt.Fprintln(cmd.OutOrStdout(), "⏳ This may take a few minutes...")
 	fmt.Fprintln(cmd.OutOrStdout())
 
-	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	ctx, cancel := context.WithTimeout(cmd.Context(), timeout)
 	defer cancel()
 
 	start := time.Now()

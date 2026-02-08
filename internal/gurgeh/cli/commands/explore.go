@@ -55,7 +55,7 @@ Example:
 				fmt.Println()
 			}
 
-			ctx, cancel := context.WithTimeout(context.Background(), timeout)
+			ctx, cancel := context.WithTimeout(cmd.Context(), timeout)
 			defer cancel()
 
 			start := time.Now()

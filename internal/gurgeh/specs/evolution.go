@@ -10,6 +10,7 @@ import (
 	"time"
 
 	fileutil "github.com/mistakeknot/autarch/internal/file"
+	"github.com/mistakeknot/autarch/pkg/yamlsafe"
 	"gopkg.in/yaml.v3"
 )
 
@@ -167,12 +168,8 @@ func LoadHistory(root, specID string) ([]SpecRevision, error) {
 		if !strings.HasPrefix(name, prefix) || !strings.HasSuffix(name, "_rev.yaml") {
 			continue
 		}
-		data, err := os.ReadFile(filepath.Join(dir, name))
-		if err != nil {
-			continue
-		}
 		var rev SpecRevision
-		if err := yaml.Unmarshal(data, &rev); err != nil {
+		if _, err := yamlsafe.UnmarshalFile(filepath.Join(dir, name), &rev); err != nil {
 			continue
 		}
 		revisions = append(revisions, rev)

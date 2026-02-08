@@ -145,7 +145,7 @@ func (v *ArbiterView) SetCompleteCallback(cb func(answers map[string]string) tea
 // Init implements pkgtui.View.
 func (v *ArbiterView) Init() tea.Cmd {
 	return func() tea.Msg {
-		_, err := v.orchestrator.Start(context.Background(), "")
+		_, err := v.orchestrator.Start(context.TODO(), "")
 		return arbiterStartedMsg{err: err}
 	}
 }
@@ -153,7 +153,7 @@ func (v *ArbiterView) Init() tea.Cmd {
 // StartWithInput initializes the sprint with user-provided input.
 func (v *ArbiterView) StartWithInput(input string) tea.Cmd {
 	return func() tea.Msg {
-		_, err := v.orchestrator.Start(context.Background(), input)
+		_, err := v.orchestrator.Start(context.TODO(), input)
 		return arbiterStartedMsg{err: err}
 	}
 }
@@ -261,7 +261,7 @@ func (v *ArbiterView) handleHandoffKey(key string) (pkgtui.View, tea.Cmd) {
 
 func (v *ArbiterView) acceptDraft() (pkgtui.View, tea.Cmd) {
 	v.chatPanel.AddMessage("user", fmt.Sprintf("✓ Accepted %s", v.state.Phase.String()))
-	newState, err := v.orchestrator.AcceptAndAdvance(context.Background())
+	newState, err := v.orchestrator.AcceptAndAdvance(context.TODO())
 	if newState != nil {
 		v.state = newState
 	}

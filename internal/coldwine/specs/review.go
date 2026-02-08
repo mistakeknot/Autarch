@@ -1,19 +1,14 @@
 package specs
 
 import (
-	"os"
-
 	fileutil "github.com/mistakeknot/autarch/internal/file"
+	"github.com/mistakeknot/autarch/pkg/yamlsafe"
 	"gopkg.in/yaml.v3"
 )
 
 func UpdateUserStory(path, text string) error {
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return err
-	}
 	doc := map[string]interface{}{}
-	if err := yaml.Unmarshal(data, &doc); err != nil {
+	if _, err := yamlsafe.UnmarshalFile(path, &doc); err != nil {
 		return err
 	}
 	userStory := map[string]interface{}{
@@ -29,12 +24,8 @@ func UpdateUserStory(path, text string) error {
 }
 
 func AppendReviewFeedback(path, text string) error {
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return err
-	}
 	doc := map[string]interface{}{}
-	if err := yaml.Unmarshal(data, &doc); err != nil {
+	if _, err := yamlsafe.UnmarshalFile(path, &doc); err != nil {
 		return err
 	}
 	var list []interface{}
@@ -53,12 +44,8 @@ func AppendReviewFeedback(path, text string) error {
 }
 
 func AppendMVPExplanation(path, text string) error {
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return err
-	}
 	doc := map[string]interface{}{}
-	if err := yaml.Unmarshal(data, &doc); err != nil {
+	if _, err := yamlsafe.UnmarshalFile(path, &doc); err != nil {
 		return err
 	}
 	var list []interface{}
@@ -77,12 +64,8 @@ func AppendMVPExplanation(path, text string) error {
 }
 
 func AcknowledgeMVPOverride(path string) error {
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return err
-	}
 	doc := map[string]interface{}{}
-	if err := yaml.Unmarshal(data, &doc); err != nil {
+	if _, err := yamlsafe.UnmarshalFile(path, &doc); err != nil {
 		return err
 	}
 	doc["mvp_override"] = "acknowledged"
