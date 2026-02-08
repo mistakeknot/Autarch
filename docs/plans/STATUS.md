@@ -12,7 +12,7 @@
 
 - Todo-tracked: 5
 - Derived evidence: 1
-- Commit evidence: 52
+- Commit evidence: 53
 - Preexisting paths (no git evidence): 1
 - No evidence: 7
 
@@ -34,7 +34,7 @@
 | 2026-01-22-praude-status-list-ux-plan.md | commit | paths:11 latest:2026-02-07 |
 | 2026-01-22-praude-vauxhall-style-parity-plan.md | commit | paths:4 latest:2026-02-05 |
 | 2026-01-22-tandemonium-apply-detection-atomic-plan.md | commit | paths:2 latest:2026-01-24 |
-| 2026-01-22-tandemonium-atomic-yaml-writes-plan.md | commit | paths:7 latest:2026-01-24 |
+| 2026-01-22-tandemonium-atomic-yaml-writes-plan.md | commit | paths:7 latest:2026-02-07 |
 | 2026-01-22-tandemonium-foreign-keys-implementation-plan.md | commit | paths:1 latest:2026-01-24 |
 | 2026-01-22-tandemonium-reject-task-fix-plan.md | commit | paths:1 latest:2026-01-24 |
 | 2026-01-22-tandemonium-reviewstate-extraction-plan.md | commit | paths:3 latest:2026-02-04 |
@@ -42,7 +42,7 @@
 | 2026-01-22-vauxhall-m1b-parity-implementation-plan.md | commit | paths:6 latest:2026-01-28 |
 | 2026-01-22-vauxhall-search-filters-plan.md | commit | paths:2 latest:2026-02-07 |
 | 2026-01-22-vauxhall-tui-two-pane-layout-implementation-plan.md | commit | paths:2 latest:2026-02-07 |
-| 2026-01-23-praude-interview-layout-init-answers-plan.md | commit | paths:5 latest:2026-02-05 |
+| 2026-01-23-praude-interview-layout-init-answers-plan.md | commit | paths:5 latest:2026-02-07 |
 | 2026-01-23-praude-interview-polish-implementation-plan.md | commit | paths:2 latest:2026-02-05 |
 | 2026-01-23-tandemonium-init-epics-implementation-plan.md | commit | paths:7 latest:2026-02-07 |
 | 2026-01-23-tandemonium-init-epics-validation-plan.md | commit | paths:3 latest:2026-01-27 |
@@ -73,7 +73,7 @@
 | 2026-01-29-scan-artifact-ui-display.md | commit | paths:4 latest:2026-02-07 |
 | 2026-01-29-scan-artifact-validation.md | commit | paths:14 latest:2026-01-29 |
 | 2026-01-29-scan-open-questions-ui.md | commit | paths:2 latest:2026-02-04 |
-| 2026-01-29-scan-signoff-breadcrumb-plan.md | commit | paths:4 latest:2026-02-06 |
+| 2026-01-29-scan-signoff-breadcrumb-plan.md | commit | paths:4 latest:2026-02-07 |
 | 2026-01-29-scan-validation-wiring.md | commit | paths:3 latest:2026-02-07 |
 | 2026-01-29-structured-scan-output.md | commit | paths:3 latest:2026-02-05 |
 | 2026-01-30-chat-panel-mouse-scroll.md | commit | paths:2 latest:2026-02-04 |
@@ -94,6 +94,7 @@
 | 2026-02-06-phase-2a-dead-code-cleanup.md | commit | paths:1 latest:2026-02-06 |
 | 2026-02-06-phase-2b-app-unifiedapp-merge.md | commit | paths:2 latest:2026-02-07 |
 | 2026-02-07-phase-2c-onboarding-into-gurgeh.md | commit | paths:4 latest:2026-02-07 |
+| 2026-02-07-phase-3-signals-overlay.md | commit | paths:2 latest:2026-02-07 |
 
 ## Derived Evidence Details
 
