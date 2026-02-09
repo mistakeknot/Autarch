@@ -27,6 +27,8 @@ type ColdwineView struct {
 	shell *pkgtui.ShellLayout
 	// Chat panel for interactive input
 	chatPanel *pkgtui.ChatPanel
+	// Chat handler for Coldwine-specific context
+	chatHandler *ColdwineChatHandler
 }
 
 // NewColdwineView creates a new Coldwine view
@@ -34,11 +36,14 @@ func NewColdwineView(client *autarch.Client) *ColdwineView {
 	chatPanel := pkgtui.NewChatPanel()
 	chatPanel.SetComposerPlaceholder("Ask questions about this epic...")
 	chatPanel.SetComposerHint("enter send  tab focus  ctrl+b sidebar")
+	chatHandler := NewColdwineChatHandler()
+	chatPanel.SetHandler(chatHandler)
 
 	return &ColdwineView{
-		client:    client,
-		shell:     pkgtui.NewShellLayout(),
-		chatPanel: chatPanel,
+		client:      client,
+		shell:       pkgtui.NewShellLayout(),
+		chatPanel:   chatPanel,
+		chatHandler: chatHandler,
 	}
 }
 
@@ -96,6 +101,12 @@ func (v *ColdwineView) loadData() tea.Cmd {
 // Update implements View
 func (v *ColdwineView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
 	var cmd tea.Cmd
+	if _, isKey := msg.(tea.KeyMsg); !isKey {
+		v.chatPanel, cmd = v.chatPanel.Update(msg)
+		if cmd != nil {
+			return v, cmd
+		}
+	}
 
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
@@ -287,6 +298,7 @@ func (v *ColdwineView) Focus() tea.Cmd {
 
 // Blur implements View
 func (v *ColdwineView) Blur() {
+	v.chatPanel.CancelStream()
 	v.chatPanel.Blur()
 }
 

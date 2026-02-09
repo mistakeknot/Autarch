@@ -33,6 +33,8 @@ type GurgehView struct {
 	shell *pkgtui.ShellLayout
 	// Chat panel for interactive input
 	chatPanel *pkgtui.ChatPanel
+	// Chat handler with spec-aware context
+	chatHandler *GurgehChatHandler
 
 	// Onboarding sub-view (nil when no config provided, or after onboarding completes)
 	onboarding *GurgehOnboardingView
@@ -46,11 +48,15 @@ func NewGurgehView(client *autarch.Client, cfg *tui.GurgehConfig) *GurgehView {
 	chatPanel := pkgtui.NewChatPanel()
 	chatPanel.SetComposerPlaceholder("Ask questions about this spec...")
 	chatPanel.SetComposerHint("enter send  tab focus  ctrl+b sidebar")
+	chatHandler := NewGurgehChatHandler()
+	chatHandler.SetSpecStore(client)
+	chatPanel.SetHandler(chatHandler)
 
 	v := &GurgehView{
-		client:    client,
-		shell:     pkgtui.NewShellLayout(),
-		chatPanel: chatPanel,
+		client:      client,
+		shell:       pkgtui.NewShellLayout(),
+		chatPanel:   chatPanel,
+		chatHandler: chatHandler,
 	}
 	if cfg != nil {
 		cfg.Client = client
@@ -112,6 +118,17 @@ func (v *GurgehView) loadSpecs() tea.Cmd {
 	}
 }
 
+func (v *GurgehView) syncCurrentSpecForChat() {
+	if v.chatHandler == nil {
+		return
+	}
+	if v.selected < 0 || v.selected >= len(v.specs) {
+		v.chatHandler.SetCurrentSpec("")
+		return
+	}
+	v.chatHandler.SetCurrentSpec(v.specs[v.selected].ID)
+}
+
 // Update implements View
 func (v *GurgehView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
 	// --- Onboarding delegation ---
@@ -145,6 +162,12 @@ func (v *GurgehView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
 
 	// --- Spec browser mode ---
 	var cmd tea.Cmd
+	if _, isKey := msg.(tea.KeyMsg); !isKey {
+		v.chatPanel, cmd = v.chatPanel.Update(msg)
+		if cmd != nil {
+			return v, cmd
+		}
+	}
 
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
@@ -169,6 +192,7 @@ func (v *GurgehView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
 				}
 				v.pendingSpecID = ""
 			}
+			v.syncCurrentSpecForChat()
 		}
 		return v, nil
 
@@ -177,6 +201,7 @@ func (v *GurgehView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
 		for i, s := range v.specs {
 			if s.ID == msg.ItemID {
 				v.selected = i
+				v.syncCurrentSpecForChat()
 				break
 			}
 		}
@@ -198,10 +223,12 @@ func (v *GurgehView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
 			case key.Matches(msg, commonKeys.NavDown):
 				if v.selected < len(v.specs)-1 {
 					v.selected++
+					v.syncCurrentSpecForChat()
 				}
 			case key.Matches(msg, commonKeys.NavUp):
 				if v.selected > 0 {
 					v.selected--
+					v.syncCurrentSpecForChat()
 				}
 			case key.Matches(msg, commonKeys.Refresh):
 				v.loading = true
@@ -344,6 +371,7 @@ func (v *GurgehView) Focus() tea.Cmd {
 
 // Blur implements View
 func (v *GurgehView) Blur() {
+	v.chatPanel.CancelStream()
 	v.chatPanel.Blur()
 	if v.onboarding != nil {
 		v.onboarding.Blur()

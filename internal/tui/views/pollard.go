@@ -25,6 +25,8 @@ type PollardView struct {
 	shell *pkgtui.ShellLayout
 	// Chat panel for interactive input
 	chatPanel *pkgtui.ChatPanel
+	// Chat handler for Pollard-specific context
+	chatHandler *PollardChatHandler
 }
 
 // NewPollardView creates a new Pollard view
@@ -32,11 +34,14 @@ func NewPollardView(client *autarch.Client) *PollardView {
 	chatPanel := pkgtui.NewChatPanel()
 	chatPanel.SetComposerPlaceholder("Ask questions about this insight...")
 	chatPanel.SetComposerHint("enter send  tab focus  ctrl+b sidebar")
+	chatHandler := NewPollardChatHandler()
+	chatPanel.SetHandler(chatHandler)
 
 	return &PollardView{
-		client:    client,
-		shell:     pkgtui.NewShellLayout(),
-		chatPanel: chatPanel,
+		client:      client,
+		shell:       pkgtui.NewShellLayout(),
+		chatPanel:   chatPanel,
+		chatHandler: chatHandler,
 	}
 }
 
@@ -81,6 +86,12 @@ func (v *PollardView) loadInsights() tea.Cmd {
 // Update implements View
 func (v *PollardView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
 	var cmd tea.Cmd
+	if _, isKey := msg.(tea.KeyMsg); !isKey {
+		v.chatPanel, cmd = v.chatPanel.Update(msg)
+		if cmd != nil {
+			return v, cmd
+		}
+	}
 
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
@@ -292,6 +303,7 @@ func (v *PollardView) Focus() tea.Cmd {
 
 // Blur implements View
 func (v *PollardView) Blur() {
+	v.chatPanel.CancelStream()
 	v.chatPanel.Blur()
 }
 

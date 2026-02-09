@@ -1,9 +1,12 @@
 package tui
 
 import (
+	"context"
 	"strings"
 
+	"github.com/charmbracelet/bubbles/spinner"
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/glamour"
 	"github.com/charmbracelet/lipgloss"
 )
 
@@ -39,18 +42,53 @@ type ChatPanel struct {
 	width         int
 	height        int
 	scroll        int // Scroll offset for history (0 = bottom)
+	mdRenderer    *glamour.TermRenderer
+	mdWidth       int
+	spinner       spinner.Model
+	status        string // Current status text ("Thinking...", "Responding...", "")
+	streaming     bool   // Whether the agent is currently streaming
+	handler       ChatHandler
+	chatState     ChatState
+	streamCtx     context.Context
+	cancelStream  context.CancelFunc
+	events        <-chan StreamMsg
+}
+
+// StreamChunkMsg wraps a StreamMsg for delivery via Bubble Tea's message system.
+type StreamChunkMsg struct {
+	Event StreamMsg
+}
+
+type streamStartedMsg struct {
+	events <-chan StreamMsg
+}
+
+// MultiTurnHandler is optionally implemented by ChatHandlers that support multi-turn.
+type MultiTurnHandler interface {
+	SetContinue(cont bool, sessionID string)
+	ResetSession()
 }
 
 // NewChatPanel creates a new chat panel with default settings.
 func NewChatPanel() *ChatPanel {
-	composer := NewComposer(4)
+	composer := NewComposer(6)
 	picker := NewCommandPicker(GlobalCommands())
+	s := spinner.New()
+	s.Spinner = spinner.Dot
+	s.Style = lipgloss.NewStyle().Foreground(ColorPrimary)
 	return &ChatPanel{
 		messages:      []ChatMessage{},
 		composer:      composer,
 		commandPicker: picker,
 		settings:      DefaultChatSettings(),
+		spinner:       s,
+		chatState:     ChatIdle,
 	}
+}
+
+// SetHandler sets the ChatHandler for processing non-slash input.
+func (p *ChatPanel) SetHandler(handler ChatHandler) {
+	p.handler = handler
 }
 
 // AddMessage adds a message to the chat history.
@@ -69,10 +107,38 @@ func (p *ChatPanel) AddMessage(role, content string) {
 	}
 }
 
+// SetStatus sets the streaming status label. Pass empty string to clear.
+func (p *ChatPanel) SetStatus(status string) {
+	p.status = status
+	p.streaming = status != ""
+}
+
+// IsStreaming returns whether the agent is currently streaming.
+func (p *ChatPanel) IsStreaming() bool {
+	return p.streaming
+}
+
+// SpinnerTick returns the spinner tick command. Call this from the parent view's Init or when streaming starts.
+func (p *ChatPanel) SpinnerTick() tea.Cmd {
+	return p.spinner.Tick
+}
+
 // ClearMessages removes all messages from the chat history.
 func (p *ChatPanel) ClearMessages() {
 	p.messages = nil
 	p.scroll = 0
+}
+
+// ResetSession clears chat history and resets handler continuation state.
+func (p *ChatPanel) ResetSession() {
+	if mth, ok := p.handler.(MultiTurnHandler); ok {
+		mth.ResetSession()
+	}
+	p.messages = nil
+	p.scroll = 0
+	p.chatState = ChatIdle
+	p.SetStatus("")
+	p.cleanupStream()
 }
 
 // Messages returns a copy of all messages.
@@ -87,13 +153,44 @@ func (p *ChatPanel) SetSize(width, height int) {
 	p.width = width
 	p.height = height
 
-	// Composer gets fixed height at bottom
-	composerHeight := 8 // 4 lines content + borders/decorations
+	// Composer has a dynamic content height but bounded max area.
+	composerHeight := 12
 	p.composer.SetSize(width, composerHeight)
+}
+
+func (p *ChatPanel) markdownRenderer(width int) *glamour.TermRenderer {
+	if p.mdRenderer != nil && p.mdWidth == width {
+		return p.mdRenderer
+	}
+	r, err := glamour.NewTermRenderer(
+		glamour.WithWordWrap(width),
+		glamour.WithStandardStyle("dark"),
+	)
+	if err != nil {
+		return nil
+	}
+	p.mdRenderer = r
+	p.mdWidth = width
+	return r
 }
 
 // Update handles tea.Msg for the chat panel.
 func (p *ChatPanel) Update(msg tea.Msg) (*ChatPanel, tea.Cmd) {
+	// Handle spinner animation
+	if msg, ok := msg.(spinner.TickMsg); ok && p.streaming {
+		var cmd tea.Cmd
+		p.spinner, cmd = p.spinner.Update(msg)
+		return p, cmd
+	}
+
+	switch typedMsg := msg.(type) {
+	case streamStartedMsg:
+		p.events = typedMsg.events
+		return p, waitForStreamEvent(p.events)
+	case StreamChunkMsg:
+		return p.handleStreamChunk(typedMsg.Event)
+	}
+
 	if keyMsg, ok := msg.(tea.KeyMsg); ok {
 		// Handle command picker first if visible
 		if p.commandPicker != nil && p.commandPicker.Visible() {
@@ -168,8 +265,19 @@ func (p *ChatPanel) View() string {
 		selectorHeight = 1
 	}
 
+	// Render composer first so history can use its actual height.
+	if p.selector != nil {
+		p.composer.SetTitle("Model: " + p.selector.currentName())
+	} else {
+		p.composer.SetTitle("")
+	}
+	composerView := p.composer.View()
+
 	// Calculate heights
-	composerHeight := 8                                             // Fixed height for composer area
+	composerHeight := lipgloss.Height(composerView)
+	if composerHeight < 1 {
+		composerHeight = 1
+	}
 	historyHeight := p.height - composerHeight - 1 - selectorHeight // -1 for separator
 	if historyHeight < 1 {
 		historyHeight = 1
@@ -182,14 +290,6 @@ func (p *ChatPanel) View() string {
 	separatorStyle := lipgloss.NewStyle().
 		Foreground(ColorMuted)
 	separator := separatorStyle.Render(strings.Repeat("─", 40))
-
-	// Render composer
-	if p.selector != nil {
-		p.composer.SetTitle("Model: " + p.selector.currentName())
-	} else {
-		p.composer.SetTitle("")
-	}
-	composerView := p.composer.View()
 
 	// Join vertically - don't add Width constraints here
 	// The SplitLayout.ensureSize() handles width normalization
@@ -244,21 +344,61 @@ func (p *ChatPanel) renderHistory(height int) string {
 		}
 		lastRole = roleLower
 
-		// Content with indent
-		contentStyle := lipgloss.NewStyle().
-			Foreground(ColorFg).
-			PaddingLeft(2)
-
-		// Wrap content to fit width
+		// Content rendering — agent messages get markdown, others get plain text
 		contentWidth := p.width - 4
 		if contentWidth < 10 {
 			contentWidth = 10
 		}
-		wrapped := wrapText(msg.Content, contentWidth)
-		for _, line := range strings.Split(wrapped, "\n") {
-			lines = append(lines, contentStyle.Render(line))
+
+		if strings.ToLower(msg.Role) == "agent" {
+			// Render agent messages as markdown via glamour
+			if r := p.markdownRenderer(contentWidth); r != nil {
+				rendered, err := r.Render(msg.Content)
+				if err == nil {
+					rendered = strings.TrimSpace(rendered)
+					// Indent rendered markdown
+					contentStyle := lipgloss.NewStyle().PaddingLeft(2)
+					lines = append(lines, contentStyle.Render(rendered))
+				} else {
+					// Fallback to plain text on render error
+					contentStyle := lipgloss.NewStyle().
+						Foreground(ColorFg).
+						PaddingLeft(2)
+					wrapped := wrapText(msg.Content, contentWidth)
+					for _, line := range strings.Split(wrapped, "\n") {
+						lines = append(lines, contentStyle.Render(line))
+					}
+				}
+			} else {
+				// Fallback if renderer creation fails
+				contentStyle := lipgloss.NewStyle().
+					Foreground(ColorFg).
+					PaddingLeft(2)
+				wrapped := wrapText(msg.Content, contentWidth)
+				for _, line := range strings.Split(wrapped, "\n") {
+					lines = append(lines, contentStyle.Render(line))
+				}
+			}
+		} else {
+			// User and system messages: plain text with word wrap
+			contentStyle := lipgloss.NewStyle().
+				Foreground(ColorFg).
+				PaddingLeft(2)
+			wrapped := wrapText(msg.Content, contentWidth)
+			for _, line := range strings.Split(wrapped, "\n") {
+				lines = append(lines, contentStyle.Render(line))
+			}
 		}
 		lines = append(lines, "") // Blank line between messages
+	}
+
+	// Add streaming status indicator
+	if p.streaming && p.status != "" {
+		statusStyle := lipgloss.NewStyle().
+			Foreground(ColorPrimary).
+			PaddingLeft(2)
+		lines = append(lines, statusStyle.Render(p.spinner.View()+" "+p.status))
+		lines = append(lines, "") // Blank line after status
 	}
 
 	// Apply scrolling - show most recent messages that fit
@@ -392,19 +532,155 @@ func (p *ChatPanel) ScrollOffsetForTest() int {
 	return p.scroll
 }
 
-// SubmitInput returns the current composer value and checks if it's a slash command.
-// If it's a slash command, it returns a SlashCommandMsg command and clears the composer.
-// If it's regular text, it returns nil and leaves the value for the caller to handle.
-// Use this when the user presses Enter to submit input.
+// SubmitInput processes slash commands and non-slash chat input.
 func (p *ChatPanel) SubmitInput() tea.Cmd {
-	value := p.Value()
+	value := strings.TrimSpace(p.Value())
+	if value == "" {
+		return nil
+	}
+
 	if cmd, args, isSlash := ParseSlashCommand(value); isSlash {
 		p.ClearComposer()
+		trimmed := strings.ToLower(strings.TrimSpace(value))
+		if trimmed == "/new" || trimmed == "/clear" {
+			p.ResetSession()
+			return nil
+		}
 		return func() tea.Msg {
 			return SlashCommandMsg{Command: cmd, Args: args}
 		}
 	}
-	return nil
+
+	if p.handler == nil {
+		return nil
+	}
+
+	p.ClearComposer()
+	p.AddMessage("user", value)
+	p.cleanupStream()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	p.streamCtx = ctx
+	p.cancelStream = cancel
+	p.chatState = ChatThinking
+	p.SetStatus(ChatThinking.String())
+	p.messages = append(p.messages, ChatMessage{Role: "agent", Content: ""})
+
+	handler := p.handler
+	userMsg := value
+
+	return tea.Batch(
+		p.SpinnerTick(),
+		func() tea.Msg {
+			events, err := handler.HandleMessage(ctx, userMsg)
+			if err != nil {
+				return StreamChunkMsg{Event: StreamError{Err: err}}
+			}
+			return streamStartedMsg{events: events}
+		},
+	)
+}
+
+// CancelStream cancels any active streaming and returns to idle state.
+func (p *ChatPanel) CancelStream() {
+	if p.chatState == ChatIdle {
+		return
+	}
+	p.chatState = ChatIdle
+	p.SetStatus("")
+	p.cleanupStream()
+}
+
+func (p *ChatPanel) handleStreamChunk(event StreamMsg) (*ChatPanel, tea.Cmd) {
+	switch e := event.(type) {
+	case TextDelta:
+		if len(p.messages) == 0 || strings.ToLower(p.messages[len(p.messages)-1].Role) != "agent" {
+			p.messages = append(p.messages, ChatMessage{Role: "agent", Content: e.Text})
+		} else {
+			last := &p.messages[len(p.messages)-1]
+			last.Content += e.Text
+		}
+		if p.chatState != ChatStreaming {
+			p.chatState = ChatStreaming
+			p.SetStatus(ChatStreaming.String())
+		}
+		p.scroll = 0
+		return p, waitForStreamEvent(p.events)
+
+	case ReasoningStart:
+		p.chatState = ChatThinking
+		p.SetStatus(ChatThinking.String())
+		return p, tea.Batch(p.SpinnerTick(), waitForStreamEvent(p.events))
+
+	case ReasoningDelta:
+		return p, waitForStreamEvent(p.events)
+
+	case ReasoningEnd:
+		return p, waitForStreamEvent(p.events)
+
+	case ToolCallStart:
+		return p, waitForStreamEvent(p.events)
+
+	case ToolCallInput:
+		return p, waitForStreamEvent(p.events)
+
+	case ToolCallResult:
+		return p, waitForStreamEvent(p.events)
+
+	case StreamError:
+		p.chatState = ChatError
+		p.SetStatus("")
+		if len(p.messages) > 0 {
+			last := &p.messages[len(p.messages)-1]
+			if strings.TrimSpace(last.Content) == "" {
+				last.Content = "Error: " + e.Err.Error()
+			}
+		}
+		p.cleanupStream()
+		return p, nil
+
+	case StreamDone:
+		p.chatState = ChatIdle
+		p.SetStatus("")
+		// Enable multi-turn continuation if the handler supports it.
+		if e.SessionID != "" {
+			if mth, ok := p.handler.(MultiTurnHandler); ok {
+				mth.SetContinue(true, e.SessionID)
+			}
+		}
+		if len(p.messages) > 0 {
+			last := p.messages[len(p.messages)-1]
+			if strings.ToLower(last.Role) == "agent" && strings.TrimSpace(last.Content) == "" {
+				p.messages = p.messages[:len(p.messages)-1]
+			}
+		}
+		p.cleanupStream()
+		return p, nil
+	}
+
+	return p, waitForStreamEvent(p.events)
+}
+
+func (p *ChatPanel) cleanupStream() {
+	if p.cancelStream != nil {
+		p.cancelStream()
+	}
+	p.streamCtx = nil
+	p.cancelStream = nil
+	p.events = nil
+}
+
+func waitForStreamEvent(events <-chan StreamMsg) tea.Cmd {
+	return func() tea.Msg {
+		if events == nil {
+			return StreamChunkMsg{Event: StreamDone{FinishReason: "stop"}}
+		}
+		event, ok := <-events
+		if !ok {
+			return StreamChunkMsg{Event: StreamDone{FinishReason: "stop"}}
+		}
+		return StreamChunkMsg{Event: event}
+	}
 }
 
 // SetViewCommands sets view-specific slash commands for the picker.

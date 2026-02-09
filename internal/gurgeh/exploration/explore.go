@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/mistakeknot/autarch/pkg/claude"
 	"golang.org/x/text/cases"
 	"golang.org/x/text/language"
 )
@@ -58,7 +59,19 @@ func Explore(ctx context.Context, cwd string) (map[string]any, string, error) {
 			continue
 		}
 
-		var msg streamMessage
+		var msg struct {
+			Type      string `json:"type"`
+			SessionID string `json:"session_id"`
+			Result    string `json:"result"`
+			IsError   bool   `json:"is_error"`
+			Message   *struct {
+				Content []struct {
+					Type  string         `json:"type"`
+					Name  string         `json:"name"`
+					Input map[string]any `json:"input"`
+				} `json:"content"`
+			} `json:"message"`
+		}
 		if err := json.Unmarshal([]byte(line), &msg); err != nil {
 			continue // Skip malformed lines
 		}
@@ -272,7 +285,18 @@ Return ONLY the section content, no headers or markdown fences.`, phase, explora
 			continue
 		}
 
-		var msg streamMessage
+		var msg struct {
+			Type    string `json:"type"`
+			Result  string `json:"result"`
+			IsError bool   `json:"is_error"`
+			Message *struct {
+				Content []struct {
+					Type  string         `json:"type"`
+					Name  string         `json:"name"`
+					Input map[string]any `json:"input"`
+				} `json:"content"`
+			} `json:"message"`
+		}
 		if err := json.Unmarshal([]byte(line), &msg); err != nil {
 			continue
 		}
@@ -353,7 +377,18 @@ Return ONLY the revised content, no explanation or markdown fences.`, phase, cur
 			continue
 		}
 
-		var msg streamMessage
+		var msg struct {
+			Type    string `json:"type"`
+			Result  string `json:"result"`
+			IsError bool   `json:"is_error"`
+			Message *struct {
+				Content []struct {
+					Type  string         `json:"type"`
+					Name  string         `json:"name"`
+					Input map[string]any `json:"input"`
+				} `json:"content"`
+			} `json:"message"`
+		}
 		if err := json.Unmarshal([]byte(line), &msg); err != nil {
 			continue
 		}
@@ -488,7 +523,18 @@ Guidelines:
 			continue
 		}
 
-		var msg streamMessage
+		var msg struct {
+			Type    string `json:"type"`
+			Result  string `json:"result"`
+			IsError bool   `json:"is_error"`
+			Message *struct {
+				Content []struct {
+					Type  string         `json:"type"`
+					Name  string         `json:"name"`
+					Input map[string]any `json:"input"`
+				} `json:"content"`
+			} `json:"message"`
+		}
 		if err := json.Unmarshal([]byte(line), &msg); err != nil {
 			continue
 		}
@@ -571,79 +617,8 @@ func extractJSONFromMarkdown(text string) string {
 	return ""
 }
 
-// runClaude executes Claude Code with the given args and returns the result text.
-// Handles streaming JSON parsing, tool logging, and error detection.
 func runClaude(ctx context.Context, cwd string, args []string) (string, error) {
-	cmd := exec.CommandContext(ctx, "claude", args...)
-	cmd.Dir = cwd
-
-	stdout, err := cmd.StdoutPipe()
-	if err != nil {
-		return "", fmt.Errorf("failed to create stdout pipe: %w", err)
-	}
-
-	if err := cmd.Start(); err != nil {
-		return "", fmt.Errorf("failed to start claude: %w", err)
-	}
-
-	var finalResult string
-	var isError bool
-	scanner := bufio.NewScanner(stdout)
-	scanner.Buffer(make([]byte, 1024*1024), 1024*1024)
-
-	for scanner.Scan() {
-		line := scanner.Text()
-		if line == "" {
-			continue
-		}
-
-		var msg streamMessage
-		if err := json.Unmarshal([]byte(line), &msg); err != nil {
-			continue
-		}
-
-		if msg.Type == "assistant" && msg.Message != nil {
-			for _, content := range msg.Message.Content {
-				if content.Type == "tool_use" {
-					logToolUse(content.Name, content.Input)
-				}
-			}
-		}
-
-		if msg.Type == "result" {
-			finalResult = msg.Result
-			isError = msg.IsError
-		}
-	}
-
-	if err := cmd.Wait(); err != nil {
-		return "", fmt.Errorf("claude failed: %w", err)
-	}
-
-	if isError {
-		return "", fmt.Errorf("claude returned error: %s", finalResult)
-	}
-
-	return strings.TrimSpace(finalResult), nil
-}
-
-// streamMessage represents a line from Claude's stream-json output.
-type streamMessage struct {
-	Type      string         `json:"type"`
-	SessionID string         `json:"session_id"`
-	Result    string         `json:"result"`
-	IsError   bool           `json:"is_error"`
-	Message   *streamContent `json:"message"`
-}
-
-type streamContent struct {
-	Content []contentBlock `json:"content"`
-}
-
-type contentBlock struct {
-	Type  string         `json:"type"`
-	Name  string         `json:"name"`
-	Input map[string]any `json:"input"`
+	return claude.Run(ctx, cwd, args)
 }
 
 // logToolUse logs a tool invocation in a human-readable format.

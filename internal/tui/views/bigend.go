@@ -47,6 +47,8 @@ type BigendView struct {
 	shell *pkgtui.ShellLayout
 	// Chat panel for interactive input
 	chatPanel *pkgtui.ChatPanel
+	// Chat handler for Bigend-specific context
+	chatHandler *BigendChatHandler
 }
 
 // NewBigendView creates a new Bigend view
@@ -54,12 +56,15 @@ func NewBigendView(client *autarch.Client) *BigendView {
 	chatPanel := pkgtui.NewChatPanel()
 	chatPanel.SetComposerPlaceholder("Type / for commands, or ask about tasks...")
 	chatPanel.SetComposerHint("enter send  tab focus  F3 panes")
+	chatHandler := NewBigendChatHandler()
+	chatPanel.SetHandler(chatHandler)
 
 	return &BigendView{
-		client:    client,
-		focusPane: FocusTasks,
-		shell:     pkgtui.NewShellLayout(),
-		chatPanel: chatPanel,
+		client:      client,
+		focusPane:   FocusTasks,
+		shell:       pkgtui.NewShellLayout(),
+		chatPanel:   chatPanel,
+		chatHandler: chatHandler,
 	}
 }
 
@@ -121,6 +126,12 @@ func (v *BigendView) loadSessions() tea.Cmd {
 // Update implements View
 func (v *BigendView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
 	var cmd tea.Cmd
+	if _, isKey := msg.(tea.KeyMsg); !isKey {
+		v.chatPanel, cmd = v.chatPanel.Update(msg)
+		if cmd != nil {
+			return v, cmd
+		}
+	}
 
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
@@ -407,6 +418,7 @@ func (v *BigendView) Focus() tea.Cmd {
 
 // Blur implements View
 func (v *BigendView) Blur() {
+	v.chatPanel.CancelStream()
 	v.chatPanel.Blur()
 }
 

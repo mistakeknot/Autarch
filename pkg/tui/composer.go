@@ -13,21 +13,31 @@ import (
 // Composer is a multi-line text input component with Tokyo Night styling.
 // It wraps bubbles/textarea with consistent theming and keyboard hints.
 type Composer struct {
-	textarea textarea.Model
-	title    string
-	hint     string // Keyboard shortcuts hint
-	width    int
-	height   int // Total height including borders and hint
-	focused  bool
+	textarea         textarea.Model
+	title            string
+	hint             string // Keyboard shortcuts hint
+	width            int
+	height           int // Total height including borders and hint
+	focused          bool
+	maxContentHeight int
 }
+
+const (
+	composerMinLines = 1
+	composerMaxLines = 6
+)
 
 var mouseEscapePattern = regexp.MustCompile(`\[\<\d+;\d+;\d+[mM]`)
 
 // NewComposer creates a new Composer with the specified content height (lines).
 // The total height will include borders and the hint line.
 func NewComposer(contentHeight int) *Composer {
-	if contentHeight < 1 {
-		contentHeight = 4
+	maxContentHeight := contentHeight
+	if maxContentHeight < composerMinLines {
+		maxContentHeight = composerMaxLines
+	}
+	if maxContentHeight > composerMaxLines {
+		maxContentHeight = composerMaxLines
 	}
 
 	ta := textarea.New()
@@ -35,7 +45,7 @@ func NewComposer(contentHeight int) *Composer {
 	ta.CharLimit = 2000
 	// Don't set a default width here - width will be set via SetSize()
 	// Setting a width now would cause it to persist even after SetSize() in some cases
-	ta.SetHeight(contentHeight)
+	ta.SetHeight(composerMinLines)
 	ta.ShowLineNumbers = false
 
 	// Style the textarea to match Tokyo Night theme
@@ -54,11 +64,14 @@ func NewComposer(contentHeight int) *Composer {
 		Foreground(ColorBg).
 		Background(ColorPrimary)
 
-	return &Composer{
-		textarea: ta,
-		hint:     "enter: send  ctrl+j: newline",
-		height:   contentHeight + 4, // +2 for border, +1 for title, +1 for hint
+	composer := &Composer{
+		textarea:         ta,
+		hint:             "enter: send  ctrl+j: newline",
+		height:           maxContentHeight + 4, // +2 for border, +1 for title, +1 for hint
+		maxContentHeight: maxContentHeight,
 	}
+	composer.autoResize()
+	return composer
 }
 
 // SetTitle sets the title displayed above the input area.
@@ -88,21 +101,8 @@ func (c *Composer) SetSize(width, height int) {
 		textareaWidth = 10
 	}
 
-	// Height: total - border (2) - title (1 if present) - hint (1)
-	decorations := 2 // border
-	if c.title != "" {
-		decorations++
-	}
-	if c.hint != "" {
-		decorations++
-	}
-	textareaHeight := height - decorations
-	if textareaHeight < 1 {
-		textareaHeight = 1
-	}
-
 	c.textarea.SetWidth(textareaWidth)
-	c.textarea.SetHeight(textareaHeight)
+	c.autoResize()
 }
 
 // Update handles tea.Msg for the composer.
@@ -114,6 +114,7 @@ func (c *Composer) Update(msg tea.Msg) (*Composer, tea.Cmd) {
 		}
 	}
 	c.textarea, cmd = c.textarea.Update(msg)
+	c.autoResize()
 	return c, cmd
 }
 
@@ -183,11 +184,13 @@ func (c *Composer) Value() string {
 // SetValue sets the text content.
 func (c *Composer) SetValue(s string) {
 	c.textarea.SetValue(s)
+	c.autoResize()
 }
 
 // Reset clears the text content.
 func (c *Composer) Reset() {
 	c.textarea.Reset()
+	c.autoResize()
 }
 
 // Focus focuses the composer and returns the blink command.
@@ -210,6 +213,21 @@ func (c *Composer) Focused() bool {
 // CursorPosition returns the current cursor position (line, column).
 func (c *Composer) CursorPosition() (int, int) {
 	return c.textarea.Line(), c.textarea.LineInfo().ColumnOffset
+}
+
+func (c *Composer) autoResize() {
+	lines := c.textarea.LineCount()
+	if lines < composerMinLines {
+		lines = composerMinLines
+	}
+	maxLines := c.maxContentHeight
+	if maxLines < composerMinLines {
+		maxLines = composerMaxLines
+	}
+	if lines > maxLines {
+		lines = maxLines
+	}
+	c.textarea.SetHeight(lines)
 }
 
 func isMouseEscapeSequence(s string) bool {

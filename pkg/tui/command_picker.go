@@ -316,6 +316,7 @@ func GlobalCommands() []SlashCommandDef {
 		{Command: "palette", Aliases: []string{"p"}, Description: "Command palette", Category: "global"},
 		{Command: "refresh", Aliases: []string{"r"}, Description: "Refresh current view", Category: "global"},
 		{Command: "back", Aliases: []string{"b"}, Description: "Go back / cancel", Category: "global"},
+		{Command: "new", Aliases: []string{"clear"}, Description: "New conversation", Category: "chat"},
 		// Tool-switching commands
 		{Command: "bigend", Aliases: []string{"big"}, Description: "Switch to Bigend", Category: "navigation"},
 		{Command: "gurgeh", Aliases: []string{"gur"}, Description: "Switch to Gurgeh", Category: "navigation"},
