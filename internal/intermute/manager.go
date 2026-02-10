@@ -107,7 +107,7 @@ func (m *Manager) start(ctx context.Context) error {
 	dbPath := filepath.Join(m.dataDir, "data.db")
 
 	// Start the server
-	m.cmd = exec.CommandContext(ctx, binary, "serve",
+	m.cmd = exec.Command(binary, "serve",
 		"--port", fmt.Sprintf("%d", m.port),
 		"--host", m.host,
 		"--db", dbPath,
@@ -128,17 +128,20 @@ func (m *Manager) start(ctx context.Context) error {
 	m.started = true
 
 	// Wait for server to be ready
-	deadline := time.Now().Add(5 * time.Second)
-	for time.Now().Before(deadline) {
+	for {
+		select {
+		case <-ctx.Done():
+			m.stop()
+			return fmt.Errorf("intermute server did not become healthy: %w", ctx.Err())
+		default:
+		}
+
 		if m.isHealthy() {
 			return nil
 		}
+
 		time.Sleep(100 * time.Millisecond)
 	}
-
-	// Server didn't become healthy, kill it
-	m.stop()
-	return fmt.Errorf("intermute server did not become healthy within timeout")
 }
 
 // findBinary locates the intermute binary
