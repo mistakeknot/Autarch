@@ -1,18 +1,26 @@
-# Session Handoff
+# Session Handoff — schmux Review
 
 ## Done
-- Comprehensive PRD extraction from codebase: all 11 dimensions (vision, problem, users, features, CUJs, requirements, scope, acceptance, tech, risks)
-- ~60 verbatim quotes with file:line references extracted as evidence
-- Identified all 12 Pollard hunters, 8 signal types, 8 arbiter phases, 4 dashboard tabs
-- Catalogued deferred scope items from AGENTS.md TODOs and coldwine/todos/
+- Cloned schmux repo to /tmp/schmux and read all key source files
+- Deep-read: session/manager.go, workspace/manager.go, signal/signal.go, provision/provision.go, nudgenik/nudgenik.go, detect/agents.go, session/tracker.go
+- Deep-read: all docs (PHILOSOPHY.md, agent-signaling.md, nudgenik.md, sessions.md, targets.md)
+- Launched 3 flux-drive background agents: fd-architecture, fd-user-product, agent-native-reviewer
 
 ## Pending
-- Autarch-vdm (P3): Expand spec validation coverage — not touched this session, blocked by Autarch-fi4
+- **3 background agents still running** — they were ~50-75% through analysis when session ended
+- No synthesis written yet — need agent outputs to compile recommendations
 
 ## Next
-- Use extracted JSON to generate a formal PRD document if needed
-- The JSON output is in the conversation transcript (not saved to file)
+1. Resume this session or start new one
+2. Read agent output files (if agents completed):
+   - Architecture: /tmp/claude-1001/-root-projects-Autarch/tasks/a9bf1ab.output
+   - User/Product: /tmp/claude-1001/-root-projects-Autarch/tasks/aacb78f.output
+   - Agent-Native: /tmp/claude-1001/-root-projects-Autarch/tasks/abe7029.output
+3. Synthesize findings into "copy / adapt / inspire" recommendations
+4. Write to docs/research/flux-drive/schmux/summary.md
 
 ## Context
-- PRD extraction was conversational output only — save to file if persistence needed
-- Autarch-vdm is pre-existing in-progress work, unrelated to this session
+- schmux is Apache 2.0 licensed — safe to adapt patterns
+- Key novel concept: NudgeNik (LLM reads agent terminal output to classify state)
+- Key novel concept: agent signaling protocol (bracket markers + auto-provisioned instruction files)
+- schmux repo is at /tmp/schmux (ephemeral — may need re-clone)
