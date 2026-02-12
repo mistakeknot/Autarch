@@ -68,49 +68,20 @@ func TestPhaseOrder(t *testing.T) {
 func TestDefaultModelTiers(t *testing.T) {
 	tiers := DefaultModelTiers()
 
-	if len(tiers) != PhaseCount {
-		t.Errorf("DefaultModelTiers has %d entries, want %d", len(tiers), PhaseCount)
+	// Default tiers should be empty — all phases use CLI default (Opus).
+	// Every LLM call in the arbiter is substantive content generation;
+	// there are no routing-only calls that benefit from a cheaper model.
+	if len(tiers) != 0 {
+		t.Errorf("DefaultModelTiers has %d entries, want 0 (all phases use CLI default)", len(tiers))
 	}
 
-	// Early phases should use cheaper models, later phases more capable.
-	earlyPhases := []Phase{PhaseVision, PhaseProblem, PhaseUsers}
-	for _, p := range earlyPhases {
-		model, ok := tiers[p]
-		if !ok {
-			t.Errorf("no tier for %v", p)
-			continue
-		}
-		if model == "" {
-			t.Errorf("empty model for early phase %v", p)
-		}
-		// Haiku for early phases
-		if !contains(model, "haiku") {
-			t.Errorf("early phase %v model = %q, expected haiku tier", p, model)
+	// ModelForPhase should return empty string for all phases with empty defaults,
+	// which tells the dispatch layer to use the CLI default model.
+	for _, p := range AllPhases() {
+		if got := ModelForPhase(tiers, p); got != "" {
+			t.Errorf("ModelForPhase(defaults, %v) = %q, want empty (CLI default)", p, got)
 		}
 	}
-
-	// Late phases should use the most capable model.
-	latePhases := []Phase{PhaseScopeAssumptions, PhaseAcceptanceCriteria}
-	for _, p := range latePhases {
-		model := tiers[p]
-		if !contains(model, "opus") {
-			t.Errorf("late phase %v model = %q, expected opus tier", p, model)
-		}
-	}
-}
-
-func contains(s, substr string) bool {
-	return len(s) >= len(substr) && (s == substr || len(substr) == 0 ||
-		(len(s) > 0 && stringContains(s, substr)))
-}
-
-func stringContains(s, substr string) bool {
-	for i := 0; i+len(substr) <= len(s); i++ {
-		if s[i:i+len(substr)] == substr {
-			return true
-		}
-	}
-	return false
 }
 
 func TestModelForPhase(t *testing.T) {

@@ -59,25 +59,17 @@ func (p Phase) String() string {
 	return "Unknown"
 }
 
-// DefaultModelTiers returns a sensible per-phase model assignment for cost
-// optimization. Early exploratory phases use fast/cheap models; later analytical
-// and synthesis phases use more capable ones.
+// DefaultModelTiers returns the default per-phase model assignment.
 //
-// Tier mapping:
-//   - Haiku:  Vision, Problem, Users (exploratory — scan/summarize)
-//   - Sonnet: Features+Goals, CUJs, Requirements (analytical — synthesize findings)
-//   - Opus:   Scope+Assumptions, Acceptance Criteria (synthesis — consistency-critical)
+// All phases use the CLI default (Opus) because every LLM call in the arbiter
+// is substantive content generation — there are no routing-only calls. Non-LLM
+// operations (consistency checks, confidence scoring, research scans) don't
+// dispatch to a model at all.
+//
+// The ModelOverrides field on SprintState lets users trade quality for speed on
+// specific phases during iteration (e.g., set Vision to Haiku for fast drafts).
 func DefaultModelTiers() map[Phase]string {
-	return map[Phase]string{
-		PhaseVision:             "claude-haiku-4-5-20251001",
-		PhaseProblem:            "claude-haiku-4-5-20251001",
-		PhaseUsers:              "claude-haiku-4-5-20251001",
-		PhaseFeaturesGoals:      "claude-sonnet-4-5-20250929",
-		PhaseCUJs:               "claude-sonnet-4-5-20250929",
-		PhaseRequirements:       "claude-sonnet-4-5-20250929",
-		PhaseScopeAssumptions:   "claude-opus-4-6",
-		PhaseAcceptanceCriteria: "claude-opus-4-6",
-	}
+	return map[Phase]string{}
 }
 
 // ModelForPhase returns the model to use for the given phase, checking
