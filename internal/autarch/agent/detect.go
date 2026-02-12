@@ -2,14 +2,11 @@
 package agent
 
 import (
-	"bufio"
-	"bytes"
 	"context"
-	"encoding/json"
 	"fmt"
-	"os/exec"
 	"strings"
-	"time"
+
+	"github.com/mistakeknot/autarch/pkg/agenttargets"
 )
 
 // Type represents the type of coding agent
@@ -29,59 +26,36 @@ type Agent struct {
 }
 
 // DetectAgent finds available coding agents on the system.
-// Preference order: claude > codex
+// Preference order: claude > codex.
+// Uses the cached multi-method detector from pkg/agenttargets.
 func DetectAgent() (*Agent, error) {
-	// Try Claude Code first
-	if path, err := exec.LookPath("claude"); err == nil {
-		version := getVersion(path, "--version")
-		return &Agent{
-			Type:    TypeClaude,
-			Path:    path,
-			Version: version,
-		}, nil
+	ctx := context.Background()
+	tool, found := agenttargets.DetectPreferredTool(ctx)
+	if !found {
+		return nil, &NoAgentError{}
 	}
-
-	// Try Codex CLI
-	if path, err := exec.LookPath("codex"); err == nil {
-		version := getVersion(path, "--version")
-		return &Agent{
-			Type:    TypeCodex,
-			Path:    path,
-			Version: version,
-		}, nil
-	}
-
-	return nil, &NoAgentError{}
+	return &Agent{
+		Type:    Type(tool.Name),
+		Path:    tool.Path,
+		Version: tool.Version,
+	}, nil
 }
 
 // DetectAgentByName finds the requested agent by name.
+// The lookPath parameter is kept for backward compatibility but is no longer
+// used — detection now goes through the cached multi-method detector.
 func DetectAgentByName(name string, lookPath func(string) (string, error)) (*Agent, error) {
-	switch strings.ToLower(name) {
-	case "claude":
-		path, err := lookPath("claude")
-		if err != nil {
-			return nil, err
-		}
-		version := getVersion(path, "--version")
-		return &Agent{
-			Type:    TypeClaude,
-			Path:    path,
-			Version: version,
-		}, nil
-	case "codex":
-		path, err := lookPath("codex")
-		if err != nil {
-			return nil, err
-		}
-		version := getVersion(path, "--version")
-		return &Agent{
-			Type:    TypeCodex,
-			Path:    path,
-			Version: version,
-		}, nil
-	default:
-		return nil, fmt.Errorf("unsupported agent %q", name)
+	ctx := context.Background()
+	normalized := strings.ToLower(name)
+	tool, found := agenttargets.DetectTool(ctx, normalized)
+	if !found {
+		return nil, fmt.Errorf("agent %q not found", name)
 	}
+	return &Agent{
+		Type:    Type(tool.Name),
+		Path:    tool.Path,
+		Version: tool.Version,
+	}, nil
 }
 
 // NoAgentError indicates no coding agent was found
@@ -105,17 +79,6 @@ Alternatively, set ANTHROPIC_API_KEY or OPENAI_API_KEY
 environment variable to use direct API calls.`
 }
 
-func getVersion(path, flag string) string {
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-
-	cmd := exec.CommandContext(ctx, path, flag)
-	out, err := cmd.Output()
-	if err != nil {
-		return "unknown"
-	}
-	return strings.TrimSpace(string(out))
-}
 
 // GenerateRequest represents a request to generate content via an agent
 type GenerateRequest struct {
@@ -139,139 +102,42 @@ func (a *Agent) Generate(ctx context.Context, req GenerateRequest) (*GenerateRes
 }
 
 // GenerateWithOutput runs a prompt and streams output to a callback.
+// This dispatches via agenttargets.Dispatch() regardless of agent type.
 func (a *Agent) GenerateWithOutput(ctx context.Context, req GenerateRequest, onOutput OutputCallback) (*GenerateResponse, error) {
-	switch a.Type {
-	case TypeClaude:
-		return a.generateClaudeStreaming(ctx, req, onOutput)
-	case TypeCodex:
-		return a.generateCodexStreaming(ctx, req, onOutput)
-	default:
-		return nil, fmt.Errorf("unsupported agent type: %s", a.Type)
-	}
-}
+	cfg := agenttargets.DefaultDispatchConfig()
+	cfg.PreferredAgent = string(a.Type)
 
-func (a *Agent) generateClaudeStreaming(ctx context.Context, req GenerateRequest, onOutput OutputCallback) (*GenerateResponse, error) {
-	if onOutput != nil {
-		// Use stream-json for real-time output
-		return a.generateClaudeStreamJSON(ctx, req, onOutput)
-	}
-
-	// No callback - use simple JSON output
-	args := []string{
-		"-p", req.Prompt,
-		"--output-format", "json",
-	}
-
-	cmd := exec.CommandContext(ctx, a.Path, args...)
-	var stdout, stderr bytes.Buffer
-	cmd.Stdout = &stdout
-	cmd.Stderr = &stderr
-
-	if err := cmd.Run(); err != nil {
-		return nil, fmt.Errorf("claude execution failed: %w\nstderr: %s", err, stderr.String())
-	}
-
-	// Parse JSON output
-	var result struct {
-		Result string `json:"result"`
-		Error  string `json:"error,omitempty"`
-	}
-
-	if err := json.Unmarshal(stdout.Bytes(), &result); err != nil {
-		// If not JSON, treat stdout as plain text
-		return &GenerateResponse{
-			Content: stdout.String(),
-		}, nil
-	}
-
-	if result.Error != "" {
-		return nil, fmt.Errorf("claude error: %s", result.Error)
-	}
-
-	return &GenerateResponse{
-		Content: result.Result,
-	}, nil
-}
-
-// streamMessage represents a message in the stream-json format
-type streamMessage struct {
-	Type    string `json:"type"`
-	Subtype string `json:"subtype,omitempty"`
-	Message struct {
-		Content []struct {
-			Type string `json:"type"`
-			Text string `json:"text,omitempty"`
-		} `json:"content,omitempty"`
-	} `json:"message,omitempty"`
-	Result string `json:"result,omitempty"`
-}
-
-func (a *Agent) generateClaudeStreamJSON(ctx context.Context, req GenerateRequest, onOutput OutputCallback) (*GenerateResponse, error) {
-	// Use stream-json with verbose for real-time streaming
-	args := []string{
-		"-p", req.Prompt,
-		"--output-format", "stream-json",
-		"--verbose",
-	}
-
-	cmd := exec.CommandContext(ctx, a.Path, args...)
-
-	// Create pipe to read stdout line by line
-	stdoutPipe, err := cmd.StdoutPipe()
+	handle, err := agenttargets.Dispatch(ctx, cfg, "", req.Prompt)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create stdout pipe: %w", err)
+		return nil, fmt.Errorf("%s execution failed: %w", a.Type, err)
 	}
 
-	if err := cmd.Start(); err != nil {
-		return nil, fmt.Errorf("failed to start claude: %w", err)
-	}
-
-	// Read stdout line by line, parse JSON, extract useful info
 	var finalResult string
 	var contentBuilder strings.Builder
+	var sawResult bool
 
-	scanner := bufio.NewScanner(stdoutPipe)
-	// Increase buffer size for large JSON lines
-	buf := make([]byte, 0, 64*1024)
-	scanner.Buffer(buf, 1024*1024)
-
-	for scanner.Scan() {
-		line := scanner.Text()
-		if line == "" {
-			continue
-		}
-
-		var msg streamMessage
-		if err := json.Unmarshal([]byte(line), &msg); err != nil {
-			// Not valid JSON, skip
-			continue
-		}
-
-		switch msg.Type {
-		case "assistant":
-			// Extract text from content blocks
-			for _, block := range msg.Message.Content {
-				if block.Type == "text" && block.Text != "" {
-					contentBuilder.WriteString(block.Text)
-					// Send incremental text to callback
-					onOutput(block.Text)
-				}
+	for event := range handle.Events {
+		switch event.Type {
+		case agenttargets.StreamText:
+			contentBuilder.WriteString(event.Text)
+			if onOutput != nil {
+				onOutput(event.Text)
 			}
-		case "result":
-			// Final result
-			if msg.Result != "" {
-				finalResult = msg.Result
-			}
-		case "system":
-			// System messages (hooks, init, etc.) - could show status
-			if msg.Subtype == "init" {
+		case agenttargets.StreamSessionID:
+			if onOutput != nil {
 				onOutput("Session started...")
 			}
+		case agenttargets.StreamResult:
+			sawResult = true
+			if event.IsError {
+				return nil, fmt.Errorf("%s error: %s", a.Type, event.Text)
+			}
+			finalResult = event.Text
+		case agenttargets.StreamError:
+			if !sawResult {
+				return nil, fmt.Errorf("%s execution failed: %s", a.Type, event.Text)
+			}
 		}
-	}
-
-	if err := cmd.Wait(); err != nil {
-		return nil, fmt.Errorf("claude execution failed: %w", err)
 	}
 
 	// Prefer the explicit result if available, otherwise use accumulated content
@@ -282,69 +148,6 @@ func (a *Agent) generateClaudeStreamJSON(ctx context.Context, req GenerateReques
 
 	return &GenerateResponse{
 		Content: content,
-	}, nil
-}
-
-func (a *Agent) generateCodexStreaming(ctx context.Context, req GenerateRequest, onOutput OutputCallback) (*GenerateResponse, error) {
-	// Codex CLI: codex -q "prompt"
-	args := []string{
-		"-q", req.Prompt,
-	}
-
-	cmd := exec.CommandContext(ctx, a.Path, args...)
-
-	var stdout, stderr bytes.Buffer
-	cmd.Stdout = &stdout
-
-	if onOutput != nil {
-		stderrPipe, err := cmd.StderrPipe()
-		if err != nil {
-			return nil, fmt.Errorf("failed to create stderr pipe: %w", err)
-		}
-
-		if err := cmd.Start(); err != nil {
-			return nil, fmt.Errorf("failed to start codex: %w", err)
-		}
-
-		// Read stderr and send to callback
-		go func() {
-			buf := make([]byte, 1024)
-			var line strings.Builder
-			for {
-				n, err := stderrPipe.Read(buf)
-				if n > 0 {
-					for _, b := range buf[:n] {
-						if b == '\n' || b == '\r' {
-							if line.Len() > 0 {
-								onOutput(line.String())
-								line.Reset()
-							}
-						} else {
-							line.WriteByte(b)
-						}
-					}
-					if line.Len() > 0 {
-						onOutput(line.String())
-					}
-				}
-				if err != nil {
-					break
-				}
-			}
-		}()
-
-		if err := cmd.Wait(); err != nil {
-			return nil, fmt.Errorf("codex execution failed: %w", err)
-		}
-	} else {
-		cmd.Stderr = &stderr
-		if err := cmd.Run(); err != nil {
-			return nil, fmt.Errorf("codex execution failed: %w\nstderr: %s", err, stderr.String())
-		}
-	}
-
-	return &GenerateResponse{
-		Content: stdout.String(),
 	}, nil
 }
 

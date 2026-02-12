@@ -1,4 +1,4 @@
-# Plan Status Report — 2026-02-10
+# Plan Status Report — 2026-02-11
 
 > Generated from todos, git history, and codebase evidence. Status labels are heuristics unless backed by a todo.
 
@@ -12,7 +12,7 @@
 
 - Todo-tracked: 5
 - Derived evidence: 1
-- Commit evidence: 56
+- Commit evidence: 58
 - Preexisting paths (no git evidence): 1
 - No evidence: 7
 
@@ -28,7 +28,7 @@
 
 | Plan | Status | Evidence |
 | --- | --- | --- |
-| 2026-01-22-agent-targets-implementation-plan.md | commit | paths:6 latest:2026-01-28 |
+| 2026-01-22-agent-targets-implementation-plan.md | commit | paths:6 latest:2026-02-11 |
 | 2026-01-22-praude-archive-delete-plan.md | commit | paths:8 latest:2026-01-24 |
 | 2026-01-22-praude-interview-agent-iteration-plan.md | commit | paths:1 latest:2026-01-24 |
 | 2026-01-22-praude-status-list-ux-plan.md | commit | paths:11 latest:2026-02-07 |
@@ -50,7 +50,7 @@
 | 2026-01-23-vauxhall-focus-pane-plan.md | commit | paths:2 latest:2026-02-07 |
 | 2026-01-23-vauxhall-grouping-plan.md | commit | paths:2 latest:2026-02-07 |
 | 2026-01-23-vauxhall-web-search-filters-plan.md | commit | paths:4 latest:2026-02-07 |
-| 2026-01-25-intermute-mvp-implementation-plan.md | commit | paths:17 latest:2026-02-06 |
+| 2026-01-25-intermute-mvp-implementation-plan.md | commit | paths:19 latest:2026-02-11 |
 | 2026-01-26-arbiter-spec-sprint-implementation.md | commit | paths:9 latest:2026-02-07 |
 | 2026-01-26-feat-cursor-style-unified-shell-layout-plan.md | commit | paths:1 latest:2026-01-26 |
 | 2026-01-26-feat-pollard-first-class-research-input-plan.md | commit | paths:8 latest:2026-02-07 |
@@ -59,7 +59,7 @@
 | 2026-01-27-feat-unified-ui-grammar-plan.md | todo:pending | 005-pending-p2-unified-ui-grammar-migration.md |
 | 2026-01-27-feat-vision-spec-lifecycle-plan.md | none | no referenced paths found |
 | 2026-01-27-task-performance-reliability-guardrails-plan.md | todo:pending | 006-pending-p2-guardrails-context-timeouts.md |
-| 2026-01-28-agent-model-selector-implementation-plan.md | commit | paths:7 latest:2026-02-09 |
+| 2026-01-28-agent-model-selector-implementation-plan.md | commit | paths:7 latest:2026-02-11 |
 | 2026-01-28-agent-panel-streaming-diff-plan.md | commit | paths:5 latest:2026-02-09 |
 | 2026-01-28-feat-coordination-api-foundation-plan.md | derived | pkg/httpapi/envelope.go, internal/pollard/server/server.go, pkg/jobs/jobs.go, internal/pollard/server/cache.go, pkg/netguard/bind.go, internal/gurgeh/server/server.go, internal/signals/cli/serve.go, pkg/signals/server.go |
 | 2026-01-28-feat-gurgeh-readonly-spec-api-plan.md | commit | paths:7 latest:2026-02-07 |
@@ -67,21 +67,21 @@
 | 2026-01-28-hide-system-labels-chat-panel-plan.md | commit | paths:2 latest:2026-02-09 |
 | 2026-01-28-kickoff-chat-initial-system-messages-plan.md | commit | paths:2 latest:2026-02-04 |
 | 2026-01-28-kickoff-doc-template-copy-plan.md | commit | paths:2 latest:2026-02-04 |
-| 2026-01-28-refactor-extract-shared-async-jobs-package-plan.md | commit | paths:7 latest:2026-02-07 |
-| 2026-01-29-feat-unified-tui-non-printable-shortcuts-plan.md | commit | paths:9 latest:2026-02-09 |
+| 2026-01-28-refactor-extract-shared-async-jobs-package-plan.md | commit | paths:7 latest:2026-02-11 |
+| 2026-01-29-feat-unified-tui-non-printable-shortcuts-plan.md | commit | paths:9 latest:2026-02-11 |
 | 2026-01-29-interview-breadcrumb-scan-nav.md | commit | paths:3 latest:2026-02-08 |
-| 2026-01-29-scan-artifact-ui-display.md | commit | paths:4 latest:2026-02-08 |
+| 2026-01-29-scan-artifact-ui-display.md | commit | paths:4 latest:2026-02-11 |
 | 2026-01-29-scan-artifact-validation.md | commit | paths:14 latest:2026-01-29 |
 | 2026-01-29-scan-open-questions-ui.md | commit | paths:2 latest:2026-02-04 |
-| 2026-01-29-scan-signoff-breadcrumb-plan.md | commit | paths:5 latest:2026-02-08 |
-| 2026-01-29-scan-validation-wiring.md | commit | paths:3 latest:2026-02-07 |
+| 2026-01-29-scan-signoff-breadcrumb-plan.md | commit | paths:5 latest:2026-02-11 |
+| 2026-01-29-scan-validation-wiring.md | commit | paths:3 latest:2026-02-11 |
 | 2026-01-29-structured-scan-output.md | commit | paths:3 latest:2026-02-05 |
 | 2026-01-30-chat-panel-mouse-scroll.md | commit | paths:2 latest:2026-02-09 |
 | 2026-01-30-coordination-reconciliation-plan.md | todo:ready | 007-ready-p1-coordination-reconciliation-mvp.md |
 | 2026-01-30-open-questions-chat-resolution.md | preexisting | paths:3 |
 | 2026-01-30-scan-progress-chatpane.md | commit | paths:2 latest:2026-02-04 |
 | 2026-01-31-feat-unified-chat-spec-flow-plan.md | none | no referenced paths found |
-| 2026-01-31-plan-status-precommit-hook.md | commit | paths:7 latest:2026-02-09 |
+| 2026-01-31-plan-status-precommit-hook.md | commit | paths:7 latest:2026-02-10 |
 | 2026-02-02-fix-kickoff-arbiter-transition-plan.md | none | no referenced paths found |
 | 2026-02-03-fix-sprint-completion-spec-summary-transition-plan.md | none | no referenced paths found |
 | 2026-02-04-feat-claude-code-style-codebase-scan-plan.md | commit | paths:1 latest:2026-02-05 |
@@ -89,15 +89,17 @@
 | 2026-02-04-feat-gurgeh-self-hosting-claude-integration-plan.md | none | no referenced paths found |
 | 2026-02-04-feat-inline-mode-log-pane-simplified-plan.md | commit | paths:2 latest:2026-02-04 |
 | 2026-02-04-feat-iterative-codebase-exploration-plan.md | none | no referenced paths found |
-| 2026-02-05-acceptance-criteria-plan.md | commit | paths:3 latest:2026-02-09 |
+| 2026-02-05-acceptance-criteria-plan.md | commit | paths:3 latest:2026-02-11 |
 | 2026-02-05-perf-claude-session-reuse-token-efficiency-plan.md | commit | paths:1 latest:2026-02-09 |
 | 2026-02-06-phase-2a-dead-code-cleanup.md | commit | paths:1 latest:2026-02-06 |
-| 2026-02-06-phase-2b-app-unifiedapp-merge.md | commit | paths:2 latest:2026-02-08 |
-| 2026-02-07-phase-2c-onboarding-into-gurgeh.md | commit | paths:4 latest:2026-02-09 |
-| 2026-02-07-phase-3-signals-overlay.md | commit | paths:5 latest:2026-02-09 |
+| 2026-02-06-phase-2b-app-unifiedapp-merge.md | commit | paths:2 latest:2026-02-11 |
+| 2026-02-07-phase-2c-onboarding-into-gurgeh.md | commit | paths:4 latest:2026-02-11 |
+| 2026-02-07-phase-3-signals-overlay.md | commit | paths:5 latest:2026-02-11 |
 | 2026-02-07-post-onboarding-guidance.md | commit | paths:3 latest:2026-02-07 |
 | 2026-02-07-ui-grammar-migration.md | commit | paths:3 latest:2026-02-09 |
 | 2026-02-07-yaml-security-migration.md | commit | paths:1 latest:2026-02-07 |
+| 2026-02-11-bracket-signaling-protocol.md | commit | paths:1 latest:2026-02-11 |
+| 2026-02-11-mechanical-batch-codex.md | commit | paths:4 latest:2026-02-11 |
 
 ## Derived Evidence Details
 
