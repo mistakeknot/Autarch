@@ -566,6 +566,106 @@ hypotheses:
 	}
 }
 
+func TestValidateAssumptionsDuplicateID(t *testing.T) {
+	raw := []byte(string(baseSpecYAML()) + `
+assumptions:
+  - id: "ASSM-001"
+    description: "Users have internet"
+    confidence: "high"
+  - id: "ASSM-001"
+    description: "Duplicate"
+    confidence: "low"
+`)
+	res, err := Validate(raw, ValidationOptions{Mode: ValidationHard})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !containsError(res.Errors, "duplicate assumption id: ASSM-001") {
+		t.Fatalf("expected duplicate assumption error, got %v", res.Errors)
+	}
+}
+
+func TestValidateAssumptionsMissingID(t *testing.T) {
+	raw := []byte(string(baseSpecYAML()) + `
+assumptions:
+  - description: "No ID"
+    confidence: "high"
+`)
+	res, err := Validate(raw, ValidationOptions{Mode: ValidationHard})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !containsError(res.Errors, "assumption id is required") {
+		t.Fatalf("expected missing assumption id error, got %v", res.Errors)
+	}
+}
+
+func TestValidateAssumptionsMissingDescriptionSoft(t *testing.T) {
+	raw := []byte(string(baseSpecYAML()) + `
+assumptions:
+  - id: "ASSM-001"
+    confidence: "high"
+`)
+	res, err := Validate(raw, ValidationOptions{Mode: ValidationSoft})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !containsWarning(res.Warnings, "assumption missing description: ASSM-001") {
+		t.Fatalf("expected description warning, got %v", res.Warnings)
+	}
+}
+
+func TestValidateAssumptionsInvalidConfidence(t *testing.T) {
+	raw := []byte(string(baseSpecYAML()) + `
+assumptions:
+  - id: "ASSM-001"
+    description: "Users have internet"
+    confidence: "very_high"
+`)
+	res, err := Validate(raw, ValidationOptions{Mode: ValidationHard})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !containsError(res.Errors, "invalid assumption confidence: very_high") {
+		t.Fatalf("expected confidence error, got %v", res.Errors)
+	}
+}
+
+func TestValidateAssumptionsValidConfidence(t *testing.T) {
+	for _, c := range []string{"high", "medium", "low"} {
+		raw := []byte(string(baseSpecYAML()) + `
+assumptions:
+  - id: "ASSM-001"
+    description: "Users have internet"
+    confidence: "` + c + `"
+`)
+		res, err := Validate(raw, ValidationOptions{Mode: ValidationHard})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if containsError(res.Errors, "invalid assumption confidence") {
+			t.Fatalf("unexpected confidence error for %s", c)
+		}
+	}
+}
+
+func TestValidateAssumptionsNegativeDecayDays(t *testing.T) {
+	raw := []byte(string(baseSpecYAML()) + `
+assumptions:
+  - id: "ASSM-001"
+    description: "Users have internet"
+    confidence: "high"
+    decay_days: -5
+`)
+	res, err := Validate(raw, ValidationOptions{Mode: ValidationHard})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !containsError(res.Errors, "assumption decay_days is negative: ASSM-001") {
+		t.Fatalf("expected decay_days error, got %v", res.Errors)
+	}
+}
+
 func TestValidateUserStoryHashMissing(t *testing.T) {
 	raw := []byte(string(baseSpecYAML()) + `
 user_story:

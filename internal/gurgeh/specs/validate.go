@@ -63,6 +63,7 @@ func Validate(raw []byte, opts ValidationOptions) (ValidationResult, error) {
 	validateNonGoals(&res, doc.NonGoals, opts.Mode)
 	validateStructuredRequirements(&res, doc.StructuredRequirements, opts.Mode)
 	validateHypotheses(&res, doc.Hypotheses, opts.Mode)
+	validateAssumptions(&res, doc.Assumptions, opts.Mode)
 	validateUserStoryHash(&res, doc.UserStory, opts.Mode)
 	validateVisionRef(&res, doc.VisionRef, opts)
 	return res, nil
@@ -350,6 +351,38 @@ func validateHypotheses(res *ValidationResult, items []Hypothesis, mode Validati
 func validHypothesisStatus(s string) bool {
 	switch strings.ToLower(s) {
 	case "untested", "validated", "invalidated":
+		return true
+	default:
+		return false
+	}
+}
+
+func validateAssumptions(res *ValidationResult, items []Assumption, mode ValidationMode) {
+	seen := make(map[string]struct{})
+	for _, a := range items {
+		if a.ID == "" {
+			res.Errors = append(res.Errors, "assumption id is required")
+		} else {
+			if _, ok := seen[a.ID]; ok {
+				res.Errors = append(res.Errors, "duplicate assumption id: "+a.ID)
+			}
+			seen[a.ID] = struct{}{}
+		}
+		if a.Description == "" {
+			addModeIssue(res, mode, "assumption missing description: "+a.ID)
+		}
+		if a.Confidence != "" && !validAssumptionConfidence(a.Confidence) {
+			res.Errors = append(res.Errors, "invalid assumption confidence: "+a.Confidence)
+		}
+		if a.DecayDays < 0 {
+			addModeIssue(res, mode, "assumption decay_days is negative: "+a.ID)
+		}
+	}
+}
+
+func validAssumptionConfidence(c string) bool {
+	switch strings.ToLower(c) {
+	case "high", "medium", "low":
 		return true
 	default:
 		return false
