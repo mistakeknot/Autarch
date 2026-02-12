@@ -1,109 +1,56 @@
 package exploration
 
 import (
-	"bufio"
 	"context"
 	"encoding/json"
 	"fmt"
 	"log/slog"
-	"os/exec"
 	"regexp"
 	"strings"
 	"time"
 
-	"github.com/mistakeknot/autarch/pkg/claude"
+	"github.com/mistakeknot/autarch/pkg/agenttargets"
 	"golang.org/x/text/cases"
 	"golang.org/x/text/language"
 )
 
-// Explore runs Claude Code and returns parsed output plus session ID.
+// Explore runs an agent and returns parsed output plus session ID.
 // Session ID can be used with GeneratePhase() to avoid re-exploration.
 // Tool usage is streamed to slog (appears in log pane when TUI is running).
 func Explore(ctx context.Context, cwd string) (map[string]any, string, error) {
-	ctx, cancel := context.WithTimeout(ctx, 10*time.Minute)
-	defer cancel()
-
 	slog.Info("exploration starting", "path", cwd)
 
-	cmd := exec.CommandContext(ctx, "claude",
-		"-p", prompt,
-		"--output-format", "stream-json",
-		"--verbose",
-		"--print",
-	)
-	cmd.Dir = cwd
+	cfg := agenttargets.DefaultDispatchConfig()
+	cfg.Timeout = 10 * time.Minute
 
-	stdout, err := cmd.StdoutPipe()
+	handle, err := agenttargets.Dispatch(ctx, cfg, cwd, prompt)
 	if err != nil {
-		return nil, "", fmt.Errorf("failed to create stdout pipe: %w", err)
+		return nil, "", err
 	}
 
-	if err := cmd.Start(); err != nil {
-		if execErr, ok := err.(*exec.Error); ok && execErr.Err == exec.ErrNotFound {
-			return nil, "", fmt.Errorf("claude CLI not found: install with 'npm install -g @anthropic-ai/claude-code'")
-		}
-		return nil, "", fmt.Errorf("failed to start claude: %w", err)
-	}
-
-	// Parse streaming JSON output, log tool usage, capture final result
+	// Process events: capture session ID, log tool usage, capture result.
 	var sessionID string
 	var finalResult string
 	var isError bool
-	scanner := bufio.NewScanner(stdout)
-	// Increase buffer size for large JSON lines
-	scanner.Buffer(make([]byte, 1024*1024), 1024*1024)
-
-	for scanner.Scan() {
-		line := scanner.Text()
-		if line == "" {
-			continue
-		}
-
-		var msg struct {
-			Type      string `json:"type"`
-			SessionID string `json:"session_id"`
-			Result    string `json:"result"`
-			IsError   bool   `json:"is_error"`
-			Message   *struct {
-				Content []struct {
-					Type  string         `json:"type"`
-					Name  string         `json:"name"`
-					Input map[string]any `json:"input"`
-				} `json:"content"`
-			} `json:"message"`
-		}
-		if err := json.Unmarshal([]byte(line), &msg); err != nil {
-			continue // Skip malformed lines
-		}
-
-		// Capture session ID (first non-empty one wins)
-		if msg.SessionID != "" && sessionID == "" {
-			sessionID = msg.SessionID
-			slog.Info("exploration session", "id", sessionID)
-		}
-
-		// Log tool usage
-		if msg.Type == "assistant" && msg.Message != nil {
-			for _, content := range msg.Message.Content {
-				if content.Type == "tool_use" {
-					logToolUse(content.Name, content.Input)
-				}
+	for event := range handle.Events {
+		switch event.Type {
+		case agenttargets.StreamSessionID:
+			if sessionID == "" {
+				sessionID = event.SessionID
+				slog.Info("exploration session", "id", sessionID)
 			}
+		case agenttargets.StreamToolUse:
+			logToolUse(event.ToolName, event.ToolInput)
+		case agenttargets.StreamResult:
+			finalResult = event.Text
+			isError = event.IsError
+		case agenttargets.StreamError:
+			slog.Warn("exploration stream error", "err", event.Text)
 		}
-
-		// Capture final result
-		if msg.Type == "result" {
-			finalResult = msg.Result
-			isError = msg.IsError
-		}
-	}
-
-	if err := cmd.Wait(); err != nil {
-		return nil, "", fmt.Errorf("claude failed: %w", err)
 	}
 
 	if isError {
-		return nil, "", fmt.Errorf("claude returned error: %s", finalResult)
+		return nil, "", fmt.Errorf("agent returned error: %s", finalResult)
 	}
 
 	slog.Info("exploration complete")
@@ -126,14 +73,11 @@ func Explore(ctx context.Context, cwd string) (map[string]any, string, error) {
 	return map[string]any{"raw": finalResult}, sessionID, nil
 }
 
-// GeneratePhase asks Claude Code to generate content for a specific phase.
+// GeneratePhase asks an agent to generate content for a specific phase.
 // If sessionID is non-empty, resumes that session to avoid re-exploring.
 // Falls back to fresh exploration if resumed session fails.
 func GeneratePhase(ctx context.Context, cwd string, phase string,
-	priorContext map[string]string, sessionID string, researchContext string) (string, error) {
-
-	ctx, cancel := context.WithTimeout(ctx, 5*time.Minute)
-	defer cancel()
+	priorContext map[string]string, sessionID string, researchContext string, model ...string) (string, error) {
 
 	// Build context from prior phases
 	var contextParts []string
@@ -179,21 +123,22 @@ Be concise and specific to THIS project. Extract evidence from the codebase.
 
 	slog.Info("generating phase", "phase", phase, "resumed", sessionID != "")
 
-	// Build command args
-	args := []string{"-p", phasePrompt, "--output-format", "stream-json",
-		"--verbose", "--print"}
+	cfg := agenttargets.DefaultDispatchConfig()
+	cfg.Timeout = 5 * time.Minute
 	if sessionID != "" {
-		args = append(args, "--resume", sessionID)
+		cfg.SessionID = sessionID
+	}
+	if len(model) > 0 && model[0] != "" {
+		cfg.Model = model[0]
 	}
 
-	result, err := runClaude(ctx, cwd, args)
+	result, err := dispatchAndCollect(ctx, cfg, cwd, phasePrompt)
 
 	// If resumed session failed, retry without session
 	if err != nil && sessionID != "" {
 		slog.Warn("session resume failed, retrying fresh", "phase", phase, "err", err)
-		args = []string{"-p", phasePrompt, "--output-format", "stream-json",
-			"--verbose", "--print"}
-		result, err = runClaude(ctx, cwd, args)
+		cfg.SessionID = ""
+		result, err = dispatchAndCollect(ctx, cfg, cwd, phasePrompt)
 	}
 
 	return result, err
@@ -203,10 +148,7 @@ Be concise and specific to THIS project. Extract evidence from the codebase.
 // This avoids re-scanning the codebase when we already have exploration data but
 // the specific phase wasn't included or needs regeneration.
 func GeneratePhaseFromContext(ctx context.Context, cwd string, phase string,
-	priorContext map[string]string, explorationCtx map[string]any, researchContext string) (string, error) {
-
-	ctx, cancel := context.WithTimeout(ctx, 3*time.Minute)
-	defer cancel()
+	priorContext map[string]string, explorationCtx map[string]any, researchContext string, model ...string) (string, error) {
 
 	// Build exploration summary from cached data
 	var explorationParts []string
@@ -256,85 +198,24 @@ Return ONLY the section content, no headers or markdown fences.`, phase, explora
 
 	slog.Info("generating phase from context", "phase", phase)
 
-	cmd := exec.CommandContext(ctx, "claude",
-		"-p", phasePrompt,
-		"--output-format", "stream-json",
-		"--verbose",
-		"--print",
-	)
-	cmd.Dir = cwd
+	cfg := agenttargets.DefaultDispatchConfig()
+	cfg.Timeout = 3 * time.Minute
+	if len(model) > 0 && model[0] != "" {
+		cfg.Model = model[0]
+	}
 
-	stdout, err := cmd.StdoutPipe()
+	result, err := dispatchAndCollect(ctx, cfg, cwd, phasePrompt)
 	if err != nil {
-		return "", fmt.Errorf("failed to create stdout pipe: %w", err)
-	}
-
-	if err := cmd.Start(); err != nil {
-		return "", fmt.Errorf("failed to start claude: %w", err)
-	}
-
-	// Parse streaming output, log tool usage, capture result
-	var finalResult string
-	var isError bool
-	scanner := bufio.NewScanner(stdout)
-	scanner.Buffer(make([]byte, 1024*1024), 1024*1024)
-
-	for scanner.Scan() {
-		line := scanner.Text()
-		if line == "" {
-			continue
-		}
-
-		var msg struct {
-			Type    string `json:"type"`
-			Result  string `json:"result"`
-			IsError bool   `json:"is_error"`
-			Message *struct {
-				Content []struct {
-					Type  string         `json:"type"`
-					Name  string         `json:"name"`
-					Input map[string]any `json:"input"`
-				} `json:"content"`
-			} `json:"message"`
-		}
-		if err := json.Unmarshal([]byte(line), &msg); err != nil {
-			continue
-		}
-
-		// Log tool usage
-		if msg.Type == "assistant" && msg.Message != nil {
-			for _, content := range msg.Message.Content {
-				if content.Type == "tool_use" {
-					logToolUse(content.Name, content.Input)
-				}
-			}
-		}
-
-		// Capture final result
-		if msg.Type == "result" {
-			finalResult = msg.Result
-			isError = msg.IsError
-		}
-	}
-
-	if err := cmd.Wait(); err != nil {
-		return "", fmt.Errorf("claude failed: %w", err)
-	}
-
-	if isError {
-		return "", fmt.Errorf("claude returned error: %s", finalResult)
+		return "", err
 	}
 
 	slog.Info("phase generation from context complete", "phase", phase)
-	return strings.TrimSpace(finalResult), nil
+	return result, nil
 }
 
 // Revise takes a spec section and user feedback, returns a revised version.
-// This runs Claude Code to intelligently revise the content based on feedback.
-func Revise(ctx context.Context, cwd string, phase string, currentContent string, feedback string) (string, error) {
-	ctx, cancel := context.WithTimeout(ctx, 5*time.Minute)
-	defer cancel()
-
+// This runs an agent to intelligently revise the content based on feedback.
+func Revise(ctx context.Context, cwd string, phase string, currentContent string, feedback string, model ...string) (string, error) {
 	revisePrompt := fmt.Sprintf(`Revise this %s section based on user feedback.
 
 CURRENT CONTENT:
@@ -348,77 +229,19 @@ Return ONLY the revised content, no explanation or markdown fences.`, phase, cur
 
 	slog.Info("revising spec", "phase", phase)
 
-	cmd := exec.CommandContext(ctx, "claude",
-		"-p", revisePrompt,
-		"--output-format", "stream-json",
-		"--verbose",
-		"--print",
-	)
-	cmd.Dir = cwd
+	cfg := agenttargets.DefaultDispatchConfig()
+	cfg.Timeout = 5 * time.Minute
+	if len(model) > 0 && model[0] != "" {
+		cfg.Model = model[0]
+	}
 
-	stdout, err := cmd.StdoutPipe()
+	result, err := dispatchAndCollect(ctx, cfg, cwd, revisePrompt)
 	if err != nil {
-		return "", fmt.Errorf("failed to create stdout pipe: %w", err)
-	}
-
-	if err := cmd.Start(); err != nil {
-		return "", fmt.Errorf("failed to start claude: %w", err)
-	}
-
-	// Parse streaming output, log tool usage, capture result
-	var finalResult string
-	var isError bool
-	scanner := bufio.NewScanner(stdout)
-	scanner.Buffer(make([]byte, 1024*1024), 1024*1024)
-
-	for scanner.Scan() {
-		line := scanner.Text()
-		if line == "" {
-			continue
-		}
-
-		var msg struct {
-			Type    string `json:"type"`
-			Result  string `json:"result"`
-			IsError bool   `json:"is_error"`
-			Message *struct {
-				Content []struct {
-					Type  string         `json:"type"`
-					Name  string         `json:"name"`
-					Input map[string]any `json:"input"`
-				} `json:"content"`
-			} `json:"message"`
-		}
-		if err := json.Unmarshal([]byte(line), &msg); err != nil {
-			continue
-		}
-
-		// Log tool usage
-		if msg.Type == "assistant" && msg.Message != nil {
-			for _, content := range msg.Message.Content {
-				if content.Type == "tool_use" {
-					logToolUse(content.Name, content.Input)
-				}
-			}
-		}
-
-		// Capture final result
-		if msg.Type == "result" {
-			finalResult = msg.Result
-			isError = msg.IsError
-		}
-	}
-
-	if err := cmd.Wait(); err != nil {
-		return "", fmt.Errorf("claude failed: %w", err)
-	}
-
-	if isError {
-		return "", fmt.Errorf("claude returned error: %s", finalResult)
+		return "", err
 	}
 
 	slog.Info("revision complete")
-	return strings.TrimSpace(finalResult), nil
+	return result, nil
 }
 
 // PhaseUpdate represents a single phase's content update from propagation.
@@ -428,19 +251,16 @@ type PhaseUpdate struct {
 	Changed bool // true if content differs from previous
 }
 
-// PropagateChanges regenerates all phases in a single Claude Code call.
+// PropagateChanges regenerates all phases in a single agent call.
 // It takes the current phase content map and user feedback (if any), then returns
 // updated content for all phases. The agent decides which phases need changes
 // based on the feedback and maintains consistency across the spec.
 //
 // This is more efficient than calling GeneratePhase multiple times because:
-// 1. Single Claude Code invocation (one context load)
+// 1. Single agent invocation (one context load)
 // 2. Agent sees the full spec and can make intelligent decisions about what to update
 // 3. Returns only changed content (phases that don't need changes return unchanged)
 func PropagateChanges(ctx context.Context, cwd string, currentPhases map[string]string, changedPhase string, feedback string, researchContext string) (map[string]PhaseUpdate, error) {
-	ctx, cancel := context.WithTimeout(ctx, 8*time.Minute)
-	defer cancel()
-
 	// Build the current spec state
 	phaseOrder := []string{"vision", "problem", "users", "features", "cujs", "requirements", "scope", "acceptance"}
 	var specParts []string
@@ -494,73 +314,12 @@ Guidelines:
 
 	slog.Info("propagating changes", "changed_phase", changedPhase)
 
-	cmd := exec.CommandContext(ctx, "claude",
-		"-p", propagatePrompt,
-		"--output-format", "stream-json",
-		"--verbose",
-		"--print",
-	)
-	cmd.Dir = cwd
+	cfg := agenttargets.DefaultDispatchConfig()
+	cfg.Timeout = 8 * time.Minute
 
-	stdout, err := cmd.StdoutPipe()
+	finalResult, err := dispatchAndCollect(ctx, cfg, cwd, propagatePrompt)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create stdout pipe: %w", err)
-	}
-
-	if err := cmd.Start(); err != nil {
-		return nil, fmt.Errorf("failed to start claude: %w", err)
-	}
-
-	// Parse streaming output, log tool usage, capture result
-	var finalResult string
-	var isError bool
-	scanner := bufio.NewScanner(stdout)
-	scanner.Buffer(make([]byte, 1024*1024), 1024*1024)
-
-	for scanner.Scan() {
-		line := scanner.Text()
-		if line == "" {
-			continue
-		}
-
-		var msg struct {
-			Type    string `json:"type"`
-			Result  string `json:"result"`
-			IsError bool   `json:"is_error"`
-			Message *struct {
-				Content []struct {
-					Type  string         `json:"type"`
-					Name  string         `json:"name"`
-					Input map[string]any `json:"input"`
-				} `json:"content"`
-			} `json:"message"`
-		}
-		if err := json.Unmarshal([]byte(line), &msg); err != nil {
-			continue
-		}
-
-		// Log tool usage
-		if msg.Type == "assistant" && msg.Message != nil {
-			for _, content := range msg.Message.Content {
-				if content.Type == "tool_use" {
-					logToolUse(content.Name, content.Input)
-				}
-			}
-		}
-
-		// Capture final result
-		if msg.Type == "result" {
-			finalResult = msg.Result
-			isError = msg.IsError
-		}
-	}
-
-	if err := cmd.Wait(); err != nil {
-		return nil, fmt.Errorf("claude failed: %w", err)
-	}
-
-	if isError {
-		return nil, fmt.Errorf("claude returned error: %s", finalResult)
+		return nil, err
 	}
 
 	// Parse the JSON response
@@ -596,6 +355,35 @@ Guidelines:
 	return updates, nil
 }
 
+// dispatchAndCollect launches an agent and collects the result, logging tool usage.
+// This is the shared implementation that replaces the copy-pasted scanner loops.
+func dispatchAndCollect(ctx context.Context, cfg agenttargets.DispatchConfig, cwd, prompt string) (string, error) {
+	handle, err := agenttargets.Dispatch(ctx, cfg, cwd, prompt)
+	if err != nil {
+		return "", err
+	}
+
+	var finalResult string
+	var isError bool
+	for event := range handle.Events {
+		switch event.Type {
+		case agenttargets.StreamToolUse:
+			logToolUse(event.ToolName, event.ToolInput)
+		case agenttargets.StreamResult:
+			finalResult = event.Text
+			isError = event.IsError
+		case agenttargets.StreamError:
+			slog.Warn("agent stream error", "err", event.Text)
+		}
+	}
+
+	if isError {
+		return "", fmt.Errorf("agent returned error: %s", finalResult)
+	}
+
+	return strings.TrimSpace(finalResult), nil
+}
+
 // extractJSONFromMarkdown extracts JSON content from markdown code fences.
 // Handles ```json ... ``` and ``` ... ``` patterns.
 var jsonFenceRe = regexp.MustCompile("(?s)```(?:json)?\\s*\\n?(\\{.*?\\})\\s*```")
@@ -615,10 +403,6 @@ func extractJSONFromMarkdown(text string) string {
 	}
 
 	return ""
-}
-
-func runClaude(ctx context.Context, cwd string, args []string) (string, error) {
-	return claude.Run(ctx, cwd, args)
 }
 
 // logToolUse logs a tool invocation in a human-readable format.

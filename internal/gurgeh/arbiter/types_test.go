@@ -65,6 +65,79 @@ func TestPhaseOrder(t *testing.T) {
 	}
 }
 
+func TestDefaultModelTiers(t *testing.T) {
+	tiers := DefaultModelTiers()
+
+	if len(tiers) != PhaseCount {
+		t.Errorf("DefaultModelTiers has %d entries, want %d", len(tiers), PhaseCount)
+	}
+
+	// Early phases should use cheaper models, later phases more capable.
+	earlyPhases := []Phase{PhaseVision, PhaseProblem, PhaseUsers}
+	for _, p := range earlyPhases {
+		model, ok := tiers[p]
+		if !ok {
+			t.Errorf("no tier for %v", p)
+			continue
+		}
+		if model == "" {
+			t.Errorf("empty model for early phase %v", p)
+		}
+		// Haiku for early phases
+		if !contains(model, "haiku") {
+			t.Errorf("early phase %v model = %q, expected haiku tier", p, model)
+		}
+	}
+
+	// Late phases should use the most capable model.
+	latePhases := []Phase{PhaseScopeAssumptions, PhaseAcceptanceCriteria}
+	for _, p := range latePhases {
+		model := tiers[p]
+		if !contains(model, "opus") {
+			t.Errorf("late phase %v model = %q, expected opus tier", p, model)
+		}
+	}
+}
+
+func contains(s, substr string) bool {
+	return len(s) >= len(substr) && (s == substr || len(substr) == 0 ||
+		(len(s) > 0 && stringContains(s, substr)))
+}
+
+func stringContains(s, substr string) bool {
+	for i := 0; i+len(substr) <= len(s); i++ {
+		if s[i:i+len(substr)] == substr {
+			return true
+		}
+	}
+	return false
+}
+
+func TestModelForPhase(t *testing.T) {
+	overrides := map[Phase]string{
+		PhaseVision:  "claude-haiku-4-5-20251001",
+		PhaseProblem: "claude-sonnet-4-5-20250929",
+	}
+
+	// Should return override when present.
+	if got := ModelForPhase(overrides, PhaseVision); got != "claude-haiku-4-5-20251001" {
+		t.Errorf("ModelForPhase(Vision) = %q, want haiku", got)
+	}
+	if got := ModelForPhase(overrides, PhaseProblem); got != "claude-sonnet-4-5-20250929" {
+		t.Errorf("ModelForPhase(Problem) = %q, want sonnet", got)
+	}
+
+	// Should return empty string when no override for this phase.
+	if got := ModelForPhase(overrides, PhaseUsers); got != "" {
+		t.Errorf("ModelForPhase(Users) = %q, want empty", got)
+	}
+
+	// Should return empty string when overrides is nil.
+	if got := ModelForPhase(nil, PhaseVision); got != "" {
+		t.Errorf("ModelForPhase(nil, Vision) = %q, want empty", got)
+	}
+}
+
 func TestSprintStateClone(t *testing.T) {
 	now := time.Now()
 	original := &SprintState{
@@ -110,6 +183,9 @@ func TestSprintStateClone(t *testing.T) {
 		ShapeOverrides: map[Phase]thinking.Shape{
 			PhaseVision: thinking.ShapeDeductive,
 		},
+		ModelOverrides: map[Phase]string{
+			PhaseVision: "claude-haiku-4-5-20251001",
+		},
 		ScanArtifacts: &scan.Artifacts{},
 		StartedAt:     now,
 		UpdatedAt:     now,
@@ -126,6 +202,7 @@ func TestSprintStateClone(t *testing.T) {
 	original.ResearchCtx.GitHubHits = append(original.ResearchCtx.GitHubHits, GitHubFinding{Name: "repo2"})
 	original.VisionContext.Goals = append(original.VisionContext.Goals, "goal2")
 	original.ShapeOverrides[PhaseProblem] = thinking.ShapeInductive
+	original.ModelOverrides[PhaseProblem] = "claude-opus-4-6"
 
 	// Assert clone is unchanged
 	if clone.Sections[PhaseVision].Content != "vision content" {
@@ -151,6 +228,9 @@ func TestSprintStateClone(t *testing.T) {
 	}
 	if len(clone.ShapeOverrides) != 1 {
 		t.Errorf("clone shape overrides mutated: got %d, want 1", len(clone.ShapeOverrides))
+	}
+	if len(clone.ModelOverrides) != 1 {
+		t.Errorf("clone model overrides mutated: got %d, want 1", len(clone.ModelOverrides))
 	}
 
 	// ScanArtifacts should be the same pointer (shared, immutable)

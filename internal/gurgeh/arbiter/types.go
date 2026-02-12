@@ -59,6 +59,38 @@ func (p Phase) String() string {
 	return "Unknown"
 }
 
+// DefaultModelTiers returns a sensible per-phase model assignment for cost
+// optimization. Early exploratory phases use fast/cheap models; later analytical
+// and synthesis phases use more capable ones.
+//
+// Tier mapping:
+//   - Haiku:  Vision, Problem, Users (exploratory — scan/summarize)
+//   - Sonnet: Features+Goals, CUJs, Requirements (analytical — synthesize findings)
+//   - Opus:   Scope+Assumptions, Acceptance Criteria (synthesis — consistency-critical)
+func DefaultModelTiers() map[Phase]string {
+	return map[Phase]string{
+		PhaseVision:             "claude-haiku-4-5-20251001",
+		PhaseProblem:            "claude-haiku-4-5-20251001",
+		PhaseUsers:              "claude-haiku-4-5-20251001",
+		PhaseFeaturesGoals:      "claude-sonnet-4-5-20250929",
+		PhaseCUJs:               "claude-sonnet-4-5-20250929",
+		PhaseRequirements:       "claude-sonnet-4-5-20250929",
+		PhaseScopeAssumptions:   "claude-opus-4-6",
+		PhaseAcceptanceCriteria: "claude-opus-4-6",
+	}
+}
+
+// ModelForPhase returns the model to use for the given phase, checking
+// overrides first, then returning empty string (CLI default) if none set.
+func ModelForPhase(overrides map[Phase]string, phase Phase) string {
+	if overrides != nil {
+		if model, ok := overrides[phase]; ok {
+			return model
+		}
+	}
+	return ""
+}
+
 // DraftStatus tracks the state of a section draft
 type DraftStatus int
 
@@ -133,6 +165,7 @@ type SprintState struct {
 	IsReview        bool                        // true when reviewing an existing spec
 	ReviewingSpecID string                      // ID of spec being reviewed
 	ShapeOverrides  map[Phase]thinking.Shape    // per-sprint user overrides for thinking shapes
+	ModelOverrides  map[Phase]string            // per-phase model tier (empty = CLI default)
 	ScanArtifacts     *scan.Artifacts             // lossless kickoff scan results (nil if no scan)
 	ExplorationResult    map[string]any              // raw Claude Code exploration output (reused across phases)
 	ExplorationSessionID string                     // Claude Code session for reuse in later phases
@@ -341,6 +374,14 @@ func (s *SprintState) Clone() SprintState {
 		out.ShapeOverrides = make(map[Phase]thinking.Shape, len(s.ShapeOverrides))
 		for k, v := range s.ShapeOverrides {
 			out.ShapeOverrides[k] = v
+		}
+	}
+
+	// ModelOverrides: map of int→string values, needs shallow map copy
+	if s.ModelOverrides != nil {
+		out.ModelOverrides = make(map[Phase]string, len(s.ModelOverrides))
+		for k, v := range s.ModelOverrides {
+			out.ModelOverrides[k] = v
 		}
 	}
 

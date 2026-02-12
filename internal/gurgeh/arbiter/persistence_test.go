@@ -47,6 +47,40 @@ func TestSaveAndLoadSprintState(t *testing.T) {
 	}
 }
 
+func TestSaveAndLoadSprintState_ModelOverrides(t *testing.T) {
+	tmpDir, err := os.MkdirTemp("", "arbiter-model-test-*")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	state := NewSprintState(tmpDir)
+	state.ID = "MODEL-001"
+	state.ModelOverrides = map[Phase]string{
+		PhaseVision:             "claude-haiku-4-5-20251001",
+		PhaseScopeAssumptions:   "claude-opus-4-6",
+	}
+
+	if err := SaveSprintState(state); err != nil {
+		t.Fatalf("save failed: %v", err)
+	}
+
+	loaded, err := LoadSprintState(tmpDir, "MODEL-001")
+	if err != nil {
+		t.Fatalf("load failed: %v", err)
+	}
+
+	if len(loaded.ModelOverrides) != 2 {
+		t.Fatalf("expected 2 model overrides, got %d", len(loaded.ModelOverrides))
+	}
+	if loaded.ModelOverrides[PhaseVision] != "claude-haiku-4-5-20251001" {
+		t.Errorf("vision model = %q", loaded.ModelOverrides[PhaseVision])
+	}
+	if loaded.ModelOverrides[PhaseScopeAssumptions] != "claude-opus-4-6" {
+		t.Errorf("scope model = %q", loaded.ModelOverrides[PhaseScopeAssumptions])
+	}
+}
+
 func TestListSprints(t *testing.T) {
 	tmpDir, err := os.MkdirTemp("", "arbiter-test-*")
 	if err != nil {

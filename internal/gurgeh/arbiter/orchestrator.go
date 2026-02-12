@@ -357,6 +357,7 @@ func (o *Orchestrator) advanceInternal(ctx context.Context, state *SprintState, 
 
 	// Generate draft for the new phase from cached exploration or fallback
 	researchContext := buildResearchPromptContext(state.Findings)
+	phaseModel := ModelForPhase(state.ModelOverrides, state.Phase)
 
 	// Generate draft for the new phase from cached exploration or fallback
 	// Priority: 1) cached extraction, 2) context-aware generation, 3) full exploration
@@ -372,10 +373,10 @@ func (o *Orchestrator) advanceInternal(ctx context.Context, state *SprintState, 
 		// Cache exists but missing this phase - generate from context (avoids re-exploring)
 		priorContext := o.buildPriorContext(state)
 		genContent, err := exploration.GeneratePhaseFromContext(
-			ctx, o.projectPath, state.Phase.String(), priorContext, state.ExplorationResult, researchContext)
+			ctx, o.projectPath, state.Phase.String(), priorContext, state.ExplorationResult, researchContext, phaseModel)
 		if err != nil {
 			// Fallback to full exploration if context-aware generation fails
-			genContent, err = exploration.GeneratePhase(ctx, o.projectPath, state.Phase.String(), priorContext, state.ExplorationSessionID, researchContext)
+			genContent, err = exploration.GeneratePhase(ctx, o.projectPath, state.Phase.String(), priorContext, state.ExplorationSessionID, researchContext, phaseModel)
 			if err != nil {
 				// Final fallback to template
 				projectCtx := o.readProjectContext()
@@ -402,7 +403,7 @@ func (o *Orchestrator) advanceInternal(ctx context.Context, state *SprintState, 
 		// No cache at all - use original logic
 		if o.shouldUseDynamicGeneration(state.Phase) {
 			priorContext := o.buildPriorContext(state)
-			genContent, err := exploration.GeneratePhase(ctx, o.projectPath, state.Phase.String(), priorContext, state.ExplorationSessionID, researchContext)
+			genContent, err := exploration.GeneratePhase(ctx, o.projectPath, state.Phase.String(), priorContext, state.ExplorationSessionID, researchContext, phaseModel)
 			if err != nil {
 				projectCtx := o.readProjectContext()
 				draft, fallbackErr := o.generator.GenerateDraft(ctx, state.Phase, projectCtx, "", state.Findings)
@@ -1209,7 +1210,8 @@ func (o *Orchestrator) ProcessChatMessage(ctx context.Context, msg string) <-cha
 			if section, ok := state.Sections[phase]; ok {
 				currentContent = section.Content
 			}
-			revised, revErr := exploration.Revise(ctx, o.projectPath, phase.String(), currentContent, msg)
+			reviseModel := ModelForPhase(state.ModelOverrides, phase)
+			revised, revErr := exploration.Revise(ctx, o.projectPath, phase.String(), currentContent, msg, reviseModel)
 			if revErr != nil {
 				select {
 				case ch <- fmt.Sprintf("Failed to revise: %v", revErr):
