@@ -44,6 +44,8 @@ type ArbiterView struct {
 	orchestrator *arbiter.Orchestrator
 	state        *arbiter.SprintState
 	coordinator  *research.Coordinator
+	ctx          context.Context
+	cancel       context.CancelFunc
 
 	// UI components
 	chatPanel   *pkgtui.ChatPanel
@@ -68,6 +70,8 @@ type ArbiterView struct {
 // NewArbiterView creates a new ArbiterView.
 // If coordinator is non-nil, research findings will be integrated.
 func NewArbiterView(projectPath string, coordinator *research.Coordinator) *ArbiterView {
+	ctx, cancel := context.WithCancel(context.TODO())
+
 	var orch *arbiter.Orchestrator
 	if coordinator != nil {
 		if url := os.Getenv("INTERMUTE_URL"); url != "" {
@@ -95,6 +99,8 @@ func NewArbiterView(projectPath string, coordinator *research.Coordinator) *Arbi
 		projectPath:  projectPath,
 		orchestrator: orch,
 		coordinator:  coordinator,
+		ctx:          ctx,
+		cancel:       cancel,
 		chatPanel:    chatPanel,
 		docPanel:     docPanel,
 		shell:        shell,
@@ -157,16 +163,20 @@ func (v *ArbiterView) SetCompleteCallback(cb func(answers map[string]string) tea
 
 // Init implements pkgtui.View.
 func (v *ArbiterView) Init() tea.Cmd {
+	v.ensureContext()
+	ctx := v.ctx
 	return func() tea.Msg {
-		_, err := v.orchestrator.Start(context.TODO(), "")
+		_, err := v.orchestrator.Start(ctx, "")
 		return arbiterStartedMsg{err: err}
 	}
 }
 
 // StartWithInput initializes the sprint with user-provided input.
 func (v *ArbiterView) StartWithInput(input string) tea.Cmd {
+	v.ensureContext()
+	ctx := v.ctx
 	return func() tea.Msg {
-		_, err := v.orchestrator.Start(context.TODO(), input)
+		_, err := v.orchestrator.Start(ctx, input)
 		return arbiterStartedMsg{err: err}
 	}
 }
@@ -308,6 +318,7 @@ func (v *ArbiterView) runHandoffAction(actionID string) tea.Cmd {
 }
 
 func (v *ArbiterView) runTasksHandoff() (string, error) {
+	v.ensureContext()
 	if v.state == nil {
 		return "", fmt.Errorf("no sprint state available")
 	}
@@ -320,7 +331,7 @@ func (v *ArbiterView) runTasksHandoff() (string, error) {
 		return "", fmt.Errorf("persist spec: %w", err)
 	}
 
-	briefs, err := brief.Decompose(context.TODO(), spec, v.projectPath)
+	briefs, err := brief.Decompose(v.ctx, spec, v.projectPath)
 	if err != nil {
 		return "", fmt.Errorf("decompose briefs: %w", err)
 	}
@@ -349,11 +360,12 @@ func (v *ArbiterView) runTasksHandoff() (string, error) {
 }
 
 func (v *ArbiterView) runResearchHandoff() (string, error) {
+	v.ensureContext()
 	if v.state == nil {
 		return "", fmt.Errorf("no sprint state available")
 	}
 
-	if err := v.orchestrator.StartDeepScan(context.TODO(), v.state); err == nil {
+	if err := v.orchestrator.StartDeepScan(v.ctx, v.state); err == nil {
 		return "Deep research scan started via Intermute provider.", nil
 	}
 
@@ -362,7 +374,7 @@ func (v *ArbiterView) runResearchHandoff() (string, error) {
 	}
 
 	query := deriveResearchQuery(v.state)
-	run, err := v.coordinator.StartRun(context.TODO(), v.state.ID,
+	run, err := v.coordinator.StartRun(v.ctx, v.state.ID,
 		[]string{"github-scout", "hackernews-trendwatcher", "competitor-tracker"},
 		[]research.TopicConfig{{Key: "handoff", Queries: []string{query}}},
 	)
@@ -408,8 +420,9 @@ func persistExportedSpec(projectPath string, spec *specs.Spec) error {
 }
 
 func (v *ArbiterView) acceptDraft() (pkgtui.View, tea.Cmd) {
+	v.ensureContext()
 	v.chatPanel.AddMessage("user", fmt.Sprintf("✓ Accepted %s", v.state.Phase.String()))
-	newState, err := v.orchestrator.AcceptAndAdvance(context.TODO())
+	newState, err := v.orchestrator.AcceptAndAdvance(v.ctx)
 	if newState != nil {
 		v.state = newState
 	}
@@ -584,6 +597,7 @@ func (v *ArbiterView) View() string {
 
 // Focus implements pkgtui.View.
 func (v *ArbiterView) Focus() tea.Cmd {
+	v.ensureContext()
 	v.focused = true
 	return nil
 }
@@ -591,6 +605,7 @@ func (v *ArbiterView) Focus() tea.Cmd {
 // Blur implements pkgtui.View.
 func (v *ArbiterView) Blur() {
 	v.focused = false
+	v.cancelContext()
 }
 
 // Name implements pkgtui.View.
@@ -660,4 +675,19 @@ func (v *ArbiterView) jumpToPhase(phase arbiter.Phase) tea.Cmd {
 	v.updateDocPanel()
 	v.chatPanel.AddMessage("system", fmt.Sprintf("Jumped to %s", phase.String()))
 	return nil
+}
+
+func (v *ArbiterView) ensureContext() {
+	if v.ctx != nil && v.ctx.Err() == nil {
+		return
+	}
+	v.ctx, v.cancel = context.WithCancel(context.TODO())
+}
+
+func (v *ArbiterView) cancelContext() {
+	if v.cancel != nil {
+		v.cancel()
+		v.cancel = nil
+	}
+	v.ctx = nil
 }

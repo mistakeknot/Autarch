@@ -124,6 +124,26 @@ func TestSprintView_TypingViaUpdateReachesComposer(t *testing.T) {
 	}
 }
 
+func TestSprintView_BlurCancelsContext(t *testing.T) {
+	v := NewSprintView("/tmp/test-project", SprintViewOpts{})
+	if v.ctx == nil {
+		t.Fatal("expected sprint context to be initialized")
+	}
+	done := v.ctx.Done()
+
+	v.Blur()
+
+	select {
+	case <-done:
+	default:
+		t.Fatal("expected context to be canceled on blur")
+	}
+
+	// Re-focus should recreate context and remain cancel-safe.
+	v.Focus()
+	v.Blur()
+}
+
 // Ensure the View interface is satisfied
 var _ pkgtui.View = (*SprintView)(nil)
 

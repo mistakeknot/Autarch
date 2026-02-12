@@ -16,7 +16,9 @@ import (
 // SprintView provides a chat-driven spec flow through all 8 PRD phases.
 // It owns the Orchestrator directly — no intermediate controller layer.
 type SprintView struct {
-	orch *arbiter.Orchestrator
+	orch   *arbiter.Orchestrator
+	ctx    context.Context
+	cancel context.CancelFunc
 
 	// Layout
 	chatPanel *pkgtui.ChatPanel
@@ -47,6 +49,8 @@ type SprintViewOpts struct {
 // NewSprintView creates a new sprint view. Call StartSprint or StartSprintWithScan
 // to begin.
 func NewSprintView(projectPath string, opts SprintViewOpts) *SprintView {
+	ctx, cancel := context.WithCancel(context.TODO())
+
 	chatPanel := pkgtui.NewChatPanel()
 	chatPanel.SetComposerPlaceholder("Chat about the current phase...")
 	chatPanel.SetComposerHint("enter send · ctrl+→ accept · tab focus doc · pgup/pgdn scroll")
@@ -66,6 +70,8 @@ func NewSprintView(projectPath string, opts SprintViewOpts) *SprintView {
 
 	v := &SprintView{
 		orch:      orch,
+		ctx:       ctx,
+		cancel:    cancel,
 		chatPanel: chatPanel,
 		docPanel:  NewSprintDocPanel(),
 		sidebar:   NewPhaseSidebar(),
@@ -86,8 +92,10 @@ func (v *SprintView) SetAgentSelector(selector *pkgtui.AgentSelector) {
 
 // StartSprint starts a new sprint and returns the initial command.
 func (v *SprintView) StartSprint(userInput string) tea.Cmd {
+	v.ensureContext()
+	ctx := v.ctx
 	return func() tea.Msg {
-		_, err := v.orch.Start(context.TODO(), userInput)
+		_, err := v.orch.Start(ctx, userInput)
 		if err != nil {
 			return tui.GenerationErrorMsg{What: "sprint", Error: err}
 		}
@@ -108,8 +116,10 @@ func (v *SprintView) StartSprintWithScan(userInput string, artifacts *scan.Artif
 // The exploration result is cached for instant phase transitions (no re-scanning).
 // Session ID enables resuming the Claude Code session in later phases.
 func (v *SprintView) StartSprintWithExploration(userInput string, artifacts *scan.Artifacts, exploration map[string]any, sessionID string) tea.Cmd {
+	v.ensureContext()
+	ctx := v.ctx
 	return func() tea.Msg {
-		_, err := v.orch.StartWithScan(context.TODO(), userInput, artifacts)
+		_, err := v.orch.StartWithScan(ctx, userInput, artifacts)
 		if err != nil {
 			return tui.GenerationErrorMsg{What: "sprint", Error: err}
 		}
@@ -352,12 +362,14 @@ func (v *SprintView) View() string {
 
 // Focus implements View.
 func (v *SprintView) Focus() tea.Cmd {
+	v.ensureContext()
 	return v.chatPanel.Focus()
 }
 
 // Blur implements View.
 func (v *SprintView) Blur() {
 	v.cancelStreaming()
+	v.cancelContext()
 	v.chatPanel.Blur()
 }
 
@@ -466,6 +478,8 @@ func (v *SprintView) waitForResponse() tea.Cmd {
 }
 
 func (v *SprintView) handleAccept() tea.Cmd {
+	v.ensureContext()
+	ctx := v.ctx
 	v.chatPanel.AddMessage("user", "Accept draft")
 
 	// Check if we're already on the last phase before accepting
@@ -473,7 +487,7 @@ func (v *SprintView) handleAccept() tea.Cmd {
 	prevPhase := prevState.Phase
 
 	return func() tea.Msg {
-		err := v.orch.ChatAcceptDraft(context.TODO())
+		err := v.orch.ChatAcceptDraft(ctx)
 		if err != nil {
 			if arbiter.IsBlockerError(err) {
 				state, _ := v.orch.State()
@@ -520,4 +534,19 @@ func (v *SprintView) handleRevert() tea.Cmd {
 			Content: state.Sections[state.Phase].Content,
 		}
 	}
+}
+
+func (v *SprintView) ensureContext() {
+	if v.ctx != nil && v.ctx.Err() == nil {
+		return
+	}
+	v.ctx, v.cancel = context.WithCancel(context.TODO())
+}
+
+func (v *SprintView) cancelContext() {
+	if v.cancel != nil {
+		v.cancel()
+		v.cancel = nil
+	}
+	v.ctx = nil
 }

@@ -91,3 +91,22 @@ func TestPersistExportedSpecWritesSpecFile(t *testing.T) {
 		t.Fatalf("expected persisted spec file: %v", err)
 	}
 }
+
+func TestArbiterViewBlurCancelsContext(t *testing.T) {
+	view := NewArbiterView("/tmp/test", nil)
+	if view.ctx == nil {
+		t.Fatalf("expected view context to be initialized")
+	}
+	done := view.ctx.Done()
+
+	view.Blur()
+
+	select {
+	case <-done:
+	default:
+		t.Fatalf("expected context to be canceled on blur")
+	}
+
+	// Repeated cleanup should be safe.
+	view.Blur()
+}
