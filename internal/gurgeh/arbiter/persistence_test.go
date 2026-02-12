@@ -57,7 +57,7 @@ func TestSaveAndLoadSprintState_ModelOverrides(t *testing.T) {
 	state := NewSprintState(tmpDir)
 	state.ID = "MODEL-001"
 	state.ModelOverrides = map[Phase]string{
-		PhaseVision:             "claude-haiku-4-5-20251001",
+		PhaseVision:             "claude-sonnet-4-5-20250929",
 		PhaseScopeAssumptions:   "claude-opus-4-6",
 	}
 
@@ -73,7 +73,7 @@ func TestSaveAndLoadSprintState_ModelOverrides(t *testing.T) {
 	if len(loaded.ModelOverrides) != 2 {
 		t.Fatalf("expected 2 model overrides, got %d", len(loaded.ModelOverrides))
 	}
-	if loaded.ModelOverrides[PhaseVision] != "claude-haiku-4-5-20251001" {
+	if loaded.ModelOverrides[PhaseVision] != "claude-sonnet-4-5-20250929" {
 		t.Errorf("vision model = %q", loaded.ModelOverrides[PhaseVision])
 	}
 	if loaded.ModelOverrides[PhaseScopeAssumptions] != "claude-opus-4-6" {

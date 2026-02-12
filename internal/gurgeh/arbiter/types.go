@@ -67,7 +67,7 @@ func (p Phase) String() string {
 // dispatch to a model at all.
 //
 // The ModelOverrides field on SprintState lets users trade quality for speed on
-// specific phases during iteration (e.g., set Vision to Haiku for fast drafts).
+// specific phases during iteration (e.g., set Vision to Sonnet for faster drafts).
 func DefaultModelTiers() map[Phase]string {
 	return map[Phase]string{}
 }

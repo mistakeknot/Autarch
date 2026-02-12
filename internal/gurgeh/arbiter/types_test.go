@@ -86,16 +86,16 @@ func TestDefaultModelTiers(t *testing.T) {
 
 func TestModelForPhase(t *testing.T) {
 	overrides := map[Phase]string{
-		PhaseVision:  "claude-haiku-4-5-20251001",
-		PhaseProblem: "claude-sonnet-4-5-20250929",
+		PhaseVision:  "claude-sonnet-4-5-20250929",
+		PhaseProblem: "claude-opus-4-6",
 	}
 
 	// Should return override when present.
-	if got := ModelForPhase(overrides, PhaseVision); got != "claude-haiku-4-5-20251001" {
-		t.Errorf("ModelForPhase(Vision) = %q, want haiku", got)
+	if got := ModelForPhase(overrides, PhaseVision); got != "claude-sonnet-4-5-20250929" {
+		t.Errorf("ModelForPhase(Vision) = %q, want sonnet", got)
 	}
-	if got := ModelForPhase(overrides, PhaseProblem); got != "claude-sonnet-4-5-20250929" {
-		t.Errorf("ModelForPhase(Problem) = %q, want sonnet", got)
+	if got := ModelForPhase(overrides, PhaseProblem); got != "claude-opus-4-6" {
+		t.Errorf("ModelForPhase(Problem) = %q, want opus", got)
 	}
 
 	// Should return empty string when no override for this phase.
@@ -155,7 +155,7 @@ func TestSprintStateClone(t *testing.T) {
 			PhaseVision: thinking.ShapeDeductive,
 		},
 		ModelOverrides: map[Phase]string{
-			PhaseVision: "claude-haiku-4-5-20251001",
+			PhaseVision: "claude-sonnet-4-5-20250929",
 		},
 		ScanArtifacts: &scan.Artifacts{},
 		StartedAt:     now,
