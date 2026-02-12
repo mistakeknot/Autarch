@@ -124,20 +124,12 @@ Navigation:
 				return fmt.Errorf("failed to create intermute manager: %w", err)
 			}
 
-			// Ensure Intermute is running (detect existing or start new)
-			ensureCtx, ensureCancel := context.WithTimeout(context.Background(), 30*time.Second)
-			defer ensureCancel()
-			cleanup, err := mgr.EnsureRunning(ensureCtx)
-			if err != nil {
-				return fmt.Errorf("failed to ensure intermute running: %w", err)
-			}
-			defer cleanup()
-
 			// Create client connecting to Intermute server
 			client := autarch.NewClient(mgr.URL())
 
 			// Create unified app (serves both onboarding and skip-onboard paths)
 			app := tui.NewUnifiedApp(client)
+			app.SetIntermuteManager(mgr)
 
 			if skipOnboard {
 				app.SetSkipOnboarding(true)

@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"context"
 	"fmt"
 	"log/slog"
 	"os"
@@ -13,6 +14,7 @@ import (
 	"github.com/charmbracelet/lipgloss"
 	"github.com/charmbracelet/x/ansi"
 	"github.com/mistakeknot/autarch/internal/autarch/agent"
+	internalIntermute "github.com/mistakeknot/autarch/internal/intermute"
 	"github.com/mistakeknot/autarch/pkg/autarch"
 	pkgtui "github.com/mistakeknot/autarch/pkg/tui"
 )
@@ -59,6 +61,9 @@ type UnifiedApp struct {
 
 	// View factories (injected from main.go)
 	createDashboardViews func(*autarch.Client) []View
+
+	intermuteMgr     *internalIntermute.Manager
+	intermuteCleanup func()
 }
 
 // NewUnifiedApp creates a new unified application
@@ -105,6 +110,11 @@ func (a *UnifiedApp) SetSkipOnboarding(skip bool) {
 // SetDashboardViewFactory sets the factory for creating dashboard tab views.
 func (a *UnifiedApp) SetDashboardViewFactory(factory func(*autarch.Client) []View) {
 	a.createDashboardViews = factory
+}
+
+// SetIntermuteManager sets the Intermute manager used for async startup.
+func (a *UnifiedApp) SetIntermuteManager(mgr *internalIntermute.Manager) {
+	a.intermuteMgr = mgr
 }
 
 type agentSelectorSetter interface {
@@ -242,7 +252,7 @@ func (a *UnifiedApp) Init() tea.Cmd {
 
 	// Always enter dashboard. If not skipping onboarding, the Gurgeh tab's
 	// GurgehView.Init() will start the onboarding flow internally.
-	return a.enterDashboard()
+	return tea.Batch(a.enterDashboard(), a.startIntermute())
 }
 
 // Update implements tea.Model
@@ -289,6 +299,7 @@ func (a *UnifiedApp) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			a.showHelp = true
 			return a, nil
 		case "quit", "exit", "q":
+			a.cleanupIntermute()
 			return a, tea.Quit
 		case "settings", "config":
 			a.openChatSettings()
@@ -345,6 +356,7 @@ func (a *UnifiedApp) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			now := time.Now()
 			// Double ctrl+c within 500ms quits
 			if now.Sub(a.lastCtrlC) < 500*time.Millisecond {
+				a.cleanupIntermute()
 				return a, tea.Quit
 			}
 			// First ctrl+c: clear input and record time
@@ -466,6 +478,17 @@ func (a *UnifiedApp) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			})
 		}
 		return a, nil
+
+	case IntermuteStartedMsg:
+		if a.intermuteCleanup != nil {
+			a.intermuteCleanup()
+		}
+		a.intermuteCleanup = msg.Cleanup
+		return a, nil
+
+	case IntermuteStartFailedMsg:
+		slog.Error("intermute startup failed", "error", msg.Error)
+		return a, nil
 	}
 
 	// Pass to current view
@@ -485,6 +508,29 @@ func (a *UnifiedApp) blurCurrentView() {
 	if a.currentView != nil {
 		a.currentView.Blur()
 	}
+}
+
+func (a *UnifiedApp) startIntermute() tea.Cmd {
+	if a.intermuteMgr == nil {
+		return nil
+	}
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+		cleanup, err := a.intermuteMgr.EnsureRunning(ctx)
+		if err != nil {
+			return IntermuteStartFailedMsg{Error: err}
+		}
+		return IntermuteStartedMsg{Cleanup: cleanup}
+	}
+}
+
+func (a *UnifiedApp) cleanupIntermute() {
+	if a.intermuteCleanup == nil {
+		return
+	}
+	a.intermuteCleanup()
+	a.intermuteCleanup = nil
 }
 
 func (a *UnifiedApp) enterDashboard() tea.Cmd {
@@ -915,6 +961,7 @@ func Run(client *autarch.Client, app *UnifiedApp, opts RunOpts) error {
 
 	// Cleanup
 	handler.Close()
+	app.cleanupIntermute()
 
 	// Dump logs for scrollback (inline mode only — alt-screen is gone)
 	if opts.InlineMode {

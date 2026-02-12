@@ -277,3 +277,13 @@ type LogPaneAutoShowMsg struct{}
 
 // LogPaneScheduleAutoHideMsg requests the shell to schedule auto-hide of the log pane.
 type LogPaneScheduleAutoHideMsg struct{}
+
+// IntermuteStartedMsg indicates Intermute is running and provides a cleanup hook.
+type IntermuteStartedMsg struct {
+	Cleanup func()
+}
+
+// IntermuteStartFailedMsg indicates Intermute startup failed.
+type IntermuteStartFailedMsg struct {
+	Error error
+}
