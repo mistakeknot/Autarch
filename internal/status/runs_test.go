@@ -96,3 +96,87 @@ func TestRunsPaneCursorPreservedOnUpdate(t *testing.T) {
 		t.Errorf("cursor not clamped: got %q, want r1", p.SelectedRun().ID)
 	}
 }
+
+func TestRunsPaneRenderWithData(t *testing.T) {
+	p := NewRunsPane()
+	p.SetSize(80, 20)
+	p.SetRuns([]Run{
+		{
+			ID:     "r1abcde",
+			Goal:   "Cost-aware scheduling",
+			Phase:  "brainstorm",
+			Phases: []string{"brainstorm", "strategized", "planned", "executing", "done"},
+			Status: "active",
+		},
+		{
+			ID:     "r2fghij",
+			Goal:   "Status tool MVP",
+			Phase:  "done",
+			Phases: []string{"brainstorm", "done"},
+			Status: "completed",
+		},
+	})
+
+	view := p.View()
+
+	if !strings.Contains(view, "RUNS") {
+		t.Error("expected 'RUNS' header")
+	}
+	if !strings.Contains(view, "r1abcde") {
+		t.Error("expected run ID 'r1abcde'")
+	}
+	if !strings.Contains(view, "r2fghij") {
+		t.Error("expected run ID 'r2fghij'")
+	}
+	if !strings.Contains(view, "Cost-aware") {
+		t.Error("expected goal text 'Cost-aware'")
+	}
+	if !strings.Contains(view, "brainstorm") {
+		t.Error("expected phase 'brainstorm'")
+	}
+	if !strings.Contains(view, "done") {
+		t.Error("expected phase 'done'")
+	}
+}
+
+func TestRunsPaneRenderTruncation(t *testing.T) {
+	p := NewRunsPane()
+	p.SetSize(80, 20)
+
+	longGoal := strings.Repeat("x", 80)
+	p.SetRuns([]Run{
+		{ID: "r1", Goal: longGoal, Phase: "brainstorm", Status: "active"},
+	})
+
+	view := p.View()
+
+	// Full goal should NOT appear — goalWidth = 80 - 46 = 34, so goal is truncated
+	if strings.Contains(view, longGoal) {
+		t.Error("expected long goal to be truncated")
+	}
+	// Truncated prefix should appear (33 chars + ellipsis)
+	if !strings.Contains(view, longGoal[:33]) {
+		t.Error("expected truncated goal prefix")
+	}
+}
+
+func TestRunsPaneRenderDiffersWithCursor(t *testing.T) {
+	p := NewRunsPane()
+	p.SetSize(80, 20)
+	p.SetRuns([]Run{
+		{ID: "r1", Goal: "First run", Phase: "brainstorm", Status: "active"},
+		{ID: "r2", Goal: "Second run", Phase: "done", Status: "completed"},
+	})
+
+	// Render with cursor at 0
+	view1 := p.View()
+
+	// Move cursor to 1 and render again
+	p.CursorDown()
+	view2 := p.View()
+
+	// Views should differ — selected row gets Width() padding
+	if view1 == view2 {
+		t.Error("expected different views with different cursor positions")
+	}
+}

@@ -184,3 +184,42 @@ func TestCommandPickerSortPrefixFirst(t *testing.T) {
 		t.Errorf("filter 'sc': got %v, want [scan]", picker.filtered)
 	}
 }
+
+func TestSprintCommandsPool(t *testing.T) {
+	commands := SprintCommands()
+	if len(commands) == 0 {
+		t.Fatal("SprintCommands() returned empty list")
+	}
+	for i, cmd := range commands {
+		if cmd.Command == "" {
+			t.Errorf("SprintCommands()[%d] has empty Command field", i)
+		}
+	}
+}
+
+func TestCommandPickerFilterSprintCommands(t *testing.T) {
+	picker := NewCommandPicker(SprintCommands())
+	picker.Show("vis")
+
+	found := false
+	for _, cmd := range picker.filtered {
+		if cmd.Command == "vision" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Errorf("filter 'vis' should match 'vision', got %v", picker.filtered)
+	}
+}
+
+func TestGlobalCommandsPoolNoDuplicates(t *testing.T) {
+	commands := GlobalCommands()
+	seen := make(map[string]bool)
+	for _, cmd := range commands {
+		if seen[cmd.Command] {
+			t.Errorf("duplicate command %q in GlobalCommands()", cmd.Command)
+		}
+		seen[cmd.Command] = true
+	}
+}

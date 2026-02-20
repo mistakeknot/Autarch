@@ -101,3 +101,67 @@ func TestChatPanelSubmitInput(t *testing.T) {
 		t.Fatalf("expected command 'help', got %q", slashMsg.Command)
 	}
 }
+
+func TestChatPanelKernelSlashCommands(t *testing.T) {
+	tests := []struct {
+		input   string
+		wantCmd string
+		wantArg []string
+	}{
+		// Note: "/new" and "/clear" are special-cased to reset session and return nil
+		{"/quit extra-arg", "quit", []string{"extra-arg"}},
+		{"/model opus", "model", []string{"opus"}},
+		{"/accept", "accept", nil},
+		{"/vision jump-here", "vision", []string{"jump-here"}},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.input, func(t *testing.T) {
+			panel := NewChatPanel()
+			panel.SetSize(60, 20)
+			panel.Focus()
+			panel.SetValue(tt.input)
+
+			cmd := panel.SubmitInput()
+			if cmd == nil {
+				t.Fatalf("expected non-nil cmd for %q", tt.input)
+			}
+			msg := cmd()
+			slashMsg, ok := msg.(SlashCommandMsg)
+			if !ok {
+				t.Fatalf("expected SlashCommandMsg, got %T", msg)
+			}
+			if slashMsg.Command != tt.wantCmd {
+				t.Errorf("command = %q, want %q", slashMsg.Command, tt.wantCmd)
+			}
+			if len(slashMsg.Args) != len(tt.wantArg) {
+				t.Errorf("args = %v, want %v", slashMsg.Args, tt.wantArg)
+			}
+		})
+	}
+}
+
+func TestChatPanelRenderMessages(t *testing.T) {
+	panel := NewChatPanel()
+	panel.SetSize(80, 30)
+
+	// Add messages with plain text (no markdown — glamour would alter it)
+	panel.AddMessage("user", "What is the current sprint status")
+	panel.AddMessage("agent", "The sprint is in brainstorm phase")
+	panel.AddMessage("system", "Connected to kernel")
+
+	view := panel.View()
+
+	// User and system messages render as plain text
+	if !strings.Contains(view, "sprint status") {
+		t.Error("expected user message content in view")
+	}
+	if !strings.Contains(view, "Connected to kernel") {
+		t.Error("expected system message content in view")
+	}
+	// Agent messages go through glamour markdown rendering, so check for a word
+	// that survives rendering (glamour doesn't consume plain words)
+	if !strings.Contains(view, "brainstorm") {
+		t.Error("expected agent message content word in view")
+	}
+}
