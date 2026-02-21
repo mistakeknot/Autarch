@@ -70,6 +70,39 @@
         {{end}}
     </section>
 
+    <!-- Kernel Runs -->
+    {{if .State.Kernel}}
+    <section class="bg-gray-800 rounded-lg p-4">
+        <h2 class="text-lg font-semibold mb-4 flex items-center">
+            <span class="w-2 h-2 bg-blue-500 rounded-full mr-2"></span>
+            Kernel Runs
+        </h2>
+        {{if .State.Kernel.Runs}}
+        <div class="space-y-2">
+            {{range $path, $runs := .State.Kernel.Runs}}
+            <div class="p-3 bg-gray-700 rounded">
+                <div class="font-medium text-sm mb-2">{{$path | basename}}</div>
+                {{range $runs}}
+                <div class="flex items-center justify-between text-sm py-1">
+                    <div class="flex items-center space-x-2">
+                        <span class="w-2 h-2 rounded-full {{if eq .Status "running"}}bg-green-500{{else if eq .Status "blocked"}}bg-yellow-500{{else if eq .Status "done"}}bg-gray-500{{else if eq .Status "error"}}bg-red-500{{else}}bg-blue-500{{end}}"></span>
+                        <span class="font-mono text-gray-300">{{.ID}}</span>
+                    </div>
+                    <div class="text-right">
+                        <span class="text-gray-400">{{.Phase}}</span>
+                        {{if .Goal}}<span class="text-gray-500 ml-2">{{.Goal}}</span>{{end}}
+                    </div>
+                </div>
+                {{end}}
+            </div>
+            {{end}}
+        </div>
+        {{else}}
+        <p class="text-gray-500 text-center py-4">No kernel runs</p>
+        {{end}}
+    </section>
+    {{end}}
+
     <!-- Recent Activity -->
     <section class="bg-gray-800 rounded-lg p-4">
         <h2 class="text-lg font-semibold mb-4">Recent Activity</h2>

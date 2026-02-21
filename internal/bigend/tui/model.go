@@ -316,8 +316,9 @@ type ProjectItem struct {
 	Path        string
 	Name        string
 	HasColdwine bool
-	RunCount    int
-	KernelError string
+	RunCount     int
+	BlockedCount int
+	KernelError  string
 	TaskStats   *struct {
 		Todo       int
 		InProgress int
@@ -330,7 +331,10 @@ func (i ProjectItem) Title() string {
 	if i.KernelError != "" {
 		name = "! " + name
 	}
-	if i.RunCount > 0 {
+	if i.BlockedCount > 0 {
+		name = fmt.Sprintf("%s %s", name,
+			StatusError.Render(fmt.Sprintf("[%d blocked]", i.BlockedCount)))
+	} else if i.RunCount > 0 {
 		name = fmt.Sprintf("%s [%d]", name, i.RunCount)
 	}
 	return name
@@ -1078,10 +1082,18 @@ func (m *Model) updateLists() {
 				Done:       p.TaskStats.Done,
 			}
 		}
-		// Kernel enrichment: run count and errors
+		// Kernel enrichment: active/blocked run counts and errors
 		if state.Kernel != nil {
 			if runs, ok := state.Kernel.Runs[p.Path]; ok {
-				item.RunCount = len(runs)
+				for _, r := range runs {
+					us := icdata.UnifyStatus(r.Status)
+					switch us {
+					case icdata.StatusActive:
+						item.RunCount++
+					case icdata.StatusBlocked:
+						item.BlockedCount++
+					}
+				}
 			}
 			if errMsg, ok := state.Kernel.Metrics.KernelErrors[p.Path]; ok {
 				item.KernelError = errMsg
@@ -1491,6 +1503,8 @@ func (m Model) renderDashboard() string {
 		}
 		if len(runLines) > 0 {
 			sections = append(sections, runsTitle, strings.Join(runLines, "\n"), "")
+		} else {
+			sections = append(sections, runsTitle, LabelStyle.Render("  No active runs"), "")
 		}
 	}
 
