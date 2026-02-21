@@ -301,7 +301,7 @@ func bigendCmd() *cobra.Command {
 			}
 
 			scanner := discovery.NewScanner(cfg.Discovery)
-			agg := aggregator.New(scanner, cfg)
+			agg := aggregator.New(scanner, cfg, nil)
 
 			if !tuiMode {
 				slog.Info("scanning for projects", "roots", cfg.Discovery.ScanRoots)

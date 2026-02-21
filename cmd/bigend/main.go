@@ -78,7 +78,7 @@ func main() {
 	scanner := discovery.NewScanner(cfg.Discovery)
 
 	// Create aggregator
-	agg := aggregator.New(scanner, cfg)
+	agg := aggregator.New(scanner, cfg, nil)
 
 	// Initial scan
 	if !*tuiMode {

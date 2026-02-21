@@ -66,7 +66,7 @@ func TestSummarizeEvent(t *testing.T) {
 
 func TestAggregator_EventHandlers(t *testing.T) {
 	// Create aggregator without Intermute (will be nil)
-	agg := New(nil, nil)
+	agg := New(nil, nil, nil)
 
 	// Track received events
 	var receivedEvents []Event
@@ -94,7 +94,7 @@ func TestAggregator_EventHandlers(t *testing.T) {
 }
 
 func TestAggregator_WildcardHandler(t *testing.T) {
-	agg := New(nil, nil)
+	agg := New(nil, nil, nil)
 
 	var receivedCount int
 
@@ -115,7 +115,7 @@ func TestAggregator_WildcardHandler(t *testing.T) {
 }
 
 func TestAggregator_AddActivity(t *testing.T) {
-	agg := New(nil, nil)
+	agg := New(nil, nil, nil)
 
 	// Add some activities
 	for i := 0; i < 5; i++ {
@@ -139,7 +139,7 @@ func TestAggregator_AddActivity(t *testing.T) {
 }
 
 func TestAggregator_ActivityLimit(t *testing.T) {
-	agg := New(nil, nil)
+	agg := New(nil, nil, nil)
 
 	// Add more than 100 activities
 	for i := 0; i < 150; i++ {
@@ -158,7 +158,7 @@ func TestAggregator_ActivityLimit(t *testing.T) {
 }
 
 func TestAggregator_IsWebSocketConnected(t *testing.T) {
-	agg := New(nil, nil)
+	agg := New(nil, nil, nil)
 
 	// Initially not connected
 	if agg.IsWebSocketConnected() {

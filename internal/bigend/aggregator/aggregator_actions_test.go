@@ -27,7 +27,7 @@ func (f *fakeTmux) AttachSession(name string) error                     { return
 
 func TestRestartSession(t *testing.T) {
 	scanner := discovery.NewScanner(config.DiscoveryConfig{})
-	agg := New(scanner, &config.Config{})
+	agg := New(scanner, &config.Config{}, nil)
 	ft := &fakeTmux{}
 	agg.tmuxClient = ft
 

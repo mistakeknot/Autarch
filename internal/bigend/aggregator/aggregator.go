@@ -22,7 +22,9 @@ import (
 	"github.com/mistakeknot/autarch/internal/bigend/tmux"
 	"github.com/mistakeknot/autarch/internal/icdata"
 	gurgSpecs "github.com/mistakeknot/autarch/internal/gurgeh/specs"
+	"github.com/mistakeknot/autarch/pkg/events"
 	"github.com/mistakeknot/autarch/pkg/intermute"
+	"github.com/mistakeknot/autarch/pkg/signals"
 	"github.com/mistakeknot/autarch/pkg/timeout"
 )
 
@@ -127,10 +129,15 @@ type Aggregator struct {
 	wsCtx       context.Context    // protected by mu
 	wsCancel    context.CancelFunc // protected by mu
 	wsConnected atomic.Bool
+
+	// Signal broker for push-based event delivery to TUI views
+	broker      *signals.Broker
+	eventsStore *events.Store
 }
 
-// New creates a new aggregator
-func New(scanner *discovery.Scanner, cfg *config.Config) *Aggregator {
+// New creates a new aggregator. Pass a non-nil events store to enable signal
+// persistence (dual-write). Pass nil to skip store writes.
+func New(scanner *discovery.Scanner, cfg *config.Config, store *events.Store) *Aggregator {
 	if cfg == nil {
 		cfg = &config.Config{}
 	}
@@ -152,6 +159,8 @@ func New(scanner *discovery.Scanner, cfg *config.Config) *Aggregator {
 		mcpManager:      mcp.NewManager(),
 		resolver:        agentcmd.NewResolver(cfg),
 		cfg:             cfg,
+		broker:          signals.NewBroker(),
+		eventsStore:     store,
 		handlers:        make(map[string][]EventHandler),
 		seenEvents:      make(map[string]struct{}),
 		state: State{
@@ -163,6 +172,11 @@ func New(scanner *discovery.Scanner, cfg *config.Config) *Aggregator {
 			Activities: []Activity{},
 		},
 	}
+}
+
+// Broker returns the embedded signal broker for real-time event delivery.
+func (a *Aggregator) Broker() *signals.Broker {
+	return a.broker
 }
 
 // ConnectWebSocket establishes a WebSocket connection to Intermute for real-time events.
