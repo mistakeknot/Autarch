@@ -276,6 +276,11 @@ func (a *Aggregator) handleIntermuteEvent(evt intermute.Event) {
 
 	// Dispatch to registered handlers
 	a.dispatchEvent(aggEvt)
+
+	// Publish to signal broker if this event maps to a signal type
+	if sig, ok := eventToSignal(aggEvt); ok {
+		a.broker.Publish(sig)
+	}
 }
 
 // addActivity adds an event to the activities feed
