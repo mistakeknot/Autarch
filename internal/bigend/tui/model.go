@@ -86,6 +86,8 @@ type Pane int
 const (
 	PaneProjects Pane = iota
 	PaneMain
+	PaneRunList
+	PaneRunDetail
 	PaneTerminal
 )
 
@@ -265,6 +267,8 @@ type Model struct {
 	showMCP       bool
 	showTerminal  bool          // Terminal preview pane visible
 	terminalPane  *TerminalPane // Terminal preview component
+	showRunPane   bool          // Kernel run list+detail pane visible
+	runList       RunListState  // Kernel run list state
 	filterActive  bool
 	filterInput   textinput.Model
 	filterStates  map[Tab]FilterState
@@ -290,6 +294,7 @@ type keyMap struct {
 	Attach         key.Binding
 	ToggleMCP      key.Binding
 	ToggleTerminal key.Binding
+	ToggleRuns     key.Binding
 }
 
 var keys = keyMap{
@@ -328,6 +333,10 @@ var keys = keyMap{
 	ToggleTerminal: key.NewBinding(
 		key.WithKeys("p"),
 		key.WithHelp("p", "preview"),
+	),
+	ToggleRuns: key.NewBinding(
+		key.WithKeys("r"),
+		key.WithHelp("r", "runs"),
 	),
 }
 
@@ -527,6 +536,40 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		}
 
+		// Run pane navigation
+		if m.showRunPane && (m.activePane == PaneRunList || m.activePane == PaneRunDetail) {
+			switch msg.Type {
+			case tea.KeyUp:
+				if m.runList.SelectedIdx > 0 {
+					m.runList.SelectedIdx--
+				}
+				return m, nil
+			case tea.KeyDown:
+				if m.runList.SelectedIdx < len(m.runList.Runs)-1 {
+					m.runList.SelectedIdx++
+				}
+				return m, nil
+			}
+			switch msg.String() {
+			case "a":
+				m.runList.ShowAll = !m.runList.ShowAll
+				m.updateRunList()
+				return m, nil
+			case "l", "right":
+				if m.activePane == PaneRunList {
+					m.activePane = PaneRunDetail
+				}
+				return m, nil
+			case "h", "left":
+				if m.activePane == PaneRunDetail {
+					m.activePane = PaneRunList
+				} else if m.activePane == PaneRunList {
+					m.activePane = PaneProjects
+				}
+				return m, nil
+			}
+		}
+
 		switch {
 		case key.Matches(msg, m.keys.Toggle):
 			if m.activeTab == TabSessions || m.activeTab == TabAgents {
@@ -562,14 +605,30 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			case PaneTerminal:
 				m.activePane = PaneMain
 				m.terminalPane.SetFocused(false)
-			case PaneMain:
+			case PaneRunDetail:
+				m.activePane = PaneRunList
+			case PaneRunList:
 				m.activePane = PaneProjects
+			case PaneMain:
+				if m.showRunPane {
+					m.activePane = PaneRunDetail
+				} else {
+					m.activePane = PaneProjects
+				}
 			}
 			return m, nil
 
 		case key.Matches(msg, keys.FocusRight):
 			switch m.activePane {
 			case PaneProjects:
+				if m.showRunPane {
+					m.activePane = PaneRunList
+				} else {
+					m.activePane = PaneMain
+				}
+			case PaneRunList:
+				m.activePane = PaneRunDetail
+			case PaneRunDetail:
 				m.activePane = PaneMain
 			case PaneMain:
 				if m.showTerminal {
@@ -689,6 +748,19 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					}
 				} else {
 					m.terminalPane.SetSession("")
+					m.activePane = PaneMain
+				}
+				return m, nil
+			}
+			return m, nil
+
+		case key.Matches(msg, keys.ToggleRuns):
+			if m.activeTab == TabDashboard {
+				m.showRunPane = !m.showRunPane
+				if m.showRunPane {
+					m.updateRunList()
+					m.activePane = PaneRunList
+				} else {
 					m.activePane = PaneMain
 				}
 				return m, nil
@@ -892,6 +964,9 @@ func (m *Model) updateLists() {
 	if m.showMCP {
 		m.updateMCPList()
 	}
+	if m.showRunPane {
+		m.updateRunList()
+	}
 
 	selectedProject := m.selectedProjectPath()
 
@@ -927,6 +1002,16 @@ func (m *Model) updateLists() {
 	}
 	filteredAgents := filterAgentItems(agentItems, m.filterStateFor(TabAgents), statusByAgent)
 	m.agentList.SetItems(m.groupAgentItemsByProject(filteredAgents))
+}
+
+func (m *Model) updateRunList() {
+	state := m.agg.GetState()
+	projectPath := m.selectedProjectPath()
+	m.runList.ProjectPath = projectPath
+	m.runList.Runs = buildRunList(state, projectPath, m.runList.ShowAll)
+	if m.runList.SelectedIdx >= len(m.runList.Runs) {
+		m.runList.SelectedIdx = max(0, len(m.runList.Runs)-1)
+	}
 }
 
 func (m *Model) updateMCPList() {
@@ -967,9 +1052,11 @@ func (m Model) View() string {
 		content = lipgloss.JoinVertical(lipgloss.Left, content, "", m.mcpList.View())
 	}
 
-	// Build main pane content (with optional terminal preview)
+	// Build main pane content (with optional terminal preview or run pane)
 	var mainContent string
-	if m.showTerminal && m.activeTab == TabSessions && m.terminalPane != nil {
+	if m.showRunPane && m.activeTab == TabDashboard {
+		mainContent = m.renderRunPaneLayout(content)
+	} else if m.showTerminal && m.activeTab == TabSessions && m.terminalPane != nil {
 		mainContent = m.renderThreePane(m.projectsList.View(), content, m.terminalPane.View())
 	} else {
 		mainContent = m.renderTwoPane(m.projectsList.View(), content)
@@ -1038,6 +1125,7 @@ func (m Model) renderFooter() string {
 		HelpKeyStyle.Render("f") + HelpDescStyle.Render(" fork • ") +
 		HelpKeyStyle.Render("a") + HelpDescStyle.Render(" attach • ") +
 		HelpKeyStyle.Render("p") + HelpDescStyle.Render(" preview • ") +
+		HelpKeyStyle.Render("r") + HelpDescStyle.Render(" runs • ") +
 		HelpKeyStyle.Render("m") + HelpDescStyle.Render(" mcp • ") +
 		HelpKeyStyle.Render("enter") + HelpDescStyle.Render(" toggle • ") +
 		HelpKeyStyle.Render("ctrl+c") + HelpDescStyle.Render(" quit")
@@ -1072,6 +1160,7 @@ func (m Model) helpExtras() []shared.HelpBinding {
 		shared.HelpBindingFromKey(keys.Attach),
 		shared.HelpBindingFromKey(keys.ToggleMCP),
 		shared.HelpBindingFromKey(keys.ToggleTerminal),
+		shared.HelpBindingFromKey(keys.ToggleRuns),
 	}
 }
 
