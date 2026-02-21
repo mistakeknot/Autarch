@@ -63,6 +63,37 @@ func TestPublishDropCounter(t *testing.T) {
 	}
 }
 
+func TestPublishNeverBlocksUnderContention(t *testing.T) {
+	b := NewBroker()
+	sub := b.Subscribe(nil)
+	defer sub.Close()
+
+	// Fill the channel completely
+	for i := 0; i < 64; i++ {
+		b.Publish(testSignal(i))
+	}
+
+	// Publish 100 more — must never block even though subscriber isn't draining
+	done := make(chan struct{})
+	go func() {
+		for i := 64; i < 164; i++ {
+			b.Publish(testSignal(i))
+		}
+		close(done)
+	}()
+
+	select {
+	case <-done:
+		// Success — all publishes completed without blocking
+	case <-time.After(2 * time.Second):
+		t.Fatal("Publish blocked — deadlock detected")
+	}
+
+	if b.Dropped.Load() == 0 {
+		t.Fatal("expected non-zero drop count")
+	}
+}
+
 func testSignal(id int) Signal {
 	return Signal{
 		ID:        strconv.Itoa(id),

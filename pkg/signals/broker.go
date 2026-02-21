@@ -59,7 +59,12 @@ func (b *Broker) Publish(sig Signal) {
 				b.Dropped.Add(1)
 			default:
 			}
-			sub.ch <- sig
+			// Second non-blocking attempt after eviction.
+			select {
+			case sub.ch <- sig:
+			default:
+				b.Dropped.Add(1)
+			}
 		}
 	}
 }
