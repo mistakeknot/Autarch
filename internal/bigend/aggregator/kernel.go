@@ -141,35 +141,31 @@ func kernelEventsToActivities(ks *KernelState) []Activity {
 	return acts
 }
 
-// mergeActivities combines existing activities with new ones, deduplicating by SyntheticID.
-// Returns at most maxActivities entries, sorted by time descending.
-func mergeActivities(existing, incoming []Activity, maxActivities int) []Activity {
-	seen := make(map[string]struct{}, len(existing))
-	merged := make([]Activity, 0, len(existing)+len(incoming))
+// appendNewActivities appends incoming activities to existing, skipping any whose
+// SyntheticID is already in the seenLRU. The seenLRU is the Aggregator's canonical
+// seen-set — callers do not need to maintain their own. Returns at most maxActivities
+// entries, sorted by time descending. Skips sort when no new items are added.
+func appendNewActivities(existing, incoming []Activity, seenLRU map[string]struct{}, maxActivities int) []Activity {
+	merged := make([]Activity, len(existing), len(existing)+len(incoming))
+	copy(merged, existing)
 
-	// Add existing first (preserves order for those already deduped)
-	for _, a := range existing {
-		if a.SyntheticID != "" {
-			seen[a.SyntheticID] = struct{}{}
-		}
-		merged = append(merged, a)
-	}
-
-	// Add incoming only if not already seen
+	added := 0
 	for _, a := range incoming {
 		if a.SyntheticID != "" {
-			if _, ok := seen[a.SyntheticID]; ok {
+			if _, ok := seenLRU[a.SyntheticID]; ok {
 				continue
 			}
-			seen[a.SyntheticID] = struct{}{}
 		}
 		merged = append(merged, a)
+		added++
 	}
 
-	// Sort by time descending
-	sort.Slice(merged, func(i, j int) bool {
-		return merged[i].Time.After(merged[j].Time)
-	})
+	// Only sort if new items were added
+	if added > 0 {
+		sort.Slice(merged, func(i, j int) bool {
+			return merged[i].Time.After(merged[j].Time)
+		})
+	}
 
 	if len(merged) > maxActivities {
 		merged = merged[:maxActivities]

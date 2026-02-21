@@ -73,7 +73,7 @@ func TestComputeKernelMetrics(t *testing.T) {
 	}
 }
 
-func TestMergeActivitiesDedup(t *testing.T) {
+func TestAppendNewActivitiesDedup(t *testing.T) {
 	now := time.Now()
 	existing := []Activity{
 		{Time: now, Summary: "existing", SyntheticID: "kernel:/p1:1", Source: "kernel"},
@@ -82,8 +82,9 @@ func TestMergeActivitiesDedup(t *testing.T) {
 		{Time: now, Summary: "dupe", SyntheticID: "kernel:/p1:1", Source: "kernel"},    // should be deduped
 		{Time: now.Add(-time.Second), Summary: "new", SyntheticID: "kernel:/p1:2", Source: "kernel"}, // should be added
 	}
+	seen := map[string]struct{}{"kernel:/p1:1": {}}
 
-	merged := mergeActivities(existing, incoming, 100)
+	merged := appendNewActivities(existing, incoming, seen, 100)
 	if len(merged) != 2 {
 		t.Fatalf("expected 2 merged activities, got %d", len(merged))
 	}
@@ -96,7 +97,7 @@ func TestMergeActivitiesDedup(t *testing.T) {
 	}
 }
 
-func TestMergeActivitiesLimit(t *testing.T) {
+func TestAppendNewActivitiesLimit(t *testing.T) {
 	var existing []Activity
 	for i := 0; i < 150; i++ {
 		existing = append(existing, Activity{
@@ -104,8 +105,9 @@ func TestMergeActivitiesLimit(t *testing.T) {
 			Summary: "old",
 		})
 	}
+	seen := map[string]struct{}{}
 
-	merged := mergeActivities(existing, nil, 100)
+	merged := appendNewActivities(existing, nil, seen, 100)
 	if len(merged) != 100 {
 		t.Errorf("expected 100 activities after limit, got %d", len(merged))
 	}

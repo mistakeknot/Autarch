@@ -443,9 +443,9 @@ func (a *Aggregator) Refresh(ctx context.Context) error {
 	a.mu.RUnlock()
 
 	kernelActivities := kernelEventsToActivities(kernelState)
-	mergedActivities := mergeActivities(existingActivities, kernelActivities, 100)
+	mergedActivities := appendNewActivities(existingActivities, kernelActivities, a.seenEvents, 100)
 
-	// Update state and seen-events LRU under the same lock
+	// Update seen-events LRU with genuinely new items
 	a.mu.Lock()
 	for _, act := range mergedActivities {
 		if act.SyntheticID != "" {
