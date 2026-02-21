@@ -7,12 +7,12 @@ import "strings"
 type UnifiedStatus int
 
 const (
-	StatusActive  UnifiedStatus = iota // working, running
+	StatusUnknown UnifiedStatus = iota // "", unknown — zero value is unknown, not active
+	StatusActive                       // working, running
 	StatusBlocked                      // blocked, stalled, permission-required
 	StatusWaiting                      // waiting, idle, queued
 	StatusDone                         // completed, done
 	StatusErr                          // failed, error, cancelled, timeout
-	StatusUnknown                      // "", unknown
 )
 
 // String returns a human-readable label for the status.

@@ -4,6 +4,25 @@
 > **Epic bead:** iv-ishl (P1)
 > **Feature beads:** iv-lemf (F1), iv-9au2 (F2), iv-gv7i (F3), iv-1d9u (F4), iv-4c16 (F5), iv-4zle (F6), iv-jaxw (F7), iv-xu31 (F8)
 
+## Review Findings (flux-drive, 4 agents)
+
+**Reviews:** [architecture](../../docs/research/architecture-review-of-e7-plan.md) · [correctness](../../docs/research/correctness-review-of-e7-plan.md) · [ux](../../docs/research/ux-review-of-e7-plan.md) · [performance](../../docs/research/performance-review-of-e7-plan.md)
+
+**P0 fixes (pre-implementation):**
+1. Move `seenEvents`/`seenOrder` update inside `a.mu.Lock()` block — data race with WebSocket addActivity()
+2. Reorder `UnifiedStatus` iota so `StatusUnknown = 0` (zero value must not be Active per PRD)
+3. F8.1: `UnifiedStatusSymbol` already exists in `pkg/tui/components.go:24` — only add `UnifiedStatusStyle` there (not styles.go)
+
+**P1 fixes (during implementation):**
+- F2.3: Move `mergeAgentDispatches` to `aggregator.go` (kernel.go is Intercore-only)
+- F5.1: LRU dedup already exists (seenEvents/seenOrder, cap 500) — don't re-add; clarify dedup ownership vs per-call seen-map
+- F6: Extract `items.go`, `render_dashboard.go`, `RunListPane` before adding to model.go (prevent god-object)
+- F1: Parallelize 3 ic calls within each project goroutine (sequential blocks at N≥15)
+- F3: Normalize projPath via EvalSymlinks at SyntheticID construction (prevent symlink collision)
+- F4.2: Add explicit Enter-to-navigate keybinding for Active Runs (Enter is already bound to Toggle)
+- F1: Add empty-state rendering when no kernel projects exist
+- F4: Sidebar badge: show `[1 blocked]` in warning color when blocked>0, fall back to `[2 runs]`
+
 ## Current State
 
 **Done (pre-committed):**
@@ -16,6 +35,8 @@
 - F1 partial: `refreshing atomic.Bool` pileup guard
 - F3 partial: `Activity.SyntheticID` and `Activity.Source` fields exist
 - F3 partial: `kernelEventsToActivities()` converts events to Activities, `mergeActivities()` deduplicates
+- F5 partial: `seenEvents`/`seenOrder` LRU already exists on Aggregator (cap 500, lines 121-122, 449-462)
+- F8 partial: `UnifiedStatusSymbol()` and `UnifyStatusForRender()` already exist in `pkg/tui/components.go`
 
 **No kernel rendering exists in TUI or web templates.** All rendering work is ahead.
 
@@ -97,7 +118,7 @@ Files: `internal/bigend/web/templates/projects.html`
 
 When an Intermute agent name matches a kernel dispatch agent name, merge into a single display row showing both inbox state (from Intermute) and lifecycle data (from kernel). Names that don't match show in separate sections.
 
-Files: `internal/bigend/aggregator/kernel.go` (new `mergeAgentDispatches()` helper)
+Files: `internal/bigend/aggregator/aggregator.go` (new `mergeDispatchAgents()` in Refresh(), after both agents and kernelState are populated — kernel.go stays Intercore-only)
 
 ---
 
@@ -186,11 +207,13 @@ Files: `internal/bigend/web/templates/dashboard.html`
 **Bead:** iv-4c16
 **Depends on:** F3 (event stream must be flowing into Activities)
 
-#### F5.1: Dedup seen-set on Aggregator
+#### F5.1: Consolidate dedup ownership
 
-Add `seenEvents map[string]struct{}` field on Aggregator (or KernelState). Populated during bootstrap, checked on each refresh. Capped at `limit * 10` entries with LRU eviction (use a simple ring buffer or Go `container/list`).
+LRU dedup already exists on Aggregator (`seenEvents`/`seenOrder`, cap 500, lines 121-122/449-462). Two fixes needed:
+1. **Move seenEvents update inside `a.mu.Lock()` block** (P0 data race — currently outside any lock)
+2. **Clarify dedup contract**: use Aggregator's LRU as the canonical seen-set; eliminate the per-call `seen` map in `mergeActivities()`. New signature: `appendNewActivities(existing, incoming, seenLRU, max)`. Skip sort when `len(incoming)==0`.
 
-Files: `internal/bigend/aggregator/kernel.go`
+Files: `internal/bigend/aggregator/aggregator.go`, `internal/bigend/aggregator/kernel.go`
 
 #### F5.2: Bootstrap batch
 
@@ -273,9 +296,9 @@ Files: `internal/bigend/tui/model.go` (layout calculation in `paneWidths()`)
 
 #### F8.1: UnifiedStatus display components (`pkg/tui/`)
 
-Add `UnifiedStatusSymbol(status icdata.UnifiedStatus) string` and `UnifiedStatusStyle(status) lipgloss.Style` to `pkg/tui/styles.go`:
+`UnifiedStatusSymbol()` and `UnifyStatusForRender()` already exist in `pkg/tui/components.go`. Only add `UnifiedStatusStyle(status icdata.UnifiedStatus) lipgloss.Style` to the same file:
 
-| Status | Symbol | Color |
+| Status | Symbol (exists) | Color for UnifiedStatusStyle |
 |--------|--------|-------|
 | Active | `●` | green (#9ece6a) |
 | Blocked | `▲` | yellow (#e0af68) |
@@ -284,7 +307,9 @@ Add `UnifiedStatusSymbol(status icdata.UnifiedStatus) string` and `UnifiedStatus
 | Error | `✕` | red (#f7768e) |
 | Unknown | `?` | dark gray (#414868) |
 
-Files: `pkg/tui/styles.go`
+Also: reorder `internal/icdata/unifiedstatus.go` iota so `StatusUnknown = 0` (zero value = unknown, not active).
+
+Files: `pkg/tui/components.go`, `internal/icdata/unifiedstatus.go`
 
 #### F8.2: Wire TUI session rendering to UnifiedState
 
@@ -310,14 +335,16 @@ Files: `internal/bigend/tui/model.go`, `internal/bigend/web/templates/sessions.h
 
 | Phase | Features | Commit scope |
 |-------|----------|-------------|
-| 1 | F8 remaining (TUI status components) | `feat(bigend): unified status symbols in TUI` |
-| 2 | F1 remaining (sidebar badge + web) | `feat(bigend): kernel run count in sidebar + web` |
-| 3 | F3 (source tags + activity feed) | `feat(bigend): event stream with source tags` |
-| 4 | F2 (dispatch view) + F4 (metrics) | `feat(bigend): dispatch view + dashboard metrics` |
-| 5 | F5 (event viewport + dedup) | `feat(bigend): bootstrap-then-stream event viewport` |
-| 6 | F6 (two-pane layout) | `feat(bigend): run list + detail two-pane layout` |
+| 0 | P0 fixes: seenEvents lock, iota reorder, commit scaffolding | `fix(bigend): P0 review fixes — seenEvents race, iota order` |
+| 1 | F8 remaining (add UnifiedStatusStyle only) | `feat(bigend): unified status style in TUI` |
+| 2 | F1 remaining (sidebar badge + web + empty state) | `feat(bigend): kernel run count in sidebar + web` |
+| 3 | F3 (source tags + activity feed + EvalSymlinks in SyntheticID) | `feat(bigend): event stream with source tags` |
+| 4 | F2 (dispatch view) + F4 (metrics + blocked badge) | `feat(bigend): dispatch view + dashboard metrics` |
+| 5 | F5 (consolidate dedup + bootstrap + event viewport) | `feat(bigend): bootstrap-then-stream event viewport` |
+| 5.5 | Extract items.go, render_dashboard.go from model.go | `refactor(bigend): extract TUI types and dashboard rendering` |
+| 6 | F6 (RunListPane + two-pane layout) | `feat(bigend): run list + detail two-pane layout` |
 
-Rationale: F8 first because every other feature needs status symbols. F1 next as it establishes the rendering pattern. F3 before F2/F4 because F5 depends on it. F6 last as the largest TUI refactor.
+Rationale: Phase 0 fixes P0 issues found in review. F8 first because every other feature needs status styles. Phase 5.5 decomposes model.go before F6 adds ~300 lines. F6 implements RunListPane as a separate struct (like TerminalPane) to avoid bloating Model.Update().
 
 ## Testing Strategy
 

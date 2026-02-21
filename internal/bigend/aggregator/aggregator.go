@@ -445,7 +445,8 @@ func (a *Aggregator) Refresh(ctx context.Context) error {
 	kernelActivities := kernelEventsToActivities(kernelState)
 	mergedActivities := mergeActivities(existingActivities, kernelActivities, 100)
 
-	// Update seen-events LRU for dedup across refreshes
+	// Update state and seen-events LRU under the same lock
+	a.mu.Lock()
 	for _, act := range mergedActivities {
 		if act.SyntheticID != "" {
 			if _, ok := a.seenEvents[act.SyntheticID]; !ok {
@@ -454,15 +455,11 @@ func (a *Aggregator) Refresh(ctx context.Context) error {
 			}
 		}
 	}
-	// Evict oldest when over 500
 	for len(a.seenOrder) > 500 {
 		oldest := a.seenOrder[0]
 		a.seenOrder = a.seenOrder[1:]
 		delete(a.seenEvents, oldest)
 	}
-
-	// Update state
-	a.mu.Lock()
 	a.state = State{
 		Projects:   projects,
 		Agents:     agents,
