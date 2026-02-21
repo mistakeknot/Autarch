@@ -23,6 +23,7 @@ var (
 	scanDryRun   bool
 	scanPlanMode bool
 	scanMode     string // quick, balanced, deep
+	scanLane     string // lane scope for research
 )
 
 var scanCmd = &cobra.Command{
@@ -53,6 +54,11 @@ var scanCmd = &cobra.Command{
 		if len(cfg.Hunters) == 0 {
 			fmt.Println("No hunters configured. Run 'pollard init' to create a default config.")
 			return nil
+		}
+
+		// Display lane scope if set
+		if scanLane != "" {
+			fmt.Printf("Lane: %s — scoping research to lane beads\n", scanLane)
 		}
 
 		// Check for proposals and suggest if none exist
@@ -192,6 +198,7 @@ var scanCmd = &cobra.Command{
 				MaxResults:  hunterCfg.MaxResults,
 				MinStars:    hunterCfg.MinStars,
 				MinPoints:   hunterCfg.MinPoints,
+				LaneScope:   scanLane,
 				Categories:  hunterCfg.Categories,
 				OutputDir:   hunterCfg.Output,
 				ProjectPath: cwd,
@@ -261,6 +268,7 @@ func init() {
 	scanCmd.Flags().BoolVar(&scanDryRun, "dry-run", false, "Show what would run without executing")
 	scanCmd.Flags().BoolVar(&scanPlanMode, "plan", false, "Generate plan JSON instead of executing")
 	scanCmd.Flags().StringVar(&scanMode, "mode", "balanced", "Pipeline mode: quick (no synthesis), balanced (sample), deep (all)")
+	scanCmd.Flags().StringVar(&scanLane, "lane", "", "Scope research to beads in this lane (e.g., interop, kernel)")
 }
 
 // validateScanMode checks if the mode is valid.

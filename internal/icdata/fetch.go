@@ -112,6 +112,38 @@ func FetchTokens(ctx context.Context, projectDir string, runID string) (TokenSum
 	return ts, nil
 }
 
+// FetchLanes calls `ic lane list --json` to get all lanes.
+func FetchLanes(ctx context.Context, projectDir string) ([]Lane, error) {
+	out, err := RunIC(ctx, projectDir, "lane", "list", "--json")
+	if err != nil {
+		return nil, err
+	}
+	if strings.TrimSpace(out) == "" || strings.TrimSpace(out) == "[]" {
+		return nil, nil
+	}
+	var lanes []Lane
+	if err := json.Unmarshal([]byte(out), &lanes); err != nil {
+		return nil, fmt.Errorf("parse lanes: %w", err)
+	}
+	return lanes, nil
+}
+
+// FetchLaneVelocity calls `ic lane velocity --json` to get starvation scores.
+func FetchLaneVelocity(ctx context.Context, projectDir string) ([]LaneVelocity, error) {
+	out, err := RunIC(ctx, projectDir, "lane", "velocity", "--json")
+	if err != nil {
+		return nil, err
+	}
+	if strings.TrimSpace(out) == "" || strings.TrimSpace(out) == "[]" {
+		return nil, nil
+	}
+	var velocities []LaneVelocity
+	if err := json.Unmarshal([]byte(out), &velocities); err != nil {
+		return nil, fmt.Errorf("parse lane velocity: %w", err)
+	}
+	return velocities, nil
+}
+
 // RunIC executes an `ic` command and returns its stdout.
 func RunIC(ctx context.Context, projectDir string, args ...string) (string, error) {
 	cmd := exec.CommandContext(ctx, "ic", args...)

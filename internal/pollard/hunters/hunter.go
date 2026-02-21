@@ -48,6 +48,10 @@ type HunterConfig struct {
 	// Mode controls pipeline depth: quick, balanced, deep
 	Mode string
 
+	// LaneScope restricts research to beads in this lane (optional).
+	// When set, findings are tagged with the lane for scoped discovery.
+	LaneScope string
+
 	// PipelineConfig for fetch/synthesize/score options
 	Pipeline PipelineOptions
 }

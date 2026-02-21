@@ -58,6 +58,27 @@ type Event struct {
 	Timestamp string `json:"timestamp"`
 }
 
+// Lane represents a thematic work lane from `ic lane list --json`.
+type Lane struct {
+	ID          string `json:"id"`
+	Name        string `json:"name"`
+	LaneType    string `json:"lane_type"`
+	Status      string `json:"status"`
+	Description string `json:"description"`
+	CreatedAt   int64  `json:"created_at"`
+	UpdatedAt   int64  `json:"updated_at"`
+}
+
+// LaneVelocity represents starvation data from `ic lane velocity --json`.
+type LaneVelocity struct {
+	LaneID     string  `json:"lane_id"`
+	Name       string  `json:"name"`
+	OpenBeads  int     `json:"open_beads"`
+	Closed     int     `json:"closed"`
+	Throughput float64 `json:"throughput"`
+	Starvation float64 `json:"starvation"`
+}
+
 // TokenSummary represents token usage from `ic run tokens --json`.
 type TokenSummary struct {
 	RunID        string `json:"run_id"`
