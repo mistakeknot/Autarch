@@ -2,6 +2,7 @@ package aggregator
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"io/fs"
 	"log/slog"
@@ -280,6 +281,30 @@ func (a *Aggregator) handleIntermuteEvent(evt intermute.Event) {
 	// Publish to signal broker if this event maps to a signal type
 	if sig, ok := eventToSignal(aggEvt); ok {
 		a.broker.Publish(sig)
+
+		// Dual-write to events store for persistence (async to avoid stalling WS read loop)
+		if a.eventsStore != nil {
+			go func(s signals.Signal) {
+				payload, err := json.Marshal(s)
+				if err != nil {
+					slog.Warn("failed to marshal signal for persistence",
+						"signal_id", s.ID, "signal_type", s.Type, "error", err)
+					return
+				}
+				storeEvt := &events.Event{
+					EventType:  events.EventSignalRaised,
+					EntityType: events.EntitySignal,
+					EntityID:   s.ID,
+					SourceTool: events.SourceTool(s.Source),
+					Payload:    payload,
+					CreatedAt:  s.CreatedAt,
+				}
+				if err := a.eventsStore.Append(storeEvt); err != nil {
+					slog.Warn("failed to persist signal to events store",
+						"signal_id", s.ID, "error", err)
+				}
+			}(sig)
+		}
 	}
 }
 
