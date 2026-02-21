@@ -18,6 +18,7 @@ type Project struct {
 	HasColdwine    bool          `json:"has_coldwine"`
 	HasPollard     bool          `json:"has_pollard"`
 	HasAgentMail   bool          `json:"has_agent_mail"`
+	HasIntercore   bool          `json:"has_intercore"`
 	TaskStats      *TaskStats    `json:"task_stats,omitempty"`
 	PollardStats   *PollardStats `json:"pollard_stats,omitempty"`
 	GurgStats      *GurgStats    `json:"gurg_stats,omitempty"`
@@ -100,17 +101,23 @@ func (s *Scanner) Scan() ([]Project, error) {
 			}
 
 			// Check for tooling directories (including legacy .praude/.tandemonium)
-			if d.IsDir() && (d.Name() == ".gurgeh" || d.Name() == ".praude" || d.Name() == ".coldwine" || d.Name() == ".tandemonium" || d.Name() == ".pollard" || d.Name() == ".agent_mail") {
+			if d.IsDir() && (d.Name() == ".gurgeh" || d.Name() == ".praude" || d.Name() == ".coldwine" || d.Name() == ".tandemonium" || d.Name() == ".pollard" || d.Name() == ".agent_mail" || d.Name() == ".clavain") {
 				projectPath := filepath.Dir(path)
+
+				// Resolve symlinks to dedup projects
+				if resolved, err := filepath.EvalSymlinks(projectPath); err == nil {
+					projectPath = resolved
+				}
+
 				if seen[projectPath] {
 					return nil
 				}
 				seen[projectPath] = true
 
 				project := s.examineProject(projectPath)
-				if project.HasGurgeh || project.HasColdwine || project.HasPollard {
+				if project.HasGurgeh || project.HasColdwine || project.HasPollard || project.HasIntercore {
 					projects = append(projects, project)
-					slog.Debug("discovered project", "path", projectPath, "gurgeh", project.HasGurgeh, "coldwine", project.HasColdwine, "pollard", project.HasPollard)
+					slog.Debug("discovered project", "path", projectPath, "gurgeh", project.HasGurgeh, "coldwine", project.HasColdwine, "pollard", project.HasPollard, "intercore", project.HasIntercore)
 				}
 				return filepath.SkipDir
 			}
@@ -163,6 +170,11 @@ func (s *Scanner) examineProject(path string) Project {
 	// Check for .agent_mail/
 	if info, err := os.Stat(filepath.Join(path, ".agent_mail")); err == nil && info.IsDir() {
 		project.HasAgentMail = true
+	}
+
+	// Check for .clavain/intercore.db (Intercore kernel)
+	if _, err := os.Stat(filepath.Join(path, ".clavain", "intercore.db")); err == nil {
+		project.HasIntercore = true
 	}
 
 	return project

@@ -1,5 +1,49 @@
 package tui
 
+import "github.com/mistakeknot/autarch/internal/icdata"
+
+// UnifiedStatusIndicator renders a styled indicator for a UnifiedStatus value.
+func UnifiedStatusIndicator(s icdata.UnifiedStatus) string {
+	switch s {
+	case icdata.StatusActive:
+		return StatusRunning.Render("● ACTIVE")
+	case icdata.StatusBlocked:
+		return StatusError.Render("! BLOCKED")
+	case icdata.StatusWaiting:
+		return StatusWaiting.Render("○ WAITING")
+	case icdata.StatusDone:
+		return StatusRunning.Render("✓ DONE")
+	case icdata.StatusErr:
+		return StatusError.Render("✗ ERROR")
+	default:
+		return LabelStyle.Render("? UNKNOWN")
+	}
+}
+
+// UnifiedStatusSymbol returns just the symbol for a UnifiedStatus (no text).
+func UnifiedStatusSymbol(s icdata.UnifiedStatus) string {
+	switch s {
+	case icdata.StatusActive:
+		return StatusRunning.Render("●")
+	case icdata.StatusBlocked:
+		return StatusError.Render("!")
+	case icdata.StatusWaiting:
+		return StatusWaiting.Render("○")
+	case icdata.StatusDone:
+		return StatusRunning.Render("✓")
+	case icdata.StatusErr:
+		return StatusError.Render("✗")
+	default:
+		return LabelStyle.Render("?")
+	}
+}
+
+// UnifyStatusForRender is a convenience wrapper for icdata.UnifyStatus,
+// allowing TUI callers to map a raw string to UnifiedStatus without importing icdata directly.
+func UnifyStatusForRender(raw string) icdata.UnifiedStatus {
+	return icdata.UnifyStatus(raw)
+}
+
 // StatusIndicator returns a styled status indicator string with consistent symbols.
 // Status symbols:
 //   ● running/working - actively executing

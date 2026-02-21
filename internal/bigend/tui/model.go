@@ -325,6 +325,8 @@ type ProjectItem struct {
 	Path        string
 	Name        string
 	HasColdwine bool
+	RunCount    int
+	KernelError string
 	TaskStats   *struct {
 		Todo       int
 		InProgress int
@@ -332,10 +334,19 @@ type ProjectItem struct {
 	}
 }
 
-func (i ProjectItem) Title() string { return i.Name }
+func (i ProjectItem) Title() string {
+	name := i.Name
+	if i.KernelError != "" {
+		name = "! " + name
+	}
+	if i.RunCount > 0 {
+		name = fmt.Sprintf("%s [%d]", name, i.RunCount)
+	}
+	return name
+}
 func (i ProjectItem) Description() string {
 	if i.TaskStats != nil {
-		return fmt.Sprintf("📋 %d todo, %d in progress, %d done", i.TaskStats.Todo, i.TaskStats.InProgress, i.TaskStats.Done)
+		return fmt.Sprintf("%d todo, %d in progress, %d done", i.TaskStats.Todo, i.TaskStats.InProgress, i.TaskStats.Done)
 	}
 	return i.Path
 }
@@ -1101,6 +1112,15 @@ func (m *Model) updateLists() {
 				Done:       p.TaskStats.Done,
 			}
 		}
+		// Kernel enrichment: run count and errors
+		if state.Kernel != nil {
+			if runs, ok := state.Kernel.Runs[p.Path]; ok {
+				item.RunCount = len(runs)
+			}
+			if errMsg, ok := state.Kernel.Metrics.KernelErrors[p.Path]; ok {
+				item.KernelError = errMsg
+			}
+		}
 		projectItems = append(projectItems, item)
 	}
 	m.projectsList.SetItems(projectItems)
@@ -1406,11 +1426,23 @@ func (m Model) renderDashboard() string {
 	state := m.agg.GetState()
 
 	// Stats row
-	statsStyle := PanelStyle.Copy().Width(m.width/4 - 2)
+	statsStyle := PanelStyle.Copy().Width(m.width/5 - 2)
 
+	projectCount := len(state.Projects)
+	projectLabel := "Projects"
+	if state.Kernel != nil && len(state.Kernel.Metrics.KernelErrors) > 0 {
+		kernelCount := 0
+		for _, p := range state.Projects {
+			if p.HasIntercore {
+				kernelCount++
+			}
+		}
+		okCount := kernelCount - len(state.Kernel.Metrics.KernelErrors)
+		projectLabel = fmt.Sprintf("Projects (%d/%d)", okCount, kernelCount)
+	}
 	projectStats := statsStyle.Render(
-		TitleStyle.Render(fmt.Sprintf("%d", len(state.Projects))) + "\n" +
-			LabelStyle.Render("Projects"),
+		TitleStyle.Render(fmt.Sprintf("%d", projectCount)) + "\n" +
+			LabelStyle.Render(projectLabel),
 	)
 
 	sessionStats := statsStyle.Render(
@@ -1423,22 +1455,79 @@ func (m Model) renderDashboard() string {
 			LabelStyle.Render("Agents"),
 	)
 
-	// Count active sessions
-	activeCount := 0
-	for _, s := range state.Sessions {
-		status := m.statusForSession(s.Name)
-		if status == tmux.StatusRunning || status == tmux.StatusWaiting {
-			activeCount++
+	// Kernel metrics stats
+	var runsStats, dispatchStats string
+	if state.Kernel != nil {
+		km := state.Kernel.Metrics
+		runsStats = statsStyle.Render(
+			TitleStyle.Render(fmt.Sprintf("%d", km.ActiveRuns)) + "\n" +
+				LabelStyle.Render("Active Runs"),
+		)
+		blockedStyle := LabelStyle
+		if km.BlockedAgents > 0 {
+			blockedStyle = StatusError
+		}
+		dispatchStats = statsStyle.Render(
+			TitleStyle.Render(fmt.Sprintf("%d", km.ActiveDispatches)) + "\n" +
+				blockedStyle.Render(fmt.Sprintf("Dispatches (%d blocked)", km.BlockedAgents)),
+		)
+	} else {
+		// Count active sessions as before when no kernel
+		activeCount := 0
+		for _, s := range state.Sessions {
+			status := m.statusForSession(s.Name)
+			if status == tmux.StatusRunning || status == tmux.StatusWaiting {
+				activeCount++
+			}
+		}
+		runsStats = statsStyle.Render(
+			TitleStyle.Render(fmt.Sprintf("%d", activeCount)) + "\n" +
+				LabelStyle.Render("Active"),
+		)
+		dispatchStats = ""
+	}
+
+	statsItems := []string{projectStats, sessionStats, agentStats, runsStats}
+	if dispatchStats != "" {
+		statsItems = append(statsItems, dispatchStats)
+	}
+	statsRow := lipgloss.JoinHorizontal(lipgloss.Top, statsItems...)
+
+	// Build sections
+	sections := []string{statsRow, ""}
+
+	// Active Runs section (kernel)
+	if state.Kernel != nil {
+		runsTitle := SubtitleStyle.Render("Active Runs")
+		var runLines []string
+		for projPath, runs := range state.Kernel.Runs {
+			projName := filepath.Base(projPath)
+			for _, r := range runs {
+				if r.Status == "" || r.Status == "done" || r.Status == "cancelled" {
+					continue
+				}
+				goal := r.Goal
+				if len(goal) > 40 {
+					goal = goal[:37] + "..."
+				}
+				id := r.ID
+				if len(id) > 8 {
+					id = id[:8]
+				}
+				line := fmt.Sprintf("  %s %s %s %s %s",
+					shared.UnifiedStatusSymbol(shared.UnifyStatusForRender(r.Status)),
+					LabelStyle.Render(id),
+					projName,
+					TitleStyle.Render(r.Phase),
+					goal,
+				)
+				runLines = append(runLines, line)
+			}
+		}
+		if len(runLines) > 0 {
+			sections = append(sections, runsTitle, strings.Join(runLines, "\n"), "")
 		}
 	}
-	activeStats := statsStyle.Render(
-		TitleStyle.Render(fmt.Sprintf("%d", activeCount)) + "\n" +
-			LabelStyle.Render("Active"),
-	)
-
-	statsRow := lipgloss.JoinHorizontal(lipgloss.Top,
-		projectStats, sessionStats, agentStats, activeStats,
-	)
 
 	// Recent sessions
 	recentTitle := SubtitleStyle.Render("Recent Sessions")
@@ -1462,6 +1551,7 @@ func (m Model) renderDashboard() string {
 	if len(recentSessions) == 0 {
 		recentSessions = append(recentSessions, LabelStyle.Render("  No sessions"))
 	}
+	sections = append(sections, recentTitle, strings.Join(recentSessions, "\n"), "")
 
 	// Recent agents
 	agentsTitle := SubtitleStyle.Render("Registered Agents")
@@ -1480,14 +1570,28 @@ func (m Model) renderDashboard() string {
 	if len(recentAgents) == 0 {
 		recentAgents = append(recentAgents, LabelStyle.Render("  No agents registered"))
 	}
+	sections = append(sections, agentsTitle, strings.Join(recentAgents, "\n"), "")
 
-	return lipgloss.JoinVertical(lipgloss.Left,
-		statsRow,
-		"",
-		recentTitle,
-		strings.Join(recentSessions, "\n"),
-		"",
-		agentsTitle,
-		strings.Join(recentAgents, "\n"),
-	)
+	// Activity feed
+	if len(state.Activities) > 0 {
+		actTitle := SubtitleStyle.Render("Recent Activity")
+		var actLines []string
+		for i, a := range state.Activities {
+			if i >= 10 {
+				break
+			}
+			prefix := LabelStyle.Render("[T]") // tmux default
+			switch a.Source {
+			case "kernel":
+				prefix = shared.StatusRunning.Render("[K]")
+			case "intermute":
+				prefix = StatusWaiting.Render("[M]")
+			}
+			line := fmt.Sprintf("  %s %s", prefix, a.Summary)
+			actLines = append(actLines, line)
+		}
+		sections = append(sections, actTitle, strings.Join(actLines, "\n"))
+	}
+
+	return lipgloss.JoinVertical(lipgloss.Left, sections...)
 }

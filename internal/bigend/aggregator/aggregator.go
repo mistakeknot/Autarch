@@ -20,6 +20,7 @@ import (
 	"github.com/mistakeknot/autarch/internal/bigend/mcp"
 	"github.com/mistakeknot/autarch/internal/bigend/statedetect"
 	"github.com/mistakeknot/autarch/internal/bigend/tmux"
+	"github.com/mistakeknot/autarch/internal/icdata"
 	gurgSpecs "github.com/mistakeknot/autarch/internal/gurgeh/specs"
 	"github.com/mistakeknot/autarch/pkg/intermute"
 	"github.com/mistakeknot/autarch/pkg/timeout"
@@ -50,10 +51,11 @@ type TmuxSession struct {
 	ProjectPath  string    `json:"project_path,omitempty"`
 
 	// State detection fields (NudgeNik-style)
-	State           string    `json:"state"`            // working, waiting, blocked, stalled, done, error
-	StateConfidence float64   `json:"state_confidence"` // 0.0-1.0 detection certainty
-	StateSource     string    `json:"state_source"`     // pattern, repetition, activity, llm
-	StateAt         time.Time `json:"state_at"`         // when state was last detected
+	State           string               `json:"state"`            // working, waiting, blocked, stalled, done, error
+	UnifiedState    icdata.UnifiedStatus  `json:"unified_state"`   // normalized 5-state status
+	StateConfidence float64              `json:"state_confidence"` // 0.0-1.0 detection certainty
+	StateSource     string               `json:"state_source"`     // pattern, repetition, activity, llm
+	StateAt         time.Time            `json:"state_at"`         // when state was last detected
 }
 
 // Activity represents a recent event
@@ -63,6 +65,8 @@ type Activity struct {
 	AgentName   string    `json:"agent_name,omitempty"`
 	ProjectPath string    `json:"project_path"`
 	Summary     string    `json:"summary"`
+	SyntheticID string    `json:"synthetic_id,omitempty"` // dedup key: source:entity:event
+	Source      string    `json:"source,omitempty"`       // "kernel", "intermute", "tmux"
 }
 
 // State holds the aggregated view of all projects and agents
@@ -73,6 +77,7 @@ type State struct {
 	Colonies   []colony.Colony                  `json:"colonies"`
 	MCP        map[string][]mcp.ComponentStatus `json:"mcp"`
 	Activities []Activity                       `json:"activities"`
+	Kernel     *KernelState                     `json:"kernel,omitempty"`
 	UpdatedAt  time.Time                        `json:"updated_at"`
 }
 
@@ -110,6 +115,11 @@ type Aggregator struct {
 	cfg             *config.Config
 	mu              sync.RWMutex
 	state           State
+	refreshing      atomic.Bool
+
+	// Event dedup: LRU-ordered seen-set for activity merge
+	seenEvents map[string]struct{}
+	seenOrder  []string
 
 	// WebSocket event handling
 	handlers    map[string][]EventHandler
@@ -143,6 +153,7 @@ func New(scanner *discovery.Scanner, cfg *config.Config) *Aggregator {
 		resolver:        agentcmd.NewResolver(cfg),
 		cfg:             cfg,
 		handlers:        make(map[string][]EventHandler),
+		seenEvents:      make(map[string]struct{}),
 		state: State{
 			Projects:   []discovery.Project{},
 			Agents:     []Agent{},
@@ -260,6 +271,8 @@ func (a *Aggregator) addActivity(evt Event) {
 		Type:        evt.Type,
 		ProjectPath: evt.Project,
 		Summary:     summarizeEvent(evt),
+		SyntheticID: fmt.Sprintf("intermute:%s:%s", evt.EntityID, evt.Type),
+		Source:      "intermute",
 	}
 
 	a.mu.Lock()
@@ -382,6 +395,13 @@ func summarizeEvent(evt Event) string {
 
 // Refresh rescans all data sources
 func (a *Aggregator) Refresh(ctx context.Context) error {
+	// Pileup guard: skip if already refreshing
+	if !a.refreshing.CompareAndSwap(false, true) {
+		slog.Debug("refresh skipped: already in progress")
+		return nil
+	}
+	defer a.refreshing.Store(false)
+
 	slog.Debug("refreshing aggregator state")
 
 	// Scan for projects
@@ -399,6 +419,9 @@ func (a *Aggregator) Refresh(ctx context.Context) error {
 	// Enrich projects with Pollard stats
 	a.enrichWithPollardStats(projects)
 
+	// Enrich with Intercore kernel state (I/O outside lock)
+	kernelState := a.enrichWithKernelState(ctx, projects)
+
 	// Load agents from MCP Agent Mail
 	loadCtx, cancelLoad := withTimeoutOrCancel(ctx, timeout.HTTPDefault)
 	defer cancelLoad()
@@ -413,16 +436,41 @@ func (a *Aggregator) Refresh(ctx context.Context) error {
 	// Load MCP statuses
 	mcpStatuses := a.loadMCPStatuses(projects)
 
-	// Update state — preserve accumulated activities from WebSocket events
+	// Merge kernel events into activity feed with dedup
+	a.mu.RLock()
+	existingActivities := make([]Activity, len(a.state.Activities))
+	copy(existingActivities, a.state.Activities)
+	a.mu.RUnlock()
+
+	kernelActivities := kernelEventsToActivities(kernelState)
+	mergedActivities := mergeActivities(existingActivities, kernelActivities, 100)
+
+	// Update seen-events LRU for dedup across refreshes
+	for _, act := range mergedActivities {
+		if act.SyntheticID != "" {
+			if _, ok := a.seenEvents[act.SyntheticID]; !ok {
+				a.seenEvents[act.SyntheticID] = struct{}{}
+				a.seenOrder = append(a.seenOrder, act.SyntheticID)
+			}
+		}
+	}
+	// Evict oldest when over 500
+	for len(a.seenOrder) > 500 {
+		oldest := a.seenOrder[0]
+		a.seenOrder = a.seenOrder[1:]
+		delete(a.seenEvents, oldest)
+	}
+
+	// Update state
 	a.mu.Lock()
-	existingActivities := a.state.Activities
 	a.state = State{
 		Projects:   projects,
 		Agents:     agents,
 		Sessions:   sessions,
 		Colonies:   colonies,
 		MCP:        mcpStatuses,
-		Activities: existingActivities,
+		Activities: mergedActivities,
+		Kernel:     kernelState,
 		UpdatedAt:  time.Now(),
 	}
 	a.mu.Unlock()
@@ -669,6 +717,7 @@ func (a *Aggregator) detectSessionState(session *TmuxSession) {
 	)
 
 	session.State = string(result.State)
+	session.UnifiedState = icdata.UnifyStatus(session.State)
 	session.StateConfidence = result.Confidence
 	session.StateSource = string(result.Source)
 	session.StateAt = result.DetectedAt
