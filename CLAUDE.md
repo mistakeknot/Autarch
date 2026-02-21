@@ -77,6 +77,21 @@ go test ./...
 ## Execution Mode
 codex-first: true
 
+## Concurrency Rules
+
+- Never return pointers to internal mutable state from synchronized methods. `State()` returns deep-copied snapshots via `Clone()`. All types crossing goroutine boundaries need `Clone()` methods.
+- Run tests with `-race` flag.
+
+## Bubble Tea Rules
+
+- In parent `Update()` methods, never swallow messages that child views need. Default to fall-through. Only return early for messages exclusively owned by the parent. Error messages must always reach the view layer.
+- Never use `[]rune` slicing on ANSI-styled strings for visual-column operations. Use `ansi.Truncate`/`TruncateLeft` from `charmbracelet/x/ansi`. Grep for `[]rune` + `lipgloss.Width` — that combination is always a bug.
+- Always subtract chrome dimensions (header, footer, sidebar, padding) from `WindowSizeMsg` before passing to child views. Children must only know about their allocated space. Available Width = Terminal Width - Parent Horizontal Padding.
+
+## Workflow Rules
+
+- Reproduce bugs before planning fixes. Phase 0 (reproduction + failing test) is mandatory before any multi-phase fix plan. If bug cannot be reproduced, document as could-not-reproduce and close.
+
 ## Design Decisions (Do Not Re-Ask)
 
 - Module: `github.com/mistakeknot/autarch`

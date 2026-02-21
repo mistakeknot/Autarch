@@ -303,6 +303,26 @@ autarch tui --inline
 # Check that exploration results appear in spec view, not "Unknown Project"
 ```
 
+### TUI Design Principles
+
+Chat is the primary input surface. Typing safety: no single-key shortcuts that fire during text entry. Discoverability via slash commands. Ctrl+ only for shortcuts. Minimal modes (avoid vim-style modal traps).
+
+### Coding Standards (from Oracle Review)
+
+- Use phase constants, not integer literals, for array indices.
+- Focus-aware keyboard routing: switch on `shell.Focus()`, not `component.Focused()`.
+- Error observability: non-fatal errors log to stderr with `warning:` prefix. Never silently swallow errors.
+
+### TUI Input Patterns
+
+- Shell layout owns focus state — use `shell.Focus()` not `component.Focused()` for routing decisions.
+- Use `msg.String()` for key matching instead of `key.Matches()` for raw key events.
+- Avoid Ctrl+J (= LF/Enter in terminals).
+
+### Spec Phase Ordering
+
+Canonical order: Vision > Problem > Users > Features > CUJs > Requirements > Scope > Acceptance. Ordering must reflect information dependencies — later phases consume earlier phase outputs.
+
 ### Debugging
 
 **Before debugging, check solutions:**
@@ -741,3 +761,135 @@ _This section is maintained by Auracoil (GPT-5.2 Pro reviewer). Do not edit manu
 
 _Note: keep these as "verify current behavior" items (not asserted truths) until reconfirmed in code._
 <!-- auracoil:end -->
+
+## Key Architectural Facts
+- **Single TUI implementation**: `UnifiedApp` is the only app shell (893 lines). `App` deleted in Phase 2b. <!-- intermem:42748734 -->
+- **Onboarding lives in GurgehView**: `GurgehOnboardingView` (1075 lines) + `gurgeh_helpers.go` (366 lines) in `views/`. `GurgehView` is a container that delegates to onboarding or spec browser. <!-- intermem:357cb6a8 -->
+- **Ctrl+1/2/3 freed up**: Removed from `internal/gurgeh/arbiter/tui/arbiter_view.go` (was alternative selection, redundant with `/1` `/2` `/3`) <!-- intermem:11d014d2 -->
+- **Slash command aliases**: `/b`=back, `/p`=palette, `/g`=group, `/m`=model, `/r`=refresh, `/big`=bigend, `/gur`=gurgeh, `/cold`=coldwine, `/pol`=pollard, `/sig`=signals, `/logs`(`/log`,`/l`)=toggle log pane — check before adding new ones <!-- intermem:12b7bcd9 -->
+- **Log pane always created**: `UnifiedApp` always creates `LogPane` + `LogHandler`. Ctrl+L toggles visibility. Auto-shows during scan, auto-hides after 3s. Bridge messages: `LogPaneAutoShowMsg`/`LogPaneScheduleAutoHideMsg` from GurgehOnboardingView → UnifiedApp. <!-- intermem:0d790779 -->
+- **4 dashboard tabs**: Bigend(0), Gurgeh(1), Coldwine(2), Pollard(3) — Signals is an overlay (`/sig`), not a tab <!-- intermem:265f46d6 -->
+- **Overlay render order in UnifiedApp**: palette → chat settings → signals → help. Each intercepts keys when visible. <!-- intermem:2b9bc692 -->
+
+## Active Plans
+- [unified-tui-navigation-design](docs/plans/2026-02-05-unified-tui-navigation-design.md): 3-phase plan for always-visible tabs + tool switching
+  - Phase 1: DONE (commit 4c62720) — Tabs always visible + slash commands (`/big` `/gur` `/cold` `/pol`) + `Ctrl+Left/Right` cycling. Direct keybindings (Ctrl+N, Alt+N) dropped — unportable in BT v1 + tmux + macOS.
+  - Phase 2: DONE — 3 sub-phases: 2a dead code cleanup (5 commits), 2b App/UnifiedApp merge (3 commits), 2c onboarding into Gurgeh (4 commits: f5e7a3d, c023fc0, 7b142be, bc77580). unified_app.go: 2200→893 lines.
+  - Phase 3: DONE — SignalsOverlay component (1ae30ee) + wiring into UnifiedApp with `/sig` command (2301cd6). 2 Codex dispatches, both succeeded first try. Bead Autarch-n3e closed.
+  - **All 3 phases complete.** unified-tui-navigation-design plan is fully implemented. <!-- intermem:5118d2dd -->
+
+## Deferred Features
+- **Bigend Agent Intelligence**: Agent reviews signals and surfaces suggestions/alerts/questions (needs separate design) <!-- intermem:fff2188f -->
+
+## Interdoc Skill
+- `interdoc` is a Claude Code skill/plugin, NOT a CLI tool <!-- intermem:d50130fb -->
+- Invoked via `/interdoc:interdoc`, then follow the workflow manually <!-- intermem:70bce563 -->
+- Don't try to run `interdoc` as a shell command <!-- intermem:6e91e10e -->
+
+## Hook System Knowledge (see [hooks-learnings.md](hooks-learnings.md) for details)
+- **`updatedInput` is REPLACE not merge** — must pass ALL original tool_input fields <!-- intermem:cc3eed0d -->
+- **Bug #15897**: Multiple PreToolUse hooks cause `updatedInput` to be silently dropped (last hook wins) <!-- intermem:e67e725f -->
+- **Conflicting plugins**: hookify + tool-time both have catch-all PreToolUse hooks that nuke `updatedInput` <!-- intermem:f32a64c2 -->
+- **Subagents don't inherit CLAUDE.md** — instructions in parent CLAUDE.md don't reach Task subagents <!-- intermem:71c3c3f1 -->
+- **Explore/Plan agents are read-only** — no Write tool; only general-purpose and specialized reviewers can write files <!-- intermem:7260e413 -->
+- hookify disabled (`false` in settings.json) — it has no rules and its catch-all PreToolUse nukes `updatedInput` <!-- intermem:3d4bafe4 -->
+- **Hooks are cached at session start** — changes to settings.json/hooks.json don't take effect until next session <!-- intermem:d3621dba -->
+- **hook.sh IS re-read from disk each invocation** — only the hooks.json registration is cached, so editing hook.sh works mid-session <!-- intermem:d66c3045 -->
+- **Plugin version resolution is unpredictable** — Claude Code may load 0.2.1 from cache instead of 0.3.0 or local; always sync ALL cached versions; removed 0.2.0 to reduce confusion <!-- intermem:6aad9bc9 -->
+- **Local plugins need BOTH `localPlugins` AND `enabledPlugins`** — `localPlugins` tells Claude Code where the plugin directory is, but `enabledPlugins` controls whether it actually loads. Without the `enabledPlugins` entry, the plugin is invisible (no skills, no commands, no agents). For local-only plugins (not on a marketplace), use just the plugin name as the key: `"gurgeh-plugin": true` <!-- intermem:bf1a20b1 -->
+- **`localPlugins` is undocumented and unreliable** — the CORRECT way to permanently install a local plugin is: (1) add it to a marketplace's `marketplace.json` with a git URL source, (2) `claude plugin marketplace update <name>`, (3) `claude plugin install plugin@marketplace`. This goes through the full pipeline: cache → installed_plugins.json → enabledPlugins. The `localPlugins` key + bare `enabledPlugins` name didn't work; marketplace install with `name@marketplace` format did. <!-- intermem:c61dc13d -->
+
+## Interclode Plugin (Cross-AI Delegation)
+- **Plugin**: `interclode@interagency-marketplace` — dispatch Codex agents from Claude Code <!-- intermem:26e85fd7 -->
+- **Components**: `/interclode` command + `delegate` skill + `dispatch.sh` script <!-- intermem:85859490 -->
+- **Codex CLI**: `codex exec -s workspace-write -C <dir> -o <output> "prompt"` with `run_in_background: true` <!-- intermem:d15b9d6e -->
+- **v0.2.0**: `--inject-docs` auto-prepends CLAUDE.md/AGENTS.md; `--name` for template output paths; mandatory negative constraints in prompt template; single-task support <!-- intermem:a7e0dbaa -->
+- **v0.2.1**: `--dry-run`, `--prompt-file`, `-i`/`--image` passthrough, `--inject-docs` default changed to claude-only (Codex reads AGENTS.md natively), retry/resume guidance, `--add-dir` docs, README.md <!-- intermem:e084c084 -->
+- **v0.2.1+**: edge case fixes — `--` end-of-options, empty prompt file error, `{name}` without `--name` warning, no-docs-found note <!-- intermem:91b3f1ba -->
+- **v0.2.2**: Step 0 fetches Codex CLI reference (developers.openai.com/codex/cli/reference/) at skill start; CLAUDE.md + AGENTS.md added; static CLI reference replaced with live fetch + fallback table <!-- intermem:03c1f8fb -->
+- **v0.2.2+**: Live docs revealed `-a`/`--ask-for-approval` was a value flag missing from passthrough — fixed. Also made `--yolo`, `--search`, `--no-alt-screen` explicit. <!-- intermem:6025addf -->
+- **Key insight**: Codex reads AGENTS.md natively from `-C` dir — `--inject-docs` only adds value for CLAUDE.md (Claude Code-specific instructions Codex wouldn't otherwise see) <!-- intermem:38132d36 -->
+- **Key lesson**: Prompt quality is everything — include file paths, success criteria, and constraints <!-- intermem:3afe441a -->
+- **GOCACHE fix**: Codex agents hit permission errors on `/root/.cache/go-build`; add `GOCACHE=/tmp/go-build-cache` to prompts <!-- intermem:51332d9c -->
+- **Always verify independently**: Codex agents can report success while tests actually fail <!-- intermem:9df23e5e -->
+- **Scope test commands**: Always use `-run TestPattern` or `-short` in test commands to avoid hanging integration tests (arbiter phase tests need live Claude CLI). Use `go test ./pkg/... -run TestFoo -v` not bare `go test ./... -v`. Codex agents stuck polling for hung tests will eat the full timeout. <!-- intermem:502a703f -->
+
+## MCP Agent Mail
+- **Server**: systemd service `mcp-agent-mail.service`, `http://127.0.0.1:8765/mcp/`, SQLite backend <!-- intermem:1fcdaf43 -->
+- **MCP configured twice**: global `settings.json` (with auth token) AND Clavain `plugin.json` (no token) — both work, tools appear with both prefixes <!-- intermem:ba3bbdb7 -->
+- **API works via plain HTTP POST**: `curl -s http://127.0.0.1:8765/mcp/ -H "Content-Type: application/json" -d '{"jsonrpc":"2.0","id":"1","method":"tools/call","params":{"name":"...","arguments":{...}}}'` <!-- intermem:67a9e41f -->
+- **Hook gracefully degrades**: 2s timeout on health check, silent exit 0 if Agent Mail unreachable <!-- intermem:c5268473 -->
+- **Hooks are cached at session start** — editing hook.sh in Clavain source AND cache is needed for mid-version changes; new sessions pick up from cache automatically <!-- intermem:b6508f55 -->
+- **All concurrent sessions must register** — the hook solves the bootstrap problem; without it, sessions work blind and can clobber each other's files <!-- intermem:9b14968d -->
+- **File reservations are advisory** — they don't block edits, but report conflicts so agents can coordinate <!-- intermem:7a0c8b56 -->
+
+## Flux Drive Skill
+- **Moved from gurgeh-plugin to Clavain** — flux-drive is project-agnostic orchestration; T1 agents (`fd-*`) remain in gurgeh-plugin. Invoked as `/clavain:flux-drive`. Replaced `/clavain:deepen-plan` (the "fire 40+ agents" approach). <!-- intermem:5195187d -->
+- **Generalized to any document or repo** — accepts file (plan, brainstorm, spec, ADR, README) or bare directory (repo review mode). LLM classifies on-the-fly, adapts review goal accordingly. <!-- intermem:caa67a30 -->
+- **Repo review mode** — bare directory path → reads README + build files + key sources; writes summary.md to OUTPUT_DIR instead of modifying repo files. <!-- intermem:05ae2de0 -->
+- **Always check codebase reality before profiling** — documents diverge from implementation. Step 1.0 in SKILL.md. <!-- intermem:08b9f9e6 -->
+- **Front-load divergence context in agent prompts** — list actual file paths + line numbers so agents don't waste cycles on phantom code <!-- intermem:8087131f -->
+- **Convergence tracking** — when N/M agents flag the same issue, that's high confidence signal. Include counts in issues checklist. <!-- intermem:9a56648d -->
+- **T1 cross-project scoring** — domain expertise transfers (security, perf) but codebase knowledge doesn't. Score honestly, no tier bonus for wrong codebase. <!-- intermem:5314c8ee -->
+- **3 test runs completed**: Autarch (Go/BT, same project), shadow-work (Rust/WASM, cross-project), Interforge (Tauri Rust+TS, cross-project with plan divergence) <!-- intermem:3ddde047 -->
+
+## Lessons Learned
+- Always check for keybinding conflicts before proposing new shortcuts — grep for the key combo first <!-- intermem:652cec23 -->
+- Always check slash command alias collisions against `GlobalCommands()` in `pkg/tui/command_picker.go` <!-- intermem:b6a9d619 -->
+- Estimate refactors by counting entangled state (struct fields, message types, handlers), not just "files to change" <!-- intermem:5fc0e631 -->
+- **Ctrl+number keybindings don't work in Bubble Tea v1**: BT v1 doesn't negotiate the Kitty keyboard protocol, so terminals send bare digits for Ctrl+1-9. Use Alt+number instead (Alt prepends ESC byte, which BT v1 parses correctly). This applies even on Kitty-protocol terminals like Rio, Ghostty, WezTerm. <!-- intermem:4dc44f23 -->
+- **Pre-existing test failures**: `docs/solutions` build failure (type assertion) and `TestCommandErrorWrapping` in coldwine CLI — not related to TUI changes <!-- intermem:8d68567a -->
+- **`pipefail` + `grep -q`** = SIGPIPE trap. `grep -q` exits early → upstream `tail` gets SIGPIPE (141). With pipefail, pipeline fails. Fix: use `grep >/dev/null 2>&1` <!-- intermem:0f04480a -->
+- **JSONL transcript lines are 10-100KB each** — use byte-based `tail -c` not line-based `tail -n` <!-- intermem:86b8f5c1 -->
+- **lipgloss `Height()` is a floor, not a ceiling**: If content + padding exceeds `Height(n)`, the block silently expands. This breaks layout math — always verify `Height` matches actual content lines + padding. Caught this in onboarding header: `Height(3)` with `Padding(1,3)` + 2-line content (tabs+breadcrumb) → rendered 4 lines, causing 1-line overflow and terminal-default black leaking through. <!-- intermem:156c17c5 -->
+- **Always test lipgloss layout math empirically**: Write a quick `go run` script that counts `strings.Count(rendered, "\n")+1` for each section and compares total to terminal height. Don't trust mental arithmetic with lipgloss Height/Padding interaction. <!-- intermem:a3c6bf52 -->
+- **View height math must match unified_app's content padding**: Views using ShellLayout+SplitLayout (which pads to full height via `ensureSize`) MUST use `msg.Height - 4 - 2` (not just `-4`). The `-2` accounts for `contentStyle.Padding(1,3)` in unified_app.go. KickoffView and SprintView got this right; dashboard views (Gurgeh/Coldwine/Pollard/Bigend) didn't until ChatPanel made the overflow visible. <!-- intermem:f23469bd -->
+- **Subagent output paths are relative to CWD, not input file**: When Task agents write files via `docs/research/...`, they resolve relative to the main session's CWD. Cross-project reviews write to the wrong project. Fix: derive OUTPUT_DIR from PROJECT_ROOT (nearest .git ancestor) and always resolve to absolute path. Applied in flux-drive SKILL.md. <!-- intermem:f67b4052 -->
+- **Background agents overwrite same-named files silently**: Running flux-drive twice with overlapping agent names (e.g., fd-performance) overwrites the first run's output. Name output files with plan identifier or timestamp if preserving multiple runs. <!-- intermem:cd996f02 -->
+- **Codex agents commit+push despite "Do NOT commit" in prompt**: All three agents in the 2026-02-06 interclode run committed and pushed. With `sandbox_mode=danger-full-access` and `approval_policy=never`, Codex ignores negative constraints about git ops. Check `git status` after dispatch — don't assume changes are unstaged. <!-- intermem:66623269 -->
+- **Codex agents make unrelated cosmetic changes**: YAML security agent also refactored 4 dashboard view files with ShellLayout/ChatPanel additions — completely unrelated. Always `git diff --stat` before committing, revert unrelated files with `git checkout --`. <!-- intermem:db6667b9 -->
+- **Arbiter phase tests are all integration tests**: Every test in `orchestrator_phase_test.go` calls `Advance()` → `GeneratePhase()` → `runClaude()`. They hang without a live Claude CLI. Only `TestConfidenceTotalWeightedCorrectly` and `TestConfidenceConflictsReduceConsistency` are true unit tests. Needs build tag isolation. <!-- intermem:485dbd5d -->
+- **Scope Codex test commands to avoid hangs**: Always use `-run TestPattern` or `-short` in Codex prompts to avoid arbiter integration tests. E.g., `go test ./internal/tui/... -run TestGurgeh -v` not `go test ./internal/tui/... -v`. The 16v agent timed out (exit 144/SIGTERM) stuck polling for lingering `go test` processes that included hanging integration tests. <!-- intermem:2d9daa35 -->
+- **`exec.CommandContext` kills process on context deadline**: Never pass a timeout context to `exec.CommandContext` for long-running servers — use `exec.Command` instead and manage lifecycle explicitly via `Process.Kill()`/`Process.Signal()`. The timeout context is fine for bounding a health-check poll, just not for the process itself. Found in Intermute manager: 30s startup timeout killed the server after 30s. <!-- intermem:c0f3a73f -->
+- **Cross-agent convergence = high confidence**: When N/3 independent flux-drive agents flag the same finding, confidence scales with N. In schmux review, 3/3 agents independently flagged bracket signaling as #1 priority — that's much stronger than any single agent's rec. Always count convergence in synthesis docs. Single-agent findings should be labeled as such. <!-- intermem:05022373 -->
+- **For "what to adopt" reviews, fd-architecture is the highest-value single agent**: It evaluates module boundaries and patterns, which is exactly what you need for cross-project inspiration. UX and agent-native add depth but take longer and need more source reading. If you can only run one agent, pick architecture. <!-- intermem:045a8a82 -->
+- **Stale background agents from previous sessions still complete**: TaskOutput shows "running" for agents from ended sessions, but they continue executing and eventually complete. Check back later — don't re-launch duplicates. Agent outputs survive session boundaries. <!-- intermem:5daff73e -->
+
+## PreToolUse Hook `updatedInput` Semantics
+- **REPLACE, not merge**: `updatedInput` completely replaces `tool_input`. Must include ALL fields. <!-- intermem:071cef5a -->
+- For Task tool: must include `prompt`, `description`, `subagent_type`, and optionally `model`, `max_turns`, `run_in_background`, `resume` <!-- intermem:2ca1cb77 -->
+- Best pattern: capture full `ORIGINAL_INPUT=$(echo "$INPUT" | jq '.tool_input')` then `echo "$ORIGINAL_INPUT" | jq --arg prompt "$NEW_PROMPT" '. + {"prompt": $prompt}'` <!-- intermem:94744b22 -->
+
+## Bug #15897: Multi-Hook `updatedInput` Aggregation
+- When multiple PreToolUse hooks match the same tool, `updatedInput` from earlier hooks is overwritten by later hooks <!-- intermem:96b9aade -->
+- Even a hook returning `{}` (no modification) will silently nuke a previous hook's `updatedInput` <!-- intermem:52e8e608 -->
+- **Affected plugins on this server**:
+  - `hookify` — catch-all PreToolUse (no matcher), returns `{}` for non-Bash/Edit tools
+  - `tool-time` — `matcher: "*"`, logs events, returns nothing to stdout
+  - `security-guidance` — `matcher: "Edit|Write|MultiEdit"`, only fires for file tools (not Task) <!-- intermem:9e6c2da6 -->
+- **Workaround options**:
+  1. Disable conflicting plugins during multi-agent workflows
+  2. Merge all hook logic into a single hook script
+  3. Wait for bug fix in Claude Code
+  4. Use a different mechanism (modify skill prompts directly) <!-- intermem:2e434d9a -->
+
+## `deepen-plan` Skill Agent Types
+- `Task general-purpose` — most research agents (HAS Write) <!-- intermem:777d48da -->
+- `Task Explore` — best-practices research (NO Write) <!-- intermem:9ccaabe3 -->
+- `Task [agent-name]` — specialized reviewers (HAS Write) <!-- intermem:45520ec8 -->
+- `plan_review` uses `@agent-*` reviewers — all have Write <!-- intermem:e7f9cbf7 -->
+
+## Hook File Location
+- hookify disabled in settings.json (`false`) — no rules configured, catch-all nukes `updatedInput` <!-- intermem:7a3c819e -->
+
+## Plugin Version Resolution
+- **Version selection is unpredictable**: In testing, CC loaded 0.2.1 instead of 0.3.0 or the local plugin <!-- intermem:3f6b6c52 -->
+- **hook.sh is re-read from disk each invocation** (via `bash "$CLAUDE_PLUGIN_ROOT/hooks/hook.sh"`) — editing cached hook.sh takes effect mid-session <!-- intermem:79a7eb1c -->
+- **settings.json / hooks.json changes are cached at session start** — require restart to take effect <!-- intermem:0b39319e -->
+- **Workaround for cached versions**: sync hook.sh to ALL cached versions when making changes <!-- intermem:31a68ba9 -->
+- **Diagnostic trick**: Add `echo "$0 $CLAUDE_PLUGIN_ROOT" >> /tmp/hook-identity.log` to identify which version is running <!-- intermem:f8ab17ca -->
+
+## Research Results from Dead Session
+- Saved to `docs/research/acceptance-criteria-2026-02-05/` (16 files, 344K) <!-- intermem:9bd03567 -->
+- Extracted from session `b817bfb0` JSONL using Python parser <!-- intermem:5ab8853a -->
+- Pattern: `<result>...</result>` inside `<task-notification>` blocks in user-type messages <!-- intermem:1935b7e2 -->
