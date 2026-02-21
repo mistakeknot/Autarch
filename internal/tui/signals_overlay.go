@@ -16,14 +16,17 @@ import (
 
 // SignalsOverlay renders recent signals and events in a single-panel overlay.
 type SignalsOverlay struct {
-	visible  bool
-	width    int
-	height   int
-	loaded   bool
-	signals  []signals.Signal
-	events   []*events.Event
-	selected int
-	category int // 0=signals, 1=events
+	visible    bool
+	width      int
+	height     int
+	loaded     bool
+	signals    []signals.Signal
+	events     []*events.Event
+	selected   int
+	category   int // 0=signals, 1=events
+	broker     *signals.Broker
+	brokerSub  *signals.Subscription
+	brokerDone chan struct{}
 }
 
 type signalsOverlayLoadedMsg struct {
@@ -32,9 +35,18 @@ type signalsOverlayLoadedMsg struct {
 	err     error
 }
 
+type brokerOverlaySignalMsg struct {
+	signal signals.Signal
+}
+
 // NewSignalsOverlay creates a new hidden signals overlay.
 func NewSignalsOverlay() *SignalsOverlay {
 	return &SignalsOverlay{}
+}
+
+// SetBroker configures the signal broker for push-based overlay updates.
+func (o *SignalsOverlay) SetBroker(b *signals.Broker) {
+	o.broker = b
 }
 
 // Visible returns whether the overlay is visible.
@@ -48,14 +60,23 @@ func (o *SignalsOverlay) Toggle() tea.Cmd {
 	o.selected = 0
 	if o.visible {
 		o.loaded = false
-		return o.loadData()
+		cmds := []tea.Cmd{o.loadData()}
+		if o.broker != nil && o.brokerSub == nil {
+			o.brokerDone = make(chan struct{})
+			o.brokerSub = o.broker.Subscribe(nil)
+			cmds = append(cmds, o.waitBrokerOverlaySignal())
+		}
+		return tea.Batch(cmds...)
 	}
+	// Closing — clean up subscription
+	o.closeBrokerSub()
 	return nil
 }
 
 // Close hides the overlay.
 func (o *SignalsOverlay) Close() {
 	o.visible = false
+	o.closeBrokerSub()
 }
 
 // SetSize updates the terminal dimensions used for overlay sizing.
@@ -78,6 +99,16 @@ func (o *SignalsOverlay) Update(msg tea.Msg) (consumed bool, cmd tea.Cmd) {
 		o.signals = msg.signals
 		o.events = msg.events
 		o.selected = clampOverlay(o.selected, 0, o.currentListLen()-1)
+		return true, nil
+
+	case brokerOverlaySignalMsg:
+		if o.visible && o.category == 0 {
+			o.signals = append([]signals.Signal{msg.signal}, o.signals...)
+			o.selected = clampOverlay(o.selected, 0, o.currentListLen()-1)
+		}
+		if o.brokerSub != nil {
+			return true, o.waitBrokerOverlaySignal()
+		}
 		return true, nil
 
 	case tea.KeyMsg:
@@ -178,6 +209,36 @@ func (o *SignalsOverlay) View() string {
 		Height(boxH)
 
 	return boxStyle.Render(strings.Join(lines, "\n"))
+}
+
+func (o *SignalsOverlay) waitBrokerOverlaySignal() tea.Cmd {
+	sub := o.brokerSub   // capture at call time
+	done := o.brokerDone // capture at call time
+	if sub == nil {
+		return nil
+	}
+	return func() tea.Msg {
+		select {
+		case sig, ok := <-sub.Chan():
+			if !ok {
+				return nil
+			}
+			return brokerOverlaySignalMsg{signal: sig}
+		case <-done:
+			return nil
+		}
+	}
+}
+
+func (o *SignalsOverlay) closeBrokerSub() {
+	if o.brokerDone != nil {
+		close(o.brokerDone)
+		o.brokerDone = nil
+	}
+	if o.brokerSub != nil {
+		o.brokerSub.Close()
+		o.brokerSub = nil
+	}
 }
 
 func (o *SignalsOverlay) renderItems(contentWidth int) []string {
