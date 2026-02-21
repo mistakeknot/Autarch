@@ -16,6 +16,7 @@ import (
 	"github.com/mistakeknot/autarch/internal/autarch/agent"
 	internalIntermute "github.com/mistakeknot/autarch/internal/intermute"
 	"github.com/mistakeknot/autarch/pkg/autarch"
+	"github.com/mistakeknot/autarch/pkg/signals"
 	pkgtui "github.com/mistakeknot/autarch/pkg/tui"
 )
 
@@ -115,6 +116,12 @@ func (a *UnifiedApp) SetDashboardViewFactory(factory func(*autarch.Client) []Vie
 // SetIntermuteManager sets the Intermute manager used for async startup.
 func (a *UnifiedApp) SetIntermuteManager(mgr *internalIntermute.Manager) {
 	a.intermuteMgr = mgr
+}
+
+// SetSignalBroker configures the signal broker for push-based overlay updates.
+// Pass nil to keep the default SQLite polling fallback.
+func (a *UnifiedApp) SetSignalBroker(b *signals.Broker) {
+	a.signalsOverlay.SetBroker(b)
 }
 
 type agentSelectorSetter interface {

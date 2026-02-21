@@ -34,6 +34,7 @@ import (
 	"github.com/mistakeknot/autarch/internal/tui"
 	"github.com/mistakeknot/autarch/internal/tui/views"
 	"github.com/mistakeknot/autarch/pkg/autarch"
+	"github.com/mistakeknot/autarch/pkg/events"
 	"github.com/mistakeknot/autarch/pkg/intermute"
 	"github.com/mistakeknot/autarch/pkg/timeout"
 )
@@ -301,7 +302,13 @@ func bigendCmd() *cobra.Command {
 			}
 
 			scanner := discovery.NewScanner(cfg.Discovery)
-			agg := aggregator.New(scanner, cfg, nil)
+
+			// Open events store for signal persistence (default path)
+			evStore, err := events.OpenStore("")
+			if err != nil {
+				slog.Warn("failed to open events store for signal persistence", "error", err)
+			}
+			agg := aggregator.New(scanner, cfg, evStore)
 
 			if !tuiMode {
 				slog.Info("scanning for projects", "roots", cfg.Discovery.ScanRoots)
