@@ -101,6 +101,27 @@
         <p class="text-gray-500 text-center py-4">No kernel runs</p>
         {{end}}
     </section>
+
+    <!-- Kernel Dispatches -->
+    {{if .State.Kernel.Dispatches}}
+    <section class="bg-gray-800 rounded-lg p-4">
+        <h2 class="text-lg font-semibold mb-4">Dispatches</h2>
+        <div class="space-y-2">
+            {{range $path, $dispatches := .State.Kernel.Dispatches}}
+            {{range $dispatches}}
+            <div class="flex items-center justify-between p-2 bg-gray-700 rounded text-sm">
+                <div class="flex items-center space-x-3">
+                    <span class="w-2 h-2 rounded-full {{if eq .Status "active"}}bg-green-500{{else if eq .Status "blocked"}}bg-yellow-500{{else if eq .Status "done"}}bg-gray-500{{else if eq .Status "error"}}bg-red-500{{else}}bg-blue-500{{end}}"></span>
+                    <span class="font-mono text-gray-400">{{.ID}}</span>
+                    <span class="text-gray-300">{{.DisplayName}}</span>
+                </div>
+                <span class="text-gray-500">{{.Status}}</span>
+            </div>
+            {{end}}
+            {{end}}
+        </div>
+    </section>
+    {{end}}
     {{end}}
 
     <!-- Recent Activity -->

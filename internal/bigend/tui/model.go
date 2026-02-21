@@ -1468,6 +1468,18 @@ func (m Model) renderDashboard() string {
 	if dispatchStats != "" {
 		statsItems = append(statsItems, dispatchStats)
 	}
+	if state.Kernel != nil {
+		km := state.Kernel.Metrics
+		totalTokens := km.TotalTokensIn + km.TotalTokensOut
+		if totalTokens > 0 {
+			tokenStats := statsStyle.Render(
+				TitleStyle.Render(formatTokens(totalTokens)) + "\n" +
+					LabelStyle.Render(fmt.Sprintf("%s in / %s out",
+						formatTokens(km.TotalTokensIn), formatTokens(km.TotalTokensOut))),
+			)
+			statsItems = append(statsItems, tokenStats)
+		}
+	}
 	statsRow := lipgloss.JoinHorizontal(lipgloss.Top, statsItems...)
 
 	// Build sections
@@ -1505,6 +1517,54 @@ func (m Model) renderDashboard() string {
 			sections = append(sections, runsTitle, strings.Join(runLines, "\n"), "")
 		} else {
 			sections = append(sections, runsTitle, LabelStyle.Render("  No active runs"), "")
+		}
+	}
+
+	// Dispatches section (kernel)
+	if state.Kernel != nil {
+		dispTitle := SubtitleStyle.Render("Dispatches")
+		var dispLines []string
+		// Collect all dispatches, sort active-first
+		type dispEntry struct {
+			projName string
+			d        icdata.Dispatch
+			us       icdata.UnifiedStatus
+		}
+		var entries []dispEntry
+		for projPath, dispatches := range state.Kernel.Dispatches {
+			pn := filepath.Base(projPath)
+			for _, d := range dispatches {
+				entries = append(entries, dispEntry{pn, d, icdata.UnifyStatus(d.Status)})
+			}
+		}
+		sort.Slice(entries, func(i, j int) bool {
+			if entries[i].us != entries[j].us {
+				return entries[i].us < entries[j].us // Active(1) < Blocked(2) < Waiting(3) < Done(4)
+			}
+			return entries[i].d.CreatedAt > entries[j].d.CreatedAt // newest first within same status
+		})
+		for i, e := range entries {
+			if i >= 10 {
+				break
+			}
+			id := e.d.ID
+			if len(id) > 8 {
+				id = id[:8]
+			}
+			agent := e.d.DisplayName()
+			if len(agent) > 16 {
+				agent = agent[:16]
+			}
+			line := fmt.Sprintf("  %s %-8s %-16s %s",
+				shared.UnifiedStatusSymbol(e.us),
+				LabelStyle.Render(id),
+				agent,
+				e.us.String(),
+			)
+			dispLines = append(dispLines, line)
+		}
+		if len(dispLines) > 0 {
+			sections = append(sections, dispTitle, strings.Join(dispLines, "\n"), "")
 		}
 	}
 
@@ -1573,4 +1633,15 @@ func (m Model) renderDashboard() string {
 	}
 
 	return lipgloss.JoinVertical(lipgloss.Left, sections...)
+}
+
+// formatTokens formats a token count with comma separators (e.g., 12,450).
+func formatTokens(n int64) string {
+	if n < 1000 {
+		return fmt.Sprintf("%d", n)
+	}
+	if n < 1_000_000 {
+		return fmt.Sprintf("%d,%03d", n/1000, n%1000)
+	}
+	return fmt.Sprintf("%d,%03d,%03d", n/1_000_000, (n%1_000_000)/1000, n%1000)
 }
