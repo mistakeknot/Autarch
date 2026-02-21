@@ -111,8 +111,8 @@ func (s *Subscription) Close() {
 	}
 	s.broker.mu.Lock()
 	delete(s.broker.subs, s.sub)
-	s.broker.mu.Unlock()
 	close(s.sub.ch)
+	s.broker.mu.Unlock()
 }
 
 // Stream writes signals to a channel until context closes.

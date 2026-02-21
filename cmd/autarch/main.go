@@ -303,10 +303,12 @@ func bigendCmd() *cobra.Command {
 
 			scanner := discovery.NewScanner(cfg.Discovery)
 
-			// Open events store for signal persistence (default path)
+			// Open events store for signal persistence (default path).
+			// On failure, signals still flow via broker — only persistence is lost.
 			evStore, err := events.OpenStore("")
 			if err != nil {
-				slog.Warn("failed to open events store for signal persistence", "error", err)
+				slog.Warn("signal persistence disabled — events store unavailable", "error", err)
+				evStore = nil
 			}
 			agg := aggregator.New(scanner, cfg, evStore)
 
