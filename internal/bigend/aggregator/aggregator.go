@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/mistakeknot/autarch/internal/bigend/agentcmd"
@@ -113,9 +114,9 @@ type Aggregator struct {
 	// WebSocket event handling
 	handlers    map[string][]EventHandler
 	handlersMu  sync.RWMutex
-	wsCtx       context.Context
-	wsCancel    context.CancelFunc
-	wsConnected bool
+	wsCtx       context.Context    // protected by mu
+	wsCancel    context.CancelFunc // protected by mu
+	wsConnected atomic.Bool
 }
 
 // New creates a new aggregator
@@ -161,12 +162,17 @@ func (a *Aggregator) ConnectWebSocket(ctx context.Context) error {
 	}
 
 	// Create cancellable context for the WebSocket connection
-	a.wsCtx, a.wsCancel = context.WithCancel(ctx)
+	wsCtx, wsCancel := context.WithCancel(ctx)
 
 	// Connect to Intermute WebSocket
-	if err := a.intermuteClient.Connect(a.wsCtx); err != nil {
+	if err := a.intermuteClient.Connect(wsCtx); err != nil {
+		wsCancel()
 		return fmt.Errorf("websocket connect: %w", err)
 	}
+
+	a.mu.Lock()
+	a.wsCtx, a.wsCancel = wsCtx, wsCancel
+	a.mu.Unlock()
 
 	// Register event handler
 	a.intermuteClient.On("*", func(evt intermute.Event) {
@@ -190,17 +196,23 @@ func (a *Aggregator) ConnectWebSocket(ctx context.Context) error {
 		return fmt.Errorf("websocket subscribe: %w", err)
 	}
 
-	a.wsConnected = true
+	a.wsConnected.Store(true)
 	slog.Info("connected to Intermute WebSocket", "events", len(eventTypes))
 	return nil
 }
 
 // DisconnectWebSocket closes the WebSocket connection
 func (a *Aggregator) DisconnectWebSocket() error {
-	if a.wsCancel != nil {
-		a.wsCancel()
+	a.mu.Lock()
+	cancel := a.wsCancel
+	a.wsCancel = nil
+	a.wsCtx = nil
+	a.mu.Unlock()
+
+	if cancel != nil {
+		cancel()
 	}
-	a.wsConnected = false
+	a.wsConnected.Store(false)
 	if a.intermuteClient != nil {
 		return a.intermuteClient.Close()
 	}
@@ -209,7 +221,7 @@ func (a *Aggregator) DisconnectWebSocket() error {
 
 // IsWebSocketConnected returns whether the WebSocket connection is active
 func (a *Aggregator) IsWebSocketConnected() bool {
-	return a.wsConnected
+	return a.wsConnected.Load()
 }
 
 // On registers an event handler for specific event types.
@@ -271,17 +283,24 @@ func (a *Aggregator) refreshForEvent(eventType string) {
 		strings.HasPrefix(eventType, "epic.") ||
 		strings.HasPrefix(eventType, "story.") ||
 		strings.HasPrefix(eventType, "task."):
-		// Spec/task events - refresh Gurgeh stats
+		// Spec/task events - refresh Gurgeh stats (I/O outside lock)
 		go func() {
+			a.mu.RLock()
+			projects := make([]discovery.Project, len(a.state.Projects))
+			copy(projects, a.state.Projects)
+			a.mu.RUnlock()
+
+			a.enrichWithGurgStats(projects)
+
 			a.mu.Lock()
-			a.enrichWithGurgStats(a.state.Projects)
+			a.state.Projects = projects
 			a.state.UpdatedAt = time.Now()
 			a.mu.Unlock()
 		}()
 
 	case strings.HasPrefix(eventType, "agent.") ||
 		strings.HasPrefix(eventType, "message."):
-		// Agent events - refresh agent list
+		// Agent events - refresh agent list (I/O outside lock)
 		go func() {
 			ctx, cancel := withTimeoutOrCancel(context.TODO(), timeout.HTTPDefault)
 			defer cancel()
@@ -293,10 +312,17 @@ func (a *Aggregator) refreshForEvent(eventType string) {
 		}()
 
 	case strings.HasPrefix(eventType, "insight."):
-		// Insight events - refresh Pollard stats
+		// Insight events - refresh Pollard stats (I/O outside lock)
 		go func() {
+			a.mu.RLock()
+			projects := make([]discovery.Project, len(a.state.Projects))
+			copy(projects, a.state.Projects)
+			a.mu.RUnlock()
+
+			a.enrichWithPollardStats(projects)
+
 			a.mu.Lock()
-			a.enrichWithPollardStats(a.state.Projects)
+			a.state.Projects = projects
 			a.state.UpdatedAt = time.Now()
 			a.mu.Unlock()
 		}()
@@ -387,18 +413,16 @@ func (a *Aggregator) Refresh(ctx context.Context) error {
 	// Load MCP statuses
 	mcpStatuses := a.loadMCPStatuses(projects)
 
-	// TODO: Load recent activities
-	activities := []Activity{}
-
-	// Update state
+	// Update state — preserve accumulated activities from WebSocket events
 	a.mu.Lock()
+	existingActivities := a.state.Activities
 	a.state = State{
 		Projects:   projects,
 		Agents:     agents,
 		Sessions:   sessions,
 		Colonies:   colonies,
 		MCP:        mcpStatuses,
-		Activities: activities,
+		Activities: existingActivities,
 		UpdatedAt:  time.Now(),
 	}
 	a.mu.Unlock()
