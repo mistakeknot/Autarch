@@ -1558,14 +1558,15 @@ func (m Model) renderDashboard() string {
 			if i >= 10 {
 				break
 			}
-			prefix := LabelStyle.Render("[T]") // tmux default
+			prefix := lipgloss.NewStyle().Foreground(shared.ColorMuted).Render("[T]")
 			switch a.Source {
 			case "kernel":
-				prefix = shared.StatusRunning.Render("[K]")
+				prefix = lipgloss.NewStyle().Foreground(shared.ColorPrimary).Render("[K]")
 			case "intermute":
-				prefix = StatusWaiting.Render("[M]")
+				prefix = lipgloss.NewStyle().Foreground(shared.ColorSuccess).Render("[M]")
 			}
-			line := fmt.Sprintf("  %s %s", prefix, a.Summary)
+			ts := LabelStyle.Render(a.Time.Format("15:04:05"))
+			line := fmt.Sprintf("  %s %s %s", ts, prefix, a.Summary)
 			actLines = append(actLines, line)
 		}
 		sections = append(sections, actTitle, strings.Join(actLines, "\n"))

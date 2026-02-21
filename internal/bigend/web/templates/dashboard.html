@@ -110,7 +110,8 @@
         <div class="space-y-2">
             {{range .State.Activities}}
             <div class="flex items-start space-x-3 text-sm p-2 hover:bg-gray-700 rounded">
-                <span class="text-gray-500 w-16 flex-shrink-0">{{.Time.Format "15:04"}}</span>
+                <span class="text-gray-500 w-16 flex-shrink-0">{{.Time.Format "15:04:05"}}</span>
+                <span class="w-6 flex-shrink-0 font-mono {{if eq .Source "kernel"}}text-blue-400{{else if eq .Source "intermute"}}text-green-400{{else}}text-gray-500{{end}}">[{{if eq .Source "kernel"}}K{{else if eq .Source "intermute"}}M{{else}}T{{end}}]</span>
                 <span class="text-gray-300">{{.Summary}}</span>
             </div>
             {{end}}
