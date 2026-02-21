@@ -13,7 +13,7 @@ import (
 	"github.com/charmbracelet/lipgloss"
 
 	"github.com/mistakeknot/autarch/internal/bigend/mcp"
-	"github.com/mistakeknot/autarch/internal/bigend/tmux"
+	"github.com/mistakeknot/autarch/internal/icdata"
 	"github.com/mistakeknot/autarch/pkg/timeout"
 	"github.com/mistakeknot/autarch/pkg/toolpane"
 	shared "github.com/mistakeknot/autarch/pkg/tui"
@@ -21,11 +21,7 @@ import (
 
 // VauxhallPane implements toolpane.Pane for the Vauxhall tool
 type VauxhallPane struct {
-	agg           aggregatorAPI
-	tmuxClient    statusClient
-	statusCache   map[string]cachedStatus
-	statusTTL     time.Duration
-	now           func() time.Time
+	agg aggregatorAPI
 	width         int
 	height        int
 	activeTab     Tab
@@ -69,12 +65,8 @@ func NewPane(agg aggregatorAPI) *VauxhallPane {
 	mcpList.SetFilteringEnabled(false)
 
 	return &VauxhallPane{
-		agg:           agg,
-		tmuxClient:    tmux.NewClient(),
-		statusCache:   make(map[string]cachedStatus),
-		statusTTL:     2 * time.Second,
-		now:           time.Now,
-		activeTab:     TabDashboard,
+		agg:       agg,
+		activeTab: TabDashboard,
 		sessionList:   sessionList,
 		agentList:     agentList,
 		mcpList:       mcpList,
@@ -256,27 +248,6 @@ func (p *VauxhallPane) updateListSizes() {
 	p.mcpList.SetSize(p.width, p.height/2)
 }
 
-func (p *VauxhallPane) statusForSession(name string) tmux.Status {
-	if p.tmuxClient == nil {
-		return tmux.StatusUnknown
-	}
-	if p.statusTTL <= 0 {
-		return p.tmuxClient.DetectStatus(name)
-	}
-	now := time.Now()
-	if p.now != nil {
-		now = p.now()
-	}
-	if cached, ok := p.statusCache[name]; ok {
-		if now.Sub(cached.at) < p.statusTTL {
-			return cached.status
-		}
-	}
-	status := p.tmuxClient.DetectStatus(name)
-	p.statusCache[name] = cachedStatus{status: status, at: now}
-	return status
-}
-
 func (p *VauxhallPane) toggleGroup(tab Tab, projectPath string) {
 	if p.groupExpanded == nil {
 		p.groupExpanded = map[string]bool{}
@@ -305,14 +276,14 @@ func (p *VauxhallPane) isGroupExpanded(tab Tab, projectPath string) bool {
 func (p *VauxhallPane) updateLists(projectPath string) {
 	state := p.agg.GetState()
 
-	// Update session list
+	// Update session list — status comes from aggregator's UnifiedState
 	sessionItems := make([]list.Item, 0, len(state.Sessions))
-	statusByAgent := map[string]tmux.Status{}
+	statusByAgent := map[string]icdata.UnifiedStatus{}
 	for _, s := range state.Sessions {
 		if projectPath != "" && s.ProjectPath != projectPath {
 			continue
 		}
-		status := p.statusForSession(s.Name)
+		status := s.UnifiedState
 		if s.AgentName != "" {
 			if _, ok := statusByAgent[s.AgentName]; !ok {
 				statusByAgent[s.AgentName] = status
@@ -439,8 +410,7 @@ func (p *VauxhallPane) renderDashboard() string {
 	// Count active sessions
 	activeCount := 0
 	for _, s := range state.Sessions {
-		status := p.statusForSession(s.Name)
-		if status == tmux.StatusRunning || status == tmux.StatusWaiting {
+		if s.UnifiedState == icdata.StatusActive || s.UnifiedState == icdata.StatusWaiting {
 			activeCount++
 		}
 	}
@@ -460,13 +430,12 @@ func (p *VauxhallPane) renderDashboard() string {
 		if i >= 5 {
 			break
 		}
-		status := p.statusForSession(s.Name)
 		name := s.Name
 		if s.AgentName != "" {
 			name = s.AgentName
 		}
 		line := fmt.Sprintf("  %s %s %s",
-			StatusIndicator(string(status)),
+			shared.UnifiedStatusIndicator(s.UnifiedState),
 			name,
 			LabelStyle.Render(filepath.Base(s.ProjectPath)),
 		)

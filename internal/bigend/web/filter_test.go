@@ -4,12 +4,12 @@ import (
 	"testing"
 
 	"github.com/mistakeknot/autarch/internal/bigend/aggregator"
-	"github.com/mistakeknot/autarch/internal/bigend/tmux"
+	"github.com/mistakeknot/autarch/internal/icdata"
 )
 
 func TestParseFilterStatusTokens(t *testing.T) {
 	state := parseFilter("!waiting codex")
-	if !state.Statuses[tmux.StatusWaiting] {
+	if !state.Statuses[icdata.StatusWaiting] {
 		t.Fatalf("expected waiting status")
 	}
 	if len(state.Terms) != 1 || state.Terms[0] != "codex" {
@@ -23,10 +23,10 @@ func TestFilterSessionsAppliesStatusAndText(t *testing.T) {
 		{Name: "codex-b", AgentType: "codex"},
 		{Name: "claude"},
 	}
-	statusBySession := map[string]tmux.Status{
-		"codex-a": tmux.StatusWaiting,
-		"codex-b": tmux.StatusRunning,
-		"claude":  tmux.StatusWaiting,
+	statusBySession := map[string]icdata.UnifiedStatus{
+		"codex-a": icdata.StatusWaiting,
+		"codex-b": icdata.StatusActive,
+		"claude":  icdata.StatusWaiting,
 	}
 	state := parseFilter("!waiting codex")
 	filtered := filterSessions(sessions, state, statusBySession)
@@ -40,8 +40,8 @@ func TestFilterAgentsMatchesUnknownStatus(t *testing.T) {
 		{Name: "Copper"},
 		{Name: "Rose", SessionName: "rose"},
 	}
-	statusBySession := map[string]tmux.Status{
-		"rose": tmux.StatusRunning,
+	statusBySession := map[string]icdata.UnifiedStatus{
+		"rose": icdata.StatusActive,
 	}
 	state := parseFilter("!unknown")
 	filtered := filterAgents(agents, state, statusBySession)

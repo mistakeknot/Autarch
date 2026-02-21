@@ -17,6 +17,7 @@ import (
 	"github.com/mistakeknot/autarch/internal/bigend/aggregator"
 	"github.com/mistakeknot/autarch/internal/bigend/mcp"
 	"github.com/mistakeknot/autarch/internal/bigend/tmux"
+	"github.com/mistakeknot/autarch/internal/icdata"
 	"github.com/mistakeknot/autarch/pkg/timeout"
 	shared "github.com/mistakeknot/autarch/pkg/tui"
 )
@@ -57,10 +58,6 @@ type aggregatorAPI interface {
 	AttachSession(name string) error
 	StartMCP(ctx context.Context, projectPath, component string) error
 	StopMCP(projectPath, component string) error
-}
-
-type statusClient interface {
-	DetectStatus(name string) tmux.Status
 }
 
 // Tab represents a view tab
@@ -105,12 +102,7 @@ const (
 type FilterState struct {
 	Raw      string
 	Terms    []string
-	Statuses map[tmux.Status]bool
-}
-
-type cachedStatus struct {
-	status tmux.Status
-	at     time.Time
+	Statuses map[icdata.UnifiedStatus]bool
 }
 
 func parseFilter(input string) FilterState {
@@ -119,24 +111,27 @@ func parseFilter(input string) FilterState {
 		return FilterState{Raw: ""}
 	}
 	terms := []string{}
-	statuses := map[tmux.Status]bool{}
+	statuses := map[icdata.UnifiedStatus]bool{}
 	for _, token := range strings.Fields(strings.ToLower(raw)) {
 		if strings.HasPrefix(token, "!") {
 			switch strings.TrimPrefix(token, "!") {
-			case "running":
-				statuses[tmux.StatusRunning] = true
+			case "running", "active":
+				statuses[icdata.StatusActive] = true
 				continue
-			case "waiting":
-				statuses[tmux.StatusWaiting] = true
+			case "waiting", "idle":
+				statuses[icdata.StatusWaiting] = true
 				continue
-			case "idle":
-				statuses[tmux.StatusIdle] = true
+			case "blocked":
+				statuses[icdata.StatusBlocked] = true
 				continue
 			case "error":
-				statuses[tmux.StatusError] = true
+				statuses[icdata.StatusErr] = true
+				continue
+			case "done":
+				statuses[icdata.StatusDone] = true
 				continue
 			case "unknown":
-				statuses[tmux.StatusUnknown] = true
+				statuses[icdata.StatusUnknown] = true
 				continue
 			default:
 				token = strings.TrimPrefix(token, "!")
@@ -219,7 +214,7 @@ func filterSessionItems(items []list.Item, state FilterState) []list.Item {
 	return filtered
 }
 
-func filterAgentItems(items []list.Item, state FilterState, statusByAgent map[string]tmux.Status) []list.Item {
+func filterAgentItems(items []list.Item, state FilterState, statusByAgent map[string]icdata.UnifiedStatus) []list.Item {
 	if state.Raw == "" {
 		return items
 	}
@@ -233,7 +228,7 @@ func filterAgentItems(items []list.Item, state FilterState, statusByAgent map[st
 		if len(state.Statuses) > 0 {
 			status, ok := statusByAgent[agentItem.Agent.Name]
 			if !ok {
-				status = tmux.StatusUnknown
+				status = icdata.StatusUnknown
 			}
 			if !state.Statuses[status] {
 				continue
@@ -256,12 +251,8 @@ func filterAgentItems(items []list.Item, state FilterState, statusByAgent map[st
 
 // Model is the main TUI model
 type Model struct {
-	agg           aggregatorAPI
-	tmuxClient    statusClient
-	tmuxCapture   *tmux.Client // For terminal capture (separate from status detection)
-	statusCache   map[string]cachedStatus
-	statusTTL     time.Duration
-	now           func() time.Time
+	agg         aggregatorAPI
+	tmuxCapture *tmux.Client // For terminal capture (separate from status detection)
 	width         int
 	height        int
 	activeTab     Tab
@@ -292,7 +283,7 @@ type Model struct {
 // SessionItem represents a session in the list
 type SessionItem struct {
 	Session   aggregator.TmuxSession
-	Status    tmux.Status
+	Status    icdata.UnifiedStatus
 	AgentType string
 }
 
@@ -312,7 +303,7 @@ func (i SessionItem) Description() string {
 	if i.Session.AgentType != "" {
 		parts = append(parts, i.Session.AgentType)
 	}
-	parts = append(parts, string(i.Status))
+	parts = append(parts, i.Status.String())
 	return strings.Join(parts, " • ")
 }
 
@@ -605,13 +596,9 @@ func New(agg aggregatorAPI, buildInfo string) Model {
 	tmuxCapture := tmux.NewClient()
 
 	return Model{
-		agg:          agg,
-		tmuxClient:   tmux.NewClient(),
-		tmuxCapture:  tmuxCapture,
-		statusCache:  make(map[string]cachedStatus),
-		statusTTL:    2 * time.Second,
-		now:          time.Now,
-		activeTab:    TabDashboard,
+		agg:         agg,
+		tmuxCapture: tmuxCapture,
+		activeTab:   TabDashboard,
 		activePane:   PaneProjects,
 		buildInfo:    buildInfo,
 		sessionList:  sessionList,
@@ -648,27 +635,6 @@ func (m *Model) stopFilterEditing() {
 	}
 	m.filterInput.Blur()
 	m.filterActive = false
-}
-
-func (m *Model) statusForSession(name string) tmux.Status {
-	if m.tmuxClient == nil {
-		return tmux.StatusUnknown
-	}
-	if m.statusTTL <= 0 {
-		return m.tmuxClient.DetectStatus(name)
-	}
-	now := time.Now()
-	if m.now != nil {
-		now = m.now()
-	}
-	if cached, ok := m.statusCache[name]; ok {
-		if now.Sub(cached.at) < m.statusTTL {
-			return cached.status
-		}
-	}
-	status := m.tmuxClient.DetectStatus(name)
-	m.statusCache[name] = cachedStatus{status: status, at: now}
-	return status
 }
 
 // Init initializes the model
@@ -1131,14 +1097,14 @@ func (m *Model) updateLists() {
 
 	selectedProject := m.selectedProjectPath()
 
-	// Update session list
+	// Update session list — status comes from aggregator's UnifiedState
 	sessionItems := make([]list.Item, 0, len(state.Sessions))
-	statusByAgent := map[string]tmux.Status{}
+	statusByAgent := map[string]icdata.UnifiedStatus{}
 	for _, s := range state.Sessions {
 		if selectedProject != "" && s.ProjectPath != selectedProject {
 			continue
 		}
-		status := m.statusForSession(s.Name)
+		status := s.UnifiedState
 		if s.AgentName != "" {
 			if _, ok := statusByAgent[s.AgentName]; !ok {
 				statusByAgent[s.AgentName] = status
@@ -1475,8 +1441,7 @@ func (m Model) renderDashboard() string {
 		// Count active sessions as before when no kernel
 		activeCount := 0
 		for _, s := range state.Sessions {
-			status := m.statusForSession(s.Name)
-			if status == tmux.StatusRunning || status == tmux.StatusWaiting {
+			if s.UnifiedState == icdata.StatusActive || s.UnifiedState == icdata.StatusWaiting {
 				activeCount++
 			}
 		}
@@ -1536,13 +1501,12 @@ func (m Model) renderDashboard() string {
 		if i >= 5 {
 			break
 		}
-		status := m.statusForSession(s.Name)
 		name := s.Name
 		if s.AgentName != "" {
 			name = s.AgentName
 		}
 		line := fmt.Sprintf("  %s %s %s",
-			StatusIndicator(string(status)),
+			shared.UnifiedStatusIndicator(s.UnifiedState),
 			name,
 			LabelStyle.Render(filepath.Base(s.ProjectPath)),
 		)

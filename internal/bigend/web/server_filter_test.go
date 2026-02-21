@@ -8,26 +8,17 @@ import (
 
 	"github.com/mistakeknot/autarch/internal/bigend/aggregator"
 	"github.com/mistakeknot/autarch/internal/bigend/config"
-	"github.com/mistakeknot/autarch/internal/bigend/tmux"
+	"github.com/mistakeknot/autarch/internal/icdata"
 )
-
-type fakeStatusClient struct {
-	bySession map[string]tmux.Status
-}
-
-func (f fakeStatusClient) DetectStatus(name string) tmux.Status {
-	if status, ok := f.bySession[name]; ok {
-		return status
-	}
-	return tmux.StatusUnknown
-}
 
 func TestHandleSessionsFiltersByQuery(t *testing.T) {
 	agg := &fakeAgg{state: aggregator.State{
-		Sessions: []aggregator.TmuxSession{{Name: "codex"}, {Name: "claude"}},
+		Sessions: []aggregator.TmuxSession{
+			{Name: "codex", UnifiedState: icdata.StatusWaiting},
+			{Name: "claude", UnifiedState: icdata.StatusActive},
+		},
 	}}
 	srv := NewServer(config.ServerConfig{}, agg)
-	srv.statusClient = fakeStatusClient{bySession: map[string]tmux.Status{"codex": tmux.StatusWaiting}}
 
 	req := httptest.NewRequest(http.MethodGet, "/sessions?q=!waiting", nil)
 	w := httptest.NewRecorder()

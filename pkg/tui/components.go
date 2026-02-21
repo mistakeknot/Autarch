@@ -1,6 +1,9 @@
 package tui
 
-import "github.com/mistakeknot/autarch/internal/icdata"
+import (
+	"github.com/charmbracelet/lipgloss"
+	"github.com/mistakeknot/autarch/internal/icdata"
+)
 
 // UnifiedStatusIndicator renders a styled indicator for a UnifiedStatus value.
 func UnifiedStatusIndicator(s icdata.UnifiedStatus) string {
@@ -8,33 +11,56 @@ func UnifiedStatusIndicator(s icdata.UnifiedStatus) string {
 	case icdata.StatusActive:
 		return StatusRunning.Render("● ACTIVE")
 	case icdata.StatusBlocked:
-		return StatusError.Render("! BLOCKED")
+		return StatusWaiting.Render("▲ BLOCKED")
 	case icdata.StatusWaiting:
-		return StatusWaiting.Render("○ WAITING")
+		return lipgloss.NewStyle().Foreground(ColorPrimary).Render("~ WAITING")
 	case icdata.StatusDone:
-		return StatusRunning.Render("✓ DONE")
+		return LabelStyle.Render("○ DONE")
 	case icdata.StatusErr:
-		return StatusError.Render("✗ ERROR")
+		return StatusError.Render("✕ ERROR")
 	default:
-		return LabelStyle.Render("? UNKNOWN")
+		return lipgloss.NewStyle().Foreground(lipgloss.Color("#414868")).Render("? UNKNOWN")
 	}
 }
 
 // UnifiedStatusSymbol returns just the symbol for a UnifiedStatus (no text).
 func UnifiedStatusSymbol(s icdata.UnifiedStatus) string {
+	return UnifiedStatusStyle(s).Render(unifiedStatusGlyph(s))
+}
+
+// UnifiedStatusStyle returns the lipgloss style for a UnifiedStatus.
+func UnifiedStatusStyle(s icdata.UnifiedStatus) lipgloss.Style {
 	switch s {
 	case icdata.StatusActive:
-		return StatusRunning.Render("●")
+		return lipgloss.NewStyle().Foreground(ColorSuccess)
 	case icdata.StatusBlocked:
-		return StatusError.Render("!")
+		return lipgloss.NewStyle().Foreground(ColorWarning)
 	case icdata.StatusWaiting:
-		return StatusWaiting.Render("○")
+		return lipgloss.NewStyle().Foreground(ColorPrimary)
 	case icdata.StatusDone:
-		return StatusRunning.Render("✓")
+		return lipgloss.NewStyle().Foreground(ColorMuted)
 	case icdata.StatusErr:
-		return StatusError.Render("✗")
+		return lipgloss.NewStyle().Foreground(ColorError)
 	default:
-		return LabelStyle.Render("?")
+		return lipgloss.NewStyle().Foreground(lipgloss.Color("#414868"))
+	}
+}
+
+// unifiedStatusGlyph returns the raw glyph for a UnifiedStatus.
+func unifiedStatusGlyph(s icdata.UnifiedStatus) string {
+	switch s {
+	case icdata.StatusActive:
+		return "●"
+	case icdata.StatusBlocked:
+		return "▲"
+	case icdata.StatusWaiting:
+		return "~"
+	case icdata.StatusDone:
+		return "○"
+	case icdata.StatusErr:
+		return "✕"
+	default:
+		return "?"
 	}
 }
 

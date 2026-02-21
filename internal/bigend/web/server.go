@@ -19,6 +19,7 @@ import (
 	"github.com/mistakeknot/autarch/internal/bigend/config"
 	"github.com/mistakeknot/autarch/internal/bigend/discovery"
 	"github.com/mistakeknot/autarch/internal/bigend/tmux"
+	"github.com/mistakeknot/autarch/internal/icdata"
 	"github.com/mistakeknot/autarch/pkg/intermute"
 	"github.com/mistakeknot/autarch/pkg/netguard"
 	"nhooyr.io/websocket"
@@ -29,11 +30,11 @@ var templateFS embed.FS
 
 // Server is the HTTP server for Vauxhall
 type Server struct {
-	cfg          config.ServerConfig
-	agg          aggregatorAPI
-	statusClient statusClient
-	templates    map[string]*template.Template
-	srv          *http.Server
+	cfg         config.ServerConfig
+	agg         aggregatorAPI
+	tmuxClient  *tmux.Client
+	templates   map[string]*template.Template
+	srv         *http.Server
 }
 
 type aggregatorAPI interface {
@@ -55,10 +56,6 @@ type aggregatorAPI interface {
 	StopMCP(projectPath, component string) error
 }
 
-type statusClient interface {
-	DetectStatus(name string) tmux.Status
-}
-
 type webGroup[T any] struct {
 	Name  string
 	Path  string
@@ -68,9 +65,9 @@ type webGroup[T any] struct {
 // NewServer creates a new web server
 func NewServer(cfg config.ServerConfig, agg aggregatorAPI) *Server {
 	s := &Server{
-		cfg:          cfg,
-		agg:          agg,
-		statusClient: tmux.NewClient(),
+		cfg:        cfg,
+		agg:        agg,
+		tmuxClient: tmux.NewClient(),
 		templates:    make(map[string]*template.Template),
 	}
 
@@ -193,12 +190,12 @@ func (s *Server) handleAgents(w http.ResponseWriter, r *http.Request) {
 	query := strings.TrimSpace(r.URL.Query().Get("q"))
 	filterState := parseFilter(query)
 	agents := state.Agents
-	var statusBySession map[string]tmux.Status
+	var statusBySession map[string]icdata.UnifiedStatus
 	if filterState.Raw != "" {
-		if len(filterState.Statuses) > 0 && s.statusClient != nil {
-			statusBySession = make(map[string]tmux.Status, len(state.Sessions))
+		if len(filterState.Statuses) > 0 {
+			statusBySession = make(map[string]icdata.UnifiedStatus, len(state.Sessions))
 			for _, session := range state.Sessions {
-				statusBySession[session.Name] = s.statusClient.DetectStatus(session.Name)
+				statusBySession[session.Name] = session.UnifiedState
 			}
 		}
 		agents = filterAgents(agents, filterState, statusBySession)
@@ -268,12 +265,12 @@ func (s *Server) handleSessions(w http.ResponseWriter, r *http.Request) {
 	query := strings.TrimSpace(r.URL.Query().Get("q"))
 	filterState := parseFilter(query)
 	sessions := state.Sessions
-	var statusBySession map[string]tmux.Status
+	var statusBySession map[string]icdata.UnifiedStatus
 	if filterState.Raw != "" {
-		if len(filterState.Statuses) > 0 && s.statusClient != nil {
-			statusBySession = make(map[string]tmux.Status, len(state.Sessions))
+		if len(filterState.Statuses) > 0 {
+			statusBySession = make(map[string]icdata.UnifiedStatus, len(state.Sessions))
 			for _, session := range state.Sessions {
-				statusBySession[session.Name] = s.statusClient.DetectStatus(session.Name)
+				statusBySession[session.Name] = session.UnifiedState
 			}
 		}
 		sessions = filterSessions(sessions, filterState, statusBySession)
@@ -485,8 +482,8 @@ func (s *Server) handleTerminalWS(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 
 	// Get tmux client for capturing pane
-	tmuxClient, ok := s.statusClient.(*tmux.Client)
-	if !ok {
+	tmuxClient := s.tmuxClient
+	if tmuxClient == nil {
 		errMsg := struct {
 			Type    string `json:"type"`
 			Message string `json:"message"`

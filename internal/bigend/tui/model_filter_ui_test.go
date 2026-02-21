@@ -8,7 +8,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 
 	"github.com/mistakeknot/autarch/internal/bigend/aggregator"
-	"github.com/mistakeknot/autarch/internal/bigend/tmux"
+	"github.com/mistakeknot/autarch/internal/icdata"
 )
 
 func TestFilterClearsOnEscape(t *testing.T) {
@@ -66,8 +66,8 @@ func TestFilterAllowsArrowKeys(t *testing.T) {
 	m.activeTab = TabSessions
 	m.activePane = PaneMain
 	m.sessionList.SetItems([]list.Item{
-		SessionItem{Session: aggregator.TmuxSession{Name: "a"}, Status: tmux.StatusRunning},
-		SessionItem{Session: aggregator.TmuxSession{Name: "b"}, Status: tmux.StatusRunning},
+		SessionItem{Session: aggregator.TmuxSession{Name: "a"}, Status: icdata.StatusActive},
+		SessionItem{Session: aggregator.TmuxSession{Name: "b"}, Status: icdata.StatusActive},
 	})
 	m.sessionList.Select(0)
 	m = m.withFilterActive("codex")

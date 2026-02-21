@@ -4,13 +4,13 @@ import (
 	"strings"
 
 	"github.com/mistakeknot/autarch/internal/bigend/aggregator"
-	"github.com/mistakeknot/autarch/internal/bigend/tmux"
+	"github.com/mistakeknot/autarch/internal/icdata"
 )
 
 type FilterState struct {
 	Raw      string
 	Terms    []string
-	Statuses map[tmux.Status]bool
+	Statuses map[icdata.UnifiedStatus]bool
 }
 
 func parseFilter(input string) FilterState {
@@ -19,24 +19,27 @@ func parseFilter(input string) FilterState {
 		return FilterState{Raw: ""}
 	}
 	terms := []string{}
-	statuses := map[tmux.Status]bool{}
+	statuses := map[icdata.UnifiedStatus]bool{}
 	for _, token := range strings.Fields(strings.ToLower(raw)) {
 		if strings.HasPrefix(token, "!") {
 			switch strings.TrimPrefix(token, "!") {
-			case "running":
-				statuses[tmux.StatusRunning] = true
+			case "running", "active":
+				statuses[icdata.StatusActive] = true
 				continue
-			case "waiting":
-				statuses[tmux.StatusWaiting] = true
+			case "waiting", "idle":
+				statuses[icdata.StatusWaiting] = true
 				continue
-			case "idle":
-				statuses[tmux.StatusIdle] = true
+			case "blocked":
+				statuses[icdata.StatusBlocked] = true
 				continue
 			case "error":
-				statuses[tmux.StatusError] = true
+				statuses[icdata.StatusErr] = true
+				continue
+			case "done":
+				statuses[icdata.StatusDone] = true
 				continue
 			case "unknown":
-				statuses[tmux.StatusUnknown] = true
+				statuses[icdata.StatusUnknown] = true
 				continue
 			default:
 				token = strings.TrimPrefix(token, "!")
@@ -52,14 +55,14 @@ func parseFilter(input string) FilterState {
 	return FilterState{Raw: raw, Terms: terms, Statuses: statuses}
 }
 
-func filterSessions(sessions []aggregator.TmuxSession, state FilterState, statusBySession map[string]tmux.Status) []aggregator.TmuxSession {
+func filterSessions(sessions []aggregator.TmuxSession, state FilterState, statusBySession map[string]icdata.UnifiedStatus) []aggregator.TmuxSession {
 	if state.Raw == "" {
 		return sessions
 	}
 	filtered := make([]aggregator.TmuxSession, 0, len(sessions))
 	for _, session := range sessions {
 		if len(state.Statuses) > 0 {
-			status := tmux.StatusUnknown
+			status := icdata.StatusUnknown
 			if statusBySession != nil {
 				if mapped, ok := statusBySession[session.Name]; ok {
 					status = mapped
@@ -89,14 +92,14 @@ func filterSessions(sessions []aggregator.TmuxSession, state FilterState, status
 	return filtered
 }
 
-func filterAgents(agents []aggregator.Agent, state FilterState, statusBySession map[string]tmux.Status) []aggregator.Agent {
+func filterAgents(agents []aggregator.Agent, state FilterState, statusBySession map[string]icdata.UnifiedStatus) []aggregator.Agent {
 	if state.Raw == "" {
 		return agents
 	}
 	filtered := make([]aggregator.Agent, 0, len(agents))
 	for _, agent := range agents {
 		if len(state.Statuses) > 0 {
-			status := tmux.StatusUnknown
+			status := icdata.StatusUnknown
 			if agent.SessionName != "" && statusBySession != nil {
 				if mapped, ok := statusBySession[agent.SessionName]; ok {
 					status = mapped

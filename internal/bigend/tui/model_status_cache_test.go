@@ -3,10 +3,9 @@ package tui
 import (
 	"context"
 	"testing"
-	"time"
 
 	"github.com/mistakeknot/autarch/internal/bigend/aggregator"
-	"github.com/mistakeknot/autarch/internal/bigend/tmux"
+	"github.com/mistakeknot/autarch/internal/icdata"
 )
 
 type fakeAggStatus struct {
@@ -23,30 +22,40 @@ func (f *fakeAggStatus) AttachSession(string) error { return nil }
 func (f *fakeAggStatus) StartMCP(context.Context, string, string) error { return nil }
 func (f *fakeAggStatus) StopMCP(string, string) error { return nil }
 
-type fakeStatusClient struct {
-	calls map[string]int
-}
-
-func (f *fakeStatusClient) DetectStatus(name string) tmux.Status {
-	f.calls[name]++
-	return tmux.StatusRunning
-}
-
-func TestStatusCacheAvoidsRepeatedDetects(t *testing.T) {
+func TestSessionStatusFromAggregatorState(t *testing.T) {
 	agg := &fakeAggStatus{state: aggregator.State{
-		Sessions: []aggregator.TmuxSession{{Name: "a"}, {Name: "b"}},
+		Sessions: []aggregator.TmuxSession{
+			{Name: "a", UnifiedState: icdata.StatusActive},
+			{Name: "b", UnifiedState: icdata.StatusWaiting},
+			{Name: "c", UnifiedState: icdata.StatusUnknown},
+		},
 	}}
 	m := New(agg, "")
-	fake := &fakeStatusClient{calls: map[string]int{}}
-	m.tmuxClient = fake
-	m.statusTTL = time.Minute
-	fixed := time.Date(2026, 1, 22, 0, 0, 0, 0, time.UTC)
-	m.now = func() time.Time { return fixed }
-
-	m.updateLists()
 	m.updateLists()
 
-	if fake.calls["a"] != 1 || fake.calls["b"] != 1 {
-		t.Fatalf("expected cached detect status (a=%d b=%d)", fake.calls["a"], fake.calls["b"])
+	items := m.sessionList.Items()
+	// Items may include group headers, so extract SessionItems
+	var sessions []SessionItem
+	for _, item := range items {
+		if si, ok := item.(SessionItem); ok {
+			sessions = append(sessions, si)
+		}
+	}
+
+	if len(sessions) != 3 {
+		t.Fatalf("expected 3 sessions, got %d", len(sessions))
+	}
+	tests := []struct {
+		name   string
+		expect icdata.UnifiedStatus
+	}{
+		{"a", icdata.StatusActive},
+		{"b", icdata.StatusWaiting},
+		{"c", icdata.StatusUnknown},
+	}
+	for i, tt := range tests {
+		if sessions[i].Status != tt.expect {
+			t.Errorf("session %q: expected status %v, got %v", tt.name, tt.expect, sessions[i].Status)
+		}
 	}
 }
