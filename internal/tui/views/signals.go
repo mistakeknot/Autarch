@@ -55,6 +55,10 @@ type SignalsView struct {
 	intermuteClient *intermute.Client
 	intermuteEvents chan intermute.Event
 	intermuteStatus string
+
+	broker     *signals.Broker
+	brokerSub  *signals.Subscription
+	brokerDone chan struct{}
 }
 
 // NewSignalsView creates a new Signals view.
@@ -89,12 +93,28 @@ type intermuteEventMsg struct {
 	event intermute.Event
 }
 
+type brokerSignalMsg struct {
+	signal signals.Signal
+}
+
+// SetBroker configures the signal broker for push-based updates.
+// If nil, the view falls back to SQLite polling (existing behavior).
+func (v *SignalsView) SetBroker(b *signals.Broker) {
+	v.broker = b
+}
+
 // Init implements View.
 func (v *SignalsView) Init() tea.Cmd {
-	return tea.Batch(
+	cmds := []tea.Cmd{
 		v.loadData(),
 		v.connectIntermute(),
-	)
+	}
+	if v.broker != nil && v.brokerSub == nil {
+		v.brokerDone = make(chan struct{})
+		v.brokerSub = v.broker.Subscribe(nil)
+		cmds = append(cmds, v.waitBrokerSignal())
+	}
+	return tea.Batch(cmds...)
 }
 
 // Update implements View.
@@ -135,6 +155,14 @@ func (v *SignalsView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
 	case intermuteEventMsg:
 		if v.intermuteStatus == "live" {
 			return v, tea.Batch(v.loadData(), v.waitIntermuteEvent())
+		}
+		return v, nil
+
+	case brokerSignalMsg:
+		v.signals = append([]signals.Signal{msg.signal}, v.signals...)
+		v.selected = clamp(v.selected, 0, v.currentListLen()-1)
+		if v.brokerSub != nil {
+			return v, v.waitBrokerSignal()
 		}
 		return v, nil
 
@@ -284,7 +312,16 @@ func (v *SignalsView) Focus() tea.Cmd {
 }
 
 // Blur implements View.
-func (v *SignalsView) Blur() {}
+func (v *SignalsView) Blur() {
+	if v.brokerDone != nil {
+		close(v.brokerDone)
+		v.brokerDone = nil
+	}
+	if v.brokerSub != nil {
+		v.brokerSub.Close()
+		v.brokerSub = nil
+	}
+}
 
 // Name implements View.
 func (v *SignalsView) Name() string {
@@ -401,6 +438,25 @@ func (v *SignalsView) waitIntermuteEvent() tea.Cmd {
 			return nil
 		}
 		return intermuteEventMsg{event: evt}
+	}
+}
+
+func (v *SignalsView) waitBrokerSignal() tea.Cmd {
+	sub := v.brokerSub   // capture at call time, not execution time
+	done := v.brokerDone // capture at call time
+	if sub == nil {
+		return nil
+	}
+	return func() tea.Msg {
+		select {
+		case sig, ok := <-sub.Chan():
+			if !ok {
+				return nil
+			}
+			return brokerSignalMsg{signal: sig}
+		case <-done:
+			return nil
+		}
 	}
 }
 
