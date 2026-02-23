@@ -85,6 +85,31 @@ type CompetitorTarget struct {
 	GitHub    string `yaml:"github,omitempty"`
 }
 
+// HunterStatus represents the outcome of a hunt operation.
+type HunterStatus int
+
+const (
+	HunterStatusOK      HunterStatus = iota
+	HunterStatusPartial              // Some results, some errors
+	HunterStatusFailed               // No results, error occurred
+	HunterStatusSkipped              // Not run (e.g., not in registry)
+)
+
+func (s HunterStatus) String() string {
+	switch s {
+	case HunterStatusOK:
+		return "ok"
+	case HunterStatusPartial:
+		return "partial"
+	case HunterStatusFailed:
+		return "failed"
+	case HunterStatusSkipped:
+		return "skipped"
+	default:
+		return "unknown"
+	}
+}
+
 // HuntResult contains the results of a hunt operation.
 type HuntResult struct {
 	HunterName       string
@@ -94,6 +119,8 @@ type HuntResult struct {
 	InsightsCreated  int
 	OutputFiles      []string
 	Errors           []error
+	Status           HunterStatus
+	ErrorMsg         string // Human-readable error summary (empty if OK)
 }
 
 // String returns a summary of the hunt result.
