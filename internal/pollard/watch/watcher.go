@@ -54,12 +54,20 @@ func (w *Watcher) RunOnce(ctx context.Context) (*WatchResult, error) {
 		hunters = []string{"competitor-tracker", "hackernews-trendwatcher"}
 	}
 
-	// Run scan
+	// Run scan — partial results are usable even when some hunters fail.
+	// Scanner.Scan currently always returns nil error (it puts errors
+	// into result.Errors), but we guard against future changes.
 	result, err := w.scanner.Scan(ctx, api.ScanOptions{
 		Hunters: hunters,
 	})
+	if ctx.Err() != nil {
+		return nil, fmt.Errorf("watch scan: %w", ctx.Err())
+	}
 	if err != nil {
-		return nil, fmt.Errorf("watch scan: %w", err)
+		fmt.Fprintf(os.Stderr, "watch scan partial failure: %v\n", err)
+	}
+	if result == nil {
+		result = api.EmptyScanResult()
 	}
 
 	// Build current snapshot

@@ -73,6 +73,12 @@ type ScanResult struct {
 	Errors        []error
 }
 
+// EmptyScanResult returns a ScanResult with initialized maps, suitable as
+// a fallback when Scan returns nil.
+func EmptyScanResult() *ScanResult {
+	return &ScanResult{HunterResults: make(map[string]*hunters.HuntResult)}
+}
+
 // NewScanner creates a Scanner for the given project path.
 func NewScanner(projectPath string) (*Scanner, error) {
 	cfg, err := config.Load(projectPath)
