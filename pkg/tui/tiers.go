@@ -76,3 +76,21 @@ func TierForWidthWithHysteresis(width int, prevTier Tier) Tier {
 
 	return newTier
 }
+
+// TokensForTier returns design tokens appropriate for the given tier.
+// This bridges the tier system (width bucketing with hysteresis) to the
+// token system (spatial dimension presets).
+func TokensForTier(t Tier) DesignTokens {
+	switch t {
+	case TierNarrow:
+		return Compact()
+	case TierSplit:
+		return DefaultTokens()
+	case TierWide:
+		return Spacious()
+	case TierUltra, TierMega:
+		return UltraWide()
+	default:
+		return DefaultTokens()
+	}
+}
