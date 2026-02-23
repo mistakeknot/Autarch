@@ -169,6 +169,13 @@ var scanCmd = &cobra.Command{
 		}
 
 		// Run each hunter
+		type hunterSummary struct {
+			name   string
+			status hunters.HunterStatus
+			err    error
+		}
+		var failedHunters []hunterSummary
+
 		for _, name := range hunterNames {
 			select {
 			case <-ctx.Done():
@@ -223,14 +230,19 @@ var scanCmd = &cobra.Command{
 				})
 			}
 
-			// Execute the hunt
-			result, err := hunter.Hunt(ctx, hCfg)
+			// Execute the hunt with retry on transient failures
+			result, err := hunters.HuntWithRetry(ctx, hunter, hCfg, hunters.DefaultRetryConfig())
 			if err != nil {
 				fmt.Printf("  Error: %v\n", err)
 				if runID > 0 {
 					db.CompleteRun(runID, false, 0, 0, err.Error())
 				}
+				failedHunters = append(failedHunters, hunterSummary{name: name, status: hunters.HunterStatusFailed, err: err})
 				continue
+			}
+
+			if len(result.Errors) > 0 {
+				result.Status = hunters.HunterStatusPartial
 			}
 
 			// Record run completion
@@ -257,6 +269,15 @@ var scanCmd = &cobra.Command{
 					fmt.Printf("    - %v\n", e)
 				}
 			}
+		}
+
+		// Print summary of failed hunters
+		if len(failedHunters) > 0 {
+			fmt.Printf("\n--- Hunter Summary ---\n")
+			for _, h := range failedHunters {
+				fmt.Printf("  %s: %s (%v)\n", h.name, h.status, h.err)
+			}
+			fmt.Printf("\n%d/%d hunters completed successfully\n", len(hunterNames)-len(failedHunters), len(hunterNames))
 		}
 
 		return nil
