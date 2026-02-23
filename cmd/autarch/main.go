@@ -37,6 +37,7 @@ import (
 	"github.com/mistakeknot/autarch/pkg/autarch"
 	"github.com/mistakeknot/autarch/pkg/events"
 	"github.com/mistakeknot/autarch/pkg/intermute"
+	pkgtui "github.com/mistakeknot/autarch/pkg/tui"
 	"github.com/mistakeknot/autarch/pkg/timeout"
 )
 
@@ -272,15 +273,19 @@ func bigendCmd() *cobra.Command {
 		Aliases: []string{"vauxhall"},
 		Short:   "Multi-project agent mission control",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			// Setup logging
-			logLevel := slog.LevelInfo
+			// Setup logging — TUI mode routes through LogHandler to log pane.
+			// TODO(bigend-deprecation): Remove this block when the bigend --tui path is deleted.
+			// Duplicates the logging setup in cmd/bigend/main.go intentionally (deprecated code
+			// does not justify a new abstraction).
+			var logHandler *pkgtui.LogHandler
 			if tuiMode {
-				logLevel = slog.LevelError
+				logHandler = pkgtui.NewLogHandler(slog.LevelDebug)
+				slog.SetDefault(slog.New(logHandler))
+			} else {
+				slog.SetDefault(slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{
+					Level: slog.LevelInfo,
+				})))
 			}
-			logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{
-				Level: logLevel,
-			}))
-			slog.SetDefault(logger)
 
 			registerCtx, cancelRegister := context.WithTimeout(context.Background(), timeout.HTTPDefault)
 			defer cancelRegister()
@@ -331,7 +336,7 @@ func bigendCmd() *cobra.Command {
 			if daemonMode {
 				return runBigendDaemon(daemonAddr, cfg.Discovery.ScanRoots)
 			} else if tuiMode {
-				return runBigendTUI(agg)
+				return runBigendTUI(agg, logHandler)
 			}
 			return runBigendWeb(cfg, agg)
 		},
@@ -371,7 +376,7 @@ func runBigendDaemon(addr string, scanRoots []string) error {
 	return nil
 }
 
-func runBigendTUI(agg *aggregator.Aggregator) error {
+func runBigendTUI(agg *aggregator.Aggregator, logHandler *pkgtui.LogHandler) error {
 	// Deprecation warning for standalone TUI
 	fmt.Fprintln(os.Stderr, "\033[33m⚠ Deprecation warning: bigend --tui is deprecated.\033[0m")
 	fmt.Fprintln(os.Stderr, "  Use: autarch tui --tool=bigend")
@@ -380,6 +385,12 @@ func runBigendTUI(agg *aggregator.Aggregator) error {
 
 	m := bigendTui.New(agg, buildInfoString())
 	p := tea.NewProgram(m, tea.WithAltScreen())
+
+	if logHandler != nil {
+		logHandler.SetProgram(p)
+		defer logHandler.Close()
+	}
+
 	_, err := p.Run()
 	return err
 }

@@ -22,6 +22,7 @@ import (
 	"github.com/mistakeknot/autarch/internal/bigend/tui"
 	"github.com/mistakeknot/autarch/internal/bigend/web"
 	"github.com/mistakeknot/autarch/pkg/intermute"
+	pkgtui "github.com/mistakeknot/autarch/pkg/tui"
 	"github.com/mistakeknot/autarch/pkg/timeout"
 )
 
@@ -37,16 +38,17 @@ func main() {
 	)
 	flag.Parse()
 
-	// Setup logging
-	logLevel := slog.LevelInfo
+	// Setup logging — TUI mode routes all levels through LogHandler to the log pane;
+	// non-TUI mode uses TextHandler on stdout.
+	var logHandler *pkgtui.LogHandler
 	if *tuiMode {
-		// Suppress logs in TUI mode to avoid interfering with display
-		logLevel = slog.LevelError
+		logHandler = pkgtui.NewLogHandler(slog.LevelDebug)
+		slog.SetDefault(slog.New(logHandler))
+	} else {
+		slog.SetDefault(slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{
+			Level: slog.LevelInfo,
+		})))
 	}
-	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{
-		Level: logLevel,
-	}))
-	slog.SetDefault(logger)
 
 	registerCtx, cancelRegister := context.WithTimeout(context.Background(), timeout.HTTPDefault)
 	defer cancelRegister()
@@ -93,7 +95,7 @@ func main() {
 	if *daemonMode {
 		runDaemon(*daemonAddr, cfg.Discovery.ScanRoots)
 	} else if *tuiMode {
-		runTUI(agg)
+		runTUI(agg, logHandler)
 	} else {
 		runWeb(cfg, agg)
 	}
@@ -123,9 +125,14 @@ func runDaemon(addr string, scanRoots []string) {
 	}
 }
 
-func runTUI(agg *aggregator.Aggregator) {
+func runTUI(agg *aggregator.Aggregator, logHandler *pkgtui.LogHandler) {
 	m := tui.New(agg, buildInfoString())
 	p := tea.NewProgram(m, tea.WithAltScreen())
+
+	if logHandler != nil {
+		logHandler.SetProgram(p)
+		defer logHandler.Close()
+	}
 
 	if _, err := p.Run(); err != nil {
 		fmt.Printf("Error running TUI: %v\n", err)
