@@ -54,6 +54,9 @@ type UnifiedApp struct {
 	logPaneVisible   bool // toggled by Ctrl+L or /logs
 	logPaneAutoShown bool // true when auto-shown by scan (for auto-hide)
 
+	// Resize coalescing — reduces redundant layout recalculations during resize storms
+	resizeCoalescer *pkgtui.ResizeCoalescer
+
 	// Initial tab to jump to when entering dashboard
 	initialTab string
 
@@ -71,13 +74,14 @@ type UnifiedApp struct {
 func NewUnifiedApp(client *autarch.Client) *UnifiedApp {
 	tabNames := []string{"Bigend", "Gurgeh", "Coldwine", "Pollard"}
 	return &UnifiedApp{
-		client:         client,
-		tabs:           NewTabBar(tabNames),
-		palette:        NewPalette(),
-		signalsOverlay: NewSignalsOverlay(),
-		logPane:        pkgtui.NewLogPane(),
-		keys:           pkgtui.NewCommonKeys(),
-		chatSettings:   pkgtui.DefaultChatSettings(),
+		client:          client,
+		tabs:            NewTabBar(tabNames),
+		palette:         NewPalette(),
+		signalsOverlay:  NewSignalsOverlay(),
+		logPane:         pkgtui.NewLogPane(),
+		keys:            pkgtui.NewCommonKeys(),
+		chatSettings:    pkgtui.DefaultChatSettings(),
+		resizeCoalescer: pkgtui.NewResizeCoalescer(),
 	}
 }
 
@@ -272,30 +276,17 @@ func (a *UnifiedApp) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
-		a.width = msg.Width
-		a.height = msg.Height
-		a.tabs.SetWidth(msg.Width)
-		a.palette.SetSize(msg.Width, msg.Height)
-		a.signalsOverlay.SetSize(msg.Width, msg.Height)
-
-		// Always size the log pane (so it's ready when toggled visible)
-		logPaneHeight := 0
-		a.logPane.SetSize(msg.Width, 10)
-		if a.logPaneVisible {
-			logPaneHeight = 10
+		action := a.resizeCoalescer.Receive(msg, time.Now())
+		if action == pkgtui.ActionApply {
+			return a.applyResize(msg)
 		}
+		return a, tea.Tick(a.resizeCoalescer.Delay(), func(time.Time) tea.Msg {
+			return resizeTickMsg{}
+		})
 
-		// Pass reduced size to current view (account for header + footer + log pane)
-		if a.currentView != nil {
-			headerHeight := 3
-			footerHeight := 3
-			contentMsg := tea.WindowSizeMsg{
-				Width:  msg.Width,
-				Height: msg.Height - headerHeight - footerHeight - logPaneHeight,
-			}
-			var cmd tea.Cmd
-			a.currentView, cmd = a.currentView.Update(contentMsg)
-			return a, cmd
+	case resizeTickMsg:
+		if pending := a.resizeCoalescer.Tick(time.Now()); pending != nil {
+			return a.applyResize(*pending)
 		}
 		return a, nil
 
@@ -511,6 +502,9 @@ func (a *UnifiedApp) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 // logPaneAutoHideMsg is sent after a timer to auto-hide the log pane.
 type logPaneAutoHideMsg struct{}
 
+// resizeTickMsg is sent when the resize coalesce timer fires.
+type resizeTickMsg struct{}
+
 func (a *UnifiedApp) blurCurrentView() {
 	if a.currentView != nil {
 		a.currentView.Blur()
@@ -700,6 +694,36 @@ func (a *UnifiedApp) sendWindowSize() tea.Cmd {
 	return func() tea.Msg {
 		return tea.WindowSizeMsg{Width: a.width, Height: a.height}
 	}
+}
+
+// applyResize applies a (possibly coalesced) window size to all child components.
+func (a *UnifiedApp) applyResize(msg tea.WindowSizeMsg) (tea.Model, tea.Cmd) {
+	a.width = msg.Width
+	a.height = msg.Height
+	a.tabs.SetWidth(msg.Width)
+	a.palette.SetSize(msg.Width, msg.Height)
+	a.signalsOverlay.SetSize(msg.Width, msg.Height)
+
+	// Always size the log pane (so it's ready when toggled visible)
+	logPaneHeight := 0
+	a.logPane.SetSize(msg.Width, 10)
+	if a.logPaneVisible {
+		logPaneHeight = 10
+	}
+
+	// Pass reduced size to current view (account for header + footer + log pane)
+	if a.currentView != nil {
+		headerHeight := 3
+		footerHeight := 3
+		contentMsg := tea.WindowSizeMsg{
+			Width:  msg.Width,
+			Height: msg.Height - headerHeight - footerHeight - logPaneHeight,
+		}
+		var cmd tea.Cmd
+		a.currentView, cmd = a.currentView.Update(contentMsg)
+		return a, cmd
+	}
+	return a, nil
 }
 
 // View implements tea.Model

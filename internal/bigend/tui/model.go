@@ -276,11 +276,12 @@ type Model struct {
 	promptMode    promptMode
 	promptInput   textinput.Model
 	promptSess    *aggregator.TmuxSession
-	err           error
-	lastRefresh   time.Time
-	quitting      bool
-	keys          shared.CommonKeys
-	helpOverlay   shared.HelpOverlay
+	err             error
+	lastRefresh     time.Time
+	quitting        bool
+	keys            shared.CommonKeys
+	helpOverlay     shared.HelpOverlay
+	resizeCoalescer *shared.ResizeCoalescer
 }
 
 // Key bindings
@@ -344,6 +345,7 @@ var keys = keyMap{
 type refreshMsg struct{}
 type errMsg error
 type tickMsg time.Time
+type resizeTickMsg struct{}
 
 // New creates a new TUI model
 func New(agg aggregatorAPI, buildInfo string) Model {
@@ -411,9 +413,10 @@ func New(agg aggregatorAPI, buildInfo string) Model {
 			TabAgents:   {Raw: ""},
 		},
 		groupExpanded: map[string]bool{},
-		promptInput:   promptInput,
-		keys:          shared.NewCommonKeys(),
-		helpOverlay:   shared.NewHelpOverlay(),
+		promptInput:     promptInput,
+		keys:            shared.NewCommonKeys(),
+		helpOverlay:     shared.NewHelpOverlay(),
+		resizeCoalescer: shared.NewResizeCoalescer(),
 	}
 }
 
@@ -796,37 +799,17 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 	case tea.WindowSizeMsg:
-		m.width = msg.Width
-		m.height = msg.Height
-		h := m.height - 6 // Account for header and footer
-		leftW, rightW, _ := m.paneWidths()
-		leftH := h
-		rightH := h
-		if leftW > 0 && rightW > 0 {
-			leftW = max(1, leftW-2)
-			rightW = max(1, rightW-2)
-			leftH = max(1, h-2)
-			rightH = max(1, h-2)
+		action := m.resizeCoalescer.Receive(msg, time.Now())
+		if action == shared.ActionApply {
+			return m.applyResize(msg), nil
 		}
-		if leftW > 0 {
-			m.projectsList.SetSize(leftW, leftH)
-		} else {
-			m.projectsList.SetSize(m.width, h)
-		}
-		// Adjust for terminal pane if visible
-		if m.showTerminal {
-			termW := rightW / 2
-			rightW = rightW - termW - 2 // gap
-			m.terminalPane.SetSize(termW, rightH)
-		}
-		if rightW > 0 {
-			m.sessionList.SetSize(rightW, rightH)
-			m.agentList.SetSize(rightW, rightH)
-			m.mcpList.SetSize(rightW, rightH/2)
-		} else {
-			m.sessionList.SetSize(m.width, h)
-			m.agentList.SetSize(m.width, h)
-			m.mcpList.SetSize(m.width, h/2)
+		return m, tea.Tick(m.resizeCoalescer.Delay(), func(time.Time) tea.Msg {
+			return resizeTickMsg{}
+		})
+
+	case resizeTickMsg:
+		if pending := m.resizeCoalescer.Tick(time.Now()); pending != nil {
+			return m.applyResize(*pending), nil
 		}
 		return m, nil
 
@@ -1162,6 +1145,42 @@ func (m Model) helpExtras() []shared.HelpBinding {
 		shared.HelpBindingFromKey(keys.ToggleTerminal),
 		shared.HelpBindingFromKey(keys.ToggleRuns),
 	}
+}
+
+// applyResize applies a (possibly coalesced) window size to all child panes.
+func (m Model) applyResize(msg tea.WindowSizeMsg) Model {
+	m.width = msg.Width
+	m.height = msg.Height
+	h := m.height - 6 // Account for header and footer
+	leftW, rightW, _ := m.paneWidths()
+	leftH := h
+	rightH := h
+	if leftW > 0 && rightW > 0 {
+		leftW = max(1, leftW-2)
+		rightW = max(1, rightW-2)
+		leftH = max(1, h-2)
+		rightH = max(1, h-2)
+	}
+	if leftW > 0 {
+		m.projectsList.SetSize(leftW, leftH)
+	} else {
+		m.projectsList.SetSize(m.width, h)
+	}
+	if m.showTerminal {
+		termW := rightW / 2
+		rightW = rightW - termW - 2
+		m.terminalPane.SetSize(termW, rightH)
+	}
+	if rightW > 0 {
+		m.sessionList.SetSize(rightW, rightH)
+		m.agentList.SetSize(rightW, rightH)
+		m.mcpList.SetSize(rightW, rightH/2)
+	} else {
+		m.sessionList.SetSize(m.width, h)
+		m.agentList.SetSize(m.width, h)
+		m.mcpList.SetSize(m.width, h/2)
+	}
+	return m
 }
 
 func (m Model) paneWidths() (int, int, bool) {
