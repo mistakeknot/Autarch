@@ -148,8 +148,9 @@ Navigation:
 
 			// Build GurgehConfig with all onboarding view factories
 			intermuteURL := mgr.URL()
+			researchCoord := research.NewCoordinator(nil)
 			gurgehCfg := &tui.GurgehConfig{
-				ResearchCoord: research.NewCoordinator(nil),
+				ResearchCoord: researchCoord,
 				CreateKickoffView: func() tui.View {
 					v := views.NewKickoffView()
 					v.SetProjectStartCallback(func(project *views.Project) tea.Cmd {
@@ -240,11 +241,15 @@ Navigation:
 					views.NewBigendView(c),
 					views.NewGurgehView(c, gurgehCfg),
 					views.NewColdwineView(c),
-					views.NewPollardView(c),
+					views.NewPollardView(c, researchCoord),
 				}
 			})
 
-			return tui.Run(client, app, tui.RunOpts{InlineMode: inlineMode, InitialTool: toolFlag})
+			return tui.Run(client, app, tui.RunOpts{
+				InlineMode:    inlineMode,
+				InitialTool:   toolFlag,
+				ResearchCoord: researchCoord,
+			})
 		},
 	}
 

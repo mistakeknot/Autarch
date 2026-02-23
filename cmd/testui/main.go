@@ -309,7 +309,7 @@ func runFullFlow() error {
 			views.NewBigendView(c),
 			views.NewGurgehView(c, gurgehCfg),
 			views.NewColdwineView(c),
-			views.NewPollardView(c),
+			views.NewPollardView(c, nil),
 		}
 	})
 

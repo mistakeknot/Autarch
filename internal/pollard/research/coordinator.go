@@ -64,13 +64,13 @@ func (c *Coordinator) SetIntermutePublisher(client InsightCreator, project strin
 func (c *Coordinator) StartRun(ctx context.Context, projectID string, hunterNames []string, topics []TopicConfig) (*Run, error) {
 	c.mu.Lock()
 
-	// Cancel any existing run
+	// Cancel any existing run — collect data before releasing lock.
+	// We must NOT call sendMsg while holding the write lock because
+	// sendMsg acquires a read lock (sync.RWMutex is not reentrant).
+	var cancelledRunID string
 	if c.activeRun != nil {
+		cancelledRunID = c.activeRun.RunID
 		c.activeRun.Cancel()
-		c.sendMsg(RunCancelledMsg{
-			RunID:  c.activeRun.RunID,
-			Reason: "new run started",
-		})
 	}
 
 	// Create new run
@@ -83,6 +83,14 @@ func (c *Coordinator) StartRun(ctx context.Context, projectID string, hunterName
 	}
 
 	c.mu.Unlock()
+
+	// Send cancellation message AFTER releasing lock
+	if cancelledRunID != "" {
+		c.sendMsg(RunCancelledMsg{
+			RunID:  cancelledRunID,
+			Reason: "new run started",
+		})
+	}
 
 	// Notify TUI of run start
 	c.sendMsg(RunStartedMsg{

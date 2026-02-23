@@ -6,6 +6,7 @@ import (
 
 	"github.com/charmbracelet/bubbles/key"
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/mistakeknot/autarch/internal/pollard/research"
 	"github.com/mistakeknot/autarch/internal/tui"
 	"github.com/mistakeknot/autarch/pkg/autarch"
 	pkgtui "github.com/mistakeknot/autarch/pkg/tui"
@@ -13,13 +14,19 @@ import (
 
 // PollardView displays research insights with the unified shell layout.
 type PollardView struct {
-	client   *autarch.Client
-	insights []autarch.Insight
-	selected int
-	width    int
-	height   int
-	loading  bool
-	err      error
+	client      *autarch.Client
+	coordinator *research.Coordinator
+	insights    []autarch.Insight
+	selected    int
+	width       int
+	height      int
+	loading     bool
+	err         error
+
+	// Progressive reveal state
+	currentRunID   string
+	hunterStatuses map[string]research.HunterStatus
+	runActive      bool
 
 	// Shell layout for unified 3-pane layout
 	shell *pkgtui.ShellLayout
@@ -29,8 +36,9 @@ type PollardView struct {
 	chatHandler *PollardChatHandler
 }
 
-// NewPollardView creates a new Pollard view
-func NewPollardView(client *autarch.Client) *PollardView {
+// NewPollardView creates a new Pollard view.
+// Pass nil for coordinator if research integration is not needed.
+func NewPollardView(client *autarch.Client, coordinator *research.Coordinator) *PollardView {
 	chatPanel := pkgtui.NewChatPanel()
 	chatPanel.SetComposerPlaceholder("Ask questions about this insight...")
 	chatPanel.SetComposerHint("enter send  tab focus  ctrl+b sidebar")
@@ -39,6 +47,7 @@ func NewPollardView(client *autarch.Client) *PollardView {
 
 	return &PollardView{
 		client:      client,
+		coordinator: coordinator,
 		shell:       pkgtui.NewShellLayout(),
 		chatPanel:   chatPanel,
 		chatHandler: chatHandler,

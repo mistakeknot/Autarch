@@ -15,6 +15,7 @@ import (
 	"github.com/charmbracelet/x/ansi"
 	"github.com/mistakeknot/autarch/internal/autarch/agent"
 	internalIntermute "github.com/mistakeknot/autarch/internal/intermute"
+	"github.com/mistakeknot/autarch/internal/pollard/research"
 	"github.com/mistakeknot/autarch/pkg/autarch"
 	"github.com/mistakeknot/autarch/pkg/signals"
 	pkgtui "github.com/mistakeknot/autarch/pkg/tui"
@@ -957,8 +958,9 @@ func insertAt(base string, col int, overlay string) string {
 
 // RunOpts configures TUI execution options.
 type RunOpts struct {
-	InlineMode  bool   // Inline mode preserves scrollback and shows log pane
-	InitialTool string // Jump directly to this tool tab (bigend, signals, gurgeh, coldwine, pollard)
+	InlineMode    bool                   // Inline mode preserves scrollback and shows log pane
+	InitialTool   string                 // Jump directly to this tool tab (bigend, signals, gurgeh, coldwine, pollard)
+	ResearchCoord *research.Coordinator  // Optional: coordinator for progressive research updates
 }
 
 // ErrorView shows an error state
@@ -987,6 +989,11 @@ func Run(client *autarch.Client, app *UnifiedApp, opts RunOpts) error {
 	progOpts = append(progOpts, tea.WithMouseCellMotion())
 
 	p := tea.NewProgram(app, progOpts...)
+
+	// Wire research coordinator so messages reach PollardView
+	if opts.ResearchCoord != nil {
+		opts.ResearchCoord.SetProgram(p)
+	}
 
 	// Always create log handler so slog messages route to the log pane
 	handler := pkgtui.NewLogHandler(slog.LevelDebug)
