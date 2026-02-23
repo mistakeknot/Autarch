@@ -195,14 +195,27 @@ func (s *Scanner) Scan(ctx context.Context, opts ScanOptions) (*ScanResult, erro
 			result.Errors = append(result.Errors, fmt.Errorf("failed to record run start for %s: %w", name, err))
 		}
 
-		// Execute the hunt
-		huntResult, err := hunter.Hunt(ctx, hCfg)
+		// Execute the hunt with retry on transient failures
+		huntResult, err := hunters.HuntWithRetry(ctx, hunter, hCfg, hunters.DefaultRetryConfig())
 		if err != nil {
+			failedResult := &hunters.HuntResult{
+				HunterName: name,
+				Status:     hunters.HunterStatusFailed,
+				ErrorMsg:   err.Error(),
+				Errors:     []error{err},
+			}
+			result.HunterResults[name] = failedResult
 			result.Errors = append(result.Errors, fmt.Errorf("hunter %s failed: %w", name, err))
 			if runID > 0 {
 				s.db.CompleteRun(runID, false, 0, 0, err.Error())
 			}
 			continue
+		}
+
+		// Set partial status when hunt succeeded with some errors
+		if len(huntResult.Errors) > 0 {
+			huntResult.Status = hunters.HunterStatusPartial
+			huntResult.ErrorMsg = huntResult.Errors[0].Error()
 		}
 
 		// Record run completion
