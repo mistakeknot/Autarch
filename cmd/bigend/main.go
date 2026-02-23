@@ -138,6 +138,18 @@ func runTUI(agg *aggregator.Aggregator, logHandler *pkgtui.LogHandler) {
 		fmt.Printf("Error running TUI: %v\n", err)
 		os.Exit(1)
 	}
+
+	// Dump log history to scrollback after alt-screen exits.
+	// Unlike the unified app (which only dumps in inline mode), standalone Bigend
+	// always uses alt-screen, so p.Run() returning means alt-screen is already
+	// restored. Entries printed here appear in terminal scrollback.
+	entries := m.LogPane().Entries()
+	if len(entries) > 0 {
+		fmt.Println("\n--- Log History ---")
+		for _, e := range entries {
+			fmt.Printf("[%s] %s: %s\n", e.Time.Format("15:04:05"), e.Level, e.Message)
+		}
+	}
 }
 
 func buildInfoString() string {
