@@ -281,8 +281,11 @@ type Model struct {
 	quitting        bool
 	keys            shared.CommonKeys
 	helpOverlay     shared.HelpOverlay
-	resizeCoalescer *shared.ResizeCoalescer
-	dashCache       *sectionCache
+	resizeCoalescer  *shared.ResizeCoalescer
+	dashCache        *sectionCache
+	logPane          *shared.LogPane
+	logPaneVisible   bool
+	logPaneAutoShown bool
 }
 
 // Key bindings
@@ -297,6 +300,7 @@ type keyMap struct {
 	ToggleMCP      key.Binding
 	ToggleTerminal key.Binding
 	ToggleRuns     key.Binding
+	ToggleLogs     key.Binding
 }
 
 var keys = keyMap{
@@ -339,6 +343,10 @@ var keys = keyMap{
 	ToggleRuns: key.NewBinding(
 		key.WithKeys("r"),
 		key.WithHelp("r", "runs"),
+	),
+	ToggleLogs: key.NewBinding(
+		key.WithKeys("ctrl+l"),
+		key.WithHelp("ctrl+l", "logs"),
 	),
 }
 
@@ -419,7 +427,13 @@ func New(agg aggregatorAPI, buildInfo string) Model {
 		helpOverlay:     shared.NewHelpOverlay(),
 		resizeCoalescer: shared.NewResizeCoalescer(),
 		dashCache:       newSectionCache(),
+		logPane:         shared.NewLogPane(),
 	}
+}
+
+// LogPane returns the log pane for scrollback dump on exit.
+func (m Model) LogPane() *shared.LogPane {
+	return m.logPane
 }
 
 func (m Model) withFilterActive(value string) Model {
@@ -469,6 +483,17 @@ func (m Model) tick() tea.Cmd {
 // Update handles messages
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	var cmds []tea.Cmd
+
+	// Route log messages before the main switch so they are never swallowed
+	// by downstream handlers (matches UnifiedApp convention).
+	if batch, ok := msg.(shared.LogBatchMsg); ok {
+		cmd := m.logPane.Update(batch)
+		if !m.logPaneVisible {
+			m.logPaneVisible = true
+			m.logPaneAutoShown = true
+		}
+		return m, cmd
+	}
 
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
@@ -772,6 +797,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			return m, nil
 
+		case key.Matches(msg, keys.ToggleLogs):
+			m.logPaneVisible = !m.logPaneVisible
+			m.logPaneAutoShown = false
+			// Reflow layout to account for log pane height change
+			return m.applyResize(tea.WindowSizeMsg{Width: m.width, Height: m.height}), nil
+
 		case msg.String() == "ctrl+left" || msg.String() == "ctrl+pgup":
 			m.stopFilterEditing()
 			switch m.activeTab {
@@ -1058,7 +1089,11 @@ func (m Model) View() string {
 	if filterLine != "" {
 		parts = append(parts, filterLine)
 	}
-	parts = append(parts, mainContent, m.renderPrompt(), footer)
+	parts = append(parts, mainContent, m.renderPrompt())
+	if m.logPaneVisible && !m.logPane.Empty() {
+		parts = append(parts, m.logPane.View())
+	}
+	parts = append(parts, footer)
 	return lipgloss.JoinVertical(lipgloss.Left, parts...)
 }
 
@@ -1113,6 +1148,7 @@ func (m Model) renderFooter() string {
 		HelpKeyStyle.Render("r") + HelpDescStyle.Render(" runs • ") +
 		HelpKeyStyle.Render("m") + HelpDescStyle.Render(" mcp • ") +
 		HelpKeyStyle.Render("enter") + HelpDescStyle.Render(" toggle • ") +
+		HelpKeyStyle.Render("ctrl+l") + HelpDescStyle.Render(" logs • ") +
 		HelpKeyStyle.Render("ctrl+c") + HelpDescStyle.Render(" quit")
 	if m.filterActive {
 		help += HelpDescStyle.Render(" • ") + HelpKeyStyle.Render("esc/enter") + HelpDescStyle.Render(" exit filter")
@@ -1146,6 +1182,7 @@ func (m Model) helpExtras() []shared.HelpBinding {
 		shared.HelpBindingFromKey(keys.ToggleMCP),
 		shared.HelpBindingFromKey(keys.ToggleTerminal),
 		shared.HelpBindingFromKey(keys.ToggleRuns),
+		shared.HelpBindingFromKey(keys.ToggleLogs),
 	}
 }
 
@@ -1154,7 +1191,12 @@ func (m Model) applyResize(msg tea.WindowSizeMsg) Model {
 	m.dashCache.invalidateAll()
 	m.width = msg.Width
 	m.height = msg.Height
-	h := m.height - 6 // Account for header and footer
+	m.logPane.SetSize(msg.Width, 10)
+	logPaneHeight := 0
+	if m.logPaneVisible {
+		logPaneHeight = 10
+	}
+	h := m.height - 6 - logPaneHeight // Account for header, footer, and log pane
 	leftW, rightW, _ := m.paneWidths()
 	leftH := h
 	rightH := h
