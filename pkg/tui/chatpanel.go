@@ -33,8 +33,16 @@ type ChatMessage struct {
 
 // ChatPanel combines a scrollable chat history with a composer at the bottom.
 // This is the right-side panel in the Cursor-style split layout.
+//
+// Streaming output is separated from finalized history: a StreamBuffer owns
+// in-flight content during a turn, and history holds only completed messages.
+// Pre-rendered line caches avoid re-running glamour markdown on every frame.
 type ChatPanel struct {
-	messages      []ChatMessage
+	history       []ChatMessage  // finalized messages only
+	historyLines  [][]string     // pre-rendered lines per history message
+	historyWidth  int            // width the cache was rendered at
+	buffer        *StreamBuffer  // live streaming content (nil when idle)
+	followTail    bool           // true = auto-scroll to bottom on new content
 	composer      *Composer
 	selector      *AgentSelector
 	commandPicker *CommandPicker
@@ -77,12 +85,14 @@ func NewChatPanel() *ChatPanel {
 	s.Spinner = spinner.Dot
 	s.Style = lipgloss.NewStyle().Foreground(ColorPrimary)
 	return &ChatPanel{
-		messages:      []ChatMessage{},
-		composer:      composer,
+		history:      []ChatMessage{},
+		historyLines: [][]string{},
+		followTail:   true,
+		composer:     composer,
 		commandPicker: picker,
-		settings:      DefaultChatSettings(),
-		spinner:       s,
-		chatState:     ChatIdle,
+		settings:     DefaultChatSettings(),
+		spinner:      s,
+		chatState:    ChatIdle,
 	}
 }
 
@@ -91,20 +101,37 @@ func (p *ChatPanel) SetHandler(handler ChatHandler) {
 	p.handler = handler
 }
 
-// AddMessage adds a message to the chat history.
+// AddMessage adds a message to the finalized chat history.
 func (p *ChatPanel) AddMessage(role, content string) {
 	content = strings.TrimSpace(content)
 	if content == "" {
 		return
 	}
-	p.messages = append(p.messages, ChatMessage{
-		Role:    role,
-		Content: content,
-	})
+	msg := ChatMessage{Role: role, Content: content}
+	p.history = append(p.history, msg)
+
+	// Render and cache the new message's lines.
+	contentWidth := p.width - 4
+	if contentWidth < 10 {
+		contentWidth = 10
+	}
+	lines := p.renderMessageLines(msg, contentWidth, p.lastRole())
+	p.historyLines = append(p.historyLines, lines)
+
 	// Auto-scroll to bottom when new message added
 	if p.settings.AutoScroll {
 		p.scroll = 0
+		p.followTail = true
 	}
+}
+
+// lastRole returns the role of the second-to-last history message (for grouping).
+// Used when caching a newly-added message.
+func (p *ChatPanel) lastRole() string {
+	if len(p.history) < 2 {
+		return ""
+	}
+	return strings.ToLower(p.history[len(p.history)-2].Role)
 }
 
 // SetStatus sets the streaming status label. Pass empty string to clear.
@@ -125,8 +152,11 @@ func (p *ChatPanel) SpinnerTick() tea.Cmd {
 
 // ClearMessages removes all messages from the chat history.
 func (p *ChatPanel) ClearMessages() {
-	p.messages = nil
+	p.history = nil
+	p.historyLines = nil
+	p.buffer = nil
 	p.scroll = 0
+	p.followTail = true
 }
 
 // ResetSession clears chat history and resets handler continuation state.
@@ -134,22 +164,37 @@ func (p *ChatPanel) ResetSession() {
 	if mth, ok := p.handler.(MultiTurnHandler); ok {
 		mth.ResetSession()
 	}
-	p.messages = nil
+	p.history = nil
+	p.historyLines = nil
+	p.buffer = nil
 	p.scroll = 0
+	p.followTail = true
 	p.chatState = ChatIdle
 	p.SetStatus("")
 	p.cleanupStream()
 }
 
-// Messages returns a copy of all messages.
+// Messages returns a copy of all messages, including any in-progress buffer content.
 func (p *ChatPanel) Messages() []ChatMessage {
-	result := make([]ChatMessage, len(p.messages))
-	copy(result, p.messages)
+	result := make([]ChatMessage, len(p.history))
+	copy(result, p.history)
+	// Include partial buffer content so callers see the in-progress message.
+	if p.buffer != nil && p.buffer.Len() > 0 {
+		result = append(result, ChatMessage{
+			Role:    "agent",
+			Content: p.buffer.String(),
+		})
+	}
 	return result
 }
 
 // SetSize sets the dimensions of the chat panel.
 func (p *ChatPanel) SetSize(width, height int) {
+	// Invalidate history cache if width changed.
+	if width != p.width {
+		p.historyLines = nil
+		p.historyWidth = 0
+	}
 	p.width = width
 	p.height = height
 
@@ -254,7 +299,7 @@ func (p *ChatPanel) updateCommandPicker() {
 	}
 }
 
-// View renders the complete chat panel (history + composer).
+// View renders the complete chat panel (history + buffer + composer).
 func (p *ChatPanel) View() string {
 	if p.height <= 0 || p.width <= 0 {
 		return ""
@@ -278,7 +323,29 @@ func (p *ChatPanel) View() string {
 	if composerHeight < 1 {
 		composerHeight = 1
 	}
-	historyHeight := p.height - composerHeight - 1 - selectorHeight // -1 for separator
+	totalHeight := p.height - composerHeight - 1 - selectorHeight // -1 for separator
+	if totalHeight < 1 {
+		totalHeight = 1
+	}
+
+	// Split available height between history and buffer.
+	var bufferView string
+	bufferHeight := 0
+	if p.buffer != nil {
+		bufferView = p.renderBuffer(p.width)
+		bh := lipgloss.Height(bufferView)
+		// Buffer gets at most 1/3 of available space.
+		maxBuf := totalHeight / 3
+		if maxBuf < 3 {
+			maxBuf = 3
+		}
+		if bh > maxBuf {
+			bufferHeight = maxBuf
+		} else {
+			bufferHeight = bh
+		}
+	}
+	historyHeight := totalHeight - bufferHeight
 	if historyHeight < 1 {
 		historyHeight = 1
 	}
@@ -295,8 +362,19 @@ func (p *ChatPanel) View() string {
 	// The SplitLayout.ensureSize() handles width normalization
 	sections := []string{
 		historyView,
-		separator,
 	}
+
+	// Insert buffer between history and separator when streaming.
+	if p.buffer != nil && bufferView != "" {
+		// Truncate buffer to allocated height (show tail).
+		bvLines := strings.Split(bufferView, "\n")
+		if len(bvLines) > bufferHeight {
+			bvLines = bvLines[len(bvLines)-bufferHeight:]
+		}
+		sections = append(sections, strings.Join(bvLines, "\n"))
+	}
+
+	sections = append(sections, separator)
 
 	// Add command picker above composer if visible
 	if p.commandPicker != nil && p.commandPicker.Visible() {
@@ -313,64 +391,80 @@ func (p *ChatPanel) View() string {
 	return lipgloss.JoinVertical(lipgloss.Left, sections...)
 }
 
-// renderHistory renders the chat history area.
-func (p *ChatPanel) renderHistory(height int) string {
-	if height <= 0 {
+// renderBuffer renders the live streaming buffer region.
+func (p *ChatPanel) renderBuffer(width int) string {
+	if p.buffer == nil {
 		return ""
 	}
 
-	if len(p.messages) == 0 {
-		emptyStyle := lipgloss.NewStyle().
-			Foreground(ColorMuted).
-			Italic(true)
-		// Don't use ensureHeight here - SplitLayout.ensureSize handles height normalization
-		return emptyStyle.Render("No messages yet.")
+	contentWidth := width - 4
+	if contentWidth < 10 {
+		contentWidth = 10
 	}
 
-	// Build message lines
-	var lines []string
-	lastRole := ""
-	for _, msg := range p.messages {
-		roleLower := strings.ToLower(msg.Role)
-		showRole := roleLower != "system"
-		if p.settings.GroupMessages && roleLower == lastRole {
-			showRole = false
-		}
+	var parts []string
 
-		// Role header (omit system labels)
-		if showRole {
-			roleStyle := p.roleStyle(msg.Role)
-			lines = append(lines, roleStyle.Render(formatRole(msg.Role)+":"))
-		}
-		lastRole = roleLower
-
-		// Content rendering — agent messages get markdown, others get plain text
-		contentWidth := p.width - 4
-		if contentWidth < 10 {
-			contentWidth = 10
-		}
-
-		if strings.ToLower(msg.Role) == "agent" {
-			// Render agent messages as markdown via glamour
-			if r := p.markdownRenderer(contentWidth); r != nil {
-				rendered, err := r.Render(msg.Content)
-				if err == nil {
-					rendered = strings.TrimSpace(rendered)
-					// Indent rendered markdown
-					contentStyle := lipgloss.NewStyle().PaddingLeft(2)
-					lines = append(lines, contentStyle.Render(rendered))
-				} else {
-					// Fallback to plain text on render error
-					contentStyle := lipgloss.NewStyle().
-						Foreground(ColorFg).
-						PaddingLeft(2)
-					wrapped := wrapText(msg.Content, contentWidth)
-					for _, line := range strings.Split(wrapped, "\n") {
-						lines = append(lines, contentStyle.Render(line))
-					}
-				}
+	// Render accumulated content if any.
+	if p.buffer.Len() > 0 {
+		text := p.buffer.String()
+		if r := p.markdownRenderer(contentWidth); r != nil {
+			rendered, err := r.Render(text)
+			if err == nil {
+				rendered = strings.TrimSpace(rendered)
+				contentStyle := lipgloss.NewStyle().PaddingLeft(2)
+				parts = append(parts, contentStyle.Render(rendered))
 			} else {
-				// Fallback if renderer creation fails
+				contentStyle := lipgloss.NewStyle().
+					Foreground(ColorFg).
+					PaddingLeft(2)
+				wrapped := wrapText(text, contentWidth)
+				parts = append(parts, contentStyle.Render(wrapped))
+			}
+		} else {
+			contentStyle := lipgloss.NewStyle().
+				Foreground(ColorFg).
+				PaddingLeft(2)
+			wrapped := wrapText(text, contentWidth)
+			parts = append(parts, contentStyle.Render(wrapped))
+		}
+	}
+
+	// Render status indicator.
+	if p.streaming && p.status != "" {
+		statusStyle := lipgloss.NewStyle().
+			Foreground(ColorPrimary).
+			PaddingLeft(2)
+		parts = append(parts, statusStyle.Render(p.spinner.View()+" "+p.status))
+	}
+
+	return strings.Join(parts, "\n")
+}
+
+// renderMessageLines renders a single message into display lines.
+// prevRole is the role of the preceding message (for GroupMessages suppression).
+func (p *ChatPanel) renderMessageLines(msg ChatMessage, contentWidth int, prevRole string) []string {
+	var lines []string
+	roleLower := strings.ToLower(msg.Role)
+	showRole := roleLower != "system"
+	if p.settings.GroupMessages && roleLower == prevRole {
+		showRole = false
+	}
+
+	// Role header (omit system labels)
+	if showRole {
+		roleStyle := p.roleStyle(msg.Role)
+		lines = append(lines, roleStyle.Render(formatRole(msg.Role)+":"))
+	}
+
+	// Content rendering — agent messages get markdown, others get plain text
+	if strings.ToLower(msg.Role) == "agent" {
+		if r := p.markdownRenderer(contentWidth); r != nil {
+			rendered, err := r.Render(msg.Content)
+			if err == nil {
+				rendered = strings.TrimSpace(rendered)
+				contentStyle := lipgloss.NewStyle().PaddingLeft(2)
+				lines = append(lines, contentStyle.Render(rendered))
+			} else {
 				contentStyle := lipgloss.NewStyle().
 					Foreground(ColorFg).
 					PaddingLeft(2)
@@ -380,7 +474,6 @@ func (p *ChatPanel) renderHistory(height int) string {
 				}
 			}
 		} else {
-			// User and system messages: plain text with word wrap
 			contentStyle := lipgloss.NewStyle().
 				Foreground(ColorFg).
 				PaddingLeft(2)
@@ -389,16 +482,57 @@ func (p *ChatPanel) renderHistory(height int) string {
 				lines = append(lines, contentStyle.Render(line))
 			}
 		}
-		lines = append(lines, "") // Blank line between messages
+	} else {
+		contentStyle := lipgloss.NewStyle().
+			Foreground(ColorFg).
+			PaddingLeft(2)
+		wrapped := wrapText(msg.Content, contentWidth)
+		for _, line := range strings.Split(wrapped, "\n") {
+			lines = append(lines, contentStyle.Render(line))
+		}
+	}
+	lines = append(lines, "") // Blank line between messages
+	return lines
+}
+
+// rebuildHistoryCache re-renders all history messages into the line cache.
+func (p *ChatPanel) rebuildHistoryCache(contentWidth int) {
+	p.historyLines = make([][]string, len(p.history))
+	prevRole := ""
+	for i, msg := range p.history {
+		p.historyLines[i] = p.renderMessageLines(msg, contentWidth, prevRole)
+		prevRole = strings.ToLower(msg.Role)
+	}
+	p.historyWidth = contentWidth
+}
+
+// renderHistory renders the finalized chat history area from the line cache.
+func (p *ChatPanel) renderHistory(height int) string {
+	if height <= 0 {
+		return ""
 	}
 
-	// Add streaming status indicator
-	if p.streaming && p.status != "" {
-		statusStyle := lipgloss.NewStyle().
-			Foreground(ColorPrimary).
-			PaddingLeft(2)
-		lines = append(lines, statusStyle.Render(p.spinner.View()+" "+p.status))
-		lines = append(lines, "") // Blank line after status
+	if len(p.history) == 0 && p.buffer == nil {
+		emptyStyle := lipgloss.NewStyle().
+			Foreground(ColorMuted).
+			Italic(true)
+		return emptyStyle.Render("No messages yet.")
+	}
+
+	contentWidth := p.width - 4
+	if contentWidth < 10 {
+		contentWidth = 10
+	}
+
+	// Rebuild cache if width changed or cache is stale.
+	if len(p.historyLines) != len(p.history) || p.historyWidth != contentWidth {
+		p.rebuildHistoryCache(contentWidth)
+	}
+
+	// Flatten cached lines.
+	var lines []string
+	for _, msgLines := range p.historyLines {
+		lines = append(lines, msgLines...)
 	}
 
 	// Apply scrolling - show most recent messages that fit
@@ -418,7 +552,6 @@ func (p *ChatPanel) renderHistory(height int) string {
 		lines = lines[start:end]
 	}
 
-	// Don't use ensureHeight - SplitLayout.ensureSize handles height normalization
 	return strings.Join(lines, "\n")
 }
 
@@ -512,6 +645,7 @@ func (p *ChatPanel) SetSettings(settings ChatSettings) {
 
 // ScrollUp scrolls the history up (shows older messages).
 func (p *ChatPanel) ScrollUp() {
+	p.followTail = false
 	p.scroll++
 }
 
@@ -520,16 +654,30 @@ func (p *ChatPanel) ScrollDown() {
 	if p.scroll > 0 {
 		p.scroll--
 	}
+	if p.scroll == 0 {
+		p.followTail = true
+	}
 }
 
 // ScrollToBottom scrolls to the most recent messages.
 func (p *ChatPanel) ScrollToBottom() {
 	p.scroll = 0
+	p.followTail = true
 }
 
 // ScrollOffsetForTest exposes the scroll offset for tests.
 func (p *ChatPanel) ScrollOffsetForTest() int {
 	return p.scroll
+}
+
+// FollowTailForTest exposes the followTail flag for tests.
+func (p *ChatPanel) FollowTailForTest() bool {
+	return p.followTail
+}
+
+// BufferForTest exposes the streaming buffer for tests.
+func (p *ChatPanel) BufferForTest() *StreamBuffer {
+	return p.buffer
 }
 
 // SubmitInput processes slash commands and non-slash chat input.
@@ -564,7 +712,8 @@ func (p *ChatPanel) SubmitInput() tea.Cmd {
 	p.cancelStream = cancel
 	p.chatState = ChatThinking
 	p.SetStatus(ChatThinking.String())
-	p.messages = append(p.messages, ChatMessage{Role: "agent", Content: ""})
+	// Create a streaming buffer instead of appending an empty message.
+	p.buffer = NewStreamBuffer()
 
 	handler := p.handler
 	userMsg := value
@@ -586,6 +735,12 @@ func (p *ChatPanel) CancelStream() {
 	if p.chatState == ChatIdle {
 		return
 	}
+	// Finalize any partial buffer content into history.
+	if p.buffer != nil && p.buffer.Len() > 0 {
+		msg := p.buffer.Finalize()
+		p.AddMessage(msg.Role, msg.Content)
+	}
+	p.buffer = nil
 	p.chatState = ChatIdle
 	p.SetStatus("")
 	p.cleanupStream()
@@ -594,22 +749,27 @@ func (p *ChatPanel) CancelStream() {
 func (p *ChatPanel) handleStreamChunk(event StreamMsg) (*ChatPanel, tea.Cmd) {
 	switch e := event.(type) {
 	case TextDelta:
-		if len(p.messages) == 0 || strings.ToLower(p.messages[len(p.messages)-1].Role) != "agent" {
-			p.messages = append(p.messages, ChatMessage{Role: "agent", Content: e.Text})
-		} else {
-			last := &p.messages[len(p.messages)-1]
-			last.Content += e.Text
+		// Append to the streaming buffer instead of mutating history.
+		if p.buffer == nil {
+			p.buffer = NewStreamBuffer()
 		}
+		p.buffer.Append(e.Text)
 		if p.chatState != ChatStreaming {
 			p.chatState = ChatStreaming
 			p.SetStatus(ChatStreaming.String())
+			if p.buffer != nil {
+				p.buffer.SetState(ChatStreaming)
+			}
 		}
-		p.scroll = 0
+		// Do NOT force scroll — respect followTail.
 		return p, waitForStreamEvent(p.events)
 
 	case ReasoningStart:
 		p.chatState = ChatThinking
 		p.SetStatus(ChatThinking.String())
+		if p.buffer != nil {
+			p.buffer.SetState(ChatThinking)
+		}
 		return p, tea.Batch(p.SpinnerTick(), waitForStreamEvent(p.events))
 
 	case ReasoningDelta:
@@ -630,11 +790,14 @@ func (p *ChatPanel) handleStreamChunk(event StreamMsg) (*ChatPanel, tea.Cmd) {
 	case StreamError:
 		p.chatState = ChatError
 		p.SetStatus("")
-		if len(p.messages) > 0 {
-			last := &p.messages[len(p.messages)-1]
-			if strings.TrimSpace(last.Content) == "" {
-				last.Content = "Error: " + e.Err.Error()
+		// Finalize buffer with error content.
+		if p.buffer != nil {
+			if p.buffer.Len() == 0 {
+				p.buffer.Append("Error: " + e.Err.Error())
 			}
+			msg := p.buffer.Finalize()
+			p.AddMessage(msg.Role, msg.Content)
+			p.buffer = nil
 		}
 		p.cleanupStream()
 		return p, nil
@@ -648,11 +811,13 @@ func (p *ChatPanel) handleStreamChunk(event StreamMsg) (*ChatPanel, tea.Cmd) {
 				mth.SetContinue(true, e.SessionID)
 			}
 		}
-		if len(p.messages) > 0 {
-			last := p.messages[len(p.messages)-1]
-			if strings.ToLower(last.Role) == "agent" && strings.TrimSpace(last.Content) == "" {
-				p.messages = p.messages[:len(p.messages)-1]
+		// Finalize buffer into history.
+		if p.buffer != nil {
+			if p.buffer.Len() > 0 {
+				msg := p.buffer.Finalize()
+				p.AddMessage(msg.Role, msg.Content)
 			}
+			p.buffer = nil
 		}
 		p.cleanupStream()
 		return p, nil
