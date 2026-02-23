@@ -1,8 +1,11 @@
 package views
 
 import (
+	"context"
 	"fmt"
+	"sort"
 	"strings"
+	"time"
 
 	"github.com/charmbracelet/bubbles/key"
 	tea "github.com/charmbracelet/bubbletea"
@@ -86,6 +89,9 @@ func (v *PollardView) Init() tea.Cmd {
 }
 
 func (v *PollardView) loadInsights() tea.Cmd {
+	if v.client == nil {
+		return nil
+	}
 	return func() tea.Msg {
 		insights, err := v.client.ListInsights("", "")
 		return insightsLoadedMsg{insights: insights, err: err}
@@ -129,6 +135,70 @@ func (v *PollardView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
 		}
 		return v, nil
 
+	// Progressive research reveal messages
+	case research.RunStartedMsg:
+		v.currentRunID = msg.RunID
+		v.runActive = true
+		v.hunterStatuses = make(map[string]research.HunterStatus)
+		for _, name := range msg.Hunters {
+			v.hunterStatuses[name] = research.HunterStatus{
+				Name:   name,
+				Status: research.StatusPending,
+			}
+		}
+		return v, nil
+
+	case research.HunterStartedMsg:
+		if msg.RunID != v.currentRunID {
+			return v, nil
+		}
+		if hs, ok := v.hunterStatuses[msg.HunterName]; ok {
+			hs.Status = research.StatusRunning
+			hs.StartedAt = time.Now()
+			v.hunterStatuses[msg.HunterName] = hs
+		}
+		return v, nil
+
+	case research.HunterUpdateMsg:
+		if msg.RunID != v.currentRunID {
+			return v, nil
+		}
+		for _, f := range msg.Findings {
+			v.addFinding(f)
+		}
+		return v, nil
+
+	case research.HunterCompletedMsg:
+		if msg.RunID != v.currentRunID {
+			return v, nil
+		}
+		if hs, ok := v.hunterStatuses[msg.HunterName]; ok {
+			hs.Status = research.StatusComplete
+			hs.FinishedAt = time.Now()
+			hs.Findings = msg.FindingCount
+			v.hunterStatuses[msg.HunterName] = hs
+		}
+		return v, nil
+
+	case research.HunterErrorMsg:
+		if msg.RunID != v.currentRunID {
+			return v, nil
+		}
+		if hs, ok := v.hunterStatuses[msg.HunterName]; ok {
+			hs.Status = research.StatusError
+			hs.FinishedAt = time.Now()
+			hs.Error = msg.Error.Error()
+			v.hunterStatuses[msg.HunterName] = hs
+		}
+		return v, nil
+
+	case research.RunCompletedMsg:
+		if msg.RunID != v.currentRunID {
+			return v, nil
+		}
+		v.runActive = false
+		return v, v.loadInsights()
+
 	case tea.KeyMsg:
 		// Let shell handle global keys first (Tab, Shift-Tab, Ctrl+B)
 		v.shell, cmd = v.shell.Update(msg)
@@ -171,15 +241,14 @@ func (v *PollardView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
 
 // View implements View
 func (v *PollardView) View() string {
-	if v.loading {
+	if v.loading && !v.runActive {
 		return pkgtui.LabelStyle.Render("Loading insights...")
 	}
 
-	if v.err != nil {
+	if v.err != nil && !v.runActive {
 		return tui.ErrorView(v.err)
 	}
 
-	// Render using shell layout
 	sidebarItems := v.SidebarItems()
 	document := v.renderDocument()
 	chat := v.chatPanel.View()
@@ -189,23 +258,43 @@ func (v *PollardView) View() string {
 
 // SidebarItems implements SidebarProvider.
 func (v *PollardView) SidebarItems() []pkgtui.SidebarItem {
-	if len(v.insights) == 0 {
-		return nil
+	var items []pkgtui.SidebarItem
+
+	// Show hunter status during active run (sorted for deterministic rendering)
+	if v.runActive && len(v.hunterStatuses) > 0 {
+		names := make([]string, 0, len(v.hunterStatuses))
+		for name := range v.hunterStatuses {
+			names = append(names, name)
+		}
+		sort.Strings(names)
+		for _, name := range names {
+			status := v.hunterStatuses[name]
+			icon := hunterStatusIcon(status.Status)
+			label := fmt.Sprintf("%s %s", icon, name)
+			if status.Findings > 0 {
+				label += fmt.Sprintf(" (%d)", status.Findings)
+			}
+			items = append(items, pkgtui.SidebarItem{
+				ID:    "hunter:" + name,
+				Label: label,
+				Icon:  icon,
+			})
+		}
 	}
 
-	items := make([]pkgtui.SidebarItem, len(v.insights))
-	for i, insight := range v.insights {
+	// Append insight items
+	for _, insight := range v.insights {
 		title := insight.Title
 		if title == "" && len(insight.ID) >= 8 {
 			title = insight.ID[:8]
 		}
-
-		items[i] = pkgtui.SidebarItem{
+		items = append(items, pkgtui.SidebarItem{
 			ID:    insight.ID,
 			Label: title,
 			Icon:  categoryIcon(insight.Category),
-		}
+		})
 	}
+
 	return items
 }
 
@@ -234,13 +323,35 @@ func (v *PollardView) renderDocument() string {
 
 	var lines []string
 
+	// Run status header
+	if v.runActive {
+		running := 0
+		complete := 0
+		for _, hs := range v.hunterStatuses {
+			switch hs.Status {
+			case research.StatusRunning:
+				running++
+			case research.StatusComplete:
+				complete++
+			}
+		}
+		statusLine := fmt.Sprintf("Research: %d/%d hunters complete",
+			complete, len(v.hunterStatuses))
+		lines = append(lines, pkgtui.SubtitleStyle.Render(statusLine))
+		lines = append(lines, "")
+	}
+
 	lines = append(lines, pkgtui.TitleStyle.Render("Insight Details"))
 	lines = append(lines, "")
 
 	if len(v.insights) == 0 {
-		lines = append(lines, pkgtui.LabelStyle.Render("No insights found"))
-		lines = append(lines, "")
-		lines = append(lines, pkgtui.LabelStyle.Render("Run Pollard hunters to gather research insights."))
+		if v.runActive {
+			lines = append(lines, pkgtui.LabelStyle.Render("Waiting for results..."))
+		} else {
+			lines = append(lines, pkgtui.LabelStyle.Render("No insights found"))
+			lines = append(lines, "")
+			lines = append(lines, pkgtui.LabelStyle.Render("Run Pollard hunters to gather research insights."))
+		}
 		return strings.Join(lines, "\n")
 	}
 
@@ -252,8 +363,7 @@ func (v *PollardView) renderDocument() string {
 	i := v.insights[v.selected]
 
 	lines = append(lines, fmt.Sprintf("Title: %s", i.Title))
-	lines = append(lines, fmt.Sprintf("Category: %s", i.Category))
-	lines = append(lines, fmt.Sprintf("Source: %s", i.Source))
+	lines = append(lines, fmt.Sprintf("Category: %s  Source: %s", i.Category, i.Source))
 	lines = append(lines, fmt.Sprintf("Score: %.2f", i.Score))
 	lines = append(lines, "")
 
@@ -304,6 +414,41 @@ func wordWrap(text string, width int) []string {
 	return lines
 }
 
+// addFinding converts a research.Finding to an autarch.Insight and inserts
+// it into v.insights sorted by score descending.
+func (v *PollardView) addFinding(f research.Finding) {
+	insight := autarch.Insight{
+		ID:       f.ID,
+		Title:    f.Title,
+		Body:     f.Summary,
+		Source:   f.Source,
+		Category: f.SourceType,
+		Score:    f.Relevance,
+	}
+	// Insert sorted by score descending
+	idx := sort.Search(len(v.insights), func(i int) bool {
+		return v.insights[i].Score < insight.Score
+	})
+	v.insights = append(v.insights, autarch.Insight{})
+	copy(v.insights[idx+1:], v.insights[idx:])
+	v.insights[idx] = insight
+}
+
+func hunterStatusIcon(s research.Status) string {
+	switch s {
+	case research.StatusRunning:
+		return "↻"
+	case research.StatusComplete:
+		return "✓"
+	case research.StatusError:
+		return "✗"
+	case research.StatusPending:
+		return "○"
+	default:
+		return "?"
+	}
+}
+
 // Focus implements View
 func (v *PollardView) Focus() tea.Cmd {
 	v.shell.SetFocus(pkgtui.FocusChat)
@@ -323,7 +468,11 @@ func (v *PollardView) Name() string {
 
 // ShortHelp implements View
 func (v *PollardView) ShortHelp() string {
-	return "↑/↓ navigate  ctrl+r refresh  ctrl+g model  tab focus  ctrl+b sidebar"
+	help := "↑/↓ navigate  ctrl+r refresh  ctrl+g model  tab focus  ctrl+b sidebar"
+	if v.runActive {
+		help = "↻ research active  " + help
+	}
+	return help
 }
 
 // Commands implements CommandProvider
@@ -333,7 +482,22 @@ func (v *PollardView) Commands() []tui.Command {
 			Name:        "Run Research",
 			Description: "Execute Pollard hunters",
 			Action: func() tea.Cmd {
-				return nil
+				if v.coordinator == nil {
+					return nil
+				}
+				return func() tea.Msg {
+					hunterNames := []string{"competitor-tracker", "hackernews-trendwatcher", "github-scout"}
+					_, err := v.coordinator.StartRun(
+						context.Background(),
+						"default",
+						hunterNames,
+						nil,
+					)
+					if err != nil {
+						return insightsLoadedMsg{err: err}
+					}
+					return nil
+				}
 			},
 		},
 		{
