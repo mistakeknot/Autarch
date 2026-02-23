@@ -16,6 +16,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/spf13/cobra"
 
+	"github.com/mistakeknot/autarch/internal/autarch/local"
 	"github.com/mistakeknot/autarch/internal/autarch/setup"
 	"github.com/mistakeknot/autarch/internal/bigend/aggregator"
 	"github.com/mistakeknot/autarch/internal/bigend/config"
@@ -128,6 +129,12 @@ Navigation:
 
 			// Create client connecting to Intermute server
 			client := autarch.NewClient(mgr.URL())
+
+			// Configure local file fallback for when Intermute is unreachable.
+			// Uses CWD as project root (same as TUI's project discovery).
+			if projectPath, err := os.Getwd(); err == nil {
+				client.WithFallback(local.NewLocalSource(projectPath))
+			}
 
 			// Create unified app (serves both onboarding and skip-onboard paths)
 			app := tui.NewUnifiedApp(client)

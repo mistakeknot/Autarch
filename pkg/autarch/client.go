@@ -3,18 +3,28 @@ package autarch
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/url"
+	"os"
+	"sync/atomic"
+	"syscall"
 	"time"
 )
 
-// Client provides typed access to the Intermute domain API
+// Client provides typed access to the Intermute domain API.
+// When a fallback DataSource is configured and a dial error occurs,
+// the client switches to the fallback for the remainder of the session.
 type Client struct {
 	baseURL    string
 	httpClient *http.Client
 	project    string
+
+	fallback       DataSource
+	fallbackActive atomic.Bool
 }
 
 // NewClient creates a new Intermute domain client
@@ -31,6 +41,64 @@ func NewClient(baseURL string) *Client {
 func (c *Client) WithProject(project string) *Client {
 	c.project = project
 	return c
+}
+
+// WithFallback configures a local DataSource to use when Intermute is unreachable.
+// Call this before distributing the client to views.
+func (c *Client) WithFallback(ds DataSource) *Client {
+	c.fallback = ds
+	return c
+}
+
+// InFallbackMode reports whether the client has switched to local data.
+// Views check this to display an offline indicator.
+func (c *Client) InFallbackMode() bool {
+	return c.fallbackActive.Load()
+}
+
+// isDialError returns true if the error indicates a TCP dial failure
+// (connection refused). Does NOT match timeouts — the server may be alive
+// but slow, and switching to stale local data would be worse.
+func isDialError(err error) bool {
+	var opErr *net.OpError
+	if !errors.As(err, &opErr) {
+		return false
+	}
+	if opErr.Op != "dial" {
+		return false
+	}
+	// Check for ECONNREFUSED specifically
+	var sysErr *os.SyscallError
+	if errors.As(err, &sysErr) {
+		return errors.Is(sysErr.Err, syscall.ECONNREFUSED)
+	}
+	return false
+}
+
+// tryFallback checks if an error is a dial error and switches to fallback.
+// Returns true if fallback was activated (caller should retry via fallback).
+func (c *Client) tryFallback(err error) bool {
+	if c.fallback == nil || c.fallbackActive.Load() {
+		return false
+	}
+	if isDialError(err) {
+		c.fallbackActive.Store(true)
+		return true
+	}
+	return false
+}
+
+// ErrFallbackReadOnly is returned when a write operation is attempted while
+// the client is in fallback mode (Intermute unreachable). Start Intermute
+// to enable writes: autarch tui
+var ErrFallbackReadOnly = errors.New("Intermute is not running — writes unavailable. Start with: autarch tui")
+
+// checkWritable returns ErrFallbackReadOnly if the client is in fallback mode.
+func (c *Client) checkWritable() error {
+	if c.fallbackActive.Load() && c.fallback != nil {
+		return ErrFallbackReadOnly
+	}
+	return nil
 }
 
 // request helpers
@@ -160,6 +228,9 @@ func (c *Client) delete(path string) error {
 // Spec operations
 
 func (c *Client) CreateSpec(spec Spec) (Spec, error) {
+	if err := c.checkWritable(); err != nil {
+		return Spec{}, err
+	}
 	if spec.Project == "" {
 		spec.Project = c.project
 	}
@@ -179,18 +250,27 @@ func (c *Client) GetSpec(id string) (Spec, error) {
 }
 
 func (c *Client) ListSpecs(status string) ([]Spec, error) {
+	if c.fallbackActive.Load() && c.fallback != nil {
+		return c.fallback.ListSpecs(status)
+	}
 	query := url.Values{}
 	if status != "" {
 		query.Set("status", status)
 	}
 	var result []Spec
 	if err := c.get("/api/specs", query, &result); err != nil {
+		if c.tryFallback(err) {
+			return c.fallback.ListSpecs(status)
+		}
 		return nil, err
 	}
 	return result, nil
 }
 
 func (c *Client) UpdateSpec(spec Spec) (Spec, error) {
+	if err := c.checkWritable(); err != nil {
+		return Spec{}, err
+	}
 	var result Spec
 	if err := c.put("/api/specs/"+spec.ID, spec, &result); err != nil {
 		return Spec{}, err
@@ -199,12 +279,18 @@ func (c *Client) UpdateSpec(spec Spec) (Spec, error) {
 }
 
 func (c *Client) DeleteSpec(id string) error {
+	if err := c.checkWritable(); err != nil {
+		return err
+	}
 	return c.delete("/api/specs/" + id)
 }
 
 // Epic operations
 
 func (c *Client) CreateEpic(epic Epic) (Epic, error) {
+	if err := c.checkWritable(); err != nil {
+		return Epic{}, err
+	}
 	if epic.Project == "" {
 		epic.Project = c.project
 	}
@@ -224,18 +310,27 @@ func (c *Client) GetEpic(id string) (Epic, error) {
 }
 
 func (c *Client) ListEpics(specID string) ([]Epic, error) {
+	if c.fallbackActive.Load() && c.fallback != nil {
+		return c.fallback.ListEpics(specID)
+	}
 	query := url.Values{}
 	if specID != "" {
 		query.Set("spec", specID)
 	}
 	var result []Epic
 	if err := c.get("/api/epics", query, &result); err != nil {
+		if c.tryFallback(err) {
+			return c.fallback.ListEpics(specID)
+		}
 		return nil, err
 	}
 	return result, nil
 }
 
 func (c *Client) UpdateEpic(epic Epic) (Epic, error) {
+	if err := c.checkWritable(); err != nil {
+		return Epic{}, err
+	}
 	var result Epic
 	if err := c.put("/api/epics/"+epic.ID, epic, &result); err != nil {
 		return Epic{}, err
@@ -244,12 +339,18 @@ func (c *Client) UpdateEpic(epic Epic) (Epic, error) {
 }
 
 func (c *Client) DeleteEpic(id string) error {
+	if err := c.checkWritable(); err != nil {
+		return err
+	}
 	return c.delete("/api/epics/" + id)
 }
 
 // Story operations
 
 func (c *Client) CreateStory(story Story) (Story, error) {
+	if err := c.checkWritable(); err != nil {
+		return Story{}, err
+	}
 	if story.Project == "" {
 		story.Project = c.project
 	}
@@ -269,18 +370,27 @@ func (c *Client) GetStory(id string) (Story, error) {
 }
 
 func (c *Client) ListStories(epicID string) ([]Story, error) {
+	if c.fallbackActive.Load() && c.fallback != nil {
+		return c.fallback.ListStories(epicID)
+	}
 	query := url.Values{}
 	if epicID != "" {
 		query.Set("epic", epicID)
 	}
 	var result []Story
 	if err := c.get("/api/stories", query, &result); err != nil {
+		if c.tryFallback(err) {
+			return c.fallback.ListStories(epicID)
+		}
 		return nil, err
 	}
 	return result, nil
 }
 
 func (c *Client) UpdateStory(story Story) (Story, error) {
+	if err := c.checkWritable(); err != nil {
+		return Story{}, err
+	}
 	var result Story
 	if err := c.put("/api/stories/"+story.ID, story, &result); err != nil {
 		return Story{}, err
@@ -289,12 +399,18 @@ func (c *Client) UpdateStory(story Story) (Story, error) {
 }
 
 func (c *Client) DeleteStory(id string) error {
+	if err := c.checkWritable(); err != nil {
+		return err
+	}
 	return c.delete("/api/stories/" + id)
 }
 
 // Task operations
 
 func (c *Client) CreateTask(task Task) (Task, error) {
+	if err := c.checkWritable(); err != nil {
+		return Task{}, err
+	}
 	if task.Project == "" {
 		task.Project = c.project
 	}
@@ -314,6 +430,9 @@ func (c *Client) GetTask(id string) (Task, error) {
 }
 
 func (c *Client) ListTasks(status, agent string) ([]Task, error) {
+	if c.fallbackActive.Load() && c.fallback != nil {
+		return c.fallback.ListTasks(status, agent)
+	}
 	query := url.Values{}
 	if status != "" {
 		query.Set("status", status)
@@ -323,12 +442,18 @@ func (c *Client) ListTasks(status, agent string) ([]Task, error) {
 	}
 	var result []Task
 	if err := c.get("/api/tasks", query, &result); err != nil {
+		if c.tryFallback(err) {
+			return c.fallback.ListTasks(status, agent)
+		}
 		return nil, err
 	}
 	return result, nil
 }
 
 func (c *Client) UpdateTask(task Task) (Task, error) {
+	if err := c.checkWritable(); err != nil {
+		return Task{}, err
+	}
 	var result Task
 	if err := c.put("/api/tasks/"+task.ID, task, &result); err != nil {
 		return Task{}, err
@@ -337,6 +462,9 @@ func (c *Client) UpdateTask(task Task) (Task, error) {
 }
 
 func (c *Client) AssignTask(id, agent string) (Task, error) {
+	if err := c.checkWritable(); err != nil {
+		return Task{}, err
+	}
 	var result Task
 	if err := c.post("/api/tasks/"+id+"/assign", map[string]string{"agent": agent}, &result); err != nil {
 		return Task{}, err
@@ -345,12 +473,18 @@ func (c *Client) AssignTask(id, agent string) (Task, error) {
 }
 
 func (c *Client) DeleteTask(id string) error {
+	if err := c.checkWritable(); err != nil {
+		return err
+	}
 	return c.delete("/api/tasks/" + id)
 }
 
 // Insight operations
 
 func (c *Client) CreateInsight(insight Insight) (Insight, error) {
+	if err := c.checkWritable(); err != nil {
+		return Insight{}, err
+	}
 	if insight.Project == "" {
 		insight.Project = c.project
 	}
@@ -370,6 +504,9 @@ func (c *Client) GetInsight(id string) (Insight, error) {
 }
 
 func (c *Client) ListInsights(specID, category string) ([]Insight, error) {
+	if c.fallbackActive.Load() && c.fallback != nil {
+		return c.fallback.ListInsights(specID, category)
+	}
 	query := url.Values{}
 	if specID != "" {
 		query.Set("spec", specID)
@@ -379,22 +516,34 @@ func (c *Client) ListInsights(specID, category string) ([]Insight, error) {
 	}
 	var result []Insight
 	if err := c.get("/api/insights", query, &result); err != nil {
+		if c.tryFallback(err) {
+			return c.fallback.ListInsights(specID, category)
+		}
 		return nil, err
 	}
 	return result, nil
 }
 
 func (c *Client) LinkInsight(id, specID string) error {
+	if err := c.checkWritable(); err != nil {
+		return err
+	}
 	return c.post("/api/insights/"+id+"/link", map[string]string{"spec_id": specID}, nil)
 }
 
 func (c *Client) DeleteInsight(id string) error {
+	if err := c.checkWritable(); err != nil {
+		return err
+	}
 	return c.delete("/api/insights/" + id)
 }
 
 // Session operations
 
 func (c *Client) CreateSession(session Session) (Session, error) {
+	if err := c.checkWritable(); err != nil {
+		return Session{}, err
+	}
 	if session.Project == "" {
 		session.Project = c.project
 	}
@@ -426,6 +575,9 @@ func (c *Client) ListSessions(status string) ([]Session, error) {
 }
 
 func (c *Client) UpdateSession(session Session) (Session, error) {
+	if err := c.checkWritable(); err != nil {
+		return Session{}, err
+	}
 	var result Session
 	if err := c.put("/api/sessions/"+session.ID, session, &result); err != nil {
 		return Session{}, err
@@ -434,5 +586,8 @@ func (c *Client) UpdateSession(session Session) (Session, error) {
 }
 
 func (c *Client) DeleteSession(id string) error {
+	if err := c.checkWritable(); err != nil {
+		return err
+	}
 	return c.delete("/api/sessions/" + id)
 }

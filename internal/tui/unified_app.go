@@ -789,6 +789,10 @@ func (a *UnifiedApp) renderFooterContent() string {
 		help = a.currentView.ShortHelp()
 	}
 	help += "  │  /big /gur /cold /pol /sig  ctrl+l logs  ctrl+p palette  ctrl+, settings  /help  ctrl+c×2 quit"
+	if a.client != nil && a.client.InFallbackMode() {
+		badge := lipgloss.NewStyle().Foreground(pkgtui.ColorWarning).Render("[offline — reading local files]")
+		help += "  │  " + badge
+	}
 	return help
 }
 
