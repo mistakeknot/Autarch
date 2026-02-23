@@ -976,6 +976,7 @@ func EmptyView(message string) string {
 
 // Run starts the unified TUI application with configurable options.
 func Run(client *autarch.Client, app *UnifiedApp, opts RunOpts) error {
+	defer pkgtui.RestoreTerminalOnPanic()
 	app.SetInlineMode(opts.InlineMode)
 	app.SetInitialTab(opts.InitialTool)
 

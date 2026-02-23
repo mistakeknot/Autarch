@@ -126,6 +126,7 @@ func runDaemon(addr string, scanRoots []string) {
 }
 
 func runTUI(agg *aggregator.Aggregator, logHandler *pkgtui.LogHandler) {
+	defer pkgtui.RestoreTerminalOnPanic()
 	m := tui.New(agg, buildInfoString())
 	p := tea.NewProgram(m, tea.WithAltScreen())
 

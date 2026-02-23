@@ -377,6 +377,7 @@ func runBigendDaemon(addr string, scanRoots []string) error {
 }
 
 func runBigendTUI(agg *aggregator.Aggregator, logHandler *pkgtui.LogHandler) error {
+	defer pkgtui.RestoreTerminalOnPanic()
 	// Deprecation warning for standalone TUI
 	fmt.Fprintln(os.Stderr, "\033[33m⚠ Deprecation warning: bigend --tui is deprecated.\033[0m")
 	fmt.Fprintln(os.Stderr, "  Use: autarch tui --tool=bigend")
