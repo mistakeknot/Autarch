@@ -8,15 +8,65 @@ import (
 
 	"github.com/charmbracelet/lipgloss"
 
+	"github.com/mistakeknot/autarch/internal/bigend/aggregator"
 	"github.com/mistakeknot/autarch/internal/icdata"
 	shared "github.com/mistakeknot/autarch/pkg/tui"
 )
 
 func (m Model) renderDashboard() string {
 	state := m.agg.GetState()
+	width := m.width
 
-	// Stats row
-	statsStyle := PanelStyle.Copy().Width(m.width/5 - 2)
+	// Stats row (cached)
+	statsRow := m.dashCache.getOrRender(sectionStats, hashStats(state, width), func() string {
+		return m.renderStatsRow(state, width)
+	})
+
+	sections := []string{statsRow, ""}
+
+	// Active Runs (cached, kernel only)
+	if state.Kernel != nil {
+		runsSection := m.dashCache.getOrRender(sectionRuns, hashRuns(state.Kernel, width), func() string {
+			return m.renderRunsSection(state.Kernel)
+		})
+		sections = append(sections, runsSection, "")
+	}
+
+	// Dispatches (cached, kernel only)
+	if state.Kernel != nil {
+		dispSection := m.dashCache.getOrRender(sectionDispatches, hashDispatches(state.Kernel, width), func() string {
+			return m.renderDispatchesSection(state.Kernel)
+		})
+		if dispSection != "" {
+			sections = append(sections, dispSection, "")
+		}
+	}
+
+	// Recent Sessions (cached)
+	sessSection := m.dashCache.getOrRender(sectionSessions, hashSessions(state.Sessions, 5), func() string {
+		return m.renderRecentSessions(state.Sessions)
+	})
+	sections = append(sections, sessSection, "")
+
+	// Registered Agents (cached)
+	agentsSection := m.dashCache.getOrRender(sectionAgents, hashAgents(state.Agents, 5), func() string {
+		return m.renderRecentAgents(state.Agents)
+	})
+	sections = append(sections, agentsSection, "")
+
+	// Activity Feed (cached)
+	if len(state.Activities) > 0 {
+		actSection := m.dashCache.getOrRender(sectionActivity, hashActivities(state.Activities, 10), func() string {
+			return m.renderActivityFeed(state.Activities)
+		})
+		sections = append(sections, actSection)
+	}
+
+	return lipgloss.JoinVertical(lipgloss.Left, sections...)
+}
+
+func (m Model) renderStatsRow(state aggregator.State, width int) string {
+	statsStyle := PanelStyle.Copy().Width(width/5 - 2)
 
 	projectCount := len(state.Projects)
 	projectLabel := "Projects"
@@ -45,7 +95,6 @@ func (m Model) renderDashboard() string {
 			LabelStyle.Render("Agents"),
 	)
 
-	// Kernel metrics stats
 	var runsStats, dispatchStats string
 	if state.Kernel != nil {
 		km := state.Kernel.Metrics
@@ -62,7 +111,6 @@ func (m Model) renderDashboard() string {
 				blockedStyle.Render(fmt.Sprintf("Dispatches (%d blocked)", km.BlockedAgents)),
 		)
 	} else {
-		// Count active sessions as before when no kernel
 		activeCount := 0
 		for _, s := range state.Sessions {
 			if s.UnifiedState == icdata.StatusActive || s.UnifiedState == icdata.StatusWaiting {
@@ -92,98 +140,93 @@ func (m Model) renderDashboard() string {
 			statsItems = append(statsItems, tokenStats)
 		}
 	}
-	statsRow := lipgloss.JoinHorizontal(lipgloss.Top, statsItems...)
+	return lipgloss.JoinHorizontal(lipgloss.Top, statsItems...)
+}
 
-	// Build sections
-	sections := []string{statsRow, ""}
-
-	// Active Runs section (kernel)
-	if state.Kernel != nil {
-		runsTitle := SubtitleStyle.Render("Active Runs")
-		var runLines []string
-		for projPath, runs := range state.Kernel.Runs {
-			projName := filepath.Base(projPath)
-			for _, r := range runs {
-				if r.Status == "" || r.Status == "done" || r.Status == "cancelled" {
-					continue
-				}
-				goal := r.Goal
-				if len(goal) > 40 {
-					goal = goal[:37] + "..."
-				}
-				id := r.ID
-				if len(id) > 8 {
-					id = id[:8]
-				}
-				line := fmt.Sprintf("  %s %s %s %s %s",
-					shared.UnifiedStatusSymbol(shared.UnifyStatusForRender(r.Status)),
-					LabelStyle.Render(id),
-					projName,
-					TitleStyle.Render(r.Phase),
-					goal,
-				)
-				runLines = append(runLines, line)
+func (m Model) renderRunsSection(kernel *aggregator.KernelState) string {
+	runsTitle := SubtitleStyle.Render("Active Runs")
+	var runLines []string
+	for projPath, runs := range kernel.Runs {
+		projName := filepath.Base(projPath)
+		for _, r := range runs {
+			if r.Status == "" || r.Status == "done" || r.Status == "cancelled" {
+				continue
 			}
-		}
-		if len(runLines) > 0 {
-			sections = append(sections, runsTitle, strings.Join(runLines, "\n"), "")
-		} else {
-			sections = append(sections, runsTitle, LabelStyle.Render("  No active runs"), "")
-		}
-	}
-
-	// Dispatches section (kernel)
-	if state.Kernel != nil {
-		dispTitle := SubtitleStyle.Render("Dispatches")
-		var dispLines []string
-		// Collect all dispatches, sort active-first
-		type dispEntry struct {
-			projName string
-			d        icdata.Dispatch
-			us       icdata.UnifiedStatus
-		}
-		var entries []dispEntry
-		for projPath, dispatches := range state.Kernel.Dispatches {
-			pn := filepath.Base(projPath)
-			for _, d := range dispatches {
-				entries = append(entries, dispEntry{pn, d, icdata.UnifyStatus(d.Status)})
+			goal := r.Goal
+			if len(goal) > 40 {
+				goal = goal[:37] + "..."
 			}
-		}
-		sort.Slice(entries, func(i, j int) bool {
-			if entries[i].us != entries[j].us {
-				return entries[i].us < entries[j].us // Active(1) < Blocked(2) < Waiting(3) < Done(4)
-			}
-			return entries[i].d.CreatedAt > entries[j].d.CreatedAt // newest first within same status
-		})
-		for i, e := range entries {
-			if i >= 10 {
-				break
-			}
-			id := e.d.ID
+			id := r.ID
 			if len(id) > 8 {
 				id = id[:8]
 			}
-			agent := e.d.DisplayName()
-			if len(agent) > 16 {
-				agent = agent[:16]
-			}
-			line := fmt.Sprintf("  %s %-8s %-16s %s",
-				shared.UnifiedStatusSymbol(e.us),
+			line := fmt.Sprintf("  %s %s %s %s %s",
+				shared.UnifiedStatusSymbol(shared.UnifyStatusForRender(r.Status)),
 				LabelStyle.Render(id),
-				agent,
-				e.us.String(),
+				projName,
+				TitleStyle.Render(r.Phase),
+				goal,
 			)
-			dispLines = append(dispLines, line)
-		}
-		if len(dispLines) > 0 {
-			sections = append(sections, dispTitle, strings.Join(dispLines, "\n"), "")
+			runLines = append(runLines, line)
 		}
 	}
+	if len(runLines) > 0 {
+		return runsTitle + "\n" + strings.Join(runLines, "\n")
+	}
+	return runsTitle + "\n" + LabelStyle.Render("  No active runs")
+}
 
-	// Recent sessions
+func (m Model) renderDispatchesSection(kernel *aggregator.KernelState) string {
+	dispTitle := SubtitleStyle.Render("Dispatches")
+	type dispEntry struct {
+		projName string
+		d        icdata.Dispatch
+		us       icdata.UnifiedStatus
+	}
+	var entries []dispEntry
+	for projPath, dispatches := range kernel.Dispatches {
+		pn := filepath.Base(projPath)
+		for _, d := range dispatches {
+			entries = append(entries, dispEntry{pn, d, icdata.UnifyStatus(d.Status)})
+		}
+	}
+	sort.Slice(entries, func(i, j int) bool {
+		if entries[i].us != entries[j].us {
+			return entries[i].us < entries[j].us
+		}
+		return entries[i].d.CreatedAt > entries[j].d.CreatedAt
+	})
+	var dispLines []string
+	for i, e := range entries {
+		if i >= 10 {
+			break
+		}
+		id := e.d.ID
+		if len(id) > 8 {
+			id = id[:8]
+		}
+		agent := e.d.DisplayName()
+		if len(agent) > 16 {
+			agent = agent[:16]
+		}
+		line := fmt.Sprintf("  %s %-8s %-16s %s",
+			shared.UnifiedStatusSymbol(e.us),
+			LabelStyle.Render(id),
+			agent,
+			e.us.String(),
+		)
+		dispLines = append(dispLines, line)
+	}
+	if len(dispLines) > 0 {
+		return dispTitle + "\n" + strings.Join(dispLines, "\n")
+	}
+	return ""
+}
+
+func (m Model) renderRecentSessions(sessions []aggregator.TmuxSession) string {
 	recentTitle := SubtitleStyle.Render("Recent Sessions")
 	var recentSessions []string
-	for i, s := range state.Sessions {
+	for i, s := range sessions {
 		if i >= 5 {
 			break
 		}
@@ -201,12 +244,13 @@ func (m Model) renderDashboard() string {
 	if len(recentSessions) == 0 {
 		recentSessions = append(recentSessions, LabelStyle.Render("  No sessions"))
 	}
-	sections = append(sections, recentTitle, strings.Join(recentSessions, "\n"), "")
+	return recentTitle + "\n" + strings.Join(recentSessions, "\n")
+}
 
-	// Recent agents
+func (m Model) renderRecentAgents(agents []aggregator.Agent) string {
 	agentsTitle := SubtitleStyle.Render("Registered Agents")
 	var recentAgents []string
-	for i, a := range state.Agents {
+	for i, a := range agents {
 		if i >= 5 {
 			break
 		}
@@ -220,31 +264,28 @@ func (m Model) renderDashboard() string {
 	if len(recentAgents) == 0 {
 		recentAgents = append(recentAgents, LabelStyle.Render("  No agents registered"))
 	}
-	sections = append(sections, agentsTitle, strings.Join(recentAgents, "\n"), "")
+	return agentsTitle + "\n" + strings.Join(recentAgents, "\n")
+}
 
-	// Activity feed
-	if len(state.Activities) > 0 {
-		actTitle := SubtitleStyle.Render("Recent Activity")
-		var actLines []string
-		for i, a := range state.Activities {
-			if i >= 10 {
-				break
-			}
-			prefix := lipgloss.NewStyle().Foreground(shared.ColorMuted).Render("[T]")
-			switch a.Source {
-			case "kernel":
-				prefix = lipgloss.NewStyle().Foreground(shared.ColorPrimary).Render("[K]")
-			case "intermute":
-				prefix = lipgloss.NewStyle().Foreground(shared.ColorSuccess).Render("[M]")
-			}
-			ts := LabelStyle.Render(a.Time.Format("15:04:05"))
-			line := fmt.Sprintf("  %s %s %s", ts, prefix, a.Summary)
-			actLines = append(actLines, line)
+func (m Model) renderActivityFeed(activities []aggregator.Activity) string {
+	actTitle := SubtitleStyle.Render("Recent Activity")
+	var actLines []string
+	for i, a := range activities {
+		if i >= 10 {
+			break
 		}
-		sections = append(sections, actTitle, strings.Join(actLines, "\n"))
+		prefix := lipgloss.NewStyle().Foreground(shared.ColorMuted).Render("[T]")
+		switch a.Source {
+		case "kernel":
+			prefix = lipgloss.NewStyle().Foreground(shared.ColorPrimary).Render("[K]")
+		case "intermute":
+			prefix = lipgloss.NewStyle().Foreground(shared.ColorSuccess).Render("[M]")
+		}
+		ts := LabelStyle.Render(a.Time.Format("15:04:05"))
+		line := fmt.Sprintf("  %s %s %s", ts, prefix, a.Summary)
+		actLines = append(actLines, line)
 	}
-
-	return lipgloss.JoinVertical(lipgloss.Left, sections...)
+	return actTitle + "\n" + strings.Join(actLines, "\n")
 }
 
 // formatTokens formats a token count with comma separators (e.g., 12,450).

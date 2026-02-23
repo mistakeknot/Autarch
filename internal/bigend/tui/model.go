@@ -282,6 +282,7 @@ type Model struct {
 	keys            shared.CommonKeys
 	helpOverlay     shared.HelpOverlay
 	resizeCoalescer *shared.ResizeCoalescer
+	dashCache       *sectionCache
 }
 
 // Key bindings
@@ -417,6 +418,7 @@ func New(agg aggregatorAPI, buildInfo string) Model {
 		keys:            shared.NewCommonKeys(),
 		helpOverlay:     shared.NewHelpOverlay(),
 		resizeCoalescer: shared.NewResizeCoalescer(),
+		dashCache:       newSectionCache(),
 	}
 }
 
@@ -1149,6 +1151,7 @@ func (m Model) helpExtras() []shared.HelpBinding {
 
 // applyResize applies a (possibly coalesced) window size to all child panes.
 func (m Model) applyResize(msg tea.WindowSizeMsg) Model {
+	m.dashCache.invalidateAll()
 	m.width = msg.Width
 	m.height = msg.Height
 	h := m.height - 6 // Account for header and footer
