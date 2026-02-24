@@ -372,3 +372,69 @@ func (c *Client) AttachSession(sessionName string) error {
 	cmd.Stderr = nil
 	return cmd.Run()
 }
+
+// AgentPane represents a tmux pane running an agent.
+type AgentPane struct {
+	ID        string    // Tmux pane ID (e.g., "%0")
+	AgentType AgentType // Reuses AgentType from detector.go
+	Title     string    // Raw pane title
+}
+
+// GetAgentPanes enumerates panes in the given session, classifying each by agent type.
+// Returns empty list (not error) when tmux is unavailable.
+func (c *Client) GetAgentPanes(session string) ([]AgentPane, error) {
+	// Tab-delimited format — safe for pane titles containing colons.
+	format := "#{pane_id}\t#{pane_title}\t#{session_name}"
+	stdout, stderr, err := c.run("list-panes", "-a", "-F", format)
+	if err != nil {
+		if strings.Contains(stderr, "no server running") ||
+			strings.Contains(stderr, "no sessions") {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("failed to list panes: %w: %s", err, stderr)
+	}
+
+	var panes []AgentPane
+	for _, line := range strings.Split(strings.TrimSpace(stdout), "\n") {
+		if line == "" {
+			continue
+		}
+		parts := strings.Split(line, "\t")
+		if len(parts) < 3 {
+			continue
+		}
+		paneID := parts[0]
+		title := parts[1]
+		sessName := parts[2]
+
+		if sessName != session {
+			continue
+		}
+
+		panes = append(panes, AgentPane{
+			ID:        paneID,
+			AgentType: detectAgentType(title),
+			Title:     title,
+		})
+	}
+	return panes, nil
+}
+
+// detectAgentType classifies an agent from its pane title.
+func detectAgentType(title string) AgentType {
+	lower := strings.ToLower(title)
+	switch {
+	case strings.Contains(lower, "claude"):
+		return AgentClaude
+	case strings.Contains(lower, "codex"):
+		return AgentCodex
+	case strings.Contains(lower, "gemini"):
+		return AgentGemini
+	case strings.Contains(lower, "user") ||
+		strings.Contains(lower, "bash") ||
+		strings.Contains(lower, "zsh"):
+		return AgentUser
+	default:
+		return AgentUnknown
+	}
+}

@@ -9,10 +9,13 @@ import (
 type AgentType string
 
 const (
-	AgentClaude AgentType = "claude"
-	AgentCodex  AgentType = "codex"
-	AgentAider  AgentType = "aider"
-	AgentCursor AgentType = "cursor"
+	AgentClaude  AgentType = "claude"
+	AgentCodex   AgentType = "codex"
+	AgentAider   AgentType = "aider"
+	AgentCursor  AgentType = "cursor"
+	AgentGemini  AgentType = "gemini"
+	AgentUser    AgentType = "user"
+	AgentUnknown AgentType = "unknown"
 )
 
 // AgentInfo contains detected agent information

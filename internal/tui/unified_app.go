@@ -14,6 +14,7 @@ import (
 	"github.com/charmbracelet/lipgloss"
 	"github.com/charmbracelet/x/ansi"
 	"github.com/mistakeknot/autarch/internal/autarch/agent"
+	"github.com/mistakeknot/autarch/internal/bigend/tmux"
 	internalIntermute "github.com/mistakeknot/autarch/internal/intermute"
 	"github.com/mistakeknot/autarch/internal/pollard/research"
 	"github.com/mistakeknot/autarch/pkg/autarch"
@@ -610,6 +611,35 @@ func (a *UnifiedApp) initPaletteCommands() {
 		},
 	})
 	a.palette.SetCommands(cmds)
+
+	// Wire async pane count fetcher — creates a fresh tmux client in the closure
+	// (lightweight; no need for a persistent field on UnifiedApp).
+	a.palette.SetPaneCountFetcher(func() tea.Msg {
+		client := tmux.NewClient()
+		if !client.IsAvailable() {
+			return PaneCountMsg{}
+		}
+		sessions, err := client.ListSessions()
+		if err != nil || len(sessions) == 0 {
+			return PaneCountMsg{Err: err}
+		}
+		panes, err := client.GetAgentPanes(sessions[0].Name)
+		if err != nil {
+			return PaneCountMsg{Err: err}
+		}
+		var counts PaneCounts
+		for _, pane := range panes {
+			switch pane.AgentType {
+			case tmux.AgentClaude:
+				counts.Claude++
+			case tmux.AgentCodex:
+				counts.Codex++
+			case tmux.AgentGemini:
+				counts.Gemini++
+			}
+		}
+		return PaneCountMsg{Counts: counts}
+	})
 }
 
 func (a *UnifiedApp) updateCommands() {
@@ -651,6 +681,26 @@ func (a *UnifiedApp) updateCommands() {
 		Description: "Toggle signals and events overlay",
 		Action: func() tea.Cmd {
 			return a.signalsOverlay.Toggle()
+		},
+	})
+
+	// Broadcast commands (available from any view)
+	cmds = append(cmds, Command{
+		Name:        "Send Prompt to Agents",
+		Description: "Broadcast a prompt to agent panes",
+		Broadcast:   true,
+		Action: func() tea.Cmd {
+			// TODO: implement actual send-to-panes via tmux SendKeys
+			return nil
+		},
+	})
+	cmds = append(cmds, Command{
+		Name:        "Stop All Agents",
+		Description: "Send interrupt to agent panes",
+		Broadcast:   true,
+		Action: func() tea.Cmd {
+			// TODO: implement actual ctrl-c to panes via tmux SendKeys
+			return nil
 		},
 	})
 

@@ -287,3 +287,9 @@ type IntermuteStartedMsg struct {
 type IntermuteStartFailedMsg struct {
 	Error error
 }
+
+// PaneCountMsg carries fetched pane counts back to the palette.
+type PaneCountMsg struct {
+	Counts PaneCounts
+	Err    error
+}

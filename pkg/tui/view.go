@@ -47,6 +47,7 @@ type Command struct {
 	Name        string
 	Description string
 	Action      func() tea.Cmd
+	Broadcast   bool // If true, enters target selection before executing
 }
 
 // CommandProvider can provide commands for the palette.
