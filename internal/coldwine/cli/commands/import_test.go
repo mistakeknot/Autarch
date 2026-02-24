@@ -112,8 +112,8 @@ func TestImportFromBriefsDryRunDoesNotPersist(t *testing.T) {
 	if !strings.Contains(out.String(), "Would import 1 tasks") {
 		t.Fatalf("expected dry-run output, got:\n%s", out.String())
 	}
-	if _, err := os.Stat(filepath.Join(root, ".tandemonium")); !os.IsNotExist(err) {
-		t.Fatalf("expected no persistence in dry-run, .tandemonium exists")
+	if _, err := os.Stat(filepath.Join(root, ".coldwine")); !os.IsNotExist(err) {
+		t.Fatalf("expected no persistence in dry-run, .coldwine exists")
 	}
 }
 
@@ -151,7 +151,7 @@ func TestImportFromBriefsResolvesProjectRootFromSubdir(t *testing.T) {
 	if _, err := os.Stat(project.StateDBPath(root)); err != nil {
 		t.Fatalf("expected db in project root: %v", err)
 	}
-	if _, err := os.Stat(filepath.Join(subdir, ".tandemonium")); !os.IsNotExist(err) {
-		t.Fatalf("unexpected .tandemonium in subdir")
+	if _, err := os.Stat(filepath.Join(subdir, ".coldwine")); !os.IsNotExist(err) {
+		t.Fatalf("unexpected .coldwine in subdir")
 	}
 }

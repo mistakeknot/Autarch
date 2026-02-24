@@ -190,7 +190,7 @@ func TestLocalSource_ListEpics_SpecIDFilter(t *testing.T) {
 
 func TestLocalSource_ListEpics_NoV2(t *testing.T) {
 	dir := t.TempDir()
-	dbDir := filepath.Join(dir, ".tandemonium")
+	dbDir := filepath.Join(dir, ".coldwine")
 	if err := os.MkdirAll(dbDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -468,10 +468,10 @@ func TestLocalSource_MissingDir(t *testing.T) {
 	}
 }
 
-// setupTestDB creates a .tandemonium/state.db with V2 schema.
+// setupTestDB creates a .coldwine/state.db with V2 schema.
 func setupTestDB(t *testing.T, dir string) *sql.DB {
 	t.Helper()
-	dbDir := filepath.Join(dir, ".tandemonium")
+	dbDir := filepath.Join(dir, ".coldwine")
 	if err := os.MkdirAll(dbDir, 0o755); err != nil {
 		t.Fatal(err)
 	}

@@ -72,7 +72,7 @@ func runInit(cmdOut io.Writer, in io.Reader, opts initOptions) error {
 		depth = 2
 	}
 
-	planDir := filepath.Join(root, ".tandemonium", "plan")
+	planDir := filepath.Join(root, ".coldwine", "plan")
 	_, err = explore.Run(root, planDir, explore.Options{
 		Depth: depth,
 		EmitProgress: func(msg string) {
@@ -243,7 +243,7 @@ func (g *agentGenerator) Generate(ctx context.Context, input initflow.Input) (in
 	if err != nil {
 		return initflow.Result{}, err
 	}
-	epicsList, err := parseAndValidateEpics(output, filepath.Join(g.root, ".tandemonium", "plan"))
+	epicsList, err := parseAndValidateEpics(output, filepath.Join(g.root, ".coldwine", "plan"))
 	if err != nil {
 		return initflow.Result{}, err
 	}
@@ -251,7 +251,7 @@ func (g *agentGenerator) Generate(ctx context.Context, input initflow.Input) (in
 }
 
 func writeAgentPrompt(root string, input initflow.Input) (string, error) {
-	planDir := filepath.Join(root, ".tandemonium", "plan")
+	planDir := filepath.Join(root, ".coldwine", "plan")
 	if err := os.MkdirAll(planDir, 0o755); err != nil {
 		return "", err
 	}

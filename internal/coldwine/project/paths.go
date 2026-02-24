@@ -9,13 +9,18 @@ import (
 	"strings"
 )
 
-var ErrNotInitialized = errors.New("not a Tandemonium project")
+var ErrNotInitialized = errors.New("not a Coldwine project")
 
 func FindRoot(start string) (string, error) {
 	cur := start
 	for {
-		cand := filepath.Join(cur, ".tandemonium")
+		// Check .coldwine first, then legacy .tandemonium
+		cand := filepath.Join(cur, ".coldwine")
 		if st, err := os.Stat(cand); err == nil && st.IsDir() {
+			return cur, nil
+		}
+		legacy := filepath.Join(cur, ".tandemonium")
+		if st, err := os.Stat(legacy); err == nil && st.IsDir() {
 			return cur, nil
 		}
 		parent := filepath.Dir(cur)
@@ -27,23 +32,23 @@ func FindRoot(start string) (string, error) {
 }
 
 func StateDBPath(root string) string {
-	return filepath.Join(root, ".tandemonium", "state.db")
+	return filepath.Join(root, ".coldwine", "state.db")
 }
 
 func SpecsDir(root string) string {
-	return filepath.Join(root, ".tandemonium", "specs")
+	return filepath.Join(root, ".coldwine", "specs")
 }
 
 func SessionsDir(root string) string {
-	return filepath.Join(root, ".tandemonium", "sessions")
+	return filepath.Join(root, ".coldwine", "sessions")
 }
 
 func AttachmentsDir(root string) string {
-	return filepath.Join(root, ".tandemonium", "attachments")
+	return filepath.Join(root, ".coldwine", "attachments")
 }
 
 func WorktreesDir(root string) string {
-	return filepath.Join(root, ".tandemonium", "worktrees")
+	return filepath.Join(root, ".coldwine", "worktrees")
 }
 
 var taskIDPattern = regexp.MustCompile(`^[A-Za-z0-9_-]{1,64}$`)

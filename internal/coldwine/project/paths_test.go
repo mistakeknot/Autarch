@@ -9,7 +9,7 @@ import (
 
 func TestFindRoot(t *testing.T) {
 	dir := t.TempDir()
-	if err := os.MkdirAll(filepath.Join(dir, ".tandemonium"), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Join(dir, ".coldwine"), 0o755); err != nil {
 		t.Fatal(err)
 	}
 	got, err := FindRoot(dir)
@@ -26,7 +26,7 @@ func TestTaskSpecPath(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	expected := filepath.Join("/tmp/root", ".tandemonium", "specs", "TAND-001.yaml")
+	expected := filepath.Join("/tmp/root", ".coldwine", "specs", "TAND-001.yaml")
 	if path != expected {
 		t.Fatalf("expected %s, got %s", expected, path)
 	}

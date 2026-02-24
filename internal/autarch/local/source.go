@@ -1,5 +1,5 @@
 // Package local provides a file-based DataSource that reads from local
-// dot-directories (.gurgeh/, .tandemonium/, .pollard/) without requiring
+// dot-directories (.gurgeh/, .coldwine/, .pollard/) without requiring
 // the Intermute HTTP server. Used as a fallback when Intermute is unreachable.
 package local
 
@@ -55,7 +55,7 @@ func (s *LocalSource) ListSpecs(status string) ([]autarch.Spec, error) {
 	return result, nil
 }
 
-// ListEpics reads epics from .tandemonium/state.db.
+// ListEpics reads epics from .coldwine/state.db.
 // Returns empty slice if DB or epics table doesn't exist (MigrateV2 not applied).
 func (s *LocalSource) ListEpics(specID string) ([]autarch.Epic, error) {
 	db, err := s.openDB()
@@ -107,7 +107,7 @@ func (s *LocalSource) ListEpics(specID string) ([]autarch.Epic, error) {
 	return result, nil
 }
 
-// ListStories reads stories from .tandemonium/state.db.
+// ListStories reads stories from .coldwine/state.db.
 func (s *LocalSource) ListStories(epicID string) ([]autarch.Story, error) {
 	db, err := s.openDB()
 	if err != nil {
@@ -156,7 +156,7 @@ func (s *LocalSource) ListStories(epicID string) ([]autarch.Story, error) {
 	return result, nil
 }
 
-// ListTasks reads work_tasks from .tandemonium/state.db.
+// ListTasks reads work_tasks from .coldwine/state.db.
 func (s *LocalSource) ListTasks(status, agent string) ([]autarch.Task, error) {
 	db, err := s.openDB()
 	if err != nil {
@@ -243,10 +243,10 @@ func (s *LocalSource) ListInsights(specID, category string) ([]autarch.Insight, 
 	return result, nil
 }
 
-// openDB opens the Coldwine state database at .tandemonium/state.db.
+// openDB opens the Coldwine state database at .coldwine/state.db.
 // Uses a fresh sql.DB (NOT OpenShared) so we can defer Close().
 func (s *LocalSource) openDB() (*sql.DB, error) {
-	dbPath := filepath.Join(s.projectPath, ".tandemonium", "state.db")
+	dbPath := filepath.Join(s.projectPath, ".coldwine", "state.db")
 	if _, err := os.Stat(dbPath); err != nil {
 		return nil, err
 	}

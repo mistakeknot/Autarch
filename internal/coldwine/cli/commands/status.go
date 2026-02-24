@@ -64,7 +64,7 @@ func summariesToCounts(summaries []specs.SpecSummary) map[string]int {
 
 func formatStatusLines(sum statusSummary) []string {
 	if !sum.Initialized {
-		return []string{"Not initialized (.tandemonium not found)"}
+		return []string{"Not initialized (.coldwine not found)"}
 	}
 	lines := []string{fmt.Sprintf("Project: %s", sum.ProjectRoot)}
 	lines = append(lines, fmt.Sprintf("state.db: %v", sum.DBExists))

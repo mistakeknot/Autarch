@@ -25,7 +25,7 @@ func TestScanCommandWritesSummary(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if _, err := os.Stat(filepath.Join(root, ".tandemonium", "plan", "exploration.md")); err != nil {
+	if _, err := os.Stat(filepath.Join(root, ".coldwine", "plan", "exploration.md")); err != nil {
 		t.Fatalf("expected summary file: %v", err)
 	}
 }

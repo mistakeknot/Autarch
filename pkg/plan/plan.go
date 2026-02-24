@@ -46,7 +46,7 @@ type Recommendation struct {
 
 // Plan represents a generic plan that can be applied.
 type Plan struct {
-	Tool      string    `json:"tool"`       // praude, pollard, tandemonium
+	Tool      string    `json:"tool"`       // praude, pollard, coldwine
 	Action    string    `json:"action"`     // interview, scan, init, etc.
 	Version   string    `json:"version"`    // Plan format version
 	CreatedAt time.Time `json:"created_at"` // When the plan was generated

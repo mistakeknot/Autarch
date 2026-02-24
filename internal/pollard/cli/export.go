@@ -41,7 +41,7 @@ var exportCmd = &cobra.Command{
 		switch exportFormat {
 		case "praude":
 			data, err = generatePraudeExport(allInsights, allPatterns)
-		case "tandemonium":
+		case "coldwine":
 			data, err = generateTandemoniumExport(allPatterns)
 		default:
 			data, err = generatePraudeExport(allInsights, allPatterns)
@@ -179,6 +179,6 @@ func generateTandemoniumExport(allPatterns []*patterns.Pattern) ([]byte, error) 
 }
 
 func init() {
-	exportCmd.Flags().StringVar(&exportFormat, "format", "praude", "Export format: praude, tandemonium")
+	exportCmd.Flags().StringVar(&exportFormat, "format", "praude", "Export format: praude, coldwine")
 	exportCmd.Flags().StringVarP(&exportOutput, "output", "o", "", "Output file path (default: stdout)")
 }

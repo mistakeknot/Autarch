@@ -23,7 +23,7 @@ func agentEnsureCmd() *cobra.Command {
 	var jsonOut bool
 	cmd := &cobra.Command{
 		Use:   "ensure",
-		Short: "Ensure .tandemonium and agent registry exist",
+		Short: "Ensure .coldwine and agent registry exist",
 		RunE: func(cmd *cobra.Command, args []string) (err error) {
 			defer func() {
 				if err != nil {

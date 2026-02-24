@@ -62,6 +62,7 @@ go test ./...
 | `pkg/tui/` | Shared TUI styles (Tokyo Night) |
 | `docs/{tool}/` | Tool-specific documentation |
 | `pkg/signals/` | Cross-tool signal types |
+| `.coldwine/` | Coldwine data directory (state.db, specs, sessions) |
 | `.pollard/` | Pollard data directory (sources, insights, reports) |
 | `.pollard/watch/` | Competitor watch state |
 | `.gurgeh/specs/history/` | Spec version snapshots |

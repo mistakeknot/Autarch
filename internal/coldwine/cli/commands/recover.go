@@ -25,7 +25,7 @@ func RecoverCmd() *cobra.Command {
 			cwd, _ := os.Getwd()
 			root, err := project.FindRoot(cwd)
 			if err != nil {
-				fmt.Fprintln(cmd.OutOrStdout(), "Not initialized (.tandemonium not found)")
+				fmt.Fprintln(cmd.OutOrStdout(), "Not initialized (.coldwine not found)")
 				return nil
 			}
 

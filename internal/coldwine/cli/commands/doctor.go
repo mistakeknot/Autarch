@@ -63,7 +63,7 @@ func collectAllowedFiles(list []specs.SpecSummary) []string {
 
 func formatDoctorLines(sum doctorSummary) []string {
 	if !sum.Initialized {
-		return []string{"Not initialized (.tandemonium not found)"}
+		return []string{"Not initialized (.coldwine not found)"}
 	}
 	lines := []string{"Doctor checks:"}
 	if sum.DBQuickCheck != "" {

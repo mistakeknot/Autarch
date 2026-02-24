@@ -12,10 +12,10 @@ func TestInitProjectCreatesLayout(t *testing.T) {
 		t.Fatalf("init failed: %v", err)
 	}
 	want := []string{
-		".tandemonium",
-		".tandemonium/specs",
-		".tandemonium/sessions",
-		".tandemonium/plan",
+		".coldwine",
+		".coldwine/specs",
+		".coldwine/sessions",
+		".coldwine/plan",
 	}
 	for _, p := range want {
 		if _, err := os.Stat(filepath.Join(dir, p)); err != nil {

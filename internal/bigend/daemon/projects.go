@@ -56,7 +56,7 @@ func (m *ProjectManager) Count() int {
 	return len(m.projects)
 }
 
-// GetTasks returns tasks for a project from its .tandemonium directory
+// GetTasks returns tasks for a project from its .coldwine directory
 func (m *ProjectManager) GetTasks(path string) ([]map[string]interface{}, error) {
 	m.mu.RLock()
 	project, ok := m.projects[path]
@@ -70,7 +70,7 @@ func (m *ProjectManager) GetTasks(path string) ([]map[string]interface{}, error)
 		return []map[string]interface{}{}, nil
 	}
 
-	// TODO: Load tasks from .tandemonium/state.db
+	// TODO: Load tasks from .coldwine/state.db
 	return []map[string]interface{}{}, nil
 }
 
@@ -113,8 +113,8 @@ func (m *ProjectManager) scanProject(path string) *Project {
 		project.GurgStats = m.loadGurgStats(path)
 	}
 
-	// Check for .tandemonium directory
-	if _, err := os.Stat(filepath.Join(path, ".tandemonium")); err == nil {
+	// Check for .coldwine directory
+	if _, err := os.Stat(filepath.Join(path, ".coldwine")); err == nil {
 		project.HasTandemonium = true
 		project.TaskStats = m.loadTaskStats(path)
 	}
@@ -128,9 +128,9 @@ func (m *ProjectManager) scanProject(path string) *Project {
 	return project
 }
 
-// loadTaskStats loads task statistics from .tandemonium
+// loadTaskStats loads task statistics from .coldwine
 func (m *ProjectManager) loadTaskStats(path string) *TaskStats {
-	// TODO: Query .tandemonium/state.db for actual stats
+	// TODO: Query .coldwine/state.db for actual stats
 	return &TaskStats{
 		Todo:       0,
 		InProgress: 0,

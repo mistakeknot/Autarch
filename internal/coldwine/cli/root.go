@@ -10,7 +10,7 @@ import (
 	"github.com/mistakeknot/autarch/internal/coldwine/cli/commands"
 	"github.com/mistakeknot/autarch/internal/coldwine/config"
 	"github.com/mistakeknot/autarch/internal/coldwine/epics"
-	tandemoniumPlan "github.com/mistakeknot/autarch/internal/coldwine/plan"
+	coldwinePlan "github.com/mistakeknot/autarch/internal/coldwine/plan"
 	"github.com/mistakeknot/autarch/internal/coldwine/prd"
 	"github.com/mistakeknot/autarch/internal/coldwine/project"
 	"github.com/mistakeknot/autarch/internal/coldwine/specs"
@@ -36,7 +36,7 @@ func newRootCommand() *cobra.Command {
 	var initDepth int
 	var initUseTUI bool
 	root := &cobra.Command{
-		Use:   "tandemonium",
+		Use:   "coldwine",
 		Short: "Task orchestration for human-AI collaboration",
 		Args:  cobra.ArbitraryArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -78,14 +78,14 @@ func newRootCommand() *cobra.Command {
 	var initPlanMode bool
 	initCmd := &cobra.Command{
 		Use:   "init",
-		Short: "Initialize .tandemonium in current directory",
-		Long: `Initialize .tandemonium in current directory.
+		Short: "Initialize .coldwine in current directory",
+		Long: `Initialize .coldwine in current directory.
 
 By default, runs exploration and generates epics with an AI agent.
 Use --from-prd to import epics from an existing Praude PRD instead:
 
-  tandemonium init --from-prd PRD-001
-  tandemonium init --from-prd mvp
+  coldwine init --from-prd PRD-001
+  coldwine init --from-prd mvp
 `,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			// Handle --from-prd flag with optional --plan
@@ -139,7 +139,7 @@ Use --from-prd to import epics from an existing Praude PRD instead:
 func runInitFromPRD(cmd *cobra.Command, prdID, existing string, existingSet bool) error {
 	out := cmd.OutOrStdout()
 
-	// Initialize the .tandemonium directory
+	// Initialize the .coldwine directory
 	if err := project.Init("."); err != nil {
 		return err
 	}
@@ -219,15 +219,15 @@ func runInitFromPRDPlan(cmd *cobra.Command, prdID string) error {
 	}
 
 	// Convert to plan format
-	var epicPlans []tandemoniumPlan.EpicPlan
+	var epicPlans []coldwinePlan.EpicPlan
 	for _, e := range result.Epics {
-		ep := tandemoniumPlan.EpicPlan{
+		ep := coldwinePlan.EpicPlan{
 			ID:     e.ID,
 			Title:  e.Title,
 			Status: string(e.Status),
 		}
 		for _, s := range e.Stories {
-			ep.Stories = append(ep.Stories, tandemoniumPlan.StoryPlan{
+			ep.Stories = append(ep.Stories, coldwinePlan.StoryPlan{
 				ID:                 s.ID,
 				Title:              s.Title,
 				AcceptanceCriteria: s.AcceptanceCriteria,
@@ -236,7 +236,7 @@ func runInitFromPRDPlan(cmd *cobra.Command, prdID string) error {
 		epicPlans = append(epicPlans, ep)
 	}
 
-	p, err := tandemoniumPlan.GenerateInitPlan(tandemoniumPlan.InitPlanOptions{
+	p, err := coldwinePlan.GenerateInitPlan(coldwinePlan.InitPlanOptions{
 		Root:     root,
 		PRDID:    prdID,
 		Epics:    epicPlans,
@@ -257,7 +257,7 @@ func runInitFromPRDPlan(cmd *cobra.Command, prdID string) error {
 	}
 	fmt.Fprintln(out, string(data))
 	fmt.Fprintf(out, "\nPlan saved to: %s\n", planPath)
-	fmt.Fprintln(out, "Run 'tandemonium apply' to execute this plan.")
+	fmt.Fprintln(out, "Run 'coldwine apply' to execute this plan.")
 
 	return nil
 }

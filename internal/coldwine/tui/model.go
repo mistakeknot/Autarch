@@ -506,7 +506,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				if err := project.Init("."); err != nil {
 					m.SetStatusError(err.Error())
 				} else {
-					m.SetStatusInfo("initialized .tandemonium")
+					m.SetStatusInfo("initialized .coldwine")
 				}
 				return m, nil
 			}
@@ -2132,7 +2132,7 @@ func scanCmd() tea.Cmd {
 		if err != nil {
 			return scanResultMsg{err: err}
 		}
-		planDir := filepath.Join(root, ".tandemonium", "plan")
+		planDir := filepath.Join(root, ".coldwine", "plan")
 		_, err = explore.Run(root, planDir, explore.Options{Depth: 2})
 		head := ""
 		if out, headErr := (&git.ExecRunner{}).Run("git", "rev-parse", "HEAD"); headErr == nil {

@@ -607,7 +607,7 @@ const (
 type ResearchMessage struct {
 	ID        string            `yaml:"id" json:"id"`
 	Type      MessageType       `yaml:"type" json:"type"`
-	From      string            `yaml:"from" json:"from"` // praude, tandemonium
+	From      string            `yaml:"from" json:"from"` // praude, coldwine
 	To        string            `yaml:"to" json:"to"`     // pollard
 	CreatedAt time.Time         `yaml:"created_at" json:"created_at"`
 	Status    string            `yaml:"status" json:"status"` // pending, processing, complete, failed

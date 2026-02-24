@@ -3,7 +3,7 @@ package tui
 import "testing"
 
 func TestWatchFiltersPaths(t *testing.T) {
-	if !shouldReloadPath(".tandemonium/specs/T1.yaml") {
+	if !shouldReloadPath(".coldwine/specs/T1.yaml") {
 		t.Fatalf("expected spec path to reload")
 	}
 	if shouldReloadPath("README.md") {

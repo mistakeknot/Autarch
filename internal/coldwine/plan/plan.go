@@ -76,7 +76,7 @@ type InitPlanOptions struct {
 
 // GenerateInitPlan creates a plan for the init --from-prd command.
 func GenerateInitPlan(opts InitPlanOptions) (*plan.Plan, error) {
-	p := plan.NewPlan("tandemonium", "init")
+	p := plan.NewPlan("coldwine", "init")
 
 	items := InitPlanItems{
 		SourcePRD: opts.PRDID,

@@ -48,10 +48,10 @@ func TestInitRunsPlanningWhenConfirmed(t *testing.T) {
 	if err := cmd.Execute(); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := os.Stat(filepath.Join(dir, ".tandemonium", "plan", "exploration.md")); err != nil {
+	if _, err := os.Stat(filepath.Join(dir, ".coldwine", "plan", "exploration.md")); err != nil {
 		t.Fatalf("expected exploration.md: %v", err)
 	}
-	if _, err := os.Stat(filepath.Join(dir, ".tandemonium", "specs", "EPIC-001.yaml")); err != nil {
+	if _, err := os.Stat(filepath.Join(dir, ".coldwine", "specs", "EPIC-001.yaml")); err != nil {
 		t.Fatalf("expected EPIC-001.yaml: %v", err)
 	}
 }
@@ -79,14 +79,14 @@ func TestQuickTaskCreatesSpec(t *testing.T) {
 	if err := cmd.Execute(); err != nil {
 		t.Fatal(err)
 	}
-	entries, err := os.ReadDir(filepath.Join(dir, ".tandemonium", "specs"))
+	entries, err := os.ReadDir(filepath.Join(dir, ".coldwine", "specs"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	if len(entries) == 0 {
 		t.Fatal("expected a spec file")
 	}
-	raw, err := os.ReadFile(filepath.Join(dir, ".tandemonium", "specs", entries[0].Name()))
+	raw, err := os.ReadFile(filepath.Join(dir, ".coldwine", "specs", entries[0].Name()))
 	if err != nil {
 		t.Fatal(err)
 	}

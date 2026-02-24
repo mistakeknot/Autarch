@@ -23,7 +23,7 @@ func Open(path string) (*sql.DB, error) {
 }
 
 func OpenTemp() (*sql.DB, error) {
-	dir, err := os.MkdirTemp("", "tandemonium-db-")
+	dir, err := os.MkdirTemp("", "coldwine-db-")
 	if err != nil {
 		return nil, err
 	}

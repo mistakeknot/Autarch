@@ -10,7 +10,7 @@ import (
 
 func TestRunPlanningCreatesPlanDocs(t *testing.T) {
 	root := t.TempDir()
-	planDir := filepath.Join(root, ".tandemonium", "plan")
+	planDir := filepath.Join(root, ".coldwine", "plan")
 	input := strings.NewReader("y\nmy vision\nmy mvp\n")
 	var out bytes.Buffer
 	if err := Run(input, &out, planDir); err != nil {

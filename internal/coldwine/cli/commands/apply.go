@@ -9,7 +9,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/mistakeknot/autarch/internal/coldwine/epics"
-	tandemoniumPlan "github.com/mistakeknot/autarch/internal/coldwine/plan"
+	coldwinePlan "github.com/mistakeknot/autarch/internal/coldwine/plan"
 	"github.com/mistakeknot/autarch/internal/coldwine/project"
 	"github.com/mistakeknot/autarch/pkg/plan"
 )
@@ -28,9 +28,9 @@ By default, applies the most recent pending plan. Use --plan to specify
 a specific plan file.
 
 Examples:
-  tandemonium apply
-  tandemonium apply --plan .tandemonium/pending/init-plan.json
-  tandemonium apply --existing overwrite
+  coldwine apply
+  coldwine apply --plan .coldwine/pending/init-plan.json
+  coldwine apply --existing overwrite
 `,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			root, err := project.FindRoot(".")
@@ -46,7 +46,7 @@ Examples:
 					return fmt.Errorf("failed to load plan: %w", err)
 				}
 			} else {
-				plans, err := plan.ListPending(root, "tandemonium")
+				plans, err := plan.ListPending(root, "coldwine")
 				if err != nil {
 					return fmt.Errorf("failed to list pending plans: %w", err)
 				}
@@ -97,12 +97,12 @@ Examples:
 
 // applyInitPlan applies an init plan to create epics.
 func applyInitPlan(out io.Writer, root string, p *plan.Plan, existingMode string) error {
-	var items tandemoniumPlan.InitPlanItems
+	var items coldwinePlan.InitPlanItems
 	if err := p.GetItems(&items); err != nil {
 		return fmt.Errorf("failed to parse plan items: %w", err)
 	}
 
-	// Initialize the .tandemonium directory
+	// Initialize the .coldwine directory
 	if err := project.Init("."); err != nil {
 		return err
 	}
@@ -158,7 +158,7 @@ func applyInitPlan(out io.Writer, root string, p *plan.Plan, existingMode string
 	fmt.Fprintf(out, "Wrote epics to %s\n", specsDir)
 
 	// Clear the pending plan
-	if err := plan.ClearPending(root, "tandemonium", "init"); err != nil {
+	if err := plan.ClearPending(root, "coldwine", "init"); err != nil {
 		fmt.Fprintf(out, "Warning: failed to clear pending plan: %v\n", err)
 	}
 

@@ -148,7 +148,7 @@ func DiscoverProjects(paths []string) []Project {
 			Path: path,
 			Name: filepath.Base(path),
 		}
-		// TODO: Check for .praude, .tandemonium, .pollard directories
+		// TODO: Check for .praude, .coldwine, .pollard directories
 		projects = append(projects, project)
 	}
 	return projects

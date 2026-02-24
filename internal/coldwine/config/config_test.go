@@ -8,7 +8,7 @@ import (
 
 func TestLoadProjectConfig(t *testing.T) {
 	dir := t.TempDir()
-	cfgDir := filepath.Join(dir, ".tandemonium")
+	cfgDir := filepath.Join(dir, ".coldwine")
 	if err := os.MkdirAll(cfgDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -42,7 +42,7 @@ func TestLoadProjectConfigConfirmApproveDefault(t *testing.T) {
 
 func TestLoadProjectConfigReviewTargetBranch(t *testing.T) {
 	dir := t.TempDir()
-	cfgDir := filepath.Join(dir, ".tandemonium")
+	cfgDir := filepath.Join(dir, ".coldwine")
 	if err := os.MkdirAll(cfgDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -78,7 +78,7 @@ func TestLoadProjectConfigCodingDefaults(t *testing.T) {
 
 func TestLoadProjectConfigLLMSummary(t *testing.T) {
 	dir := t.TempDir()
-	cfgDir := filepath.Join(dir, ".tandemonium")
+	cfgDir := filepath.Join(dir, ".coldwine")
 	if err := os.MkdirAll(cfgDir, 0o755); err != nil {
 		t.Fatal(err)
 	}

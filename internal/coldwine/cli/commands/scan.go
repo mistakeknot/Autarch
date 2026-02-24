@@ -29,7 +29,7 @@ func ScanCmd() *cobra.Command {
 			if actionItems {
 				return runActionItemScan(cmd, root, minConfidence)
 			}
-			planDir := filepath.Join(root, ".tandemonium", "plan")
+			planDir := filepath.Join(root, ".coldwine", "plan")
 			_, err := explore.Run(root, planDir, explore.Options{Depth: depth})
 			return err
 		},

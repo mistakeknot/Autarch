@@ -10,7 +10,7 @@ import (
 
 func TestPlanCommandRunsPlanning(t *testing.T) {
 	dir := t.TempDir()
-	if err := os.MkdirAll(filepath.Join(dir, ".tandemonium", "plan"), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Join(dir, ".coldwine", "plan"), 0o755); err != nil {
 		t.Fatal(err)
 	}
 	cwd, err := os.Getwd()

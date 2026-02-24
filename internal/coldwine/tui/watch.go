@@ -48,16 +48,16 @@ func watchCmd() tea.Cmd {
 
 func shouldReloadPath(path string) bool {
 	slash := filepath.ToSlash(path)
-	if strings.HasPrefix(slash, ".tandemonium/specs/") {
+	if strings.HasPrefix(slash, ".coldwine/specs/") {
 		return true
 	}
-	if strings.Contains(slash, "/.tandemonium/specs/") {
+	if strings.Contains(slash, "/.coldwine/specs/") {
 		return true
 	}
-	if strings.HasPrefix(slash, ".tandemonium/") && strings.HasSuffix(slash, "state.db") {
+	if strings.HasPrefix(slash, ".coldwine/") && strings.HasSuffix(slash, "state.db") {
 		return true
 	}
-	if strings.Contains(slash, "/.tandemonium/") && strings.HasSuffix(slash, "state.db") {
+	if strings.Contains(slash, "/.coldwine/") && strings.HasSuffix(slash, "state.db") {
 		return true
 	}
 	return false

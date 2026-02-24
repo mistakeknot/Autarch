@@ -640,7 +640,7 @@ func (s *Server) handleProjectDetail(w http.ResponseWriter, r *http.Request, pro
 		return
 	}
 
-	// For now, redirect to tasks if project has tandemonium
+	// For now, redirect to tasks if project has coldwine
 	if project.HasColdwine {
 		http.Redirect(w, r, "/projects/"+projectPath+"/tasks", http.StatusFound)
 		return

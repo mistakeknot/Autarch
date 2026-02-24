@@ -296,7 +296,7 @@ func TestMailSendWritesStateDB(t *testing.T) {
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("send failed: %v", err)
 	}
-	if _, err := os.Stat(filepath.Join(dir, ".tandemonium", "state.db")); err != nil {
+	if _, err := os.Stat(filepath.Join(dir, ".coldwine", "state.db")); err != nil {
 		t.Fatalf("expected state.db: %v", err)
 	}
 }
@@ -461,7 +461,7 @@ func TestMailSummarizeThreadLLM(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	cfgPath := filepath.Join(dir, ".tandemonium", "config.toml")
+	cfgPath := filepath.Join(dir, ".coldwine", "config.toml")
 	if err := os.WriteFile(cfgPath, []byte("[llm_summary]\ncommand = \""+cmdPath+"\"\ntimeout_seconds = 5\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -515,7 +515,7 @@ func TestMailSummarizeDryRunUsesLLM(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	cfgPath := filepath.Join(dir, ".tandemonium", "config.toml")
+	cfgPath := filepath.Join(dir, ".coldwine", "config.toml")
 	if err := os.WriteFile(cfgPath, []byte("[llm_summary]\ncommand = \""+cmdPath+"\"\ntimeout_seconds = 5\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -636,7 +636,7 @@ func TestMailSummarizeDryRunInvalidOutput(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	cfgPath := filepath.Join(dir, ".tandemonium", "config.toml")
+	cfgPath := filepath.Join(dir, ".coldwine", "config.toml")
 	if err := os.WriteFile(cfgPath, []byte("[llm_summary]\ncommand = \""+cmdPath+"\"\ntimeout_seconds = 5\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -671,7 +671,7 @@ func TestMailSummarizeLLMInvalidOutput(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	cfgPath := filepath.Join(dir, ".tandemonium", "config.toml")
+	cfgPath := filepath.Join(dir, ".coldwine", "config.toml")
 	if err := os.WriteFile(cfgPath, []byte("[llm_summary]\ncommand = \""+cmdPath+"\"\ntimeout_seconds = 5\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}

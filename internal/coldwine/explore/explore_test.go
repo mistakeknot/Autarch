@@ -8,7 +8,7 @@ import (
 
 func TestExploreWritesSummary(t *testing.T) {
 	root := t.TempDir()
-	planDir := filepath.Join(root, ".tandemonium", "plan")
+	planDir := filepath.Join(root, ".coldwine", "plan")
 	if err := os.MkdirAll(planDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
