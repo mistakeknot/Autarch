@@ -24,7 +24,6 @@ type PollardView struct {
 	width       int
 	height      int
 	loading     bool
-	err         error
 
 	// Progressive reveal state
 	currentRunID   string
@@ -119,7 +118,9 @@ func (v *PollardView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
 	case insightsLoadedMsg:
 		v.loading = false
 		if msg.err != nil {
-			v.err = msg.err
+			// Don't block the whole view on data fetch failure —
+			// show degraded view with empty insights instead.
+			v.insights = nil
 		} else {
 			v.insights = msg.insights
 		}
@@ -243,10 +244,6 @@ func (v *PollardView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
 func (v *PollardView) View() string {
 	if v.loading && !v.runActive {
 		return pkgtui.LabelStyle.Render("Loading insights...")
-	}
-
-	if v.err != nil && !v.runActive {
-		return tui.ErrorView(v.err)
 	}
 
 	sidebarItems := v.SidebarItems()

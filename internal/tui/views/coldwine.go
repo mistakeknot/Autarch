@@ -21,7 +21,6 @@ type ColdwineView struct {
 	width    int
 	height   int
 	loading  bool
-	err      error
 
 	// Shell layout for unified 3-pane layout
 	shell *pkgtui.ShellLayout
@@ -119,7 +118,11 @@ func (v *ColdwineView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
 	case epicsLoadedMsg:
 		v.loading = false
 		if msg.err != nil {
-			v.err = msg.err
+			// Don't block the whole view on data fetch failure —
+			// show degraded view with empty data instead.
+			v.epics = nil
+			v.stories = nil
+			v.tasks = nil
 		} else {
 			v.epics = msg.epics
 			v.stories = msg.stories
@@ -181,10 +184,6 @@ func (v *ColdwineView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
 func (v *ColdwineView) View() string {
 	if v.loading {
 		return pkgtui.LabelStyle.Render("Loading epics...")
-	}
-
-	if v.err != nil {
-		return tui.ErrorView(v.err)
 	}
 
 	// Render using shell layout
