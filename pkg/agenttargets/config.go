@@ -3,6 +3,7 @@ package agenttargets
 import (
 	"os"
 	"path/filepath"
+	"time"
 
 	"github.com/BurntSushi/toml"
 )
@@ -12,9 +13,16 @@ type legacyAgent struct {
 	Args    []string `toml:"args"`
 }
 
+type fileDispatchConfig struct {
+	PreferredBackend string `toml:"preferred_backend"`
+	PreferredAgent   string `toml:"preferred_agent"`
+	Timeout          string `toml:"timeout"`
+}
+
 type fileConfig struct {
-	Targets map[string]Target      `toml:"targets"`
-	Agents  map[string]legacyAgent `toml:"agents"`
+	Targets  map[string]Target      `toml:"targets"`
+	Agents   map[string]legacyAgent `toml:"agents"`
+	Dispatch fileDispatchConfig     `toml:"dispatch"`
 }
 
 func Load(globalPath, projectRoot string) (Registry, Registry, error) {
@@ -98,4 +106,64 @@ func registryFromConfig(cfg fileConfig) Registry {
 		}
 	}
 	return reg
+}
+
+// LoadDispatchConfig reads project-level dispatch preferences from agents.toml
+// and applies environment variable overrides. Returns DefaultDispatchConfig() if
+// no config file is found.
+func LoadDispatchConfig(projectRoot string) DispatchConfig {
+	cfg := DefaultDispatchConfig()
+
+	if projectRoot == "" {
+		applyDispatchEnvOverrides(&cfg)
+		return cfg
+	}
+
+	// Look for agents.toml in .gurgeh/ or .praude/
+	gurgDir := filepath.Join(projectRoot, ".gurgeh")
+	praudeDir := filepath.Join(projectRoot, ".praude")
+	configDir := gurgDir
+	if _, err := os.Stat(gurgDir); os.IsNotExist(err) {
+		if _, err := os.Stat(praudeDir); err == nil {
+			configDir = praudeDir
+		}
+	}
+
+	agentsPath := filepath.Join(configDir, "agents.toml")
+	if _, err := os.Stat(agentsPath); err != nil {
+		applyDispatchEnvOverrides(&cfg)
+		return cfg
+	}
+
+	var fileCfg fileConfig
+	if _, err := toml.DecodeFile(agentsPath, &fileCfg); err != nil {
+		applyDispatchEnvOverrides(&cfg)
+		return cfg
+	}
+
+	d := fileCfg.Dispatch
+	if d.PreferredBackend != "" {
+		cfg.PreferredBackend = BackendType(d.PreferredBackend)
+	}
+	if d.PreferredAgent != "" {
+		cfg.PreferredAgent = d.PreferredAgent
+	}
+	if d.Timeout != "" {
+		if dur, err := time.ParseDuration(d.Timeout); err == nil {
+			cfg.Timeout = dur
+		}
+	}
+
+	applyDispatchEnvOverrides(&cfg)
+	return cfg
+}
+
+// applyDispatchEnvOverrides applies environment variable overrides to a DispatchConfig.
+func applyDispatchEnvOverrides(cfg *DispatchConfig) {
+	if v := os.Getenv("AUTARCH_DISPATCH_BACKEND"); v != "" {
+		cfg.PreferredBackend = BackendType(v)
+	}
+	if v := os.Getenv("AUTARCH_DISPATCH_AGENT"); v != "" {
+		cfg.PreferredAgent = v
+	}
 }

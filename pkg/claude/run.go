@@ -1,15 +1,15 @@
 package claude
 
 import (
-	"bufio"
 	"context"
-	"encoding/json"
 	"fmt"
-	"os/exec"
 	"strings"
+
+	"github.com/mistakeknot/autarch/pkg/agenttargets"
 )
 
 // EventType represents the kind of streaming event from Claude CLI.
+// Deprecated: Use agenttargets.StreamEventType instead.
 type EventType int
 
 const (
@@ -24,6 +24,7 @@ const (
 )
 
 // StreamEvent is a single event from a Claude CLI streaming session.
+// Deprecated: Use agenttargets.StreamEvent instead.
 type StreamEvent struct {
 	Type      EventType
 	Text      string         // Content for text/thinking/result/error events
@@ -36,110 +37,27 @@ type StreamEvent struct {
 // RunStreaming executes `claude` with --output-format stream-json and sends
 // parsed events to the returned channel. The channel is closed when the
 // process exits. Cancel the context to kill the process.
+//
+// This is now a thin shim over agenttargets.Dispatch().
 func RunStreaming(ctx context.Context, cwd string, args []string) (<-chan StreamEvent, error) {
-	cmdArgs := append([]string(nil), args...)
-	if !hasStreamJSONOutputFormat(cmdArgs) {
-		cmdArgs = append([]string{"--output-format", "stream-json"}, cmdArgs...)
-	}
+	// Extract prompt and build config from args.
+	cfg, prompt := configFromArgs(args)
 
-	cmd := exec.CommandContext(ctx, "claude", cmdArgs...)
-	cmd.Dir = cwd
-
-	stdout, err := cmd.StdoutPipe()
+	handle, err := agenttargets.Dispatch(ctx, cfg, cwd, prompt)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create stdout pipe: %w", err)
-	}
-
-	if err := cmd.Start(); err != nil {
-		return nil, fmt.Errorf("failed to start claude: %w", err)
+		return nil, err
 	}
 
 	events := make(chan StreamEvent)
 	go func() {
 		defer close(events)
-
-		emit := func(event StreamEvent) {
+		for event := range handle.Events {
+			converted := convertEvent(event)
 			select {
-			case events <- event:
+			case events <- converted:
 			case <-ctx.Done():
+				return
 			}
-		}
-
-		scanner := bufio.NewScanner(stdout)
-		scanner.Buffer(make([]byte, 1024*1024), 1024*1024)
-
-		sawResult := false
-		for scanner.Scan() {
-			line := scanner.Text()
-			if line == "" {
-				continue
-			}
-
-			var msg rawMessage
-			if err := json.Unmarshal([]byte(line), &msg); err != nil {
-				emit(StreamEvent{
-					Type: EventError,
-					Text: fmt.Sprintf("failed to parse stream line: %v", err),
-				})
-				continue
-			}
-
-			if msg.Type == "system" && msg.Subtype == "init" && msg.SessionID != "" {
-				emit(StreamEvent{
-					Type:      EventSessionID,
-					SessionID: msg.SessionID,
-				})
-			}
-
-			if msg.Type == "assistant" && msg.Message != nil {
-				for _, block := range msg.Message.Content {
-					switch block.Type {
-					case "text":
-						if block.Text != "" {
-							emit(StreamEvent{Type: EventText, Text: block.Text})
-						}
-					case "thinking_start":
-						emit(StreamEvent{Type: EventThinkingStart})
-					case "thinking":
-						text := block.Thinking
-						if text == "" {
-							text = block.Text
-						}
-						emit(StreamEvent{Type: EventThinking, Text: text})
-					case "thinking_end":
-						emit(StreamEvent{Type: EventThinkingEnd})
-					case "tool_use":
-						emit(StreamEvent{
-							Type:      EventToolUse,
-							ToolName:  block.Name,
-							ToolInput: block.Input,
-						})
-					}
-				}
-			}
-
-			if msg.Type == "result" {
-				sawResult = true
-				emit(StreamEvent{
-					Type:    EventResult,
-					Text:    msg.Result,
-					IsError: msg.IsError,
-				})
-			}
-		}
-
-		if err := scanner.Err(); err != nil {
-			emit(StreamEvent{
-				Type: EventError,
-				Text: fmt.Sprintf("failed to read stream output: %v", err),
-			})
-		}
-
-		if err := cmd.Wait(); err != nil && !sawResult {
-			emit(StreamEvent{
-				Type: EventError,
-				Text: fmt.Sprintf("claude failed: %v", err),
-			})
 		}
 	}()
 
@@ -148,6 +66,8 @@ func RunStreaming(ctx context.Context, cwd string, args []string) (<-chan Stream
 
 // Run executes Claude and returns the final result text.
 // This is a convenience wrapper around RunStreaming that blocks until complete.
+//
+// This is now a thin shim over agenttargets.Dispatch().
 func Run(ctx context.Context, cwd string, args []string) (string, error) {
 	events, err := RunStreaming(ctx, cwd, args)
 	if err != nil {
@@ -185,35 +105,85 @@ func Run(ctx context.Context, cwd string, args []string) (string, error) {
 	return strings.TrimSpace(resultText), nil
 }
 
-func hasStreamJSONOutputFormat(args []string) bool {
+// configFromArgs extracts a DispatchConfig and prompt from raw CLI args.
+// This handles the common patterns used by callers: -p <prompt>, --resume, --model, etc.
+func configFromArgs(args []string) (agenttargets.DispatchConfig, string) {
+	cfg := agenttargets.DispatchConfig{
+		PreferredBackend: agenttargets.BackendSubscriptionCLI,
+		PreferredAgent:   "claude",
+	}
+
+	var prompt string
+	var extraArgs []string
+
 	for i := 0; i < len(args); i++ {
-		if args[i] == "--output-format" && i+1 < len(args) && args[i+1] == "stream-json" {
-			return true
-		}
-		if strings.HasPrefix(args[i], "--output-format=") && strings.TrimPrefix(args[i], "--output-format=") == "stream-json" {
-			return true
+		switch args[i] {
+		case "-p":
+			if i+1 < len(args) {
+				prompt = args[i+1]
+				i++
+			}
+		case "--resume":
+			if i+1 < len(args) {
+				cfg.SessionID = args[i+1]
+				i++
+			}
+		case "--model":
+			if i+1 < len(args) {
+				cfg.Model = args[i+1]
+				i++
+			}
+		case "--output-format":
+			// Skip — Dispatch always uses stream-json.
+			if i+1 < len(args) {
+				i++
+			}
+		case "--verbose":
+			cfg.Verbose = true
+		case "--print":
+			cfg.Print = true
+		case "--dangerously-skip-permissions":
+			cfg.Sandbox = "danger-full-access"
+		default:
+			// Check for --key=value forms.
+			if strings.HasPrefix(args[i], "--output-format=") {
+				continue
+			}
+			extraArgs = append(extraArgs, args[i])
 		}
 	}
-	return false
+
+	cfg.ExtraArgs = extraArgs
+	return cfg, prompt
 }
 
-type rawMessage struct {
-	Type      string      `json:"type"`
-	Subtype   string      `json:"subtype"`
-	SessionID string      `json:"session_id"`
-	Result    string      `json:"result"`
-	IsError   bool        `json:"is_error"`
-	Message   *rawContent `json:"message"`
-}
-
-type rawContent struct {
-	Content []rawBlock `json:"content"`
-}
-
-type rawBlock struct {
-	Type     string         `json:"type"`
-	Text     string         `json:"text"`
-	Name     string         `json:"name"`
-	Input    map[string]any `json:"input"`
-	Thinking string         `json:"thinking"`
+// convertEvent converts an agenttargets.StreamEvent to a claude.StreamEvent.
+func convertEvent(e agenttargets.StreamEvent) StreamEvent {
+	var t EventType
+	switch e.Type {
+	case agenttargets.StreamText:
+		t = EventText
+	case agenttargets.StreamThinkingStart:
+		t = EventThinkingStart
+	case agenttargets.StreamThinking:
+		t = EventThinking
+	case agenttargets.StreamThinkingEnd:
+		t = EventThinkingEnd
+	case agenttargets.StreamToolUse:
+		t = EventToolUse
+	case agenttargets.StreamResult:
+		t = EventResult
+	case agenttargets.StreamError:
+		t = EventError
+	case agenttargets.StreamSessionID:
+		t = EventSessionID
+	}
+	return StreamEvent{
+		Type:      t,
+		Text:      e.Text,
+		ToolName:  e.ToolName,
+		ToolInput: e.ToolInput,
+		SessionID: e.SessionID,
+		IsError:   e.IsError,
+	}
 }
