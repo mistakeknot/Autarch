@@ -1,0 +1,11 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+repo_root=$(git rev-parse --show-toplevel)
+cd "$repo_root"
+
+export GOCACHE="${GOCACHE:-/tmp/go-build}"
+
+./dev autarch plan-status --output docs/plans/STATUS.md
+
+git add docs/plans/STATUS.md

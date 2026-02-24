@@ -1,0 +1,343 @@
+{
+  "reviewed": "2026-02-23",
+  "agents_launched": [
+    "fd-architecture",
+    "fd-correctness",
+    "fd-quality",
+    "fd-user-product"
+  ],
+  "agents_completed": [
+    "fd-architecture",
+    "fd-correctness",
+    "fd-quality",
+    "fd-user-product"
+  ],
+  "agents_failed": [],
+  "context": "7 files changed across Go. Risk domains: data-access (SQLite), fallback-logic (network error detection), TUI rendering (offline badge). Changes implement a DataSource interface with HTTPSource/LocalSource fallback pattern for Autarch dashboard views.",
+  "findings": [
+    {
+      "id": "C-02",
+      "severity": "P0",
+      "title": "SQL injection via table name in hasTable() — PRAGMA table_info concatenation",
+      "agents": ["fd-correctness", "fd-quality"],
+      "convergence": 2,
+      "file": "internal/autarch/local/source.go",
+      "lines": "240-247",
+      "section": "Data Access Safety",
+      "description": "hasTable() builds SQL by direct string concatenation of caller-supplied table names. While hardcoded today, future refactors with variable names will introduce SQL injection. PRAGMA does not support parameterized arguments."
+    },
+    {
+      "id": "A2",
+      "severity": "P0",
+      "title": "fallbackActive write is not protected against concurrent callers — Data race",
+      "agents": ["fd-architecture", "fd-correctness"],
+      "convergence": 2,
+      "file": "pkg/autarch/client.go",
+      "lines": "81-90",
+      "section": "Concurrency",
+      "description": "fallbackActive is plain bool. tryFallback() sets without mutex. Dashboard views call List* concurrently via Bubble Tea. go test -race will flag; violates CLAUDE.md requirement."
+    },
+    {
+      "id": "U2",
+      "severity": "P0",
+      "title": "Mutating operations in fallback mode fail silently with generic network error",
+      "agents": ["fd-user-product"],
+      "convergence": 1,
+      "file": "pkg/autarch/client.go",
+      "lines": "218-265",
+      "section": "Error Handling & UX",
+      "description": "Write methods have no fallback guard. When offline, they attempt HTTP POST/PUT/DELETE, receive ECONNREFUSED, return raw error. No message guides user to start Intermute or explains read-only mode."
+    },
+    {
+      "id": "U1",
+      "severity": "P0",
+      "title": "[offline] badge is ambiguous — does not explain what is degraded or how to fix it",
+      "agents": ["fd-user-product"],
+      "convergence": 1,
+      "file": "internal/tui/unified_app.go",
+      "lines": "791-794",
+      "section": "User Experience & Discoverability",
+      "description": "Badge text '[offline]' carries no context about which service is unreachable, what data is shown, or how to resolve. No help entry. Users cannot understand system state or take corrective action."
+    },
+    {
+      "id": "C-03",
+      "severity": "P1",
+      "title": "rows.Err() is not checked after all scan loops",
+      "agents": ["fd-correctness", "fd-quality"],
+      "convergence": 2,
+      "file": "internal/autarch/local/source.go",
+      "lines": "80-95, 126-141, 183-200",
+      "section": "SQL Error Handling",
+      "description": "database/sql contract requires rows.Err() after iteration. Without check, scanner errors (I/O, WAL checkpoint, partial reads) silently produce truncated results. Dashboard displays incomplete data as correct."
+    },
+    {
+      "id": "A1",
+      "severity": "P1",
+      "title": "internal/ fallback implementation couples three previously independent internal/ subtrees",
+      "agents": ["fd-architecture"],
+      "convergence": 1,
+      "file": "internal/autarch/local/source.go",
+      "lines": "11-16",
+      "section": "Boundaries & Coupling",
+      "description": "LocalSource imports internal/gurgeh/specs and internal/pollard/insights directly, violating Go internal/ contract. Presentation-layer fallback adapter now load-bearing for two domain packages. Any signature change breaks fallback."
+    },
+    {
+      "id": "A3",
+      "severity": "P1",
+      "title": "mapPRDStatusToSpecStatus is duplicated and acknowledged to drift",
+      "agents": ["fd-architecture", "fd-correctness", "fd-quality"],
+      "convergence": 3,
+      "file": "internal/autarch/local/source.go:269-282 vs internal/gurgeh/intermute/sync.go:76-94",
+      "lines": "269-282, 76-94",
+      "section": "Type Mapping & Duplication",
+      "description": "Status mapping exists in two places. Comment acknowledges drift risk but provides no enforcement. When PRDStatus enum changes, both copies must be updated independently."
+    },
+    {
+      "id": "U4",
+      "severity": "P1",
+      "title": "Session-sticky fallback has no escape hatch — user cannot reconnect",
+      "agents": ["fd-user-product"],
+      "convergence": 1,
+      "file": "pkg/autarch/client.go",
+      "lines": "81-83",
+      "section": "User Recovery & Mode Transitions",
+      "description": "Once fallbackActive=true, no List re-probes Intermute. User cannot reconnect within session. If Intermute starts after TUI launch, user is stuck in offline mode — must restart TUI."
+    },
+    {
+      "id": "C-04",
+      "severity": "P2",
+      "title": "PRDStatusApproved → SpecStatusResearch is semantically wrong mapping",
+      "agents": ["fd-correctness", "fd-quality"],
+      "convergence": 2,
+      "file": "internal/autarch/local/source.go",
+      "lines": "270-284",
+      "section": "Type Mapping & Semantics",
+      "description": "Approved PRD in Gurgeh means user-accepted and ready. Mapping to SpecStatusResearch (still gathering data) misrepresents state to views and downstream status-filter logic."
+    },
+    {
+      "id": "C-05",
+      "severity": "P2",
+      "title": "isDialError misses dial errors not wrapped in os.SyscallError",
+      "agents": ["fd-correctness"],
+      "convergence": 1,
+      "file": "pkg/autarch/client.go",
+      "lines": "63-77",
+      "section": "Error Classification",
+      "description": "Function returns false if *net.OpError{Op:dial} lacks *os.SyscallError wrapper. Custom dialers or unusual platforms may not match. Silently returns false without documented fall-through case."
+    },
+    {
+      "id": "C-06",
+      "severity": "P2",
+      "title": "RFC3339 parse errors silently produce zero-time values",
+      "agents": ["fd-correctness"],
+      "convergence": 1,
+      "file": "internal/autarch/local/source.go",
+      "lines": "88-89, 134-135, 194-195, 260-263",
+      "section": "Error Handling & Data Integrity",
+      "description": "Timestamp parsing done as t,_=time.Parse(...). Malformed timestamps yield Unix epoch 1970-01-01. Dashboard displays epoch as creation date, misleading but not catastrophic. No test coverage for failure path."
+    },
+    {
+      "id": "A4",
+      "severity": "P2",
+      "title": "probeClient field is allocated but never used",
+      "agents": ["fd-architecture", "fd-quality"],
+      "convergence": 2,
+      "file": "pkg/autarch/client.go",
+      "lines": "27, 50",
+      "section": "Dead Code & Clarity",
+      "description": "probeClient created in WithFallback but no code path calls it. Comment says short-timeout for initial probes but current strategy uses lazy activation. Dead field misleads future readers."
+    },
+    {
+      "id": "F03",
+      "severity": "P2",
+      "title": "All SQL-backed list methods open and immediately close fresh sql.DB on every call",
+      "agents": ["fd-quality"],
+      "convergence": 1,
+      "file": "internal/autarch/local/source.go",
+      "lines": "ListEpics, ListStories, ListTasks, ListInsights",
+      "section": "Resource Usage & Performance",
+      "description": "Each list call creates new connection pool, opens WAL file, closes immediately. TUI refresh ticker will create file descriptor churn. Codebase uses OpenShared for read-heavy paths; shared connection would reduce churn."
+    },
+    {
+      "id": "A5",
+      "severity": "IMP",
+      "title": "Get* and mutation methods fail silently in fallback mode, creating split-brain UX",
+      "agents": ["fd-architecture"],
+      "convergence": 1,
+      "file": "pkg/autarch/client.go",
+      "lines": "229-253",
+      "section": "Error Handling & Consistency",
+      "description": "DataSource only covers List* ops. GetSpec, GetTask, mutations have no fallback guard. When offline, these methods issue HTTP calls that will timeout. Dashboard may only use List* today but detail views will regress."
+    },
+    {
+      "id": "A6",
+      "severity": "IMP",
+      "title": "Synthetic ID from prd.Version breaks cross-boundary identity assumptions",
+      "agents": ["fd-architecture"],
+      "convergence": 1,
+      "file": "internal/autarch/local/source.go",
+      "lines": "252-256",
+      "section": "Type Safety & Identity",
+      "description": "mapPRDToSpec sets spec.ID = prd.Version (synthetic from version slug). Rest of codebase treats ID as UUID from Intermute. Callers comparing IDs across sources will find mismatches. Latent correctness bug."
+    },
+    {
+      "id": "A7",
+      "severity": "IMP",
+      "title": "mapInsightToAutarch lossy reduction is not surfaced to callers",
+      "agents": ["fd-architecture"],
+      "convergence": 1,
+      "file": "internal/autarch/local/source.go",
+      "lines": "211-232",
+      "section": "Data Completeness Contracts",
+      "description": "ListInsights fallback returns Body always empty and SpecID from first LinkedFeatures element only. Documented in comment but callers receive same return type as Intermute and cannot distinguish data loss from empty values."
+    },
+    {
+      "id": "U3",
+      "severity": "IMP",
+      "title": "Fallback activation is silent — no in-session notification",
+      "agents": ["fd-user-product"],
+      "convergence": 1,
+      "file": "pkg/autarch/client.go",
+      "lines": "79-90",
+      "section": "User Awareness & Signaling",
+      "description": "Fallback activates with no toast, status message, log pane event, or modal. Badge [offline] in low-attention footer zone. Active user scrolling may not notice. First signal is failed write after time invested in session."
+    },
+    {
+      "id": "U5",
+      "severity": "IMP",
+      "title": "[offline] badge is visually indistinguishable from surrounding footer text",
+      "agents": ["fd-user-product"],
+      "convergence": 1,
+      "file": "internal/tui/unified_app.go:792-794, pkg/tui/styles.go:47-50",
+      "lines": "792-794, 47-50",
+      "section": "Visual Hierarchy & Attention",
+      "description": "Badge appended as plain string, rendered via FooterStyle (ColorMuted). No color differentiation or bold. Tokyo Night palette has warning colors used elsewhere; badge easy to miss in dense footer."
+    },
+    {
+      "id": "U6",
+      "severity": "IMP",
+      "title": "Data staleness is unquantified in the badge",
+      "agents": ["fd-user-product"],
+      "convergence": 1,
+      "file": "internal/autarch/local/source.go:252-267, internal/tui/unified_app.go:793",
+      "lines": "252-267, 793",
+      "section": "Data Freshness & Context",
+      "description": "Badge [offline] gives no indication of local data age. Files could be seconds or months old. No indication when data was last synchronized. mapPRDToSpec parses UpdatedAt but it is not surfaced."
+    },
+    {
+      "id": "F06",
+      "severity": "IMP",
+      "title": "TestClient_FallbackOnDialError uses port 19999 without binding first",
+      "agents": ["fd-quality"],
+      "convergence": 1,
+      "file": "pkg/autarch/client_test.go",
+      "lines": "88, 118",
+      "section": "Test Brittleness",
+      "description": "Test assumes port 19999 unused. True in CI but fails on dev machines with other services. Test specifically requires ECONNREFUSED (not EADDRINUSE). Standard pattern: bind listener, capture address, close, pass to client."
+    },
+    {
+      "id": "I01",
+      "severity": "IMP",
+      "title": "Redundant double-guard in List* methods",
+      "agents": ["fd-quality"],
+      "convergence": 1,
+      "file": "pkg/autarch/client.go",
+      "lines": "fast-path vs error-path",
+      "section": "Code Clarity",
+      "description": "Fast-path check (fallbackActive && fallback != nil) and error-path tryFallback both guard same invariant. Could unify into single pattern, reducing surface for future mismatches."
+    },
+    {
+      "id": "I02",
+      "severity": "IMP",
+      "title": "Test helpers use bare octal literals instead of 0o-prefixed form",
+      "agents": ["fd-quality"],
+      "convergence": 1,
+      "file": "internal/autarch/local/source_test.go",
+      "lines": "17, 29, 65",
+      "section": "Style Consistency",
+      "description": "Use 0755 and 0644 instead of Go 1.13+ 0o755 / 0o644. Rest of repo consistently uses 0o-prefixed form. Not a correctness issue but inconsistent with local style."
+    },
+    {
+      "id": "C-07",
+      "severity": "IMP",
+      "title": "TestClient_FallbackOnDialError relies on real dial to localhost:19999",
+      "agents": ["fd-correctness"],
+      "convergence": 1,
+      "file": "pkg/autarch/client_test.go",
+      "lines": "82-108",
+      "section": "Test Design",
+      "description": "Test connects to 127.0.0.1:19999 expecting nothing listening. If port is in use (CI collision, parallel tests), test false-passes or false-fails. Replace with http.RoundTripper mock that returns *net.OpError{Op:dial} directly."
+    },
+    {
+      "id": "C-08",
+      "severity": "IMP",
+      "title": "Document LinkedFeatures[0] → SpecID as known-lossy mapping",
+      "agents": ["fd-correctness"],
+      "convergence": 1,
+      "file": "internal/autarch/local/source.go",
+      "lines": "304-307",
+      "section": "Documentation",
+      "description": "mapInsightToAutarch takes LinkedFeatures[0] as SpecID. LinkedFeatures is slice but SpecID is single string — lossy. Insight linked to multiple features only surfaces under one spec in fallback view."
+    }
+  ],
+  "improvements": [
+    {
+      "id": "I1",
+      "agent": "fd-architecture",
+      "title": "Add a DataSource contract note to pkg/autarch/source.go",
+      "description": "Interface currently has single-line doc comment. Adding notes about ID stability, data completeness expectations, and read-only local context will prevent callers from making incorrect assumptions as interface grows."
+    },
+    {
+      "id": "I2",
+      "agent": "fd-architecture",
+      "title": "Consider an ErrOffline sentinel in pkg/autarch",
+      "description": "Typed error returned when fallbackActive and method not supported. Gives callers clean signal to disable write UI rather than presenting generic network error. Standard pattern for mode-aware clients in this codebase."
+    },
+    {
+      "id": "I3",
+      "agent": "fd-architecture",
+      "title": "Extract Coldwine DB open+query logic into pkg/db or internal/coldwine/storage",
+      "description": "Raw SQL in LocalSource.ListEpics/Stories/Tasks duplicates schema knowledge. storage.ReadOnlyAdapter(dbPath) would keep schema ownership correct and reduce SQL in fallback adapter."
+    },
+    {
+      "id": "I1",
+      "agent": "fd-user-product",
+      "title": "Replace '[offline]' with '[offline: local files]' and add help entry",
+      "description": "More specific label immediately communicates what user is seeing. Add /help entry explaining state and recovery path. Existing footer already names specific commands — vague badge inconsistent with established pattern."
+    },
+    {
+      "id": "I2",
+      "agent": "fd-user-product",
+      "title": "Guard all write methods with ErrOffline early-return",
+      "description": "checkWritable() helper returns typed ErrFallbackReadOnly when offline. Views receive clean signal: 'Read-only in offline mode — start Intermute to enable writes'. Minimum viable fix for UX failure."
+    },
+    {
+      "id": "I3",
+      "agent": "fd-user-product",
+      "title": "Emit log pane entry or status toast when fallback activates",
+      "description": "slog.Warn(intermute unreachable) to log pane when activation occurs. Passive badge discovery too weak for mode change affecting all writes. One-time explicit notification matches user expectations."
+    },
+    {
+      "id": "I4",
+      "agent": "fd-user-product",
+      "title": "Add /reconnect command to re-probe Intermute",
+      "description": "Reset fallbackActive=false, attempt one List, re-activate on failure or stay online on success. Expose as /reconnect in slash command picker and honor ctrl+r. Session-sticky design is safe but needs recovery path."
+    },
+    {
+      "id": "I5",
+      "agent": "fd-user-product",
+      "title": "Style offline badge with warning color",
+      "description": "Apply inline lipgloss style using existing warning/amber from Tokyo Night before appending to footer. Does not require changing footer base style. Badge must be noticeable in dense footer."
+    }
+  ],
+  "verdict": "needs-changes",
+  "summary": {
+    "p0_count": 4,
+    "p1_count": 5,
+    "p2_count": 5,
+    "imp_count": 10,
+    "total_findings": 24,
+    "gate_verdict": "FAIL",
+    "gate_reason": "P0 blocking issues: unsynchronized flag data race (violates CLAUDE.md -race requirement), SQL injection vector, silent write failures, and user confusion about offline state. All four agents flagged critical path; fixes required before merge."
+  }
+}
