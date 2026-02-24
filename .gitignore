@@ -43,3 +43,5 @@ build/
 .gemini/
 gha-creds-*.json
 archviz
+
+.intermem/
