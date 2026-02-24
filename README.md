@@ -1,8 +1,8 @@
 # Autarch
 
-A suite of TUI and web tools for managing AI agent development — mission control, PRD generation, task orchestration, and research intelligence in one monorepo.
+Four tools for the operational side of running AI agents: mission control, PRD generation, task orchestration, and research intelligence.
 
-## What This Does
+## What this does
 
 Running multiple AI agents across multiple projects creates a coordination problem: which agent is working on what, which specs are current, which tasks are blocked, and what's happening in the competitive landscape. Autarch provides four tools that each solve a piece of this:
 
@@ -13,11 +13,11 @@ Running multiple AI agents across multiple projects creates a coordination probl
 | **Coldwine** | Task orchestration for human-AI collaboration | TUI |
 | **Pollard** | Continuous research intelligence (tech, medicine, law, economics) | CLI |
 
-## Who This Is For
+## Who this is for
 
 Developers running the Demarch agent stack (Clavain, Intermute, Intercore) who want visibility and control over multi-project, multi-agent workflows. Autarch is the operational dashboard layer.
 
-## Quick Start
+## Quick start
 
 ```bash
 # Build all tools
@@ -38,7 +38,7 @@ go run ./cmd/pollard scan
 go run ./cmd/pollard report
 ```
 
-## Tech Stack
+## Tech stack
 
 - **Language:** Go 1.24+
 - **TUI:** Bubble Tea + Lip Gloss (Tokyo Night palette)
@@ -51,7 +51,7 @@ go run ./cmd/pollard report
 - Go 1.24+
 - tmux (for Coldwine)
 
-## Project Structure
+## Project structure
 
 ```
 cmd/           Entry points (bigend, gurgeh, coldwine, pollard)
@@ -61,7 +61,7 @@ pkg/contract/  Cross-tool entity types
 pkg/events/    Event spine (SQLite)
 ```
 
-## Intermute Integration
+## Intermute integration
 
 Autarch auto-registers with the Intermute coordination service when `INTERMUTE_URL` is set:
 

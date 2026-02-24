@@ -53,7 +53,7 @@ pnpm typecheck
 pnpm start
 ```
 
-## Error Codes
+## Error codes
 
 The server uses structured error codes for consistent error handling:
 
@@ -68,7 +68,7 @@ The server uses structured error codes for consistent error handling:
 - **P0**: stdio transport only
 - **P1**: HTTP transport support (future)
 
-## Integration with Tauri App
+## Integration with tauri app
 
 The Tauri backend launches this MCP server as a subprocess using `tokio::process::Command`. Communication happens over stdio using the MCP protocol.
 

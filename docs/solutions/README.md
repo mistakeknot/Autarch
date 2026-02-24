@@ -2,11 +2,11 @@
 
 This directory contains solutions to specific problems encountered during Autarch development. Each solution document is self-contained but cross-referenced with others.
 
-## Terminal State Restoration (February 2026)
+## Terminal state restoration (February 2026)
 
 Complete research and implementation guide for terminal state management, signal handling, and panic recovery in Go TUI applications.
 
-### Documents in This Series
+### Documents in this series
 
 | Document | Purpose | Audience | Length |
 |----------|---------|----------|--------|
@@ -16,7 +16,7 @@ Complete research and implementation guide for terminal state management, signal
 | **TERMINAL_RECOVERY_EXAMPLES.go** | Code examples | Developers | 14 KB |
 | **TERMINAL_TESTING_GUIDE.md** | Testing strategies | QA/Developers | 17 KB |
 
-### Quick Start
+### Quick start
 
 **Implementing terminal state restoration in Autarch:**
 
@@ -25,7 +25,7 @@ Complete research and implementation guide for terminal state management, signal
 3. Copy patterns from: `TERMINAL_RECOVERY_EXAMPLES.go`
 4. Test using: `TERMINAL_TESTING_GUIDE.md`
 
-### Key Takeaways
+### Key takeaways
 
 **The most critical pattern (copy this):**
 
@@ -62,7 +62,7 @@ _, err = p.Run()
 - **Testing Guide:** Complete ✓
 - **Implementation in Autarch:** Pending
 
-### For Autarch Maintainers
+### For Autarch maintainers
 
 Recommended implementation priority:
 
@@ -81,7 +81,7 @@ All information current as of February 2026:
 - **Go Version:** 1.22+
 - **Platforms:** Linux, macOS, Windows
 
-### How to Use These Documents
+### How to use these documents
 
 **If you have 5 minutes:**
 → Read `TERMINAL_RECOVERY_SUMMARY.md`
@@ -103,18 +103,18 @@ All information current as of February 2026:
 
 ---
 
-## Other Solutions
+## Other solutions
 
 (Future solutions can be added here as they're completed)
 
 ---
 
-## Document Maintenance
+## Document maintenance
 
 Last verified: February 4, 2026
 Next review: August 2026 (or when Bubble Tea v2.1 released)
 
-### How to Update
+### How to update
 
 If any of these conditions occur:
 - Bubble Tea API changes

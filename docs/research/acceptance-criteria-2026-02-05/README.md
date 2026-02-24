@@ -1,4 +1,4 @@
-# Acceptance Criteria Plan — Research Deep-Dive Results
+# Acceptance Criteria Plan: Research Deep-Dive Results
 
 **Date:** 2026-02-05
 **Plan:** [docs/plans/2026-02-05-acceptance-criteria-plan.md](../../plans/2026-02-05-acceptance-criteria-plan.md)
@@ -10,7 +10,7 @@
 
 ## Reports
 
-### Deep-Dive Analyses (Wave 1)
+### Deep-Dive analyses (Wave 1)
 
 | File | Focus | Key Findings |
 |------|-------|-------------|
@@ -18,7 +18,7 @@
 | [deep-dive-security-remediation.md](deep-dive-security-remediation.md) | Security findings F1-F6 | WebSocket origin wildcard, glob overlap, YAML poisoning |
 | [deep-dive-data-integrity-fixes.md](deep-dive-data-integrity-fixes.md) | Data integrity risks | SaveRevision atomicity, SQLite bottleneck, signal dedup races |
 
-### Institutional Learnings (Wave 2)
+### Institutional learnings (Wave 2)
 
 | File | Focus | Key Findings |
 |------|-------|-------------|
@@ -28,7 +28,7 @@
 | [learnings-tui-layout-patterns.md](learnings-tui-layout-patterns.md) | Dimension propagation bugs | Live bug in PollardView; proposed 14 new ACs |
 | [learnings-ansi-overlay-rendering.md](learnings-ansi-overlay-rendering.md) | ANSI-aware string ops | Live bug in wordWrap using byte length for emoji |
 
-### Specialized Reviews (Wave 2)
+### Specialized reviews (Wave 2)
 
 | File | Focus | Key Findings |
 |------|-------|-------------|
@@ -40,7 +40,7 @@
 | [git-history-evolution-analysis.md](git-history-evolution-analysis.md) | Code evolution patterns | 399 commits in 16 days, burst development |
 | [framework-docs-research.md](framework-docs-research.md) | BT, SQLite, WS, YAML, Agent Teams | Per-framework best practices with code patterns |
 
-## Summary Statistics
+## Summary statistics
 
 - **Total research output:** ~380K characters across 15 reports
 - **Live bugs found:** 2 (PollardView dimension mismatch, wordWrap byte-length for emoji)
@@ -48,6 +48,6 @@
 - **Security findings:** 6 (F1-F6), prioritized P0-P3
 - **Agent-native gaps:** 15/17 TUI actions missing agent equivalents
 
-## Next Step
+## Next step
 
-Synthesize these findings into the acceptance criteria plan — update Enhancement Summary, add new ACs, correct overclaimed ACs, and integrate framework-specific patterns.
+Synthesize these findings into the acceptance criteria plan: update Enhancement Summary, add new ACs, correct overclaimed ACs, and integrate framework-specific patterns.
