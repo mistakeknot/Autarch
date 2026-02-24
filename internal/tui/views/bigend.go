@@ -28,8 +28,7 @@ type BigendView struct {
 	selected int
 	width    int
 	height   int
-	loading  bool
-	err      error
+	loading bool
 
 	// Ready tasks
 	readyTasks   []tasks.TaskProposal
@@ -144,7 +143,9 @@ func (v *BigendView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
 	case sessionsLoadedMsg:
 		v.loading = false
 		if msg.err != nil {
-			v.err = msg.err
+			// Don't block the whole view on session fetch failure —
+			// show degraded dashboard with empty sessions instead.
+			v.sessions = nil
 		} else {
 			v.sessions = msg.sessions
 		}
@@ -217,10 +218,6 @@ func (v *BigendView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
 func (v *BigendView) View() string {
 	if v.loading {
 		return pkgtui.LabelStyle.Render("Loading sessions...")
-	}
-
-	if v.err != nil {
-		return tui.ErrorView(v.err)
 	}
 
 	// Render dashboard as document pane, chatPanel as chat pane

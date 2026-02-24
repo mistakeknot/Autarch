@@ -100,24 +100,24 @@ func (i *Insight) Save(projectPath string) error {
 // LoadAll reads all insights from a project's .pollard/insights directory
 func LoadAll(projectPath string) ([]*Insight, error) {
 	insightsDir := filepath.Join(projectPath, ".pollard", "insights")
-	entries, err := os.ReadDir(insightsDir)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return []*Insight{}, nil
-		}
-		return nil, err
+	if _, err := os.Stat(insightsDir); os.IsNotExist(err) {
+		return []*Insight{}, nil
 	}
 
 	var insights []*Insight
-	for _, entry := range entries {
-		if entry.IsDir() || filepath.Ext(entry.Name()) != ".yaml" {
-			continue
+	err := filepath.WalkDir(insightsDir, func(path string, d os.DirEntry, err error) error {
+		if err != nil || d.IsDir() || filepath.Ext(d.Name()) != ".yaml" {
+			return nil
 		}
-		insight, err := Load(filepath.Join(insightsDir, entry.Name()))
+		insight, err := Load(path)
 		if err != nil {
-			continue // Skip invalid files
+			return nil // Skip invalid files
 		}
 		insights = append(insights, insight)
+		return nil
+	})
+	if err != nil {
+		return nil, err
 	}
 	return insights, nil
 }

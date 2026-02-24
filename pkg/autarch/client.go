@@ -569,6 +569,11 @@ func (c *Client) ListSessions(status string) ([]Session, error) {
 	}
 	var result []Session
 	if err := c.get("/api/sessions", query, &result); err != nil {
+		if c.tryFallback(err) {
+			// Sessions are infrastructure data, not in DataSource.
+			// Return empty list so the dashboard renders in degraded mode.
+			return nil, nil
+		}
 		return nil, err
 	}
 	return result, nil
