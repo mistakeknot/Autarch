@@ -2,8 +2,10 @@
 package insights
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/mistakeknot/autarch/pkg/yamlsafe"
@@ -72,13 +74,114 @@ func (i *Insight) LinkToInitiative(initiativeID, linkedBy string) {
 	i.LinkedAt = &now
 }
 
-// Load reads an insight from a YAML file
+// watchCompetitorFile is the YAML schema written by the competitor watch hunter.
+type watchCompetitorFile struct {
+	Competitor   string          `yaml:"competitor"`
+	CollectedAt  time.Time       `yaml:"collected_at"`
+	ChangelogURL string          `yaml:"changelog_url"`
+	Changes      []watchChange   `yaml:"changes"`
+}
+
+type watchChange struct {
+	Title          string           `yaml:"title"`
+	URL            string           `yaml:"url,omitempty"`
+	Relevance      string           `yaml:"relevance"`
+	ThreatLevel    string           `yaml:"threat_level"`
+	Recommendation *Recommendation  `yaml:"recommendation,omitempty"`
+}
+
+// watchTrendsFile is the YAML schema written by the HackerNews/trends hunter.
+type watchTrendsFile struct {
+	CollectedAt time.Time    `yaml:"collected_at"`
+	Trends      []watchTrend `yaml:"trends"`
+}
+
+type watchTrend struct {
+	Title     string    `yaml:"title"`
+	Source    string    `yaml:"source"`
+	URL       string    `yaml:"url"`
+	Points    int       `yaml:"points"`
+	Comments  int       `yaml:"comments"`
+	Relevance string    `yaml:"relevance"`
+	Signal    string    `yaml:"signal,omitempty"`
+	CreatedAt time.Time `yaml:"created_at"`
+}
+
+// Load reads an insight from a YAML file. Handles both the native Insight
+// format and watch/hunter formats (competitive, trends) by auto-detecting.
 func Load(path string) (*Insight, error) {
 	var insight Insight
 	if _, err := yamlsafe.UnmarshalFile(path, &insight); err != nil {
 		return nil, err
 	}
-	return &insight, nil
+	// Native format — has ID or title
+	if insight.ID != "" || insight.Title != "" {
+		return &insight, nil
+	}
+	// Try watch formats
+	if i := tryLoadCompetitor(path); i != nil {
+		return i, nil
+	}
+	if i := tryLoadTrends(path); i != nil {
+		return i, nil
+	}
+	// Unknown format — skip
+	return nil, fmt.Errorf("unrecognized insight format: %s", path)
+}
+
+func tryLoadCompetitor(path string) *Insight {
+	var wf watchCompetitorFile
+	if _, err := yamlsafe.UnmarshalFile(path, &wf); err != nil || wf.Competitor == "" {
+		return nil
+	}
+	// Synthesize ID from filename
+	base := strings.TrimSuffix(filepath.Base(path), ".yaml")
+	insight := &Insight{
+		ID:          base,
+		Title:       wf.Competitor + " — competitive watch",
+		Category:    CategoryCompetitive,
+		CollectedAt: wf.CollectedAt,
+		Sources:     []Source{{URL: wf.ChangelogURL, Type: "product"}},
+	}
+	for _, c := range wf.Changes {
+		if c.Relevance == "low" {
+			continue // Only surface high/medium findings
+		}
+		insight.Findings = append(insight.Findings, Finding{
+			Title:     c.Title,
+			Relevance: Relevance(c.Relevance),
+		})
+		if c.Recommendation != nil {
+			insight.Recommendations = append(insight.Recommendations, *c.Recommendation)
+		}
+	}
+	return insight
+}
+
+func tryLoadTrends(path string) *Insight {
+	var wf watchTrendsFile
+	if _, err := yamlsafe.UnmarshalFile(path, &wf); err != nil || len(wf.Trends) == 0 {
+		return nil
+	}
+	base := strings.TrimSuffix(filepath.Base(path), ".yaml")
+	insight := &Insight{
+		ID:          base,
+		Title:       "Trends — " + base,
+		Category:    CategoryTrends,
+		CollectedAt: wf.CollectedAt,
+	}
+	for _, t := range wf.Trends {
+		if t.Relevance == "low" {
+			continue
+		}
+		insight.Findings = append(insight.Findings, Finding{
+			Title:       t.Title,
+			Relevance:   Relevance(t.Relevance),
+			Description: t.Signal,
+		})
+		insight.Sources = append(insight.Sources, Source{URL: t.URL, Type: t.Source})
+	}
+	return insight
 }
 
 // Save writes an insight to a YAML file
