@@ -1,6 +1,7 @@
 package daemon
 
 import (
+	"database/sql"
 	"fmt"
 	"io/fs"
 	"os"
@@ -8,6 +9,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	autarchdb "github.com/mistakeknot/autarch/pkg/db"
 
 	gurgSpecs "github.com/mistakeknot/autarch/internal/gurgeh/specs"
 )
@@ -70,8 +73,47 @@ func (m *ProjectManager) GetTasks(path string) ([]map[string]interface{}, error)
 		return []map[string]interface{}{}, nil
 	}
 
-	// TODO: Load tasks from .coldwine/state.db
-	return []map[string]interface{}{}, nil
+	dbPath := filepath.Join(path, ".coldwine", "state.db")
+	db, err := autarchdb.Open(dbPath)
+	if err != nil {
+		return []map[string]interface{}{}, nil
+	}
+	defer db.Close()
+
+	if !hasTable(db, "work_tasks") {
+		return []map[string]interface{}{}, nil
+	}
+
+	rows, err := db.Query("SELECT id, title, status, assignee FROM work_tasks ORDER BY priority, created_at")
+	if err != nil {
+		return []map[string]interface{}{}, nil
+	}
+	defer rows.Close()
+
+	var tasks []map[string]interface{}
+	for rows.Next() {
+		var id, title, status string
+		var assignee sql.NullString
+		if err := rows.Scan(&id, &title, &status, &assignee); err != nil {
+			continue
+		}
+		task := map[string]interface{}{
+			"id":     id,
+			"title":  title,
+			"status": status,
+		}
+		if assignee.Valid {
+			task["assignee"] = assignee.String
+		}
+		tasks = append(tasks, task)
+	}
+	if err := rows.Err(); err != nil {
+		return []map[string]interface{}{}, nil
+	}
+	if tasks == nil {
+		tasks = []map[string]interface{}{}
+	}
+	return tasks, nil
 }
 
 // Discover scans directories for projects
@@ -128,14 +170,56 @@ func (m *ProjectManager) scanProject(path string) *Project {
 	return project
 }
 
-// loadTaskStats loads task statistics from .coldwine
+// loadTaskStats loads task statistics from .coldwine/state.db.
+// Uses a fresh read-only connection (not OpenShared) since this is
+// cross-tool read access, not the owning Coldwine process.
 func (m *ProjectManager) loadTaskStats(path string) *TaskStats {
-	// TODO: Query .coldwine/state.db for actual stats
-	return &TaskStats{
-		Todo:       0,
-		InProgress: 0,
-		Done:       0,
+	dbPath := filepath.Join(path, ".coldwine", "state.db")
+	if _, err := os.Stat(dbPath); err != nil {
+		return &TaskStats{}
 	}
+
+	db, err := autarchdb.Open(dbPath)
+	if err != nil {
+		return &TaskStats{}
+	}
+	defer db.Close()
+
+	// Guard: work_tasks table only exists after MigrateV2
+	if !hasTable(db, "work_tasks") {
+		return &TaskStats{}
+	}
+
+	stats := &TaskStats{}
+	rows, err := db.Query("SELECT status, COUNT(*) FROM work_tasks GROUP BY status")
+	if err != nil {
+		return stats
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var status string
+		var count int
+		if err := rows.Scan(&status, &count); err != nil {
+			continue
+		}
+		switch status {
+		case "todo":
+			stats.Todo += count
+		case "in_progress":
+			stats.InProgress += count
+		case "blocked":
+			stats.Todo += count // blocked counts toward todo for dashboard display
+		case "done":
+			stats.Done += count
+		}
+	}
+	// Check rows.Err() — I/O errors silently truncate results otherwise
+	if err := rows.Err(); err != nil {
+		return &TaskStats{}
+	}
+
+	return stats
 }
 
 // loadGurgStats loads PRD statistics from .gurgeh/specs
@@ -227,4 +311,24 @@ func countReportsAndFindLatest(dir string) (int, string) {
 // Refresh rescans all project directories
 func (m *ProjectManager) Refresh() {
 	m.Discover()
+}
+
+// coldwineAllowedTables is the closed set for hasTable() validation.
+// PRAGMA table_info does not support parameterized args.
+var coldwineAllowedTables = map[string]bool{
+	"work_tasks": true,
+}
+
+// hasTable checks whether a table exists via PRAGMA table_info.
+// Table name is validated against an allowlist to prevent injection.
+func hasTable(db *sql.DB, table string) bool {
+	if !coldwineAllowedTables[table] {
+		return false
+	}
+	rows, err := db.Query("PRAGMA table_info(" + table + ")")
+	if err != nil {
+		return false
+	}
+	defer rows.Close()
+	return rows.Next()
 }
