@@ -1,6 +1,7 @@
 package views
 
 import (
+	"context"
 	"fmt"
 	"strings"
 	"time"
@@ -11,6 +12,7 @@ import (
 	"github.com/mistakeknot/autarch/internal/coldwine/tasks"
 	"github.com/mistakeknot/autarch/internal/tui"
 	"github.com/mistakeknot/autarch/pkg/autarch"
+	"github.com/mistakeknot/autarch/pkg/intercore"
 	pkgtui "github.com/mistakeknot/autarch/pkg/tui"
 )
 
@@ -25,16 +27,20 @@ const (
 // BigendView displays sessions and agent overview
 type BigendView struct {
 	client   *autarch.Client
+	iclient  *intercore.Client // optional — nil when ic unavailable
 	sessions []autarch.Session
 	selected int
 	width    int
 	height   int
-	loading bool
+	loading  bool
 
 	// Ready tasks
 	readyTasks   []tasks.TaskProposal
 	taskSelected int
 	focusPane    FocusPane
+
+	// Intercore dispatches (loaded alongside sessions).
+	dispatches []intercore.Dispatch
 
 	// Project context
 	projectID   string
@@ -81,6 +87,11 @@ func (v *BigendView) SetChatSettings(settings pkgtui.ChatSettings) {
 	v.chatPanel.SetSettings(settings)
 }
 
+// SetIntercore sets the Intercore client for dispatch monitoring.
+func (v *BigendView) SetIntercore(ic *intercore.Client) {
+	v.iclient = ic
+}
+
 // ClearInput clears the chat composer (for ctrl+c soft cancel).
 func (v *BigendView) ClearInput() {
 	v.chatPanel.ClearComposer()
@@ -117,15 +128,37 @@ type sessionCreatedMsg struct {
 	err     error
 }
 
+// dispatchesLoadedMsg carries dispatches from Intercore.
+type dispatchesLoadedMsg struct {
+	dispatches []intercore.Dispatch
+}
+
 // Init implements View
 func (v *BigendView) Init() tea.Cmd {
-	return v.loadSessions()
+	return tea.Batch(v.loadSessions(), v.loadDispatches())
 }
 
 func (v *BigendView) loadSessions() tea.Cmd {
 	return func() tea.Msg {
 		sessions, err := v.client.ListSessions("")
 		return sessionsLoadedMsg{sessions: sessions, err: err}
+	}
+}
+
+func (v *BigendView) loadDispatches() tea.Cmd {
+	if v.iclient == nil {
+		return nil
+	}
+	ic := v.iclient
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		// Fetch all dispatches — active + recent completed.
+		dispatches, err := ic.DispatchList(ctx, false)
+		if err != nil {
+			return dispatchesLoadedMsg{} // graceful degradation
+		}
+		return dispatchesLoadedMsg{dispatches: dispatches}
 	}
 }
 
@@ -150,13 +183,19 @@ func (v *BigendView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
 	case sessionsLoadedMsg:
 		v.loading = false
 		if msg.err != nil {
-			// Don't block the whole view on session fetch failure —
-			// show degraded dashboard with empty sessions instead.
 			v.sessions = nil
 		} else {
 			v.sessions = msg.sessions
 		}
 		return v, nil
+
+	case dispatchesLoadedMsg:
+		v.dispatches = msg.dispatches
+		return v, nil
+
+	case tui.DispatchCompletedMsg:
+		// Refresh dispatches when one completes.
+		return v, v.loadDispatches()
 
 	case sessionCreatedMsg:
 		if msg.err != nil {
@@ -212,7 +251,7 @@ func (v *BigendView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
 				}
 			case key.Matches(msg, commonKeys.Refresh):
 				v.loading = true
-				return v, v.loadSessions()
+				return v, tea.Batch(v.loadSessions(), v.loadDispatches())
 			}
 		case pkgtui.FocusChat:
 			if msg.Type == tea.KeyEnter {
@@ -387,26 +426,88 @@ func (v *BigendView) renderSessionsPane(width int) string {
 	if len(v.sessions) == 0 {
 		lines = append(lines, pkgtui.LabelStyle.Render("No sessions running"))
 		lines = append(lines, pkgtui.LabelStyle.Render("Start a task to launch an agent"))
-		return strings.Join(lines, "\n")
+	} else {
+		for i, s := range v.sessions {
+			icon := v.statusIcon(s.Status)
+			name := s.Name
+			if name == "" {
+				name = s.ID[:8]
+			}
+
+			line := fmt.Sprintf("%s %s", icon, name)
+			if i == v.selected && v.focusPane == FocusSessions {
+				line = pkgtui.SelectedStyle.Render("> " + line)
+			} else {
+				line = pkgtui.UnselectedStyle.Render("  " + line)
+			}
+			lines = append(lines, line)
+		}
 	}
 
-	for i, s := range v.sessions {
-		icon := v.statusIcon(s.Status)
-		name := s.Name
-		if name == "" {
-			name = s.ID[:8]
-		}
+	// Dispatches section (from Intercore)
+	if v.iclient != nil {
+		lines = append(lines, "")
+		lines = append(lines, pkgtui.SubtitleStyle.Render(fmt.Sprintf("Dispatches (%d)", len(v.dispatches))))
 
-		line := fmt.Sprintf("%s %s", icon, name)
-		if i == v.selected && v.focusPane == FocusSessions {
-			line = pkgtui.SelectedStyle.Render("> " + line)
+		if len(v.dispatches) == 0 {
+			lines = append(lines, pkgtui.LabelStyle.Render("  No dispatches"))
 		} else {
-			line = pkgtui.UnselectedStyle.Render("  " + line)
+			for _, d := range v.dispatches {
+				icon, color := dispatchStatusDisplay(d.Status)
+				dispStyle := lipgloss.NewStyle().Foreground(color)
+
+				agent := d.Agent
+				if d.Name != nil && *d.Name != "" {
+					agent = *d.Name
+				}
+				if agent == "" {
+					agent = d.Type
+				}
+
+				idPrefix := d.ID
+				if len(idPrefix) > 6 {
+					idPrefix = idPrefix[:6]
+				}
+
+				elapsed := ""
+				if d.Status == "running" {
+					dur := time.Since(time.Unix(d.CreatedAt, 0))
+					elapsed = fmt.Sprintf(" %s", formatDuration(dur))
+				}
+
+				line := fmt.Sprintf("  %s %s %s%s",
+					dispStyle.Render(icon), idPrefix, agent, elapsed)
+				lines = append(lines, line)
+			}
 		}
-		lines = append(lines, line)
 	}
 
 	return strings.Join(lines, "\n")
+}
+
+func dispatchStatusDisplay(status string) (string, lipgloss.Color) {
+	switch status {
+	case "running":
+		return "●", pkgtui.ColorPrimary
+	case "completed":
+		return "✓", pkgtui.ColorSuccess
+	case "failed":
+		return "✗", pkgtui.ColorError
+	case "cancelled":
+		return "✗", pkgtui.ColorWarning
+	default:
+		return "○", pkgtui.ColorMuted
+	}
+}
+
+func formatDuration(d time.Duration) string {
+	if d < time.Minute {
+		return fmt.Sprintf("%ds", int(d.Seconds()))
+	}
+	if d < time.Hour {
+		return fmt.Sprintf("%dm", int(d.Minutes()))
+	}
+	return fmt.Sprintf("%dh%dm", int(d.Hours()), int(d.Minutes())%60)
 }
 
 func (v *BigendView) statusIcon(status autarch.SessionStatus) string {
@@ -425,7 +526,7 @@ func (v *BigendView) statusIcon(status autarch.SessionStatus) string {
 // Focus implements View
 func (v *BigendView) Focus() tea.Cmd {
 	v.shell.SetFocus(pkgtui.FocusChat)
-	return tea.Batch(v.chatPanel.Focus(), v.loadSessions())
+	return tea.Batch(v.chatPanel.Focus(), v.loadSessions(), v.loadDispatches())
 }
 
 // Blur implements View
