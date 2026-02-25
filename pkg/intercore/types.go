@@ -129,13 +129,15 @@ type GateRuleCheck struct {
 
 // AdvanceResult from ic run advance.
 type AdvanceResult struct {
-	Advanced   bool   `json:"advanced"`
-	FromPhase  string `json:"from_phase"`
-	ToPhase    string `json:"to_phase"`
-	GateResult string `json:"gate_result"`
-	GateTier   string `json:"gate_tier"`
-	Reason     string `json:"reason,omitempty"`
-	EventType  string `json:"event_type"`
+	Advanced             bool     `json:"advanced"`
+	FromPhase            string   `json:"from_phase"`
+	ToPhase              string   `json:"to_phase"`
+	GateResult           string   `json:"gate_result"`
+	GateTier             string   `json:"gate_tier"`
+	Reason               string   `json:"reason,omitempty"`
+	EventType            string   `json:"event_type"`
+	ActiveAgentCount     int      `json:"active_agent_count,omitempty"`
+	NextGateRequirements []string `json:"next_gate_requirements,omitempty"`
 }
 
 // Succeeded returns true if the advance succeeded.
