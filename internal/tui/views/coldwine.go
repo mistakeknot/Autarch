@@ -21,10 +21,11 @@ type ColdwineView struct {
 	epics    []autarch.Epic
 	stories  []autarch.Story
 	tasks    []autarch.Task
-	selected int
-	width    int
-	height   int
-	loading  bool
+	selected     int
+	selectedTask int // index into filtered tasks for selected epic (-1 = none)
+	width        int
+	height       int
+	loading      bool
 
 	// Sprint data cached from Intercore (loaded async).
 	epicRuns map[string]*intercore.Run // epicID → Run (nil if no sprint)
@@ -107,6 +108,12 @@ type sprintCreatedMsg struct {
 	epicID string
 	goal   string
 	err    error
+}
+
+type taskDispatchedMsg struct {
+	taskID     string
+	dispatchID string
+	err        error
 }
 
 // epicRunsLoadedMsg carries cached sprint data for all epics.
@@ -269,11 +276,39 @@ func (v *ColdwineView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
 		}
 		return v, nil
 
+	case taskDispatchedMsg:
+		if msg.err != nil {
+			v.chatPanel.AddMessage("system", fmt.Sprintf("Dispatch failed: %v", msg.err))
+			return v, nil
+		}
+		v.chatPanel.AddMessage("system", fmt.Sprintf("Dispatched task %s → dispatch %s", msg.taskID, msg.dispatchID))
+		// Update local task status to running
+		for i := range v.tasks {
+			if v.tasks[i].ID == msg.taskID {
+				v.tasks[i].Status = autarch.TaskStatusRunning
+				break
+			}
+		}
+		// Store task→dispatch mapping in Intercore state
+		if v.iclient != nil {
+			ic := v.iclient
+			taskID := msg.taskID
+			dispatchID := msg.dispatchID
+			return v, func() tea.Msg {
+				ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+				defer cancel()
+				_ = ic.StateSet(ctx, "task.dispatch_id", taskID, fmt.Sprintf("%q", dispatchID))
+				return nil
+			}
+		}
+		return v, nil
+
 	case pkgtui.SidebarSelectMsg:
 		// Find epic by ID and select it
 		for i, epic := range v.epics {
 			if epic.ID == msg.ItemID {
 				v.selected = i
+				v.selectedTask = 0
 				break
 			}
 		}
@@ -293,16 +328,25 @@ func (v *ColdwineView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
 		case pkgtui.FocusDocument:
 			switch {
 			case key.Matches(msg, commonKeys.NavDown):
-				if v.selected < len(v.epics)-1 {
+				epicTasks := v.epicTasks()
+				if v.selectedTask < len(epicTasks)-1 {
+					v.selectedTask++
+				} else if v.selected < len(v.epics)-1 {
 					v.selected++
+					v.selectedTask = 0
 				}
 			case key.Matches(msg, commonKeys.NavUp):
-				if v.selected > 0 {
+				if v.selectedTask > 0 {
+					v.selectedTask--
+				} else if v.selected > 0 {
 					v.selected--
+					v.selectedTask = 0
 				}
 			case key.Matches(msg, commonKeys.Refresh):
 				v.loading = true
 				return v, v.loadData()
+			case msg.String() == "d":
+				return v, v.dispatchSelectedTask()
 			}
 		case pkgtui.FocusChat:
 			if msg.Type == tea.KeyEnter {
@@ -416,7 +460,48 @@ func (v *ColdwineView) renderDocument() string {
 		lines = append(lines, pkgtui.LabelStyle.Render("  No stories yet"))
 	}
 
+	// Show tasks for this epic
+	lines = append(lines, "")
+	lines = append(lines, pkgtui.SubtitleStyle.Render("Tasks"))
+
+	epicTasks := v.epicTasks()
+	if len(epicTasks) == 0 {
+		lines = append(lines, pkgtui.LabelStyle.Render("  No tasks yet"))
+	} else {
+		for i, t := range epicTasks {
+			icon := taskStatusIcon(t.Status)
+			cursor := "  "
+			if i == v.selectedTask {
+				cursor = "▸ "
+			}
+			agent := ""
+			if t.Agent != "" {
+				agent = fmt.Sprintf(" [%s]", t.Agent)
+			}
+			lines = append(lines, fmt.Sprintf("%s%s %s%s", cursor, icon, t.Title, agent))
+		}
+		if v.iclient != nil {
+			lines = append(lines, "")
+			lines = append(lines, pkgtui.LabelStyle.Render("  d dispatch selected task"))
+		}
+	}
+
 	return strings.Join(lines, "\n")
+}
+
+func taskStatusIcon(status autarch.TaskStatus) string {
+	switch status {
+	case autarch.TaskStatusPending:
+		return pkgtui.StatusIdle.Render("○")
+	case autarch.TaskStatusRunning:
+		return pkgtui.StatusRunning.Render("●")
+	case autarch.TaskStatusBlocked:
+		return pkgtui.StatusWaiting.Render("◐")
+	case autarch.TaskStatusDone:
+		return pkgtui.StatusRunning.Render("✓")
+	default:
+		return pkgtui.StatusIdle.Render("?")
+	}
 }
 
 func (v *ColdwineView) storyStatusIcon(status autarch.StoryStatus) string {
@@ -453,7 +538,70 @@ func (v *ColdwineView) Name() string {
 
 // ShortHelp implements View
 func (v *ColdwineView) ShortHelp() string {
-	return "↑/↓ navigate  ctrl+r refresh  ctrl+g model  tab focus  ctrl+b sidebar"
+	return "↑/↓ navigate  d dispatch  ctrl+r refresh  ctrl+g model  tab focus  ctrl+b sidebar"
+}
+
+// epicTasks returns tasks belonging to the selected epic (via story membership).
+func (v *ColdwineView) epicTasks() []autarch.Task {
+	if v.selected < 0 || v.selected >= len(v.epics) {
+		return nil
+	}
+	epicID := v.epics[v.selected].ID
+	// Collect story IDs for this epic
+	storyIDs := make(map[string]bool)
+	for _, s := range v.stories {
+		if s.EpicID == epicID {
+			storyIDs[s.ID] = true
+		}
+	}
+	// Filter tasks belonging to those stories
+	var tasks []autarch.Task
+	for _, t := range v.tasks {
+		if storyIDs[t.StoryID] {
+			tasks = append(tasks, t)
+		}
+	}
+	return tasks
+}
+
+// dispatchSelectedTask creates a dispatch for the currently selected task.
+func (v *ColdwineView) dispatchSelectedTask() tea.Cmd {
+	if v.iclient == nil {
+		return nil
+	}
+	epicTasks := v.epicTasks()
+	if v.selectedTask < 0 || v.selectedTask >= len(epicTasks) {
+		return nil
+	}
+	task := epicTasks[v.selectedTask]
+	if task.Status == autarch.TaskStatusRunning || task.Status == autarch.TaskStatusDone {
+		v.chatPanel.AddMessage("system", fmt.Sprintf("Task %q is already %s", task.Title, task.Status))
+		return nil
+	}
+
+	// Find run ID for this epic
+	var epicID string
+	if v.selected >= 0 && v.selected < len(v.epics) {
+		epicID = v.epics[v.selected].ID
+	}
+	runID := v.getEpicRunID(epicID)
+	if runID == "" {
+		v.chatPanel.AddMessage("system", "No sprint run for this epic — create one first")
+		return nil
+	}
+
+	ic := v.iclient
+	taskID := task.ID
+	taskTitle := task.Title
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		dispatchID, err := ic.DispatchSpawn(ctx, runID,
+			intercore.WithDispatchType("task"),
+			intercore.WithDispatchName(taskTitle),
+		)
+		return taskDispatchedMsg{taskID: taskID, dispatchID: dispatchID, err: err}
+	}
 }
 
 // Commands implements CommandProvider
@@ -501,8 +649,13 @@ func (v *ColdwineView) Commands() []tui.Command {
 		},
 	}
 
-	// Sprint command only available when Intercore is connected.
+	// Intercore commands only available when ic is connected.
 	if v.iclient != nil {
+		cmds = append(cmds, tui.Command{
+			Name:        "Dispatch Task",
+			Description: "Dispatch selected task to an agent via Intercore",
+			Action:      func() tea.Cmd { return v.dispatchSelectedTask() },
+		})
 		cmds = append(cmds, tui.Command{
 			Name:        "Create Sprint",
 			Description: "Create an Intercore sprint from selected epic",
