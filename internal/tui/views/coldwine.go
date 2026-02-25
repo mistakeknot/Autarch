@@ -8,6 +8,7 @@ import (
 
 	"github.com/charmbracelet/bubbles/key"
 	tea "github.com/charmbracelet/bubbletea"
+	coldwineSync "github.com/mistakeknot/autarch/internal/coldwine/intermute"
 	"github.com/mistakeknot/autarch/internal/tui"
 	"github.com/mistakeknot/autarch/pkg/autarch"
 	"github.com/mistakeknot/autarch/pkg/intercore"
@@ -135,6 +136,12 @@ type taskStatusPersistedMsg struct {
 	taskID string
 	status autarch.TaskStatus
 	err    error
+}
+
+type syncCompletedMsg struct {
+	pushed int
+	pulled int
+	errs   []error
 }
 
 // Init implements View
@@ -377,6 +384,17 @@ func (v *ColdwineView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
 	case taskStatusPersistedMsg:
 		if msg.err != nil {
 			v.chatPanel.AddMessage("system", fmt.Sprintf("Failed to persist task status: %v", msg.err))
+		}
+		return v, nil
+
+	case syncCompletedMsg:
+		if len(msg.errs) > 0 {
+			v.chatPanel.AddMessage("system", fmt.Sprintf("Sync completed: %d pushed, %d errors", msg.pushed, len(msg.errs)))
+			for _, e := range msg.errs {
+				v.chatPanel.AddMessage("system", fmt.Sprintf("  %s", e))
+			}
+		} else {
+			v.chatPanel.AddMessage("system", fmt.Sprintf("Sync completed: %d items pushed to Intermute", msg.pushed))
 		}
 		return v, nil
 
@@ -764,6 +782,27 @@ func (v *ColdwineView) dispatchSelectedTask() tea.Cmd {
 	}
 }
 
+// syncToIntermute pushes all loaded epics, stories, and tasks to the Intermute server.
+// Uses the autarch.Client which talks to Intermute's HTTP API.
+func (v *ColdwineView) syncToIntermute() tea.Cmd {
+	client := v.client
+	// Snapshot current data before entering the goroutine.
+	epics := append([]autarch.Epic(nil), v.epics...)
+	stories := append([]autarch.Story(nil), v.stories...)
+	tasks := append([]autarch.Task(nil), v.tasks...)
+
+	return func() tea.Msg {
+		syncer := coldwineSync.NewSyncer(client)
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+		result := syncer.PushAll(ctx, epics, stories, tasks)
+		return syncCompletedMsg{
+			pushed: result.Pushed,
+			errs:   result.Errors,
+		}
+	}
+}
+
 // Commands implements CommandProvider
 func (v *ColdwineView) Commands() []tui.Command {
 	cmds := []tui.Command{
@@ -840,6 +879,13 @@ func (v *ColdwineView) Commands() []tui.Command {
 			},
 		})
 	}
+
+	// Sync commands — push local data to Intermute
+	cmds = append(cmds, tui.Command{
+		Name:        "Sync to Intermute",
+		Description: "Push local epics, stories, and tasks to Intermute server",
+		Action:      func() tea.Cmd { return v.syncToIntermute() },
+	})
 
 	return cmds
 }
