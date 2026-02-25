@@ -4,6 +4,7 @@ package intermute
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"os"
 	"os/exec"
@@ -91,8 +92,32 @@ func (m *Manager) isHealthy() bool {
 	return resp.StatusCode == http.StatusOK
 }
 
-// start spawns the Intermute server as a subprocess
+// start spawns the Intermute server as a subprocess.
+// If the server crashes on startup (e.g. stale schema), the database is
+// removed and a single retry is attempted with a fresh DB.
 func (m *Manager) start(ctx context.Context) error {
+	dbPath := filepath.Join(m.dataDir, "data.db")
+
+	err := m.tryStart(ctx, dbPath)
+	if err == nil {
+		return nil
+	}
+
+	// If DB exists, the crash is likely a schema migration failure.
+	// Remove the stale DB and retry once with a fresh database.
+	if _, statErr := os.Stat(dbPath); statErr == nil {
+		slog.Warn("intermute crashed on startup, retrying with fresh database",
+			"error", err, "db", dbPath)
+		_ = os.Remove(dbPath)
+		_ = os.Remove(dbPath + "-wal")
+		_ = os.Remove(dbPath + "-shm")
+		return m.tryStart(ctx, dbPath)
+	}
+
+	return err
+}
+
+func (m *Manager) tryStart(ctx context.Context, dbPath string) error {
 	// Ensure data directory exists
 	if err := os.MkdirAll(m.dataDir, 0755); err != nil {
 		return fmt.Errorf("create data dir: %w", err)
@@ -103,8 +128,6 @@ func (m *Manager) start(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-
-	dbPath := filepath.Join(m.dataDir, "data.db")
 
 	// Start the server
 	m.cmd = exec.Command(binary, "serve",
@@ -127,12 +150,26 @@ func (m *Manager) start(ctx context.Context) error {
 
 	m.started = true
 
-	// Wait for server to be ready
+	// Channel to detect early process exit (schema crash, port conflict, etc.)
+	exited := make(chan error, 1)
+	go func() {
+		exited <- m.cmd.Wait()
+	}()
+
+	// Wait for server to be ready, detecting early exit
 	for {
 		select {
 		case <-ctx.Done():
 			m.stop()
 			return fmt.Errorf("intermute server did not become healthy: %w", ctx.Err())
+		case waitErr := <-exited:
+			// Server exited before becoming healthy
+			m.started = false
+			m.cmd = nil
+			if waitErr != nil {
+				return fmt.Errorf("intermute exited immediately: %w", waitErr)
+			}
+			return fmt.Errorf("intermute exited immediately with status 0")
 		default:
 		}
 

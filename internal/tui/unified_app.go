@@ -546,6 +546,10 @@ func (a *UnifiedApp) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			a.intermuteCleanup()
 		}
 		a.intermuteCleanup = msg.Cleanup
+		// Clear sticky fallback so the client retries Intermute
+		if a.client != nil {
+			a.client.ResetFallback()
+		}
 		return a, nil
 
 	case IntermuteStartFailedMsg:

@@ -376,13 +376,13 @@ func (p *ChatPanel) View() string {
 
 	sections = append(sections, separator)
 
-	// Add command picker above composer if visible
+	sections = append(sections, composerView)
+
+	// Add command picker below composer if visible
 	if p.commandPicker != nil && p.commandPicker.Visible() {
 		p.commandPicker.SetSize(p.width-4, 12)
 		sections = append(sections, p.commandPicker.View())
 	}
-
-	sections = append(sections, composerView)
 
 	if p.selector != nil && p.selector.Open {
 		sections = append(sections, p.selector.View())
@@ -682,6 +682,17 @@ func (p *ChatPanel) BufferForTest() *StreamBuffer {
 
 // SubmitInput processes slash commands and non-slash chat input.
 func (p *ChatPanel) SubmitInput() tea.Cmd {
+	// If the command picker is visible with a selection, execute that command
+	// instead of the raw composer text. This lets "/g" + Enter execute "/gurgeh".
+	if p.commandPicker != nil && p.commandPicker.Visible() && len(p.commandPicker.filtered) > 0 {
+		selected := p.commandPicker.filtered[p.commandPicker.selected]
+		p.commandPicker.Hide()
+		p.ClearComposer()
+		return func() tea.Msg {
+			return SlashCommandMsg{Command: selected.Command}
+		}
+	}
+
 	value := strings.TrimSpace(p.Value())
 	if value == "" {
 		return nil

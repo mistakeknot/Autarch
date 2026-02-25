@@ -56,6 +56,12 @@ func (c *Client) InFallbackMode() bool {
 	return c.fallbackActive.Load()
 }
 
+// ResetFallback clears the fallback state so the client retries Intermute.
+// Called when Intermute becomes available after initial startup failure.
+func (c *Client) ResetFallback() {
+	c.fallbackActive.Store(false)
+}
+
 // isDialError returns true if the error indicates a TCP dial failure
 // (connection refused). Does NOT match timeouts — the server may be alive
 // but slow, and switching to stale local data would be worse.

@@ -26,6 +26,7 @@ type SidebarItem struct {
 type Sidebar struct {
 	items     []SidebarItem
 	selected  int
+	offset    int // scroll offset (first visible item index)
 	collapsed bool
 	width     int // Fixed 20 chars when expanded, 0 when collapsed
 	height    int
@@ -51,6 +52,7 @@ func (s *Sidebar) SetItems(items []SidebarItem) {
 	if s.selected >= len(items) {
 		s.selected = max(0, len(items)-1)
 	}
+	s.ensureVisible()
 }
 
 // Selected returns the currently selected item, if any.
@@ -84,6 +86,30 @@ func (s *Sidebar) Width() int {
 	return SidebarWidth
 }
 
+// visibleCount returns the number of items that fit in the viewport.
+func (s *Sidebar) visibleCount() int {
+	// Height minus 2 for border
+	h := s.height - 2
+	if h < 1 {
+		h = 1
+	}
+	return h
+}
+
+// ensureVisible adjusts the scroll offset so selected is in view.
+func (s *Sidebar) ensureVisible() {
+	vis := s.visibleCount()
+	if s.selected < s.offset {
+		s.offset = s.selected
+	}
+	if s.selected >= s.offset+vis {
+		s.offset = s.selected - vis + 1
+	}
+	if s.offset < 0 {
+		s.offset = 0
+	}
+}
+
 // Update handles keyboard input for navigation.
 func (s *Sidebar) Update(msg tea.Msg) (*Sidebar, tea.Cmd) {
 	if !s.focused || s.collapsed {
@@ -96,10 +122,12 @@ func (s *Sidebar) Update(msg tea.Msg) (*Sidebar, tea.Cmd) {
 		case "j", "down":
 			if s.selected < len(s.items)-1 {
 				s.selected++
+				s.ensureVisible()
 			}
 		case "k", "up":
 			if s.selected > 0 {
 				s.selected--
+				s.ensureVisible()
 			}
 		case "enter":
 			if item, ok := s.Selected(); ok {
@@ -140,10 +168,19 @@ func (s *Sidebar) View() string {
 		return borderStyle.Render(content)
 	}
 
-	// Render items
+	// Ensure scroll offset is valid before rendering
+	s.ensureVisible()
+
+	// Render only the visible window of items
+	vis := s.visibleCount()
+	end := s.offset + vis
+	if end > len(s.items) {
+		end = len(s.items)
+	}
+
 	var lines []string
-	for i, item := range s.items {
-		line := s.renderItem(item, i == s.selected)
+	for i := s.offset; i < end; i++ {
+		line := s.renderItem(s.items[i], i == s.selected)
 		lines = append(lines, line)
 	}
 
