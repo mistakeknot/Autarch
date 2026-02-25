@@ -83,6 +83,12 @@ type runDashCancelledMsg struct {
 	err   error
 }
 
+type runDashAutoAdvanceToggledMsg struct {
+	runID   string
+	enabled bool
+	err     error
+}
+
 // --- View interface ---
 
 func (v *RunDashboardView) Init() tea.Cmd {
@@ -152,11 +158,30 @@ func (v *RunDashboardView) Update(msg tea.Msg) (pkgtui.View, tea.Cmd) {
 		v.statusMsg = fmt.Sprintf("Cancelled run %s", msg.runID)
 		return v, v.loadRuns()
 
+	case runDashAutoAdvanceToggledMsg:
+		if msg.err != nil {
+			v.statusMsg = fmt.Sprintf("Toggle auto-advance failed: %s", msg.err)
+			return v, nil
+		}
+		label := "disabled"
+		if msg.enabled {
+			label = "enabled"
+		}
+		v.statusMsg = fmt.Sprintf("Auto-advance %s for %s", label, msg.runID)
+		if v.activeRun != nil && v.activeRun.ID == msg.runID {
+			v.activeRun.AutoAdvance = msg.enabled
+		}
+		return v, nil
+
 	case tui.DispatchCompletedMsg:
 		v.statusMsg = fmt.Sprintf("Dispatch %s %s", msg.Dispatch.ID, msg.Dispatch.Status)
-		// Refresh detail if we're viewing the run this dispatch belongs to.
+		// Refresh detail and attempt auto-advance if applicable.
 		if v.activeRun != nil && msg.Dispatch.RunID == v.activeRun.ID {
-			return v, v.loadDetail(v.activeRun.ID)
+			cmds = append(cmds, v.loadDetail(v.activeRun.ID))
+			if v.shouldAutoAdvance(msg.Dispatch) {
+				cmds = append(cmds, v.tryAutoAdvance())
+			}
+			return v, tea.Batch(cmds...)
 		}
 	}
 
@@ -203,6 +228,11 @@ func (v *RunDashboardView) Commands() []pkgtui.Command {
 			Name:        "Cancel Sprint",
 			Description: "Cancel the active sprint run",
 			Action:      func() tea.Cmd { return v.cancelRun() },
+		},
+		{
+			Name:        "Toggle Auto-advance",
+			Description: "Enable/disable automatic phase advancement on dispatch completion",
+			Action:      func() tea.Cmd { return v.toggleAutoAdvance() },
 		},
 		{
 			Name:        "Refresh Sprints",
@@ -336,6 +366,61 @@ func (v *RunDashboardView) cancelRun() tea.Cmd {
 	}
 }
 
+func (v *RunDashboardView) toggleAutoAdvance() tea.Cmd {
+	if v.iclient == nil || v.activeRun == nil {
+		return nil
+	}
+	runID := v.activeRun.ID
+	newVal := !v.activeRun.AutoAdvance
+	ic := v.iclient
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		err := ic.RunSet(ctx, runID, intercore.SetAutoAdvance(newVal))
+		return runDashAutoAdvanceToggledMsg{runID: runID, enabled: newVal, err: err}
+	}
+}
+
+// shouldAutoAdvance returns true if a completed dispatch should trigger phase advancement.
+// Conditions: run has AutoAdvance enabled, dispatch succeeded (exit 0), run is active.
+func (v *RunDashboardView) shouldAutoAdvance(d intercore.Dispatch) bool {
+	if v.activeRun == nil || !v.activeRun.AutoAdvance || !v.activeRun.IsActive() {
+		return false
+	}
+	return d.Status == "completed" && d.ExitCode != nil && *d.ExitCode == 0
+}
+
+// tryAutoAdvance attempts to advance the active run's phase via gate check + advance.
+// The server enforces gate conditions — if gates fail, the advance is a no-op.
+func (v *RunDashboardView) tryAutoAdvance() tea.Cmd {
+	if v.iclient == nil || v.activeRun == nil {
+		return nil
+	}
+	runID := v.activeRun.ID
+	phase := v.activeRun.Phase
+	ic := v.iclient
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+
+		// Gate check first — if it fails, don't attempt advance (avoid noisy errors).
+		gate, err := ic.GateCheck(ctx, runID)
+		if err != nil || gate == nil || !gate.Passed() {
+			return runDashAdvancedMsg{
+				result: &intercore.AdvanceResult{
+					Advanced:   false,
+					FromPhase:  phase,
+					GateResult: "blocked",
+					Reason:     "auto-advance: gate not ready",
+				},
+			}
+		}
+
+		result, err := ic.RunAdvance(ctx, runID)
+		return runDashAdvancedMsg{result: result, err: err}
+	}
+}
+
 // --- Rendering ---
 
 func (v *RunDashboardView) renderSidebar() []pkgtui.SidebarItem {
@@ -402,9 +487,18 @@ func (v *RunDashboardView) renderDocument() string {
 	// Header
 	titleStyle := lipgloss.NewStyle().Bold(true).Foreground(pkgtui.ColorPrimary)
 	dimStyle := lipgloss.NewStyle().Foreground(pkgtui.ColorFgDim)
-	b.WriteString(fmt.Sprintf("  %s  %s\n",
+	autoAdvBadge := ""
+	if r.AutoAdvance {
+		autoAdvBadge = "  " + lipgloss.NewStyle().
+			Foreground(pkgtui.ColorBg).
+			Background(pkgtui.ColorInfo).
+			Padding(0, 1).
+			Render("AUTO")
+	}
+	b.WriteString(fmt.Sprintf("  %s  %s%s\n",
 		titleStyle.Render("Sprint "+r.ID),
-		renderRunStatusBadge(r.Status)))
+		renderRunStatusBadge(r.Status),
+		autoAdvBadge))
 	b.WriteString(fmt.Sprintf("  %s\n\n", dimStyle.Render(r.Goal)))
 
 	// Phase timeline
