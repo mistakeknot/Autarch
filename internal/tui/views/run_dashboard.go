@@ -9,6 +9,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 
+	"github.com/mistakeknot/autarch/internal/tui"
 	"github.com/mistakeknot/autarch/pkg/autarch"
 	"github.com/mistakeknot/autarch/pkg/intercore"
 	pkgtui "github.com/mistakeknot/autarch/pkg/tui"
@@ -150,6 +151,13 @@ func (v *RunDashboardView) Update(msg tea.Msg) (pkgtui.View, tea.Cmd) {
 		}
 		v.statusMsg = fmt.Sprintf("Cancelled run %s", msg.runID)
 		return v, v.loadRuns()
+
+	case tui.DispatchCompletedMsg:
+		v.statusMsg = fmt.Sprintf("Dispatch %s %s", msg.Dispatch.ID, msg.Dispatch.Status)
+		// Refresh detail if we're viewing the run this dispatch belongs to.
+		if v.activeRun != nil && msg.Dispatch.RunID == v.activeRun.ID {
+			return v, v.loadDetail(v.activeRun.ID)
+		}
 	}
 
 	// Forward remaining messages to chat panel

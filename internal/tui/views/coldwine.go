@@ -276,6 +276,34 @@ func (v *ColdwineView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
 		}
 		return v, nil
 
+	case tui.DispatchCompletedMsg:
+		// A dispatch finished — find the matching task and update its status.
+		d := msg.Dispatch
+		for i := range v.tasks {
+			// Match by checking if this task has a stored dispatch ID.
+			// We check via the local dispatch mapping in Intercore state.
+			// For now, match by agent name or dispatch name against task title.
+			if v.tasks[i].Status == autarch.TaskStatusRunning {
+				// Check if dispatch name matches task title (set during dispatch).
+				if d.Type == "task" && taskMatchesDispatch(v.tasks[i], d) {
+					switch d.Status {
+					case "completed":
+						if d.ExitCode != nil && *d.ExitCode == 0 {
+							v.tasks[i].Status = autarch.TaskStatusDone
+						} else {
+							v.tasks[i].Status = autarch.TaskStatusPending // failed → retry
+						}
+					case "failed", "cancelled":
+						v.tasks[i].Status = autarch.TaskStatusPending
+					}
+					v.chatPanel.AddMessage("system", fmt.Sprintf("Dispatch %s %s for task %q",
+						d.ID, d.Status, v.tasks[i].Title))
+					break
+				}
+			}
+		}
+		return v, nil
+
 	case taskDispatchedMsg:
 		if msg.err != nil {
 			v.chatPanel.AddMessage("system", fmt.Sprintf("Dispatch failed: %v", msg.err))
@@ -487,6 +515,20 @@ func (v *ColdwineView) renderDocument() string {
 	}
 
 	return strings.Join(lines, "\n")
+}
+
+// taskMatchesDispatch checks if a task corresponds to a dispatch.
+// Dispatches are created with WithDispatchName(task.Title), so we match on that.
+func taskMatchesDispatch(task autarch.Task, d intercore.Dispatch) bool {
+	// Primary match: dispatch name was set to task title during dispatchSelectedTask.
+	if d.Type == "task" {
+		// The dispatch name comes from DispatchSpawn WithDispatchName(taskTitle).
+		// DispatchStatus returns it in the Agent field (ic uses agent for the name).
+		if d.Agent == task.Title {
+			return true
+		}
+	}
+	return false
 }
 
 func taskStatusIcon(status autarch.TaskStatus) string {

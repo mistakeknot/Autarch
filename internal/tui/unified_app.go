@@ -70,6 +70,9 @@ type UnifiedApp struct {
 
 	intermuteMgr     *internalIntermute.Manager
 	intermuteCleanup func()
+
+	// Dispatch watcher — polls Intercore for dispatch completions.
+	dispatchWatcher *DispatchWatcher
 }
 
 // NewUnifiedApp creates a new unified application
@@ -122,6 +125,11 @@ func (a *UnifiedApp) SetDashboardViewFactory(factory func(*autarch.Client) []Vie
 // SetIntermuteManager sets the Intermute manager used for async startup.
 func (a *UnifiedApp) SetIntermuteManager(mgr *internalIntermute.Manager) {
 	a.intermuteMgr = mgr
+}
+
+// SetDispatchWatcher sets the dispatch watcher for polling Intercore completions.
+func (a *UnifiedApp) SetDispatchWatcher(w *DispatchWatcher) {
+	a.dispatchWatcher = w
 }
 
 // SetSignalBroker configures the signal broker for push-based overlay updates.
@@ -274,6 +282,30 @@ func (a *UnifiedApp) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	if batch, ok := msg.(pkgtui.LogBatchMsg); ok {
 		cmd := a.logPane.Update(batch)
 		return a, cmd
+	}
+
+	// Dispatch watcher messages — schedule next poll or fan out completions.
+	switch msg := msg.(type) {
+	case dispatchTickMsg:
+		if a.dispatchWatcher != nil {
+			return a, a.dispatchWatcher.Poll()
+		}
+		return a, nil
+	case dispatchBatchMsg:
+		// Fan out each completion to the current view, then schedule next tick.
+		var cmds []tea.Cmd
+		for _, c := range msg.completed {
+			if a.currentView != nil {
+				var cmd tea.Cmd
+				a.currentView, cmd = a.currentView.Update(c)
+				cmds = append(cmds, cmd)
+			}
+		}
+		if a.dispatchWatcher != nil {
+			cmds = append(cmds, a.dispatchWatcher.tick())
+		}
+		return a, tea.Batch(cmds...)
+	default:
 	}
 
 	switch msg := msg.(type) {
@@ -570,6 +602,10 @@ func (a *UnifiedApp) enterDashboard() tea.Cmd {
 			}
 			cmds = append(cmds, a.currentView.Focus())
 			cmds = append(cmds, a.sendWindowSize())
+			// Start dispatch watcher if configured.
+			if a.dispatchWatcher != nil {
+				cmds = append(cmds, a.dispatchWatcher.Start())
+			}
 			return tea.Batch(cmds...)
 		}
 	}

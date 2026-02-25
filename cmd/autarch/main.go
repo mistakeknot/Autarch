@@ -239,6 +239,11 @@ Navigation:
 			// Create Intercore client (optional — nil if ic unavailable).
 			iclient, _ := intercore.New()
 
+			// Start dispatch watcher if Intercore is available.
+			if iclient != nil {
+				app.SetDispatchWatcher(tui.NewDispatchWatcher(iclient, 5*time.Second))
+			}
+
 			// Wire dashboard factory (GurgehConfig flows into GurgehView)
 			app.SetDashboardViewFactory(func(c *autarch.Client) []tui.View {
 				coldwine := views.NewColdwineView(c)
