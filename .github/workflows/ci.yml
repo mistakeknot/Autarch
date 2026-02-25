@@ -1,0 +1,29 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Checkout intermute dependency
+        uses: actions/checkout@v4
+        with:
+          repository: mistakeknot/intermute
+          path: _deps/intermute
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.24"
+
+      - name: Override replace directive for CI
+        run: go mod edit -replace github.com/mistakeknot/intermute=./_deps/intermute
+
+      - run: go build ./...
+      - run: go test -race ./...
