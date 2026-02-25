@@ -57,8 +57,13 @@ func NewRunDashboardView(client *autarch.Client) *RunDashboardView {
 }
 
 // SetIntercore sets the Intercore client for sprint operations.
+// Also wires slash command routing for /sprint, /dispatch commands in chat.
 func (v *RunDashboardView) SetIntercore(ic *intercore.Client) {
 	v.iclient = ic
+	if ic != nil {
+		// Wrap the default Claude handler with sprint command routing.
+		v.chatPanel.SetHandler(NewSprintCommandRouter(&pkgtui.ClaudeChatHandler{}, ic))
+	}
 }
 
 // --- Messages ---

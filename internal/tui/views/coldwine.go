@@ -74,8 +74,12 @@ func (v *ColdwineView) SetChatSettings(settings pkgtui.ChatSettings) {
 
 // SetIntercore sets the Intercore client for sprint operations.
 // Pass nil if ic is unavailable — sprint commands will be hidden.
+// Also wraps the chat handler with SprintCommandRouter for /sprint, /dispatch commands.
 func (v *ColdwineView) SetIntercore(ic *intercore.Client) {
 	v.iclient = ic
+	if ic != nil {
+		v.chatPanel.SetHandler(NewSprintCommandRouter(v.chatHandler, ic))
+	}
 }
 
 // ClearInput clears the chat composer (for ctrl+c soft cancel).
