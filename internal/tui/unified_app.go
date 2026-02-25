@@ -292,12 +292,14 @@ func (a *UnifiedApp) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return a, nil
 	case dispatchBatchMsg:
-		// Fan out each completion to the current view, then schedule next tick.
+		// Fan out each completion to ALL views — not just the active one.
+		// Completions trigger persistence (task status update) which must
+		// happen regardless of which tab is focused.
 		var cmds []tea.Cmd
 		for _, c := range msg.completed {
-			if a.currentView != nil {
+			for i, v := range a.dashViews {
 				var cmd tea.Cmd
-				a.currentView, cmd = a.currentView.Update(c)
+				a.dashViews[i], cmd = v.Update(c)
 				cmds = append(cmds, cmd)
 			}
 		}

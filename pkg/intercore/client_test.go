@@ -295,3 +295,83 @@ func TestContextTimeout(t *testing.T) {
 		t.Error("expected context deadline error")
 	}
 }
+
+func TestUnmarshalDispatchWithResultFields(t *testing.T) {
+	// Simulate ic dispatch status --json output with result fields.
+	raw := `{"id":"d-abc123","agent_type":"claude","status":"completed","project_dir":"/tmp","turns":5,"commands":3,"messages":12,"in_tokens":8000,"out_tokens":2000,"created_at":1772048200,"name":"Implement feature X","output_file":"/tmp/output.md","exit_code":0,"verdict_summary":"All tests pass","error_message":null}`
+
+	var d Dispatch
+	if err := json.Unmarshal([]byte(raw), &d); err != nil {
+		t.Fatalf("unmarshal Dispatch: %v", err)
+	}
+	if d.ID != "d-abc123" {
+		t.Errorf("ID = %q, want %q", d.ID, "d-abc123")
+	}
+	if d.Name == nil || *d.Name != "Implement feature X" {
+		t.Errorf("Name = %v, want %q", d.Name, "Implement feature X")
+	}
+	if d.OutputFile == nil || *d.OutputFile != "/tmp/output.md" {
+		t.Errorf("OutputFile = %v, want %q", d.OutputFile, "/tmp/output.md")
+	}
+	if d.VerdictSummary == nil || *d.VerdictSummary != "All tests pass" {
+		t.Errorf("VerdictSummary = %v, want %q", d.VerdictSummary, "All tests pass")
+	}
+	if d.InputTokens != 8000 {
+		t.Errorf("InputTokens = %d, want 8000", d.InputTokens)
+	}
+	if d.OutputTokens != 2000 {
+		t.Errorf("OutputTokens = %d, want 2000", d.OutputTokens)
+	}
+	if d.ExitCode == nil || *d.ExitCode != 0 {
+		t.Errorf("ExitCode = %v, want 0", d.ExitCode)
+	}
+}
+
+func TestDispatchDisplayName(t *testing.T) {
+	name := "Task title"
+	agent := "claude"
+
+	tests := []struct {
+		desc string
+		d    Dispatch
+		want string
+	}{
+		{"name set", Dispatch{ID: "d-1", Name: &name, Agent: agent}, "Task title"},
+		{"name nil, agent set", Dispatch{ID: "d-1", Agent: agent}, "claude"},
+		{"name empty, agent set", Dispatch{ID: "d-1", Name: strPtr(""), Agent: agent}, "claude"},
+		{"both empty", Dispatch{ID: "d-1"}, "d-1"},
+	}
+	for _, tt := range tests {
+		if got := tt.d.DisplayName(); got != tt.want {
+			t.Errorf("%s: DisplayName() = %q, want %q", tt.desc, got, tt.want)
+		}
+	}
+}
+
+func TestDispatchResultSummary(t *testing.T) {
+	exitZero := 0
+	exitOne := 1
+
+	tests := []struct {
+		desc string
+		d    Dispatch
+		want string
+	}{
+		{"verdict", Dispatch{VerdictSummary: strPtr("Clean run")}, "Clean run"},
+		{"error message", Dispatch{ErrorMessage: strPtr("timeout")}, "timeout"},
+		{"exit 0", Dispatch{ExitCode: &exitZero}, "completed successfully"},
+		{"exit 1", Dispatch{ExitCode: &exitOne}, "exited with code 1"},
+		{"status only", Dispatch{Status: "failed"}, "failed"},
+		{"verdict takes precedence over error", Dispatch{
+			VerdictSummary: strPtr("All good"),
+			ErrorMessage:   strPtr("some warning"),
+		}, "All good"},
+	}
+	for _, tt := range tests {
+		if got := tt.d.ResultSummary(); got != tt.want {
+			t.Errorf("%s: ResultSummary() = %q, want %q", tt.desc, got, tt.want)
+		}
+	}
+}
+
+func strPtr(s string) *string { return &s }

@@ -30,6 +30,10 @@ type ColdwineView struct {
 	// Sprint data cached from Intercore (loaded async).
 	epicRuns map[string]*intercore.Run // epicID → Run (nil if no sprint)
 
+	// Task→dispatch mapping loaded from Intercore state.
+	// Key: taskID, Value: dispatchID. Populated on data load.
+	taskDispatches map[string]string
+
 	// Shell layout for unified 3-pane layout
 	shell *pkgtui.ShellLayout
 	// Chat panel for interactive input
@@ -121,6 +125,18 @@ type epicRunsLoadedMsg struct {
 	runs map[string]*intercore.Run // epicID → Run
 }
 
+// taskDispatchMapMsg carries the task→dispatch mapping loaded from Intercore state.
+type taskDispatchMapMsg struct {
+	dispatches map[string]string // taskID → dispatchID
+}
+
+// taskStatusPersistedMsg confirms that a task status was persisted to the backend.
+type taskStatusPersistedMsg struct {
+	taskID string
+	status autarch.TaskStatus
+	err    error
+}
+
 // Init implements View
 func (v *ColdwineView) Init() tea.Cmd {
 	return v.loadData()
@@ -178,6 +194,42 @@ func (v *ColdwineView) loadEpicRuns() tea.Cmd {
 	}
 }
 
+// loadTaskDispatches loads the task→dispatch mapping from Intercore state
+// for all currently-running tasks.
+func (v *ColdwineView) loadTaskDispatches() tea.Cmd {
+	if v.iclient == nil {
+		return nil
+	}
+	// Collect IDs of tasks that might have dispatches.
+	var taskIDs []string
+	for _, t := range v.tasks {
+		if t.Status == autarch.TaskStatusRunning {
+			taskIDs = append(taskIDs, t.ID)
+		}
+	}
+	if len(taskIDs) == 0 {
+		return nil
+	}
+
+	ic := v.iclient
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		dispatches := make(map[string]string, len(taskIDs))
+		for _, tid := range taskIDs {
+			dispID, err := ic.StateGet(ctx, "task.dispatch_id", tid)
+			if err != nil || dispID == "" {
+				continue
+			}
+			dispID = strings.Trim(dispID, `"`)
+			if dispID != "" {
+				dispatches[tid] = dispID
+			}
+		}
+		return taskDispatchMapMsg{dispatches: dispatches}
+	}
+}
+
 // getEpicRunID returns the cached run ID for an epic, or empty string.
 func (v *ColdwineView) getEpicRunID(epicID string) string {
 	if run, ok := v.epicRuns[epicID]; ok && run != nil {
@@ -217,11 +269,15 @@ func (v *ColdwineView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
 			v.stories = msg.stories
 			v.tasks = msg.tasks
 		}
-		// Trigger async sprint data load after epics are available.
-		return v, v.loadEpicRuns()
+		// Trigger async sprint data + task dispatch map load.
+		return v, tea.Batch(v.loadEpicRuns(), v.loadTaskDispatches())
 
 	case epicRunsLoadedMsg:
 		v.epicRuns = msg.runs
+		return v, nil
+
+	case taskDispatchMapMsg:
+		v.taskDispatches = msg.dispatches
 		return v, nil
 
 	case epicCreatedMsg:
@@ -279,28 +335,48 @@ func (v *ColdwineView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
 	case tui.DispatchCompletedMsg:
 		// A dispatch finished — find the matching task and update its status.
 		d := msg.Dispatch
+		taskIdx := -1
 		for i := range v.tasks {
-			// Match by checking if this task has a stored dispatch ID.
-			// We check via the local dispatch mapping in Intercore state.
-			// For now, match by agent name or dispatch name against task title.
-			if v.tasks[i].Status == autarch.TaskStatusRunning {
-				// Check if dispatch name matches task title (set during dispatch).
-				if d.Type == "task" && taskMatchesDispatch(v.tasks[i], d) {
-					switch d.Status {
-					case "completed":
-						if d.ExitCode != nil && *d.ExitCode == 0 {
-							v.tasks[i].Status = autarch.TaskStatusDone
-						} else {
-							v.tasks[i].Status = autarch.TaskStatusPending // failed → retry
-						}
-					case "failed", "cancelled":
-						v.tasks[i].Status = autarch.TaskStatusPending
-					}
-					v.chatPanel.AddMessage("system", fmt.Sprintf("Dispatch %s %s for task %q",
-						d.ID, d.Status, v.tasks[i].Title))
-					break
-				}
+			if v.tasks[i].Status != autarch.TaskStatusRunning {
+				continue
 			}
+			if taskMatchesDispatch(v.tasks[i], d, v.taskDispatches) {
+				taskIdx = i
+				break
+			}
+		}
+		if taskIdx < 0 {
+			return v, nil
+		}
+
+		// Determine new status based on dispatch outcome.
+		var newStatus autarch.TaskStatus
+		switch d.Status {
+		case "completed":
+			if d.ExitCode != nil && *d.ExitCode == 0 {
+				newStatus = autarch.TaskStatusDone
+			} else {
+				newStatus = autarch.TaskStatusPending // non-zero exit → retry
+			}
+		case "failed", "cancelled":
+			newStatus = autarch.TaskStatusPending
+		default:
+			return v, nil
+		}
+
+		// Update local state immediately for responsive UI.
+		v.tasks[taskIdx].Status = newStatus
+		taskTitle := v.tasks[taskIdx].Title
+		v.chatPanel.AddMessage("system", fmt.Sprintf(
+			"Dispatch %s %s for task %q — %s",
+			d.ID, d.Status, taskTitle, d.ResultSummary()))
+
+		// Persist: update task status in backend + store result summary in ic state.
+		return v, v.persistDispatchResult(v.tasks[taskIdx], d, newStatus)
+
+	case taskStatusPersistedMsg:
+		if msg.err != nil {
+			v.chatPanel.AddMessage("system", fmt.Sprintf("Failed to persist task status: %v", msg.err))
 		}
 		return v, nil
 
@@ -317,6 +393,11 @@ func (v *ColdwineView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
 				break
 			}
 		}
+		// Update local dispatch map so the watcher can match completions.
+		if v.taskDispatches == nil {
+			v.taskDispatches = make(map[string]string)
+		}
+		v.taskDispatches[msg.taskID] = msg.dispatchID
 		// Store task→dispatch mapping in Intercore state
 		if v.iclient != nil {
 			ic := v.iclient
@@ -518,15 +599,22 @@ func (v *ColdwineView) renderDocument() string {
 }
 
 // taskMatchesDispatch checks if a task corresponds to a dispatch.
-// Dispatches are created with WithDispatchName(task.Title), so we match on that.
-func taskMatchesDispatch(task autarch.Task, d intercore.Dispatch) bool {
-	// Primary match: dispatch name was set to task title during dispatchSelectedTask.
-	if d.Type == "task" {
-		// The dispatch name comes from DispatchSpawn WithDispatchName(taskTitle).
-		// DispatchStatus returns it in the Agent field (ic uses agent for the name).
-		if d.Agent == task.Title {
-			return true
-		}
+// If a dispatch ID mapping exists for the task, it's authoritative — name
+// matching is only used as a fallback when no mapping is stored.
+func taskMatchesDispatch(task autarch.Task, d intercore.Dispatch, taskDispatches map[string]string) bool {
+	// Primary: dispatch ID from Intercore state mapping.
+	if dispID, ok := taskDispatches[task.ID]; ok {
+		// Mapping exists — only match if IDs agree. Don't fall through
+		// to name matching, which could false-positive on title collisions.
+		return dispID == d.ID
+	}
+	// No mapping stored — fall back to name matching.
+	if d.Name != nil && *d.Name == task.Title {
+		return true
+	}
+	// Legacy fallback: ic maps name to agent field in some responses.
+	if d.Agent == task.Title {
+		return true
 	}
 	return false
 }
@@ -604,6 +692,36 @@ func (v *ColdwineView) epicTasks() []autarch.Task {
 		}
 	}
 	return tasks
+}
+
+// persistDispatchResult persists the task status change and stores the dispatch
+// result summary in Intercore state. Both operations are best-effort —
+// failures are reported to the chat panel but don't block the UI.
+func (v *ColdwineView) persistDispatchResult(task autarch.Task, d intercore.Dispatch, newStatus autarch.TaskStatus) tea.Cmd {
+	client := v.client
+	ic := v.iclient
+	taskID := task.ID
+
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+
+		// Persist task status to backend (Intermute or local source).
+		updated := task
+		updated.Status = newStatus
+		_, err := client.UpdateTask(updated)
+		if err != nil {
+			return taskStatusPersistedMsg{taskID: taskID, status: newStatus, err: err}
+		}
+
+		// Store dispatch result summary in Intercore state (best-effort).
+		if ic != nil {
+			summary := d.ResultSummary()
+			_ = ic.StateSet(ctx, "task.dispatch_summary", taskID, fmt.Sprintf("%q", summary))
+		}
+
+		return taskStatusPersistedMsg{taskID: taskID, status: newStatus}
+	}
 }
 
 // dispatchSelectedTask creates a dispatch for the currently selected task.

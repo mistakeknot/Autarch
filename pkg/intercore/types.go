@@ -5,6 +5,7 @@ package intercore
 
 import (
 	"errors"
+	"fmt"
 	"time"
 )
 
@@ -48,6 +49,42 @@ type Dispatch struct {
 	ExitCode  *int   `json:"exit_code,omitempty"`
 	CreatedAt int64  `json:"created_at"`
 	UpdatedAt int64  `json:"updated_at"`
+
+	// Result fields — populated by ic dispatch status/list after completion.
+	Name           *string `json:"name,omitempty"`
+	OutputFile     *string `json:"output_file,omitempty"`
+	VerdictSummary *string `json:"verdict_summary,omitempty"`
+	ErrorMessage   *string `json:"error_message,omitempty"`
+	InputTokens    int     `json:"in_tokens,omitempty"`
+	OutputTokens   int     `json:"out_tokens,omitempty"`
+}
+
+// DisplayName returns the dispatch name if set, falling back to agent type.
+func (d Dispatch) DisplayName() string {
+	if d.Name != nil && *d.Name != "" {
+		return *d.Name
+	}
+	if d.Agent != "" {
+		return d.Agent
+	}
+	return d.ID
+}
+
+// ResultSummary returns a human-readable result summary for chat messages.
+func (d Dispatch) ResultSummary() string {
+	if d.VerdictSummary != nil && *d.VerdictSummary != "" {
+		return *d.VerdictSummary
+	}
+	if d.ErrorMessage != nil && *d.ErrorMessage != "" {
+		return *d.ErrorMessage
+	}
+	if d.ExitCode != nil {
+		if *d.ExitCode == 0 {
+			return "completed successfully"
+		}
+		return fmt.Sprintf("exited with code %d", *d.ExitCode)
+	}
+	return d.Status
 }
 
 // GateResult from ic gate check.
