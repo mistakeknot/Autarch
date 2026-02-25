@@ -59,6 +59,17 @@ func (m *ProjectManager) Count() int {
 	return len(m.projects)
 }
 
+// Paths returns all discovered project paths.
+func (m *ProjectManager) Paths() []string {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	paths := make([]string, 0, len(m.projects))
+	for path := range m.projects {
+		paths = append(paths, path)
+	}
+	return paths
+}
+
 // GetTasks returns tasks for a project from its .coldwine directory
 func (m *ProjectManager) GetTasks(path string) ([]map[string]interface{}, error) {
 	m.mu.RLock()

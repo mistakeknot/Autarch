@@ -10,6 +10,8 @@ import (
 	"path/filepath"
 	"time"
 
+	"github.com/google/uuid"
+	"github.com/mistakeknot/autarch/internal/coldwine/storage"
 	"github.com/mistakeknot/autarch/internal/gurgeh/specs"
 	"github.com/mistakeknot/autarch/internal/pollard/insights"
 	"github.com/mistakeknot/autarch/pkg/autarch"
@@ -330,4 +332,116 @@ func mapInsightToAutarch(li *insights.Insight) autarch.Insight {
 
 	// Body is not available in local insight files — leave empty
 	return ai
+}
+
+// --- Write operations (WritableDataSource) ---
+
+// openOrCreateDB opens the Coldwine state DB, creating it and running
+// migrations if it doesn't exist. Used by write operations that need
+// to ensure the DB and tables are available.
+func (s *LocalSource) openOrCreateDB() (*sql.DB, error) {
+	coldwineDir := filepath.Join(s.projectPath, ".coldwine")
+	if err := os.MkdirAll(coldwineDir, 0755); err != nil {
+		return nil, fmt.Errorf("create .coldwine dir: %w", err)
+	}
+	dbPath := filepath.Join(coldwineDir, "state.db")
+	db, err := autarchdb.Open(dbPath)
+	if err != nil {
+		return nil, fmt.Errorf("open state.db: %w", err)
+	}
+	if err := storage.MigrateV2(db); err != nil {
+		db.Close()
+		return nil, fmt.Errorf("migrate v2: %w", err)
+	}
+	return db, nil
+}
+
+// CreateEpic writes an epic to the local Coldwine state.db.
+func (s *LocalSource) CreateEpic(epic autarch.Epic) (autarch.Epic, error) {
+	db, err := s.openOrCreateDB()
+	if err != nil {
+		return autarch.Epic{}, err
+	}
+	defer db.Close()
+
+	if epic.ID == "" {
+		epic.ID = fmt.Sprintf("EPIC-%s", uuid.New().String()[:8])
+	}
+	now := time.Now()
+	epic.CreatedAt = now
+	epic.UpdatedAt = now
+	if epic.Status == "" {
+		epic.Status = autarch.EpicStatusOpen
+	}
+
+	se := storage.Epic{
+		ID:         epic.ID,
+		FeatureRef: epic.SpecID,
+		Title:      epic.Title,
+		Status:     storage.EpicStatus(epic.Status),
+	}
+	if err := storage.InsertEpic(db, se); err != nil {
+		return autarch.Epic{}, fmt.Errorf("insert epic: %w", err)
+	}
+	return epic, nil
+}
+
+// CreateStory writes a story to the local Coldwine state.db.
+func (s *LocalSource) CreateStory(story autarch.Story) (autarch.Story, error) {
+	db, err := s.openOrCreateDB()
+	if err != nil {
+		return autarch.Story{}, err
+	}
+	defer db.Close()
+
+	if story.ID == "" {
+		story.ID = fmt.Sprintf("STORY-%s", uuid.New().String()[:8])
+	}
+	now := time.Now()
+	story.CreatedAt = now
+	story.UpdatedAt = now
+	if story.Status == "" {
+		story.Status = autarch.StoryStatusTodo
+	}
+
+	ss := storage.Story{
+		ID:     story.ID,
+		EpicID: story.EpicID,
+		Title:  story.Title,
+		Status: storage.StoryStatus(story.Status),
+	}
+	if err := storage.InsertStory(db, ss); err != nil {
+		return autarch.Story{}, fmt.Errorf("insert story: %w", err)
+	}
+	return story, nil
+}
+
+// CreateTask writes a work task to the local Coldwine state.db.
+func (s *LocalSource) CreateTask(task autarch.Task) (autarch.Task, error) {
+	db, err := s.openOrCreateDB()
+	if err != nil {
+		return autarch.Task{}, err
+	}
+	defer db.Close()
+
+	if task.ID == "" {
+		task.ID = fmt.Sprintf("TASK-%s", uuid.New().String()[:8])
+	}
+	now := time.Now()
+	task.CreatedAt = now
+	task.UpdatedAt = now
+	if task.Status == "" {
+		task.Status = autarch.TaskStatusPending
+	}
+
+	wt := storage.WorkTask{
+		ID:      task.ID,
+		StoryID: task.StoryID,
+		Title:   task.Title,
+		Status:  storage.TaskStatus(task.Status),
+	}
+	if err := storage.InsertWorkTask(db, wt); err != nil {
+		return autarch.Task{}, fmt.Errorf("insert work task: %w", err)
+	}
+	return task, nil
 }

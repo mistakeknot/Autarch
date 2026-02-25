@@ -3,6 +3,7 @@ package daemon
 import (
 	"fmt"
 	"os/exec"
+	"strings"
 	"sync"
 	"time"
 
@@ -158,9 +159,10 @@ func (m *SessionManager) Attach(id string) error {
 	return cmd.Start()
 }
 
-// DiscoverExisting finds existing tmux sessions and adds them to the manager
+// DiscoverExisting finds existing tmux sessions and adds them to the manager.
+// Sessions already tracked are skipped (idempotent).
 func (m *SessionManager) DiscoverExisting() error {
-	cmd := exec.Command("tmux", "list-sessions", "-F", "#{session_name}:#{session_path}")
+	cmd := exec.Command("tmux", "list-sessions", "-F", "#{session_name}\t#{pane_current_path}\t#{session_created}")
 	output, err := cmd.Output()
 	if err != nil {
 		return nil // No sessions or tmux not running
@@ -169,9 +171,38 @@ func (m *SessionManager) DiscoverExisting() error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	// Parse output and add sessions
-	// Format: name:path
-	_ = output // TODO: Parse and add existing sessions
+	for _, line := range strings.Split(strings.TrimSpace(string(output)), "\n") {
+		if line == "" {
+			continue
+		}
+		parts := strings.SplitN(line, "\t", 3)
+		if len(parts) < 2 {
+			continue
+		}
+		name := parts[0]
+		path := parts[1]
+
+		// Skip sessions we already track (by name match)
+		alreadyTracked := false
+		for _, s := range m.sessions {
+			if s.Name == name {
+				alreadyTracked = true
+				break
+			}
+		}
+		if alreadyTracked {
+			continue
+		}
+
+		id := uuid.New().String()
+		m.sessions[id] = &Session{
+			ID:          id,
+			Name:        name,
+			ProjectPath: path,
+			Status:      SessionRunning,
+			CreatedAt:   time.Now(),
+		}
+	}
 
 	return nil
 }

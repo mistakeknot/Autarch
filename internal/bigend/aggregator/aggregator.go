@@ -19,6 +19,7 @@ import (
 	"github.com/mistakeknot/autarch/internal/bigend/config"
 	"github.com/mistakeknot/autarch/internal/bigend/discovery"
 	"github.com/mistakeknot/autarch/internal/bigend/mcp"
+	autarchdb "github.com/mistakeknot/autarch/pkg/db"
 	"github.com/mistakeknot/autarch/internal/bigend/statedetect"
 	"github.com/mistakeknot/autarch/internal/bigend/tmux"
 	"github.com/mistakeknot/autarch/internal/icdata"
@@ -120,6 +121,12 @@ type Aggregator struct {
 	state           State
 	refreshing      atomic.Bool
 
+	// Lifecycle context: all internal goroutines derive from this.
+	// Cancelled by Shutdown().
+	lifecycleCtx    context.Context
+	lifecycleCancel context.CancelFunc
+	wg              sync.WaitGroup // tracks in-flight goroutines
+
 	// Event dedup: LRU-ordered seen-set for activity merge
 	seenEvents map[string]struct{}
 	seenOrder  []string
@@ -152,6 +159,8 @@ func New(scanner *discovery.Scanner, cfg *config.Config, store *events.Store) *A
 		ic = icClient
 	}
 
+	ctx, cancel := context.WithCancel(context.Background())
+
 	return &Aggregator{
 		scanner:         scanner,
 		tmuxClient:      tmux.NewClient(),
@@ -160,6 +169,8 @@ func New(scanner *discovery.Scanner, cfg *config.Config, store *events.Store) *A
 		mcpManager:      mcp.NewManager(),
 		resolver:        agentcmd.NewResolver(cfg),
 		cfg:             cfg,
+		lifecycleCtx:    ctx,
+		lifecycleCancel: cancel,
 		broker:          signals.NewBroker(),
 		eventsStore:     store,
 		handlers:        make(map[string][]EventHandler),
@@ -175,9 +186,49 @@ func New(scanner *discovery.Scanner, cfg *config.Config, store *events.Store) *A
 	}
 }
 
+// Shutdown gracefully stops all background goroutines and connections.
+// It cancels the lifecycle context, disconnects WebSocket, stops MCP processes,
+// and waits for in-flight goroutines to complete (bounded by ctx).
+func (a *Aggregator) Shutdown(ctx context.Context) error {
+	slog.Info("aggregator shutting down")
+
+	// Cancel lifecycle context — signals all derived goroutines to stop
+	a.lifecycleCancel()
+
+	// Disconnect WebSocket
+	if err := a.DisconnectWebSocket(); err != nil {
+		slog.Warn("websocket disconnect error during shutdown", "error", err)
+	}
+
+	// Stop all MCP processes
+	a.mcpManager.StopAll()
+
+	// Wait for in-flight goroutines with bounded timeout
+	done := make(chan struct{})
+	go func() {
+		a.wg.Wait()
+		close(done)
+	}()
+
+	select {
+	case <-done:
+		slog.Info("aggregator shutdown complete")
+		return nil
+	case <-ctx.Done():
+		slog.Warn("aggregator shutdown timed out, some goroutines may still be running")
+		return ctx.Err()
+	}
+}
+
 // Broker returns the embedded signal broker for real-time event delivery.
 func (a *Aggregator) Broker() *signals.Broker {
 	return a.broker
+}
+
+// Context returns the aggregator's lifecycle context.
+// TUI code should derive request contexts from this so they cancel on shutdown.
+func (a *Aggregator) Context() context.Context {
+	return a.lifecycleCtx
 }
 
 // ConnectWebSocket establishes a WebSocket connection to Intermute for real-time events.
@@ -284,7 +335,9 @@ func (a *Aggregator) handleIntermuteEvent(evt intermute.Event) {
 
 		// Dual-write to events store for persistence (async to avoid stalling WS read loop)
 		if a.eventsStore != nil {
+			a.wg.Add(1)
 			go func(s signals.Signal) {
+				defer a.wg.Done()
 				payload, err := json.Marshal(s)
 				if err != nil {
 					slog.Warn("failed to marshal signal for persistence",
@@ -333,7 +386,8 @@ func (a *Aggregator) addActivity(evt Event) {
 	a.state.UpdatedAt = time.Now()
 }
 
-// refreshForEvent triggers targeted refresh based on event type
+// refreshForEvent triggers targeted refresh based on event type.
+// All goroutines are tracked via WaitGroup and derive from the lifecycle context.
 func (a *Aggregator) refreshForEvent(eventType string) {
 	switch {
 	case strings.HasPrefix(eventType, "spec.") ||
@@ -341,7 +395,12 @@ func (a *Aggregator) refreshForEvent(eventType string) {
 		strings.HasPrefix(eventType, "story.") ||
 		strings.HasPrefix(eventType, "task."):
 		// Spec/task events - refresh Gurgeh stats (I/O outside lock)
+		a.wg.Add(1)
 		go func() {
+			defer a.wg.Done()
+			if a.lifecycleCtx.Err() != nil {
+				return
+			}
 			a.mu.RLock()
 			projects := make([]discovery.Project, len(a.state.Projects))
 			copy(projects, a.state.Projects)
@@ -358,8 +417,13 @@ func (a *Aggregator) refreshForEvent(eventType string) {
 	case strings.HasPrefix(eventType, "agent.") ||
 		strings.HasPrefix(eventType, "message."):
 		// Agent events - refresh agent list (I/O outside lock)
+		a.wg.Add(1)
 		go func() {
-			ctx, cancel := withTimeoutOrCancel(context.TODO(), timeout.HTTPDefault)
+			defer a.wg.Done()
+			if a.lifecycleCtx.Err() != nil {
+				return
+			}
+			ctx, cancel := withTimeoutOrCancel(a.lifecycleCtx, timeout.HTTPDefault)
 			defer cancel()
 			agents := a.loadAgents(ctx)
 			a.mu.Lock()
@@ -370,7 +434,12 @@ func (a *Aggregator) refreshForEvent(eventType string) {
 
 	case strings.HasPrefix(eventType, "insight."):
 		// Insight events - refresh Pollard stats (I/O outside lock)
+		a.wg.Add(1)
 		go func() {
+			defer a.wg.Done()
+			if a.lifecycleCtx.Err() != nil {
+				return
+			}
 			a.mu.RLock()
 			projects := make([]discovery.Project, len(a.state.Projects))
 			copy(projects, a.state.Projects)
@@ -462,6 +531,9 @@ func (a *Aggregator) Refresh(ctx context.Context) error {
 
 	// Enrich projects with Pollard stats
 	a.enrichWithPollardStats(projects)
+
+	// Enrich projects with Interspect profiler stats
+	a.enrichWithInterspectStats(projects)
 
 	// Enrich with Intercore kernel state (I/O outside lock)
 	kernelState := a.enrichWithKernelState(ctx, projects)
@@ -601,6 +673,65 @@ func (a *Aggregator) enrichWithPollardStats(projects []discovery.Project) {
 			LastReport: lastReport,
 		}
 	}
+}
+
+// enrichWithInterspectStats loads Interspect profiler statistics for each project
+func (a *Aggregator) enrichWithInterspectStats(projects []discovery.Project) {
+	for i := range projects {
+		if !projects[i].HasInterspect {
+			continue
+		}
+		dbPath := filepath.Join(projects[i].Path, ".clavain", "interspect", "interspect.db")
+		stats := loadInterspectStats(dbPath)
+		if stats != nil {
+			projects[i].InterspectStats = stats
+		}
+	}
+}
+
+// loadInterspectStats queries the Interspect SQLite DB for summary stats.
+func loadInterspectStats(dbPath string) *discovery.InterspectStats {
+	if _, err := os.Stat(dbPath); err != nil {
+		return nil
+	}
+
+	db, err := autarchdb.Open(dbPath)
+	if err != nil {
+		return nil
+	}
+	defer db.Close()
+
+	stats := &discovery.InterspectStats{}
+
+	// Total events
+	_ = db.QueryRow("SELECT COUNT(*) FROM evidence").Scan(&stats.TotalEvents)
+
+	// Sessions
+	_ = db.QueryRow("SELECT COUNT(*) FROM sessions").Scan(&stats.Sessions)
+
+	// Per-event counts
+	rows, err := db.Query("SELECT event, COUNT(*) FROM evidence GROUP BY event")
+	if err != nil {
+		return stats
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var event string
+		var count int
+		if err := rows.Scan(&event, &count); err != nil {
+			continue
+		}
+		switch event {
+		case "agent_dispatch":
+			stats.Dispatches = count
+		case "advance":
+			stats.Advances = count
+		case "block":
+			stats.Blocks = count
+		}
+	}
+
+	return stats
 }
 
 // countYAMLFiles counts YAML files in a directory
@@ -894,7 +1025,7 @@ func (a *Aggregator) GetActiveReservations(ctx context.Context) ([]intermute.Res
 
 func withTimeoutOrCancel(parent context.Context, d time.Duration) (context.Context, context.CancelFunc) {
 	if parent == nil {
-		parent = context.TODO()
+		parent = context.Background()
 	}
 	if _, ok := parent.Deadline(); ok {
 		return context.WithCancel(parent)

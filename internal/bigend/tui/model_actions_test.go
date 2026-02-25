@@ -30,6 +30,7 @@ func (f *fakeAgg) RestartSession(name, projectPath, agentType string) error {
 func (f *fakeAgg) RenameSession(oldName, newName string) error                       { return nil }
 func (f *fakeAgg) ForkSession(name, projectPath, agentType string) error             { return nil }
 func (f *fakeAgg) AttachSession(name string) error                                   { return nil }
+func (f *fakeAgg) Context() context.Context                                          { return context.Background() }
 func (f *fakeAgg) StartMCP(ctx context.Context, projectPath, component string) error { return nil }
 func (f *fakeAgg) StopMCP(projectPath, component string) error                       { return nil }
 

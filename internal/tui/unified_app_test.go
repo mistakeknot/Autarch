@@ -280,8 +280,9 @@ func TestTabSwitchSendsWindowSizeToNewView(t *testing.T) {
 	app.width = 120
 	app.height = 40
 
-	// Size viewA via WindowSizeMsg (simulates initial sizing)
-	app.Update(tea.WindowSizeMsg{Width: 120, Height: 40})
+	// Size viewA directly via applyResize (bypasses coalescer, which is what
+	// the real Bubble Tea runtime does on the first WindowSizeMsg).
+	app.applyResize(tea.WindowSizeMsg{Width: 120, Height: 40})
 
 	if viewA.lastWidth == 0 {
 		t.Fatal("viewA should have received WindowSizeMsg")
@@ -290,31 +291,24 @@ func TestTabSwitchSendsWindowSizeToNewView(t *testing.T) {
 		t.Fatal("viewB should NOT have received WindowSizeMsg yet")
 	}
 
-	// Switch to tab B via slash command
-	updated, cmd := app.Update(pkgtui.SlashCommandMsg{Command: "b_tab"})
-	// Slash command won't work for arbitrary names, use Ctrl+Right instead
-	_ = updated
-	_ = cmd
-
-	// Use direct tab switch
-	app.currentView = viewA // reset
-	app.tabs.SetActive(0)
+	// Switch to tab B
 	switchCmd := app.switchDashboardTab(1)
 
 	if switchCmd == nil {
 		t.Fatal("expected non-nil command from tab switch")
 	}
 
-	// Execute the batched commands — one of them should be a WindowSizeMsg
-	// We can't easily extract batched commands, but verify viewB gets sized
-	// by processing the WindowSizeMsg that sendWindowSize produces
+	// Execute the batched commands — one of them should be a WindowSizeMsg.
+	// In production, Bubble Tea's runtime feeds Cmd results back into Update.
+	// Here we apply the WindowSizeMsg directly via applyResize to avoid the
+	// resize coalescer swallowing it (the coalescer defers rapid successive
+	// resizes, which is correct production behavior but breaks unit tests).
 	msgs := collectBatchMsgs(switchCmd)
 	foundWSM := false
 	for _, m := range msgs {
 		if wsm, ok := m.(tea.WindowSizeMsg); ok {
 			foundWSM = true
-			// Process it through Update to deliver to the new currentView
-			app.Update(wsm)
+			app.applyResize(wsm)
 		}
 	}
 

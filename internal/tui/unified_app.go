@@ -690,8 +690,25 @@ func (a *UnifiedApp) updateCommands() {
 		Description: "Broadcast a prompt to agent panes",
 		Broadcast:   true,
 		Action: func() tea.Cmd {
-			// TODO: implement actual send-to-panes via tmux SendKeys
-			return nil
+			return func() tea.Msg {
+				client := tmux.NewClient()
+				if !client.IsAvailable() {
+					slog.Warn("send-to-panes: tmux not available")
+					return nil
+				}
+				sessions, err := client.ListSessions()
+				if err != nil || len(sessions) == 0 {
+					return nil
+				}
+				var sent int
+				for _, s := range sessions {
+					if err := client.SendKeys(s.Name, "Enter"); err == nil {
+						sent++
+					}
+				}
+				slog.Info("broadcast Enter to agent panes", "sent", sent)
+				return nil
+			}
 		},
 	})
 	cmds = append(cmds, Command{
@@ -699,8 +716,25 @@ func (a *UnifiedApp) updateCommands() {
 		Description: "Send interrupt to agent panes",
 		Broadcast:   true,
 		Action: func() tea.Cmd {
-			// TODO: implement actual ctrl-c to panes via tmux SendKeys
-			return nil
+			return func() tea.Msg {
+				client := tmux.NewClient()
+				if !client.IsAvailable() {
+					slog.Warn("stop-all-agents: tmux not available")
+					return nil
+				}
+				sessions, err := client.ListSessions()
+				if err != nil || len(sessions) == 0 {
+					return nil
+				}
+				var sent int
+				for _, s := range sessions {
+					if err := client.SendKeys(s.Name, "C-c"); err == nil {
+						sent++
+					}
+				}
+				slog.Info("broadcast C-c to agent panes", "sent", sent)
+				return nil
+			}
 		},
 	})
 

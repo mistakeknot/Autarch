@@ -54,6 +54,14 @@ func (m Model) renderDashboard() string {
 	})
 	sections = append(sections, agentsSection, "")
 
+	// Interspect Profiler (cached, only if any project has interspect data)
+	interspectSection := m.dashCache.getOrRender(sectionInterspect, hashInterspect(state.Projects, width), func() string {
+		return m.renderInterspectSection(state)
+	})
+	if interspectSection != "" {
+		sections = append(sections, interspectSection, "")
+	}
+
 	// Activity Feed (cached)
 	if len(state.Activities) > 0 {
 		actSection := m.dashCache.getOrRender(sectionActivity, hashActivities(state.Activities, 10), func() string {
@@ -286,6 +294,38 @@ func (m Model) renderActivityFeed(activities []aggregator.Activity) string {
 		actLines = append(actLines, line)
 	}
 	return actTitle + "\n" + strings.Join(actLines, "\n")
+}
+
+func (m Model) renderInterspectSection(state aggregator.State) string {
+	title := SubtitleStyle.Render("Interspect Profiler")
+	var lines []string
+	for _, p := range state.Projects {
+		if p.InterspectStats == nil {
+			continue
+		}
+		s := p.InterspectStats
+		line := fmt.Sprintf("  %s  %s events  %s sessions  %s dispatches  %s advances  %s blocks",
+			lipgloss.NewStyle().Foreground(shared.ColorSecondary).Render(p.Name),
+			TitleStyle.Render(fmt.Sprintf("%d", s.TotalEvents)),
+			LabelStyle.Render(fmt.Sprintf("%d", s.Sessions)),
+			LabelStyle.Render(fmt.Sprintf("%d", s.Dispatches)),
+			LabelStyle.Render(fmt.Sprintf("%d", s.Advances)),
+			blockCountStyle(s.Blocks).Render(fmt.Sprintf("%d", s.Blocks)),
+		)
+		lines = append(lines, line)
+	}
+	if len(lines) == 0 {
+		return ""
+	}
+	return title + "\n" + strings.Join(lines, "\n")
+}
+
+// blockCountStyle returns a warning style if blocks > 0.
+func blockCountStyle(blocks int) lipgloss.Style {
+	if blocks > 0 {
+		return lipgloss.NewStyle().Foreground(shared.ColorWarning)
+	}
+	return LabelStyle
 }
 
 // formatTokens formats a token count with comma separators (e.g., 12,450).

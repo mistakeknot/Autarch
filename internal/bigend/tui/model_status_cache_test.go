@@ -12,8 +12,9 @@ type fakeAggStatus struct {
 	state aggregator.State
 }
 
-func (f *fakeAggStatus) GetState() aggregator.State { return f.state }
-func (f *fakeAggStatus) Refresh(ctx context.Context) error { return nil }
+func (f *fakeAggStatus) GetState() aggregator.State              { return f.state }
+func (f *fakeAggStatus) Refresh(ctx context.Context) error       { return nil }
+func (f *fakeAggStatus) Context() context.Context                { return context.Background() }
 func (f *fakeAggStatus) NewSession(string, string, string) error { return nil }
 func (f *fakeAggStatus) RestartSession(string, string, string) error { return nil }
 func (f *fakeAggStatus) RenameSession(string, string) error { return nil }

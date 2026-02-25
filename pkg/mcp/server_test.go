@@ -5,35 +5,41 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/mistakeknot/autarch/pkg/yamlsafe"
 	"gopkg.in/yaml.v3"
 )
 
-func TestServer_Initialize(t *testing.T) {
-	tmpDir := t.TempDir()
-	server := NewServer(tmpDir)
+// runServerRequest sends a single JSON-RPC request and decodes the response.
+// Uses io.Pipe to synchronize the server goroutine with the reader, avoiding
+// data races on shared buffers and eliminating flaky time.Sleep waits.
+func runServerRequest(t *testing.T, server *Server, input string) JSONRPCResponse {
+	t.Helper()
+	pr, pw := io.Pipe()
+	server.WithIO(strings.NewReader(input), pw, os.Stderr)
 
-	input := `{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}` + "\n"
-	var output bytes.Buffer
-
-	server.WithIO(strings.NewReader(input), &output, os.Stderr)
-
-	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
-	defer cancel()
-
-	go server.Run(ctx)
-	time.Sleep(50 * time.Millisecond)
+	go func() {
+		defer pw.Close()
+		server.Run(context.Background())
+	}()
 
 	var resp JSONRPCResponse
-	if err := json.NewDecoder(&output).Decode(&resp); err != nil {
+	if err := json.NewDecoder(pr).Decode(&resp); err != nil {
 		t.Fatalf("failed to decode response: %v", err)
 	}
+	pr.Close()
+	return resp
+}
+
+func TestServer_Initialize(t *testing.T) {
+	server := NewServer(t.TempDir())
+	resp := runServerRequest(t, server,
+		`{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}`+"\n")
 
 	if resp.Error != nil {
 		t.Errorf("unexpected error: %v", resp.Error)
@@ -59,24 +65,9 @@ func TestServer_Initialize(t *testing.T) {
 }
 
 func TestServer_ToolsList(t *testing.T) {
-	tmpDir := t.TempDir()
-	server := NewServer(tmpDir)
-
-	input := `{"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}` + "\n"
-	var output bytes.Buffer
-
-	server.WithIO(strings.NewReader(input), &output, os.Stderr)
-
-	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
-	defer cancel()
-
-	go server.Run(ctx)
-	time.Sleep(50 * time.Millisecond)
-
-	var resp JSONRPCResponse
-	if err := json.NewDecoder(&output).Decode(&resp); err != nil {
-		t.Fatalf("failed to decode response: %v", err)
-	}
+	server := NewServer(t.TempDir())
+	resp := runServerRequest(t, server,
+		`{"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}`+"\n")
 
 	if resp.Error != nil {
 		t.Errorf("unexpected error: %v", resp.Error)
@@ -145,22 +136,8 @@ func TestServer_ListPRDs(t *testing.T) {
 	}
 
 	server := NewServer(tmpDir)
-
-	input := `{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"autarch_list_prds","arguments":{}}}` + "\n"
-	var output bytes.Buffer
-
-	server.WithIO(strings.NewReader(input), &output, os.Stderr)
-
-	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
-	defer cancel()
-
-	go server.Run(ctx)
-	time.Sleep(50 * time.Millisecond)
-
-	var resp JSONRPCResponse
-	if err := json.NewDecoder(&output).Decode(&resp); err != nil {
-		t.Fatalf("failed to decode response: %v", err)
-	}
+	resp := runServerRequest(t, server,
+		`{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"autarch_list_prds","arguments":{}}}`+"\n")
 
 	if resp.Error != nil {
 		t.Errorf("unexpected error: %v", resp.Error)
@@ -198,9 +175,6 @@ func TestServer_ListPRDs(t *testing.T) {
 }
 
 func TestServer_SuggestHunters(t *testing.T) {
-	tmpDir := t.TempDir()
-	server := NewServer(tmpDir)
-
 	tests := []struct {
 		query           string
 		expectedHunters []string
@@ -213,23 +187,12 @@ func TestServer_SuggestHunters(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.query, func(t *testing.T) {
+			server := NewServer(t.TempDir())
 			params := map[string]interface{}{"name": "autarch_suggest_hunters", "arguments": map[string]interface{}{"query": tt.query}}
 			paramsJSON, _ := json.Marshal(params)
 			input := `{"jsonrpc":"2.0","id":1,"method":"tools/call","params":` + string(paramsJSON) + `}` + "\n"
 
-			var output bytes.Buffer
-			server.WithIO(strings.NewReader(input), &output, os.Stderr)
-
-			ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
-			defer cancel()
-
-			go server.Run(ctx)
-			time.Sleep(50 * time.Millisecond)
-
-			var resp JSONRPCResponse
-			if err := json.NewDecoder(&output).Decode(&resp); err != nil {
-				t.Fatalf("failed to decode response: %v", err)
-			}
+			resp := runServerRequest(t, server, input)
 
 			if resp.Error != nil {
 				t.Errorf("unexpected error: %v", resp.Error)
@@ -274,22 +237,8 @@ func TestServer_ProjectStatus(t *testing.T) {
 	}
 
 	server := NewServer(tmpDir)
-
-	input := `{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"autarch_project_status","arguments":{}}}` + "\n"
-	var output bytes.Buffer
-
-	server.WithIO(strings.NewReader(input), &output, os.Stderr)
-
-	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
-	defer cancel()
-
-	go server.Run(ctx)
-	time.Sleep(50 * time.Millisecond)
-
-	var resp JSONRPCResponse
-	if err := json.NewDecoder(&output).Decode(&resp); err != nil {
-		t.Fatalf("failed to decode response: %v", err)
-	}
+	resp := runServerRequest(t, server,
+		`{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"autarch_project_status","arguments":{}}}`+"\n")
 
 	if resp.Error != nil {
 		t.Errorf("unexpected error: %v", resp.Error)

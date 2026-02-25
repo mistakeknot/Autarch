@@ -82,6 +82,12 @@ type insightsLoadedMsg struct {
 	err      error
 }
 
+type insightLinkedMsg struct {
+	insightID string
+	specID    string
+	err       error
+}
+
 // Init implements View
 func (v *PollardView) Init() tea.Cmd {
 	return v.loadInsights()
@@ -125,6 +131,14 @@ func (v *PollardView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
 			v.insights = msg.insights
 		}
 		return v, nil
+
+	case insightLinkedMsg:
+		if msg.err != nil {
+			v.chatPanel.AddMessage("system", fmt.Sprintf("Failed to link insight: %v", msg.err))
+			return v, nil
+		}
+		v.chatPanel.AddMessage("system", fmt.Sprintf("Linked insight %s to spec %s", msg.insightID, msg.specID))
+		return v, v.loadInsights()
 
 	case pkgtui.SidebarSelectMsg:
 		// Find insight by ID and select it
@@ -501,7 +515,28 @@ func (v *PollardView) Commands() []tui.Command {
 			Name:        "Link Insight",
 			Description: "Link insight to a spec",
 			Action: func() tea.Cmd {
-				return nil
+				if v.selected < 0 || v.selected >= len(v.insights) {
+					v.chatPanel.AddMessage("system", "Select an insight first")
+					return nil
+				}
+				insight := v.insights[v.selected]
+				client := v.client
+				return func() tea.Msg {
+					specs, err := client.ListSpecs("")
+					if err != nil || len(specs) == 0 {
+						return insightLinkedMsg{err: fmt.Errorf("no specs available to link")}
+					}
+					// Link to the first validated spec; fall back to first spec
+					specID := specs[0].ID
+					for _, s := range specs {
+						if s.Status == autarch.SpecStatusValidated || s.Status == autarch.SpecStatusResearch {
+							specID = s.ID
+							break
+						}
+					}
+					err = client.LinkInsight(insight.ID, specID)
+					return insightLinkedMsg{insightID: insight.ID, specID: specID, err: err}
+				}
 			},
 		},
 	}

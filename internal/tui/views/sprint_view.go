@@ -16,9 +16,10 @@ import (
 // SprintView provides a chat-driven spec flow through all 8 PRD phases.
 // It owns the Orchestrator directly — no intermediate controller layer.
 type SprintView struct {
-	orch   *arbiter.Orchestrator
-	ctx    context.Context
-	cancel context.CancelFunc
+	orch      *arbiter.Orchestrator
+	parentCtx context.Context // lifecycle context from caller
+	ctx       context.Context
+	cancel    context.CancelFunc
 
 	// Layout
 	chatPanel *pkgtui.ChatPanel
@@ -43,13 +44,18 @@ type SprintView struct {
 
 // SprintViewOpts holds optional configuration for NewSprintView.
 type SprintViewOpts struct {
-	IntermuteURL string // empty = no research integration
+	IntermuteURL string          // empty = no research integration
+	ParentCtx    context.Context // lifecycle context; defaults to context.Background()
 }
 
 // NewSprintView creates a new sprint view. Call StartSprint or StartSprintWithScan
 // to begin.
 func NewSprintView(projectPath string, opts SprintViewOpts) *SprintView {
-	ctx, cancel := context.WithCancel(context.TODO())
+	parentCtx := opts.ParentCtx
+	if parentCtx == nil {
+		parentCtx = context.Background()
+	}
+	ctx, cancel := context.WithCancel(parentCtx)
 
 	chatPanel := pkgtui.NewChatPanel()
 	chatPanel.SetComposerPlaceholder("Chat about the current phase...")
@@ -70,6 +76,7 @@ func NewSprintView(projectPath string, opts SprintViewOpts) *SprintView {
 
 	v := &SprintView{
 		orch:      orch,
+		parentCtx: parentCtx,
 		ctx:       ctx,
 		cancel:    cancel,
 		chatPanel: chatPanel,
@@ -445,9 +452,10 @@ func (v *SprintView) handleChatSubmit() tea.Cmd {
 	// Cancel any in-progress streaming
 	v.cancelStreaming()
 
-	ctx, cancel := context.WithCancel(context.TODO())
+	v.ensureContext()
+	chatCtx, cancel := context.WithCancel(v.ctx)
 	v.cancelChat = cancel
-	v.responseCh = v.orch.ProcessChatMessage(ctx, msg)
+	v.responseCh = v.orch.ProcessChatMessage(chatCtx, msg)
 
 	return v.waitForResponse()
 }
@@ -540,7 +548,7 @@ func (v *SprintView) ensureContext() {
 	if v.ctx != nil && v.ctx.Err() == nil {
 		return
 	}
-	v.ctx, v.cancel = context.WithCancel(context.TODO())
+	v.ctx, v.cancel = context.WithCancel(v.parentCtx)
 }
 
 func (v *SprintView) cancelContext() {

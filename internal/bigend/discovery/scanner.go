@@ -12,16 +12,27 @@ import (
 
 // Project represents a discovered project with tooling
 type Project struct {
-	Path           string        `json:"path"`
-	Name           string        `json:"name"`
-	HasGurgeh      bool          `json:"has_gurgeh"`
-	HasColdwine    bool          `json:"has_coldwine"`
-	HasPollard     bool          `json:"has_pollard"`
-	HasAgentMail   bool          `json:"has_agent_mail"`
-	HasIntercore   bool          `json:"has_intercore"`
-	TaskStats      *TaskStats    `json:"task_stats,omitempty"`
-	PollardStats   *PollardStats `json:"pollard_stats,omitempty"`
-	GurgStats      *GurgStats    `json:"gurg_stats,omitempty"`
+	Path            string             `json:"path"`
+	Name            string             `json:"name"`
+	HasGurgeh       bool               `json:"has_gurgeh"`
+	HasColdwine     bool               `json:"has_coldwine"`
+	HasPollard      bool               `json:"has_pollard"`
+	HasAgentMail    bool               `json:"has_agent_mail"`
+	HasIntercore    bool               `json:"has_intercore"`
+	HasInterspect   bool               `json:"has_interspect"`
+	TaskStats       *TaskStats         `json:"task_stats,omitempty"`
+	PollardStats    *PollardStats      `json:"pollard_stats,omitempty"`
+	GurgStats       *GurgStats         `json:"gurg_stats,omitempty"`
+	InterspectStats *InterspectStats   `json:"interspect_stats,omitempty"`
+}
+
+// InterspectStats holds profiler evidence statistics
+type InterspectStats struct {
+	TotalEvents int `json:"total_events"`
+	Sessions    int `json:"sessions"`
+	Dispatches  int `json:"dispatches"`
+	Advances    int `json:"advances"`
+	Blocks      int `json:"blocks"`
 }
 
 // PollardStats holds research data statistics
@@ -175,6 +186,11 @@ func (s *Scanner) examineProject(path string) Project {
 	// Check for .clavain/intercore.db (Intercore kernel)
 	if _, err := os.Stat(filepath.Join(path, ".clavain", "intercore.db")); err == nil {
 		project.HasIntercore = true
+	}
+
+	// Check for .clavain/interspect/interspect.db (Interspect profiler)
+	if _, err := os.Stat(filepath.Join(path, ".clavain", "interspect", "interspect.db")); err == nil {
+		project.HasInterspect = true
 	}
 
 	return project

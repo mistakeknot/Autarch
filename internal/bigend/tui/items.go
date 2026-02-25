@@ -57,6 +57,21 @@ type ProjectItem struct {
 		InProgress int
 		Done       int
 	}
+	GurgStats *struct {
+		Total  int
+		Draft  int
+		Active int
+		Done   int
+	}
+	PollardStats *struct {
+		Sources  int
+		Insights int
+		Reports  int
+	}
+	InterspectStats *struct {
+		TotalEvents int
+		Sessions    int
+	}
 }
 
 func (i ProjectItem) Title() string {
@@ -73,8 +88,24 @@ func (i ProjectItem) Title() string {
 	return name
 }
 func (i ProjectItem) Description() string {
+	var parts []string
 	if i.TaskStats != nil {
-		return fmt.Sprintf("%d todo, %d in progress, %d done", i.TaskStats.Todo, i.TaskStats.InProgress, i.TaskStats.Done)
+		parts = append(parts, fmt.Sprintf("tasks: %d todo, %d wip, %d done",
+			i.TaskStats.Todo, i.TaskStats.InProgress, i.TaskStats.Done))
+	}
+	if i.GurgStats != nil && i.GurgStats.Total > 0 {
+		parts = append(parts, fmt.Sprintf("specs: %d/%d active",
+			i.GurgStats.Active, i.GurgStats.Total))
+	}
+	if i.PollardStats != nil && (i.PollardStats.Sources > 0 || i.PollardStats.Insights > 0) {
+		parts = append(parts, fmt.Sprintf("research: %d src, %d insights",
+			i.PollardStats.Sources, i.PollardStats.Insights))
+	}
+	if i.InterspectStats != nil && i.InterspectStats.TotalEvents > 0 {
+		parts = append(parts, fmt.Sprintf("profiler: %d events", i.InterspectStats.TotalEvents))
+	}
+	if len(parts) > 0 {
+		return strings.Join(parts, " • ")
 	}
 	return i.Path
 }

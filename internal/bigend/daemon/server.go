@@ -126,7 +126,7 @@ func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
 		},
 		SessionCount: s.sessions.Count(),
 		ProjectCount: s.projects.Count(),
-		AgentCount:   0, // TODO: integrate with agent registry
+		AgentCount:   len(s.detectAgents()),
 	}
 	writeJSON(w, http.StatusOK, resp)
 }
@@ -303,8 +303,8 @@ type Agent struct {
 }
 
 func (s *Server) handleListAgents(w http.ResponseWriter, r *http.Request) {
-	// TODO: Integrate with agent registry
-	writeJSON(w, http.StatusOK, []Agent{})
+	agents := s.detectAgents()
+	writeJSON(w, http.StatusOK, agents)
 }
 
 func (s *Server) handleGetAgent(w http.ResponseWriter, r *http.Request) {
@@ -314,8 +314,45 @@ func (s *Server) handleGetAgent(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// TODO: Integrate with agent registry
+	for _, a := range s.detectAgents() {
+		if a.Name == name {
+			writeJSON(w, http.StatusOK, a)
+			return
+		}
+	}
 	writeError(w, http.StatusNotFound, "agent not found")
+}
+
+// detectAgents derives agent info from tmux sessions using the tmux detector.
+func (s *Server) detectAgents() []Agent {
+	if !s.tmuxClient.IsAvailable() {
+		return []Agent{}
+	}
+	sessions, err := s.tmuxClient.ListSessions()
+	if err != nil {
+		return []Agent{}
+	}
+
+	projectPaths := s.projects.Paths()
+	detector := tmux.NewDetector(projectPaths)
+	enriched := detector.EnrichSessions(sessions)
+
+	var agents []Agent
+	for _, e := range enriched {
+		if e.Agent == nil {
+			continue
+		}
+		agents = append(agents, Agent{
+			Name:        e.Agent.Name,
+			Program:     string(e.Agent.Type),
+			ProjectPath: e.CurrentPath,
+			Status:      "running",
+		})
+	}
+	if agents == nil {
+		agents = []Agent{}
+	}
+	return agents
 }
 
 // handleWebSocket streams terminal output for a session in real-time.

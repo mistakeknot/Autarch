@@ -3,6 +3,7 @@ package views
 import (
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/charmbracelet/bubbles/key"
 	tea "github.com/charmbracelet/bubbletea"
@@ -110,6 +111,12 @@ type sessionsLoadedMsg struct {
 	err      error
 }
 
+// sessionCreatedMsg is sent after creating a new session
+type sessionCreatedMsg struct {
+	session autarch.Session
+	err     error
+}
+
 // Init implements View
 func (v *BigendView) Init() tea.Cmd {
 	return v.loadSessions()
@@ -150,6 +157,14 @@ func (v *BigendView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
 			v.sessions = msg.sessions
 		}
 		return v, nil
+
+	case sessionCreatedMsg:
+		if msg.err != nil {
+			v.chatPanel.AddMessage("system", fmt.Sprintf("Failed to create session: %v", msg.err))
+			return v, nil
+		}
+		v.chatPanel.AddMessage("system", fmt.Sprintf("Created session: %s", msg.session.Name))
+		return v, v.loadSessions()
 
 	case tea.KeyMsg:
 		// Let shell handle global keys first (Tab, Shift-Tab, Ctrl+B)
@@ -436,8 +451,16 @@ func (v *BigendView) Commands() []tui.Command {
 			Name:        "New Session",
 			Description: "Start a new agent session",
 			Action: func() tea.Cmd {
-				// TODO: implement
-				return nil
+				client := v.client
+				project := v.projectID
+				return func() tea.Msg {
+					name := fmt.Sprintf("session-%s", time.Now().Format("150405"))
+					s, err := client.CreateSession(autarch.Session{
+						Name:    name,
+						Project: project,
+					})
+					return sessionCreatedMsg{session: s, err: err}
+				}
 			},
 		},
 		{

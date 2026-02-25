@@ -10,7 +10,10 @@ import (
 
 func TestInterviewCommandUsesArbiterByDefault(t *testing.T) {
 	root := t.TempDir()
-	if err := os.MkdirAll(filepath.Join(root, ".praude", "specs"), 0o755); err != nil {
+	// Use .gurgeh (current canonical name) instead of .praude (legacy).
+	// The Orchestrator creates .gurgeh/sprints/ during Start(), which causes
+	// project.RootDir to prefer .gurgeh over .praude for spec output.
+	if err := os.MkdirAll(filepath.Join(root, ".gurgeh", "specs"), 0o755); err != nil {
 		t.Fatal(err)
 	}
 	cfg := `validation_mode = "soft"
@@ -19,7 +22,7 @@ func TestInterviewCommandUsesArbiterByDefault(t *testing.T) {
 command = "codex"
 args = []
 `
-	if err := os.WriteFile(filepath.Join(root, ".praude", "config.toml"), []byte(cfg), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(root, ".gurgeh", "config.toml"), []byte(cfg), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	cwd, err := os.Getwd()
@@ -43,7 +46,7 @@ args = []
 	if !strings.Contains(output, "via Arbiter sprint") {
 		t.Fatalf("expected arbiter sprint output, got: %s", output)
 	}
-	entries, err := os.ReadDir(filepath.Join(root, ".praude", "specs"))
+	entries, err := os.ReadDir(filepath.Join(root, ".gurgeh", "specs"))
 	if err != nil {
 		t.Fatal(err)
 	}

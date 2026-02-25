@@ -50,6 +50,7 @@ var (
 type aggregatorAPI interface {
 	GetState() aggregator.State
 	Refresh(ctx context.Context) error
+	Context() context.Context
 	NewSession(name, projectPath, agentType string) error
 	RestartSession(name, projectPath, agentType string) error
 	RenameSession(oldName, newName string) error
@@ -465,7 +466,7 @@ func (m Model) Init() tea.Cmd {
 
 func (m Model) refresh() tea.Cmd {
 	return func() tea.Msg {
-		ctx, cancel := context.WithTimeout(context.TODO(), timeout.HTTPDefault)
+		ctx, cancel := context.WithTimeout(m.agg.Context(), timeout.HTTPDefault)
 		defer cancel()
 		if err := m.agg.Refresh(ctx); err != nil {
 			return errMsg(err)
@@ -683,7 +684,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					if item.Status.Status == mcp.StatusRunning {
 						m.err = m.agg.StopMCP(m.mcpProject, item.Status.Component)
 					} else {
-						ctx, cancel := context.WithTimeout(context.TODO(), timeout.HTTPDefault)
+						ctx, cancel := context.WithTimeout(m.agg.Context(), timeout.HTTPDefault)
 						m.err = m.agg.StartMCP(ctx, m.mcpProject, item.Status.Component)
 						cancel()
 					}
@@ -954,6 +955,39 @@ func (m *Model) updateLists() {
 				Todo:       p.TaskStats.Todo,
 				InProgress: p.TaskStats.InProgress,
 				Done:       p.TaskStats.Done,
+			}
+		}
+		if p.GurgStats != nil {
+			item.GurgStats = &struct {
+				Total  int
+				Draft  int
+				Active int
+				Done   int
+			}{
+				Total:  p.GurgStats.Total,
+				Draft:  p.GurgStats.Draft,
+				Active: p.GurgStats.Active,
+				Done:   p.GurgStats.Done,
+			}
+		}
+		if p.PollardStats != nil {
+			item.PollardStats = &struct {
+				Sources  int
+				Insights int
+				Reports  int
+			}{
+				Sources:  p.PollardStats.Sources,
+				Insights: p.PollardStats.Insights,
+				Reports:  p.PollardStats.Reports,
+			}
+		}
+		if p.InterspectStats != nil {
+			item.InterspectStats = &struct {
+				TotalEvents int
+				Sessions    int
+			}{
+				TotalEvents: p.InterspectStats.TotalEvents,
+				Sessions:    p.InterspectStats.Sessions,
 			}
 		}
 		// Kernel enrichment: active/blocked run counts and errors

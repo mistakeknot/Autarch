@@ -3,6 +3,7 @@ package views
 import (
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/charmbracelet/bubbles/key"
 	tea "github.com/charmbracelet/bubbletea"
@@ -74,6 +75,21 @@ type epicsLoadedMsg struct {
 	err     error
 }
 
+type epicCreatedMsg struct {
+	epic autarch.Epic
+	err  error
+}
+
+type storyCreatedMsg struct {
+	story autarch.Story
+	err   error
+}
+
+type taskCreatedMsg struct {
+	task autarch.Task
+	err  error
+}
+
 // Init implements View
 func (v *ColdwineView) Init() tea.Cmd {
 	return v.loadData()
@@ -129,6 +145,30 @@ func (v *ColdwineView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
 			v.tasks = msg.tasks
 		}
 		return v, nil
+
+	case epicCreatedMsg:
+		if msg.err != nil {
+			v.chatPanel.AddMessage("system", fmt.Sprintf("Failed to create epic: %v", msg.err))
+			return v, nil
+		}
+		v.chatPanel.AddMessage("system", fmt.Sprintf("Created epic: %s", msg.epic.Title))
+		return v, v.loadData()
+
+	case storyCreatedMsg:
+		if msg.err != nil {
+			v.chatPanel.AddMessage("system", fmt.Sprintf("Failed to create story: %v", msg.err))
+			return v, nil
+		}
+		v.chatPanel.AddMessage("system", fmt.Sprintf("Created story: %s", msg.story.Title))
+		return v, v.loadData()
+
+	case taskCreatedMsg:
+		if msg.err != nil {
+			v.chatPanel.AddMessage("system", fmt.Sprintf("Failed to create task: %v", msg.err))
+			return v, nil
+		}
+		v.chatPanel.AddMessage("system", fmt.Sprintf("Created task: %s", msg.task.Title))
+		return v, v.loadData()
 
 	case pkgtui.SidebarSelectMsg:
 		// Find epic by ID and select it
@@ -318,21 +358,40 @@ func (v *ColdwineView) Commands() []tui.Command {
 			Name:        "New Epic",
 			Description: "Create a new epic",
 			Action: func() tea.Cmd {
-				return nil
+				client := v.client
+				return func() tea.Msg {
+					title := fmt.Sprintf("Untitled Epic — %s", time.Now().Format("Jan 2 15:04"))
+					e, err := client.CreateEpic(autarch.Epic{Title: title})
+					return epicCreatedMsg{epic: e, err: err}
+				}
 			},
 		},
 		{
 			Name:        "New Story",
-			Description: "Create a new story",
+			Description: "Create a new story under selected epic",
 			Action: func() tea.Cmd {
-				return nil
+				client := v.client
+				var epicID string
+				if v.selected >= 0 && v.selected < len(v.epics) {
+					epicID = v.epics[v.selected].ID
+				}
+				return func() tea.Msg {
+					title := fmt.Sprintf("Untitled Story — %s", time.Now().Format("Jan 2 15:04"))
+					s, err := client.CreateStory(autarch.Story{Title: title, EpicID: epicID})
+					return storyCreatedMsg{story: s, err: err}
+				}
 			},
 		},
 		{
 			Name:        "New Task",
 			Description: "Create a new task",
 			Action: func() tea.Cmd {
-				return nil
+				client := v.client
+				return func() tea.Msg {
+					title := fmt.Sprintf("Untitled Task — %s", time.Now().Format("Jan 2 15:04"))
+					t, err := client.CreateTask(autarch.Task{Title: title})
+					return taskCreatedMsg{task: t, err: err}
+				}
 			},
 		},
 	}

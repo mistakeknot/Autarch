@@ -381,7 +381,12 @@ func dispatchAndCollect(ctx context.Context, cfg agenttargets.DispatchConfig, cw
 		return "", fmt.Errorf("agent returned error: %s", finalResult)
 	}
 
-	return strings.TrimSpace(finalResult), nil
+	trimmed := strings.TrimSpace(finalResult)
+	if trimmed == "" {
+		return "", fmt.Errorf("agent produced no output")
+	}
+
+	return trimmed, nil
 }
 
 // extractJSONFromMarkdown extracts JSON content from markdown code fences.

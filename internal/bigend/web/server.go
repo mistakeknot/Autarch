@@ -82,7 +82,7 @@ func NewServer(cfg config.ServerConfig, agg aggregatorAPI) *Server {
 	layoutStr := string(layoutBytes)
 
 	// Pages to load
-	pages := []string{"dashboard.html", "projects.html", "agents.html", "sessions.html", "tasks.html", "agent_detail.html"}
+	pages := []string{"dashboard.html", "projects.html", "project_detail.html", "agents.html", "sessions.html", "tasks.html", "agent_detail.html"}
 
 	for _, page := range pages {
 		pageBytes, err := fs.ReadFile(tmplFS, page)
@@ -640,16 +640,45 @@ func (s *Server) handleProjectDetail(w http.ResponseWriter, r *http.Request, pro
 		return
 	}
 
-	// For now, redirect to tasks if project has coldwine
-	if project.HasColdwine {
-		http.Redirect(w, r, "/projects/"+projectPath+"/tasks", http.StatusFound)
-		return
+	state := s.agg.GetState()
+
+	// Filter agents for this project
+	var projectAgents []aggregator.Agent
+	for _, a := range state.Agents {
+		if a.ProjectPath == projectPath {
+			projectAgents = append(projectAgents, a)
+		}
 	}
 
-	// TODO: Create a proper project detail template
-	s.render(w, "projects.html", map[string]any{
-		"Projects": []any{project},
-	})
+	// Compute task totals for template
+	var taskTotal, taskPercent int
+	if project.TaskStats != nil {
+		taskTotal = project.TaskStats.Todo + project.TaskStats.InProgress + project.TaskStats.Done + project.TaskStats.Blocked
+		if taskTotal > 0 {
+			taskPercent = project.TaskStats.Done * 100 / taskTotal
+		}
+	}
+
+	// Compute pollard total
+	var pollardTotal int
+	if project.PollardStats != nil {
+		pollardTotal = project.PollardStats.Sources + project.PollardStats.Insights
+	}
+
+	data := map[string]any{
+		"Project":      project,
+		"Agents":       projectAgents,
+		"TaskTotal":    taskTotal,
+		"TaskPercent":  taskPercent,
+		"PollardTotal": pollardTotal,
+	}
+
+	// Include MCP components for this project
+	if mcpComponents, ok := state.MCP[projectPath]; ok {
+		data["MCP"] = mcpComponents
+	}
+
+	s.render(w, "project_detail.html", data)
 }
 
 // handleProjectTasks shows the task board for a project

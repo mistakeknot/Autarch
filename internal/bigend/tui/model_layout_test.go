@@ -19,6 +19,7 @@ type fakeAggLayout struct {
 
 func (f *fakeAggLayout) GetState() aggregator.State                     { return f.state }
 func (f *fakeAggLayout) Refresh(ctx context.Context) error              { return nil }
+func (f *fakeAggLayout) Context() context.Context                       { return context.Background() }
 func (f *fakeAggLayout) NewSession(string, string, string) error        { return nil }
 func (f *fakeAggLayout) RestartSession(string, string, string) error    { return nil }
 func (f *fakeAggLayout) RenameSession(string, string) error             { return nil }

@@ -3,6 +3,7 @@ package views
 import (
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/charmbracelet/bubbles/key"
 	tea "github.com/charmbracelet/bubbletea"
@@ -103,6 +104,11 @@ type specsLoadedMsg struct {
 	err   error
 }
 
+type specCreatedMsg struct {
+	spec autarch.Spec
+	err  error
+}
+
 // Init implements View
 func (v *GurgehView) Init() tea.Cmd {
 	if !v.showBrowser && v.onboarding != nil {
@@ -195,6 +201,15 @@ func (v *GurgehView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
 			v.syncCurrentSpecForChat()
 		}
 		return v, nil
+
+	case specCreatedMsg:
+		if msg.err != nil {
+			v.chatPanel.AddMessage("system", fmt.Sprintf("Failed to create spec: %v", msg.err))
+			return v, nil
+		}
+		v.chatPanel.AddMessage("system", fmt.Sprintf("Created spec: %s", msg.spec.Title))
+		v.pendingSpecID = msg.spec.ID
+		return v, v.loadSpecs()
 
 	case pkgtui.SidebarSelectMsg:
 		// Find spec by ID and select it
@@ -398,8 +413,15 @@ func (v *GurgehView) Commands() []tui.Command {
 			Name:        "New Spec",
 			Description: "Create a new specification",
 			Action: func() tea.Cmd {
-				// TODO: implement
-				return nil
+				client := v.client
+				return func() tea.Msg {
+					title := fmt.Sprintf("Untitled Spec — %s", time.Now().Format("Jan 2 15:04"))
+					s, err := client.CreateSpec(autarch.Spec{
+						Title:  title,
+						Status: autarch.SpecStatusDraft,
+					})
+					return specCreatedMsg{spec: s, err: err}
+				}
 			},
 		},
 		{

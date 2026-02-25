@@ -6,6 +6,7 @@ import (
 	"sort"
 
 	"github.com/mistakeknot/autarch/internal/bigend/aggregator"
+	"github.com/mistakeknot/autarch/internal/bigend/discovery"
 	"github.com/mistakeknot/autarch/internal/icdata"
 )
 
@@ -19,6 +20,7 @@ const (
 	sectionSessions
 	sectionAgents
 	sectionActivity
+	sectionInterspect
 )
 
 // sectionEntry holds a cached render result and its data hash.
@@ -33,7 +35,7 @@ type sectionCache struct {
 }
 
 func newSectionCache() *sectionCache {
-	return &sectionCache{entries: make(map[sectionID]sectionEntry, 6)}
+	return &sectionCache{entries: make(map[sectionID]sectionEntry, 7)}
 }
 
 // getOrRender returns cached output if hash matches, otherwise calls renderFn.
@@ -187,6 +189,31 @@ func hashAgents(agents []aggregator.Agent, limit int) uint64 {
 		h.Write([]byte(a.Name))
 		h.Write([]byte(a.Program))
 		h.Write([]byte(a.ProjectPath))
+	}
+	return h.Sum64()
+}
+
+func hashInterspect(projects []discovery.Project, width int) uint64 {
+	h := fnv.New64a()
+	b := make([]byte, 8)
+	binary.LittleEndian.PutUint64(b, uint64(width))
+	h.Write(b)
+	for _, p := range projects {
+		if p.InterspectStats == nil {
+			continue
+		}
+		h.Write([]byte(p.Path))
+		s := p.InterspectStats
+		binary.LittleEndian.PutUint64(b, uint64(s.TotalEvents))
+		h.Write(b)
+		binary.LittleEndian.PutUint64(b, uint64(s.Sessions))
+		h.Write(b)
+		binary.LittleEndian.PutUint64(b, uint64(s.Dispatches))
+		h.Write(b)
+		binary.LittleEndian.PutUint64(b, uint64(s.Advances))
+		h.Write(b)
+		binary.LittleEndian.PutUint64(b, uint64(s.Blocks))
+		h.Write(b)
 	}
 	return h.Sum64()
 }

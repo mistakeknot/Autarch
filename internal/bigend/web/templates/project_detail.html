@@ -1,0 +1,222 @@
+{{define "project_detail.html"}}
+{{template "layout" .}}
+{{end}}
+
+{{define "Title"}}Project: {{.Project.Name}}{{end}}
+
+{{define "content"}}
+<div class="space-y-6">
+    <!-- Header -->
+    <div class="flex items-center justify-between">
+        <div class="flex items-center space-x-4">
+            <a href="/projects" class="text-gray-400 hover:text-white">&larr; Back</a>
+            <h1 class="text-2xl font-bold">{{.Project.Name}}</h1>
+        </div>
+        <div class="flex space-x-2">
+            {{if .Project.HasGurgeh}}
+            <span class="text-xs bg-blue-900 text-blue-300 px-2 py-1 rounded">gurgeh</span>
+            {{end}}
+            {{if .Project.HasColdwine}}
+            <span class="text-xs bg-purple-900 text-purple-300 px-2 py-1 rounded">coldwine</span>
+            {{end}}
+            {{if .Project.HasPollard}}
+            <span class="text-xs bg-teal-900 text-teal-300 px-2 py-1 rounded">pollard</span>
+            {{end}}
+            {{if .Project.HasIntercore}}
+            <span class="text-xs bg-orange-900 text-orange-300 px-2 py-1 rounded">intercore</span>
+            {{end}}
+            {{if .Project.HasAgentMail}}
+            <span class="text-xs bg-green-900 text-green-300 px-2 py-1 rounded">agent-mail</span>
+            {{end}}
+        </div>
+    </div>
+
+    <p class="text-gray-400 text-sm font-mono">{{.Project.Path}}</p>
+
+    <!-- Stats Cards -->
+    <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
+        {{if .Project.TaskStats}}
+        <div class="bg-gray-800 rounded-lg p-4">
+            <div class="text-sm text-gray-400 mb-2">Tasks</div>
+            <div class="text-2xl font-bold">{{.TaskTotal}}</div>
+            <div class="text-xs text-gray-500 mt-1">
+                {{.Project.TaskStats.Todo}} todo, {{.Project.TaskStats.InProgress}} wip, {{.Project.TaskStats.Done}} done
+            </div>
+        </div>
+        {{end}}
+        {{if .Project.GurgStats}}
+        <div class="bg-gray-800 rounded-lg p-4">
+            <div class="text-sm text-gray-400 mb-2">Specs (Gurgeh)</div>
+            <div class="text-2xl font-bold">{{.Project.GurgStats.Total}}</div>
+            <div class="text-xs text-gray-500 mt-1">
+                {{.Project.GurgStats.Draft}} draft, {{.Project.GurgStats.Active}} active, {{.Project.GurgStats.Done}} done
+            </div>
+        </div>
+        {{end}}
+        {{if .Project.PollardStats}}
+        <div class="bg-gray-800 rounded-lg p-4">
+            <div class="text-sm text-gray-400 mb-2">Research (Pollard)</div>
+            <div class="text-2xl font-bold">{{.PollardTotal}}</div>
+            <div class="text-xs text-gray-500 mt-1">
+                {{.Project.PollardStats.Sources}} sources, {{.Project.PollardStats.Insights}} insights, {{.Project.PollardStats.Reports}} reports
+            </div>
+        </div>
+        {{end}}
+        <div class="bg-gray-800 rounded-lg p-4">
+            <div class="text-sm text-gray-400 mb-2">Agents</div>
+            <div class="text-2xl font-bold">{{len .Agents}}</div>
+            <div class="text-xs text-gray-500 mt-1">active in project</div>
+        </div>
+    </div>
+
+    <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        <!-- Task Summary -->
+        {{if .Project.HasColdwine}}
+        <div class="bg-gray-800 rounded-lg p-6">
+            <div class="flex items-center justify-between mb-4">
+                <h2 class="text-lg font-semibold">Tasks</h2>
+                <a href="/projects/{{.Project.Path}}/tasks" class="text-sm text-blue-400 hover:underline">View Board &rarr;</a>
+            </div>
+            {{if .Project.TaskStats}}
+            <div class="grid grid-cols-4 gap-2 text-center text-xs">
+                <div class="bg-gray-700 rounded p-2">
+                    <div class="text-lg font-bold text-gray-300">{{.Project.TaskStats.Todo}}</div>
+                    <div class="text-gray-500">Todo</div>
+                </div>
+                <div class="bg-yellow-900/30 rounded p-2">
+                    <div class="text-lg font-bold text-yellow-400">{{.Project.TaskStats.InProgress}}</div>
+                    <div class="text-gray-500">In Progress</div>
+                </div>
+                <div class="bg-green-900/30 rounded p-2">
+                    <div class="text-lg font-bold text-green-400">{{.Project.TaskStats.Done}}</div>
+                    <div class="text-gray-500">Done</div>
+                </div>
+                <div class="bg-red-900/30 rounded p-2">
+                    <div class="text-lg font-bold text-red-400">{{.Project.TaskStats.Blocked}}</div>
+                    <div class="text-gray-500">Blocked</div>
+                </div>
+            </div>
+            {{if gt .TaskTotal 0}}
+            <div class="mt-4">
+                <div class="flex items-center justify-between text-sm text-gray-400 mb-2">
+                    <span>Progress</span>
+                    <span>{{.Project.TaskStats.Done}}/{{.TaskTotal}}</span>
+                </div>
+                <div class="w-full bg-gray-700 rounded-full h-2">
+                    <div class="bg-green-500 h-2 rounded-full" style="width: {{.TaskPercent}}%"></div>
+                </div>
+            </div>
+            {{end}}
+            {{else}}
+            <p class="text-gray-500 text-center py-4">No tasks yet</p>
+            {{end}}
+        </div>
+        {{end}}
+
+        <!-- Specs Summary -->
+        {{if .Project.HasGurgeh}}
+        <div class="bg-gray-800 rounded-lg p-6">
+            <h2 class="text-lg font-semibold mb-4">Specs (Gurgeh)</h2>
+            {{if .Project.GurgStats}}
+            <div class="grid grid-cols-3 gap-2 text-center text-xs">
+                <div class="bg-gray-700 rounded p-2">
+                    <div class="text-lg font-bold text-gray-300">{{.Project.GurgStats.Draft}}</div>
+                    <div class="text-gray-500">Draft</div>
+                </div>
+                <div class="bg-blue-900/30 rounded p-2">
+                    <div class="text-lg font-bold text-blue-400">{{.Project.GurgStats.Active}}</div>
+                    <div class="text-gray-500">Active</div>
+                </div>
+                <div class="bg-green-900/30 rounded p-2">
+                    <div class="text-lg font-bold text-green-400">{{.Project.GurgStats.Done}}</div>
+                    <div class="text-gray-500">Done</div>
+                </div>
+            </div>
+            {{else}}
+            <p class="text-gray-500 text-center py-4">No specs yet</p>
+            {{end}}
+        </div>
+        {{end}}
+
+        <!-- Research Summary -->
+        {{if .Project.HasPollard}}
+        <div class="bg-gray-800 rounded-lg p-6">
+            <h2 class="text-lg font-semibold mb-4">Research (Pollard)</h2>
+            {{if .Project.PollardStats}}
+            <div class="grid grid-cols-3 gap-2 text-center text-xs">
+                <div class="bg-gray-700 rounded p-2">
+                    <div class="text-lg font-bold text-gray-300">{{.Project.PollardStats.Sources}}</div>
+                    <div class="text-gray-500">Sources</div>
+                </div>
+                <div class="bg-teal-900/30 rounded p-2">
+                    <div class="text-lg font-bold text-teal-400">{{.Project.PollardStats.Insights}}</div>
+                    <div class="text-gray-500">Insights</div>
+                </div>
+                <div class="bg-indigo-900/30 rounded p-2">
+                    <div class="text-lg font-bold text-indigo-400">{{.Project.PollardStats.Reports}}</div>
+                    <div class="text-gray-500">Reports</div>
+                </div>
+            </div>
+            {{if .Project.PollardStats.LastReport}}
+            <div class="mt-4 text-xs text-gray-400">
+                Latest report: <span class="text-gray-300">{{.Project.PollardStats.LastReport}}</span>
+            </div>
+            {{end}}
+            {{else}}
+            <p class="text-gray-500 text-center py-4">No research data</p>
+            {{end}}
+        </div>
+        {{end}}
+
+        <!-- Active Agents -->
+        <div class="bg-gray-800 rounded-lg p-6">
+            <h2 class="text-lg font-semibold mb-4">Active Agents</h2>
+            {{if .Agents}}
+            <div class="space-y-3">
+                {{range .Agents}}
+                <div class="bg-gray-700 rounded p-3">
+                    <div class="flex items-center justify-between">
+                        <div class="flex items-center gap-2">
+                            <span class="font-semibold">{{.Name}}</span>
+                            <span class="text-xs text-gray-400 font-mono">{{.Program}}</span>
+                        </div>
+                        {{if .Model}}
+                        <span class="text-xs text-purple-400 font-mono">{{.Model}}</span>
+                        {{end}}
+                    </div>
+                </div>
+                {{end}}
+            </div>
+            {{else}}
+            <p class="text-gray-500 text-center py-4">No agents active</p>
+            {{end}}
+        </div>
+    </div>
+
+    <!-- MCP Components -->
+    {{if .MCP}}
+    <div class="bg-gray-800 rounded-lg p-6">
+        <h2 class="text-lg font-semibold mb-4">MCP Components</h2>
+        <div class="space-y-2">
+            {{range .MCP}}
+            <div class="flex items-center justify-between text-sm bg-gray-900 rounded p-2">
+                <div class="flex items-center gap-2">
+                    <span class="px-2 py-0.5 text-xs rounded-full {{if eq .Status "running"}}bg-green-900 text-green-300{{else if eq .Status "error"}}bg-red-900 text-red-300{{else}}bg-gray-700 text-gray-300{{end}}">
+                        {{.Status}}
+                    </span>
+                    <span class="font-mono">{{.Component}}</span>
+                </div>
+                <div class="flex items-center gap-2">
+                    {{if eq .Status "running"}}
+                    <button hx-post="/api/projects/{{$.Project.Path}}/mcp/{{.Component}}/stop" hx-swap="none" class="px-2 py-1 bg-red-900/40 hover:bg-red-900/70 rounded">Stop</button>
+                    {{else}}
+                    <button hx-post="/api/projects/{{$.Project.Path}}/mcp/{{.Component}}/start" hx-swap="none" class="px-2 py-1 bg-green-900/40 hover:bg-green-900/70 rounded">Start</button>
+                    {{end}}
+                </div>
+            </div>
+            {{end}}
+        </div>
+    </div>
+    {{end}}
+</div>
+{{end}}

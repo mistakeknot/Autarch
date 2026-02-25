@@ -50,7 +50,7 @@ func Example1_BasicRawMode() {
 
 // TerminalState encapsulates terminal state management
 type TerminalState struct {
-	oldState interface{}
+	oldState *term.State
 	fd       int
 	restored bool
 	mu       sync.Mutex

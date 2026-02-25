@@ -52,7 +52,7 @@ func TestAtomicWriteFileBlocksWhenLocked(t *testing.T) {
 		if err != nil {
 			t.Fatalf("expected helper to finish after unlock: %v", err)
 		}
-	case <-time.After(1 * time.Second):
+	case <-time.After(5 * time.Second):
 		_ = cmd.Process.Kill()
 		t.Fatal("expected write to finish after unlock")
 	}

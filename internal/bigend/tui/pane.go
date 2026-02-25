@@ -120,7 +120,7 @@ func (p *VauxhallPane) Update(msg tea.Msg, ctx toolpane.Context) (toolpane.Pane,
 					if item.Status.Status == mcp.StatusRunning {
 						p.err = p.agg.StopMCP(p.mcpProject, item.Status.Component)
 					} else {
-						startCtx, cancel := context.WithTimeout(context.TODO(), timeout.HTTPDefault)
+						startCtx, cancel := context.WithTimeout(p.agg.Context(), timeout.HTTPDefault)
 						p.err = p.agg.StartMCP(startCtx, p.mcpProject, item.Status.Component)
 						cancel()
 					}
@@ -233,7 +233,7 @@ func (p *VauxhallPane) NeedsProject() bool {
 
 func (p *VauxhallPane) refresh() tea.Cmd {
 	return func() tea.Msg {
-		refreshCtx, cancel := context.WithTimeout(context.TODO(), timeout.HTTPDefault)
+		refreshCtx, cancel := context.WithTimeout(p.agg.Context(), timeout.HTTPDefault)
 		defer cancel()
 		if err := p.agg.Refresh(refreshCtx); err != nil {
 			return errMsg(err)

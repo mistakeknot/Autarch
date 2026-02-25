@@ -91,6 +91,22 @@ func (m *Manager) Stop(project, component string) error {
 	return nil
 }
 
+// StopAll stops all managed MCP processes.
+func (m *Manager) StopAll() {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for _, item := range m.items {
+		if item.proc != nil {
+			_ = item.proc.Stop()
+			item.proc = nil
+		}
+		if item.status != nil {
+			item.status.Status = StatusStopped
+			item.status.Pid = 0
+		}
+	}
+}
+
 // Start starts a component process and begins log tailing.
 func (m *Manager) Start(ctx context.Context, project, component string, cmd []string, workdir string) error {
 	if len(cmd) == 0 {

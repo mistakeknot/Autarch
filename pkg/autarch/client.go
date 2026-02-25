@@ -288,8 +288,14 @@ func (c *Client) DeleteSpec(id string) error {
 // Epic operations
 
 func (c *Client) CreateEpic(epic Epic) (Epic, error) {
-	if err := c.checkWritable(); err != nil {
-		return Epic{}, err
+	if c.fallbackActive.Load() && c.fallback != nil {
+		if w, ok := c.fallback.(WritableDataSource); ok {
+			if epic.Project == "" {
+				epic.Project = c.project
+			}
+			return w.CreateEpic(epic)
+		}
+		return Epic{}, ErrFallbackReadOnly
 	}
 	if epic.Project == "" {
 		epic.Project = c.project
@@ -348,8 +354,14 @@ func (c *Client) DeleteEpic(id string) error {
 // Story operations
 
 func (c *Client) CreateStory(story Story) (Story, error) {
-	if err := c.checkWritable(); err != nil {
-		return Story{}, err
+	if c.fallbackActive.Load() && c.fallback != nil {
+		if w, ok := c.fallback.(WritableDataSource); ok {
+			if story.Project == "" {
+				story.Project = c.project
+			}
+			return w.CreateStory(story)
+		}
+		return Story{}, ErrFallbackReadOnly
 	}
 	if story.Project == "" {
 		story.Project = c.project
@@ -408,8 +420,14 @@ func (c *Client) DeleteStory(id string) error {
 // Task operations
 
 func (c *Client) CreateTask(task Task) (Task, error) {
-	if err := c.checkWritable(); err != nil {
-		return Task{}, err
+	if c.fallbackActive.Load() && c.fallback != nil {
+		if w, ok := c.fallback.(WritableDataSource); ok {
+			if task.Project == "" {
+				task.Project = c.project
+			}
+			return w.CreateTask(task)
+		}
+		return Task{}, ErrFallbackReadOnly
 	}
 	if task.Project == "" {
 		task.Project = c.project

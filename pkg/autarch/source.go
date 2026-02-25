@@ -9,3 +9,12 @@ type DataSource interface {
 	ListTasks(status, agent string) ([]Task, error)
 	ListInsights(specID, category string) ([]Insight, error)
 }
+
+// WritableDataSource extends DataSource with write operations.
+// Implemented by LocalSource for offline writes to .coldwine/state.db.
+type WritableDataSource interface {
+	DataSource
+	CreateEpic(epic Epic) (Epic, error)
+	CreateStory(story Story) (Story, error)
+	CreateTask(task Task) (Task, error)
+}

@@ -119,11 +119,13 @@ func (s *JobStore) Get(id string) (*Job, bool) {
 	s.mu.Lock()
 	s.pruneLocked(time.Now())
 	job, ok := s.jobs[id]
-	s.mu.Unlock()
 	if !ok {
+		s.mu.Unlock()
 		return nil, false
 	}
-	return cloneJob(job), true
+	clone := cloneJob(job)
+	s.mu.Unlock()
+	return clone, true
 }
 
 func (s *JobStore) finish(id string, result any, err error) {

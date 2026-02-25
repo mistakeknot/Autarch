@@ -140,6 +140,13 @@ func runTUI(agg *aggregator.Aggregator, logHandler *pkgtui.LogHandler) {
 		os.Exit(1)
 	}
 
+	// Gracefully shut down the aggregator (WebSocket, MCP, in-flight goroutines)
+	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), timeout.Shutdown)
+	defer shutdownCancel()
+	if err := agg.Shutdown(shutdownCtx); err != nil {
+		slog.Warn("aggregator shutdown error", "error", err)
+	}
+
 	// Dump log history to scrollback after alt-screen exits.
 	// Unlike the unified app (which only dumps in inline mode), standalone Bigend
 	// always uses alt-screen, so p.Run() returning means alt-screen is already
@@ -229,7 +236,10 @@ func runWeb(cfg *config.Config, agg *aggregator.Aggregator) {
 	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), timeout.Shutdown)
 	defer shutdownCancel()
 
+	if err := agg.Shutdown(shutdownCtx); err != nil {
+		slog.Warn("aggregator shutdown error", "error", err)
+	}
 	if err := srv.Shutdown(shutdownCtx); err != nil {
-		slog.Error("shutdown error", "error", err)
+		slog.Error("server shutdown error", "error", err)
 	}
 }
