@@ -3,12 +3,15 @@ package views
 import (
 	"context"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 
+	"github.com/mistakeknot/autarch/internal/pollard/quick"
 	"github.com/mistakeknot/autarch/internal/tui"
 	"github.com/mistakeknot/autarch/pkg/autarch"
 	"github.com/mistakeknot/autarch/pkg/intercore"
@@ -81,6 +84,13 @@ type runDashAdvancedMsg struct {
 type runDashCancelledMsg struct {
 	runID string
 	err   error
+}
+
+type runDashResearchMsg struct {
+	runID    string
+	summary  string
+	findings int
+	err      error
 }
 
 type runDashAutoAdvanceToggledMsg struct {
@@ -183,6 +193,19 @@ func (v *RunDashboardView) Update(msg tea.Msg) (pkgtui.View, tea.Cmd) {
 			}
 			return v, tea.Batch(cmds...)
 		}
+
+	case runDashResearchMsg:
+		if msg.err != nil {
+			v.statusMsg = fmt.Sprintf("Research failed: %s", msg.err)
+		} else {
+			v.statusMsg = fmt.Sprintf("Research complete: %d findings — %s", msg.findings, msg.summary)
+			// Reload detail to show new artifact.
+			if v.activeRun != nil && v.activeRun.ID == msg.runID {
+				cmds = append(cmds, v.loadDetail(v.activeRun.ID))
+				return v, tea.Batch(cmds...)
+			}
+		}
+		return v, nil
 	}
 
 	// Forward remaining messages to chat panel
@@ -233,6 +256,11 @@ func (v *RunDashboardView) Commands() []pkgtui.Command {
 			Name:        "Toggle Auto-advance",
 			Description: "Enable/disable automatic phase advancement on dispatch completion",
 			Action:      func() tea.Cmd { return v.toggleAutoAdvance() },
+		},
+		{
+			Name:        "Research Spec",
+			Description: "Run Pollard research on the sprint goal and store as artifact",
+			Action:      func() tea.Cmd { return v.researchForSprint() },
 		},
 		{
 			Name:        "Refresh Sprints",
@@ -418,6 +446,78 @@ func (v *RunDashboardView) tryAutoAdvance() tea.Cmd {
 
 		result, err := ic.RunAdvance(ctx, runID)
 		return runDashAdvancedMsg{result: result, err: err}
+	}
+}
+
+// researchForSprint triggers a quick Pollard research scan using the sprint's
+// goal as the topic, writes results to a YAML file, and registers it as an
+// Intercore artifact on the active run.
+func (v *RunDashboardView) researchForSprint() tea.Cmd {
+	if v.iclient == nil || v.activeRun == nil {
+		return nil
+	}
+	runID := v.activeRun.ID
+	phase := v.activeRun.Phase
+	goal := v.activeRun.Goal
+	ic := v.iclient
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+		defer cancel()
+
+		// Run quick scan with the sprint goal as topic.
+		scanner := quick.NewScanner()
+		projectPath, _ := os.Getwd()
+		result, err := scanner.Scan(ctx, goal, projectPath)
+		if err != nil {
+			return runDashResearchMsg{runID: runID, err: err}
+		}
+
+		totalFindings := len(result.GitHubHits) + len(result.HNHits)
+
+		// Write research summary to a file for artifact registration.
+		artifactDir := filepath.Join(projectPath, ".pollard", "sprint-research")
+		os.MkdirAll(artifactDir, 0755)
+		artifactPath := filepath.Join(artifactDir, fmt.Sprintf("%s-%s.yaml", runID, phase))
+
+		var b strings.Builder
+		b.WriteString(fmt.Sprintf("# Research for sprint %s (phase: %s)\n", runID, phase))
+		b.WriteString(fmt.Sprintf("# Topic: %s\n", goal))
+		b.WriteString(fmt.Sprintf("# Scanned: %s\n\n", result.ScannedAt.Format(time.RFC3339)))
+		b.WriteString(fmt.Sprintf("summary: %q\n", result.Summary))
+		b.WriteString(fmt.Sprintf("findings: %d\n", totalFindings))
+		if len(result.GitHubHits) > 0 {
+			b.WriteString("github:\n")
+			for _, gh := range result.GitHubHits {
+				b.WriteString(fmt.Sprintf("  - name: %q\n    url: %q\n    stars: %d\n",
+					gh.Name, gh.URL, gh.Stars))
+			}
+		}
+		if len(result.HNHits) > 0 {
+			b.WriteString("hackernews:\n")
+			for _, hn := range result.HNHits {
+				b.WriteString(fmt.Sprintf("  - title: %q\n    url: %q\n    points: %d\n",
+					hn.Title, hn.URL, hn.Points))
+			}
+		}
+		if err := os.WriteFile(artifactPath, []byte(b.String()), 0644); err != nil {
+			return runDashResearchMsg{runID: runID, err: fmt.Errorf("write artifact: %w", err)}
+		}
+
+		// Register as Intercore artifact.
+		if err := ic.ArtifactAdd(ctx, runID, phase, artifactPath, "research"); err != nil {
+			return runDashResearchMsg{
+				runID:    runID,
+				summary:  result.Summary,
+				findings: totalFindings,
+				err:      fmt.Errorf("artifact add: %w", err),
+			}
+		}
+
+		return runDashResearchMsg{
+			runID:    runID,
+			summary:  result.Summary,
+			findings: totalFindings,
+		}
 	}
 }
 
