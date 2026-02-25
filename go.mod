@@ -63,4 +63,4 @@ require (
 	modernc.org/memory v1.11.0 // indirect
 )
 
-replace github.com/mistakeknot/intermute => ../Intermute
+replace github.com/mistakeknot/intermute => ../../core/intermute
