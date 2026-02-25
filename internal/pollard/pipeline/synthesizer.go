@@ -36,6 +36,7 @@ func NewSynthesizer(agentCmd string, parallelism int, timeout time.Duration) *Sy
 }
 
 // SynthesizeBatch spawns parallel agent instances to analyze items.
+// Items with zero keyword overlap with the query are skipped (no agent call).
 func (s *Synthesizer) SynthesizeBatch(ctx context.Context, items []FetchedItem, query string) ([]SynthesizedItem, error) {
 	if len(items) == 0 {
 		return nil, nil
@@ -45,6 +46,9 @@ func (s *Synthesizer) SynthesizeBatch(ctx context.Context, items []FetchedItem, 
 	if s.AgentCmd == "" {
 		return s.skipSynthesis(items), nil
 	}
+
+	// Pre-filter: extract query keywords for relevance check.
+	queryTerms := extractQueryTerms(query)
 
 	sem := make(chan struct{}, s.Parallelism)
 	results := make([]SynthesizedItem, len(items))
@@ -56,6 +60,18 @@ func (s *Synthesizer) SynthesizeBatch(ctx context.Context, items []FetchedItem, 
 		wg.Add(1)
 		go func(idx int, item FetchedItem) {
 			defer wg.Done()
+
+			// Pre-filter: skip items with zero keyword overlap.
+			if len(queryTerms) > 0 && !itemMatchesQuery(item, queryTerms) {
+				results[idx] = SynthesizedItem{
+					Fetched: item,
+					Synthesis: Synthesis{
+						Summary:    "Skipped — no keyword overlap with query",
+						Confidence: 0,
+					},
+				}
+				return
+			}
 
 			// Acquire semaphore
 			select {
@@ -235,4 +251,68 @@ func DefaultSynthesizerConfig() SynthesizerConfig {
 		Parallelism: 3,
 		Timeout:     2 * time.Minute,
 	}
+}
+
+// stopWords are common words to exclude from query term extraction.
+var stopWords = map[string]bool{
+	"a": true, "an": true, "the": true, "and": true, "or": true,
+	"but": true, "in": true, "on": true, "at": true, "to": true,
+	"for": true, "of": true, "with": true, "by": true, "from": true,
+	"is": true, "are": true, "was": true, "were": true, "be": true,
+	"been": true, "being": true, "have": true, "has": true, "had": true,
+	"do": true, "does": true, "did": true, "will": true, "would": true,
+	"could": true, "should": true, "may": true, "might": true,
+	"not": true, "no": true, "nor": true, "so": true, "yet": true,
+	"it": true, "its": true, "this": true, "that": true, "these": true,
+	"those": true, "what": true, "which": true, "who": true, "how": true,
+}
+
+// extractQueryTerms splits a research query into meaningful lowercase terms.
+func extractQueryTerms(query string) []string {
+	words := strings.Fields(strings.ToLower(query))
+	terms := make([]string, 0, len(words))
+	for _, w := range words {
+		// Strip common punctuation
+		w = strings.Trim(w, ".,;:!?\"'()-")
+		if len(w) < 3 || stopWords[w] {
+			continue
+		}
+		terms = append(terms, w)
+	}
+	return terms
+}
+
+// itemMatchesQuery checks if an item's title, content, or metadata
+// contains at least one query term (case-insensitive).
+func itemMatchesQuery(item FetchedItem, queryTerms []string) bool {
+	// Build searchable text from title + content + metadata.
+	var sb strings.Builder
+	sb.WriteString(strings.ToLower(item.Raw.Title))
+	sb.WriteByte(' ')
+	if item.Content != "" {
+		// Only check first 2000 chars of content for efficiency.
+		content := item.Content
+		if len(content) > 2000 {
+			content = content[:2000]
+		}
+		sb.WriteString(strings.ToLower(content))
+	}
+	if desc, ok := item.Raw.Metadata["description"].(string); ok {
+		sb.WriteByte(' ')
+		sb.WriteString(strings.ToLower(desc))
+	}
+	if topics, ok := item.Raw.Metadata["topics"].([]string); ok {
+		for _, t := range topics {
+			sb.WriteByte(' ')
+			sb.WriteString(strings.ToLower(t))
+		}
+	}
+
+	text := sb.String()
+	for _, term := range queryTerms {
+		if strings.Contains(text, term) {
+			return true
+		}
+	}
+	return false
 }
