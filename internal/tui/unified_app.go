@@ -73,6 +73,8 @@ type UnifiedApp struct {
 
 	// Dispatch watcher — polls Intercore for dispatch completions.
 	dispatchWatcher *DispatchWatcher
+	// Event watcher — polls Intercore events and publishes as signals.
+	eventWatcher *EventWatcher
 }
 
 // NewUnifiedApp creates a new unified application
@@ -130,6 +132,11 @@ func (a *UnifiedApp) SetIntermuteManager(mgr *internalIntermute.Manager) {
 // SetDispatchWatcher sets the dispatch watcher for polling Intercore completions.
 func (a *UnifiedApp) SetDispatchWatcher(w *DispatchWatcher) {
 	a.dispatchWatcher = w
+}
+
+// SetEventWatcher sets the event watcher for Intercore event → signal publishing.
+func (a *UnifiedApp) SetEventWatcher(w *EventWatcher) {
+	a.eventWatcher = w
 }
 
 // SetSignalBroker configures the signal broker for push-based overlay updates.
@@ -307,6 +314,11 @@ func (a *UnifiedApp) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			cmds = append(cmds, a.dispatchWatcher.tick())
 		}
 		return a, tea.Batch(cmds...)
+	case eventWatcherTickMsg:
+		if a.eventWatcher != nil {
+			return a, a.eventWatcher.Tick()
+		}
+		return a, nil
 	default:
 	}
 
@@ -607,6 +619,10 @@ func (a *UnifiedApp) enterDashboard() tea.Cmd {
 			// Start dispatch watcher if configured.
 			if a.dispatchWatcher != nil {
 				cmds = append(cmds, a.dispatchWatcher.Start())
+			}
+			// Start event watcher if configured.
+			if a.eventWatcher != nil {
+				cmds = append(cmds, a.eventWatcher.Start())
 			}
 			return tea.Batch(cmds...)
 		}

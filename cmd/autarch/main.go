@@ -38,6 +38,7 @@ import (
 	"github.com/mistakeknot/autarch/pkg/events"
 	"github.com/mistakeknot/autarch/pkg/intercore"
 	"github.com/mistakeknot/autarch/pkg/intermute"
+	"github.com/mistakeknot/autarch/pkg/signals"
 	pkgtui "github.com/mistakeknot/autarch/pkg/tui"
 	"github.com/mistakeknot/autarch/pkg/timeout"
 )
@@ -242,6 +243,13 @@ Navigation:
 			// Start dispatch watcher if Intercore is available.
 			if iclient != nil {
 				app.SetDispatchWatcher(tui.NewDispatchWatcher(iclient, 5*time.Second))
+			}
+
+			// Wire signal broker and event watcher for Intercore → signals overlay.
+			signalBroker := signals.NewBroker()
+			app.SetSignalBroker(signalBroker)
+			if iclient != nil {
+				app.SetEventWatcher(tui.NewEventWatcher(iclient, signalBroker))
 			}
 
 			// Wire dashboard factory (GurgehConfig flows into GurgehView)
