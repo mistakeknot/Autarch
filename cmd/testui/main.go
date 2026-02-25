@@ -12,6 +12,7 @@ import (
 	"github.com/mistakeknot/autarch/internal/tui"
 	"github.com/mistakeknot/autarch/internal/tui/views"
 	"github.com/mistakeknot/autarch/pkg/autarch"
+	"github.com/mistakeknot/autarch/pkg/intercore"
 )
 
 func main() {
@@ -304,11 +305,14 @@ func runFullFlow() error {
 		},
 	}
 
+	iclient, _ := intercore.New()
 	app.SetDashboardViewFactory(func(c *autarch.Client) []tui.View {
+		coldwine := views.NewColdwineView(c)
+		coldwine.SetIntercore(iclient)
 		return []tui.View{
 			views.NewBigendView(c),
 			views.NewGurgehView(c, gurgehCfg),
-			views.NewColdwineView(c),
+			coldwine,
 			views.NewPollardView(c, nil),
 		}
 	})

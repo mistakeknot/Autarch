@@ -36,6 +36,7 @@ import (
 	"github.com/mistakeknot/autarch/internal/tui/views"
 	"github.com/mistakeknot/autarch/pkg/autarch"
 	"github.com/mistakeknot/autarch/pkg/events"
+	"github.com/mistakeknot/autarch/pkg/intercore"
 	"github.com/mistakeknot/autarch/pkg/intermute"
 	pkgtui "github.com/mistakeknot/autarch/pkg/tui"
 	"github.com/mistakeknot/autarch/pkg/timeout"
@@ -235,12 +236,17 @@ Navigation:
 				},
 			}
 
+			// Create Intercore client (optional — nil if ic unavailable).
+			iclient, _ := intercore.New()
+
 			// Wire dashboard factory (GurgehConfig flows into GurgehView)
 			app.SetDashboardViewFactory(func(c *autarch.Client) []tui.View {
+				coldwine := views.NewColdwineView(c)
+				coldwine.SetIntercore(iclient)
 				return []tui.View{
 					views.NewBigendView(c),
 					views.NewGurgehView(c, gurgehCfg),
-					views.NewColdwineView(c),
+					coldwine,
 					views.NewPollardView(c, researchCoord),
 				}
 			})

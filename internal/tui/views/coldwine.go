@@ -1,6 +1,7 @@
 package views
 
 import (
+	"context"
 	"fmt"
 	"strings"
 	"time"
@@ -9,12 +10,14 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/mistakeknot/autarch/internal/tui"
 	"github.com/mistakeknot/autarch/pkg/autarch"
+	"github.com/mistakeknot/autarch/pkg/intercore"
 	pkgtui "github.com/mistakeknot/autarch/pkg/tui"
 )
 
 // ColdwineView displays epics, stories, and tasks with the unified shell layout.
 type ColdwineView struct {
 	client   *autarch.Client
+	iclient  *intercore.Client // optional — nil when ic unavailable
 	epics    []autarch.Epic
 	stories  []autarch.Story
 	tasks    []autarch.Task
@@ -22,6 +25,9 @@ type ColdwineView struct {
 	width    int
 	height   int
 	loading  bool
+
+	// Sprint data cached from Intercore (loaded async).
+	epicRuns map[string]*intercore.Run // epicID → Run (nil if no sprint)
 
 	// Shell layout for unified 3-pane layout
 	shell *pkgtui.ShellLayout
@@ -60,6 +66,12 @@ func (v *ColdwineView) SetChatSettings(settings pkgtui.ChatSettings) {
 	v.chatPanel.SetSettings(settings)
 }
 
+// SetIntercore sets the Intercore client for sprint operations.
+// Pass nil if ic is unavailable — sprint commands will be hidden.
+func (v *ColdwineView) SetIntercore(ic *intercore.Client) {
+	v.iclient = ic
+}
+
 // ClearInput clears the chat composer (for ctrl+c soft cancel).
 func (v *ColdwineView) ClearInput() {
 	v.chatPanel.ClearComposer()
@@ -90,6 +102,18 @@ type taskCreatedMsg struct {
 	err  error
 }
 
+type sprintCreatedMsg struct {
+	runID  string
+	epicID string
+	goal   string
+	err    error
+}
+
+// epicRunsLoadedMsg carries cached sprint data for all epics.
+type epicRunsLoadedMsg struct {
+	runs map[string]*intercore.Run // epicID → Run
+}
+
 // Init implements View
 func (v *ColdwineView) Init() tea.Cmd {
 	return v.loadData()
@@ -111,6 +135,48 @@ func (v *ColdwineView) loadData() tea.Cmd {
 		}
 		return epicsLoadedMsg{epics: epics, stories: stories, tasks: tasks}
 	}
+}
+
+// loadEpicRuns fetches sprint associations for all loaded epics.
+func (v *ColdwineView) loadEpicRuns() tea.Cmd {
+	if v.iclient == nil || len(v.epics) == 0 {
+		return nil
+	}
+	ic := v.iclient
+	epicIDs := make([]string, len(v.epics))
+	for i, e := range v.epics {
+		epicIDs[i] = e.ID
+	}
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		runs := make(map[string]*intercore.Run, len(epicIDs))
+		for _, eid := range epicIDs {
+			runID, err := ic.StateGet(ctx, "epic.run_id", eid)
+			if err != nil || runID == "" {
+				continue
+			}
+			// StateGet returns JSON-quoted string — strip quotes.
+			runID = strings.Trim(runID, `"`)
+			if runID == "" {
+				continue
+			}
+			run, err := ic.RunStatus(ctx, runID)
+			if err != nil {
+				continue
+			}
+			runs[eid] = run
+		}
+		return epicRunsLoadedMsg{runs: runs}
+	}
+}
+
+// getEpicRunID returns the cached run ID for an epic, or empty string.
+func (v *ColdwineView) getEpicRunID(epicID string) string {
+	if run, ok := v.epicRuns[epicID]; ok && run != nil {
+		return run.ID
+	}
+	return ""
 }
 
 // Update implements View
@@ -144,6 +210,11 @@ func (v *ColdwineView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
 			v.stories = msg.stories
 			v.tasks = msg.tasks
 		}
+		// Trigger async sprint data load after epics are available.
+		return v, v.loadEpicRuns()
+
+	case epicRunsLoadedMsg:
+		v.epicRuns = msg.runs
 		return v, nil
 
 	case epicCreatedMsg:
@@ -169,6 +240,34 @@ func (v *ColdwineView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
 		}
 		v.chatPanel.AddMessage("system", fmt.Sprintf("Created task: %s", msg.task.Title))
 		return v, v.loadData()
+
+	case sprintCreatedMsg:
+		if msg.err != nil {
+			v.chatPanel.AddMessage("system", fmt.Sprintf("Failed to create sprint: %v", msg.err))
+			return v, nil
+		}
+		v.chatPanel.AddMessage("system", fmt.Sprintf("Sprint created: %s (run %s)", msg.goal, msg.runID))
+		// Store the run ID in Intercore state and update local cache.
+		if v.iclient != nil && msg.epicID != "" {
+			if v.epicRuns == nil {
+				v.epicRuns = make(map[string]*intercore.Run)
+			}
+			v.epicRuns[msg.epicID] = &intercore.Run{
+				ID:    msg.runID,
+				Goal:  msg.goal,
+				Phase: "brainstorm",
+			}
+			ic := v.iclient
+			epicID := msg.epicID
+			runID := msg.runID
+			return v, func() tea.Msg {
+				ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+				defer cancel()
+				_ = ic.StateSet(ctx, "epic.run_id", epicID, fmt.Sprintf("%q", runID))
+				return nil
+			}
+		}
+		return v, nil
 
 	case pkgtui.SidebarSelectMsg:
 		// Find epic by ID and select it
@@ -293,6 +392,12 @@ func (v *ColdwineView) renderDocument() string {
 
 	lines = append(lines, fmt.Sprintf("Title: %s", e.Title))
 	lines = append(lines, fmt.Sprintf("Status: %s", e.Status))
+
+	// Show sprint info if cached from async load.
+	if run, ok := v.epicRuns[e.ID]; ok && run != nil {
+		lines = append(lines, fmt.Sprintf("Sprint: %s  Phase: %s", run.ID, run.Phase))
+	}
+
 	lines = append(lines, "")
 
 	// Show stories for this epic
@@ -353,7 +458,7 @@ func (v *ColdwineView) ShortHelp() string {
 
 // Commands implements CommandProvider
 func (v *ColdwineView) Commands() []tui.Command {
-	return []tui.Command{
+	cmds := []tui.Command{
 		{
 			Name:        "New Epic",
 			Description: "Create a new epic",
@@ -395,4 +500,33 @@ func (v *ColdwineView) Commands() []tui.Command {
 			},
 		},
 	}
+
+	// Sprint command only available when Intercore is connected.
+	if v.iclient != nil {
+		cmds = append(cmds, tui.Command{
+			Name:        "Create Sprint",
+			Description: "Create an Intercore sprint from selected epic",
+			Action: func() tea.Cmd {
+				ic := v.iclient
+				var epicID, goal string
+				if v.selected >= 0 && v.selected < len(v.epics) {
+					epicID = v.epics[v.selected].ID
+					goal = v.epics[v.selected].Title
+				}
+				if goal == "" {
+					goal = "Untitled sprint"
+				}
+				return func() tea.Msg {
+					ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+					defer cancel()
+					runID, err := ic.RunCreate(ctx, ".", goal,
+						intercore.WithScopeID(epicID),
+					)
+					return sprintCreatedMsg{runID: runID, epicID: epicID, goal: goal, err: err}
+				}
+			},
+		})
+	}
+
+	return cmds
 }
