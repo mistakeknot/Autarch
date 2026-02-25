@@ -431,5 +431,21 @@ func (v *GurgehView) Commands() []tui.Command {
 				return v.loadSpecs()
 			},
 		},
+		{
+			Name:        "Generate Epics",
+			Description: "Hand off selected spec to Coldwine for epic generation",
+			Action: func() tea.Cmd {
+				if v.selected < 0 || v.selected >= len(v.specs) {
+					return nil
+				}
+				spec := v.specs[v.selected]
+				return func() tea.Msg {
+					return tui.SpecHandoffMsg{
+						SpecID:    spec.ID,
+						SpecTitle: spec.Title,
+					}
+				}
+			},
+		},
 	}
 }

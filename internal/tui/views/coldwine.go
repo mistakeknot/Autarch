@@ -87,6 +87,19 @@ func (v *ColdwineView) ClearInput() {
 	v.chatPanel.ClearComposer()
 }
 
+// SetHandoffSpec pre-selects epics linked to a spec and adds a system message.
+// Called when Gurgeh hands off a spec for epic generation.
+func (v *ColdwineView) SetHandoffSpec(specID, specTitle string) {
+	// Try to select the first epic matching the spec
+	for i, e := range v.epics {
+		if e.SpecID == specID {
+			v.selected = i
+			break
+		}
+	}
+	v.chatPanel.AddMessage("system", fmt.Sprintf("Spec handoff: %s — generate or review epics for this spec.", specTitle))
+}
+
 // Compile-time interface assertion for SidebarProvider
 var _ pkgtui.SidebarProvider = (*ColdwineView)(nil)
 

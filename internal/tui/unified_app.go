@@ -165,6 +165,10 @@ type slashCommandHandler interface {
 	HandleSlashCommand(command string, args []string) tea.Cmd
 }
 
+type specHandoffReceiver interface {
+	SetHandoffSpec(specID, specTitle string)
+}
+
 func (a *UnifiedApp) initAgentSelector() {
 	if a.agentSelector != nil {
 		return
@@ -500,6 +504,16 @@ func (a *UnifiedApp) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// Onboarding finished inside GurgehView — no-op since we're already in dashboard mode.
 		// The GurgehView internally sets showBrowser=true.
 		return a, nil
+
+	case SpecHandoffMsg:
+		// Cross-tab handoff from Gurgeh → Coldwine (index 2).
+		// Pass spec context to ColdwineView, then switch tabs.
+		if len(a.dashViews) > 2 {
+			if recv, ok := a.dashViews[2].(specHandoffReceiver); ok {
+				recv.SetHandoffSpec(msg.SpecID, msg.SpecTitle)
+			}
+		}
+		return a, a.switchDashboardTab(2)
 
 	case signalsOverlayLoadedMsg:
 		_, cmd := a.signalsOverlay.Update(msg)

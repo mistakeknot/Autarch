@@ -293,3 +293,10 @@ type PaneCountMsg struct {
 	Counts PaneCounts
 	Err    error
 }
+
+// SpecHandoffMsg requests a cross-tab transition from Gurgeh to Coldwine
+// with the spec context pre-loaded for epic generation.
+type SpecHandoffMsg struct {
+	SpecID    string
+	SpecTitle string
+}
