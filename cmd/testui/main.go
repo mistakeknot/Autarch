@@ -309,10 +309,13 @@ func runFullFlow() error {
 	app.SetDashboardViewFactory(func(c *autarch.Client) []tui.View {
 		coldwine := views.NewColdwineView(c)
 		coldwine.SetIntercore(iclient)
+		sprint := views.NewRunDashboardView(c)
+		sprint.SetIntercore(iclient)
 		return []tui.View{
 			views.NewBigendView(c),
 			views.NewGurgehView(c, gurgehCfg),
 			coldwine,
+			sprint,
 			views.NewPollardView(c, nil),
 		}
 	})

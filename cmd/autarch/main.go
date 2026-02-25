@@ -243,10 +243,13 @@ Navigation:
 			app.SetDashboardViewFactory(func(c *autarch.Client) []tui.View {
 				coldwine := views.NewColdwineView(c)
 				coldwine.SetIntercore(iclient)
+				sprint := views.NewRunDashboardView(c)
+				sprint.SetIntercore(iclient)
 				return []tui.View{
 					views.NewBigendView(c),
 					views.NewGurgehView(c, gurgehCfg),
 					coldwine,
+					sprint,
 					views.NewPollardView(c, researchCoord),
 				}
 			})
@@ -263,7 +266,7 @@ Navigation:
 	cmd.Flags().StringVar(&dataDir, "data-dir", "", "Data directory (default: ~/.autarch)")
 	cmd.Flags().BoolVar(&skipOnboard, "skip-onboard", false, "Skip onboarding and go directly to dashboard")
 	cmd.Flags().BoolVar(&inlineMode, "inline", false, "Enable inline mode with log pane (preserves scrollback)")
-	cmd.Flags().StringVar(&toolFlag, "tool", "", "Jump directly to a tool tab (bigend, gurgeh, coldwine, pollard)")
+	cmd.Flags().StringVar(&toolFlag, "tool", "", "Jump directly to a tool tab (bigend, gurgeh, coldwine, sprint, pollard)")
 
 	return cmd
 }
