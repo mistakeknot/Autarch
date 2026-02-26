@@ -60,7 +60,8 @@ type UnifiedApp struct {
 	resizeCoalescer *pkgtui.ResizeCoalescer
 
 	// Initial tab to jump to when entering dashboard
-	initialTab string
+	initialTab      string
+	initialRunsMode bool // true when --tool=sprint (activate Runs mode on Coldwine)
 
 	// Skip onboarding and go directly to dashboard
 	skipOnboarding bool
@@ -79,7 +80,7 @@ type UnifiedApp struct {
 
 // NewUnifiedApp creates a new unified application
 func NewUnifiedApp(client *autarch.Client) *UnifiedApp {
-	tabNames := []string{"Bigend", "Gurgeh", "Coldwine", "Sprint", "Pollard"}
+	tabNames := []string{"Bigend", "Gurgeh", "Coldwine", "Pollard"}
 	return &UnifiedApp{
 		client:          client,
 		tabs:            NewTabBar(tabNames),
@@ -105,13 +106,19 @@ func (a *UnifiedApp) LogPane() *pkgtui.LogPane {
 }
 
 // SetInitialTab sets the tab to jump to when entering dashboard mode.
-// Valid names: bigend, gurgeh, coldwine, pollard (case-insensitive).
+// Valid names: bigend, gurgeh, coldwine, pollard, sprint (case-insensitive).
+// "sprint" maps to coldwine with Runs mode activated.
 func (a *UnifiedApp) SetInitialTab(name string) {
 	if name == "" {
 		return
 	}
-	// Store for later - we'll apply it when dashViews are created
-	a.initialTab = strings.ToLower(name)
+	lower := strings.ToLower(name)
+	if lower == "sprint" || lower == "spr" {
+		a.initialTab = "coldwine"
+		a.initialRunsMode = true
+		return
+	}
+	a.initialTab = lower
 }
 
 // SetSkipOnboarding skips onboarding and enters dashboard mode immediately.
@@ -167,6 +174,12 @@ type slashCommandHandler interface {
 
 type specHandoffReceiver interface {
 	SetHandoffSpec(specID, specTitle string)
+}
+
+// sprintModeActivator is used by /sprint slash command to activate Runs mode
+// on ColdwineView. Avoids importing views.ColdwineMode (circular import).
+type sprintModeActivator interface {
+	SetRunsMode()
 }
 
 func (a *UnifiedApp) initAgentSelector() {
@@ -386,9 +399,18 @@ func (a *UnifiedApp) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "coldwine", "cold":
 			return a, a.switchToTab(2)
 		case "sprint", "spr":
-			return a, a.switchToTab(3)
+			// Sprint merged into Coldwine — activate Runs mode via interface
+			for i, dv := range a.dashViews {
+				if strings.ToLower(dv.Name()) == "coldwine" {
+					if sm, ok := dv.(sprintModeActivator); ok {
+						sm.SetRunsMode()
+					}
+					return a, a.switchToTab(i)
+				}
+			}
+			return a, a.switchToTab(2) // fallback
 		case "pollard", "pol":
-			return a, a.switchToTab(4)
+			return a, a.switchToTab(3)
 		case "signals", "sig":
 			return a, a.signalsOverlay.Toggle()
 		case "logs", "log", "l":
@@ -626,6 +648,13 @@ func (a *UnifiedApp) enterDashboard() tea.Cmd {
 			}
 			a.tabs.SetActive(initialIdx)
 			a.currentView = a.dashViews[initialIdx]
+
+			// Activate Runs mode if --tool=sprint was used
+			if a.initialRunsMode {
+				if sm, ok := a.currentView.(sprintModeActivator); ok {
+					sm.SetRunsMode()
+				}
+			}
 
 			// Initialize all views
 			var cmds []tea.Cmd

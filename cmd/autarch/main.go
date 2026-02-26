@@ -25,6 +25,7 @@ import (
 	bigendTui "github.com/mistakeknot/autarch/internal/bigend/tui"
 	"github.com/mistakeknot/autarch/internal/bigend/web"
 	coldwineCli "github.com/mistakeknot/autarch/internal/coldwine/cli"
+	coldwineConfig "github.com/mistakeknot/autarch/internal/coldwine/config"
 	"github.com/mistakeknot/autarch/internal/coldwine/epics"
 	"github.com/mistakeknot/autarch/internal/coldwine/tasks"
 	gurgehCli "github.com/mistakeknot/autarch/internal/gurgeh/cli"
@@ -256,15 +257,24 @@ Navigation:
 			app.SetDashboardViewFactory(func(c *autarch.Client) []tui.View {
 				bigend := views.NewBigendView(c)
 				bigend.SetIntercore(iclient)
-				coldwine := views.NewColdwineView(c)
+
+				// Parse layout mode from coldwine config
+				var coldwineOpts []views.ColdwineOpt
+				if cwCfg, err := coldwineConfig.LoadFromProject("."); err == nil {
+					switch cwCfg.TUI.LayoutMode {
+					case "inline":
+						coldwineOpts = append(coldwineOpts, views.WithLayoutMode(views.LayoutInline))
+					case "split":
+						coldwineOpts = append(coldwineOpts, views.WithLayoutMode(views.LayoutSplit))
+					}
+				}
+				coldwine := views.NewColdwineView(c, coldwineOpts...)
 				coldwine.SetIntercore(iclient)
-				sprint := views.NewRunDashboardView(c)
-				sprint.SetIntercore(iclient)
+				// Sprint tab removed — merged into Coldwine as a mode toggle
 				return []tui.View{
 					bigend,
 					views.NewGurgehView(c, gurgehCfg),
 					coldwine,
-					sprint,
 					views.NewPollardView(c, researchCoord),
 				}
 			})
@@ -281,7 +291,7 @@ Navigation:
 	cmd.Flags().StringVar(&dataDir, "data-dir", "", "Data directory (default: ~/.autarch)")
 	cmd.Flags().BoolVar(&skipOnboard, "skip-onboard", false, "Skip onboarding and go directly to dashboard")
 	cmd.Flags().BoolVar(&inlineMode, "inline", false, "Enable inline mode with log pane (preserves scrollback)")
-	cmd.Flags().StringVar(&toolFlag, "tool", "", "Jump directly to a tool tab (bigend, gurgeh, coldwine, sprint, pollard)")
+	cmd.Flags().StringVar(&toolFlag, "tool", "", "Jump directly to a tool tab (bigend, gurgeh, coldwine, pollard)")
 
 	return cmd
 }

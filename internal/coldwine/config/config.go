@@ -13,7 +13,8 @@ type GeneralConfig struct {
 }
 
 type TUIConfig struct {
-	ConfirmApprove bool `toml:"confirm_approve"`
+	ConfirmApprove bool   `toml:"confirm_approve"`
+	LayoutMode     string `toml:"layout_mode"` // "toggle" (default), "inline", "split"
 }
 
 type ReviewConfig struct {

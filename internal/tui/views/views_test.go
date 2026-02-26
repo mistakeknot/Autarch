@@ -26,10 +26,15 @@ func TestColdwineViewShellIntegration(t *testing.T) {
 	// Set shell size
 	view.shell.SetSize(120, 40)
 
-	// Verify SidebarItems returns without panic when no epics
+	// Verify SidebarItems returns mode toggle items even when no epics
 	items := view.SidebarItems()
-	if len(items) != 0 {
-		t.Errorf("SidebarItems should return empty when no epics, got %d items", len(items))
+	if len(items) != 2 {
+		t.Errorf("SidebarItems should return 2 mode toggle items when no epics, got %d items", len(items))
+	}
+	if len(items) >= 2 {
+		if items[0].ID != "__mode_epics" || items[1].ID != "__mode_runs" {
+			t.Errorf("first two items should be mode toggles, got %q and %q", items[0].ID, items[1].ID)
+		}
 	}
 
 	// Test Tab key cycles focus

@@ -311,13 +311,10 @@ func runFullFlow() error {
 		bigend.SetIntercore(iclient)
 		coldwine := views.NewColdwineView(c)
 		coldwine.SetIntercore(iclient)
-		sprint := views.NewRunDashboardView(c)
-		sprint.SetIntercore(iclient)
 		return []tui.View{
 			bigend,
 			views.NewGurgehView(c, gurgehCfg),
 			coldwine,
-			sprint,
 			views.NewPollardView(c, nil),
 		}
 	})

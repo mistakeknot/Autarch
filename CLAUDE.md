@@ -7,8 +7,7 @@
 Unified monorepo for AI agent development tools:
 - **Bigend**: Multi-project agent mission control (web + TUI)
 - **Gurgeh**: TUI-first PRD generation and validation
-- **Coldwine**: Task orchestration for human-AI collaboration
-- **Sprint**: Intercore sprint run dashboard — phase advancement, budget, gates, dispatches
+- **Coldwine**: Task orchestration + sprint runs (Epics/Runs mode toggle, inline/split layouts)
 - **Pollard**: General-purpose research intelligence (tech, medicine, law, economics, etc.)
 
 ## Quick Commands

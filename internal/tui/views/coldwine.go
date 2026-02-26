@@ -35,6 +35,27 @@ type ColdwineView struct {
 	// Key: taskID, Value: dispatchID. Populated on data load.
 	taskDispatches map[string]string
 
+	// Mode toggle (merged Sprint tab)
+	mode       ColdwineMode
+	layoutMode LayoutMode
+
+	// Runs mode data
+	runs        []intercore.Run
+	selectedRun int
+	orphanRuns  []intercore.Run // runs not associated with any epic
+
+	// Two separate RunDetailPanel instances — never share across modes.
+	runsRunDetail  *RunDetailPanel // for Runs mode document
+	epicsRunDetail *RunDetailPanel // for inline/split Epics mode sprint section
+
+	// Generation counters for async load dedup
+	runsLoadSeq   uint64
+	detailLoadSeq uint64
+
+	// Inline expansion state
+	sprintExpanded bool
+	statusMsg      string // transient status message
+
 	// Shell layout for unified 3-pane layout
 	shell *pkgtui.ShellLayout
 	// Chat panel for interactive input
@@ -43,20 +64,34 @@ type ColdwineView struct {
 	chatHandler *ColdwineChatHandler
 }
 
-// NewColdwineView creates a new Coldwine view
-func NewColdwineView(client *autarch.Client) *ColdwineView {
+// ColdwineOpt is a functional option for NewColdwineView.
+type ColdwineOpt func(*ColdwineView)
+
+// WithLayoutMode sets the initial layout mode from config.
+func WithLayoutMode(mode LayoutMode) ColdwineOpt {
+	return func(v *ColdwineView) { v.layoutMode = mode }
+}
+
+// NewColdwineView creates a new Coldwine view with optional configuration.
+func NewColdwineView(client *autarch.Client, opts ...ColdwineOpt) *ColdwineView {
 	chatPanel := pkgtui.NewChatPanel()
 	chatPanel.SetComposerPlaceholder("Ask questions about this epic...")
 	chatPanel.SetComposerHint("enter send  tab focus  ctrl+b sidebar")
 	chatHandler := NewColdwineChatHandler()
 	chatPanel.SetHandler(chatHandler)
 
-	return &ColdwineView{
-		client:      client,
-		shell:       pkgtui.NewShellLayout(),
-		chatPanel:   chatPanel,
-		chatHandler: chatHandler,
+	v := &ColdwineView{
+		client:         client,
+		shell:          pkgtui.NewShellLayout(),
+		chatPanel:      chatPanel,
+		chatHandler:    chatHandler,
+		runsRunDetail:  NewRunDetailPanel(),
+		epicsRunDetail: NewRunDetailPanel(),
 	}
+	for _, opt := range opts {
+		opt(v)
+	}
+	return v
 }
 
 // SetAgentSelector sets the shared agent selector.
@@ -278,6 +313,11 @@ func (v *ColdwineView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
 		v.height = msg.Height - 4 - 2
 		v.shell.SetSize(v.width, v.height)
 		v.chatPanel.SetSize(v.shell.RightWidth(), v.shell.Height())
+		// Size the document area for RunDetailPanels
+		docW := v.shell.LeftWidth()
+		docH := v.shell.Height()
+		v.runsRunDetail.SetSize(docW, docH)
+		v.epicsRunDetail.SetSize(docW, docH)
 		return v, nil
 
 	case epicsLoadedMsg:
@@ -298,6 +338,33 @@ func (v *ColdwineView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
 
 	case epicRunsLoadedMsg:
 		v.epicRuns = msg.runs
+		v.computeOrphanRuns()
+		return v, nil
+
+	case RunsLoadedMsg:
+		return v.handleRunsLoadedMsg(msg)
+
+	case RunDetailLoadedMsg:
+		return v.handleRunDetailLoadedMsg(msg)
+
+	case coldwineAdvancedMsg:
+		return v.handleColdwineAdvancedMsg(msg)
+
+	case coldwineCancelledMsg:
+		return v.handleColdwineCancelledMsg(msg)
+
+	case coldwineAutoAdvanceToggledMsg:
+		return v.handleAutoAdvanceToggledMsg(msg)
+
+	case coldwineModeChangeMsg:
+		v.mode = msg.mode
+		if v.mode == ModeRuns {
+			return v, v.loadRunsForMode()
+		}
+		return v, nil
+
+	case layoutModeChangedMsg:
+		v.layoutMode = msg.mode
 		return v, nil
 
 	case taskDispatchMapMsg:
@@ -357,8 +424,18 @@ func (v *ColdwineView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
 		return v, nil
 
 	case tui.DispatchCompletedMsg:
-		// A dispatch finished — find the matching task and update its status.
 		d := msg.Dispatch
+		var cmds []tea.Cmd
+
+		// Auto-advance check (safe in any mode — server enforces gates).
+		if _, ok := v.shouldAutoAdvanceForRun(d); ok {
+			cmds = append(cmds, v.tryAutoAdvance(d.RunID))
+			if v.mode == ModeEpics {
+				v.chatPanel.AddMessage("system", "Sprint auto-advanced after dispatch completed")
+			}
+		}
+
+		// Task status update (Epics mode concern).
 		taskIdx := -1
 		for i := range v.tasks {
 			if v.tasks[i].Status != autarch.TaskStatusRunning {
@@ -370,6 +447,9 @@ func (v *ColdwineView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
 			}
 		}
 		if taskIdx < 0 {
+			if len(cmds) > 0 {
+				return v, tea.Batch(cmds...)
+			}
 			return v, nil
 		}
 
@@ -385,6 +465,9 @@ func (v *ColdwineView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
 		case "failed", "cancelled":
 			newStatus = autarch.TaskStatusPending
 		default:
+			if len(cmds) > 0 {
+				return v, tea.Batch(cmds...)
+			}
 			return v, nil
 		}
 
@@ -396,7 +479,8 @@ func (v *ColdwineView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
 			d.ID, d.Status, taskTitle, d.ResultSummary()))
 
 		// Persist: update task status in backend + store result summary in ic state.
-		return v, v.persistDispatchResult(v.tasks[taskIdx], d, newStatus)
+		cmds = append(cmds, v.persistDispatchResult(v.tasks[taskIdx], d, newStatus))
+		return v, tea.Batch(cmds...)
 
 	case taskStatusPersistedMsg:
 		if msg.err != nil {
@@ -448,12 +532,26 @@ func (v *ColdwineView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
 		return v, nil
 
 	case pkgtui.SidebarSelectMsg:
-		// Find epic by ID and select it
-		for i, epic := range v.epics {
-			if epic.ID == msg.ItemID {
-				v.selected = i
-				v.selectedTask = 0
-				break
+		// Mode toggle sentinel items
+		switch msg.ItemID {
+		case "__mode_epics":
+			v.mode = ModeEpics
+			return v, nil
+		case "__mode_runs":
+			v.mode = ModeRuns
+			return v, v.loadRunsForMode()
+		case "__unscoped_sprints":
+			// Orphan runs pseudo-entry — switch to Runs mode
+			v.mode = ModeRuns
+			return v, v.loadRunsForMode()
+		default:
+			// Find epic by ID and select it
+			for i, epic := range v.epics {
+				if epic.ID == msg.ItemID {
+					v.selected = i
+					v.selectedTask = 0
+					break
+				}
 			}
 		}
 		return v, nil
@@ -465,32 +563,72 @@ func (v *ColdwineView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
 			return v, cmd
 		}
 
+		// Mode toggle — works in sidebar and document focus
+		if msg.String() == "m" && v.shell.Focus() != pkgtui.FocusChat {
+			v.switchMode()
+			if v.mode == ModeRuns {
+				return v, v.loadRunsForMode()
+			}
+			return v, nil
+		}
+
 		// Handle view-specific keys based on focus
 		switch v.shell.Focus() {
 		case pkgtui.FocusSidebar:
 			// Navigation handled by shell/sidebar
 		case pkgtui.FocusDocument:
+			// Route to mode-specific key handler
+			if v.mode == ModeRuns {
+				if cmd := v.handleRunsKey(msg); cmd != nil {
+					return v, cmd
+				}
+			}
 			switch {
 			case key.Matches(msg, commonKeys.NavDown):
-				epicTasks := v.epicTasks()
-				if v.selectedTask < len(epicTasks)-1 {
-					v.selectedTask++
-				} else if v.selected < len(v.epics)-1 {
-					v.selected++
-					v.selectedTask = 0
+				if v.mode == ModeEpics {
+					epicTasks := v.epicTasks()
+					if v.selectedTask < len(epicTasks)-1 {
+						v.selectedTask++
+					} else if v.selected < len(v.epics)-1 {
+						v.selected++
+						v.selectedTask = 0
+					}
 				}
 			case key.Matches(msg, commonKeys.NavUp):
-				if v.selectedTask > 0 {
-					v.selectedTask--
-				} else if v.selected > 0 {
-					v.selected--
-					v.selectedTask = 0
+				if v.mode == ModeEpics {
+					if v.selectedTask > 0 {
+						v.selectedTask--
+					} else if v.selected > 0 {
+						v.selected--
+						v.selectedTask = 0
+					}
 				}
 			case key.Matches(msg, commonKeys.Refresh):
 				v.loading = true
-				return v, v.loadData()
+				cmds := []tea.Cmd{v.loadData()}
+				if v.mode == ModeRuns {
+					cmds = append(cmds, v.loadRunsForMode())
+				}
+				return v, tea.Batch(cmds...)
 			case msg.String() == "d":
-				return v, v.dispatchSelectedTask()
+				if v.mode == ModeEpics {
+					return v, v.dispatchSelectedTask()
+				}
+			case msg.String() == "t":
+				if v.mode == ModeRuns {
+					return v, v.toggleAutoAdvance()
+				}
+			case msg.String() == "s":
+				if v.layoutMode == LayoutInline && v.mode == ModeEpics {
+					v.sprintExpanded = !v.sprintExpanded
+					if v.sprintExpanded && v.selected >= 0 && v.selected < len(v.epics) {
+						epicID := v.epics[v.selected].ID
+						if runID := v.getEpicRunID(epicID); runID != "" {
+							v.detailLoadSeq++
+							return v, LoadRunDetail(v.iclient, runID, v.detailLoadSeq)
+						}
+					}
+				}
 			}
 		case pkgtui.FocusChat:
 			if msg.Type == tea.KeyEnter {
@@ -513,9 +651,32 @@ func (v *ColdwineView) View() string {
 		return pkgtui.LabelStyle.Render("Loading epics...")
 	}
 
-	// Render using shell layout
 	sidebarItems := v.SidebarItems()
-	document := v.renderDocument()
+	var document string
+	switch v.mode {
+	case ModeRuns:
+		document = v.runsModeDocument()
+	default:
+		// Split pane layout: side-by-side epic + sprint
+		if v.layoutMode == LayoutSplit {
+			docWidth := v.shell.LeftWidth()
+			split := pkgtui.NewSplitLayout(0.5)
+			split.SetMinWidth(120)
+			split.SetSize(docWidth, v.shell.Height())
+
+			if !split.IsStacked() {
+				epicDoc := v.renderDocument()
+				sprintDoc := v.renderSprintPanelForEpic()
+				document = split.Render(epicDoc, sprintDoc)
+			} else {
+				// Width < 120: degrade to inline expansion with auto-expand
+				v.sprintExpanded = true
+				document = v.renderDocument()
+			}
+		} else {
+			document = v.renderDocument()
+		}
+	}
 	chat := v.chatPanel.View()
 
 	return v.shell.Render(sidebarItems, document, chat)
@@ -523,24 +684,17 @@ func (v *ColdwineView) View() string {
 
 // SidebarItems implements SidebarProvider.
 func (v *ColdwineView) SidebarItems() []pkgtui.SidebarItem {
-	if len(v.epics) == 0 {
-		return nil
+	// Prepend mode toggle items (__ prefix = system-reserved, not entity IDs)
+	toggle := []pkgtui.SidebarItem{
+		{ID: "__mode_epics", Label: "Epics", Icon: modeIcon(v.mode, ModeEpics)},
+		{ID: "__mode_runs", Label: "Runs", Icon: modeIcon(v.mode, ModeRuns)},
 	}
-
-	items := make([]pkgtui.SidebarItem, len(v.epics))
-	for i, epic := range v.epics {
-		title := epic.Title
-		if title == "" && len(epic.ID) >= 8 {
-			title = epic.ID[:8]
-		}
-
-		items[i] = pkgtui.SidebarItem{
-			ID:    epic.ID,
-			Label: title,
-			Icon:  epicStatusIcon(epic.Status),
-		}
+	switch v.mode {
+	case ModeRuns:
+		return append(toggle, v.runsModeSidebarItems()...)
+	default:
+		return append(toggle, v.epicsSidebarItems()...)
 	}
-	return items
 }
 
 // epicStatusIcon returns a plain icon for the epic status (no styling).
@@ -630,7 +784,40 @@ func (v *ColdwineView) renderDocument() string {
 		}
 	}
 
+	// Inline sprint expansion (only in LayoutInline mode, Epics mode)
+	if v.layoutMode == LayoutInline && v.mode == ModeEpics {
+		if v.selected >= 0 && v.selected < len(v.epics) {
+			epic := v.epics[v.selected]
+			if run, ok := v.epicRuns[epic.ID]; ok && run != nil {
+				if v.sprintExpanded {
+					lines = append(lines, "")
+					lines = append(lines, pkgtui.SubtitleStyle.Render("Sprint "+run.ID))
+					v.epicsRunDetail.SetMaxEvents(3)
+					v.epicsRunDetail.SetSize(v.width-4, 12)
+					lines = append(lines, v.epicsRunDetail.CompactRender())
+				} else {
+					lines = append(lines, "")
+					lines = append(lines, pkgtui.LabelStyle.Render("  s expand sprint details"))
+				}
+			}
+		}
+	}
+
 	return strings.Join(lines, "\n")
+}
+
+// renderSprintPanelForEpic renders the sprint detail for the selected epic.
+// Pure reader — data is set in Update() handlers, not here.
+func (v *ColdwineView) renderSprintPanelForEpic() string {
+	if v.selected < 0 || v.selected >= len(v.epics) {
+		return "  No epic selected"
+	}
+	epic := v.epics[v.selected]
+	run, ok := v.epicRuns[epic.ID]
+	if !ok || run == nil {
+		return "  No sprint for this epic"
+	}
+	return v.epicsRunDetail.Render()
 }
 
 // taskMatchesDispatch checks if a task corresponds to a dispatch.
@@ -687,7 +874,11 @@ func (v *ColdwineView) storyStatusIcon(status autarch.StoryStatus) string {
 // Focus implements View
 func (v *ColdwineView) Focus() tea.Cmd {
 	v.shell.SetFocus(pkgtui.FocusChat)
-	return tea.Batch(v.chatPanel.Focus(), v.loadData())
+	cmds := []tea.Cmd{v.chatPanel.Focus(), v.loadData()}
+	if v.mode == ModeRuns {
+		cmds = append(cmds, v.loadRunsForMode())
+	}
+	return tea.Batch(cmds...)
 }
 
 // Blur implements View
@@ -703,7 +894,12 @@ func (v *ColdwineView) Name() string {
 
 // ShortHelp implements View
 func (v *ColdwineView) ShortHelp() string {
-	return "↑/↓ navigate  d dispatch  ctrl+r refresh  ctrl+g model  tab focus  ctrl+b sidebar"
+	switch v.mode {
+	case ModeRuns:
+		return "↑/↓ select run  a advance  c cancel  t auto-advance  m mode  ctrl+r refresh  tab focus"
+	default:
+		return "↑/↓ navigate  d dispatch  m mode  ctrl+r refresh  ctrl+g model  tab focus"
+	}
 }
 
 // epicTasks returns tasks belonging to the selected epic (via story membership).
@@ -822,60 +1018,94 @@ func (v *ColdwineView) syncToIntermute() tea.Cmd {
 
 // Commands implements CommandProvider
 func (v *ColdwineView) Commands() []tui.Command {
+	// Mode toggle — uses message pattern (safe from goroutine pool).
 	cmds := []tui.Command{
 		{
-			Name:        "New Epic",
-			Description: "Create a new epic",
+			Name:        "Switch Mode",
+			Description: "Toggle between Epics and Runs modes",
 			Action: func() tea.Cmd {
-				client := v.client
+				mode := v.mode // snapshot — read is safe, write is via message
 				return func() tea.Msg {
-					title := fmt.Sprintf("Untitled Epic — %s", time.Now().Format("Jan 2 15:04"))
-					e, err := client.CreateEpic(autarch.Epic{Title: title})
-					return epicCreatedMsg{epic: e, err: err}
-				}
-			},
-		},
-		{
-			Name:        "New Story",
-			Description: "Create a new story under selected epic",
-			Action: func() tea.Cmd {
-				client := v.client
-				var epicID string
-				if v.selected >= 0 && v.selected < len(v.epics) {
-					epicID = v.epics[v.selected].ID
-				}
-				return func() tea.Msg {
-					title := fmt.Sprintf("Untitled Story — %s", time.Now().Format("Jan 2 15:04"))
-					s, err := client.CreateStory(autarch.Story{Title: title, EpicID: epicID})
-					return storyCreatedMsg{story: s, err: err}
-				}
-			},
-		},
-		{
-			Name:        "New Task",
-			Description: "Create a new task",
-			Action: func() tea.Cmd {
-				client := v.client
-				return func() tea.Msg {
-					title := fmt.Sprintf("Untitled Task — %s", time.Now().Format("Jan 2 15:04"))
-					t, err := client.CreateTask(autarch.Task{Title: title})
-					return taskCreatedMsg{task: t, err: err}
+					if mode == ModeEpics {
+						return coldwineModeChangeMsg{ModeRuns}
+					}
+					return coldwineModeChangeMsg{ModeEpics}
 				}
 			},
 		},
 	}
 
-	// Intercore commands only available when ic is connected.
+	// Epic commands — runtime-gated (not filtered at Commands() call time
+	// because updateCommands() is only called in enterDashboard, not on mode switch).
+	cmds = append(cmds, tui.Command{
+		Name:        "New Epic",
+		Description: "Create a new epic",
+		Action: func() tea.Cmd {
+			if v.mode != ModeEpics {
+				return nil
+			}
+			client := v.client
+			return func() tea.Msg {
+				title := fmt.Sprintf("Untitled Epic — %s", time.Now().Format("Jan 2 15:04"))
+				e, err := client.CreateEpic(autarch.Epic{Title: title})
+				return epicCreatedMsg{epic: e, err: err}
+			}
+		},
+	})
+	cmds = append(cmds, tui.Command{
+		Name:        "New Story",
+		Description: "Create a new story under selected epic",
+		Action: func() tea.Cmd {
+			if v.mode != ModeEpics {
+				return nil
+			}
+			client := v.client
+			var epicID string
+			if v.selected >= 0 && v.selected < len(v.epics) {
+				epicID = v.epics[v.selected].ID
+			}
+			return func() tea.Msg {
+				title := fmt.Sprintf("Untitled Story — %s", time.Now().Format("Jan 2 15:04"))
+				s, err := client.CreateStory(autarch.Story{Title: title, EpicID: epicID})
+				return storyCreatedMsg{story: s, err: err}
+			}
+		},
+	})
+	cmds = append(cmds, tui.Command{
+		Name:        "New Task",
+		Description: "Create a new task",
+		Action: func() tea.Cmd {
+			if v.mode != ModeEpics {
+				return nil
+			}
+			client := v.client
+			return func() tea.Msg {
+				title := fmt.Sprintf("Untitled Task — %s", time.Now().Format("Jan 2 15:04"))
+				t, err := client.CreateTask(autarch.Task{Title: title})
+				return taskCreatedMsg{task: t, err: err}
+			}
+		},
+	})
+
+	// Intercore commands — available in both modes when ic is connected.
 	if v.iclient != nil {
 		cmds = append(cmds, tui.Command{
 			Name:        "Dispatch Task",
 			Description: "Dispatch selected task to an agent via Intercore",
-			Action:      func() tea.Cmd { return v.dispatchSelectedTask() },
+			Action: func() tea.Cmd {
+				if v.mode != ModeEpics {
+					return nil
+				}
+				return v.dispatchSelectedTask()
+			},
 		})
 		cmds = append(cmds, tui.Command{
 			Name:        "Create Sprint",
 			Description: "Create an Intercore sprint from selected epic",
 			Action: func() tea.Cmd {
+				if v.mode != ModeEpics {
+					return nil
+				}
 				ic := v.iclient
 				var epicID, goal string
 				if v.selected >= 0 && v.selected < len(v.epics) {
@@ -895,7 +1125,62 @@ func (v *ColdwineView) Commands() []tui.Command {
 				}
 			},
 		})
+
+		// Runs mode commands — runtime-gated
+		cmds = append(cmds, tui.Command{
+			Name:        "Advance Phase",
+			Description: "Advance the selected run to the next phase",
+			Action: func() tea.Cmd {
+				if v.mode != ModeRuns {
+					return nil
+				}
+				return v.advancePhase()
+			},
+		})
+		cmds = append(cmds, tui.Command{
+			Name:        "Cancel Run",
+			Description: "Cancel the selected run",
+			Action: func() tea.Cmd {
+				if v.mode != ModeRuns {
+					return nil
+				}
+				return v.cancelRun()
+			},
+		})
+		cmds = append(cmds, tui.Command{
+			Name:        "Toggle Auto-Advance",
+			Description: "Toggle auto-advance for the selected run",
+			Action: func() tea.Cmd {
+				if v.mode != ModeRuns {
+					return nil
+				}
+				return v.toggleAutoAdvance()
+			},
+		})
 	}
+
+	// Layout mode commands — uses message pattern (safe from goroutine pool).
+	cmds = append(cmds, tui.Command{
+		Name:        "Layout: Mode Toggle",
+		Description: "Sidebar toggles between Epics and Runs lists",
+		Action: func() tea.Cmd {
+			return func() tea.Msg { return layoutModeChangedMsg{LayoutToggle} }
+		},
+	})
+	cmds = append(cmds, tui.Command{
+		Name:        "Layout: Inline Expansion",
+		Description: "Sprint detail expands inline below tasks",
+		Action: func() tea.Cmd {
+			return func() tea.Msg { return layoutModeChangedMsg{LayoutInline} }
+		},
+	})
+	cmds = append(cmds, tui.Command{
+		Name:        "Layout: Split Pane",
+		Description: "Epic and sprint detail side by side",
+		Action: func() tea.Cmd {
+			return func() tea.Msg { return layoutModeChangedMsg{LayoutSplit} }
+		},
+	})
 
 	// Sync commands — push local data to Intermute
 	cmds = append(cmds, tui.Command{
