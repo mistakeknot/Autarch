@@ -280,16 +280,38 @@ func (v *GurgehOnboardingView) View() string {
 
 // Focus implements pkgtui.View.
 func (v *GurgehOnboardingView) Focus() tea.Cmd {
+	var cmds []tea.Cmd
 	if v.currentView != nil {
-		return v.currentView.Focus()
+		cmds = append(cmds, v.currentView.Focus())
 	}
-	return nil
+	// If generation was interrupted by a tab switch, notify the user
+	if v.generating {
+		v.generating = false
+		what := v.generatingWhat
+		if what == "" {
+			what = "generation"
+		}
+		errMsg := tui.GenerationErrorMsg{
+			What:  what,
+			Error: fmt.Errorf("%s interrupted — switch back to Gurgeh and retry", what),
+		}
+		if v.currentView != nil {
+			v.currentView, _ = v.currentView.Update(errMsg)
+		}
+	}
+	return tea.Batch(cmds...)
 }
 
 // Blur implements pkgtui.View.
 func (v *GurgehOnboardingView) Blur() {
 	if v.currentView != nil {
 		v.currentView.Blur()
+	}
+	// Cancel any in-flight generation so goroutines don't send messages
+	// to the wrong tab. Focus() will detect the interrupted state.
+	if v.generating {
+		v.cancel()
+		v.ctx, v.cancel = context.WithCancel(context.TODO())
 	}
 }
 
@@ -699,6 +721,9 @@ func (v *GurgehOnboardingView) navigateBack() tea.Cmd {
 	v.blurCurrentView()
 	// Return to appropriate view based on state
 	switch v.state {
+	case tui.OnboardingInterview, tui.OnboardingSpecSummary:
+		// Back from interview/sprint or spec summary → kickoff
+		return v.navigateToKickoff()
 	case tui.OnboardingEpicReview:
 		return v.navigateToKickoff()
 	case tui.OnboardingTaskReview:

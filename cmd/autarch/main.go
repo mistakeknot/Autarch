@@ -271,9 +271,14 @@ Navigation:
 				coldwine := views.NewColdwineView(c, coldwineOpts...)
 				coldwine.SetIntercore(iclient)
 				// Sprint tab removed — merged into Coldwine as a mode toggle
+				// Skip onboarding if specs already exist from a prior session
+				gcfg := gurgehCfg
+				if specs, err := c.ListSpecs(""); err == nil && len(specs) > 0 {
+					gcfg = nil
+				}
 				return []tui.View{
 					bigend,
-					views.NewGurgehView(c, gurgehCfg),
+					views.NewGurgehView(c, gcfg),
 					coldwine,
 					views.NewPollardView(c, researchCoord),
 				}
