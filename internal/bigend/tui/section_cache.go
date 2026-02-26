@@ -21,6 +21,7 @@ const (
 	sectionAgents
 	sectionActivity
 	sectionInterspect
+	sectionCostBaseline
 )
 
 // sectionEntry holds a cached render result and its data hash.
@@ -35,7 +36,7 @@ type sectionCache struct {
 }
 
 func newSectionCache() *sectionCache {
-	return &sectionCache{entries: make(map[sectionID]sectionEntry, 7)}
+	return &sectionCache{entries: make(map[sectionID]sectionEntry, 8)}
 }
 
 // getOrRender returns cached output if hash matches, otherwise calls renderFn.
@@ -215,6 +216,35 @@ func hashInterspect(projects []discovery.Project, width int) uint64 {
 		binary.LittleEndian.PutUint64(b, uint64(s.Blocks))
 		h.Write(b)
 	}
+	return h.Sum64()
+}
+
+// hashCostBaseline omits width because renderCostSection uses no width-dependent layout.
+func hashCostBaseline(kernel *aggregator.KernelState) uint64 {
+	h := fnv.New64a()
+	if kernel == nil || kernel.CostBaseline == nil {
+		return h.Sum64()
+	}
+	cb := kernel.CostBaseline
+	b := make([]byte, 8)
+	binary.LittleEndian.PutUint64(b, uint64(cb.ShippedBeads))
+	h.Write(b)
+	binary.LittleEndian.PutUint64(b, uint64(cb.Stats.Count))
+	h.Write(b)
+	binary.LittleEndian.PutUint64(b, uint64(cb.Stats.P50))
+	h.Write(b)
+	binary.LittleEndian.PutUint64(b, uint64(cb.Stats.P90))
+	h.Write(b)
+	binary.LittleEndian.PutUint64(b, uint64(cb.Stats.P95))
+	h.Write(b)
+	binary.LittleEndian.PutUint64(b, uint64(cb.Stats.Mean))
+	h.Write(b)
+	binary.LittleEndian.PutUint64(b, uint64(cb.Stats.Total))
+	h.Write(b)
+	binary.LittleEndian.PutUint64(b, uint64(cb.Stats.InputTotal))
+	h.Write(b)
+	binary.LittleEndian.PutUint64(b, uint64(cb.Stats.OutputTotal))
+	h.Write(b)
 	return h.Sum64()
 }
 

@@ -15,20 +15,21 @@ import (
 
 // KernelState holds aggregated Intercore kernel data across all projects.
 type KernelState struct {
-	Runs       map[string][]icdata.Run      `json:"runs"`
-	Dispatches map[string][]icdata.Dispatch  `json:"dispatches"`
-	Events     map[string][]icdata.Event     `json:"events"`
-	Metrics    KernelMetrics                 `json:"metrics"`
+	Runs         map[string][]icdata.Run      `json:"runs"`
+	Dispatches   map[string][]icdata.Dispatch `json:"dispatches"`
+	Events       map[string][]icdata.Event    `json:"events"`
+	Metrics      KernelMetrics                `json:"metrics"`
+	CostBaseline *icdata.CostBaseline         `json:"cost_baseline,omitempty"`
 }
 
 // KernelMetrics holds cross-project kernel aggregate stats.
 type KernelMetrics struct {
-	ActiveRuns        int               `json:"active_runs"`
-	ActiveDispatches  int               `json:"active_dispatches"`
-	BlockedAgents     int               `json:"blocked_agents"`
-	TotalTokensIn     int64             `json:"total_tokens_in"`
-	TotalTokensOut    int64             `json:"total_tokens_out"`
-	KernelErrors      map[string]string `json:"kernel_errors,omitempty"`
+	ActiveRuns       int               `json:"active_runs"`
+	ActiveDispatches int               `json:"active_dispatches"`
+	BlockedAgents    int               `json:"blocked_agents"`
+	TotalTokensIn    int64             `json:"total_tokens_in"`
+	TotalTokensOut   int64             `json:"total_tokens_out"`
+	KernelErrors     map[string]string `json:"kernel_errors,omitempty"`
 }
 
 // enrichWithKernelState fetches Intercore data for all kernel-aware projects.
@@ -98,6 +99,16 @@ func (a *Aggregator) enrichWithKernelState(ctx context.Context, projects []disco
 	}
 
 	wg.Wait()
+
+	// Cost baseline is global (not per-project), fetched once after per-project data.
+	// Silently ignore errors — cost data is non-critical.
+	costCtx, costCancel := context.WithTimeout(ctx, 3*time.Second)
+	defer costCancel()
+	baseline, err := icdata.FetchCostBaseline(costCtx)
+	if err == nil {
+		ks.CostBaseline = baseline
+	}
+
 	a.computeKernelMetrics(ks)
 	return ks
 }

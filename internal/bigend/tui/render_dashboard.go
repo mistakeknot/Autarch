@@ -62,6 +62,16 @@ func (m Model) renderDashboard() string {
 		sections = append(sections, interspectSection, "")
 	}
 
+	// Cost Baseline (cached, kernel only)
+	if state.Kernel != nil && state.Kernel.CostBaseline != nil {
+		costSection := m.dashCache.getOrRender(sectionCostBaseline, hashCostBaseline(state.Kernel), func() string {
+			return m.renderCostSection(state.Kernel.CostBaseline)
+		})
+		if costSection != "" {
+			sections = append(sections, costSection, "")
+		}
+	}
+
 	// Activity Feed (cached)
 	if len(state.Activities) > 0 {
 		actSection := m.dashCache.getOrRender(sectionActivity, hashActivities(state.Activities, 10), func() string {
@@ -318,6 +328,60 @@ func (m Model) renderInterspectSection(state aggregator.State) string {
 		return ""
 	}
 	return title + "\n" + strings.Join(lines, "\n")
+}
+
+func (m Model) renderCostSection(cb *icdata.CostBaseline) string {
+	title := SubtitleStyle.Render(fmt.Sprintf("Cost Baseline (last %dd)", cb.Period.Days))
+	var lines []string
+
+	// Row 1: shipped beads + coverage
+	coverage := 0
+	if cb.ShippedBeads > 0 && cb.Stats.Count > 0 {
+		coverage = cb.Stats.Count * 100 / cb.ShippedBeads
+		if coverage > 100 {
+			coverage = 100
+		}
+	}
+	lines = append(lines, fmt.Sprintf("  Shipped: %s beads    Coverage: %s",
+		TitleStyle.Render(fmt.Sprintf("%d", cb.ShippedBeads)),
+		TitleStyle.Render(fmt.Sprintf("%d%%", coverage)),
+	))
+
+	if cb.Stats.Count == 0 {
+		lines = append(lines, LabelStyle.Render("  Token tagging in progress. Data populates as sprints complete."))
+		return title + "\n" + strings.Join(lines, "\n")
+	}
+
+	// Row 2: percentiles
+	lines = append(lines, fmt.Sprintf("  p50: %s    p90: %s    p95: %s    mean: %s",
+		TitleStyle.Render(formatTokensCompact(cb.Stats.P50)),
+		LabelStyle.Render(formatTokensCompact(cb.Stats.P90)),
+		LabelStyle.Render(formatTokensCompact(cb.Stats.P95)),
+		LabelStyle.Render(formatTokensCompact(cb.Stats.Mean)),
+	))
+
+	// Row 3: total tokens with input/output split
+	lines = append(lines, fmt.Sprintf("  Total: %s tokens (input: %s, output: %s)",
+		TitleStyle.Render(formatTokensCompact(cb.Stats.Total)),
+		LabelStyle.Render(formatTokensCompact(cb.Stats.InputTotal)),
+		LabelStyle.Render(formatTokensCompact(cb.Stats.OutputTotal)),
+	))
+
+	return title + "\n" + strings.Join(lines, "\n")
+}
+
+// formatTokensCompact formats a token count compactly (e.g., 142.3k, 9.9M).
+func formatTokensCompact(n int64) string {
+	if n == 0 {
+		return "--"
+	}
+	if n < 1000 {
+		return fmt.Sprintf("%d", n)
+	}
+	if n < 1_000_000 {
+		return fmt.Sprintf("%.1fk", float64(n)/1000)
+	}
+	return fmt.Sprintf("%.1fM", float64(n)/1_000_000)
 }
 
 // blockCountStyle returns a warning style if blocks > 0.

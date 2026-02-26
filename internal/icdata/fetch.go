@@ -144,6 +144,23 @@ func FetchLaneVelocity(ctx context.Context, projectDir string) ([]LaneVelocity, 
 	return velocities, nil
 }
 
+// FetchCostBaseline calls `ic --json cost baseline --days=30`.
+// This is a global query (not per-project) so projectDir can be empty.
+func FetchCostBaseline(ctx context.Context) (*CostBaseline, error) {
+	out, err := RunIC(ctx, "", "--json", "cost", "baseline", "--days=30")
+	if err != nil {
+		return nil, err
+	}
+	if strings.TrimSpace(out) == "" {
+		return nil, nil
+	}
+	var cb CostBaseline
+	if err := json.Unmarshal([]byte(out), &cb); err != nil {
+		return nil, fmt.Errorf("parse cost baseline: %w", err)
+	}
+	return &cb, nil
+}
+
 // RunIC executes an `ic` command and returns its stdout.
 func RunIC(ctx context.Context, projectDir string, args ...string) (string, error) {
 	cmd := exec.CommandContext(ctx, "ic", args...)
