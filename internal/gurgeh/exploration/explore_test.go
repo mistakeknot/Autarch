@@ -3,6 +3,7 @@ package exploration
 import (
 	"context"
 	"os"
+	"os/exec"
 	"testing"
 	"time"
 )
@@ -26,10 +27,10 @@ func TestExplore_Integration(t *testing.T) {
 		t.Skip("skipping integration test in short mode")
 	}
 
-	// Check if Claude is available
-	if _, err := os.Stat("/usr/local/bin/claude"); os.IsNotExist(err) {
-		if os.Getenv("PATH") == "" {
-			t.Skip("claude not in PATH, skipping integration test")
+	// Check if any supported agent is available
+	if _, err := exec.LookPath("claude"); err != nil {
+		if _, err := exec.LookPath("codex"); err != nil {
+			t.Skip("no supported agent (claude, codex) available, skipping integration test")
 		}
 	}
 
