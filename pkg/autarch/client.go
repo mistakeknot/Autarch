@@ -37,10 +37,26 @@ func NewClient(baseURL string) *Client {
 	}
 }
 
-// WithProject sets a default project for all requests
+// WithProject sets a default project for all requests.
+// WARNING: mutates the receiver — not safe for concurrent use.
+// Prefer ProjectClient() for goroutine-safe project scoping.
 func (c *Client) WithProject(project string) *Client {
 	c.project = project
 	return c
+}
+
+// ProjectClient returns a copy of the client with the project set.
+// The clone shares the underlying httpClient and fallback but has its own
+// project field, making it safe to use from tea.Cmd goroutines without racing.
+func (c *Client) ProjectClient(project string) *Client {
+	clone := &Client{
+		baseURL:    c.baseURL,
+		httpClient: c.httpClient,
+		project:    project,
+		fallback:   c.fallback,
+	}
+	clone.fallbackActive.Store(c.fallbackActive.Load())
+	return clone
 }
 
 // WithFallback configures a local DataSource to use when Intermute is unreachable.

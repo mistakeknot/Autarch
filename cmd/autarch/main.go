@@ -41,8 +41,8 @@ import (
 	"github.com/mistakeknot/autarch/pkg/intercore"
 	"github.com/mistakeknot/autarch/pkg/intermute"
 	"github.com/mistakeknot/autarch/pkg/signals"
-	pkgtui "github.com/mistakeknot/autarch/pkg/tui"
 	"github.com/mistakeknot/autarch/pkg/timeout"
+	pkgtui "github.com/mistakeknot/autarch/pkg/tui"
 )
 
 func main() {
@@ -256,11 +256,22 @@ Navigation:
 				app.SetEventWatcher(tui.NewEventWatcher(iclient, signalBroker))
 			}
 
+			// Create scanner for Bigend project discovery
+			cwd, _ := os.Getwd()
+			scanRoots := []string{cwd}
+			if home, err := os.UserHomeDir(); err == nil {
+				scanRoots = append(scanRoots, filepath.Join(home, "projects"))
+			}
+			scanner := discovery.NewScanner(config.DiscoveryConfig{
+				ScanRoots:       scanRoots,
+				ExcludePatterns: []string{"node_modules", ".git", "vendor", "target"},
+			})
+
 			// Wire dashboard factory (GurgehConfig flows into GurgehView)
 			app.SetDashboardViewFactory(func(c *autarch.Client) []tui.View {
 				bigend := views.NewBigendView(c)
 				bigend.SetIntercore(iclient)
-				// Bigend doesn't need clavain (read-only dashboard)
+				bigend.SetScanner(scanner)
 
 				// Parse layout mode from coldwine config
 				var coldwineOpts []views.ColdwineOpt

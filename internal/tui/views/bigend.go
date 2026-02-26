@@ -3,12 +3,14 @@ package views
 import (
 	"context"
 	"fmt"
+	"path/filepath"
 	"strings"
 	"time"
 
 	"github.com/charmbracelet/bubbles/key"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/mistakeknot/autarch/internal/bigend/discovery"
 	"github.com/mistakeknot/autarch/internal/coldwine/tasks"
 	"github.com/mistakeknot/autarch/internal/tui"
 	"github.com/mistakeknot/autarch/pkg/autarch"
@@ -43,9 +45,11 @@ type BigendView struct {
 	runs       []intercore.Run
 	dispatches []intercore.Dispatch
 
-	// Project context
-	projectID   string
-	projectName string
+	// Project discovery + navigation
+	scanner       *discovery.Scanner
+	projects      []discovery.Project
+	activeProject int // -1 = all projects, 0..N = specific project index
+	projectEpoch  int // incremented on every project switch; stale loads discarded
 
 	// Callbacks
 	onTaskSelect func(task tasks.TaskProposal) tea.Cmd
@@ -67,11 +71,12 @@ func NewBigendView(client *autarch.Client) *BigendView {
 	chatPanel.SetHandler(chatHandler)
 
 	return &BigendView{
-		client:      client,
-		focusPane:   FocusTasks,
-		shell:       pkgtui.NewShellLayout(),
-		chatPanel:   chatPanel,
-		chatHandler: chatHandler,
+		client:        client,
+		focusPane:     FocusTasks,
+		activeProject: -1, // "All Projects" by default
+		shell:         pkgtui.NewShellLayout(),
+		chatPanel:     chatPanel,
+		chatHandler:   chatHandler,
 	}
 }
 
@@ -98,10 +103,9 @@ func (v *BigendView) ClearInput() {
 	v.chatPanel.ClearComposer()
 }
 
-// SetProjectContext sets the current project context.
-func (v *BigendView) SetProjectContext(projectID, projectName string) {
-	v.projectID = projectID
-	v.projectName = projectName
+// SetScanner sets the project discovery scanner.
+func (v *BigendView) SetScanner(s *discovery.Scanner) {
+	v.scanner = s
 }
 
 // SetReadyTasks updates the ready tasks queue.
@@ -121,6 +125,7 @@ func (v *BigendView) SetTaskSelectCallback(cb func(tasks.TaskProposal) tea.Cmd) 
 type sessionsLoadedMsg struct {
 	sessions []autarch.Session
 	err      error
+	epoch    int // project epoch at time of request
 }
 
 // sessionCreatedMsg is sent after creating a new session
@@ -129,25 +134,49 @@ type sessionCreatedMsg struct {
 	err     error
 }
 
+// projectsLoadedMsg carries discovered projects from the scanner.
+type projectsLoadedMsg struct {
+	projects []discovery.Project
+}
+
 // bigendRunsLoadedMsg carries runs from Intercore.
 type bigendRunsLoadedMsg struct {
-	runs []intercore.Run
+	runs  []intercore.Run
+	epoch int
 }
 
 // dispatchesLoadedMsg carries dispatches from Intercore.
 type dispatchesLoadedMsg struct {
 	dispatches []intercore.Dispatch
+	epoch      int
 }
 
 // Init implements View
 func (v *BigendView) Init() tea.Cmd {
-	return tea.Batch(v.loadSessions(), v.loadRuns(), v.loadDispatches())
+	return tea.Batch(v.loadProjects(), v.loadSessions(), v.loadRuns(), v.loadDispatches())
+}
+
+func (v *BigendView) loadProjects() tea.Cmd {
+	if v.scanner == nil {
+		return nil
+	}
+	s := v.scanner
+	return func() tea.Msg {
+		projects, _ := s.Scan()
+		return projectsLoadedMsg{projects: projects}
+	}
 }
 
 func (v *BigendView) loadSessions() tea.Cmd {
+	// Use ProjectClient for goroutine-safe project scoping
+	c := v.client
+	if v.activeProject >= 0 && v.activeProject < len(v.projects) {
+		c = v.client.ProjectClient(v.projects[v.activeProject].Name)
+	}
+	epoch := v.projectEpoch
 	return func() tea.Msg {
-		sessions, err := v.client.ListSessions("")
-		return sessionsLoadedMsg{sessions: sessions, err: err}
+		sessions, err := c.ListSessions("")
+		return sessionsLoadedMsg{sessions: sessions, err: err, epoch: epoch}
 	}
 }
 
@@ -156,14 +185,29 @@ func (v *BigendView) loadRuns() tea.Cmd {
 		return nil
 	}
 	ic := v.iclient
+	epoch := v.projectEpoch
+	// Snapshot filter state for goroutine safety
+	var filterPath string
+	if v.activeProject >= 0 && v.activeProject < len(v.projects) {
+		filterPath = v.projects[v.activeProject].Path
+	}
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
-		runs, err := ic.RunList(ctx, false) // all runs, not just active
+		runs, err := ic.RunList(ctx, false)
 		if err != nil {
-			return bigendRunsLoadedMsg{}
+			return bigendRunsLoadedMsg{epoch: epoch}
 		}
-		return bigendRunsLoadedMsg{runs: runs}
+		if filterPath != "" {
+			var filtered []intercore.Run
+			for _, r := range runs {
+				if normalizePath(r.ProjectDir) == filterPath {
+					filtered = append(filtered, r)
+				}
+			}
+			runs = filtered
+		}
+		return bigendRunsLoadedMsg{runs: runs, epoch: epoch}
 	}
 }
 
@@ -172,16 +216,38 @@ func (v *BigendView) loadDispatches() tea.Cmd {
 		return nil
 	}
 	ic := v.iclient
+	epoch := v.projectEpoch
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
 		// Fetch all dispatches — active + recent completed.
+		// Dispatches are filtered at render time by matching RunIDs against
+		// the project-scoped runs set (dispatches don't carry ProjectDir).
 		dispatches, err := ic.DispatchList(ctx, false)
 		if err != nil {
-			return dispatchesLoadedMsg{} // graceful degradation
+			return dispatchesLoadedMsg{epoch: epoch} // graceful degradation
 		}
-		return dispatchesLoadedMsg{dispatches: dispatches}
+		return dispatchesLoadedMsg{dispatches: dispatches, epoch: epoch}
 	}
+}
+
+// filteredDispatches returns dispatches belonging to the active project's runs.
+// When activeProject == -1 (All), returns all dispatches unfiltered.
+func (v *BigendView) filteredDispatches() []intercore.Dispatch {
+	if v.activeProject < 0 || len(v.runs) == 0 {
+		return v.dispatches
+	}
+	runIDs := make(map[string]bool, len(v.runs))
+	for _, r := range v.runs {
+		runIDs[r.ID] = true
+	}
+	var filtered []intercore.Dispatch
+	for _, d := range v.dispatches {
+		if runIDs[d.RunID] {
+			filtered = append(filtered, d)
+		}
+	}
+	return filtered
 }
 
 // Update implements View
@@ -202,7 +268,29 @@ func (v *BigendView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
 		v.chatPanel.SetSize(v.shell.RightWidth(), v.shell.Height())
 		return v, nil
 
+	case projectsLoadedMsg:
+		v.projects = msg.projects
+		return v, nil
+
+	case pkgtui.SidebarSelectMsg:
+		if msg.ItemID == "__all_projects" {
+			v.activeProject = -1
+		} else {
+			for i, p := range v.projects {
+				if p.Path == msg.ItemID {
+					v.activeProject = i
+					break
+				}
+			}
+		}
+		v.projectEpoch++ // invalidate in-flight loads from prior project
+		// Reload all data with new project scope
+		return v, tea.Batch(v.loadSessions(), v.loadRuns(), v.loadDispatches())
+
 	case sessionsLoadedMsg:
+		if msg.epoch != v.projectEpoch {
+			return v, nil // stale load from prior project — discard
+		}
 		v.loading = false
 		if msg.err != nil {
 			v.sessions = nil
@@ -212,10 +300,16 @@ func (v *BigendView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
 		return v, nil
 
 	case bigendRunsLoadedMsg:
+		if msg.epoch != v.projectEpoch {
+			return v, nil
+		}
 		v.runs = msg.runs
 		return v, nil
 
 	case dispatchesLoadedMsg:
+		if msg.epoch != v.projectEpoch {
+			return v, nil
+		}
 		v.dispatches = msg.dispatches
 		return v, nil
 
@@ -241,7 +335,7 @@ func (v *BigendView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
 		// Handle view-specific keys based on focus
 		switch v.shell.Focus() {
 		case pkgtui.FocusSidebar:
-			// No sidebar items for Bigend
+			// Sidebar navigation handled by ShellLayout
 		case pkgtui.FocusDocument:
 			switch {
 			case key.Matches(msg, commonKeys.NavDown):
@@ -277,7 +371,7 @@ func (v *BigendView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
 				}
 			case key.Matches(msg, commonKeys.Refresh):
 				v.loading = true
-				return v, tea.Batch(v.loadSessions(), v.loadRuns(), v.loadDispatches())
+				return v, tea.Batch(v.loadProjects(), v.loadSessions(), v.loadRuns(), v.loadDispatches())
 			}
 		case pkgtui.FocusChat:
 			if msg.Type == tea.KeyEnter {
@@ -294,6 +388,53 @@ func (v *BigendView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
 	return v, nil
 }
 
+// SidebarItems implements SidebarProvider — returns project list for sidebar.
+func (v *BigendView) SidebarItems() []pkgtui.SidebarItem {
+	var items []pkgtui.SidebarItem
+
+	// "All Projects" sentinel at top
+	allIcon := "◎"
+	if v.activeProject == -1 {
+		allIcon = "●"
+	}
+	items = append(items, pkgtui.SidebarItem{
+		ID: "__all_projects", Label: "All Projects", Icon: allIcon,
+	})
+
+	for i, p := range v.projects {
+		icon := projectIcon(p)
+		if i == v.activeProject {
+			icon = "●"
+		}
+		items = append(items, pkgtui.SidebarItem{
+			ID: p.Path, Label: p.Name, Icon: icon,
+		})
+	}
+
+	return items
+}
+
+// projectIcon returns a compact tooling indicator for a project.
+func projectIcon(p discovery.Project) string {
+	var parts []string
+	if p.HasIntercore {
+		parts = append(parts, "IC")
+	}
+	if p.HasColdwine {
+		parts = append(parts, "CW")
+	}
+	if p.HasGurgeh {
+		parts = append(parts, "G")
+	}
+	if p.HasPollard {
+		parts = append(parts, "P")
+	}
+	if len(parts) > 0 {
+		return strings.Join(parts, "·")
+	}
+	return "○"
+}
+
 // View implements View
 func (v *BigendView) View() string {
 	if v.loading {
@@ -304,19 +445,27 @@ func (v *BigendView) View() string {
 	document := v.renderDashboard()
 	chat := v.chatPanel.View()
 
-	return v.shell.Render(nil, document, chat)
+	return v.shell.Render(v.SidebarItems(), document, chat)
+}
+
+// activeProjectName returns the name of the currently selected project.
+func (v *BigendView) activeProjectName() string {
+	if v.activeProject >= 0 && v.activeProject < len(v.projects) {
+		return v.projects[v.activeProject].Name
+	}
+	return ""
 }
 
 func (v *BigendView) renderDashboard() string {
 	var sections []string
 
 	// Project context header
-	if v.projectName != "" {
+	if name := v.activeProjectName(); name != "" {
 		headerStyle := lipgloss.NewStyle().
 			Foreground(pkgtui.ColorPrimary).
 			Bold(true).
 			MarginBottom(1)
-		sections = append(sections, headerStyle.Render("Project: "+v.projectName))
+		sections = append(sections, headerStyle.Render("Project: "+name))
 	}
 
 	// Main content: two panes within the document area
@@ -446,7 +595,11 @@ func (v *BigendView) renderSessionsPane(width int) string {
 	if v.focusPane == FocusSessions {
 		titleStyle = titleStyle.Underline(true)
 	}
-	lines = append(lines, titleStyle.Render(fmt.Sprintf("Sessions (%d)", len(v.sessions))))
+	sessTitle := fmt.Sprintf("Sessions (%d)", len(v.sessions))
+	if name := v.activeProjectName(); name != "" {
+		sessTitle = fmt.Sprintf("Sessions · %s (%d)", name, len(v.sessions))
+	}
+	lines = append(lines, titleStyle.Render(sessTitle))
 	lines = append(lines, "")
 
 	if len(v.sessions) == 0 {
@@ -504,14 +657,15 @@ func (v *BigendView) renderSessionsPane(width int) string {
 			}
 		}
 
-		// Dispatches section
+		// Dispatches section (filtered by project-scoped runs)
+		visibleDispatches := v.filteredDispatches()
 		lines = append(lines, "")
-		lines = append(lines, pkgtui.SubtitleStyle.Render(fmt.Sprintf("Dispatches (%d)", len(v.dispatches))))
+		lines = append(lines, pkgtui.SubtitleStyle.Render(fmt.Sprintf("Dispatches (%d)", len(visibleDispatches))))
 
-		if len(v.dispatches) == 0 {
+		if len(visibleDispatches) == 0 {
 			lines = append(lines, pkgtui.LabelStyle.Render("  No dispatches"))
 		} else {
-			for _, d := range v.dispatches {
+			for _, d := range visibleDispatches {
 				icon, color := dispatchStatusDisplay(d.Status)
 				dispStyle := lipgloss.NewStyle().Foreground(color)
 
@@ -587,6 +741,16 @@ func formatDuration(d time.Duration) string {
 	return fmt.Sprintf("%dh%dm", int(d.Hours()), int(d.Minutes())%60)
 }
 
+// normalizePath resolves symlinks and cleans the path for consistent comparison.
+// The scanner stores resolved paths, but Intercore stores raw $PWD which may
+// differ (symlinks, trailing slashes). Best-effort: returns cleaned path on error.
+func normalizePath(p string) string {
+	if resolved, err := filepath.EvalSymlinks(p); err == nil {
+		return filepath.Clean(resolved)
+	}
+	return filepath.Clean(p)
+}
+
 func (v *BigendView) statusIcon(status autarch.SessionStatus) string {
 	switch status {
 	case autarch.SessionStatusRunning:
@@ -603,7 +767,7 @@ func (v *BigendView) statusIcon(status autarch.SessionStatus) string {
 // Focus implements View
 func (v *BigendView) Focus() tea.Cmd {
 	v.shell.SetFocus(pkgtui.FocusChat)
-	return tea.Batch(v.chatPanel.Focus(), v.loadSessions(), v.loadRuns(), v.loadDispatches())
+	return tea.Batch(v.chatPanel.Focus(), v.loadProjects(), v.loadSessions(), v.loadRuns(), v.loadDispatches())
 }
 
 // Blur implements View
@@ -629,11 +793,15 @@ func (v *BigendView) Commands() []tui.Command {
 			Name:        "New Session",
 			Description: "Start a new agent session",
 			Action: func() tea.Cmd {
-				client := v.client
-				project := v.projectID
+				// Snapshot project name for goroutine safety (tea.Cmd runs on pool)
+				project := v.activeProjectName()
+				c := v.client
+				if project != "" {
+					c = v.client.ProjectClient(project)
+				}
 				return func() tea.Msg {
 					name := fmt.Sprintf("session-%s", time.Now().Format("150405"))
-					s, err := client.CreateSession(autarch.Session{
+					s, err := c.CreateSession(autarch.Session{
 						Name:    name,
 						Project: project,
 					})
