@@ -46,3 +46,9 @@ gha-creds-*.json
 archviz
 
 .intermem/
+
+# Local intermute/test artifacts
+intermute.db
+intermute.keys.yaml
+cmd/autarch/autarch
+.gurgeh/sprints/archive/

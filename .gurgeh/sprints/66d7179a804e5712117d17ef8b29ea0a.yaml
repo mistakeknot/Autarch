@@ -1,0 +1,121 @@
+id: 66d7179a804e5712117d17ef8b29ea0a
+specid: f78cb1a8-3c61-4e8f-96da-95667b83fa3c
+projectpath: /home/mk/projects/Demarch/apps/autarch
+phase: 0
+sections:
+    0:
+        preamble: |+
+            ---
+            **Thinking Preamble:**
+
+            Before writing the vision statement, state the criteria a strong vision must satisfy:
+            - Describes a future state, not current state
+            - Focuses on user outcomes, not features
+            - Is ambitious but achievable
+            - Fits in one paragraph
+
+            Now produce a vision statement that meets ALL of the above criteria.
+
+            ---
+
+        content: |-
+            ## Vision
+
+            create a spec for iv-vau81
+        options:
+            - User-centric vision (focus on user outcomes)
+            - Market-centric vision (focus on market position)
+            - Technical vision (focus on capabilities enabled)
+        status: 1
+        autoaccept: false
+        activesignals: []
+        useredits: []
+        updatedat: 2026-02-25T14:39:31.454588404-08:00
+    1:
+        preamble: ""
+        content: ""
+        options: []
+        status: 0
+        autoaccept: false
+        activesignals: []
+        useredits: []
+        updatedat: 0001-01-01T00:00:00Z
+    2:
+        preamble: ""
+        content: ""
+        options: []
+        status: 0
+        autoaccept: false
+        activesignals: []
+        useredits: []
+        updatedat: 0001-01-01T00:00:00Z
+    3:
+        preamble: ""
+        content: ""
+        options: []
+        status: 0
+        autoaccept: false
+        activesignals: []
+        useredits: []
+        updatedat: 0001-01-01T00:00:00Z
+    4:
+        preamble: ""
+        content: ""
+        options: []
+        status: 0
+        autoaccept: false
+        activesignals: []
+        useredits: []
+        updatedat: 0001-01-01T00:00:00Z
+    5:
+        preamble: ""
+        content: ""
+        options: []
+        status: 0
+        autoaccept: false
+        activesignals: []
+        useredits: []
+        updatedat: 0001-01-01T00:00:00Z
+    6:
+        preamble: ""
+        content: ""
+        options: []
+        status: 0
+        autoaccept: false
+        activesignals: []
+        useredits: []
+        updatedat: 0001-01-01T00:00:00Z
+    7:
+        preamble: ""
+        content: ""
+        options: []
+        status: 0
+        autoaccept: false
+        activesignals: []
+        useredits: []
+        updatedat: 0001-01-01T00:00:00Z
+conflicts: []
+confidence:
+    completeness: 0
+    consistency: 0
+    specificity: 0
+    research: 0
+    assumptions: 0
+researchctx: null
+findings: []
+deepscan:
+    status: 0
+    scanid: ""
+    startedat: 0001-01-01T00:00:00Z
+    error: ""
+visioncontext: null
+spectype: ""
+isreview: false
+reviewingspecid: ""
+shapeoverrides: {}
+modeloverrides: {}
+scanartifacts: null
+explorationresult: {}
+explorationsessionid: ""
+startedat: 2026-02-25T14:39:31.445209356-08:00
+updatedat: 2026-02-25T14:39:31.454590478-08:00
