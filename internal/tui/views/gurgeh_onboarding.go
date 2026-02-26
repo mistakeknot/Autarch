@@ -184,6 +184,17 @@ func (v *GurgehOnboardingView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
 		// Fall through to pass to currentView so SprintView can show errors in chat
 
 	case tui.AgentNotFoundMsg:
+		v.generating = false
+		// Convert to GenerationErrorMsg so existing error handling in child views works
+		errMsg := tui.GenerationErrorMsg{
+			What:  v.generatingWhat,
+			Error: fmt.Errorf("no coding agent found: %s", msg.Instructions),
+		}
+		if v.currentView != nil {
+			var cmd tea.Cmd
+			v.currentView, cmd = v.currentView.Update(errMsg)
+			return v, cmd
+		}
 		return v, nil
 
 	case tui.NavigateToTaskDetailMsg:
@@ -731,11 +742,6 @@ func (v *GurgehOnboardingView) navigateToStep(state tui.OnboardingState) tea.Cmd
 	switch state {
 	case tui.OnboardingKickoff:
 		return v.navigateToKickoff()
-
-	case tui.OnboardingScanVision, tui.OnboardingScanProblem, tui.OnboardingScanUsers:
-		v.state = state
-		v.breadcrumb.SetCurrent(state)
-		return nil
 
 	case tui.OnboardingEpicReview:
 		// Only if we have generated epics

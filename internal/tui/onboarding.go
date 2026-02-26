@@ -5,9 +5,6 @@ type OnboardingState int
 
 const (
 	OnboardingKickoff OnboardingState = iota
-	OnboardingScanVision
-	OnboardingScanProblem
-	OnboardingScanUsers
 	OnboardingInterview
 	OnboardingSpecSummary
 	OnboardingEpicReview
@@ -32,12 +29,6 @@ func (s OnboardingState) ID() string {
 	switch s {
 	case OnboardingKickoff:
 		return "kickoff"
-	case OnboardingScanVision:
-		return "scan-vision"
-	case OnboardingScanProblem:
-		return "scan-problem"
-	case OnboardingScanUsers:
-		return "scan-users"
 	case OnboardingInterview:
 		return "interview"
 	case OnboardingSpecSummary:
@@ -58,12 +49,6 @@ func (s OnboardingState) Label() string {
 	switch s {
 	case OnboardingKickoff:
 		return "Project"
-	case OnboardingScanVision:
-		return "Vision"
-	case OnboardingScanProblem:
-		return "Problem"
-	case OnboardingScanUsers:
-		return "Users"
 	case OnboardingInterview:
 		return "Interview"
 	case OnboardingSpecSummary:
