@@ -6,6 +6,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/mistakeknot/autarch/pkg/clavain"
 	"github.com/mistakeknot/autarch/pkg/intercore"
 	pkgtui "github.com/mistakeknot/autarch/pkg/tui"
 )
@@ -16,11 +17,12 @@ import (
 type SprintCommandRouter struct {
 	inner   pkgtui.ChatHandler
 	iclient *intercore.Client
+	cclient *clavain.Client // optional — nil when clavain-cli unavailable
 }
 
 // NewSprintCommandRouter wraps a chat handler with sprint command routing.
-func NewSprintCommandRouter(inner pkgtui.ChatHandler, iclient *intercore.Client) *SprintCommandRouter {
-	return &SprintCommandRouter{inner: inner, iclient: iclient}
+func NewSprintCommandRouter(inner pkgtui.ChatHandler, iclient *intercore.Client, cclient *clavain.Client) *SprintCommandRouter {
+	return &SprintCommandRouter{inner: inner, iclient: iclient, cclient: cclient}
 }
 
 // HandleMessage intercepts /sprint and /dispatch commands.
@@ -75,12 +77,30 @@ func (r *SprintCommandRouter) handleSprint(ctx context.Context, args []string) (
 		}), nil
 
 	case "advance":
+		cc := r.cclient
 		return asyncResponse(func() string {
 			runs, err := ic.RunList(ctx, true)
 			if err != nil || len(runs) == 0 {
 				return "No active sprint to advance."
 			}
-			result, err := ic.RunAdvance(ctx, runs[0].ID)
+			run := runs[0]
+			// Route through OS layer for gate enforcement.
+			if cc != nil {
+				pauseReason, advErr := cc.SprintAdvance(ctx, run.ID, run.Phase)
+				if advErr == nil {
+					if pauseReason != "" {
+						return fmt.Sprintf("Sprint paused: %s", pauseReason)
+					}
+					// clavain-cli already advanced — read state for display.
+					updated, getErr := ic.RunStatus(ctx, run.ID)
+					if getErr == nil {
+						return fmt.Sprintf("Advanced: %s → %s (via OS layer)", run.Phase, updated.Phase)
+					}
+					return "Advanced (via OS layer)"
+				}
+				// Fall through to direct ic
+			}
+			result, err := ic.RunAdvance(ctx, run.ID)
 			if err != nil {
 				return fmt.Sprintf("Advance failed: %s", err)
 			}
@@ -123,7 +143,16 @@ func (r *SprintCommandRouter) handleSprint(ctx context.Context, args []string) (
 		if len(args) > 1 {
 			goal = strings.Join(args[1:], " ")
 		}
+		cc := r.cclient
 		return asyncResponse(func() string {
+			// Route through OS layer for policy enforcement.
+			if cc != nil {
+				beadID, err := cc.SprintCreate(ctx, goal)
+				if err == nil {
+					return fmt.Sprintf("Created sprint **%s** — goal: %s (via OS layer)", beadID, goal)
+				}
+				// Fall through to direct ic
+			}
 			runID, err := ic.RunCreate(ctx, ".", goal)
 			if err != nil {
 				return fmt.Sprintf("Create failed: %s", err)
@@ -171,6 +200,7 @@ func (r *SprintCommandRouter) handleDispatch(ctx context.Context, args []string)
 		if len(args) > 2 {
 			dispName = strings.Join(args[2:], " ")
 		}
+		cc := r.cclient
 		return asyncResponse(func() string {
 			runs, err := ic.RunList(ctx, true)
 			if err != nil || len(runs) == 0 {
@@ -183,6 +213,14 @@ func (r *SprintCommandRouter) handleDispatch(ctx context.Context, args []string)
 			id, err := ic.DispatchSpawn(ctx, runs[0].ID, opts...)
 			if err != nil {
 				return fmt.Sprintf("Spawn failed: %s", err)
+			}
+			// Track agent in OS layer (best-effort).
+			if cc != nil {
+				name := dispName
+				if name == "" {
+					name = dispType
+				}
+				_ = cc.TrackAgent(ctx, runs[0].ID, name, dispType, id)
 			}
 			return fmt.Sprintf("Spawned dispatch **%s** (type: %s)", id, dispType)
 		}), nil

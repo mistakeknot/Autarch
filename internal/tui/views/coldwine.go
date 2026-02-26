@@ -11,6 +11,7 @@ import (
 	coldwineSync "github.com/mistakeknot/autarch/internal/coldwine/intermute"
 	"github.com/mistakeknot/autarch/internal/tui"
 	"github.com/mistakeknot/autarch/pkg/autarch"
+	"github.com/mistakeknot/autarch/pkg/clavain"
 	"github.com/mistakeknot/autarch/pkg/intercore"
 	pkgtui "github.com/mistakeknot/autarch/pkg/tui"
 )
@@ -18,7 +19,8 @@ import (
 // ColdwineView displays epics, stories, and tasks with the unified shell layout.
 type ColdwineView struct {
 	client   *autarch.Client
-	iclient  *intercore.Client // optional — nil when ic unavailable
+	iclient  *intercore.Client  // optional — nil when ic unavailable
+	cclient  *clavain.Client    // optional — nil when clavain-cli unavailable
 	epics    []autarch.Epic
 	stories  []autarch.Story
 	tasks    []autarch.Task
@@ -113,8 +115,14 @@ func (v *ColdwineView) SetChatSettings(settings pkgtui.ChatSettings) {
 func (v *ColdwineView) SetIntercore(ic *intercore.Client) {
 	v.iclient = ic
 	if ic != nil {
-		v.chatPanel.SetHandler(NewSprintCommandRouter(v.chatHandler, ic))
+		v.chatPanel.SetHandler(NewSprintCommandRouter(v.chatHandler, ic, v.cclient))
 	}
+}
+
+// SetClavain sets the Clavain OS-layer client for policy-governing operations.
+// Pass nil if clavain-cli is unavailable — falls back to direct ic calls.
+func (v *ColdwineView) SetClavain(cc *clavain.Client) {
+	v.cclient = cc
 }
 
 // ClearInput clears the chat composer (for ctrl+c soft cancel).
@@ -982,6 +990,7 @@ func (v *ColdwineView) dispatchSelectedTask() tea.Cmd {
 	}
 
 	ic := v.iclient
+	cc := v.cclient
 	taskID := task.ID
 	taskTitle := task.Title
 	return func() tea.Msg {
@@ -991,6 +1000,12 @@ func (v *ColdwineView) dispatchSelectedTask() tea.Cmd {
 			intercore.WithDispatchType("task"),
 			intercore.WithDispatchName(taskTitle),
 		)
+		// Track agent in OS layer (non-blocking, best-effort).
+		if cc != nil && err == nil {
+			tctx, tcancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer tcancel()
+			_ = cc.TrackAgent(tctx, epicID, taskTitle, "task", dispatchID)
+		}
 		return taskDispatchedMsg{taskID: taskID, dispatchID: dispatchID, err: err}
 	}
 }
@@ -1107,6 +1122,7 @@ func (v *ColdwineView) Commands() []tui.Command {
 					return nil
 				}
 				ic := v.iclient
+				cc := v.cclient
 				var epicID, goal string
 				if v.selected >= 0 && v.selected < len(v.epics) {
 					epicID = v.epics[v.selected].ID
@@ -1118,6 +1134,19 @@ func (v *ColdwineView) Commands() []tui.Command {
 				return func() tea.Msg {
 					ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 					defer cancel()
+					// Route through OS layer when available for policy enforcement.
+					if cc != nil {
+						beadID, createErr := cc.SprintCreate(ctx, goal)
+						if createErr == nil {
+							// Resolve actual run ID — bead ID ≠ run ID.
+							runID, resolveErr := cc.ResolveRunID(ctx, beadID)
+							if resolveErr == nil {
+								return sprintCreatedMsg{runID: runID, epicID: epicID, goal: goal}
+							}
+							// Resolve failed — fall through to direct ic
+						}
+					}
+					// Fallback: direct ic call
 					runID, err := ic.RunCreate(ctx, ".", goal,
 						intercore.WithScopeID(epicID),
 					)

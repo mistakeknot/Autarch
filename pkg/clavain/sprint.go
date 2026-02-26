@@ -88,9 +88,9 @@ func (c *Client) SprintReadState(ctx context.Context, beadID string) (string, er
 	return c.execText(ctx, "sprint-read-state", beadID)
 }
 
-// resolveRunID resolves a bead ID to an ic run ID using clavain-cli's internal cache.
-// This is a convenience for callers that need the underlying run ID.
-func (c *Client) resolveRunID(ctx context.Context, beadID string) (string, error) {
+// ResolveRunID resolves a bead ID to an ic run ID using clavain-cli's internal cache.
+// Callers need the run ID for subsequent ic metadata writes (bead ID ≠ run ID).
+func (c *Client) ResolveRunID(ctx context.Context, beadID string) (string, error) {
 	out, err := c.execRaw(ctx, "sprint-read-state", beadID)
 	if err != nil {
 		return "", err

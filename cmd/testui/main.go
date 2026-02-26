@@ -12,6 +12,7 @@ import (
 	"github.com/mistakeknot/autarch/internal/tui"
 	"github.com/mistakeknot/autarch/internal/tui/views"
 	"github.com/mistakeknot/autarch/pkg/autarch"
+	"github.com/mistakeknot/autarch/pkg/clavain"
 	"github.com/mistakeknot/autarch/pkg/intercore"
 )
 
@@ -306,10 +307,12 @@ func runFullFlow() error {
 	}
 
 	iclient, _ := intercore.New()
+	cclient, _ := clavain.New()
 	app.SetDashboardViewFactory(func(c *autarch.Client) []tui.View {
 		bigend := views.NewBigendView(c)
 		bigend.SetIntercore(iclient)
 		coldwine := views.NewColdwineView(c)
+		coldwine.SetClavain(cclient)
 		coldwine.SetIntercore(iclient)
 		return []tui.View{
 			bigend,

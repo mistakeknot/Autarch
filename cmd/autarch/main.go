@@ -36,6 +36,7 @@ import (
 	"github.com/mistakeknot/autarch/internal/tui"
 	"github.com/mistakeknot/autarch/internal/tui/views"
 	"github.com/mistakeknot/autarch/pkg/autarch"
+	"github.com/mistakeknot/autarch/pkg/clavain"
 	"github.com/mistakeknot/autarch/pkg/events"
 	"github.com/mistakeknot/autarch/pkg/intercore"
 	"github.com/mistakeknot/autarch/pkg/intermute"
@@ -240,6 +241,7 @@ Navigation:
 
 			// Create Intercore client (optional — nil if ic unavailable).
 			iclient, _ := intercore.New()
+			cclient, _ := clavain.New() // nil when clavain-cli absent — falls back to direct ic
 			app.SetKernelAvailable(iclient != nil)
 
 			// Start dispatch watcher if Intercore is available.
@@ -258,6 +260,7 @@ Navigation:
 			app.SetDashboardViewFactory(func(c *autarch.Client) []tui.View {
 				bigend := views.NewBigendView(c)
 				bigend.SetIntercore(iclient)
+				// Bigend doesn't need clavain (read-only dashboard)
 
 				// Parse layout mode from coldwine config
 				var coldwineOpts []views.ColdwineOpt
@@ -270,6 +273,7 @@ Navigation:
 					}
 				}
 				coldwine := views.NewColdwineView(c, coldwineOpts...)
+				coldwine.SetClavain(cclient)
 				coldwine.SetIntercore(iclient)
 				// Sprint tab removed — merged into Coldwine as a mode toggle
 				// Skip onboarding if specs already exist from a prior session

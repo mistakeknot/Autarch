@@ -79,11 +79,37 @@ func (v *ColdwineView) advancePhase() tea.Cmd {
 	if v.iclient == nil || v.selectedRun < 0 || v.selectedRun >= len(v.runs) {
 		return nil
 	}
-	runID := v.runs[v.selectedRun].ID
+	run := v.runs[v.selectedRun]
+	runID := run.ID
+	currentPhase := run.Phase
 	ic := v.iclient
+	cc := v.cclient
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
+		// Route through OS layer for gate enforcement when available.
+		if cc != nil {
+			pauseReason, advErr := cc.SprintAdvance(ctx, runID, currentPhase)
+			if advErr == nil {
+				if pauseReason != "" {
+					return coldwineAdvancedMsg{result: &intercore.AdvanceResult{
+						Advanced:   false,
+						GateResult: "paused",
+						Reason:     pauseReason,
+					}}
+				}
+				// clavain-cli already advanced — read state, don't re-advance.
+				updated, getErr := ic.RunStatus(ctx, runID)
+				if getErr == nil {
+					return coldwineAdvancedMsg{result: &intercore.AdvanceResult{
+						Advanced:  true,
+						FromPhase: currentPhase,
+						ToPhase:   updated.Phase,
+					}}
+				}
+			}
+			// Fall through to direct ic on error
+		}
 		result, err := ic.RunAdvance(ctx, runID)
 		return coldwineAdvancedMsg{result: result, err: err}
 	}
@@ -128,6 +154,7 @@ func (v *ColdwineView) tryAutoAdvance(runID string) tea.Cmd {
 		return nil
 	}
 	ic := v.iclient
+	cc := v.cclient
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
@@ -142,6 +169,33 @@ func (v *ColdwineView) tryAutoAdvance(runID string) tea.Cmd {
 					Reason:     "auto-advance: gate not ready",
 				},
 			}
+		}
+
+		// Route through OS layer when available.
+		if cc != nil {
+			// Need current phase for clavain-cli — get from status.
+			run, statusErr := ic.RunStatus(ctx, runID)
+			if statusErr == nil {
+				pauseReason, advErr := cc.SprintAdvance(ctx, runID, run.Phase)
+				if advErr == nil {
+					if pauseReason != "" {
+						return coldwineAdvancedMsg{result: &intercore.AdvanceResult{
+							Advanced:   false,
+							GateResult: "paused",
+							Reason:     pauseReason,
+						}}
+					}
+					updated, getErr := ic.RunStatus(ctx, runID)
+					if getErr == nil {
+						return coldwineAdvancedMsg{result: &intercore.AdvanceResult{
+							Advanced:  true,
+							FromPhase: run.Phase,
+							ToPhase:   updated.Phase,
+						}}
+					}
+				}
+			}
+			// Fall through to direct ic on error
 		}
 
 		result, err := ic.RunAdvance(ctx, runID)
