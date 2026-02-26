@@ -18,12 +18,12 @@ import (
 
 // ColdwineView displays epics, stories, and tasks with the unified shell layout.
 type ColdwineView struct {
-	client   *autarch.Client
-	iclient  *intercore.Client  // optional — nil when ic unavailable
-	cclient  *clavain.Client    // optional — nil when clavain-cli unavailable
-	epics    []autarch.Epic
-	stories  []autarch.Story
-	tasks    []autarch.Task
+	client       *autarch.Client
+	iclient      *intercore.Client // optional — nil when ic unavailable
+	cclient      *clavain.Client   // optional — nil when clavain-cli unavailable
+	epics        []autarch.Epic
+	stories      []autarch.Story
+	tasks        []autarch.Task
 	selected     int
 	selectedTask int // index into filtered tasks for selected epic (-1 = none)
 	width        int
@@ -357,6 +357,9 @@ func (v *ColdwineView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
 
 	case coldwineAdvancedMsg:
 		return v.handleColdwineAdvancedMsg(msg)
+
+	case coldwineGateOverrideMsg:
+		return v.handleColdwineGateOverrideMsg(msg)
 
 	case coldwineCancelledMsg:
 		return v.handleColdwineCancelledMsg(msg)

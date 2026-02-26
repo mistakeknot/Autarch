@@ -35,6 +35,13 @@ type coldwineAdvancedMsg struct {
 	err    error
 }
 
+// coldwineGateOverrideMsg carries the result of a gate override.
+type coldwineGateOverrideMsg struct {
+	runID  string
+	reason string
+	err    error
+}
+
 // coldwineCancelledMsg carries the result of a run cancellation.
 type coldwineCancelledMsg struct {
 	runID string

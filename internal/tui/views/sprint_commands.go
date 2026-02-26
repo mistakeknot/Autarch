@@ -50,7 +50,7 @@ func (r *SprintCommandRouter) HandleMessage(ctx context.Context, userMsg string)
 
 func (r *SprintCommandRouter) handleSprint(ctx context.Context, args []string) (<-chan pkgtui.StreamMsg, error) {
 	if len(args) == 0 {
-		return immediateResponse("Usage: /sprint [status|advance|cancel|list]"), nil
+		return immediateResponse("Usage: /sprint [status|advance|cancel|list|override|artifact]"), nil
 	}
 
 	sub := strings.ToLower(args[0])
@@ -160,8 +160,58 @@ func (r *SprintCommandRouter) handleSprint(ctx context.Context, args []string) (
 			return fmt.Sprintf("Created sprint **%s** — goal: %s", runID, goal)
 		}), nil
 
+	case "override":
+		cc := r.cclient
+		return asyncResponse(func() string {
+			if len(args) < 2 {
+				return "Usage: /sprint override <reason>"
+			}
+			reason := strings.Join(args[1:], " ")
+			runs, err := ic.RunList(ctx, true)
+			if err != nil || len(runs) == 0 {
+				return "No active sprint to override."
+			}
+			run := runs[0]
+			// Route through OS layer when available.
+			if cc != nil {
+				err := cc.GateOverride(ctx, run.ID, reason)
+				if err == nil {
+					return fmt.Sprintf("Gate overridden on **%s**: %s (via OS layer)", run.ID, reason)
+				}
+				// Fall through to direct ic on error
+			}
+			if err := ic.GateOverride(ctx, run.ID, reason); err != nil {
+				return fmt.Sprintf("Override failed: %s", err)
+			}
+			return fmt.Sprintf("Gate overridden on **%s**: %s", run.ID, reason)
+		}), nil
+
+	case "artifact":
+		cc := r.cclient
+		return asyncResponse(func() string {
+			if len(args) < 3 {
+				return "Usage: /sprint artifact <type> <path>\nTypes: brainstorm, prd, plan, review, session-log"
+			}
+			artifactType := args[1]
+			path := strings.Join(args[2:], " ")
+			if cc == nil {
+				return "Artifact registration requires clavain-cli"
+			}
+			// Resolve bead ID from first active run's metadata.
+			runs, err := ic.RunList(ctx, true)
+			if err != nil || len(runs) == 0 {
+				return "No active sprint — create one first."
+			}
+			// Use run ID as bead ID proxy (clavain-cli resolves internally).
+			beadID := runs[0].ID
+			if err := cc.SetArtifact(ctx, beadID, artifactType, path); err != nil {
+				return fmt.Sprintf("Artifact registration failed: %s", err)
+			}
+			return fmt.Sprintf("Registered **%s** artifact: %s", artifactType, path)
+		}), nil
+
 	default:
-		return immediateResponse(fmt.Sprintf("Unknown: /sprint %s\nAvailable: status, advance, cancel, list, create", sub)), nil
+		return immediateResponse(fmt.Sprintf("Unknown: /sprint %s\nAvailable: status, advance, cancel, list, create, override, artifact", sub)), nil
 	}
 }
 

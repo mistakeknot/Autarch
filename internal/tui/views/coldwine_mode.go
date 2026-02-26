@@ -62,6 +62,8 @@ func (v *ColdwineView) handleRunsKey(msg tea.KeyMsg) tea.Cmd {
 		}
 	case "a":
 		return v.advancePhase()
+	case "o":
+		return v.overrideGate()
 	case "c":
 		return v.cancelRun()
 	case "ctrl+r":
@@ -360,6 +362,48 @@ func (v *ColdwineView) handleColdwineAdvancedMsg(msg coldwineAdvancedMsg) (tui.V
 	} else {
 		v.statusMsg = fmt.Sprintf("Gate blocked: %s (%s)", msg.result.GateResult, msg.result.Reason)
 	}
+	v.runsRunDetail.SetStatusMsg(v.statusMsg)
+	// Reload detail
+	if v.selectedRun >= 0 && v.selectedRun < len(v.runs) {
+		v.detailLoadSeq++
+		return v, LoadRunDetail(v.iclient, v.runs[v.selectedRun].ID, v.detailLoadSeq)
+	}
+	return v, nil
+}
+
+// overrideGate forces advancement past a blocked gate on the selected run.
+func (v *ColdwineView) overrideGate() tea.Cmd {
+	if v.iclient == nil || v.selectedRun < 0 || v.selectedRun >= len(v.runs) {
+		return nil
+	}
+	run := v.runs[v.selectedRun]
+	runID := run.ID
+	reason := "Manual override from TUI"
+	ic := v.iclient
+	cc := v.cclient
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		// Route through OS layer when available.
+		if cc != nil {
+			err := cc.GateOverride(ctx, runID, reason)
+			if err == nil {
+				return coldwineGateOverrideMsg{runID: runID, reason: reason}
+			}
+			// Fall through to direct ic on error
+		}
+		err := ic.GateOverride(ctx, runID, reason)
+		return coldwineGateOverrideMsg{runID: runID, reason: reason, err: err}
+	}
+}
+
+// handleColdwineGateOverrideMsg handles gate override results.
+func (v *ColdwineView) handleColdwineGateOverrideMsg(msg coldwineGateOverrideMsg) (tui.View, tea.Cmd) {
+	if msg.err != nil {
+		v.statusMsg = fmt.Sprintf("Override failed: %s", msg.err)
+		return v, nil
+	}
+	v.statusMsg = fmt.Sprintf("Gate overridden: %s", msg.reason)
 	v.runsRunDetail.SetStatusMsg(v.statusMsg)
 	// Reload detail
 	if v.selectedRun >= 0 && v.selectedRun < len(v.runs) {
