@@ -143,6 +143,52 @@ func (v *ColdwineView) SetHandoffSpec(specID, specTitle string) {
 	v.chatPanel.AddMessage("system", fmt.Sprintf("Spec handoff: %s — generate or review epics for this spec.", specTitle))
 }
 
+// handleSpecHandoffTrigger creates a sprint from a spec handoff.
+// This initiates epic generation by creating an Intercore sprint with the
+// spec title as the goal, using the same clavain→ic fallback pattern as
+// the "Create Sprint" command palette action.
+func (v *ColdwineView) handleSpecHandoffTrigger(msg tui.SpecHandoffTriggerMsg) (tui.View, tea.Cmd) {
+	ic := v.iclient
+	cc := v.cclient
+	if ic == nil && cc == nil {
+		v.chatPanel.AddMessage("system", "Cannot create sprint: kernel unavailable")
+		return v, nil
+	}
+
+	// Find the epic matching this spec (may have been selected by SetHandoffSpec).
+	var epicID string
+	for _, e := range v.epics {
+		if e.SpecID == msg.SpecID {
+			epicID = e.ID
+			break
+		}
+	}
+	goal := fmt.Sprintf("Generate epics for: %s", msg.SpecTitle)
+
+	return v, func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		// Route through OS layer when available.
+		if cc != nil {
+			beadID, createErr := cc.SprintCreate(ctx, goal)
+			if createErr == nil {
+				runID, resolveErr := cc.ResolveRunID(ctx, beadID)
+				if resolveErr == nil {
+					return sprintCreatedMsg{runID: runID, epicID: epicID, goal: goal}
+				}
+			}
+			// Fall through to direct ic
+		}
+		if ic == nil {
+			return sprintCreatedMsg{err: fmt.Errorf("kernel unavailable")}
+		}
+		runID, err := ic.RunCreate(ctx, ".", goal,
+			intercore.WithScopeID(epicID),
+		)
+		return sprintCreatedMsg{runID: runID, epicID: epicID, goal: goal, err: err}
+	}
+}
+
 // Compile-time interface assertion for SidebarProvider
 var _ pkgtui.SidebarProvider = (*ColdwineView)(nil)
 
@@ -433,6 +479,10 @@ func (v *ColdwineView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
 			}
 		}
 		return v, nil
+
+	case tui.SpecHandoffTriggerMsg:
+		// Gurgeh→Coldwine handoff: create a sprint from the spec.
+		return v.handleSpecHandoffTrigger(msg)
 
 	case tui.DispatchCompletedMsg:
 		d := msg.Dispatch

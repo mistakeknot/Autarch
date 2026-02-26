@@ -538,12 +538,19 @@ func (a *UnifiedApp) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case SpecHandoffMsg:
 		// Cross-tab handoff from Gurgeh → Coldwine (index 2).
 		// Pass spec context to ColdwineView, then switch tabs.
+		// Also send a trigger message so Coldwine initiates epic generation.
 		if len(a.dashViews) > 2 {
 			if recv, ok := a.dashViews[2].(specHandoffReceiver); ok {
 				recv.SetHandoffSpec(msg.SpecID, msg.SpecTitle)
 			}
 		}
-		return a, a.switchDashboardTab(2)
+		triggerCmd := func() tea.Msg {
+			return SpecHandoffTriggerMsg{
+				SpecID:    msg.SpecID,
+				SpecTitle: msg.SpecTitle,
+			}
+		}
+		return a, tea.Batch(a.switchDashboardTab(2), triggerCmd)
 
 	case signalsOverlayLoadedMsg:
 		_, cmd := a.signalsOverlay.Update(msg)
@@ -1157,9 +1164,9 @@ func insertAt(base string, col int, overlay string) string {
 
 // RunOpts configures TUI execution options.
 type RunOpts struct {
-	InlineMode    bool                   // Inline mode preserves scrollback and shows log pane
-	InitialTool   string                 // Jump directly to this tool tab (bigend, signals, gurgeh, coldwine, pollard)
-	ResearchCoord *research.Coordinator  // Optional: coordinator for progressive research updates
+	InlineMode    bool                  // Inline mode preserves scrollback and shows log pane
+	InitialTool   string                // Jump directly to this tool tab (bigend, signals, gurgeh, coldwine, pollard)
+	ResearchCoord *research.Coordinator // Optional: coordinator for progressive research updates
 }
 
 // ErrorView shows an error state

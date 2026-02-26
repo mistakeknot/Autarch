@@ -146,21 +146,20 @@ type RevertLastRunMsg struct {
 
 // CodebaseScanResultMsg contains the results of a codebase scan
 type CodebaseScanResultMsg struct {
-	ProjectName       string
-	Description       string
-	Vision            string
-	Users             string
-	Problem           string
-	Platform          string
-	Language          string
-	Requirements      []string
-	ValidationErrors  []ValidationError
-	PhaseArtifacts    *PhaseArtifacts
+	ProjectName          string
+	Description          string
+	Vision               string
+	Users                string
+	Problem              string
+	Platform             string
+	Language             string
+	Requirements         []string
+	ValidationErrors     []ValidationError
+	PhaseArtifacts       *PhaseArtifacts
 	ExplorationResult    map[string]any // Raw exploration output for reuse in phase transitions
 	ExplorationSessionID string         // Claude Code session ID for reuse in later phases
 	Error                error
 }
-
 
 // ValidationError represents a scan validation issue surfaced to the UI.
 type ValidationError struct {
@@ -297,6 +296,14 @@ type PaneCountMsg struct {
 // SpecHandoffMsg requests a cross-tab transition from Gurgeh to Coldwine
 // with the spec context pre-loaded for epic generation.
 type SpecHandoffMsg struct {
+	SpecID    string
+	SpecTitle string
+}
+
+// SpecHandoffTriggerMsg tells Coldwine to actually initiate epic generation
+// from a spec handoff. Sent after the tab switch completes so ColdwineView
+// is active and receives the message in its Update().
+type SpecHandoffTriggerMsg struct {
 	SpecID    string
 	SpecTitle string
 }
