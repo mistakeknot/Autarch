@@ -67,54 +67,18 @@ L1: Intercore (core)   — Kernel, state machine, runs, coordination locks
 
 ```
 Autarch/
-├── cmd/                        # Entry points
-│   ├── autarch/               # Unified TUI (main entry)
-│   ├── autarch-mcp/           # MCP server for AI agents
-│   ├── bigend/                # Mission control (web)
-│   ├── coldwine/              # Task orchestration (CLI)
-│   ├── gurgeh/                # PRD generation (CLI)
-│   ├── pollard/               # Research (CLI)
-│   ├── signals/               # WebSocket signal server
-│   ├── testui/                # TUI test harness
-│   └── archviz/               # Architecture visualization
-├── internal/                   # Tool-specific code
-│   ├── bigend/                # See docs/bigend/AGENTS.md
-│   ├── coldwine/              # See docs/coldwine/AGENTS.md
-│   ├── gurgeh/                # See docs/gurgeh/AGENTS.md
-│   ├── pollard/               # See docs/pollard/AGENTS.md
-│   └── tui/                   # Shared TUI: views/, unified_app.go
-├── pkg/                        # Shared packages (see table below)
-├── docs/                       # Documentation + topic references
+├── cmd/                        # Entry points: autarch, autarch-mcp, bigend, coldwine, gurgeh, pollard, signals
+├── internal/                   # Tool-specific code (bigend/, coldwine/, gurgeh/, pollard/, tui/)
+├── pkg/                        # Shared packages (see `ls pkg/` — key ones below)
+├── docs/                       # Per-tool docs at docs/{bigend,gurgeh,coldwine,pollard}/AGENTS.md
 └── dev                         # Build/run script
 ```
 
-### Shared Packages (pkg/)
-
-| Package | Purpose | Layer |
-|---------|---------|-------|
-| `autarch` | Unified client (HTTP to Intermute) | L3 |
-| `clavain` | Clavain CLI wrapper (sprint, gates, artifacts, dispatch tracking) | L2 |
-| `intercore` | Intercore CLI wrapper (runs, state, coordination, events) | L1 |
-| `intermute` | Intermute client (agents, messages, reservations) | L1 |
-| `tui` | Shared TUI: styles, layouts (Shell, Split), ChatPanel, CommandPicker, Composer | L3 |
-| `contract` | Cross-tool entity types (Initiative, Epic, Story, Task, Run, Outcome) | — |
-| `events` | Event spine (SQLite at `~/.autarch/events.db`) | — |
-| `signals` | Typed alerts: competitor shipped, assumption decayed, execution drifted | — |
-| `db` | SQLite helpers (WAL mode, `MaxOpenConns(1)`, 5s busy timeout) | — |
-| `agenttargets` | Run-target registry/resolver | — |
-| `discovery` | Project discovery | — |
-| `claude` | Claude Code CLI integration | — |
-| `compound` | Compound Engineering patterns | — |
-| `httpapi` | HTTP API helpers | — |
-| `jobs` | Background job runner | — |
-| `mcp` | MCP protocol types | — |
-| `netguard` | Network safety (loopback enforcement) | — |
-| `plan` | Plan file parsing | — |
-| `shell` | Shell/exec helpers | — |
-| `thinking` | LLM thinking block helpers | — |
-| `timeout` | Context timeout helpers | — |
-| `toolpane` | Tool output pane | — |
-| `yamlsafe` | Permission-checked YAML loading | — |
+**Key shared packages (pkg/):**
+- `autarch` — unified client (HTTP→Intermute), `clavain` — L2 CLI wrapper, `intercore` — L1 CLI wrapper
+- `tui` — shared TUI (styles, Shell/Split layouts, ChatPanel, CommandPicker, Composer)
+- `db` — SQLite helpers (WAL, `MaxOpenConns(1)`, 5s busy timeout), `contract` — cross-tool entity types
+- Full listing: `ls pkg/` (23 packages)
 
 ### Key Architectural Facts
 
@@ -245,30 +209,6 @@ grep -l "tags:.*bubble-tea" docs/solutions/**/*.md
 ---
 
 ## Integration Overview
-
-```
-┌─────────────────────────────────────────────────────────────────┐
-│                           BIGEND                                 │
-│                      (Mission Control)                           │
-│         Observes all tools - READ ONLY aggregation              │
-└───────────────────────────────┬─────────────────────────────────┘
-                                │
-        ┌───────────────────────┼───────────────────────┐
-        ▼                       ▼                       ▼
-┌───────────────┐      ┌───────────────┐      ┌───────────────┐
-│    GURGEH     │      │   COLDWINE    │      │   POLLARD     │
-│   (PRDs)      │─────▶│   (Tasks)     │◀─────│  (Research)   │
-│               │      │               │      │               │
-│ .gurgeh/specs │      │.coldwine/specs│      │ .pollard/     │
-└───────────────┘      └───────────────┘      └───────────────┘
-                                │
-                    ┌───────────┼───────────┐
-                    │           │           │
-              ┌─────┴─────┐ ┌──┴──┐ ┌──────┴──────┐
-              │ INTERMUTE │ │ IC  │ │ CLAVAIN-CLI │
-              │(messaging)│ │(run)│ │  (policy)   │
-              └───────────┘ └─────┘ └─────────────┘
-```
 
 **Key Integrations:**
 - Gurgeh → Coldwine: PRDs generate tasks (via Briefs or direct import)
