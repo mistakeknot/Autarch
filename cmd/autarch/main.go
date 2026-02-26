@@ -240,6 +240,7 @@ Navigation:
 
 			// Create Intercore client (optional — nil if ic unavailable).
 			iclient, _ := intercore.New()
+			app.SetKernelAvailable(iclient != nil)
 
 			// Start dispatch watcher if Intercore is available.
 			if iclient != nil {

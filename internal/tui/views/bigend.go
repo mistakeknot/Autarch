@@ -39,7 +39,8 @@ type BigendView struct {
 	taskSelected int
 	focusPane    FocusPane
 
-	// Intercore dispatches (loaded alongside sessions).
+	// Intercore data (loaded alongside sessions).
+	runs       []intercore.Run
 	dispatches []intercore.Dispatch
 
 	// Project context
@@ -128,6 +129,11 @@ type sessionCreatedMsg struct {
 	err     error
 }
 
+// bigendRunsLoadedMsg carries runs from Intercore.
+type bigendRunsLoadedMsg struct {
+	runs []intercore.Run
+}
+
 // dispatchesLoadedMsg carries dispatches from Intercore.
 type dispatchesLoadedMsg struct {
 	dispatches []intercore.Dispatch
@@ -135,13 +141,29 @@ type dispatchesLoadedMsg struct {
 
 // Init implements View
 func (v *BigendView) Init() tea.Cmd {
-	return tea.Batch(v.loadSessions(), v.loadDispatches())
+	return tea.Batch(v.loadSessions(), v.loadRuns(), v.loadDispatches())
 }
 
 func (v *BigendView) loadSessions() tea.Cmd {
 	return func() tea.Msg {
 		sessions, err := v.client.ListSessions("")
 		return sessionsLoadedMsg{sessions: sessions, err: err}
+	}
+}
+
+func (v *BigendView) loadRuns() tea.Cmd {
+	if v.iclient == nil {
+		return nil
+	}
+	ic := v.iclient
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		runs, err := ic.RunList(ctx, false) // all runs, not just active
+		if err != nil {
+			return bigendRunsLoadedMsg{}
+		}
+		return bigendRunsLoadedMsg{runs: runs}
 	}
 }
 
@@ -187,6 +209,10 @@ func (v *BigendView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
 		} else {
 			v.sessions = msg.sessions
 		}
+		return v, nil
+
+	case bigendRunsLoadedMsg:
+		v.runs = msg.runs
 		return v, nil
 
 	case dispatchesLoadedMsg:
@@ -251,7 +277,7 @@ func (v *BigendView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
 				}
 			case key.Matches(msg, commonKeys.Refresh):
 				v.loading = true
-				return v, tea.Batch(v.loadSessions(), v.loadDispatches())
+				return v, tea.Batch(v.loadSessions(), v.loadRuns(), v.loadDispatches())
 			}
 		case pkgtui.FocusChat:
 			if msg.Type == tea.KeyEnter {
@@ -444,8 +470,41 @@ func (v *BigendView) renderSessionsPane(width int) string {
 		}
 	}
 
-	// Dispatches section (from Intercore)
+	// Intercore sections (runs + dispatches)
 	if v.iclient != nil {
+		// Runs section
+		lines = append(lines, "")
+		lines = append(lines, pkgtui.SubtitleStyle.Render(fmt.Sprintf("Runs (%d)", len(v.runs))))
+
+		if len(v.runs) == 0 {
+			lines = append(lines, pkgtui.LabelStyle.Render("  No runs"))
+		} else {
+			for _, r := range v.runs {
+				icon, color := runStatusDisplay(r.Status)
+				rStyle := lipgloss.NewStyle().Foreground(color)
+
+				idPrefix := r.ID
+				if len(idPrefix) > 6 {
+					idPrefix = idPrefix[:6]
+				}
+
+				goal := r.Goal
+				if len(goal) > 30 {
+					goal = goal[:27] + "..."
+				}
+
+				phase := ""
+				if r.Phase != "" {
+					phase = fmt.Sprintf(" [%s]", r.Phase)
+				}
+
+				line := fmt.Sprintf("  %s %s %s%s",
+					rStyle.Render(icon), idPrefix, goal, phase)
+				lines = append(lines, line)
+			}
+		}
+
+		// Dispatches section
 		lines = append(lines, "")
 		lines = append(lines, pkgtui.SubtitleStyle.Render(fmt.Sprintf("Dispatches (%d)", len(v.dispatches))))
 
@@ -480,9 +539,27 @@ func (v *BigendView) renderSessionsPane(width int) string {
 				lines = append(lines, line)
 			}
 		}
+	} else {
+		// Kernel unavailable — show degraded indicator
+		lines = append(lines, "")
+		warnStyle := lipgloss.NewStyle().Foreground(pkgtui.ColorWarning)
+		lines = append(lines, warnStyle.Render("  kernel unavailable — runs and dispatches hidden"))
 	}
 
 	return strings.Join(lines, "\n")
+}
+
+func runStatusDisplay(status string) (string, lipgloss.Color) {
+	switch status {
+	case "active":
+		return "●", pkgtui.ColorPrimary
+	case "completed":
+		return "✓", pkgtui.ColorSuccess
+	case "cancelled":
+		return "✗", pkgtui.ColorWarning
+	default:
+		return "○", pkgtui.ColorMuted
+	}
 }
 
 func dispatchStatusDisplay(status string) (string, lipgloss.Color) {
@@ -526,7 +603,7 @@ func (v *BigendView) statusIcon(status autarch.SessionStatus) string {
 // Focus implements View
 func (v *BigendView) Focus() tea.Cmd {
 	v.shell.SetFocus(pkgtui.FocusChat)
-	return tea.Batch(v.chatPanel.Focus(), v.loadSessions(), v.loadDispatches())
+	return tea.Batch(v.chatPanel.Focus(), v.loadSessions(), v.loadRuns(), v.loadDispatches())
 }
 
 // Blur implements View

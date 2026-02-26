@@ -76,6 +76,9 @@ type UnifiedApp struct {
 	dispatchWatcher *DispatchWatcher
 	// Event watcher — polls Intercore events and publishes as signals.
 	eventWatcher *EventWatcher
+
+	// Kernel availability — true when Intercore (ic binary) is present.
+	kernelAvailable bool
 }
 
 // NewUnifiedApp creates a new unified application
@@ -134,6 +137,11 @@ func (a *UnifiedApp) SetDashboardViewFactory(factory func(*autarch.Client) []Vie
 // SetIntermuteManager sets the Intermute manager used for async startup.
 func (a *UnifiedApp) SetIntermuteManager(mgr *internalIntermute.Manager) {
 	a.intermuteMgr = mgr
+}
+
+// SetKernelAvailable marks whether the Intercore kernel (ic binary) is present.
+func (a *UnifiedApp) SetKernelAvailable(v bool) {
+	a.kernelAvailable = v
 }
 
 // SetDispatchWatcher sets the dispatch watcher for polling Intercore completions.
@@ -1003,6 +1011,10 @@ func (a *UnifiedApp) renderFooterContent() string {
 	help += "  │  /big /gur /cold /pol /sig  ctrl+l logs  ctrl+p palette  ctrl+, settings  /help  ctrl+c×2 quit"
 	if a.client != nil && a.client.InFallbackMode() {
 		badge := lipgloss.NewStyle().Foreground(pkgtui.ColorWarning).Render("[offline — reading local files]")
+		help += "  │  " + badge
+	}
+	if !a.kernelAvailable {
+		badge := lipgloss.NewStyle().Foreground(pkgtui.ColorWarning).Render("[kernel unavailable]")
 		help += "  │  " + badge
 	}
 	return help
