@@ -60,6 +60,8 @@ go test ./...
 | `cmd/` | Entry points for each tool |
 | `internal/{tool}/` | Tool-specific code |
 | `pkg/tui/` | Shared TUI styles (Tokyo Night) |
+| `pkg/clavain/` | Clavain CLI wrapper (L2: sprint, gates, artifacts) |
+| `pkg/intercore/` | Intercore CLI wrapper (L1: runs, state, coordination) |
 | `docs/{tool}/` | Tool-specific documentation |
 | `pkg/signals/` | Cross-tool signal types |
 | `.coldwine/` | Coldwine data directory (state.db, specs, sessions) |
