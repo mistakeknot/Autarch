@@ -30,6 +30,11 @@ jobs:
     permissions:
       contents: 'read'
     steps:
+      - name: Harden Runner
+        uses: step-security/harden-runner@5ef0c079ce82195b2a36a210272d6b661572d83e # v2.14.2
+        with:
+          egress-policy: audit
+
       - name: 'Print context for debugging'
         env:
           DEBUG_event_name: '${{ github.event_name }}'
@@ -69,6 +74,11 @@ jobs:
       additional_context: '${{ steps.extract_command.outputs.additional_context }}'
       issue_number: '${{ github.event.pull_request.number || github.event.issue.number }}'
     steps:
+      - name: Harden Runner
+        uses: step-security/harden-runner@5ef0c079ce82195b2a36a210272d6b661572d83e # v2.14.2
+        with:
+          egress-policy: audit
+
       - name: 'Mint identity token'
         id: 'mint_identity_token'
         if: |-
@@ -179,6 +189,11 @@ jobs:
       issues: 'write'
       pull-requests: 'write'
     steps:
+      - name: Harden Runner
+        uses: step-security/harden-runner@5ef0c079ce82195b2a36a210272d6b661572d83e # v2.14.2
+        with:
+          egress-policy: audit
+
       - name: 'Mint identity token'
         id: 'mint_identity_token'
         if: |-
