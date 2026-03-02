@@ -15,10 +15,10 @@ jobs:
         with:
           egress-policy: audit
 
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Checkout intermute dependency
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           repository: mistakeknot/intermute
           path: _deps/intermute
