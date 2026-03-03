@@ -10,6 +10,7 @@ import (
 	"time"
 
 	autarchdb "github.com/mistakeknot/autarch/pkg/db"
+	"github.com/mistakeknot/intercore/pkg/redaction"
 )
 
 // DefaultDBPath returns the default path for the events database
@@ -23,8 +24,33 @@ func DefaultDBPath() string {
 
 // Store provides SQLite-backed event storage with WAL mode
 type Store struct {
-	db   *sql.DB
-	path string
+	db        *sql.DB
+	path      string
+	redactCfg *redaction.Config
+}
+
+// SetRedactionConfig enables automatic redaction of payload content
+// before persistence. Pass nil to disable.
+func (s *Store) SetRedactionConfig(cfg *redaction.Config) {
+	s.redactCfg = cfg
+}
+
+// redactBytes applies redaction to JSON byte payload if a config is set.
+func (s *Store) redactBytes(data []byte) []byte {
+	if s.redactCfg == nil || len(data) == 0 {
+		return data
+	}
+	output, _ := redaction.Redact(string(data), *s.redactCfg)
+	return []byte(output)
+}
+
+// redactStr applies redaction to a string if a config is set.
+func (s *Store) redactStr(input string) string {
+	if s.redactCfg == nil || input == "" {
+		return input
+	}
+	output, _ := redaction.Redact(input, *s.redactCfg)
+	return output
 }
 
 // OpenStore opens or creates the events database
@@ -120,10 +146,12 @@ func (s *Store) Append(event *Event) error {
 		event.CreatedAt = time.Now()
 	}
 
+	payload := s.redactBytes(event.Payload)
+
 	result, err := s.db.Exec(`
 		INSERT INTO events (event_type, entity_type, entity_id, source_tool, payload, project_path, created_at)
 		VALUES (?, ?, ?, ?, ?, ?, ?)
-	`, event.EventType, event.EntityType, event.EntityID, event.SourceTool, event.Payload, event.ProjectPath, event.CreatedAt.Format(time.RFC3339Nano))
+	`, event.EventType, event.EntityType, event.EntityID, event.SourceTool, payload, event.ProjectPath, event.CreatedAt.Format(time.RFC3339Nano))
 	if err != nil {
 		return err
 	}

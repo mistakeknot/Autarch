@@ -87,10 +87,13 @@ func (s *Store) LogConflict(conflict *ReconcileConflict) error {
 		detailsJSON = data
 	}
 
+	reason := s.redactStr(conflict.Reason)
+	detailsJSON = s.redactBytes(detailsJSON)
+
 	_, err := s.db.Exec(`
 		INSERT INTO reconcile_conflicts (project_path, entity_type, entity_id, reason, details, created_at)
 		VALUES (?, ?, ?, ?, ?, ?)
-	`, conflict.ProjectPath, string(conflict.EntityType), conflict.EntityID, conflict.Reason, detailsJSON, conflict.CreatedAt.Format(time.RFC3339Nano))
+	`, conflict.ProjectPath, string(conflict.EntityType), conflict.EntityID, reason, detailsJSON, conflict.CreatedAt.Format(time.RFC3339Nano))
 	return err
 }
 
