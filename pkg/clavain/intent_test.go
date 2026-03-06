@@ -10,7 +10,7 @@ func TestBuildIntent(t *testing.T) {
 	intent := contract.Intent{
 		Type:           contract.IntentSprintAdvance,
 		BeadID:         "iv-abc123",
-		IdempotencyKey: "sess-123-sprint.advance-iv-abc123",
+		IdempotencyKey: "sess-123-sprint.advance-executing-iv-abc123",
 		SessionID:      "sess-123",
 		Timestamp:      1772749697,
 		Params:         map[string]any{"phase": "executing"},

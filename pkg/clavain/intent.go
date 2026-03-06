@@ -56,12 +56,12 @@ func (c *Client) SubmitIntent(ctx context.Context, intent *contract.Intent) (*co
 }
 
 // SprintAdvanceIntent submits a typed sprint.advance intent.
-// Idempotency key is deterministic: session+type+bead — safe for retries.
+// Idempotency key is deterministic: session+type+phase+bead — safe for retries.
 func (c *Client) SprintAdvanceIntent(ctx context.Context, beadID, phase, sessionID string) (*contract.IntentResult, error) {
 	return c.SubmitIntent(ctx, &contract.Intent{
 		Type:           contract.IntentSprintAdvance,
 		BeadID:         beadID,
-		IdempotencyKey: fmt.Sprintf("%s-sprint.advance-%s", sessionID, beadID),
+		IdempotencyKey: fmt.Sprintf("%s-sprint.advance-%s-%s", sessionID, phase, beadID),
 		SessionID:      sessionID,
 		Timestamp:      time.Now().Unix(),
 		Params:         map[string]any{"phase": phase},
