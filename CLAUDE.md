@@ -9,6 +9,7 @@ Unified monorepo for AI agent development tools:
 - **Gurgeh**: TUI-first PRD generation and validation
 - **Coldwine**: Task orchestration + sprint runs (Epics/Runs mode toggle, inline/split layouts)
 - **Pollard**: General-purpose research intelligence (tech, medicine, law, economics, etc.)
+- **Mycroft**: Fleet orchestrator — escalating autonomy (T0 observe → T1 suggest → T2/T3 auto-dispatch)
 
 ## Quick Commands
 
@@ -46,6 +47,14 @@ go run ./cmd/gurgeh history <spec-id>       # Spec revision changelog
 go run ./cmd/gurgeh diff <spec-id> v1 v2    # Structured version diff
 go run ./cmd/gurgeh prioritize <spec-id>    # Agent-powered feature ranking
 
+# Mycroft CLI
+go run ./cmd/mycroft run               # Start patrol loop
+go run ./cmd/mycroft status             # Fleet status + current tier
+go run ./cmd/mycroft shadows            # Shadow suggestion digest
+go run ./cmd/mycroft pause [--drain]    # Pause dispatching
+go run ./cmd/mycroft resume             # Resume dispatching
+go run ./cmd/mycroft override <bead> <agent>  # Manual assignment
+
 # Build all
 go build ./cmd/...
 
@@ -66,6 +75,8 @@ go test ./...
 | `pkg/signals/` | Cross-tool signal types |
 | `.coldwine/` | Coldwine data directory (state.db, specs, sessions) |
 | `.pollard/` | Pollard data directory (sources, insights, reports) |
+| `internal/mycroft/` | Fleet orchestrator (patrol, scheduler, tier, escalate) |
+| `.autarch/mycroft/` | Mycroft data (config.yaml, decisions.db, heartbeat, briefings) |
 | `.pollard/watch/` | Competitor watch state |
 | `.gurgeh/specs/history/` | Spec version snapshots |
 

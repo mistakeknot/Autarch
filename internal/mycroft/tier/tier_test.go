@@ -1,0 +1,214 @@
+package tier
+
+import (
+	"path/filepath"
+	"testing"
+
+	"github.com/mistakeknot/autarch/internal/mycroft"
+)
+
+func newTestFSM(t *testing.T) *FSM {
+	t.Helper()
+	db, err := mycroft.OpenDB(filepath.Join(t.TempDir(), "test.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { db.Close() })
+	return New(db, "test")
+}
+
+func TestFSMCurrentDefault(t *testing.T) {
+	fsm := newTestFSM(t)
+	tier, err := fsm.Current()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if tier != mycroft.T0 {
+		t.Errorf("default tier: got %v, want T0", tier)
+	}
+}
+
+func TestFSMPromote(t *testing.T) {
+	fsm := newTestFSM(t)
+
+	err := fsm.Promote(Evidence{Reason: "test promotion"})
+	if err != nil {
+		t.Fatalf("promote: %v", err)
+	}
+
+	tier, err := fsm.Current()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if tier != mycroft.T1 {
+		t.Errorf("after promote: got %v, want T1", tier)
+	}
+
+	// T1→T2 should fail in v0.1.
+	err = fsm.Promote(Evidence{})
+	if err == nil {
+		t.Error("expected error promoting past T1 in v0.1")
+	}
+}
+
+func TestFSMDemote(t *testing.T) {
+	fsm := newTestFSM(t)
+
+	// Promote to T1 first.
+	fsm.Promote(Evidence{})
+
+	err := fsm.Demote("circuit_breaker", Evidence{FailureRate: 0.2})
+	if err != nil {
+		t.Fatalf("demote: %v", err)
+	}
+
+	tier, err := fsm.Current()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if tier != mycroft.T0 {
+		t.Errorf("after demote: got %v, want T0", tier)
+	}
+}
+
+func TestFSMDemoteAtT0(t *testing.T) {
+	fsm := newTestFSM(t)
+	err := fsm.Demote("test", Evidence{})
+	if err == nil {
+		t.Error("expected error demoting from T0")
+	}
+}
+
+func TestFSMTransitions(t *testing.T) {
+	fsm := newTestFSM(t)
+
+	// Create two transitions.
+	fsm.Promote(Evidence{Reason: "first"})
+	fsm.Demote("test", Evidence{Reason: "second"})
+
+	records, err := fsm.Transitions(10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(records) != 2 {
+		t.Fatalf("transitions: got %d, want 2", len(records))
+	}
+
+	// Most recent first.
+	if records[0].FromTier != 1 || records[0].ToTier != 0 {
+		t.Errorf("latest transition: %d→%d, want 1→0", records[0].FromTier, records[0].ToTier)
+	}
+}
+
+func TestShouldDemoteBelowMinSample(t *testing.T) {
+	cfg := mycroft.DemotionTriggers{MinSampleSize: 20}
+	history := make([]DispatchRecord, 5)
+	for i := range history {
+		history[i] = DispatchRecord{Outcome: "failure"}
+	}
+
+	demote, _, evidence := ShouldDemote(mycroft.T2, history, cfg)
+	if demote {
+		t.Error("should not demote below min sample size")
+	}
+	if evidence.SampleSize != 5 {
+		t.Errorf("sample size: got %d, want 5", evidence.SampleSize)
+	}
+}
+
+func TestShouldDemoteConsecutiveFailures(t *testing.T) {
+	cfg := mycroft.DemotionTriggers{
+		MinSampleSize:           5,
+		ConsecutiveFailureLimit: 3,
+		T2FailureRateThreshold:  0.15,
+	}
+
+	history := []DispatchRecord{
+		{Outcome: "success"},
+		{Outcome: "success"},
+		{Outcome: "failure"},
+		{Outcome: "failure"},
+		{Outcome: "failure"},
+	}
+
+	demote, trigger, _ := ShouldDemote(mycroft.T2, history, cfg)
+	if !demote {
+		t.Error("should demote on 3 consecutive failures")
+	}
+	if trigger != "consecutive_failures" {
+		t.Errorf("trigger: got %q, want consecutive_failures", trigger)
+	}
+}
+
+func TestShouldDemoteCircuitBreaker(t *testing.T) {
+	cfg := mycroft.DemotionTriggers{
+		MinSampleSize:            20,
+		ConsecutiveFailureLimit:  10,
+		T2FailureRateThreshold:   0.15,
+		T3FailureRateThreshold:   0.25,
+	}
+
+	// 4 failures in 20 = 20% > 15% threshold for T2.
+	history := make([]DispatchRecord, 20)
+	for i := range history {
+		if i%5 == 0 { // Every 5th is a failure (4/20 = 20%).
+			history[i] = DispatchRecord{Outcome: "failure"}
+		} else {
+			history[i] = DispatchRecord{Outcome: "success"}
+		}
+	}
+
+	demote, trigger, evidence := ShouldDemote(mycroft.T2, history, cfg)
+	if !demote {
+		t.Errorf("should demote at T2 with %.1f%% failure rate", evidence.FailureRate*100)
+	}
+	if trigger != "circuit_breaker" {
+		t.Errorf("trigger: got %q, want circuit_breaker", trigger)
+	}
+
+	// Same history at T3 should NOT demote (20% < 25% T3 threshold).
+	demote, _, _ = ShouldDemote(mycroft.T3, history, cfg)
+	if demote {
+		t.Error("should NOT demote at T3 with 20% failure rate (threshold 25%)")
+	}
+}
+
+func TestShouldDemoteT1NoRateBasedDemotion(t *testing.T) {
+	cfg := mycroft.DemotionTriggers{
+		MinSampleSize:           5,
+		ConsecutiveFailureLimit: 10,
+		T2FailureRateThreshold:  0.15,
+	}
+
+	// All failures but at T1 — no rate-based demotion (no threshold defined for T1).
+	// Consecutive limit is 10, only 5 records, so no demotion.
+	history := make([]DispatchRecord, 5)
+	for i := range history {
+		history[i] = DispatchRecord{Outcome: "failure"}
+	}
+
+	demote, _, _ := ShouldDemote(mycroft.T1, history, cfg)
+	if demote {
+		t.Error("should NOT demote T1 via rate (no threshold) and consecutive (5 < 10)")
+	}
+}
+
+func TestShouldDemoteT1ConsecutiveFailures(t *testing.T) {
+	cfg := mycroft.DemotionTriggers{
+		MinSampleSize:           5,
+		ConsecutiveFailureLimit: 3,
+	}
+
+	history := make([]DispatchRecord, 5)
+	for i := range history {
+		history[i] = DispatchRecord{Outcome: "failure"}
+	}
+
+	demote, trigger, _ := ShouldDemote(mycroft.T1, history, cfg)
+	if !demote {
+		t.Error("should demote T1 on 5 consecutive failures (limit 3)")
+	}
+	if trigger != "consecutive_failures" {
+		t.Errorf("trigger: got %q, want consecutive_failures", trigger)
+	}
+}
