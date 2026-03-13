@@ -16,6 +16,7 @@ import (
 	"github.com/mistakeknot/autarch/internal/mycroft/scheduler"
 	"github.com/mistakeknot/autarch/internal/mycroft/tier"
 	"github.com/mistakeknot/autarch/internal/tui"
+	pkgfleet "github.com/mistakeknot/autarch/pkg/fleet"
 	pkgtui "github.com/mistakeknot/autarch/pkg/tui"
 )
 
@@ -835,5 +836,8 @@ func (h *MycroftChatHandler) ResetSession() {
 	h.mu.Unlock()
 }
 
-// Ensure patrol.PatrolSource satisfies the DataSource interface used by the view.
-var _ mycroft.DataSource = (*patrol.PatrolSource)(nil)
+// Compile-time assertions: both PatrolSource and AggregatorSource implement DataSource.
+var (
+	_ mycroft.DataSource = (*patrol.PatrolSource)(nil)
+	_ mycroft.DataSource = (*pkgfleet.AggregatorSource)(nil)
+)

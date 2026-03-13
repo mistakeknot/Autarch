@@ -139,6 +139,7 @@ func TestFilterByRuntime(t *testing.T) {
 
 func TestLoadRealRegistry(t *testing.T) {
 	// Test against the actual fleet-registry.yaml if available.
+	// From pkg/fleet/ the relative path is 6 levels up to the monorepo root.
 	realPath := filepath.Join("..", "..", "..", "..", "..", "os", "Clavain", "config", "fleet-registry.yaml")
 	if _, err := os.Stat(realPath); err != nil {
 		t.Skip("fleet-registry.yaml not found at expected relative path")

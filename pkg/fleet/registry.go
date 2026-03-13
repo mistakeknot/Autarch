@@ -1,4 +1,3 @@
-// Package fleet reads the Clavain fleet registry and provides agent specs.
 package fleet
 
 import (
@@ -11,17 +10,17 @@ import (
 // AgentSpec describes an agent's capabilities, runtime, and cost profile
 // as declared in fleet-registry.yaml.
 type AgentSpec struct {
-	Name         string   `json:"name"`
-	Source       string   `json:"source"`
-	Category     string   `json:"category"`
-	Description  string   `json:"description"`
-	Capabilities []string `json:"capabilities"`
-	Roles        []string `json:"roles"`
-	Runtime      Runtime  `json:"runtime"`
-	Models       Models   `json:"models"`
-	Tools        []string `json:"tools"`
-	Tags         []string `json:"tags"`
-	ColdStartTokens int  `json:"cold_start_tokens,omitempty"`
+	Name            string   `json:"name"`
+	Source          string   `json:"source"`
+	Category        string   `json:"category"`
+	Description     string   `json:"description"`
+	Capabilities    []string `json:"capabilities"`
+	Roles           []string `json:"roles"`
+	Runtime         Runtime  `json:"runtime"`
+	Models          Models   `json:"models"`
+	Tools           []string `json:"tools"`
+	Tags            []string `json:"tags"`
+	ColdStartTokens int      `json:"cold_start_tokens,omitempty"`
 }
 
 // Runtime describes how an agent executes.
@@ -39,9 +38,9 @@ type Models struct {
 
 // registryFile is the top-level structure of fleet-registry.yaml.
 type registryFile struct {
-	Version             string                      `yaml:"version"`
-	CapabilityVocabulary []string                   `yaml:"capability_vocabulary"`
-	Agents              map[string]registryAgentYAML `yaml:"agents"`
+	Version              string                       `yaml:"version"`
+	CapabilityVocabulary []string                     `yaml:"capability_vocabulary"`
+	Agents               map[string]registryAgentYAML `yaml:"agents"`
 }
 
 // registryAgentYAML maps the YAML structure of a single agent entry.

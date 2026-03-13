@@ -38,6 +38,7 @@ import (
 	"github.com/mistakeknot/autarch/pkg/autarch"
 	"github.com/mistakeknot/autarch/pkg/clavain"
 	"github.com/mistakeknot/autarch/pkg/events"
+	pkgfleet "github.com/mistakeknot/autarch/pkg/fleet"
 	"github.com/mistakeknot/autarch/pkg/intercore"
 	"github.com/mistakeknot/autarch/pkg/intermute"
 	"github.com/mistakeknot/autarch/pkg/signals"
@@ -292,12 +293,17 @@ Navigation:
 				if specs, err := c.ListSpecs(""); err == nil && len(specs) > 0 {
 					gcfg = nil
 				}
+				mycroftView := views.NewMycroftsView()
+				if regPath := pkgfleet.DiscoverRegistryPath(); regPath != "" {
+					mycroftView.SetPatrolSource(pkgfleet.NewAggregatorSource(regPath))
+				}
+
 				return []tui.View{
 					bigend,
 					views.NewGurgehView(c, gcfg),
 					coldwine,
 					views.NewPollardView(c, researchCoord),
-					views.NewMycroftsView(),
+					mycroftView,
 				}
 			})
 
