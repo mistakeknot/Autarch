@@ -3,6 +3,7 @@ package scheduler
 import (
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/mistakeknot/autarch/internal/mycroft"
 )
@@ -102,5 +103,49 @@ func TestContextJSON(t *testing.T) {
 	json := ContextJSON(mycroft.T1, 1.5, "high priority")
 	if json == "" {
 		t.Error("empty context JSON")
+	}
+}
+
+func TestPruneOlderThan(t *testing.T) {
+	d := newTestDispatcher(t)
+
+	// Insert entries: 2 old (simulated via direct SQL), 1 recent.
+	oldTS := time.Now().Add(-48 * time.Hour).Unix()
+	d.db.Exec(`INSERT INTO dispatch_log (ts, project, agent, bead, action) VALUES (?, ?, ?, ?, ?)`,
+		oldTS, "test", "a1", "b1", "shadow_suggest")
+	d.db.Exec(`INSERT INTO dispatch_log (ts, project, agent, bead, action) VALUES (?, ?, ?, ?, ?)`,
+		oldTS, "test", "a2", "b2", "suggest")
+	d.LogShadow("a3", mycroft.BeadView{ID: "b3"}, "recent")
+
+	pruned, err := d.PruneOlderThan(24 * time.Hour)
+	if err != nil {
+		t.Fatalf("PruneOlderThan: %v", err)
+	}
+	if pruned != 2 {
+		t.Errorf("pruned %d, want 2", pruned)
+	}
+
+	// Verify only the recent entry remains.
+	entries, err := d.DispatchHistory(10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 1 {
+		t.Errorf("remaining entries: %d, want 1", len(entries))
+	}
+	if entries[0].Bead != "b3" {
+		t.Errorf("remaining bead: %q, want b3", entries[0].Bead)
+	}
+}
+
+func TestPruneOlderThanEmpty(t *testing.T) {
+	d := newTestDispatcher(t)
+
+	pruned, err := d.PruneOlderThan(24 * time.Hour)
+	if err != nil {
+		t.Fatalf("PruneOlderThan: %v", err)
+	}
+	if pruned != 0 {
+		t.Errorf("pruned %d on empty table, want 0", pruned)
 	}
 }

@@ -200,6 +200,20 @@ func ContextJSON(tier mycroft.Tier, costEstimate float64, reasoning string) stri
 	return string(data)
 }
 
+// PruneOlderThan deletes dispatch_log entries older than the given duration.
+// Returns the number of rows deleted.
+func (d *Dispatcher) PruneOlderThan(age time.Duration) (int64, error) {
+	cutoff := time.Now().Add(-age).Unix()
+	result, err := d.db.Exec(
+		`DELETE FROM dispatch_log WHERE project = ? AND ts < ?`,
+		d.project, cutoff,
+	)
+	if err != nil {
+		return 0, fmt.Errorf("prune dispatch log: %w", err)
+	}
+	return result.RowsAffected()
+}
+
 func nullString(s string) interface{} {
 	if s == "" {
 		return nil
