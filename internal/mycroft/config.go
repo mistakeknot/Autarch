@@ -15,6 +15,15 @@ type Config struct {
 	T2DispatchAllowlist []AllowlistEntry        `yaml:"tier2_dispatch_allowlist"`
 	DemotionTriggers    DemotionTriggers        `yaml:"demotion_triggers"`
 	AgentOverrides      map[string]AgentOverride `yaml:"agent_overrides"`
+	PriorityBoosts      []PriorityBoost         `yaml:"priority_boosts"`
+}
+
+// PriorityBoost adjusts a bead's effective priority during ranking.
+// Boost is subtracted from priority (lower = more urgent), so a positive
+// boost makes matching beads more urgent. Priority is clamped to [0, 4].
+type PriorityBoost struct {
+	Type  string `yaml:"type"`  // match bead type (bug, task, docs, feature)
+	Boost int    `yaml:"boost"` // amount to subtract from priority (1 = one level more urgent)
 }
 
 // DispatchPreferences controls dispatch limits.

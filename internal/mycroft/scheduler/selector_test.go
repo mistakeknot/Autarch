@@ -80,6 +80,50 @@ func TestRankBeadsAllBlocked(t *testing.T) {
 	}
 }
 
+func TestRankBeadsPriorityBoosts(t *testing.T) {
+	now := time.Now()
+	beads := []mycroft.BeadView{
+		{ID: "feature-p1", Type: "feature", Priority: 1, DepsResolved: true, CreatedAt: now},
+		{ID: "bug-p2", Type: "bug", Priority: 2, DepsResolved: true, CreatedAt: now},
+		{ID: "task-p2", Type: "task", Priority: 2, DepsResolved: true, CreatedAt: now},
+	}
+
+	// Without boosts: feature-p1, then bug-p2 and task-p2.
+	noBoost := RankBeads(beads)
+	if noBoost[0].ID != "feature-p1" {
+		t.Errorf("no boost: first should be feature-p1, got %q", noBoost[0].ID)
+	}
+
+	// With bug boost of 2: bug-p2 effective priority = 0, beats feature-p1.
+	boosts := []mycroft.PriorityBoost{
+		{Type: "bug", Boost: 2},
+	}
+	boosted := RankBeads(beads, boosts...)
+	if boosted[0].ID != "bug-p2" {
+		t.Errorf("with bug boost: first should be bug-p2, got %q", boosted[0].ID)
+	}
+	if boosted[1].ID != "feature-p1" {
+		t.Errorf("with bug boost: second should be feature-p1, got %q", boosted[1].ID)
+	}
+}
+
+func TestRankBeadsPriorityBoostClamp(t *testing.T) {
+	now := time.Now()
+	beads := []mycroft.BeadView{
+		{ID: "bug-p0", Type: "bug", Priority: 0, DepsResolved: true, CreatedAt: now},
+		{ID: "bug-p1", Type: "bug", Priority: 1, DepsResolved: true, CreatedAt: now},
+	}
+
+	// Huge boost should clamp to 0, not go negative.
+	boosts := []mycroft.PriorityBoost{{Type: "bug", Boost: 10}}
+	ranked := RankBeads(beads, boosts...)
+
+	// Both clamped to 0 — should fall back to age tiebreak (same time), then complexity.
+	if len(ranked) != 2 {
+		t.Fatalf("expected 2, got %d", len(ranked))
+	}
+}
+
 func TestSelectForAgent(t *testing.T) {
 	now := time.Now()
 	ranked := []mycroft.BeadView{

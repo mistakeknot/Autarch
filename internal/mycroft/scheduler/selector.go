@@ -14,7 +14,9 @@ import (
 //  2. Dependency-readiness (resolved deps first; unresolved excluded)
 //  3. Age (oldest first within same priority)
 //  4. Complexity match (simple beads first when agents are available)
-func RankBeads(beads []mycroft.BeadView) []mycroft.BeadView {
+//
+// If boosts are provided, effective priority is adjusted before sorting.
+func RankBeads(beads []mycroft.BeadView, boosts ...mycroft.PriorityBoost) []mycroft.BeadView {
 	// Filter out beads with unresolved dependencies.
 	eligible := make([]mycroft.BeadView, 0, len(beads))
 	for _, b := range beads {
@@ -23,12 +25,36 @@ func RankBeads(beads []mycroft.BeadView) []mycroft.BeadView {
 		}
 	}
 
+	// Build boost lookup by type.
+	boostByType := make(map[string]int)
+	for _, b := range boosts {
+		if b.Type != "" {
+			boostByType[b.Type] += b.Boost
+		}
+	}
+
+	// effectivePriority applies boosts and clamps to [0, 4].
+	effectivePriority := func(b mycroft.BeadView) int {
+		p := b.Priority
+		if boost, ok := boostByType[b.Type]; ok {
+			p -= boost
+		}
+		if p < 0 {
+			p = 0
+		}
+		if p > 4 {
+			p = 4
+		}
+		return p
+	}
+
 	sort.Slice(eligible, func(i, j int) bool {
 		a, b := eligible[i], eligible[j]
 
-		// 1. Priority (lower = more urgent).
-		if a.Priority != b.Priority {
-			return a.Priority < b.Priority
+		// 1. Effective priority (lower = more urgent).
+		ap, bp := effectivePriority(a), effectivePriority(b)
+		if ap != bp {
+			return ap < bp
 		}
 
 		// 2. Age (older first).

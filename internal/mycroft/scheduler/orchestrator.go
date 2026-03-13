@@ -42,8 +42,8 @@ func (o *Orchestrator) OnCycle(view mycroft.FleetView) {
 
 	tier := o.cfg.Tier
 
-	// Rank available work.
-	ranked := RankBeads(view.Work)
+	// Rank available work (with user-configured priority boosts).
+	ranked := RankBeads(view.Work, o.cfg.PriorityBoosts...)
 	if len(ranked) == 0 {
 		return
 	}
