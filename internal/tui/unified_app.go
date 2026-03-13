@@ -83,7 +83,7 @@ type UnifiedApp struct {
 
 // NewUnifiedApp creates a new unified application
 func NewUnifiedApp(client *autarch.Client) *UnifiedApp {
-	tabNames := []string{"Bigend", "Gurgeh", "Coldwine", "Pollard"}
+	tabNames := []string{"Bigend", "Gurgeh", "Coldwine", "Pollard", "Mycroft"}
 	return &UnifiedApp{
 		client:          client,
 		tabs:            NewTabBar(tabNames),
@@ -419,6 +419,8 @@ func (a *UnifiedApp) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return a, a.switchToTab(2) // fallback
 		case "pollard", "pol":
 			return a, a.switchToTab(3)
+		case "mycroft", "myc":
+			return a, a.switchToTab(4)
 		case "signals", "sig":
 			return a, a.signalsOverlay.Toggle()
 		case "logs", "log", "l":

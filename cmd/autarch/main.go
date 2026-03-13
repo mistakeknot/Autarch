@@ -97,10 +97,10 @@ New users start with the onboarding flow to create their first project.
 Use --skip-onboard to go directly to the dashboard.
 
 Navigation:
-  /big, /gur, etc  Switch between tabs (Bigend, Gurgeh, Coldwine, Pollard)
+  /big, /gur, etc  Switch between tabs (Bigend, Gurgeh, Coldwine, Pollard, Mycroft)
   Ctrl+Left/Right   Cycle tabs
   Ctrl+P         Open command palette
-  /bigend, etc.  Switch to tool by name (/big, /gur, /cold, /pol)
+  /bigend, etc.  Switch to tool by name (/big, /gur, /cold, /pol, /myc)
   ?              Show help
   Ctrl+C         Quit`,
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -297,6 +297,7 @@ Navigation:
 					views.NewGurgehView(c, gcfg),
 					coldwine,
 					views.NewPollardView(c, researchCoord),
+					views.NewMycroftsView(),
 				}
 			})
 
@@ -312,7 +313,7 @@ Navigation:
 	cmd.Flags().StringVar(&dataDir, "data-dir", "", "Data directory (default: ~/.autarch)")
 	cmd.Flags().BoolVar(&skipOnboard, "skip-onboard", false, "Skip onboarding and go directly to dashboard")
 	cmd.Flags().BoolVar(&inlineMode, "inline", false, "Enable inline mode with log pane (preserves scrollback)")
-	cmd.Flags().StringVar(&toolFlag, "tool", "", "Jump directly to a tool tab (bigend, gurgeh, coldwine, pollard)")
+	cmd.Flags().StringVar(&toolFlag, "tool", "", "Jump directly to a tool tab (bigend, gurgeh, coldwine, pollard, mycroft)")
 
 	return cmd
 }

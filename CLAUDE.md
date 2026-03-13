@@ -18,6 +18,7 @@ Unified monorepo for AI agent development tools:
 ./dev autarch tui                    # Full onboarding flow
 ./dev autarch tui --skip-onboard     # Direct to dashboard
 ./dev autarch tui --tool=gurgeh      # Jump to Gurgeh tab
+./dev autarch tui --tool=mycroft     # Jump to Mycroft fleet tab
 ./dev autarch tui --inline           # Inline mode (preserves scrollback)
 
 # Standalone CLI operations (no TUI)
