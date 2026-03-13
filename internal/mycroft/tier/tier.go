@@ -79,7 +79,8 @@ func (f *FSM) SetTier(from, to mycroft.Tier, trigger string, evidence Evidence) 
 	return tx.Commit()
 }
 
-// Promote attempts to move up one tier. v0.1: manual only.
+// Promote moves up one tier with the given evidence.
+// All promotions are manual — the caller decides when to promote.
 func (f *FSM) Promote(evidence Evidence) error {
 	current, err := f.Current()
 	if err != nil {
@@ -88,11 +89,77 @@ func (f *FSM) Promote(evidence Evidence) error {
 	if current >= mycroft.T3 {
 		return fmt.Errorf("already at maximum tier %s", current)
 	}
-	// v0.1: only T0→T1 is implemented.
-	if current >= mycroft.T1 {
-		return fmt.Errorf("T2+ promotion deferred to v0.2")
-	}
 	return f.SetTier(current, current+1, "manual", evidence)
+}
+
+// ShouldPromote evaluates whether promotion criteria are met for the current tier.
+// Returns (should promote, next tier, evidence). Does NOT perform the promotion.
+func ShouldPromote(current mycroft.Tier, history []DispatchRecord, cfg PromotionCriteria) (bool, Evidence) {
+	if current >= mycroft.T3 {
+		return false, Evidence{Reason: "already at max tier"}
+	}
+
+	// Filter to dispatches with outcomes (exclude pause/resume/shadow).
+	var accepted, completed, total int
+	for _, r := range history {
+		if r.Outcome == "" {
+			continue
+		}
+		total++
+		// "success" implies acceptance — count it in both.
+		if r.Outcome == string(mycroft.OutcomeAccepted) || r.Outcome == string(mycroft.OutcomeSuccess) {
+			accepted++
+		}
+		if r.Outcome == string(mycroft.OutcomeSuccess) {
+			completed++
+		}
+	}
+
+	if total < cfg.MinSampleSize {
+		return false, Evidence{
+			SampleSize: total,
+			Reason:     fmt.Sprintf("insufficient sample: %d < %d", total, cfg.MinSampleSize),
+		}
+	}
+
+	approvalRate := float64(accepted) / float64(total)
+	completionRate := float64(completed) / float64(total)
+
+	evidence := Evidence{
+		ApprovalRate:   approvalRate,
+		CompletionRate: completionRate,
+		SampleSize:     total,
+	}
+
+	if approvalRate < cfg.MinApprovalRate {
+		evidence.Reason = fmt.Sprintf("approval rate %.0f%% < %.0f%%", approvalRate*100, cfg.MinApprovalRate*100)
+		return false, evidence
+	}
+	if completionRate < cfg.MinCompletionRate {
+		evidence.Reason = fmt.Sprintf("completion rate %.0f%% < %.0f%%", completionRate*100, cfg.MinCompletionRate*100)
+		return false, evidence
+	}
+
+	evidence.Reason = fmt.Sprintf("criteria met: %.0f%% approval, %.0f%% completion, %d samples",
+		approvalRate*100, completionRate*100, total)
+	return true, evidence
+}
+
+// PromotionCriteria defines the thresholds for tier graduation.
+type PromotionCriteria struct {
+	MinApprovalRate   float64 // e.g., 0.9 for 90%
+	MinCompletionRate float64 // e.g., 0.7 for 70%
+	MinSampleSize     int     // minimum dispatches to evaluate
+}
+
+// DefaultPromotionCriteria returns the brainstorm-specified thresholds:
+// >90% approval AND >70% completion.
+func DefaultPromotionCriteria() PromotionCriteria {
+	return PromotionCriteria{
+		MinApprovalRate:   0.9,
+		MinCompletionRate: 0.7,
+		MinSampleSize:     20,
+	}
 }
 
 // Demote drops one tier based on the given trigger.

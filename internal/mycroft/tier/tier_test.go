@@ -31,24 +31,112 @@ func TestFSMCurrentDefault(t *testing.T) {
 func TestFSMPromote(t *testing.T) {
 	fsm := newTestFSM(t)
 
-	err := fsm.Promote(Evidence{Reason: "test promotion"})
-	if err != nil {
-		t.Fatalf("promote: %v", err)
+	// T0 → T1.
+	if err := fsm.Promote(Evidence{Reason: "test promotion"}); err != nil {
+		t.Fatalf("promote T0→T1: %v", err)
 	}
-
-	tier, err := fsm.Current()
-	if err != nil {
-		t.Fatal(err)
-	}
+	tier, _ := fsm.Current()
 	if tier != mycroft.T1 {
-		t.Errorf("after promote: got %v, want T1", tier)
+		t.Errorf("after T0→T1: got %v, want T1", tier)
 	}
 
-	// T1→T2 should fail in v0.1.
-	err = fsm.Promote(Evidence{})
-	if err == nil {
-		t.Error("expected error promoting past T1 in v0.1")
+	// T1 → T2.
+	if err := fsm.Promote(Evidence{Reason: "earned T2"}); err != nil {
+		t.Fatalf("promote T1→T2: %v", err)
 	}
+	tier, _ = fsm.Current()
+	if tier != mycroft.T2 {
+		t.Errorf("after T1→T2: got %v, want T2", tier)
+	}
+
+	// T2 → T3.
+	if err := fsm.Promote(Evidence{Reason: "earned T3"}); err != nil {
+		t.Fatalf("promote T2→T3: %v", err)
+	}
+	tier, _ = fsm.Current()
+	if tier != mycroft.T3 {
+		t.Errorf("after T2→T3: got %v, want T3", tier)
+	}
+
+	// T3 → error (already at max).
+	if err := fsm.Promote(Evidence{}); err == nil {
+		t.Error("expected error promoting past T3")
+	}
+}
+
+func TestShouldPromote(t *testing.T) {
+	criteria := DefaultPromotionCriteria()
+
+	tests := []struct {
+		name    string
+		tier    mycroft.Tier
+		history []DispatchRecord
+		want    bool
+	}{
+		{
+			"insufficient samples",
+			mycroft.T0,
+			make([]DispatchRecord, 5),
+			false,
+		},
+		{
+			"high approval and completion",
+			mycroft.T1,
+			buildHistory(20, 19, 15), // 95% approval, 75% completion
+			true,
+		},
+		{
+			"low approval",
+			mycroft.T1,
+			buildHistory(20, 10, 15), // 50% approval
+			false,
+		},
+		{
+			"low completion",
+			mycroft.T1,
+			buildHistory(20, 19, 5), // 95% approval, 25% completion
+			false,
+		},
+		{
+			"at max tier",
+			mycroft.T3,
+			buildHistory(20, 19, 15),
+			false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, evidence := ShouldPromote(tt.tier, tt.history, criteria)
+			if got != tt.want {
+				t.Errorf("ShouldPromote = %v (reason: %s), want %v", got, evidence.Reason, tt.want)
+			}
+		})
+	}
+}
+
+// buildHistory creates a dispatch history with the specified outcome counts.
+// Outcomes are: "success" (counts as both accepted AND completed),
+// "accepted" (accepted but not yet completed), "rejected".
+func buildHistory(total, accepted, completed int) []DispatchRecord {
+	records := make([]DispatchRecord, total)
+	idx := 0
+	// First: completed items (success = accepted + completed).
+	for i := 0; i < completed && idx < total; i++ {
+		records[idx] = DispatchRecord{Outcome: "success"}
+		idx++
+	}
+	// Then: accepted but not completed.
+	for i := 0; i < (accepted-completed) && idx < total; i++ {
+		records[idx] = DispatchRecord{Outcome: "accepted"}
+		idx++
+	}
+	// Rest: rejected.
+	for idx < total {
+		records[idx] = DispatchRecord{Outcome: "rejected"}
+		idx++
+	}
+	return records
 }
 
 func TestFSMDemote(t *testing.T) {

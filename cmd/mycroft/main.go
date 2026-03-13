@@ -13,6 +13,8 @@ import (
 	"github.com/mistakeknot/autarch/internal/mycroft"
 	"github.com/mistakeknot/autarch/internal/mycroft/patrol"
 	"github.com/mistakeknot/autarch/internal/mycroft/scheduler"
+	"github.com/mistakeknot/autarch/internal/mycroft/spawn"
+	"github.com/mistakeknot/autarch/internal/mycroft/tier"
 	"github.com/mistakeknot/autarch/pkg/fleet"
 	"github.com/spf13/cobra"
 )
@@ -84,12 +86,24 @@ var runCmd = &cobra.Command{
 			return err
 		}
 
+		// Open decisions DB for dispatch logging.
+		db, err := mycroft.OpenDB(filepath.Join(dataDir(), dbFile))
+		if err != nil {
+			return fmt.Errorf("open decisions db: %w", err)
+		}
+		defer db.Close()
+
+		// Create spawner and orchestrator.
+		spawner := spawn.NewClaudeCodeSpawner("", "Demarch")
+		orch := scheduler.NewOrchestrator(db, spawner, cfg, "demarch")
+
 		src := newSource()
 		p := patrol.New(src, cfg, filepath.Join(dataDir(), "heartbeat"),
 			patrol.WithOnCycle(func(v mycroft.FleetView) {
-				fmt.Printf("[%s] patrol: %d agents, %d beads\n",
+				fmt.Printf("[%s] patrol: %d agents, %d beads, tier: %s\n",
 					time.Now().Format("15:04:05"),
-					len(v.Agents), len(v.Work))
+					len(v.Agents), len(v.Work), cfg.Tier)
+				orch.OnCycle(v)
 			}),
 		)
 
@@ -305,10 +319,116 @@ var pruneCmd = &cobra.Command{
 	},
 }
 
+var promoteCmd = &cobra.Command{
+	Use:   "promote",
+	Short: "Promote to the next autonomy tier",
+	RunE: func(cmd *cobra.Command, args []string) error {
+		db, err := mycroft.OpenDB(filepath.Join(dataDir(), dbFile))
+		if err != nil {
+			return fmt.Errorf("open decisions db: %w", err)
+		}
+		defer db.Close()
+
+		fsm := tier.New(db, "demarch")
+		current, err := fsm.Current()
+		if err != nil {
+			return err
+		}
+
+		reason, _ := cmd.Flags().GetString("reason")
+		if reason == "" {
+			reason = "manual promotion via CLI"
+		}
+		if err := fsm.Promote(tier.Evidence{Reason: reason}); err != nil {
+			return err
+		}
+		fmt.Printf("Promoted: %s → %s\n", current, current+1)
+		return nil
+	},
+}
+
+var demoteCmd = &cobra.Command{
+	Use:   "demote",
+	Short: "Demote to the previous autonomy tier",
+	RunE: func(cmd *cobra.Command, args []string) error {
+		db, err := mycroft.OpenDB(filepath.Join(dataDir(), dbFile))
+		if err != nil {
+			return fmt.Errorf("open decisions db: %w", err)
+		}
+		defer db.Close()
+
+		fsm := tier.New(db, "demarch")
+		current, err := fsm.Current()
+		if err != nil {
+			return err
+		}
+
+		reason, _ := cmd.Flags().GetString("reason")
+		if reason == "" {
+			reason = "manual demotion via CLI"
+		}
+		if err := fsm.Demote("manual", tier.Evidence{Reason: reason}); err != nil {
+			return err
+		}
+		fmt.Printf("Demoted: %s → %s\n", current, current-1)
+		return nil
+	},
+}
+
+var tierCmd = &cobra.Command{
+	Use:   "tier",
+	Short: "Show current tier and recent transitions",
+	RunE: func(cmd *cobra.Command, args []string) error {
+		db, err := mycroft.OpenDB(filepath.Join(dataDir(), dbFile))
+		if err != nil {
+			return fmt.Errorf("open decisions db: %w", err)
+		}
+		defer db.Close()
+
+		fsm := tier.New(db, "demarch")
+		current, err := fsm.Current()
+		if err != nil {
+			return err
+		}
+		fmt.Printf("Current tier: %s\n", current)
+
+		transitions, err := fsm.Transitions(10)
+		if err != nil {
+			return err
+		}
+
+		if len(transitions) == 0 {
+			fmt.Println("\nNo tier transitions recorded yet.")
+			return nil
+		}
+
+		fmt.Println("\nRecent transitions:")
+		tw := tabwriter.NewWriter(os.Stdout, 0, 4, 2, ' ', 0)
+		fmt.Fprintln(tw, "  TIME\tFROM\tTO\tTRIGGER\tREASON")
+		for _, t := range transitions {
+			ts := time.Unix(t.Timestamp, 0).Format("01-02 15:04")
+			reason := t.Evidence.Reason
+			if len(reason) > 50 {
+				reason = reason[:47] + "..."
+			}
+			if reason == "" {
+				reason = "—"
+			}
+			fmt.Fprintf(tw, "  %s\tT%d\tT%d\t%s\t%s\n",
+				ts, t.FromTier, t.ToTier, t.Trigger, reason)
+		}
+		tw.Flush()
+
+		return nil
+	},
+}
+
 func init() {
 	pauseCmd.Flags().Bool("drain", false, "Also signal in-flight agents to checkpoint and stop")
 	shadowsCmd.Flags().Int("limit", 20, "Maximum number of shadow suggestions to show")
 	overrideCmd.Flags().String("reason", "", "Reason for the manual override")
 	pruneCmd.Flags().String("older-than", "720h", "Delete entries older than this duration (default 30 days)")
-	rootCmd.AddCommand(runCmd, statusCmd, shadowsCmd, pauseCmd, resumeCmd, overrideCmd, pruneCmd)
+	promoteCmd.Flags().String("reason", "", "Reason for the promotion")
+	demoteCmd.Flags().String("reason", "", "Reason for the demotion")
+	rootCmd.AddCommand(runCmd, statusCmd, shadowsCmd, pauseCmd, resumeCmd, overrideCmd, pruneCmd, promoteCmd, demoteCmd, tierCmd)
 }

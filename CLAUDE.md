@@ -55,6 +55,10 @@ go run ./cmd/mycroft shadows            # Shadow suggestion digest
 go run ./cmd/mycroft pause [--drain]    # Pause dispatching
 go run ./cmd/mycroft resume             # Resume dispatching
 go run ./cmd/mycroft override <bead> <agent>  # Manual assignment
+go run ./cmd/mycroft promote [--reason "..."]  # Promote to next tier
+go run ./cmd/mycroft demote [--reason "..."]   # Demote to previous tier
+go run ./cmd/mycroft tier                      # Show current tier + transitions
+go run ./cmd/mycroft prune                     # Delete old dispatch log entries
 
 # Build all
 go build ./cmd/...
