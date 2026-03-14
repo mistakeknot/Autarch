@@ -2,6 +2,8 @@ package git
 
 import "strings"
 
+const maxDiffLines = 5000
+
 func DiffUnified(r Runner, base, branch, path string) ([]string, error) {
 	out, err := r.Run("git", "diff", "--unified=3", base+".."+branch, "--", path)
 	if err != nil {
@@ -14,6 +16,9 @@ func parseLines(output string) []string {
 	lines := strings.Split(output, "\n")
 	if len(lines) > 0 && lines[len(lines)-1] == "" {
 		lines = lines[:len(lines)-1]
+	}
+	if len(lines) > maxDiffLines {
+		lines = append(lines[:maxDiffLines], "... (truncated at 5000 lines)")
 	}
 	return lines
 }

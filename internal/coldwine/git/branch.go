@@ -20,6 +20,26 @@ func BranchForTask(r Runner, taskID string) (string, error) {
 	if err != nil {
 		return "", err
 	}
+	return matchBranch(branches, taskID)
+}
+
+// BranchesForTasks resolves branches for multiple task IDs with a single
+// git call. Returns a map of taskID → branch for all matched tasks.
+func BranchesForTasks(r Runner, taskIDs []string) (map[string]string, error) {
+	branches, err := ListBranches(r)
+	if err != nil {
+		return nil, err
+	}
+	result := make(map[string]string, len(taskIDs))
+	for _, id := range taskIDs {
+		if branch, err := matchBranch(branches, id); err == nil {
+			result[id] = branch
+		}
+	}
+	return result, nil
+}
+
+func matchBranch(branches []string, taskID string) (string, error) {
 	for _, b := range branches {
 		if strings.EqualFold(b, taskID) {
 			return b, nil

@@ -1154,14 +1154,23 @@ func sliceWindow(lines []string, start int, maxLines int) []string {
 }
 
 func (m *Model) RefreshReviewBranches() {
-	if m.Review.BranchLookup == nil || len(m.Review.Queue) == 0 {
+	if len(m.Review.Queue) == 0 {
 		m.Review.Branches = map[string]string{}
 		return
 	}
-	branches := map[string]string{}
-	for _, id := range m.Review.Queue {
-		if branch, err := m.Review.BranchLookup(id); err == nil {
-			branches[id] = branch
+	// Batch lookup: single git call for all tasks
+	branches, err := git.BranchesForTasks(&git.ExecRunner{}, m.Review.Queue)
+	if err != nil {
+		// Fall back to per-task lookup if batch fails
+		if m.Review.BranchLookup != nil {
+			branches = map[string]string{}
+			for _, id := range m.Review.Queue {
+				if branch, lookupErr := m.Review.BranchLookup(id); lookupErr == nil {
+					branches[id] = branch
+				}
+			}
+		} else {
+			branches = map[string]string{}
 		}
 	}
 	m.Review.Branches = branches

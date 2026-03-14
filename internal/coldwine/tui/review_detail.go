@@ -3,6 +3,7 @@ package tui
 import (
 	"database/sql"
 	"errors"
+	"io"
 	"os"
 	"path/filepath"
 
@@ -12,6 +13,8 @@ import (
 	"github.com/mistakeknot/autarch/internal/coldwine/specs"
 	"github.com/mistakeknot/autarch/internal/coldwine/storage"
 )
+
+const maxLogReadBytes = 1 << 20 // 1 MB — test summaries are near the end
 
 type ReviewFile struct {
 	Path    string
@@ -85,7 +88,7 @@ func LoadReviewDetailWithDB(db *sql.DB, taskID string) (ReviewDetail, error) {
 	if db != nil {
 		if session, err := storage.FindSessionByTask(db, taskID); err == nil {
 			logPath := filepath.Join(project.SessionsDir(root), session.ID+".log")
-			if raw, err := os.ReadFile(logPath); err == nil {
+			if raw, err := readTail(logPath, maxLogReadBytes); err == nil {
 				testsSummary = FindTestSummary(string(raw))
 			}
 		}
@@ -123,3 +126,24 @@ func LoadReviewDetailWithDB(db *sql.DB, taskID string) (ReviewDetail, error) {
 }
 
 var ErrNoReviewTask = errors.New("no review task selected")
+
+// readTail reads at most maxBytes from the end of a file.
+func readTail(path string, maxBytes int64) ([]byte, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return nil, err
+	}
+	defer f.Close()
+	info, err := f.Stat()
+	if err != nil {
+		return nil, err
+	}
+	size := info.Size()
+	if size <= maxBytes {
+		return io.ReadAll(f)
+	}
+	if _, err := f.Seek(size-maxBytes, io.SeekStart); err != nil {
+		return nil, err
+	}
+	return io.ReadAll(f)
+}
