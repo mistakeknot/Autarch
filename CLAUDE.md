@@ -85,6 +85,10 @@ go test ./...
 | `.pollard/watch/` | Competitor watch state |
 | `.gurgeh/specs/history/` | Spec version snapshots |
 
+## Work Tracking
+
+All work tracking goes through beads (`bd create`). Never create TODO files with status frontmatter, pending-beads lists, or markdown checklists for tracking work. If beads is unavailable (Dolt down), note the items in a single `BLOCKED.md` and convert to beads when it recovers.
+
 ## Workflow Discipline
 
 **Review before implement:** When asked to "review", "look at", or "check" a plan/implementation, do NOT start implementing. First use the requested workflow tools to analyze and discuss. Only implement after explicit approval.
