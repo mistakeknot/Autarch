@@ -6,6 +6,8 @@ import (
 	"github.com/charmbracelet/bubbles/key"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/mistakeknot/Masaq/breadcrumb"
+	"github.com/mistakeknot/Masaq/theme"
 	pkgtui "github.com/mistakeknot/autarch/pkg/tui"
 )
 
@@ -17,13 +19,16 @@ type BreadcrumbStep struct {
 	Unlocked bool // Whether this step has been reached
 }
 
-// Breadcrumb displays navigable steps in the onboarding flow
+// Breadcrumb displays navigable steps in the onboarding flow.
+// Uses masaq/breadcrumb for base rendering and adds interactive
+// keyboard navigation on top.
 type Breadcrumb struct {
 	steps    []BreadcrumbStep
 	current  int
 	selected int // For keyboard navigation (-1 means not navigating)
 	width    int
 	keys     pkgtui.CommonKeys
+	crumbs   breadcrumb.Model // Masaq breadcrumb for rendering
 }
 
 // NewBreadcrumb creates a new breadcrumb with the onboarding steps
@@ -40,12 +45,16 @@ func NewBreadcrumb() *Breadcrumb {
 		}
 	}
 
-	return &Breadcrumb{
+	bc := breadcrumb.New(80)
+	b := &Breadcrumb{
 		steps:    steps,
 		current:  0,
 		selected: -1,
 		keys:     pkgtui.NewCommonKeys(),
+		crumbs:   bc,
 	}
+	b.syncMasaq()
+	return b
 }
 
 // LabelsForTest exposes breadcrumb labels for tests.
@@ -60,6 +69,8 @@ func (b *Breadcrumb) LabelsForTest() []string {
 // SetWidth sets the available width
 func (b *Breadcrumb) SetWidth(w int) {
 	b.width = w
+	b.crumbs = breadcrumb.New(w)
+	b.syncMasaq()
 }
 
 // SetCurrent sets the current step and unlocks all steps up to it
@@ -75,6 +86,7 @@ func (b *Breadcrumb) SetCurrent(state OnboardingState) {
 		}
 	}
 	b.selected = -1 // Reset selection when changing current
+	b.syncMasaq()
 }
 
 // StartNavigation enables keyboard navigation mode
@@ -133,56 +145,71 @@ func (b *Breadcrumb) Update(msg tea.Msg) (*Breadcrumb, tea.Cmd) {
 	return b, nil
 }
 
-// View renders the breadcrumb
+// View renders the breadcrumb. When not navigating, delegates to the Masaq
+// breadcrumb renderer. When navigating, renders with selection highlights.
 func (b *Breadcrumb) View() string {
+	if !b.IsNavigating() {
+		return b.crumbs.View()
+	}
+
+	// Navigation mode: render with selection overlay
+	sem := theme.Current().Semantic()
 	var parts []string
 
-	// Use a nice arrow separator
-	separatorStyle := lipgloss.NewStyle().
-		Foreground(pkgtui.ColorMuted).
-		Padding(0, 1)
-	separator := separatorStyle.Render("›")
+	separatorStyle := lipgloss.NewStyle().Foreground(sem.FgDim.Color()).Padding(0, 1)
+	separator := separatorStyle.Render("→")
 
 	for i, step := range b.steps {
 		var style lipgloss.Style
 
 		if i == b.current {
-			// Current step - highlighted with background
 			style = lipgloss.NewStyle().
-				Background(pkgtui.ColorPrimary).
-				Foreground(pkgtui.ColorBg).
+				Foreground(sem.Primary.Color()).
 				Bold(true).
 				Padding(0, 1)
 		} else if step.Unlocked {
-			// Unlocked but not current - subtle but clickable
 			style = lipgloss.NewStyle().
-				Foreground(pkgtui.ColorFgDim).
+				Foreground(sem.FgDim.Color()).
 				Padding(0, 1)
 		} else {
-			// Locked - greyed out
 			style = lipgloss.NewStyle().
-				Foreground(pkgtui.ColorMuted).
+				Foreground(sem.Muted.Color()).
 				Padding(0, 1)
 		}
 
-		// Add selection indicator if navigating
-		label := step.Label
+		// Selection indicator
 		if b.selected == i {
 			style = style.Underline(true)
 			if step.Unlocked && i != b.current {
-				style = style.Background(pkgtui.ColorBgLighter)
+				style = style.Background(sem.BgLight.Color())
 			}
 		}
 
-		parts = append(parts, style.Render(label))
-
-		// Add separator except after last item
+		parts = append(parts, style.Render(step.Label))
 		if i < len(b.steps)-1 {
 			parts = append(parts, separator)
 		}
 	}
 
 	return strings.Join(parts, "")
+}
+
+// syncMasaq updates the Masaq breadcrumb model to reflect current state.
+func (b *Breadcrumb) syncMasaq() {
+	masaqSteps := make([]breadcrumb.Step, len(b.steps))
+	for i, step := range b.steps {
+		var status breadcrumb.Status
+		switch {
+		case i < b.current && step.Unlocked:
+			status = breadcrumb.Done
+		case i == b.current:
+			status = breadcrumb.Active
+		default:
+			status = breadcrumb.Pending
+		}
+		masaqSteps[i] = breadcrumb.Step{Label: step.Label, Status: status}
+	}
+	b.crumbs.SetSteps(masaqSteps)
 }
 
 // NavigateToStepMsg is sent when user navigates to a step via breadcrumb

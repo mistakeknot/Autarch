@@ -4,10 +4,10 @@ import (
 	"context"
 	"strings"
 
-	"github.com/charmbracelet/bubbles/spinner"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/glamour"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/mistakeknot/Masaq/spinner"
 )
 
 // ParseSlashCommand checks if the text starts with '/' and parses it as a slash command.
@@ -81,9 +81,6 @@ type MultiTurnHandler interface {
 func NewChatPanel() *ChatPanel {
 	composer := NewComposer(6)
 	picker := NewCommandPicker(GlobalCommands())
-	s := spinner.New()
-	s.Spinner = spinner.Dot
-	s.Style = lipgloss.NewStyle().Foreground(ColorPrimary)
 	return &ChatPanel{
 		history:      []ChatMessage{},
 		historyLines: [][]string{},
@@ -91,7 +88,7 @@ func NewChatPanel() *ChatPanel {
 		composer:     composer,
 		commandPicker: picker,
 		settings:     DefaultChatSettings(),
-		spinner:      s,
+		spinner:      spinner.New(),
 		chatState:    ChatIdle,
 	}
 }
@@ -147,7 +144,7 @@ func (p *ChatPanel) IsStreaming() bool {
 
 // SpinnerTick returns the spinner tick command. Call this from the parent view's Init or when streaming starts.
 func (p *ChatPanel) SpinnerTick() tea.Cmd {
-	return p.spinner.Tick
+	return p.spinner.Tick()
 }
 
 // ClearMessages removes all messages from the chat history.
