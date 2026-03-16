@@ -44,6 +44,7 @@ import (
 	"github.com/mistakeknot/autarch/pkg/signals"
 	"github.com/mistakeknot/autarch/pkg/timeout"
 	pkgtui "github.com/mistakeknot/autarch/pkg/tui"
+	"github.com/mistakeknot/autarch/pkg/tui/theme"
 )
 
 func main() {
@@ -306,6 +307,9 @@ Navigation:
 					mycroftView,
 				}
 			})
+
+			// Sync Autarch theme → Masaq so shared components render correctly.
+			theme.SyncToMasaq()
 
 			return tui.Run(client, app, tui.RunOpts{
 				InlineMode:    inlineMode,

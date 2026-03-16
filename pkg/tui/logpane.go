@@ -5,9 +5,9 @@ import (
 	"log/slog"
 	"strings"
 
-	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/mistakeknot/Masaq/viewport"
 )
 
 const maxLogEntries = 500
@@ -32,7 +32,6 @@ func (p *LogPane) SetSize(width, height int) {
 	p.width = width
 	p.height = height
 	p.viewport = viewport.New(width-2, height-1) // Account for padding and header
-	p.viewport.MouseWheelEnabled = true
 	p.updateContent()
 }
 
@@ -48,15 +47,15 @@ func (p *LogPane) Update(msg tea.Msg) tea.Cmd {
 			p.entries = p.entries[len(p.entries)-maxLogEntries:]
 		}
 		p.updateContent()
-		p.viewport.GotoBottom()
+		p.viewport.ScrollToBottom()
 		return nil
 
 	case tea.KeyMsg:
 		switch msg.String() {
 		case "g":
-			p.viewport.GotoTop()
+			p.viewport.ScrollTo(0)
 		case "G":
-			p.viewport.GotoBottom()
+			p.viewport.ScrollToBottom()
 		default:
 			var cmd tea.Cmd
 			p.viewport, cmd = p.viewport.Update(msg)

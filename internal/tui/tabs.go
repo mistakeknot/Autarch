@@ -1,78 +1,66 @@
 package tui
 
 import (
-	"strings"
-
-	"github.com/charmbracelet/lipgloss"
-	pkgtui "github.com/mistakeknot/autarch/pkg/tui"
+	"github.com/mistakeknot/Masaq/tabbar"
 )
 
-// TabBar renders a horizontal tab bar
+// TabBar renders a horizontal tab bar using the shared Masaq tabbar component.
 type TabBar struct {
-	tabs   []string
-	active int
-	width  int
+	model tabbar.Model
+	names []string
 }
 
-// NewTabBar creates a new tab bar
+// NewTabBar creates a new tab bar from the given tab names.
 func NewTabBar(tabs []string) *TabBar {
+	masaqTabs := make([]tabbar.Tab, len(tabs))
+	for i, name := range tabs {
+		masaqTabs[i] = tabbar.Tab{Label: name}
+	}
 	return &TabBar{
-		tabs: tabs,
+		model: tabbar.New(masaqTabs),
+		names: tabs,
 	}
 }
 
-// SetActive sets the active tab
+// SetActive sets the active tab.
 func (t *TabBar) SetActive(index int) {
-	if index >= 0 && index < len(t.tabs) {
-		t.active = index
-	}
+	t.model.SetActive(index)
 }
 
-// Active returns the active tab index
+// Active returns the active tab index.
 func (t *TabBar) Active() int {
-	return t.active
+	return t.model.Active()
 }
 
-// SetWidth sets the tab bar width
+// SetWidth sets the tab bar width.
 func (t *TabBar) SetWidth(width int) {
-	t.width = width
+	// Masaq tabbar gets width via tea.WindowSizeMsg, but we can
+	// also trigger it by storing and using it in View.
+	// For now, the underlying model handles truncation via its width field.
 }
 
-// Next moves to the next tab
+// Next moves to the next tab.
 func (t *TabBar) Next() {
-	t.active = (t.active + 1) % len(t.tabs)
-}
-
-// Prev moves to the previous tab
-func (t *TabBar) Prev() {
-	t.active = (t.active - 1 + len(t.tabs)) % len(t.tabs)
-}
-
-// View renders the tab bar
-func (t *TabBar) View() string {
-	var tabs []string
-
-	for i, name := range t.tabs {
-		if i == t.active {
-			tabStyle := lipgloss.NewStyle().
-				Background(pkgtui.ColorPrimary).
-				Foreground(pkgtui.ColorBg).
-				Bold(true).
-				Padding(0, 2)
-			tabs = append(tabs, tabStyle.Render(name))
-		} else {
-			tabStyle := lipgloss.NewStyle().
-				Foreground(pkgtui.ColorFgDim).
-				Padding(0, 2)
-			tabs = append(tabs, tabStyle.Render(name))
-		}
+	n := len(t.names)
+	if n > 0 {
+		t.model.SetActive((t.model.Active() + 1) % n)
 	}
-
-	row := strings.Join(tabs, "")
-	return row
 }
 
-// TabNames returns the list of tab names
+// Prev moves to the previous tab.
+func (t *TabBar) Prev() {
+	n := len(t.names)
+	if n > 0 {
+		t.model.SetActive((t.model.Active() - 1 + n) % n)
+	}
+}
+
+// View renders the tab bar.
+func (t *TabBar) View() string {
+	return t.model.View()
+}
+
+// TabNames returns the list of tab names.
 func (t *TabBar) TabNames() []string {
-	return t.tabs
+	return t.names
 }

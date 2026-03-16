@@ -13,6 +13,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/charmbracelet/x/ansi"
+	"github.com/mistakeknot/Masaq/minsize"
 	"github.com/mistakeknot/autarch/internal/autarch/agent"
 	"github.com/mistakeknot/autarch/internal/bigend/tmux"
 	internalIntermute "github.com/mistakeknot/autarch/internal/intermute"
@@ -79,6 +80,9 @@ type UnifiedApp struct {
 
 	// Kernel availability — true when Intercore (ic binary) is present.
 	kernelAvailable bool
+
+	// Minimum terminal size guard
+	sizeGuard minsize.Model
 }
 
 // NewUnifiedApp creates a new unified application
@@ -93,6 +97,7 @@ func NewUnifiedApp(client *autarch.Client) *UnifiedApp {
 		keys:            pkgtui.NewCommonKeys(),
 		chatSettings:    pkgtui.DefaultChatSettings(),
 		resizeCoalescer: pkgtui.NewResizeCoalescer(),
+		sizeGuard:       minsize.New(60, 15),
 	}
 }
 
@@ -905,6 +910,7 @@ func (a *UnifiedApp) sendWindowSize() tea.Cmd {
 func (a *UnifiedApp) applyResize(msg tea.WindowSizeMsg) (tea.Model, tea.Cmd) {
 	a.width = msg.Width
 	a.height = msg.Height
+	a.sizeGuard.SetSize(msg.Width, msg.Height)
 	a.tabs.SetWidth(msg.Width)
 	a.palette.SetSize(msg.Width, msg.Height)
 	a.signalsOverlay.SetSize(msg.Width, msg.Height)
@@ -935,6 +941,9 @@ func (a *UnifiedApp) applyResize(msg tea.WindowSizeMsg) (tea.Model, tea.Cmd) {
 func (a *UnifiedApp) View() string {
 	if a.width == 0 || a.height == 0 {
 		return "Loading..."
+	}
+	if a.sizeGuard.ShouldBlock() {
+		return a.sizeGuard.View()
 	}
 
 	// Calculate heights
