@@ -12,12 +12,12 @@ import (
 
 // SpecDiff represents the differences between two spec versions
 type SpecDiff struct {
-	OldID       string        `json:"old_id"`
-	NewID       string        `json:"new_id"`
-	Added       []string      `json:"added"`        // New requirements
-	Removed     []string      `json:"removed"`      // Dropped requirements
-	Changed     []ChangedItem `json:"changed"`      // Modified requirements
-	FieldDiffs  []FieldDiff   `json:"field_diffs"`  // Changes to other fields
+	OldID       string          `json:"old_id"`
+	NewID       string          `json:"new_id"`
+	Added       []string        `json:"added"`       // New requirements
+	Removed     []string        `json:"removed"`     // Dropped requirements
+	Changed     []ChangedItem   `json:"changed"`     // Modified requirements
+	FieldDiffs  []FieldDiff     `json:"field_diffs"` // Changes to other fields
 	ScopeImpact ScopeAssessment `json:"scope_impact"`
 }
 
@@ -38,12 +38,12 @@ type FieldDiff struct {
 
 // ScopeAssessment indicates the impact on scope
 type ScopeAssessment struct {
-	Direction   string   `json:"direction"`    // larger, smaller, similar
-	Confidence  float64  `json:"confidence"`   // 0-1
-	AddedCount  int      `json:"added_count"`
-	RemovedCount int     `json:"removed_count"`
-	ChangedCount int     `json:"changed_count"`
-	Warnings    []string `json:"warnings,omitempty"`
+	Direction    string   `json:"direction"`  // larger, smaller, similar
+	Confidence   float64  `json:"confidence"` // 0-1
+	AddedCount   int      `json:"added_count"`
+	RemovedCount int      `json:"removed_count"`
+	ChangedCount int      `json:"changed_count"`
+	Warnings     []string `json:"warnings,omitempty"`
 }
 
 // DiffSpecs compares two specs and returns the differences
@@ -260,26 +260,23 @@ func FormatDiff(d *SpecDiff) string {
 // --- Helper functions ---
 
 func diffRequirements(old, new []string) (added, removed []string, changed []ChangedItem) {
-	oldSet := make(map[string]bool)
-	newSet := make(map[string]bool)
-
+	oldSet := make(map[string]bool, len(old))
 	for _, r := range old {
 		oldSet[normalizeReq(r)] = true
 	}
-	for _, r := range new {
-		newSet[normalizeReq(r)] = true
-	}
 
-	// Find added
+	seen := make(map[string]bool, len(new))
 	for _, r := range new {
-		if !oldSet[normalizeReq(r)] {
+		norm := normalizeReq(r)
+		if oldSet[norm] {
+			seen[norm] = true
+		} else {
 			added = append(added, r)
 		}
 	}
 
-	// Find removed
 	for _, r := range old {
-		if !newSet[normalizeReq(r)] {
+		if !seen[normalizeReq(r)] {
 			removed = append(removed, r)
 		}
 	}
@@ -316,7 +313,7 @@ func diffFields(old, new *specs.Spec) []FieldDiff {
 func diffAcceptanceCriteria(old, new []specs.AcceptanceCriterion) []ChangedItem {
 	var changes []ChangedItem
 
-	oldMap := make(map[string]specs.AcceptanceCriterion)
+	oldMap := make(map[string]specs.AcceptanceCriterion, len(old))
 	for _, ac := range old {
 		oldMap[ac.ID] = ac
 	}
@@ -340,7 +337,7 @@ func diffAcceptanceCriteria(old, new []specs.AcceptanceCriterion) []ChangedItem 
 func diffCUJs(old, new []specs.CriticalUserJourney) []ChangedItem {
 	var changes []ChangedItem
 
-	oldMap := make(map[string]specs.CriticalUserJourney)
+	oldMap := make(map[string]specs.CriticalUserJourney, len(old))
 	for _, cuj := range old {
 		oldMap[cuj.ID] = cuj
 	}
