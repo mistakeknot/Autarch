@@ -62,25 +62,23 @@ func reconcileSpecs(root string, store *Store, writer *Writer, summary *Reconcil
 		return err
 	}
 
+	// Pre-size entries filter: count YAML files for pre-allocation hint.
+	yamlEntries := make([]os.DirEntry, 0, len(entries))
 	for _, entry := range entries {
 		if entry.IsDir() {
 			continue
 		}
 		name := entry.Name()
-		if !strings.HasSuffix(name, ".yaml") && !strings.HasSuffix(name, ".yml") {
-			continue
+		if strings.HasSuffix(name, ".yaml") || strings.HasSuffix(name, ".yml") {
+			yamlEntries = append(yamlEntries, entry)
 		}
-		path := filepath.Join(specDir, name)
-		var doc specDoc
-		data, err := yamlsafe.UnmarshalFile(path, &doc)
-		if err != nil {
-			continue
-		}
+	}
 
-		specID := doc.ID
-		if specID == "" {
-			specID = strings.TrimSuffix(strings.TrimSuffix(name, ".yaml"), ".yml")
-		}
+	for _, entry := range yamlEntries {
+		name := entry.Name()
+		path := filepath.Join(specDir, name)
+
+		specID := strings.TrimSuffix(strings.TrimSuffix(name, ".yaml"), ".yml")
 
 		info, err := entry.Info()
 		if err != nil {
@@ -88,13 +86,29 @@ func reconcileSpecs(root string, store *Store, writer *Writer, summary *Reconcil
 		}
 		updatedAt := info.ModTime()
 
-		fingerprint := hashBytes(data)
 		summary.SpecsSeen++
 
+		// Mtime-based skip: if cursor exists and file mtime matches, the file
+		// content hasn't changed -- skip the expensive read + SHA256 + YAML parse.
 		cursor, err := store.GetCursor(root, EntitySpec, specID)
 		if err != nil {
 			return err
 		}
+		if cursor != nil && !cursor.UpdatedAt.IsZero() && updatedAt.Equal(cursor.UpdatedAt) {
+			continue
+		}
+
+		var doc specDoc
+		data, err := yamlsafe.UnmarshalFile(path, &doc)
+		if err != nil {
+			continue
+		}
+
+		if doc.ID != "" {
+			specID = doc.ID
+		}
+
+		fingerprint := hashBytes(data)
 
 		if cursor != nil {
 			if doc.Version > 0 && cursor.Version > 0 {
@@ -215,25 +229,23 @@ func reconcileTasks(root string, store *Store, writer *Writer, summary *Reconcil
 		return err
 	}
 
+	// Pre-size: filter to YAML entries only.
+	yamlTaskEntries := make([]os.DirEntry, 0, len(entries))
 	for _, entry := range entries {
 		if entry.IsDir() {
 			continue
 		}
 		name := entry.Name()
-		if !strings.HasSuffix(name, ".yaml") && !strings.HasSuffix(name, ".yml") {
-			continue
+		if strings.HasSuffix(name, ".yaml") || strings.HasSuffix(name, ".yml") {
+			yamlTaskEntries = append(yamlTaskEntries, entry)
 		}
-		path := filepath.Join(tasksDir, name)
-		var doc taskDoc
-		data, err := yamlsafe.UnmarshalFile(path, &doc)
-		if err != nil {
-			continue
-		}
+	}
 
-		taskID := doc.ID
-		if taskID == "" {
-			taskID = strings.TrimSuffix(strings.TrimSuffix(name, ".yaml"), ".yml")
-		}
+	for _, entry := range yamlTaskEntries {
+		name := entry.Name()
+		path := filepath.Join(tasksDir, name)
+
+		taskID := strings.TrimSuffix(strings.TrimSuffix(name, ".yaml"), ".yml")
 
 		info, err := entry.Info()
 		if err != nil {
@@ -241,13 +253,29 @@ func reconcileTasks(root string, store *Store, writer *Writer, summary *Reconcil
 		}
 		updatedAt := info.ModTime()
 
-		fingerprint := hashBytes(data)
 		summary.TasksSeen++
 
+		// Mtime-based skip: if cursor exists and file mtime matches, skip
+		// the expensive read + SHA256 + YAML parse.
 		cursor, err := store.GetCursor(root, EntityTask, taskID)
 		if err != nil {
 			return err
 		}
+		if cursor != nil && !cursor.UpdatedAt.IsZero() && updatedAt.Equal(cursor.UpdatedAt) {
+			continue
+		}
+
+		var doc taskDoc
+		data, err := yamlsafe.UnmarshalFile(path, &doc)
+		if err != nil {
+			continue
+		}
+
+		if doc.ID != "" {
+			taskID = doc.ID
+		}
+
+		fingerprint := hashBytes(data)
 
 		status := strings.ToLower(doc.Status)
 		if status == "" {
