@@ -14,80 +14,12 @@ Unified monorepo for AI agent development tools:
 ## Quick Commands
 
 ```bash
-# Unified TUI (recommended)
-./dev autarch tui                    # Full onboarding flow
-./dev autarch tui --skip-onboard     # Direct to dashboard
-./dev autarch tui --tool=gurgeh      # Jump to Gurgeh tab
-./dev autarch tui --tool=mycroft     # Jump to Mycroft fleet tab
-./dev autarch tui --inline           # Inline mode (preserves scrollback)
-
-# Standalone CLI operations (no TUI)
-./dev gurgeh list                    # List specs
-./dev gurgeh export PRD-001          # Export spec to briefs
-./dev coldwine status                # Show task status
-./dev bigend                         # Web server mode
-
-# Pollard CLI
-go run ./cmd/pollard init           # Initialize .pollard/
-go run ./cmd/pollard scan           # Run all hunters
-go run ./cmd/pollard scan --hunter github-scout
-go run ./cmd/pollard scan --hunter openalex   # Multi-domain academic
-go run ./cmd/pollard scan --hunter pubmed     # Medical research
-go run ./cmd/pollard report         # Generate landscape report
-go run ./cmd/pollard report --type competitive
-go run ./cmd/pollard watch --once    # Single competitor watch cycle
-go run ./cmd/pollard watch           # Continuous monitoring
-
-# API servers (local-only by default)
-go run ./cmd/pollard serve --addr 127.0.0.1:8090   # Pollard research API
-go run ./cmd/gurgeh serve --addr 127.0.0.1:8091    # Gurgeh spec API (read-only)
-go run ./cmd/signals serve --addr 127.0.0.1:8092   # Signals WS server
-
-# Gurgeh spec quality
-go run ./cmd/gurgeh history <spec-id>       # Spec revision changelog
-go run ./cmd/gurgeh diff <spec-id> v1 v2    # Structured version diff
-go run ./cmd/gurgeh prioritize <spec-id>    # Agent-powered feature ranking
-
-# Mycroft CLI
-go run ./cmd/mycroft run               # Start patrol loop
-go run ./cmd/mycroft status             # Fleet status + current tier
-go run ./cmd/mycroft shadows            # Shadow suggestion digest
-go run ./cmd/mycroft pause [--drain]    # Pause dispatching
-go run ./cmd/mycroft resume             # Resume dispatching
-go run ./cmd/mycroft override <bead> <agent>  # Manual assignment
-go run ./cmd/mycroft promote [--reason "..."]  # Promote to next tier
-go run ./cmd/mycroft demote [--reason "..."]   # Demote to previous tier
-go run ./cmd/mycroft tier                      # Show current tier + transitions
-go run ./cmd/mycroft prune                     # Delete old dispatch log entries
-
-# Build all
-go build ./cmd/...
-
-# Test
-go test ./...
+./dev autarch tui                    # Unified TUI (recommended)
+go build ./cmd/...                   # Build all
+go test ./...                        # Test all
 ```
 
-## Key Paths
-
-| Path | Purpose |
-|------|---------|
-| `cmd/` | Entry points for each tool |
-| `internal/{tool}/` | Tool-specific code |
-| `pkg/tui/` | Shared TUI styles (Tokyo Night) |
-| `pkg/clavain/` | Clavain CLI wrapper (L2: sprint, gates, artifacts) |
-| `pkg/intercore/` | Intercore CLI wrapper (L1: runs, state, coordination) |
-| `docs/{tool}/` | Tool-specific documentation |
-| `pkg/signals/` | Cross-tool signal types |
-| `.coldwine/` | Coldwine data directory (state.db, specs, sessions) |
-| `.pollard/` | Pollard data directory (sources, insights, reports) |
-| `internal/mycroft/` | Fleet orchestrator (patrol, scheduler, tier, escalate) |
-| `.autarch/mycroft/` | Mycroft data (config.yaml, decisions.db, heartbeat, briefings) |
-| `.pollard/watch/` | Competitor watch state |
-| `.gurgeh/specs/history/` | Spec version snapshots |
-
-## Work Tracking
-
-All work tracking goes through beads (`bd create`). Never create TODO files with status frontmatter, pending-beads lists, or markdown checklists for tracking work. If beads is unavailable (Dolt down), note the items in a single `BLOCKED.md` and convert to beads when it recovers.
+Full command reference for each tool: see `AGENTS.md` → tool-specific docs.
 
 ## Workflow Discipline
 
