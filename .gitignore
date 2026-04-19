@@ -53,3 +53,6 @@ intermute.db
 intermute.keys.yaml
 cmd/autarch/autarch
 .gurgeh/sprints/archive/
+
+# Rust build artifacts in prototypes
+prototypes/*/target/
