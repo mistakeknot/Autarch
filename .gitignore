@@ -59,3 +59,5 @@ prototypes/*/target/
 
 # Agent-runtime db artifacts
 .clavain/**/*.db
+.clavain/**/*.db-shm
+.clavain/**/*.db-wal
