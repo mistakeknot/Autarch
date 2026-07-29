@@ -57,5 +57,5 @@ cmd/autarch/autarch
 # Rust build artifacts in prototypes
 prototypes/*/target/
 
-# Machine-local interspect telemetry (SQLite); git-autosync does 'git add -A'
-.clavain/interspect/
+# Agent-runtime db artifacts
+.clavain/**/*.db
