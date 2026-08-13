@@ -7,8 +7,21 @@ stage: discover
 # Autarch as the universal interface — one door, and the why behind each room
 
 **Date:** 2026-08-13
-**Status:** design captured, not planned
+**Status:** phase 1 built. Decisions 11–13 added and open questions 1–4 closed after a
+prototype and a five-repo measurement.
 **Approach chosen:** A + C graft — product card and gate first (no UI), thin tmux-native door second, Bigend web as the public season surface third
+
+**Phase 1 artifacts**
+
+| What | Where |
+|---|---|
+| Card format | `docs/reference/product-card-format.md` |
+| Drafter procedure | `docs/reference/card-drafter.md` |
+| Five-repo measurement | `docs/analysis/2026-08-13-card-drafter-measurement.md` |
+| Validator | dotfiles `common/.local/bin/card-check.py` |
+| Plan gate | dotfiles `common/.claude/hooks/guard-plan-needs-card.sh` |
+| Suites + mutation run | dotfiles `common/.claude/hooks/tests/` |
+| Prototype | `https://claude.ai/code/artifact/a6e982de-4eb1-4f5d-856f-dedc5309435a` |
 
 ## What We're Building
 
@@ -96,6 +109,30 @@ on a surface whose requirements are already settled.
 | 8 | Scope of revival | **Bigend and Gurgeh in, Coldwine and Pollard parked.** Bigend's web view is phase 3, as the public season page. |
 | 9 | Attach mechanism | `tmux switch-client`. All 21 sessions are already on one server (`/private/tmp/tmux-501/default`, 27 clients across 5 terminal apps). Nothing is migrated; terminal apps remain clients. |
 | 10 | Phasing | Phase 1 card + drafting agent + gate, no UI. Phase 2 thin tmux-native TUI on `pkg/tui`. Phase 3 Bigend web as public surface. |
+| 11 | Row ordering | **Funded first, then pins, then weakest card first.** Mk's pick, 2026-08-13. The unfunded tail is ordered by how little of its card is real, so the estate's gaps rank themselves instead of a staleness formula standing in for taste. Only `confirmed` fields count toward strength. Known cost, accepted: the worst-documented project sits permanently on top. |
+| 12 | Backfill | **On first touch, never in bulk.** Not a sequencing preference — a constraint. See below. |
+| 13 | A project with N agents | **One row.** `jeddnet` runs a claude session and a codex session; that is one project with two attached sessions, and decision 2 already settled that the row is the project. The prototype rendering it as two sibling rows was the prototype contradicting decision 2, not a new question. The row shows an agent count; the card panel lists the sessions. |
+
+**Ruling 12 in full — why bulk backfill is a constraint and not a preference.**
+Two independent measurements say the same thing, and neither was available when
+open question 3 was written.
+
+*From the prototype:* in the true present state every one of the 82 rows reads
+`⚠ no why stated`. A signal that fires on 100% of rows carries no information —
+the column is invisible within seconds. Bulk-drafting 82 cards does not fix that;
+it replaces a uniform `missing` column with a uniform `provisional` one. The
+column only starts working once the estate is genuinely mixed, which requires
+adoption to be gradual.
+
+*From the measurement:* `success` came back `declined` in 5 of 5 repos. A bulk
+run over 82 projects would therefore produce ~82 cards each carrying a declined
+success metric and an unreviewed persona — a backlog wearing a rigor costume, at
+estate scale, exactly as open question 3 feared.
+
+The format enforces this rather than asking for discipline: rule R3 refuses
+`status: confirmed` while any field is still `drafted`, so a bulk drafter
+*cannot* produce confirmed cards. Someone must read each one. That is the cost,
+and it is the point.
 
 **Prior art, in-tree.** `cujgel` (`/Users/sma/projects/cujgel`) already defines a
 CUJ schema with `actor`, `trigger`, `mental_model`, `ambiguity_ledger`,
@@ -117,22 +154,52 @@ and its PRD are the obvious overlap candidates and were not read for this doc.
 
 ## Open Questions
 
-1. **What exactly is on the card?** Persona, pain, CUJ, success metric, guardrail
-   is the working set. Adopt cujgel's schema wholesale, subset it, or define a
-   smaller card that references a cujgel CUJ by ID? The card is read at a glance
-   in a TUI row; a full cujgel CUJ is not glanceable.
-2. **What can an agent honestly draft?** Persona and pain are inferable from a
-   repo. A success metric mostly is not — an agent guessing one produces exactly
-   the fake rigor this is meant to prevent. Does the drafter leave metrics blank
-   and say so, and does a blank metric block `/write-plan` the same as a missing
-   card?
-3. **Backfill policy for 82 projects.** Draft cards for all of them at once, or
-   only on first touch? Bulk drafting produces 82 provisional cards mk will never
-   review, which is a new backlog wearing a rigor costume.
-4. **What does the row rank by when nothing is pledged?** Funded attention covers
-   25 slate items. The other 47-plus projects need an ordering, and that ordering
-   is back to being mk's taste. Explicit manual pinning may be more honest than a
-   formula.
+1. ~~**What exactly is on the card?**~~ **Settled** —
+   `docs/reference/product-card-format.md`. Six fields (`line`, `persona`,
+   `pain`, `cuj`, `success`, `guardrail`) plus a `decisions` link list, in
+   `docs/why.md` frontmatter. **The card references a cujgel CUJ by ID and never
+   inlines one:** `cujgel.schema.json` requires `mental_model` and
+   `success_condition` and carries an `ambiguity_ledger` — copying that in would
+   create two sources of truth for one journey and make the card unglanceable.
+   The `declined` state is deliberately a projection of cujgel's
+   `ambiguity_ledger.open_questions`, so the vocabulary is reused rather than
+   reinvented.
+2. ~~**What can an agent honestly draft?**~~ **Measured, not argued** —
+   `docs/analysis/2026-08-13-card-drafter-measurement.md`. Across five repos
+   spanning 455 plans to zero: `persona` 4/5, `guardrail` 4/5, `pain` 3/5,
+   `cuj` 3/5, `line` 3/5, **`success` 0/5**. Declining the success metric is the
+   correct output in every repo measured.
+
+   The finding that changed the design: **the citation rule alone would have
+   produced a wrong success metric in 4 of 5 repos.** A cujgel `success_condition`
+   is journey-scoped; a PRD's "Success Metrics (Epic Definition of Done)" is
+   epic-scoped; jeddnet's item and test counts are project-scoped inventory rather
+   than outcome. All three cite real text. Misattribution survives review in a way
+   invention does not. Hence three rules — cite, scope-match, outcome-not-inventory
+   — of which the first two are machine-checked and the third is honestly labelled
+   as drafter judgment because no check can be written for it.
+
+   A declined field does **not** block `/write-plan`; an unconfirmed card does.
+   A card may be confirmed with `success` declined — that is mk saying on the
+   record "I do not yet know how I would tell if this worked," which is true of
+   most of the estate and worth saying out loud.
+3. ~~**Backfill policy for 82 projects.**~~ **Settled — ruling 12 above.** On
+   first touch, never in bulk, and the format enforces it rather than asking for
+   discipline.
+4. ~~**What does the row rank by when nothing is pledged?**~~ **Settled — ruling
+   11.** Funded first (decision 6), then manual pins, then **weakest card first**:
+   the unfunded tail is ordered by how little of its card is real, so the estate's
+   own gaps rank themselves rather than a staleness formula standing in for mk's
+   taste. `card-check.py --json` emits `strength.score` out of 6 for this, and
+   **only `confirmed` fields count** — a drafted field is an unreviewed guess and a
+   declined field is a recorded unknown, so neither can raise a project's rank.
+   Without that, running the drafter across the estate would look like progress
+   and quietly reorder the door: ruling 12's failure mode arriving as a scoreboard
+   instead of as a backlog.
+
+   Mk's ruling accepts a known cost, recorded here so it can be revisited against
+   evidence: the worst-documented project sits permanently at the top of the
+   unfunded tail, and may read as a nag rather than a prompt.
 5. **Cross-machine scope.** zklw runs sessions too. Same door, or separate space?
    The tmux-server unification argument does not cross the network.
 6. **The 1-of-21 blindness.** `intermux` reports one session, mis-parses it, calls
