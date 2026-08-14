@@ -1,0 +1,29 @@
+{
+  "id": "adjudication",
+  "kind": "adjudication",
+  "parents": [
+    "fd-datamodel-format-durability",
+    "fd-hci-ratification-cost"
+  ],
+  "domain": "contradiction resolution / heat-ledger adjudication",
+  "axioms": [
+    "A disputed claim between two prior findings is resolved by re-reading the cited code and doc text directly, not by weighing which lens sounded more confident.",
+    "A refuted finding still carries information: the corrected, cheaper reading of the mechanism is itself a finding worth recording, not just a retraction.",
+    "Session semantics (ordering, one-sitting requirements) must be verified against actual persisted state and re-invocation behavior, never assumed from a worked example's prose."
+  ],
+  "primitives": [
+    "disputed claim pair (holds vs refuted)",
+    "mechanical re-verification against cited lines",
+    "corrected cost/effort estimate",
+    "convergence vs contradiction against the ledger"
+  ],
+  "failure_mode": [
+    "Restates what one prior lens already established without adding independent verification, inflating apparent confidence without new evidence.",
+    "Is scoped to the specific dispute handed to it and will not surface adjacent defects in the same code path that neither disputing finding raised.",
+    "Cannot adjudicate disputes that were never flagged with disagreement_refs in the ledger."
+  ],
+  "findings": [
+    "f-046",
+    "f-047"
+  ]
+}

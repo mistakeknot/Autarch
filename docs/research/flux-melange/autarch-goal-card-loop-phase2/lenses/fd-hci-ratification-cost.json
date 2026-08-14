@@ -1,0 +1,38 @@
+{
+  "id": "fd-hci-ratification-cost",
+  "kind": "base",
+  "parents": [],
+  "domain": "human-in-the-loop workflow ergonomics / repeated ratification design",
+  "axioms": [
+    "A single pilot measurement of a human workflow does not by itself establish the cost or tolerability of repeating that workflow at scale, especially across heterogeneous instances.",
+    "Distinct cognitive operations (ratifying a pre-drafted claim vs. originating new content from nothing) have different costs and should not be collapsed into one aggregate time figure.",
+    "All-or-nothing approval gates (must resolve every item before the gate opens) are prone to end-of-session fatigue and rubber-stamping, a well-documented failure mode in long-form review workflows.",
+    "A workflow's real-world sustainability depends on its recurring, interrupt-driven cadence, which a focused single-sitting pilot does not necessarily reproduce.",
+    "An easy override or escape hatch sitting next to a costly mandatory step changes the incentive structure enough that the measured cost of the 'proper' path may not reflect what participants actually do.",
+    "The representativeness of the pilot subject (its resourcing, incentives, existing material) bounds how far its measured cost can be generalized."
+  ],
+  "primitives": [
+    "confirm session (a ratification episode)",
+    "field-level operation (ratify vs originate)",
+    "fatigue / rubber-stamp risk",
+    "override path",
+    "pilot subject representativeness",
+    "per-unit cost extrapolated to population size"
+  ],
+  "failure_mode": [
+    "May underweight whether the format's own representation (schema, validator contract) is internally sound, focusing purely on the human task around it.",
+    "Could over-index on measurement-methodology critique and under-attend to whether the six fields themselves are the right things to be confirming.",
+    "Is not well positioned to judge whether the whole card-and-gate apparatus addresses the estate's actual overwhelm problem, only whether the specific human step is workable.",
+    "May assume ergonomic problems it flags are load-bearing even when the goal's actual near-term scope (one confirm) makes them premature."
+  ],
+  "findings": [
+    "f-005",
+    "f-006",
+    "f-007",
+    "f-008",
+    "f-023",
+    "f-024",
+    "f-034",
+    "f-035"
+  ]
+}

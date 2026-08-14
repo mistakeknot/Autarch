@@ -1,0 +1,41 @@
+{
+  "id": "fd-archival-backlog-appraisal",
+  "kind": "base",
+  "parents": [],
+  "domain": "Archival science and manuscript processing — accession, appraisal, arrangement and description of large unprocessed backlogs: respect des fonds, original order, processing levels, finding aids, coverage reporting, reappraisal and deaccession.",
+  "axioms": [
+    "Description follows appraisal; describing material whose retention has not been decided converts an unresolved keep-or-discard question into permanent overhead.",
+    "Processing level is a throughput choice: item-level description of a backlog leaves most holdings dark indefinitely, and dark holdings cannot be requested.",
+    "A finding aid is an instrument for someone who cannot see the material; its value is measured in discovery events, not in its own completeness.",
+    "Coverage is a first-class property — an inventory that names what it could not process is more usable than one that silently omits it.",
+    "Provenance is preserved by keeping the description with the material; derived indexes are conveniences that drift and must be regenerable from the source.",
+    "Descriptions decay: without custody metadata (who described it, when, superseded by what) and a reappraisal cadence, an old finding aid misleads more than an absent one.",
+    "Prioritising by condition — worst-described first — rather than by use produces queues that are never cleared and instruments people stop opening."
+  ],
+  "primitives": [
+    "accession record versus finding aid",
+    "processing level (collection / series / folder / item)",
+    "appraisal, retention, and deaccession decisions",
+    "the backlog and its dark, unrequestable portion",
+    "coverage fraction with the unprocessed remainder named",
+    "respect des fonds and original order",
+    "custody metadata and reappraisal cadence",
+    "the discovery event — a reader actually finding the material",
+    "processing throughput measured against total holdings"
+  ],
+  "failure_mode": [
+    "Optimises for coverage and discoverability over depth, so it can under-weight the case that one deeply true card is worth more than 82 thin ones.",
+    "Institutional-cadence bias: reasons in years and staff-hours, and can misread a fast iterative build loop as improper processing.",
+    "Treats holdings as a fixed corpus to be described rather than living code that changes under the description, and may over-prescribe reappraisal ritual.",
+    "Says little about the internal correctness of a single record — citation rules, scoring arithmetic, loopholes in a status field, and gate evasions all fall outside it.",
+    "Assumes a reader distinct from the describer; in a single-person estate where mk is both author and audience, part of the discovery argument weakens.",
+    "Prefers a written retention decision to simple neglect, and may over-formalise abandonment that costs nothing to leave implicit."
+  ],
+  "findings": [
+    "f-018",
+    "f-019",
+    "f-020",
+    "f-021",
+    "f-022"
+  ]
+}

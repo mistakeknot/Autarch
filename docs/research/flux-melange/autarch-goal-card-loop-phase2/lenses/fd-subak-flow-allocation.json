@@ -1,0 +1,42 @@
+{
+  "id": "fd-subak-flow-allocation",
+  "kind": "base",
+  "parents": [],
+  "domain": "Balinese subak irrigation \u2014 the water-temple-coordinated management of terraced rice: proportional dividing weirs (tembuku) notched to each member's share, hand-cut canals and ridge tunnels kept open by obligatory collective labor (ngayah), a ritual calendar that synchronizes planting and fallow across dozens of upstream and downstream subaks, the pekaseh who walks the channel rather than consults a register, sanction by loss of turn rather than by fine, and the Green Revolution episode in which a modernizing state replaced the calendar with continuous cropping and lost the coordination the ritual had been carrying.",
+  "axioms": [
+    "An ordering is not an allocation. Placing a claimant first in a register moves nothing; only an aperture that passes water delivers, and a system that reorders its register while the flow is unchanged has done no work.",
+    "A share is only real if it is coupled to an obligation and the obligation to a share. Labor with no water attached is abandoned within a few seasons; water with no labor attached lets the channel silt shut.",
+    "The head end is not the system. Any trial run where water is secure reports the cost of the practice under the one condition the tail never enjoys, and its numbers do not transfer down the channel.",
+    "Every property that matters is a property of the hundredth turn. A rule is judged by what it does in the season, not in the planting \u2014 first-turn cost is the least informative measurement available.",
+    "The only enforcement is loss of turn. Where an escape can be taken at no price, it is the route that gets taken, and the sanction that remains is decorative.",
+    "The register is confirmatory, not operative \u2014 the one who allocates walks the channel. A document that merely re-encodes what the walker already knows adds ceremony without adding information.",
+    "Practice that looks like ceremony to an outsider may be carrying the coordination. Strip a ritual to the part an instrument can read and the part that made people show up may be the part discarded.",
+    "Synchronization across members is a different good from fairness between them, and a calendar can be near-optimal for the first while being visibly unfair on the second; conflating the two loses whichever was actually load-bearing."
+  ],
+  "primitives": [
+    "the tembuku \u2014 a share cut as a visible notch, changed only before the assembly",
+    "head-end and tail-end position on the channel",
+    "the turn (giliran): a delivery, as distinct from a place in an ordering",
+    "ngayah \u2014 obligatory collective labor as the condition of a share",
+    "the ritual calendar as a rotation schedule across many members",
+    "the pekaseh who walks the channel; the register as confirmation",
+    "sanction by loss of turn versus a payable fine",
+    "the paper share that the tail-ender never receives",
+    "the silted channel \u2014 what decays when maintenance labor stops",
+    "the Green Revolution substitution: rationalization that removed the coordinating ritual"
+  ],
+  "failure_mode": [
+    "Assumes a genuinely scarce, rivalrous, conserved flow. Attention is scarce but not conserved the way water is \u2014 the lens will over-read zero-sum competition between 82 projects and under-read work that creates its own momentum.",
+    "Assumes many independent members with divergent interests and a governing body between them. This estate is one operator who is simultaneously the pekaseh, every member, and the temple, so all the lens's coordination and free-riding machinery may be describing a conflict that does not exist.",
+    "Steady-state bias: a subak has no end state, so the lens will treat every rule as a permanent rotation and may unfairly penalize a deliberately temporary scaffold that is meant to be discarded after a dozen turns.",
+    "Institutionally conservative \u2014 it has watched rationalization destroy a working practice, so it will defend existing ritual and may resist a format simplification that is in fact correct.",
+    "Reasons about delivery and turn-taking, not about correctness of the artifact: it can pronounce an allocation sound while the cards it allocates by are wrong, misparsed, or trivially forgeable.",
+    "Has no vocabulary for irreversibility of a technical format \u2014 it treats every season as re-cuttable, so it will under-price decisions that harden the moment pkg/tui reads the card and cannot be re-notched next season."
+  ],
+  "findings": [
+    "f-042",
+    "f-043",
+    "f-044",
+    "f-045"
+  ]
+}

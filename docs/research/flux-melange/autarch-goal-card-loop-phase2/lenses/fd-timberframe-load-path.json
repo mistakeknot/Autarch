@@ -1,0 +1,41 @@
+{
+  "id": "fd-timberframe-load-path",
+  "kind": "base",
+  "parents": [],
+  "domain": "Timber-frame carpentry by scribe rule and square rule \u2014 laying out a frame from irregular hewn stock on a layout floor, scribing each joint to its actual mating timber, dry-assembling bents flat on the ground, drawboring pegs that pull a joint permanently tight, working to a datum rather than to the adjacent piece, and the single-day raising where every accumulated misfit appears at once.",
+  "axioms": [
+    "A joint is fitted either to a specific mate or to a standard, never both: a frame scribed piece-to-piece cannot be reused elsewhere, and one cut purely to a standard fits everywhere and tightly nowhere.",
+    "A dry fit on the ground is the only honest test, and it must assemble a whole bent \u2014 fitting one joint proves the joint, not the frame.",
+    "Stock is irregular; a design assuming every stick yields the same member stalls at the one the pile cannot supply, and no amount of scheduling produces that stick.",
+    "Some fasteners are deliberately irreversible: a drawbored peg pulls a joint tight and comes out only by destruction. Knowing which decision is a drawbore is the whole of assembly planning.",
+    "Measure against a datum \u2014 plumb, level, equal diagonals \u2014 never against the adjacent piece; error referenced to itself accumulates invisibly until the last bay will not close.",
+    "A member either carries load or is decoration, and the drawing does not say which; you learn it by removing it and seeing whether anything sags.",
+    "Raising day is a single irreversible event with a crowd standing around: everything not discovered on the layout floor is discovered there, at the worst price it will ever cost.",
+    "A frame is not a building \u2014 it carries load and sheds nothing; usefulness arrives only with what is hung on it afterward."
+  ],
+  "primitives": [
+    "the layout floor, where re-cutting is still cheap",
+    "scribe rule versus square rule (fitted-to-its-mate versus interchangeable)",
+    "the dry-fit bent, assembled flat before the raising",
+    "the drawbored peg \u2014 irreversible tightening",
+    "the datum: plumb bob, framing square, equal diagonals",
+    "irregular hewn stock, and the member the pile cannot yield",
+    "load-bearing member versus decorative member",
+    "raising day, where accumulated misfit arrives all at once",
+    "the scarf repair \u2014 the cost of correcting a timber already in the frame",
+    "the open bay: a frame deliberately left incomplete rather than filled with a bad stick"
+  ],
+  "failure_mode": [
+    "Physical-irreversibility bias: software fields can be renamed by a scripted rewrite, so this lens will over-price format changes that are genuinely a few minutes of sed across a handful of files.",
+    "Assumes a designed whole exists before the first cut; poorly calibrated for deliberately exploratory work where the frame is meant to be discovered by building part of it and looking.",
+    "Reasons about one structure at a time \u2014 it will discuss the frame for unc-rancher and under-attend to the 82-project estate and to the person who has to live in the building.",
+    "Values fit and load over usefulness: it can pronounce a frame sound without asking whether the barn is wanted, so it may harden the six-field format instead of questioning the instrument.",
+    "No vocabulary for the labor of the person confirming \u2014 a framer counts board feet and days, not whether the client enjoyed it \u2014 so it under-weights ergonomics, motivation, and abandonment.",
+    "Treats the standard as externally given (a framing square is not negotiable), so it can miss that this format's users are also its authors and may change the standard mid-frame."
+  ],
+  "findings": [
+    "f-031",
+    "f-032",
+    "f-033"
+  ]
+}

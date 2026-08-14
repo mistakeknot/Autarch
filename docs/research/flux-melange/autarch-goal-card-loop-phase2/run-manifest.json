@@ -1,0 +1,149 @@
+{
+  "runtime": "claude",
+  "rounds": 4,
+  "halt_reason": "DRY",
+  "gain_history": [
+    {
+      "round": 0,
+      "yield": 11,
+      "novel_cluster_rate": 0.86
+    },
+    {
+      "round": 1,
+      "yield": 6,
+      "novel_cluster_rate": 0.64
+    },
+    {
+      "round": 2,
+      "yield": 6,
+      "novel_cluster_rate": 0.5
+    },
+    {
+      "round": 3,
+      "yield": 0,
+      "novel_cluster_rate": 0
+    }
+  ],
+  "spice_trail": [
+    {
+      "round": 0,
+      "event": "assay",
+      "findings": 22,
+      "agents_dispatched": 2
+    },
+    {
+      "round": 1,
+      "event": "probe",
+      "directives": [
+        {
+          "type": "PROBE-DISAGREEMENT",
+          "rationale": "open contradiction — adjudicate",
+          "lens": null
+        },
+        {
+          "type": "DEEPEN",
+          "rationale": "risk 6, unconfirmed — confirm or refute",
+          "lens": "fd-datamodel-format-durability"
+        },
+        {
+          "type": "DEEPEN",
+          "rationale": "risk 6, unconfirmed — confirm or refute",
+          "lens": "fd-datamodel-format-durability"
+        },
+        {
+          "type": "STEER-WIDE",
+          "rationale": "novel_cluster_rate 0.86 >= 0.6 — widening still pays",
+          "lens": "fd-timberframe-load-path"
+        }
+      ],
+      "findings": 11,
+      "failed": 0
+    },
+    {
+      "round": 1,
+      "event": "assay",
+      "findings": 11,
+      "agents_dispatched": 4
+    },
+    {
+      "round": 2,
+      "event": "probe",
+      "directives": [
+        {
+          "type": "PROBE-DISAGREEMENT",
+          "rationale": "open contradiction — adjudicate",
+          "lens": null
+        },
+        {
+          "type": "DEEPEN",
+          "rationale": "risk 6, unconfirmed — confirm or refute",
+          "lens": "fd-datamodel-format-durability"
+        },
+        {
+          "type": "FUSE",
+          "rationale": "shared_heat 2, complementarity 2, redundancy 3",
+          "lens": "fd-fused-ratification-toll-integrity"
+        },
+        {
+          "type": "STEER-WIDE",
+          "rationale": "novel_cluster_rate 0.64 >= 0.6 — widening still pays",
+          "lens": "fd-subak-flow-allocation"
+        }
+      ],
+      "findings": 12,
+      "failed": 0
+    },
+    {
+      "round": 2,
+      "event": "assay",
+      "findings": 12,
+      "agents_dispatched": 4
+    },
+    {
+      "round": 3,
+      "event": "probe",
+      "directives": [
+        {
+          "type": "PROBE-DISAGREEMENT",
+          "rationale": "open contradiction — adjudicate",
+          "lens": null
+        }
+      ],
+      "findings": 2,
+      "failed": 0
+    },
+    {
+      "round": 3,
+      "event": "assay",
+      "findings": 2,
+      "agents_dispatched": 1
+    }
+  ],
+  "slots_spent": 19,
+  "directive_history": [
+    {
+      "round": 1,
+      "directives": [
+        "PROBE-DISAGREEMENT",
+        "DEEPEN:fd-datamodel-format-durability",
+        "DEEPEN:fd-datamodel-format-durability",
+        "STEER-WIDE:fd-timberframe-load-path"
+      ]
+    },
+    {
+      "round": 2,
+      "directives": [
+        "PROBE-DISAGREEMENT",
+        "DEEPEN:fd-datamodel-format-durability",
+        "FUSE:fd-fused-ratification-toll-integrity",
+        "STEER-WIDE:fd-subak-flow-allocation"
+      ]
+    },
+    {
+      "round": 3,
+      "directives": [
+        "PROBE-DISAGREEMENT"
+      ]
+    }
+  ]
+}

@@ -1,0 +1,44 @@
+{
+  "id": "fd-assay-mark-integrity",
+  "kind": "base",
+  "parents": [],
+  "domain": "Assaying and hallmarking \u2014 the guild-regulated metrology of precious metals: touchstone streak tests, cupellation, millesimal fineness, statutory sampling, assay-office and date-letter punches, and the defacement of substandard work.",
+  "axioms": [
+    "A mark certifies exactly one tested property of one sampled portion; it says nothing about weight, workmanship, provenance, or worth, and every reliance beyond that property is unsecured.",
+    "Cheap surface tests and definitive destructive tests catch different frauds; a regime that runs only the cheap test passes anything shaped correctly on the surface.",
+    "The hardest fraud is not a forged mark but a genuine mark transposed onto a different object \u2014 correctly-formed evidence attached to the wrong body.",
+    "An assay is a sample; a sample certifies a batch only when the sampling rule is stated and the batch is homogeneous.",
+    "A mark that functions as a toll creates an evasion economy: makers reroute around the threshold rather than meet it, and the cheapest route is the one that gets taken.",
+    "A certification is worthless unless it records who struck it, when, and against which standard was then in force.",
+    "One number summarising a mixture (fineness over an alloy) hides which constituent is missing; consumers of the number cannot recover what the assay merged."
+  ],
+  "primitives": [
+    "the sampled portion versus the whole object",
+    "touchstone streak test versus cupellation",
+    "fineness expressed as a single millesimal number",
+    "the punch, the struck mark, and its transposition",
+    "assay-office mark and date letter (who certified, when)",
+    "the standard in force at the moment of marking",
+    "the weight/type threshold that triggers compulsory assay",
+    "defacement or rejection of substandard work",
+    "the downstream buyer who relies on the mark without re-testing"
+  ],
+  "failure_mode": [
+    "Reasons one object at a time and has no vocabulary for aggregate throughput or backlog \u2014 it will not notice that 81 objects were never submitted for assay at all.",
+    "Sees certification integrity as the question and can miss that the certification regime itself may be unnecessary for this object; it hardens a gate rather than asking whether the gate should exist.",
+    "Assumes an independent certifier and a stable, externally-set standard; poorly calibrated for a format expected to change under its own users, or where the maker, the warden, and the buyer are the same person.",
+    "Conservative bias: treats any relaxation of a check as new fraud surface, over-weighting adversarial cases in a single-operator estate where nobody is trying to cheat.",
+    "Indifferent to the cost of the test on the human performing it \u2014 cupellation destroys the sample and the warden does not care how long it took."
+  ],
+  "findings": [
+    "f-013",
+    "f-014",
+    "f-015",
+    "f-016",
+    "f-017",
+    "f-023",
+    "f-024",
+    "f-034",
+    "f-035"
+  ]
+}

@@ -1,0 +1,125 @@
+[
+  {
+    "name": "fd-datamodel-format-durability",
+    "focus": "Review the six-field product-card format and its card-check.py validator as a data contract that must serve two independent readers at once — a human confirming it and, starting with phase 2, a TUI rendering it — checking for representational gaps that are cheap to fix now and expensive once a second reader depends on the current shape",
+    "persona": "Apply the perspective of a structured-data and API-contract reviewer who specializes in formats that must serve two audiences at once — a human author/ratifier and a downstream machine consumer — and who has previously supported multiple 'v1' schemas that hardened around an early sample size before a second consumer arrived.",
+    "decision_lens": "Prioritizes findings about representational ambiguity, unstated invariants, and cross-consumer coupling that are cheap to change now (before pkg/tui and card-check.py --json both depend on the shape) and expensive once two independent readers exist. Treats 'the validator accepts it' as necessary but not sufficient — asks whether a second reader (the TUI, later the funding page) can also make sense of the same bytes without re-deriving rules the validator enforces procedurally rather than declaratively.",
+    "review_areas": [
+      "card_version is pinned to exactly 1 (card-check.py raises CardError if card_version != 1) with no migration path described anywhere in product-card-format.md or card-drafter.md — check whether phase 2's TUI, which is about to become a second reader of docs/why.md, has any contract for what happens when card_version needs to become 2, and whether the goal's DONE WHEN implicitly locks the schema before that question is answered",
+      "strength() in card-check.py adds a synthetic +1 to the confirmed count for a set `line`, on top of the five named fields, making 'score out of 6' a mix of five real field states and one derived one — verify the proposal's DONE WHEN clause 'ranking matches ruling 11 against real card strengths' is checkable against this exact scoring function rather than an informal notion of how filled-out a card looks",
+      "cuj.ref is documented as nullable with path as the fallback identifier, but card-check.py's per-field validation loop for cuj only checks `state` — never `ref` or `path` — so a `confirmed` cuj with neither set passes validation silently; assess whether the TUI reading a 'confirmed' project's row could render a broken or empty CUJ link, and whether that is a format gap or a validator gap",
+      "the proposal's DONE WHEN requires 'absent, provisional, invalid and confirmed' to be four visibly distinct TUI row states, but product-card-format.md's own 'Absent, provisional, confirmed' section names only three card-level states while card-check.py's exit codes define four (0/1/2/3, adding invalid) — check whether the format doc and the validator actually describe the same state machine, since a TUI author reading only the format doc would miss invalid as a distinct state entirely",
+      "R2 scope exempts cuj from project-scope evidence ('cuj is exempt: a journey reference is journey-scoped by definition') but the format doc's field table lists cuj as one of six slots under the same drafted/declined/confirmed lifecycle as the rest — assess whether this asymmetry (four fields under R1+R2, line derived, cuj under R1 only) is documented anywhere a card author would see it before drafting, or is only discoverable by reading card-check.py's source",
+      "evidence scope is a closed four-value enum (project, epic, journey, external) enforced by card-check.py, and the format doc never states this is exhaustive or how a fifth scope would be added — assess whether phase 2's coupling to the funding page's 'sales copy' plausibly needs a scope (e.g., organization- or slate-level evidence) this enum cannot express"
+    ],
+    "severity_examples": [
+      {
+        "severity": "P1",
+        "scenario": "The TUI ships reading `strength.score` for ruling-11 ranking, but a project confirms `line` without confirming the other five fields being well-understood as 'mostly done' — the +1 synthetic bump for `line` silently changes rank order relative to what a human skimming the card would expect.",
+        "condition": "Confirmed only after the TUI is live and ranks look wrong, rather than caught by reading strength() before phase 2 starts."
+      },
+      {
+        "severity": "P2",
+        "scenario": "A confirmed card has cuj.state=confirmed with no ref and no path (validator permits this), and the TUI's card-panel CUJ link renders empty or errors for that project row.",
+        "condition": "Discovered as a TUI bug report rather than as a format-review finding before the TUI was built."
+      },
+      {
+        "severity": "P3",
+        "scenario": "A future scope value (e.g. 'slate') is needed for GSV funding-page coupling and has to be added to card-check.py's SCOPES enum plus every card already written, rather than being anticipated in the v1 format.",
+        "condition": "Only a cost if it happens after multiple cards exist; currently zero cards are written into repos so the cost is still near-zero."
+      }
+    ],
+    "success_hints": [
+      "A reviewer who has actually diffed product-card-format.md's prose description of the state machine against card-check.py's exit-code contract line by line, and can point to the specific place they diverge (invalid vs. the doc's three-state list), rather than asserting they 'seem consistent'",
+      "A reviewer who traces what happens to a specific malformed or edge-case card (e.g., confirmed cuj with no ref/path, or a fifth evidence scope) through the validator's actual control flow rather than reasoning about the format only from its prose description",
+      "A reviewer who ties each finding to the concrete cost of discovering it after pkg/tui is built against the current shape, rather than treating schema cleanliness as an abstract virtue"
+    ],
+    "task_context": "Review docs/proposals/2026-08-13-goal-card-loop-phase2.md before any of it runs. Is the sequencing right — confirm one card, then TUI? Is unc-rancher the right first subject? Does the six-field format survive a real human confirming it, given success drafted 0/5? Are the DONE WHEN clauses checkable, and does any encode a false assumption? What would be expensive to discover only after the TUI reads the format? Attack the premise too: is a per-project why-card the right instrument for overwhelm across 82 projects, or ceremony added to an estate that already has 2270 plans nobody reads?",
+    "anti_overlap": [
+      "fd-hci-ratification-cost covers whether a human can workably confirm the format's fields under real cognitive/time constraints, not whether the format's own representation is internally consistent or durable across two machine readers",
+      "fd-infoarch-ceremony-risk covers whether a structured why-card is the right instrument at all for the 82-project estate, not whether this particular schema's mechanics hold together"
+    ]
+  },
+  {
+    "name": "fd-hci-ratification-cost",
+    "focus": "Review the confirm step — an agent-drafted card ratified by a human — as a repeated human workflow, checking whether the goal's plan to measure its cost once on unc-rancher can honestly support ruling 12's commitment to performing it 82 times",
+    "persona": "Apply the perspective of a human-in-the-loop workflow researcher who studies the ergonomics of repeated ratification steps — PR approval, editorial sign-off, content moderation — and who is skeptical by training of extrapolating a per-unit cost or a workflow's tolerability from a single pilot instance.",
+    "decision_lens": "Prioritizes findings about whether the confirm step, as specified, is something a human will actually do accurately and sustainably at the stated scale (82 projects, later 'on first touch' perpetually), versus whether it merely looks confirmable in a single demo run. Weighs measurement-design flaws (n=1, no baseline, no comparison condition) as seriously as workflow flaws, since the goal explicitly treats 'minutes and what it changed' as the artifact that will justify ruling 12's 82x commitment.",
+    "review_areas": [
+      "the goal's DONE WHEN treats a single confirm on unc-rancher as producing 'the confirm-step cost' that gets 'written into the brainstorm as rulings' — assess whether one measurement, on the one repo picked partly because it is also funding-page sales copy (unusually strong incentive, and one of the richer rows in the five-repo table with 4/6 drafted fields), can honestly generalize to a jawnomicon-like project with a thin card or to the worst-documented tail ruling 11 puts on top",
+      "success drafted 0/5 across the measurement means unc-rancher's confirm step is not 'review and approve a drafted field' for success — it is 'originate a metric from nothing,' a materially different and more expensive cognitive task than confirming the persona/pain/cuj fields that measured drafted; check whether the goal's cost-measurement plan separates the cost of ratifying pre-drafted fields from the cost of authoring success (and guardrail, if declined) from scratch, since collapsing them into one number would misrepresent what ruling 12 actually commits 82 repetitions of",
+      "card-check.py's R3 refuses status: confirmed while any field remains drafted, forcing all six slots to reach declined or confirmed in one sitting — evaluate whether this all-or-nothing gate risks the classic long-form-approval failure mode (reviewer fatigues partway through and rubber-stamps the remaining fields to clear the gate) rather than genuinely adjudicating each one, and whether the drafter procedure or format doc guards against that at all",
+      "card-drafter.md's 'How to decline well' asks the confirming human to also write a needs line that 'is the question mk answers' for anything declined — assess whether confirming a card is actually two nested human tasks (ratify what's drafted, and originate new prose for anything declined) and whether the proposal's cost measurement is scoped to capture both or only the faster of the two",
+      "ruling 12's own rationale ('a signal that fires on 100% of rows carries no information... adoption to be gradual') depends on confirm happening repeatedly, spread out over time, on first touch — assess whether a single measured confirm-episode on unc-rancher, performed as a focused review exercise for this goal, can speak to the sustainability of that scattered, interrupt-driven cadence, or only to the cost of one seated session",
+      "guard-plan-needs-card.sh's override path (AUTARCH_CARD_OVERRIDE=\"reason\") is a zero-friction escape hatch available to any agent hitting the gate — evaluate whether the existence of a working override undermines the incentive to ever complete the more expensive confirm step being measured, i.e., whether the cost measurement risks measuring a step agents will in practice route around"
+    ],
+    "severity_examples": [
+      {
+        "severity": "P0",
+        "scenario": "Ruling 12's 82x commitment gets re-affirmed on the strength of one unc-rancher confirm, but the measured cost is dominated by originating a success metric from nothing (the 0/5 field) — a cost that will recur worse, not better, on thinner projects with no CUJ or PRD to draft from at all — so the estate commits to a workflow whose true cost was never actually measured.",
+        "condition": "Only surfaces once mk or an agent tries to confirm a thin card (e.g., jawnomicon-shaped) and the minutes run far past what unc-rancher's number suggested."
+      },
+      {
+        "severity": "P1",
+        "scenario": "The single confirm session is treated as representative, but because it is a focused review exercise performed to satisfy the goal's DONE WHEN, it does not exhibit the fatigue or interruption pattern of a real 'on first touch' confirm happening between other tasks — the recorded minutes understate real-world cost.",
+        "condition": "Confirmed only after several more confirms happen in normal workflow and the pattern of actual time spent diverges from the pilot's number."
+      },
+      {
+        "severity": "P2",
+        "scenario": "R3's all-or-nothing gate causes the confirming human to rubber-stamp a low-confidence field near the end of the session just to clear status: confirmed, and that field is silently treated as equally trustworthy as one genuinely reviewed.",
+        "condition": "Hard to detect from outside — would require comparing confirm-time-per-field within the single session, which the goal's plan does not obviously call for."
+      }
+    ],
+    "success_hints": [
+      "A reviewer who explicitly separates 'confirming a drafted field' from 'originating a declined field from nothing' as different-cost operations, rather than treating the confirm step as one homogeneous action",
+      "A reviewer who names the specific extrapolation risk (n=1, on the best-resourced of the five measured repos, chosen partly for external stakes) rather than accepting the single-instance measurement as sufficient grounding for an 82x commitment",
+      "A reviewer who checks whether the override mechanism and the confirm-cost measurement are in tension — a cheap escape hatch sitting next to an expensive, being-measured mandatory step"
+    ],
+    "task_context": "Review docs/proposals/2026-08-13-goal-card-loop-phase2.md before any of it runs. Is the sequencing right — confirm one card, then TUI? Is unc-rancher the right first subject? Does the six-field format survive a real human confirming it, given success drafted 0/5? Are the DONE WHEN clauses checkable, and does any encode a false assumption? What would be expensive to discover only after the TUI reads the format? Attack the premise too: is a per-project why-card the right instrument for overwhelm across 82 projects, or ceremony added to an estate that already has 2270 plans nobody reads?",
+    "anti_overlap": [
+      "fd-datamodel-format-durability covers the schema's internal consistency and its durability as a second (TUI) reader arrives, not whether a human can workably execute the confirm step",
+      "fd-infoarch-ceremony-risk covers whether the whole card-and-confirm apparatus is the right instrument for the estate's overwhelm problem at all, not the ergonomics of the specific confirm interaction"
+    ]
+  },
+  {
+    "name": "fd-infoarch-ceremony-risk",
+    "focus": "Attack the premise: assess whether a per-project structured why-card, ratified one at a time, is the right instrument for cutting through overwhelm across 82 projects, or a seventh unread artifact type layered onto an estate that already produces 2,270 plans, 831 brainstorms, 388 PRDs and 126 CUJs largely unread",
+    "persona": "Apply the perspective of an information-architecture and knowledge-management strategist who has diagnosed failed 'one more structured artifact' initiatives inside large documentation estates, and who treats an estate's history of unread artifacts as the first evidence to weigh against any new format, rather than as background color.",
+    "decision_lens": "Prioritizes findings that test the goal's own framing — 'a request-shape failure, not a discipline failure' — against alternative explanations and cheaper instruments, and treats a proposal to add a seventh artifact type (docs/why.md, alongside plans/brainstorms/PRDs/CUJs/decisions/ADRs) to an estate already producing six unread ones as needing to justify why this one will be read when the others were not, rather than assuming structure alone solves attention.",
+    "review_areas": [
+      "the brainstorm's diagnosis is that 82 projects yield '2,270 plans... 0 metrics documents' because 'agents were never asked for a why' — a request-shape failure — but the estate's 831 brainstorms and 388 PRDs already carry personas/CUJs/success-metrics at low but nonzero rates per the brainstorm's own PRD-content check (14% state a success metric, 5% a pain point, 2% a CUJ, 1% a persona); assess whether adding a seventh structured artifact type is diagnosed against 'why don't the existing six work as a why-source,' or whether that cheaper alternative (index the existing artifacts instead of authoring a new file) was considered and rejected, versus simply not raised",
+      "ruling 11's ranking (funded, then pins, then weakest-confirmed-card-first) plus ruling 12's on-first-touch backfill mean the unfunded tail's row order is driven entirely by how little of a brand-new artifact type exists yet — for 81 of 82 projects on day one that is 'score 0' — evaluate whether this reproduces, one layer up, the exact failure the brainstorm diagnoses in the current 2,270-plan estate: a signal dominated by an artifact nobody has gotten around to writing, rather than by anything about the project's actual state",
+      "the goal frames unc-rancher as the right first subject because 'its card is also the funding page's sales copy, which is the coupling this design rests on' — assess whether validating the confirm step on the one project with an unusually strong external incentive (real money, a stranger reading it) tells the reviewer anything about whether the format gets confirmed and kept current on the 79+ non-funded, non-slate projects that make up the actual overwhelm problem, or whether it validates an easier case than the one the goal is stated to target",
+      "the proposal puts 'backfilling cards beyond the one confirmed' OUT of scope, and DONE WHEN only requires one confirmed card among 82 projects plus a TUI that renders 'a stated coverage fraction' for sessions — evaluate whether '1 of 82 cards confirmed, TUI ships anyway' is a materially different estate-attention outcome than the diagnosed overwhelm problem, or whether it is process progress (a format exists, a gate fires) without yet being evidence the overwhelm itself is reduced for mk on any given day",
+      "compare this initiative's structure — a new required per-project file, a machine validator, a PreToolUse gate, ratification semantics — against the estate's stated pattern of prior unread structured artifacts (388 PRDs, 126 CUJs); identify what mechanism in this design, beyond 'it's shorter' and 'there's a gate,' is supposed to prevent docs/why.md from becoming the next artifact type that exists without being read, given the gate only fires on docs/plans/*.md writes and does not touch CUJs, PRDs, or brainstorms",
+      "the goal's own closing question ('is a per-project why-card the right instrument for overwhelm across 82 projects, or ceremony') is asked in the goal text but no DONE WHEN clause contains a falsification condition for it — no test, threshold, or observation in the DONE WHEN list would make the goal fail specifically because the why-card turned out to be ceremony; assess whether this question is structurally unanswerable by this goal as scoped, regardless of how the goal's other checks resolve"
+    ],
+    "severity_examples": [
+      {
+        "severity": "P0",
+        "scenario": "The goal completes exactly as scoped — one confirmed card, a working gate, a phase-2 TUI — and the estate's actual overwhelm (mk cannot find, revisit, or remember why a project matters) is unchanged for 81 of 82 projects, because DONE WHEN never required more than one confirmation and contains no check that overwhelm itself moved.",
+        "condition": "Only visible weeks later when mk is still overwhelmed despite every DONE WHEN box being checked — the goal as scoped cannot fail on this axis even if the premise is wrong."
+      },
+      {
+        "severity": "P1",
+        "scenario": "docs/why.md becomes the eighth artifact type in an estate where PRDs and CUJs already state most of the same information at low compliance rates, adding authoring and gate-maintenance burden without a mechanism that makes this file more likely to be kept current than the six artifact types that already went stale.",
+        "condition": "Confirmed only after several months show why.md files going stale at similar rates to existing PRDs/CUJs, which this goal's scope has no way to observe yet."
+      },
+      {
+        "severity": "P2",
+        "scenario": "Ruling 11's ranking surfaces the same handful of low-effort-to-draft projects at the top of the unfunded tail regardless of which project is actually most urgent, because rank is driven by card completeness rather than project state — a new staleness formula wearing ratification's clothes.",
+        "condition": "Only observable once the TUI ranks more than a couple of unfunded projects with genuinely different confirmed-field counts; not testable from the one-card pilot alone."
+      }
+    ],
+    "success_hints": [
+      "A reviewer who names a concrete alternative instrument (e.g., surfacing existing PRD/CUJ content directly in the row instead of authoring a new file type) and explains specifically why the card format was or wasn't compared against it, rather than accepting 'we need a why' as self-evidently requiring a new artifact",
+      "A reviewer who checks whether the DONE WHEN list contains any condition under which the goal would be judged to have failed the premise question, and flags it explicitly if none exists",
+      "A reviewer who treats the choice of unc-rancher (funded, incentivized, comparatively well-documented) as a possible best-case selection bias for the pilot, and asks what the same measurement would show on a project more representative of the 79-project unfunded tail"
+    ],
+    "task_context": "Review docs/proposals/2026-08-13-goal-card-loop-phase2.md before any of it runs. Is the sequencing right — confirm one card, then TUI? Is unc-rancher the right first subject? Does the six-field format survive a real human confirming it, given success drafted 0/5? Are the DONE WHEN clauses checkable, and does any encode a false assumption? What would be expensive to discover only after the TUI reads the format? Attack the premise too: is a per-project why-card the right instrument for overwhelm across 82 projects, or ceremony added to an estate that already has 2270 plans nobody reads?",
+    "anti_overlap": [
+      "fd-datamodel-format-durability covers the mechanics and durability of the six-field schema itself, not whether the card-and-gate apparatus is the right category of intervention for estate-wide overwhelm",
+      "fd-hci-ratification-cost covers the ergonomics and cost of the confirm step as a human task, not whether the resulting confirmed-card system addresses the overwhelm problem at the estate level"
+    ]
+  }
+]

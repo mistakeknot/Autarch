@@ -1,0 +1,44 @@
+{
+  "id": "fd-datamodel-format-durability",
+  "kind": "base",
+  "parents": [],
+  "domain": "structured data format / API contract design",
+  "axioms": [
+    "A format meant for two independent readers (a human ratifier and a downstream machine consumer) must specify its state machine and invariants declaratively, not just enforce them procedurally in one validator's control flow.",
+    "A validator that accepts a value is necessary but not sufficient evidence the format is well-specified \u2014 a second reader can diverge from the validator's undocumented assumptions.",
+    "Schema fields left unchecked by the validator (e.g., cuj.ref/path) are latent gaps that surface only once a second consumer depends on them.",
+    "Version pinning without a stated migration path is a debt that compounds with each new reader added.",
+    "Prose documentation and executable validation logic are two separate sources of truth for the same contract, and they drift unless deliberately kept in sync.",
+    "Closed enums (like evidence scope) implicitly claim exhaustiveness; an unanticipated future need is a design risk, not a hypothetical.",
+    "The cost of a representational gap scales with the number of independent consumers reading the same bytes, so before the second reader arrives is the cheapest moment to fix it."
+  ],
+  "primitives": [
+    "field state (drafted/declined/confirmed)",
+    "exit-code verdict (confirmed/provisional/invalid/absent)",
+    "evidence entry (path, scope)",
+    "schema version",
+    "consumer (validator, TUI, funding page)",
+    "strength score"
+  ],
+  "failure_mode": [
+    "May under-weight whether a schema gap is actually experienced as painful by a human user versus merely being formally inelegant.",
+    "Could over-index on the validator's source code as ground truth and miss cases where the prose documentation is the version a card-author or TUI-implementer will actually read and rely on.",
+    "May treat every unchecked field or unstated invariant as equally risky, without weighing how likely each is to matter given the goal's actual near-term scope (one card, one TUI).",
+    "Not well suited to judging whether the ratification workflow itself is humanly tractable, or whether the format is the right category of solution at all."
+  ],
+  "findings": [
+    "f-001",
+    "f-002",
+    "f-003",
+    "f-004",
+    "f-025",
+    "f-026",
+    "f-027",
+    "f-028",
+    "f-029",
+    "f-030",
+    "f-036",
+    "f-037",
+    "f-038"
+  ]
+}

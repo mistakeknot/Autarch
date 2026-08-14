@@ -1,0 +1,26 @@
+{
+  "objective": "Review docs/proposals/2026-08-13-goal-card-loop-phase2.md before any of it runs. Is the sequencing right — confirm one card, then TUI? Is unc-rancher the right first subject? Does the six-field format survive a real human confirming it, given success drafted 0/5? Are the DONE WHEN clauses checkable, and does any encode a false assumption? What would be expensive to discover only after the TUI reads the format? Attack the premise too: is a per-project why-card the right instrument for overwhelm across 82 projects, or ceremony added to an estate that already has 2270 plans nobody reads?",
+  "weights": "balanced",
+  "round": 0,
+  "min_rounds": 2,
+  "max_rounds": 4,
+  "budget": {
+    "total": 30,
+    "remaining": 30,
+    "round_cost_floor": 3
+  },
+  "coverage": {
+    "regions": [],
+    "tiers_used": [],
+    "lens_pairs_fused": []
+  },
+  "heat_map": {
+    "regions": [],
+    "lens_pairs": [],
+    "disagreement_flags": []
+  },
+  "gain_history": [],
+  "frontier": [],
+  "should_stop": false,
+  "halt_reason": null
+}

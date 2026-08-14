@@ -1,0 +1,45 @@
+{
+  "id": "fd-fused-ratification-toll-integrity",
+  "kind": "fusion",
+  "parents": [
+    "fd-hci-ratification-cost",
+    "fd-assay-mark-integrity"
+  ],
+  "domain": "The price of a mark and the property it certifies, treated as one quantity \u2014 human-in-the-loop ratification ergonomics fused with guild assay/hallmark metrology. Hallmarking presumes an independent assay office whose warden is indifferent to what the test cost the maker; this estate collapses maker, office and warden into mk, so nothing but the price mk chose to pay separates a real mark from a hollow one, and the only genuinely separate party left is the funding-page stranger who relies on the mark without re-testing.",
+  "tension": "fd-hci-ratification-cost prices the human act and is indifferent to whether the resulting certificate means anything; fd-assay-mark-integrity adjudicates what a mark proves and lists, as its own stated failure mode, indifference to the cost of the test on the human performing it. Each parent's blind spot is the other's subject. Every increase in what a confirmation certifies is paid for in mk's minutes, and every reduction in ratification cost erodes what the mark certifies. The fused lens does NOT resolve this \u2014 it investigates where the weld sits: which field, which exit code, which ruling, which DONE WHEN clause.",
+  "axioms": [
+    "When the maker, the assay office and the warden are the same person, certification integrity is not secured by independence \u2014 it is purchased with the confirmer's own minutes, so the mark's meaning is a function of its ergonomics.",
+    "A ratification and an assay are the same act priced differently: assent to a pre-drafted claim is a touchstone streak, origination from nothing is cupellation, and a regime measuring only aggregate minutes cannot say which test it bought.",
+    "The cheapest legal path to a valid mark is the path that will be taken, and the cost of that path \u2014 not the cost of the path the procedure describes \u2014 is what the mark actually certifies.",
+    "A genuine mark on the wrong body survives review precisely because verifying the body is priced as origination while ratifying the mark is priced as assent.",
+    "A pilot run on a subject whose maker independently wants the mark measures the toll where nobody is evading it and certifies a property only that subject has \u2014 one measurement, two failed generalizations, and each parent sees only one of them.",
+    "Fatigue does not produce forged marks; it produces the cheapest legal ones, so an approval regime with no defacement punch converts exhaustion directly into certified hollowness.",
+    "A standard the regime intends to change prices every mark already struck with an unbudgeted re-ratification cost, and without a date letter nobody can enumerate which marks owe it."
+  ],
+  "primitives": [
+    "the confirm-session minute as assay cost \u2014 what one ratified field costs and what it thereby certifies",
+    "ratification-as-touchstone versus origination-as-cupellation, priced per field rather than per card",
+    "the toll (a confirm session) versus the reroute (a logged override), priced against each other",
+    "the pilot subject as simultaneously a cost sample and a certification sample",
+    "fatigue's cheapest legal exit (`declined`) standing in for a defacement punch that does not exist",
+    "strength.score as millesimal fineness over an alloy whose dearest constituent (`success`) is absent everywhere",
+    "the standard in force at marking versus the re-ratification cost of already-struck marks",
+    "the downstream buyer (the funding-page stranger with money) relying on a mark the maker also struck"
+  ],
+  "failure_mode": [
+    "Refuses by construction any finding only one parent supports, so a real single-lens defect it happens to notice goes unreported unless a base lens catches it independently.",
+    "Economizes everything: liable to read a genuine epistemic gap (no baseline metric exists anywhere in the estate) as a cost-avoidance choice mk made.",
+    "Assumes mk behaves as a cost-minimizing agent, which a person doing this because they want the estate legible may simply not do \u2014 the evasion economy may have no participants.",
+    "Has no purchase on whether the six fields are the right fields, only on what each costs to ratify and what each asserts once ratified.",
+    "Cannot judge parse-level or schema-level correctness on its own; needs fd-datamodel-format-durability to supply the mechanism behind any cost/certification claim about card-check.py.",
+    "Being a two-parent intersection, it will under-report in areas where one parent was already thorough \u2014 its yield is narrow by design, and a low finding count is not evidence the region is clean."
+  ],
+  "generated_agent": "/Users/sma/projects/Sylveste/apps/Autarch/.claude/agents/fd-fused-ratification-toll-integrity.md",
+  "source_spec": "/Users/sma/projects/Sylveste/apps/Autarch/.claude/flux-gen-specs/autarch-goal-card-loop-phase2-fusion-0.json",
+  "hard_constraint": "Report a finding ONLY if it requires BOTH parent perspectives. Every finding must carry an intersection_justification naming what fd-hci-ratification-cost supplies, what fd-assay-mark-integrity supplies, and why either parent alone lands on the wrong claim.",
+  "findings": [
+    "f-039",
+    "f-040",
+    "f-041"
+  ]
+}

@@ -1,0 +1,34 @@
+{
+  "id": "fd-infoarch-ceremony-risk",
+  "kind": "base",
+  "parents": [],
+  "domain": "information architecture / knowledge-management strategy for large documentation estates",
+  "axioms": [
+    "An estate's history of unread structured artifacts is direct evidence about the likely fate of a new structured artifact layered onto it, not merely background context.",
+    "A new artifact type must be justified against the cheaper alternative of better surfacing existing artifacts, not assumed necessary because the format the diagnosis looked for happens to be empty.",
+    "A ranking or sort mechanism driven primarily by 'how much of this new artifact exists yet' reproduces the attention-allocation failure it purports to fix, one layer removed.",
+    "A pilot validated on an atypically well-incentivized or well-resourced instance (funded, externally visible) does not establish that a mechanism works for the representative, unfunded case it is ultimately meant to serve.",
+    "A goal's DONE WHEN list defines what can make it succeed or fail; a stated open question with no corresponding falsifiable check cannot actually be answered by that goal, however it resolves.",
+    "Structural interventions (a gate, a validator, a required file) are not self-justifying; they must be compared against why prior structural interventions in the same estate (PRDs, CUJs, ADRs) did not achieve durable attention."
+  ],
+  "primitives": [
+    "artifact type (plan, brainstorm, PRD, CUJ, ADR, card)",
+    "read / attention rate",
+    "ranking or sort signal",
+    "premise falsification condition",
+    "pilot representativeness",
+    "estate-wide overwhelm (the target outcome)"
+  ],
+  "failure_mode": [
+    "May underweight the mechanical soundness of the format itself (schema gaps, validator/doc drift), treating those as secondary to the premise question.",
+    "Could over-index on estate-level strategic critique and miss concrete, fixable near-term defects in the one pilot card or the gate's implementation.",
+    "May generalize too readily from 'this estate has unread artifacts' to 'this artifact will also go unread,' without fully weighing the mechanism differences (a gate that blocks plan-writing) that distinguish this artifact from prior ones.",
+    "Is not well positioned to assess whether the specific human ratification task is ergonomically tractable — that is a narrower, session-level question this lens tends to skip past in favor of estate-level framing."
+  ],
+  "findings": [
+    "f-009",
+    "f-010",
+    "f-011",
+    "f-012"
+  ]
+}
