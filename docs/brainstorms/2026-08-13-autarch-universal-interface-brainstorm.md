@@ -112,6 +112,8 @@ on a surface whose requirements are already settled.
 | 11 | Row ordering | **Funded first, then pins, then weakest card first.** Mk's pick, 2026-08-13. The unfunded tail is ordered by how little of its card is real, so the estate's gaps rank themselves instead of a staleness formula standing in for taste. Only `confirmed` fields count toward strength. Known cost, accepted: the worst-documented project sits permanently on top. |
 | 12 | Backfill | **On first touch, never in bulk.** Not a sequencing preference — a constraint. See below. |
 | 13 | A project with N agents | **One row.** `jeddnet` runs a claude session and a codex session; that is one project with two attached sessions, and decision 2 already settled that the row is the project. The prototype rendering it as two sibling rows was the prototype contradicting decision 2, not a new question. The row shows an agent count; the card panel lists the sessions. |
+| 14 | Confirm-session scope | **A design question surfaced while confirming a card is parked as a bead, never followed in-session.** Discovered by violating it — see Gate A below. Reading a why hard enough to write it truthfully is a good way to find live design holes, and following one is the correct engineering response and the wrong *session* response. At 82× the difference between parking and following is the difference between a week and a quarter. |
+| 15 | What Autarch is for | **Markdown document review and editing, plus agent development guidance.** Mk, 2026-08-14, mid-Gate-A: *"Autarch needs to be really focused on markdown document review/editing along with agent development guidance."* Sharpens decision 1 from a symptom (overwhelm) to a mechanism. The card loop is not a feature of Autarch — it is the archetype of what Autarch does, and Gate A is the first end-to-end instance of it. See below. |
 
 **Ruling 12 in full — why bulk backfill is a constraint and not a preference.**
 Two independent measurements say the same thing, and neither was available when
@@ -133,6 +135,71 @@ The format enforces this rather than asking for discipline: rule R3 refuses
 `status: confirmed` while any field is still `drafted`, so a bulk drafter
 *cannot* produce confirmed cards. Someone must read each one. That is the cost,
 and it is the point.
+
+**Ruling 15 in full — what the first confirm session revealed Autarch to be.**
+Gate A ran end-to-end on one project, and every minute of it was one of two
+activities: reviewing and editing a markdown document under a validator gate, or
+deciding what agents should do next. Nothing else happened. The card is
+markdown; the gate reads markdown; the drafter writes markdown; the thing the
+gate protects is whether a human actually read it. The 2,270 plans and 388 PRDs
+in the estate are the same substance at scale — the estate's problem is not that
+it lacks documents but that nothing distinguishes a document someone read from
+one an agent emitted.
+
+That reframes the phase-2 TUI. A card panel is not a card panel; it is the first
+instance of a **markdown review surface with a machine-checkable ratification
+state**, and the six fields are one schema it happens to enforce. The second
+instance is already sitting in the estate at 388×: PRD sections carrying
+persona/pain/cuj/success at 14/5/2/1% compliance (finding f-010) — asked for,
+mostly unanswered, never gated. Whether the TUI generalizes to those or stays
+card-only is a phase-2 scoping question this ruling opens and does not close.
+
+## Gate A — what the first confirm session found
+
+Subject: `uncrancher`. Card drafted, mk reviewed, four format findings recorded,
+**not ratified** — the session forked before ratification and the fork is the
+result worth keeping.
+
+*Findings that hold against the format:*
+
+1. **R1 and R2 govern `drafted` and not `confirmed`.** Both live inside
+   `if state == "drafted"`; the `confirmed` branch requires only a non-empty
+   `value`. Proven by execution: the same field with the same journey-scope
+   evidence is INVALID as `drafted` (*"a project metric needs project-scope
+   evidence"*) and valid as `confirmed`. Enforcement switches off exactly when a
+   human touches a field. **Ruling owed** — recommend applying R1 to `confirmed`
+   too, or requiring `origin: mk` for values a human originated; hold R2 as-is.
+2. **The drafter never opens the why-bearing file.** `uncrancher`'s why lives in
+   `docs/ontology.md`, which is not a README, CUJ, decision log, or PRD — the
+   four things the drafter's search path reads. The first card came back
+   mechanics-level and mk rejected it on exactly that basis. The 5-repo
+   measurement optimized the search path for *yield*, which systematically
+   selects against *depth*, casting doubt on every `pain` that measurement drafted.
+3. **`cuj` holds one ref; a why can span several journeys.** `uncrancher`'s spans
+   three (compose, walk, porch). The field took the entry point and a prose note.
+4. **No per-field provenance.** `confirmed_by`/`confirmed_at` are card-level only,
+   so a value mk originated is indistinguishable from one they accepted. Worked
+   around in prose, which the validator cannot read.
+
+*The pricing error, which is mine and not the format's.* Ruling 12 already states
+that R3 refuses `status: confirmed` while any field is `drafted`, so a bulk
+drafter cannot produce confirmed cards. Having written that, I still planned Gate
+A as *"set status, run the checker, exit 0"* — and the checker refused with
+`status confirmed but still drafted: persona, pain, cuj, guardrail`. Ratification
+is **not one yes**. It is one decision per field, each of which either accepts
+text mk did not write or requires them to write their own. Any 82× estimate built
+on a one-yes confirm session is low by roughly the field count.
+
+*The session-shape finding (ruling 14).* Reading the why hard enough to write it
+truthfully surfaced a live design hole in the subject project — a walking game
+whose walk provably cannot affect its own roll. Following it was correct
+engineering and produced two turns of genuine design work, now parked at
+`uncrancher-2zd`. It was also the wrong session move, and nothing in the goal
+said so. Hence ruling 14.
+
+*What Gate A still needs:* mk's four field rulings on `docs/why.md`
+(`persona`, `pain`, `cuj`, `guardrail` — each `confirmed` or `declined`), the
+ruling owed on finding 1, and the A6 call on a second pilot subject.
 
 **Prior art, in-tree.** `cujgel` (`/Users/sma/projects/cujgel`) already defines a
 CUJ schema with `actor`, `trigger`, `mental_model`, `ambiguity_ledger`,
