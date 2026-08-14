@@ -156,9 +156,19 @@ card-only is a phase-2 scoping question this ruling opens and does not close.
 
 ## Gate A — what the first confirm session found
 
-Subject: `uncrancher`. Card drafted, mk reviewed, four format findings recorded,
-**not ratified** — the session forked before ratification and the fork is the
-result worth keeping.
+Subject: `uncrancher`. **Ratified 2026-08-14 — `card-check` exit 0, strength 6/6,
+the first confirmed card in the estate.** Mk confirmed all four drafted fields in
+one pass, including `persona`, which the facilitator had recommended declining.
+Five format findings recorded along the way; the session also forked mid-flight,
+and the fork is a result worth keeping.
+
+The ranking now has its first real datum, and it exercises ruling 11 immediately:
+`uncrancher` at strength 6 sorts to the *bottom* of the unfunded tail, below 81
+projects reading `⚠ no why stated`. That is the intended direction — and it only
+works because the `strength()` inversion found by the pre-run review (`f-001`,
+dotfiles `e9cb135`) was fixed first. On the unfixed ranker, running the drafter
+alone would have moved a project down the queue below every project nobody had
+looked at.
 
 *Findings that hold against the format:*
 
@@ -179,7 +189,30 @@ result worth keeping.
    three (compose, walk, porch). The field took the entry point and a prose note.
 4. **No per-field provenance.** `confirmed_by`/`confirmed_at` are card-level only,
    so a value mk originated is indistinguishable from one they accepted. Worked
-   around in prose, which the validator cannot read.
+   around in prose, which the validator cannot read. Ratification made this
+   concrete: all six fields now read `confirmed`, and nothing distinguishes the
+   one mk wrote (`success`) from the four they accepted.
+5. **No slot for a comparable, and it is the sentence people actually want.**
+   Asked to ratify, mk volunteered *"it's like pokemon go but with much more
+   variety and meme potential"* — unprompted, in the same breath as the rulings.
+   That is the "X but Y" form, the single most useful line for telling a stranger
+   what a project is, and the six fields have nowhere to put it. `line` is a
+   register away: *"Walk. Recognize him. Owe him something."* is a stance, not a
+   comparable.
+
+   Note it does **not** collide with `ontology.md` §5's Pokémon rule-outs, which
+   are about *mechanics* — sparkle UI, RARE! labels, a Pokédex. Mk's comparable
+   names what is **different**: "much more variety" is §2.6's procedural
+   axis-rolled types and §2.7's infinite roster stated as a benefit rather than a
+   constraint, and "meme potential" is a claim about shareability that nothing in
+   the card format can express.
+
+   **Deliberately not acted on.** `card_version` is pinned at 1, so adding a
+   seventh field flips the card just ratified from exit 0 to exit 2. This is
+   precisely the instability amendment A5 identified — a goal that solicits
+   format findings while hard-pinning the version — observed live on the first
+   card, within minutes of it going green. Gate B's version-bump path is the
+   right home for it.
 
 *The pricing error, which is mine and not the format's.* Ruling 12 already states
 that R3 refuses `status: confirmed` while any field is `drafted`, so a bulk
@@ -197,9 +230,21 @@ engineering and produced two turns of genuine design work, now parked at
 `uncrancher-2zd`. It was also the wrong session move, and nothing in the goal
 said so. Hence ruling 14.
 
-*What Gate A still needs:* mk's four field rulings on `docs/why.md`
-(`persona`, `pain`, `cuj`, `guardrail` — each `confirmed` or `declined`), the
-ruling owed on finding 1, and the A6 call on a second pilot subject.
+*What Gate A still needs:* the ruling owed on finding 1 (R1 for `confirmed`
+fields), and the A6 call on a second pilot subject. The card itself is done —
+`uncrancher@04337f6`, `docs/why.md`, exit 0.
+
+*What the confirm session actually cost.* Not the number the estimate assumed.
+The card work proper was small — one drafting pass, one rejection, one rewrite,
+one ratification pass. What consumed the session was everything around it: a
+first draft that missed the why-bearing file entirely (finding 2), a design fork
+that ran two turns before being parked (ruling 14), and a prose body that went
+stale against its own frontmatter without the validator noticing, because
+`card-check` never reads past the `---`. Only the first of those three scales
+linearly with 82. The fork does not scale at all — it is a function of how much
+live design a project is carrying, which means the 82× estimate is not a single
+number but a distribution with a long right tail, and the pilot happened to be
+drawn from the tail.
 
 **Prior art, in-tree.** `cujgel` (`/Users/sma/projects/cujgel`) already defines a
 CUJ schema with `actor`, `trigger`, `mental_model`, `ambiguity_ledger`,
