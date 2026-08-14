@@ -141,20 +141,4 @@ type Checker interface {
 
 ---
 
-## Landing the Plane (Session Completion)
-
-When ending a work session, work through the steps below before handing off — the change isn't landed until `git push` succeeds.
-
-1. **File issues for remaining work** - Create issues for anything that needs follow-up
-2. **Run quality gates** (if code changed) - Tests, linters, builds
-3. **Update issue status** - Close finished work, update in-progress items
-4. **Push to remote**:
-   ```bash
-   git pull --rebase
-   bd sync
-   git push
-   git status  # MUST show "up to date with origin"
-   ```
-5. **Clean up** - Clear stashes, prune remote branches
-6. **Verify** - All changes committed AND pushed
-7. **Hand off** - Provide context for next session
+<!-- Session close protocol inherited from root AGENTS.md. -->

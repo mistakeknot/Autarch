@@ -53,3 +53,11 @@ intermute.db
 intermute.keys.yaml
 cmd/autarch/autarch
 .gurgeh/sprints/archive/
+
+# Rust build artifacts in prototypes
+prototypes/*/target/
+
+# Agent-runtime db artifacts
+.clavain/**/*.db
+.clavain/**/*.db-shm
+.clavain/**/*.db-wal
