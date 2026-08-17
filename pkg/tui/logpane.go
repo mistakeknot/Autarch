@@ -53,7 +53,7 @@ func (p *LogPane) Update(msg tea.Msg) tea.Cmd {
 	case tea.KeyMsg:
 		switch msg.String() {
 		case "g":
-			p.viewport.ScrollTo(0)
+			p.viewport.ScrollToLine(0)
 		case "G":
 			p.viewport.ScrollToBottom()
 		default:
