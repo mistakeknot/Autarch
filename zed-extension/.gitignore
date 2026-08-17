@@ -1,0 +1,6 @@
+target/
+Cargo.lock
+# Zed compiles the extension itself on "Install Dev Extension" and writes the
+# artifact into its own support directory, so a checked-in .wasm would never be
+# the one that runs -- it would only be the one that goes stale.
+*.wasm

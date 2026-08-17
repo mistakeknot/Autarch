@@ -1,0 +1,13 @@
+[package]
+name = "zed_product_card"
+version = "0.1.0"
+edition = "2021"
+publish = false
+license = "MIT"
+
+[lib]
+# Zed loads extensions as WebAssembly components.
+crate-type = ["cdylib"]
+
+[dependencies]
+zed_extension_api = "0.7"

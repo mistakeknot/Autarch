@@ -1,0 +1,19 @@
+id = "product-card"
+name = "Product Card"
+version = "0.1.0"
+schema_version = 1
+authors = ["mk"]
+description = "Diagnostics and ratification actions for product cards and PRDs"
+repository = "https://github.com/mistakeknot/autarch"
+
+# Attaches to the BUILT-IN Markdown language rather than declaring a new one.
+# A card is markdown -- `docs/why.md` renders, diffs and reads as markdown
+# everywhere else in the estate, and inventing a "Card" language to hang a
+# server on would cost the syntax highlighting, the outline, and the preview
+# that markdown already has. The server decides for itself whether a given file
+# is a card (frontmatter says `artifact_type: card`) or a PRD (path says
+# `docs/prds/`), so attaching broadly and claiming narrowly is correct here:
+# every other markdown file gets zero diagnostics because no checker claims it.
+[language_servers.card-lsp]
+name = "Product Card"
+languages = ["Markdown"]
