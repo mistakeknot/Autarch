@@ -3,6 +3,7 @@ package door
 import (
 	"context"
 	"fmt"
+	"os"
 	"os/exec"
 	"strings"
 
@@ -19,6 +20,9 @@ type resultMsg struct{ p Project }
 // statusMsg is a transient footer note (Zed launched, pin saved, errors).
 type statusMsg string
 
+// sessionsMsg carries one snapshot of the tmux axis (Gate B).
+type sessionsMsg struct{ set SessionSet }
+
 type checksDoneMsg struct{}
 
 var (
@@ -32,6 +36,7 @@ var (
 	styleFunded   = lipgloss.NewStyle().Foreground(palette.StatusWarning)
 	stylePinned   = lipgloss.NewStyle().Foreground(palette.StatusInfo)
 	styleReason   = lipgloss.NewStyle().Foreground(palette.FgTertiary)
+	styleSessions = lipgloss.NewStyle().Foreground(palette.Interactive)
 
 	// The four checker verdicts plus unchecked, each visibly distinct --
 	// a DONE WHEN clause, not a styling nicety.
@@ -52,6 +57,12 @@ type Model struct {
 	rankingErr  error
 	checker     string
 	checkerErr  error
+
+	// The tmux axis. sessionsLoaded distinguishes "not yet asked" from a
+	// snapshot that truly found zero sessions; sessions.Err is the third
+	// state, "asked and could not look".
+	sessions       SessionSet
+	sessionsLoaded bool
 
 	results   chan resultMsg
 	remaining int // checks still in flight; 0 means the estate is fully reported
@@ -86,10 +97,22 @@ func NewModel(projects []Project, ranking Ranking, rankingPath string, rankingEr
 }
 
 func (m Model) Init() tea.Cmd {
-	if m.checkerErr != nil || len(m.projects) == 0 {
-		return nil
+	// Sessions load even when the checker is unavailable: the two axes fail
+	// independently, and a dead checker must not blind the tmux column.
+	cmds := []tea.Cmd{m.loadSessions()}
+	if m.checkerErr == nil && len(m.projects) > 0 {
+		cmds = append(cmds, m.startChecks(), m.waitForResult())
 	}
-	return tea.Batch(m.startChecks(), m.waitForResult())
+	return tea.Batch(cmds...)
+}
+
+// loadSessions snapshots the tmux axis against the estate as discovered.
+func (m Model) loadSessions() tea.Cmd {
+	projects := make([]Project, len(m.projects))
+	copy(projects, m.projects)
+	return func() tea.Msg {
+		return sessionsMsg{set: SnapshotSessions(context.Background(), projects)}
+	}
 }
 
 // startChecks fans the checker out over the estate in the background; each
@@ -149,6 +172,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 
+	case sessionsMsg:
+		m.sessions = msg.set
+		m.sessionsLoaded = true
+		return m, nil
+
 	case statusMsg:
 		m.status = string(msg)
 		return m, nil
@@ -185,7 +213,18 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if len(m.projects) > 0 {
 			m.selRoot = m.projects[len(m.projects)-1].Root
 		}
-	case "enter", "z":
+	case "enter":
+		// Decision 9: a row with live sessions switches the tmux client
+		// there; a row without falls back to the card, which is where
+		// backfill on first touch starts.
+		if sel >= 0 {
+			p := m.projects[sel]
+			if target, ok := m.sessions.Target(p.Root); ok {
+				return m, switchToSession(p, target)
+			}
+			return m, openInZed(p)
+		}
+	case "z":
 		if sel >= 0 {
 			return m, openInZed(m.projects[sel])
 		}
@@ -199,8 +238,9 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				m.projects[i].Verdict = VerdictUnchecked
 				m.projects[i].Err = nil
 			}
+			m.sessionsLoaded = false
 			m.status = "re-checking the estate"
-			return m, tea.Batch(m.startChecks(), m.waitForResult())
+			return m, tea.Batch(m.startChecks(), m.waitForResult(), m.loadSessions())
 		}
 	}
 	m.clampScroll()
@@ -220,6 +260,31 @@ func openInZed(p Project) tea.Cmd {
 		}
 		go func() { _ = cmd.Wait() }() // reap; the door does not babysit Zed
 		return statusMsg(fmt.Sprintf("opened %s/docs/why.md in Zed", name))
+	}
+}
+
+// switchToSession moves mk to the project's most recently active tmux
+// session (decision 9). Inside tmux that is switch-client -- the door keeps
+// running in its own pane. Outside tmux there is no client to switch, so the
+// door execs an attach and resumes when that client detaches. The "=" prefix
+// pins tmux to an exact session-name match instead of prefix matching.
+func switchToSession(p Project, s TmuxSession) tea.Cmd {
+	name, pname := s.Name, p.Name
+	if os.Getenv("TMUX") == "" {
+		c := exec.Command("tmux", "attach-session", "-t", "="+name)
+		return tea.ExecProcess(c, func(err error) tea.Msg {
+			if err != nil {
+				return statusMsg(fmt.Sprintf("tmux attach %s: %v", name, err))
+			}
+			return statusMsg(fmt.Sprintf("detached from %s (%s)", name, pname))
+		})
+	}
+	return func() tea.Msg {
+		out, err := exec.Command("tmux", "switch-client", "-t", "="+name).CombinedOutput()
+		if err != nil {
+			return statusMsg(fmt.Sprintf("tmux switch-client %s: %v: %s", name, err, strings.TrimSpace(string(out))))
+		}
+		return statusMsg(fmt.Sprintf("switched to %s (%s)", name, pname))
 	}
 }
 
@@ -253,8 +318,9 @@ func (m Model) selIndex() int {
 	return -1
 }
 
-// chromeHeight is the door's own frame: title, coverage, blank, footer.
-const chromeHeight = 4
+// chromeHeight is the door's own frame: title line plus the four footer
+// lines (cards fraction, sessions fraction, keys, status).
+const chromeHeight = 5
 
 func (m *Model) visibleRows() int {
 	rows := m.height - chromeHeight
@@ -282,11 +348,8 @@ func (m *Model) clampScroll() {
 func (m Model) View() string {
 	var b strings.Builder
 
-	cov := Cover(m.projects)
 	b.WriteString(styleTitle.Render("AUTARCH DOOR"))
-	b.WriteString(styleCoverage.Render(fmt.Sprintf("  %d projects", cov.Total)))
-	b.WriteString("\n")
-	b.WriteString(styleCoverage.Render(coverageLine(cov)))
+	b.WriteString(styleCoverage.Render(fmt.Sprintf("  %d projects", len(m.projects))))
 	b.WriteString("\n")
 
 	rows := m.visibleRows()
@@ -323,7 +386,7 @@ func coverageLine(c Coverage) string {
 // cell afterwards, so no styled string is ever truncated (the []rune-on-ANSI
 // bug class this repo's rules name).
 func (m Model) renderRow(p Project, selected bool) string {
-	nameWidth := m.width - 26 // marker 2 + verdict 13 + score 7 + padding
+	nameWidth := m.width - 30 // marker 2 + verdict 13 + score 7 + sessions 4 + padding
 	if nameWidth < 12 {
 		nameWidth = 12
 	}
@@ -344,21 +407,32 @@ func (m Model) renderRow(p Project, selected bool) string {
 		score = fmt.Sprintf("%d/%d ", p.Strength.Score, p.Strength.Of)
 	}
 
+	// The sessions cell stays blank until a snapshot lands, and stays blank
+	// on an UNCHECKED snapshot -- rendering 0 for a count nobody measured is
+	// the empty-result-read-as-zero failure, same rule as the score column.
+	sess := "    "
+	if m.sessionsLoaded && m.sessions.Err == nil {
+		if n := m.sessions.Count(p.Root); n > 0 {
+			sess = pad(fmt.Sprintf("◆%d", n), 4)
+		}
+	}
+
 	name := pad(p.Name, nameWidth)
 	verdict := pad(strings.ToUpper(string(p.Verdict)), 12)
 
 	note := ""
 	if p.Verdict == VerdictInvalid && p.Reason != "" {
-		note = truncate(p.Reason, m.width-nameWidth-26)
+		note = truncate(p.Reason, m.width-nameWidth-30)
 	}
 	if p.Verdict == VerdictUnchecked && p.Err != nil {
-		note = truncate(p.Err.Error(), m.width-nameWidth-26)
+		note = truncate(p.Err.Error(), m.width-nameWidth-30)
 	}
 
 	line := markerStyle.Render(marker) +
 		lipgloss.NewStyle().Render(name) + " " +
 		verdictStyles[p.Verdict].Render(verdict) +
 		fmt.Sprintf("%5s", score) + " " +
+		styleSessions.Render(sess) +
 		styleReason.Render(note)
 	if selected {
 		return styleSelected.Render("> ") + line
@@ -366,26 +440,39 @@ func (m Model) renderRow(p Project, selected bool) string {
 	return "  " + line
 }
 
+// renderFooter states both axes as fractions -- cards confirmed and sessions
+// resolved (Gate B clause c) -- then keys, then errors or transient status.
 func (m Model) renderFooter() string {
-	parts := []string{"↑/↓ move", "enter open in Zed", "p pin", "r re-check", "q quit"}
+	var b strings.Builder
+	b.WriteString(styleCoverage.Render(coverageLine(Cover(m.projects))))
+	b.WriteString("\n")
+	switch {
+	case !m.sessionsLoaded:
+		b.WriteString(styleCoverage.Render("sessions: checking…"))
+	case m.sessions.Err != nil:
+		b.WriteString(styleErr.Render(sessionsLine(m.sessions)))
+	default:
+		b.WriteString(styleCoverage.Render(sessionsLine(m.sessions)))
+	}
+	b.WriteString("\n")
+
+	parts := []string{"↑/↓ move", "enter switch/open", "z card in Zed", "p pin", "r re-check", "q quit"}
 	line := styleFooter.Render(strings.Join(parts, " · "))
 	if m.remaining > 0 {
 		line += styleCoverage.Render(fmt.Sprintf("  checking %d…", m.remaining))
 	}
-	if m.checkerErr != nil {
+	switch {
+	case m.checkerErr != nil:
 		line += "\n" + styleErr.Render("checker unavailable: "+m.checkerErr.Error())
-		return line
-	}
-	if m.rankingErr != nil {
+	case m.rankingErr != nil:
 		line += "\n" + styleErr.Render("ranking file broken (order degraded to weakest-first): "+m.rankingErr.Error())
-		return line
-	}
-	if m.status != "" {
+	case m.status != "":
 		line += "\n" + styleCoverage.Render(m.status)
-	} else {
+	default:
 		line += "\n"
 	}
-	return line
+	b.WriteString(line)
+	return b.String()
 }
 
 // pad fixes a plain (unstyled) string to width, truncating with an ellipsis.
