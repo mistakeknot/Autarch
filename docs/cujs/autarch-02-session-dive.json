@@ -1,6 +1,6 @@
 {
   "cuj_id": "autarch-02-session-dive",
-  "version": "1.1",
+  "version": "1.2",
   "status": "derived",
   "actor": "mk — solo gardener, diving into one garden for an hour or an evening",
   "trigger": "The daily walk (or a popup-class interrupt) lands attention on one garden: something waits on them, or a thread wants pulling",
@@ -67,7 +67,7 @@
         "gate": "ask_then_proceed"
       },
       {
-        "question": "The dive as observed is a standing thread — 15 of 16 August dives were estate-scoped thematic conversations alive 2-4 weeks (median 58 turns, ~10 active hours), reaching into many gardens and never parking; the living thread is its own seance. Does landing-the-plane apply per sitting, per thread-death (pre-compaction canon capture), or only to fleet jobs — and is this CUJ's spine the garden-entry or the thread?",
+        "question": "mk ruled the standing threads a workaround ('the reason i work in sessions/threads is because we haven't built autarch/garden salon'), which keeps this CUJ's garden-entry spine and sharpens the parking question: threads today never park because thread context is ersatz canon — so what must parking capture (canon/cards/beads) before a garden-scoped session becomes cheap enough to close, and does the ritual fire per sitting or per thread-retirement during the transition?",
         "gate": "ask_then_proceed"
       }
     ]
@@ -113,6 +113,11 @@
       "source": "docs/research/2026-08-31-session-archaeology.md",
       "quote": "hmm check my sessions to determine how I actually work",
       "assumption_tested": "That the dive enters one garden and parks on exit — observed: dives are standing threads with pace-layered revisit cadences (four daily companions, five every-2-3-days, one weekly), and no parking behavior exists; the ritual is a designed correction to the losing-the-thread failure, not a current habit"
+    },
+    {
+      "source": "docs/research/2026-08-31-session-archaeology.md (Correction section)",
+      "quote": "well, the reason i work in sessions/threads is because we haven't built autarch/garden salon",
+      "assumption_tested": "That the observed thread topology should reshape this CUJ — mk ruled it scaffolding: the garden-scoped dive with real parking is the desired state, and the threads' three compensations (orientation, cross-garden carrying, durable memory) are the build order's evidence"
     }
   ],
   "success_condition": "mk enters a garden cold after two weeks and is working within minutes because the orientation told them what the last session knew — and when they leave, the parking ritual means nothing lives only in their head; they recognize the enter–play–park shape as how they already want to work, not a process imposed on them."

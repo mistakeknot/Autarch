@@ -1,6 +1,6 @@
 {
   "cuj_id": "autarch-01-daily-walk",
-  "version": "1.1",
+  "version": "1.2",
   "status": "derived",
   "actor": "mk — solo gardener of a ~98-project, agent-heavy, terminal-native estate",
   "trigger": "Sitting down at the machine (morning, or returning after hours away) with agents having run on wall-clock the whole time: 'what moved while I was gone, and what waits on me?'",
@@ -65,7 +65,7 @@
         "gate": "auto_proceed"
       },
       {
-        "question": "Is the walk's primary row the garden or the standing thread? August session archaeology found the objects mk actually triages daily are ~8-10 long-lived, estate-ranging conversation threads plus the fleet's jobs — gardens are what threads reach into. The briefing and waiting-on-me survive either answer; what they attach to does not.",
+        "question": "mk corrected the axis framing: the standing threads are scaffolding, not preference ('the reason i work in sessions/threads is because we haven't built autarch/garden salon'), so the row stays the garden and the question becomes decomposition order — which thread-compensated function does the walk absorb first: the catch-up briefing (exercised daily via companion threads) or the waiting-on-me triage? And does the door render live threads transitionally, as scaffolding on the way down?",
         "gate": "ask_then_proceed"
       }
     ]
@@ -107,7 +107,12 @@
     {
       "source": "docs/research/2026-08-31-session-archaeology.md",
       "quote": "hmm check my sessions to determine how I actually work",
-      "assumption_tested": "That the walk scans gardens — observed August behavior: 24/31 active days, median 3 real sessions across 2 projects, ~40 fleet one-shots/day, two-thirds of the estate dormant in any month (quiet-default confirmed); but the daily-triaged objects were standing threads, so the row axis is now an open question"
+      "assumption_tested": "That the walk scans gardens — observed August behavior: 24/31 active days, median 3 real sessions across 2 projects, ~40 fleet one-shots/day, two-thirds of the estate dormant in any month (quiet-default confirmed)"
+    },
+    {
+      "source": "docs/research/2026-08-31-session-archaeology.md (Correction section)",
+      "quote": "well, the reason i work in sessions/threads is because we haven't built autarch/garden salon",
+      "assumption_tested": "That standing threads are revealed preference — mk ruled them a workaround for the unbuilt estate; the daily companion threads are the hand-rolled version of this CUJ's briefing, which makes the briefing the walk's most-exercised missing organ"
     }
   ],
   "success_condition": "mk opens the door after a day away and, within about a minute, knows what moved and what waits on them — then either dives or closes it without guilt, and recognizes the walk as the Stellaris loop they described rather than an inbox they were assigned."

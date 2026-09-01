@@ -106,3 +106,35 @@ only honest rendering.
 The open axis question is logged in autarch-01/02's ambiguity ledgers (v1.1)
 rather than silently re-derived; the specs' step text still reads garden-first
 pending mk's ruling.
+
+## Correction (mk, same day) — the threads are scaffolding, not preference
+
+> "well, the reason i work in sessions/threads is because we haven't built
+> autarch/garden salon" — mk, 2026-08-31
+
+This re-frames the headline finding. Adopted behavior outranks stated
+preference only when the behavior was chosen among alternatives; a workaround
+is evidence of the *need*, not the *design*. The standing thread is the only
+container that exists today for cross-garden, cadence-respecting,
+context-accumulating work — so mk lives in it. Read as scaffolding, each
+thread property names the missing organ it compensates for:
+
+| Observed thread property | What it compensates for | Where the organ lives |
+|---|---|---|
+| Estate-ranging (15/16 span many gardens) | No cross-garden discourse — mk is the only bus carrying context between gardens | autarch-04 (guests talk to each other) |
+| Never parks; living thread = its own seance | No durable estate memory or cheap structured parking — thread context is ersatz canon | autarch-02 step 6 (landing the plane), autarch-04 (canon capture) |
+| Daily companions re-entered 20/26 days | No walk, no catch-up briefing — re-entering the thread IS the orientation | autarch-01 (briefing, waiting-on-me) |
+
+**What survives the correction** (tool-independent facts): the pace-layer
+cadence classes (attention rhythms, not tool artifacts), the dormant
+two-thirds of the estate, the presence rhythm, the fleet's hum.
+
+**What inverts**: the garden-vs-thread axis question. The thread is not a
+candidate first-class object to enshrine — it is the thing Autarch/garden
+salon exist to dissolve. The live question becomes a *decomposition order*:
+which compensated function does the estate absorb first? Usage frequency
+ranks them — orientation is exercised daily (4 companion threads), the bus
+function constantly (15/16 threads), parking never happens at all (16/16).
+Transitional honesty: threads exist today and the HUD transcribes reality,
+so rendering live threads during the transition may still be wanted — as
+scaffolding on the way down, not as the data model.
