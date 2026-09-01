@@ -1,6 +1,6 @@
 {
   "cuj_id": "autarch-04-canon-tending",
-  "version": "1.0",
+  "version": "1.1",
   "status": "derived",
   "actor": "mk — solo gardener, tending the slowest layer: cards, doctrine, canon",
   "trigger": "A fast-layer finding deserves to sediment into doctrine; a card reaches confirmable state; or cross-garden discourse surfaces a contradiction that demands a ruling",
@@ -49,12 +49,16 @@
       {
         "decision": "A cross-layer contradiction is the interrupt class worth a popup; ordinary connections stay toast-class",
         "confidence": "leaning"
+      },
+      {
+        "decision": "The Autarch/garden-salon relationship: garden salon is the world (shared substrate where humans and agents grow projects), Autarch is the human's terminal-native interface into it — two clients of one substrate, superseding the a/b/c fork with a stronger (d). mk 2026-08-31: 'i think autarch is more like the interface for human users to be able to work in the garden salon on their projects.' Re-confirm at CUJ validation.",
+        "confidence": "leaning"
       }
     ],
     "open_questions": [
       {
-        "question": "The Autarch ⟷ garden-salon relationship fork: (a) shared philosophy, separate products; (b) convergence — door's enter gains a salon destination; (c) doctrine flows one way. No salon-integration work until mk rules.",
-        "gate": "must_stop"
+        "question": "Phasing of the salon substrate: which piece does Autarch read first (presence/participant state? proposals/annotations? the discourse layer?), and does 'garden salon' here mean the deployed Yjs/relay stack or the protocol/philosophy with a leaner local carrier? The walk's organs (briefing, waiting-on-me) must NOT gate on this — they ship against today's substrate (cards, tmux, CanonGraph) and migrate their data plane later.",
+        "gate": "ask_then_proceed"
       },
       {
         "question": "Where does cross-garden discourse compute — a Pollard hunter, flux-melange gaining the interconnection step mk named, or a new door-side pass over cards?",
@@ -99,6 +103,11 @@
       "source": "docs/research/2026-08-31-garden-salon-convergence.md (ruling_captured)",
       "quote": "ye, the guests talk to each other, sort of like the interconnection step that flux-melange is missing",
       "assumption_tested": "That gardens are independent rows — mk ruled the discourse between them is a first-class layer, and named their own tool's matching gap"
+    },
+    {
+      "source": "docs/research/2026-08-31-garden-salon-convergence.md (Open fork — ruling appended)",
+      "quote": "i think autarch is more like the interface for human users to be able to work in the garden salon on their projects",
+      "assumption_tested": "That door and salon are peer products — mk's leaning makes the salon the world and Autarch its human terminal client, which gives the HUD something to be a HUD of and makes statelessness architecturally enforced rather than merely disciplined"
     }
   ],
   "success_condition": "A contradiction between two gardens mk had not consciously connected reaches them as one well-timed popup, they rule on it in the moment, and the ruling persists with rationale — mk recognizes the estate as a salon whose guests brought them something true, not a dashboard that paged them.",

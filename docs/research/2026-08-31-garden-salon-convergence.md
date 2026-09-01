@@ -70,3 +70,19 @@ What relationship do the two projects want?
 multiplayer web room); (b) convergence — the door as the estate-level surface
 whose "enter" can open a salon on a garden; (c) doctrine flows one way (door
 adopts salon principles, stays terminal-solo).
+
+### Ruling (mk, 2026-08-31 — leaning, re-confirm at CUJ validation)
+
+> "i think autarch is more like the interface for human users to be able to
+> work in the garden salon on their projects"
+
+A stronger (d) than any listed option: **the salon is the world; Autarch is
+the human's terminal-native interface into it.** Two clients, one substrate —
+the web salon is the room-scale multiplayer view, Autarch the estate-scale
+HUD, both reading the same shared state. This gives the HUD something to be a
+HUD *of*, makes Autarch's statelessness architecturally enforced (state lives
+in the substrate), and natively supplies the three organs the standing
+threads were scaffolding (orientation = continuous reading; the bus =
+participants sharing state; durable memory = trace-as-form). Phasing caveat
+held open in autarch-04's ledger: the walk's organs ship against today's
+substrate and do not gate on salon adoption.
