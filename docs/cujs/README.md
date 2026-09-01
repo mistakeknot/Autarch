@@ -18,6 +18,13 @@ All four are `status: derived` — mk ratified the vision and the spine
 step-by-step against the captured session. Promotion to `validated`
 happens when they do.
 
+v1.1 (2026-08-31): observed-behavior evidence added from
+docs/research/2026-08-31-session-archaeology.md (mk: "check my sessions
+to determine how I actually work"). The cadence spine is empirically
+confirmed, but the tended object is the **standing thread**, not the
+garden — the garden-vs-thread axis question is now in 01/02's ledgers
+awaiting mk's ruling.
+
 Validate with the cujgel plugin:
 `<plugin>/bin/cujgel-validate docs/cujs/*.json`
 

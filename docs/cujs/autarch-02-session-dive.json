@@ -1,6 +1,6 @@
 {
   "cuj_id": "autarch-02-session-dive",
-  "version": "1.0",
+  "version": "1.1",
   "status": "derived",
   "actor": "mk — solo gardener, diving into one garden for an hour or an evening",
   "trigger": "The daily walk (or a popup-class interrupt) lands attention on one garden: something waits on them, or a thread wants pulling",
@@ -65,6 +65,10 @@
       {
         "question": "Is the in-Autarch tending pane (huh + glamour + Composer, parts list researched) part of the dive or a separate surface?",
         "gate": "ask_then_proceed"
+      },
+      {
+        "question": "The dive as observed is a standing thread — 15 of 16 August dives were estate-scoped thematic conversations alive 2-4 weeks (median 58 turns, ~10 active hours), reaching into many gardens and never parking; the living thread is its own seance. Does landing-the-plane apply per sitting, per thread-death (pre-compaction canon capture), or only to fleet jobs — and is this CUJ's spine the garden-entry or the thread?",
+        "gate": "ask_then_proceed"
       }
     ]
   },
@@ -104,6 +108,11 @@
       "source": "docs/research/2026-08-31-vision-capture.md",
       "quote": "play in / build / grow",
       "assumption_tested": "That the dive is obligation-shaped — mk framed it as play; flow is load-bearing, and dev software failing at flow was the discover stage's founding observation"
+    },
+    {
+      "source": "docs/research/2026-08-31-session-archaeology.md",
+      "quote": "hmm check my sessions to determine how I actually work",
+      "assumption_tested": "That the dive enters one garden and parks on exit — observed: dives are standing threads with pace-layered revisit cadences (four daily companions, five every-2-3-days, one weekly), and no parking behavior exists; the ritual is a designed correction to the losing-the-thread failure, not a current habit"
     }
   ],
   "success_condition": "mk enters a garden cold after two weeks and is working within minutes because the orientation told them what the last session knew — and when they leave, the parking ritual means nothing lives only in their head; they recognize the enter–play–park shape as how they already want to work, not a process imposed on them."

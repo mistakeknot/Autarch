@@ -1,6 +1,6 @@
 {
   "cuj_id": "autarch-01-daily-walk",
-  "version": "1.0",
+  "version": "1.1",
   "status": "derived",
   "actor": "mk — solo gardener of a ~98-project, agent-heavy, terminal-native estate",
   "trigger": "Sitting down at the machine (morning, or returning after hours away) with agents having run on wall-clock the whole time: 'what moved while I was gone, and what waits on me?'",
@@ -63,6 +63,10 @@
       {
         "question": "How fresh must cross-garden signals be — computed on door open, or by a background cadence?",
         "gate": "auto_proceed"
+      },
+      {
+        "question": "Is the walk's primary row the garden or the standing thread? August session archaeology found the objects mk actually triages daily are ~8-10 long-lived, estate-ranging conversation threads plus the fleet's jobs — gardens are what threads reach into. The briefing and waiting-on-me survive either answer; what they attach to does not.",
+        "gate": "ask_then_proceed"
       }
     ]
   },
@@ -99,6 +103,11 @@
       "source": "docs/research/2026-08-31-vision-capture.md",
       "quote": "I think Autarch should be the UI/HUD/way for humans to play in/build/grow the garden of their projects/interests (especially when they are so deeply interrelated via pace layers/systems like my projects are).",
       "assumption_tested": "That Autarch is an app that owns workflow — the HUD ruling makes it an overlay that transcribes"
+    },
+    {
+      "source": "docs/research/2026-08-31-session-archaeology.md",
+      "quote": "hmm check my sessions to determine how I actually work",
+      "assumption_tested": "That the walk scans gardens — observed August behavior: 24/31 active days, median 3 real sessions across 2 projects, ~40 fleet one-shots/day, two-thirds of the estate dormant in any month (quiet-default confirmed); but the daily-triaged objects were standing threads, so the row axis is now an open question"
     }
   ],
   "success_condition": "mk opens the door after a day away and, within about a minute, knows what moved and what waits on them — then either dives or closes it without guilt, and recognizes the walk as the Stellaris loop they described rather than an inbox they were assigned."
