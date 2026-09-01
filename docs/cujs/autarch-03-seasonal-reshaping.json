@@ -1,0 +1,89 @@
+{
+  "cuj_id": "autarch-03-seasonal-reshaping",
+  "version": "1.0",
+  "status": "derived",
+  "actor": "mk — solo gardener, stepping back from walks and dives to reshape the estate itself",
+  "trigger": "A season boundary (a goal completes, a project ships or parks) — or accumulating friction: the walk keeps surfacing rows that never earn attention, a ranking that feels wrong, a signal class that keeps annoying",
+  "steps": [
+    {
+      "step": "Review the estate's shape through the layer lens: which gardens are fast-layer probes churning as they should, which are sedimenting toward doctrine, which are misfiled",
+      "build_surface": [
+        "CanonGraph projects_in_layer / serving_map (read-only)",
+        "layer view in the door (new)"
+      ]
+    },
+    {
+      "step": "Retune attention in context: the moment a signal annoys during a walk, reclassify it from where it appeared — popup down to toast, toast down to off — never in a settings screen visited later",
+      "build_surface": [
+        "in-context reclassify control (new — Stellaris B's jewel)",
+        "~/.autarch/door.yaml delivery-class config"
+      ]
+    },
+    {
+      "step": "Rerank and reweight the walk: adjust door ordering, archive gardens whose season is over, promote ones whose season is starting",
+      "build_surface": [
+        "~/.autarch/door.yaml ranking",
+        "door --root config"
+      ]
+    },
+    {
+      "step": "Reprune delegation scopes against earned trust: widen what proved reliable, narrow what fired wrong",
+      "build_surface": [
+        "agent permission tiers"
+      ]
+    }
+  ],
+  "mental_model": "Pace layers: fast layers innovate and churn, slow layers stabilize and constrain — and the estate's health is the layers moving at their own speeds, not one speed. Reshaping is the gardener's seasonal work: it happens rarely, deliberately, and mostly by *retuning* rather than rebuilding. The interruption budget is a first-class tuned number, adjusted when it drifts — Stellaris's own history says sprawl formulas cannot fix late-game slog; only trustworthy delegation plus classed interrupts do, which makes this journey (not more ranking math) the answer to the slog resentment.",
+  "ambiguity_ledger": {
+    "closed_decisions": [
+      "The interruption budget is a first-class tuned parameter, not an emergent accident (Stellaris H)",
+      "Reclassify, don't mute: fatigue is answered by moving a signal down a class in context, not by turning it off in frustration (Stellaris B + 4.0's rework direction)",
+      "Ranking math alone cannot fix late-game slog (Stellaris F + community verdict + the slog resentment)",
+      {
+        "decision": "Layer structure comes from CanonGraph (projects_in_layer / serving_map) rather than a new Autarch-local taxonomy",
+        "confidence": "leaning"
+      }
+    ],
+    "open_questions": [
+      {
+        "question": "Does in-context retune ever write beyond HUD-local config (door.yaml) — e.g. into CanonGraph layer membership — or does layer membership stay mk-edited through CanonGraph's own tools, preserving the read-only discipline?",
+        "gate": "must_stop"
+      },
+      {
+        "question": "What marks a season boundary the HUD should notice — goal close, card ratification, explicit archive action, or nothing automatic?",
+        "gate": "ask_then_proceed"
+      }
+    ]
+  },
+  "implied_features": [
+    "In-context reclassify control on every delivered signal (the retune button lives inside the annoyance)",
+    "Delivery-class configuration persisted in door.yaml (off/toast/popup per signal type)",
+    "Layer view: the estate grouped by pace layer, rendered from CanonGraph",
+    "Archive/promote actions that edit door.yaml ranking without touching the gardens themselves"
+  ],
+  "reference_lineage": [
+    {
+      "app": "Stellaris",
+      "teardown": "docs/research/2026-08-31-stellaris-teardown.md",
+      "what_it_shaped": "Pairs B (delivery classes + in-context retune), F (sprawl penalties as failed governor), H (pacing as a tuned number)"
+    },
+    {
+      "app": "Garden Salon",
+      "teardown": "docs/research/2026-08-31-garden-salon-convergence.md",
+      "what_it_shaped": "Temporal Heterogeneity (different kinds of time) applied at estate scale; Longitudinal Habituation (optimize for session 50)"
+    }
+  ],
+  "evidence": [
+    {
+      "source": "docs/research/2026-08-31-vision-capture.md",
+      "quote": "especially when they are so deeply interrelated via pace layers/systems like my projects are",
+      "assumption_tested": "That project interrelations are arbitrary edges — they have Brand-style layer structure, which gives reshaping its unit of work"
+    },
+    {
+      "source": "docs/research/2026-08-31-stellaris-teardown.md (discover_output block)",
+      "quote": "late-game slog, interrupt fatigue, untrustable autopilot, losing the thread",
+      "assumption_tested": "That the four resentments need four features — the teardown says slog and fatigue share one fix, and it lives in this journey"
+    }
+  ],
+  "success_condition": "After a reshaping pass, mk's next week of walks feels lighter without anything important going dark — and when a signal annoys them, they fix it in the two seconds of the annoyance and recognize that as the Stellaris retune button they admired, working on their own estate."
+}

@@ -1,0 +1,122 @@
+{
+  "cuj_id": "autarch-04-canon-tending",
+  "version": "1.0",
+  "status": "derived",
+  "actor": "mk — solo gardener, tending the slowest layer: cards, doctrine, canon",
+  "trigger": "A fast-layer finding deserves to sediment into doctrine; a card reaches confirmable state; or cross-garden discourse surfaces a contradiction that demands a ruling",
+  "steps": [
+    {
+      "step": "A card ripens: fields drafted by sessions, evidence cited against real paths (the card-lsp cite action), fractions visible on the walk",
+      "build_surface": [
+        "docs/why.md cards",
+        "card-check.py / card-lsp.py (shipped, incl. the cite action)"
+      ]
+    },
+    {
+      "step": "mk ratifies: confirmation is a human-issued stamp; agents may never add evidence to confirmed fields or speak in mk's voice",
+      "build_surface": [
+        "card-check finding-1 enforcement (shipped)",
+        "ratification flow surfaced in the HUD (new)"
+      ]
+    },
+    {
+      "step": "The guests talk to each other: cross-garden discourse surfaces connections between cards — same person described twice, same pain clause, a decision echoing another garden's ruling — routed along the serving/layer structure",
+      "build_surface": [
+        "cross-garden discourse engine (new — substrate open)",
+        "CanonGraph serving_map"
+      ]
+    },
+    {
+      "step": "A cross-layer contradiction (fast probe vs slow doctrine) earns a popup-class interrupt; mk rules, and the ruling lands as a decision with rationale",
+      "build_surface": [
+        "delivery-class routing (shared with autarch-01)",
+        "CanonGraph decisions"
+      ]
+    },
+    {
+      "step": "The crystallized-understanding layer grows: what the factory next door cannot see accumulates as the estate's actual product",
+      "build_surface": [
+        "cards + CanonGraph as the layer above the factory"
+      ]
+    }
+  ],
+  "mental_model": "Garden salon, not factory: 'the guests talk to each other, sort of like the interconnection step that flux-melange is missing.' Cards are not documentation — they are crystallized understanding, the layer Gas Town's sharpest critique names as the factory's blind spot and the thing this estate is already building. Discourse between gardens is intelligence, not noise, but only because it is routed by structure (layers, serving edges) and classed by weight — a connection is a toast, a contradiction with doctrine is a popup. Ratification is mk's alone; the trace of governance is part of the work's form.",
+  "ambiguity_ledger": {
+    "closed_decisions": [
+      "The ratification signature is mk's alone — agent-added evidence to confirmed fields is laundering, and the tooling enforces it (finding-1)",
+      "Cards live on disk in the repos as the ledger of understanding; the HUD transcribes their state, never owns it",
+      "Cross-garden discourse is IN — mk ruled the guests talk to each other",
+      {
+        "decision": "A cross-layer contradiction is the interrupt class worth a popup; ordinary connections stay toast-class",
+        "confidence": "leaning"
+      }
+    ],
+    "open_questions": [
+      {
+        "question": "The Autarch ⟷ garden-salon relationship fork: (a) shared philosophy, separate products; (b) convergence — door's enter gains a salon destination; (c) doctrine flows one way. No salon-integration work until mk rules.",
+        "gate": "must_stop"
+      },
+      {
+        "question": "Where does cross-garden discourse compute — a Pollard hunter, flux-melange gaining the interconnection step mk named, or a new door-side pass over cards?",
+        "gate": "ask_then_proceed"
+      },
+      {
+        "question": "What does a non-code garden's card look like? Roots are already plural; interests are wider than repos.",
+        "gate": "ask_then_proceed"
+      }
+    ]
+  },
+  "implied_features": [
+    "Cross-garden discourse: connection/contradiction detection between cards, routed by the CanonGraph layer/serving structure",
+    "Card ratification state surfaced in the HUD (ripeness visible on the walk, stamp flow one keystroke away)",
+    "Popup-class delivery for cross-layer contradictions, toast-class for connections",
+    "flux-melange interconnection step (mk's own naming; lands in interflux, not Autarch — bead candidate)"
+  ],
+  "reference_lineage": [
+    {
+      "app": "Garden Salon",
+      "teardown": "docs/research/2026-08-31-garden-salon-convergence.md",
+      "what_it_shaped": "Trace-as-Form (ratification stamps), the intra-garden discourse model this journey extends inter-garden, and the open a/b/c fork"
+    },
+    {
+      "app": "Gas Town",
+      "teardown": "docs/research/2026-08-31-gastown-teardown.md",
+      "what_it_shaped": "The 'layer above the factory' critique — the negative space this journey fills; Wasteland stamps rhyming with human-issued ratification"
+    },
+    {
+      "app": "Stellaris",
+      "teardown": "docs/research/2026-08-31-stellaris-teardown.md",
+      "what_it_shaped": "Delivery classes (B) applied to discourse output so guest-talk never becomes popup-spam"
+    }
+  ],
+  "evidence": [
+    {
+      "source": "docs/research/2026-08-31-garden-salon-convergence.md (ruling_captured)",
+      "quote": "i feel like i want to build software like it's a garden salon instead of a factory",
+      "assumption_tested": "That throughput is the measure — mk rejected the factory frame; crystallized understanding is the product"
+    },
+    {
+      "source": "docs/research/2026-08-31-garden-salon-convergence.md (ruling_captured)",
+      "quote": "ye, the guests talk to each other, sort of like the interconnection step that flux-melange is missing",
+      "assumption_tested": "That gardens are independent rows — mk ruled the discourse between them is a first-class layer, and named their own tool's matching gap"
+    }
+  ],
+  "success_condition": "A contradiction between two gardens mk had not consciously connected reaches them as one well-timed popup, they rule on it in the moment, and the ruling persists with rationale — mk recognizes the estate as a salon whose guests brought them something true, not a dashboard that paged them.",
+  "provenance": [
+    {
+      "artifact": "docs/research/2026-08-31-stellaris-teardown.md journey-step skeleton (draft)",
+      "change": "The linear 8-step skeleton is superseded as the CUJ spine by the four tending cadences (walk/dive/reshape/canon), per the vision capture; the 8 steps survive inside autarch-01 and autarch-02 as step material",
+      "autonomy": "applied"
+    },
+    {
+      "artifact": "interflux backlog",
+      "change": "flux-melange interconnection step (cross-target discourse) — mk named the gap directly; bead candidate for the interflux tracker, not Autarch scope",
+      "autonomy": "proposed"
+    },
+    {
+      "artifact": "Autarch build ordering (tending-pane goal, drafted+linted, parked)",
+      "change": "Tending pane phased after CUJ validation per mk's ruling 'shouldn't we map out CUJs for Autarch first?' — it now serves autarch-02 step 6 and the ratification flow here",
+      "autonomy": "proposed"
+    }
+  ]
+}
