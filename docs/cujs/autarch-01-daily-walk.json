@@ -1,6 +1,6 @@
 {
   "cuj_id": "autarch-01-daily-walk",
-  "version": "1.3",
+  "version": "1.4",
   "status": "validated",
   "actor": "mk — solo gardener of a ~98-project, agent-heavy, terminal-native estate",
   "trigger": "Sitting down at the machine (morning, or returning after hours away) with agents having run on wall-clock the whole time: 'what moved while I was gone, and what waits on me?'",
@@ -49,15 +49,19 @@
       {
         "decision": "Waiting-on-me detection comes from tmux scraping (Claude-Squad pattern), not a herdr migration",
         "confidence": "leaning"
+      },
+      {
+        "decision": "The catch-up briefing reads from git (commits on any ref since the window opened, plus uncommitted files) and from Claude Code's per-project transcript directories (sessions per garden, nested repos rolling up); alwe's session catalog follows as an async column. mk 2026-09-01, offered git + Claude transcripts / git only / git + alwe async / per-repo events ledger: '1 then 3'. Evidence that shaped the offer: every live tmux session sits at the estate root, so tmux cannot attribute movement to a garden; cass was degraded and alwe took over two minutes to answer.",
+        "confidence": "firm"
+      },
+      {
+        "decision": "The window is 'since the last visit': a client-local stamp written when Autarch is quit, 24h on the first visit, widened in steps with w and overridden with --since. Preference-class local state, same class as pins; the estate's truth is re-read every open.",
+        "confidence": "leaning"
       }
     ],
     "open_questions": [
       {
-        "question": "What does the catch-up briefing read from — tmux history, cass session archives, git log since last visit, or a per-repo events ledger?",
-        "gate": "ask_then_proceed"
-      },
-      {
-        "question": "Does the walk open on the briefing with NO list (provocation 1 from the Stellaris teardown) or on the briefing above the ranked rows?",
+        "question": "Does the walk open on the briefing with NO list (provocation 1 from the Stellaris teardown) or on the briefing above the ranked rows? Both are built (goal da757a12): alone is the default, b flips to above live, so the ruling is made against a real render, not in the abstract.",
         "gate": "ask_then_proceed"
       },
       {
@@ -122,6 +126,13 @@
       "source": "docs/cujs/README.md (validation record, 2026-09-01)",
       "quote": "it seems like all of the above CUJs are a Komoroske/Appleton-style version of product management + gardening/tending",
       "assumption_tested": "That the derived journeys needed correction before they were mk's — all four validated as walked, with the batched edits; the lineage mk named locates the whole set in the digital-gardening tradition"
+    }
+  ],
+  "provenance": [
+    {
+      "artifact": "internal/door briefing (intercore goal da757a12, 2026-09-01)",
+      "change": "The catch-up briefing built against git + Claude transcripts per mk's ruling; bare `autarch` opens to it; both layouts shipped behind the b key so the alone-vs-above question is decided against a real render; plan held in the job directory because the repo's plan guard requires a confirmed product card Autarch does not have",
+      "autonomy": "applied"
     }
   ],
   "success_condition": "mk opens the door after a day away and, within about a minute, knows what moved and what waits on them — then either dives or closes it without guilt, and recognizes the walk as the Stellaris loop they described rather than an inbox they were assigned."

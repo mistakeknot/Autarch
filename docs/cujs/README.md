@@ -35,6 +35,12 @@ the estate's own graph as target system of record (CanonGraph
 transitional); theme lifecycle inside reshaping. The rulings and the
 ontology behind them: docs/research/2026-08-31-estate-ontology.md.
 
+v1.4 (2026-09-01, autarch-01 only): consume stage — mk ruled the briefing's
+source before the build ("1 then 3": git + Claude Code transcripts now, alwe
+sessions async next); the last-visit window recorded as a leaning decision;
+the alone-vs-above layout question stays open, to be ruled against the real
+render (both layouts are built, `b` flips). Goal da757a12.
+
 Validate with the cujgel plugin:
 `<plugin>/bin/cujgel-validate docs/cujs/*.json`
 
