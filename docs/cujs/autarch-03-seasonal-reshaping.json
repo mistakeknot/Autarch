@@ -1,12 +1,12 @@
 {
   "cuj_id": "autarch-03-seasonal-reshaping",
-  "version": "1.2",
-  "status": "derived",
+  "version": "1.3",
+  "status": "validated",
   "actor": "mk — solo gardener, stepping back from walks and dives to reshape the estate itself",
   "trigger": "A season boundary (a goal completes, a project ships or parks) — or accumulating friction: the walk keeps surfacing rows that never earn attention, a ranking that feels wrong, a signal class that keeps annoying",
   "steps": [
     {
-      "step": "Review the estate's shape through the layer lens: which gardens are fast-layer probes churning as they should, which are sedimenting toward doctrine, which are misfiled",
+      "step": "Review the estate's shape through the pace lens: which gardens are fast-layer probes churning as they should, which are sedimenting toward doctrine, which are misfiled — and the theme lifecycle: which themes are being born, merging, splitting, going dormant, or ready to retire",
       "build_surface": [
         "CanonGraph projects_in_layer / serving_map (read-only)",
         "layer view in the door (new)"
@@ -73,6 +73,10 @@
       "app": "Garden Salon",
       "teardown": "docs/research/2026-08-31-garden-salon-convergence.md",
       "what_it_shaped": "Temporal Heterogeneity (different kinds of time) applied at estate scale; Longitudinal Habituation (optimize for session 50)"
+    },
+    {
+      "app": "Digital gardens — Appleton's ethos, Komoroske's compendium",
+      "what_it_shaped": "Named by mk at validation, not torn down: 'a Komoroske/Appleton-style version of product management + gardening/tending' — reshaping as the seasonal work of a garden that is never finished, only tended"
     }
   ],
   "evidence": [

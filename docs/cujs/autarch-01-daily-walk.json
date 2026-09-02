@@ -1,19 +1,19 @@
 {
   "cuj_id": "autarch-01-daily-walk",
-  "version": "1.2",
-  "status": "derived",
+  "version": "1.3",
+  "status": "validated",
   "actor": "mk — solo gardener of a ~98-project, agent-heavy, terminal-native estate",
   "trigger": "Sitting down at the machine (morning, or returning after hours away) with agents having run on wall-clock the whole time: 'what moved while I was gone, and what waits on me?'",
   "steps": [
     {
-      "step": "Open the door and arrive to orientation, not obligation: a catch-up reading of what moved since the last visit, before anything asks for a decision",
+      "step": "Open Autarch and arrive to orientation, not obligation: a catch-up reading of what moved since the last visit, before anything asks for a decision",
       "build_surface": [
         "cmd/autarch/door.go",
         "catch-up briefing pane (new — the Empire Timeline / begin-from-stillness steal)"
       ]
     },
     {
-      "step": "Scan the estate: rows quiet unless attention-worthy — verdict column, card fractions, live session counts; visibility is opt-in at this scale, not opt-out",
+      "step": "Scan the estate — pivoted by container (ecosystems → projects) or by theme: rows quiet unless attention-worthy — verdict column, card fractions, live session counts, themes with live salons; visibility is opt-in at this scale, not opt-out",
       "build_surface": [
         "internal/door (ranked rows, verdict column)",
         "~/.autarch/door.yaml (ranking + visibility config)"
@@ -34,7 +34,7 @@
       ]
     },
     {
-      "step": "Choose where attention lands: enter one garden (tmux switch-client), or close the door owing nothing",
+      "step": "Choose where attention lands: enter a garden (tmux switch-client) or a theme's salon, or close Autarch owing nothing",
       "build_surface": [
         "door enter (shipped)"
       ]
@@ -91,6 +91,10 @@
       "app": "Garden Salon",
       "teardown": "docs/research/2026-08-31-garden-salon-convergence.md",
       "what_it_shaped": "Ambient Governance and Continuous Reading — health visible without demanding; signals, not threshold alarms"
+    },
+    {
+      "app": "Digital gardens — Appleton's ethos, Komoroske's compendium",
+      "what_it_shaped": "Named by mk at validation, not torn down: 'it seems like all of the above CUJs are a Komoroske/Appleton-style version of product management + gardening/tending' — the walk as tending a topography, not clearing a timeline"
     }
   ],
   "evidence": [
@@ -113,6 +117,11 @@
       "source": "docs/research/2026-08-31-session-archaeology.md (Correction section)",
       "quote": "well, the reason i work in sessions/threads is because we haven't built autarch/garden salon",
       "assumption_tested": "That standing threads are revealed preference — mk ruled them a workaround for the unbuilt estate; the daily companion threads are the hand-rolled version of this CUJ's briefing, which makes the briefing the walk's most-exercised missing organ"
+    },
+    {
+      "source": "docs/cujs/README.md (validation record, 2026-09-01)",
+      "quote": "it seems like all of the above CUJs are a Komoroske/Appleton-style version of product management + gardening/tending",
+      "assumption_tested": "That the derived journeys needed correction before they were mk's — all four validated as walked, with the batched edits; the lineage mk named locates the whole set in the digital-gardening tradition"
     }
   ],
   "success_condition": "mk opens the door after a day away and, within about a minute, knows what moved and what waits on them — then either dives or closes it without guilt, and recognizes the walk as the Stellaris loop they described rather than an inbox they were assigned."

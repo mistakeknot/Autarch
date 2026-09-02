@@ -1,7 +1,7 @@
 {
   "cuj_id": "autarch-04-canon-tending",
-  "version": "1.1",
-  "status": "derived",
+  "version": "1.2",
+  "status": "validated",
   "actor": "mk — solo gardener, tending the slowest layer: cards, doctrine, canon",
   "trigger": "A fast-layer finding deserves to sediment into doctrine; a card reaches confirmable state; or cross-garden discourse surfaces a contradiction that demands a ruling",
   "steps": [
@@ -20,14 +20,14 @@
       ]
     },
     {
-      "step": "The guests talk to each other: cross-garden discourse surfaces connections between cards — same person described twice, same pain clause, a decision echoing another garden's ruling — routed along the serving/layer structure",
+      "step": "The guests talk to each other: cross-garden discourse surfaces connections between cards — same person described twice, same pain clause, a decision echoing another garden's ruling — routed two ways: by theme (topical — a contradiction inside one theme's membership is high-relevance) and by serving/layer structure (structural)",
       "build_surface": [
         "cross-garden discourse engine (new — substrate open)",
         "CanonGraph serving_map"
       ]
     },
     {
-      "step": "A cross-layer contradiction (fast probe vs slow doctrine) earns a popup-class interrupt; mk rules, and the ruling lands as a decision with rationale",
+      "step": "A cross-layer contradiction (fast probe vs slow doctrine) earns a popup-class interrupt; mk rules, and the ruling lands as a decision with rationale in the estate's own graph (CanonGraph transitionally)",
       "build_surface": [
         "delivery-class routing (shared with autarch-01)",
         "CanonGraph decisions"
@@ -91,6 +91,10 @@
       "app": "Stellaris",
       "teardown": "docs/research/2026-08-31-stellaris-teardown.md",
       "what_it_shaped": "Delivery classes (B) applied to discourse output so guest-talk never becomes popup-spam"
+    },
+    {
+      "app": "Digital gardens — Appleton's ethos, Komoroske's compendium",
+      "what_it_shaped": "Named by mk at validation, not torn down: 'a Komoroske/Appleton-style version of product management + gardening/tending' — canon as the garden's slow soil; learning in public becomes ratifying in private"
     }
   ],
   "evidence": [

@@ -1,12 +1,12 @@
 {
   "cuj_id": "autarch-02-session-dive",
-  "version": "1.2",
-  "status": "derived",
+  "version": "1.3",
+  "status": "validated",
   "actor": "mk — solo gardener, diving into one garden for an hour or an evening",
-  "trigger": "The daily walk (or a popup-class interrupt) lands attention on one garden: something waits on them, or a thread wants pulling",
+  "trigger": "The daily walk (or a popup-class interrupt) lands attention on a garden or on a theme's salon: something waits on them, or a thread wants pulling",
   "steps": [
     {
-      "step": "Enter the garden from the door — switch-client into its tmux session, or start one",
+      "step": "Enter from Autarch — switch-client into a garden's tmux session (or start one), or into a theme's salon",
       "build_surface": [
         "door enter / switch-client (shipped 9da41aa)"
       ]
@@ -38,7 +38,7 @@
       ]
     },
     {
-      "step": "Land the plane: a parking ritual that captures state to the ledger — cards, beads, commits — so the next walk's briefing can be true",
+      "step": "Land the plane: the theme absorbs what the session learned, then the ledger takes the rest — cards, beads, commits — so the next walk's briefing can be true and the session is cheap to close",
       "build_surface": [
         "close-out prompt (new)",
         "docs/why.md cards, bd, git"
@@ -51,13 +51,10 @@
       "Entry is tmux switch-client from the door (shipped and playtested)",
       "Parking is a ritual, not a habit — the close-out is structured (Gas Town's Landing the Plane; mk's session-completion protocol is the same instinct)",
       "Delegation without trust is theater: intent-declaration interfaces ship with honest, hand-pruned scope (Stellaris E as cautionary tale + the untrustable-autopilot resentment)",
-      "The coordinator holds no state — session state lives in cards/beads/git on disk"
+      "The coordinator holds no state — session state lives in cards/beads/git on disk",
+      "Parking writes back to the theme: the theme absorbs what the session learned (mk 2026-09-01: 'concurred'). The reason threads never parked was that there was nowhere to park to."
     ],
     "open_questions": [
-      {
-        "question": "What is the minimum viable parking ritual — a card touch, a bead update, an auto-generated timeline entry, or all three?",
-        "gate": "ask_then_proceed"
-      },
       {
         "question": "What substrate does seance-style orientation read — cass archives, a per-repo .events.jsonl, or transcript search?",
         "gate": "ask_then_proceed"
@@ -67,7 +64,7 @@
         "gate": "ask_then_proceed"
       },
       {
-        "question": "mk ruled the standing threads a workaround ('the reason i work in sessions/threads is because we haven't built autarch/garden salon'), which keeps this CUJ's garden-entry spine and sharpens the parking question: threads today never park because thread context is ersatz canon — so what must parking capture (canon/cards/beads) before a garden-scoped session becomes cheap enough to close, and does the ritual fire per sitting or per thread-retirement during the transition?",
+        "question": "Parking's mechanics, now that its destination is the theme: what is the minimum the theme must absorb per sitting (a card touch, a bead update, an auto-generated timeline entry, all three?), and does the ritual also fire at thread-retirement during the transition off standing threads?",
         "gate": "ask_then_proceed"
       }
     ]
@@ -96,6 +93,10 @@
       "app": "Garden Salon",
       "teardown": "docs/research/2026-08-31-garden-salon-convergence.md",
       "what_it_shaped": "Structured Boundaries (arrival, work, departure) and Calibrated Autonomy (graduated trust, not binary)"
+    },
+    {
+      "app": "Digital gardens — Appleton's ethos, Komoroske's compendium",
+      "what_it_shaped": "Named by mk at validation, not torn down: 'a Komoroske/Appleton-style version of product management + gardening/tending' — the dive as tending one bed of a topography, with parking as the garden remembering"
     }
   ],
   "evidence": [
