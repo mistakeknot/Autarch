@@ -1,6 +1,6 @@
 {
   "cuj_id": "autarch-03-seasonal-reshaping",
-  "version": "1.1",
+  "version": "1.2",
   "status": "derived",
   "actor": "mk — solo gardener, stepping back from walks and dives to reshape the estate itself",
   "trigger": "A season boundary (a goal completes, a project ships or parks) — or accumulating friction: the walk keeps surfacing rows that never earn attention, a ranking that feels wrong, a signal class that keeps annoying",
@@ -43,11 +43,12 @@
       {
         "decision": "Containment/layer structure comes from the estate's OWN graph, not CanonGraph — mk 2026-09-01: 'i want to get out of canongraph and build our own, better version of canongraph that is fully our own'. CanonGraph (projects_in_layer / serving_map) is the transitional read source until that exists.",
         "confidence": "firm"
-      }
+      },
+      "Leaving CanonGraph is a sovereignty-and-nativity ruling, not a defect fix — mk 2026-09-01: 'CanonGraph seems to be working, but it's my colleague's and I would rather make a version from the ground-up that is informed by Sylveste's philosophy and is native to Sylveste/Clavain/Intercore/the Interverse/Autarch/Garden Salon/Meadowsyn/etc'. Consequence: the new graph's requirements come from nativity, not from CanonGraph's failures, and parity with a working live system is the floor, not the goal."
     ],
     "open_questions": [
       {
-        "question": "What does CanonGraph get wrong that the estate's own graph must get right — and what is the migration path for the sylveste profile's existing entities, decisions, and the memory-lanes doctrine that names CanonGraph as the world-facts lane? Scope of the graph build is gated on this answer; reshaping itself proceeds against CanonGraph transitionally.",
+        "question": "The nativity thesis that justifies a ground-up graph: what must a Sylveste-native graph model that a generic knowledge graph structurally cannot — first-class themes and their salons, ratification and attribution semantics (mk-issued stamps, finding-1), pace as a property, discourse routing by theme and by serving edge, contradiction detection across decisions, cards as source of truth with the graph as index? Plus the parity and migration path for the sylveste profile and the memory-lanes doctrine, and a name (two-syllable place/character noun, collision-checked, mk's pick). The build is gated on this thesis being written; reshaping proceeds against CanonGraph transitionally.",
         "gate": "must_stop"
       },
       {

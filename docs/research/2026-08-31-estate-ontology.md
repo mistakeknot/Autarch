@@ -21,7 +21,30 @@ rulings:
     transitional; the estate's own graph is the target system of record"
   - "2026-09-01: parking = the theme absorbs what the session learned (mk:
     'concurred' on the CUJ 2 walkthrough framing)"
+  - "2026-09-01, verbatim, the reason for the graph: 'CanonGraph seems to be
+    working, but it's my colleague's and I would rather make a version from
+    the ground-up that is informed by Sylveste's philosophy and is native to
+    Sylveste/Clavain/Intercore/the Interverse/Autarch/Garden Salon/Meadowsyn/
+    etc' — sovereignty + nativity, not defect; parity is the floor"
 ```
+
+## The native stack (sketch — mk to confirm)
+
+Reading mk's list as a stack rather than a list:
+
+| Layer | Component | Role |
+|---|---|---|
+| OS / kernel | Clavain + intercore | orchestration, goals, hooks, the fleet's operating system |
+| Long memory / canon | **the graph (unnamed, to be built)** | system of record for containers, serving edges, pace, themes, decisions-with-rationale, card index |
+| Live shared state | Garden Salon substrate | the room — salons as live views of themes, CRDT state, proposals, annotations |
+| Human client | Autarch | the terminal-native interface into the world; stateless; issues mk-attributed acts |
+| Tooling | the Interverse plugins | what the fleet works with |
+| Third brand | Meadowsyn | role relative to the graph not yet placed |
+
+The graph sits in the containment tree as a **platform** beside intercore.
+Which is source of truth when a card file and the graph disagree: probably
+the card (git-versioned, mk-ratified), with the graph as index — a design
+call for the graph's own brainstorm, not this doc.
 
 ## The model (refined against mk's real estate)
 
