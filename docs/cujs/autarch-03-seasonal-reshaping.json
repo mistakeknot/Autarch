@@ -1,6 +1,6 @@
 {
   "cuj_id": "autarch-03-seasonal-reshaping",
-  "version": "1.0",
+  "version": "1.1",
   "status": "derived",
   "actor": "mk — solo gardener, stepping back from walks and dives to reshape the estate itself",
   "trigger": "A season boundary (a goal completes, a project ships or parks) — or accumulating friction: the walk keeps surfacing rows that never earn attention, a ranking that feels wrong, a signal class that keeps annoying",
@@ -39,14 +39,15 @@
       "The interruption budget is a first-class tuned parameter, not an emergent accident (Stellaris H)",
       "Reclassify, don't mute: fatigue is answered by moving a signal down a class in context, not by turning it off in frustration (Stellaris B + 4.0's rework direction)",
       "Ranking math alone cannot fix late-game slog (Stellaris F + community verdict + the slog resentment)",
+      "Retune may write into the world: local prefs (delivery classes, ranking) stay in Autarch's config; world edits (theme membership, pace, archive/retire) flow through Autarch as mk's acts, stamped with mk's identity. Autarch holds no state — it is the client, the substrate holds the world. Never agent-initiated, never silent. (mk 2026-09-01, chose option 1: client writes attributed to me)",
       {
-        "decision": "Layer structure comes from CanonGraph (projects_in_layer / serving_map) rather than a new Autarch-local taxonomy",
-        "confidence": "leaning"
+        "decision": "Containment/layer structure comes from the estate's OWN graph, not CanonGraph — mk 2026-09-01: 'i want to get out of canongraph and build our own, better version of canongraph that is fully our own'. CanonGraph (projects_in_layer / serving_map) is the transitional read source until that exists.",
+        "confidence": "firm"
       }
     ],
     "open_questions": [
       {
-        "question": "Does in-context retune ever write beyond HUD-local config (door.yaml) — e.g. into CanonGraph layer membership — or does layer membership stay mk-edited through CanonGraph's own tools, preserving the read-only discipline?",
+        "question": "What does CanonGraph get wrong that the estate's own graph must get right — and what is the migration path for the sylveste profile's existing entities, decisions, and the memory-lanes doctrine that names CanonGraph as the world-facts lane? Scope of the graph build is gated on this answer; reshaping itself proceeds against CanonGraph transitionally.",
         "gate": "must_stop"
       },
       {
@@ -83,6 +84,11 @@
       "source": "docs/research/2026-08-31-stellaris-teardown.md (discover_output block)",
       "quote": "late-game slog, interrupt fatigue, untrustable autopilot, losing the thread",
       "assumption_tested": "That the four resentments need four features — the teardown says slog and fatigue share one fix, and it lives in this journey"
+    },
+    {
+      "source": "docs/research/2026-08-31-estate-ontology.md (rulings block, 2026-09-01 additions)",
+      "quote": "1, also i want to get out of canongraph and build our own, better version of canongraph that is fully our own",
+      "assumption_tested": "That the HUD must stay read-only to stay stateless — mk ruled client-writes-attributed-to-me, dissolving the must_stop; and that CanonGraph is the permanent system of record for containment — it is now transitional, with the estate's own graph as the target home for containers, serving edges, pace, and the theme object"
     }
   ],
   "success_condition": "After a reshaping pass, mk's next week of walks feels lighter without anything important going dark — and when a signal annoys them, they fix it in the two seconds of the annoyance and recognize that as the Stellaris retune button they admired, working on their own estate."

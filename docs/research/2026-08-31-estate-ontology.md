@@ -13,6 +13,14 @@ rulings:
     the lattice ruling as firm, the rest as working model)"
   - "the estate surface has no name of its own — bare `autarch` opens the
     vantage; 'door' retired from product vocabulary (mk, same conversation)"
+  - "2026-09-01: retune writes — client writes attributed to mk (option 1,
+    firm): local prefs stay in Autarch config, world edits flow through
+    Autarch as mk's acts; Autarch holds no state"
+  - "2026-09-01, verbatim: 'i want to get out of canongraph and build our own,
+    better version of canongraph that is fully our own' — CanonGraph becomes
+    transitional; the estate's own graph is the target system of record"
+  - "2026-09-01: parking = the theme absorbs what the session learned (mk:
+    'concurred' on the CUJ 2 walkthrough framing)"
 ```
 
 ## The model (refined against mk's real estate)
@@ -58,15 +66,20 @@ outliner's tabs. This settles the garden-vs-thread axis question at depth:
 
 ## Ownership map — who holds what
 
-| Object | System of record |
-|---|---|
-| Ecosystems, platforms, projects, serving edges, pace properties | CanonGraph (exists today: `projects_in_layer`, `serving_map`) |
-| Epics, subtasks | beads (exists today) |
-| **Themes + their salons** | **nothing — the only missing object in the estate** |
+| Object | System of record today | Target (mk ruling 2026-09-01) |
+|---|---|---|
+| Ecosystems, platforms, projects, serving edges, pace properties | CanonGraph (`projects_in_layer`, `serving_map`) — transitional | **the estate's own graph** |
+| Epics, subtasks | beads | beads (unchanged) |
+| **Themes + their salons** | **nothing — the only missing object in the estate** | **the estate's own graph** (natural home; the salon substrate holds the *live* view) |
 
-Candidate homes for the theme object, undecided: a new CanonGraph entity
-type; a garden-salon substrate object (fits the salon-interface ruling);
-an Autarch-local read-model federating both. OPEN — ask before building.
+mk ruled to leave CanonGraph and build a graph that is fully theirs. This
+converges three threads: the missing theme object needs a home, the salon
+substrate needs a world model beneath it, and mk wants ownership of the graph.
+What "better" means is the gating question (autarch-03 ledger, must_stop for
+the build): the pain with CanonGraph has not yet been articulated, and the
+memory-lanes doctrine (`ops/canongraph/memory-lanes.md`) plus the
+canongraph-integration project and the upstream PR watch all move when this
+does.
 
 ## Consequences for the CUJs (batched for the post-walkthrough edit pass)
 
