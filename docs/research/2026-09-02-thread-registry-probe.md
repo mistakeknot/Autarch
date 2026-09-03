@@ -91,7 +91,7 @@ The two copies have drifted:
 
 | topic | note | tmux |
 |---|---|---|
-| ushas/bridger | id 21434d6f (7.3 MB transcript) | id ef9ad21a (45 MB transcript, the live one) |
+| ushas/bridger | id 21434d6f (7.3 MB transcript, last real turn today) | id ef9ad21a (45 MB transcript, last real turn 25 days earlier: the tmux name is the stale copy here, corrected by the registry's first live run) |
 | rakes-of-the-new-sun | that name | `rakes-of-the-new-book`, same id |
 | grey-area | `iterm]grey-area - 456d04f7…` | bare `grey-area` |
 | shadewright | id 45f5fb3c, transcript touched today | no tmux session |

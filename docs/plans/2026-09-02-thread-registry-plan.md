@@ -296,8 +296,8 @@ serves: DONE WHEN "a real render over the estate"; the validator's machine check
   order, then the drift block when `--registry` is given. `--json` prints `[]Thread` plus
   `drift` as JSON. Exit 0 on success; exit 2 when tmux could not be listed (message on stderr).
 - Acceptance: `go build ./cmd/autarch`; `autarch --help` lists `threads`;
-  `autarch threads --json | jq 'map(select(.Runtime=="claude")) | length'` ≥ 30 on this
-  machine; `autarch threads --registry /Users/sma/.claude/jobs/cfe8ca13/tmp/session-note.txt`
+  `autarch threads --json | jq '.threads | map(select(.runtime=="claude")) | length'` ≥ 30 on
+  this machine (32 on 2026-09-02); `autarch threads --registry /Users/sma/.claude/jobs/cfe8ca13/tmp/session-note.txt`
   prints lines containing `stale id: ushas/bridger`, `renamed: rakes-of-the-new-sun`,
   `no seat: shadewright`.
 
@@ -325,6 +325,13 @@ serves: DONE WHEN "a real render over the estate"; the validator's machine check
 | auto_proceed | attribution share | top garden always, plus any garden ≥ 20% of mentions, over the trailing 16 MiB |
 | `[invented]` 1 | `t` as the threads key and Tab returning | no ledger entry names the key; Tab already means "the other screen" |
 | `[invented]` 2 | `autarch threads` plain subcommand | needed for a machine-checkable render; mirrors how `door` sits beside the root |
+| `[invented]` 3 | drift order: stale id, renamed, not in note, then no seat | the screen caps the block at 8 lines; the note's own order put the 14 seatless topics ahead of the two lines mk would fix today |
+| deviation (execution) | `Gardens` derives estate roots from the top-level project roots; `ReadThreads` accepts `roots` and does not use it | equivalent for attribution (only project roots are credited either way); the signature stays as planned |
+| deviation (execution) | `--json` emits `{threads, drift}` with snake_case fields, not a bare `[]Thread` | one object carries both results; the WI-8 jq acceptance reads `.threads` |
+| deviation (execution) | header says `N unmarked`, not `N no seat data` | shorter, and it names the fact: the session name carries no mark |
+| deviation (execution) | `TestThreadsRenderStatesVisiblyDistinct` (not `…ThreeStates…`); adds `TestThreadsUpgradeGardenRowsAfterRead`, `TestThreadsRegistryBlockShowsDrift` | same claims, one more state (`no id`) covered |
+| deviation (execution) | `TestTmuxCaptureSwitchClientAndZed` now also waits for the rows' footer key | the briefing names both gardens in its could-not-read line, so the old wait passed before Tab landed; a real flake under the full suite |
+| execution note | the Sonnet executor finished WI-1..4 and stalled on a rate limit at WI-5; the frontier model finished WI-5..9; an Opus validator accepted every acceptance line (2026-09-02) | capability-routing doctrine: a stalled executor keeps frontier in the loop |
 
 ## Success audit
 
@@ -347,3 +354,16 @@ goal's DONE WHEN.
 Derived from spec v1.4 @ 7941050c. If the spec changes, stop the items whose serves-lines
 cite changed material, diff, re-derive those only, and log it here. WI-9 itself moves the
 spec to v1.5 after the build; record the hash and classify the event below.
+
+**Event 1 — 2026-09-02, after the build (WI-9 itself):** spec moved 1.4 → 1.5, sha256
+`376d4c3924723161835f7291176f4dcbe6252536ad2dc26e9fd2fb831142d77b`. Diff: the three GATE
+rulings and the substrate decision recorded as firm closed decisions; the garden-vs-thread
+open question removed (closed by ruling 1); two open questions added (window-focus entry
+with the iTerm2 standardization, the 14 seatless note topics); a provenance entry.
+Classification: no work item's serves-line cites material that moved as a constraint;
+every change records what this plan already did or asks what the next slice must ask.
+Provisionals: the seatless-topics provisional now has a ledger entry on the spec and stops
+counting as invented, so the drift count is 2 (`t`/Tab keys; the plain subcommand), plus
+the drift ordering invented during execution: 3. Nothing re-derived. Build shipped as
+7063b58, 2c0b07b, ee1acf1, d059d92 on `cuj-lineage`; `go test -race ./internal/door` green
+twice uncached; Opus validation ACCEPT on every acceptance line.

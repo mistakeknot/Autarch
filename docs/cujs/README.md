@@ -41,6 +41,15 @@ sessions async next); the last-visit window recorded as a leaning decision;
 the alone-vs-above layout question stays open, to be ruled against the real
 render (both layouts are built, `b` flips). Goal da757a12.
 
+v1.5 (2026-09-02, autarch-01 only): the thread registry slice (goal cf9e8644).
+mk's session note (docs/research/2026-09-02-thread-registry-probe.md) showed
+the registry already living in tmux session names; three GATE rulings landed
+before the build (threads on their own screen beside the garden rows; the
+marks are left / right / center three-quarters of one display; entry stays
+switch-client, with "standardize to iterm2" as the next entry question). The
+garden-vs-thread question closed with ruling 1; two open questions added
+(window-focus entry, the seatless note topics).
+
 Validate with the cujgel plugin:
 `<plugin>/bin/cujgel-validate docs/cujs/*.json`
 

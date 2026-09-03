@@ -1,6 +1,6 @@
 {
   "cuj_id": "autarch-01-daily-walk",
-  "version": "1.4",
+  "version": "1.5",
   "status": "validated",
   "actor": "mk — solo gardener of a ~98-project, agent-heavy, terminal-native estate",
   "trigger": "Sitting down at the machine (morning, or returning after hours away) with agents having run on wall-clock the whole time: 'what moved while I was gone, and what waits on me?'",
@@ -57,6 +57,22 @@
       {
         "decision": "The window is 'since the last visit': a client-local stamp written when Autarch is quit, 24h on the first visit, widened in steps with w and overridden with --since. Preference-class local state, same class as pins; the estate's truth is re-read every open.",
         "confidence": "leaning"
+      },
+      {
+        "decision": "Threads live on their own screen beside the garden rows, one key away (t); the row stays the garden, and each garden row's live-thread count comes from attributing threads to the gardens their transcripts mention -- mk 2026-09-02, choosing 'Threads screen + garden rows' over nesting threads under rows or replacing rows with threads (GATE ruling 1, docs/plans/2026-09-02-thread-registry-plan.md)",
+        "confidence": "firm"
+      },
+      {
+        "decision": "The marks in the registry names are window positions on one display -- mk 2026-09-02, verbatim: '[ left 3/4s of the screen, ] right 3/4s, [] center 3/4s (i use 3/4s on my macbook 14 so i can get more horizontal space to review the terminal window' (GATE ruling 2)",
+        "confidence": "firm"
+      },
+      {
+        "decision": "Entry stays tmux switch-client for the thread registry slice; focusing the thread's own emulator window is the next entry question -- mk 2026-09-02: '1, and let's explore standardizing to iterm2' (GATE ruling 3)",
+        "confidence": "firm"
+      },
+      {
+        "decision": "Liveness reads tmux's pane command (an agent binary and its version, an idle shell, nothing) and the transcript's last real turn, never the file's mtime; a root-launched thread is attributed to the gardens its transcript mentions, since every pane sits at the estate root -- adopted by mk in the goal text of cf9e8644, evidence docs/research/2026-09-02-thread-registry-probe.md",
+        "confidence": "firm"
       }
     ],
     "open_questions": [
@@ -69,8 +85,12 @@
         "gate": "auto_proceed"
       },
       {
-        "question": "mk corrected the axis framing: the standing threads are scaffolding, not preference ('the reason i work in sessions/threads is because we haven't built autarch/garden salon'), so the row stays the garden and the question becomes decomposition order — which thread-compensated function does the walk absorb first: the catch-up briefing (exercised daily via companion threads) or the waiting-on-me triage? And does the door render live threads transitionally, as scaffolding on the way down?",
-        "gate": "ask_then_proceed"
+        "gate": "ask_then_proceed",
+        "question": "Entry that focuses the thread's own emulator window instead of switching the tmux client, preserving the left/right/center layout -- and whether to standardize the estate on one emulator first (mk 2026-09-02: 'let's explore standardizing to iterm2'), which collapses three adapters to iTerm2's scripting API"
+      },
+      {
+        "gate": "ask_then_proceed",
+        "question": "The 14 note topics with no resume id and no tmux seat (tldrs, remontoire, jeddbench, canongraph, agmodb, oodacademy, interstate, ifs, jawnfit, jawnscope, phosphene, gsvdotcom, athenverse, garden-salon): dormant gardens holding a seat, or stale lines? The registry diff shows them once as 'no seat' and nothing persists them; reversal is a seats list in ~/.autarch/door.yaml, preference-class like pins"
       }
     ]
   },
@@ -132,6 +152,11 @@
     {
       "artifact": "internal/door briefing (intercore goal da757a12, 2026-09-01)",
       "change": "The catch-up briefing built against git + Claude transcripts per mk's ruling; bare `autarch` opens to it; both layouts shipped behind the b key so the alone-vs-above question is decided against a real render; plan held in the job directory because the repo's plan guard requires a confirmed product card Autarch does not have",
+      "autonomy": "applied"
+    },
+    {
+      "artifact": "internal/door thread registry (intercore goal cf9e8644, 2026-09-02)",
+      "change": "The thread registry built from tmux session names, pane commands and transcript last turns per the probe of mk's session note; the threads screen (t) beside the garden rows; garden rows' live counts by transcript attribution; --registry diff against the note; the briefing's sessions count moved from mtime to the last real turn; three GATE rulings recorded as closed decisions; the garden-vs-thread question closed",
       "autonomy": "applied"
     }
   ],
