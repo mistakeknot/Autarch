@@ -27,17 +27,37 @@ func TestEncodeTranscriptDir(t *testing.T) {
 	}
 }
 
-// touch creates path (and its directory) with the given mtime.
+// touch creates path (and its directory) as a transcript whose last real turn
+// is at, with the mtime set to match.
 func touch(t *testing.T, path string, at time.Time) {
 	t.Helper()
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(path, []byte("{}\n"), 0o644); err != nil {
+	body := `{"type":"user","timestamp":"` + at.UTC().Format(time.RFC3339Nano) + `","message":{"role":"user"}}` + "\n"
+	if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.Chtimes(path, at, at); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestIndexSessionsUsesLastTurnNotMtime(t *testing.T) {
+	root := t.TempDir()
+	now := time.Now()
+	ps := []Project{{Name: "foo", Root: "/e/foo"}}
+	stale := filepath.Join(root, "-e-foo", "stale.jsonl")
+	touch(t, stale, now.Add(-10*24*time.Hour))          // last real turn ten days ago...
+	if err := os.Chtimes(stale, now, now); err != nil { // ...but touched just now, as bookkeeping rows do
+		t.Fatal(err)
+	}
+	idx, err := IndexSessions(root, ps, now.Add(-24*time.Hour))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := idx["/e/foo"]; ok {
+		t.Fatal("a transcript whose last real turn is ten days old must not count as moved because its mtime is fresh")
 	}
 }
 

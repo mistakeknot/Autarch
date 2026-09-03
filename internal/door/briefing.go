@@ -155,13 +155,17 @@ type SessionStat struct {
 }
 
 // IndexSessions attributes every transcript directory under transcriptsRoot to
-// a garden and counts the files touched inside the window. A directory belongs
-// to the garden whose encoded root is its longest matching prefix -- exact, or
-// followed by "-" -- so a session run inside a nested repo rolls up to the
-// garden containing it, and a garden named foo cannot absorb its sibling
-// foo-bar. Gardens with no directory are absent from the map: that is a real
-// zero. A root that cannot be read is an error: that is a failure to look,
-// and the caller must say so once for the estate rather than once per row.
+// a garden and counts the transcripts whose last real turn falls inside the
+// window. Not mtime: bookkeeping rows touch every transcript daily, so mtime
+// read every one of mk's 33 threads as moved today (probe finding 4,
+// 2026-09-02); the last user or assistant turn is the clock. A directory
+// belongs to the garden whose encoded root is its longest matching prefix --
+// exact, or followed by "-" -- so a session run inside a nested repo rolls up
+// to the garden containing it, and a garden named foo cannot absorb its
+// sibling foo-bar. Gardens with no directory are absent from the map: that is
+// a real zero. A root that cannot be read is an error: that is a failure to
+// look, and the caller must say so once for the estate rather than once per
+// row.
 func IndexSessions(transcriptsRoot string, projects []Project, since time.Time) (map[string]SessionStat, error) {
 	entries, err := os.ReadDir(transcriptsRoot)
 	if err != nil {
@@ -198,14 +202,14 @@ func IndexSessions(transcriptsRoot string, projects []Project, since time.Time) 
 			if f.IsDir() || !strings.HasSuffix(f.Name(), ".jsonl") {
 				continue
 			}
-			info, err := f.Info()
-			if err != nil {
-				continue
+			last, err := LastTurn(filepath.Join(transcriptsRoot, e.Name(), f.Name()), lastTurnTailBytes)
+			if err != nil || last.IsZero() {
+				continue // unreadable, or no real turn in the tail: not a movement
 			}
-			if mt := info.ModTime(); mt.After(since) {
+			if last.After(since) {
 				stat.Files++
-				if mt.After(stat.Latest) {
-					stat.Latest = mt
+				if last.After(stat.Latest) {
+					stat.Latest = last
 				}
 			}
 		}
