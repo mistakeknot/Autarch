@@ -113,10 +113,14 @@ func TestTmuxCaptureSwitchClientAndZed(t *testing.T) {
 	run("send-keys", "-t", "door", "Tab")
 
 	// The rendered door proves clauses (a) and (c) against a live server:
-	// count on the row, fraction plus named unresolvable in the footer.
+	// count on the row, fraction plus named unresolvable in the footer. The
+	// rows' own footer key is required too: the briefing names both gardens
+	// in its could-not-read line, so the names alone do not prove the Tab
+	// has landed.
 	waitFor("door to render both axes", func() bool {
 		cap := run("capture-pane", "-p", "-t", "door")
 		return strings.Contains(cap, "aaa") && strings.Contains(cap, "bbb") &&
+			strings.Contains(cap, "enter switch/open") &&
 			strings.Contains(cap, "sessions: 1/2 resolved") &&
 			strings.Contains(cap, "unresolved: door")
 	})

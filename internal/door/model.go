@@ -26,6 +26,16 @@ type statusMsg string
 // sessionsMsg carries one snapshot of the tmux axis (Gate B).
 type sessionsMsg struct{ set SessionSet }
 
+// The threads axis' messages. sessionsListMsg is the raw tmux list when the
+// threads axis is on: the model resolves it by pane path at once and reads
+// the transcripts after. threadMsg is one seat read. The pending count is set
+// synchronously when the read starts, so no start message can race a result.
+type sessionsListMsg struct {
+	sessions []TmuxSession
+	err      error
+}
+type threadMsg struct{ t Thread }
+
 type checksDoneMsg struct{}
 
 // movementMsg carries one garden's briefing result; movementsStartedMsg opens
@@ -71,6 +81,7 @@ type screen int
 const (
 	screenBriefing screen = iota
 	screenRows
+	screenThreads
 )
 
 // BriefingOptions configures the briefing axis. A zero Since leaves the axis
@@ -147,6 +158,24 @@ type Model struct {
 	layout        Layout
 	screen        screen
 
+	// The threads axis (autarch-01 steps 2 and 3; plan 2026-09-02): every
+	// live tmux seat, read from the session name, the pane command and the
+	// transcript. threadsOn is the switch (WithThreads); the rows-only door
+	// and its tests never see it. threadsPending counts seats still being
+	// read so a partial list is never presented as the whole estate.
+	threadsOpts    ThreadsOptions
+	threadsOn      bool
+	threads        ThreadSet
+	threadResults  chan threadMsg
+	threadsPending int
+	threadsLoaded  bool   // one full read finished, or failed (threads.Err)
+	prevScreen     screen // where t returns to
+	threadSel      string // selected seat's session name; "" tracks the top
+	threadOffset   int
+	registry       []Seat // the note given by --registry, parsed once
+	registryErr    error
+	drift          []Drift
+
 	selRoot string
 	moved   bool // user has navigated; until then selection tracks the top row
 	offset  int
@@ -214,10 +243,18 @@ func (m Model) Init() tea.Cmd {
 	return tea.Batch(cmds...)
 }
 
-// loadSessions snapshots the tmux axis against the estate as discovered.
+// loadSessions snapshots the tmux axis against the estate as discovered. With
+// the threads axis on it returns the raw list instead, so the model can
+// resolve by pane path at once and read the transcripts after.
 func (m Model) loadSessions() tea.Cmd {
 	projects := make([]Project, len(m.projects))
 	copy(projects, m.projects)
+	if m.threadsOn {
+		return func() tea.Msg {
+			sessions, err := ListSessions(context.Background())
+			return sessionsListMsg{sessions: sessions, err: err}
+		}
+	}
 	return func() tea.Msg {
 		return sessionsMsg{set: SnapshotSessions(context.Background(), projects)}
 	}
@@ -314,6 +351,42 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.sessionsLoaded = true
 		return m, nil
 
+	case sessionsListMsg:
+		// tmux could not be listed: both axes carry the same fact, and no
+		// seat is rendered (UNCHECKED is never an empty estate).
+		if msg.err != nil {
+			m.sessions = SessionSet{Err: msg.err}
+			m.sessionsLoaded = true
+			m.threads = ThreadSet{Err: msg.err, ByRoot: make(map[string][]Thread)}
+			m.threadsLoaded = true
+			m.threadsPending = 0
+			return m, nil
+		}
+		// Path resolution lands at once; attribution upgrades it when the
+		// transcripts have been read (finishThreads).
+		m.sessions = ResolveSessions(msg.sessions, m.projects)
+		m.sessionsLoaded = true
+		m.threads = ThreadSet{ByRoot: make(map[string][]Thread)}
+		m.threadsLoaded = false
+		m.drift = nil
+		m.threadsPending = len(msg.sessions)
+		if m.threadsPending == 0 {
+			m.finishThreads()
+			return m, nil
+		}
+		return m, tea.Batch(m.startThreads(msg.sessions), m.waitForThread())
+
+	case threadMsg:
+		m.threads.Threads = append(m.threads.Threads, msg.t)
+		if m.threadsPending > 0 {
+			m.threadsPending--
+		}
+		if m.threadsPending > 0 {
+			return m, m.waitForThread()
+		}
+		m.finishThreads()
+		return m, nil
+
 	case movementsStartedMsg:
 		m.moveRemaining = msg.count
 		m.sessionsErr = msg.sessionsErr
@@ -350,6 +423,20 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, m.quit()
 	case "r":
 		return m.reread()
+	}
+	// The threads screen has its own keymap; t opens it from anywhere else
+	// (the briefing included: reading the seats is orientation, not an
+	// action) and remembers where to return.
+	if m.threadsOn {
+		if m.screen == screenThreads {
+			return m.handleThreadsKey(key)
+		}
+		if key == "t" {
+			m.prevScreen = m.screen
+			m.screen = screenThreads
+			m.clampThreadScroll()
+			return m, nil
+		}
 	}
 	if m.briefingOn() {
 		switch key {
@@ -451,8 +538,13 @@ func (m Model) reread() (tea.Model, tea.Cmd) {
 			m.projects[i].Verdict = VerdictUnchecked
 			m.projects[i].Err = nil
 		}
-		m.sessionsLoaded = false
-		cmds = append(cmds, m.startChecks(), m.waitForResult(), m.loadSessions())
+		cmds = append(cmds, m.startChecks(), m.waitForResult())
+		// A thread read still streaming is not restarted: a second batch on
+		// the same channel would let stale seats land in the new list.
+		if !m.threadsOn || m.threadsPending == 0 {
+			m.sessionsLoaded = false
+			cmds = append(cmds, m.loadSessions())
+		}
 	}
 	if m.briefingOn() && m.moveRemaining == 0 && len(m.projects) > 0 {
 		m.movements = make(map[string]Movement, len(m.projects))
@@ -642,6 +734,21 @@ func (m Model) View() string {
 		}
 		b.WriteString(styleFooter.Render(strings.Repeat("─", m.lineWidth())))
 		b.WriteString("\n")
+	}
+
+	// The threads screen takes the list area: the whole body in LayoutAlone
+	// (or with no briefing), the area beneath the briefing in LayoutAbove.
+	if m.threadsOn && m.screen == screenThreads {
+		lines := m.threadsLines(rows)
+		for _, l := range lines {
+			b.WriteString(l)
+			b.WriteString("\n")
+		}
+		for i := len(lines); i < rows; i++ {
+			b.WriteString("\n")
+		}
+		b.WriteString(m.renderFooter())
+		return b.String()
 	}
 
 	end := m.offset + rows
@@ -919,6 +1026,8 @@ func (m Model) renderFooter() string {
 
 	var parts []string
 	switch {
+	case m.threadsOn && m.screen == screenThreads:
+		parts = []string{"↑/↓ move", "enter switch", "t back", "r re-read", "q quit"}
 	case m.briefingOn() && m.layout == LayoutAlone && m.screen == screenBriefing:
 		parts = []string{"tab rows", "w widen", "b layout", "r re-read", "q quit"}
 	case m.briefingOn() && m.layout == LayoutAlone:
@@ -927,6 +1036,12 @@ func (m Model) renderFooter() string {
 		parts = []string{"↑/↓ move", "enter switch/open", "z card in Zed", "p pin", "w widen", "b layout", "r re-read", "q quit"}
 	default:
 		parts = []string{"↑/↓ move", "enter switch/open", "z card in Zed", "p pin", "r re-check", "q quit"}
+	}
+	if m.threadsOn && m.screen != screenThreads && len(parts) > 0 {
+		withThreads := make([]string, 0, len(parts)+1)
+		withThreads = append(withThreads, parts[:len(parts)-1]...)
+		withThreads = append(withThreads, "t threads", parts[len(parts)-1])
+		parts = withThreads
 	}
 	line := styleFooter.Render(strings.Join(parts, " · "))
 	if m.remaining > 0 {
