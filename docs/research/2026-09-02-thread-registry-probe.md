@@ -165,3 +165,27 @@ The wide threads (after-them 111, clavain 100, jawnbase 57, auraken-inkling 50) 
 - Transcript lookup: `~/.claude/projects/*/<id>.jsonl`; Codex: `~/.codex/sessions/**/rollout-*<id>.jsonl`.
 - Attribution: regex over `/Users/sma/projects/([^/]+)(/[^/]+)?(/[^/]+)?`, Sylveste expanded one level, counted per line.
 - Liveness: `tmux list-panes -a -F '#{pane_current_command}|#{pane_pid}|#{session_name}'`; last real turn from the trailing 200 KB of each transcript.
+
+## First live render (2026-09-02, after the build, goal cf9e8644)
+
+The threads screen (`autarch`, then `t`) captured inside mk's live tmux server, top of the list. The one extra seat is the render harness itself, removed after capture.
+
+```
+AUTARCH  102 projects
+threads: 40 seats · 36 running (claude 32 · codex 1 · other 3) · 4 idle shells · 6 unmarked
+> ◆ iterm   [] elf-revel                82ab9c48 2.1.258 3h     elf-revel, Sylveste, dotfiles, Nartopo, fashionsomething, garden-salon, solwend, zirpology, cujgel, gsv-portfolio
+  ◆ iterm   [] rakes-of-the-new-book    5c7a44a3 2.1.258 3m     rotnb, infinite-fun-space
+  ◆ iterm   ]  unc-rancher              818281f9 2.1.258 11m    uncrancher, shadow-work, ops, Sylveste, agmodb, garden-salon, jawnomicon
+  ◆ iterm   [  autarch                  5920c9b1 2.1.258 <1m    Sylveste, dotfiles, uncrancher, palettice, garden-salon, elf-revel, shadow-work, After-Them, fashionsomething, rotnb
+  ◆ iterm   [  concordance              fca9cfa0 2.1.258 9h     concordance, Interlacer, gsvdotcom-ui-2col, dotfiles
+  ◆ iterm   ]  ravenous                 f8f5d301 2.1.258 11m    ravenous, fashionsomething, infinite-fun-space, infinite-fun-space-app, Sylveste, gsv-portfolio
+  ◆ iterm   ]  linsekasten              74e5950e 2.1.258 <1m    Sylveste, Mind-State, jawnscope, ops, palettice
+  ◆ iterm   ]  shadowbench              dd7cad33 2.1.258 23h    shadow-work, jawnsmith, Sylveste
+  ◆ iterm   ]  shadow-work-ui           2aee0821 2.1.258 11m    shadow-work, Clavain, infinite-fun-space, infinite-fun-space-app, fashionsomething, ravenous
+  ◆ iterm   ]  shadow-work-policy       b3de853f 2.1.258 3m     shadow-work, interflux, Sylveste, kimi-code-pr, dotfiles
+  ◆ iterm   ]  jawnomicon               d58d5e63 2.1.258 4m     jawnomicon, gsvdotcom, Sylveste, dotfiles
+...
+sessions: 30/40 resolved · unresolved: 28, 30, grey-area, iterm[]kimilibrary, iterm[jeddnet@codex - 019f805d…, kimifork, mobile, rio[ryan, rio[taxes - 5a729c1d…
+```
+
+The plain listing (`autarch threads`) the same afternoon: 39 seats, 32 claude threads, 30 with a real turn, 29 attributed to gardens, no read errors; `taxes` has a turn and no garden; `ryan` and `grey-area` carry no id in their names. The four idle threads read `idle 19d` (taxes), `idle 9d` (jetty/fissionchips), `idle 8d` (fluxrig), `idle 7d` (jawnbase), and ushas/bridger's ef9ad21a seat reads `idle 25d`.
