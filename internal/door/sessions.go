@@ -22,7 +22,8 @@ import (
 type TmuxSession struct {
 	Name     string
 	Path     string
-	Activity int64 // #{session_activity}, unix seconds; newer = more recent
+	Activity int64  // #{session_activity}, unix seconds; newer = more recent
+	Command  string // #{pane_current_command}: what the pane is running now
 }
 
 // SessionSet is the resolved sessions axis. The GATE clause lives here:
@@ -113,8 +114,10 @@ func ListSessions(ctx context.Context) ([]TmuxSession, error) {
 	}
 	// One line per pane; the window_active+pane_active filter leaves exactly
 	// one line per session (its focused pane), which is where the session is.
+	// pane_current_command is the sixth field -- what the pane is running now
+	// (the thread registry's liveness axis, WI-1/WI-4).
 	out, err := exec.CommandContext(ctx, tmuxBin, "list-panes", "-a",
-		"-F", "#{window_active}\x1f#{pane_active}\x1f#{session_name}\x1f#{session_activity}\x1f#{pane_current_path}").CombinedOutput()
+		"-F", "#{window_active}\x1f#{pane_active}\x1f#{session_name}\x1f#{session_activity}\x1f#{pane_current_path}\x1f#{pane_current_command}").CombinedOutput()
 	if err != nil {
 		if strings.Contains(string(out), "no server running") ||
 			strings.Contains(string(out), "error connecting to") {
@@ -122,21 +125,31 @@ func ListSessions(ctx context.Context) ([]TmuxSession, error) {
 		}
 		return nil, fmt.Errorf("tmux list-panes: %v: %s", err, strings.TrimSpace(string(out)))
 	}
+	return parseSessionLines(string(out))
+}
 
+// sessionFields is how many \x1f-delimited fields ListSessions' -F format
+// produces per line; a line with any other count is unparseable, not a
+// partial answer.
+const sessionFields = 6
+
+// parseSessionLines is ListSessions' parser, split out so fixtures can drive
+// it without a live tmux server.
+func parseSessionLines(out string) ([]TmuxSession, error) {
 	var sessions []TmuxSession
-	for _, line := range strings.Split(strings.TrimRight(string(out), "\n"), "\n") {
+	for _, line := range strings.Split(strings.TrimRight(out, "\n"), "\n") {
 		if line == "" {
 			continue
 		}
 		parts := strings.Split(line, "\x1f")
-		if len(parts) != 5 {
+		if len(parts) != sessionFields {
 			return nil, fmt.Errorf("tmux list-panes: unparseable line %q", line)
 		}
 		if parts[0] != "1" || parts[1] != "1" {
 			continue
 		}
 		activity, _ := strconv.ParseInt(parts[3], 10, 64)
-		sessions = append(sessions, TmuxSession{Name: parts[2], Activity: activity, Path: parts[4]})
+		sessions = append(sessions, TmuxSession{Name: parts[2], Activity: activity, Path: parts[4], Command: parts[5]})
 	}
 	return sessions, nil
 }

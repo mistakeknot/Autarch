@@ -162,6 +162,28 @@ func TestEnterRoutesBySessionPresence(t *testing.T) {
 	}
 }
 
+// TestListSessionsParsesSixFields is WI-2's parser contract: the sixth field
+// (pane_current_command) comes through, and a line with the old five-field
+// shape is rejected rather than silently misparsed.
+func TestListSessionsParsesSixFields(t *testing.T) {
+	out := "1\x1f1\x1fwork\x1f12345\x1f/est/aaa\x1f2.1.258\n" +
+		"0\x1f0\x1fwork\x1f12345\x1f/est/aaa\x1fzsh\n" // not window_active+pane_active: dropped
+	sessions, err := parseSessionLines(out)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(sessions) != 1 {
+		t.Fatalf("want 1 session (the other line is filtered by active flags), got %d: %+v", len(sessions), sessions)
+	}
+	if sessions[0].Command != "2.1.258" {
+		t.Fatalf("Command not parsed: %+v", sessions[0])
+	}
+
+	if _, err := parseSessionLines("1\x1f1\x1fwork\x1f12345\x1f/est/aaa\n"); err == nil {
+		t.Fatal("a five-field line (the old shape) must be rejected, not silently accepted")
+	}
+}
+
 // ListSessions' error contract: a missing binary is an error (could not
 // look); with tmux present, both a running and a stopped server are answers.
 func TestListSessionsLiveContract(t *testing.T) {
