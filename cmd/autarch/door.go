@@ -21,6 +21,7 @@ type doorOptions struct {
 	rankingPath string
 	since       string
 	layout      string
+	registry    string
 }
 
 func addDoorFlags(cmd *cobra.Command, o *doorOptions) {
@@ -28,6 +29,7 @@ func addDoorFlags(cmd *cobra.Command, o *doorOptions) {
 	cmd.Flags().StringVar(&o.rankingPath, "ranking", "", "ranking file (default ~/.autarch/door.yaml)")
 	cmd.Flags().StringVar(&o.since, "since", "", "briefing window: a duration (36h, 3d) or an RFC3339 time (default: since the last visit; 24h on the first)")
 	cmd.Flags().StringVar(&o.layout, "layout", "alone", "where the briefing sits: alone (rows one tab away) or above (rows beneath it)")
+	cmd.Flags().StringVar(&o.registry, "registry", "", "a note in the session-name format to diff against the live seats on the threads screen")
 }
 
 // runDoor discovers the estate, resolves the briefing window, and opens the
@@ -77,6 +79,11 @@ func runDoor(o doorOptions) error {
 			VisitPath:       visitPath,
 			TranscriptsRoot: door.DefaultTranscriptsRoot(),
 			Layout:          layout,
+		}).
+		WithThreads(door.ThreadsOptions{
+			Roots:           roots,
+			TranscriptsRoot: door.DefaultTranscriptsRoot(),
+			RegistryPath:    o.registry,
 		})
 
 	defer pkgtui.RestoreTerminalOnPanic()
