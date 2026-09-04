@@ -124,7 +124,7 @@ Not opened, because they are build questions and the build is out: Ultan's proje
 
 ## The recognition check
 
-Owed to mk after reading, never automated: does this read as the graph you meant when you said "fully our own"?
+Put to mk after the record was committed, never automated: does this read as the graph you meant when you said "fully our own"? **mk, 2026-09-03: "Yes, this is the graph I meant."** Recorded by Claude Fable 5.1 in session 5920c9b1-6a3f-4a7d-8566-e6067aaeaf01; the record stands as written.
 
 ## Out of this record
 
