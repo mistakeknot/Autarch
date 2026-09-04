@@ -19,6 +19,7 @@ func withDetector(t *testing.T, fn func() bool) {
 }
 
 func TestCurrentAutoUsesDarkThemeWhenBackgroundIsDark(t *testing.T) {
+	t.Setenv("AUTARCH_NO_COLOR", "0")
 	t.Setenv("AUTARCH_THEME", "")
 	withDetector(t, func() bool { return true })
 
@@ -29,6 +30,7 @@ func TestCurrentAutoUsesDarkThemeWhenBackgroundIsDark(t *testing.T) {
 }
 
 func TestCurrentAutoUsesLightThemeWhenBackgroundIsLight(t *testing.T) {
+	t.Setenv("AUTARCH_NO_COLOR", "0")
 	t.Setenv("AUTARCH_THEME", "")
 	withDetector(t, func() bool { return false })
 
@@ -39,6 +41,7 @@ func TestCurrentAutoUsesLightThemeWhenBackgroundIsLight(t *testing.T) {
 }
 
 func TestCurrentRespectsExplicitThemeOverrides(t *testing.T) {
+	t.Setenv("AUTARCH_NO_COLOR", "0")
 	tests := []struct {
 		env  string
 		want Theme
@@ -117,6 +120,7 @@ func TestNoColorEnabled(t *testing.T) {
 	// only reliable way; t.Setenv("NO_COLOR","") still sets it (presence=true).
 	t.Run("default", func(t *testing.T) {
 		t.Setenv("AUTARCH_NO_COLOR", "")
+		t.Setenv("NO_COLOR", "") // register restoration before removing it
 		os.Unsetenv("NO_COLOR")
 		if got := NoColorEnabled(); got != false {
 			t.Errorf("NoColorEnabled() = %v, want false", got)
@@ -156,6 +160,7 @@ func TestNoColorEnabled(t *testing.T) {
 	})
 
 	t.Run("AUTARCH_NO_COLOR=1", func(t *testing.T) {
+		t.Setenv("NO_COLOR", "")
 		os.Unsetenv("NO_COLOR")
 		t.Setenv("AUTARCH_NO_COLOR", "1")
 		if got := NoColorEnabled(); got != true {
@@ -184,6 +189,7 @@ func TestPlainThemeHasEmptyColors(t *testing.T) {
 }
 
 func TestAutoThemeFallsBackToDarkOnPanic(t *testing.T) {
+	t.Setenv("AUTARCH_NO_COLOR", "0")
 	t.Setenv("AUTARCH_THEME", "")
 	withDetector(t, func() bool { panic("simulated panic") })
 	theme := Current()

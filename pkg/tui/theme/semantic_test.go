@@ -103,6 +103,7 @@ func TestStatusColor(t *testing.T) {
 }
 
 func TestSemantic(t *testing.T) {
+	t.Setenv("AUTARCH_NO_COLOR", "0")
 	t.Setenv("AUTARCH_THEME", "tokyo")
 	resetAutoTheme()
 
