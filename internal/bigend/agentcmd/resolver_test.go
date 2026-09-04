@@ -1,6 +1,7 @@
 package agentcmd
 
 import (
+	"github.com/mistakeknot/autarch/internal/testutil"
 	"os"
 	"path/filepath"
 	"testing"
@@ -22,8 +23,7 @@ func TestResolveCommandFallback(t *testing.T) {
 
 func TestResolveUsesSharedTargets(t *testing.T) {
 	cfg := &vconfig.Config{}
-	dir := t.TempDir()
-	t.Setenv("XDG_CONFIG_HOME", dir)
+	dir := testutil.ConfigHome(t)
 	configDir := filepath.Join(dir, "autarch")
 	if err := os.MkdirAll(configDir, 0o755); err != nil {
 		t.Fatal(err)

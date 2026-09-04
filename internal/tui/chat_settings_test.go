@@ -1,14 +1,14 @@
 package tui
 
 import (
+	"github.com/mistakeknot/autarch/internal/testutil"
 	"os"
 	"path/filepath"
 	"testing"
 )
 
 func TestChatSettingsLoadDefaultsAndPersist(t *testing.T) {
-	dir := t.TempDir()
-	t.Setenv("XDG_CONFIG_HOME", dir)
+	dir := testutil.ConfigHome(t)
 
 	cfg, err := LoadChatSettings()
 	if err != nil {

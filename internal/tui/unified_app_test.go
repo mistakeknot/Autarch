@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"github.com/mistakeknot/autarch/internal/testutil"
 	"testing"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -74,8 +75,7 @@ func TestUnifiedAppDoubleCtrlCQuitsWithHelpVisible(t *testing.T) {
 }
 
 func TestChatSettingsTogglePersistsAndApplies(t *testing.T) {
-	dir := t.TempDir()
-	t.Setenv("XDG_CONFIG_HOME", dir)
+	testutil.ConfigHome(t)
 
 	app := NewUnifiedApp(nil)
 	app.chatSettings = DefaultChatSettings()
@@ -261,10 +261,10 @@ func (v *sizingView) Update(msg tea.Msg) (pkgtui.View, tea.Cmd) {
 	}
 	return v, nil
 }
-func (v *sizingView) View() string    { return "content" }
-func (v *sizingView) Focus() tea.Cmd  { return nil }
-func (v *sizingView) Blur()           {}
-func (v *sizingView) Name() string    { return v.name }
+func (v *sizingView) View() string      { return "content" }
+func (v *sizingView) Focus() tea.Cmd    { return nil }
+func (v *sizingView) Blur()             {}
+func (v *sizingView) Name() string      { return v.name }
 func (v *sizingView) ShortHelp() string { return "" }
 
 func TestTabSwitchSendsWindowSizeToNewView(t *testing.T) {

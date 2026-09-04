@@ -23,6 +23,9 @@ func TestExplore_RequiresClaude(t *testing.T) {
 }
 
 func TestExplore_Integration(t *testing.T) {
+	if os.Getenv("AUTARCH_AGENT_INTEGRATION") != "1" {
+		t.Skip("set AUTARCH_AGENT_INTEGRATION=1 to run a real agent")
+	}
 	if testing.Short() {
 		t.Skip("skipping integration test in short mode")
 	}

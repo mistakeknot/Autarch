@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"github.com/mistakeknot/autarch/internal/testutil"
 	"os"
 	"path/filepath"
 	"testing"
@@ -8,8 +9,7 @@ import (
 
 func TestResolveTargetUsesGlobalConfig(t *testing.T) {
 	root := t.TempDir()
-	configHome := t.TempDir()
-	t.Setenv("XDG_CONFIG_HOME", configHome)
+	configHome := testutil.ConfigHome(t)
 	globalDir := filepath.Join(configHome, "autarch")
 	if err := os.MkdirAll(globalDir, 0o755); err != nil {
 		t.Fatal(err)

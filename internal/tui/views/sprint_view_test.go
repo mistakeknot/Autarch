@@ -4,13 +4,16 @@ import (
 	"testing"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/mistakeknot/autarch/internal/testutil"
 	"github.com/mistakeknot/autarch/internal/tui"
 	pkgtui "github.com/mistakeknot/autarch/pkg/tui"
 )
 
 func TestSprintView_ChatSubmitProducesResponse(t *testing.T) {
+	testutil.WithoutAgents(t)
 	// Create a sprint view and start a sprint
 	v := NewSprintView("/tmp/test-project", SprintViewOpts{})
+	defer v.Blur()
 
 	// Initialize and set size
 	v.Init()
@@ -85,7 +88,9 @@ func TestSprintView_FocusedAndValueWorks(t *testing.T) {
 }
 
 func TestSprintView_TypingViaUpdateReachesComposer(t *testing.T) {
+	testutil.WithoutAgents(t)
 	v := NewSprintView("/tmp/test-project", SprintViewOpts{})
+	defer v.Blur()
 	v.Init()
 	v.Update(tea.WindowSizeMsg{Width: 120, Height: 40})
 

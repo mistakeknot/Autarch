@@ -1,6 +1,7 @@
 package config
 
 import (
+	"github.com/mistakeknot/autarch/internal/testutil"
 	"os"
 	"path/filepath"
 	"strings"
@@ -48,8 +49,7 @@ func TestLoadConfigMergesGlobalAgents(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	configHome := t.TempDir()
-	t.Setenv("XDG_CONFIG_HOME", configHome)
+	configHome := testutil.ConfigHome(t)
 	globalDir := filepath.Join(configHome, "autarch")
 	if err := os.MkdirAll(globalDir, 0o755); err != nil {
 		t.Fatal(err)
