@@ -6,9 +6,12 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/mistakeknot/autarch/internal/testutil"
 )
 
 func TestInterviewCommandUsesArbiterByDefault(t *testing.T) {
+	testutil.WithoutAgents(t)
 	root := t.TempDir()
 	// Use .gurgeh (current canonical name) instead of .praude (legacy).
 	// The Orchestrator creates .gurgeh/sprints/ during Start(), which causes
