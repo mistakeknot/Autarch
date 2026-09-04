@@ -91,6 +91,8 @@ func ClassifyPane(cmd string) (Runtime, string) {
 	switch {
 	case claudeVersionPattern.MatchString(cmd):
 		return RuntimeClaude, cmd
+	case cmd == "claude":
+		return RuntimeClaude, ""
 	case cmd == "codex":
 		return RuntimeCodex, ""
 	case cmd == "kimi":
@@ -112,11 +114,12 @@ type Thread struct {
 	Version  string
 	Activity int64
 
-	Path       string    // pane path (kept for ResolveSessions parity)
-	Transcript string    // "" when none
-	LastTurn   time.Time // zero = unknown
-	Gardens    []GardenHit
-	Err        error // transcript could not be read; the row says so
+	Path         string    // pane path (kept for ResolveSessions parity)
+	Transcript   string    // "" when none
+	LastTurn     time.Time // zero = unknown
+	Gardens      []GardenHit
+	Err          error        // transcript could not be read; the row says so
+	Conversation Conversation // historical evidence, independent of runtime
 }
 
 // ThreadSet is the assembled registry: every live tmux session as a Thread,
@@ -242,6 +245,10 @@ const readThreadsWorkers = 8
 // derives its own estate-root set from projects (see topLevelGardenRoots),
 // so roots is not consumed here -- logged in the plan's Question ledger.
 func ReadThreads(ctx context.Context, sessions []TmuxSession, projects []Project, roots []string, transcriptsRoot string, onThread func(Thread)) {
+	ReadThreadsWithCodex(ctx, sessions, projects, roots, transcriptsRoot, "", onThread)
+}
+
+func ReadThreadsWithCodex(ctx context.Context, sessions []TmuxSession, projects []Project, roots []string, transcriptsRoot, codexRoot string, onThread func(Thread)) {
 	_ = ctx
 	_ = roots
 	sem := make(chan struct{}, readThreadsWorkers)
@@ -259,24 +266,25 @@ func ReadThreads(ctx context.Context, sessions []TmuxSession, projects []Project
 				Session: s.Name, Seat: seat, Runtime: rt, Version: version,
 				Activity: s.Activity, Path: s.Path,
 			}
-			if rt != RuntimeClaude || !hasResumeID(seat) {
+			if !hasResumeID(seat) {
 				onThread(th)
 				return
 			}
-			path, err := FindTranscript(transcriptsRoot, seat.ResumeID)
+			path, provider, err := FindConversation(transcriptsRoot, codexRoot, seat.ResumeID)
 			if err != nil {
 				th.Err = err
 				onThread(th)
 				return
 			}
 			th.Transcript = path
-			last, err := LastTurn(path, lastTurnTailBytes)
+			conversation, err := ReadConversation(path, provider)
 			if err != nil {
 				th.Err = err
 				onThread(th)
 				return
 			}
-			th.LastTurn = last
+			th.Conversation = conversation
+			th.LastTurn = conversation.Updated
 			gardens, err := Gardens(path, projects, gardensScanBytes)
 			if err != nil {
 				th.Err = err
