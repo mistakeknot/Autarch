@@ -25,6 +25,8 @@ type Conversation struct {
 	Report         string    `json:"report,omitempty"`
 	Question       string    `json:"question,omitempty"`
 	Context        string    `json:"context,omitempty"`
+	Reply          string    `json:"later_reply,omitempty"` // a reply is not proof this question was answered
+	WorkDir        string    `json:"work_dir,omitempty"`
 	QuestionAt     time.Time `json:"question_at,omitempty"`
 	QuestionLine   int       `json:"question_line,omitempty"` // zero when reading a tail
 	QuestionOffset int64     `json:"question_offset,omitempty"`
@@ -54,6 +56,7 @@ type conversationMessage struct {
 	CallID    string          `json:"call_id"`
 	Arguments string          `json:"arguments"`
 	Output    json.RawMessage `json:"output"`
+	CWD       string          `json:"cwd"`
 }
 
 // ReadConversation bounds I/O even for months-long standing threads. Byte
@@ -90,10 +93,18 @@ func ReadConversation(path string, provider Runtime) (Conversation, error) {
 			var row struct {
 				Type      string              `json:"type"`
 				Timestamp string              `json:"timestamp"`
+				IsMeta    bool                `json:"isMeta"`
+				CWD       string              `json:"cwd"`
 				Message   json.RawMessage     `json:"message"`
 				Payload   conversationMessage `json:"payload"`
 			}
-			if json.Unmarshal(line, &row) == nil {
+			if json.Unmarshal(line, &row) == nil && !row.IsMeta {
+				if row.CWD != "" {
+					c.WorkDir = row.CWD
+				}
+				if provider == RuntimeCodex && (row.Type == "session_meta" || row.Type == "turn_context") && row.Payload.CWD != "" {
+					c.WorkDir = row.Payload.CWD
+				}
 				ts, _ := time.Parse(time.RFC3339, row.Timestamp)
 				ln := 0
 				if full {
@@ -126,6 +137,7 @@ func ReadConversation(path string, provider Runtime) (Conversation, error) {
 func (c *Conversation) clearQuestion() {
 	c.Question = ""
 	c.Context = ""
+	c.Reply = ""
 	c.QuestionAt = time.Time{}
 	c.QuestionLine = 0
 	c.QuestionOffset = 0
@@ -139,6 +151,7 @@ func (c *Conversation) ask(question, call string, async bool, at time.Time, line
 	}
 	c.Question = cleanEvidence(question)
 	c.Context = c.Report
+	c.Reply = ""
 	c.questionCall = call
 	c.async = async
 	c.QuestionAt = at
@@ -162,7 +175,24 @@ func (c *Conversation) consume(msg conversationMessage, at time.Time, line int, 
 			Answers map[string]json.RawMessage `json:"answers"`
 		}
 		if json.Unmarshal([]byte(out), &answer) == nil && len(answer.Answers) > 0 {
-			c.clearQuestion()
+			complete := true
+			for _, raw := range answer.Answers {
+				var a struct {
+					Answers []string `json:"answers"`
+				}
+				if json.Unmarshal(raw, &a) != nil || len(a.Answers) == 0 {
+					complete = false
+					break
+				}
+				for _, text := range a.Answers {
+					if strings.TrimSpace(text) == "" {
+						complete = false
+					}
+				}
+			}
+			if complete {
+				c.clearQuestion()
+			}
 		}
 		return
 	}
@@ -193,8 +223,11 @@ func (c *Conversation) consume(msg conversationMessage, at time.Time, line int, 
 			}
 		}
 		if isHumanText(text) {
-			c.Request = text
-			c.clearQuestion()
+			if c.Question != "" {
+				c.Reply = text
+			} else {
+				c.Request = text
+			}
 			if !at.IsZero() {
 				c.Updated = at
 			}
@@ -211,8 +244,9 @@ func (c *Conversation) consume(msg conversationMessage, at time.Time, line int, 
 	if text != "" {
 		if q := directQuestion(text); q != "" {
 			c.ask(q, "", false, at, line, offset)
-		} else if c.questionCall == "" {
-			c.clearQuestion()
+			if context := strings.TrimSpace(strings.TrimSuffix(text, q)); context != "" {
+				c.Context = context
+			}
 		}
 		c.Report = text
 	}

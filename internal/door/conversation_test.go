@@ -42,7 +42,6 @@ func TestConversationKeepsQuestionAndEvidence(t *testing.T) {
 func TestConversationAnsweredQuestionDisappears(t *testing.T) {
 	for name, answer := range map[string]string{
 		"structured": `{"type":"user","timestamp":"2026-09-04T10:03:00Z","message":{"content":[{"type":"tool_result","tool_use_id":"ask1","content":"User has answered your questions: List"}]}}`,
-		"ordinary":   `{"type":"user","timestamp":"2026-09-04T10:03:00Z","message":{"content":"Use the list."}}`,
 	} {
 		t.Run(name, func(t *testing.T) {
 			c, err := ReadConversation(conversationFile(t, userRequest, assistantContext, questionTool, answer), RuntimeClaude)
@@ -96,8 +95,16 @@ func TestConversationCodexAsyncQuestionNeedsHumanAnswer(t *testing.T) {
 	}
 	lines = append(lines, `{"type":"response_item","timestamp":"2026-09-04T10:03:00Z","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"Preview."}]}}`)
 	c, err = ReadConversation(conversationFile(t, lines...), RuntimeCodex)
-	if err != nil || c.Question != "" {
-		t.Fatalf("reply did not clear question: %+v %v", c, err)
+	if err != nil || c.Question == "" || c.Reply != "Preview." {
+		t.Fatalf("reply uncertainty not preserved: %+v %v", c, err)
+	}
+}
+
+func TestConversationFollowupDoesNotSilentlyAnswerQuestion(t *testing.T) {
+	p := conversationFile(t, userRequest, assistantContext, questionTool, `{"type":"user","timestamp":"2026-09-04T10:03:00Z","message":{"content":"Please ask using the question tool."}}`)
+	c, err := ReadConversation(p, RuntimeClaude)
+	if err != nil || c.Question == "" || c.Reply == "" || c.Request != "Help me ship the new reader." {
+		t.Fatalf("lost question or original request: %+v %v", c, err)
 	}
 }
 
