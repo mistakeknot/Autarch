@@ -9,6 +9,19 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 )
 
+// The Ubuntu CI tmux prints the unit separator as an octal escape, while
+// tmux 3.6b on macOS emits the control byte. Both are real CLI responses.
+func TestListSessionsParsesEscapedSeparators(t *testing.T) {
+	out := `1\0371\037iterm[reader - abc\0371788564126\037/tmp/reader\037bash` + "\n"
+	got, err := parseSessionLines(out)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0].Name != "iterm[reader - abc" || got[0].Path != "/tmp/reader" || got[0].Command != "bash" {
+		t.Fatalf("wrong tmux fields: %+v", got)
+	}
+}
+
 func TestResolveSessionsCountsAndNamesUnresolved(t *testing.T) {
 	projects := []Project{
 		{Name: "aaa", Root: "/est/aaa"},

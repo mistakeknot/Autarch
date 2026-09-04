@@ -142,6 +142,12 @@ func parseSessionLines(out string) ([]TmuxSession, error) {
 			continue
 		}
 		parts := strings.Split(line, "\x1f")
+		if len(parts) == 1 {
+			// Some tmux versions escape control bytes in command output.
+			// Split the observed octal separator without interpreting paths or
+			// session names as a general escape language.
+			parts = strings.Split(line, `\037`)
+		}
 		if len(parts) != sessionFields {
 			return nil, fmt.Errorf("tmux list-panes: unparseable line %q", line)
 		}
