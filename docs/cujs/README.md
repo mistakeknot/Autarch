@@ -50,6 +50,8 @@ switch-client, with "standardize to iterm2" as the next entry question). The
 garden-vs-thread question closed with ruling 1; two open questions added
 (window-focus entry, the seatless note topics).
 
+v1.4 (2026-09-03, autarch-03 only): the one must_stop closed. The nativity thesis for the estate's own graph, named Ultan by mk, is docs/research/2026-09-03-ultan-nativity-thesis.md: nine rulings given one question at a time against CanonGraph's live schema and source, the sylveste profile's contents and the memory-lanes doctrine. The 2026-09-01 retune decision is amended on delivery classes (world facts on the edge kind, retune as mk's stamped act); three derived questions opened (the sitting record's file home, the canon files' repository, the proposed-state file form).
+
 Validate with the cujgel plugin:
 `<plugin>/bin/cujgel-validate docs/cujs/*.json`
 

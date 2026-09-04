@@ -1,6 +1,6 @@
 {
   "cuj_id": "autarch-03-seasonal-reshaping",
-  "version": "1.3",
+  "version": "1.4",
   "status": "validated",
   "actor": "mk — solo gardener, stepping back from walks and dives to reshape the estate itself",
   "trigger": "A season boundary (a goal completes, a project ships or parks) — or accumulating friction: the walk keeps surfacing rows that never earn attention, a ranking that feels wrong, a signal class that keeps annoying",
@@ -44,16 +44,32 @@
         "decision": "Containment/layer structure comes from the estate's OWN graph, not CanonGraph — mk 2026-09-01: 'i want to get out of canongraph and build our own, better version of canongraph that is fully our own'. CanonGraph (projects_in_layer / serving_map) is the transitional read source until that exists.",
         "confidence": "firm"
       },
-      "Leaving CanonGraph is a sovereignty-and-nativity ruling, not a defect fix — mk 2026-09-01: 'CanonGraph seems to be working, but it's my colleague's and I would rather make a version from the ground-up that is informed by Sylveste's philosophy and is native to Sylveste/Clavain/Intercore/the Interverse/Autarch/Garden Salon/Meadowsyn/etc'. Consequence: the new graph's requirements come from nativity, not from CanonGraph's failures, and parity with a working live system is the floor, not the goal."
+      "Leaving CanonGraph is a sovereignty-and-nativity ruling, not a defect fix — mk 2026-09-01: 'CanonGraph seems to be working, but it's my colleague's and I would rather make a version from the ground-up that is informed by Sylveste's philosophy and is native to Sylveste/Clavain/Intercore/the Interverse/Autarch/Garden Salon/Meadowsyn/etc'. Consequence: the new graph's requirements come from nativity, not from CanonGraph's failures, and parity with a working live system is the floor, not the goal.",
+      {
+        "decision": "The nativity thesis is written and the graph is named Ultan: docs/research/2026-09-03-ultan-nativity-thesis.md records mk's rulings of 2026-09-03, each put as a structured question with the recommendation kept out of the record. The pain with CanonGraph: 'all of the above' (catalog not canon; flat decisions; the friction of reaching it; a fourth memory system). Files are truth and Ultan is an index; the ruling is the unit of a write, proposed until mk stamps it; theme and salon are both stored, each sitting its own record linked to the theme; pace is a property with time on any node; two discourse routers with the default delivery class on the edge kind; decisions carry lifecycle edges and contradictions are proposed, never resolved by the graph; parity is the ten named queries and migration is export of the sylveste profile to files. Building Ultan stays OUT of this spec's slices until its own goal; reshaping reads CanonGraph transitionally until the ten queries match.",
+        "confidence": "firm"
+      },
+      {
+        "decision": "Amends the 2026-09-01 retune decision's clause 'local prefs (delivery classes, ranking) stay in Autarch's config': delivery classes are world facts, a default per edge kind in the graph, and an in-context retune is mk's stamped world edit; Autarch's config keeps display preferences only (pins, layout, last visit). Ranking was not re-ruled and stays local. mk 2026-09-03, choosing 'Amend 03: classes are world facts' when the contradiction between the two rulings was put to them. The older decision stays in place above and is pointed at, not rewritten, per the thesis's sixth ruling.",
+        "confidence": "firm"
+      }
     ],
     "open_questions": [
       {
-        "question": "The nativity thesis that justifies a ground-up graph: what must a Sylveste-native graph model that a generic knowledge graph structurally cannot — first-class themes and their salons, ratification and attribution semantics (mk-issued stamps, finding-1), pace as a property, discourse routing by theme and by serving edge, contradiction detection across decisions, cards as source of truth with the graph as index? Plus the parity and migration path for the sylveste profile and the memory-lanes doctrine, and a name (two-syllable place/character noun, collision-checked, mk's pick). The build is gated on this thesis being written; reshaping proceeds against CanonGraph transitionally.",
-        "gate": "must_stop"
-      },
-      {
         "question": "What marks a season boundary the HUD should notice — goal close, card ratification, explicit archive action, or nothing automatic?",
         "gate": "ask_then_proceed"
+      },
+      {
+        "gate": "ask_then_proceed",
+        "question": "The sitting record's file home, a consequence of rulings 1 and 3 of the thesis (files are truth; theme and salon both stored): a sittings log inside each theme file, or a sittings directory beside the theme files?"
+      },
+      {
+        "gate": "ask_then_proceed",
+        "question": "Which repository holds the canon files Ultan indexes (the per-layer catalog, theme files, decision records) once the sylveste profile is exported? Provisional: the Sylveste monorepo, where ops/canongraph's doctrine already lives; reversible until the export runs."
+      },
+      {
+        "gate": "auto_proceed",
+        "question": "How a proposed (unstamped) fact is represented in a file: the card format's per-field state (provisional/confirmed) extended to decisions, theme members and sittings, with ruled_by, session_id and agent alongside, is the candidate; chosen when the first canon file format is written."
       }
     ]
   },
@@ -96,5 +112,12 @@
       "assumption_tested": "That the HUD must stay read-only to stay stateless — mk ruled client-writes-attributed-to-me, dissolving the must_stop; and that CanonGraph is the permanent system of record for containment — it is now transitional, with the estate's own graph as the target home for containers, serving edges, pace, and the theme object"
     }
   ],
-  "success_condition": "After a reshaping pass, mk's next week of walks feels lighter without anything important going dark — and when a signal annoys them, they fix it in the two seconds of the annoyance and recognize that as the Stellaris retune button they admired, working on their own estate."
+  "success_condition": "After a reshaping pass, mk's next week of walks feels lighter without anything important going dark — and when a signal annoys them, they fix it in the two seconds of the annoyance and recognize that as the Stellaris retune button they admired, working on their own estate.",
+  "provenance": [
+    {
+      "artifact": "docs/research/2026-09-03-ultan-nativity-thesis.md (intercore goal fdaae66d, 2026-09-03)",
+      "change": "must_stop closed: the nativity thesis for the estate's own graph, named Ultan, written from nine rulings mk gave one question at a time against CanonGraph's live schema, the sylveste profile's contents, its source at 28f072d, and the memory-lanes doctrine; the 2026-09-01 retune decision amended on delivery classes; three derived questions opened",
+      "autonomy": "applied"
+    }
+  ]
 }
