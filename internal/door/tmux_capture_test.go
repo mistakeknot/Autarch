@@ -80,8 +80,10 @@ func TestTmuxCaptureSwitchClientAndZed(t *testing.T) {
 	// appear, named, in the unresolved disclosure.
 	run("new-session", "-d", "-s", "work", "-c", projA)
 	errLog := filepath.Join(dir, "door-err.log")
-	doorCmd := fmt.Sprintf("env 'PATH=%s' AUTARCH_CARD_CHECK=%s %s door --root %s --ranking %s 2>%s; sleep 60",
-		stubs+":"+os.Getenv("PATH"), cardStub, bin, estate, filepath.Join(dir, "rank.yaml"), errLog)
+	// HOME is the sandbox: the visit stamp and the transcript lookup must
+	// never touch the real one from a test.
+	doorCmd := fmt.Sprintf("env 'PATH=%s' HOME=%s AUTARCH_CARD_CHECK=%s %s door --root %s --ranking %s 2>%s; sleep 60",
+		stubs+":"+os.Getenv("PATH"), dir, cardStub, bin, estate, filepath.Join(dir, "rank.yaml"), errLog)
 	run("new-session", "-d", "-s", "door", "-c", dir, "-x", "120", "-y", "30", doorCmd)
 
 	dump := func(why string) {
@@ -102,11 +104,23 @@ func TestTmuxCaptureSwitchClientAndZed(t *testing.T) {
 		dump("timed out waiting for " + why)
 	}
 
+	// The door opens on the briefing (autarch-01: orientation before
+	// obligation); the rows are one tab away, which is the path mk's fingers
+	// take every morning.
+	waitFor("briefing to render", func() bool {
+		return strings.Contains(run("capture-pane", "-p", "-t", "door"), "since ")
+	})
+	run("send-keys", "-t", "door", "Tab")
+
 	// The rendered door proves clauses (a) and (c) against a live server:
-	// count on the row, fraction plus named unresolvable in the footer.
+	// count on the row, fraction plus named unresolvable in the footer. The
+	// rows' own footer key is required too: the briefing names both gardens
+	// in its could-not-read line, so the names alone do not prove the Tab
+	// has landed.
 	waitFor("door to render both axes", func() bool {
 		cap := run("capture-pane", "-p", "-t", "door")
 		return strings.Contains(cap, "aaa") && strings.Contains(cap, "bbb") &&
+			strings.Contains(cap, "enter switch/open") &&
 			strings.Contains(cap, "sessions: 1/2 resolved") &&
 			strings.Contains(cap, "unresolved: door")
 	})

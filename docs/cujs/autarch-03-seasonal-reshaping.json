@@ -1,0 +1,123 @@
+{
+  "cuj_id": "autarch-03-seasonal-reshaping",
+  "version": "1.4",
+  "status": "validated",
+  "actor": "mk — solo gardener, stepping back from walks and dives to reshape the estate itself",
+  "trigger": "A season boundary (a goal completes, a project ships or parks) — or accumulating friction: the walk keeps surfacing rows that never earn attention, a ranking that feels wrong, a signal class that keeps annoying",
+  "steps": [
+    {
+      "step": "Review the estate's shape through the pace lens: which gardens are fast-layer probes churning as they should, which are sedimenting toward doctrine, which are misfiled — and the theme lifecycle: which themes are being born, merging, splitting, going dormant, or ready to retire",
+      "build_surface": [
+        "CanonGraph projects_in_layer / serving_map (read-only)",
+        "layer view in the door (new)"
+      ]
+    },
+    {
+      "step": "Retune attention in context: the moment a signal annoys during a walk, reclassify it from where it appeared — popup down to toast, toast down to off — never in a settings screen visited later",
+      "build_surface": [
+        "in-context reclassify control (new — Stellaris B's jewel)",
+        "~/.autarch/door.yaml delivery-class config"
+      ]
+    },
+    {
+      "step": "Rerank and reweight the walk: adjust door ordering, archive gardens whose season is over, promote ones whose season is starting",
+      "build_surface": [
+        "~/.autarch/door.yaml ranking",
+        "door --root config"
+      ]
+    },
+    {
+      "step": "Reprune delegation scopes against earned trust: widen what proved reliable, narrow what fired wrong",
+      "build_surface": [
+        "agent permission tiers"
+      ]
+    }
+  ],
+  "mental_model": "Pace layers: fast layers innovate and churn, slow layers stabilize and constrain — and the estate's health is the layers moving at their own speeds, not one speed. Reshaping is the gardener's seasonal work: it happens rarely, deliberately, and mostly by *retuning* rather than rebuilding. The interruption budget is a first-class tuned number, adjusted when it drifts — Stellaris's own history says sprawl formulas cannot fix late-game slog; only trustworthy delegation plus classed interrupts do, which makes this journey (not more ranking math) the answer to the slog resentment.",
+  "ambiguity_ledger": {
+    "closed_decisions": [
+      "The interruption budget is a first-class tuned parameter, not an emergent accident (Stellaris H)",
+      "Reclassify, don't mute: fatigue is answered by moving a signal down a class in context, not by turning it off in frustration (Stellaris B + 4.0's rework direction)",
+      "Ranking math alone cannot fix late-game slog (Stellaris F + community verdict + the slog resentment)",
+      "Retune may write into the world: local prefs (delivery classes, ranking) stay in Autarch's config; world edits (theme membership, pace, archive/retire) flow through Autarch as mk's acts, stamped with mk's identity. Autarch holds no state — it is the client, the substrate holds the world. Never agent-initiated, never silent. (mk 2026-09-01, chose option 1: client writes attributed to me)",
+      {
+        "decision": "Containment/layer structure comes from the estate's OWN graph, not CanonGraph — mk 2026-09-01: 'i want to get out of canongraph and build our own, better version of canongraph that is fully our own'. CanonGraph (projects_in_layer / serving_map) is the transitional read source until that exists.",
+        "confidence": "firm"
+      },
+      "Leaving CanonGraph is a sovereignty-and-nativity ruling, not a defect fix — mk 2026-09-01: 'CanonGraph seems to be working, but it's my colleague's and I would rather make a version from the ground-up that is informed by Sylveste's philosophy and is native to Sylveste/Clavain/Intercore/the Interverse/Autarch/Garden Salon/Meadowsyn/etc'. Consequence: the new graph's requirements come from nativity, not from CanonGraph's failures, and parity with a working live system is the floor, not the goal.",
+      {
+        "decision": "The nativity thesis is written and the graph is named Ultan: docs/research/2026-09-03-ultan-nativity-thesis.md records mk's rulings of 2026-09-03, each put as a structured question with the recommendation kept out of the record. The pain with CanonGraph: 'all of the above' (catalog not canon; flat decisions; the friction of reaching it; a fourth memory system). Files are truth and Ultan is an index; the ruling is the unit of a write, proposed until mk stamps it; theme and salon are both stored, each sitting its own record linked to the theme; pace is a property with time on any node; two discourse routers with the default delivery class on the edge kind; decisions carry lifecycle edges and contradictions are proposed, never resolved by the graph; parity is the ten named queries and migration is export of the sylveste profile to files. Building Ultan stays OUT of this spec's slices until its own goal; reshaping reads CanonGraph transitionally until the ten queries match.",
+        "confidence": "firm"
+      },
+      {
+        "decision": "Amends the 2026-09-01 retune decision's clause 'local prefs (delivery classes, ranking) stay in Autarch's config': delivery classes are world facts, a default per edge kind in the graph, and an in-context retune is mk's stamped world edit; Autarch's config keeps display preferences only (pins, layout, last visit). Ranking was not re-ruled and stays local. mk 2026-09-03, choosing 'Amend 03: classes are world facts' when the contradiction between the two rulings was put to them. The older decision stays in place above and is pointed at, not rewritten, per the thesis's sixth ruling.",
+        "confidence": "firm"
+      }
+    ],
+    "open_questions": [
+      {
+        "question": "What marks a season boundary the HUD should notice — goal close, card ratification, explicit archive action, or nothing automatic?",
+        "gate": "ask_then_proceed"
+      },
+      {
+        "gate": "ask_then_proceed",
+        "question": "The sitting record's file home, a consequence of rulings 1 and 3 of the thesis (files are truth; theme and salon both stored): a sittings log inside each theme file, or a sittings directory beside the theme files?"
+      },
+      {
+        "gate": "ask_then_proceed",
+        "question": "Which repository holds the canon files Ultan indexes (the per-layer catalog, theme files, decision records) once the sylveste profile is exported? Provisional: the Sylveste monorepo, where ops/canongraph's doctrine already lives; reversible until the export runs."
+      },
+      {
+        "gate": "auto_proceed",
+        "question": "How a proposed (unstamped) fact is represented in a file: the card format's per-field state (provisional/confirmed) extended to decisions, theme members and sittings, with ruled_by, session_id and agent alongside, is the candidate; chosen when the first canon file format is written."
+      }
+    ]
+  },
+  "implied_features": [
+    "In-context reclassify control on every delivered signal (the retune button lives inside the annoyance)",
+    "Delivery-class configuration persisted in door.yaml (off/toast/popup per signal type)",
+    "Layer view: the estate grouped by pace layer, rendered from CanonGraph",
+    "Archive/promote actions that edit door.yaml ranking without touching the gardens themselves"
+  ],
+  "reference_lineage": [
+    {
+      "app": "Stellaris",
+      "teardown": "docs/research/2026-08-31-stellaris-teardown.md",
+      "what_it_shaped": "Pairs B (delivery classes + in-context retune), F (sprawl penalties as failed governor), H (pacing as a tuned number)"
+    },
+    {
+      "app": "Garden Salon",
+      "teardown": "docs/research/2026-08-31-garden-salon-convergence.md",
+      "what_it_shaped": "Temporal Heterogeneity (different kinds of time) applied at estate scale; Longitudinal Habituation (optimize for session 50)"
+    },
+    {
+      "app": "Digital gardens — Appleton's ethos, Komoroske's compendium",
+      "what_it_shaped": "Named by mk at validation, not torn down: 'a Komoroske/Appleton-style version of product management + gardening/tending' — reshaping as the seasonal work of a garden that is never finished, only tended"
+    }
+  ],
+  "evidence": [
+    {
+      "source": "docs/research/2026-08-31-vision-capture.md",
+      "quote": "especially when they are so deeply interrelated via pace layers/systems like my projects are",
+      "assumption_tested": "That project interrelations are arbitrary edges — they have Brand-style layer structure, which gives reshaping its unit of work"
+    },
+    {
+      "source": "docs/research/2026-08-31-stellaris-teardown.md (discover_output block)",
+      "quote": "late-game slog, interrupt fatigue, untrustable autopilot, losing the thread",
+      "assumption_tested": "That the four resentments need four features — the teardown says slog and fatigue share one fix, and it lives in this journey"
+    },
+    {
+      "source": "docs/research/2026-08-31-estate-ontology.md (rulings block, 2026-09-01 additions)",
+      "quote": "1, also i want to get out of canongraph and build our own, better version of canongraph that is fully our own",
+      "assumption_tested": "That the HUD must stay read-only to stay stateless — mk ruled client-writes-attributed-to-me, dissolving the must_stop; and that CanonGraph is the permanent system of record for containment — it is now transitional, with the estate's own graph as the target home for containers, serving edges, pace, and the theme object"
+    }
+  ],
+  "success_condition": "After a reshaping pass, mk's next week of walks feels lighter without anything important going dark — and when a signal annoys them, they fix it in the two seconds of the annoyance and recognize that as the Stellaris retune button they admired, working on their own estate.",
+  "provenance": [
+    {
+      "artifact": "docs/research/2026-09-03-ultan-nativity-thesis.md (intercore goal fdaae66d, 2026-09-03)",
+      "change": "must_stop closed: the nativity thesis for the estate's own graph, named Ultan, written from nine rulings mk gave one question at a time against CanonGraph's live schema, the sylveste profile's contents, its source at 28f072d, and the memory-lanes doctrine; the 2026-09-01 retune decision amended on delivery classes; three derived questions opened",
+      "autonomy": "applied"
+    }
+  ]
+}

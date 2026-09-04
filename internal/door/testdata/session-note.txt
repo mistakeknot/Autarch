@@ -1,0 +1,63 @@
+—— wezterm
+wezterm[finorcs - d256fbdd-98c1-48f2-80fa-f58bfc618394
+wezterm[monetization - 2d73ec8c-e1cd-4830-b569-986faf76ce3b
+
+—— iterm
+iterm[autarch - 5920c9b1-6a3f-4a7d-8566-e6067aaeaf01
+iterm[concordance - fca9cfa0-60ee-460d-ad2b-10688853d70c
+iterm[shadewright - 45f5fb3c-9968-4ace-b883-b4202e9dc732
+iterm[ushas/bridger - 21434d6f-592b-40c0-9ae3-9663094454af
+iterm[jeddnet -  f44fd423-1cc0-4f6d-8bd1-a793d69facf4
+iterm[jeddnet@codex - 019f805d-303f-7c43-a79e-7e1893411b25
+iterm[estate - 5920c9b1-6a3f-4a7d-8566-e6067aaeaf01
+iterm[zahro - f1f7d2ea-6df9-4b6a-8d4c-b998825feeff
+iterm[jawnbase - d4ada246-2a56-434f-afe1-e84901791781
+
+[cujgel - 5920c9b1-6a3f-4a7d-8566-e6067aaeaf01
+[concordance/interlacer - fca9cfa0-60ee-460d-ad2b-10688853d70c
+[agmodb@codex - 019f97b4-65c5-7093-be2f-745372ed5da2
+
+iterm[]rakes-of-the-new-sun - 5c7a44a3-4bff-461e-9ad2-06f0f7c7e18a
+iterm[]elf-revel - 82ab9c48-b94d-4d73-be2d-b8af2a69ea52
+iterm[]stakeholders - e509df11-511d-4900-b0c4-90426c2a5cbb
+iterm[]undersketch - 21404b26-7aa4-44ca-9e7a-9ee553e4ed3f
+iterm[]kimilibrary - session_144d176a-592b-459d-a382-409aec933ae2
+iterm[]ideagui - f99f1bcc-e641-4501-ab27-4ebca0d6b664
+
+iterm]unc-rancher - 818281f9-9a63-460a-86f3-f2fb124648cb
+iterm]jawnomicon - d58d5e63-b647-4d68-82f8-64d787310d15
+iterm]shadow-work-ui - 2aee0821-62fc-4917-837f-e16e55dc64f8
+iterm]shadow-work-policy - b3de853f-5744-4967-bd05-77ccda16a9b4
+iterm]shadowbench - dd7cad33-3fed-4a39-af59-8df5bb5a4d1c
+iterm]after-them - 4eb13c63-f7cd-492e-83c4-0b24172bac99
+iterm]fluxrig - a8912a85-ef85-4d05-9298-7624464bb33d
+iterm]ravenous - f8f5d301-b169-47b0-8a4a-116a5a5b7ec9
+iterm]mind-state -  277e9e5c-c622-4e73-96b9-7a60be162cbd
+iterm]linsekasten - 74e5950e-c47e-44c8-b811-84e360fdcda0
+iterm]grey-area - 456d04f7-549d-453a-bcce-26af85b5e8da
+
+—— rio
+rio[jetty/fissionchips - 228255df-83a7-4fa2-8e19-334a7951d0cd
+rio[jetty-ar-runbooks - e14147e4-596a-4c62-b626-7c711ee7e142
+rio[clavain - aa2bb078-ee16-4c32-9f97-01ef7dbdec61
+rio[taxes - 5a729c1d-03bf-43e1-8d4b-44ae1e7187f8
+
+rio]auraken-inkling - 3b67def9-c705-40c0-a758-0fb311d785ee
+rio]solwend - 21cc6bd2-139f-4127-9c2d-7ea821858209
+rio]jawnfund - d0d8e10f-f094-4634-94ee-9b4ce24360f8
+rio]garden-salon
+
+[tldrs
+[remontoire
+[jeddbench
+[canongraph
+[agmodb
+[oodacademy
+
+]interstate
+]ifs
+]jawnfit
+]jawnscope
+]phosphene
+]gsvdotcom
+]athenverse

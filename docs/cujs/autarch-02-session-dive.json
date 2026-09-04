@@ -1,0 +1,125 @@
+{
+  "cuj_id": "autarch-02-session-dive",
+  "version": "1.3",
+  "status": "validated",
+  "actor": "mk — solo gardener, diving into one garden for an hour or an evening",
+  "trigger": "The daily walk (or a popup-class interrupt) lands attention on a garden or on a theme's salon: something waits on them, or a thread wants pulling",
+  "steps": [
+    {
+      "step": "Enter from Autarch — switch-client into a garden's tmux session (or start one), or into a theme's salon",
+      "build_surface": [
+        "door enter / switch-client (shipped 9da41aa)"
+      ]
+    },
+    {
+      "step": "Orient conversationally before working: interrogate what predecessor sessions found and left unfinished, seance-style, instead of re-deriving context",
+      "build_surface": [
+        "cass session archives (~2205 conversations) or a per-repo events ledger (substrate open)",
+        "orientation briefing (new)"
+      ]
+    },
+    {
+      "step": "Play in the world — terminals, Zed, salons; the HUD stays out of the way while the work happens where it lives",
+      "build_surface": [
+        "none — deliberately; the HUD overlays, it does not contain the work"
+      ]
+    },
+    {
+      "step": "Steer long-running agent work as situations with progress and a re-selectable approach, not as a popup stream — retune mid-flight without restarting",
+      "build_surface": [
+        "situation log view (new)",
+        "agent session metadata"
+      ]
+    },
+    {
+      "step": "Delegate with honest scope: intent-level instructions with hand-pruned exclusions and narrow permissions — trust is earned per-scope, never assumed",
+      "build_surface": [
+        "agent permission tiers (Mycroft T0–T3 alignment)"
+      ]
+    },
+    {
+      "step": "Land the plane: the theme absorbs what the session learned, then the ledger takes the rest — cards, beads, commits — so the next walk's briefing can be true and the session is cheap to close",
+      "build_surface": [
+        "close-out prompt (new)",
+        "docs/why.md cards, bd, git"
+      ]
+    }
+  ],
+  "mental_model": "The dive is the play half of the loop — 'one gardens different planets and systems.' A dive begins from stillness (orientation is a conversation with the past, not a scroll-back) and ends with ritual (parking is a structured act, not a habit that decays under fatigue). Work state lives in the ledger, never in a coordinator or a context window — the session is ephemeral, the garden persists. Delegation that cannot be trusted is theater; mk would rather a narrow honest scope than a broad lying one.",
+  "ambiguity_ledger": {
+    "closed_decisions": [
+      "Entry is tmux switch-client from the door (shipped and playtested)",
+      "Parking is a ritual, not a habit — the close-out is structured (Gas Town's Landing the Plane; mk's session-completion protocol is the same instinct)",
+      "Delegation without trust is theater: intent-declaration interfaces ship with honest, hand-pruned scope (Stellaris E as cautionary tale + the untrustable-autopilot resentment)",
+      "The coordinator holds no state — session state lives in cards/beads/git on disk",
+      "Parking writes back to the theme: the theme absorbs what the session learned (mk 2026-09-01: 'concurred'). The reason threads never parked was that there was nowhere to park to."
+    ],
+    "open_questions": [
+      {
+        "question": "What substrate does seance-style orientation read — cass archives, a per-repo .events.jsonl, or transcript search?",
+        "gate": "ask_then_proceed"
+      },
+      {
+        "question": "Is the in-Autarch tending pane (huh + glamour + Composer, parts list researched) part of the dive or a separate surface?",
+        "gate": "ask_then_proceed"
+      },
+      {
+        "question": "Parking's mechanics, now that its destination is the theme: what is the minimum the theme must absorb per sitting (a card touch, a bead update, an auto-generated timeline entry, all three?), and does the ritual also fire at thread-retirement during the transition off standing threads?",
+        "gate": "ask_then_proceed"
+      }
+    ]
+  },
+  "implied_features": [
+    "Seance-style orientation on enter: query predecessor sessions for findings and unfinished work",
+    "Landing-the-plane close-out prompt wired to cards/beads/commit state",
+    "Situation log for long-running agents: progress plus re-selectable approach, replacing popup streams",
+    {
+      "feature": "Tending pane for in-HUD card editing (huh v1.0.0 + glamour + Composer)",
+      "phase": "after CUJ derive — mk ruled 'shouldn't we map out CUJs for Autarch first?'"
+    }
+  ],
+  "reference_lineage": [
+    {
+      "app": "Gas Town",
+      "teardown": "docs/research/2026-08-31-gastown-teardown.md",
+      "what_it_shaped": "Seance (conversational orientation), Landing the Plane (parking ritual), ledger-not-context-window state, capacity-governed dispatch"
+    },
+    {
+      "app": "Stellaris",
+      "teardown": "docs/research/2026-08-31-stellaris-teardown.md",
+      "what_it_shaped": "Pairs A (begin from stillness), D (situations with approaches), E (delegation-by-intent as cautionary tale)"
+    },
+    {
+      "app": "Garden Salon",
+      "teardown": "docs/research/2026-08-31-garden-salon-convergence.md",
+      "what_it_shaped": "Structured Boundaries (arrival, work, departure) and Calibrated Autonomy (graduated trust, not binary)"
+    },
+    {
+      "app": "Digital gardens — Appleton's ethos, Komoroske's compendium",
+      "what_it_shaped": "Named by mk at validation, not torn down: 'a Komoroske/Appleton-style version of product management + gardening/tending' — the dive as tending one bed of a topography, with parking as the garden remembering"
+    }
+  ],
+  "evidence": [
+    {
+      "source": "docs/research/2026-08-31-stellaris-teardown.md (discover_output block)",
+      "quote": "i honestly think the real time pause 4x style of game that stellaris, where one gardens different planets and systems is probably closest to what i think i should be doing",
+      "assumption_tested": "That deep work needs the tool to contain it — the RTwP frame says the tool's job is entry, steering, and exit around work that happens in the world"
+    },
+    {
+      "source": "docs/research/2026-08-31-vision-capture.md",
+      "quote": "play in / build / grow",
+      "assumption_tested": "That the dive is obligation-shaped — mk framed it as play; flow is load-bearing, and dev software failing at flow was the discover stage's founding observation"
+    },
+    {
+      "source": "docs/research/2026-08-31-session-archaeology.md",
+      "quote": "hmm check my sessions to determine how I actually work",
+      "assumption_tested": "That the dive enters one garden and parks on exit — observed: dives are standing threads with pace-layered revisit cadences (four daily companions, five every-2-3-days, one weekly), and no parking behavior exists; the ritual is a designed correction to the losing-the-thread failure, not a current habit"
+    },
+    {
+      "source": "docs/research/2026-08-31-session-archaeology.md (Correction section)",
+      "quote": "well, the reason i work in sessions/threads is because we haven't built autarch/garden salon",
+      "assumption_tested": "That the observed thread topology should reshape this CUJ — mk ruled it scaffolding: the garden-scoped dive with real parking is the desired state, and the threads' three compensations (orientation, cross-garden carrying, durable memory) are the build order's evidence"
+    }
+  ],
+  "success_condition": "mk enters a garden cold after two weeks and is working within minutes because the orientation told them what the last session knew — and when they leave, the parking ritual means nothing lives only in their head; they recognize the enter–play–park shape as how they already want to work, not a process imposed on them."
+}

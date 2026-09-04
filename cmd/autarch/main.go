@@ -48,20 +48,30 @@ import (
 )
 
 func main() {
+	// Bare `autarch` opens the surface: the briefing of what moved in the
+	// estate since the last visit, rows one tab away. The surface has no
+	// name of its own (2026-09-01 ruling); `autarch door` is the same
+	// command by its earlier name.
+	var rootOpts doorOptions
 	root := &cobra.Command{
 		Use:   "autarch",
-		Short: "Unified AI agent development tools",
-		Long: `Autarch - Unified monorepo for AI agent development tools.
+		Short: "Open Autarch: what moved in the estate since your last visit",
+		Long: `Autarch opens to a briefing of what moved in the estate since you were
+last here, with the ranked project rows one tab away.
 
 Available tools:
   bigend    Multi-project agent mission control (web + TUI)
   gurgeh    TUI-first PRD generation and validation
   coldwine  Task orchestration for human-AI collaboration
   pollard   General-purpose research intelligence`,
+		Args: cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, args []string) error { return runDoor(rootOpts) },
 	}
+	addDoorFlags(root, &rootOpts)
 
 	root.AddCommand(tuiCmd())
 	root.AddCommand(doorCmd())
+	root.AddCommand(threadsCmd())
 	root.AddCommand(bigendCmd())
 	root.AddCommand(gurgehCmd())
 	root.AddCommand(coldwineCmd())

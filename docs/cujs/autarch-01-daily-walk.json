@@ -1,0 +1,164 @@
+{
+  "cuj_id": "autarch-01-daily-walk",
+  "version": "1.5",
+  "status": "validated",
+  "actor": "mk — solo gardener of a ~98-project, agent-heavy, terminal-native estate",
+  "trigger": "Sitting down at the machine (morning, or returning after hours away) with agents having run on wall-clock the whole time: 'what moved while I was gone, and what waits on me?'",
+  "steps": [
+    {
+      "step": "Open Autarch and arrive to orientation, not obligation: a catch-up reading of what moved since the last visit, before anything asks for a decision",
+      "build_surface": [
+        "cmd/autarch/door.go",
+        "catch-up briefing pane (new — the Empire Timeline / begin-from-stillness steal)"
+      ]
+    },
+    {
+      "step": "Scan the estate — pivoted by container (ecosystems → projects) or by theme: rows quiet unless attention-worthy — verdict column, card fractions, live session counts, themes with live salons; visibility is opt-in at this scale, not opt-out",
+      "build_surface": [
+        "internal/door (ranked rows, verdict column)",
+        "~/.autarch/door.yaml (ranking + visibility config)"
+      ]
+    },
+    {
+      "step": "Read the waiting-on-me axis: which agents are blocked on a human right now, distinguished from working and from dead",
+      "build_surface": [
+        "tmux capture-pane scrape (Claude-Squad pattern: prompt-scrape + content hash)",
+        "door sessions axis (shipped 9da41aa)"
+      ]
+    },
+    {
+      "step": "Notice cross-garden signals routed by the layer structure — most arrive toast-class; a cross-layer contradiction (fast probe vs slow doctrine) earns popup-class",
+      "build_surface": [
+        "CanonGraph layer/serving graph (read-only, third data source)",
+        "delivery-class routing (new)"
+      ]
+    },
+    {
+      "step": "Choose where attention lands: enter a garden (tmux switch-client) or a theme's salon, or close Autarch owing nothing",
+      "build_surface": [
+        "door enter (shipped)"
+      ]
+    }
+  ],
+  "mental_model": "The walk is the watching/waiting half of the gardening loop — 'lots of context switching and deep diving and then watching/waiting for intervention points.' Stellaris gets stillness free by freezing the world; mk's world never halts, so the door must stop *the gardener* instead: orientation completes before any obligation is allowed to speak. The estate is scanned like an outliner, not read like an inbox — at ~98 projects the default is quiet, and a row earns its place on the walk. Leaving without acting is a successful walk, not an aborted one.",
+  "ambiguity_ledger": {
+    "closed_decisions": [
+      "The door transcribes card-check, tmux, and the layer graph; it owns no state (HUD ruling, ratified via the vision statement — the Mayor lost its data 22 times being a world instead of an overlay)",
+      "Orientation-before-obligation is the pause-steal: nothing demands a decision until the catch-up read is done",
+      "At estate scale the default is quiet-unless-attention-worthy (Stellaris C / show_in_outliner + the interrupt-fatigue resentment)",
+      {
+        "decision": "Waiting-on-me detection comes from tmux scraping (Claude-Squad pattern), not a herdr migration",
+        "confidence": "leaning"
+      },
+      {
+        "decision": "The catch-up briefing reads from git (commits on any ref since the window opened, plus uncommitted files) and from Claude Code's per-project transcript directories (sessions per garden, nested repos rolling up); alwe's session catalog follows as an async column. mk 2026-09-01, offered git + Claude transcripts / git only / git + alwe async / per-repo events ledger: '1 then 3'. Evidence that shaped the offer: every live tmux session sits at the estate root, so tmux cannot attribute movement to a garden; cass was degraded and alwe took over two minutes to answer.",
+        "confidence": "firm"
+      },
+      {
+        "decision": "The window is 'since the last visit': a client-local stamp written when Autarch is quit, 24h on the first visit, widened in steps with w and overridden with --since. Preference-class local state, same class as pins; the estate's truth is re-read every open.",
+        "confidence": "leaning"
+      },
+      {
+        "decision": "Threads live on their own screen beside the garden rows, one key away (t); the row stays the garden, and each garden row's live-thread count comes from attributing threads to the gardens their transcripts mention -- mk 2026-09-02, choosing 'Threads screen + garden rows' over nesting threads under rows or replacing rows with threads (GATE ruling 1, docs/plans/2026-09-02-thread-registry-plan.md)",
+        "confidence": "firm"
+      },
+      {
+        "decision": "The marks in the registry names are window positions on one display -- mk 2026-09-02, verbatim: '[ left 3/4s of the screen, ] right 3/4s, [] center 3/4s (i use 3/4s on my macbook 14 so i can get more horizontal space to review the terminal window' (GATE ruling 2)",
+        "confidence": "firm"
+      },
+      {
+        "decision": "Entry stays tmux switch-client for the thread registry slice; focusing the thread's own emulator window is the next entry question -- mk 2026-09-02: '1, and let's explore standardizing to iterm2' (GATE ruling 3)",
+        "confidence": "firm"
+      },
+      {
+        "decision": "Liveness reads tmux's pane command (an agent binary and its version, an idle shell, nothing) and the transcript's last real turn, never the file's mtime; a root-launched thread is attributed to the gardens its transcript mentions, since every pane sits at the estate root -- adopted by mk in the goal text of cf9e8644, evidence docs/research/2026-09-02-thread-registry-probe.md",
+        "confidence": "firm"
+      }
+    ],
+    "open_questions": [
+      {
+        "question": "Does the walk open on the briefing with NO list (provocation 1 from the Stellaris teardown) or on the briefing above the ranked rows? Both are built (goal da757a12): alone is the default, b flips to above live, so the ruling is made against a real render, not in the abstract.",
+        "gate": "ask_then_proceed"
+      },
+      {
+        "question": "How fresh must cross-garden signals be — computed on door open, or by a background cadence?",
+        "gate": "auto_proceed"
+      },
+      {
+        "gate": "ask_then_proceed",
+        "question": "Entry that focuses the thread's own emulator window instead of switching the tmux client, preserving the left/right/center layout -- and whether to standardize the estate on one emulator first (mk 2026-09-02: 'let's explore standardizing to iterm2'), which collapses three adapters to iTerm2's scripting API"
+      },
+      {
+        "gate": "ask_then_proceed",
+        "question": "The 14 note topics with no resume id and no tmux seat (tldrs, remontoire, jeddbench, canongraph, agmodb, oodacademy, interstate, ifs, jawnfit, jawnscope, phosphene, gsvdotcom, athenverse, garden-salon): dormant gardens holding a seat, or stale lines? The registry diff shows them once as 'no seat' and nothing persists them; reversal is a seats list in ~/.autarch/door.yaml, preference-class like pins"
+      }
+    ]
+  },
+  "implied_features": [
+    "Catch-up briefing on door open (what moved since last visit, per garden, newest-first)",
+    "Waiting-on-me column driven by tmux prompt-scraping with working/waiting/dead states",
+    "Delivery classes (off/toast/popup) for row-level and cross-garden signals, config in door.yaml",
+    "Visibility opt-in at scale: rows collapse to quiet by default, attention-worthiness promotes them"
+  ],
+  "reference_lineage": [
+    {
+      "app": "Stellaris",
+      "teardown": "docs/research/2026-08-31-stellaris-teardown.md",
+      "what_it_shaped": "Pairs A (orientation-before-obligation), C (outliner / show_in_outliner quiet default), G (Empire Timeline as the park/load bridge)"
+    },
+    {
+      "app": "Gas Town",
+      "teardown": "docs/research/2026-08-31-gastown-teardown.md",
+      "what_it_shaped": "The human as the top of an escalation ladder, not a notification target — pre-triaged severity routing shapes what may interrupt the walk"
+    },
+    {
+      "app": "Garden Salon",
+      "teardown": "docs/research/2026-08-31-garden-salon-convergence.md",
+      "what_it_shaped": "Ambient Governance and Continuous Reading — health visible without demanding; signals, not threshold alarms"
+    },
+    {
+      "app": "Digital gardens — Appleton's ethos, Komoroske's compendium",
+      "what_it_shaped": "Named by mk at validation, not torn down: 'it seems like all of the above CUJs are a Komoroske/Appleton-style version of product management + gardening/tending' — the walk as tending a topography, not clearing a timeline"
+    }
+  ],
+  "evidence": [
+    {
+      "source": "docs/research/2026-08-31-stellaris-teardown.md (discover_output block)",
+      "quote": "stellaris and other paradox games seem like a natural fit; lots of context switching and deep diving and then watching/waiting for intervention points",
+      "assumption_tested": "That the door's job is task management — it is not; it is attention routing between watching and diving"
+    },
+    {
+      "source": "docs/research/2026-08-31-vision-capture.md",
+      "quote": "I think Autarch should be the UI/HUD/way for humans to play in/build/grow the garden of their projects/interests (especially when they are so deeply interrelated via pace layers/systems like my projects are).",
+      "assumption_tested": "That Autarch is an app that owns workflow — the HUD ruling makes it an overlay that transcribes"
+    },
+    {
+      "source": "docs/research/2026-08-31-session-archaeology.md",
+      "quote": "hmm check my sessions to determine how I actually work",
+      "assumption_tested": "That the walk scans gardens — observed August behavior: 24/31 active days, median 3 real sessions across 2 projects, ~40 fleet one-shots/day, two-thirds of the estate dormant in any month (quiet-default confirmed)"
+    },
+    {
+      "source": "docs/research/2026-08-31-session-archaeology.md (Correction section)",
+      "quote": "well, the reason i work in sessions/threads is because we haven't built autarch/garden salon",
+      "assumption_tested": "That standing threads are revealed preference — mk ruled them a workaround for the unbuilt estate; the daily companion threads are the hand-rolled version of this CUJ's briefing, which makes the briefing the walk's most-exercised missing organ"
+    },
+    {
+      "source": "docs/cujs/README.md (validation record, 2026-09-01)",
+      "quote": "it seems like all of the above CUJs are a Komoroske/Appleton-style version of product management + gardening/tending",
+      "assumption_tested": "That the derived journeys needed correction before they were mk's — all four validated as walked, with the batched edits; the lineage mk named locates the whole set in the digital-gardening tradition"
+    }
+  ],
+  "provenance": [
+    {
+      "artifact": "internal/door briefing (intercore goal da757a12, 2026-09-01)",
+      "change": "The catch-up briefing built against git + Claude transcripts per mk's ruling; bare `autarch` opens to it; both layouts shipped behind the b key so the alone-vs-above question is decided against a real render; plan held in the job directory because the repo's plan guard requires a confirmed product card Autarch does not have",
+      "autonomy": "applied"
+    },
+    {
+      "artifact": "internal/door thread registry (intercore goal cf9e8644, 2026-09-02)",
+      "change": "The thread registry built from tmux session names, pane commands and transcript last turns per the probe of mk's session note; the threads screen (t) beside the garden rows; garden rows' live counts by transcript attribution; --registry diff against the note; the briefing's sessions count moved from mtime to the last real turn; three GATE rulings recorded as closed decisions; the garden-vs-thread question closed",
+      "autonomy": "applied"
+    }
+  ],
+  "success_condition": "mk opens the door after a day away and, within about a minute, knows what moved and what waits on them — then either dives or closes it without guilt, and recognizes the walk as the Stellaris loop they described rather than an inbox they were assigned."
+}
