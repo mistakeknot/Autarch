@@ -38,9 +38,16 @@ func (m Model) startThreads(sessions []TmuxSession) tea.Cmd {
 	copy(projects, m.projects)
 	roots := m.threadsOpts.Roots
 	transcriptsRoot := m.threadsOpts.TranscriptsRoot
+	codexRoot := m.threadsOpts.CodexRoot
+	readPane := m.threadsOpts.ReadPane
 	results := m.threadResults
 	return func() tea.Msg {
-		go ReadThreads(context.Background(), sessions, projects, roots, transcriptsRoot, func(th Thread) {
+		go ReadThreadsWithCodex(context.Background(), sessions, projects, roots, transcriptsRoot, codexRoot, func(th Thread) {
+			if readPane != nil && th.Runtime == th.Conversation.Provider && th.Conversation.Question != "" {
+				pane, err := readPane(th)
+				th.PaneErr = err
+				th.QuestionVisible = err == nil && QuestionOnScreen(th.Conversation.Question, pane)
+			}
 			results <- threadMsg{t: th}
 		})
 		return nil

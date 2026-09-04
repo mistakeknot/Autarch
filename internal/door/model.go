@@ -82,6 +82,8 @@ const (
 	screenBriefing screen = iota
 	screenRows
 	screenThreads
+	screenQuestions
+	screenQuestion
 )
 
 // BriefingOptions configures the briefing axis. A zero Since leaves the axis
@@ -175,6 +177,12 @@ type Model struct {
 	registry       []Seat // the note given by --registry, parsed once
 	registryErr    error
 	drift          []Drift
+	questionSel    string
+	questionOffset int
+	detailSession  string
+	detailFrom     screen
+	detailOffset   int
+	catchupOffset  int
 
 	selRoot string
 	moved   bool // user has navigated; until then selection tracks the top row
@@ -418,6 +426,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	key := msg.String()
+	if m.threadsOn && (m.screen == screenQuestions || m.screen == screenQuestion) && key != "q" && key != "ctrl+c" && key != "r" {
+		return m.handleQuestionKey(key)
+	}
 	switch key {
 	case "q", "ctrl+c", "esc":
 		return m, m.quit()
@@ -428,6 +439,10 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	// (the briefing included: reading the seats is orientation, not an
 	// action) and remembers where to return.
 	if m.threadsOn {
+		if key == "a" {
+			m.screen = screenQuestions
+			return m, nil
+		}
 		if m.screen == screenThreads {
 			return m.handleThreadsKey(key)
 		}
@@ -467,6 +482,23 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		// for a decision until mk reaches for the rows (autarch-01, closed
 		// decision 2). Every other key is inert here.
 		if m.layout == LayoutAlone && m.screen == screenBriefing {
+			if m.threadsOn {
+				switch key {
+				case "j", "down":
+					m.catchupOffset++
+				case "k", "up":
+					m.catchupOffset--
+				case "pgdown":
+					m.catchupOffset += max(1, m.visibleRows()/3)
+				case "pgup":
+					m.catchupOffset -= max(1, m.visibleRows()/3)
+				case "home", "g":
+					m.catchupOffset = 0
+				case "end", "G":
+					m.catchupOffset = len(m.catchupMovements()) - 1
+				}
+				m.catchupOffset = max(0, min(m.catchupOffset, len(m.catchupMovements())-1))
+			}
 			return m, nil
 		}
 	}
@@ -539,12 +571,11 @@ func (m Model) reread() (tea.Model, tea.Cmd) {
 			m.projects[i].Err = nil
 		}
 		cmds = append(cmds, m.startChecks(), m.waitForResult())
-		// A thread read still streaming is not restarted: a second batch on
-		// the same channel would let stale seats land in the new list.
-		if !m.threadsOn || m.threadsPending == 0 {
-			m.sessionsLoaded = false
-			cmds = append(cmds, m.loadSessions())
-		}
+	}
+	// Sessions refresh independently of the card checker.
+	if m.sessionsLoaded && (!m.threadsOn || m.threadsPending == 0) {
+		m.sessionsLoaded = false
+		cmds = append(cmds, m.loadSessions())
 	}
 	if m.briefingOn() && m.moveRemaining == 0 && len(m.projects) > 0 {
 		m.movements = make(map[string]Movement, len(m.projects))
@@ -700,6 +731,9 @@ func (m Model) lineWidth() int {
 }
 
 func (m Model) View() string {
+	if m.threadsOn && (m.screen == screenQuestions || m.screen == screenQuestion || (m.briefingOn() && m.layout == LayoutAlone && m.screen == screenBriefing)) {
+		return m.catchupView()
+	}
 	var b strings.Builder
 
 	b.WriteString(styleTitle.Render("AUTARCH"))
@@ -1027,7 +1061,7 @@ func (m Model) renderFooter() string {
 	var parts []string
 	switch {
 	case m.threadsOn && m.screen == screenThreads:
-		parts = []string{"↑/↓ move", "enter switch", "t back", "r re-read", "q quit"}
+		parts = []string{"↑/↓ move", "enter switch", "i evidence", "a questions", "t back", "r re-read", "q quit"}
 	case m.briefingOn() && m.layout == LayoutAlone && m.screen == screenBriefing:
 		parts = []string{"tab rows", "w widen", "b layout", "r re-read", "q quit"}
 	case m.briefingOn() && m.layout == LayoutAlone:

@@ -45,34 +45,36 @@ seats and every disagreement is printed after the list.`,
 }
 
 type threadJSON struct {
-	Session    string           `json:"session"`
-	Terminal   string           `json:"terminal"`
-	Mark       string           `json:"mark"`
-	Topic      string           `json:"topic"`
-	ResumeID   string           `json:"resume_id"`
-	Runtime    string           `json:"runtime"`
-	Version    string           `json:"version,omitempty"`
-	Activity   int64            `json:"activity"`
-	Path       string           `json:"path"`
-	Transcript string           `json:"transcript,omitempty"`
-	LastTurn   string           `json:"last_turn,omitempty"`
-	Gardens    []door.GardenHit `json:"gardens"`
-	Err        string           `json:"err,omitempty"`
+	Session      string            `json:"session"`
+	Terminal     string            `json:"terminal"`
+	Mark         string            `json:"mark"`
+	Topic        string            `json:"topic"`
+	ResumeID     string            `json:"resume_id"`
+	Runtime      string            `json:"runtime"`
+	Version      string            `json:"version,omitempty"`
+	Activity     int64             `json:"activity"`
+	Path         string            `json:"path"`
+	Transcript   string            `json:"transcript,omitempty"`
+	LastTurn     string            `json:"last_turn,omitempty"`
+	Gardens      []door.GardenHit  `json:"gardens"`
+	Conversation door.Conversation `json:"conversation"`
+	Err          string            `json:"err,omitempty"`
 }
 
 func toThreadJSON(th door.Thread) threadJSON {
 	j := threadJSON{
-		Session:    th.Session,
-		Terminal:   th.Seat.Terminal,
-		Mark:       string(th.Seat.Mark),
-		Topic:      th.Seat.Topic,
-		ResumeID:   th.Seat.ResumeID,
-		Runtime:    string(th.Runtime),
-		Version:    th.Version,
-		Activity:   th.Activity,
-		Path:       th.Path,
-		Transcript: th.Transcript,
-		Gardens:    th.Gardens,
+		Session:      th.Session,
+		Terminal:     th.Seat.Terminal,
+		Mark:         string(th.Seat.Mark),
+		Topic:        th.Seat.Topic,
+		ResumeID:     th.Seat.ResumeID,
+		Runtime:      string(th.Runtime),
+		Version:      th.Version,
+		Activity:     th.Activity,
+		Path:         th.Path,
+		Transcript:   th.Transcript,
+		Gardens:      th.Gardens,
+		Conversation: th.Conversation,
 	}
 	if j.Gardens == nil {
 		j.Gardens = []door.GardenHit{}
@@ -108,7 +110,7 @@ func runThreads(o threadsOptions) error {
 
 	var mu sync.Mutex
 	var threads []door.Thread
-	door.ReadThreads(ctx, sessions, projects, roots, door.DefaultTranscriptsRoot(), func(th door.Thread) {
+	door.ReadThreadsWithCodex(ctx, sessions, projects, roots, door.DefaultTranscriptsRoot(), door.DefaultCodexRoot(), func(th door.Thread) {
 		mu.Lock()
 		threads = append(threads, th)
 		mu.Unlock()

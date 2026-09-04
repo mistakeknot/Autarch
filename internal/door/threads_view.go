@@ -23,6 +23,8 @@ import (
 type ThreadsOptions struct {
 	Roots           []string
 	TranscriptsRoot string
+	CodexRoot       string
+	ReadPane        func(Thread) (string, error)
 	RegistryPath    string
 }
 
@@ -312,6 +314,13 @@ func (m Model) handleThreadsKey(key string) (tea.Model, tea.Cmd) {
 	case "enter":
 		if sel >= 0 {
 			return m, switchToThread(list[sel])
+		}
+	case "i":
+		if sel >= 0 {
+			m.detailSession = list[sel].Session
+			m.detailFrom = screenThreads
+			m.detailOffset = 0
+			m.screen = screenQuestion
 		}
 	}
 	m.clampThreadScroll()

@@ -59,6 +59,9 @@ func runDoor(o doorOptions) error {
 	if since.IsZero() {
 		return sinceErr // a --since that does not parse is the one fatal case
 	}
+	if o.since != "" {
+		visitPath = "" // an explicit inspection window does not complete a daily visit
+	}
 
 	projects, err := door.DiscoverProjects(roots)
 	if err != nil {
@@ -83,6 +86,8 @@ func runDoor(o doorOptions) error {
 		WithThreads(door.ThreadsOptions{
 			Roots:           roots,
 			TranscriptsRoot: door.DefaultTranscriptsRoot(),
+			CodexRoot:       door.DefaultCodexRoot(),
+			ReadPane:        door.CaptureThreadPane,
 			RegistryPath:    o.registry,
 		})
 

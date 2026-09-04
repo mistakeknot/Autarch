@@ -50,7 +50,8 @@ checkout; pin published module revisions, remove sibling replacements, use
 go-version-file in CI, and install tmux there for the actual interaction test.
 Reproduce with GOWORK=off go build -mod=readonly ./cmd/autarch, then verify
 go test -race ./internal/door and the CI-equivalent build/test commands.
-Commit the dependency repair and push main before building the next feature.
+Commit the dependency repair independently; push the integrated main after
+the full suite and the interaction review pass.
 
 ## Task 2: read conversation evidence independently of runtime
 
@@ -61,7 +62,7 @@ actual user/assistant exchange, unresolved structured questions, and source
 provenance. Look up historical context for stopped named sessions; never
 attribute an old Claude conversation to a currently running Codex process.
 Test real-format fixtures: answered questions disappear, tool results and
-bookkeeping do not count as replies, no old question leaks after later work,
+bookkeeping do not count as replies, later replies retain uncertainty,
 stopped threads retain context, and errors/timeouts remain explicit.
 
 ## Task 3: the catch-up and question detail
@@ -90,8 +91,10 @@ when their respective outcomes hold.
 
 ## Product questions
 
-- Stopped conversation entry: pending mk's choice. Evidence reading and live
-  session switching proceed independently; do not invent a resume policy.
+- Stopped conversation entry: the optional question has no answer yet.
+  Conservative implementation default: opening evidence never starts an
+  agent; a separate `s` action resumes the saved conversation without a prompt.
+  Keep this reversible until mk's recognition check.
 - Ask further product/design/taste questions through the structured question
   tool. Previously settled garden-salon and orientation rulings still apply.
 

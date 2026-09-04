@@ -1,6 +1,11 @@
 # Autarch
 
-Four tools for the operational side of running AI agents: mission control, PRD generation, task orchestration, and research intelligence.
+Catch up on work across your projects and agent sessions, inspect the questions
+they left, and return to the original conversation to answer.
+
+Bare `autarch` opens the daily catch-up: recent commit subjects and dated agent
+reports. Undated working-tree changes are counted separately. The existing
+mission-control, PRD, orchestration, and research tools remain available.
 
 ## What this does
 
@@ -20,10 +25,15 @@ Developers running the Demarch agent stack (Clavain, Intermute, Intercore) who w
 ## Quick start
 
 ```bash
+# Build and open the daily catch-up (Go 1.25+, tmux)
+GOWORK=off go build -mod=readonly -o autarch ./cmd/autarch
+./autarch
+./autarch --since 24h  # explicit window; leaves the last-visit stamp unchanged
+
 # Build all tools
 go build ./cmd/...
 
-# Unified TUI (recommended)
+# Tool dashboard
 ./dev autarch tui
 
 # Individual tools
@@ -38,9 +48,28 @@ go run ./cmd/pollard scan
 go run ./cmd/pollard report
 ```
 
+| In the daily catch-up | Key |
+|---|---|
+| Scroll recent changes | ↑ / ↓ |
+| Review questions | `a`, then Enter for full evidence |
+| Open the selected question's terminal seat | Enter from the evidence view |
+| Resume saved history when its agent is stopped or replaced | `s` from the evidence view |
+| Inspect every thread, including unread ones | `t`, then `i` for evidence |
+| Open project rows | Tab |
+| Refresh / return / quit | `r` / Esc / `q` |
+
+Questions come from the trailing 4 MiB of Claude Code and Codex transcripts
+linked by conversation IDs in tmux session names. Autarch distinguishes a
+question visible in a current pane from saved history and uncertain waits.
+An ordinary later reply is preserved for review; only an explicit structured
+answer confirms resolution. Seats without IDs and unread sources remain
+visible in coverage. Autarch sends no answers; resume opens the agent CLI
+without a new prompt. `autarch threads --json` exposes the same transcript
+evidence, including its private text, for local inspection.
+
 ## Tech stack
 
-- **Language:** Go 1.24+
+- **Language:** Go 1.25+
 - **TUI:** Bubble Tea + Lip Gloss (Tokyo Night palette)
 - **Web:** net/http + htmx + Tailwind
 - **Database:** SQLite (WAL mode, pure Go driver)
@@ -48,8 +77,8 @@ go run ./cmd/pollard report
 ## Prerequisites
 
 - macOS or Linux
-- Go 1.24+
-- tmux (for Coldwine)
+- Go 1.25+
+- tmux (for the daily catch-up and Coldwine)
 
 ## Project structure
 

@@ -50,6 +50,17 @@ func TestTmuxCaptureSwitchClientAndZed(t *testing.T) {
 		`printf '%s' '{"verdict":"absent","code":3,"card":"","reason":"","strength":{"score":0,"of":6,"confirmed":0,"drafted":0,"declined":0}}'`+"\nexit 3\n")
 	zedArgs := filepath.Join(dir, "zed-args")
 	writeExec(t, filepath.Join(stubs, "zed"), "#!/bin/sh\necho \"$@\" > "+zedArgs+"\n")
+	resumeArgs := filepath.Join(dir, "resume-args")
+	writeExec(t, filepath.Join(stubs, "claude"), "#!/bin/sh\nprintf '%s\\n' \"$@\" > "+resumeArgs+"\n")
+	id := "aaaa1111-bbbb-2222-cccc-333344445555"
+	work := "iterm[reader - " + id
+	transcript := filepath.Join(dir, ".claude", "projects", "-estate", id+".jsonl")
+	if err := os.MkdirAll(filepath.Dir(transcript), 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(transcript, []byte(userRequest+"\n"+assistantContext+"\n"+questionTool+"\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
 
 	bin := filepath.Join(dir, "autarch")
 	if out, err := exec.Command("go", "build", "-o", bin, "../../cmd/autarch").CombinedOutput(); err != nil {
@@ -78,7 +89,7 @@ func TestTmuxCaptureSwitchClientAndZed(t *testing.T) {
 	// A working session parked inside project aaa, then the door itself in a
 	// pane whose cwd is outside the estate -- so the door's own session must
 	// appear, named, in the unresolved disclosure.
-	run("new-session", "-d", "-s", "work", "-c", projA)
+	run("new-session", "-d", "-s", work, "-c", projA)
 	errLog := filepath.Join(dir, "door-err.log")
 	// HOME is the sandbox: the visit stamp and the transcript lookup must
 	// never touch the real one from a test.
@@ -110,6 +121,22 @@ func TestTmuxCaptureSwitchClientAndZed(t *testing.T) {
 	waitFor("briefing to render", func() bool {
 		return strings.Contains(run("capture-pane", "-p", "-t", "door"), "since ")
 	})
+	run("send-keys", "-t", "door", "a")
+	waitFor("saved question to render", func() bool {
+		return strings.Contains(run("capture-pane", "-p", "-t", "door"), "saved question · agent stopped")
+	})
+	run("send-keys", "-t", "door", "Enter")
+	waitFor("question and supporting evidence", func() bool {
+		cap := run("capture-pane", "-p", "-t", "door")
+		return strings.Contains(cap, "Should the reader open") && strings.Contains(cap, "The reader passes the keyboard check") && strings.Contains(cap, "Compact overview")
+	})
+	if _, err := os.Stat(resumeArgs); !os.IsNotExist(err) {
+		t.Fatal("opening evidence started an agent")
+	}
+	run("send-keys", "-t", "door", "s")
+	waitFor("explicit resume with original ID", func() bool { b, e := os.ReadFile(resumeArgs); return e == nil && string(b) == "--resume\n"+id+"\n" })
+	run("send-keys", "-t", "door", "Escape")
+	run("send-keys", "-t", "door", "Escape")
 	run("send-keys", "-t", "door", "Tab")
 
 	// The rendered door proves clauses (a) and (c) against a live server:
@@ -153,7 +180,7 @@ func TestTmuxCaptureSwitchClientAndZed(t *testing.T) {
 	// moves to that session.
 	run("send-keys", "-t", "door", "Enter")
 	waitFor("client to switch to the work session", func() bool {
-		return strings.TrimSpace(run("list-clients", "-F", "#{client_session}")) == "work"
+		return strings.TrimSpace(run("list-clients", "-F", "#{client_session}")) == work
 	})
 
 	// z: the card opens in Zed regardless of sessions.
@@ -161,6 +188,16 @@ func TestTmuxCaptureSwitchClientAndZed(t *testing.T) {
 	waitFor("zed stub to receive the card path", func() bool {
 		got, err := os.ReadFile(zedArgs)
 		return err == nil && strings.Contains(string(got), filepath.Join(projA, "docs", "why.md"))
+	})
+	// A structured answer in the source removes the request after refresh.
+	answer := `{"type":"user","timestamp":"2026-09-04T10:03:00Z","message":{"content":[{"type":"tool_result","tool_use_id":"ask1","content":"User has answered your questions: List"}]}}`
+	if err := os.WriteFile(transcript, []byte(userRequest+"\n"+assistantContext+"\n"+questionTool+"\n"+answer+"\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	run("send-keys", "-t", "door", "r")
+	run("send-keys", "-t", "door", "a")
+	waitFor("answered question removed on refresh", func() bool {
+		return strings.Contains(run("capture-pane", "-p", "-t", "door"), "No question without a later reply")
 	})
 }
 

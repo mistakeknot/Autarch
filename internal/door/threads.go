@@ -114,12 +114,14 @@ type Thread struct {
 	Version  string
 	Activity int64
 
-	Path         string    // pane path (kept for ResolveSessions parity)
-	Transcript   string    // "" when none
-	LastTurn     time.Time // zero = unknown
-	Gardens      []GardenHit
-	Err          error        // transcript could not be read; the row says so
-	Conversation Conversation // historical evidence, independent of runtime
+	Path            string    // pane path (kept for ResolveSessions parity)
+	Transcript      string    // "" when none
+	LastTurn        time.Time // zero = unknown
+	Gardens         []GardenHit
+	Err             error        // transcript could not be read; the row says so
+	Conversation    Conversation // historical evidence, independent of runtime
+	QuestionVisible bool         // question text also appears in the current pane snapshot
+	PaneErr         error
 }
 
 // ThreadSet is the assembled registry: every live tmux session as a Thread,

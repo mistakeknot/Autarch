@@ -23,6 +23,7 @@ type Conversation struct {
 	Updated        time.Time `json:"updated"`
 	Request        string    `json:"request,omitempty"`
 	Report         string    `json:"report,omitempty"`
+	ReportAt       time.Time `json:"report_at,omitempty"`
 	Question       string    `json:"question,omitempty"`
 	Context        string    `json:"context,omitempty"`
 	Reply          string    `json:"later_reply,omitempty"` // a reply is not proof this question was answered
@@ -249,6 +250,7 @@ func (c *Conversation) consume(msg conversationMessage, at time.Time, line int, 
 			}
 		}
 		c.Report = text
+		c.ReportAt = at
 	}
 	for _, b := range blocks {
 		if b.Type == "tool_use" && isQuestionTool(b.Name) {
