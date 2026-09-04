@@ -20,7 +20,7 @@ Unified monorepo for AI agent development tools: Bigend, Gurgeh, Coldwine, and P
 
 | Item | Value |
 |------|-------|
-| Language | Go 1.24+ |
+| Language | Go 1.25+ |
 | Module | `github.com/mistakeknot/autarch` |
 | TUI Framework | Bubble Tea + lipgloss |
 | Web Framework | net/http + htmx + Tailwind |

@@ -1,11 +1,15 @@
 # Development Setup
 
 ## Prerequisites
-- Go 1.24+
+- Go 1.25+
 - tmux (for session management)
 - Node.js (for MCP TypeScript components)
 
 ## Build & Run
+
+The committed module versions build in a standalone checkout. No neighboring
+Sylveste repositories are required. To test local dependency edits, use an
+untracked Go workspace; use `GOWORK=off` to verify the published dependencies.
 
 ```bash
 # Build all

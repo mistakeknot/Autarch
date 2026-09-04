@@ -1,8 +1,6 @@
 module github.com/mistakeknot/autarch
 
-go 1.24.0
-
-toolchain go1.24.12
+go 1.25.0
 
 require (
 	github.com/BurntSushi/toml v1.6.0
@@ -11,11 +9,11 @@ require (
 	github.com/charmbracelet/glamour v0.10.0
 	github.com/charmbracelet/lipgloss v1.1.1-0.20250404203927-76690c660834
 	github.com/fsnotify/fsnotify v1.9.0
-	github.com/mistakeknot/Masaq v0.0.0-00010101000000-000000000000
-	github.com/mistakeknot/intercore v0.0.0-00010101000000-000000000000
+	github.com/mistakeknot/Masaq v0.0.0-20260329071503-395d5c8abac4
+	github.com/mistakeknot/intercore v0.1.1-0.20260904213254-bc645304f0e3
 	github.com/spf13/cobra v1.10.2
 	gopkg.in/yaml.v3 v3.0.1
-	modernc.org/sqlite v1.43.0
+	modernc.org/sqlite v1.50.1
 	nhooyr.io/websocket v1.8.7
 )
 
@@ -42,12 +40,12 @@ require (
 	github.com/mattn/go-localereader v0.0.1 // indirect
 	github.com/mattn/go-runewidth v0.0.16 // indirect
 	github.com/microcosm-cc/bluemonday v1.0.27 // indirect
-	github.com/mistakeknot/intermute v0.0.0-20260125221414-bafe775a9cfa
+	github.com/mistakeknot/intermute v0.1.0
 	github.com/muesli/ansi v0.0.0-20230316100256-276c6243b2f6 // indirect
 	github.com/muesli/cancelreader v0.2.2 // indirect
 	github.com/muesli/reflow v0.3.0 // indirect
 	github.com/muesli/termenv v0.16.0
-	github.com/ncruces/go-strftime v0.1.9 // indirect
+	github.com/ncruces/go-strftime v1.0.0 // indirect
 	github.com/remyoudompheng/bigfft v0.0.0-20230129092748-24d4a6f8daec // indirect
 	github.com/rivo/uniseg v0.4.7 // indirect
 	github.com/sahilm/fuzzy v0.1.1
@@ -57,16 +55,10 @@ require (
 	github.com/yuin/goldmark-emoji v1.0.5 // indirect
 	golang.org/x/exp v0.0.0-20250620022241-b7579e27df2b // indirect
 	golang.org/x/net v0.33.0 // indirect
-	golang.org/x/sys v0.36.0 // indirect
+	golang.org/x/sys v0.45.0 // indirect
 	golang.org/x/term v0.31.0 // indirect
-	golang.org/x/text v0.24.0
-	modernc.org/libc v1.66.10 // indirect
+	golang.org/x/text v0.37.0
+	modernc.org/libc v1.72.3 // indirect
 	modernc.org/mathutil v1.7.1 // indirect
 	modernc.org/memory v1.11.0 // indirect
-)
-
-replace (
-	github.com/mistakeknot/Masaq => ../../masaq
-	github.com/mistakeknot/intercore => ../../core/intercore
-	github.com/mistakeknot/intermute => ../../core/intermute
 )
