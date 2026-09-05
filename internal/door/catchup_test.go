@@ -16,6 +16,7 @@ func catchupFixture() Model {
 	m = m.WithBriefing(BriefingOptions{Since: now.Add(-24 * time.Hour), Now: func() time.Time { return now }}).WithThreads(ThreadsOptions{})
 	m.width, m.height = 80, 26
 	m.movements["/estate/reader"] = Movement{Root: "/estate/reader", Name: "reader", Dirty: 12}
+	m.moveRemaining = 0
 	m.threads.Threads = []Thread{{Session: "iterm[reader - abc", Seat: Seat{Topic: "reader", ResumeID: "abc"}, Runtime: RuntimeClaude, Path: "/estate/reader", Conversation: Conversation{Provider: RuntimeClaude, Source: "/transcripts/abc.jsonl", Question: "Should the reader open with a list or a preview?", Context: "Keyboard navigation works.\n\n" + strings.Repeat("Supporting evidence with wide text 漢字. ", 80), Request: "Ship the new reader", QuestionAt: now, Updated: now}}}
 	m.finishThreads()
 	return m

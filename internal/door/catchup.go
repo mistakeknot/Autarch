@@ -160,8 +160,11 @@ func oneLine(s string) string { return strings.Join(strings.Fields(cleanEvidence
 
 func (m Model) catchupLines(room int) []string {
 	lines := []string{
-		"since " + m.window.Local().Format("Mon 2 Jan 15:04") + " · " + m.windowSource,
+		"Here’s what moved while you were away.",
 		m.questionSummary(), "",
+	}
+	if room < 12 {
+		lines = []string{m.questionSummary()}
 	}
 	if m.briefing.SinceErr != nil {
 		lines = append(lines, "Visit window: "+m.briefing.SinceErr.Error())
@@ -179,27 +182,13 @@ func (m Model) catchupLines(room int) []string {
 	}
 	start := max(0, min(m.catchupOffset, len(moved)-1))
 	shown := 0
-	for i := start; i < len(moved) && len(lines)+3 <= room-2; i++ {
+	for i := start; i < len(moved); i++ {
 		mv := moved[i]
-		lines = append(lines, fmt.Sprintf("%s · %s", mv.Name, humanAgo(m.now().Sub(mv.Latest))))
-		if len(mv.Commits) > 0 {
-			lines = append(lines, fmt.Sprintf("  %s: %s (%s across local refs)", mv.Commits[0].Hash[:min(7, len(mv.Commits[0].Hash))], cleanEvidence(mv.Commits[0].Subject), plural(len(mv.Commits), "commit")))
-		} else if mv.Err != nil {
-			lines = append(lines, "  Git unreadable: "+mv.Err.Error())
-		} else {
-			lines = append(lines, "  Conversation activity; no recent commit found")
+		card := m.movementCard(mv, room)
+		if len(lines)+len(card) > room-2 {
+			break
 		}
-		report := ""
-		for _, th := range m.threads.ByRoot[mv.Root] {
-			if th.Conversation.Report != "" && th.Conversation.ReportAt.After(m.window) {
-				report = fmt.Sprintf("  %s · %s reported: %s", th.Seat.Topic, th.Conversation.Provider, oneLine(th.Conversation.Report))
-				break
-			}
-		}
-		if report == "" {
-			report = "  No recent agent report linked to a named seat"
-		}
-		lines = append(lines, report)
+		lines = append(lines, card...)
 		shown++
 	}
 	if len(moved) > 0 {
@@ -305,7 +294,7 @@ func (m Model) questionDetailLines() []string {
 	}
 	var wrapped []string
 	for _, line := range lines {
-		wrapped = append(wrapped, strings.Split(ansi.Hardwrap(cleanEvidence(line), max(1, m.lineWidth()-2), true), "\n")...)
+		wrapped = append(wrapped, strings.Split(ansi.Wrap(cleanEvidence(line), max(1, m.lineWidth()-2), ""), "\n")...)
 	}
 	return wrapped
 }
@@ -326,13 +315,13 @@ func (m Model) handleQuestionKey(key string) (tea.Model, tea.Cmd) {
 		case "k", "up":
 			m.detailOffset--
 		case "pgdown", "space":
-			m.detailOffset += max(1, m.height-6)
+			m.detailOffset += m.dashboardRoom()
 		case "pgup":
-			m.detailOffset -= max(1, m.height-6)
+			m.detailOffset -= m.dashboardRoom()
 		case "home", "g":
 			m.detailOffset = 0
 		case "end", "G":
-			m.detailOffset = len(m.questionDetailLines())
+			m.detailOffset = len(m.dashboardDetailLines())
 		case "enter":
 			if th, ok := m.detailThread(); ok {
 				return m, switchToThread(th)
@@ -342,7 +331,7 @@ func (m Model) handleQuestionKey(key string) (tea.Model, tea.Cmd) {
 				return m, resumeConversation(th)
 			}
 		}
-		m.detailOffset = max(0, min(m.detailOffset, max(0, len(m.questionDetailLines())-max(1, m.height-6))))
+		m.detailOffset = max(0, min(m.detailOffset, max(0, len(m.dashboardDetailLines())-m.dashboardRoom())))
 		return m, nil
 	}
 	qs := m.questions()

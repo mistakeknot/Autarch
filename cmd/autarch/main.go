@@ -55,9 +55,10 @@ func main() {
 	var rootOpts doorOptions
 	root := &cobra.Command{
 		Use:   "autarch",
-		Short: "Open Autarch: what moved in the estate since your last visit",
-		Long: `Autarch opens to a briefing of what moved in the estate since you were
-last here, with the ranked project rows one tab away.
+		Short: "Open Autarch: catch up on your projects and agent sessions",
+		Long: `Open Autarch with no arguments to catch up since your last visit.
+Choose Cozy or Compact from View, and change the time range in the header.
+Questions, project context, and terminal sessions are one tab away.
 
 Available tools:
   bigend    Multi-project agent mission control (web + TUI)

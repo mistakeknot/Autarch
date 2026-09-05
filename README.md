@@ -33,7 +33,6 @@ Developers running the Demarch agent stack (Clavain, Intermute, Intercore) who w
 # Build and open the daily catch-up (Go 1.25+, tmux)
 GOWORK=off go build -mod=readonly -o autarch ./cmd/autarch
 ./autarch
-./autarch --since 24h  # explicit window; leaves the last-visit stamp unchanged
 ./autarch project .   # product context for this checkout
 
 # Build all tools
@@ -54,8 +53,24 @@ go run ./cmd/pollard scan
 go run ./cmd/pollard report
 ```
 
+Open `autarch` with no arguments. It looks back to your last visit, or 24 hours
+on your first visit. Click **Time range** or press `w` to choose last visit,
+24 hours, 3 days, 7 days, or 30 days. The current window stays visible.
+
+Click **View** or press `v` to compare **Cozy** (roomier summaries) and
+**Compact** (more projects at a glance). Press `d` to switch immediately.
+Cozy is the initial view; your choice is saved in `~/.autarch/display.yaml`
+and also applies to the product HUD. Click the header tabs or use `1`–`4`
+to navigate. Press `?` for the in-app guide.
+
+For scripts or an explicit inspection window, `autarch --since 24h` remains
+available and leaves the last-visit stamp unchanged.
+
 | In the daily catch-up | Key |
 |---|---|
+| Switch Cozy / Compact | `d`, or `v` to choose |
+| Choose a time range | `w` |
+| Open the guide | `?` |
 | Scroll recent changes | ↑ / ↓ |
 | Review questions | `a`, then Enter for full evidence |
 | Open the selected question's terminal seat | Enter from the evidence view |

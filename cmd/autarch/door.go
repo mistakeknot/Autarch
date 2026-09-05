@@ -89,10 +89,10 @@ func runDoor(o doorOptions) error {
 			CodexRoot:       door.DefaultCodexRoot(),
 			ReadPane:        door.CaptureThreadPane,
 			RegistryPath:    o.registry,
-		})
+		}).WithDisplay(door.DefaultDisplayPath())
 
 	defer pkgtui.RestoreTerminalOnPanic()
-	_, err = tea.NewProgram(m, tea.WithAltScreen()).Run()
+	_, err = tea.NewProgram(m, tea.WithAltScreen(), tea.WithMouseCellMotion()).Run()
 	return err
 }
 

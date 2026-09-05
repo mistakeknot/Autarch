@@ -351,6 +351,7 @@ func TestWidenCyclesAndReturns(t *testing.T) {
 		{configured, "last visit"},
 	}
 	for i, w := range want {
+		m.moveRemaining = 0 // The previous read has completed before the next key.
 		m = feed(t, m, key("w"))
 		if !m.window.Equal(w.since) || m.windowSource != w.source {
 			t.Fatalf("step %d: window %v %q, want %v %q", i, m.window, m.windowSource, w.since, w.source)

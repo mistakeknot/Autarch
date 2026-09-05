@@ -37,7 +37,7 @@ func TestTmuxCaptureSwitchClientAndZed(t *testing.T) {
 	// The estate: two absent-card projects. Both score 0, so ruling 11's
 	// name tiebreak puts aaa on top -- which is where the untouched
 	// selection sits, and aaa is the project we give a live session.
-	estate := filepath.Join(dir, "estate")
+	estate := filepath.Join(dir, "projects")
 	projA := mkrepo(t, estate, "aaa", true)
 	mkrepo(t, estate, "bbb", true)
 
@@ -93,8 +93,8 @@ func TestTmuxCaptureSwitchClientAndZed(t *testing.T) {
 	errLog := filepath.Join(dir, "door-err.log")
 	// HOME is the sandbox: the visit stamp and the transcript lookup must
 	// never touch the real one from a test.
-	doorCmd := fmt.Sprintf("env 'PATH=%s' HOME=%s AUTARCH_CARD_CHECK=%s %s door --root %s --ranking %s 2>%s; sleep 60",
-		stubs+":"+os.Getenv("PATH"), dir, cardStub, bin, estate, filepath.Join(dir, "rank.yaml"), errLog)
+	doorCmd := fmt.Sprintf("env 'PATH=%s' HOME=%s AUTARCH_CARD_CHECK=%s %s 2>%s; sleep 60",
+		stubs+":"+os.Getenv("PATH"), dir, cardStub, bin, errLog)
 	run("new-session", "-d", "-s", "door", "-c", dir, "-x", "120", "-y", "30", doorCmd)
 
 	dump := func(why string) {
@@ -120,6 +120,32 @@ func TestTmuxCaptureSwitchClientAndZed(t *testing.T) {
 	// take every morning.
 	waitFor("briefing to render", func() bool {
 		return strings.Contains(run("capture-pane", "-p", "-t", "door"), "since ")
+	})
+	if cap := run("capture-pane", "-p", "-t", "door"); !strings.Contains(cap, "View: Cozy") {
+		dump("bare invocation did not default to Cozy")
+	}
+	run("send-keys", "-t", "door", "v")
+	waitFor("view selector", func() bool {
+		return strings.Contains(run("capture-pane", "-p", "-t", "door"), "Compact — more projects")
+	})
+	run("send-keys", "-t", "door", "Down", "Enter")
+	waitFor("Compact preference saved", func() bool {
+		data, err := os.ReadFile(filepath.Join(dir, ".autarch", "display.yaml"))
+		return err == nil && strings.Contains(string(data), "density: compact") &&
+			strings.Contains(run("capture-pane", "-p", "-t", "door"), "View: Compact")
+	})
+	// SGR mouse input clicks the visible Time range control (one-based x/y).
+	run("send-keys", "-t", "door", "-l", "\x1b[<0;28;3M\x1b[<0;28;3m")
+	waitFor("time range opened by mouse", func() bool {
+		return strings.Contains(run("capture-pane", "-p", "-t", "door"), "Last 30 days")
+	})
+	run("send-keys", "-t", "door", "Down", "Down", "Enter")
+	waitFor("three-day range applied", func() bool {
+		return strings.Contains(run("capture-pane", "-p", "-t", "door"), "Showing Last 3 days")
+	})
+	run("send-keys", "-t", "door", "w", "Home", "Enter")
+	waitFor("opening range restored", func() bool {
+		return strings.Contains(run("capture-pane", "-p", "-t", "door"), "Showing Last 24 hours")
 	})
 	run("send-keys", "-t", "door", "a")
 	waitFor("saved question to render", func() bool {
@@ -198,6 +224,20 @@ func TestTmuxCaptureSwitchClientAndZed(t *testing.T) {
 	run("send-keys", "-t", "door", "a")
 	waitFor("answered question removed on refresh", func() bool {
 		return strings.Contains(run("capture-pane", "-p", "-t", "door"), "No question without a later reply")
+	})
+	run("send-keys", "-t", "door", "q")
+	waitFor("visit saved on quit", func() bool {
+		_, err := os.Stat(filepath.Join(dir, ".autarch", "last-visit"))
+		return err == nil
+	})
+	run("new-session", "-d", "-s", "reopened", "-c", dir, "-x", "120", "-y", "30", doorCmd)
+	waitFor("Compact remembered on bare reopen", func() bool {
+		cap := run("capture-pane", "-p", "-t", "reopened")
+		return strings.Contains(cap, "View: Compact") && strings.Contains(cap, "Since last visit")
+	})
+	run("send-keys", "-t", "reopened", "d")
+	waitFor("direct toggle back to Cozy", func() bool {
+		return strings.Contains(run("capture-pane", "-p", "-t", "reopened"), "View: Cozy")
 	})
 }
 

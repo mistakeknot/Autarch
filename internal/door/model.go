@@ -38,13 +38,17 @@ type threadMsg struct{ t Thread }
 
 type checksDoneMsg struct{}
 
-// movementMsg carries one garden's briefing result; movementsStartedMsg opens
-// the stream and carries the one estate-wide sessions verdict.
-type movementMsg struct{ m Movement }
+// Movement messages belong to one read. The pending count is set before
+// commands run, because the first result can arrive before its metadata.
+type movementMsg struct {
+	m          Movement
+	generation int
+}
 
 type movementsStartedMsg struct {
 	count       int
 	sessionsErr error
+	generation  int
 }
 
 // Layout is where the briefing sits relative to the rows. Both exist on
@@ -150,16 +154,17 @@ type Model struct {
 	// The briefing axis (autarch-01 step 1). movements is keyed by Root;
 	// moveRemaining counts gardens still being read so the header can say
 	// "reading N…" instead of presenting a partial estate as the whole one.
-	briefing      BriefingOptions
-	window        time.Time // the window in force: configured, or widened by w
-	windowSource  string
-	widen         int // index into widenSteps; -1 means the configured window
-	movements     map[string]Movement
-	moveResults   chan movementMsg
-	moveRemaining int
-	sessionsErr   error // the transcripts root could not be read: one estate-wide fact
-	layout        Layout
-	screen        screen
+	briefing       BriefingOptions
+	window         time.Time // the window in force: configured, or widened by w
+	windowSource   string
+	widen          int // index into widenSteps; -1 means the configured window
+	movements      map[string]Movement
+	moveResults    chan movementMsg
+	moveRemaining  int
+	moveGeneration int
+	sessionsErr    error // the transcripts root could not be read: one estate-wide fact
+	layout         Layout
+	screen         screen
 
 	// The threads axis (autarch-01 steps 2 and 3; plan 2026-09-02): every
 	// live tmux seat, read from the session name, the pane command and the
@@ -192,6 +197,12 @@ type Model struct {
 	productLoading    bool
 	productStandalone bool
 	productGeneration int
+	density           Density
+	displayPath       string
+	menu              string
+	menuSelection     int
+	rangeIndex        int
+	pendingRange      *int
 
 	selRoot string
 	moved   bool // user has navigated; until then selection tracks the top row
@@ -234,7 +245,16 @@ func (m Model) WithBriefing(o BriefingOptions) Model {
 	m.screen = screenBriefing
 	m.movements = make(map[string]Movement, len(m.projects))
 	m.moveResults = make(chan movementMsg, len(m.projects))
+	m.moveRemaining = len(m.projects)
 	return m
+}
+
+func (m *Model) resetMovements() {
+	m.moveGeneration++
+	m.movements = make(map[string]Movement, len(m.projects))
+	m.moveResults = make(chan movementMsg, len(m.projects))
+	m.moveRemaining = len(m.projects)
+	m.sessionsErr = nil
 }
 
 func (m Model) briefingOn() bool { return !m.briefing.Since.IsZero() }
@@ -311,6 +331,7 @@ func (m Model) startMovements() tea.Cmd {
 	since := m.window
 	root := m.briefing.TranscriptsRoot
 	results := m.moveResults
+	generation := m.moveGeneration
 	return func() tea.Msg {
 		var idx map[string]SessionStat
 		var sessErr error
@@ -320,9 +341,9 @@ func (m Model) startMovements() tea.Cmd {
 			idx, sessErr = IndexSessions(root, projects, since)
 		}
 		go Movements(context.Background(), projects, since, idx, func(mv Movement) {
-			results <- movementMsg{m: mv}
+			results <- movementMsg{m: mv, generation: generation}
 		})
-		return movementsStartedMsg{count: len(projects), sessionsErr: sessErr}
+		return movementsStartedMsg{count: len(projects), sessionsErr: sessErr, generation: generation}
 	}
 }
 
@@ -333,6 +354,8 @@ func (m Model) waitForMovement() tea.Cmd {
 
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
+	case tea.MouseMsg:
+		return m.handleDisplayMouse(msg)
 	case productMsg:
 		if msg.generation == m.productGeneration {
 			m.product, m.productLoading = msg.brief, false
@@ -413,13 +436,15 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case movementsStartedMsg:
-		m.moveRemaining = msg.count
-		m.sessionsErr = msg.sessionsErr
+		if msg.generation == m.moveGeneration {
+			m.sessionsErr = msg.sessionsErr
+		}
 		return m, nil
 
 	case movementMsg:
-		// A result from a window that is no longer in force is dropped;
-		// restarts are gated on an idle stream, so this is belt and braces.
+		if msg.generation != m.moveGeneration {
+			return m, nil
+		}
 		if msg.m.Since.Equal(m.window) {
 			m.movements[msg.m.Root] = msg.m
 		}
@@ -428,6 +453,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		if m.moveRemaining > 0 {
 			return m, m.waitForMovement()
+		}
+		if m.pendingRange != nil {
+			i := *m.pendingRange
+			m.pendingRange = nil
+			return m.chooseRange(i)
 		}
 		return m, nil
 
@@ -443,8 +473,44 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	key := msg.String()
+	if m.menu != "" {
+		return m.handleMenuKey(key)
+	}
+	switch key {
+	case "d":
+		return m.setDensity(Density(1 - int(m.density)))
+	case "v":
+		m.menu, m.menuSelection = "density", int(m.density)
+		return m, nil
+	case "?":
+		m.menu = "help"
+		return m, nil
+	case "w":
+		if m.threadsOn && m.screen != screenProduct {
+			m.menu, m.menuSelection = "range", m.rangeIndex
+			return m, nil
+		}
+	}
 	if m.screen == screenProduct {
 		return m.handleProductKey(key)
+	}
+	if m.threadsOn {
+		switch key {
+		case "1":
+			m.screen = screenBriefing
+			return m, nil
+		case "2":
+			m.screen = screenQuestions
+			return m, nil
+		case "3":
+			m.screen = screenRows
+			return m, nil
+		case "4":
+			if m.screen != screenThreads {
+				m.prevScreen, m.screen = m.screen, screenThreads
+			}
+			return m, nil
+		}
 	}
 	if m.threadsOn && (m.screen == screenQuestions || m.screen == screenQuestion) && key != "q" && key != "ctrl+c" && key != "r" {
 		return m.handleQuestionKey(key)
@@ -602,7 +668,7 @@ func (m Model) reread() (tea.Model, tea.Cmd) {
 		cmds = append(cmds, m.loadSessions())
 	}
 	if m.briefingOn() && m.moveRemaining == 0 && len(m.projects) > 0 {
-		m.movements = make(map[string]Movement, len(m.projects))
+		m.resetMovements()
 		cmds = append(cmds, m.startMovements(), m.waitForMovement())
 	}
 	if len(cmds) == 0 {
@@ -624,8 +690,11 @@ func (m Model) widenWindow() (tea.Model, tea.Cmd) {
 		m.window = m.now().Add(-step)
 		m.windowSource = "widened to " + humanDur(step)
 	}
-	m.movements = make(map[string]Movement, len(m.projects))
+	m.resetMovements()
 	m.status = "re-reading since " + m.window.Local().Format("Mon 2 Jan 15:04")
+	if len(m.projects) == 0 {
+		return m, nil
+	}
 	return m, tea.Batch(m.startMovements(), m.waitForMovement())
 }
 
@@ -755,8 +824,14 @@ func (m Model) lineWidth() int {
 }
 
 func (m Model) View() string {
+	if m.menu != "" {
+		return m.displayMenuView()
+	}
 	if m.screen == screenProduct {
 		return m.productView()
+	}
+	if m.threadsOn && m.layout == LayoutAlone {
+		return m.dashboardView()
 	}
 	if m.threadsOn && (m.screen == screenQuestions || m.screen == screenQuestion || (m.briefingOn() && m.layout == LayoutAlone && m.screen == screenBriefing)) {
 		return m.catchupView()

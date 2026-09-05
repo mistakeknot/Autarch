@@ -38,7 +38,7 @@ Use 1–5 or Tab for sections, arrows to scroll, o for source files, r to refres
 				return fmt.Errorf("project path must be a directory: %s", root)
 			}
 			defer pkgtui.RestoreTerminalOnPanic()
-			_, err = tea.NewProgram(door.NewProductModel(root), tea.WithAltScreen()).Run()
+			_, err = tea.NewProgram(door.NewProductModel(root).WithDisplay(door.DefaultDisplayPath()), tea.WithAltScreen(), tea.WithMouseCellMotion()).Run()
 			return err
 		},
 	}

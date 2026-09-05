@@ -249,41 +249,32 @@ func (m Model) productLines() []string {
 	}
 	var wrapped []string
 	for _, line := range lines {
-		wrapped = append(wrapped, strings.Split(ansi.Wrap(cleanEvidence(line), max(1, m.lineWidth()-2), ""), "\n")...)
+		if m.density == DensityCompact && strings.TrimSpace(line) == "" {
+			continue
+		}
+		parts := strings.Split(ansi.Wrap(cleanEvidence(line), m.dashboardContentWidth(), ""), "\n")
+		for _, part := range parts {
+			if strings.HasPrefix(line, "CURRENT WORK") || strings.HasPrefix(line, "PRODUCT INTENT") || strings.HasPrefix(line, "SOURCE COVERAGE") || strings.Contains(line, " · confirmed") || strings.Contains(line, " · declined") {
+				part = styleTitle.Render(part)
+			}
+			wrapped = append(wrapped, part)
+		}
 	}
 	return wrapped
 }
 
-func (m Model) productRoom() int { return max(1, m.height-6) }
+func (m Model) productRoom() int { return m.dashboardRoom() }
 
 func (m Model) productView() string {
-	width, room := m.lineWidth(), m.productRoom()
+	room := m.productRoom()
 	all := m.productLines()
 	start := max(0, min(m.productOffset, len(all)-room))
 	name := m.product.Card.Project
 	if name == "" {
 		name = filepath.Base(m.productRoot)
 	}
-	tabs := []string{"1 Brief", "2 Roadmap", "3 Backlog", "4 Journeys", "5 Decisions"}
-	tabs[m.productSection] = "[" + tabs[m.productSection] + "]"
-	lines := []string{styleTitle.Render("AUTARCH · " + oneLine(name)), styleCoverage.Render(strings.Join(tabs, "  ")), ""}
-	for i := 0; i < room; i++ {
-		line := ""
-		if start+i < len(all) {
-			line = "  " + all[start+i]
-		}
-		lines = append(lines, line)
-	}
-	lines = append(lines, styleCoverage.Render(fmt.Sprintf("%d–%d / %d · %s", start+1, min(len(all), start+room), len(all), oneLine(m.productRoot))))
-	lines = append(lines, styleFooter.Render("1–5/tab sections · ↑↓ scroll · o source · r refresh · esc back · q quit"))
-	lines = append(lines, styleCoverage.Render(oneLine(m.status)))
-	for i := range lines {
-		lines[i] = ansi.Truncate(lines[i], width, "…")
-	}
-	if m.height > 0 && len(lines) > m.height {
-		lines = lines[:m.height]
-	}
-	return strings.Join(lines, "\n")
+	m.status = fmt.Sprintf("%d–%d / %d · %s", start+1, min(len(all), start+room), len(all), m.status)
+	return m.dashboardFrame("Project · "+oneLine(name), all[start:min(len(all), start+room)], "1–5/tab sections · ↑↓ scroll · o source · r refresh · d View · Esc back · q Quit")
 }
 
 func (m Model) openProductSource() tea.Cmd {
