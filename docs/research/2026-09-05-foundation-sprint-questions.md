@@ -372,6 +372,27 @@ The next structured probe asks for a recent real intervention: what the user
 noticed, what they decided, and what agents should do differently next time.
 Use that case to trace the experience before choosing more panes or schemas.
 
+### Proposed next goal: quick feedback while testing
+
+The user identified a concrete difficulty: recording feedback while testing
+sites or apps at the scale of agent-built software, and asked about Computer
+Use plus a quick feedback feature and the best next goal.
+
+The [goal recommendation and feasibility note](2026-09-05-quick-feedback-goal.md)
+proposes a complete feedback-to-result loop for one project: capture the human
+observation in place, connect it to relevant foundations, discuss or challenge
+its implications with Flere, execute resolved work through Clavain, and review
+the changed product. This makes the feedback loop the concrete work used to
+prove foundation onboarding. The goal and detailed experience are proposed;
+the user has not yet selected the capture interaction or advanced to planning.
+
+The next structured question compares an explicitly started review session for
+the selected app/site, with a shortcut to mark moments, against shortcut-only
+capture of the current moment. The former can preserve the lead-up; the latter
+needs no session setup. No answer recorded. Current research supports a native
+Mac capture companion as a feasible direction; it does not establish a working
+Autarch recorder or an embeddable Codex Computer Use backend.
+
 ## Sprint progress (Sylveste-fuwn)
 
 - [ ] Step 1: Brainstorm — Understand phase; research gathered, dialogue open.
