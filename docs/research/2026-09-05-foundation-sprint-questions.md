@@ -23,6 +23,29 @@ discussion, not approval of a target workflow.
 This is an in-progress research record, not a completed brainstorm or plan.
 Questions use the available structured question tool, one decision at a time.
 
+### Active goal: finish the product brainstorm with the user
+
+The user reaffirmed: “please continue with brainstorming all the
+ambiguity/design/product decisions as your next goal with me”.
+
+Continue the dialogue through the consequential product, design, and
+interaction decisions for the agreed project collaborator and its first
+proving journey. For each decision, provide a concrete scenario, explain
+meaningful tradeoffs, ask through the structured question tool, and record the
+answer with its scope. Carry existing rulings forward instead of reopening
+them. Recommendations and unanswered questions remain explicitly provisional.
+
+The brainstorm is ready to conclude when the consequential choices for that
+journey are answered, or the user explicitly agrees to defer a choice with
+clear boundaries, and the user agrees to the resulting design synthesis.
+New ambiguities discovered during that synthesis return to the dialogue.
+This goal does not itself advance the sprint into implementation planning.
+
+Track this work in `Sylveste-fuwn`. The thread goal widget still contains the
+older unfinished daily-catch-up goal and cannot replace it through the
+available goal-creation tool. Do not mark that goal complete merely to change
+the widget.
+
 ## Verified starting point
 
 Source baseline: Autarch main at `51905a7`.
@@ -84,6 +107,27 @@ Source baseline: Autarch main at `51905a7`.
 | Model continuity | When to resume the original session versus use another model; what context and decisions must transfer. |
 | Maintenance | Which changes reopen review, and how much interruption is appropriate. |
 | Pilot and evidence | First project and contrasting follow-ups; the human walkthrough that demonstrates a useful result. |
+
+Within those areas, the remaining dialogue must also cover:
+
+- The first visit and return visit: what appears first, how the collaborator
+  is opened, and how conversation, documents, and project status share space.
+- Agent/model choice: who selects the runtime and model, whether switching
+  is suggested or automatic, and what happens when a chosen model is unavailable.
+- Context: project boundaries, inherited or cross-project evidence, and what
+  the human can inspect, correct, or exclude from a handoff.
+- Draft review and persistence: what is editable, what constitutes agreement,
+  how changed decisions supersede earlier ones, and how source conflicts are
+  resolved without erasing their provenance.
+- Work handoff and return: what starts execution through Clavain, how work
+  already running in an external session is represented, and which evidence
+  establishes the result.
+- Interruption and recovery: pending questions, declined or deferred answers,
+  stopping work, reconnecting to sessions, and unavailable agents.
+- Attention and resource preferences: visible progress, notifications,
+  background activity, and any user-chosen limits on time or spend.
+- Success and scope: the pilot project's actual delivered work, the human
+  walkthrough, supported project types, and explicit first-slice exclusions.
 
 The collaborator's product role and first proving journey are now agreed;
 see the September 5 ruling below. The detailed interaction, engine choice,
@@ -196,6 +240,12 @@ Continuity reduces navigation but requires clear explanation of transferred
 context; separate conversations preserve agent-native histories more clearly.
 Either design carries agreed decisions and source files forward. The
 recommendation is one continuing project conversation; it remains unconfirmed.
+
+After the user's request to continue the full brainstorm, the same unresolved
+choice was presented as a concrete scenario: discuss mission with Codex, then
+switch to Pi for roadmap work. Options are a continuous project conversation
+with a visible handoff, a separate linked conversation with a prepared brief,
+or choosing whether to continue or branch at each switch. No answer recorded.
 
 ## Sprint progress (Sylveste-fuwn)
 
