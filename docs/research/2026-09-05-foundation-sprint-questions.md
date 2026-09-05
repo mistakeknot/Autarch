@@ -386,12 +386,26 @@ the changed product. This makes the feedback loop the concrete work used to
 prove foundation onboarding. The goal and detailed experience are proposed;
 the user has not yet selected the capture interaction or advanced to planning.
 
-The next structured question compares an explicitly started review session for
-the selected app/site, with a shortcut to mark moments, against shortcut-only
-capture of the current moment. The former can preserve the lead-up; the latter
-needs no session setup. No answer recorded. Current research supports a native
-Mac capture companion as a feasible direction; it does not establish a working
-Autarch recorder or an embeddable Codex Computer Use backend.
+Current research supports a native Mac capture companion as a feasible
+direction; it does not establish a working Autarch recorder or an embeddable
+Codex Computer Use backend.
+
+The user requested: “moving forward, just ask me the next question after
+settling the previous one during these brainstorming/design sessions”. Continue
+with one structured question at a time and brief acknowledgements, preserving
+decisions without a long recap after each answer.
+
+Asked to choose an explicit review session or shortcut-only capture, the user
+answered: **“either works, for the latter, Autarch/Flere should be able to infer
+where to send the feedback”.** Both capture styles are acceptable; this does
+not require choosing one exclusive style or establish that both must ship in
+the first version. Ad hoc capture needs inferred destination routing.
+
+The next structured question asks what happens when the right project cannot
+be confidently inferred: save immediately with a suggested destination for
+later confirmation (recommended), ask for a project immediately, or use the
+most recent project with later correction. No answer recorded. Destination
+inference does not yet settle when captured feedback starts agent execution.
 
 ## Sprint progress (Sylveste-fuwn)
 

@@ -128,12 +128,23 @@ based on primary documentation; no live product teardown was performed.
   Optional diagnostic collection requires configuration. This supplies the
   tradeoff between quick feedback and the setup needed for richer evidence.
 
+## Capture direction from the user
+
+On review sessions versus shortcut-only capture, the user answered:
+
+> either works, for the latter, Autarch/Flere should be able to infer where to send the feedback
+
+Both styles are acceptable. Ad hoc capture needs destination inference so the
+human does not have to supply a project each time. The answer does not require
+both styles in the first version or settle the default. Handling uncertain
+inference and deciding when work starts are separate questions.
+
 ## Decisions to settle before planning
 
-- **Capture rhythm:** explicit review session with marked moments, or a global
-  shortcut that captures only the current moment. The structured question is
-  pending; the recommendation is a selected-surface review session with a
-  shortcut and a bounded lookback.
+- **Uncertain destination:** save immediately with a suggested destination for
+  later confirmation (recommended), ask for the project immediately, or use
+  the most recently active project with later correction. The structured
+  question is pending.
 - **Input:** text, voice, pointing/markup, and how a saved capture confirms
   success without disrupting the test. Saving must remain useful when Flere
   is unavailable.
