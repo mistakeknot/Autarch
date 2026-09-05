@@ -223,7 +223,7 @@ func (m Model) productLines() []string {
 			if j.Source.State != "read" {
 				continue
 			}
-			if filepath.Ext(j.Source.Path) == ".md" {
+			if strings.EqualFold(filepath.Ext(j.Source.Path), ".md") {
 				add(j.Source.Content)
 				continue
 			}
@@ -249,7 +249,7 @@ func (m Model) productLines() []string {
 	}
 	var wrapped []string
 	for _, line := range lines {
-		wrapped = append(wrapped, strings.Split(ansi.Hardwrap(cleanEvidence(line), max(1, m.lineWidth()-2), true), "\n")...)
+		wrapped = append(wrapped, strings.Split(ansi.Wrap(cleanEvidence(line), max(1, m.lineWidth()-2), ""), "\n")...)
 	}
 	return wrapped
 }

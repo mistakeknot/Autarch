@@ -7,6 +7,11 @@ Bare `autarch` opens the daily catch-up: recent commit subjects and dated agent
 reports. Undated working-tree changes are counted separately. The existing
 mission-control, PRD, orchestration, and research tools remain available.
 
+`autarch project [path]` opens the project's product HUD: persona, primary
+journey, success criteria, guardrails, roadmap, backlog, and decision sources.
+It reads the existing files and Beads tracker. Declared intent, dated plans,
+and live work stay distinguishable; Autarch does not assign an alignment score.
+
 ## What this does
 
 Running multiple AI agents across multiple projects creates a coordination problem: which agent is working on what, which specs are current, which tasks are blocked, and what's happening in the competitive landscape. Autarch provides four tools that each solve a piece of this:
@@ -29,6 +34,7 @@ Developers running the Demarch agent stack (Clavain, Intermute, Intercore) who w
 GOWORK=off go build -mod=readonly -o autarch ./cmd/autarch
 ./autarch
 ./autarch --since 24h  # explicit window; leaves the last-visit stamp unchanged
+./autarch project .   # product context for this checkout
 
 # Build all tools
 go build ./cmd/...
@@ -56,6 +62,7 @@ go run ./cmd/pollard report
 | Resume saved history when its agent is stopped or replaced | `s` from the evidence view |
 | Inspect every thread, including unread ones | `t`, then `i` for evidence |
 | Open project rows | Tab |
+| Open the selected project's product HUD | `i` from project rows |
 | Refresh / return / quit | `r` / Esc / `q` |
 
 Questions come from the trailing 4 MiB of Claude Code and Codex transcripts
@@ -66,6 +73,21 @@ answer confirms resolution. Seats without IDs and unread sources remain
 visible in coverage. Autarch sends no answers; resume opens the agent CLI
 without a new prompt. `autarch threads --json` exposes the same transcript
 evidence, including its private text, for local inspection.
+
+In the project HUD, `1`–`5` or Tab switches Brief, Roadmap, Backlog, Journeys,
+and Decisions. Arrows scroll, `o` opens source files or their folder in Zed,
+`r` refreshes, and Esc returns. The sources are `docs/why.md`,
+`docs/roadmap.md`, JSON or Markdown files in `docs/cujs/`, and the card's
+decision references. File modification times are labeled separately from
+dates declared inside documents. Card and journey states are source declarations,
+not measurements of product success.
+
+The backlog uses a bounded, read-only `bd list` from the nearest `.beads`
+tracker. A shared ancestor tracker is filtered by the card's project name
+(the lowercased directory name if the card is unavailable); this scope is
+shown in the view. Unlabeled work is excluded from a shared scope. Explicit
+`spec_id` references are displayed without inferring CUJ alignment. Missing
+files, unreadable sources, and failed backlog reads remain visible.
 
 ## Tech stack
 
