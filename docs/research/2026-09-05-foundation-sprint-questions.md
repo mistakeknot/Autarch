@@ -108,6 +108,60 @@ Silence does not select an option. After the dialogue resolves the consequential
 choices, compare concrete approaches and capture a brainstorm for agreement
 before proceeding to strategy or a new implementation plan.
 
+### Tradeoffs and embedded-agent exploration
+
+The user asked to explore the tradeoffs, then asked whether Codex, Pi, or
+another custom agent could be integrated inside Autarch to help. This is a
+candidate onboarding approach under discussion; the user has not selected an
+onboarding completion bar or an agent runtime.
+
+The discussion separated coverage, depth, and file layout. The assistant's
+recommendation was to examine every foundation area initially, then deepen
+the areas needed for the next milestone while leaving other gaps explicit.
+That recommendation remains unconfirmed. The tradeoff is less initial burden
+at the cost of needing a useful way to revisit deferred decisions.
+
+Read-only integration research on September 5 found:
+
+- Autarch's [Codex backend](../../pkg/agenttargets/backend_codex.go) invokes
+  `codex exec`, streams stderr, and reads a final output file. Its
+  [stream contract](../../pkg/agenttargets/stream.go) does not provide a
+  bidirectional structured-question response path. This is useful prior art,
+  not evidence of embedded Foundation conversation support.
+- [Codex App Server](https://learn.chatgpt.com/docs/app-server) is documented
+  for embedding Codex in a custom client, with history, streamed events,
+  approvals, and thread resume. Structured user-input requests are documented
+  as experimental. Protocol capabilities and account/model access need
+  validation against the selected installed version before implementation.
+- [Pi RPC](https://github.com/earendil-works/pi/blob/main/packages/coding-agent/docs/rpc.md)
+  supports a separate process with JSON messages and events, including
+  extension dialogs and correlated responses. Its
+  [SDK guidance](https://github.com/earendil-works/pi/blob/main/packages/coding-agent/docs/sdk.md)
+  recommends RPC when integrating from another language. The local Flere
+  checkout also contains a Pi-derived agent package and RPC documentation;
+  runtime compatibility with Autarch has not been tested.
+
+Proposed product shape: a project collaborator presented in Autarch, powered
+by a replaceable agent runtime, with Clavain retaining workflow policy and
+files retaining project truth. It could inspect existing sources, discuss
+contradictions and gaps, prepare drafts, and connect agreed direction to
+roadmap and backlog work. Product agreement remains a human act.
+
+Codex offers a direct route to its existing agent behavior; Pi offers a
+customizable runtime; building a new agent loop would add substantial scope.
+The recommendation is to define the product interaction before selecting an
+engine. Switching engines would require an explicit transfer of evidence,
+rulings, and open work; provider session histories are not assumed portable.
+
+The earlier original-session answering preference remains the default for
+existing external sessions. Embedded onboarding could support direct answers
+in new Autarch-hosted sessions; the exact behavior remains to be agreed.
+
+Latest structured question sent; no answer recorded: what should the embedded
+agent help with first — project foundations, all project work including code,
+or estate-wide prioritization and coordination? The recommendation is project
+foundations first. No implementation plan or application code was added.
+
 ## Sprint progress (Sylveste-fuwn)
 
 - [ ] Step 1: Brainstorm — Understand phase; research gathered, dialogue open.
