@@ -84,6 +84,7 @@ const (
 	screenThreads
 	screenQuestions
 	screenQuestion
+	screenProduct
 )
 
 // BriefingOptions configures the briefing axis. A zero Since leaves the axis
@@ -165,24 +166,32 @@ type Model struct {
 	// transcript. threadsOn is the switch (WithThreads); the rows-only door
 	// and its tests never see it. threadsPending counts seats still being
 	// read so a partial list is never presented as the whole estate.
-	threadsOpts    ThreadsOptions
-	threadsOn      bool
-	threads        ThreadSet
-	threadResults  chan threadMsg
-	threadsPending int
-	threadsLoaded  bool   // one full read finished, or failed (threads.Err)
-	prevScreen     screen // where t returns to
-	threadSel      string // selected seat's session name; "" tracks the top
-	threadOffset   int
-	registry       []Seat // the note given by --registry, parsed once
-	registryErr    error
-	drift          []Drift
-	questionSel    string
-	questionOffset int
-	detailSession  string
-	detailFrom     screen
-	detailOffset   int
-	catchupOffset  int
+	threadsOpts       ThreadsOptions
+	threadsOn         bool
+	threads           ThreadSet
+	threadResults     chan threadMsg
+	threadsPending    int
+	threadsLoaded     bool   // one full read finished, or failed (threads.Err)
+	prevScreen        screen // where t returns to
+	threadSel         string // selected seat's session name; "" tracks the top
+	threadOffset      int
+	registry          []Seat // the note given by --registry, parsed once
+	registryErr       error
+	drift             []Drift
+	questionSel       string
+	questionOffset    int
+	detailSession     string
+	detailFrom        screen
+	detailOffset      int
+	catchupOffset     int
+	product           ProductBrief
+	productRoot       string
+	productFrom       screen
+	productSection    int
+	productOffset     int
+	productLoading    bool
+	productStandalone bool
+	productGeneration int
 
 	selRoot string
 	moved   bool // user has navigated; until then selection tracks the top row
@@ -238,6 +247,9 @@ func (m Model) now() time.Time {
 }
 
 func (m Model) Init() tea.Cmd {
+	if m.productStandalone {
+		return m.loadProduct()
+	}
 	// Sessions load even when the checker is unavailable: the axes fail
 	// independently, and a dead checker must not blind the tmux column or
 	// the briefing.
@@ -321,6 +333,11 @@ func (m Model) waitForMovement() tea.Cmd {
 
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
+	case productMsg:
+		if msg.generation == m.productGeneration {
+			m.product, m.productLoading = msg.brief, false
+		}
+		return m, nil
 	case tea.WindowSizeMsg:
 		m.width, m.height = msg.Width, msg.Height
 		m.clampScroll()
@@ -426,6 +443,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	key := msg.String()
+	if m.screen == screenProduct {
+		return m.handleProductKey(key)
+	}
 	if m.threadsOn && (m.screen == screenQuestions || m.screen == screenQuestion) && key != "q" && key != "ctrl+c" && key != "r" {
 		return m.handleQuestionKey(key)
 	}
@@ -508,6 +528,10 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 	sel := m.selIndex()
 	switch key {
+	case "i":
+		if sel >= 0 {
+			return m.enterProduct(m.projects[sel].Root)
+		}
 	case "up", "k":
 		if sel > 0 {
 			m.selRoot = m.projects[sel-1].Root
@@ -731,6 +755,9 @@ func (m Model) lineWidth() int {
 }
 
 func (m Model) View() string {
+	if m.screen == screenProduct {
+		return m.productView()
+	}
 	if m.threadsOn && (m.screen == screenQuestions || m.screen == screenQuestion || (m.briefingOn() && m.layout == LayoutAlone && m.screen == screenBriefing)) {
 		return m.catchupView()
 	}
@@ -1065,11 +1092,11 @@ func (m Model) renderFooter() string {
 	case m.briefingOn() && m.layout == LayoutAlone && m.screen == screenBriefing:
 		parts = []string{"tab rows", "w widen", "b layout", "r re-read", "q quit"}
 	case m.briefingOn() && m.layout == LayoutAlone:
-		parts = []string{"↑/↓ move", "enter switch/open", "z card in Zed", "p pin", "tab briefing", "b layout", "r re-read", "q quit"}
+		parts = []string{"↑/↓ move", "i product", "enter switch/open", "z card in Zed", "p pin", "tab briefing", "b layout", "r re-read", "q quit"}
 	case m.briefingOn():
-		parts = []string{"↑/↓ move", "enter switch/open", "z card in Zed", "p pin", "w widen", "b layout", "r re-read", "q quit"}
+		parts = []string{"↑/↓ move", "i product", "enter switch/open", "z card in Zed", "p pin", "w widen", "b layout", "r re-read", "q quit"}
 	default:
-		parts = []string{"↑/↓ move", "enter switch/open", "z card in Zed", "p pin", "r re-check", "q quit"}
+		parts = []string{"↑/↓ move", "i product", "enter switch/open", "z card in Zed", "p pin", "r re-check", "q quit"}
 	}
 	if m.threadsOn && m.screen != screenThreads && len(parts) > 0 {
 		withThreads := make([]string, 0, len(parts)+1)
