@@ -267,16 +267,41 @@ progress, and pending decisions, with Flere's conversation alongside them.
 Cozy/Compact remains a density preference. Exact layout, narrow-terminal
 behavior, and conversation continuity are separate unresolved choices.
 
-The next structured question returns to the foundation-readiness bar for
-future projects: resolve decisions affecting the next slice and keep other
-gaps explicit; complete every applicable foundation area first; or show gaps
-and consequences while allowing work with unresolved decisions. The
-recommendation is to resolve what affects the next slice. No answer recorded.
-This asks about the product's future workflow; the current sprint remains
-under the user's explicit brainstorm-before-plan requirement.
+### Agreed direction: foundation readiness
+
+The user answered **“sounds good”** to the recommended foundation-readiness
+bar: resolve decisions affecting the next slice and keep other gaps explicit.
+This governs the product's future workflow. Required substance, applicability,
+and how deferred decisions return for review still need clarification. The
+current sprint remains under the explicit brainstorm-before-plan requirement.
 
 The earlier conversation-continuity decision also remains unresolved;
 distinguish model changes within Flere from handoffs between agent runtimes.
+
+### Reference research through Cujgel
+
+The user added: “let's also use cujgel to teardown CUJs and relevant features
+from products we should be deriving inspiration from”. Use the Cujgel
+discover → teardown → provoke → capture → derive sequence inside this
+brainstorm. Reference mechanisms supply concrete tradeoffs for the dialogue;
+they do not become requirements without the user's ruling.
+
+The structured discovery opener asks which existing apps the user loves using
+or wants to derive this experience from. No additional names are recorded yet.
+Existing user-named references support these bounded teardowns:
+
+- [Gmail density](2026-09-05-gmail-teardown.md): adjusting presentation,
+  information visibility, and the separate choice of a reading pane.
+- [Stellaris workbench navigation](2026-09-05-stellaris-teardown.md): a focused
+  supplement to the [earlier gardening-loop teardown](2026-08-31-stellaris-teardown.md),
+  examining custom views and recovering attention across tabs.
+
+Both new teardowns use primary published documentation, with evidence and
+coverage sidecars. They are not live product walkthroughs. Discovery remains
+open for references covering foundation authoring, product planning, and an
+embedded collaborator. The existing validated CUJs remain intact; the new
+workbench ruling will need reconciliation with the session-dive journey during
+capture and derivation.
 
 ## Sprint progress (Sylveste-fuwn)
 

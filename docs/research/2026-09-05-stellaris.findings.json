@@ -1,0 +1,38 @@
+{
+  "product": "Stellaris",
+  "skill": "interbrowse:teardown via cujgel:teardown; published-release-notes fallback",
+  "captured_at": "2026-09-05",
+  "coverage": {
+    "pages_visited": 1,
+    "pages_discovered": 1,
+    "unreached": ["Desktop game: Outliner options and tab navigation; no live game session"]
+  },
+  "contamination": [
+    {
+      "surface": "Stellaris desktop UI",
+      "method": "live walkthrough and screenshots",
+      "attempted": 0,
+      "rendered_empty": 0,
+      "effect": "Historical publisher documentation only. No current-game or accessibility measurement; CSS instruments not applicable to desktop game."
+    }
+  ],
+  "findings": [
+    {
+      "tool": "llm",
+      "rule_id": "historical-outliner-choices-and-repair",
+      "severity": "info",
+      "target": "Dev Diaries 324 and 325; 3.10.1 release notes",
+      "source_url": "https://store.steampowered.com/news/posts/?appids=281990&enddate=1702648565&feed=steam_community_announcements",
+      "method": "web open of publisher archive and targeted find; manual extraction",
+      "confidence": "derived",
+      "value": {
+        "evidence_period": "November–December 2023",
+        "custom_tab_contents": true,
+        "same_information_allowed_in_multiple_tabs": true,
+        "single_combined_tab_possible": true,
+        "keyboard_tab_navigation_added": true,
+        "new_entry_indicator_clearing_via_shortcut_repaired": true
+      }
+    }
+  ]
+}

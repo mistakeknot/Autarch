@@ -1,0 +1,49 @@
+{
+  "product": "Gmail",
+  "skill": "interbrowse:teardown via cujgel:teardown; published-documentation fallback",
+  "captured_at": "2026-09-05",
+  "coverage": {
+    "pages_visited": 2,
+    "pages_discovered": 3,
+    "unreached": ["https://mail.google.com/ — live mailbox and Settings; linked from public documentation, not opened"]
+  },
+  "contamination": [
+    {
+      "surface": "agent-browser prerequisite",
+      "method": "npx --no-install agent-browser --version",
+      "attempted": 1,
+      "rendered_empty": 0,
+      "error": "ENOTFOUND registry.npmjs.org",
+      "effect": "No live browser session. Public documentation fallback used."
+    },
+    {
+      "surface": "Gmail mailbox UI",
+      "method": "screenshot, css-tokens, a11y-audit",
+      "attempted": 0,
+      "rendered_empty": 0,
+      "effect": "Not measured; no product UI loaded. Help-page styling is not evidence of mailbox styling."
+    }
+  ],
+  "findings": [
+    {
+      "tool": "llm",
+      "rule_id": "documented-density-controls",
+      "severity": "info",
+      "target": "Change the density of your Gmail inbox",
+      "source_url": "https://support.google.com/a/users/answer/11339703?hl=en",
+      "method": "web open of official help; manual extraction, not live execution",
+      "confidence": "derived",
+      "value": {"options": ["Default", "Comfortable", "Compact"], "default_has_attachment_preview": true}
+    },
+    {
+      "tool": "llm",
+      "rule_id": "documented-reading-pane-controls",
+      "severity": "info",
+      "target": "Turn on preview pane",
+      "source_url": "https://support.google.com/mail/answer/9259769?hl=en",
+      "method": "web open of official help; manual extraction, not live execution",
+      "confidence": "derived",
+      "value": {"placement_options": ["No split", "Right of inbox", "Below inbox"]}
+    }
+  ]
+}
