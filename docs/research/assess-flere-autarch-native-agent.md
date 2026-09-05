@@ -161,9 +161,9 @@ project/sprint context, guided product decisions, Clavain phase and artifact
 state, execution routing, return of evidence, and interrupted-work recovery.
 These are a coverage inventory rather than an approved implementation plan.
 
-Next structured design question: should Autarch present a visible guided
-sprint with conversation alongside artifacts and decisions, or lead with
-conversation and reveal sprint details on demand? No answer recorded.
+The user subsequently selected **“workbench”**: a project workbench with
+conversation alongside artifacts, progress, and decisions is the default
+experience. Exact layout and narrow-terminal behavior remain to be designed.
 
 The prior conversation-versus-linked-sessions question remains open. Flere
 makes an additional distinction useful: model changes inside one runtime

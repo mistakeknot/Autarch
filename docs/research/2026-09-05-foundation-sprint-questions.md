@@ -101,7 +101,7 @@ Source baseline: Autarch main at `51905a7`.
 | Meaning of onboarded | Required substance and connections; acceptable unknowns; whether separate documents matter. |
 | Sprint outcome | Working capability, actual pilot projects, or estate-wide onboarding; the decision this should make easier. |
 | Project diversity | Apps, libraries, infrastructure, research, creative projects, and non-repository interests; applicability rules. |
-| Interaction | How Autarch presents drafts, questions, source sessions, and progress through a Clavain-led workflow. |
+| Interaction | Workbench-first is agreed; refine how drafts, questions, source sessions, and Clavain progress share that space. |
 | Review granularity | Whole-foundation review versus individual consequential claims; how to handle contradictions and declined answers. |
 | Shared foundations | How ecosystem mission, philosophy, and design standards are inherited, overridden, and attributed. |
 | Model continuity | When to resume the original session versus use another model; what context and decisions must transfer. |
@@ -248,7 +248,7 @@ switch to Pi for roadmap work. Options are a continuous project conversation
 with a visible handoff, a separate linked conversation with a prepared brief,
 or choosing whether to continue or branch at each switch. No answer recorded.
 
-## Sprint progress (Sylveste-fuwn)
+### Agreed direction: native runtime
 
 The user additionally requested assessment of Flere as Autarch's default native
 agent. [The Flere assessment](assess-flere-autarch-native-agent.md) found that
@@ -258,11 +258,27 @@ worker are unfinished. After reviewing those findings, the user selected:
 The intended runtime and integration depth are now product rulings; runtime
 activation remains subject to the onboarding-to-delivery proof.
 
-The next structured question compares a visible guided sprint, with
-conversation alongside artifacts and decisions, against a conversation-led
-experience with sprint details opened on demand. No answer recorded. The
-earlier conversation-continuity decision also remains unresolved; distinguish
-model changes within Flere from handoffs between agent runtimes.
+### Agreed direction: project workbench
+
+The user answered **“workbench”** to the structured choice between a project
+workbench with conversation alongside the work and a conversation-first view.
+The default project experience therefore foregrounds artifacts, sprint
+progress, and pending decisions, with Flere's conversation alongside them.
+Cozy/Compact remains a density preference. Exact layout, narrow-terminal
+behavior, and conversation continuity are separate unresolved choices.
+
+The next structured question returns to the foundation-readiness bar for
+future projects: resolve decisions affecting the next slice and keep other
+gaps explicit; complete every applicable foundation area first; or show gaps
+and consequences while allowing work with unresolved decisions. The
+recommendation is to resolve what affects the next slice. No answer recorded.
+This asks about the product's future workflow; the current sprint remains
+under the user's explicit brainstorm-before-plan requirement.
+
+The earlier conversation-continuity decision also remains unresolved;
+distinguish model changes within Flere from handoffs between agent runtimes.
+
+## Sprint progress (Sylveste-fuwn)
 
 - [ ] Step 1: Brainstorm — Understand phase; research gathered, dialogue open.
 - [ ] Step 2: Strategy
