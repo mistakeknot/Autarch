@@ -7,5 +7,5 @@ capture_bin_dir=$(swift build --package-path native/AutarchCapture -c release --
 mkdir -p build/AutarchCapture.app/Contents/MacOS
 cp -f "$capture_bin_dir/AutarchCapture" build/AutarchCapture.app/Contents/MacOS/AutarchCapture
 cp -f native/AutarchCapture/Info.plist build/AutarchCapture.app/Contents/Info.plist
-codesign --force --sign - build/AutarchCapture.app
 git rev-parse HEAD > build/AutarchCapture.app/Contents/build-revision.txt
+codesign --force --sign - build/AutarchCapture.app

@@ -1,11 +1,13 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
 
+	"github.com/mistakeknot/autarch/internal/reviewagent"
 	"github.com/mistakeknot/autarch/pkg/review"
 	"github.com/spf13/cobra"
 )
@@ -21,7 +23,18 @@ func reviewControllerCmd() *cobra.Command {
 			return err
 		}
 		defer server.Close()
+		engine := reviewagent.New(store)
+		go engine.Run(context.Background())
+		exe, _ := os.Executable()
+		clavainBin := filepath.Join(filepath.Dir(exe), "clavain-cli")
+		if _, err := os.Stat(clavainBin); err != nil {
+			clavainBin = ""
+		}
+		go reviewagent.RunExecution(context.Background(), store, clavainBin)
 		server.OnRequest = func(r review.Request) {
+			if r.Method == "runtime.cancel" {
+				engine.Handle(r)
+			}
 			if r.Method == "capture.command" && (r.Text == "open" || r.Text == "voice" || r.Text == "play") {
 				exe, err := os.Executable()
 				if err != nil {

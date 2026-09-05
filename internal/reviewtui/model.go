@@ -39,6 +39,8 @@ type Model struct {
 	reviewed                              *review.Proposal
 	pendingSave                           *review.Request
 	pendingText, pendingMode              string
+	answering                             *review.Question
+	chatScroll                            int
 }
 
 func New(project, density string, client review.Client) *Model {
@@ -205,11 +207,18 @@ func (m *Model) Update(msg tea.Msg) tea.Cmd {
 			return textarea.Blink
 		case "ctrl+q":
 			if q := m.pendingQuestion(); q != nil {
+				m.answering = q
 				m.mode = "answer"
 				m.input.Placeholder = q.Title
 				m.input.Focus()
 				return textarea.Blink
 			}
+		case "ctrl+g":
+			return m.call(review.Request{Method: "runtime.cancel"}, false)
+		case "ctrl+up":
+			m.chatScroll++
+		case "ctrl+down":
+			m.chatScroll = max(0, m.chatScroll-1)
 		case "ctrl+a":
 			if m.tab == 1 && m.detail {
 				if p, ok := m.selectedProposal(); ok {
@@ -279,9 +288,19 @@ func (m *Model) saveInput() tea.Cmd {
 		r.Method = "turn.save"
 		r.Turn = &review.Turn{Kind: "user", Text: text}
 	case "answer":
-		q := m.pendingQuestion()
+		q := m.answering
 		if q == nil {
 			m.status = "Question no longer pending"
+			return nil
+		}
+		valid := false
+		for _, current := range m.state.Questions {
+			if current.ID == q.ID && current.RuntimeSession == q.RuntimeSession && current.Status == "pending" {
+				valid = true
+			}
+		}
+		if !valid {
+			m.status = "This question is no longer pending. Your draft is retained."
 			return nil
 		}
 		r.Method = "question.answer"
@@ -413,6 +432,10 @@ func (m *Model) body() string {
 			fmt.Fprintf(&b, "%s%s · %s\n", mark, p.Outcome, p.Status)
 			if m.detail {
 				fmt.Fprintf(&b, "Revision %d\n\nImmediate change: %s\nScope: %s\nWhy: %s\nPriority: P%d · Budget: %d tokens\nDependencies: %s\n", p.Revision, p.Change, strings.Join(p.Scope, ", "), p.Rationale, p.Priority, p.BudgetTokens, strings.Join(p.Dependencies, ", "))
+				fmt.Fprintf(&b, "Tracker: %s\nBuild: %s → %s\nBudget checked on reported model turns; an active turn can exceed it.\n", p.Tracker, strings.Join(p.Build.Command, " "), p.Build.Binary)
+				for _, check := range p.Build.Checks {
+					fmt.Fprintf(&b, "Check: %s\n", strings.Join(check, " "))
+				}
 				for _, fid := range p.FeedbackIDs {
 					fmt.Fprintf(&b, "\nOriginal observation: %s\n", m.state.Feedback[fid].OriginalText)
 				}
@@ -470,6 +493,11 @@ func (m *Model) conversation() string {
 			b.WriteString("\n")
 		}
 	}
+	for _, t := range m.state.Streams {
+		if t.Project == m.project {
+			fmt.Fprintf(&b, "Flere · responding\n%s\n", t.Text)
+		}
+	}
 	if q := m.pendingQuestion(); q != nil {
 		fmt.Fprintf(&b, "DECISION: %s\n%s\nCtrl+Q to answer\n", q.Title, strings.Join(q.Options, " / "))
 	}
@@ -486,6 +514,11 @@ func fit(s string, width, height, offset int) string {
 		lines[i] = ansi.Truncate(line, width, "")
 	}
 	return strings.Join(lines, "\n")
+}
+func (m *Model) chatView(width, height int) string {
+	content := m.conversation()
+	lines := strings.Split(ansi.Wrap(content, max(1, width), ""), "\n")
+	return fit(content, width, height, max(0, len(lines)-height-m.chatScroll))
 }
 func (m *Model) View() string {
 	width, height := max(30, m.width), max(10, m.height)
@@ -506,7 +539,7 @@ func (m *Model) View() string {
 	body := m.body()
 	if width >= 100 {
 		left := width * 3 / 5
-		body = lipgloss.JoinHorizontal(lipgloss.Top, lipgloss.NewStyle().Width(left).Render(fit(body, left-2, room, m.scroll)), "│ ", fit(m.conversation(), width-left-3, room, 0))
+		body = lipgloss.JoinHorizontal(lipgloss.Top, lipgloss.NewStyle().Width(left).Render(fit(body, left-2, room, m.scroll)), "│ ", m.chatView(width-left-3, room))
 	} else {
 		if m.tab == 1 && !m.detail {
 			body += "\n" + m.conversation()

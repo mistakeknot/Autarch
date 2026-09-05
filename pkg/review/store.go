@@ -15,9 +15,10 @@ import (
 )
 
 type Store struct {
-	mu    sync.Mutex
-	dir   string
-	state State
+	mu      sync.Mutex
+	dir     string
+	state   State
+	streams map[string]Turn
 }
 
 func Open(dir string) (*Store, error) {
@@ -44,8 +45,27 @@ func Open(dir string) (*Store, error) {
 	}
 	return s, nil
 }
-func (s *Store) Snapshot() State { s.mu.Lock(); defer s.mu.Unlock(); return s.state.Clone() }
-func (s *Store) Dir() string     { return s.dir }
+func (s *Store) Snapshot() State { s.mu.Lock(); defer s.mu.Unlock(); return s.snapshotLocked() }
+func (s *Store) snapshotLocked() State {
+	state := s.state.Clone()
+	for _, turn := range s.streams {
+		state.Streams = append(state.Streams, turn)
+	}
+	return state
+}
+func (s *Store) SetStream(project, session, model, text string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.streams == nil {
+		s.streams = map[string]Turn{}
+	}
+	if text == "" {
+		delete(s.streams, project)
+		return
+	}
+	s.streams[project] = Turn{Project: project, RuntimeSession: session, Model: model, Kind: "stream", Text: text, At: time.Now().UTC()}
+}
+func (s *Store) Dir() string { return s.dir }
 func (s *Store) Usage() int64 {
 	var size int64
 	_ = filepath.WalkDir(s.dir, func(path string, d os.DirEntry, err error) error {
@@ -131,7 +151,7 @@ func (s *Store) Apply(req Request) Response {
 		return fail(errors.New("unsupported IPC version"))
 	}
 	if req.Method == "state" {
-		state := s.state.Clone()
+		state := s.snapshotLocked()
 		return Response{Version: Version, State: &state, DataDir: s.dir}
 	}
 	if req.ID == "" {
@@ -144,7 +164,7 @@ func (s *Store) Apply(req Request) Response {
 		if receipt.Hash != hash {
 			return fail(errors.New("request id reused with different content"))
 		}
-		return Response{Version: Version, ID: receipt.ID}
+		return Response{Version: Version, ID: receipt.ID, Replayed: true}
 	}
 	next := s.state.Clone()
 	id, err := s.apply(&next, req)
@@ -180,6 +200,22 @@ func (s *Store) apply(st *State, r Request) (string, error) {
 		return nil
 	}
 	switch r.Method {
+	case "runtime.cancel":
+		if project == "" {
+			return "", errors.New("project required")
+		}
+		return id, nil
+	case "feedback.analysis":
+		v, ok := st.Feedback[r.Target]
+		if !ok {
+			return "", errors.New("feedback missing")
+		}
+		if err := same(v.Project); err != nil {
+			return "", err
+		}
+		v.Analysis = r.Status
+		st.Feedback[v.ID] = v
+		return v.ID, nil
 	case "context":
 		if r.Context == nil {
 			return "", errors.New("context required")
@@ -388,8 +424,23 @@ func (s *Store) apply(st *State, r Request) (string, error) {
 		v.ID = id
 		v.Project = project
 		v.At = now
+		if v.Kind == "user" {
+			v.Delivery = "pending"
+		}
 		st.Turns = append(st.Turns, v)
 		return id, nil
+	case "turn.delivery":
+		for i, t := range st.Turns {
+			if t.ID == r.Target {
+				if err := same(t.Project); err != nil {
+					return "", err
+				}
+				t.Delivery = r.Status
+				st.Turns[i] = t
+				return t.ID, nil
+			}
+		}
+		return "", errors.New("turn missing")
 	case "question.save":
 		if r.Question == nil {
 			return "", errors.New("question required")
@@ -416,6 +467,16 @@ func (s *Store) apply(st *State, r Request) (string, error) {
 					q.Status = "answered"
 					q.Answer = r.Text
 				}
+				st.Questions[i] = q
+				st.Questions[i].Delivery = "pending"
+				return q.ID, nil
+			}
+		}
+		return "", errors.New("question missing")
+	case "question.delivery":
+		for i, q := range st.Questions {
+			if q.ID == r.Target && q.Project == project {
+				q.Delivery = r.Status
 				st.Questions[i] = q
 				return q.ID, nil
 			}

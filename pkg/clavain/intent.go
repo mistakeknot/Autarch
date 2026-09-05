@@ -35,6 +35,7 @@ func (c *Client) SubmitIntent(ctx context.Context, intent *contract.Intent) (*co
 
 	// Pipe JSON via stdin — never pass params as CLI flags (visible in /proc).
 	cmd := exec.CommandContext(ctx, c.binPath, "intent", "submit")
+	cmd.Dir = c.projectDir
 	cmd.Stdin = bytes.NewReader(payload)
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout

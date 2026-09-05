@@ -73,3 +73,24 @@ func TestSaveFreezesDraftAndRetriesSameRequest(t *testing.T) {
 		t.Fatal("retry would create duplicate feedback")
 	}
 }
+
+func TestAnswerRemainsBoundToQuestionShownInComposer(t *testing.T) {
+	m := New("/project", "Compact", review.Client{})
+	m.state.Questions = []review.Question{{ID: "first", Project: "/project", RuntimeSession: "session", Status: "pending"}}
+	m.Update(tea.KeyMsg{Type: tea.KeyCtrlQ})
+	m.input.SetValue("Answer to first")
+	m.state.Questions[0].Status = "cancelled"
+	m.state.Questions = append(m.state.Questions, review.Question{ID: "second", Project: "/project", RuntimeSession: "session", Status: "pending"})
+	if cmd := m.saveInput(); cmd != nil || m.busy || m.input.Value() != "Answer to first" {
+		t.Fatal("stale answer was redirected or discarded")
+	}
+}
+
+func TestPendingQuestionVisibleAfterLongConversation(t *testing.T) {
+	m := New("/project", "Cozy", review.Client{})
+	m.state.Turns = []review.Turn{{Project: "/project", Text: strings.Repeat("Long response\n", 100)}}
+	m.state.Questions = []review.Question{{ID: "q", Project: "/project", Title: "Which outcome?", Status: "pending"}}
+	if view := m.chatView(40, 15); !strings.Contains(view, "Which outcome?") {
+		t.Fatalf("question hidden: %s", view)
+	}
+}

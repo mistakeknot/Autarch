@@ -1,0 +1,12 @@
+{
+  "version": 1,
+  "tracker": "../..",
+  "build": {
+    "command": ["bash", "scripts/build-review-pilot.sh"],
+    "checks": [
+      ["go", "test", "./pkg/review", "./internal/reviewagent", "./internal/reviewtui", "./internal/door"],
+      ["swift", "test", "--package-path", "native/AutarchCapture"]
+    ],
+    "binary": "build/autarch"
+  }
+}

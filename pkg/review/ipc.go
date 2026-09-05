@@ -149,7 +149,7 @@ func (s *Server) handle(conn net.Conn) {
 		response.StorageBytes = s.store.Usage()
 	}
 	_ = json.NewEncoder(conn).Encode(response)
-	if response.Error == "" && s.OnRequest != nil {
+	if response.Error == "" && !response.Replayed && s.OnRequest != nil {
 		s.OnRequest(req)
 	}
 }

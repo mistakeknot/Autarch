@@ -70,6 +70,8 @@ type Guidance struct {
 	Supersedes   string `json:"supersedes,omitempty"`
 }
 type Proposal struct {
+	Tracker       string     `json:"tracker,omitempty"`
+	Build         BuildSpec  `json:"build"`
 	ID            string     `json:"id"`
 	Project       string     `json:"project"`
 	Revision      int        `json:"revision"`
@@ -91,6 +93,7 @@ type Proposal struct {
 	AcceptedAt    *time.Time `json:"accepted_at,omitempty"`
 }
 type Execution struct {
+	Tracker          string    `json:"tracker,omitempty"`
 	ID               string    `json:"id"`
 	Project          string    `json:"project"`
 	ProposalID       string    `json:"proposal_id"`
@@ -122,6 +125,7 @@ type Turn struct {
 	Kind           string    `json:"kind"`
 	Text           string    `json:"text"`
 	At             time.Time `json:"at"`
+	Delivery       string    `json:"delivery,omitempty"`
 }
 type Question struct {
 	ID             string   `json:"id"`
@@ -134,6 +138,7 @@ type Question struct {
 	Answer         string   `json:"answer,omitempty"`
 	Consequential  bool     `json:"consequential"`
 	BlocksActive   bool     `json:"blocks_active"`
+	Delivery       string   `json:"delivery,omitempty"`
 }
 type CaptureCommand struct {
 	ID      string  `json:"id"`
@@ -156,6 +161,7 @@ type State struct {
 	Executions map[string]Execution `json:"executions"`
 	Verdicts   map[string]Verdict   `json:"verdicts"`
 	Turns      []Turn               `json:"turns"`
+	Streams    []Turn               `json:"streams,omitempty"`
 	Questions  []Question           `json:"questions"`
 	Commands   []CaptureCommand     `json:"commands"`
 	Context    UIContext            `json:"context"`
@@ -196,4 +202,5 @@ type Response struct {
 	State        *State `json:"state,omitempty"`
 	StorageBytes int64  `json:"storage_bytes,omitempty"`
 	DataDir      string `json:"data_dir,omitempty"`
+	Replayed     bool   `json:"replayed,omitempty"`
 }

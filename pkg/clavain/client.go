@@ -26,10 +26,14 @@ func WithTimeout(d time.Duration) Option {
 	return func(c *Client) { c.timeout = d }
 }
 
+// WithProjectDir binds all subprocesses to the intended project and tracker.
+func WithProjectDir(path string) Option { return func(c *Client) { c.projectDir = path } }
+
 // Client wraps the clavain-cli binary for OS-layer operations.
 type Client struct {
-	binPath string
-	timeout time.Duration
+	projectDir string
+	binPath    string
+	timeout    time.Duration
 }
 
 // New discovers the clavain-cli binary on PATH.
@@ -68,6 +72,7 @@ func (c *Client) execRaw(ctx context.Context, args ...string) ([]byte, error) {
 	}
 
 	cmd := exec.CommandContext(ctx, c.binPath, args...)
+	cmd.Dir = c.projectDir
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
