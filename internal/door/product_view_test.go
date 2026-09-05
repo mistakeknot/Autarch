@@ -35,8 +35,14 @@ func TestProductViewShowsIntentAndExplicitMissingMeasure(t *testing.T) {
 		}
 	}
 	m, _ = press(m, "3")
-	if !strings.Contains(m.View(), "label reader") || !strings.Contains(m.View(), "spec: reader-01") {
-		t.Fatal(m.View())
+	// A tracker path can put the label at a line break (Linux t.TempDir
+	// paths reproduced this in CI). Assert content across visual wraps.
+	for _, path := range []string{m.product.Backlog.Source.Path, "/tmp/TestProductViewShowsIntentAndExplicitMissingMeasure3795888195/001"} {
+		m.product.Backlog.Source.Path = path
+		view := oneLine(m.View())
+		if !strings.Contains(view, "label reader") || !strings.Contains(view, "spec: reader-01") {
+			t.Fatal(m.View())
+		}
 	}
 }
 

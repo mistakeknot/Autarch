@@ -23,6 +23,10 @@ or `autarch project [path]`. Existing session entry remains available.
 - Independent review found a FIFO open that could block before validation.
   Pre-open file-type validation and a named-pipe regression fixed it. The
   subsequent reader/UI review found no important outstanding defects.
+- The first Linux CI run at `9591e30` built successfully but exposed a test
+  assumption about temporary-path lengths: the visible backlog label wrapped
+  across two lines. The content assertion now normalizes visual whitespace
+  and includes that Linux path as a regression. Application behavior was unchanged.
 
 ## Terminal evidence
 
