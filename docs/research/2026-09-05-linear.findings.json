@@ -1,0 +1,121 @@
+{
+  "product": "Linear",
+  "skill": "interbrowse:teardown via cujgel:teardown; published-documentation fallback",
+  "captured_at": "2026-09-05",
+  "coverage": {
+    "pages_visited": 7,
+    "pages_discovered": 8,
+    "unreached": [
+      "Authenticated Linear workspace linked from documentation: no live product walkthrough"
+    ]
+  },
+  "contamination": [
+    {
+      "surface": "Linear product UI",
+      "method": "live walkthrough, screenshots, css-tokens, a11y-audit",
+      "attempted": 0,
+      "rendered_empty": 0,
+      "effect": "Documentation-only pass; visual behavior, task execution, and agent compliance not measured. Earlier browser prerequisite failure is recorded in 2026-09-05-gmail.findings.json."
+    }
+  ],
+  "findings": [
+    {
+      "tool": "llm",
+      "rule_id": "documented-projects",
+      "severity": "info",
+      "target": "Projects: Overview and ongoing-work FAQ",
+      "source_url": "https://linear.app/docs/projects",
+      "method": "web open of official documentation; manual extraction and journey reconstruction, not live execution",
+      "confidence": "derived",
+      "value": {
+        "unit": "Outcome-oriented effort; ongoing projects possible but bounded work encouraged"
+      }
+    },
+    {
+      "tool": "llm",
+      "rule_id": "documented-project-overview",
+      "severity": "info",
+      "target": "Overview and project details sidebar",
+      "source_url": "https://linear.app/docs/project-overview",
+      "method": "web open of official documentation; manual extraction and journey reconstruction, not live execution",
+      "confidence": "derived",
+      "value": {
+        "context": [
+          "summary",
+          "resources",
+          "documents",
+          "milestones"
+        ],
+        "details_accessible_from_issues": true
+      }
+    },
+    {
+      "tool": "llm",
+      "rule_id": "documented-initiatives",
+      "severity": "info",
+      "target": "Using initiatives; Initiative health and projects",
+      "source_url": "https://linear.app/docs/initiatives",
+      "method": "web open of official documentation; manual extraction and journey reconstruction, not live execution",
+      "confidence": "derived",
+      "value": {
+        "curated_objectives_distinct_from_filtered_views": true,
+        "health_links_to_update": true,
+        "no_current_update_distinguished": true
+      }
+    },
+    {
+      "tool": "llm",
+      "rule_id": "documented-initiative-and-project-updates",
+      "severity": "info",
+      "target": "Overview; View updates",
+      "source_url": "https://linear.app/docs/initiative-and-project-updates",
+      "method": "web open of official documentation; manual extraction and journey reconstruction, not live execution",
+      "confidence": "derived",
+      "value": {
+        "health_with_written_context": true,
+        "latest_in_overview": true,
+        "history_available": true
+      }
+    },
+    {
+      "tool": "llm",
+      "rule_id": "documented-timeline",
+      "severity": "info",
+      "target": "Overview",
+      "source_url": "https://linear.app/docs/timeline",
+      "method": "web open of official documentation; manual extraction and journey reconstruction, not live execution",
+      "confidence": "derived",
+      "value": {
+        "timeline_surfaces_projects_not_individual_issues": true
+      }
+    },
+    {
+      "tool": "llm",
+      "rule_id": "documented-assigning-issues",
+      "severity": "info",
+      "target": "Delegating to agents; History; Open issues in coding tools",
+      "source_url": "https://linear.app/docs/assigning-issues",
+      "method": "web open of official documentation; manual extraction and journey reconstruction, not live execution",
+      "confidence": "derived",
+      "value": {
+        "human_retains_ownership": true,
+        "delegation_history": true,
+        "launch_with_issue_context": true
+      }
+    },
+    {
+      "tool": "llm",
+      "rule_id": "documented-agents-in-linear",
+      "severity": "info",
+      "target": "Adding Agents; Guiding Agents",
+      "source_url": "https://linear.app/docs/agents-in-linear",
+      "method": "web open of official documentation; manual extraction and journey reconstruction, not live execution",
+      "confidence": "derived",
+      "value": {
+        "team_access_scoped": true,
+        "workspace_and_team_guidance": true,
+        "guidance_application_depends_on_integration": true
+      }
+    }
+  ]
+}

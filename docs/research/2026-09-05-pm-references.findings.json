@@ -1,0 +1,98 @@
+{
+  "product": "Autarch product-management reference scouting",
+  "skill": "cujgel reference selection; primary-source comparison",
+  "captured_at": "2026-09-05",
+  "coverage": {
+    "pages_visited": 6,
+    "pages_discovered": 8,
+    "unreached": [
+      "https://help.asana.com/s/article/monitor-initiatives-and-manage-resources-with-portfolios — CSS error",
+      "https://help.asana.com/s/article/portfolios-overview?language=en_US — CSS error"
+    ]
+  },
+  "contamination": [
+    {
+      "surface": "Asana help articles",
+      "method": "web open",
+      "attempted": 2,
+      "rendered_empty": 2,
+      "effect": "CSS error shells. Asana comparison uses the official public product page instead."
+    },
+    {
+      "surface": "Productboard item-insights article",
+      "method": "web open via original article URL and canonical URL",
+      "attempted": 3,
+      "rendered_empty": 1,
+      "effect": "Direct canonical open failed once; original redirect source was successfully read, including the item Insights flow. Not a live product measurement."
+    },
+    {
+      "surface": "Reference applications",
+      "method": "live interaction and visual instruments",
+      "attempted": 0,
+      "rendered_empty": 0,
+      "effect": "Scouting scope uses public documents and product descriptions; no live accounts or workspaces inspected."
+    }
+  ],
+  "findings": [
+    {
+      "tool": "llm",
+      "rule_id": "reference-mechanism",
+      "severity": "info",
+      "target": "Linear",
+      "source_url": "https://linear.app/docs/project-overview",
+      "method": "web open of primary source; analyst mechanism selection, not hands-on evaluation",
+      "confidence": "derived",
+      "value": "Project context available from overview and issues"
+    },
+    {
+      "tool": "llm",
+      "rule_id": "reference-mechanism",
+      "severity": "info",
+      "target": "Aha! Roadmaps",
+      "source_url": "https://support.aha.io/aha-roadmaps/support-articles/strategy/strategy-introduction~7444674143548073697",
+      "method": "web open of primary source; analyst mechanism selection, not hands-on evaluation",
+      "confidence": "derived",
+      "value": "Vision, personas, goals, and initiatives connect strategy to work across workspace levels"
+    },
+    {
+      "tool": "llm",
+      "rule_id": "reference-mechanism",
+      "severity": "info",
+      "target": "Asana Portfolios",
+      "source_url": "https://asana.com/features/goals-reporting/portfolios",
+      "method": "web open of primary source; analyst mechanism selection, not hands-on evaluation",
+      "confidence": "derived",
+      "value": "Project collections and nested portfolios expose health and ownership with drill-down"
+    },
+    {
+      "tool": "llm",
+      "rule_id": "reference-mechanism",
+      "severity": "info",
+      "target": "Productboard",
+      "source_url": "https://support.productboard.com/hc/en-us/articles/10071375851155-Review-an-item-s-insights",
+      "method": "web open of primary source; analyst mechanism selection, not hands-on evaluation",
+      "confidence": "derived",
+      "value": "Item Insights tab distinguishes direct and underlying feedback and can navigate to the source"
+    },
+    {
+      "tool": "llm",
+      "rule_id": "reference-mechanism",
+      "severity": "info",
+      "target": "Basecamp / Shape Up",
+      "source_url": "https://basecamp.com/shapeup/3.4-chapter-13",
+      "method": "web open of primary source; analyst mechanism selection, not hands-on evaluation",
+      "confidence": "derived",
+      "value": "Hill Charts distinguish uncertainty from execution; saved scope updates show movement"
+    },
+    {
+      "tool": "llm",
+      "rule_id": "reference-mechanism",
+      "severity": "info",
+      "target": "Notion",
+      "source_url": "https://www.notion.com/help/wikis-and-verified-pages",
+      "method": "web open of primary source; analyst mechanism selection, not hands-on evaluation",
+      "confidence": "derived",
+      "value": "Page ownership and verification, with expiration and owner reminders"
+    }
+  ]
+}

@@ -286,9 +286,9 @@ discover → teardown → provoke → capture → derive sequence inside this
 brainstorm. Reference mechanisms supply concrete tradeoffs for the dialogue;
 they do not become requirements without the user's ruling.
 
-The structured discovery opener asks which existing apps the user loves using
-or wants to derive this experience from. No additional names are recorded yet.
-Existing user-named references support these bounded teardowns:
+The structured discovery opener asked which existing apps the user loves using
+or wants to derive this experience from. Existing references first supported
+these bounded teardowns:
 
 - [Gmail density](2026-09-05-gmail-teardown.md): adjusting presentation,
   information visibility, and the separate choice of a reading pane.
@@ -302,6 +302,75 @@ open for references covering foundation authoring, product planning, and an
 embedded collaborator. The existing validated CUJs remain intact; the new
 workbench ruling will need reconciliation with the session-dive journey during
 capture and derivation.
+
+The user then asked: **“what about Linear and other project/roadmap/portfolio
+management/execution applications?”** The reference set now covers the core
+product-management workbench, beyond density and estate navigation.
+
+- [Linear teardown](2026-09-05-linear-teardown.md): project context, strategic
+  grouping, dated updates, roadmap views, and accountable agent delegation.
+- [Comparative scouting](2026-09-05-pm-reference-comparison.md): Aha! Roadmaps
+  for explicit foundations, Asana for portfolio attention, Basecamp/Shape Up
+  for uncertainty versus execution, Productboard for evidence behind work,
+  and Notion for foundation freshness. These additional references are analyst
+  selections in the category the user requested, not claimed user favorites.
+
+A concrete ambiguity surfaced: Linear's project usually represents a finite
+effort, while an Autarch project is an enduring product or garden. Clarify how
+foundations, roadmaps, bounded efforts, and Clavain sprints relate before
+borrowing that hierarchy. Existing source-of-record and human-authority
+rulings remain intact.
+
+The structured probe asked what Linear gets right that the user wants to feel
+in Autarch, with inspiration-only use allowed. The user responded by defining
+the broader working experience below. Specific Linear mechanisms remain
+unranked. The documents supply comparison scenarios, not a new implementation
+plan or validated CUJ.
+
+### Governing direction: the product manager's working environment
+
+The user clarified:
+
+> I think, what I want with Autarch, to be a one-stop shop for me to work the way I have worked for 15 years as a product manager: helping swarms of engineering agents build and grow software in increasingly autonomous ways while being involved on product/design/strategy/human taste/discernment questions (and for those agents to internalize those decisions while pushing back when i am missing something)
+
+This governs the continuing collaborator and workbench direction:
+
+- Autarch is the human's working environment for product management across
+  building and growing software, including product, design, strategy, taste,
+  and discernment.
+- Engineering work is performed by swarms of agents with increasing autonomy.
+  Human involvement should reach the judgments that need it.
+- Agents must carry product decisions into subsequent work, rather than
+  repeatedly requiring the same direction.
+- Agents should also push back when the human has missed something. Learning
+  from a ruling must preserve the ability to surface contrary evidence.
+
+Foundation onboarding remains the first agreed proving journey, connected to
+one real piece of work. Its value now has a sharper context: help the human
+and agents establish the guidance they need to build and grow the product.
+Document coverage alone cannot demonstrate that working relationship.
+
+The existing files-as-truth, human-rulings, Flere-native, and deep Clavain
+integration decisions remain in force. “One-stop shop” describes the intended
+human experience; exact workbench interactions and external-session transitions
+still need design. Increasing autonomy does not yet specify the boundaries or
+evidence for changing delegated authority.
+
+Research should now follow a complete loop: the human frames or critiques
+work, agents examine the judgment and surface missing evidence, the human
+resolves consequential questions, agents apply the resulting guidance, and
+delivered results inform the next product decision. This is an analyst
+translation for discussion, not a newly validated CUJ.
+
+Outstanding design questions sharpened by this ruling include how agents
+recognize an applicable prior decision, distinguish deliberate challenge from
+forgetting, show the work affected by a changed ruling, and demonstrate that
+feedback changed their next attempt. How much autonomy grows, and when a
+challenge pauses affected work, remain open.
+
+The next structured probe asks for a recent real intervention: what the user
+noticed, what they decided, and what agents should do differently next time.
+Use that case to trace the experience before choosing more panes or schemas.
 
 ## Sprint progress (Sylveste-fuwn)
 
