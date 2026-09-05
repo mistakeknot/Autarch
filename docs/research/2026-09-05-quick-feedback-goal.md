@@ -141,10 +141,14 @@ inference and deciding when work starts are separate questions.
 
 ## Decisions to settle before planning
 
-- **Uncertain destination:** save immediately with a suggested destination for
-  later confirmation (recommended), ask for the project immediately, or use
-  the most recently active project with later correction. The structured
-  question is pending.
+- **Uncertain destination:** provisionally save immediately with a suggested
+  destination for later confirmation. The assistant proposed this default
+  after the question went unanswered; it remains open to correction and is
+  not a user ruling or permission to send feedback to an uncertain project.
+- **Activity after capture:** the current structured question compares
+  background investigation with a proposed response and human product
+  decisions (recommended), collection until testing ends, and implementation
+  within authority already delegated. No answer recorded.
 - **Input:** text, voice, pointing/markup, and how a saved capture confirms
   success without disrupting the test. Saving must remain useful when Flere
   is unavailable.

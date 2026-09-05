@@ -401,11 +401,22 @@ where to send the feedback”.** Both capture styles are acceptable; this does
 not require choosing one exclusive style or establish that both must ship in
 the first version. Ad hoc capture needs inferred destination routing.
 
-The next structured question asks what happens when the right project cannot
-be confidently inferred: save immediately with a suggested destination for
-later confirmation (recommended), ask for a project immediately, or use the
-most recent project with later correction. No answer recorded. Destination
-inference does not yet settle when captured feedback starts agent execution.
+The user reinforced the dialogue preference: “let's keep going; moving
+forward, please do not wait for me to prompt you to keep going in these
+brainstorm/product design sessions”. Advance to the next question after an
+answer without requiring a separate request to continue.
+
+The uncertain-destination question received no answer. To keep the discussion
+moving, the assistant adopted a provisional default: save immediately with a
+suggested destination for later confirmation. This remains open to correction;
+it is not a user ruling or permission to send feedback to an uncertain project.
+
+The current structured question asks how far agents should proceed after
+capture while the human keeps testing: investigate and prepare a proposed
+response, bringing product decisions back to the human (recommended); collect
+quietly and investigate after testing; or investigate and implement within
+authority already delegated, bringing broader decisions back. No answer
+recorded. Destination inference alone grants no execution authority.
 
 ## Sprint progress (Sylveste-fuwn)
 
