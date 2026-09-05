@@ -130,8 +130,9 @@ Within those areas, the remaining dialogue must also cover:
   walkthrough, supported project types, and explicit first-slice exclusions.
 
 The collaborator's product role and first proving journey are now agreed;
-see the September 5 ruling below. The detailed interaction, engine choice,
-onboarding completion bar, and remaining rows are still open.
+see the September 5 ruling below. The subsequent Flere assessment also settled
+the intended native runtime as Flere with deep Clavain integration. Detailed
+interaction, model policy, onboarding completion, and remaining rows stay open.
 
 An observed source conflict belongs in this discussion: root development
 guidance still recommends the older unified four-tool TUI, while the confirmed
@@ -248,6 +249,20 @@ with a visible handoff, a separate linked conversation with a prepared brief,
 or choosing whether to continue or branch at each switch. No answer recorded.
 
 ## Sprint progress (Sylveste-fuwn)
+
+The user additionally requested assessment of Flere as Autarch's default native
+agent. [The Flere assessment](assess-flere-autarch-native-agent.md) found that
+raw RPC questions work, while the Clavain execution adapter and restricted
+worker are unfinished. After reviewing those findings, the user selected:
+**“Flere as intended native default, with deep Clavain integration”.**
+The intended runtime and integration depth are now product rulings; runtime
+activation remains subject to the onboarding-to-delivery proof.
+
+The next structured question compares a visible guided sprint, with
+conversation alongside artifacts and decisions, against a conversation-led
+experience with sprint details opened on demand. No answer recorded. The
+earlier conversation-continuity decision also remains unresolved; distinguish
+model changes within Flere from handoffs between agent runtimes.
 
 - [ ] Step 1: Brainstorm — Understand phase; research gathered, dialogue open.
 - [ ] Step 2: Strategy
