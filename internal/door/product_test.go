@@ -3,9 +3,11 @@ package door
 import (
 	"context"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 const productCardFixture = `---
@@ -109,5 +111,25 @@ func TestProductBacklogUsesReadOnlyLiveCLIAndExplicitSharedScope(t *testing.T) {
 	b = ReadProductBacklog(context.Background(), root, "reader")
 	if b.Source.State != "unread" || !strings.Contains(b.Source.Error, "database unavailable") {
 		t.Fatal("backlog failure became no work")
+	}
+}
+
+func TestProductSourceRejectsNamedPipeWithoutBlocking(t *testing.T) {
+	if _, err := exec.LookPath("mkfifo"); err != nil {
+		t.Skip("mkfifo not available")
+	}
+	root := t.TempDir()
+	if err := exec.Command("mkfifo", filepath.Join(root, "pipe")).Run(); err != nil {
+		t.Fatal(err)
+	}
+	done := make(chan ProductSource, 1)
+	go func() { done <- readProductSource(root, "pipe") }()
+	select {
+	case s := <-done:
+		if s.State != "unread" || !strings.Contains(s.Error, "regular file") {
+			t.Fatal(s)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("reader blocked opening a named pipe")
 	}
 }

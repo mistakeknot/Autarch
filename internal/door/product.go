@@ -119,13 +119,20 @@ func readProductSource(root, rel string) ProductSource {
 		s.Error = err.Error()
 		return s
 	}
+	// Opening a FIFO blocks before f.Stat can reject it. Check the target
+	// first, then verify the opened descriptor as well.
+	info, err := os.Stat(path)
+	if err != nil || !info.Mode().IsRegular() {
+		s.Error = "source is not a readable regular file"
+		return s
+	}
 	f, err := os.Open(path)
 	if err != nil {
 		s.Error = err.Error()
 		return s
 	}
 	defer f.Close()
-	info, err := f.Stat()
+	info, err = f.Stat()
 	if err != nil || !info.Mode().IsRegular() {
 		s.Error = "source is not a readable regular file"
 		return s
