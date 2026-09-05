@@ -85,6 +85,10 @@ Source baseline: Autarch main at `51905a7`.
 | Maintenance | Which changes reopen review, and how much interruption is appropriate. |
 | Pilot and evidence | First project and contrasting follow-ups; the human walkthrough that demonstrates a useful result. |
 
+The collaborator's product role and first proving journey are now agreed;
+see the September 5 ruling below. The detailed interaction, engine choice,
+onboarding completion bar, and remaining rows are still open.
+
 An observed source conflict belongs in this discussion: root development
 guidance still recommends the older unified four-tool TUI, while the confirmed
 product card describes the garden HUD. Source reconciliation should expose
@@ -141,11 +145,12 @@ Read-only integration research on September 5 found:
   checkout also contains a Pi-derived agent package and RPC documentation;
   runtime compatibility with Autarch has not been tested.
 
-Proposed product shape: a project collaborator presented in Autarch, powered
-by a replaceable agent runtime, with Clavain retaining workflow policy and
-files retaining project truth. It could inspect existing sources, discuss
+The product shape explored was a project collaborator presented in Autarch,
+powered by a replaceable agent runtime, with Clavain retaining workflow policy
+and files retaining project truth. It could inspect existing sources, discuss
 contradictions and gaps, prepare drafts, and connect agreed direction to
-roadmap and backlog work. Product agreement remains a human act.
+roadmap and backlog work. Product agreement remains a human act. The user
+subsequently agreed to the role and scope described below; no engine was chosen.
 
 Codex offers a direct route to its existing agent behavior; Pi offers a
 customizable runtime; building a new agent loop would add substantial scope.
@@ -157,10 +162,40 @@ The earlier original-session answering preference remains the default for
 existing external sessions. Embedded onboarding could support direct answers
 in new Autarch-hosted sessions; the exact behavior remains to be agreed.
 
-Latest structured question sent; no answer recorded: what should the embedded
-agent help with first — project foundations, all project work including code,
-or estate-wide prioritization and coordination? The recommendation is project
-foundations first. No implementation plan or application code was added.
+The structured role question led to a comparison of a foundations guide, a
+full project collaborator, and an estate-wide coordinator. The recommendation
+was refined to distinguish the eventual product role from its first proving
+journey. No implementation plan or application code was added.
+
+### Agreed direction — September 5
+
+The user answered **“concurred”** to the recommendation:
+
+> A full project collaborator as the eventual role, with foundation onboarding
+> as its first complete journey.
+
+The recommendation the user agreed to includes:
+
+- The collaborator is useful throughout a project, beyond initial setup.
+- Autarch provides the product conversation and delegates detailed execution
+  through Clavain, bringing back progress, evidence, and decisions needing the
+  human. Entering an execution session remains available when useful.
+- The first proving journey connects foundation onboarding to one real piece
+  of work, testing whether a decision carries through to an outcome.
+- Estate awareness can provide shared standards and related-project context;
+  it does not grant authority to redirect other projects or their agents.
+
+This agreement does not select Codex versus Pi, authorize automatic model
+switching, resolve the earlier onboarding completion question, or advance the
+sprint to implementation planning. Those are separate decisions.
+
+Next structured question sent; no answer recorded: should the project
+collaborator appear as one continuing conversation with visible agent/model
+handoffs, or separate agent conversations linked by explicit handoffs?
+Continuity reduces navigation but requires clear explanation of transferred
+context; separate conversations preserve agent-native histories more clearly.
+Either design carries agreed decisions and source files forward. The
+recommendation is one continuing project conversation; it remains unconfirmed.
 
 ## Sprint progress (Sylveste-fuwn)
 
