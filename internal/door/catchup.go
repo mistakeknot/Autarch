@@ -70,12 +70,24 @@ func (m Model) questions() []Thread {
 	return out
 }
 
-func (m Model) evidenceCoverage() string {
+// A read in flight or a failed inventory cannot establish an empty question
+// set. Share this state across the opening header, list and coverage footer.
+func (m Model) conversationReadStatus() string {
+	if !m.sessionsLoaded {
+		return "Reading conversations…"
+	}
 	if m.threads.Err != nil {
 		return "Conversations unreadable: " + m.threads.Err.Error()
 	}
-	if !m.sessionsLoaded || !m.threadsLoaded {
+	if !m.threadsLoaded {
 		return "Reading conversations…"
+	}
+	return ""
+}
+
+func (m Model) evidenceCoverage() string {
+	if status := m.conversationReadStatus(); status != "" {
+		return status
 	}
 	read, unread, unnamed := 0, 0, 0
 	for _, th := range m.threads.Threads {
@@ -92,6 +104,9 @@ func (m Model) evidenceCoverage() string {
 }
 
 func (m Model) questionSummary() string {
+	if status := m.conversationReadStatus(); status != "" {
+		return "Questions: " + status
+	}
 	qs := m.questions()
 	visible, saved := 0, 0
 	for _, th := range qs {
@@ -156,7 +171,11 @@ func (m Model) catchupLines(room int) []string {
 		lines = append(lines, "Reading project changes…")
 	}
 	if len(moved) == 0 && m.moveRemaining == 0 && len(m.movements) == len(m.projects) {
-		lines = append(lines, "No recent commits or conversation activity found in the readable sources.")
+		if m.conversationReadStatus() != "" {
+			lines = append(lines, "No recent commits found in the readable projects.")
+		} else {
+			lines = append(lines, "No recent commits or conversation activity found in the readable sources.")
+		}
 	}
 	start := max(0, min(m.catchupOffset, len(moved)-1))
 	shown := 0
@@ -213,11 +232,17 @@ func questionIndex(list []Thread, selected string) int {
 func (m Model) questionsLines(room int) []string {
 	qs := m.questions()
 	lines := []string{"Questions · select one to read its evidence", "Saved questions are history; they do not establish a current wait.", ""}
+	if status := m.conversationReadStatus(); status != "" {
+		lines = append(lines, status)
+		if len(qs) == 0 {
+			return lines
+		}
+	}
 	if len(qs) == 0 {
 		return append(lines, "No question without a later reply found in the readable tails.", "Unnamed seats and unreadable conversations are not covered.", "t → i shows history and replies for any named seat.")
 	}
 	sel := questionIndex(qs, m.questionSel)
-	count := max(1, (room-4)/3)
+	count := max(1, (room-len(lines)-1)/3)
 	start := max(0, min(m.questionOffset, sel))
 	if sel >= start+count {
 		start = sel - count + 1

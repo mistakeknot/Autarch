@@ -119,11 +119,16 @@ func ListSessions(ctx context.Context) ([]TmuxSession, error) {
 	out, err := exec.CommandContext(ctx, tmuxBin, "list-panes", "-a",
 		"-F", "#{window_active}\x1f#{pane_active}\x1f#{session_name}\x1f#{session_activity}\x1f#{pane_current_path}\x1f#{pane_current_command}").CombinedOutput()
 	if err != nil {
-		if strings.Contains(string(out), "no server running") ||
-			strings.Contains(string(out), "error connecting to") {
+		message := strings.TrimSpace(string(out))
+		// A missing socket or stopped server is a real empty inventory.
+		// Access and protocol failures only tell us we could not inspect it.
+		stopped := strings.HasPrefix(message, "no server running on ") ||
+			(strings.HasPrefix(message, "error connecting to ") &&
+				(strings.HasSuffix(message, "(No such file or directory)") || strings.HasSuffix(message, "(Connection refused)")))
+		if ctx.Err() == nil && stopped {
 			return nil, nil
 		}
-		return nil, fmt.Errorf("tmux list-panes: %v: %s", err, strings.TrimSpace(string(out)))
+		return nil, fmt.Errorf("tmux list-panes: %v: %s", err, message)
 	}
 	return parseSessionLines(string(out))
 }

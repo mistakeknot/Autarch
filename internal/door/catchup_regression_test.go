@@ -43,3 +43,43 @@ func TestReviewOldAgentReportNotPromotedByNewUserRequest(t *testing.T) {
 		t.Fatalf("old report presented in recent changes: %s", s)
 	}
 }
+
+func TestCatchupQuestionsDistinguishPendingFailedAndEmptyReads(t *testing.T) {
+	for _, phase := range []string{"starting", "reading", "failed", "empty"} {
+		t.Run(phase, func(t *testing.T) {
+			m := catchupFixture()
+			m.threads.Threads = nil
+			m.sessionsLoaded, m.threadsLoaded = true, true
+			switch phase {
+			case "starting":
+				m.sessionsLoaded = false
+			case "reading":
+				m.threadsLoaded = false
+			case "failed":
+				m.threads.Err = errors.New("Permission denied")
+			}
+			summary := m.questionSummary()
+			list := strings.Join(m.questionsLines(25), "\n")
+			if phase == "empty" {
+				if !strings.Contains(summary, "0 on screen") || !strings.Contains(list, "No question") {
+					t.Fatal(summary, list)
+				}
+				return
+			}
+			if strings.Contains(summary, "0 on screen") || strings.Contains(list, "No question") {
+				t.Fatalf("%s became an empty answer: %s\n%s", phase, summary, list)
+			}
+			m.projects, m.movements = nil, nil
+			if strings.Contains(strings.Join(m.catchupLines(25), "\n"), "No recent commits or conversation activity") {
+				t.Fatal("unknown conversations became no recent activity")
+			}
+			want := "Reading conversations"
+			if phase == "failed" {
+				want = "Permission denied"
+			}
+			if !strings.Contains(summary, want) || !strings.Contains(list, want) {
+				t.Fatal(summary, list)
+			}
+		})
+	}
+}

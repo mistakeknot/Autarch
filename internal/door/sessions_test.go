@@ -2,7 +2,9 @@ package door
 
 import (
 	"context"
+	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -19,6 +21,28 @@ func TestListSessionsParsesEscapedSeparators(t *testing.T) {
 	}
 	if len(got) != 1 || got[0].Name != "iterm[reader - abc" || got[0].Path != "/tmp/reader" || got[0].Command != "bash" {
 		t.Fatalf("wrong tmux fields: %+v", got)
+	}
+}
+
+func TestListSessionsDistinguishesStoppedServerFromConnectionFailure(t *testing.T) {
+	bin := t.TempDir()
+	writeExec(t, filepath.Join(bin, "tmux"), "#!/bin/sh\nprintf '%s\\n' \"$TMUX_TEST_ERROR\" >&2\nexit 1\n")
+	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+	for _, tc := range []struct {
+		message   string
+		wantError bool
+	}{
+		{"no server running on /tmp/tmux-1000/default", false},
+		{"error connecting to /tmp/tmux-1000/default (No such file or directory)", false},
+		{"error connecting to /tmp/tmux-1000/default (Connection refused)", false},
+		{"error connecting to /tmp/tmux-1000/default (Permission denied)", true},
+		{"error connecting to /tmp/tmux-1000/default (Protocol wrong type for socket)", true},
+	} {
+		t.Setenv("TMUX_TEST_ERROR", tc.message)
+		sessions, err := ListSessions(context.Background())
+		if (err != nil) != tc.wantError {
+			t.Errorf("%q: sessions=%v err=%v", tc.message, sessions, err)
+		}
 	}
 }
 

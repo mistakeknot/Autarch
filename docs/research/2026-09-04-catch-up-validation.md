@@ -61,3 +61,20 @@ retained per conversation. Generic prompts do not establish waiting. Text
 visible in a pane is evidence of visibility, not proof that execution is
 blocked. Reports are agent claims and commits cover local refs, not a release
 or deployment verdict. Refresh is explicit (`r`).
+
+## Completion audit: read-state reliability
+
+The next audit reproduced two false-empty states: the question header/list
+showed zero or no questions before reads completed, and tmux permission/protocol
+errors were treated as a stopped server. A shared read-status message now
+distinguishes pending, failed and completed reads across the question header,
+list and coverage footer. The activity summary also avoids claiming no
+conversation activity while that read is incomplete. Only explicit stopped,
+missing-socket or connection-refused diagnostics establish an empty inventory.
+
+Focused race tests passed for the door and CLI. A separate real-binary tmux
+replay delayed the inventory response, returned a permission failure, then
+refreshed to a stopped server. The screen displayed reading, unreadable and
+confirmed empty respectively. Independent review found no remaining issue in
+that change. This closes the reproduced reliability gaps; the human one-minute
+recognition check above remains open.
