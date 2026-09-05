@@ -15,11 +15,14 @@ import (
 func projectCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "project [path]",
-		Short: "Read a project's intent, roadmap, backlog, journeys and decisions",
+		Short: "Read product context and prepare a project's foundation onboarding",
 		Long: `Open the product HUD for a project (default: current directory).
 Reads docs/why.md, docs/roadmap.md, docs/cujs, card-linked decisions and the
 nearest Beads tracker. Shared trackers are filtered by the card's project label.
-Use 1–5 or Tab for sections, arrows to scroll, o for source files, r to refresh.`,
+Use 1–6 or Tab for sections, arrows to scroll, o for source files, r to refresh.
+6 Foundation discovers mission, vision, philosophy, personas, journeys, roadmap,
+ADRs, backlog, and design standards. n opens an onboarding brief; c copies it
+for your chosen agent. Existing project sources stay unchanged.`,
 		Args: cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			path := "."

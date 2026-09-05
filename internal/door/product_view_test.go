@@ -2,6 +2,7 @@ package door
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -11,6 +12,43 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/x/ansi"
 )
+
+func TestFoundationViewAndOnboardingNavigation(t *testing.T) {
+	m := productModelFixture(t)
+	m, _ = press(m, "6")
+	all := oneLine(strings.Join(m.productLines(), "\n"))
+	for _, want := range []string{"Mission", "Vision", "Philosophy", "Personas", "Critical user journeys", "Roadmap", "Architecture decision records", "Backlog", "Design systems / standards", "n Onboarding brief"} {
+		if !strings.Contains(all, want) {
+			t.Fatalf("missing %q: %s", want, all)
+		}
+	}
+	m, cmd := press(m, "n")
+	if cmd != nil || !strings.Contains(m.View(), "Onboard reader") {
+		t.Fatal("brief did not open locally", m.View())
+	}
+	m, cmd = press(m, "esc")
+	if cmd != nil || m.screen != screenProduct || m.productSection != 5 || m.productOnboarding {
+		t.Fatal("brief back left the project")
+	}
+	m, _ = press(m, "tab")
+	if m.productSection != 0 {
+		t.Fatal("six-section navigation did not wrap")
+	}
+}
+
+func TestOnboardingCopyReportsSuccessAndFailure(t *testing.T) {
+	m := productModelFixture(t)
+	brief := BuildOnboardingBrief(m.product)
+	copied := ""
+	msg := copyOnboardingBrief(brief, func(s string) error { copied = s; return nil })()
+	if copied != brief || !strings.Contains(string(msg.(statusMsg)), "Copied") {
+		t.Fatal("wrong clipboard payload")
+	}
+	msg = copyOnboardingBrief(brief, func(string) error { return errors.New("clipboard unavailable") })()
+	if !strings.Contains(string(msg.(statusMsg)), "clipboard unavailable") {
+		t.Fatal("copy failure hidden")
+	}
+}
 
 func productModelFixture(t *testing.T) Model {
 	t.Helper()

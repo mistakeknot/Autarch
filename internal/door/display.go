@@ -223,7 +223,8 @@ func (m Model) displayMenuView() string {
 			"↑↓ Scroll or select          Esc  Back     q  Quit", "",
 			"Enter opens a question's evidence first. Enter again opens its session.",
 			"Saved questions are history. Use s in their evidence to resume them.",
-			"Product HUD: 1–5 sections, o source, Esc back.", "",
+			"Product HUD: 1–6 sections, o source, Esc back.",
+			"6 Foundation: n onboarding brief, c copy for your chosen agent.", "",
 			"Your view preference is remembered. Your last visit sets the next catch-up window."}
 	} else {
 		start, count := m.menuWindow()

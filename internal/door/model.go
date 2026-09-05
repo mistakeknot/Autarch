@@ -193,6 +193,7 @@ type Model struct {
 	productRoot       string
 	productFrom       screen
 	productSection    int
+	productOnboarding bool
 	productOffset     int
 	productLoading    bool
 	productStandalone bool

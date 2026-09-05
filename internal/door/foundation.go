@@ -168,6 +168,35 @@ func ReadFoundation(b ProductBrief) []FoundationArea {
 		case "design":
 			a.files(b.Root, "DESIGN.md", "CONVENTIONS.md", "docs/design-system.md", "docs/design/standards.md", "docs/design/README.md", "docs/canon/design-system.md", "docs/canon/design-standards.md", "docs/canon/conventions.md")
 		}
+		// Case-insensitive filesystems and in-repo symlinks can expose the
+		// same document through several conventional paths.
+		if a.Key != "backlog" {
+			var files []os.FileInfo
+			unique := a.Sources[:0]
+			for _, s := range a.Sources {
+				duplicate := false
+				if s.State == "read" {
+					path, err := productPath(b.Root, s.Path)
+					if err == nil {
+						if info, err := os.Stat(path); err == nil {
+							for _, old := range files {
+								if os.SameFile(old, info) {
+									duplicate = true
+									break
+								}
+							}
+							if !duplicate {
+								files = append(files, info)
+							}
+						}
+					}
+				}
+				if !duplicate {
+					unique = append(unique, s)
+				}
+			}
+			a.Sources = unique
+		}
 		if a.Partial {
 			a.Note += " · Partial scan: at most 32 sources per area and 256 entries per directory; inspect the listed locations for the rest."
 		}

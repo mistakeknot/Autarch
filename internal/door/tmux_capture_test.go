@@ -40,6 +40,8 @@ func TestTmuxCaptureSwitchClientAndZed(t *testing.T) {
 	estate := filepath.Join(dir, "projects")
 	projA := mkrepo(t, estate, "aaa", true)
 	mkrepo(t, estate, "bbb", true)
+	productFile(t, projA, "MISSION.md", "# Mission\nHelp readers preserve context.\n")
+	productFile(t, projA, "docs/decisions/001-local.md", "# Local storage\nKeep reader history on device.\n")
 
 	stubs := filepath.Join(dir, "stubs")
 	if err := os.MkdirAll(stubs, 0o755); err != nil {
@@ -52,6 +54,10 @@ func TestTmuxCaptureSwitchClientAndZed(t *testing.T) {
 	writeExec(t, filepath.Join(stubs, "zed"), "#!/bin/sh\necho \"$@\" > "+zedArgs+"\n")
 	resumeArgs := filepath.Join(dir, "resume-args")
 	writeExec(t, filepath.Join(stubs, "claude"), "#!/bin/sh\nprintf '%s\\n' \"$@\" > "+resumeArgs+"\n")
+	clipboardPath := filepath.Join(dir, "onboarding-clipboard")
+	for _, name := range []string{"pbcopy", "xclip", "xsel", "wl-copy", "wl-paste"} {
+		writeExec(t, filepath.Join(stubs, name), "#!/bin/sh\ncat > \"$FOUNDATION_CLIPBOARD\"\n")
+	}
 	id := "aaaa1111-bbbb-2222-cccc-333344445555"
 	work := "iterm[reader - " + id
 	transcript := filepath.Join(dir, ".claude", "projects", "-estate", id+".jsonl")
@@ -93,15 +99,19 @@ func TestTmuxCaptureSwitchClientAndZed(t *testing.T) {
 	errLog := filepath.Join(dir, "door-err.log")
 	// HOME is the sandbox: the visit stamp and the transcript lookup must
 	// never touch the real one from a test.
-	doorCmd := fmt.Sprintf("env 'PATH=%s' HOME=%s AUTARCH_CARD_CHECK=%s %s 2>%s; sleep 60",
-		stubs+":"+os.Getenv("PATH"), dir, cardStub, bin, errLog)
+	doorCmd := fmt.Sprintf("env 'PATH=%s' HOME=%s AUTARCH_CARD_CHECK=%s FOUNDATION_CLIPBOARD=%s %s 2>%s; sleep 60",
+		stubs+":"+os.Getenv("PATH"), dir, cardStub, clipboardPath, bin, errLog)
 	run("new-session", "-d", "-s", "door", "-c", dir, "-x", "120", "-y", "30", doorCmd)
 
 	dump := func(why string) {
 		t.Helper()
 		errOut, _ := os.ReadFile(errLog)
+		pane := "door"
+		if strings.Contains(run("list-sessions", "-F", "#{session_name}"), "reopened") {
+			pane = "reopened"
+		}
 		t.Fatalf("%s\n--- capture ---\n%s\n--- stderr ---\n%s", why,
-			run("capture-pane", "-p", "-t", "door"), errOut)
+			run("capture-pane", "-p", "-t", pane), errOut)
 	}
 	waitFor := func(why string, cond func() bool) {
 		t.Helper()
@@ -238,6 +248,46 @@ func TestTmuxCaptureSwitchClientAndZed(t *testing.T) {
 	run("send-keys", "-t", "reopened", "d")
 	waitFor("direct toggle back to Cozy", func() bool {
 		return strings.Contains(run("capture-pane", "-p", "-t", "reopened"), "View: Cozy")
+	})
+	run("send-keys", "-t", "reopened", "3")
+	waitFor("project rows for onboarding", func() bool { return strings.Contains(run("capture-pane", "-p", "-t", "reopened"), "enter switch/open") })
+	run("send-keys", "-t", "reopened", "i")
+	waitFor("product context loaded", func() bool { return strings.Contains(run("capture-pane", "-p", "-t", "reopened"), "CURRENT WORK") })
+	run("send-keys", "-t", "reopened", "6")
+	waitFor("foundation inventory", func() bool {
+		cap := run("capture-pane", "-p", "-t", "reopened")
+		return strings.Contains(cap, "Mission · Sources found") && strings.Contains(cap, "Vision · Not found")
+	})
+	run("send-keys", "-t", "reopened", "n")
+	waitFor("onboarding brief", func() bool {
+		return strings.Contains(run("capture-pane", "-p", "-t", "reopened"), "Onboard aaa to its product foundation")
+	})
+	run("send-keys", "-t", "reopened", "c")
+	waitFor("portable brief copied", func() bool {
+		data, err := os.ReadFile(clipboardPath)
+		return err == nil && strings.Contains(string(data), "Project: "+projA) && strings.Contains(string(data), "MISSION.md (read)") && strings.Contains(string(data), "docs/decisions/001-local.md") && strings.Contains(string(data), "AskUserQuestion")
+	})
+	data, err := os.ReadFile(filepath.Join(projA, "MISSION.md"))
+	if err != nil || string(data) != "# Mission\nHelp readers preserve context.\n" {
+		t.Fatal("onboarding changed a source")
+	}
+	run("send-keys", "-t", "reopened", "Escape")
+	waitFor("back from brief", func() bool {
+		return strings.Contains(run("capture-pane", "-p", "-t", "reopened"), "PROJECT FOUNDATION")
+	})
+	productFile(t, projA, "VISION.md", "# Vision\nA workspace that remembers.\n")
+	run("send-keys", "-t", "reopened", "r")
+	waitFor("new source found after refresh", func() bool {
+		return strings.Contains(run("capture-pane", "-p", "-t", "reopened"), "Vision · Sources found")
+	})
+	run("resize-window", "-t", "reopened", "-x", "40", "-y", "16")
+	run("send-keys", "-t", "reopened", "n")
+	waitFor("narrow onboarding brief", func() bool { return strings.Contains(run("capture-pane", "-p", "-t", "reopened"), "Onboard aaa") })
+	run("send-keys", "-t", "reopened", "End")
+	waitFor("onboarding brief tail reachable", func() bool {
+		// A wrapped sentence is separated by the frame's vertical borders.
+		cap := strings.ReplaceAll(run("capture-pane", "-p", "-t", "reopened"), "│", "")
+		return strings.Contains(oneLine(cap), "completed onboarding.")
 	})
 }
 

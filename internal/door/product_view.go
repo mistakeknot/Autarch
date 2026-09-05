@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/atotto/clipboard"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/x/ansi"
 )
@@ -32,6 +33,7 @@ func (m Model) loadProduct() tea.Cmd {
 func (m Model) enterProduct(root string) (tea.Model, tea.Cmd) {
 	m.productFrom, m.screen = m.screen, screenProduct
 	m.productRoot, m.productSection, m.productOffset = root, 0, 0
+	m.productOnboarding = false
 	m.product, m.productLoading, m.status = ProductBrief{}, true, ""
 	m.productGeneration++
 	return m, m.loadProduct()
@@ -42,6 +44,10 @@ func (m Model) handleProductKey(key string) (tea.Model, tea.Cmd) {
 	case "q", "ctrl+c":
 		return m, m.quit()
 	case "esc":
+		if m.productOnboarding {
+			m.productOnboarding, m.productOffset = false, 0
+			return m, nil
+		}
 		if m.productStandalone {
 			return m, m.quit()
 		}
@@ -53,15 +59,26 @@ func (m Model) handleProductKey(key string) (tea.Model, tea.Cmd) {
 			m.productGeneration++
 			return m, m.loadProduct()
 		}
-	case "1", "2", "3", "4", "5":
+	case "n":
+		if m.productSection == 5 && !m.productLoading {
+			m.productOnboarding, m.productOffset = !m.productOnboarding, 0
+		}
+	case "c":
+		if m.productSection == 5 && !m.productLoading {
+			return m, copyOnboardingBrief(BuildOnboardingBrief(m.product), clipboard.WriteAll)
+		}
+	case "1", "2", "3", "4", "5", "6":
 		m.productSection = int(key[0] - '1')
 		m.productOffset, m.status = 0, ""
+		m.productOnboarding = false
 	case "tab", "right":
-		m.productSection = (m.productSection + 1) % 5
+		m.productSection = (m.productSection + 1) % 6
 		m.productOffset, m.status = 0, ""
+		m.productOnboarding = false
 	case "shift+tab", "left":
-		m.productSection = (m.productSection + 4) % 5
+		m.productSection = (m.productSection + 5) % 6
 		m.productOffset, m.status = 0, ""
+		m.productOnboarding = false
 	case "j", "down":
 		m.productOffset++
 	case "k", "up":
@@ -140,6 +157,7 @@ func (m Model) productLines() []string {
 	}
 	switch m.productSection {
 	case 0:
+		add("6 Foundation · establish mission, personas, journeys, standards, and the next outcome", "")
 		if p.CardSource.State != "read" {
 			source(p.CardSource)
 			add("")
@@ -246,6 +264,29 @@ func (m Model) productLines() []string {
 			}
 			add("")
 		}
+	case 5:
+		if m.productOnboarding {
+			add(strings.Split(BuildOnboardingBrief(p), "\n")...)
+		} else {
+			add("PROJECT FOUNDATION", "Establish shared direction, then connect it to the work.", "n Onboarding brief · c Copy for your chosen agent", "")
+			for _, a := range p.Foundation {
+				add(a.Title + " · " + a.State())
+				if len(a.Sources) > 0 {
+					path := a.Sources[0].Path
+					if len(a.Sources) > 1 {
+						path += fmt.Sprintf(" · %d more sources in brief", len(a.Sources)-1)
+					}
+					add("  " + path)
+				} else {
+					add("  No source found in the searched locations.")
+				}
+				if a.Note != "" {
+					add("  " + a.Note)
+				}
+				add("")
+			}
+			add("Sources found still need content review; presence does not mean agreement.", "The brief lists searched locations, read errors, and questions for each area.", "Custom or shared sources may live elsewhere; reuse them before creating new documents.")
+		}
 	}
 	var wrapped []string
 	for _, line := range lines {
@@ -274,7 +315,20 @@ func (m Model) productView() string {
 		name = filepath.Base(m.productRoot)
 	}
 	m.status = fmt.Sprintf("%d–%d / %d · %s", start+1, min(len(all), start+room), len(all), m.status)
-	return m.dashboardFrame("Project · "+oneLine(name), all[start:min(len(all), start+room)], "1–5/tab sections · ↑↓ scroll · o source · r refresh · d View · Esc back · q Quit")
+	keys := "1–6/tab sections · ↑↓ scroll · o source · r refresh · d View · Esc back · q Quit"
+	if m.productSection == 5 {
+		keys = "n Onboarding brief · c Copy brief · ↑↓ scroll · 1–6 sections · Esc back · q Quit"
+	}
+	return m.dashboardFrame("Project · "+oneLine(name), all[start:min(len(all), start+room)], keys)
+}
+
+func copyOnboardingBrief(brief string, write func(string) error) tea.Cmd {
+	return func() tea.Msg {
+		if err := write(brief); err != nil {
+			return statusMsg("Could not copy onboarding brief: " + err.Error())
+		}
+		return statusMsg("Copied onboarding brief · paste it into your chosen project's agent session")
+	}
 }
 
 func (m Model) openProductSource() tea.Cmd {
@@ -290,6 +344,8 @@ func (m Model) openProductSource() tea.Cmd {
 		rel = "docs/cujs"
 	case 4:
 		rel = "docs"
+	case 5:
+		rel = "."
 	}
 	root := m.productRoot
 	return func() tea.Msg {

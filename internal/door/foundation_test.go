@@ -78,6 +78,18 @@ func TestFoundationEmptyFoldersAndFilesAreNotCoverage(t *testing.T) {
 	}
 }
 
+func TestFoundationAliasesDoNotInflateSourceCounts(t *testing.T) {
+	root := t.TempDir()
+	productFile(t, root, "docs/canon/vision.md", "# Vision\nA workspace that remembers.")
+	if err := os.Symlink("docs/canon/vision.md", filepath.Join(root, "VISION.md")); err != nil {
+		t.Fatal(err)
+	}
+	a := foundationArea(t, foundationFixture(t, root), "vision")
+	if len(a.Sources) != 1 {
+		t.Fatalf("one document counted through aliases: %+v", a.Sources)
+	}
+}
+
 func TestFoundationRejectsEscapingSourcesAndDisclosesLimits(t *testing.T) {
 	root, out := t.TempDir(), t.TempDir()
 	productFile(t, out, "mission.md", "outside private text")
