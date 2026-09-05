@@ -225,6 +225,7 @@ func (m Model) displayMenuView() string {
 			"Saved questions are history. Use s in their evidence to resume them.",
 			"Product HUD: 1–6 sections, o source, Esc back.",
 			"6 Foundation: n onboarding brief, c copy for your chosen agent.", "",
+			"Ctrl+R opens the selected project's review workbench.", "",
 			"Your view preference is remembered. Your last visit sets the next catch-up window."}
 	} else {
 		start, count := m.menuWindow()

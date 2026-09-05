@@ -13,6 +13,8 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 
+	"github.com/mistakeknot/autarch/internal/reviewtui"
+	"github.com/mistakeknot/autarch/pkg/review"
 	"github.com/mistakeknot/autarch/pkg/tui/theme"
 )
 
@@ -135,12 +137,13 @@ var (
 // Model is the door: the ranked estate, one project per row, opened through
 // the briefing of what moved since mk was last here.
 type Model struct {
-	projects    []Project
-	ranking     Ranking
-	rankingPath string
-	rankingErr  error
-	checker     string
-	checkerErr  error
+	reviewWorkspace *reviewtui.Model
+	projects        []Project
+	ranking         Ranking
+	rankingPath     string
+	rankingErr      error
+	checker         string
+	checkerErr      error
 
 	// The tmux axis. sessionsLoaded distinguishes "not yet asked" from a
 	// snapshot that truly found zero sessions; sessions.Err is the third
@@ -354,6 +357,22 @@ func (m Model) waitForMovement() tea.Cmd {
 }
 
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	if _, ok := msg.(reviewtui.ClosedMsg); ok {
+		m.reviewWorkspace = nil
+		return m, nil
+	}
+	if m.reviewWorkspace != nil {
+		cmd := m.reviewWorkspace.Update(msg)
+		if size, ok := msg.(tea.WindowSizeMsg); ok {
+			m.width, m.height = size.Width, size.Height
+		}
+		if _, ok := msg.(tea.KeyMsg); ok {
+			return m, cmd
+		}
+		if _, ok := msg.(tea.WindowSizeMsg); !ok && cmd != nil {
+			return m, cmd
+		}
+	}
 	switch msg := msg.(type) {
 	case tea.MouseMsg:
 		return m.handleDisplayMouse(msg)
@@ -474,6 +493,17 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	key := msg.String()
+	if key == "ctrl+r" {
+		project := m.selRoot
+		if m.screen == screenProduct {
+			project = m.productRoot
+		}
+		if project != "" {
+			m.reviewWorkspace = reviewtui.New(project, m.density.String(), review.Client{})
+			m.reviewWorkspace.Update(tea.WindowSizeMsg{Width: m.width, Height: m.height})
+			return m, m.reviewWorkspace.Init()
+		}
+	}
 	if m.menu != "" {
 		return m.handleMenuKey(key)
 	}
@@ -825,6 +855,9 @@ func (m Model) lineWidth() int {
 }
 
 func (m Model) View() string {
+	if m.reviewWorkspace != nil {
+		return m.reviewWorkspace.View()
+	}
 	if m.menu != "" {
 		return m.displayMenuView()
 	}

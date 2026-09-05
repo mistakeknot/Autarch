@@ -72,6 +72,7 @@ Available tools:
 
 	root.AddCommand(tuiCmd())
 	root.AddCommand(doorCmd())
+	root.AddCommand(reviewControllerCmd())
 	root.AddCommand(threadsCmd())
 	root.AddCommand(projectCmd())
 	root.AddCommand(bigendCmd())

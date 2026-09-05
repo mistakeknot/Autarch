@@ -38,6 +38,8 @@ node_modules/
 # Build artifacts
 dist/
 build/
+native/**/.build/
+native/**/.swiftpm/
 
 # Local external clones
 .external/
