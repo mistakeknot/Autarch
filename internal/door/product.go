@@ -73,6 +73,7 @@ type ProductBrief struct {
 	Roadmap       ProductSource
 	Decisions     []ProductSource
 	Backlog       ProductBacklog
+	Foundation    []FoundationArea
 }
 
 const productFileLimit = 256 << 10
@@ -215,6 +216,7 @@ func ReadProductBrief(ctx context.Context, root string, backlogReader func(conte
 		backlogReader = ReadProductBacklog
 	}
 	b.Backlog = backlogReader(ctx, root, label)
+	b.Foundation = ReadFoundation(b)
 	return b
 }
 
