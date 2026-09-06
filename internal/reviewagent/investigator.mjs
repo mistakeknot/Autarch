@@ -34,8 +34,8 @@ export default function investigator(pi) {
     const guidance = object({ path: string, text: string, scope: string, rationale: string, base_revision: string, supersedes: string }, ["path", "text", "scope", "rationale", "base_revision"]);
     pi.registerTool({
         name: "propose_response", label: "Prepare response for review",
-        description: "Propose an immediate change and any enduring guidance together. No implementation or approval happens here. Include observed feedback IDs, evidence, uncertainty, reasoned pushback, exact scope, priority, dependencies, budget and a short retest checklist.",
-        parameters: object({ outcome: string, change: string, scope: strings, rationale: string, feedback_ids: strings, uncertainties: strings, pushback: string, guidance: { type: "array", items: guidance }, checklist: strings, priority: { type: "integer", minimum: 0, maximum: 4 }, dependencies: strings, budget_tokens: { type: "integer", minimum: 1, maximum: 500000 } }),
+        description: "Propose an immediate change and any enduring guidance together. No implementation or approval happens here. Include observed feedback IDs and their exact observed revision numbers in feedback_revisions; never relabel an older observation as current. Include evidence, uncertainty, reasoned pushback, exact scope, priority, dependencies, budget and a short retest checklist.",
+        parameters: object({ outcome: string, change: string, scope: strings, rationale: string, feedback_ids: strings, feedback_revisions: { type: "object", additionalProperties: { type: "integer", minimum: 1 } }, uncertainties: strings, pushback: string, guidance: { type: "array", items: guidance }, checklist: strings, priority: { type: "integer", minimum: 0, maximum: 4 }, dependencies: strings, budget_tokens: { type: "integer", minimum: 1, maximum: 500000 } }),
         async execute(_id, params) { return { content: [{ type: "text", text: "Response prepared for human review. No change has been accepted or implemented." }], details: { autarchProposal: params } }; }
     });
 }

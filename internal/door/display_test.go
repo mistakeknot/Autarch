@@ -97,6 +97,55 @@ func TestDisplayModesFitAndRetainEvidence(t *testing.T) {
 	}
 }
 
+func TestReviewAttentionFitsTheDoorFrame(t *testing.T) {
+	for _, size := range [][2]int{{120, 38}, {80, 26}, {40, 16}} {
+		for _, density := range []Density{DensityCozy, DensityCompact} {
+			m := catchupFixture()
+			m.width, m.height, m.density = size[0], size[1], density
+			m.reviewAttention = "Flere needs a decision · Ctrl+R"
+			m.screen = screenRows
+			m.threadsOn = false
+			view := m.View()
+			if len(strings.Split(view, "\n")) > m.height {
+				t.Fatalf("attention exceeds %dx%d frame: %s", m.width, m.height, view)
+			}
+			if !strings.Contains(view, "Flere needs a decision") {
+				t.Fatal("attention was clipped")
+			}
+		}
+	}
+}
+
+func TestReviewAttentionPreservesEveryDashboardFooter(t *testing.T) {
+	for _, size := range [][2]int{{120, 38}, {80, 26}, {40, 16}} {
+		for _, density := range []Density{DensityCozy, DensityCompact} {
+			for _, screen := range []screen{screenBriefing, screenQuestions, screenRows, screenThreads} {
+				m := catchupFixture()
+				m.width, m.height, m.density, m.screen = size[0], size[1], density, screen
+				before := strings.Split(m.View(), "\n")
+				m.reviewAttention = "Flere needs a decision · Ctrl+R"
+				view := m.View()
+				if !strings.Contains(view, "Flere needs a decision") {
+					t.Errorf("screen %v at %v omitted attention", screen, size)
+				}
+				for _, line := range before[len(before)-4:] {
+					if !strings.Contains(view, line) {
+						t.Errorf("screen %v attention displaced footer %q", screen, line)
+					}
+				}
+				if len(strings.Split(view, "\n")) > m.height {
+					t.Fatal("dashboard height overflow")
+				}
+				for _, line := range strings.Split(view, "\n") {
+					if ansi.StringWidth(line) > m.width {
+						t.Fatal("dashboard width overflow")
+					}
+				}
+			}
+		}
+	}
+}
+
 func TestDisplayNarrowRangeKeepsSelectedOptionVisible(t *testing.T) {
 	m := catchupFixture()
 	m.width, m.height = 40, 16

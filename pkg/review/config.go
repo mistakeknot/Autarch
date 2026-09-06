@@ -5,8 +5,19 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 )
+
+var providerIdentity = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]*$`)
+
+func ParseModelSelection(selection string) (string, string, error) {
+	provider, model, ok := strings.Cut(selection, "/")
+	if !ok || !providerIdentity.MatchString(provider) || model == "" || strings.HasPrefix(model, "-") || strings.ContainsAny(model, " \t\r\n") {
+		return "", "", fmt.Errorf("choose provider/model without whitespace or empty identities")
+	}
+	return provider, model, nil
+}
 
 // BuildSpec is copied into the proposal BEFORE it is displayed for acceptance.
 type BuildSpec struct {

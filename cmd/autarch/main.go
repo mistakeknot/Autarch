@@ -48,6 +48,7 @@ import (
 )
 
 func main() {
+	acknowledgeReviewBuild()
 	// Bare `autarch` opens the surface: the briefing of what moved in the
 	// estate since the last visit, rows one tab away. The surface has no
 	// name of its own (2026-09-01 ruling); `autarch door` is the same

@@ -147,6 +147,9 @@ func (s *Store) Apply(req Request) Response {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	fail := func(err error) Response { return Response{Version: Version, Error: err.Error()} }
+	if req.Auth != nil || strings.HasPrefix(req.Method, "auth.") {
+		return fail(errors.New("authentication cannot enter durable review records"))
+	}
 	if req.Version != Version {
 		return fail(errors.New("unsupported IPC version"))
 	}
@@ -157,7 +160,10 @@ func (s *Store) Apply(req Request) Response {
 	if req.ID == "" {
 		return fail(errors.New("request id required"))
 	}
-	raw, _ := json.Marshal(req)
+	raw, err := json.Marshal(req)
+	if err != nil {
+		return fail(fmt.Errorf("invalid request: %w", err))
+	}
 	sum := sha256.Sum256(raw)
 	hash := hex.EncodeToString(sum[:])
 	if receipt, ok := s.state.Receipts[req.ID]; ok {
@@ -166,8 +172,27 @@ func (s *Store) Apply(req Request) Response {
 		}
 		return Response{Version: Version, ID: receipt.ID, Replayed: true}
 	}
+	// The stored request hash describes the caller's original payload. Own all
+	// nested maps and slices before filling revisions or retaining records, so
+	// applying the request neither changes its retry key nor aliases source state.
+	var owned Request
+	if err := json.Unmarshal(raw, &owned); err != nil {
+		return fail(fmt.Errorf("invalid request: %w", err))
+	}
+	if owned.Method == "context" {
+		// The latest UI selection is a live pointer, not a human decision or
+		// observation. Keep it current without a durable snapshot per keypress;
+		// the next actual evidence write freezes this context in its record.
+		next := State{Context: s.state.Context}
+		id, err := s.apply(&next, owned)
+		if err != nil {
+			return fail(err)
+		}
+		s.state.Context = next.Context
+		return Response{Version: Version, ID: id}
+	}
 	next := s.state.Clone()
-	id, err := s.apply(&next, req)
+	id, err := s.apply(&next, owned)
 	if err != nil {
 		return fail(err)
 	}
@@ -200,6 +225,26 @@ func (s *Store) apply(st *State, r Request) (string, error) {
 		return nil
 	}
 	switch r.Method {
+	case "runtime.switch":
+		if project == "" {
+			return "", errors.New("choose provider/model")
+		}
+		if _, _, err := ParseModelSelection(r.Text); err != nil {
+			return "", err
+		}
+		st.Turns = append(st.Turns, Turn{ID: id, Project: project, Kind: "model selection", Model: r.Text, Text: "Transfer the visible project conversation to " + r.Text, At: now, Delivery: "pending"})
+		return id, nil
+	case "feedback.route":
+		v, ok := st.Feedback[r.Target]
+		if !ok || v.Project != "" || v.Revision != r.Revision || project == "" {
+			return "", errors.New("intake item changed or destination missing")
+		}
+		v.Project = project
+		v.SuggestedProject = ""
+		v.Revision++
+		v.Analysis = "pending"
+		st.Feedback[v.ID] = v
+		return v.ID, nil
 	case "runtime.cancel":
 		if project == "" {
 			return "", errors.New("project required")
@@ -221,6 +266,12 @@ func (s *Store) apply(st *State, r Request) (string, error) {
 			return "", errors.New("context required")
 		}
 		st.Context = *r.Context
+		if r.Context.Project != "" {
+			if err := same(r.Context.Project); err != nil {
+				return "", err
+			}
+		}
+		st.Context.Project = project
 		st.Context.At = now
 		return r.ID, nil
 	case "session.save":
@@ -232,6 +283,9 @@ func (s *Store) apply(st *State, r Request) (string, error) {
 			v.ID = id
 		}
 		if old, ok := st.Sessions[v.ID]; ok {
+			if old.Status == "deleted" || old.Status == "deleting" {
+				return "", errors.New("session captures have been deleted")
+			}
 			if err := same(old.Project); err != nil {
 				return "", err
 			}
@@ -245,6 +299,24 @@ func (s *Store) apply(st *State, r Request) (string, error) {
 		v.Project = project
 		v.Revision++
 		v.UpdatedAt = now
+		st.Sessions[v.ID] = v
+		return v.ID, nil
+	case "session.delete":
+		v, ok := st.Sessions[r.Target]
+		if !ok || v.Revision != r.Revision {
+			return "", errors.New("session changed; inspect it before deleting captures")
+		}
+		if err := same(v.Project); err != nil {
+			return "", err
+		}
+		if v.Status == "deleted" || v.Status == "deleting" {
+			return "", errors.New("session captures are already deleted or deleting")
+		}
+		if v.Status == "recording" || v.Status == "paused" || v.Status == "starting" {
+			return "", errors.New("stop the session before deleting captures")
+		}
+		v.Status = "deleting"
+		v.Revision++
 		st.Sessions[v.ID] = v
 		return v.ID, nil
 	case "feedback.save":
@@ -277,10 +349,17 @@ func (s *Store) apply(st *State, r Request) (string, error) {
 			if !ok || session.Project != project {
 				return "", errors.New("feedback session project mismatch")
 			}
+			if session.Status == "deleted" || session.Status == "deleting" {
+				for i := range v.Evidence {
+					v.Evidence[i].Status = "deleted"
+					v.Evidence[i].Path = ""
+				}
+			}
 		}
 		v.Project = project
 		v.Revision++
 		v.Analysis = "pending"
+		v.Evidence = preserveSourceTombstones(st, project, v.Evidence)
 		if v.Context.At.IsZero() {
 			v.Context = st.Context
 		}
@@ -327,6 +406,9 @@ func (s *Store) apply(st *State, r Request) (string, error) {
 			if !ok || note.Project != project {
 				return "", errors.New("proposal references feedback outside project")
 			}
+			if v.FeedbackRevisions[f] != note.Revision {
+				return "", errors.New("proposal must cite the observed current feedback revision; investigate corrected feedback again")
+			}
 		}
 		for _, g := range v.Guidance {
 			if g.Text == "" || g.Scope == "" || g.Rationale == "" || g.BaseRevision == "" || filepath.IsAbs(g.Path) || strings.HasPrefix(filepath.Clean(g.Path), "..") {
@@ -335,6 +417,7 @@ func (s *Store) apply(st *State, r Request) (string, error) {
 		}
 		v.Status = "proposed"
 		v.AcceptedAt = nil
+		v.Evidence = preserveSourceTombstones(st, project, v.Evidence)
 		v.At = now
 		if v.Revision == 0 {
 			v.Revision = 1
@@ -357,6 +440,12 @@ func (s *Store) apply(st *State, r Request) (string, error) {
 		}
 		if v.Status != "proposed" {
 			return "", errors.New("proposal is not awaiting acceptance")
+		}
+		for _, id := range v.FeedbackIDs {
+			note, ok := st.Feedback[id]
+			if !ok || note.Project != project || v.FeedbackRevisions[id] != note.Revision {
+				return "", errors.New("proposal feedback changed; investigate and review a new proposal before accepting")
+			}
 		}
 		v.Status = "accepted"
 		v.AcceptedAt = &now
@@ -394,6 +483,19 @@ func (s *Store) apply(st *State, r Request) (string, error) {
 			return "", errors.New("execution scope changed")
 		}
 		v.UpdatedAt = now
+		v.InvokedAt, v.InvokedBuild = old.InvokedAt, old.InvokedBuild
+		st.Executions[v.ID] = v
+		return v.ID, nil
+	case "execution.invoked":
+		v, ok := st.Executions[r.Target]
+		if !ok || v.Status != "ready_for_retest" || r.Text != v.Build {
+			return "", errors.New("invocation does not match the prepared build")
+		}
+		if err := same(v.Project); err != nil {
+			return "", err
+		}
+		v.InvokedAt = &now
+		v.InvokedBuild = r.Text
 		st.Executions[v.ID] = v
 		return v.ID, nil
 	case "verdict.save":
@@ -410,6 +512,9 @@ func (s *Store) apply(st *State, r Request) (string, error) {
 		}
 		if v.Verdict != "pass" && v.Verdict != "fail" && v.Verdict != "inconclusive" {
 			return "", errors.New("verdict must be pass, fail or inconclusive")
+		}
+		if v.Verdict == "pass" && (e.InvokedAt == nil || e.InvokedAt.IsZero() || e.InvokedBuild != e.Build) {
+			return "", errors.New("passing retest requires a recorded invocation of this build; open the prepared build before passing it")
 		}
 		v.ID = id
 		v.Project = project
@@ -509,7 +614,9 @@ func mergeEvidence(old, added []Source) []Source {
 		found := false
 		for i, v := range out {
 			if v.ID == a.ID {
-				out[i] = a
+				if v.Status != "deleted" {
+					out[i] = a
+				}
 				found = true
 				break
 			}

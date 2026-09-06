@@ -70,43 +70,46 @@ type Guidance struct {
 	Supersedes   string `json:"supersedes,omitempty"`
 }
 type Proposal struct {
-	Tracker       string     `json:"tracker,omitempty"`
-	Build         BuildSpec  `json:"build"`
-	ID            string     `json:"id"`
-	Project       string     `json:"project"`
-	Revision      int        `json:"revision"`
-	At            time.Time  `json:"at"`
-	FeedbackIDs   []string   `json:"feedback_ids"`
-	Outcome       string     `json:"outcome"`
-	Change        string     `json:"change"`
-	Scope         []string   `json:"scope"`
-	Rationale     string     `json:"rationale"`
-	Evidence      []Source   `json:"evidence"`
-	Uncertainties []string   `json:"uncertainties"`
-	Pushback      string     `json:"pushback,omitempty"`
-	Guidance      []Guidance `json:"guidance"`
-	Checklist     []string   `json:"checklist"`
-	Priority      int        `json:"priority"`
-	Dependencies  []string   `json:"dependencies"`
-	BudgetTokens  int        `json:"budget_tokens"`
-	Status        string     `json:"status"`
-	AcceptedAt    *time.Time `json:"accepted_at,omitempty"`
+	FeedbackRevisions map[string]int `json:"feedback_revisions"`
+	Tracker           string         `json:"tracker,omitempty"`
+	Build             BuildSpec      `json:"build"`
+	ID                string         `json:"id"`
+	Project           string         `json:"project"`
+	Revision          int            `json:"revision"`
+	At                time.Time      `json:"at"`
+	FeedbackIDs       []string       `json:"feedback_ids"`
+	Outcome           string         `json:"outcome"`
+	Change            string         `json:"change"`
+	Scope             []string       `json:"scope"`
+	Rationale         string         `json:"rationale"`
+	Evidence          []Source       `json:"evidence"`
+	Uncertainties     []string       `json:"uncertainties"`
+	Pushback          string         `json:"pushback,omitempty"`
+	Guidance          []Guidance     `json:"guidance"`
+	Checklist         []string       `json:"checklist"`
+	Priority          int            `json:"priority"`
+	Dependencies      []string       `json:"dependencies"`
+	BudgetTokens      int            `json:"budget_tokens"`
+	Status            string         `json:"status"`
+	AcceptedAt        *time.Time     `json:"accepted_at,omitempty"`
 }
 type Execution struct {
-	Tracker          string    `json:"tracker,omitempty"`
-	ID               string    `json:"id"`
-	Project          string    `json:"project"`
-	ProposalID       string    `json:"proposal_id"`
-	ProposalRevision int       `json:"proposal_revision"`
-	Status           string    `json:"status"`
-	WorkID           string    `json:"work_id,omitempty"`
-	RunID            string    `json:"run_id,omitempty"`
-	DispatchID       string    `json:"dispatch_id,omitempty"`
-	Build            string    `json:"build,omitempty"`
-	Binary           string    `json:"binary,omitempty"`
-	Model            string    `json:"model,omitempty"`
-	Reason           string    `json:"reason,omitempty"`
-	UpdatedAt        time.Time `json:"updated_at"`
+	InvokedAt        *time.Time `json:"invoked_at,omitempty"`
+	InvokedBuild     string     `json:"invoked_build,omitempty"`
+	Tracker          string     `json:"tracker,omitempty"`
+	ID               string     `json:"id"`
+	Project          string     `json:"project"`
+	ProposalID       string     `json:"proposal_id"`
+	ProposalRevision int        `json:"proposal_revision"`
+	Status           string     `json:"status"`
+	WorkID           string     `json:"work_id,omitempty"`
+	RunID            string     `json:"run_id,omitempty"`
+	DispatchID       string     `json:"dispatch_id,omitempty"`
+	Build            string     `json:"build,omitempty"`
+	Binary           string     `json:"binary,omitempty"`
+	Model            string     `json:"model,omitempty"`
+	Reason           string     `json:"reason,omitempty"`
+	UpdatedAt        time.Time  `json:"updated_at"`
 }
 type Verdict struct {
 	ID          string    `json:"id"`
@@ -175,32 +178,37 @@ func (s State) Clone() State {
 	return c
 }
 
-// Request IDs are retry keys. A key may only be reused with identical content.
+// Durable request IDs are retry keys, reused only with identical content.
+// State queries, the live context pointer and auth control remain transient;
+// evidence records freeze the applicable context when they are committed.
 type Request struct {
-	Version   int        `json:"version"`
-	ID        string     `json:"id"`
-	Method    string     `json:"method"`
-	Project   string     `json:"project,omitempty"`
-	Target    string     `json:"target,omitempty"`
-	Revision  int        `json:"revision,omitempty"`
-	Text      string     `json:"text,omitempty"`
-	Status    string     `json:"status,omitempty"`
-	Session   *Session   `json:"session,omitempty"`
-	Feedback  *Feedback  `json:"feedback,omitempty"`
-	Proposal  *Proposal  `json:"proposal,omitempty"`
-	Execution *Execution `json:"execution,omitempty"`
-	Verdict   *Verdict   `json:"verdict,omitempty"`
-	Context   *UIContext `json:"context,omitempty"`
-	Source    *Source    `json:"source,omitempty"`
-	Turn      *Turn      `json:"turn,omitempty"`
-	Question  *Question  `json:"question,omitempty"`
+	Auth      *AuthRequest `json:"auth,omitempty"`
+	Version   int          `json:"version"`
+	ID        string       `json:"id"`
+	Method    string       `json:"method"`
+	Project   string       `json:"project,omitempty"`
+	Target    string       `json:"target,omitempty"`
+	Revision  int          `json:"revision,omitempty"`
+	Text      string       `json:"text,omitempty"`
+	Status    string       `json:"status,omitempty"`
+	Session   *Session     `json:"session,omitempty"`
+	Feedback  *Feedback    `json:"feedback,omitempty"`
+	Proposal  *Proposal    `json:"proposal,omitempty"`
+	Execution *Execution   `json:"execution,omitempty"`
+	Verdict   *Verdict     `json:"verdict,omitempty"`
+	Context   *UIContext   `json:"context,omitempty"`
+	Source    *Source      `json:"source,omitempty"`
+	Turn      *Turn        `json:"turn,omitempty"`
+	Question  *Question    `json:"question,omitempty"`
 }
 type Response struct {
-	Version      int    `json:"version"`
-	ID           string `json:"id,omitempty"`
-	Error        string `json:"error,omitempty"`
-	State        *State `json:"state,omitempty"`
-	StorageBytes int64  `json:"storage_bytes,omitempty"`
-	DataDir      string `json:"data_dir,omitempty"`
-	Replayed     bool   `json:"replayed,omitempty"`
+	Auth         *AuthState      `json:"auth,omitempty"`
+	Trace        json.RawMessage `json:"trace,omitempty"`
+	Version      int             `json:"version"`
+	ID           string          `json:"id,omitempty"`
+	Error        string          `json:"error,omitempty"`
+	State        *State          `json:"state,omitempty"`
+	StorageBytes int64           `json:"storage_bytes,omitempty"`
+	DataDir      string          `json:"data_dir,omitempty"`
+	Replayed     bool            `json:"replayed,omitempty"`
 }

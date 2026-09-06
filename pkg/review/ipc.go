@@ -11,6 +11,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime/debug"
+	"strings"
 	"syscall"
 	"time"
 )
@@ -57,6 +58,9 @@ func (c Client) Call(ctx context.Context, r Request) (Response, error) {
 	}
 	defer conn.Close()
 	deadline := time.Now().Add(10 * time.Second)
+	if r.Method == "trace" {
+		deadline = time.Now().Add(60 * time.Second)
+	}
 	if d, ok := ctx.Deadline(); ok {
 		deadline = d
 	}
@@ -86,6 +90,7 @@ func (c Client) Call(ctx context.Context, r Request) (Response, error) {
 }
 
 type Server struct {
+	OnQuery   func(Request) Response
 	listener  net.Listener
 	lock      *os.File
 	store     *Store
@@ -141,15 +146,32 @@ func (s *Server) handle(conn net.Conn) {
 	}
 	var req Request
 	if err := json.Unmarshal(scanner.Bytes(), &req); err != nil {
-		_ = json.NewEncoder(conn).Encode(Response{Version: Version, Error: err.Error()})
+		_ = json.NewEncoder(conn).Encode(Response{Version: Version, Error: "invalid request JSON"})
 		return
 	}
-	response := s.store.Apply(req)
+	var response Response
+	if req.Method == "trace" {
+		_ = conn.SetDeadline(time.Now().Add(65 * time.Second))
+	}
+	if req.Version != Version {
+		response = Response{Version: Version, Error: "unsupported IPC version"}
+	} else if strings.HasPrefix(req.Method, "auth.") {
+		response = Response{Version: Version, ID: req.ID, Error: "provider connection unavailable"}
+		if s.OnQuery != nil {
+			response = s.OnQuery(req)
+		}
+	} else if req.Auth != nil {
+		response = Response{Version: Version, ID: req.ID, Error: "authentication input requires the authentication channel"}
+	} else if (req.Method == "trace" || req.Method == "execution.launch") && s.OnQuery != nil {
+		response = s.OnQuery(req)
+	} else {
+		response = s.store.Apply(req)
+	}
 	if req.Method == "state" {
 		response.StorageBytes = s.store.Usage()
 	}
 	_ = json.NewEncoder(conn).Encode(response)
-	if response.Error == "" && !response.Replayed && s.OnRequest != nil {
+	if response.Error == "" && !response.Replayed && s.OnRequest != nil && !strings.HasPrefix(req.Method, "auth.") {
 		s.OnRequest(req)
 	}
 }

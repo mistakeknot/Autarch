@@ -32,6 +32,67 @@ final class Outbox {
             .sorted { (try? $0.resourceValues(forKeys: [.creationDateKey]).creationDate) ?? .distantPast < (try? $1.resourceValues(forKeys: [.creationDateKey]).creationDate) ?? .distantPast }
             .map { try JSONSerialization.jsonObject(with: Data(contentsOf: $0)) as! [String: Any] }
     }
+    func deliverPending(call: ([String: Any]) throws -> [String: Any]) throws {
+        for original in try pending() {
+            var request = original
+            for attempt in 0..<3 {
+                do { _ = try call(request); try acknowledge(request["id"] as! String); break }
+                catch CaptureError.rejected(let reason) {
+                    // Retry an unchanged request first: an acknowledgement may
+                    // have been lost. Rebase only after a definite rejection.
+                    if ["stale feedback", "project mismatch"].contains(reason),
+                       request["method"] as? String == "feedback.save",
+                       let base = request["_base_feedback_text"] as? String,
+                       let edit = request["feedback"] as? [String: Any], let noteID = edit["id"] as? String {
+                        let response = try call(["method": "state"])
+                        if let state = response["state"] as? [String: Any],
+                           let notes = state["feedback"] as? [String: [String: Any]], var current = notes[noteID] {
+                            let sameEdit = current["text"] as? String == edit["text"] as? String
+                                && current["transcription_error"] as? String == edit["transcription_error"] as? String
+                            let currentEvidence = current["evidence"] as? [[String: Any]] ?? []
+                            let editedEvidence = edit["evidence"] as? [[String: Any]] ?? []
+                            let present = Set(currentEvidence.compactMap { $0["id"] as? String })
+                            if sameEdit && editedEvidence.allSatisfy({ evidence in
+                                guard let id = evidence["id"] as? String else { return false }
+                                return present.contains(id)
+                            }) {
+                                // A crash between replacement enqueue and old
+                                // acknowledgement can leave both requests. Only
+                                // retire a duplicate whose text and every source
+                                // are already authoritative (including tombstones).
+                                try acknowledge(request["id"] as! String)
+                                break
+                            }
+                            guard current["text"] as? String == base else {
+                                try retainRejected(request["id"] as! String)
+                                throw CaptureError.message("Capture retained for recovery (concurrent text change); see \(directory.path)")
+                            }
+                            // Routing and retention may change project/revision
+                            // and tombstones, but cannot erase an unchanged text
+                            // base's correction. Concurrent human text wins a
+                            // conflict and leaves this edit in recovery below.
+                            current["text"] = edit["text"]
+                            current["transcription_error"] = edit["transcription_error"]
+                            var evidence = current["evidence"] as? [[String: Any]] ?? []
+                            let known = Set(evidence.compactMap { $0["id"] as? String })
+                            evidence.append(contentsOf: (edit["evidence"] as? [[String: Any]] ?? []).filter { !known.contains($0["id"] as? String ?? "") })
+                            current["evidence"] = evidence
+                            let previousID = request["id"] as! String
+                            request["id"] = UUID().uuidString
+                            request["project"] = current["project"] as? String ?? ""
+                            request["feedback"] = current
+                            try enqueue(request) // durable replacement before retiring the rejected request
+                            try acknowledge(previousID)
+                            if attempt == 2 { throw CaptureError.message("Feedback changed during delivery; the correction remains queued for retry.") }
+                            continue
+                        }
+                    }
+                    try retainRejected(request["id"] as! String)
+                    throw CaptureError.message("Capture retained for recovery (\(reason)); see \(directory.path)")
+                }
+            }
+        }
+    }
     func acknowledge(_ id: String) throws {
         guard !id.contains("/"), !id.contains("..") else { throw CaptureError.message("Invalid receipt") }
         try FileManager.default.removeItem(at: directory.appendingPathComponent(id + ".json"))

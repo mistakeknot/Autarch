@@ -94,3 +94,115 @@ func TestPendingQuestionVisibleAfterLongConversation(t *testing.T) {
 		t.Fatalf("question hidden: %s", view)
 	}
 }
+
+func TestTraceCoverageWarningsRemainVisible(t *testing.T) {
+	m := New("/project", "Compact", review.Client{})
+	m.Update(resultMsg{response: review.Response{Trace: []byte(`{"metadata":{"warnings":["Trace truncated at node limit","Beads source unavailable"]}}`)}})
+	if !strings.Contains(m.trace, "Trace truncated") || !strings.Contains(m.trace, "Beads source unavailable") {
+		t.Fatal(m.trace)
+	}
+}
+
+func TestTraceDoesNotStartTwiceOrUnlockOnUnrelatedPollingFailure(t *testing.T) {
+	m := New("/project", "Compact", review.Client{})
+	m.state.Feedback = map[string]review.Feedback{"n": {ID: "n", Project: "/project", Revision: 1}}
+	if m.Update(tea.KeyMsg{Type: tea.KeyCtrlL}) == nil {
+		t.Fatal("first trace did not start")
+	}
+	if m.Update(tea.KeyMsg{Type: tea.KeyCtrlL}) != nil {
+		t.Fatal("duplicate trace started")
+	}
+	m.Update(resultMsg{err: "unrelated state poll failed"})
+	if m.Update(tea.KeyMsg{Type: tea.KeyCtrlL}) != nil {
+		t.Fatal("polling error released trace ownership")
+	}
+	m.Update(resultMsg{method: "trace", err: "projection failed"})
+	if m.Update(tea.KeyMsg{Type: tea.KeyCtrlL}) == nil {
+		t.Fatal("failed trace could not be retried")
+	}
+}
+
+func TestHelpEscapeReturnsToListInOneKey(t *testing.T) {
+	m := New("/project", "Compact", review.Client{})
+	m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("?")})
+	m.Update(tea.KeyMsg{Type: tea.KeyEsc})
+	if m.detail || m.trace != "" || m.closed {
+		t.Fatal("help did not return to its list")
+	}
+}
+
+func TestDeletedSessionCannotOpenDeleteComposer(t *testing.T) {
+	m := New("/project", "Compact", review.Client{})
+	m.tab = 3
+	m.state.Sessions = map[string]review.Session{"s": {ID: "s", Project: "/project", Revision: 3, Status: "deleted"}}
+	if m.Update(tea.KeyMsg{Type: tea.KeyCtrlD}) != nil || m.mode != "" {
+		t.Fatal("deleted session can be deleted again")
+	}
+}
+
+func TestOtherProjectsCannotHideConversation(t *testing.T) {
+	m := New("/project", "Compact", review.Client{})
+	m.state.Turns = append(m.state.Turns, review.Turn{Project: "/project", Text: "Our ruling"})
+	for i := 0; i < 40; i++ {
+		m.state.Turns = append(m.state.Turns, review.Turn{Project: "/elsewhere", Text: "Other"})
+	}
+	if !strings.Contains(m.conversation(), "Our ruling") {
+		t.Fatal("project conversation disappeared")
+	}
+}
+
+func TestConversationShowsActualDeliveryState(t *testing.T) {
+	m := New("/project", "Cozy", review.Client{})
+	for _, delivery := range []string{"pending", "switching", "sending", "delivered", "superseded", "failed"} {
+		m.state.Turns = []review.Turn{{Project: "/project", Kind: "model selection", Model: "provider/model", Text: "Explicit choice", Delivery: delivery}}
+		if !strings.Contains(m.conversation(), delivery) {
+			t.Errorf("conversation hides %s", delivery)
+		}
+	}
+}
+
+func TestProposalAcceptanceRequiresItsDisplayedSnapshot(t *testing.T) {
+	for _, display := range []string{"list", "help-from-list", "help-after-review", "trace-after-review", "review"} {
+		t.Run(display, func(t *testing.T) {
+			m := New("/project", "Cozy", review.Client{})
+			m.tab = 1
+			m.state.Proposals = map[string]review.Proposal{"p": {ID: "p", Project: "/project", Revision: 3, Status: "proposed", Change: "Visible scope", Scope: []string{"file"}}}
+			if display == "review" || strings.HasSuffix(display, "after-review") {
+				m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+			}
+			if strings.HasPrefix(display, "help") {
+				m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("?")})
+			}
+			if strings.HasPrefix(display, "trace") {
+				m.Update(resultMsg{method: "trace", response: review.Response{Trace: []byte(`{"entities":[]}`)}})
+			}
+			cmd := m.Update(tea.KeyMsg{Type: tea.KeyCtrlA})
+			if (cmd != nil) != (display == "review") {
+				t.Fatalf("incorrect acceptance availability from %s", display)
+			}
+		})
+	}
+}
+
+func TestProposalRejectionRequiresItsDisplayedSnapshot(t *testing.T) {
+	for _, display := range []string{"list", "help-from-list", "help-after-review", "trace-after-review", "review"} {
+		t.Run(display, func(t *testing.T) {
+			m := New("/project", "Cozy", review.Client{})
+			m.tab = 1
+			m.state.Proposals = map[string]review.Proposal{"p": {ID: "p", Project: "/project", Revision: 3, Status: "proposed", Change: "Visible scope", Scope: []string{"file"}}}
+			if display == "review" || strings.HasSuffix(display, "after-review") {
+				m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+			}
+			if strings.HasPrefix(display, "help") {
+				m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("?")})
+			}
+			if strings.HasPrefix(display, "trace") {
+				m.Update(resultMsg{method: "trace", response: review.Response{Trace: []byte(`{"entities":[]}`)}})
+			}
+			cmd := m.Update(tea.KeyMsg{Type: tea.KeyCtrlX})
+			if (cmd != nil) != (display == "review") {
+				t.Fatalf("incorrect rejection availability from %s", display)
+			}
+		})
+	}
+}

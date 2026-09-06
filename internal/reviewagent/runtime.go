@@ -26,18 +26,25 @@ import (
 var investigator []byte
 
 type Engine struct {
-	mu       sync.Mutex
-	startMu  sync.Mutex
-	store    *review.Store
-	runtimes map[string]*conversation
-	starting map[string]bool
+	authDisplay   *conversation
+	authDisplayID string
+	mu            sync.Mutex
+	startMu       sync.Mutex
+	store         *review.Store
+	runtimes      map[string]*conversation
+	starting      map[string]bool
 }
 type conversation struct {
+	auth                    *review.AuthState
+	authWaiters             map[string]chan review.Response
+	done                    chan struct{}
 	mu                      sync.Mutex
 	cmd                     *exec.Cmd
 	in                      io.WriteCloser
+	out                     io.ReadCloser
 	session, model, project string
-	dead                    bool
+	selectionID             string
+	dead, stopping          bool
 	stream                  string
 }
 
@@ -53,7 +60,7 @@ func investigationCommand(binary, dir, project, extension string) ([]string, str
 func (c *conversation) send(v any) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	if c.dead {
+	if c.dead || c.stopping {
 		return errors.New("Flere session disconnected")
 	}
 	return json.NewEncoder(c.in).Encode(v)
@@ -70,15 +77,27 @@ func (e *Engine) record(project, kind, text, session, model string) {
 }
 
 func (e *Engine) start(project string) (*conversation, error) {
+	return e.startForSelection(project, "")
+}
+
+var errSelectionSuperseded = errors.New("model selection superseded")
+
+func (e *Engine) startForSelection(project, selectionID string) (*conversation, error) {
 	e.startMu.Lock()
 	defer e.startMu.Unlock()
 	e.mu.Lock()
 	if c := e.runtimes[project]; c != nil {
 		c.mu.Lock()
-		dead := c.dead
+		dead, stopping := c.dead, c.stopping
 		c.mu.Unlock()
 		if !dead {
 			e.mu.Unlock()
+			if stopping {
+				return nil, errors.New("previous Flere runtime is still stopping; retain this request and retry after reconciliation")
+			}
+			if selectionID != "" && c.selectionID != selectionID {
+				return nil, errSelectionSuperseded
+			}
 			return c, nil
 		}
 	}
@@ -104,22 +123,40 @@ func (e *Engine) start(project string) (*conversation, error) {
 		return nil, err
 	}
 	args, profile := investigationCommand(binary, dir, project, extension)
+	credentialGrant, err := prepareCredentials(binary, project)
+	if err != nil {
+		return nil, err
+	}
+	profile += credentialGrant
+	provider, model := "", ""
 	if config, err := review.LoadProjectConfig(project); err == nil {
-		if config.Provider != "" {
-			args = append(args, "--provider", config.Provider)
-		}
-		if config.Model != "" {
-			args = append(args, "--model", config.Model)
-		}
+		provider, model = config.Provider, config.Model
+	}
+	selection := latestModelSelection(e.store.Snapshot(), project)
+	if selectionID != "" && (selection == nil || selection.ID != selectionID) {
+		return nil, errSelectionSuperseded
+	}
+	if selection != nil {
+		selectionID = selection.ID
+		provider, model, _ = review.ParseModelSelection(selection.Model)
+	}
+	if provider != "" {
+		args = append(args, "--provider", provider)
+	}
+	if model != "" {
+		args = append(args, "--model", model)
 	}
 	profilePath := filepath.Join(dir, "read-only.sb")
 	if err = os.WriteFile(profilePath, []byte(profile), 0600); err != nil {
 		return nil, err
 	}
 	cmd := exec.Command("/usr/bin/sandbox-exec", append([]string{"-f", profilePath}, args...)...)
+	// Discarded stderr still uses exec's copy goroutine. Bound its wait if an
+	// escaped descendant retains that descriptor after the direct child exits.
+	cmd.WaitDelay = 500 * time.Millisecond
 	cmd.Dir = project
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
-	cmd.Env = append(os.Environ(), "AUTARCH_REVIEW_PROJECT="+project, "TMPDIR="+dir, "PI_SKIP_VERSION_CHECK=1")
+	cmd.Env = append(os.Environ(), "AUTARCH_REVIEW_PROJECT="+project, "TMPDIR="+dir, "PI_SKIP_VERSION_CHECK=1", "FLERE_MODELS_STORE_PATH="+filepath.Join(dir, "models-store.json"))
 	in, err := cmd.StdinPipe()
 	if err != nil {
 		return nil, err
@@ -128,31 +165,32 @@ func (e *Engine) start(project string) (*conversation, error) {
 	if err != nil {
 		return nil, err
 	}
-	log, err := os.OpenFile(filepath.Join(dir, "runtime.log"), os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0600)
-	if err != nil {
-		return nil, err
-	}
-	cmd.Stderr = log
+	// Provider libraries may print callback URLs or response bodies on stderr.
+	// The control plane exposes safe failure categories instead of retaining it.
+	cmd.Stderr = io.Discard
 	if err = cmd.Start(); err != nil {
-		log.Close()
 		return nil, err
 	}
-	c := &conversation{cmd: cmd, in: in, project: project, session: id}
+	c := &conversation{cmd: cmd, in: in, out: out, project: project, session: id, selectionID: selectionID, done: make(chan struct{})}
 	e.mu.Lock()
 	e.runtimes[project] = c
 	e.mu.Unlock()
 	e.record(project, "handoff", "Started a restricted Flere runtime. Transferring the visible project conversation, cited foundation and pending observations. Original sessions remain linked; tool state is not transferred.", id, "")
 	go func() {
+		defer close(c.done)
 		e.read(c, out)
 		err := cmd.Wait()
-		log.Close()
 		c.mu.Lock()
-		c.dead = true
+		c.auth = nil
 		c.mu.Unlock()
 		session, model := c.identity()
 		e.record(project, "runtime", "Flere disconnected; captures and decisions remain local. "+fmt.Sprint(err), session, model)
 		e.cancelQuestions(project, session)
 		e.failPending(project)
+		// Do not allow a replacement until old-process cleanup has finished.
+		c.mu.Lock()
+		c.dead = true
+		c.mu.Unlock()
 	}()
 	_ = c.send(map[string]any{"type": "get_state", "id": "identity"})
 	return c, nil
@@ -165,7 +203,7 @@ func (e *Engine) Run(ctx context.Context) {
 		}
 	}
 	for _, t := range e.store.Snapshot().Turns {
-		if t.Kind == "user" && t.Delivery == "sending" {
+		if t.Delivery == "sending" || t.Delivery == "switching" {
 			e.status("turn.delivery", t.Project, t.ID, "pending")
 		}
 	}
@@ -191,6 +229,23 @@ func (e *Engine) Run(ctx context.Context) {
 		}
 	}
 }
+
+func latestModelSelection(state review.State, project string) *review.Turn {
+	for i := len(state.Turns) - 1; i >= 0; i-- {
+		t := state.Turns[i]
+		if t.Project != project || t.Kind != "model selection" {
+			continue
+		}
+		if t.Delivery != "pending" && t.Delivery != "switching" && t.Delivery != "sending" && t.Delivery != "delivered" {
+			continue
+		}
+		if _, _, err := review.ParseModelSelection(t.Model); err == nil {
+			return &t
+		}
+	}
+	return nil
+}
+
 func (e *Engine) scan() {
 	state := e.store.Snapshot()
 	for _, q := range state.Questions {
@@ -203,6 +258,17 @@ func (e *Engine) scan() {
 		}
 	}
 	for _, turn := range state.Turns {
+		if turn.Kind == "model selection" && turn.Delivery == "pending" {
+			latest := latestModelSelection(state, turn.Project)
+			if latest == nil || latest.ID != turn.ID {
+				e.status("turn.delivery", turn.Project, turn.ID, "superseded")
+				continue
+			}
+			if e.status("turn.delivery", turn.Project, turn.ID, "switching") {
+				go e.switchRuntime(turn)
+			}
+			continue
+		}
 		if turn.Kind != "user" || turn.Delivery != "pending" {
 			continue
 		}
@@ -279,7 +345,87 @@ func (e *Engine) context(project string) string {
 			text += "\nAccepted response and enduring guidance; apply unless challenged with evidence: " + string(data)
 		}
 	}
+	for _, n := range state.Feedback {
+		if n.Project == project && (n.Analysis == "pending" || n.Analysis == "unavailable" || n.Analysis == "investigating") {
+			data, _ := json.Marshal(n)
+			text += "\nRetained observation awaiting investigation: " + string(data)
+		}
+	}
 	return text
+}
+
+func (c *conversation) stop(grace, killedWait time.Duration) error {
+	// Closing stdin first also interrupts a sender holding c.mu in a blocked
+	// pipe write, so acquiring the state lock cannot wedge termination.
+	_ = c.in.Close()
+	c.mu.Lock()
+	if c.dead {
+		c.mu.Unlock()
+		return nil
+	}
+	c.stopping = true
+	c.mu.Unlock()
+	_ = syscall.Kill(-c.cmd.Process.Pid, syscall.SIGTERM)
+	select {
+	case <-c.done:
+		return nil
+	case <-time.After(grace):
+	}
+	_ = syscall.Kill(-c.cmd.Process.Pid, syscall.SIGKILL)
+	// A descendant can escape the process group and keep stdout open. Closing
+	// our read end releases the reader without claiming the descendant exited.
+	if c.out != nil {
+		_ = c.out.Close()
+	}
+	select {
+	case <-c.done:
+		return nil
+	case <-time.After(killedWait):
+		return errors.New("previous Flere runtime stop could not be confirmed; handoff retained as failed")
+	}
+}
+
+func (e *Engine) switchRuntime(t review.Turn) {
+	e.startMu.Lock()
+	latest := latestModelSelection(e.store.Snapshot(), t.Project)
+	if latest == nil || latest.ID != t.ID {
+		e.startMu.Unlock()
+		e.status("turn.delivery", t.Project, t.ID, "superseded")
+		return
+	}
+	e.mu.Lock()
+	c := e.runtimes[t.Project]
+	e.mu.Unlock()
+	if c != nil && c.cmd != nil {
+		if err := c.stop(5*time.Second, time.Second); err != nil {
+			e.startMu.Unlock()
+			e.status("turn.delivery", t.Project, t.ID, "failed")
+			e.record(t.Project, "runtime", "Model handoff unavailable: "+err.Error(), "", t.Model)
+			return
+		}
+	}
+	latest = latestModelSelection(e.store.Snapshot(), t.Project)
+	if latest == nil || latest.ID != t.ID {
+		e.startMu.Unlock()
+		e.status("turn.delivery", t.Project, t.ID, "superseded")
+		return
+	}
+	// The old runtime's exit marks its sending turns failed. Only expose this
+	// new handoff as sending after that cleanup, or it would fail itself.
+	e.status("turn.delivery", t.Project, t.ID, "sending")
+	e.startMu.Unlock()
+	c, err := e.startForSelection(t.Project, t.ID)
+	if errors.Is(err, errSelectionSuperseded) {
+		e.status("turn.delivery", t.Project, t.ID, "superseded")
+		return
+	}
+	if err == nil {
+		err = c.send(map[string]any{"type": "prompt", "id": t.ID, "message": e.context(t.Project) + "\nContinue the project conversation after this explicit model handoff. Original tool state was not transferred. Ask the next necessary question or prepare the pending feedback response."})
+	}
+	if err != nil {
+		e.status("turn.delivery", t.Project, t.ID, "failed")
+		e.record(t.Project, "runtime", "Model handoff unavailable: "+err.Error(), "", t.Model)
+	}
 }
 func (e *Engine) status(method, project, id, status string) bool {
 	response := e.store.Apply(review.Request{Version: review.Version, ID: review.NewID(), Method: method, Project: project, Target: id, Status: status})
@@ -404,6 +550,9 @@ func stringField(event map[string]json.RawMessage, key string) string {
 	return s
 }
 func (e *Engine) event(c *conversation, event map[string]json.RawMessage) {
+	if e.authEvent(c, event) {
+		return
+	}
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	switch stringField(event, "type") {

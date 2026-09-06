@@ -2,6 +2,7 @@ package reviewtui
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"path/filepath"
 	"sort"
@@ -9,6 +10,7 @@ import (
 	"time"
 
 	"github.com/charmbracelet/bubbles/textarea"
+	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/charmbracelet/x/ansi"
@@ -20,6 +22,7 @@ type resultMsg struct {
 	response review.Response
 	err      string
 	saved    bool
+	method   string
 }
 type readyMsg struct {
 	client review.Client
@@ -28,6 +31,11 @@ type readyMsg struct {
 type ClosedMsg struct{}
 
 type Model struct {
+	auth                                  *review.AuthState
+	authOpen, authBusy, authModels        bool
+	authSelection                         int
+	authInput                             textinput.Model
+	authPromptKey                         string
 	project, density                      string
 	client                                review.Client
 	state                                 review.State
@@ -41,6 +49,11 @@ type Model struct {
 	pendingText, pendingMode              string
 	answering                             *review.Question
 	chatScroll                            int
+	evidenceIndex                         int
+	trace                                 string
+	traceBusy                             bool
+	verdictExecution                      *review.Execution
+	deletingSession                       *review.Session
 }
 
 func New(project, density string, client review.Client) *Model {
@@ -51,7 +64,10 @@ func New(project, density string, client review.Client) *Model {
 	input.Placeholder = "Write your observation…"
 	input.SetHeight(4)
 	input.CharLimit = 20000
-	return &Model{project: project, density: density, client: client, input: input, state: review.State{Version: review.Version}}
+	authInput := textinput.New()
+	authInput.CharLimit = 16384
+	authInput.EchoMode = textinput.EchoPassword
+	return &Model{project: project, density: density, client: client, input: input, authInput: authInput, state: review.State{Version: review.Version}}
 }
 func (m *Model) Init() tea.Cmd {
 	return func() tea.Msg {
@@ -71,10 +87,14 @@ func (m *Model) call(r review.Request, saved bool) tea.Cmd {
 	}
 	client := m.client
 	return func() tea.Msg {
-		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		timeout := 10 * time.Second
+		if r.Method == "trace" {
+			timeout = 60 * time.Second
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), timeout)
 		defer cancel()
 		response, err := client.Call(ctx, r)
-		msg := resultMsg{response: response, saved: saved}
+		msg := resultMsg{response: response, saved: saved, method: r.Method}
 		if err != nil {
 			msg.err = err.Error()
 		}
@@ -83,6 +103,11 @@ func (m *Model) call(r review.Request, saved bool) tea.Cmd {
 }
 func (m *Model) Update(msg tea.Msg) tea.Cmd {
 	switch v := msg.(type) {
+	case authTickMsg:
+		if m.authOpen && !m.authBusy {
+			return m.call(review.Request{Method: "auth.status"}, false)
+		}
+		return nil
 	case readyMsg:
 		if v.err != nil {
 			m.status = v.err.Error()
@@ -93,6 +118,22 @@ func (m *Model) Update(msg tea.Msg) tea.Cmd {
 	case tickMsg:
 		return m.call(review.Request{Method: "state"}, false)
 	case resultMsg:
+		if strings.HasPrefix(v.method, "auth.") {
+			m.authBusy = false
+			if v.err != "" {
+				m.status = v.err
+				m.authInput.Reset()
+			} else if v.response.Auth != nil {
+				m.setAuth(v.response.Auth)
+			}
+			if m.authOpen {
+				return authTick()
+			}
+			return nil
+		}
+		if v.method == "trace" {
+			m.traceBusy = false
+		}
 		if v.err != "" {
 			m.status = v.err
 			m.busy = false
@@ -114,6 +155,47 @@ func (m *Model) Update(msg tea.Msg) tea.Cmd {
 			m.storage = v.response.StorageBytes
 			return tick()
 		}
+		if len(v.response.Trace) > 0 {
+			var trace struct {
+				Metadata struct {
+					Warnings []string `json:"warnings"`
+				} `json:"metadata"`
+				Entities []struct {
+					ID         string         `json:"canonical_id"`
+					Kind       string         `json:"entity_type"`
+					Properties map[string]any `json:"properties"`
+				} `json:"entities"`
+				Relationships []struct {
+					Source string `json:"source"`
+					Target string `json:"target"`
+					Type   string `json:"type"`
+				} `json:"relationships"`
+			}
+			if err := json.Unmarshal(v.response.Trace, &trace); err != nil {
+				m.status = err.Error()
+			} else {
+				var text strings.Builder
+				text.WriteString("REVIEW TRACE · rebuilt from local source records\n\n")
+				for _, warning := range trace.Metadata.Warnings {
+					fmt.Fprintf(&text, "COVERAGE: %s\n\n", warning)
+				}
+				for _, e := range trace.Entities {
+					fmt.Fprintf(&text, "%s\n%s\n", e.Kind, e.ID)
+					for _, key := range []string{"ruling_state", "evidence_status", "source_revision", "source_record", "build", "verdict"} {
+						if value, ok := e.Properties[key]; ok {
+							fmt.Fprintf(&text, "%s: %v\n", key, value)
+						}
+					}
+					text.WriteString("\n")
+				}
+				for _, e := range trace.Relationships {
+					fmt.Fprintf(&text, "%s\n  — %s → %s\n", e.Source, e.Type, e.Target)
+				}
+				m.trace = text.String()
+				m.detail = true
+				m.scroll = 0
+			}
+		}
 		if v.saved {
 			m.status = "Saved locally"
 			m.input.Reset()
@@ -125,9 +207,29 @@ func (m *Model) Update(msg tea.Msg) tea.Cmd {
 	case tea.WindowSizeMsg:
 		m.width, m.height = v.Width, v.Height
 		m.input.SetWidth(max(10, v.Width-6))
+		m.authInput.Width = max(10, v.Width-6)
 		return nil
 	case tea.KeyMsg:
 		key := v.String()
+		// Capture controls remain available while the provider is connecting.
+		if m.authOpen {
+			switch key {
+			case "ctrl+r":
+				return m.call(review.Request{Method: "capture.command", Text: "open"}, false)
+			case "ctrl+p":
+				return m.pauseCapture()
+			case "ctrl+o":
+				return m.call(review.Request{Method: "capture.command", Text: "stop"}, false)
+			case "ctrl+v":
+				return m.call(review.Request{Method: "capture.command", Text: "voice"}, false)
+			}
+			return m.authKey(v)
+		}
+		if key == "alt+p" {
+			m.authOpen, m.authBusy = true, true
+			m.authSelection = 0
+			return m.call(review.Request{Method: "auth.providers"}, false)
+		}
 		if m.mode != "" {
 			if m.busy {
 				return nil
@@ -145,6 +247,12 @@ func (m *Model) Update(msg tea.Msg) tea.Cmd {
 		}
 		switch key {
 		case "esc":
+			if m.trace != "" {
+				m.trace = ""
+				m.detail = false
+				m.scroll = 0
+				return nil
+			}
 			if m.detail {
 				m.detail = false
 				m.scroll = 0
@@ -156,13 +264,15 @@ func (m *Model) Update(msg tea.Msg) tea.Cmd {
 			m.closed = true
 			return func() tea.Msg { return ClosedMsg{} }
 		case "tab":
-			m.tab = (m.tab + 1) % 4
+			m.tab = (m.tab + 1) % 6
 			m.selection, m.scroll = 0, 0
 			m.detail = false
-		case "1", "2", "3", "4":
+			return m.context()
+		case "1", "2", "3", "4", "5", "6":
 			m.tab = int(key[0] - '1')
 			m.selection, m.scroll = 0, 0
 			m.detail = false
+			return m.context()
 		case "d":
 			if m.density == "Cozy" {
 				m.density = "Compact"
@@ -175,12 +285,14 @@ func (m *Model) Update(msg tea.Msg) tea.Cmd {
 				m.scroll++
 			} else {
 				m.selection = min(m.selection+1, max(0, len(m.items())-1))
+				return m.context()
 			}
 		case "up", "k":
 			if m.detail {
 				m.scroll = max(0, m.scroll-1)
 			} else {
 				m.selection = max(0, m.selection-1)
+				return m.context()
 			}
 		case "pgdown":
 			m.scroll += max(1, m.height-10)
@@ -195,6 +307,19 @@ func (m *Model) Update(msg tea.Msg) tea.Cmd {
 			}
 			m.detail = true
 			m.scroll = 0
+		case "?":
+			m.trace = "REVIEW SHORTCUTS\n\nCtrl+R choose recording window · Ctrl+N typed feedback · Ctrl+V voice note\nCtrl+P pause/resume · Ctrl+O stop recording\n\nCtrl+F talk to Flere · Ctrl+Q answer selected question · Ctrl+G cancel\nAlt+M change provider/model with visible context transfer\n\nEnter inspect selection · [ / ] select evidence · Ctrl+E open evidence\nCtrl+L rebuild source trace · Alt+I assign intake to this project\nCtrl+A accept inspected proposal and guidance · Ctrl+X reject\nCtrl+B launch selected retest build · Ctrl+T record build-specific verdict\nCtrl+D delete selected session capture files\n\n1–6 switch views · d Cozy/Compact · arrows scroll · Esc return"
+			m.detail = true
+			m.scroll = 0
+		case "[", "]":
+			if key == "]" {
+				m.evidenceIndex++
+			} else {
+				m.evidenceIndex = max(0, m.evidenceIndex-1)
+			}
+			if source := m.selectedEvidence(); source != nil {
+				m.status = fmt.Sprintf("Evidence %d: %s · %d ms · Ctrl+E opens", m.evidenceIndex+1, source.Kind, source.OffsetMS)
+			}
 		case "ctrl+n":
 			m.mode = "note"
 			m.input.Placeholder = "What did you notice? Ctrl+S saves locally."
@@ -202,6 +327,7 @@ func (m *Model) Update(msg tea.Msg) tea.Cmd {
 			return textarea.Blink
 		case "ctrl+f":
 			m.mode = "chat"
+			m.tab = 5
 			m.input.Placeholder = "Ask Flere about this project…"
 			m.input.Focus()
 			return textarea.Blink
@@ -215,19 +341,34 @@ func (m *Model) Update(msg tea.Msg) tea.Cmd {
 			}
 		case "ctrl+g":
 			return m.call(review.Request{Method: "runtime.cancel"}, false)
+		case "alt+m":
+			m.mode = "model"
+			m.input.Placeholder = "provider/model — transfer conversation; original sessions stay linked"
+			m.input.Focus()
+			return textarea.Blink
+		case "alt+i":
+			if m.tab == 0 {
+				items := m.items()
+				if m.selection < len(items) {
+					n := m.state.Feedback[items[m.selection]]
+					if n.Project == "" {
+						return m.call(review.Request{Method: "feedback.route", Target: n.ID, Revision: n.Revision}, false)
+					}
+				}
+			}
 		case "ctrl+up":
 			m.chatScroll++
 		case "ctrl+down":
 			m.chatScroll = max(0, m.chatScroll-1)
 		case "ctrl+a":
-			if m.tab == 1 && m.detail {
+			if m.tab == 1 && m.detail && m.reviewed != nil && m.trace == "" {
 				if p, ok := m.selectedProposal(); ok {
 					m.status = "Recording acceptance…"
 					return m.call(review.Request{Method: "proposal.accept", Target: p.ID, Revision: p.Revision}, false)
 				}
 			}
 		case "ctrl+x":
-			if m.tab == 1 && m.detail {
+			if m.tab == 1 && m.detail && m.reviewed != nil && m.trace == "" {
 				if p, ok := m.selectedProposal(); ok {
 					return m.call(review.Request{Method: "proposal.reject", Target: p.ID, Revision: p.Revision}, false)
 				}
@@ -235,13 +376,7 @@ func (m *Model) Update(msg tea.Msg) tea.Cmd {
 		case "ctrl+r":
 			return m.call(review.Request{Method: "capture.command", Text: "open"}, false)
 		case "ctrl+p":
-			command := "pause"
-			for _, s := range m.state.Sessions {
-				if s.Project == m.project && s.Status == "paused" {
-					command = "resume"
-				}
-			}
-			return m.call(review.Request{Method: "capture.command", Text: command}, false)
+			return m.pauseCapture()
 		case "ctrl+o":
 			return m.call(review.Request{Method: "capture.command", Text: "stop"}, false)
 		case "ctrl+v":
@@ -252,17 +387,79 @@ func (m *Model) Update(msg tea.Msg) tea.Cmd {
 			}
 		case "ctrl+t":
 			if m.tab == 2 {
+				items := m.items()
+				if m.selection >= len(items) {
+					return nil
+				}
+				e := m.state.Executions[items[m.selection]]
+				if e.Status != "ready_for_retest" {
+					m.status = "Wait for a checked build before retesting"
+					return nil
+				}
+				m.verdictExecution = &e
 				m.mode = "verdict"
 				m.input.Placeholder = "pass, fail or inconclusive; then your retest notes"
 				m.input.Focus()
 				return textarea.Blink
+			}
+		case "ctrl+b":
+			if m.tab == 2 {
+				items := m.items()
+				if m.selection < len(items) {
+					e := m.state.Executions[items[m.selection]]
+					return m.call(review.Request{Method: "execution.launch", Target: e.ID, Text: e.Build}, false)
+				}
+			}
+		case "ctrl+l":
+			if m.traceBusy || m.tab == 4 || m.tab == 5 {
+				return nil
+			}
+			items := m.items()
+			if m.selection < len(items) {
+				id := items[m.selection]
+				r := review.Request{Method: "trace", Target: id}
+				switch m.tab {
+				case 0:
+					r.Text = "feedback"
+					r.Revision = m.state.Feedback[id].Revision
+				case 1:
+					r.Text = "proposal"
+					r.Revision = m.state.Proposals[id].Revision
+				case 2:
+					r.Text = "execution"
+				case 3:
+					r.Text = "session"
+				}
+				m.traceBusy = true
+				m.status = "Rebuilding source trace…"
+				return m.call(r, false)
+			}
+		case "ctrl+d":
+			if m.tab == 3 {
+				items := m.items()
+				if m.selection < len(items) {
+					s := m.state.Sessions[items[m.selection]]
+					if s.Status == "deleted" || s.Status == "deleting" {
+						return nil
+					}
+					m.deletingSession = &s
+					m.mode = "delete"
+					m.input.Placeholder = "Type DELETE to remove this session's video, screenshots and voice files. Notes and decisions remain."
+					m.input.Focus()
+					return textarea.Blink
+				}
 			}
 		}
 	}
 	return nil
 }
 func (m *Model) context() tea.Cmd {
-	return m.call(review.Request{Method: "context", Context: &review.UIContext{View: "review", Project: m.project, Density: m.density, Build: review.BuildIdentity()}}, false)
+	item := ""
+	items := m.items()
+	if m.selection < len(items) {
+		item = items[m.selection]
+	}
+	return m.call(review.Request{Method: "context", Context: &review.UIContext{View: "review/" + []string{"feedback", "proposals", "retest", "sessions", "decisions", "conversation"}[m.tab], Project: m.project, Item: item, Density: m.density, Build: review.BuildIdentity()}}, false)
 }
 func (m *Model) saveInput() tea.Cmd {
 	text := strings.TrimSpace(m.input.Value())
@@ -275,9 +472,20 @@ func (m *Model) saveInput() tea.Cmd {
 	}
 	r := review.Request{}
 	switch m.mode {
+	case "model":
+		r.Method = "runtime.switch"
+		r.Text = text
+	case "delete":
+		if text != "DELETE" || m.deletingSession == nil {
+			m.status = "Type DELETE exactly to remove these captures"
+			return nil
+		}
+		r.Method = "session.delete"
+		r.Target = m.deletingSession.ID
+		r.Revision = m.deletingSession.Revision
 	case "note":
 		r.Method = "feedback.save"
-		r.Feedback = &review.Feedback{Text: text, Context: review.UIContext{At: time.Now().UTC(), View: "review", Project: m.project, Density: m.density, Build: review.BuildIdentity()}}
+		r.Feedback = &review.Feedback{Text: text, Context: review.UIContext{At: time.Now().UTC(), View: "review/" + []string{"feedback", "proposals", "retest", "sessions", "decisions", "conversation"}[m.tab], Project: m.project, Density: m.density, Build: review.BuildIdentity()}}
 		for _, s := range m.state.Sessions {
 			if s.Project == m.project && (s.Status == "recording" || s.Status == "paused") {
 				r.Feedback.SessionID = s.ID
@@ -307,11 +515,10 @@ func (m *Model) saveInput() tea.Cmd {
 		r.Target = q.ID
 		r.Text = text
 	case "verdict":
-		items := m.items()
-		if m.selection >= len(items) {
+		if m.verdictExecution == nil {
 			return nil
 		}
-		e := m.state.Executions[items[m.selection]]
+		e := *m.verdictExecution
 		verdict, notes, _ := strings.Cut(text, " ")
 		r.Method = "verdict.save"
 		r.Verdict = &review.Verdict{ExecutionID: e.ID, Build: e.Build, Verdict: verdict, Notes: notes}
@@ -350,8 +557,17 @@ func (m *Model) items() []string {
 				ids = append(ids, id)
 			}
 		}
+	case 4:
+		for _, q := range m.state.Questions {
+			if q.Project == m.project {
+				ids = append(ids, q.ID)
+			}
+		}
 	}
 	sort.Strings(ids)
+	if m.tab == 1 {
+		sort.SliceStable(ids, func(i, j int) bool { return m.state.Proposals[ids[i]].Outcome < m.state.Proposals[ids[j]].Outcome })
+	}
 	return ids
 }
 func (m *Model) selectedProposal() (review.Proposal, bool) {
@@ -366,6 +582,16 @@ func (m *Model) selectedProposal() (review.Proposal, bool) {
 	return p, ok
 }
 func (m *Model) pendingQuestion() *review.Question {
+	if m.tab == 4 {
+		items := m.items()
+		if m.selection < len(items) {
+			for _, q := range m.state.Questions {
+				if q.ID == items[m.selection] && q.Status == "pending" {
+					return &q
+				}
+			}
+		}
+	}
 	for _, q := range m.state.Questions {
 		if q.Project == m.project && q.Status == "pending" {
 			return &q
@@ -387,14 +613,26 @@ func (m *Model) selectedEvidence() *review.Source {
 	case 3:
 		sources = m.state.Sessions[items[m.selection]].Media
 	}
-	for _, s := range sources {
-		if s.Status == "available" {
-			return &s
+	var available []review.Source
+	for _, source := range sources {
+		if source.Status == "available" {
+			available = append(available, source)
 		}
 	}
-	return nil
+	if len(available) == 0 {
+		return nil
+	}
+	m.evidenceIndex = m.evidenceIndex % len(available)
+	source := available[m.evidenceIndex]
+	return &source
 }
 func (m *Model) body() string {
+	if m.tab == 5 && m.trace == "" {
+		return m.conversation()
+	}
+	if m.trace != "" {
+		return m.trace
+	}
 	items := m.items()
 	selected := m.selection
 	if m.detail && m.tab == 1 && m.reviewed != nil {
@@ -402,7 +640,7 @@ func (m *Model) body() string {
 		selected = 0
 	}
 	if len(items) == 0 {
-		return []string{"No feedback yet. Ctrl+N adds an observation; Ctrl+R selects a review window.", "Flere's proposals appear here with evidence and enduring guidance.", "Accepted work and build-specific retest checklists appear here.", "Ctrl+R opens the companion to select a window and explicitly start recording."}[m.tab]
+		return []string{"No feedback yet. Ctrl+N adds an observation; Ctrl+R selects a review window.", "Flere's proposals appear here with evidence and enduring guidance.", "Accepted work and build-specific retest checklists appear here.", "Ctrl+R opens the companion to select a window and explicitly start recording.", "Project decisions collect here. External sessions retain their original-session answering flow."}[m.tab]
 	}
 	selected = min(selected, len(items)-1)
 	var b strings.Builder
@@ -417,6 +655,9 @@ func (m *Model) body() string {
 		switch m.tab {
 		case 0:
 			v := m.state.Feedback[id]
+			if v.Project == "" {
+				fmt.Fprintf(&b, "Intake · suggested: %s\nAlt+I assigns this note to %s\n", v.SuggestedProject, m.project)
+			}
 			fmt.Fprintf(&b, "%s%s · %s\n%s\n", mark, v.At.Local().Format("15:04:05"), v.Analysis, v.Text)
 			if m.detail {
 				fmt.Fprintf(&b, "\nOriginal: %s\nSession: %s\nRevision %d\n", v.OriginalText, v.SessionID, v.Revision)
@@ -460,7 +701,10 @@ func (m *Model) body() string {
 				for _, c := range p.Checklist {
 					fmt.Fprintf(&b, "□ %s\n", c)
 				}
-				b.WriteString("Ctrl+T records your verdict against this build.\n")
+				if e.InvokedAt != nil {
+					fmt.Fprintf(&b, "Invoked: %s\n", e.InvokedAt.Local().Format(time.RFC3339))
+				}
+				b.WriteString("Ctrl+B opens this build · Ctrl+T records your verdict · Ctrl+L traces its sources\n")
 			}
 		case 3:
 			s := m.state.Sessions[id]
@@ -469,8 +713,18 @@ func (m *Model) body() string {
 				fmt.Fprintln(&b, s.Error)
 			}
 			if m.detail {
+				b.WriteString("Ctrl+L traces this session · Ctrl+D deletes its capture files; notes and decisions remain\n")
 				for _, e := range s.Media {
 					fmt.Fprintf(&b, "%s · %s · %s\n", e.Kind, e.Status, e.Path)
+				}
+			}
+		case 4:
+			for _, q := range m.state.Questions {
+				if q.ID == id {
+					fmt.Fprintf(&b, "%s%s · %s\n%s\nOriginal runtime: %s\nAnswer: %s\n", mark, q.Title, q.Status, strings.Join(q.Options, " / "), q.RuntimeSession, q.Answer)
+					if q.Status == "pending" {
+						b.WriteString("Ctrl+Q answers this decision\n")
+					}
 				}
 			}
 		}
@@ -483,10 +737,20 @@ func (m *Model) body() string {
 func (m *Model) conversation() string {
 	var b strings.Builder
 	b.WriteString("FLERE · project conversation\n\n")
-	start := max(0, len(m.state.Turns)-30)
-	for _, t := range m.state.Turns[start:] {
+	var turns []review.Turn
+	for _, t := range m.state.Turns {
 		if t.Project == m.project {
-			fmt.Fprintf(&b, "%s · %s\n%s\n", t.Kind, t.Model, t.Text)
+			turns = append(turns, t)
+		}
+	}
+	start := max(0, len(turns)-30)
+	for _, t := range turns[start:] {
+		if t.Project == m.project {
+			fmt.Fprintf(&b, "%s · %s", t.Kind, t.Model)
+			if t.Delivery != "" {
+				fmt.Fprintf(&b, " · %s", t.Delivery)
+			}
+			fmt.Fprintf(&b, "\n%s\n", t.Text)
 			if t.RuntimeSession != "" {
 				fmt.Fprintf(&b, "Session: %s\n", t.RuntimeSession)
 			}
@@ -523,7 +787,7 @@ func (m *Model) chatView(width, height int) string {
 func (m *Model) View() string {
 	width, height := max(30, m.width), max(10, m.height)
 	title := fmt.Sprintf("AUTARCH REVIEW · %s · %s · %.1f MB local", filepath.Base(m.project), m.density, float64(m.storage)/1048576)
-	tabs := []string{"1 Feedback", "2 Proposals", "3 Retest", "4 Sessions"}
+	tabs := []string{"1 Feedback", "2 Proposals", "3 Retest", "4 Sessions", "5 Decisions", "6 Flere"}
 	tabs[m.tab] = "[" + tabs[m.tab] + "]"
 	status := m.status
 	for _, s := range m.state.Sessions {
@@ -537,7 +801,9 @@ func (m *Model) View() string {
 	}
 	room = max(1, room)
 	body := m.body()
-	if width >= 100 {
+	if m.authOpen {
+		body = fit(m.authView(), width-2, room, 0)
+	} else if width >= 100 && m.tab != 5 {
 		left := width * 3 / 5
 		body = lipgloss.JoinHorizontal(lipgloss.Top, lipgloss.NewStyle().Width(left).Render(fit(body, left-2, room, m.scroll)), "│ ", m.chatView(width-left-3, room))
 	} else {
@@ -547,9 +813,9 @@ func (m *Model) View() string {
 		body = fit(body, width-2, room, m.scroll)
 	}
 	lines := []string{ansi.Truncate(title, width, ""), strings.Join(tabs, "  "), "", body}
-	if m.mode != "" {
+	if m.mode != "" && !m.authOpen {
 		lines = append(lines, m.mode+" · Ctrl+S save · Esc back", m.input.View())
 	}
-	lines = append(lines, ansi.Truncate(status, width, ""), ansi.Truncate("Ctrl+R record · Ctrl+N note · Ctrl+V voice · Ctrl+P pause/resume · Ctrl+O stop", width, ""), ansi.Truncate("Ctrl+F Flere · Ctrl+E evidence · Enter details · d density · Esc back", width, ""))
+	lines = append(lines, ansi.Truncate(status, width, ""), ansi.Truncate("Ctrl+R record · Ctrl+N note · Ctrl+V voice · Ctrl+P pause/resume · Ctrl+O stop", width, ""), ansi.Truncate("Alt+P Connect provider · Ctrl+F Flere · Ctrl+E evidence · ? shortcuts · d density", width, ""))
 	return strings.Join(lines, "\n")
 }

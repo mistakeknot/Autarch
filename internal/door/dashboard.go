@@ -37,7 +37,13 @@ func (m Model) dashboardButtons() []dashboardButton {
 	return out
 }
 
-func (m Model) dashboardRoom() int { return max(1, m.height-9) }
+func (m Model) dashboardRoom() int {
+	chrome := 9
+	if m.reviewAttention != "" {
+		chrome++
+	}
+	return max(1, m.height-chrome)
+}
 func (m Model) dashboardPadding() int {
 	if m.density == DensityCozy && m.lineWidth() >= 60 {
 		return 2
@@ -100,13 +106,18 @@ func (m Model) dashboardFrame(title string, body []string, keys string) string {
 	lines = append(lines, border.Render("╰"+strings.Repeat("─", inner)+"╯"))
 	coverage, detail := m.evidenceCoverage(), "Saved questions are history · Enter opens evidence before a session"
 	if m.screen == screenRows || m.screen == screenThreads {
-		old := strings.Split(m.renderFooter(), "\n")
+		footer := m
+		footer.reviewAttention = "" // The dashboard reserves its own attention row.
+		old := strings.Split(footer.renderFooter(), "\n")
 		if len(old) > 1 {
 			coverage, detail = old[0], old[1]
 		}
 	}
 	if m.screen == screenProduct {
 		coverage, detail = "Product context · source declarations, not measured outcomes", m.productRoot
+	}
+	if m.reviewAttention != "" {
+		lines = append(lines, styleCoverage.Render(" "+m.reviewAttention))
 	}
 	lines = append(lines, styleCoverage.Render(" "+coverage), styleCoverage.Render(" "+detail), styleFooter.Render(" "+keys), styleCoverage.Render(" "+oneLine(m.status)))
 	for i := range lines {
@@ -148,7 +159,7 @@ func (m Model) dashboardView() string {
 		if m.density == DensityCozy && room >= 12 {
 			stride = 2
 		}
-		content.height = room/stride + chromeHeight
+		content.height = room/stride + content.frameChromeHeight()
 		content.clampScroll()
 		sel := content.selIndex()
 		for i := content.offset; i < len(content.projects) && len(lines)+stride <= room; i++ {
@@ -159,7 +170,7 @@ func (m Model) dashboardView() string {
 		}
 	case screenThreads:
 		title, keys = "Threads", "↑↓ move · Enter session · i evidence · t back · d View · r Refresh · q Quit"
-		content.height = room + chromeHeight
+		content.height = room + content.frameChromeHeight()
 		content.clampThreadScroll()
 		lines = content.threadsLines(room)
 	default:

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"sort"
 	"strings"
 	"time"
@@ -24,6 +25,8 @@ type resultMsg struct{ p Project }
 
 // statusMsg is a transient footer note (Zed launched, pin saved, errors).
 type statusMsg string
+type reviewAttentionTick struct{}
+type reviewAttentionMsg struct{ state *review.State }
 
 // sessionsMsg carries one snapshot of the tmux axis (Gate B).
 type sessionsMsg struct{ set SessionSet }
@@ -137,13 +140,15 @@ var (
 // Model is the door: the ranked estate, one project per row, opened through
 // the briefing of what moved since mk was last here.
 type Model struct {
-	reviewWorkspace *reviewtui.Model
-	projects        []Project
-	ranking         Ranking
-	rankingPath     string
-	rankingErr      error
-	checker         string
-	checkerErr      error
+	reviewWorkspace   *reviewtui.Model
+	reviewAttention   string
+	reviewAttentionID string
+	projects          []Project
+	ranking           Ranking
+	rankingPath       string
+	rankingErr        error
+	checker           string
+	checkerErr        error
 
 	// The tmux axis. sessionsLoaded distinguishes "not yet asked" from a
 	// snapshot that truly found zero sessions; sessions.Err is the third
@@ -272,12 +277,12 @@ func (m Model) now() time.Time {
 
 func (m Model) Init() tea.Cmd {
 	if m.productStandalone {
-		return m.loadProduct()
+		return tea.Batch(m.loadProduct(), attentionTick())
 	}
 	// Sessions load even when the checker is unavailable: the axes fail
 	// independently, and a dead checker must not blind the tmux column or
 	// the briefing.
-	cmds := []tea.Cmd{m.loadSessions()}
+	cmds := []tea.Cmd{m.loadSessions(), attentionTick()}
 	if m.checkerErr == nil && len(m.projects) > 0 {
 		cmds = append(cmds, m.startChecks(), m.waitForResult())
 	}
@@ -357,6 +362,60 @@ func (m Model) waitForMovement() tea.Cmd {
 }
 
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	switch v := msg.(type) {
+	case reviewAttentionTick:
+		ui := review.UIContext{View: fmt.Sprintf("autarch/%d", m.screen), Project: m.selRoot, Density: m.density.String(), Build: review.BuildIdentity()}
+		if m.screen == screenProduct {
+			ui.Project = m.productRoot
+		}
+		if canonical, err := filepath.EvalSymlinks(ui.Project); err == nil {
+			ui.Project = canonical
+		}
+		outsideReview := m.reviewWorkspace == nil
+		return m, func() tea.Msg {
+			ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+			defer cancel()
+			client := review.Client{}
+			r, _ := client.Call(ctx, review.Request{Method: "state"})
+			if outsideReview && r.State != nil {
+				previous := r.State.Context
+				if previous.View != ui.View || previous.Project != ui.Project || previous.Density != ui.Density || previous.Build != ui.Build {
+					_, _ = client.Call(ctx, review.Request{Method: "context", Project: ui.Project, Context: &ui})
+				}
+			}
+			return reviewAttentionMsg{r.State}
+		}
+	case reviewAttentionMsg:
+		m.reviewAttention = ""
+		project := m.selRoot
+		if m.screen == screenProduct {
+			project = m.productRoot
+		}
+		if canonical, err := filepath.EvalSymlinks(project); err == nil {
+			project = canonical
+		}
+		if v.state != nil && m.reviewWorkspace == nil {
+			recording := false
+			for _, s := range v.state.Sessions {
+				if s.Project == project && (s.Status == "recording" || s.Status == "paused") {
+					recording = true
+				}
+			}
+			if !recording {
+				for _, q := range v.state.Questions {
+					if q.Project == project && q.Status == "pending" && q.Consequential && q.BlocksActive {
+						m.reviewAttention = "Flere needs a decision: " + q.Title + " · Ctrl+R to review"
+						if m.reviewAttentionID != q.ID {
+							m.reviewAttentionID = q.ID
+							return m, tea.Batch(func() tea.Msg { fmt.Fprint(os.Stdout, "\a"); return nil }, attentionTick())
+						}
+						break
+					}
+				}
+			}
+		}
+		return m, attentionTick()
+	}
 	if _, ok := msg.(reviewtui.ClosedMsg); ok {
 		m.reviewWorkspace = nil
 		return m, nil
@@ -804,6 +863,13 @@ func (m Model) selIndex() int {
 // lines (cards fraction, sessions fraction, keys, status).
 const chromeHeight = 5
 
+func (m Model) frameChromeHeight() int {
+	if m.reviewAttention != "" {
+		return chromeHeight + 1
+	}
+	return chromeHeight
+}
+
 // briefingHeight is how many lines the briefing takes in LayoutAbove: its two
 // header lines plus every moved garden plus one for the tail, capped at half
 // the screen so the rows keep the other half.
@@ -822,7 +888,7 @@ func (m Model) briefingHeight() int {
 }
 
 func (m *Model) visibleRows() int {
-	rows := m.height - chromeHeight
+	rows := m.height - m.frameChromeHeight()
 	if m.briefingOn() && m.layout == LayoutAbove {
 		rows -= m.briefingHeight() + 1 // plus the rule beneath the briefing
 	}
@@ -1182,6 +1248,10 @@ func (m Model) renderRow(p Project, selected bool) string {
 // resolved (Gate B clause c) -- then keys, then errors or transient status.
 func (m Model) renderFooter() string {
 	var b strings.Builder
+	if m.reviewAttention != "" {
+		b.WriteString(styleCoverage.Render(truncate(m.reviewAttention, m.lineWidth())))
+		b.WriteString("\n")
+	}
 	b.WriteString(styleCoverage.Render(coverageLine(Cover(m.projects))))
 	b.WriteString("\n")
 	switch {

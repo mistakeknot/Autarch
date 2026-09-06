@@ -13,14 +13,22 @@ import AVKit
                     ForEach(capture.windows, id: \.windowID) { window in Text("\(window.owningApplication?.applicationName ?? "App") — \(window.title ?? "Untitled")").tag(window.windowID) }
                 }.disabled(capture.recording || capture.paused)
                 HStack {
+                    if capture.capturePermissionNeeded { Button("Screen recording settings") { capture.openCaptureSettings() } }
                     Button("Refresh windows") { capture.perform { try await capture.loadWindows() } }
                     Button(capture.paused ? "Resume" : "Start recording") { capture.perform { try await capture.start() } }.disabled(capture.recording || capture.selectedWindow == 0 || capture.project.isEmpty)
                     Button("Pause") { capture.perform { try await capture.stop(pausing: true) } }.disabled(!capture.recording)
                     Button("Stop") { capture.perform { try await capture.stop(pausing: false) } }.disabled(!capture.recording && !capture.paused)
                 }
                 if let image = capture.preview { Image(nsImage: image).resizable().scaledToFit().frame(maxHeight: 260) }
-                if let player = capture.player { VideoPlayer(player: player).frame(minHeight: 200) }
-                Text("Quick feedback · ⌘⇧Space brings this window forward").font(.headline)
+                if let player = capture.player { ReviewPlayerView(player: player).frame(minHeight: 200) }
+                HStack {
+                    Picker("Retained session", selection: $capture.selectedRetainedSession) {
+                        Text("Select a session").tag("")
+                        ForEach(capture.retainedSessions) { saved in Text(saved.title).tag(saved.id) }
+                    }
+                    Button("Play selected session") { capture.playRetainedSession() }.disabled(capture.selectedRetainedSession.isEmpty)
+                }
+                Text("Quick feedback · ⌘⇧Space captures the current review moment").font(.headline)
                 TextEditor(text: $capture.note).frame(height: 90).border(.secondary.opacity(0.3))
                 HStack {
                     Button("Save note + screenshot") { capture.perform { try await capture.saveNote() } }.keyboardShortcut("s", modifiers: [.command])
@@ -30,8 +38,23 @@ import AVKit
                 }
                 Text(capture.status).foregroundStyle(capture.failed ? .red : .secondary).textSelection(.enabled)
                 Text("Full sessions and original voice notes stay on this Mac until you delete them. Closing Autarch does not stop recording.").font(.caption)
-            }.padding(20).frame(minWidth: 680, minHeight: 450).task { await capture.run() }
+            }.padding(20).frame(minWidth: 680, minHeight: 450).task { ProviderConnectionPanel.shared.start(); await capture.run() }
         }
         .commands { CommandGroup(replacing: .newItem) {} }
+    }
+}
+
+// Use AppKit's concrete player view; the macOS 26 SwiftUI VideoPlayer bridge
+// failed during superclass metadata initialization in the live pilot.
+struct ReviewPlayerView: NSViewRepresentable {
+    let player: AVPlayer
+    func makeNSView(context: Context) -> AVPlayerView {
+        let view = AVPlayerView()
+        view.controlsStyle = .inline
+        view.player = player
+        return view
+    }
+    func updateNSView(_ view: AVPlayerView, context: Context) {
+        if view.player !== player { view.player = player }
     }
 }
