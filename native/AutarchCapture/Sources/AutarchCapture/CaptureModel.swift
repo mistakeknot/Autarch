@@ -8,7 +8,9 @@ import Speech
     @Published var selectedWindow: UInt32 = 0
     @Published var project = ""
     @Published var note = ""
-    @Published var status = "Select a test window, then start a review."
+    @Published var status = "Select a test window, then start a review." {
+        didSet { statusBeforeControllerWarning = nil }
+    }
     @Published var usage = ""
     @Published var recording = false
     @Published var paused = false
@@ -43,6 +45,7 @@ import Speech
     private var uiContext: [String: Any] = [:]
     private var lastHeartbeat = Date.distantPast
     private var recovered = false
+    private var statusBeforeControllerWarning: String?
     var sessionDir: URL { IPC.directory.appendingPathComponent("media/" + (session["id"] as? String ?? "intake")) }
     private var offset: Int64 { Int64(Date().timeIntervalSince(sessionStart) * 1000) }
 
@@ -64,10 +67,7 @@ import Speech
                     return try IPC.call(["method": "state"])
                 }.value
                 if let state = response["state"] as? [String: Any] {
-                    if let saved = state["sessions"] as? [String: [String: Any]] {
-                        applySavedSessions(saved)
-                    }
-                    if let context = state["context"] as? [String: Any] { applyUIContext(context) }
+                    applyControllerState(state)
                     if !recovered { try await recoverInterruptedSessions(); recovered = true }
                     if !working, let commands = state["commands"] as? [[String: Any]], let command = commands.first(where: { $0["status"] as? String == "pending" }) {
                         working = true
@@ -82,6 +82,13 @@ import Speech
             } catch { controllerUnavailable(error) }
             try? await Task.sleep(for: .seconds(1))
         }
+    }
+    func applyControllerState(_ state: [String: Any]) {
+        // Clear only the warning we still own, before state application can
+        // report another error or begin an asynchronous capture operation.
+        if let previous = statusBeforeControllerWarning { status = previous; failed = false }
+        if let saved = state["sessions"] as? [String: [String: Any]] { applySavedSessions(saved) }
+        if let context = state["context"] as? [String: Any] { applyUIContext(context) }
     }
     func applySavedSessions(_ saved: [String: [String: Any]]) {
         if let id = session["id"] as? String, let current = saved[id], ["deleting", "deleted"].contains(current["status"] as? String ?? "") {
@@ -113,6 +120,15 @@ import Speech
     func controllerUnavailable(_ error: Error) {
         // The operation that acquired working owns its release, even while IPC
         // is unavailable. Its original evidence remains in the local outbox.
+        if case CaptureError.message(let message) = error, message == "Controller unavailable; captures remain local" {
+            // This catch also receives save/recovery errors. Only the socket's
+            // connection warning is transient; existing operation errors win.
+            guard statusBeforeControllerWarning != nil || !failed else { return }
+            let previous = statusBeforeControllerWarning ?? status
+            status = message; failed = true
+            statusBeforeControllerWarning = previous
+            return
+        }
         status = error.localizedDescription; failed = true
     }
     private func switchProject(_ destination: String) {

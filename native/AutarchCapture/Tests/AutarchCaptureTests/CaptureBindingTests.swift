@@ -2,6 +2,80 @@ import XCTest
 @testable import AutarchCapture
 
 final class CaptureBindingTests: XCTestCase {
+    @MainActor func testSuccessfulStateClearsOnlyControllerConnectionWarning() {
+        let model = CaptureModel()
+        let ready = model.status
+        model.controllerUnavailable(CaptureError.message("Controller unavailable; captures remain local"))
+        XCTAssertTrue(model.failed)
+        model.controllerUnavailable(CaptureError.message("Controller unavailable; captures remain local"))
+        model.applyControllerState([:])
+        XCTAssertFalse(model.failed)
+        XCTAssertEqual(model.status, ready, "Repeated disconnects must retain the status preceding the connection warning")
+    }
+
+    @MainActor func testReconnectPreservesExistingAndInterveningOperationErrors() {
+        for message in ["Capture failed", "Local save failed", "Authentication failed"] {
+            for errorBeforeDisconnect in [true, false] {
+                let model = CaptureModel()
+                if errorBeforeDisconnect { model.status = message; model.failed = true }
+                model.controllerUnavailable(CaptureError.message("Controller unavailable; captures remain local"))
+                if !errorBeforeDisconnect { model.status = message; model.failed = true }
+                model.applyControllerState([:])
+                XCTAssertTrue(model.failed)
+                XCTAssertEqual(model.status, message)
+            }
+        }
+    }
+
+    @MainActor func testSuccessfulStateCannotDismissOutboxRecoveryError() {
+        let model = CaptureModel()
+        let message = "Capture retained for recovery (concurrent text change); see synthetic outbox"
+        model.controllerUnavailable(CaptureError.message(message))
+        model.applyControllerState([:])
+        XCTAssertTrue(model.failed)
+        XCTAssertEqual(model.status, message, "The polling catch also receives durable delivery errors")
+    }
+
+    @MainActor func testReconnectCannotClearAnotherOperationWithIdenticalErrorText() {
+        let model = CaptureModel()
+        let message = "Controller unavailable; captures remain local"
+        model.controllerUnavailable(CaptureError.message(message))
+        model.status = message; model.failed = true
+        model.applyControllerState([:])
+        XCTAssertTrue(model.failed, "Another operation owns this status even when its text matches the connection warning")
+        XCTAssertEqual(model.status, message)
+    }
+
+    @MainActor func testReconnectPreservesRecordingAndOriginalDraftEvidence() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let outbox = try Outbox(directory: directory)
+        let model = CaptureModel(outbox: outbox)
+        model.applyUIContext(["project": "/first-project", "item": "original-item"])
+        await model.quickMoment(activate: {}, capture: { ["id": "original-shot", "status": "available", "kind": "screenshot"] })
+        model.note = "Unsaved original draft"
+        let ready = model.status
+        model.recording = true; model.paused = false; model.voiceActive = true
+        let sessionDirectory = model.sessionDir
+        model.controllerUnavailable(CaptureError.message("Controller unavailable; captures remain local"))
+        model.applyControllerState(["sessions": ["retained": ["id": "retained", "project": "/first-project", "status": "stopped"]], "context": ["project": "/second-project"]])
+        XCTAssertFalse(model.failed)
+        XCTAssertEqual(model.status, ready)
+        XCTAssertTrue(model.recording); XCTAssertFalse(model.paused); XCTAssertTrue(model.voiceActive)
+        XCTAssertEqual(model.project, "/first-project")
+        XCTAssertEqual(model.sessionDir, sessionDirectory)
+        XCTAssertEqual(model.note, "Unsaved original draft")
+        XCTAssertEqual(model.retainedSessions.map(\.id), ["retained"], "The successful response must still refresh retained sessions")
+        XCTAssertTrue(try outbox.pending().isEmpty, "Reconnection must not submit the draft")
+        try await model.saveNote()
+        let request = try XCTUnwrap(outbox.pending().first)
+        let feedback = try XCTUnwrap(request["feedback"] as? [String: Any])
+        XCTAssertEqual(request["project"] as? String, "/first-project")
+        XCTAssertEqual(feedback["text"] as? String, "Unsaved original draft")
+        XCTAssertEqual((feedback["context"] as? [String: Any])?["item"] as? String, "original-item")
+        XCTAssertEqual((feedback["evidence"] as? [[String: Any]])?.first?["id"] as? String, "original-shot")
+    }
+
     @MainActor func testVoiceCorrectionAfterProjectSwitchKeepsOriginalIdentityAndAudio() async throws {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: directory) }
@@ -120,8 +194,9 @@ final class CaptureBindingTests: XCTestCase {
             for await _ in release.stream { break }
         }
         await fulfillment(of: [started], timeout: 1)
-        model.controllerUnavailable(CaptureError.message("Synthetic controller disconnect"))
-        model.applyUIContext(["project": "/second-project"])
+        model.controllerUnavailable(CaptureError.message("Controller unavailable; captures remain local"))
+        model.applyControllerState(["context": ["project": "/second-project"]])
+        XCTAssertFalse(model.failed)
         XCTAssertEqual(model.project, "/first-project", "An IPC failure must not unlock another operation's project binding")
         release.continuation.finish()
     }
