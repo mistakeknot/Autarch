@@ -2,7 +2,6 @@ import AppKit
 import AVFoundation
 import ScreenCaptureKit
 import Speech
-import Carbon
 
 @MainActor final class CaptureModel: NSObject, ObservableObject {
     @Published var windows: [SCWindow] = []
@@ -39,7 +38,6 @@ import Carbon
     private var segmentStart = Date()
     private var started = false
     private var working = false
-    private var hotKey: EventHotKeyRef?
     private var outbox: Outbox?
     private var editedFeedback: [String: Any]?
     private var uiContext: [String: Any] = [:]
@@ -56,7 +54,7 @@ import Carbon
     }
     func run() async {
         guard !started else { return }; started = true
-        do { outbox = try Outbox(directory: IPC.directory.appendingPathComponent("capture-outbox")); installShortcut() }
+        do { outbox = try Outbox(directory: IPC.directory.appendingPathComponent("capture-outbox")) }
         catch { status = error.localizedDescription; failed = true; return }
         while !Task.isCancelled {
             do {
@@ -335,16 +333,6 @@ import Carbon
             }
         default: throw CaptureError.message("Unknown capture action")
         }
-    }
-    private func installShortcut() {
-        var type = EventTypeSpec(eventClass: OSType(kEventClassKeyboard), eventKind: UInt32(kEventHotKeyPressed))
-        InstallEventHandler(GetApplicationEventTarget(), { _, _, pointer in
-            guard let pointer else { return noErr }
-            let model = Unmanaged<CaptureModel>.fromOpaque(pointer).takeUnretainedValue()
-            Task { @MainActor in await model.quickMoment() }; return noErr
-        }, 1, &type, Unmanaged.passUnretained(self).toOpaque(), nil)
-        let result = RegisterEventHotKey(UInt32(kVK_Space), UInt32(cmdKey | shiftKey), EventHotKeyID(signature: 0x41555256, id: 1), GetApplicationEventTarget(), 0, &hotKey)
-        if result != noErr { status = "Shortcut unavailable; use the companion or Autarch's Ctrl+N." }
     }
 }
 

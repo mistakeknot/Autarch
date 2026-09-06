@@ -3,6 +3,8 @@ import AVKit
 
 @main struct AutarchCaptureApp: App {
     @StateObject private var capture = CaptureModel()
+    @StateObject private var shortcut = CaptureShortcutController()
+    @State private var showingShortcut = false
     var body: some Scene {
         WindowGroup("Autarch Review Companion") {
             VStack(alignment: .leading, spacing: 12) {
@@ -28,7 +30,12 @@ import AVKit
                     }
                     Button("Play selected session") { capture.playRetainedSession() }.disabled(capture.selectedRetainedSession.isEmpty)
                 }
-                Text("Quick feedback · ⌘⇧Space captures the current review moment").font(.headline)
+                HStack {
+                    Text("Quick feedback · \(shortcut.active?.label ?? "Shortcut disabled")").font(.headline)
+                    Spacer()
+                    Button("Change shortcut…") { showingShortcut = true }
+                }
+                if !shortcut.error.isEmpty { Text(shortcut.error).foregroundStyle(.red) }
                 TextEditor(text: $capture.note).frame(height: 90).border(.secondary.opacity(0.3))
                 HStack {
                     Button("Save note + screenshot") { capture.perform { try await capture.saveNote() } }.keyboardShortcut("s", modifiers: [.command])
@@ -38,9 +45,22 @@ import AVKit
                 }
                 Text(capture.status).foregroundStyle(capture.failed ? .red : .secondary).textSelection(.enabled)
                 Text("Full sessions and original voice notes stay on this Mac until you delete them. Closing Autarch does not stop recording.").font(.caption)
-            }.padding(20).frame(minWidth: 680, minHeight: 450).task { ProviderConnectionPanel.shared.start(); await capture.run() }
+            }.padding(20).frame(minWidth: 680, minHeight: 450)
+            .sheet(isPresented: $showingShortcut) {
+                VStack {
+                    CaptureShortcutSettings(shortcut: shortcut)
+                    Button("Done") { showingShortcut = false }.keyboardShortcut(.cancelAction).padding(.bottom, 16)
+                }
+            }
+            .task {
+                shortcut.start { Task { await capture.quickMoment() } }
+                if CommandLine.arguments.contains("--configure-shortcut") { showingShortcut = true }
+                ProviderConnectionPanel.shared.start()
+                await capture.run()
+            }
         }
         .commands { CommandGroup(replacing: .newItem) {} }
+        Settings { CaptureShortcutSettings(shortcut: shortcut) }
     }
 }
 
