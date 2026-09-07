@@ -43,6 +43,7 @@ import Speech
     private var outbox: Outbox?
     private var editedFeedback: [String: Any]?
     private var uiContext: [String: Any] = [:]
+    private var invocationPID: Int?
     private var lastHeartbeat = Date.distantPast
     private var recovered = false
     private var statusBeforeControllerWarning: String?
@@ -110,12 +111,49 @@ import Speech
         try data.write(to: sessionDir.appendingPathComponent("capture-session.json"), options: .atomic)
     }
     func applyUIContext(_ context: [String: Any]) {
+        if let invocationPID, (context["terminal"] as? [String: Any])?["pid"] as? Int != invocationPID { return }
         let destination = context["project"] as? String ?? project
         // Async capture/transcription retains its original project and context.
         // Reconnecting to a different TUI must not redirect its pending writes.
         guard destination == project || (!recording && !paused && !voiceActive && !working) else { return }
         switchProject(destination)
+        var updated = context
+        // Navigation updates carry the TUI identity; retain the full pane and
+        // client metadata frozen when that TUI opened the companion.
+        if invocationPID != nil { updated["terminal"] = uiContext["terminal"] }
+        uiContext = updated
+    }
+
+    @discardableResult func applyInvocationContext(_ context: [String: Any]) -> Bool {
+        guard !recording && !paused && !voiceActive else { return false }
+        if draftProject == nil && !note.isEmpty {
+            draftProject = project; draftContext = uiContext; draftSessionID = session["id"] as? String
+        }
+        let destination = context["project"] as? String ?? project
+        let oldWindow = (uiContext["terminal"] as? [String: Any])?["window_id"] as? UInt32
+        let newWindow = (context["terminal"] as? [String: Any])?["window_id"] as? UInt32
+        if oldWindow != newWindow {
+            session = [:]; media = []; player = nil; preview = nil
+        }
+        switchProject(destination)
         uiContext = context
+        invocationPID = (context["terminal"] as? [String: Any])?["pid"] as? Int
+        return true
+    }
+
+    private func selectInvokingWindow(_ context: [String: Any]) async throws {
+        guard !recording && !paused && !voiceActive else { return }
+        let processIDs = (context["terminal"] as? [String: Any])?["process_ids"] as? [Int32] ?? []
+        let candidate = (context["terminal"] as? [String: Any])?["window_id"] as? UInt32 ?? 0
+        selectedWindow = 0
+        try await loadWindows()
+        let available = windows.map { InvocationWindow(id: $0.windowID, pid: $0.owningApplication?.processID ?? 0) }
+        if let selected = selectRecordedInvocationWindow(available, windowID: candidate, processIDs: processIDs) {
+            selectedWindow = selected
+            status = "Invoking terminal selected. Ready to review."
+        } else {
+            status = "Invoking terminal is not visible. Select its window to review."
+        }
     }
     func controllerUnavailable(_ error: Error) {
         // The operation that acquired working owns its release, even while IPC
@@ -305,8 +343,32 @@ import Speech
         let items = selected.media.filter { $0["status"] as? String == "available" }.compactMap { $0["path"] as? String }.map { AVPlayerItem(url: URL(fileURLWithPath: $0)) }
         let queue = AVQueuePlayer(items: items); preview = nil; player = queue; queue.play()
     }
+    func prepareShortcutInvocation(_ origin: InvocationWindow, paneVerified: Bool = false) -> Bool {
+        let terminal = uiContext["terminal"] as? [String: Any]
+        if paneVerified && terminal?["window_id"] as? UInt32 == origin.id { return true }
+        guard note.isEmpty && draftEvidence.isEmpty && editedFeedback == nil else {
+            status = "Save your existing review moment before capturing another terminal."
+            return false
+        }
+        // The shortcut identifies a window without a TUI command carrying a
+        // project/pane. Keep it in intake instead of borrowing unrelated context.
+        applyInvocationContext(["project": "", "view": "terminal", "at": ISO8601DateFormatter().string(from: Date()), "terminal": ["pid": origin.pid, "window_id": origin.id, "process_ids": [origin.pid]]])
+        return true
+    }
     func quickMoment(activate: (() -> Void)? = nil, capture: (() async throws -> [String: Any]?)? = nil) async {
         guard !working else { return }; working = true; defer { working = false }
+        if capture == nil && !recording && !paused && !voiceActive, let origin = foregroundTerminalWindow() {
+            let terminal = uiContext["terminal"] as? [String: Any] ?? [:]
+            let pane = terminal["pane"] as? String ?? ""
+            let clients = terminal["client_pids"] as? [Int] ?? []
+            let socket = terminal["tmux_socket"] as? String ?? ""
+            let verified = await Task.detached { verifyInvokingPane(pane, clientPIDs: clients, socket: socket) }.value
+            guard prepareShortcutInvocation(origin, paneVerified: verified) else { return }
+            do {
+                try await loadWindows()
+                selectedWindow = windows.contains(where: { $0.windowID == origin.id }) ? origin.id : 0
+            } catch { selectedWindow = 0; status = error.localizedDescription }
+        }
         if let draftProject, draftProject != project {
             status = "Save your existing review moment before capturing in the newly selected project."
             return
@@ -327,11 +389,23 @@ import Speech
         if (recording || paused || voiceActive) && !destination.isEmpty && destination != project { throw CaptureError.message("Another project is recording; stop that session before switching") }
         if !destination.isEmpty { switchProject(destination) }
         switch command["method"] as? String {
-        case "open": NSApp.activate(ignoringOtherApps: true); if windows.isEmpty { try await loadWindows() }
+        case "open":
+            if let context = command["context"] as? [String: Any], !recording && !paused && !voiceActive {
+                applyInvocationContext(context)
+                try await selectInvokingWindow(context)
+            } else if windows.isEmpty { try await loadWindows() }
+            NSApp.activate(ignoringOtherApps: true)
         case "pause": try await stop(pausing: true)
         case "resume": try await start()
         case "stop": try await stop(pausing: false)
-        case "voice": NSApp.activate(ignoringOtherApps: true); try await toggleVoice()
+        case "voice":
+            if let context = command["context"] as? [String: Any], !recording && !paused && !voiceActive {
+                applyInvocationContext(context)
+                // Screen access is optional for microphone-only feedback.
+                do { try await selectInvokingWindow(context) }
+                catch { selectedWindow = 0; status = error.localizedDescription }
+            }
+            NSApp.activate(ignoringOtherApps: true); try await toggleVoice()
         case "snapshot":
             if let shot = try await screenshot(), let target = command["target"] as? String {
                 let response = try await Task.detached { try IPC.call(["method": "state"]) }.value

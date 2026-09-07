@@ -77,7 +77,8 @@ func reviewControllerCmd() *cobra.Command {
 					fmt.Fprintln(os.Stderr, "Capture companion missing:", app)
 					return
 				}
-				if err = exec.Command("open", "-a", app).Run(); err != nil {
+				// The companion must resolve the invoking window before taking focus.
+				if err = exec.Command("open", "-g", "-a", app).Run(); err != nil {
 					fmt.Fprintln(os.Stderr, "Open companion:", err)
 				}
 			}

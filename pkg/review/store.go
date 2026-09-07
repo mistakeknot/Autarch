@@ -593,7 +593,14 @@ func (s *Store) apply(st *State, r Request) (string, error) {
 		default:
 			return "", errors.New("unknown capture command")
 		}
-		st.Commands = append(st.Commands, CaptureCommand{ID: id, Project: project, Method: r.Text, Target: r.Target, Source: r.Source, Status: "pending"})
+		if r.Context != nil {
+			if err := same(r.Context.Project); err != nil {
+				return "", err
+			}
+			r.Context.Project = project
+			r.Context.At = now
+		}
+		st.Commands = append(st.Commands, CaptureCommand{ID: id, Project: project, Method: r.Text, Target: r.Target, Source: r.Source, Context: r.Context, Status: "pending"})
 		return id, nil
 	case "capture.ack":
 		for i, c := range st.Commands {

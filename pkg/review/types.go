@@ -28,12 +28,27 @@ type Source struct {
 	Kind     string `json:"kind,omitempty"`
 }
 type UIContext struct {
-	At      time.Time `json:"at"`
-	View    string    `json:"view"`
-	Project string    `json:"project"`
-	Item    string    `json:"item,omitempty"`
-	Density string    `json:"density"`
-	Build   string    `json:"build"`
+	Terminal *TerminalContext `json:"terminal,omitempty"`
+	At       time.Time        `json:"at"`
+	View     string           `json:"view"`
+	Project  string           `json:"project"`
+	Item     string           `json:"item,omitempty"`
+	Density  string           `json:"density"`
+	Build    string           `json:"build"`
+}
+
+// TerminalContext identifies the invoking terminal without retaining its output.
+// ProcessIDs are the caller/client ancestry used to match the native window.
+type TerminalContext struct {
+	TmuxSocket string `json:"tmux_socket,omitempty"`
+	ClientPIDs []int  `json:"client_pids,omitempty"`
+	WindowID   uint32 `json:"window_id,omitempty"`
+	PID        int    `json:"pid"`
+	Pane       string `json:"pane,omitempty"`
+	Session    string `json:"session,omitempty"`
+	Window     string `json:"window,omitempty"`
+	Cwd        string `json:"cwd,omitempty"`
+	ProcessIDs []int  `json:"process_ids,omitempty"`
 }
 type Session struct {
 	ID          string    `json:"id"`
@@ -144,12 +159,13 @@ type Question struct {
 	Delivery       string   `json:"delivery,omitempty"`
 }
 type CaptureCommand struct {
-	ID      string  `json:"id"`
-	Project string  `json:"project"`
-	Method  string  `json:"method"`
-	Target  string  `json:"target,omitempty"`
-	Source  *Source `json:"source,omitempty"`
-	Status  string  `json:"status"`
+	Context *UIContext `json:"context,omitempty"`
+	ID      string     `json:"id"`
+	Project string     `json:"project"`
+	Method  string     `json:"method"`
+	Target  string     `json:"target,omitempty"`
+	Source  *Source    `json:"source,omitempty"`
+	Status  string     `json:"status"`
 }
 type Receipt struct {
 	Hash string `json:"hash"`

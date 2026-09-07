@@ -2,6 +2,14 @@ import SwiftUI
 import AVKit
 
 @main struct AutarchCaptureApp: App {
+    init() {
+        if CommandLine.arguments.count == 3 && CommandLine.arguments[1] == "--capture-origin" {
+            let pids = CommandLine.arguments[2].split(separator: ",").compactMap { Int32($0) }
+            let id = foregroundInvocationWindow(processIDs: pids) ?? 0
+            print("{\"window_id\":\(id)}")
+            exit(0)
+        }
+    }
     @StateObject private var capture = CaptureModel()
     @StateObject private var shortcut = CaptureShortcutController()
     @State private var showingShortcut = false

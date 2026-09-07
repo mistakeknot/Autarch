@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -79,6 +80,9 @@ func (m *Model) Init() tea.Cmd {
 }
 func tick() tea.Cmd { return tea.Tick(time.Second, func(time.Time) tea.Msg { return tickMsg{} }) }
 func (m *Model) call(r review.Request, saved bool) tea.Cmd {
+	if r.Method == "capture.command" && (r.Text == "open" || r.Text == "voice") {
+		r.Context = m.uiContext()
+	}
 	if r.Project == "" {
 		r.Project = m.project
 	}
@@ -93,6 +97,9 @@ func (m *Model) call(r review.Request, saved bool) tea.Cmd {
 		}
 		ctx, cancel := context.WithTimeout(context.Background(), timeout)
 		defer cancel()
+		if r.Method == "capture.command" && r.Context != nil {
+			r.Context.Terminal = terminalOrigin(ctx)
+		}
 		response, err := client.Call(ctx, r)
 		msg := resultMsg{response: response, saved: saved, method: r.Method}
 		if err != nil {
@@ -454,12 +461,16 @@ func (m *Model) Update(msg tea.Msg) tea.Cmd {
 	return nil
 }
 func (m *Model) context() tea.Cmd {
+	return m.call(review.Request{Method: "context", Context: m.uiContext()}, false)
+}
+
+func (m *Model) uiContext() *review.UIContext {
 	item := ""
 	items := m.items()
 	if m.selection < len(items) {
 		item = items[m.selection]
 	}
-	return m.call(review.Request{Method: "context", Context: &review.UIContext{View: "review/" + []string{"feedback", "proposals", "retest", "sessions", "decisions", "conversation"}[m.tab], Project: m.project, Item: item, Density: m.density, Build: review.BuildIdentity()}}, false)
+	return &review.UIContext{At: time.Now().UTC(), View: "review/" + []string{"feedback", "proposals", "retest", "sessions", "decisions", "conversation"}[m.tab], Project: m.project, Item: item, Density: m.density, Build: review.BuildIdentity(), Terminal: &review.TerminalContext{PID: os.Getpid(), Pane: os.Getenv("TMUX_PANE")}}
 }
 func (m *Model) saveInput() tea.Cmd {
 	text := strings.TrimSpace(m.input.Value())
