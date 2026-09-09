@@ -6,6 +6,12 @@ bead: Sylveste-fuwn
 ---
 # Autarch foundation — first onboarding draft
 
+Historical draft. The user-supplied September 9 plan authorizes the
+[canonical product amendment](../decisions/2026-09-09-human-ratification.md),
+which resolves this draft's mission, persona and qualitative success questions
+and replaces its roadmap sequence. This draft retains its original provisional
+status and wording as historical evidence; it is not the current authority.
+
 This is a proposal for review, not a ratification of new mission, vision,
 principles, or success measures. Existing confirmed card fields retain their
 own provenance. The user's September 4 direction is to focus on getting each

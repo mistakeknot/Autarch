@@ -1,5 +1,13 @@
 # Autarch CUJs — the tending-cadence spine
 
+The current proving journey is
+[one project visit through reviewed plan preparation](autarch-06-reviewed-project-visit.md).
+Its direction was accepted on September 9, 2026; implementation and live
+validation remain pending. The four tending journeys below retain their earlier
+design-validation history. The
+[feedback and learning loop](autarch-05-feedback-learning-loop.md) remains the
+fuller later journey, with implementation start now a separate explicit action.
+
 Derived 2026-08-31 from the cujgel run (discover → teardown ×3 → vision
 capture; provoke absorbed organically into the teardown discussions). The
 spine is **tending cadence**, not a linear loop — mk's vision capture

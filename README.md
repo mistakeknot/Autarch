@@ -1,5 +1,11 @@
 # Autarch
 
+Help you choose worthwhile work, give agents coherent direction, and judge what
+they deliver. The [accepted product foundation](docs/why.md) and
+[roadmap](docs/roadmap.md) focus the next outcome on one project visit ending in
+an independently reviewed implementation plan. That full journey is not yet
+implemented or validated; the current capabilities follow.
+
 Catch up on work across your projects and agent sessions, inspect the questions
 they left, and return to the original conversation to answer.
 
@@ -25,7 +31,9 @@ Running multiple AI agents across multiple projects creates a coordination probl
 
 ## Who this is for
 
-Developers running the Demarch agent stack (Clavain, Intermute, Intercore) who want visibility and control over multi-project, multi-agent workflows. Autarch is the operational dashboard layer.
+An experienced product leader directing interconnected software and research
+projects through agents. The first proving ground is mk's existing workflow;
+the [commercial hypothesis](docs/personas.md) remains untested.
 
 ## Quick start
 

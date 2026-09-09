@@ -1,3 +1,32 @@
+# Autarch roadmap
+
+Accepted direction from [mk's September 9 instruction](decisions/2026-09-09-human-ratification.md).
+
+| Horizon | Outcome |
+|---|---|
+| Now | Complete one Autarch project visit through reviewed plan preparation. |
+| Next | Repeat successfully in a second project with sparse foundations; improve portfolio attention and cross-project relationships. |
+| Later | Complete the fuller governed execution, evaluation, and companion feedback journey. |
+
+The [first journey](cujs/autarch-06-reviewed-project-visit.md) finishes with one
+meaningful outcome and an independently reviewed implementation plan. Remaining
+foundation gaps stay visible. Accepting guidance and completing review cannot
+start implementation.
+
+Current work is tracked in `Sylveste-fuwn`. The reviewed design is not an
+implemented or validated journey. Clavain's budgeted independent-review
+prerequisite is `Sylveste-k8ht`; independently scheduled CI remains outstanding
+under `mk-ag2s.18`, `mk-ag2s.138` and `mk-ag2s.25`. The actual signed-build visit,
+human ratification and benchmark remain unverified.
+
+The graph is a local rebuildable projection in this milestone. The broader
+estate service and full execution/companion loop belong to later outcomes.
+
+## Historical February 25 backlog export — preserved
+
+This dated export is retained for traceability. It is not current priority or
+live Beads status, and its delivery order is superseded by the roadmap above.
+
 # autarch Roadmap
 
 > Auto-generated from beads on 2026-02-25. Strategic context: [Demarch Roadmap](../../../docs/demarch-roadmap.md)

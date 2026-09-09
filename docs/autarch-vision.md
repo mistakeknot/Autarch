@@ -1,3 +1,44 @@
+# Autarch vision
+
+**Accepted direction:** September 9, 2026. Runtime journey implementation remains pending.
+
+You concentrate on direction, consequential choices, and acceptance. Agents
+maintain context, organize work, and execute within your rulings while
+challenging assumptions with evidence.
+
+Autarch brings a project's accepted intent, decisions, work and evidence into a
+workbench with Flere beside them. The first proving journey uses Autarch itself:
+recover its intent, explore a consequential choice, accept coherent guidance,
+and prepare an independently reviewed implementation plan. Leaving preserves
+the visit; implementation requires a separate action.
+
+The [mission](../MISSION.md), [persona](personas.md), [philosophy](../PHILOSOPHY.md),
+[project visit](cujs/autarch-06-reviewed-project-visit.md),
+[design standards](design/standards.md), and [roadmap](roadmap.md) are the current
+product foundation. [Human ratification](decisions/2026-09-09-human-ratification.md)
+records the source and explicitly amends prior rulings.
+
+Keep project files authoritative, conversations recoverable and the graph
+rebuildable. Clavain owns planning, policy, review and execution; Autarch
+presents their progress and human decisions. The local Mac pilot requires no
+estate-wide graph service. Preserve the daily walk and earlier tending rhythms.
+
+The commercial hypothesis is a workbench for people directing several
+agent-built projects. Prove usefulness in mk's workflow first; willingness to
+pay remains untested. The research contribution is a guidance-retention benchmark
+comparing context strategies, handoffs, plan quality and total token cost.
+Quality and guidance retention must pass before token savings matter.
+
+The application/OS/kernel separation in the historical vision below remains
+useful. Its four-tool emphasis and delivery order no longer define the current
+product priority. Historical claims of current behavior below are dated; they
+are not a September 2026 capability inventory.
+
+## Historical February 19 vision — preserved
+
+The following original document is retained as the source of earlier decisions.
+The direction and roadmap above supersede its product emphasis and sequence.
+
 # Autarch — Vision Document
 
 **Version:** 1.1

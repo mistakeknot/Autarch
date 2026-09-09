@@ -1,6 +1,10 @@
 # autarch-05-feedback-learning-loop
 
 Design status: accepted for implementation, 2026-09-05. Live validation: pending.
+September 9 amendment: this fuller journey is now a Later roadmap outcome.
+The steps below preserve the September 5 design history. Its accept-and-execute
+step 6 is superseded by [separate ratification, preparation and execution](../decisions/2026-09-09-planning-and-execution.md): new acceptance must not start implementation.
+The current runtime still has the earlier coupling; that change is pending.
 Persona: the human guiding product, design, strategy, taste and discernment
 while engineering agents perform scoped work. Source: [accepted rulings](../brainstorms/2026-09-05-feedback-learning-loop.md).
 
@@ -24,7 +28,9 @@ while engineering agents perform scoped work. Source: [accepted rulings](../brai
 
 Recognition condition: the human can trace their intervention to a changed
 product and a subsequent better-informed attempt without repeating the ruling.
-This does not replace the deliberately declined project-wide success field.
+This remains a journey recognition condition. The September 9
+[product amendment](../decisions/2026-09-09-human-ratification.md) now supplies
+qualitative project-wide success direction; no measured result is asserted.
 
 Failure paths: agents unavailable, incomplete history, transcription failure,
 storage failure, interrupted recording, stale approval or question, uncertain

@@ -22,6 +22,12 @@
 
 ## TUI Design Principles
 
+For the project-visit workbench, [design standards](../docs/design/standards.md)
+define artifacts with conversation alongside, stacked below 100 columns, and
+Cozy/Compact density. That accepted target supersedes the blanket layout rule
+below for the project visit. The remaining guidance describes existing tool
+surfaces; it is not evidence that the new workbench is implemented.
+
 **Chat-focused TUI:** All TUIs are built around a chat composer with a 50/50 split layout. Keybindings use `Ctrl+` combinations — no single-letter shortcuts during text entry. Discoverability via slash commands.
 
 **Chat-first editing:** No "edit mode" — users refine content by chatting with the agent. This keeps the TUI conversation-centric.
