@@ -44,8 +44,10 @@ python3 - "$PWD" "$autarch_sha" "$clavain_source" "$clavain_sha" "$lattice_sourc
 import hashlib, json, sys
 from pathlib import Path
 sources = {name: {"path": sys.argv[i], "commit": sys.argv[i+1]} for name, i in [("autarch", 1), ("clavain", 3), ("lattice", 5)]}
-files = {name: hashlib.sha256(Path(name).read_bytes()).hexdigest() for name in ["build/autarch", "build/clavain-cli", "build/AutarchCapture.app/Contents/MacOS/AutarchCapture"]}
-receipt = json.dumps({"version": 1, "sources": sources, "binaries": files}, indent=2) + "\n"
+files = {name: hashlib.sha256(Path(name).read_bytes()).hexdigest() for name in ["build/autarch", "build/clavain-cli"]}
+# The signature changes the capture executable. Its final bytes are bound by
+# the existing post-sign receipt; embedding its own signed hash is circular.
+receipt = json.dumps({"version": 1, "sources": sources, "binaries": files, "signed_bundle_receipt": "review-pilot-signing.json"}, indent=2) + "\n"
 Path("build/AutarchCapture.app/Contents/Resources/source-bindings.json").write_text(receipt)
 Path("build/review-pilot-sources.json").write_text(receipt)
 PY

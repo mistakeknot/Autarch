@@ -147,6 +147,8 @@ case "$*" in *--show-bin-path*) printf '%s\\n' "$CAPTURE_BIN";; esac
         sources = json.loads((repo / "build/review-pilot-sources.json").read_text())
         self.assertEqual(sources["sources"]["clavain"]["path"], str(clavain.resolve()))
         self.assertEqual(sources["sources"]["lattice"]["commit"], "first")
+        self.assertEqual(set(sources["binaries"]), {"build/autarch", "build/clavain-cli"})
+        self.assertEqual(sources["signed_bundle_receipt"], "review-pilot-signing.json")
         receipts = list((repo / "build/signing").glob("*/signing.json"))
         self.assertEqual(len(receipts), 1)
         first_receipt, first_bytes = receipts[0], receipts[0].read_bytes()
