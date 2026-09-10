@@ -117,6 +117,7 @@ exit "${SIGN_EXIT:-0}"
             (clavain / directory).mkdir(parents=True)
         self.env["CLAVAIN_SOURCE_DIR"] = str(clavain)
         self.env["LATTICE_SOURCE_DIR"] = str(self.root / "lattice")
+        (self.root / "lattice").mkdir()
         self.env["CAPTURE_BIN"] = str(self.root / "capture-bin")
         self.env["BUILD_REVISION"] = "first"
         self.tool("go", '''#!/bin/sh
@@ -135,7 +136,7 @@ mkdir -p "$CAPTURE_BIN"
 printf '%s' "$BUILD_REVISION" > "$CAPTURE_BIN/AutarchCapture"
 case "$*" in *--show-bin-path*) printf '%s\\n' "$CAPTURE_BIN";; esac
 ''')
-        self.tool("git", '#!/bin/sh\nprintf "%s\\n" "$BUILD_REVISION"\n')
+        self.tool("git", '#!/bin/sh\ncase "$*" in *symbolic-ref*) echo main;; *status*) ;; *) printf "%s\\n" "$BUILD_REVISION";; esac\n')
 
         def build():
             return subprocess.run(["bash", str(repo / "scripts/build-review-pilot.sh")],
@@ -143,6 +144,9 @@ case "$*" in *--show-bin-path*) printf '%s\\n' "$CAPTURE_BIN";; esac
 
         first = build()
         self.assertEqual(first.returncode, 0, first.stderr)
+        sources = json.loads((repo / "build/review-pilot-sources.json").read_text())
+        self.assertEqual(sources["sources"]["clavain"]["path"], str(clavain.resolve()))
+        self.assertEqual(sources["sources"]["lattice"]["commit"], "first")
         receipts = list((repo / "build/signing").glob("*/signing.json"))
         self.assertEqual(len(receipts), 1)
         first_receipt, first_bytes = receipts[0], receipts[0].read_bytes()

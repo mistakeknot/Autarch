@@ -17,12 +17,19 @@ import (
 // attributable source content and explicit history coverage. It is regenerated
 // for every attempt, so accepted document changes influence subsequent work.
 func FoundationContext(ctx context.Context, root string) string {
+	return foundationContext(ctx, root, true)
+}
+
+func foundationContext(ctx context.Context, root string, includeSources bool) string {
 	brief := door.ReadProductBrief(ctx, root, nil)
 	var out strings.Builder
 	out.WriteString("Project foundation. Files are source evidence; inferred exceptions are not human rulings. Recover established decisions only with a source and revision. Inherit shared guidance unless a cited project exception applies. Draft missing guidance provisionally and ask only consequential questions, one at a time.\n\n")
 	out.WriteString(door.BuildOnboardingBrief(brief))
 	seen := map[string]bool{}
 	read := func(path string) {
+		if !includeSources {
+			return
+		}
 		if seen[path] {
 			return
 		}

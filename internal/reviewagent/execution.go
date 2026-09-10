@@ -33,6 +33,9 @@ func RunExecution(ctx context.Context, store *review.Store, bin string) {
 				options = append(options, clavain.WithBinPath(bin))
 			}
 			client, err := clavain.New(options...)
+			if err == nil && execution.PlanBundleDigest != "" {
+				err = review.VerifyGuidanceHashes(p.Project, execution.GuidanceHashes)
+			}
 			var next review.Execution
 			if err == nil {
 				call, cancel := context.WithTimeout(ctx, 15*time.Second)

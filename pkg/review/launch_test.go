@@ -20,13 +20,16 @@ func preparedRetest(t *testing.T) (*Store, Execution) {
 	p := Proposal{ID: "proposal", Revision: 1, Project: project, FeedbackIDs: []string{note.ID}, FeedbackRevisions: map[string]int{note.ID: 1}, Outcome: "Readable review", Change: "Increase spacing", Scope: []string{"internal/reviewtui"}, Checklist: []string{"Try both densities"}, Priority: 2}
 	for _, r := range []Request{
 		{Version: Version, ID: "draft", Method: "proposal.save", Project: project, Proposal: &p},
-		{Version: Version, ID: "accept", Method: "proposal.accept", Project: project, Target: p.ID, Revision: 1},
+		{Version: Version, ID: "accept", Method: "proposal.accept", Actor: "fixture-human", Project: project, Target: p.ID, Revision: 1},
 	} {
 		if got := s.Apply(r); got.Error != "" {
 			t.Fatal(got.Error)
 		}
 	}
-	e := s.Snapshot().Executions[p.ID]
+	// A retained v1 execution is already authorized. New proposal acceptance
+	// creates none; these launch tests exercise preserved historical execution.
+	e := Execution{ID: p.ID, Project: s.Snapshot().Proposals[p.ID].Project, ProposalID: p.ID, ProposalRevision: 1, Status: "queued"}
+	s.state.Executions[e.ID] = e
 	e.Status, e.Build, e.Binary = "ready_for_retest", "revision:sha256:build-one", "/prepared/autarch"
 	if got := s.Apply(Request{Version: Version, ID: "ready", Method: "execution.save", Project: project, Execution: &e}); got.Error != "" {
 		t.Fatal(got.Error)

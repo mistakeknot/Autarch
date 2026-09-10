@@ -159,21 +159,21 @@ func TestApprovalBindsRevisionAndProject(t *testing.T) {
 	if result.Error != "" {
 		t.Fatal(result.Error)
 	}
-	if s.Apply(Request{Version: Version, ID: "wrong", Method: "proposal.accept", Project: t.TempDir(), Target: "proposal", Revision: 1}).Error == "" {
+	if s.Apply(Request{Version: Version, ID: "wrong", Method: "proposal.accept", Actor: "fixture-human", Project: t.TempDir(), Target: "proposal", Revision: 1}).Error == "" {
 		t.Fatal("cross-project acceptance")
 	}
-	if s.Apply(Request{Version: Version, ID: "stale", Method: "proposal.accept", Project: project, Target: "proposal", Revision: 2}).Error == "" {
+	if s.Apply(Request{Version: Version, ID: "stale", Method: "proposal.accept", Actor: "fixture-human", Project: project, Target: "proposal", Revision: 2}).Error == "" {
 		t.Fatal("stale approval")
 	}
-	req := Request{Version: Version, ID: "accept", Method: "proposal.accept", Project: project, Target: "proposal", Revision: 1}
+	req := Request{Version: Version, ID: "accept", Method: "proposal.accept", Actor: "fixture-human", Project: project, Target: "proposal", Revision: 1}
 	if got := s.Apply(req); got.Error != "" {
 		t.Fatal(got.Error)
 	}
 	if got := s.Apply(req); got.Error != "" {
 		t.Fatal(got.Error)
 	}
-	if len(s.Snapshot().Executions) != 1 {
-		t.Fatal("duplicate execution")
+	if len(s.Snapshot().Executions) != 0 {
+		t.Fatal("accepting guidance must not create an execution")
 	}
 	proposal.Change = "Unseen change"
 	proposal.Revision = 2

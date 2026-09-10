@@ -45,7 +45,11 @@ func reviewControllerCmd() *cobra.Command {
 			clavainBin = ""
 		}
 		go reviewagent.RunExecution(context.Background(), store, clavainBin)
+		go reviewagent.RunPreparation(context.Background(), store, clavainBin)
 		server.OnQuery = func(r review.Request) review.Response {
+			if r.Method == "project.map" || r.Method == "project.rebuild" || r.Method == "project.overview" {
+				return reviewagent.ProjectMap(store, r)
+			}
 			if strings.HasPrefix(r.Method, "auth.") {
 				response := engine.Auth(r)
 				pending := response.Auth != nil && response.Auth.Operation != nil && response.Auth.Operation.Status == "pending"
@@ -63,7 +67,7 @@ func reviewControllerCmd() *cobra.Command {
 			return review.LaunchRetest(store, r)
 		}
 		server.OnRequest = func(r review.Request) {
-			if r.Method == "runtime.cancel" {
+			if r.Method == "runtime.cancel" || r.Method == "visit.correct" {
 				engine.Handle(r)
 			}
 			if r.Method == "capture.command" && (r.Text == "open" || r.Text == "voice" || r.Text == "play") {

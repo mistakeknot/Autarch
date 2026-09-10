@@ -1,5 +1,6 @@
 import fs from "node:fs/promises";
 import path from "node:path";
+import crypto from "node:crypto";
 
 const string = { type: "string" };
 const strings = { type: "array", items: string };
@@ -19,7 +20,8 @@ export default function investigator(pi) {
             if (stat.isDirectory()) return { content: [{ type: "text", text: JSON.stringify((await fs.readdir(target)).slice(0, 200)) }], details: { path: target } };
             if (!stat.isFile() || stat.size > 256 * 1024) throw new Error("Evidence file is unavailable or exceeds 256 KiB; choose a smaller source");
             const content = await fs.readFile(target, "utf8");
-            return { content: [{ type: "text", text: `${target}\n${content}` }], details: { path: target, modified: stat.mtime.toISOString() } };
+            const revision = crypto.createHash("sha256").update(content).digest("hex");
+            return { content: [{ type: "text", text: `${target}\nSHA256: ${revision}\n${content}` }], details: { path: target, revision, modified: stat.mtime.toISOString() } };
         }
     });
     pi.registerTool({
@@ -32,6 +34,12 @@ export default function investigator(pi) {
         }
     });
     const guidance = object({ path: string, text: string, scope: string, rationale: string, base_revision: string, supersedes: string }, ["path", "text", "scope", "rationale", "base_revision"]);
+    pi.registerTool({
+        name: "propose_guidance", label: "Synthesize the project visit",
+        description: "Propose a coherent synthesis for explicit human acceptance. Cite this visit and its current exact answer IDs. Preserve human wording; mark contradictions and coverage gaps. Bind every canonical source using its observed SHA256. Acceptance does not start implementation. Preparation requires a separately supplied human budget.",
+        parameters: object({ visit_id: string, answer_ids: strings, outcome: string, change: string, scope: strings, rationale: string, source_bindings: { type: "object", additionalProperties: string }, uncertainties: strings, pushback: string, guidance: { type: "array", items: guidance }, checklist: strings, priority: { type: "integer", minimum: 0, maximum: 4 }, dependencies: strings }),
+        async execute(_id, params) { return { content: [{ type: "text", text: "Synthesis prepared for explicit human acceptance. No guidance is ratified and no implementation starts." }], details: { autarchProposal: { ...params, kind: "guidance", budget_tokens: 0 } } }; }
+    });
     pi.registerTool({
         name: "propose_response", label: "Prepare response for review",
         description: "Propose an immediate change and any enduring guidance together. No implementation or approval happens here. Include observed feedback IDs and their exact observed revision numbers in feedback_revisions; never relabel an older observation as current. Include evidence, uncertainty, reasoned pushback, exact scope, priority, dependencies, budget and a short retest checklist.",

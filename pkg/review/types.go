@@ -9,7 +9,11 @@ import (
 	"time"
 )
 
-const Version = 1
+const WireVersion = 1
+const RecordVersion = 2
+
+// Version remains the native IPC version for existing clients.
+const Version = WireVersion
 
 func NewID() string {
 	var b [16]byte
@@ -85,46 +89,58 @@ type Guidance struct {
 	Supersedes   string `json:"supersedes,omitempty"`
 }
 type Proposal struct {
-	FeedbackRevisions map[string]int `json:"feedback_revisions"`
-	Tracker           string         `json:"tracker,omitempty"`
-	Build             BuildSpec      `json:"build"`
-	ID                string         `json:"id"`
-	Project           string         `json:"project"`
-	Revision          int            `json:"revision"`
-	At                time.Time      `json:"at"`
-	FeedbackIDs       []string       `json:"feedback_ids"`
-	Outcome           string         `json:"outcome"`
-	Change            string         `json:"change"`
-	Scope             []string       `json:"scope"`
-	Rationale         string         `json:"rationale"`
-	Evidence          []Source       `json:"evidence"`
-	Uncertainties     []string       `json:"uncertainties"`
-	Pushback          string         `json:"pushback,omitempty"`
-	Guidance          []Guidance     `json:"guidance"`
-	Checklist         []string       `json:"checklist"`
-	Priority          int            `json:"priority"`
-	Dependencies      []string       `json:"dependencies"`
-	BudgetTokens      int            `json:"budget_tokens"`
-	Status            string         `json:"status"`
-	AcceptedAt        *time.Time     `json:"accepted_at,omitempty"`
+	Kind              string            `json:"kind,omitempty"`
+	VisitID           string            `json:"visit_id,omitempty"`
+	AnswerIDs         []string          `json:"answer_ids,omitempty"`
+	SourceBindings    map[string]string `json:"source_bindings,omitempty"`
+	RatificationID    string            `json:"ratification_id,omitempty"`
+	AcceptedActor     string            `json:"accepted_actor,omitempty"`
+	SynthesisID       string            `json:"synthesis_id,omitempty"`
+	PlanBundleDigest  string            `json:"plan_bundle_digest,omitempty"`
+	FeedbackRevisions map[string]int    `json:"feedback_revisions"`
+	Tracker           string            `json:"tracker,omitempty"`
+	Build             BuildSpec         `json:"build"`
+	ID                string            `json:"id"`
+	Project           string            `json:"project"`
+	Revision          int               `json:"revision"`
+	At                time.Time         `json:"at"`
+	FeedbackIDs       []string          `json:"feedback_ids"`
+	Outcome           string            `json:"outcome"`
+	Change            string            `json:"change"`
+	Scope             []string          `json:"scope"`
+	Rationale         string            `json:"rationale"`
+	Evidence          []Source          `json:"evidence"`
+	Uncertainties     []string          `json:"uncertainties"`
+	Pushback          string            `json:"pushback,omitempty"`
+	Guidance          []Guidance        `json:"guidance"`
+	Checklist         []string          `json:"checklist"`
+	Priority          int               `json:"priority"`
+	Dependencies      []string          `json:"dependencies"`
+	BudgetTokens      int               `json:"budget_tokens"`
+	Status            string            `json:"status"`
+	AcceptedAt        *time.Time        `json:"accepted_at,omitempty"`
 }
 type Execution struct {
-	InvokedAt        *time.Time `json:"invoked_at,omitempty"`
-	InvokedBuild     string     `json:"invoked_build,omitempty"`
-	Tracker          string     `json:"tracker,omitempty"`
-	ID               string     `json:"id"`
-	Project          string     `json:"project"`
-	ProposalID       string     `json:"proposal_id"`
-	ProposalRevision int        `json:"proposal_revision"`
-	Status           string     `json:"status"`
-	WorkID           string     `json:"work_id,omitempty"`
-	RunID            string     `json:"run_id,omitempty"`
-	DispatchID       string     `json:"dispatch_id,omitempty"`
-	Build            string     `json:"build,omitempty"`
-	Binary           string     `json:"binary,omitempty"`
-	Model            string     `json:"model,omitempty"`
-	Reason           string     `json:"reason,omitempty"`
-	UpdatedAt        time.Time  `json:"updated_at"`
+	GuidanceHashes   map[string]string `json:"guidance_hashes,omitempty"`
+	PlanBundleDigest string            `json:"plan_bundle_digest,omitempty"`
+	ApprovedActor    string            `json:"approved_actor,omitempty"`
+	ApprovedAt       *time.Time        `json:"approved_at,omitempty"`
+	InvokedAt        *time.Time        `json:"invoked_at,omitempty"`
+	InvokedBuild     string            `json:"invoked_build,omitempty"`
+	Tracker          string            `json:"tracker,omitempty"`
+	ID               string            `json:"id"`
+	Project          string            `json:"project"`
+	ProposalID       string            `json:"proposal_id"`
+	ProposalRevision int               `json:"proposal_revision"`
+	Status           string            `json:"status"`
+	WorkID           string            `json:"work_id,omitempty"`
+	RunID            string            `json:"run_id,omitempty"`
+	DispatchID       string            `json:"dispatch_id,omitempty"`
+	Build            string            `json:"build,omitempty"`
+	Binary           string            `json:"binary,omitempty"`
+	Model            string            `json:"model,omitempty"`
+	Reason           string            `json:"reason,omitempty"`
+	UpdatedAt        time.Time         `json:"updated_at"`
 }
 type Verdict struct {
 	ID          string    `json:"id"`
@@ -146,6 +162,8 @@ type Turn struct {
 	Delivery       string    `json:"delivery,omitempty"`
 }
 type Question struct {
+	VisitID        string   `json:"visit_id,omitempty"`
+	PredecessorID  string   `json:"predecessor_id,omitempty"`
 	ID             string   `json:"id"`
 	Project        string   `json:"project"`
 	RuntimeSession string   `json:"runtime_session"`
@@ -172,19 +190,21 @@ type Receipt struct {
 	ID   string `json:"id"`
 }
 type State struct {
-	Version    int                  `json:"version"`
-	Revision   uint64               `json:"revision"`
-	Sessions   map[string]Session   `json:"sessions"`
-	Feedback   map[string]Feedback  `json:"feedback"`
-	Proposals  map[string]Proposal  `json:"proposals"`
-	Executions map[string]Execution `json:"executions"`
-	Verdicts   map[string]Verdict   `json:"verdicts"`
-	Turns      []Turn               `json:"turns"`
-	Streams    []Turn               `json:"streams,omitempty"`
-	Questions  []Question           `json:"questions"`
-	Commands   []CaptureCommand     `json:"commands"`
-	Context    UIContext            `json:"context"`
-	Receipts   map[string]Receipt   `json:"receipts"`
+	Preparations map[string]Preparation `json:"preparations"`
+	Visits       map[string]Visit       `json:"visits"`
+	Version      int                    `json:"version"`
+	Revision     uint64                 `json:"revision"`
+	Sessions     map[string]Session     `json:"sessions"`
+	Feedback     map[string]Feedback    `json:"feedback"`
+	Proposals    map[string]Proposal    `json:"proposals"`
+	Executions   map[string]Execution   `json:"executions"`
+	Verdicts     map[string]Verdict     `json:"verdicts"`
+	Turns        []Turn                 `json:"turns"`
+	Streams      []Turn                 `json:"streams,omitempty"`
+	Questions    []Question             `json:"questions"`
+	Commands     []CaptureCommand       `json:"commands"`
+	Context      UIContext              `json:"context"`
+	Receipts     map[string]Receipt     `json:"receipts"`
 }
 
 func (s State) Clone() State {
@@ -198,24 +218,28 @@ func (s State) Clone() State {
 // State queries, the live context pointer and auth control remain transient;
 // evidence records freeze the applicable context when they are committed.
 type Request struct {
-	Auth      *AuthRequest `json:"auth,omitempty"`
-	Version   int          `json:"version"`
-	ID        string       `json:"id"`
-	Method    string       `json:"method"`
-	Project   string       `json:"project,omitempty"`
-	Target    string       `json:"target,omitempty"`
-	Revision  int          `json:"revision,omitempty"`
-	Text      string       `json:"text,omitempty"`
-	Status    string       `json:"status,omitempty"`
-	Session   *Session     `json:"session,omitempty"`
-	Feedback  *Feedback    `json:"feedback,omitempty"`
-	Proposal  *Proposal    `json:"proposal,omitempty"`
-	Execution *Execution   `json:"execution,omitempty"`
-	Verdict   *Verdict     `json:"verdict,omitempty"`
-	Context   *UIContext   `json:"context,omitempty"`
-	Source    *Source      `json:"source,omitempty"`
-	Turn      *Turn        `json:"turn,omitempty"`
-	Question  *Question    `json:"question,omitempty"`
+	BudgetTokens int          `json:"budget_tokens,omitempty"`
+	VisitID      string       `json:"visit_id,omitempty"`
+	Visit        *Visit       `json:"visit,omitempty"`
+	Actor        string       `json:"actor,omitempty"`
+	Auth         *AuthRequest `json:"auth,omitempty"`
+	Version      int          `json:"version"`
+	ID           string       `json:"id"`
+	Method       string       `json:"method"`
+	Project      string       `json:"project,omitempty"`
+	Target       string       `json:"target,omitempty"`
+	Revision     int          `json:"revision,omitempty"`
+	Text         string       `json:"text,omitempty"`
+	Status       string       `json:"status,omitempty"`
+	Session      *Session     `json:"session,omitempty"`
+	Feedback     *Feedback    `json:"feedback,omitempty"`
+	Proposal     *Proposal    `json:"proposal,omitempty"`
+	Execution    *Execution   `json:"execution,omitempty"`
+	Verdict      *Verdict     `json:"verdict,omitempty"`
+	Context      *UIContext   `json:"context,omitempty"`
+	Source       *Source      `json:"source,omitempty"`
+	Turn         *Turn        `json:"turn,omitempty"`
+	Question     *Question    `json:"question,omitempty"`
 }
 type Response struct {
 	Auth         *AuthState      `json:"auth,omitempty"`

@@ -39,9 +39,33 @@ func Open(dir string) (*Store, error) {
 		if err = json.Unmarshal(b, &s.state); err != nil {
 			return nil, fmt.Errorf("review records unreadable: %w", err)
 		}
-		if s.state.Version != Version {
+		if s.state.Version != 1 && s.state.Version != RecordVersion {
 			return nil, errors.New("unsupported review records version")
 		}
+	}
+	if s.state.Sessions == nil {
+		s.state.Sessions = map[string]Session{}
+	}
+	if s.state.Feedback == nil {
+		s.state.Feedback = map[string]Feedback{}
+	}
+	if s.state.Proposals == nil {
+		s.state.Proposals = map[string]Proposal{}
+	}
+	if s.state.Executions == nil {
+		s.state.Executions = map[string]Execution{}
+	}
+	if s.state.Verdicts == nil {
+		s.state.Verdicts = map[string]Verdict{}
+	}
+	if s.state.Receipts == nil {
+		s.state.Receipts = map[string]Receipt{}
+	}
+	if s.state.Visits == nil {
+		s.state.Visits = map[string]Visit{}
+	}
+	if s.state.Preparations == nil {
+		s.state.Preparations = map[string]Preparation{}
 	}
 	return s, nil
 }
@@ -83,6 +107,7 @@ func (s *Store) Usage() int64 {
 // ignored on recovery. In-memory state advances only after rename + directory
 // sync, so an error never tells the caller their observation was saved.
 func (s *Store) commit(next State) error {
+	next.Version = RecordVersion
 	next.Revision = s.state.Revision + 1
 	data, err := json.Marshal(next)
 	if err != nil {
@@ -224,7 +249,14 @@ func (s *Store) apply(st *State, r Request) (string, error) {
 		}
 		return nil
 	}
+	if strings.HasPrefix(r.Method, "visit.") {
+		return applyVisit(st, r, project, id, now)
+	}
 	switch r.Method {
+	case "prepare.submit":
+		return requestPreparation(st, r, project, now)
+	case "execution.start":
+		return startPreparedExecution(st, r, project, now)
 	case "runtime.switch":
 		if project == "" {
 			return "", errors.New("choose provider/model")
@@ -273,6 +305,10 @@ func (s *Store) apply(st *State, r Request) (string, error) {
 		}
 		st.Context.Project = project
 		st.Context.At = now
+		if visit, ok := st.ProjectVisit(project); ok && r.Context.Item != "" {
+			visit.Selection = r.Context.Item
+			st.Visits[visit.ID] = visit
+		}
 		return r.ID, nil
 	case "session.save":
 		if r.Session == nil || project == "" {
@@ -377,6 +413,12 @@ func (s *Store) apply(st *State, r Request) (string, error) {
 			return "", errors.New("proposal required")
 		}
 		v := *r.Proposal
+		if v.AcceptedAt != nil || v.AcceptedActor != "" || v.Status == "accepted" || v.Kind == "implementation" || v.PlanBundleDigest != "" || v.RatificationID != "" || v.SynthesisID != "" {
+			return "", errors.New("proposal save cannot confer human approval or implementation authority")
+		}
+		if v.Kind != "" && v.Kind != "guidance" {
+			return "", errors.New("unknown proposal kind")
+		}
 		if err := same(v.Project); err != nil {
 			return "", err
 		}
@@ -395,8 +437,13 @@ func (s *Store) apply(st *State, r Request) (string, error) {
 				return "", errors.New("stale proposal")
 			}
 		}
-		if v.Change == "" || v.Outcome == "" || len(v.Scope) == 0 || len(v.FeedbackIDs) == 0 || len(v.Checklist) == 0 {
+		if v.Change == "" || v.Outcome == "" || len(v.Scope) == 0 || (v.Kind != "guidance" && len(v.FeedbackIDs) == 0) || len(v.Checklist) == 0 {
 			return "", errors.New("proposal requires outcome, change, scope, feedback and retest checklist")
+		}
+		if v.Kind == "guidance" {
+			if err := validateVisitProposal(st, v); err != nil {
+				return "", err
+			}
 		}
 		if v.Priority < 0 || v.Priority > 4 || v.BudgetTokens < 0 {
 			return "", errors.New("invalid priority or budget")
@@ -425,6 +472,9 @@ func (s *Store) apply(st *State, r Request) (string, error) {
 		st.Proposals[v.ID] = v
 		return v.ID, nil
 	case "proposal.accept":
+		if strings.TrimSpace(r.Actor) == "" {
+			return "", errors.New("explicit human acceptance actor required")
+		}
 		v, ok := st.Proposals[r.Target]
 		if !ok {
 			return "", errors.New("proposal missing")
@@ -441,6 +491,11 @@ func (s *Store) apply(st *State, r Request) (string, error) {
 		if v.Status != "proposed" {
 			return "", errors.New("proposal is not awaiting acceptance")
 		}
+		if v.Kind == "guidance" {
+			if err := validateVisitProposal(st, v); err != nil {
+				return "", err
+			}
+		}
 		for _, id := range v.FeedbackIDs {
 			note, ok := st.Feedback[id]
 			if !ok || note.Project != project || v.FeedbackRevisions[id] != note.Revision {
@@ -449,12 +504,8 @@ func (s *Store) apply(st *State, r Request) (string, error) {
 		}
 		v.Status = "accepted"
 		v.AcceptedAt = &now
+		v.AcceptedActor = r.Actor
 		st.Proposals[v.ID] = v
-		status, reason := "queued", "Accepted scope awaits Clavain"
-		if v.Priority > 2 || len(v.Dependencies) > 0 {
-			status, reason = "deferred", "Priority or dependencies require scheduling"
-		}
-		st.Executions[v.ID] = Execution{ID: v.ID, Project: project, ProposalID: v.ID, ProposalRevision: v.Revision, Status: status, Reason: reason, UpdatedAt: now}
 		return v.ID, nil
 	case "proposal.reject":
 		v, ok := st.Proposals[r.Target]
@@ -484,6 +535,7 @@ func (s *Store) apply(st *State, r Request) (string, error) {
 		}
 		v.UpdatedAt = now
 		v.InvokedAt, v.InvokedBuild = old.InvokedAt, old.InvokedBuild
+		v.GuidanceHashes, v.PlanBundleDigest, v.ApprovedActor, v.ApprovedAt = old.GuidanceHashes, old.PlanBundleDigest, old.ApprovedActor, old.ApprovedAt
 		st.Executions[v.ID] = v
 		return v.ID, nil
 	case "execution.invoked":
@@ -533,6 +585,11 @@ func (s *Store) apply(st *State, r Request) (string, error) {
 			v.Delivery = "pending"
 		}
 		st.Turns = append(st.Turns, v)
+		if visit, ok := st.ProjectVisit(project); ok {
+			visit.TranscriptIDs = append(visit.TranscriptIDs, v.ID)
+			visit.UpdatedAt = now
+			st.Visits[visit.ID] = visit
+		}
 		return id, nil
 	case "turn.delivery":
 		for i, t := range st.Turns {
@@ -553,6 +610,20 @@ func (s *Store) apply(st *State, r Request) (string, error) {
 		v := *r.Question
 		v.Project = project
 		v.Status = "pending"
+		if visit, ok := st.ProjectVisit(project); ok {
+			if v.VisitID != "" && v.VisitID != visit.ID {
+				return "", errors.New("question belongs to another visit")
+			}
+			v.VisitID = visit.ID
+			for _, q := range st.Questions {
+				if q.VisitID == visit.ID && q.Status == "pending" && q.Consequential && v.Consequential {
+					return "", errors.New("answer the pending consequential question first")
+				}
+			}
+			visit.OpenQuestionID = v.ID
+			visit.UpdatedAt = now
+			st.Visits[visit.ID] = visit
+		}
 		for _, q := range st.Questions {
 			if q.ID == v.ID && q.RuntimeSession == v.RuntimeSession {
 				return "", errors.New("question already exists")
@@ -574,6 +645,14 @@ func (s *Store) apply(st *State, r Request) (string, error) {
 				}
 				st.Questions[i] = q
 				st.Questions[i].Delivery = "pending"
+				if visit, ok := st.Visits[q.VisitID]; ok {
+					if r.Method == "question.answer" {
+						visit.Answers = append(visit.Answers, VisitAnswer{ID: r.ID, QuestionID: q.ID, Text: r.Text, At: now})
+					}
+					visit.OpenQuestionID = ""
+					visit.UpdatedAt = now
+					st.Visits[visit.ID] = visit
+				}
 				return q.ID, nil
 			}
 		}

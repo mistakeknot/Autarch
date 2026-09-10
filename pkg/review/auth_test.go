@@ -36,7 +36,7 @@ func TestProposalCannotRelabelOrAcceptCorrectedFeedback(t *testing.T) {
 	if r := apply(Request{Method: "proposal.save", Proposal: &p}); r.Error == "" {
 		t.Fatal("late proposal relabelled source revision")
 	}
-	if r := apply(Request{Method: "proposal.accept", Target: pr.ID, Revision: 1}); r.Error == "" {
+	if r := apply(Request{Method: "proposal.accept", Actor: "fixture-human", Target: pr.ID, Revision: 1}); r.Error == "" {
 		t.Fatal("proposal based on stale transcript accepted")
 	}
 	if len(s.Snapshot().Executions) != 0 {
@@ -47,7 +47,7 @@ func TestProposalCannotRelabelOrAcceptCorrectedFeedback(t *testing.T) {
 	if current.Error != "" {
 		t.Fatal(current.Error)
 	}
-	if r := apply(Request{Method: "proposal.accept", Target: current.ID, Revision: 1}); r.Error != "" {
+	if r := apply(Request{Method: "proposal.accept", Actor: "fixture-human", Target: current.ID, Revision: 1}); r.Error != "" {
 		t.Fatal(r.Error)
 	}
 }

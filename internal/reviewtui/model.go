@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"os/user"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -32,6 +33,12 @@ type readyMsg struct {
 type ClosedMsg struct{}
 
 type Model struct {
+	workbench, chatFocus                  bool
+	projectMap, correctionID, startDigest string
+	foundation                            string
+	mapRaw                                json.RawMessage
+	preparing                             *review.Proposal
+	answerChoice                          int
 	auth                                  *review.AuthState
 	authOpen, authBusy, authModels        bool
 	authSelection                         int
@@ -80,6 +87,11 @@ func (m *Model) Init() tea.Cmd {
 }
 func tick() tea.Cmd { return tea.Tick(time.Second, func(time.Time) tea.Msg { return tickMsg{} }) }
 func (m *Model) call(r review.Request, saved bool) tea.Cmd {
+	if r.Method == "proposal.accept" || r.Method == "prepare.submit" || r.Method == "execution.start" {
+		if actor, err := user.Current(); err == nil {
+			r.Actor = actor.Username
+		}
+	}
 	if r.Method == "capture.command" && (r.Text == "open" || r.Text == "voice") {
 		r.Context = m.uiContext()
 	}
@@ -92,7 +104,7 @@ func (m *Model) call(r review.Request, saved bool) tea.Cmd {
 	client := m.client
 	return func() tea.Msg {
 		timeout := 10 * time.Second
-		if r.Method == "trace" {
+		if r.Method == "trace" || r.Method == "project.map" || r.Method == "project.rebuild" {
 			timeout = 60 * time.Second
 		}
 		ctx, cancel := context.WithTimeout(context.Background(), timeout)
@@ -121,10 +133,38 @@ func (m *Model) Update(msg tea.Msg) tea.Cmd {
 			return tick()
 		}
 		m.client = v.client
-		return m.context()
+		m.workbench = true
+		return tea.Sequence(m.call(review.Request{Method: "visit.open"}, false), m.call(review.Request{Method: "project.overview"}, false), m.context())
 	case tickMsg:
 		return m.call(review.Request{Method: "state"}, false)
 	case resultMsg:
+		if v.method == "project.overview" {
+			if v.err != "" {
+				m.foundation = "Source overview unavailable: " + v.err
+			} else {
+				var overview struct {
+					Overview string `json:"overview"`
+				}
+				if json.Unmarshal(v.response.Trace, &overview) == nil {
+					m.foundation = overview.Overview
+				}
+			}
+			return tick()
+		}
+		if v.method == "project.map" || v.method == "project.rebuild" {
+			if v.err != "" {
+				m.status = v.err
+				return tick()
+			}
+			if v.method == "project.rebuild" {
+				return m.call(review.Request{Method: "project.map"}, false)
+			}
+			m.mapRaw = v.response.Trace
+			if err := m.renderProjectMap(m.mapRaw); err != nil {
+				m.status = err.Error()
+			}
+			return tick()
+		}
 		if strings.HasPrefix(v.method, "auth.") {
 			m.authBusy = false
 			if v.err != "" {
@@ -153,6 +193,12 @@ func (m *Model) Update(msg tea.Msg) tea.Cmd {
 				oldID = oldItems[m.selection]
 			}
 			m.state = *v.response.State
+			if visit, ok := m.state.ProjectVisit(m.project); ok {
+				m.density = visit.Density
+				if len(m.mapRaw) > 0 {
+					_ = m.renderProjectMap(m.mapRaw)
+				}
+			}
 			for i, id := range m.items() {
 				if id == oldID {
 					m.selection = i
@@ -248,8 +294,16 @@ func (m *Model) Update(msg tea.Msg) tea.Cmd {
 			if key == "ctrl+s" && !m.busy {
 				return m.saveInput()
 			}
+			if m.mode == "answer" && key == "tab" && m.answering != nil && len(m.answering.Options) > 0 {
+				m.answerChoice = (m.answerChoice + 1) % len(m.answering.Options)
+				m.input.SetValue(m.answering.Options[m.answerChoice])
+				return nil
+			}
 			var cmd tea.Cmd
 			m.input, cmd = m.input.Update(v)
+			return cmd
+		}
+		if cmd, handled := m.visitKey(key); handled {
 			return cmd
 		}
 		switch key {
@@ -276,6 +330,7 @@ func (m *Model) Update(msg tea.Msg) tea.Cmd {
 			m.detail = false
 			return m.context()
 		case "1", "2", "3", "4", "5", "6":
+			m.workbench = false
 			m.tab = int(key[0] - '1')
 			m.selection, m.scroll = 0, 0
 			m.detail = false
@@ -286,7 +341,7 @@ func (m *Model) Update(msg tea.Msg) tea.Cmd {
 			} else {
 				m.density = "Cozy"
 			}
-			return m.context()
+			return tea.Sequence(m.visitPreferences(), m.context())
 		case "down", "j":
 			if m.detail {
 				m.scroll++
@@ -334,15 +389,18 @@ func (m *Model) Update(msg tea.Msg) tea.Cmd {
 			return textarea.Blink
 		case "ctrl+f":
 			m.mode = "chat"
-			m.tab = 5
+			if !m.workbench {
+				m.tab = 5
+			}
 			m.input.Placeholder = "Ask Flere about this project…"
 			m.input.Focus()
 			return textarea.Blink
 		case "ctrl+q":
 			if q := m.pendingQuestion(); q != nil {
 				m.answering = q
+				m.answerChoice = -1
 				m.mode = "answer"
-				m.input.Placeholder = q.Title
+				m.input.Placeholder = q.Title + " · Tab chooses an option; or type your answer"
 				m.input.Focus()
 				return textarea.Blink
 			}
@@ -367,10 +425,12 @@ func (m *Model) Update(msg tea.Msg) tea.Cmd {
 			m.chatScroll++
 		case "ctrl+down":
 			m.chatScroll = max(0, m.chatScroll-1)
+		case "shift+tab":
+			m.chatFocus = !m.chatFocus
 		case "ctrl+a":
 			if m.tab == 1 && m.detail && m.reviewed != nil && m.trace == "" {
 				if p, ok := m.selectedProposal(); ok {
-					m.status = "Recording acceptance…"
+					m.status = "Recording guidance acceptance; implementation requires a separate start"
 					return m.call(review.Request{Method: "proposal.accept", Target: p.ID, Revision: p.Revision}, false)
 				}
 			}
@@ -481,58 +541,63 @@ func (m *Model) saveInput() tea.Cmd {
 		m.busy = true
 		return m.call(*m.pendingSave, true)
 	}
-	r := review.Request{}
-	switch m.mode {
-	case "model":
-		r.Method = "runtime.switch"
-		r.Text = text
-	case "delete":
-		if text != "DELETE" || m.deletingSession == nil {
-			m.status = "Type DELETE exactly to remove these captures"
-			return nil
-		}
-		r.Method = "session.delete"
-		r.Target = m.deletingSession.ID
-		r.Revision = m.deletingSession.Revision
-	case "note":
-		r.Method = "feedback.save"
-		r.Feedback = &review.Feedback{Text: text, Context: review.UIContext{At: time.Now().UTC(), View: "review/" + []string{"feedback", "proposals", "retest", "sessions", "decisions", "conversation"}[m.tab], Project: m.project, Density: m.density, Build: review.BuildIdentity()}}
-		for _, s := range m.state.Sessions {
-			if s.Project == m.project && (s.Status == "recording" || s.Status == "paused") {
-				r.Feedback.SessionID = s.ID
-				break
+	r, visitInput := m.visitInput(text)
+	if visitInput && r.Method == "" {
+		return nil
+	}
+	if !visitInput {
+		switch m.mode {
+		case "model":
+			r.Method = "runtime.switch"
+			r.Text = text
+		case "delete":
+			if text != "DELETE" || m.deletingSession == nil {
+				m.status = "Type DELETE exactly to remove these captures"
+				return nil
 			}
-		}
-	case "chat":
-		r.Method = "turn.save"
-		r.Turn = &review.Turn{Kind: "user", Text: text}
-	case "answer":
-		q := m.answering
-		if q == nil {
-			m.status = "Question no longer pending"
-			return nil
-		}
-		valid := false
-		for _, current := range m.state.Questions {
-			if current.ID == q.ID && current.RuntimeSession == q.RuntimeSession && current.Status == "pending" {
-				valid = true
+			r.Method = "session.delete"
+			r.Target = m.deletingSession.ID
+			r.Revision = m.deletingSession.Revision
+		case "note":
+			r.Method = "feedback.save"
+			r.Feedback = &review.Feedback{Text: text, Context: review.UIContext{At: time.Now().UTC(), View: "review/" + []string{"feedback", "proposals", "retest", "sessions", "decisions", "conversation"}[m.tab], Project: m.project, Density: m.density, Build: review.BuildIdentity()}}
+			for _, s := range m.state.Sessions {
+				if s.Project == m.project && (s.Status == "recording" || s.Status == "paused") {
+					r.Feedback.SessionID = s.ID
+					break
+				}
 			}
+		case "chat":
+			r.Method = "turn.save"
+			r.Turn = &review.Turn{Kind: "user", Text: text}
+		case "answer":
+			q := m.answering
+			if q == nil {
+				m.status = "Question no longer pending"
+				return nil
+			}
+			valid := false
+			for _, current := range m.state.Questions {
+				if current.ID == q.ID && current.RuntimeSession == q.RuntimeSession && current.Status == "pending" {
+					valid = true
+				}
+			}
+			if !valid {
+				m.status = "This question is no longer pending. Your draft is retained."
+				return nil
+			}
+			r.Method = "question.answer"
+			r.Target = q.ID
+			r.Text = m.input.Value()
+		case "verdict":
+			if m.verdictExecution == nil {
+				return nil
+			}
+			e := *m.verdictExecution
+			verdict, notes, _ := strings.Cut(text, " ")
+			r.Method = "verdict.save"
+			r.Verdict = &review.Verdict{ExecutionID: e.ID, Build: e.Build, Verdict: verdict, Notes: notes}
 		}
-		if !valid {
-			m.status = "This question is no longer pending. Your draft is retained."
-			return nil
-		}
-		r.Method = "question.answer"
-		r.Target = q.ID
-		r.Text = text
-	case "verdict":
-		if m.verdictExecution == nil {
-			return nil
-		}
-		e := *m.verdictExecution
-		verdict, notes, _ := strings.Cut(text, " ")
-		r.Method = "verdict.save"
-		r.Verdict = &review.Verdict{ExecutionID: e.ID, Build: e.Build, Verdict: verdict, Notes: notes}
 	}
 	m.busy = true
 	m.status = "Saving…"
@@ -638,6 +703,9 @@ func (m *Model) selectedEvidence() *review.Source {
 	return &source
 }
 func (m *Model) body() string {
+	if m.workbench && m.trace == "" {
+		return m.visitBody()
+	}
 	if m.tab == 5 && m.trace == "" {
 		return m.conversation()
 	}
@@ -683,10 +751,14 @@ func (m *Model) body() string {
 			}
 			fmt.Fprintf(&b, "%s%s · %s\n", mark, p.Outcome, p.Status)
 			if m.detail {
-				fmt.Fprintf(&b, "Revision %d\n\nImmediate change: %s\nScope: %s\nWhy: %s\nPriority: P%d · Budget: %d tokens\nDependencies: %s\n", p.Revision, p.Change, strings.Join(p.Scope, ", "), p.Rationale, p.Priority, p.BudgetTokens, strings.Join(p.Dependencies, ", "))
-				fmt.Fprintf(&b, "Tracker: %s\nBuild: %s → %s\nBudget checked on reported model turns; an active turn can exceed it.\n", p.Tracker, strings.Join(p.Build.Command, " "), p.Build.Binary)
-				for _, check := range p.Build.Checks {
-					fmt.Fprintf(&b, "Check: %s\n", strings.Join(check, " "))
+				if p.Kind == "guidance" {
+					fmt.Fprintf(&b, "Revision %d\n\nGuidance synthesis: %s\nScope: %s\nWhy: %s\nPriority: P%d\nPreparation budget is a separate human choice.\n", p.Revision, p.Change, strings.Join(p.Scope, ", "), p.Rationale, p.Priority)
+				} else {
+					fmt.Fprintf(&b, "Revision %d\n\nImmediate change: %s\nScope: %s\nWhy: %s\nPriority: P%d · Budget: %d tokens\nDependencies: %s\n", p.Revision, p.Change, strings.Join(p.Scope, ", "), p.Rationale, p.Priority, p.BudgetTokens, strings.Join(p.Dependencies, ", "))
+					fmt.Fprintf(&b, "Tracker: %s\nBuild: %s → %s\nBudget checked on reported model turns; an active turn can exceed it.\n", p.Tracker, strings.Join(p.Build.Command, " "), p.Build.Binary)
+					for _, check := range p.Build.Checks {
+						fmt.Fprintf(&b, "Check: %s\n", strings.Join(check, " "))
+					}
 				}
 				for _, fid := range p.FeedbackIDs {
 					fmt.Fprintf(&b, "\nOriginal observation: %s\n", m.state.Feedback[fid].OriginalText)
@@ -694,11 +766,19 @@ func (m *Model) body() string {
 				for _, g := range p.Guidance {
 					fmt.Fprintf(&b, "\nEnduring guidance: %s\n%s\nScope: %s\nWhy: %s\nBase revision: %s\n", g.Path, g.Text, g.Scope, g.Rationale, g.BaseRevision)
 				}
+				paths := []string{}
+				for path := range p.SourceBindings {
+					paths = append(paths, path)
+				}
+				sort.Strings(paths)
+				for _, path := range paths {
+					fmt.Fprintf(&b, "Source binding: %s · %s\n", path, p.SourceBindings[path])
+				}
 				fmt.Fprintf(&b, "\nUncertainty: %s\nChallenge: %s\nRetest: %s\n", strings.Join(p.Uncertainties, "; "), p.Pushback, strings.Join(p.Checklist, "; "))
 				for _, e := range p.Evidence {
 					fmt.Fprintf(&b, "Evidence: %s [%s] %s\n", e.Path, e.Status, e.Revision)
 				}
-				b.WriteString("\nCtrl+A accepts this change AND guidance · Ctrl+X rejects\n")
+				b.WriteString("\nCtrl+A accepts this guidance · Ctrl+X rejects\nAcceptance creates no execution. Guidance persistence and reviewed plan preparation precede a separate implementation start.\n")
 			}
 		case 2:
 			e := m.state.Executions[id]
@@ -797,7 +877,7 @@ func (m *Model) chatView(width, height int) string {
 }
 func (m *Model) View() string {
 	width, height := max(30, m.width), max(10, m.height)
-	title := fmt.Sprintf("AUTARCH REVIEW · %s · %s · %.1f MB local", filepath.Base(m.project), m.density, float64(m.storage)/1048576)
+	title := fmt.Sprintf("AUTARCH · %s · %s · %.1f MB local", filepath.Base(m.project), m.density, float64(m.storage)/1048576)
 	tabs := []string{"1 Feedback", "2 Proposals", "3 Retest", "4 Sessions", "5 Decisions", "6 Flere"}
 	tabs[m.tab] = "[" + tabs[m.tab] + "]"
 	status := m.status
@@ -812,18 +892,27 @@ func (m *Model) View() string {
 	}
 	room = max(1, room)
 	body := m.body()
+	if m.density == "Compact" {
+		body = strings.ReplaceAll(body, "\n\n", "\n")
+	}
 	if m.authOpen {
 		body = fit(m.authView(), width-2, room, 0)
 	} else if width >= 100 && m.tab != 5 {
 		left := width * 3 / 5
 		body = lipgloss.JoinHorizontal(lipgloss.Top, lipgloss.NewStyle().Width(left).Render(fit(body, left-2, room, m.scroll)), "│ ", m.chatView(width-left-3, room))
 	} else {
-		if m.tab == 1 && !m.detail {
-			body += "\n" + m.conversation()
+		if m.workbench || m.tab != 5 {
+			top := max(1, (room-2)/2)
+			focus := "Artifacts"
+			if m.chatFocus {
+				focus = "Flere"
+			}
+			body = fit(body, width-2, top, m.scroll) + "\n── " + focus + " focused · Tab switches ──\n" + m.chatView(width-2, max(1, room-top-2))
+		} else {
+			body = fit(body, width-2, room, m.scroll)
 		}
-		body = fit(body, width-2, room, m.scroll)
 	}
-	lines := []string{ansi.Truncate(title, width, ""), strings.Join(tabs, "  "), "", body}
+	lines := []string{ansi.Truncate(title, width, ""), ansi.Truncate("Alt+W Visit · "+strings.Join(tabs, "  "), width, ""), "", body}
 	if m.mode != "" && !m.authOpen {
 		lines = append(lines, m.mode+" · Ctrl+S save · Esc back", m.input.View())
 	}

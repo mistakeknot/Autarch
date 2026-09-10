@@ -150,7 +150,7 @@ func (s *Server) handle(conn net.Conn) {
 		return
 	}
 	var response Response
-	if req.Method == "trace" {
+	if req.Method == "trace" || req.Method == "project.rebuild" || req.Method == "project.map" {
 		_ = conn.SetDeadline(time.Now().Add(65 * time.Second))
 	}
 	if req.Version != Version {
@@ -162,7 +162,7 @@ func (s *Server) handle(conn net.Conn) {
 		}
 	} else if req.Auth != nil {
 		response = Response{Version: Version, ID: req.ID, Error: "authentication input requires the authentication channel"}
-	} else if (req.Method == "trace" || req.Method == "execution.launch") && s.OnQuery != nil {
+	} else if (req.Method == "trace" || req.Method == "execution.launch" || req.Method == "project.map" || req.Method == "project.rebuild" || req.Method == "project.overview") && s.OnQuery != nil {
 		response = s.OnQuery(req)
 	} else {
 		response = s.store.Apply(req)
