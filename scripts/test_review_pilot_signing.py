@@ -113,8 +113,17 @@ exit "${SIGN_EXIT:-0}"
         (repo / "native/AutarchCapture/Info.plist").write_bytes(plistlib.dumps({
             "CFBundleIdentifier": "org.autarch.review.capture"}))
         clavain = self.root / "clavain"
-        for directory in ("cmd/clavain-cli", "scripts", "config"):
+        for directory in ("cmd/clavain-cli", "scripts", "config", ".claude-plugin", "docs/canon"):
             (clavain / directory).mkdir(parents=True)
+        (clavain / ".claude-plugin/plugin.json").write_text('{"version":"test"}')
+        (clavain / "docs/canon/reasoning-routing.md").write_text("Fixture routing canon")
+        (clavain / "scripts/sync-agent-instructions.py").write_text('''
+import json, pathlib, sys
+source = pathlib.Path(sys.argv[sys.argv.index('--source') + 1])
+assert json.loads((source / '.claude-plugin/plugin.json').read_text())['version']
+assert (source / 'docs/canon/reasoning-routing.md').read_text()
+print('Fixture reasoning contract')
+''')
         self.env["CLAVAIN_SOURCE_DIR"] = str(clavain)
         self.env["LATTICE_SOURCE_DIR"] = str(self.root / "lattice")
         (self.root / "lattice").mkdir()
@@ -136,7 +145,14 @@ mkdir -p "$CAPTURE_BIN"
 printf '%s' "$BUILD_REVISION" > "$CAPTURE_BIN/AutarchCapture"
 case "$*" in *--show-bin-path*) printf '%s\\n' "$CAPTURE_BIN";; esac
 ''')
-        self.tool("git", '#!/bin/sh\ncase "$*" in *symbolic-ref*) echo main;; *status*) ;; *) printf "%s\\n" "$BUILD_REVISION";; esac\n')
+        self.tool("git", '''#!/bin/sh
+case "$*" in
+  *symbolic-ref*) echo main;;
+  *status*) ;;
+  *archive*) tar -cf - -C "$2" scripts config .claude-plugin/plugin.json docs/canon/reasoning-routing.md;;
+  *) printf '%s\\n' "$BUILD_REVISION";;
+esac
+''')
 
         def build():
             return subprocess.run(["bash", str(repo / "scripts/build-review-pilot.sh")],
@@ -148,15 +164,21 @@ case "$*" in *--show-bin-path*) printf '%s\\n' "$CAPTURE_BIN";; esac
         self.assertEqual(sources["sources"]["clavain"]["path"], str(clavain.resolve()))
         self.assertEqual(sources["sources"]["lattice"]["commit"], "first")
         self.assertEqual(set(sources["binaries"]), {"build/autarch", "build/clavain-cli"})
+        packaged = repo / "build/clavain"
+        self.assertEqual((packaged / ".claude-plugin/plugin.json").read_bytes(),
+                         (clavain / ".claude-plugin/plugin.json").read_bytes())
+        self.assertIn("build/clavain/.claude-plugin/plugin.json", sources["runtime_files"])
         self.assertEqual(sources["signed_bundle_receipt"], "review-pilot-signing.json")
         receipts = list((repo / "build/signing").glob("*/signing.json"))
         self.assertEqual(len(receipts), 1)
         first_receipt, first_bytes = receipts[0], receipts[0].read_bytes()
         current = repo / "build/review-pilot-signing.json"
         self.assertEqual(current.read_bytes(), first_bytes)
+        (packaged / "scripts/deleted-script.sh").write_text("stale build output")
         self.env["BUILD_REVISION"] = "second"
         second = build()
         self.assertEqual(second.returncode, 0, second.stderr)
+        self.assertFalse((packaged / "scripts/deleted-script.sh").exists())
         self.assertEqual(first_receipt.read_bytes(), first_bytes)
         receipts = list((repo / "build/signing").glob("*/signing.json"))
         self.assertEqual(len(receipts), 2)

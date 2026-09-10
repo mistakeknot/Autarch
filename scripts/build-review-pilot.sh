@@ -27,9 +27,19 @@ rm -f build/review-pilot-signing.json
 go build -o build/autarch ./cmd/autarch
 pilot_build_dir="$PWD/build"
 (cd "$clavain_source/cmd/clavain-cli" && go build -o "$pilot_build_dir/clavain-cli" .)
+# Extract only tracked bytes from the pin into a fresh runtime directory. A
+# merged copy can retain deleted scripts or ignored developer bytecode caches.
+rm -rf build/clavain
 mkdir -p build/clavain
-cp -rf "$clavain_source/scripts" build/clavain/
-cp -rf "$clavain_source/config" build/clavain/
+git -C "$clavain_source" archive "$clavain_sha" scripts config \
+  .claude-plugin/plugin.json docs/canon/reasoning-routing.md | tar -xf - -C build/clavain
+# Exercise both governed host contracts from the package, before signing. CLI
+# startup alone does not load these dispatch-time runtime dependencies.
+for host in codex claude; do
+  PYTHONDONTWRITEBYTECODE=1 python3 build/clavain/scripts/sync-agent-instructions.py \
+    --source "$pilot_build_dir/clavain" --host "$host" \
+    --policy "$pilot_build_dir/clavain/config/routing.yaml" --render >/dev/null
+done
 if [[ ! -x build/lattice/.venv/bin/python ]]; then uv venv build/lattice/.venv; fi
 uv pip install --python build/lattice/.venv/bin/python "$lattice_source"
 swift build --package-path native/AutarchCapture -c release
@@ -45,9 +55,11 @@ import hashlib, json, sys
 from pathlib import Path
 sources = {name: {"path": sys.argv[i], "commit": sys.argv[i+1]} for name, i in [("autarch", 1), ("clavain", 3), ("lattice", 5)]}
 files = {name: hashlib.sha256(Path(name).read_bytes()).hexdigest() for name in ["build/autarch", "build/clavain-cli"]}
+runtime_files = {str(path): hashlib.sha256(path.read_bytes()).hexdigest()
+                 for path in sorted(Path("build/clavain").rglob("*")) if path.is_file()}
 # The signature changes the capture executable. Its final bytes are bound by
 # the existing post-sign receipt; embedding its own signed hash is circular.
-receipt = json.dumps({"version": 1, "sources": sources, "binaries": files, "signed_bundle_receipt": "review-pilot-signing.json"}, indent=2) + "\n"
+receipt = json.dumps({"version": 1, "sources": sources, "binaries": files, "runtime_files": runtime_files, "signed_bundle_receipt": "review-pilot-signing.json"}, indent=2) + "\n"
 Path("build/AutarchCapture.app/Contents/Resources/source-bindings.json").write_text(receipt)
 Path("build/review-pilot-sources.json").write_text(receipt)
 PY
