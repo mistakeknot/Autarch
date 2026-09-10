@@ -30,7 +30,7 @@ export default function investigator(pi) {
         parameters: object({ question: string, options: strings }),
         async execute(_id, params, _signal, _update, ctx) {
             const answer = params.options.length ? await ctx.ui.select(params.question, params.options, { signal: _signal }) : await ctx.ui.input(params.question, undefined, { signal: _signal });
-            return { content: [{ type: "text", text: answer === undefined ? "Cancelled; do not infer an answer." : answer }], details: { answered: answer !== undefined } };
+            return { content: [{ type: "text", text: answer === undefined ? "Question cancelled or not admitted. Check retained pending questions, wait for their answers, and do not infer a choice." : answer }], details: { answered: answer !== undefined } };
         }
     });
     const guidance = object({ path: string, text: string, scope: string, rationale: string, base_revision: string, supersedes: string }, ["path", "text", "scope", "rationale", "base_revision"]);

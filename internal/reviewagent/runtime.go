@@ -444,7 +444,7 @@ func (e *Engine) switchRuntime(t review.Turn) {
 		var working string
 		working, err = e.context(t.Project)
 		if err == nil {
-			err = c.send(map[string]any{"type": "prompt", "id": t.ID, "message": working + "\nContinue the project conversation after this explicit model handoff. Original tool state was not transferred. Ask the next necessary question or prepare the pending feedback response."})
+			err = c.send(map[string]any{"type": "prompt", "id": t.ID, "message": working + "\nContinue the project conversation after this explicit model handoff. Original tool state was not transferred. If the retained context has a pending question, wait for its answer and do not open another question. Otherwise ask the next necessary question or prepare the pending feedback response."})
 		}
 	}
 	if err != nil {
@@ -532,7 +532,7 @@ func (e *Engine) Handle(r review.Request) {
 					e.status("question.delivery", r.Project, q.ID, "unavailable")
 					return
 				}
-				response = map[string]any{"type": "prompt", "id": q.ID, "message": working + "\nAnswer to retained question: " + q.Title + "\n" + r.Text}
+				response = map[string]any{"type": "prompt", "id": q.ID, "message": working + "\nAnswer to retained question: " + q.Title + "\n" + r.Text, "streamingBehavior": "followUp"}
 			} else if r.Method == "question.cancel" {
 				response["cancelled"] = true
 			} else if q.Method == "confirm" {
@@ -540,12 +540,17 @@ func (e *Engine) Handle(r review.Request) {
 			} else {
 				response["value"] = r.Text
 			}
+			if q.PredecessorID != "" && r.Method == "question.answer" {
+				e.status("question.delivery", r.Project, q.ID, "sending")
+			}
 			if err := c.send(response); err != nil {
 				e.record(r.Project, "runtime", err.Error(), session, model)
 				e.status("question.delivery", r.Project, q.ID, "unavailable")
 			} else {
 				e.record(r.Project, "human answer", q.Title+"\n"+r.Text, session, model)
-				e.status("question.delivery", r.Project, q.ID, "delivered")
+				if q.PredecessorID == "" || r.Method != "question.answer" {
+					e.status("question.delivery", r.Project, q.ID, "delivered")
+				}
 			}
 			return
 		}
@@ -604,6 +609,15 @@ func (e *Engine) event(c *conversation, event map[string]json.RawMessage) {
 		_ = json.Unmarshal(event["success"], &success)
 		if stringField(event, "command") == "prompt" {
 			id := stringField(event, "id")
+			for _, q := range e.store.Snapshot().Questions {
+				if q.ID == id && q.Project == c.project && q.PredecessorID != "" && q.Status == "answered" {
+					status := "delivered"
+					if !success {
+						status = "unavailable"
+					}
+					e.status("question.delivery", c.project, id, status)
+				}
+			}
 			for _, t := range e.store.Snapshot().Turns {
 				if t.ID == id {
 					status := "delivered"

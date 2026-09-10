@@ -96,3 +96,35 @@ func TestLiveAutarchVisitHandoffFits(t *testing.T) {
 	}
 	t.Logf("current project handoff: %d bytes", len(handoff))
 }
+
+func TestReissuedAnswerWaitsForRuntimeAcknowledgement(t *testing.T) {
+	e, project := visitEngineFixture(t)
+	q := review.Question{ID: "original", Project: project, RuntimeSession: "old", Method: "input", Title: "Exact question", Consequential: true}
+	e.store.Apply(review.Request{Version: review.Version, ID: review.NewID(), Method: "question.save", Project: project, Question: &q})
+	visit, _ := e.store.Snapshot().ProjectVisit(project)
+	e.store.Apply(review.Request{Version: review.Version, ID: review.NewID(), Method: "visit.runtime", Project: project, VisitID: visit.ID, Text: "new"})
+	questions := e.store.Snapshot().Questions
+	current := questions[len(questions)-1]
+	input := &inputBuffer{}
+	c := &conversation{project: project, session: "new", in: input}
+	e.runtimes[project] = c
+	r := review.Request{Version: review.Version, ID: review.NewID(), Method: "question.answer", Project: project, Target: current.ID, Text: "Exact answer"}
+	if response := e.store.Apply(r); response.Error != "" {
+		t.Fatal(response.Error)
+	}
+	e.Handle(r)
+	var sent map[string]any
+	if err := json.Unmarshal(input.Bytes(), &sent); err != nil || sent["streamingBehavior"] != "followUp" {
+		t.Fatal("answer not queued as followup", err)
+	}
+	questions = e.store.Snapshot().Questions
+	if questions[len(questions)-1].Delivery != "sending" {
+		t.Fatal("answer claimed delivered before acknowledgement")
+	}
+	payload, _ := json.Marshal(map[string]any{"type": "response", "command": "prompt", "id": current.ID, "success": false, "error": "fixture rejection"})
+	visitEvent(t, e, c, string(payload))
+	questions = e.store.Snapshot().Questions
+	if questions[len(questions)-1].Delivery != "unavailable" || questions[len(questions)-1].Answer != "Exact answer" {
+		t.Fatal("rejected answer delivery or retained wording incorrect")
+	}
+}

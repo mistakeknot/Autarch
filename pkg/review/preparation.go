@@ -141,7 +141,7 @@ func (s *Store) RecordPreparation(id string, raw []byte, callErr error) error {
 		return errors.New("preparation missing")
 	}
 	if callErr != nil {
-		p.Status = "blocked"
+		p.Status = "unavailable"
 		p.Reason = callErr.Error()
 	} else {
 		var receipt PreparedReceipt
