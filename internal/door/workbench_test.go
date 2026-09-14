@@ -105,6 +105,53 @@ func TestWorkbenchIsDefaultAndDetailsRemainNumbered(t *testing.T) {
 				t.Fatalf("%dx%d overflow: %q", size[0], size[1], line)
 			}
 		}
+		if size[0] == 42 {
+			for _, tc := range []struct {
+				name, command, label, want string
+				missing, commandMismatch   bool
+			}{
+				{name: "selected second", command: "codex", label: "autarch", want: "AGENT · Codex · %3 · autarch"},
+				{name: "long label", command: "codex", label: strings.Repeat("a", 40), want: "AGENT · Codex · %3 · " + strings.Repeat("a", 16) + "…"},
+				{name: "wide label", command: "claude", label: strings.Repeat("界", 20), want: "AGENT · Claude Code · %3 · " + strings.Repeat("界", 5) + "…"},
+				{name: "single line", command: "codex", label: "autarch\nreview", want: "AGENT · Codex · %3 · autarch review"},
+				{name: "empty label", command: "codex", want: "AGENT · Codex · %3"},
+				{name: "missing target", command: "codex", missing: true, want: "AGENT · Codex · %3"},
+				{name: "command mismatch", command: "codex", label: "wrong session", commandMismatch: true, want: "AGENT · Codex · %3"},
+			} {
+				t.Run(tc.name, func(t *testing.T) {
+					m := m
+					m.workbench.target.Command = tc.command
+					other := m.workbench.target
+					other.Socket = "/tmp/other-workbench.sock"
+					m.workbench.panes = []agenttransport.Pane{{Target: other, SessionName: "wrong session"}}
+					if !tc.missing {
+						candidate := m.workbench.target
+						if tc.commandMismatch {
+							candidate.Command = "claude"
+						}
+						m.workbench.panes = append(m.workbench.panes, agenttransport.Pane{Target: candidate, SessionName: tc.label})
+					}
+					if got := m.workbenchLines()[2]; got != tc.want {
+						t.Fatalf("agent line = %q, want %q", got, tc.want)
+					}
+					view := ansi.Strip(m.View())
+					if !strings.Contains(view, tc.want) || !strings.Contains(view, "NEXT ACTION") {
+						t.Fatalf("selected agent or next action is not visible:\n%s", view)
+					}
+					for _, line := range strings.Split(view, "\n") {
+						if ansi.StringWidth(line) > 42 {
+							t.Fatalf("42-column overflow: %q", line)
+						}
+					}
+					lines := m.productLines()
+					for i, line := range lines {
+						if strings.HasPrefix(ansi.Strip(line), "AGENT") && (i+1 >= len(lines) || !strings.HasPrefix(ansi.Strip(lines[i+1]), "NEXT ACTION")) {
+							t.Fatalf("agent label wrapped onto another row:\n%s", view)
+						}
+					}
+				})
+			}
+		}
 	}
 	m, _ = press(m, "7")
 	if m.productSection != 6 || !strings.Contains(m.View(), "PROJECT FOUNDATION") {
@@ -392,6 +439,27 @@ func TestWorkbenchDeltaOnlyForSameTaskAndExactPane(t *testing.T) {
 	h, err = m.buildPendingHandoff(false)
 	if err != nil || h.Form != "full" || h.ParentID != "" || !strings.Contains(h.Message, "Accepted decisions (literal wording)") || !strings.Contains(h.Message, "Keep annotations with their sources") {
 		t.Fatalf("changed pane did not force full context: %+v %v", h, err)
+	}
+}
+
+func TestWorkbenchFollowupCanReturnToFreshFullContext(t *testing.T) {
+	m := workbenchModelFixture(t)
+	m.workbench.draft = "same-session correction"
+	m.workbench.lastHandoffID = "parent"
+	m.workbench.lastTarget = m.workbench.target
+	m.workbench.lastTask = m.workbench.task
+
+	m, _ = press(m, "f")
+	if !m.workbench.followup {
+		t.Fatal("follow-up was not selected")
+	}
+	m, _ = press(m, "f")
+	if m.workbench.followup || !strings.Contains(m.status, "fresh full context") {
+		t.Fatalf("follow-up could not be toggled off: %+v", m.workbench)
+	}
+	handoff, err := m.buildPendingHandoff(false)
+	if err != nil || handoff.Form != "full" || handoff.ParentID != "" || !strings.Contains(handoff.Message, "# External agent handoff") {
+		t.Fatalf("fresh full context was not restored: %+v err=%v", handoff, err)
 	}
 }
 

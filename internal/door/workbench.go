@@ -14,6 +14,7 @@ import (
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/x/ansi"
 
 	"github.com/mistakeknot/autarch/pkg/agenttransport"
 	"github.com/mistakeknot/autarch/pkg/review"
@@ -799,7 +800,10 @@ func (m Model) handleWorkbenchKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.workbench.mode = workbenchConfirmVerdict
 		m.productOffset = 0
 	case "f":
-		if m.workbench.lastHandoffID != "" && m.workbench.target == m.workbench.lastTarget && m.workbench.task == m.workbench.lastTask {
+		if m.workbench.followup {
+			m.workbench.followup = false
+			m.status = "The next handoff will include fresh full context"
+		} else if m.workbench.lastHandoffID != "" && m.workbench.target == m.workbench.lastTarget && m.workbench.task == m.workbench.lastTask {
 			m.workbench.followup = true
 			m.status = "Corrective follow-up will be a delta to the same exact pane"
 		} else {
@@ -918,10 +922,21 @@ func (m Model) workbenchLines() []string {
 		preview = firstText(m.workbench.previewError, "not read")
 	}
 	if m.dashboardContentWidth() < 55 {
+		agentLine := "AGENT · " + providerIdentity(m.workbench.target) + " · " + firstText(m.workbench.target.PaneID, "none")
+		for _, pane := range m.workbench.panes {
+			if pane.Target == m.workbench.target {
+				label := oneLine(pane.SessionName)
+				remaining := m.dashboardContentWidth() - ansi.StringWidth(agentLine+" · ")
+				if label != "" && remaining > 0 {
+					agentLine += " · " + ansi.Truncate(label, remaining, "…")
+				}
+				break
+			}
+		}
 		lines := []string{
 			"OUTCOME · " + firstText(m.workbench.outcome, "Not chosen"),
 			"CURRENT WORK · " + task,
-			"AGENT · " + providerIdentity(m.workbench.target) + " · " + firstText(m.workbench.target.PaneID, "none"),
+			agentLine,
 			"NEXT ACTION · " + firstText(oneLine(m.workbench.draft), "Draft empty"),
 			"Readiness " + m.workbench.readiness + " · capacity unknown",
 			"e Draft · O Outcome · l Account · i Kind · s Send · x Interrupt",
