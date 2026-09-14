@@ -223,8 +223,9 @@ func (m Model) displayMenuView() string {
 			"↑↓ Scroll or select          Esc  Back     q  Quit", "",
 			"Enter opens a question's evidence first. Enter again opens its session.",
 			"Saved questions are history. Use s in their evidence to resume them.",
-			"Product HUD: 1–6 sections, o source, Esc back.",
-			"6 Foundation: n onboarding brief, c copy for your chosen agent.", "",
+			"Product HUD: 1–7 sections, o source, Esc back.",
+			"1 Workbench: draft, confirm, send/follow up, terminal, interrupt.",
+			"7 Foundation: n onboarding brief, c copy for your chosen agent.", "",
 			"Ctrl+R opens the selected project's review workbench.", "",
 			"Your view preference is remembered. Your last visit sets the next catch-up window."}
 	} else {

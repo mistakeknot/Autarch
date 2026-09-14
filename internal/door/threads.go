@@ -2,12 +2,15 @@ package door
 
 import (
 	"context"
+	"errors"
 	"path/filepath"
 	"regexp"
 	"sort"
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/mistakeknot/autarch/pkg/agenttransport"
 )
 
 // The thread registry (autarch-01 steps 2/3, plan 2026-09-02). tmux session
@@ -104,15 +107,20 @@ func ClassifyPane(cmd string) (Runtime, string) {
 	}
 }
 
-// Thread is one live tmux session, seated and classified, with (for a claude
+// Thread is one live tmux pane, seated and classified, with (for a claude
 // thread carrying a resume id) its transcript's last real turn and the
 // gardens it mentions.
 type Thread struct {
-	Session  string // tmux name, verbatim
-	Seat     Seat
-	Runtime  Runtime
-	Version  string
-	Activity int64
+	Target     agenttransport.Target
+	WindowName string
+	Command    string
+	Dead       bool
+	Session    string // tmux name, verbatim
+	Project    string // cwd-qualified project root; empty is explicitly unassigned
+	Seat       Seat
+	Runtime    Runtime
+	Version    string
+	Activity   int64
 
 	Path            string    // pane path (kept for ResolveSessions parity)
 	Transcript      string    // "" when none
@@ -193,7 +201,10 @@ func Attribute(threads []Thread, projects []Project, minShare float64) map[strin
 			if !list[i].LastTurn.Equal(list[j].LastTurn) {
 				return list[i].LastTurn.After(list[j].LastTurn)
 			}
-			return list[i].Activity > list[j].Activity
+			if list[i].Activity != list[j].Activity {
+				return list[i].Activity > list[j].Activity
+			}
+			return list[i].Key() < list[j].Key()
 		})
 	}
 	return byRoot
@@ -213,13 +224,13 @@ func (ts ThreadSet) Sessions() SessionSet {
 	for root, threads := range ts.ByRoot {
 		for _, th := range threads {
 			set.ByRoot[root] = append(set.ByRoot[root], TmuxSession{
-				Name: th.Session, Path: th.Path, Activity: th.Activity, Command: "",
+				Name: th.Session, Path: th.Path, Activity: th.Activity, Command: th.Command, Target: th.Target, WindowName: th.WindowName, Dead: th.Dead,
 			})
-			attributed[th.Session] = true
+			attributed[th.Key()] = true
 		}
 	}
 	for _, th := range ts.Threads {
-		if attributed[th.Session] {
+		if attributed[th.Key()] {
 			set.Resolved++
 		} else {
 			set.Unresolved = append(set.Unresolved, th.Session)
@@ -255,6 +266,16 @@ func ReadThreadsWithCodex(ctx context.Context, sessions []TmuxSession, projects 
 	_ = roots
 	sem := make(chan struct{}, readThreadsWorkers)
 	var wg sync.WaitGroup
+	sessionKey := func(s TmuxSession) string {
+		if s.Target.Socket == "" {
+			return s.Name
+		}
+		return s.Target.Socket + "/" + s.Target.SessionID
+	}
+	paneCounts := map[string]int{}
+	for _, s := range sessions {
+		paneCounts[sessionKey(s)]++
+	}
 	for i := range sessions {
 		wg.Add(1)
 		go func(s TmuxSession) {
@@ -265,10 +286,17 @@ func ReadThreadsWithCodex(ctx context.Context, sessions []TmuxSession, projects 
 			seat := ParseSeat(s.Name)
 			rt, version := ClassifyPane(s.Command)
 			th := Thread{
-				Session: s.Name, Seat: seat, Runtime: rt, Version: version,
+				Session: s.Name, Seat: seat, Runtime: rt, Version: version, Target: s.Target, WindowName: s.WindowName, Command: s.Command, Dead: s.Dead,
 				Activity: s.Activity, Path: s.Path,
 			}
 			if !hasResumeID(seat) {
+				onThread(th)
+				return
+			}
+			if paneCounts[sessionKey(s)] > 1 {
+				// Session names remain useful labels, but do not prove which split owns
+				// a conversation. Cwd attribution still works; shared roots stay unknown.
+				th.Err = errors.New("session has multiple panes; transcript needs an explicit pane association")
 				onThread(th)
 				return
 			}
@@ -299,3 +327,11 @@ func ReadThreadsWithCodex(ctx context.Context, sessions []TmuxSession, projects 
 	}
 	wg.Wait()
 }
+
+func (th Thread) Key() string {
+	if th.Target.Socket == "" {
+		return th.Session
+	}
+	return th.Target.Key()
+}
+func (th Thread) Clone() Thread { th.Gardens = append([]GardenHit(nil), th.Gardens...); return th }

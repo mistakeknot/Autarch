@@ -48,7 +48,7 @@ func (m Model) startThreads(sessions []TmuxSession) tea.Cmd {
 				th.PaneErr = err
 				th.QuestionVisible = err == nil && QuestionOnScreen(th.Conversation.Question, pane)
 			}
-			results <- threadMsg{t: th}
+			results <- threadMsg{t: th.Clone()}
 		})
 		return nil
 	}

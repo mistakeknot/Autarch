@@ -9,14 +9,15 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/x/ansi"
+	"github.com/mistakeknot/autarch/pkg/agenttransport"
 )
 
 // CaptureThreadPane reads the current pane only. It never sends input.
 func CaptureThreadPane(th Thread) (string, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), listSessionsTimeout)
 	defer cancel()
-	out, err := exec.CommandContext(ctx, "tmux", "capture-pane", "-p", "-t", "="+th.Session+":").Output()
-	return cleanEvidence(string(out)), err
+	out, err := agenttransport.NewTmux(nil, "").Observe(ctx, th.Target)
+	return cleanEvidence(out), err
 }
 
 // QuestionOnScreen confirms text, not a generic prompt glyph. A transcript
@@ -65,7 +66,7 @@ func (m Model) questions() []Thread {
 		if !a.Equal(b) {
 			return a.After(b)
 		}
-		return out[i].Session < out[j].Session
+		return out[i].Key() < out[j].Key()
 	})
 	return out
 }
@@ -211,7 +212,7 @@ func (m Model) catchupLines(room int) []string {
 
 func questionIndex(list []Thread, selected string) int {
 	for i, th := range list {
-		if th.Session == selected {
+		if th.Key() == selected {
 			return i
 		}
 	}
@@ -249,7 +250,7 @@ func (m Model) questionsLines(room int) []string {
 
 func (m Model) detailThread() (Thread, bool) {
 	for _, th := range m.threads.Threads {
-		if th.Session == m.detailSession {
+		if th.Key() == m.detailSession {
 			return th, true
 		}
 	}
@@ -349,7 +350,7 @@ func (m Model) handleQuestionKey(key string) (tea.Model, tea.Cmd) {
 		sel = len(qs) - 1
 	case "enter":
 		if len(qs) > 0 {
-			m.detailSession = qs[sel].Session
+			m.detailSession = qs[sel].Key()
 			m.detailOffset = 0
 			m.detailFrom = screenQuestions
 			m.screen = screenQuestion
@@ -357,7 +358,7 @@ func (m Model) handleQuestionKey(key string) (tea.Model, tea.Cmd) {
 	}
 	if len(qs) > 0 {
 		sel = max(0, min(sel, len(qs)-1))
-		m.questionSel = qs[sel].Session
+		m.questionSel = qs[sel].Key()
 	}
 	return m, nil
 }

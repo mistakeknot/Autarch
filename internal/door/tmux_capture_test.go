@@ -253,7 +253,7 @@ func TestTmuxCaptureSwitchClientAndZed(t *testing.T) {
 	waitFor("project rows for onboarding", func() bool { return strings.Contains(run("capture-pane", "-p", "-t", "reopened"), "enter switch/open") })
 	run("send-keys", "-t", "reopened", "i")
 	waitFor("product context loaded", func() bool { return strings.Contains(run("capture-pane", "-p", "-t", "reopened"), "CURRENT WORK") })
-	run("send-keys", "-t", "reopened", "6")
+	run("send-keys", "-t", "reopened", "7")
 	waitFor("foundation inventory", func() bool {
 		cap := run("capture-pane", "-p", "-t", "reopened")
 		return strings.Contains(cap, "Mission · Sources found") && strings.Contains(cap, "Vision · Not found")

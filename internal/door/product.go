@@ -55,6 +55,7 @@ type ProductWork struct {
 	Priority    int    `json:"priority"`
 	SpecID      string `json:"spec_id"`
 	Description string `json:"description"`
+	Assignee    string `json:"assignee"`
 }
 
 type ProductBacklog struct {

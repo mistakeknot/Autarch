@@ -15,6 +15,7 @@ import (
 	"github.com/charmbracelet/lipgloss"
 
 	"github.com/mistakeknot/autarch/internal/reviewtui"
+	"github.com/mistakeknot/autarch/pkg/agenttransport"
 	"github.com/mistakeknot/autarch/pkg/review"
 	"github.com/mistakeknot/autarch/pkg/tui/theme"
 )
@@ -186,7 +187,9 @@ type Model struct {
 	threadsPending    int
 	threadsLoaded     bool   // one full read finished, or failed (threads.Err)
 	prevScreen        screen // where t returns to
-	threadSel         string // selected seat's session name; "" tracks the top
+	threadQuery       string
+	threadSearching   bool
+	threadSel         string // exact pane key; "" tracks the top
 	threadOffset      int
 	registry          []Seat // the note given by --registry, parsed once
 	registryErr       error
@@ -206,6 +209,7 @@ type Model struct {
 	productLoading    bool
 	productStandalone bool
 	productGeneration int
+	workbench         workbenchState
 	density           Density
 	displayPath       string
 	menu              string
@@ -277,12 +281,12 @@ func (m Model) now() time.Time {
 
 func (m Model) Init() tea.Cmd {
 	if m.productStandalone {
-		return tea.Batch(m.loadProduct(), attentionTick())
+		return tea.Batch(m.loadProduct(), m.loadWorkbench(), nextWorkbenchPreviewTick(), attentionTick())
 	}
 	// Sessions load even when the checker is unavailable: the axes fail
 	// independently, and a dead checker must not blind the tmux column or
 	// the briefing.
-	cmds := []tea.Cmd{m.loadSessions(), attentionTick()}
+	cmds := []tea.Cmd{m.loadSessions(), nextWorkbenchPreviewTick(), attentionTick()}
 	if m.checkerErr == nil && len(m.projects) > 0 {
 		cmds = append(cmds, m.startChecks(), m.waitForResult())
 	}
@@ -395,6 +399,30 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			project = canonical
 		}
 		if v.state != nil && m.reviewWorkspace == nil {
+			m.workbench.handoffs = nil
+			for _, handoff := range v.state.ExternalHandoffs {
+				if handoff.Project == project {
+					m.workbench.handoffs = append(m.workbench.handoffs, handoff.Clone())
+				}
+			}
+			sort.Slice(m.workbench.handoffs, func(i, j int) bool {
+				if m.workbench.handoffs[i].ApprovedAt.Equal(m.workbench.handoffs[j].ApprovedAt) {
+					return m.workbench.handoffs[i].ID < m.workbench.handoffs[j].ID
+				}
+				return m.workbench.handoffs[i].ApprovedAt.Before(m.workbench.handoffs[j].ApprovedAt)
+			})
+			if len(m.workbench.handoffs) > 0 {
+				latest := m.workbench.handoffs[len(m.workbench.handoffs)-1]
+				m.workbench.lastHandoffID = latest.ID
+				m.workbench.lastTarget = latest.Target
+				m.workbench.lastTask = latest.Task
+				m.workbench.lastMessage = latest.Message
+				m.workbench.lastDelivery = latest.Delivery
+			}
+			m.selectWorkbenchRecovery()
+			if m.workbench.openRequired {
+				m.workbench.readiness = "uncertain"
+			}
 			recording := false
 			for _, s := range v.state.Sessions {
 				if s.Project == project && (s.Status == "recording" || s.Status == "paused") {
@@ -438,7 +466,129 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case productMsg:
 		if msg.generation == m.productGeneration {
 			m.product, m.productLoading = msg.brief, false
+			m.adoptProductForWorkbench()
 		}
+		return m, nil
+	case workbenchLoadedMsg:
+		m.workbench.discovery = msg.discovery
+		if msg.err != nil {
+			m.workbench.previewError = msg.err.Error()
+			return m, nil
+		}
+		m.applyWorkbenchPanes(msg.panes)
+		m.adoptProductForWorkbench()
+		return m, m.loadWorkbenchPreview()
+	case workbenchPreviewMsg:
+		if msg.target == m.workbench.target && !m.workbench.targetStale {
+			m.workbench.preview = msg.preview
+			m.workbench.previewError = ""
+			if msg.err != nil {
+				m.workbench.previewError = msg.err.Error()
+			}
+		}
+		return m, nil
+	case workbenchPreviewTick:
+		if m.screen == screenProduct && m.productSection == 0 {
+			return m, tea.Batch(m.loadWorkbenchPreview(), nextWorkbenchPreviewTick())
+		}
+		return m, nextWorkbenchPreviewTick()
+	case workbenchActionMsg:
+		m.workbench.mode = workbenchBrowse
+		if msg.err != nil {
+			m.status = msg.action + " failed: " + msg.err.Error()
+			inputFailed := (msg.action == "send" || msg.action == "interrupt") && msg.id != ""
+			if inputFailed {
+				m.workbench.lastHandoffID = msg.id
+				m.workbench.lastTarget = m.workbench.pendingHandoff.Target
+				m.workbench.lastTask = m.workbench.pendingHandoff.Task
+				m.workbench.lastMessage = m.workbench.pendingHandoff.Message
+				m.workbench.lastDelivery = agenttransport.Uncertain
+				m.workbench.recoveryHandoffID = msg.id
+				m.workbench.recoveryTarget = m.workbench.pendingHandoff.Target
+			}
+			if inputFailed {
+				m.workbench.openRequired = true
+				m.workbench.readiness = "uncertain"
+			}
+		} else if msg.action == "open" {
+			for i := range m.workbench.handoffs {
+				if m.workbench.handoffs[i].ID == msg.id {
+					m.workbench.handoffs[i].OpenRequired = false
+				}
+			}
+			m.workbench.openRequired = false
+			m.workbench.recoveryHandoffID = ""
+			m.workbench.recoveryTarget = agenttransport.Target{}
+			m.selectWorkbenchRecovery()
+			m.workbench.followup = false
+			m.status = "Opened the exact original pane; review and approve fresh input"
+			if m.workbench.openRequired {
+				m.status = "Opened one exact pane; another unresolved handoff still requires inspection"
+			}
+		} else {
+			m.workbench.lastHandoffID = msg.id
+			m.workbench.lastTarget = m.workbench.pendingHandoff.Target
+			m.workbench.lastTask = m.workbench.pendingHandoff.Task
+			m.workbench.lastMessage = m.workbench.pendingHandoff.Message
+			m.workbench.lastDelivery = msg.delivery
+			m.status = msg.action + ": " + string(msg.delivery)
+			if msg.delivery == agenttransport.Uncertain {
+				m.workbench.openRequired = true
+				m.workbench.recoveryHandoffID = msg.id
+				m.workbench.recoveryTarget = m.workbench.pendingHandoff.Target
+				m.workbench.readiness = "uncertain"
+			}
+			if msg.action == "interrupt" && msg.delivery == agenttransport.Delivered {
+				m.selectWorkbenchRecovery()
+				m.workbench.readiness = "uncertain"
+				m.workbench.followup = false
+				m.workbench.draft = ""
+			}
+			if msg.action == "send" && msg.delivery == agenttransport.Delivered {
+				m.workbench.readiness = "uncertain"
+				m.workbench.followup = false
+				// Preferences restore only unsent text. The durable handoff retains
+				// the approved payload and its receipt for later delta follow-ups.
+				m.workbench.draft = ""
+			}
+			if msg.preview != "" {
+				m.workbench.preview = msg.preview
+			}
+		}
+		m.workbench.pendingHandoff = review.ExternalHandoff{}
+		m.workbench.pendingRequestID = ""
+		m.saveWorkbenchPreference()
+		return m, nil
+	case workbenchRecordMsg:
+		m.workbench.mode = workbenchBrowse
+		if msg.err != nil {
+			m.status = msg.method + " failed: " + msg.err.Error()
+			return m, nil
+		}
+		for i := range m.workbench.handoffs {
+			if m.workbench.handoffs[i].ID != msg.id {
+				continue
+			}
+			switch msg.method {
+			case "handoff.report":
+				m.workbench.handoffs[i].Results = msg.handoff.Results
+				m.workbench.handoffs[i].AgentReportedCompletion = msg.handoff.AgentReportedCompletion
+				m.workbench.handoffs[i].VerifiedChecks = nil
+				m.workbench.handoffs[i].HumanVerdict = nil
+			case "handoff.verify":
+				m.workbench.handoffs[i].VerifiedChecks = append([]review.HandoffCheck(nil), msg.handoff.VerifiedChecks...)
+				m.workbench.handoffs[i].HumanVerdict = nil
+			case "handoff.verdict":
+				if msg.handoff.HumanVerdict != nil {
+					verdict := *msg.handoff.HumanVerdict
+					m.workbench.handoffs[i].HumanVerdict = &verdict
+				}
+			}
+			break
+		}
+		m.workbench.recordInput = ""
+		m.workbench.pendingVerdict = ""
+		m.status = msg.method + " recorded against " + msg.id
 		return m, nil
 	case tea.WindowSizeMsg:
 		m.width, m.height = msg.Width, msg.Height
@@ -552,6 +702,42 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	key := msg.String()
+	if m.screen == screenProduct && m.workbench.mode != workbenchBrowse {
+		return m.handleProductKey(msg)
+	}
+	if m.screen == screenThreads && key == "esc" && m.threadQuery != "" {
+		m.threadQuery = ""
+		m.threadSearching = false
+		m.threadSel = ""
+		m.threadOffset = 0
+		return m, nil
+	}
+	if m.screen == screenThreads && m.threadSearching {
+		switch key {
+		case "esc":
+			m.threadQuery = ""
+			m.threadSearching = false
+		case "enter":
+			m.threadSearching = false
+		case "backspace":
+			r := []rune(m.threadQuery)
+			if len(r) > 0 {
+				m.threadQuery = string(r[:len(r)-1])
+			}
+		default:
+			if msg.Type == tea.KeyRunes || key == "space" {
+				if key == "space" {
+					key = " "
+				} else {
+					key = string(msg.Runes)
+				}
+				m.threadQuery += key
+			}
+		}
+		m.threadSel = ""
+		m.threadOffset = 0
+		return m, nil
+	}
 	if key == "ctrl+r" {
 		project := m.selRoot
 		if m.screen == screenProduct {
@@ -582,7 +768,7 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 	}
 	if m.screen == screenProduct {
-		return m.handleProductKey(key)
+		return m.handleProductKey(msg)
 	}
 	if m.threadsOn {
 		switch key {
@@ -807,23 +993,30 @@ func openInZed(p Project) tea.Cmd {
 // switchToSession moves mk to the project's most recently active tmux
 // session (decision 9). Inside tmux that is switch-client -- the door keeps
 // running in its own pane. Outside tmux there is no client to switch, so the
-// door execs an attach and resumes when that client detaches. The "=" prefix
-// pins tmux to an exact session-name match instead of prefix matching.
+// door execs an attach and resumes when that client detaches. Both routes
+// revalidate the full server and pane identity; names are display labels only.
 func switchToSession(p Project, s TmuxSession) tea.Cmd {
 	name, pname := s.Name, p.Name
+	tr := agenttransport.NewTmux(nil, s.Target.Socket)
 	if os.Getenv("TMUX") == "" {
-		c := exec.Command("tmux", "attach-session", "-t", "="+name)
-		return tea.ExecProcess(c, func(err error) tea.Msg {
+		// Validation is performed when the command runs, and the tmux command also
+		// guards IDs at execution time after Bubble Tea releases the terminal.
+		return func() tea.Msg {
+			c, err := tr.AttachCommand(context.Background(), s.Target)
 			if err != nil {
-				return statusMsg(fmt.Sprintf("tmux attach %s: %v", name, err))
+				return statusMsg(fmt.Sprintf("open %s: %v", name, err))
 			}
-			return statusMsg(fmt.Sprintf("detached from %s (%s)", name, pname))
-		})
+			return tea.ExecProcess(c, func(err error) tea.Msg {
+				if err != nil {
+					return statusMsg(fmt.Sprintf("tmux attach %s: %v", name, err))
+				}
+				return statusMsg(fmt.Sprintf("detached from %s (%s)", name, pname))
+			})()
+		}
 	}
 	return func() tea.Msg {
-		out, err := exec.Command("tmux", "switch-client", "-t", "="+name).CombinedOutput()
-		if err != nil {
-			return statusMsg(fmt.Sprintf("tmux switch-client %s: %v: %s", name, err, strings.TrimSpace(string(out))))
+		if err := tr.Open(context.Background(), s.Target); err != nil {
+			return statusMsg(fmt.Sprintf("open %s: %v", name, err))
 		}
 		return statusMsg(fmt.Sprintf("switched to %s (%s)", name, pname))
 	}
@@ -1267,7 +1460,7 @@ func (m Model) renderFooter() string {
 	var parts []string
 	switch {
 	case m.threadsOn && m.screen == screenThreads:
-		parts = []string{"↑/↓ move", "enter switch", "i evidence", "a questions", "t back", "r re-read", "q quit"}
+		parts = []string{"↑/↓ move", "enter switch", "/ search", "i evidence", "a questions", "t back", "r re-read", "q quit"}
 	case m.briefingOn() && m.layout == LayoutAlone && m.screen == screenBriefing:
 		parts = []string{"tab rows", "w widen", "b layout", "r re-read", "q quit"}
 	case m.briefingOn() && m.layout == LayoutAlone:

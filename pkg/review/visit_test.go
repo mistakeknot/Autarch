@@ -26,7 +26,7 @@ func TestLegacyRecordsPreserveExecutionsAndUpgradeOnlyDurableSchema(t *testing.T
 	if result.Error != "" {
 		t.Fatal(result.Error)
 	}
-	if result.Version != 1 || s.Snapshot().Version != 2 {
+	if result.Version != 1 || s.Snapshot().Version != RecordVersion {
 		t.Fatalf("wire/durable versions conflated: %+v", result)
 	}
 	retained, _ := os.ReadFile(path)

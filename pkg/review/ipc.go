@@ -14,6 +14,8 @@ import (
 	"strings"
 	"syscall"
 	"time"
+
+	"github.com/mistakeknot/autarch/pkg/agenttransport"
 )
 
 const maxMessage = 8 << 20
@@ -94,6 +96,7 @@ type Server struct {
 	listener  net.Listener
 	lock      *os.File
 	store     *Store
+	handoffs  HandoffCoordinator
 	OnRequest func(Request)
 }
 
@@ -124,7 +127,7 @@ func Listen(socket string, store *Store) (*Server, error) {
 		lock.Close()
 		return nil, err
 	}
-	return &Server{listener: listener, lock: lock, store: store}, nil
+	return &Server{listener: listener, lock: lock, store: store, handoffs: HandoffCoordinator{Store: store, Transport: agenttransport.NewTmux(nil, "")}}, nil
 }
 func (s *Server) Close() error { err := s.listener.Close(); _ = s.lock.Close(); return err }
 func (s *Server) Serve() error {
@@ -152,9 +155,15 @@ func (s *Server) handle(conn net.Conn) {
 	var response Response
 	if req.Method == "trace" || req.Method == "project.rebuild" || req.Method == "project.map" {
 		_ = conn.SetDeadline(time.Now().Add(65 * time.Second))
+	} else if req.Method == "handoff.deliver" || req.Method == "handoff.interrupt" {
+		// A literal send performs multiple independently bounded tmux operations.
+		// Keep the IPC request alive long enough to persist its final receipt.
+		_ = conn.SetDeadline(time.Now().Add(50 * time.Second))
 	}
 	if req.Version != Version {
 		response = Response{Version: Version, Error: "unsupported IPC version"}
+	} else if req.Method == "handoff.deliver" || req.Method == "handoff.interrupt" {
+		response = s.handoffs.Handle(context.Background(), req)
 	} else if strings.HasPrefix(req.Method, "auth.") {
 		response = Response{Version: Version, ID: req.ID, Error: "provider connection unavailable"}
 		if s.OnQuery != nil {

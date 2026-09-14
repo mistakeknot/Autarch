@@ -20,7 +20,16 @@ type productMsg struct {
 // NewProductModel opens a project directly without scanning the estate or
 // changing the last-visit preference. The same view is available on rows via i.
 func NewProductModel(root string) Model {
-	return Model{screen: screenProduct, productRoot: root, productLoading: true, productStandalone: true, productGeneration: 1}
+	m := Model{screen: screenProduct, productRoot: root, productLoading: true, productStandalone: true, productGeneration: 1}
+	m.workbench = newWorkbenchState(root)
+	return m
+}
+
+// WithWorkAdapter enables the optional, read-only candidate only when its
+// binary, registry and authority are all explicitly configured by the caller.
+func (m Model) WithWorkAdapter(config WorkAdapterConfig) Model {
+	m.workbench.adapter = NewWorkAdapter(config)
+	return m
 }
 
 func (m Model) loadProduct() tea.Cmd {
@@ -35,11 +44,18 @@ func (m Model) enterProduct(root string) (tea.Model, tea.Cmd) {
 	m.productRoot, m.productSection, m.productOffset = root, 0, 0
 	m.productOnboarding = false
 	m.product, m.productLoading, m.status = ProductBrief{}, true, ""
+	m.workbench = newWorkbenchState(root)
 	m.productGeneration++
-	return m, m.loadProduct()
+	return m, tea.Batch(m.loadProduct(), m.loadWorkbench())
 }
 
-func (m Model) handleProductKey(key string) (tea.Model, tea.Cmd) {
+func (m Model) handleProductKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	key := msg.String()
+	if m.productSection == 0 {
+		if m.workbench.mode != workbenchBrowse || strings.Contains("ealmOiufsrxtRVPFI", key) {
+			return m.handleWorkbenchKey(msg)
+		}
+	}
 	switch key {
 	case "q", "ctrl+c":
 		return m, m.quit()
@@ -60,23 +76,23 @@ func (m Model) handleProductKey(key string) (tea.Model, tea.Cmd) {
 			return m, m.loadProduct()
 		}
 	case "n":
-		if m.productSection == 5 && !m.productLoading {
+		if m.productSection == 6 && !m.productLoading {
 			m.productOnboarding, m.productOffset = !m.productOnboarding, 0
 		}
 	case "c":
-		if m.productSection == 5 && !m.productLoading {
+		if m.productSection == 6 && !m.productLoading {
 			return m, copyOnboardingBrief(BuildOnboardingBrief(m.product), clipboard.WriteAll)
 		}
-	case "1", "2", "3", "4", "5", "6":
+	case "1", "2", "3", "4", "5", "6", "7":
 		m.productSection = int(key[0] - '1')
 		m.productOffset, m.status = 0, ""
 		m.productOnboarding = false
 	case "tab", "right":
-		m.productSection = (m.productSection + 1) % 6
+		m.productSection = (m.productSection + 1) % 7
 		m.productOffset, m.status = 0, ""
 		m.productOnboarding = false
 	case "shift+tab", "left":
-		m.productSection = (m.productSection + 5) % 6
+		m.productSection = (m.productSection + 6) % 7
 		m.productOffset, m.status = 0, ""
 		m.productOnboarding = false
 	case "j", "down":
@@ -157,7 +173,9 @@ func (m Model) productLines() []string {
 	}
 	switch m.productSection {
 	case 0:
-		add("6 Foundation · establish mission, personas, journeys, standards, and the next outcome", "")
+		add(m.workbenchLines()...)
+	case 1:
+		add("7 Foundation · establish mission, personas, journeys, standards, and the next outcome", "")
 		if p.CardSource.State != "read" {
 			source(p.CardSource)
 			add("")
@@ -204,13 +222,13 @@ func (m Model) productLines() []string {
 		source(p.Roadmap)
 		source(p.JourneySource)
 		add(fmt.Sprintf("%d journeys · %d decision references", len(p.Journeys), len(p.Decisions)))
-	case 1:
+	case 2:
 		add("ROADMAP · source document", "Dates below are from the document; file modification is not a freshness check.", "")
 		source(p.Roadmap)
 		if p.Roadmap.State == "read" {
 			add("", p.Roadmap.Content)
 		}
-	case 2:
+	case 3:
 		add("BACKLOG · live read at "+p.ReadAt.Local().Format("15:04:05"), productScope(p.Backlog), "")
 		if p.Backlog.Source.State != "read" {
 			add(p.Backlog.Source.State + ": " + p.Backlog.Source.Error)
@@ -232,7 +250,7 @@ func (m Model) productLines() []string {
 			}
 			add("")
 		}
-	case 3:
+	case 4:
 		add("JOURNEYS · validation status is declared by each source", "")
 		source(p.JourneySource)
 		for _, j := range p.Journeys {
@@ -250,7 +268,7 @@ func (m Model) productLines() []string {
 				add(fmt.Sprintf("%d. %s", i+1, step.Step))
 			}
 		}
-	case 4:
+	case 5:
 		add("DECISIONS · references declared in docs/why.md", "")
 		if p.CardSource.State != "read" {
 			source(p.CardSource)
@@ -264,7 +282,7 @@ func (m Model) productLines() []string {
 			}
 			add("")
 		}
-	case 5:
+	case 6:
 		if m.productOnboarding {
 			add(strings.Split(BuildOnboardingBrief(p), "\n")...)
 		} else {
@@ -295,7 +313,7 @@ func (m Model) productLines() []string {
 		}
 		parts := strings.Split(ansi.Wrap(cleanEvidence(line), m.dashboardContentWidth(), ""), "\n")
 		for _, part := range parts {
-			if strings.HasPrefix(line, "CURRENT WORK") || strings.HasPrefix(line, "PRODUCT INTENT") || strings.HasPrefix(line, "SOURCE COVERAGE") || strings.Contains(line, " · confirmed") || strings.Contains(line, " · declined") {
+			if strings.HasPrefix(line, "OUTCOME") || strings.HasPrefix(line, "CURRENT WORK") || strings.HasPrefix(line, "AGENT") || strings.HasPrefix(line, "NEXT ACTION") || strings.HasPrefix(line, "EXTERNAL HANDOFF RESULT") || strings.HasPrefix(line, "PRODUCT INTENT") || strings.HasPrefix(line, "SOURCE COVERAGE") || strings.Contains(line, " · confirmed") || strings.Contains(line, " · declined") {
 				part = styleTitle.Render(part)
 			}
 			wrapped = append(wrapped, part)
@@ -315,9 +333,12 @@ func (m Model) productView() string {
 		name = filepath.Base(m.productRoot)
 	}
 	m.status = fmt.Sprintf("%d–%d / %d · %s", start+1, min(len(all), start+room), len(all), m.status)
-	keys := "1–6/tab sections · ↑↓ scroll · o source · r refresh · d View · Esc back · q Quit"
-	if m.productSection == 5 {
-		keys = "n Onboarding brief · c Copy brief · ↑↓ scroll · 1–6 sections · Esc back · q Quit"
+	keys := "1–7/tab sections · ↑↓ scroll · o source · r refresh · d View · Esc back · q Quit"
+	if m.productSection == 0 {
+		keys = "e/O/l edit · m task · a agent · u ready · s/x direct · R/V/P/F/I review"
+	}
+	if m.productSection == 6 {
+		keys = "n Onboarding brief · c Copy brief · ↑↓ scroll · 1–7 sections · Esc back · q Quit"
 	}
 	return m.dashboardFrame("Project · "+oneLine(name), all[start:min(len(all), start+room)], keys)
 }
@@ -334,17 +355,19 @@ func copyOnboardingBrief(brief string, write func(string) error) tea.Cmd {
 func (m Model) openProductSource() tea.Cmd {
 	rel := "docs/why.md"
 	switch m.productSection {
-	case 1:
-		rel = "docs/roadmap.md"
+	case 0, 1:
+		// Workbench and brief both open the product card.
 	case 2:
+		rel = "docs/roadmap.md"
+	case 3:
 		return func() tea.Msg {
 			return statusMsg("Backlog is read from Beads; use bd in the displayed tracker with the displayed label.")
 		}
-	case 3:
-		rel = "docs/cujs"
 	case 4:
-		rel = "docs"
+		rel = "docs/cujs"
 	case 5:
+		rel = "docs"
+	case 6:
 		rel = "."
 	}
 	root := m.productRoot

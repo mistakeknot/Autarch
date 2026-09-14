@@ -15,7 +15,7 @@ import (
 
 func TestFoundationViewAndOnboardingNavigation(t *testing.T) {
 	m := productModelFixture(t)
-	m, _ = press(m, "6")
+	m, _ = press(m, "7")
 	all := oneLine(strings.Join(m.productLines(), "\n"))
 	for _, want := range []string{"Mission", "Vision", "Philosophy", "Personas", "Critical user journeys", "Roadmap", "Architecture decision records", "Backlog", "Design systems / standards", "n Onboarding brief"} {
 		if !strings.Contains(all, want) {
@@ -27,12 +27,12 @@ func TestFoundationViewAndOnboardingNavigation(t *testing.T) {
 		t.Fatal("brief did not open locally", m.View())
 	}
 	m, cmd = press(m, "esc")
-	if cmd != nil || m.screen != screenProduct || m.productSection != 5 || m.productOnboarding {
+	if cmd != nil || m.screen != screenProduct || m.productSection != 6 || m.productOnboarding {
 		t.Fatal("brief back left the project")
 	}
 	m, _ = press(m, "tab")
 	if m.productSection != 0 {
-		t.Fatal("six-section navigation did not wrap")
+		t.Fatal("seven-section navigation did not wrap")
 	}
 }
 
@@ -53,6 +53,7 @@ func TestOnboardingCopyReportsSuccessAndFailure(t *testing.T) {
 func productModelFixture(t *testing.T) Model {
 	t.Helper()
 	root := t.TempDir()
+	t.Setenv("AUTARCH_PREFERENCES_FILE", filepath.Join(root, ".autarch", "preferences.json"))
 	productFile(t, root, "docs/why.md", productCardFixture)
 	productFile(t, root, "docs/roadmap.md", "# Roadmap\n\nGenerated on 2026-02-25\n"+strings.Repeat("A long plan with wide text 漢字. ", 200))
 	m := NewProductModel(root)
@@ -66,13 +67,14 @@ func productModelFixture(t *testing.T) Model {
 
 func TestProductViewShowsIntentAndExplicitMissingMeasure(t *testing.T) {
 	m := productModelFixture(t)
+	m, _ = press(m, "2")
 	all := strings.Join(m.productLines(), "\n")
 	for _, want := range []string{"Editors reviewing long documents", "declined", "A measured reading trial", "reader-1", "reader-01", "source declarations"} {
 		if !strings.Contains(all, want) {
 			t.Fatalf("missing %q: %s", want, all)
 		}
 	}
-	m, _ = press(m, "3")
+	m, _ = press(m, "4")
 	// A tracker path can put the label at a line break (Linux t.TempDir
 	// paths reproduced this in CI). Assert content across visual wraps.
 	for _, path := range []string{m.product.Backlog.Source.Path, "/tmp/TestProductViewShowsIntentAndExplicitMissingMeasure3795888195/001"} {
@@ -86,7 +88,7 @@ func TestProductViewShowsIntentAndExplicitMissingMeasure(t *testing.T) {
 
 func TestProductViewNavigationRefreshAndGeometry(t *testing.T) {
 	m := productModelFixture(t)
-	m, _ = press(m, "2")
+	m, _ = press(m, "3")
 	if !strings.Contains(m.View(), "2026-02-25") {
 		t.Fatal("roadmap's authored date lost")
 	}
@@ -143,7 +145,7 @@ func TestProductIgnoresResultFromPreviouslyOpenedProject(t *testing.T) {
 func TestProductMarkdownJourneyRemainsReadable(t *testing.T) {
 	m := productModelFixture(t)
 	m.product.Journeys = []ProductJourney{{ID: "reader-review", Source: ProductSource{Path: "docs/cujs/reader-review.MD", State: "read", Content: "# Review journey\nAn editor compares two passages."}}}
-	m.productSection = 3
+	m.productSection = 4
 	if !strings.Contains(m.View(), "An editor compares two passages.") {
 		t.Fatal(m.View())
 	}
@@ -178,7 +180,7 @@ func TestProductSourceOpensExactPathAndRejectsEscapingSymlink(t *testing.T) {
 	if err := os.Symlink(filepath.Join(out, "roadmap.md"), filepath.Join(root, "docs/roadmap.md")); err != nil {
 		t.Fatal(err)
 	}
-	m.productSection = 1
+	m.productSection = 2
 	msg = m.openProductSource()()
 	if !strings.Contains(string(msg.(statusMsg)), "leaves project") {
 		t.Fatal("escaping source opened", msg)

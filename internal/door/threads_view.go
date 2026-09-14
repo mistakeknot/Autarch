@@ -2,6 +2,7 @@ package door
 
 import (
 	"fmt"
+	"path/filepath"
 	"sort"
 	"strings"
 	"time"
@@ -48,7 +49,10 @@ func SortThreads(ts []Thread) {
 		if ts[i].Activity != ts[j].Activity {
 			return ts[i].Activity > ts[j].Activity
 		}
-		return ts[i].Session < ts[j].Session
+		if ts[i].Session != ts[j].Session {
+			return ts[i].Session < ts[j].Session
+		}
+		return ts[i].Key() < ts[j].Key()
 	})
 }
 
@@ -106,12 +110,22 @@ func columnsFor(th Thread, now time.Time) threadColumns {
 		topic:    pad(th.Seat.Topic, 24),
 		id:       pad(shortID(th.Seat.ResumeID), 8),
 	}
+	if th.Target.PaneID != "" {
+		c.topic = pad(th.Target.WindowID+"."+th.Target.PaneID+" "+th.Seat.Topic, 24)
+	}
 	c.state, c.style = threadState(th, now)
 	names := make([]string, 0, len(th.Gardens))
 	for _, g := range th.Gardens {
 		names = append(names, g.Name)
 	}
-	c.gardens = strings.Join(names, ", ")
+	group := "unassigned"
+	if th.Project != "" {
+		group = filepath.Base(th.Project)
+	}
+	c.gardens = group
+	if len(names) > 0 {
+		c.gardens += " · refs " + strings.Join(names, ", ")
+	}
 	return c
 }
 
@@ -226,8 +240,11 @@ func (m Model) threadsLines(max int) []string {
 	default:
 		lines = append(lines, styleCoverage.Render(truncate(ThreadsHeader(m.threads, m.threadsPending), w)))
 	}
+	if m.threadSearching || m.threadQuery != "" {
+		lines = append(lines, truncate("Search panes: "+m.threadQuery+" · enter to browse · esc to clear", w))
+	}
 	room := max - len(lines)
-	list := m.threads.Threads
+	list := m.visibleThreads()
 	end := m.threadOffset + room
 	if end > len(list) {
 		end = len(list)
@@ -248,12 +265,18 @@ func capLines(lines []string, max int) []string {
 
 // threadHeaderLines is how many lines the registry block and header take, so
 // the scroll window knows its room.
-func (m Model) threadHeaderLines() int { return len(m.registryLines()) + 1 }
+func (m Model) threadHeaderLines() int {
+	n := len(m.registryLines()) + 1
+	if m.threadSearching || m.threadQuery != "" {
+		n++
+	}
+	return n
+}
 
 // threadIndex is the selected seat's position; an empty selection tracks the
 // top of the list, and a selection that vanished on re-read falls back to it.
 func (m Model) threadIndex() int {
-	list := m.threads.Threads
+	list := m.visibleThreads()
 	if len(list) == 0 {
 		return -1
 	}
@@ -261,7 +284,7 @@ func (m Model) threadIndex() int {
 		return 0
 	}
 	for i := range list {
-		if list[i].Session == m.threadSel {
+		if list[i].Key() == m.threadSel {
 			return i
 		}
 	}
@@ -289,27 +312,29 @@ func (m *Model) clampThreadScroll() {
 // handleThreadsKey is the threads screen's own keymap: move, enter a seat,
 // or return (t or tab) to the screen that was showing before.
 func (m Model) handleThreadsKey(key string) (tea.Model, tea.Cmd) {
-	list := m.threads.Threads
+	list := m.visibleThreads()
 	sel := m.threadIndex()
 	switch key {
+	case "/":
+		m.threadSearching = true
 	case "t", "tab":
 		m.screen = m.prevScreen
 		return m, nil
 	case "up", "k":
 		if sel > 0 {
-			m.threadSel = list[sel-1].Session
+			m.threadSel = list[sel-1].Key()
 		}
 	case "down", "j":
 		if sel >= 0 && sel < len(list)-1 {
-			m.threadSel = list[sel+1].Session
+			m.threadSel = list[sel+1].Key()
 		}
 	case "g", "home":
 		if len(list) > 0 {
-			m.threadSel = list[0].Session
+			m.threadSel = list[0].Key()
 		}
 	case "G", "end":
 		if len(list) > 0 {
-			m.threadSel = list[len(list)-1].Session
+			m.threadSel = list[len(list)-1].Key()
 		}
 	case "enter":
 		if sel >= 0 {
@@ -317,7 +342,7 @@ func (m Model) handleThreadsKey(key string) (tea.Model, tea.Cmd) {
 		}
 	case "i":
 		if sel >= 0 {
-			m.detailSession = list[sel].Session
+			m.detailSession = list[sel].Key()
 			m.detailFrom = screenThreads
 			m.detailOffset = 0
 			m.screen = screenQuestion
@@ -330,7 +355,7 @@ func (m Model) handleThreadsKey(key string) (tea.Model, tea.Cmd) {
 // switchToThread is switchToSession for a seat that need not belong to any
 // garden: entry stays switch-client (GATE ruling 3), the topic names the seat.
 func switchToThread(th Thread) tea.Cmd {
-	return switchToSession(Project{Name: th.Seat.Topic}, TmuxSession{Name: th.Session, Path: th.Path, Activity: th.Activity})
+	return switchToSession(Project{Name: th.Seat.Topic}, TmuxSession{Name: th.Session, Path: th.Path, Activity: th.Activity, Target: th.Target, WindowName: th.WindowName, Command: th.Command})
 }
 
 // finishThreads is the end of one read: order the seats, attribute them to
@@ -339,6 +364,38 @@ func switchToThread(th Thread) tea.Cmd {
 func (m *Model) finishThreads() {
 	SortThreads(m.threads.Threads)
 	m.threads.ByRoot = Attribute(m.threads.Threads, m.projects, ThreadsMinShare)
+	panes := make([]TmuxSession, 0, len(m.threads.Threads))
+	for _, th := range m.threads.Threads {
+		panes = append(panes, TmuxSession{Name: th.Session, Path: th.Path, Activity: th.Activity, Command: th.Command, Target: th.Target, WindowName: th.WindowName, Dead: th.Dead})
+	}
+	groups := GroupPanes(panes, m.projects, "")
+	rootByPane := make(map[string]string, len(panes))
+	for _, group := range groups {
+		for _, pane := range group.Panes {
+			rootByPane[pane.Key()] = group.Root
+		}
+	}
+	for i := range m.threads.Threads {
+		m.threads.Threads[i].Project = rootByPane[m.threads.Threads[i].Key()]
+	}
+	// Project groups are stable and explicit; panes remain activity-sorted inside
+	// each group. A shared workspace cwd stays in the final unassigned group.
+	sort.SliceStable(m.threads.Threads, func(i, j int) bool {
+		left, right := m.threads.Threads[i], m.threads.Threads[j]
+		if left.Project != right.Project {
+			if left.Project == "" {
+				return false
+			}
+			if right.Project == "" {
+				return true
+			}
+			return left.Project < right.Project
+		}
+		if left.Activity != right.Activity {
+			return left.Activity > right.Activity
+		}
+		return left.Key() < right.Key()
+	})
 	m.sessions = m.threads.Sessions()
 	m.sessionsLoaded = true
 	m.threadsLoaded = true
@@ -346,4 +403,28 @@ func (m *Model) finishThreads() {
 		m.drift = DiffRegistry(m.registry, m.threads.Threads)
 	}
 	m.clampThreadScroll()
+}
+
+// Search includes every pane and evidence-backed project attribution while
+// preserving the existing recent-thread order and estate navigation.
+func (m Model) visibleThreads() []Thread {
+	if strings.TrimSpace(m.threadQuery) == "" {
+		return m.threads.Threads
+	}
+	var out []Thread
+	for _, th := range m.threads.Threads {
+		roots := ""
+		for root, list := range m.threads.ByRoot {
+			for _, v := range list {
+				if v.Key() == th.Key() {
+					roots += " " + root
+					break
+				}
+			}
+		}
+		if paneMatches(TmuxSession{Name: th.Session, WindowName: th.WindowName, Path: th.Path, Command: th.Command, Target: th.Target}, roots, m.threadQuery) {
+			out = append(out, th)
+		}
+	}
+	return out
 }

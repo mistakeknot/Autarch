@@ -39,7 +39,7 @@ func Open(dir string) (*Store, error) {
 		if err = json.Unmarshal(b, &s.state); err != nil {
 			return nil, fmt.Errorf("review records unreadable: %w", err)
 		}
-		if s.state.Version != 1 && s.state.Version != RecordVersion {
+		if s.state.Version != 1 && s.state.Version != 2 && s.state.Version != RecordVersion {
 			return nil, errors.New("unsupported review records version")
 		}
 	}
@@ -66,6 +66,9 @@ func Open(dir string) (*Store, error) {
 	}
 	if s.state.Preparations == nil {
 		s.state.Preparations = map[string]Preparation{}
+	}
+	if err := s.recoverHandoffs(); err != nil {
+		return nil, err
 	}
 	return s, nil
 }
@@ -104,7 +107,7 @@ func (s *Store) Usage() int64 {
 }
 
 // Immutable, fsynced revisions are the source of truth. Temporary files are
-// ignored on recovery. In-memory state advances only after rename + directory
+// ignored on recovery. In-memory state advances only after publication + directory
 // sync, so an error never tells the caller their observation was saved.
 func (s *Store) commit(next State) error {
 	next.Version = RecordVersion
@@ -131,7 +134,9 @@ func (s *Store) commit(next State) error {
 		return err
 	}
 	path := filepath.Join(dir, fmt.Sprintf("%020d.json", next.Revision))
-	if err = os.Rename(f.Name(), path); err != nil {
+	// Publish without replacing an existing revision. A second store/process
+	// with a stale snapshot must fail closed, especially before external input.
+	if err = os.Link(f.Name(), path); err != nil {
 		return err
 	}
 	d, err := os.Open(dir)
@@ -251,6 +256,9 @@ func (s *Store) apply(st *State, r Request) (string, error) {
 	}
 	if strings.HasPrefix(r.Method, "visit.") {
 		return applyVisit(st, r, project, id, now)
+	}
+	if strings.HasPrefix(r.Method, "handoff.") {
+		return applyHandoff(st, r, project, id, now)
 	}
 	switch r.Method {
 	case "prepare.submit":

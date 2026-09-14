@@ -7,10 +7,12 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"time"
+
+	"github.com/mistakeknot/autarch/pkg/agenttransport"
 )
 
 const WireVersion = 1
-const RecordVersion = 2
+const RecordVersion = 3
 
 // Version remains the native IPC version for existing clients.
 const Version = WireVersion
@@ -190,21 +192,22 @@ type Receipt struct {
 	ID   string `json:"id"`
 }
 type State struct {
-	Preparations map[string]Preparation `json:"preparations"`
-	Visits       map[string]Visit       `json:"visits"`
-	Version      int                    `json:"version"`
-	Revision     uint64                 `json:"revision"`
-	Sessions     map[string]Session     `json:"sessions"`
-	Feedback     map[string]Feedback    `json:"feedback"`
-	Proposals    map[string]Proposal    `json:"proposals"`
-	Executions   map[string]Execution   `json:"executions"`
-	Verdicts     map[string]Verdict     `json:"verdicts"`
-	Turns        []Turn                 `json:"turns"`
-	Streams      []Turn                 `json:"streams,omitempty"`
-	Questions    []Question             `json:"questions"`
-	Commands     []CaptureCommand       `json:"commands"`
-	Context      UIContext              `json:"context"`
-	Receipts     map[string]Receipt     `json:"receipts"`
+	ExternalHandoffs map[string]ExternalHandoff `json:"external_handoffs,omitempty"`
+	Preparations     map[string]Preparation     `json:"preparations"`
+	Visits           map[string]Visit           `json:"visits"`
+	Version          int                        `json:"version"`
+	Revision         uint64                     `json:"revision"`
+	Sessions         map[string]Session         `json:"sessions"`
+	Feedback         map[string]Feedback        `json:"feedback"`
+	Proposals        map[string]Proposal        `json:"proposals"`
+	Executions       map[string]Execution       `json:"executions"`
+	Verdicts         map[string]Verdict         `json:"verdicts"`
+	Turns            []Turn                     `json:"turns"`
+	Streams          []Turn                     `json:"streams,omitempty"`
+	Questions        []Question                 `json:"questions"`
+	Commands         []CaptureCommand           `json:"commands"`
+	Context          UIContext                  `json:"context"`
+	Receipts         map[string]Receipt         `json:"receipts"`
 }
 
 func (s State) Clone() State {
@@ -218,37 +221,39 @@ func (s State) Clone() State {
 // State queries, the live context pointer and auth control remain transient;
 // evidence records freeze the applicable context when they are committed.
 type Request struct {
-	BudgetTokens int          `json:"budget_tokens,omitempty"`
-	VisitID      string       `json:"visit_id,omitempty"`
-	Visit        *Visit       `json:"visit,omitempty"`
-	Actor        string       `json:"actor,omitempty"`
-	Auth         *AuthRequest `json:"auth,omitempty"`
-	Version      int          `json:"version"`
-	ID           string       `json:"id"`
-	Method       string       `json:"method"`
-	Project      string       `json:"project,omitempty"`
-	Target       string       `json:"target,omitempty"`
-	Revision     int          `json:"revision,omitempty"`
-	Text         string       `json:"text,omitempty"`
-	Status       string       `json:"status,omitempty"`
-	Session      *Session     `json:"session,omitempty"`
-	Feedback     *Feedback    `json:"feedback,omitempty"`
-	Proposal     *Proposal    `json:"proposal,omitempty"`
-	Execution    *Execution   `json:"execution,omitempty"`
-	Verdict      *Verdict     `json:"verdict,omitempty"`
-	Context      *UIContext   `json:"context,omitempty"`
-	Source       *Source      `json:"source,omitempty"`
-	Turn         *Turn        `json:"turn,omitempty"`
-	Question     *Question    `json:"question,omitempty"`
+	Handoff      *ExternalHandoff `json:"external_handoff,omitempty"`
+	BudgetTokens int              `json:"budget_tokens,omitempty"`
+	VisitID      string           `json:"visit_id,omitempty"`
+	Visit        *Visit           `json:"visit,omitempty"`
+	Actor        string           `json:"actor,omitempty"`
+	Auth         *AuthRequest     `json:"auth,omitempty"`
+	Version      int              `json:"version"`
+	ID           string           `json:"id"`
+	Method       string           `json:"method"`
+	Project      string           `json:"project,omitempty"`
+	Target       string           `json:"target,omitempty"`
+	Revision     int              `json:"revision,omitempty"`
+	Text         string           `json:"text,omitempty"`
+	Status       string           `json:"status,omitempty"`
+	Session      *Session         `json:"session,omitempty"`
+	Feedback     *Feedback        `json:"feedback,omitempty"`
+	Proposal     *Proposal        `json:"proposal,omitempty"`
+	Execution    *Execution       `json:"execution,omitempty"`
+	Verdict      *Verdict         `json:"verdict,omitempty"`
+	Context      *UIContext       `json:"context,omitempty"`
+	Source       *Source          `json:"source,omitempty"`
+	Turn         *Turn            `json:"turn,omitempty"`
+	Question     *Question        `json:"question,omitempty"`
 }
 type Response struct {
-	Auth         *AuthState      `json:"auth,omitempty"`
-	Trace        json.RawMessage `json:"trace,omitempty"`
-	Version      int             `json:"version"`
-	ID           string          `json:"id,omitempty"`
-	Error        string          `json:"error,omitempty"`
-	State        *State          `json:"state,omitempty"`
-	StorageBytes int64           `json:"storage_bytes,omitempty"`
-	DataDir      string          `json:"data_dir,omitempty"`
-	Replayed     bool            `json:"replayed,omitempty"`
+	Auth         *AuthState              `json:"auth,omitempty"`
+	Trace        json.RawMessage         `json:"trace,omitempty"`
+	Delivery     agenttransport.Delivery `json:"delivery,omitempty"`
+	Version      int                     `json:"version"`
+	ID           string                  `json:"id,omitempty"`
+	Error        string                  `json:"error,omitempty"`
+	State        *State                  `json:"state,omitempty"`
+	StorageBytes int64                   `json:"storage_bytes,omitempty"`
+	DataDir      string                  `json:"data_dir,omitempty"`
+	Replayed     bool                    `json:"replayed,omitempty"`
 }

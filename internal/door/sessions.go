@@ -3,12 +3,12 @@ package door
 import (
 	"context"
 	"fmt"
-	"os/exec"
 	"path/filepath"
 	"sort"
-	"strconv"
 	"strings"
 	"time"
+
+	"github.com/mistakeknot/autarch/pkg/agenttransport"
 )
 
 // The sessions axis (Gate B). Structure mirrors check.go on purpose: a pure
@@ -17,13 +17,16 @@ import (
 // UNCHECKED; a tmux server that is not running is a real zero -- no server
 // means no sessions exist, which is a measurement, not a failure to measure.
 
-// TmuxSession is one live session: its name and the current path of the
-// active pane in its active window, which is where the session "is".
+// TmuxSession retains the existing inventory API name but represents one pane,
+// including splits and inactive windows. Names are display labels only.
 type TmuxSession struct {
-	Name     string
-	Path     string
-	Activity int64  // #{session_activity}, unix seconds; newer = more recent
-	Command  string // #{pane_current_command}: what the pane is running now
+	Target     agenttransport.Target
+	WindowName string
+	Dead       bool
+	Name       string
+	Path       string
+	Activity   int64  // #{session_activity}, unix seconds; newer = more recent
+	Command    string // #{pane_current_command}: what the pane is running now
 }
 
 // SessionSet is the resolved sessions axis. The GATE clause lives here:
@@ -88,7 +91,12 @@ func ResolveSessions(sessions []TmuxSession, projects []Project) SessionSet {
 	}
 	for root := range set.ByRoot {
 		list := set.ByRoot[root]
-		sort.SliceStable(list, func(i, j int) bool { return list[i].Activity > list[j].Activity })
+		sort.SliceStable(list, func(i, j int) bool {
+			if list[i].Activity != list[j].Activity {
+				return list[i].Activity > list[j].Activity
+			}
+			return list[i].Key() < list[j].Key()
+		})
 	}
 	sort.Strings(set.Unresolved)
 	return set
@@ -99,70 +107,96 @@ func ResolveSessions(sessions []TmuxSession, projects []Project) SessionSet {
 const listSessionsTimeout = 5 * time.Second
 
 // ListSessions asks the tmux server (the one the environment points at) for
-// every session's name, activity, and active-pane path. A server that is not
+// every pane's exact identity, labels, activity, and path. A server that is not
 // running returns an empty slice and no error: zero sessions is the true
 // state of a stopped server. Everything else -- tmux missing, a malformed
 // answer -- is an error, which callers must surface as UNCHECKED rather than
 // as an empty estate.
 func ListSessions(ctx context.Context) ([]TmuxSession, error) {
-	ctx, cancel := context.WithTimeout(ctx, listSessionsTimeout)
-	defer cancel()
-
-	tmuxBin, err := exec.LookPath("tmux")
+	panes, err := agenttransport.NewTmux(nil, "").List(ctx)
 	if err != nil {
-		return nil, fmt.Errorf("tmux not on PATH: %w", err)
+		return nil, err
 	}
-	// One line per pane; the window_active+pane_active filter leaves exactly
-	// one line per session (its focused pane), which is where the session is.
-	// pane_current_command is the sixth field -- what the pane is running now
-	// (the thread registry's liveness axis, WI-1/WI-4).
-	out, err := exec.CommandContext(ctx, tmuxBin, "list-panes", "-a",
-		"-F", "#{window_active}\x1f#{pane_active}\x1f#{session_name}\x1f#{session_activity}\x1f#{pane_current_path}\x1f#{pane_current_command}").CombinedOutput()
-	if err != nil {
-		message := strings.TrimSpace(string(out))
-		// A missing socket or stopped server is a real empty inventory.
-		// Access and protocol failures only tell us we could not inspect it.
-		stopped := strings.HasPrefix(message, "no server running on ") ||
-			(strings.HasPrefix(message, "error connecting to ") &&
-				(strings.HasSuffix(message, "(No such file or directory)") || strings.HasSuffix(message, "(Connection refused)")))
-		if ctx.Err() == nil && stopped {
-			return nil, nil
-		}
-		return nil, fmt.Errorf("tmux list-panes: %v: %s", err, message)
-	}
-	return parseSessionLines(string(out))
+	return paneSessions(panes), nil
 }
 
-// sessionFields is how many \x1f-delimited fields ListSessions' -F format
-// produces per line; a line with any other count is unparseable, not a
-// partial answer.
-const sessionFields = 6
-
-// parseSessionLines is ListSessions' parser, split out so fixtures can drive
-// it without a live tmux server.
-func parseSessionLines(out string) ([]TmuxSession, error) {
-	var sessions []TmuxSession
-	for _, line := range strings.Split(strings.TrimRight(out, "\n"), "\n") {
-		if line == "" {
-			continue
-		}
-		parts := strings.Split(line, "\x1f")
-		if len(parts) == 1 {
-			// Some tmux versions escape control bytes in command output.
-			// Split the observed octal separator without interpreting paths or
-			// session names as a general escape language.
-			parts = strings.Split(line, `\037`)
-		}
-		if len(parts) != sessionFields {
-			return nil, fmt.Errorf("tmux list-panes: unparseable line %q", line)
-		}
-		if parts[0] != "1" || parts[1] != "1" {
-			continue
-		}
-		activity, _ := strconv.ParseInt(parts[3], 10, 64)
-		sessions = append(sessions, TmuxSession{Name: parts[2], Activity: activity, Path: parts[4], Command: parts[5]})
+func paneSessions(panes []agenttransport.Pane) []TmuxSession {
+	sessions := make([]TmuxSession, 0, len(panes))
+	for _, p := range panes {
+		sessions = append(sessions, TmuxSession{Target: p.Target, WindowName: p.WindowName, Dead: p.Dead, Name: p.SessionName, Path: p.Path, Activity: p.Activity, Command: p.Command})
 	}
-	return sessions, nil
+	return sessions
+}
+
+func parseSessionLines(out string) ([]TmuxSession, error) {
+	panes, err := agenttransport.ParsePanes(out)
+	if err != nil {
+		return nil, err
+	}
+	return paneSessions(panes), nil
+}
+
+// Key is a pane identity for navigation; name-only fixtures retain their old key.
+// Production listing always supplies a validated Target. Input never falls back.
+func (s TmuxSession) Key() string {
+	if s.Target.Socket == "" {
+		return s.Name
+	}
+	return s.Target.Key()
+}
+func (s TmuxSession) Clone() TmuxSession { return s }
+
+type PaneGroup struct {
+	Root  string
+	Panes []TmuxSession
+}
+
+// GroupPanes returns deterministic project groups and an explicit unassigned
+// group. Shared workspace roots cannot be assigned from a session's name.
+func GroupPanes(panes []TmuxSession, projects []Project, query string) []PaneGroup {
+	set := ResolveSessions(panes, projects)
+	roots := make([]string, 0, len(set.ByRoot))
+	assigned := map[string]bool{}
+	for root, list := range set.ByRoot {
+		roots = append(roots, root)
+		for _, p := range list {
+			assigned[p.Key()] = true
+		}
+	}
+	sort.Strings(roots)
+	var groups []PaneGroup
+	add := func(root string, list []TmuxSession) {
+		var matched []TmuxSession
+		for _, p := range list {
+			if paneMatches(p, root, query) {
+				matched = append(matched, p)
+			}
+		}
+		if len(matched) > 0 {
+			sort.Slice(matched, func(i, j int) bool { return matched[i].Key() < matched[j].Key() })
+			groups = append(groups, PaneGroup{Root: root, Panes: matched})
+		}
+	}
+	for _, root := range roots {
+		add(root, set.ByRoot[root])
+	}
+	var unassigned []TmuxSession
+	for _, p := range panes {
+		if !assigned[p.Key()] {
+			unassigned = append(unassigned, p)
+		}
+	}
+	add("", unassigned)
+	return groups
+}
+func paneMatches(p TmuxSession, root, query string) bool {
+	haystack := strings.ToLower(strings.Join([]string{root, p.Name, p.WindowName, p.Path, p.Command, p.Target.Key()}, " "))
+	for _, word := range strings.Fields(strings.ToLower(query)) {
+		if !strings.Contains(haystack, word) {
+			return false
+		}
+	}
+	return true
 }
 
 // SnapshotSessions is the live path: list, then resolve against the estate.

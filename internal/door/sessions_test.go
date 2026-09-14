@@ -14,7 +14,7 @@ import (
 // The Ubuntu CI tmux prints the unit separator as an octal escape, while
 // tmux 3.6b on macOS emits the control byte. Both are real CLI responses.
 func TestListSessionsParsesEscapedSeparators(t *testing.T) {
-	out := `1\0371\037iterm[reader - abc\0371788564126\037/tmp/reader\037bash` + "\n"
+	out := strings.ReplaceAll(strings.ReplaceAll(strings.ReplaceAll(strings.ReplaceAll(paneFixture, "work", "iterm[reader - abc"), "/est/a", "/tmp/reader"), "codex", "bash"), "\x1f", `\037`)
 	got, err := parseSessionLines(out)
 	if err != nil {
 		t.Fatal(err)
@@ -199,18 +199,15 @@ func TestEnterRoutesBySessionPresence(t *testing.T) {
 	}
 }
 
-// TestListSessionsParsesSixFields is WI-2's parser contract: the sixth field
-// (pane_current_command) comes through, and a line with the old five-field
-// shape is rejected rather than silently misparsed.
-func TestListSessionsParsesSixFields(t *testing.T) {
-	out := "1\x1f1\x1fwork\x1f12345\x1f/est/aaa\x1f2.1.258\n" +
-		"0\x1f0\x1fwork\x1f12345\x1f/est/aaa\x1fzsh\n" // not window_active+pane_active: dropped
+// The old name/active-flags format is no longer safe to address input.
+func TestListSessionsRequiresExactPaneIdentity(t *testing.T) {
+	out := strings.ReplaceAll(paneFixture, "codex", "2.1.258") + strings.ReplaceAll(paneFixture, "%3", "%4")
 	sessions, err := parseSessionLines(out)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if len(sessions) != 1 {
-		t.Fatalf("want 1 session (the other line is filtered by active flags), got %d: %+v", len(sessions), sessions)
+	if len(sessions) != 2 {
+		t.Fatalf("want all panes, got %d: %+v", len(sessions), sessions)
 	}
 	if sessions[0].Command != "2.1.258" {
 		t.Fatalf("Command not parsed: %+v", sessions[0])
@@ -221,16 +218,13 @@ func TestListSessionsParsesSixFields(t *testing.T) {
 	}
 }
 
-// ListSessions' error contract: a missing binary is an error (could not
-// look); with tmux present, both a running and a stopped server are answers.
-func TestListSessionsLiveContract(t *testing.T) {
+// Never query the user's real tmux server in a unit test.
+func TestListSessionsInjectedContract(t *testing.T) {
+	bin := t.TempDir()
+	writeExec(t, filepath.Join(bin, "tmux"), "#!/bin/sh\nprintf '%s' \"$TMUX_TEST_PANES\"\n")
+	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+	t.Setenv("TMUX_TEST_PANES", paneFixture)
 	sessions, err := ListSessions(context.Background())
-	if _, lookErr := exec.LookPath("tmux"); lookErr != nil {
-		if err == nil || !strings.Contains(err.Error(), "tmux not on PATH") {
-			t.Fatalf("missing tmux must be an error, got sessions=%v err=%v", sessions, err)
-		}
-		return
-	}
 	if err != nil {
 		t.Fatalf("live tmux query failed: %v", err)
 	}
@@ -238,5 +232,8 @@ func TestListSessionsLiveContract(t *testing.T) {
 		if s.Name == "" || s.Path == "" {
 			t.Fatalf("malformed session from live server: %+v", s)
 		}
+	}
+	if len(sessions) != 1 || sessions[0].Target.PaneID != "%3" {
+		t.Fatalf("inventory lost exact pane: %+v", sessions)
 	}
 }

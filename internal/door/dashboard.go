@@ -17,8 +17,11 @@ func (m Model) dashboardButtons() []dashboardButton {
 	labels := []string{"1 Catch-up", "2 Questions", "3 Projects", "4 Threads"}
 	keys := []string{"1", "2", "3", "4"}
 	if m.screen == screenProduct {
-		labels = []string{"1 Brief", "2 Roadmap", "3 Backlog", "4 Journeys", "5 Decisions", "6 Foundation"}
-		keys = []string{"1", "2", "3", "4", "5", "6"}
+		labels = []string{"1 Work", "2 Brief", "3 Roadmap", "4 Backlog", "5 Journeys", "6 Decisions", "7 Foundation"}
+		keys = []string{"1", "2", "3", "4", "5", "6", "7"}
+		if m.lineWidth() < 80 {
+			labels = []string{"1 Work", "2 Brief", "3 Road", "4 Tasks", "5 Trips", "6 Rules", "7 Base"}
+		}
 	}
 	if m.lineWidth() < 65 && m.screen != screenProduct {
 		labels = []string{"1 Home", "2 Ask", "3 Projects", "4 Threads"}
