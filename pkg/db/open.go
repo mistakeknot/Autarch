@@ -6,6 +6,7 @@ package db
 import (
 	"database/sql"
 	"fmt"
+	"strings"
 
 	_ "modernc.org/sqlite" // Pure-Go SQLite driver
 )
@@ -22,7 +23,7 @@ func Open(path string) (*sql.DB, error) {
 	db.SetMaxOpenConns(1)
 	db.SetConnMaxLifetime(0)
 
-	// Execute pragmas directly — modernc.org/sqlite does not support DSN params.
+	// Executed rather than passed in the DSN, which OpenWith uses instead.
 	pragmas := []string{
 		"PRAGMA journal_mode=WAL",
 		"PRAGMA synchronous=NORMAL",
@@ -35,5 +36,39 @@ func Open(path string) (*sql.DB, error) {
 		}
 	}
 
+	return db, nil
+}
+
+// OpenWith opens a SQLite database with the same hardening as Open, plus any
+// extra pragmas, applied through the DSN rather than executed on one
+// connection.
+//
+// The distinction matters for pragmas that are connection state rather than
+// database state. foreign_keys is the load-bearing example: an Exec sets it on
+// whichever connection happens to be current, and a reconnect after a dropped
+// connection silently brings the replacement up with enforcement off. A DSN
+// pragma is reapplied to every connection the pool ever opens.
+//
+// Each pragma is written in SQLite's DSN form, e.g. "foreign_keys(1)".
+func OpenWith(path string, pragmas ...string) (*sql.DB, error) {
+	dsn := path + "?_pragma=" + strings.Join(append([]string{
+		"journal_mode(WAL)",
+		"synchronous(NORMAL)",
+		"busy_timeout(5000)",
+	}, pragmas...), "&_pragma=")
+
+	db, err := sql.Open("sqlite", dsn)
+	if err != nil {
+		return nil, fmt.Errorf("open sqlite %s: %w", path, err)
+	}
+	db.SetMaxOpenConns(1)
+	db.SetConnMaxLifetime(0)
+
+	// sql.Open is lazy; force a connection so a bad path fails here rather
+	// than at the caller's first query, matching Open's behaviour.
+	if err := db.Ping(); err != nil {
+		db.Close()
+		return nil, fmt.Errorf("open sqlite %s: %w", path, err)
+	}
 	return db, nil
 }

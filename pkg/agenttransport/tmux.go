@@ -41,6 +41,16 @@ func (t Target) Key() string {
 func (t Target) SamePane(other Target) bool {
 	return t.Socket == other.Socket && t.ServerPID == other.ServerPID && t.ServerStarted == other.ServerStarted && t.PaneID == other.PaneID && t.PanePID == other.PanePID
 }
+
+// PaneKey renders exactly the identity SamePane compares, in the form the
+// registry's pane_binding.pane_key generated column computes. It lives beside
+// SamePane so the two cannot drift, and registry pins it to the database by
+// test. Note it omits SessionID: a session name or alias is an observation
+// that changes under a rename, while this is identity.
+func (t Target) PaneKey() string {
+	return fmt.Sprintf("%s/%d/%d/%s/%d", t.Socket, t.ServerPID, t.ServerStarted, t.PaneID, t.PanePID)
+}
+
 func (t Target) address() string { return t.SessionID + ":" + t.WindowID + "." + t.PaneID }
 
 var ids = regexp.MustCompile(`^[$@%][0-9]+$`)
