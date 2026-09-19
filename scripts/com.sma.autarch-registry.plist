@@ -1,0 +1,66 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  The estate registry watcher.
+
+  StartInterval with KeepAlive false, deliberately: each sweep is a complete,
+  idempotent unit inside one transaction, so a missed interval costs one
+  interval and a crashed run costs nothing. launchd never overlaps a job with
+  itself, which also serialises this against a manual `scan`.
+
+  Never set SuccessfulExit under KeepAlive: the job exits 1 whenever tmux is
+  unreachable, and that is a condition to report, not to restart into.
+
+  Install (not done automatically -- this starts a process that runs every 30
+  seconds on your machine):
+
+    go build -o ~/.local/bin/autarch-registry ./cmd/autarch-registry
+    cp scripts/com.sma.autarch-registry.plist ~/Library/LaunchAgents/
+    launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.sma.autarch-registry.plist
+
+  Check on it with `autarch-registry status`, which reports each producer's
+  age against its expected interval rather than only its last verdict.
+-->
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.sma.autarch-registry</string>
+
+  <key>ProgramArguments</key>
+  <array>
+    <string>/Users/sma/.local/bin/autarch-registry</string>
+    <!-- Explicit, because $TMUX takes precedence when set and a manual run
+         inside another server would otherwise rewrite the source's locator,
+         which is part of its identity. -->
+    <string>-tmux-socket</string>
+    <string>/private/tmp/tmux-501/default</string>
+    <string>scan</string>
+  </array>
+
+  <key>EnvironmentVariables</key>
+  <dict>
+    <!-- agenttransport runs a bare `tmux`, which lives in Homebrew's bin and
+         is outside launchd's default PATH. Without this the tmux source sits
+         in permanent error -- a real exec failure, correctly reported, and
+         entirely avoidable. -->
+    <key>PATH</key>
+    <string>/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
+  </dict>
+
+  <key>StartInterval</key>
+  <integer>30</integer>
+
+  <key>KeepAlive</key>
+  <false/>
+
+  <key>RunAtLoad</key>
+  <true/>
+
+  <key>StandardOutPath</key>
+  <string>/Users/sma/.autarch/registry-watch.log</string>
+  <key>StandardErrorPath</key>
+  <string>/Users/sma/.autarch/registry-watch.err</string>
+
+  <key>ProcessType</key>
+  <string>Background</string>
+</dict>
+</plist>

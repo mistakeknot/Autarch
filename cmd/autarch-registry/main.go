@@ -13,11 +13,13 @@
 package main
 
 import (
+	"database/sql"
 	"flag"
 	"fmt"
 	"os"
 	"path/filepath"
 	"text/tabwriter"
+	"time"
 
 	"github.com/mistakeknot/autarch/internal/registry"
 )
@@ -75,8 +77,11 @@ func run(cmd, dbPath, dir, host, socket string) error {
 		if len(res.Unparsable) > 0 {
 			fmt.Printf("  unreadable: %v\n", res.Unparsable)
 		}
-		if _, err := registry.Project(store); err != nil {
-			return err
+		// Closures happen in this first pass, so its result is what carries
+		// them. Reporting only the second pass printed a constant zero.
+		first, projErr := registry.Project(store)
+		if projErr != nil {
+			return projErr
 		}
 
 		var tmuxErr error
@@ -91,8 +96,9 @@ func run(cmd, dbPath, dir, host, socket string) error {
 			}
 		}
 
-		proj, projErr := registry.Project(store)
-		fmt.Printf("projected %d events, %d instances closed\n", proj.Applied, proj.Closed)
+		second, projErr := registry.Project(store)
+		fmt.Printf("projected %d events, %d instances closed\n",
+			first.Applied+second.Applied, first.Closed+second.Closed)
 		if scanErr != nil {
 			return scanErr
 		}
@@ -125,23 +131,36 @@ func status(s *registry.Store) error {
 
 	fmt.Println("SOURCES")
 	w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
-	fmt.Fprintln(w, "  id\thost\tstatus\tlast success\tscans (complete)")
-	rows, err := db.Query(`SELECT s.source_id, s.host, s.status,
-		COALESCE(CAST(s.last_success_ms AS TEXT),'never'),
+	fmt.Fprintln(w, "  id\thost\tstate\tlast success\tscans (complete)")
+	rows, err := db.Query(`SELECT s.source_id, s.host, s.status, s.last_success_ms, s.expected_interval_ms,
 		(SELECT COUNT(*) FROM source_scan WHERE source_id = s.source_id),
 		(SELECT COUNT(*) FROM source_scan WHERE source_id = s.source_id AND complete = 1)
 		FROM source s ORDER BY s.source_id`)
 	if err != nil {
 		return err
 	}
+	now := time.Now().UnixMilli()
 	for rows.Next() {
-		var id, host, st, last string
+		var id, host, st string
+		var last, interval sql.NullInt64
 		var scans, complete int
-		if err := rows.Scan(&id, &host, &st, &last, &scans, &complete); err != nil {
+		if err := rows.Scan(&id, &host, &st, &last, &interval, &scans, &complete); err != nil {
 			rows.Close()
 			return err
 		}
-		fmt.Fprintf(w, "  %s\t%s\t%s\t%s\t%d (%d)\n", id, host, st, last, scans, complete)
+		// A producer that last succeeded an hour ago is not healthy just
+		// because its last run succeeded. Under launchd, a job that stopped
+		// firing is the main way a failure goes unnoticed, and without this
+		// the row would read ok forever.
+		state, age := st, "never"
+		if last.Valid {
+			ageMs := now - last.Int64
+			age = fmt.Sprintf("%ds ago", ageMs/1000)
+			if st == "ok" && interval.Valid && interval.Int64 > 0 && ageMs > 3*interval.Int64 {
+				state = fmt.Sprintf("stale (%dx interval)", ageMs/interval.Int64)
+			}
+		}
+		fmt.Fprintf(w, "  %s\t%s\t%s\t%s\t%d (%d)\n", id, host, state, age, scans, complete)
 	}
 	rows.Close()
 	w.Flush()
@@ -197,12 +216,22 @@ func status(s *registry.Store) error {
 	}
 	rows.Close()
 
+	// Currently unassigned, not ever-failed: a conversation that was
+	// attributed later must stop being counted as a gap.
 	var unattributed int
-	if err := db.QueryRow(`SELECT COUNT(DISTINCT conversation_id) FROM event
-		WHERE kind = 'attribution.attempted'`).Scan(&unattributed); err != nil {
+	if err := db.QueryRow(`SELECT COUNT(*) FROM conversation c
+		WHERE NOT EXISTS (SELECT 1 FROM project_association pa
+		                  WHERE pa.conversation_id = c.conversation_id AND pa.retracted_ms IS NULL)`).
+		Scan(&unattributed); err != nil {
 		return err
 	}
-	fmt.Printf("  %d conversations unattributed, each with a recorded reason\n", unattributed)
+	fmt.Printf("  %d conversations unassigned", unattributed)
+	var withReason int
+	if err := db.QueryRow(`SELECT COUNT(DISTINCT conversation_id) FROM event
+		WHERE kind = 'attribution.attempted'`).Scan(&withReason); err != nil {
+		return err
+	}
+	fmt.Printf(", %d with a recorded reason\n", withReason)
 
 	var verified, claimed int
 	if err := db.QueryRow(`SELECT

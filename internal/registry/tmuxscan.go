@@ -122,9 +122,17 @@ func ScanTmuxPanesWith(s *Store, socket string, runner agenttransport.Runner) (S
 	}
 
 	out.Complete = len(out.Unparsable) == 0
-	if err := s.FinishScan(scanID, SourceTmuxInventory, out.Complete, out.RecordsSeen, nil); err != nil {
+	// An incomplete sweep marks its source, exactly as the sessions path does.
+	// A sweep that could not identify every pane is a gap, and a source that
+	// reads ok after a gap is the quiet lie this registry exists to refuse.
+	var gap error
+	if !out.Complete {
+		gap = fmt.Errorf("%d pane(s) incompletely identified: %v", len(out.Unparsable), out.Unparsable)
+	}
+	if err := s.FinishScan(scanID, SourceTmuxInventory, out.Complete, out.RecordsSeen, gap); err != nil {
 		return out, err
 	}
+	out.Err = gap
 	return out, nil
 }
 
@@ -135,7 +143,7 @@ func ScanTmuxPanesWith(s *Store, socket string, runner agenttransport.Runner) (S
 // identified. Closing the claim and opening a verified one would invent a
 // discontinuity the agent never experienced. The generated pane_key recomputes
 // on the update, so the row moves from its 'claimed:' key onto the real one.
-func (s *Store) verifyPane(eventID int64, payload string) error {
+func (s *Store) verifyPane(ex execer, eventID int64, payload string) error {
 	var obs struct {
 		agenttransport.Target
 		SessionName string `json:"session_name"`
@@ -147,7 +155,7 @@ func (s *Store) verifyPane(eventID int64, payload string) error {
 		return nil
 	}
 
-	_, err := s.db.Exec(`
+	_, err := ex.Exec(`
 		UPDATE pane_binding
 		   SET socket = ?, server_pid = ?, server_started = ?, pane_pid = ?,
 		       tmux_session_id = ?, window_id = ?, session_name_seen = ?,
@@ -171,9 +179,9 @@ func (s *Store) verifyPane(eventID int64, payload string) error {
 //
 // Bounded to observations at or before the event being applied, so a replay
 // cannot reach forward into knowledge the original pass did not have.
-func (s *Store) verifyFromLatestObservation(eventID int64, paneID string) error {
+func (s *Store) verifyFromLatestObservation(ex execer, eventID int64, paneID string) error {
 	var payload string
-	err := s.db.QueryRow(`SELECT payload FROM event
+	err := ex.QueryRow(`SELECT payload FROM event
 		WHERE kind = 'pane.observed'
 		  AND event_id <= ?
 		  AND json_extract(payload, '$.pane_id') = ?
@@ -184,5 +192,5 @@ func (s *Store) verifyFromLatestObservation(eventID int64, paneID string) error 
 	if err != nil {
 		return fmt.Errorf("look up pane %s: %w", paneID, err)
 	}
-	return s.verifyPane(eventID, payload)
+	return s.verifyPane(ex, eventID, payload)
 }

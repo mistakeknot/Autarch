@@ -8,8 +8,10 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -27,13 +29,21 @@ type Store struct {
 	db   *sql.DB
 	host string
 	now  func() int64
+	// probe asks the process table about tracked instances. Injectable so the
+	// absence paths can be exercised against fixtures whose pids are not real.
+	probe func([]probeTarget) map[string]string
 }
 
 // NewStore wraps an open registry database. host identifies the machine these
 // observations came from; it is part of every conversation's identity, so an
 // estate spanning two machines cannot merge into one history.
 func NewStore(db *sql.DB, host string) *Store {
-	return &Store{db: db, host: host, now: func() int64 { return time.Now().UnixMilli() }}
+	return &Store{
+		db:    db,
+		host:  host,
+		now:   func() int64 { return time.Now().UnixMilli() },
+		probe: probeProcesses,
+	}
 }
 
 // DB exposes the handle for readers and tests.
@@ -143,7 +153,9 @@ type Event struct {
 // ON CONFLICT targets the duplicate specifically. INSERT OR IGNORE would also
 // swallow NOT NULL and CHECK failures, turning a write that could not happen
 // into "nothing new" -- the exact suppression this registry exists to prevent.
-func (s *Store) AppendEvent(e Event) (int64, bool, error) {
+func (s *Store) AppendEvent(e Event) (int64, bool, error) { return s.appendEventTx(s.db, e) }
+
+func (s *Store) appendEventTx(ex execer, e Event) (int64, bool, error) {
 	var occurred, scan, conv, inst any
 	if e.OccurredMs != 0 {
 		occurred = e.OccurredMs
@@ -162,7 +174,7 @@ func (s *Store) AppendEvent(e Event) (int64, bool, error) {
 		payload = []byte("{}")
 	}
 
-	res, err := s.db.Exec(`
+	res, err := ex.Exec(`
 		INSERT INTO event (source_id, scan_id, dedupe_key, kind, occurred_ms, observed_ms,
 		                   conversation_id, instance_id, payload)
 		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
@@ -173,7 +185,7 @@ func (s *Store) AppendEvent(e Event) (int64, bool, error) {
 	}
 	if n, _ := res.RowsAffected(); n == 0 {
 		var id int64
-		err := s.db.QueryRow(`SELECT event_id FROM event WHERE source_id = ? AND dedupe_key = ?`,
+		err := ex.QueryRow(`SELECT event_id FROM event WHERE source_id = ? AND dedupe_key = ?`,
 			e.SourceID, e.DedupeKey).Scan(&id)
 		return id, false, err
 	}
@@ -362,10 +374,22 @@ func ScanClaudeSessions(s *Store, dir string) (ScanResult, error) {
 		// the scan table. An absence claim has to cite an event, and without
 		// this a sweep that saw nothing could cite nothing -- so an estate
 		// that genuinely emptied could never be recorded as having emptied.
+		// Probed here, at observation time, and recorded. The projector must
+		// never consult the live process table: on a rebuild that would judge
+		// the past by the present.
+		targets, err := s.openInstancesForProbe(SourceClaudeSessions)
+		if err != nil {
+			out.Err = err
+			_ = s.FinishScan(scanID, SourceClaudeSessions, false, out.RecordsSeen, err)
+			return out, err
+		}
 		roster, err := json.Marshal(struct {
-			RecordsSeen int      `json:"records_seen"`
-			Instances   []string `json:"instances"`
-		}{out.RecordsSeen, seen})
+			RecordsSeen int               `json:"records_seen"`
+			SourceID    string            `json:"source_id"`
+			Host        string            `json:"host"`
+			Instances   []string          `json:"instances"`
+			Probed      map[string]string `json:"probed"`
+		}{out.RecordsSeen, SourceClaudeSessions, s.host, seen, s.probe(targets)})
 		if err != nil {
 			out.Err = err
 			_ = s.FinishScan(scanID, SourceClaudeSessions, false, out.RecordsSeen, err)
@@ -389,6 +413,175 @@ func ScanClaudeSessions(s *Store, dir string) (ScanResult, error) {
 	out.Err = firstFailure
 	return out, nil
 }
+
+// ProbeState is what a liveness probe concluded about one tracked instance.
+const (
+	ProbeAlive   = "alive"
+	ProbeDead    = "dead"
+	ProbeUnknown = "unknown"
+)
+
+type probeTarget struct {
+	instanceID string
+	pid        int64
+	startedMs  int64
+	local      bool
+}
+
+// probeProcesses asks the process table about every instance the registry
+// currently holds open, in one call.
+//
+// The result is an observation, recorded in the log, and the projector reads
+// it from there rather than probing during replay -- otherwise a rebuild would
+// judge the past by today's process table, and an agent whose closure was once
+// withheld would be closed retroactively while it was still running.
+//
+// Its default answer is UNKNOWN, not dead. The first version defaulted to dead
+// and used the ps field `etimes`, which macOS does not have: ps printed
+// "keyword not found", exited 0 anyway, and every one of eleven live agents
+// was reported dead and closed on the next sweep. A probe that could not run
+// knows nothing, and nothing is not a death.
+func probeProcesses(targets []probeTarget) map[string]string {
+	var pids []string
+	for _, t := range targets {
+		if t.local {
+			pids = append(pids, strconv.FormatInt(t.pid, 10))
+		}
+	}
+	if len(pids) == 0 {
+		return interpretProbe(targets, "", "", nil, time.Now().UnixMilli())
+	}
+	// etime, not etimes: the latter is a Linux procps field and BSD ps
+	// rejects it while still exiting 0.
+	cmd := exec.Command("ps", "-o", "pid=,etime=", "-p", strings.Join(pids, ","))
+	var stderr strings.Builder
+	cmd.Stderr = &stderr
+	out, err := cmd.Output()
+	return interpretProbe(targets, string(out), stderr.String(), err, time.Now().UnixMilli())
+}
+
+// interpretProbe turns one ps run into a verdict per instance.
+//
+// Every path that is not a clean, complete answer resolves to unknown, which
+// withholds. Only a successful run that simply did not list a pid concludes
+// that the pid is gone.
+func interpretProbe(targets []probeTarget, psOut, psErr string, runErr error, nowMs int64) map[string]string {
+	out := make(map[string]string, len(targets))
+	local := 0
+	for _, t := range targets {
+		// A local kill(pid,0) or ps says nothing about another host or pid
+		// namespace, so a remote instance is always unknown here.
+		out[t.instanceID] = ProbeUnknown
+		if t.local {
+			local++
+		}
+	}
+	if local == 0 {
+		return out
+	}
+
+	elapsed := map[int64]int64{}
+	for _, line := range strings.Split(psOut, "\n") {
+		fields := strings.Fields(line)
+		if len(fields) != 2 {
+			continue
+		}
+		pid, err := strconv.ParseInt(fields[0], 10, 64)
+		if err != nil {
+			continue
+		}
+		secs, ok := parseElapsed(fields[1])
+		if !ok {
+			continue
+		}
+		elapsed[pid] = secs
+	}
+
+	// A run that errored, complained, or produced nothing parseable is not an
+	// answer. Treating it as one is how a keyword typo emptied the estate.
+	if runErr != nil || strings.TrimSpace(psErr) != "" || len(elapsed) == 0 {
+		return out
+	}
+
+	for _, t := range targets {
+		if !t.local {
+			continue
+		}
+		secs, running := elapsed[t.pid]
+		if !running {
+			out[t.instanceID] = ProbeDead
+			continue
+		}
+		// A process writes its session record after it starts, so its start
+		// time is at or before the recorded startedAt. A pid whose process
+		// began well AFTER that was recycled, and ours is gone -- which is a
+		// positive observation. The comparison is one-sided on purpose:
+		// reading "started earlier than expected" as a death would close live
+		// agents over clock slop.
+		const recycleToleranceMs = 60_000
+		procStart := nowMs - secs*1000
+		if t.startedMs > 0 && procStart-t.startedMs > recycleToleranceMs {
+			out[t.instanceID] = ProbeDead
+			continue
+		}
+		out[t.instanceID] = ProbeAlive
+	}
+	return out
+}
+
+// parseElapsed reads BSD ps elapsed time: [[dd-]hh:]mm:ss.
+func parseElapsed(s string) (int64, bool) {
+	days := int64(0)
+	if dash := strings.Index(s, "-"); dash >= 0 {
+		d, err := strconv.ParseInt(s[:dash], 10, 64)
+		if err != nil {
+			return 0, false
+		}
+		days, s = d, s[dash+1:]
+	}
+	parts := strings.Split(s, ":")
+	if len(parts) < 2 || len(parts) > 3 {
+		return 0, false
+	}
+	var total int64
+	for _, p := range parts {
+		v, err := strconv.ParseInt(p, 10, 64)
+		if err != nil {
+			return 0, false
+		}
+		total = total*60 + v
+	}
+	return days*86400 + total, true
+}
+
+// openInstancesForProbe lists what the registry currently holds open for this
+// source, so the sweep knows what to ask the process table about. Reading a
+// projection here is a hint about what to observe, never a source of truth.
+func (s *Store) openInstancesForProbe(sourceID string) ([]probeTarget, error) {
+	rows, err := s.db.Query(`
+		SELECT li.instance_id, li.pid, li.started_ms, li.host, li.pid_domain
+		  FROM launch_instance li
+		  JOIN event e ON e.event_id = li.first_event_id
+		 WHERE li.ended_ms IS NULL AND e.source_id = ?`, sourceID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []probeTarget
+	for rows.Next() {
+		var t probeTarget
+		var host, domain string
+		if err := rows.Scan(&t.instanceID, &t.pid, &t.startedMs, &host, &domain); err != nil {
+			return nil, err
+		}
+		t.local = host == s.host && domain == localPIDDomain
+		out = append(out, t)
+	}
+	return out, rows.Err()
+}
+
+// localPIDDomain is the pid namespace this process can ask about.
+const localPIDDomain = "darwin"
 
 // processAlive reports whether a pid currently exists.
 //

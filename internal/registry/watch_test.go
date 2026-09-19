@@ -25,7 +25,39 @@ func newStore(t *testing.T) *Store {
 	// A fixed clock, so a replay produces a byte-identical projection.
 	var tick int64 = 1_700_000_000_000
 	s.now = func() int64 { tick++; return tick }
+	// Fixture pids are not real processes, so the default probe would report
+	// every one of them dead. Tests that care about closure set their own.
+	s.probe = allAlive
 	return s
+}
+
+// allAlive is the default probe for fixtures: nothing has died.
+func allAlive(targets []probeTarget) map[string]string {
+	out := make(map[string]string, len(targets))
+	for _, t := range targets {
+		out[t.instanceID] = ProbeAlive
+	}
+	return out
+}
+
+// deadPIDs is a probe that reports the named pids dead and everything else
+// alive, so an absence can be staged precisely.
+func deadPIDs(pids ...int64) func([]probeTarget) map[string]string {
+	dead := map[int64]bool{}
+	for _, p := range pids {
+		dead[p] = true
+	}
+	return func(targets []probeTarget) map[string]string {
+		out := make(map[string]string, len(targets))
+		for _, t := range targets {
+			if dead[t.pid] {
+				out[t.instanceID] = ProbeDead
+			} else {
+				out[t.instanceID] = ProbeAlive
+			}
+		}
+		return out
+	}
 }
 
 func writeRecord(t *testing.T, dir string, pid int64, body string) {
@@ -252,6 +284,7 @@ func TestAnAbsentRecordClosesOnlyWithACompleteSweep(t *testing.T) {
 		t.Fatalf("open instances = %d, want 2", n)
 	}
 
+	s.probe = deadPIDs(deadPID)
 	os.Remove(filepath.Join(dir, fmt.Sprintf("%d.json", deadPID)))
 	// An incomplete sweep sees the same absence and must NOT act on it.
 	writeRecord(t, dir, 102, `{"broken`)
@@ -321,8 +354,29 @@ func TestRebuildFromTheLogIsIdentical(t *testing.T) {
 	writeRecord(t, dir, 52620, record(52620, "74e5950e", "iterm[]linsekasten:@67.%67", "/Users/sma/projects", "parent", "auto", 1100, 1100))
 	writeRecord(t, dir, 37995, record(37995, "90057d0b", "iterm[]linsekasten:@67.%67", "/Users/sma/projects/linsenkasten", "child", "derived", 1200, 1200))
 	scanAndProject(t, s, dir)
+
+	// Verification, so the replay has to reproduce an in-place upgrade.
+	if _, err := ScanTmuxPanesWith(s, fakeSocket,
+		fakeTmux{out: paneLine("$3", "@67", "%67", 36230, "iterm[]linsekasten", "2.1.278") + "\n" +
+			paneLine("$4", "@114", "%114", 40000, "clrtest", "2.1.278")}); err != nil {
+		t.Fatalf("tmux scan: %v", err)
+	}
+	if _, err := Project(s); err != nil {
+		t.Fatalf("project: %v", err)
+	}
+
+	// A record that changes AFTER its binding was verified -- the sweep that
+	// crashed the projector before the lookup was fixed.
 	writeRecord(t, dir, 43066, record(43066, "e20f9bd7", "clrtest:@114.%114", "/private/tmp", "tmp-80", "derived", 1789858817805, 2000))
 	scanAndProject(t, s, dir)
+
+	// And a closure, so the replay has to reproduce an ending too.
+	s.probe = deadPIDs(37995)
+	os.Remove(filepath.Join(dir, "37995.json"))
+	scanAndProject(t, s, dir)
+	if n := count(t, s.DB(), `SELECT COUNT(*) FROM launch_instance WHERE ended_ms IS NOT NULL`); n != 1 {
+		t.Fatalf("closed instances = %d, want 1", n)
+	}
 
 	// A durable row naming a conversation must survive the rebuild pointing
 	// at the same thing.
@@ -398,4 +452,155 @@ func snapshotProjections(t *testing.T, db *sql.DB) string {
 		}
 	}
 	return out.String()
+}
+
+// The crash Fable reproduced on the fourth live sweep: once a binding is
+// verified its generated key is the real one, so a lookup by the claimed key
+// misses, inserts a second claim, and then collides when that claim is
+// verified onto the key the first row already holds.
+func TestReobservingAVerifiedInstanceNeitherCrashesNorDuplicates(t *testing.T) {
+	s := newStore(t)
+	dir := t.TempDir()
+	writeRecord(t, dir, 17120, record(17120, "d58d5e63", "iterm]jawnomicon - x:@65.%65", "/Users/sma/projects", "a", "auto", 1000, 2000))
+	scanAndProject(t, s, dir)
+
+	if _, err := ScanTmuxPanesWith(s, fakeSocket,
+		fakeTmux{out: paneLine("$3", "@65", "%65", 36128, "iterm]jawnomicon - x", "2.1.278")}); err != nil {
+		t.Fatalf("tmux scan: %v", err)
+	}
+	if _, err := Project(s); err != nil {
+		t.Fatalf("project: %v", err)
+	}
+
+	// The record changes, so a fresh session.observed lands on an instance
+	// whose binding is already verified. This is the sweep that crashed.
+	for i, updated := range []int64{3000, 4000, 5000} {
+		writeRecord(t, dir, 17120, record(17120, "d58d5e63", "iterm]jawnomicon - x:@65.%65", "/Users/sma/projects", "a", "auto", 1000, updated))
+		res, err := ScanClaudeSessions(s, dir)
+		if err != nil {
+			t.Fatalf("sweep %d: %v", i, err)
+		}
+		if res.Inserted != 1 {
+			t.Fatalf("sweep %d inserted %d, expected the changed record", i, res.Inserted)
+		}
+		if _, err := Project(s); err != nil {
+			t.Fatalf("project after sweep %d: %v", i, err)
+		}
+	}
+
+	if n := count(t, s.DB(), `SELECT COUNT(*) FROM pane_binding WHERE observed_to_ms IS NULL`); n != 1 {
+		t.Errorf("open bindings = %d, want 1 -- a duplicate claim was left behind", n)
+	}
+	var basis string
+	mustScan(t, s.DB(), `SELECT binding_basis FROM pane_binding`, &basis)
+	if basis != "tmux_inventory" {
+		t.Errorf("basis = %q, want tmux_inventory -- verification was undone by re-observation", basis)
+	}
+}
+
+// The projector must be a function of the log. If it probes during replay, a
+// closure that was once withheld is applied retroactively -- and a still-live
+// agent acquires an ended parent it can never be reopened from.
+func TestReplayUsesTheRecordedProbeNotThePresent(t *testing.T) {
+	s := newStore(t)
+	dir := t.TempDir()
+	writeRecord(t, dir, deadPID, record(deadPID, "sess-a", "proj:@1.%1", "/Users/sma/projects/autarch", "a", "auto", 1000, 2000))
+	scanAndProject(t, s, dir)
+
+	// The record vanishes, but the sweep observed the process still alive, so
+	// the closure is withheld.
+	os.Remove(filepath.Join(dir, fmt.Sprintf("%d.json", deadPID)))
+	scanAndProject(t, s, dir)
+	if n := count(t, s.DB(), `SELECT COUNT(*) FROM launch_instance WHERE ended_ms IS NULL`); n != 1 {
+		t.Fatalf("open instances = %d, want 1 -- the closure should have been withheld", n)
+	}
+
+	before := snapshotProjections(t, s.DB())
+
+	// By the time of the rebuild the process really is gone. The replay must
+	// not notice: it is replaying what was observed then, not what is true now.
+	s.probe = deadPIDs(deadPID)
+	if _, err := Rebuild(s); err != nil {
+		t.Fatalf("rebuild: %v", err)
+	}
+	if n := count(t, s.DB(), `SELECT COUNT(*) FROM launch_instance WHERE ended_ms IS NULL`); n != 1 {
+		t.Error("the rebuild closed an instance the original pass had deliberately left open")
+	}
+	if after := snapshotProjections(t, s.DB()); after != before {
+		t.Errorf("replay is not a function of the log.\n--- before ---\n%s\n--- after ---\n%s", before, after)
+	}
+}
+
+// A record whose process died still sits on disk: the provider leaves no
+// tombstone. Without a positive death it would read as live forever.
+func TestAnOrphanedRecordClosesAsProcessExited(t *testing.T) {
+	s := newStore(t)
+	dir := t.TempDir()
+	writeRecord(t, dir, deadPID, record(deadPID, "sess-a", "proj:@1.%1", "/Users/sma/projects/autarch", "a", "auto", 1000, 2000))
+	scanAndProject(t, s, dir)
+
+	// The record is still present in every sweep; only the process is gone.
+	s.probe = deadPIDs(deadPID)
+	writeRecord(t, dir, deadPID, record(deadPID, "sess-a", "proj:@1.%1", "/Users/sma/projects/autarch", "a", "auto", 1000, 2500))
+	scanAndProject(t, s, dir)
+
+	var basis string
+	mustScan(t, s.DB(), `SELECT end_basis FROM launch_instance WHERE ended_ms IS NOT NULL`, &basis)
+	if basis != "process_exited" {
+		t.Errorf("basis = %q, want process_exited -- a record on disk is not a running agent", basis)
+	}
+}
+
+// A sweep with no roster must refuse rather than conclude the estate emptied.
+func TestAScanEventWithoutARosterIsRefused(t *testing.T) {
+	s := newStore(t)
+	dir := t.TempDir()
+	writeRecord(t, dir, 100, record(100, "sess-a", "proj:@1.%1", "/Users/sma/projects/autarch", "a", "auto", 1000, 2000))
+	scanAndProject(t, s, dir)
+
+	mustExec(t, s.DB(), `INSERT INTO event (source_id, dedupe_key, kind, observed_ms, payload)
+		VALUES (?, 'hand-written', 'scan.completed', 9999, '{"records_seen":0,"source_id":"claude-sessions","host":"clavain"}')`,
+		SourceClaudeSessions)
+	_, err := Project(s)
+	if err == nil {
+		t.Fatal("a scan event with no roster must be refused, not read as an empty estate")
+	}
+	if !strings.Contains(err.Error(), "empty estate") {
+		t.Errorf("refusal should say what it is refusing: %v", err)
+	}
+	if n := count(t, s.DB(), `SELECT COUNT(*) FROM launch_instance WHERE ended_ms IS NULL`); n != 1 {
+		t.Errorf("open instances = %d, want 1 -- the refused batch still wrote", n)
+	}
+}
+
+// A sweep has standing only over what it watches. Another source's agents are
+// not absent merely because they were never in scope.
+func TestASweepDoesNotJudgeAnotherSourcesInstances(t *testing.T) {
+	s := newStore(t)
+	dir := t.TempDir()
+	writeRecord(t, dir, 100, record(100, "mine", "proj:@1.%1", "/Users/sma/projects/autarch", "a", "auto", 1000, 2000))
+	scanAndProject(t, s, dir)
+
+	// A second producer, with an agent of its own.
+	mustExec(t, s.DB(), `INSERT INTO source (source_id, host, kind, locator, status, last_success_ms)
+		VALUES ('codex-rollouts','clavain','session_file','~/.codex/sessions','ok',1)`)
+	res := mustExec(t, s.DB(), `INSERT INTO event (source_id, dedupe_key, kind, observed_ms)
+		VALUES ('codex-rollouts','c1','session.observed',1)`)
+	ev, _ := res.LastInsertId()
+	other := InstanceID("clavain", "darwin", 777, 777)
+	mustExec(t, s.DB(), `INSERT INTO launch_instance
+		(instance_id, host, pid_domain, pid, started_ms, first_event_id, last_event_id)
+		VALUES (?, 'clavain', 'darwin', 777, 777, ?, ?)`, other, ev, ev)
+
+	// A complete Claude sweep that has never heard of it, with everything it
+	// does know reported dead.
+	s.probe = deadPIDs(100, 777)
+	os.Remove(filepath.Join(dir, "100.json"))
+	scanAndProject(t, s, dir)
+
+	var ended sql.NullInt64
+	mustScan(t, s.DB(), `SELECT ended_ms FROM launch_instance WHERE instance_id = ?`, &ended, other)
+	if ended.Valid {
+		t.Error("a Claude sweep closed a Codex agent it never had in scope")
+	}
 }

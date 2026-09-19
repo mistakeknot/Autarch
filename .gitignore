@@ -63,3 +63,5 @@ prototypes/*/target/
 .clavain/**/*.db
 .clavain/**/*.db-shm
 .clavain/**/*.db-wal
+# the built binary at the repo root, not cmd/autarch-registry/
+/autarch-registry
