@@ -99,6 +99,12 @@ func run(cmd, dbPath, dir, host, socket string) error {
 		second, projErr := registry.Project(store)
 		fmt.Printf("projected %d events, %d instances closed\n",
 			first.Applied+second.Applied, first.Closed+second.Closed)
+		// A projector that declines to act on an event must say so here.
+		// Silently skipping is how a frozen live list goes on being presented
+		// as current.
+		for _, r := range append(append([]string{}, first.Refusals...), second.Refusals...) {
+			fmt.Printf("  refused: %s\n", r)
+		}
 		if scanErr != nil {
 			return scanErr
 		}
@@ -241,5 +247,25 @@ func status(s *registry.Store) error {
 		return err
 	}
 	fmt.Printf("  %d pane bindings confirmed by the live server, %d still only claimed\n", verified, claimed)
+
+	// How far the projector is behind the log. A projector wedged on one bad
+	// event leaves everything above stale while it still reads current.
+	var lag int64
+	if err := db.QueryRow(`SELECT COALESCE((SELECT MAX(event_id) FROM event),0)
+		- COALESCE((SELECT applied_through_event_id FROM projection_state WHERE projection = 'registry'),0)`).
+		Scan(&lag); err != nil {
+		return err
+	}
+	if lag != 0 {
+		fmt.Printf("  projector is %d events behind the log\n", lag)
+	}
+
+	var reopened int
+	if err := db.QueryRow(`SELECT COALESCE(SUM(reopened_count),0) FROM launch_instance`).Scan(&reopened); err != nil {
+		return err
+	}
+	if reopened > 0 {
+		fmt.Printf("  %d instance closure(s) were contradicted by later proof of life and reopened\n", reopened)
+	}
 	return nil
 }

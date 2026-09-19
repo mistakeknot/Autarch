@@ -2,10 +2,9 @@ package registry
 
 import (
 	"os"
+	"os/exec"
 	"testing"
 )
-
-func selfPID() int { return os.Getpid() }
 
 func TestParseElapsedReadsBSDFormats(t *testing.T) {
 	cases := []struct {
@@ -30,11 +29,19 @@ func TestParseElapsedReadsBSDFormats(t *testing.T) {
 	}
 }
 
-// The failure that closed eleven live agents: `ps -o pid=,etimes=` printed
-// "keyword not found", listed bare pids, and exited 0. Every path that is not
-// a clean answer must resolve to unknown.
+// Two failures, in opposite directions, both of which shipped.
+//
+// First: `ps -o pid=,etimes=` printed "keyword not found", listed bare pids
+// and exited 0, and a default of dead closed eleven live agents. Second: BSD
+// ps exits 1 and prints NOTHING when none of the pids exist, so "every
+// tracked agent died" was indistinguishable from "the probe failed" -- and
+// after a reboot the estate would have read live forever.
+//
+// The sentinel settles both: this process is unarguably running, so ps
+// listing it proves the run worked, and any other absence is real.
 func TestAProbeThatCouldNotRunConcludesNothing(t *testing.T) {
 	now := int64(1_000_000_000_000)
+	const sentinel = 999
 	targets := []probeTarget{
 		{instanceID: "a", pid: 100, startedMs: now - 60_000, local: true},
 		{instanceID: "b", pid: 200, startedMs: now - 60_000, local: true},
@@ -45,13 +52,13 @@ func TestAProbeThatCouldNotRunConcludesNothing(t *testing.T) {
 		out    string
 		errOut string
 	}{
-		{"the etimes failure: bare pids, no elapsed column", "100\n200\n", "ps: etimes: keyword not found"},
+		{"the etimes failure: bare pids, no elapsed column", "100\n200\n999\n", "ps: etimes: keyword not found"},
 		{"nothing parseable at all", "%cpu %mem acflag\n", ""},
-		{"empty output", "", ""},
-		{"a complaint on stderr", "100 01:00\n", "ps: process id too large: 4000001"},
+		{"empty output, which is also what ps gives when every pid is gone", "", ""},
+		{"a complaint on stderr", "999 00:01\n100 01:00\n", "ps: process id too large: 4000001"},
 	}
 	for _, d := range degraded {
-		got := interpretProbe(targets, d.out, d.errOut, nil, now)
+		got := interpretProbe(targets, d.out, d.errOut, sentinel, now)
 		for _, id := range []string{"a", "b"} {
 			if got[id] != ProbeUnknown {
 				t.Errorf("%s: instance %s = %q, want %q -- a probe that could not run must not report a death",
@@ -71,8 +78,9 @@ func TestProbeReadsAbsenceAsDeathOnlyOnACleanRun(t *testing.T) {
 	}
 	// 100 has been up an hour, matching its record. 300 has been up ten
 	// seconds, so the pid was reused and our process is gone. 200 is absent.
-	out := "100 01:00:00\n300 00:10\n"
-	got := interpretProbe(targets, out, "", nil, now)
+	// 999 is the sentinel, proving the run worked.
+	out := "999 00:05\n100 01:00:00\n300 00:10\n"
+	got := interpretProbe(targets, out, "", 999, now)
 
 	want := map[string]string{
 		"alive":    ProbeAlive,
@@ -95,18 +103,51 @@ func TestAnEarlierStartThanRecordedIsNotADeath(t *testing.T) {
 	targets := []probeTarget{{instanceID: "a", pid: 100, startedMs: now - 3_600_000, local: true}}
 	// Running for two hours; the record was written one hour ago. Consistent
 	// with a long-lived process that rewrote its record.
-	got := interpretProbe(targets, "100 02:00:00\n", "", nil, now)
+	got := interpretProbe(targets, "999 00:05\n100 02:00:00\n", "", 999, now)
 	if got["a"] != ProbeAlive {
 		t.Errorf("instance a = %q, want %q", got["a"], ProbeAlive)
 	}
 }
 
-// The real process table, through the real ps invocation: this process is
-// alive, and a pid that cannot exist is not.
+// A pid that is listed but whose elapsed time will not parse is running; it
+// is simply not judgeable for pid reuse. It is certainly not dead.
+func TestAnUnreadableElapsedTimeIsNotADeath(t *testing.T) {
+	now := int64(1_000_000_000_000)
+	targets := []probeTarget{{instanceID: "a", pid: 100, startedMs: now - 60_000, local: true}}
+	got := interpretProbe(targets, "999 00:05\n100 ??\n", "", 999, now)
+	if got["a"] != ProbeUnknown {
+		t.Errorf("instance a = %q, want %q", got["a"], ProbeUnknown)
+	}
+}
+
+// The real ps invocation, end to end: this process is alive, and a process
+// that has genuinely exited is dead. The fixtures elsewhere inject the probe,
+// so without this the real command is never exercised against a real death --
+// which is how two ps bugs reached a live estate.
 func TestProbeAgainstTheRealProcessTable(t *testing.T) {
-	self := probeTarget{instanceID: "self", pid: int64(selfPID()), startedMs: 0, local: true}
-	got := probeProcesses([]probeTarget{self})
+	cmd := exec.Command("true")
+	if err := cmd.Start(); err != nil {
+		t.Fatalf("start a process to kill: %v", err)
+	}
+	deadPid := int64(cmd.Process.Pid)
+	_ = cmd.Wait()
+
+	self := probeTarget{instanceID: "self", pid: int64(os.Getpid()), local: true}
+	gone := probeTarget{instanceID: "gone", pid: deadPid, local: true}
+
+	got := probeProcesses([]probeTarget{self, gone})
 	if got["self"] != ProbeAlive {
 		t.Errorf("this process probed as %q, want %q -- the ps invocation is wrong", got["self"], ProbeAlive)
+	}
+	if got["gone"] != ProbeDead {
+		t.Errorf("an exited process probed as %q, want %q", got["gone"], ProbeDead)
+	}
+
+	// And the case that produced the mirror bug: every tracked pid dead, so
+	// ps exits 1 with no output. The sentinel must still carry the run.
+	onlyDead := probeProcesses([]probeTarget{gone})
+	if onlyDead["gone"] != ProbeDead {
+		t.Errorf("with every tracked pid gone, probe said %q, want %q -- the last agent to exit would never close",
+			onlyDead["gone"], ProbeDead)
 	}
 }

@@ -199,3 +199,38 @@ func TestAClaimInAQuietPaneIsVerifiedFromWhatIsAlreadyKnown(t *testing.T) {
 		t.Errorf("open bindings = %d, want 2", n)
 	}
 }
+
+// A pane that returns to a state it held before must record the return. A
+// content hash over all history suppresses it, and the latest recorded
+// observation then stays on the intermediate state -- stale data read as
+// current by verifyFromLatestObservation.
+func TestAPaneRevertingToAPreviousStateIsRecorded(t *testing.T) {
+	s := newStore(t)
+
+	stateA := paneLine("$3", "@67", "%67", 36230, "iterm[]linsekasten", "zsh")
+	stateB := paneLine("$3", "@67", "%67", 36230, "iterm[]linsekasten", "2.1.278")
+
+	for i, out := range []string{stateA, stateB, stateA} {
+		if _, err := ScanTmuxPanesWith(s, fakeSocket, fakeTmux{out: out}); err != nil {
+			t.Fatalf("sweep %d: %v", i, err)
+		}
+	}
+	if n := count(t, s.DB(), `SELECT COUNT(*) FROM event WHERE kind = 'pane.observed'`); n != 3 {
+		t.Errorf("pane observations = %d, want 3 -- the revert was suppressed", n)
+	}
+
+	// An unchanged pane still emits nothing.
+	if _, err := ScanTmuxPanesWith(s, fakeSocket, fakeTmux{out: stateA}); err != nil {
+		t.Fatalf("fourth sweep: %v", err)
+	}
+	if n := count(t, s.DB(), `SELECT COUNT(*) FROM event WHERE kind = 'pane.observed'`); n != 3 {
+		t.Errorf("pane observations = %d, want 3 -- an unchanged pane emitted an event", n)
+	}
+
+	// And the latest observation is the one that is actually current.
+	var payload string
+	mustScan(t, s.DB(), `SELECT payload FROM event WHERE kind = 'pane.observed' ORDER BY event_id DESC LIMIT 1`, &payload)
+	if !strings.Contains(payload, `"command":"zsh"`) {
+		t.Errorf("latest observation is stale: %s", payload)
+	}
+}

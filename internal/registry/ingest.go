@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"sort"
 	"strconv"
 	"strings"
@@ -314,6 +315,10 @@ func ScanClaudeSessions(s *Store, dir string) (ScanResult, error) {
 	// events alone would read "unchanged" as "gone" -- which is the exact
 	// confusion between silence and absence this registry exists to refuse.
 	seen := make([]string, 0, len(names))
+	// Instances whose record changed during THIS sweep. A process that has
+	// just rewritten its record is alive whatever the process table said a
+	// moment later, so a contradiction withholds rather than closes.
+	changed := make([]string, 0, len(names))
 	for _, name := range names {
 		path := filepath.Join(dir, name)
 		raw, err := os.ReadFile(path)
@@ -327,7 +332,9 @@ func ScanClaudeSessions(s *Store, dir string) (ScanResult, error) {
 			continue
 		}
 		var rec SessionRecord
-		if err := json.Unmarshal(raw, &rec); err != nil || rec.PID == 0 || rec.SessionID == "" {
+		// StartedAt is half of the instance key and the whole basis of the
+		// pid-reuse check, so a record without one cannot be identified.
+		if err := json.Unmarshal(raw, &rec); err != nil || rec.PID == 0 || rec.SessionID == "" || rec.StartedAt == 0 {
 			out.Unparsable = append(out.Unparsable, name)
 			if firstFailure == nil {
 				firstFailure = fmt.Errorf("%s: unrecognised session record", name)
@@ -358,6 +365,7 @@ func ScanClaudeSessions(s *Store, dir string) (ScanResult, error) {
 		}
 		if inserted {
 			out.Inserted++
+			changed = append(changed, instID)
 			if err := s.AddEvidence(id, "session_file", SourceClaudeSessions, path, sha); err != nil {
 				out.Err = err
 				_ = s.FinishScan(scanID, SourceClaudeSessions, false, out.RecordsSeen, err)
@@ -388,8 +396,9 @@ func ScanClaudeSessions(s *Store, dir string) (ScanResult, error) {
 			SourceID    string            `json:"source_id"`
 			Host        string            `json:"host"`
 			Instances   []string          `json:"instances"`
+			Changed     []string          `json:"changed"`
 			Probed      map[string]string `json:"probed"`
-		}{out.RecordsSeen, SourceClaudeSessions, s.host, seen, s.probe(targets)})
+		}{out.RecordsSeen, SourceClaudeSessions, s.host, seen, changed, s.probe(targets)})
 		if err != nil {
 			out.Err = err
 			_ = s.FinishScan(scanID, SourceClaudeSessions, false, out.RecordsSeen, err)
@@ -439,33 +448,40 @@ type probeTarget struct {
 // Its default answer is UNKNOWN, not dead. The first version defaulted to dead
 // and used the ps field `etimes`, which macOS does not have: ps printed
 // "keyword not found", exited 0 anyway, and every one of eleven live agents
-// was reported dead and closed on the next sweep. A probe that could not run
-// knows nothing, and nothing is not a death.
+// was reported dead and closed on the next sweep.
+//
+// The fix for that then produced its mirror image. BSD ps exits 1 and prints
+// nothing when NONE of the pids exist, so "every tracked agent has died" was
+// indistinguishable from "the probe failed" -- and after a reboot the whole
+// estate would have read live forever. Hence the sentinel: this process's own
+// pid goes in the list, and it is always alive. If ps lists it, the run
+// worked and every other absence is a real death. If it does not, the run
+// told us nothing. That is a positive signal rather than an inference from an
+// exit code or an empty result, both of which were wrong in one direction or
+// the other.
 func probeProcesses(targets []probeTarget) map[string]string {
-	var pids []string
+	sentinel := int64(os.Getpid())
+	pids := []string{strconv.FormatInt(sentinel, 10)}
 	for _, t := range targets {
-		if t.local {
+		if t.local && t.pid != sentinel {
 			pids = append(pids, strconv.FormatInt(t.pid, 10))
 		}
-	}
-	if len(pids) == 0 {
-		return interpretProbe(targets, "", "", nil, time.Now().UnixMilli())
 	}
 	// etime, not etimes: the latter is a Linux procps field and BSD ps
 	// rejects it while still exiting 0.
 	cmd := exec.Command("ps", "-o", "pid=,etime=", "-p", strings.Join(pids, ","))
 	var stderr strings.Builder
 	cmd.Stderr = &stderr
-	out, err := cmd.Output()
-	return interpretProbe(targets, string(out), stderr.String(), err, time.Now().UnixMilli())
+	out, _ := cmd.Output()
+	return interpretProbe(targets, string(out), stderr.String(), sentinel, time.Now().UnixMilli())
 }
 
 // interpretProbe turns one ps run into a verdict per instance.
 //
 // Every path that is not a clean, complete answer resolves to unknown, which
-// withholds. Only a successful run that simply did not list a pid concludes
-// that the pid is gone.
-func interpretProbe(targets []probeTarget, psOut, psErr string, runErr error, nowMs int64) map[string]string {
+// withholds. Only a run proven to have worked -- by listing the sentinel --
+// may conclude that an unlisted pid is gone.
+func interpretProbe(targets []probeTarget, psOut, psErr string, sentinel, nowMs int64) map[string]string {
 	out := make(map[string]string, len(targets))
 	local := 0
 	for _, t := range targets {
@@ -481,6 +497,7 @@ func interpretProbe(targets []probeTarget, psOut, psErr string, runErr error, no
 	}
 
 	elapsed := map[int64]int64{}
+	listed := map[int64]bool{}
 	for _, line := range strings.Split(psOut, "\n") {
 		fields := strings.Fields(line)
 		if len(fields) != 2 {
@@ -490,16 +507,16 @@ func interpretProbe(targets []probeTarget, psOut, psErr string, runErr error, no
 		if err != nil {
 			continue
 		}
-		secs, ok := parseElapsed(fields[1])
-		if !ok {
-			continue
+		listed[pid] = true
+		if secs, ok := parseElapsed(fields[1]); ok {
+			elapsed[pid] = secs
 		}
-		elapsed[pid] = secs
 	}
 
-	// A run that errored, complained, or produced nothing parseable is not an
-	// answer. Treating it as one is how a keyword typo emptied the estate.
-	if runErr != nil || strings.TrimSpace(psErr) != "" || len(elapsed) == 0 {
+	// The sentinel is this process, which is unarguably running. If ps did not
+	// list it, ps did not work, and nothing it did or did not say means
+	// anything. A complaint on stderr is treated the same way.
+	if !listed[sentinel] || strings.TrimSpace(psErr) != "" {
 		return out
 	}
 
@@ -507,9 +524,16 @@ func interpretProbe(targets []probeTarget, psOut, psErr string, runErr error, no
 		if !t.local {
 			continue
 		}
-		secs, running := elapsed[t.pid]
-		if !running {
+		if !listed[t.pid] {
 			out[t.instanceID] = ProbeDead
+			continue
+		}
+		secs, readable := elapsed[t.pid]
+		if !readable {
+			// Listed, so it is running, but its elapsed time did not parse.
+			// That is not enough to judge pid reuse, and it is certainly not
+			// a death.
+			out[t.instanceID] = ProbeUnknown
 			continue
 		}
 		// A process writes its session record after it starts, so its start
@@ -580,8 +604,10 @@ func (s *Store) openInstancesForProbe(sourceID string) ([]probeTarget, error) {
 	return out, rows.Err()
 }
 
-// localPIDDomain is the pid namespace this process can ask about.
-const localPIDDomain = "darwin"
+// localPIDDomain is the pid namespace this process can ask about. Taken from
+// the running OS rather than hard-coded: as a constant "darwin" it would make
+// nothing local on zklw, which is Linux, so nothing there would ever close.
+var localPIDDomain = runtime.GOOS
 
 // processAlive reports whether a pid currently exists.
 //

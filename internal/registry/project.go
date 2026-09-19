@@ -46,6 +46,11 @@ type ProjectResult struct {
 	Applied        int
 	ThroughEventID int64
 	Closed         int
+	// Events the projector declined to act on. They do not stop the batch --
+	// one malformed event must not wedge the log -- but they are reported,
+	// because a projector that silently skips is a projector nobody notices
+	// has stopped working.
+	Refusals []string
 }
 
 // Project applies every event the projector has not yet seen.
@@ -57,9 +62,19 @@ type ProjectResult struct {
 func Project(s *Store) (ProjectResult, error) {
 	var out ProjectResult
 
-	if err := s.EnsureSource(SourceAttribution, "derived", "projector", 0); err != nil {
+	if err := s.EnsureSource(SourceAttribution, "derived", "projector", 30_000); err != nil {
 		return out, err
 	}
+	// A pass that fails must say so on its own source. Recording only success
+	// there, as the first version did, means a wedged projector reads healthy
+	// while the live list freezes and is presented as current.
+	failed := true
+	defer func() {
+		if failed {
+			_, _ = s.db.Exec(`UPDATE source SET status = 'error', last_error = ?
+				WHERE source_id = ?`, "projection pass failed", SourceAttribution)
+		}
+	}()
 
 	tx, err := s.db.BeginTx(context.Background(), nil)
 	if err != nil {
@@ -117,11 +132,14 @@ func Project(s *Store) (ProjectResult, error) {
 				return out, err
 			}
 		case "scan.completed":
-			n, err := s.reconcileAbsences(tx, p.eventID, p.observedMs, p.payload)
+			n, refusal, err := s.reconcileAbsences(tx, p.eventID, p.observedMs, p.payload)
 			if err != nil {
 				return out, err
 			}
 			out.Closed += n
+			if refusal != "" {
+				out.Refusals = append(out.Refusals, refusal)
+			}
 		}
 		out.Applied++
 		out.ThroughEventID = p.eventID
@@ -143,9 +161,19 @@ func Project(s *Store) (ProjectResult, error) {
 	// The projector is a producer too. Without this its source row reads
 	// "never succeeded" forever, which is the same lie as a dead watcher
 	// reading as healthy, only in the other direction.
-	if _, err := s.db.Exec(`UPDATE source SET status = 'ok', last_success_ms = ?, last_error = NULL
-		WHERE source_id = ?`, s.now(), SourceAttribution); err != nil {
-		return out, err
+	//
+	// Outside the transaction deliberately: these are mutable liveness
+	// columns no projection reads, and a failure here must not discard a
+	// committed batch. It is also reported rather than returned, so the
+	// caller's remaining work is not abandoned over a bookkeeping write.
+	failed = false
+	note := any(nil)
+	if len(out.Refusals) > 0 {
+		note = strings.Join(out.Refusals, "; ")
+	}
+	if _, err := s.db.Exec(`UPDATE source SET status = 'ok', last_success_ms = ?, last_error = ?
+		WHERE source_id = ?`, s.now(), note, SourceAttribution); err != nil {
+		return out, fmt.Errorf("record projector liveness (the batch itself committed): %w", err)
 	}
 	return out, nil
 }
@@ -172,6 +200,15 @@ func (s *Store) applySessionObserved(ex execer, eventID, observedMs int64, rec S
 		return fmt.Errorf("upsert conversation: %w", err)
 	}
 
+	// Proof of life after a closure reopens the instance. Four false deaths
+	// have already been found in this code; a fifth has to be recoverable
+	// rather than silently absorbed. Without this the instance stays ended,
+	// fresh conversation links and bindings accumulate underneath it, and it
+	// disappears from view while it goes on writing records.
+	if err := s.reopenIfEnded(ex, eventID, observedMs, instID); err != nil {
+		return err
+	}
+
 	if _, err := ex.Exec(`
 		INSERT INTO launch_instance (instance_id, host, pid_domain, pid, started_ms, proc_start_raw,
 		    launch_cwd, entrypoint, kind, agent_version, messaging_socket, bridge_session_id,
@@ -195,6 +232,24 @@ func (s *Store) applySessionObserved(ex execer, eventID, observedMs int64, rec S
 		return err
 	}
 	return s.attribute(ex, eventID, convID, rec, seen)
+}
+
+// reopenIfEnded undoes a closure that a later observation contradicts, and
+// records that the contradiction happened.
+func (s *Store) reopenIfEnded(ex execer, eventID, observedMs int64, instID string) error {
+	var endedMs sql.NullInt64
+	err := ex.QueryRow(`SELECT ended_ms FROM launch_instance WHERE instance_id = ?`, instID).Scan(&endedMs)
+	if errors.Is(err, sql.ErrNoRows) || (err == nil && !endedMs.Valid) {
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("read instance state: %w", err)
+	}
+	_, err = ex.Exec(`UPDATE launch_instance
+		SET ended_ms = NULL, end_basis = NULL, end_event_id = NULL,
+		    reopened_count = reopened_count + 1, last_reopen_event_id = ?
+		WHERE instance_id = ?`, eventID, instID)
+	return err
 }
 
 // linkInstanceConversation maintains the time-bounded link. /clear replaces
@@ -282,6 +337,7 @@ type scanRoster struct {
 	SourceID    string             `json:"source_id"`
 	Host        string             `json:"host"`
 	Instances   *[]string          `json:"instances"`
+	Changed     []string           `json:"changed"`
 	Probed      *map[string]string `json:"probed"`
 }
 
@@ -296,20 +352,27 @@ type scanRoster struct {
 // Both fields are required rather than optional. A payload missing its roster
 // would unmarshal to an empty one, and an empty roster says everything is
 // gone: the precise shape of an absence of data being read as data.
-func (s *Store) reconcileAbsences(ex execer, eventID, observedMs int64, payload string) (int, error) {
+func (s *Store) reconcileAbsences(ex execer, eventID, observedMs int64, payload string) (int, string, error) {
 	var roster scanRoster
 	if err := json.Unmarshal([]byte(payload), &roster); err != nil {
-		return 0, fmt.Errorf("scan roster in event %d: %w", eventID, err)
+		return 0, fmt.Sprintf("scan roster in event %d will not parse (%v); refusing to read that as an empty estate", eventID, err), nil
 	}
+	// A refusal closes nothing and advances the cursor. Aborting the batch
+	// instead would wedge the projector on this event forever, and a frozen
+	// live list presented as current is its own kind of lie.
 	if roster.Instances == nil || roster.Probed == nil {
-		return 0, fmt.Errorf("scan roster in event %d has no instance list or probe results; refusing to treat that as an empty estate", eventID)
+		return 0, fmt.Sprintf("scan roster in event %d has no instance list or probe results; refusing to read that as an empty estate", eventID), nil
 	}
 	if roster.SourceID == "" {
-		return 0, fmt.Errorf("scan roster in event %d names no source; its scope is unknown", eventID)
+		return 0, fmt.Sprintf("scan roster in event %d names no source, so its scope is unknown", eventID), nil
 	}
 	present := make(map[string]bool, len(*roster.Instances))
 	for _, id := range *roster.Instances {
 		present[id] = true
+	}
+	changed := make(map[string]bool, len(roster.Changed))
+	for _, id := range roster.Changed {
+		changed[id] = true
 	}
 	probed := *roster.Probed
 
@@ -321,20 +384,20 @@ func (s *Store) reconcileAbsences(ex execer, eventID, observedMs int64, payload 
 		  JOIN event e ON e.event_id = li.first_event_id
 		 WHERE li.ended_ms IS NULL AND e.source_id = ?`, roster.SourceID)
 	if err != nil {
-		return 0, fmt.Errorf("find open instances: %w", err)
+		return 0, "", fmt.Errorf("find open instances: %w", err)
 	}
 	var open []string
 	for rows.Next() {
 		var id string
 		if err := rows.Scan(&id); err != nil {
 			rows.Close()
-			return 0, err
+			return 0, "", err
 		}
 		open = append(open, id)
 	}
 	rows.Close()
 	if err := rows.Err(); err != nil {
-		return 0, err
+		return 0, "", err
 	}
 
 	closed := 0
@@ -342,6 +405,12 @@ func (s *Store) reconcileAbsences(ex execer, eventID, observedMs int64, payload 
 		// Only a recorded death closes anything. Alive, unknown, and not
 		// probed at all each withhold.
 		if probed[id] != ProbeDead {
+			continue
+		}
+		if changed[id] {
+			// The record was rewritten during this very sweep. Whatever the
+			// process table said a moment later, something was alive to write
+			// it, and a contradiction withholds.
 			continue
 		}
 		basis := "absent_from_complete_scan"
@@ -352,11 +421,11 @@ func (s *Store) reconcileAbsences(ex execer, eventID, observedMs int64, payload 
 			basis = "process_exited"
 		}
 		if err := s.closeInstance(ex, id, basis, observedMs, eventID); err != nil {
-			return closed, err
+			return closed, "", err
 		}
 		closed++
 	}
-	return closed, nil
+	return closed, "", nil
 }
 
 func (s *Store) closeInstance(ex execer, instanceID, basis string, endedMs, eventID int64) error {

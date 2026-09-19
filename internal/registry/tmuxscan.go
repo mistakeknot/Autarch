@@ -81,6 +81,17 @@ func ScanTmuxPanesWith(s *Store, socket string, runner agenttransport.Runner) (S
 	// Deterministic order, so a replay assigns event ids in the same sequence.
 	sort.Slice(panes, func(i, j int) bool { return panes[i].Target.PaneKey() < panes[j].Target.PaneKey() })
 
+	// Dedupe against each pane's PREVIOUS observation, not against all of
+	// history. A content-addressed key over history suppresses a revert: a
+	// pane going A, B, then back to A emits nothing for the return, and the
+	// latest recorded observation stays B -- stale data read as current.
+	lastSeen, err := s.lastPaneObservations()
+	if err != nil {
+		out.Err = err
+		_ = s.FinishScan(scanID, SourceTmuxInventory, false, 0, err)
+		return out, err
+	}
+
 	for _, p := range panes {
 		t := p.Target
 		t.Socket = CanonicalSocket(t.Socket)
@@ -104,10 +115,17 @@ func ScanTmuxPanesWith(s *Store, socket string, runner agenttransport.Runner) (S
 			return out, err
 		}
 		sum := sha256.Sum256(body)
+		digest := hex.EncodeToString(sum[:])[:16]
+		if lastSeen[t.PaneID] == digest {
+			out.Skipped++
+			continue
+		}
 		if _, inserted, err := s.AppendEvent(Event{
-			SourceID:  SourceTmuxInventory,
-			ScanID:    scanID,
-			DedupeKey: "pane:" + t.PaneKey() + ":" + hex.EncodeToString(sum[:])[:16],
+			SourceID: SourceTmuxInventory,
+			ScanID:   scanID,
+			// The scan id makes a revert a distinct key, so A -> B -> A
+			// records the return rather than colliding with the first A.
+			DedupeKey: fmt.Sprintf("pane|%s|%s|%d", digest, t.PaneID, scanID),
 			Kind:      "pane.observed",
 			Payload:   body,
 		}); err != nil {
@@ -193,4 +211,31 @@ func (s *Store) verifyFromLatestObservation(ex execer, eventID int64, paneID str
 		return fmt.Errorf("look up pane %s: %w", paneID, err)
 	}
 	return s.verifyPane(ex, eventID, payload)
+}
+
+// lastPaneObservations maps each pane to the digest of its most recent
+// recorded observation, so a sweep can tell an unchanged pane from one that
+// has returned to a state it held before.
+func (s *Store) lastPaneObservations() (map[string]string, error) {
+	rows, err := s.db.Query(`
+		SELECT json_extract(payload, '$.pane_id'), dedupe_key FROM event
+		 WHERE kind = 'pane.observed'
+		   AND event_id IN (SELECT MAX(event_id) FROM event WHERE kind = 'pane.observed'
+		                     GROUP BY json_extract(payload, '$.pane_id'))`)
+	if err != nil {
+		return nil, fmt.Errorf("read last pane observations: %w", err)
+	}
+	defer rows.Close()
+	out := map[string]string{}
+	for rows.Next() {
+		var pane, key string
+		if err := rows.Scan(&pane, &key); err != nil {
+			return nil, err
+		}
+		// pane|<digest>|<pane id>|<scan id>
+		if parts := strings.Split(key, "|"); len(parts) == 4 {
+			out[pane] = parts[1]
+		}
+	}
+	return out, rows.Err()
 }

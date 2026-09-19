@@ -34,7 +34,7 @@ import (
 // SchemaVersion is written to PRAGMA user_version on a fresh database. Open
 // refuses a database stamped newer than this build and never restamps an older
 // one, because a silent restamp is a migration that did not happen.
-const SchemaVersion = 1
+const SchemaVersion = 2
 
 const schema = `
 -- ============================================================ SPINE
@@ -246,6 +246,11 @@ CREATE TABLE IF NOT EXISTS launch_instance (
                         ('process_exited','absent_from_complete_scan','superseded_by_restart',
                          'operator_action')),
   end_event_id      INTEGER REFERENCES event(event_id),
+  -- A closure that a later observation contradicts is undone, not ignored.
+  -- The count is kept because a reopen means something judged this process
+  -- dead while it was running, and that is worth being able to see.
+  reopened_count    INTEGER NOT NULL DEFAULT 0,
+  last_reopen_event_id INTEGER REFERENCES event(event_id),
   first_event_id    INTEGER NOT NULL REFERENCES event(event_id),
   last_event_id     INTEGER NOT NULL REFERENCES event(event_id),
   UNIQUE (host, pid_domain, pid, started_ms),

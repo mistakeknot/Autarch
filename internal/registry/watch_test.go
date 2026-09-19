@@ -539,9 +539,10 @@ func TestAnOrphanedRecordClosesAsProcessExited(t *testing.T) {
 	writeRecord(t, dir, deadPID, record(deadPID, "sess-a", "proj:@1.%1", "/Users/sma/projects/autarch", "a", "auto", 1000, 2000))
 	scanAndProject(t, s, dir)
 
-	// The record is still present in every sweep; only the process is gone.
+	// The record is still present in every sweep, unchanged; only the process
+	// is gone. It must be unchanged: a record rewritten during the sweep means
+	// something was alive to write it, and that contradiction withholds.
 	s.probe = deadPIDs(deadPID)
-	writeRecord(t, dir, deadPID, record(deadPID, "sess-a", "proj:@1.%1", "/Users/sma/projects/autarch", "a", "auto", 1000, 2500))
 	scanAndProject(t, s, dir)
 
 	var basis string
@@ -561,15 +562,30 @@ func TestAScanEventWithoutARosterIsRefused(t *testing.T) {
 	mustExec(t, s.DB(), `INSERT INTO event (source_id, dedupe_key, kind, observed_ms, payload)
 		VALUES (?, 'hand-written', 'scan.completed', 9999, '{"records_seen":0,"source_id":"claude-sessions","host":"clavain"}')`,
 		SourceClaudeSessions)
-	_, err := Project(s)
-	if err == nil {
-		t.Fatal("a scan event with no roster must be refused, not read as an empty estate")
+	res, err := Project(s)
+	if err != nil {
+		t.Fatalf("a malformed event must not abort the batch: %v", err)
 	}
-	if !strings.Contains(err.Error(), "empty estate") {
-		t.Errorf("refusal should say what it is refusing: %v", err)
+	if len(res.Refusals) != 1 || !strings.Contains(res.Refusals[0], "empty estate") {
+		t.Errorf("refusals = %v, want one saying what it refused to conclude", res.Refusals)
 	}
 	if n := count(t, s.DB(), `SELECT COUNT(*) FROM launch_instance WHERE ended_ms IS NULL`); n != 1 {
-		t.Errorf("open instances = %d, want 1 -- the refused batch still wrote", n)
+		t.Errorf("open instances = %d, want 1 -- the refused event closed something", n)
+	}
+	// The cursor advances past it. Wedging there instead would freeze the
+	// live list while every later pass failed at the same event, and the
+	// frozen list would still be presented as current.
+	var through, maxEvent int64
+	mustScan(t, s.DB(), `SELECT applied_through_event_id FROM projection_state`, &through)
+	mustScan(t, s.DB(), `SELECT MAX(event_id) FROM event`, &maxEvent)
+	if through != maxEvent {
+		t.Errorf("cursor at %d, log at %d -- one malformed event wedged the projector", through, maxEvent)
+	}
+	// And the refusal is visible on the projector's own source.
+	var lastErr sql.NullString
+	mustScan(t, s.DB(), `SELECT last_error FROM source WHERE source_id = ?`, &lastErr, SourceAttribution)
+	if !lastErr.Valid || !strings.Contains(lastErr.String, "empty estate") {
+		t.Errorf("projector last_error = %v, want the refusal where an operator would see it", lastErr)
 	}
 }
 

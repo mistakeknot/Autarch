@@ -2,10 +2,14 @@
 <!--
   The estate registry watcher.
 
-  StartInterval with KeepAlive false, deliberately: each sweep is a complete,
-  idempotent unit inside one transaction, so a missed interval costs one
-  interval and a crashed run costs nothing. launchd never overlaps a job with
-  itself, which also serialises this against a manual `scan`.
+  StartInterval with KeepAlive false, deliberately: a sweep is idempotent, so
+  a missed interval costs one interval and a crashed run costs nothing beyond
+  the work it did not do. launchd will not overlap this job with itself.
+
+  It does NOT serialise against a manual `scan` run from a terminal, and a
+  sweep is not one transaction -- only the projection pass is. Two overlapping
+  runs contend on the SQLite write lock; the loser exits 1 after its
+  busy_timeout, which is loud and harmless.
 
   Never set SuccessfulExit under KeepAlive: the job exits 1 whenever tmux is
   unreachable, and that is a condition to report, not to restart into.
@@ -33,6 +37,12 @@
          which is part of its identity. -->
     <string>-tmux-socket</string>
     <string>/private/tmp/tmux-501/default</string>
+    <!-- Pinned, because os.Hostname() is the mDNS name and macOS renames
+         itself to clavain-2 on a network conflict. That would fork every
+         conversation and instance id, and leave the originals held open
+         forever because their pid domain no longer looked local. -->
+    <string>-host</string>
+    <string>clavain</string>
     <string>scan</string>
   </array>
 
