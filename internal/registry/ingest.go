@@ -268,8 +268,11 @@ func ParseTmuxRef(s string) (TmuxRef, bool) {
 // prevented a full enumeration, and only a complete sweep may support a claim
 // that something is gone.
 type ScanResult struct {
-	ScanID      int64
-	Complete    bool
+	ScanID   int64
+	Complete bool
+	// ProbeOK reports whether the liveness instrument answered at all. A
+	// complete sweep with a dead probe is degraded, not healthy.
+	ProbeOK     bool
 	RecordsSeen int
 	Inserted    int
 	Skipped     int
@@ -385,11 +388,24 @@ func ScanClaudeSessions(s *Store, dir string) (ScanResult, error) {
 		// Probed here, at observation time, and recorded. The projector must
 		// never consult the live process table: on a rebuild that would judge
 		// the past by the present.
-		targets, err := s.openInstancesForProbe(SourceClaudeSessions)
+		targets, err := s.probeTargetsFor(SourceClaudeSessions, seen)
 		if err != nil {
 			out.Err = err
 			_ = s.FinishScan(scanID, SourceClaudeSessions, false, out.RecordsSeen, err)
 			return out, err
+		}
+		probed := s.probe(targets)
+		// Whether the instrument itself worked, recorded separately from what
+		// it said. All-unknown from a working probe and all-unknown from a
+		// probe that never ran are different facts, and without this the
+		// second one is invisible: the sweep completes, the source reads ok,
+		// and every instance keeps rendering as live.
+		probeOK := len(targets) == 0
+		for _, v := range probed {
+			if v != ProbeUnknown {
+				probeOK = true
+				break
+			}
 		}
 		roster, err := json.Marshal(struct {
 			RecordsSeen int               `json:"records_seen"`
@@ -398,7 +414,9 @@ func ScanClaudeSessions(s *Store, dir string) (ScanResult, error) {
 			Instances   []string          `json:"instances"`
 			Changed     []string          `json:"changed"`
 			Probed      map[string]string `json:"probed"`
-		}{out.RecordsSeen, SourceClaudeSessions, s.host, seen, changed, s.probe(targets)})
+			ProbeOK     bool              `json:"probe_ok"`
+		}{out.RecordsSeen, SourceClaudeSessions, s.host, seen, changed, probed, probeOK})
+		out.ProbeOK = probeOK
 		if err != nil {
 			out.Err = err
 			_ = s.FinishScan(scanID, SourceClaudeSessions, false, out.RecordsSeen, err)
@@ -418,6 +436,13 @@ func ScanClaudeSessions(s *Store, dir string) (ScanResult, error) {
 	}
 	if err := s.FinishScan(scanID, SourceClaudeSessions, out.Complete, out.RecordsSeen, firstFailure); err != nil {
 		return out, err
+	}
+	if out.Complete && !out.ProbeOK {
+		if _, err := s.db.Exec(`UPDATE source SET status = 'degraded',
+			last_error = 'liveness probe did not answer; nothing can be closed' WHERE source_id = ?`,
+			SourceClaudeSessions); err != nil {
+			return out, err
+		}
 	}
 	out.Err = firstFailure
 	return out, nil
@@ -578,15 +603,26 @@ func parseElapsed(s string) (int64, bool) {
 	return days*86400 + total, true
 }
 
-// openInstancesForProbe lists what the registry currently holds open for this
-// source, so the sweep knows what to ask the process table about. Reading a
-// projection here is a hint about what to observe, never a source of truth.
-func (s *Store) openInstancesForProbe(sourceID string) ([]probeTarget, error) {
+// probeTargetsFor lists what the sweep should ask the process table about:
+// everything this source currently holds open, PLUS anything it has already
+// closed that still turned up in this sweep.
+//
+// The second half is what makes a false closure recoverable. Recovery used to
+// depend on the agent rewriting its record, because that is the only thing
+// that emits an event -- and a quiet agent emits nothing. The quietest agents
+// on this estate have gone nearly three hours without a write, and the
+// quietest one of all is waiting for an answer, which is precisely the agent
+// this whole system exists to surface.
+func (s *Store) probeTargetsFor(sourceID string, seen []string) ([]probeTarget, error) {
+	inSweep := make(map[string]bool, len(seen))
+	for _, id := range seen {
+		inSweep[id] = true
+	}
 	rows, err := s.db.Query(`
-		SELECT li.instance_id, li.pid, li.started_ms, li.host, li.pid_domain
+		SELECT li.instance_id, li.pid, li.started_ms, li.host, li.pid_domain, li.ended_ms
 		  FROM launch_instance li
 		  JOIN event e ON e.event_id = li.first_event_id
-		 WHERE li.ended_ms IS NULL AND e.source_id = ?`, sourceID)
+		 WHERE e.source_id = ?`, sourceID)
 	if err != nil {
 		return nil, err
 	}
@@ -595,8 +631,12 @@ func (s *Store) openInstancesForProbe(sourceID string) ([]probeTarget, error) {
 	for rows.Next() {
 		var t probeTarget
 		var host, domain string
-		if err := rows.Scan(&t.instanceID, &t.pid, &t.startedMs, &host, &domain); err != nil {
+		var ended sql.NullInt64
+		if err := rows.Scan(&t.instanceID, &t.pid, &t.startedMs, &host, &domain, &ended); err != nil {
 			return nil, err
+		}
+		if ended.Valid && !inSweep[t.instanceID] {
+			continue
 		}
 		t.local = host == s.host && domain == localPIDDomain
 		out = append(out, t)

@@ -59,8 +59,7 @@ type ProjectResult struct {
 // failure mid-batch leaves rows written and the cursor unmoved, so the next
 // pass replays events that were already applied -- which for a /clear closes
 // the current conversation link and writes a reversed lineage edge.
-func Project(s *Store) (ProjectResult, error) {
-	var out ProjectResult
+func Project(s *Store) (out ProjectResult, retErr error) {
 
 	if err := s.EnsureSource(SourceAttribution, "derived", "projector", 30_000); err != nil {
 		return out, err
@@ -68,11 +67,12 @@ func Project(s *Store) (ProjectResult, error) {
 	// A pass that fails must say so on its own source. Recording only success
 	// there, as the first version did, means a wedged projector reads healthy
 	// while the live list freezes and is presented as current.
-	failed := true
 	defer func() {
-		if failed {
+		if retErr != nil {
+			// The real message, not a placeholder: this row is where an
+			// operator finds out why the live list stopped moving.
 			_, _ = s.db.Exec(`UPDATE source SET status = 'error', last_error = ?
-				WHERE source_id = ?`, "projection pass failed", SourceAttribution)
+				WHERE source_id = ?`, retErr.Error(), SourceAttribution)
 		}
 	}()
 
@@ -166,7 +166,6 @@ func Project(s *Store) (ProjectResult, error) {
 	// columns no projection reads, and a failure here must not discard a
 	// committed batch. It is also reported rather than returned, so the
 	// caller's remaining work is not abandoned over a bookkeeping write.
-	failed = false
 	note := any(nil)
 	if len(out.Refusals) > 0 {
 		note = strings.Join(out.Refusals, "; ")
@@ -205,7 +204,7 @@ func (s *Store) applySessionObserved(ex execer, eventID, observedMs int64, rec S
 	// rather than silently absorbed. Without this the instance stays ended,
 	// fresh conversation links and bindings accumulate underneath it, and it
 	// disappears from view while it goes on writing records.
-	if err := s.reopenIfEnded(ex, eventID, observedMs, instID); err != nil {
+	if err := s.reopenIfEnded(ex, eventID, instID); err != nil {
 		return err
 	}
 
@@ -236,19 +235,42 @@ func (s *Store) applySessionObserved(ex execer, eventID, observedMs int64, rec S
 
 // reopenIfEnded undoes a closure that a later observation contradicts, and
 // records that the contradiction happened.
-func (s *Store) reopenIfEnded(ex execer, eventID, observedMs int64, instID string) error {
-	var endedMs sql.NullInt64
-	err := ex.QueryRow(`SELECT ended_ms FROM launch_instance WHERE instance_id = ?`, instID).Scan(&endedMs)
+func (s *Store) reopenIfEnded(ex execer, eventID int64, instID string) error {
+	var endedMs, endEvent sql.NullInt64
+	err := ex.QueryRow(`SELECT ended_ms, end_event_id FROM launch_instance WHERE instance_id = ?`,
+		instID).Scan(&endedMs, &endEvent)
 	if errors.Is(err, sql.ErrNoRows) || (err == nil && !endedMs.Valid) {
 		return nil
 	}
 	if err != nil {
 		return fmt.Errorf("read instance state: %w", err)
 	}
-	_, err = ex.Exec(`UPDATE launch_instance
+
+	if _, err := ex.Exec(`UPDATE launch_instance
 		SET ended_ms = NULL, end_basis = NULL, end_event_id = NULL,
 		    reopened_count = reopened_count + 1, last_reopen_event_id = ?
-		WHERE instance_id = ?`, eventID, instID)
+		WHERE instance_id = ?`, eventID, instID); err != nil {
+		return err
+	}
+
+	// Retract what the closure closed, not just the instance. The rows cite
+	// the closure event, so the match is exact. Leaving them shut opened a
+	// second binding beside the first and -- worse -- meant a /clear that
+	// happened while the instance was wrongly closed found no open link, so
+	// its lineage edge was never written and the succession was lost for good.
+	if !endEvent.Valid {
+		return nil
+	}
+	if _, err := ex.Exec(`UPDATE instance_conversation
+		SET observed_to_ms = NULL, end_basis = NULL, end_event_id = NULL
+		WHERE instance_id = ? AND end_basis = 'instance_ended' AND end_event_id = ?`,
+		instID, endEvent.Int64); err != nil {
+		return err
+	}
+	_, err = ex.Exec(`UPDATE pane_binding
+		SET observed_to_ms = NULL, end_basis = NULL, end_event_id = NULL
+		WHERE instance_id = ? AND end_basis = 'instance_ended' AND end_event_id = ?`,
+		instID, endEvent.Int64)
 	return err
 }
 
@@ -339,6 +361,7 @@ type scanRoster struct {
 	Instances   *[]string          `json:"instances"`
 	Changed     []string           `json:"changed"`
 	Probed      *map[string]string `json:"probed"`
+	ProbeOK     bool               `json:"probe_ok"`
 }
 
 // reconcileAbsences closes what a complete sweep did not see.
@@ -379,21 +402,31 @@ func (s *Store) reconcileAbsences(ex execer, eventID, observedMs int64, payload 
 	// Scoped to the source that ran the sweep. A sweep of the Claude session
 	// directory has no standing over a Codex agent or a zklw one, and judging
 	// them absent because they were never in scope is the same error again.
+	//
+	// Ended instances are included: a sweep that positively sees a process it
+	// had written off is a contradiction, and the contradiction has to be
+	// readable without waiting for that agent to write something.
 	rows, err := ex.Query(`
-		SELECT li.instance_id FROM launch_instance li
+		SELECT li.instance_id, li.ended_ms FROM launch_instance li
 		  JOIN event e ON e.event_id = li.first_event_id
-		 WHERE li.ended_ms IS NULL AND e.source_id = ?`, roster.SourceID)
+		 WHERE e.source_id = ?`, roster.SourceID)
 	if err != nil {
 		return 0, "", fmt.Errorf("find open instances: %w", err)
 	}
-	var open []string
+	type known struct {
+		id    string
+		ended bool
+	}
+	var all []known
 	for rows.Next() {
-		var id string
-		if err := rows.Scan(&id); err != nil {
+		var k known
+		var ended sql.NullInt64
+		if err := rows.Scan(&k.id, &ended); err != nil {
 			rows.Close()
 			return 0, "", err
 		}
-		open = append(open, id)
+		k.ended = ended.Valid
+		all = append(all, k)
 	}
 	rows.Close()
 	if err := rows.Err(); err != nil {
@@ -401,10 +434,30 @@ func (s *Store) reconcileAbsences(ex execer, eventID, observedMs int64, payload 
 	}
 
 	closed := 0
-	for _, id := range open {
-		// Only a recorded death closes anything. Alive, unknown, and not
-		// probed at all each withhold.
-		if probed[id] != ProbeDead {
+	for _, k := range all {
+		id := k.id
+		verdict := probed[id]
+
+		if verdict == ProbeAlive {
+			// Positive proof of life. Refresh the timestamp, and take back a
+			// closure if one is standing.
+			if _, err := ex.Exec(`UPDATE launch_instance SET last_alive_ms = ? WHERE instance_id = ?`,
+				observedMs, id); err != nil {
+				return closed, "", err
+			}
+			if k.ended {
+				if err := s.reopenIfEnded(ex, eventID, id); err != nil {
+					return closed, "", err
+				}
+			}
+			continue
+		}
+		if k.ended {
+			continue
+		}
+		// Only a recorded death closes anything. Unknown, and not probed at
+		// all, each withhold.
+		if verdict != ProbeDead {
 			continue
 		}
 		if changed[id] {
@@ -573,17 +626,62 @@ func nullZero(v int64) any {
 // tables keep naming conversations through the rebuild, and a replay
 // regenerates exactly the ids they name.
 func Rebuild(s *Store) (ProjectResult, error) {
-	tables := ProjectionTables()
-	for i := len(tables) - 1; i >= 0; i-- {
-		if _, err := s.db.Exec("DROP TABLE IF EXISTS " + tables[i]); err != nil {
-			return ProjectResult{}, fmt.Errorf("drop %s: %w", tables[i], err)
-		}
-	}
-	if _, err := s.db.Exec(schema); err != nil {
-		return ProjectResult{}, fmt.Errorf("recreate projections: %w", err)
-	}
-	if _, err := s.db.Exec(`DELETE FROM projection_state WHERE projection = ?`, projectionName); err != nil {
-		return ProjectResult{}, fmt.Errorf("clear projection state: %w", err)
+	if err := s.resetProjections(); err != nil {
+		return ProjectResult{}, err
 	}
 	return Project(s)
+}
+
+// resetProjections drops and recreates the projection tables in one
+// transaction. SQLite DDL is transactional, so a failure part way through
+// leaves the previous projections intact rather than empty ones.
+func (s *Store) resetProjections() error {
+	tx, err := s.db.BeginTx(context.Background(), nil)
+	if err != nil {
+		return fmt.Errorf("begin reset: %w", err)
+	}
+	defer tx.Rollback()
+
+	tables := ProjectionTables()
+	for i := len(tables) - 1; i >= 0; i-- {
+		if _, err := tx.Exec("DROP TABLE IF EXISTS " + tables[i]); err != nil {
+			return fmt.Errorf("drop %s: %w", tables[i], err)
+		}
+	}
+	if _, err := tx.Exec(schema); err != nil {
+		return fmt.Errorf("recreate projections: %w", err)
+	}
+	if _, err := tx.Exec(`DELETE FROM projection_state WHERE projection = ?`, projectionName); err != nil {
+		return fmt.Errorf("clear projection state: %w", err)
+	}
+	return tx.Commit()
+}
+
+// Migrate brings a database stamped at an older schema version up to this
+// build, for version bumps that touched only projections.
+//
+// The alternative an operator otherwise has is deleting the file, and the
+// file holds the spine -- the sole authority, carrying observations of
+// processes that can never be observed again. A projection-only bump does not
+// require that, and offering it as the only option would be the most
+// expensive kind of data loss this design was built to prevent.
+func Migrate(s *Store) (int, ProjectResult, error) {
+	var from int
+	if err := s.db.QueryRow("PRAGMA user_version").Scan(&from); err != nil {
+		return 0, ProjectResult{}, err
+	}
+	if from == SchemaVersion {
+		return from, ProjectResult{}, nil
+	}
+	if from > SchemaVersion {
+		return from, ProjectResult{}, fmt.Errorf("database is schema v%d, newer than this build's v%d", from, SchemaVersion)
+	}
+	if err := s.resetProjections(); err != nil {
+		return from, ProjectResult{}, err
+	}
+	if _, err := s.db.Exec(fmt.Sprintf("PRAGMA user_version=%d", SchemaVersion)); err != nil {
+		return from, ProjectResult{}, fmt.Errorf("stamp schema version: %w", err)
+	}
+	res, err := Project(s)
+	return from, res, err
 }

@@ -54,7 +54,11 @@ func run(cmd, dbPath, dir, host, socket string) error {
 	if err := os.MkdirAll(filepath.Dir(dbPath), 0o700); err != nil {
 		return err
 	}
-	db, err := registry.Open(dbPath)
+	opener := registry.Open
+	if cmd == "migrate" {
+		opener = registry.OpenForMigration
+	}
+	db, err := opener(dbPath)
 	if err != nil {
 		return err
 	}
@@ -113,6 +117,19 @@ func run(cmd, dbPath, dir, host, socket string) error {
 		}
 		return tmuxErr
 
+	case "migrate":
+		from, proj, err := registry.Migrate(store)
+		if err != nil {
+			return err
+		}
+		if from == registry.SchemaVersion {
+			fmt.Printf("already at schema v%d; nothing to do\n", from)
+			return nil
+		}
+		fmt.Printf("migrated schema v%d -> v%d by replaying the log: %d events applied\n",
+			from, registry.SchemaVersion, proj.Applied)
+		return nil
+
 	case "rebuild":
 		proj, err := registry.Rebuild(store)
 		if err != nil {
@@ -125,7 +142,7 @@ func run(cmd, dbPath, dir, host, socket string) error {
 		return status(store)
 
 	default:
-		return fmt.Errorf("unknown command %q (scan, rebuild, status)", cmd)
+		return fmt.Errorf("unknown command %q (scan, status, rebuild, migrate)", cmd)
 	}
 }
 
@@ -203,6 +220,20 @@ func status(s *registry.Store) error {
 	rows.Close()
 	w.Flush()
 	fmt.Printf("\n  %d live\n", live)
+
+	// "Live" means only "not known to have ended". An instance nobody has
+	// been able to probe recently is not a running agent; it is a row the
+	// instrument has stopped reaching, and saying so is the difference
+	// between a status and a guess.
+	var unverified int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM launch_instance
+		WHERE ended_ms IS NULL AND (last_alive_ms IS NULL OR last_alive_ms < ?)`,
+		time.Now().UnixMilli()-3*30_000).Scan(&unverified); err != nil {
+		return err
+	}
+	if unverified > 0 {
+		fmt.Printf("  %d of them have no liveness confirmation in the last 3 intervals\n", unverified)
+	}
 
 	// Panes carrying more than one conversation at once: the case a single
 	// pane-to-agent map cannot represent.

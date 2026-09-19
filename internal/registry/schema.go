@@ -34,7 +34,7 @@ import (
 // SchemaVersion is written to PRAGMA user_version on a fresh database. Open
 // refuses a database stamped newer than this build and never restamps an older
 // one, because a silent restamp is a migration that did not happen.
-const SchemaVersion = 2
+const SchemaVersion = 3
 
 const schema = `
 -- ============================================================ SPINE
@@ -52,8 +52,11 @@ CREATE TABLE IF NOT EXISTS source (
   -- Opaque to the registry; the producer defines its own resumption point
   -- (a byte offset, an inode plus size, a max mtime).
   replay_cursor    TEXT NOT NULL DEFAULT '',
+  -- 'degraded' is a sweep that completed while one of its own instruments
+  -- did not answer. It is neither ok nor an outright failure, and collapsing
+  -- it into either loses the distinction an operator needs.
   status           TEXT NOT NULL DEFAULT 'unchecked'
-                     CHECK (status IN ('unchecked','ok','error')),
+                     CHECK (status IN ('unchecked','ok','degraded','error')),
   -- How often this producer is meant to run, so a watcher that died three
   -- hours ago stops reading as healthy just because its last run succeeded.
   expected_interval_ms INTEGER,
@@ -251,6 +254,11 @@ CREATE TABLE IF NOT EXISTS launch_instance (
   -- dead while it was running, and that is worth being able to see.
   reopened_count    INTEGER NOT NULL DEFAULT 0,
   last_reopen_event_id INTEGER REFERENCES event(event_id),
+  -- When a probe last positively saw this process. An open instance is only
+  -- "not known to have ended"; without this, a row nobody has been able to
+  -- probe for hours is indistinguishable from one confirmed alive a moment
+  -- ago, and status would call both of them live.
+  last_alive_ms     INTEGER,
   first_event_id    INTEGER NOT NULL REFERENCES event(event_id),
   last_event_id     INTEGER NOT NULL REFERENCES event(event_id),
   UNIQUE (host, pid_domain, pid, started_ms),
@@ -520,7 +528,14 @@ BEGIN SELECT RAISE(ABORT, 'evidence may only be updated to drop its body'); END;
 // connection: every non-suppression guarantee here depends on references
 // resolving, and an Exec-set pragma is lost the first time the pool replaces a
 // dropped connection.
-func Open(path string) (*sql.DB, error) {
+func Open(path string) (*sql.DB, error) { return open(path, false) }
+
+// OpenForMigration opens a database stamped at an older schema version, so
+// Migrate can bring it forward. Ordinary Open refuses one, deliberately: a
+// silent restamp is a migration that did not happen.
+func OpenForMigration(path string) (*sql.DB, error) { return open(path, true) }
+
+func open(path string, allowOlder bool) (*sql.DB, error) {
 	db, err := autarchdb.OpenWith(path, "foreign_keys(1)")
 	if err != nil {
 		return nil, fmt.Errorf("open registry db: %w", err)
@@ -537,14 +552,17 @@ func Open(path string) (*sql.DB, error) {
 		db.Close()
 		return nil, fmt.Errorf("registry db at %s is schema v%d, newer than this build's v%d", path, version, SchemaVersion)
 	}
-	if version != 0 && version < SchemaVersion {
+	if version != 0 && version < SchemaVersion && !allowOlder {
 		db.Close()
-		return nil, fmt.Errorf("registry db at %s is schema v%d and this build expects v%d: migrate it, do not restamp", path, version, SchemaVersion)
+		return nil, fmt.Errorf("registry db at %s is schema v%d and this build expects v%d: run `autarch-registry migrate`, which replays the log into fresh projections. Do not delete the file: it holds the event log, which is the only authority and cannot be re-observed", path, version, SchemaVersion)
 	}
 
-	if _, err := db.Exec(schema); err != nil {
-		db.Close()
-		return nil, fmt.Errorf("init registry schema: %w", err)
+	// On a migration the DDL is applied by Migrate, inside its transaction.
+	if !allowOlder || version == 0 {
+		if _, err := db.Exec(schema); err != nil {
+			db.Close()
+			return nil, fmt.Errorf("init registry schema: %w", err)
+		}
 	}
 
 	// Stamped only on a fresh database. Stamping an existing one is a

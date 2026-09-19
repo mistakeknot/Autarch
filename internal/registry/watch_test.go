@@ -620,3 +620,180 @@ func TestASweepDoesNotJudgeAnotherSourcesInstances(t *testing.T) {
 		t.Error("a Claude sweep closed a Codex agent it never had in scope")
 	}
 }
+
+// A false closure of a QUIET agent must be recoverable. Recovery used to
+// depend on the agent rewriting its record -- and an unchanged record is
+// deduped, emits no event, and a closed instance was dropped from the probe
+// set entirely. The quietest agent on this estate is the one waiting for an
+// answer, which is the exact agent this system exists to surface.
+func TestAQuietAgentRecoversFromAFalseClosure(t *testing.T) {
+	s := newStore(t)
+	dir := t.TempDir()
+	writeRecord(t, dir, deadPID, record(deadPID, "sess-a", "proj:@1.%1", "/Users/sma/projects/autarch", "a", "auto", 1000, 2000))
+	scanAndProject(t, s, dir)
+
+	// A false death. The record stays exactly as it is from here on: the
+	// agent is alive, and simply has nothing to say.
+	s.probe = deadPIDs(deadPID)
+	scanAndProject(t, s, dir)
+	if n := count(t, s.DB(), `SELECT COUNT(*) FROM launch_instance WHERE ended_ms IS NOT NULL`); n != 1 {
+		t.Fatalf("expected a closure to recover from")
+	}
+
+	// The probe starts working again. Nothing else changes.
+	s.probe = allAlive
+	scanAndProject(t, s, dir)
+
+	if n := count(t, s.DB(), `SELECT COUNT(*) FROM launch_instance WHERE ended_ms IS NULL`); n != 1 {
+		t.Error("a quiet agent never recovered: recovery still waits on it writing something")
+	}
+	if n := count(t, s.DB(), `SELECT COUNT(*) FROM instance_conversation WHERE observed_to_ms IS NULL`); n != 1 {
+		t.Errorf("open conversation links = %d, want 1 -- the retracted closure still holds them shut", n)
+	}
+	if n := count(t, s.DB(), `SELECT COUNT(*) FROM pane_binding WHERE observed_to_ms IS NULL`); n != 1 {
+		t.Errorf("open bindings = %d, want 1", n)
+	}
+}
+
+// A /clear that happens while an instance is wrongly closed must still record
+// its lineage. It used to be lost: with no open link to close, the succession
+// edge was never written, and no later pass could recover it.
+func TestLineageSurvivesAClearDuringAFalseClosure(t *testing.T) {
+	s := newStore(t)
+	dir := t.TempDir()
+	writeRecord(t, dir, deadPID, record(deadPID, "sess-a", "proj:@1.%1", "/Users/sma/projects/autarch", "a", "auto", 1000, 2000))
+	scanAndProject(t, s, dir)
+
+	s.probe = deadPIDs(deadPID)
+	scanAndProject(t, s, dir)
+
+	// The agent was alive all along, and has just been /clear'ed.
+	s.probe = allAlive
+	writeRecord(t, dir, deadPID, record(deadPID, "sess-b", "proj:@1.%1", "/Users/sma/projects/autarch", "a", "auto", 1000, 3000))
+	scanAndProject(t, s, dir)
+
+	if n := count(t, s.DB(), `SELECT COUNT(*) FROM conversation_lineage WHERE relation = 'clear'`); n != 1 {
+		t.Errorf("clear lineage edges = %d, want 1 -- the succession was lost to a retracted closure", n)
+	}
+	if n := count(t, s.DB(), `SELECT COUNT(*) FROM instance_conversation WHERE observed_to_ms IS NULL`); n != 1 {
+		t.Errorf("open links = %d, want 1", n)
+	}
+}
+
+// A sweep whose liveness instrument did not answer is degraded, not healthy.
+// All-unknown from a working probe and all-unknown from one that never ran are
+// different facts, and the second used to be invisible.
+func TestASweepWithADeadProbeIsDegraded(t *testing.T) {
+	s := newStore(t)
+	dir := t.TempDir()
+	writeRecord(t, dir, deadPID, record(deadPID, "sess-a", "proj:@1.%1", "/Users/sma/projects/autarch", "a", "auto", 1000, 2000))
+	scanAndProject(t, s, dir)
+
+	s.probe = func(targets []probeTarget) map[string]string {
+		out := map[string]string{}
+		for _, t := range targets {
+			out[t.instanceID] = ProbeUnknown
+		}
+		return out
+	}
+	res := scanAndProject(t, s, dir)
+	if !res.Complete {
+		t.Error("the sweep itself completed; only its probe did not")
+	}
+	if res.ProbeOK {
+		t.Error("ProbeOK should be false when nothing came back")
+	}
+	var status string
+	var lastErr sql.NullString
+	mustScan(t, s.DB(), `SELECT status FROM source WHERE source_id = ?`, &status, SourceClaudeSessions)
+	mustScan(t, s.DB(), `SELECT last_error FROM source WHERE source_id = ?`, &lastErr, SourceClaudeSessions)
+	if status != "degraded" {
+		t.Errorf("source status = %q, want degraded", status)
+	}
+	if !lastErr.Valid || !strings.Contains(lastErr.String, "probe") {
+		t.Errorf("last_error = %v, want it to name the instrument that failed", lastErr)
+	}
+	if n := count(t, s.DB(), `SELECT COUNT(*) FROM launch_instance WHERE ended_ms IS NULL`); n != 1 {
+		t.Error("a degraded sweep closed something")
+	}
+}
+
+// A projection-only version bump must not force an operator to delete the
+// file, which is where the only authority lives.
+func TestMigrateReplaysRatherThanDiscarding(t *testing.T) {
+	s := newStore(t)
+	dir := t.TempDir()
+	writeRecord(t, dir, 100, record(100, "sess-a", "proj:@1.%1", "/Users/sma/projects/autarch", "a", "auto", 1000, 2000))
+	scanAndProject(t, s, dir)
+
+	before := snapshotProjections(t, s.DB())
+	events := count(t, s.DB(), `SELECT COUNT(*) FROM event`)
+
+	// Pretend this database was written by the previous build.
+	mustExec(t, s.DB(), fmt.Sprintf("PRAGMA user_version=%d", SchemaVersion-1))
+
+	from, res, err := Migrate(s)
+	if err != nil {
+		t.Fatalf("migrate: %v", err)
+	}
+	if from != SchemaVersion-1 {
+		t.Errorf("migrated from v%d, want v%d", from, SchemaVersion-1)
+	}
+	if res.Applied == 0 {
+		t.Error("migration applied no events; it did not replay")
+	}
+	if after := count(t, s.DB(), `SELECT COUNT(*) FROM event`); after != events {
+		t.Errorf("events after migration = %d, want %d -- the log was touched", after, events)
+	}
+	if after := snapshotProjections(t, s.DB()); after != before {
+		t.Errorf("projections differ after a projection-only migration:\n--- before ---\n%s\n--- after ---\n%s", before, after)
+	}
+	var version int
+	mustScan(t, s.DB(), "PRAGMA user_version", &version)
+	if version != SchemaVersion {
+		t.Errorf("version after migration = %d, want %d", version, SchemaVersion)
+	}
+}
+
+// Measured on Clavain 2026-09-19: `claude --continue` starts a new process
+// with a new pid and a new startedAt, carrying the SAME sessionId. So a
+// resume is a new launch instance under a continuing conversation -- which is
+// the case the three-identity split exists for, and the reason a conversation
+// cannot be keyed on a process.
+//
+// It also settles the pid-reuse worry: because the pid changes too, the old
+// instance is never held open by a living process wearing its number.
+func TestAResumeIsANewInstanceOnTheSameConversation(t *testing.T) {
+	s := newStore(t)
+	dir := t.TempDir()
+	const session = "e20f9bd7-2eb9-4054-9c36-3900936cebfe"
+
+	writeRecord(t, dir, 43066, record(43066, session, "clrtest:@114.%114", "/private/tmp", "tmp-80", "derived", 1789858817805, 2000))
+	scanAndProject(t, s, dir)
+
+	// The process exits and is resumed in a new one.
+	s.probe = deadPIDs(43066)
+	os.Remove(filepath.Join(dir, "43066.json"))
+	writeRecord(t, dir, 40039, record(40039, session, "restest:@116.%116", "/private/tmp", "tmp-80", "derived", 1789861998634, 3000))
+	scanAndProject(t, s, dir)
+
+	if n := count(t, s.DB(), `SELECT COUNT(*) FROM conversation`); n != 1 {
+		t.Errorf("conversations = %d, want 1 -- a resume forked the conversation", n)
+	}
+	if n := count(t, s.DB(), `SELECT COUNT(*) FROM launch_instance`); n != 2 {
+		t.Errorf("instances = %d, want 2 -- a resume is a new process", n)
+	}
+	if n := count(t, s.DB(), `SELECT COUNT(*) FROM launch_instance WHERE ended_ms IS NULL`); n != 1 {
+		t.Errorf("open instances = %d, want 1 -- the old process was observed dead", n)
+	}
+	if n := count(t, s.DB(), `SELECT COUNT(*) FROM instance_conversation WHERE conversation_id = ?`,
+		ConversationID("claude", "clavain", session)); n != 2 {
+		t.Error("the conversation should be linked to both processes that ran it")
+	}
+	// The pane moved with it, and the old binding closed with its instance.
+	var pane string
+	mustScan(t, s.DB(), `SELECT pane_id FROM pane_binding WHERE observed_to_ms IS NULL`, &pane)
+	if pane != "%116" {
+		t.Errorf("open binding on pane %s, want %%116", pane)
+	}
+}

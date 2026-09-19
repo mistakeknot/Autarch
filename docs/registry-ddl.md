@@ -1,6 +1,6 @@
 # Estate registry DDL — Autarch Phase B1
 
-Status: **reviewed and revised**. This is the first deliverable of Phase B1, ahead of any consumer, because the capture schema is the one thing in the attention-router plan that cannot be backfilled. Schema lives in `internal/registry/schema.go`; the invariants below are each covered by a test in `internal/registry/schema_test.go`, and each was mutation-checked — removing the constraint turns the test red.
+Status: **reviewed across four passes; the watcher is approved to run**. This is the first deliverable of Phase B1, ahead of any consumer, because the capture schema is the one thing in the attention-router plan that cannot be backfilled. Schema lives in `internal/registry/schema.go`; the invariants below are each covered by a test in `internal/registry/schema_test.go`, and each was mutation-checked — removing the constraint turns the test red.
 
 Reviewed under governed dispatch by `claude-fable-5-1` at high effort, `plan-review` seat, producer `claude-opus-5`, policy hash `81481511…98fea`, classification `foundational-invariants` + `broad-consequences`, requirement `other-frontier`. Verdict: **land with changes**, seven blocking (B1–B7) and seven following (F1–F7). All fourteen are in. The review record and what each changed is at the end of this document.
 
@@ -92,3 +92,30 @@ The first draft passed its own 13 tests and was still wrong in a way no test cou
 **On the attention tables**, `outcome` gained a `channel` and lost `answered_out_of_band`, which encoded the same fact twice and could disagree with `exposure_id`; a composite foreign key stops an outcome citing another item's exposure; `exposure` gained `mode` and `rank`, neither reconstructable later; `item` gained an `anchor_key` and a `merged_into_item_id`, without which one ruling seen by two sources becomes two items and the primary metric double-counts; and `project_association` gained a `stance`, because an operator saying "this is *not* project X" is a fact a positive-only table cannot hold and an automatic sweep would otherwise overwrite.
 
 **The missed-rulings derivation was wrong in the test that was meant to protect it.** It filtered on unresolved items, which hides the truest miss on the board: an item nobody ever saw, whose conversation then ended. Missed is derived from absent exposure and absent outcome, regardless of resolution.
+
+## Four review passes, and the bug that kept coming back
+
+The DDL was reviewed once, the watcher three more times, all under governed dispatch by `claude-fable-5-1` at the `plan-review` seat with `claude-opus-5` as producer. The second receipt was **invalidated** — the dispatch guard caught a checkout mutation, which was mine: I was editing the working tree while the review read it. Its findings were acted on anyway, and the pass was rerun against a clean tree.
+
+The final verdict is **approved to run the watcher; not approved as the base for Phase B2**.
+
+One bug appeared seven times in this work, in seven different disguises, and it is worth listing them together because the whole schema above exists to refuse exactly this: **an absence, or a failure, read as a positive claim about the world.**
+
+1. An event-derived roster read every deduped, unchanged record as a departed agent.
+2. `agenttransport.list` folds "no server running" into an empty success, so a live 106-pane estate reported as "0 panes, complete=true".
+3. A deduped *pane* meant a conversation arriving in a quiet pane could never have its binding verified, because the event that would verify it was never going to be written.
+4. `ps -o pid=,etimes=` is a Linux field; BSD ps prints "keyword not found", lists bare pids and **exits 0**. With a default verdict of dead, one sweep closed all eleven live agents.
+5. The fix for (4) produced its mirror: BSD ps exits 1 and prints nothing when *none* of the pids exist, so "every agent died" and "the probe failed" were identical, and nothing would ever close. The last agent to exit would stay open forever.
+6. A false closure could not be taken back: a later observation upserted around it, links and bindings accumulated underneath, and the agent went on writing records into a row nobody could see.
+7. And the hole in the fix for (6): recovery fired only on a *changed* record, so it reached every agent except the quiet ones — and the quietest agent on this estate is the one waiting for an answer, which is the exact agent the attention router exists to surface.
+
+Three of the seven were found by review, one by a test being written, and three by running the thing against the live estate. None was found by reading the code. The pattern in every case is the same: a default, an empty container, or a failed call resolving to a confident statement. The constraints above catch it at the storage layer; the probe's sentinel, the scan roster, and `source_scan` catch it at the producer.
+
+## Still open after the gate
+
+- **Pane verification can rest on an observation of any age.** The tmux sweep writes no `scan.completed` event and no pane roster, so nothing records that a pane was absent, and a fresh claim can be verified against a pane that died days ago. The roster content cannot be backfilled. This blocks Phase B2 work that reads bindings; it does not block the watcher.
+- **`verifyPane` matches on `pane_id` alone** and overwrites the claimed window and session name, destroying the evidence of a mismatch. Latent while there is one socket, and it wants `ppid` to do better.
+- **`ppid` is unpopulated.** It is only observable while a process lives, so every day without it is lost.
+- **A reopened instance flaps** if the condition that caused the false closure persists. `reopened_count` surfaces it rather than hiding it.
+- **Link intervals mix two clocks** — `observed_from_ms` is the provider's, the closing `observed_to_ms` is the sweep's — so an interval can come out negative if the provider's clock runs ahead.
+- **Roster retention:** `scan.completed` carries the roster every sweep, about 1.4MB a day.
