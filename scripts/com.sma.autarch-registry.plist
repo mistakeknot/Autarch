@@ -54,6 +54,13 @@
          entirely avoidable. -->
     <key>PATH</key>
     <string>/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
+    <!-- launchd passes no locale, and tmux only emits PaneFormat's \x1f field
+         separator intact under a UTF-8 one. Without this the pane inventory
+         failed on every single run while working perfectly by hand.
+         agenttransport now defaults this too; it is repeated here so the
+         requirement is visible where someone editing the job will see it. -->
+    <key>LANG</key>
+    <string>en_US.UTF-8</string>
   </dict>
 
   <key>StartInterval</key>

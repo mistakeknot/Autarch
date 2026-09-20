@@ -110,10 +110,34 @@ func (b *cappedOutput) Write(p []byte) (int, error) {
 	}
 	return b.Buffer.Write(p)
 }
+
+// childEnv returns the environment for a tmux invocation, guaranteeing a
+// UTF-8 locale.
+//
+// tmux only emits the \x1f field separator in PaneFormat intact under a UTF-8
+// locale; in the C locale it mangles it, and ParsePanes then rejects every
+// line as malformed. Interactive shells always set LANG, so this is invisible
+// from a terminal -- but launchd and systemd pass no locale at all, so an
+// inventory that worked by hand failed permanently the moment it ran as a
+// service. Measured on Clavain 2026-09-19: 107 panes parsed with LANG set,
+// zero without.
+//
+// An explicit LANG or LC_ALL is left alone: overriding an operator's locale
+// would be a worse bug than the one this fixes.
+func childEnv(env []string) []string {
+	for _, kv := range env {
+		if strings.HasPrefix(kv, "LC_ALL=") || strings.HasPrefix(kv, "LANG=") {
+			return env
+		}
+	}
+	return append(append([]string{}, env...), "LANG=en_US.UTF-8")
+}
+
 func (ExecRunner) Run(ctx context.Context, in io.Reader, args ...string) ([]byte, error) {
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 	c := exec.CommandContext(ctx, "tmux", args...)
+	c.Env = childEnv(os.Environ())
 	c.Stdin = in
 	c.WaitDelay = 500 * time.Millisecond
 	var b cappedOutput
