@@ -34,7 +34,7 @@ import (
 // SchemaVersion is written to PRAGMA user_version on a fresh database. Open
 // refuses a database stamped newer than this build and never restamps an older
 // one, because a silent restamp is a migration that did not happen.
-const SchemaVersion = 5
+const SchemaVersion = 6
 
 const schema = `
 -- ============================================================ SPINE
@@ -370,6 +370,17 @@ CREATE TABLE IF NOT EXISTS pane_binding (
   -- and that is the honest answer -- nothing has confirmed it.
   last_present_ms       INTEGER,
   last_present_event_id INTEGER REFERENCES event(event_id),
+  -- remain-on-exit keeps a pane listed after its process has exited, at the
+  -- pid of the process that exited. The sweep recorded that from the start and
+  -- nothing read it, which is the same defect as an unrecorded fact wearing
+  -- the opposite coat: an orphaned agent whose launch parent happens to be
+  -- that exited pid then read as verified, present a moment ago and
+  -- corroborated -- three confirmations, all against a process that is gone,
+  -- and the host-unique-pid argument does not hold because a dead pid can be
+  -- reused. A dead pane is still a pane, so its binding is not closed; it is
+  -- simply not a place anything is running, so presence is not refreshed and
+  -- corroboration is withdrawn while it lasts.
+  pane_dead             INTEGER NOT NULL DEFAULT 0 CHECK (pane_dead IN (0,1)),
   observed_from_ms  INTEGER NOT NULL,
   observed_to_ms    INTEGER,
   end_basis         TEXT
@@ -390,7 +401,10 @@ CREATE TABLE IF NOT EXISTS pane_binding (
   -- a named server listed this pane, and a claim names no server. Recording
   -- presence against a claim would be the registry asserting it had confirmed
   -- something it had not looked at.
-  CHECK (last_present_ms IS NULL OR binding_basis = 'tmux_inventory')
+  CHECK (last_present_ms IS NULL OR binding_basis = 'tmux_inventory'),
+  -- Corroboration is a statement about a live process tree. A pane whose root
+  -- process has exited cannot corroborate anything.
+  CHECK (pane_dead = 0 OR corroborated_by IS NULL)
 );
 -- At most one open binding per (instance, pane) -- re-observation updates in
 -- place -- while different instances stay free to bind one pane at once.

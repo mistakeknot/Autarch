@@ -256,11 +256,12 @@ type paneRoster struct {
 // A line that does not parse is dropped rather than guessed at, and the caller
 // is told, because a roster read as smaller than it is would close bindings
 // for panes that were listed.
-func (r paneRoster) index() (map[string]int64, int) {
+func (r paneRoster) index() (map[string]int64, map[string]bool, int) {
 	out := map[string]int64{}
+	dead := map[string]bool{}
 	bad := 0
 	if r.Panes == nil {
-		return out, 0
+		return out, dead, 0
 	}
 	for _, entry := range *r.Panes {
 		id, rest, ok := strings.Cut(entry, ":")
@@ -269,17 +270,21 @@ func (r paneRoster) index() (map[string]int64, int) {
 			continue
 		}
 		// A trailing ":dead" is the pane's own state, not part of its
-		// identity: the pane is listed either way, which is what presence
-		// means here.
-		pidText, _, _ := strings.Cut(rest, ":")
+		// identity: the pane is listed either way. It is returned beside the
+		// index rather than folded into it, because a caller that cannot tell
+		// a dead pane from a live one is the whole defect.
+		pidText, flag, _ := strings.Cut(rest, ":")
 		pid, err := strconv.ParseInt(pidText, 10, 64)
 		if err != nil {
 			bad++
 			continue
 		}
 		out[id] = pid
+		if flag == "dead" {
+			dead[id] = true
+		}
 	}
-	return out, bad
+	return out, dead, bad
 }
 
 // latestPaneRoster returns the most recent complete tmux sweep at or before
@@ -308,7 +313,7 @@ func (s *Store) latestPaneRoster(ex execer, eventID int64) (rosterAt, bool, erro
 	if at.roster.Panes == nil || at.roster.Socket == "" {
 		return rosterAt{}, false, nil
 	}
-	at.present, _ = at.roster.index()
+	at.present, at.dead, _ = at.roster.index()
 	return at, true, nil
 }
 
@@ -317,6 +322,7 @@ func (s *Store) latestPaneRoster(ex execer, eventID int64) (rosterAt, bool, erro
 type rosterAt struct {
 	roster     paneRoster
 	present    map[string]int64
+	dead       map[string]bool
 	eventID    int64
 	observedMs int64
 }
@@ -445,11 +451,13 @@ func (s *Store) verifyPane(ex execer, eventID int64, payload string, at *rosterA
 // a gate -- a dispatched child's parent is the shim and appears in no roster,
 // so it contradicts nothing and verifies as before.
 //
-// It is the only mitigation available for a claim arriving from a server this
-// registry does not sweep. The window gate cannot see that case at all: window
-// ids are per-server counters exactly as pane ids are, so another server's
-// @0.%0 passes against this server's @0.%0, and an estate with one socket
-// cannot sample how often that happens.
+// It gives NO protection against a claim arriving from a server this registry
+// does not sweep: that agent's parent is on that server and appears in no
+// roster here, so nothing contradicts and the window gate admits it -- window
+// ids being per-server counters exactly as pane ids are. The only signal in
+// that case is corroborated_by staying NULL, which is what a reader has to
+// filter on. This guard fires only when the mismatched parent is on the swept
+// server.
 func elsewhereOnThisServer(at *rosterAt, paneID string) string {
 	if at == nil {
 		return "[]"
@@ -497,7 +505,10 @@ func (s *Store) verifyFromLatestObservation(ex execer, eventID int64, paneID str
 	}
 	roster := at.roster
 	panePID, listed := at.present[paneID]
-	if !listed {
+	if !listed || at.dead[paneID] {
+		// A dead pane is listed but is not a place: its root process has
+		// exited, so binding an agent to it would assert a location that
+		// cannot hold one.
 		return 0, nil
 	}
 
@@ -559,22 +570,22 @@ func (s *Store) verifyFromLatestObservation(ex execer, eventID int64, paneID str
 func (s *Store) reconcilePaneAbsences(ex execer, eventID, observedMs int64, payload string) (int, string, error) {
 	var roster paneRoster
 	if err := json.Unmarshal([]byte(payload), &roster); err != nil {
-		return 0, fmt.Sprintf("pane roster in event %d will not parse (%v); refusing to read that as an empty server", eventID, err), nil
+		return 0, fmt.Sprintf("this pane roster will not parse (%v); refusing to read that as an empty server", err), nil
 	}
 	if roster.Panes == nil {
-		return 0, fmt.Sprintf("pane roster in event %d has no pane list; refusing to read that as an empty server", eventID), nil
+		return 0, "this pane roster has no pane list; refusing to read that as an empty server", nil
 	}
 	if roster.Socket == "" || roster.ServerPID == 0 || roster.ServerStarted == 0 {
-		return 0, fmt.Sprintf("pane roster in event %d names no server, so its scope is unknown", eventID), nil
+		return 0, "this pane roster names no server, so its scope is unknown", nil
 	}
-	present, bad := roster.index()
+	present, dead, bad := roster.index()
 	if bad > 0 {
 		// A roster read as smaller than it is closes bindings for panes that
 		// were listed. Nothing is worth salvaging from a partial read.
-		return 0, fmt.Sprintf("pane roster in event %d has %d unreadable entries; refusing to act on a partial list", eventID, bad), nil
+		return 0, fmt.Sprintf("this pane roster has %d unreadable entries; refusing to act on a partial list", bad), nil
 	}
 	if len(present) == 0 {
-		return 0, fmt.Sprintf("pane roster in event %d lists no panes, which a running server cannot do", eventID), nil
+		return 0, "this pane roster lists no panes, which a running server cannot do", nil
 	}
 
 	rows, err := ex.Query(`SELECT binding_id, pane_id, pane_pid FROM pane_binding
@@ -608,6 +619,16 @@ func (s *Store) reconcilePaneAbsences(ex execer, eventID, observedMs int64, payl
 	for _, b := range bindings {
 		pid, listed := present[b.paneID]
 		switch {
+		case listed && pid == b.panePID && dead[b.paneID]:
+			// Still there, and nothing is running in it. The binding stays
+			// open -- the pane exists -- but presence is not refreshed and
+			// corroboration is withdrawn, so a stale row cannot go on
+			// reading as a confirmed live location.
+			if _, err := ex.Exec(`UPDATE pane_binding
+				SET pane_dead = 1, corroborated_by = NULL, last_event_id = ?
+				WHERE binding_id = ?`, eventID, b.id); err != nil {
+				return closed, "", err
+			}
 		case listed && pid == b.panePID:
 			// Positive confirmation, the pane-level analogue of a liveness
 			// probe answering alive.
@@ -620,6 +641,7 @@ func (s *Store) reconcilePaneAbsences(ex execer, eventID, observedMs int64, payl
 			// capture, is all of them.
 			if _, err := ex.Exec(`UPDATE pane_binding
 				SET last_present_ms = ?, last_present_event_id = ?, last_event_id = ?,
+				    pane_dead = 0,
 				    corroborated_by = CASE
 				      WHEN (SELECT li.ppid FROM launch_instance li
 				             WHERE li.instance_id = pane_binding.instance_id) = pane_binding.pane_pid

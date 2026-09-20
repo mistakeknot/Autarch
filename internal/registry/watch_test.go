@@ -580,7 +580,7 @@ func TestAScanEventWithoutARosterIsRefused(t *testing.T) {
 	if err != nil {
 		t.Fatalf("a malformed event must not abort the batch: %v", err)
 	}
-	if len(res.Refusals) != 1 || !strings.Contains(res.Refusals[0], "empty estate") {
+	if len(res.Refusals) != 1 || !strings.Contains(res.Refusals[0].Reason, "empty estate") {
 		t.Errorf("refusals = %v, want one saying what it refused to conclude", res.Refusals)
 	}
 	if n := count(t, s.DB(), `SELECT COUNT(*) FROM launch_instance WHERE ended_ms IS NULL`); n != 1 {

@@ -106,8 +106,8 @@ func run(cmd, dbPath, dir, host, socket string) error {
 		// A projector that declines to act on an event must say so here.
 		// Silently skipping is how a frozen live list goes on being presented
 		// as current.
-		for _, r := range append(append([]string{}, first.Refusals...), second.Refusals...) {
-			fmt.Printf("  refused: %s\n", r)
+		for _, r := range append(append([]registry.Refusal{}, first.Refusals...), second.Refusals...) {
+			fmt.Printf("  refused at event %d: %s\n", r.EventID, r.Reason)
 		}
 		if scanErr != nil {
 			return scanErr
@@ -323,7 +323,25 @@ func status(s *registry.Store) error {
 			oldestClaim.Int64).Scan(&sweeps); err != nil {
 			return err
 		}
-		fmt.Printf("  the oldest open claim has survived %d complete pane sweeps\n", sweeps)
+		// Zero sweeps since the oldest claim reads as "young" and may mean the
+		// opposite: nothing has been able to verify anything since. Only a
+		// sweep can verify a claim, so no sweeps is not a small number, it is
+		// an absent instrument -- and this line was the one place a reader
+		// would have taken it for a small number.
+		if sweeps == 0 {
+			fmt.Println("  no complete pane sweep since the oldest open claim: claims cannot currently be verified")
+		} else {
+			fmt.Printf("  the oldest open claim has survived %d complete pane sweeps\n", sweeps)
+		}
+	}
+
+	var deadPanes int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM pane_binding
+		WHERE observed_to_ms IS NULL AND pane_dead = 1`).Scan(&deadPanes); err != nil {
+		return err
+	}
+	if deadPanes > 0 {
+		fmt.Printf("  %d binding(s) sit in a pane whose process has exited; the pane remains, nothing runs in it\n", deadPanes)
 	}
 
 	var refusals int

@@ -138,14 +138,30 @@ The review found the ninth instance of the recurring bug, in the measurement its
 
 A migration bug surfaced on the copy and never reached the live database: `projection_state` was emptied rather than dropped on reset, and `CREATE TABLE ... IF NOT EXISTS` is a no-op against an existing table, so a version that added a column to it migrated "successfully" and failed on the first write. It is now dropped with the other projections, which is what it is.
 
+## Corrected at schema v6, after the confirming review
+
+The confirming review cleared v5 as a base for B2 subject to two changes, and found the tenth instance of the bug class.
+
+- **A refusal now names the event it refused.** `last_refusal_event_id` was set from the end of the batch. A live run's batches are a few events long and a replay is one batch over the whole log, so the same refusal was filed against two different events — a projection that differs from its own replay, which is this design's own escalation condition, reached by the machinery built to report problems. A test projects the same log incrementally and in one batch and asserts they agree.
+- **The tenth instance: `:dead` was written to the log and nothing read it.** `remain-on-exit` lists a pane at the pid of the process that exited. An orphaned agent whose frozen `ppid` happens to be that pid then read as verified, present a moment ago *and* corroborated — three confirmations against a process that is gone, and the host-unique-pid argument does not cover it because a dead pid can be reused. `pane_binding.pane_dead` now carries the state: presence is not refreshed, corroboration is withdrawn (by CHECK as well as by code), no claim verifies against it, and the binding is not closed, because a dead pane is still a pane.
+- **The contradiction guard's comment was wrong.** It claimed to mitigate a claim arriving from an unswept server. It gives no protection there at all: that agent's parent is on that server and appears in no roster here. It fires only when the mismatched parent is on the *swept* server. For the unswept case the only signal is `corroborated_by` staying NULL — which is what a reader must filter on. The comment said otherwise, which is the same defect in prose.
+- **The refusal counter had become a clock.** A claim the server keeps contradicting is a standing state, and re-refusing it every sweep added about 2,880 a day for one stuck claim. Standing state is read from the rows; the counter counts events.
+- **"the oldest open claim has survived 0 complete pane sweeps"** read as *young* when it meant the opposite — nothing has been able to verify anything since. Only a sweep can verify a claim, so zero sweeps is an absent instrument, not a small number.
+- `claimPane` read `at.present` before checking `ok`; it worked only because reading a nil map is safe.
+
 ## Still open after B1.5
 
-- **A claim from an unswept server can still pass the window gate** when its parent contradicts nothing this registry can see. `corroborated_by` is what makes that row distinguishable; B2 must filter on it rather than on `binding_basis` alone.
-- **Multi-socket is unbuilt, not merely untested.** One tmux source holds one socket in its locator; a second server needs a second source.
-- **Parent lineage stops at one hop.** Measured: `sdk-py(33275) → Python shim(32795) → claude cli(3466) → zsh(35924, pane root)`. Walking further needs the whole process table rather than the pids already asked about. Deferred to B2, where lineage has a consumer.
-- **The pane-level `Unparsable` path is unreachable.** `agenttransport.List` validates every pane and fails the whole call, so a tmux sweep is complete or it errored; there is no partial. Harmless today — the conservative direction — but the registry's own check is dead code and should not be relied on.
-- **The v3→v4 rule change is visible in the log.** Bindings verified under v3's unbounded lookup replay as claims under v4's roster rule, because no rosters existed before the first v4 sweep. B2 must not read "was a claim" as "was never in tmux."
-- **Superseded server incarnations keep their bindings open.** The reviewer showed the "agents die with the server" argument is unsound both ways — `setsid` children outlive a server kill, and `/tmp` cleanup can unlink a socket while the server lives — so leaving them open stays the safe outcome, and no `server_superseded` closure should be added. B2 filters on `last_present_event_id` against the latest roster.
+- **A claim from an unswept server can still pass the window gate.** `corroborated_by` is the only thing that makes such a row distinguishable; B2 must filter on it, and read it as of `last_present_event_id` with the same freshness window as everything else on that row.
+- **Contradiction is checked once, never re-checked.** On the `pane.observed` path the guard uses the previous sweep's roster, and a verified row is never re-tested.
+- **Multi-socket is unbuilt, not merely untested.** One tmux source holds one socket in its locator.
+- **Parent lineage stops at one hop.** Measured: `sdk-py(33275) → Python shim(32795) → claude cli(3466) → zsh(35924, pane root)`.
+- **`verifyFromLatestObservation` re-queries the roster it was handed**, and the observation lookup scans pane events backwards with no index on pane id. Only costs anything for a claim that stays stuck.
+- **After a `pane_pid_changed` closure** the next record rewrite opens a claim that verifies against the respawned pane. If the agent's `ppid` is the pid of the closed binding, that is positive evidence it is no longer there; the vanished-pane rule could cover it.
+- **The vanished-pane refusal fires on every record rewrite.** Visible, but noisy.
+- **The pane-level `Unparsable` path is unreachable.** `agenttransport.List` validates every pane and fails the whole call, so a tmux sweep is complete or it errored.
+- **No live closure by `pane_absent_from_complete_scan` has been observed.** The roster's presence and absence were proven against the real server with a scratch pane, and the closure itself is covered by mutation-checked tests, but no agent's pane has died since the watcher started. That canary is still outstanding.
+- **The v3→v4 rule change is visible in the log.** Bindings verified under v3's unbounded lookup replay as claims. B2 must not read "was a claim" as "was never in tmux."
+- **Superseded server incarnations keep their bindings open.** The "agents die with the server" argument is unsound both ways — `setsid` children outlive a server kill, and `/tmp` cleanup can unlink a socket while the server lives — so leaving them open stays the safe outcome, and no `server_superseded` closure should be added.
 - **A reopened instance flaps** if the condition that caused the false closure persists. `reopened_count` surfaces it.
-- **Link intervals mix two clocks** — `observed_from_ms` is the provider's, the closing `observed_to_ms` is the sweep's — so an interval can come out negative if the provider's clock runs ahead.
-- **Roster retention.** Session roster ~1.4MB a day; pane roster ~1.4KB a sweep, about 4MB a day at 30s. Unbounded; retention has no consumer yet.
+- **Link intervals mix two clocks.**
+- **Roster retention.** Session roster ~1.4MB a day; pane roster ~1.4KB a sweep, about 4MB a day at 30s. Unbounded.

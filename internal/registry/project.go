@@ -51,7 +51,10 @@ type ProjectResult struct {
 	// one malformed event must not wedge the log -- but they are reported,
 	// because a projector that silently skips is a projector nobody notices
 	// has stopped working.
-	Refusals []string
+	Refusals []Refusal
+	// Claims the latest roster listed and still could not verify. A standing
+	// count read from the projection, not an event tally.
+	Unverified int
 }
 
 // Project applies every event the projector has not yet seen.
@@ -60,6 +63,20 @@ type ProjectResult struct {
 // failure mid-batch leaves rows written and the cursor unmoved, so the next
 // pass replays events that were already applied -- which for a /clear closes
 // the current conversation link and writes a reversed lineage edge.
+// Refusal is the projector declining to act on one event, and the event it
+// declined to act on.
+//
+// The event id is carried rather than inferred from where the batch ended.
+// Recording the batch end made a live run and a replay disagree: live batches
+// are a few events long, a replay is one batch over the whole log, so the same
+// refusal was filed against two different events. That is a projection that
+// differs from its own replay -- the condition this design treats as an
+// escalation, reached by the machinery built to report problems.
+type Refusal struct {
+	EventID int64
+	Reason  string
+}
+
 func Project(s *Store) (out ProjectResult, retErr error) {
 
 	if err := s.EnsureSource(SourceAttribution, "derived", "projector", 30_000); err != nil {
@@ -130,7 +147,7 @@ func Project(s *Store) (out ProjectResult, retErr error) {
 				return out, err
 			}
 			if refusal != "" {
-				out.Refusals = append(out.Refusals, refusal)
+				out.Refusals = append(out.Refusals, Refusal{p.eventID, refusal})
 			}
 		case "pane.observed":
 			// The latest roster at or before this event, so a claim cannot be
@@ -150,9 +167,9 @@ func Project(s *Store) (out ProjectResult, retErr error) {
 				return out, err
 			}
 			if refused > 0 {
-				out.Refusals = append(out.Refusals, fmt.Sprintf(
-					"event %d: %d claim(s) on that pane name a different window than the live server; left unverified",
-					p.eventID, refused))
+				out.Refusals = append(out.Refusals, Refusal{p.eventID, fmt.Sprintf(
+					"%d claim(s) on that pane name a different window than the live server; left unverified",
+					refused)})
 			}
 		case "scan.completed":
 			// Routed by the source that swept, because a roster's shape is
@@ -175,12 +192,15 @@ func Project(s *Store) (out ProjectResult, retErr error) {
 					if at, ok, rErr := s.latestPaneRoster(tx, p.eventID); rErr != nil {
 						err = rErr
 					} else if ok && at.eventID == p.eventID {
-						var refused int
-						refused, err = s.retryStuckClaims(tx, p.eventID, at)
-						if refused > 0 {
-							refusal = fmt.Sprintf("event %d: %d claim(s) name a pane the live server puts in a different window, or whose parent process is in another pane; left unverified",
-								p.eventID, refused)
-						}
+						// The count is reported by the caller but is NOT
+						// filed as a refusal. A claim the server keeps
+						// contradicting is a standing state, and every sweep
+						// re-refusing it turned the counter into a clock:
+						// about 2,880 a day for one stuck claim, measuring
+						// elapsed time rather than distinct refusals. The
+						// standing state is read from the rows themselves,
+						// where it cannot inflate.
+						out.Unverified, err = s.retryStuckClaims(tx, p.eventID, at)
 					}
 				}
 			default:
@@ -188,14 +208,14 @@ func Project(s *Store) (out ProjectResult, retErr error) {
 				// reconciles is a gap that must announce itself. Silence here
 				// would mean a whole source's absences were never acted on
 				// and nothing said so.
-				refusal = fmt.Sprintf("scan roster in event %d names a source no reconciler handles; its absences were not acted on", p.eventID)
+				refusal = "this roster names a source no reconciler handles; its absences were not acted on"
 			}
 			if err != nil {
 				return out, err
 			}
 			out.Closed += n
 			if refusal != "" {
-				out.Refusals = append(out.Refusals, refusal)
+				out.Refusals = append(out.Refusals, Refusal{p.eventID, refusal})
 			}
 		}
 		out.Applied++
@@ -213,8 +233,8 @@ func Project(s *Store) (out ProjectResult, retErr error) {
 		var lastRefusal any
 		var lastRefusalEvent any
 		if n := len(out.Refusals); n > 0 {
-			lastRefusal = out.Refusals[n-1]
-			lastRefusalEvent = out.ThroughEventID
+			lastRefusal = out.Refusals[n-1].Reason
+			lastRefusalEvent = out.Refusals[n-1].EventID
 		}
 		if _, err := tx.Exec(`INSERT INTO projection_state
 			(projection, applied_through_event_id, updated_ms, refusal_count,
@@ -245,7 +265,11 @@ func Project(s *Store) (out ProjectResult, retErr error) {
 	// caller's remaining work is not abandoned over a bookkeeping write.
 	note := any(nil)
 	if len(out.Refusals) > 0 {
-		note = strings.Join(out.Refusals, "; ")
+		reasons := make([]string, 0, len(out.Refusals))
+		for _, r := range out.Refusals {
+			reasons = append(reasons, fmt.Sprintf("event %d: %s", r.EventID, r.Reason))
+		}
+		note = strings.Join(reasons, "; ")
 	}
 	if _, err := s.db.Exec(`UPDATE source SET status = 'ok', last_success_ms = ?, last_error = ?
 		WHERE source_id = ?`, s.now(), note, SourceAttribution); err != nil {
@@ -444,6 +468,9 @@ func (s *Store) claimPane(ex execer, eventID int64, instID string, rec SessionRe
 		if err != nil {
 			return "", err
 		}
+		// ok first: at.present is nil when no roster was found, and reading a
+		// nil map only happens to be safe. An absent roster is "we have not
+		// looked", never "not listed".
 		if _, listed := at.present[ref.PaneID]; ok && !listed {
 			return fmt.Sprintf("event %d: pane %s was watched to vanish and the latest sweep still does not list it; not reclaiming it", eventID, ref.PaneID), nil
 		}
@@ -517,16 +544,16 @@ type scanRoster struct {
 func (s *Store) reconcileAbsences(ex execer, eventID, observedMs int64, payload string) (int, string, error) {
 	var roster scanRoster
 	if err := json.Unmarshal([]byte(payload), &roster); err != nil {
-		return 0, fmt.Sprintf("scan roster in event %d will not parse (%v); refusing to read that as an empty estate", eventID, err), nil
+		return 0, fmt.Sprintf("this scan roster will not parse (%v); refusing to read that as an empty estate", err), nil
 	}
 	// A refusal closes nothing and advances the cursor. Aborting the batch
 	// instead would wedge the projector on this event forever, and a frozen
 	// live list presented as current is its own kind of lie.
 	if roster.Instances == nil || roster.Probed == nil {
-		return 0, fmt.Sprintf("scan roster in event %d has no instance list or probe results; refusing to read that as an empty estate", eventID), nil
+		return 0, "this scan roster has no instance list or probe results; refusing to read that as an empty estate", nil
 	}
 	if roster.SourceID == "" {
-		return 0, fmt.Sprintf("scan roster in event %d names no source, so its scope is unknown", eventID), nil
+		return 0, "this scan roster names no source, so its scope is unknown", nil
 	}
 	present := make(map[string]bool, len(*roster.Instances))
 	for _, id := range *roster.Instances {

@@ -626,35 +626,95 @@ func TestTheProcessTableCorroboratesAndContradicts(t *testing.T) {
 	}
 }
 
-// A claim refused on a window disagreement was the quietest of the four
-// silences: claimPane discarded the count, so on the path that produces most
-// of them nothing was said anywhere. And every successful pass overwrote
-// source.last_error, while one sweep projects twice -- so a refusal from the
-// first pass survived for milliseconds.
-func TestARefusalOutlivesThePassThatMadeIt(t *testing.T) {
+// Every successful pass overwrote source.last_error, and one sweep projects
+// twice, so a refusal from the first pass survived for milliseconds. And the
+// event it was filed against was the END OF THE BATCH rather than the event
+// refused -- so a live run, whose batches are a few events long, and a replay,
+// which is one batch over the whole log, filed the same refusal against
+// different events. A projection that differs from its own replay is this
+// design's escalation condition, reached by the machinery built to report
+// problems.
+func TestARefusalOutlivesThePassThatMadeItAndNamesItsOwnEvent(t *testing.T) {
 	s := newStore(t)
 	dir := t.TempDir()
+	doomed := paneLine("$3", "@67", "%67", 36230, "iterm[]linsekasten", "zsh")
+	survivor := paneLine("$3", "@98", "%98", 53126, "iterm[autarch", "zsh")
 
-	sweep(t, s, paneLine("$3", "@67", "%67", 36230, "iterm[]linsekasten", "zsh"))
-	writeRecord(t, dir, 52620, record(52620, "74e5950e", "somewhere-else:@99.%67", "/Users/sma/projects", "parent", "auto", 1000, 2000))
+	sweep(t, s, doomed, survivor)
+	writeRecord(t, dir, 52620, record(52620, "74e5950e", "iterm[]linsekasten:@67.%67", "/Users/sma/projects", "parent", "auto", 1000, 2000))
 	scanAndProject(t, s, dir)
-	sweep(t, s, paneLine("$3", "@67", "%67", 36230, "iterm[]linsekasten", "zsh"))
+	sweep(t, s, doomed, survivor)
+	sweep(t, s, survivor)
+	// The record is rewritten, naming a pane that was watched to vanish.
+	writeRecord(t, dir, 52620, record(52620, "74e5950e", "iterm[]linsekasten:@67.%67", "/Users/sma/projects", "parent", "auto", 1000, 3000))
+	scanAndProject(t, s, dir)
 
-	if n := count(t, s.DB(), `SELECT refusal_count FROM projection_state WHERE projection = 'registry'`); n == 0 {
+	incrementalCount := count(t, s.DB(), `SELECT refusal_count FROM projection_state WHERE projection = 'registry'`)
+	if incrementalCount == 0 {
 		t.Fatal("the refusal was not recorded anywhere that outlives the pass")
 	}
-	var last string
-	mustScan(t, s.DB(), `SELECT COALESCE(last_refusal,'') FROM projection_state WHERE projection = 'registry'`, &last)
-	if !strings.Contains(last, "different window") {
-		t.Errorf("last_refusal = %q, want the window disagreement", last)
+	var incrementalEvent int64
+	var incrementalText string
+	mustScan(t, s.DB(), `SELECT last_refusal_event_id FROM projection_state WHERE projection = 'registry'`, &incrementalEvent)
+	mustScan(t, s.DB(), `SELECT COALESCE(last_refusal,'') FROM projection_state WHERE projection = 'registry'`, &incrementalText)
+
+	var kind string
+	mustScan(t, s.DB(), `SELECT kind FROM event WHERE event_id = ?`, &kind, incrementalEvent)
+	if kind != "session.observed" {
+		t.Errorf("the refusal names event %d, a %s; a claim refusal belongs to the session record that made the claim", incrementalEvent, kind)
 	}
 
-	// Several more clean passes. The count must not be erased by success.
+	// Several more clean passes: success must not erase the record.
 	for i := 0; i < 3; i++ {
-		sweep(t, s, paneLine("$3", "@67", "%67", 36230, "iterm[]linsekasten", "zsh"))
+		sweep(t, s, survivor)
 	}
-	if n := count(t, s.DB(), `SELECT refusal_count FROM projection_state WHERE projection = 'registry'`); n == 0 {
-		t.Error("a later successful pass erased the record that the projector had refused something")
+	if n := count(t, s.DB(), `SELECT refusal_count FROM projection_state WHERE projection = 'registry'`); n != incrementalCount {
+		t.Errorf("refusal_count = %d after clean passes, want %d held", n, incrementalCount)
+	}
+
+	// The same log replayed as ONE batch must land on the same event and the
+	// same count. This is the comparison that catches a refusal filed against
+	// wherever the batch happened to end.
+	if _, err := Rebuild(s); err != nil {
+		t.Fatalf("rebuild: %v", err)
+	}
+	if n := count(t, s.DB(), `SELECT refusal_count FROM projection_state WHERE projection = 'registry'`); n != incrementalCount {
+		t.Errorf("replayed refusal_count = %d, incremental = %d", n, incrementalCount)
+	}
+	var replayedEvent int64
+	var replayedText string
+	mustScan(t, s.DB(), `SELECT last_refusal_event_id FROM projection_state WHERE projection = 'registry'`, &replayedEvent)
+	mustScan(t, s.DB(), `SELECT COALESCE(last_refusal,'') FROM projection_state WHERE projection = 'registry'`, &replayedText)
+	if replayedEvent != incrementalEvent || replayedText != incrementalText {
+		t.Errorf("replayed refusal = event %d %q, incremental = event %d %q -- a projection that differs from its own replay",
+			replayedEvent, replayedText, incrementalEvent, incrementalText)
+	}
+}
+
+// A claim the server keeps contradicting is a standing state, not a stream of
+// events. Filing one refusal per sweep turned the counter into a clock: about
+// 2,880 a day for a single stuck claim, measuring elapsed time rather than
+// distinct refusals. The standing state is read from the rows, where it cannot
+// inflate.
+func TestAPermanentlyStuckClaimDoesNotInflateTheRefusalCount(t *testing.T) {
+	s := newStore(t)
+	dir := t.TempDir()
+	pane := paneLine("$3", "@67", "%67", 36230, "iterm[]linsekasten", "zsh")
+
+	sweep(t, s, pane)
+	writeRecord(t, dir, 52620, record(52620, "74e5950e", "somewhere-else:@99.%67", "/Users/sma/projects", "parent", "auto", 1000, 2000))
+	scanAndProject(t, s, dir)
+
+	for i := 0; i < 5; i++ {
+		sweep(t, s, pane)
+	}
+	if n := count(t, s.DB(), `SELECT refusal_count FROM projection_state WHERE projection = 'registry'`); n > 1 {
+		t.Errorf("refusal_count = %d after five sweeps over one stuck claim; the counter is measuring time", n)
+	}
+	// And the standing state is still legible, from the rows.
+	if n := count(t, s.DB(), `SELECT COUNT(*) FROM pane_binding
+		WHERE observed_to_ms IS NULL AND binding_basis = 'session_file_claim'`); n != 1 {
+		t.Errorf("open claims = %d, want 1 -- the stuck claim must stay visible somewhere", n)
 	}
 }
 
@@ -720,5 +780,80 @@ func TestADeadPaneIsRecordedAsDeadAndStillPresent(t *testing.T) {
 	mustScan(t, s.DB(), `SELECT observed_to_ms FROM pane_binding WHERE pane_id = '%67'`, &closed)
 	if closed.Valid {
 		t.Error("a pane that is still listed, merely dead, had its binding closed")
+	}
+}
+
+// The tenth instance, found in review: the sweep recorded a pane's dead state
+// from the start and nothing ever read it. paneRoster.index stripped the flag,
+// and the only test asserted the roster string contained it.
+//
+// What that costs: remain-on-exit lists a pane at the pid of the process that
+// exited. An orphaned agent whose launch parent happens to be that pid then
+// reads as verified, present a moment ago AND corroborated -- three
+// confirmations against a process that is gone. The host-unique-pid argument
+// does not cover it, because a dead pid can be reused.
+func TestADeadPaneStopsBeingAPlace(t *testing.T) {
+	s := newStore(t)
+	dir := t.TempDir()
+	instID := InstanceID("clavain", "darwin", 52620, 1000)
+	s.probe = aliveWithParents(map[string]int64{instID: 36230})
+
+	live := paneLine("$3", "@67", "%67", 36230, "iterm[]linsekasten", "zsh")
+	sweep(t, s, live)
+	writeRecord(t, dir, 52620, record(52620, "74e5950e", "iterm[]linsekasten:@67.%67", "/Users/sma/projects", "parent", "auto", 1000, 2000))
+	scanAndProject(t, s, dir)
+	sweep(t, s, live)
+
+	var corrob string
+	var present sql.NullInt64
+	mustScan(t, s.DB(), `SELECT COALESCE(corroborated_by,'') FROM pane_binding`, &corrob)
+	mustScan(t, s.DB(), `SELECT last_present_ms FROM pane_binding`, &present)
+	if corrob != "parent_pid" || !present.Valid {
+		t.Fatalf("while the pane is live: corroborated_by=%q present=%v; want parent_pid and a timestamp", corrob, present.Valid)
+	}
+	wasPresent := present.Int64
+
+	// The pane's process exits and remain-on-exit keeps it listed, at the
+	// same pid.
+	dead := strings.Replace(live, "\x1f0\x1f", "\x1f1\x1f", 1)
+	sweep(t, s, dead)
+
+	var isDead int
+	var closed sql.NullInt64
+	mustScan(t, s.DB(), `SELECT pane_dead FROM pane_binding`, &isDead)
+	mustScan(t, s.DB(), `SELECT COALESCE(corroborated_by,'') FROM pane_binding`, &corrob)
+	mustScan(t, s.DB(), `SELECT last_present_ms FROM pane_binding`, &present)
+	mustScan(t, s.DB(), `SELECT observed_to_ms FROM pane_binding`, &closed)
+
+	if isDead != 1 {
+		t.Error("the sweep recorded the pane as dead and the binding did not")
+	}
+	if corrob != "" {
+		t.Errorf("corroborated_by = %q against a process that has exited", corrob)
+	}
+	if present.Int64 != wasPresent {
+		t.Errorf("last_present_ms moved to %d; a dead pane is not a place anything is running", present.Int64)
+	}
+	if closed.Valid {
+		t.Error("the binding was closed; a dead pane is still a pane")
+	}
+
+	// And no fresh claim may be verified against it.
+	writeRecord(t, dir, 81453, record(81453, "e13b1e95", "iterm[]linsekasten:@67.%67", "/Users/sma/projects", "second", "auto", 1100, 2100))
+	scanAndProject(t, s, dir)
+	sweep(t, s, dead)
+	var basis string
+	mustScan(t, s.DB(), `SELECT binding_basis FROM pane_binding pb
+		JOIN launch_instance li ON li.instance_id = pb.instance_id WHERE li.pid = 81453`, &basis)
+	if basis != "session_file_claim" {
+		t.Errorf("a claim was verified against a dead pane (%q)", basis)
+	}
+
+	// When the pane comes back to life it is a place again.
+	sweep(t, s, live)
+	mustScan(t, s.DB(), `SELECT pane_dead FROM pane_binding pb
+		JOIN launch_instance li ON li.instance_id = pb.instance_id WHERE li.pid = 52620`, &isDead)
+	if isDead != 0 {
+		t.Error("the pane is live again and the binding still reads dead")
 	}
 }
