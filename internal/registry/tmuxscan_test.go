@@ -2,6 +2,7 @@ package registry
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"fmt"
 	"io"
@@ -232,5 +233,274 @@ func TestAPaneRevertingToAPreviousStateIsRecorded(t *testing.T) {
 	mustScan(t, s.DB(), `SELECT payload FROM event WHERE kind = 'pane.observed' ORDER BY event_id DESC LIMIT 1`, &payload)
 	if !strings.Contains(payload, `"command":"zsh"`) {
 		t.Errorf("latest observation is stale: %s", payload)
+	}
+}
+
+// ---------------------------------------------------------------- B1.5
+
+// sweep runs one tmux inventory over the given pane lines and projects it.
+func sweep(t *testing.T, s *Store, lines ...string) ScanResult {
+	t.Helper()
+	res, err := ScanTmuxPanesWith(s, fakeSocket, fakeTmux{out: strings.Join(lines, "\n")})
+	if err != nil {
+		t.Fatalf("tmux sweep: %v", err)
+	}
+	if _, err := Project(s); err != nil {
+		t.Fatalf("project: %v", err)
+	}
+	return res
+}
+
+// The headline gap B1 shipped with: nothing recorded that a pane was ABSENT.
+// The sweep dedupes unchanged panes, so a pane that vanished emitted no event
+// at all, and the only thing that could ever close a binding was its instance
+// dying. A pane closed by hand left a binding pointing at somewhere that no
+// longer existed, and the registry went on presenting it as where that agent
+// could be found.
+func TestAPaneThatDisappearsClosesItsBinding(t *testing.T) {
+	s := newStore(t)
+	dir := t.TempDir()
+	doomed := paneLine("$3", "@67", "%67", 36230, "iterm[]linsekasten", "zsh")
+	survivor := paneLine("$3", "@98", "%98", 53126, "iterm[autarch", "zsh")
+
+	sweep(t, s, doomed, survivor)
+	writeRecord(t, dir, 52620, record(52620, "74e5950e", "iterm[]linsekasten:@67.%67", "/Users/sma/projects", "parent", "auto", 1000, 2000))
+	scanAndProject(t, s, dir)
+	if n := count(t, s.DB(), `SELECT COUNT(*) FROM pane_binding WHERE binding_basis = 'tmux_inventory' AND observed_to_ms IS NULL`); n != 1 {
+		t.Fatalf("verified open bindings before the pane closes = %d, want 1", n)
+	}
+
+	// The pane is killed. Nothing else changes.
+	sweep(t, s, survivor)
+
+	var basis string
+	mustScan(t, s.DB(), `SELECT end_basis FROM pane_binding WHERE pane_id = '%67'`, &basis)
+	if basis != "pane_absent_from_complete_scan" {
+		t.Errorf("end_basis = %q, want pane_absent_from_complete_scan", basis)
+	}
+	if n := count(t, s.DB(), `SELECT COUNT(*) FROM pane_binding
+		WHERE pane_id = '%67' AND observed_to_ms IS NOT NULL AND end_event_id IS NOT NULL`); n != 1 {
+		t.Error("a closed binding must cite the sweep that closed it")
+	}
+	// The pane died; the process may not have. Those are separate facts and
+	// only one of them was observed.
+	if n := count(t, s.DB(), `SELECT COUNT(*) FROM launch_instance WHERE ended_ms IS NOT NULL`); n != 0 {
+		t.Error("a pane going away is not evidence that the process in it exited")
+	}
+}
+
+// A pane the sweep never covered is not a pane the sweep found missing. A
+// session_file_claim carries no server identity at all -- that is what makes
+// it a claim -- so "absent from the server we swept" and "present on a server
+// we did not sweep" are the same observation, and closing on it would be the
+// exact inference this registry refuses.
+func TestAClaimInAnUnsweptPaneStaysClaimed(t *testing.T) {
+	s := newStore(t)
+	dir := t.TempDir()
+
+	sweep(t, s, paneLine("$3", "@98", "%98", 53126, "iterm[autarch", "zsh"))
+	writeRecord(t, dir, 52620, record(52620, "74e5950e", "elsewhere:@67.%67", "/Users/sma/projects", "parent", "auto", 1000, 2000))
+	scanAndProject(t, s, dir)
+
+	// And again, so the sweep has had every chance to act on it.
+	sweep(t, s, paneLine("$3", "@98", "%98", 53126, "iterm[autarch", "zsh"))
+
+	var basis, key string
+	var closed sql.NullInt64
+	mustScan(t, s.DB(), `SELECT binding_basis FROM pane_binding WHERE pane_id = '%67'`, &basis)
+	mustScan(t, s.DB(), `SELECT pane_key FROM pane_binding WHERE pane_id = '%67'`, &key)
+	mustScan(t, s.DB(), `SELECT observed_to_ms FROM pane_binding WHERE pane_id = '%67'`, &closed)
+	if basis != "session_file_claim" {
+		t.Errorf("binding basis = %q, want session_file_claim -- nothing verified this pane", basis)
+	}
+	if key != "claimed:%67" {
+		t.Errorf("pane_key = %q, want claimed:%%67", key)
+	}
+	if closed.Valid {
+		t.Error("a sweep that never covered this pane closed its binding anyway")
+	}
+}
+
+// The reason the roster is load-bearing for verification and not only for
+// closure. Before this, "the most recent observation of pane %67" was taken as
+// current however old it was -- and because the sweep dedupes, a pane that
+// died last week still has a perfectly vivid last observation. A fresh claim
+// was verified against it, and the registry asserted that a live agent was
+// sitting in a pane that no longer existed.
+func TestAClaimIsNotVerifiedAgainstAPaneTheLastSweepDidNotList(t *testing.T) {
+	s := newStore(t)
+	dir := t.TempDir()
+
+	// %67 existed once and was observed in detail.
+	sweep(t, s, paneLine("$3", "@67", "%67", 36230, "iterm[]linsekasten", "zsh"))
+	if n := count(t, s.DB(), `SELECT COUNT(*) FROM event WHERE kind = 'pane.observed'`); n != 1 {
+		t.Fatalf("pane observations = %d, want 1", n)
+	}
+	// It is gone by the next sweep. No new event describes %67; its absence
+	// exists only in the roster.
+	sweep(t, s, paneLine("$3", "@98", "%98", 53126, "iterm[autarch", "zsh"))
+
+	// Now an agent claims it.
+	writeRecord(t, dir, 52620, record(52620, "74e5950e", "iterm[]linsekasten:@67.%67", "/Users/sma/projects", "parent", "auto", 1000, 2000))
+	scanAndProject(t, s, dir)
+
+	var basis string
+	mustScan(t, s.DB(), `SELECT binding_basis FROM pane_binding WHERE pane_id = '%67'`, &basis)
+	if basis != "session_file_claim" {
+		t.Errorf("binding basis = %q, want session_file_claim -- it was verified from an observation of a pane that no longer exists", basis)
+	}
+}
+
+// The gate: a pane id is unique only within one server. Matching on it alone
+// was right by accident on an estate with one socket, and would have bound an
+// agent to another machine's pane the moment a second appeared. The claim
+// carries no server identity, so the corroboration available is the window id
+// the provider wrote in the same breath as the pane id -- measured to agree
+// with the live server 11 times out of 11 on 2026-09-19.
+func TestAClaimNamingADifferentWindowIsNotVerified(t *testing.T) {
+	s := newStore(t)
+	dir := t.TempDir()
+
+	sweep(t, s, paneLine("$3", "@67", "%67", 36230, "iterm[]linsekasten", "zsh"))
+	// Same pane id, different window: not the pane this record means.
+	writeRecord(t, dir, 52620, record(52620, "74e5950e", "somewhere-else:@99.%67", "/Users/sma/projects", "parent", "auto", 1000, 2000))
+	scanAndProject(t, s, dir)
+
+	var basis, claimedWindow string
+	mustScan(t, s.DB(), `SELECT binding_basis FROM pane_binding`, &basis)
+	mustScan(t, s.DB(), `SELECT claimed_window_id FROM pane_binding`, &claimedWindow)
+	if basis != "session_file_claim" {
+		t.Errorf("binding basis = %q, want session_file_claim -- a pane id alone verified this binding", basis)
+	}
+	if claimedWindow != "@99" {
+		t.Errorf("claimed_window_id = %q, want @99 -- the disagreement is the evidence and must survive", claimedWindow)
+	}
+
+	// A later sweep that does list @99.%67 settles it.
+	sweep(t, s, paneLine("$3", "@99", "%67", 36230, "iterm[]linsekasten", "zsh"))
+	scanAndProject(t, s, dir)
+	mustScan(t, s.DB(), `SELECT binding_basis FROM pane_binding`, &basis)
+	if basis != "tmux_inventory" {
+		t.Errorf("binding basis = %q, want tmux_inventory once the server agreed", basis)
+	}
+}
+
+// Measured 2026-09-19: across eleven live records the claimed session name
+// disagrees with the live server three times -- 'tmux-organizer' against
+// 'iterm[autarch - e4be...', 'iterm]' against 'iterm[]', and one trailing
+// space. All three are the same pane. Verification used to overwrite the
+// claim with the observation, which destroyed the only evidence the two ever
+// differed, and left a column that still looked populated.
+func TestVerificationPreservesWhatTheRecordClaimed(t *testing.T) {
+	s := newStore(t)
+	dir := t.TempDir()
+
+	sweep(t, s, paneLine("$3", "@98", "%98", 53126, "iterm[autarch - e4bedaf5", "zsh"))
+	writeRecord(t, dir, 55409, record(55409, "e4bedaf5", "tmux-organizer:@98.%98", "/Users/sma/projects", "parent", "auto", 1000, 2000))
+	scanAndProject(t, s, dir)
+
+	var basis, seen, claimed, window, claimedWindow string
+	mustScan(t, s.DB(), `SELECT binding_basis FROM pane_binding`, &basis)
+	mustScan(t, s.DB(), `SELECT session_name_seen FROM pane_binding`, &seen)
+	mustScan(t, s.DB(), `SELECT claimed_session_name FROM pane_binding`, &claimed)
+	mustScan(t, s.DB(), `SELECT window_id FROM pane_binding`, &window)
+	mustScan(t, s.DB(), `SELECT claimed_window_id FROM pane_binding`, &claimedWindow)
+
+	if basis != "tmux_inventory" {
+		t.Fatalf("binding basis = %q -- a session name disagreement must not block verification, it disagrees a quarter of the time", basis)
+	}
+	if seen != "iterm[autarch - e4bedaf5" {
+		t.Errorf("session_name_seen = %q, want what the server said", seen)
+	}
+	if claimed != "tmux-organizer" {
+		t.Errorf("claimed_session_name = %q, want what the record claimed", claimed)
+	}
+	if window != "@98" || claimedWindow != "@98" {
+		t.Errorf("window_id = %q / claimed_window_id = %q, want @98 in both", window, claimedWindow)
+	}
+
+	// A later record rewrite refreshes the claim without writing over the
+	// observation: the record is the sole author of one and no author at all
+	// of the other.
+	writeRecord(t, dir, 55409, record(55409, "e4bedaf5", "renamed-by-hand:@98.%98", "/Users/sma/projects", "parent", "auto", 1000, 3000))
+	scanAndProject(t, s, dir)
+	mustScan(t, s.DB(), `SELECT session_name_seen FROM pane_binding`, &seen)
+	mustScan(t, s.DB(), `SELECT claimed_session_name FROM pane_binding`, &claimed)
+	if seen != "iterm[autarch - e4bedaf5" {
+		t.Errorf("session_name_seen = %q; a session record wrote over what the live server observed", seen)
+	}
+	if claimed != "renamed-by-hand" {
+		t.Errorf("claimed_session_name = %q, want the newer claim", claimed)
+	}
+}
+
+// A pane id that survives while its root process does not is a respawn, not a
+// disappearance. The enum has named it since v3 with nothing to write it.
+func TestARespawnedPaneClosesAsPanePidChanged(t *testing.T) {
+	s := newStore(t)
+	dir := t.TempDir()
+
+	sweep(t, s, paneLine("$3", "@67", "%67", 36230, "iterm[]linsekasten", "zsh"))
+	writeRecord(t, dir, 52620, record(52620, "74e5950e", "iterm[]linsekasten:@67.%67", "/Users/sma/projects", "parent", "auto", 1000, 2000))
+	scanAndProject(t, s, dir)
+
+	sweep(t, s, paneLine("$3", "@67", "%67", 99001, "iterm[]linsekasten", "zsh"))
+
+	var basis string
+	mustScan(t, s.DB(), `SELECT end_basis FROM pane_binding WHERE observed_to_ms IS NOT NULL`, &basis)
+	if basis != "pane_pid_changed" {
+		t.Errorf("end_basis = %q, want pane_pid_changed", basis)
+	}
+}
+
+// The rule the whole registry turns on, at the pane level: an inventory that
+// failed is not an inventory that came back empty. A sweep that cannot reach
+// the server publishes no roster, so nothing authorises any absence.
+func TestAFailedSweepClosesNoBinding(t *testing.T) {
+	s := newStore(t)
+	dir := t.TempDir()
+
+	sweep(t, s, paneLine("$3", "@67", "%67", 36230, "iterm[]linsekasten", "zsh"))
+	writeRecord(t, dir, 52620, record(52620, "74e5950e", "iterm[]linsekasten:@67.%67", "/Users/sma/projects", "parent", "auto", 1000, 2000))
+	scanAndProject(t, s, dir)
+
+	for _, broken := range []fakeTmux{{out: ""}, {err: errors.New("no server running")}, {out: "garbage\x1fnot-a-pane"}} {
+		_, _ = ScanTmuxPanesWith(s, fakeSocket, broken)
+		if _, err := Project(s); err != nil {
+			t.Fatalf("project: %v", err)
+		}
+	}
+	if n := count(t, s.DB(), `SELECT COUNT(*) FROM pane_binding WHERE observed_to_ms IS NOT NULL`); n != 0 {
+		t.Error("a sweep that could not look closed a binding anyway")
+	}
+	var present sql.NullInt64
+	mustScan(t, s.DB(), `SELECT last_present_ms FROM pane_binding`, &present)
+	if !present.Valid {
+		t.Error("the binding lost the presence the last GOOD sweep confirmed")
+	}
+}
+
+// Presence is recorded only where it was observed, and only for a binding
+// that names the server that observed it. A claim has no server, so it has no
+// presence -- and saying otherwise would be the registry reporting it had
+// confirmed something it never looked at.
+func TestOnlyAVerifiedBindingCarriesPresence(t *testing.T) {
+	s := newStore(t)
+	dir := t.TempDir()
+
+	sweep(t, s, paneLine("$3", "@98", "%98", 53126, "iterm[autarch", "zsh"))
+	writeRecord(t, dir, 55409, record(55409, "e4bedaf5", "iterm[autarch:@98.%98", "/Users/sma/projects", "parent", "auto", 1000, 2000))
+	writeRecord(t, dir, 52620, record(52620, "74e5950e", "elsewhere:@67.%67", "/Users/sma/projects", "parent", "auto", 1000, 2000))
+	scanAndProject(t, s, dir)
+	sweep(t, s, paneLine("$3", "@98", "%98", 53126, "iterm[autarch", "zsh"))
+
+	var verified, claimed sql.NullInt64
+	mustScan(t, s.DB(), `SELECT last_present_ms FROM pane_binding WHERE pane_id = '%98'`, &verified)
+	mustScan(t, s.DB(), `SELECT last_present_ms FROM pane_binding WHERE pane_id = '%67'`, &claimed)
+	if !verified.Valid {
+		t.Error("a verified binding the sweep listed carries no presence timestamp")
+	}
+	if claimed.Valid {
+		t.Error("a claim nothing has looked at was recorded as present")
 	}
 }

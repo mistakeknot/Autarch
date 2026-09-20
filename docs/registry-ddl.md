@@ -111,11 +111,22 @@ One bug appeared seven times in this work, in seven different disguises, and it 
 
 Three of the seven were found by review, one by a test being written, and three by running the thing against the live estate. None was found by reading the code. The pattern in every case is the same: a default, an empty container, or a failed call resolving to a confident statement. The constraints above catch it at the storage layer; the probe's sentinel, the scan roster, and `source_scan` catch it at the producer.
 
-## Still open after the gate
+## Closed at schema v4 (B1.5)
 
-- **Pane verification can rest on an observation of any age.** The tmux sweep writes no `scan.completed` event and no pane roster, so nothing records that a pane was absent, and a fresh claim can be verified against a pane that died days ago. The roster content cannot be backfilled. This blocks Phase B2 work that reads bindings; it does not block the watcher.
-- **`verifyPane` matches on `pane_id` alone** and overwrites the claimed window and session name, destroying the evidence of a mismatch. Latent while there is one socket, and it wants `ppid` to do better.
-- **`ppid` is unpopulated.** It is only observable while a process lives, so every day without it is lost.
+The three capture gaps above the line were the ones whose content could not be backfilled. They are closed.
+
+- **The tmux sweep publishes a roster.** `scan.completed` from `tmux-inventory` carries the socket, the server incarnation, and every pane as `%id:pane_pid`, factored so the server identity is named once. A pane's absence is now a positive, replayable observation, and a binding closes with `pane_absent_from_complete_scan` — or `pane_pid_changed`, an enum value that had existed since v3 with nothing to write it.
+- **Verification is bounded by the last complete sweep.** "Recent" cannot mean a young observation: the sweep dedupes, so a pane unchanged for a week has a week-old observation and is perfectly alive. It means the last complete sweep listed that pane, at that pane pid, on that server. Before this, a fresh claim could be verified against a pane that died days ago.
+- **`verifyPane` no longer matches on `pane_id` alone**, and no longer overwrites the claim. Measured 2026-09-19 over every live record: the claimed window id agrees with the live server 11 times out of 11, while the claimed session name disagrees 3 times — `tmux-organizer` against `iterm[autarch - e4be…`, `iterm]` against `iterm[]`, and one trailing space, all three the same pane. So the window gates verification and the session name cannot; both are preserved in `claimed_window_id` and `claimed_session_name` beside what the server said.
+- **`ppid` is captured** by the same `ps` run as the liveness probe, in a roster field of its own so v3 events still replay. Targets now include the records the sweep itself just read, not only rows the projector has already written — otherwise nothing is known about a process until its second sweep, and a dispatched child that finishes inside one interval would have its parent read exactly never.
+
+Measured on the live estate, first sweep after migration: **11 of 11 `cli` agents' ppid is exactly their pane's root process.** The one `sdk-py` child's is not, and does not resolve to an instance either: the chain is `sdk-py(33275) → Python shim(32795) → claude cli(3466) → zsh(35924, pane root)`. One hop does not reach the parent agent on this estate. `parent_instance_id` is left NULL rather than guessed, and the raw pid is kept so a later pass can walk further if B2 needs it.
+
+## Still open after B1.5
+
+- **Parent lineage stops at one hop.** Linking a dispatched child to the agent that dispatched it needs a walk through the shim, which needs the whole process table rather than the pids we already ask about. Deferred to B2, where lineage has a consumer.
+- **Multi-socket is unbuilt, not merely untested.** One tmux source holds one socket in its locator. A second server needs a second source; until then the roster's scope check is the only thing standing between a claim and another server's pane of the same id.
+- **A claim the server contradicts is stuck.** A pane genuinely moved by `break-pane` and a claim pointing at the wrong server look identical from here, so both stay claimed. `status` counts them rather than letting a stuck one read as merely unverified.
 - **A reopened instance flaps** if the condition that caused the false closure persists. `reopened_count` surfaces it rather than hiding it.
 - **Link intervals mix two clocks** — `observed_from_ms` is the provider's, the closing `observed_to_ms` is the sweep's — so an interval can come out negative if the provider's clock runs ahead.
-- **Roster retention:** `scan.completed` carries the roster every sweep, about 1.4MB a day.
+- **Roster retention.** The session roster costs about 1.4MB a day. The pane roster adds ~1.4KB per sweep — 107 panes factored — or about 4MB a day at a 30s interval. Stored as whole pane keys it would have been three times that. Still unbounded; retention has no consumer yet.

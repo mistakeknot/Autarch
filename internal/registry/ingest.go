@@ -32,7 +32,7 @@ type Store struct {
 	now  func() int64
 	// probe asks the process table about tracked instances. Injectable so the
 	// absence paths can be exercised against fixtures whose pids are not real.
-	probe func([]probeTarget) map[string]string
+	probe func([]probeTarget) probeReport
 }
 
 // NewStore wraps an open registry database. host identifies the machine these
@@ -318,6 +318,14 @@ func ScanClaudeSessions(s *Store, dir string) (ScanResult, error) {
 	// events alone would read "unchanged" as "gone" -- which is the exact
 	// confusion between silence and absence this registry exists to refuse.
 	seen := make([]string, 0, len(names))
+	// The same instances as probe targets, built from the records themselves.
+	// Without this the probe can only ask about instances the registry
+	// already holds, so nothing is ever known about a process on the sweep
+	// that first sees it -- and a dispatched child that lives less than one
+	// interval would have its parent read exactly never. Parent pid is the
+	// field that cannot be recovered afterwards, so the short-lived ones are
+	// precisely the ones worth reaching.
+	seenTargets := make(map[string]probeTarget, len(names))
 	// Instances whose record changed during THIS sweep. A process that has
 	// just rewritten its record is alive whatever the process table said a
 	// moment later, so a contradiction withholds rather than closes.
@@ -348,6 +356,12 @@ func ScanClaudeSessions(s *Store, dir string) (ScanResult, error) {
 
 		instID := InstanceID(s.host, rec.PIDDomain, rec.PID, rec.StartedAt)
 		seen = append(seen, instID)
+		seenTargets[instID] = probeTarget{
+			instanceID: instID,
+			pid:        rec.PID,
+			startedMs:  rec.StartedAt,
+			local:      rec.PIDDomain == localPIDDomain,
+		}
 
 		sum := sha256.Sum256(raw)
 		sha := hex.EncodeToString(sum[:])
@@ -388,20 +402,20 @@ func ScanClaudeSessions(s *Store, dir string) (ScanResult, error) {
 		// Probed here, at observation time, and recorded. The projector must
 		// never consult the live process table: on a rebuild that would judge
 		// the past by the present.
-		targets, err := s.probeTargetsFor(SourceClaudeSessions, seen)
+		targets, err := s.probeTargetsFor(SourceClaudeSessions, seenTargets)
 		if err != nil {
 			out.Err = err
 			_ = s.FinishScan(scanID, SourceClaudeSessions, false, out.RecordsSeen, err)
 			return out, err
 		}
-		probed := s.probe(targets)
+		report := s.probe(targets)
 		// Whether the instrument itself worked, recorded separately from what
 		// it said. All-unknown from a working probe and all-unknown from a
 		// probe that never ran are different facts, and without this the
 		// second one is invisible: the sweep completes, the source reads ok,
 		// and every instance keeps rendering as live.
 		probeOK := len(targets) == 0
-		for _, v := range probed {
+		for _, v := range report.verdicts {
 			if v != ProbeUnknown {
 				probeOK = true
 				break
@@ -414,8 +428,15 @@ func ScanClaudeSessions(s *Store, dir string) (ScanResult, error) {
 			Instances   []string          `json:"instances"`
 			Changed     []string          `json:"changed"`
 			Probed      map[string]string `json:"probed"`
-			ProbeOK     bool              `json:"probe_ok"`
-		}{out.RecordsSeen, SourceClaudeSessions, s.host, seen, changed, probed, probeOK})
+			// Added at schema v4 and deliberately its own field rather than a
+			// richer shape inside "probed": every event already in the log
+			// carries a bare verdict map, and a replay of those must still
+			// parse. Absent means the sweep predates parent capture; present
+			// but missing an instance means that process was not positively
+			// identified. Neither is "no parent".
+			PPIDs   map[string]int64 `json:"ppids"`
+			ProbeOK bool             `json:"probe_ok"`
+		}{out.RecordsSeen, SourceClaudeSessions, s.host, seen, changed, report.verdicts, report.ppids, probeOK})
 		out.ProbeOK = probeOK
 		if err != nil {
 			out.Err = err
@@ -462,6 +483,20 @@ type probeTarget struct {
 	local      bool
 }
 
+// probeReport is one ps run's answer: a verdict per instance, and the parent
+// pids it happened to read along the way.
+//
+// Two maps rather than one struct per instance because they answer different
+// questions and have different silences. Every target gets a verdict, and the
+// default is unknown. Only a process the run positively listed gets a ppid,
+// and an instance missing from ppids means the parent was not observed --
+// never that it has no parent. Kept separate in the payload too, so a v3
+// event, whose probe results are a bare verdict map, still replays.
+type probeReport struct {
+	verdicts map[string]string
+	ppids    map[string]int64
+}
+
 // probeProcesses asks the process table about every instance the registry
 // currently holds open, in one call.
 //
@@ -484,7 +519,7 @@ type probeTarget struct {
 // told us nothing. That is a positive signal rather than an inference from an
 // exit code or an empty result, both of which were wrong in one direction or
 // the other.
-func probeProcesses(targets []probeTarget) map[string]string {
+func probeProcesses(targets []probeTarget) probeReport {
 	sentinel := int64(os.Getpid())
 	pids := []string{strconv.FormatInt(sentinel, 10)}
 	for _, t := range targets {
@@ -494,7 +529,12 @@ func probeProcesses(targets []probeTarget) map[string]string {
 	}
 	// etime, not etimes: the latter is a Linux procps field and BSD ps
 	// rejects it while still exiting 0.
-	cmd := exec.Command("ps", "-o", "pid=,etime=", "-p", strings.Join(pids, ","))
+	//
+	// ppid rides along on the same run rather than taking its own, because a
+	// parent read from a second call describes a process table that has moved
+	// on -- and because a parent pid only exists while the process does, so
+	// the moment it is cheap to read is the moment liveness is being asked.
+	cmd := exec.Command("ps", "-o", "pid=,ppid=,etime=", "-p", strings.Join(pids, ","))
 	var stderr strings.Builder
 	cmd.Stderr = &stderr
 	out, _ := cmd.Output()
@@ -506,13 +546,16 @@ func probeProcesses(targets []probeTarget) map[string]string {
 // Every path that is not a clean, complete answer resolves to unknown, which
 // withholds. Only a run proven to have worked -- by listing the sentinel --
 // may conclude that an unlisted pid is gone.
-func interpretProbe(targets []probeTarget, psOut, psErr string, sentinel, nowMs int64) map[string]string {
-	out := make(map[string]string, len(targets))
+func interpretProbe(targets []probeTarget, psOut, psErr string, sentinel, nowMs int64) probeReport {
+	out := probeReport{
+		verdicts: make(map[string]string, len(targets)),
+		ppids:    map[string]int64{},
+	}
 	local := 0
 	for _, t := range targets {
 		// A local kill(pid,0) or ps says nothing about another host or pid
 		// namespace, so a remote instance is always unknown here.
-		out[t.instanceID] = ProbeUnknown
+		out.verdicts[t.instanceID] = ProbeUnknown
 		if t.local {
 			local++
 		}
@@ -522,10 +565,16 @@ func interpretProbe(targets []probeTarget, psOut, psErr string, sentinel, nowMs 
 	}
 
 	elapsed := map[int64]int64{}
+	parent := map[int64]int64{}
 	listed := map[int64]bool{}
 	for _, line := range strings.Split(psOut, "\n") {
 		fields := strings.Fields(line)
-		if len(fields) != 2 {
+		// Exactly three: pid, ppid, etime. A short line means ps answered a
+		// different question than the one asked -- which is how `etimes`
+		// slipped through once, printing bare pids and exiting 0. Refusing
+		// the line leaves the sentinel unlisted, so the whole run withholds
+		// rather than reading a truncated answer as a complete one.
+		if len(fields) != 3 {
 			continue
 		}
 		pid, err := strconv.ParseInt(fields[0], 10, 64)
@@ -533,7 +582,10 @@ func interpretProbe(targets []probeTarget, psOut, psErr string, sentinel, nowMs 
 			continue
 		}
 		listed[pid] = true
-		if secs, ok := parseElapsed(fields[1]); ok {
+		if pp, err := strconv.ParseInt(fields[1], 10, 64); err == nil && pp > 0 {
+			parent[pid] = pp
+		}
+		if secs, ok := parseElapsed(fields[2]); ok {
 			elapsed[pid] = secs
 		}
 	}
@@ -550,7 +602,7 @@ func interpretProbe(targets []probeTarget, psOut, psErr string, sentinel, nowMs 
 			continue
 		}
 		if !listed[t.pid] {
-			out[t.instanceID] = ProbeDead
+			out.verdicts[t.instanceID] = ProbeDead
 			continue
 		}
 		secs, readable := elapsed[t.pid]
@@ -558,7 +610,7 @@ func interpretProbe(targets []probeTarget, psOut, psErr string, sentinel, nowMs 
 			// Listed, so it is running, but its elapsed time did not parse.
 			// That is not enough to judge pid reuse, and it is certainly not
 			// a death.
-			out[t.instanceID] = ProbeUnknown
+			out.verdicts[t.instanceID] = ProbeUnknown
 			continue
 		}
 		// A process writes its session record after it starts, so its start
@@ -570,10 +622,17 @@ func interpretProbe(targets []probeTarget, psOut, psErr string, sentinel, nowMs 
 		const recycleToleranceMs = 60_000
 		procStart := nowMs - secs*1000
 		if t.startedMs > 0 && procStart-t.startedMs > recycleToleranceMs {
-			out[t.instanceID] = ProbeDead
+			out.verdicts[t.instanceID] = ProbeDead
 			continue
 		}
-		out[t.instanceID] = ProbeAlive
+		out.verdicts[t.instanceID] = ProbeAlive
+		// Only here, on the one path that concluded the listed process IS
+		// ours. A recycled pid is listed too, and its parent belongs to the
+		// stranger now holding that number -- attaching it to this instance
+		// would be a stranger's lineage recorded as our own.
+		if pp, ok := parent[t.pid]; ok {
+			out.ppids[t.instanceID] = pp
+		}
 	}
 	return out
 }
@@ -604,20 +663,25 @@ func parseElapsed(s string) (int64, bool) {
 }
 
 // probeTargetsFor lists what the sweep should ask the process table about:
-// everything this source currently holds open, PLUS anything it has already
-// closed that still turned up in this sweep.
+// everything THIS SWEEP saw, taken from the records themselves, plus
+// everything this source holds open -- including what it has already closed,
+// when this sweep saw it again.
 //
-// The second half is what makes a false closure recoverable. Recovery used to
+// Closed-but-seen is what makes a false closure recoverable. Recovery used to
 // depend on the agent rewriting its record, because that is the only thing
 // that emits an event -- and a quiet agent emits nothing. The quietest agents
 // on this estate have gone nearly three hours without a write, and the
 // quietest one of all is waiting for an answer, which is precisely the agent
 // this whole system exists to surface.
-func (s *Store) probeTargetsFor(sourceID string, seen []string) ([]probeTarget, error) {
-	inSweep := make(map[string]bool, len(seen))
-	for _, id := range seen {
-		inSweep[id] = true
-	}
+//
+// Reading the sweep's own records, rather than only the registry's rows, is
+// what reaches a process on the sweep that FIRST sees it. The rows are written
+// by the projector, which runs after this, so a brand-new instance is in no
+// row yet and was never probed until its second sweep. Liveness survives that
+// -- it is asked again 30 seconds later -- but a parent pid does not: it is
+// gone the moment the process is, and a dispatched child that finishes inside
+// one interval would have had its parent read exactly never.
+func (s *Store) probeTargetsFor(sourceID string, seen map[string]probeTarget) ([]probeTarget, error) {
 	rows, err := s.db.Query(`
 		SELECT li.instance_id, li.pid, li.started_ms, li.host, li.pid_domain, li.ended_ms
 		  FROM launch_instance li
@@ -627,7 +691,12 @@ func (s *Store) probeTargetsFor(sourceID string, seen []string) ([]probeTarget, 
 		return nil, err
 	}
 	defer rows.Close()
-	var out []probeTarget
+	// Everything this sweep laid eyes on, including instances the registry has
+	// never recorded, plus everything it holds open.
+	targets := make(map[string]probeTarget, len(seen))
+	for id, t := range seen {
+		targets[id] = t
+	}
 	for rows.Next() {
 		var t probeTarget
 		var host, domain string
@@ -635,13 +704,29 @@ func (s *Store) probeTargetsFor(sourceID string, seen []string) ([]probeTarget, 
 		if err := rows.Scan(&t.instanceID, &t.pid, &t.startedMs, &host, &domain, &ended); err != nil {
 			return nil, err
 		}
-		if ended.Valid && !inSweep[t.instanceID] {
+		if _, inSweep := targets[t.instanceID]; inSweep {
+			// The sweep's own reading wins: it comes from the record this
+			// pass just read, while the row is whatever the projector has
+			// applied so far -- on a first sighting, nothing at all.
+			continue
+		}
+		if ended.Valid {
+			// Closed, and this sweep did not see it. Nothing to ask about.
 			continue
 		}
 		t.local = host == s.host && domain == localPIDDomain
+		targets[t.instanceID] = t
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	out := make([]probeTarget, 0, len(targets))
+	for _, t := range targets {
 		out = append(out, t)
 	}
-	return out, rows.Err()
+	// Deterministic order, so one sweep issues the same ps command twice.
+	sort.Slice(out, func(i, j int) bool { return out[i].instanceID < out[j].instanceID })
+	return out, nil
 }
 
 // localPIDDomain is the pid namespace this process can ask about. Taken from

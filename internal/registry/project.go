@@ -128,11 +128,38 @@ func Project(s *Store) (out ProjectResult, retErr error) {
 				return out, err
 			}
 		case "pane.observed":
-			if err := s.verifyPane(tx, p.eventID, p.payload); err != nil {
+			refused, err := s.verifyPane(tx, p.eventID, p.payload)
+			if err != nil {
 				return out, err
 			}
+			if refused > 0 {
+				out.Refusals = append(out.Refusals, fmt.Sprintf(
+					"event %d: %d claim(s) on that pane name a different window than the live server; left unverified",
+					p.eventID, refused))
+			}
 		case "scan.completed":
-			n, refusal, err := s.reconcileAbsences(tx, p.eventID, p.observedMs, p.payload)
+			// Routed by the source that swept, because a roster's shape is
+			// its source's shape: the session sweep publishes instances and
+			// probe verdicts, the tmux sweep publishes panes on one server.
+			// Handing either roster to the other reconciler would present a
+			// missing field as an empty estate -- and the session reconciler
+			// refuses an absent instance list precisely so that cannot happen
+			// quietly.
+			var n int
+			var refusal string
+			var err error
+			switch sourceOf(p.payload) {
+			case SourceClaudeSessions:
+				n, refusal, err = s.reconcileAbsences(tx, p.eventID, p.observedMs, p.payload)
+			case SourceTmuxInventory:
+				n, refusal, err = s.reconcilePaneAbsences(tx, p.eventID, p.observedMs, p.payload)
+			default:
+				// A producer emitting completed sweeps that nothing
+				// reconciles is a gap that must announce itself. Silence here
+				// would mean a whole source's absences were never acted on
+				// and nothing said so.
+				refusal = fmt.Sprintf("scan roster in event %d names a source no reconciler handles; its absences were not acted on", p.eventID)
+			}
 			if err != nil {
 				return out, err
 			}
@@ -329,11 +356,19 @@ func (s *Store) claimPane(ex execer, eventID int64, instID string, rec SessionRe
 	err := ex.QueryRow(`SELECT binding_id FROM pane_binding
 		WHERE instance_id = ? AND pane_id = ? AND observed_to_ms IS NULL`, instID, ref.PaneID).Scan(&bindingID)
 	if err == nil {
-		// The session name is refreshed because it is dated evidence that
-		// attribution and lineage both read; it is not part of the key, so a
-		// rename cannot fork the binding.
-		_, err := ex.Exec(`UPDATE pane_binding SET session_name_seen = ?, window_id = ?, last_event_id = ?
-			WHERE binding_id = ?`, ref.SessionName, ref.WindowID, eventID, bindingID)
+		// The CLAIMED columns are refreshed, because the record is their sole
+		// author and a rewritten record is a newer claim. The observed ones
+		// are not touched: once a sweep has verified this binding, window_id
+		// and session_name_seen hold what the live server said, and letting a
+		// session record write over them would put a claim in the columns
+		// that are supposed to hold evidence -- and would do it invisibly,
+		// since both columns would still look populated.
+		_, err := ex.Exec(`UPDATE pane_binding
+			SET claimed_session_name = ?, claimed_window_id = ?, last_event_id = ?,
+			    window_id = CASE WHEN binding_basis = 'session_file_claim' THEN ? ELSE window_id END,
+			    session_name_seen = CASE WHEN binding_basis = 'session_file_claim' THEN ? ELSE session_name_seen END
+			WHERE binding_id = ?`,
+			ref.SessionName, ref.WindowID, eventID, ref.WindowID, ref.SessionName, bindingID)
 		return err
 	}
 	if !errors.Is(err, sql.ErrNoRows) {
@@ -341,15 +376,33 @@ func (s *Store) claimPane(ex execer, eventID int64, instID string, rec SessionRe
 	}
 
 	if _, err := ex.Exec(`INSERT INTO pane_binding
-		(instance_id, window_id, pane_id, session_name_seen, binding_basis, observed_from_ms,
+		(instance_id, window_id, pane_id, session_name_seen,
+		 claimed_window_id, claimed_session_name, binding_basis, observed_from_ms,
 		 first_event_id, last_event_id)
-		VALUES (?, ?, ?, ?, 'session_file_claim', ?, ?, ?)`,
-		instID, ref.WindowID, ref.PaneID, ref.SessionName, seen, eventID, eventID); err != nil {
+		VALUES (?, ?, ?, ?, ?, ?, 'session_file_claim', ?, ?, ?)`,
+		instID, ref.WindowID, ref.PaneID, ref.SessionName,
+		ref.WindowID, ref.SessionName, seen, eventID, eventID); err != nil {
 		return err
 	}
 	// Verify immediately against what the log already knows about this pane,
 	// rather than waiting for that pane to change.
-	return s.verifyFromLatestObservation(ex, eventID, ref.PaneID)
+	_, err = s.verifyFromLatestObservation(ex, eventID, ref.PaneID)
+	return err
+}
+
+// sourceOf reads the source id a roster declares.
+//
+// The event row carries a source_id too, but the roster's own field is what
+// each reconciler scopes its queries by, so routing on anything else could
+// hand a roster to a reconciler that then scopes itself somewhere else.
+func sourceOf(payload string) string {
+	var head struct {
+		SourceID string `json:"source_id"`
+	}
+	if err := json.Unmarshal([]byte(payload), &head); err != nil {
+		return ""
+	}
+	return head.SourceID
 }
 
 // ---------------------------------------------------------------- absence
@@ -361,7 +414,14 @@ type scanRoster struct {
 	Instances   *[]string          `json:"instances"`
 	Changed     []string           `json:"changed"`
 	Probed      *map[string]string `json:"probed"`
-	ProbeOK     bool               `json:"probe_ok"`
+	// Not a pointer, unlike the fields above. Those are required because an
+	// absent one would be read as an empty estate; this one is additive at
+	// schema v4 and every event written before then legitimately has none.
+	// Absent means the sweep predates parent capture, and an instance missing
+	// from it means its process was not positively identified -- neither of
+	// which is "this process has no parent", so both leave ppid alone.
+	PPIDs   map[string]int64 `json:"ppids"`
+	ProbeOK bool             `json:"probe_ok"`
 }
 
 // reconcileAbsences closes what a complete sweep did not see.
@@ -445,6 +505,11 @@ func (s *Store) reconcileAbsences(ex execer, eventID, observedMs int64, payload 
 				observedMs, id); err != nil {
 				return closed, "", err
 			}
+			if ppid, ok := roster.PPIDs[id]; ok && ppid > 0 {
+				if err := s.recordParent(ex, id, ppid); err != nil {
+					return closed, "", err
+				}
+			}
 			if k.ended {
 				if err := s.reopenIfEnded(ex, eventID, id); err != nil {
 					return closed, "", err
@@ -479,6 +544,40 @@ func (s *Store) reconcileAbsences(ex execer, eventID, observedMs int64, payload 
 		closed++
 	}
 	return closed, "", nil
+}
+
+// recordParent stores a parent pid the probe read, and resolves it to another
+// instance only when this registry already holds one with that pid.
+//
+// The join is deliberately narrow: same host, same pid domain, and open at the
+// time -- a record we have, never a guess. A pid alone is not an identity, and
+// naming a parent we cannot see would put an inference in a column the rest of
+// the system will read as an observation.
+//
+// A ppid that resolves to nothing is still recorded. On this estate a
+// human-launched agent's parent is its pane's login shell, which this registry
+// does not track and never will; that is a real, useful parent, and dropping
+// it because it is not one of ours would discard the very fact that
+// distinguishes a human launch from a dispatched child.
+func (s *Store) recordParent(ex execer, instanceID string, ppid int64) error {
+	var parent sql.NullString
+	err := ex.QueryRow(`SELECT parent.instance_id FROM launch_instance parent
+		 JOIN launch_instance child ON child.instance_id = ?
+		WHERE parent.pid = ? AND parent.host = child.host
+		  AND parent.pid_domain = child.pid_domain
+		  AND parent.instance_id <> child.instance_id
+		  AND parent.ended_ms IS NULL
+		ORDER BY parent.started_ms DESC LIMIT 1`, instanceID, ppid).Scan(&parent)
+	if err != nil && !errors.Is(err, sql.ErrNoRows) {
+		return fmt.Errorf("resolve parent of %s: %w", instanceID, err)
+	}
+	// parent_instance_id is only ever set, never cleared by a later sweep that
+	// could not resolve it: the parent exiting does not retract the fact that
+	// it was the parent.
+	_, err = ex.Exec(`UPDATE launch_instance
+		SET ppid = ?, parent_instance_id = COALESCE(?, parent_instance_id)
+		WHERE instance_id = ?`, ppid, parent, instanceID)
+	return err
 }
 
 func (s *Store) closeInstance(ex execer, instanceID, basis string, endedMs, eventID int64) error {

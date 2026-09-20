@@ -279,6 +279,65 @@ func status(s *registry.Store) error {
 	}
 	fmt.Printf("  %d pane bindings confirmed by the live server, %d still only claimed\n", verified, claimed)
 
+	// "Verified" says a sweep once identified this pane; it does not say the
+	// pane is still there. Those were the same sentence until the roster
+	// existed, and a binding verified last Tuesday rendered exactly like one
+	// confirmed present thirty seconds ago.
+	var stalePresence int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM pane_binding
+		WHERE observed_to_ms IS NULL AND binding_basis = 'tmux_inventory'
+		  AND (last_present_ms IS NULL OR last_present_ms < ?)`,
+		time.Now().UnixMilli()-3*30_000).Scan(&stalePresence); err != nil {
+		return err
+	}
+	if stalePresence > 0 {
+		fmt.Printf("  %d of them were not listed by a complete sweep in the last 3 intervals\n", stalePresence)
+	}
+
+	// A claim whose window the live server contradicts is stuck: nothing will
+	// ever verify it, and without a count it is indistinguishable from a
+	// claim in a pane no sweep has reached.
+	var contested int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM pane_binding pb
+		WHERE pb.observed_to_ms IS NULL AND pb.binding_basis = 'session_file_claim'
+		  AND pb.claimed_window_id <> ''
+		  AND EXISTS (SELECT 1 FROM pane_binding other
+		               WHERE other.pane_id = pb.pane_id
+		                 AND other.binding_basis = 'tmux_inventory'
+		                 AND other.window_id <> pb.claimed_window_id)`).Scan(&contested); err != nil {
+		return err
+	}
+	if contested > 0 {
+		fmt.Printf("  %d claim(s) name a pane the server puts in a different window; left unverified\n", contested)
+	}
+
+	var closedPanes int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM pane_binding
+		WHERE end_basis IN ('pane_absent_from_complete_scan','pane_pid_changed')`).Scan(&closedPanes); err != nil {
+		return err
+	}
+	if closedPanes > 0 {
+		fmt.Printf("  %d binding(s) closed because the pane itself went away\n", closedPanes)
+	}
+
+	// Parent capture, reported as what it is FOR. A parent pid on its own
+	// says little; what it answers is whether a human started this agent or
+	// another process did, which is the distinction that separates the two
+	// occupants of a shared pane. Coverage is stated too, because a process
+	// whose parent was never read is not a process without one -- and for
+	// anything already exited that gap can never be filled.
+	var liveInstances, withParent, fromPane int
+	if err := db.QueryRow(`SELECT COUNT(*),
+		COALESCE(SUM(CASE WHEN li.ppid IS NOT NULL THEN 1 ELSE 0 END),0),
+		COALESCE(SUM(CASE WHEN li.ppid IS NOT NULL AND li.ppid = pb.pane_pid THEN 1 ELSE 0 END),0)
+		FROM launch_instance li
+		LEFT JOIN pane_binding pb ON pb.instance_id = li.instance_id AND pb.observed_to_ms IS NULL
+		WHERE li.ended_ms IS NULL`).Scan(&liveInstances, &withParent, &fromPane); err != nil {
+		return err
+	}
+	fmt.Printf("  %d of %d live instances have a parent pid: %d launched from their pane's own shell, %d by something else\n",
+		withParent, liveInstances, fromPane, withParent-fromPane)
+
 	// How far the projector is behind the log. A projector wedged on one bad
 	// event leaves everything above stale while it still reads current.
 	var lag int64

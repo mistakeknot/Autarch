@@ -53,16 +53,21 @@ func TestAProbeThatCouldNotRunConcludesNothing(t *testing.T) {
 		errOut string
 	}{
 		{"the etimes failure: bare pids, no elapsed column", "100\n200\n999\n", "ps: etimes: keyword not found"},
+		// The same shape one field further on, and the reason it is tested:
+		// ppid was added to the ps line at schema v4, and a build whose ps
+		// rejects it would print two columns and exit 0 exactly as etimes did.
+		// Silently, with nothing on stderr, it must still conclude nothing.
+		{"a ps that does not understand ppid", "999 00:05\n100 01:00\n200 01:00\n", ""},
 		{"nothing parseable at all", "%cpu %mem acflag\n", ""},
 		{"empty output, which is also what ps gives when every pid is gone", "", ""},
-		{"a complaint on stderr", "999 00:01\n100 01:00\n", "ps: process id too large: 4000001"},
+		{"a complaint on stderr", "999 1 00:01\n100 1 01:00\n", "ps: process id too large: 4000001"},
 	}
 	for _, d := range degraded {
 		got := interpretProbe(targets, d.out, d.errOut, sentinel, now)
 		for _, id := range []string{"a", "b"} {
-			if got[id] != ProbeUnknown {
+			if got.verdicts[id] != ProbeUnknown {
 				t.Errorf("%s: instance %s = %q, want %q -- a probe that could not run must not report a death",
-					d.name, id, got[id], ProbeUnknown)
+					d.name, id, got.verdicts[id], ProbeUnknown)
 			}
 		}
 	}
@@ -79,7 +84,7 @@ func TestProbeReadsAbsenceAsDeathOnlyOnACleanRun(t *testing.T) {
 	// 100 has been up an hour, matching its record. 300 has been up ten
 	// seconds, so the pid was reused and our process is gone. 200 is absent.
 	// 999 is the sentinel, proving the run worked.
-	out := "999 00:05\n100 01:00:00\n300 00:10\n"
+	out := "999 1 00:05\n100 5000 01:00:00\n300 6000 00:10\n"
 	got := interpretProbe(targets, out, "", 999, now)
 
 	want := map[string]string{
@@ -89,8 +94,21 @@ func TestProbeReadsAbsenceAsDeathOnlyOnACleanRun(t *testing.T) {
 		"remote":   ProbeUnknown,
 	}
 	for id, w := range want {
-		if got[id] != w {
-			t.Errorf("instance %s = %q, want %q", id, got[id], w)
+		if got.verdicts[id] != w {
+			t.Errorf("instance %s = %q, want %q", id, got.verdicts[id], w)
+		}
+	}
+
+	// A parent is recorded only for the one instance the run concluded was
+	// ours. The recycled pid was listed too, and ps read a parent for it --
+	// but that parent belongs to whatever process now holds pid 300, and
+	// filing it here would record a stranger's lineage as this agent's.
+	if got.ppids["alive"] != 5000 {
+		t.Errorf("parent of alive = %d, want 5000", got.ppids["alive"])
+	}
+	for _, id := range []string{"recycled", "gone", "remote"} {
+		if pp, ok := got.ppids[id]; ok {
+			t.Errorf("instance %s recorded parent %d; a process not positively identified has no parent to report", id, pp)
 		}
 	}
 }
@@ -103,9 +121,9 @@ func TestAnEarlierStartThanRecordedIsNotADeath(t *testing.T) {
 	targets := []probeTarget{{instanceID: "a", pid: 100, startedMs: now - 3_600_000, local: true}}
 	// Running for two hours; the record was written one hour ago. Consistent
 	// with a long-lived process that rewrote its record.
-	got := interpretProbe(targets, "999 00:05\n100 02:00:00\n", "", 999, now)
-	if got["a"] != ProbeAlive {
-		t.Errorf("instance a = %q, want %q", got["a"], ProbeAlive)
+	got := interpretProbe(targets, "999 1 00:05\n100 1 02:00:00\n", "", 999, now)
+	if got.verdicts["a"] != ProbeAlive {
+		t.Errorf("instance a = %q, want %q", got.verdicts["a"], ProbeAlive)
 	}
 }
 
@@ -114,9 +132,9 @@ func TestAnEarlierStartThanRecordedIsNotADeath(t *testing.T) {
 func TestAnUnreadableElapsedTimeIsNotADeath(t *testing.T) {
 	now := int64(1_000_000_000_000)
 	targets := []probeTarget{{instanceID: "a", pid: 100, startedMs: now - 60_000, local: true}}
-	got := interpretProbe(targets, "999 00:05\n100 ??\n", "", 999, now)
-	if got["a"] != ProbeUnknown {
-		t.Errorf("instance a = %q, want %q", got["a"], ProbeUnknown)
+	got := interpretProbe(targets, "999 1 00:05\n100 1 ??\n", "", 999, now)
+	if got.verdicts["a"] != ProbeUnknown {
+		t.Errorf("instance a = %q, want %q", got.verdicts["a"], ProbeUnknown)
 	}
 }
 
@@ -136,18 +154,27 @@ func TestProbeAgainstTheRealProcessTable(t *testing.T) {
 	gone := probeTarget{instanceID: "gone", pid: deadPid, local: true}
 
 	got := probeProcesses([]probeTarget{self, gone})
-	if got["self"] != ProbeAlive {
-		t.Errorf("this process probed as %q, want %q -- the ps invocation is wrong", got["self"], ProbeAlive)
+	if got.verdicts["self"] != ProbeAlive {
+		t.Errorf("this process probed as %q, want %q -- the ps invocation is wrong", got.verdicts["self"], ProbeAlive)
 	}
-	if got["gone"] != ProbeDead {
-		t.Errorf("an exited process probed as %q, want %q", got["gone"], ProbeDead)
+	if got.verdicts["gone"] != ProbeDead {
+		t.Errorf("an exited process probed as %q, want %q", got.verdicts["gone"], ProbeDead)
+	}
+	// The ppid column against the real ps, for the same reason the rest of
+	// this test exists: `etimes` was a valid-looking field name that macOS ps
+	// silently refused, and the only thing that would have caught it was
+	// running the actual command. The answer is checkable -- the runtime
+	// knows this process's parent independently.
+	if got.ppids["self"] != int64(os.Getppid()) {
+		t.Errorf("ps read this process's parent as %d, want %d -- the ppid field is not doing what it claims",
+			got.ppids["self"], os.Getppid())
 	}
 
 	// And the case that produced the mirror bug: every tracked pid dead, so
 	// ps exits 1 with no output. The sentinel must still carry the run.
 	onlyDead := probeProcesses([]probeTarget{gone})
-	if onlyDead["gone"] != ProbeDead {
+	if onlyDead.verdicts["gone"] != ProbeDead {
 		t.Errorf("with every tracked pid gone, probe said %q, want %q -- the last agent to exit would never close",
-			onlyDead["gone"], ProbeDead)
+			onlyDead.verdicts["gone"], ProbeDead)
 	}
 }

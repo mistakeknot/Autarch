@@ -32,28 +32,42 @@ func newStore(t *testing.T) *Store {
 }
 
 // allAlive is the default probe for fixtures: nothing has died.
-func allAlive(targets []probeTarget) map[string]string {
-	out := make(map[string]string, len(targets))
+func allAlive(targets []probeTarget) probeReport {
+	out := probeReport{verdicts: map[string]string{}, ppids: map[string]int64{}}
 	for _, t := range targets {
-		out[t.instanceID] = ProbeAlive
+		out.verdicts[t.instanceID] = ProbeAlive
 	}
 	return out
 }
 
+// aliveWithParents is allAlive plus a parent pid per instance, for the paths
+// that care what the probe read along the way.
+func aliveWithParents(parents map[string]int64) func([]probeTarget) probeReport {
+	return func(targets []probeTarget) probeReport {
+		out := allAlive(targets)
+		for _, t := range targets {
+			if pp, ok := parents[t.instanceID]; ok {
+				out.ppids[t.instanceID] = pp
+			}
+		}
+		return out
+	}
+}
+
 // deadPIDs is a probe that reports the named pids dead and everything else
 // alive, so an absence can be staged precisely.
-func deadPIDs(pids ...int64) func([]probeTarget) map[string]string {
+func deadPIDs(pids ...int64) func([]probeTarget) probeReport {
 	dead := map[int64]bool{}
 	for _, p := range pids {
 		dead[p] = true
 	}
-	return func(targets []probeTarget) map[string]string {
-		out := make(map[string]string, len(targets))
+	return func(targets []probeTarget) probeReport {
+		out := probeReport{verdicts: map[string]string{}, ppids: map[string]int64{}}
 		for _, t := range targets {
 			if dead[t.pid] {
-				out[t.instanceID] = ProbeDead
+				out.verdicts[t.instanceID] = ProbeDead
 			} else {
-				out[t.instanceID] = ProbeAlive
+				out.verdicts[t.instanceID] = ProbeAlive
 			}
 		}
 		return out
@@ -689,10 +703,10 @@ func TestASweepWithADeadProbeIsDegraded(t *testing.T) {
 	writeRecord(t, dir, deadPID, record(deadPID, "sess-a", "proj:@1.%1", "/Users/sma/projects/autarch", "a", "auto", 1000, 2000))
 	scanAndProject(t, s, dir)
 
-	s.probe = func(targets []probeTarget) map[string]string {
-		out := map[string]string{}
+	s.probe = func(targets []probeTarget) probeReport {
+		out := probeReport{verdicts: map[string]string{}, ppids: map[string]int64{}}
 		for _, t := range targets {
-			out[t.instanceID] = ProbeUnknown
+			out.verdicts[t.instanceID] = ProbeUnknown
 		}
 		return out
 	}
@@ -795,5 +809,87 @@ func TestAResumeIsANewInstanceOnTheSameConversation(t *testing.T) {
 	mustScan(t, s.DB(), `SELECT pane_id FROM pane_binding WHERE observed_to_ms IS NULL`, &pane)
 	if pane != "%116" {
 		t.Errorf("open binding on pane %s, want %%116", pane)
+	}
+}
+
+// The second field B1 could not backfill. A parent pid exists only while the
+// process does: once it exits, nothing anywhere can say what launched it, and
+// on this estate that is the one fact that separates an agent a human started
+// from one another agent dispatched -- the pair that routinely share a pane.
+func TestParentPidIsCapturedWhileTheProcessLives(t *testing.T) {
+	s := newStore(t)
+	dir := t.TempDir()
+	parentID := InstanceID("clavain", "darwin", 55409, 1000)
+	childID := InstanceID("clavain", "darwin", 81453, 1100)
+	// The parent's own parent is the pane's login shell, which this registry
+	// does not track. The child's parent is the agent that spawned it.
+	s.probe = aliveWithParents(map[string]int64{parentID: 3000, childID: 55409})
+
+	writeRecord(t, dir, 55409, record(55409, "e4bedaf5", "iterm[autarch:@98.%98", "/Users/sma/projects", "parent", "auto", 1000, 2000))
+	writeRecord(t, dir, 81453, record(81453, "e13b1e95", "iterm[autarch:@98.%98", "/Users/sma/projects", "child", "derived", 1100, 2100))
+	scanAndProject(t, s, dir)
+
+	var parentPPID, childPPID sql.NullInt64
+	var parentOf, childOf sql.NullString
+	mustScan(t, s.DB(), `SELECT ppid FROM launch_instance WHERE pid = 55409`, &parentPPID)
+	mustScan(t, s.DB(), `SELECT ppid FROM launch_instance WHERE pid = 81453`, &childPPID)
+	mustScan(t, s.DB(), `SELECT parent_instance_id FROM launch_instance WHERE pid = 55409`, &parentOf)
+	mustScan(t, s.DB(), `SELECT parent_instance_id FROM launch_instance WHERE pid = 81453`, &childOf)
+
+	if parentPPID.Int64 != 3000 || childPPID.Int64 != 55409 {
+		t.Errorf("ppids = %v / %v, want 3000 / 55409", parentPPID, childPPID)
+	}
+	// A parent this registry cannot see is still a parent, and the raw pid is
+	// kept: discarding it because it resolves to nothing would throw away the
+	// very fact that says this agent was launched by a human.
+	if parentOf.Valid {
+		t.Errorf("parent_instance_id = %q; pid 3000 is not an instance we hold and must not be named as one", parentOf.String)
+	}
+	if childOf.String != parentID {
+		t.Errorf("child's parent_instance_id = %q, want %q", childOf.String, parentID)
+	}
+}
+
+// A probe that read no parent has not observed that there is none. Writing 0,
+// or clearing a parent already known, would turn a gap in the instrument into
+// a claim about the world -- the one mistake this registry keeps making and
+// keeps having to unmake.
+func TestAnUnreadParentIsNotTheAbsenceOfOne(t *testing.T) {
+	s := newStore(t)
+	dir := t.TempDir()
+	childID := InstanceID("clavain", "darwin", 81453, 1100)
+	parentID := InstanceID("clavain", "darwin", 55409, 1000)
+
+	writeRecord(t, dir, 55409, record(55409, "e4bedaf5", "iterm[autarch:@98.%98", "/Users/sma/projects", "parent", "auto", 1000, 2000))
+	writeRecord(t, dir, 81453, record(81453, "e13b1e95", "iterm[autarch:@98.%98", "/Users/sma/projects", "child", "derived", 1100, 2100))
+
+	// A sweep whose probe reported no parents at all -- which is also every
+	// sweep written before schema v4, whose rosters carry no ppids field.
+	s.probe = allAlive
+	scanAndProject(t, s, dir)
+	var ppid sql.NullInt64
+	mustScan(t, s.DB(), `SELECT ppid FROM launch_instance WHERE pid = 81453`, &ppid)
+	if ppid.Valid {
+		t.Errorf("ppid = %d after a probe that read none; want NULL", ppid.Int64)
+	}
+
+	// Now one that did read them.
+	s.probe = aliveWithParents(map[string]int64{childID: 55409})
+	writeRecord(t, dir, 81453, record(81453, "e13b1e95", "iterm[autarch:@98.%98", "/Users/sma/projects", "child", "derived", 1100, 2200))
+	scanAndProject(t, s, dir)
+	mustScan(t, s.DB(), `SELECT ppid FROM launch_instance WHERE pid = 81453`, &ppid)
+	if ppid.Int64 != 55409 {
+		t.Fatalf("ppid = %v, want 55409", ppid)
+	}
+
+	// And a later sweep that could not read it again must not retract it. The
+	// parent exiting does not unmake the fact that it was the parent.
+	s.probe = allAlive
+	writeRecord(t, dir, 81453, record(81453, "e13b1e95", "iterm[autarch:@98.%98", "/Users/sma/projects", "child", "derived", 1100, 2300))
+	scanAndProject(t, s, dir)
+	var parentOf sql.NullString
+	mustScan(t, s.DB(), `SELECT parent_instance_id FROM launch_instance WHERE pid = 81453`, &parentOf)
+	if parentOf.String != parentID {
+		t.Errorf("parent_instance_id = %q after a silent probe, want %q retained", parentOf.String, parentID)
 	}
 }
