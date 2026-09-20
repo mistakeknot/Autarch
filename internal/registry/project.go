@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 )
 
@@ -124,11 +125,27 @@ func Project(s *Store) (out ProjectResult, retErr error) {
 			if err := json.Unmarshal([]byte(p.payload), &rec); err != nil {
 				return out, fmt.Errorf("event %d payload: %w", p.eventID, err)
 			}
-			if err := s.applySessionObserved(tx, p.eventID, p.observedMs, rec, p.convID.String, p.instID.String); err != nil {
+			refusal, err := s.applySessionObserved(tx, p.eventID, p.observedMs, rec, p.convID.String, p.instID.String)
+			if err != nil {
 				return out, err
 			}
+			if refusal != "" {
+				out.Refusals = append(out.Refusals, refusal)
+			}
 		case "pane.observed":
-			refused, err := s.verifyPane(tx, p.eventID, p.payload)
+			// The latest roster at or before this event, so a claim cannot be
+			// upgraded by an observation that some OTHER pane's root process
+			// already contradicts. One indexed lookup per changed pane, and
+			// on this estate a sweep changes none to one.
+			at, ok, err := s.latestPaneRoster(tx, p.eventID)
+			if err != nil {
+				return out, err
+			}
+			var seen *rosterAt
+			if ok {
+				seen = &at
+			}
+			refused, err := s.verifyPane(tx, p.eventID, p.payload, seen)
 			if err != nil {
 				return out, err
 			}
@@ -153,6 +170,19 @@ func Project(s *Store) (out ProjectResult, retErr error) {
 				n, refusal, err = s.reconcileAbsences(tx, p.eventID, p.observedMs, p.payload)
 			case SourceTmuxInventory:
 				n, refusal, err = s.reconcilePaneAbsences(tx, p.eventID, p.observedMs, p.payload)
+				if err == nil && refusal == "" {
+					// Only a roster this pass accepted may drive a retry.
+					if at, ok, rErr := s.latestPaneRoster(tx, p.eventID); rErr != nil {
+						err = rErr
+					} else if ok && at.eventID == p.eventID {
+						var refused int
+						refused, err = s.retryStuckClaims(tx, p.eventID, at)
+						if refused > 0 {
+							refusal = fmt.Sprintf("event %d: %d claim(s) name a pane the live server puts in a different window, or whose parent process is in another pane; left unverified",
+								p.eventID, refused)
+						}
+					}
+				}
 			default:
 				// A producer emitting completed sweeps that nothing
 				// reconciles is a gap that must announce itself. Silence here
@@ -173,11 +203,31 @@ func Project(s *Store) (out ProjectResult, retErr error) {
 	}
 
 	if out.ThroughEventID > 0 {
-		if _, err := tx.Exec(`INSERT INTO projection_state (projection, applied_through_event_id, updated_ms)
-			VALUES (?, ?, ?)
-			ON CONFLICT(projection) DO UPDATE SET applied_through_event_id = excluded.applied_through_event_id,
-			                                      updated_ms = excluded.updated_ms`,
-			projectionName, out.ThroughEventID, s.now()); err != nil {
+		// Refusals land here, in the row replay owns, rather than only in
+		// source.last_error -- which the next successful pass overwrites, and
+		// one sweep projects twice, so a refusal from the first pass survived
+		// for milliseconds. A refusal is the projector declining to act on an
+		// event; if the only lasting record of that is a log line, then for
+		// every reader of this database it did not happen. The counter is a
+		// projection like everything else and is rebuilt by a replay.
+		var lastRefusal any
+		var lastRefusalEvent any
+		if n := len(out.Refusals); n > 0 {
+			lastRefusal = out.Refusals[n-1]
+			lastRefusalEvent = out.ThroughEventID
+		}
+		if _, err := tx.Exec(`INSERT INTO projection_state
+			(projection, applied_through_event_id, updated_ms, refusal_count,
+			 last_refusal_event_id, last_refusal)
+			VALUES (?, ?, ?, ?, ?, ?)
+			ON CONFLICT(projection) DO UPDATE SET
+			  applied_through_event_id = excluded.applied_through_event_id,
+			  updated_ms = excluded.updated_ms,
+			  refusal_count = projection_state.refusal_count + excluded.refusal_count,
+			  last_refusal_event_id = COALESCE(excluded.last_refusal_event_id, projection_state.last_refusal_event_id),
+			  last_refusal = COALESCE(excluded.last_refusal, projection_state.last_refusal)`,
+			projectionName, out.ThroughEventID, s.now(), len(out.Refusals),
+			lastRefusalEvent, lastRefusal); err != nil {
 			return out, fmt.Errorf("save projection state: %w", err)
 		}
 	}
@@ -204,7 +254,7 @@ func Project(s *Store) (out ProjectResult, retErr error) {
 	return out, nil
 }
 
-func (s *Store) applySessionObserved(ex execer, eventID, observedMs int64, rec SessionRecord, convID, instID string) error {
+func (s *Store) applySessionObserved(ex execer, eventID, observedMs int64, rec SessionRecord, convID, instID string) (string, error) {
 	seen := rec.UpdatedAt
 	if seen == 0 {
 		seen = rec.StartedAt
@@ -223,7 +273,7 @@ func (s *Store) applySessionObserved(ex execer, eventID, observedMs int64, rec S
 		    last_event_id = excluded.last_event_id`,
 		convID, s.host, rec.SessionID, rec.Name, rec.NameSource, nullZero(rec.NameSince),
 		seen, seen, eventID, eventID); err != nil {
-		return fmt.Errorf("upsert conversation: %w", err)
+		return "", fmt.Errorf("upsert conversation: %w", err)
 	}
 
 	// Proof of life after a closure reopens the instance. Four false deaths
@@ -232,7 +282,7 @@ func (s *Store) applySessionObserved(ex execer, eventID, observedMs int64, rec S
 	// fresh conversation links and bindings accumulate underneath it, and it
 	// disappears from view while it goes on writing records.
 	if err := s.reopenIfEnded(ex, eventID, instID); err != nil {
-		return err
+		return "", err
 	}
 
 	if _, err := ex.Exec(`
@@ -248,16 +298,17 @@ func (s *Store) applySessionObserved(ex execer, eventID, observedMs int64, rec S
 		instID, s.host, rec.PIDDomain, rec.PID, rec.StartedAt, rec.ProcStart,
 		rec.CWD, rec.Entrypoint, rec.Kind, rec.Version, rec.MessagingSocket, rec.BridgeSessionID,
 		eventID, eventID); err != nil {
-		return fmt.Errorf("upsert instance: %w", err)
+		return "", fmt.Errorf("upsert instance: %w", err)
 	}
 
 	if err := s.linkInstanceConversation(ex, eventID, instID, convID, seen); err != nil {
-		return err
+		return "", err
 	}
-	if err := s.claimPane(ex, eventID, instID, rec, seen); err != nil {
-		return err
+	refusal, err := s.claimPane(ex, eventID, instID, rec, seen)
+	if err != nil {
+		return refusal, err
 	}
-	return s.attribute(ex, eventID, convID, rec, seen)
+	return refusal, s.attribute(ex, eventID, convID, rec, seen)
 }
 
 // reopenIfEnded undoes a closure that a later observation contradicts, and
@@ -346,10 +397,10 @@ func (s *Store) linkInstanceConversation(ex execer, eventID int64, instID, convI
 // when that claim is verified onto the key the first row already holds. That
 // crashed the projector on the fourth live sweep and left a duplicate binding
 // behind.
-func (s *Store) claimPane(ex execer, eventID int64, instID string, rec SessionRecord, seen int64) error {
+func (s *Store) claimPane(ex execer, eventID int64, instID string, rec SessionRecord, seen int64) (string, error) {
 	ref, ok := ParseTmuxRef(rec.Tmux)
 	if !ok {
-		return nil
+		return "", nil
 	}
 
 	var bindingID int64
@@ -369,10 +420,33 @@ func (s *Store) claimPane(ex execer, eventID int64, instID string, rec SessionRe
 			    session_name_seen = CASE WHEN binding_basis = 'session_file_claim' THEN ? ELSE session_name_seen END
 			WHERE binding_id = ?`,
 			ref.SessionName, ref.WindowID, eventID, ref.WindowID, ref.SessionName, bindingID)
-		return err
+		return "", err
 	}
 	if !errors.Is(err, sql.ErrNoRows) {
-		return fmt.Errorf("read open binding: %w", err)
+		return "", fmt.Errorf("read open binding: %w", err)
+	}
+
+	// A pane a complete sweep has already watched vanish does not get a fresh
+	// claim on the next rewrite of the record. Without this, every rewrite
+	// reopened a claim on a dead pane, and it stayed open until the instance
+	// ended -- a row saying "this agent is in %67" about a pane the registry
+	// had itself recorded as gone. Bounded by the current roster rather than
+	// forever: if a later sweep lists that pane again it is a place once more,
+	// and the claim is allowed.
+	var closedByAbsence int
+	if err := ex.QueryRow(`SELECT COUNT(*) FROM pane_binding
+		 WHERE instance_id = ? AND pane_id = ? AND end_basis = 'pane_absent_from_complete_scan'`,
+		instID, ref.PaneID).Scan(&closedByAbsence); err != nil {
+		return "", fmt.Errorf("read prior bindings: %w", err)
+	}
+	if closedByAbsence > 0 {
+		at, ok, err := s.latestPaneRoster(ex, eventID)
+		if err != nil {
+			return "", err
+		}
+		if _, listed := at.present[ref.PaneID]; ok && !listed {
+			return fmt.Sprintf("event %d: pane %s was watched to vanish and the latest sweep still does not list it; not reclaiming it", eventID, ref.PaneID), nil
+		}
 	}
 
 	if _, err := ex.Exec(`INSERT INTO pane_binding
@@ -382,12 +456,17 @@ func (s *Store) claimPane(ex execer, eventID int64, instID string, rec SessionRe
 		VALUES (?, ?, ?, ?, ?, ?, 'session_file_claim', ?, ?, ?)`,
 		instID, ref.WindowID, ref.PaneID, ref.SessionName,
 		ref.WindowID, ref.SessionName, seen, eventID, eventID); err != nil {
-		return err
+		return "", err
 	}
-	// Verify immediately against what the log already knows about this pane,
-	// rather than waiting for that pane to change.
-	_, err = s.verifyFromLatestObservation(ex, eventID, ref.PaneID)
-	return err
+	// Deliberately NOT verified here. Every verification is authorised by a
+	// complete sweep's roster, and the roster is applied after this -- which
+	// is also when the same sweep's parent pids have been recorded. Verifying
+	// on insert ran one step ahead of that, so a claim was always judged
+	// before the process table had said anything about it, and the corroboration
+	// that is the only defence against another server's identical pane id
+	// could never be consulted. retryStuckClaims picks this up moments later,
+	// in the same run of the watcher.
+	return "", nil
 }
 
 // sourceOf reads the source id a roster declares.
@@ -458,6 +537,22 @@ func (s *Store) reconcileAbsences(ex execer, eventID, observedMs int64, payload 
 		changed[id] = true
 	}
 	probed := *roster.Probed
+	// The instances THIS run positively saw, as a JSON array for the parent
+	// join. Being merely open is not evidence of being alive: an instance the
+	// registry has not got round to closing can be long gone, and naming it as
+	// something's parent is a stranger's lineage recorded as an agent's.
+	aliveIDs := make([]string, 0, len(probed))
+	for id, verdict := range probed {
+		if verdict == ProbeAlive {
+			aliveIDs = append(aliveIDs, id)
+		}
+	}
+	sort.Strings(aliveIDs)
+	aliveJSON, err := json.Marshal(aliveIDs)
+	if err != nil {
+		return 0, "", err
+	}
+	alive := string(aliveJSON)
 
 	// Scoped to the source that ran the sweep. A sweep of the Claude session
 	// directory has no standing over a Codex agent or a zklw one, and judging
@@ -466,10 +561,14 @@ func (s *Store) reconcileAbsences(ex execer, eventID, observedMs int64, payload 
 	// Ended instances are included: a sweep that positively sees a process it
 	// had written off is a contradiction, and the contradiction has to be
 	// readable without waiting for that agent to write something.
+	// Ordered: without it the outcome depended on the order SQLite happened to
+	// return rows in, which makes a parent resolved before its child a
+	// different projection from one resolved after -- and a replay a coin toss.
 	rows, err := ex.Query(`
 		SELECT li.instance_id, li.ended_ms FROM launch_instance li
 		  JOIN event e ON e.event_id = li.first_event_id
-		 WHERE e.source_id = ?`, roster.SourceID)
+		 WHERE e.source_id = ?
+		 ORDER BY li.instance_id`, roster.SourceID)
 	if err != nil {
 		return 0, "", fmt.Errorf("find open instances: %w", err)
 	}
@@ -506,7 +605,7 @@ func (s *Store) reconcileAbsences(ex execer, eventID, observedMs int64, payload 
 				return closed, "", err
 			}
 			if ppid, ok := roster.PPIDs[id]; ok && ppid > 0 {
-				if err := s.recordParent(ex, id, ppid); err != nil {
+				if err := s.recordParent(ex, id, ppid, alive); err != nil {
 					return closed, "", err
 				}
 			}
@@ -559,23 +658,39 @@ func (s *Store) reconcileAbsences(ex execer, eventID, observedMs int64, payload 
 // does not track and never will; that is a real, useful parent, and dropping
 // it because it is not one of ours would discard the very fact that
 // distinguishes a human launch from a dispatched child.
-func (s *Store) recordParent(ex execer, instanceID string, ppid int64) error {
+func (s *Store) recordParent(ex execer, instanceID string, ppid int64, alive string) error {
 	var parent sql.NullString
+	// alive is the set this same ps run positively saw. A row that is merely
+	// still open is not enough: an instance the registry has not yet closed
+	// can be long gone, and a pid that is a live ppid while its instance is
+	// dead belongs to a stranger who now holds that number.
+	//
+	// started_ms bounds it the other way -- a parent cannot have started after
+	// its child -- and instance_id orders it, because without an ORDER BY the
+	// answer depended on row order and so did every replay.
 	err := ex.QueryRow(`SELECT parent.instance_id FROM launch_instance parent
 		 JOIN launch_instance child ON child.instance_id = ?
+		 JOIN json_each(?) live ON live.value = parent.instance_id
 		WHERE parent.pid = ? AND parent.host = child.host
 		  AND parent.pid_domain = child.pid_domain
 		  AND parent.instance_id <> child.instance_id
 		  AND parent.ended_ms IS NULL
-		ORDER BY parent.started_ms DESC LIMIT 1`, instanceID, ppid).Scan(&parent)
+		  AND parent.started_ms <= child.started_ms
+		ORDER BY parent.started_ms DESC, parent.instance_id LIMIT 1`,
+		instanceID, alive, ppid).Scan(&parent)
 	if err != nil && !errors.Is(err, sql.ErrNoRows) {
 		return fmt.Errorf("resolve parent of %s: %w", instanceID, err)
 	}
 	// parent_instance_id is only ever set, never cleared by a later sweep that
 	// could not resolve it: the parent exiting does not retract the fact that
 	// it was the parent.
+	// COALESCE on both: the launch parent is a fact about a launch, and the
+	// later value is not a correction of it. A reparented process reports
+	// ppid 1 -- or a subreaper on Linux -- and overwriting with that destroys
+	// exactly what this field was captured for, the difference between an
+	// agent a human started and one another agent dispatched.
 	_, err = ex.Exec(`UPDATE launch_instance
-		SET ppid = ?, parent_instance_id = COALESCE(?, parent_instance_id)
+		SET ppid = COALESCE(ppid, ?), parent_instance_id = COALESCE(parent_instance_id, ?)
 		WHERE instance_id = ?`, ppid, parent, instanceID)
 	return err
 }
@@ -750,8 +865,17 @@ func (s *Store) resetProjections() error {
 	if _, err := tx.Exec(schema); err != nil {
 		return fmt.Errorf("recreate projections: %w", err)
 	}
-	if _, err := tx.Exec(`DELETE FROM projection_state WHERE projection = ?`, projectionName); err != nil {
-		return fmt.Errorf("clear projection state: %w", err)
+	// projection_state is itself derived, so it is dropped rather than merely
+	// emptied. Deleting its rows left the TABLE at its old shape, and the
+	// schema's CREATE ... IF NOT EXISTS is a no-op against an existing one --
+	// so a version that added a column to it produced a migration that
+	// reported success and then failed on the first write. Caught on a copy of
+	// the live database, which is the only reason it is not in the live one.
+	if _, err := tx.Exec(`DROP TABLE IF EXISTS projection_state`); err != nil {
+		return fmt.Errorf("drop projection state: %w", err)
+	}
+	if _, err := tx.Exec(schema); err != nil {
+		return fmt.Errorf("recreate projection state: %w", err)
 	}
 	return tx.Commit()
 }

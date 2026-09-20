@@ -122,11 +122,30 @@ The three capture gaps above the line were the ones whose content could not be b
 
 Measured on the live estate, first sweep after migration: **11 of 11 `cli` agents' ppid is exactly their pane's root process.** The one `sdk-py` child's is not, and does not resolve to an instance either: the chain is `sdk-py(33275) → Python shim(32795) → claude cli(3466) → zsh(35924, pane root)`. One hop does not reach the parent agent on this estate. `parent_instance_id` is left NULL rather than guessed, and the raw pid is kept so a later pass can walk further if B2 needs it.
 
+## Corrected at schema v5, after independent review
+
+The review found the ninth instance of the recurring bug, in the measurement itself.
+
+**"Claimed window agrees 11 of 11" measures only that the gate admits true claims.** It never sampled the rate at which the gate admits *false* ones, and an estate with one socket cannot: window ids are per-server counters exactly as pane ids are, so another server's `@0.%0` passes against this server's `@0.%0`. The pane-id-only bug had been moved one column over, and then confirmed by measuring the wrong thing.
+
+- **The process table is a second instrument, and pids are host-unique.** `pane_binding.corroborated_by` records `'parent_pid'` when an agent's parent is this pane's own root process — re-evaluated every sweep, because it is a statement about present agreement, not a historical one. It is never a gate: a dispatched child's parent is legitimately the shim. But a **contradiction** refuses, because a parent that is some *other* pane's root process on the swept server is positive evidence of a mismatch.
+- **Verification is now uniformly roster-driven.** Verifying on claim insert ran one step ahead of parent capture, so a claim was always judged before the process table had said anything about it. `retryStuckClaims` picks it up moments later in the same watcher run — which also fixes a claim refused on a window disagreement and then corrected by the record, on a pane that never changes, which nothing could previously reach.
+- **A verified binding no longer freezes at the moment of verification.** `verifyPane` refreshes the observed columns of rows matched by full pane key, so a pane moved by `break-pane` carries its new window instead of reading "confirmed present 30 seconds ago" beside one it left days ago.
+- **Refusals outlive the pass that made them,** in `projection_state`. `source.last_error` was overwritten by the next successful pass, and one sweep projects twice.
+- **`recordParent`** requires the parent to be `alive` in the same probe run, bounds it with `parent.started_ms <= child.started_ms`, and the reconcile loop is ordered, which it was not.
+- **`ppid` is set once.** A reparented process reports ppid 1, and overwriting with it destroys exactly what the field was captured for.
+- **A vanished pane is not reclaimed** while the roster still does not list it, and a `remain-on-exit` pane is recorded as `:dead` in the roster — present, and not a place anything is running.
+
+A migration bug surfaced on the copy and never reached the live database: `projection_state` was emptied rather than dropped on reset, and `CREATE TABLE ... IF NOT EXISTS` is a no-op against an existing table, so a version that added a column to it migrated "successfully" and failed on the first write. It is now dropped with the other projections, which is what it is.
+
 ## Still open after B1.5
 
-- **Parent lineage stops at one hop.** Linking a dispatched child to the agent that dispatched it needs a walk through the shim, which needs the whole process table rather than the pids we already ask about. Deferred to B2, where lineage has a consumer.
-- **Multi-socket is unbuilt, not merely untested.** One tmux source holds one socket in its locator. A second server needs a second source; until then the roster's scope check is the only thing standing between a claim and another server's pane of the same id.
-- **A claim the server contradicts is stuck.** A pane genuinely moved by `break-pane` and a claim pointing at the wrong server look identical from here, so both stay claimed. `status` counts them rather than letting a stuck one read as merely unverified.
-- **A reopened instance flaps** if the condition that caused the false closure persists. `reopened_count` surfaces it rather than hiding it.
+- **A claim from an unswept server can still pass the window gate** when its parent contradicts nothing this registry can see. `corroborated_by` is what makes that row distinguishable; B2 must filter on it rather than on `binding_basis` alone.
+- **Multi-socket is unbuilt, not merely untested.** One tmux source holds one socket in its locator; a second server needs a second source.
+- **Parent lineage stops at one hop.** Measured: `sdk-py(33275) → Python shim(32795) → claude cli(3466) → zsh(35924, pane root)`. Walking further needs the whole process table rather than the pids already asked about. Deferred to B2, where lineage has a consumer.
+- **The pane-level `Unparsable` path is unreachable.** `agenttransport.List` validates every pane and fails the whole call, so a tmux sweep is complete or it errored; there is no partial. Harmless today — the conservative direction — but the registry's own check is dead code and should not be relied on.
+- **The v3→v4 rule change is visible in the log.** Bindings verified under v3's unbounded lookup replay as claims under v4's roster rule, because no rosters existed before the first v4 sweep. B2 must not read "was a claim" as "was never in tmux."
+- **Superseded server incarnations keep their bindings open.** The reviewer showed the "agents die with the server" argument is unsound both ways — `setsid` children outlive a server kill, and `/tmp` cleanup can unlink a socket while the server lives — so leaving them open stays the safe outcome, and no `server_superseded` closure should be added. B2 filters on `last_present_event_id` against the latest roster.
+- **A reopened instance flaps** if the condition that caused the false closure persists. `reopened_count` surfaces it.
 - **Link intervals mix two clocks** — `observed_from_ms` is the provider's, the closing `observed_to_ms` is the sweep's — so an interval can come out negative if the provider's clock runs ahead.
-- **Roster retention.** The session roster costs about 1.4MB a day. The pane roster adds ~1.4KB per sweep — 107 panes factored — or about 4MB a day at a 30s interval. Stored as whole pane keys it would have been three times that. Still unbounded; retention has no consumer yet.
+- **Roster retention.** Session roster ~1.4MB a day; pane roster ~1.4KB a sweep, about 4MB a day at 30s. Unbounded; retention has no consumer yet.

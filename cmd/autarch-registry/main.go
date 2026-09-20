@@ -294,21 +294,46 @@ func status(s *registry.Store) error {
 		fmt.Printf("  %d of them were not listed by a complete sweep in the last 3 intervals\n", stalePresence)
 	}
 
-	// A claim whose window the live server contradicts is stuck: nothing will
-	// ever verify it, and without a count it is indistinguishable from a
-	// claim in a pane no sweep has reached.
-	var contested int
-	if err := db.QueryRow(`SELECT COUNT(*) FROM pane_binding pb
-		WHERE pb.observed_to_ms IS NULL AND pb.binding_basis = 'session_file_claim'
-		  AND pb.claimed_window_id <> ''
-		  AND EXISTS (SELECT 1 FROM pane_binding other
-		               WHERE other.pane_id = pb.pane_id
-		                 AND other.binding_basis = 'tmux_inventory'
-		                 AND other.window_id <> pb.claimed_window_id)`).Scan(&contested); err != nil {
+	// How many verified bindings a second instrument agrees with. The window
+	// gate cannot tell one server from another -- window ids are per-server
+	// counters exactly as pane ids are -- so "verified" alone cannot exclude a
+	// claim arriving from a server this registry does not sweep. A parent pid
+	// that is this pane's own root process is a different instrument reaching
+	// the same answer, and pids are host-unique.
+	var corroborated int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM pane_binding
+		WHERE observed_to_ms IS NULL AND corroborated_by IS NOT NULL`).Scan(&corroborated); err != nil {
 		return err
 	}
-	if contested > 0 {
-		fmt.Printf("  %d claim(s) name a pane the server puts in a different window; left unverified\n", contested)
+	if verified > 0 {
+		fmt.Printf("  %d of the %d verified are corroborated by the process table\n", corroborated, verified)
+	}
+
+	// An open claim is either young or stuck, and a count alone cannot say
+	// which. Its age in complete sweeps can.
+	var oldestClaim sql.NullInt64
+	if err := db.QueryRow(`SELECT MIN(pb.first_event_id) FROM pane_binding pb
+		WHERE pb.observed_to_ms IS NULL AND pb.binding_basis = 'session_file_claim'`).Scan(&oldestClaim); err != nil {
+		return err
+	}
+	if oldestClaim.Valid {
+		sweeps := 0
+		if err := db.QueryRow(`SELECT COUNT(*) FROM event
+			WHERE kind = 'scan.completed' AND source_id = 'tmux-inventory' AND event_id > ?`,
+			oldestClaim.Int64).Scan(&sweeps); err != nil {
+			return err
+		}
+		fmt.Printf("  the oldest open claim has survived %d complete pane sweeps\n", sweeps)
+	}
+
+	var refusals int
+	var lastRefusal sql.NullString
+	if err := db.QueryRow(`SELECT refusal_count, last_refusal FROM projection_state
+		WHERE projection = 'registry'`).Scan(&refusals, &lastRefusal); err != nil && err != sql.ErrNoRows {
+		return err
+	}
+	if refusals > 0 {
+		fmt.Printf("  projector has refused %d event(s); most recently: %s\n", refusals, lastRefusal.String)
 	}
 
 	var closedPanes int

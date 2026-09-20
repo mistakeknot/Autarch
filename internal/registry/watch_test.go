@@ -892,4 +892,18 @@ func TestAnUnreadParentIsNotTheAbsenceOfOne(t *testing.T) {
 	if parentOf.String != parentID {
 		t.Errorf("parent_instance_id = %q after a silent probe, want %q retained", parentOf.String, parentID)
 	}
+
+	// Nor may a reparent overwrite it. When the parent exits, the child is
+	// reparented to init -- or to a subreaper on Linux -- and ps then reports
+	// ppid 1. Taking that as the newer truth destroys exactly what this field
+	// was captured for: the difference between an agent a human started and
+	// one another agent dispatched. The launch parent is a fact about a
+	// launch, and a later reading is not a correction of it.
+	s.probe = aliveWithParents(map[string]int64{childID: 1})
+	writeRecord(t, dir, 81453, record(81453, "e13b1e95", "iterm[autarch:@98.%98", "/Users/sma/projects", "child", "derived", 1100, 2400))
+	scanAndProject(t, s, dir)
+	mustScan(t, s.DB(), `SELECT ppid FROM launch_instance WHERE pid = 81453`, &ppid)
+	if ppid.Int64 != 55409 {
+		t.Errorf("ppid = %v after the child was reparented, want 55409 -- the launch parent was overwritten", ppid)
+	}
 }

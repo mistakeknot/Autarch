@@ -127,7 +127,17 @@ func ScanTmuxPanesWith(s *Store, socket string, runner agenttransport.Runner) (S
 		// interval; factored they cost ~1KB and 3MB. The full pane key is
 		// reconstructed by paneRoster.index, the only other place that knows
 		// the layout.
-		roster = append(roster, t.PaneID+":"+strconv.FormatInt(t.PanePID, 10))
+		entry := t.PaneID + ":" + strconv.FormatInt(t.PanePID, 10)
+		if p.Dead {
+			// remain-on-exit keeps a pane listed after its process is gone, at
+			// the pid of the process that exited. Present, and not a place
+			// anything is running: recorded as its own fact rather than folded
+			// into either, because folding it into "absent" would close a
+			// binding on a pane that is still there, and folding it into
+			// "present" is what makes a dead pane read as live.
+			entry += ":dead"
+		}
+		roster = append(roster, entry)
 		out.RecordsSeen++
 
 		body, err := json.Marshal(struct {
@@ -253,11 +263,15 @@ func (r paneRoster) index() (map[string]int64, int) {
 		return out, 0
 	}
 	for _, entry := range *r.Panes {
-		id, pidText, ok := strings.Cut(entry, ":")
+		id, rest, ok := strings.Cut(entry, ":")
 		if !ok || !strings.HasPrefix(id, "%") {
 			bad++
 			continue
 		}
+		// A trailing ":dead" is the pane's own state, not part of its
+		// identity: the pane is listed either way, which is what presence
+		// means here.
+		pidText, _, _ := strings.Cut(rest, ":")
 		pid, err := strconv.ParseInt(pidText, 10, 64)
 		if err != nil {
 			bad++
@@ -338,7 +352,7 @@ type rosterAt struct {
 // answer can no longer be asked whether the two ever differed. That is also
 // why the window id gates verification while the session name cannot: one
 // disagrees never, the other disagrees a quarter of the time.
-func (s *Store) verifyPane(ex execer, eventID int64, payload string) (int, error) {
+func (s *Store) verifyPane(ex execer, eventID int64, payload string, at *rosterAt) (int, error) {
 	var obs struct {
 		agenttransport.Target
 		SessionName string `json:"session_name"`
@@ -357,18 +371,45 @@ func (s *Store) verifyPane(ex execer, eventID int64, payload string) (int, error
 		return 0, nil
 	}
 
+	// Already-verified rows first: refresh what the server says about a pane
+	// this observation identifies by its FULL key. Without this a verified
+	// binding froze at the moment of verification, so after a break-pane,
+	// join-pane, cross-window swap-pane or session rename it kept the old
+	// window and session indefinitely -- while the roster went on refreshing
+	// last_present_ms, because a roster carries only %id:pane_pid. The row
+	// then read "confirmed present 30 seconds ago" beside a window the pane
+	// left days ago, and window_id is exactly what an exposure would join on.
+	if _, err := ex.Exec(`
+		UPDATE pane_binding
+		   SET tmux_session_id = ?, window_id = ?, session_name_seen = ?, last_event_id = ?
+		 WHERE observed_to_ms IS NULL
+		   AND binding_basis = 'tmux_inventory'
+		   AND socket = ? AND server_pid = ? AND server_started = ?
+		   AND pane_id = ? AND pane_pid = ?`,
+		obs.SessionID, obs.WindowID, obs.SessionName, eventID,
+		obs.Socket, obs.ServerPID, obs.ServerStarted, obs.PaneID, obs.PanePID); err != nil {
+		return 0, err
+	}
+
 	res, err := ex.Exec(`
 		UPDATE pane_binding
 		   SET socket = ?, server_pid = ?, server_started = ?, pane_pid = ?,
 		       tmux_session_id = ?, window_id = ?, session_name_seen = ?,
-		       binding_basis = 'tmux_inventory', last_event_id = ?
+		       binding_basis = 'tmux_inventory', last_event_id = ?,
+		       corroborated_by = CASE
+		         WHEN (SELECT li.ppid FROM launch_instance li
+		                WHERE li.instance_id = pane_binding.instance_id) = ?
+		         THEN 'parent_pid' ELSE NULL END
 		 WHERE observed_to_ms IS NULL
 		   AND pane_id = ?
 		   AND binding_basis = 'session_file_claim'
-		   AND (claimed_window_id = '' OR claimed_window_id = ?)`,
+		   AND (claimed_window_id = '' OR claimed_window_id = ?)
+		   AND NOT EXISTS (SELECT 1 FROM launch_instance li, json_each(?) other
+		                    WHERE li.instance_id = pane_binding.instance_id
+		                      AND li.ppid IS NOT NULL AND li.ppid = other.value)`,
 		obs.Socket, obs.ServerPID, obs.ServerStarted, obs.PanePID,
-		obs.SessionID, obs.WindowID, obs.SessionName, eventID,
-		obs.PaneID, obs.WindowID)
+		obs.SessionID, obs.WindowID, obs.SessionName, eventID, obs.PanePID,
+		obs.PaneID, obs.WindowID, elsewhereOnThisServer(at, obs.PaneID))
 	if err != nil {
 		return 0, err
 	}
@@ -377,20 +418,54 @@ func (s *Store) verifyPane(ex execer, eventID int64, payload string) (int, error
 		return 0, err
 	}
 
-	// Anything left claiming this pane id disagreed about the window. Counted
-	// rather than fixed: a pane genuinely moved by break-pane looks exactly
-	// like a claim pointing at the wrong server, and the registry cannot tell
-	// them apart from here. Both stay claimed, which is the honest state, and
-	// the count is what makes a stuck one visible instead of merely quiet.
+	_ = upgraded
+
+	// Anything still claiming this pane was refused, by the window gate or by
+	// the process table. Counted rather than resolved: a pane genuinely moved
+	// by break-pane looks exactly like a claim pointing at the wrong server,
+	// and nothing here can tell them apart. Both stay claimed, which is the
+	// honest state; the count is what makes a stuck one visible instead of
+	// merely quiet.
 	var refused int
 	if err := ex.QueryRow(`SELECT COUNT(*) FROM pane_binding
 		 WHERE observed_to_ms IS NULL AND pane_id = ?
-		   AND binding_basis = 'session_file_claim'
-		   AND claimed_window_id <> '' AND claimed_window_id <> ?`,
-		obs.PaneID, obs.WindowID).Scan(&refused); err != nil {
-		return int(upgraded), err
+		   AND binding_basis = 'session_file_claim'`, obs.PaneID).Scan(&refused); err != nil {
+		return 0, err
 	}
 	return refused, nil
+}
+
+// elsewhereOnThisServer renders, as a JSON array, the root pids of every pane
+// on the swept server EXCEPT the one being verified.
+//
+// A claim whose agent's parent is one of those is a claim about a different
+// pane: pids are host-unique, so a parent that is some other pane's root
+// process is positive evidence of a mismatch, and positive evidence is the
+// only thing allowed to refuse anything here. This does not make corroboration
+// a gate -- a dispatched child's parent is the shim and appears in no roster,
+// so it contradicts nothing and verifies as before.
+//
+// It is the only mitigation available for a claim arriving from a server this
+// registry does not sweep. The window gate cannot see that case at all: window
+// ids are per-server counters exactly as pane ids are, so another server's
+// @0.%0 passes against this server's @0.%0, and an estate with one socket
+// cannot sample how often that happens.
+func elsewhereOnThisServer(at *rosterAt, paneID string) string {
+	if at == nil {
+		return "[]"
+	}
+	pids := make([]int64, 0, len(at.present))
+	for id, pid := range at.present {
+		if id != paneID {
+			pids = append(pids, pid)
+		}
+	}
+	sort.Slice(pids, func(i, j int) bool { return pids[i] < pids[j] })
+	body, err := json.Marshal(pids)
+	if err != nil {
+		return "[]"
+	}
+	return string(body)
 }
 
 // verifyFromLatestObservation verifies a binding that was just claimed, using
@@ -447,7 +522,7 @@ func (s *Store) verifyFromLatestObservation(ex execer, eventID int64, paneID str
 	if err != nil {
 		return 0, fmt.Errorf("look up pane %s: %w", paneID, err)
 	}
-	refused, err := s.verifyPane(ex, eventID, payload)
+	refused, err := s.verifyPane(ex, eventID, payload, &at)
 	if err != nil {
 		return refused, err
 	}
@@ -536,8 +611,19 @@ func (s *Store) reconcilePaneAbsences(ex execer, eventID, observedMs int64, payl
 		case listed && pid == b.panePID:
 			// Positive confirmation, the pane-level analogue of a liveness
 			// probe answering alive.
+			//
+			// Corroboration is re-evaluated here rather than only at the
+			// moment of verification, because it is a statement about present
+			// agreement, not a historical one. Computed once at upgrade it was
+			// NULL forever on every binding verified before its process had
+			// been probed -- which, replaying a log that predates parent
+			// capture, is all of them.
 			if _, err := ex.Exec(`UPDATE pane_binding
-				SET last_present_ms = ?, last_present_event_id = ?, last_event_id = ?
+				SET last_present_ms = ?, last_present_event_id = ?, last_event_id = ?,
+				    corroborated_by = CASE
+				      WHEN (SELECT li.ppid FROM launch_instance li
+				             WHERE li.instance_id = pane_binding.instance_id) = pane_binding.pane_pid
+				      THEN 'parent_pid' ELSE NULL END
 				WHERE binding_id = ?`, observedMs, eventID, eventID, b.id); err != nil {
 				return closed, "", err
 			}
@@ -559,6 +645,51 @@ func (s *Store) reconcilePaneAbsences(ex execer, eventID, observedMs int64, payl
 		}
 	}
 	return closed, "", nil
+}
+
+// retryStuckClaims gives every open claim another chance against the roster
+// this sweep just published.
+//
+// Verification used to be attempted exactly once, when a claim was first
+// inserted. A claim that missed that one chance stayed claimed however many
+// complete sweeps went on listing its pane, however plainly a matching
+// observation sat in the log, and however well the window agreed -- it moved
+// only if the pane's own digest happened to change. One missed chance was
+// permanent for a quiet pane, and a quiet pane is where a waiting agent sits.
+//
+// Driven by the roster rather than by a timer, so it is a positive observation
+// and replays identically.
+func (s *Store) retryStuckClaims(ex execer, eventID int64, at rosterAt) (int, error) {
+	rows, err := ex.Query(`SELECT DISTINCT pane_id FROM pane_binding
+		 WHERE observed_to_ms IS NULL AND binding_basis = 'session_file_claim'
+		 ORDER BY pane_id`)
+	if err != nil {
+		return 0, fmt.Errorf("find stuck claims: %w", err)
+	}
+	var panes []string
+	for rows.Next() {
+		var pane string
+		if err := rows.Scan(&pane); err != nil {
+			rows.Close()
+			return 0, err
+		}
+		if _, listed := at.present[pane]; listed {
+			panes = append(panes, pane)
+		}
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return 0, err
+	}
+	refused := 0
+	for _, pane := range panes {
+		n, err := s.verifyFromLatestObservation(ex, eventID, pane)
+		if err != nil {
+			return refused, err
+		}
+		refused += n
+	}
+	return refused, nil
 }
 
 func (s *Store) closeBinding(ex execer, bindingID int64, basis string, endedMs, eventID int64) error {

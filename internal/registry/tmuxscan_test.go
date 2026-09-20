@@ -178,6 +178,11 @@ func TestAClaimInAQuietPaneIsVerifiedFromWhatIsAlreadyKnown(t *testing.T) {
 	// the pane itself is unchanged.
 	writeRecord(t, dir, 81453, record(81453, "e13b1e95", "iterm[autarch - e4bedaf5:@98.%98", "/Users/sma/projects", "child", "derived", 1000, 2000))
 	scanAndProject(t, s, dir)
+	// The next sweep is what verifies it, and the pane is unchanged, so that
+	// sweep emits no observation at all: only the roster can do this.
+	if res := sweep(t, s, paneLine("$3", "@98", "%98", 53126, "iterm[autarch", "zsh")); res.Inserted != 0 {
+		t.Fatalf("the pane emitted %d observations; this test is only meaningful when it emits none", res.Inserted)
+	}
 
 	var basis, key string
 	mustScan(t, s.DB(), `SELECT binding_basis FROM pane_binding`, &basis)
@@ -193,6 +198,7 @@ func TestAClaimInAQuietPaneIsVerifiedFromWhatIsAlreadyKnown(t *testing.T) {
 	// "how many conversations are in this pane" is answerable at once.
 	writeRecord(t, dir, 55409, record(55409, "e4bedaf5", "tmux-organizer:@98.%98", "/Users/sma/projects", "parent", "auto", 1100, 2100))
 	scanAndProject(t, s, dir)
+	sweep(t, s, paneLine("$3", "@98", "%98", 53126, "iterm[autarch", "zsh"))
 	if n := count(t, s.DB(), `SELECT COUNT(DISTINCT pane_key) FROM pane_binding WHERE observed_to_ms IS NULL`); n != 1 {
 		t.Errorf("distinct pane keys = %d, want 1 -- two occupants of one pane landed on different keys", n)
 	}
@@ -266,6 +272,7 @@ func TestAPaneThatDisappearsClosesItsBinding(t *testing.T) {
 	sweep(t, s, doomed, survivor)
 	writeRecord(t, dir, 52620, record(52620, "74e5950e", "iterm[]linsekasten:@67.%67", "/Users/sma/projects", "parent", "auto", 1000, 2000))
 	scanAndProject(t, s, dir)
+	sweep(t, s, doomed, survivor)
 	if n := count(t, s.DB(), `SELECT COUNT(*) FROM pane_binding WHERE binding_basis = 'tmux_inventory' AND observed_to_ms IS NULL`); n != 1 {
 		t.Fatalf("verified open bindings before the pane closes = %d, want 1", n)
 	}
@@ -398,6 +405,7 @@ func TestVerificationPreservesWhatTheRecordClaimed(t *testing.T) {
 	sweep(t, s, paneLine("$3", "@98", "%98", 53126, "iterm[autarch - e4bedaf5", "zsh"))
 	writeRecord(t, dir, 55409, record(55409, "e4bedaf5", "tmux-organizer:@98.%98", "/Users/sma/projects", "parent", "auto", 1000, 2000))
 	scanAndProject(t, s, dir)
+	sweep(t, s, paneLine("$3", "@98", "%98", 53126, "iterm[autarch - e4bedaf5", "zsh"))
 
 	var basis, seen, claimed, window, claimedWindow string
 	mustScan(t, s.DB(), `SELECT binding_basis FROM pane_binding`, &basis)
@@ -443,6 +451,7 @@ func TestARespawnedPaneClosesAsPanePidChanged(t *testing.T) {
 	sweep(t, s, paneLine("$3", "@67", "%67", 36230, "iterm[]linsekasten", "zsh"))
 	writeRecord(t, dir, 52620, record(52620, "74e5950e", "iterm[]linsekasten:@67.%67", "/Users/sma/projects", "parent", "auto", 1000, 2000))
 	scanAndProject(t, s, dir)
+	sweep(t, s, paneLine("$3", "@67", "%67", 36230, "iterm[]linsekasten", "zsh"))
 
 	sweep(t, s, paneLine("$3", "@67", "%67", 99001, "iterm[]linsekasten", "zsh"))
 
@@ -463,6 +472,7 @@ func TestAFailedSweepClosesNoBinding(t *testing.T) {
 	sweep(t, s, paneLine("$3", "@67", "%67", 36230, "iterm[]linsekasten", "zsh"))
 	writeRecord(t, dir, 52620, record(52620, "74e5950e", "iterm[]linsekasten:@67.%67", "/Users/sma/projects", "parent", "auto", 1000, 2000))
 	scanAndProject(t, s, dir)
+	sweep(t, s, paneLine("$3", "@67", "%67", 36230, "iterm[]linsekasten", "zsh"))
 
 	for _, broken := range []fakeTmux{{out: ""}, {err: errors.New("no server running")}, {out: "garbage\x1fnot-a-pane"}} {
 		_, _ = ScanTmuxPanesWith(s, fakeSocket, broken)
@@ -502,5 +512,213 @@ func TestOnlyAVerifiedBindingCarriesPresence(t *testing.T) {
 	}
 	if claimed.Valid {
 		t.Error("a claim nothing has looked at was recorded as present")
+	}
+}
+
+// ---------------------------------------------------------------- review B1.5
+
+// Verification happened exactly once, when a claim was first inserted. The
+// update branch never retried, so a claim refused on a window disagreement
+// stayed refused after the record corrected itself -- the pane had not
+// changed, so no observation was coming to retrigger anything, and a quiet
+// pane is where a waiting agent sits.
+func TestAStuckClaimIsRetriedAgainstALaterRoster(t *testing.T) {
+	s := newStore(t)
+	dir := t.TempDir()
+	pane := paneLine("$3", "@67", "%67", 36230, "iterm[]linsekasten", "zsh")
+
+	sweep(t, s, pane)
+	// The record names the wrong window, so the claim is refused.
+	writeRecord(t, dir, 52620, record(52620, "74e5950e", "iterm[]linsekasten:@99.%67", "/Users/sma/projects", "parent", "auto", 1000, 2000))
+	scanAndProject(t, s, dir)
+	sweep(t, s, pane)
+
+	var basis string
+	mustScan(t, s.DB(), `SELECT binding_basis FROM pane_binding WHERE pane_id = '%67'`, &basis)
+	if basis != "session_file_claim" {
+		t.Fatalf("binding basis = %q; a claim naming another window must not verify", basis)
+	}
+
+	// The record corrects itself. This takes claimPane's UPDATE branch, which
+	// never verified anything, and the pane is unchanged so no observation
+	// follows. Only a roster-driven retry can reach it.
+	writeRecord(t, dir, 52620, record(52620, "74e5950e", "iterm[]linsekasten:@67.%67", "/Users/sma/projects", "parent", "auto", 1000, 3000))
+	scanAndProject(t, s, dir)
+	res := sweep(t, s, pane)
+	if res.Inserted != 0 {
+		t.Fatalf("the pane emitted %d observations; this test is only meaningful when it emits none", res.Inserted)
+	}
+	mustScan(t, s.DB(), `SELECT binding_basis FROM pane_binding WHERE pane_id = '%67'`, &basis)
+	if basis != "tmux_inventory" {
+		t.Errorf("binding basis = %q, want tmux_inventory -- the claim had one chance and missed it", basis)
+	}
+}
+
+// A verified binding froze at the moment of verification, because verifyPane
+// only ever updated rows still claiming. After a pane moves window the row
+// kept the old one indefinitely while the roster went on refreshing
+// last_present_ms -- "confirmed present 30 seconds ago" beside a window the
+// pane left days ago, and the window is what an exposure would join on.
+func TestAVerifiedBindingFollowsItsPaneToANewWindow(t *testing.T) {
+	s := newStore(t)
+	dir := t.TempDir()
+
+	sweep(t, s, paneLine("$3", "@67", "%67", 36230, "iterm[]linsekasten", "zsh"))
+	writeRecord(t, dir, 52620, record(52620, "74e5950e", "iterm[]linsekasten:@67.%67", "/Users/sma/projects", "parent", "auto", 1000, 2000))
+	scanAndProject(t, s, dir)
+	sweep(t, s, paneLine("$3", "@67", "%67", 36230, "iterm[]linsekasten", "zsh"))
+
+	// break-pane: same pane, same root process, new window and session.
+	sweep(t, s, paneLine("$8", "@200", "%67", 36230, "broken-out", "zsh"))
+
+	var window, session, claimed string
+	mustScan(t, s.DB(), `SELECT window_id FROM pane_binding WHERE binding_basis = 'tmux_inventory'`, &window)
+	mustScan(t, s.DB(), `SELECT tmux_session_id FROM pane_binding WHERE binding_basis = 'tmux_inventory'`, &session)
+	mustScan(t, s.DB(), `SELECT claimed_window_id FROM pane_binding WHERE binding_basis = 'tmux_inventory'`, &claimed)
+	if window != "@200" || session != "$8" {
+		t.Errorf("window/session = %q/%q, want @200/$8 -- the row froze where it was verified", window, session)
+	}
+	if claimed != "@67" {
+		t.Errorf("claimed_window_id = %q, want @67 -- what the record said is not corrected by the pane moving", claimed)
+	}
+}
+
+// The ninth instance of the recurring bug, found in review: measuring that the
+// window gate admits true claims (11 of 11 on 2026-09-19) says nothing about
+// how often it admits false ones, and an estate with one socket cannot sample
+// that at all. Window ids are per-server counters exactly as pane ids are.
+//
+// The process table is a second instrument, and pids are host-unique. Its
+// agreement is recorded; its disagreement refuses, because a parent that is
+// some other pane's root process is positive evidence of a mismatch.
+func TestTheProcessTableCorroboratesAndContradicts(t *testing.T) {
+	s := newStore(t)
+	dir := t.TempDir()
+	here := InstanceID("clavain", "darwin", 55409, 1000)
+	elsewhere := InstanceID("clavain", "darwin", 81453, 1100)
+	// 53126 is %98's root process; 36230 is %67's. The second agent claims
+	// %98, but the process table puts its parent in %67.
+	s.probe = aliveWithParents(map[string]int64{here: 53126, elsewhere: 36230})
+
+	sweep(t, s,
+		paneLine("$3", "@98", "%98", 53126, "iterm[autarch", "zsh"),
+		paneLine("$3", "@67", "%67", 36230, "iterm[]linsekasten", "zsh"))
+	writeRecord(t, dir, 55409, record(55409, "e4bedaf5", "iterm[autarch:@98.%98", "/Users/sma/projects", "parent", "auto", 1000, 2000))
+	writeRecord(t, dir, 81453, record(81453, "e13b1e95", "iterm[autarch:@98.%98", "/Users/sma/projects", "impostor", "auto", 1100, 2100))
+	// Twice: the first sweep is what gives the probe a target, so parent pids
+	// are not known until the second.
+	scanAndProject(t, s, dir)
+	sweep(t, s,
+		paneLine("$3", "@98", "%98", 53126, "iterm[autarch", "zsh"),
+		paneLine("$3", "@67", "%67", 36230, "iterm[]linsekasten", "zsh"))
+
+	var trueBasis, trueCorrob string
+	mustScan(t, s.DB(), `SELECT pb.binding_basis FROM pane_binding pb WHERE pb.instance_id = ?`, &trueBasis, here)
+	mustScan(t, s.DB(), `SELECT COALESCE(pb.corroborated_by,'') FROM pane_binding pb WHERE pb.instance_id = ?`, &trueCorrob, here)
+	if trueBasis != "tmux_inventory" || trueCorrob != "parent_pid" {
+		t.Errorf("the true claim = %q/%q, want tmux_inventory/parent_pid", trueBasis, trueCorrob)
+	}
+
+	var falseBasis string
+	mustScan(t, s.DB(), `SELECT pb.binding_basis FROM pane_binding pb WHERE pb.instance_id = ?`, &falseBasis, elsewhere)
+	if falseBasis != "session_file_claim" {
+		t.Errorf("a claim whose parent is another pane's root process verified anyway (%q)", falseBasis)
+	}
+}
+
+// A claim refused on a window disagreement was the quietest of the four
+// silences: claimPane discarded the count, so on the path that produces most
+// of them nothing was said anywhere. And every successful pass overwrote
+// source.last_error, while one sweep projects twice -- so a refusal from the
+// first pass survived for milliseconds.
+func TestARefusalOutlivesThePassThatMadeIt(t *testing.T) {
+	s := newStore(t)
+	dir := t.TempDir()
+
+	sweep(t, s, paneLine("$3", "@67", "%67", 36230, "iterm[]linsekasten", "zsh"))
+	writeRecord(t, dir, 52620, record(52620, "74e5950e", "somewhere-else:@99.%67", "/Users/sma/projects", "parent", "auto", 1000, 2000))
+	scanAndProject(t, s, dir)
+	sweep(t, s, paneLine("$3", "@67", "%67", 36230, "iterm[]linsekasten", "zsh"))
+
+	if n := count(t, s.DB(), `SELECT refusal_count FROM projection_state WHERE projection = 'registry'`); n == 0 {
+		t.Fatal("the refusal was not recorded anywhere that outlives the pass")
+	}
+	var last string
+	mustScan(t, s.DB(), `SELECT COALESCE(last_refusal,'') FROM projection_state WHERE projection = 'registry'`, &last)
+	if !strings.Contains(last, "different window") {
+		t.Errorf("last_refusal = %q, want the window disagreement", last)
+	}
+
+	// Several more clean passes. The count must not be erased by success.
+	for i := 0; i < 3; i++ {
+		sweep(t, s, paneLine("$3", "@67", "%67", 36230, "iterm[]linsekasten", "zsh"))
+	}
+	if n := count(t, s.DB(), `SELECT refusal_count FROM projection_state WHERE projection = 'registry'`); n == 0 {
+		t.Error("a later successful pass erased the record that the projector had refused something")
+	}
+}
+
+// After a pane was watched to vanish, every rewrite of the record opened a
+// fresh claim on it, and that claim stayed open until the instance ended -- a
+// row saying an agent is in a pane the registry had itself recorded as gone.
+func TestAVanishedPaneIsNotReclaimed(t *testing.T) {
+	s := newStore(t)
+	dir := t.TempDir()
+	doomed := paneLine("$3", "@67", "%67", 36230, "iterm[]linsekasten", "zsh")
+	survivor := paneLine("$3", "@98", "%98", 53126, "iterm[autarch", "zsh")
+
+	sweep(t, s, doomed, survivor)
+	writeRecord(t, dir, 52620, record(52620, "74e5950e", "iterm[]linsekasten:@67.%67", "/Users/sma/projects", "parent", "auto", 1000, 2000))
+	scanAndProject(t, s, dir)
+	sweep(t, s, doomed, survivor)
+	sweep(t, s, survivor)
+
+	// The agent rewrites its record, still naming the pane it was started in.
+	writeRecord(t, dir, 52620, record(52620, "74e5950e", "iterm[]linsekasten:@67.%67", "/Users/sma/projects", "parent", "auto", 1000, 3000))
+	res := scanAndProject(t, s, dir)
+	_ = res
+	if n := count(t, s.DB(), `SELECT COUNT(*) FROM pane_binding WHERE pane_id = '%67' AND observed_to_ms IS NULL`); n != 0 {
+		t.Errorf("open bindings on the vanished pane = %d, want 0", n)
+	}
+	if n := count(t, s.DB(), `SELECT refusal_count FROM projection_state WHERE projection = 'registry'`); n == 0 {
+		t.Error("refusing to reclaim a vanished pane was not recorded")
+	}
+
+	// And if the pane comes back, it is a place again.
+	sweep(t, s, doomed, survivor)
+	writeRecord(t, dir, 52620, record(52620, "74e5950e", "iterm[]linsekasten:@67.%67", "/Users/sma/projects", "parent", "auto", 1000, 4000))
+	scanAndProject(t, s, dir)
+	if n := count(t, s.DB(), `SELECT COUNT(*) FROM pane_binding WHERE pane_id = '%67' AND observed_to_ms IS NULL`); n != 1 {
+		t.Errorf("open bindings after the pane returned = %d, want 1", n)
+	}
+}
+
+// remain-on-exit keeps a pane listed at the pid of the process that exited.
+// Present, and not a place anything is running. Recorded as its own fact:
+// folding it into "absent" would close a binding on a pane that is still
+// there, and folding it into "present" is what makes a dead pane read as live.
+func TestADeadPaneIsRecordedAsDeadAndStillPresent(t *testing.T) {
+	s := newStore(t)
+	dir := t.TempDir()
+
+	sweep(t, s, paneLine("$3", "@67", "%67", 36230, "iterm[]linsekasten", "zsh"))
+	writeRecord(t, dir, 52620, record(52620, "74e5950e", "iterm[]linsekasten:@67.%67", "/Users/sma/projects", "parent", "auto", 1000, 2000))
+	scanAndProject(t, s, dir)
+
+	// The same line with the dead flag set.
+	dead := strings.Replace(paneLine("$3", "@67", "%67", 36230, "iterm[]linsekasten", "zsh"),
+		"\x1f0\x1f", "\x1f1\x1f", 1)
+	sweep(t, s, dead)
+
+	var payload string
+	mustScan(t, s.DB(), `SELECT payload FROM event WHERE kind = 'scan.completed'
+		AND source_id = 'tmux-inventory' ORDER BY event_id DESC LIMIT 1`, &payload)
+	if !strings.Contains(payload, `"%67:36230:dead"`) {
+		t.Errorf("roster does not record the pane as dead: %s", payload)
+	}
+	var closed sql.NullInt64
+	mustScan(t, s.DB(), `SELECT observed_to_ms FROM pane_binding WHERE pane_id = '%67'`, &closed)
+	if closed.Valid {
+		t.Error("a pane that is still listed, merely dead, had its binding closed")
 	}
 }
