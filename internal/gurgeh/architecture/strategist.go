@@ -23,12 +23,12 @@ const (
 type DataStrategy string
 
 const (
-	DataRelational  DataStrategy = "relational"   // PostgreSQL, MySQL
-	DataDocument    DataStrategy = "document"     // MongoDB, CouchDB
-	DataKeyValue    DataStrategy = "key-value"    // Redis, DynamoDB
-	DataGraph       DataStrategy = "graph"        // Neo4j, Neptune
-	DataTimeSeries  DataStrategy = "time-series"  // InfluxDB, TimescaleDB
-	DataPolyglot    DataStrategy = "polyglot"     // Multiple stores
+	DataRelational DataStrategy = "relational"  // PostgreSQL, MySQL
+	DataDocument   DataStrategy = "document"    // MongoDB, CouchDB
+	DataKeyValue   DataStrategy = "key-value"   // Redis, DynamoDB
+	DataGraph      DataStrategy = "graph"       // Neo4j, Neptune
+	DataTimeSeries DataStrategy = "time-series" // InfluxDB, TimescaleDB
+	DataPolyglot   DataStrategy = "polyglot"    // Multiple stores
 )
 
 // CachingApproach represents the caching strategy
@@ -36,10 +36,10 @@ type CachingApproach string
 
 const (
 	CacheNone        CachingApproach = "none"
-	CacheInMemory    CachingApproach = "in-memory"    // Local process cache
-	CacheDistributed CachingApproach = "distributed"  // Redis, Memcached
-	CacheCDN         CachingApproach = "cdn"          // Edge caching
-	CacheMultiTier   CachingApproach = "multi-tier"   // L1 + L2 caching
+	CacheInMemory    CachingApproach = "in-memory"   // Local process cache
+	CacheDistributed CachingApproach = "distributed" // Redis, Memcached
+	CacheCDN         CachingApproach = "cdn"         // Edge caching
+	CacheMultiTier   CachingApproach = "multi-tier"  // L1 + L2 caching
 )
 
 // APIStyle represents the API design approach
@@ -72,23 +72,23 @@ type ArchitectureRecommendation struct {
 
 // TechnologySuggestion represents a specific tech recommendation
 type TechnologySuggestion struct {
-	Category    string   `yaml:"category" json:"category"`       // e.g., "Database"
-	Primary     string   `yaml:"primary" json:"primary"`         // Main recommendation
+	Category     string   `yaml:"category" json:"category"`         // e.g., "Database"
+	Primary      string   `yaml:"primary" json:"primary"`           // Main recommendation
 	Alternatives []string `yaml:"alternatives" json:"alternatives"` // Other options
-	Rationale   string   `yaml:"rationale" json:"rationale"`
+	Rationale    string   `yaml:"rationale" json:"rationale"`
 }
 
 // ArchitectureStrategy represents the full architectural analysis
 type ArchitectureStrategy struct {
-	SpecID           string                       `yaml:"spec_id" json:"spec_id"`
-	Pattern          ArchitecturePattern          `yaml:"pattern" json:"pattern"`
-	DataStrategy     DataStrategy                 `yaml:"data_strategy" json:"data_strategy"`
-	CachingApproach  CachingApproach              `yaml:"caching_approach" json:"caching_approach"`
-	APIStyle         APIStyle                     `yaml:"api_style" json:"api_style"`
-	ScalingStrategy  ScalingStrategy              `yaml:"scaling_strategy" json:"scaling_strategy"`
-	Recommendations  []ArchitectureRecommendation `yaml:"recommendations" json:"recommendations"`
-	Technologies     []TechnologySuggestion       `yaml:"technologies" json:"technologies"`
-	Considerations   []string                     `yaml:"considerations" json:"considerations"`
+	SpecID          string                       `yaml:"spec_id" json:"spec_id"`
+	Pattern         ArchitecturePattern          `yaml:"pattern" json:"pattern"`
+	DataStrategy    DataStrategy                 `yaml:"data_strategy" json:"data_strategy"`
+	CachingApproach CachingApproach              `yaml:"caching_approach" json:"caching_approach"`
+	APIStyle        APIStyle                     `yaml:"api_style" json:"api_style"`
+	ScalingStrategy ScalingStrategy              `yaml:"scaling_strategy" json:"scaling_strategy"`
+	Recommendations []ArchitectureRecommendation `yaml:"recommendations" json:"recommendations"`
+	Technologies    []TechnologySuggestion       `yaml:"technologies" json:"technologies"`
+	Considerations  []string                     `yaml:"considerations" json:"considerations"`
 }
 
 // Strategist analyzes specs and recommends architectural approaches

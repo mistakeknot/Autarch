@@ -7,8 +7,8 @@ import (
 	"encoding/json"
 	"fmt"
 
-	ic "github.com/mistakeknot/intermute/client"
 	"github.com/mistakeknot/autarch/internal/coldwine/storage"
+	ic "github.com/mistakeknot/intermute/client"
 )
 
 // MessageSender defines the interface for sending messages to Intermute.

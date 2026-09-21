@@ -14,24 +14,24 @@ import (
 
 // APIContract represents an API endpoint contract
 type APIContract struct {
-	Endpoint    string            `yaml:"endpoint" json:"endpoint"`       // POST /api/posts/{id}/share
-	Method      string            `yaml:"method" json:"method"`           // POST
-	Summary     string            `yaml:"summary" json:"summary"`
-	Request     *SchemaDefinition `yaml:"request,omitempty" json:"request,omitempty"`
-	Response    *SchemaDefinition `yaml:"response,omitempty" json:"response,omitempty"`
-	Errors      []ErrorDefinition `yaml:"errors,omitempty" json:"errors,omitempty"`
-	RateLimit   *RateLimitConfig  `yaml:"rate_limit,omitempty" json:"rate_limit,omitempty"`
-	RequiresAuth bool             `yaml:"requires_auth" json:"requires_auth"`
-	Tags        []string          `yaml:"tags,omitempty" json:"tags,omitempty"`
+	Endpoint     string            `yaml:"endpoint" json:"endpoint"` // POST /api/posts/{id}/share
+	Method       string            `yaml:"method" json:"method"`     // POST
+	Summary      string            `yaml:"summary" json:"summary"`
+	Request      *SchemaDefinition `yaml:"request,omitempty" json:"request,omitempty"`
+	Response     *SchemaDefinition `yaml:"response,omitempty" json:"response,omitempty"`
+	Errors       []ErrorDefinition `yaml:"errors,omitempty" json:"errors,omitempty"`
+	RateLimit    *RateLimitConfig  `yaml:"rate_limit,omitempty" json:"rate_limit,omitempty"`
+	RequiresAuth bool              `yaml:"requires_auth" json:"requires_auth"`
+	Tags         []string          `yaml:"tags,omitempty" json:"tags,omitempty"`
 }
 
 // SchemaDefinition defines a request/response schema
 type SchemaDefinition struct {
-	Type       string                       `yaml:"type" json:"type"`                                 // object, array, string, etc.
+	Type       string                        `yaml:"type" json:"type"` // object, array, string, etc.
 	Properties map[string]PropertyDefinition `yaml:"properties,omitempty" json:"properties,omitempty"`
-	Required   []string                     `yaml:"required,omitempty" json:"required,omitempty"`
-	Items      *SchemaDefinition            `yaml:"items,omitempty" json:"items,omitempty"` // For arrays
-	Example    interface{}                  `yaml:"example,omitempty" json:"example,omitempty"`
+	Required   []string                      `yaml:"required,omitempty" json:"required,omitempty"`
+	Items      *SchemaDefinition             `yaml:"items,omitempty" json:"items,omitempty"` // For arrays
+	Example    interface{}                   `yaml:"example,omitempty" json:"example,omitempty"`
 }
 
 // PropertyDefinition defines a schema property
@@ -45,8 +45,8 @@ type PropertyDefinition struct {
 
 // ErrorDefinition defines an error response
 type ErrorDefinition struct {
-	Code        int    `yaml:"code" json:"code"`                 // 401, 429, 500
-	Name        string `yaml:"name" json:"name"`                 // Unauthorized
+	Code        int    `yaml:"code" json:"code"` // 401, 429, 500
+	Name        string `yaml:"name" json:"name"` // Unauthorized
 	Description string `yaml:"description" json:"description"`
 }
 
@@ -171,19 +171,19 @@ func (g *Generator) extractContractsFromRequirement(req string) []APIContract {
 
 	// CRUD patterns
 	crudPatterns := map[string]string{
-		"create":  "POST",
-		"add":     "POST",
-		"insert":  "POST",
-		"read":    "GET",
-		"get":     "GET",
-		"fetch":   "GET",
-		"list":    "GET",
+		"create":   "POST",
+		"add":      "POST",
+		"insert":   "POST",
+		"read":     "GET",
+		"get":      "GET",
+		"fetch":    "GET",
+		"list":     "GET",
 		"retrieve": "GET",
-		"update":  "PUT",
-		"modify":  "PUT",
-		"edit":    "PUT",
-		"delete":  "DELETE",
-		"remove":  "DELETE",
+		"update":   "PUT",
+		"modify":   "PUT",
+		"edit":     "PUT",
+		"delete":   "DELETE",
+		"remove":   "DELETE",
 	}
 
 	for verb, method := range crudPatterns {

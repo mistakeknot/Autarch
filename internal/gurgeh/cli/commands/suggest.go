@@ -110,11 +110,11 @@ func buildSuggestionBrief(spec specs.Spec, suggPath string) string {
 		}
 	}
 	base := brief.Compose(brief.Input{
-		ID:           spec.ID,
-		Title:        spec.Title,
-		Summary:      spec.Summary,
-		Requirements: spec.Requirements,
-		Acceptance:   acceptance,
+		ID:            spec.ID,
+		Title:         spec.Title,
+		Summary:       spec.Summary,
+		Requirements:  spec.Requirements,
+		Acceptance:    acceptance,
 		ResearchFiles: spec.Research,
 	})
 	instructions := `\n\nInstructions:

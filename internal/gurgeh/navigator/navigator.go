@@ -14,19 +14,19 @@ import (
 
 // FlowMap represents the complete map of user flows for a spec
 type FlowMap struct {
-	SpecID      string       `json:"spec_id"`
-	EntryPoints []EntryPoint `json:"entry_points"`
-	ExitPoints  []ExitPoint  `json:"exit_points"`
-	Paths       []FlowPath   `json:"paths"`
-	Gaps        []FlowGap    `json:"gaps"`
+	SpecID      string        `json:"spec_id"`
+	EntryPoints []EntryPoint  `json:"entry_points"`
+	ExitPoints  []ExitPoint   `json:"exit_points"`
+	Paths       []FlowPath    `json:"paths"`
+	Gaps        []FlowGap     `json:"gaps"`
 	Overlaps    []FlowOverlap `json:"overlaps"`
 }
 
 // EntryPoint represents where users can enter the system
 type EntryPoint struct {
 	Name     string   `json:"name"`
-	CUJIDs   []string `json:"cuj_ids"`   // CUJs that start here
-	Personas []string `json:"personas"`  // User types that enter here
+	CUJIDs   []string `json:"cuj_ids"`  // CUJs that start here
+	Personas []string `json:"personas"` // User types that enter here
 }
 
 // ExitPoint represents where users successfully complete journeys
@@ -49,21 +49,21 @@ type FlowPath struct {
 
 // FlowGap represents a gap in journey coverage
 type FlowGap struct {
-	Type        GapType  `json:"type"`
-	Description string   `json:"description"`
-	Severity    Severity `json:"severity"`
+	Type         GapType  `json:"type"`
+	Description  string   `json:"description"`
+	Severity     Severity `json:"severity"`
 	AffectedCUJs []string `json:"affected_cujs,omitempty"`
-	Suggestion  string   `json:"suggestion"`
+	Suggestion   string   `json:"suggestion"`
 }
 
 // GapType categorizes the type of gap
 type GapType string
 
 const (
-	GapTypeNoRecovery     GapType = "no_recovery"      // No error recovery defined
-	GapTypeDeadEnd        GapType = "dead_end"         // Path leads nowhere
-	GapTypeNoEntry        GapType = "no_entry"         // Exit exists but no path to it
-	GapTypeMissingPersona GapType = "missing_persona"  // Persona has no journeys
+	GapTypeNoRecovery        GapType = "no_recovery"         // No error recovery defined
+	GapTypeDeadEnd           GapType = "dead_end"            // Path leads nowhere
+	GapTypeNoEntry           GapType = "no_entry"            // Exit exists but no path to it
+	GapTypeMissingPersona    GapType = "missing_persona"     // Persona has no journeys
 	GapTypeNoSuccessCriteria GapType = "no_success_criteria" // CUJ lacks success criteria
 )
 
@@ -237,55 +237,55 @@ func (n *Navigator) identifyGaps(cujs []*cuj.CUJ, flowMap *FlowMap) []FlowGap {
 		// Check for missing error recovery on high-priority CUJs
 		if c.Priority == cuj.PriorityHigh && len(c.ErrorRecovery) == 0 {
 			gaps = append(gaps, FlowGap{
-				Type:        GapTypeNoRecovery,
-				Description: fmt.Sprintf("High-priority CUJ %q has no error recovery defined", c.Title),
-				Severity:    SeverityHigh,
+				Type:         GapTypeNoRecovery,
+				Description:  fmt.Sprintf("High-priority CUJ %q has no error recovery defined", c.Title),
+				Severity:     SeverityHigh,
 				AffectedCUJs: []string{c.ID},
-				Suggestion:  "Define error recovery paths for critical user journeys",
+				Suggestion:   "Define error recovery paths for critical user journeys",
 			})
 		}
 
 		// Check for missing success criteria
 		if len(c.SuccessCriteria) == 0 {
 			gaps = append(gaps, FlowGap{
-				Type:        GapTypeNoSuccessCriteria,
-				Description: fmt.Sprintf("CUJ %q has no success criteria", c.Title),
-				Severity:    SeverityMedium,
+				Type:         GapTypeNoSuccessCriteria,
+				Description:  fmt.Sprintf("CUJ %q has no success criteria", c.Title),
+				Severity:     SeverityMedium,
 				AffectedCUJs: []string{c.ID},
-				Suggestion:  "Define clear success criteria for journey completion",
+				Suggestion:   "Define clear success criteria for journey completion",
 			})
 		}
 
 		// Check for missing entry point
 		if strings.TrimSpace(c.EntryPoint) == "" {
 			gaps = append(gaps, FlowGap{
-				Type:        GapTypeDeadEnd,
-				Description: fmt.Sprintf("CUJ %q has no entry point defined", c.Title),
-				Severity:    SeverityMedium,
+				Type:         GapTypeDeadEnd,
+				Description:  fmt.Sprintf("CUJ %q has no entry point defined", c.Title),
+				Severity:     SeverityMedium,
 				AffectedCUJs: []string{c.ID},
-				Suggestion:  "Specify where users begin this journey",
+				Suggestion:   "Specify where users begin this journey",
 			})
 		}
 
 		// Check for missing exit point
 		if strings.TrimSpace(c.ExitPoint) == "" {
 			gaps = append(gaps, FlowGap{
-				Type:        GapTypeDeadEnd,
-				Description: fmt.Sprintf("CUJ %q has no exit point (success state) defined", c.Title),
-				Severity:    SeverityMedium,
+				Type:         GapTypeDeadEnd,
+				Description:  fmt.Sprintf("CUJ %q has no exit point (success state) defined", c.Title),
+				Severity:     SeverityMedium,
 				AffectedCUJs: []string{c.ID},
-				Suggestion:  "Specify the success state that ends this journey",
+				Suggestion:   "Specify the success state that ends this journey",
 			})
 		}
 
 		// Check for empty steps
 		if len(c.Steps) == 0 {
 			gaps = append(gaps, FlowGap{
-				Type:        GapTypeDeadEnd,
-				Description: fmt.Sprintf("CUJ %q has no steps defined", c.Title),
-				Severity:    SeverityHigh,
+				Type:         GapTypeDeadEnd,
+				Description:  fmt.Sprintf("CUJ %q has no steps defined", c.Title),
+				Severity:     SeverityHigh,
 				AffectedCUJs: []string{c.ID},
-				Suggestion:  "Define the steps users take in this journey",
+				Suggestion:   "Define the steps users take in this journey",
 			})
 		}
 	}

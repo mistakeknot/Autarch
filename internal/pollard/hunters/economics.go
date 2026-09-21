@@ -241,9 +241,9 @@ type EconomicsIndicator struct {
 
 // EconomicsOutput represents the complete output YAML structure.
 type EconomicsOutput struct {
-	Indicators []string             `yaml:"indicators"`
-	CollectedAt time.Time           `yaml:"collected_at"`
-	Data       []EconomicsIndicator `yaml:"data"`
+	Indicators  []string             `yaml:"indicators"`
+	CollectedAt time.Time            `yaml:"collected_at"`
+	Data        []EconomicsIndicator `yaml:"data"`
 }
 
 // saveResults saves the collected indicators to a YAML file.

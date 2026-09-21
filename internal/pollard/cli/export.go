@@ -67,10 +67,10 @@ var exportCmd = &cobra.Command{
 
 // PraudeContext is the export format for Praude
 type PraudeContext struct {
-	ResearchSummary  string               `yaml:"research_summary"`
-	KeyCompetitors   []string             `yaml:"key_competitors"`
-	Recommendations  []RecommendationItem `yaml:"recommendations"`
-	LinkedInsights   []LinkedInsight      `yaml:"linked_insights"`
+	ResearchSummary string               `yaml:"research_summary"`
+	KeyCompetitors  []string             `yaml:"key_competitors"`
+	Recommendations []RecommendationItem `yaml:"recommendations"`
+	LinkedInsights  []LinkedInsight      `yaml:"linked_insights"`
 }
 
 type RecommendationItem struct {

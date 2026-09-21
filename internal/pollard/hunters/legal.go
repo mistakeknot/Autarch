@@ -155,17 +155,17 @@ type courtListenerResponse struct {
 }
 
 type courtListenerResult struct {
-	ID             int    `json:"id"`
-	AbsoluteURL    string `json:"absolute_url"`
-	CaseName       string `json:"caseName"`
-	Court          string `json:"court"`
-	CourtID        string `json:"court_id"`
-	DateFiled      string `json:"dateFiled"`
-	DocketNumber   string `json:"docketNumber"`
-	Citation       string `json:"citation"`
-	Snippet        string `json:"snippet"`
-	SuitNature     string `json:"suitNature,omitempty"`
-	Status         string `json:"status,omitempty"`
+	ID           int    `json:"id"`
+	AbsoluteURL  string `json:"absolute_url"`
+	CaseName     string `json:"caseName"`
+	Court        string `json:"court"`
+	CourtID      string `json:"court_id"`
+	DateFiled    string `json:"dateFiled"`
+	DocketNumber string `json:"docketNumber"`
+	Citation     string `json:"citation"`
+	Snippet      string `json:"snippet"`
+	SuitNature   string `json:"suitNature,omitempty"`
+	Status       string `json:"status,omitempty"`
 }
 
 // parseCourtListenerResponse parses the JSON response from CourtListener.
@@ -199,15 +199,15 @@ func parseCourtListenerResponse(data []byte, originalQuery string) ([]LegalCase,
 		}
 
 		c := LegalCase{
-			ID:         fmt.Sprintf("%d", r.ID),
-			CaseName:   r.CaseName,
-			Court:      court,
-			DateFiled:  dateFiled,
-			Docket:     r.DocketNumber,
-			Citation:   r.Citation,
-			Summary:    summary,
-			URL:        caseURL,
-			Relevance:  assessLegalRelevance(r.CaseName, r.Snippet, originalQuery),
+			ID:        fmt.Sprintf("%d", r.ID),
+			CaseName:  r.CaseName,
+			Court:     court,
+			DateFiled: dateFiled,
+			Docket:    r.DocketNumber,
+			Citation:  r.Citation,
+			Summary:   summary,
+			URL:       caseURL,
+			Relevance: assessLegalRelevance(r.CaseName, r.Snippet, originalQuery),
 		}
 		cases = append(cases, c)
 	}
@@ -236,20 +236,20 @@ func cleanHTML(s string) string {
 // getCourtName maps court IDs to friendly names.
 func getCourtName(courtID string) string {
 	courts := map[string]string{
-		"scotus":    "Supreme Court of the United States",
-		"ca1":       "First Circuit Court of Appeals",
-		"ca2":       "Second Circuit Court of Appeals",
-		"ca3":       "Third Circuit Court of Appeals",
-		"ca4":       "Fourth Circuit Court of Appeals",
-		"ca5":       "Fifth Circuit Court of Appeals",
-		"ca6":       "Sixth Circuit Court of Appeals",
-		"ca7":       "Seventh Circuit Court of Appeals",
-		"ca8":       "Eighth Circuit Court of Appeals",
-		"ca9":       "Ninth Circuit Court of Appeals",
-		"ca10":      "Tenth Circuit Court of Appeals",
-		"ca11":      "Eleventh Circuit Court of Appeals",
-		"cadc":      "D.C. Circuit Court of Appeals",
-		"cafc":      "Federal Circuit Court of Appeals",
+		"scotus": "Supreme Court of the United States",
+		"ca1":    "First Circuit Court of Appeals",
+		"ca2":    "Second Circuit Court of Appeals",
+		"ca3":    "Third Circuit Court of Appeals",
+		"ca4":    "Fourth Circuit Court of Appeals",
+		"ca5":    "Fifth Circuit Court of Appeals",
+		"ca6":    "Sixth Circuit Court of Appeals",
+		"ca7":    "Seventh Circuit Court of Appeals",
+		"ca8":    "Eighth Circuit Court of Appeals",
+		"ca9":    "Ninth Circuit Court of Appeals",
+		"ca10":   "Tenth Circuit Court of Appeals",
+		"ca11":   "Eleventh Circuit Court of Appeals",
+		"cadc":   "D.C. Circuit Court of Appeals",
+		"cafc":   "Federal Circuit Court of Appeals",
 	}
 	if name, ok := courts[courtID]; ok {
 		return name

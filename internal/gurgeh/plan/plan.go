@@ -16,12 +16,12 @@ type InterviewPlanItems struct {
 
 // PRDSummary contains the PRD that will be created.
 type PRDSummary struct {
-	ID                     string   `json:"id"`
-	Title                  string   `json:"title"`
-	Vision                 string   `json:"vision"`
-	Users                  string   `json:"users"`
-	Problem                string   `json:"problem"`
-	Requirements           []string `json:"requirements"`
+	ID                      string   `json:"id"`
+	Title                   string   `json:"title"`
+	Vision                  string   `json:"vision"`
+	Users                   string   `json:"users"`
+	Problem                 string   `json:"problem"`
+	Requirements            []string `json:"requirements"`
 	AcceptanceCriteriaCount int      `json:"acceptance_criteria_count"`
 }
 
@@ -60,12 +60,12 @@ func GenerateInterviewPlan(opts InterviewPlanOptions) (*plan.Plan, error) {
 	}
 
 	prdSummary := PRDSummary{
-		ID:                     opts.NextID,
-		Title:                  title,
-		Vision:                 opts.Vision,
-		Users:                  opts.Users,
-		Problem:                opts.Problem,
-		Requirements:           opts.Requirements,
+		ID:                      opts.NextID,
+		Title:                   title,
+		Vision:                  opts.Vision,
+		Users:                   opts.Users,
+		Problem:                 opts.Problem,
+		Requirements:            opts.Requirements,
 		AcceptanceCriteriaCount: reqCount, // Initial estimate
 	}
 
@@ -170,9 +170,9 @@ func addPollardRecommendations(p *plan.Plan, root string) {
 	recent, _ := discovery.RecentPollardInsights(root, 7)
 	if len(recent) == 0 && insightCount > 0 {
 		p.AddRecommendation(plan.Recommendation{
-			Type:     plan.TypeQuality,
-			Severity: plan.SeverityInfo,
-			Message:  "No insights from the last 7 days - research may be stale",
+			Type:       plan.TypeQuality,
+			Severity:   plan.SeverityInfo,
+			Message:    "No insights from the last 7 days - research may be stale",
 			Suggestion: "pollard scan to refresh",
 		})
 	}

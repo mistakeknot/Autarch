@@ -79,7 +79,7 @@ func TestAppendNewActivitiesDedup(t *testing.T) {
 		{Time: now, Summary: "existing", SyntheticID: "kernel:/p1:1", Source: "kernel"},
 	}
 	incoming := []Activity{
-		{Time: now, Summary: "dupe", SyntheticID: "kernel:/p1:1", Source: "kernel"},    // should be deduped
+		{Time: now, Summary: "dupe", SyntheticID: "kernel:/p1:1", Source: "kernel"},                  // should be deduped
 		{Time: now.Add(-time.Second), Summary: "new", SyntheticID: "kernel:/p1:2", Source: "kernel"}, // should be added
 	}
 	seen := map[string]struct{}{"kernel:/p1:1": {}}

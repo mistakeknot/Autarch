@@ -67,7 +67,7 @@ func (o *Orchestrator) OnCycle(view mycroft.FleetView) {
 }
 
 // Pause stops dispatching. In-flight agents continue.
-func (o *Orchestrator) Pause()  { o.paused = true }
+func (o *Orchestrator) Pause() { o.paused = true }
 
 // Resume re-enables dispatching.
 func (o *Orchestrator) Resume() { o.paused = false }

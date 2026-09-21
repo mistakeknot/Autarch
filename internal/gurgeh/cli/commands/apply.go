@@ -107,10 +107,10 @@ func applyInterviewPlan(out io.Writer, root string, p *plan.Plan) error {
 
 	// Build the spec from plan data
 	spec := specs.Spec{
-		ID:        items.PRD.ID,
-		Title:     items.PRD.Title,
-		Summary:   items.PRD.Problem,
-		CreatedAt: p.CreatedAt.UTC().Format("2006-01-02T15:04:05Z07:00"),
+		ID:           items.PRD.ID,
+		Title:        items.PRD.Title,
+		Summary:      items.PRD.Problem,
+		CreatedAt:    p.CreatedAt.UTC().Format("2006-01-02T15:04:05Z07:00"),
 		Requirements: items.PRD.Requirements,
 		StrategicContext: specs.StrategicContext{
 			CUJID:       "CUJ-001",

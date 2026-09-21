@@ -116,9 +116,9 @@ func TestPRDSyncer_MapPRDStatus(t *testing.T) {
 		expected  intermute.SpecStatus
 	}{
 		{specs.PRDStatusDraft, intermute.SpecStatusDraft},
-		{specs.PRDStatusApproved, intermute.SpecStatusResearch},      // approved -> research
-		{specs.PRDStatusInProgress, intermute.SpecStatusValidated},  // in_progress -> validated
-		{specs.PRDStatusDone, intermute.SpecStatusArchived},          // done -> archived
+		{specs.PRDStatusApproved, intermute.SpecStatusResearch},    // approved -> research
+		{specs.PRDStatusInProgress, intermute.SpecStatusValidated}, // in_progress -> validated
+		{specs.PRDStatusDone, intermute.SpecStatusArchived},        // done -> archived
 	}
 
 	for _, tc := range testCases {

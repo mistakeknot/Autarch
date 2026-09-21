@@ -13,20 +13,20 @@ import (
 
 // DB wraps the SQLite database connection.
 type DB struct {
-	db      *sql.DB
-	dbPath  string
+	db     *sql.DB
+	dbPath string
 }
 
 // HunterRun represents a single run of a hunter.
 type HunterRun struct {
-	ID                 int64
-	HunterName         string
-	StartedAt          time.Time
-	CompletedAt        *time.Time
-	Status             string // running, success, failed
-	SourcesCollected   int
-	InsightsGenerated  int
-	ErrorMessage       string
+	ID                int64
+	HunterName        string
+	StartedAt         time.Time
+	CompletedAt       *time.Time
+	Status            string // running, success, failed
+	SourcesCollected  int
+	InsightsGenerated int
+	ErrorMessage      string
 }
 
 // RateLimit tracks API rate limit status.
@@ -230,12 +230,12 @@ func (s *DB) ShouldRun(hunterName string, interval time.Duration) (bool, error) 
 
 // Stats returns overall statistics.
 type Stats struct {
-	TotalRuns       int
-	SuccessfulRuns  int
-	FailedRuns      int
-	TotalSources    int
-	TotalInsights   int
-	LastRunAt       *time.Time
+	TotalRuns      int
+	SuccessfulRuns int
+	FailedRuns     int
+	TotalSources   int
+	TotalInsights  int
+	LastRunAt      *time.Time
 }
 
 // GetStats returns overall hunter statistics.

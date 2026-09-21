@@ -79,7 +79,6 @@ Alternatively, set ANTHROPIC_API_KEY or OPENAI_API_KEY
 environment variable to use direct API calls.`
 }
 
-
 // GenerateRequest represents a request to generate content via an agent
 type GenerateRequest struct {
 	Prompt      string

@@ -3,14 +3,14 @@ package storage
 import "database/sql"
 
 type Task struct {
-    ID     string
-    Title  string
-    Status string
+	ID     string
+	Title  string
+	Status string
 }
 
 func InsertTask(db *sql.DB, t Task) error {
-    _, err := db.Exec(`INSERT INTO tasks (id, title, status) VALUES (?, ?, ?)`, t.ID, t.Title, t.Status)
-    return err
+	_, err := db.Exec(`INSERT INTO tasks (id, title, status) VALUES (?, ?, ?)`, t.ID, t.Title, t.Status)
+	return err
 }
 
 func GetTask(db *sql.DB, id string) (Task, error) {

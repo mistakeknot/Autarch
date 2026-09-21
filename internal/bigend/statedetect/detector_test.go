@@ -251,9 +251,9 @@ func TestDetectorAgentTypeFiltering(t *testing.T) {
 
 func TestStateResultHelpers(t *testing.T) {
 	tests := []struct {
-		state          AgentState
-		wantActive     bool
-		wantAttention  bool
+		state         AgentState
+		wantActive    bool
+		wantAttention bool
 	}{
 		{StateWorking, true, false},
 		{StateWaiting, true, true},

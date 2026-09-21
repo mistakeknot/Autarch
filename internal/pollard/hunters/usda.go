@@ -153,12 +153,12 @@ type usdaResponse struct {
 }
 
 type usdaFood struct {
-	FDCID        int            `json:"fdcId"`
-	Description  string         `json:"description"`
-	DataType     string         `json:"dataType"`
-	BrandOwner   string         `json:"brandOwner,omitempty"`
-	BrandName    string         `json:"brandName,omitempty"`
-	Ingredients  string         `json:"ingredients,omitempty"`
+	FDCID         int            `json:"fdcId"`
+	Description   string         `json:"description"`
+	DataType      string         `json:"dataType"`
+	BrandOwner    string         `json:"brandOwner,omitempty"`
+	BrandName     string         `json:"brandName,omitempty"`
+	Ingredients   string         `json:"ingredients,omitempty"`
 	FoodNutrients []usdaNutrient `json:"foodNutrients,omitempty"`
 }
 
@@ -181,15 +181,15 @@ func parseUSDAResponse(data []byte, originalQuery string) ([]USDAFood, error) {
 		// Extract key nutrients (focus on common allergen-related and nutritional info)
 		var nutrients []USDANutrient
 		importantNutrients := map[string]bool{
-			"Protein":       true,
-			"Total lipid (fat)": true,
-			"Carbohydrate, by difference": true,
-			"Energy":        true,
-			"Fiber, total dietary": true,
+			"Protein":                      true,
+			"Total lipid (fat)":            true,
+			"Carbohydrate, by difference":  true,
+			"Energy":                       true,
+			"Fiber, total dietary":         true,
 			"Sugars, total including NLEA": true,
-			"Calcium, Ca":   true,
-			"Iron, Fe":      true,
-			"Sodium, Na":    true,
+			"Calcium, Ca":                  true,
+			"Iron, Fe":                     true,
+			"Sodium, Na":                   true,
 		}
 
 		for _, n := range f.FoodNutrients {

@@ -92,11 +92,11 @@ func NewMycroftsView() *MycroftsView {
 	chatPanel.SetHandler(chatHandler)
 
 	return &MycroftsView{
-		decisions: escalate.NewDecisionQueue(),
-		shell:     pkgtui.NewShellLayout(),
-		chatPanel: chatPanel,
+		decisions:   escalate.NewDecisionQueue(),
+		shell:       pkgtui.NewShellLayout(),
+		chatPanel:   chatPanel,
 		chatHandler: chatHandler,
-		viewMode:  mycroftViewFleet,
+		viewMode:    mycroftViewFleet,
 	}
 }
 

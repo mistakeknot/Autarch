@@ -78,8 +78,8 @@ var Domains = []Domain{
 		Description: "General academic research across disciplines",
 	},
 	{
-		Name: "general",
-		Keywords: []string{},
+		Name:        "general",
+		Keywords:    []string{},
 		Hunters:     []string{"wiki", "openalex"},
 		Description: "General knowledge and reference",
 	},

@@ -33,26 +33,26 @@ const (
 // Step represents a single step in a Critical User Journey
 type Step struct {
 	Order        int      `yaml:"order" json:"order"`
-	Action       string   `yaml:"action" json:"action"`         // "User clicks sign up"
-	Expected     string   `yaml:"expected" json:"expected"`     // "Registration form appears"
+	Action       string   `yaml:"action" json:"action"`                                 // "User clicks sign up"
+	Expected     string   `yaml:"expected" json:"expected"`                             // "Registration form appears"
 	Alternatives []string `yaml:"alternatives,omitempty" json:"alternatives,omitempty"` // Edge cases
 }
 
 // CUJ represents a Critical User Journey
 type CUJ struct {
-	ID              string   `yaml:"id" json:"id"`
-	SpecID          string   `yaml:"spec_id" json:"spec_id"`
-	Project         string   `yaml:"project" json:"project"`
-	Title           string   `yaml:"title" json:"title"`
-	Persona         string   `yaml:"persona,omitempty" json:"persona,omitempty"`
-	Priority        Priority `yaml:"priority" json:"priority"`
-	EntryPoint      string   `yaml:"entry_point,omitempty" json:"entry_point,omitempty"`
-	ExitPoint       string   `yaml:"exit_point,omitempty" json:"exit_point,omitempty"`
-	Steps           []Step   `yaml:"steps,omitempty" json:"steps,omitempty"`
-	SuccessCriteria []string `yaml:"success_criteria,omitempty" json:"success_criteria,omitempty"`
-	ErrorRecovery   []string `yaml:"error_recovery,omitempty" json:"error_recovery,omitempty"`
-	Status          Status   `yaml:"status" json:"status"`
-	Version         int64    `yaml:"version,omitempty" json:"version,omitempty"`
+	ID              string    `yaml:"id" json:"id"`
+	SpecID          string    `yaml:"spec_id" json:"spec_id"`
+	Project         string    `yaml:"project" json:"project"`
+	Title           string    `yaml:"title" json:"title"`
+	Persona         string    `yaml:"persona,omitempty" json:"persona,omitempty"`
+	Priority        Priority  `yaml:"priority" json:"priority"`
+	EntryPoint      string    `yaml:"entry_point,omitempty" json:"entry_point,omitempty"`
+	ExitPoint       string    `yaml:"exit_point,omitempty" json:"exit_point,omitempty"`
+	Steps           []Step    `yaml:"steps,omitempty" json:"steps,omitempty"`
+	SuccessCriteria []string  `yaml:"success_criteria,omitempty" json:"success_criteria,omitempty"`
+	ErrorRecovery   []string  `yaml:"error_recovery,omitempty" json:"error_recovery,omitempty"`
+	Status          Status    `yaml:"status" json:"status"`
+	Version         int64     `yaml:"version,omitempty" json:"version,omitempty"`
 	CreatedAt       time.Time `yaml:"created_at" json:"created_at"`
 	UpdatedAt       time.Time `yaml:"updated_at" json:"updated_at"`
 }

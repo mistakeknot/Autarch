@@ -22,8 +22,8 @@ import (
 	"github.com/mistakeknot/autarch/internal/bigend/tui"
 	"github.com/mistakeknot/autarch/internal/bigend/web"
 	"github.com/mistakeknot/autarch/pkg/intermute"
-	pkgtui "github.com/mistakeknot/autarch/pkg/tui"
 	"github.com/mistakeknot/autarch/pkg/timeout"
+	pkgtui "github.com/mistakeknot/autarch/pkg/tui"
 )
 
 func main() {

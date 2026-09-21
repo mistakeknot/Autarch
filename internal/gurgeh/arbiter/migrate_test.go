@@ -43,8 +43,8 @@ func TestMigrateFromSpec(t *testing.T) {
 		},
 		CriticalUserJourneys: []specs.CriticalUserJourney{
 			{
-				ID:    "CUJ-001",
-				Title: "First-time setup",
+				ID:       "CUJ-001",
+				Title:    "First-time setup",
 				Priority: "high",
 				Steps: []string{
 					"Open app",

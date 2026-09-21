@@ -14,8 +14,8 @@ func TestUnifyStatus(t *testing.T) {
 		{"in_progress", StatusActive},
 		{"in-progress", StatusActive},
 		{"executing", StatusActive},
-		{"RUNNING", StatusActive},   // case insensitive
-		{" active ", StatusActive},  // trimmed
+		{"RUNNING", StatusActive},  // case insensitive
+		{" active ", StatusActive}, // trimmed
 
 		// Blocked
 		{"blocked", StatusBlocked},

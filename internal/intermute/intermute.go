@@ -9,8 +9,8 @@ import (
 	"sync"
 	"time"
 
-	ic "github.com/mistakeknot/intermute/client"
 	"github.com/mistakeknot/autarch/pkg/timeout"
+	ic "github.com/mistakeknot/intermute/client"
 )
 
 type Options struct {
@@ -22,7 +22,7 @@ type Options struct {
 }
 
 var (
-	newClient    = ic.New
+	newClient     = ic.New
 	registerAgent = func(ctx context.Context, c *ic.Client, agent ic.Agent) (ic.Agent, error) {
 		return c.RegisterAgent(ctx, agent)
 	}

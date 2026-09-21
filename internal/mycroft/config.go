@@ -10,12 +10,12 @@ import (
 
 // Config maps .autarch/mycroft/config.yaml.
 type Config struct {
-	Tier                Tier                    `yaml:"tier"`
-	DispatchPreferences DispatchPreferences     `yaml:"dispatch_preferences"`
-	T2DispatchAllowlist []AllowlistEntry        `yaml:"tier2_dispatch_allowlist"`
-	DemotionTriggers    DemotionTriggers        `yaml:"demotion_triggers"`
+	Tier                Tier                     `yaml:"tier"`
+	DispatchPreferences DispatchPreferences      `yaml:"dispatch_preferences"`
+	T2DispatchAllowlist []AllowlistEntry         `yaml:"tier2_dispatch_allowlist"`
+	DemotionTriggers    DemotionTriggers         `yaml:"demotion_triggers"`
 	AgentOverrides      map[string]AgentOverride `yaml:"agent_overrides"`
-	PriorityBoosts      []PriorityBoost         `yaml:"priority_boosts"`
+	PriorityBoosts      []PriorityBoost          `yaml:"priority_boosts"`
 }
 
 // PriorityBoost adjusts a bead's effective priority during ranking.

@@ -13,10 +13,10 @@ import (
 
 // mockSource is a test DataSource that returns preconfigured data.
 type mockSource struct {
-	fleet  mycroft.FleetView
-	beads  []mycroft.BeadView
-	fleetErr error
-	beadErr  error
+	fleet      mycroft.FleetView
+	beads      []mycroft.BeadView
+	fleetErr   error
+	beadErr    error
 	fleetCalls int
 	beadCalls  int
 }

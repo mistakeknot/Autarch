@@ -36,9 +36,9 @@ func TestRecognizer_Recognize_DetectsScopeCreep(t *testing.T) {
 	recognizer := NewRecognizer()
 
 	spec := &specs.Spec{
-		ID:           "SPEC-001",
-		Title:        "Feature",
-		Summary:      "Main feature plus extras",
+		ID:      "SPEC-001",
+		Title:   "Feature",
+		Summary: "Main feature plus extras",
 		Requirements: []string{
 			"Do A, also do B",
 			"Additionally handle C",
@@ -137,9 +137,9 @@ func TestRecognizer_Recognize_DetectsEdgeCases(t *testing.T) {
 	recognizer := NewRecognizer()
 
 	spec := &specs.Spec{
-		ID:           "SPEC-001",
-		Title:        "Form Handler",
-		Summary:      "Handle form submission with error cases",
+		ID:      "SPEC-001",
+		Title:   "Form Handler",
+		Summary: "Handle form submission with error cases",
 		Requirements: []string{
 			"Validate input fields",
 			"Handle empty form submission",
@@ -258,9 +258,9 @@ func TestRecognizer_Recognize_CalculatesQualityMetrics(t *testing.T) {
 	recognizer := NewRecognizer()
 
 	spec := &specs.Spec{
-		ID:           "SPEC-001",
-		Title:        "Well-Specified Feature",
-		Summary:      "A user should be able to view their dashboard",
+		ID:      "SPEC-001",
+		Title:   "Well-Specified Feature",
+		Summary: "A user should be able to view their dashboard",
 		Requirements: []string{
 			"User must see recent activity",
 			"Dashboard should load within 2 seconds",
@@ -300,9 +300,9 @@ func TestRecognizer_Recognize_CalculatesOverallQuality(t *testing.T) {
 
 	// Good spec
 	goodSpec := &specs.Spec{
-		ID:           "SPEC-001",
-		Title:        "Clear Feature",
-		Summary:      "User should be able to update their profile",
+		ID:      "SPEC-001",
+		Title:   "Clear Feature",
+		Summary: "User should be able to update their profile",
 		Requirements: []string{
 			"Must save profile changes",
 			"Should validate email format",

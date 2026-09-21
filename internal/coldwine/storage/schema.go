@@ -50,8 +50,8 @@ type Epic struct {
 
 // Story represents a user story within an epic
 type Story struct {
-	ID          string      `json:"id"`       // "STORY-001"
-	EpicID      string      `json:"epic_id"`  // "EPIC-001"
+	ID          string      `json:"id"`      // "STORY-001"
+	EpicID      string      `json:"epic_id"` // "EPIC-001"
 	Title       string      `json:"title"`
 	Description string      `json:"description"`
 	Status      StoryStatus `json:"status"`
@@ -79,14 +79,14 @@ type WorkTask struct {
 
 // AgentSession represents an agent working on a task
 type AgentSession struct {
-	ID            string    `json:"id"`
-	TaskID        string    `json:"task_id"`
-	AgentName     string    `json:"agent_name"`
-	AgentProgram  string    `json:"agent_program"` // claude, codex, aider
-	State         string    `json:"state"`         // working, waiting, blocked, done
-	WorktreePath  string    `json:"worktree_path,omitempty"`
-	LastActiveAt  time.Time `json:"last_active_at"`
-	CreatedAt     time.Time `json:"created_at"`
+	ID           string    `json:"id"`
+	TaskID       string    `json:"task_id"`
+	AgentName    string    `json:"agent_name"`
+	AgentProgram string    `json:"agent_program"` // claude, codex, aider
+	State        string    `json:"state"`         // working, waiting, blocked, done
+	WorktreePath string    `json:"worktree_path,omitempty"`
+	LastActiveAt time.Time `json:"last_active_at"`
+	CreatedAt    time.Time `json:"created_at"`
 }
 
 // Worktree represents a git worktree for isolated work

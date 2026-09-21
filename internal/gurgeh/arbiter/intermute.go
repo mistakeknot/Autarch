@@ -54,8 +54,8 @@ type ResearchProvider interface {
 	PublishInsight(ctx context.Context, specID string, finding ResearchFinding) (string, error)
 	LinkInsight(ctx context.Context, insightID, specID string) error
 	FetchLinkedInsights(ctx context.Context, specID string) ([]ResearchFinding, error)
-	StartDeepScan(ctx context.Context, specID string) (string, error)     // returns scan job ID
-	CheckDeepScan(ctx context.Context, scanID string) (bool, error)       // returns true when done
+	StartDeepScan(ctx context.Context, specID string) (string, error)                                      // returns scan job ID
+	CheckDeepScan(ctx context.Context, scanID string) (bool, error)                                        // returns true when done
 	RunTargetedScan(ctx context.Context, specID string, hunters []string, mode string, query string) error // phase-specific research
 }
 

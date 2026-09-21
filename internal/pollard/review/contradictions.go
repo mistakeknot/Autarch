@@ -203,13 +203,13 @@ func areContradictory(a, b findingClaim) bool {
 
 	// Check for opposite comparatives
 	opposites := map[string]string{
-		"better than":  "worse than",
-		"faster than":  "slower than",
-		"more than":    "less than",
-		"always":       "never",
-		"must":         "cannot",
-		"possible":     "impossible",
-		"guaranteed":   "never",
+		"better than": "worse than",
+		"faster than": "slower than",
+		"more than":   "less than",
+		"always":      "never",
+		"must":        "cannot",
+		"possible":    "impossible",
+		"guaranteed":  "never",
 	}
 
 	if opposite, ok := opposites[a.predicate]; ok && opposite == b.predicate {

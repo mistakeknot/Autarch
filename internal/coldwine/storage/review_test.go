@@ -3,11 +3,11 @@ package storage
 import "testing"
 
 func TestReviewQueueAdd(t *testing.T) {
-    db, err := OpenTemp()
-    if err != nil {
-        t.Fatal(err)
-    }
-    defer db.Close()
+	db, err := OpenTemp()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
 	if err := Migrate(db); err != nil {
 		t.Fatal(err)
 	}
@@ -17,13 +17,13 @@ func TestReviewQueueAdd(t *testing.T) {
 	if err := AddToReviewQueue(db, "TAND-001"); err != nil {
 		t.Fatal(err)
 	}
-    ids, err := ListReviewQueue(db)
-    if err != nil {
-        t.Fatal(err)
-    }
-    if len(ids) != 1 {
-        t.Fatal("expected 1")
-    }
+	ids, err := ListReviewQueue(db)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(ids) != 1 {
+		t.Fatal("expected 1")
+	}
 }
 
 func TestRejectTaskRequeues(t *testing.T) {

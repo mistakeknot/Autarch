@@ -275,8 +275,8 @@ func (s *LocalSource) hasTable(db *sql.DB, table string) bool {
 // Parses PRD's RFC3339 timestamps instead of using time.Now().
 func mapPRDToSpec(prd *specs.PRD) autarch.Spec {
 	spec := autarch.Spec{
-		ID:    prd.Version, // Synthetic ID from version slug (e.g. "mvp", "v1")
-		Title: prd.Title,
+		ID:     prd.Version, // Synthetic ID from version slug (e.g. "mvp", "v1")
+		Title:  prd.Title,
 		Status: mapPRDStatusToSpecStatus(prd.Status),
 	}
 

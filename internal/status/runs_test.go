@@ -13,9 +13,9 @@ func TestRenderProgressBar(t *testing.T) {
 		barWidth int
 		wantFill int // approximate filled chars
 	}{
-		{"brainstorm", 8, 1},   // 1/5 = 1.6
-		{"planned", 8, 4},     // 3/5 = 4.8
-		{"done", 8, 8},        // 5/5 = 8
+		{"brainstorm", 8, 1}, // 1/5 = 1.6
+		{"planned", 8, 4},    // 3/5 = 4.8
+		{"done", 8, 8},       // 5/5 = 8
 	}
 
 	for _, tt := range tests {

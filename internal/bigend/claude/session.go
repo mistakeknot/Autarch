@@ -40,10 +40,10 @@ type SessionInfo struct {
 
 // Session info cache
 var (
-	sessionCacheMu    sync.RWMutex
-	sessionCache      = make(map[string]*SessionInfo) // projectPath -> SessionInfo
-	sessionCacheTime  time.Time
-	sessionCacheTTL   = 30 * time.Second
+	sessionCacheMu   sync.RWMutex
+	sessionCache     = make(map[string]*SessionInfo) // projectPath -> SessionInfo
+	sessionCacheTime time.Time
+	sessionCacheTTL  = 30 * time.Second
 )
 
 // GetClaudeConfigDir returns the Claude configuration directory

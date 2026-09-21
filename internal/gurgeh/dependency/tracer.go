@@ -23,11 +23,11 @@ const (
 type DependencyType string
 
 const (
-	DepTypeExternal DependencyType = "external"  // Third-party APIs
-	DepTypeInternal DependencyType = "internal"  // Internal services
-	DepTypeLibrary  DependencyType = "library"   // Package dependencies
-	DepTypeData     DependencyType = "data"      // Database/storage
-	DepTypeNetwork  DependencyType = "network"   // Network/infra
+	DepTypeExternal DependencyType = "external" // Third-party APIs
+	DepTypeInternal DependencyType = "internal" // Internal services
+	DepTypeLibrary  DependencyType = "library"  // Package dependencies
+	DepTypeData     DependencyType = "data"     // Database/storage
+	DepTypeNetwork  DependencyType = "network"  // Network/infra
 )
 
 // Dependency represents a single technical dependency
@@ -35,7 +35,7 @@ type Dependency struct {
 	Name        string         `yaml:"name" json:"name"`
 	Type        DependencyType `yaml:"type" json:"type"`
 	Description string         `yaml:"description" json:"description"`
-	Critical    bool           `yaml:"critical" json:"critical"`    // Is this on the critical path?
+	Critical    bool           `yaml:"critical" json:"critical"`           // Is this on the critical path?
 	SLA         string         `yaml:"sla,omitempty" json:"sla,omitempty"` // Expected availability
 }
 
@@ -49,19 +49,19 @@ type DependencyRisk struct {
 
 // LicenseIssue represents a potential license compatibility problem
 type LicenseIssue struct {
-	Package   string `yaml:"package" json:"package"`
-	License   string `yaml:"license" json:"license"`
-	Concern   string `yaml:"concern" json:"concern"`
+	Package string `yaml:"package" json:"package"`
+	License string `yaml:"license" json:"license"`
+	Concern string `yaml:"concern" json:"concern"`
 }
 
 // DependencyMap represents the full dependency analysis
 type DependencyMap struct {
-	SpecID         string            `yaml:"spec_id" json:"spec_id"`
-	Dependencies   []Dependency      `yaml:"dependencies" json:"dependencies"`
-	Risks          []DependencyRisk  `yaml:"risks" json:"risks"`
-	LicenseIssues  []LicenseIssue    `yaml:"license_issues" json:"license_issues"`
-	CriticalPath   []string          `yaml:"critical_path" json:"critical_path"`
-	OverallRisk    RiskLevel         `yaml:"overall_risk" json:"overall_risk"`
+	SpecID          string           `yaml:"spec_id" json:"spec_id"`
+	Dependencies    []Dependency     `yaml:"dependencies" json:"dependencies"`
+	Risks           []DependencyRisk `yaml:"risks" json:"risks"`
+	LicenseIssues   []LicenseIssue   `yaml:"license_issues" json:"license_issues"`
+	CriticalPath    []string         `yaml:"critical_path" json:"critical_path"`
+	OverallRisk     RiskLevel        `yaml:"overall_risk" json:"overall_risk"`
 	Recommendations []string         `yaml:"recommendations" json:"recommendations"`
 }
 
@@ -127,18 +127,18 @@ func (t *Tracer) extractDependencies(spec *specs.Spec) []Dependency {
 
 	// External API patterns
 	apiPatterns := map[string]string{
-		"stripe":       "Payment processing via Stripe API",
-		"twilio":       "SMS/communication via Twilio",
-		"sendgrid":     "Email delivery via SendGrid",
-		"aws":          "AWS cloud services",
-		"gcp":          "Google Cloud Platform services",
-		"azure":        "Microsoft Azure services",
-		"oauth":        "OAuth authentication provider",
-		"github api":   "GitHub API integration",
-		"slack":        "Slack integration",
-		"firebase":     "Firebase services",
-		"openai":       "OpenAI API integration",
-		"anthropic":    "Anthropic API integration",
+		"stripe":     "Payment processing via Stripe API",
+		"twilio":     "SMS/communication via Twilio",
+		"sendgrid":   "Email delivery via SendGrid",
+		"aws":        "AWS cloud services",
+		"gcp":        "Google Cloud Platform services",
+		"azure":      "Microsoft Azure services",
+		"oauth":      "OAuth authentication provider",
+		"github api": "GitHub API integration",
+		"slack":      "Slack integration",
+		"firebase":   "Firebase services",
+		"openai":     "OpenAI API integration",
+		"anthropic":  "Anthropic API integration",
 	}
 
 	for pattern, desc := range apiPatterns {
@@ -154,13 +154,13 @@ func (t *Tracer) extractDependencies(spec *specs.Spec) []Dependency {
 
 	// Database patterns
 	dbPatterns := map[string]string{
-		"postgres":    "PostgreSQL database",
-		"postgresql":  "PostgreSQL database",
-		"mysql":       "MySQL database",
-		"mongodb":     "MongoDB database",
-		"redis":       "Redis cache/database",
+		"postgres":      "PostgreSQL database",
+		"postgresql":    "PostgreSQL database",
+		"mysql":         "MySQL database",
+		"mongodb":       "MongoDB database",
+		"redis":         "Redis cache/database",
 		"elasticsearch": "Elasticsearch search engine",
-		"sqlite":      "SQLite database",
+		"sqlite":        "SQLite database",
 	}
 
 	for pattern, desc := range dbPatterns {

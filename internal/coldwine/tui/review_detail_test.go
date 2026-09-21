@@ -9,11 +9,11 @@ func TestReviewDetailRenderIncludesSummary(t *testing.T) {
 	m := NewModel()
 	m.ViewMode = ViewReview
 	m.Review.Detail = ReviewDetail{
-		TaskID:    "T1",
-		Title:     "Example",
-		Summary:   "Did the thing.",
-		TestsSummary: "PASS 8/8",
-		Files:     []ReviewFile{{Path: "src/app.go", Added: 10, Deleted: 2}},
+		TaskID:             "T1",
+		Title:              "Example",
+		Summary:            "Did the thing.",
+		TestsSummary:       "PASS 8/8",
+		Files:              []ReviewFile{{Path: "src/app.go", Added: 10, Deleted: 2}},
 		AcceptanceCriteria: []string{"First", "Second"},
 	}
 	out := m.View()

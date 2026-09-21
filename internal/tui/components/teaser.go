@@ -129,7 +129,7 @@ func (t *Teaser) View() string {
 	borderStyle := lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
 		BorderForeground(pkgtui.ColorMuted).
-		Width(width - 2).
+		Width(width-2).
 		Padding(0, 1)
 
 	if !t.HasFindings() {

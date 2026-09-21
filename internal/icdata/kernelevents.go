@@ -52,18 +52,18 @@ func (e KernelEvent) String() string {
 }
 
 var kernelEventMap = map[string]KernelEvent{
-	"phase.advance":       EventPhaseAdvance,
-	"phase.rollback":      EventPhaseRollback,
-	"gate.check":          EventGateCheck,
-	"gate.passed":         EventGatePassed,
-	"gate.failed":         EventGateFailed,
-	"dispatch.spawned":    EventDispatchSpawned,
-	"dispatch.completed":  EventDispatchCompleted,
-	"dispatch.failed":     EventDispatchFailed,
-	"dispatch.cancelled":  EventDispatchCancelled,
-	"artifact.added":      EventArtifactAdded,
-	"tokens.recorded":     EventTokensRecorded,
-	"budget.exceeded":     EventBudgetExceeded,
+	"phase.advance":      EventPhaseAdvance,
+	"phase.rollback":     EventPhaseRollback,
+	"gate.check":         EventGateCheck,
+	"gate.passed":        EventGatePassed,
+	"gate.failed":        EventGateFailed,
+	"dispatch.spawned":   EventDispatchSpawned,
+	"dispatch.completed": EventDispatchCompleted,
+	"dispatch.failed":    EventDispatchFailed,
+	"dispatch.cancelled": EventDispatchCancelled,
+	"artifact.added":     EventArtifactAdded,
+	"tokens.recorded":    EventTokensRecorded,
+	"budget.exceeded":    EventBudgetExceeded,
 }
 
 // ParseKernelEvent converts a string to a KernelEvent. Returns EventUnknown for unrecognized strings.

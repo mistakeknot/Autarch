@@ -1,18 +1,18 @@
 package commands
 
 import (
-    "testing"
+	"testing"
 
-    "github.com/mistakeknot/autarch/internal/coldwine/specs"
+	"github.com/mistakeknot/autarch/internal/coldwine/specs"
 )
 
 func TestSummariesToCounts(t *testing.T) {
-    counts := summariesToCounts([]specs.SpecSummary{
-        {Status: "ready"},
-        {Status: "draft"},
-        {Status: ""},
-    })
-    if counts["ready"] != 1 || counts["draft"] != 1 || counts["unknown"] != 1 {
-        t.Fatalf("unexpected counts: %v", counts)
-    }
+	counts := summariesToCounts([]specs.SpecSummary{
+		{Status: "ready"},
+		{Status: "draft"},
+		{Status: ""},
+	})
+	if counts["ready"] != 1 || counts["draft"] != 1 || counts["unknown"] != 1 {
+		t.Fatalf("unexpected counts: %v", counts)
+	}
 }

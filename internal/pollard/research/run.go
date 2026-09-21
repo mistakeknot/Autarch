@@ -20,11 +20,11 @@ type Run struct {
 	Context   context.Context
 	Cancel    context.CancelFunc
 
-	mu       sync.RWMutex
-	updates  []Update
-	hunters  map[string]HunterStatus
-	done     bool
-	doneAt   time.Time
+	mu      sync.RWMutex
+	updates []Update
+	hunters map[string]HunterStatus
+	done    bool
+	doneAt  time.Time
 }
 
 // HunterStatus tracks the state of a single hunter within a run.
@@ -51,21 +51,21 @@ const (
 // Update represents a scoped research finding for a specific topic.
 // Updates include the RunID to prevent stale data from affecting UI.
 type Update struct {
-	RunID      string    // Must match active run
-	HunterName string    // Which hunter produced this
-	TopicKey   string    // e.g., "platform", "sync", "auth"
+	RunID      string // Must match active run
+	HunterName string // Which hunter produced this
+	TopicKey   string // e.g., "platform", "sync", "auth"
 	Findings   []Finding
 	Timestamp  time.Time
 }
 
 // Finding represents a single research insight.
 type Finding struct {
-	ID          string   // Stable InsightID for later reference
+	ID          string // Stable InsightID for later reference
 	Title       string
 	Summary     string
-	Source      string   // URL or reference
-	SourceType  string   // github, arxiv, hackernews, etc.
-	Relevance   float64  // 0.0-1.0 score
+	Source      string  // URL or reference
+	SourceType  string  // github, arxiv, hackernews, etc.
+	Relevance   float64 // 0.0-1.0 score
 	Tags        []string
 	CollectedAt time.Time
 }

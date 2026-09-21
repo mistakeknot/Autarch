@@ -10,9 +10,9 @@ import (
 
 // RankingInput assembles all context for the ranking agent.
 type RankingInput struct {
-	Spec      *specs.Spec
-	Signals   []signals.Signal
-	Research  []ResearchSummary
+	Spec     *specs.Spec
+	Signals  []signals.Signal
+	Research []ResearchSummary
 }
 
 // ResearchSummary is a condensed research finding for the ranking prompt.
@@ -25,12 +25,12 @@ type ResearchSummary struct {
 
 // RankedItem is a single feature recommendation with reasoning.
 type RankedItem struct {
-	FeatureID  string  `json:"feature_id"`
-	Title      string  `json:"title"`
-	Rank       int     `json:"rank"`
-	Reasoning  string  `json:"reasoning"`   // 2-3 sentences from agent
-	Signals    []string `json:"signals"`     // signal IDs that influenced
-	Confidence float64 `json:"confidence"`
+	FeatureID  string   `json:"feature_id"`
+	Title      string   `json:"title"`
+	Rank       int      `json:"rank"`
+	Reasoning  string   `json:"reasoning"` // 2-3 sentences from agent
+	Signals    []string `json:"signals"`   // signal IDs that influenced
+	Confidence float64  `json:"confidence"`
 }
 
 // RankingResult holds the complete output from the ranking agent.

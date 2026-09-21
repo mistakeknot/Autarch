@@ -5,8 +5,8 @@ import (
 
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
-	sharedtui "github.com/mistakeknot/autarch/pkg/tui"
 	"github.com/mistakeknot/autarch/internal/gurgeh/specs"
+	sharedtui "github.com/mistakeknot/autarch/pkg/tui"
 )
 
 type SearchOverlay struct {

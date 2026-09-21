@@ -127,10 +127,10 @@ type stubView struct {
 	focused     bool
 }
 
-func (s *stubView) Init() tea.Cmd                        { return nil }
-func (s *stubView) Update(tea.Msg) (tui.View, tea.Cmd)   { return s, nil }
-func (s *stubView) View() string                         { return s.viewContent }
-func (s *stubView) Focus() tea.Cmd                       { s.focused = true; return nil }
-func (s *stubView) Blur()                                { s.focused = false }
-func (s *stubView) Name() string                         { return s.name }
-func (s *stubView) ShortHelp() string                    { return "" }
+func (s *stubView) Init() tea.Cmd                      { return nil }
+func (s *stubView) Update(tea.Msg) (tui.View, tea.Cmd) { return s, nil }
+func (s *stubView) View() string                       { return s.viewContent }
+func (s *stubView) Focus() tea.Cmd                     { s.focused = true; return nil }
+func (s *stubView) Blur()                              { s.focused = false }
+func (s *stubView) Name() string                       { return s.name }
+func (s *stubView) ShortHelp() string                  { return "" }

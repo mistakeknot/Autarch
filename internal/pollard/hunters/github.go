@@ -460,25 +460,25 @@ func slugify(s string) string {
 // GitHub API response structures
 
 type gitHubSearchResponse struct {
-	TotalCount        int                 `json:"total_count"`
-	IncompleteResults bool                `json:"incomplete_results"`
-	Items             []gitHubRepoResult  `json:"items"`
+	TotalCount        int                `json:"total_count"`
+	IncompleteResults bool               `json:"incomplete_results"`
+	Items             []gitHubRepoResult `json:"items"`
 }
 
 type gitHubRepoResult struct {
-	ID              int              `json:"id"`
-	Name            string           `json:"name"`
-	FullName        string           `json:"full_name"`
-	Owner           gitHubOwner      `json:"owner"`
-	Description     string           `json:"description"`
-	HTMLURL         string           `json:"html_url"`
-	StargazersCount int              `json:"stargazers_count"`
-	Language        string           `json:"language"`
-	Topics          []string         `json:"topics"`
-	UpdatedAt       string           `json:"updated_at"`
-	PushedAt        string           `json:"pushed_at"`
-	Fork            bool             `json:"fork"`
-	Archived        bool             `json:"archived"`
+	ID              int         `json:"id"`
+	Name            string      `json:"name"`
+	FullName        string      `json:"full_name"`
+	Owner           gitHubOwner `json:"owner"`
+	Description     string      `json:"description"`
+	HTMLURL         string      `json:"html_url"`
+	StargazersCount int         `json:"stargazers_count"`
+	Language        string      `json:"language"`
+	Topics          []string    `json:"topics"`
+	UpdatedAt       string      `json:"updated_at"`
+	PushedAt        string      `json:"pushed_at"`
+	Fork            bool        `json:"fork"`
+	Archived        bool        `json:"archived"`
 }
 
 type gitHubOwner struct {

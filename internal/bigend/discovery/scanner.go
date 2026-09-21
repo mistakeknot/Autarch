@@ -12,18 +12,18 @@ import (
 
 // Project represents a discovered project with tooling
 type Project struct {
-	Path            string             `json:"path"`
-	Name            string             `json:"name"`
-	HasGurgeh       bool               `json:"has_gurgeh"`
-	HasColdwine     bool               `json:"has_coldwine"`
-	HasPollard      bool               `json:"has_pollard"`
-	HasAgentMail    bool               `json:"has_agent_mail"`
-	HasIntercore    bool               `json:"has_intercore"`
-	HasInterspect   bool               `json:"has_interspect"`
-	TaskStats       *TaskStats         `json:"task_stats,omitempty"`
-	PollardStats    *PollardStats      `json:"pollard_stats,omitempty"`
-	GurgStats       *GurgStats         `json:"gurg_stats,omitempty"`
-	InterspectStats *InterspectStats   `json:"interspect_stats,omitempty"`
+	Path            string           `json:"path"`
+	Name            string           `json:"name"`
+	HasGurgeh       bool             `json:"has_gurgeh"`
+	HasColdwine     bool             `json:"has_coldwine"`
+	HasPollard      bool             `json:"has_pollard"`
+	HasAgentMail    bool             `json:"has_agent_mail"`
+	HasIntercore    bool             `json:"has_intercore"`
+	HasInterspect   bool             `json:"has_interspect"`
+	TaskStats       *TaskStats       `json:"task_stats,omitempty"`
+	PollardStats    *PollardStats    `json:"pollard_stats,omitempty"`
+	GurgStats       *GurgStats       `json:"gurg_stats,omitempty"`
+	InterspectStats *InterspectStats `json:"interspect_stats,omitempty"`
 }
 
 // InterspectStats holds profiler evidence statistics
@@ -37,9 +37,9 @@ type InterspectStats struct {
 
 // PollardStats holds research data statistics
 type PollardStats struct {
-	Sources    int `json:"sources"`
-	Insights   int `json:"insights"`
-	Reports    int `json:"reports"`
+	Sources    int    `json:"sources"`
+	Insights   int    `json:"insights"`
+	Reports    int    `json:"reports"`
 	LastReport string `json:"last_report,omitempty"`
 }
 

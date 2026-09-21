@@ -10,16 +10,16 @@ import (
 
 // TaskProposal represents a proposed task within an epic.
 type TaskProposal struct {
-	ID          string   `yaml:"id"`
-	EpicID      string   `yaml:"epic_id"`
-	StoryID     string   `yaml:"story_id,omitempty"`
-	Title       string   `yaml:"title"`
-	Description string   `yaml:"description"`
-	Type        TaskType `yaml:"type"`
-	Priority    epics.Priority `yaml:"priority"`
-	Dependencies []string `yaml:"dependencies,omitempty"`
-	Ready       bool     `yaml:"-"` // Computed: no blockers
-	Edited      bool     `yaml:"-"` // User has modified
+	ID           string         `yaml:"id"`
+	EpicID       string         `yaml:"epic_id"`
+	StoryID      string         `yaml:"story_id,omitempty"`
+	Title        string         `yaml:"title"`
+	Description  string         `yaml:"description"`
+	Type         TaskType       `yaml:"type"`
+	Priority     epics.Priority `yaml:"priority"`
+	Dependencies []string       `yaml:"dependencies,omitempty"`
+	Ready        bool           `yaml:"-"` // Computed: no blockers
+	Edited       bool           `yaml:"-"` // User has modified
 }
 
 // TaskType categorizes tasks.

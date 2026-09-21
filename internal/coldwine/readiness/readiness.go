@@ -24,9 +24,9 @@ const (
 type Priority string
 
 const (
-	PriorityRequired  Priority = "required"  // Must be done before release
+	PriorityRequired    Priority = "required"    // Must be done before release
 	PriorityRecommended Priority = "recommended" // Strongly suggested
-	PriorityOptional   Priority = "optional"  // Nice to have
+	PriorityOptional    Priority = "optional"    // Nice to have
 )
 
 // FeatureFlagConfig defines feature flag requirements
@@ -47,28 +47,28 @@ type MonitoringConfig struct {
 
 // LoggingStrategy defines logging requirements
 type LoggingStrategy struct {
-	Level       string   `yaml:"level" json:"level"` // debug, info, warn, error
-	Events      []string `yaml:"events" json:"events"`
-	Structured  bool     `yaml:"structured" json:"structured"`
-	Redactions  []string `yaml:"redactions,omitempty" json:"redactions,omitempty"` // Fields to redact
+	Level      string   `yaml:"level" json:"level"` // debug, info, warn, error
+	Events     []string `yaml:"events" json:"events"`
+	Structured bool     `yaml:"structured" json:"structured"`
+	Redactions []string `yaml:"redactions,omitempty" json:"redactions,omitempty"` // Fields to redact
 }
 
 // RollbackPlan defines rollback procedures
 type RollbackPlan struct {
-	Strategy    string   `yaml:"strategy" json:"strategy"` // feature_flag, code_revert, data_restore
-	Steps       []string `yaml:"steps" json:"steps"`
-	Timeframe   string   `yaml:"timeframe" json:"timeframe"` // e.g., "within 5 minutes"
-	DataBackup  bool     `yaml:"data_backup" json:"data_backup"`
+	Strategy   string   `yaml:"strategy" json:"strategy"` // feature_flag, code_revert, data_restore
+	Steps      []string `yaml:"steps" json:"steps"`
+	Timeframe  string   `yaml:"timeframe" json:"timeframe"` // e.g., "within 5 minutes"
+	DataBackup bool     `yaml:"data_backup" json:"data_backup"`
 }
 
 // MigrationStep defines a migration requirement
 type MigrationStep struct {
-	Order        int    `yaml:"order" json:"order"`
-	Description  string `yaml:"description" json:"description"`
-	PreDeploy    bool   `yaml:"pre_deploy" json:"pre_deploy"`   // Run before code deploy
-	PostDeploy   bool   `yaml:"post_deploy" json:"post_deploy"` // Run after code deploy
-	Reversible   bool   `yaml:"reversible" json:"reversible"`
-	RiskLevel    string `yaml:"risk_level" json:"risk_level"` // low, medium, high
+	Order       int    `yaml:"order" json:"order"`
+	Description string `yaml:"description" json:"description"`
+	PreDeploy   bool   `yaml:"pre_deploy" json:"pre_deploy"`   // Run before code deploy
+	PostDeploy  bool   `yaml:"post_deploy" json:"post_deploy"` // Run after code deploy
+	Reversible  bool   `yaml:"reversible" json:"reversible"`
+	RiskLevel   string `yaml:"risk_level" json:"risk_level"` // low, medium, high
 }
 
 // EnvVarRequirement defines required environment variables
@@ -82,8 +82,8 @@ type EnvVarRequirement struct {
 
 // DocRequirement defines documentation requirements
 type DocRequirement struct {
-	Type        string `yaml:"type" json:"type"` // api, user, admin, runbook
-	Description string `yaml:"description" json:"description"`
+	Type        string   `yaml:"type" json:"type"` // api, user, admin, runbook
+	Description string   `yaml:"description" json:"description"`
 	Priority    Priority `yaml:"priority" json:"priority"`
 }
 

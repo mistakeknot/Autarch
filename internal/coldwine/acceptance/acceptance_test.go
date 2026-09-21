@@ -61,9 +61,9 @@ func TestValidate(t *testing.T) {
 	gen := NewGenerator()
 
 	tests := []struct {
-		name      string
-		criterion Criterion
-		wantValid bool
+		name       string
+		criterion  Criterion
+		wantValid  bool
 		wantErrors int
 	}{
 		{

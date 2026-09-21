@@ -22,10 +22,10 @@ func NewSyncer(client *autarch.Client) *Syncer {
 
 // SyncResult summarizes the outcome of a sync operation.
 type SyncResult struct {
-	Pushed   int // items successfully pushed
-	Pulled   int // items successfully pulled
-	Errors   []error
-	Skipped  int // items unchanged
+	Pushed  int // items successfully pushed
+	Pulled  int // items successfully pulled
+	Errors  []error
+	Skipped int // items unchanged
 }
 
 // PushEpics pushes local epics to Intermute. Uses upsert: create if missing, update if exists.

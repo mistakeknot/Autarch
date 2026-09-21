@@ -30,11 +30,11 @@ func newFakeProcess(pid int) *fakeProcess {
 	}
 }
 
-func (p *fakeProcess) Pid() int               { return p.pid }
-func (p *fakeProcess) Stdout() <-chan string  { return p.stdout }
-func (p *fakeProcess) Stderr() <-chan string  { return p.stderr }
-func (p *fakeProcess) Stop() error            { close(p.waitCh); return nil }
-func (p *fakeProcess) Wait() error            { <-p.waitCh; return nil }
+func (p *fakeProcess) Pid() int              { return p.pid }
+func (p *fakeProcess) Stdout() <-chan string { return p.stdout }
+func (p *fakeProcess) Stderr() <-chan string { return p.stderr }
+func (p *fakeProcess) Stop() error           { close(p.waitCh); return nil }
+func (p *fakeProcess) Wait() error           { <-p.waitCh; return nil }
 
 type fakeRunner struct {
 	process *fakeProcess

@@ -230,10 +230,10 @@ func TestShouldDemoteConsecutiveFailures(t *testing.T) {
 
 func TestShouldDemoteCircuitBreaker(t *testing.T) {
 	cfg := mycroft.DemotionTriggers{
-		MinSampleSize:            20,
-		ConsecutiveFailureLimit:  10,
-		T2FailureRateThreshold:   0.15,
-		T3FailureRateThreshold:   0.25,
+		MinSampleSize:           20,
+		ConsecutiveFailureLimit: 10,
+		T2FailureRateThreshold:  0.15,
+		T3FailureRateThreshold:  0.25,
 	}
 
 	// 4 failures in 20 = 20% > 15% threshold for T2.

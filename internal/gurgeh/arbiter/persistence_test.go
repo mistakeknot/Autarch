@@ -57,8 +57,8 @@ func TestSaveAndLoadSprintState_ModelOverrides(t *testing.T) {
 	state := NewSprintState(tmpDir)
 	state.ID = "MODEL-001"
 	state.ModelOverrides = map[Phase]string{
-		PhaseVision:             "claude-sonnet-4-5-20250929",
-		PhaseScopeAssumptions:   "claude-opus-4-6",
+		PhaseVision:           "claude-sonnet-4-5-20250929",
+		PhaseScopeAssumptions: "claude-opus-4-6",
 	}
 
 	if err := SaveSprintState(state); err != nil {

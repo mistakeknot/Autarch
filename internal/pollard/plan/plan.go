@@ -24,8 +24,8 @@ type HunterPlan struct {
 
 // ScanPlanOptions contains inputs for generating a scan plan.
 type ScanPlanOptions struct {
-	Root        string
-	HunterNames []string
+	Root          string
+	HunterNames   []string
 	HunterConfigs map[string]HunterConfig
 }
 
@@ -101,9 +101,9 @@ func addEnvRecommendations(p *plan.Plan) {
 	// Check for GITHUB_TOKEN
 	if os.Getenv("GITHUB_TOKEN") == "" {
 		p.AddRecommendation(plan.Recommendation{
-			Type:     plan.TypePrereq,
-			Severity: plan.SeverityInfo,
-			Message:  "GITHUB_TOKEN not set - rate limited to 60 req/hour",
+			Type:       plan.TypePrereq,
+			Severity:   plan.SeverityInfo,
+			Message:    "GITHUB_TOKEN not set - rate limited to 60 req/hour",
 			Suggestion: "export GITHUB_TOKEN=your_token",
 		})
 	}
@@ -130,9 +130,9 @@ func addPraudeRecommendations(p *plan.Plan, root string) {
 
 // ReportPlanItems contains the items for a report plan.
 type ReportPlanItems struct {
-	ReportType     string         `json:"report_type"`
+	ReportType      string         `json:"report_type"`
 	SourcesByHunter map[string]int `json:"sources_by_hunter"`
-	TotalSources   int            `json:"total_sources"`
+	TotalSources    int            `json:"total_sources"`
 }
 
 // ReportPlanOptions contains inputs for generating a report plan.
@@ -177,9 +177,9 @@ func GenerateReportPlan(opts ReportPlanOptions) (*plan.Plan, error) {
 	// Add recommendations
 	if total == 0 {
 		p.AddRecommendation(plan.Recommendation{
-			Type:     plan.TypePrereq,
-			Severity: plan.SeverityWarning,
-			Message:  "No sources collected - run scan first",
+			Type:       plan.TypePrereq,
+			Severity:   plan.SeverityWarning,
+			Message:    "No sources collected - run scan first",
 			Suggestion: "pollard scan",
 		})
 	}
@@ -188,9 +188,9 @@ func GenerateReportPlan(opts ReportPlanOptions) (*plan.Plan, error) {
 	recent, _ := discovery.RecentPollardInsights(opts.Root, 7)
 	if len(recent) == 0 && total > 0 {
 		p.AddRecommendation(plan.Recommendation{
-			Type:     plan.TypeQuality,
-			Severity: plan.SeverityWarning,
-			Message:  "No sources from last 7 days - data may be stale",
+			Type:       plan.TypeQuality,
+			Severity:   plan.SeverityWarning,
+			Message:    "No sources from last 7 days - data may be stale",
 			Suggestion: "pollard scan to refresh",
 		})
 	}

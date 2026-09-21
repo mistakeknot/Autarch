@@ -92,10 +92,10 @@ func normalizeQuery(q string) string {
 
 // SelectionResult summarizes what was applied.
 type SelectionResult struct {
-	SelectedAgendas []string          // IDs of selected agendas
-	UpdatedHunters  map[string]int    // hunter name -> number of new queries added
-	NewHunters      []string          // hunters that were created
-	TotalQueries    int               // total new queries added
+	SelectedAgendas []string       // IDs of selected agendas
+	UpdatedHunters  map[string]int // hunter name -> number of new queries added
+	NewHunters      []string       // hunters that were created
+	TotalQueries    int            // total new queries added
 }
 
 // ApplySelectedAgendasWithResult applies agendas and returns detailed result.
@@ -134,7 +134,7 @@ func (s *AgendaSelector) ApplySelectedAgendasWithResult(selectedIDs []string, pr
 			originalCount := len(hunterCfg.Queries)
 			hunterCfg.Queries = mergeQueries(hunterCfg.Queries, agenda.Questions)
 			hunterCfg.Enabled = true
-			
+
 			newCount := len(hunterCfg.Queries) - originalCount
 			if newCount > 0 {
 				result.UpdatedHunters[hunterName] += newCount
@@ -165,41 +165,41 @@ func GetAgenda(agendas []ResearchAgenda, id string) *ResearchAgenda {
 // FormatAgendaSummary creates a human-readable summary of an agenda.
 func FormatAgendaSummary(a *ResearchAgenda) string {
 	var sb strings.Builder
-	
+
 	sb.WriteString(fmt.Sprintf("**%s** (%s priority, %s scope)\n", a.Title, a.Priority, a.EstimatedScope))
 	sb.WriteString(fmt.Sprintf("  %s\n", a.Description))
-	
+
 	if len(a.Questions) > 0 {
 		sb.WriteString("  Questions:\n")
 		for _, q := range a.Questions {
 			sb.WriteString(fmt.Sprintf("    - %s\n", q))
 		}
 	}
-	
+
 	if len(a.SuggestedHunters) > 0 {
 		sb.WriteString(fmt.Sprintf("  Hunters: %s\n", strings.Join(a.SuggestedHunters, ", ")))
 	}
-	
+
 	return sb.String()
 }
 
 // FormatSelectionResult creates a human-readable summary of the selection.
 func FormatSelectionResult(r *SelectionResult) string {
 	var sb strings.Builder
-	
+
 	sb.WriteString(fmt.Sprintf("Applied %d agenda(s)\n", len(r.SelectedAgendas)))
 	sb.WriteString(fmt.Sprintf("Added %d new queries\n", r.TotalQueries))
-	
+
 	if len(r.NewHunters) > 0 {
 		sb.WriteString(fmt.Sprintf("Created hunters: %s\n", strings.Join(r.NewHunters, ", ")))
 	}
-	
+
 	if len(r.UpdatedHunters) > 0 {
 		sb.WriteString("Updated hunters:\n")
 		for hunter, count := range r.UpdatedHunters {
 			sb.WriteString(fmt.Sprintf("  %s: +%d queries\n", hunter, count))
 		}
 	}
-	
+
 	return sb.String()
 }

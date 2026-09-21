@@ -459,9 +459,9 @@ func TestGenerateSecurityRequirements_Dedupe(t *testing.T) {
 
 	// Create a spec that would trigger multiple similar threats
 	spec := &specs.Spec{
-		ID:           "SPEC-001",
-		Title:        "Auth System",
-		Summary:      "Complete auth with login, signup, and admin roles",
+		ID:      "SPEC-001",
+		Title:   "Auth System",
+		Summary: "Complete auth with login, signup, and admin roles",
 		Requirements: []string{
 			"User can login",
 			"Admin can manage users",

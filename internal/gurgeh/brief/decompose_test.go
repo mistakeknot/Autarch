@@ -139,12 +139,12 @@ func TestExtractJSON(t *testing.T) {
 			want:  `{"briefs": []}`,
 		},
 		{
-			name: "JSON in markdown fence",
+			name:  "JSON in markdown fence",
 			input: "```json\n{\"briefs\": []}\n```",
 			want:  `{"briefs": []}`,
 		},
 		{
-			name: "JSON in plain fence",
+			name:  "JSON in plain fence",
 			input: "```\n{\"briefs\": []}\n```",
 			want:  `{"briefs": []}`,
 		},

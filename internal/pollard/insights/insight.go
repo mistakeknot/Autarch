@@ -76,18 +76,18 @@ func (i *Insight) LinkToInitiative(initiativeID, linkedBy string) {
 
 // watchCompetitorFile is the YAML schema written by the competitor watch hunter.
 type watchCompetitorFile struct {
-	Competitor   string          `yaml:"competitor"`
-	CollectedAt  time.Time       `yaml:"collected_at"`
-	ChangelogURL string          `yaml:"changelog_url"`
-	Changes      []watchChange   `yaml:"changes"`
+	Competitor   string        `yaml:"competitor"`
+	CollectedAt  time.Time     `yaml:"collected_at"`
+	ChangelogURL string        `yaml:"changelog_url"`
+	Changes      []watchChange `yaml:"changes"`
 }
 
 type watchChange struct {
-	Title          string           `yaml:"title"`
-	URL            string           `yaml:"url,omitempty"`
-	Relevance      string           `yaml:"relevance"`
-	ThreatLevel    string           `yaml:"threat_level"`
-	Recommendation *Recommendation  `yaml:"recommendation,omitempty"`
+	Title          string          `yaml:"title"`
+	URL            string          `yaml:"url,omitempty"`
+	Relevance      string          `yaml:"relevance"`
+	ThreatLevel    string          `yaml:"threat_level"`
+	Recommendation *Recommendation `yaml:"recommendation,omitempty"`
 }
 
 // watchTrendsFile is the YAML schema written by the HackerNews/trends hunter.

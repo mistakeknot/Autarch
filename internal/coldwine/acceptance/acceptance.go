@@ -11,14 +11,14 @@ import (
 
 // Criterion represents a Gherkin-style acceptance criterion
 type Criterion struct {
-	ID          string   `yaml:"id" json:"id"`                                 // AC-001
-	StoryID     string   `yaml:"story_id" json:"story_id"`                     // STORY-001
-	Given       string   `yaml:"given" json:"given"`                           // User is logged in
-	When        string   `yaml:"when" json:"when"`                             // User clicks share button
-	Then        string   `yaml:"then" json:"then"`                             // Tweet compose dialog opens
-	And         []string `yaml:"and,omitempty" json:"and,omitempty"`           // Additional conditions
-	EdgeCases   []string `yaml:"edge_cases,omitempty" json:"edge_cases,omitempty"` // Revoked token, rate limit
-	TestCommand string   `yaml:"test_command,omitempty" json:"test_command,omitempty"` // Optional: test to run
+	ID          string    `yaml:"id" json:"id"`                                         // AC-001
+	StoryID     string    `yaml:"story_id" json:"story_id"`                             // STORY-001
+	Given       string    `yaml:"given" json:"given"`                                   // User is logged in
+	When        string    `yaml:"when" json:"when"`                                     // User clicks share button
+	Then        string    `yaml:"then" json:"then"`                                     // Tweet compose dialog opens
+	And         []string  `yaml:"and,omitempty" json:"and,omitempty"`                   // Additional conditions
+	EdgeCases   []string  `yaml:"edge_cases,omitempty" json:"edge_cases,omitempty"`     // Revoked token, rate limit
+	TestCommand string    `yaml:"test_command,omitempty" json:"test_command,omitempty"` // Optional: test to run
 	CreatedAt   time.Time `yaml:"created_at" json:"created_at"`
 	UpdatedAt   time.Time `yaml:"updated_at" json:"updated_at"`
 }
@@ -303,9 +303,9 @@ type SmithRequest struct {
 
 // SmithResponse represents the response from the smith subagent
 type SmithResponse struct {
-	StoryID  string     `json:"story_id"`
+	StoryID  string      `json:"story_id"`
 	Criteria []Criterion `json:"criteria"`
-	Errors   []string   `json:"errors,omitempty"`
+	Errors   []string    `json:"errors,omitempty"`
 }
 
 // BuildSmithBrief creates a brief for the smith subagent to process

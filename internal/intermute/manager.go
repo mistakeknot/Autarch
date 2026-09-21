@@ -185,8 +185,8 @@ func (m *Manager) tryStart(ctx context.Context, dbPath string) error {
 func (m *Manager) findBinary() (string, error) {
 	// Check common locations in order
 	candidates := []string{
-		"intermute",                                    // In PATH
-		filepath.Join(m.dataDir, "bin", "intermute"),   // ~/.autarch/bin/intermute
+		"intermute", // In PATH
+		filepath.Join(m.dataDir, "bin", "intermute"), // ~/.autarch/bin/intermute
 		"/usr/local/bin/intermute",
 	}
 

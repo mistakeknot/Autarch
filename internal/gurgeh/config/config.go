@@ -9,7 +9,7 @@ import (
 )
 
 type Config struct {
-	ValidationMode string                   `toml:"validation_mode"`
+	ValidationMode string                  `toml:"validation_mode"`
 	Agents         map[string]AgentProfile `toml:"agents"`
 }
 

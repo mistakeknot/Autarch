@@ -21,7 +21,7 @@ import (
 
 // VauxhallPane implements toolpane.Pane for the Vauxhall tool
 type VauxhallPane struct {
-	agg aggregatorAPI
+	agg           aggregatorAPI
 	width         int
 	height        int
 	activeTab     Tab
@@ -65,8 +65,8 @@ func NewPane(agg aggregatorAPI) *VauxhallPane {
 	mcpList.SetFilteringEnabled(false)
 
 	return &VauxhallPane{
-		agg:       agg,
-		activeTab: TabDashboard,
+		agg:           agg,
+		activeTab:     TabDashboard,
 		sessionList:   sessionList,
 		agentList:     agentList,
 		mcpList:       mcpList,

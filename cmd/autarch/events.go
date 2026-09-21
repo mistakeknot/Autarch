@@ -21,14 +21,14 @@ func eventsCmd() *cobra.Command {
 
 func eventsQueryCmd() *cobra.Command {
 	var (
-		eventTypes []string
+		eventTypes  []string
 		entityTypes []string
 		sourceTools []string
-		sinceStr string
-		untilStr string
-		limit int
+		sinceStr    string
+		untilStr    string
+		limit       int
 		projectPath string
-		eventsDB string
+		eventsDB    string
 	)
 
 	cmd := &cobra.Command{
@@ -102,7 +102,7 @@ func eventsQueryCmd() *cobra.Command {
 func eventsSinceCmd() *cobra.Command {
 	var (
 		projectPath string
-		eventsDB string
+		eventsDB    string
 	)
 
 	cmd := &cobra.Command{

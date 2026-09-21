@@ -17,15 +17,15 @@ type GeneratorInput struct {
 
 // EpicProposal represents a proposed epic with estimates.
 type EpicProposal struct {
-	ID           string   `yaml:"id"`
-	Title        string   `yaml:"title"`
-	Description  string   `yaml:"description"`
-	Size         Size     `yaml:"size"` // S, M, L
-	Priority     Priority `yaml:"priority"`
-	Dependencies []string `yaml:"dependencies,omitempty"`
-	TaskCount    int      `yaml:"task_count"`
+	ID           string          `yaml:"id"`
+	Title        string          `yaml:"title"`
+	Description  string          `yaml:"description"`
+	Size         Size            `yaml:"size"` // S, M, L
+	Priority     Priority        `yaml:"priority"`
+	Dependencies []string        `yaml:"dependencies,omitempty"`
+	TaskCount    int             `yaml:"task_count"`
 	Stories      []StoryProposal `yaml:"stories,omitempty"`
-	Edited       bool     `yaml:"-"` // User has modified
+	Edited       bool            `yaml:"-"` // User has modified
 }
 
 // StoryProposal represents a proposed story within an epic.
@@ -101,13 +101,13 @@ func (g *Generator) groupRequirements(requirements []string) map[string][]string
 func (g *Generator) categorizeRequirement(req string) string {
 	categories := map[string][]string{
 		"Authentication & Security": {"auth", "login", "password", "security", "permission", "role", "user"},
-		"Data Management":          {"database", "storage", "data", "persist", "save", "load", "import", "export"},
-		"User Interface":           {"ui", "interface", "display", "view", "screen", "layout", "design", "style"},
-		"API & Integration":        {"api", "endpoint", "rest", "graphql", "integrate", "connect", "webhook"},
-		"Core Features":            {"feature", "function", "ability", "support", "enable", "process"},
-		"Performance & Scaling":    {"performance", "scale", "cache", "optimize", "speed", "fast"},
-		"Testing & Quality":        {"test", "quality", "validate", "verify", "check"},
-		"Infrastructure":           {"deploy", "server", "cloud", "infrastructure", "ci", "cd"},
+		"Data Management":           {"database", "storage", "data", "persist", "save", "load", "import", "export"},
+		"User Interface":            {"ui", "interface", "display", "view", "screen", "layout", "design", "style"},
+		"API & Integration":         {"api", "endpoint", "rest", "graphql", "integrate", "connect", "webhook"},
+		"Core Features":             {"feature", "function", "ability", "support", "enable", "process"},
+		"Performance & Scaling":     {"performance", "scale", "cache", "optimize", "speed", "fast"},
+		"Testing & Quality":         {"test", "quality", "validate", "verify", "check"},
+		"Infrastructure":            {"deploy", "server", "cloud", "infrastructure", "ci", "cd"},
 	}
 
 	for category, keywords := range categories {

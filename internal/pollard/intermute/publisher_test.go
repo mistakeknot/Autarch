@@ -11,7 +11,7 @@ import (
 
 // mockInsightClient implements InsightCreator for testing
 type mockInsightClient struct {
-	insights []intermute.Insight
+	insights  []intermute.Insight
 	createErr error
 }
 

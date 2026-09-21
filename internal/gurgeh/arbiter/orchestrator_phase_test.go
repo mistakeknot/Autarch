@@ -26,8 +26,8 @@ func TestFullSprintWalkAllPhases(t *testing.T) {
 		arbiter.PhaseProblem,
 		arbiter.PhaseUsers,
 		arbiter.PhaseFeaturesGoals,
-		arbiter.PhaseCUJs,             // User journeys flow from users + features
-		arbiter.PhaseRequirements,     // Requirements derived from CUJs
+		arbiter.PhaseCUJs,         // User journeys flow from users + features
+		arbiter.PhaseRequirements, // Requirements derived from CUJs
 		arbiter.PhaseScopeAssumptions,
 		arbiter.PhaseAcceptanceCriteria,
 	}

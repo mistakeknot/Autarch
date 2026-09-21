@@ -52,11 +52,11 @@ type TaskmasterMetadata struct {
 
 // ConfigFile represents the config.yml structure
 type ConfigFile struct {
-	Project      ProjectConfig      `yaml:"project"`
-	Workflow     WorkflowConfig     `yaml:"workflow"`
-	Network      NetworkConfig      `yaml:"network"`
+	Project       ProjectConfig       `yaml:"project"`
+	Workflow      WorkflowConfig      `yaml:"workflow"`
+	Network       NetworkConfig       `yaml:"network"`
 	Observability ObservabilityConfig `yaml:"observability"`
-	Features     FeaturesConfig     `yaml:"features"`
+	Features      FeaturesConfig      `yaml:"features"`
 }
 
 // ProjectConfig contains project settings
@@ -84,16 +84,16 @@ type AgentTemplates struct {
 
 // AgentTemplate defines how to launch an agent
 type AgentTemplate struct {
-	ID                   string     `yaml:"id"`
-	Name                 string     `yaml:"name"`
-	Description          string     `yaml:"description"`
-	Command              string     `yaml:"command"`
-	Args                 []string   `yaml:"args,omitempty"`
-	WorkingDirectory     string     `yaml:"workingDirectory,omitempty"`
-	Env                  []EnvVar   `yaml:"env,omitempty"`
-	MetadataMode         string     `yaml:"metadataMode,omitempty"`
-	MetadataFilename     string     `yaml:"metadataFilename,omitempty"`
-	RequiresConfirmation bool       `yaml:"requiresConfirmation"`
+	ID                   string   `yaml:"id"`
+	Name                 string   `yaml:"name"`
+	Description          string   `yaml:"description"`
+	Command              string   `yaml:"command"`
+	Args                 []string `yaml:"args,omitempty"`
+	WorkingDirectory     string   `yaml:"workingDirectory,omitempty"`
+	Env                  []EnvVar `yaml:"env,omitempty"`
+	MetadataMode         string   `yaml:"metadataMode,omitempty"`
+	MetadataFilename     string   `yaml:"metadataFilename,omitempty"`
+	RequiresConfirmation bool     `yaml:"requiresConfirmation"`
 }
 
 // EnvVar represents an environment variable

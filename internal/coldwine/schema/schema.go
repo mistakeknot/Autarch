@@ -15,10 +15,10 @@ import (
 type NormalizationForm string
 
 const (
-	Form1NF   NormalizationForm = "1NF" // First Normal Form
-	Form2NF   NormalizationForm = "2NF" // Second Normal Form
-	Form3NF   NormalizationForm = "3NF" // Third Normal Form
-	FormBCNF  NormalizationForm = "BCNF" // Boyce-Codd Normal Form
+	Form1NF    NormalizationForm = "1NF"          // First Normal Form
+	Form2NF    NormalizationForm = "2NF"          // Second Normal Form
+	Form3NF    NormalizationForm = "3NF"          // Third Normal Form
+	FormBCNF   NormalizationForm = "BCNF"         // Boyce-Codd Normal Form
 	FormDenorm NormalizationForm = "denormalized" // Intentionally denormalized
 )
 
@@ -36,14 +36,14 @@ const (
 type PIIType string
 
 const (
-	PIIEmail       PIIType = "email"
-	PIIPhone       PIIType = "phone"
-	PIIAddress     PIIType = "address"
-	PIIName        PIIType = "name"
-	PIISSN         PIIType = "ssn"
-	PIIFinancial   PIIType = "financial"
-	PIIMedical     PIIType = "medical"
-	PIIBiometric   PIIType = "biometric"
+	PIIEmail     PIIType = "email"
+	PIIPhone     PIIType = "phone"
+	PIIAddress   PIIType = "address"
+	PIIName      PIIType = "name"
+	PIISSN       PIIType = "ssn"
+	PIIFinancial PIIType = "financial"
+	PIIMedical   PIIType = "medical"
+	PIIBiometric PIIType = "biometric"
 )
 
 // TableDefinition represents a database table structure
@@ -57,10 +57,10 @@ type TableDefinition struct {
 
 // ColumnDefinition represents a column in a table
 type ColumnDefinition struct {
-	Name        string   `yaml:"name" json:"name"`
-	Type        string   `yaml:"type" json:"type"`
-	Nullable    bool     `yaml:"nullable" json:"nullable"`
-	Description string   `yaml:"description,omitempty" json:"description,omitempty"`
+	Name        string    `yaml:"name" json:"name"`
+	Type        string    `yaml:"type" json:"type"`
+	Nullable    bool      `yaml:"nullable" json:"nullable"`
+	Description string    `yaml:"description,omitempty" json:"description,omitempty"`
 	PIITypes    []PIIType `yaml:"pii_types,omitempty" json:"pii_types,omitempty"`
 }
 
@@ -72,11 +72,11 @@ type ForeignKey struct {
 
 // IndexSuggestion suggests an index to improve query performance
 type IndexSuggestion struct {
-	TableName   string   `yaml:"table_name" json:"table_name"`
-	Columns     []string `yaml:"columns" json:"columns"`
-	IndexType   string   `yaml:"index_type" json:"index_type"` // btree, hash, gin, gist
-	Rationale   string   `yaml:"rationale" json:"rationale"`
-	Priority    ConcernSeverity `yaml:"priority" json:"priority"`
+	TableName string          `yaml:"table_name" json:"table_name"`
+	Columns   []string        `yaml:"columns" json:"columns"`
+	IndexType string          `yaml:"index_type" json:"index_type"` // btree, hash, gin, gist
+	Rationale string          `yaml:"rationale" json:"rationale"`
+	Priority  ConcernSeverity `yaml:"priority" json:"priority"`
 }
 
 // SchemaConcern represents an issue found during schema review
@@ -100,14 +100,14 @@ type MigrationStep struct {
 
 // SchemaReview contains the complete schema audit results
 type SchemaReview struct {
-	SpecID             string              `yaml:"spec_id" json:"spec_id"`
-	Tables             []TableDefinition   `yaml:"tables" json:"tables"`
-	Indexes            []IndexSuggestion   `yaml:"indexes" json:"indexes"`
-	Concerns           []SchemaConcern     `yaml:"concerns" json:"concerns"`
-	PIIFields          []string            `yaml:"pii_fields" json:"pii_fields"`
-	NormalizationLevel NormalizationForm   `yaml:"normalization_level" json:"normalization_level"`
-	Migrations         []MigrationStep     `yaml:"migrations" json:"migrations"`
-	Complexity         string              `yaml:"complexity" json:"complexity"` // simple, moderate, complex
+	SpecID             string            `yaml:"spec_id" json:"spec_id"`
+	Tables             []TableDefinition `yaml:"tables" json:"tables"`
+	Indexes            []IndexSuggestion `yaml:"indexes" json:"indexes"`
+	Concerns           []SchemaConcern   `yaml:"concerns" json:"concerns"`
+	PIIFields          []string          `yaml:"pii_fields" json:"pii_fields"`
+	NormalizationLevel NormalizationForm `yaml:"normalization_level" json:"normalization_level"`
+	Migrations         []MigrationStep   `yaml:"migrations" json:"migrations"`
+	Complexity         string            `yaml:"complexity" json:"complexity"` // simple, moderate, complex
 }
 
 // Auditor performs schema reviews on specs

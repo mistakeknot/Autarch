@@ -19,11 +19,11 @@ import (
 	"github.com/mistakeknot/autarch/internal/bigend/config"
 	"github.com/mistakeknot/autarch/internal/bigend/discovery"
 	"github.com/mistakeknot/autarch/internal/bigend/mcp"
-	autarchdb "github.com/mistakeknot/autarch/pkg/db"
 	"github.com/mistakeknot/autarch/internal/bigend/statedetect"
 	"github.com/mistakeknot/autarch/internal/bigend/tmux"
-	"github.com/mistakeknot/autarch/internal/icdata"
 	gurgSpecs "github.com/mistakeknot/autarch/internal/gurgeh/specs"
+	"github.com/mistakeknot/autarch/internal/icdata"
+	autarchdb "github.com/mistakeknot/autarch/pkg/db"
 	"github.com/mistakeknot/autarch/pkg/events"
 	"github.com/mistakeknot/autarch/pkg/intermute"
 	"github.com/mistakeknot/autarch/pkg/signals"
@@ -56,7 +56,7 @@ type TmuxSession struct {
 
 	// State detection fields (NudgeNik-style)
 	State           string               `json:"state"`            // working, waiting, blocked, stalled, done, error
-	UnifiedState    icdata.UnifiedStatus  `json:"unified_state"`   // normalized 5-state status
+	UnifiedState    icdata.UnifiedStatus `json:"unified_state"`    // normalized 5-state status
 	StateConfidence float64              `json:"state_confidence"` // 0.0-1.0 detection certainty
 	StateSource     string               `json:"state_source"`     // pattern, repetition, activity, llm
 	StateAt         time.Time            `json:"state_at"`         // when state was last detected

@@ -5,9 +5,9 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/mistakeknot/autarch/pkg/agenttargets"
-	pconfig "github.com/mistakeknot/autarch/internal/gurgeh/config"
 	vconfig "github.com/mistakeknot/autarch/internal/bigend/config"
+	pconfig "github.com/mistakeknot/autarch/internal/gurgeh/config"
+	"github.com/mistakeknot/autarch/pkg/agenttargets"
 )
 
 // Resolver finds agent commands based on config with sensible fallbacks.

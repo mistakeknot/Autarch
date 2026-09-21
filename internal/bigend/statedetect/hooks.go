@@ -22,7 +22,8 @@ type HookEvent struct {
 // HookStateReader reads agent state from hook-emitted files.
 //
 // Agent hooks (Claude Code, Codex CLI) write state events to:
-//   ~/.autarch/agent-states/{agent}-{project}.json
+//
+//	~/.autarch/agent-states/{agent}-{project}.json
 //
 // This provides authoritative state information directly from agents,
 // which is more reliable than terminal pattern matching.

@@ -243,7 +243,7 @@ type pubmedArticle struct {
 				} `xml:"Author"`
 			} `xml:"AuthorList"`
 			Journal struct {
-				Title string `xml:"Title"`
+				Title   string `xml:"Title"`
 				PubDate struct {
 					Year  string `xml:"Year"`
 					Month string `xml:"Month"`

@@ -12,40 +12,40 @@ import (
 
 // Draft represents the complete state of an in-progress onboarding flow.
 type Draft struct {
-	ProjectID   string           `json:"project_id"`
-	ProjectName string           `json:"project_name"`
-	Description string           `json:"description"`
-	CreatedAt   time.Time        `json:"created_at"`
-	UpdatedAt   time.Time        `json:"updated_at"`
-	Interview   *InterviewState  `json:"interview,omitempty"`
-	Research    *ResearchState   `json:"research,omitempty"`
-	Epics       *EpicsState      `json:"epics,omitempty"`
+	ProjectID   string          `json:"project_id"`
+	ProjectName string          `json:"project_name"`
+	Description string          `json:"description"`
+	CreatedAt   time.Time       `json:"created_at"`
+	UpdatedAt   time.Time       `json:"updated_at"`
+	Interview   *InterviewState `json:"interview,omitempty"`
+	Research    *ResearchState  `json:"research,omitempty"`
+	Epics       *EpicsState     `json:"epics,omitempty"`
 }
 
 // InterviewState captures the progress of the Gurgeh interview.
 type InterviewState struct {
-	CurrentStep int                    `json:"current_step"`
-	TotalSteps  int                    `json:"total_steps"`
-	Answers     map[string]any         `json:"answers"`
-	Questions   []QuestionState        `json:"questions"`
+	CurrentStep int             `json:"current_step"`
+	TotalSteps  int             `json:"total_steps"`
+	Answers     map[string]any  `json:"answers"`
+	Questions   []QuestionState `json:"questions"`
 }
 
 // QuestionState tracks the state of a single interview question.
 type QuestionState struct {
 	QuestionID     string `json:"question_id"`
-	TopicKey       string `json:"topic_key"` // e.g., "platform", "storage"
-	Touched        bool   `json:"touched"`   // User has interacted
+	TopicKey       string `json:"topic_key"`       // e.g., "platform", "storage"
+	Touched        bool   `json:"touched"`         // User has interacted
 	DefaultApplied bool   `json:"default_applied"` // Research default was applied
 	Answer         any    `json:"answer,omitempty"`
 }
 
 // ResearchState captures cached Pollard findings.
 type ResearchState struct {
-	RunID     string           `json:"run_id"`
-	StartedAt time.Time        `json:"started_at"`
-	Complete  bool             `json:"complete"`
-	Findings  []FindingCache   `json:"findings"`
-	Hunters   []HunterCache    `json:"hunters"`
+	RunID     string         `json:"run_id"`
+	StartedAt time.Time      `json:"started_at"`
+	Complete  bool           `json:"complete"`
+	Findings  []FindingCache `json:"findings"`
+	Hunters   []HunterCache  `json:"hunters"`
 }
 
 // FindingCache stores a research finding for persistence.

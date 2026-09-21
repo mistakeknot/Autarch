@@ -89,4 +89,3 @@ func renderPanelTitle(title string, width int) string {
 func renderComposerTitle(title string) string {
 	return sharedtui.TitleStyle.Render(title)
 }
-

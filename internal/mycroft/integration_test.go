@@ -217,9 +217,9 @@ func TestIntegration_DecisionQueueWithBadge(t *testing.T) {
 
 func TestIntegration_TierDemotionFromHistory(t *testing.T) {
 	cfg := mycroft.DemotionTriggers{
-		MinSampleSize:            5,
-		ConsecutiveFailureLimit:  3,
-		T2FailureRateThreshold:   0.15,
+		MinSampleSize:           5,
+		ConsecutiveFailureLimit: 3,
+		T2FailureRateThreshold:  0.15,
 	}
 
 	// 3 consecutive failures out of 5.

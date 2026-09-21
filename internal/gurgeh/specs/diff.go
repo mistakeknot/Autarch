@@ -7,7 +7,7 @@ import (
 
 // SpecDiff represents the differences between two spec versions.
 type SpecDiff struct {
-	SpecID     string
+	SpecID      string
 	FromVersion int
 	ToVersion   int
 	Changes     []DiffEntry

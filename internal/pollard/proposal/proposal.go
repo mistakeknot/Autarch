@@ -9,7 +9,7 @@ type ProjectContext struct {
 	Description  string            `yaml:"description,omitempty" json:"description,omitempty"`
 	Technologies []string          `yaml:"technologies,omitempty" json:"technologies,omitempty"`
 	Domain       string            `yaml:"domain,omitempty" json:"domain,omitempty"`
-	Files        map[string]string `yaml:"files" json:"files"` // filename -> content (truncated)
+	Files        map[string]string `yaml:"files" json:"files"`                 // filename -> content (truncated)
 	DetectedType string            `yaml:"detected_type" json:"detected_type"` // web, cli, library, api, monorepo
 }
 
@@ -36,7 +36,7 @@ type ProposalResult struct {
 type ProposalConfig struct {
 	MaxAgendas   int      `yaml:"max_agendas" json:"max_agendas"`
 	IncludeSrc   bool     `yaml:"include_src" json:"include_src"`
-	OutputFormat string   `yaml:"output_format" json:"output_format"` // yaml, json, markdown
+	OutputFormat string   `yaml:"output_format" json:"output_format"`         // yaml, json, markdown
 	Hunters      []string `yaml:"hunters,omitempty" json:"hunters,omitempty"` // available hunters
 }
 

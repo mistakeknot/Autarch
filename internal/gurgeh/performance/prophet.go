@@ -54,12 +54,12 @@ type ScalingConsideration struct {
 
 // PerformanceProfile represents the full performance analysis
 type PerformanceProfile struct {
-	SpecID        string                 `yaml:"spec_id" json:"spec_id"`
-	Class         PerformanceClass       `yaml:"class" json:"class"`
-	Budgets       []Budget               `yaml:"budgets" json:"budgets"`
-	Predictions   []Prediction           `yaml:"predictions" json:"predictions"`
-	Scaling       []ScalingConsideration `yaml:"scaling" json:"scaling"`
-	Monitoring    []string               `yaml:"monitoring" json:"monitoring"`
+	SpecID      string                 `yaml:"spec_id" json:"spec_id"`
+	Class       PerformanceClass       `yaml:"class" json:"class"`
+	Budgets     []Budget               `yaml:"budgets" json:"budgets"`
+	Predictions []Prediction           `yaml:"predictions" json:"predictions"`
+	Scaling     []ScalingConsideration `yaml:"scaling" json:"scaling"`
+	Monitoring  []string               `yaml:"monitoring" json:"monitoring"`
 }
 
 // Prophet analyzes specs and predicts performance characteristics

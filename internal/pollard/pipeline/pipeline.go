@@ -68,11 +68,11 @@ type ScoreOpts struct {
 
 // ScoreWeights defines the relative importance of scoring factors.
 type ScoreWeights struct {
-	Engagement float64 `yaml:"engagement"` // points, comments, stars
-	Citations  float64 `yaml:"citations"`  // academic citations
-	Recency    float64 `yaml:"recency"`    // temporal decay
+	Engagement float64 `yaml:"engagement"`  // points, comments, stars
+	Citations  float64 `yaml:"citations"`   // academic citations
+	Recency    float64 `yaml:"recency"`     // temporal decay
 	QueryMatch float64 `yaml:"query_match"` // title/content match
-	Synthesis  float64 `yaml:"synthesis"`  // agent analysis confidence
+	Synthesis  float64 `yaml:"synthesis"`   // agent analysis confidence
 }
 
 // HalfLives defines temporal decay rates for different content types.
@@ -90,23 +90,23 @@ type ScoreThresholds struct {
 
 // RawItem represents a search result before detailed fetching.
 type RawItem struct {
-	ID          string            `yaml:"id"`
-	Type        string            `yaml:"type"` // github_repo, hn_story, arxiv_paper, etc.
-	Title       string            `yaml:"title"`
-	URL         string            `yaml:"url"`
-	Metadata    map[string]any    `yaml:"metadata,omitempty"`
-	CollectedAt time.Time         `yaml:"collected_at"`
+	ID          string         `yaml:"id"`
+	Type        string         `yaml:"type"` // github_repo, hn_story, arxiv_paper, etc.
+	Title       string         `yaml:"title"`
+	URL         string         `yaml:"url"`
+	Metadata    map[string]any `yaml:"metadata,omitempty"`
+	CollectedAt time.Time      `yaml:"collected_at"`
 }
 
 // FetchedItem includes content retrieved in the fetch stage.
 type FetchedItem struct {
-	Raw          RawItem           `yaml:"raw"`
-	Content      string            `yaml:"content,omitempty"`      // README, abstract, etc.
-	ContentType  string            `yaml:"content_type,omitempty"` // readme, abstract, description
-	ExtraData    map[string]any    `yaml:"extra_data,omitempty"`   // Additional fetched metadata
-	FetchedAt    time.Time         `yaml:"fetched_at"`
-	FetchSuccess bool              `yaml:"fetch_success"`
-	FetchError   string            `yaml:"fetch_error,omitempty"`
+	Raw          RawItem        `yaml:"raw"`
+	Content      string         `yaml:"content,omitempty"`      // README, abstract, etc.
+	ContentType  string         `yaml:"content_type,omitempty"` // readme, abstract, description
+	ExtraData    map[string]any `yaml:"extra_data,omitempty"`   // Additional fetched metadata
+	FetchedAt    time.Time      `yaml:"fetched_at"`
+	FetchSuccess bool           `yaml:"fetch_success"`
+	FetchError   string         `yaml:"fetch_error,omitempty"`
 }
 
 // SynthesizedItem includes agent-generated analysis.
@@ -117,12 +117,12 @@ type SynthesizedItem struct {
 
 // Synthesis contains the agent-generated analysis.
 type Synthesis struct {
-	Summary            string   `yaml:"summary" json:"summary"`
-	KeyFeatures        []string `yaml:"key_features" json:"key_features"`
-	RelevanceRationale string   `yaml:"relevance_rationale" json:"relevance_rationale"`
-	Recommendations    []string `yaml:"recommendations" json:"recommendations"`
-	Confidence         float64  `yaml:"confidence" json:"confidence"`
-	AgentUsed          string   `yaml:"agent_used,omitempty"`
+	Summary            string    `yaml:"summary" json:"summary"`
+	KeyFeatures        []string  `yaml:"key_features" json:"key_features"`
+	RelevanceRationale string    `yaml:"relevance_rationale" json:"relevance_rationale"`
+	Recommendations    []string  `yaml:"recommendations" json:"recommendations"`
+	Confidence         float64   `yaml:"confidence" json:"confidence"`
+	AgentUsed          string    `yaml:"agent_used,omitempty"`
 	SynthesizedAt      time.Time `yaml:"synthesized_at,omitempty"`
 }
 

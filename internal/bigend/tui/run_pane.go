@@ -23,12 +23,12 @@ type RunListState struct {
 }
 
 type runEntry struct {
-	Run       icdata.Run
-	ProjPath  string
-	ProjName  string
-	Status    icdata.UnifiedStatus
-	Duration  time.Duration
-	PhaseIdx  int // index of current phase in Phases slice
+	Run      icdata.Run
+	ProjPath string
+	ProjName string
+	Status   icdata.UnifiedStatus
+	Duration time.Duration
+	PhaseIdx int // index of current phase in Phases slice
 }
 
 // renderRunList renders the left-side run list pane.

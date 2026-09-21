@@ -13,10 +13,10 @@ import (
 type PatternType string
 
 const (
-	PatternGood        PatternType = "good"        // Best practice
+	PatternGood        PatternType = "good"         // Best practice
 	PatternAntiPattern PatternType = "anti-pattern" // Should be avoided
-	PatternWarning     PatternType = "warning"     // Potential issue
-	PatternSuggestion  PatternType = "suggestion"  // Could be improved
+	PatternWarning     PatternType = "warning"      // Potential issue
+	PatternSuggestion  PatternType = "suggestion"   // Could be improved
 )
 
 // Severity indicates how important addressing the pattern is
@@ -36,7 +36,7 @@ type DetectedPattern struct {
 	Type        PatternType `yaml:"type" json:"type"`
 	Severity    Severity    `yaml:"severity" json:"severity"`
 	Description string      `yaml:"description" json:"description"`
-	Location    string      `yaml:"location" json:"location"`   // Where in spec it was detected
+	Location    string      `yaml:"location" json:"location"`     // Where in spec it was detected
 	Suggestion  string      `yaml:"suggestion" json:"suggestion"` // How to address it
 	Examples    []string    `yaml:"examples,omitempty" json:"examples,omitempty"`
 }
@@ -53,10 +53,10 @@ const (
 
 // SimilarFeature represents a potentially similar existing feature
 type SimilarFeature struct {
-	Name        string   `yaml:"name" json:"name"`
-	Similarity  string   `yaml:"similarity" json:"similarity"` // high, medium, low
-	Overlaps    []string `yaml:"overlaps" json:"overlaps"`     // What overlaps
-	Suggestion  string   `yaml:"suggestion" json:"suggestion"` // Reuse recommendation
+	Name       string   `yaml:"name" json:"name"`
+	Similarity string   `yaml:"similarity" json:"similarity"` // high, medium, low
+	Overlaps   []string `yaml:"overlaps" json:"overlaps"`     // What overlaps
+	Suggestion string   `yaml:"suggestion" json:"suggestion"` // Reuse recommendation
 }
 
 // ReusableComponent represents a component that could be reused
@@ -76,14 +76,14 @@ type QualityMetric struct {
 
 // PatternReport represents the full pattern analysis
 type PatternReport struct {
-	SpecID           string              `yaml:"spec_id" json:"spec_id"`
-	Quality          SpecQuality         `yaml:"quality" json:"quality"`
-	QualityScore     int                 `yaml:"quality_score" json:"quality_score"` // 0-100
-	Patterns         []DetectedPattern   `yaml:"patterns" json:"patterns"`
-	SimilarFeatures  []SimilarFeature    `yaml:"similar_features" json:"similar_features"`
+	SpecID             string              `yaml:"spec_id" json:"spec_id"`
+	Quality            SpecQuality         `yaml:"quality" json:"quality"`
+	QualityScore       int                 `yaml:"quality_score" json:"quality_score"` // 0-100
+	Patterns           []DetectedPattern   `yaml:"patterns" json:"patterns"`
+	SimilarFeatures    []SimilarFeature    `yaml:"similar_features" json:"similar_features"`
 	ReusableComponents []ReusableComponent `yaml:"reusable_components" json:"reusable_components"`
-	Metrics          []QualityMetric     `yaml:"metrics" json:"metrics"`
-	Recommendations  []string            `yaml:"recommendations" json:"recommendations"`
+	Metrics            []QualityMetric     `yaml:"metrics" json:"metrics"`
+	Recommendations    []string            `yaml:"recommendations" json:"recommendations"`
 }
 
 // Recognizer analyzes specs for patterns and anti-patterns
@@ -309,10 +309,10 @@ func (r *Recognizer) detectConflicts(requirements []string) []string {
 
 	// Simple conflict detection based on opposing terms
 	opposites := map[string]string{
-		"simple":     "complex",
-		"fast":       "comprehensive",
-		"minimal":    "complete",
-		"real-time":  "batch",
+		"simple":      "complex",
+		"fast":        "comprehensive",
+		"minimal":     "complete",
+		"real-time":   "batch",
 		"synchronous": "asynchronous",
 	}
 
@@ -400,12 +400,12 @@ func (r *Recognizer) identifyReusableComponents(spec *specs.Spec) []ReusableComp
 
 	// UI components
 	uiPatterns := map[string]string{
-		"form":    "Form component for data entry",
-		"table":   "Data table component",
-		"list":    "List view component",
-		"modal":   "Modal/dialog component",
-		"button":  "Button components",
-		"card":    "Card layout component",
+		"form":   "Form component for data entry",
+		"table":  "Data table component",
+		"list":   "List view component",
+		"modal":  "Modal/dialog component",
+		"button": "Button components",
+		"card":   "Card layout component",
 	}
 	for pattern, desc := range uiPatterns {
 		if strings.Contains(textLower, pattern) {
@@ -420,10 +420,10 @@ func (r *Recognizer) identifyReusableComponents(spec *specs.Spec) []ReusableComp
 
 	// API/Service patterns
 	servicePatterns := map[string]string{
-		"crud":     "CRUD API endpoints",
-		"api":      "REST API service",
-		"webhook":  "Webhook handler service",
-		"queue":    "Message queue handler",
+		"crud":    "CRUD API endpoints",
+		"api":     "REST API service",
+		"webhook": "Webhook handler service",
+		"queue":   "Message queue handler",
 	}
 	for pattern, desc := range servicePatterns {
 		if strings.Contains(textLower, pattern) {

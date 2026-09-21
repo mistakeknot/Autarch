@@ -45,7 +45,7 @@ type KickoffView struct {
 	scanPath       string                     // Path being scanned
 	scanFiles      []string                   // Files found during scan
 	scanAgentName  string                     // Name of agent being used
-	scanAgentLines []string // Recent lines of agent output
+	scanAgentLines []string                   // Recent lines of agent output
 
 	// Callbacks for navigation
 	onProjectStart func(project *Project) tea.Cmd

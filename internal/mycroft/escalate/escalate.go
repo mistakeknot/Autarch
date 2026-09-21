@@ -53,11 +53,11 @@ func Badge(pendingCount int, highestSeverity Severity) string {
 
 // PendingDecision represents a dispatch suggestion awaiting user input.
 type PendingDecision struct {
-	ID       int
-	Agent    string
-	BeadID   string
+	ID        int
+	Agent     string
+	BeadID    string
 	BeadTitle string
-	Priority int
+	Priority  int
 	Reasoning string
 }
 

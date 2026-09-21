@@ -47,8 +47,8 @@ func Run(in io.Reader, out io.Writer, planDir string) error {
 
 // InitPlanItems contains the items for an init --from-prd plan.
 type InitPlanItems struct {
-	SourcePRD string      `json:"source_prd"`
-	Epics     []EpicPlan  `json:"epics"`
+	SourcePRD string     `json:"source_prd"`
+	Epics     []EpicPlan `json:"epics"`
 }
 
 // EpicPlan describes an epic that will be created.

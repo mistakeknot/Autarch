@@ -15,12 +15,12 @@ import (
 type ThreatCategory string
 
 const (
-	ThreatSpoofing            ThreatCategory = "spoofing"             // Identity spoofing
-	ThreatTampering           ThreatCategory = "tampering"            // Data tampering
-	ThreatRepudiation         ThreatCategory = "repudiation"          // Denial of actions
-	ThreatInfoDisclosure      ThreatCategory = "info_disclosure"      // Information disclosure
-	ThreatDenialOfService     ThreatCategory = "denial_of_service"    // DoS attacks
-	ThreatElevationPrivilege  ThreatCategory = "elevation_privilege"  // Privilege escalation
+	ThreatSpoofing           ThreatCategory = "spoofing"            // Identity spoofing
+	ThreatTampering          ThreatCategory = "tampering"           // Data tampering
+	ThreatRepudiation        ThreatCategory = "repudiation"         // Denial of actions
+	ThreatInfoDisclosure     ThreatCategory = "info_disclosure"     // Information disclosure
+	ThreatDenialOfService    ThreatCategory = "denial_of_service"   // DoS attacks
+	ThreatElevationPrivilege ThreatCategory = "elevation_privilege" // Privilege escalation
 )
 
 // Severity indicates the severity of a threat
@@ -56,11 +56,11 @@ type Threat struct {
 
 // Mitigation represents an OWASP-aligned mitigation strategy
 type Mitigation struct {
-	ThreatID     string   `yaml:"threat_id" json:"threat_id"`
-	Strategy     string   `yaml:"strategy" json:"strategy"`
-	OWASPRef     string   `yaml:"owasp_ref,omitempty" json:"owasp_ref,omitempty"` // OWASP reference ID
-	Implementation string `yaml:"implementation" json:"implementation"`
-	Priority     Severity `yaml:"priority" json:"priority"`
+	ThreatID       string   `yaml:"threat_id" json:"threat_id"`
+	Strategy       string   `yaml:"strategy" json:"strategy"`
+	OWASPRef       string   `yaml:"owasp_ref,omitempty" json:"owasp_ref,omitempty"` // OWASP reference ID
+	Implementation string   `yaml:"implementation" json:"implementation"`
+	Priority       Severity `yaml:"priority" json:"priority"`
 }
 
 // SecurityNFRs contains security-related non-functional requirements
@@ -73,10 +73,10 @@ type SecurityNFRs struct {
 
 // PerformanceNFRs contains performance-related non-functional requirements
 type PerformanceNFRs struct {
-	PageLoadBudgetMs   int    `yaml:"page_load_budget_ms" json:"page_load_budget_ms"`
-	APIResponseP95Ms   int    `yaml:"api_response_p95_ms" json:"api_response_p95_ms"`
-	BundleSizeBudgetKB int    `yaml:"bundle_size_budget_kb" json:"bundle_size_budget_kb"`
-	ConcurrentUsers    int    `yaml:"concurrent_users" json:"concurrent_users"`
+	PageLoadBudgetMs   int      `yaml:"page_load_budget_ms" json:"page_load_budget_ms"`
+	APIResponseP95Ms   int      `yaml:"api_response_p95_ms" json:"api_response_p95_ms"`
+	BundleSizeBudgetKB int      `yaml:"bundle_size_budget_kb" json:"bundle_size_budget_kb"`
+	ConcurrentUsers    int      `yaml:"concurrent_users" json:"concurrent_users"`
 	Requirements       []string `yaml:"requirements" json:"requirements"`
 }
 

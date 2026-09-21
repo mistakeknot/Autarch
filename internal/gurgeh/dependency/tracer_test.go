@@ -141,9 +141,9 @@ func TestTracer_Trace_CalculatesOverallRisk(t *testing.T) {
 
 	// High risk spec
 	highRiskSpec := &specs.Spec{
-		ID:           "SPEC-002",
-		Title:        "Complex Integration",
-		Summary:      "Multiple critical integrations",
+		ID:      "SPEC-002",
+		Title:   "Complex Integration",
+		Summary: "Multiple critical integrations",
 		Requirements: []string{
 			"Process payments via Stripe",
 			"Authenticate via OAuth",
@@ -161,9 +161,9 @@ func TestTracer_Trace_GeneratesRecommendations(t *testing.T) {
 	tracer := NewTracer()
 
 	spec := &specs.Spec{
-		ID:           "SPEC-001",
-		Title:        "Multi-Integration",
-		Summary:      "Many external APIs",
+		ID:      "SPEC-001",
+		Title:   "Multi-Integration",
+		Summary: "Many external APIs",
 		Requirements: []string{
 			"Use Stripe",
 			"Use Twilio",
@@ -242,7 +242,7 @@ func TestFormatDependencyMap(t *testing.T) {
 		Risks: []DependencyRisk{
 			{DependencyName: "stripe", Risk: "API availability", Level: RiskMedium, Mitigation: "Circuit breaker"},
 		},
-		OverallRisk: RiskMedium,
+		OverallRisk:     RiskMedium,
 		Recommendations: []string{"Monitor API health"},
 	}
 

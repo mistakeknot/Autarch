@@ -427,7 +427,7 @@ func outputResult(result *proposal.ProposalResult, format string) error {
 			fmt.Printf("%s\n\n", agenda.Description)
 			if len(agenda.Questions) > 0 {
 				fmt.Println("### Research Questions")
-			fmt.Println()
+				fmt.Println()
 				for _, q := range agenda.Questions {
 					fmt.Printf("- %s\n", q)
 				}

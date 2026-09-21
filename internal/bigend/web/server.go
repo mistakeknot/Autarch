@@ -30,11 +30,11 @@ var templateFS embed.FS
 
 // Server is the HTTP server for Vauxhall
 type Server struct {
-	cfg         config.ServerConfig
-	agg         aggregatorAPI
-	tmuxClient  *tmux.Client
-	templates   map[string]*template.Template
-	srv         *http.Server
+	cfg        config.ServerConfig
+	agg        aggregatorAPI
+	tmuxClient *tmux.Client
+	templates  map[string]*template.Template
+	srv        *http.Server
 }
 
 type aggregatorAPI interface {
@@ -68,7 +68,7 @@ func NewServer(cfg config.ServerConfig, agg aggregatorAPI) *Server {
 		cfg:        cfg,
 		agg:        agg,
 		tmuxClient: tmux.NewClient(),
-		templates:    make(map[string]*template.Template),
+		templates:  make(map[string]*template.Template),
 	}
 
 	// Template functions

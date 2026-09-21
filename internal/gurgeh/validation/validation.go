@@ -34,8 +34,8 @@ const (
 type ValidationConcern struct {
 	Perspective Perspective `yaml:"perspective" json:"perspective"`
 	Severity    Severity    `yaml:"severity" json:"severity"`
-	Category    string      `yaml:"category" json:"category"`     // e.g., "scope", "feasibility", "a11y"
-	Title       string      `yaml:"title" json:"title"`           // Short description
+	Category    string      `yaml:"category" json:"category"` // e.g., "scope", "feasibility", "a11y"
+	Title       string      `yaml:"title" json:"title"`       // Short description
 	Description string      `yaml:"description" json:"description"`
 	Section     string      `yaml:"section,omitempty" json:"section,omitempty"` // Which part of spec
 	Suggestion  string      `yaml:"suggestion,omitempty" json:"suggestion,omitempty"`

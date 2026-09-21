@@ -18,8 +18,8 @@ const (
 	PhaseProblem
 	PhaseUsers
 	PhaseFeaturesGoals
-	PhaseCUJs             // Moved up: user journeys flow from users + features
-	PhaseRequirements     // Requirements derived from CUJs
+	PhaseCUJs         // Moved up: user journeys flow from users + features
+	PhaseRequirements // Requirements derived from CUJs
 	PhaseScopeAssumptions
 	PhaseAcceptanceCriteria
 )
@@ -34,8 +34,8 @@ func AllPhases() []Phase {
 		PhaseProblem,
 		PhaseUsers,
 		PhaseFeaturesGoals,
-		PhaseCUJs,             // User journeys flow from users + features
-		PhaseRequirements,     // Requirements derived from CUJs
+		PhaseCUJs,         // User journeys flow from users + features
+		PhaseRequirements, // Requirements derived from CUJs
 		PhaseScopeAssumptions,
 		PhaseAcceptanceCriteria,
 	}
@@ -95,13 +95,13 @@ const (
 
 // SectionDraft holds Arbiter's proposal for a section
 type SectionDraft struct {
-	Preamble      string      // LLM thinking preamble (not displayed to user)
-	Content       string      // Arbiter's current proposal
-	Options       []string    // Alternative phrasings (2-3 options)
+	Preamble      string   // LLM thinking preamble (not displayed to user)
+	Content       string   // Arbiter's current proposal
+	Options       []string // Alternative phrasings (2-3 options)
 	Status        DraftStatus
-	AutoAccept    bool        // true = no signals/decay, skip in review
-	ActiveSignals []string    // signal IDs relevant to this section
-	UserEdits     []Edit      // History of user changes
+	AutoAccept    bool     // true = no signals/decay, skip in review
+	ActiveSignals []string // signal IDs relevant to this section
+	UserEdits     []Edit   // History of user changes
 	UpdatedAt     time.Time
 }
 
@@ -109,7 +109,7 @@ type SectionDraft struct {
 type Edit struct {
 	Before    string
 	After     string
-	Reason    string    // Optional: why the user changed it
+	Reason    string // Optional: why the user changed it
 	Timestamp time.Time
 }
 
@@ -142,27 +142,27 @@ type VisionContext struct {
 
 // SprintState holds the full state of a PRD sprint session
 type SprintState struct {
-	ID              string
-	SpecID          string // Intermute Spec ID (empty if no research provider)
-	ProjectPath     string
-	Phase           Phase
-	Sections        map[Phase]*SectionDraft
-	Conflicts       []Conflict
-	Confidence      ConfidenceScore
-	ResearchCtx     *QuickScanResult
-	Findings        []ResearchFinding // Intermute research findings
-	DeepScan        DeepScanState     // Async deep scan tracking
-	VisionContext   *VisionContext    // loaded vision spec for vertical checks (nil if none)
-	SpecType        string            // "" for PRD, "vision" for vision specs
-	IsReview        bool                        // true when reviewing an existing spec
-	ReviewingSpecID string                      // ID of spec being reviewed
-	ShapeOverrides  map[Phase]thinking.Shape    // per-sprint user overrides for thinking shapes
-	ModelOverrides  map[Phase]string            // per-phase model tier (empty = CLI default)
-	ScanArtifacts     *scan.Artifacts             // lossless kickoff scan results (nil if no scan)
-	ExplorationResult    map[string]any              // raw Claude Code exploration output (reused across phases)
-	ExplorationSessionID string                     // Claude Code session for reuse in later phases
+	ID                   string
+	SpecID               string // Intermute Spec ID (empty if no research provider)
+	ProjectPath          string
+	Phase                Phase
+	Sections             map[Phase]*SectionDraft
+	Conflicts            []Conflict
+	Confidence           ConfidenceScore
+	ResearchCtx          *QuickScanResult
+	Findings             []ResearchFinding        // Intermute research findings
+	DeepScan             DeepScanState            // Async deep scan tracking
+	VisionContext        *VisionContext           // loaded vision spec for vertical checks (nil if none)
+	SpecType             string                   // "" for PRD, "vision" for vision specs
+	IsReview             bool                     // true when reviewing an existing spec
+	ReviewingSpecID      string                   // ID of spec being reviewed
+	ShapeOverrides       map[Phase]thinking.Shape // per-sprint user overrides for thinking shapes
+	ModelOverrides       map[Phase]string         // per-phase model tier (empty = CLI default)
+	ScanArtifacts        *scan.Artifacts          // lossless kickoff scan results (nil if no scan)
+	ExplorationResult    map[string]any           // raw Claude Code exploration output (reused across phases)
+	ExplorationSessionID string                   // Claude Code session for reuse in later phases
 	StartedAt            time.Time
-	UpdatedAt         time.Time
+	UpdatedAt            time.Time
 }
 
 // NewSprintState creates a new sprint with all sections initialized.
@@ -224,9 +224,9 @@ type ResearchFinding struct {
 	ID         string
 	Title      string
 	Summary    string
-	Source     string   // URL
-	SourceType string   // "github", "hackernews", "arxiv", etc.
-	Relevance  float64  // 0.0-1.0
+	Source     string  // URL
+	SourceType string  // "github", "hackernews", "arxiv", etc.
+	Relevance  float64 // 0.0-1.0
 	Tags       []string
 }
 
@@ -234,10 +234,10 @@ type ResearchFinding struct {
 type DeepScanStatus int
 
 const (
-	DeepScanNone       DeepScanStatus = iota // No deep scan requested
-	DeepScanRunning                          // Scan in progress
-	DeepScanComplete                         // Results ready to import
-	DeepScanFailed                           // Scan encountered an error
+	DeepScanNone     DeepScanStatus = iota // No deep scan requested
+	DeepScanRunning                        // Scan in progress
+	DeepScanComplete                       // Results ready to import
+	DeepScanFailed                         // Scan encountered an error
 )
 
 // DeepScanState holds the tracking info for an async deep scan.
@@ -288,11 +288,11 @@ type Conflict struct {
 type ConflictType int
 
 const (
-	ConflictUserFeature ConflictType = iota // Feature doesn't match target users
-	ConflictGoalFeature                     // Goal not supported by features
-	ConflictScopeCreep                      // Feature contradicts non-goals
-	ConflictAssumption                      // Assumption conflicts with other content
-	ConflictVisionAlignment                 // PRD section misaligned with vision spec
+	ConflictUserFeature     ConflictType = iota // Feature doesn't match target users
+	ConflictGoalFeature                         // Goal not supported by features
+	ConflictScopeCreep                          // Feature contradicts non-goals
+	ConflictAssumption                          // Assumption conflicts with other content
+	ConflictVisionAlignment                     // PRD section misaligned with vision spec
 )
 
 // Severity indicates if the conflict blocks progress

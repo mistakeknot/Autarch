@@ -25,7 +25,7 @@ type PhaseData struct {
 
 // EvidenceItem is a codebase-grounded piece of evidence.
 type EvidenceItem struct {
-	Type       string  // e.g. "readme", "package", "code"
+	Type       string // e.g. "readme", "package", "code"
 	FilePath   string
 	Quote      string
 	Confidence float64

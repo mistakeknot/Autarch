@@ -18,9 +18,9 @@ import (
 )
 
 const (
-	hackerNewsName    = "hackernews-trendwatcher"
-	hnAlgoliaAPI      = "https://hn.algolia.com/api/v1/search"
-	hnItemURL         = "https://news.ycombinator.com/item?id="
+	hackerNewsName     = "hackernews-trendwatcher"
+	hnAlgoliaAPI       = "https://hn.algolia.com/api/v1/search"
+	hnItemURL          = "https://news.ycombinator.com/item?id="
 	defaultHitsPerPage = 50
 )
 

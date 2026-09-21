@@ -44,12 +44,12 @@ const (
 
 // HunterResult represents results from a single hunter
 type HunterResult struct {
-	Hunter      HunterType `yaml:"hunter" json:"hunter"`
-	Query       string     `yaml:"query" json:"query"`
-	ResultCount int        `yaml:"result_count" json:"result_count"`
-	Insights    []Insight  `yaml:"insights" json:"insights"`
+	Hunter      HunterType    `yaml:"hunter" json:"hunter"`
+	Query       string        `yaml:"query" json:"query"`
+	ResultCount int           `yaml:"result_count" json:"result_count"`
+	Insights    []Insight     `yaml:"insights" json:"insights"`
 	Duration    time.Duration `yaml:"duration" json:"duration"`
-	Error       string     `yaml:"error,omitempty" json:"error,omitempty"`
+	Error       string        `yaml:"error,omitempty" json:"error,omitempty"`
 }
 
 // Insight represents a single research insight
@@ -68,14 +68,14 @@ type Insight struct {
 
 // WovenContext represents the synthesized research context
 type WovenContext struct {
-	Query           string         `yaml:"query" json:"query"`
-	Vision          string         `yaml:"vision" json:"vision"`
-	Problem         string         `yaml:"problem" json:"problem"`
-	HunterResults   []HunterResult `yaml:"hunter_results" json:"hunter_results"`
-	SynthesizedInsights []Insight  `yaml:"synthesized_insights" json:"synthesized_insights"`
-	Themes          []Theme        `yaml:"themes" json:"themes"`
-	Recommendations []string       `yaml:"recommendations" json:"recommendations"`
-	GeneratedAt     time.Time      `yaml:"generated_at" json:"generated_at"`
+	Query               string         `yaml:"query" json:"query"`
+	Vision              string         `yaml:"vision" json:"vision"`
+	Problem             string         `yaml:"problem" json:"problem"`
+	HunterResults       []HunterResult `yaml:"hunter_results" json:"hunter_results"`
+	SynthesizedInsights []Insight      `yaml:"synthesized_insights" json:"synthesized_insights"`
+	Themes              []Theme        `yaml:"themes" json:"themes"`
+	Recommendations     []string       `yaml:"recommendations" json:"recommendations"`
+	GeneratedAt         time.Time      `yaml:"generated_at" json:"generated_at"`
 }
 
 // Theme represents a recurring theme across insights
@@ -88,10 +88,10 @@ type Theme struct {
 
 // ResearchRequest represents a request for research
 type ResearchRequest struct {
-	Vision       string   `yaml:"vision" json:"vision"`
-	Problem      string   `yaml:"problem" json:"problem"`
-	Requirements []string `yaml:"requirements,omitempty" json:"requirements,omitempty"`
-	Keywords     []string `yaml:"keywords,omitempty" json:"keywords,omitempty"`
+	Vision       string       `yaml:"vision" json:"vision"`
+	Problem      string       `yaml:"problem" json:"problem"`
+	Requirements []string     `yaml:"requirements,omitempty" json:"requirements,omitempty"`
+	Keywords     []string     `yaml:"keywords,omitempty" json:"keywords,omitempty"`
 	Hunters      []HunterType `yaml:"hunters,omitempty" json:"hunters,omitempty"` // Specific hunters to use
 }
 

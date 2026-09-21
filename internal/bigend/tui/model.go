@@ -253,35 +253,35 @@ func filterAgentItems(items []list.Item, state FilterState, statusByAgent map[st
 
 // Model is the main TUI model
 type Model struct {
-	agg         aggregatorAPI
-	tmuxCapture *tmux.Client // For terminal capture (separate from status detection)
-	width         int
-	height        int
-	activeTab     Tab
-	activePane    Pane
-	buildInfo     string
-	sessionList   list.Model
-	projectsList  list.Model
-	agentList     list.Model
-	mcpList       list.Model
-	mcpProject    string
-	showMCP       bool
-	showTerminal  bool          // Terminal preview pane visible
-	terminalPane  *TerminalPane // Terminal preview component
-	showRunPane   bool          // Kernel run list+detail pane visible
-	runList       RunListState  // Kernel run list state
-	filterActive  bool
-	filterInput   textinput.Model
-	filterStates  map[Tab]FilterState
-	groupExpanded map[string]bool
-	promptMode    promptMode
-	promptInput   textinput.Model
-	promptSess    *aggregator.TmuxSession
-	err             error
-	lastRefresh     time.Time
-	quitting        bool
-	keys            shared.CommonKeys
-	helpOverlay     shared.HelpOverlay
+	agg              aggregatorAPI
+	tmuxCapture      *tmux.Client // For terminal capture (separate from status detection)
+	width            int
+	height           int
+	activeTab        Tab
+	activePane       Pane
+	buildInfo        string
+	sessionList      list.Model
+	projectsList     list.Model
+	agentList        list.Model
+	mcpList          list.Model
+	mcpProject       string
+	showMCP          bool
+	showTerminal     bool          // Terminal preview pane visible
+	terminalPane     *TerminalPane // Terminal preview component
+	showRunPane      bool          // Kernel run list+detail pane visible
+	runList          RunListState  // Kernel run list state
+	filterActive     bool
+	filterInput      textinput.Model
+	filterStates     map[Tab]FilterState
+	groupExpanded    map[string]bool
+	promptMode       promptMode
+	promptInput      textinput.Model
+	promptSess       *aggregator.TmuxSession
+	err              error
+	lastRefresh      time.Time
+	quitting         bool
+	keys             shared.CommonKeys
+	helpOverlay      shared.HelpOverlay
 	resizeCoalescer  *shared.ResizeCoalescer
 	dashCache        *sectionCache
 	logPane          *shared.LogPane
@@ -407,9 +407,9 @@ func New(agg aggregatorAPI, buildInfo string) Model {
 	tmuxCapture := tmux.NewClient()
 
 	return Model{
-		agg:         agg,
-		tmuxCapture: tmuxCapture,
-		activeTab:   TabDashboard,
+		agg:          agg,
+		tmuxCapture:  tmuxCapture,
+		activeTab:    TabDashboard,
 		activePane:   PaneProjects,
 		buildInfo:    buildInfo,
 		sessionList:  sessionList,
@@ -422,7 +422,7 @@ func New(agg aggregatorAPI, buildInfo string) Model {
 			TabSessions: {Raw: ""},
 			TabAgents:   {Raw: ""},
 		},
-		groupExpanded: map[string]bool{},
+		groupExpanded:   map[string]bool{},
 		promptInput:     promptInput,
 		keys:            shared.NewCommonKeys(),
 		helpOverlay:     shared.NewHelpOverlay(),

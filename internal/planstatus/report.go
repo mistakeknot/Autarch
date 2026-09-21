@@ -179,11 +179,11 @@ func (g *Generator) Generate() (string, error) {
 }
 
 type statusCounts struct {
-	todo       int
-	derived    int
-	commit     int
+	todo        int
+	derived     int
+	commit      int
 	preexisting int
-	none       int
+	none        int
 }
 
 func (g *Generator) classifyPlans(plans []planInfo) ([]planStatus, statusCounts) {

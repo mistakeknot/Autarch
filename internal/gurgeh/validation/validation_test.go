@@ -316,15 +316,15 @@ func TestBroker_DetectConflicts(t *testing.T) {
 
 	// Spec that triggers concerns from multiple perspectives on same category
 	spec := &specs.Spec{
-		ID:           "SPEC-001",
-		Title:        "Complex Feature",
-		Summary:      "This is a comprehensive summary explaining the feature value",
+		ID:      "SPEC-001",
+		Title:   "Complex Feature",
+		Summary: "This is a comprehensive summary explaining the feature value",
 		Requirements: []string{
-			"Real-time collaboration interface",      // Engineering: performance
-			"Handle millions of concurrent users",    // Engineering: performance
-			"Display instant updates",                // Engineering: performance, Design: complexity
-			"Animate all transitions smoothly",       // Design: complexity
-			"Drag and drop with live preview",        // Design: complexity
+			"Real-time collaboration interface",   // Engineering: performance
+			"Handle millions of concurrent users", // Engineering: performance
+			"Display instant updates",             // Engineering: performance, Design: complexity
+			"Animate all transitions smoothly",    // Design: complexity
+			"Drag and drop with live preview",     // Design: complexity
 		},
 	}
 
