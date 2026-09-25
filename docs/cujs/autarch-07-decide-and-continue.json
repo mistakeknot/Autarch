@@ -1,0 +1,166 @@
+{
+  "cuj_id": "autarch-07-decide-and-continue",
+  "version": "1.0",
+  "status": "validated",
+  "actor": "mk — solo gardener of a ~98-project estate, directing agents from Aleph's Home",
+  "trigger": "An agent reaches a fork it should not choose alone. Instead of asking in chat and idling, it files a decision owed and moves on; later mk opens Home and sees the decision waiting on the rail.",
+  "steps": [
+    {
+      "step": "The asker files the decision in one call: the question, two to four options, its recommendation, the project, its own thread id, and a continuation on every option — a command, a brief, needs-context, or ruling-only. It then carries on with other work, or ends its turn; nothing waits on the answer unless it chose needs-context",
+      "build_surface": [
+        "Clavain decision-filing helper + shared agent guidance (new)",
+        "hub-tracker decision bead with continuation fields (new)",
+        "continuation command frozen by hash at filing (new)",
+        "filing helper requires a continuation kind on every option; ruling-only is explicit (new)"
+      ]
+    },
+    {
+      "step": "mk opens Home and reads the catch-up first; the decision sits on the rail with the others owed, oldest first, tagged with its project; a decision gone stale (a newer ruling or later work touching the same ground) is marked stale rather than hidden",
+      "build_surface": [
+        "Aleph plugin Home tab: rail (new)",
+        "autarch serve RPC: decisions owed (new)"
+      ]
+    },
+    {
+      "step": "mk opens one decision and sees everything needed to answer without visiting the thread: the question, each option with its exact command or brief, the recommendation and why, and a link to the asking thread if they want more",
+      "build_surface": [
+        "decision card (new)",
+        "bb thread link (@thread) from the bead's asking_thread"
+      ]
+    },
+    {
+      "step": "mk picks an option. The pick is the whole approval, but first the continuation is re-checked: its hash and preconditions still hold, or the pick becomes a re-ask. Then the frozen command runs, a brief starts a fresh small thread, needs-context queues a wake for the asker or its successor, or ruling-only just records. Answers bound for one thread are batched into a single wake",
+      "build_surface": [
+        "continuation runner in autarch serve (new)",
+        "bb thread spawn for briefs; Aleph wake mechanics (mk-a4o0.x) for needs-context",
+        "successor resolution after rotation (aleph-05)",
+        "pick-time re-check of hash and preconditions (new)"
+      ]
+    },
+    {
+      "step": "Home writes the ruling as a signed file — the ratification block plus bead, asking thread, options shown, continuation and state — into the project's docs/decisions/ or the Uqbar, and closes the bead",
+      "build_surface": [
+        "ruling file writer + ssh-keygen -Y sign with Home's key (new)",
+        "project docs/decisions/ and Uqbar rulings/"
+      ]
+    },
+    {
+      "step": "On its next turn the asking thread, or whichever thread now works that project, sees one line saying what was ruled and what ran — without a wake spent to tell it",
+      "build_surface": [
+        "Clavain UserPromptSubmit ruling feed hook with per-project cache (new)"
+      ]
+    },
+    {
+      "step": "The continuation's outcome comes back to the rail: the command's exit, the brief's result, or the asker's follow-up. A failure keeps the ruling but sets its state to failed and reopens a decision owed on the rail: retry, pick another option, or hand it to a thread",
+      "build_surface": [
+        "continuation outcome on the ruling's state field (new)",
+        "usage per outcome (aleph-06)"
+      ]
+    }
+  ],
+  "mental_model": "Decisions leak out of the estate when they are buried in chat, and they cost the most when answering them wakes a big context just to hear 'option 2'. mk asked for 'the most token efficient approach' and accepted building something new for it: the asker says in advance what each answer should cause, so the answer itself does the work. A pick is an approval, not a message — 'Everything on pick' — so what the option shows is exactly what runs. A decision is owed until it is ruled; once ruled it is a file mk signed, and no agent can make one look ruled.",
+  "ambiguity_ledger": {
+    "closed_decisions": [
+      "A decision owed is a hub-tracker bead; answering closes it and writes a ruling file (one-place brainstorm decisions 3 and 9)",
+      "Each option carries one continuation: a command (zero tokens), a brief (fresh small thread), needs-context (wakes the asker or its successor), or ruling-only (records the ruling; the feed tells the thread). Answers to one thread are batched (decision 13; ruling-only added by mk 2026-09-24 at validation)",
+      "Every continuation command runs on mk's pick; the option shows the exact command and the command is frozen by hash when filed. This amends the attention-map ruling that approval weight scales with blast radius (decision 14)",
+      "A ruling is a Markdown file carrying the ratification block plus bead, asking_thread, options_shown, continuation and state, signed by Home; unsigned files render as proposed (decision 16)",
+      "Decisions are fire-and-forget; the thread learns the answer from the ruling feed, not from a wake, unless it chose needs-context (decision 17)",
+      "Project rulings go in that project's docs/decisions/; estate-wide rulings go in the Uqbar (decision 12)",
+      {
+        "decision": "Stale decisions get both guards: Home marks them stale on the rail, and every pick re-checks the continuation's hash and preconditions, turning into a re-ask if they fail. mk 2026-09-24 at validation",
+        "confidence": "firm"
+      },
+      {
+        "decision": "A failed continuation reopens as a decision owed: the ruling stands with state failed, and the rail offers retry, another option, or a hand-off to a thread. One queue. mk 2026-09-24 at validation",
+        "confidence": "firm"
+      },
+      {
+        "decision": "Home signs with its own dedicated ed25519 key on the host that runs Aleph (zklw), used for nothing else. Its public key sits in an allowed_signers file committed to the Uqbar, so every machine learns it through git; rotation adds the new key with valid-after and expires the old. mk 2026-09-24 at validation",
+        "confidence": "firm"
+      },
+      {
+        "decision": "The filing helper requires a continuation kind on every option; ruling-only is the explicit kind for 'just record it'. Agents learn from the helper's prompts and worked examples in the Clavain guidance. mk 2026-09-24 at validation",
+        "confidence": "firm"
+      }
+    ],
+    "open_questions": []
+  },
+  "implied_features": [
+    {
+      "feature": "Clavain decision-filing helper and agent guidance",
+      "phase": "1"
+    },
+    {
+      "feature": "Decision bead fields: options, recommendation, continuations, command hash, asking thread",
+      "phase": "1"
+    },
+    {
+      "feature": "Home rail and decision card in the Aleph plugin",
+      "phase": "1"
+    },
+    {
+      "feature": "Continuation runner, brief spawner and batched needs-context wakes in autarch serve",
+      "phase": "1"
+    },
+    {
+      "feature": "Signed ruling file writer (project docs/decisions/ and Uqbar)",
+      "phase": "1"
+    },
+    {
+      "feature": "Ruling feed hook (UserPromptSubmit, per-project cache)",
+      "phase": "1"
+    },
+    {
+      "feature": "Sidebar badge for decisions owed",
+      "phase": "2"
+    }
+  ],
+  "reference_lineage": [
+    {
+      "app": "Aleph ask-user-question plugin",
+      "teardown": "~/projects/Aleph/plugins/ask-user-question/PLUGIN_OVERVIEW.md",
+      "what_it_shaped": "The negative space: a card that expires after 30 minutes, one open at a time, and needs the thread alive. Decisions here outlive the thread and do not hold it open"
+    },
+    {
+      "app": "Autarch card ratification",
+      "teardown": "docs/why.md",
+      "what_it_shaped": "The ratification block the ruling file reuses, and the rule that only mk moves a fact to ruled"
+    }
+  ],
+  "evidence": [
+    {
+      "source": "docs/brainstorms/2026-09-24-one-place-in-aleph-brainstorm.md (decision 13)",
+      "quote": "what is the most token efficient approach? it's okay if we need to build something new",
+      "assumption_tested": "That delivering the answer to the asker is the natural design — the cost is the context that wakes to act on it"
+    },
+    {
+      "source": "docs/brainstorms/2026-09-24-one-place-in-aleph-brainstorm.md (decision 14)",
+      "quote": "Everything on pick",
+      "assumption_tested": "That high-blast-radius continuations need a second approval step"
+    },
+    {
+      "source": "docs/brainstorms/2026-09-24-one-place-in-aleph-brainstorm.md (What we're building)",
+      "quote": "all of these, but primarily 4 and 2",
+      "assumption_tested": "Which attention leaks matter — decisions owed is one of the two primary leaks"
+    },
+    {
+      "source": "docs/brainstorms/2026-09-24-one-place-in-aleph-brainstorm.md (decision 18, validation walk)",
+      "quote": "Yes, that's it",
+      "assumption_tested": "That the decide-and-continue journey, as drafted, is how mk wants decisions to work"
+    }
+  ],
+  "success_condition": "mk answers a morning's worth of decisions from Home in a few minutes, never opening the asking threads, and each pick visibly lands — the command ran, the brief started, the asker knew on its next turn — so they recognize decisions as something they direct from one place, not something they chase through chat.",
+  "provenance": [
+    {
+      "artifact": "docs/onepagers/2026-09-22-autarch-attention-map.md (approval weight scales with blast radius)",
+      "change": "Continuations are exempted: the pick is the approval, protected by exact display and hash freezing (one-place decision 14)",
+      "autonomy": "proposed"
+    },
+    {
+      "artifact": "docs/brainstorms/2026-09-24-one-place-in-aleph-brainstorm.md (decisions 13, 16; open questions 3 and 4)",
+      "change": "Validation closed the signing-key and teaching-continuations questions and added ruling-only, stale marking with a pick-time re-check, and failure-reopens-a-decision",
+      "autonomy": "applied"
+    }
+  ]
+}

@@ -1,0 +1,87 @@
+{
+  "cuj_id": "autarch-09-the-net-catches",
+  "version": "1.0",
+  "status": "validated",
+  "actor": "mk — solo gardener of a ~98-project estate, directing agents from Aleph's Home",
+  "trigger": "A decision was made or left hanging in prose — 'let's go with the second one', 'mk should decide whether…' — and never filed. Nobody will remember it after the thread rotates.",
+  "steps": [
+    {
+      "step": "When a thread ends or rotates, the net reads its closing turns, which include the handoff a rotation writes, for decisions made or owed that have no bead and no ruling file. It reads nothing else",
+      "build_surface": [
+        "extraction net over thread endings (new; companion phase)",
+        "bb thread events as the source"
+      ]
+    },
+    {
+      "step": "Each find arrives on the rail as a proposal, never as a decision: 'this looks like a decision owed' or 'this looks like a ruling you gave', quoting the exact words and linking the thread",
+      "build_surface": [
+        "proposed-decision rows on the rail, visibly distinct from filed decisions (new)"
+      ]
+    },
+    {
+      "step": "mk confirms, edits or dismisses in one move. A confirmed owed decision becomes a bead as in autarch-07; a confirmed ruling becomes a signed file. A dismissal is remembered so the same passage is not proposed again",
+      "build_surface": [
+        "confirm/dismiss actions (new)",
+        "signed ruling writer and decision bead (shared with autarch-07)"
+      ]
+    },
+    {
+      "step": "Each confirmed catch is counted in the caught-something log with what would have been lost",
+      "build_surface": [
+        "caught-something log (estate-map trial plan)"
+      ]
+    }
+  ],
+  "mental_model": "Decisions buried in chat are one of mk's two primary leaks. The net is a finding aid, not an author: it points at a passage and asks, and only mk turns it into a record. A guess shown as real is worse than a miss, because it would launder an agent's reading into mk's voice.",
+  "ambiguity_ledger": {
+    "closed_decisions": [
+      "The net only proposes; it never shows a guessed decision as real (one-place brainstorm decision 4; refusal 'no guessed decision shown as real')",
+      "Confirmed rulings become signed files; unsigned files render as proposed (decision 16)",
+      "Trial success includes 'catches', counted in the caught-something log under the trial plan's kill rule (decision 6)",
+      "The net ships with the companion, last in the build order (decision 7)",
+      {
+        "decision": "The net reads thread endings only, the last turns at end or rotation; not handoff files or commits. mk 2026-09-25 at validation",
+        "confidence": "firm"
+      },
+      {
+        "decision": "No mute threshold up front: dismissals and confirmed catches are logged, and the threshold is set from the real numbers. The net ships at build step 6, after the v1 trial, so its first weeks of use are that trial. mk 2026-09-25: 'Decide after the trial'",
+        "confidence": "firm"
+      }
+    ],
+    "open_questions": []
+  },
+  "implied_features": [
+    {
+      "feature": "Extraction net over thread endings, proposing only",
+      "phase": "6"
+    },
+    {
+      "feature": "Proposed-decision rows with confirm, edit and dismiss",
+      "phase": "6"
+    },
+    {
+      "feature": "Dismissal and catch counts for the net, to set its mute threshold",
+      "phase": "6"
+    }
+  ],
+  "reference_lineage": [],
+  "evidence": [
+    {
+      "source": "docs/brainstorms/2026-09-24-one-place-in-aleph-brainstorm.md (What we're building)",
+      "quote": "all of these, but primarily 4 and 2",
+      "assumption_tested": "Which attention leaks matter — decisions buried in chat is one of the two primary leaks"
+    },
+    {
+      "source": "docs/brainstorms/2026-09-24-one-place-in-aleph-brainstorm.md (decision 6)",
+      "quote": "Focus shows up, Catches",
+      "assumption_tested": "What the trial measures — Home surfacing what mk would have missed"
+    },
+    {
+      "source": "docs/brainstorms/2026-09-24-one-place-in-aleph-brainstorm.md (decision 20, validation walk)",
+      "quote": "Yes, that's it",
+      "assumption_tested": "That a propose-only net over thread endings is worth building in this shape"
+    }
+  ],
+  "success_condition": "In its first weeks the net surfaces at least one decision mk had forgotten they owed or gave, mk confirms it in one move, and they recognize the net as a colleague who noticed — not a scribe putting words in their mouth.",
+  "provenance": []
+}

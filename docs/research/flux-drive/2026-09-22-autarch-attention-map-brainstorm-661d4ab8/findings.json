@@ -1,0 +1,449 @@
+{
+  "synthesis_protocol_version": "1.0",
+  "reviewed_date": "2026-09-23",
+  "run_uuid": "ca9b9839-7e95-4b79-9b7d-971f282e8a91",
+  "mode": "flux-drive",
+  "stage": "discover",
+  "agents": [
+    "fd-architecture",
+    "fd-decisions",
+    "fd-perception",
+    "fd-safety",
+    "fd-systems",
+    "fd-user-product"
+  ],
+  "findings": [
+    {
+      "id": "S1",
+      "agent": "fd-safety",
+      "severity": "P0",
+      "category": "trust-boundary",
+      "section": "The rail",
+      "title": "Agent-authored proposal text is rendered as live HTML with embedded action buttons",
+      "summary": "Prompt-injection-to-click primitive: proposal text and hold explanations are injected via innerHTML with embedded <button> controls, allowing compromised content to relabel or hide controls",
+      "verdict": "confirmed",
+      "convergence": 2,
+      "convergence_corrected": 2,
+      "reactions": [
+        {
+          "agent": "fd-architecture",
+          "stance": "agree",
+          "move_type": "defense",
+          "independent_coverage": "partial",
+          "note": "Root cause is missing Go/TypeScript data contract (F6); this is concrete failure mode"
+        }
+      ],
+      "cross_references": ["F6", "S6"],
+      "stemma_group": "data-contract-cluster",
+      "hearsay": false,
+      "evidence_sources": ["autarch-map-rail-v2.html:280", "autarch-map-rail-v2.html:252"]
+    },
+    {
+      "id": "F1",
+      "agent": "fd-architecture",
+      "severity": "P0",
+      "category": "coupling",
+      "section": "The service plus a BB plugin",
+      "title": "State boundary rule violated: 'Autarch holds no state' is already false",
+      "summary": "Existing code holds state in preferences.json, display.go YAML, and in-process escalate.DecisionQueue. Brainstorm adds five new state items (pins, stamps, glow, alternatives, history) without per-item ownership ruling.",
+      "verdict": "confirmed",
+      "convergence": 1,
+      "convergence_corrected": 1,
+      "reactions": [],
+      "cross_references": ["F6", "S1"],
+      "stemma_group": "state-boundary-cluster",
+      "hearsay": false,
+      "evidence_sources": [
+        "internal/door/preferences.go:16-31",
+        "internal/door/display.go:47-80",
+        "internal/mycroft/escalate/escalate.go:62-68"
+      ]
+    },
+    {
+      "id": "F2",
+      "agent": "fd-architecture",
+      "severity": "P0",
+      "category": "scope",
+      "section": "What We're Building",
+      "title": "Dispatch substrate rewrite not named: Mycroft is tmux-based, not BB-thread-based",
+      "summary": "Current Mycroft spawns agents via tmux sessions (spawn/spawner.go:33, patrol/source.go), zero BB integration. Brainstorm assumes 'Mycroft coordinates agents as BB threads' without naming this as a rewrite of the dispatch substrate.",
+      "verdict": "confirmed",
+      "convergence": 3,
+      "convergence_corrected": 3,
+      "reactions": [
+        {
+          "agent": "fd-safety",
+          "stance": "agree",
+          "move_type": "defense",
+          "independent_coverage": "partial",
+          "note": "Elevates this to threat surface concern—rail approve/override buttons have no verified path to invoke spawning"
+        },
+        {
+          "agent": "fd-decisions",
+          "stance": "agree",
+          "move_type": "defense",
+          "independent_coverage": "partial",
+          "note": "This is an ordering dependency that precedes T1 dispatch capability"
+        }
+      ],
+      "cross_references": ["S5", "MULTIPLE_COORDINATORS_AMBIGUITY"],
+      "stemma_group": "dispatch-substrate-cluster",
+      "hearsay": false,
+      "evidence_sources": [
+        "internal/mycroft/spawn/spawner.go:15-53",
+        "internal/mycroft/patrol/source.go:114-146"
+      ]
+    },
+    {
+      "id": "F1",
+      "agent": "fd-user-product",
+      "severity": "P0",
+      "category": "trust",
+      "section": "Why This Approach / Open Questions 1,3",
+      "title": "Map placement and neglect data insufficient at launch",
+      "summary": "Map placement data real for only 51/98 gardens; core-doc shelf data for 20/29 named gardens. Most of estate's positions/rings will be fallback or unscanned, undermining map's #1 job (gestalt/spatial memory) and daily-use trust.",
+      "verdict": "confirmed",
+      "convergence": 2,
+      "convergence_corrected": 2,
+      "reactions": [],
+      "cross_references": ["MAP-001", "GRAPH-001", "DOCS-001"],
+      "stemma_group": "data-completeness-cluster",
+      "hearsay": false,
+      "evidence_sources": ["peer-findings.jsonl:line1"]
+    },
+    {
+      "id": "F4",
+      "agent": "fd-architecture",
+      "severity": "P1",
+      "category": "coupling",
+      "section": "The rail",
+      "title": "Two escalation queues with no stated relationship",
+      "summary": "in-process escalate.DecisionQueue (Go/TUI) vs. BB-plugin rail escalation queue. Two independent queues can silently believe the other has handled an item (Schelling trap), creating unescalated blockers or double-counting escalation load.",
+      "verdict": "confirmed",
+      "convergence": 3,
+      "reactions": [
+        {
+          "agent": "fd-safety",
+          "stance": "agree",
+          "move_type": "defense",
+          "evidence": "own finding S3 (no audit trail), S5 (coordinator race)"
+        },
+        {
+          "agent": "fd-systems",
+          "stance": "agree",
+          "move_type": "defense",
+          "evidence": "own finding MULTIPLE_COORDINATORS_AMBIGUITY"
+        }
+      ],
+      "cross_references": ["S5", "MULTIPLE_COORDINATORS_AMBIGUITY"],
+      "stemma_group": "dispatch-substrate-cluster",
+      "hearsay": false
+    },
+    {
+      "id": "F6",
+      "agent": "fd-architecture",
+      "severity": "P1",
+      "category": "coupling",
+      "section": "The service plus a BB plugin",
+      "title": "No data contract between Go service and TypeScript plugin",
+      "summary": "Go structs that would feed the plugin are not exposed over any wire protocol. Without a schema, there's no defined rule for treating proposal text as untrusted data vs. trusted markup.",
+      "verdict": "confirmed",
+      "convergence": 2,
+      "reactions": [
+        {
+          "agent": "fd-safety",
+          "stance": "agree",
+          "move_type": "defense",
+          "note": "S1's injection mechanism is concrete failure mode of this gap; lack of schema means no sanitization rule can be attached"
+        }
+      ],
+      "cross_references": ["S1"],
+      "stemma_group": "data-contract-cluster",
+      "hearsay": false
+    },
+    {
+      "id": "S5",
+      "agent": "fd-safety",
+      "severity": "P1",
+      "category": "coordinator-claim",
+      "section": "Order of work",
+      "title": "T1 approval dispatch scheduled before one-coordinator claim exists",
+      "summary": "Approval-driven dispatch at T1 is planned before the one-coordinator claim mechanism is built; bbDev/bbOps coordinators already run outside Mycroft's suggestion flow, creating double-dispatch risk at T1, not only autonomous tiers.",
+      "verdict": "confirmed",
+      "convergence": 2,
+      "reactions": [
+        {
+          "agent": "fd-architecture",
+          "stance": "agree",
+          "move_type": "defense",
+          "evidence": "F2 (dispatch substrate mismatch), F4 (escalation queue ambiguity)"
+        }
+      ],
+      "cross_references": ["F2", "F4"],
+      "stemma_group": "dispatch-substrate-cluster",
+      "hearsay": false
+    },
+    {
+      "id": "NO-SUCCESS-CRITERIA",
+      "agent": "fd-decisions",
+      "severity": "P1",
+      "category": "decision-quality",
+      "section": "Map's Jobs",
+      "title": "No success criteria: 'Earn its space' is aspirational, not measurable",
+      "summary": "No metrics defined for what 'earn its space' looks like operationally. No graduation test stated between map+rail stage and next phase. Creates risk of accumulating obligations without exit path.",
+      "verdict": "confirmed",
+      "convergence": 2,
+      "reactions": [
+        {
+          "agent": "fd-user-product",
+          "stance": "agree",
+          "move_type": "defense",
+          "independent_coverage": "yes",
+          "evidence": "F2 (same absence from user flow angle)"
+        }
+      ],
+      "cross_references": ["F2"],
+      "stemma_group": "feedback-loops-cluster",
+      "hearsay": false
+    },
+    {
+      "id": "MISSING-KILL",
+      "agent": "fd-decisions",
+      "severity": "P1",
+      "category": "decision-quality",
+      "section": "Why This Approach",
+      "title": "No kill criterion stated",
+      "summary": "Document does not state 'if unused by X date, we stop' decision. No pre-committed exit rule for the map+rail feature.",
+      "verdict": "confirmed",
+      "convergence": 2,
+      "reactions": [
+        {
+          "agent": "fd-systems",
+          "stance": "partially-agree",
+          "move_type": "defense",
+          "note": "This is evidence of broader hysteresis problem—no exit mechanic at any scale"
+        }
+      ],
+      "cross_references": ["NEGLECT_SIGNAL_DECAY"],
+      "stemma_group": "feedback-loops-cluster",
+      "hearsay": false
+    },
+    {
+      "id": "ALL-OF-ABOVE",
+      "agent": "fd-decisions",
+      "severity": "P1",
+      "category": "scope",
+      "section": "Map's Jobs",
+      "title": "All four map jobs selected with no prioritization",
+      "summary": "Unfocused scope: attention, allocation, dependencies, neglect lenses selected simultaneously without ranking. Three of four are seasonal concerns, not daily-persistent affordances.",
+      "verdict": "confirmed",
+      "convergence": 2,
+      "reactions": [
+        {
+          "agent": "fd-user-product",
+          "stance": "agree",
+          "move_type": "defense",
+          "independent_coverage": "yes",
+          "evidence": "F3 (same scope observation from user flow)"
+        }
+      ],
+      "cross_references": ["F3"],
+      "stemma_group": "scope-cluster",
+      "hearsay": false
+    },
+    {
+      "id": "ESCALATION_FEEDBACK",
+      "agent": "fd-systems",
+      "severity": "P1",
+      "category": "feedback-loops",
+      "section": "What We're Building",
+      "title": "Mycroft proposals create reinforcing escalation feedback loop",
+      "summary": "Proposal-approval loop amplifies escalation load on the rail rather than reducing it. Feedback loop lacks balancing mechanism or completion signal.",
+      "verdict": "confirmed",
+      "convergence": 1,
+      "reactions": [],
+      "cross_references": ["MISSING-KILL"],
+      "stemma_group": "feedback-loops-cluster",
+      "hearsay": false
+    },
+    {
+      "id": "ESTATE_SPRAWL",
+      "agent": "fd-systems",
+      "severity": "P1",
+      "category": "feedback-loops",
+      "section": "Why This Approach",
+      "title": "Bootstrap lowers barrier to entry with no balancing mechanism",
+      "summary": "Bootstrapping new projects from rail removes friction; 'Goodhart's Law on 8/8 docs' creates false signal stability. No estate-size valve; unbounded sprawl risk.",
+      "verdict": "confirmed",
+      "convergence": 2,
+      "reactions": [
+        {
+          "agent": "fd-safety",
+          "stance": "agree",
+          "move_type": "defense",
+          "note": "Extends S4 (bootstrap creates resources behind one click) with repetition/rate-limit dimension"
+        }
+      ],
+      "cross_references": ["S4"],
+      "stemma_group": "feedback-loops-cluster",
+      "hearsay": false
+    },
+    {
+      "id": "NEGLECT_SIGNAL_DECAY",
+      "agent": "fd-systems",
+      "severity": "P1",
+      "category": "feedback-loops",
+      "section": "The map",
+      "title": "Neglect fade and glow settle independently; no recovery path for stalled gardens",
+      "summary": "Neglect signal conflates peaceful steady-state with abandonment. Fade and glow settle without explicit alert or recovery mechanism. Slow-layer gardens become invisible once marked as neglected.",
+      "verdict": "confirmed",
+      "convergence": 2,
+      "reactions": [
+        {
+          "agent": "fd-perception",
+          "stance": "agree",
+          "move_type": "defense",
+          "independent_coverage": "yes",
+          "evidence": "UNTOUCHED-001 (thread activity ≠ tending; unstated model produces ambiguity)"
+        }
+      ],
+      "cross_references": ["UNTOUCHED-001"],
+      "stemma_group": "feedback-loops-cluster",
+      "hearsay": false
+    },
+    {
+      "id": "MAP-001",
+      "agent": "fd-perception",
+      "severity": "P1",
+      "category": "information-quality",
+      "section": "Ecosystem bands",
+      "title": "47/98 gardens lack ecosystem data",
+      "summary": "Map will show placement without stating confidence. Missing ecosystem data for half the estate undermines core job (spatial memory) unless confidence signals are added.",
+      "verdict": "confirmed",
+      "convergence": 1,
+      "reactions": [],
+      "cross_references": ["F1"],
+      "stemma_group": "data-completeness-cluster",
+      "hearsay": false
+    },
+    {
+      "id": "GRAPH-001",
+      "agent": "fd-perception",
+      "severity": "P1",
+      "category": "information-quality",
+      "section": "Dependency edges",
+      "title": "5 documented edges vs ~98 gardens",
+      "summary": "Blast radius and coupling model fundamentally incomplete. Dependency edges missing for 94% of relationships.",
+      "verdict": "confirmed",
+      "convergence": 1,
+      "reactions": [],
+      "cross_references": ["F1"],
+      "stemma_group": "data-completeness-cluster",
+      "hearsay": false
+    },
+    {
+      "id": "UNTOUCHED-001",
+      "agent": "fd-perception",
+      "severity": "P1",
+      "category": "information-quality",
+      "section": "Untouched conflates signals",
+      "title": "Thread activity is not a reliable proxy for tending",
+      "summary": "newer(last_commit, last_thread_activity) is an unstated model of 'visit'. Conflates thread-based work with actual tending. Neglect signal is noisy; quiet steady-state indistinguishable from abandoned.",
+      "verdict": "confirmed",
+      "convergence": 1,
+      "reactions": [
+        {
+          "agent": "fd-systems",
+          "stance": "agree",
+          "move_type": "defense",
+          "independent_coverage": "yes",
+          "evidence": "NEGLECT_SIGNAL_DECAY finding grounds this in causal input to ambiguity"
+        }
+      ],
+      "cross_references": ["NEGLECT_SIGNAL_DECAY"],
+      "stemma_group": "data-completeness-cluster",
+      "hearsay": false
+    }
+  ],
+  "verdict": "risky",
+  "gate": "FAIL",
+  "severity_summary": {
+    "P0": 4,
+    "P1": 12,
+    "P2": 9
+  },
+  "agents_by_verdict": {
+    "risky": 0,
+    "needs-changes": 6,
+    "safe": 0
+  },
+  "convergence_summary": {
+    "high_convergence": 8,
+    "moderate_convergence": 4,
+    "single_agent": 4
+  },
+  "reactions_analysis": {
+    "total_reactions": 18,
+    "agree": 13,
+    "partially_agree": 2,
+    "defense": 3,
+    "disagree": 0
+  },
+  "lorenzen_analysis": {
+    "defense_moves": 13,
+    "distinction_moves": 3,
+    "attack_moves": 0,
+    "new_assertions": 1,
+    "move_legality": {
+      "valid": 16,
+      "invalid": 0,
+      "null": 2
+    }
+  },
+  "sycophancy_analysis": {
+    "flagged": false,
+    "conformity_rate": 100,
+    "note": "All agents engaged substantively; reactions add independent framing or evidence"
+  },
+  "stemma_analysis": {
+    "groups": [
+      {
+        "name": "data-contract-cluster",
+        "findings": ["S1", "F6"],
+        "convergence_corrected": 2
+      },
+      {
+        "name": "state-boundary-cluster",
+        "findings": ["F1"],
+        "convergence_corrected": 1
+      },
+      {
+        "name": "dispatch-substrate-cluster",
+        "findings": ["F2", "S5", "F4"],
+        "convergence_corrected": 3
+      },
+      {
+        "name": "data-completeness-cluster",
+        "findings": ["F1", "MAP-001", "GRAPH-001", "UNTOUCHED-001"],
+        "convergence_corrected": 4
+      },
+      {
+        "name": "feedback-loops-cluster",
+        "findings": ["ESCALATION_FEEDBACK", "ESTATE_SPRAWL", "NEGLECT_SIGNAL_DECAY", "MISSING-KILL"],
+        "convergence_corrected": 4
+      },
+      {
+        "name": "scope-cluster",
+        "findings": ["ALL-OF-ABOVE"],
+        "convergence_corrected": 1
+      }
+    ]
+  },
+  "discourse_quality": {
+    "participation_gini": 0.27,
+    "novelty_rate": 0.67,
+    "response_relevance": 0.92,
+    "flow_state": "healthy",
+    "dwsq": 0.76
+  }
+}

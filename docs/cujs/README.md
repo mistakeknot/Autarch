@@ -60,6 +60,26 @@ garden-vs-thread question closed with ruling 1; two open questions added
 
 v1.4 (2026-09-03, autarch-03 only): the one must_stop closed. The nativity thesis for the estate's own graph, named Ultan by mk, is docs/research/2026-09-03-ultan-nativity-thesis.md: nine rulings given one question at a time against CanonGraph's live schema and source, the sylveste profile's contents and the memory-lanes doctrine. The 2026-09-01 retune decision is amended on delivery classes (world facts on the edge kind, retune as mk's stamped act); three derived questions opened (the sitting record's file home, the canon files' repository, the proposed-state file form).
 
+v1.6 / v1.3 and three drafts (2026-09-24): the one-place design
+([brainstorm](../brainstorms/2026-09-24-one-place-in-aleph-brainstorm.md),
+[one-pager](../onepagers/2026-09-24-one-place-in-aleph.md)). autarch-04 step 4
+now lands rulings as signed files indexed by Lattice, per mk's rulings
+(applied). autarch-01 step 3 reads decisions owed instead of blocked agents,
+and mk ruled on 2026-09-25 that three guards keep the walk from becoming
+an inbox (applied). Three new journeys follow. autarch-07 was walked with
+mk and validated the same day (four rulings, one-place decision 18). 08 was
+cut from v1 during its walk and is parked (decision 19). 09 was validated
+on 2026-09-25 (decision 20):
+
+| CUJ | Cadence | What it proves |
+|---|---|---|
+| autarch-07-decide-and-continue | whenever an agent hits a fork | decisions owed, continuations, signed rulings, the feed |
+| autarch-08-focus-shows-up | weekly | parked: focus cut from v1 (2026-09-25), revisit at Mycroft T2 |
+| autarch-09-the-net-catches | at thread ends | buried decisions proposed, never guessed (the trial's criterion) |
+
+Logged, not drafted: **setting up an Uqbar** as a new Aleph user (write it
+once a second user exists), and **talking to the companion** (build step 6).
+
 Validate with the cujgel plugin:
 `<plugin>/bin/cujgel-validate docs/cujs/*.json`
 

@@ -1,0 +1,129 @@
+{
+  "cuj_id": "autarch-08-focus-shows-up",
+  "version": "0.2",
+  "status": "draft",
+  "actor": "mk — solo gardener of a ~98-project estate, directing agents from Aleph's Home",
+  "trigger": "The week's intent changes — a deadline, a new idea, a project that should rest — and mk wants the estate to follow it without telling each thread: 'this week: After Them and Aleph; park the rest.'",
+  "steps": [
+    {
+      "step": "mk edits one list in Home's focus bar: the projects in focus this week. Everything not on it is out of focus. There are no tiers and no settings screen",
+      "build_surface": [
+        "Home focus bar in the Aleph plugin (new)",
+        "focus.md in the Uqbar: one project per line; git history is the timeline"
+      ]
+    },
+    {
+      "step": "Agents are told nothing. Turns that machines start into out-of-focus projects — Mycroft, automations, scheduled wakes — are held with 'held: not in focus', the way concurrency-limit holds a turn. mk's own messages, and continuations from mk's picks, always pass",
+      "build_surface": [
+        "focus gate: Aleph plugin on the concurrency-limit pattern, reading focus.md (new)",
+        "bb thread → project mapping"
+      ]
+    },
+    {
+      "step": "When an agent in an out-of-focus project files a bead or spawns a thread, the filing path answers with one line — 'not in focus: filed as a parked idea' — and that is the only time focus costs tokens",
+      "build_surface": [
+        "focus check in the Clavain filing helper and bead creation (new)"
+      ]
+    },
+    {
+      "step": "On Home, each out-of-focus project shows a quiet count of held turns and parked ideas; mk can release a held turn in one move, or change focus and watch the held ones start",
+      "build_surface": [
+        "held/parked counts on the map and rail (new)",
+        "release action (new)"
+      ]
+    },
+    {
+      "step": "Whether focus held needs no report: the held turns and parked ideas are the record, next to the focus commits",
+      "build_surface": [
+        "caught-something log (estate-map trial plan)"
+      ]
+    }
+  ],
+  "mental_model": "Focus is intention going out, the counterpart to attention coming in — mk wanted 'one place to direct my attention/intention/cognition'. It should cost nothing to hold: mk called the first draft 'overly ornate/intricate ceremony' and asked for token-efficient alternatives, so focus is enforced where work starts, not announced where agents think. Out of focus does not mean stopped; claimed work finishes and mk can always talk to any thread. It is the week-scale cousin of seasonal reshaping (autarch-03): reshaping changes the estate's shape, focus changes where the machines spend this week.",
+  "ambiguity_ledger": {
+    "closed_decisions": [
+      {
+        "decision": "Focus is cut from v1 and this journey is parked. Most estate work is started by mk, and Mycroft does not dispatch on its own below T2, so there is little for focus to steer yet. Revisit when Mycroft reaches T2, or if the trial shows the walk needs a weekly lens. mk 2026-09-25: \"let's cut it for now and then determine later if we need it\"",
+        "confidence": "firm"
+      },
+      {
+        "decision": "Focus is one plain list, focus.md in the Uqbar, edited from Home's focus bar; not in the list means out of focus. No bead, no signature, no tiers; git history is the timeline. mk 2026-09-24 at validation, rejecting the first draft as 'overly ornate/intricate ceremony'",
+        "confidence": "leaning"
+      },
+      {
+        "decision": "Focus is enforced by gating machine-started turns (Mycroft, automations, scheduled wakes) into out-of-focus projects, on the concurrency-limit pattern; mk's own messages and pick continuations always pass. mk 2026-09-24",
+        "confidence": "firm"
+      },
+      {
+        "decision": "Agents hear about focus only when they start new work in an out-of-focus project: one line from the filing path. No per-turn or session-start focus line. mk 2026-09-24",
+        "confidence": "firm"
+      },
+      "Trial success includes 'focus shows up': machine-started work follows focus, and out-of-focus projects stay quiet (one-place decision 6)"
+    ],
+    "open_questions": [
+      {
+        "question": "What may break through the gate for an out-of-focus project — a failing CI on main, a security finding — and does it arrive as a held turn mk sees, or pass on its own?",
+        "gate": "ask_then_proceed"
+      },
+      {
+        "question": "Can focus name themes as well as projects, given themes cross projects (autarch-03)?",
+        "gate": "ask_then_proceed"
+      }
+    ]
+  },
+  "implied_features": [
+    {
+      "feature": "focus.md in the Uqbar and Home's focus bar",
+      "phase": "1"
+    },
+    {
+      "feature": "Focus gate plugin holding machine-started turns",
+      "phase": "1"
+    },
+    {
+      "feature": "Focus check in the filing helper and bead creation",
+      "phase": "1"
+    },
+    {
+      "feature": "Held and parked counts with a release action",
+      "phase": "1"
+    }
+  ],
+  "reference_lineage": [
+    {
+      "app": "Stellaris",
+      "teardown": "docs/research/2026-08-31-stellaris-teardown.md",
+      "what_it_shaped": "Pattern D, situations with a re-selectable approach: a policy lever that steers long-running work mid-flight without generating interrupts. Focus is that lever applied to the whole estate"
+    }
+  ],
+  "evidence": [
+    {
+      "source": "docs/brainstorms/2026-09-24-one-place-in-aleph-brainstorm.md (What we're building)",
+      "quote": "I'm okay with autarch not folding into aleph, I really just want one place to direct my attention/intention/cognition",
+      "assumption_tested": "That the goal was merging Autarch into Aleph — the goal is directing, and focus is the intention half"
+    },
+    {
+      "source": "docs/brainstorms/2026-09-24-one-place-in-aleph-brainstorm.md (decision 6)",
+      "quote": "Focus shows up, Catches",
+      "assumption_tested": "What the trial measures — focus showing up in agents' behaviour is one of two success criteria"
+    },
+    {
+      "source": "docs/brainstorms/2026-09-24-one-place-in-aleph-brainstorm.md (decision 19)",
+      "quote": "this seems like overly ornate/intricate ceremony",
+      "assumption_tested": "That focus needed a bead, a signed ruling, two hooks, a Mycroft filter and an adherence query"
+    },
+    {
+      "source": "docs/brainstorms/2026-09-24-one-place-in-aleph-brainstorm.md (decision 19)",
+      "quote": "let's take a step back: what's the point of this?",
+      "assumption_tested": "That focus had a job in v1 at all"
+    }
+  ],
+  "success_condition": "A week after mk sets focus, the proposals and new work across the estate sit inside it, the parked projects stayed quiet without being told twice, and mk recognizes that they steered the estate once from one place rather than thread by thread.",
+  "provenance": [
+    {
+      "artifact": "docs/brainstorms/2026-09-24-one-place-in-aleph-brainstorm.md (decisions 8, 16, 17)",
+      "change": "Focus bead, signed focus/current.md and focus lines in the SessionStart and feed hooks withdrawn; replaced by one list, a turn gate and a new-work nudge (decision 19)",
+      "autonomy": "applied"
+    }
+  ]
+}

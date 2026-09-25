@@ -1,6 +1,6 @@
 {
   "cuj_id": "autarch-01-daily-walk",
-  "version": "1.5",
+  "version": "1.6",
   "status": "validated",
   "actor": "mk — solo gardener of a ~98-project, agent-heavy, terminal-native estate",
   "trigger": "Sitting down at the machine (morning, or returning after hours away) with agents having run on wall-clock the whole time: 'what moved while I was gone, and what waits on me?'",
@@ -20,10 +20,11 @@
       ]
     },
     {
-      "step": "Read the waiting-on-me axis: which agents are blocked on a human right now, distinguished from working and from dead",
+      "step": "Read the waiting-on-me axis: decisions owed on Home's rail, oldest first, plus any agent still blocked on a human, distinguished from working and from dead. Under fire-and-forget decisions most askers are not blocked; the debt is the decision, not the agent",
       "build_surface": [
         "tmux capture-pane scrape (Claude-Squad pattern: prompt-scrape + content hash)",
-        "door sessions axis (shipped 9da41aa)"
+        "door sessions axis (shipped 9da41aa)",
+        "Home rail: decisions owed (autarch-07)"
       ]
     },
     {
@@ -72,6 +73,10 @@
       },
       {
         "decision": "Liveness reads tmux's pane command (an agent binary and its version, an idle shell, nothing) and the transcript's last real turn, never the file's mtime; a root-launched thread is attributed to the gardens its transcript mentions, since every pane sits at the estate root -- adopted by mk in the goal text of cf9e8644, evidence docs/research/2026-09-02-thread-registry-probe.md",
+        "confidence": "firm"
+      },
+      {
+        "decision": "The decisions rail keeps the walk a walk under three guards: the catch-up completes before the rail speaks, no decision blocks an agent (fire-and-forget), and closing Home with decisions still owed is a successful walk. mk 2026-09-25, at the one-place CUJ walk",
         "confidence": "firm"
       }
     ],
@@ -157,6 +162,11 @@
     {
       "artifact": "internal/door thread registry (intercore goal cf9e8644, 2026-09-02)",
       "change": "The thread registry built from tmux session names, pane commands and transcript last turns per the probe of mk's session note; the threads screen (t) beside the garden rows; garden rows' live counts by transcript attribution; --registry diff against the note; the briefing's sessions count moved from mtime to the last real turn; three GATE rulings recorded as closed decisions; the garden-vs-thread question closed",
+      "autonomy": "applied"
+    },
+    {
+      "artifact": "docs/brainstorms/2026-09-24-one-place-in-aleph-brainstorm.md (decisions 3, 13, 17)",
+      "change": "Step 3 re-pointed from 'agents blocked on a human' to decisions owed on the rail, because decisions are now filed as beads and are fire-and-forget; the tension with the success condition's 'not an inbox' was ruled by mk on 2026-09-25 (three guards)",
       "autonomy": "applied"
     }
   ],
