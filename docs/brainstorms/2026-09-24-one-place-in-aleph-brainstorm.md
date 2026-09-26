@@ -21,14 +21,14 @@ to direct my attention/intention/cognition").
 - **Attention (in).** The two primary leaks are the estate-wide picture and
   decisions owed. The secondary leaks are rig health and jobs, and PRs, CI and
   Sonnerie.
-- **Intention (out).** mk answers decisions, sets focus (for example "this week:
-  After Them and Aleph; park the rest"), and talks to a companion that turns
-  intent into beads, threads or rulings for approval.
+- **Intention (out).** mk answers decisions and talks to a companion that
+  turns intent into beads, threads or rulings for approval. (Setting a weekly
+  focus was cut from v1; decision 19.)
 
 **Shape: approach 1, a Home page.** The one place is an **Aleph plugin, not a
 separate application**:
 
-- A full-page Home tab with the estate map, the rail and a focus bar.
+- A full-page Home tab with the estate map and the rail.
 - The rail holds decisions owed and Mycroft's proposals.
 - The plugin's host part starts the **Autarch service**: the existing Go
   engine with no UI of its own.
@@ -41,7 +41,7 @@ separate application**:
 **Which Autarch tools come in:** only those that serve attention.
 
 - Bigend, with the catch-up and the estate map, becomes the map.
-- Mycroft's proposals, filtered by focus, appear on the rail.
+- Mycroft's proposals appear on the rail.
 - Coldwine's outcomes appear when you open one project's view.
 
 Gurgeh and Pollard stay as tools that agents call through the CLI and MCP.
@@ -58,6 +58,15 @@ Gurgeh and Pollard stay as tools that agents call through the CLI and MCP.
 - **The fork stays thin.** The work is a plugin plus a Go service. Approach 3,
   folding everything into the sidebar, needed carried patches and could not
   show 98 projects.
+- **Prior art: bb-plugin-command-center**
+  ([assessment](../research/assess-bb-plugin-command-center.md),
+  inspire-only).
+  - It is a bb plugin board with a "Needs you" lane.
+  - It chose the opposite of decision 13: a question is a notification, and
+    the answer is a chat reply that wakes the asker. We keep continuations,
+    and the trial's counts test that bet.
+  - We borrow its content-script sidebar badge for build step 2, the shape
+    of its `ask` command for the filing helper, and its stall rule.
 
 ## Key decisions
 
@@ -98,17 +107,19 @@ Gurgeh and Pollard stay as tools that agents call through the CLI and MCP.
    - *Catches:* Home surfaces things mk would have missed. These are counted
      in the existing caught-something log, which uses the trial plan's kill
      rule.
-7. **Build order** (mk: "Home on beads first"):
-   1. The decisions inbox and focus, built on beads and stamped files.
+7. **Build order** (mk: "Home on beads first"; step 0 added by decision 21):
+   0. `autarch serve` consolidated: the Bigend daemon, Gurgeh, Signals and MCP.
+   1. The decisions inbox, built on beads and signed files (focus cut, decision 19).
    2. Sidebar badges.
    3. Lattice grown to meet the Ultan thesis, as the map's source.
    4. The map.
-   5. Mycroft's proposals, filtered by focus.
+   5. Mycroft's proposals.
    6. The companion.
 
-   The badges and a focus filter in the sidebar are borrowed from approach 3.
+   The badges in the sidebar are borrowed from approach 3.
    They are included only if they fit the plugin API without fork patches;
-   otherwise they wait.
+   otherwise they wait. A content script, as bb-plugin-command-center uses,
+   fits that rule.
 8. *(Cut from v1 on 2026-09-25; see decision 19.)* **Focus is a pinned "estate focus" bead in the hub tracker** (mk):
    - It holds focused and parked project lists.
    - Home edits it.
@@ -144,9 +155,9 @@ Gurgeh and Pollard stay as tools that agents call through the CLI and MCP.
     memory-lanes policy is then updated.
 12. **Rulings files live in two places** (mk, 2026-09-24):
     - A ruling about one project goes in that project's `docs/decisions/`.
-    - Estate-level rulings (focus, themes and rulings across projects) go in
-      an **Uqbar**: a private repo with a documented layout (`focus/`,
-      `themes/`, `rulings/`).
+    - Estate-level rulings (themes and rulings across projects) go in
+      an **Uqbar**: a private repo with a documented layout (`themes/`,
+      `rulings/`).
 
     Uqbar is a convention, so any Aleph user can set one up; Home finds it
     through a setting. The name comes from Borges' "Tlön, Uqbar, Orbis
@@ -183,8 +194,8 @@ Gurgeh and Pollard stay as tools that agents call through the CLI and MCP.
       - the command is frozen by hash when the bead is filed, so what was
         shown is what runs.
 15. **v1 scope and shipping** (mk):
-    - v1's rail carries the primary leaks: decisions, focus and the estate
-      picture. Rig health and PRs/CI/Sonnerie join after the trial.
+    - v1's rail carries the primary leaks: decisions and the estate
+      picture (focus cut, decision 19). Rig health and PRs/CI/Sonnerie join after the trial.
     - The plugin is installed from the Autarch repo during the trial.
       Whether to bundle it into Aleph is ruled on the trial's evidence.
     - Engineering defaults for planning:
@@ -204,11 +215,8 @@ Gurgeh and Pollard stay as tools that agents call through the CLI and MCP.
       files as **proposed**. This makes Ultan ruling 2 ("only mk moves a fact
       to ruled") structural, and fixes the thesis's "asserted actors" limit
       from the first day.
-    - **Layout:** Uqbar holds `rulings/YYYY-MM-DD-<slug>.md`, plus
-      `focus/current.md`, where each change supersedes the previous commit.
-      Git history is the focus timeline.
-    - **Measuring focus** is a query over that timeline: which focus commit
-      was current when each proposal was made.
+    - **Layout:** Uqbar holds `rulings/YYYY-MM-DD-<slug>.md`. (`focus/`
+      and the focus-timeline query were cut with decision 19.)
     - **Rejected:**
       - an append-only ledger: concurrent appends conflict across machines;
       - git itself as the ledger: rulings stop being documents;
@@ -220,12 +228,10 @@ Gurgeh and Pollard stay as tools that agents call through the CLI and MCP.
       needs no answer unless it marked the decision `needs-context`.
     - One Clavain `UserPromptSubmit` hook injects, at the start of each turn,
       the rulings relevant to that project only:
-      - a focus change;
       - new rulings about this project;
       - answers to this thread's own decisions.
     - One line per item, read through a fast, cached path. It must never
       grow into another `bd prime`.
-    - This is also how focus reaches coordinators in the middle of a session.
     - **Checked:** `bb thread queue` cannot deliver without waking the
       thread. Its modes are only `auto` and `steer`, and a message queued to
       an idle thread is sent immediately (`apps/server/src/services/threads/queued-messages.ts`).
@@ -277,6 +283,64 @@ Gurgeh and Pollard stay as tools that agents call through the CLI and MCP.
       ships at step 6, after the v1 trial, so its own first weeks serve as
       its trial.
 
+21. **Review fixes from the 2026-09-25 flux-drive**
+    ([summary](../research/flux-drive/2026-09-24-one-place-in-aleph-brainstorm-fc1c03fa/summary.md)):
+    - **Home's key accepts the same-user risk** (mk, 2026-09-25). Every
+      agent on zklw runs as mk, so an agent that set out to could read the
+      key or edit `allowed_signers`. Claude Code and Codex draw the same
+      line: the sandbox and permission prompts are the boundary, not Unix
+      users. The key guards against the realistic failure, an agent
+      writing a ruling file by hand, which renders as proposed. No separate
+      signer service.
+
+    mk ruled on the rest one by one (2026-09-25):
+    - **One queue.** Mycroft's in-process `DecisionQueue`
+      (`internal/mycroft/escalate/escalate.go`) files decision beads
+      through the filing helper instead of keeping its own queue. The rail
+      is the only queue.
+    - **What the hash freezes.** The command string, its working
+      directory, an environment allowlist, and the hashes of any repo
+      scripts it calls. Editing one of those scripts invalidates the
+      option, and the pick becomes a re-ask. A continuation runs as mk in
+      the project's directory, and the card says so.
+    - **The feed carries only what mk ruled:** the option label and the
+      outcome state, quoted and clipped. It never carries the asker's free
+      text, so one agent's prose can't reach another agent's turn.
+    - **A pick runs once.** The ruling is written with state `running`
+      before the command starts. After a crash, a `running` ruling is never
+      re-run. It reopens as owed, marked interrupted, and mk picks again or
+      reverts (decision 22).
+    - **The tracker down is not "nothing owed".** If the hub tracker is
+      unreachable, the rail shows "tracker down since …", and the filing
+      helper tells the agent to ask in chat. Nothing is spooled.
+    - **Consolidate first** (mk overrode the recommendation, which was to
+      need only the decisions RPC). Build step 0 is the whole `autarch
+      serve`, before decisions. It merges the Bigend daemon, Gurgeh,
+      Signals and MCP. `autarch-mcp` speaks stdio while the others speak
+      HTTP, so planning decides how MCP attaches, for example as a thin
+      stdio shim over the service.
+    - **Rail volume is counted.** The trial counts decisions filed per week
+      and time to pick, both taken from bead timestamps. If the rail
+      outgrows a walk, decision 19 (focus) is revisited.
+    - **Where v1's catches come from.** The catch-up, the map and the
+      rail, logged with `estate catch` under the trial plan's `[mk-C]`
+      rule. The net comes later and is not needed for the trial.
+22. **Continuation rulings after the review** (mk, 2026-09-25):
+    - **Needs-context is the default.** An option is needs-context unless
+      the asker explicitly gives a command, which the card shows exactly.
+      A command that was the wrong kind fails and reopens as owed. When an
+      agent is unsure, this falls back to answering through the asker, as
+      in bb-plugin-command-center (prior art above).
+    - **An optional revert command.** When filing a command option, the
+      asker may attach a revert command, frozen by the same hash. The
+      ruling card then offers "revert", which runs it and reopens the
+      decision. Without a revert command, a wrong pick is fixed by filing a
+      new decision.
+    - **v1 ships three kinds: command, needs-context and ruling-only.**
+      A brief needs Home to spawn a fresh thread, which is the most code and
+      the least proven. It comes back if the trial shows many decisions
+      waking large askers. This amends decisions 13 and 18 for v1 only.
+
 ## Open questions
 
 1. *(Resolved: see decisions 8 and 12.)*
@@ -286,9 +350,14 @@ Gurgeh and Pollard stay as tools that agents call through the CLI and MCP.
 5. **Hook latency.** The feed runs on every turn, so it needs a
    per-project cache that is invalidated when a bead closes or Uqbar
    receives a commit.
+6. *(Resolved: decision 22.)* Undo after a wrong pick.
+7. *(Resolved: decision 22.)* A misclassified continuation.
 
 ## Review
 
-A flux-drive review of this document is held under the bbOps quota note
-(hold Opus reviews unless a gate needs one). It should run before
-`/clavain:write-plan`.
+Flux-drive ran on 2026-09-25 with six reviewers (architecture, systems,
+safety, user-product, decisions, resilience):
+[summary](../research/flux-drive/2026-09-24-one-place-in-aleph-brainstorm-fc1c03fa/summary.md),
+[findings.json](../research/flux-drive/2026-09-24-one-place-in-aleph-brainstorm-fc1c03fa/findings.json).
+The verdict was needs-changes. Its fixes are decision 21 and open
+questions 6 and 7. Three findings were rejected on checking.

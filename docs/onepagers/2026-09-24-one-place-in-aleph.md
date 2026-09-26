@@ -24,20 +24,22 @@ they serve attention.
   - Answering closes the bead and writes a stamped ruling file.
   - A companion proposes beads for prose decisions that were never filed. It
     never shows a guess as real.
-- **Continuations.** Each option on a decision bead carries one of four
-  things:
+- **Continuations.** Each option on a decision bead carries one of these:
   - a command, which runs when mk picks the option. It is shown exactly and
-    frozen by hash, and costs zero tokens.
-  - a brief, which runs in a fresh, small thread.
-  - needs-context, which wakes the asker.
+    frozen by hash, along with its working directory, an environment
+    allowlist and the scripts it calls. It costs zero tokens and may carry
+    a revert command.
+  - needs-context, which wakes the asker. This is the default.
   - ruling-only, which just records the ruling.
+  - a brief, which runs in a fresh, small thread. It is deferred past v1.
 
   Answers are batched per thread. A pick re-checks the continuation first
-  and turns into a re-ask if the continuation has gone stale. A failed
-  continuation reopens as a decision owed.
+  and turns into a re-ask if the continuation has gone stale. It runs once:
+  a crash or a failure reopens the decision as owed.
 - **Fire-and-forget decisions and a feed.** Continuations own the
   follow-through. A turn-start hook injects rulings relevant to the project:
-  project rulings and the thread's own answers, one line each.
+  project rulings and the thread's own answers, one line each. The feed
+  carries only the label mk picked and the outcome, never agent prose.
 - **Rulings are signed files.** Each one reuses the card's ratification
   block and is signed with Home's own key, whose public half is in the
   Uqbar's `allowed_signers`. Unsigned files render as proposed. Rulings
@@ -52,14 +54,19 @@ they serve attention.
   - Mycroft owns initiative.
   - Autarch owns attention.
 - **Build order:**
-  1. Decisions.
+  0. `autarch serve` consolidated (mk, 2026-09-25).
+  1. Decisions. Mycroft's escalations become decision beads too, so there
+     is one queue.
   2. Badges.
   3. Lattice grown toward the Ultan thesis.
   4. The map.
   5. Mycroft's proposals.
   6. The companion.
 
-**Lineage.** This widens the ruled
+**Lineage.** [bb-plugin-command-center](../research/assess-bb-plugin-command-center.md)
+is the closest prior art. It answers questions by chat reply, the opposite
+of our continuations, and we borrow its content-script badge. This design
+also widens the ruled
 [attention map](2026-09-22-autarch-attention-map.md), and it corrects the
 [options doc](2026-09-24-autarch-in-aleph-options.md). Mycroft does not
 enforce Aleph's roadmap, because Aleph core already does (mk-a4o0.1–.4,
@@ -80,11 +87,13 @@ where a chat spends a wake on every look.
 2. Whether a decisions rail works across all 98 projects without any
    focus lens.
 
-**Status.** Discover. Refined with mk on 2026-09-24 and 25 (20 decisions).
+**Status.** Discover. Refined with mk on 2026-09-24 and 25 (22 decisions).
 CUJs autarch-07 (decide and continue) and 09 (the net) are validated.
 - v1 is decisions and the estate picture. Rig health and PRs come
   after the trial.
 - The trial passes if Home catches things, under the existing kill rule.
 - Focus is cut from v1 (2026-09-25). Its CUJ, autarch-08, is parked until
   Mycroft dispatches on its own (T2).
-- A flux-drive review is held under the quota note.
+- Flux-drive reviewed it on 2026-09-25 (needs-changes). mk ruled on every
+  fix (decisions 21 and 22). Home's key accepts the same-user risk, as
+  Claude Code and Codex do.

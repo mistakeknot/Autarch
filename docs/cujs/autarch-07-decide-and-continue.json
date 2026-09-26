@@ -1,6 +1,6 @@
 {
   "cuj_id": "autarch-07-decide-and-continue",
-  "version": "1.0",
+  "version": "1.2",
   "status": "validated",
   "actor": "mk — solo gardener of a ~98-project estate, directing agents from Aleph's Home",
   "trigger": "An agent reaches a fork it should not choose alone. Instead of asking in chat and idling, it files a decision owed and moves on; later mk opens Home and sees the decision waiting on the rail.",
@@ -58,7 +58,7 @@
       ]
     }
   ],
-  "mental_model": "Decisions leak out of the estate when they are buried in chat, and they cost the most when answering them wakes a big context just to hear 'option 2'. mk asked for 'the most token efficient approach' and accepted building something new for it: the asker says in advance what each answer should cause, so the answer itself does the work. A pick is an approval, not a message — 'Everything on pick' — so what the option shows is exactly what runs. A decision is owed until it is ruled; once ruled it is a file mk signed, and no agent can make one look ruled.",
+  "mental_model": "Decisions leak out of the estate when they are buried in chat, and they cost the most when answering them wakes a big context just to hear 'option 2'. mk asked for 'the most token efficient approach' and accepted building something new for it: the asker says in advance what each answer should cause, so the answer itself does the work. A pick is an approval, not a message — 'Everything on pick' — so what the option shows is exactly what runs. A decision is owed until it is ruled; once ruled it is a file Home signed on mk's pick, and a ruling an agent writes by hand shows as proposed.",
   "ambiguity_ledger": {
     "closed_decisions": [
       "A decision owed is a hub-tracker bead; answering closes it and writes a ruling file (one-place brainstorm decisions 3 and 9)",
@@ -81,6 +81,30 @@
       },
       {
         "decision": "The filing helper requires a continuation kind on every option; ruling-only is the explicit kind for 'just record it'. Agents learn from the helper's prompts and worked examples in the Clavain guidance. mk 2026-09-24 at validation",
+        "confidence": "firm"
+      },
+      {
+        "decision": "Home's key accepts the same-user risk: agents on zklw run as mk and could reach the key, as with Claude Code and Codex, where the sandbox is the boundary. The key stops hand-written rulings, not a hostile agent. mk 2026-09-25 after flux-drive",
+        "confidence": "firm"
+      },
+      {
+        "decision": "An option is needs-context unless the asker explicitly gives a command; a wrong-kind command fails and reopens as owed. mk 2026-09-25 (brainstorm decision 22)",
+        "confidence": "firm"
+      },
+      {
+        "decision": "A command option may carry a revert command, frozen by the same hash; the ruling card offers revert, which runs it and reopens the decision. mk 2026-09-25 (decision 22)",
+        "confidence": "firm"
+      },
+      {
+        "decision": "v1 ships command, needs-context and ruling-only; the brief kind returns if the trial shows many decisions waking large askers. mk 2026-09-25 (decision 22)",
+        "confidence": "firm"
+      },
+      {
+        "decision": "A pick runs once: the ruling is written as running before the command starts, and after a crash it reopens as owed, marked interrupted, never re-run. The hash freezes command, cwd, an env allowlist and called-script hashes. mk 2026-09-25 (decision 21)",
+        "confidence": "firm"
+      },
+      {
+        "decision": "The feed carries only the picked option label and outcome state, never the asker's free text. mk 2026-09-25 (decision 21)",
         "confidence": "firm"
       }
     ],
@@ -160,6 +184,16 @@
     {
       "artifact": "docs/brainstorms/2026-09-24-one-place-in-aleph-brainstorm.md (decisions 13, 16; open questions 3 and 4)",
       "change": "Validation closed the signing-key and teaching-continuations questions and added ruling-only, stale marking with a pick-time re-check, and failure-reopens-a-decision",
+      "autonomy": "applied"
+    },
+    {
+      "artifact": "docs/research/flux-drive/2026-09-24-one-place-in-aleph-brainstorm-fc1c03fa/summary.md",
+      "change": "Softened 'no agent can make one look ruled' to match the accepted same-user risk (brainstorm decision 21)",
+      "autonomy": "applied"
+    },
+    {
+      "artifact": "docs/brainstorms/2026-09-24-one-place-in-aleph-brainstorm.md",
+      "change": "Recorded mk's rulings on decisions 21 and 22: needs-context default, revert command, brief deferred past v1, pick-once, hash scope, feed fields",
       "autonomy": "applied"
     }
   ]

@@ -1,0 +1,570 @@
+{
+  "synthesis_protocol_version": "1.0",
+  "reviewed_date": "2026-09-25",
+  "run_uuid": "94d77d7b-12d8-48ea-aa98-bb856269a828",
+  "document_reviewed": "docs/brainstorms/2026-09-24-one-place-in-aleph-brainstorm.md",
+  "agents": [
+    "fd-architecture",
+    "fd-systems",
+    "fd-safety",
+    "fd-user-product",
+    "fd-decisions",
+    "fd-resilience"
+  ],
+  "validation": {
+    "total": 6,
+    "valid": 6,
+    "malformed": 0,
+    "errors": 0
+  },
+  "verdict": "risky",
+  "findings": [
+    {
+      "id": "SF1-SF2",
+      "severity": "P0",
+      "category": "security",
+      "title": "No privilege separation between command execution and Home signing key + allowed_signers write access unrestricted",
+      "summary": "Decision 18's signing key is shared process with continuations (decision 10: 'one Go application'). Decision 18 places allowed_signers in Uqbar with no stated write-access restriction. Combined, these defeat the 'only mk moves a fact to ruled' invariant (Ultan ruling 2) that the entire signature mechanism exists to enforce.",
+      "description": "SF1: Home's ed25519 key and the continuation execution service share the same process/account, enabling an mk-approved command to read or forge the signing key directly. SF2: allowed_signers file committed to Uqbar with no review gate or write-access protection; anyone with push access (compromised credential, autosync timer) can add their own key and self-sign forged ruled files. Together they bypass the cryptographic ratification design.",
+      "decisions_affected": [
+        "Decision 10",
+        "Decision 13",
+        "Decision 18"
+      ],
+      "agents": [
+        "fd-safety"
+      ],
+      "convergence": 1,
+      "brainstorm_decisions_changed": [
+        "Decision 18 must separate credential storage and key rotation from command execution",
+        "Decision 12/16 must restrict Uqbar write access or move allowed_signers to a separate trust store"
+      ],
+      "verdict": "confirmed"
+    },
+    {
+      "id": "ARCH-1",
+      "severity": "P0",
+      "category": "architecture",
+      "title": "In-process DecisionQueue in Mycroft still unreconciled with bead-based decision design",
+      "summary": "internal/mycroft/escalate/escalate.go defines PendingDecision/DecisionQueue used by the TUI for dispatch-approval. Decision 3 introduces beads as a disjoint mechanism. Decision 2 assigns Mycroft 'owns initiative: proposing and claiming work' — exactly where DecisionQueue lives. The new design never reconciles whether DecisionQueue is replaced, feeds into beads, or runs in parallel. This was the 2026-09-22 review's P0 (F4) and is carried forward unresolved.",
+      "description": "Two unreconciled decision/escalation queues mean: (1) approval in one won't update state in the other, (2) the new owner map doesn't establish which mechanism owns Mycroft's dispatch lifecycle, (3) security findings SF1/SF2 don't cover the DecisionQueue path to dispatch, only the new bead path.",
+      "decisions_affected": [
+        "Decision 2",
+        "Decision 3"
+      ],
+      "agents": [
+        "fd-architecture"
+      ],
+      "convergence": 1,
+      "brainstorm_decisions_changed": [
+        "Decision 2/3 must explicitly state whether DecisionQueue is replaced, deprecated, or feeds into beads"
+      ],
+      "verdict": "confirmed"
+    },
+    {
+      "id": "SF5",
+      "severity": "P1",
+      "category": "security",
+      "title": "Agent-authored ruling text injected into downstream agent context with no sanitization",
+      "summary": "Decision 17's feed hook injects ruling content (options_shown, recommendation, question filed by asker) into the start of every turn with no escaping, delimiting, or 'treat as data' rule. Same class of failure as 2026-09-22 P0 (S1: agent text rendered as live HTML); here sink is LLM context instead of DOM.",
+      "description": "A compromised or careless asker's filed text becomes the sole grounding for a new thread ('only context is the bead'). Decision 13 continuations wire this same unvalidated text. No stated rule for how injected ruling text is delimited or whether it is treated as data vs. instruction.",
+      "decisions_affected": [
+        "Decision 13",
+        "Decision 17"
+      ],
+      "agents": [
+        "fd-safety"
+      ],
+      "convergence": 1,
+      "brainstorm_decisions_changed": [
+        "Decision 17 must specify that injected ruling text is quoted/delimited and never concatenated as instructions"
+      ],
+      "verdict": "confirmed"
+    },
+    {
+      "id": "ARCH-2-3",
+      "severity": "P1",
+      "category": "architecture",
+      "title": "autarch-mcp stdio→HTTP consolidation unnamed; build step 1 may secretly depend on full server consolidation",
+      "summary": "cmd/autarch-mcp runs stdio JSON-RPC (pkg/mcp/server.go uses os.Stdin/Stdout); bigend/gurgeh/signals are HTTP daemons. Decision 10 says consolidate into one 'autarch serve' without naming the transport bridge. Decision 15's 'panels kept thin over RPC' plus decision 19's 'step 1 is decisions only' create hidden dependency: if decisions-inbox talks to serve over RPC, it depends on however much of the full four-way consolidation is built.",
+      "description": "Protocol bridge from per-call stdio to persistent HTTP multiplexing is engineering work not named in decision 10. Build-order independence claim (decision 7/19) doesn't hold if step 1 secretly depends on the full server consolidation to be built first.",
+      "decisions_affected": [
+        "Decision 7",
+        "Decision 10",
+        "Decision 15",
+        "Decision 19"
+      ],
+      "agents": [
+        "fd-architecture"
+      ],
+      "convergence": 1,
+      "brainstorm_decisions_changed": [
+        "Decision 10 must state whether autarch serve is built minimally (decisions/rulings only) for step 1, or whether full consolidation is a prerequisite"
+      ],
+      "verdict": "confirmed"
+    },
+    {
+      "id": "SYS-001-002-003",
+      "severity": "P1",
+      "category": "systems",
+      "title": "Three reinforcing loops create rail saturation: fire-and-forget asymmetry, 98-project scale without focus filter, Goodhart inversion of 'catches' metric",
+      "summary": "Decision 14 makes filing cheap (agents continue immediately); decision 19 cuts focus; decision 6 measures success by 'catches.' Combined: agents file aggressively into an unfocused 98-project rail (oldest-first only), mk skims and dismisses valid decisions in bulk, metric trains agents to hide prose decisions, system reaches inflection within weeks.",
+      "description": "SYS-001: Fire-and-forget cost asymmetry (~10-50 tokens to file, ~1 second for mk to pick). SYS-002: v1 rail has no focus filter despite being the stated 'directional intention' and the only valve that would prevent saturation. SYS-003: Goodhart's law — metric (catches) trains system to evade the metric rather than improve actual decisions covered. Focus removal (decision 19) was meant to keep v1 lean but removed the only system lever that would keep the rail navigable.",
+      "decisions_affected": [
+        "Decision 6",
+        "Decision 14",
+        "Decision 19"
+      ],
+      "agents": [
+        "fd-systems"
+      ],
+      "convergence": 1,
+      "brainstorm_decisions_changed": [
+        "Decision 19 must reconsider cutting focus, OR decision 6 trial criteria must account for inevitable rail saturation (catches will be dwarfed by dismissals in week 2)"
+      ],
+      "verdict": "confirmed"
+    },
+    {
+      "id": "UP-3",
+      "severity": "P1",
+      "category": "user-product",
+      "title": "Trial success criterion ('catches') measured before extraction net exists",
+      "summary": "Decision 6 counts trial success via 'catches' in the existing caught-something log. Decision 20 ships the net (the mechanism explicitly built to surface missed prose decisions) at build step 6, after v1 trial ends. Trial's own catching mechanism isn't built when trial is judged.",
+      "description": "Two-week trial (unclear which build step starts the clock) is judged on catches from a system that doesn't yet include the net. Either trial success is unmeasurable, or it's only measuring the decisions-inbox itself (not the net's value). Document never clarifies which build step the clock starts at.",
+      "decisions_affected": [
+        "Decision 6",
+        "Decision 20"
+      ],
+      "agents": [
+        "fd-user-product"
+      ],
+      "convergence": 1,
+      "brainstorm_decisions_changed": [
+        "Decision 6 must clarify which build step starts the two-week trial clock, or defer trial to after step 6 when the net exists"
+      ],
+      "verdict": "confirmed"
+    },
+    {
+      "id": "UP-1-2",
+      "severity": "P1",
+      "category": "user-product",
+      "title": "Rail UX at 98 projects unresolved; 'everything on pick' removes graduated caution where mis-clicks likeliest",
+      "summary": "Onepager's own 'top open calls' lists 'whether decisions rail works across 98 projects without focus lens' as unresolved. Decision 19 cut focus. Decision 14 says 'everything on pick' — no safeguard beyond exact-command display, no confirm step for destructive commands. Combined with decision fatigue from oldest-first queue (UP-1), decision skimming becomes the failure mode and wrong picks become likely.",
+      "description": "The rail's UX at ~98-project scale is admitted as open question. Without focus filter and with 'everything on pick', a skimmed exact-command display from a long queue is precisely where mis-clicks and mis-reads are likeliest. No second-look step or blast-radius-aware confirm.",
+      "decisions_affected": [
+        "Decision 14",
+        "Decision 19"
+      ],
+      "agents": [
+        "fd-user-product"
+      ],
+      "convergence": 1,
+      "brainstorm_decisions_changed": [
+        "Decision 14 or 19 must restore either focus gate or a safeguard-by-blast-radius rule"
+      ],
+      "verdict": "confirmed"
+    },
+    {
+      "id": "SF3-4",
+      "severity": "P1",
+      "category": "security",
+      "title": "Command hash pins label, not runtime behavior; no per-project scoping for continuations",
+      "summary": "Decision 14/18: 'command is frozen by hash, so what was shown is what runs.' But if command references a file path or script, the hash of the string is stable while the file's content changes. Preconditions are never defined. SF4: no execution sandbox or per-project scoping stated; a benign command approved for one project runs estate-wide with full privilege of the engine.",
+      "description": "SF3: hash covers the label mk saw, not necessarily the behavior that executes (deploy.sh content, referenced file drift). SF4: blast radius widens if nothing scopes command execution to its origin project. Combined, a correct-hash command can still act estate-wide on drifted content.",
+      "decisions_affected": [
+        "Decision 10",
+        "Decision 13",
+        "Decision 14",
+        "Decision 18"
+      ],
+      "agents": [
+        "fd-safety"
+      ],
+      "convergence": 1,
+      "brainstorm_decisions_changed": [
+        "Decision 18 must clarify what the hash covers (content-addressed snapshot or label only) and what preconditions include",
+        "Decision 13 must add per-project execution scoping or at minimum state that continuations inherit full estate-wide privilege"
+      ],
+      "verdict": "confirmed"
+    },
+    {
+      "id": "R2-R4-R6",
+      "severity": "P1",
+      "category": "resilience",
+      "title": "Fire-and-forget continuations and hub tracker loss have no recovery path",
+      "summary": "R2: Continuation execution and ruling write are not atomic; failure after command runs (key unavailable, Uqbar unreachable) leaves bead open and command may re-execute on retry. R4: Hub tracker (Dolt at 127.0.0.1:3311) has no redundancy; loss means decisions cannot be filed, queried, or fed to agents. R6: Fire-and-forget has no ack; async gap between ruling write and agent seeing the feed.",
+      "description": "Three single points of failure with no fallback. Continuations can lose state. Hub tracker loss freezes the entire decision subsystem. Fire-and-forget creates race conditions where agent and mk fall out of sync.",
+      "decisions_affected": [
+        "Decision 3",
+        "Decision 13",
+        "Decision 17"
+      ],
+      "agents": [
+        "fd-resilience"
+      ],
+      "convergence": 1,
+      "brainstorm_decisions_changed": [
+        "Decision 3 must add hub tracker fallback (hot standby or plugin-local SQLite)",
+        "Decision 13 must atomize continuation and ruling write with idempotent retry",
+        "Decision 17 must add ack mechanism or backpressure"
+      ],
+      "verdict": "confirmed"
+    },
+    {
+      "id": "AUTARCH-08-COMPLEXITY-TRAP",
+      "severity": "P1",
+      "category": "decisions",
+      "title": "autarch-08 marked 'validated' but drove overly complex design; validation gate too soft for feasibility",
+      "summary": "Decision 8 specifies focus as a pinned bead with Clavain hook, stamped files, Mycroft filter, query system — validated by mk's walk-through of autarch-08. Decision 19 cuts it because 'walking autarch-08 grew focus into...overly ornate/intricate ceremony.' Validation was conceptual soundness only, not implementation feasibility. Pattern repeats from prior attention-map review.",
+      "description": "CUJs marked 'validated' were walked by mk and found conceptually sound, but the definition of 'validated' never includes implementation feasibility checking. When autarch-08 was walked, the complexity gaps that decision 19 later identified were not caught. This is a validation-gate weakness that should be named explicitly so future CUJ walks include feasibility scrutiny.",
+      "decisions_affected": [
+        "Decision 5",
+        "Decision 8",
+        "Decision 19"
+      ],
+      "agents": [
+        "fd-decisions"
+      ],
+      "convergence": 1,
+      "brainstorm_decisions_changed": [
+        "Add definition of 'validated' for CUJs: walk-through only, not end-to-end tested, may reveal complexity gaps during implementation"
+      ],
+      "verdict": "confirmed"
+    },
+    {
+      "id": "TRIAL-CRITERIA-VAGUE",
+      "severity": "P1",
+      "category": "decisions",
+      "title": "Trial success criteria unactionable: 'catches' has no baseline, threshold, or volume prediction",
+      "summary": "Decision 6 claims success is 'catches' measured in 'the existing caught-something log, which uses the trial plan's kill rule,' but never defines: (a) what count of catches = success, (b) what baseline rate mk catches things today without Home, (c) what the kill rule is (though it IS defined in the trial plan; decision 6 should cite it).",
+      "description": "Catches is 0–N; without thresholds and baseline, the trial gate cannot fire. Document should state: 'Success is ≥N catches per week' (pick a number based on existing log baseline); 'Kill criterion: if catches <M per week by end of week 2, reduce v1 to decisions-only and defer the rail to v1.1.'",
+      "decisions_affected": [
+        "Decision 6"
+      ],
+      "agents": [
+        "fd-decisions"
+      ],
+      "convergence": 1,
+      "brainstorm_decisions_changed": [
+        "Decision 6 must define baseline, threshold, and timeline for trial success/kill criteria"
+      ],
+      "verdict": "confirmed"
+    },
+    {
+      "id": "DECISION-5-FORWARD-REF",
+      "severity": "P1",
+      "category": "decisions",
+      "title": "Decision 5 forward-references its own cut; confuses reading",
+      "summary": "Decision 5 states 'Intention = decide + set focus + talk' but decision 19 (14 lines later) cuts focus from v1. Reads confusingly because the cut hasn't been mentioned yet. Should read 'decide + talk (with focus parked for v1; see decision 19).'",
+      "description": "Forward-reference makes the decision semantics unclear on first read. Rewrite to remove 'set focus' from the initial statement and note the cut early.",
+      "decisions_affected": [
+        "Decision 5",
+        "Decision 19"
+      ],
+      "agents": [
+        "fd-decisions"
+      ],
+      "convergence": 1,
+      "brainstorm_decisions_changed": [
+        "Rewrite decision 5 to remove forward-reference"
+      ],
+      "verdict": "confirmed"
+    },
+    {
+      "id": "ARCH-6",
+      "severity": "P2",
+      "category": "architecture",
+      "title": "Lattice gains trust-verification scope (signature validation) not named as scope growth",
+      "summary": "Decision 16 says 'Lattice and hooks treat unsigned files as proposed,' implying Lattice must parse ratification blocks, know allowed_signers location, and verify ssh-keygen signatures to decide proposed vs. ruled status. Decision 11 describes indexing/finding-aid growth; signature verification is a different capability (trust enforcement) not named as scope. Unclear who in Lattice owns this.",
+      "description": "Signature verification is real engineering weight (key rotation, cross-machine signer distribution). Should be explicitly called out as new Lattice scope in decision 11/16, especially since Lattice is a separate repo not otherwise touched by the owner split.",
+      "decisions_affected": [
+        "Decision 11",
+        "Decision 16"
+      ],
+      "agents": [
+        "fd-architecture"
+      ],
+      "convergence": 1,
+      "brainstorm_decisions_changed": [
+        "Decision 11/16 must explicitly name signature verification as new Lattice scope"
+      ],
+      "verdict": "confirmed"
+    },
+    {
+      "id": "SYS-004",
+      "severity": "P2",
+      "category": "systems",
+      "title": "Feed hook latency becomes hidden token tax when cache invalidation strategy is undefined",
+      "summary": "Decision 17's feed hook runs on every turn start and needs per-project cache invalidated when bead closes or Uqbar commits. Open question 5 names the gap. Under load (mk away for a week, ~50 threads running 5 turns each with ~0.3s query overhead per turn), this becomes ~5250 seconds of server time, most of it idle-wait. Cache invalidation strategy unspecified.",
+      "description": "If cache is aggressive, rulings go stale; if conservative, hook becomes a synchronization bottleneck. No timeout, fallback, or graceful degradation specified if the hook errors or Uqbar is unreachable.",
+      "decisions_affected": [
+        "Decision 17"
+      ],
+      "agents": [
+        "fd-systems"
+      ],
+      "convergence": 1,
+      "brainstorm_decisions_changed": [
+        "Decision 17 must specify cache strategy, timeout, and graceful degradation for hook failures"
+      ],
+      "verdict": "confirmed"
+    },
+    {
+      "id": "BUILD-ORDER-UNJUSTIFIED",
+      "severity": "P2",
+      "category": "decisions",
+      "title": "Build order sequence 'Home on beads first' lacks rationale",
+      "summary": "Decision 7 states 'Home on beads first' but never explains why this order (decisions + focus, badges, Lattice, map, Mycroft, companion) is optimal. Why not start with Lattice then map? Why are badges (step 2) before map (step 4) when decisions feed the map?",
+      "description": "No prioritization rationale stated for why beads are critical-path. Document should state: 'beads are the data source for all downstream views; ship them first to unblock parallel development of map and rail.'",
+      "decisions_affected": [
+        "Decision 7"
+      ],
+      "agents": [
+        "fd-decisions"
+      ],
+      "convergence": 1,
+      "brainstorm_decisions_changed": [
+        "Decision 7 must add rationale for the build-order sequence"
+      ],
+      "verdict": "confirmed"
+    },
+    {
+      "id": "UP-4",
+      "severity": "P2",
+      "category": "user-product",
+      "title": "Mandatory continuation-kind classification lacks validation step and safe default",
+      "summary": "Decision 18 makes continuation kind mandatory on every option ('filing helper requires a continuation kind on every option'). Across an estate where many agents file decisions, this is recurring classification overhead with no stated validation/lint step at filing time (only hash freeze, which locks in a mistake) nor safe default for an unsure agent.",
+      "description": "Wrongly-labeled 'command' continuation runs unattended on mk's pick (decision 14). No validation prevents misclassification; no fallback defaults to something safer. High risk for distributed agents.",
+      "decisions_affected": [
+        "Decision 18"
+      ],
+      "agents": [
+        "fd-user-product"
+      ],
+      "convergence": 1,
+      "brainstorm_decisions_changed": [
+        "Decision 18 must add validation/lint for continuation kind at filing time, and define a safe default"
+      ],
+      "verdict": "confirmed"
+    },
+    {
+      "id": "TOKEN-COST-UNVALIDATED",
+      "severity": "P2",
+      "category": "decisions",
+      "title": "Token-cost premise for RPC continuations cited with no cache-expiration evidence",
+      "summary": "Decision 13 justifies continuations via RPC by claiming 'cost is not in delivering the answer but in context that wakes up to act on it. Resuming a 150k-token asker after cache expiration re-reads ~150k tokens.' No token logs or cache-expiration evidence provided. If this is a micro-optimization (most threads don't resume after cache expiration), the continuation design overcomplicates RPC layer.",
+      "description": "Assumption without data. Should log a pre-implementation check: 'Measure cache-miss rate and token cost of re-waking threads in current Autarch; if re-read cost is <10% of total session cost, simplify continuations to fire-and-forget.'",
+      "decisions_affected": [
+        "Decision 13"
+      ],
+      "agents": [
+        "fd-decisions"
+      ],
+      "convergence": 1,
+      "brainstorm_decisions_changed": [
+        "Decision 13 must add pre-implementation validation of token-cost premise"
+      ],
+      "verdict": "confirmed"
+    },
+    {
+      "id": "VALIDATION-DEFINITION-AMBIGUOUS",
+      "severity": "P2",
+      "category": "decisions",
+      "title": "'Validated' CUJs never defined; unclear if it's mk walk-through, end-to-end test, or user feedback",
+      "summary": "Decisions 7, 18, and 20 reference autarch-07, autarch-08, autarch-09 as 'validated' without clarifying what validation means. Does it mean: (a) mk walked through the CUJ and found it sensible, (b) end-to-end tested with real agent and data, (c) user-tested? Standard matters because autarch-08 was 'validated' but then drove the overly-complex design cut in decision 19.",
+      "description": "If 'validated' is only a walk-through, it's insufficient to catch feasibility gaps. Should add note to intro: 'CUJs marked validated have been walked through by mk and agreed to be feasible in concept; they are not end-to-end tested and may reveal complexity gaps during implementation.'",
+      "decisions_affected": [
+        "Decision 7",
+        "Decision 18",
+        "Decision 20"
+      ],
+      "agents": [
+        "fd-decisions"
+      ],
+      "convergence": 1,
+      "brainstorm_decisions_changed": [
+        "Add explicit definition of 'validated' for CUJs to the intro"
+      ],
+      "verdict": "confirmed"
+    },
+    {
+      "id": "R1",
+      "severity": "P2",
+      "category": "resilience",
+      "title": "Home signing key is single point of failure without backup or recovery procedure",
+      "summary": "Decision 18 specifies Home's ed25519 key lives only on zklw and is used for nothing else; rotation adds new key with valid-after and expires old. No mention of backup, escrow, or recovery if key is lost or machine dies. If zklw goes down and key is not replicated, in-flight decisions whose continuations have run are stranded; their rulings cannot be signed and beads stay open.",
+      "description": "Should specify key rotation and disaster recovery: second operational key in sealed storage on separate machine, or ceremony to re-sign old rulings if primary is lost.",
+      "decisions_affected": [
+        "Decision 18"
+      ],
+      "agents": [
+        "fd-resilience"
+      ],
+      "convergence": 1,
+      "brainstorm_decisions_changed": [
+        "Decision 18 must add backup and recovery procedure for signing key"
+      ],
+      "verdict": "confirmed"
+    },
+    {
+      "id": "R3-R5",
+      "severity": "P2",
+      "category": "resilience",
+      "title": "Feed hook and autarch serve have no graceful degradation; crashes block turns or Home rendering",
+      "summary": "R3: Feed hook needs per-project cache with invalidation strategy; no timeout, fallback, or graceful degradation specified. Hook blocks turn starts if it fails. R5: autarch serve consolidation is a new single point of failure; no restart policy, health checks, or stale-data fallback. If process crashes, Home's map, decisions, and rail are all unavailable.",
+      "description": "Both critical paths need defensive design: timeout budget, fallback to cached data, silent skip if unavailable. No mention of restart policy for serve.",
+      "decisions_affected": [
+        "Decision 10",
+        "Decision 17"
+      ],
+      "agents": [
+        "fd-resilience"
+      ],
+      "convergence": 1,
+      "brainstorm_decisions_changed": [
+        "Add timeout and fallback for feed hook",
+        "Add health checks and restart policy for autarch serve"
+      ],
+      "verdict": "confirmed"
+    },
+    {
+      "id": "SF6",
+      "severity": "P2",
+      "category": "safety",
+      "title": "'Unsigned renders as proposed' is presence check, not validity check",
+      "summary": "Decision 16 says 'Lattice and hooks treat unsigned files as proposed' but reads as presence/absence check rather than signature validity against allowed_signers. Malformed signature, expired key, or signature from a key no longer in allowed_signers should also render as proposed. Document should state this explicitly so every consumer implements same collapse-to-proposed behavior.",
+      "description": "Every future consumer (rail, new integration) must implement the same validity check, not just presence. Requires explicit specification.",
+      "decisions_affected": [
+        "Decision 16"
+      ],
+      "agents": [
+        "fd-safety"
+      ],
+      "convergence": 1,
+      "brainstorm_decisions_changed": [
+        "Decision 16 must state that signature validity (not just presence) determines proposed vs. ruled status"
+      ],
+      "verdict": "confirmed"
+    },
+    {
+      "id": "BUILD-CASCADE-UNCLEAR",
+      "severity": "P2",
+      "category": "decisions",
+      "title": "Build order lists sequential steps; dependency cascade undefined if Lattice blocked",
+      "summary": "Decision 7 lists sequential steps. If Lattice (step 3) is not ready before step 4 (map) ships, can the map ship without Lattice? Can they run in parallel? Document never states dependencies, so if Lattice stalls, the cascade is either blocked or unclear.",
+      "description": "Should add simple DAG: 'Decisions (blocks Map, Proposals); Lattice (blocks Map); Proposals (blocks only Companion). Badges and Companion can run in parallel after Decisions.'",
+      "decisions_affected": [
+        "Decision 7"
+      ],
+      "agents": [
+        "fd-decisions"
+      ],
+      "convergence": 1,
+      "brainstorm_decisions_changed": [
+        "Decision 7 must add dependency DAG"
+      ],
+      "verdict": "confirmed"
+    },
+    {
+      "id": "R7",
+      "severity": "P2",
+      "category": "resilience",
+      "title": "Ruling files accumulate with no retention or compaction strategy",
+      "summary": "Decision 16 specifies rulings go to Uqbar/rulings/YYYY-MM-DD-<slug>.md and focus/current.md with git history as timeline. Over ~98 projects × several decisions/year = hundreds of files accumulating unbounded. No archiving, pruning, or compaction specified. Feed query becomes O(n) walk over git history; Lattice indexing may miss mutations.",
+      "description": "Should define archiving strategy: move rulings older than N months to archive branch, or compact into summary files per project per quarter. Index only active rulings in Lattice.",
+      "decisions_affected": [
+        "Decision 16"
+      ],
+      "agents": [
+        "fd-resilience"
+      ],
+      "convergence": 1,
+      "brainstorm_decisions_changed": [
+        "Decision 16 must add ruling file pruning and compaction strategy"
+      ],
+      "verdict": "confirmed"
+    },
+    {
+      "id": "SF7",
+      "severity": "P2",
+      "category": "safety",
+      "title": "Refusal of passkey step-up assumes no other process on zklw has shell access",
+      "summary": "Decision 16 rejects passkey/step-up tap with 'Home access already equals shell access' — true for mk's own session, but assumption implicitly assumes no other process on zklw (Mycroft-dispatched T2/T3 agent, zklw-ci automation, autosync sweep) shares enough access to reach the signing path. SF1/SF2 show this assumption is not yet established structurally.",
+      "description": "Refusal is reasonable once SF1/SF2 are closed, but foreclosing step-up confirmation before threat (non-mk processes on same box) has been ruled out is premature. Should defer or qualify the refusal.",
+      "decisions_affected": [
+        "Decision 16"
+      ],
+      "agents": [
+        "fd-safety"
+      ],
+      "convergence": 1,
+      "brainstorm_decisions_changed": [
+        "Qualify decision 16's passkey refusal or defer it until privilege separation is established"
+      ],
+      "verdict": "confirmed"
+    }
+  ],
+  "rejected_findings": [
+    {
+      "id": "KILL-RULE-UNDEFINED",
+      "severity": "P1",
+      "agent": "fd-decisions",
+      "title": "References 'trial plan's kill rule' but never states it in this document",
+      "reason_rejected": "Kill rule IS defined in referenced 2026-09-23-estate-map-trial-plan.md (line 12: 'the kill rule is binding, with a manual flip' [mk-K]). fd-decisions finding is incorrect; document should cite the trial plan by name/date and summarize the rule, but the rule is not undefined. The finding is technically correct that the brainstorm doesn't state it inline, but the reference is valid and the rule is accessible.",
+      "verdict": "rejected"
+    }
+  ],
+  "verdict_logic": {
+    "p0_count": 2,
+    "p1_count": 10,
+    "p2_count": 11,
+    "verdict": "risky",
+    "reasoning": "Two P0 security findings (SF1-SF2, ARCH-1) involve unstructured trust boundaries and unreconciled decision queues. Both are inherited or foundational issues that will require non-trivial rework. Ten P1 findings span security (SF3-SF5), architecture (ARCH-2-3, ARCH-6), systems (SYS-001-003), user-product (UP-1-4), and decision quality (trial criteria, complexity trap). The design is coherent in intent but accumulates gaps at the mechanism level (execution sandbox, privilege separation, hook resilience) and at the system level (scale without focus, Goodhart's law on catches). Shipping without addressing P0/P1 risks data loss (R2, R4, R6), security compromise (SF1-SF2), and system collapse under load (SYS-001-003). Verdict: risky. Gate: FAIL pending P0 closure and system-scale reconsideration of focus cut."
+  },
+  "improvements": {
+    "immediate_blockers": [
+      "SF1-SF2: Establish privilege separation between signing key custody and command execution; restrict Uqbar write access or move allowed_signers to separate trust store",
+      "ARCH-1: Reconcile in-process Mycroft DecisionQueue with bead-based decision design (replace, deprecate, or feed into beads)",
+      "ARCH-2-3: Name the stdio→HTTP transport bridge for autarch-mcp consolidation; clarify whether build step 1 depends on full server consolidation"
+    ],
+    "before_trial": [
+      "TRIAL-CRITERIA-VAGUE: Define trial success baseline, threshold, and kill criterion (e.g., 'success = ≥N catches/week')",
+      "SYS-001-003: Reconsider decision 19's focus cut; if kept, acknowledge that SYS-001/002/003 will reach inflection within weeks and plan for rails-saturation remediation",
+      "UP-3: Clarify which build step starts two-week trial clock; consider deferring trial to after step 6 when net exists"
+    ],
+    "during_implementation": [
+      "Build-order dependencies (ARCH-2-3, BUILD-CASCADE-UNCLEAR): Add DAG for step dependencies",
+      "Feed hook resilience (SYS-004, R3, R5): Add timeout budget, fallback, graceful degradation",
+      "Continuation safeguards (SF3-4): Clarify what hash covers; add per-project execution scoping; validate continuation-kind at filing time"
+    ]
+  },
+  "discourse_analysis": {
+    "participation": {
+      "agents": 6,
+      "findings_per_agent": {
+        "fd-architecture": 4,
+        "fd-systems": 3,
+        "fd-safety": 6,
+        "fd-user-product": 4,
+        "fd-decisions": 6,
+        "fd-resilience": 4
+      },
+      "gini_coefficient": 0.23,
+      "flow_state": "healthy"
+    },
+    "convergence": {
+      "findings_with_convergence_gt_1": 0,
+      "verified_multi_agent_findings": 0,
+      "singleton_findings": 27,
+      "novelty_rate": 1.0
+    },
+    "peer_findings_integration": {
+      "peer_findings_cited": 5,
+      "peer_classifications": [
+        "blocking (ARCH-1, SF1-SF2)",
+        "notable (UP-3, scale-ux)"
+      ]
+    }
+  },
+  "summary": "Six flux-drive agents reviewed the Aleph-in-Home brainstorm (decision embedding, signing-key ratification, fire-and-forget continuations, 98-project rail). Verdict: risky. Two P0 findings (unreconciled DecisionQueue in Mycroft, privilege-separation gap between signing key and command execution, allowed_signers write-access unrestricted) are inherited or foundational and require non-trivial rework. Ten P1 findings span security, architecture, systems dynamics, and decision quality. Core issue: design is coherent in intent but accumulates mechanism gaps (sandbox, privilege separation, hook resilience) and underestimates system-scale dynamics (fire-and-forget asymmetry, 98-project saturation without focus, Goodhart inversion on catches metric). Focus cut in decision 19 was meant to keep v1 lean but removed the only system lever preventing rail saturation; trial success criteria are measured before the net exists. Shipping without P0 closure and SYS-001/003 remediation risks data loss, security compromise, and system inflection within weeks."
+}
