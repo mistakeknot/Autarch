@@ -67,6 +67,16 @@ Gurgeh and Pollard stay as tools that agents call through the CLI and MCP.
     and the trial's counts test that bet.
   - We borrow its content-script sidebar badge for build step 2, the shape
     of its `ask` command for the filing helper, and its stall rule.
+- **Prior art: Thread Organizer** (bb-community;
+  [assessment](../research/assess-bb-thread-organizer.md), inspire-only).
+  - Its Inbox tracks unread threads, where the rail tracks owed decisions.
+    The two can run side by side.
+  - It shows the bb SDK primitives Home can build on:
+    - `bb.agents.configure` for instructions;
+    - `bb.ui.requestInput` for an in-thread card;
+    - `threads.send` with `queue-if-active`, and retraction, to deliver
+      needs-context;
+    - `bb.cli.register` for `bb home ask`.
 
 ## Key decisions
 
@@ -350,6 +360,10 @@ Gurgeh and Pollard stay as tools that agents call through the CLI and MCP.
 5. **Hook latency.** The feed runs on every turn, so it needs a
    per-project cache that is invalidated when a bead closes or Uqbar
    receives a commit.
+   A candidate: deliver project rulings through `bb.agents.configure`
+   instructions when a session starts or resumes, with no per-turn hook.
+   Add the hook only if the trial shows that rulings made mid-session
+   arriving late is costly (see the Thread Organizer assessment).
 6. *(Resolved: decision 22.)* Undo after a wrong pick.
 7. *(Resolved: decision 22.)* A misclassified continuation.
 
