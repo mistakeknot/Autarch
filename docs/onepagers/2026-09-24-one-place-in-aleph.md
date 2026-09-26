@@ -25,24 +25,22 @@ they serve attention.
   - A companion proposes beads for prose decisions that were never filed. It
     never shows a guess as real.
 - **Continuations.** Each option on a decision bead carries one of these:
-  - a command, which runs when mk picks the option. It is shown exactly and
-    frozen by hash, along with its working directory, an environment
-    allowlist and the scripts it calls. It costs zero tokens and may carry
-    a revert command.
+  - an instruction, written by the asker and shown exactly. Picking it
+    wakes the asker with that text, and the agent does the work under its
+    own gates. Home runs nothing (mk, 2026-09-26: command picks cut).
   - needs-context, which wakes the asker. This is the default.
   - ruling-only, which just records the ruling.
   - a brief, which runs in a fresh, small thread. It is deferred past v1.
 
-  Answers are batched per thread. A pick re-checks the continuation first
-  and turns into a re-ask if the continuation has gone stale. It runs once:
-  a crash or a failure reopens the decision as owed.
+  Answers are batched per thread. A pick is recorded once, even across a
+  retry or a crash, and a stale card is re-read before it can be picked.
 - **Fire-and-forget decisions and a feed.** Continuations own the
-  follow-through. A turn-start hook injects rulings relevant to the project:
+  follow-through. Session start injects rulings relevant to the project:
   project rulings and the thread's own answers, one line each. The feed
   carries only the label mk picked and the outcome, never agent prose.
-- **Rulings are signed files.** Each one reuses the card's ratification
-  block and is signed with Home's own key, whose public half is in the
-  Uqbar's `allowed_signers`. Unsigned files render as proposed. Rulings
+- **Rulings are files.** Each one reuses the card's ratification block. In
+  v1 they are unsigned, readable copies: agents read Home's own pick
+  records, never the files. Signing returns with Lattice (step 3). Rulings
   about one project go in that project's `docs/decisions/`. Estate-wide
   rulings go in an **Uqbar**, a private repo convention any Aleph user can
   set up.
@@ -87,7 +85,7 @@ where a chat spends a wake on every look.
 2. Whether a decisions rail works across all 98 projects without any
    focus lens.
 
-**Status.** Discover. Refined with mk on 2026-09-24 and 25 (22 decisions).
+**Status.** Discover. Refined with mk on 2026-09-24, 25 and 26 (23 decisions).
 CUJs autarch-07 (decide and continue) and 09 (the net) are validated.
 - v1 is decisions and the estate picture. Rig health and PRs come
   after the trial.
@@ -95,5 +93,6 @@ CUJs autarch-07 (decide and continue) and 09 (the net) are validated.
 - Focus is cut from v1 (2026-09-25). Its CUJ, autarch-08, is parked until
   Mycroft dispatches on its own (T2).
 - Flux-drive reviewed it on 2026-09-25 (needs-changes). mk ruled on every
-  fix (decisions 21 and 22). Home's key accepts the same-user risk, as
-  Claude Code and Codex do.
+  fix (decisions 21 and 22). After two plan reviews, mk cut command picks
+  and deferred signing (decision 23, 2026-09-26). autarch-07 still
+  describes both and is revised when mk walks it on the real rail.

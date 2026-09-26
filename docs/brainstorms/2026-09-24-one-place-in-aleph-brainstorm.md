@@ -350,6 +350,24 @@ Gurgeh and Pollard stay as tools that agents call through the CLI and MCP.
       A brief needs Home to spawn a fresh thread, which is the most code and
       the least proven. It comes back if the trial shows many decisions
       waking large askers. This amends decisions 13 and 18 for v1 only.
+23. **Instructions instead of commands, and signing later** (mk, 2026-09-26,
+    after the second plan review). The aim is less context switching and more
+    time on product, design, taste and QA, not saving tokens. Home running
+    commands as mk was where both plan reviews found their defects.
+    - **Command picks are cut from v1.** An option can instead carry a
+      pre-written **instruction**. The card shows it exactly. Picking it
+      wakes the asking agent with exactly that text, and the agent does the
+      work under its own sandbox and permission gates. Home executes nothing.
+    - **v1 kinds are instruction, needs-context and ruling-only.**
+      Needs-context stays the default. The revert command goes with the
+      command kind; a wrong pick is fixed by filing a new decision.
+    - **Signing is deferred to step 3 (Lattice).** The feed is built from
+      Home's own pick records on the closed bead, never from ruling files, so
+      a hand-written file reaches no agent. Ruling files stay as the
+      human-readable record, unsigned. Hand edits to bead metadata are the
+      same-user risk already accepted in decision 21.
+    - This revises decisions 14, 16, 18, 21 and 22 for v1. Plan:
+      `docs/plans/2026-09-26-home-serve-and-decisions-plan.md`.
 
 ## Open questions
 

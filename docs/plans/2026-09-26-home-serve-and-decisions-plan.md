@@ -13,26 +13,39 @@ requirements:
 **Bead:** `mk-okek` (Home epic, hub tracker, filed 2026-09-26 under G-0). S0 is `mk-okek.1`
 and S1 is `mk-okek.2`; S1 depends on S0.
 
-**Rulings (mk, 2026-09-26):** G-5 accepted (P-7 feed via `agents.configure`; P-5 wake scope).
-G-7: recommended option (no command picks without a key). G-8: original options plus *retry*.
-G-9: mark undeliverable in v1; successor resolution deferred.
+**Rulings (mk, 2026-09-26):**
+- G-5 accepted (P-7 feed via `agents.configure`; P-5 wake scope). G-9: mark undeliverable in v1;
+  successor resolution deferred.
+- **Command picks are cut from v1, and signing is deferred to step 3 (Lattice).** An option can
+  carry a pre-written **instruction**. Picking it wakes the asking agent with exactly that text,
+  and the agent does the work under its own sandbox and gates. The feed is built from Home's own
+  pick records, not from ruling files, so a hand-copied file never reaches an agent. Ruling files
+  stay as the human-readable record, unsigned. This is recorded as a ruling in the brainstorm and
+  revises `[D14]`, `[D16]`, `[D18]`, `[D21]` and `[D22]` for v1.
+  - mk's reason: "I just want to context switch less and think more deeply about
+    product/design/taste problems (and QAing what I should be QAing)." Home running commands as
+    mk was where both reviews found the defects, and it saved tokens, which is no longer the
+    governing aim.
+  - This supersedes G-2 (Home's key), G-7 (no commands without a key) and G-8 (failed-command
+    follow-ups). The revert command from `[D22]` goes with the command kind.
 
-**Goal:** mk sees the decisions agents owe mk in one Aleph rail and picks an option. The pick
-runs exactly the approved snapshot, at most once, and leaves evidence that survives a crash. It
-writes a signed ruling, and the answer reaches the asking thread. All of this is served by one
-loopback Go service.
+**Goal:** mk sees the decisions agents owe mk in one Aleph rail and picks an option. The pick is
+recorded once, even when retried or interrupted, and the answer (with the asker's pre-written
+instruction, if any) reaches the asking thread at least once. Each pick leaves a ruling file.
+All of this is served by one loopback Go service.
 
 **Architecture:**
 - `autarch serve` is one loopback HTTP service. It mounts the existing Bigend daemon, Gurgeh
   and Signals handlers under path prefixes. It shares one Signals broker between them, and adds
   a token check, an Origin check and a decisions API.
-- One `serve` process owns decisions. It holds a process-lifetime lock taken before recovery and
-  before it listens.
+- One `serve` process owns decisions. It takes a process-lifetime lock before it listens.
+  Every write to a decision bead goes through that process, so the bead's metadata has one
+  writer.
 - MCP moves into the same binary as `autarch mcp`, still speaking stdio.
 - Decisions live only as `decision` beads in the hub tracker, reached through `bd`.
-- Every pick or revert is an **attempt**. An attempt has an id, a claim written to the tracker
-  before anything runs, and an evidence directory under `~/.autarch/attempts/<id>/`. Crash
-  recovery reads the claim and the evidence, and never re-runs.
+- Home executes nothing. A pick is one metadata write plus a list of **obligations** (close the
+  bead, write the ruling file, wake the asker). One reconcile function carries out obligations
+  and is used by pick, by retries and by crash recovery.
 - A thin bb plugin (`integrations/bb-plugin-autarch/`, entry `server.ts`) does four things:
   - starts the service;
   - renders the rail;
@@ -41,17 +54,17 @@ loopback Go service.
   The browser never talks to the service directly; the plugin mediates every call.
 
 **Tech Stack:**
-- Go 1.24: `net/http` ServeMux patterns, cobra, `os/exec`, `syscall.Flock`.
+- Go 1.25: `net/http` ServeMux patterns, cobra, `os.Root`, `syscall.Flock`.
 - `bd` 1.1.2 against the hub Dolt tracker.
-- `ssh-keygen -Y sign/verify`.
 - The bb plugin SDK: TypeScript, `bb.server` entry, React panel, `testing/fake-sdk.ts`.
 
 **Prior learnings / inputs:**
-- [Brainstorm](../brainstorms/2026-09-24-one-place-in-aleph-brainstorm.md), decisions 13–22.
-  They are cited here as `[Dn]` and are binding, except for the narrowings of `[D17]` and `[D18]`
-  that mk ruled on under G-5 and G-8.
+- [Brainstorm](../brainstorms/2026-09-24-one-place-in-aleph-brainstorm.md), decisions 13–23.
+  They are cited here as `[Dn]` and are binding, except where mk's rulings above and under G-5
+  narrow them. Decision 23 records the 2026-09-26 cut.
 - [One-pager](../onepagers/2026-09-24-one-place-in-aleph.md).
-- CUJs [autarch-07](../cujs/autarch-07-decide-and-continue.json) and autarch-09.
+- CUJs [autarch-07](../cujs/autarch-07-decide-and-continue.json) and autarch-09. autarch-07 still
+  describes command continuations and signing; it is revised when G-6 walks it (see G-6).
 - [Thread Organizer assessment](../research/assess-bb-thread-organizer.md) (SDK primitives).
 - [Estate-map trial plan](2026-09-23-estate-map-trial-plan.md), WI-5. It planned
   `integrations/bb-plugin-autarch/` but never built it; this plan creates it, and WI-5 later
@@ -63,7 +76,7 @@ loopback Go service.
 
 ```json
 {"reasons":["foundational-invariants","broad-consequences"],
- "rationale":"Plan for autarch serve consolidation and the Home decisions queue: picks run commands as mk and write signed rulings (authority semantics), and the decision-bead schema is a shared protocol for every agent, Mycroft and the rail.",
+ "rationale":"Plan for autarch serve consolidation and the Home decisions queue: the decision-bead schema, pick records and wake obligations are a shared protocol for every agent, Mycroft and the rail, and picks carry mk's approval of instructions that agents then act on.",
  "investigation_active":false,"domain":"agent"}
 ```
 
@@ -77,41 +90,47 @@ loopback Go service.
   - Dispatch: `$CLAVAIN_SELECTED_ROOT/scripts/dispatch.sh --role plan-review
     --producer-identity=claude-opus-5-5`, with `CLAVAIN_DECISION_CONTEXT` pointing at
     `thread-storage/thr_awr853efiy/home-plan-decision.json`.
-- **Status:** review-astra, round 1, verdict **needs-rework**: 22 findings (18 P1, 4 P2), all
-  folded into this revision and cited `[A-n]`.
-  - Receipt: gpt-6-astra, xhigh, codex. 8m51s, 2,135,072 tokens in, 16,122 out, 50 commands.
-  - The `.verdict` sidecar mis-parsed; the review body's needs-rework governs.
-  - Astra flagged two things as unverified: the GitHub repository identity and the zklw CI
-    status (`zklw-ci status`). Both remain open prerequisites for execution.
-  - The review is at `thread-storage/thr_awr853efiy/home-plan-review.md`.
-  - A second review-astra pass on this revision is required before execution, because the plan
-    is foundational.
+- **Status:**
+  - Round 1: **needs-rework**, 22 findings (18 P1, 4 P2), folded and cited `[A-n]`.
+    Receipt: gpt-6-astra, xhigh, codex, 8m51s. Review at
+    `thread-storage/thr_awr853efiy/home-plan-review.md`.
+  - Round 2: **needs-rework**, 19 findings (18 P1, 1 P2), cited `[B-n]`. Most concentrated in
+    Home running commands as mk exactly once. mk cut command picks and signing rather than
+    grow that machinery (Rulings above). Review at
+    `thread-storage/thr_awr853efiy/home-plan-review2.md`.
+  - Round 3 on this revision is required before execution, because the plan is foundational.
+  - Astra flagged two things as unverified in both rounds: the GitHub repository identity and
+    the zklw CI status (`zklw-ci status`). Both remain open prerequisites for execution.
 
-### Where each finding landed
+### Where each round-2 finding landed
 
-| Finding | Theme | Folded into |
+| Finding | Theme | Disposition |
 |---|---|---|
-| A-1 | Two `serve` processes | P-3a, Task 0.4, Task 1.5 |
-| A-2, A-3 | Run-once across crashes; attempt states | P-4, bead schema, Tasks 1.4, 1.5 |
-| A-4 | Obligations lost at close | P-5, Tasks 1.2, 1.5 |
-| A-5 | Revert semantics | Task 1.5 (Revert) |
-| A-6 | Shell text is not a frozen command | P-10, Task 1.1, Task 1.4 |
-| A-7 | Precondition runs at listing; env silently dropped | P-10, Task 1.1, Task 1.5 |
-| A-8 | `shown_hash` is not the whole decision | Bead schema, Task 1.1, Task 1.7 |
-| A-9 | Unsigned rulings run commands | P-8, G-7 |
-| A-10 | Filing is not idempotent; degraded start | Tasks 1.2, 1.5, 1.7, 1.8 |
-| A-11 | Wake scope | P-5, P-7, G-5 |
-| A-12 | Wrong plugin SDK surface | Task 1.10 |
-| A-13 | Mycroft escalations are never produced | Task 1.9 |
-| A-14 | Two Signals brokers | Task 0.3 |
-| A-15 | Rotated or archived asking threads | P-5, Task 1.10, G-9 |
-| A-16 | No way to list recent rulings | Tasks 1.6, 1.7, 1.10 |
-| A-17 | Manifest ordering | exec manifest, task dependencies |
-| A-18 | e2e cannot prove crash safety | Task 1.11 (harness), Task 1.12 |
-| A-19 | Project resolution and symlinks | Task 0.2 (`projects.go`), Tasks 1.3, 1.5 |
-| A-20 | Recent query and stats basis | Tasks 1.2, 1.6 |
-| A-21 | Stale shown too late; follow-up loses options | Tasks 1.5, 1.6, 1.10, G-8 |
-| A-22 | `?token=` and Origin | P-3, Task 0.2 |
+| B-1 | Replay after an interrupted pick | Pick request id (P-4); retries return the recorded pick |
+| B-2 | Incomplete state machine | Removed: no execution states. Obligations only (P-4, Task 1.4) |
+| B-3 | Stale re-ask stranded | Reconcile lists every bead with an unfinished obligation, open or closed (Task 1.4) |
+| B-4 | Ack deletes a newer wake | Ack names `(bead, obligation)`; the label is a projection (P-5, Task 1.4) |
+| B-5 | Lock released while a child survives | Removed: Home starts no processes |
+| B-6 | Precondition before evidence | Removed with commands |
+| B-7 | argv defeats the freeze | Removed with commands |
+| B-8 | `FindOp` + `Create` not atomic | Explicit deterministic bead id plus one writer (P-3a, Tasks 1.2, 1.4) |
+| B-9 | Supersession bypasses ownership | Supersession under the owner, as an obligation (Task 1.4) |
+| B-10 | Follow-up exceeds option limit | Removed with failed-command follow-ups |
+| B-11 | Feed fields not bound to the signed file | Removed with signing; the feed reads Home's pick record (P-8) |
+| B-12 | Feed cache leaks another thread's answers | Thread answers keyed by thread, selected at read time (Tasks 1.5, 1.9) |
+| B-13 | Interrupted and undeliverable cards invisible | No interrupted state; undeliverable listed regardless of age (Tasks 1.5, 1.9) |
+| B-14 | Unsupported stdin transport; exit codes | `--request-stdin` named option; exit-code error type (Tasks 1.7, 1.9) |
+| B-15 | Mycroft dispatch is a fake success | Mycroft files ruling-only decisions; no dispatch action in v1 (Task 1.8) |
+| B-16 | Step 0 imports step 1 | `Config.Decisions` added only in Task 1.6 (Task 0.2) |
+| B-17 | Tracker-down start cannot serve | Listen first; reconcile retries; mutations 503 until done (Task 0.2, Task 1.6) |
+| B-18 | Criterion 14 passes with no evidence | Output path passed explicitly; exact scenario set and commit checked (criteria 12, 13) |
+| B-19 | Pollard's publisher stranded | Standalone Signals stays for Pollard, documented (Task 0.6) |
+| A-19 residue | `filepath.Clean` in writes | Ruling files written through `os.Root` (Task 1.3) |
+| A-11 residue | D15 helper follow-up unnamed | Filed as a child bead at execution (Task 1.11, Out of scope) |
+
+Round-1 findings `[A-n]` stay cited where their fixes survive. Those that concerned commands,
+the runner, the freeze, revert or signing (A-2, A-3, A-5, A-6, A-7, A-9, A-18's crash
+scenarios, A-21's follow-up) are removed along with that machinery.
 
 ## Plan-level decisions (settled here; reviewers, push on these)
 
@@ -124,13 +143,12 @@ loopback Go service.
   - `autarch-mcp` is spawned per session by the agent host and reads project files directly.
   - A stdio shim that proxies to HTTP would need HTTP endpoints for PRDs and tasks that don't
     exist. It would add a hop and a failure mode with no user-visible gain.
-  - So step 0 does three things:
-    - moves MCP into the one binary as `autarch mcp`;
-    - keeps `cmd/autarch-mcp` as a two-line alias;
-    - adds one MCP tool, `autarch_file_decision`, which files through the same code as the CLI.
+  - So step 0 moves MCP into the one binary as `autarch mcp` and keeps `cmd/autarch-mcp` as a
+    two-line alias. Step 1 adds one MCP tool, `autarch_file_decision`, which files through the
+    service like the CLI.
   - A shim is revisited when the service holds state MCP needs.
 - **P-3: The service has a token and an Origin check even on loopback** `[A-22]`.
-  - The pick route runs commands as mk. A loopback-only guard does not stop a browser page
+  - A pick sends mk's approval to an agent. A loopback-only guard does not stop a browser page
     (through DNS rebinding or a form post) or any local process from reaching it.
   - Every route except `GET /health` needs:
     - `Authorization: Bearer <token>`. The token lives in `~/.autarch/serve.token` (0600) and is
@@ -144,74 +162,72 @@ loopback Go service.
       before it reaches that handler.
   - The rail reaches the service only through plugin RPC, never through a browser WebSocket.
   - Existing standalone servers are unchanged.
-- **P-3a: One decisions owner** `[A-1]`.
+  - The token is the same-user boundary accepted in `[D21]`: an agent running as mk can read
+    it. What it stops is a browser page or another user.
+- **P-3a: One decisions owner and one writer** `[A-1]` `[B-8]`.
   - `serve.Run` takes a non-blocking `flock` on `~/.autarch/decisions.lock` and holds it for the
-    life of the process. It does this before `Recover` and before `Listen`.
+    life of the process, before it listens.
   - A second `serve` fails fast with `another autarch serve owns decisions (pid N)`, even when
     it was given a different port.
-  - Inside the owning process, `Pick`, `Revert` and `Recover` also take the service mutex.
-- **P-4: Every pick is an attempt, and its claim comes first** `[A-2]` `[A-3]` `[D21]`.
-  - Owed means an open bead with label `home:decision`.
-  - A pick first writes a **claim** to the tracker in one `bd update`: `pick.attempt` (random
-    id), `option_id`, `revision`, `state: claimed`, the attempt directory path, and label
-    `+home:running`. Nothing runs before the claim is stored.
-  - The attempt directory holds `started` (written and fsynced immediately before the
-    command starts), then `outcome.json` and `output.log`.
-  - Evidence is never deleted. A new pick on the same bead is a new attempt, and its ruling
-    carries `supersedes`. Earlier attempts stay in `history[]`.
-  - Recovery reconciles from the claim plus the evidence, per the table in Task 1.5. It never
-    re-runs a command.
-- **P-5: Obligations are recorded before close, and wakes are scoped** `[A-4]` `[A-11]`
-  `[A-15]`.
-  - After the final ruling, the pick writes `state: finalizing` with an `obligations` list, then
-    closes the bead, then carries out the obligations. Each obligation has a stable op id
-    stored as label `home:op:<id>` on whatever it creates, so re-running it finds the existing
-    result instead of creating a second one.
-  - Wakes (`home:wake-pending`) go only to **needs-context picks and re-asks**. Command and
-    ruling-only outcomes reach the asking thread through the feed, which includes the thread's
-    own answers (Task 1.6). Ruled by mk under G-5.
-  - The plugin drains pending wakes and sends one message per thread `[D13]`, then removes the
-    label. At worst a wake is sent twice, and it is never lost.
-  - A send that bb rejects (the thread is archived or deleted) marks the wake
-    `home:undeliverable`. The rail then shows the answer so mk can hand it on. There is no retry
-    loop. Resolving a successor thread is deferred (G-9, ruled).
-- **P-6: Needs-context is the default** `[D22]`.
-  - The helper infers `needs-context` when an option has no kind and no command. It rejects
-    `kind: command` without a command, and a command on any other kind.
-  - This reconciles `[D18]` ("a kind on every option") with `[D22]`: every stored option has an
-    explicit kind.
+  - Every decision write — file, pick, ack, supersede, reconcile — goes through the owner's API
+    and runs under one service mutex. `autarch decide file`, the MCP tool, `bb home ask` and
+    Mycroft are all API clients. None of them writes to the tracker directly.
+- **P-4: A pick is a record plus obligations, and it is idempotent** `[B-1]` `[B-2]`.
+  - Owed means an open bead with label `home:decision` and no `pick` in its metadata.
+  - The rail sends a `pick_id` it generated for that click. A pick writes, in one `bd update`,
+    the `pick` record (pick id, option, revision, time) and its obligations, and adds
+    `home:pending`.
+  - A retry with the same `pick_id` returns the recorded pick. A different `pick_id` on a bead
+    that already has a pick returns 409 `already ruled`.
+  - Obligations are `close`, `ruling-file`, `wake` and `close-superseded`. Each has an id. The
+    reconcile function carries out the ones not done; each is idempotent. The label
+    `home:pending` is a projection: present exactly when some obligation is neither done nor
+    undeliverable.
+  - Nothing else is state. There is no running, interrupted, stale or failed state, because
+    Home runs nothing.
+- **P-5: Wakes are scoped, per obligation and at least once** `[A-4]` `[A-11]` `[A-15]` `[B-4]`.
+  - Wakes go only to **instruction** and **needs-context** picks. Ruling-only outcomes reach the
+    asking thread through the feed, which includes the thread's own answers (Task 1.5). Ruled
+    by mk under G-5.
+  - The plugin drains pending wakes and sends one message per thread `[D13]`. It then acks each
+    `(bead, obligation)` pair it sent. Acking one obligation never touches another, so a wake
+    added while a send is in flight stays pending. At worst a wake is sent twice; it is never
+    lost.
+  - A send that bb rejects (the thread is archived or deleted) marks that obligation
+    `undeliverable`. The rail lists every undeliverable wake, however old, with its answer and
+    instruction so mk can hand it on, until mk dismisses it. There is no retry loop.
+    Resolving a successor thread is deferred (G-9, ruled).
+- **P-6: Needs-context is the default, and instructions are text** `[D22]` (revised by the
+  2026-09-26 ruling).
+  - Kinds are `instruction`, `needs-context` and `ruling-only`. An option with no kind and no
+    instruction is `needs-context`. An option with an `instruction` and no kind is
+    `instruction`. An instruction on another kind is rejected.
+  - An instruction is plain text of at most 2,000 characters, written by the asker when filing.
+    The rail shows it exactly. The wake carries it exactly. Home does not parse, run or check
+    it; the agent acts on it under its own sandbox and permission gates.
+  - Only an asker with a thread can offer `instruction` or `needs-context`. Mycroft files
+    ruling-only options (Task 1.8).
 - **P-7: The feed goes through `bb.agents.configure`, not a per-turn hook** (open question 5
   candidate) `[A-11]`.
   - The service exposes a consumer-agnostic `GET /api/decisions/feed`.
-  - The plugin injects it at session start and resume from an async cache (Task 1.10).
+  - The plugin injects it at session start and resume from an async cache (Task 1.9).
   - The Clavain `UserPromptSubmit` hook `[D17]` is deferred until the trial shows that rulings
     made mid-session and arriving late are costly.
   - **This departs from the letter of `[D17]`, and with P-5 it narrows which answers wake a
-    thread. mk accepted both under G-5 on 2026-09-26.** The mid-session gap is a trial
-    measurement; a per-turn hook is added only if it proves costly.
-- **P-8: Without a signing key, commands do not run** `[A-9]` (replaces the earlier "write
-  unsigned"; ruled by mk under G-7).
-  - With no key, the rail disables command options and points to G-2.
-  - Needs-context and ruling-only picks still work. Their rulings are written unsigned and
-    render as proposed `[D16]`.
-  - The feed carries only rulings whose signature verifies.
-  - `/health` reports `"signing":"missing-key"` and the rail shows a banner.
+    thread. mk accepted both under G-5 on 2026-09-26.**
+- **P-8: The feed comes from Home's pick records, not from files** (replaces signing; mk,
+  2026-09-26).
+  - A feed line is built only from a closed decision bead whose metadata has a `pick` that Home
+    wrote. It reads the picked option's label from the options stored at filing, never from the
+    ruling file.
+  - A bead closed by hand without a Home pick never reaches the feed. A ruling file written by
+    hand reaches no agent, because nothing reads ruling files.
+  - An agent could still edit bead metadata with `bd` as mk. That is the same-user risk
+    accepted in `[D21]`; signing in step 3 is the upgrade path.
 - **P-9: Home does not commit ruling files.**
-  - It writes `docs/decisions/<file>.md` and its `.sig` into the project's working tree.
+  - It writes `docs/decisions/<file>.md` into the project's working tree.
   - Committing is left to the project's normal flow: autosync, or the next agent commit.
   - This keeps Autarch from writing git history, which is world state.
-- **P-10: Commands take two constrained forms** `[A-6]` `[A-7]`.
-  - `argv`: a list, run with no shell. `argv[0]` is resolved against the frozen `PATH` at file
-    time, and the resolved absolute path is part of the hash.
-  - `script`: a file inside `dir`, plus a `deps` list of other files it reads. At pick, a
-    snapshot of the script whose hash matches is copied into the attempt directory and run as
-    `bash <snapshot>` with cwd `dir`. `deps` are hashed and re-checked, but they are read in
-    place, so a file changed between check and use is a residual race. The rail discloses this
-    as "reads <deps> at run time".
-  - Free shell text is accepted only as `needs-context`, shown as "not runnable".
-  - The same rules apply to `run`, `revert` and `precondition`.
-  - An `env` key outside the allowlist is a validation error, not silently dropped. The rail
-    shows the effective env.
 
 ## Must-Haves
 
@@ -224,85 +240,66 @@ loopback Go service.
   - `/gurgeh/{project}/api/specs`;
   - `/signals/ws`, which carries Gurgeh's signals from the same process.
 - An agent inside a bb thread runs `bb home ask` (or `autarch decide file`) and one `decision`
-  bead appears in the hub tracker, even if the call is retried. The bead carries:
-  - the question and the revision;
-  - the options, each with an id and a kind;
-  - the frozen command hashes;
-  - the project and the asking thread.
-  If the tracker is down, the agent is told whether nothing was filed (exit 3) or whether the
-  outcome is unknown and a retry is safe (exit 4).
-- The rail lists owed decisions across projects. It shows:
-  - each command exactly: argv or script, directory, effective env, precondition, deps, and the
-    words "runs as mk";
-  - the recommendation;
-  - stale (detected at listing without running anything), interrupted, failed and
-    undeliverable marks;
-  - "tracker down since …" when the tracker is unreachable.
-- A pick runs a command at most once, including across SIGKILL of `serve`. A stale hash or a
-  failed precondition turns the pick into a re-ask. A failure files a follow-up that keeps the
-  original options plus retry. A crash leaves the decision owed and interrupted, with its
-  evidence kept.
-- Every pick writes a Markdown ruling with the ratification block plus the Home fields and the
-  approved snapshot. Command rulings are always signed, and `autarch decide verify` checks
-  them.
-- Needs-context answers and re-asks to one thread arrive as one message. New sessions in a
-  project receive that project's recent verified rulings, plus the thread's own answers, as
-  label and outcome only.
-- Mycroft's suggestions and out-of-allowlist dispatches appear on the same rail, and picking
-  "dispatch" runs `mycroft dispatch`. `DecisionQueue` holds no private list.
+  bead appears in the hub tracker, even if the call is retried or races another retry. The bead
+  carries the question, the revision, the options (each with an id, a kind and any
+  instruction), the project and the asking thread. If Home or the tracker is down, the agent is
+  told whether nothing was filed (exit 3) or whether the outcome is unknown and a retry is safe
+  (exit 4).
+- The rail lists owed decisions across projects. It shows each option's label and kind, each
+  instruction exactly with "sent to <thread> as written", the recommendation, undeliverable
+  wakes, and "tracker down since …" when the tracker is unreachable.
+- A pick is recorded once, including across a retry or SIGKILL of `serve`. The bead closes, a
+  ruling file is written, and for instruction and needs-context picks the asking thread
+  receives one message carrying the picked label and the exact instruction.
+- New sessions in a project receive that project's recent rulings, plus the thread's own
+  answers, as label only, from Home's pick records.
+- Mycroft's suggestions and out-of-allowlist dispatches appear on the same rail as ruling-only
+  decisions. `DecisionQueue` holds no private list. No option claims to dispatch.
 
 **Artifacts:**
 - `internal/serve/serve.go` exports `New(Config) (*Service, error)`, `(*Service).Handler()` and
   `(*Service).Run(ctx)`. `internal/serve/projects.go` exports `Resolver` and `Resolve(name)`.
 - `cmd/autarch/serve.go` provides `serveCmd()`. `cmd/autarch/mcp.go` provides `mcpCmd()`.
-  `cmd/autarch/decide.go` provides `decideCmd()` with `file`, `list`, `verify` and `stats`.
+  `cmd/autarch/decide.go` provides `decideCmd()` with `file`, `list` and `stats`.
+  `cmd/autarch/exit.go` provides `ExitError{Code}`.
 - In `internal/decisions/`:
-  - `model.go`: `Decision`, `Option`, `Command` (`Argv`, `Script`, `Deps`), `Kind`, `Validate`,
-    `Revision`.
-  - `freeze.go`: `Freeze`, `CheckStale` (non-executing).
-  - `tracker.go`: the `Tracker` interface, `BDTracker`, `ErrTrackerDown`, `ErrOutcomeUnknown`.
+  - `model.go`: `Decision`, `Option`, `Kind`, `Pick`, `Obligation`, `Validate`, `Revision`,
+    `BeadID`.
+  - `tracker.go`: the `Tracker` interface, `BDTracker`, `ErrTrackerDown`, `ErrOutcomeUnknown`,
+    `ErrExists`.
   - `ruling.go`: `Ruling`, `WriteRuling`, `RulingPath`.
-  - `sign.go`: `Signer`, `Sign`, `Verify`.
-  - `attempt.go`: `Attempt`, `AttemptDir`, the state constants.
-  - `run.go`: `Runner`.
   - `lock.go`: `AcquireOwnerLock`.
-  - `service.go`: `Service`, with `File`, `Owed`, `Recent`, `Pick`, `Revert`, `Recover`,
-    `Feed`, `Wakes` and `AckWakes`.
+  - `service.go`: `Service`, with `File`, `Owed`, `Pick`, `Reconcile`, `Recent`,
+    `Undeliverable`, `Feed`, `Wakes`, `Ack` and `Stats`.
+  - `client.go`: `Client`, the HTTP client every filer uses.
   - `api.go`: `Routes(mux, svc)`.
-- `~/.autarch/attempts/<attempt>/` with `claim.json`, `started`, `outcome.json`,
-  `output.log` and the script snapshot.
 - `internal/mycroft/escalate/escalate.go`: `DecisionQueue` backed by a `decisions.Filer`.
-- `cmd/mycroft/main.go`: a `dispatchCmd` (`mycroft dispatch --bead --agent`).
 - `internal/homee2e/`: the scenario harness behind build tag `homee2e`.
 - `integrations/bb-plugin-autarch/`: `package.json`, `server.ts`, `contract.ts`, `feed.ts`,
   `app.tsx`, `__tests__/`, `README.md`.
 
 **Key links:**
-- `serve.Run` runs: `EnsureLocalOnly` → `AcquireOwnerLock` → `Recover` (retried every 30 s
-  until it has completed once) → `Listen`. Picks return 503 until `Recover` has completed.
+- `serve.Run` runs: `EnsureLocalOnly` → `AcquireOwnerLock` → `Listen` → `Reconcile` in the
+  background, retried every 30 s until it has completed once. Reads and `/health` work at once;
+  decision writes return 503 until the first reconcile completes `[B-17]`.
 - `serve.New` creates one `signals.Broker`, gives it to `signals.NewServer`, and gives
   `broker.Publish` to every Gurgeh server it builds.
-- `decisions.Service.Pick` runs, in this order:
-  1. claim (`bd update`: metadata plus `+home:running`);
-  2. `CheckStale` and the precondition;
-  3. `WriteRuling(state=running)`;
-  4. write and fsync `started`;
-  5. `Runner.Run`;
-  6. write `outcome.json`;
-  7. `WriteRuling(final)` and sign;
-  8. `state=finalizing` with obligations;
-  9. `bd close`;
-  10. carry out obligations.
-  Moving step 5 before step 1 or step 4 breaks run-once.
+- `decisions.Service.Pick` runs, under the mutex: `Get` → same `pick_id`? return it → one
+  `Update` writing `pick` + obligations + `home:pending` → `Reconcile(bead)`.
+- `Reconcile(bead)` carries out, in order: `close-superseded`, `close`, `ruling-file`. Then one
+  `Update` marks them done and recomputes `home:pending`. `wake` obligations stay pending until
+  the plugin acks them.
 - `autarch decide file`, `bb home ask`, the MCP tool and Mycroft all call
-  `decisions.Service.File`. There is one validation path.
+  `POST /api/decisions`, which calls `decisions.Service.File`. There is one validation path
+  and one writer.
 - The plugin host holds the token. The panel calls RPC only.
 
 ---
 
 ## Step 0: one `autarch serve`
 
-Step 0 finishes, and its tests pass, before any step 1 task starts `[A-17]`.
+Step 0 finishes, and its tests pass, before any step 1 task starts `[A-17]`. No step 0 file
+imports `internal/decisions` `[B-16]`.
 
 ### Task 0.1: expose the existing servers as handlers
 
@@ -340,11 +337,10 @@ Step 0 finishes, and its tests pass, before any step 1 task starts `[A-17]`.
   `internal/serve/projects_test.go`.
 
 **Design:**
-- `Config{Addr, ProjectDirs []string, TokenPath string, AllowOrigins []string, Decisions
-  *decisions.Service}`.
+- `Config{Addr, ProjectDirs []string, TokenPath string, AllowOrigins []string}`. There is no
+  decisions field in step 0; Task 1.6 adds it `[B-16]`.
   - The default `Addr` is `127.0.0.1:8110`. It is new, so it does not collide with a running
     Bigend daemon on 8100 during the transition.
-  - `Decisions` may be nil in step 0.
 - `projects.go` `[A-19]`:
   - `Resolver` is built from the Bigend project list. Each root goes through
     `filepath.EvalSymlinks` and must stay inside one of the configured `ProjectDirs` (also
@@ -358,7 +354,7 @@ Step 0 finishes, and its tests pass, before any step 1 task starts `[A-17]`.
   - `/gurgeh/{project}/` uses `Resolve` (P-1) and caches `gurgeh.Server` per resolved root with
     a mutex. An unknown project returns 404, and so does one without a `.gurgeh` directory.
 - `GET /health` needs no token. It returns
-  `{"status":"ok","bigend":…,"gurgeh":{"projects":N},"signals":…,"decisions":…,"signing":…}`.
+  `{"status":"ok","bigend":…,"gurgeh":{"projects":N},"signals":…}`. Task 1.6 adds `decisions`.
 - `auth.go` implements P-3:
   - `LoadOrCreateToken(path)` makes 32 random bytes, hex-encoded, and writes the file with mode
     0600. It refuses a token file whose mode is looser than 0600.
@@ -367,9 +363,11 @@ Step 0 finishes, and its tests pass, before any step 1 task starts `[A-17]`.
   - There is no query-string token.
 - `Run(ctx)`:
   1. `netguard.EnsureLocalOnly(Addr)`;
-  2. from Task 1.7 on, `AcquireOwnerLock` and `Recover` (P-3a);
-  3. `ListenAndServe`;
-  4. `Shutdown` with a 5 s timeout when `ctx` is done.
+  2. an optional `BeforeListen func() error` hook (Task 1.6 sets it to take the owner lock);
+  3. `Listen`, then `Serve`;
+  4. an optional `AfterListen func(ctx)` hook, run in a goroutine (Task 1.6 sets it to the
+     reconcile loop);
+  5. `Shutdown` with a 5 s timeout when `ctx` is done.
 
 **Steps:**
 1. Write failing tests:
@@ -386,6 +384,7 @@ Step 0 finishes, and its tests pass, before any step 1 task starts `[A-17]`.
      `ProjectDirs`, and follows a symlink retargeted between two calls once the list is
      re-read.
    - The token file is created with mode 0600, and a 0644 token file is refused.
+   - A `BeforeListen` error stops `Run` before it binds (the port stays free).
    - Bind test: `Run` with `0.0.0.0:0` returns the netguard error. `[::]:0` likewise.
 2. Run and expect FAIL.
 3. Implement.
@@ -396,6 +395,8 @@ Step 0 finishes, and its tests pass, before any step 1 task starts `[A-17]`.
 - run: `go test -race ./internal/serve/`
   expect: exit 0
 - run: `go test -race -run 'Bind' ./internal/serve/`
+  expect: exit 0
+- run: `! go list -deps ./internal/serve/ | grep -q internal/decisions`
   expect: exit 0
 </verify>
 
@@ -481,14 +482,19 @@ path, never the token.
 
 **Files:**
 - Modify: `cmd/bigend/main.go:104` (`runDaemon`), `cmd/autarch/main.go` (the Bigend
-  `--daemon` path near `:345`), `internal/gurgeh/cli/commands/serve.go` and
-  `internal/signals/cli/serve.go`.
+  `--daemon` path near `:345`) and `internal/gurgeh/cli/commands/serve.go`.
   - Each keeps working unchanged, and prints one stderr line:
     `deprecated: use "autarch serve" (mounted at /<prefix>/)`.
   - Nothing is removed in this plan.
+- **Not** `internal/signals/cli/serve.go` `[B-19]`. Pollard's watcher publishes through an
+  unauthenticated Signals client aimed at the standalone server on 8092. Pointing it at the
+  consolidated endpoint would get 401. So the standalone Signals server stays, undeprecated,
+  as Pollard's target. The fix — endpoint and token settings for external Signals clients —
+  is a follow-up bead filed at execution (Task 1.11).
 - Modify: `./dev` to add `./dev serve`, which runs `go run ./cmd/autarch serve`.
 - Modify: `AGENTS.md` (the tool command reference) to document `autarch serve`, its prefixes,
-  the token and the Origin allowlist.
+  the token, the Origin allowlist, and that Pollard still publishes to the standalone Signals
+  server.
 
 **Steps:** there are no behavior tests beyond the existing ones. Run `go test -race ./cmd/...
 ./internal/gurgeh/... ./internal/signals/...`, then commit: `serve: deprecation notices on the
@@ -509,6 +515,7 @@ MCP. Pollard joins if the rail needs it.
 ### Bead schema (the shared protocol)
 
 A decision owed is a hub-tracker bead with these properties:
+- `id`: `mk-h<10 lowercase base32 chars>`, derived from the request id (Task 1.1) `[B-8]`.
 - `type`: `decision`.
 - `title`: the question, clipped to 120 runes.
 - `description`: the question in full.
@@ -516,90 +523,80 @@ A decision owed is a hub-tracker bead with these properties:
   - always `home:decision`;
   - `project:<name>` (or `project:estate` for estate-wide);
   - `asker:<thread-id|mycroft>`;
-  - `home:op:<request-id>` for idempotent filing `[A-10]`;
-  - state labels, per the table in Task 1.5: `home:running`, `home:interrupted`, `home:stale`,
-    `home:failed-followup`, `home:wake-pending`, `home:undeliverable` and `home:revert-failed`.
+  - `home:pending` while any obligation is open, and `home:undeliverable` while any wake is
+    undeliverable and not dismissed. Both are projections of `pick.obligations`.
 - `metadata` is one key, `home`, whose value is versioned JSON:
 
 ```json
-{"v":2,
+{"v":3,
  "project":"Autarch","project_dir":"/home/mk/projects/Autarch",
  "asking_thread":"thr_abc123","asker":"thread",
  "request_id":"req_7f3a…",
  "revision":"sha256:…",
  "recommendation":"merge",
+ "supersedes":"",
  "options":[
-   {"id":"merge","label":"Merge feat/bb-catchup","kind":"command",
-    "command":{"argv":["git","merge","--ff-only","feat/bb-catchup"],"argv0":"/usr/bin/git",
-               "dir":"/home/mk/projects/Autarch",
-               "env":{"PATH":"/usr/bin:/bin"},
-               "revert":{"argv":["git","reset","--hard","ORIG_HEAD"],"argv0":"/usr/bin/git"},
-               "precondition":{"argv":["git","diff","--quiet"],"argv0":"/usr/bin/git"}},
-    "hash":"sha256:…"},
+   {"id":"merge","label":"Merge feat/bb-catchup","kind":"instruction",
+    "instruction":"Fast-forward main to feat/bb-catchup, run go test -race ./..., push, and report the result."},
    {"id":"wait","label":"Wait for review","kind":"needs-context"},
    {"id":"never","label":"Never merge it","kind":"ruling-only"}],
- "follow_up_of":"", "supersedes":"",
- "pick":{"attempt":"att_9c1e…","option_id":"merge","revision":"sha256:…",
-         "state":"running","dir":"/home/mk/.autarch/attempts/att_9c1e…",
-         "ruling":"docs/decisions/2026-09-26-merge-feat-bb-catchup.md",
-         "at":"…","obligations":[]},
- "history":[]}
+ "pick":{"pick_id":"pk_2b9e…","option_id":"merge","revision":"sha256:…","by":"home",
+         "at":"2026-09-26T14:03:00Z",
+         "ruling":"docs/decisions/2026-09-26-merge-feat-bb-catchup-mk-h3k2….md",
+         "obligations":[
+           {"id":"ob1","kind":"close","state":"done"},
+           {"id":"ob2","kind":"ruling-file","state":"done"},
+           {"id":"ob3","kind":"wake","state":"pending"}]}}
 ```
 
-- A `script` command replaces `argv` with `{"script":"scripts/x.sh","deps":["config/y"]}` plus
-  their hashes (P-10).
-- `revision` is sha256 over the canonical decision: question, option ids, labels, kinds, command
-  hashes and recommendation `[A-8]`. Any edit changes it.
-- `pick` is absent until mk picks. `history[]` holds every earlier `pick`, unchanged.
-- `obligations` entries are `{op, kind: wake|reask|followup, done}`.
-- **Metadata never carries the asker's free text into the feed.** The feed reads only the picked
-  option's label and the state `[D21]`.
+- `revision` is sha256 over the canonical decision: question, option ids, labels, kinds,
+  instructions, recommendation and `supersedes` `[A-8]`. Any edit changes it.
+- `pick` is absent until mk picks, and is written once. There is no `history[]`: nothing
+  re-picks a bead.
+- An obligation's `state` is `pending`, `done`, `undeliverable` or `dismissed` (the last two
+  only for `wake`).
+- **The feed never carries the asker's free text.** It reads only the picked option's label
+  `[D21]`. The instruction goes back only to the thread that wrote it, in its wake.
 
-### Task 1.1: model, validation, revision and the hash freeze
+### Task 1.1: model, validation, revision and bead id
 
 **Files:**
-- Create: `internal/decisions/model.go`, `internal/decisions/freeze.go`.
-- Test: `internal/decisions/model_test.go`, `internal/decisions/freeze_test.go`.
+- Create: `internal/decisions/model.go`.
+- Test: `internal/decisions/model_test.go`.
 
 **Design:**
-- `Kind` is one of `command`, `needs-context` or `ruling-only`.
-- `Validate`, per P-6 and P-10:
-  - no kind and no command means `needs-context`;
-  - `command` needs exactly one of `Argv` or `Script`, and an absolute `Dir` equal to or inside
-    `project_dir`;
-  - a free-text `run` string is accepted only on `needs-context` and marked not runnable;
-  - no other kind may carry a command;
-  - `env` keys must be in the allowlist (`PATH`, `HOME`, `LANG`, `TZ`, `AUTARCH_*`); any other
-    key is an error naming it `[A-7]`;
+- `Kind` is one of `instruction`, `needs-context` or `ruling-only` (P-6).
+- `Validate`:
+  - no kind and no instruction means `needs-context`; an instruction and no kind means
+    `instruction`; an instruction on any other kind is an error;
+  - an instruction is 1–2,000 characters after trimming, valid UTF-8, with no NUL;
   - option ids are unique, `[a-z0-9-]{1,32}`, and default to a slug of the label;
   - 2–6 options;
   - labels are non-empty and ≤ 80 runes;
-  - `recommendation` names an existing option id.
-- `Freeze(cmd)` resolves `argv[0]` against the frozen `PATH` and returns a sha256 over
-  canonical JSON of: the resolved `argv0` and the argv, or the script path, its sha256 and each
-  `deps` path with its sha256; `filepath.Clean(dir)`; `env` sorted by key; and the frozen
-  `revert` and `precondition`. Script and deps paths must resolve (after `EvalSymlinks`) inside
-  `dir`.
+  - `recommendation` names an existing option id;
+  - an asker with no thread (`asker: mycroft`) may offer only `ruling-only`;
+  - `request_id` is 1–128 characters of `[A-Za-z0-9:_.-]`.
 - `Revision(d)` hashes the canonical decision `[A-8]`.
-- `CheckStale(opt)` is **non-executing** `[A-7]` `[A-21]`. It recomputes the hash and checks that
-  `argv0`, the script and the deps still exist. It returns `ErrStale{Reason}` on any difference.
-  It never runs the precondition, which runs only inside a pick (Task 1.5).
+- `BeadID(requestID)` is `mk-h` plus the first 10 characters of lowercase base32 of
+  sha256(`home-decision:` + request id). The same request id always gives the same bead id
+  `[B-8]`. The prefix follows the hub's `mk` prefix, so `bd create` needs no `--force`.
+- `Pick.Pending()` and `Pick.Undeliverable()` compute the two projected labels from the
+  obligations.
 
 **Test cases:**
-- Validation: every rule above, plus inference of needs-context.
-- An env key `LD_PRELOAD` is rejected with its name in the error.
-- The same inputs give the same hash, and env key order doesn't matter.
-- Editing the script or a dep changes the hash. Replacing `/usr/bin/git` in a temp `PATH`
-  changes the resolved `argv0` and makes the option stale.
-- A script or dep that escapes `dir` (`../x.sh`, or a symlink out) is rejected at validation.
-- `CheckStale` never executes: a precondition whose argv would create a marker file leaves no
-  marker.
-- Editing an option label changes `Revision`.
+- Validation: every rule above, plus inference of both default kinds.
+- An instruction on a ruling-only option is rejected with the option id in the error.
+- Mycroft offering `needs-context` is rejected.
+- Editing an option label, an instruction or `supersedes` changes `Revision`. Reordering JSON
+  keys does not.
+- `BeadID` is stable across runs and differs for different request ids.
+- The projections: an obligation list with one pending wake gives `pending`; all done gives
+  none; one undeliverable wake gives `undeliverable` and not `pending`.
 
-Commit: `decisions: option model, validation, revision and hash freeze`.
+Commit: `decisions: option model, validation, revision and bead id`.
 
 <verify>
-- run: `go test -race ./internal/decisions/ -run 'Validate|Freeze|Stale|Revision'`
+- run: `go test -race ./internal/decisions/ -run 'Validate|Revision|BeadID|Projection'`
   expect: exit 0
 </verify>
 
@@ -613,23 +610,31 @@ Depends on Task 1.1 (it stores `Decision`) `[A-17]`.
   `t.Setenv("PATH")`, as in `internal/door/product_test.go:99`. The fake records its argv to a
   file and prints canned JSON.
 
+**Step 0 (reproduce before relying on it)** `[B-8]`: in a throwaway directory, `bd init` a
+scratch database and run `bd create --id mk-htest00001 …` twice. Record whether the second call
+fails and with what message. If `bd` rejects the duplicate, `ErrExists` matches that message.
+If it does not, stop and report: Task 1.4's idempotent filing then falls back to the owner
+mutex alone, which does not cover a create that commits after its timeout, and that residual
+goes to mk before execution continues. The scratch database is deleted afterwards; the hub is
+never touched.
+
 **Design:**
 - `BDTracker{HubDir, Timeout, LabelPrefix}` runs `bd` with `cmd.Dir = HubDir`, a 5 s timeout per
   call and a 4 MiB output cap, matching `internal/door/product.go:244-296`. `LabelPrefix`
-  defaults to `home` (Task 1.12 sets `hometest`).
-- `FindOp(op)` runs `bd list -l home:op:<op> --all -n 0 --json` and returns the bead, if any.
-- `Create(d, op)` runs
-  `bd create --title … -d … -t decision -l home:decision,project:X,asker:Y,home:op:<op> --metadata @tmp.json --json`.
-  Metadata goes through a temp file, never argv.
-- `Get(id)` runs `bd show id --json`.
+  defaults to `home` (Task 1.11 sets `hometest`).
+- `Create(d)` runs
+  `bd create --id <BeadID> --title … -d … -t decision -l home:decision,project:X,asker:Y --metadata @tmp.json --json`.
+  Metadata goes through a temp file, never argv. A duplicate id gives `ErrExists`.
+- `Get(id)` runs `bd show id --json`, and returns `ErrNotFound` for an unknown id.
 - `ListOwed()` runs `bd list -l home:decision -s open -n 0 --json`.
-- `ListRecent(project, since)` runs
-  `bd list -l home:decision -l project:X --all --closed-after <since> --sort closed -n 0 --json`
-  `[A-20]`.
-- `ListByLabel(label, all bool)` supports recovery and wakes.
+- `ListByLabel(label)` runs `bd list -l <label> --all -n 0 --json`. It serves reconcile
+  (`home:pending`) and the undeliverable list (`home:undeliverable`), open or closed `[B-3]`
+  `[B-13]`.
+- `ListRecent(since)` runs
+  `bd list -l home:decision --all --closed-after <since> --sort closed -n 0 --json` `[A-20]`.
 - `Update(id, meta, add, remove []string)` runs `bd update id --metadata @tmp.json --add-label …
   --remove-label …` as one call.
-- `Close(id, reason)` and `Reopen(id)` run `bd close --reason` and `bd reopen`.
+- `Close(id, reason)` runs `bd close --reason`.
 - Errors:
   - `ErrTrackerDown`: a connection error (`connection refused`, `dial tcp`, `dolt`) **before**
     any write was sent. The tracker records `downSince` and clears it on the next success.
@@ -638,27 +643,30 @@ Depends on Task 1.1 (it stores `Decision`) `[A-17]`.
   - Other failures surface as-is.
 
 **Test cases:**
-- The argv for each call, including `--closed-after` and `--sort closed`.
+- The argv for each call, including `--id`, `--closed-after` and `--sort closed`.
 - Metadata passes through `@file`, and the file is removed afterwards.
+- The fake's duplicate-id message (copied from step 0) gives `ErrExists`.
 - A connection-refused fake on `list` gives `ErrTrackerDown` with `DownSince()` set; the next
   success clears it.
 - A fake that sleeps past the timeout on `create` gives `ErrOutcomeUnknown`.
 - A 5 MiB output is truncated with an error.
 
-Commit: `decisions: bd tracker with op labels and outcome-unknown`.
+Commit: `decisions: bd tracker with explicit ids and outcome-unknown`.
 
 <verify>
 - run: `go test -race ./internal/decisions/ -run Tracker`
   expect: exit 0
 </verify>
 
-### Task 1.3: ruling files and signing
+### Task 1.3: ruling files and the owner lock
+
+Depends on Task 1.1.
 
 **Files:**
-- Create: `internal/decisions/ruling.go`, `internal/decisions/sign.go`.
-- Test: `internal/decisions/ruling_test.go`, `internal/decisions/sign_test.go`.
+- Create: `internal/decisions/ruling.go`, `internal/decisions/lock.go`.
+- Test: `internal/decisions/ruling_test.go`, `internal/decisions/lock_test.go`.
 
-**Ruling format** `[D16]`: YAML frontmatter, then a short body.
+**Ruling format** `[D16]` (unsigned in v1; signing arrives with Lattice in step 3):
 
 ```markdown
 ---
@@ -669,372 +677,301 @@ ratification:
   ruling: "Merge feat/bb-catchup"
   transcribed_by: autarch-home
   session_id: <asking thread>
-  source: bead:mk-xxxx
-  supersedes: ""            # the previous attempt's ruling path, if any
+  source: bead:mk-h3k2…
+  supersedes: ""            # the superseded decision's bead, if any
 home:
-  bead: mk-xxxx
-  attempt: att_9c1e…
+  bead: mk-h3k2…
+  pick_id: pk_2b9e…
   revision: "sha256:…"
   asking_thread: thr_abc123
-  approved:                 # the snapshot mk approved [A-8]
-    options: [{id: merge, label: "Merge feat/bb-catchup", kind: command}, …]
-    picked: merge
-    command: {argv0: /usr/bin/git, argv: [git, merge, --ff-only, feat/bb-catchup],
-              dir: /home/mk/projects/Autarch, env: {PATH: /usr/bin:/bin}, hash: "sha256:…"}
-  state: done               # running | done | failed | interrupted | stale | reverted | revert-failed
-  outcome: {exit: 0, tail: "…last 2 KiB of output…", evidence: /home/mk/.autarch/attempts/att_9c1e…}
+  options_shown: [{id: merge, label: "Merge feat/bb-catchup", kind: instruction}, …]
+  picked: merge
+  instruction: "Fast-forward main to feat/bb-catchup, …"   # instruction picks only
 ---
 # <question>
+
+mk picked **Merge feat/bb-catchup**. Home recorded this pick; this file is the readable copy,
+not the record agents read.
 ```
 
 **Rules:**
-- `RulingPath`:
-  - A project ruling goes to `<project_dir>/docs/decisions/YYYY-MM-DD-<slug>.md`.
-  - An estate ruling goes to `$AUTARCH_UQBAR_DIR/rulings/…`. If the Uqbar is unset, filing
-    `project:estate` is refused at `File` time, with the message
+- `RulingPath(d)`:
+  - A project ruling goes to `docs/decisions/YYYY-MM-DD-<slug>-<bead>.md` under the project
+    root. The bead id in the name makes it unique, so there is no collision search, and
+    rewriting it after a crash writes the same file.
+  - An estate ruling goes to `rulings/…` under `$AUTARCH_UQBAR_DIR`. If the Uqbar is unset,
+    filing `project:estate` is refused at `File` time, with the message
     `estate-wide decisions need an Uqbar (see G-1)`.
-  - Slug collisions get `-2`, `-3` and so on. Each attempt gets its own file.
-- **Symlink-safe writes** `[A-19]`: the root and `docs/decisions` are resolved with
-  `EvalSymlinks` and must stay inside the resolved project root. The file is written to a temp
-  name in the same directory and renamed. The write is refused if the target already exists as
-  a symlink.
-- `WriteRuling` writes, then signs. A state change rewrites the file and re-signs it.
-- `Signer{KeyPath}`:
-  - `Sign(path)` runs `ssh-keygen -Y sign -f KeyPath -n autarch-ruling path` and produces
-    `path.sig`.
-  - `Verify(path, allowedSigners)` runs
-    `ssh-keygen -Y verify -f allowedSigners -I home@autarch -n autarch-ruling -s path.sig < path`.
-  - A missing key gives `ErrNoKey`. For non-command rulings the caller writes the file unsigned
-    and removes any stale `.sig` (P-8).
-- The default key is `~/.config/autarch/home_ed25519`, overridable with `AUTARCH_HOME_KEY`.
-
-**Test cases:**
-- Round trip: write the frontmatter, parse it, get the same values, including `approved`.
-- Slug collisions.
-- A path escape is refused, and so is a `docs/decisions` symlink pointing outside the root.
-- Signing uses a temp key made with `ssh-keygen -t ed25519 -N '' -f`:
-  - sign, then verify, gives OK;
-  - flipping one byte makes verify fail;
-  - a key not in `allowed_signers` fails;
-  - a missing key gives `ErrNoKey`, and there is no `.sig`.
-
-Commit: `decisions: signed ruling files`.
-
-<verify>
-- run: `go test -race ./internal/decisions/ -run 'Ruling|Sign'`
-  expect: exit 0
-</verify>
-
-### Task 1.4: attempts and the continuation runner
-
-Depends on Task 1.1 `[A-17]`.
-
-**Files:**
-- Create: `internal/decisions/attempt.go`, `internal/decisions/run.go`,
-  `internal/decisions/lock.go`.
-- Test: `internal/decisions/attempt_test.go`, `internal/decisions/run_test.go`,
-  `internal/decisions/lock_test.go`.
-
-**Design:**
-- `NewAttempt(root)` makes `att_<16 hex>` and its directory `~/.autarch/attempts/<id>/`
-  (0700). `MarkStarted` writes `started` and fsyncs the file and the directory. `WriteOutcome`
-  writes `outcome.json` the same way. Nothing in an attempt directory is ever deleted.
-- `Runner.Run(ctx, attempt, cmd) Outcome{Exit, Tail, Err}`:
-  - `argv`: `exec.Command(argv0, argv[1:]...)`, no shell. It refuses to start if `argv0` no
-    longer hashes the same.
-  - `script`: copies the script into the attempt directory, checks the copy's hash against the
-    frozen hash, and runs `bash <snapshot>` with cwd `dir`. It re-checks deps just before
-    start.
-  - The env is exactly the frozen env. Nothing else is inherited.
-  - It uses its own process group, so a timeout kills the whole group. The timeout defaults to
-    10 minutes.
-  - Output streams to `output.log` (capped at 16 MiB); the tail keeps the last 2 KiB.
-  - It is injected into `Service`, so pick tests use a fake.
+- **Safe writes through `os.Root`** `[A-19]`: `WriteRuling` opens the resolved project root (or
+  Uqbar) with `os.OpenRoot`, creates `docs/decisions` with `Root.MkdirAll`, writes a temp file
+  with `Root.OpenFile(O_CREATE|O_EXCL|O_WRONLY)`, fsyncs it, and renames it with `Root.Rename`.
+  `os.Root` refuses any path, including through a symlink, that leaves the root, so there is
+  no `filepath.Clean` check to get wrong.
 - `AcquireOwnerLock(path)` `[A-1]` takes `syscall.Flock(LOCK_EX|LOCK_NB)`, writes the pid into
   the file, and returns a release function. On `EWOULDBLOCK` it returns `ErrOwned{PID}`.
 
 **Test cases:**
-- Exit codes.
-- The env is limited: `env` output contains no `BB_` or `ANTHROPIC_` variables.
-- `dir` is honoured.
-- An argv containing `;` or `$(…)` is passed as a literal argument, not interpreted.
-- A script edited after freezing is refused before start; the snapshot, not the live file, is
-  what runs.
-- A timeout kills the child and its grandchild (`sleep 60 & wait`).
-- The output tail is capped, and `output.log` holds the full stream up to the cap.
-- `started` exists before the child's first byte of output (the child writes a marker; the test
-  compares mtimes).
+- Round trip: write the frontmatter, parse it, get the same values, including `options_shown`
+  and `instruction`.
+- Writing the same ruling twice produces one file with the same bytes.
+- A `docs` or `docs/decisions` symlink pointing outside the root is refused, and nothing is
+  written outside it.
+- An instruction containing `---` and YAML-looking lines round-trips as a string and does not
+  break the frontmatter.
 - `AcquireOwnerLock` in a second **process** (the test re-execs itself) returns `ErrOwned`.
 
-Commit: `decisions: attempts, owner lock and continuation runner`.
+Commit: `decisions: ruling files and the owner lock`.
 
 <verify>
-- run: `go test -race ./internal/decisions/ -run 'Attempt|Runner|Lock'`
+- run: `go test -race ./internal/decisions/ -run 'Ruling|Lock'`
   expect: exit 0
 </verify>
 
-### Task 1.5: the service — file, pick, revert, recover
+### Task 1.4: the service — file, pick, reconcile, ack
 
-Depends on Tasks 1.1–1.4 and on `internal/serve/projects.go` (Task 0.2), injected as an
+Depends on Tasks 1.1–1.3 and on `internal/serve/projects.go` (Task 0.2), injected as an
 interface so `decisions` does not import `serve`.
 
 **Files:**
 - Create: `internal/decisions/service.go`.
 - Test: `internal/decisions/service_test.go`, using an in-memory `fakeTracker` that implements
-  `Tracker` and can inject `ErrTrackerDown` or `ErrOutcomeUnknown` on any call, plus the fake
-  runner and a temp signer.
+  `Tracker`, enforces unique ids like step 0 of Task 1.2 found, and can inject `ErrTrackerDown`
+  or `ErrOutcomeUnknown` on any call — including "the write landed, then the call timed out".
 
-**`File(ctx, req)`** `[A-10]` `[A-19]`:
+Every method below runs under the service mutex. The process already holds the owner lock
+(P-3a).
+
+**`File(ctx, req)`** `[A-10]` `[A-19]` `[B-8]` `[B-9]`:
 1. Resolve `req.Project` through the resolver. `project_dir` must equal the resolved root.
-2. `Validate`, freeze every command option, compute `Revision`.
-3. `FindOp(req.RequestID)`. If a bead exists, return it: filing is idempotent.
-4. `Create`.
-5. Errors: `ErrTrackerDown` before create gives the fixed message
-   `hub tracker unreachable since <t>: nothing was filed; ask mk in chat instead` `[D21]`.
-   `ErrOutcomeUnknown` gives `hub tracker did not confirm: the decision may have been filed;
-   re-running the same command is safe`.
-6. If `req.Supersedes` names an open bead from the same asker, close it with reason
-   `superseded by <id>` (the re-ask path).
+2. `Validate`, compute `Revision` and `BeadID(req.RequestID)`.
+3. `Get(beadID)`. If the bead exists:
+   - with the same revision, return it and run `Reconcile` on it (this finishes a supersession
+     whose close did not land);
+   - with a different revision, return 409 `request id reused for a different decision`.
+4. If `req.Supersedes` is set, check the predecessor now: it must exist, be open, have the same
+   asker and project, and have no `pick`. If it has been picked, return 409
+   `already ruled: "<label>"` so the asker reads the answer instead of re-asking.
+5. `Create`. With a supersession, the new bead's metadata carries a `supersede` record with one
+   `close-superseded` obligation, and the label `home:pending`.
+   - `ErrExists` means an earlier attempt landed: go to step 3's path.
+   - `ErrOutcomeUnknown`: `Get` once more. Found: continue as step 3. Not found: return the
+     "may have been filed; re-running the same command is safe" error. A retry with the same
+     request id cannot create a second bead, because the id is the same.
+   - `ErrTrackerDown` before create gives the fixed message
+     `hub tracker unreachable since <t>: nothing was filed; ask mk in chat instead` `[D21]`.
+6. `Reconcile` the new bead (closes the predecessor with reason `superseded by <id>`).
 
-**States and labels** `[A-3]`. Every transition is one `bd update` unless it says close or
-reopen.
+**`Pick(ctx, id, optionID, revision, pickID)`** `[B-1]`:
+1. Refuse with 503 if the first reconcile has not completed since start.
+2. `Get` the bead.
+   - It has a `pick` with this `pick_id`: return the recorded pick, then `Reconcile`.
+   - It has a `pick` with another id, or it is closed: 409 `already ruled`.
+   - `revision` differs from the stored one: 409 `ErrRevisionMismatch`; the rail re-reads.
+3. One `Update`: `pick{pick_id, option_id, revision, by: "home", at, ruling, obligations}` and
+   `+home:pending`. Obligations are `close` and `ruling-file`, plus `wake` for instruction and
+   needs-context picks. On `ErrOutcomeUnknown` return 503 `retry with the same pick id`; the
+   retry takes step 2's first branch if the write landed.
+4. `Reconcile(bead)`, then return the pick.
 
-| `pick.state` | Bead | Labels added / removed | Next |
-|---|---|---|---|
-| (none) | open | — | claimed |
-| `claimed` | open | +`home:running` | stale, running, interrupted |
-| `stale` | open | −`home:running`, +`home:stale` | (re-ask obligation; a later pick is a new attempt) |
-| `running` | open | (keeps `home:running`) | finalizing, interrupted |
-| `finalizing` | open, then closed | −`home:running` (at close) | closed |
-| `interrupted` | open | −`home:running`, +`home:interrupted` | (owed; a later pick is a new attempt) |
-| `reverting` | closed or open | +`home:running` | reverted, revert-failed, revert-interrupted |
-| `reverted` | reopened | −`home:running` | (owed again) |
-| `revert-failed` | unchanged | −`home:running`, +`home:revert-failed` | — |
-| `revert-interrupted` | unchanged | −`home:running`, +`home:interrupted` | — |
+**`Reconcile(ctx, bead)`** `[B-3]` — the one function that carries out obligations:
+1. `close-superseded`: `Get` the predecessor; if open, `Close(pred, "superseded by <id>")`.
+2. `close`: if the bead is open, `Close(id, "ruled: <label>")`.
+3. `ruling-file`: `WriteRuling` (idempotent: same path, same bytes).
+4. One `Update` marks those done and sets `home:pending` and `home:undeliverable` from the
+   projections.
+- A failed step leaves its obligation pending and stops; the next reconcile resumes it.
+- `wake` obligations are never marked done here; only `Ack` does that.
 
-`finalizing` records `outcome: done|failed` and the obligations.
+**`ReconcileAll(ctx)`** runs at startup and every 30 s until it has completed once, then every
+5 minutes. It lists `ListByLabel(home:pending)` — open or closed, whatever the reason — and
+reconciles each bead. It also lists open beads with a `pick` but no `home:pending` label (a
+crash between write and label is impossible in one `Update`, so this list is expected empty;
+a non-empty one is logged as a tracker anomaly and reconciled).
 
-**`Pick(ctx, id, optionID, revision)`** `[A-2]` `[A-8]`, under the service mutex (the owner lock
-is already held by the process):
-1. Refuse with 503 if `Recover` has not completed since start.
-2. `Get` the bead. It must be open and not `home:running`. `revision` must equal the stored
-   revision, else `ErrRevisionMismatch`: the rail must re-read.
-3. For a command option with no signing key, refuse with `ErrNoKey` (P-8, G-7).
-4. **Claim**: create the attempt directory, write `claim.json`, then one `Update` with
-   `pick{attempt, option_id, revision, state: claimed, dir}` and `+home:running`. Move any
-   previous `pick` into `history[]`.
-5. For a command option: `CheckStale`, then run the precondition inside the attempt (recorded in
-   `precondition.json`, 10 s timeout). On failure, set `state: stale` per the table, add a
-   `reask` obligation, write a `stale` ruling, and return 409 `{reask: true}` `[A-7]`.
-6. `WriteRuling(state=running)`, then `Update(state: running)`.
-7. By kind:
-   - **command:** `MarkStarted`, `Runner.Run`, `WriteOutcome`.
-   - **needs-context** and **ruling-only:** nothing runs.
-8. `WriteRuling(final)`, signed. `done` on exit 0 or a non-command kind; `failed` otherwise.
-9. `Update(state: finalizing, outcome, obligations)`. Obligations:
-   - needs-context: a `wake`;
-   - command failure: a `followup` `[A-21]`. It keeps the original options and adds *retry*
-     (the same command, re-frozen). It is labelled `home:failed-followup`, with op id
-     `<attempt>:followup`;
-   - a stale re-ask (step 5): a `reask`.
-10. `Close(id, "ruled: <label>")`.
-11. Carry out obligations, marking each `done` in metadata:
-    - `wake` and `reask` add `home:wake-pending` to the bead. A `reask` wake carries a distinct
-      payload: `option went stale: <reason>; file a replacement with supersedes=<id>`.
-    - `followup` calls `File` with op id `<attempt>:followup`, so a retry finds the bead that
-      was already created.
+**`Wakes()`** returns pending `wake` obligations grouped by `asking_thread`. Each carries the bead
+id, the obligation id, the question, the picked label, the kind and, for instruction picks, the
+exact instruction. The question and instruction are the asker's own text going back to that
+same asker, which does not break `[D21]`.
 
-**`Revert(ctx, id, attempt, revision)`** `[A-5]`:
-- Eligible only when that attempt's state is `done` (bead closed) or `interrupted` (bead open),
-  its option has a `revert`, and the key exists.
-- It uses the same machinery: a new attempt of kind revert, claim with `state: reverting`,
-  `CheckStale` on the revert command, `MarkStarted`, run, outcome.
-- Exit 0: write a `reverted` ruling that supersedes the original, then `Reopen` the bead once
-  with a new revision, so it is owed again with its original options `[D22]`.
-- Non-zero: `revert-failed` per the table. The bead is left as it was.
+**`Ack(ctx, acks []{bead, obligation, undeliverable bool})`** `[B-4]`: for each pair, `Get` the
+bead, set that one obligation to `done` or `undeliverable`, recompute the projections, and
+`Update`. An obligation id that is not pending is a no-op. Other obligations on the same bead
+are untouched.
 
-**`Recover(ctx)`** `[A-2]` `[A-4]`. It lists every bead with `home:running` (open or closed)
-and every closed bead whose `pick.state` is `finalizing` or has an unfinished obligation. It
-reconciles by evidence and never runs a command:
-
-| Found | Evidence | Action |
-|---|---|---|
-| `claimed` | no `started` | `interrupted` (it never ran) |
-| `running`, command | `started`, no `outcome.json` | `interrupted`; ruling rewritten `interrupted` with the evidence path |
-| `running`, command | `outcome.json` | finish from step 8 using the recorded outcome |
-| `running`, non-command | — | finish from step 8 |
-| `finalizing` | bead open | close, then carry out obligations |
-| closed | obligations not done | carry them out; each is idempotent by op id |
-| `reverting` | no `started` or no outcome | `revert-interrupted` |
-| `reverting` | outcome, exit 0 | finish the revert, including a missing `Reopen` |
-
-It is idempotent. On `ErrTrackerDown`, `serve` retries it every 30 s and picks stay at 503.
+**`Dismiss(ctx, bead, obligation)`** moves an undeliverable wake to `dismissed` after mk handed
+it on.
 
 **Test cases** (each tied to a CUJ autarch-07 step). Each asserts the final bead labels and
-metadata, the ruling state, and what `Owed`, `Recent` and `Feed` then return:
-- Filing gives an open bead with frozen hashes and a revision. Filing again with the same
-  request id returns the same bead and makes one `create` call.
-- Tracker down before create gives the fixed message, and no `create` call. A `create` that
-  returns `ErrOutcomeUnknown` gives the "may have filed" message.
-- Picking a command:
-  - the claim `Update` happens before the runner is called;
-  - `started` exists before the runner is called;
-  - the ruling says `running` when the runner is called;
-  - then `done`, the bead is closed, and no wake is pending (the feed carries it).
-- A double pick (two goroutines) runs the fake runner once; the second returns `ErrNotOwed`.
-- A revision mismatch is refused without a claim.
-- An edited script gives 409 stale, no runner call, `home:stale`, and one `reask` wake.
-- A failing precondition gives the same, and the precondition ran inside the attempt.
-- A failing command gives a `failed` ruling plus one follow-up bead with the original options
-  plus *retry*. Crashing after close and running `Recover` still gives exactly one follow-up.
-- No key: a command pick is refused; a ruling-only pick writes an unsigned ruling.
-- `Recover` over each row of the table gives the listed result. The runner is never called, and
-  a second `Recover` is a no-op.
-- Revert of a `done` pick runs the revert once and reopens the same bead. Revert with the wrong
-  attempt or revision is refused. A crash between the revert's outcome and `Reopen` is finished
-  by `Recover`.
-- `ruling-only` makes no runner call.
+metadata, the ruling file, and what `Owed`, `Wakes` and `Feed` then return:
+- Filing gives an open bead with id `BeadID(request_id)` and a revision. Filing again with the
+  same request id returns the same bead and makes one `create` call.
+- **Concurrent filing:** two goroutines file the same request; one bead, both get its id.
+- **Delayed commit:** a `create` that lands and then times out; the retry returns the same bead
+  and no second bead exists.
+- A reused request id with a different body is refused 409.
+- Tracker down before create gives the fixed message, and no `create` call.
+- Supersession: filing B with `supersedes: A` closes A. With a fault on that `Close`, B exists
+  with `home:pending`; re-filing B (same request id) closes A. A picked predecessor refuses B
+  with `already ruled`.
+- Picking an instruction option: the bead closes, the ruling file exists, and `Wakes()` returns
+  one wake carrying the exact instruction.
+- Picking ruling-only: no wake, and the feed carries it.
+- **Retry:** the same `pick_id` twice gives one `pick` and one `Update` with a pick in it; a
+  different `pick_id` gets 409.
+- **Crash after the pick write:** the fake fails `Close`; `ReconcileAll` then closes the bead,
+  writes the file and leaves one pending wake. A second `ReconcileAll` changes nothing.
+- A stale revision is refused without a write.
+- **Ack race:** a wake is fetched, then a second obligation is added to the same bead (a
+  supersession's predecessor pick is refused, so the test uses a crafted second wake), then the
+  first is acked: the second is still pending.
+- Undeliverable, then dismiss, drops the bead from the undeliverable list.
 
-Commit: `decisions: file, pick once, revert and crash recovery`.
+Commit: `decisions: file, pick once, reconcile and per-obligation acks`.
 
 <verify>
 - run: `go test -race ./internal/decisions/ -run Service -count=3`
   expect: exit 0
 </verify>
 
-### Task 1.6: feed, wakes, recent and trial stats
+### Task 1.5: feed, recent, undeliverable and trial stats
+
+Depends on Task 1.4. Merged into the same file, so it follows it in the manifest.
 
 **Files:**
 - Modify: `internal/decisions/service.go`.
 - Test: `internal/decisions/feed_test.go`.
 
 **Design:**
-- `Recent(project, limit)` `[A-16]` returns closed and recently picked decisions from
-  `ListRecent`. Each carries the picked label, the state, the ruling path, whether its
-  signature verifies, and whether revert is eligible (with the attempt and revision needed).
-- `Owed()` also computes `stale` for each command option through `CheckStale`, which runs
-  nothing, so the rail marks it before any pick `[A-21]`.
-- `Feed(project, thread, since)` returns up to 10 lines, newest first `[A-20]`:
-  - rulings in that project closed since `since` (default 14 days) **whose signature
-    verifies** (P-8);
-  - unioned with rulings on beads this thread asked, in any project;
-  - each line reads `ruled YYYY-MM-DD "<label>" → <state> (<bead>)`.
-- The label is quoted, stripped of newlines and control characters, and clipped to 80 runes. The
-  line is clipped to 140.
-- A line never contains the question, the reasoning or any metadata other than the label and
-  the state `[D21]`.
-- It uses a per-project cache with a 30 s TTL that is invalidated by any `Pick`, `Revert` or
-  `Recover` in this process.
-- `Wakes()` returns beads labelled `home:wake-pending` and not `home:undeliverable`, grouped by
-  `asking_thread`. Each wake carries:
-  - the bead id and kind (`answer` or `reask`);
-  - the question;
-  - the picked label;
-  - the state;
-  - the ruling path.
-  The question is the asker's own text going back to that same asker, which does not break
-  `[D21]`.
-- `AckWakes(ids)` removes `home:wake-pending`. `MarkUndeliverable(ids)` swaps it for
-  `home:undeliverable` `[A-15]`.
+- `Recent(project, limit)` `[A-16]` returns decisions with a Home pick closed within 14 days,
+  from `ListRecent`, each with the picked label, the kind and the ruling path.
+- `Undeliverable()` returns every bead with `home:undeliverable`, however old, with its answer
+  and instruction `[B-13]`.
+- `Feed(since)` `[A-20]` `[B-12]` returns one object:
+  `{projects: {<project>: [line…]}, threads: {<thread>: [line…]}}`.
+  - `projects` holds, per project, up to 10 lines for beads with a Home `pick` (P-8) closed since
+    `since` (default 14 days), newest first.
+  - `threads` holds, per asking thread, up to 10 lines for its own picked decisions in any
+    project.
+  - The caller selects `projects[P] ∪ threads[T]` at read time, so no cache ever holds one
+    thread's selection for another.
+  - Each line reads `ruled YYYY-MM-DD "<label>" (<bead>)`. The label is quoted, stripped of
+    newlines and control characters, and clipped to 80 runes. The line is clipped to 140.
+  - A line never contains the question, the instruction or any metadata other than the label
+    `[D21]`.
+  - The whole object is cached for 30 s and invalidated by any pick or reconcile in this
+    process.
+- `Owed()` returns open beads with no pick, and the tracker status.
 - `Stats(since)` reports decisions filed per ISO week, and the median and p90 of
   `pick.at − created_at` for picked decisions `[A-20]`.
 
 **Test cases:**
 - A label with `\n` or an injection-shaped string is flattened and clipped.
-- The question never appears in feed output.
-- An unsigned ruling is absent from the feed.
-- A thread's own answer from another project appears in its feed.
-- Two answers to one thread form one group; a re-ask wake has kind `reask`.
-- Ack removes the label; undeliverable swaps it.
-- `Owed` marks an option stale after its script is edited, and runs nothing.
-- `Recent` reports revert eligibility only for `done` or `interrupted` picks with a revert.
+- Neither the question nor the instruction appears in feed output.
+- A bead closed by hand with no Home `pick` is absent from the feed (P-8).
+- A thread's own answer from another project appears under `threads[T]`, and not under
+  `threads[U]`.
+- Two threads in one project: selecting for T never includes U's own answers.
+- `Undeliverable` includes a bead closed 60 days ago whose wake is undeliverable.
 - Stats over fixed timestamps, using `pick.at`.
 
-Commit: `decisions: feed, wakes, recent and trial stats`.
+Commit: `decisions: feed, recent, undeliverable and trial stats`.
 
 <verify>
-- run: `go test -race ./internal/decisions/ -run 'Feed|Wake|Recent|Owed|Stats'`
+- run: `go test -race ./internal/decisions/ -run 'Feed|Recent|Undeliverable|Owed|Stats'`
   expect: exit 0
 </verify>
 
-### Task 1.7: the HTTP API on `autarch serve`
+### Task 1.6: the HTTP API on `autarch serve`
 
 **Files:**
-- Create: `internal/decisions/api.go`.
-- Modify: `internal/serve/serve.go` (mount it when `Config.Decisions != nil`; take the owner
-  lock and run `Recover` in `Run`, P-3a) and `cmd/autarch/serve.go` (build a
-  `decisions.Service` with `BDTracker{HubDir}`, the resolver, the default signer and the
-  runner). `Config` gains `Decisions` here, not earlier `[A-17]`.
+- Create: `internal/decisions/api.go`, `internal/decisions/client.go`.
+- Modify: `internal/serve/serve.go` (`Config` gains `Decisions http.Handler` and the
+  `BeforeListen`/`AfterListen` hooks are set by the command; `/health` gains a `decisions`
+  field) and `cmd/autarch/serve.go` (build a `decisions.Service` with `BDTracker{HubDir}` and the
+  resolver; set `BeforeListen` to `AcquireOwnerLock` and `AfterListen` to the reconcile loop).
 - Test: `internal/decisions/api_test.go`, using `httptest` against `Routes` with a fake tracker;
-  `internal/serve/owner_test.go` for the lock.
+  `internal/serve/owner_test.go` for the lock and startup order.
 
 **Routes** (all behind the P-3 middleware):
 
 | Route | Behavior |
 |---|---|
-| `GET /api/decisions` | Returns `{owed:[…], tracker:{up, down_since}, signing, recovered}`. When the tracker is down it returns 200 with `up:false`, never an empty "nothing owed" list. |
-| `POST /api/decisions` | Files a decision (the same as the CLI). Takes `request_id`. |
-| `GET /api/decisions/recent?project=&limit=` | Returns `Recent` `[A-16]`. |
-| `POST /api/decisions/{id}/pick` | Takes `{option_id, revision}`. Returns 200 with the ruling; 409 when stale (with `reask`), already picked, or the revision differs; 503 when the tracker is down or recovery has not completed. |
-| `POST /api/decisions/{id}/revert` | Takes `{attempt, revision}`. |
-| `GET /api/decisions/feed?project=&thread=` | Returns the feed lines. |
-| `GET /api/decisions/wakes` | Returns pending wakes. |
-| `POST /api/decisions/wakes/ack` | Takes `{ids, undeliverable}`. |
+| `GET /api/decisions` | Returns `{owed:[…], undeliverable:[…], tracker:{up, down_since}, reconciled}`. When the tracker is down it returns 200 with `up:false`, never an empty "nothing owed" list. |
+| `POST /api/decisions` | Files a decision. Takes `request_id`. 201 new, 200 existing, 409 reuse or already ruled, 422 validation, 503 tracker down (nothing filed), 504 outcome unknown. |
+| `GET /api/decisions/recent?project=&limit=` | Returns `Recent`. |
+| `POST /api/decisions/{id}/pick` | Takes `{option_id, revision, pick_id}`. 200 with the pick; 409 already ruled or revision differs; 503 tracker down, outcome unknown or not yet reconciled. |
+| `GET /api/decisions/feed` | Returns the feed object. |
+| `GET /api/decisions/wakes` | Returns pending wakes grouped by thread. |
+| `POST /api/decisions/wakes/ack` | Takes `{acks:[{bead, obligation, undeliverable}]}`. |
+| `POST /api/decisions/{id}/dismiss` | Takes `{obligation}`. |
 | `GET /api/decisions/stats?since=` | Returns the trial stats. |
+
+`Client` wraps these routes, reading the address from `$AUTARCH_SERVE_ADDR` (default
+`127.0.0.1:8110`) and the token from `~/.autarch/serve.token`. It maps a refused connection to
+`ErrHomeDown` (nothing was sent) and a timeout after the request was written to
+`ErrOutcomeUnknown`.
 
 **Test cases:**
 - The status code for each route and error.
 - The tracker-down shape.
-- Pick returns 409 on a second call, and 503 before `Recover` completes.
+- Pick returns 409 on a second `pick_id`, 200 on the same one, and 503 before the first
+  reconcile.
 - The body size is capped at 64 KiB.
+- **Startup with the tracker down** `[B-17]`: `/health` and `GET /api/decisions` answer
+  (`up:false`, `reconciled:false`) while pick and file return 503; clearing the fault lets the
+  loop reconcile and writes succeed.
 - Owner lock: two `serve` processes (the test re-execs the test binary) on different ports —
-  the second exits non-zero with `owns decisions` before it binds. A second `serve` on an
-  occupied port also exits before running `Recover` (its fake tracker records no calls).
+  the second exits non-zero with `owns decisions` before it binds, and its fake tracker records
+  no calls.
+- `Client` against a closed port gives `ErrHomeDown`.
 
-Commit: `serve: decisions API and single owner`.
+Commit: `serve: decisions API, client and single owner`.
 
 <verify>
 - run: `go test -race ./internal/decisions/ ./internal/serve/`
   expect: exit 0
 </verify>
 
-### Task 1.8: the CLI helper and the MCP tool
+### Task 1.7: the CLI helper, exit codes and the MCP tool
 
 **Files:**
-- Create: `cmd/autarch/decide.go` and `cmd/autarch/decide_test.go`.
-- Modify: `cmd/autarch/main.go` (`root.AddCommand(decideCmd())`).
+- Create: `cmd/autarch/decide.go`, `cmd/autarch/exit.go` and `cmd/autarch/decide_test.go`.
+- Modify: `cmd/autarch/main.go`: `root.AddCommand(decideCmd())`, and the `os.Exit(1)` at `:91`
+  becomes `os.Exit(exitCode(err))`, where an `ExitError{Code}` anywhere in the chain gives its
+  code and any other error gives 1 `[B-14]`.
 - Modify: `pkg/mcp/server.go` (add `autarch_file_decision`, with a write scope checked like the
-  others at `:317`).
+  others at `:317`; it files through `decisions.Client`).
 
 **Commands:**
 - `autarch decide file` reads a JSON request on stdin (the bead schema's option list plus
   `question`, `project`, `recommendation`, and optional `request_id` and `supersedes`).
-  - A missing `request_id` is generated from sha256 of the thread plus the request body, so a
-    blind retry of the same request is idempotent `[A-10]`.
+  - A missing `request_id` is sha256 of the thread plus the canonical request body, so a blind
+    retry of the same request is idempotent `[A-10]`. `bb home ask` uses the same rule
+    (Task 1.9), so the two surfaces agree `[B-8]`.
   - The thread comes from `--thread` or `$BB_THREAD_ID`. It is required unless `--asker mycroft`.
   - `project_dir` comes from `--project-dir` (default: the git root of the working directory),
     and must match the resolved project.
-  - On success it prints `{"bead":…,"request_id":…}`.
-  - Exit 3: tracker down, nothing filed. Exit 4: outcome unknown, re-run the same command.
-    Exit 2: validation error, naming the bad option and the rule.
+  - It posts through `decisions.Client`. On success it prints `{"bead":…,"request_id":…}`.
+  - Exit 3: Home down or tracker down, nothing filed; the message says to ask mk in chat.
+    Exit 4: outcome unknown, re-run the same command. Exit 2: validation error, naming the bad
+    option and the rule. Exit 5: already ruled, printing the label.
 - `autarch decide list` reads through the running service if `/health` answers, and otherwise
-  directly through `BDTracker`.
-- `autarch decide verify <ruling.md> [--allowed-signers]` verifies a ruling; `allowed-signers`
-  defaults to `$AUTARCH_UQBAR_DIR/allowed_signers`.
+  directly through `BDTracker` (read-only).
 - `autarch decide stats [--since 14d]` prints the trial stats.
 
 There is **no pick in the CLI**. Picks happen only on the rail, so mk is the one picking
 `[D14]`.
 
-**Test cases:**
-- Fake `bd` on PATH gives the argv for `file`, including `home:op:<id>`.
-- Running `file` twice with the same stdin makes one `create`.
-- Exit 3 when the tracker is down on the lookup; exit 4 when `create` times out.
-- Exit 2 on `kind: command` with no command, and on a disallowed env key.
+**Test cases** (the tests build the binary and run it as a subprocess, so exit codes are
+real):
+- Against an `httptest` service with a fake tracker: `file` posts once, and running it twice
+  with the same stdin gives the same bead.
+- Exit 3 with no service listening; exit 4 when the service returns 504; exit 2 on an
+  instruction on a ruling-only option; exit 5 on a picked predecessor.
 - MCP `tools/list` includes `autarch_file_decision`, and a call without the write scope is
   refused.
 
-Commit: `decide: filing helper CLI and MCP tool`.
+Commit: `decide: filing helper CLI, exit codes and MCP tool`.
 
 <verify>
 - run: `go test -race ./cmd/autarch/ -run Decide`
@@ -1043,67 +980,62 @@ Commit: `decide: filing helper CLI and MCP tool`.
   expect: exit 0
 </verify>
 
-### Task 1.9: Mycroft escalates through decisions, and `mycroft dispatch` `[A-13]`
+### Task 1.8: Mycroft escalates through decisions `[A-13]` `[B-15]`
 
 **Files:**
 - Modify: `internal/mycroft/escalate/escalate.go:55-120`.
 - Modify: `internal/mycroft/scheduler/orchestrator.go`: `suggest()` (`:97-110`) and the T2
-  out-of-allowlist branch of `autoDispatchFiltered` (`:123-130`). Add an exported
-  `Dispatch(agent, bead)` that wraps `dispatchToAgent` (`:149`).
-- Modify: `cmd/mycroft/main.go`: add `dispatchCmd`, registered in `init()` (`:426`). Mycroft's
-  commands live in `cmd/mycroft`; `autarch` has no mycroft subcommand, so it goes here.
+  out-of-allowlist branch of `autoDispatchFiltered` (`:123-130`).
+- Modify: `cmd/mycroft/main.go:98`: the production `runCmd` passes
+  `WithEscalations(escalate.NewDecisionQueue(decisions.NewClient(…)))` to `NewOrchestrator`.
 - Modify: `internal/tui/views/mycroft.go` (the badge).
 - Test: `internal/mycroft/escalate/escalate_test.go`,
-  `internal/mycroft/scheduler/escalate_wiring_test.go`, `cmd/mycroft/dispatch_test.go`.
+  `internal/mycroft/scheduler/escalate_wiring_test.go`, `cmd/mycroft/wiring_test.go`.
 
 **Design:**
-- `DecisionQueue` gets a `decisions.Filer` (the `File` and `ListOwed` subset).
+- `DecisionQueue` gets a `decisions.Filer` (the `File` and `Owed` subset of `Client`).
 - `NewOrchestrator` gains an option `WithEscalations(*escalate.DecisionQueue)`. With it set:
   - `suggest()` calls `Add` next to its existing `logDispatch(… ActionSuggest …)`;
   - the T2 out-of-allowlist branch calls `Add` next to its existing log line.
 - `Add(p)` files this decision:
-  - asker `mycroft`; project from the bead's project, resolved as in Task 1.5;
+  - asker `mycroft`; project from the bead's project;
   - request id `mycroft:<project>:<bead>:<agent>`, so each patrol cycle finds the same bead
     instead of filing another;
-  - the question is `Dispatch <agent> on <bead>: <title>?`;
-  - options:
-    - *dispatch*: kind command, argv
-      `["mycroft","dispatch","--bead",<bead>,"--agent",<agent>]` in the project root;
-    - *skip*: ruling-only;
-    - *look first*: needs-context. With no asking thread it records the ruling only in v1.
+  - the question is `Mycroft suggests <agent> on <bead>: <title>. Should it?`;
+  - options, both **ruling-only**: *yes, when Mycroft can dispatch* and *no, skip it*.
+  - The rail notes on these cards: "records your ruling; Mycroft does not dispatch from it until
+    step 5". Mycroft's current `Spawn` only opens an empty tmux session, so v1 offers no option
+    that claims to dispatch. Mycroft reading its rulings and launching real work is step 5
+    (Mycroft's proposals).
   - `Reasoning` goes in the bead description only. It never reaches the feed.
-- `mycroft dispatch --bead --agent` loads one `FleetView` from `newSource()`, finds the agent and
-  the bead, and refuses (exit 1, naming which) if either is gone or the bead is no longer
-  ready. It then builds the orchestrator as `runCmd` does and calls `Dispatch` once.
-- `Len`, `All` and `HighestSeverity` read `ListOwed` filtered by `asker:mycroft`, cached for
-  10 s.
+- `Len`, `All` and `HighestSeverity` read `Owed` filtered by `asker:mycroft`, cached for 10 s.
 - `Get` and `Remove` are deleted if unused outside tests. Otherwise `Remove` becomes a no-op
   with a deprecation comment.
-- The TUI badge shows `?` when the tracker is down, instead of `0`.
+- The TUI badge shows `?` when Home or the tracker is down, instead of `0`.
 
 **Test cases:**
-- `Add` makes one `File` call with the right labels and request id; a second cycle with the same
-  suggestion makes no new bead.
+- `Add` makes one `File` call with the right labels, request id and two ruling-only options; a
+  second cycle with the same suggestion makes no new bead.
 - An orchestrator at T1 fed a `FleetView` with one ready bead produces one decision bead (patrol
   → bead).
-- `mycroft dispatch` with a fake spawner and a fake source calls `Spawn` once; with the bead
-  missing it exits 1 and calls nothing (bead → outcome).
-- `Len` reads through the filer. Tracker down makes `Len` return the last known count, and
+- The production constructor path in `cmd/mycroft` sets the escalation queue (the wiring test
+  builds `runCmd`'s orchestrator with a fake client and checks one `File` call).
+- `Len` reads through the filer. Home down makes `Len` return the last known count, and
   `Stale()` returns true.
 
-Commit: `mycroft: escalations file decision beads; mycroft dispatch`.
+Commit: `mycroft: escalations file ruling-only decision beads`.
 
 <verify>
 - run: `go test -race ./internal/mycroft/... ./cmd/mycroft/ ./internal/tui/views/`
   expect: exit 0
 </verify>
 
-### Task 1.10: the bb plugin (rail, wakes, feed, `bb home ask`) `[A-12]`
+### Task 1.9: the bb plugin (rail, wakes, feed, `bb home ask`) `[A-12]`
 
 **Files** (created with `bb plugin new bb-plugin-autarch` under `integrations/`, then edited):
 - `integrations/bb-plugin-autarch/package.json`, with `typecheck` (`tsc --noEmit`) and `test`
   scripts matching the scaffold.
-- `contract.ts`: `defineRpcContract` with `listOwed`, `listRecent`, `pick`, `revert` and
+- `contract.ts`: `defineRpcContract` with `listOwed`, `listRecent`, `pick`, `dismiss` and
   `health`.
 - `server.ts`, the `bb.server` entry. It uses `rpc`, `cli`, `background`, `agents` and `sdk`. A
   `host.ts` is added only if a host-local capability turns out to be needed.
@@ -1115,53 +1047,68 @@ Commit: `mycroft: escalations file decision beads; mycroft dispatch`.
     - It reads `~/.autarch/serve.token` and never sends it to the panel.
   - **RPC handlers** proxy to the decisions API with the token. The panel never opens a
     WebSocket to the service `[A-22]`.
-  - **Wake loop** (background) `[A-15]`:
+  - **Wake loop** (background) `[A-15]` `[B-4]`:
     - Every 15 s, plus immediately after a pick, it reads `/api/decisions/wakes`.
     - For each thread it sends one message through
-      `bb.sdk.threads.send({threadId, input, mode: "queue-if-active"})`, listing that thread's
-      answers and re-asks.
-    - On success it acks. On a rejection that the thread is archived or deleted, it acks with
-      `undeliverable: true`. Other failures retry on the next tick.
-  - **Feed** (`feed.ts`):
-    - A background refresher fetches `/api/decisions/feed` per project and thread every 30 s
-      into an in-memory cache.
-    - `bb.agents.configure` is synchronous. It reads only the cache and returns
+      `bb.sdk.threads.send({threadId, input, mode: "queue-if-active"})`. The message lists each
+      answer as:
+      ```
+      Home: mk answered your decision <bead>: "<question, clipped to 200>"
+      Picked: "<label>"
+      Your instruction for this option, approved by mk's pick:
+      <instruction, verbatim>
+      ```
+      A needs-context answer ends after the picked label with "You asked to hear back before
+      acting; continue from here."
+    - On success it acks exactly the `(bead, obligation)` pairs in that message. On a rejection
+      that the thread is archived or deleted, it acks them with `undeliverable: true`. Other
+      failures retry on the next tick.
+  - **Feed** (`feed.ts`) `[B-12]`:
+    - A background refresher fetches `GET /api/decisions/feed` every 30 s and keeps the whole
+      object. One call covers every project and thread, so a thread never seen before has its
+      project's lines ready.
+    - `bb.agents.configure` is synchronous. For thread T in project P it returns
+      `projects[P] ∪ threads[T]`, newest first, deduplicated by bead, with
       `{instructions, tools: [], skills: []}`.
-    - The instructions are a fixed header, `Recent rulings in this project (label and outcome
-      only):`, at most 10 lines, and a two-line note on filing: "When you need mk to decide,
-      run `bb home ask` with JSON options. The default kind is needs-context; give an exact
-      argv or script only when a pick should just run it." The whole text is kept under the
-      4096-character cap, dropping the oldest lines first.
+    - The instructions are a fixed header, `Recent rulings in this project (label only):`, at
+      most 10 lines, and a short note on filing: "When you need mk to decide, run
+      `bb home ask --request-stdin` with one line of JSON. Options default to needs-context.
+      Give an option an `instruction` when you already know what you would do if mk picks it;
+      you'll receive it verbatim." The whole text is kept under the 4096-character cap,
+      dropping the oldest lines first.
     - With an empty cache or the service down, it returns no instructions.
-  - **CLI**: `defineCli` with `stdin: true` registers `bb home ask`. It reads the request from
-    stdin, takes the thread from `ctx.threadId`, generates a `request_id` if none is given, and
-    calls `POST /api/decisions`. Outside a thread it is refused. It exits 3 or 4 as the Go
-    helper does.
+  - **CLI** `[B-14]`: `defineCli` registers `bb home ask` with a named option `request` declared
+    `stdin: true`, so the agent runs `jq -c . request.json | bb home ask --request-stdin` (one
+    line, at most 16 KiB, the proxy's limit). `--request '<json>'` also works. It takes the
+    thread from `ctx.threadId`, derives `request_id` by the Go helper's rule if none is given,
+    and calls `POST /api/decisions`. Outside a thread it is refused. It exits 3, 4 or 5 as the
+    Go helper does.
 - `app.tsx`:
   - A `navPanel` "Home" panel with an `experimental_sidebarAccessory` badge (the owed count, or
     `!` when the tracker is down).
-  - The rail lists owed decisions grouped by project. Each shows the question, then each option
-    with:
+  - The rail lists owed decisions grouped by project. Each shows the question, a link to the
+    asking thread, then each option with:
     - its label and kind;
-    - for commands: the exact argv or script, `dir`, effective env, precondition, deps ("reads
-      <deps> at run time"), "runs as mk in <dir>", and any revert;
-    - a recommendation mark;
-    - `stale`, `interrupted`, `failed follow-up` and `undeliverable` chips;
-    - command options disabled with "needs Home key (G-2)" when signing is missing.
-  - An undeliverable wake shows its answer so mk can hand it on.
-  - Picking sends `{option_id, revision}` from what was rendered. A 409 re-reads the decision.
-  - A "Recent" section from `listRecent` shows each ruling with a Revert button when eligible,
-    and an "unsigned (proposed)" chip when its signature does not verify. It survives a panel
-    reload.
-  - Banners: "tracker down since …", "starting: recovering" (the 503 state) and "rulings
-    unsigned: no Home key".
+    - for an instruction, the full text and "sent to <thread> as written; the agent acts on it
+      under its own permissions";
+    - a recommendation mark.
+  - An "Undeliverable" section lists every undeliverable wake with its answer and instruction,
+    a copy button and a Dismiss button `[B-13]`.
+  - Picking sends `{option_id, revision, pick_id}` from what was rendered; the panel generates
+    `pick_id` once per click and reuses it on retry. A 409 re-reads the decision.
+  - A "Recent" section from `listRecent` shows each ruling with its label and a link to the
+    ruling file. It survives a panel reload.
+  - Banners: "tracker down since …" and "starting: reconciling" (the 503 state).
 - `__tests__/server.test.ts`, using the SDK's `testing/fake-sdk.ts`:
-  - `configure` returns cached lines, returns nothing with an empty cache, and stays under
-    4096 characters with 10 long lines;
-  - the wake loop sends one message per thread and acks;
-  - a fake rejection for an archived thread acks as undeliverable and does not resend (the
-    rotation case);
-  - `bb home ask` outside a thread is refused, and inside one posts with `ctx.threadId`;
+  - `configure` for two threads in one project returns the project lines to both and each
+    thread's own lines only to that thread;
+  - `configure` for a thread never seen before returns its project's lines;
+  - it returns nothing with an empty cache, and stays under 4096 characters with 10 long lines;
+  - the wake loop sends one message per thread containing the exact instruction, and acks the
+    exact pairs sent; a wake added during the send is not acked;
+  - a fake rejection for an archived thread acks as undeliverable and does not resend;
+  - `bb home ask --request-stdin` outside a thread is refused, and inside one posts with
+    `ctx.threadId` and the derived request id;
   - `listRecent` after a simulated reload returns the same rulings.
 - `README.md`: build, the local install command (for mk) and settings.
 
@@ -1171,9 +1118,14 @@ Commit: `mycroft: escalations file decision beads; mycroft dispatch`.
 3. Write `server.ts` and `feed.ts` until the tests pass.
 4. Write `app.tsx`.
 5. Run `npm run typecheck`, `npm test` and `bb plugin build`. Each must exit 0.
-6. Commit: `bb-plugin-autarch: Home rail, wakes, feed and bb home ask`.
+6. Check the real CLI proxy: with the built plugin loaded in a dev bb (`bb plugin dev`, not
+   installed), pipe a one-line request through `bb home ask --request-stdin` from a scratch
+   thread and confirm the service received it. Record the transcript in the task's commit
+   message body.
+7. Commit: `bb-plugin-autarch: Home rail, wakes, feed and bb home ask`.
 
-**Not in this task:** `bb plugin install`, which is mk's step (G-3).
+**Not in this task:** `bb plugin install`, which is mk's step (G-3). If `bb plugin dev` is not
+available without installing, step 6 is recorded as not run and moves to G-6.
 
 <verify>
 - run: `cd integrations/bb-plugin-autarch && npm run typecheck && npm test`
@@ -1182,7 +1134,7 @@ Commit: `mycroft: escalations file decision beads; mycroft dispatch`.
   expect: exit 0
 </verify>
 
-### Task 1.11: the scenario harness `[A-18]`
+### Task 1.10: the scenario harness `[A-18]` `[B-18]`
 
 **Files:**
 - Create: `internal/homee2e/harness_test.go` (build tag `homee2e`), `internal/homee2e/bdfault/`
@@ -1190,82 +1142,94 @@ Commit: `mycroft: escalations file decision beads; mycroft dispatch`.
 
 **Design:**
 - The harness builds `autarch`, starts `serve` as a real child process on `127.0.0.1:0` with a
-  temp token, a temp key (`AUTARCH_HOME_KEY`), a temp attempts root and a scratch git project.
-- Commands used by scenarios write a **start marker**, bump an **invocation counter** file, and
-  write a **completion marker** at the end. Run-once is asserted from the counter, never from
-  a marker's absence alone.
+  temp token, a temp home and a scratch git project.
 - `bdfault` wraps a real or fake `bd`. `HOMEE2E_BD_FAULT` selects a fault: `down` (connection
-  refused), `timeout-after-write` on a named subcommand, or `fail-nth=N`.
+  refused), `timeout-after-write=<subcommand>` (let the write land, then hang past the
+  timeout), `kill-after=<subcommand>` (SIGKILL `serve` right after that call returns), or
+  `fail-nth=N`.
 - Two modes:
-  - `HOMEE2E_MODE=fake` (default): `bd` is a file-backed fake, so it runs anywhere.
-  - `HOMEE2E_MODE=hub`: the real hub tracker with `LabelPrefix=hometest` (Task 1.12).
-- Results are written as one JSON object per scenario to `$HOMEE2E_OUT` (default
-  `$TMPDIR/homee2e.jsonl`): `{scenario, pass, counter, bead_state, labels, ruling_state,
-  verified}`.
+  - `HOMEE2E_MODE=fake` (default): `bd` is a file-backed fake that enforces unique ids, so it
+    runs anywhere.
+  - `HOMEE2E_MODE=hub`: the real hub tracker with `LabelPrefix=hometest` (Task 1.11).
+- The harness takes its output path from the `-homee2e.out` test flag and fails if it is not
+  given. It writes one JSON object per scenario:
+  `{scenario, mode, commit, run_id, pass, beads, wakes, ruling_file, detail}`, where `commit` is
+  `git rev-parse HEAD` and `run_id` is fresh per run. This one file is both the machine check
+  and the human report.
 
-**Scenarios:**
-1. **done:** pick a command. Counter is 1, ruling `done`, `autarch decide verify` passes with the
-   real `ssh-keygen`, the bead is closed, the feed shows the label only.
-2. **stale:** edit the script, then pick. 409 with `reask`, counter 0, `home:stale`, one re-ask
-   wake.
-3. **crash mid-run:** pick a `sleep 30` script, SIGKILL `serve` after the start marker, and
-   check that the runner's process group is gone (`kill -0 -<pgid>` fails, killing it if the
-   kernel left it). Restart. The bead is owed with `home:interrupted`, the counter stays 1, the
-   completion marker is absent, and the evidence directory is intact.
-4. **crash after close:** fail a command with `HOMEE2E_BD_FAULT=kill-after=close` (the wrapper
-   SIGKILLs `serve` right after `bd close` returns). Restart. Exactly one follow-up bead exists.
-5. **two serves:** start a second `serve` on another port. It exits non-zero with
+**Scenarios** (names are exact; the checks in criteria 12 and 13 compare the set):
+1. `answer-instruction`: file with an instruction option and pick it. The bead is closed, the
+   ruling file exists, `wakes` holds one wake with the exact instruction, the feed shows the
+   label only. Ack it; wakes is empty.
+2. `pick-retry`: `timeout-after-write=update` on the pick; retry with the same `pick_id`. One
+   `pick`, one wake.
+3. `crash-after-pick`: `kill-after=update` on the pick. Restart `serve`. Within 35 s the bead is
+   closed, the ruling file exists and exactly one wake is pending.
+4. `two-serves`: start a second `serve` on another port. It exits non-zero with
    `owns decisions` and the first still answers.
-6. **filing retry:** `timeout-after-write` on `create`, then re-run the same `decide file`. Exit
-   4, then exit 0, and one bead.
-7. **tracker down at start:** start with `down`. `/api/decisions/…/pick` returns 503; clear the
-   fault; within 35 s recovery completes and picks work.
+5. `file-retry`: `timeout-after-write=create`, then re-run the same `decide file`. Exit 4, then
+   exit 0, and one bead.
+6. `tracker-down-at-start`: start with `down`. `/health` answers, `GET /api/decisions` shows
+   `up:false`, pick returns 503. Clear the fault; within 35 s reconcile completes and a pick
+   works.
+7. `supersede`: file A, then B with `supersedes: A` under `fail-nth` on B's close of A. Re-run
+   B's filing. A is closed and B is owed.
 
 **Steps:** write the harness, run it in fake mode, fix what it finds, then commit
-`homee2e: scenario harness for run-once and recovery`.
+`homee2e: scenario harness for picks, retries and reconcile`.
 
 <verify>
-- run: `go test -tags homee2e -race ./internal/homee2e/ -count=1`
+- run: `out=$(mktemp) && go test -tags homee2e -race ./internal/homee2e/ -count=1 -args -homee2e.out="$out" && jq -se --arg c "$(git rev-parse HEAD)" '(map(.scenario)|sort)==(["answer-instruction","crash-after-pick","file-retry","pick-retry","supersede","tracker-down-at-start","two-serves"]) and all(.pass==true and .commit==$c and .mode=="fake")' "$out"`
   expect: exit 0
-- run: `jq -s 'map(select(.pass|not))|length' "${HOMEE2E_OUT:-${TMPDIR:-/tmp}/homee2e.jsonl}"`
-  expect: contains "0"
 </verify>
 
-### Task 1.12: end-to-end check on zklw against the real hub (agent-run, before handing to mk)
+### Task 1.11: end-to-end check on zklw against the real hub, and follow-ups
 
-This task has no new code. It runs the Task 1.11 harness in hub mode, so the rail mk uses is not
-polluted: every label is `hometest:*`.
+This task has no new product code. It runs the Task 1.10 harness in hub mode, so the rail mk
+uses is not polluted: every label is `hometest:*`.
 
 **Steps:**
-1. On zklw, from the repo root: `HOMEE2E_MODE=hub AUTARCH_HUB_DIR=/home/mk/hub
-   HOMEE2E_OUT=$tmp/hub.jsonl go test -tags homee2e -race ./internal/homee2e/ -count=1`.
-   Scenarios 1–3 and 5 run against the real tracker. Scenarios 4, 6 and 7 inject faults into the
-   `bd` wrapper and are run in fake mode only, because they must not fault the shared hub.
+1. On zklw, from the repo root:
+   `HOMEE2E_MODE=hub AUTARCH_HUB_DIR=/home/mk/hub go test -tags homee2e -race ./internal/homee2e/ -count=1 -args -homee2e.out=docs/research/2026-09-26-home-e2e-hub.jsonl`.
+   Scenarios `answer-instruction`, `two-serves` and `supersede` run against the real tracker.
+   The others inject faults into the `bd` wrapper and run in fake mode only, because they must
+   not fault the shared hub.
 2. The harness closes every `hometest:*` bead it created with reason `home e2e check`.
-3. Record the transcript and the JSON results in `docs/research/2026-09-26-home-e2e-check.md`.
+3. Write `docs/research/2026-09-26-home-e2e-check.md`: the command, the commit, a table built
+   from the JSONL, and anything that failed and how it was fixed.
+4. File two child beads of `mk-okek`, neither blocking this plan:
+   - **Clavain filing helper and guidance** `[D15]` `[A-11]`: a Clavain wrapper that calls
+     `bb home ask`, and the shared-guidance text on when to file and how to write an
+     instruction. v1's guidance lives in the plugin's `configure` note.
+   - **Signals clients reach the consolidated broker** `[B-19]`: endpoint and token settings
+     for Pollard's publisher, after which the standalone Signals server can be deprecated.
+   Record both ids in the e2e check document.
 
 <verify>
-- run: `test -s docs/research/2026-09-26-home-e2e-check.md`
+- run: `jq -se '(map(.scenario)|sort)==(["answer-instruction","supersede","two-serves"]) and all(.pass==true and .mode=="hub")' docs/research/2026-09-26-home-e2e-hub.jsonl`
   expect: exit 0
-- run: `grep -c '"pass":true' docs/research/2026-09-26-home-e2e-check.md`
-  expect: contains "4"
 </verify>
 
 ---
 
 ## Explicitly out of scope
 
+- **Command picks, the continuation runner and revert commands** (cut by mk, 2026-09-26). An
+  instruction replaces the command: the agent does the work under its own gates.
+- **Signing ruling files**, deferred to step 3 (Lattice). Files are unsigned in v1; the feed
+  reads Home's records instead.
 - The brief continuation `[D22]`.
+- A "QA this" decision kind. The brainstorm has none; it is raised to mk as an open question
+  and not added without a ruling.
 - Badges beyond the Home entry (step 2).
 - Lattice (step 3), the map (step 4, estate-map WI-5 adds it to this plugin), Mycroft's
-  proposals (step 5) and the companion (step 6).
+  proposals and dispatch from rulings (step 5), and the companion (step 6).
 - The Clavain `UserPromptSubmit` feed hook (P-7) and the Clavain filing helper plus guidance
-  text `[D15]`. Both are in the Clavain lane: a follow-up bead in Clavain adds a wrapper that
-  calls `autarch decide file`, and adds the shared-guidance instruction. G-5 accepted P-7, so
-  that follow-up is not a dependency of the feed.
+  text `[D15]`, filed as a follow-up in Task 1.11.
 - Successor-thread resolution for rotated threads (deferred by mk under G-9).
 - `bb.ui.requestInput` in-thread cards. The rail is the only picking surface in v1.
-- Removing the standalone servers.
+- Removing the standalone servers, and deprecating the standalone Signals server while Pollard
+  depends on it.
 - Mounting Pollard.
 - A note without a wake. This is unverified, and P-5 wakes are acceptable for v1.
 
@@ -1274,28 +1238,24 @@ polluted: every label is `hometest:*`.
 These are **not agent-completable**. Each is a checklist item for mk; none is a DONE WHEN.
 
 - **G-0 (ruled 2026-09-26):** mk approved the Home epic `mk-okek` with S0 `mk-okek.1` and S1
-  `mk-okek.2`. Still required before execution: a second review-astra pass on this revision,
-  and the zklw CI status for this repo (`zklw-ci status --repo mistakeknot/Autarch --json`).
+  `mk-okek.2`. Still required before execution: a third review-astra pass on this revision
+  that does not return needs-rework, and the zklw CI status for this repo
+  (`zklw-ci status --repo mistakeknot/Autarch --json`).
 - **G-1:** Create the Uqbar repo, which must be private, and set `AUTARCH_UQBAR_DIR`. Until then
   estate-wide decisions are refused, and project decisions still work.
-- **G-2:** Create Home's key on zklw:
-  `ssh-keygen -t ed25519 -N '' -C home@autarch -f ~/.config/autarch/home_ed25519`.
-  Commit its public half to `Uqbar/allowed_signers` as
-  `home@autarch namespaces="autarch-ruling" <pubkey>`.
+- **G-2 (superseded 2026-09-26):** Home's signing key is not needed in v1.
 - **G-3:** Install the plugin: `bb plugin install path:integrations/bb-plugin-autarch`.
 - **G-4:** Republish `autarch-plugin`, because `plugin.json` changes in Task 0.5.
 - **G-5 (ruled 2026-09-26)** `[A-11]`: mk accepted both departures. P-7: the feed is injected
   by `agents.configure` at session start or resume, instead of the per-turn hook in `[D17]`.
-  P-5: wakes go only to needs-context picks and re-asks; command and ruling-only outcomes reach
-  the asking thread through the feed.
-- **G-6:** Start the trial by walking autarch-07 on the real rail with a real decision. Trial
-  metrics come from `autarch decide stats`.
-- **G-7 (ruled 2026-09-26)** `[A-9]`: P-8 as written. Without a key, command picks are disabled;
-  needs-context and ruling-only picks write unsigned, proposed rulings; the feed carries only
-  verified rulings.
-- **G-8 (ruled 2026-09-26)** `[A-21]`: `[D18]` is narrowed. A failed command's follow-up keeps
-  the original options plus *retry*. Staleness shows at listing without running anything, and
-  the precondition runs only at pick.
+  P-5: wakes go only to instruction and needs-context picks; ruling-only outcomes reach the
+  asking thread through the feed.
+- **G-6:** Start the trial by walking autarch-07 on the real rail with a real decision, and
+  revise autarch-07 to match: instructions instead of commands, unsigned rulings. Trial metrics
+  come from `autarch decide stats`.
+- **G-7 (superseded 2026-09-26):** there are no command picks to gate on a key.
+- **G-8 (superseded 2026-09-26):** there are no failed commands to follow up. An agent whose
+  instruction fails files a new decision, with `supersedes` if it replaces an open one.
 - **G-9 (ruled 2026-09-26)** `[A-15]`: v1 marks a wake to an archived or deleted thread
   undeliverable and shows it on the rail. Following a Clavain handoff record to the successor
   thread is deferred; Home does not read handoff records in v1.
@@ -1306,8 +1266,8 @@ These are **not agent-completable**. Each is a checklist item for mk; none is a 
 - Bind: `go test -race -run Bind ./internal/serve/`.
 - Plugin: `npm run typecheck`, `npm test` and `bb plugin build` in
   `integrations/bb-plugin-autarch`.
-- Harness: `go test -tags homee2e -race ./internal/homee2e/` in fake mode (Task 1.11) and hub
-  mode (Task 1.12).
+- Harness: `go test -tags homee2e -race ./internal/homee2e/` in fake mode (Task 1.10) and hub
+  mode (Task 1.11), each checked against its exact scenario set.
 - Real acceptance: G-6 (mk). Neither the harness nor any fixture replaces it.
 
 ## Acceptance Criteria
@@ -1322,73 +1282,69 @@ These are **not agent-completable**. Each is a checklist item for mk; none is a 
    ```
 3. The service mounts Bigend, Gurgeh and Signals under prefixes behind the token, Host and
    Origin checks, with no query-string token. `/health` is open. Projects resolve without
-   ambiguity or symlink escape. Gurgeh's signals reach `/signals/ws` through one broker.
+   ambiguity or symlink escape. Gurgeh's signals reach `/signals/ws` through one broker. Step 0
+   does not import the decisions package.
    ```check
-   go test -race ./internal/serve/ ./internal/gurgeh/server/
+   go test -race ./internal/serve/ ./internal/gurgeh/server/ && ! go list -deps ./internal/serve/ | grep -q internal/decisions
    ```
 4. `autarch mcp` serves the existing MCP tools plus `autarch_file_decision`, and `autarch-mcp`
    still works.
    ```check
    go test -race ./cmd/autarch/ -run MCP && go test -race ./pkg/mcp/
    ```
-5. Options have ids and validate with needs-context as the default. Commands are argv or script
-   only, disallowed env keys are rejected, and the revision covers the whole decision. Command
-   hashes cover argv0, argv or script and deps, dir, env, revert and precondition. Staleness is
-   checked without running anything.
+5. Options have ids and one of three kinds, with needs-context as the default and instructions
+   as bounded text. The revision covers the whole decision, and the bead id is derived from the
+   request id.
    ```check
-   go test -race ./internal/decisions/ -run 'Validate|Freeze|Stale|Revision'
+   go test -race ./internal/decisions/ -run 'Validate|Revision|BeadID|Projection'
    ```
-6. The tracker writes decision beads through `bd` with metadata passed by file and an op label.
-   Tracker down and outcome unknown are distinct errors, and nothing is spooled.
+6. The tracker writes decision beads through `bd` with explicit ids and metadata passed by
+   file. A duplicate id, tracker down and outcome unknown are distinct errors, and nothing is
+   spooled.
    ```check
    go test -race ./internal/decisions/ -run Tracker
    ```
-7. Ruling files carry the ratification block, the Home fields and the approved snapshot. They
-   are written symlink-safely, signed with `ssh-keygen -Y` and verified against
-   `allowed_signers`.
+7. Ruling files carry the ratification block and the Home fields, are written through
+   `os.Root`, and are idempotent. A second process cannot take the owner lock.
    ```check
-   go test -race ./internal/decisions/ -run 'Ruling|Sign'
+   go test -race ./internal/decisions/ -run 'Ruling|Lock'
    ```
-8. Attempts are recorded before anything runs, commands run without a shell or from a verified
-   snapshot, and a second process cannot take the owner lock.
-   ```check
-   go test -race ./internal/decisions/ -run 'Attempt|Runner|Lock'
-   ```
-9. A pick claims before it runs, runs at most once under concurrency, becomes a re-ask when
-   stale or when the precondition fails, files exactly one follow-up on failure even across a
-   crash, refuses commands without a key, and never re-runs on recovery. Revert reopens the
-   same bead once.
+8. Filing is idempotent under concurrency and delayed commits. A pick is recorded once per
+   bead, a retry with the same pick id returns it, reconcile finishes any interrupted
+   obligation whether the bead is open or closed, supersession is serialized and retryable, and
+   acking one wake never clears another.
    ```check
    go test -race ./internal/decisions/ -run Service -count=3
    ```
-10. The feed carries only the quoted, clipped label and state of verified rulings, plus the
-    thread's own answers. Wakes batch per thread, re-asks are distinct, and undeliverable wakes
-    stop. Recent rulings report revert eligibility.
+9. The feed carries only the quoted, clipped label from Home pick records, selected per thread
+   at read time. Undeliverable wakes are listed regardless of age.
+   ```check
+   go test -race ./internal/decisions/ -run 'Feed|Recent|Undeliverable|Owed|Stats'
+   ```
+10. The API and the single-owner rule hold: reads work and writes return 503 before the first
+    reconcile, including with the tracker down at start; a second pick id gets 409; a second
+    `serve` exits before it binds. The CLI returns exit codes 2, 3, 4 and 5 as a real process.
     ```check
-    go test -race ./internal/decisions/ -run 'Feed|Wake|Recent|Owed|Stats'
+    go test -race ./internal/decisions/ ./internal/serve/ && go test -race ./cmd/autarch/ -run Decide
     ```
-11. The API and the single-owner rule hold: 503 before recovery, 409 on a second pick, and a
-    second `serve` exits before it binds.
-    ```check
-    go test -race ./internal/decisions/ ./internal/serve/
-    ```
-12. Mycroft's suggestions and out-of-allowlist dispatches file decision beads once per
-    suggestion, `mycroft dispatch` dispatches once, and `DecisionQueue` keeps no private list.
+11. Mycroft's suggestions and out-of-allowlist dispatches file ruling-only decision beads once
+    per suggestion through the production constructor, and `DecisionQueue` keeps no private
+    list.
     ```check
     go test -race ./internal/mycroft/... ./cmd/mycroft/ && ! grep -nE '^[[:space:]]+decisions[[:space:]]+\[\]PendingDecision' internal/mycroft/escalate/escalate.go
     ```
-13. The bb plugin typechecks, its fake-SDK tests pass, and it builds.
+12. The bb plugin typechecks, its fake-SDK tests pass, and it builds.
     ```check
     cd integrations/bb-plugin-autarch && npm run typecheck && npm test && bb plugin build
     ```
-14. The scenario harness passes all seven scenarios in fake mode.
+13. The scenario harness passes exactly its seven scenarios in fake mode, at this commit. An
+    empty, partial, duplicated or stale result fails.
     ```check
-    HOMEE2E_OUT=$(mktemp) && go test -tags homee2e -race ./internal/homee2e/ -count=1 && [ "$(jq -s 'map(select(.pass|not))|length' "$HOMEE2E_OUT")" = "0" ]
+    out=$(mktemp) && go test -tags homee2e -race ./internal/homee2e/ -count=1 -args -homee2e.out="$out" && jq -se --arg c "$(git rev-parse HEAD)" '(map(.scenario)|sort)==(["answer-instruction","crash-after-pick","file-retry","pick-retry","supersede","tracker-down-at-start","two-serves"]) and all(.pass==true and .commit==$c and .mode=="fake")' "$out"
     ```
-15. The hub-mode run passed its four scenarios (done, stale, crash mid-run, two serves) and
-    cleaned up its beads.
+14. The hub-mode run passed exactly its three scenarios and cleaned up its beads.
     ```check
-    test -s docs/research/2026-09-26-home-e2e-check.md && [ "$(cd /home/mk/hub && bd list -l hometest:decision -s open -n 0 --json | jq length)" = "0" ]
+    jq -se '(map(.scenario)|sort)==(["answer-instruction","supersede","two-serves"]) and all(.pass==true and .mode=="hub")' docs/research/2026-09-26-home-e2e-hub.jsonl && [ "$(cd /home/mk/hub && bd list -l hometest:decision -s open -n 0 --json | jq length)" = "0" ]
     ```
-16. mk walks autarch-07 on the installed rail (G-6). This is recorded by mk, and no command can
-    check it.
+15. mk walks autarch-07 on the installed rail (G-6). This is recorded by mk, and no command can
+    substitute for it.
