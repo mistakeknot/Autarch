@@ -2011,8 +2011,38 @@ These are **not agent-completable**. Each is a checklist item for mk; none is a 
   (`apps/server/src/routes/plugins.ts:438`), so `by: vizier` and `by: mk` are forgeable. mk
   asks the Aleph coordinator (thr_39wwcmwi84). Until it ships, attribution is advisory and
   delegation stays bounded, listed and overridable (P-10).
+  **Resolution path (Aleph coordinator, 2026-09-29; nothing is built):** option A, a
+  per-thread capability token minted by the host at spawn (hash stored, mapped to
+  `{threadId, role: agent}`, revoked on thread end or respawn), injected as
+  `BB_THREAD_CREDENTIAL` and sent by the CLI as a distinct header. The server resolves the
+  caller from the token alone; `body.threadId` and `?threadId=` are hints, and a hint that
+  conflicts with the token is rejected. Human means the authenticated UI session channel with
+  no thread credential. Rejected: SO_PEERCRED (Linux-only, breaks remote and tunnels; possible
+  later hardening) and per-thread request signing (same trust root, more machinery).
+  Caller API: a host-populated, read-only `caller {threadId|null, role human|agent|unattested,
+  via ui-session|thread-credential|none}` on CLI and RPC contexts. The legacy `threadId`
+  stays but is deprecated for authorization, and plugins can never construct or override
+  `caller`. Old CLIs, scripts and mk's terminal outside a thread are `unattested`; counting
+  mk's terminal as human needs a separate proof, such as an mk-held token, and is a question
+  for mk. The token does not reuse `x-bb-plugin-token` and never appears in logs,
+  diagnostics, `bb thread show` or plugin-visible data. It changes the plugin-sdk contract
+  and the CLI-server wire, so it stays on its own branch and ships after the Aleph public
+  release, not in 0.5.x (protocol 219). Required tests: a spoofed `BB_THREAD_ID` with another
+  thread's token; a forged `body.threadId` or `?threadId=`; no token gives `unattested`; a
+  revoked token; a UI-session request carrying a thread credential does not become human.
+  Estimate: about 3-4 executor-days plus 2-3 security review rounds, about 1-1.5 weeks after
+  commissioning, and +~1 day if daemon or remote-host CLI forwarding needs work.
+  **Residual risk:** every agent runs as uid mk, so a same-uid process can read
+  `/proc/<pid>/environ` or ptrace a sibling and steal its token. Option A closes forgery
+  through the old channels, not a deliberately malicious agent with host code execution;
+  closing that needs per-thread OS isolation, a separate and larger decision. Commissioning
+  is a later gate that goes to the vizier after the public release. Home attribution stays
+  advisory until then.
 - **G-16 (D-5, D-6):** a reviewed Aleph core approval authentication and audit contract, with
   the requirements listed in Task 1.13, before any consumer trusts an approval.
+  Per G-15, the `human` role (UI session, no thread credential) is the strong signal; agent
+  identity is strong against spoofing, not against same-uid compromise. Commissioned after
+  G-11 and G-15.
 - G-2, G-7 and G-8 were superseded on 2026-09-26.
 
 ## Verification
