@@ -86,3 +86,26 @@ hook as the enforcing check until core owns it.
 
 Open: whether core already has an account-scoped pick or approval record.
 Ask the Aleph coordinator (thr_39wwcmwi84) before writing it into the plan.
+
+## Answered 2026-09-29 by the Aleph coordinator (thr_39wwcmwi84)
+
+1. **No general approval store in core.** Nothing on origin/main or
+   integrate/aleph-0.5.0 keeps account-scoped picks with a local check API.
+   Two narrower designs exist and neither is built:
+   - **mk-qap9** (epic, P1, open; plan rev 6 on branch
+     `plan/qap9-biometric-root-approval`, APPROVE-WITH-CHANGES; blocked on mk:
+     Apple Developer team, P0 key rotation). A hash-bound broker
+     (`aleph-rootd` on zklw) verifies Secure Enclave signatures over one exact
+     root script. Scope is one action pinned by hash, root scripts only.
+   - **Release plan v8 section 5.1** (mk-7l2o): an "mk approval record", JSON
+     signed with `ssh-keygen -Y sign -n aleph-approval` using mk's
+     touch-required key, listing exact tags, SHAs and digests with
+     `batch_valid_until`. Release-only, lives in the release lane.
+   The coordinator agrees core should own approvals, built as a
+   generalization of the qap9 hash-bound signed-request format and the v8
+   record, not a third scheme, and suggests a plan bead naming both as prior
+   art. Revision 4 should cite both.
+2. **No hotkey or overlay work anywhere.** `apps/desktop` has no
+   `globalShortcut` or `alwaysOnTop`; the only `frame: false` is the Linux
+   frameless main window. The overlay needs a new main-process window and a
+   preload bridge, which is a core desktop change.
