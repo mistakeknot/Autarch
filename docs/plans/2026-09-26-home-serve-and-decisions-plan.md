@@ -2038,11 +2038,24 @@ These are **not agent-completable**. Each is a checklist item for mk; none is a 
   closing that needs per-thread OS isolation, a separate and larger decision. Commissioning
   is a later gate that goes to the vizier after the public release. Home attribution stays
   advisory until then.
+  Tweaks for the commissioning brief (vizier research input, 2026-09-29, not yet ruled on):
+  the token travels in a header only, never a tool argument or URL; only its hash is stored;
+  it has an expiry, a thread binding and revocation; human-tier approvals accept only the
+  authenticated UI session, with no CLI or environment path. Worth testing: deliver the token
+  by inherited file descriptor or socket instead of `environ`, which narrows the
+  `/proc/<pid>/environ` leak.
 - **G-16 (D-5, D-6):** a reviewed Aleph core approval authentication and audit contract, with
   the requirements listed in Task 1.13, before any consumer trusts an approval.
   Per G-15, the `human` role (UI session, no thread credential) is the strong signal; agent
   identity is strong against spoofing, not against same-uid compromise. Commissioned after
   G-11 and G-15.
+  Ideas for the contract (vizier research input; ideas only, no code copied: the source
+  repositories carry a licence rider that grants nothing to Anthropic, so any use is
+  clean-room and awaits mk's view): each approval binds a hash of the exact action, expires,
+  is single-use, and the first decision wins atomically; approver equal to requester is
+  rejected. Tiers: merge, deploy and release are human-only, and the vizier rules only on
+  reversible choices. Configuration may add gates but never remove them. The audit is
+  hash-linked and append-only, with the head hash stored where agents cannot write.
 - G-2, G-7 and G-8 were superseded on 2026-09-26.
 
 ## Verification
