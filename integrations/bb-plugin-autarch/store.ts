@@ -65,6 +65,12 @@ export interface PickInput {
   params_hash?: string | null;
   /** Mint this record in the pick's transaction; the caller passes it only for mk's pick. */
   approval?: ApprovalMint;
+  /**
+   * Runs inside the pick's write transaction, before the insert, while no other writer
+   * can commit. A refusal is returned as `guard` and nothing is written. Limits that
+   * depend on other rows (a daily cap) belong here, not before the transaction.
+   */
+  guard?: () => { status: number; error: string } | null;
 }
 
 export interface ApprovalMint {
@@ -147,7 +153,8 @@ export type ReplacementResult =
 export type PickRefusal = "already-ruled" | "superseded" | "withdrawn" | "stale";
 export type PickResult =
   | { ok: true; pick_id: string }
-  | { ok: false; reason: PickRefusal; existing?: PickRow };
+  | { ok: false; reason: PickRefusal; existing?: PickRow }
+  | { ok: false; reason: "guard"; refusal: { status: number; error: string } };
 
 /** Test seam: called between statements, so a crash test can SIGKILL there. */
 export type StoreHook = (step: string) => void;
@@ -473,9 +480,13 @@ export class Store {
 
   /** Insert the pick and its obligations and one event in one transaction [C-3] [C-5]. */
   recordPick(p: PickInput, obligations: ObligationInput[] = []): PickResult {
-    const { approval, ...pickParams } = p;
+    const { approval, guard, ...pickParams } = p;
     return this.tx((): PickResult => {
       const at = p.picked_at ?? this.now();
+      if (guard && !this.pick(p.decision_id)) {
+        const refusal = guard();
+        if (refusal) return { ok: false, reason: "guard", refusal };
+      }
       const ins = this.db
         .prepare(
           `INSERT INTO picks(decision_id, pick_id, option_id, revision, "by", surface, reason, picked_at, params_hash)

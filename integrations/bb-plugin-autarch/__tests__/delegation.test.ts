@@ -119,6 +119,46 @@ describe("rule: bounded policy [D-2] [D-1]", () => {
     expect(rule(b)).toMatchObject({ ok: true });
   });
 
+  it("two connections cannot both take the last cap slot: the count is inside the pick transaction", async () => {
+    enable({ dailyCap: 1 });
+    const a = await fileId();
+    const b = await fileId({ subject: "autarch/b", question: "b?" });
+    // a second connection on the same database file, its own Service
+    const other = new Delegation(env.open());
+    other.svc.store.db.pragma("busy_timeout = 50");
+    // connection 1 has just counted the vizier picks when connection 2 rules on b
+    const realPrepare = svc.store.db.prepare.bind(svc.store.db);
+    let fired = false;
+    let raced: unknown;
+    (svc.store.db as unknown as { prepare: unknown }).prepare = (sql: string) => {
+      const st = realPrepare(sql);
+      if (!/COUNT\(\*\)[\s\S]*'vizier'/.test(sql)) return st;
+      return new Proxy(st, {
+        get(t, k) {
+          if (k !== "get") return Reflect.get(t, k).bind?.(t) ?? Reflect.get(t, k);
+          return (...args: unknown[]) => {
+            const out = (t.get as (...a: unknown[]) => unknown)(...args);
+            if (!fired) {
+              fired = true;
+              try {
+                raced = other.rule(b, "project", "reversible and low risk", { threadId: VIZ });
+              } catch (e) {
+                raced = e;
+              }
+            }
+            return out;
+          };
+        },
+      });
+    };
+    const first = rule(a);
+    const vizierPicks = (svc.store.db.prepare(`SELECT COUNT(*) AS n FROM picks WHERE "by" = 'vizier'`).get() as { n: number }).n;
+    expect(fired).toBe(true);
+    expect(first).toMatchObject({ ok: true });
+    expect(raced).toBeDefined();
+    expect(vizierPicks).toBe(1);
+  });
+
   it("is suspended by an unseen settings change until mk sees it", async () => {
     enable();
     const a = await fileId();

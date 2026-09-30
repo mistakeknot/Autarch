@@ -118,15 +118,22 @@ export class Delegation {
     if (!option) return refuse(400, `unknown option ${JSON.stringify(optionId)}`);
     if (option.approval) return refuse(403, "an option with an approval spec cannot be delegated");
     if (!option.reversible) return refuse(403, "only a reversible option can be delegated");
-    if (!(cfg.projects ?? []).includes(d.project)) return refuse(403, "delegation is not enabled for this project");
-    if (this.suspended()) return refuse(403, "delegation is suspended: a settings change is unseen by mk");
-    const since = new Date(Date.parse(this.svc.time()) - DAY_MS).toISOString();
-    const used = (this.db.prepare(`SELECT COUNT(*) AS n FROM picks WHERE "by" = 'vizier' AND picked_at >= ?`).get(since) as { n: number }).n;
-    if (used >= (cfg.dailyCap ?? 0)) return refuse(403, "the daily delegation cap is reached");
     const why = reason?.trim() ?? "";
     if (why === "" || [...why].length > 500) return refuse(400, "a reason of 1-500 characters is required");
     if (APPROVAL_TOKEN.test(reason)) return refuse(400, "a reason may not carry an approval token");
-    return this.svc.pick(decisionId, optionId, d.revision, pickId, "vizier", "cli", why);
+    // Settings, suspension and the daily cap are decided inside the pick's write
+    // transaction, so two plugin instances cannot each see the last slot.
+    const guard = (): { status: number; error: string } | null => {
+      const now = this.settings();
+      if (!now.vizierThreadId || ctx.threadId !== now.vizierThreadId) return { status: 403, error: "only the vizier thread may rule" };
+      if (!(now.projects ?? []).includes(d.project)) return { status: 403, error: "delegation is not enabled for this project" };
+      if (this.suspended()) return { status: 403, error: "delegation is suspended: a settings change is unseen by mk" };
+      const since = new Date(Date.parse(this.svc.time()) - DAY_MS).toISOString();
+      const used = (this.db.prepare(`SELECT COUNT(*) AS n FROM picks WHERE "by" = 'vizier' AND picked_at >= ?`).get(since) as { n: number }).n;
+      if (used >= (now.dailyCap ?? 0)) return { status: 403, error: "the daily delegation cap is reached" };
+      return null;
+    };
+    return this.svc.pick(decisionId, optionId, d.revision, pickId, "vizier", "cli", why, guard);
   }
 
   // ---- override ---------------------------------------------------------------

@@ -298,7 +298,7 @@ export class Service {
 
   // ---- picking --------------------------------------------------------------
 
-  pick(decisionId: string, optionId: string, rev: string, pickId: string, by: string, surface: "home" | "overlay" | "cli", reason?: string): PickResult {
+  pick(decisionId: string, optionId: string, rev: string, pickId: string, by: string, surface: "home" | "overlay" | "cli", reason?: string, guard?: PickInput["guard"]): PickResult {
     const d = this.row(decisionId);
     if (!d) return { ok: false, status: 404, error: "unknown decision" };
     if (d.kind === "steps") return this.pickSteps(d, optionId, rev, pickId, by, surface);
@@ -351,7 +351,7 @@ export class Service {
     let res;
     try {
       res = this.store.recordPick(
-        { decision_id: decisionId, pick_id: pickId, option_id: optionId, revision: rev, by, surface, reason: reason ?? null, params_hash: hash, approval },
+        { decision_id: decisionId, pick_id: pickId, option_id: optionId, revision: rev, by, surface, reason: reason ?? null, params_hash: hash, approval, guard },
         obligations,
       );
     } catch (e) {
@@ -360,6 +360,8 @@ export class Service {
     }
     if (!res.ok) {
       switch (res.reason) {
+        case "guard":
+          return { ok: false, status: res.refusal.status, error: res.refusal.error };
         case "superseded":
           return { ok: false, status: 409, error: `superseded by ${this.replacementOf(decisionId)}` };
         case "withdrawn":
