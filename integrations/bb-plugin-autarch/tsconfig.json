@@ -19,6 +19,8 @@
       ]
     },
     "noEmit": true,
+    "resolveJsonModule": true,
+    "allowJs": true,
     "skipLibCheck": false
   },
   "include": [
@@ -28,6 +30,8 @@
     "components",
     "lib",
     "hooks",
-    "__tests__"
+    "__tests__",
+    "e2e",
+    "scripts"
   ]
 }

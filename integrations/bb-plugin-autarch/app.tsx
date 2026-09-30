@@ -27,6 +27,7 @@ import type { Lens } from "./ui/map-placeholder.js";
 import { SettingsPanel } from "./ui/settings.js";
 import { keyAction, layoutStack, stackReducer, StackView } from "./ui/stack.js";
 import type { Panel, StackState } from "./ui/stack.js";
+import { HOME_SOURCE } from "./ui/identity.js";
 import { ThreadPanel, VizierPanel } from "./ui/vizier.js";
 
 /** The todo list, kept current by the server's "todos-changed" signal. */
@@ -311,7 +312,7 @@ function HomePage() {
   };
 
   return (
-    <div className="flex h-full min-h-0 flex-1 flex-col">
+    <div className="flex h-full min-h-0 flex-1 flex-col" data-home-source={HOME_SOURCE}>
       <nav className="flex gap-3 border-b border-border px-4 py-2 text-sm">
         {(
           [

@@ -1,8 +1,12 @@
 import Database from "better-sqlite3";
+import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import { createStoreHandle } from "../store.js";
 import { wireHome, type HomeConfig } from "../server.js";
 import type { ServeClient } from "../serve.js";
+import { ask, makeEnv } from "./service-helpers.js";
+import { FakeSdk } from "./wakes-helpers.js";
+import { sourceSha256 } from "../scripts/source-hash.mjs";
 
 const cfg: HomeConfig = { serveAddr: "127.0.0.1:8110", serveTokenFile: "/nope", serveProjectDirs: [], autarchBin: "autarch" };
 
@@ -48,6 +52,9 @@ describe("wireHome", () => {
     expect(await home.handlers.listAsks(null)).toMatchObject({ owed: [], uncertain: [], delegation: { suspended: false }, machineOwners: {} });
     const h = (await home.handlers.health(null)) as { ready: boolean; build: unknown; source_sha256: unknown; projects: unknown };
     expect(h).toMatchObject({ ready: true, build: { commit: "abc" }, projects: [] });
+    // Computed over the plugin root at load (Task 1.10), the value the harness preflight compares.
+    expect(h.source_sha256).toMatch(/^[0-9a-f]{64}$/);
+    expect(h.source_sha256).toBe(sourceSha256(join(import.meta.dirname, "..")));
     expect(await home.handlers.catchup(null)).toMatchObject({ items: [] });
     expect(await home.handlers.markAllSeen({ ids: ["failed:1"] })).toMatchObject({ marked: [] });
     expect(await home.handlers.setDelegation({ vizierThreadId: "thr-v", projects: ["Autarch"], dailyCap: 3 })).toMatchObject({ ok: true });
@@ -75,5 +82,27 @@ describe("wireHome", () => {
     await expect(home.handlers.listAsks(null)).rejects.toThrow(/not ready/);
     expect(f.configure()!({ thread: { id: "t" }, project: { name: "Autarch" } })).toEqual({ tools: [], skills: [] });
     f.disposers.forEach((d) => d());
+  });
+
+  it("takes an injected wake sdk in place of bb.sdk.threads", async () => {
+    const env = makeEnv();
+    try {
+      const handle = createStoreHandle(() => new Database(env.file), {});
+      const f = fakeBb();
+      const sdk = new FakeSdk();
+      const own = { projects: async () => env.projects, health: async () => ({}), healthy: async () => true } as unknown as ServeClient;
+      const home = wireHome(f.bb, handle, cfg, { serve: own, sdk });
+      await new Promise((r) => setTimeout(r, 20));
+      const filed = await f.cli()!.run(["ask", "--request", JSON.stringify(ask(env))], { threadId: "thr-a" });
+      const id = JSON.parse((filed as { stdout: string }).stdout).id as string;
+      const listed = (await home.handlers.listAsks(null)).owed[0];
+      const r = await home.handlers.pick({ decision_id: id, option_id: "project", revision: listed.revision, pick_id: "p1" });
+      expect(r.status).toBe(201);
+      await vi.waitFor(() => expect(sdk.sent.length).toBe(1));
+      expect(sdk.sent[0]!.threadId).toBe("thr-a");
+      f.disposers.forEach((d) => d());
+    } finally {
+      env.cleanup();
+    }
   });
 });

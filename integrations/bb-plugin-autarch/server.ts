@@ -10,10 +10,12 @@
 // every open page refetches.
 import { randomUUID } from "node:crypto";
 import { homedir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { defineRpcContract, type BbPluginApi } from "@get-bb/plugin-sdk";
 import { z } from "zod";
 import { homeMethods } from "./contract.js";
+import { sourceSha256 } from "./scripts/source-hash.mjs";
 import { Asks } from "./asks.js";
 import { Catchup } from "./catchup.js";
 import { homeCli } from "./cli.js";
@@ -24,7 +26,7 @@ import { parseAsk } from "./model.js";
 import { ServeClient, ServeSupervisor, tokenReader } from "./serve.js";
 import { Service } from "./service.js";
 import { createStoreHandle, type Store, type StoreHandle } from "./store.js";
-import { sdkAdapter, WakeLoop, type ThreadsLike } from "./wakes.js";
+import { sdkAdapter, WakeLoop, type ThreadsLike, type WakeSdk } from "./wakes.js";
 
 const todoSchema = z.object({
   id: z.string(),
@@ -104,6 +106,19 @@ export interface HomeConfig {
   autarchBin: string;
 }
 
+let sourceHash: string | null = null;
+/** sha256 over the plugin root's sources (excluding identity.json, dist and node_modules), computed once at first use. */
+function pluginSource(): string | null {
+  if (sourceHash === null) {
+    try {
+      sourceHash = sourceSha256(dirname(fileURLToPath(import.meta.url)));
+    } catch {
+      return null;
+    }
+  }
+  return sourceHash;
+}
+
 const FEED_REFRESH_MS = 30_000;
 const SERVE_CHECK_MS = 15_000;
 const MK = "mk";
@@ -130,7 +145,7 @@ interface Parts {
  * until then RPC handlers refuse with "not ready" and the feed injects nothing. Returns the
  * RPC handlers so the caller registers them together with the other contract methods.
  */
-export function wireHome(bb: BbPluginApi, handle: StoreHandle, cfg: HomeConfig, deps: { serve?: ServeClient } = {}) {
+export function wireHome(bb: BbPluginApi, handle: StoreHandle, cfg: HomeConfig, deps: { serve?: ServeClient; sdk?: WakeSdk } = {}) {
   const serve = deps.serve ?? new ServeClient({ addr: cfg.serveAddr, readToken: tokenReader(cfg.serveTokenFile) });
   let parts: Parts | null = null;
   const need = (): Parts => {
@@ -149,7 +164,7 @@ export function wireHome(bb: BbPluginApi, handle: StoreHandle, cfg: HomeConfig, 
     const dele = new Delegation(svc);
     const asks = new Asks(svc);
     const catchup = new Catchup(svc, dele);
-    const loop = new WakeLoop(svc, sdkAdapter(bb.sdk.threads as unknown as ThreadsLike));
+    const loop = new WakeLoop(svc, deps.sdk ?? sdkAdapter(bb.sdk.threads as unknown as ThreadsLike));
     const caches = new FeedCaches(() => store.db, () => Date.now());
     parts = { store, svc, asks, dele, catchup, loop, caches };
     svc.start();
@@ -309,8 +324,7 @@ export function wireHome(bb: BbPluginApi, handle: StoreHandle, cfg: HomeConfig, 
       } catch {
         /* serve down: build stays null */
       }
-      // source_sha256 is computed at load over the plugin root in Task 1.10.
-      return { ready: handle.ready(), error: handle.error(), source_sha256: null, build, projects: projects ?? null, projects_error: projectsError ?? null };
+      return { ready: handle.ready(), error: handle.error(), source_sha256: pluginSource(), build, projects: projects ?? null, projects_error: projectsError ?? null };
     },
   };
   return { handlers };

@@ -52,6 +52,6 @@
   "scripts": {
     "typecheck": "tsc -p tsconfig.json",
     "test": "vitest run --passWithNoTests",
-    "e2e": "vitest run --config vitest.e2e.config.ts --passWithNoTests"
+    "e2e": "tsx e2e/harness.ts"
   }
 }
