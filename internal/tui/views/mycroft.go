@@ -335,7 +335,7 @@ func (v *MycroftsView) SidebarItems() []pkgtui.SidebarItem {
 
 	// Decision badge.
 	if v.decisions.Len() > 0 {
-		badge := escalate.Badge(v.decisions.Len(), v.decisions.HighestSeverity())
+		badge := v.decisionBadge()
 		items = append(items, pkgtui.SidebarItem{
 			ID:    "decisions",
 			Label: badge,
@@ -659,7 +659,7 @@ func (v *MycroftsView) Name() string {
 
 // ShortHelp implements View.
 func (v *MycroftsView) ShortHelp() string {
-	badge := escalate.Badge(v.decisions.Len(), v.decisions.HighestSeverity())
+	badge := v.decisionBadge()
 	return fmt.Sprintf("1-3 views  ↑/↓ navigate  ctrl+r refresh  tab focus  %s", badge)
 }
 
@@ -841,3 +841,13 @@ var (
 	_ mycroft.DataSource = (*patrol.PatrolSource)(nil)
 	_ mycroft.DataSource = (*pkgfleet.AggregatorSource)(nil)
 )
+
+// decisionBadge is the pending badge, prefixed "?" when Home could not be read
+// and the count is only the last known one.
+func (v *MycroftsView) decisionBadge() string {
+	b := escalate.Badge(v.decisions.Len(), v.decisions.HighestSeverity())
+	if v.decisions.Stale() {
+		return "? " + b
+	}
+	return b
+}

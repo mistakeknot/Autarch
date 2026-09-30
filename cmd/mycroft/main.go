@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
 	"os"
 	"os/signal"
@@ -10,7 +11,9 @@ import (
 	"text/tabwriter"
 	"time"
 
+	"github.com/mistakeknot/autarch/internal/homeask"
 	"github.com/mistakeknot/autarch/internal/mycroft"
+	"github.com/mistakeknot/autarch/internal/mycroft/escalate"
 	"github.com/mistakeknot/autarch/internal/mycroft/patrol"
 	"github.com/mistakeknot/autarch/internal/mycroft/scheduler"
 	"github.com/mistakeknot/autarch/internal/mycroft/spawn"
@@ -77,6 +80,17 @@ func newSource() mycroft.DataSource {
 	return patrol.NewPatrolSource("")
 }
 
+// buildOrchestrator is the production constructor: it wires the decision queue
+// so suggestions are filed in Home through the bb CLI.
+func buildOrchestrator(db *sql.DB, spawner scheduler.AgentSpawner, cfg mycroft.Config) *scheduler.Orchestrator {
+	orch := scheduler.NewOrchestrator(db, spawner, cfg, "demarch")
+	q := escalate.NewDecisionQueue()
+	ef := &homeask.ExecFiler{}
+	q.SetHome(ef, ef, os.Getenv("AUTARCH_HOME_PROJECT_ROOT"))
+	orch.SetQueue(q)
+	return orch
+}
+
 var runCmd = &cobra.Command{
 	Use:   "run",
 	Short: "Start the patrol loop",
@@ -95,7 +109,7 @@ var runCmd = &cobra.Command{
 
 		// Create spawner and orchestrator.
 		spawner := spawn.NewClaudeCodeSpawner("", "Demarch")
-		orch := scheduler.NewOrchestrator(db, spawner, cfg, "demarch")
+		orch := buildOrchestrator(db, spawner, cfg)
 
 		src := newSource()
 		p := patrol.New(src, cfg, filepath.Join(dataDir(), "heartbeat"),

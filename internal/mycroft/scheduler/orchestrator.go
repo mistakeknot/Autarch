@@ -3,9 +3,11 @@ package scheduler
 import (
 	"database/sql"
 	"log/slog"
+	"strings"
 	"time"
 
 	"github.com/mistakeknot/autarch/internal/mycroft"
+	"github.com/mistakeknot/autarch/internal/mycroft/escalate"
 )
 
 // Orchestrator coordinates the patrol→rank→dispatch loop based on the
@@ -18,6 +20,39 @@ type Orchestrator struct {
 	project    string
 	paused     bool
 	lastDemote time.Time // debounce rapid demotions
+	queue      *escalate.DecisionQueue
+}
+
+// SetQueue wires the decision queue that files suggestions in Home.
+func (o *Orchestrator) SetQueue(q *escalate.DecisionQueue) { o.queue = q }
+
+// HasQueue reports whether a decision queue is wired.
+func (o *Orchestrator) HasQueue() bool { return o.queue != nil }
+
+func (o *Orchestrator) file(agent string, b mycroft.BeadView, why string) {
+	if o.queue == nil {
+		return
+	}
+	err := o.queue.AddPending(escalate.PendingDecision{
+		Agent: agent, BeadID: b.ID, BeadTitle: b.Title, Priority: b.Priority,
+		Reasoning: why, Labels: b.Labels,
+	})
+	if err != nil {
+		slog.Warn("could not file suggestion in Home", "bead", b.ID, "err", err)
+	}
+}
+
+// isHomeDecision reports beads that are Home decisions, never work.
+func isHomeDecision(b mycroft.BeadView) bool {
+	if b.Type == "decision" {
+		return true
+	}
+	for _, l := range b.Labels {
+		if strings.HasPrefix(l, "home:") {
+			return true
+		}
+	}
+	return false
 }
 
 // NewOrchestrator creates an orchestrator.
@@ -43,7 +78,13 @@ func (o *Orchestrator) OnCycle(view mycroft.FleetView) {
 	tier := o.cfg.Tier
 
 	// Rank available work (with user-configured priority boosts).
-	ranked := RankBeads(view.Work, o.cfg.PriorityBoosts...)
+	work := make([]mycroft.BeadView, 0, len(view.Work))
+	for _, b := range view.Work {
+		if !isHomeDecision(b) {
+			work = append(work, b)
+		}
+	}
+	ranked := RankBeads(work, o.cfg.PriorityBoosts...)
 	if len(ranked) == 0 {
 		return
 	}
@@ -108,6 +149,7 @@ func (o *Orchestrator) suggest(ranked []mycroft.BeadView, agents []mycroft.Agent
 			"priority", bead.Priority,
 		)
 		o.logDispatch(agent.Name, bead.ID, mycroft.ActionSuggest, "", "")
+		o.file(agent.Name, bead, "ranked next for this agent")
 	}
 }
 
@@ -127,6 +169,7 @@ func (o *Orchestrator) autoDispatchFiltered(ranked []mycroft.BeadView, agents []
 				"bead", bead.ID,
 			)
 			o.logDispatch(agent.Name, bead.ID, mycroft.ActionSuggest, "", "outside T2 allowlist")
+			o.file(agent.Name, bead, "outside the T2 allowlist")
 			continue
 		}
 

@@ -121,6 +121,12 @@ describe("bb home get, list, stats, feed", () => {
     expect(mo.mentioned).toBe(true);
     const g2 = await run(["get", "--request-id", mo.request_id]);
     expect(JSON.parse(g2.stdout!)).toMatchObject({ result: "mention", decision_id: id });
+    // E-6: the recovery read carries identity and scope.
+    const first = JSON.parse(g.stdout!) as { identity: string; thread: string; project: string };
+    expect(first.identity).toMatch(/^[0-9a-f]{64}$/);
+    expect(first.thread).toBe("thr-a");
+    expect(first.project).toBe((svc.store.decision(id) as { project: string }).project);
+    expect(JSON.parse(g2.stdout!)).toMatchObject({ thread: "thr-b" });
   });
 
   it("get --id reports lifecycle state; unknown ids exit 1; no selector exits 2", async () => {

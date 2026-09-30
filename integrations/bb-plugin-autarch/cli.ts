@@ -97,7 +97,8 @@ export function homeCli(p: HomeCliParts) {
           if (options["request-id"] !== undefined) {
             const reg = svc.store.registry(options["request-id"]);
             if (!reg) return err(1, "unknown request id");
-            return out({ result: reg.result, decision_id: reg.decision_id, state: state(reg.decision_id) });
+            const project = (svc.store.decision(reg.decision_id) as { project?: string } | undefined)?.project ?? null;
+            return out({ result: reg.result, decision_id: reg.decision_id, identity: reg.identity, thread: reg.thread, project, state: state(reg.decision_id) });
           }
           const id = options.id!;
           const s = state(id);

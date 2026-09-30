@@ -10,6 +10,8 @@ import (
 	"io"
 	"os"
 	"sync"
+
+	"github.com/mistakeknot/autarch/internal/homeask"
 )
 
 // Server implements the MCP protocol for Autarch tools.
@@ -17,6 +19,7 @@ type Server struct {
 	projectPath string
 	tools       map[string]Tool
 	mu          sync.RWMutex
+	filer       homeask.Filer // files decisions into Home; nil means the bb CLI
 
 	// I/O for JSON-RPC communication
 	stdin  io.Reader
@@ -34,6 +37,12 @@ func NewServer(projectPath string) *Server {
 		stderr:      os.Stderr,
 	}
 	s.registerDefaultTools()
+	return s
+}
+
+// WithFiler sets how autarch_file_decision reaches Home (for testing).
+func (s *Server) WithFiler(f homeask.Filer) *Server {
+	s.filer = f
 	return s
 }
 
@@ -222,6 +231,28 @@ func (s *Server) registerDefaultTools() {
 			},
 		},
 		Handler: s.handleSendMessage,
+	})
+
+	s.RegisterTool(Tool{
+		Name:          "autarch_file_decision",
+		Description:   "File a decision, runbook or machine blocker with mk in Home. Pass the ask fields (kind, question, options, ...); thread defaults to the caller's bb thread.",
+		RequiredScope: "write",
+		InputSchema: map[string]interface{}{
+			"type":     "object",
+			"required": []string{"kind", "question"},
+			"properties": map[string]interface{}{
+				"kind":     map[string]interface{}{"type": "string", "description": "decide, steps or machine"},
+				"question": map[string]interface{}{"type": "string"},
+				"subject":  map[string]interface{}{"type": "string"},
+				"thread":   map[string]interface{}{"type": "string", "description": "Asking thread; must match BB_THREAD_ID when that is set"},
+				"options": map[string]interface{}{
+					"type":  "array",
+					"items": map[string]interface{}{"type": "object"},
+				},
+			},
+			"additionalProperties": true,
+		},
+		Handler: s.handleFileDecision,
 	})
 }
 

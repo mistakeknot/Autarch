@@ -1,11 +1,14 @@
 package views
 
 import (
+	"context"
+	"errors"
 	"fmt"
 	"testing"
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/mistakeknot/autarch/internal/homeask"
 	"github.com/mistakeknot/autarch/internal/mycroft"
 	"github.com/mistakeknot/autarch/internal/mycroft/escalate"
 	pkgtui "github.com/mistakeknot/autarch/pkg/tui"
@@ -224,3 +227,17 @@ var (
 	_ = pkgtui.NewShellLayout
 	_ = fmt.Sprintf
 )
+
+func TestMycroftsViewBadgeShowsQuestionMarkWhenHomeStale(t *testing.T) {
+	v := NewMycroftsView()
+	v.decisions.SetHome(nil, staleLister{}, "/x")
+	if help := v.ShortHelp(); !contains(help, "?") {
+		t.Errorf("ShortHelp = %q, want a ? when Home is unreadable", help)
+	}
+}
+
+type staleLister struct{}
+
+func (staleLister) List(context.Context, string) ([]homeask.ListRow, error) {
+	return nil, errors.New("down")
+}

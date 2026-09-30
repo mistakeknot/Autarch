@@ -88,9 +88,11 @@ Available tools:
 	root.AddCommand(statusCmd())
 	root.AddCommand(serveCmd())
 	root.AddCommand(mcpCmd())
+	root.AddCommand(decideCmd())
+	root.AddCommand(versionCmd())
 
 	if err := root.Execute(); err != nil {
-		os.Exit(1)
+		os.Exit(exitCode(err))
 	}
 }
 

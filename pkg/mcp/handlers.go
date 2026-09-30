@@ -2,6 +2,7 @@ package mcp
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -9,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/mistakeknot/autarch/internal/homeask"
 	"github.com/mistakeknot/autarch/pkg/yamlsafe"
 	"gopkg.in/yaml.v3"
 )
@@ -569,3 +571,54 @@ func unmarshalYAMLFile(path string, out interface{}) error {
 
 // timeNow is a variable for testing
 var timeNow = time.Now
+
+// handleFileDecision files an ask into Home. The thread is the caller's bb thread:
+// a thread argument that disagrees with a non-empty BB_THREAD_ID is refused.
+func (s *Server) handleFileDecision(ctx context.Context, params map[string]interface{}) (interface{}, error) {
+	m := make(map[string]interface{}, len(params)+3)
+	for k, v := range params {
+		m[k] = v
+	}
+	env := os.Getenv("BB_THREAD_ID")
+	thread, _ := m["thread"].(string)
+	if thread != "" && env != "" && thread != env {
+		return nil, fmt.Errorf("thread conflicts with the caller's BB_THREAD_ID")
+	}
+	if thread == "" {
+		thread = env
+	}
+	asker, _ := m["asker"].(string)
+	if asker == "" {
+		asker = "thread"
+		m["asker"] = asker
+	}
+	if asker != "mycroft" {
+		if thread == "" {
+			return nil, fmt.Errorf("a thread is required: pass thread or run inside a bb thread")
+		}
+		m["thread"] = thread
+	}
+	if _, ok := m["project_root"]; !ok {
+		m["project_root"] = s.projectPath
+	}
+	if _, ok := m["project"]; !ok {
+		m["project"] = filepath.Base(m["project_root"].(string))
+	}
+	raw, err := json.Marshal(m)
+	if err != nil {
+		return nil, err
+	}
+	ask, err := homeask.Parse(raw)
+	if err != nil {
+		return nil, err
+	}
+	f := s.filer
+	if f == nil {
+		f = &homeask.ExecFiler{}
+	}
+	id, err := f.File(ctx, ask)
+	if err != nil {
+		return nil, err
+	}
+	return map[string]interface{}{"id": id}, nil
+}
