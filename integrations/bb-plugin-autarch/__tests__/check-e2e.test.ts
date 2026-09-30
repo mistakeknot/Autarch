@@ -51,11 +51,11 @@ function materialise(dir: string, name: string): string {
   return out;
 }
 
-function run(file: string, mode: "fake" | "real-bb", over: { commit?: string; build?: string } = {}) {
+function run(file: string, mode: "fake" | "real-bb", over: { commit?: string; build?: string; noBuild?: boolean } = {}) {
   const build = mode === "real-bb" ? join(t.dir, "build.json") : undefined;
   if (build) writeFileSync(build, JSON.stringify({ commit, plugin_dir: "/x", source_sha256: PLUGIN, autarch_path: "/y", autarch_sha256: SERVE }));
   const args = [CHECK, file, "--mode", mode, "--run-id", RUN, "--product-commit", over.commit ?? commit, "--scenarios", mode === "fake" ? FAKE : REAL, "--repo", repo];
-  if (build) args.push("--build", over.build ?? build);
+  if (build && !over.noBuild) args.push("--build", over.build ?? build);
   return spawnSync("node", args, { encoding: "utf8" });
 }
 
@@ -97,6 +97,12 @@ describe("check-e2e", () => {
     expect(r.status).toBe(1);
     expect(r.stderr).toMatch(/commit .* is not the product commit/);
     expect(oldTree).not.toBe(tree);
+  });
+
+  it("rejects a real-bb run given no --build identity evidence", () => {
+    const r = run(materialise("accept", "real-bb"), "real-bb", { noBuild: true });
+    expect(r.status).toBe(1);
+    expect(r.stderr).toContain("--build");
   });
 
   it("rejects a real-bb run whose build file records a different commit", () => {

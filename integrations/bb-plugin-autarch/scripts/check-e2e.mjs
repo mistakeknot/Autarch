@@ -51,6 +51,7 @@ export function check(text, opts) {
     fail(`cannot resolve the tree of ${opts.commit}`);
   }
   let build = null;
+  if (opts.mode === "real-bb" && !opts.build) fail("real-bb evidence needs --build: loaded plugin, app and daemon identities cannot be checked without it");
   if (opts.build) {
     try {
       build = JSON.parse(readFileSync(opts.build, "utf8"));
