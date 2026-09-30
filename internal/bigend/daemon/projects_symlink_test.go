@@ -39,3 +39,29 @@ func TestDiscoverSymlinkContainment(t *testing.T) {
 		t.Fatal("real directory should be discovered")
 	}
 }
+
+// GetTasks re-checks containment: a project directory swapped for a symlink
+// out of the scan root after discovery must not be read.
+func TestGetTasksRefusesRetargetOutsideScanRoot(t *testing.T) {
+	scan, outside := t.TempDir(), t.TempDir()
+	proj := filepath.Join(scan, "p")
+	if err := os.MkdirAll(filepath.Join(proj, ".coldwine"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	m := NewProjectManager([]string{scan})
+	if _, ok := m.Get(proj); !ok {
+		t.Fatal("project not discovered")
+	}
+	if err := os.MkdirAll(filepath.Join(outside, ".coldwine"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.RemoveAll(proj); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(outside, proj); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := m.GetTasks(proj); err == nil {
+		t.Fatal("GetTasks must refuse a project that now resolves outside the scan root")
+	}
+}

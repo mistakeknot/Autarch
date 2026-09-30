@@ -7,7 +7,7 @@ import (
 	"testing"
 )
 
-const testToken = "test-token"
+const testToken = "00112233445566778899aabbccddeeff00112233445566778899aabbccddeeff"
 
 // newTestServer builds a Server over a temp scan root holding an initialized
 // Gurgeh project "demo" and an uninitialized project "plain".

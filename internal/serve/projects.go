@@ -121,6 +121,11 @@ func (r *Resolver) Resolve(name string) (string, error) {
 	case 0:
 		return "", fmt.Errorf("unknown project %q", name)
 	case 1:
+		// The listing is cached; re-check the root at use time so a directory
+		// swapped for an escaping symlink within the TTL is refused.
+		if cur, err := filepath.EvalSymlinks(roots[0]); err != nil || cur != roots[0] || !r.inside(cur) {
+			return "", fmt.Errorf("project %q no longer resolves inside the project directories", name)
+		}
 		return roots[0], nil
 	}
 	return "", fmt.Errorf("ambiguous project %q: %s", name, strings.Join(roots, ", "))

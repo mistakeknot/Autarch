@@ -3,9 +3,11 @@ package serve
 import (
 	"context"
 	"encoding/json"
+	"net"
 	"net/http"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -161,5 +163,34 @@ func TestTokenFile(t *testing.T) {
 	}
 	if _, err := LoadOrCreateToken(loose); err == nil || !strings.Contains(err.Error(), "refusing") {
 		t.Fatalf("expected refusal, got %v", err)
+	}
+}
+
+func TestTokenFileRejectsWeakToken(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "weak.token")
+	if err := os.WriteFile(path, []byte("a\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := LoadOrCreateToken(path); err == nil || !strings.Contains(err.Error(), "64 hex") {
+		t.Fatalf("expected weak-token refusal, got %v", err)
+	}
+}
+
+func TestServeReturnsListenerErrorWithoutLeakingWaiter(t *testing.T) {
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	ln.Close() // Serve on a closed listener fails at once
+	s := &Server{handler: http.NewServeMux()}
+	before := runtime.NumGoroutine()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	if err := s.Serve(ctx, ln); err == nil {
+		t.Fatal("expected listener error")
+	}
+	time.Sleep(50 * time.Millisecond)
+	if after := runtime.NumGoroutine(); after > before {
+		t.Fatalf("goroutine leaked: %d -> %d", before, after)
 	}
 }

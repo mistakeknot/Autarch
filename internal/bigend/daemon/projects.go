@@ -84,6 +84,12 @@ func (m *ProjectManager) GetTasks(path string) ([]map[string]interface{}, error)
 		return []map[string]interface{}{}, nil
 	}
 
+	// Re-check containment at use time: the project path may have been swapped
+	// for a symlink out of its scan root since discovery.
+	if !m.stillInside(path) {
+		return nil, fmt.Errorf("project %q no longer resolves inside its scan root", path)
+	}
+
 	dbPath := filepath.Join(path, ".coldwine", "state.db")
 	db, err := autarchdb.Open(dbPath)
 	if err != nil {
@@ -157,6 +163,27 @@ func (m *ProjectManager) Discover() {
 			m.projects[projectPath] = project
 		}
 	}
+}
+
+// stillInside reports whether path still resolves to a directory inside one of
+// the scan roots.
+func (m *ProjectManager) stillInside(path string) bool {
+	for _, dir := range m.dirs {
+		root, err := filepath.EvalSymlinks(dir)
+		if err != nil {
+			continue
+		}
+		target, err := filepath.EvalSymlinks(path)
+		if err != nil {
+			continue
+		}
+		rel, err := filepath.Rel(root, target)
+		if err == nil && rel != "." && rel != ".." && !filepath.IsAbs(rel) &&
+			!strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+			return true
+		}
+	}
+	return false
 }
 
 // symlinkedDirInside reports whether link resolves to a directory that stays

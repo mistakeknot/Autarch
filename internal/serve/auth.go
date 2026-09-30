@@ -31,8 +31,11 @@ func LoadOrCreateToken(path string) (string, error) {
 			return "", err
 		}
 		tok := strings.TrimSpace(string(b))
-		if tok == "" {
-			return "", fmt.Errorf("serve: token file %s is empty", path)
+		if len(tok) != 64 {
+			return "", fmt.Errorf("serve: token file %s is not a 64 hex-character token; refusing", path)
+		}
+		if _, err := hex.DecodeString(tok); err != nil {
+			return "", fmt.Errorf("serve: token file %s is not a 64 hex-character token; refusing", path)
 		}
 		return tok, nil
 	case errors.Is(err, os.ErrNotExist):

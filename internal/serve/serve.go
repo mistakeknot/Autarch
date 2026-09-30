@@ -94,9 +94,14 @@ func (s *Server) Serve(ctx context.Context, ln net.Listener) error {
 		IdleTimeout:       2 * time.Minute,
 	}
 	done := make(chan struct{})
+	stop := make(chan struct{})
 	go func() {
 		defer close(done)
-		<-ctx.Done()
+		select {
+		case <-ctx.Done():
+		case <-stop:
+			return
+		}
 		sctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
 		_ = srv.Shutdown(sctx)
@@ -106,6 +111,8 @@ func (s *Server) Serve(ctx context.Context, ln net.Listener) error {
 		<-done
 		return nil
 	}
+	close(stop)
+	<-done
 	return err
 }
 

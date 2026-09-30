@@ -159,3 +159,23 @@ func TestBigendMountDoesNotListEscapingSymlink(t *testing.T) {
 		t.Fatalf("gurgeh mount for escaping symlink: got %d", c)
 	}
 }
+
+// A project directory replaced by a symlink to outside the scan dir after
+// discovery must stop resolving even within the cache TTL.
+func TestResolveRefusesRetargetOutsideWithinTTL(t *testing.T) {
+	scan, outside := t.TempDir(), t.TempDir()
+	mkdirs(t, filepath.Join(scan, "demo"), filepath.Join(outside, "secret"))
+	r := NewResolver([]string{scan})
+	if _, err := r.Resolve("demo"); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(filepath.Join(scan, "demo")); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(filepath.Join(outside, "secret"), filepath.Join(scan, "demo")); err != nil {
+		t.Fatal(err)
+	}
+	if got, err := r.Resolve("demo"); err == nil {
+		t.Fatalf("retargeted-outside project resolved to %q", got)
+	}
+}
