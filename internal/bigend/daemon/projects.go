@@ -149,7 +149,7 @@ func (m *ProjectManager) Discover() {
 				if entry.Type()&os.ModeSymlink == 0 {
 					continue
 				}
-				if fi, err := os.Stat(projectPath); err != nil || !fi.IsDir() {
+				if !symlinkedDirInside(projectPath, dir) {
 					continue
 				}
 			}
@@ -157,6 +157,28 @@ func (m *ProjectManager) Discover() {
 			m.projects[projectPath] = project
 		}
 	}
+}
+
+// symlinkedDirInside reports whether link resolves to a directory that stays
+// inside the scan root dir. A symlink that escapes it (or dangles) is not a project.
+func symlinkedDirInside(link, dir string) bool {
+	root, err := filepath.EvalSymlinks(dir)
+	if err != nil {
+		return false
+	}
+	target, err := filepath.EvalSymlinks(link)
+	if err != nil {
+		return false
+	}
+	if fi, err := os.Stat(target); err != nil || !fi.IsDir() {
+		return false
+	}
+	rel, err := filepath.Rel(root, target)
+	if err != nil || rel == "." || rel == ".." || filepath.IsAbs(rel) ||
+		strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		return false
+	}
+	return true
 }
 
 // scanProject scans a directory for project metadata

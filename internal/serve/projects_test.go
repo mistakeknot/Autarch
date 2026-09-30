@@ -2,6 +2,8 @@ package serve
 
 import (
 	"encoding/json"
+	"io"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
@@ -124,5 +126,36 @@ func TestProjectsEndpointReportsDevIno(t *testing.T) {
 	after := get()["demo"]
 	if after.Ino == before.Ino {
 		t.Fatalf("ino did not change: %d", after.Ino)
+	}
+}
+
+func TestBigendMountDoesNotListEscapingSymlink(t *testing.T) {
+	_, ts, scan := newTestServer(t)
+	outside := t.TempDir()
+	mkdirs(t, filepath.Join(outside, "secret", ".gurgeh", "specs"))
+	if err := os.Symlink(filepath.Join(outside, "secret"), filepath.Join(scan, "escape")); err != nil {
+		t.Fatal(err)
+	}
+	// The Bigend manager discovers at construction, so build a fresh server over the same scan root.
+	tokPath := filepath.Join(t.TempDir(), "tok")
+	if err := os.WriteFile(tokPath, []byte(testToken+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	s2, err := New(Config{Addr: "127.0.0.1:0", ProjectDirs: []string{scan}, TokenPath: tokPath})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ts2 := httptest.NewServer(s2.Handler())
+	defer ts2.Close()
+	_ = ts
+	for _, path := range []string{"/bigend/api/projects", "/api/projects"} {
+		resp := do(t, "GET", ts2.URL+path, bearer())
+		b, _ := io.ReadAll(resp.Body)
+		if strings.Contains(string(b), "escape") || strings.Contains(string(b), "secret") {
+			t.Fatalf("%s lists the escaping symlink: %s", path, b)
+		}
+	}
+	if c := do(t, "GET", ts2.URL+"/gurgeh/escape/api/specs", bearer()).StatusCode; c != 404 {
+		t.Fatalf("gurgeh mount for escaping symlink: got %d", c)
 	}
 }
