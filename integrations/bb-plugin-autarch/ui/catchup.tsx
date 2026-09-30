@@ -1,4 +1,5 @@
 // Catch-up: what happened while mk was away, marked seen only when actually seen.
+import { useEffect, useRef } from "react";
 
 export type CatchupEntry = {
   item: string;
@@ -19,26 +20,26 @@ type Timer = { ids: string[]; remaining: number; startedAt: number | null; handl
 export class SeenTracker {
   private active = false;
   private timers = new Map<string, Timer>();
-  private hidden = new Set<string>();
+  private shown = new Set<string>();
   constructor(private markSeen: (id: string) => void) {}
 
   expand(id: string, members?: string[]): void {
     if (id.startsWith("owed:") || this.timers.has(id)) return; // owed items are answered, never seen
     const t: Timer = { ids: members ?? [id], remaining: SEEN_AFTER_MS, startedAt: null, handle: null };
     this.timers.set(id, t);
-    if (this.active && !this.hidden.has(id)) this.run(id, t);
+    if (this.active && this.shown.has(id)) this.run(id, t);
   }
 
-  /** Whether an item is on screen; items never reported are treated as visible. */
+  /** Whether an item is on screen; an item is NOT visible until the first observer report. */
   isVisible(id: string): boolean {
-    return !this.hidden.has(id);
+    return this.shown.has(id);
   }
 
   /** An item leaving the viewport pauses its clock; returning resumes it. */
   setVisible(id: string, visible: boolean): void {
-    if (visible === !this.hidden.has(id)) return;
-    if (visible) this.hidden.delete(id);
-    else this.hidden.add(id);
+    if (visible === this.shown.has(id)) return;
+    if (visible) this.shown.add(id);
+    else this.shown.delete(id);
     const t = this.timers.get(id);
     if (!t || !this.active) return;
     if (visible) this.run(id, t);
@@ -56,7 +57,7 @@ export class SeenTracker {
     this.active = active;
     for (const [id, t] of this.timers) {
       if (active) {
-        if (!this.hidden.has(id)) this.run(id, t);
+        if (this.shown.has(id)) this.run(id, t);
       } else this.pause(t);
     }
   }
@@ -87,19 +88,48 @@ export function snapshotIds(items: CatchupEntry[], expanded: Set<string>, visibl
   return out;
 }
 
-const observers = new WeakMap<Element, IntersectionObserver>();
-
-/** A ref callback that reports viewport visibility; without IntersectionObserver every item counts as visible. */
-function watchVisibility(item: string, report?: (item: string, visible: boolean) => void) {
-  return (el: HTMLDivElement | null) => {
-    if (!report || !el || typeof IntersectionObserver === "undefined") return;
-    if (observers.has(el)) return;
-    const o = new IntersectionObserver((entries) => {
+/**
+ * Report an element's viewport visibility; returns a cleanup that disconnects the observer
+ * and reports the item not visible so its clock stops. Without IntersectionObserver the
+ * item is reported visible.
+ */
+export function observeVisibility(el: Element, item: string, report: (item: string, visible: boolean) => void): () => void {
+  let o: IntersectionObserver | undefined;
+  if (typeof IntersectionObserver === "undefined") {
+    report(item, true);
+  } else {
+    o = new IntersectionObserver((entries) => {
       for (const en of entries) report(item, en.isIntersecting);
     });
-    observers.set(el, o);
     o.observe(el);
+  }
+  return () => {
+    o?.disconnect();
+    report(item, false);
   };
+}
+
+function CatchupRow({ e, expanded, onToggle, onOverride, onVisibility }: {
+  e: CatchupEntry;
+  expanded: boolean;
+  onToggle: (item: string, members?: string[]) => void;
+  onOverride: (decision: string) => void;
+  onVisibility?: (item: string, visible: boolean) => void;
+}) {
+  const ref = useRef<HTMLDivElement | null>(null);
+  useEffect(() => {
+    if (!onVisibility || !ref.current) return;
+    return observeVisibility(ref.current, e.item, onVisibility);
+  }, [e.item, onVisibility]);
+  return (
+    <div ref={ref} className="rounded border border-border p-3 text-sm" data-kind={e.kind} data-expanded={expanded ? "true" : "false"}>
+      <button type="button" className="text-left" onClick={() => onToggle(e.item, e.members)}>{e.text}</button>
+      {expanded && e.cites && e.cites.length > 0 ? <div className="text-xs text-muted-foreground">{`cites ${e.cites.join(", ")}`}</div> : null}
+      {e.kind === "delegated" && e.decision !== undefined ? (
+        <button type="button" className="ml-2 text-xs underline" onClick={() => onOverride(e.decision!)}>Override</button>
+      ) : null}
+    </div>
+  );
 }
 
 export function CatchupPanel({
@@ -126,13 +156,7 @@ export function CatchupPanel({
       </div>
       {items.length === 0 ? <p className="text-sm text-muted-foreground">You are caught up.</p> : null}
       {items.map((e) => (
-        <div key={e.item} ref={watchVisibility(e.item, onVisibility)} className="rounded border border-border p-3 text-sm" data-kind={e.kind} data-expanded={expanded.has(e.item) ? "true" : "false"}>
-          <button type="button" className="text-left" onClick={() => onToggle(e.item, e.members)}>{e.text}</button>
-          {expanded.has(e.item) && e.cites && e.cites.length > 0 ? <div className="text-xs text-muted-foreground">{`cites ${e.cites.join(", ")}`}</div> : null}
-          {e.kind === "delegated" && e.decision !== undefined ? (
-            <button type="button" className="ml-2 text-xs underline" onClick={() => onOverride(e.decision!)}>Override</button>
-          ) : null}
-        </div>
+        <CatchupRow key={e.item} e={e} expanded={expanded.has(e.item)} onToggle={onToggle} onOverride={onOverride} onVisibility={onVisibility} />
       ))}
     </div>
   );

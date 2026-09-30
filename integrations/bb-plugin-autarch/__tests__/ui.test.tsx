@@ -8,7 +8,7 @@ vi.mock("@get-bb/plugin-sdk/app", () => ({
 }));
 
 import { AsksPanel, buildAsksView, PickController, type AsksData } from "../ui/asks.js";
-import { CatchupPanel, SeenTracker, snapshotIds, type CatchupEntry } from "../ui/catchup.js";
+import { CatchupPanel, observeVisibility, SeenTracker, snapshotIds, type CatchupEntry } from "../ui/catchup.js";
 import { MapPlaceholder } from "../ui/map-placeholder.js";
 import { parseDelegationForm, SettingsPanel } from "../ui/settings.js";
 import { layoutStack, stackReducer, type Panel, type StackState } from "../ui/stack.js";
@@ -150,6 +150,7 @@ describe("seen marker", () => {
   it("marks an item only after it has been expanded and active for 1 s", () => {
     const { t, seen } = tracker();
     t.setActive(true);
+    t.setVisible("ruling:d1", true);
     t.expand("ruling:d1");
     vi.advanceTimersByTime(999);
     expect(seen).toEqual([]);
@@ -160,6 +161,7 @@ describe("seen marker", () => {
   it("collapsing before 1 s cancels; count-strip style items never mark", () => {
     const { t, seen } = tracker();
     t.setActive(true);
+    t.setVisible("ruling:d1", true);
     t.expand("ruling:d1");
     vi.advanceTimersByTime(500);
     t.collapse("ruling:d1");
@@ -170,6 +172,7 @@ describe("seen marker", () => {
   it("with the document hidden nothing is marked; the timer pauses and resumes", () => {
     const { t, seen } = tracker();
     t.setActive(false);
+    t.setVisible("ruling:d1", true);
     t.expand("ruling:d1");
     vi.advanceTimersByTime(10_000);
     expect(seen).toEqual([]);
@@ -188,6 +191,7 @@ describe("seen marker", () => {
   it("an item scrolled out of view stops its clock and is not visible to mark-all", () => {
     const { t, seen } = tracker();
     t.setActive(true);
+    t.setVisible("ruling:d1", true);
     t.expand("ruling:d1");
     vi.advanceTimersByTime(600);
     t.setVisible("ruling:d1", false);
@@ -216,10 +220,80 @@ describe("seen marker", () => {
   it("an expanded routine group marks its members; an owed item is never marked", () => {
     const { t, seen } = tracker();
     t.setActive(true);
+    t.setVisible("routine:Autarch", true);
+    t.setVisible("owed:d9", true);
     t.expand("routine:Autarch", ["ruling:a", "closed:b"]);
     t.expand("owed:d9");
     vi.advanceTimersByTime(1100);
     expect(seen.sort()).toEqual(["closed:b", "ruling:a"]);
+  });
+});
+
+describe("seen marker before the first observer report", () => {
+  beforeEach(() => vi.useFakeTimers());
+  afterEach(() => vi.useRealTimers());
+
+  it("an item is not visible until the observer reports it, and its clock does not run", () => {
+    const seen: string[] = [];
+    const t = new SeenTracker((id) => seen.push(id));
+    t.setActive(true);
+    expect(t.isVisible("ruling:d1")).toBe(false);
+    t.expand("ruling:d1");
+    vi.advanceTimersByTime(10_000);
+    expect(seen).toEqual([]);
+    t.setVisible("ruling:d1", true);
+    expect(t.isVisible("ruling:d1")).toBe(true);
+    vi.advanceTimersByTime(1001);
+    expect(seen).toEqual(["ruling:d1"]);
+  });
+
+  it("an unreported item is excluded from mark all seen", () => {
+    const t = new SeenTracker(() => {});
+    const items: CatchupEntry[] = [{ item: "ruling:d1", kind: "delegated", at: "1", text: "x", decision: "d1" }];
+    const vis = new Set(items.filter((c) => t.isVisible(c.item)).map((c) => c.item));
+    expect(snapshotIds(items, new Set(["ruling:d1"]), vis)).toEqual([]);
+  });
+});
+
+describe("observeVisibility", () => {
+  class FakeIO {
+    static all: FakeIO[] = [];
+    disconnected = false;
+    observed: unknown[] = [];
+    constructor(public cb: (e: { isIntersecting: boolean }[]) => void) {
+      FakeIO.all.push(this);
+    }
+    observe(el: unknown) {
+      this.observed.push(el);
+    }
+    disconnect() {
+      this.disconnected = true;
+    }
+  }
+  beforeEach(() => {
+    FakeIO.all = [];
+    vi.stubGlobal("IntersectionObserver", FakeIO);
+  });
+  afterEach(() => vi.unstubAllGlobals());
+
+  it("reports what the observer sees, and on cleanup disconnects and reports not visible", () => {
+    const reports: [string, boolean][] = [];
+    const stop = observeVisibility({} as Element, "ruling:d1", (i, v) => reports.push([i, v]));
+    FakeIO.all[0]!.cb([{ isIntersecting: true }]);
+    expect(reports).toEqual([["ruling:d1", true]]);
+    stop();
+    expect(FakeIO.all[0]!.disconnected).toBe(true);
+    expect(reports.at(-1)).toEqual(["ruling:d1", false]);
+  });
+
+  it("without IntersectionObserver the item is reported visible", () => {
+    vi.unstubAllGlobals();
+    vi.stubGlobal("IntersectionObserver", undefined);
+    const reports: [string, boolean][] = [];
+    const stop = observeVisibility({} as Element, "ruling:d1", (i, v) => reports.push([i, v]));
+    expect(reports).toEqual([["ruling:d1", true]]);
+    stop();
+    expect(reports.at(-1)).toEqual(["ruling:d1", false]);
   });
 });
 

@@ -226,6 +226,7 @@ function HomePage() {
   const [lens, setLens] = useState<Lens>("attention");
   const picks = useMemo(() => new PickController(() => crypto.randomUUID()), []);
   const tracker = useMemo(() => new SeenTracker((item) => void rpc.call("markSeen", { item }).then(refetch, () => {})), [rpc, refetch]);
+  const onVisibility = useCallback((item: string, visible: boolean) => tracker.setVisible(item, visible), [tracker]);
   const dispatch = (a: Parameters<typeof stackReducer>[1]) => setStack((s) => stackReducer(s, a));
   const push = (panel: Panel) => dispatch({ type: "push", panel });
 
@@ -239,6 +240,7 @@ function HomePage() {
       document.removeEventListener("visibilitychange", sync);
       window.removeEventListener("focus", sync);
       window.removeEventListener("blur", sync);
+      tracker.setActive(false);
     };
   }, [tracker]);
 
@@ -292,7 +294,7 @@ function HomePage() {
             expanded={expanded}
             onToggle={toggle}
             onOverride={(decision_id) => void rpc.call("override", { decision_id }).then(refetch, () => {})}
-            onVisibility={(item, visible) => tracker.setVisible(item, visible)}
+            onVisibility={onVisibility}
             onMarkAll={() => {
               const ids = snapshotIds(catchup, expanded, new Set(catchup.filter((c) => tracker.isVisible(c.item)).map((c) => c.item)));
               if (ids.length > 0) void rpc.call("markAllSeen", { ids }).then(refetch, () => {});
