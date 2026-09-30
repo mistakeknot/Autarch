@@ -11,6 +11,8 @@
 import { randomUUID } from "node:crypto";
 import { defineRpcContract, type BbPluginApi } from "@get-bb/plugin-sdk";
 import { z } from "zod";
+import { exportEvents } from "./export.js";
+import { createStoreHandle, type StoreHandle } from "./store.js";
 
 const todoSchema = z.object({
   id: z.string(),
@@ -44,8 +46,47 @@ export const rpcContract = defineRpcContract({
 /** Realtime channel app.tsx listens on; the payload is the todo count. */
 const TODOS_CHANGED = "todos-changed";
 
+/** Nightly export cadence. */
+const EXPORT_EVERY_MS = 24 * 60 * 60 * 1000;
+
+/**
+ * Store wiring (Task 1.2). The factory never throws on a locked or busy database: the
+ * handle stays not-ready and retries, so surfaces registered later report "not ready"
+ * instead of the plugin failing to load. The nightly export writes segments outside
+ * the plugin folder.
+ */
+export function wireStore(bb: BbPluginApi): StoreHandle {
+  const handle = createStoreHandle(() => bb.storage.database(), { log: bb.log });
+  bb.onDispose(() => handle.dispose());
+  bb.background.service("home-export", {
+    async start(signal) {
+      while (!signal.aborted) {
+        await new Promise<void>((resolve) => {
+          const timer = setTimeout(resolve, EXPORT_EVERY_MS);
+          signal.addEventListener(
+            "abort",
+            () => {
+              clearTimeout(timer);
+              resolve();
+            },
+            { once: true },
+          );
+        });
+        if (signal.aborted || !handle.ready()) continue;
+        try {
+          exportEvents(handle.store());
+        } catch (e) {
+          bb.log.warn(`export failed: ${e instanceof Error ? e.message : String(e)}`);
+        }
+      }
+    },
+  });
+  return handle;
+}
+
 export default async function plugin(bb: BbPluginApi) {
   bb.log.info("loaded");
+  wireStore(bb);
 
   // Declarative settings — rendered in BB's settings UI and editable with
   // `bb plugin config autarch`. Add `secret: true` for values like API keys.

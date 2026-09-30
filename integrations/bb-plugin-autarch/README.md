@@ -139,3 +139,18 @@ the whole surface with examples.
 
 Confused by the API, or need something the types don't explain? Clone the BB
 repo and read the source: <https://github.com/get-bb/bb>.
+
+## Storage and removal
+
+The Home store lives in this plugin's `data.db` (SQLite, WAL), opened through
+`bb.storage.database()`. Schema changes are staged and expand-only: an older instance
+keeps working on a newer database until `min_reader_version` is raised in a later
+release.
+
+`bb plugin remove` leaves `data.db` behind. Reinstalling picks it up again with the
+same `store_id`. To reset, stop the plugin and delete the plugin's `data.db` (plus its
+`-wal` and `-shm` files); the next start creates a fresh database with a new `store_id`.
+
+The nightly event export writes immutable segments to
+`~/.autarch/home-export/<store_id>/events-<first_seq>-<last_seq>.jsonl`, outside the
+plugin folder, so it outlives removal. A reset database exports into a new directory.
