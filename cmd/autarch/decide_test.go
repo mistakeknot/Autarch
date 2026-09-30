@@ -290,3 +290,21 @@ func TestVersionJSONReportsRevisionAndExecutableHash(t *testing.T) {
 		t.Fatalf("vcs.modified missing: %s", out.String())
 	}
 }
+
+func TestDecideNonStringProjectFieldsAreValidationErrorsNotPanics(t *testing.T) {
+	dir := fakeBB(t)
+	t.Setenv("BB_THREAD_ID", "thr-x")
+	for _, in := range []string{
+		`{"v":1,"kind":"decide","project_root":5,"question":"q?"}`,
+		`{"v":1,"kind":"decide","project_root":null,"question":"q?"}`,
+		`{"v":1,"kind":"decide","project_root":"/tmp/x","project":["a"],"question":"q?"}`,
+	} {
+		_, err := runDecide(t, in, "file")
+		if exitCode(err) != 2 {
+			t.Fatalf("%s: err = %v code %d", in, err, exitCode(err))
+		}
+	}
+	if _, statErr := os.Stat(filepath.Join(dir, "calls")); statErr == nil {
+		t.Fatal("bb ran")
+	}
+}

@@ -77,6 +77,13 @@ func buildAsk(raw []byte, thread, asker, projectRoot, project string) (homeask.A
 		}
 		m["thread"] = thread
 	}
+	for _, k := range []string{"project_root", "project"} {
+		if v, present := m[k]; present {
+			if _, isString := v.(string); !isString {
+				return homeask.Ask{}, &usageError{k + " must be a string"}
+			}
+		}
+	}
 	if _, ok := m["project_root"]; !ok {
 		if projectRoot == "" {
 			projectRoot = gitRoot()

@@ -122,3 +122,21 @@ func TestMCPStdioCallerIsExplicitAndBounded(t *testing.T) {
 		t.Fatalf("stdio caller could not file: %+v runs %d", resp, f.runs)
 	}
 }
+
+func TestMCPFileDecisionNonStringProjectFieldsAreErrorsNotPanics(t *testing.T) {
+	t.Setenv("BB_THREAD_ID", "")
+	f := &fakeFiler{}
+	s := NewServer(t.TempDir()).WithFiler(f)
+	ctx := WithCaller(context.Background(), CallerInfo{AgentID: "w", Scopes: []string{"write"}})
+	for _, bad := range []map[string]any{{"project_root": 5}, {"project_root": nil}, {"project_root": "/tmp/x", "project": []string{"a"}}} {
+		args := decisionArgs()
+		for k, v := range bad {
+			args[k] = v
+		}
+		resp := callTool(t, s, ctx, "autarch_file_decision", args)
+		result, _ := resp.Result.(map[string]any)
+		if f.runs != 0 || (resp.Error == nil && result["isError"] != true) {
+			t.Fatalf("%v: %+v runs %d", bad, resp, f.runs)
+		}
+	}
+}

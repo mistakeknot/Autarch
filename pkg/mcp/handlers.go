@@ -598,6 +598,13 @@ func (s *Server) handleFileDecision(ctx context.Context, params map[string]inter
 		}
 		m["thread"] = thread
 	}
+	for _, k := range []string{"project_root", "project"} {
+		if v, present := m[k]; present {
+			if _, isString := v.(string); !isString {
+				return nil, fmt.Errorf("%s must be a string", k)
+			}
+		}
+	}
 	if _, ok := m["project_root"]; !ok {
 		m["project_root"] = s.projectPath
 	}
