@@ -109,6 +109,14 @@ func (r *Resolver) load() []projectEntry {
 	return r.entries
 }
 
+// stillContained reports whether root still resolves to itself inside one of
+// the configured project directories. It narrows, but cannot close, a race
+// with a concurrent retarget: the writer needs write access to the scan dir.
+func (r *Resolver) stillContained(root string) bool {
+	cur, err := filepath.EvalSymlinks(root)
+	return err == nil && cur == root && r.inside(cur)
+}
+
 // Resolve maps a project base name to exactly one resolved root.
 func (r *Resolver) Resolve(name string) (string, error) {
 	var roots []string
@@ -123,7 +131,7 @@ func (r *Resolver) Resolve(name string) (string, error) {
 	case 1:
 		// The listing is cached; re-check the root at use time so a directory
 		// swapped for an escaping symlink within the TTL is refused.
-		if cur, err := filepath.EvalSymlinks(roots[0]); err != nil || cur != roots[0] || !r.inside(cur) {
+		if !r.stillContained(roots[0]) {
 			return "", fmt.Errorf("project %q no longer resolves inside the project directories", name)
 		}
 		return roots[0], nil
@@ -137,6 +145,9 @@ func (r *Resolver) Projects() []ProjectInfo {
 	out := []ProjectInfo{}
 	for _, e := range r.load() {
 		info := ProjectInfo{Name: e.name, Root: e.root}
+		if !r.stillContained(e.root) {
+			continue
+		}
 		if fi, err := os.Stat(e.root); err == nil {
 			if st, ok := fi.Sys().(*syscall.Stat_t); ok {
 				info.Dev = uint64(st.Dev) //nolint:unconvert // width differs by platform

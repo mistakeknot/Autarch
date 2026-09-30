@@ -179,3 +179,19 @@ func TestResolveRefusesRetargetOutsideWithinTTL(t *testing.T) {
 		t.Fatalf("retargeted-outside project resolved to %q", got)
 	}
 }
+
+func TestProjectsOmitsRetargetedOutsideWithinTTL(t *testing.T) {
+	scan, outside := t.TempDir(), t.TempDir()
+	mkdirs(t, filepath.Join(scan, "demo"), filepath.Join(outside, "secret"))
+	r := NewResolver([]string{scan})
+	if len(r.Projects()) != 1 {
+		t.Fatal("expected one project")
+	}
+	os.Remove(filepath.Join(scan, "demo"))
+	if err := os.Symlink(filepath.Join(outside, "secret"), filepath.Join(scan, "demo")); err != nil {
+		t.Fatal(err)
+	}
+	if ps := r.Projects(); len(ps) != 0 {
+		t.Fatalf("retargeted project still listed: %+v", ps)
+	}
+}

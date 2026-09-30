@@ -183,14 +183,13 @@ func TestServeReturnsListenerErrorWithoutLeakingWaiter(t *testing.T) {
 	}
 	ln.Close() // Serve on a closed listener fails at once
 	s := &Server{handler: http.NewServeMux()}
-	before := runtime.NumGoroutine()
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	if err := s.Serve(ctx, ln); err == nil {
 		t.Fatal("expected listener error")
 	}
-	time.Sleep(50 * time.Millisecond)
-	if after := runtime.NumGoroutine(); after > before {
-		t.Fatalf("goroutine leaked: %d -> %d", before, after)
+	buf := make([]byte, 1<<20)
+	if stacks := string(buf[:runtime.Stack(buf, true)]); strings.Contains(stacks, "(*Server).Serve.func1") {
+		t.Fatal("shutdown waiter goroutine leaked after a listener error")
 	}
 }
