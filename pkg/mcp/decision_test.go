@@ -98,3 +98,27 @@ func TestMCPFileDecisionThreadMustMatchTheCallerThread(t *testing.T) {
 }
 
 func marshal(v any) string { b, _ := json.Marshal(v); return string(b) }
+
+func TestMCPFileDecisionWithoutACallerIsDenied(t *testing.T) {
+	t.Setenv("BB_THREAD_ID", "")
+	f := &fakeFiler{}
+	s := NewServer(t.TempDir()).WithFiler(f)
+	resp := callTool(t, s, context.Background(), "autarch_file_decision", decisionArgs())
+	if resp.Error == nil || !strings.Contains(resp.Error.Message, "Forbidden") || f.runs != 0 {
+		t.Fatalf("a write tool ran without a caller: %+v runs %d", resp, f.runs)
+	}
+}
+
+func TestMCPStdioCallerIsExplicitAndBounded(t *testing.T) {
+	t.Setenv("BB_THREAD_ID", "thr-m")
+	c := StdioCaller()
+	if c.AgentID != "thr-m" || !c.HasScope("read") || !c.HasScope("write") || c.HasScope("admin") {
+		t.Fatalf("stdio caller = %+v", c)
+	}
+	f := &fakeFiler{}
+	s := NewServer(t.TempDir()).WithFiler(f)
+	resp := callTool(t, s, WithCaller(context.Background(), c), "autarch_file_decision", decisionArgs())
+	if resp.Error != nil || f.runs != 1 {
+		t.Fatalf("stdio caller could not file: %+v runs %d", resp, f.runs)
+	}
+}

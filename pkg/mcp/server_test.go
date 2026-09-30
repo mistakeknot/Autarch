@@ -25,7 +25,7 @@ func runServerRequest(t *testing.T, server *Server, input string) JSONRPCRespons
 
 	go func() {
 		defer pw.Close()
-		server.Run(context.Background())
+		server.Run(WithCaller(context.Background(), StdioCaller()))
 	}()
 
 	var resp JSONRPCResponse
@@ -358,7 +358,7 @@ func TestMCP_ReadToolAllowedWithReadScope(t *testing.T) {
 	}
 }
 
-func TestMCP_NoCallerInfo_DefaultAllowsLegacyBehavior(t *testing.T) {
+func TestMCP_NoCallerInfo_WriteToolDenied(t *testing.T) {
 	tmpDir := t.TempDir()
 	tasksDir := filepath.Join(tmpDir, ".coldwine", "tasks")
 	if err := os.MkdirAll(tasksDir, 0o755); err != nil {
@@ -395,16 +395,15 @@ func TestMCP_NoCallerInfo_DefaultAllowsLegacyBehavior(t *testing.T) {
 	if err := json.Unmarshal(output.Bytes(), &resp); err != nil {
 		t.Fatalf("decode response: %v", err)
 	}
-	if resp.Error != nil {
-		t.Fatalf("unexpected error: %+v", resp.Error)
+	if resp.Error == nil || !strings.Contains(resp.Error.Message, "Forbidden") {
+		t.Fatalf("expected Forbidden without a caller, got %+v", resp)
 	}
-
 	updated, err := os.ReadFile(taskPath)
 	if err != nil {
-		t.Fatalf("read updated task: %v", err)
+		t.Fatalf("read task: %v", err)
 	}
-	if !strings.Contains(string(updated), "status: completed") {
-		t.Fatalf("expected status update in task file, got:\n%s", string(updated))
+	if string(updated) != string(taskData) {
+		t.Fatalf("task changed without a caller:\n%s", string(updated))
 	}
 }
 

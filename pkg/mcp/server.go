@@ -345,8 +345,11 @@ func (s *Server) handleToolsCall(ctx context.Context, req *JSONRPCRequest) {
 		return
 	}
 
-	if caller, hasCaller := CallerFromContext(ctx); hasCaller && tool.RequiredScope != "" {
-		if !caller.HasScope(tool.RequiredScope) {
+	// Fail closed: a scoped tool needs a caller that holds the scope. The stdio entry
+	// points attach StdioCaller explicitly.
+	if tool.RequiredScope != "" {
+		caller, hasCaller := CallerFromContext(ctx)
+		if !hasCaller || !caller.HasScope(tool.RequiredScope) {
 			s.sendError(req.ID, -32603, "Forbidden", fmt.Sprintf("tool %s requires scope %q", params.Name, tool.RequiredScope))
 			return
 		}

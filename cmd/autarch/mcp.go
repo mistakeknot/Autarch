@@ -39,7 +39,7 @@ func mcpCmd() *cobra.Command {
 			defer stop()
 
 			srv := mcp.NewServer(project).WithIO(cmd.InOrStdin(), cmd.OutOrStdout(), cmd.ErrOrStderr())
-			if err := srv.Run(ctx); err != nil && err != context.Canceled {
+			if err := srv.Run(mcp.WithCaller(ctx, mcp.StdioCaller())); err != nil && err != context.Canceled {
 				return err
 			}
 			return nil

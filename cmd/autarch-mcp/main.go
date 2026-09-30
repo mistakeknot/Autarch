@@ -76,7 +76,7 @@ func main() {
 	}()
 
 	// Run server
-	if err := server.Run(ctx); err != nil {
+	if err := server.Run(mcp.WithCaller(ctx, mcp.StdioCaller())); err != nil {
 		if err != context.Canceled {
 			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 			os.Exit(1)

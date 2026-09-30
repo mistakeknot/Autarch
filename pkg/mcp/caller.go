@@ -2,6 +2,7 @@ package mcp
 
 import (
 	"context"
+	"os"
 	"strings"
 )
 
@@ -38,4 +39,16 @@ func (c CallerInfo) HasScope(required string) bool {
 		}
 	}
 	return false
+}
+
+// StdioCaller is the explicit caller for the stdio entry points. The process is started
+// by the local agent that owns the pipe, so it is trusted with read and write, and never
+// admin. Without a caller in the context a scoped tool is denied, so an entry point that
+// forgets to attach one fails closed instead of skipping enforcement.
+func StdioCaller() CallerInfo {
+	id := strings.TrimSpace(os.Getenv("BB_THREAD_ID"))
+	if id == "" {
+		id = "stdio"
+	}
+	return CallerInfo{AgentID: id, Scopes: []string{"read", "write"}}
 }
