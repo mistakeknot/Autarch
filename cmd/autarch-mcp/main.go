@@ -16,6 +16,8 @@
 //	    Print version and exit
 //
 // The server communicates via JSON-RPC over stdin/stdout.
+//
+// This command is an alias for "autarch mcp" and runs the same server.
 package main
 
 import (
@@ -40,6 +42,8 @@ func main() {
 		fmt.Printf("autarch-mcp version %s\n", version)
 		os.Exit(0)
 	}
+
+	fmt.Fprintln(os.Stderr, `autarch-mcp is an alias for "autarch mcp"`)
 
 	// Default to current directory
 	if *projectPath == "" {

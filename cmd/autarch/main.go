@@ -87,6 +87,7 @@ Available tools:
 	root.AddCommand(planstatus.NewCommand())
 	root.AddCommand(statusCmd())
 	root.AddCommand(serveCmd())
+	root.AddCommand(mcpCmd())
 
 	if err := root.Execute(); err != nil {
 		os.Exit(1)
