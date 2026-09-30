@@ -138,6 +138,13 @@ export class Real {
     this.threads.push(t.id);
     return t.id;
   }
+  /** Wait until the thread has no active turn (its status is neither starting nor running). */
+  async settle(thread: string): Promise<void> {
+    await this.waitFor(`thread ${thread} to stop being active`, () => {
+      const st = (JSON.parse(this.bb(["thread", "show", thread, "--json"]).stdout) as { status?: string }).status ?? "";
+      return !/^(starting|running)$/i.test(st) && st !== "";
+    }, 60_000);
+  }
   askBody(thread: string, subject: string, over: Record<string, unknown> = {}): Record<string, unknown> {
     return {
       v: 1,
@@ -206,6 +213,7 @@ export class Real {
   readonly scenarios: Record<string, () => Promise<Evidence>> = {
     "answer-instruction": async () => {
       const t = this.spawn("answer-instruction");
+      await this.settle(t);
       const decision = this.ask(t, "e2e: collapse order");
       const pick_id = `pick-${decision}`;
       assert.equal((await this.pick(decision, "project", pick_id)).status, 201);
@@ -227,18 +235,29 @@ export class Real {
       };
     },
 
-    // A wake queues only when its thread has an active turn. A scratch thread with no credentials never
-    // holds one, so bb answers `sent`; this scenario fails then instead of pretending.
+    // A wake queues only while its thread has an active turn. A scratch thread has no credentials, so a
+    // turn started with `bb thread tell` fails within moments; the pick races that turn, over fresh
+    // threads, and the scenario fails if no wake ever queues.
     "queued-then-archived": async () => {
-      const t = this.spawn("queued-then-archived");
-      const decision = this.ask(t, "e2e: queued wake");
-      assert.equal((await this.pick(decision, "project", `pick-${decision}`)).status, 201);
-      const state = await this.waitFor("the wake to settle", () => this.db<{ state: string }>("SELECT state FROM obligations WHERE decision_id = ? AND kind = 'wake'", decision)[0]?.state.match(/^(queued|done|undeliverable)$/)?.[0]);
-      if (state !== "queued") throw new Error(`the wake settled as ${state}, not queued: a queued delivery needs an active turn, and no turn can run on this server without model credentials`);
-      this.bb(["thread", "archive", t]);
-      await this.waitFor("the wake to become undeliverable", () => this.db("SELECT 1 FROM obligations WHERE decision_id = ? AND kind = 'wake' AND state = 'undeliverable'", decision).length > 0);
-      const listed = this.rpc<{ undeliverable: { decision_id: string }[] }>("listAsks").undeliverable.some((o) => o.decision_id === decision);
-      return { threads: [t], decision, wake_state: "undeliverable", listed };
+      let last = "none";
+      for (let attempt = 1; attempt <= 6; attempt++) {
+        const t = this.spawn(`queued-then-archived-${attempt}`);
+        await this.settle(t);
+        const decision = this.ask(t, `e2e: queued wake ${attempt}`);
+        const listed = this.rpc<{ owed: { id: string; revision: string }[] }>("listAsks").owed.find((o) => o.id === decision);
+        assert.ok(listed, `decision ${decision} is not owed`);
+        this.bb(["thread", "tell", t, `e2e ${this.runId} keep busy`]);
+        const r = this.rpc<{ ok: boolean; status: number }>("pick", { decision_id: decision, option_id: "project", revision: listed.revision, pick_id: `pick-${decision}` });
+        assert.equal(r.status, 201);
+        const state = await this.waitFor("the wake to settle", () => this.db<{ state: string }>("SELECT state FROM obligations WHERE decision_id = ? AND kind = 'wake'", decision)[0]?.state.match(/^(queued|done|undeliverable)$/)?.[0]);
+        last = state;
+        if (state !== "queued") continue;
+        this.bb(["thread", "archive", t]);
+        await this.waitFor("the wake to become undeliverable", () => this.db("SELECT 1 FROM obligations WHERE decision_id = ? AND kind = 'wake' AND state = 'undeliverable'", decision).length > 0);
+        const shown = this.rpc<{ undeliverable: { decision_id: string }[] }>("listAsks").undeliverable.some((o) => o.decision_id === decision);
+        return { threads: [t], decision, wake_state: "undeliverable", listed: shown };
+      }
+      throw new Error(`no wake queued in 6 attempts (last settled as ${last}): a queued delivery needs an active turn, and a credential-less scratch turn ends too fast`);
     },
 
     "ask-cli-proxy": async () => {
@@ -251,9 +270,9 @@ export class Real {
       const absent = decide("e2e: decide file, BB_THREAD_ID absent");
       const conflict = decide("e2e: decide file, BB_THREAD_ID conflicting", other);
       assert.equal(absent.status, 0, `absent: ${absent.stderr}`);
-      assert.equal(conflict.status, 0, `conflict: ${conflict.stderr}`);
+      assert.equal(conflict.status, 2, `conflict must exit 2: ${conflict.stderr}`);
       const rows = this.db<{ thread: string | null }>("SELECT thread FROM decisions WHERE subject LIKE 'e2e: decide file%'");
-      assert.equal(rows.length, 2);
+      assert.equal(rows.length, 1, "the conflicting decide-file must file nothing");
       assert.ok(rows.every((r) => r.thread === t), "a decide-file ask was filed under another thread");
       return { threads: [t, other], decision, env_absent_exit: absent.status, env_conflict_exit: conflict.status };
     },
