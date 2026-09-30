@@ -3,7 +3,12 @@ package main
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"fmt"
+	"io"
+	"net"
+	"net/http"
+	"net/url"
 	"os"
 	"os/signal"
 	"path/filepath"
@@ -11,7 +16,6 @@ import (
 	"text/tabwriter"
 	"time"
 
-	bconfig "github.com/mistakeknot/autarch/internal/bigend/config"
 	"github.com/mistakeknot/autarch/internal/homeask"
 	"github.com/mistakeknot/autarch/internal/mycroft"
 	"github.com/mistakeknot/autarch/internal/mycroft/escalate"
@@ -88,20 +92,79 @@ func buildOrchestrator(db *sql.DB, spawner scheduler.AgentSpawner, cfg mycroft.C
 	orch := scheduler.NewOrchestrator(db, spawner, cfg, "demarch")
 	q := escalate.NewDecisionQueue()
 	ef := &homeask.ExecFiler{}
-	var dirs []string
-	if c, err := bconfig.Load(""); err == nil {
-		dirs = c.Discovery.ScanRoots
-	}
-	q.SetHomeRoots(ef, ef, homeRoots(dirs, os.Getenv("AUTARCH_UQBAR_DIR")))
+	q.SetHomeRoots(ef, ef, homeRoots(serveProjects(serveURL(), serveTokenPath()), os.Getenv("AUTARCH_UQBAR_DIR")))
 	orch.SetQueue(q)
 	return orch
 }
 
+// serveURL is where the running `autarch serve` listens (AUTARCH_SERVE_URL, default the
+// serve default address).
+func serveURL() string {
+	if u := os.Getenv("AUTARCH_SERVE_URL"); u != "" {
+		return u
+	}
+	return "http://" + serve.DefaultAddr
+}
+
+// serveTokenPath is serve's bearer token file (AUTARCH_SERVE_TOKEN_FILE, default
+// ~/.autarch/serve.token).
+func serveTokenPath() string {
+	if p := os.Getenv("AUTARCH_SERVE_TOKEN_FILE"); p != "" {
+		return p
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return ""
+	}
+	return filepath.Join(home, ".autarch", "serve.token")
+}
+
+// serveProjects asks the running serve for its project list (GET /api/projects with the
+// bearer token), so roots always match what Home accepts whatever --project-dir serve was
+// started with. Any failure (serve down, bad token, non-loopback URL) is an error and the
+// caller files nothing.
+func serveProjects(baseURL, tokenPath string) func() ([]serve.ProjectInfo, error) {
+	return func() ([]serve.ProjectInfo, error) {
+		u, err := url.Parse(baseURL)
+		if err != nil || (u.Scheme != "http" && u.Scheme != "https") {
+			return nil, fmt.Errorf("bad serve URL %q", baseURL)
+		}
+		if ip := net.ParseIP(u.Hostname()); u.Hostname() != "localhost" && (ip == nil || !ip.IsLoopback()) {
+			return nil, fmt.Errorf("serve URL %q is not loopback", baseURL)
+		}
+		if _, err := os.Stat(tokenPath); err != nil { // never create serve's token from here
+			return nil, fmt.Errorf("serve token: %w", err)
+		}
+		tok, err := serve.LoadOrCreateToken(tokenPath)
+		if err != nil {
+			return nil, fmt.Errorf("serve token: %w", err)
+		}
+		req, err := http.NewRequest(http.MethodGet, strings.TrimRight(baseURL, "/")+"/api/projects", nil)
+		if err != nil {
+			return nil, err
+		}
+		req.Header.Set("Authorization", "Bearer "+tok)
+		resp, err := (&http.Client{Timeout: 5 * time.Second}).Do(req)
+		if err != nil {
+			return nil, fmt.Errorf("ask serve for projects: %w", err)
+		}
+		defer resp.Body.Close()
+		if resp.StatusCode != http.StatusOK {
+			return nil, fmt.Errorf("serve /api/projects: %s", resp.Status)
+		}
+		var out []serve.ProjectInfo
+		if err := json.NewDecoder(io.LimitReader(resp.Body, 4<<20)).Decode(&out); err != nil {
+			return nil, fmt.Errorf("decode serve projects: %w", err)
+		}
+		return out, nil
+	}
+}
+
 // homeRoots resolves an ask's project the way Home does: the name and root come from the
 // serve project list (a bead label is lowercase, so it matches case-insensitively and an
-// ambiguous match is refused); "estate" uses the Uqbar directory.
-func homeRoots(dirs []string, uqbar string) escalate.RootResolver {
-	res := serve.NewResolver(dirs)
+// ambiguous match is refused); "estate" uses the Uqbar directory. When the list cannot be
+// read the ask is refused, never guessed.
+func homeRoots(list func() ([]serve.ProjectInfo, error), uqbar string) escalate.RootResolver {
 	return func(project string) (string, string, error) {
 		if project == "estate" {
 			if uqbar == "" {
@@ -109,9 +172,13 @@ func homeRoots(dirs []string, uqbar string) escalate.RootResolver {
 			}
 			return "estate", uqbar, nil
 		}
+		projects, err := list()
+		if err != nil {
+			return "", "", fmt.Errorf("serve project list unavailable: %w", err)
+		}
 		var name, root string
 		n := 0
-		for _, p := range res.Projects() {
+		for _, p := range projects {
 			if strings.EqualFold(p.Name, project) {
 				name, root = p.Name, p.Root
 				n++
