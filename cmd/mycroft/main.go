@@ -125,6 +125,16 @@ func serveTokenPath() string {
 // caller files nothing.
 func serveProjects(baseURL, tokenPath string) func() ([]serve.ProjectInfo, error) {
 	return func() ([]serve.ProjectInfo, error) {
+		out, err := fetchServeProjects(baseURL, tokenPath)
+		if err != nil {
+			return nil, fmt.Errorf("%w; start `autarch serve` (see AGENTS.md); Mycroft files nothing into Home while it is unreachable", err)
+		}
+		return out, nil
+	}
+}
+
+func fetchServeProjects(baseURL, tokenPath string) ([]serve.ProjectInfo, error) {
+	{
 		u, err := url.Parse(baseURL)
 		if err != nil || (u.Scheme != "http" && u.Scheme != "https") {
 			return nil, fmt.Errorf("bad serve URL %q", baseURL)

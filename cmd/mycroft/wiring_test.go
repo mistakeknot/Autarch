@@ -5,6 +5,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/mistakeknot/autarch/internal/homeask"
@@ -142,6 +143,9 @@ func TestServeUnavailableFilesNothing(t *testing.T) {
 		"non-loopback": serveProjects("http://example.com", tok),
 	} {
 		f := &recFiler{}
+		if _, err := list(); err == nil || !strings.Contains(err.Error(), "start `autarch serve` (see AGENTS.md)") {
+			t.Errorf("%s: error should tell the operator to start serve, got %v", name, err)
+		}
 		q := escalate.NewDecisionQueue()
 		q.SetHomeRoots(f, nil, homeRoots(list, ""))
 		if q.AddPending(escalate.PendingDecision{Agent: "a", BeadID: "D-1", Labels: []string{"project:p"}}) == nil || len(f.asks) != 0 {

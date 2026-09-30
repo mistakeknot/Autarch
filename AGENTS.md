@@ -95,6 +95,9 @@ print a deprecation notice.
 - **No decisions:** `serve` holds no decisions code and no `/api/decisions` route.
 - **Pollard:** Pollard's watcher still publishes to the standalone Signals server on 8092
   (`internal/signals/cli/serve.go`, not deprecated); it does not reach the `serve` broker yet.
+- **Mycroft:** needs `autarch serve` running (loopback, token in `~/.autarch/serve.token`;
+  override with `AUTARCH_SERVE_URL` / `AUTARCH_SERVE_TOKEN_FILE`) to file asks into Home. It asks
+  serve for project roots and files nothing (fails closed) when serve is down.
 - **MCP:** `autarch mcp --project <dir>` runs the MCP server; `autarch-mcp` is an alias.
 
 ## Design Decisions (Do Not Re-Ask)
