@@ -139,14 +139,20 @@ func (m *ProjectManager) Discover() {
 		}
 
 		for _, entry := range entries {
-			if !entry.IsDir() {
-				continue
-			}
 			if entry.Name()[0] == '.' {
 				continue // Skip hidden directories
 			}
 
 			projectPath := filepath.Join(dir, entry.Name())
+			if !entry.IsDir() {
+				// Follow a symlink that points at a directory; skip anything else.
+				if entry.Type()&os.ModeSymlink == 0 {
+					continue
+				}
+				if fi, err := os.Stat(projectPath); err != nil || !fi.IsDir() {
+					continue
+				}
+			}
 			project := m.scanProject(projectPath)
 			m.projects[projectPath] = project
 		}
