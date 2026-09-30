@@ -201,6 +201,37 @@ export class Store {
       .run(this.now(), type, decisionId, JSON.stringify(detail));
   }
 
+  /** Record an event outside any other transaction (for example a `related` note). */
+  recordEvent(type: string, decisionId: string | null, detail: unknown = {}): void {
+    this.event(type, decisionId, detail);
+  }
+
+  pickByPickId(pickId: string): PickRow | undefined {
+    return this.db.prepare("SELECT * FROM picks WHERE pick_id = ?").get(pickId) as PickRow | undefined;
+  }
+
+  /** Pending ruling-file obligations whose retry time has come. */
+  dueRulingFiles(now: string = this.now()): ObligationRow[] {
+    return this.db
+      .prepare(
+        `SELECT * FROM obligations WHERE kind = 'ruling-file' AND state = 'pending' AND next_try_at <= ?
+         ORDER BY next_try_at, rowid`,
+      )
+      .all(now) as ObligationRow[];
+  }
+
+  /** A failed attempt on a pending row: count it, keep the error, and set the next try. CAS on attempt. */
+  failObligation(id: string, attempt: number, error: string, nextTryAt: string): boolean {
+    return (
+      this.db
+        .prepare(
+          `UPDATE obligations SET attempt = attempt + 1, last_error = @error, next_try_at = @next, updated_at = @now
+           WHERE id = @id AND state = 'pending' AND attempt = @attempt`,
+        )
+        .run({ id, attempt, error, next: nextTryAt, now: this.now() }).changes === 1
+    );
+  }
+
   registry(requestId: string): RegistryRow | undefined {
     return this.db.prepare("SELECT * FROM requests WHERE request_id = ?").get(requestId) as
       | RegistryRow
