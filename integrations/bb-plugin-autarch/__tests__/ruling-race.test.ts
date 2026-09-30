@@ -138,6 +138,48 @@ function listAll(dir: string): string[] {
   return out;
 }
 
+describe("an identical existing file", () => {
+  it("is not reported done when docs/decisions was moved outside after its fd opened", () => {
+    const p = rulingPath(target);
+    const content = renderRuling(ruling);
+    writeRuling(pinRoot(root), p.dirs, p.file, content); // the file exists, identical
+    const victim = join(root, "docs", "decisions");
+    // count fs calls up to and including the existing-file open, then move right after
+    hook.calls = 0;
+    hook.swapAt = -1;
+    hook.active = true;
+    writeRuling(pinRoot(root), p.dirs, p.file, content);
+    hook.active = false;
+    const total = hook.calls;
+    let sawRefusal = false;
+    for (let k = 1; k <= total; k++) {
+      rmSync(root, { recursive: true, force: true });
+      rmSync(outside, { recursive: true, force: true });
+      mkdirSync(root);
+      mkdirSync(outside);
+      writeRuling(pinRoot(root), p.dirs, p.file, content);
+      hook.calls = 0;
+      hook.swapAt = k;
+      hook.swap = () => {
+        if (existsSync(victim)) renameSync(victim, join(outside, "moved"));
+      };
+      hook.active = true;
+      let done = false;
+      try {
+        writeRuling(pinRoot(root), p.dirs, p.file, content);
+        done = true;
+      } catch {
+        sawRefusal = true;
+      } finally {
+        hook.active = false;
+      }
+      const moved = !existsSync(join(victim, p.file));
+      expect(done && moved, `moved before fs call ${k} yet reported done`).toBe(false);
+    }
+    expect(sawRefusal).toBe(true);
+  });
+});
+
 describe("a directory moved out of the project between steps", () => {
   it("leaves no ruling or temp file outside the root, whichever step the move precedes", () => {
     hook.calls = 0;

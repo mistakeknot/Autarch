@@ -286,6 +286,27 @@ describe("observeVisibility", () => {
     expect(reports.at(-1)).toEqual(["ruling:d1", false]);
   });
 
+  it("a queued true delivered after cleanup is ignored and restarts no timer", () => {
+    vi.useFakeTimers();
+    try {
+      const marked: string[] = [];
+      const tr = new SeenTracker((id) => marked.push(id));
+      tr.setActive(true);
+      tr.expand("ruling:d1");
+      const stop = observeVisibility({} as Element, "ruling:d1", (i, v) => tr.setVisible(i, v));
+      FakeIO.all[0]!.cb([{ isIntersecting: true }]);
+      vi.advanceTimersByTime(400);
+      stop();
+      FakeIO.all[0]!.cb([{ isIntersecting: true }]); // queued entry delivered late
+      expect(tr.isVisible("ruling:d1")).toBe(false);
+      expect(vi.getTimerCount()).toBe(0);
+      vi.advanceTimersByTime(5000);
+      expect(marked).toEqual([]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("without IntersectionObserver the item is reported visible", () => {
     vi.unstubAllGlobals();
     vi.stubGlobal("IntersectionObserver", undefined);

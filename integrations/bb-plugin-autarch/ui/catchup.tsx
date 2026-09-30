@@ -95,15 +95,18 @@ export function snapshotIds(items: CatchupEntry[], expanded: Set<string>, visibl
  */
 export function observeVisibility(el: Element, item: string, report: (item: string, visible: boolean) => void): () => void {
   let o: IntersectionObserver | undefined;
+  let cancelled = false; // disconnect() does not clear entries already queued
   if (typeof IntersectionObserver === "undefined") {
     report(item, true);
   } else {
     o = new IntersectionObserver((entries) => {
+      if (cancelled) return;
       for (const en of entries) report(item, en.isIntersecting);
     });
     o.observe(el);
   }
   return () => {
+    cancelled = true;
     o?.disconnect();
     report(item, false);
   };

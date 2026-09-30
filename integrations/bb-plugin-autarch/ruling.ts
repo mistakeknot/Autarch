@@ -7,7 +7,8 @@
 //
 // The writer pins the project root the way `serve` resolved it at filing (path plus
 // dev and ino) and works through directory descriptors (see writeRuling). On Linux the
-// same-user swap race is closed; without /proc a residual window remains [D21].
+// same-user swap race is narrowed, not closed (see the accepted residual below); without
+// /proc a path-based fallback leaves a wider window [D21].
 //
 // ACCEPTED SAME-UID RESIDUAL. A process running as the same user can rename a held
 // directory out of the project. Node cannot openat, so the writer re-reads
@@ -345,7 +346,13 @@ export function writeRuling(root: PinnedRoot, dirs: string[], file: string, cont
     if (efd !== undefined) {
       try {
         if (!fstatSync(efd).isFile()) throw new RulingWriteError("symlink", `${target} exists and is not a regular file`);
-        if (readFileSync(efd).equals(bytes)) return { path: target, written: false };
+        if (readFileSync(efd).equals(bytes)) {
+          // identical file: success needs the same held-fd and root checks as a write
+          assertHeld(held, "before reporting the existing ruling");
+          checkRoot(root, "before reporting the existing ruling");
+          assertHeld(held, "at the end of the check");
+          return { path: target, written: false };
+        }
         throw new RulingWriteError("exists-different", `${target} exists with different content`);
       } finally {
         closeSync(efd);
