@@ -49,18 +49,14 @@ if no wake queues (it queued in this run).
 4. Second run (commit 1b77768, run 5befe35b-c7ac-4839-adf6-1bf1c437a556): settle read the wrong JSON path and timed
    out on two scenarios; ask-cli-proxy matched rows from a previous run. Fixed in e5cd468. Run 3 above passed.
 
-## Follow-up beads (children of mk-okek): NOT FILED
+## Follow-up beads (children of mk-okek): FILED under mk-okek
 
-Filing needs `bd` against the hub tracker (127.0.0.1:3311) via /home/mk/hub, which this task was told not to touch.
-Pending for mk or a session cleared to use the hub tracker; no ids exist:
-
-- Clavain Stop hook and filing helper
-- Signals clients reach the consolidated broker
-- bd upstream: `create --id` overwrites an existing bead
-- Optional hub copy
-- Approvals in Aleph core
-- Host-attested caller for plugin CLI and RPC (G-15)
-- Core approval authentication and audit contract (G-16)
-
-Also not done: stale "bb autarch" text in `skills/example-todos/SKILL.md`, the todos page copy, README and
-PLUGIN_OVERVIEW; the todo commands it describes no longer exist, so the fix is a rewrite, not a trivial edit.
+- mk-okek.8: Clavain Stop hook and filing helper
+- mk-okek.9: signals clients reach the consolidated broker
+- mk-okek.10: `bd create --id` overwrites an existing bead (bd upstream)
+- mk-okek.11: optional hub copy
+- mk-okek.12: approvals in Aleph core
+- mk-okek.13: G-15 host-attested caller for plugin CLI and RPC
+- mk-okek.14: G-16 core approval authentication and audit contract
+- mk-okek.15: rewrite of the stale "bb autarch" todo docs. This was in fact already rewritten in
+  9bd3c2a (`bb home` replaces the removed todo CLI), so mk's coordinator may close .15.

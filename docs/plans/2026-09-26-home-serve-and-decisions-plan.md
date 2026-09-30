@@ -1061,6 +1061,21 @@ a `home` block with decision id, `pick_id`, revision, asking thread, `options_sh
 
 Commit: `bb-plugin-autarch: ruling files through a root-pinned writer`.
 
+#### Accepted residual: ruling-file writer (same uid)
+
+A process running as the same user can move directories the writer holds. Two residuals remain
+and are accepted:
+
+- **Linux (fd-anchored).** The writer works through held directory descriptors and re-reads
+  `/proc/self/fd/N` before the temp write, before the rename, after it, and at the end (the
+  identical-existing-file path runs the same checks). A move landing between the last check and
+  the rename, or after the final check, can leave one file outside the project until it is
+  detected; removal is attempted, but the window is not closed.
+- **macOS (path-based).** There is no `/proc`, so the writer falls back to paths and a swap
+  between steps is possible.
+
+Status: accepted by the vizier 2026-09-30 in mk's place, conditional on a clean final Sol review.
+
 <verify>
 - run: `cd integrations/bb-plugin-autarch && npm test -- __tests__/ruling.test.ts`
   expect: exit 0
