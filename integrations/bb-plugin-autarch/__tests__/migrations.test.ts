@@ -36,6 +36,16 @@ describe("staged migrations", () => {
     expect(db.prepare("SELECT triage FROM decisions").all()).toEqual([]);
   });
 
+  it("the shipped v1 to v2 step adds the approvals tables and keeps data", () => {
+    const db = new Database(file);
+    migrate(db, { codeVersion: 1, migrations: [MIGRATIONS[0]!] });
+    db.prepare("INSERT INTO notes(id, at, text) VALUES ('n','t','keep me')").run();
+    expect(migrate(db)).toEqual({ schemaVersion: 2, minReaderVersion: 0 });
+    expect(db.prepare("SELECT text FROM notes").get()).toEqual({ text: "keep me" });
+    expect(db.prepare("SELECT COUNT(*) n FROM approvals").get()).toEqual({ n: 0 });
+    expect(db.prepare("SELECT COUNT(*) n FROM approval_events").get()).toEqual({ n: 0 });
+  });
+
   it("refuses a database whose min_reader_version exceeds the code, and the handle stays not-ready", () => {
     const db = new Database(file);
     migrate(db);
@@ -51,9 +61,9 @@ describe("staged migrations", () => {
   it("a failed migration rolls back completely", () => {
     const db = new Database(file);
     migrate(db);
-    const bad: Migration = { version: 2, sql: "ALTER TABLE decisions ADD COLUMN ok TEXT; THIS IS NOT SQL;" };
-    expect(() => migrate(db, { codeVersion: 2, migrations: [MIGRATIONS[0]!, bad] })).toThrow();
-    expect(readSchemaState(db).schemaVersion).toBe(1);
+    const bad: Migration = { version: 3, sql: "ALTER TABLE decisions ADD COLUMN ok TEXT; THIS IS NOT SQL;" };
+    expect(() => migrate(db, { codeVersion: 3, migrations: [...MIGRATIONS, bad] })).toThrow();
+    expect(readSchemaState(db).schemaVersion).toBe(CODE_VERSION);
     expect(() => db.prepare("SELECT ok FROM decisions").all()).toThrow();
   });
 

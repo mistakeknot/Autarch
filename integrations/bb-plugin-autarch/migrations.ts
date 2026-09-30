@@ -10,7 +10,7 @@
 import type Database from "better-sqlite3";
 
 /** The schema version this code writes and the highest it can read. */
-export const CODE_VERSION = 1;
+export const CODE_VERSION = 2;
 
 export interface Migration {
   version: number;
@@ -146,7 +146,41 @@ CREATE TABLE settings_kv (
 INSERT INTO settings_kv(key, value) VALUES ('store_id', lower(hex(randomblob(16))));
 `;
 
-export const MIGRATIONS: readonly Migration[] = [{ version: 1, sql: V1 }];
+// Interim approvals (Task 1.13): a record of what mk approved, never an authorization. The
+// `authorizing` column is pinned to 0 by CHECK; the events table cannot be edited.
+const V2 = `
+CREATE TABLE approvals (
+  approval_id TEXT PRIMARY KEY,
+  decision_id TEXT NOT NULL UNIQUE REFERENCES decisions(id),
+  option_id TEXT NOT NULL,
+  pick_id TEXT NOT NULL,
+  account TEXT NOT NULL,
+  kind TEXT NOT NULL CHECK (kind IN ('merge','deploy','release')),
+  target TEXT NOT NULL,
+  identity TEXT NOT NULL,
+  minted_at TEXT NOT NULL,
+  expires_at TEXT NOT NULL,
+  revoked_at TEXT,
+  authorizing INTEGER NOT NULL DEFAULT 0 CHECK (authorizing = 0)
+);
+CREATE INDEX approvals_tuple ON approvals(kind, target, identity);
+CREATE TABLE approval_events (
+  seq INTEGER PRIMARY KEY AUTOINCREMENT,
+  at TEXT NOT NULL,
+  type TEXT NOT NULL CHECK (type IN ('minted','checked','revoked')),
+  approval_id TEXT,
+  detail_json TEXT NOT NULL
+);
+CREATE TRIGGER approval_events_no_update BEFORE UPDATE ON approval_events
+BEGIN SELECT RAISE(ABORT, 'approval_events is append-only'); END;
+CREATE TRIGGER approval_events_no_delete BEFORE DELETE ON approval_events
+BEGIN SELECT RAISE(ABORT, 'approval_events is append-only'); END;
+`;
+
+export const MIGRATIONS: readonly Migration[] = [
+  { version: 1, sql: V1 },
+  { version: 2, sql: V2 },
+];
 
 const META = `CREATE TABLE IF NOT EXISTS schema_meta (key TEXT PRIMARY KEY, value INTEGER NOT NULL)`;
 

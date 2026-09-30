@@ -280,6 +280,7 @@ function HomePage() {
           <AsksPanel
             data={asks}
             onOpen={(thread) => push({ id: `thread:${thread}`, kind: "thread", title: thread, ref: thread })}
+            onRevoke={(approval_id) => void rpc.call("revokeApproval", { approval_id }).then(refetch, () => {})}
             onPick={(decision_id, option_id, revision) => {
               picks.send((req) => rpc.call("pick", req) as never, { decision_id, option_id, revision }, refetch).then(refetch, () => {});
             }}

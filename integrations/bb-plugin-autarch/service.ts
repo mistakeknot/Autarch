@@ -5,7 +5,7 @@ import { createHash, randomUUID } from "node:crypto";
 import { buildFeed, renderFeed, type Feed } from "./feed.js";
 import { identity, normalizedJson, parseAsk, revision, semanticKey, type Ask } from "./model.js";
 import { estateRoot, pinRoot, renderRuling, rulingPath, writeRuling, type PinnedRoot, type Ruling } from "./ruling.js";
-import type { DecisionInput, ObligationInput, ObligationRow, PickRow, Store } from "./store.js";
+import type { DecisionInput, ObligationInput, ObligationRow, PickInput, PickRow, Store } from "./store.js";
 
 export interface ProjectInfo {
   name: string;
@@ -50,6 +50,8 @@ type Row = Record<string, unknown> & {
 };
 
 const RECONCILE_MS = 30_000;
+const APPROVAL_DEFAULT_TTL = 24 * 3600;
+const APPROVAL_MAX_TTL = 7 * 24 * 3600;
 const fail = (status: number, error: string, exit: 1 | 2 | 3 = status >= 500 ? 3 : 1): FileResult => ({ ok: false, status, exit, error });
 const bad = (error: string): FileResult => ({ ok: false, status: 400, exit: 2, error });
 const message = (e: unknown) => (e instanceof Error ? e.message : String(e));
@@ -334,10 +336,22 @@ export class Service {
         payload: this.wakePayload(d, ask, option.label, option.kind ?? "", option.instruction ?? "", by),
       });
     }
+    // Only mk's own pick mints, and it does so in the pick's transaction. A record is not an authorization.
+    let approval: PickInput["approval"];
+    if (by === "mk" && option.approval) {
+      const ttl = option.approval.ttl && option.approval.ttl > 0 ? option.approval.ttl : APPROVAL_DEFAULT_TTL;
+      approval = {
+        approval_id: `apr:${this.newId()}`,
+        kind: option.approval.kind,
+        target: option.approval.target,
+        identity: option.approval.identity,
+        expires_at: new Date(Date.parse(this.now()) + Math.min(ttl, APPROVAL_MAX_TTL) * 1000).toISOString(),
+      };
+    }
     let res;
     try {
       res = this.store.recordPick(
-        { decision_id: decisionId, pick_id: pickId, option_id: optionId, revision: rev, by, surface, reason: reason ?? null, params_hash: hash },
+        { decision_id: decisionId, pick_id: pickId, option_id: optionId, revision: rev, by, surface, reason: reason ?? null, params_hash: hash, approval },
         obligations,
       );
     } catch (e) {
@@ -362,6 +376,20 @@ export class Service {
       this.deps.nudge?.();
     }
     return { ok: true, status: 201, pick: this.store.pick(decisionId)! };
+  }
+
+  /** Read a recorded approval. Always `authorizing: false`; there is no way to spend or consume one. */
+  approvalCheck(kind: string, target: string, identity: string) {
+    const r = this.store.checkApproval(kind, target, identity);
+    return {
+      status: r.status,
+      authorizing: false as const,
+      ...(r.approval ? { approval_id: r.approval.approval_id, minted_at: r.approval.minted_at, expires_at: r.approval.expires_at, revoked_at: r.approval.revoked_at } : {}),
+    };
+  }
+
+  revokeApproval(approvalId: string) {
+    return this.store.revokeApproval(approvalId);
   }
 
   /** "Done" on a steps ask: one steps-done notice per recipient (asker and mentioners), all in the pick's transaction. */

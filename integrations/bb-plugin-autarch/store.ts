@@ -63,9 +63,36 @@ export interface PickInput {
   reason?: string | null;
   picked_at?: string;
   params_hash?: string | null;
+  /** Mint this record in the pick's transaction; the caller passes it only for mk's pick. */
+  approval?: ApprovalMint;
 }
 
-export interface PickRow extends Required<Omit<PickInput, "reason" | "params_hash">> {
+export interface ApprovalMint {
+  approval_id: string;
+  kind: string;
+  target: string;
+  identity: string;
+  expires_at: string;
+}
+
+export type ApprovalStatus = "recorded" | "expired" | "revoked" | "absent";
+
+export interface ApprovalRow {
+  approval_id: string;
+  decision_id: string;
+  option_id: string;
+  pick_id: string;
+  account: string;
+  kind: string;
+  target: string;
+  identity: string;
+  minted_at: string;
+  expires_at: string;
+  revoked_at: string | null;
+  authorizing: number;
+}
+
+export interface PickRow extends Required<Omit<PickInput, "reason" | "params_hash" | "approval">> {
   reason: string | null;
   params_hash: string | null;
 }
@@ -446,6 +473,7 @@ export class Store {
 
   /** Insert the pick and its obligations and one event in one transaction [C-3] [C-5]. */
   recordPick(p: PickInput, obligations: ObligationInput[] = []): PickResult {
+    const { approval, ...pickParams } = p;
     return this.tx((): PickResult => {
       const at = p.picked_at ?? this.now();
       const ins = this.db
@@ -458,9 +486,10 @@ export class Store {
              AND NOT EXISTS (SELECT 1 FROM picks k WHERE k.decision_id = d.id)
              AND NOT EXISTS (SELECT 1 FROM decisions r WHERE r.supersedes = d.id)`,
         )
-        .run({ reason: null, params_hash: null, ...p, at });
+        .run({ reason: null, params_hash: null, ...pickParams, at });
       if (ins.changes === 1) {
         this.hook("pick-inserted");
+        if (approval) this.mintApproval(p, approval, at);
         this.insertObligationRows(p.decision_id, obligations, false);
         this.hook("obligations-inserted");
         this.event("picked", p.decision_id, { pick_id: p.pick_id, option_id: p.option_id, by: p.by });
@@ -477,6 +506,56 @@ export class Store {
       if (existing || d?.resolved_at) return { ok: false, reason: "already-ruled", existing };
       return { ok: false, reason: "stale" };
     });
+  }
+
+  // ---- approvals (interim, never authorizing) -------------------------------
+
+  private approvalEvent(type: "minted" | "checked" | "revoked", approvalId: string | null, detail: unknown): void {
+    this.db
+      .prepare("INSERT INTO approval_events(at, type, approval_id, detail_json) VALUES (?, ?, ?, ?)")
+      .run(this.now(), type, approvalId, JSON.stringify(detail));
+  }
+
+  /** Runs inside the pick's transaction, after the pick row exists. */
+  private mintApproval(p: PickInput, a: ApprovalMint, at: string): void {
+    this.db
+      .prepare(
+        `INSERT INTO approvals(approval_id, decision_id, option_id, pick_id, account, kind, target, identity, minted_at, expires_at)
+         VALUES (@approval_id, @decision_id, @option_id, @pick_id, @by, @kind, @target, @identity, @at, @expires_at)`,
+      )
+      .run({ ...a, decision_id: p.decision_id, option_id: p.option_id, pick_id: p.pick_id, by: p.by, at });
+    this.approvalEvent("minted", a.approval_id, { decision_id: p.decision_id, kind: a.kind, target: a.target, identity: a.identity, expires_at: a.expires_at });
+    this.hook("approval-minted");
+  }
+
+  /** Read the newest record for a tuple and append a `checked` event. Reads only; nothing is spent. */
+  checkApproval(kind: string, target: string, identity: string): { status: ApprovalStatus; approval?: ApprovalRow } {
+    return this.tx(() => {
+      const row = this.db
+        .prepare("SELECT * FROM approvals WHERE kind = ? AND target = ? AND identity = ? ORDER BY minted_at DESC, rowid DESC LIMIT 1")
+        .get(kind, target, identity) as ApprovalRow | undefined;
+      const status: ApprovalStatus = !row ? "absent" : row.revoked_at ? "revoked" : Date.parse(row.expires_at) <= Date.parse(this.now()) ? "expired" : "recorded";
+      this.approvalEvent("checked", row?.approval_id ?? null, { kind, target, identity, status });
+      return row ? { status, approval: row } : { status };
+    });
+  }
+
+  revokeApproval(approvalId: string): { ok: true; already: boolean } | { ok: false; reason: "unknown" } {
+    return this.tx(() => {
+      const row = this.db.prepare("SELECT * FROM approvals WHERE approval_id = ?").get(approvalId) as ApprovalRow | undefined;
+      if (!row) return { ok: false as const, reason: "unknown" as const };
+      if (row.revoked_at) return { ok: true as const, already: true };
+      this.db.prepare("UPDATE approvals SET revoked_at = ? WHERE approval_id = ? AND revoked_at IS NULL").run(this.now(), approvalId);
+      this.approvalEvent("revoked", approvalId, { decision_id: row.decision_id });
+      return { ok: true as const, already: false };
+    });
+  }
+
+  /** Approvals that could still be acted on (not revoked, not expired), newest first, for Home. */
+  liveApprovals(): ApprovalRow[] {
+    return this.db
+      .prepare("SELECT * FROM approvals WHERE revoked_at IS NULL AND expires_at > ? ORDER BY minted_at DESC, rowid DESC")
+      .all(this.now()) as ApprovalRow[];
   }
 
   // ---- obligations --------------------------------------------------------

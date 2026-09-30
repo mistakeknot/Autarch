@@ -269,6 +269,7 @@ export function wireHome(bb: BbPluginApi, handle: StoreHandle, cfg: HomeConfig, 
         undeliverable: p.svc.undeliverable(),
         failures: p.svc.failures(),
         uncertain: p.svc.wakes().filter((o) => o.state === "uncertain"),
+        approvals: p.store.liveApprovals(),
         delegation: { settings: p.dele.settings(), suspended: item !== undefined && !p.store.hasSeen(MK, item) },
         machineOwners,
       };
@@ -286,6 +287,9 @@ export function wireHome(bb: BbPluginApi, handle: StoreHandle, cfg: HomeConfig, 
       const r = need().dele.override(i.decision_id, {});
       if (r.ok) need().caches.invalidate();
       return r;
+    },
+    async revokeApproval(i: { approval_id: string }) {
+      return need().svc.revokeApproval(i.approval_id);
     },
     async setDelegation(i: { vizierThreadId: string; projects: string[]; dailyCap: number }) {
       return need().dele.setDelegation(i, {});

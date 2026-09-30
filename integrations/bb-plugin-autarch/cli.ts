@@ -178,6 +178,19 @@ export function homeCli(p: HomeCliParts) {
         },
       }),
 
+      "approval check": cliCommand({
+        summary: "Read whether mk recorded an approval for a tuple. A record is never an authorization.",
+        options: {
+          kind: { type: "enum", values: ["merge", "deploy", "release"], required: true, description: "merge, deploy or release." },
+          target: { type: "string", required: true, description: "What was approved, for example owner/repo#12." },
+          identity: { type: "string", required: true, description: "The exact head, digest or version that was approved." },
+        },
+        run({ options }) {
+          // Reads only. Nothing here can spend a record, by design.
+          return out(svc.approvalCheck(options.kind, options.target, options.identity));
+        },
+      }),
+
       note: cliCommand({
         summary: "Vizier only: leave a note for mk that cites existing facts",
         positionals: [{ name: "text", description: "The note.", required: true }],

@@ -1,6 +1,8 @@
 // The Asks view: what is stalled, what mk must decide, the runbook, and what is merely waiting.
 
-export type Option = { id: string; label: string; kind: string; reversible?: boolean; instruction?: string };
+export type ApprovalSpec = { kind: string; target: string; identity: string; ttl?: number };
+export type Option = { id: string; label: string; kind: string; reversible?: boolean; instruction?: string; approval?: ApprovalSpec };
+export type ApprovalRecord = { approval_id: string; decision_id: string; kind: string; target: string; identity: string; minted_at: string; expires_at: string };
 export type OwedAsk = {
   id: string;
   project: string;
@@ -25,6 +27,7 @@ export type AsksData = {
   failures: Obl[];
   uncertain: Obl[];
   delegation: Delegation;
+  approvals?: ApprovalRecord[];
   machineOwners: Record<string, string>;
 };
 
@@ -47,6 +50,13 @@ export function buildAsksView(d: AsksData): Section[] {
   return sections.filter((s) => s.items.length > 0);
 }
 
+/** How long a recorded approval lasts, said before mk picks. ttl 0 or absent means the 24 h default. */
+export function approvalExpiry(ttl: number | undefined): string {
+  const s = ttl && ttl > 0 ? ttl : 86_400;
+  const text = s > 86_400 && s % 86_400 === 0 ? `${s / 86_400} d` : s % 3600 === 0 ? `${s / 3600} h` : s % 60 === 0 ? `${s / 60} min` : `${s} s`;
+  return `expires ${text} after you pick`;
+}
+
 export function AskCard({ ask, onPick, onOpen }: { ask: OwedAsk; onPick: (decisionId: string, optionId: string, revision: string) => void; onOpen: (thread: string) => void }) {
   const n = ask.mentions ?? 0;
   return (
@@ -60,6 +70,11 @@ export function AskCard({ ask, onPick, onOpen }: { ask: OwedAsk; onPick: (decisi
       <ul className="mt-3 space-y-2">
         {ask.ask.options.map((o) => (
           <li key={o.id} className="rounded border border-border p-2" data-reversible={o.reversible === true ? "true" : "false"}>
+            {o.approval ? (
+              <p className="mb-1 text-xs" data-approval={o.approval.kind}>
+                {`Records your approval to ${o.approval.kind} ${o.approval.target} at ${o.approval.identity}; ${approvalExpiry(o.approval.ttl)}. This is a record only and does not authorize anything.`}
+              </p>
+            ) : null}
             <div className="flex items-center gap-2 text-sm">
               <button type="button" className="font-medium underline" onClick={() => onPick(ask.id, o.id, ask.revision)}>{o.label}</button>
               <span className="text-xs text-muted-foreground">{o.kind}</span>
@@ -79,10 +94,28 @@ export function AskCard({ ask, onPick, onOpen }: { ask: OwedAsk; onPick: (decisi
   );
 }
 
-export function AsksPanel({ data, onPick, onOpen }: { data: AsksData; onPick: (d: string, o: string, r: string) => void; onOpen: (thread: string) => void }) {
+export function ApprovalsList({ approvals, onRevoke }: { approvals: ApprovalRecord[]; onRevoke: (approvalId: string) => void }) {
+  return (
+    <section data-section="approvals">
+      <h2 className="mb-2 text-xs font-semibold uppercase text-muted-foreground">Recorded approvals</h2>
+      <p className="mb-2 text-xs text-muted-foreground">Records of what you approved. They do not authorize a merge, deploy or release.</p>
+      <ul className="space-y-2">
+        {approvals.map((a) => (
+          <li key={a.approval_id} className="rounded border border-border p-2 text-sm" data-approval-id={a.approval_id}>
+            {`${a.kind} ${a.target} at ${a.identity}, expires ${a.expires_at}`}
+            <button type="button" className="ml-2 text-xs underline" onClick={() => onRevoke(a.approval_id)}>Revoke</button>
+          </li>
+        ))}
+      </ul>
+    </section>
+  );
+}
+
+export function AsksPanel({ data, onPick, onOpen, onRevoke }: { data: AsksData; onPick: (d: string, o: string, r: string) => void; onOpen: (thread: string) => void; onRevoke?: (approvalId: string) => void }) {
   const view = buildAsksView(data);
   const byId = new Map(data.owed.map((o) => [o.id, o]));
-  if (view.length === 0) return <p className="p-4 text-sm text-muted-foreground">Nothing needs you.</p>;
+  const approvals = data.approvals ?? [];
+  if (view.length === 0 && approvals.length === 0) return <p className="p-4 text-sm text-muted-foreground">Nothing needs you.</p>;
   return (
     <div className="space-y-6 p-4">
       {view.map((s) => (
@@ -102,6 +135,7 @@ export function AsksPanel({ data, onPick, onOpen }: { data: AsksData; onPick: (d
           </div>
         </section>
       ))}
+      {approvals.length > 0 ? <ApprovalsList approvals={approvals} onRevoke={onRevoke ?? (() => {})} /> : null}
     </div>
   );
 }
