@@ -6,12 +6,13 @@
 // as a string without a YAML dependency.
 //
 // The writer pins the project root the way `serve` resolved it at filing (path plus
-// dev and ino). Node has no openat, so a swap between the lstat checks and the write is
-// possible for a process running as the same user. That residual is the same-user risk
-// accepted in [D21], and is stated in the README.
+// dev and ino) and works through directory descriptors (see writeRuling). On Linux the
+// same-user swap race is closed; without /proc a residual window remains [D21].
 import {
   closeSync,
   constants,
+  existsSync,
+  fstatSync,
   fsyncSync,
   lstatSync,
   mkdirSync,
@@ -217,6 +218,66 @@ function checkRoot(root: PinnedRoot, when: string): void {
 
 export type WriteOutcome = { path: string; written: boolean };
 
+// Node has no openat. On Linux `/proc/self/fd/N/name` resolves `name` relative to the
+// directory that descriptor N holds, whatever the path that directory was opened by
+// has since become, so every step below is anchored to a descriptor whose identity was
+// verified with fstat. Each directory is opened O_NOFOLLOW|O_DIRECTORY, so a symlink
+// in the final position is refused by the kernel rather than by a prior lstat. Where
+// /proc is not available (macOS) the steps fall back to paths and the same-user swap
+// window between steps stays open; that residual is stated in the README [D21].
+const PROC_FD = existsSync("/proc/self/fd");
+
+function at(fd: number, dirPath: string, name: string): string {
+  return PROC_FD ? `/proc/self/fd/${fd}/${name}` : join(dirPath, name);
+}
+
+function sameIdentity(fd: number, root: PinnedRoot): boolean {
+  const st = fstatSync(fd, { bigint: true });
+  return st.isDirectory() && String(st.dev) === root.dev && String(st.ino) === root.ino;
+}
+
+function openRoot(root: PinnedRoot, when: string): number {
+  let fd: number;
+  try {
+    fd = openSync(root.path, constants.O_RDONLY | constants.O_DIRECTORY | constants.O_NOFOLLOW);
+  } catch {
+    throw new RulingWriteError("root-changed", `project root changed ${when}`);
+  }
+  if (!sameIdentity(fd, root)) {
+    closeSync(fd);
+    throw new RulingWriteError("root-changed", `project root changed ${when}`);
+  }
+  return fd;
+}
+
+/** Open (creating when missing) `comp` under the directory held by `parent`. */
+function openChildDir(parent: number, parentPath: string, comp: string): number {
+  const p = at(parent, parentPath, comp);
+  const flags = constants.O_RDONLY | constants.O_DIRECTORY | constants.O_NOFOLLOW;
+  for (let attempt = 0; attempt < 2; attempt++) {
+    try {
+      return openSync(p, flags);
+    } catch (e) {
+      const code = (e as NodeJS.ErrnoException).code;
+      if (code === "ENOENT" && attempt === 0) {
+        try {
+          mkdirSync(p, { mode: 0o755 });
+        } catch (m) {
+          if ((m as NodeJS.ErrnoException).code !== "EEXIST") throw m;
+        }
+        continue;
+      }
+      if (code === "ELOOP" || code === "ENOTDIR") {
+        const st = lstatSync(p, { throwIfNoEntry: false });
+        if (st?.isSymbolicLink()) throw new RulingWriteError("symlink", `${join(parentPath, comp)} is a symlink; refusing to write through it`);
+        throw new RulingWriteError("not-directory", `${join(parentPath, comp)} is not a directory`);
+      }
+      throw e;
+    }
+  }
+  throw new RulingWriteError("not-directory", `${join(parentPath, comp)} could not be opened`);
+}
+
 /**
  * Write `content` at root/dirs.../file through the pinned root. Idempotent: the same
  * path with the same bytes is a no-op; the same path with different bytes is refused.
@@ -226,58 +287,69 @@ export function writeRuling(root: PinnedRoot, dirs: string[], file: string, cont
   for (const d of dirs) {
     if (!/^[A-Za-z0-9._-]+$/.test(d) || d === "." || d === "..") throw new RulingWriteError("bad-name", `unsafe directory ${j(d)}`);
   }
-  // 1. the saved root, unchanged since filing
-  checkRoot(root, "since filing");
-  // 2. walk one component at a time, refusing symlinks, creating what is missing
-  let dir = root.path;
-  for (const comp of dirs) {
-    dir = join(dir, comp);
-    let st = lstatSync(dir, { throwIfNoEntry: false });
-    if (!st) {
+  const fds: number[] = [];
+  try {
+    // 1. the saved root, opened without following and checked by identity
+    let cur = openRoot(root, "since filing");
+    fds.push(cur);
+    // 2. walk one component at a time, each opened relative to the verified parent
+    let dir = root.path;
+    for (const comp of dirs) {
+      cur = openChildDir(cur, dir, comp);
+      fds.push(cur);
+      dir = join(dir, comp);
+    }
+    const target = join(dir, file);
+    const bytes = Buffer.from(content, "utf8");
+    // existing file: opened no-follow relative to the directory descriptor
+    let efd: number | undefined;
+    try {
+      efd = openSync(at(cur, dir, file), constants.O_RDONLY | constants.O_NOFOLLOW);
+    } catch (e) {
+      const code = (e as NodeJS.ErrnoException).code;
+      if (code === "ELOOP") throw new RulingWriteError("symlink", `${target} exists and is not a regular file`);
+      if (code !== "ENOENT") throw e;
+    }
+    if (efd !== undefined) {
       try {
-        mkdirSync(dir, { mode: 0o755 });
-      } catch (e) {
-        if ((e as NodeJS.ErrnoException).code !== "EEXIST") throw e;
+        if (!fstatSync(efd).isFile()) throw new RulingWriteError("symlink", `${target} exists and is not a regular file`);
+        if (readFileSync(efd).equals(bytes)) return { path: target, written: false };
+        throw new RulingWriteError("exists-different", `${target} exists with different content`);
+      } finally {
+        closeSync(efd);
       }
-      st = lstatSync(dir);
     }
-    if (st.isSymbolicLink()) throw new RulingWriteError("symlink", `${dir} is a symlink; refusing to write through it`);
-    if (!st.isDirectory()) throw new RulingWriteError("not-directory", `${dir} is not a directory`);
-  }
-  const target = join(dir, file);
-  const bytes = Buffer.from(content, "utf8");
-  const existing = lstatSync(target, { throwIfNoEntry: false });
-  if (existing) {
-    if (!existing.isFile()) throw new RulingWriteError("symlink", `${target} exists and is not a regular file`);
-    if (readFileSync(target).equals(bytes)) return { path: target, written: false };
-    throw new RulingWriteError("exists-different", `${target} exists with different content`);
-  }
-  // 3. temp file, no follow, exclusive; fsync; rename into place
-  const tmp = join(dir, `.tmp-${process.pid}-${randomBytes(6).toString("hex")}`);
-  const fd = openSync(tmp, constants.O_CREAT | constants.O_EXCL | constants.O_WRONLY | constants.O_NOFOLLOW, 0o644);
-  try {
+    // 3. temp file, no follow, exclusive; fsync; rename inside the verified directory
+    const tmpName = `.tmp-${process.pid}-${randomBytes(6).toString("hex")}`;
+    const tmp = at(cur, dir, tmpName);
+    const fd = openSync(tmp, constants.O_CREAT | constants.O_EXCL | constants.O_WRONLY | constants.O_NOFOLLOW, 0o644);
     try {
-      writeSync(fd, bytes);
-      fsyncSync(fd);
-    } finally {
-      closeSync(fd);
+      try {
+        writeSync(fd, bytes);
+        fsyncSync(fd);
+      } finally {
+        closeSync(fd);
+      }
+      renameSync(tmp, at(cur, dir, file));
+    } catch (e) {
+      try {
+        unlinkSync(tmp);
+      } catch {
+        /* already gone */
+      }
+      throw e;
     }
-    renameSync(tmp, target);
-  } catch (e) {
-    try {
-      unlinkSync(tmp);
-    } catch {
-      /* already gone */
-    }
-    throw e;
-  }
-  const dfd = openSync(dir, constants.O_RDONLY | constants.O_DIRECTORY);
-  try {
-    fsyncSync(dfd);
+    fsyncSync(cur);
+    // 4. the root path must still name the same directory, and so must the pinned fd
+    checkRoot(root, "during the write");
+    return { path: target, written: true };
   } finally {
-    closeSync(dfd);
+    for (const f of fds) {
+      try {
+        closeSync(f);
+      } catch {
+        /* closed */
+      }
+    }
   }
-  // 4. the root must still be the same directory
-  checkRoot(root, "during the write");
-  return { path: target, written: true };
 }
