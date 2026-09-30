@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { Delegation } from "../delegation.js";
 import type { Service } from "../service.js";
-import { framed, WakeLoop } from "../wakes.js";
+import { framed, sdkAdapter, WakeLoop } from "../wakes.js";
 import { ask, makeEnv, type Env } from "./service-helpers.js";
 import { archived, econnrefused, FakeSdk, netError } from "./wakes-helpers.js";
 
@@ -557,5 +557,21 @@ describe("override interleavings, live [D-3] [G-2]", () => {
     await loop.drain();
     expect(sdk.deletes).toEqual([handle]);
     expect(noticeSends()).toHaveLength(1);
+  });
+});
+
+describe("sdkAdapter against the real threads.send contract", () => {
+  it("sends input as an array of text parts, not a string (bb rejects strings; found by the real-bb run)", async () => {
+    const seen: unknown[] = [];
+    const threads = {
+      send: async (a: { input: unknown }) => {
+        seen.push(a.input);
+        return { delivery: "sent" };
+      },
+      queuedMessages: { list: async () => [], delete: async () => undefined },
+      events: { list: async () => [] },
+    };
+    await sdkAdapter(threads as never).send({ threadId: "thr_x", input: "hello", mode: "queue-if-active" });
+    expect(seen).toEqual([[{ type: "text", text: "hello" }]]);
   });
 });

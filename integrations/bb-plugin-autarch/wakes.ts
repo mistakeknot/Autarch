@@ -397,7 +397,7 @@ const textOf = (parts: unknown): string =>
 
 /** The slice of bb.sdk.threads the adapter uses. */
 export interface ThreadsLike {
-  send(a: { threadId: string; input: string; mode?: string }): Promise<unknown>;
+  send(a: { threadId: string; input: readonly { type: "text"; text: string }[]; mode?: string }): Promise<unknown>;
   queuedMessages: {
     list(a: { threadId: string }): Promise<unknown>;
     delete(a: { threadId: string; queuedMessageId: string }): Promise<unknown>;
@@ -417,7 +417,7 @@ export function sdkAdapter(threads: ThreadsLike): WakeSdk {
   };
   return {
     async send(a) {
-      const r = (await threads.send({ threadId: a.threadId, input: a.input, mode: a.mode })) as {
+      const r = (await threads.send({ threadId: a.threadId, input: [{ type: "text", text: a.input }], mode: a.mode })) as {
         delivery: "sent" | "queued";
         queuedMessage?: { id: string };
         messageId?: string;
