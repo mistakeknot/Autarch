@@ -45,7 +45,7 @@ describe("wireHome", () => {
     const handle = createStoreHandle(() => db, {});
     const f = fakeBb();
     const home = wireHome(f.bb, handle, cfg, { serve });
-    expect(await home.handlers.listAsks(null)).toMatchObject({ owed: [] });
+    expect(await home.handlers.listAsks(null)).toMatchObject({ owed: [], uncertain: [], delegation: { suspended: false }, machineOwners: {} });
     const h = (await home.handlers.health(null)) as { ready: boolean; build: unknown; source_sha256: unknown; projects: unknown };
     expect(h).toMatchObject({ ready: true, build: { commit: "abc" }, projects: [] });
     expect(await home.handlers.catchup(null)).toMatchObject({ items: [] });

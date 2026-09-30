@@ -9,15 +9,25 @@
 // `npx shadcn add @bb/<name>` (see components.json) — dropdowns, tables,
 // the full shadcn set, version-matched to this BB install. Run
 // `npm install` once before `bb plugin build`.
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import type { FormEvent, ReactNode } from "react";
-import { definePluginApp, useRealtime, useRpc } from "@get-bb/plugin-sdk/app";
+import { definePluginApp, useBbNavigate, useRealtime, useRpc } from "@get-bb/plugin-sdk/app";
 import type { rpcContract, Todo } from "./server";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Icon } from "@/components/ui/icon";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
+import { AsksPanel, PickController } from "./ui/asks.js";
+import type { AsksData } from "./ui/asks.js";
+import { CatchupPanel, SeenTracker, snapshotIds } from "./ui/catchup.js";
+import type { CatchupEntry } from "./ui/catchup.js";
+import { MapPlaceholder } from "./ui/map-placeholder.js";
+import type { Lens } from "./ui/map-placeholder.js";
+import { SettingsPanel } from "./ui/settings.js";
+import { keyAction, layoutStack, stackReducer, StackView } from "./ui/stack.js";
+import type { Panel, StackState } from "./ui/stack.js";
+import { ThreadPanel, VizierPanel } from "./ui/vizier.js";
 
 /** The todo list, kept current by the server's "todos-changed" signal. */
 function useTodos() {
@@ -180,12 +190,175 @@ function TodosPage() {
   );
 }
 
+const POLL_MS = 10_000;
+
+/** The server publishes no realtime channel for Home, so the page polls and refetches after each action. */
+function useHomeData() {
+  const rpc = useRpc<typeof rpcContract>();
+  const [asks, setAsks] = useState<AsksData | null>(null);
+  const [catchup, setCatchup] = useState<CatchupEntry[]>([]);
+  const [health, setHealth] = useState<{ ready: boolean } | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const refetch = useCallback(() => {
+    Promise.all([rpc.call("listAsks"), rpc.call("catchup"), rpc.call("health")]).then(
+      ([a, c, h]) => {
+        setAsks(a as unknown as AsksData);
+        setCatchup((c as { items: CatchupEntry[] }).items);
+        setHealth(h as { ready: boolean });
+        setError(null);
+      },
+      (cause) => setError(cause instanceof Error ? cause.message : String(cause)),
+    );
+  }, [rpc]);
+  useEffect(() => {
+    refetch();
+    const t = setInterval(refetch, POLL_MS);
+    return () => clearInterval(t);
+  }, [refetch]);
+  return { rpc, asks, catchup, health, error, refetch };
+}
+
+function HomePage() {
+  const { rpc, asks, catchup, error, refetch } = useHomeData();
+  const nav = useBbNavigate();
+  const [stack, setStack] = useState<StackState>({ panels: [{ id: "asks", kind: "decision", title: "Asks" }], width: "third" });
+  const [expanded, setExpanded] = useState<Set<string>>(new Set());
+  const [lens, setLens] = useState<Lens>("attention");
+  const picks = useMemo(() => new PickController(() => crypto.randomUUID()), []);
+  const tracker = useMemo(() => new SeenTracker((item) => void rpc.call("markSeen", { item }).then(refetch, () => {})), [rpc, refetch]);
+  const dispatch = (a: Parameters<typeof stackReducer>[1]) => setStack((s) => stackReducer(s, a));
+  const push = (panel: Panel) => dispatch({ type: "push", panel });
+
+  useEffect(() => {
+    const sync = () => tracker.setActive(document.visibilityState === "visible" && document.hasFocus());
+    sync();
+    document.addEventListener("visibilitychange", sync);
+    window.addEventListener("focus", sync);
+    window.addEventListener("blur", sync);
+    return () => {
+      document.removeEventListener("visibilitychange", sync);
+      window.removeEventListener("focus", sync);
+      window.removeEventListener("blur", sync);
+    };
+  }, [tracker]);
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      const el = e.target as HTMLElement | null;
+      const editable = !!el && (el.isContentEditable || ["INPUT", "TEXTAREA", "SELECT"].includes(el.tagName));
+      const intent = keyAction(e.key, { editable });
+      if (!intent) return;
+      if (intent.type === "close") dispatch({ type: "close" });
+      else if (intent.type === "width") dispatch(intent);
+      else if (intent.type === "lens") setLens((["attention", "allocation", "dependencies", "neglect"] as const)[intent.lens - 1]!);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
+
+  const toggle = (item: string, members?: string[]) => {
+    setExpanded((prev) => {
+      const next = new Set(prev);
+      if (next.has(item)) {
+        next.delete(item);
+        tracker.collapse(item);
+      } else {
+        next.add(item);
+        tracker.expand(item, members);
+      }
+      return next;
+    });
+  };
+
+  const render = (panel: Panel): ReactNode => {
+    switch (panel.id) {
+      case "asks":
+        return asks === null ? (
+          <EmptyState>{error ?? "Loading asks…"}</EmptyState>
+        ) : (
+          <AsksPanel
+            data={asks}
+            onOpen={(thread) => push({ id: `thread:${thread}`, kind: "thread", title: thread, ref: thread })}
+            onPick={(decision_id, option_id, revision) => {
+              picks.send((req) => rpc.call("pick", req) as never, { decision_id, option_id, revision }, refetch).then(refetch, () => {});
+            }}
+          />
+        );
+      case "catchup":
+        return (
+          <CatchupPanel
+            items={catchup}
+            expanded={expanded}
+            onToggle={toggle}
+            onOverride={(decision_id) => void rpc.call("override", { decision_id }).then(refetch, () => {})}
+            onMarkAll={() => {
+              const ids = snapshotIds(catchup, expanded, new Set(catchup.map((c) => c.item)));
+              if (ids.length > 0) void rpc.call("markAllSeen", { ids }).then(refetch, () => {});
+            }}
+          />
+        );
+      case "vizier":
+        return <VizierPanel threadId={asks?.delegation.settings.vizierThreadId} />;
+      case "settings":
+        return asks === null ? null : (
+          <SettingsPanel delegation={asks.delegation} machineOwners={asks.machineOwners} onSave={(v) => void rpc.call("setDelegation", v).then(refetch, () => {})} />
+        );
+      case "map":
+        return <MapPlaceholder lens={lens} onLens={setLens} />;
+      default:
+        return panel.ref ? <ThreadPanel threadId={panel.ref} /> : null;
+    }
+  };
+
+  return (
+    <div className="flex h-full min-h-0 flex-1 flex-col">
+      <nav className="flex gap-3 border-b border-border px-4 py-2 text-sm">
+        {(
+          [
+            ["asks", "decision", "Asks"],
+            ["catchup", "catchup", "Catch-up"],
+            ["vizier", "vizier", "Vizier"],
+            ["map", "map", "Map"],
+            ["settings", "settings", "Settings"],
+          ] as const
+        ).map(([id, kind, title]) => (
+          <button key={id} type="button" className="underline-offset-2 hover:underline" onClick={() => push({ id, kind, title })}>
+            {title}
+          </button>
+        ))}
+        <button type="button" className="ml-auto text-muted-foreground" onClick={() => nav.toPluginPanel("example-todos")}>
+          Todos
+        </button>
+      </nav>
+      <StackView placed={layoutStack(stack)} render={render} onExpand={push} />
+    </div>
+  );
+}
+
+/** Sidebar badge: the owed count, or "!" when serve is not ready or a machine blocker has no owner. */
+function HomeBadge() {
+  const { asks, health } = useHomeData();
+  const blocked = health !== null && !health.ready;
+  const unowned = asks?.asks.some((a) => a.owner === null) ?? false;
+  const n = asks?.owed.length ?? 0;
+  if (blocked || unowned) return <span aria-label="needs attention">!</span>;
+  return n > 0 ? <span>{n}</span> : null;
+}
+
 // The default export must be definePluginApp(...); BB interprets it after
 // loading the bundle. navPanel adds a page to the left sidebar; register
 // other UI under app.slots and composer actions, plus-menu rows, banners, or
 // rich-text rules with app.composer.customize(...) (see the bb guide's
 // plugins chapter).
 export default definePluginApp((app) => {
+  app.slots.navPanel({
+    id: "autarch-home",
+    title: "Home",
+    icon: "House",
+    path: "home",
+    component: HomePage,
+    experimental_sidebarAccessory: HomeBadge,
+  });
   app.slots.navPanel({
     id: "example-todos",
     title: "Example todos",

@@ -238,8 +238,25 @@ export function wireHome(bb: BbPluginApi, handle: StoreHandle, cfg: HomeConfig, 
         filed_at: d.filed_at,
         revision: d.revision,
         ask: parseAsk(JSON.parse(d.body_json)),
+        mentions: p.store.mentions(d.id).length,
       }));
-      return { owed: rows, runbook: p.asks.runbook(), ...p.asks.lists(), undeliverable: p.svc.undeliverable(), failures: p.svc.failures() };
+      let machineOwners: unknown = {};
+      try {
+        machineOwners = JSON.parse(p.store.setting("machineOwners") ?? "{}");
+      } catch {
+        /* unreadable: show none */
+      }
+      const item = p.dele.latestSettingsItem();
+      return {
+        owed: rows,
+        runbook: p.asks.runbook(),
+        ...p.asks.lists(),
+        undeliverable: p.svc.undeliverable(),
+        failures: p.svc.failures(),
+        uncertain: p.svc.wakes().filter((o) => o.state === "uncertain"),
+        delegation: { settings: p.dele.settings(), suspended: item !== undefined && !p.store.hasSeen(MK, item) },
+        machineOwners,
+      };
     },
     async listRecent(i: { project: string; limit: number }) {
       return { recent: need().svc.recent(i.project, i.limit) };
