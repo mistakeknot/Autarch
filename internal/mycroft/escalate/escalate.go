@@ -77,6 +77,7 @@ type DecisionQueue struct {
 	filer  homeask.Filer
 	lister homeask.Lister
 	root   string
+	roots  RootResolver
 	filed  map[string]bool
 	rows   []homeask.ListRow
 	readAt time.Time
@@ -174,21 +175,30 @@ func priorityToSeverity(priority int) Severity {
 	}
 }
 
-const (
-	homeCacheTTL = 10 * time.Second
-	defaultRoot  = "/home/mk/projects"
-)
+const homeCacheTTL = 10 * time.Second
 
-// SetHome connects the queue to Home. filer and lister may each be nil. root
-// is the absolute project_root used for filed asks.
+// RootResolver maps a project label ("estate" for none) to the exact project name and
+// root Home resolves for it. Home rejects an ask whose project or root differs.
+type RootResolver func(project string) (name, root string, err error)
+
+// SetHome connects the queue to Home with one fixed project_root for every ask (tests
+// and single-project setups). Without a root nothing is filed: Home would reject a
+// guessed one.
 func (q *DecisionQueue) SetHome(f homeask.Filer, l homeask.Lister, root string) {
 	q.mu.Lock()
 	defer q.mu.Unlock()
-	q.filer, q.lister = f, l
-	if root == "" {
-		root = defaultRoot
+	q.filer, q.lister, q.root, q.roots = f, l, root, nil
+	if q.filed == nil {
+		q.filed = map[string]bool{}
 	}
-	q.root = root
+}
+
+// SetHomeRoots connects the queue to Home and resolves each ask's project name and
+// root through roots, as Home does.
+func (q *DecisionQueue) SetHomeRoots(f homeask.Filer, l homeask.Lister, roots RootResolver) {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	q.filer, q.lister, q.root, q.roots = f, l, "", roots
 	if q.filed == nil {
 		q.filed = map[string]bool{}
 	}
@@ -246,7 +256,7 @@ func projectOf(labels []string) string {
 // repeat is a no-op. Without a filer it only queues locally.
 func (q *DecisionQueue) AddPending(p PendingDecision) error {
 	q.mu.Lock()
-	f, root := q.filer, q.root
+	f, root, roots := q.filer, q.root, q.roots
 	q.mu.Unlock()
 	if f == nil {
 		q.Add(p.Agent, p.BeadID, p.BeadTitle, p.Priority, p.Reasoning)
@@ -260,6 +270,16 @@ func (q *DecisionQueue) AddPending(p PendingDecision) error {
 		return nil
 	}
 	q.mu.Unlock()
+	if roots != nil {
+		name, r, err := roots(project)
+		if err != nil {
+			return fmt.Errorf("not filed: no Home root for project %q: %w", project, err)
+		}
+		project, root = name, r
+	}
+	if root == "" {
+		return fmt.Errorf("not filed: no project_root for project %q", project)
+	}
 	q_ := fmt.Sprintf("Mycroft suggests %s on %s: %s. Should it?", p.Agent, p.BeadID, p.BeadTitle)
 	if p.Reasoning != "" {
 		q_ += "\nWhy: " + p.Reasoning

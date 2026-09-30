@@ -59,15 +59,47 @@ func TestAddPendingFilesOnceWithRulingOnlyOptions(t *testing.T) {
 	}
 }
 
-func TestAddPendingDefaultsProjectToEstate(t *testing.T) {
+func TestAddPendingWithoutARootFilesNothingInsteadOfGuessing(t *testing.T) {
 	f := &fakeFiler{}
 	q := NewDecisionQueue()
 	q.SetHome(f, nil, "")
-	if err := q.AddPending(PendingDecision{Agent: "a", BeadID: "b1", BeadTitle: "t"}); err != nil {
+	err := q.AddPending(PendingDecision{Agent: "a", BeadID: "b1", BeadTitle: "t"})
+	if err == nil || len(f.asks) != 0 {
+		t.Fatalf("filed with a made-up root: err=%v asks=%+v", err, f.asks)
+	}
+}
+
+func TestAddPendingUsesTheResolvedProjectNameAndRoot(t *testing.T) {
+	f := &fakeFiler{}
+	q := NewDecisionQueue()
+	var asked []string
+	q.SetHomeRoots(f, nil, func(project string) (string, string, error) {
+		asked = append(asked, project)
+		if project == "estate" {
+			return "estate", "/srv/uqbar", nil
+		}
+		return "Demarch", "/real/projects/Demarch", nil
+	})
+	if err := q.AddPending(PendingDecision{Agent: "a", BeadID: "b1", BeadTitle: "t", Labels: []string{"project:demarch"}}); err != nil {
 		t.Fatal(err)
 	}
-	if f.asks[0].Project != "estate" || f.asks[0].ProjectRoot == "" || f.asks[0].ProjectRoot[0] != '/' {
-		t.Errorf("bad defaults: %+v", f.asks[0])
+	if err := q.AddPending(PendingDecision{Agent: "a", BeadID: "b2", BeadTitle: "t"}); err != nil {
+		t.Fatal(err)
+	}
+	if f.asks[0].Project != "Demarch" || f.asks[0].ProjectRoot != "/real/projects/Demarch" {
+		t.Errorf("project ask: %+v", f.asks[0])
+	}
+	if f.asks[1].Project != "estate" || f.asks[1].ProjectRoot != "/srv/uqbar" {
+		t.Errorf("estate ask: %+v", f.asks[1])
+	}
+}
+
+func TestAddPendingFilesNothingWhenTheRootCannotBeResolved(t *testing.T) {
+	f := &fakeFiler{}
+	q := NewDecisionQueue()
+	q.SetHomeRoots(f, nil, func(string) (string, string, error) { return "", "", errors.New("no such project") })
+	if err := q.AddPending(PendingDecision{Agent: "a", BeadID: "b1", BeadTitle: "t", Labels: []string{"project:x"}}); err == nil || len(f.asks) != 0 {
+		t.Fatalf("err=%v asks=%+v", err, f.asks)
 	}
 }
 

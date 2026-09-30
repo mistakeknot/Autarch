@@ -11,6 +11,7 @@ import (
 	"text/tabwriter"
 	"time"
 
+	bconfig "github.com/mistakeknot/autarch/internal/bigend/config"
 	"github.com/mistakeknot/autarch/internal/homeask"
 	"github.com/mistakeknot/autarch/internal/mycroft"
 	"github.com/mistakeknot/autarch/internal/mycroft/escalate"
@@ -18,6 +19,7 @@ import (
 	"github.com/mistakeknot/autarch/internal/mycroft/scheduler"
 	"github.com/mistakeknot/autarch/internal/mycroft/spawn"
 	"github.com/mistakeknot/autarch/internal/mycroft/tier"
+	"github.com/mistakeknot/autarch/internal/serve"
 	"github.com/mistakeknot/autarch/pkg/fleet"
 	"github.com/spf13/cobra"
 )
@@ -86,9 +88,40 @@ func buildOrchestrator(db *sql.DB, spawner scheduler.AgentSpawner, cfg mycroft.C
 	orch := scheduler.NewOrchestrator(db, spawner, cfg, "demarch")
 	q := escalate.NewDecisionQueue()
 	ef := &homeask.ExecFiler{}
-	q.SetHome(ef, ef, os.Getenv("AUTARCH_HOME_PROJECT_ROOT"))
+	var dirs []string
+	if c, err := bconfig.Load(""); err == nil {
+		dirs = c.Discovery.ScanRoots
+	}
+	q.SetHomeRoots(ef, ef, homeRoots(dirs, os.Getenv("AUTARCH_UQBAR_DIR")))
 	orch.SetQueue(q)
 	return orch
+}
+
+// homeRoots resolves an ask's project the way Home does: the name and root come from the
+// serve project list (a bead label is lowercase, so it matches case-insensitively and an
+// ambiguous match is refused); "estate" uses the Uqbar directory.
+func homeRoots(dirs []string, uqbar string) escalate.RootResolver {
+	res := serve.NewResolver(dirs)
+	return func(project string) (string, string, error) {
+		if project == "estate" {
+			if uqbar == "" {
+				return "", "", fmt.Errorf("AUTARCH_UQBAR_DIR is not set")
+			}
+			return "estate", uqbar, nil
+		}
+		var name, root string
+		n := 0
+		for _, p := range res.Projects() {
+			if strings.EqualFold(p.Name, project) {
+				name, root = p.Name, p.Root
+				n++
+			}
+		}
+		if n != 1 {
+			return "", "", fmt.Errorf("%d serve projects match", n)
+		}
+		return name, root, nil
+	}
 }
 
 var runCmd = &cobra.Command{
