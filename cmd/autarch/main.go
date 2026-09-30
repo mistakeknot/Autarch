@@ -86,6 +86,7 @@ Available tools:
 	root.AddCommand(eventsCmd())
 	root.AddCommand(planstatus.NewCommand())
 	root.AddCommand(statusCmd())
+	root.AddCommand(serveCmd())
 
 	if err := root.Execute(); err != nil {
 		os.Exit(1)
