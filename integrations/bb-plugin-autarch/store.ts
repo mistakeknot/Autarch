@@ -232,6 +232,15 @@ export class Store {
     );
   }
 
+  /** Record that an account has seen an item (a ruling, a settings change). Idempotent. */
+  markSeen(account: string, itemId: string, at: string = this.now()): void {
+    this.db.prepare("INSERT OR IGNORE INTO seen(account, item_id, seen_at) VALUES (?, ?, ?)").run(account, itemId, at);
+  }
+
+  hasSeen(account: string, itemId: string): boolean {
+    return !!this.db.prepare("SELECT 1 FROM seen WHERE account = ? AND item_id = ?").get(account, itemId);
+  }
+
   registry(requestId: string): RegistryRow | undefined {
     return this.db.prepare("SELECT * FROM requests WHERE request_id = ?").get(requestId) as
       | RegistryRow

@@ -108,6 +108,11 @@ export class Service {
     return this.now();
   }
 
+  /** A fresh decision id from the service's source. */
+  mintId(): string {
+    return this.newId();
+  }
+
   /** Let a delivery loop run without waiting for its timer. */
   nudge(): void {
     this.deps.nudge?.();
@@ -402,6 +407,11 @@ export class Service {
   /** A snapshot taken at pick time, so the wake never depends on rows that may change later. */
   private wakePayload(d: Row, ask: Ask, label: string, kind: string, instruction: string, by: string): string {
     const lines: string[] = [];
+    if (by === "vizier") {
+      lines.push(
+        `The vizier ruled on your decision ${d.id} in mk's place (you marked this option reversible). mk may override it. This is not merge, deploy, release or publish authorization.`,
+      );
+    }
     const over = this.store.overriddenRuling(d.id);
     if (over) lines.push(`This supersedes the vizier's ruling on ${over.decision_id}.`);
     lines.push(`Ruling on ${d.id}${d.subject ? ` (${d.subject})` : ""}: ${by} picked ${JSON.stringify(label)} [${kind}].`);
