@@ -133,16 +133,14 @@ export class Service {
     }
   }
 
-  /** The owner's one notice, idempotent by op, so a replayed filing repairs a crash between the two writes. */
-  private ensureOwnerNotice(decisionId: string): void {
-    const d = this.row(decisionId);
-    if (!d || d.kind !== "machine" || !d.owner_thread) return;
-    const ask = this.askOf(d);
-    this.store.insertObligations(decisionId, [
+  /** The owner's one notice, built for the filing's own transaction. */
+  private ownerNotice(decisionId: string, ask: Ask, owner: string | null): ObligationInput[] {
+    if (ask.kind !== "machine" || !owner) return [];
+    return [
       {
         id: `ob:${decisionId}:owner`,
         kind: "owner",
-        recipient: d.owner_thread,
+        recipient: owner,
         op: `owner:${decisionId}`,
         payload: [
           `Machine blocker ${decisionId} (${ask.machine?.class ?? ""}) is yours: ${ask.machine?.detail ?? ""}`,
@@ -150,13 +148,11 @@ export class Service {
           `Before acting, confirm with \`bb home get --id ${decisionId}\` that this blocker is still open.`,
         ].join("\n"),
       },
-    ]);
+    ];
   }
 
-  async file(req: unknown, ctx: { threadId?: string } = {}): Promise<FileResult> {
-    const out = await this.fileInner(req, ctx);
-    if (out.ok && !out.mentioned) this.ensureOwnerNotice(out.decision_id);
-    return out;
+  file(req: unknown, ctx: { threadId?: string } = {}): Promise<FileResult> {
+    return this.fileInner(req, ctx);
   }
 
   private async fileInner(req: unknown, ctx: { threadId?: string } = {}): Promise<FileResult> {
@@ -236,7 +232,7 @@ export class Service {
       if (twin) return this.mentionOf(ask, id, twin.id, requestId);
     }
 
-    const res = this.store.insertDecision(base);
+    const res = this.store.insertDecision({ ...base, obligations: this.ownerNotice(base.id, ask, base.owner_thread ?? null) });
     if (!res.inserted) return this.replay(res.existing, id);
     const related = this.db
       .prepare(

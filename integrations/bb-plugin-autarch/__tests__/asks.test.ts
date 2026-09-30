@@ -105,6 +105,30 @@ describe("the machine lane", () => {
     expect(wakesFor("thr-a")).toEqual([]);
   });
 
+  it("the owner notice is in the filing's own transaction: a crash after the decision row leaves no blocker", async () => {
+    let boom = false;
+    const crashing = env.open({});
+    (crashing.store as unknown as { hook: (s: string) => void }).hook = (step: string) => {
+      if (boom && step === "obligation-row") throw new Error("crash");
+    };
+    boom = true;
+    await expect(crashing.file(machineAsk({}, { owner_thread: "thr-own" }), {})).rejects.toThrow("crash");
+    boom = false;
+    expect(svc.store.db.prepare("SELECT COUNT(*) AS n FROM decisions").get()).toEqual({ n: 0 });
+    expect(svc.store.db.prepare("SELECT COUNT(*) AS n FROM requests").get()).toEqual({ n: 0 });
+  });
+
+  it("a retry of the filing after the blocker resolved inserts no stale owner notice", async () => {
+    const req = machineAsk({}, { owner_thread: "thr-own" });
+    const m = await fileId(req);
+    asks.resolve(m, "runner replaced", { threadId: "thr-own" });
+    // as if the notice had never been written
+    svc.store.db.prepare("DELETE FROM obligations WHERE op = ?").run(`owner:${m}`);
+    const again = await svc.file(req, {});
+    expect(again).toMatchObject({ ok: true, decision_id: m });
+    expect(obs(m).some((o) => o.op === `owner:${m}`)).toBe(false);
+  });
+
   it("a blocker with no owner is in Asks as an unowned machine blocker and wakes nobody", async () => {
     const m = await fileId(machineAsk());
     const l = asks.lists();

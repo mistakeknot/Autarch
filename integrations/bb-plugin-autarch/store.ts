@@ -33,6 +33,8 @@ export interface DecisionInput {
   body_json: string;
   supersedes?: string | null;
   delegable?: boolean;
+  /** Inserted in the filing's own transaction (an owner notice), so it exists exactly when the decision does. */
+  obligations?: ObligationInput[];
   at?: string;
 }
 
@@ -336,6 +338,7 @@ export class Store {
       if (reg.changes === 0) return { inserted: false, existing: this.registry(d.request_id)! };
       this.hook("registry-inserted");
       this.insertDecisionRow(d, at);
+      if (d.obligations?.length) this.insertObligationRows(d.id, d.obligations, false);
       this.event("filed", d.id, { request_id: d.request_id, kind: d.kind });
       return { inserted: true, decision_id: d.id };
     });
@@ -359,6 +362,7 @@ export class Store {
         owner_thread: null,
         supersedes: null,
         ...d,
+        obligations: undefined,
         delegable: d.delegable === false ? 0 : 1,
         at,
       });
