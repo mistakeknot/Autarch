@@ -154,3 +154,13 @@ same `store_id`. To reset, stop the plugin and delete the plugin's `data.db` (pl
 The nightly event export writes immutable segments to
 `~/.autarch/home-export/<store_id>/events-<first_seq>-<last_seq>.jsonl`, outside the
 plugin folder, so it outlives removal. A reset database exports into a new directory.
+
+## Ruling files and the same-user residual
+
+Rulings are written under the project root that `serve` resolved at filing, through a
+root-pinned writer (`ruling.ts`): it checks the saved root's `dev` and `ino`, walks
+`docs/decisions` refusing symlinks, writes a temp file with `O_NOFOLLOW`, fsyncs and
+renames it, then re-checks the root. Node has no `openat`, so a process running as the
+same user can still swap a path between two of those steps. That is the same-user risk
+accepted in the plan's `[D21]`; the writer defends against a different-origin symlink or
+a replaced root, not against a hostile process running as mk.
