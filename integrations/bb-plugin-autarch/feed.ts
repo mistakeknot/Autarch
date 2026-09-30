@@ -146,3 +146,94 @@ export function buildFeed(db: Database.Database, project: string, thread: string
   }
   return { own: own.slice(0, MAX_LINES), project: proj.slice(0, MAX_LINES) };
 }
+
+// ---- agent configuration text [D-17] ---------------------------------------------
+
+const CONFIGURE_HEADER = "Recent rulings (label only):";
+const CONFIGURE_NOTE = [
+  "When you need mk, end your turn with an ask: run `bb home ask --request-stdin` with one line of JSON.",
+  "Options default to needs-context.",
+  "Give an option an `instruction` when you know what you'd do if mk picks it, and mark it `reversible` only if undoing it is cheap and local; never for a push, merge, deploy or release.",
+  "If your question is already answered above, do not file it again.",
+].join(" ");
+
+/**
+ * The instructions a thread starts with: header, own lines, project lines, then the filing note.
+ * Whole lines only, at most `budget` UTF-16 units; the oldest project lines go first, then own lines.
+ */
+export function renderConfigure(own: FeedLine[], project: FeedLine[], budget: number = FEED_BUDGET): string {
+  const parts = [CONFIGURE_HEADER];
+  let used = CONFIGURE_HEADER.length + 1 + CONFIGURE_NOTE.length;
+  const mine = new Set(own.map((l) => l.decision));
+  for (const l of [...own, ...project.filter((p) => !mine.has(p.decision))]) {
+    const text = renderLine(l);
+    if (used + 1 + text.length > budget) break;
+    parts.push(text);
+    used += 1 + text.length;
+  }
+  parts.push(CONFIGURE_NOTE);
+  return parts.join("\n");
+}
+
+const NO_THREAD = "\u0000";
+
+/**
+ * Two caches over the store: project lines shared by every thread of a project, and own lines
+ * per thread. A miss builds from the store, so a thread starting before any refresh still sees
+ * its project's rulings. `invalidate` (after a pick or override) and `refresh` (every 30 s)
+ * keep them current; `configure` itself is synchronous, as `bb.agents.configure` requires.
+ */
+export class FeedCaches {
+  private readonly project = new Map<string, FeedLine[]>();
+  private readonly own = new Map<string, FeedLine[]>();
+
+  constructor(
+    private readonly db: () => Database.Database,
+    private readonly now: () => number,
+  ) {}
+
+  private projectLines(project: string): FeedLine[] {
+    let v = this.project.get(project);
+    if (!v) {
+      v = buildFeed(this.db(), project, NO_THREAD, this.now()).project;
+      this.project.set(project, v);
+    }
+    return v;
+  }
+
+  private ownLines(project: string, thread: string): FeedLine[] {
+    const key = `${project}\u0001${thread}`;
+    let v = this.own.get(key);
+    if (!v) {
+      v = buildFeed(this.db(), project, thread, this.now()).own;
+      this.own.set(key, v);
+    }
+    return v;
+  }
+
+  /** Drop everything; the next configure rebuilds from the store. */
+  invalidate(): void {
+    this.project.clear();
+    this.own.clear();
+  }
+
+  /** Rebuild every cache that has been asked for. */
+  refresh(): void {
+    const projects = [...this.project.keys()];
+    const owns = [...this.own.keys()];
+    this.invalidate();
+    for (const p of projects) this.projectLines(p);
+    for (const k of owns) {
+      const [p, t] = k.split("\u0001") as [string, string];
+      this.ownLines(p, t);
+    }
+  }
+
+  /** Instructions for a thread of a project, or undefined when both caches are empty. */
+  configure(project: string, thread: string): string | undefined {
+    const own = this.ownLines(project, thread);
+    const proj = this.projectLines(project);
+    if (own.length === 0 && proj.length === 0) return undefined;
+    return renderConfigure(own, proj);
+  }
+}

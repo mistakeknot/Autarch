@@ -9,10 +9,22 @@
 // agents how to use that command. A write from any surface publishes a realtime signal so
 // every open page refetches.
 import { randomUUID } from "node:crypto";
+import { homedir } from "node:os";
+import { join } from "node:path";
 import { defineRpcContract, type BbPluginApi } from "@get-bb/plugin-sdk";
 import { z } from "zod";
+import { homeMethods } from "./contract.js";
+import { Asks } from "./asks.js";
+import { Catchup } from "./catchup.js";
+import { homeCli } from "./cli.js";
+import { Delegation } from "./delegation.js";
 import { exportEvents } from "./export.js";
-import { createStoreHandle, type StoreHandle } from "./store.js";
+import { FeedCaches } from "./feed.js";
+import { parseAsk } from "./model.js";
+import { ServeClient, ServeSupervisor, tokenReader } from "./serve.js";
+import { Service } from "./service.js";
+import { createStoreHandle, type Store, type StoreHandle } from "./store.js";
+import { sdkAdapter, WakeLoop, type ThreadsLike } from "./wakes.js";
 
 const todoSchema = z.object({
   id: z.string(),
@@ -25,6 +37,7 @@ export type Todo = z.infer<typeof todoSchema>;
 // Both schemas run at the wire boundary. Handler input/output are inferred
 // from the shared contract; app.tsx imports only its type.
 export const rpcContract = defineRpcContract({
+  ...homeMethods,
   todos_list: {
     input: z.null(),
     output: z.object({ todos: z.array(todoSchema) }),
@@ -84,9 +97,211 @@ export function wireStore(bb: BbPluginApi): StoreHandle {
   return handle;
 }
 
+export interface HomeConfig {
+  serveAddr: string;
+  serveTokenFile: string;
+  serveProjectDirs: string[];
+  autarchBin: string;
+}
+
+const FEED_REFRESH_MS = 30_000;
+const SERVE_CHECK_MS = 15_000;
+const MK = "mk";
+
+const sleep = (ms: number, signal: AbortSignal) =>
+  new Promise<void>((resolve) => {
+    if (signal.aborted) return resolve();
+    const timer = setTimeout(resolve, ms);
+    signal.addEventListener("abort", () => (clearTimeout(timer), resolve()), { once: true });
+  });
+
+interface Parts {
+  store: Store;
+  svc: Service;
+  asks: Asks;
+  dele: Delegation;
+  catchup: Catchup;
+  loop: WakeLoop;
+  caches: FeedCaches;
+}
+
+/**
+ * Home wiring (Task 1.7). Everything that needs the store waits for the handle to be ready;
+ * until then RPC handlers refuse with "not ready" and the feed injects nothing. Returns the
+ * RPC handlers so the caller registers them together with the other contract methods.
+ */
+export function wireHome(bb: BbPluginApi, handle: StoreHandle, cfg: HomeConfig, deps: { serve?: ServeClient } = {}) {
+  const serve = deps.serve ?? new ServeClient({ addr: cfg.serveAddr, readToken: tokenReader(cfg.serveTokenFile) });
+  let parts: Parts | null = null;
+  const need = (): Parts => {
+    if (!parts) throw new Error(`home store not ready${handle.error() ? `: ${handle.error()}` : ""}`);
+    return parts;
+  };
+
+  handle.onReady((store) => {
+    if (parts) return;
+    // The nudge closes over `parts` so a pick or override wakes the loop and refreshes the feed.
+    const nudge = () => {
+      parts?.caches.invalidate();
+      void parts?.loop.nudge();
+    };
+    const svc = new Service({ store, projects: () => serve.projects(), nudge });
+    const dele = new Delegation(svc);
+    const asks = new Asks(svc);
+    const catchup = new Catchup(svc, dele);
+    const loop = new WakeLoop(svc, sdkAdapter(bb.sdk.threads as unknown as ThreadsLike));
+    const caches = new FeedCaches(() => store.db, () => Date.now());
+    parts = { store, svc, asks, dele, catchup, loop, caches };
+    svc.start();
+  });
+  bb.onDispose(() => parts?.svc.stop());
+
+  // ---- CLI ----------------------------------------------------------------------
+  const lazy = <T extends object>(pick: (p: Parts) => T): T =>
+    new Proxy({} as T, { get: (_t, k) => (pick(need()) as Record<string | symbol, unknown>)[k] });
+  bb.cli.register(
+    homeCli({
+      svc: lazy((p) => p.svc),
+      asks: lazy((p) => p.asks),
+      catchup: lazy((p) => p.catchup),
+      rule: (id, option, reason, ctx) => need().dele.rule(id, option, reason, ctx),
+      isVizier: (t) => t !== undefined && parts !== null && parts.dele.settings().vizierThreadId === t,
+    }),
+  );
+
+  // ---- events -------------------------------------------------------------------
+  const guard = (name: string, fn: () => unknown) => {
+    try {
+      const r = fn();
+      if (r instanceof Promise) r.catch((e) => bb.log.warn(`${name}: ${e instanceof Error ? e.message : String(e)}`));
+    } catch (e) {
+      bb.log.warn(`${name}: ${e instanceof Error ? e.message : String(e)}`);
+    }
+  };
+  bb.events.on("message.dispatched", ({ entry }) => guard("message.dispatched", () => parts?.loop.onQueueEvent({ type: "dispatched", id: entry.id })));
+  bb.events.on("message.cancelled", ({ entry }) => guard("message.cancelled", () => parts?.loop.onQueueEvent({ type: "cancelled", id: entry.id })));
+  bb.events.on("thread.archived", ({ thread }) => guard("thread.archived", () => parts?.loop.onThreadGone(thread.id)));
+  bb.events.on("thread.deleted", ({ thread }) => guard("thread.deleted", () => parts?.loop.onThreadGone(thread.id)));
+  bb.events.on("turn.failed", (e) => guard("turn.failed", () => parts?.catchup.recordTurnFailed(e.threadId, e.requestId)));
+
+  // ---- feed injection -------------------------------------------------------------
+  bb.agents.configure((ctx) => {
+    const text = parts?.caches.configure(ctx.project.name, ctx.thread.id);
+    return text === undefined ? { tools: [], skills: [] } : { tools: [], skills: [], instructions: text };
+  });
+
+  // ---- background -----------------------------------------------------------------
+  bb.background.service("home-wakes", {
+    async start(signal) {
+      while (!signal.aborted && !parts) await sleep(1000, signal);
+      if (parts) await parts.loop.start(signal);
+    },
+  });
+  bb.background.service("home-feed-refresh", {
+    async start(signal) {
+      while (!signal.aborted) {
+        await sleep(FEED_REFRESH_MS, signal);
+        guard("feed-refresh", () => parts?.caches.refresh());
+      }
+    },
+  });
+  const supervisor = new ServeSupervisor({
+    addr: cfg.serveAddr,
+    bin: cfg.autarchBin,
+    tokenFile: cfg.serveTokenFile,
+    projectDirs: cfg.serveProjectDirs,
+    health: () => serve.healthy(),
+  });
+  bb.background.service("home-serve", {
+    async start(signal) {
+      while (!signal.aborted) {
+        try {
+          await supervisor.check();
+        } catch (e) {
+          bb.log.warn(`serve supervisor: ${e instanceof Error ? e.message : String(e)}`);
+        }
+        await sleep(SERVE_CHECK_MS, signal);
+      }
+    },
+  });
+
+  // ---- RPC ------------------------------------------------------------------------
+  const handlers = {
+    async listAsks(_: null) {
+      const p = need();
+      const rows = p.svc.owed().map((d) => ({
+        id: d.id,
+        project: d.project,
+        thread: d.thread,
+        subject: d.subject,
+        asker: d.asker,
+        filed_at: d.filed_at,
+        revision: d.revision,
+        ask: parseAsk(JSON.parse(d.body_json)),
+      }));
+      return { owed: rows, runbook: p.asks.runbook(), ...p.asks.lists(), undeliverable: p.svc.undeliverable(), failures: p.svc.failures() };
+    },
+    async listRecent(i: { project: string; limit: number }) {
+      return { recent: need().svc.recent(i.project, i.limit) };
+    },
+    async pick(i: { decision_id: string; option_id: string; revision: string; pick_id: string; reason?: string }) {
+      return need().svc.pick(i.decision_id, i.option_id, i.revision, i.pick_id, MK, "home", i.reason);
+    },
+    async dismiss(i: { decision_id: string; obligation_id: string }) {
+      return need().svc.dismiss(i.decision_id, i.obligation_id);
+    },
+    async override(i: { decision_id: string }) {
+      const r = need().dele.override(i.decision_id, {});
+      if (r.ok) need().caches.invalidate();
+      return r;
+    },
+    async setDelegation(i: { vizierThreadId: string; projects: string[]; dailyCap: number }) {
+      return need().dele.setDelegation(i, {});
+    },
+    async resend(i: { id: string; attempt: number; click_id: string }) {
+      const p = need();
+      const r = p.loop.resend(i.id, i.attempt, i.click_id);
+      if (r.ok) void p.loop.nudge();
+      return r;
+    },
+    async markSeen(i: { item: string }) {
+      need().dele.markSeen(MK, i.item);
+      return { ok: true };
+    },
+    async markAllSeen(i: { ids: string[] }) {
+      return { marked: need().catchup.markAllSeen(i.ids) };
+    },
+    async catchup(_: null) {
+      return { items: need().catchup.items() };
+    },
+    async stats(i: { days: number }) {
+      const p = need();
+      return p.svc.stats(new Date(Date.parse(p.svc.time()) - i.days * 86_400_000).toISOString());
+    },
+    async health(_: null) {
+      let projects: unknown;
+      let projectsError: string | undefined;
+      try {
+        projects = await serve.projects();
+      } catch (e) {
+        projectsError = e instanceof Error ? e.message : String(e);
+      }
+      let build: unknown = null;
+      try {
+        build = (await serve.health()).build ?? null;
+      } catch {
+        /* serve down: build stays null */
+      }
+      // source_sha256 is computed at load over the plugin root in Task 1.10.
+      return { ready: handle.ready(), error: handle.error(), source_sha256: null, build, projects: projects ?? null, projects_error: projectsError ?? null };
+    },
+  };
+  return { handlers };
+}
+
 export default async function plugin(bb: BbPluginApi) {
   bb.log.info("loaded");
-  wireStore(bb);
+  const handle = wireStore(bb);
 
   // Declarative settings — rendered in BB's settings UI and editable with
   // `bb plugin config autarch`. Add `secret: true` for values like API keys.
@@ -99,6 +314,21 @@ export default async function plugin(bb: BbPluginApi) {
     },
   });
   const { showDone } = await settings.get();
+
+  // The Home surfaces: RPC handlers, the `bb home` CLI, wakes, feed injection, serve link.
+  const homeSettings = bb.settings.define({
+    serveAddr: { type: "string", label: "autarch serve address", default: "127.0.0.1:8110" },
+    serveTokenFile: { type: "string", label: "autarch serve token file", default: "" },
+    serveProjectDirs: { type: "string", label: "Project scan roots (comma separated; empty uses Bigend's)", default: "" },
+    autarchBin: { type: "string", label: "autarch binary", default: "" },
+  });
+  const hs = await homeSettings.get();
+  const home = wireHome(bb, handle, {
+    serveAddr: hs.serveAddr || "127.0.0.1:8110",
+    serveTokenFile: hs.serveTokenFile || join(homedir(), ".autarch", "serve.token"),
+    serveProjectDirs: (hs.serveProjectDirs || "").split(",").map((d: string) => d.trim()).filter(Boolean),
+    autarchBin: hs.autarchBin || process.env.AUTARCH_BIN || "autarch",
+  });
 
   // Namespaced key-value storage in bb.db (JSON values, up to 256KB each).
   // For bigger or relational data use bb.storage.database().
@@ -142,6 +372,7 @@ export default async function plugin(bb: BbPluginApi) {
   }
 
   bb.rpc.register(rpcContract, {
+    ...home.handlers,
     todos_list: async () => ({ todos: await listTodos() }),
     todos_add: ({ title }) => addTodo(title),
     todos_set_done: async ({ id, done }) => {
@@ -150,93 +381,6 @@ export default async function plugin(bb: BbPluginApi) {
       return todo;
     },
     todos_remove: async ({ id }) => ({ removed: await removeTodo(id) }),
-  });
-
-  // The `bb autarch` command: what agents (and you) use from a shell. Parsing
-  // argv is plugin-owned; `commands` is metadata BB renders into help and
-  // the generated plugin-commands skill without running plugin code.
-  const usage = [
-    "Usage:",
-    "  bb autarch list [--json]",
-    "  bb autarch add <title> [--json]",
-    "  bb autarch done <todo-id> [--json]",
-    "  bb autarch undo <todo-id> [--json]",
-    "  bb autarch remove <todo-id> [--json]",
-  ].join("\n");
-  function formatTodo(todo: Todo): string {
-    return `[${todo.done ? "x" : " "}] ${todo.id}  ${todo.title}`;
-  }
-  bb.cli.register({
-    name: "autarch",
-    summary: "Manage the Autarch plugin's example todo list",
-    commands: [
-      { name: "list", summary: "List todos", usage: "bb autarch list [--json]" },
-      {
-        name: "add",
-        summary: "Add a todo",
-        usage: "bb autarch add <title> [--json]",
-      },
-      {
-        name: "done",
-        summary: "Mark a todo done",
-        usage: "bb autarch done <todo-id> [--json]",
-      },
-      {
-        name: "undo",
-        summary: "Mark a todo not done",
-        usage: "bb autarch undo <todo-id> [--json]",
-      },
-      {
-        name: "remove",
-        summary: "Remove a todo",
-        usage: "bb autarch remove <todo-id> [--json]",
-      },
-    ],
-    async run(argv) {
-      const json = argv.includes("--json");
-      const [command, ...args] = argv.filter((arg) => arg !== "--json");
-      const reply = (value: unknown, text: string) => ({
-        exitCode: 0,
-        stdout: json ? JSON.stringify(value) : text,
-      });
-      const notFound = (missingId: string) => ({
-        exitCode: 1,
-        stderr: `No todo with id ${missingId}. Run "bb autarch list" to see ids.`,
-      });
-      const todoId = args[0];
-      switch (command) {
-        case undefined:
-        case "help":
-        case "--help":
-          return { exitCode: 0, stdout: usage };
-        case "list": {
-          const todos = await listTodos();
-          return reply(
-            todos,
-            todos.length === 0 ? "No todos." : todos.map(formatTodo).join("\n"),
-          );
-        }
-        case "add": {
-          const title = args.join(" ").trim();
-          if (title === "") break;
-          const todo = await addTodo(title);
-          return reply(todo, `Added ${formatTodo(todo)}`);
-        }
-        case "done":
-        case "undo": {
-          if (todoId === undefined || args.length !== 1) break;
-          const todo = await setTodoDone(todoId, command === "done");
-          if (todo === null) return notFound(todoId);
-          return reply(todo, formatTodo(todo));
-        }
-        case "remove": {
-          if (todoId === undefined || args.length !== 1) break;
-          if (!(await removeTodo(todoId))) return notFound(todoId);
-          return reply({ removed: true, id: todoId }, `Removed ${todoId}`);
-        }
-      }
-      return { exitCode: 1, stderr: usage };
-    },
   });
 
   // Cleanup on reload/disable/shutdown; hooks run LIFO. The sanctioned place
