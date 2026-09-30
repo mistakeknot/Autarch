@@ -72,6 +72,11 @@ func (s *Server) setupRoutes() {
 	s.mux.HandleFunc("GET /ws/terminal/{id}", s.handleWebSocket)
 }
 
+// Handler returns the server's route mux so it can be mounted by another server.
+func (s *Server) Handler() http.Handler {
+	return s.mux
+}
+
 // Start starts the HTTP server
 func (s *Server) Start() error {
 	if err := netguard.EnsureLocalOnly(s.addr); err != nil {

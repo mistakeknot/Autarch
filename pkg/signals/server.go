@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/mistakeknot/autarch/pkg/httpapi"
@@ -15,6 +16,8 @@ type Server struct {
 	broker *Broker
 	mux    *http.ServeMux
 	srv    *http.Server
+
+	routesOnce sync.Once
 }
 
 // NewServer creates a new signals server.
@@ -47,10 +50,19 @@ func (s *Server) ListenAndServe(addr string) error {
 	return s.srv.ListenAndServe()
 }
 
+// Handler returns the server's route mux. Routes are registered once, so it is
+// safe to call repeatedly and alongside ListenAndServe.
+func (s *Server) Handler() http.Handler {
+	s.routes()
+	return s.mux
+}
+
 func (s *Server) routes() {
-	s.mux.HandleFunc("/health", s.handleHealth)
-	s.mux.HandleFunc("/ws", s.handleWS)
-	s.mux.HandleFunc("/api/signals", s.handlePublish)
+	s.routesOnce.Do(func() {
+		s.mux.HandleFunc("/health", s.handleHealth)
+		s.mux.HandleFunc("/ws", s.handleWS)
+		s.mux.HandleFunc("/api/signals", s.handlePublish)
+	})
 }
 
 func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {

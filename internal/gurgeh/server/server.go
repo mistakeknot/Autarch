@@ -6,6 +6,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/mistakeknot/autarch/internal/gurgeh/project"
@@ -20,6 +21,8 @@ type Server struct {
 	root string
 	mux  *http.ServeMux
 	srv  *http.Server
+
+	routesOnce sync.Once
 }
 
 func New(root string) *Server {
@@ -42,10 +45,19 @@ func (s *Server) ListenAndServe(addr string) error {
 	return s.srv.ListenAndServe()
 }
 
+// Handler returns the server's route mux. Routes are registered once, so it is
+// safe to call repeatedly and alongside ListenAndServe.
+func (s *Server) Handler() http.Handler {
+	s.routes()
+	return s.mux
+}
+
 func (s *Server) routes() {
-	s.mux.HandleFunc("/health", s.handleHealth)
-	s.mux.HandleFunc("/api/specs", s.handleSpecs)
-	s.mux.HandleFunc("/api/specs/", s.handleSpec)
+	s.routesOnce.Do(func() {
+		s.mux.HandleFunc("/health", s.handleHealth)
+		s.mux.HandleFunc("/api/specs", s.handleSpecs)
+		s.mux.HandleFunc("/api/specs/", s.handleSpec)
+	})
 }
 
 func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
