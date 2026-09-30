@@ -1,0 +1,542 @@
+{
+ "_comment": "Shared vectors for the Home ask protocol. Go (internal/homeask) and TypeScript (integrations/bb-plugin-autarch/model.ts) must both reproduce every output byte for byte.",
+ "asks": [
+  {
+   "identity": "dc351e71bc7a15734a7424f8b3827b0eed805f439cca927829b03e4477761e70",
+   "input": {
+    "v": 1,
+    "kind": "decide",
+    "project": "Autarch",
+    "project_root": "/home/mk/projects/Autarch",
+    "asker": "thread",
+    "thread": "thr_abc123",
+    "question": "Collapse per project or per day?",
+    "options": [
+     {
+      "label": "Per project"
+     },
+     {
+      "label": "Per day"
+     }
+    ]
+   },
+   "name": "minimal decide",
+   "normalized": "{\"ask_key\":\"collapse per project or per day?\",\"asker\":\"thread\",\"kind\":\"decide\",\"options\":[{\"id\":\"per-project\",\"kind\":\"needs-context\",\"label\":\"Per project\"},{\"id\":\"per-day\",\"kind\":\"needs-context\",\"label\":\"Per day\"}],\"project\":\"Autarch\",\"project_root\":\"/home/mk/projects/Autarch\",\"question\":\"Collapse per project or per day?\",\"request_id\":\"dc351e71bc7a15734a7424f8b3827b0eed805f439cca927829b03e4477761e70\",\"thread\":\"thr_abc123\",\"v\":1}",
+   "revision": "b19646f0d09b566ef59dc83a8c9ffddda8d5c4e526b5a6607784fe9dac74e556",
+   "semantic_key": ""
+  },
+  {
+   "identity": "f178b5542d9eaf7125e1505beebd0a0674ece887c6cf15acc3ed671f8442c3ef",
+   "input": {
+    "v": 1,
+    "kind": "decide",
+    "request_id": "req_7f3a",
+    "ask_key": "Catch-up   Collapse ORDER",
+    "subject": "Autarch/Catch-up:  Collapse Order",
+    "project": "Autarch",
+    "project_root": "/home/mk/projects/Autarch",
+    "asker": "thread",
+    "thread": "thr_abc123",
+    "question": "Collapse routine catch-up items per project or per day?",
+    "recommendation": "project",
+    "options": [
+     {
+      "id": "project",
+      "label": "Collapse per project",
+      "kind": "instruction",
+      "reversible": true,
+      "instruction": "On branch feat/bb-catchup, group routine catch-up items per project, run npm test, commit locally, and report. Do not push or merge."
+     },
+     {
+      "id": "day",
+      "label": "Collapse per day",
+      "kind": "instruction",
+      "reversible": true,
+      "instruction": "On branch feat/bb-catchup, group routine catch-up items per day, run npm test, commit locally, and report. Do not push or merge."
+     },
+     {
+      "id": "ask",
+      "label": "Show me both first",
+      "kind": "needs-context"
+     }
+    ]
+   },
+   "name": "full decide with instructions",
+   "normalized": "{\"ask_key\":\"catch-up collapse order\",\"asker\":\"thread\",\"kind\":\"decide\",\"options\":[{\"id\":\"project\",\"instruction\":\"On branch feat/bb-catchup, group routine catch-up items per project, run npm test, commit locally, and report. Do not push or merge.\",\"kind\":\"instruction\",\"label\":\"Collapse per project\",\"reversible\":true},{\"id\":\"day\",\"instruction\":\"On branch feat/bb-catchup, group routine catch-up items per day, run npm test, commit locally, and report. Do not push or merge.\",\"kind\":\"instruction\",\"label\":\"Collapse per day\",\"reversible\":true},{\"id\":\"ask\",\"kind\":\"needs-context\",\"label\":\"Show me both first\"}],\"project\":\"Autarch\",\"project_root\":\"/home/mk/projects/Autarch\",\"question\":\"Collapse routine catch-up items per project or per day?\",\"recommendation\":\"project\",\"request_id\":\"req_7f3a\",\"subject\":\"autarch/catch-up: collapse order\",\"thread\":\"thr_abc123\",\"v\":1}",
+   "revision": "8be7991c84963c5887c0ddf253bec10161f293c03e6ad46af6befdcb505e0701",
+   "semantic_key": "32dd70ba3d024b79825c5f1d7dcaf68312cc06ce7b3a03bae66f800fad07737f"
+  },
+  {
+   "identity": "0687b0e0a15fa0e9929b866dbffd05ec108c64a041f501d8ffc77de0f856475f",
+   "input": {
+    "v": 1,
+    "kind": "decide",
+    "subject": "Café 😀",
+    "project": "P",
+    "project_root": "/r",
+    "asker": "thread",
+    "thread": "t1",
+    "question": "Café 😀 <ok> & \"quoted\"  ?",
+    "options": [
+     {
+      "label": "Oui 😀",
+      "id": "oui"
+     },
+     {
+      "label": "Non",
+      "id": "non"
+     }
+    ]
+   },
+   "name": "NFC and non-BMP text",
+   "normalized": "{\"ask_key\":\"café 😀 <ok> & \\\"quoted\\\" \u2028?\",\"asker\":\"thread\",\"kind\":\"decide\",\"options\":[{\"id\":\"oui\",\"kind\":\"needs-context\",\"label\":\"Oui 😀\"},{\"id\":\"non\",\"kind\":\"needs-context\",\"label\":\"Non\"}],\"project\":\"P\",\"project_root\":\"/r\",\"question\":\"Café 😀 <ok> & \\\"quoted\\\" \u2028?\",\"request_id\":\"0687b0e0a15fa0e9929b866dbffd05ec108c64a041f501d8ffc77de0f856475f\",\"subject\":\"café 😀\",\"thread\":\"t1\",\"v\":1}",
+   "revision": "ddc361be20d201ec511adc9dd570f3ce6ee902e17941a5e309c51a771fa796db",
+   "semantic_key": "63402bf87d54c3a1b25e7ecee0aa52273a3765fa56e6995d5d3bcbe41e339a98"
+  },
+  {
+   "identity": "2b4cd60e1893bae520fe829e3009667b07586ed5214b5efa743f3e5581740d36",
+   "input": {
+    "v": 1,
+    "kind": "steps",
+    "subject": "needs mk",
+    "project": "P",
+    "project_root": "/r",
+    "asker": "thread",
+    "thread": "t1",
+    "question": "Two things only mk can do",
+    "steps": [
+     "Turn on Tailscale",
+     "Paste the token into 1Password"
+    ]
+   },
+   "name": "steps ask",
+   "normalized": "{\"ask_key\":\"two things only mk can do\",\"asker\":\"thread\",\"kind\":\"steps\",\"project\":\"P\",\"project_root\":\"/r\",\"question\":\"Two things only mk can do\",\"request_id\":\"2b4cd60e1893bae520fe829e3009667b07586ed5214b5efa743f3e5581740d36\",\"steps\":[\"Turn on Tailscale\",\"Paste the token into 1Password\"],\"subject\":\"needs mk\",\"thread\":\"t1\",\"v\":1}",
+   "revision": "c56399fb43668821706023477e8a1334ea85ab1f7a153f96ed5e8d12c683cf16",
+   "semantic_key": "cadbe5217a38d79b8296f8f8ba9c9aaa1f3faa4bdf209672f0483f1c0e797d44"
+  },
+  {
+   "identity": "a0a8efb7a641589787a70658fed0f88ff76280cf2a44c7a93ae373aa9ebf5866",
+   "input": {
+    "v": 1,
+    "kind": "machine",
+    "subject": "dns is stale",
+    "project": "P",
+    "project_root": "/r",
+    "asker": "thread",
+    "thread": "t1",
+    "question": "The zone is stale",
+    "machine": {
+     "class": "dns",
+     "detail": "zone example.test serial 4 not 5",
+     "owner_thread": "thr_ops"
+    }
+   },
+   "name": "machine blocker",
+   "normalized": "{\"ask_key\":\"the zone is stale\",\"asker\":\"thread\",\"kind\":\"machine\",\"machine\":{\"class\":\"dns\",\"detail\":\"zone example.test serial 4 not 5\",\"owner_thread\":\"thr_ops\"},\"project\":\"P\",\"project_root\":\"/r\",\"question\":\"The zone is stale\",\"request_id\":\"a0a8efb7a641589787a70658fed0f88ff76280cf2a44c7a93ae373aa9ebf5866\",\"subject\":\"dns is stale\",\"thread\":\"t1\",\"v\":1}",
+   "revision": "fbc4b8bc617b04aa85ef3bbb5ef9c8a217db1e891130274603987028e4407f37",
+   "semantic_key": "7ec374066fc62ac5dd394859c9703efc8a9342cbfe5203031ae46537cbc3c797"
+  },
+  {
+   "identity": "50b8eb1157cff62b719507919de9b6e32fb6000adf0f984867f5a57c3656e4da",
+   "input": {
+    "v": 1,
+    "kind": "decide",
+    "project": "P",
+    "project_root": "/r",
+    "asker": "mycroft",
+    "question": "Dispatch bead mk-1?",
+    "options": [
+     {
+      "label": "Yes"
+     },
+     {
+      "label": "No",
+      "id": "no"
+     }
+    ]
+   },
+   "name": "mycroft ruling-only",
+   "normalized": "{\"ask_key\":\"dispatch bead mk-1?\",\"asker\":\"mycroft\",\"kind\":\"decide\",\"options\":[{\"id\":\"yes\",\"kind\":\"ruling-only\",\"label\":\"Yes\"},{\"id\":\"no\",\"kind\":\"ruling-only\",\"label\":\"No\"}],\"project\":\"P\",\"project_root\":\"/r\",\"question\":\"Dispatch bead mk-1?\",\"request_id\":\"50b8eb1157cff62b719507919de9b6e32fb6000adf0f984867f5a57c3656e4da\",\"v\":1}",
+   "revision": "85a05aff3f0c9f63557f4ccc5ee42bf427636de10576dade9d9fa5e833d52cc6",
+   "semantic_key": ""
+  },
+  {
+   "identity": "9fa8a4ffa64e4245d99dbd00ac7f7e4eff510789f02b864fdd600fb31747f596",
+   "input": {
+    "v": 1,
+    "kind": "decide",
+    "subject": "merge pr 1",
+    "project": "P",
+    "project_root": "/r",
+    "asker": "thread",
+    "thread": "t1",
+    "question": "Merge owner/repo#1?",
+    "options": [
+     {
+      "id": "merge",
+      "label": "Merge",
+      "kind": "ruling-only",
+      "approval": {
+       "kind": "merge",
+       "target": "owner/repo#1",
+       "identity": "abc123def",
+       "ttl": 3600
+      }
+     },
+     {
+      "id": "hold",
+      "label": "Hold"
+     }
+    ]
+   },
+   "name": "approval option",
+   "normalized": "{\"ask_key\":\"merge owner/repo#1?\",\"asker\":\"thread\",\"kind\":\"decide\",\"options\":[{\"approval\":{\"identity\":\"abc123def\",\"kind\":\"merge\",\"target\":\"owner/repo#1\",\"ttl\":3600},\"id\":\"merge\",\"kind\":\"ruling-only\",\"label\":\"Merge\"},{\"id\":\"hold\",\"kind\":\"needs-context\",\"label\":\"Hold\"}],\"project\":\"P\",\"project_root\":\"/r\",\"question\":\"Merge owner/repo#1?\",\"request_id\":\"9fa8a4ffa64e4245d99dbd00ac7f7e4eff510789f02b864fdd600fb31747f596\",\"subject\":\"merge pr 1\",\"thread\":\"t1\",\"v\":1}",
+   "revision": "59e9d797f1c23b0bc78883c1c2a9c1843486b1393146de04d5fbef3db7486647",
+   "semantic_key": "668b796fe59bc27641aec8e4649c305ee3798fe1cba196fe21d4092bcb5a11ea"
+  },
+  {
+   "identity": "74546be88705739a02d6551965e4ba1576f9f159dfd59c4637b8697dc9c8956f",
+   "input": {
+    "v": 1,
+    "kind": "decide",
+    "supersedes": "dec_9",
+    "project": "P",
+    "project_root": "/r",
+    "asker": "thread",
+    "thread": "t1",
+    "question": "Again?",
+    "options": [
+     {
+      "label": "A"
+     },
+     {
+      "label": "B"
+     }
+    ]
+   },
+   "name": "superseding decision",
+   "normalized": "{\"ask_key\":\"again?\",\"asker\":\"thread\",\"kind\":\"decide\",\"options\":[{\"id\":\"a\",\"kind\":\"needs-context\",\"label\":\"A\"},{\"id\":\"b\",\"kind\":\"needs-context\",\"label\":\"B\"}],\"project\":\"P\",\"project_root\":\"/r\",\"question\":\"Again?\",\"request_id\":\"74546be88705739a02d6551965e4ba1576f9f159dfd59c4637b8697dc9c8956f\",\"supersedes\":\"dec_9\",\"thread\":\"t1\",\"v\":1}",
+   "revision": "0f76b88fd446197165b64bf0a7ccd544e1a3147695ac30702e9b2b501fc6a100",
+   "semantic_key": ""
+  },
+  {
+   "identity": "2b7cac2ddee106b5c2d8a19f78718413e3a3a12c1b34fb099916588c3e4c26ac",
+   "input": {
+    "v": 1,
+    "kind": "decide",
+    "project": "P",
+    "project_root": "/r",
+    "asker": "thread",
+    "thread": "t1",
+    "question": "Wörds wörds wörds wörds wörds wörds wörds wörds wörds wörds wörds wörds wörds wörds wörds wörds wörds wörds wörds wörds wörds wörds?",
+    "options": [
+     {
+      "label": "A"
+     },
+     {
+      "label": "B"
+     }
+    ]
+   },
+   "name": "long question truncated ask_key",
+   "normalized": "{\"ask_key\":\"wörds wörds wörds wörds wörds wörds wörds wörds wörds wörds wörds wörds wörds wörds wörds wörds wörds wörds wörds wörds\",\"asker\":\"thread\",\"kind\":\"decide\",\"options\":[{\"id\":\"a\",\"kind\":\"needs-context\",\"label\":\"A\"},{\"id\":\"b\",\"kind\":\"needs-context\",\"label\":\"B\"}],\"project\":\"P\",\"project_root\":\"/r\",\"question\":\"Wörds wörds wörds wörds wörds wörds wörds wörds wörds wörds wörds wörds wörds wörds wörds wörds wörds wörds wörds wörds wörds wörds?\",\"request_id\":\"2b7cac2ddee106b5c2d8a19f78718413e3a3a12c1b34fb099916588c3e4c26ac\",\"thread\":\"t1\",\"v\":1}",
+   "revision": "a7a863a59f2ccfa0639f2def2a19283ef6d5c4c91a3bbf27454dac5e8d7ad6c7",
+   "semantic_key": ""
+  }
+ ],
+ "canonical": [
+  {
+   "expected": "{\"a\":2,\"b\":1,\"c\":{\"y\":2,\"z\":1}}",
+   "input": {
+    "b": 1,
+    "a": 2,
+    "c": {
+     "z": 1,
+     "y": 2
+    }
+   },
+   "name": "key order"
+  },
+  {
+   "expected": "{\"Café\":\"Café\"}",
+   "input": {
+    "Café": "Café"
+   },
+   "name": "NFC strings and keys"
+  },
+  {
+   "expected": "{\"a\":3,\"😀\":2,\"￮\":1}",
+   "input": {
+    "￮": 1,
+    "😀": 2,
+    "a": 3
+   },
+   "name": "non-BMP key sorts by UTF-16 code unit"
+  },
+  {
+   "expected": "{\"f\":\"x\",\"i\":true}",
+   "input": {
+    "a": "",
+    "b": null,
+    "c": [],
+    "d": {},
+    "e": false,
+    "f": "x",
+    "g": {
+     "h": ""
+    },
+    "i": true,
+    "j": 0
+   },
+   "name": "empty members dropped"
+  },
+  {
+   "expected": "{\"s\":\"q\\\"b\\\\ \\b\\f\\n\\r\\t \\u0001\\u001f <>& \u2028\u2029  😀\"}",
+   "input": {
+    "s": "q\"b\\ \b\f\n\r\t \u0001\u001f <>&     😀"
+   },
+   "name": "string escapes"
+  },
+  {
+   "expected": "{\"a\":[\"\",\"x\",{\"m\":1},[]]}",
+   "input": {
+    "a": [
+     "",
+     "x",
+     {
+      "k": "",
+      "m": 1
+     },
+     []
+    ]
+   },
+   "name": "arrays keep position and prune inner objects"
+  },
+  {
+   "expected": "{\"n\":-3,\"v\":1}",
+   "input": {
+    "n": -3,
+    "v": 1
+   },
+   "name": "integers"
+  }
+ ],
+ "invalid": [
+  {
+   "error": "approval tokens are not accepted in Home text",
+   "input": {
+    "v": 1,
+    "kind": "decide",
+    "project": "P",
+    "project_root": "/r",
+    "asker": "thread",
+    "thread": "t1",
+    "question": "ok APPROVED-MERGE o/r#1 abc",
+    "options": [
+     {
+      "label": "A"
+     },
+     {
+      "label": "B"
+     }
+    ]
+   },
+   "name": "approval token"
+  },
+  {
+   "error": "supersedes and mention_of cannot be used together",
+   "input": {
+    "v": 1,
+    "kind": "decide",
+    "project": "P",
+    "project_root": "/r",
+    "asker": "thread",
+    "thread": "t1",
+    "question": "q",
+    "supersedes": "a",
+    "mention_of": "b",
+    "options": [
+     {
+      "label": "A"
+     },
+     {
+      "label": "B"
+     }
+    ]
+   },
+   "name": "mention with supersedes"
+  },
+  {
+   "error": "reversible is not allowed on an option with an approval spec",
+   "input": {
+    "v": 1,
+    "kind": "decide",
+    "project": "P",
+    "project_root": "/r",
+    "asker": "thread",
+    "thread": "t1",
+    "question": "q",
+    "options": [
+     {
+      "label": "A",
+      "reversible": true,
+      "approval": {
+       "kind": "merge",
+       "target": "t",
+       "identity": "i"
+      }
+     },
+     {
+      "label": "B"
+     }
+    ]
+   },
+   "name": "reversible with approval"
+  },
+  {
+   "error": "reversible is not allowed when asker is mycroft",
+   "input": {
+    "v": 1,
+    "kind": "decide",
+    "project": "P",
+    "project_root": "/r",
+    "asker": "mycroft",
+    "question": "q",
+    "options": [
+     {
+      "label": "A",
+      "reversible": true
+     },
+     {
+      "label": "B"
+     }
+    ]
+   },
+   "name": "mycroft reversible"
+  },
+  {
+   "error": "instruction is only allowed on an instruction option",
+   "input": {
+    "v": 1,
+    "kind": "decide",
+    "project": "P",
+    "project_root": "/r",
+    "asker": "thread",
+    "thread": "t1",
+    "question": "q",
+    "options": [
+     {
+      "label": "A",
+      "kind": "needs-context",
+      "instruction": "x"
+     },
+     {
+      "label": "B"
+     }
+    ]
+   },
+   "name": "instruction on needs-context"
+  },
+  {
+   "error": "decide needs 2-6 options",
+   "input": {
+    "v": 1,
+    "kind": "decide",
+    "project": "P",
+    "project_root": "/r",
+    "asker": "thread",
+    "thread": "t1",
+    "question": "q",
+    "options": [
+     {
+      "label": "A"
+     }
+    ]
+   },
+   "name": "single option"
+  },
+  {
+   "error": "unknown field",
+   "input": {
+    "v": 1,
+    "kind": "steps",
+    "project": "P",
+    "project_root": "/r",
+    "asker": "thread",
+    "thread": "t1",
+    "question": "q",
+    "steps": [
+     "x"
+    ],
+    "single_use": true
+   },
+   "name": "unknown field"
+  },
+  {
+   "error": "recommendation must name an option",
+   "input": {
+    "v": 1,
+    "kind": "decide",
+    "project": "P",
+    "project_root": "/r",
+    "asker": "thread",
+    "thread": "t1",
+    "question": "q",
+    "recommendation": "zzz",
+    "options": [
+     {
+      "label": "A"
+     },
+     {
+      "label": "B"
+     }
+    ]
+   },
+   "name": "recommendation not an option"
+  },
+  {
+   "error": "must not contain NUL",
+   "input": {
+    "v": 1,
+    "kind": "decide",
+    "project": "P",
+    "project_root": "/r",
+    "asker": "thread",
+    "thread": "t1",
+    "question": "q",
+    "options": [
+     {
+      "label": "A",
+      "instruction": "a\u0000b"
+     },
+     {
+      "label": "B"
+     }
+    ]
+   },
+   "name": "instruction with NUL"
+  },
+  {
+   "error": "instruction must be 1-2000 characters",
+   "input": {
+    "v": 1,
+    "kind": "decide",
+    "project": "P",
+    "project_root": "/r",
+    "asker": "thread",
+    "thread": "t1",
+    "question": "q",
+    "options": [
+     {
+      "label": "A",
+      "instruction": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+     },
+     {
+      "label": "B"
+     }
+    ]
+   },
+   "name": "instruction too long"
+  }
+ ]
+}

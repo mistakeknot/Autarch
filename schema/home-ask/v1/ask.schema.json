@@ -1,0 +1,65 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://autarch.getbb.app/schema/home-ask/v1/ask.schema.json",
+  "title": "Home ask, v1",
+  "description": "The filing request every caller (thread, Mycroft, vizier, CLI, MCP) sends to Home. Structural rules only; the cross-field rules (kind inference, limits, refusals, defaults) are implemented identically in internal/homeask/model.go and integrations/bb-plugin-autarch/model.ts and pinned by vectors.json.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["v", "kind", "project", "project_root", "asker", "question"],
+  "properties": {
+    "v": { "const": 1 },
+    "kind": { "enum": ["decide", "steps", "machine"] },
+    "request_id": { "type": "string", "pattern": "^[A-Za-z0-9:_.-]{1,128}$", "description": "Defaults to the filing identity, so a blind retry is idempotent." },
+    "ask_key": { "type": "string", "description": "Lowercased, whitespace-collapsed, 1-120 characters; defaults to the question's first 120 characters. Never decides a mention alone." },
+    "subject": { "type": "string", "description": "Optional, 1-120 characters, normalized like ask_key. Automatic mentions need it." },
+    "project": { "type": "string", "minLength": 1, "maxLength": 200 },
+    "project_root": { "type": "string", "pattern": "^/" },
+    "asker": { "enum": ["thread", "mycroft"] },
+    "thread": { "type": "string", "pattern": "^[A-Za-z0-9:_.-]{1,128}$", "description": "Recipient of wakes. Required when asker is thread, forbidden for mycroft." },
+    "question": { "type": "string", "minLength": 1, "maxLength": 2000 },
+    "recommendation": { "type": "string", "description": "Must name an option id." },
+    "supersedes": { "type": "string", "pattern": "^[A-Za-z0-9:_.-]{1,128}$", "description": "Refused together with mention_of." },
+    "mention_of": { "type": "string", "pattern": "^[A-Za-z0-9:_.-]{1,128}$" },
+    "options": {
+      "type": "array",
+      "minItems": 2,
+      "maxItems": 6,
+      "description": "decide only.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["label"],
+        "properties": {
+          "id": { "type": "string", "pattern": "^[a-z0-9-]{1,32}$", "description": "Defaults to a slug of the label." },
+          "label": { "type": "string", "minLength": 1, "maxLength": 80 },
+          "kind": { "enum": ["instruction", "needs-context", "ruling-only"] },
+          "reversible": { "type": "boolean", "description": "Refused with an approval spec, and for asker mycroft." },
+          "instruction": { "type": "string", "minLength": 1, "maxLength": 2000, "description": "Only on an instruction option; no NUL." },
+          "approval": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["kind", "target", "identity"],
+            "properties": {
+              "kind": { "enum": ["merge", "deploy", "release"] },
+              "target": { "type": "string", "minLength": 1 },
+              "identity": { "type": "string", "minLength": 1 },
+              "ttl": { "type": "integer", "minimum": 1, "maximum": 604800 }
+            }
+          }
+        }
+      }
+    },
+    "steps": { "type": "array", "minItems": 1, "maxItems": 20, "items": { "type": "string", "minLength": 1, "maxLength": 2000 }, "description": "steps only." },
+    "machine": {
+      "type": ["object", "null"],
+      "additionalProperties": false,
+      "required": ["class", "detail"],
+      "properties": {
+        "class": { "type": "string", "pattern": "^[a-z0-9-]{1,32}$" },
+        "detail": { "type": "string", "minLength": 1, "maxLength": 2000 },
+        "owner_thread": { "type": "string", "pattern": "^[A-Za-z0-9:_.-]{1,128}$" }
+      },
+      "description": "machine only."
+    }
+  }
+}

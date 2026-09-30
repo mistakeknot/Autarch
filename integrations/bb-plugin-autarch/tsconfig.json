@@ -7,6 +7,7 @@
     "jsx": "react-jsx",
     "lib": [
       "ES2022",
+      "ES2024.String",
       "DOM"
     ],
     "types": [
@@ -21,10 +22,11 @@
     "skipLibCheck": false
   },
   "include": [
-    "server.ts",
+    "*.ts",
     "app.tsx",
     "components",
     "lib",
-    "hooks"
+    "hooks",
+    "__tests__"
   ]
 }
