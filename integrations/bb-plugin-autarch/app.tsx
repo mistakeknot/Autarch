@@ -293,8 +293,9 @@ function HomePage() {
             expanded={expanded}
             onToggle={toggle}
             onOverride={(decision_id) => void rpc.call("override", { decision_id }).then(refetch, () => {})}
+            onVisibility={(item, visible) => tracker.setVisible(item, visible)}
             onMarkAll={() => {
-              const ids = snapshotIds(catchup, expanded, new Set(catchup.map((c) => c.item)));
+              const ids = snapshotIds(catchup, expanded, new Set(catchup.filter((c) => tracker.isVisible(c.item)).map((c) => c.item)));
               if (ids.length > 0) void rpc.call("markAllSeen", { ids }).then(refetch, () => {});
             }}
           />

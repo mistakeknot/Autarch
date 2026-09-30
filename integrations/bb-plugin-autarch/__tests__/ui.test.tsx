@@ -185,6 +185,34 @@ describe("seen marker", () => {
     expect(seen).toEqual(["ruling:d1"]);
   });
 
+  it("an item scrolled out of view stops its clock and is not visible to mark-all", () => {
+    const { t, seen } = tracker();
+    t.setActive(true);
+    t.expand("ruling:d1");
+    vi.advanceTimersByTime(600);
+    t.setVisible("ruling:d1", false);
+    expect(t.isVisible("ruling:d1")).toBe(false);
+    vi.advanceTimersByTime(10_000);
+    expect(seen).toEqual([]);
+    t.setVisible("ruling:d1", true);
+    vi.advanceTimersByTime(399);
+    expect(seen).toEqual([]);
+    vi.advanceTimersByTime(2);
+    expect(seen).toEqual(["ruling:d1"]);
+  });
+
+  it("an item expanded while offscreen does not start its clock until it is seen", () => {
+    const { t, seen } = tracker();
+    t.setActive(true);
+    t.setVisible("ruling:d1", false);
+    t.expand("ruling:d1");
+    vi.advanceTimersByTime(10_000);
+    expect(seen).toEqual([]);
+    t.setVisible("ruling:d1", true);
+    vi.advanceTimersByTime(1001);
+    expect(seen).toEqual(["ruling:d1"]);
+  });
+
   it("an expanded routine group marks its members; an owed item is never marked", () => {
     const { t, seen } = tracker();
     t.setActive(true);
