@@ -31,7 +31,7 @@ export const SCHEMAS = {
     old_decision: id, new_decision: id, asker_wakes: eq(1), void_notices: eq(1),
     old_label_in_feed: eq(false), wake_supersedes: eq(true), feed_supersedes: eq(true),
   },
-  "ask-cli-proxy": { threads: idList, decision: id, env_absent_exit: eq(0), env_conflict_exit: eq(0) },
+  "ask-cli-proxy": { threads: idList, decision: id, env_absent_exit: eq(0), env_conflict_exit: eq(2) },
   "vizier-chat": { threads: idList, message_id: id, screenshot_sha256: hex },
 };
 

@@ -107,6 +107,14 @@ describe("check-e2e", () => {
     expect(r.stderr).toContain("build file commit");
   });
 
+  it("rejects a real-bb ask-cli-proxy run whose conflicting BB_THREAD_ID did not exit 2", () => {
+    const f = materialise("accept", "real-bb");
+    writeFileSync(f, readFileSync(f, "utf8").replace('"env_conflict_exit":2', '"env_conflict_exit":0'));
+    const r = run(f, "real-bb");
+    expect(r.status).toBe(1);
+    expect(r.stderr).toContain("env_conflict_exit");
+  });
+
   it("fails with usage when arguments are missing", () => {
     const r = spawnSync("node", [CHECK, join(t.dir, "x")], { encoding: "utf8" });
     expect(r.status).toBe(2);
