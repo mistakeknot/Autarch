@@ -103,7 +103,56 @@ export class Service {
 
   // ---- filing ---------------------------------------------------------------
 
+  /** The service clock, for the layers built on it. */
+  time(): string {
+    return this.now();
+  }
+
+  /** Let a delivery loop run without waiting for its timer. */
+  nudge(): void {
+    this.deps.nudge?.();
+  }
+
+  /** Who owns a machine blocker: the ask's own owner, else the machineOwners setting for its class. */
+  machineOwner(ask: Ask): string | null {
+    if (ask.kind !== "machine" || !ask.machine) return null;
+    if (ask.machine.owner_thread) return ask.machine.owner_thread;
+    try {
+      const map = JSON.parse(this.store.setting("machineOwners") ?? "{}") as Record<string, unknown>;
+      const t = map[ask.machine.class];
+      return typeof t === "string" && t !== "" ? t : null;
+    } catch {
+      return null;
+    }
+  }
+
+  /** The owner's one notice, idempotent by op, so a replayed filing repairs a crash between the two writes. */
+  private ensureOwnerNotice(decisionId: string): void {
+    const d = this.row(decisionId);
+    if (!d || d.kind !== "machine" || !d.owner_thread) return;
+    const ask = this.askOf(d);
+    this.store.insertObligations(decisionId, [
+      {
+        id: `ob:${decisionId}:owner`,
+        kind: "owner",
+        recipient: d.owner_thread,
+        op: `owner:${decisionId}`,
+        payload: [
+          `Machine blocker ${decisionId} (${ask.machine?.class ?? ""}) is yours: ${ask.machine?.detail ?? ""}`,
+          `Question: ${ask.question}`,
+          `Before acting, confirm with \`bb home get --id ${decisionId}\` that this blocker is still open.`,
+        ].join("\n"),
+      },
+    ]);
+  }
+
   async file(req: unknown, ctx: { threadId?: string } = {}): Promise<FileResult> {
+    const out = await this.fileInner(req, ctx);
+    if (out.ok && !out.mentioned) this.ensureOwnerNotice(out.decision_id);
+    return out;
+  }
+
+  private async fileInner(req: unknown, ctx: { threadId?: string } = {}): Promise<FileResult> {
     let ask: Ask;
     try {
       ask = parseAsk(req);
@@ -157,7 +206,7 @@ export class Service {
       root_ino: root.ino,
       asker: ask.asker,
       thread: ask.thread ?? "",
-      owner_thread: ask.machine?.owner_thread || null,
+      owner_thread: this.machineOwner(ask),
       body_json: normalizedJson(ask),
       supersedes: ask.supersedes || null,
       delegable: true,
@@ -245,7 +294,8 @@ export class Service {
   pick(decisionId: string, optionId: string, rev: string, pickId: string, by: string, surface: "home" | "overlay" | "cli", reason?: string): PickResult {
     const d = this.row(decisionId);
     if (!d) return { ok: false, status: 404, error: "unknown decision" };
-    if (d.kind !== "decide") return { ok: false, status: 400, error: "only decide asks take a pick here" };
+    if (d.kind === "steps") return this.pickSteps(d, optionId, rev, pickId, by, surface);
+    if (d.kind !== "decide") return { ok: false, status: 400, error: "only decide and steps asks take a pick" };
     let ask: Ask;
     try {
       ask = this.askOf(d);
@@ -307,6 +357,46 @@ export class Service {
       this.deps.nudge?.();
     }
     return { ok: true, status: 201, pick: this.store.pick(decisionId)! };
+  }
+
+  /** "Done" on a steps ask: one steps-done notice per recipient (asker and mentioners), all in the pick's transaction. */
+  private pickSteps(d: Row, optionId: string, rev: string, pickId: string, by: string, surface: "home" | "overlay" | "cli"): PickResult {
+    if (optionId !== "done") return { ok: false, status: 400, error: "a steps ask takes only the option done" };
+    if (rev !== d.revision) return { ok: false, status: 409, error: "revision differs" };
+    const hash = createHash("sha256").update(`${optionId}|${rev}|${by}`).digest("hex");
+    const settled = (existing: PickRow | undefined): PickResult | null => {
+      if (!existing) return null;
+      if (existing.pick_id === pickId) return existing.params_hash === hash ? { ok: true, status: 200, pick: existing } : { ok: false, status: 409, error: "pick id reused" };
+      return { ok: false, status: 409, error: "already done" };
+    };
+    const prior = settled(this.store.pick(d.id));
+    if (prior) return prior;
+    if (this.store.pickByPickId(pickId)) return { ok: false, status: 409, error: "pick id reused" };
+    const ask = this.askOf(d);
+    const threads = [...new Set([d.thread, ...this.store.mentions(d.id).map((m) => m.thread)].filter((t) => t !== ""))];
+    const obligations: ObligationInput[] = threads.map((t) => ({
+      id: `ob:${d.id}:steps-done:${t}`,
+      kind: "steps-done",
+      recipient: t,
+      op: `steps-done:${d.id}:${t}`,
+      payload: [
+        `mk finished your steps ${d.id}${d.subject ? ` (${d.subject})` : ""}.`,
+        ...(ask.steps ?? []).map((s, i) => `${i + 1}. ${s}`),
+      ].join("\n"),
+    }));
+    let res;
+    try {
+      res = this.store.recordPick({ decision_id: d.id, pick_id: pickId, option_id: optionId, revision: rev, by, surface, reason: null, params_hash: hash }, obligations);
+    } catch (e) {
+      if (/UNIQUE/.test(message(e))) return { ok: false, status: 409, error: "pick id reused" };
+      throw e;
+    }
+    if (!res.ok) {
+      if (res.reason === "already-ruled") return settled(res.existing) ?? { ok: false, status: 409, error: "already done" };
+      return { ok: false, status: 409, error: res.reason === "withdrawn" ? "withdrawn" : res.reason };
+    }
+    this.deps.nudge?.();
+    return { ok: true, status: 201, pick: this.store.pick(d.id)! };
   }
 
   /** A snapshot taken at pick time, so the wake never depends on rows that may change later. */

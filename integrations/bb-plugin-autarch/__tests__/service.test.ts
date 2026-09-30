@@ -172,8 +172,8 @@ describe("pick", () => {
     expect(normalizedJson(back)).toBe(d.body_json);
   });
 
-  it("picking a non-decide ask is refused here", async () => {
-    const s = await fileOk({ kind: "steps", options: undefined, steps: ["do a"], question: "steps for you", subject: "autarch/steps" });
+  it("picking a machine ask is refused", async () => {
+    const s = await fileOk({ kind: "machine", options: undefined, machine: { class: "ci", detail: "down" }, question: "ci is down", subject: "autarch/ci" });
     expect(svc.pick(s.decision_id, "done", rev(s.decision_id), "pk", "mk", "home")).toMatchObject({ ok: false, status: 400 });
   });
 });
