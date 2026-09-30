@@ -42,7 +42,7 @@ to I-4, J-1) are folded into this revision in place; see the per-round dispositi
 - Vizier decisions 1–12 (2026-09-29): the vizier is Home plus a summoned overlay (P-10,
   Tasks 1.6, 1.8, 1.12).
 - mk (2026-09-29): approvals "should be a core functionality in Aleph". Where the record lives
-  is still an explicit decision for mk (G-11, P-12).
+  was ruled by mk on 2026-09-29 (G-11): **Aleph core** (P-12).
 
 **Goal:** mk sees what agents owe mk in one full-page Home tab and picks in place. A pick is
 recorded once, even when retried or interrupted, and the answer (with the asker's
@@ -148,7 +148,7 @@ authorizes a merge, deploy or release. Each pick leaves a ruling file.
 | OQ4 | Read marker | Resolved by V11: per account, in the plugin database; only rendered decision items count (Task 1.8) |
 | OQ5 | "A then B" order | **mk decision** (G-13) |
 | OQ6 | Success measure | Resolved by the baseline (Success measure section) |
-| Approvals | First-class approvals | P-12, Task 1.13 (interim, advisory); location is **mk decision** G-11 |
+| Approvals | First-class approvals | P-12, Task 1.13 (interim, advisory); location is **Aleph core**, ruled by mk 2026-09-29 (G-11) |
 
 ## Round 4 dispositions
 
@@ -481,7 +481,7 @@ costly and hard to see from the author's seat.
   - **Interim Home records are non-authorizing** `[D-5]`. They show mk's intent and are
     never promoted, imported or converted into authoritative approvals. Trusted approvals
     need the reviewed core authentication and audit contract first (G-16). The SylvesteOps
-    text hook stays the enforcing check. **mk decides the location (G-11).**
+    text hook stays the enforcing check. **mk ruled 2026-09-29 (G-11): approvals live in Aleph core.**
 
 ## Must-Haves
 
@@ -1563,8 +1563,8 @@ Depends on Task 1.7.
 - **Left: the map.** In v1 a placeholder with the prototype's pace-layer × ecosystem frame and
   lens tabs (attention, allocation, dependencies, neglect), labelled "placeholder". The real
   map comes later, via Lattice. The prototype says it "arrives with build steps 3–4 (Lattice,
-  then the map)"; this plan reads that as build-order steps 3 and 4 of `[D7]`. **That reading
-  is unconfirmed; mk confirms it (G-14).**
+  then the map)"; this plan reads that as build-order steps 3 and 4 of `[D7]`. **mk confirmed
+  on 2026-09-29 (G-14): Lattice first, then the map.**
 - **Right: sliding panels**, Paradox/Matuschak style. Each panel is 1/3 of the width (`[`
   and `]` switch to 1/4 or 1/2). The newest panel is full; older ones collapse to 34 px
   spines. Esc closes the top panel.
@@ -1854,7 +1854,7 @@ verification.
    - **bd upstream: `create --id` overwrites an existing bead** (C-1 evidence).
    - **Optional hub copy**: a one-way, never-read export of decisions to hub beads with
      `home:*` labels derived from the store.
-   - **Approvals in Aleph core** (only if mk picks core at G-11, and after G-16), naming
+   - **Approvals in Aleph core** (ruled at G-11, built after G-16), naming
      mk-qap9 rev 7 and mk-7l2o (release v8 §5.1) as prior art.
    - **Host-attested caller for plugin CLI and RPC** (G-15), for the Aleph coordinator.
    - **Core approval authentication and audit contract** (G-16).
@@ -1888,11 +1888,12 @@ rendered decision items mark seen. Tests: `__tests__/overlay.test.tsx` for those
 
 ### Task 1.13: approvals, interim and non-authorizing (P-12) — gated on G-11 `[D-5]` `[D-6]`
 
-**Foundational: cross-lab review item 4.** If mk picks Aleph core at G-11, the record and
-check API move to core under the follow-up bead, after G-16; this task shrinks to Home filing
-options with an `approval` spec and calling core's API. If mk picks the plugin, or core is not
-ready, this task builds the interim below. The interim is **non-authorizing**: nothing may
-consume it, and no path promotes, imports or converts it into an authoritative approval.
+**Foundational: cross-lab review item 4.** mk ruled at G-11 (2026-09-29) that approvals live
+in Aleph core. The authoritative record and check API are built there under the follow-up
+bead, after G-16 and G-15; Home then files options with an `approval` spec and calls core's
+API. Core is not ready, so this task builds only the interim below, as a stopgap to be
+replaced by that API. The interim is **non-authorizing**: nothing may consume it, and no path
+promotes, imports or converts it into an authoritative approval.
 
 **Record** (`approvals` table, and `approval_events`, append-only):
 `approval_id`, `decision_id`, `option_id`, `pick_id`, `account`, `kind` (`merge`, `deploy`,
@@ -1978,12 +1979,12 @@ and is one sample, so it is used only for the first measure.
 
 These are **not agent-completable**. Each is a checklist item for mk; none is a DONE WHEN.
 
-- **G-0:** mk approved `mk-okek` (2026-09-26). Still required: a round-11 review-astra pass that
-  does not return needs-rework and covers the four foundational items (rounds 4 to 10
-  returned D-1 to D-17 through J-1, folded in here); the zklw CI status
+- **G-0:** mk approved `mk-okek` (2026-09-26). The round-11 review-astra pass returned PASS
+  with no new findings (rounds 4 to 10 returned D-1 to D-17 through J-1, folded in here).
+  Still required: the zklw CI status
   (`zklw-ci status --repo mistakeknot/Autarch --json`); the GitHub repository identity; and
   re-extraction and reseal of the sidecars (`.criteria.md`, `.criteria.md.seal`,
-  `.exec.yaml`), which still describe revision 3 (14 tasks; this revision has 19).
+  `.exec.yaml`), regenerated for revision 4 (19 tasks) on 2026-09-29.
 - **G-1:** create the private Uqbar repo and set `AUTARCH_UQBAR_DIR`. Until then estate-wide
   decisions are refused.
 - **G-3:** install the plugin: `bb plugin install path:integrations/bb-plugin-autarch`. Removing
@@ -1996,15 +1997,14 @@ These are **not agent-completable**. Each is a checklist item for mk; none is a 
 - **G-9 (ruled 2026-09-26):** undeliverable in v1; successor resolution deferred.
 - **G-10:** the Aleph core desktop change for the overlay (global shortcut, frameless
   always-on-top window, preload bridge), owned by thr_39wwcmwi84. Gates Task 1.12.
-- **G-11: where approvals live** — Aleph core (recommended) or the Home plugin; the choice is
-  mk's. Either way the interim is non-authorizing and nothing consumes an approval before
-  G-16. G-11b is withdrawn: the interim never emits `APPROVED-*` tokens `[E-9]`. Gates
-  Task 1.13.
+- **G-11 (ruled 2026-09-29): approvals live in Aleph core.** The interim in Home is
+  non-authorizing and nothing consumes an approval before G-16. G-11b is withdrawn: the interim never emits `APPROVED-*` tokens `[E-9]`. Gates
+  Task 1.13 now builds the interim only.
 - **G-12:** the Clavain Stop hook that writes structured turn endings (decision 25). Home works
   without it, but the trial of decision 25 does not start until it ships.
-- **G-13 (OQ5):** confirm that "A then B" means this revision comes before the interim pop-out
-  window and fixed-format catch-up, and whether B is still wanted once Home ships.
-- **G-14:** confirm the reading of "build steps 3 and 4" as Lattice then the map.
+- **G-13 (OQ5, ruled 2026-09-29 by the vizier):** A first; this revision comes before the
+  interim pop-out window and fixed-format catch-up, and B is decided after Home ships.
+- **G-14 (ruled 2026-09-29):** "build steps 3 and 4" means Lattice, then the map.
 - **G-15 (D-1):** an Aleph core host-attested caller for plugin CLI and RPC. Today the CLI
   context takes the thread from `BB_THREAD_ID` (`apps/cli/src/lib/context-env.ts:48`) and the
   plugin RPC route accepts a client-supplied `threadId`

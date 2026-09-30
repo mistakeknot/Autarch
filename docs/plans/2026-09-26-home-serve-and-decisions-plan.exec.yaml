@@ -4,105 +4,127 @@ tier: deep
 max_parallel: 4
 timeout_per_task: 600
 
-# [A-17] Step 0 completes before any step 1 task. Edits to cmd/autarch/main.go are
-# serialized: 0.4 -> 0.5 -> 0.6 -> 1.7. Edits to internal/serve/serve.go and
-# cmd/autarch/serve.go are serialized: 0.2 -> 0.3 -> 0.4 -> 1.6.
-# internal/decisions/service.go: 1.4 -> 1.5 -> 1.6.
+# Regenerated for plan revision 4 (19 tasks) after review round 11, and mk's rulings G-11
+# (approvals live in Aleph core) and G-14 (Lattice, then the map), 2026-09-29.
+# Step 0 completes before any step 1 task. Edits to cmd/autarch/main.go are serialized:
+# 0.4 -> 0.5 -> 0.6 -> 1.9. internal/serve/serve.go and cmd/autarch/serve.go: 0.2 -> 0.3 -> 0.4.
+# Plugin files: service.ts 1.4 -> 1.5 -> 1.6; server.ts and feed.ts 1.2 -> 1.7.
+# 1.12 is gated on G-10 (Aleph core desktop change) and must not be dispatched before it
+# clears. 1.13 builds only the non-authorizing interim; nothing consumes an approval before G-16.
+# 1.11 runs on an isolated bb server (G-3); the real install is for the trial (G-6).
 
 stages:
-  - name: "Wave 1 — step 0 handlers"
+  - name: "Wave 1 - step 0 handlers"
     tasks:
       - id: task-1
         title: "0.1 expose bigend, gurgeh, signals as handlers"
         files: [internal/bigend/daemon/server.go, internal/gurgeh/server/server.go, pkg/signals/server.go]
         depends: []
-  - name: "Wave 2 — step 0 mux"
+  - name: "Wave 2 - step 0 mux"
     tasks:
       - id: task-2
         title: "0.2 internal/serve mux, token, origin, project resolution"
         files: [internal/serve/serve.go, internal/serve/auth.go, internal/serve/gurgeh.go, internal/serve/projects.go]
         depends: [task-1]
-  - name: "Wave 3 — step 0 shared broker"
+  - name: "Wave 3 - step 0 shared broker"
     tasks:
       - id: task-3
         title: "0.3 one signals broker shared with gurgeh"
         files: [internal/gurgeh/server/server.go, internal/serve/serve.go]
         depends: [task-2]
-  - name: "Wave 4 — step 0 command"
+  - name: "Wave 4 - step 0 command"
     tasks:
       - id: task-4
-        title: "0.4 autarch serve command"
-        files: [cmd/autarch/serve.go, cmd/autarch/main.go]
+        title: "0.4 autarch serve command, and the scratch discovery test"
+        files: [cmd/autarch/serve.go, cmd/autarch/main.go, internal/serve/]
         depends: [task-3]
-  - name: "Wave 5 — step 0 MCP"
+  - name: "Wave 5 - step 0 MCP"
     tasks:
       - id: task-5
-        title: "0.5 autarch mcp subcommand + alias"
+        title: "0.5 MCP into the one binary"
         files: [cmd/autarch/mcp.go, cmd/autarch/main.go, cmd/autarch-mcp/main.go, autarch-plugin/.claude-plugin/plugin.json]
         depends: [task-4]
-  - name: "Wave 6 — step 0 deprecations"
+  - name: "Wave 6 - step 0 deprecations"
     tasks:
       - id: task-6
-        title: "0.6 deprecation notices, ./dev serve, AGENTS.md"
+        title: "0.6 point the old entry points at autarch serve"
         files: [cmd/bigend/main.go, cmd/autarch/main.go, internal/gurgeh/cli/commands/serve.go, dev, AGENTS.md]
         depends: [task-5]
-  - name: "Wave 7 — model"
+  - name: "Wave 7 - plugin scaffold, schema, models"
     tasks:
       - id: task-7
-        title: "1.1 model, validation, revision, bead id"
-        files: [internal/decisions/model.go]
+        title: "1.1 plugin scaffold, shared schema, vectors, both models"
+        files: [schema/home-ask/v1/, integrations/bb-plugin-autarch/, internal/homeask/model.go]
         depends: [task-6]
-  - name: "Wave 8 — tracker and ruling files"
+  - name: "Wave 8 - store"
     tasks:
       - id: task-8
-        title: "1.2 bd tracker (explicit ids, outcome-unknown)"
-        files: [internal/decisions/tracker.go]
+        title: "1.2 the SQLite store: outbox, resend permit, claim, migrations, export"
+        files: [integrations/bb-plugin-autarch/]
         depends: [task-7]
+  - name: "Wave 9 - ruling files"
+    tasks:
       - id: task-9
-        title: "1.3 ruling files (os.Root) and owner lock"
-        files: [internal/decisions/ruling.go, internal/decisions/lock.go]
-        depends: [task-7]
-  - name: "Wave 9 — service"
+        title: "1.3 ruling files and the safe writer"
+        files: [integrations/bb-plugin-autarch/ruling.ts]
+        depends: [task-8]
+  - name: "Wave 10 - service"
     tasks:
       - id: task-10
-        title: "1.4 service: file, pick, reconcile, ack"
-        files: [internal/decisions/service.go]
+        title: "1.4 the service: file, pick, reconcile, ack, feed, stats"
+        files: [integrations/bb-plugin-autarch/service.ts, integrations/bb-plugin-autarch/feed.ts]
         depends: [task-8, task-9]
-  - name: "Wave 10 — feed"
+  - name: "Wave 11 - structured asks"
     tasks:
       - id: task-11
-        title: "1.5 feed, recent, undeliverable, stats"
-        files: [internal/decisions/service.go]
+        title: "1.5 structured asks: mentions, machine lane, runbook"
+        files: [integrations/bb-plugin-autarch/asks.ts, integrations/bb-plugin-autarch/service.ts]
         depends: [task-10]
-  - name: "Wave 11 — API"
+  - name: "Wave 12 - delegation"
     tasks:
       - id: task-12
-        title: "1.6 HTTP API, client, single owner, startup order"
-        files: [internal/decisions/api.go, internal/decisions/client.go, internal/serve/serve.go, cmd/autarch/serve.go]
+        title: "1.6 delegated rulings and overrides"
+        files: [integrations/bb-plugin-autarch/delegation.ts, integrations/bb-plugin-autarch/service.ts]
         depends: [task-11]
-  - name: "Wave 12 — clients"
+  - name: "Wave 13 - plugin surfaces"
     tasks:
       - id: task-13
-        title: "1.7 decide CLI, exit codes, MCP tool"
-        files: [cmd/autarch/decide.go, cmd/autarch/exit.go, cmd/autarch/main.go, pkg/mcp/server.go]
+        title: "1.7 RPC, wakes, feed injection, bb home CLI"
+        files: [integrations/bb-plugin-autarch/contract.ts, integrations/bb-plugin-autarch/wakes.ts, integrations/bb-plugin-autarch/cli.ts, integrations/bb-plugin-autarch/catchup.ts, integrations/bb-plugin-autarch/server.ts, integrations/bb-plugin-autarch/feed.ts]
         depends: [task-12]
+  - name: "Wave 14 - Home tab"
+    tasks:
       - id: task-14
-        title: "1.8 Mycroft escalations as ruling-only decisions"
-        files: [internal/mycroft/escalate/escalate.go, internal/mycroft/scheduler/orchestrator.go, cmd/mycroft/main.go, internal/tui/views/mycroft.go]
-        depends: [task-12]
+        title: "1.8 Home tab: map placeholder, panel stack, vizier"
+        files: [integrations/bb-plugin-autarch/app.tsx, integrations/bb-plugin-autarch/ui/]
+        depends: [task-13]
+  - name: "Wave 15 - Go filers"
+    tasks:
       - id: task-15
-        title: "1.9 bb plugin: rail, wakes, feed, bb home ask"
-        files: [integrations/bb-plugin-autarch/]
-        depends: [task-12]
-  - name: "Wave 13 — harness"
+        title: "1.9 Go filers: homeask, autarch decide, MCP, Mycroft"
+        files: [internal/homeask/, cmd/autarch/decide.go, cmd/autarch/exit.go, cmd/autarch/version.go, cmd/autarch/main.go, pkg/mcp/server.go, internal/mycroft/escalate/escalate.go, internal/mycroft/scheduler/orchestrator.go, cmd/mycroft/main.go, internal/tui/views/mycroft.go]
+        depends: [task-7, task-13, task-6]
+  - name: "Wave 16 - scenario harness"
     tasks:
       - id: task-16
-        title: "1.10 homee2e scenario harness (fake mode)"
-        files: [internal/homee2e/]
-        depends: [task-13, task-14, task-15]
-  - name: "Wave 14 — hub check"
+        title: "1.10 scenario harness with clean-export preflight"
+        files: [integrations/bb-plugin-autarch/e2e/, integrations/bb-plugin-autarch/scripts/, integrations/bb-plugin-autarch/__tests__/]
+        depends: [task-8, task-9, task-10, task-11, task-12, task-13, task-14, task-15]
+  - name: "Wave 17 - end to end"
     tasks:
       - id: task-17
-        title: "1.11 hub e2e on zklw and follow-up beads"
-        files: [docs/research/2026-09-26-home-e2e-hub.jsonl, docs/research/2026-09-26-home-e2e-check.md]
+        title: "1.11 end-to-end on an isolated bb server, and follow-up beads (G-3)"
+        files: [docs/research/]
         depends: [task-16]
+  - name: "Wave 18 - overlay, gated on G-10"
+    tasks:
+      - id: task-18
+        title: "1.12 summoned overlay (does not start until G-10 clears)"
+        files: [integrations/bb-plugin-autarch/overlay.tsx, integrations/bb-plugin-autarch/__tests__/overlay.test.tsx]
+        depends: [task-14]
+  - name: "Wave 19 - approvals, interim"
+    tasks:
+      - id: task-19
+        title: "1.13 approvals: non-authorizing interim in Home; authoritative store is Aleph core after G-15 and G-16"
+        files: [integrations/bb-plugin-autarch/approvals.ts, integrations/bb-plugin-autarch/__tests__/approvals.test.ts]
+        depends: [task-12]
