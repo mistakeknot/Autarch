@@ -2005,8 +2005,10 @@ These are **not agent-completable**. Each is a checklist item for mk; none is a 
   server. The trial: start by walking autarch-07 on the installed Home tab with a real decision,
   including one delegated ruling and one override, and revise autarch-07 to match.
 - **G-9 (ruled 2026-09-26):** undeliverable in v1; successor resolution deferred.
-- **G-10:** the Aleph core desktop change for the overlay (global shortcut, frameless
-  always-on-top window, preload bridge), owned by thr_39wwcmwi84. Gates Task 1.12.
+- **G-10 (ruled 2026-09-29 by mk, via the vizier):** approved, kept small: the Aleph core
+  desktop change for the overlay (global shortcut, frameless always-on-top window, and the
+  plugin-panel preload bridge only), owned by thr_39wwcmwi84. Unblocks Task 1.12, which is
+  built last. Normal review applies, and its release needs mk.
 - **G-11 (ruled 2026-09-29): approvals live in Aleph core.** The interim in Home is
   non-authorizing and nothing consumes an approval before G-16. G-11b is withdrawn: the interim never emits `APPROVED-*` tokens `[E-9]`. Gates
   Task 1.13 now builds the interim only.
