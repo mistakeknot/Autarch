@@ -57,7 +57,7 @@ func New(cfg Config) (*Server, error) {
 	}
 	s := &Server{cfg: cfg, token: token, resolver: NewResolver(cfg.ProjectDirs), broker: signals.NewBroker()}
 	s.gurgeh = newGurgehMounts(s.resolver, func(root string) *gserver.Server {
-		return gserver.New(root)
+		return gserver.New(root, gserver.WithPublisher(s.broker.Publish))
 	})
 
 	bigend := daemon.NewServer(daemon.Config{Addr: cfg.Addr, ProjectDirs: cfg.ProjectDirs})

@@ -23,10 +23,24 @@ type Server struct {
 	srv  *http.Server
 
 	routesOnce sync.Once
+	publish    func(psignals.Signal)
 }
 
-func New(root string) *Server {
-	return &Server{root: root, mux: http.NewServeMux()}
+// Option configures a Server.
+type Option func(*Server)
+
+// WithPublisher delivers refreshed signals to fn (for example an in-process
+// broker) instead of dialing the standalone Signals server.
+func WithPublisher(fn func(psignals.Signal)) Option {
+	return func(s *Server) { s.publish = fn }
+}
+
+func New(root string, opts ...Option) *Server {
+	s := &Server{root: root, mux: http.NewServeMux()}
+	for _, o := range opts {
+		o(s)
+	}
+	return s
 }
 
 func (s *Server) ListenAndServe(addr string) error {
@@ -154,6 +168,13 @@ func (s *Server) refreshSignals(ctx context.Context, spec specs.Spec) {
 		return
 	}
 	_ = store.EmitAll(sigs)
+
+	if s.publish != nil {
+		for _, sig := range sigs {
+			s.publish(sig)
+		}
+		return
+	}
 
 	client := psignals.NewClient(psignals.DefaultServerURL())
 	publishCtx, cancel := context.WithTimeout(ctx, 2*time.Second)

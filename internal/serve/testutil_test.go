@@ -32,3 +32,14 @@ func newTestServer(t *testing.T, allow ...string) (*Server, *httptest.Server, st
 	t.Cleanup(ts.Close)
 	return s, ts, scan
 }
+
+func writeSpecFile(t *testing.T, dir, id string) {
+	t.Helper()
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	content := "id: \"" + id + "\"\ntitle: \"Title\"\nsummary: \"Summary\"\n"
+	if err := os.WriteFile(filepath.Join(dir, id+".yaml"), []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+}
