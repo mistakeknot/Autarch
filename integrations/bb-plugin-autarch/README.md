@@ -164,7 +164,13 @@ root-pinned writer (`ruling.ts`): it checks the saved root's `dev` and `ino`, wa
 renames it, then re-checks the root. Node has no `openat`, so on Linux the writer holds
 each directory open (`O_DIRECTORY|O_NOFOLLOW`, identity checked with `fstat`) and reaches
 children through `/proc/self/fd/<n>/`, which resolves inside that held directory; a path
-swapped for a symlink between steps cannot redirect the write. Where `/proc/self/fd` is
+swapped for a symlink between steps cannot redirect the write. A held directory can still
+be renamed out of the project by a same-uid process, and writes through its fd follow it, so
+before the temp write, before the rename, and after it the writer reads `/proc/self/fd/<n>`
+for every held directory and requires the expected path under the pinned root; on mismatch it
+unlinks what it wrote and fails. **Accepted same-uid residual, not closed:** a move landing
+between the last check and the rename, or after the final check, can leave one file outside
+the project before it is detected and removed (or, after the final check, not detected). Where `/proc/self/fd` is
 absent (macOS), the writer falls back to path-based steps and a same-user process can still
 swap a path between them. That is the same-user risk accepted in the plan's `[D21]`; the
 writer defends against a different-origin symlink or a replaced root, and on Linux against

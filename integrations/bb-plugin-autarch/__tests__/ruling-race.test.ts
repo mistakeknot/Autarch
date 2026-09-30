@@ -39,6 +39,9 @@ vi.mock("node:fs", async (importOriginal) => {
     readFileSync: wrap(real.readFileSync),
     writeSync: wrap(real.writeSync),
     fstatSync: wrap(real.fstatSync),
+    readlinkSync: wrap(real.readlinkSync),
+    unlinkSync: wrap(real.unlinkSync),
+    fsyncSync: wrap(real.fsyncSync),
   };
 });
 
@@ -118,6 +121,55 @@ describe("a directory swapped for a symlink between steps", () => {
         mkdirSync(join(root, "docs", "decisions"), { recursive: true });
         attempt(k, which);
         expect(readdirSync(outside), `swap ${which} before fs call ${k}`).toEqual([]);
+      }
+    }
+  });
+});
+
+// A held directory fd can be renamed OUT of the project by a same-uid process; writes
+// through the fd then follow it. The writer must notice and clean up. [C-14]
+function listAll(dir: string): string[] {
+  const out: string[] = [];
+  for (const e of readdirSync(dir, { withFileTypes: true })) {
+    const p = join(dir, e.name);
+    if (e.isDirectory()) out.push(...listAll(p));
+    else out.push(p);
+  }
+  return out;
+}
+
+describe("a directory moved out of the project between steps", () => {
+  it("leaves no ruling or temp file outside the root, whichever step the move precedes", () => {
+    hook.calls = 0;
+    hook.swapAt = -1;
+    hook.active = true;
+    const p = rulingPath(target);
+    writeRuling(pinRoot(root), p.dirs, p.file, "probe");
+    hook.active = false;
+    const total = hook.calls;
+    rmSync(join(root, "docs"), { recursive: true });
+    for (const which of ["docs", "decisions"] as const) {
+      for (let k = 1; k <= total + 2; k++) {
+        rmSync(root, { recursive: true, force: true });
+        rmSync(outside, { recursive: true, force: true });
+        mkdirSync(root);
+        mkdirSync(outside);
+        mkdirSync(join(root, "docs", "decisions"), { recursive: true });
+        const victim = which === "docs" ? join(root, "docs") : join(root, "docs", "decisions");
+        hook.calls = 0;
+        hook.swapAt = k;
+        hook.swap = () => {
+          if (existsSync(victim)) renameSync(victim, join(outside, "moved"));
+        };
+        hook.active = true;
+        try {
+          writeRuling(pinRoot(root), p.dirs, p.file, renderRuling(ruling));
+        } catch {
+          /* refusing is allowed */
+        } finally {
+          hook.active = false;
+        }
+        expect(listAll(outside), `move ${which} before fs call ${k}`).toEqual([]);
       }
     }
   });

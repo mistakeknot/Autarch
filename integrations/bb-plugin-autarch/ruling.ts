@@ -8,6 +8,15 @@
 // The writer pins the project root the way `serve` resolved it at filing (path plus
 // dev and ino) and works through directory descriptors (see writeRuling). On Linux the
 // same-user swap race is closed; without /proc a residual window remains [D21].
+//
+// ACCEPTED SAME-UID RESIDUAL. A process running as the same user can rename a held
+// directory out of the project. Node cannot openat, so the writer re-reads
+// /proc/self/fd/N for every held directory descriptor (before the temp write, before
+// the rename, and after it) and requires each to still be the expected path under the
+// pinned root; on mismatch it unlinks what it wrote and fails. A move that lands
+// between the last check and the rename syscall, or between the rename and the
+// post-check, can still place one file outside the project before it is detected and
+// removed. That window is NOT closed; it is an accepted same-uid residual.
 import {
   closeSync,
   constants,
@@ -18,6 +27,7 @@ import {
   mkdirSync,
   openSync,
   readFileSync,
+  readlinkSync,
   renameSync,
   unlinkSync,
   writeSync,
@@ -231,6 +241,25 @@ function at(fd: number, dirPath: string, name: string): string {
   return PROC_FD ? `/proc/self/fd/${fd}/${name}` : join(dirPath, name);
 }
 
+/** Held directory descriptors and the paths they must still resolve to. */
+interface Held {
+  fd: number;
+  expected: string;
+}
+
+function assertHeld(held: Held[], when: string): void {
+  if (!PROC_FD) return;
+  for (const h of held) {
+    let p: string;
+    try {
+      p = readlinkSync(`/proc/self/fd/${h.fd}`);
+    } catch {
+      throw new RulingWriteError("root-changed", `a held directory could not be verified ${when}`);
+    }
+    if (p !== h.expected) throw new RulingWriteError("root-changed", `a held directory moved out of place ${when}`);
+  }
+}
+
 function sameIdentity(fd: number, root: PinnedRoot): boolean {
   const st = fstatSync(fd, { bigint: true });
   return st.isDirectory() && String(st.dev) === root.dev && String(st.ino) === root.ino;
@@ -288,16 +317,19 @@ export function writeRuling(root: PinnedRoot, dirs: string[], file: string, cont
     if (!/^[A-Za-z0-9._-]+$/.test(d) || d === "." || d === "..") throw new RulingWriteError("bad-name", `unsafe directory ${j(d)}`);
   }
   const fds: number[] = [];
+  const held: Held[] = [];
   try {
     // 1. the saved root, opened without following and checked by identity
     let cur = openRoot(root, "since filing");
     fds.push(cur);
+    if (PROC_FD) held.push({ fd: cur, expected: readlinkSync(`/proc/self/fd/${cur}`) });
     // 2. walk one component at a time, each opened relative to the verified parent
     let dir = root.path;
     for (const comp of dirs) {
       cur = openChildDir(cur, dir, comp);
       fds.push(cur);
       dir = join(dir, comp);
+      if (PROC_FD) held.push({ fd: cur, expected: join(held[held.length - 1].expected, comp) });
     }
     const target = join(dir, file);
     const bytes = Buffer.from(content, "utf8");
@@ -322,6 +354,7 @@ export function writeRuling(root: PinnedRoot, dirs: string[], file: string, cont
     // 3. temp file, no follow, exclusive; fsync; rename inside the verified directory
     const tmpName = `.tmp-${process.pid}-${randomBytes(6).toString("hex")}`;
     const tmp = at(cur, dir, tmpName);
+    assertHeld(held, "before the temp write");
     const fd = openSync(tmp, constants.O_CREAT | constants.O_EXCL | constants.O_WRONLY | constants.O_NOFOLLOW, 0o644);
     try {
       try {
@@ -330,6 +363,7 @@ export function writeRuling(root: PinnedRoot, dirs: string[], file: string, cont
       } finally {
         closeSync(fd);
       }
+      assertHeld(held, "before the rename");
       renameSync(tmp, at(cur, dir, file));
     } catch (e) {
       try {
@@ -339,9 +373,24 @@ export function writeRuling(root: PinnedRoot, dirs: string[], file: string, cont
       }
       throw e;
     }
-    fsyncSync(cur);
-    // 4. the root path must still name the same directory, and so must the pinned fd
-    checkRoot(root, "during the write");
+    const unwind = (e: unknown): never => {
+      try {
+        unlinkSync(at(cur, dir, file));
+      } catch {
+        /* already gone */
+      }
+      throw e;
+    };
+    try {
+      assertHeld(held, "after the rename");
+      fsyncSync(cur);
+      // 4. the root path must still name the same directory, and every held fd must
+      // still be where it was; this is the last fs call, so a later move is the residual
+      checkRoot(root, "during the write");
+      assertHeld(held, "at the end of the write");
+    } catch (e) {
+      unwind(e);
+    }
     return { path: target, written: true };
   } finally {
     for (const f of fds) {
