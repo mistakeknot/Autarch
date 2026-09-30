@@ -47,8 +47,8 @@ function useTodos() {
   useEffect(() => {
     refetch();
   }, [refetch]);
-  // server.ts publishes after every write — from this page, another window,
-  // or `bb autarch add` run by an agent — so the list never goes stale.
+  // server.ts publishes after every write — from this page or another window —
+  // so the list never goes stale.
   useRealtime("todos-changed", refetch);
   return { rpc, todos, error, report, refetch };
 }
@@ -132,8 +132,8 @@ function TodosPage() {
     <div className="h-full min-h-0 flex-1 overflow-y-auto">
       <div className="mx-auto box-border w-full max-w-3xl px-4 pb-4 pt-3 md:px-5 md:pt-4">
         <p className="text-sm text-muted-foreground">
-          Agents keep this list with <code>bb autarch</code>; the skill in{" "}
-          <code>skills/example-todos</code> tells them how.
+          A small example list, managed on this page only. Agents reach Home with{" "}
+          <code>bb home</code>.
         </p>
         <form onSubmit={add} className="mt-4 flex items-center gap-2">
           <Input
@@ -157,8 +157,7 @@ function TodosPage() {
             <EmptyState>Loading todos…</EmptyState>
           ) : todos.length === 0 ? (
             <EmptyState>
-              Nothing to do. Add one above, or run{" "}
-              <code>bb autarch add "Ship it"</code>.
+              Nothing to do. Add one above.
             </EmptyState>
           ) : (
             <ul className="divide-y divide-border overflow-hidden rounded-lg border border-border bg-card px-4">

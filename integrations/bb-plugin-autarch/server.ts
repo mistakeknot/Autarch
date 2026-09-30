@@ -3,11 +3,10 @@
 // The default export is a factory that receives the plugin API. BB supplies
 // the tiny defineRpcContract runtime helper; the API type remains type-only.
 //
-// The example is a todo list. One store in bb.storage.kv serves three
-// surfaces: the Example todos page (app.tsx, over RPC), the `bb autarch` CLI
-// command (below), and the skill in skills/example-todos/SKILL.md that tells
-// agents how to use that command. A write from any surface publishes a realtime signal so
-// every open page refetches.
+// The Home store serves the Home page (app.tsx, over RPC), the `bb home` CLI command
+// (cli.ts) and the skill in skills/home/SKILL.md that tells agents how to use it. The
+// example todo list in bb.storage.kv serves the Example todos page only. A write
+// publishes a realtime signal so every open page refetches.
 import { randomUUID } from "node:crypto";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";

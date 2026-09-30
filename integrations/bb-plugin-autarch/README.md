@@ -1,20 +1,21 @@
 # bb-plugin-autarch
 
-A BB plugin that keeps a todo list. It shows every surface a plugin can own:
+A BB plugin that puts Autarch's Home in BB: the asks waiting for mk, a catch-up feed,
+the vizier thread, delegation settings, and a small example todo page.
 
-- `server.ts` — the backend: a todo store in `bb.storage.kv`, RPC methods
-  for the page, a `bb autarch` CLI command, a setting, and a realtime signal
-  that keeps every open page current.
-- `app.tsx` — the frontend: an **Example todos** page in the left sidebar
-  (`app.slots.navPanel`) built from the vendored components.
-- `skills/example-todos/SKILL.md` — a skill that tells agents how to keep the list
-  with `bb autarch`. BB imports it into agent threads automatically.
+- `server.ts` — the backend: the Home store in `data.db`, RPC methods for the page,
+  the `bb home` CLI command (`cli.ts`), settings, and a realtime signal that keeps every
+  open page current. It also keeps the example todo list in `bb.storage.kv`.
+- `app.tsx` — the frontend: the **Home** page (asks, catch-up, vizier, map, settings)
+  and the **Example todos** page, both in the left sidebar.
+- `skills/home/SKILL.md` — a skill that tells agents how to file asks and report blocker
+  progress with `bb home`. BB imports it into agent threads automatically.
 - `PLUGIN_OVERVIEW.md` — the store listing text: a longer version of
   `bb.description` that the plugin detail page shows under it. See
   [Store listing](#store-listing).
 
-Try it: install the plugin, open **Example todos** in the sidebar, then run
-`bb autarch add "Ship it"` in a terminal. The page updates at once.
+Try it: install the plugin, open **Home** in the sidebar, then run
+`bb home list` in a terminal. The example todos are managed on their page only.
 
 ## UI components
 
@@ -160,7 +161,11 @@ plugin folder, so it outlives removal. A reset database exports into a new direc
 Rulings are written under the project root that `serve` resolved at filing, through a
 root-pinned writer (`ruling.ts`): it checks the saved root's `dev` and `ino`, walks
 `docs/decisions` refusing symlinks, writes a temp file with `O_NOFOLLOW`, fsyncs and
-renames it, then re-checks the root. Node has no `openat`, so a process running as the
-same user can still swap a path between two of those steps. That is the same-user risk
-accepted in the plan's `[D21]`; the writer defends against a different-origin symlink or
-a replaced root, not against a hostile process running as mk.
+renames it, then re-checks the root. Node has no `openat`, so on Linux the writer holds
+each directory open (`O_DIRECTORY|O_NOFOLLOW`, identity checked with `fstat`) and reaches
+children through `/proc/self/fd/<n>/`, which resolves inside that held directory; a path
+swapped for a symlink between steps cannot redirect the write. Where `/proc/self/fd` is
+absent (macOS), the writer falls back to path-based steps and a same-user process can still
+swap a path between them. That is the same-user risk accepted in the plan's `[D21]`; the
+writer defends against a different-origin symlink or a replaced root, and on Linux against
+a same-user race, but on other platforms not against a hostile process running as mk.
