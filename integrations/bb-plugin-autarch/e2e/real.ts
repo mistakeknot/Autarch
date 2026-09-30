@@ -141,7 +141,7 @@ export class Real {
   /** Wait until the thread has no active turn (its status is neither starting nor running). */
   async settle(thread: string): Promise<void> {
     await this.waitFor(`thread ${thread} to stop being active`, () => {
-      const st = (JSON.parse(this.bb(["thread", "show", thread, "--json"]).stdout) as { status?: string }).status ?? "";
+      const st = (JSON.parse(this.bb(["thread", "show", thread, "--json"]).stdout) as { thread?: { status?: string } }).thread?.status ?? "";
       return !/^(starting|running)$/i.test(st) && st !== "";
     }, 60_000);
   }
@@ -267,11 +267,11 @@ export class Real {
       const req = (subject: string) => JSON.stringify({ v: 1, kind: "decide", question: "Collapse routine catch-up items per project or per day?", subject, options: this.askBody(t, subject).options });
       const decide = (subject: string, threadEnv?: string) =>
         spawnSync(this.build.autarch_path, ["decide", "file", "--thread", t], { cwd: this.root, env: { ...this.bbEnv(threadEnv), PATH: this.env.cli.includes("/") ? `${dirname(this.env.cli)}:${process.env.PATH}` : process.env.PATH }, input: req(subject), encoding: "utf8", timeout: 60_000 });
-      const absent = decide("e2e: decide file, BB_THREAD_ID absent");
-      const conflict = decide("e2e: decide file, BB_THREAD_ID conflicting", other);
+      const absent = decide(`e2e: decide file ${this.runId}, BB_THREAD_ID absent`);
+      const conflict = decide(`e2e: decide file ${this.runId}, BB_THREAD_ID conflicting`, other);
       assert.equal(absent.status, 0, `absent: ${absent.stderr}`);
       assert.equal(conflict.status, 2, `conflict must exit 2: ${conflict.stderr}`);
-      const rows = this.db<{ thread: string | null }>("SELECT thread FROM decisions WHERE subject LIKE 'e2e: decide file%'");
+      const rows = this.db<{ thread: string | null }>("SELECT thread FROM decisions WHERE subject LIKE ?", `e2e: decide file ${this.runId}%`);
       assert.equal(rows.length, 1, "the conflicting decide-file must file nothing");
       assert.ok(rows.every((r) => r.thread === t), "a decide-file ask was filed under another thread");
       return { threads: [t, other], decision, env_absent_exit: absent.status, env_conflict_exit: conflict.status };
