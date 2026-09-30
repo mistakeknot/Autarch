@@ -1991,14 +1991,18 @@ These are **not agent-completable**. Each is a checklist item for mk; none is a 
   `mistakeknot/Autarch`. `gh` reports the repository as public (`private: false`), against the
   private-by-default rule, which is for mk to review. The sidecars (`.criteria.md`, `.criteria.md.seal`, `.exec.yaml`) were
   re-extracted, resealed and regenerated for revision 4 (19 tasks) on 2026-09-29.
-- **G-1:** create the private Uqbar repo and set `AUTARCH_UQBAR_DIR`. Until then estate-wide
-  decisions are refused.
+- **G-1 (ruled 2026-09-29 by the vizier):** no Uqbar repo yet. Estate-wide decisions stay
+  refused until a real one exists; creating the private repo and setting `AUTARCH_UQBAR_DIR`
+  is then mk's step.
 - **G-3:** install the plugin: `bb plugin install path:integrations/bb-plugin-autarch`. Removing
   it later leaves `data.db`; mk deletes it by hand to reset. Task 1.11 may instead run on an
   isolated bb server (its own data directory and port) if mk permits that install `[D-14]`.
-- **G-4:** republish `autarch-plugin` (`plugin.json` changes in Task 0.5).
+- **G-4 (ruled 2026-09-29 by the vizier):** one republish of `autarch-plugin` (`plugin.json`
+  changes in Task 0.5) after the Home build is accepted. The publish itself still needs mk's
+  approval then.
 - **G-5 (ruled 2026-09-26):** P-7 and P-5 departures accepted.
-- **G-6:** start the trial by walking autarch-07 on the installed Home tab with a real decision,
+- **G-6 (ruled 2026-09-29 by the vizier):** start after Task 1.11 passes on the isolated
+  server. The trial: start by walking autarch-07 on the installed Home tab with a real decision,
   including one delegated ruling and one override, and revise autarch-07 to match.
 - **G-9 (ruled 2026-09-26):** undeliverable in v1; successor resolution deferred.
 - **G-10:** the Aleph core desktop change for the overlay (global shortcut, frameless
