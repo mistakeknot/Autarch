@@ -442,6 +442,7 @@ func bigendCmd() *cobra.Command {
 }
 
 func runBigendDaemon(addr string, scanRoots []string) error {
+	fmt.Fprintln(os.Stderr, `deprecated: use "autarch serve" (mounted at /bigend/)`)
 	srv := daemon.NewServer(daemon.Config{
 		Addr:        addr,
 		ProjectDirs: scanRoots,

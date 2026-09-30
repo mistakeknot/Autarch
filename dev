@@ -12,6 +12,9 @@ usage() {
     echo "  autarch tui --tool=X     - Jump to specific tab (bigend|signals|gurgeh|coldwine|pollard)"
     echo "  autarch tui --inline     - Inline mode (preserves terminal scrollback)"
     echo ""
+    echo "Service:"
+    echo "  serve      - Consolidated read-only local service (autarch serve)"
+    echo ""
     echo "Standalone CLI (for scripting, no TUI):"
     echo "  gurgeh     - Spec management CLI (list, create, export, etc.)"
     echo "  coldwine   - Task management CLI (init, status, etc.)"
@@ -42,6 +45,10 @@ case "$TOOL" in
     autarch)
         go build -o autarch ./cmd/autarch
         exec ./autarch "$@"
+        ;;
+    serve)
+        go build -o autarch ./cmd/autarch
+        exec ./autarch serve "$@"
         ;;
     bigend|vauxhall)
         go build -o bigend ./cmd/bigend

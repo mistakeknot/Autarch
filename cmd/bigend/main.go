@@ -102,6 +102,7 @@ func main() {
 }
 
 func runDaemon(addr string, scanRoots []string) {
+	fmt.Fprintln(os.Stderr, `deprecated: use "autarch serve" (mounted at /bigend/)`)
 	srv := daemon.NewServer(daemon.Config{
 		Addr:        addr,
 		ProjectDirs: scanRoots,

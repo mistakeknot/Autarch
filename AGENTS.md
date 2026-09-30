@@ -69,6 +69,34 @@ Unified monorepo for AI agent development tools: Bigend, Gurgeh, Coldwine, and P
 | Coldwine | [docs/coldwine/AGENTS.md](docs/coldwine/AGENTS.md) | |
 | Pollard | [docs/pollard/AGENTS.md](docs/pollard/AGENTS.md) | [HUNTERS.md](docs/pollard/HUNTERS.md), [API.md](docs/pollard/API.md) |
 
+## autarch serve
+
+`autarch serve` (or `./dev serve`) is the one consolidated, read-only, loopback service. It
+replaces running the standalone Bigend, Gurgeh and Signals servers by hand; those still work and
+print a deprecation notice.
+
+| Item | Value |
+|------|-------|
+| Default address | `127.0.0.1:8110` (`--addr`; non-loopback is refused) |
+| `/bigend/` | Bigend daemon API |
+| `/signals/` | One in-process Signals broker (`/signals/ws`); Gurgeh spec updates publish into it |
+| `/gurgeh/{project}/` | Gurgeh API for one project; unknown or non-`.gurgeh` project is 404 |
+| `GET /api/projects` | Resolved project roots as `[{name, root, dev, ino}]`; the only route `serve` adds |
+| `GET /health` | No token; status, project count, build revision and executable SHA-256 |
+
+- **Projects:** `--project-dir` (repeatable) names scan roots whose child directories are the
+  projects; the default is Bigend's discovery roots. Roots are symlink-resolved and must stay
+  inside a scan root; a shared base name is an ambiguity error. The list is re-read at most every 30 s.
+- **Token:** every route except `/health` needs `Authorization: Bearer <token>`. The token lives in
+  `--token-file` (default `~/.autarch/serve.token`, created mode 0600; a looser mode is refused).
+  There is no query-string token, and the startup line prints the file path, never the token.
+- **Origin allowlist:** a request with an `Origin` header is 403 unless it is listed with
+  `--allow-origin` (repeatable; default none). A `Host` that is not loopback is also 403.
+- **No decisions:** `serve` holds no decisions code and no `/api/decisions` route.
+- **Pollard:** Pollard's watcher still publishes to the standalone Signals server on 8092
+  (`internal/signals/cli/serve.go`, not deprecated); it does not reach the `serve` broker yet.
+- **MCP:** `autarch mcp --project <dir>` runs the MCP server; `autarch-mcp` is an alias.
+
 ## Design Decisions (Do Not Re-Ask)
 
 - Module: `github.com/mistakeknot/autarch`

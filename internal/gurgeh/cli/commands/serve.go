@@ -15,6 +15,7 @@ func ServeCmd() *cobra.Command {
 		Use:   "serve",
 		Short: "Serve Gurgeh Spec API (local-only)",
 		RunE: func(cmd *cobra.Command, args []string) error {
+			fmt.Fprintln(cmd.ErrOrStderr(), `deprecated: use "autarch serve" (mounted at /gurgeh/{project}/)`)
 			root, err := os.Getwd()
 			if err != nil {
 				return err
