@@ -105,4 +105,28 @@ describe("wireHome", () => {
       env.cleanup();
     }
   });
+
+  it("every RPC result is a JSON value: bb rejects undefined members (found by the real-bb run)", async () => {
+    const env = makeEnv();
+    try {
+      const handle = createStoreHandle(() => new Database(env.file), {});
+      const f = fakeBb();
+      const own = { projects: async () => env.projects, health: async () => ({}), healthy: async () => true } as unknown as ServeClient;
+      const home = wireHome(f.bb, handle, cfg, { serve: own, sdk: new FakeSdk() });
+      await new Promise((r) => setTimeout(r, 20));
+      await f.cli()!.run(["ask", "--request", JSON.stringify(ask(env))], { threadId: "thr-a" });
+      const undefinedAt = (v: unknown, path: string): string | null => {
+        if (v === undefined) return path;
+        if (Array.isArray(v)) return v.map((x, i) => undefinedAt(x, `${path}[${i}]`)).find((x) => x) ?? null;
+        if (v && typeof v === "object") return Object.entries(v).map(([k, x]) => undefinedAt(x, `${path}.${k}`)).find((x) => x) ?? null;
+        return null;
+      };
+      expect(undefinedAt(await home.handlers.listAsks(null), "$")).toBeNull();
+      expect(undefinedAt(await home.handlers.catchup(null), "$")).toBeNull();
+      expect(undefinedAt(await home.handlers.listRecent({ project: "Autarch", limit: 50 }), "$")).toBeNull();
+      f.disposers.forEach((d) => d());
+    } finally {
+      env.cleanup();
+    }
+  });
 });

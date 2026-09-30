@@ -331,7 +331,16 @@ export function wireHome(bb: BbPluginApi, handle: StoreHandle, cfg: HomeConfig, 
       return { ready: handle.ready(), error: handle.error(), source_sha256: pluginSource(), build, projects: projects ?? null, projects_error: projectsError ?? null };
     },
   };
-  return { handlers };
+  // bb validates an RPC result as a JSON value, and an `undefined` member fails the whole call
+  // (found by the real-bb run: listAsks failed on an ask with no machine block). Round-trip
+  // every result through JSON so absent members are dropped, as they would be on the wire.
+  const jsonSafe = <F extends (i: never) => Promise<unknown>>(f: F): F =>
+    (async (i: never) => {
+      const r = await f(i);
+      return r === undefined ? null : JSON.parse(JSON.stringify(r));
+    }) as F;
+  const safe = Object.fromEntries(Object.entries(handlers).map(([k, f]) => [k, jsonSafe(f as never)])) as unknown as typeof handlers;
+  return { handlers: safe };
 }
 
 export default async function plugin(bb: BbPluginApi) {
