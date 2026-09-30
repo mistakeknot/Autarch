@@ -1981,10 +1981,16 @@ These are **not agent-completable**. Each is a checklist item for mk; none is a 
 
 - **G-0:** mk approved `mk-okek` (2026-09-26). The round-11 review-astra pass returned PASS
   with no new findings (rounds 4 to 10 returned D-1 to D-17 through J-1, folded in here).
-  Still required: the zklw CI status
-  (`zklw-ci status --repo mistakeknot/Autarch --json`); the GitHub repository identity; and
-  re-extraction and reseal of the sidecars (`.criteria.md`, `.criteria.md.seal`,
-  `.exec.yaml`), regenerated for revision 4 (19 tasks) on 2026-09-29.
+  Checked 2026-09-29: the immutable GitHub repository ID is 1140086114
+  (`mistakeknot/Autarch`, `gh api repos/mistakeknot/autarch --jq .id`), and `zklw-ci status
+  --repo mistakeknot/Autarch --json` on zklw shows it registered (campaign `mk-ag2s`,
+  disposition `pending-inventory`, inventory `requires-workflow-review`, evidence
+  `ci/fleet/evidence/2026-09-10-autarch-visit-registration.json`). Migration is **not
+  complete**: the migration task is `mk-ag2s.18`, still in progress. The lowercase name
+  `mistakeknot/autarch` returns "repository not registered"; the registered name is
+  `mistakeknot/Autarch`. `gh` reports the repository as public (`private: false`), against the
+  private-by-default rule, which is for mk to review. The sidecars (`.criteria.md`, `.criteria.md.seal`, `.exec.yaml`) were
+  re-extracted, resealed and regenerated for revision 4 (19 tasks) on 2026-09-29.
 - **G-1:** create the private Uqbar repo and set `AUTARCH_UQBAR_DIR`. Until then estate-wide
   decisions are refused.
 - **G-3:** install the plugin: `bb plugin install path:integrations/bb-plugin-autarch`. Removing
