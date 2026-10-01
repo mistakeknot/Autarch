@@ -486,6 +486,23 @@ describe("root-run section (Task 2.8)", () => {
     expect(html).toContain("no run record yet");
     expect(html).not.toMatch(/approv/i);
   });
+  it("states plainly that the card-file path is unpinned and shows the expected sha256 to compare (finding 2, pending Aleph)", () => {
+    const sha = "ab".repeat(32);
+    const html = renderToStaticMarkup(<RootRunSection view={view({ tuple: { script: "/s.sh", sha256: sha, timeout: 60, set: "s1" } })} />);
+    expect(html).toContain('data-rootrun-unpinned="true"');
+    expect(html).toMatch(/does not pin the script hash/);
+    expect(html).toContain(`verified: ${sha}`);
+    expect(html).toContain("todo-add --set");
+    expect(html).not.toMatch(/todo-add[^<]*--expect-sha256/);
+    const none = renderToStaticMarkup(<RootRunSection view={view({ command: null, item_json: null, card_file: null })} />);
+    expect(none).not.toContain("data-rootrun-unpinned");
+  });
+  it("shows the status paste command, and says status is not read automatically", () => {
+    const html = renderToStaticMarkup(<RootRunSection view={view({ status: null, status_command: "todo-run --status 's1' 'bbtask-X-1'" })} />);
+    expect(html).toContain("todo-run --status");
+    expect(html).toContain("not read automatically");
+    expect(html).toContain("status not read by Home");
+  });
   it("shows the reason and no command when suppressed, and escapes hostile text", () => {
     const html = renderToStaticMarkup(<RootRunSection view={view({ state: "mismatch", command: null, item_json: null, problems: [{ field: "set", why: "<img src=x onerror=alert(1)>" }], tuple: { script: "/a/<b>.sh", sha256: "a".repeat(64), timeout: 1, set: "S" } })} />);
     expect(html).not.toContain("todo-add");

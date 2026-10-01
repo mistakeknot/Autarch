@@ -7,6 +7,7 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { askingThread, parseCard } from "../cards.js";
 import {
+  AUTO_READ_RUNNER_STATUS,
   BADGE,
   fetchRunStatus,
   itemJson,
@@ -14,6 +15,7 @@ import {
   rootRun,
   scriptState,
   shQuote,
+  statusCommand,
   type RootRunInput,
 } from "../rootrun.js";
 
@@ -277,10 +279,38 @@ describe("status: a read-only GET on the Aleph runner, untrusted display data", 
     expect(JSON.stringify(s)).not.toMatch(/approv|script|pwned/i);
   });
 
-  it("rootRun carries the status, and a runner that is down never fails the view", async () => {
-    const up = await rootRun(input(), { fetch: router({ [URL1]: () => new Response(JSON.stringify(rec(1))) }) as never });
+  it("D-1 default (b): rootRun makes no request to the runner and shows the todo-run --status paste command", async () => {
+    expect(AUTO_READ_RUNNER_STATUS).toBe(false);
+    const f = router({ [URL1]: () => new Response(JSON.stringify(rec(1))) });
+    const v = await rootRun(input(), { fetch: f as never });
+    expect(calls).toEqual([]);
+    expect(v.status).toBeNull();
+    expect(v.status_command).toBe(`todo-run --status 'myset' 'bbtask-${TASK}-1'`);
+    expect(v.status_command).toBe(statusCommand("myset", TASK));
+    // and with the global fetch itself: nothing leaves the process
+    const real = globalThis.fetch;
+    let global = 0;
+    globalThis.fetch = (async () => {
+      global++;
+      throw new Error("no network in this test");
+    }) as never;
+    try {
+      await rootRun(input());
+    } finally {
+      globalThis.fetch = real;
+    }
+    expect(global).toBe(0);
+  });
+
+  it("no status command for an invalid set or task id", async () => {
+    expect((await run(input({ id: "bad'id" }))).status_command).toBeNull();
+    expect((await run(input({ description: desc(rrBlock({ script: script(), set: "Bad Set" })) }))).status_command).toBeNull();
+  });
+
+  it("rootRun carries the status when the opt-in read is on, and a runner that is down never fails the view", async () => {
+    const up = await rootRun(input(), { autoRead: true, fetch: router({ [URL1]: () => new Response(JSON.stringify(rec(1))) }) as never });
     expect(up.status).toMatchObject({ kind: "run", attempt: 1 });
-    const down = await run(input());
+    const down = await rootRun(input(), { autoRead: true, fetch: noFetch as never });
     expect(down.status).toMatchObject({ kind: "unavailable" });
     expect(down.state).toBe("match");
     expect(down.command).not.toBeNull();
@@ -288,7 +318,7 @@ describe("status: a read-only GET on the Aleph runner, untrusted display data", 
 
   it("reads status only for a valid set and task id", async () => {
     const f = router({});
-    await rootRun(input({ id: "bad'id" }), { fetch: f as never });
+    await rootRun(input({ id: "bad'id" }), { autoRead: true, fetch: f as never });
     expect(calls).toEqual([]);
   });
 });

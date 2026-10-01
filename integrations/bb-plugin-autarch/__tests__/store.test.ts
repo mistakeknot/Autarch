@@ -322,21 +322,43 @@ describe("obligations", () => {
 });
 
 describe("store handle", () => {
-  it("returns not-ready on a locked database and opens after release without a reload", async () => {
+  it("a database held by another connection is a quiesce refusal: not-ready, never retried (plan 8.9 item 1)", async () => {
     const holder = new Database(file);
     holder.pragma("journal_mode = WAL");
     holder.exec("BEGIN EXCLUSIVE");
-    const handle = createStoreHandle(() => new Database(file), {
+    let opens = 0;
+    const handle = createStoreHandle(() => (opens++, new Database(file)), {
       initialDelayMs: 20,
       maxDelayMs: 40,
       busyTimeoutMs: 20,
       closeOnFailure: true,
     });
     expect(handle.ready()).toBe(false);
-    expect(handle.error()).toMatch(/locked|busy/i);
+    expect(handle.error()).toMatch(/another connection holds data\.db/);
+    expect(handle.refusal()).toBeTruthy();
     expect(() => handle.store()).toThrow(/not ready/);
     holder.exec("ROLLBACK");
     holder.close();
+    await new Promise((r) => setTimeout(r, 200));
+    expect(opens).toBe(1);
+    expect(handle.ready()).toBe(false);
+    handle.dispose();
+  });
+
+  it("a transient open failure returns not-ready and opens after the cause clears without a reload", async () => {
+    let fail = true;
+    const handle = createStoreHandle(
+      () => {
+        if (fail) throw Object.assign(new Error("database is locked"), { code: "SQLITE_BUSY" });
+        return new Database(file);
+      },
+      { initialDelayMs: 20, maxDelayMs: 40, busyTimeoutMs: 20, closeOnFailure: true },
+    );
+    expect(handle.ready()).toBe(false);
+    expect(handle.error()).toMatch(/locked|busy/i);
+    expect(handle.refusal()).toBeNull();
+    expect(() => handle.store()).toThrow(/not ready/);
+    fail = false;
     const deadline = Date.now() + 3000;
     while (!handle.ready() && Date.now() < deadline) await new Promise((r) => setTimeout(r, 20));
     expect(handle.ready()).toBe(true);

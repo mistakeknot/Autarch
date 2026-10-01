@@ -493,7 +493,9 @@ export const scenarios: Record<string, Scenario> = {
       const desc = (rr: string) => ["Prose", "", "Request: 6f1c-uuid sha256:0123456789abcdef", "", "```home-ask", JSON.stringify({ schema: "home-ask/v2", project: "Autarch", project_root: "/r", question: "Q?", options: [{ id: "a", label: "A", kind: "instruction", instruction: "do a", reversible: true }, { id: "b", label: "B", kind: "instruction", instruction: "do b", reversible: true }], ask_key: "k" }), "```", "", "```root-run", rr, "```"].join("\n");
       const TASK = "01J0000000000000000000000A";
       const comments = [{ id: "c1", kind: "agent", threadId: "thr_abc123", createdAt: "2026-09-30T12:00:00.5Z" }];
+      let runnerCalls = 0;
       const down = async () => {
+        runnerCalls++;
         throw new Error("down");
       };
       const view = (s: string) => rootRun({ task: { id: TASK, projectId: "p:1", description: desc(block(s)) }, comments }, { fetch: down as never });
@@ -503,7 +505,9 @@ export const scenarios: Record<string, Scenario> = {
       assert.equal(missing.state, "unreadable");
       assert.equal(missing.command, null);
       assert.ok(good.command);
-      return { card: TASK, state: good.state, command_shown: true, command_hidden_when_unreadable: true, runner_status: good.status?.kind };
+      assert.equal(runnerCalls, 0, "Home must not read the runner until mk rules on D-1");
+      assert.match(good.status_command ?? "", /^todo-run --status 'myset' 'bbtask-[A-Z0-9]{26}-1'$/);
+      return { card: TASK, state: good.state, command_shown: true, command_hidden_when_unreadable: true, runner_status: good.status === null ? "not-read" : good.status.kind };
     }),
 
   "root-run-injection": () =>
@@ -524,7 +528,7 @@ export const scenarios: Record<string, Scenario> = {
         assert.ok(v.command === null || /^todo-add --set '[^']*' --from-card 'card-[A-Za-z0-9]+\.json'$/.test(v.command), `unsafe command: ${v.command}`);
       }
       await rootRun({ task: { id: "bad'id", projectId: "p", description: body("s") }, comments: [] }, { fetch: spy as never });
-      assert.deepEqual(calls.filter((u) => /bad'id|rm -rf|\$\(/.test(u)), []);
+      assert.deepEqual(calls, []);
       return { hostile_sets: hostile.length, commands_unsafe: 0, runner_urls_with_hostile_input: 0 };
     }),
   // ---- filing (the real autarch binary; bb is faked) ------------------------------------------------------

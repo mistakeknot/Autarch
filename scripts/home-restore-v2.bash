@@ -71,8 +71,10 @@ fi
 
 # 4. Move aside, never delete.
 TS=$(date -u +%Y%m%dT%H%M%SZ)
-for f in data.db data.db-wal data.db-shm; do
-  if [ -e "$DATA/$f" ]; then
+# data.db-journal: a v3 migration runs in journal_mode=DELETE, so a crash during the hold leaves a hot rollback journal
+# that would be replayed into the restored pages by the next connection (plan 8.9 item 2).
+for f in data.db data.db-wal data.db-shm data.db-journal; do
+  if [ -e "$DATA/$f" ] || [ -L "$DATA/$f" ]; then
     "${AS0[@]}" mv "$DATA/$f" "$DATA/${f/data.db/data.db.v3-$TS}"
     MOVED+=("$DATA/${f/data.db/data.db.v3-$TS}")
   fi

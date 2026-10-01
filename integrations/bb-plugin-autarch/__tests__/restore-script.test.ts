@@ -2,12 +2,15 @@
 // temporary install, in test mode (--test-as-current-user, --bbdata, --build). Never root, never sudo, never the
 // live /home/mk/.bb-machines data. The launchers are executed by path, so the kernel runs the #!/bin/sh line.
 import { spawn, spawnSync, type ChildProcess } from "node:child_process";
-import { chmodSync, copyFileSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
+import { chmodSync, copyFileSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
 import { createHash } from "node:crypto";
 import { createServer, type Server } from "node:net";
 import { tmpdir } from "node:os";
 import { basename, dirname, join, resolve } from "node:path";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
+import Database from "better-sqlite3";
+import { MIGRATIONS, migrate } from "../migrations.js";
+import { createStoreHandle } from "../store.js";
 import { makeEnv, type Env } from "./service-helpers.js";
 import { populateV2, startV2Home, type V2Fixture } from "./v2-home.js";
 
@@ -99,7 +102,20 @@ function writeStub(bbdata: string, body = STUB_BB, name = "bb") {
   return f;
 }
 
-async function install(): Promise<Install> {
+/** The real layout: npm/bin/bb-app is a symlink to ../lib/node_modules/bb-app/dist/bb-app.js. Returns [binPath, realPath]. */
+function writeSymlinkedBbApp(bbdata: string, body = SERVER_JS): [string, string] {
+  const realDir = join(bbdata, "npm", "lib", "node_modules", "bb-app", "dist");
+  mkdirSync(realDir, { recursive: true });
+  const real = join(realDir, "bb-app.js");
+  writeFileSync(real, body);
+  chmodSync(real, 0o755);
+  mkdirSync(join(bbdata, "npm", "bin"), { recursive: true });
+  const bin = join(bbdata, "npm", "bin", "bb-app");
+  symlinkSync("../lib/node_modules/bb-app/dist/bb-app.js", bin);
+  return [bin, real];
+}
+
+async function install(opts: { entry?: "bin" | "real" } = {}): Promise<Install> {
   const root = realpathSync(mkdtempSync(join(tmpdir(), "home-scripts-")));
   toClean.push(root);
   const bbdata = join(root, "bbdata");
@@ -109,7 +125,8 @@ async function install(): Promise<Install> {
   copyFileSync(tmplBackup, join(data, basename(tmplBackup)));
   writeFileSync(join(data, "data.db-wal"), "");
   writeStub(bbdata);
-  const entry = writeStub(bbdata, SERVER_JS, "bb-app");
+  const [bin, real] = writeSymlinkedBbApp(bbdata);
+  const entry = opts.entry === "real" ? real : bin;
   const child = spawn("node", [entry, bbdata], { stdio: ["ignore", "pipe", "ignore"] });
   procs.push(child);
   const port = await new Promise<number>((res, rej) => {
@@ -285,6 +302,15 @@ describe("unverifiable install: exit 6, nothing moved, no bb call, the report pa
       symlinkSync(real, f);
     }],
     ["the server url is not loopback", (i) => rewrite(i, { serverUrl: "http://10.0.0.1:80" })],
+    ["the server url is a decoy whose last colon-suffix is the real port", (i) => rewrite(i, { serverUrl: `http://127.0.0.1:9999/x:${new URL(i.url).port}` })],
+    ["the server url has a path", (i) => rewrite(i, { serverUrl: `${i.url}/` })],
+    ["bb-app is a symlink that leaves the npm tree (entryPath follows it)", (i) => {
+      const other = join(i.root, "elsewhere-bb-app.js");
+      writeFileSync(other, SERVER_JS);
+      const bin = join(i.bbdata, "npm", "bin", "bb-app");
+      rmSync(bin);
+      symlinkSync(other, bin);
+    }],
   ];
   for (const script of ["restore", "upgrade"] as const) {
     for (const [name, mutate] of cases) {
@@ -300,6 +326,17 @@ describe("unverifiable install: exit 6, nothing moved, no bb call, the report pa
         expect(r.out).toMatch(/report not sent; read \/tmp\/home-(restore|upgrade)-report\./);
       });
     }
+  }
+});
+
+describe("install verification on the real symlinked layout (review finding 1)", () => {
+  for (const entry of ["bin", "real"] as const) {
+    it(`entryPath is the ${entry === "bin" ? "npm/bin/bb-app symlink" : "resolved dist/bb-app.js"}: verification passes (restore --check)`, async () => {
+      const i = await install({ entry });
+      expect(lstatSync(join(i.bbdata, "npm", "bin", "bb-app")).isSymbolicLink()).toBe(true);
+      const r = run(RESTORE, restoreArgs(i, ["--check"]));
+      expect(r.code, r.out).toBe(0);
+    });
   }
 });
 
@@ -327,6 +364,29 @@ describe("restore", () => {
     const owed = (await v2.handlers.listAsks(null as never)) as { owed: { id: string }[] };
     expect(owed.owed.map((o) => o.id).sort()).toEqual([fx.decide, fx.mycroft].sort());
     v2.close();
+  });
+
+  it("a hot data.db-journal left by a crash during the v3 hold is moved aside, never replayed into the restored backup", async () => {
+    const i = await install();
+    // A real hot journal: a child opens the v3 file in DELETE mode, starts a write, and is killed before commit.
+    const child = spawnSync(
+      process.execPath,
+      ["-e", `const D=require(${JSON.stringify(require.resolve("better-sqlite3"))});const d=new D(${JSON.stringify(join(i.data, "data.db"))});d.pragma("journal_mode=DELETE");d.pragma("cache_size=1");d.exec("BEGIN");for(let n=0;n<400;n++)d.prepare("INSERT INTO notes(id,at,text) VALUES (?,?,?)").run("j"+n,"t","x".repeat(2000));d.exec("UPDATE notes SET text='y'");process.kill(process.pid,"SIGKILL")`],
+      { encoding: "utf8" },
+    );
+    void child;
+    const journal = join(i.data, "data.db-journal");
+    expect(existsSync(journal), "the crash did not leave a hot journal").toBe(true);
+    const journalSha = sha(journal);
+    const r = run(RESTORE, restoreArgs(i));
+    expect(r.code, r.out).toBe(0);
+    expect(existsSync(journal)).toBe(false);
+    const moved = movedAside(i);
+    expect(moved.some((m) => /^data\.db\.v3-\d{8}T\d{6}Z-journal$/.test(m))).toBe(true);
+    expect(sha(join(i.data, moved.find((m) => m.endsWith("-journal"))!))).toBe(journalSha);
+    expect(sha(join(i.data, "data.db"))).toBe(sha(join(i.data, basename(tmplBackup))));
+    const chk = spawnSync("sqlite3", ["-readonly", join(i.data, "data.db"), "PRAGMA integrity_check"], { encoding: "utf8" });
+    expect(chk.stdout.trim()).toBe("ok");
   });
 
   it("an explicit --backup is used; one outside the data directory is refused (exit 2, nothing touched)", async () => {
@@ -410,16 +470,71 @@ describe("upgrade", () => {
     expect(reportOf(i)).toContain(tmplBackup);
   });
 
-  it("QuiesceRequiredError in the log: the plugin is left disabled and the error is reported (exit 5)", async () => {
+  // The log text below is produced by the real code paths (store handle + migrate), not typed by hand.
+  const realLog = (kind: "quiesce" | "backup" | "migrated"): string[] => {
+    const dir = mkdtempSync(join(tmpdir(), "reallog-"));
+    toClean.push(dir);
+    const f = join(dir, "data.db");
+    const lines: string[] = [];
+    const log = { info: (m: string) => lines.push(`autarch: ${m}`), warn: (m: string) => lines.push(`autarch: ${m}`) };
+    const prep = new Database(f);
+    prep.pragma("journal_mode = WAL");
+    migrate(prep, { codeVersion: 2, migrations: MIGRATIONS.slice(0, 2) });
+    prep.close();
+    let holder: Database.Database | null = null;
+    if (kind === "quiesce") {
+      holder = new Database(f);
+      holder.prepare("SELECT COUNT(*) FROM sqlite_master").get();
+    }
+    const h = createStoreHandle(() => new Database(f, { timeout: 50 }), {
+      closeOnFailure: true,
+      log,
+      migrate:
+        kind === "backup"
+          ? { test: { hook: (step, ctx) => { if (step === "backup-written") writeFileSync(ctx.backupPath!, "corrupt".repeat(2000)); } } }
+          : undefined,
+    });
+    h.dispose();
+    holder?.close();
+    if (h.ready()) h.store().close();
+    return lines;
+  };
+  const upgradeWithLog = async (text: string) => {
     const i = await install();
     mkdirSync(join(i.bbdata, "stub"), { recursive: true });
-    writeFileSync(join(i.bbdata, "stub", "logs"), "autarch: QuiesceRequiredError: another connection holds the file\n");
+    writeFileSync(join(i.bbdata, "stub", "logs"), text);
     const r = run(UPGRADE, upgradeArgs(i));
-    expect(r.code, r.out).toBe(5);
-    const vs = verbs(i);
-    expect(vs.slice(0, 3)).toEqual(["plugin disable", "plugin install", "plugin enable"]);
-    expect(vs.at(-2)).toBe("plugin disable");
-    expect(reportOf(i)).toMatch(/QuiesceRequiredError[\s\S]*left disabled/);
+    return { i, r };
+  };
+  for (const kind of ["quiesce", "backup"] as const) {
+    it(`a ${kind} refusal in the real log text: the plugin is left disabled and the refusal is reported (exit 5)`, async () => {
+      const lines = realLog(kind);
+      expect(lines.join("\n")).toMatch(kind === "quiesce" ? /home-refused:quiesce-required/ : /home-refused:backup-not-verified/);
+      const { i, r } = await upgradeWithLog(lines.join("\n") + "\n");
+      expect(r.code, r.out).toBe(5);
+      const vs = verbs(i);
+      expect(vs.slice(0, 3)).toEqual(["plugin disable", "plugin install", "plugin enable"]);
+      expect(vs.at(-2)).toBe("plugin disable");
+      expect(reportOf(i)).toMatch(/home-refused:[\s\S]*left disabled/);
+    });
+  }
+  it("the pre-marker wording (an older build, or bb rewrapping the message) and the retry line are refusals too", async () => {
+    for (const text of [
+      "autarch: store not ready, retrying in 5000 ms: another connection holds data.db: disable the autarch plugin, stop every reader, then enable (database is locked)",
+      "autarch: store not ready, retrying in 5000 ms: pre-migration backup not verified: integrity_check failed for /x/home-v2-backup-20261001T120000Z.db: bad",
+      "autarch: store not ready, retrying in 5000 ms: SQLITE_BUSY",
+    ]) {
+      const { i, r } = await upgradeWithLog(text + "\n");
+      expect(r.code, r.out).toBe(5);
+      expect(verbs(i).at(-2)).toBe("plugin disable");
+    }
+  });
+  it("a real migrated log line is a success (exit 0), also when it follows an older refusal", async () => {
+    const ok = realLog("migrated");
+    expect(ok.join("\n")).toMatch(/autarch: schema 2 → 3/);
+    const { i, r } = await upgradeWithLog(["autarch: [home-refused:quiesce-required] earlier attempt", ...ok].join("\n") + "\n");
+    expect(r.code, r.out).toBe(0);
+    expect(verbs(i).filter((v) => v === "plugin disable").length).toBe(1);
   });
 
   it("a DB holder exits 3 after re-enabling, before anything is installed", async () => {

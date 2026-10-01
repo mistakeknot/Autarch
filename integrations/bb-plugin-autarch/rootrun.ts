@@ -1,5 +1,5 @@
 // Root runs, display only (plan 1.5, Task 2.8). Home shows the command mk would paste into Aleph's
-// decision-panel adapter and, read-only, the run's status. It never executes anything, never writes
+// decision-panel adapter and the read-only status command to paste (no automatic status read until mk rules on D-1). It never executes anything, never writes
 // Aleph state, and makes no approval claim: the card text can be written by any same-uid agent, so
 // everything read from a card, from a script file and from the runner's HTTP answer is untrusted.
 // Slice A is "run by paste, not authenticated"; approval is a later slice's passkey page, not here.
@@ -153,9 +153,23 @@ export type RunStatus =
     };
 
 type FetchLike = (url: string | URL, init?: { signal?: AbortSignal; redirect?: "manual" | "error" | "follow"; headers?: Record<string, string> }) => Promise<Response>;
+/**
+ * D-1 (pending mk's ruling; plan 1.5 and 7): until mk rules, the default is option (b): Home shows a `todo-run --status`
+ * paste command and makes NO request to the runner. The HTTP read in fetchRunStatus stays behind this one switch,
+ * OFF; turning it on is a decision for mk, not a code change to slip in. A test pins it to false.
+ */
+export const AUTO_READ_RUNNER_STATUS = false;
+
 export interface StatusOptions {
   fetch?: FetchLike;
   timeoutMs?: number;
+  /** Opt in to the HTTP status read. Defaults to AUTO_READ_RUNNER_STATUS (false). */
+  autoRead?: boolean;
+}
+
+/** The read-only command mk pastes to see a run's status (plan 1.5): `todo-run --status '<set>' '<item>'`, first attempt. */
+export function statusCommand(set: string, taskId: string): string {
+  return `todo-run --status ${shQuote(set)} ${shQuote(`bbtask-${taskId}-1`)}`;
 }
 
 const rec = (v: unknown): v is Record<string, unknown> => typeof v === "object" && v !== null && !Array.isArray(v);
@@ -232,10 +246,13 @@ export interface RootRunView {
   item_json: string | null;
   command: string | null;
   card_file: string | null;
+  /** Null unless the opt-in HTTP read (AUTO_READ_RUNNER_STATUS, D-1) is on. */
   status: RunStatus | null;
+  /** The paste command that shows the run's status (D-1 default b). */
+  status_command: string | null;
 }
 
-const EMPTY: RootRunView = { present: false, badge: BADGE, state: null, problems: [], tuple: null, actual_sha256: null, owner_thread: null, item_json: null, command: null, card_file: null, status: null };
+const EMPTY: RootRunView = { present: false, badge: BADGE, state: null, problems: [], tuple: null, actual_sha256: null, owner_thread: null, item_json: null, command: null, card_file: null, status: null, status_command: null };
 
 /** The first attempt Home shows in the item JSON. Aleph numbers attempts; this is for display only. */
 const DISPLAY_ATTEMPT = 1;
@@ -272,7 +289,8 @@ export async function rootRun(input: RootRunInput, opts: StatusOptions = {}): Pr
   if (!PROJECT_ID_RE.test(task.projectId)) problems.push({ field: "projectId", why: "must match [A-Za-z0-9:_.-]{1,128}" });
 
   const ok = problems.length === 0 && owner.ok;
-  const status = idOk && SET_RE.test(rr.set) ? await fetchRunStatus(rr.set, task.id, opts) : null;
+  const statusable = idOk && SET_RE.test(rr.set);
+  const status = statusable && (opts.autoRead ?? AUTO_READ_RUNNER_STATUS) ? await fetchRunStatus(rr.set, task.id, opts) : null;
   return {
     present: true,
     badge: BADGE,
@@ -285,5 +303,6 @@ export async function rootRun(input: RootRunInput, opts: StatusOptions = {}): Pr
     command: ok ? pasteCommand({ set: rr.set, task_id: task.id }) : null,
     card_file: ok ? cardFileName(task.id) : null,
     status,
+    status_command: statusable ? statusCommand(rr.set, task.id) : null,
   };
 }

@@ -31,6 +31,7 @@ export type RootRunPanelView = {
   command: string | null;
   card_file: string | null;
   status: RunStatusView | null;
+  status_command?: string | null;
 };
 
 const STATE_TEXT: Record<string, string> = {
@@ -49,7 +50,7 @@ const REASON_TEXT: Record<string, string> = {
 };
 
 export function statusLine(s: RunStatusView | null): string {
-  if (s === null) return "status not checked";
+  if (s === null) return "status not read by Home; paste the status command to see it";
   if (s.kind === "none") return "no run record yet";
   if (s.kind === "unavailable") return "status unavailable";
   const parts = [`attempt ${s.attempt}`, `phase ${s.phase ?? "unknown"}`];
@@ -77,6 +78,7 @@ export function RootRunSection({ view, onCopy }: { view: RootRunPanelView; onCop
           <p>{`Save this card's JSON (task and comments) as ${view.card_file ?? "the card file"}, then paste:`}</p>
           <pre className="overflow-x-auto rounded bg-muted p-1">{view.command}</pre>
           {onCopy ? <button type="button" className="underline" onClick={() => onCopy(view.command!)}>Copy command</button> : null}
+          <p data-rootrun-unpinned="true">{`Unpinned: this command does not pin the script hash (no --expect-sha256), so the card file you save is not checked against what Home verified. Before pasting, compare the sha256 in that file's root-run block with the one Home verified: ${view.tuple?.sha256 ?? "unknown"}`}</p>
           {view.item_json ? <p className="text-muted-foreground" data-rootrun-item="true">{`Item Aleph will build: ${view.item_json}`}</p> : null}
         </div>
       ) : (
@@ -89,6 +91,13 @@ export function RootRunSection({ view, onCopy }: { view: RootRunPanelView; onCop
           </ul>
         </div>
       )}
+      {view.status_command ? (
+        <div data-rootrun-status-command="true">
+          <p>Run status is not read automatically. To see it, paste:</p>
+          <pre className="overflow-x-auto rounded bg-muted p-1">{view.status_command}</pre>
+          {onCopy ? <button type="button" className="underline" onClick={() => onCopy(view.status_command!)}>Copy status command</button> : null}
+        </div>
+      ) : null}
       <p data-rootrun-status={view.status?.kind ?? "none"}>{statusLine(view.status)}</p>
     </section>
   );

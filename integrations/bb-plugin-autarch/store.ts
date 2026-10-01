@@ -2,6 +2,7 @@
 // write, so two connections to one file (two bb instances, a retried request) can
 // never both win. There is no upsert path [C-1] [D-7].
 import type Database from "better-sqlite3";
+import { BackupNotVerifiedError, QuiesceRequiredError } from "./backup.js";
 import { migrate, SchemaTooNewError, type MigrateOptions } from "./migrations.js";
 
 export type ObligationState =
@@ -869,6 +870,8 @@ export interface StoreHandleOptions extends StoreOptions {
 export interface StoreHandle {
   ready(): boolean;
   error(): string | null;
+  /** A refused migration (quiesce or unverified backup): permanent, no retry. The factory must throw it so bb keeps the previous instance. */
+  refusal(): Error | null;
   /** The open store; throws while not ready. */
   store(): Store;
   onReady(fn: (s: Store) => void): void;
@@ -883,6 +886,7 @@ export interface StoreHandle {
 export function createStoreHandle(open: () => Database.Database, opts: StoreHandleOptions = {}): StoreHandle {
   let current: Store | null = null;
   let lastError: string | null = null;
+  let refusal: Error | null = null;
   let timer: ReturnType<typeof setTimeout> | null = null;
   let disposed = false;
   let delay = opts.initialDelayMs ?? 5000;
@@ -913,6 +917,12 @@ export function createStoreHandle(open: () => Database.Database, opts: StoreHand
         opts.log?.warn(`store not ready (permanent until the plugin is upgraded): ${lastError}`);
         return;
       }
+      if (e instanceof QuiesceRequiredError || e instanceof BackupNotVerifiedError) {
+        // Not retried: each retry would run a fresh VACUUM INTO, and the plan says the plugin does not start (1.3.8, 8.9).
+        refusal = e;
+        opts.log?.warn(`store migration refused, plugin not started: ${lastError}`);
+        return;
+      }
       opts.log?.warn(`store not ready, retrying in ${delay} ms: ${lastError}`);
       timer = setTimeout(attempt, delay);
       delay = Math.min(delay * 2, max);
@@ -923,6 +933,7 @@ export function createStoreHandle(open: () => Database.Database, opts: StoreHand
   return {
     ready: () => current !== null,
     error: () => lastError,
+    refusal: () => refusal,
     store() {
       if (!current) throw new Error(`store not ready${lastError ? `: ${lastError}` : ""}`);
       return current;

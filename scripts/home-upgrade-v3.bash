@@ -37,10 +37,16 @@ fi
 if [ "$TEST" = 1 ]; then sleep 0; else sleep 5; fi
 say "plugin status: $("${AS[@]}" "$BB" plugin status autarch 2>&1 | head -5)"
 say "migration_log: $("${AS0[@]}" sqlite3 -readonly "$DATA/data.db" "select version, at, backup_path, digest from migration_log order by rowid desc limit 1" 2>&1 || true)"
-LOGLINE=$("${AS[@]}" "$BB" plugin logs autarch 2>&1 | grep -E 'autarch: schema 2|QuiesceRequired|BackupNotVerified' | tail -3 || true)
-say "bb.log: ${LOGLINE:-no migration line found}"
+# The refusal markers are fixed tokens the plugin writes (backup.ts REFUSED_QUIESCE/REFUSED_BACKUP, logged by store.ts and
+# carried in the thrown error bb reports); the plain-text messages and the retry line are matched too, so a build that
+# predates the tokens, or a bb that rewraps the message, is still caught. The LAST matching line decides: an old
+# refusal followed by a migrated line is a success.
+PATTERN='autarch: schema [0-9]+ →|home-refused:|another connection holds data\.db|pre-migration backup not verified|store not ready, retrying'
+LOGLINES=$("${AS[@]}" "$BB" plugin logs autarch 2>&1 | grep -E "$PATTERN" | tail -3 || true)
+LOGLINE=$(printf '%s\n' "$LOGLINES" | tail -1)
+say "bb.log: ${LOGLINES:-no migration line found}"
 case "$LOGLINE" in
-  *QuiesceRequired*|*BackupNotVerified*)
+  *home-refused:*|*"another connection holds data.db"*|*"pre-migration backup not verified"*|*"store not ready, retrying"*)
     "${AS[@]}" "$BB" plugin disable autarch || true
     say "migration refused; plugin left disabled on the unchanged v2 DB. Re-enable the old build."
     exit 5 ;;

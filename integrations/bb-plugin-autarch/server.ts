@@ -69,7 +69,7 @@ const TODOS_CHANGED = "todos-changed";
 const EXPORT_EVERY_MS = 24 * 60 * 60 * 1000;
 
 /**
- * Store wiring (Task 1.2). The factory never throws on a locked or busy database: the
+ * Store wiring (Task 1.2). The factory never throws on a locked or busy database (a refused migration is the exception: it throws): the
  * handle stays not-ready and retries, so surfaces registered later report "not ready"
  * instead of the plugin failing to load. The nightly export writes segments outside
  * the plugin folder.
@@ -78,6 +78,9 @@ export function wireStore(bb: BbPluginApi): StoreHandle {
   // closeOnFailure: a retry that fails after the open must not leave its connection behind.
   const handle = createStoreHandle(() => bb.storage.database(), { log: bb.log, closeOnFailure: true });
   bb.onDispose(() => handle.dispose());
+  // A refused migration fails activation: bb keeps the previous instance ("reload failed") and nothing migrates later.
+  const refused = handle.refusal();
+  if (refused) throw refused;
   bb.background.service("home-export", {
     async start(signal) {
       while (!signal.aborted) {

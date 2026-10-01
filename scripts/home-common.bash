@@ -70,11 +70,18 @@ verify_install() {
   local URL_C PID ENTRY PORT SET INODE HELD=0 OPEN=0 p fd t kids next
   URL_C=$("${AS0[@]}" jq -r .serverUrl "$RT"); PID=$("${AS0[@]}" jq -r .pid "$RT"); ENTRY=$("${AS0[@]}" jq -r .entryPath "$RT")
   case "$PID" in ""|*[!0-9]*) say "runtime pid not numeric"; exit 6 ;; esac
-  case "$URL_C" in http://127.0.0.1:[0-9]*) ;; *) say "serverUrl not loopback: $URL_C"; exit 6 ;; esac
+  # Exactly http://127.0.0.1:<digits>: a decoy such as http://127.0.0.1:9999/x:38886 must not yield a port.
+  printf '%s' "$URL_C" | grep -Eq '^http://127\.0\.0\.1:[0-9]+$' || { say "serverUrl not loopback: $URL_C"; exit 6; }
   PORT=${URL_C##*:}
   case "$PORT" in ""|*[!0-9]*) say "runtime port not numeric"; exit 6 ;; esac
   [ "$(stat -c %u "/proc/$PID" 2>/dev/null)" = "$MKUID" ] || { say "runtime pid $PID not alive as mk"; exit 6; }
-  [ "$(readlink -f "$ENTRY")" = "$BBDATA/npm/bin/bb-app" ] || { say "entryPath does not resolve to the pinned bb-app"; exit 6; }
+  # The real install is a symlink chain (npm/bin/bb-app -> ../lib/node_modules/bb-app/dist/bb-app.js): resolve BOTH sides.
+  # The pinned side must exist and sit under BBDATA/npm/lib/node_modules/bb-app/ (or be the bin file itself in a plain layout).
+  local PINNED_REAL ENTRY_REAL
+  PINNED_REAL=$(readlink -e "$BBDATA/npm/bin/bb-app" 2>/dev/null || true); ENTRY_REAL=$(readlink -e "$ENTRY" 2>/dev/null || true)
+  { [ -n "$PINNED_REAL" ] && [ -n "$ENTRY_REAL" ] && [ "$ENTRY_REAL" = "$PINNED_REAL" ]; } || { say "entryPath does not resolve to the pinned bb-app"; exit 6; }
+  case "$PINNED_REAL" in "$BBDATA"/npm/*) ;; *) say "pinned bb-app resolves outside $BBDATA/npm"; exit 6 ;; esac
+  [ "$(stat -c %u "$PINNED_REAL")" = "$MKUID" ] || { say "pinned bb-app is not owned by mk"; exit 6; }
   tr '\0' ' ' < "/proc/$PID/cmdline" | grep -qF "$ENTRY" || { say "pid $PID does not run entryPath"; exit 6; }
   # The owned set: the pid and every descendant.
   SET=$PID; next=$PID

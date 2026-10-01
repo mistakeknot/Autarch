@@ -11,11 +11,15 @@ import { createHash } from "node:crypto";
 import { closeSync, existsSync, fsyncSync, openSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 
+/** Stable machine-readable markers: they are in the error message and in the store log line, and scripts/home-upgrade-v3.bash greps for them. */
+export const REFUSED_QUIESCE = "[home-refused:quiesce-required]";
+export const REFUSED_BACKUP = "[home-refused:backup-not-verified]";
+
 export class QuiesceRequiredError extends Error {
   readonly code = "quiesce-required";
   constructor(detail = "") {
     super(
-      `another connection holds data.db: disable the autarch plugin, stop every reader, then enable${detail ? ` (${detail})` : ""}`,
+      `${REFUSED_QUIESCE} another connection holds data.db: disable the autarch plugin, stop every reader, then enable${detail ? ` (${detail})` : ""}`,
     );
   }
 }
@@ -27,7 +31,7 @@ export class BackupNotVerifiedError extends Error {
     readonly check: string,
     detail: string,
   ) {
-    super(`pre-migration backup not verified: ${check} failed${backupPath ? ` for ${backupPath}` : ""}: ${detail}`);
+    super(`${REFUSED_BACKUP} pre-migration backup not verified: ${check} failed${backupPath ? ` for ${backupPath}` : ""}: ${detail}`);
   }
 }
 
