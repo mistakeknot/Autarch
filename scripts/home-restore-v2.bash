@@ -1,6 +1,6 @@
 # home-restore-v2.bash: body, started only by the home-restore-v2.sh launcher.
 # Restores Home (the autarch bb plugin) to its pre-v3 backup.
-# Run on zklw from the root-owned copy (sudo scripts/home-install-root-copy.sh first): sudo /usr/local/libexec/home-v3/home-restore-v2.sh --thread <thr_...> --repo <Autarch checkout> [--backup <path>] [--check]
+# Run on zklw from the root-owned copy (installed by the generated home-v3-run-<sha12>.sh package): sudo /usr/local/libexec/home-v3-<sha12>/home-restore-v2.sh --thread <thr_...> --repo <Autarch checkout> [--backup <path>] [--check]
 # Exit codes: 0 restored (or --check passed), 2 backup failed verification, 3 Home still holds the DB,
 # 4 build or install failed, 5 the plugin did not start on the backup, 6 the install could not be verified.
 # Tested in test mode by integrations/bb-plugin-autarch/__tests__/restore-script.test.ts (Task 2.8a); the sudo

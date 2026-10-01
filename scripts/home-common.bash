@@ -40,7 +40,7 @@ common_setup() {
     AS0=(env -i HOME="$MKHOME" USER="$MKNAME" LOGNAME="$MKNAME" PATH=/usr/bin:/bin XDG_RUNTIME_DIR=/run/user/$MKUID)
     BB=$BBDATA/npm/bin/bb
   else
-    [ "$(id -u)" -eq 0 ] || { echo "run as root: sudo $0 ..." >&2; exit 64; }
+    [ "$(id -u)" -eq 0 ] || { echo "run as root, from the root-owned copy" >&2; exit 64; }
     [ "$(hostname -s)" = zklw ] || { echo "zklw only" >&2; exit 64; }
     MKUID=$(id -u mk)
     AS0=(runuser -u mk -- env -i HOME=/home/mk USER=mk LOGNAME=mk PATH=/usr/bin:/bin XDG_RUNTIME_DIR=/run/user/$MKUID)

@@ -582,8 +582,8 @@ different server. The script defends in three ways:
   executable on its own. On zklw `/bin/sh` is dash, which reads no `BASH_ENV` and reads
   `ENV` only for interactive shells. So `BASH_ENV`, `ENV`, `BB_*`, `NODE_*`, `HOME` and
   `PATH` from root's or sudo's environment never reach a Bash process. Probed 2026-10-01
-  (results in §8.8). mk runs the launcher by path (`sudo /usr/local/libexec/home-v3/home-restore-v2.sh …`,
-  the root-owned copy, see "Root-owned install copy" below), never with `bash scripts/…`, because that would start Bash, and run `BASH_ENV`, before
+  (results in §8.8). mk runs the launcher by path (`sudo /usr/local/libexec/home-v3-<sha12>/home-restore-v2.sh …`,
+  the root-owned copy from the generated package, see "Root-owned install copy" below), never with `bash scripts/…`, because that would start Bash, and run `BASH_ENV`, before
   the launcher's first line. Every mk command runs as `runuser -u mk -- env -i`, with only
   the variables set below.
 - **Verified install, before anything is touched.** `BBDATA` is the constant
@@ -606,13 +606,27 @@ different server. The script defends in three ways:
   owned by mk, so a same-uid agent could edit a body before mk runs it as root. As root, each
   launcher therefore exits 6 unless the launcher, its `.bash` body and `home-common.bash` are
   `root:root`, not group/other-writable, on a path whose every directory is root-owned and
-  not group/other-writable (symlinks resolved first). mk installs such a copy with
-  `sudo scripts/home-install-root-copy.sh --thread <thr_…> [--expect-head <sha>]`, which
-  verifies each of the five files against `git show HEAD:scripts/<file>` and installs them
-  to `/usr/local/libexec/home-v3` (or `/root/home-v3-scripts`), then prints the exact
-  command to run: `sudo /usr/local/libexec/home-v3/home-upgrade-v3.sh --thread … --plugin …`.
-  The installer is itself run as root from the checkout, so mk reads it first or pipes the
-  reviewed commit's copy: `git show <sha>:scripts/home-install-root-copy.sh | sudo sh -s -- --src <checkout>/scripts --thread <thr_…> --expect-head <sha>`.
+  not group/other-writable (symlinks resolved first). Such a copy is made only by a generated package:
+  nothing in a checkout is ever run with sudo, piped to sudo, or read by root, because any mk-writable byte
+  (a script, the `HEAD` ref, a Git replace ref) could be changed before the command runs. The only trusted
+  source is a self-contained generated package: the coordinator, as mk, runs
+  `scripts/home-build-root-package.sh --commit <full 40-hex sha> [--thread thr_…]`. The generator refuses
+  anything but a full sha, checks `git --no-replace-objects cat-file -t` is `commit` and that `rev-parse` of
+  the sha equals itself, reads the five files with `git --no-replace-objects cat-file blob <sha>:scripts/<f>`,
+  and emits ONE `home-v3-run-<sha12>.sh` (`#!/bin/sh`, files embedded base64, each file's sha256 embedded in
+  the text, no git at run time, `env -i` re-exec first) and prints that script's own sha256. mk installs it
+  root-owned first (`sudo install -o root -g root -m 0700 <pkg> /root/home-v3-run-<sha12>.sh`), compares
+  `sudo sha256sum` with the printed hash, then runs the root copy. It requires euid 0, creates a NEW
+  root-owned `/usr/local/libexec/home-v3-<sha12>` (refusing a symlinked component or an existing directory
+  with unexpected content; staged in a mktemp dir inside the root-owned parent, sha256 re-verified, then
+  renamed), runs `home-upgrade-v3.sh --check` from that copy (installed copy and plugin build verified,
+  nothing changed), and runs the real upgrade only with `--go`. Everything mk owns goes through
+  `runuser -u mk`. A `trap EXIT` reports success or failure to the baked-in thread (default
+  `thr_uqy4fzn88x`) via `/home/mk/.local/bin/bb thread tell`, printing the report if sending fails. The
+  restore is a separate command printed at the end:
+  `sudo /usr/local/libexec/home-v3-<sha12>/home-restore-v2.sh --thread … --repo … [--backup …]`.
+  The launchers keep their ownership guard as defence in depth. Test-only `HOME_V3_TEST_DEST` (and
+  `_BB`, `_LAUNCHER_ARGS`) redirect the install and are refused when the real euid is 0.
   Tests: `__tests__/root-launcher.test.ts`. The real sudo path stays unprobed (bead mk-schu.4).
 
 ```sh
