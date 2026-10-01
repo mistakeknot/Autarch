@@ -32,6 +32,7 @@ type Filer interface {
 
 // ListRow is one waiting ask as `bb home list --json` prints it.
 type ListRow struct {
+	TaskID   string `json:"task_id,omitempty"`
 	ID       string `json:"id"`
 	Subject  string `json:"subject"`
 	Project  string `json:"project"`

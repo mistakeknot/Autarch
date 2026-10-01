@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { Asks } from "../asks.js";
 import { Catchup } from "../catchup.js";
 import { parseAsk } from "../model.js";
@@ -90,7 +90,7 @@ describe("bb home get, list, stats, feed", () => {
     svc.pick(id, "day", rev, "pk1", "mk", "home");
     expect(JSON.parse((await run(["get", "--id", id])).stdout!)).toMatchObject({ id, state: "picked" });
     expect((await run(["get", "--id", "dec-nope"])).exitCode).toBe(1);
-    expect((await run(["get", "--request-id", "nope"])).exitCode).toBe(1);
+    expect(JSON.parse((await run(["get", "--request-id", "nope"])).stdout!)).toEqual({ status: "absent" });
     expect((await run(["get"])).exitCode).toBe(2);
   });
 
@@ -212,8 +212,11 @@ describe("cards in the CLI (Task 2.7)", () => {
   it("get --request resolves a card key through card_requests, and a legacy key through the registry", async () => {
     const { r, c, run: go } = await cardCli({ key: "key-card-1" });
     const x = await go(["get", "--request", "key-card-1"]);
-    expect(JSON.parse(x.stdout!)).toMatchObject({ task_id: c.t.id, request_key: "key-card-1", decision_id: c.g1.id });
-    expect((await go(["get", "--request", "missing"])).exitCode).toBe(1);
+    expect(JSON.parse(x.stdout!)).toMatchObject({ status: "registered", task_id: c.t.id, request_key: "key-card-1", decision_id: c.g1.id });
+    expect(JSON.parse(x.stdout!).identity).toEqual(expect.any(String));
+    const absent = await go(["get", "--request", "missing"]);
+    expect(absent.exitCode).toBe(0);
+    expect(JSON.parse(absent.stdout!)).toEqual({ status: "absent" });
 
     const legacyEnv = makeEnv(["Autarch"]);
     try {
@@ -224,10 +227,21 @@ describe("cards in the CLI (Task 2.7)", () => {
       const d = verifiedDelegation(s);
       const cli = homeCli({ svc: s, asks: new Asks(s), catchup: new Catchup(s, d), rule: () => ({ ok: false, status: 400, error: "x" }) as never, isVizier: () => false });
       const g = await cli.run(["get", "--request", parseAsk(a).request_id!], {});
-      expect(JSON.parse(g.stdout!)).toMatchObject({ result: "decision", decision_id: f.decision_id });
+      expect(JSON.parse(g.stdout!)).toMatchObject({ status: "legacy", result: "decision", decision_id: f.decision_id });
     } finally {
       legacyEnv.cleanup();
     }
+  });
+
+  it("get --request exits 3 while Home is not ready, for every key, so the filer creates nothing", async () => {
+    const { r, run: go } = await cardCli({ key: "key-card-2" });
+    const spy = vi.spyOn(r.svc, "ready").mockReturnValue(false);
+    for (const key of ["key-card-2", "missing"]) {
+      const x = await go(["get", "--request", key]);
+      expect(x.exitCode).toBe(3);
+      expect(x.stdout ?? "").not.toContain("absent");
+    }
+    spy.mockRestore();
   });
 
   it("list --pull mycroft keeps pull cards and legacy asker-mycroft rows, and drops thread asks", async () => {

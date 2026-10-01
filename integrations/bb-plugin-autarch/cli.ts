@@ -86,15 +86,18 @@ export function homeCli(p: HomeCliParts) {
           }
           const key = options.request ?? options["request-id"];
           if (key !== undefined) {
-            const reg = svc.store.db.prepare("SELECT task_id FROM card_requests WHERE request_key = ?").get(key) as { task_id: string } | undefined;
+            // The registry answers exactly one of registered, legacy or absent. Not ready is exit 3, so the
+            // filer never reads an unready service as "absent" and creates a card.
+            if (!svc.ready()) return err(3, "home is not ready");
+            const reg = svc.store.db.prepare("SELECT task_id, identity FROM card_requests WHERE request_key = ?").get(key) as { task_id: string; identity: string } | undefined;
             if (reg) {
               const c = cardView(reg.task_id);
-              return c ? out({ ...c, request_key: key }) : err(1, "unknown request id");
+              return out({ status: "registered", ...(c ?? {}), task_id: reg.task_id, identity: reg.identity, request_key: key });
             }
             const legacy = svc.store.registry(key);
-            if (!legacy) return err(1, "unknown request id");
+            if (!legacy) return out({ status: "absent" });
             const project = (svc.store.decision(legacy.decision_id) as { project?: string } | undefined)?.project ?? null;
-            return out({ result: legacy.result, decision_id: legacy.decision_id, identity: legacy.identity, thread: legacy.thread, project, state: state(legacy.decision_id) });
+            return out({ status: "legacy", result: legacy.result, decision_id: legacy.decision_id, identity: legacy.identity, thread: legacy.thread, project, state: state(legacy.decision_id) });
           }
           const id = options.id!;
           const s = state(id);

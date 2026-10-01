@@ -89,6 +89,7 @@ Available tools:
 	root.AddCommand(serveCmd())
 	root.AddCommand(mcpCmd())
 	root.AddCommand(decideCmd())
+	root.AddCommand(needsMkCmd())
 	root.AddCommand(versionCmd())
 
 	if err := root.Execute(); err != nil {
