@@ -537,6 +537,28 @@ describe("upgrade", () => {
     expect(verbs(i).filter((v) => v === "plugin disable").length).toBe(1);
   });
 
+  it("enable returns ok but the plugin never becomes healthy: failure, plugin disabled (exit 5)", async () => {
+    const i = await install();
+    mkdirSync(join(i.bbdata, "stub"), { recursive: true });
+    writeFileSync(join(i.bbdata, "stub", "status"), "autarch: error: activation failed\n");
+    const r = run(UPGRADE, upgradeArgs(i));
+    expect(r.code, r.out).toBe(5);
+    expect(verbs(i).filter((v) => v === "plugin disable").length).toBe(2);
+    expect(verbs(i).at(-2)).toBe("plugin disable");
+    expect(reportOf(i)).toMatch(/never became healthy[\s\S]*left disabled/);
+  });
+
+  it("healthy status but no v3 migration_log row: failure, plugin disabled (exit 5)", async () => {
+    const i = await install();
+    const db = new Database(join(i.data, "data.db"));
+    db.prepare("DELETE FROM migration_log").run();
+    db.close();
+    const r = run(UPGRADE, upgradeArgs(i));
+    expect(r.code, r.out).toBe(5);
+    expect(verbs(i).at(-2)).toBe("plugin disable");
+    expect(reportOf(i)).toMatch(/no v3 migration_log row[\s\S]*left disabled/);
+  });
+
   it("a DB holder exits 3 after re-enabling, before anything is installed", async () => {
     const i = await install();
     const holder = spawn("bash", ["-c", `exec 3<"${join(i.data, "data.db")}"; sleep 60`], { stdio: "ignore" });

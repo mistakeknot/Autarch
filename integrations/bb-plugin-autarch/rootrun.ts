@@ -79,9 +79,13 @@ export const cardFileName = (taskId: string): string => `card-${taskId}.json`;
  * Q1 (pending mk; default b = a paste command only): the one place that builds the command mk pastes.
  * `todo-add --from-card <file>` reads task.id, projectId and the root-run block from the saved card,
  * takes owner_thread from the earliest agent comment, re-pins the script bytes and never executes.
+ * `--expect-sha256` is the card's declared script hash that Home verified; Aleph's slice5a-card builds that flag
+ * (accepted, NOT live until their slice A and vizier ship), so the command works only once that slice is live.
+ * Null when the hash is not 64 lowercase hex.
  */
-export function pasteCommand(i: { set: string; task_id: string }): string {
-  return `todo-add --set ${shQuote(i.set)} --from-card ${shQuote(cardFileName(i.task_id))}`;
+export function pasteCommand(i: { set: string; task_id: string; sha256: string }): string | null {
+  if (!/^[0-9a-f]{64}$/.test(i.sha256)) return null;
+  return `todo-add --set ${shQuote(i.set)} --from-card ${shQuote(cardFileName(i.task_id))} --expect-sha256 ${shQuote(i.sha256)}`;
 }
 
 /** The run item Aleph builds from the card, shown so mk can see what will be pinned. */
@@ -282,6 +286,7 @@ export async function rootRun(input: RootRunInput, opts: StatusOptions = {}): Pr
     problems.push({ field: "script", why });
   }
   if (!SET_RE.test(rr.set)) problems.push({ field: "set", why: "must be lowercase letters, digits and dashes, starting with a letter or digit" });
+  if (!/^[0-9a-f]{64}$/.test(rr.sha256)) problems.push({ field: "sha256", why: "must be 64 lowercase hex characters" });
   const owner = ownerThread(comments);
   if (!owner.ok) problems.push({ field: "owner_thread", why: owner.why });
   const idOk = TASK_ID_RE.test(task.id);
@@ -289,7 +294,9 @@ export async function rootRun(input: RootRunInput, opts: StatusOptions = {}): Pr
   if (!PROJECT_ID_RE.test(task.projectId)) problems.push({ field: "projectId", why: "must match [A-Za-z0-9:_.-]{1,128}" });
 
   const ok = problems.length === 0 && owner.ok;
-  const statusable = idOk && SET_RE.test(rr.set);
+  // Any command, the status paste command included, needs a complete valid tuple.
+  const command = ok ? pasteCommand({ set: rr.set, task_id: task.id, sha256: rr.sha256 }) : null;
+  const statusable = ok;
   const status = statusable && (opts.autoRead ?? AUTO_READ_RUNNER_STATUS) ? await fetchRunStatus(rr.set, task.id, opts) : null;
   return {
     present: true,
@@ -300,7 +307,7 @@ export async function rootRun(input: RootRunInput, opts: StatusOptions = {}): Pr
     actual_sha256: check.state === "mismatch" ? check.actual : null,
     owner_thread: owner.ok ? owner.thread : null,
     item_json: ok ? itemJson(rr, owner.thread, task.id, DISPLAY_ATTEMPT) : null,
-    command: ok ? pasteCommand({ set: rr.set, task_id: task.id }) : null,
+    command,
     card_file: ok ? cardFileName(task.id) : null,
     status,
     status_command: statusable ? statusCommand(rr.set, task.id) : null,

@@ -33,10 +33,20 @@ fi
 # 2. Install the v3 build and enable it; the open migrates (quiesce, backup, verify, DDL).
 "${AS[@]}" "$BB" plugin install "$PLUGIN" || { say "install failed; plugin left disabled on the unchanged v2 DB"; exit 4; }
 "${AS[@]}" "$BB" plugin enable autarch || { say "enable failed; plugin left disabled"; exit 5; }
-# 3. Report the backup path and the bb.log line.
-if [ "$TEST" = 1 ]; then sleep 0; else sleep 5; fi
-say "plugin status: $("${AS[@]}" "$BB" plugin status autarch 2>&1 | head -5)"
-say "migration_log: $("${AS0[@]}" sqlite3 -readonly "$DATA/data.db" "select version, at, backup_path, digest from migration_log order by rowid desc limit 1" 2>&1 || true)"
+# 3. Report, and require success evidence: a healthy plugin status AND a v3 migration_log row (read as mk).
+# Enable can return before activation fails, so poll briefly; no evidence means failure (plan 1.3.9).
+if [ "$TEST" = 1 ]; then TRIES=2; WAIT=0; else TRIES=12; WAIT=5; fi
+STATUS=; MIGROW=; HEALTHY=0
+for _ in $(seq "$TRIES"); do
+  sleep "$WAIT"
+  STATUS=$("${AS[@]}" "$BB" plugin status autarch 2>&1 | head -5 || true)
+  MIGROW=$("${AS0[@]}" sqlite3 -readonly "$DATA/data.db" "select version, at, backup_path, digest from migration_log where version >= 3 order by version desc limit 1" 2>&1 || true)
+  HEALTHY=0
+  if printf '%s\n' "$STATUS" | grep -Eiq '\b(running|healthy|ready)\b' && ! printf '%s\n' "$STATUS" | grep -Eiq 'not running|not healthy|stopped|disabled|inactive|error|fail|crash'; then HEALTHY=1; fi
+  [ "$HEALTHY" = 1 ] && printf '%s' "$MIGROW" | grep -Eq '^[0-9]+\|' && break
+done
+say "plugin status: $STATUS"
+say "migration_log: ${MIGROW:-no v3 row}"
 # The refusal markers are fixed tokens the plugin writes (backup.ts REFUSED_QUIESCE/REFUSED_BACKUP, logged by store.ts and
 # carried in the thrown error bb reports); the plain-text messages and the retry line are matched too, so a build that
 # predates the tokens, or a bb that rewraps the message, is still caught. The LAST matching line decides: an old
@@ -51,3 +61,13 @@ case "$LOGLINE" in
     say "migration refused; plugin left disabled on the unchanged v2 DB. Re-enable the old build."
     exit 5 ;;
 esac
+if [ "$HEALTHY" != 1 ]; then
+  "${AS[@]}" "$BB" plugin disable autarch || true
+  say "plugin never became healthy after enable; plugin left disabled. Re-enable the old build."
+  exit 5
+fi
+if ! printf '%s' "$MIGROW" | grep -Eq '^[0-9]+\|'; then
+  "${AS[@]}" "$BB" plugin disable autarch || true
+  say "no v3 migration_log row after enable; plugin left disabled. Re-enable the old build."
+  exit 5
+fi

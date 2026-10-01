@@ -525,7 +525,7 @@ export const scenarios: Record<string, Scenario> = {
       for (const set of hostile) {
         const v = await rootRun({ task: { id: TASK, projectId: "p", description: body(set) }, comments: [{ id: "c", kind: "agent", threadId: "thr_a", createdAt: "2026-09-30T12:00:00Z" }] }, { fetch: spy as never });
         shown.push(v.command);
-        assert.ok(v.command === null || /^todo-add --set '[^']*' --from-card 'card-[A-Za-z0-9]+\.json'$/.test(v.command), `unsafe command: ${v.command}`);
+        assert.ok(v.command === null || /^todo-add --set '[^']*' --from-card 'card-[A-Za-z0-9]+\.json' --expect-sha256 '[0-9a-f]{64}'$/.test(v.command), `unsafe command: ${v.command}`);
       }
       await rootRun({ task: { id: "bad'id", projectId: "p", description: body("s") }, comments: [] }, { fetch: spy as never });
       assert.deepEqual(calls, []);
