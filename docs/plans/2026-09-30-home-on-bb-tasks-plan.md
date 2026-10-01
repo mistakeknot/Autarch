@@ -582,8 +582,8 @@ different server. The script defends in three ways:
   executable on its own. On zklw `/bin/sh` is dash, which reads no `BASH_ENV` and reads
   `ENV` only for interactive shells. So `BASH_ENV`, `ENV`, `BB_*`, `NODE_*`, `HOME` and
   `PATH` from root's or sudo's environment never reach a Bash process. Probed 2026-10-01
-  (results in §8.8). mk runs the launcher by path (`sudo scripts/home-restore-v2.sh …`),
-  never with `bash scripts/…`, because that would start Bash, and run `BASH_ENV`, before
+  (results in §8.8). mk runs the launcher by path (`sudo /usr/local/libexec/home-v3/home-restore-v2.sh …`,
+  the root-owned copy, see "Root-owned install copy" below), never with `bash scripts/…`, because that would start Bash, and run `BASH_ENV`, before
   the launcher's first line. Every mk command runs as `runuser -u mk -- env -i`, with only
   the variables set below.
 - **Verified install, before anything is touched.** `BBDATA` is the constant
@@ -602,15 +602,29 @@ different server. The script defends in three ways:
   so the wrapper's first branch execs exactly `$BBDATA/npm/bin/bb`. The script also checks
   that this file exists and is owned by mk.
 
+- **Root-owned install copy (review s1-3 P1).** The launchers and bodies in the checkout are
+  owned by mk, so a same-uid agent could edit a body before mk runs it as root. As root, each
+  launcher therefore exits 6 unless the launcher, its `.bash` body and `home-common.bash` are
+  `root:root`, not group/other-writable, on a path whose every directory is root-owned and
+  not group/other-writable (symlinks resolved first). mk installs such a copy with
+  `sudo scripts/home-install-root-copy.sh --thread <thr_…> [--expect-head <sha>]`, which
+  verifies each of the five files against `git show HEAD:scripts/<file>` and installs them
+  to `/usr/local/libexec/home-v3` (or `/root/home-v3-scripts`), then prints the exact
+  command to run: `sudo /usr/local/libexec/home-v3/home-upgrade-v3.sh --thread … --plugin …`.
+  The installer is itself run as root from the checkout, so mk reads it first or pipes the
+  reviewed commit's copy: `git show <sha>:scripts/home-install-root-copy.sh | sudo sh -s -- --src <checkout>/scripts --thread <thr_…> --expect-head <sha>`.
+  Tests: `__tests__/root-launcher.test.ts`. The real sudo path stays unprobed.
+
 ```sh
 #!/bin/sh
-exec /usr/bin/env -i PATH=/usr/sbin:/usr/bin:/sbin:/bin /bin/bash --noprofile --norc "${0%/*}/home-restore-v2.bash" "$@"
+# (root-trust check: refuse unless root-owned and tight; see above), then:
+exec /usr/bin/env -i PATH=/usr/sbin:/usr/bin:/sbin:/bin /bin/bash --noprofile --norc "$_d/home-restore-v2.bash" "$@"
 ```
 
 ```bash
 # home-restore-v2.bash: body, started only by the home-restore-v2.sh launcher above.
 # Restores Home (the autarch bb plugin) to its pre-v3 backup.
-# Run on zklw: sudo scripts/home-restore-v2.sh --thread <thr_…> --repo <Autarch checkout> [--backup <path>]
+# Run on the host from the root-owned copy: sudo /usr/local/libexec/home-v3/home-restore-v2.sh --thread <thr_…> --repo <Autarch checkout> [--backup <path>]
 set -euo pipefail
 BBDATA=/home/mk/.bb-machines/autarch.getbb.app      # constant; --bbdata only in test mode
 DATA=$BBDATA/plugins/autarch
@@ -1601,6 +1615,14 @@ bwrap --dev-bind / / --unshare-net --die-with-parent   --setenv HOME_E2E_OUTER_N
   unchanged and no backup file exists; the legacy ask can still be picked through the v2
   instance. Then `bb plugin disable autarch`, `bb plugin enable autarch`: v3 migrates, the
   log names the backup, and the legacy ask is listed (A11).
+  **UNVERIFIED gap (review s1-3 P1).** As built, `upgrade-quiesce` proves quiesce refusal, the
+  unchanged database, the backup and the migration against a **standalone v2 Store process**
+  that holds `data.db`; bb does not host that v2 instance. It does not prove bb's "failed
+  candidate keeps the previous v2 plugin instance running" path (`PREVIOUS_INSTANCE_KEPT`).
+  Every `upgrade-quiesce` record carries `v2_instance_hosted_by: "standalone-store-process"`
+  and `unverified_gap: "bb-hosted-v2-instance-keeps-running-on-failed-candidate"`, and
+  `check-e2e` requires both, so a green record cannot be read as covering that path. Tracked
+  by, "real-bb upgrade canary with bb-hosted v2 plugin instance".
 
 The default list at `e2e/harness.ts:42` is changed to exactly these eight names, so a
 plain `--mode real-bb` run cannot silently drop one.

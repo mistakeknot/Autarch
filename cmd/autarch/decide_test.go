@@ -347,3 +347,21 @@ func TestDecideNonStringProjectFieldsAreValidationErrorsNotPanics(t *testing.T) 
 		t.Fatalf("bb ran: %v", s.calls)
 	}
 }
+
+// Review s1-3 P2: JSON null (and any non-object) on stdin is a validation error, never a nil-map panic.
+func TestBuildAskRejectsNonObjectJSON(t *testing.T) {
+	for _, raw := range []string{"null", "[]", `"s"`, "7", "true"} {
+		t.Run(raw, func(t *testing.T) {
+			defer func() {
+				if r := recover(); r != nil {
+					t.Fatalf("buildAsk(%s) panicked: %v", raw, r)
+				}
+			}()
+			_, err := buildAsk([]byte(raw), "thread-a", "", "/srv/x", "x")
+			var ue *usageError
+			if !errors.As(err, &ue) {
+				t.Fatalf("buildAsk(%s) = %v, want a usageError", raw, err)
+			}
+		})
+	}
+}

@@ -186,13 +186,15 @@ const movedAside = (i: Install) => readdirSync(i.data).filter((f) => f.startsWit
 
 describe("launchers", () => {
   for (const name of ["home-restore-v2.sh", "home-upgrade-v3.sh"]) {
-    it(`${name}: shebang #!/bin/sh, first executable line is the env -i exec, mode 0755`, () => {
+    it(`${name}: shebang #!/bin/sh, root-trust check then the env -i exec, mode 0755`, () => {
       const lines = readFileSync(join(SCRIPTS, name), "utf8").split("\n");
       expect(lines[0]).toBe("#!/bin/sh");
-      const first = lines.slice(1).find((l) => l.trim() !== "" && !l.startsWith("#"))!;
-      expect(first).toBe(
-        `exec /usr/bin/env -i PATH=/usr/sbin:/usr/bin:/sbin:/bin /bin/bash --noprofile --norc "\${0%/*}/${name.replace(/\.sh$/, ".bash")}" "$@"`,
-      );
+      // The root-trust check (root-launcher.test.ts) runs first, in pure POSIX sh; the env -i exec is the only exec.
+      const execs = lines.filter((l) => l.startsWith("exec "));
+      expect(execs).toEqual([
+        `exec /usr/bin/env -i PATH=/usr/sbin:/usr/bin:/sbin:/bin /bin/bash --noprofile --norc "$_d/${name.replace(/\.sh$/, ".bash")}" "$@"`,
+      ]);
+      expect(lines.findIndex((l) => l.includes("refusing to run as root"))).toBeLessThan(lines.findIndex((l) => l.startsWith("exec ")));
       expect(statSync(join(SCRIPTS, name)).mode & 0o777).toBe(0o755);
     });
   }

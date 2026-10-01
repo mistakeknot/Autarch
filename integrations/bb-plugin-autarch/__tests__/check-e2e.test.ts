@@ -122,6 +122,14 @@ describe("check-e2e", () => {
     expect(r.stderr).toContain("env_absent_exit");
   });
 
+  it("rejects an upgrade-quiesce record that omits the explicit UNVERIFIED bb-hosted-v2 gap (s1 review3 P1)", () => {
+    const f = materialise("accept", "real-bb");
+    writeFileSync(f, readFileSync(f, "utf8").replace(/,"unverified_gap":"[^"]*"/, "").replace(/,"v2_instance_hosted_by":"[^"]*"/, ""));
+    const r = run(f, "real-bb");
+    expect(r.status).toBe(1);
+    expect(r.stderr).toContain("unverified_gap");
+  });
+
   it("rejects an old scenario name that Task 2.11 retired", () => {
     const f = materialise("accept", "fake");
     writeFileSync(f, readFileSync(f, "utf8").replace('"scenario":"card-ingest"', '"scenario":"supersede"'));
