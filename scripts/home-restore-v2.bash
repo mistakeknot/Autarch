@@ -98,17 +98,16 @@ if [ "$TEST" = 0 ]; then
 else
   HEAD=$V2_COMMIT-test
 fi
-"${AS[@]}" "$BB" plugin install "$PD" || fail_after_move 4 "bb plugin install failed"
+"${AS[@]}" "$BB" plugin install --yes "$PD" || fail_after_move 4 "bb plugin install failed"
 
-# 7. Enable and wait for a healthy start. The status wording of the real bb is unprobed; the match is deliberately
-#    conservative (a running word and no failure word).
+# 7. Enable and wait for a healthy start. Health is read from `bb plugin list --json` (enabled and status running).
 "${AS[@]}" "$BB" plugin enable autarch || fail_after_move 5 "bb plugin enable failed"
 WAIT=60; [ "$TEST" = 1 ] && WAIT=3
 STATUS=
 healthy=0
 for _ in $(seq 1 "$WAIT"); do
-  STATUS=$("${AS[@]}" "$BB" plugin status autarch 2>&1 | head -5 || true)
-  if printf '%s' "$STATUS" | grep -Eiq '(running|healthy|ready)' && ! printf '%s' "$STATUS" | grep -Eiq '(not running|fail|error|disabled)'; then healthy=1; break; fi
+  plugin_state; STATUS=$PSTATE
+  if [ "$PHEALTHY" = 1 ]; then healthy=1; break; fi
   sleep 1
 done
 LOGS=$("${AS[@]}" "$BB" plugin logs autarch 2>&1 | tail -5 || true)

@@ -77,9 +77,17 @@ D="$(cd "$(dirname "$0")/../.." && pwd)/stub"; mkdir -p "$D"
 n=$(( $(cat "$D/n" 2>/dev/null || echo 0) + 1 )); echo $n > "$D/n"
 { echo "== call $n"; printf 'ARGV'; for a in "$@"; do printf '\\t%s' "$a"; done; echo
   env | sort | grep -E '^(BB_|NODE_ENV=|HOME=|PATH=)' | sed 's/^/ENV /'; } >> "$D/calls.log"
+# Strict like the real bb: only the commands it has (checked against its help). No "plugin status" there.
 case "$1 $2" in
-  "plugin status") cat "$D/status" 2>/dev/null || echo "autarch: running" ;;
+  "plugin list")
+    st=$(cat "$D/status" 2>/dev/null || echo running)
+    en=true; [ "$st" = disabled ] && en=false
+    printf '{"plugins":[{"id":"autarch","enabled":%s,"status":"%s","statusDetail":null},{"id":"tasks","enabled":true,"status":"running"}]}\n' "$en" "$st" ;;
   "plugin logs") cat "$D/logs" 2>/dev/null || true ;;
+  "plugin install")
+    case " $* " in *" --yes "*) ;; *) echo "error: confirmation required (pass --yes)" >&2; exit 1 ;; esac ;;
+  "plugin disable"|"plugin enable"|"plugin build"|"thread tell") ;;
+  *) echo "error: unknown command '$2'" >&2; exit 1 ;;
 esac
 exit 0
 `;
@@ -366,8 +374,8 @@ describe("restore", () => {
     expect(sha(join(i.data, moved.find((m) => !m.endsWith("-wal"))!))).toBe(v3sha);
     expect(statSync(join(i.data, "data.db")).mode & 0o777).toBe(0o600);
     expect(sha(join(i.data, "data.db"))).toBe(sha(join(i.data, basename(tmplBackup))));
-    expect(verbs(i)).toEqual(["plugin disable", "plugin install", "plugin enable", "plugin status", "plugin logs", "thread tell"]);
-    expect(calls(i)[1]!.argv[2]).toBe(i.plugin);
+    expect(verbs(i)).toEqual(["plugin disable", "plugin install", "plugin enable", "plugin list", "plugin logs", "thread tell"]);
+    expect(calls(i)[1]!.argv.slice(2)).toEqual(["--yes", i.plugin]);
     const report = reportOf(i);
     expect(report).toContain(join(i.data, basename(tmplBackup)));
     for (const m of moved) expect(report).toContain(join(i.data, m));
@@ -464,7 +472,7 @@ describe("restore", () => {
   it("a plugin that never reports healthy exits 5, with the moved paths and the undo steps in the report", async () => {
     const i = await install();
     mkdirSync(join(i.bbdata, "stub"), { recursive: true });
-    writeFileSync(join(i.bbdata, "stub", "status"), "autarch: failed to start\n");
+    writeFileSync(join(i.bbdata, "stub", "status"), "error");
     const r = run(RESTORE, restoreArgs(i));
     expect(r.code, r.out).toBe(5);
     const report = reportOf(i);
@@ -472,6 +480,27 @@ describe("restore", () => {
     expect(report).toContain("To undo");
     expect(movedAside(i).length).toBe(2);
   }, 30_000);
+});
+
+// The stand-in bb let `plugin status` (which the real bb lacks) pass once. Every bb subcommand the scripts call must exist
+// in the REAL CLI: `--help` is local and read-only (no server, no write). Skipped only where bb is not installed.
+const REAL_BB = process.env.AUTARCH_REAL_BB ?? `${process.env.HOME}/.local/bin/bb`;
+describe.skipIf(!existsSync(REAL_BB))("every bb subcommand the scripts call exists in the real CLI", () => {
+  const called = new Set<string>();
+  for (const f of ["home-upgrade-v3.bash", "home-restore-v2.bash", "home-common.bash"]) {
+    for (const m of readFileSync(join(SCRIPTS, f), "utf8").matchAll(/"\$BB" ([a-z]+) ([a-z-]+)/g)) called.add(`${m[1]} ${m[2]}`);
+  }
+  it("found the calls", () => expect([...called].sort()).toEqual(expect.arrayContaining(["plugin disable", "plugin enable", "plugin install", "plugin list", "plugin logs", "thread tell"])));
+  for (const c of called) {
+    it(`bb ${c} --help exits 0`, () => {
+      const r = spawnSync(REAL_BB, [...c.split(" "), "--help"], { cwd: "/tmp", encoding: "utf8", timeout: 30_000 });
+      expect(r.status, r.stderr).toBe(0);
+    });
+  }
+  it("negative control: the old `plugin status` is not a real command", () => {
+    const r = spawnSync(REAL_BB, ["plugin", "status", "--help"], { cwd: "/tmp", encoding: "utf8", timeout: 30_000 });
+    expect(r.status).not.toBe(0);
+  });
 });
 
 describe("unreadable caller cwd (bb spawns with process.cwd(); root's /root is EACCES for mk)", () => {
@@ -502,7 +531,7 @@ describe("upgrade", () => {
     expect(r.code, r.out).toBe(0);
     expect(verbs(i).slice(0, 3)).toEqual(["plugin disable", "plugin install", "plugin enable"]);
     expect(verbs(i).at(-1)).toBe("thread tell");
-    expect(calls(i)[1]!.argv[2]).toBe(i.plugin);
+    expect(calls(i)[1]!.argv.slice(2)).toEqual(["--yes", i.plugin]);
     expect(reportOf(i)).toContain(tmplBackup);
   });
 
@@ -576,7 +605,7 @@ describe("upgrade", () => {
   it("enable returns ok but the plugin never becomes healthy: failure, plugin disabled (exit 5)", async () => {
     const i = await install();
     mkdirSync(join(i.bbdata, "stub"), { recursive: true });
-    writeFileSync(join(i.bbdata, "stub", "status"), "autarch: error: activation failed\n");
+    writeFileSync(join(i.bbdata, "stub", "status"), "error");
     const r = run(UPGRADE, upgradeArgs(i));
     expect(r.code, r.out).toBe(5);
     expect(verbs(i).filter((v) => v === "plugin disable").length).toBe(2);
