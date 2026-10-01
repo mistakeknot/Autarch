@@ -35,7 +35,7 @@ if [ -n "$HOLDERS" ]; then
   exit 3
 fi
 # 2. Install the v3 build and enable it; the open migrates (quiesce, backup, verify, DDL).
-"${AS[@]}" "$BB" plugin install "$PLUGIN" || { say "install failed; plugin left disabled on the unchanged v2 DB"; exit 4; }
+"${AS[@]}" "$BB" plugin install --yes "$PLUGIN" || { say "install failed; plugin left disabled on the unchanged v2 DB"; exit 4; }
 "${AS[@]}" "$BB" plugin enable autarch || { say "enable failed; plugin left disabled"; exit 5; }
 # 3. Report, and require success evidence: a healthy plugin status AND a v3 migration_log row (read as mk).
 # Enable can return before activation fails, so poll briefly; no evidence means failure (plan 1.3.9).
@@ -43,10 +43,9 @@ if [ "$TEST" = 1 ]; then TRIES=2; WAIT=0; else TRIES=12; WAIT=5; fi
 STATUS=; MIGROW=; HEALTHY=0
 for _ in $(seq "$TRIES"); do
   sleep "$WAIT"
-  STATUS=$("${AS[@]}" "$BB" plugin status autarch 2>&1 | head -5 || true)
+  plugin_state; STATUS=$PSTATE
   MIGROW=$("${AS0[@]}" sqlite3 -readonly "$DATA/data.db" "select version, at, backup_path, digest from migration_log where version >= 3 order by version desc limit 1" 2>&1 || true)
-  HEALTHY=0
-  if printf '%s\n' "$STATUS" | grep -Eiq '\b(running|healthy|ready)\b' && ! printf '%s\n' "$STATUS" | grep -Eiq 'not running|not healthy|stopped|disabled|inactive|error|fail|crash'; then HEALTHY=1; fi
+  HEALTHY=$PHEALTHY
   [ "$HEALTHY" = 1 ] && printf '%s' "$MIGROW" | grep -Eq '^[0-9]+\|' && break
 done
 say "plugin status: $STATUS"

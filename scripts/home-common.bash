@@ -29,6 +29,17 @@ parse_common() {
   fi
 }
 
+# plugin_state: read Home's health from `bb plugin list --json` (this bb has no `plugin status`). Sets PSTATE (one report
+# line) and PHEALTHY=1 only for enabled=true and status=running, the real bb's two fields; anything else is unhealthy.
+plugin_state() {
+  local raw
+  raw=$("${AS[@]}" "$BB" plugin list --json 2>&1) || true
+  PSTATE=$(printf '%s' "$raw" | jq -r '[.plugins[]? | select(.id == "autarch")][0] // empty | "enabled=\(.enabled) status=\(.status) detail=\(.statusDetail // "-")"' 2>/dev/null) || PSTATE=
+  PHEALTHY=0
+  case $PSTATE in "enabled=true status=running "*) PHEALTHY=1 ;; esac
+  [ -n "$PSTATE" ] || PSTATE="autarch is not in the plugin list: $(printf '%s' "$raw" | head -c 200)"
+}
+
 # common_setup <name>: identity, mk-command prefix, report file and the finish trap.
 common_setup() {
   NAME=$1
