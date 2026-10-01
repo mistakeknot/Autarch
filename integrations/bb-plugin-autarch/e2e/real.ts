@@ -6,6 +6,8 @@
 //   HOME_E2E_BB_DATA       the isolated server's data dir
 //   HOME_E2E_BB_HOME       the isolated server's HOME (optional)
 //   HOME_E2E_BB_CLI        the bb executable (optional, default `bb` on PATH)
+// Cards are filed with `autarch needs-mk file`; `bb home ask` is retired and is not used anywhere.
+// The harness's `--owned-server` launcher (Task 2.12 part B) is NOT implemented: see harness.ts.
 // Every bb call runs with a scrubbed environment, so an ambient BB_* can never redirect it.
 import assert from "node:assert/strict";
 import Database from "better-sqlite3";
@@ -50,6 +52,8 @@ export class Real {
   readonly threads: string[] = [];
   private tmp = mkdtempSync(join(tmpdir(), "autarch-e2e-real-"));
   private project = "";
+  /** The tasks project the filer files into (created in setup, through rigRpc). */
+  private tasksPrefix = "";
   private serve?: OwnServe;
   private browser?: Browser;
   readonly root: string;
@@ -86,6 +90,8 @@ export class Real {
     rigExecSync("git", ["-C", this.root, "commit", "-q", "-m", "init"]);
     const created = JSON.parse(this.bb(["project", "create", "--name", "Autarch", "--root", this.root, "--json"]).stdout) as { id: string };
     this.project = created.id;
+    this.tasksPrefix = `E${sha(this.runId).slice(0, 9).toUpperCase()}`;
+    await rigRpc(this.target, "tasks", "createProject", { name: `Autarch ${this.runId}`, prefix: this.tasksPrefix, color: "#6b7280" });
     this.serve = await startOwnServe({ autarchPath: this.build.autarch_path, dir: join(this.tmp, "serve"), parent: this.parent, home: join(this.tmp, "serve-home") });
     this.bb(["plugin", "install", this.build.plugin_dir, "--yes"]);
     const s = pluginSettings(this.serve, this.build.autarch_path);
@@ -138,27 +144,43 @@ export class Real {
       return !/^(starting|running)$/i.test(st) && st !== "";
     }, 60_000);
   }
-  askBody(thread: string, subject: string, over: Record<string, unknown> = {}): Record<string, unknown> {
-    return {
-      v: 1,
-      kind: "decide",
-      project: "Autarch",
-      project_root: this.root,
-      asker: "thread",
-      thread,
-      question: "Collapse routine catch-up items per project or per day?",
-      subject,
-      options: [
-        { id: "project", label: "Collapse per project", kind: "instruction", reversible: true, instruction: "On branch feat/x, group per project, run npm test, commit locally, and report." },
-        { id: "day", label: "Collapse per day", kind: "ruling-only" },
-      ],
-      ...over,
-    };
+  /** The ask file `autarch needs-mk file --ask-file` reads: the decision's question and options. */
+  askFile(name: string, question: string): string {
+    const f = join(this.tmp, `ask-${name}.json`);
+    writeFileSync(
+      f,
+      JSON.stringify({
+        question,
+        subject: question,
+        project: "Autarch",
+        project_root: this.root,
+        options: [
+          { id: "project", label: "Collapse per project", kind: "instruction", reversible: true, instruction: "On branch feat/x, group per project, run npm test, commit locally, and report." },
+          { id: "day", label: "Collapse per day", kind: "ruling-only" },
+        ],
+      }),
+    );
+    return f;
   }
-  /** `bb home ask --request-stdin` from inside `thread`. */
-  ask(thread: string, subject: string): string {
-    const r = this.bb(["home", "ask", "--request-stdin"], { thread, input: JSON.stringify(this.askBody(thread, subject)) });
-    return (JSON.parse(r.stdout) as { id: string }).id;
+  /** `autarch needs-mk file` from inside `thread` (BB_THREAD_ID), filing a card through `bb tasks`. Replaces the retired `bb home ask`. */
+  file(thread: string | undefined, key: string, subject: string): { code: number; stderr: string; card?: string } {
+    const args = ["needs-mk", "file", "--project", this.tasksPrefix, "--title", subject, "--ask-file", this.askFile(key, subject), "--request", key, "--blocks", `thread:${thread ?? "none"}`];
+    const r = rigExecSync(this.build.autarch_path, args, { target: this.target, threadId: thread, cwd: this.root, timeoutMs: 90_000 });
+    let card: string | undefined;
+    try {
+      card = (JSON.parse(r.stdout.trim().split("\n").pop() ?? "") as { card?: string }).card;
+    } catch {
+      /* no card on a failed run */
+    }
+    return { code: r.code ?? 1, stderr: r.stderr, card };
+  }
+  /** File a card from `thread` and wait for the poller to open its decision; returns the decision id `card-<card>-g1`. */
+  async ask(thread: string, subject: string): Promise<string> {
+    const r = this.file(thread, `${this.runId}-${sha(subject).slice(0, 8)}`, subject);
+    assert.equal(r.code, 0, `needs-mk file exited ${r.code}: ${r.stderr}`);
+    const decision = `card-${r.card}-g1`;
+    await this.waitFor(`the poller to open ${decision}`, () => this.db("SELECT 1 FROM decisions WHERE id = ?", decision).length > 0, 60_000);
+    return decision;
   }
   db<T = Record<string, unknown>>(sql: string, ...a: unknown[]): T[] {
     const db = new Database(join(this.env.data, "plugins", "autarch", "data.db"), { readonly: true, timeout: 2000 });
@@ -207,7 +229,7 @@ export class Real {
     "answer-instruction": async () => {
       const t = this.spawn("answer-instruction");
       await this.settle(t);
-      const decision = this.ask(t, "e2e: collapse order");
+      const decision = await this.ask(t, "e2e: collapse order");
       const pick_id = `pick-${decision}`;
       assert.equal((await this.pick(decision, "project", pick_id)).status, 201);
       await this.waitFor("the wake to finish", () => this.db("SELECT 1 FROM obligations WHERE decision_id = ? AND kind = 'wake' AND state = 'done'", decision).length > 0);
@@ -236,7 +258,7 @@ export class Real {
       for (let attempt = 1; attempt <= 6; attempt++) {
         const t = this.spawn(`queued-then-archived-${attempt}`);
         await this.settle(t);
-        const decision = this.ask(t, `e2e: queued wake ${attempt}`);
+        const decision = await this.ask(t, `e2e: queued wake ${attempt}`);
         const listed = (await this.rpc<{ owed: { id: string; revision: string }[] }>("listAsks")).owed.find((o) => o.id === decision);
         assert.ok(listed, `decision ${decision} is not owed`);
         this.bb(["thread", "tell", t, `e2e ${this.runId} keep busy`]);
@@ -253,21 +275,23 @@ export class Real {
       throw new Error(`no wake queued in 6 attempts (last settled as ${last}): a queued delivery needs an active turn, and a credential-less scratch turn ends too fast`);
     },
 
-    "ask-cli-proxy": async () => {
-      const t = this.spawn("ask-cli-proxy");
-      const other = this.spawn("ask-cli-proxy-other");
-      const decision = this.ask(t, "e2e: proxy ask from a thread");
-      const req = (subject: string) => JSON.stringify({ v: 1, kind: "decide", question: "Collapse routine catch-up items per project or per day?", subject, options: this.askBody(t, subject).options });
-      const decide = (subject: string, threadEnv?: string) =>
-        rigExecSync(this.build.autarch_path, ["decide", "file", "--thread", t], { target: this.target, threadId: threadEnv, cwd: this.root, input: req(subject), timeoutMs: 60_000 });
-      const absent = decide(`e2e: decide file ${this.runId}, BB_THREAD_ID absent`);
-      const conflict = decide(`e2e: decide file ${this.runId}, BB_THREAD_ID conflicting`, other);
-      assert.equal(absent.code, 0, `absent: ${absent.stderr}`);
-      assert.equal(conflict.code, 2, `conflict must exit 2: ${conflict.stderr}`);
-      const rows = this.db<{ thread: string | null }>("SELECT thread FROM decisions WHERE subject LIKE ?", `e2e: decide file ${this.runId}%`);
-      assert.equal(rows.length, 1, "the conflicting decide-file must file nothing");
-      assert.ok(rows.every((r) => r.thread === t), "a decide-file ask was filed under another thread");
-      return { threads: [t, other], decision, env_absent_exit: absent.code, env_conflict_exit: conflict.code };
+    // Replaces rev-4 `ask-cli-proxy`. The filer requires a thread: BB_THREAD_ID absent exits 2, and a replay of
+    // the same Request key from another thread exits 2 without a second card.
+    "filer-from-thread": async () => {
+      const t = this.spawn("filer-from-thread");
+      const other = this.spawn("filer-from-thread-other");
+      const key = `${this.runId}-filer`;
+      const first = this.file(t, key, "e2e: file from a thread");
+      assert.equal(first.code, 0, `filer exit ${first.code}: ${first.stderr}`);
+      const shown = JSON.parse(this.bb(["tasks", "show", first.card!, "--json"]).stdout) as { comments: { kind?: string; threadId?: string | null }[] };
+      const agent = shown.comments.filter((c) => c.kind === "agent");
+      const matches = agent.length === 1 && agent[0]!.threadId === t;
+      assert.ok(matches, "the card's agent comment does not carry the filing thread");
+      const absent = this.file(undefined, `${key}-absent`, "e2e: file with BB_THREAD_ID absent");
+      assert.equal(absent.code, 2, `BB_THREAD_ID absent must exit 2: ${absent.stderr}`);
+      const replay = this.file(other, key, "e2e: file from a thread");
+      assert.equal(replay.code, 2, `a replay from another thread must exit 2: ${replay.stderr}`);
+      return { threads: [t, other], card: first.card, comment_thread_matches: matches, env_absent_exit: absent.code, other_thread_replay_exit: replay.code };
     },
 
     "vizier-chat": async () => {

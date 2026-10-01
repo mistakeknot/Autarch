@@ -139,7 +139,8 @@ export class FakeTasks implements PluginsLike {
           (t) =>
             (input.projectId === undefined || t.projectId === input.projectId) &&
             (input.statuses === undefined || input.statuses.includes(t.status)) &&
-            (input.labelIds === undefined || t.labelIds.some((l: string) => input.labelIds.includes(l))),
+            (input.labelIds === undefined || t.labelIds.some((l: string) => input.labelIds.includes(l))) &&
+            (input.search === undefined || `${t.title}\n${t.description}`.toLowerCase().includes(String(input.search).toLowerCase())),
         );
         const start = input.cursor === undefined ? 0 : Number(input.cursor);
         const limit = input.limit ?? 100;
@@ -147,13 +148,24 @@ export class FakeTasks implements PluginsLike {
         const next = start + limit < rows.length ? String(start + limit) : null;
         return { tasks: page, nextCursor: next };
       }
+      case "createTask": {
+        const p = this.projects.find((x) => x.id === input.projectId);
+        if (!p) throw new Error("project not found");
+        const t = this.addTask(p.id, { title: input.title, description: input.description ?? "", labelIds: [...(input.labelIds ?? [])], createdAt: `2026-10-03T00:00:${String(this.tasks.length % 60).padStart(2, "0")}.000Z` });
+        return { task: t };
+      }
+      case "createLabel": {
+        if (this.labels.some((l) => l.projectId === input.projectId && l.name.toLowerCase() === String(input.name).toLowerCase())) throw new Error(`label name already in use: ${input.name}`);
+        return { label: this.addLabel(input.projectId, input.name) };
+      }
       case "listComments": {
         // Deliberately not in createdAt order: the client must sort.
         const rows = this.comments.filter((c) => c.taskId === input.taskId);
         return { comments: [...rows].reverse() };
       }
       case "createComment": {
-        const c = this.addComment(input.taskId, { kind: "user", authorName: "You", threadId: null, body: input.body, createdAt: `2026-10-03T00:00:${String(this.comments.length % 60).padStart(2, "0")}.000Z` });
+        // The real CLI posts an agent comment from the calling thread; the RPC's own callers (the card writer) post as mk.
+        const c = this.addComment(input.taskId, { kind: input.threadId ? "agent" : "user", authorName: "You", threadId: input.threadId ?? null, body: input.body, createdAt: `2026-10-03T00:00:${String(this.comments.length % 60).padStart(2, "0")}.000Z` });
         return { comment: c };
       }
       case "updateTask": {

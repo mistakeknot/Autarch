@@ -42,7 +42,7 @@ if (mode === "real-bb") {
     const app = process.env.HOME_E2E_BB_APP;
     if (!app || !existsSync(app)) usage("--owned-server needs HOME_E2E_BB_APP naming the bb app to launch");
   }
-  if (flags.has("owned-server")) usage("--owned-server: the launcher and the ownership proof are Task 2.12; not implemented here");
+  if (flags.has("owned-server")) usage("--owned-server: UNVERIFIABLE on this host (Task 2.12 part B): the installed bb-app 0.44.0+aleph.0.5.1 failed to start on a fresh data dir inside bwrap --unshare-net (server DrizzleError: cannot rollback - no transaction is active, during initDb migrate); the launcher is not implemented and there is no looser mode");
 }
 
 const git = (...a: string[]) => rigExecSync("git", a, { cwd: here }).stdout.trim();

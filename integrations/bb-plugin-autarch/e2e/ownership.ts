@@ -119,10 +119,16 @@ export function checkRuntimeFile(dataDir: string, launcher: number, port: number
 export const tasksDbPath = (dataDir: string) => join(dataDir, "plugins", "tasks", "data.db");
 
 /** Step 5, after steps 3-4: create `e2e-<nonce>` through rigRpc, then require that row in tasks' data.db, opened read-only. */
+export function nonceProjectInput(nonce: string): { name: string; prefix: string; color: string } {
+  // tasks createProject requires name, prefix (^[A-Z][A-Z0-9]{0,9}$) and color.
+  const hex = nonce.replace(/[^0-9a-fA-F]/g, "").toUpperCase();
+  return { name: `e2e-${nonce}`, prefix: `E${hex.slice(0, 9)}`, color: "#6b7280" };
+}
+
 export async function nonceRoundTrip(t: RigTarget): Promise<boolean> {
   assertOwned(t);
-  const name = `e2e-${t.nonce}`;
-  await rigRpc(t, "tasks", "createProject", { name });
+  const { name, prefix, color } = nonceProjectInput(t.nonce);
+  await rigRpc(t, "tasks", "createProject", { name, prefix, color });
   const db = new Database(tasksDbPath(t.dataDir), { readonly: true, fileMustExist: true, timeout: 2000 });
   try {
     const row = db.prepare("SELECT 1 AS ok FROM projects WHERE name = ?").get(name);

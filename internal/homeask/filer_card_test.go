@@ -820,3 +820,18 @@ func TestCardFilerFromEnvReadsTheBindingAndRefusesAMalformedOne(t *testing.T) {
 		}
 	}
 }
+
+// The real `bb tasks show` text for a deleted card (plugins/tasks/cli/index.ts, code task_not_found) is
+// "task not found: <address>". notFoundRe must keep matching it: a registered-but-deleted card is exit 2, never exit 3.
+func TestNotFoundReMatchesRealTasksShowText(t *testing.T) {
+	for _, text := range []string{"task not found: 01JABCDEFGHJKMNPQRSTVWXYZ0\n", "task not found: ABC-12"} {
+		if !notFoundRe.MatchString(text) {
+			t.Fatalf("notFoundRe does not match the real bb tasks show error %q", text)
+		}
+	}
+	for _, text := range []string{"connection refused", "plugin tasks is not running"} {
+		if notFoundRe.MatchString(text) {
+			t.Fatalf("notFoundRe matches %q, which is not a deleted card", text)
+		}
+	}
+}

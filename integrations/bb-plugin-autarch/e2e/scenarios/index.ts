@@ -13,6 +13,14 @@ import { rootRun } from "../../rootrun.js";
 import { WakeLoop } from "../../wakes.js";
 import { cleanupEnvs, opened, pollN, rig, type Rig } from "../../__tests__/card-rig.js";
 import { archived, FakeSdk } from "../../__tests__/wakes-helpers.js";
+import { Asks } from "../../asks.js";
+import { Catchup } from "../../catchup.js";
+import { homeCli } from "../../cli.js";
+import { FakeBbServer } from "../../__tests__/fake-bb-server.js";
+import { makeTarget, rigExec, type RigTarget } from "../rigexec.js";
+import { mkdtempSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { randomUUID } from "node:crypto";
 import { spawnChild } from "../rig.js";
 
 export interface Ctx {
@@ -65,6 +73,61 @@ async function pickAndWake(r: Rig, decision: string, sdk = new FakeSdk()) {
   await loop.drain();
   return { sdk, pick: p as { ok: true; pick: { pick_id: string } } };
 }
+
+// ---- filing: the built `autarch needs-mk file` against the fake bb (Task 2.12) -----------------------------------
+interface Filing {
+  r: Rig;
+  server: FakeBbServer;
+  target: RigTarget;
+  /** Run `autarch needs-mk file` in the asking thread; returns its exit code and output. */
+  file(key: string, over?: { thread?: string; askFile?: string }): Promise<{ code: number | null; stdout: string; stderr: string; card: string | undefined }>;
+  askFile(question: string): string;
+}
+
+async function withFiling<T>(autarch: string, f: (x: Filing) => Promise<T>): Promise<T> {
+  const r = rig();
+  const dir = mkdtempSync(join(tmpdir(), "autarch-e2e-filing-"));
+  const server = new FakeBbServer(r.fake, async (argv, threadId) => {
+    const cli = homeCli({ svc: r.svc, asks: new Asks(r.svc), catchup: new Catchup(r.svc, r.dele), rule: (id, o, why, ctx) => r.dele.rule(id, o, why, ctx), isVizier: () => false });
+    const out = await cli.run(argv, threadId ? { threadId } : {});
+    return { exitCode: out.exitCode ?? 0, stdout: out.stdout ?? "", stderr: out.stderr ?? "" };
+  });
+  await server.start(dir);
+  try {
+    const target = makeTarget({ url: server.url, dataDir: join(dir, "data"), home: join(dir, "home"), realBb: server.bin });
+    const askFile = (question: string) => {
+      const file = join(dir, `ask-${randomUUID()}.json`);
+      writeFileSync(
+        file,
+        JSON.stringify({ question, subject: question, project: "Autarch", project_root: r.env.roots.Autarch, options: [{ id: "a", label: "Per project", kind: "ruling-only" }, { id: "b", label: "Per day", kind: "ruling-only" }] }),
+      );
+      return file;
+    };
+    const filing: Filing = {
+      r,
+      server,
+      target,
+      askFile,
+      async file(key, over = {}) {
+        const res = await rigExec(autarch, ["needs-mk", "file", "--project", r.tp.prefix, "--title", "Collapse order", "--ask-file", over.askFile ?? askFile("Collapse per project or per day?"), "--request", key, "--blocks", "bead:mk-okek.8"], { target, threadId: over.thread ?? "thr_a", timeoutMs: 90_000 });
+        let card: string | undefined;
+        try {
+          card = (JSON.parse(res.stdout.trim().split("\n").pop() ?? "") as { card?: string }).card;
+        } catch {
+          /* no card on a failed run */
+        }
+        return { ...res, card };
+      },
+    };
+    return await f(filing);
+  } finally {
+    await server.stop();
+    cleanupEnvs();
+  }
+}
+const key = (name: string) => `${name}-${randomUUID().slice(0, 8)}`;
+const needsMkCards = (r: Rig) => r.fake.tasks.filter((t) => t.labelIds.includes(r.label.id));
+const agentComments = (r: Rig, card: string) => r.fake.comments.filter((c) => c.taskId === card && c.kind === "agent");
 
 export const scenarios: Record<string, Scenario> = {
   // ---- card lifecycle ----------------------------------------------------------------
@@ -463,5 +526,82 @@ export const scenarios: Record<string, Scenario> = {
       await rootRun({ task: { id: "bad'id", projectId: "p", description: body("s") }, comments: [] }, { fetch: spy as never });
       assert.deepEqual(calls.filter((u) => /bad'id|rm -rf|\$\(/.test(u)), []);
       return { hostile_sets: hostile.length, commands_unsafe: 0, runner_urls_with_hostile_input: 0 };
+    }),
+  // ---- filing (the real autarch binary; bb is faked) ------------------------------------------------------
+  "card-file-retry": ({ autarch }) =>
+    withFiling(autarch, async ({ r, server, file }) => {
+      server.inject({ verb: "create", kind: "drop-after-commit" });
+      const run = await file(key("retry"));
+      assert.equal(run.code, 0, `filer exit ${run.code}: ${run.stderr}`);
+      assert.equal(server.callsOf("create"), 1, "the create call is made once; recovery is a lookup, not a second create");
+      const cards = needsMkCards(r);
+      assert.equal(cards.length, 1);
+      assert.equal(run.card, cards[0]!.id);
+      assert.equal(agentComments(r, run.card!).length, 1);
+      return { card: run.card, exit_code: run.code, cards: cards.length };
+    }),
+
+  "card-file-unknown": ({ autarch }) =>
+    withFiling(autarch, async ({ r, server, file }) => {
+      const k = key("unknown");
+      server.inject({ verb: "comment", kind: "hang-after-commit" });
+      const first = await file(k);
+      assert.equal(first.code, 4, `first run exit ${first.code}: ${first.stderr}`);
+      assert.equal(first.card, undefined);
+      const [card] = needsMkCards(r);
+      assert.ok(card, "the card was created before the comment hung");
+      const again = await file(k);
+      assert.equal(again.code, 0, `rerun exit ${again.code}: ${again.stderr}`);
+      assert.equal(again.card, card.id);
+      assert.equal(needsMkCards(r).length, 1);
+      return { card: card.id, first_exit: first.code, rerun_exit: again.code, cards: needsMkCards(r).length, agent_comments: agentComments(r, card.id).length };
+    }),
+
+  "not-ready-at-start": ({ autarch }) =>
+    withFiling(autarch, async ({ r, file }) => {
+      const started = Date.now();
+      const k = key("notready");
+      const ready = r.svc.ready.bind(r.svc);
+      r.svc.ready = () => false;
+      const locked = await file(k);
+      assert.equal(locked.code, 3, `locked exit ${locked.code}: ${locked.stderr}`);
+      const cardsWhileLocked = r.fake.tasks.length;
+      assert.equal(cardsWhileLocked, 0, "an unready Home must create no card");
+      // The registry read itself reports not ready (exit 3), which is what stops the filer.
+      const probe = await homeCli({ svc: r.svc, asks: new Asks(r.svc), catchup: new Catchup(r.svc, r.dele), rule: () => ({ ok: false, status: 400, error: "x" }) as never, isVizier: () => false }).run(["get", "--request", k], {});
+      assert.equal(probe.exitCode, 3);
+      assert.match(String(probe.stderr), /not ready/);
+      r.svc.ready = ready;
+      const ok = await file(k);
+      assert.equal(ok.code, 0, `ready exit ${ok.code}: ${ok.stderr}`);
+      await r.poll();
+      const gens = r.gens(ok.card!);
+      assert.equal(gens.length, 1, "the filed card materializes");
+      const p = r.mkPick(gens[0].id);
+      assert.ok(p.ok, `pick failed: ${JSON.stringify(p)}`);
+      return { ask_exit_locked: locked.code, cards_while_locked: cardsWhileLocked, not_ready: true, decision: gens[0].id, pick_id: (p as { pick: { pick_id: string } }).pick.pick_id, seconds: (Date.now() - started) / 1000 };
+    }),
+
+  "filer-registry-authority": ({ autarch }) =>
+    withFiling(autarch, async ({ r, file, askFile }) => {
+      const k = key("authority");
+      const first = await file(k);
+      assert.equal(first.code, 0, `exit ${first.code}: ${first.stderr}`);
+      await r.poll(); // Home registers the card: card_requests now names it
+      const reg = r.db.prepare("SELECT task_id FROM card_requests WHERE request_key = ?").get(k) as { task_id: string } | undefined;
+      assert.equal(reg?.task_id, first.card);
+      // A registered Request is answered from the registry: same card, no search, no second card.
+      const again = await file(k);
+      assert.equal(again.code, 0);
+      assert.equal(again.card, first.card);
+      // The registered card is edited in tasks: the Request line no longer reads back, so the filer refuses (exit 2)
+      // and, above all, does not file a second card for the key.
+      const task = r.fake.tasks.find((t) => t.id === first.card)!;
+      r.edit(task, { description: task.description.replace(/^Request: .*$/m, `Request: ${k} sha256:ffffffffffffffff`) });
+      const changed = await file(k);
+      assert.equal(changed.code, 2, `edited-card exit ${changed.code}: ${changed.stderr}`);
+      assert.equal(needsMkCards(r).length, 1, "no second card");
+      void askFile;
+      return { card: first.card, cards: needsMkCards(r).length, registry_row: true };
     }),
 };

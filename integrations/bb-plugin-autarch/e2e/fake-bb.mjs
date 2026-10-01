@@ -1,6 +1,6 @@
 // A stand-in `bb` for fake mode. Its server URL comes from BB_SERVER_URL (the rig builds the child
 // environment from nothing, so there is no E2E_BB_URL). It forwards `bb home ...` to the harness's
-// in-process plugin CLI, and `bb plugin rpc call tasks <method> --input-file <f> --json` to the
+// in-process plugin CLI, `bb tasks ...` to the harness's tasks emulation (__tests__/fake-bb-server.ts), and `bb plugin rpc call tasks <method> --input-file <f> --json` to the
 // harness's fake tasks plugin at <BB_SERVER_URL>/rpc.
 // Mirrors what the real bb CLI does that matters here: `--X-stdin` becomes `--X <stdin>`, and
 // BB_THREAD_ID is the caller's thread.
@@ -21,8 +21,9 @@ if (url && argv[0] === "plugin" && argv[1] === "rpc" && argv[2] === "call") {
   req.end(body);
   await new Promise(() => {});
 }
-if (argv[0] !== "home" || !url) {
-  process.stderr.write("fake bb: only `bb home ...` is supported\n");
+const group = argv[0];
+if ((group !== "home" && group !== "tasks") || !url) {
+  process.stderr.write("fake bb: only `bb home ...` and `bb tasks ...` are supported\n");
   process.exit(1);
 }
 argv = argv.filter((a) => a !== "--json");
@@ -32,7 +33,7 @@ if (at >= 0) {
   for await (const c of process.stdin) chunks.push(c);
   argv.splice(at, 1, `--${argv[at].slice(2, -6)}`, Buffer.concat(chunks).toString("utf8"));
 }
-const body = JSON.stringify({ argv: argv.slice(1), threadId: process.env.BB_THREAD_ID || undefined });
+const body = JSON.stringify({ group, argv: argv.slice(1), threadId: process.env.BB_THREAD_ID || undefined });
 const req = http.request(url, { method: "POST", headers: { "content-type": "application/json" } }, (res) => {
   let text = "";
   res.on("data", (d) => (text += d));

@@ -2,7 +2,7 @@ import { spawn, type ChildProcess } from "node:child_process";
 import { mkdirSync, symlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterAll, describe, expect, it } from "vitest";
-import { checkRuntimeFile, listeners, OwnershipError, ownedSet, parseProcNetTcp, proveSocket, requireNetns, socketHolders } from "../e2e/ownership.js";
+import { nonceProjectInput, checkRuntimeFile, listeners, OwnershipError, ownedSet, parseProcNetTcp, proveSocket, requireNetns, socketHolders } from "../e2e/ownership.js";
 import { tmpDir } from "./helpers.js";
 
 const t = tmpDir();
@@ -95,5 +95,18 @@ describe("a real process tree", () => {
 
   it("refuses a port with no listener", () => {
     expect(() => proveSocket(process.pid, 1)).toThrow(/no LISTEN socket/);
+  });
+});
+
+describe("nonce project input matches the real tasks createProject contract", () => {
+  it("has name, an uppercase letter-first prefix of at most 10 chars, and a color", () => {
+    const nonce = "0b6f3c1e-9a2d-4c77-8e51-2f4d7a9b1c30";
+    const i = nonceProjectInput(nonce);
+    expect(i.name).toBe(`e2e-${nonce}`);
+    expect(i.prefix).toMatch(/^[A-Z][A-Z0-9]{0,9}$/);
+    expect(i.color.length).toBeGreaterThan(0);
+  });
+  it("starts with a letter even when the nonce starts with a digit", () => {
+    expect(nonceProjectInput("123456789-abc").prefix).toMatch(/^[A-Z]/);
   });
 });
