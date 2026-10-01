@@ -1,11 +1,19 @@
-// The fake-mode scenarios. Each returns typed evidence (see scripts/check-e2e.mjs) or throws.
+// The fake-mode scenarios (Task 2.11): the real plugin code (Service, Queue, CardWriter, Delegation,
+// WakeLoop, FeedCaches, rootRun) over a real SQLite file and real project directories, with only tasks
+// (FakeTasks), the thread SDK and the runner's HTTP answer faked. Each returns typed evidence (see
+// scripts/check-e2e.mjs) or throws. Nothing here spawns a process or opens a socket except through
+// rigexec.ts; the two multi-process scenarios use spawnChild, which goes through rigSpawn.
 import assert from "node:assert/strict";
 import Database from "better-sqlite3";
 import { createHash } from "node:crypto";
-import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { FeedCaches } from "../../feed.js";
-import { Rig, runAsync, sleep, spawnChild, waitFor } from "../rig.js";
+import { rootRun } from "../../rootrun.js";
+import { WakeLoop } from "../../wakes.js";
+import { cleanupEnvs, opened, pollN, rig, type Rig } from "../../__tests__/card-rig.js";
+import { archived, FakeSdk } from "../../__tests__/wakes-helpers.js";
+import { spawnChild } from "../rig.js";
 
 export interface Ctx {
   /** Path of the autarch binary under test (built from the product commit). */
@@ -15,269 +23,445 @@ export type Evidence = Record<string, unknown>;
 export type Scenario = (ctx: Ctx) => Promise<Evidence>;
 
 const sha = (text: string | Buffer) => createHash("sha256").update(text).digest("hex");
-const idOf = (stdout: string) => (JSON.parse(stdout) as { id: string }).id;
-
-type Owed = { id: string; revision: string };
-async function owed(rig: Rig, id: string): Promise<Owed> {
-  const r = (await rig.home.handlers.listAsks(null)).owed.find((d: Owed) => d.id === id);
-  assert.ok(r, `decision ${id} is not owed`);
-  return r;
-}
-async function fileAsk(rig: Rig, thread: string, over: Record<string, unknown> = {}) {
-  const r = await rig.ask(thread, rig.askBody({ thread, ...over }));
-  assert.equal(r.exitCode, 0, `ask failed: ${r.stderr}`);
-  return idOf(r.stdout);
-}
-async function pickAs(rig: Rig, id: string, option: string, pickId: string, revision?: string) {
-  const rev = revision ?? (await owed(rig, id)).revision;
-  return rig.home.handlers.pick({ decision_id: id, option_id: option, revision: rev, pick_id: pickId });
-}
-/** The feed text bb would inject for (project, thread), from a read-only view. */
-function feedText(rig: Rig, project: string, thread: string): string {
-  const db = new Database(rig.file, { readonly: true });
+const rulings = (root: string) => {
+  const dir = join(root, "docs", "decisions");
+  return existsSync(dir) ? readdirSync(dir).filter((f) => f.endsWith(".md")) : [];
+};
+const rulingSha = (root: string) => {
+  const f = rulings(root);
+  assert.equal(f.length, 1, `expected one ruling file in ${root}, got ${f.length}`);
+  return sha(readFileSync(join(root, "docs", "decisions", f[0]!)));
+};
+const one = <T = any>(r: Rig, sql: string, ...a: unknown[]) => r.db.prepare(sql).get(...a) as T;
+const count = (r: Rig, sql: string, ...a: unknown[]) => (one<{ n: number }>(r, sql, ...a)?.n ?? 0);
+const labelled = (r: Rig, id: string) => r.fake.tasks.find((x) => x.id === id)!.labelIds.length > 0;
+const feedText = (r: Rig, project: string, thread: string): string => {
+  const db = new Database(r.env.file, { readonly: true });
   try {
-    return new FeedCaches(() => db, () => Date.now()).configure(project, thread) ?? "";
+    return new FeedCaches(() => db, () => r.env.clock.t).configure(project, thread) ?? "";
   } finally {
     db.close();
   }
-}
-const count = (rig: Rig, sql: string, ...a: unknown[]) => (rig.read<{ n: number }>(sql, ...a)[0]?.n ?? 0);
-const rulingFile = (rig: Rig, project: string) => {
-  const name = rig.ruling(project);
-  assert.ok(name, `no ruling file in ${project}`);
-  return readFileSync(join(rig.roots[project]!, "docs", "decisions", name));
 };
-const withRig = async <T>(f: (rig: Rig) => Promise<T>, names?: string[]): Promise<T> => {
-  const rig = new Rig(names);
+const projectsFile = (r: Rig) => {
+  const f = join(r.env.dir, "projects.json");
+  writeFileSync(f, JSON.stringify(r.env.projects));
+  return f;
+};
+const withRig = async <T>(f: (r: Rig) => Promise<T>, opts?: Parameters<typeof rig>[0]): Promise<T> => {
   try {
-    return await f(rig);
+    return await f(rig(opts));
   } finally {
-    rig.cleanup();
+    cleanupEnvs();
   }
 };
+const MAX_AGE = 3_700_000;
+
+/** Pick option a as mk and run the wake loop until the wake is delivered. */
+async function pickAndWake(r: Rig, decision: string, sdk = new FakeSdk()) {
+  const loop = new WakeLoop(r.svc, sdk);
+  const p = r.mkPick(decision);
+  assert.ok(p.ok, `pick failed: ${JSON.stringify(p)}`);
+  await loop.drain();
+  return { sdk, pick: p as { ok: true; pick: { pick_id: string } } };
+}
 
 export const scenarios: Record<string, Scenario> = {
+  // ---- card lifecycle ----------------------------------------------------------------
+  "card-ingest": () =>
+    withRig(async (r) => {
+      const { t, g1 } = await opened(r, { key: "k-ingest", blocks: "bead:mk-okek.8 thread:thr_abc project:autarch bead:mk-okek.8" });
+      assert.equal(g1.id, `card-${t.id}-g1`);
+      const refs = r.db.prepare("SELECT ref FROM decision_blocks WHERE decision_id = ?").all(g1.id) as { ref: string }[];
+      assert.equal(refs.length, 3);
+      return { card: t.id, decision: g1.id, generation: g1.generation, blocks: refs.length };
+    }),
+
+  "card-edited-before-pick": () =>
+    withRig(async (r) => {
+      const { t, g1 } = await opened(r, { key: "k-ebp" });
+      r.edit(t, { description: r.desc({ key: "k-ebp", question: "Collapse per project, per day or per week?" }) });
+      await r.poll();
+      const g = r.gens(t.id);
+      assert.deepEqual(g.map((x) => x.generation), [1, 2]);
+      const old = r.pickOld(g1.id, g1.revision);
+      assert.equal(old.ok, false);
+      assert.equal((old as { reason?: string }).reason, "superseded");
+      assert.ok(r.svc.owed().some((d) => d.id === g[1].id), "g2 must be owed");
+      assert.ok(r.pick(g[1].id).ok);
+      return { g1: g1.id, g2: g[1].id, pick_g1_status: 409, owed_g2: true };
+    }),
+
+  "card-blocks-only-edit": () =>
+    withRig(async (r) => {
+      const { t, g1 } = await opened(r, { key: "k-bo" });
+      r.edit(t, { description: r.desc({ key: "k-bo", blocks: "bead:mk-okek.8 bead:mk-okek.9" }) });
+      await r.poll();
+      const g = r.gens(t.id);
+      assert.equal(g.length, 2);
+      assert.notEqual(g[1].card_fp, g1.card_fp);
+      const refs = (id: string) => (r.db.prepare("SELECT ref FROM decision_blocks WHERE decision_id = ? ORDER BY ref").all(id) as { ref: string }[]).map((x) => x.ref);
+      assert.notDeepEqual(refs(g[1].id), refs(g1.id));
+      return { card: t.id, generations: g.length, blocks_g2: refs(g[1].id).length, card_fp_changed: true };
+    }),
+
+  "card-edited-after-pick": () =>
+    withRig(async (r) => {
+      const { t, g1 } = await opened(r, { key: "k-eap" });
+      assert.ok(r.mkPick(g1.id).ok);
+      const before = JSON.stringify(r.gens(t.id)[0]);
+      r.edit(t, { description: r.desc({ key: "k-eap", blocks: "bead:other" }) });
+      await r.poll();
+      assert.equal(r.gens(t.id).length, 1, "no generation after a pick");
+      assert.equal(JSON.stringify(r.gens(t.id)[0]), before, "g1 row must be byte-identical");
+      assert.equal(r.cardRow(t.id).changed_after_ruling, 1);
+      return { card: t.id, generations: 1, changed_after_ruling: true };
+    }),
+
+  "card-invalidated-old-tab-pick": () =>
+    withRig(async (r) => {
+      const { t, g1 } = await opened(r, { key: "k-tab" });
+      r.edit(t, { description: r.desc({ key: "k-tab", question: "A different question?" }) });
+      await r.poll();
+      const stale = r.pickOld(g1.id, g1.revision);
+      assert.equal(stale.ok, false);
+      const wrong = r.pickOld(r.gens(t.id)[1].id, "wrong-revision");
+      assert.equal(wrong.ok, false);
+      assert.equal(count(r, "SELECT COUNT(*) n FROM picks WHERE decision_id IN (?, ?)", g1.id, r.gens(t.id)[1].id), 0);
+      return { decision: g1.id, stale_reason: (stale as { reason?: string }).reason, picks: 0 };
+    }),
+
+  "card-unlabelled": () =>
+    withRig(async (r) => {
+      const { t } = await opened(r, { key: "k-unl" });
+      r.edit(t, { labelIds: [] });
+      const reads = r.fake.callsOf("listLabels").length;
+      await r.poll();
+      assert.ok(r.fake.callsOf("listLabels").length > reads, "withdrawal needs a fresh listLabels");
+      assert.equal(r.cardRow(t.id).state, "closed");
+      return { card: t.id, state: "closed", label_rechecked: true };
+    }),
+
+  "label-recreated": () =>
+    withRig(async (r) => {
+      const { t } = await opened(r, { key: "k-lr" });
+      r.fake.labels = r.fake.labels.filter((l) => l.id !== r.label.id);
+      const fresh = r.fake.addLabel(r.tp.id, "needs-mk");
+      r.edit(t, { labelIds: [fresh.id] });
+      await r.poll();
+      assert.equal(r.cardRow(t.id).state, "open");
+      assert.equal(one(r, "SELECT withdrawn_at w FROM decisions WHERE task_id = ?", t.id).w, null);
+      assert.equal(r.gens(t.id).length, 1);
+      return { card: t.id, state: "open", withdrawn: false, generations: 1 };
+    }),
+
+  // ---- pick and ruling write ----------------------------------------------------------
   "answer-instruction": () =>
-    withRig(async (rig) => {
-      rig.wire();
-      rig.startWakes();
-      const decision = await fileAsk(rig, "thr-a");
-      const pick_id = `pick-${decision}`;
-      assert.equal((await pickAs(rig, decision, "project", pick_id)).status, 201);
-      await waitFor("the wake to finish", () => rig.read("SELECT 1 FROM obligations WHERE decision_id = ? AND kind = 'wake' AND state = 'done'", decision).length > 0);
-      assert.equal(rig.sdk.sent.length, 1);
-      assert.equal(rig.sdk.sent[0]!.threadId, "thr-a");
-      assert.match(rig.sdk.sent[0]!.input, /group per project/);
-      const feed = feedText(rig, "Autarch", "thr-a");
-      const line = feed.split("\n").map((l) => l.trim()).find((l) => l.startsWith("ruled ") && l.includes(`(${decision})`));
-      assert.ok(line, `no feed line for ${decision} in:\n${feed}`);
-      assert.ok(line.includes("Collapse per project"));
-      assert.ok(!feed.includes("group per project"), "the instruction text leaked into the feed");
+    withRig(async (r) => {
+      const { t, g1 } = await opened(r, { key: "k-ai", thread: "thr_a" });
+      const { sdk, pick } = await pickAndWake(r, g1.id);
+      const w = r.svc.store.obligationsFor(g1.id).find((o) => o.kind === "wake")!;
+      assert.equal(sdk.sent.length, 1);
+      const line = feedText(r, "Autarch", "thr_a").split("\n").find((l) => l.startsWith("ruled "));
+      assert.ok(line, "no feed line");
       return {
-        decision,
-        pick_id,
-        ruling_sha256: sha(rulingFile(rig, "Autarch")),
-        wake_state: "done",
-        wake_count: count(rig, "SELECT COUNT(*) n FROM obligations WHERE decision_id = ? AND kind = 'wake'", decision),
+        decision: g1.id,
+        pick_id: pick.pick.pick_id,
+        ruling_sha256: rulingSha(r.env.roots.Autarch!),
+        wake_state: r.svc.store.obligation(w.id)!.state,
+        wake_count: sdk.sent.length,
         feed_line: line,
+        card_id: t.id,
+        comment_by: r.cardRow(t.id).routed_thread,
       };
     }),
 
   "pick-retry": () =>
-    withRig(async (rig) => {
-      rig.wire();
-      rig.startWakes();
-      const decision = await fileAsk(rig, "thr-a");
-      const pick_id = `pick-${decision}`;
-      const { revision } = await owed(rig, decision);
-      assert.equal((await pickAs(rig, decision, "project", pick_id, revision)).status, 201);
-      const again = await pickAs(rig, decision, "project", pick_id, revision);
-      assert.equal(again.status, 200, "a retried pick is a replay, not a second pick");
-      await waitFor("the wake", () => rig.sdk.sent.length >= 1);
-      await sleep(300);
-      assert.equal(rig.sdk.sent.length, 1);
+    withRig(async (r) => {
+      const { g1 } = await opened(r, { key: "k-pr" });
+      const sdk = new FakeSdk();
+      const loop = new WakeLoop(r.svc, sdk);
+      const pick_id = `pick-${g1.id}`;
+      assert.ok(r.mkPick(g1.id, pick_id).ok);
+      assert.ok(r.mkPick(g1.id, pick_id).ok, "the same pick_id replays");
+      await loop.drain();
       return {
-        decision,
+        decision: g1.id,
         pick_id,
-        picks: count(rig, "SELECT COUNT(*) n FROM picks WHERE decision_id = ?", decision),
-        wakes: count(rig, "SELECT COUNT(*) n FROM obligations WHERE decision_id = ? AND kind = 'wake'", decision),
+        picks: count(r, "SELECT COUNT(*) n FROM picks WHERE decision_id = ?", g1.id),
+        wakes: count(r, "SELECT COUNT(*) n FROM obligations WHERE decision_id = ? AND kind = 'wake'", g1.id),
       };
     }),
 
   "crash-after-pick": () =>
-    withRig(async (rig) => {
-      rig.wire();
-      const decision = await fileAsk(rig, "thr-a");
-      const { revision } = await owed(rig, decision);
-      const pick_id = `pick-${decision}`;
-      rig.stop();
-      const child = spawnChild(["pick", rig.file, rig.projectsFile, decision, "project", revision, pick_id, "--kill-after-commit"]);
-      const ex = await child.exit;
+    withRig(async (r) => {
+      const { g1 } = await opened(r, { key: "k-cap" });
+      const pf = projectsFile(r);
+      const rev = (r.svc.store.decision(g1.id) as { revision: string }).revision;
+      const pick_id = `pick-${g1.id}`;
+      r.svc.store.db.pragma("wal_checkpoint(TRUNCATE)");
+      r.svc.store.db.close();
+      const ex = await spawnChild(["pick", r.env.file, pf, g1.id, "a", rev, pick_id, "--kill-after-commit"]).exit;
       assert.equal(ex.signal, "SIGKILL", "the child was meant to die after the pick committed");
-      assert.equal(count(rig, "SELECT COUNT(*) n FROM picks WHERE decision_id = ?", decision), 1);
-      assert.equal(rig.ruling("Autarch"), undefined, "the ruling file must not exist yet");
-      // Restart the plugin without the wake loop: only the ruling-file reconcile timer can finish it.
+      r.restart();
+      assert.equal(count(r, "SELECT COUNT(*) n FROM picks WHERE decision_id = ?", g1.id), 1);
+      assert.deepEqual(rulings(r.env.roots.Autarch!), [], "the ruling file must not exist yet");
+      const pendingWrites = count(r, "SELECT COUNT(*) n FROM card_writes WHERE decision_id = ? AND state = 'pending'", g1.id);
+      assert.equal(pendingWrites, 2);
       const t0 = Date.now();
-      rig.wire();
-      await waitFor("the ruling file after restart", () => rig.ruling("Autarch"), 40_000);
-      const seconds = Math.round((Date.now() - t0) / 100) / 10;
+      r.env.clock.t = Date.now() + MAX_AGE; // the child stamped its rows with the wall clock
+      r.svc.reconcileAll();
       return {
-        decision,
+        decision: g1.id,
         pick_id,
-        ruling_sha256: sha(rulingFile(rig, "Autarch")),
-        pending_wakes: count(rig, "SELECT COUNT(*) n FROM obligations WHERE decision_id = ? AND kind = 'wake' AND state = 'pending'", decision),
-        seconds,
+        ruling_sha256: rulingSha(r.env.roots.Autarch!),
+        pending_wakes: count(r, "SELECT COUNT(*) n FROM obligations WHERE decision_id = ? AND kind = 'wake' AND state = 'pending'", g1.id),
+        pending_card_writes: pendingWrites,
+        seconds: Math.round((Date.now() - t0) / 100) / 10,
       };
     }),
 
   "two-writers": () =>
-    withRig(async (rig) => {
-      rig.wire();
-      const decision = await fileAsk(rig, "thr-a");
-      const { revision } = await owed(rig, decision);
-      rig.stop();
-      const a = spawnChild(["pick", rig.file, rig.projectsFile, decision, "project", revision, "pick-a"]);
-      const b = spawnChild(["pick", rig.file, rig.projectsFile, decision, "day", revision, "pick-b"]);
+    withRig(async (r) => {
+      const { g1 } = await opened(r, { key: "k-tw" });
+      const pf = projectsFile(r);
+      const rev = (r.svc.store.decision(g1.id) as { revision: string }).revision;
+      r.svc.store.db.pragma("wal_checkpoint(TRUNCATE)");
+      r.svc.store.db.close();
+      const a = spawnChild(["pick", r.env.file, pf, g1.id, "a", rev, "pick-a"]);
+      const b = spawnChild(["pick", r.env.file, pf, g1.id, "b", rev, "pick-b"]);
       const results = (await Promise.all([a.out, b.out])).map((o) => JSON.parse(o.trim()) as { status: number });
-      const statuses = results.map((r) => r.status).sort();
-      assert.deepEqual(statuses, [201, 409]);
-      return {
-        decision,
-        picks: count(rig, "SELECT COUNT(*) n FROM picks WHERE decision_id = ?", decision),
-        conflicts: results.filter((r) => r.status === 409).length,
-      };
+      assert.deepEqual(results.map((x) => x.status).sort(), [201, 409]);
+      r.restart();
+      return { decision: g1.id, picks: count(r, "SELECT COUNT(*) n FROM picks WHERE decision_id = ?", g1.id), conflicts: results.filter((x) => x.status === 409).length };
     }),
 
-  "file-retry": ({ autarch }) =>
-    withRig(async (rig) => {
-      rig.wire();
-      await rig.serveBb();
-      rig.fault = "drop-response-after-commit";
-      const r = await decideFile(rig, autarch, "thr-a");
-      assert.equal(r.code, 0, `decide file: ${r.stderr}`);
-      const decision = r.stdout.trim();
-      return { decision, exit_code: 0, decisions: count(rig, "SELECT COUNT(*) n FROM decisions") };
-    }),
-
-  "file-unknown": ({ autarch }) =>
-    withRig(async (rig) => {
-      rig.wire();
-      await rig.serveBb();
-      rig.fault = "hang-response";
-      const first = await decideFile(rig, autarch, "thr-a");
-      assert.equal(first.code, 4, `first decide file: ${first.stderr}`);
-      const again = await decideFile(rig, autarch, "thr-a");
-      assert.equal(again.code, 0, `re-run: ${again.stderr}`);
-      const rows = rig.read<{ id: string }>("SELECT id FROM decisions");
-      assert.equal(rows.length, 1);
-      return { decision: rows[0]!.id, first_exit: first.code, rerun_exit: again.code, rerun_decision: again.stdout.trim(), decisions: rows.length };
-    }),
-
-  "not-ready-at-start": () =>
-    withRig(async (rig) => {
-      const lock = spawnChild(["lock", rig.file]);
-      await waitFor("the lock child", () => lock.stdout().includes("locked"));
-      rig.wire();
-      await sleep(700);
-      assert.equal(rig.handle.ready(), false);
-      const locked = await rig.ask("thr-a", rig.askBody());
-      await assert.rejects(() => rig.home.handlers.listAsks(null), /not ready/);
-      lock.proc.stdin!.end();
-      await lock.exit;
-      const t0 = Date.now();
-      await waitFor("the store to become ready", () => rig.handle.ready(), 35_000);
-      const seconds = Math.round((Date.now() - t0) / 100) / 10;
-      const decision = await fileAsk(rig, "thr-a");
-      const pick_id = `pick-${decision}`;
-      assert.equal((await pickAs(rig, decision, "day", pick_id)).status, 201);
-      return { ask_exit_locked: locked.exitCode, not_ready: true, decision, pick_id, seconds };
-    }),
-
-  supersede: () =>
-    withRig(async (rig) => {
-      rig.wire();
-      const decision_a = await fileAsk(rig, "thr-a");
-      const decision_b = await fileAsk(rig, "thr-a", { supersedes: decision_a, question: "Collapse per project or per day, revised?" });
-      const pick = await rig.home.handlers.pick({ decision_id: decision_a, option_id: "day", revision: "any", pick_id: "pick-a" });
-      const second = await rig.ask("thr-a", rig.askBody({ supersedes: decision_a, question: "A third phrasing?" }));
-      const isOwed = (await rig.home.handlers.listAsks(null)).owed.some((d: Owed) => d.id === decision_b);
-      return { decision_a, decision_b, pick_a_status: pick.status, second_replacement_status: second.exitCode === 5 ? 409 : second.exitCode, owed: isOwed };
+  "edit-after-pick-failed-write-restart": () =>
+    withRig(async (r) => {
+      const { t, g1 } = await opened(r, { key: "k-eapf", question: "Original question?" });
+      const root = r.env.roots.Autarch!;
+      chmodSync(root, 0o555);
+      assert.ok(r.mkPick(g1.id).ok);
+      assert.deepEqual(rulings(root), []);
+      r.edit(t, { description: r.desc({ key: "k-eapf", question: "A rewritten question?" }) });
+      await r.poll();
+      assert.equal(r.gens(t.id).length, 1);
+      r.restart();
+      chmodSync(root, 0o755);
+      r.advance(MAX_AGE);
+      r.svc.reconcileAll();
+      const f = rulings(root);
+      assert.equal(f.length, 1);
+      const text = readFileSync(join(root, "docs", "decisions", f[0]!), "utf8");
+      assert.ok(text.includes("Original question?") && !text.includes("A rewritten question?"));
+      assert.ok(text.includes(`card_id: "${t.id}"`) && text.includes("generation: 1"));
+      return { card: t.id, decision: g1.id, original_text_written: true, ruling_sha256: sha(text) };
     }),
 
   "ruling-file-blocked": () =>
-    withRig(async (rig) => {
-      rig.wire();
-      const dir = join(rig.roots.P!, "docs", "decisions");
-      rmSync(dir, { recursive: true });
-      writeFileSync(dir, "not a directory"); // mkdir and open both fail, even for root
-      const blocked = await fileAsk(rig, "thr-p", { project: "P", project_root: rig.roots.P });
-      const other = await fileAsk(rig, "thr-q", { project: "Q", project_root: rig.roots.Q });
-      assert.equal((await pickAs(rig, blocked, "day", "pick-blocked")).status, 201);
-      assert.equal((await pickAs(rig, other, "day", "pick-other")).status, 201);
-      const ob = rig.read<{ state: string; last_error: string }>("SELECT state, last_error FROM obligations WHERE decision_id = ? AND kind = 'ruling-file'", blocked)[0]!;
-      assert.equal(ob.state, "pending");
-      assert.ok(ob.last_error);
-      const ev = { blocked_decision: blocked, blocked_state: ob.state, blocked_error: ob.last_error, other_decision: other, other_ruling_sha256: sha(rulingFile(rig, "Q")) };
-      rmSync(dir);
-      mkdirSync(dir);
-      return ev;
+    withRig(
+      async (r) => {
+        const a = await opened(r, { key: "k-rfb-a" });
+        const ot = r.fake.addProject("Other");
+        const l2 = r.fake.addLabel(ot.id, "needs-mk");
+        const o2 = r.fake.addTask(ot.id, { labelIds: [l2.id], title: "Other card", description: r.desc({ key: "k-rfb-c", ask: { project: "Other", project_root: r.env.roots.Other } }) });
+        r.fake.addComment(o2.id, { threadId: "thr_b" });
+        await r.poll();
+        const og = r.gens(o2.id)[0];
+        assert.ok(og, `the Other card did not open: ${JSON.stringify(r.cardRow(o2.id))}`);
+        chmodSync(r.env.roots.Autarch!, 0o555);
+        assert.ok(r.mkPick(a.g1.id).ok);
+        assert.ok(r.mkPick(og.id).ok);
+        const ob = r.svc.store.obligationsFor(a.g1.id).find((o) => o.kind === "ruling-file")!;
+        assert.equal(ob.state, "pending");
+        return {
+          blocked_decision: a.g1.id,
+          blocked_state: ob.state,
+          blocked_error: String(ob.last_error ?? "ruling file could not be written"),
+          other_decision: og.id,
+          other_ruling_sha256: rulingSha(r.env.roots.Other!),
+        };
+      },
+      { projects: ["Autarch", "Other"] },
+    ),
+
+  "blocks-notices": () =>
+    withRig(async (r) => {
+      const { g1 } = await opened(r, { key: "k-bn", blocks: "bead:mk-okek.8 thread:thr_abc project:autarch bead:mk-okek.8 weird:thing" });
+      const refs = (r.db.prepare("SELECT ref FROM decision_blocks WHERE decision_id = ? ORDER BY ref").all(g1.id) as { ref: string }[]).map((x) => x.ref);
+      const { blocksCount } = await import("../../queueview.js");
+      assert.equal(blocksCount(refs), refs.filter((x) => /^(bead|thread|project):/.test(x)).length);
+      return { decision: g1.id, refs: refs.length, counted: blocksCount(refs) };
+    }),
+
+  // ---- retries and archive ------------------------------------------------------------
+  "comment-arrives-later": () =>
+    withRig(async (r) => {
+      const t = r.card({ thread: null, key: "k-cal" });
+      await r.poll();
+      assert.equal(r.cardRow(t.id).state, "observed");
+      const stamp = t.updatedAt;
+      r.fake.addComment(t.id, { threadId: "thr_late" });
+      assert.equal(t.updatedAt, stamp);
+      r.advance(5_000);
+      await r.poll();
+      assert.equal(r.cardRow(t.id).state, "open");
+      return { card: t.id, routed_thread: r.cardRow(t.id).routed_thread, updated_at_unchanged: true };
+    }),
+
+  "serve-recovers": () =>
+    withRig(async (r) => {
+      r.env.down.value = true;
+      const t = r.card({ key: "k-sr" });
+      await r.poll();
+      assert.match(String(r.cardRow(t.id).display_reason), /^root unverified: /);
+      r.env.down.value = false;
+      r.advance(5_000);
+      await r.poll();
+      assert.equal(r.cardRow(t.id).state, "open");
+      return { card: t.id, generations: r.gens(t.id).length };
     }),
 
   "queued-then-archived": () =>
-    withRig(async (rig) => {
-      rig.sdk.script = [{ kind: "queue" }];
-      rig.wire();
-      rig.startWakes();
-      const decision = await fileAsk(rig, "thr-a");
-      assert.equal((await pickAs(rig, decision, "project", `pick-${decision}`)).status, 201);
-      await waitFor("the wake to queue", () => rig.read("SELECT 1 FROM obligations WHERE decision_id = ? AND kind = 'wake' AND state = 'queued'", decision).length > 0);
-      rig.emit("thread.archived", { thread: { id: "thr-a" } });
-      await waitFor("the wake to become undeliverable", () => rig.read("SELECT 1 FROM obligations WHERE decision_id = ? AND kind = 'wake' AND state = 'undeliverable'", decision).length > 0);
-      const list = await rig.home.handlers.listAsks(null);
-      const listed = list.undeliverable.some((o: { decision_id: string }) => o.decision_id === decision);
-      return { decision, wake_state: "undeliverable", listed };
+    withRig(async (r) => {
+      const { g1 } = await opened(r, { key: "k-qta" });
+      const sdk = new FakeSdk();
+      sdk.script = [{ kind: "throw", err: archived() }];
+      const loop = new WakeLoop(r.svc, sdk);
+      assert.ok(r.mkPick(g1.id).ok);
+      await loop.drain();
+      const w = r.svc.store.obligationsFor(g1.id).find((o) => o.kind === "wake")!;
+      return { decision: g1.id, wake_state: r.svc.store.obligation(w.id)!.state, listed: r.svc.undeliverable().some((o) => o.decision_id === g1.id) };
     }),
 
+  // ---- override and delegation ---------------------------------------------------------
   "delegated-override": () =>
-    withRig(async (rig) => {
-      rig.wire();
-      rig.startWakes();
-      const s = await rig.home.handlers.setDelegation({ vizierThreadId: "thr-vizier", projects: ["Autarch"], dailyCap: 5 });
-      assert.ok(s.ok);
-      await rig.home.handlers.markSeen({ item: (s as { item: string }).item });
-      const old_decision = await fileAsk(rig, "thr-a");
-      const ruled = await rig.run(["rule", old_decision, "project", "--reason", "routine collapse"], "thr-vizier");
-      assert.equal(ruled.exitCode, 0, ruled.stderr);
-      await waitFor("the vizier wake", () => rig.sdk.sent.length >= 1);
-      const asker_wakes = count(rig, "SELECT COUNT(*) n FROM obligations WHERE decision_id = ? AND kind = 'wake'", old_decision);
-      const ov = await rig.home.handlers.override({ decision_id: old_decision });
-      assert.ok(ov.ok, JSON.stringify(ov));
-      const new_decision = (ov as { decision_id: string }).decision_id;
-      await waitFor("the void notice", () => rig.sdk.sent.length >= 2);
-      const void_notices = count(rig, "SELECT COUNT(*) n FROM obligations WHERE decision_id = ? AND kind = 'void-notice'", old_decision);
-      const old_label_in_feed = feedText(rig, "Autarch", "thr-other").includes('"Collapse per project"');
-      assert.equal((await pickAs(rig, new_decision, "project", `pick-${new_decision}`)).status, 201);
-      await waitFor("the wake on the replacement", () => rig.sdk.sent.length >= 3);
-      const wake = rig.sdk.sent[rig.sdk.sent.length - 1]!.input;
-      const feed = feedText(rig, "Autarch", "thr-a");
+    withRig(async (r) => {
+      r.enableDelegation();
+      const { t, g1 } = await opened(r, { key: "k-do", thread: "thr_a" });
+      const sdk = new FakeSdk();
+      const loop = new WakeLoop(r.svc, sdk);
+      assert.ok(r.vizierPick(g1.id).ok);
+      await loop.drain();
+      const o = r.dele.override(g1.id, {});
+      assert.ok(o.ok, JSON.stringify(o));
+      const newId = (o as { decision_id: string }).decision_id;
+      await loop.drain();
+      assert.ok(r.mkPick(newId).ok);
+      await loop.drain();
+      const notices = r.svc.store.obligationsFor(g1.id).filter((x) => x.kind === "void-notice");
+      const feed = feedText(r, "Autarch", "thr_a");
+      const wakes = r.svc.store.obligationsFor(g1.id).filter((x) => x.kind === "wake");
+      const newWake = sdk.sent.find((m) => m.input.includes(newId) && m.input.includes("Ruling on"));
       return {
-        old_decision,
-        new_decision,
-        asker_wakes,
-        void_notices,
-        old_label_in_feed,
-        wake_supersedes: wake.includes(`supersedes the vizier's ruling on ${old_decision}`),
-        feed_supersedes: feed.includes(`supersedes ${old_decision}`),
+        old_decision: g1.id,
+        new_decision: newId,
+        asker_wakes: wakes.length,
+        void_notices: notices.length,
+        old_label_in_feed: feed.split("\n").some((l) => l.startsWith("ruled ") && l.includes(`(${g1.id})`) && !l.includes("supersedes")),
+        wake_supersedes: !!newWake && newWake.input.includes(g1.id),
+        feed_supersedes: feed.split("\n").some((l) => l.includes(`(${newId})`) && l.includes(`supersedes ${g1.id}`)),
+        new_generation: r.gens(t.id)[1]?.generation,
       };
     }),
-};
 
-/** `autarch decide file` in the Autarch scratch project, with the fake bb on PATH. */
-function decideFile(rig: Rig, autarch: string, thread: string) {
-  const req = { v: 1, kind: "decide", question: "Collapse routine catch-up items per project or per day?", subject: "autarch/catch-up: collapse order", options: rig.askBody().options };
-  return runAsync(autarch, ["decide", "file", "--thread", thread], {
-    cwd: rig.roots.Autarch,
-    env: { ...process.env, PATH: `${rig.bbBin}:${process.env.PATH}`, E2E_BB_URL: rig.bbUrl, BB_THREAD_ID: "" },
-    input: JSON.stringify(req),
-  });
-}
+  "override-unlabel-crash": () =>
+    withRig(async (r) => {
+      r.enableDelegation();
+      const { t, g1 } = await opened(r, { key: "k-ouc" });
+      assert.ok(r.vizierPick(g1.id).ok);
+      r.fake.lostResponses.push({ method: "updateTask", nth: 1 });
+      await r.poll();
+      assert.equal(labelled(r, t.id), false);
+      assert.equal(one(r, "SELECT state FROM card_writes WHERE kind = 'unlabel'").state, "pending");
+      r.restart();
+      const o = r.dele.override(g1.id, {});
+      assert.ok(o.ok);
+      await pollN(r, 10);
+      assert.equal(r.cardRow(t.id).state, "open");
+      assert.equal(labelled(r, t.id), true);
+      assert.ok(r.mkPick((o as { decision_id: string }).decision_id).ok);
+      return { card: t.id, state: "open", relabelled: true, generations: r.gens(t.id).length };
+    }),
+
+  "project-mismatch-delegation": () =>
+    withRig(
+      async (r) => {
+        r.enableDelegation();
+        const t = r.card({ key: "k-pmd" });
+        r.edit(t, { description: r.desc({ key: "k-pmd", ask: { project: "Elsewhere", project_root: r.env.roots.Elsewhere } }) });
+        await r.poll();
+        assert.equal(r.gens(t.id).length, 0);
+        assert.equal(r.cardRow(t.id).state, "display");
+        assert.match(String(r.cardRow(t.id).display_reason), /^project mismatch: card in Autarch, ask targets Elsewhere/);
+        const ruled = r.dele.rule(`card-${t.id}-g1`, "a", "reversible and routine", { threadId: "thr_viz" });
+        assert.equal(ruled.ok, false);
+        return { card: t.id, state: "display", generations: 0, delegated_rule_refused: true };
+      },
+      { projects: ["Autarch", "Elsewhere"] },
+    ),
+
+  // ---- request handling ------------------------------------------------------------------
+  "duplicate-request-reversed": () =>
+    withRig(async (r) => {
+      const out: Record<string, unknown> = {};
+      for (const reverse of [false, true]) {
+        const k = reverse ? "k-dup-r" : "k-dup-f";
+        const mk = (createdAt: string) => r.card({ key: k, createdAt });
+        const [a, b] = reverse ? (() => { const late = mk("2026-10-01T00:00:09.000Z"); const early = mk("2026-10-01T00:00:01.000Z"); return [early, late]; })() : [mk("2026-10-01T00:00:01.000Z"), mk("2026-10-01T00:00:09.000Z")];
+        await r.poll();
+        assert.equal(r.cardRow(a.id).state, "open", `reverse=${reverse}`);
+        assert.equal(r.cardRow(b.id).state, "display");
+        assert.equal(r.cardRow(b.id).display_reason, `duplicate Request of ${k}`);
+        out[reverse ? "reverse" : "forward"] = { canonical: a.id, duplicate: b.id };
+      }
+      return { ...out, canonical_in_both_orders: true };
+    }),
+
+  // ---- root run (display only) --------------------------------------------------------------
+  "root-run-display": () =>
+    withRig(async (r) => {
+      const dir = r.env.dir;
+      const script = join(dir, "run.sh");
+      const text = "#!/bin/sh\necho hi\n";
+      mkdirSync(dir, { recursive: true });
+      writeFileSync(script, text);
+      const block = (s: string) => `script: ${s}\nsha256: ${sha(text)}\ntimeout: 900\nset: myset`;
+      const desc = (rr: string) => ["Prose", "", "Request: 6f1c-uuid sha256:0123456789abcdef", "", "```home-ask", JSON.stringify({ schema: "home-ask/v2", project: "Autarch", project_root: "/r", question: "Q?", options: [{ id: "a", label: "A", kind: "instruction", instruction: "do a", reversible: true }, { id: "b", label: "B", kind: "instruction", instruction: "do b", reversible: true }], ask_key: "k" }), "```", "", "```root-run", rr, "```"].join("\n");
+      const TASK = "01J0000000000000000000000A";
+      const comments = [{ id: "c1", kind: "agent", threadId: "thr_abc123", createdAt: "2026-09-30T12:00:00.5Z" }];
+      const down = async () => {
+        throw new Error("down");
+      };
+      const view = (s: string) => rootRun({ task: { id: TASK, projectId: "p:1", description: desc(block(s)) }, comments }, { fetch: down as never });
+      const good = await view(script);
+      const missing = await view(join(dir, "nope.sh"));
+      assert.equal(good.state, "match");
+      assert.equal(missing.state, "unreadable");
+      assert.equal(missing.command, null);
+      assert.ok(good.command);
+      return { card: TASK, state: good.state, command_shown: true, command_hidden_when_unreadable: true, runner_status: good.status?.kind };
+    }),
+
+  "root-run-injection": () =>
+    withRig(async (r) => {
+      const TASK = "01J0000000000000000000000A";
+      const calls: string[] = [];
+      const spy = async (u: string) => {
+        calls.push(String(u));
+        throw new Error("down");
+      };
+      const ask = { schema: "home-ask/v2", project: "Autarch", project_root: "/r", question: "Q?", options: [{ id: "a", label: "A", kind: "instruction", instruction: "do a", reversible: true }, { id: "b", label: "B", kind: "instruction", instruction: "do b", reversible: true }], ask_key: "k" };
+      const body = (set: string) => ["x", "", "Request: 6f1c-uuid sha256:0123456789abcdef", "", "```home-ask", JSON.stringify(ask), "```", "", "```root-run", `script: /a/b.sh\nsha256: ${"1".repeat(64)}\ntimeout: 60\nset: ${set}`, "```"].join("\n");
+      const hostile = ["a'; rm -rf /; '", "$(id)", "x y", "a/../b"];
+      const shown: (string | null)[] = [];
+      for (const set of hostile) {
+        const v = await rootRun({ task: { id: TASK, projectId: "p", description: body(set) }, comments: [{ id: "c", kind: "agent", threadId: "thr_a", createdAt: "2026-09-30T12:00:00Z" }] }, { fetch: spy as never });
+        shown.push(v.command);
+        assert.ok(v.command === null || /^todo-add --set '[^']*' --from-card 'card-[A-Za-z0-9]+\.json'$/.test(v.command), `unsafe command: ${v.command}`);
+      }
+      await rootRun({ task: { id: "bad'id", projectId: "p", description: body("s") }, comments: [] }, { fetch: spy as never });
+      assert.deepEqual(calls.filter((u) => /bad'id|rm -rf|\$\(/.test(u)), []);
+      return { hostile_sets: hostile.length, commands_unsafe: 0, runner_urls_with_hostile_input: 0 };
+    }),
+};

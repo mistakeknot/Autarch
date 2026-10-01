@@ -1,7 +1,8 @@
 // The loaded-identity preflight [F-7] [G-7] [H-6] [I-4]: before any scenario the
 // harness reads what is actually running and compares it to the build file.
 // Any mismatch aborts the run with no scenario lines.
-import { spawn, type ChildProcess } from "node:child_process";
+import { rigFetch, rigSpawn } from "./rigexec.js";
+import type { ChildProcess } from "node:child_process";
 import { mkdirSync, readFileSync, realpathSync, statSync } from "node:fs";
 import { createServer } from "node:net";
 import { join } from "node:path";
@@ -101,15 +102,12 @@ export async function startOwnServe(o: { autarchPath: string; dir: string; paren
   const tokenFile = join(o.dir, "serve.token");
   const home = o.home ?? join(o.dir, "home");
   mkdirSync(home, { recursive: true });
-  const child = spawn(o.autarchPath, ["serve", "--addr", addr, "--token-file", tokenFile, "--project-dir", o.parent], {
-    stdio: ["ignore", "ignore", "inherit"],
-    env: { ...process.env, HOME: home },
-  });
+  const child = rigSpawn(o.autarchPath, ["serve", "--addr", addr, "--token-file", tokenFile, "--project-dir", o.parent], { home, stdout: "ignore" });
   const exited = new Promise<never>((_, reject) => child.once("exit", (c) => reject(new Error(`autarch serve exited (${c}) before it answered`))));
   const up = (async () => {
     for (let i = 0; i < 100; i++) {
       try {
-        const res = await fetch(`http://${addr}/health`, { signal: AbortSignal.timeout(500) });
+        const res = await rigFetch(`http://${addr}/health`, { signal: AbortSignal.timeout(500) });
         if (res.ok) return;
       } catch {
         /* not up yet */

@@ -40,7 +40,8 @@ export function execViolations(sf: ts.SourceFile): string[] {
   visit(sf, (n) => {
     if ((ts.isImportDeclaration(n) || ts.isExportDeclaration(n)) && n.moduleSpecifier) {
       const m = lit(n.moduleSpecifier);
-      if (m !== undefined && BANNED_MODULES.has(m)) bad.push(`${where(sf, n)} import of ${m}`);
+      const typeOnly = ts.isImportDeclaration(n) && n.importClause?.isTypeOnly === true; // erased at compile time
+      if (m !== undefined && !typeOnly && BANNED_MODULES.has(m)) bad.push(`${where(sf, n)} import of ${m}`);
     }
     if (ts.isImportEqualsDeclaration(n) && ts.isExternalModuleReference(n.moduleReference)) {
       const m = lit(n.moduleReference.expression);
@@ -146,6 +147,42 @@ export function seamViolations(sf: ts.SourceFile): string[] {
     }
     if (ts.isBinaryExpression(n) && n.operatorToken.kind === ts.SyntaxKind.EqualsToken && ts.isPropertyAccessExpression(n.left) && SEAM_NAMES.has(n.left.name.text) && !relayed(n.right, sf)) {
       bad.push(`${where(sf, n)} assignment to .${n.left.name.text}`);
+    }
+  });
+  return bad;
+}
+
+/** Every harness source under e2e/ (.ts and .mjs). */
+export function e2eSources(): string[] {
+  const out: string[] = [];
+  const walk = (dir: string) => {
+    for (const e of readdirSync(dir, { withFileTypes: true })) {
+      if (e.isDirectory()) walk(join(dir, e.name));
+      else if (/\.(ts|mjs)$/.test(e.name) && !e.name.endsWith(".d.ts")) out.push(join(dir, e.name));
+    }
+  };
+  walk(join(ROOT, "e2e"));
+  return out.sort();
+}
+
+const HTTP_CLIENT_MODULES = new Set(["undici", "node-fetch", "axios", "got"]);
+
+/** Task 2.11: beyond process execution, an e2e source may not call fetch or callRpc or import an HTTP client. */
+export function rigViolations(sf: ts.SourceFile): string[] {
+  const bad = execViolations(sf);
+  visit(sf, (n) => {
+    if ((ts.isImportDeclaration(n) || ts.isExportDeclaration(n)) && n.moduleSpecifier) {
+      const m = lit(n.moduleSpecifier);
+      if (m !== undefined && HTTP_CLIENT_MODULES.has(m)) bad.push(`${where(sf, n)} import of ${m}`);
+    }
+    if (ts.isCallExpression(n)) {
+      const f = n.expression;
+      if (ts.isIdentifier(f) && (f.text === "fetch" || f.text === "callRpc")) bad.push(`${where(sf, n)} call of ${f.text}`);
+      if (ts.isPropertyAccessExpression(f) && (f.name.text === "fetch" || f.name.text === "callRpc")) bad.push(`${where(sf, n)} call of .${f.name.text}`);
+      if (ts.isElementAccessExpression(f)) {
+        const k = lit(f.argumentExpression);
+        if (k === "fetch" || k === "callRpc") bad.push(`${where(sf, n)} call of ["${k}"]`);
+      }
     }
   });
   return bad;

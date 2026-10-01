@@ -1,5 +1,5 @@
 // Shared fixture for the Task 2.5 card tests: a fake tasks plugin, a poller and a card writer over one temp store.
-import { expect } from "vitest";
+import assert from "node:assert/strict";
 import { CardWriter } from "../cardwrites.js";
 import { Delegation } from "../delegation.js";
 import { Queue } from "../queue.js";
@@ -117,7 +117,7 @@ export async function opened(r: Rig, o: Parameters<Rig["card"]>[0] = {}) {
   const t = r.card(o);
   await r.poll();
   const g = r.gens(t.id);
-  expect(g.length, `card should materialize g1: ${JSON.stringify(r.cardRow(t.id))}`).toBe(1);
+  assert.equal(g.length, 1, `card should materialize g1: ${JSON.stringify(r.cardRow(t.id))}`);
   return { t, g1: g[0] };
 }
 

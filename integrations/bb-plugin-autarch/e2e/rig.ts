@@ -1,6 +1,7 @@
 // The fake-mode rig: the real plugin wiring (wireHome) over a real database file and real
 // project directories, with only bb itself faked (its CLI proxy, events and thread SDK).
-import { execFileSync, spawn, type ChildProcess } from "node:child_process";
+import type { ChildProcess } from "node:child_process";
+import { rigExec, rigExecSync, rigSpawn } from "./rigexec.js";
 import Database from "better-sqlite3";
 import { chmodSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import http from "node:http";
@@ -41,7 +42,7 @@ export interface Child {
 }
 
 export function spawnChild(args: string[]): Child {
-  const proc = spawn(process.execPath, ["--import", "tsx", join(here, "child.ts"), ...args], { stdio: ["pipe", "pipe", "inherit"] });
+  const proc = rigSpawn(process.execPath, ["--import", "tsx", join(here, "child.ts"), ...args]);
   let out = "";
   proc.stdout!.on("data", (d) => (out += d));
   const exit = new Promise<{ code: number | null; signal: NodeJS.Signals | null }>((r) => proc.on("exit", (code, signal) => r({ code, signal })));
@@ -73,7 +74,7 @@ export class Rig {
     const list = names.map((name) => {
       const root = join(this.dir, "projects", name);
       mkdirSync(join(root, "docs", "decisions"), { recursive: true });
-      execFileSync("git", ["init", "-q", root]);
+      rigExecSync("git", ["init", "-q", root]);
       const st = lstatSync(root);
       this.roots[name] = root;
       return { name, root, dev: st.dev, ino: st.ino };
@@ -208,14 +209,6 @@ export class Rig {
 }
 
 /** Run a command without blocking this process's event loop (the fake bb is served from it). */
-export function runAsync(cmd: string, args: string[], o: { cwd?: string; env?: NodeJS.ProcessEnv; input?: string }): Promise<{ code: number | null; stdout: string; stderr: string }> {
-  return new Promise((resolve) => {
-    const p = spawn(cmd, args, { cwd: o.cwd, env: o.env, stdio: ["pipe", "pipe", "pipe"] });
-    let stdout = "";
-    let stderr = "";
-    p.stdout.on("data", (d) => (stdout += d));
-    p.stderr.on("data", (d) => (stderr += d));
-    p.on("close", (code) => resolve({ code, stdout, stderr }));
-    p.stdin.end(o.input ?? "");
-  });
+export function runAsync(cmd: string, args: string[], o: { cwd?: string; input?: string; threadId?: string; target?: import("./rigexec.js").RigTarget }): Promise<{ code: number | null; stdout: string; stderr: string }> {
+  return rigExec(cmd, args, o);
 }

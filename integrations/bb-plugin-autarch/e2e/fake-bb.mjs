@@ -1,10 +1,26 @@
-// A stand-in `bb` for fake mode: forwards `bb home ...` to the harness's in-process plugin CLI.
+// A stand-in `bb` for fake mode. Its server URL comes from BB_SERVER_URL (the rig builds the child
+// environment from nothing, so there is no E2E_BB_URL). It forwards `bb home ...` to the harness's
+// in-process plugin CLI, and `bb plugin rpc call tasks <method> --input-file <f> --json` to the
+// harness's fake tasks plugin at <BB_SERVER_URL>/rpc.
 // Mirrors what the real bb CLI does that matters here: `--X-stdin` becomes `--X <stdin>`, and
 // BB_THREAD_ID is the caller's thread.
 import http from "node:http";
 
-const url = process.env.E2E_BB_URL;
+const url = process.env.BB_SERVER_URL;
 let argv = process.argv.slice(2);
+if (url && argv[0] === "plugin" && argv[1] === "rpc" && argv[2] === "call") {
+  const { readFileSync } = await import("node:fs");
+  const f = argv.indexOf("--input-file");
+  const input = f >= 0 ? JSON.parse(readFileSync(argv[f + 1], "utf8")) : null;
+  const body = JSON.stringify({ plugin: argv[3], method: argv[4], input });
+  const req = http.request(new URL("/rpc", url), { method: "POST", headers: { "content-type": "application/json" } }, (res) => {
+    res.pipe(process.stdout, { end: false });
+    res.on("end", () => process.exit(res.statusCode && res.statusCode < 400 ? 0 : 1));
+  });
+  req.on("error", (e) => (process.stderr.write(`fake bb: ${e.message}\n`), process.exit(1)));
+  req.end(body);
+  await new Promise(() => {});
+}
 if (argv[0] !== "home" || !url) {
   process.stderr.write("fake bb: only `bb home ...` is supported\n");
   process.exit(1);

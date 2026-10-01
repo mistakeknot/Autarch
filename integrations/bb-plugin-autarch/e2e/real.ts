@@ -8,7 +8,6 @@
 //   HOME_E2E_BB_CLI        the bb executable (optional, default `bb` on PATH)
 // Every bb call runs with a scrubbed environment, so an ambient BB_* can never redirect it.
 import assert from "node:assert/strict";
-import { execFileSync, spawnSync } from "node:child_process";
 import Database from "better-sqlite3";
 import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
@@ -16,6 +15,7 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { chromium, type Browser, type Page } from "playwright-core";
 import { FeedCaches } from "../feed.js";
+import { makeTarget, resolveBin, rigExecSync, rigRpc, type RigTarget } from "./rigexec.js";
 import { freePort, pluginSettings, preflight, startOwnServe, statProject, type BuildFile, type Loaded, type OwnServe, type Readers } from "./preflight.js";
 
 const sha = (b: string | Buffer) => createHash("sha256").update(b).digest("hex");
@@ -61,36 +61,29 @@ export class Real {
   }
 
   // ---- bb -------------------------------------------------------------------------
-  bbEnv(threadId?: string): NodeJS.ProcessEnv {
-    return {
-      PATH: process.env.PATH,
-      HOME: this.env.home,
-      BB_SERVER_URL: this.env.url,
-      BB_HOST_DAEMON_PORT: this.env.hostPort,
-      BB_DATA_DIR: this.env.data,
-      ...(threadId ? { BB_THREAD_ID: threadId } : {}),
-    };
+  /** The rig target: built lazily so a refusal (ambient port, no data dir) surfaces at the first call. */
+  private tgt?: RigTarget;
+  get target(): RigTarget {
+    return (this.tgt ??= makeTarget({ url: this.env.url, dataDir: this.env.data, home: this.env.home, hostPort: this.env.hostPort, realBb: resolveBin(this.env.cli) ?? this.env.cli, requireProof: true }));
   }
   bb(args: string[], o: { thread?: string; input?: string; allowFail?: boolean } = {}): { code: number; stdout: string; stderr: string } {
-    const r = spawnSync(this.env.cli, args, { env: this.bbEnv(o.thread), input: o.input, encoding: "utf8", timeout: 120_000 });
-    const out = { code: r.status ?? 1, stdout: r.stdout ?? "", stderr: r.stderr ?? "" };
+    const r = rigExecSync("bb", args, { target: this.target, threadId: o.thread, input: o.input, timeoutMs: 120_000 });
+    const out = { code: r.code ?? 1, stdout: r.stdout, stderr: r.stderr };
     if (out.code !== 0 && !o.allowFail) throw new Error(`bb ${args.join(" ")} failed (${out.code}): ${out.stderr || out.stdout}`);
     return out;
   }
-  private rpc<T = unknown>(method: string, input: unknown = null): T {
-    const f = join(this.tmp, `rpc-${method}.json`);
-    writeFileSync(f, JSON.stringify(input));
-    return JSON.parse(this.bb(["plugin", "rpc", "call", "autarch", method, "--input-file", f, "--json"]).stdout) as T;
+  private rpc<T = unknown>(method: string, input: unknown = null): Promise<T> {
+    return rigRpc<T>(this.target, "autarch", method, input);
   }
 
   // ---- setup ----------------------------------------------------------------------
   /** The scratch project, bb project, the harness's own serve, the plugin install, then the preflight. */
   async setup(): Promise<Loaded> {
     mkdirSync(join(this.root, "docs", "decisions"), { recursive: true });
-    for (const a of [["init", "-q"], ["config", "user.email", "e2e@example.invalid"], ["config", "user.name", "e2e"]]) execFileSync("git", ["-C", this.root, ...a]);
+    for (const a of [["init", "-q"], ["config", "user.email", "e2e@example.invalid"], ["config", "user.name", "e2e"]]) rigExecSync("git", ["-C", this.root, ...a]);
     writeFileSync(join(this.root, "README.md"), "scratch\n");
-    execFileSync("git", ["-C", this.root, "add", "."]);
-    execFileSync("git", ["-C", this.root, "commit", "-q", "-m", "init"]);
+    rigExecSync("git", ["-C", this.root, "add", "."]);
+    rigExecSync("git", ["-C", this.root, "commit", "-q", "-m", "init"]);
     const created = JSON.parse(this.bb(["project", "create", "--name", "Autarch", "--root", this.root, "--json"]).stdout) as { id: string };
     this.project = created.id;
     this.serve = await startOwnServe({ autarchPath: this.build.autarch_path, dir: join(this.tmp, "serve"), parent: this.parent, home: join(this.tmp, "serve-home") });
@@ -101,11 +94,11 @@ export class Real {
     const readers: Readers = {
       health: async () => {
         for (let i = 0; i < 40; i++) {
-          const h = this.rpc<{ source_sha256: string | null; build: { exe_sha256?: string } | null; projects: never; projects_error: string | null }>("health");
+          const h = await this.rpc<{ source_sha256: string | null; build: { exe_sha256?: string } | null; projects: never; projects_error: string | null }>("health");
           if (h.build?.exe_sha256 || h.projects_error) return h as never;
           await sleep(500);
         }
-        return this.rpc("health");
+        return await this.rpc("health");
       },
       homeSource: async () => {
         const p = await this.page();
@@ -114,7 +107,7 @@ export class Real {
         await el.waitFor({ timeout: 30_000 });
         return el.getAttribute("data-home-source");
       },
-      autarchVersion: async () => JSON.parse(execFileSync(this.build.autarch_path, ["version", "--json"], { encoding: "utf8" })) as { sha256: string },
+      autarchVersion: async () => JSON.parse(rigExecSync(this.build.autarch_path, ["version", "--json"], { home: join(this.tmp, "serve-home") }).stdout) as { sha256: string },
     };
     return preflight(this.build, [statProject("Autarch", this.root)], readers);
   }
@@ -188,7 +181,7 @@ export class Real {
     return JSON.parse(this.bb(["thread", "log", thread, "--json", "--all"]).stdout);
   }
   async pick(decision: string, option: string, pick_id: string) {
-    const listed = this.rpc<{ owed: { id: string; revision: string }[] }>("listAsks");
+    const listed = await this.rpc<{ owed: { id: string; revision: string }[] }>("listAsks");
     const d = listed.owed.find((o) => o.id === decision);
     assert.ok(d, `decision ${decision} is not owed`);
     return this.rpc<{ ok: boolean; status: number }>("pick", { decision_id: decision, option_id: option, revision: d.revision, pick_id });
@@ -244,17 +237,17 @@ export class Real {
         const t = this.spawn(`queued-then-archived-${attempt}`);
         await this.settle(t);
         const decision = this.ask(t, `e2e: queued wake ${attempt}`);
-        const listed = this.rpc<{ owed: { id: string; revision: string }[] }>("listAsks").owed.find((o) => o.id === decision);
+        const listed = (await this.rpc<{ owed: { id: string; revision: string }[] }>("listAsks")).owed.find((o) => o.id === decision);
         assert.ok(listed, `decision ${decision} is not owed`);
         this.bb(["thread", "tell", t, `e2e ${this.runId} keep busy`]);
-        const r = this.rpc<{ ok: boolean; status: number }>("pick", { decision_id: decision, option_id: "project", revision: listed.revision, pick_id: `pick-${decision}` });
+        const r = await this.rpc<{ ok: boolean; status: number }>("pick", { decision_id: decision, option_id: "project", revision: listed.revision, pick_id: `pick-${decision}` });
         assert.equal(r.status, 201);
         const state = await this.waitFor("the wake to settle", () => this.db<{ state: string }>("SELECT state FROM obligations WHERE decision_id = ? AND kind = 'wake'", decision)[0]?.state.match(/^(queued|done|undeliverable)$/)?.[0]);
         last = state;
         if (state !== "queued") continue;
         this.bb(["thread", "archive", t]);
         await this.waitFor("the wake to become undeliverable", () => this.db("SELECT 1 FROM obligations WHERE decision_id = ? AND kind = 'wake' AND state = 'undeliverable'", decision).length > 0);
-        const shown = this.rpc<{ undeliverable: { decision_id: string }[] }>("listAsks").undeliverable.some((o) => o.decision_id === decision);
+        const shown = (await this.rpc<{ undeliverable: { decision_id: string }[] }>("listAsks")).undeliverable.some((o) => o.decision_id === decision);
         return { threads: [t], decision, wake_state: "undeliverable", listed: shown };
       }
       throw new Error(`no wake queued in 6 attempts (last settled as ${last}): a queued delivery needs an active turn, and a credential-less scratch turn ends too fast`);
@@ -266,20 +259,20 @@ export class Real {
       const decision = this.ask(t, "e2e: proxy ask from a thread");
       const req = (subject: string) => JSON.stringify({ v: 1, kind: "decide", question: "Collapse routine catch-up items per project or per day?", subject, options: this.askBody(t, subject).options });
       const decide = (subject: string, threadEnv?: string) =>
-        spawnSync(this.build.autarch_path, ["decide", "file", "--thread", t], { cwd: this.root, env: { ...this.bbEnv(threadEnv), PATH: this.env.cli.includes("/") ? `${dirname(this.env.cli)}:${process.env.PATH}` : process.env.PATH }, input: req(subject), encoding: "utf8", timeout: 60_000 });
+        rigExecSync(this.build.autarch_path, ["decide", "file", "--thread", t], { target: this.target, threadId: threadEnv, cwd: this.root, input: req(subject), timeoutMs: 60_000 });
       const absent = decide(`e2e: decide file ${this.runId}, BB_THREAD_ID absent`);
       const conflict = decide(`e2e: decide file ${this.runId}, BB_THREAD_ID conflicting`, other);
-      assert.equal(absent.status, 0, `absent: ${absent.stderr}`);
-      assert.equal(conflict.status, 2, `conflict must exit 2: ${conflict.stderr}`);
+      assert.equal(absent.code, 0, `absent: ${absent.stderr}`);
+      assert.equal(conflict.code, 2, `conflict must exit 2: ${conflict.stderr}`);
       const rows = this.db<{ thread: string | null }>("SELECT thread FROM decisions WHERE subject LIKE ?", `e2e: decide file ${this.runId}%`);
       assert.equal(rows.length, 1, "the conflicting decide-file must file nothing");
       assert.ok(rows.every((r) => r.thread === t), "a decide-file ask was filed under another thread");
-      return { threads: [t, other], decision, env_absent_exit: absent.status, env_conflict_exit: conflict.status };
+      return { threads: [t, other], decision, env_absent_exit: absent.code, env_conflict_exit: conflict.code };
     },
 
     "vizier-chat": async () => {
       const v = this.spawn("vizier");
-      const set = this.rpc<{ ok: boolean }>("setDelegation", { vizierThreadId: v, projects: ["Autarch"], dailyCap: 5 });
+      const set = await this.rpc<{ ok: boolean }>("setDelegation", { vizierThreadId: v, projects: ["Autarch"], dailyCap: 5 });
       assert.ok(set.ok, JSON.stringify(set));
       const before = new Set(this.events(v).filter((e) => e.type === "client/turn/requested").map((e) => e.id));
       const p = await this.page();

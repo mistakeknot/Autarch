@@ -1,8 +1,8 @@
 // The scenario harness (Task 1.10). Fake mode drives the real plugin wiring with a fake bb;
 // real-bb mode is checked but its driver arrives with Task 1.11 (it needs an isolated bb server).
 //   tsx e2e/harness.ts --mode fake --run-id <uuid> --out <file.jsonl> [--scenarios a,b]
-import { execFileSync } from "node:child_process";
-import { appendFileSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { resolveBin, rigExecSync } from "./rigexec.js";
+import { appendFileSync, existsSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -26,9 +26,26 @@ const out = flags.get("out");
 if (mode !== "fake" && mode !== "real-bb") usage("--mode must be fake or real-bb");
 if (!runId) usage("--run-id is required");
 if (!out) usage("--out is required");
+if (flags.has("owned-server") && mode !== "real-bb") usage("--owned-server is for --mode real-bb");
 if (mode === "real-bb" && (!flags.get("build") || !flags.get("install"))) usage("real-bb needs --build <build file> and --install");
 
-const git = (...a: string[]) => execFileSync("git", a, { cwd: here, encoding: "utf8" }).trim();
+if (mode === "real-bb") {
+  // Before any spawn: the isolation checks of Task 2.12 (finding r5-3). Outside the bwrap namespace, or with
+  // a LISTEN socket already in it, the run is refused.
+  const { requireNetns } = await import("./ownership.js");
+  try {
+    requireNetns(process.env);
+  } catch (e) {
+    usage(e instanceof Error ? e.message : String(e));
+  }
+  if (flags.has("owned-server")) {
+    const app = process.env.HOME_E2E_BB_APP;
+    if (!app || !existsSync(app)) usage("--owned-server needs HOME_E2E_BB_APP naming the bb app to launch");
+  }
+  if (flags.has("owned-server")) usage("--owned-server: the launcher and the ownership proof are Task 2.12; not implemented here");
+}
+
+const git = (...a: string[]) => rigExecSync("git", a, { cwd: here }).stdout.trim();
 const top = git("rev-parse", "--show-toplevel");
 // Evidence must not land inside the tree it describes: it would make the tree dirty.
 const rel = relative(top, resolve(out!));
@@ -39,7 +56,7 @@ const tree = git("rev-parse", "HEAD^{tree}");
 const dirty = git("status", "--porcelain").length > 0;
 
 const wanted =
-  flags.get("scenarios")?.split(",") ?? (mode === "real-bb" ? ["answer-instruction", "queued-then-archived", "ask-cli-proxy", "vizier-chat"] : Object.keys(scenarios).sort());
+  flags.get("scenarios")?.split(",") ?? (mode === "real-bb" ? ["filer-from-thread", "poller-refresh", "comment-arrives-later-real", "cross-project-panel", "answer-instruction", "queued-then-archived", "vizier-chat", "upgrade-quiesce"] : Object.keys(scenarios).sort());
 writeFileSync(out!, "");
 let failed = 0;
 if (mode === "real-bb") {
@@ -79,7 +96,13 @@ if (mode === "real-bb") {
 
 const scratch = mkdtempSync(join(tmpdir(), "autarch-e2e-build-"));
 const autarch = join(scratch, "autarch");
-execFileSync("go", ["build", "-buildvcs=false", "-o", autarch, "./cmd/autarch"], { cwd: top, stdio: "inherit" });
+const goBin = resolveBin("go", process.env.PATH ?? "");
+if (!goBin) usage("go is not on PATH");
+const built = rigExecSync(goBin!, ["build", "-buildvcs=false", "-o", autarch, "./cmd/autarch"], {
+  cwd: top,
+  env: { GOCACHE: process.env.GOCACHE ?? join(scratch, "gocache"), GOMODCACHE: process.env.GOMODCACHE ?? join(process.env.GOPATH ?? join(process.env.HOME ?? "", "go"), "pkg", "mod"), GOFLAGS: "-mod=mod" },
+});
+if (built.code !== 0) usage(`go build failed: ${built.stderr}`);
 for (const name of wanted) {
   const run = scenarios[name];
   if (!run) usage(`unknown scenario ${name}`);
