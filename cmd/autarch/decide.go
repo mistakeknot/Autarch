@@ -19,9 +19,9 @@ import (
 // filerTimeout bounds each bb call; tests shorten it.
 var filerTimeout = 10 * time.Second
 
-func newFiler() *homeask.ExecFiler {
-	return &homeask.ExecFiler{Timeout: filerTimeout, RecoveryTimeout: filerTimeout}
-}
+// newFiler builds the card filer `decide file` and the MCP tool use. Its tasks project binding
+// comes from AUTARCH_TASKS_PROJECTS / AUTARCH_TASKS_PROJECT; tests replace it.
+var newFiler = func() *homeask.CardFiler { return homeask.CardFilerFromEnv(filerTimeout) }
 
 func gitRoot() string {
 	cwd, err := os.Getwd()
@@ -119,11 +119,15 @@ func decideCmd() *cobra.Command {
 }
 
 func decideFileCmd() *cobra.Command {
-	var thread, asker, projectRoot, project string
+	var thread, asker, projectRoot, project, tasksProject string
 	cmd := &cobra.Command{
 		Use:   "file",
-		Short: "File the ask JSON on stdin; prints the decision id",
-		Long: `Exit codes: 2 validation, 3 Home down or not filed, 4 outcome unknown
+		Short: "File the ask JSON on stdin as a needs-mk card; prints the card id",
+		Long: `Files a tasks card routed to the asking thread (see also: autarch needs-mk file). The
+tasks project is --tasks-project, else AUTARCH_TASKS_PROJECTS (<home project>=<tasks project>,...),
+else AUTARCH_TASKS_PROJECT. A threadless (mycroft) ask is refused: Mycroft files its own.
+
+Exit codes: 2 validation, 3 Home down or not filed, 4 outcome unknown
 (re-run the same command; it is idempotent), 5 already ruled.`,
 		Args:         cobra.NoArgs,
 		SilenceUsage: true,
@@ -147,7 +151,12 @@ func decideFileCmd() *cobra.Command {
 			if ctx == nil {
 				ctx = context.Background()
 			}
-			id, err := newFiler().File(ctx, a)
+			f := newFiler()
+			if tasksProject != "" {
+				f.TasksProject = tasksProject
+				f.TasksProjects, f.ConfigErr = nil, nil
+			}
+			id, err := f.File(ctx, a)
 			if err != nil {
 				return err
 			}
@@ -156,7 +165,8 @@ func decideFileCmd() *cobra.Command {
 		},
 	}
 	cmd.Flags().StringVar(&thread, "thread", "", "Asking thread (default $BB_THREAD_ID)")
-	cmd.Flags().StringVar(&asker, "asker", "", "thread (default) or mycroft")
+	cmd.Flags().StringVar(&asker, "asker", "", "thread (default); mycroft is refused, Mycroft files its own")
+	cmd.Flags().StringVar(&tasksProject, "tasks-project", "", "Tasks project to file into (default: the configured binding)")
 	cmd.Flags().StringVar(&projectRoot, "project-root", "", "Project root (default: the git root)")
 	cmd.Flags().StringVar(&project, "project", "", "Project name (default: the root's directory name)")
 	return cmd

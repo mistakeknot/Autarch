@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/mistakeknot/autarch/internal/homeask"
 	"github.com/mistakeknot/autarch/internal/mycroft"
 	"github.com/mistakeknot/autarch/internal/mycroft/escalate"
 	"github.com/mistakeknot/autarch/internal/mycroft/patrol"
@@ -198,20 +199,31 @@ func TestIntegration_StalenessGating(t *testing.T) {
 	}
 }
 
+type homeRows struct{ rows []homeask.ListRow }
+
+func (h *homeRows) ListPull(context.Context) ([]homeask.ListRow, error) { return h.rows, nil }
+func (h *homeRows) Card(context.Context, string) (homeask.CardView, error) {
+	return homeask.CardView{}, nil
+}
+
 func TestIntegration_DecisionQueueWithBadge(t *testing.T) {
+	h := &homeRows{rows: []homeask.ListRow{{ID: "1", Priority: 0}, {ID: "2", Priority: 3}}}
 	q := escalate.NewDecisionQueue()
-	q.Add("grey-area", "Demarch-1", "Critical fix", 0, "P0 match")
-	q.Add("mistake-not", "Demarch-2", "Feature", 3, "available")
+	q.SetHome(nil, h, "/x")
 
 	badge := escalate.Badge(q.Len(), q.HighestSeverity())
 	if badge != "⚠ 2 pending" {
 		t.Errorf("badge: got %q, want '⚠ 2 pending'", badge)
 	}
 
-	q.Remove(1) // Remove P0 decision.
-	badge = escalate.Badge(q.Len(), q.HighestSeverity())
+	// mk rules on the P0 ask in Home; the queue reads the new list, it removes nothing itself.
+	h.rows = h.rows[1:]
+	q.Remove("1")                     // a documented no-op
+	q2 := escalate.NewDecisionQueue() // a fresh read, past the cache
+	q2.SetHome(nil, h, "/x")
+	badge = escalate.Badge(q2.Len(), q2.HighestSeverity())
 	if badge != "● 1 pending" {
-		t.Errorf("badge after remove P0: got %q, want '● 1 pending'", badge)
+		t.Errorf("badge after the P0 ask is ruled: got %q, want '● 1 pending'", badge)
 	}
 }
 

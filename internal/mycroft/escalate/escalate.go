@@ -59,7 +59,6 @@ func Badge(pendingCount int, highestSeverity Severity) string {
 
 // PendingDecision represents a dispatch suggestion awaiting user input.
 type PendingDecision struct {
-	ID        int
 	Agent     string
 	BeadID    string
 	BeadTitle string
@@ -68,14 +67,19 @@ type PendingDecision struct {
 	Labels    []string // bead labels; project:<name> picks the Home project
 }
 
-// DecisionQueue manages pending dispatch decisions.
-type DecisionQueue struct {
-	decisions []PendingDecision
-	nextID    int
+// PullFiler files Mycroft's threadless asks. It is the single threadless filing path
+// (homeask.CardFiler.FileForPull, mk question 4): the queue never files with a thread.
+type PullFiler interface {
+	FileForPull(ctx context.Context, a homeask.Ask) (string, error)
+}
 
+// DecisionQueue files Mycroft's suggestions in Home as pull cards and reads their outcomes back.
+// It keeps no list of its own: Home is the only list (Len, All, Get and HighestSeverity read
+// `bb home list --pull mycroft`, which also covers pre-card asks).
+type DecisionQueue struct {
 	mu     sync.Mutex
-	filer  homeask.Filer
-	lister homeask.Lister
+	filer  PullFiler
+	lister homeask.CardLister
 	root   string
 	roots  RootResolver
 	filed  map[string]bool
@@ -84,80 +88,58 @@ type DecisionQueue struct {
 	stale  bool
 }
 
-// NewDecisionQueue creates an empty queue.
+// NewDecisionQueue creates a queue that is wired to Home with SetHome or SetHomeRoots.
 func NewDecisionQueue() *DecisionQueue {
-	return &DecisionQueue{nextID: 1}
+	return &DecisionQueue{}
 }
 
-// Add queues a new decision.
-func (q *DecisionQueue) Add(agent, beadID, beadTitle string, priority int, reasoning string) int {
-	id := q.nextID
-	q.nextID++
-	q.decisions = append(q.decisions, PendingDecision{
-		ID:        id,
-		Agent:     agent,
-		BeadID:    beadID,
-		BeadTitle: beadTitle,
-		Priority:  priority,
-		Reasoning: reasoning,
-	})
-	return id
-}
-
-// Get returns a pending decision by ID.
-func (q *DecisionQueue) Get(id int) (PendingDecision, bool) {
-	for _, d := range q.decisions {
-		if d.ID == id {
-			return d, true
+// Get returns an open Home row by decision id or card id (last known when Home is down).
+func (q *DecisionQueue) Get(id string) (homeask.ListRow, bool) {
+	for _, r := range q.All() {
+		if r.ID == id || (r.TaskID != "" && r.TaskID == id) {
+			return r, true
 		}
 	}
-	return PendingDecision{}, false
+	return homeask.ListRow{}, false
 }
 
-// Remove removes a decision by ID (after approval or rejection).
-func (q *DecisionQueue) Remove(id int) {
-	for i, d := range q.decisions {
-		if d.ID == id {
-			q.decisions = append(q.decisions[:i], q.decisions[i+1:]...)
-			return
-		}
+// Outcome reads one card's state in Home (`bb home get --card`): whether mk has ruled.
+func (q *DecisionQueue) Outcome(ctx context.Context, taskID string) (homeask.CardView, error) {
+	q.mu.Lock()
+	l := q.lister
+	q.mu.Unlock()
+	if l == nil {
+		return homeask.CardView{}, fmt.Errorf("the decision queue is not wired to Home")
 	}
+	return l.Card(ctx, taskID)
 }
 
-// All returns all pending decisions.
-func (q *DecisionQueue) All() []PendingDecision {
-	return q.decisions
-}
+// Remove is a no-op. A suggestion leaves the queue when mk rules in Home; Mycroft has no
+// private list to take it out of.
+func (q *DecisionQueue) Remove(id string) {}
 
-// Len returns the number of pending decisions. With a Lister it is the count
-// of Mycroft's open asks in Home (last known when Home is down).
-func (q *DecisionQueue) Len() int {
-	if q.lister != nil {
-		q.refresh()
-		q.mu.Lock()
-		defer q.mu.Unlock()
-		return len(q.rows)
+// All returns Mycroft's open asks in Home (last known when Home is down).
+func (q *DecisionQueue) All() []homeask.ListRow {
+	q.mu.Lock()
+	l := q.lister
+	q.mu.Unlock()
+	if l == nil {
+		return nil
 	}
-	return len(q.decisions)
+	q.refresh()
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	return append([]homeask.ListRow(nil), q.rows...)
 }
 
-// HighestSeverity returns the severity of the most urgent pending decision.
+// Len returns the number of Mycroft's open asks in Home (last known when Home is down).
+func (q *DecisionQueue) Len() int { return len(q.All()) }
+
+// HighestSeverity returns the severity of the most urgent open ask in Home.
 func (q *DecisionQueue) HighestSeverity() Severity {
 	highest := SeverityLow
-	if q.lister != nil {
-		q.refresh()
-		q.mu.Lock()
-		defer q.mu.Unlock()
-		for _, r := range q.rows {
-			if s := priorityToSeverity(r.Priority); s > highest {
-				highest = s
-			}
-		}
-		return highest
-	}
-	for _, d := range q.decisions {
-		s := priorityToSeverity(d.Priority)
-		if s > highest {
+	for _, r := range q.All() {
+		if s := priorityToSeverity(r.Priority); s > highest {
 			highest = s
 		}
 	}
@@ -184,7 +166,7 @@ type RootResolver func(project string) (name, root string, err error)
 // SetHome connects the queue to Home with one fixed project_root for every ask (tests
 // and single-project setups). Without a root nothing is filed: Home would reject a
 // guessed one.
-func (q *DecisionQueue) SetHome(f homeask.Filer, l homeask.Lister, root string) {
+func (q *DecisionQueue) SetHome(f PullFiler, l homeask.CardLister, root string) {
 	q.mu.Lock()
 	defer q.mu.Unlock()
 	q.filer, q.lister, q.root, q.roots = f, l, root, nil
@@ -195,13 +177,20 @@ func (q *DecisionQueue) SetHome(f homeask.Filer, l homeask.Lister, root string) 
 
 // SetHomeRoots connects the queue to Home and resolves each ask's project name and
 // root through roots, as Home does.
-func (q *DecisionQueue) SetHomeRoots(f homeask.Filer, l homeask.Lister, roots RootResolver) {
+func (q *DecisionQueue) SetHomeRoots(f PullFiler, l homeask.CardLister, roots RootResolver) {
 	q.mu.Lock()
 	defer q.mu.Unlock()
 	q.filer, q.lister, q.root, q.roots = f, l, "", roots
 	if q.filed == nil {
 		q.filed = map[string]bool{}
 	}
+}
+
+// Filer returns the wired pull filer, or nil.
+func (q *DecisionQueue) Filer() PullFiler {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	return q.filer
 }
 
 // HasHome reports whether a filer is wired.
@@ -232,7 +221,7 @@ func (q *DecisionQueue) refresh() {
 	}
 	l := q.lister
 	q.mu.Unlock()
-	rows, err := l.List(context.Background(), "mycroft")
+	rows, err := l.ListPull(context.Background())
 	q.mu.Lock()
 	defer q.mu.Unlock()
 	q.readAt = time.Now()
@@ -252,15 +241,14 @@ func projectOf(labels []string) string {
 	return "estate"
 }
 
-// AddPending files a suggestion in Home once per (project, bead, agent). A
-// repeat is a no-op. Without a filer it only queues locally.
+// AddPending files a suggestion in Home once per (project, bead, agent). A repeat is a no-op.
+// Without a filer nothing is filed and an error says so: there is no local-only queue.
 func (q *DecisionQueue) AddPending(p PendingDecision) error {
 	q.mu.Lock()
 	f, root, roots := q.filer, q.root, q.roots
 	q.mu.Unlock()
 	if f == nil {
-		q.Add(p.Agent, p.BeadID, p.BeadTitle, p.Priority, p.Reasoning)
-		return nil
+		return fmt.Errorf("not filed: the decision queue is not wired to Home")
 	}
 	project := projectOf(p.Labels)
 	rid := fmt.Sprintf("mycroft:%s:%s:%s", project, p.BeadID, p.Agent)
@@ -285,7 +273,7 @@ func (q *DecisionQueue) AddPending(p PendingDecision) error {
 		q_ += "\nWhy: " + p.Reasoning
 	}
 	q_ += "\nThis records your ruling; Mycroft does not dispatch from it until step 5."
-	_, err := f.File(context.Background(), homeask.Ask{
+	_, err := f.FileForPull(context.Background(), homeask.Ask{
 		V: 1, Kind: "decide", RequestID: rid,
 		Subject:     fmt.Sprintf("mycroft/%s/%s", p.BeadID, p.Agent),
 		Project:     project,

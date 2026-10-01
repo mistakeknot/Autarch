@@ -6,8 +6,10 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -23,6 +25,13 @@ type stubBB struct {
 	calls [][]string
 	desc  string
 	envs  []string
+
+	creates          int  // tasks create calls that wrote a card
+	loseCreateAnswer bool // the card is written but the create answer is lost
+	failComment      bool // the routing comment call fails
+	card             bool // a card exists
+	commented        bool
+	thread           string
 }
 
 func (s *stubBB) run(_ context.Context, env []string, args ...string) homeask.BBResult {
@@ -43,6 +52,9 @@ func (s *stubBB) run(_ context.Context, env []string, args ...string) homeask.BB
 	case "tasks project list":
 		return j(`{"projects":[{"id":"P1","name":"P1"}]}`)
 	case "tasks list --project":
+		if s.card {
+			return j(`{"tasks":[{"id":"T1","projectId":"P1","description":` + strconv.Quote(s.desc) + `}],"nextCursor":null}`)
+		}
 		return j(`{"tasks":[],"nextCursor":null}`)
 	case "tasks create --project":
 		for i, a := range args {
@@ -51,9 +63,32 @@ func (s *stubBB) run(_ context.Context, env []string, args ...string) homeask.BB
 				s.desc = string(b)
 			}
 		}
+		s.card = true
+		s.creates++
+		if s.loseCreateAnswer {
+			s.loseCreateAnswer = false
+			return homeask.BBResult{Err: errors.New("deadline exceeded")}
+		}
 		return j(`{"task":{"id":"T1","projectId":"P1"}}`)
+	case "tasks show T1":
+		cm := `[]`
+		if s.commented {
+			cm = `[{"id":"c1","kind":"agent","threadId":"` + s.thread + `","createdAt":"2026-10-01T00:00:01Z"}]`
+		}
+		return j(`{"task":{"id":"T1","projectId":"P1","createdAt":"2026-10-01T00:00:00Z","description":` + strconv.Quote(s.desc) + `},"comments":` + cm + `}`)
 	case "tasks comment T1":
-		return j(`{"comment":{"id":"c1","kind":"agent","threadId":"thr_x"}}`)
+		if s.failComment {
+			return homeask.BBResult{Err: errors.New("deadline exceeded")}
+		}
+		thr := "thr_x"
+		for _, kv := range env {
+			if v, ok := strings.CutPrefix(kv, "BB_THREAD_ID="); ok {
+				thr = v
+			}
+		}
+		s.commented = true
+		s.thread = thr
+		return j(`{"comment":{"id":"c1","kind":"agent","threadId":"` + thr + `"}}`)
 	}
 	return homeask.BBResult{Code: 1, Stderr: []byte("unexpected")}
 }

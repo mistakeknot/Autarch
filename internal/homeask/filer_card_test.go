@@ -785,3 +785,38 @@ func TestFileForPullSkipsFilingWhileTheLegacyAskIsOpen(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+func TestCardFilerTasksProjectIsConfiguredNotNameMatched(t *testing.T) {
+	f := newFake(t)
+	f.projects = []string{"P1", "autarch"} // a tasks project named like the Home project must not be guessed
+	a := Ask{V: 1, Kind: "decide", Asker: "thread", Thread: "thr_a", Project: "autarch", ProjectRoot: "/srv/autarch", Question: "Ship it?", Options: []Option{{ID: "yes", Label: "Yes", Kind: "ruling-only"}, {ID: "no", Label: "No", Kind: "ruling-only"}}}
+	unbound := &CardFiler{Run: f.run, LockDir: t.TempDir()}
+	if _, err := unbound.File(context.Background(), a); !errors.Is(err, ErrInvalid) || len(f.calls) != 0 {
+		t.Fatalf("unbound: err=%v calls=%v", err, f.calls)
+	}
+	bound := &CardFiler{Run: f.run, LockDir: t.TempDir(), TasksProject: "other", TasksProjects: map[string]string{"autarch": "P1"}}
+	if _, err := bound.File(context.Background(), a); err != nil {
+		t.Fatal(err)
+	}
+	if got := f.tasks[0].Project; got != "P1" {
+		t.Fatalf("filed into %q, want the bound P1 (mapping beats default)", got)
+	}
+}
+
+func TestCardFilerFromEnvReadsTheBindingAndRefusesAMalformedOne(t *testing.T) {
+	t.Setenv(EnvTasksProject, "DEF")
+	t.Setenv(EnvTasksProjects, "Alpha=ABC, beta = XYZ")
+	f := CardFilerFromEnv(0)
+	if p, err := f.tasksProject("ALPHA"); err != nil || p != "ABC" {
+		t.Fatalf("%q %v", p, err)
+	}
+	if p, err := f.tasksProject("other"); err != nil || p != "DEF" {
+		t.Fatalf("%q %v", p, err)
+	}
+	for _, bad := range []string{"alpha", "alpha=", "=x", "a=b,A=c"} {
+		t.Setenv(EnvTasksProjects, bad)
+		if _, err := CardFilerFromEnv(0).tasksProject("alpha"); !errors.Is(err, ErrInvalid) {
+			t.Errorf("%q: %v", bad, err)
+		}
+	}
+}

@@ -140,3 +140,54 @@ func TestMCPFileDecisionNonStringProjectFieldsAreErrorsNotPanics(t *testing.T) {
 		}
 	}
 }
+
+// With no injected filer the server files a bb tasks card, never a `bb home ask`.
+func TestMCPDefaultFilerIsACardFiler(t *testing.T) {
+	var calls [][]string
+	var env []string
+	old := newDefaultFiler
+	t.Cleanup(func() { newDefaultFiler = old })
+	newDefaultFiler = func() homeask.Filer {
+		return &homeask.CardFiler{LockDir: t.TempDir(), TasksProject: "P1", Run: func(_ context.Context, e []string, args ...string) homeask.BBResult {
+			calls = append(calls, args)
+			j := func(v string) homeask.BBResult { return homeask.BBResult{Stdout: []byte(v)} }
+			switch strings.Join(args[:min(len(args), 3)], " ") {
+			case "home get --request":
+				return j(`{"status":"absent"}`)
+			case "tasks label list":
+				return j(`{"labels":[{"name":"needs-mk"}]}`)
+			case "tasks project list":
+				return j(`{"projects":[{"id":"P1"}]}`)
+			case "tasks list --project":
+				return j(`{"tasks":[],"nextCursor":null}`)
+			case "tasks create --project":
+				for _, kv := range e {
+					if strings.HasPrefix(kv, "BB_THREAD_ID=") {
+						env = append(env, kv)
+					}
+				}
+				return j(`{"task":{"id":"T1","projectId":"P1"}}`)
+			case "tasks comment T1":
+				return j(`{"comment":{"id":"c1","kind":"agent","threadId":"thr-m"}}`)
+			}
+			return homeask.BBResult{Code: 1, Stderr: []byte("unexpected " + strings.Join(args, " "))}
+		}}
+	}
+	t.Setenv("BB_THREAD_ID", "")
+	s := NewServer(t.TempDir())
+	ctx := WithCaller(context.Background(), CallerInfo{AgentID: "w", Scopes: []string{"write"}})
+	resp := callTool(t, s, ctx, "autarch_file_decision", decisionArgs())
+	if resp.Error != nil || !strings.Contains(marshal(resp.Result), "T1") {
+		t.Fatalf("resp = %+v", resp)
+	}
+	var seq []string
+	for _, c := range calls {
+		seq = append(seq, strings.Join(c[:min(len(c), 2)], " "))
+		if c[0] == "home" && c[1] == "ask" {
+			t.Fatalf("legacy home ask ran: %v", c)
+		}
+	}
+	if !strings.Contains(strings.Join(seq, ","), "tasks create,tasks comment") || len(env) != 1 || env[0] != "BB_THREAD_ID=thr-m" {
+		t.Fatalf("seq %v env %v", seq, env)
+	}
+}

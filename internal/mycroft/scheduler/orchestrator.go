@@ -26,6 +26,9 @@ type Orchestrator struct {
 // SetQueue wires the decision queue that files suggestions in Home.
 func (o *Orchestrator) SetQueue(q *escalate.DecisionQueue) { o.queue = q }
 
+// Queue returns the wired decision queue, or nil.
+func (o *Orchestrator) Queue() *escalate.DecisionQueue { return o.queue }
+
 // HasQueue reports whether a decision queue is wired.
 func (o *Orchestrator) HasQueue() bool { return o.queue != nil }
 

@@ -164,7 +164,7 @@ func TestMycroftsViewModes(t *testing.T) {
 
 func TestMycroftsViewDecisionBadge(t *testing.T) {
 	v := NewMycroftsView()
-	v.decisions.Add("grey-area", "Demarch-1", "Fix test", 0, "priority match")
+	v.decisions.SetHome(nil, rowLister{rows: []homeask.ListRow{{ID: "d1", Priority: 0}}}, "/x")
 
 	items := v.SidebarItems()
 
@@ -238,6 +238,17 @@ func TestMycroftsViewBadgeShowsQuestionMarkWhenHomeStale(t *testing.T) {
 
 type staleLister struct{}
 
-func (staleLister) List(context.Context, string) ([]homeask.ListRow, error) {
+func (staleLister) ListPull(context.Context) ([]homeask.ListRow, error) {
 	return nil, errors.New("down")
+}
+
+func (staleLister) Card(context.Context, string) (homeask.CardView, error) {
+	return homeask.CardView{}, errors.New("down")
+}
+
+type rowLister struct{ rows []homeask.ListRow }
+
+func (r rowLister) ListPull(context.Context) ([]homeask.ListRow, error) { return r.rows, nil }
+func (r rowLister) Card(context.Context, string) (homeask.CardView, error) {
+	return homeask.CardView{}, nil
 }

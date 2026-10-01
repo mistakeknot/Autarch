@@ -30,7 +30,7 @@ func TestRunPathSetsDecisionQueue(t *testing.T) {
 
 type recFiler struct{ asks []homeask.Ask }
 
-func (f *recFiler) File(_ context.Context, a homeask.Ask) (string, error) {
+func (f *recFiler) FileForPull(_ context.Context, a homeask.Ask) (string, error) {
 	f.asks = append(f.asks, a)
 	return "d1", nil
 }
@@ -151,5 +151,68 @@ func TestServeUnavailableFilesNothing(t *testing.T) {
 		if q.AddPending(escalate.PendingDecision{Agent: "a", BeadID: "D-1", Labels: []string{"project:p"}}) == nil || len(f.asks) != 0 {
 			t.Errorf("%s: expected refusal, filed %+v", name, f.asks)
 		}
+	}
+}
+
+// The production queue files through the card filer, threadless, and reads Home through the
+// same filer: no legacy filer, no private list.
+func TestBuildOrchestratorQueueHoldsACardFiler(t *testing.T) {
+	scan, uqbar := t.TempDir(), t.TempDir()
+	if err := os.MkdirAll(filepath.Join(scan, "Demarch"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	url, tok := startServe(t, []string{scan}, testToken)
+	t.Setenv("AUTARCH_SERVE_URL", url)
+	t.Setenv("AUTARCH_SERVE_TOKEN_FILE", tok)
+	t.Setenv("AUTARCH_UQBAR_DIR", uqbar)
+	t.Setenv(homeask.EnvTasksProjects, "demarch=TP1")
+	t.Setenv("BB_THREAD_ID", "thr-leak")
+	db, err := mycroft.OpenDB(filepath.Join(t.TempDir(), "d.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	q := buildOrchestrator(db, spawn.NewClaudeCodeSpawner("", "Demarch"), mycroft.DefaultConfig()).Queue()
+	cf, ok := q.Filer().(*homeask.CardFiler)
+	if !ok {
+		t.Fatalf("queue filer is %T, want *homeask.CardFiler", q.Filer())
+	}
+	var calls []string
+	var threadEnv string
+	cf.LockDir = t.TempDir()
+	cf.Run = func(_ context.Context, env []string, args ...string) homeask.BBResult {
+		calls = append(calls, strings.Join(args, " "))
+		for _, kv := range env {
+			if strings.HasPrefix(kv, "BB_THREAD_ID=") {
+				threadEnv = kv
+			}
+		}
+		switch strings.Join(args[:min(3, len(args))], " ") {
+		case "home get --request":
+			return homeask.BBResult{Stdout: []byte(`{"status":"absent"}`)}
+		case "tasks label list":
+			return homeask.BBResult{Stdout: []byte(`{"labels":[{"name":"needs-mk"}]}`)}
+		case "tasks project list":
+			return homeask.BBResult{Stdout: []byte(`{"projects":[{"id":"TP1","name":"x"}]}`)}
+		case "tasks list --project":
+			return homeask.BBResult{Stdout: []byte(`{"tasks":[],"nextCursor":null}`)}
+		case "tasks create --project":
+			return homeask.BBResult{Stdout: []byte(`{"task":{"id":"T9","projectId":"TP1"}}`)}
+		}
+		return homeask.BBResult{Code: 1, Stderr: []byte("unexpected " + strings.Join(args, " "))}
+	}
+	err = q.AddPending(escalate.PendingDecision{Agent: "a", BeadID: "D-1", BeadTitle: "t", Labels: []string{"project:demarch"}})
+	if err != nil {
+		t.Fatalf("%v; calls=%v", err, calls)
+	}
+	all := strings.Join(calls, "\n")
+	if !strings.Contains(all, "tasks create --project TP1") || !strings.Contains(all, "--label needs-mk") {
+		t.Errorf("no card created in the bound tasks project:\n%s", all)
+	}
+	if strings.Contains(all, "home ask") || strings.Contains(all, "tasks comment") {
+		t.Errorf("a pull filing must not use home ask or post a routing comment:\n%s", all)
+	}
+	if threadEnv != "" {
+		t.Errorf("the pull filing carried a thread: %s", threadEnv)
 	}
 }

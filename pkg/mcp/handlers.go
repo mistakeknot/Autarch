@@ -621,7 +621,7 @@ func (s *Server) handleFileDecision(ctx context.Context, params map[string]inter
 	}
 	f := s.filer
 	if f == nil {
-		f = &homeask.ExecFiler{}
+		f = newDefaultFiler()
 	}
 	id, err := f.File(ctx, ask)
 	if err != nil {
@@ -629,3 +629,7 @@ func (s *Server) handleFileDecision(ctx context.Context, params map[string]inter
 	}
 	return map[string]interface{}{"id": id}, nil
 }
+
+// newDefaultFiler is the card filer used when no filer was injected. The tasks project it
+// files into comes from the environment (homeask.EnvTasksProject / EnvTasksProjects).
+var newDefaultFiler = func() homeask.Filer { return homeask.CardFilerFromEnv(0) }

@@ -87,12 +87,14 @@ func newSource() mycroft.DataSource {
 }
 
 // buildOrchestrator is the production constructor: it wires the decision queue
-// so suggestions are filed in Home through the bb CLI.
+// so suggestions are filed in Home as pull cards through the bb CLI.
 func buildOrchestrator(db *sql.DB, spawner scheduler.AgentSpawner, cfg mycroft.Config) *scheduler.Orchestrator {
 	orch := scheduler.NewOrchestrator(db, spawner, cfg, "demarch")
 	q := escalate.NewDecisionQueue()
-	ef := &homeask.ExecFiler{}
-	q.SetHomeRoots(ef, ef, homeRoots(serveProjects(serveURL(), serveTokenPath()), os.Getenv("AUTARCH_UQBAR_DIR")))
+	// One CardFiler files (FileForPull, threadless, mk question 4) and reads outcomes back
+	// (CardLister). The tasks project binding comes from AUTARCH_TASKS_PROJECTS.
+	cf := homeask.CardFilerFromEnv(0)
+	q.SetHomeRoots(cf, cf, homeRoots(serveProjects(serveURL(), serveTokenPath()), os.Getenv("AUTARCH_UQBAR_DIR")))
 	orch.SetQueue(q)
 	return orch
 }

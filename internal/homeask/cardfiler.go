@@ -1,7 +1,6 @@
 package homeask
 
-// CardFiler files an ask as a tasks card (label needs-mk) through the bb CLI. It is the card
-// twin of ExecFiler. The protocol is plan section 1.3.1:
+// CardFiler files an ask as a tasks card (label needs-mk) through the bb CLI. The protocol is plan section 1.3.1:
 //
 //   - one exclusive flock per Request key for the whole filing;
 //   - Home's registry (`bb home get --request`) is the authority: nothing is created, and
@@ -60,9 +59,53 @@ type CardFiler struct {
 	Timeout time.Duration // per bb call, default 10 s
 	Run     BBRunner      // default: exec Bin
 	LockDir string        // default ${XDG_RUNTIME_DIR:-/tmp}/autarch-needsmk-<uid>
-	// TasksProject is the tasks project (id, key prefix or name) File and FileForPull file into.
-	// When empty, the one tasks project whose name equals the ask's Home project is used.
+	// TasksProjects maps a Home project name (case-insensitive) to the tasks project (id, key
+	// prefix or name) File and FileForPull file its cards into. It is the operator's binding:
+	// the filer never guesses a tasks project from names (a name match is only the poller's
+	// "suggested" binding, which mk confirms in Home Settings).
+	TasksProjects map[string]string
+	// TasksProject is the tasks project used for a Home project with no TasksProjects entry.
 	TasksProject string
+	// ConfigErr, when set, makes File and FileForPull refuse (ErrInvalid): the binding config was
+	// unreadable, so nothing may be filed against a guess.
+	ConfigErr error
+}
+
+// Environment variables CardFilerFromEnv reads.
+const (
+	// EnvTasksProject names the default tasks project for every Home project.
+	EnvTasksProject = "AUTARCH_TASKS_PROJECT"
+	// EnvTasksProjects is a comma list of <home project>=<tasks project> bindings.
+	EnvTasksProjects = "AUTARCH_TASKS_PROJECTS"
+)
+
+// ParseTasksProjects reads "alpha=ABC,beta=XYZ". Home project names are lowercased.
+func ParseTasksProjects(v string) (map[string]string, error) {
+	out := map[string]string{}
+	for _, part := range strings.Split(v, ",") {
+		part = strings.TrimSpace(part)
+		if part == "" {
+			continue
+		}
+		k, val, ok := strings.Cut(part, "=")
+		k, val = strings.ToLower(strings.TrimSpace(k)), strings.TrimSpace(val)
+		if !ok || k == "" || val == "" {
+			return nil, fmt.Errorf("%s: %q is not <home project>=<tasks project>", EnvTasksProjects, part)
+		}
+		if _, dup := out[k]; dup {
+			return nil, fmt.Errorf("%s: %q is bound twice", EnvTasksProjects, k)
+		}
+		out[k] = val
+	}
+	return out, nil
+}
+
+// CardFilerFromEnv is the production constructor: a CardFiler whose tasks project binding comes
+// from AUTARCH_TASKS_PROJECTS and AUTARCH_TASKS_PROJECT. A malformed value is kept in ConfigErr.
+func CardFilerFromEnv(timeout time.Duration) *CardFiler {
+	f := &CardFiler{Timeout: timeout, TasksProject: strings.TrimSpace(os.Getenv(EnvTasksProject))}
+	f.TasksProjects, f.ConfigErr = ParseTasksProjects(os.Getenv(EnvTasksProjects))
+	return f
 }
 
 var (
@@ -728,33 +771,19 @@ func titleOf(a Ask) string {
 	return q
 }
 
-// tasksProject is the tasks project File and FileForPull file into.
-func (f *CardFiler) tasksProject(ctx context.Context, homeProject string) (string, error) {
+// tasksProject is the tasks project File and FileForPull file into: the configured binding for
+// the Home project, else the configured default. There is no name-matching fallback.
+func (f *CardFiler) tasksProject(homeProject string) (string, error) {
+	if f.ConfigErr != nil {
+		return "", fmt.Errorf("%w: %v", ErrInvalid, f.ConfigErr)
+	}
+	if p := f.TasksProjects[strings.ToLower(homeProject)]; p != "" {
+		return p, nil
+	}
 	if f.TasksProject != "" {
 		return f.TasksProject, nil
 	}
-	var ps struct {
-		Projects []struct {
-			ID   string `json:"id"`
-			Name string `json:"name"`
-		} `json:"projects"`
-	}
-	if err := f.call(ctx, "", &ps, "tasks", "project", "list", "--json"); err != nil {
-		return "", err
-	}
-	id := ""
-	for _, p := range ps.Projects {
-		if strings.EqualFold(p.Name, homeProject) {
-			if id != "" {
-				return "", fmt.Errorf("%w: more than one tasks project is named %q", ErrInvalid, homeProject)
-			}
-			id = p.ID
-		}
-	}
-	if id == "" {
-		return "", fmt.Errorf("%w: no tasks project is named %q", ErrInvalid, homeProject)
-	}
-	return id, nil
+	return "", fmt.Errorf("%w: no tasks project is bound to Home project %q: set %s=%s=<tasks project> or %s", ErrInvalid, homeProject, EnvTasksProjects, strings.ToLower(homeProject), EnvTasksProject)
 }
 
 // File implements Filer for an ask from a thread: the card is filed and routed to a.Thread. The
@@ -772,7 +801,7 @@ func (f *CardFiler) File(ctx context.Context, a Ask) (string, error) {
 	if key == "" {
 		key = uuid.NewSHA1(needsMkNS, []byte(a.Thread+"\x00"+Identity(a))).String()
 	}
-	project, err := f.tasksProject(ctx, a.Project)
+	project, err := f.tasksProject(a.Project)
 	if err != nil {
 		return "", err
 	}
@@ -817,7 +846,7 @@ func (f *CardFiler) FileForPull(ctx context.Context, a Ask) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	project, err := f.tasksProject(ctx, a.Project)
+	project, err := f.tasksProject(a.Project)
 	if err != nil {
 		return "", err
 	}

@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -45,6 +46,20 @@ func setVerb(t *testing.T, dir, verb, body string) {
 	t.Helper()
 	if err := os.WriteFile(filepath.Join(dir, verb+".sh"), []byte(body), 0o644); err != nil {
 		t.Fatal(err)
+	}
+}
+
+// withCardFiler runs decide file against an in-memory tasks service (stubBB).
+func withCardFiler(t *testing.T, s *stubBB, tune ...func(*homeask.CardFiler)) {
+	t.Helper()
+	old := newFiler
+	t.Cleanup(func() { newFiler = old })
+	newFiler = func() *homeask.CardFiler {
+		f := &homeask.CardFiler{Run: s.run, LockDir: t.TempDir(), TasksProject: "P1"}
+		for _, fn := range tune {
+			fn(f)
+		}
+		return f
 	}
 }
 
@@ -94,126 +109,149 @@ func getReply(a homeask.Ask, identity string) string {
 	return "echo '" + string(b) + "'\n"
 }
 
-func TestDecideFileThreadFlagReachesBBAndTheRequest(t *testing.T) {
-	dir := fakeBB(t)
-	setVerb(t, dir, "ask", `echo '{"id":"dec-1"}'`)
+func TestDecideFileThreadFlagReachesTheCardRoutingComment(t *testing.T) {
+	s := &stubBB{}
+	withCardFiler(t, s)
+	t.Setenv("BB_THREAD_ID", "")
 	out, err := runDecide(t, askJSON(""), "file", "--thread", "thr-x")
-	if err != nil || out != "dec-1" {
+	if err != nil || out != "T1" {
 		t.Fatalf("out=%q err=%v", out, err)
 	}
-	env, _ := os.ReadFile(filepath.Join(dir, "env"))
-	if !strings.Contains(string(env), "BB_THREAD_ID=thr-x") {
-		t.Fatalf("env = %q", env)
+	if len(s.envs) != 2 || !strings.HasPrefix(s.envs[0], "tasks create") || !strings.HasSuffix(s.envs[0], "BB_THREAD_ID=thr-x") || !strings.HasPrefix(s.envs[1], "tasks comment") {
+		t.Fatalf("thread env: %v", s.envs)
 	}
-	stdin, _ := os.ReadFile(filepath.Join(dir, "stdin"))
-	if !strings.Contains(string(stdin), `"thread":"thr-x"`) {
-		t.Fatalf("stdin = %s", stdin)
+	c, err := homeask.ParseCard(s.desc)
+	if err != nil || c.Pull != "" {
+		t.Fatalf("card %+v %v", c, err)
 	}
 }
 
 func TestDecideFileThreadFromEnv(t *testing.T) {
-	dir := fakeBB(t)
-	setVerb(t, dir, "ask", `echo '{"id":"dec-1"}'`)
+	s := &stubBB{}
+	withCardFiler(t, s)
 	t.Setenv("BB_THREAD_ID", "thr-env")
 	if _, err := runDecide(t, askJSON(""), "file"); err != nil {
 		t.Fatal(err)
 	}
-	stdin, _ := os.ReadFile(filepath.Join(dir, "stdin"))
-	if !strings.Contains(string(stdin), `"thread":"thr-env"`) {
-		t.Fatalf("stdin = %s", stdin)
+	if len(s.envs) == 0 || !strings.HasSuffix(s.envs[0], "BB_THREAD_ID=thr-env") {
+		t.Fatalf("env = %v", s.envs)
 	}
 }
 
 func TestDecideThreadConflictExitsTwoAndRunsNothing(t *testing.T) {
-	dir := fakeBB(t)
+	s := &stubBB{}
+	withCardFiler(t, s)
 	t.Setenv("BB_THREAD_ID", "thr-y")
 	_, err := runDecide(t, askJSON(""), "file", "--thread", "thr-x")
-	if exitCode(err) != 2 || !strings.Contains(err.Error(), "thread flag conflicts with BB_THREAD_ID") {
-		t.Fatalf("err = %v code %d", err, exitCode(err))
-	}
-	if _, statErr := os.Stat(filepath.Join(dir, "calls")); statErr == nil {
-		t.Fatal("bb ran")
+	if exitCode(err) != 2 || !strings.Contains(err.Error(), "thread flag conflicts with BB_THREAD_ID") || len(s.calls) != 0 {
+		t.Fatalf("err = %v code %d calls %v", err, exitCode(err), s.calls)
 	}
 }
 
-func TestDecideNeedsAThreadUnlessMycroft(t *testing.T) {
-	fakeBB(t)
+func TestDecideNeedsAThread(t *testing.T) {
+	s := &stubBB{}
+	withCardFiler(t, s)
+	t.Setenv("BB_THREAD_ID", "")
 	_, err := runDecide(t, askJSON(""), "file")
-	if exitCode(err) != 2 {
+	if exitCode(err) != 2 || len(s.calls) != 0 {
 		t.Fatalf("err = %v code %d", err, exitCode(err))
 	}
 }
 
-func TestDecideMycroftFilingRunsWithoutAThread(t *testing.T) {
-	dir := fakeBB(t)
-	setVerb(t, dir, "ask", `echo '{"id":"dec-m"}'`)
+// The autarch CLI has no way to file threadless: only Mycroft's FileForPull does (mk question 4).
+func TestDecideRefusesAThreadlessMycroftAskAndRunsNothing(t *testing.T) {
+	s := &stubBB{}
+	withCardFiler(t, s)
 	t.Setenv("BB_THREAD_ID", "thr-leak")
 	in := `{"v":1,"kind":"decide","project":"estate","project_root":"/tmp/estate","question":"Ship?","options":[{"id":"y","label":"Yes","kind":"ruling-only"},{"id":"n","label":"No","kind":"ruling-only"}]}`
 	out, err := runDecide(t, in, "file", "--asker", "mycroft")
-	if err != nil || out != "dec-m" {
-		t.Fatalf("out=%q err=%v", out, err)
-	}
-	env, _ := os.ReadFile(filepath.Join(dir, "env"))
-	if !strings.Contains(string(env), "BB_THREAD_ID=unset") {
-		t.Fatalf("env = %q", env)
+	if exitCode(err) != 2 || out != "" || len(s.calls) != 0 {
+		t.Fatalf("out=%q err=%v code %d calls %v", out, err, exitCode(err), s.calls)
 	}
 }
 
-func TestDecideCommitThenHangSucceedsOnTheFirstRun(t *testing.T) {
-	dir := fakeBB(t)
-	setVerb(t, dir, "ask", "sleep 5")
-	setVerb(t, dir, "get", getReply(expectedAsk(t, "thr-x"), ""))
+func TestDecideFileUsesTheConfiguredTasksProjectBinding(t *testing.T) {
+	s := &stubBB{}
+	old := newFiler
+	t.Cleanup(func() { newFiler = old })
+	newFiler = func() *homeask.CardFiler {
+		f := homeask.CardFilerFromEnv(filerTimeout)
+		f.Run, f.LockDir = s.run, t.TempDir()
+		return f
+	}
+	t.Setenv("BB_THREAD_ID", "thr-x")
+	t.Setenv(homeask.EnvTasksProject, "")
+	t.Setenv(homeask.EnvTasksProjects, "")
+	if _, err := runDecide(t, askJSON("thr-x"), "file"); exitCode(err) != 2 || len(s.calls) != 0 {
+		t.Fatalf("unbound: err=%v calls=%v", err, s.calls)
+	}
+	t.Setenv(homeask.EnvTasksProjects, "autarch=P1")
+	t.Setenv("BB_THREAD_ID", "")
+	if out, err := runDecide(t, askJSON("thr-x"), "file"); err != nil || out != "T1" {
+		t.Fatalf("bound: out=%q err=%v", out, err)
+	}
+	var created string
+	for _, c := range s.calls {
+		if len(c) > 2 && c[0] == "tasks" && c[1] == "create" {
+			created = strings.Join(c, " ")
+		}
+	}
+	if !strings.Contains(created, "--project P1") {
+		t.Fatalf("created: %q", created)
+	}
+}
+
+func TestDecideCommitThenLostAnswerSucceedsOnTheFirstRun(t *testing.T) {
+	t.Setenv("BB_THREAD_ID", "")
+	s := &stubBB{loseCreateAnswer: true}
+	withCardFiler(t, s)
 	out, err := runDecide(t, askJSON("thr-x"), "file")
-	if err != nil || out != "dec-1" || exitCode(err) != 0 {
+	if err != nil || out != "T1" || exitCode(err) != 0 {
 		t.Fatalf("out=%q err=%v", out, err)
 	}
 }
 
-func TestDecideUnknownOutcomeExitsFourAndTheRetryReturnsTheSameID(t *testing.T) {
-	dir := fakeBB(t)
-	setVerb(t, dir, "ask", "sleep 5")
-	setVerb(t, dir, "get", "sleep 5")
+func TestDecideUnknownOutcomeExitsFourAndTheRetryReturnsTheSameCard(t *testing.T) {
+	t.Setenv("BB_THREAD_ID", "")
+	s := &stubBB{failComment: true}
+	withCardFiler(t, s)
 	_, err := runDecide(t, askJSON("thr-x"), "file")
 	if exitCode(err) != 4 {
 		t.Fatalf("err = %v code %d", err, exitCode(err))
 	}
-	setVerb(t, dir, "ask", `echo '{"id":"dec-1"}'`)
+	s.failComment = false
 	out, err := runDecide(t, askJSON("thr-x"), "file")
-	if err != nil || out != "dec-1" {
+	if err != nil || out != "T1" {
 		t.Fatalf("retry out=%q err=%v", out, err)
 	}
-}
-
-func TestDecideConflictingRequestWithLostResponseExitsTwo(t *testing.T) {
-	dir := fakeBB(t)
-	setVerb(t, dir, "ask", "sleep 5")
-	setVerb(t, dir, "get", getReply(expectedAsk(t, "thr-x"), strings.Repeat("0", 64)))
-	out, err := runDecide(t, askJSON("thr-x"), "file")
-	if exitCode(err) != 2 || out != "" {
-		t.Fatalf("out=%q err=%v code %d", out, err, exitCode(err))
+	if s.creates != 1 {
+		t.Fatalf("creates = %d, want 1", s.creates)
 	}
 }
 
-func TestDecideExitCodesThreeTwoFive(t *testing.T) {
-	dir := fakeBB(t)
+func TestDecideExitCodesTwoThreeAndBBAbsent(t *testing.T) {
+	t.Setenv("BB_THREAD_ID", "")
 	for _, tc := range []struct {
-		script string
-		want   int
-	}{{"exit 2", 2}, {"exit 3", 3}, {"exit 5", 5}} {
-		setVerb(t, dir, "ask", "echo boom >&2; "+tc.script)
-		_, err := runDecide(t, askJSON("thr-x"), "file")
-		if exitCode(err) != tc.want {
-			t.Fatalf("%s: err=%v code %d", tc.script, err, exitCode(err))
+		name string
+		run  homeask.BBRunner
+		want int
+	}{
+		{"home not ready", func(context.Context, []string, ...string) homeask.BBResult {
+			return homeask.BBResult{Code: 3, Stderr: []byte("not ready")}
+		}, 3},
+		{"bb absent", func(context.Context, []string, ...string) homeask.BBResult {
+			return homeask.BBResult{Err: errors.New("exec: bb not found")}
+		}, 3},
+	} {
+		old := newFiler
+		newFiler = func() *homeask.CardFiler {
+			return &homeask.CardFiler{Run: tc.run, LockDir: t.TempDir(), TasksProject: "P1"}
 		}
-	}
-}
-
-func TestDecideBBAbsentExitsThree(t *testing.T) {
-	fakeBB(t)
-	t.Setenv("PATH", t.TempDir())
-	_, err := runDecide(t, askJSON("thr-x"), "file")
-	if exitCode(err) != 3 {
-		t.Fatalf("err=%v code %d", err, exitCode(err))
+		_, err := runDecide(t, askJSON("thr-x"), "file")
+		newFiler = old
+		if exitCode(err) != tc.want {
+			t.Fatalf("%s: err=%v code %d", tc.name, err, exitCode(err))
+		}
 	}
 }
 
@@ -292,7 +330,8 @@ func TestVersionJSONReportsRevisionAndExecutableHash(t *testing.T) {
 }
 
 func TestDecideNonStringProjectFieldsAreValidationErrorsNotPanics(t *testing.T) {
-	dir := fakeBB(t)
+	s := &stubBB{}
+	withCardFiler(t, s)
 	t.Setenv("BB_THREAD_ID", "thr-x")
 	for _, in := range []string{
 		`{"v":1,"kind":"decide","project_root":5,"question":"q?"}`,
@@ -304,7 +343,7 @@ func TestDecideNonStringProjectFieldsAreValidationErrorsNotPanics(t *testing.T) 
 			t.Fatalf("%s: err = %v code %d", in, err, exitCode(err))
 		}
 	}
-	if _, statErr := os.Stat(filepath.Join(dir, "calls")); statErr == nil {
-		t.Fatal("bb ran")
+	if len(s.calls) != 0 {
+		t.Fatalf("bb ran: %v", s.calls)
 	}
 }

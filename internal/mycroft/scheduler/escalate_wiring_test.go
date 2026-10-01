@@ -11,7 +11,7 @@ import (
 
 type recFiler struct{ asks []homeask.Ask }
 
-func (f *recFiler) File(_ context.Context, a homeask.Ask) (string, error) {
+func (f *recFiler) FileForPull(_ context.Context, a homeask.Ask) (string, error) {
 	f.asks = append(f.asks, a)
 	return "d", nil
 }

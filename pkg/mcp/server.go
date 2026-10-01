@@ -19,7 +19,7 @@ type Server struct {
 	projectPath string
 	tools       map[string]Tool
 	mu          sync.RWMutex
-	filer       homeask.Filer // files decisions into Home; nil means the bb CLI
+	filer       homeask.Filer // files decisions into Home; nil means the card filer
 
 	// I/O for JSON-RPC communication
 	stdin  io.Reader
