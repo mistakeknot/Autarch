@@ -82,10 +82,12 @@ case "$1 $2" in
   "plugin list")
     st=$(cat "$D/status" 2>/dev/null || echo running)
     en=true; [ "$st" = disabled ] && en=false
-    printf '{"plugins":[{"id":"autarch","enabled":%s,"status":"%s","statusDetail":null},{"id":"tasks","enabled":true,"status":"running"}]}\n' "$en" "$st" ;;
+    me=',{"id":"autarch","enabled":'$en',"status":"'$st'","statusDetail":null}'; [ -e "$D/absent" ] && me=
+    printf '{"plugins":[{"id":"tasks","enabled":true,"status":"running"}%s]}\n' "$me" ;;
   "plugin logs") cat "$D/logs" 2>/dev/null || true ;;
   "plugin install")
-    case " $* " in *" --yes "*) ;; *) echo "error: confirmation required (pass --yes)" >&2; exit 1 ;; esac ;;
+    case " $* " in *" --yes "*) ;; *) echo "error: confirmation required (pass --yes)" >&2; exit 1 ;; esac
+    rm -f "$D/absent"; [ -f "$D/fresh.db" ] && cp "$D/fresh.db" "$(cat "$D/fresh-dest")" ;;
   "plugin disable"|"plugin enable"|"plugin build"|"thread tell") ;;
   *) echo "error: unknown command '$2'" >&2; exit 1 ;;
 esac
@@ -173,6 +175,8 @@ const calls = (i: Install): Call[] => {
     });
 };
 const verbs = (i: Install) => calls(i).map((c) => c.argv.slice(0, 2).join(" "));
+// The upgrade body opens with one `plugin list` (mode probe); the upgrade-path tests assert the calls after it.
+const uverbs = (i: Install) => { const v = verbs(i); return v[0] === "plugin list" ? v.slice(1) : v; };
 
 const TM = ["--test-as-current-user"];
 const restoreArgs = (i: Install, extra: string[] = []) => [...TM, "--bbdata", i.bbdata, "--build", i.build, "--thread", THREAD, "--repo", i.repo, ...extra];
@@ -452,7 +456,7 @@ describe("restore", () => {
     const r = run(RESTORE, restoreArgs(i));
     expect(r.code, r.out).toBe(3);
     expect(movedAside(i)).toEqual([]);
-    expect(verbs(i)).toEqual(["plugin disable", "plugin enable", "thread tell"]);
+    expect(uverbs(i)).toEqual(["plugin disable", "plugin enable", "thread tell"]);
     const report = reportOf(i);
     expect(report).toContain("Home still holds the DB");
     expect(report).toContain(String(holder.pid));
@@ -507,7 +511,8 @@ describe("plugin health parsing (review: exact types, exit status)", () => {
   const stubList = async (body: string) => {
     const i = await install();
     const f = join(i.bbdata, "npm", "bin", "bb");
-    writeFileSync(f, `#!/bin/bash\nif [ "$1 $2" = "plugin list" ]; then ${body}; fi\nexit 0\n`.replace("%", "%"));
+    // The first `plugin list` is the script's mode probe (autarch installed); later ones are the health polls under test.
+    writeFileSync(f, `#!/bin/bash\nif [ "$1 $2" = "plugin list" ]; then c="$(dirname "$0")/listn"; n=$(( $(cat "$c" 2>/dev/null || echo 0) + 1 )); echo $n > "$c"; if [ $n = 1 ]; then echo '{"plugins":[{"id":"autarch","enabled":true,"status":"running"}]}'; else ${body}; fi; fi\nexit 0\n`);
     chmodSync(f, 0o755);
     return i;
   };
@@ -542,7 +547,7 @@ describe("unreadable caller cwd (bb spawns with process.cwd(); root's /root is E
     const i = await install();
     const r = runFromUnreadableCwd(UPGRADE, upgradeArgs(i));
     expect(r.code, r.out).toBe(0);
-    expect(verbs(i).slice(0, 3)).toEqual(["plugin disable", "plugin install", "plugin enable"]);
+    expect(uverbs(i).slice(0, 3)).toEqual(["plugin disable", "plugin install", "plugin enable"]);
     expect(verbs(i).at(-1)).toBe("thread tell");
   });
   it("restore from an unreadable cwd still reaches bb and tells the thread", async () => {
@@ -558,14 +563,79 @@ describe("unreadable caller cwd (bb spawns with process.cwd(); root's /root is E
   });
 });
 
+describe("fresh install (mk ruling #438 a): autarch absent from the live bb", () => {
+  const fresh = async () => {
+    const i = await install();
+    rmSync(join(i.data, "data.db"), { force: true });
+    rmSync(join(i.data, "data.db-wal"), { force: true });
+    rmSync(join(i.data, "data.db-shm"), { force: true });
+    const stub = join(i.bbdata, "stub");
+    mkdirSync(stub, { recursive: true });
+    writeFileSync(join(stub, "absent"), "");
+    return { i, stub };
+  };
+  const realFreshDb = (stub: string, dest: string) => {
+    const f = join(stub, "fresh.db");
+    const db = new Database(f);
+    db.pragma("journal_mode = WAL");
+    migrate(db, { codeVersion: MIGRATIONS.at(-1)!.version, migrations: MIGRATIONS });
+    db.close();
+    writeFileSync(join(stub, "fresh-dest"), dest);
+  };
+  it("a real fresh v3 DB records a v3 migration_log row (the success evidence)", () => {
+    const dir = mkdtempSync(join(tmpdir(), "freshdb-"));
+    toClean.push(dir);
+    const db = new Database(join(dir, "data.db"));
+    migrate(db, { codeVersion: MIGRATIONS.at(-1)!.version, migrations: MIGRATIONS });
+    const row = db.prepare("select version from migration_log where version >= 3 order by version desc limit 1").get();
+    db.close();
+    expect(row).toBeTruthy();
+  });
+  it("installs and enables with no disable and no holders check, then reports success", async () => {
+    const { i, stub } = await fresh();
+    realFreshDb(stub, join(i.data, "data.db"));
+    const r = run(UPGRADE, upgradeArgs(i));
+    expect(r.code, r.out).toBe(0);
+    expect(r.out).toContain("fresh v3 install");
+    expect(verbs(i).filter((v) => v !== "plugin list" && v !== "plugin logs")).toEqual(["plugin install", "plugin enable", "thread tell"]);
+    expect(verbs(i)).not.toContain("plugin disable");
+    expect(calls(i).find((c) => c.argv[1] === "install")!.argv.slice(2)).toEqual(["--yes", i.plugin]);
+  });
+  it("a fresh install that never becomes healthy fails (exit 5) and says there is no v2 DB to restore", async () => {
+    const { i, stub } = await fresh();
+    realFreshDb(stub, join(i.data, "data.db"));
+    writeFileSync(join(stub, "status"), "error");
+    const r = run(UPGRADE, upgradeArgs(i));
+    expect(r.code, r.out).toBe(5);
+    expect(r.out).toContain("fresh install; there is no v2 DB");
+    expect(r.out).not.toContain("home-restore-v2.sh");
+  });
+  it("autarch absent but a data.db present: refuse (exit 6), install nothing", async () => {
+    const { i } = await fresh();
+    writeFileSync(join(i.data, "data.db"), "someone's data");
+    const r = run(UPGRADE, upgradeArgs(i));
+    expect(r.code, r.out).toBe(6);
+    expect(verbs(i).filter((v) => v === "plugin install" || v === "plugin enable" || v === "plugin disable")).toEqual([]);
+  });
+  it("a failing `plugin list` aborts before any change (exit 4)", async () => {
+    const i = await install();
+    const f = join(i.bbdata, "npm", "bin", "bb");
+    writeFileSync(f, `#!/bin/bash\necho "$@" >> "$(dirname "$0")/argv.log"\nif [ "$1 $2" = "plugin list" ]; then echo boom >&2; exit 9; fi\nexit 0\n`);
+    chmodSync(f, 0o755);
+    const r = run(UPGRADE, upgradeArgs(i));
+    expect(r.code, r.out).toBe(4);
+    expect(readFileSync(join(i.bbdata, "npm", "bin", "argv.log"), "utf8")).not.toMatch(/plugin (disable|install|enable)/);
+  });
+});
+
 describe("upgrade", () => {
   it("happy path: disable, install, enable in that order; the backup path comes from migration_log; the thread told", async () => {
     const i = await install();
     const r = run(UPGRADE, upgradeArgs(i));
     expect(r.code, r.out).toBe(0);
-    expect(verbs(i).slice(0, 3)).toEqual(["plugin disable", "plugin install", "plugin enable"]);
+    expect(uverbs(i).slice(0, 3)).toEqual(["plugin disable", "plugin install", "plugin enable"]);
     expect(verbs(i).at(-1)).toBe("thread tell");
-    expect(calls(i)[1]!.argv.slice(2)).toEqual(["--yes", i.plugin]);
+    expect(calls(i)[2]!.argv.slice(2)).toEqual(["--yes", i.plugin]);
     expect(reportOf(i)).toContain(tmplBackup);
   });
 
@@ -611,7 +681,7 @@ describe("upgrade", () => {
       expect(lines.join("\n")).toMatch(kind === "quiesce" ? /home-refused:quiesce-required/ : /home-refused:backup-not-verified/);
       const { i, r } = await upgradeWithLog(lines.join("\n") + "\n");
       expect(r.code, r.out).toBe(5);
-      const vs = verbs(i);
+      const vs = uverbs(i);
       expect(vs.slice(0, 3)).toEqual(["plugin disable", "plugin install", "plugin enable"]);
       expect(vs.at(-2)).toBe("plugin disable");
       expect(reportOf(i)).toMatch(/home-refused:[\s\S]*left disabled/);
@@ -665,7 +735,7 @@ describe("upgrade", () => {
     await new Promise((r) => setTimeout(r, 300));
     const r = run(UPGRADE, upgradeArgs(i));
     expect(r.code, r.out).toBe(3);
-    expect(verbs(i)).toEqual(["plugin disable", "plugin enable", "thread tell"]);
+    expect(uverbs(i)).toEqual(["plugin disable", "plugin enable", "thread tell"]);
   });
 
   it("a missing plugin build exits 4 before the plugin is stopped", async () => {

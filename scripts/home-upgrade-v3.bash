@@ -24,19 +24,37 @@ verify_install
 [ -f "$PLUGIN/package.json" ] || { say "no plugin build at $PLUGIN"; exit 4; }
 if [ "$CHECK_ONLY" = 1 ]; then say "--check: install verified, plugin build present; nothing changed"; exit 0; fi
 
-# 1. Stop Home, then require that nothing holds the database.
-"${AS[@]}" "$BB" plugin disable autarch
-HOLDERS=$(db_holders)
-if [ -n "$HOLDERS" ]; then
-  say "Home still holds the DB; re-enabling the existing build. Holders:"
-  say "$HOLDERS"
-  say "(bb's plugin-state snapshot may hold it open: bead mk-schu.2)"
-  "${AS[@]}" "$BB" plugin enable autarch || true
-  exit 3
+# 0. Decide the mode from the live plugin list. A failing list aborts before anything changes.
+LIST_RAW=$("${AS[@]}" "$BB" plugin list --json 2>&1) || { say "bb plugin list failed; nothing changed: $(printf '%s' "$LIST_RAW" | head -c 200)"; exit 4; }
+NAUTARCH=$(printf '%s' "$LIST_RAW" | jq -e '[.plugins[]? | select(.id == "autarch")] | length' 2>/dev/null) || { say "bb plugin list output not parseable; nothing changed"; exit 4; }
+if [ "$NAUTARCH" = 0 ]; then
+  MODE=fresh
+  # A data.db with no plugin is somebody's data; never install over it unreviewed.
+  if [ -e "$DATA/data.db" ]; then say "autarch is not installed but $DATA/data.db exists; refusing a fresh install over it. Nothing changed."; exit 6; fi
+  say "autarch is not installed: fresh v3 install (no disable, no holders check, no v2 DB to restore)"
+else
+  MODE=upgrade
+  # 1. Stop Home, then require that nothing holds the database.
+  "${AS[@]}" "$BB" plugin disable autarch
+  HOLDERS=$(db_holders)
+  if [ -n "$HOLDERS" ]; then
+    say "Home still holds the DB; re-enabling the existing build. Holders:"
+    say "$HOLDERS"
+    say "(bb's plugin-state snapshot may hold it open: bead mk-schu.2)"
+    "${AS[@]}" "$BB" plugin enable autarch || true
+    exit 3
+  fi
 fi
-# 2. Install the v3 build and enable it; the open migrates (quiesce, backup, verify, DDL).
-"${AS[@]}" "$BB" plugin install --yes "$PLUGIN" || { say "install failed; plugin left disabled on the unchanged v2 DB"; exit 4; }
-"${AS[@]}" "$BB" plugin enable autarch || { say "enable failed; plugin left disabled"; exit 5; }
+if [ "$MODE" = fresh ]; then
+  LEFT="the plugin is left disabled (fresh install; there is no v2 DB)"
+  RECOVER="Recovery: fix the cause and rerun this script (it takes the upgrade path if the plugin is now installed), or remove the plugin with 'bb plugin remove autarch'."
+else
+  LEFT="the plugin is left disabled on the unchanged v2 DB"
+  RECOVER="Recovery: run the restore from the root-owned copy, $(dirname "$(readlink -f "$0")")/home-restore-v2.sh --thread $THREAD --repo <Autarch checkout> [--backup <path>] (the backup path is in migration_log and bb.log), or retry this upgrade after fixing the cause."
+fi
+# 2. Install the v3 build and enable it; the open migrates (quiesce, backup, verify, DDL) or, when fresh, creates the v3 schema.
+"${AS[@]}" "$BB" plugin install --yes "$PLUGIN" || { say "install failed; $LEFT"; exit 4; }
+"${AS[@]}" "$BB" plugin enable autarch || { say "enable failed; $LEFT"; exit 5; }
 # 3. Report, and require success evidence: a healthy plugin status AND a v3 migration_log row (read as mk).
 # Enable can return before activation fails, so poll briefly; no evidence means failure (plan 1.3.9).
 if [ "$TEST" = 1 ]; then TRIES=2; WAIT=0; else TRIES=12; WAIT=5; fi
@@ -61,16 +79,16 @@ say "bb.log: ${LOGLINES:-no migration line found}"
 case "$LOGLINE" in
   *home-refused:*|*"another connection holds data.db"*|*"pre-migration backup not verified"*|*"store not ready, retrying"*)
     "${AS[@]}" "$BB" plugin disable autarch || true
-    say "migration refused; the plugin is left disabled on the unchanged v2 DB. Recovery: run the restore from the root-owned copy, $(dirname "$(readlink -f "$0")")/home-restore-v2.sh --thread $THREAD --repo <Autarch checkout> [--backup <path>] (the backup path is in migration_log and bb.log), or retry this upgrade after fixing the cause."
+    say "migration refused; $LEFT. $RECOVER"
     exit 5 ;;
 esac
 if [ "$HEALTHY" != 1 ]; then
   "${AS[@]}" "$BB" plugin disable autarch || true
-  say "plugin never became healthy after enable; the plugin is left disabled on the unchanged v2 DB. Recovery: run the restore from the root-owned copy, $(dirname "$(readlink -f "$0")")/home-restore-v2.sh --thread $THREAD --repo <Autarch checkout> [--backup <path>] (the backup path is in migration_log and bb.log), or retry this upgrade after fixing the cause."
+  say "plugin never became healthy after enable; $LEFT. $RECOVER"
   exit 5
 fi
 if ! printf '%s' "$MIGROW" | grep -Eq '^[0-9]+\|'; then
   "${AS[@]}" "$BB" plugin disable autarch || true
-  say "no v3 migration_log row after enable; the plugin is left disabled on the unchanged v2 DB. Recovery: run the restore from the root-owned copy, $(dirname "$(readlink -f "$0")")/home-restore-v2.sh --thread $THREAD --repo <Autarch checkout> [--backup <path>] (the backup path is in migration_log and bb.log), or retry this upgrade after fixing the cause."
+  say "no v3 migration_log row after enable; $LEFT. $RECOVER"
   exit 5
 fi
