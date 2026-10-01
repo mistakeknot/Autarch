@@ -503,6 +503,40 @@ describe.skipIf(!existsSync(REAL_BB))("every bb subcommand the scripts call exis
   });
 });
 
+describe("plugin health parsing (review: exact types, exit status)", () => {
+  const stubList = async (body: string) => {
+    const i = await install();
+    const f = join(i.bbdata, "npm", "bin", "bb");
+    writeFileSync(f, `#!/bin/bash\nif [ "$1 $2" = "plugin list" ]; then ${body}; fi\nexit 0\n`.replace("%", "%"));
+    chmodSync(f, 0o755);
+    return i;
+  };
+  const upgradeHealth = async (body: string) => {
+    const i = await stubList(body);
+    // enable returns ok; health comes only from the list; the v3 row exists, so health alone decides the exit
+    mkdirSync(join(i.bbdata, "stub"), { recursive: true });
+    const r = run(UPGRADE, upgradeArgs(i));
+    return r;
+  };
+  const J = (o: unknown) => `echo '${JSON.stringify(o)}'`;
+  it("a string \"true\", a status \"running error\" or a different id is not healthy", async () => {
+    for (const p of [
+      { id: "autarch", enabled: "true", status: "running" },
+      { id: "autarch", enabled: true, status: "running error" },
+      { id: "autarch2", enabled: true, status: "running" },
+      { id: "autarch", enabled: true },
+    ]) expect((await upgradeHealth(J({ plugins: [p] }))).code, JSON.stringify(p)).toBe(5);
+  });
+  it("a failing `plugin list` is not health even when it printed a running entry", async () => {
+    const r = await upgradeHealth(`echo '{"plugins":[{"id":"autarch","enabled":true,"status":"running"}]}'; exit 7`);
+    expect(r.code, r.out).toBe(5);
+    expect(r.out).toContain("plugin list failed (exit 7)");
+  });
+  it("the exact real shape is healthy", async () => {
+    expect((await upgradeHealth(J({ plugins: [{ id: "autarch", enabled: true, status: "running", statusDetail: null }] }))).code).toBe(0);
+  });
+});
+
 describe("unreadable caller cwd (bb spawns with process.cwd(); root's /root is EACCES for mk)", () => {
   it("upgrade from an unreadable cwd still reaches bb: disable, install, enable, thread tell", async () => {
     const i = await install();

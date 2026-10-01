@@ -202,6 +202,20 @@ describe("home-build-root-package.sh and the generated script", () => {
     // second run: already installed, content verified
     expect(run(script, ["--plugin", "/plug"], env).stdout).toContain("already installed");
   });
+  it("run from an unreadable cwd (root's /root): the package leaves it before the report goes out through bb", () => {
+    const { d, script, sha } = built();
+    const bb = join(d, "bbcwd");
+    // like bb.js: spawning from an unreadable cwd is EACCES
+    writeFileSync(bb, '#!/bin/sh\n[ -x "$(pwd -P)" ] || { echo "spawn EACCES" >&2; exit 1; }\ncp "${5}" "$(dirname "$0")/tell.msg"\n', { mode: 0o755 });
+    const cwd = join(d, "unreadable");
+    mkdirSync(cwd);
+    const env = [`HOME_V3_TEST_DEST=${join(d, "lx", `home-v3-${sha.slice(0, 12)}`)}`, `HOME_V3_TEST_BB=${bb}`, "HOME_V3_TEST_LAUNCHER_ARGS=--xx"].map((x) => `'${x}'`).join(" ");
+    const r = spawnSync("bash", ["-c", `cd '${cwd}' && chmod 000 . && exec env PATH="$PATH" ${env} /bin/sh '${script}' --plugin /plug`], { encoding: "utf8" });
+    chmodSync(cwd, 0o700);
+    expect(r.status, r.stdout + r.stderr).toBe(0);
+    expect(r.stderr).not.toContain("EACCES");
+    expect(readFileSync(join(d, "tell.msg"), "utf8")).toContain("SUCCESS");
+  });
   it("--go runs the real upgrade after the check", () => {
     const { d, script, sha } = built();
     const env = { HOME_V3_TEST_DEST: join(d, "lx", `home-v3-${sha.slice(0, 12)}`), HOME_V3_TEST_LAUNCHER_ARGS: "--xx" };
