@@ -58,7 +58,10 @@ export const SCHEMAS = {
   "poller-refresh": { threads: idList, card: id, panel_updated_without_reload: eq(true) },
   "comment-arrives-later-real": { threads: idList, card: id, routed_thread: id },
   "cross-project-panel": { threads: idList, cards: num, projects: num },
-  "upgrade-quiesce": { quiesce_refused: eq(true), db_sha256_unchanged: eq(true), backup_files: eq(0), legacy_ask_picked: eq(true), migrated_after_enable: eq(true) },
+  "upgrade-quiesce": { quiesce_refused: eq(true), db_sha256_unchanged: eq(true), backup_files: eq(0), legacy_ask_picked: eq(true), migrated_after_enable: eq(true),
+    // UNVERIFIED gap, recorded on purpose: the "v2 instance" is a standalone Store process, not a bb-hosted plugin instance,
+    // so bb's "failed candidate keeps the previous v2 instance running" path is NOT exercised (bead: real-bb upgrade canary).
+    v2_instance_hosted_by: eq("standalone-store-process"), unverified_gap: eq("bb-hosted-v2-instance-keeps-running-on-failed-candidate") },
   "vizier-chat": { threads: idList, message_id: id, screenshot_sha256: hex },
 };
 

@@ -425,6 +425,8 @@ export class Real {
     // in its place while it is disabled. The "running v2 instance" is the real a9853e2 Store (extracted from git) in a child
     // process that holds data.db open and answers the pick: bb does not host it, because installing a second plugin build
     // under the same id would need a v2 plugin build the rig does not make. That is the plan's holder, one process removed.
+    // GAP (UNVERIFIED): because bb does not host the v2 instance, bb's "failed candidate keeps the previous v2 instance running"
+    // path (PREVIOUS_INSTANCE_KEPT) is not exercised here. Tracked as bead "real-bb upgrade canary with bb-hosted v2 plugin instance".
     "upgrade-quiesce": async () => {
       const dataDir = join(this.env.data, "plugins", "autarch");
       const dbFile = join(dataDir, "data.db");
@@ -508,6 +510,10 @@ export class Real {
           backup_files: backupFiles,
           legacy_ask_picked: picked.ok === true,
           migrated_after_enable: true,
+          // UNVERIFIED, stated plainly: this proves quiesce refusal, backup and migration against a standalone v2 Store process.
+          // It does NOT prove bb's activation-failure-keeps-the-previous-v2-plugin-instance-running behaviour.
+          v2_instance_hosted_by: "standalone-store-process",
+          unverified_gap: "bb-hosted-v2-instance-keeps-running-on-failed-candidate",
           threads: [] as string[], // no thread is created here; the acceptance jq reads evidence.threads from every record
           enable_exit: enabled.code,
           status_during_refusal: statusDuring,

@@ -615,6 +615,9 @@ func (f *CardFiler) locate(ctx context.Context, key, ident string) (*found, erro
 	return c, nil
 }
 
+// ErrForeignPullCard: the card registered under a pull's legacy key is not that Mycroft pull.
+var ErrForeignPullCard = fmt.Errorf("%w: foreign card under the pull key", ErrInvalid)
+
 var errReused = fmt.Errorf("%w: Request reused for a different card", ErrInvalid)
 
 // ---- filing -------------------------------------------------------------------------
@@ -857,6 +860,24 @@ func (f *CardFiler) FileForPull(ctx context.Context, a Ask) (string, error) {
 		}
 		return "", fmt.Errorf("%w: %s", ErrAlreadyRuled, a.RequestID)
 	case "registered":
+		// The legacy key is predictable, so any same-uid filer can register a card under it. Report the card as
+		// this pull only when its parsed body says so: a Mycroft pull card, under this key, for this ask.
+		s, err := f.show(ctx, reg.TaskID)
+		if err != nil {
+			return "", err
+		}
+		c, perr := ParseCard(s.Task.Description)
+		wire, werr := wireFromAsk(a)
+		var want string
+		if werr == nil {
+			want, werr = RequestIdentity(CardRequest{Title: titleOf(a), Ask: wire, Pull: true})
+		}
+		if werr != nil {
+			return "", werr
+		}
+		if perr != nil || c.Pull != "mycroft" || c.Request.Key != a.RequestID || reg.Identity != want || c.Request.Identity != want {
+			return "", fmt.Errorf("%w: card %s registered under %s is not that Mycroft pull", ErrForeignPullCard, reg.TaskID, a.RequestID)
+		}
 		return reg.TaskID, nil
 	}
 	wire, err := wireFromAsk(a)

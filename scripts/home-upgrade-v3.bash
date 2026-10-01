@@ -1,6 +1,6 @@
 # home-upgrade-v3.bash: body, started only by the home-upgrade-v3.sh launcher.
 # Upgrades Home (the autarch bb plugin) to the v3 build: disable, verify no holder, install, enable.
-# Run on zklw: sudo scripts/home-upgrade-v3.sh --thread <thr_...> --plugin <v3 build dir>
+# Run on zklw from the root-owned copy (sudo scripts/home-install-root-copy.sh first): sudo /usr/local/libexec/home-v3/home-upgrade-v3.sh --thread <thr_...> --plugin <v3 build dir>
 # Tested in test mode by integrations/bb-plugin-autarch/__tests__/restore-script.test.ts (Task 2.8a); the sudo
 # launch itself is unprobed (bead mk-schu.4): mk's dry run covers it.
 set -euo pipefail
