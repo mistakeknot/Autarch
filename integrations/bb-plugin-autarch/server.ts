@@ -25,6 +25,7 @@ import { parseAsk } from "./model.js";
 import { ServeClient, ServeSupervisor, tokenReader } from "./serve.js";
 import { CardWriter } from "./cardwrites.js";
 import { Queue } from "./queue.js";
+import { buildQueue, setBinding } from "./queueview.js";
 import { Service } from "./service.js";
 import { TasksClient, type PluginsLike } from "./tasks.js";
 import { createStoreHandle, type Store, type StoreHandle } from "./store.js";
@@ -73,7 +74,8 @@ const EXPORT_EVERY_MS = 24 * 60 * 60 * 1000;
  * the plugin folder.
  */
 export function wireStore(bb: BbPluginApi): StoreHandle {
-  const handle = createStoreHandle(() => bb.storage.database(), { log: bb.log });
+  // closeOnFailure: a retry that fails after the open must not leave its connection behind.
+  const handle = createStoreHandle(() => bb.storage.database(), { log: bb.log, closeOnFailure: true });
   bb.onDispose(() => handle.dispose());
   bb.background.service("home-export", {
     async start(signal) {
@@ -214,18 +216,21 @@ export function wireHome(bb: BbPluginApi, handle: StoreHandle, cfg: HomeConfig, 
       if (parts) await parts.loop.start(signal);
     },
   });
+  let queueRef: Queue | null = null;
   // Card poller (Task 2.4). Read-only toward tasks, over plugins.callRpc; never spawns the bb CLI.
   bb.background.service("home-queue", {
     async start(signal) {
       while (!signal.aborted && !parts) await sleep(1000, signal);
-      const plugins = (bb.sdk as unknown as { plugins?: PluginsLike }).plugins;
+      // bb.sdk.plugins.callRpc({ pluginId, method, input, signal, outputSchema }) is the SDK's own
+      // PluginsArea (plugin-sdk bundled-types, PluginRpcArgs); the guard covers a host without it.
+      const plugins = (bb.sdk as { plugins?: PluginsLike }).plugins;
       if (!parts || signal.aborted) return;
       if (!plugins) {
         console.error("home-queue: bb.sdk.plugins is unavailable, cards are not polled");
         return;
       }
       const tasks = new TasksClient(plugins);
-      const queue = new Queue({
+      const queue = (queueRef = new Queue({
         service: parts.svc,
         tasks,
         writer: new CardWriter(parts.svc.store.db, tasks, () => parts!.svc.time()),
@@ -233,7 +238,7 @@ export function wireHome(bb: BbPluginApi, handle: StoreHandle, cfg: HomeConfig, 
           parts?.caches.invalidate();
           bb.realtime.publish("home-queue-changed", {});
         },
-      });
+      }));
       await queue.run(signal, sleep);
     },
   });
@@ -298,6 +303,20 @@ export function wireHome(bb: BbPluginApi, handle: StoreHandle, cfg: HomeConfig, 
         delegation: { settings: p.dele.settings(), suspended: item !== undefined && !p.store.hasSeen(MK, item) },
         machineOwners,
       };
+    },
+    async queue(i: { thread?: string }) {
+      const p = need();
+      return { ...buildQueue(p.svc, p.asks, i.thread === undefined ? {} : { thread: i.thread }), status: queueRef?.status() ?? null };
+    },
+    async setBinding(i: { tasks_project_id: string; state: "confirmed" | "rejected"; home_project?: string }) {
+      const p = need();
+      const known = (await p.svc.serveProjects()).map((x) => x.name);
+      const r = setBinding(p.store.db, i, { now: p.svc.time(), knownProjects: known, record: (type, detail) => p.store.recordEvent(type, null, detail) });
+      if (r.ok) {
+        p.caches.invalidate();
+        bb.realtime.publish("home-queue-changed", {});
+      }
+      return r;
     },
     async listRecent(i: { project: string; limit: number }) {
       return { recent: need().svc.recent(i.project, i.limit) };

@@ -24,7 +24,9 @@ import { CatchupPanel, SeenTracker, snapshotIds } from "./ui/catchup.js";
 import type { CatchupEntry } from "./ui/catchup.js";
 import { MapPlaceholder } from "./ui/map-placeholder.js";
 import type { Lens } from "./ui/map-placeholder.js";
-import { SettingsPanel } from "./ui/settings.js";
+import { BlocksPanel, QueueRefresher } from "./ui/blocks.js";
+import type { QueueView } from "./ui/blocks.js";
+import { BindingsPanel, SettingsPanel } from "./ui/settings.js";
 import { keyAction, layoutStack, stackReducer, StackView } from "./ui/stack.js";
 import type { Panel, StackState } from "./ui/stack.js";
 import { HOME_SOURCE } from "./ui/identity.js";
@@ -192,6 +194,46 @@ function TodosPage() {
 
 const POLL_MS = 10_000;
 
+/** The queue refetches on the server's "home-queue-changed" signal and, as a fallback, every POLL_MS. */
+function useQueue(thread?: string) {
+  const rpc = useRpc<typeof rpcContract>();
+  const [queue, setQueue] = useState<QueueView | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const refetch = useCallback(() => {
+    rpc.call("queue", thread === undefined ? {} : { thread }).then(
+      (q) => {
+        setQueue(q as unknown as QueueView);
+        setError(null);
+      },
+      (cause) => setError(cause instanceof Error ? cause.message : String(cause)),
+    );
+  }, [rpc, thread]);
+  const refresher = useMemo(() => new QueueRefresher(refetch, POLL_MS), [refetch]);
+  useRealtime("home-queue-changed", refresher.onEvent);
+  useEffect(() => {
+    refetch();
+    return refresher.start();
+  }, [refetch, refresher]);
+  return { rpc, queue, error, refetch };
+}
+
+/** The same panel, opened beside a thread by the thread-panel action: this thread's cards are pinned. */
+function BlocksThreadPanel({ threadId }: { threadId: string }) {
+  const { rpc, queue, error, refetch } = useQueue(threadId);
+  const nav = useBbNavigate();
+  const picks = useMemo(() => new PickController(() => crypto.randomUUID()), []);
+  if (queue === null) return <EmptyState>{error ?? "Loading…"}</EmptyState>;
+  return (
+    <BlocksPanel
+      data={queue}
+      nowMs={Date.now()}
+      thread={threadId}
+      onOpen={(t) => nav.toThread(t)}
+      onPick={(decision_id, option_id, revision) => void picks.send((req) => rpc.call("pick", req) as never, { decision_id, option_id, revision }, refetch).then(refetch, () => {})}
+    />
+  );
+}
+
 /** The server publishes no realtime channel for Home, so the page polls and refetches after each action. */
 function useHomeData() {
   const rpc = useRpc<typeof rpcContract>();
@@ -221,12 +263,22 @@ function useHomeData() {
 function HomePage() {
   const { rpc, asks, catchup, error, refetch } = useHomeData();
   const nav = useBbNavigate();
+  const blocks = useQueue();
   const [stack, setStack] = useState<StackState>({ panels: [{ id: "asks", kind: "decision", title: "Asks" }], width: "third" });
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [lens, setLens] = useState<Lens>("attention");
   const picks = useMemo(() => new PickController(() => crypto.randomUUID()), []);
   const tracker = useMemo(() => new SeenTracker((item) => void rpc.call("markSeen", { item }).then(refetch, () => {})), [rpc, refetch]);
   const onVisibility = useCallback((item: string, visible: boolean) => tracker.setVisible(item, visible), [tracker]);
+  const refetchAll = () => {
+    refetch();
+    blocks.refetch();
+  };
+  /** Open a thread and this plugin's blocks panel beside it; the host declines (false) where there is no side panel. */
+  const openBeside = (thread: string) => {
+    nav.toThread(thread);
+    nav.openThreadPanel({ actionId: "home-blocks" });
+  };
   const dispatch = (a: Parameters<typeof stackReducer>[1]) => setStack((s) => stackReducer(s, a));
   const push = (panel: Panel) => dispatch({ type: "push", panel });
 
@@ -287,6 +339,19 @@ function HomePage() {
             }}
           />
         );
+      case "blocks":
+        return blocks.queue === null ? (
+          <EmptyState>{blocks.error ?? "Loading blocking cards…"}</EmptyState>
+        ) : (
+          <BlocksPanel
+            data={blocks.queue}
+            nowMs={Date.now()}
+            onOpen={openBeside}
+            onPick={(decision_id, option_id, revision) => {
+              picks.send((req) => rpc.call("pick", req) as never, { decision_id, option_id, revision }, refetchAll).then(refetchAll, () => {});
+            }}
+          />
+        );
       case "catchup":
         return (
           <CatchupPanel
@@ -305,7 +370,17 @@ function HomePage() {
         return <VizierPanel threadId={asks?.delegation.settings.vizierThreadId} />;
       case "settings":
         return asks === null ? null : (
-          <SettingsPanel delegation={asks.delegation} machineOwners={asks.machineOwners} onSave={(v) => void rpc.call("setDelegation", v).then(refetch, () => {})} />
+          <>
+            <SettingsPanel delegation={asks.delegation} machineOwners={asks.machineOwners} onSave={(v) => void rpc.call("setDelegation", v).then(refetch, () => {})} />
+            {blocks.queue === null ? null : (
+              <BindingsPanel
+                bindings={blocks.queue.bindings}
+                inactive={blocks.queue.inactive_projects}
+                legacyCount={blocks.queue.legacy.count}
+                onBind={(b) => void rpc.call("setBinding", b).then(refetchAll, () => {})}
+              />
+            )}
+          </>
         );
       case "map":
         return <MapPlaceholder lens={lens} onLens={setLens} />;
@@ -320,6 +395,7 @@ function HomePage() {
         {(
           [
             ["asks", "decision", "Asks"],
+            ["blocks", "decision", "Blocking"],
             ["catchup", "catchup", "Catch-up"],
             ["vizier", "vizier", "Vizier"],
             ["map", "map", "Map"],
@@ -362,6 +438,12 @@ export default definePluginApp((app) => {
     path: "home",
     component: HomePage,
     experimental_sidebarAccessory: HomeBadge,
+  });
+  app.slots.threadPanelAction({
+    id: "home-blocks",
+    title: "Blocking",
+    icon: "House",
+    component: ({ threadId }) => <BlocksThreadPanel threadId={threadId} />,
   });
   app.slots.navPanel({
     id: "example-todos",

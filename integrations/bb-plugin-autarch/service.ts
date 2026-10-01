@@ -53,7 +53,7 @@ type Row = Record<string, unknown> & {
 };
 
 const RECONCILE_MS = 30_000;
-const ROUTING_PREFIX = "routing: ";
+export const ROUTING_PREFIX = "routing: ";
 const OBSERVED_BACKOFF_MS = 5_000;
 const CLOSED_BACKOFF_MS = 30_000;
 const MAX_BACKOFF_MS = 300_000;

@@ -7,10 +7,11 @@ vi.mock("@get-bb/plugin-sdk/app", () => ({
   ),
 }));
 
+import { BlocksPanel, BlocksRow, groupRows, QueueRefresher, type QueueRowView, type QueueView } from "../ui/blocks.js";
 import { AsksPanel, buildAsksView, PickController, type AsksData } from "../ui/asks.js";
 import { CatchupPanel, observeVisibility, SeenTracker, snapshotIds, type CatchupEntry } from "../ui/catchup.js";
 import { MapPlaceholder } from "../ui/map-placeholder.js";
-import { parseDelegationForm, SettingsPanel } from "../ui/settings.js";
+import { BindingsPanel, parseDelegationForm, SettingsPanel } from "../ui/settings.js";
 import { layoutStack, stackReducer, type Panel, type StackState } from "../ui/stack.js";
 import { ThreadPanel, VizierPanel } from "../ui/vizier.js";
 
@@ -367,5 +368,107 @@ describe("vizier, thread, settings and map", () => {
     const html = renderToStaticMarkup(<MapPlaceholder lens="attention" onLens={() => {}} />);
     expect(html).toContain("placeholder");
     for (const l of ["attention", "allocation", "dependencies", "neglect"]) expect(html).toContain(l);
+  });
+});
+
+const NOW = Date.parse("2026-10-01T00:00:00.000Z");
+const row = (o: Partial<QueueRowView> = {}): QueueRowView => ({
+  id: "d1", decision_id: "d1", task_id: "t1", card_key: "k1", binding_state: "confirmed", project: "Autarch", title: "Which order?",
+  refs: [{ ref: "bead:a", counted: true }], blocks_count: 1, created_at: "2026-09-28T00:00:00.000Z", thread: "thr-a", pinned: false,
+  ask: { question: "Which order?", options: [{ id: "a", label: "A" }, { id: "b", label: "B" }] } as never, revision: "rv1", mentions: 0,
+  display_reason: null, display_only: false, overrides_generation: null, changed_after_ruling: false, root: { state: "verified", reason: null }, ...o,
+});
+const emptyLegacy = { count: 0, owed: [], runbook: [], machine: { lane: [], asks: [] } };
+const q = (rows: QueueRowView[], legacy = emptyLegacy): QueueView => ({ rows, legacy, bindings: [], inactive_projects: [] });
+const panel = (v: QueueView, thread?: string) => renderToStaticMarkup(<BlocksPanel data={v} nowMs={NOW} {...(thread ? { thread } : {})} onPick={() => {}} onOpen={() => {}} />);
+
+describe("blocks panel", () => {
+  it("renders rows in server order and pins this thread's cards in their own section first", () => {
+    const html = panel(q([row({ id: "p", pinned: true, title: "pinned one" }), row({ id: "r", title: "rest one" })]), "thr-a");
+    expect(html.indexOf('data-section="this-thread"')).toBeLessThan(html.indexOf('data-section="blocking"'));
+    expect(html).toContain('data-row="p" data-pinned="true"');
+    expect(html).toContain('data-row="r" data-pinned="false"');
+    expect(groupRows([row({ id: "x", pinned: true }), row({ id: "y" })]).pinned.map((r) => r.id)).toEqual(["x"]);
+  });
+  it("shows age, the Blocks count, and which refs count", () => {
+    const html = panel(q([row({ refs: [{ ref: "bead:a", counted: true }, { ref: "ticket:1", counted: false }], blocks_count: 1 })]));
+    expect(html).toContain("age 3 d");
+    expect(html).toContain("blocks 1");
+    expect(html).toContain('data-counted="false"');
+  });
+  it("a free-form card is display-only with its reason and no pick buttons", () => {
+    const html = renderToStaticMarkup(<BlocksRow row={row({ id: "card:t2", decision_id: null, ask: null, revision: null, display_only: true, display_reason: "no home-ask block", title: "Prose card" })} nowMs={NOW} onPick={() => {}} onOpen={() => {}} />);
+    expect(html).toContain('data-display-only="true"');
+    expect(html).toContain("display only: no home-ask block");
+    expect(html).toContain("Prose card");
+    expect(html).not.toContain("<button type=\"button\" data-option");
+  });
+  it.each([
+    ["invalid home-ask JSON: Unexpected token"],
+    ["duplicate Request key k1"],
+    ["project mismatch: Other"],
+    ["asking thread is not in this project"],
+    ["changed after ruling"],
+  ])("shows the display reason %s", (reason) => {
+    const html = renderToStaticMarkup(<BlocksRow row={row({ decision_id: null, ask: null, revision: null, display_only: true, display_reason: reason })} nowMs={NOW} onPick={() => {}} onOpen={() => {}} />);
+    expect(html).toContain(`display only: ${reason}`);
+  });
+  it("shows an unverified root with its reason", () => {
+    const html = renderToStaticMarkup(<BlocksRow row={row({ root: { state: "unverified", reason: "sha mismatch" } })} nowMs={NOW} onPick={() => {}} onOpen={() => {}} />);
+    expect(html).toContain('data-root="unverified"');
+    expect(html).toContain("sha mismatch");
+  });
+  it("marks an override generation and a changed-after-ruling card", () => {
+    expect(renderToStaticMarkup(<BlocksRow row={row({ overrides_generation: 2 })} nowMs={NOW} onPick={() => {}} onOpen={() => {}} />)).toContain("overrides vizier ruling g2");
+    expect(renderToStaticMarkup(<BlocksRow row={row({ changed_after_ruling: true, display_only: true, display_reason: "changed after ruling" })} nowMs={NOW} onPick={() => {}} onOpen={() => {}} />)).toContain('data-marker="changed"');
+  });
+  it("renders the legacy group with a steps ask and a machine ask", () => {
+    const legacy = {
+      count: 2, owed: [],
+      runbook: [{ thread: "thr-l", items: [{ id: "s1", subject: "steps subj", question: "do it", steps: ["one", "two"], filed_at: "2026-09-01T00:00:00.000Z" }] }],
+      machine: { lane: [], asks: [{ id: "m1", subject: "ci down", thread: "thr-l", detail: "disk full", label: "unowned machine blocker" }] },
+    } as never;
+    const html = panel(q([], legacy));
+    expect(html).toContain('data-section="legacy"');
+    expect(html).toContain('data-legacy="steps"');
+    expect(html).toContain("<li>one</li>");
+    expect(html).toContain('data-legacy="machine"');
+    expect(html).toContain("unowned machine blocker: ci down");
+    expect(html).toContain("disk full");
+  });
+  it("says so when nothing blocks", () => {
+    expect(panel(q([]))).toContain("Nothing is blocking");
+  });
+});
+
+describe("queue refresh", () => {
+  beforeEach(() => vi.useFakeTimers());
+  afterEach(() => vi.useRealTimers());
+  it("refetches on the realtime event and on the fallback interval, and stops on cleanup", () => {
+    const refetch = vi.fn();
+    const r = new QueueRefresher(refetch, 30_000);
+    const stop = r.start();
+    r.onEvent();
+    expect(refetch).toHaveBeenCalledTimes(1);
+    vi.advanceTimersByTime(30_000);
+    expect(refetch).toHaveBeenCalledTimes(2);
+    vi.advanceTimersByTime(60_000);
+    expect(refetch).toHaveBeenCalledTimes(4);
+    stop();
+    vi.advanceTimersByTime(120_000);
+    expect(refetch).toHaveBeenCalledTimes(4);
+  });
+});
+
+describe("bindings settings (Q5)", () => {
+  it("lists each binding with its state and offers Confirm on a suggested one only", () => {
+    const html = renderToStaticMarkup(
+      <BindingsPanel bindings={[{ tasks_project_id: "tp1", home_project: "Autarch", state: "suggested", suggested_at: null, confirmed_at: null }, { tasks_project_id: "tp2", home_project: "Other", state: "confirmed", suggested_at: null, confirmed_at: null }]} inactive={["Ghost"]} legacyCount={3} onBind={() => {}} />,
+    );
+    expect(html).toContain('data-binding="tp1" data-state="suggested"');
+    expect(html).toContain("Inactive delegation projects");
+    expect(html).toContain('data-legacy-count="3"');
+    const tp2 = html.slice(html.indexOf('data-binding="tp2"'));
+    expect(tp2).not.toContain("Confirm");
   });
 });

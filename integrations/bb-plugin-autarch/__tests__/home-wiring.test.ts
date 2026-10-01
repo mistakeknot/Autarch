@@ -40,7 +40,25 @@ describe("wireHome", () => {
     expect(f.services.sort()).toEqual(["home-feed-refresh", "home-queue", "home-serve", "home-wakes"]);
     expect(f.configure()).toBeTypeOf("function");
     expect(f.cli()).toBeDefined();
-    expect(Object.keys(home.handlers).sort()).toEqual(["catchup", "dismiss", "health", "listAsks", "listRecent", "markAllSeen", "markSeen", "override", "pick", "resend", "revokeApproval", "setDelegation", "stats"]);
+    expect(Object.keys(home.handlers).sort()).toEqual(["catchup", "dismiss", "health", "listAsks", "listRecent", "markAllSeen", "markSeen", "override", "pick", "queue", "resend", "revokeApproval", "setBinding", "setDelegation", "stats"]);
+    f.disposers.forEach((d) => d());
+  });
+
+  it("setBinding is an RPC only: no CLI verb, so the vizier's rule path cannot reach it (Q5)", async () => {
+    const db = new Database(":memory:");
+    const handle = createStoreHandle(() => db, {});
+    const f = fakeBb();
+    const home = wireHome(f.bb, handle, cfg, { serve });
+    expect(typeof home.handlers.setBinding).toBe("function");
+    for (const verb of ["setBinding", "set-binding", "binding", "bind", "confirm-binding"]) {
+      const r = await f.cli()!.run([verb, "--tasks-project-id", "tp1", "--state", "confirmed"], { threadId: "thr-v" });
+      expect(JSON.stringify(r)).not.toMatch(/confirmed binding|ok":true/);
+    }
+    expect(db.prepare("SELECT COUNT(*) AS n FROM project_bindings").get()).toEqual({ n: 0 });
+    // The rule verb exists, and it is not the binding write.
+    const r = await f.cli()!.run(["rule", "dec", "a", "--reason", "x"], { threadId: "thr-v" });
+    expect(JSON.stringify(r)).toMatch(/vizier|not found|usage|unknown/i);
+    expect(db.prepare("SELECT COUNT(*) AS n FROM project_bindings").get()).toEqual({ n: 0 });
     f.disposers.forEach((d) => d());
   });
 

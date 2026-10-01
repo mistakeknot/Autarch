@@ -1,11 +1,13 @@
 // Task 2.4: the poller, ingest and the card state machine, driven only by the fake tasks client and
 // store fixtures. Picks are rev-4 store.recordPick rows; override rows are rev-4 insertReplacement.
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { Asks } from "../asks.js";
 import { Queue } from "../queue.js";
+import { blocksCount, buildQueue, setBinding, sortRows } from "../queueview.js";
 import { Service } from "../service.js";
 import { TasksClient } from "../tasks.js";
 import { FakeTasks, type FakeTask } from "./tasks-fake.js";
-import { makeEnv, type Env } from "./service-helpers.js";
+import { ask, makeEnv, type Env } from "./service-helpers.js";
 import { pickOf } from "./helpers.js";
 
 const T1 = "2026-10-01T00:00:01.000Z";
@@ -728,4 +730,133 @@ describe("degraded mode and invariants", () => {
       }
     }
   }, 60_000);
+});
+
+// ---- Task 2.6: the queue read model, plan 1.4 --------------------------------------------------
+
+const view = (r: Rig, thread?: string) => buildQueue(r.svc, new Asks(r.svc), thread === undefined ? {} : { thread });
+
+describe("blocksCount (Q3: direct refs only)", () => {
+  it("counts distinct known refs once and does not count unknown kinds", () => {
+    expect(blocksCount(["bead:a", "bead:a", "thread:thr_x", "project:p", "ticket:9"])).toBe(3);
+    expect(blocksCount([])).toBe(0);
+  });
+});
+
+describe("queue sort order", () => {
+  it("sorts by blocks count desc, then createdAt oldest first, then id", async () => {
+    const r = rig();
+    const one = r.card({ key: "q-one", blocks: "bead:a", createdAt: "2026-09-01T00:00:00.000Z" });
+    const threeNew = r.card({ key: "q-3n", blocks: "bead:a bead:b bead:c", createdAt: "2026-09-20T00:00:00.000Z" });
+    const threeOld = r.card({ key: "q-3o", blocks: "bead:a bead:b thread:thr_z", createdAt: "2026-09-10T00:00:00.000Z" });
+    const unknown = r.card({ key: "q-u", blocks: "bead:a ticket:1 ticket:2 ticket:3", createdAt: "2026-08-01T00:00:00.000Z" });
+    await r.poll();
+    const v = view(r);
+    expect(v.rows.map((x) => x.task_id)).toEqual([threeOld.id, threeNew.id, unknown.id, one.id]);
+    expect(v.rows.map((x) => x.blocks_count)).toEqual([3, 3, 1, 1]);
+  });
+  it("breaks a full tie by id", () => {
+    const row = (id: string) => ({ id, blocks_count: 1, created_at: "2026-09-01T00:00:00.000Z", pinned: false }) as never;
+    expect(sortRows([row("b"), row("a")]).map((x: { id: string }) => x.id)).toEqual(["a", "b"]);
+  });
+});
+
+describe("queue pinning", () => {
+  it("pins cards that name the thread in Blocks or were asked from it, ahead of heavier cards", async () => {
+    const r = rig();
+    const heavy = r.card({ key: "p-heavy", blocks: "bead:a bead:b bead:c bead:d", thread: "thr_other" });
+    const named = r.card({ key: "p-ref", blocks: "thread:thr_me", thread: "thr_other" });
+    const asked = r.card({ key: "p-ask", blocks: "bead:z", thread: "thr_me" });
+    await r.poll();
+    const v = view(r, "thr_me");
+    expect(v.rows.map((x) => [x.task_id, x.pinned])).toEqual([[named.id, true], [asked.id, true], [heavy.id, false]].sort((a, b) => Number(b[1]) - Number(a[1])));
+    expect(v.rows.slice(0, 2).map((x) => x.pinned)).toEqual([true, true]);
+    expect(view(r).rows[0]!.task_id).toBe(heavy.id);
+    expect(view(r).rows.every((x) => !x.pinned)).toBe(true);
+  });
+});
+
+describe("queue rows: display reasons, free-form cards, markers", () => {
+  it("a free-form card (no home-ask) is display-only with its parse reason and no ask", async () => {
+    const r = rig();
+    const t = r.fake.addTask(r.tp.id, { labelIds: [r.label.id], title: "Just prose", description: "please decide something" });
+    await r.poll();
+    const row = view(r).rows.find((x) => x.task_id === t.id)!;
+    expect(row).toMatchObject({ display_only: true, ask: null, decision_id: null, title: "Just prose" });
+    expect(row.display_reason).toBeTruthy();
+  });
+  it("shows each display reason on its card", async () => {
+    const r = rig({ projects: ["Autarch", "Other"] });
+    const bad = r.card({ key: "d-bad", breakJson: true });
+    const first = r.card({ key: "d-dup" });
+    const dup = r.card({ key: "d-dup" });
+    const other = r.card({ key: "d-other", ask: { project: "Other", project_root: r.env.roots.Other } });
+    const root = r.card({ key: "d-root", title: "rootcard" });
+    const routing = r.card({ key: "d-route", title: "routecard" });
+    await r.poll();
+    r.db.prepare("UPDATE cards SET root_state = 'unverified', root_reason = 'sha256 does not match' WHERE task_id = ?").run(root.id);
+    r.db.prepare("UPDATE cards SET state = 'closed', display_reason = 'routing: asking thread is not in this project' WHERE task_id = ?").run(routing.id);
+    r.db.prepare("UPDATE decisions SET withdrawn_at = ? WHERE task_id = ?").run(r.env.now(), routing.id);
+    const rows = view(r).rows;
+    const by = (id: string) => rows.find((x) => x.task_id === id)!;
+    expect(by(bad.id).display_reason).toMatch(/invalid home-ask JSON/);
+    expect([by(first.id), by(dup.id)].some((x) => /duplicate Request/.test(x.display_reason ?? ""))).toBe(true);
+    expect(by(other.id).display_reason).toMatch(/project mismatch/);
+    expect(by(root.id).root).toEqual({ state: "unverified", reason: "sha256 does not match" });
+    expect(by(root.id).display_only).toBe(false);
+    expect(by(routing.id)).toMatchObject({ display_only: true, display_reason: "asking thread is not in this project" });
+  });
+  it("marks an override generation with the ruling it overrides, and a changed-after-ruling card", async () => {
+    const r = rig();
+    const { t, g1 } = await opened(r, { key: "m-1" });
+    overrideOn(r, g1);
+    const row = view(r).rows.find((x) => x.task_id === t.id)!;
+    expect(row).toMatchObject({ decision_id: `ovr-${g1.id}`, overrides_generation: 1, display_only: false });
+    const r2 = rig();
+    const { t: t2, g1: h1 } = await opened(r2, { key: "m-2" });
+    r2.pick(h1.id);
+    r2.db.prepare("UPDATE cards SET state = 'ruled', changed_after_ruling = 1 WHERE task_id = ?").run(t2.id);
+    expect(view(r2).rows.find((x) => x.task_id === t2.id)).toMatchObject({ changed_after_ruling: true, display_only: true, display_reason: "changed after ruling" });
+  });
+  it("carries the binding state and the pick options of an open row", async () => {
+    const r = rig();
+    const { g1 } = await opened(r, { key: "o-1" });
+    const row = view(r).rows[0]!;
+    expect(row).toMatchObject({ decision_id: g1.id, revision: g1.revision, binding_state: "suggested", display_only: false, refs: [{ ref: "bead:mk-okek.8", counted: true }] });
+    expect(row.ask!.options.map((o) => o.id)).toEqual(["a", "b"]);
+  });
+  it("puts legacy steps and machine asks in the legacy group, not the rows", async () => {
+    const r = rig();
+    const a = await r.svc.file(ask(r.env, { kind: "steps", options: undefined, steps: ["one", "two"], thread: "thr_l", subject: "s", question: "do the steps" }), {});
+    const m = await r.svc.file(ask(r.env, { kind: "machine", options: undefined, machine: { class: "ci", detail: "disk full" }, thread: "thr_l", subject: "m", question: "machine blocked" }), {});
+    if (!a.ok || !m.ok) throw new Error("file failed");
+    const v = view(r);
+    expect(v.rows).toEqual([]);
+    expect(v.legacy.runbook[0]!.items[0]).toMatchObject({ id: a.decision_id, steps: ["one", "two"] });
+    expect(v.legacy.machine.asks[0]).toMatchObject({ id: m.decision_id, detail: "disk full" });
+    expect(v.legacy.count).toBe(2);
+  });
+});
+
+describe("setBinding (Q5: mk confirms once)", () => {
+  const ctx = (r: Rig) => ({ now: r.env.now(), knownProjects: ["Autarch"], record: (type: string, detail: unknown) => void r.svc.store.recordEvent(type, null, detail) });
+  it("confirms a suggested binding and records an event; delegation then clears the binding refusal", async () => {
+    const r = rig();
+    r.card();
+    await r.poll();
+    expect(setBinding(r.db, { tasks_project_id: r.tp.id, state: "confirmed" }, ctx(r))).toEqual({ ok: true, state: "confirmed" });
+    expect(r.db.prepare("SELECT state, confirmed_at FROM project_bindings").get()).toMatchObject({ state: "confirmed" });
+    expect(r.db.prepare("SELECT type FROM events WHERE type = 'binding-confirmed'").all()).toHaveLength(1);
+  });
+  it("rejects an unknown Home project and an unknown tasks project with no home_project", () => {
+    const r = rig();
+    expect(setBinding(r.db, { tasks_project_id: "nope", state: "confirmed" }, ctx(r))).toMatchObject({ ok: false, status: 404 });
+    expect(setBinding(r.db, { tasks_project_id: "nope", state: "confirmed", home_project: "Ghost" }, ctx(r))).toMatchObject({ ok: false, status: 400 });
+    expect(r.db.prepare("SELECT COUNT(*) AS n FROM project_bindings").get()).toEqual({ n: 0 });
+  });
+  it("creates a confirmed binding for an unsuggested project when home_project is a known project", () => {
+    const r = rig();
+    expect(setBinding(r.db, { tasks_project_id: "tp-x", state: "confirmed", home_project: "Autarch" }, ctx(r))).toMatchObject({ ok: true });
+    expect(r.db.prepare("SELECT * FROM project_bindings WHERE tasks_project_id = 'tp-x'").get()).toMatchObject({ home_project: "Autarch", state: "confirmed" });
+  });
 });

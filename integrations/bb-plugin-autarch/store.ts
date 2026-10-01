@@ -902,7 +902,7 @@ export function createStoreHandle(open: () => Database.Database, opts: StoreHand
       return;
     } catch (e) {
       lastError = e instanceof Error ? e.message : String(e);
-      if (opts.closeOnFailure && db) {
+      if (opts.closeOnFailure && db && !current) {
         try {
           db.close();
         } catch {

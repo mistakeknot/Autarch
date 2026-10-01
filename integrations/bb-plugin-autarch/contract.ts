@@ -7,6 +7,17 @@ const out = z.unknown();
 
 export const homeMethods = {
   listAsks: { input: z.null(), output: out },
+  // The blocks panel's read model (plan 1.4). `thread` pins the cards that involve that thread.
+  queue: { input: z.object({ thread: z.string().min(1).max(128).optional() }), output: out },
+  // mk's one-time confirmation of a tasks-project to Home-project binding (plan 1.3.6, Q5). RPC only: no CLI verb.
+  setBinding: {
+    input: z.object({
+      tasks_project_id: z.string().min(1).max(128),
+      state: z.enum(["confirmed", "rejected"]),
+      home_project: z.string().min(1).max(200).optional(),
+    }),
+    output: out,
+  },
   listRecent: { input: z.object({ project: z.string().min(1), limit: z.number().int().min(1).max(200).default(50) }), output: out },
   pick: {
     input: z.object({

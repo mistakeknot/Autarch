@@ -55,7 +55,8 @@ const PLACEHOLDER_THREAD = "thr_placeholder";
 
 const V2_ALLOWED = new Set(["schema", "project", "project_root", "question", "options", "ask_key", "subject", "recommendation", "pull"]);
 const V1_ONLY = new Set(["v", "kind", "thread", "asker", "request_id", "supersedes", "mention_of", "steps", "machine"]);
-const COUNTED = new Set(["bead", "thread", "project"]);
+/** Block-ref kinds that count toward the Blocks count; others are shown but not counted. */
+export const COUNTED = new Set(["bead", "thread", "project"]);
 
 const fail = (msg: string): never => {
   throw new Error(msg);
