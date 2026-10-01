@@ -30,7 +30,9 @@ NAUTARCH=$(printf '%s' "$LIST_RAW" | jq -e '[.plugins[]? | select(.id == "autarc
 if [ "$NAUTARCH" = 0 ]; then
   MODE=fresh
   # A data.db with no plugin is somebody's data; never install over it unreviewed.
-  if [ -e "$DATA/data.db" ]; then say "autarch is not installed but $DATA/data.db exists; refusing a fresh install over it. Nothing changed."; exit 6; fi
+  for f in "$DATA"/data.db "$DATA"/data.db-wal "$DATA"/data.db-shm; do
+    if [ -e "$f" ] || [ -L "$f" ]; then say "autarch is not installed but $f exists; refusing a fresh install over it. Nothing changed."; exit 6; fi
+  done
   say "autarch is not installed: fresh v3 install (no disable, no holders check, no v2 DB to restore)"
 else
   MODE=upgrade
@@ -46,15 +48,27 @@ else
   fi
 fi
 if [ "$MODE" = fresh ]; then
-  LEFT="the plugin is left disabled (fresh install; there is no v2 DB)"
+  LEFT="fresh install; there is no v2 DB; see the plugin state line above for what was actually left"
   RECOVER="Recovery: fix the cause and rerun this script (it takes the upgrade path if the plugin is now installed), or remove the plugin with 'bb plugin remove autarch'."
 else
   LEFT="the plugin is left disabled on the unchanged v2 DB"
   RECOVER="Recovery: run the restore from the root-owned copy, $(dirname "$(readlink -f "$0")")/home-restore-v2.sh --thread $THREAD --repo <Autarch checkout> [--backup <path>] (the backup path is in migration_log and bb.log), or retry this upgrade after fixing the cause."
 fi
+# Contain a failed install: bb registers a fresh plugin as enabled, so a failure can leave it enabled and retrying. The
+# only disable on the fresh path is this containment after a failure (never before the install); the state after it is
+# read back and reported, not assumed.
+contain() {
+  if [ "$MODE" = fresh ]; then
+    "${AS[@]}" "$BB" plugin disable autarch || say "plugin disable failed during containment"
+    plugin_state
+    say "plugin state after containment: $PSTATE"
+  else
+    "${AS[@]}" "$BB" plugin disable autarch || true
+  fi
+}
 # 2. Install the v3 build and enable it; the open migrates (quiesce, backup, verify, DDL) or, when fresh, creates the v3 schema.
-"${AS[@]}" "$BB" plugin install --yes "$PLUGIN" || { say "install failed; $LEFT"; exit 4; }
-"${AS[@]}" "$BB" plugin enable autarch || { say "enable failed; $LEFT"; exit 5; }
+"${AS[@]}" "$BB" plugin install --yes "$PLUGIN" || { [ "$MODE" = fresh ] && contain; say "install failed; $LEFT"; exit 4; }
+"${AS[@]}" "$BB" plugin enable autarch || { contain; say "enable failed; $LEFT"; exit 5; }
 # 3. Report, and require success evidence: a healthy plugin status AND a v3 migration_log row (read as mk).
 # Enable can return before activation fails, so poll briefly; no evidence means failure (plan 1.3.9).
 if [ "$TEST" = 1 ]; then TRIES=2; WAIT=0; else TRIES=12; WAIT=5; fi
@@ -78,17 +92,17 @@ LOGLINE=$(printf '%s\n' "$LOGLINES" | tail -1)
 say "bb.log: ${LOGLINES:-no migration line found}"
 case "$LOGLINE" in
   *home-refused:*|*"another connection holds data.db"*|*"pre-migration backup not verified"*|*"store not ready, retrying"*)
-    "${AS[@]}" "$BB" plugin disable autarch || true
+    contain
     say "migration refused; $LEFT. $RECOVER"
     exit 5 ;;
 esac
 if [ "$HEALTHY" != 1 ]; then
-  "${AS[@]}" "$BB" plugin disable autarch || true
+  contain
   say "plugin never became healthy after enable; $LEFT. $RECOVER"
   exit 5
 fi
 if ! printf '%s' "$MIGROW" | grep -Eq '^[0-9]+\|'; then
-  "${AS[@]}" "$BB" plugin disable autarch || true
+  contain
   say "no v3 migration_log row after enable; $LEFT. $RECOVER"
   exit 5
 fi
