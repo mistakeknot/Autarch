@@ -46,6 +46,62 @@ export function bindingRefusal(db: { prepare(sql: string): { get(...a: unknown[]
 export class Delegation {
   constructor(readonly svc: Service) {}
 
+  /**
+   * Plan 1.3.6: delegation settings name Home projects, and each name is re-checked against serve's
+   * current list at open. Until a check succeeds in this process, `rule` refuses (fail closed). In
+   * memory on purpose: a restart checks again.
+   */
+  private verified = false;
+  get projectsVerified(): boolean {
+    return this.verified;
+  }
+
+  /**
+   * The name check against a project list serve returned. A name serve does not know (exact match; no
+   * case folding, no prefixes) leaves `delegation.projects` for `delegation.projects_inactive`, with a
+   * `delegation-settings-migrated` event, so Settings can show it. Narrowing only: it is not a settings
+   * change mk must re-approve. Idempotent.
+   */
+  applyProjectList(names: readonly string[]): { moved: string[] } {
+    const known = new Set(names);
+    const moved: string[] = [];
+    this.db
+      .transaction(() => {
+        const current = this.settings().projects;
+        if (current) {
+          const kept = current.filter((n) => known.has(n));
+          moved.push(...current.filter((n) => !known.has(n)));
+          if (moved.length > 0) {
+            let was: string[] = [];
+            try {
+              const v = JSON.parse(this.store.setting("delegation.projects_inactive") ?? "[]");
+              if (Array.isArray(v)) was = v.filter((x): x is string => typeof x === "string");
+            } catch {
+              /* unreadable: start over */
+            }
+            this.store.setSetting("delegation.projects", JSON.stringify(kept));
+            this.store.setSetting("delegation.projects_inactive", JSON.stringify([...new Set([...was, ...moved])]));
+            this.store.recordEvent("delegation-settings-migrated", null, { moved, kept });
+          }
+        }
+      })
+      .immediate();
+    this.verified = true;
+    return { moved };
+  }
+
+  /** Ask serve for its projects and apply them. A failure leaves delegation refused; the caller retries. */
+  async verifyProjects(list: () => Promise<{ name: string }[]>): Promise<boolean> {
+    let projects: { name: string }[];
+    try {
+      projects = await list();
+    } catch {
+      return false;
+    }
+    this.applyProjectList(projects.map((p) => p.name));
+    return true;
+  }
+
   private get store() {
     return this.svc.store;
   }
@@ -140,6 +196,7 @@ export class Delegation {
     // Settings, suspension and the daily cap are decided inside the pick's write
     // transaction, so two plugin instances cannot each see the last slot.
     const guard = (): { status: number; error: string } | null => {
+      if (!this.verified) return { status: 403, error: "delegation is refused: the project list is not yet verified against serve" };
       const now = this.settings();
       if (!now.vizierThreadId || ctx.threadId !== now.vizierThreadId) return { status: 403, error: "only the vizier thread may rule" };
       if (!(now.projects ?? []).includes(d.project)) return { status: 403, error: "delegation is not enabled for this project" };

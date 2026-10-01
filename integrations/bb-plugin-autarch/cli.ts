@@ -1,4 +1,5 @@
-// `bb home ...`: the command line agents use to file asks and report blocker progress.
+// `bb home ...`: look-ups and the lifecycle of asks filed before cards. New asks are cards, filed with
+// `autarch needs-mk file`; `bb home ask` is retired.
 //
 // This file is handed the operations it may call. It has no way to read or change the
 // delegation settings, and no verb here touches them [D-16]: only the RPC path, driven by mk's
@@ -25,9 +26,19 @@ export interface HomeCliParts {
 
 const out = (v: unknown): PluginCliResult => ({ exitCode: 0, stdout: JSON.stringify(v) });
 const err = (exitCode: number, message: string): PluginCliResult => ({ exitCode, stderr: `${message}\n` });
+export const ASK_MOVED = "moved: use `autarch needs-mk file`";
+const CARD_CLOSES = "card asks close through tasks";
+
+/** Q4 default, one function: which owed rows `list --pull mycroft` shows. A card filed with pull:mycroft
+ *  and a pre-card ask filed with asker mycroft both carry asker "mycroft" in the stored ask. */
+export function isPulled(d: Record<string, unknown>, who: "mycroft"): boolean {
+  return d.asker === who;
+}
+
 const exitFor = (status: number) => (status === 409 ? 5 : status === 400 ? 2 : status >= 500 ? 3 : 1);
 
 function lifecycle(r: LifecycleResult): PluginCliResult {
+  if (!r.ok && r.error === CARD_CLOSES) return err(2, CARD_CLOSES);
   return r.ok ? out({ ok: true, replay: r.replay }) : err(exitFor(r.status), r.error);
 }
 
@@ -39,66 +50,51 @@ export function homeCli(p: HomeCliParts) {
     return svc.recent(d.project, 100_000).find((x) => x.id === id)?.status;
   };
 
+  const cardView = (taskId: string) => {
+    const c = svc.store.db.prepare("SELECT task_id, project_id, card_key, title, state, asking_thread, routing_mode FROM cards WHERE task_id = ?").get(taskId) as Record<string, unknown> | undefined;
+    if (!c) return undefined;
+    const g = svc.store.db.prepare("SELECT id, generation FROM decisions WHERE task_id = ? ORDER BY generation DESC LIMIT 1").get(taskId) as { id: string; generation: number } | undefined;
+    return { ...c, decision_id: g?.id ?? null, generation: g?.generation ?? null, decision_state: g ? state(g.id) ?? null : null };
+  };
+
   return defineCli({
     name: "home",
-    summary: "File asks with mk and report blocker progress",
+    summary: "Look up cards and asks; report progress on asks filed before cards",
     usageErrorExitCode: 2,
     commands: {
       ask: cliCommand({
-        summary: "File an ask (decide, steps or machine) as JSON",
+        summary: "Retired: file a card with `autarch needs-mk file`",
         options: {
-          request: { type: "string", required: true, stdin: true, description: "The ask as a JSON object, at most 16 KiB." },
+          request: { type: "string", stdin: true, description: "Ignored. `bb home ask` moved to `autarch needs-mk file`." },
         },
-        async run({ options }, ctx: PluginCliContext) {
-          if (Buffer.byteLength(options.request, "utf8") > REQUEST_LIMIT) return err(2, "request is over 16 KiB");
-          let raw: unknown;
-          try {
-            raw = JSON.parse(options.request);
-          } catch {
-            return err(2, "request is not valid JSON");
-          }
-          if (raw === null || typeof raw !== "object" || Array.isArray(raw)) return err(2, "request must be a JSON object");
-          const req = { ...(raw as Record<string, unknown>) };
-          if (ctx.threadId) {
-            if (req.thread !== undefined && req.thread !== ctx.threadId) return err(2, "thread conflicts with caller context");
-            req.thread = ctx.threadId;
-            if (req.asker === undefined) req.asker = "thread";
-          } else if (req.asker !== "mycroft") {
-            return err(2, "outside a thread only asker mycroft may file");
-          }
-          let requestId: string | undefined;
-          try {
-            requestId = parseAsk(req).request_id;
-          } catch (e) {
-            return err(2, e instanceof Error ? e.message : String(e));
-          }
-          let r;
-          try {
-            r = await svc.file(req, { threadId: ctx.threadId });
-          } catch (e) {
-            return err(3, `not-filed: ${e instanceof Error ? e.message : String(e)}`);
-          }
-          if (!r.ok) {
-            if (r.exit === 3) return err(3, `not-filed: ${r.error}`);
-            return err(r.status === 409 ? 5 : r.exit, r.error);
-          }
-          return out({ id: r.decision_id, request_id: requestId, mentioned: r.mentioned === true });
-        },
+        run: () => err(2, ASK_MOVED),
       }),
 
       get: cliCommand({
-        summary: "Look up a filed ask by request id or decision id",
+        summary: "Look up a card, a filed ask by request key, or a legacy decision id",
         options: {
-          "request-id": { type: "string", description: "The request id printed by ask." },
+          card: { type: "string", description: "A tasks card (task) id." },
+          request: { type: "string", description: "The request key: a card's, or a pre-card ask's request id." },
+          "request-id": { type: "string", description: "Alias of --request." },
           id: { type: "string", description: "A decision id." },
         },
-        constraints: [{ kind: "exactly-one", options: ["request-id", "id"] }],
+        constraints: [{ kind: "exactly-one", options: ["card", "request", "request-id", "id"] }],
         run({ options }) {
-          if (options["request-id"] !== undefined) {
-            const reg = svc.store.registry(options["request-id"]);
-            if (!reg) return err(1, "unknown request id");
-            const project = (svc.store.decision(reg.decision_id) as { project?: string } | undefined)?.project ?? null;
-            return out({ result: reg.result, decision_id: reg.decision_id, identity: reg.identity, thread: reg.thread, project, state: state(reg.decision_id) });
+          if (options.card !== undefined) {
+            const c = cardView(options.card);
+            return c ? out(c) : err(1, "unknown card");
+          }
+          const key = options.request ?? options["request-id"];
+          if (key !== undefined) {
+            const reg = svc.store.db.prepare("SELECT task_id FROM card_requests WHERE request_key = ?").get(key) as { task_id: string } | undefined;
+            if (reg) {
+              const c = cardView(reg.task_id);
+              return c ? out({ ...c, request_key: key }) : err(1, "unknown request id");
+            }
+            const legacy = svc.store.registry(key);
+            if (!legacy) return err(1, "unknown request id");
+            const project = (svc.store.decision(legacy.decision_id) as { project?: string } | undefined)?.project ?? null;
+            return out({ result: legacy.result, decision_id: legacy.decision_id, identity: legacy.identity, thread: legacy.thread, project, state: state(legacy.decision_id) });
           }
           const id = options.id!;
           const s = state(id);
@@ -111,13 +107,14 @@ export function homeCli(p: HomeCliParts) {
         options: {
           asker: { type: "enum", values: ["thread", "mycroft"], description: "Only asks from this asker." },
           project: { type: "string", description: "Only this project." },
+          pull: { type: "enum", values: ["mycroft"], description: "Only asks Mycroft pulls, cards and pre-card rows alike." },
           json: { type: "boolean", description: "Print JSON (the only format)." },
         },
         run({ options }) {
           const rows = svc
             .owed()
-            .filter((d) => (options.asker ? d.asker === options.asker : true) && (options.project ? d.project === options.project : true))
-            .map((d) => ({ id: d.id, subject: d.subject, project: d.project, thread: d.thread, asker: d.asker, filed_at: d.filed_at }));
+            .filter((d) => (options.asker ? d.asker === options.asker : true) && (options.project ? d.project === options.project : true) && (options.pull ? isPulled(d, options.pull) : true))
+            .map((d) => ({ id: d.id, subject: d.subject, project: d.project, thread: d.thread, asker: d.asker, filed_at: d.filed_at, task_id: d.task_id ?? null }));
           return { exitCode: 0, stdout: JSON.stringify(rows) };
         },
       }),

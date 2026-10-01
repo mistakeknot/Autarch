@@ -100,6 +100,13 @@ print a deprecation notice.
   serve for project roots and files nothing (fails closed) when serve is down.
 - **MCP:** `autarch mcp --project <dir>` runs the MCP server; `autarch-mcp` is an alias.
 
+## Home asks
+
+Agents ask mk by filing a `needs-mk` card in tasks with `autarch needs-mk file`; `bb home ask` is
+retired (exits 2, "moved"). `bb home get`, `list`, `feed` and `stats` read; `bb home progress`,
+`resolve` and `withdraw` are for asks filed before cards and refuse a card. The bb plugin never
+starts `autarch serve`; run it yourself.
+
 ## Design Decisions (Do Not Re-Ask)
 
 - Module: `github.com/mistakeknot/autarch`

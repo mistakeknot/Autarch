@@ -14,6 +14,7 @@ export type LifecycleResult = { ok: true; replay: boolean } | Fail;
 interface Row {
   id: string;
   kind: string;
+  task_id?: string | null;
   subject: string;
   thread: string;
   project: string;
@@ -39,6 +40,12 @@ export interface LaneEntry {
   label?: "unowned machine blocker" | "stalled";
 }
 
+/** Q6 default, one function: the legacy lifecycle (get/progress/resolve/withdraw, runbook, lane) is for
+ *  pre-v3 asks only. A card row (task_id set) closes through its tasks card, never here. */
+export function legacyOnlyRefusal(d: { task_id?: string | null }): Fail | undefined {
+  return d.task_id ? { ok: false, status: 400, error: "card asks close through tasks" } : undefined;
+}
+
 export const STALL_MS = 24 * 3_600_000;
 
 export class Asks {
@@ -56,7 +63,7 @@ export class Asks {
   private open(kind: string): Row[] {
     return this.db
       .prepare(
-        `SELECT d.* FROM decisions d WHERE d.kind = ? AND d.withdrawn_at IS NULL AND d.resolved_at IS NULL
+        `SELECT d.* FROM decisions d WHERE d.kind = ? AND d.task_id IS NULL AND d.withdrawn_at IS NULL AND d.resolved_at IS NULL
            AND NOT EXISTS (SELECT 1 FROM picks k WHERE k.decision_id = d.id)
            AND NOT EXISTS (SELECT 1 FROM decisions r WHERE r.supersedes = d.id)
          ORDER BY d.filed_at, d.rowid`,
@@ -66,7 +73,7 @@ export class Asks {
 
   get(id: string) {
     const d = this.row(id);
-    if (!d) return undefined;
+    if (!d || legacyOnlyRefusal(d)) return undefined;
     return {
       id: d.id,
       kind: d.kind,
@@ -122,6 +129,8 @@ export class Asks {
   private machine(id: string): { d: Row } | Fail {
     const d = this.row(id);
     if (!d) return { ok: false, status: 404, error: "unknown decision" };
+    const refused = legacyOnlyRefusal(d);
+    if (refused) return refused;
     return { d };
   }
 

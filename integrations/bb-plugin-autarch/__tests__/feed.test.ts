@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { clipLabel, FEED_BUDGET, renderFeed, renderLine, type Feed, type FeedLine } from "../feed.js";
+import { buildFeed, clipLabel, FEED_BUDGET, renderFeed, renderLine, type Feed, type FeedLine } from "../feed.js";
 import type { Service } from "../service.js";
+import { cleanupEnvs, opened, rig } from "./card-rig.js";
 import { ask, makeEnv, OPTIONS, type Env } from "./service-helpers.js";
 
 const line = (over: Partial<FeedLine> = {}): FeedLine => ({
@@ -160,5 +161,28 @@ describe("feed queries", () => {
     const rev = (svc.store.decision(r.decision_id) as { revision: string }).revision;
     svc.pick(r.decision_id, "day", rev, "pk", "vizier", "cli", "reason");
     expect(svc.feed("Autarch", "thr-a").text).toContain("[vizier]");
+  });
+});
+
+describe("own-ruling selection on cards (Task 2.7)", () => {
+  it("a thread named by a Blocks thread: ref and the asking thread see the ruling; others only see it as project", async () => {
+    const r = rig();
+    const { g1 } = await opened(r, { blocks: "thread:thr_b bead:mk-1" });
+    expect(r.mkPick(g1.id)).toMatchObject({ ok: true });
+    const own = (t: string) => buildFeed(r.db, "Autarch", t, Date.parse(r.env.now())).own.map((l) => l.decision);
+    expect(own("thr_a")).toEqual([g1.id]);
+    expect(own("thr_b")).toEqual([g1.id]);
+    expect(own("thr_c")).toEqual([]);
+    const proj = buildFeed(r.db, "Autarch", "thr_c", Date.parse(r.env.now())).project.map((l) => l.decision);
+    expect(proj).toEqual([g1.id]);
+    cleanupEnvs();
+  });
+
+  it("the mentions join applies to pre-card rows only", async () => {
+    const r = rig();
+    const { g1 } = await opened(r);
+    r.db.prepare("INSERT INTO mentions(decision_id, thread, request_id, at) VALUES (?, ?, ?, ?)").run(g1.id, "thr_m", "rq-m", r.env.now());
+    expect(r.mkPick(g1.id)).toMatchObject({ ok: true });
+    expect(buildFeed(r.db, "Autarch", "thr_m", Date.parse(r.env.now())).own).toEqual([]);
   });
 });

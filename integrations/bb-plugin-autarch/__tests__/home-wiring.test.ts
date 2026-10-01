@@ -37,7 +37,7 @@ describe("wireHome", () => {
     const f = fakeBb();
     const home = wireHome(f.bb, handle, cfg, { serve });
     expect([...f.events.keys()].sort()).toEqual(["message.cancelled", "message.dispatched", "thread.archived", "thread.deleted", "turn.failed"]);
-    expect(f.services.sort()).toEqual(["home-feed-refresh", "home-queue", "home-serve", "home-wakes"]);
+    expect(f.services.sort()).toEqual(["home-delegation-check", "home-feed-refresh", "home-queue", "home-wakes"]);
     expect(f.configure()).toBeTypeOf("function");
     expect(f.cli()).toBeDefined();
     expect(Object.keys(home.handlers).sort()).toEqual(["catchup", "dismiss", "health", "listAsks", "listRecent", "markAllSeen", "markSeen", "override", "pick", "queue", "resend", "revokeApproval", "setBinding", "setDelegation", "stats"]);
@@ -111,8 +111,10 @@ describe("wireHome", () => {
       const own = { projects: async () => env.projects, health: async () => ({}), healthy: async () => true } as unknown as ServeClient;
       const home = wireHome(f.bb, handle, cfg, { serve: own, sdk });
       await new Promise((r) => setTimeout(r, 20));
-      const filed = await f.cli()!.run(["ask", "--request", JSON.stringify(ask(env))], { threadId: "thr-a" });
-      const id = JSON.parse((filed as { stdout: string }).stdout).id as string;
+      // `bb home ask` is retired, so a pre-card ask is filed straight into the store.
+      const filed = await env.open().file(ask(env), { threadId: "thr-a" });
+      if (!filed.ok) throw new Error(filed.error);
+      const id = filed.decision_id;
       const listed = (await home.handlers.listAsks(null)).owed[0];
       const r = await home.handlers.pick({ decision_id: id, option_id: "project", revision: listed.revision, pick_id: "p1" });
       expect(r.status).toBe(201);
@@ -132,7 +134,8 @@ describe("wireHome", () => {
       const own = { projects: async () => env.projects, health: async () => ({}), healthy: async () => true } as unknown as ServeClient;
       const home = wireHome(f.bb, handle, cfg, { serve: own, sdk: new FakeSdk() });
       await new Promise((r) => setTimeout(r, 20));
-      await f.cli()!.run(["ask", "--request", JSON.stringify(ask(env))], { threadId: "thr-a" });
+      const filed = await env.open().file(ask(env), { threadId: "thr-a" });
+      if (!filed.ok) throw new Error(filed.error);
       const undefinedAt = (v: unknown, path: string): string | null => {
         if (v === undefined) return path;
         if (Array.isArray(v)) return v.map((x, i) => undefinedAt(x, `${path}[${i}]`)).find((x) => x) ?? null;

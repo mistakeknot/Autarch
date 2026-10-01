@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { Catchup } from "../catchup.js";
 import { Delegation } from "../delegation.js";
 import type { Service } from "../service.js";
-import { ask, makeEnv, type Env } from "./service-helpers.js";
+import { ask, makeEnv, type Env, verifiedDelegation } from "./service-helpers.js";
 
 let env: Env;
 let svc: Service;
@@ -11,7 +11,7 @@ let cu: Catchup;
 beforeEach(() => {
   env = makeEnv(["Autarch", "Other"]);
   svc = env.open();
-  dele = new Delegation(svc);
+  dele = verifiedDelegation(svc);
   cu = new Catchup(svc, dele);
 });
 afterEach(() => env.cleanup());

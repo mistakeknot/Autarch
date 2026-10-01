@@ -1,10 +1,12 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { Asks } from "../asks.js";
 import { Catchup } from "../catchup.js";
+import { parseAsk } from "../model.js";
 import { homeCli } from "../cli.js";
 import { Delegation } from "../delegation.js";
 import type { Service } from "../service.js";
-import { ask, makeEnv, type Env } from "./service-helpers.js";
+import { cleanupEnvs, opened, rig } from "./card-rig.js";
+import { ask, makeEnv, type Env, verifiedDelegation } from "./service-helpers.js";
 
 const VIZ = "thr-vizier";
 let env: Env;
@@ -14,7 +16,7 @@ let run: (argv: string[], ctx?: { threadId?: string }) => Promise<{ exitCode: nu
 beforeEach(() => {
   env = makeEnv(["Autarch"]);
   svc = env.open();
-  dele = new Delegation(svc);
+  dele = verifiedDelegation(svc);
   const cli = homeCli({
     svc,
     asks: new Asks(svc),
@@ -43,83 +45,35 @@ const enable = () => {
   dele.markSeen("mk", dele.latestSettingsItem()!);
 };
 
-describe("bb home ask", () => {
-  it("outside a thread without asker mycroft is refused and files nothing", async () => {
-    const r = await run(["ask", "--request", json(ask(env))]);
-    expect(r.exitCode).toBe(2);
+describe("bb home ask is retired", () => {
+  it("exits 2 naming the card filer, from any context, and files nothing", async () => {
+    for (const ctx of [{}, { threadId: "thr-a" }]) {
+      for (const argv of [["ask", "--request", json(ask(env))], ["ask", "--request", json(mycroftAsk())], ["ask"]]) {
+        const r = await run(argv, ctx);
+        expect(r.exitCode).toBe(2);
+        expect(r.stderr).toContain("moved");
+        expect(r.stderr).toContain("autarch needs-mk file");
+      }
+    }
     expect(count()).toBe(0);
-  });
-
-  it("outside a thread accepts asker mycroft", async () => {
-    const r = await run(["ask", "--request", json(mycroftAsk())]);
-    expect(r.exitCode).toBe(0);
-    expect(JSON.parse(r.stdout!)).toMatchObject({ mentioned: false });
-    expect(count()).toBe(1);
-  });
-
-  it("inside a thread uses ctx.threadId when the request names none", async () => {
-    const a = ask(env);
-    delete a.thread;
-    delete a.asker;
-    const r = await run(["ask", "--request", json(a)], { threadId: "thr-ctx" });
-    expect(r.exitCode).toBe(0);
-    const out = JSON.parse(r.stdout!);
-    expect(out.mentioned).toBe(false);
-    expect(typeof out.request_id).toBe("string");
-    expect((svc.store.decision(out.id) as { thread: string }).thread).toBe("thr-ctx");
-  });
-
-  it("a request thread that differs from ctx.threadId exits 2 [D-16]", async () => {
-    const r = await run(["ask", "--request", json(ask(env, { thread: "thr-a" }))], { threadId: "thr-b" });
-    expect(r.exitCode).toBe(2);
-    expect(r.stderr).toContain("thread conflicts with caller context");
-    expect(count()).toBe(0);
-  });
-
-  it("a matching thread is fine", async () => {
-    expect((await run(["ask", "--request", json(ask(env, { thread: "thr-a" }))], { threadId: "thr-a" })).exitCode).toBe(0);
-  });
-
-  it("exits 2 on invalid JSON, a non-object, and a request over 16 KiB", async () => {
-    expect((await run(["ask", "--request", "{nope"], { threadId: "t" })).exitCode).toBe(2);
-    expect((await run(["ask", "--request", "[1]"], { threadId: "t" })).exitCode).toBe(2);
-    const big = ask(env, { question: "q".repeat(17 * 1024) });
-    expect((await run(["ask", "--request", json(big)], { threadId: "thr-a" })).exitCode).toBe(2);
-    expect((await run(["ask"], { threadId: "thr-a" })).exitCode).toBe(2);
-  });
-
-  it("exit 2 on a validation failure from the service", async () => {
-    const r = await run(["ask", "--request", json(ask(env, { project: "Nope" }))], { threadId: "thr-a" });
-    expect(r.exitCode).toBe(2);
-  });
-
-  it("exit 3 when not filed", async () => {
-    env.down.value = true;
-    const r = await run(["ask", "--request", json(ask(env))], { threadId: "thr-a" });
-    expect(r.exitCode).toBe(3);
-    expect(r.stderr).toContain("not-filed");
-  });
-
-  it("exit 5 when the decision it replaces is already ruled", async () => {
-    const id = await filed();
-    const rev = (svc.store.decision(id) as { revision: string }).revision;
-    svc.pick(id, "day", rev, "pk1", "mk", "home");
-    const r = await run(["ask", "--request", json(ask(env, { question: "Changed?", supersedes: id }))], { threadId: "thr-a" });
-    expect(r.exitCode).toBe(5);
   });
 });
 
 describe("bb home get, list, stats, feed", () => {
-  it("get --request-id returns a decision's and a mention's result", async () => {
-    const id = await filed({ thread: "thr-a" });
+  it("get --request-id and --request return a decision's and a mention's result", async () => {
     const own = ask(env, { thread: "thr-a" });
-    const g = await run(["get", "--request-id", (JSON.parse((await run(["ask", "--request", json(own)], { threadId: "thr-a" })).stdout!) as { request_id: string }).request_id]);
-    expect(JSON.parse(g.stdout!)).toMatchObject({ result: "decision", decision_id: id, state: "open" });
+    const id = await filed({ thread: "thr-a" });
+    const key = parseAsk(own).request_id!;
+    for (const flag of ["--request-id", "--request"]) {
+      const g = await run(["get", flag, key]);
+      expect(JSON.parse(g.stdout!)).toMatchObject({ result: "decision", decision_id: id, state: "open" });
+    }
+    const g = await run(["get", "--request", key]);
 
-    const m = await run(["ask", "--request", json(ask(env, { thread: "thr-b" }))], { threadId: "thr-b" });
-    const mo = JSON.parse(m.stdout!);
-    expect(mo.mentioned).toBe(true);
-    const g2 = await run(["get", "--request-id", mo.request_id]);
+    const other = ask(env, { thread: "thr-b" });
+    const m = await svc.file(other, { threadId: "thr-b" });
+    expect(m.ok && m.mentioned).toBe(true);
+    const g2 = await run(["get", "--request", parseAsk(other).request_id!]);
     expect(JSON.parse(g2.stdout!)).toMatchObject({ result: "mention", decision_id: id });
     // E-6: the recovery read carries identity and scope.
     const first = JSON.parse(g.stdout!) as { identity: string; thread: string; project: string };
@@ -216,5 +170,77 @@ describe("no CLI verb changes delegation settings", () => {
     expect(snap()).toBe(before);
     const unknown = await run(["set-delegation", "--vizier-thread-id", "thr-evil"], { threadId: VIZ });
     expect(unknown.exitCode).toBe(2);
+  });
+});
+
+describe("cards in the CLI (Task 2.7)", () => {
+  const cardCli = async (o: Parameters<typeof opened>[1] = {}) => {
+    const r = rig();
+    const c = await opened(r, o);
+    const s = r.svc;
+    const d = verifiedDelegation(s);
+    const cli = homeCli({
+      svc: s,
+      asks: new Asks(s),
+      catchup: new Catchup(s, d),
+      rule: (id, option, reason, ctx) => d.rule(id, option, reason, ctx),
+      isVizier: () => false,
+    });
+    return { r, c, run: (argv: string[], ctx: { threadId?: string } = {}) => Promise.resolve(cli.run(argv, ctx)) };
+  };
+  afterEach(() => cleanupEnvs());
+
+  it("progress, resolve and withdraw refuse a card row with exit 2 and change nothing", async () => {
+    const { r, c, run: go } = await cardCli();
+    const before = JSON.stringify(r.svc.store.decision(c.g1.id));
+    for (const verb of ["progress", "resolve", "withdraw"]) {
+      const x = await go([verb, c.g1.id], { threadId: "thr_a" });
+      expect(x.exitCode).toBe(2);
+      expect(x.stderr).toContain("card asks close through tasks");
+    }
+    expect(JSON.stringify(r.svc.store.decision(c.g1.id))).toBe(before);
+  });
+
+  it("get --card reads the card and its current generation; an unknown card exits 1", async () => {
+    const { c, run: go } = await cardCli();
+    const x = await go(["get", "--card", c.t.id]);
+    expect(x.exitCode).toBe(0);
+    expect(JSON.parse(x.stdout!)).toMatchObject({ task_id: c.t.id, state: "open", decision_id: c.g1.id, generation: 1, decision_state: "open" });
+    expect((await go(["get", "--card", "nope"])).exitCode).toBe(1);
+  });
+
+  it("get --request resolves a card key through card_requests, and a legacy key through the registry", async () => {
+    const { r, c, run: go } = await cardCli({ key: "key-card-1" });
+    const x = await go(["get", "--request", "key-card-1"]);
+    expect(JSON.parse(x.stdout!)).toMatchObject({ task_id: c.t.id, request_key: "key-card-1", decision_id: c.g1.id });
+    expect((await go(["get", "--request", "missing"])).exitCode).toBe(1);
+
+    const legacyEnv = makeEnv(["Autarch"]);
+    try {
+      const s = legacyEnv.open();
+      const a = ask(legacyEnv, { thread: "thr-a" });
+      const f = await s.file(a, {});
+      if (!f.ok) throw new Error(f.error);
+      const d = verifiedDelegation(s);
+      const cli = homeCli({ svc: s, asks: new Asks(s), catchup: new Catchup(s, d), rule: () => ({ ok: false, status: 400, error: "x" }) as never, isVizier: () => false });
+      const g = await cli.run(["get", "--request", parseAsk(a).request_id!], {});
+      expect(JSON.parse(g.stdout!)).toMatchObject({ result: "decision", decision_id: f.decision_id });
+    } finally {
+      legacyEnv.cleanup();
+    }
+  });
+
+  it("list --pull mycroft keeps pull cards and legacy asker-mycroft rows, and drops thread asks", async () => {
+    const { r, c, run: go } = await cardCli({ pull: true });
+    const t = await opened(r, { key: "key-thread" });
+    const ma = ask(r.env, { asker: "mycroft", subject: "legacy pull", question: "Legacy pull?", options: [{ id: "a", label: "A" }, { id: "b", label: "B" }] });
+    delete ma.thread;
+    const lf = await r.svc.file(ma, {});
+    if (!lf.ok) throw new Error(lf.error);
+    const all = JSON.parse((await go(["list"])).stdout!) as { id: string }[];
+    expect(all.map((x) => x.id)).toEqual(expect.arrayContaining([c.g1.id, t.g1.id, lf.decision_id]));
+    const pulled = JSON.parse((await go(["list", "--pull", "mycroft"])).stdout!) as { id: string; task_id: string | null }[];
+    expect(pulled.map((x) => x.id).sort()).toEqual([c.g1.id, lf.decision_id].sort());
+    expect(pulled.find((x) => x.id === c.g1.id)!.task_id).toBe(c.t.id);
   });
 });

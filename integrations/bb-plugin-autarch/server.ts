@@ -22,7 +22,7 @@ import { Delegation } from "./delegation.js";
 import { exportEvents } from "./export.js";
 import { FeedCaches } from "./feed.js";
 import { parseAsk } from "./model.js";
-import { ServeClient, ServeSupervisor, tokenReader } from "./serve.js";
+import { ServeClient, tokenReader } from "./serve.js";
 import { CardWriter } from "./cardwrites.js";
 import { Queue } from "./queue.js";
 import { buildQueue, setBinding } from "./queueview.js";
@@ -250,20 +250,16 @@ export function wireHome(bb: BbPluginApi, handle: StoreHandle, cfg: HomeConfig, 
       }
     },
   });
-  const supervisor = new ServeSupervisor({
-    addr: cfg.serveAddr,
-    bin: cfg.autarchBin,
-    tokenFile: cfg.serveTokenFile,
-    projectDirs: cfg.serveProjectDirs,
-    health: () => serve.healthy(),
-  });
-  bb.background.service("home-serve", {
+  // Plan 1.3.6: until serve's project list has been checked against the delegation settings, delegation is
+  // refused. Retried until it succeeds; read-only toward serve, and serve is not started from here.
+  bb.background.service("home-delegation-check", {
     async start(signal) {
-      while (!signal.aborted) {
+      while (!signal.aborted && !parts) await sleep(1000, signal);
+      while (!signal.aborted && parts) {
         try {
-          await supervisor.check();
+          if (await parts.dele.verifyProjects(() => serve.projects())) return;
         } catch (e) {
-          bb.log.warn(`serve supervisor: ${e instanceof Error ? e.message : String(e)}`);
+          bb.log.warn(`delegation check: ${e instanceof Error ? e.message : String(e)}`);
         }
         await sleep(SERVE_CHECK_MS, signal);
       }

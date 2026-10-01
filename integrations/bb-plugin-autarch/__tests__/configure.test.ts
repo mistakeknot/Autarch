@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { Delegation } from "../delegation.js";
 import { FeedCaches } from "../feed.js";
 import type { Service } from "../service.js";
-import { ask, makeEnv, OPTIONS, type Env } from "./service-helpers.js";
+import { ask, makeEnv, OPTIONS, type Env, verifiedDelegation } from "./service-helpers.js";
 
 let env: Env;
 let svc: Service;
@@ -13,7 +13,7 @@ beforeEach(() => {
   env = makeEnv(["Autarch", "Other"]);
   caches = new FeedCaches(() => svc.store.db, now);
   svc = env.open({ nudge: () => caches.invalidate() });
-  dele = new Delegation(svc);
+  dele = verifiedDelegation(svc);
 });
 afterEach(() => env.cleanup());
 
@@ -49,7 +49,8 @@ describe("configure [D-17]", () => {
   it("carries the filing note and never a question or instruction", async () => {
     await fileAndPick("thr-a", "project");
     const t = caches.configure("Autarch", "thr-a")!;
-    expect(t).toContain("bb home ask --request-stdin");
+    expect(t).toContain("autarch needs-mk file");
+    expect(t).not.toContain("--request-stdin");
     expect(t).toContain("needs-context");
     expect(t).toContain("reversible");
     expect(t).not.toContain("Question 1");
@@ -69,7 +70,8 @@ describe("configure [D-17]", () => {
     const t = caches.configure("Autarch", "thr-a")!;
     expect(t.length).toBeLessThanOrEqual(4096);
     expect(t.isWellFormed()).toBe(true);
-    expect(t).toContain("bb home ask --request-stdin");
+    expect(t).toContain("autarch needs-mk file");
+    expect(t).not.toContain("--request-stdin");
   });
 
   it("an overridden ruling leaves the project lines at once, without waiting 30 s", async () => {

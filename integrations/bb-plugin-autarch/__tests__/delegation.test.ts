@@ -4,7 +4,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { Delegation } from "../delegation.js";
 import { renderFeed } from "../feed.js";
 import type { Service } from "../service.js";
-import { ask, makeEnv, OPTIONS, type Env } from "./service-helpers.js";
+import { ask, makeEnv, OPTIONS, type Env, verifiedDelegation } from "./service-helpers.js";
 
 let env: Env;
 let svc: Service;
@@ -12,7 +12,7 @@ let dele: Delegation;
 beforeEach(() => {
   env = makeEnv(["Autarch", "Other"]);
   svc = env.open();
-  dele = new Delegation(svc);
+  dele = verifiedDelegation(svc);
 });
 afterEach(() => env.cleanup());
 
@@ -124,7 +124,7 @@ describe("rule: bounded policy [D-2] [D-1]", () => {
     const a = await fileId();
     const b = await fileId({ subject: "autarch/b", question: "b?" });
     // a second connection on the same database file, its own Service
-    const other = new Delegation(env.open());
+    const other = verifiedDelegation(env.open());
     other.svc.store.db.pragma("busy_timeout = 50");
     // connection 1 has just counted the vizier picks when connection 2 rules on b
     const realPrepare = svc.store.db.prepare.bind(svc.store.db);
@@ -287,7 +287,7 @@ describe("override [D-3] [G-2]", () => {
     if (!r1.ok || !r2.ok) throw new Error("override");
     expect(r2).toMatchObject({ decision_id: r1.decision_id, replay: true });
     expect(voidNotices(a)).toHaveLength(1);
-    const again = new Delegation(env.open());
+    const again = verifiedDelegation(env.open());
     expect(again.override(a, {})).toMatchObject({ ok: true, decision_id: r1.decision_id });
     expect(voidNotices(a)).toHaveLength(1);
   });
@@ -426,5 +426,74 @@ describe25("override of a vizier-picked card generation (T10)", () => {
     expect25(r.vizierPick(g2.id)).toMatchObject({ ok: false, status: 403 });
     // mk's pick on g2: the ruling names the overridden decision
     expect25(r.mkPick(g2.id)).toMatchObject({ ok: true });
+  });
+});
+
+describe("migration of name-based delegation settings at open (plan 1.3.6)", () => {
+  const events = () => svc.store.db.prepare("SELECT detail_json FROM events WHERE type = 'delegation-settings-migrated' ORDER BY seq").all().map((r) => JSON.parse((r as { detail_json: string }).detail_json));
+  const inactive = () => JSON.parse(svc.store.setting("delegation.projects_inactive") ?? "[]");
+
+  it("a bare Delegation refuses to rule until the project list is verified (fails closed)", async () => {
+    const bare = new Delegation(svc);
+    bare.setDelegation({ vizierThreadId: VIZ, projects: ["Autarch"], dailyCap: 5 }, {});
+    bare.markSeen("mk", bare.latestSettingsItem()!);
+    const id = await fileId();
+    expect(bare.projectsVerified).toBe(false);
+    expect(bare.rule(id, "project", "reversible and low risk", { threadId: VIZ })).toMatchObject({ ok: false, status: 403, error: expect.stringContaining("not yet verified") });
+    expect(svc.store.pick(id)).toBeUndefined();
+    bare.applyProjectList(["Autarch"]);
+    expect(bare.rule(id, "project", "reversible and low risk", { threadId: VIZ })).toMatchObject({ ok: true });
+  });
+
+  it("a name serve does not know moves to projects_inactive with an event, and is never matched by case or prefix", () => {
+    enable({ projects: ["Autarch", "Gone", "autarch-old"] });
+    const d = new Delegation(svc);
+    const r = d.applyProjectList(["Autarch", "Other"]);
+    expect(r.moved).toEqual(["Gone", "autarch-old"]);
+    expect(d.settings().projects).toEqual(["Autarch"]);
+    expect(inactive()).toEqual(["Gone", "autarch-old"]);
+    expect(events()).toEqual([{ moved: ["Gone", "autarch-old"], kept: ["Autarch"] }]);
+    expect(d.projectsVerified).toBe(true);
+  });
+
+  it("keeps everything and records nothing when every name is known; running it twice is idempotent", () => {
+    enable({ projects: ["Autarch"] });
+    const d = new Delegation(svc);
+    expect(d.applyProjectList(["Autarch"]).moved).toEqual([]);
+    expect(d.applyProjectList(["Autarch"]).moved).toEqual([]);
+    expect(events()).toEqual([]);
+    expect(inactive()).toEqual([]);
+  });
+
+  it("does not move the settings-change pin: mk's seen row for the last change still holds, and the move needs no re-approval", () => {
+    enable({ projects: ["Autarch", "Gone"] });
+    const d = new Delegation(svc);
+    d.applyProjectList(["Autarch"]);
+    expect(d.pinned().filter((p) => p.item.startsWith("delegation-settings:"))).toEqual([]);
+  });
+
+  it("verifyProjects stays closed while serve is down and retries to success", async () => {
+    enable({ projects: ["Autarch", "Gone"] });
+    const d = new Delegation(svc);
+    let up = false;
+    const list = async () => {
+      if (!up) throw new Error("serve is down");
+      return [{ name: "Autarch" }];
+    };
+    expect(await d.verifyProjects(list)).toBe(false);
+    expect(d.projectsVerified).toBe(false);
+    expect(d.settings().projects).toEqual(["Autarch", "Gone"]);
+    const id = await fileId();
+    expect(d.rule(id, "project", "reversible and low risk", { threadId: VIZ })).toMatchObject({ ok: false, status: 403 });
+    up = true;
+    expect(await d.verifyProjects(list)).toBe(true);
+    expect(d.projectsVerified).toBe(true);
+    expect(inactive()).toEqual(["Gone"]);
+  });
+
+  it("a restart is unverified again until the next successful check", () => {
+    const d = new Delegation(svc);
+    d.applyProjectList(["Autarch"]);
+    expect(new Delegation(env.open()).projectsVerified).toBe(false);
   });
 });

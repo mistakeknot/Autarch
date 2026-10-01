@@ -1,12 +1,8 @@
-// The plugin's link to `autarch serve`: a supervisor that keeps it running and a client
-// that reads the project roots and build. The token file is read here, server-side only;
+// The plugin's link to `autarch serve`: a client that reads the project roots and build. The plugin
+// never starts or restarts serve (plan Task 2.7: no process spawning in plugin server code). The token file is read here, server-side only;
 // nothing in this file returns the token [H-6].
-import { spawn as nodeSpawn } from "node:child_process";
 import { readFileSync } from "node:fs";
 import type { ProjectInfo } from "./service.js";
-
-export const MAX_RESTARTS = 3;
-export const RESTART_WINDOW_MS = 10 * 60_000;
 
 type FetchLike = (url: string | URL, init?: { headers?: Record<string, string>; signal?: AbortSignal }) => Promise<Response>;
 
@@ -46,42 +42,6 @@ export class ServeClient {
       return false;
     }
   }
-}
-
-export interface SupervisorOptions {
-  addr: string;
-  bin: string;
-  tokenFile: string;
-  projectDirs: string[];
-  health: () => Promise<boolean>;
-  spawn?: (bin: string, args: string[]) => void;
-  now?: () => number;
-}
-
-/** Start `autarch serve` when /health fails: at most 3 starts per 10 minutes, none while it answers. */
-export class ServeSupervisor {
-  private readonly starts: number[] = [];
-  constructor(private readonly o: SupervisorOptions) {}
-
-  args(): string[] {
-    return ["serve", "--addr", this.o.addr, "--token-file", this.o.tokenFile, ...this.o.projectDirs.flatMap((d) => ["--project-dir", d])];
-  }
-
-  async check(): Promise<"healthy" | "started" | "limited"> {
-    if (await this.o.health()) return "healthy";
-    const now = (this.o.now ?? Date.now)();
-    while (this.starts.length > 0 && now - this.starts[0]! >= RESTART_WINDOW_MS) this.starts.shift();
-    if (this.starts.length >= MAX_RESTARTS) return "limited";
-    this.starts.push(now);
-    (this.o.spawn ?? detached)(this.o.bin, this.args());
-    return "started";
-  }
-}
-
-function detached(bin: string, args: string[]): void {
-  const child = nodeSpawn(bin, args, { detached: true, stdio: "ignore" });
-  child.on("error", () => {});
-  child.unref();
 }
 
 export const tokenReader = (path: string) => () => readFileSync(path, "utf8");

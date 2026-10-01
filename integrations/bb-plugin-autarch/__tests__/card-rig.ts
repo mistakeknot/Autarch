@@ -6,7 +6,7 @@ import { Queue } from "../queue.js";
 import { Service } from "../service.js";
 import { TasksClient } from "../tasks.js";
 import { FakeTasks, type FakeTask } from "./tasks-fake.js";
-import { makeEnv, type Env } from "./service-helpers.js";
+import { makeEnv, type Env, verifiedDelegation } from "./service-helpers.js";
 import { pickOf } from "./helpers.js";
 
 export const T1 = "2026-10-01T00:00:01.000Z";
@@ -66,7 +66,7 @@ export function rig(opts: { projectName?: string; projects?: string[] } = {}) {
     const svc: Service = env.open();
     const writer = new CardWriter(svc.store.db, tasks, env.now);
     const q = new Queue({ service: svc, tasks, writer, publish: () => void published.n++ });
-    return { svc, writer, q, dele: new Delegation(svc) };
+    return { svc, writer, q, dele: verifiedDelegation(svc) };
   };
   let cur = build();
   let tick = 0;

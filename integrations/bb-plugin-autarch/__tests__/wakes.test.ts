@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { Delegation } from "../delegation.js";
 import type { Service } from "../service.js";
 import { framed, sdkAdapter, WakeLoop } from "../wakes.js";
-import { ask, makeEnv, type Env } from "./service-helpers.js";
+import { ask, makeEnv, type Env, verifiedDelegation } from "./service-helpers.js";
 import { archived, econnrefused, FakeSdk, netError } from "./wakes-helpers.js";
 
 let env: Env;
@@ -49,7 +49,7 @@ function crashAfterQueue(id: string, opts: { cancel?: boolean } = {}) {
 
 // A delegated wake, then mk overrides it: returns the wake and the void notice.
 async function delegated(thread = "thr-a") {
-  const dele = new Delegation(svc);
+  const dele = verifiedDelegation(svc);
   dele.setDelegation({ vizierThreadId: "thr-vizier", projects: ["Autarch"], dailyCap: 5 }, {});
   dele.markSeen("mk", dele.latestSettingsItem()!);
   const r = await svc.file(ask(env, { thread, question: `Question number ${++q}?`, subject: `s${q}` }), {});

@@ -1,6 +1,7 @@
 import Database from "better-sqlite3";
 import { chmodSync, lstatSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
+import { Delegation } from "../delegation.js";
 import { Service, type ProjectInfo, type ServiceDeps } from "../service.js";
 import { Store } from "../store.js";
 import { tmpDir } from "./helpers.js";
@@ -86,4 +87,14 @@ export function ask(env: Env, over: Record<string, unknown> = {}): Record<string
     options: OPTIONS,
     ...over,
   };
+}
+
+/**
+ * A Delegation whose project list serve has already confirmed, as after a successful open check
+ * (plan 1.3.6). A bare `new Delegation(svc)` refuses to rule until that check runs.
+ */
+export function verifiedDelegation(svc: Service, names: readonly string[] = ["Autarch", "Other"]): Delegation {
+  const d = new Delegation(svc);
+  d.applyProjectList(names);
+  return d;
 }

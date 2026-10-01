@@ -12,7 +12,7 @@ import { homeCli } from "../cli.js";
 import { Delegation } from "../delegation.js";
 import type { Service } from "../service.js";
 import { AsksPanel, AskCard } from "../ui/asks.js";
-import { ask, makeEnv, OPTIONS, type Env } from "./service-helpers.js";
+import { ask, makeEnv, OPTIONS, type Env, verifiedDelegation } from "./service-helpers.js";
 
 const MERGE = {
   id: "merge",
@@ -31,7 +31,7 @@ let run: (argv: string[], ctx?: { threadId?: string }) => Promise<{ exitCode: nu
 beforeEach(() => {
   env = makeEnv(["Autarch"]);
   svc = env.open();
-  dele = new Delegation(svc);
+  dele = verifiedDelegation(svc);
   const cli = homeCli({
     svc,
     asks: new Asks(svc),

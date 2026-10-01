@@ -105,6 +105,12 @@ function chainTip(db: Database.Database, id: string): { id: string; picked: bool
   return { id: cur, picked, withdrawn: !!d.withdrawn_at };
 }
 
+/** Whose rulings a thread sees as its own: the asking thread; a thread named by a `thread:<id>` Blocks ref
+ *  on the card; and, for rows filed before cards (task_id NULL) only, a thread that mentioned the ask. */
+const OWN_MATCH = `(d.thread = @thread
+       OR EXISTS (SELECT 1 FROM decision_blocks b WHERE b.decision_id = d.id AND b.ref = 'thread:' || @thread)
+       OR (d.task_id IS NULL AND EXISTS (SELECT 1 FROM mentions m WHERE m.decision_id = d.id AND m.thread = @thread)))`;
+
 export function buildFeed(db: Database.Database, project: string, thread: string, nowMs: number): Feed {
   const sel = `SELECT d.id, d.project, d.thread, d.supersedes, d.body_json, k.option_id, k."by" AS by, k.picked_at,
        EXISTS (SELECT 1 FROM decisions r WHERE r.supersedes = d.id) AS replaced
@@ -115,7 +121,7 @@ export function buildFeed(db: Database.Database, project: string, thread: string
 
   const mine = db
     .prepare(
-      `${sel} AND (d.thread = @thread OR EXISTS (SELECT 1 FROM mentions m WHERE m.decision_id = d.id AND m.thread = @thread))${order}`,
+      `${sel} AND ${OWN_MATCH}${order}`,
     )
     .all({ project, thread, since: iso(nowMs - OWN_DAYS * DAY) }) as Row[];
   const own: FeedLine[] = [];
@@ -151,7 +157,7 @@ export function buildFeed(db: Database.Database, project: string, thread: string
 
 const CONFIGURE_HEADER = "Recent rulings (label only):";
 const CONFIGURE_NOTE = [
-  "When you need mk, end your turn with an ask: run `bb home ask --request-stdin` with one line of JSON.",
+  "When you need mk, end your turn by filing a card: run `autarch needs-mk file` (`bb home ask` is retired).",
   "Options default to needs-context.",
   "Give an option an `instruction` when you know what you'd do if mk picks it, and mark it `reversible` only if undoing it is cheap and local; never for a push, merge, deploy or release.",
   "If your question is already answered above, do not file it again.",

@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { Asks } from "../asks.js";
 import type { Service } from "../service.js";
 import { Store } from "../store.js";
+import { cleanupEnvs, opened, rig } from "./card-rig.js";
 import { ask, makeEnv, T0, type Env } from "./service-helpers.js";
 
 let env: Env;
@@ -297,5 +298,28 @@ describe("the outbox [E-8]", () => {
     expect(owner.payload).toContain(`bb home get --id ${m}`);
     expect(owner.payload).toContain("still open");
     expect(asks.get(m)).toMatchObject({ resolved_at: expect.any(String) });
+  });
+});
+
+describe("card rows are outside the legacy lifecycle (Task 2.7, Q6)", () => {
+  const REFUSED = { ok: false, status: 400, error: "card asks close through tasks" };
+
+  it("refuses progress, resolve and withdraw on a card row, hides it from get, and leaves it untouched", async () => {
+    const r = rig();
+    const { g1 } = await opened(r);
+    const a = new Asks(r.svc);
+    const before = r.svc.store.decision(g1.id);
+    expect(a.progress(g1.id, "x", { threadId: "thr_a" })).toEqual(REFUSED);
+    expect(a.resolve(g1.id, "x", { threadId: "thr_a" })).toEqual(REFUSED);
+    expect(a.withdraw(g1.id, { threadId: "thr_a" })).toEqual(REFUSED);
+    expect(a.get(g1.id)).toBeUndefined();
+    expect(r.svc.store.decision(g1.id)).toEqual(before);
+    cleanupEnvs();
+  });
+
+  it("legacy rows keep working beside card rows", async () => {
+    const m = await fileId(machineAsk());
+    expect(asks.get(m)).toBeDefined();
+    expect(asks.lists().asks.map((e) => e.id)).toContain(m);
   });
 });

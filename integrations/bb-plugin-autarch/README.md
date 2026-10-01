@@ -4,12 +4,14 @@ A BB plugin that puts Autarch's Home in BB: the asks waiting for mk, a catch-up 
 the vizier thread, delegation settings, and a small example todo page.
 
 - `server.ts` — the backend: the Home store in `data.db`, RPC methods for the page,
-  the `bb home` CLI command (`cli.ts`), settings, and a realtime signal that keeps every
+  the `bb home` look-up CLI (`cli.ts`), settings, and a realtime signal that keeps every
   open page current. It also keeps the example todo list in `bb.storage.kv`.
 - `app.tsx` — the frontend: the **Home** page (asks, catch-up, vizier, map, settings)
   and the **Example todos** page, both in the left sidebar.
-- `skills/home/SKILL.md` — a skill that tells agents how to file asks and report blocker
-  progress with `bb home`. BB imports it into agent threads automatically.
+- `skills/home/SKILL.md` — a skill that tells agents to file asks as `needs-mk` cards with
+  `autarch needs-mk file` and to read them with `bb home`. The lifecycle commands
+  (`progress`, `resolve`, `withdraw`) are for asks filed before cards. BB imports the skill
+  into agent threads automatically.
 - `PLUGIN_OVERVIEW.md` — the store listing text: a longer version of
   `bb.description` that the plugin detail page shows under it. See
   [Store listing](#store-listing).
