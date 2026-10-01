@@ -3,6 +3,8 @@
 // HTTP-shaped results and never holds state of its own.
 import { createHash, randomUUID } from "node:crypto";
 import { buildFeed, renderFeed, type Feed } from "./feed.js";
+import { cardFingerprint, askingThread, parseCard, toV1, type Card } from "./cards.js";
+import type { Task, TaskCommentRow } from "./tasks.js";
 import { identity, normalizedJson, parseAsk, revision, semanticKey, type Ask } from "./model.js";
 import { estateRoot, pinRoot, renderRuling, rulingPath, writeRuling, type PinnedRoot, type Ruling } from "./ruling.js";
 import type { DecisionInput, ObligationInput, ObligationRow, PickInput, PickRow, Store } from "./store.js";
@@ -50,6 +52,11 @@ type Row = Record<string, unknown> & {
 };
 
 const RECONCILE_MS = 30_000;
+const ROUTING_PREFIX = "routing: ";
+const OBSERVED_BACKOFF_MS = 5_000;
+const CLOSED_BACKOFF_MS = 30_000;
+const MAX_BACKOFF_MS = 300_000;
+const UNROUTABLE_AFTER_MS = 60_000;
 const APPROVAL_DEFAULT_TTL = 24 * 3600;
 const APPROVAL_MAX_TTL = 7 * 24 * 3600;
 const fail = (status: number, error: string, exit: 1 | 2 | 3 = status >= 500 ? 3 : 1): FileResult => ({ ok: false, status, exit, error });
@@ -610,4 +617,454 @@ export class Service {
       median_override_ms: median(gaps),
     };
   }
+
+  // ---- cards (Task 2.4): ingest and the state machine, plan 1.3.4 ------------------------
+
+  /** serve's project list, for bindings. Rejects when serve is down. */
+  serveProjects(): Promise<ProjectInfo[]> {
+    return this.deps.projects();
+  }
+
+  /**
+   * Write `suggested` when the tasks project's name equals exactly one serve project name
+   * (case-insensitive, never fuzzy). No row otherwise; an existing row is never touched, because
+   * only mk confirms or rejects a binding (plan 1.3.6).
+   */
+  suggestBinding(tasksProjectId: string, tasksProjectName: string, serve: ProjectInfo[]): void {
+    const hits = serve.filter((p) => p.name.toLowerCase() === tasksProjectName.toLowerCase());
+    if (hits.length !== 1) return;
+    this.db
+      .prepare("INSERT OR IGNORE INTO project_bindings(tasks_project_id, home_project, state, suggested_at) VALUES (?, ?, 'suggested', ?)")
+      .run(tasksProjectId, hits[0]!.name, this.now());
+  }
+
+  /**
+   * Record what the poller saw of each card (all of a poll's cards before any is materialized, so
+   * the canonical card of a duplicated Request is order-independent). Never touches routing columns.
+   */
+  observeCards(tasks: readonly Task[]): void {
+    const at = this.now();
+    const up = this.db.prepare(
+      `INSERT INTO cards(task_id, project_id, card_key, title, request_key, request_identity, created_at, updated_at, status, labelled, blocks_json, first_seen_at, last_seen_at, deleted_at)
+       VALUES (@id, @project, @key, @title, @rkey, @rident, @created, @updated, @status, 1, @blocks, @at, @at, NULL)
+       ON CONFLICT(task_id) DO UPDATE SET project_id = excluded.project_id, card_key = excluded.card_key, title = excluded.title,
+         request_key = excluded.request_key, request_identity = excluded.request_identity, created_at = excluded.created_at,
+         updated_at = excluded.updated_at, status = excluded.status, labelled = 1, blocks_json = excluded.blocks_json,
+         last_seen_at = excluded.last_seen_at, deleted_at = NULL`,
+    );
+    this.store.atomically(() => {
+      for (const t of tasks) {
+        let rkey: string | null = null;
+        let rident: string | null = null;
+        let blocks: string | null = null;
+        try {
+          const c = parseCard(t.description);
+          rkey = c.request.key;
+          rident = c.request.identity;
+          blocks = JSON.stringify(c.blocks.map((b) => b.ref));
+        } catch {
+          /* not a card yet: shown as display-only by ingestCard */
+        }
+        up.run({ id: t.id, project: t.projectId, key: t.key, title: t.title, rkey, rident, created: t.createdAt, updated: t.updatedAt, status: t.status, blocks, at });
+      }
+    });
+  }
+
+  /** Ids of cards that were seen labelled and open, for the poller's missing-card re-read. */
+  knownOpenCards(): { task_id: string; project_id: string }[] {
+    return this.db
+      .prepare(`SELECT task_id, project_id FROM cards WHERE labelled = 1 AND deleted_at IS NULL AND status IN ('backlog','todo','in_progress','in_review')`)
+      .all() as { task_id: string; project_id: string }[];
+  }
+
+  private cardRow(taskId: string): Record<string, any> | undefined {
+    return this.db.prepare("SELECT * FROM cards WHERE task_id = ?").get(taskId) as Record<string, any> | undefined;
+  }
+  /** The current generation is derived, never stored: max(generation). */
+  currentGeneration(taskId: string): Row | undefined {
+    return this.db.prepare("SELECT * FROM decisions WHERE task_id = ? ORDER BY generation DESC LIMIT 1").get(taskId) as Row | undefined;
+  }
+  private hasPick(taskId: string): boolean {
+    return !!this.db.prepare("SELECT 1 FROM picks k JOIN decisions d ON d.id = k.decision_id WHERE d.task_id = ?").get(taskId);
+  }
+  /** T11: the latest generation is an override of a vizier pick and is still mk's pending decision. */
+  private overrideOpen(latest: Row): boolean {
+    if (!latest.supersedes || latest.withdrawn_at || latest.resolved_at || this.store.pick(latest.id)) return false;
+    return this.store.pick(latest.supersedes)?.by === "vizier";
+  }
+  private sig(taskId: string): string {
+    const c = this.cardRow(taskId);
+    const g = this.currentGeneration(taskId);
+    return JSON.stringify([c?.state, c?.display_reason, c?.changed_after_ruling, g?.generation, g?.withdrawn_at]);
+  }
+  private patchCard(taskId: string, set: Record<string, string | number | null>): void {
+    const keys = Object.keys(set);
+    this.db
+      .prepare(`UPDATE cards SET ${keys.map((k) => `${k} = @${k}`).join(", ")}, updated_at = @__at WHERE task_id = @__id`)
+      .run({ ...set, __at: this.now(), __id: taskId });
+  }
+  private isoPlus(ms: number): string {
+    return new Date(Date.parse(this.now()) + ms).toISOString();
+  }
+
+  /** Ingest one observed card (T1-T5, T8, T11). Never throws for a tasks read failure: `unavailable` says so (T12). */
+  async ingestCard(task: Task, ctx: { comments: () => Promise<TaskCommentRow[]> }): Promise<{ changed: boolean; unavailable?: string }> {
+    if (!this.cardRow(task.id)) this.observeCards([task]);
+    const before = this.sig(task.id);
+    const unavailable = await this.ingestInner(task, ctx);
+    return unavailable ? { changed: before !== this.sig(task.id), unavailable } : { changed: before !== this.sig(task.id) };
+  }
+
+  private async ingestInner(task: Task, ctx: { comments: () => Promise<TaskCommentRow[]> }): Promise<string | void> {
+    let card: Card | null = null;
+    let parseErr = "";
+    try {
+      card = parseCard(task.description);
+    } catch (e) {
+      parseErr = message(e);
+    }
+    const row = this.cardRow(task.id)!;
+    const latest = this.currentGeneration(task.id);
+    if (!latest) return this.materializeNew(task, card, parseErr, ctx, row);
+
+    if (this.hasPick(task.id)) {
+      if (this.overrideOpen(latest)) return; // T11
+      // T8: never a new generation after a pick.
+      let changed = card === null;
+      if (card) {
+        try {
+          changed = cardFingerprint({ title: task.title, card, thread: row.routed_thread ?? "", tasksProject: task.projectId }) !== latest.card_fp;
+        } catch {
+          changed = true;
+        }
+      }
+      this.patchCard(task.id, { state: "ruled", ...(changed ? { changed_after_ruling: 1 } : {}) });
+      return;
+    }
+
+    const ev = await this.evaluate(task, card, parseErr, ctx, row, latest);
+    if ("unavailable" in ev) return ev.unavailable;
+    if (!latest.withdrawn_at) {
+      if (!ev.ok) this.invalidate(latest, ev.reason, ev.routing);
+      else if (ev.fp !== latest.card_fp) this.replaceGeneration(task, ev, latest);
+      else if (row.state !== "open") this.patchCard(task.id, { state: "open", display_reason: null });
+    } else if (ev.ok) {
+      this.reopenGeneration(task, ev, latest); // T5
+    }
+    // A closed card that is still invalid stays closed with its first reason.
+  }
+
+  private async evaluate(
+    task: Task,
+    card: Card | null,
+    parseErr: string,
+    ctx: { comments: () => Promise<TaskCommentRow[]> },
+    row: Record<string, any>,
+    latest: Row,
+  ): Promise<{ ok: true; card: Card; thread: string; fp: string } | { ok: false; reason: string; routing?: boolean } | { unavailable: string }> {
+    if (!card) return { ok: false, reason: parseErr };
+    const reg = this.db.prepare("SELECT * FROM card_requests WHERE task_id = ?").get(task.id) as { request_key: string; identity: string } | undefined;
+    if (reg && (reg.request_key !== card.request.key || reg.identity !== card.request.identity)) return { ok: false, reason: "the Request line changed" };
+    const project = String(card.ask.project ?? "");
+    const mismatch = this.bindingMismatch(task, project);
+    if (mismatch) return { ok: false, reason: mismatch };
+    if (project !== latest.project || card.ask.project_root !== latest.project_root) return { ok: false, reason: "project or project_root changed" };
+    const mode = card.pull === "mycroft" ? "pull" : "thread";
+    if (mode !== row.routing_mode) return { ok: false, reason: `routing mode changed from ${row.routing_mode} to ${mode}`, routing: true };
+    let thread = "";
+    if (mode === "thread") {
+      let comments: TaskCommentRow[];
+      try {
+        comments = await ctx.comments();
+      } catch (e) {
+        return { unavailable: message(e) };
+      }
+      thread = askingThread(comments);
+      if (thread === "") return { ok: false, reason: "no agent comment names the asking thread", routing: true };
+      if (thread !== row.routed_thread) return { ok: false, reason: "the asking thread changed", routing: true };
+    }
+    try {
+      return { ok: true, card, thread, fp: cardFingerprint({ title: task.title, card, thread, tasksProject: task.projectId }) };
+    } catch (e) {
+      return { ok: false, reason: message(e) };
+    }
+  }
+
+  /** Null when the card's ask targets the project its tasks project is bound to. */
+  private bindingMismatch(task: Task, project: string): string | null {
+    const b = this.db.prepare("SELECT home_project, state FROM project_bindings WHERE tasks_project_id = ?").get(task.projectId) as
+      | { home_project: string; state: string }
+      | undefined;
+    if (b && b.state !== "rejected" && b.home_project === project) return null;
+    return `project mismatch: card in ${b?.home_project ?? task.projectId}, ask targets ${project}`;
+  }
+
+  private genInput(task: Task, card: Card, thread: string, fp: string, n: number, supersedes: string | null, root: { project_root: string; root_dev: string; root_ino: string }): DecisionInput {
+    const requestId = `card:${task.id}:g${n}`;
+    const ask = toV1({ pull: card.pull, ask: { ...card.ask, request_id: requestId, ...(supersedes ? { supersedes } : {}) } }, thread);
+    return {
+      id: `card-${task.id}-g${n}`,
+      request_id: requestId,
+      identity: identity(ask),
+      revision: revision(ask),
+      semantic_key: semanticKey(ask),
+      subject: ask.subject ?? "",
+      kind: ask.kind,
+      ask_key: ask.ask_key,
+      project: ask.project,
+      project_root: root.project_root,
+      root_dev: root.root_dev,
+      root_ino: root.root_ino,
+      asker: ask.asker,
+      thread: ask.thread ?? "",
+      owner_thread: null,
+      body_json: normalizedJson(ask),
+      supersedes,
+      delegable: true,
+      source: "card",
+      task_id: task.id,
+      generation: n,
+      tasks_project_id: task.projectId,
+      card_fp: fp,
+    };
+  }
+
+  private snapshotBlocks(decisionId: string, card: Card): void {
+    const ins = this.db.prepare("INSERT OR IGNORE INTO decision_blocks(decision_id, ref) VALUES (?, ?)");
+    for (const b of card.blocks) ins.run(decisionId, b.ref);
+  }
+
+  private markOpen(taskId: string): void {
+    this.patchCard(taskId, { state: "open", display_reason: null, next_check_at: null, check_attempts: 0, routing_check_at: this.now() });
+  }
+
+  /** T4: withdraw the latest generation, state closed. A routing cause enters the closed-card retry set. */
+  private invalidate(latest: Row, reason: string, routing = false): void {
+    this.store.atomically(() => {
+      if (!latest.withdrawn_at) this.store.withdrawDecision(latest.id, reason);
+      this.patchCard(String(latest.task_id), {
+        state: "closed",
+        display_reason: (routing ? ROUTING_PREFIX : "") + reason,
+        check_attempts: 0,
+        next_check_at: routing ? this.isoPlus(CLOSED_BACKOFF_MS) : null,
+      });
+    });
+  }
+
+  /** T3: a valid edit with a new H5 fingerprint before any pick. A refused replacement falls back to T4 in the same transaction. */
+  private replaceGeneration(task: Task, ev: { card: Card; thread: string; fp: string }, latest: Row): void {
+    this.store.atomically(() => {
+      const n = Number(latest.generation) + 1;
+      const input = this.genInput(task, ev.card, ev.thread, ev.fp, n, latest.id, { project_root: String(latest.project_root), root_dev: String(latest.root_dev), root_ino: String(latest.root_ino) });
+      const res = this.store.insertReplacement(input, "replace");
+      if (!res.ok) {
+        this.invalidate(latest, `replacement refused: ${"reason" in res ? res.reason : "request id in use"}`);
+        return;
+      }
+      this.snapshotBlocks(input.id, ev.card);
+      this.markOpen(task.id);
+    });
+  }
+
+  /** T5: a closed card with no pick that is valid again opens g n+1 with no predecessor. */
+  private reopenGeneration(task: Task, ev: { card: Card; thread: string; fp: string }, latest: Row): void {
+    this.store.atomically(() => {
+      const n = Number(latest.generation) + 1;
+      const input = this.genInput(task, ev.card, ev.thread, ev.fp, n, null, { project_root: String(latest.project_root), root_dev: String(latest.root_dev), root_ino: String(latest.root_ino) });
+      const res = this.store.insertDecision(input);
+      if (!res.inserted) throw new Error(`card generation ${input.id} request id is in use`);
+      this.snapshotBlocks(input.id, ev.card);
+      this.markOpen(task.id);
+    });
+  }
+
+  private setDisplay(taskId: string, reason: string): void {
+    this.patchCard(taskId, { state: "display", display_reason: reason, next_check_at: null, check_attempts: 0 });
+  }
+
+  /** T2: stay observed, back off 5 s doubling to 5 min, and say why. */
+  private setObserved(row: Record<string, any>, reason: string): void {
+    const attempts = Number(row.check_attempts ?? 0);
+    const delay = Math.min(OBSERVED_BACKOFF_MS * 2 ** Math.min(attempts, 20), MAX_BACKOFF_MS);
+    this.patchCard(row.task_id, { state: "observed", display_reason: reason, check_attempts: attempts + 1, next_check_at: this.isoPlus(delay) });
+  }
+
+  private async materializeNew(task: Task, card: Card | null, parseErr: string, ctx: { comments: () => Promise<TaskCommentRow[]> }, row: Record<string, any>): Promise<string | void> {
+    if (!card) return this.setDisplay(task.id, parseErr);
+    const key = card.request.key;
+    const reg = this.db.prepare("SELECT task_id FROM card_requests WHERE request_key = ?").get(key) as { task_id: string } | undefined;
+    if (reg && reg.task_id !== task.id) return this.setDisplay(task.id, `duplicate Request of ${key}`);
+    if (!reg) {
+      const canon = this.db
+        .prepare(
+          `SELECT task_id FROM cards WHERE request_key = ? AND labelled = 1 AND deleted_at IS NULL
+             AND status IN ('backlog','todo','in_progress','in_review') ORDER BY created_at, task_id LIMIT 1`,
+        )
+        .get(key) as { task_id: string } | undefined;
+      if (canon && canon.task_id !== task.id) return this.setDisplay(task.id, `duplicate Request of ${key}`);
+    }
+    const project = String(card.ask.project ?? "");
+    const mismatch = this.bindingMismatch(task, project);
+    if (mismatch) {
+      // No binding row yet and serve unreachable: the binding could not be suggested, so wait.
+      if (!this.db.prepare("SELECT 1 FROM project_bindings WHERE tasks_project_id = ?").get(task.projectId)) {
+        try {
+          await this.deps.projects();
+        } catch (e) {
+          return this.setObserved(row, `root unverified: ${message(e)}`);
+        }
+      }
+      return this.setDisplay(task.id, mismatch);
+    }
+
+    let thread = "";
+    if (card.pull !== "mycroft") {
+      let comments: TaskCommentRow[];
+      try {
+        comments = await ctx.comments();
+      } catch (e) {
+        return message(e);
+      }
+      thread = askingThread(comments);
+      if (thread === "") {
+        const waited = Date.parse(this.now()) - Date.parse(String(row.first_seen_at));
+        return this.setObserved(row, waited >= UNROUTABLE_AFTER_MS ? "unroutable" : "waiting for asking thread");
+      }
+    }
+    if (project === "estate") return this.setDisplay(task.id, "estate is not allowed on a card");
+    let projects: ProjectInfo[];
+    try {
+      projects = await this.deps.projects();
+    } catch (e) {
+      return this.setObserved(row, `root unverified: ${message(e)}`);
+    }
+    const p = projects.find((x) => x.name === project);
+    if (!p) return this.setObserved(row, `root unverified: unknown project ${JSON.stringify(project)}`);
+    if (p.root !== card.ask.project_root) return this.setDisplay(task.id, "project_root does not match the root serve resolves for this project");
+
+    let fp: string;
+    let input: DecisionInput;
+    try {
+      fp = cardFingerprint({ title: task.title, card, thread, tasksProject: task.projectId });
+      input = this.genInput(task, card, thread, fp, 1, null, { project_root: p.root, root_dev: String(p.dev), root_ino: String(p.ino) });
+    } catch (e) {
+      return this.setDisplay(task.id, message(e));
+    }
+    this.store.atomically(() => {
+      const res = this.store.insertDecision(input);
+      if (!res.inserted) throw new Error(`card generation ${input.id} request id is in use`);
+      this.db
+        .prepare("INSERT INTO card_requests(request_key, task_id, identity, registered_at) VALUES (?, ?, ?, ?)")
+        .run(key, task.id, card.request.identity, this.now());
+      this.snapshotBlocks(input.id, card);
+      this.patchCard(task.id, {
+        routing_mode: card.pull === "mycroft" ? "pull" : "thread",
+        routed_thread: card.pull === "mycroft" ? null : thread,
+        asking_thread: thread,
+        root_state: "verified",
+        root_reason: null,
+      });
+      this.markOpen(task.id);
+    });
+  }
+
+  /** T6/T7/T11: the card was closed, unlabelled or deleted in tasks. */
+  cardGone(taskId: string, why: "closed" | "unlabelled" | "deleted", status?: string): { changed: boolean } {
+    const before = this.sig(taskId);
+    this.store.atomically(() => {
+      const row = this.cardRow(taskId);
+      if (!row) return;
+      this.patchCard(taskId, {
+        ...(status ? { status } : {}),
+        ...(why === "closed" ? {} : { labelled: 0 }),
+        ...(why === "deleted" ? { deleted_at: this.now() } : {}),
+      });
+      const reason = why === "closed" ? "card closed in tasks" : why === "unlabelled" ? "unlabelled" : "card deleted in tasks";
+      const latest = this.currentGeneration(taskId);
+      if (!latest) {
+        this.patchCard(taskId, { state: "closed", display_reason: reason });
+        return;
+      }
+      if (this.hasPick(taskId)) {
+        if (!this.overrideOpen(latest)) this.patchCard(taskId, { state: "ruled", display_reason: reason });
+        return; // T7, or T11 (nothing at all)
+      }
+      if (!latest.withdrawn_at) this.store.withdrawDecision(latest.id, reason);
+      this.patchCard(taskId, { state: "closed", display_reason: reason, next_check_at: null });
+    });
+    return { changed: before !== this.sig(taskId) };
+  }
+
+  /** Observed cards whose retry time has come (the unresolved-retry set). */
+  dueObserved(limit: number): string[] {
+    return (
+      this.db
+        .prepare(`SELECT task_id FROM cards WHERE state = 'observed' AND labelled = 1 AND deleted_at IS NULL AND (next_check_at IS NULL OR next_check_at <= ?) ORDER BY next_check_at IS NOT NULL, next_check_at, task_id LIMIT ?`)
+        .all(this.now(), limit) as { task_id: string }[]
+    ).map((r) => r.task_id);
+  }
+
+  /** Open thread-mode cards to revalidate, the oldest check first. An override generation or a picked card is not in the set. */
+  routingDue(limit: number): string[] {
+    const rows = this.db
+      .prepare(`SELECT task_id FROM cards WHERE state = 'open' AND routing_mode = 'thread' AND labelled = 1 AND deleted_at IS NULL ORDER BY routing_check_at IS NOT NULL, routing_check_at, task_id`)
+      .all() as { task_id: string }[];
+    const out: string[] = [];
+    for (const r of rows) {
+      const g = this.currentGeneration(r.task_id);
+      if (!g || g.withdrawn_at || this.hasPick(r.task_id)) continue;
+      out.push(r.task_id);
+      if (out.length >= limit) break;
+    }
+    return out;
+  }
+
+  openThreadCardCount(): number {
+    return this.routingDue(Number.MAX_SAFE_INTEGER).length;
+  }
+
+  /** Cards T4 closed for a routing cause that may reopen (T5), whose backoff has elapsed. */
+  dueRoutingClosed(limit: number): string[] {
+    const rows = this.db
+      .prepare(
+        `SELECT task_id FROM cards WHERE state = 'closed' AND display_reason LIKE '${ROUTING_PREFIX}%' AND labelled = 1 AND deleted_at IS NULL
+           AND status IN ('backlog','todo','in_progress','in_review') AND (next_check_at IS NULL OR next_check_at <= ?)
+         ORDER BY next_check_at IS NOT NULL, next_check_at, task_id`,
+      )
+      .all(this.now()) as { task_id: string }[];
+    return rows.filter((r) => !this.hasPick(r.task_id)).slice(0, limit).map((r) => r.task_id);
+  }
+
+  /** Back off a routing-closed card that stayed closed after a retry: 30 s doubling to 5 min. */
+  bumpClosedRetry(taskId: string): void {
+    const row = this.cardRow(taskId);
+    if (!row || row.state !== "closed") return;
+    const attempts = Number(row.check_attempts ?? 0) + 1;
+    this.patchCard(taskId, { check_attempts: attempts, next_check_at: this.isoPlus(Math.min(CLOSED_BACKOFF_MS * 2 ** Math.min(attempts, 20), MAX_BACKOFF_MS)) });
+  }
+
+  /**
+   * Re-read the comments of an open thread-mode card and compare the asking thread to the frozen
+   * one. A failed read changes nothing and does not count as a check (T12).
+   */
+  async revalidateRouting(taskId: string, comments: () => Promise<TaskCommentRow[]>): Promise<{ changed: boolean; unavailable?: string }> {
+    const row = this.cardRow(taskId);
+    const latest = this.currentGeneration(taskId);
+    if (!row || !latest || latest.withdrawn_at || this.hasPick(taskId) || this.overrideOpen(latest) || row.routing_mode !== "thread") return { changed: false };
+    let list: TaskCommentRow[];
+    try {
+      list = await comments();
+    } catch (e) {
+      return { changed: false, unavailable: message(e) };
+    }
+    const before = this.sig(taskId);
+    const thread = askingThread(list);
+    if (thread === "" || thread !== row.routed_thread) {
+      this.invalidate(latest, thread === "" ? "no agent comment names the asking thread" : "the asking thread changed", true);
+    } else {
+      this.patchCard(taskId, { routing_check_at: this.now() });
+    }
+    return { changed: before !== this.sig(taskId) };
+  }
+
 }

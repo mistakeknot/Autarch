@@ -6,7 +6,8 @@
 // display-only, and the thrown message is the reason shown. A card is untrusted,
 // mutable input.
 
-import { parseAsk, type Ask } from "./model.js";
+import { createHash } from "node:crypto";
+import { canonicalJson, normalizedJson, parseAsk, type Ask } from "./model.js";
 
 export interface BlockRef {
   ref: string;
@@ -238,4 +239,28 @@ export function askingThread(comments: readonly TaskComment[]): string {
     if (!first || c.createdAt < first.createdAt || (c.createdAt === first.createdAt && c.id < first.id)) first = c;
   }
   return first?.threadId ?? "";
+}
+
+/**
+ * H5: the card fingerprint, the only hash that decides whether a valid edit is a new generation.
+ * It covers everything a reader of the card sees: title, the sorted and deduplicated Blocks refs,
+ * the ask as v1 (without request_id and supersedes), the root-run tuple, the Request line, the
+ * asking thread and the tasks project. Two cards with the same fingerprint are the same card.
+ */
+export function cardFingerprint(i: { title: string; card: Card; thread: string; tasksProject: string }): string {
+  const v1 = toV1({ pull: i.card.pull, ask: i.card.ask }, i.thread);
+  const ask = JSON.parse(normalizedJson(v1)) as Record<string, unknown>;
+  delete ask.request_id;
+  delete ask.supersedes;
+  const refs = [...new Set(i.card.blocks.map((b) => b.ref))].sort();
+  const text = canonicalJson({
+    title: i.title,
+    blocks: refs,
+    ask,
+    root_run: i.card.root_run,
+    request: i.card.request,
+    asking_thread: i.thread,
+    tasks_project: i.tasksProject,
+  });
+  return createHash("sha256").update(text).digest("hex");
 }

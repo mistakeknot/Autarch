@@ -23,7 +23,9 @@ import { exportEvents } from "./export.js";
 import { FeedCaches } from "./feed.js";
 import { parseAsk } from "./model.js";
 import { ServeClient, ServeSupervisor, tokenReader } from "./serve.js";
+import { Queue } from "./queue.js";
 import { Service } from "./service.js";
+import { TasksClient, type PluginsLike } from "./tasks.js";
 import { createStoreHandle, type Store, type StoreHandle } from "./store.js";
 import { sdkAdapter, WakeLoop, type ThreadsLike, type WakeSdk } from "./wakes.js";
 
@@ -209,6 +211,27 @@ export function wireHome(bb: BbPluginApi, handle: StoreHandle, cfg: HomeConfig, 
     async start(signal) {
       while (!signal.aborted && !parts) await sleep(1000, signal);
       if (parts) await parts.loop.start(signal);
+    },
+  });
+  // Card poller (Task 2.4). Read-only toward tasks, over plugins.callRpc; never spawns the bb CLI.
+  bb.background.service("home-queue", {
+    async start(signal) {
+      while (!signal.aborted && !parts) await sleep(1000, signal);
+      const plugins = (bb.sdk as unknown as { plugins?: PluginsLike }).plugins;
+      if (!parts || signal.aborted) return;
+      if (!plugins) {
+        console.error("home-queue: bb.sdk.plugins is unavailable, cards are not polled");
+        return;
+      }
+      const queue = new Queue({
+        service: parts.svc,
+        tasks: new TasksClient(plugins),
+        publish: () => {
+          parts?.caches.invalidate();
+          bb.realtime.publish("home-queue-changed", {});
+        },
+      });
+      await queue.run(signal, sleep);
     },
   });
   bb.background.service("home-feed-refresh", {

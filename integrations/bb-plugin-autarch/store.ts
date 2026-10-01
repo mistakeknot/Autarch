@@ -35,6 +35,12 @@ export interface DecisionInput {
   delegable?: boolean;
   /** Inserted in the filing's own transaction (an owner notice), so it exists exactly when the decision does. */
   obligations?: ObligationInput[];
+  /** Card generations carry their link at INSERT (plan 1.3.4); a home row leaves these unset. */
+  source?: "home" | "card";
+  task_id?: string | null;
+  generation?: number | null;
+  tasks_project_id?: string | null;
+  card_fp?: string | null;
   at?: string;
 }
 
@@ -260,6 +266,29 @@ export class Store {
     return this.db.transaction(fn).immediate();
   }
 
+  /** Run fn as one BEGIN IMMEDIATE transaction (a savepoint when already inside one). */
+  atomically<T>(fn: () => T): T {
+    return this.tx(fn);
+  }
+
+  /**
+   * Withdraw an unpicked, unresolved decision (card T4/T6). Returns false when nothing changed:
+   * unknown, already withdrawn, resolved or picked.
+   */
+  withdrawDecision(id: string, reason: string, at: string = this.now()): boolean {
+    return this.tx(() => {
+      const r = this.db
+        .prepare(
+          `UPDATE decisions SET withdrawn_at = @at, updated_at = @at
+           WHERE id = @id AND withdrawn_at IS NULL AND resolved_at IS NULL
+             AND NOT EXISTS (SELECT 1 FROM picks k WHERE k.decision_id = decisions.id)`,
+        )
+        .run({ id, at });
+      if (r.changes === 1) this.event("withdrawn", id, { reason });
+      return r.changes === 1;
+    });
+  }
+
   private event(type: string, decisionId: string | null, detail: unknown = {}): void {
     this.db
       .prepare("INSERT INTO events(at, type, decision_id, detail_json) VALUES (?, ?, ?, ?)")
@@ -378,10 +407,10 @@ export class Store {
       .prepare(
         `INSERT INTO decisions(id, request_id, identity, revision, semantic_key, subject, kind, ask_key,
            project, project_root, root_dev, root_ino, asker, thread, owner_thread, body_json, supersedes,
-           delegable, filed_at, updated_at)
+           delegable, filed_at, updated_at, source, task_id, generation, tasks_project_id, card_fp)
          VALUES (@id, @request_id, @identity, @revision, @semantic_key, @subject, @kind, @ask_key,
            @project, @project_root, @root_dev, @root_ino, @asker, @thread, @owner_thread, @body_json,
-           @supersedes, @delegable, @at, @at)`,
+           @supersedes, @delegable, @at, @at, @source, @task_id, @generation, @tasks_project_id, @card_fp)`,
       )
       .run({
         ask_key: null,
@@ -390,6 +419,11 @@ export class Store {
         root_ino: null,
         owner_thread: null,
         supersedes: null,
+        source: "home",
+        task_id: null,
+        generation: null,
+        tasks_project_id: null,
+        card_fp: null,
         ...d,
         obligations: undefined,
         delegable: d.delegable === false ? 0 : 1,
@@ -453,10 +487,10 @@ export class Store {
         .prepare(
           `INSERT INTO decisions(id, request_id, identity, revision, semantic_key, subject, kind, ask_key,
              project, project_root, root_dev, root_ino, asker, thread, owner_thread, body_json, supersedes,
-             delegable, filed_at, updated_at)
+             delegable, filed_at, updated_at, source, task_id, generation, tasks_project_id, card_fp)
            SELECT @id, @request_id, @identity, @revision, @semantic_key, @subject, @kind, @ask_key,
              @project, @project_root, @root_dev, @root_ino, @asker, @thread, @owner_thread, @body_json,
-             p.id, MIN(@delegable, p.delegable), @at, @at
+             p.id, MIN(@delegable, p.delegable), @at, @at, @source, @task_id, @generation, @tasks_project_id, @card_fp
            ${gate}`,
         )
         .run({
@@ -465,7 +499,13 @@ export class Store {
           root_dev: null,
           root_ino: null,
           owner_thread: null,
+          source: "home",
+          task_id: null,
+          generation: null,
+          tasks_project_id: null,
+          card_fp: null,
           ...d,
+          obligations: undefined,
           prev: prevId,
           delegable: d.delegable === false ? 0 : 1,
           at,

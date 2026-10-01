@@ -37,7 +37,7 @@ describe("wireHome", () => {
     const f = fakeBb();
     const home = wireHome(f.bb, handle, cfg, { serve });
     expect([...f.events.keys()].sort()).toEqual(["message.cancelled", "message.dispatched", "thread.archived", "thread.deleted", "turn.failed"]);
-    expect(f.services.sort()).toEqual(["home-feed-refresh", "home-serve", "home-wakes"]);
+    expect(f.services.sort()).toEqual(["home-feed-refresh", "home-queue", "home-serve", "home-wakes"]);
     expect(f.configure()).toBeTypeOf("function");
     expect(f.cli()).toBeDefined();
     expect(Object.keys(home.handlers).sort()).toEqual(["catchup", "dismiss", "health", "listAsks", "listRecent", "markAllSeen", "markSeen", "override", "pick", "resend", "revokeApproval", "setDelegation", "stats"]);

@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { parseAsk, identity, revision, semanticKey, normalizedJson } from "../model.js";
 import { parseRuling } from "../ruling.js";
 import type { Service } from "../service.js";
+import { pickOf } from "./helpers.js";
 import { ask, makeEnv, OPTIONS, T0, type Env } from "./service-helpers.js";
 
 let env: Env;
@@ -497,5 +498,19 @@ describe("recent, owed and stats", () => {
     expect(s.override_rate).toBe(1);
     expect(s.median_override_ms).toBe(60_000);
     expect(svc.stats("2026-09-28T00:00:00.000Z").filed_per_week).toEqual({ "2026-W40": 1 });
+  });
+});
+
+describe("Task 2.4 store and fingerprint additions", () => {
+  it("insertDecision writes the card link columns at INSERT, defaulting to a home row", async () => {
+    const id = (await fileOk()).decision_id;
+    expect(svc.store.db.prepare("SELECT source, task_id, generation, tasks_project_id, card_fp FROM decisions WHERE id = ?").get(id)).toEqual({ source: "home", task_id: null, generation: null, tasks_project_id: null, card_fp: null });
+  });
+
+  it("withdrawDecision withdraws an unpicked row once and refuses a picked one", async () => {
+    const a = (await fileOk({ ask_key: "wd-a", subject: "wd-a" })).decision_id;
+    expect(svc.store.withdrawDecision(a, "test")).toBe(true);
+    expect(svc.store.withdrawDecision(a, "test")).toBe(false);
+    expect(svc.store.recordPick(pickOf(a, { revision: rev(a) }))).toMatchObject({ ok: false, reason: "withdrawn" });
   });
 });
