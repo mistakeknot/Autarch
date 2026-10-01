@@ -81,7 +81,7 @@ export interface QueueData {
   rows: QueueRow[];
   legacy: {
     count: number;
-    owed: { id: string; project: string; thread: string; subject: string; filed_at: string; revision: string; ask: unknown }[];
+    owed: { id: string; project: string; thread: string; subject: string; filed_at: string; revision: string; mentions: number; ask: unknown }[];
     runbook: ReturnType<Asks["runbook"]>;
     machine: ReturnType<Asks["lists"]>;
   };
@@ -207,7 +207,7 @@ export function buildQueue(svc: Service, asks: Asks, opts: { thread?: string } =
     rows: sortRows(rows),
     legacy: {
       count: legacyOwed.length + runbook.reduce((n, g) => n + g.items.length, 0) + machine.lane.length + machine.asks.length,
-      owed: legacyOwed.map((d) => ({ id: d.id, project: d.project, thread: d.thread, subject: d.subject, filed_at: String(d.filed_at), revision: d.revision, ask: parseAsk(JSON.parse(d.body_json)) })),
+      owed: legacyOwed.map((d) => ({ id: d.id, project: d.project, thread: d.thread, subject: d.subject, filed_at: String(d.filed_at), revision: d.revision, mentions: svc.store.mentions(d.id).length, ask: parseAsk(JSON.parse(d.body_json)) })),
       runbook,
       machine,
     },

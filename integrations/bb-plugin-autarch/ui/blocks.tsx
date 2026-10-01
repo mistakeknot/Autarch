@@ -27,7 +27,7 @@ export type QueueRowView = {
 };
 export type LegacyView = {
   count: number;
-  owed: { id: string; project: string; thread: string; subject: string; filed_at: string; revision: string; ask: OwedAsk["ask"] }[];
+  owed: { id: string; project: string; thread: string; subject: string; filed_at: string; revision: string; mentions: number; ask: OwedAsk["ask"] }[];
   runbook: RunbookGroup[];
   machine: { lane: { id: string; subject: string; thread: string; owner: string | null; detail: string }[]; asks: { id: string; subject: string; thread: string; detail: string; label?: string }[] };
 };
@@ -121,7 +121,7 @@ export function LegacyGroup({ legacy, onPick, onOpen }: { legacy: LegacyView; on
       <h2 className="mb-2 text-xs font-semibold uppercase text-muted-foreground">{`Legacy asks (${legacy.count})`}</h2>
       <div className="space-y-3">
         {legacy.owed.map((o) => (
-          <AskCard key={o.id} ask={{ ...o, asker: "legacy", mentions: 0 }} onPick={onPick} onOpen={onOpen} />
+          <AskCard key={o.id} ask={{ ...o, asker: "legacy" }} onPick={onPick} onOpen={onOpen} />
         ))}
         {legacy.runbook.flatMap((g) =>
           g.items.map((i) => (
