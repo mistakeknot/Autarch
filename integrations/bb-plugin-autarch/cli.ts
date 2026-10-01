@@ -77,6 +77,7 @@ export function homeCli(p: HomeCliParts) {
           request: { type: "string", description: "The request key: a card's, or a pre-card ask's request id." },
           "request-id": { type: "string", description: "Alias of --request." },
           id: { type: "string", description: "A decision id." },
+          json: { type: "boolean", description: "Print JSON (the only format)." },
         },
         constraints: [{ kind: "exactly-one", options: ["card", "request", "request-id", "id"] }],
         run({ options }) {
