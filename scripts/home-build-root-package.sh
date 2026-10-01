@@ -55,6 +55,7 @@ printf '"\n'
 cat <<'MAIN'
 set -eu
 umask 022
+# The reports go out through bb, which spawns with cwd: process.cwd(); root's cwd (/root) is unreadable to mk (EACCES).
 : "${HOME_V3_TEST_DEST:=}" "${HOME_V3_TEST_BB:=}" "${HOME_V3_TEST_LAUNCHER_ARGS:=}"
 TESTMODE=0
 if [ -n "$HOME_V3_TEST_DEST$HOME_V3_TEST_BB$HOME_V3_TEST_LAUNCHER_ARGS" ]; then
@@ -75,6 +76,8 @@ while [ $# -gt 0 ]; do
 done
 [ -n "$PLUGIN" ] || { echo "usage: $0 --plugin <v3 build dir> [--go]" >&2; exit 64; }
 case "$DEST" in /*) ;; *) echo "destination must be absolute" >&2; exit 64 ;; esac
+case "$PLUGIN" in /*) ;; *) echo "--plugin must be an absolute path" >&2; exit 64 ;; esac
+cd /
 REPORT=$(mktemp /tmp/home-v3-run.XXXXXX); chmod 0644 "$REPORT"
 STAGE=
 say() { printf '%s\n' "$*"; printf '%s\n' "$*" >>"$REPORT"; }

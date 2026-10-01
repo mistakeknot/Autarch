@@ -72,6 +72,8 @@ setInterval(()=>{},1000);
 `;
 const STUB_BB = `#!/bin/bash
 D="$(cd "$(dirname "$0")/../.." && pwd)/stub"; mkdir -p "$D"
+# bb.js spawns its child with cwd: process.cwd(); an unreadable cwd (root's /root, as mk) is EACCES. Emulate that.
+[ -x "$(pwd -P)" ] || { echo "spawn bb-app EACCES (cwd unreadable)" >&2; exit 1; }
 n=$(( $(cat "$D/n" 2>/dev/null || echo 0) + 1 )); echo $n > "$D/n"
 { echo "== call $n"; printf 'ARGV'; for a in "$@"; do printf '\\t%s' "$a"; done; echo
   env | sort | grep -E '^(BB_|NODE_ENV=|HOME=|PATH=)' | sed 's/^/ENV /'; } >> "$D/calls.log"
@@ -170,6 +172,17 @@ const upgradeArgs = (i: Install, extra: string[] = []) => [...TM, "--bbdata", i.
 
 function run(script: string, args: string[], env: NodeJS.ProcessEnv = { PATH: process.env.PATH }) {
   const r = spawnSync(script, args, { env, encoding: "utf8", timeout: 60_000 });
+  const out = `${r.stdout}${r.stderr}`;
+  for (const m of out.matchAll(/(\/tmp\/home-(?:restore|upgrade)-report\.[A-Za-z0-9]+)/g)) toClean.push(m[1]!);
+  return { code: r.status, out };
+}
+/** Runs the script from a directory that is entered and then made mode 000, like root's /root seen from mk. */
+function runFromUnreadableCwd(script: string, args: string[]) {
+  const d = mkdtempSync(join(tmpdir(), "unreadable-cwd-"));
+  toClean.push(d);
+  const q = (x: string) => `'${x.replace(/'/g, "'\\''")}'`;
+  const r = spawnSync("bash", ["-c", `cd ${q(d)} && chmod 000 . && exec ${[script, ...args].map(q).join(" ")}`], { env: { PATH: process.env.PATH }, encoding: "utf8", timeout: 60_000 });
+  chmodSync(d, 0o700);
   const out = `${r.stdout}${r.stderr}`;
   for (const m of out.matchAll(/(\/tmp\/home-(?:restore|upgrade)-report\.[A-Za-z0-9]+)/g)) toClean.push(m[1]!);
   return { code: r.status, out };
@@ -459,6 +472,27 @@ describe("restore", () => {
     expect(report).toContain("To undo");
     expect(movedAside(i).length).toBe(2);
   }, 30_000);
+});
+
+describe("unreadable caller cwd (bb spawns with process.cwd(); root's /root is EACCES for mk)", () => {
+  it("upgrade from an unreadable cwd still reaches bb: disable, install, enable, thread tell", async () => {
+    const i = await install();
+    const r = runFromUnreadableCwd(UPGRADE, upgradeArgs(i));
+    expect(r.code, r.out).toBe(0);
+    expect(verbs(i).slice(0, 3)).toEqual(["plugin disable", "plugin install", "plugin enable"]);
+    expect(verbs(i).at(-1)).toBe("thread tell");
+  });
+  it("restore from an unreadable cwd still reaches bb and tells the thread", async () => {
+    const i = await install();
+    const r = runFromUnreadableCwd(RESTORE, restoreArgs(i, ["--check"]));
+    expect(r.code, r.out).toBe(0);
+    expect(verbs(i).at(-1)).toBe("thread tell");
+  });
+  it("relative --plugin / --repo are refused (the launcher leaves the caller's directory)", async () => {
+    const i = await install();
+    expect(run(UPGRADE, upgradeArgs(i).map((a) => (a === i.plugin ? "rel/plugin" : a))).code).toBe(64);
+    expect(run(RESTORE, restoreArgs(i).map((a) => (a === i.repo ? "rel/repo" : a))).code).toBe(64);
+  });
 });
 
 describe("upgrade", () => {
