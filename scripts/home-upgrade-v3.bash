@@ -61,16 +61,16 @@ say "bb.log: ${LOGLINES:-no migration line found}"
 case "$LOGLINE" in
   *home-refused:*|*"another connection holds data.db"*|*"pre-migration backup not verified"*|*"store not ready, retrying"*)
     "${AS[@]}" "$BB" plugin disable autarch || true
-    say "migration refused; plugin left disabled on the unchanged v2 DB. Re-enable the old build."
+    say "migration refused; the plugin is left disabled on the unchanged v2 DB. Recovery: run the restore from the root-owned copy, $(dirname "$(readlink -f "$0")")/home-restore-v2.sh --thread $THREAD --repo <Autarch checkout> [--backup <path>] (the backup path is in migration_log and bb.log), or retry this upgrade after fixing the cause."
     exit 5 ;;
 esac
 if [ "$HEALTHY" != 1 ]; then
   "${AS[@]}" "$BB" plugin disable autarch || true
-  say "plugin never became healthy after enable; plugin left disabled. Re-enable the old build."
+  say "plugin never became healthy after enable; the plugin is left disabled on the unchanged v2 DB. Recovery: run the restore from the root-owned copy, $(dirname "$(readlink -f "$0")")/home-restore-v2.sh --thread $THREAD --repo <Autarch checkout> [--backup <path>] (the backup path is in migration_log and bb.log), or retry this upgrade after fixing the cause."
   exit 5
 fi
 if ! printf '%s' "$MIGROW" | grep -Eq '^[0-9]+\|'; then
   "${AS[@]}" "$BB" plugin disable autarch || true
-  say "no v3 migration_log row after enable; plugin left disabled. Re-enable the old build."
+  say "no v3 migration_log row after enable; the plugin is left disabled on the unchanged v2 DB. Recovery: run the restore from the root-owned copy, $(dirname "$(readlink -f "$0")")/home-restore-v2.sh --thread $THREAD --repo <Autarch checkout> [--backup <path>] (the backup path is in migration_log and bb.log), or retry this upgrade after fixing the cause."
   exit 5
 fi
