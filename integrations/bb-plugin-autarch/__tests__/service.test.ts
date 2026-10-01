@@ -157,6 +157,8 @@ describe("pick", () => {
 
   it("a stored revision that does not match its body is a store fault (500)", async () => {
     const a = await fileOk();
+    // v3 makes the ask immutable by trigger; drop it to simulate out-of-band corruption.
+    svc.store.db.exec("DROP TRIGGER decisions_ask_immutable");
     svc.store.db.prepare("UPDATE decisions SET revision = 'tampered' WHERE id = ?").run(a.decision_id);
     const r = svc.pick(a.decision_id, "day", "tampered", "pk", "mk", "home");
     expect(r).toMatchObject({ ok: false, status: 500 });

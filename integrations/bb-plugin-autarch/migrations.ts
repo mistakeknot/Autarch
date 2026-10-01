@@ -2,15 +2,25 @@
 //
 // schema_meta holds schema_version and min_reader_version. A migration only adds
 // tables, nullable or defaulted columns, or indexes that current data satisfies.
-// Nothing is dropped, renamed or retyped. min_reader_version rises only in a later
-// release, after every running instance can read the new form. An instance whose
-// code version is below min_reader_version refuses to start; an instance that is
-// merely older than the schema keeps working, which is what lets Aleph keep the
-// old instance after a failed candidate activation.
+// Nothing is dropped, renamed or retyped. An instance whose code version is below
+// min_reader_version refuses to start.
+//
+// v3 is forward-only (plan 1.3.8): it raises min_reader_version to 3, and it migrates only
+// while this connection is the only one open on the file, after a written and verified
+// backup (backup.ts). Rollback is a restore from that backup, never a v2 reading a v3 file.
 import type Database from "better-sqlite3";
+import {
+  acquireHold,
+  backupBeforeMigrate,
+  releaseHold,
+  type BackupResult,
+  type BackupTestSeams,
+} from "./backup.js";
+
+export { BackupNotVerifiedError, QuiesceRequiredError } from "./backup.js";
 
 /** The schema version this code writes and the highest it can read. */
-export const CODE_VERSION = 2;
+export const CODE_VERSION = 3;
 
 export interface Migration {
   version: number;
@@ -177,9 +187,125 @@ CREATE TRIGGER approval_events_no_delete BEFORE DELETE ON approval_events
 BEGIN SELECT RAISE(ABORT, 'approval_events is append-only'); END;
 `;
 
+// Home S1 on bb tasks (plan 1.1-1.3, Task 2.3). Stored asks stay v1; card generations are rows of
+// `decisions` with source = 'card'. Every immutability rule is a trigger, so no code path (a stale
+// build included) can bypass it.
+const V3 = `
+CREATE TABLE cards (
+  task_id TEXT PRIMARY KEY,
+  project_id TEXT,
+  card_key TEXT,
+  title TEXT,
+  request_key TEXT,
+  request_identity TEXT,
+  asking_thread TEXT,
+  routing_mode TEXT CHECK (routing_mode IN ('thread','pull')),
+  routed_thread TEXT,
+  routing_check_at TEXT,
+  state TEXT NOT NULL DEFAULT 'observed' CHECK (state IN ('observed','display','open','ruled','closed')),
+  display_reason TEXT,
+  root_state TEXT,
+  root_reason TEXT,
+  changed_after_ruling INTEGER NOT NULL DEFAULT 0,
+  home_unlabelled_at TEXT,
+  next_check_at TEXT,
+  check_attempts INTEGER NOT NULL DEFAULT 0,
+  created_at TEXT,
+  updated_at TEXT,
+  status TEXT,
+  labelled INTEGER,
+  blocks_json TEXT,
+  first_seen_at TEXT,
+  last_seen_at TEXT,
+  deleted_at TEXT
+);
+CREATE INDEX cards_state ON cards(state, next_check_at);
+CREATE TRIGGER cards_routing_frozen BEFORE UPDATE OF routing_mode, routed_thread ON cards
+WHEN (OLD.routing_mode IS NOT NULL AND NEW.routing_mode IS NOT OLD.routing_mode)
+  OR (OLD.routed_thread IS NOT NULL AND NEW.routed_thread IS NOT OLD.routed_thread)
+BEGIN SELECT RAISE(ABORT, 'cards routing is frozen at first materialization'); END;
+
+CREATE TABLE card_requests (
+  request_key TEXT PRIMARY KEY,
+  task_id TEXT NOT NULL,
+  identity TEXT NOT NULL,
+  registered_at TEXT NOT NULL
+);
+CREATE TRIGGER card_requests_no_update BEFORE UPDATE ON card_requests
+BEGIN SELECT RAISE(ABORT, 'card_requests is insert-only'); END;
+CREATE TRIGGER card_requests_no_delete BEFORE DELETE ON card_requests
+BEGIN SELECT RAISE(ABORT, 'card_requests is insert-only'); END;
+
+ALTER TABLE decisions ADD COLUMN source TEXT NOT NULL DEFAULT 'home' CHECK (source IN ('home','card'));
+ALTER TABLE decisions ADD COLUMN task_id TEXT;
+ALTER TABLE decisions ADD COLUMN generation INTEGER;
+ALTER TABLE decisions ADD COLUMN tasks_project_id TEXT;
+ALTER TABLE decisions ADD COLUMN card_fp TEXT;
+CREATE UNIQUE INDEX decisions_task_generation ON decisions(task_id, generation) WHERE task_id IS NOT NULL;
+
+CREATE TRIGGER decisions_ask_immutable BEFORE UPDATE OF body_json, revision, identity, subject, semantic_key, card_fp ON decisions
+WHEN OLD.body_json IS NOT NEW.body_json OR OLD.revision IS NOT NEW.revision OR OLD.identity IS NOT NEW.identity
+  OR OLD.subject IS NOT NEW.subject OR OLD.semantic_key IS NOT NEW.semantic_key OR OLD.card_fp IS NOT NEW.card_fp
+BEGIN SELECT RAISE(ABORT, 'decisions ask is immutable'); END;
+
+CREATE TRIGGER decisions_card_link BEFORE UPDATE OF source, task_id, generation, tasks_project_id ON decisions
+WHEN OLD.source IS NOT NEW.source
+  OR OLD.task_id IS NOT NEW.task_id
+  OR OLD.generation IS NOT NEW.generation
+  OR OLD.tasks_project_id IS NOT NEW.tasks_project_id
+BEGIN SELECT RAISE(ABORT, 'decisions card link: columns are fixed at insert'); END;
+
+CREATE TRIGGER decisions_home_insert BEFORE INSERT ON decisions
+WHEN NEW.source = 'home' AND (NEW.task_id IS NOT NULL OR NEW.generation IS NOT NULL OR NEW.tasks_project_id IS NOT NULL)
+BEGIN SELECT RAISE(ABORT, 'decisions card link: a home row never carries a link column'); END;
+
+CREATE TABLE decision_blocks (
+  decision_id TEXT NOT NULL REFERENCES decisions(id),
+  ref TEXT NOT NULL,
+  PRIMARY KEY (decision_id, ref)
+);
+CREATE TRIGGER decision_blocks_no_update BEFORE UPDATE ON decision_blocks
+BEGIN SELECT RAISE(ABORT, 'decision_blocks is insert-only'); END;
+CREATE TRIGGER decision_blocks_no_delete BEFORE DELETE ON decision_blocks
+BEGIN SELECT RAISE(ABORT, 'decision_blocks is insert-only'); END;
+
+CREATE TABLE card_writes (
+  id TEXT PRIMARY KEY,
+  task_id TEXT NOT NULL,
+  decision_id TEXT NOT NULL REFERENCES decisions(id),
+  kind TEXT NOT NULL CHECK (kind IN ('comment','unlabel','relabel')),
+  payload TEXT,
+  state TEXT NOT NULL DEFAULT 'pending',
+  attempt INTEGER NOT NULL DEFAULT 0,
+  last_error TEXT,
+  next_try_at TEXT,
+  updated_at TEXT,
+  UNIQUE (decision_id, kind)
+);
+CREATE INDEX card_writes_due ON card_writes(state, next_try_at);
+
+CREATE TABLE project_bindings (
+  tasks_project_id TEXT PRIMARY KEY,
+  home_project TEXT NOT NULL,
+  state TEXT NOT NULL CHECK (state IN ('suggested','confirmed','rejected')),
+  suggested_at TEXT,
+  confirmed_at TEXT
+);
+
+-- Written by migrate() in the same transaction as the DDL (plan 1.3.8 step 7).
+CREATE TABLE migration_log (
+  version INTEGER PRIMARY KEY,
+  at TEXT NOT NULL,
+  backup_path TEXT,
+  digest TEXT,
+  table_counts_json TEXT
+);
+`;
+
 export const MIGRATIONS: readonly Migration[] = [
   { version: 1, sql: V1 },
   { version: 2, sql: V2 },
+  { version: 3, minReaderVersion: 3, sql: V3 },
 ];
 
 const META = `CREATE TABLE IF NOT EXISTS schema_meta (key TEXT PRIMARY KEY, value INTEGER NOT NULL)`;
@@ -205,36 +331,82 @@ export function readSchemaState(db: Database.Database): SchemaState {
 export interface MigrateOptions {
   codeVersion?: number;
   migrations?: readonly Migration[];
+  /** Receives the one-line outcome (`bb.log`). */
+  log?: { info(msg: string): void };
+  /** Clock for the backup file name and migration_log.at. */
+  now?: () => Date;
+  /** Test-only seams (see BackupTestSeams). */
+  test?: BackupTestSeams;
 }
 
 /**
- * Bring the database up to this code's schema, in one transaction. Throws
- * SchemaTooNewError when the database demands a newer reader than this code.
- * A database already newer than the code (but still readable by it) is left alone.
+ * Bring the database up to this code's schema. Throws SchemaTooNewError when the database
+ * demands a newer reader than this code (before anything is written), QuiesceRequiredError when
+ * another connection holds the file, and BackupNotVerifiedError when the pre-migration backup
+ * fails any check. When a migration is pending, the DDL runs in one IMMEDIATE transaction while
+ * this connection holds the file exclusively, after a verified backup of a schema 1+ database.
  */
 export function migrate(db: Database.Database, opts: MigrateOptions = {}): SchemaState {
   const codeVersion = opts.codeVersion ?? CODE_VERSION;
-  const migrations = opts.migrations ?? MIGRATIONS;
-  const run = db.transaction((): SchemaState => {
-    db.exec(META);
-    const state = readSchemaState(db);
-    if (state.minReaderVersion > codeVersion) {
-      throw new SchemaTooNewError(state.minReaderVersion, codeVersion);
-    }
-    let { schemaVersion, minReaderVersion } = state;
-    for (const m of [...migrations].sort((a, b) => a.version - b.version)) {
-      if (m.version <= schemaVersion || m.version > codeVersion) continue;
-      db.exec(m.sql);
-      schemaVersion = m.version;
-      minReaderVersion = Math.max(minReaderVersion, m.minReaderVersion ?? 0);
-    }
-    const put = db.prepare(
-      "INSERT INTO schema_meta(key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+  const migrations = [...(opts.migrations ?? MIGRATIONS)].sort((a, b) => a.version - b.version);
+  const clock = opts.now ?? (() => new Date());
+  const hook = opts.test?.hook ?? (() => {});
+
+  const pre = readSchemaState(db);
+  if (pre.minReaderVersion > codeVersion) throw new SchemaTooNewError(pre.minReaderVersion, codeVersion);
+  const pending = migrations.some((m) => m.version > pre.schemaVersion && m.version <= codeVersion);
+
+  const run = (backup: BackupResult | null): SchemaState =>
+    db
+      .transaction((): SchemaState => {
+        db.exec(META);
+        const state = readSchemaState(db);
+        if (state.minReaderVersion > codeVersion) {
+          throw new SchemaTooNewError(state.minReaderVersion, codeVersion);
+        }
+        let { schemaVersion, minReaderVersion } = state;
+        const applied: number[] = [];
+        for (const m of migrations) {
+          if (m.version <= schemaVersion || m.version > codeVersion) continue;
+          db.exec(m.sql);
+          applied.push(m.version);
+          schemaVersion = m.version;
+          minReaderVersion = Math.max(minReaderVersion, m.minReaderVersion ?? 0);
+        }
+        const hasLog = db.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='migration_log'").get();
+        if (hasLog) {
+          const ins = db.prepare(
+            "INSERT INTO migration_log(version, at, backup_path, digest, table_counts_json) VALUES (?, ?, ?, ?, ?)",
+          );
+          for (const v of applied.filter((v) => v >= 3)) {
+            ins.run(v, clock().toISOString(), backup?.path ?? null, backup?.digest ?? null, backup ? JSON.stringify(backup.tableCounts) : null);
+          }
+        }
+        const put = db.prepare(
+          "INSERT INTO schema_meta(key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+        );
+        put.run("schema_version", schemaVersion);
+        put.run("min_reader_version", minReaderVersion);
+        hook("ddl-applied", {});
+        return { schemaVersion, minReaderVersion };
+      })
+      // IMMEDIATE takes the write lock up front so two instances cannot both migrate.
+      .immediate();
+
+  if (!pending) return run(null);
+
+  const hold = opts.test?.skipHold ? null : acquireHold(db);
+  try {
+    const backup = pre.schemaVersion >= 1 ? backupBeforeMigrate(db, { now: clock, test: opts.test }) : null;
+    const state = run(backup);
+    hook("committed", {});
+    opts.log?.info(
+      backup
+        ? `autarch: schema ${pre.schemaVersion} → ${state.schemaVersion}; backup ${backup.path} verified (integrity ok, digest ${backup.digest.slice(0, 12)}, ${backup.tables} tables, ${backup.rows} rows)`
+        : `autarch: schema ${pre.schemaVersion} → ${state.schemaVersion}; no backup (fresh database)`,
     );
-    put.run("schema_version", schemaVersion);
-    put.run("min_reader_version", minReaderVersion);
-    return { schemaVersion, minReaderVersion };
-  });
-  // IMMEDIATE takes the write lock up front so two instances cannot both migrate.
-  return run.immediate();
+    return state;
+  } finally {
+    releaseHold(db, hold);
+  }
 }

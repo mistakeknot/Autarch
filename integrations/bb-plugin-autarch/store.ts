@@ -167,6 +167,8 @@ export interface StoreOptions {
   /** Milliseconds; SQLite busy_timeout. Default 2000. */
   busyTimeoutMs?: number;
   migrate?: MigrateOptions;
+  /** bb.log: the migration outcome line and the handle's readiness messages. */
+  log?: { warn(msg: string): void; info(msg: string): void };
 }
 
 const iso = () => new Date().toISOString();
@@ -204,7 +206,34 @@ export class Store {
     }
     db.pragma("foreign_keys = ON");
     db.pragma(`busy_timeout = ${opts.busyTimeoutMs ?? 2000}`);
-    migrate(db, opts.migrate);
+    migrate(db, { ...opts.migrate, log: opts.migrate?.log ?? opts.log });
+    this.backfillCardWrites();
+  }
+
+  /**
+   * Startup invariant (plan 1.3.8 "What stays"): every picked card generation has its comment and
+   * unlabel write. A pick commits them in one transaction (Task 2.5), so this only repairs a build
+   * that picked without them. Idempotent; returns the number of rows inserted.
+   */
+  backfillCardWrites(): number {
+    const has = this.db.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='card_writes'").get();
+    if (!has) return 0;
+    const now = this.now();
+    return this.tx(
+      () =>
+        this.db
+          .prepare(
+            `INSERT OR IGNORE INTO card_writes(id, task_id, decision_id, kind, payload, state, next_try_at, updated_at)
+             SELECT 'cw-' || d.id || '-' || k.kind, d.task_id, d.id, k.kind,
+                    json_object('option_id', p.option_id, 'by', p."by", 'generation', d.generation),
+                    'pending', @now, @now
+             FROM decisions d
+             JOIN picks p ON p.decision_id = d.id
+             JOIN (SELECT 'comment' AS kind UNION ALL SELECT 'unlabel') k
+             WHERE d.source = 'card' AND d.task_id IS NOT NULL`,
+          )
+          .run({ now }).changes,
+    );
   }
 
   get storeId(): string {
@@ -748,8 +777,13 @@ export class Store {
     return this.db.prepare("SELECT * FROM queue_events WHERE queued_row = ?").get(queuedRow) as never;
   }
 
+  /** Clean stop: fold the WAL into data.db and truncate it, so a refused older build sees an untouched file. */
   close(): void {
-    this.db.close();
+    try {
+      this.db.pragma("wal_checkpoint(TRUNCATE)");
+    } finally {
+      this.db.close();
+    }
   }
 }
 
@@ -759,7 +793,6 @@ export interface StoreHandleOptions extends StoreOptions {
   /** First retry delay; doubles up to maxDelayMs. Default 5000 / 60000. */
   initialDelayMs?: number;
   maxDelayMs?: number;
-  log?: { warn(msg: string): void; info(msg: string): void };
   /** Close a database that failed to open a store (use when open() makes fresh connections). */
   closeOnFailure?: boolean;
 }

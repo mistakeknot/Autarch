@@ -1,5 +1,6 @@
 import Database from "better-sqlite3";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { existsSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { createStoreHandle, Store } from "../store.js";
 import { decision, openStore, pickOf, tmpDir } from "./helpers.js";
@@ -342,5 +343,56 @@ describe("store handle", () => {
     expect(handle.error()).toBeNull();
     handle.dispose();
     handle.store().close();
+  });
+});
+
+describe("v3 store level", () => {
+  it("close() checkpoints with TRUNCATE: the -wal file is absent or empty", () => {
+    const s = openStore(file);
+    for (let i = 0; i < 20; i++) s.insertDecision(decision());
+    s.close();
+    const wal = `${file}-wal`;
+    expect(!existsSync(wal) || statSync(wal).size === 0).toBe(true);
+  });
+
+  it("backfillCardWrites inserts the missing comment and unlabel writes for picked card generations, once", () => {
+    const s = openStore(file);
+    const ins = (id: string, extra: Record<string, unknown>) => {
+      const base: Record<string, unknown> = {
+        id, request_id: `req-${id}`, identity: "i", revision: "rev-1", semantic_key: id, subject: "s", kind: "decide",
+        project: "autarch", asker: "a", thread: "t", body_json: "{}", filed_at: "x", updated_at: "x", ...extra,
+      };
+      const cols = Object.keys(base);
+      s.db.prepare(`INSERT INTO decisions(${cols.join(",")}) VALUES (${cols.map((c) => "@" + c).join(",")})`).run(base);
+    };
+    const pick = (id: string) =>
+      s.db.prepare("INSERT INTO picks(decision_id, pick_id, option_id, revision, \"by\", surface, picked_at) VALUES (?, ?, 'a', 'rev-1', 'vizier', 'home', 'x')").run(id, `p-${id}`);
+    ins("card-T1-g1", { source: "card", task_id: "T1", generation: 1, tasks_project_id: "P", card_fp: "f" });
+    ins("card-T2-g1", { source: "card", task_id: "T2", generation: 1, tasks_project_id: "P", card_fp: "f" }); // unpicked
+    ins("card-T3-g1", { source: "card", task_id: "T3", generation: 1, tasks_project_id: "P", card_fp: "f" });
+    ins("legacy", {});
+    pick("card-T1-g1");
+    pick("card-T3-g1");
+    pick("legacy");
+    s.db.prepare("INSERT INTO card_writes(id, task_id, decision_id, kind, payload, state, next_try_at, updated_at) VALUES ('keep','T3','card-T3-g1','comment','{}','done','t','t')").run();
+    expect(s.backfillCardWrites()).toBe(3); // T1: comment + unlabel; T3: unlabel (comment exists)
+    expect(s.backfillCardWrites()).toBe(0);
+    const rows = s.db.prepare("SELECT task_id, decision_id, kind, state FROM card_writes ORDER BY decision_id, kind").all();
+    expect(rows).toEqual([
+      { task_id: "T1", decision_id: "card-T1-g1", kind: "comment", state: "pending" },
+      { task_id: "T1", decision_id: "card-T1-g1", kind: "unlabel", state: "pending" },
+      { task_id: "T3", decision_id: "card-T3-g1", kind: "comment", state: "done" },
+      { task_id: "T3", decision_id: "card-T3-g1", kind: "unlabel", state: "pending" },
+    ]);
+  });
+
+  it("opening a store runs the backfill invariant check", () => {
+    const s = openStore(file);
+    s.db.prepare(`INSERT INTO decisions(id, request_id, identity, revision, semantic_key, subject, kind, project, asker, thread, body_json, filed_at, updated_at, source, task_id, generation, tasks_project_id, card_fp)
+                  VALUES ('card-T1-g1','r','i','rev-1','s','s','decide','autarch','a','t','{}','x','x','card','T1',1,'P','f')`).run();
+    s.db.prepare("INSERT INTO picks(decision_id, pick_id, option_id, revision, \"by\", surface, picked_at) VALUES ('card-T1-g1','p','a','rev-1','mk','home','x')").run();
+    s.close();
+    const again = openStore(file);
+    expect(count(again, "card_writes")).toBe(2);
   });
 });
