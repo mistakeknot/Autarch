@@ -32,6 +32,9 @@ parse_common() {
 # common_setup <name>: identity, mk-command prefix, report file and the finish trap.
 common_setup() {
   NAME=$1
+  # bb.js spawns its child with cwd: process.cwd(); as root the caller's cwd is often /root, which mk cannot read (EACCES).
+  # Paths are required absolute (below), so leaving the caller's directory loses nothing.
+  cd / || exit 64
   DATA=$BBDATA/plugins/autarch
   if [ "$TEST" = 1 ]; then
     MKUID=$(id -u)

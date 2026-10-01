@@ -20,4 +20,5 @@ if [ "$(id -u)" = 0 ] || [ "${HOME_LAUNCHER_ASSUME_ROOT:-}" = 1 ]; then
     _trusted "$_f" || { echo "refusing to run as root: $_f is not a root-owned, non-group/other-writable file on a root-owned path; use the root-owned copy from the generated home-v3-run package" >&2; exit 6; }
   done
 fi
+cd / || exit 6
 exec /usr/bin/env -i PATH=/usr/sbin:/usr/bin:/sbin:/bin /bin/bash --noprofile --norc "$_d/home-restore-v2.bash" "$@"

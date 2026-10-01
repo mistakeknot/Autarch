@@ -20,6 +20,8 @@ while [ $# -gt 0 ]; do
   esac
 done
 [ -n "$THREAD" ] && [ -n "$REPO" ] || { echo "usage: $0 --thread <thr_...> --repo <checkout> [--backup <path>] [--check]" >&2; exit 64; }
+case $REPO in /*) ;; *) echo "--repo must be an absolute path" >&2; exit 64 ;; esac
+case ${BACKUP:-/} in /*) ;; *) echo "--backup must be an absolute path" >&2; exit 64 ;; esac
 common_setup home-restore
 BUILD=${BUILD_SET:-/home/mk/.local/share/autarch-home-v2}   # a9853e2 worktree for the v2 build
 V2_COMMIT=a9853e2

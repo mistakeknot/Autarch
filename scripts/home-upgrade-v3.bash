@@ -18,6 +18,7 @@ while [ $# -gt 0 ]; do
   esac
 done
 [ -n "$THREAD" ] && [ -n "$PLUGIN" ] || { echo "usage: $0 --thread <thr_...> --plugin <dir> [test-mode flags]" >&2; exit 64; }
+case $PLUGIN in /*) ;; *) echo "--plugin must be an absolute path" >&2; exit 64 ;; esac
 common_setup home-upgrade
 verify_install
 [ -f "$PLUGIN/package.json" ] || { say "no plugin build at $PLUGIN"; exit 4; }
