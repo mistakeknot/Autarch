@@ -32,11 +32,16 @@ parse_common() {
 # plugin_state: read Home's health from `bb plugin list --json` (this bb has no `plugin status`). Sets PSTATE (one report
 # line) and PHEALTHY=1 only for enabled=true and status=running, the real bb's two fields; anything else is unhealthy.
 plugin_state() {
-  local raw
-  raw=$("${AS[@]}" "$BB" plugin list --json 2>&1) || true
-  PSTATE=$(printf '%s' "$raw" | jq -r '[.plugins[]? | select(.id == "autarch")][0] // empty | "enabled=\(.enabled) status=\(.status) detail=\(.statusDetail // "-")"' 2>/dev/null) || PSTATE=
-  PHEALTHY=0
-  case $PSTATE in "enabled=true status=running "*) PHEALTHY=1 ;; esac
+  local raw rc=0
+  raw=$("${AS[@]}" "$BB" plugin list --json 2>&1) || rc=$?
+  PHEALTHY=0; PSTATE=
+  if [ "$rc" != 0 ]; then
+    PSTATE="bb plugin list failed (exit $rc): $(printf '%s' "$raw" | head -c 200)"
+    return 0
+  fi
+  # Exact JSON types and values: enabled is the boolean true and status is exactly the string "running".
+  if printf '%s' "$raw" | jq -e '[.plugins[]? | select(.id == "autarch")] | length == 1 and (.[0].enabled == true) and (.[0].status == "running")' >/dev/null 2>&1; then PHEALTHY=1; fi
+  PSTATE=$(printf '%s' "$raw" | jq -r '[.plugins[]? | select(.id == "autarch")][0] // empty | "enabled=\(.enabled | tojson) status=\(.status | tojson) detail=\(.statusDetail | tojson)"' 2>/dev/null) || PSTATE=
   [ -n "$PSTATE" ] || PSTATE="autarch is not in the plugin list: $(printf '%s' "$raw" | head -c 200)"
 }
 
