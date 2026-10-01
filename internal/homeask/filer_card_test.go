@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
@@ -833,5 +834,35 @@ func TestNotFoundReMatchesRealTasksShowText(t *testing.T) {
 		if notFoundRe.MatchString(text) {
 			t.Fatalf("notFoundRe matches %q, which is not a deleted card", text)
 		}
+	}
+}
+
+// Real-bb finding (Task 2.12 part B): in a read-only sandbox /tmp cannot be written, so the filer's default lock
+// directory failed with "read-only file system" and the filer reported "home is down". It now falls back to the
+// directory os.TempDir() names (TMPDIR) when the default is unwritable.
+func TestCardFilerLockDirFallsBackWhenDefaultUnwritable(t *testing.T) {
+	base := t.TempDir()
+	// The sandbox case: the default directory already exists (made before the sandbox) but cannot be written.
+	existing := filepath.Join(base, fmt.Sprintf("autarch-needsmk-%d", os.Getuid()))
+	if err := os.MkdirAll(existing, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(existing, 0o500); err != nil {
+		t.Skip("chmod unsupported")
+	}
+	defer os.Chmod(existing, 0o700)
+	if f, err := os.OpenFile(filepath.Join(existing, "probe"), os.O_CREATE|os.O_WRONLY, 0o600); err == nil {
+		f.Close()
+		t.Skip("running as a user that ignores directory modes")
+	}
+	t.Setenv("XDG_RUNTIME_DIR", base)
+	tmp := t.TempDir()
+	t.Setenv("TMPDIR", tmp)
+	p, err := (&CardFiler{}).lockPath("k1")
+	if err != nil {
+		t.Fatalf("lockPath: %v", err)
+	}
+	if !strings.HasPrefix(p, tmp) {
+		t.Fatalf("lock path %s is not under TMPDIR %s", p, tmp)
 	}
 }

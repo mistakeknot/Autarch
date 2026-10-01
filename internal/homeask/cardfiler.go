@@ -391,16 +391,33 @@ var notFoundRe = regexp.MustCompile(`(?i)not found|no such task|unknown task|doe
 // ---- lock ---------------------------------------------------------------------------
 
 func (f *CardFiler) lockPath(key string) (string, error) {
-	dir := f.LockDir
-	if dir == "" {
-		base := os.Getenv("XDG_RUNTIME_DIR")
-		if base == "" {
-			base = "/tmp"
+	if f.LockDir != "" {
+		if err := os.MkdirAll(f.LockDir, 0o700); err != nil {
+			return "", err
 		}
-		dir = filepath.Join(base, fmt.Sprintf("autarch-needsmk-%d", os.Getuid()))
+		return filepath.Join(f.LockDir, key+".lock"), nil
 	}
-	if err := os.MkdirAll(dir, 0o700); err != nil {
-		return "", err
+	base := os.Getenv("XDG_RUNTIME_DIR")
+	if base == "" {
+		base = "/tmp"
+	}
+	name := fmt.Sprintf("autarch-needsmk-%d", os.Getuid())
+	dir := filepath.Join(base, name)
+	err := os.MkdirAll(dir, 0o700)
+	if err == nil {
+		// An existing directory on a read-only file system passes MkdirAll; only a write shows it.
+		var probe *os.File
+		if probe, err = os.CreateTemp(dir, ".probe-*"); err == nil {
+			probe.Close()
+			os.Remove(probe.Name())
+		}
+	}
+	if err != nil {
+		// A read-only /tmp (a sandbox) cannot hold the lock; os.TempDir() honors TMPDIR.
+		dir = filepath.Join(os.TempDir(), name)
+		if err2 := os.MkdirAll(dir, 0o700); err2 != nil {
+			return "", err
+		}
 	}
 	return filepath.Join(dir, key+".lock"), nil
 }
