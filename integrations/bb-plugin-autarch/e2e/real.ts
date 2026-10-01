@@ -5,7 +5,7 @@
 import assert from "node:assert/strict";
 import Database from "better-sqlite3";
 import { createHash } from "node:crypto";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, renameSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
+import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, renameSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -421,111 +421,147 @@ export class Real {
       return { threads: [v], message_id: ev.id, screenshot_sha256: sha(shot) };
     },
 
-    // Finding r5-1, on the owned server. v3 is installed and enabled by setup, so the scenario puts a legacy schema-2 database
-    // in its place while it is disabled. The "running v2 instance" is the real a9853e2 Store (extracted from git) in a child
-    // process that holds data.db open and answers the pick: bb does not host it, because installing a second plugin build
-    // under the same id would need a v2 plugin build the rig does not make. That is the plan's holder, one process removed.
-    // GAP (UNVERIFIED): because bb does not host the v2 instance, bb's "failed candidate keeps the previous v2 instance running"
-    // path (PREVIOUS_INSTANCE_KEPT) is not exercised here. Tracked as bead "real-bb upgrade canary with bb-hosted v2 plugin instance".
+    // Finding r5-1 and review s1-3 P1, on the owned server. v3 is installed and enabled by setup. The scenario swaps in the real
+    // a9853e2 plugin BUILD (HOME_E2E_V2_PLUGIN_DIR, a `bb plugin build` of that commit made outside the network namespace) so bb itself
+    // hosts the v2 instance: it copies that build to a scratch directory, installs it under the autarch id and enables it on a legacy
+    // schema-2 database. It then replaces the scratch directory's contents with the v3 build and runs `bb plugin reload autarch`.
+    // (A `bb plugin install` of v3 would not do: bb disposes the running instance first, closing its database, so v3 would simply
+    // migrate. A reload loads the candidate while the previous instance still runs.) v3 cannot take the database, so bb's
+    // activation fails and, as designed, keeps the previous v2 instance running (PREVIOUS_INSTANCE_KEPT, "the previous instance is
+    // still running"). The scenario asserts that, then disables and enables to migrate. A standalone a9853e2 Store process only
+    // seeds the legacy database before bb opens it.
     "upgrade-quiesce": async () => {
       const dataDir = join(this.env.data, "plugins", "autarch");
       const dbFile = join(dataDir, "data.db");
+      const v2Plugin = process.env.HOME_E2E_V2_PLUGIN_DIR;
+      assert.ok(v2Plugin && existsSync(join(v2Plugin, "package.json")), "upgrade-quiesce needs HOME_E2E_V2_PLUGIN_DIR: a built a9853e2 plugin directory (bb plugin build)");
       const fileSha = (): string => sha(Buffer.concat(["", "-wal"].map((x) => (existsSync(dbFile + x) ? readFileSync(dbFile + x) : Buffer.alloc(0)))));
       const backups = (): string[] => readdirSync(dataDir).filter((n) => /^home-v2-backup-.*\.db$/.test(n));
-      const status = (): string => this.bb(["plugin", "status", "autarch"], { allowFail: true }).stdout;
+      const pstate = (): { enabled: boolean; status: string; statusDetail: string | null } | undefined => {
+        const r = this.bb(["plugin", "list", "--json"], { allowFail: true });
+        try { return (JSON.parse(r.stdout) as { plugins: { id: string; enabled: boolean; status: string; statusDetail: string | null }[] }).plugins.find((x) => x.id === "autarch"); } catch { return undefined; }
+      };
       const logs = (): string => { const r = this.bb(["plugin", "logs", "autarch"], { allowFail: true }); return r.stdout + r.stderr; };
       const REFUSAL = /home-refused:quiesce-required|another connection holds data\.db/;
+      const KEPT = /the previous instance is still running/;
       const migrated = (): boolean => { try { return this.db("SELECT 1 FROM migration_log WHERE version >= 3").length > 0; } catch { return false; } };
+      const owed = async (): Promise<string[]> => ((await this.rpc<{ owed: { id: string }[] }>("listAsks")).owed ?? []).map((o) => o.id);
+      const waitOwed = async (what: string, want: string): Promise<string[]> => {
+        let last: string[] = [];
+        let err = "";
+        await this.waitFor(what, async () => { try { last = await owed(); return last.includes(want) || undefined; } catch (e) { err = String(e); return undefined; } }, 60_000).catch((e: Error) => { throw new Error(`${e.message} (owed: ${JSON.stringify(last)}; last error: ${err}; status ${JSON.stringify(pstate())})`); });
+        return last;
+      };
 
-      // 1. v3 off, its database moved aside, a legacy v2 database made by the v2 build and held open by the v2 instance.
+      // 1. v3 off, its database moved aside, a legacy schema-2 database seeded by the a9853e2 Store (a short-lived process).
       this.bb(["plugin", "disable", "autarch"]);
-      await this.waitFor("v3 to stop (its database closed)", () => !/running/i.test(status()) || undefined, 30_000).catch(() => undefined);
+      await this.waitFor("v3 to stop (its database closed)", () => pstate()?.status !== "running" || undefined, 30_000);
       const aside = join(dataDir, `.e2e-v3-aside-${sha(this.runId).slice(0, 8)}`);
       mkdirSync(aside);
       for (const n of readdirSync(dataDir).filter((n) => /^data\.db/.test(n))) renameSync(join(dataDir, n), join(aside, n));
       const v2dir = join(this.tmp, "v2src");
       mkdirSync(v2dir, { recursive: true });
       const top = rigExecSync("git", ["rev-parse", "--show-toplevel"], { cwd: dirname(fileURLToPath(import.meta.url)) }).stdout.trim();
-      for (const f of ["store.ts", "migrations.ts"]) {
+      for (const f of ["store.ts", "migrations.ts", "model.ts"]) {
         const src = rigExecSync("git", ["-C", top, "show", `a9853e2:integrations/bb-plugin-autarch/${f}`]);
         assert.equal(src.code, 0, `git show a9853e2:${f}: ${src.stderr}`);
         writeFileSync(join(v2dir, f), src.stdout);
       }
       writeFileSync(join(v2dir, "holder.ts"), readFileSync(join(dirname(fileURLToPath(import.meta.url)), "v2-holder.src")));
       symlinkSync(join(dirname(fileURLToPath(import.meta.url)), "..", "node_modules"), join(v2dir, "node_modules"));
-      const v2 = rigSpawn(process.execPath, ["--import", "tsx", join(v2dir, "holder.ts"), dbFile]);
+      const seeder = rigSpawn(process.execPath, ["--import", "tsx", join(v2dir, "holder.ts"), dbFile]);
       const lines: string[] = [];
       let buf = "";
-      v2.stdout!.on("data", (d) => { buf += d; const parts = buf.split("\n"); buf = parts.pop()!; lines.push(...parts); });
-      const next = (what: string, ms = 60_000) => this.waitFor(what, () => lines.shift(), ms);
-      let v2Closed = false;
-      const closeV2 = async () => { if (v2Closed) return; v2Closed = true; v2.stdin!.write("close\n"); await this.waitFor("the v2 instance to close", () => v2.exitCode !== null || undefined, 15_000).catch(() => v2.kill("SIGKILL")); };
+      seeder.stdout!.on("data", (d) => { buf += d; const parts = buf.split("\n"); buf = parts.pop()!; lines.push(...parts); });
       try {
-        const ready = await next("the v2 instance to seed and hold data.db");
+        const ready = await this.waitFor("the seeder to write the legacy database", () => lines.shift(), 60_000);
         assert.match(ready, /^ready /, ready);
         const seeded = JSON.parse(ready.slice(6)) as { schema_version: string | number; decisions: number };
         assert.equal(String(seeded.schema_version), "2");
         assert.equal(seeded.decisions, 2);
-        const hasLog = this.db("SELECT 1 FROM sqlite_master WHERE name = 'migration_log'")[0]; // this.db closes its connection
-        assert.equal(hasLog, undefined, "the legacy database already has a migration_log");
-
-        // 2. Enable v3 while the holder is open: refused, nothing written.
-        const shaBefore = fileSha();
-        const enabled = this.bb(["plugin", "enable", "autarch"], { allowFail: true });
-        await this.waitFor("the quiesce refusal in the plugin log", () => REFUSAL.test(logs()) || undefined, 60_000);
-        const refusedLog = logs().split("\n").filter((l) => REFUSAL.test(l)).slice(-1)[0] ?? "";
-        const statusDuring = status().trim().split("\n")[0] ?? "";
-        this.bb(["plugin", "disable", "autarch"], { allowFail: true }); // stops the plugin's own retry
-        const shaAfter = fileSha();
-        const backupFiles = backups().length;
-        assert.ok(!migrated(), "the database migrated while the holder was open");
-
-        // 3. The v2 instance still answers: pick a legacy ask through it.
-        v2.stdin!.write("pick legacy-1\n");
-        const picked = JSON.parse(await next("the v2 pick")) as { ok: boolean };
-
-        // 4. Release the holder, then disable (done) and enable: v3 migrates, the other legacy ask is listed.
-        await closeV2();
-        this.bb(["plugin", "enable", "autarch"]);
-        await this.waitFor("v3 to migrate", () => migrated() || undefined, 60_000).catch((e: Error) => { throw new Error(`${e.message}\n--- plugin status: ${status().trim()}\n--- plugin log tail:\n${logs().split("\n").slice(-25).join("\n")}`); });
-        let legacyListed = false;
-        let listErr = "";
-        let owedIds: string[] = [];
-        for (let i = 0; i < 60 && !legacyListed; i++) {
-          try {
-            const l = await this.rpc<{ owed: { id: string }[] }>("listAsks");
-            owedIds = l.owed.map((o) => o.id);
-            legacyListed = owedIds.includes("legacy-2");
-          } catch (e) { listErr = String(e); /* the plugin may still be starting */ }
-          if (!legacyListed) await sleep(500);
-        }
-        const row = this.db<{ version: number; backup_path: string | null }>("SELECT version, backup_path FROM migration_log WHERE version >= 3")[0];
-        const pickRows = this.db("SELECT 1 FROM picks WHERE decision_id = 'legacy-1'").length;
-        assert.ok(row?.backup_path && existsSync(row.backup_path), "the migration wrote no backup file");
-        assert.ok(legacyListed, `legacy-2 is not listed after the migration (owed: ${JSON.stringify(owedIds)}; last listAsks error: ${listErr})`);
-        assert.equal(pickRows, 1, "the pick made through the v2 instance did not survive the migration");
-        return {
-          quiesce_refused: REFUSAL.test(refusedLog),
-          db_sha256_unchanged: shaBefore === shaAfter,
-          backup_files: backupFiles,
-          legacy_ask_picked: picked.ok === true,
-          migrated_after_enable: true,
-          // UNVERIFIED, stated plainly: this proves quiesce refusal, backup and migration against a standalone v2 Store process.
-          // It does NOT prove bb's activation-failure-keeps-the-previous-v2-plugin-instance-running behaviour.
-          v2_instance_hosted_by: "standalone-store-process",
-          unverified_gap: "bb-hosted-v2-instance-keeps-running-on-failed-candidate",
-          threads: [] as string[], // no thread is created here; the acceptance jq reads evidence.threads from every record
-          enable_exit: enabled.code,
-          status_during_refusal: statusDuring,
-          refusal_log: refusedLog,
-          backup_after_migrate: row.backup_path,
-          legacy_listed_after_migrate: legacyListed,
-          v2_pick_survived: pickRows === 1,
-        };
+        seeder.stdin!.write("close\n");
+        await this.waitFor("the seeder to exit", () => seeder.exitCode !== null || undefined, 15_000);
       } finally {
-        await closeV2().catch(() => undefined);
-        v2.kill("SIGKILL");
+        seeder.kill("SIGKILL");
       }
+      assert.equal(this.db("SELECT 1 FROM sqlite_master WHERE name = 'migration_log'")[0], undefined, "the legacy database already has a migration_log");
+
+      // 2. bb hosts the v2 instance: install a copy of the a9853e2 build under the autarch id, enable it, see its legacy asks.
+      // Both builds are source plugins (server.ts, app.tsx, dist/ app bundle) that share a node_modules: the directory is the
+      // build's tree with node_modules linked, so the swap below replaces the sources in place and re-links v3's modules.
+      const live = join(this.tmp, "autarch-live");
+      const stage = (from: string): void => {
+        mkdirSync(live, { recursive: true });
+        for (const n of readdirSync(live)) rmSync(join(live, n), { recursive: true, force: true });
+        for (const n of readdirSync(from).filter((n) => n !== "node_modules")) cpSync(join(from, n), join(live, n), { recursive: true, dereference: true });
+        symlinkSync(join(from, "node_modules"), join(live, "node_modules"));
+      };
+      stage(v2Plugin!);
+      this.bb(["plugin", "install", live, "--yes"]);
+      this.bb(["plugin", "enable", "autarch"], { allowFail: true });
+      await this.waitFor("the v2 instance to run", () => pstate()?.status === "running" || undefined, 60_000);
+      const v2Owed = await waitOwed("the v2 instance to list its legacy asks", "legacy-2");
+      assert.ok(v2Owed.includes("legacy-1"), `the v2 instance does not list legacy-1 (owed: ${JSON.stringify(v2Owed)})`);
+      assert.equal(migrated(), false, "v2 migrated by itself");
+
+      // 3. Put v3 in the installed directory and reload: bb must keep the v2 instance running and leave the database untouched.
+      const shaBefore = fileSha();
+      stage(this.build.plugin_dir);
+      const install = this.bb(["plugin", "reload", "autarch"], { allowFail: true });
+      await this.waitFor("the quiesce refusal", () => REFUSAL.test(logs() + install.stdout + install.stderr) || undefined, 60_000).catch((e: Error) => { throw new Error(`${e.message}\n--- reload exit ${install.code}: ${install.stdout} ${install.stderr}\n--- plugin state: ${JSON.stringify(pstate())}\n--- plugin log tail:\n${logs().split("\n").slice(-25).join("\n")}`); });
+      await sleep(3_000); // let any (wrongly) successful swap or retry show itself
+      const during = pstate();
+      const evidenceText = `${install.stdout}\n${install.stderr}\n${during?.statusDetail ?? ""}\n${logs()}`;
+      const refusedLog = evidenceText.split("\n").filter((l) => REFUSAL.test(l)).slice(-1)[0] ?? "";
+      const reloadText = `${install.stdout}\n${install.stderr}`;
+      const keptLine = reloadText.split("\n").filter((l) => KEPT.test(l)).slice(-1)[0] ?? "";
+      assert.ok(during?.enabled && during.status === "running", `after the failed v3 reload the plugin is not running: ${JSON.stringify(during)}`);
+      assert.match(during.statusDetail ?? "", /^reload failed: /, `the status detail does not say the reload failed: ${JSON.stringify(during)}`);
+      assert.match(during.statusDetail ?? "", REFUSAL, `the status detail does not carry the quiesce refusal: ${JSON.stringify(during)}`);
+      assert.notEqual(install.code, 0, "the v3 reload reported success");
+      assert.match(keptLine, KEPT, `the reload did not report keeping the previous instance (reload: ${install.code} ${install.stderr || install.stdout})`);
+      assert.match(keptLine, REFUSAL, `the keep-previous line does not carry the quiesce refusal: ${keptLine}`);
+      const shaDuring = fileSha();
+      const backupFiles = backups().length;
+      assert.ok(!migrated(), "the database migrated while the v2 instance was running");
+
+      // 4. The v2 instance (bb-hosted) still answers: pick a legacy ask through it.
+      const listed = (await this.rpc<{ owed: { id: string; revision?: string }[] }>("listAsks")).owed.find((o) => o.id === "legacy-1");
+      assert.ok(listed?.revision, `the v2 instance lists no revision for legacy-1: ${JSON.stringify(listed)}`);
+      const pick = await this.rpc<{ ok: boolean }>("pick", { decision_id: "legacy-1", option_id: "a", revision: listed.revision, pick_id: "pick-legacy-1" });
+      assert.equal(pick.ok, true, `the v2 pick failed: ${JSON.stringify(pick)}`);
+      const shaAfter = fileSha();
+
+      // 5. Disable then enable: v2 stops, v3 starts on the same database and migrates; the other legacy ask is still listed.
+      this.bb(["plugin", "disable", "autarch"]);
+      await this.waitFor("v2 to stop", () => pstate()?.status !== "running" || undefined, 30_000);
+      this.bb(["plugin", "enable", "autarch"]);
+      await this.waitFor("v3 to migrate", () => migrated() || undefined, 60_000).catch((e: Error) => { throw new Error(`${e.message}\n--- plugin state: ${JSON.stringify(pstate())}\n--- plugin log tail:\n${logs().split("\n").slice(-25).join("\n")}`); });
+      const afterOwed = await waitOwed("v3 to list legacy-2", "legacy-2");
+      const row = this.db<{ version: number; backup_path: string | null }>("SELECT version, backup_path FROM migration_log WHERE version >= 3")[0];
+      const pickRows = this.db("SELECT 1 FROM picks WHERE decision_id = 'legacy-1'").length;
+      assert.ok(row?.backup_path && existsSync(row.backup_path), "the migration wrote no backup file");
+      assert.equal(pickRows, 1, "the pick made through the v2 instance did not survive the migration");
+      return {
+        quiesce_refused: REFUSAL.test(refusedLog),
+        previous_instance_kept: KEPT.test(keptLine),
+        v2_pick_through_bb: pick.ok === true,
+        // db_sha256_unchanged compares the database from before the v3 install to just after the failed install, before the pick.
+        db_sha256_unchanged: shaBefore === shaDuring,
+        backup_files: backupFiles,
+        legacy_ask_picked: pick.ok === true,
+        migrated_after_enable: true,
+        v2_instance_hosted_by: "bb-plugin-instance",
+        threads: [] as string[], // no thread is created here; the acceptance jq reads evidence.threads from every record
+        reload_exit: install.code,
+        status_during_refusal: JSON.stringify(during),
+        refusal_log: refusedLog,
+        previous_instance_line: keptLine,
+        backup_after_migrate: row.backup_path,
+        legacy_listed_after_migrate: afterOwed.includes("legacy-2"),
+        v2_pick_survived: pickRows === 1,
+        db_sha256_after_pick_differs: shaAfter !== shaBefore,
+      };
     },
   };
 

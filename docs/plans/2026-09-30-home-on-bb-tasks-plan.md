@@ -1623,20 +1623,21 @@ bwrap --dev-bind / / --unshare-net --die-with-parent   --setenv HOME_E2E_OUTER_N
 - `queued-then-archived`: kept from the rev-4 real list.
 - `vizier-chat`: kept from the rev-4 real list, unchanged.
 - `upgrade-quiesce` (finding r5-1): on the owned server, install and enable the a9853e2
-  build, file a legacy ask, then `bb plugin install` the v3 build **while v2 is running**.
-  Expected: the reload fails with `QuiesceRequiredError`; `bb plugin list` shows autarch
-  running with "reload failed" (bb kept the previous instance); the `data.db` sha256 is
-  unchanged and no backup file exists; the legacy ask can still be picked through the v2
-  instance. Then `bb plugin disable autarch`, `bb plugin enable autarch`: v3 migrates, the
-  log names the backup, and the legacy ask is listed (A11).
-  **UNVERIFIED gap (review s1-3 P1).** As built, `upgrade-quiesce` proves quiesce refusal, the
-  unchanged database, the backup and the migration against a **standalone v2 Store process**
-  that holds `data.db`; bb does not host that v2 instance. It does not prove bb's "failed
-  candidate keeps the previous v2 plugin instance running" path (`PREVIOUS_INSTANCE_KEPT`).
-  Every `upgrade-quiesce` record carries `v2_instance_hosted_by: "standalone-store-process"`
-  and `unverified_gap: "bb-hosted-v2-instance-keeps-running-on-failed-candidate"`, and
-  `check-e2e` requires both, so a green record cannot be read as covering that path. Tracked
-  by bead mk-schu.5, "real-bb upgrade canary with bb-hosted v2 plugin instance".
+  build (a `bb plugin build` of a9853e2, `HOME_E2E_V2_PLUGIN_DIR`), install it under the autarch
+  id and enable it on a legacy schema-2 database (a standalone a9853e2 Store only seeds the
+  file), then put the v3 sources in the installed directory and `bb plugin reload autarch`
+  **while v2 is running**. Expected: the reload fails with `QuiesceRequiredError`; `bb plugin
+  list` shows autarch running with status detail "reload failed: [home-refused:quiesce-required]
+  ...", and the reload's own output ends "(the previous instance is still running)" with a
+  non-zero exit; the `data.db` sha256 is unchanged and no backup file exists; the legacy ask can
+  still be picked through the bb-hosted v2 instance. Then `bb plugin disable autarch`, `bb
+  plugin enable autarch`: v3 migrates, the log names the backup, and the legacy ask is listed
+  (A11).
+  **bb-hosted v2 (mk-schu.5, verified on the owned rig).** The keep-previous path is a
+  *reload* path. `bb plugin install` of v3 over a running v2 does not reach it: bb's install
+  disposes the running instance first (closing its database), so v3 would just migrate. Every
+  `upgrade-quiesce` record carries `v2_instance_hosted_by: "bb-plugin-instance"`,
+  `previous_instance_kept: true` and `v2_pick_through_bb: true`, and `check-e2e` requires them.
 
 The default list at `e2e/harness.ts:42` is changed to exactly these eight names, so a
 plain `--mode real-bb` run cannot silently drop one.
@@ -2071,7 +2072,7 @@ in `/home/mk/projects/Aleph` before it was fixed.
 
 | # | Finding | Verified evidence | Fix | Test |
 |---|---|---|---|---|
-| r5-1 (P1) | A running v2 instance misses the fence | `store.ts:196-208` checks the version only in the constructor. `plugin-runtime.ts:1612-1628` keeps the previous instance on a failed activation (`PREVIOUS_INSTANCE_KEPT`), and it is disposed only after the candidate succeeds (`:1664`). Each instance opens its own DB handle (`plugin-api.ts:679-696`). Probe: an idle connection blocks `journal_mode=DELETE` with `SQLITE_BUSY` | §1.3.8 quiesce: exclusive locking, then leaving WAL fails while any other connection is open, giving `QuiesceRequiredError` with nothing written. Upgrade is disable → install → enable through `home-upgrade-v3.sh` | Task 2.3 test 6, "existing reader" (same process and child process; v2 still picks). Real-bb `upgrade-quiesce`: install while enabled gives "reload failed", DB unchanged, v2 still picks; then disable and enable migrates |
+| r5-1 (P1) | A running v2 instance misses the fence | `store.ts:196-208` checks the version only in the constructor. `plugin-runtime.ts:1612-1628` keeps the previous instance on a failed activation (`PREVIOUS_INSTANCE_KEPT`), and it is disposed only after the candidate succeeds (`:1664`). Each instance opens its own DB handle (`plugin-api.ts:679-696`). Probe: an idle connection blocks `journal_mode=DELETE` with `SQLITE_BUSY` | §1.3.8 quiesce: exclusive locking, then leaving WAL fails while any other connection is open, giving `QuiesceRequiredError` with nothing written. Upgrade is disable → install → enable through `home-upgrade-v3.sh` | Task 2.3 test 6, "existing reader" (same process and child process; v2 still picks). Real-bb `upgrade-quiesce`: reload with v3 sources while v2 is enabled gives "reload failed" (install would dispose v2 first), DB unchanged, v2 still picks; then disable and enable migrates |
 | r5-2 (P1) | Row counts do not prove equality | A count check passes an UPDATE and an equal-count replacement | One exclusive hold covers `VACUUM INTO` through the v3 commit, and a full content digest (every column through `quote()`) is checked under that hold. No retry | Task 2.3 test 6: writers during the hold get `SQLITE_BUSY`; with the hold disabled by a test-only switch, the digest refuses an UPDATE and an equal-count replacement |
 | r5-3 (P1) | Launcher probes run before the ownership gate | `launcher.ts:2947` calls `waitForServerHealth` (`:2275`), which fetches `/health` before the harness checks the socket. The harness spy cannot see subprocesses | The whole real-bb run is in `bwrap --unshare-net` (loopback only). The harness refuses outside the namespace or when a LISTEN socket already exists. The step 1-6 checks stay as a second line. Probed: an outside listener was unreachable and saw nothing | `rig-isolation.test.ts`: a real outside listener on the rig's exact port (v4 and v6) receives zero connections during a full run, and the harness refuses outside the namespace. `rig-acceptance.jq` requires `netns_isolated` |
 | r5-4 (P1) | Restore commands follow ambient bb settings | `~/.local/bin/bb` execs `$BB_DATA_DIR/npm/bin/bb` when it is set. The CLI reads only `BB_SERVER_URL` (`packages/config/src/cli.ts`, `env.ts`) and otherwise uses the prod default | The script re-execs under `env -i` with `--noprofile --norc`. `BBDATA` is a constant. Step 0 verifies the runtime file, pid, entry path, socket owner and open files, then pins `BB_SERVER_URL`/`BB_DATA_DIR`. A verify failure exits 6 before any move and sends nothing | Task 2.8a test 2, "hostile ambient settings" (decoy URL, data dir, HOME, PATH, `BASH_ENV`): zero decoy connections, no markers, the pinned stub got the pinned env. "Unverifiable install" cases exit 6 with nothing moved |

@@ -24,3 +24,6 @@ plugin, app, daemon and autarch identities, runs `answer-instruction`, `queued-t
 recorded and writes `<out>.cleanup.json`. Scratch threads take one real turn that fails at once with
 "Not logged in" (no credentials in the isolated HOME), which is what gives bb an execution model to
 wake. `queued-then-archived` needs an active turn, so without model credentials it fails honestly.
+
+`upgrade-quiesce` needs `HOME_E2E_V2_PLUGIN_DIR`: a built a9853e2 plugin directory (`bb plugin build` there, with `npm ci`, outside the
+network namespace). bb hosts that v2 instance, then a v3 reload must fail on the quiesce refusal and keep v2 running.
