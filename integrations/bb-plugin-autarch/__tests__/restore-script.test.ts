@@ -608,7 +608,35 @@ describe("fresh install (a): autarch absent from the live bb", () => {
     const r = run(UPGRADE, upgradeArgs(i));
     expect(r.code, r.out).toBe(5);
     expect(r.out).toContain("fresh install; there is no v2 DB");
+    expect(r.out).toContain("plugin state after containment:");
     expect(r.out).not.toContain("home-restore-v2.sh");
+  });
+  it("a fresh install whose install step fails is contained: disable after the failure, state read back (exit 4)", async () => {
+    const { i } = await fresh();
+    const f = join(i.bbdata, "npm", "bin", "bb");
+    writeFileSync(f, `#!/bin/bash\nd="$(dirname "$0")"; echo "$1 $2" >> "$d/verbs.log"\ncase "$1 $2" in "plugin list") echo '{"plugins":[]}';; "plugin install") exit 1;; esac\nexit 0\n`);
+    chmodSync(f, 0o755);
+    const r = run(UPGRADE, upgradeArgs(i));
+    expect(r.code, r.out).toBe(4);
+    const vs = readFileSync(join(i.bbdata, "npm", "bin", "verbs.log"), "utf8").trim().split("\n");
+    expect(vs.indexOf("plugin disable")).toBeGreaterThan(vs.indexOf("plugin install"));
+    expect(r.out).toContain("plugin state after containment:");
+  });
+  it("a fresh install that never becomes healthy is contained too, and the disable comes only after the install", async () => {
+    const { i, stub } = await fresh();
+    realFreshDb(stub, join(i.data, "data.db"));
+    writeFileSync(join(stub, "status"), "error");
+    run(UPGRADE, upgradeArgs(i));
+    const vs = verbs(i);
+    expect(vs.indexOf("plugin disable")).toBeGreaterThan(vs.indexOf("plugin install"));
+    expect(vs.filter((v) => v === "plugin disable")).toHaveLength(1);
+  });
+  it("a dangling data.db symlink also refuses the fresh install (exit 6)", async () => {
+    const { i } = await fresh();
+    symlinkSync(join(i.data, "nowhere"), join(i.data, "data.db"));
+    const r = run(UPGRADE, upgradeArgs(i));
+    expect(r.code, r.out).toBe(6);
+    expect(verbs(i).filter((v) => v === "plugin install")).toEqual([]);
   });
   it("autarch absent but a data.db present: refuse (exit 6), install nothing", async () => {
     const { i } = await fresh();
