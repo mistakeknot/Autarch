@@ -1,17 +1,19 @@
 # home-upgrade-v3.bash: body, started only by the home-upgrade-v3.sh launcher.
 # Upgrades Home (the autarch bb plugin) to the v3 build: disable, verify no holder, install, enable.
-# Run on the host from the root-owned copy (sudo scripts/home-install-root-copy.sh first): sudo /usr/local/libexec/home-v3/home-upgrade-v3.sh --thread <thr_...> --plugin <v3 build dir>
+# Run on the host only from the root-owned copy installed by the generated home-v3-run-<sha12>.sh package (scripts/home-build-root-package.sh); never run a checkout copy with sudo.
+# Arguments: --thread <thr_...> --plugin <v3 build dir> [--check: verify the install and plugin dir, change nothing]
 # Tested in test mode by integrations/bb-plugin-autarch/__tests__/restore-script.test.ts (Task 2.8a); the sudo
 # launch itself is unprobed (bead mk-schu.4): mk's dry run covers it.
 set -euo pipefail
 . "${BASH_SOURCE[0]%/*}/home-common.bash"
 parse_common "$@"
 set -- "${REST[@]}"
-PLUGIN=
+PLUGIN=; CHECK_ONLY=0
 while [ $# -gt 0 ]; do
   case "$1" in
     --thread) THREAD=${2:?}; shift 2 ;;
     --plugin) PLUGIN=${2:?}; shift 2 ;;
+    --check) CHECK_ONLY=1; shift ;;
     *) echo "unknown argument: $1" >&2; exit 64 ;;
   esac
 done
@@ -19,6 +21,7 @@ done
 common_setup home-upgrade
 verify_install
 [ -f "$PLUGIN/package.json" ] || { say "no plugin build at $PLUGIN"; exit 4; }
+if [ "$CHECK_ONLY" = 1 ]; then say "--check: install verified, plugin build present; nothing changed"; exit 0; fi
 
 # 1. Stop Home, then require that nothing holds the database.
 "${AS[@]}" "$BB" plugin disable autarch

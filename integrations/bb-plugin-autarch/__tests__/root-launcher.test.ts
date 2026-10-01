@@ -3,7 +3,7 @@
 // path. Real root is unavailable in tests, so: HOME_LAUNCHER_ASSUME_ROOT=1 (only ever makes the check apply) and,
 // where installed, fakeroot (id -u is 0 and stat reports the faked owner). Nothing here uses sudo.
 import { spawnSync } from "node:child_process";
-import { chmodSync, copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { chmodSync, copyFileSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join, resolve } from "node:path";
 import { afterAll, describe, expect, it } from "vitest";
@@ -34,7 +34,8 @@ describe("launcher refuses user-owned scripts as root", () => {
       const r = spawnSync(join(SCRIPTS, l), ["--thread", "thread-x"], { env: { PATH: process.env.PATH, HOME_LAUNCHER_ASSUME_ROOT: "1" }, encoding: "utf8" });
       expect(r.status, r.stderr).toBe(6);
       expect(r.stderr).toContain("refusing to run as root");
-      expect(r.stderr).toContain("home-install-root-copy.sh");
+      expect(r.stderr).toContain("root-owned copy");
+      expect(r.stderr).not.toContain("install-root-copy");
     });
   }
   it("a launcher is not trusted merely because the flag is absent: non-root without the flag proceeds to the body (usage error)", () => {
@@ -80,40 +81,196 @@ describe.skipIf(!hasFakeroot)("under fakeroot (id -u is 0)", () => {
   }
 });
 
-describe("home-install-root-copy.sh (test mode, temp git repo)", () => {
-  function repo() {
+const GEN = join(SCRIPTS, "home-build-root-package.sh");
+const SUDO_RE = /sudo\s+(sh\s+|bash\s+)?(\.\/)?scripts\/|git[^\n]*\|\s*sudo/;
+
+describe("no instruction to run a checkout script with sudo (review s1 root)", () => {
+  for (const f of [...FILES, "home-build-root-package.sh"]) {
+    it(`${f} has no sudo-from-checkout or pipe-to-sudo instruction`, () => {
+      expect(readFileSync(join(SCRIPTS, f), "utf8")).not.toMatch(SUDO_RE);
+      expect(readFileSync(join(SCRIPTS, f), "utf8")).not.toContain("home-install-root-copy");
+    });
+  }
+  it("the plan has no sudo-from-checkout instruction or installer reference", () => {
+    const plan = readFileSync(resolve(SCRIPTS, "../docs/plans/2026-09-30-home-on-bb-tasks-plan.md"), "utf8");
+    expect(plan).not.toMatch(SUDO_RE);
+    expect(plan).not.toContain("home-install-root-copy");
+  });
+});
+
+describe("home-build-root-package.sh and the generated script", () => {
+  const STUBS: Record<string, string> = {
+    "home-upgrade-v3.sh": '#!/bin/sh\necho "upgrade $*" >> "$(dirname "$0")/../calls.log"\necho "upgrade $*"\n',
+    "home-upgrade-v3.bash": "# b1\n",
+    "home-restore-v2.sh": "#!/bin/sh\n:\n",
+    "home-restore-v2.bash": "# b2\n",
+    "home-common.bash": "# c\n",
+  };
+  function fixture() {
     const d = base();
-    copyTo(join(d, "scripts"));
-    copyFileSync(join(SCRIPTS, "home-install-root-copy.sh"), join(d, "scripts", "home-install-root-copy.sh"));
-    chmodSync(join(d, "scripts", "home-install-root-copy.sh"), 0o755);
-    const g = (...a: string[]) => spawnSync("git", ["-C", d, "-c", "user.name=t", "-c", "user.email=t@t", ...a], { encoding: "utf8" });
+    const repo = join(d, "repo");
+    mkdirSync(join(repo, "scripts"), { recursive: true });
+    for (const f of FILES) writeFileSync(join(repo, "scripts", f), STUBS[f]);
+    const g = (...a: string[]) => spawnSync("git", ["-C", repo, "-c", "user.name=t", "-c", "user.email=t@t", ...a], { encoding: "utf8" });
     g("init", "-q");
     g("add", ".");
     g("commit", "-qm", "x");
-    return { d, head: g("rev-parse", "HEAD").stdout.trim() };
+    return { d, repo, sha: g("rev-parse", "HEAD").stdout.trim(), g };
   }
-  const go = (d: string, extra: string[] = []) =>
-    spawnSync(join(d, "scripts", "home-install-root-copy.sh"), ["--test-as-current-user", "--dest", join(d, "out", "home-v3"), ...extra], { env: { PATH: process.env.PATH }, encoding: "utf8" });
-  it("installs the five verified files and prints the exact next commands", () => {
-    const { d, head } = repo();
-    const r = go(d, ["--expect-head", head]);
+  const build = (repo: string, out: string, args: string[]) => spawnSync(GEN, ["--repo", repo, "--out-dir", out, ...(args.includes("--thread") ? [] : ["--thread", FIXTURE_THREAD]), ...args], { encoding: "utf8", env: { PATH: process.env.PATH } });
+  function built() {
+    const f = fixture();
+    const out = join(f.d, "out");
+    const r = build(f.repo, out, ["--commit", f.sha]);
+    expect(r.status, r.stderr).toBe(0);
+    return { ...f, out, script: join(out, `home-v3-run-${f.sha.slice(0, 12)}.sh`), r };
+  }
+  const run = (script: string, args: string[], env: Record<string, string>) =>
+    spawnSync("/bin/sh", [script, ...args], { encoding: "utf8", env: { PATH: process.env.PATH!, ...env } });
+
+  it("requires a full 40-hex sha: HEAD, refs, short shas and missing are refused", () => {
+    const { d, repo } = fixture();
+    for (const bad of ["HEAD", "main", "master", "abc1234", "A".repeat(40)]) expect(build(repo, join(d, "o"), ["--commit", bad]).status, bad).toBe(64);
+    expect(build(repo, join(d, "o"), []).status).toBe(64);
+    expect(existsSync(join(d, "o"))).toBe(false);
+  });
+  it("requires --thread: a missing thread is refused before anything is written", () => {
+    const { d, repo, sha } = fixture();
+    const r = spawnSync(GEN, ["--repo", repo, "--out-dir", join(d, "o"), "--commit", sha], { encoding: "utf8", env: { PATH: process.env.PATH } });
+    expect(r.status).toBe(64);
+    expect(r.stderr).toContain("--thread is required");
+    expect(existsSync(join(d, "o"))).toBe(false);
+  });
+  it("refuses a 40-hex sha that is not a commit", () => {
+    const { d, repo } = fixture();
+    expect(build(repo, join(d, "o"), ["--commit", "1".repeat(40)]).status).not.toBe(0);
+  });
+  it("ignores replace refs: the blobs come from the real commit", () => {
+    const f = fixture();
+    const evil = spawnSync("git", ["-C", f.repo, "hash-object", "-w", "--stdin"], { input: "evil\n", encoding: "utf8" }).stdout.trim();
+    const blob = f.g("rev-parse", `${f.sha}:scripts/home-common.bash`).stdout.trim();
+    f.g("replace", blob, evil);
+    const out = join(f.d, "out");
+    expect(build(f.repo, out, ["--commit", f.sha]).status).toBe(0);
+    const text = readFileSync(join(out, `home-v3-run-${f.sha.slice(0, 12)}.sh`), "utf8");
+    expect(text).not.toContain(Buffer.from("evil\n").toString("base64"));
+    expect(text).toContain(Buffer.from("# c\n").toString("base64"));
+  });
+  it("prints the output path and the sha256 of the whole script; script is sh, embeds shas, uses no git", () => {
+    const { r, script } = built();
+    const text = readFileSync(script, "utf8");
+    const sum = spawnSync("sha256sum", [script], { encoding: "utf8" }).stdout.split(" ")[0];
+    expect(r.stdout).toContain(script);
+    expect(r.stdout).toContain(`sha256 ${sum}`);
+    expect(text.startsWith("#!/bin/sh\n")).toBe(true);
+    expect(text).toContain("/usr/bin/env -i");
+    expect(text).toContain(FIXTURE_THREAD);
+    expect(text).toContain("getent passwd mk");
+    expect(text).toContain("runuser -u mk");
+    const code = text.split("\n").filter((l) => !l.startsWith("#")).join("\n").replace(/^[0-9a-zA-Z+/=]{1,76}$/gm, "");
+    expect(code).not.toMatch(/\bgit\b/);
+    const m = /EXPECT="([^"]*)"/.exec(text)!;
+    expect(m[1].trim().split("\n").length).toBe(5);
+    for (const l of m[1].trim().split("\n")) expect(l).toMatch(/^[0-9a-f]{64} {2}home-/);
+  });
+  it("a custom --thread is baked in", () => {
+    const f = fixture();
+    expect(build(f.repo, join(f.d, "o"), ["--commit", f.sha, "--thread", FIXTURE_THREAD]).status).toBe(0);
+    expect(readFileSync(join(f.d, "o", `home-v3-run-${f.sha.slice(0, 12)}.sh`), "utf8")).toContain(`THREAD=${FIXTURE_THREAD}`);
+  });
+  it("without euid 0 and without test env it refuses and installs nothing", () => {
+    const { script } = built();
+    const r = run(script, ["--plugin", "/x"], {});
+    expect(r.status).toBe(64);
+    expect(r.stderr).toContain("euid 0");
+  });
+  it("test dest: installs verified files, runs --check only, prints restore command, reports to the thread", () => {
+    const { d, script, sha } = built();
+    const dest = join(d, "libexec", `home-v3-${sha.slice(0, 12)}`);
+    const bb = join(d, "bb");
+    writeFileSync(bb, '#!/bin/sh\necho "$@" > "$(dirname "$0")/tell.args"\ncp "${5}" "$(dirname "$0")/tell.msg"\n', { mode: 0o755 });
+    const env = { HOME_V3_TEST_DEST: dest, HOME_V3_TEST_BB: bb, HOME_V3_TEST_LAUNCHER_ARGS: "--xx" };
+    const r = run(script, ["--plugin", "/plug"], env);
     expect(r.status, r.stdout + r.stderr).toBe(0);
-    for (const f of FILES) expect(readFileSync(join(d, "out", "home-v3", f), "utf8")).toBe(readFileSync(join(SCRIPTS, f), "utf8"));
-    expect(statSync(join(d, "out", "home-v3", "home-upgrade-v3.sh")).mode & 0o777).toBe(0o755);
-    expect(statSync(join(d, "out", "home-v3", "home-common.bash")).mode & 0o777).toBe(0o644);
-    expect(r.stdout).toContain(`sudo ${join(d, "out", "home-v3")}/home-upgrade-v3.sh --thread`);
-    expect(r.stdout).toContain("home-restore-v2.sh --thread");
+    for (const f of FILES) expect(readFileSync(join(dest, f), "utf8")).toBe(STUBS[f]);
+    expect(statSync(join(dest, "home-upgrade-v3.sh")).mode & 0o777).toBe(0o755);
+    expect(statSync(join(dest, "home-common.bash")).mode & 0o777).toBe(0o644);
+    expect(readFileSync(join(d, "libexec", "calls.log"), "utf8").trim().split("\n")).toEqual([`upgrade --thread ${FIXTURE_THREAD} --plugin /plug --check --xx`]);
+    expect(r.stdout).toContain(`sudo ${dest}/home-restore-v2.sh --thread ${FIXTURE_THREAD} --repo`);
+    expect(readFileSync(join(d, "tell.args"), "utf8")).toContain(`thread tell ${FIXTURE_THREAD} --message-file`);
+    expect(readFileSync(join(d, "tell.msg"), "utf8")).toContain("SUCCESS");
+    // second run: already installed, content verified
+    expect(run(script, ["--plugin", "/plug"], env).stdout).toContain("already installed");
   });
-  it("refuses when a working-tree file differs from the git HEAD blob; installs nothing", () => {
-    const { d } = repo();
-    writeFileSync(join(d, "scripts", "home-common.bash"), "# tampered\n", { flag: "a" });
-    const r = go(d);
-    expect(r.status).toBe(7);
-    expect(r.stdout).toContain("MISMATCH home-common.bash");
-    expect(existsSync(join(d, "out", "home-v3"))).toBe(false);
+  it("--go runs the real upgrade after the check", () => {
+    const { d, script, sha } = built();
+    const env = { HOME_V3_TEST_DEST: join(d, "lx", `home-v3-${sha.slice(0, 12)}`), HOME_V3_TEST_LAUNCHER_ARGS: "--xx" };
+    const r = run(script, ["--plugin", "/plug", "--go"], env);
+    expect(r.status, r.stderr).toBe(0);
+    expect(readFileSync(join(d, "lx", "calls.log"), "utf8").trim().split("\n")).toEqual([
+      `upgrade --thread ${FIXTURE_THREAD} --plugin /plug --check --xx`,
+      `upgrade --thread ${FIXTURE_THREAD} --plugin /plug --xx`,
+    ]);
   });
-  it("refuses an unexpected HEAD", () => {
-    const { d } = repo();
-    expect(go(d, ["--expect-head", "0".repeat(40)]).status).toBe(7);
+  it("failure still reports (FAILED) and prints the report when sending fails", () => {
+    const { d, script, sha } = built();
+    const dest = join(d, "lx", `home-v3-${sha.slice(0, 12)}`);
+    const bb = join(d, "bbfail");
+    writeFileSync(bb, "#!/bin/sh\nexit 1\n", { mode: 0o755 });
+    // a launcher that fails: poison via a plugin arg is not possible, so make the dest launcher path fail by a bad launcher arg
+    const r = run(script, ["--bogus"], { HOME_V3_TEST_DEST: dest, HOME_V3_TEST_BB: bb });
+    expect(r.status).toBe(64);
+    expect(r.stderr).toContain("unknown argument");
+    const r2 = run(script, ["--plugin", "/p"], { HOME_V3_TEST_DEST: join(d, "lx2", "x"), HOME_V3_TEST_BB: bb, HOME_V3_TEST_LAUNCHER_ARGS: "--xx" });
+    expect(r2.status).toBe(0);
+    expect(r2.stderr).toContain("report not delivered");
+    expect(r2.stderr).toContain("SUCCESS");
+  });
+  it("tampered embedded sha256 fails verification and installs nothing", () => {
+    const { d, script, sha } = built();
+    const text = readFileSync(script, "utf8").replace(/EXPECT="[0-9a-f]/, (m) => m.slice(0, -1) + (m.endsWith("0") ? "1" : "0"));
+    const bad = join(d, "bad.sh");
+    writeFileSync(bad, text);
+    const dest = join(d, "lx", `home-v3-${sha.slice(0, 12)}`);
+    const r = run(bad, ["--plugin", "/p"], { HOME_V3_TEST_DEST: dest });
+    expect(r.status).toBe(5);
+    expect(r.stdout).toContain("verification");
+    expect(existsSync(dest)).toBe(false);
+    expect(readdirSync(join(d, "lx")).length).toBe(0);
+  });
+  it("tampered embedded file content fails verification", () => {
+    const { d, script, sha } = built();
+    const text = readFileSync(script, "utf8").replace(Buffer.from("# c\n").toString("base64"), Buffer.from("# x\n").toString("base64"));
+    const bad = join(d, "bad.sh");
+    writeFileSync(bad, text);
+    const r = run(bad, ["--plugin", "/p"], { HOME_V3_TEST_DEST: join(d, "lx", `home-v3-${sha.slice(0, 12)}`) });
+    expect(r.status).toBe(5);
+  });
+  it("refuses an existing destination with unexpected content, and a symlinked component", () => {
+    const { d, script, sha } = built();
+    const dest = join(d, "lx", `home-v3-${sha.slice(0, 12)}`);
+    mkdirSync(dest, { recursive: true });
+    writeFileSync(join(dest, "evil"), "x");
+    expect(run(script, ["--plugin", "/p"], { HOME_V3_TEST_DEST: dest }).status).toBe(5);
+    mkdirSync(join(d, "real"));
+    symlinkSync(join(d, "real"), join(d, "link"));
+    const r = run(script, ["--plugin", "/p"], { HOME_V3_TEST_DEST: join(d, "link", "home-v3-x") });
+    expect(r.status).toBe(5);
+    expect(r.stdout).toContain("symlink");
+    expect(readdirSync(join(d, "real")).length).toBe(0);
+  });
+  it.skipIf(!hasFakeroot)("TEST env is refused when real euid is 0 (fakeroot)", () => {
+    const { d, script } = built();
+    const r = spawnSync("fakeroot", ["/bin/sh", script, "--clean-env", "--plugin", "/p"], { encoding: "utf8", env: { PATH: process.env.PATH!, HOME_V3_TEST_DEST: join(d, "x") } });
+    expect(r.status).toBe(64);
+    expect(r.stderr).toContain("refused as root");
+    expect(existsSync(join(d, "x"))).toBe(false);
+  });
+  it("BASH_ENV/ENV from the caller do not reach the script's children", () => {
+    const { d, script, sha } = built();
+    const marker = join(d, "marker");
+    writeFileSync(join(d, "evil.env"), `touch ${marker}\n`);
+    run(script, ["--plugin", "/p"], { HOME_V3_TEST_DEST: join(d, "lx", `home-v3-${sha.slice(0, 12)}`), BASH_ENV: join(d, "evil.env"), ENV: join(d, "evil.env") });
+    expect(existsSync(marker)).toBe(false);
   });
 });
