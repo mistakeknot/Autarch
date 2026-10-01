@@ -1,0 +1,141 @@
+// Read-only client for the bb tasks plugin (0.1.2), over plugins.callRpc. Never spawns the bb CLI.
+// Every response is validated here as well as by the host; a rejected call, a schema failure or a
+// repeating cursor is a TasksError. Callers treat a TasksError as "unavailable", never as "absent".
+
+import { z } from "zod";
+
+export const TASKS_PLUGIN_ID = "tasks";
+export const NEEDS_MK_LABEL = "needs-mk";
+export const LABEL_TTL_MS = 60_000;
+export const PAGE_LIMIT = 500;
+export const OPEN_STATUSES = ["backlog", "todo", "in_progress", "in_review"] as const;
+
+const id = z.string().min(1);
+const statusSchema = z.enum(["backlog", "todo", "in_progress", "in_review", "done", "canceled"]);
+
+const projectSchema = z.object({ id, name: z.string(), prefix: z.string(), linkedBbProjectId: z.string().nullable() });
+const labelSchema = z.object({ id, projectId: id, name: z.string(), color: z.string() });
+const taskSchema = z.object({
+  id,
+  projectId: id,
+  number: z.number().int(),
+  key: z.string(),
+  title: z.string(),
+  description: z.string(),
+  status: statusSchema,
+  priority: z.string(),
+  dueDate: z.string().nullable(),
+  parentTaskId: id.nullable(),
+  position: z.number(),
+  createdAt: z.string(),
+  updatedAt: z.string(),
+  labelIds: z.array(id),
+});
+const commentSchema = z.object({
+  id,
+  taskId: id,
+  kind: z.enum(["user", "agent", "system"]),
+  authorName: z.string(),
+  threadId: z.string().nullable(),
+  body: z.string(),
+  createdAt: z.string(),
+});
+
+export type TaskProject = z.infer<typeof projectSchema>;
+export type TaskLabel = z.infer<typeof labelSchema>;
+export type Task = z.infer<typeof taskSchema>;
+export type TaskCommentRow = z.infer<typeof commentSchema>;
+
+export class TasksError extends Error {
+  constructor(message: string, readonly cause?: unknown) {
+    super(message);
+    this.name = "TasksError";
+  }
+}
+
+export interface PluginsLike {
+  callRpc<T>(args: { pluginId: string; method: string; input?: unknown; signal?: AbortSignal; outputSchema: z.ZodType<T> }): Promise<T>;
+}
+
+export type TaskState = { state: "deleted" } | { state: "unlabelled"; task: Task } | { state: "labelled"; task: Task };
+
+export interface ListTasksQuery {
+  projectId?: string;
+  statuses?: readonly string[];
+  labelIds?: readonly string[];
+  signal?: AbortSignal;
+}
+
+export class TasksClient {
+  private readonly now: () => number;
+  private readonly labelCache = new Map<string, { at: number; labels: TaskLabel[] }>();
+
+  constructor(private readonly plugins: PluginsLike, opts: { now?: () => number } = {}) {
+    this.now = opts.now ?? Date.now;
+  }
+
+  private async call<T>(method: string, input: unknown, schema: z.ZodType<T>, signal?: AbortSignal): Promise<T> {
+    try {
+      const raw = await this.plugins.callRpc<unknown>({ pluginId: TASKS_PLUGIN_ID, method, input, signal, outputSchema: z.unknown() });
+      return schema.parse(raw);
+    } catch (e) {
+      throw new TasksError(`tasks.${method} failed: ${e instanceof Error ? e.message : String(e)}`, e);
+    }
+  }
+
+  async listProjects(signal?: AbortSignal): Promise<TaskProject[]> {
+    return (await this.call("listProjects", {}, z.object({ projects: z.array(projectSchema) }), signal)).projects;
+  }
+
+  /** Labels of one project, cached 60 s. `fresh` bypasses the cache; a failed read leaves the cache untouched. */
+  async listLabels(projectId: string, opts: { fresh?: boolean; signal?: AbortSignal } = {}): Promise<TaskLabel[]> {
+    const hit = this.labelCache.get(projectId);
+    if (!opts.fresh && hit && this.now() - hit.at < LABEL_TTL_MS) return hit.labels;
+    const { labels } = await this.call("listLabels", { projectId }, z.object({ labels: z.array(labelSchema) }), opts.signal);
+    this.labelCache.set(projectId, { at: this.now(), labels });
+    return labels;
+  }
+
+  /** Every label id in the project named needs-mk (a project may carry several). */
+  async needsMkLabelIds(projectId: string, opts: { fresh?: boolean; signal?: AbortSignal } = {}): Promise<string[]> {
+    return (await this.listLabels(projectId, opts)).filter((l) => l.name === NEEDS_MK_LABEL).map((l) => l.id);
+  }
+
+  /** All pages. Any failure rejects; a partial read is never returned. */
+  async listTasks(q: ListTasksQuery = {}): Promise<Task[]> {
+    const out: Task[] = [];
+    const seen = new Set<string>();
+    let cursor: string | undefined;
+    for (;;) {
+      const input: Record<string, unknown> = { limit: PAGE_LIMIT };
+      if (q.projectId !== undefined) input.projectId = q.projectId;
+      if (q.statuses !== undefined) input.statuses = [...q.statuses];
+      if (q.labelIds !== undefined) input.labelIds = [...q.labelIds];
+      if (cursor !== undefined) input.cursor = cursor;
+      const page = await this.call("listTasks", input, z.object({ tasks: z.array(taskSchema), nextCursor: z.string().nullable() }), q.signal);
+      out.push(...page.tasks);
+      if (page.nextCursor === null) return out;
+      if (seen.has(page.nextCursor)) throw new TasksError(`tasks.listTasks repeated cursor ${page.nextCursor}`);
+      seen.add(page.nextCursor);
+      cursor = page.nextCursor;
+    }
+  }
+
+  /** Comments ordered by (createdAt, id), whatever order the server used. */
+  async listComments(taskId: string, signal?: AbortSignal): Promise<TaskCommentRow[]> {
+    const { comments } = await this.call("listComments", { taskId }, z.object({ comments: z.array(commentSchema) }), signal);
+    return [...comments].sort((a, b) => (a.createdAt < b.createdAt ? -1 : a.createdAt > b.createdAt ? 1 : a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+  }
+
+  /**
+   * deleted (getTask null), unlabelled, or labelled. "Unlabelled" is decided against a fresh label
+   * read, so a renamed or recreated needs-mk label is not mistaken for a removed one. Any failed
+   * read throws rather than answering deleted or unlabelled.
+   */
+  async taskState(taskId: string, signal?: AbortSignal): Promise<TaskState> {
+    const { task } = await this.call("getTask", { taskId }, z.object({ task: taskSchema.nullable() }), signal);
+    if (task === null) return { state: "deleted" };
+    const ids = await this.needsMkLabelIds(task.projectId, { fresh: true, signal });
+    return task.labelIds.some((l) => ids.includes(l)) ? { state: "labelled", task } : { state: "unlabelled", task };
+  }
+}
