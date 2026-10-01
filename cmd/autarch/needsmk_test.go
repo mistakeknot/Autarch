@@ -117,7 +117,7 @@ func writeAsk(t *testing.T) string {
 }
 
 func TestNeedsMkFileFilesAndPrintsTheCard(t *testing.T) {
-	t.Setenv("BB_THREAD_ID", "thr_x")
+	t.Setenv("BB_THREAD_ID", "thread-x")
 	s := &stubBB{}
 	out, err := runNeedsMk(t, s, "file", "--project", "P1", "--title", "Ship?", "--blocks", "thread:thr_x", "--blocks", "bead:A-1", "--ask-file", writeAsk(t))
 	if err != nil {
@@ -152,7 +152,7 @@ func TestNeedsMkFileRequiresThreadAndFlags(t *testing.T) {
 	if exitCode(err) != 2 || !strings.Contains(err.Error(), "BB_THREAD_ID") || len(s.calls) != 0 {
 		t.Fatalf("err=%v calls=%v", err, s.calls)
 	}
-	t.Setenv("BB_THREAD_ID", "thr_x")
+	t.Setenv("BB_THREAD_ID", "thread-x")
 	for _, args := range [][]string{
 		{"file", "--title", "x", "--ask-file", writeAsk(t)},
 		{"file", "--project", "P1", "--ask-file", writeAsk(t)},
@@ -169,7 +169,7 @@ func TestNeedsMkFileRequiresThreadAndFlags(t *testing.T) {
 }
 
 func TestNeedsMkFileRootRunHashesTheScript(t *testing.T) {
-	t.Setenv("BB_THREAD_ID", "thr_x")
+	t.Setenv("BB_THREAD_ID", "thread-x")
 	script := filepath.Join(t.TempDir(), "run.sh")
 	os.WriteFile(script, []byte("#!/bin/sh\necho hi\n"), 0o755)
 	sum := sha256.Sum256([]byte("#!/bin/sh\necho hi\n"))
@@ -189,7 +189,7 @@ func TestNeedsMkFileRootRunHashesTheScript(t *testing.T) {
 }
 
 func TestNeedsMkFileHomeDownIsExit3(t *testing.T) {
-	t.Setenv("BB_THREAD_ID", "thr_x")
+	t.Setenv("BB_THREAD_ID", "thread-x")
 	old := newCardFiler
 	t.Cleanup(func() { newCardFiler = old })
 	newCardFiler = func() *homeask.CardFiler {

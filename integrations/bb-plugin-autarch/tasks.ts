@@ -100,7 +100,10 @@ export class TasksClient {
 
   /** Every label id in the project named needs-mk (a project may carry several). */
   async needsMkLabelIds(projectId: string, opts: { fresh?: boolean; signal?: AbortSignal } = {}): Promise<string[]> {
-    return (await this.listLabels(projectId, opts)).filter((l) => l.name === NEEDS_MK_LABEL).map((l) => l.id);
+    const ids = (await this.listLabels(projectId, opts)).filter((l) => l.name === NEEDS_MK_LABEL).map((l) => l.id);
+    if (ids.length > 0 || opts.fresh) return ids;
+    // The label can be created after the first poll saw the project; an empty answer is never trusted from cache.
+    return (await this.listLabels(projectId, { ...opts, fresh: true })).filter((l) => l.name === NEEDS_MK_LABEL).map((l) => l.id);
   }
 
   /** All pages. Any failure rejects; a partial read is never returned. */

@@ -41,12 +41,21 @@ export function readRealEnv(env: NodeJS.ProcessEnv): RealEnv {
   return { url: u.origin, hostPort, data, home: env.HOME_E2E_BB_HOME ?? join(data, "..", "home"), cli: env.HOME_E2E_BB_CLI ?? "bb" };
 }
 
+/** The tasks plugin's createProject answer: the project, bare or under `project`. */
+function projectIdOf(r: unknown): string {
+  const o = r as { id?: string; project?: { id?: string } };
+  const id = o.id ?? o.project?.id;
+  if (typeof id !== "string") throw new Error(`tasks createProject returned no project id: ${JSON.stringify(r)}`);
+  return id;
+}
+
 export class Real {
   readonly threads: string[] = [];
   private tmp = mkdtempSync(join(tmpdir(), "autarch-e2e-real-"));
   private project = "";
   /** The tasks project the filer files into (created in setup, through rigRpc). */
   private tasksPrefix = "";
+  private tasksProjectId = "";
   private serve?: OwnServe;
   private browser?: Browser;
   readonly root: string;
@@ -86,12 +95,13 @@ export class Real {
     const created = JSON.parse(this.bb(["project", "create", "--name", "Autarch", "--root", this.root, "--json"]).stdout) as { id: string };
     this.project = created.id;
     this.tasksPrefix = `E${sha(this.runId).slice(0, 9).toUpperCase()}`;
-    await rigRpc(this.target, "tasks", "createProject", { name: `Autarch ${this.runId}`, prefix: this.tasksPrefix, color: "#6b7280" });
+    this.tasksProjectId = projectIdOf(await rigRpc(this.target, "tasks", "createProject", { name: `Autarch ${this.runId}`, prefix: this.tasksPrefix, color: "#6b7280" }));
     this.serve = await startOwnServe({ autarchPath: this.build.autarch_path, dir: join(this.tmp, "serve"), parent: this.parent, home: join(this.tmp, "serve-home") });
     this.bb(["plugin", "install", this.build.plugin_dir, "--yes"]);
     const s = pluginSettings(this.serve, this.build.autarch_path);
     for (const [k, v] of Object.entries(s)) this.bb(["plugin", "config", "autarch", "set", k, Array.isArray(v) ? v.join(",") : String(v)]);
     this.bb(["plugin", "reload", "autarch"]);
+    await this.bindToHome(this.tasksProjectId);
     // `bb thread spawn` resolves a default model from the provider catalog, which a fresh server fills a few seconds
     // after it starts (and only when it can find the claude CLI). Wait for it rather than fail the first scenario.
     await this.waitFor("the claude-code model catalog", () => this.bb(["provider", "models", "claude-code"], { allowFail: true }).code === 0, 90_000);
@@ -188,12 +198,34 @@ export class Real {
       db.close();
     }
   }
+  /**
+   * A tasks project reaches Home only once someone confirms its binding to a Home project (real bb: with serve not
+   * suggesting one for a differently named tracker project, every card stays display-only, "project mismatch").
+   * The confirm is the product's own setBinding RPC, retried while the plugin's serve project list loads.
+   */
+  async bindToHome(tasksProjectId: string, home = "Autarch"): Promise<void> {
+    let last = "";
+    for (let i = 0; i < 40; i++) {
+      try {
+        const r = await this.rpc<{ ok: boolean; error?: string }>("setBinding", { tasks_project_id: tasksProjectId, state: "confirmed", home_project: home });
+        if (r.ok) return;
+        last = r.error ?? JSON.stringify(r);
+      } catch (e) {
+        last = String(e);
+      }
+      await sleep(500);
+    }
+    throw new Error(`could not confirm the binding of ${tasksProjectId} to ${home}: ${last}`);
+  }
   async waitFor<T>(what: string, fn: () => T | undefined | false, ms = 30_000): Promise<T> {
     const end = Date.now() + ms;
     for (;;) {
       const v = fn();
       if (v) return v;
-      if (Date.now() > end) throw new Error(`timed out after ${ms} ms waiting for ${what}`);
+      if (Date.now() > end) {
+        const st = await this.rpc<{ status: unknown }>("queue", {}).then((q) => JSON.stringify(q.status), (e) => `unreadable: ${e}`);
+        throw new Error(`timed out after ${ms} ms waiting for ${what} (queue status: ${st})`);
+      }
       await sleep(250);
     }
   }
@@ -237,8 +269,21 @@ export class Real {
       const line = feed.split("\n").map((l) => l.trim()).find((l) => l.startsWith("ruled ") && l.includes(`(${decision})`));
       assert.ok(line, `no feed line for ${decision}`);
       assert.ok(!feed.includes("group per project"), "the instruction text leaked into the feed");
+      // The ruling is written back to the card (a user-kind "Ruled:" comment); check-e2e's `comment_by` is an id, so it
+      // carries that comment's tasks id.
+      const card_id = /^card-(.+)-g\d+$/.exec(decision)?.[1];
+      assert.ok(card_id, `decision ${decision} is not a card generation`);
+      let comment_by: string | undefined;
+      for (let i = 0; i < 60 && !comment_by; i++) {
+        const { comments } = await rigRpc<{ comments: { id: string; body: string }[] }>(this.target, "tasks", "listComments", { taskId: card_id });
+        comment_by = comments.find((c) => c.body.startsWith("Ruled:"))?.id;
+        if (!comment_by) await sleep(500);
+      }
+      assert.ok(comment_by, `no Ruled: comment on card ${card_id}`);
       return {
         threads: [t],
+        card_id,
+        comment_by,
         decision,
         pick_id,
         ruling_sha256: this.rulingSha(),
@@ -341,7 +386,7 @@ export class Real {
       const t = this.spawn("cross-project");
       await this.settle(t);
       const second = `F${sha(this.runId).slice(0, 9).toUpperCase()}`;
-      await rigRpc(this.target, "tasks", "createProject", { name: `Autarch second ${this.runId}`, prefix: second, color: "#6b7280" });
+      await this.bindToHome(projectIdOf(await rigRpc(this.target, "tasks", "createProject", { name: `Autarch second ${this.runId}`, prefix: second, color: "#6b7280" })));
       const a = this.file(t, `${this.runId}-xp-a`, `e2e: project one ${this.runId}`);
       const b = this.file(t, `${this.runId}-xp-b`, `e2e: project two ${this.runId}`, second);
       assert.equal(a.code, 0, `file into ${this.tasksPrefix}: ${a.stderr}`);

@@ -83,6 +83,13 @@ describe("bb home get, list, stats, feed", () => {
     expect(JSON.parse(g2.stdout!)).toMatchObject({ thread: "thr-b" });
   });
 
+  it("get takes --json like every other home command (the Go filer always passes it; real bb rejects an undeclared flag)", async () => {
+    const absent = await run(["get", "--request", "no-such-key", "--json"]);
+    expect(absent.exitCode).toBe(0);
+    expect(JSON.parse(absent.stdout!)).toMatchObject({ status: "absent" });
+    expect((await run(["get", "--card", "no-such-card", "--json"])).exitCode).toBe(1);
+  });
+
   it("get --id reports lifecycle state; unknown ids exit 1; no selector exits 2", async () => {
     const id = await filed();
     expect(JSON.parse((await run(["get", "--id", id])).stdout!)).toMatchObject({ id, state: "open" });
