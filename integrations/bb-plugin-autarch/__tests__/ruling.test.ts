@@ -181,3 +181,31 @@ describe("safe writer", () => {
     expect(() => writeRuling(again, ["docs"], "../x.md", "x")).toThrowError(/unsafe file name/);
   });
 });
+
+// ---- Task 2.5: card ids in rulings ----
+import { mkdtempSync as mkdtemp25, readFileSync as read25, rmSync as rm25, lstatSync as lstat25 } from "node:fs";
+import { join as join25 } from "node:path";
+import { tmpdir as tmpdir25 } from "node:os";
+import { describe as describe25, expect as expect25, it as it25 } from "vitest";
+import { parseRuling as parse25, renderRuling as render25, rulingPath as path25, writeRuling as write25 } from "../ruling.js";
+
+describe25("card rulings (finding r1-2)", () => {
+  const card = { decision_id: "card-01J0000000000000000000000A-g1", pick_id: "p", revision: "r", asking_thread: "thr_a", subject: "S", options_shown: [{ id: "a", label: "A" }], picked: "a", ruled_by: "mk" as const, ruled_at: "2026-10-01T00:00:00.000Z", ruling: "Picked A", source: "autarch-home:home", card_id: "01J0000000000000000000000A", card_key: "TASK-1", generation: 1, supersedes: "card-01J0000000000000000000000A-g0" };
+
+  it25("round-trips card_id, card_key, generation and supersedes", () => {
+    expect25(parse25(render25(card))).toEqual(card);
+  });
+
+  it25("writes card-<id>-g1 and refuses the card:<id> form with bad-name", () => {
+    const dir = mkdtemp25(join25(tmpdir25(), "ruling-card-"));
+    try {
+      const st = lstat25(dir);
+      const t = path25({ scope: "project", decision_id: card.decision_id, subject: "S", date: "2026-10-01" });
+      write25({ path: dir, dev: String(st.dev), ino: String(st.ino) }, t.dirs, t.file, render25(card));
+      expect25(read25(join25(dir, ...t.dirs, t.file), "utf8")).toContain("generation: 1");
+      expect25(() => path25({ scope: "project", decision_id: "card:01J0000000000000000000000A", subject: "S", date: "2026-10-01" })).toThrow(expect25.objectContaining({ code: "bad-name" }));
+    } finally {
+      rm25(dir, { recursive: true, force: true });
+    }
+  });
+});

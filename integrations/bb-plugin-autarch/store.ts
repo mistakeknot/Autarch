@@ -111,6 +111,13 @@ export interface PickRow extends Required<Omit<PickInput, "reason" | "params_has
   params_hash: string | null;
 }
 
+export interface CardWriteInput {
+  id: string;
+  task_id: string;
+  kind: "comment" | "unlabel" | "relabel";
+  payload: string;
+}
+
 export interface ObligationInput {
   id: string;
   kind: string;
@@ -231,7 +238,7 @@ export class Store {
           .prepare(
             `INSERT OR IGNORE INTO card_writes(id, task_id, decision_id, kind, payload, state, next_try_at, updated_at)
              SELECT 'cw-' || d.id || '-' || k.kind, d.task_id, d.id, k.kind,
-                    json_object('option_id', p.option_id, 'by', p."by", 'generation', d.generation),
+                    json_object('option_id', p.option_id, 'by', p."by", 'generation', d.generation, 'picked_at', p.picked_at, 'reason', p.reason),
                     'pending', @now, @now
              FROM decisions d
              JOIN picks p ON p.decision_id = d.id
@@ -552,7 +559,7 @@ export class Store {
   // ---- picks --------------------------------------------------------------
 
   /** Insert the pick and its obligations and one event in one transaction [C-3] [C-5]. */
-  recordPick(p: PickInput, obligations: ObligationInput[] = []): PickResult {
+  recordPick(p: PickInput, obligations: ObligationInput[] = [], cardWrites: CardWriteInput[] = []): PickResult {
     const { approval, guard, ...pickParams } = p;
     return this.tx((): PickResult => {
       const at = p.picked_at ?? this.now();
@@ -576,6 +583,12 @@ export class Store {
         if (approval) this.mintApproval(p, approval, at);
         this.insertObligationRows(p.decision_id, obligations, false);
         this.hook("obligations-inserted");
+        this.insertCardWriteRows(p.decision_id, cardWrites);
+        this.hook("card-writes-inserted");
+        // T9: a picked card generation moves its card to ruled in the same transaction.
+        this.db
+          .prepare("UPDATE cards SET state = 'ruled', display_reason = NULL, updated_at = @at WHERE task_id = (SELECT task_id FROM decisions WHERE id = @id AND source = 'card')")
+          .run({ id: p.decision_id, at });
         this.event("picked", p.decision_id, { pick_id: p.pick_id, option_id: p.option_id, by: p.by });
         this.hook("event-inserted");
         return { ok: true, pick_id: p.pick_id };
@@ -590,6 +603,22 @@ export class Store {
       if (existing || d?.resolved_at) return { ok: false, reason: "already-ruled", existing };
       return { ok: false, reason: "stale" };
     });
+  }
+
+  private insertCardWriteRows(decisionId: string, rows: CardWriteInput[]): number {
+    const now = this.now();
+    const stmt = this.db.prepare(
+      `INSERT OR IGNORE INTO card_writes(id, task_id, decision_id, kind, payload, state, next_try_at, updated_at)
+       VALUES (@id, @task_id, @decision_id, @kind, @payload, 'pending', @now, @now)`,
+    );
+    let n = 0;
+    for (const r of rows) n += stmt.run({ ...r, decision_id: decisionId, now }).changes;
+    return n;
+  }
+
+  /** Insert card write-backs; a retry (same decision and kind) inserts none. Joins an open transaction. */
+  insertCardWrites(decisionId: string, rows: CardWriteInput[]): number {
+    return this.tx(() => this.insertCardWriteRows(decisionId, rows));
   }
 
   // ---- approvals (interim, never authorizing) -------------------------------

@@ -62,6 +62,10 @@ export interface Ruling {
   supersedes?: string;
   /** Threads that mentioned the decision. */
   mentions?: string[];
+  /** Card generations only (plan 1.3.8): the tasks task id, its key, and the generation number. */
+  card_id?: string;
+  card_key?: string;
+  generation?: number;
 }
 
 export type RulingErrorCode =
@@ -102,6 +106,9 @@ export function renderRuling(r: Ruling): string {
     `  pick_id: ${j(r.pick_id)}`,
     `  revision: ${j(r.revision)}`,
     `  asking_thread: ${j(r.asking_thread)}`,
+    ...(r.card_id !== undefined ? [`  card_id: ${j(r.card_id)}`] : []),
+    ...(r.card_key !== undefined ? [`  card_key: ${j(r.card_key)}`] : []),
+    ...(r.generation !== undefined ? [`  generation: ${j(r.generation)}`] : []),
     `  subject: ${j(r.subject)}`,
     `  options_shown: ${j(r.options_shown)}`,
     `  picked: ${j(r.picked)}`,
@@ -155,6 +162,9 @@ export function parseRuling(text: string): Ruling {
   if (rat.delegated_reason !== undefined) out.delegated_reason = rat.delegated_reason as string;
   if (rat.session_id !== undefined) out.session_id = rat.session_id as string;
   if (rat.supersedes !== undefined) out.supersedes = rat.supersedes as string;
+  if (home.card_id !== undefined) out.card_id = home.card_id as string;
+  if (home.card_key !== undefined) out.card_key = home.card_key as string;
+  if (home.generation !== undefined) out.generation = home.generation as number;
   if (home.mentions !== undefined) out.mentions = home.mentions as string[];
   return out;
 }

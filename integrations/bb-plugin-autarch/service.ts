@@ -6,6 +6,7 @@ import { buildFeed, renderFeed, type Feed } from "./feed.js";
 import { cardFingerprint, askingThread, parseCard, toV1, type Card } from "./cards.js";
 import type { Task, TaskCommentRow } from "./tasks.js";
 import { identity, normalizedJson, parseAsk, revision, semanticKey, type Ask } from "./model.js";
+import { pickWrites } from "./cardwrites.js";
 import { estateRoot, pinRoot, renderRuling, rulingPath, writeRuling, type PinnedRoot, type Ruling } from "./ruling.js";
 import type { DecisionInput, ObligationInput, ObligationRow, PickInput, PickRow, Store } from "./store.js";
 
@@ -61,6 +62,7 @@ const APPROVAL_DEFAULT_TTL = 24 * 3600;
 const APPROVAL_MAX_TTL = 7 * 24 * 3600;
 const fail = (status: number, error: string, exit: 1 | 2 | 3 = status >= 500 ? 3 : 1): FileResult => ({ ok: false, status, exit, error });
 const bad = (error: string): FileResult => ({ ok: false, status: 400, exit: 2, error });
+const optionLabelOf = (o: { label: string }) => o.label;
 const message = (e: unknown) => (e instanceof Error ? e.message : String(e));
 
 export function isoWeek(ms: number): string {
@@ -339,6 +341,16 @@ export class Service {
         payload: this.wakePayload(d, ask, option.label, option.kind ?? "", option.instruction ?? "", by),
       });
     }
+    // A card generation also notifies the threads its own Blocks snapshot names (never a later edit's),
+    // and queues the tasks write-backs, all in the pick's transaction.
+    const isCard = d.source === "card" && typeof d.task_id === "string";
+    if (isCard) obligations.push(...this.noticesFor(d, optionLabelOf(option), by));
+    const cardWrites = isCard
+      ? pickWrites(
+          { id: decisionId, task_id: String(d.task_id) },
+          { option_id: optionId, option_label: option.label, by, generation: Number(d.generation), picked_at: this.now(), reason: reason ?? null },
+        )
+      : [];
     // Only mk's own pick mints, and it does so in the pick's transaction. A record is not an authorization.
     let approval: PickInput["approval"];
     if (by === "mk" && option.approval) {
@@ -356,6 +368,7 @@ export class Service {
       res = this.store.recordPick(
         { decision_id: decisionId, pick_id: pickId, option_id: optionId, revision: rev, by, surface, reason: reason ?? null, params_hash: hash, approval, guard },
         obligations,
+        cardWrites,
       );
     } catch (e) {
       if (/UNIQUE/.test(message(e))) return { ok: false, status: 409, error: "pick id reused" };
@@ -381,6 +394,19 @@ export class Service {
       this.deps.nudge?.();
     }
     return { ok: true, status: 201, pick: this.store.pick(decisionId)! };
+  }
+
+  /** One notice per distinct thread in the generation's Blocks snapshot, except the asking thread. */
+  private noticesFor(d: Row, label: string, by: string): ObligationInput[] {
+    const refs = this.db.prepare("SELECT ref FROM decision_blocks WHERE decision_id = ? ORDER BY ref").all(d.id) as { ref: string }[];
+    const threads = [...new Set(refs.map((r) => r.ref).filter((r) => r.startsWith("thread:")).map((r) => r.slice("thread:".length)))].filter((t) => t !== "" && t !== d.thread);
+    return threads.map((t) => ({
+      id: `ob:${d.id}:notice:${t}`,
+      kind: "notice",
+      recipient: t,
+      op: `notice:${d.id}:${t}`,
+      payload: `${by === "vizier" ? "The vizier" : "mk"} ruled on the card ${d.id}${d.subject ? ` (${d.subject})` : ""}, which names your thread: picked ${JSON.stringify(label)}. This is not merge, deploy, release or publish authorization.`,
+    }));
   }
 
   /** Read a recorded approval. Always `authorizing: false`; there is no way to spend or consume one. */
@@ -483,6 +509,13 @@ export class Service {
       if (option?.kind === "instruction" && option.instruction) ruling.instruction = option.instruction;
       if (pick.by === "vizier" && pick.reason) ruling.delegated_reason = pick.reason;
       if (d.supersedes) ruling.supersedes = d.supersedes;
+      if (d.source === "card" && typeof d.task_id === "string") {
+        // The stored generation body is the snapshot; the live card is never consulted.
+        ruling.card_id = d.task_id;
+        const key = (this.db.prepare("SELECT card_key FROM cards WHERE task_id = ?").get(d.task_id) as { card_key: string | null } | undefined)?.card_key;
+        if (key) ruling.card_key = key;
+        ruling.generation = Number(d.generation);
+      }
       const threads = this.store.mentions(d.id).map((m) => m.thread);
       if (threads.length > 0) ruling.mentions = threads;
       const target = rulingPath({ scope: estate ? "estate" : "project", decision_id: d.id, subject: ruling.subject, date: pick.picked_at.slice(0, 10) });
@@ -688,6 +721,10 @@ export class Service {
     return !!this.db.prepare("SELECT 1 FROM picks k JOIN decisions d ON d.id = k.decision_id WHERE d.task_id = ?").get(taskId);
   }
   /** T11: the latest generation is an override of a vizier pick and is still mk's pending decision. */
+  /** T10: an override generation is mk's open question; the card shows as open until mk picks. */
+  reopenForOverride(taskId: string): void {
+    this.patchCard(taskId, { state: "open", display_reason: null, changed_after_ruling: 0, next_check_at: null });
+  }
   private overrideOpen(latest: Row): boolean {
     if (!latest.supersedes || latest.withdrawn_at || latest.resolved_at || this.store.pick(latest.id)) return false;
     return this.store.pick(latest.supersedes)?.by === "vizier";

@@ -7,6 +7,7 @@
 // unseen by mk. Settings are written only by setDelegation (panel RPC); no CLI verb
 // reaches it.
 import { identity, normalizedJson, parseAsk, revision, semanticKey } from "./model.js";
+import { overrideWrites } from "./cardwrites.js";
 import type { DecisionInput } from "./store.js";
 import type { PickResult, Service } from "./service.js";
 
@@ -26,6 +27,21 @@ const DAY_MS = 86_400_000;
 const APPROVAL_TOKEN = /APPROVED-(MERGE|DEPLOY|RELEASE)/;
 const THREAD_ID = /^[A-Za-z0-9:_.-]{1,128}$/;
 const refuse = (status: number, error: string): Fail => ({ ok: false, status, error });
+
+/**
+ * Q5 ruling (plan 1.3.6): a card is delegable only when its tasks project is bound to the ask's Home
+ * project by a binding mk confirmed. A name match (`suggested`) allows mk's picks only. The one
+ * place to change if mk rules otherwise. Null means allowed; a home-filed decision has no binding.
+ */
+export function bindingRefusal(db: { prepare(sql: string): { get(...a: unknown[]): unknown } }, d: { source?: unknown; tasks_project_id?: unknown; project: string }): string | null {
+  if (d.source !== "card") return null;
+  const b = db.prepare("SELECT home_project, state FROM project_bindings WHERE tasks_project_id = ?").get(d.tasks_project_id) as { home_project: string; state: string } | undefined;
+  if (!b) return "delegation is not enabled for this card: no confirmed project binding";
+  if (b.state === "rejected") return "delegation is not enabled for this card: the project binding was rejected";
+  if (b.state !== "confirmed") return "delegation is not enabled for this card: binding unconfirmed";
+  if (b.home_project !== d.project) return "delegation is not enabled for this card: the card targets a project other than its binding";
+  return null;
+}
 
 export class Delegation {
   constructor(readonly svc: Service) {}
@@ -104,7 +120,7 @@ export class Delegation {
 
   rule(decisionId: string, optionId: string, reason: string, ctx: Ctx): PickResult {
     const d = this.store.decision(decisionId) as
-      | { id: string; kind: string; asker: string; project: string; delegable: number; revision: string; body_json: string; request_id: string }
+      | { id: string; kind: string; asker: string; project: string; delegable: number; revision: string; body_json: string; request_id: string; source?: string; tasks_project_id?: string | null }
       | undefined;
     if (!d) return refuse(404, "unknown decision");
     const cfg = this.settings();
@@ -127,6 +143,8 @@ export class Delegation {
       const now = this.settings();
       if (!now.vizierThreadId || ctx.threadId !== now.vizierThreadId) return { status: 403, error: "only the vizier thread may rule" };
       if (!(now.projects ?? []).includes(d.project)) return { status: 403, error: "delegation is not enabled for this project" };
+      const unbound = bindingRefusal(this.db, d);
+      if (unbound) return { status: 403, error: unbound };
       if (this.suspended()) return { status: 403, error: "delegation is suspended: a settings change is unseen by mk" };
       const since = new Date(Date.parse(this.svc.time()) - DAY_MS).toISOString();
       const used = (this.db.prepare(`SELECT COUNT(*) AS n FROM picks WHERE "by" = 'vizier' AND picked_at >= ?`).get(since) as { n: number }).n;
@@ -152,8 +170,10 @@ export class Delegation {
     if (!pick || pick.by !== "vizier") return refuse(409, "only a delegated ruling can be overridden");
 
     const ask = parseAsk({ ...JSON.parse(d.body_json), request_id: requestId, supersedes: decisionId });
+    const card = d.source === "card" && typeof d.task_id === "string";
+    const n = card ? Number(d.generation) + 1 : 0;
     const input: DecisionInput = {
-      id: this.svc.mintId(),
+      id: card ? `card-${d.task_id}-g${n}` : this.svc.mintId(),
       request_id: requestId,
       identity: identity(ask),
       revision: revision(ask),
@@ -171,6 +191,7 @@ export class Delegation {
       body_json: normalizedJson(ask),
       supersedes: decisionId,
       delegable: false,
+      ...(card ? { source: "card" as const, task_id: d.task_id, generation: n, tasks_project_id: d.tasks_project_id, card_fp: d.card_fp } : {}),
     };
     const run = this.db.transaction((): OverrideResult => {
       const res = this.store.insertReplacement(input, "override");
@@ -180,7 +201,13 @@ export class Delegation {
       }
       const w = this.store.obligationsFor(decisionId).find((o) => o.op === `wake:${decisionId}:${pick.pick_id}`);
       if (w) this.store.voidObligation(w.id);
-      this.store.insertObligations(decisionId, [
+      if (card) {
+        // T10: g n+1 is mk's open question again, visible once the relabel lands. The pick's notices
+        // (one per Blocks thread) are not re-sent; the asking thread gets the void notice below.
+        this.store.insertCardWrites(res.decision_id, overrideWrites({ id: res.decision_id, task_id: String(d.task_id) }, decisionId));
+        this.svc.reopenForOverride(String(d.task_id));
+      }
+      this.store.insertObligations(decisionId, d.thread === "" ? [] : [
         {
           id: `ob:${decisionId}:void`,
           kind: "void-notice",

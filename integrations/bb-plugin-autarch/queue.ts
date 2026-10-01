@@ -2,6 +2,7 @@
 // retry sets (unresolved cards, routing revalidation of open cards, routing-closed cards). It
 // never spawns a process; every read goes through the TasksClient. A failed or partial read
 // changes nothing (T12) and only flips the health to "degraded: tasks".
+import type { CardWriter } from "./cardwrites.js";
 import type { Service } from "./service.js";
 import { OPEN_STATUSES, type Task, type TasksClient } from "./tasks.js";
 
@@ -16,6 +17,8 @@ export interface QueueDeps {
   /** Called after a poll that changed anything; the server publishes `home-queue-changed`. */
   publish?: () => void;
   pollMs?: number;
+  /** Runs the due card write-backs after each poll, whether or not the poll's reads succeeded. */
+  writer?: CardWriter;
 }
 
 export interface QueueStatus {
@@ -67,6 +70,11 @@ export class Queue {
       this.degrade(e);
       return { changed: false, ok: false };
     } finally {
+      try {
+        await this.deps.writer?.drain();
+      } catch {
+        /* drain records its own failures */
+      }
       this.running = false;
     }
   }

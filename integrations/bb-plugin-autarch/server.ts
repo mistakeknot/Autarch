@@ -23,6 +23,7 @@ import { exportEvents } from "./export.js";
 import { FeedCaches } from "./feed.js";
 import { parseAsk } from "./model.js";
 import { ServeClient, ServeSupervisor, tokenReader } from "./serve.js";
+import { CardWriter } from "./cardwrites.js";
 import { Queue } from "./queue.js";
 import { Service } from "./service.js";
 import { TasksClient, type PluginsLike } from "./tasks.js";
@@ -223,9 +224,11 @@ export function wireHome(bb: BbPluginApi, handle: StoreHandle, cfg: HomeConfig, 
         console.error("home-queue: bb.sdk.plugins is unavailable, cards are not polled");
         return;
       }
+      const tasks = new TasksClient(plugins);
       const queue = new Queue({
         service: parts.svc,
-        tasks: new TasksClient(plugins),
+        tasks,
+        writer: new CardWriter(parts.svc.store.db, tasks, () => parts!.svc.time()),
         publish: () => {
           parts?.caches.invalidate();
           bb.realtime.publish("home-queue-changed", {});

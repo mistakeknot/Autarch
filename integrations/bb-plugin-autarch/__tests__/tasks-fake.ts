@@ -74,6 +74,8 @@ export class FakeTasks implements PluginsLike {
   failures: { method: string; nth: number; error: Error }[] = [];
   /** Replace a method's raw output, to exercise response validation. */
   rawOutput = new Map<string, (real: unknown) => unknown>();
+  /** Run the nth call of a method for real, then reject it: the effect landed but the response was lost. */
+  lostResponses: { method: string; nth: number }[] = [];
   private counts = new Map<string, number>();
 
   addProject(name: string): FakeProject {
@@ -117,6 +119,7 @@ export class FakeTasks implements PluginsLike {
     if (f) throw f.error;
     if (args.pluginId !== "tasks") throw new Error(`unknown plugin ${args.pluginId}`);
     let out = this.handle(args.method, input);
+    if (this.lostResponses.some((x) => x.method === args.method && x.nth === n)) throw new Error(`${args.method}: response lost`);
     const raw = this.rawOutput.get(args.method);
     if (raw) out = raw(out);
     // The host validates; so does the fake. A schema failure is a rejected promise.
@@ -148,6 +151,17 @@ export class FakeTasks implements PluginsLike {
         // Deliberately not in createdAt order: the client must sort.
         const rows = this.comments.filter((c) => c.taskId === input.taskId);
         return { comments: [...rows].reverse() };
+      }
+      case "createComment": {
+        const c = this.addComment(input.taskId, { kind: "user", authorName: "You", threadId: null, body: input.body, createdAt: `2026-10-03T00:00:${String(this.comments.length % 60).padStart(2, "0")}.000Z` });
+        return { comment: c };
+      }
+      case "updateTask": {
+        const t = this.tasks.find((x) => x.id === input.taskId);
+        if (!t) throw new Error("task not found");
+        if (input.labelIds !== undefined) t.labelIds = [...input.labelIds];
+        t.updatedAt = `2026-10-03T00:01:${String(this.calls.length % 60).padStart(2, "0")}.000Z`;
+        return { task: t };
       }
       default:
         throw new Error(`fake does not implement ${method}`);

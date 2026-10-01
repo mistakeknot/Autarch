@@ -514,3 +514,62 @@ describe("Task 2.4 store and fingerprint additions", () => {
     expect(svc.store.recordPick(pickOf(a, { revision: rev(a) }))).toMatchObject({ ok: false, reason: "withdrawn" });
   });
 });
+
+// ---- Task 2.5: pick write-back on a card generation ----
+import { afterEach as afterEach25, describe as describe25, expect as expect25, it as it25 } from "vitest";
+import { cleanupEnvs as cleanup25, opened as opened25, rig as rig25 } from "./card-rig.js";
+
+afterEach25(cleanup25);
+const notices = (r: any, id: string) => r.svc.store.obligationsFor(id).filter((o: any) => o.kind === "notice").map((o: any) => o.recipient).sort();
+
+describe25("card pick: wake, notices and write-backs in one transaction", () => {
+  it25("inserts the wake, one notice per Blocks thread except the asker, and the card_writes rows", async () => {
+    const r = rig25();
+    const { g1 } = await opened25(r, { blocks: "thread:thr_a thread:thr_b thread:thr_c bead:x thread:thr_b" });
+    expect25(r.mkPick(g1.id)).toMatchObject({ ok: true });
+    expect25(r.svc.store.obligationsFor(g1.id).filter((o) => o.kind === "wake")).toHaveLength(1);
+    expect25(notices(r, g1.id)).toEqual(["thr_b", "thr_c"]);
+    expect25(r.db.prepare("SELECT kind FROM card_writes WHERE decision_id = ? ORDER BY kind").all(g1.id)).toEqual([{ kind: "comment" }, { kind: "unlabel" }]);
+    expect25(r.cardRow(g1.task_id).state).toBe("ruled");
+  });
+
+  it25("a pull:mycroft card gets no wake but still gets its write-backs", async () => {
+    const r = rig25();
+    const { g1 } = await opened25(r, { pull: true, thread: null });
+    expect25(r.mkPick(g1.id)).toMatchObject({ ok: true });
+    expect25(r.svc.store.obligationsFor(g1.id).filter((o) => o.kind === "wake")).toHaveLength(0);
+    expect25(r.db.prepare("SELECT COUNT(*) AS n FROM card_writes WHERE decision_id = ?").get(g1.id)).toEqual({ n: 2 });
+  });
+
+  it25("Blocks edited before the pick: notices go to the g2 snapshot's threads", async () => {
+    const r = rig25();
+    const { t, g1 } = await opened25(r, { blocks: "thread:thr_old" });
+    r.edit(t, { description: r.desc({ key: String(r.cardRow(t.id).request_key), blocks: "thread:thr_new" }) });
+    await r.poll();
+    const g2 = r.gens(t.id)[1];
+    expect25(g2.id).not.toBe(g1.id);
+    r.mkPick(g2.id);
+    expect25(notices(r, g2.id)).toEqual(["thr_new"]);
+  });
+
+  it25("Blocks edited after the pick: the notices stay with the picked generation's snapshot", async () => {
+    const r = rig25();
+    const { t, g1 } = await opened25(r, { blocks: "thread:thr_old" });
+    r.mkPick(g1.id);
+    r.edit(t, { description: r.desc({ key: String(r.cardRow(t.id).request_key), blocks: "thread:thr_new" }) });
+    await r.poll();
+    expect25(r.gens(t.id)).toHaveLength(1);
+    expect25(notices(r, g1.id)).toEqual(["thr_old"]);
+  });
+
+  it25("backfill on start repairs a picked card that lacks its writes, with the final payload shape", async () => {
+    const r = rig25();
+    const { g1 } = await opened25(r);
+    r.pick(g1.id); // a store-level pick inserts no card_writes
+    expect25(r.db.prepare("SELECT COUNT(*) AS n FROM card_writes").get()).toEqual({ n: 0 });
+    r.restart();
+    const rows = r.db.prepare("SELECT kind, payload FROM card_writes ORDER BY kind").all() as any[];
+    expect25(rows.map((x) => x.kind)).toEqual(["comment", "unlabel"]);
+    expect25(JSON.parse(rows[0].payload)).toMatchObject({ option_id: "a", by: "mk", generation: 1 });
+  });
+});

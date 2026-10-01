@@ -1,4 +1,5 @@
-// Read-only client for the bb tasks plugin (0.1.2), over plugins.callRpc. Never spawns the bb CLI.
+// Client for the bb tasks plugin (0.1.2), over plugins.callRpc. Reads, plus the two Home writes
+// (a non-notifying comment and a label-set replacement). Never spawns the bb CLI.
 // Every response is validated here as well as by the host; a rejected call, a schema failure or a
 // repeating cursor is a TasksError. Callers treat a TasksError as "unavailable", never as "absent".
 
@@ -7,6 +8,7 @@ import { z } from "zod";
 export const TASKS_PLUGIN_ID = "tasks";
 export const NEEDS_MK_LABEL = "needs-mk";
 export const LABEL_TTL_MS = 60_000;
+export const HOME_AUTHOR = "Home";
 export const PAGE_LIMIT = 500;
 export const OPEN_STATUSES = ["backlog", "todo", "in_progress", "in_review"] as const;
 
@@ -125,6 +127,16 @@ export class TasksClient {
   async listComments(taskId: string, signal?: AbortSignal): Promise<TaskCommentRow[]> {
     const { comments } = await this.call("listComments", { taskId }, z.object({ comments: z.array(commentSchema) }), signal);
     return [...comments].sort((a, b) => (a.createdAt < b.createdAt ? -1 : a.createdAt > b.createdAt ? 1 : a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+  }
+
+  /** Post a comment that notifies no thread. Not idempotent: the caller checks listComments first. */
+  async createComment(taskId: string, body: string, signal?: AbortSignal): Promise<void> {
+    await this.call("createComment", { taskId, body, notify: false, allowEmptyBody: false }, z.object({ comment: z.object({ id }).passthrough() }).passthrough(), signal);
+  }
+
+  /** Replace a task's whole label set (updateTask semantics), attributed to Home. */
+  async setLabels(taskId: string, labelIds: readonly string[], signal?: AbortSignal): Promise<void> {
+    await this.call("updateTask", { taskId, labelIds: [...labelIds], authorName: HOME_AUTHOR }, z.object({}).passthrough(), signal);
   }
 
   /**

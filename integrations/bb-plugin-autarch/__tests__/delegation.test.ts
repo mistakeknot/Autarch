@@ -372,3 +372,59 @@ describe("override [D-3] [G-2]", () => {
     expect(voidNotices(a)).toHaveLength(1);
   });
 });
+
+// ---- Task 2.5: binding scope and card override generations ----
+import { afterEach as afterEach25, describe as describe25, expect as expect25, it as it25 } from "vitest";
+import { cleanupEnvs as cleanup25, opened as opened25, rig as rig25 } from "./card-rig.js";
+
+afterEach25(cleanup25);
+
+describe25("delegation scope on a card (finding r2-6)", () => {
+  it25("is refused when the binding is only suggested, rejected, or points at another project; allowed when confirmed", async () => {
+    const r = rig25({ projects: ["Autarch", "Beta"] });
+    const { g1 } = await opened25(r);
+    r.enableDelegation("suggested");
+    expect25(r.vizierPick(g1.id)).toMatchObject({ ok: false, status: 403, error: expect25.stringContaining("binding unconfirmed") });
+    r.enableDelegation("rejected");
+    expect25(r.vizierPick(g1.id)).toMatchObject({ ok: false, status: 403, error: expect25.stringContaining("rejected") });
+    r.enableDelegation("confirmed", "Beta"); // bound to beta; the card targets Autarch
+    expect25(r.vizierPick(g1.id)).toMatchObject({ ok: false, status: 403, error: expect25.stringContaining("other than its binding") });
+    expect25(r.svc.store.pick(g1.id)).toBeUndefined();
+    r.enableDelegation("confirmed");
+    expect25(r.vizierPick(g1.id)).toMatchObject({ ok: true });
+  });
+
+  it25("a suggested binding still allows mk's own pick", async () => {
+    const r = rig25();
+    r.enableDelegation("suggested");
+    const { g1 } = await opened25(r);
+    expect25(r.mkPick(g1.id)).toMatchObject({ ok: true });
+  });
+});
+
+describe25("override of a vizier-picked card generation (T10)", () => {
+  it25("makes g2 with the card ids, an undelegable copy, voids the wake, notifies, relabels, and replays", async () => {
+    const r = rig25();
+    r.enableDelegation();
+    const { t, g1 } = await opened25(r);
+    r.vizierPick(g1.id);
+    await r.poll();
+    const o = r.dele.override(g1.id, {});
+    if (!o.ok) throw new Error(o.error);
+    expect25(o).toMatchObject({ decision_id: `card-${t.id}-g2`, replay: false });
+    const g2 = r.gens(t.id)[1];
+    expect25(g2).toMatchObject({ request_id: `override:${g1.id}`, supersedes: g1.id, delegable: 0, source: "card", generation: 2, card_fp: g1.card_fp });
+    const body = (x: any) => { const b = JSON.parse(x.body_json); delete b.request_id; delete b.supersedes; return b; };
+    expect25(body(g2)).toEqual(body(g1));
+    const obs = r.svc.store.obligationsFor(g1.id);
+    expect25(obs.find((x) => x.kind === "wake")!.voided_at).not.toBeNull();
+    expect25(obs.find((x) => x.kind === "void-notice")).toMatchObject({ recipient: "thr_a" });
+    expect25(r.db.prepare("SELECT kind FROM card_writes WHERE decision_id = ?").all(g2.id)).toEqual([{ kind: "relabel" }]);
+    await r.poll();
+    expect25(r.fake.tasks.find((x) => x.id === t.id)!.labelIds).toEqual([r.label.id]);
+    expect25(r.dele.override(g1.id, {})).toMatchObject({ ok: true, decision_id: g2.id, replay: true });
+    expect25(r.vizierPick(g2.id)).toMatchObject({ ok: false, status: 403 });
+    // mk's pick on g2: the ruling names the overridden decision
+    expect25(r.mkPick(g2.id)).toMatchObject({ ok: true });
+  });
+});
