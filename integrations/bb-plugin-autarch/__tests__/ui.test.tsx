@@ -14,6 +14,7 @@ import { MapPlaceholder } from "../ui/map-placeholder.js";
 import { BindingsPanel, parseDelegationForm, SettingsPanel } from "../ui/settings.js";
 import { layoutStack, stackReducer, type Panel, type StackState } from "../ui/stack.js";
 import { ThreadPanel, VizierPanel } from "../ui/vizier.js";
+import { RootRunSection, statusLine, type RootRunPanelView } from "../ui/rootrun.js";
 
 const ask = (over: Record<string, unknown> = {}) => ({
   id: "dec1",
@@ -470,5 +471,35 @@ describe("bindings settings (Q5)", () => {
     expect(html).toContain('data-legacy-count="3"');
     const tp2 = html.slice(html.indexOf('data-binding="tp2"'));
     expect(tp2).not.toContain("Confirm");
+  });
+});
+
+describe("root-run section (Task 2.8)", () => {
+  const view = (o: Partial<RootRunPanelView> = {}): RootRunPanelView => ({
+    present: true, badge: "run by paste, not authenticated", state: "match", problems: [], tuple: { script: "/opt/run.sh", sha256: "a".repeat(64), timeout: 60, set: "s1" },
+    actual_sha256: null, owner_thread: "thr_a", item_json: '{"run_as":"mk"}', command: "todo-add --set 's1' --from-card 'card-X.json'", card_file: "card-X.json", status: { kind: "none" }, ...o,
+  });
+  it("shows the badge, the command and no approval wording", () => {
+    const html = renderToStaticMarkup(<RootRunSection view={view()} />);
+    expect(html).toContain("run by paste, not authenticated");
+    expect(html).toContain("todo-add --set");
+    expect(html).toContain("no run record yet");
+    expect(html).not.toMatch(/approv/i);
+  });
+  it("shows the reason and no command when suppressed, and escapes hostile text", () => {
+    const html = renderToStaticMarkup(<RootRunSection view={view({ state: "mismatch", command: null, item_json: null, problems: [{ field: "set", why: "<img src=x onerror=alert(1)>" }], tuple: { script: "/a/<b>.sh", sha256: "a".repeat(64), timeout: 1, set: "S" } })} />);
+    expect(html).not.toContain("todo-add");
+    expect(html).toContain('data-problem="set"');
+    expect(html).not.toContain("<img");
+    expect(html).not.toContain("<b>");
+  });
+  it("renders unavailable status and nothing when the card has no root-run block", () => {
+    expect(statusLine({ kind: "unavailable", why: "x" })).toBe("status unavailable");
+    expect(renderToStaticMarkup(<RootRunSection view={view({ present: false })} />)).toContain("no root-run block");
+  });
+  it("a run record renders its phase, exit and coded reason", () => {
+    expect(statusLine({ kind: "run", attempt: 2, phase: "finalizing", terminal: "killed", exit: null, signal: "SIGKILL", reason: "supervisor-died", started: null, ended: null, log_complete: true, owner_alive: false })).toBe(
+      "attempt 2, phase finalizing, ended: killed, signal SIGKILL, reason: the supervisor died, owner gone, log complete",
+    );
   });
 });

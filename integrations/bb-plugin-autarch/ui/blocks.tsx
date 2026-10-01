@@ -1,6 +1,7 @@
 // The blocks panel (plan 1.4): open card generations across all tasks projects, then the legacy group.
 // The server sorts and pins (queueview.ts); this file only renders, and owns the refresh policy.
 import { AskCard, type OwedAsk, type RunbookGroup } from "./asks.js";
+import { RootRunSection, type RootRunPanelView } from "./rootrun.js";
 
 export type QueueRowView = {
   id: string;
@@ -67,7 +68,17 @@ function RootSection({ root }: { root: QueueRowView["root"] }) {
   );
 }
 
-export function BlocksRow({ row, nowMs, onPick, onOpen }: { row: QueueRowView; nowMs: number; onPick: Pick; onOpen: (thread: string) => void }) {
+/** The optional root-run lookup: views by task id, and a loader. Absent in tests that do not need it. */
+export type RootRunHooks = { views: Record<string, RootRunPanelView | { error: string }>; load: (taskId: string) => void };
+
+function RootRunControl({ taskId, hooks }: { taskId: string; hooks: RootRunHooks }) {
+  const v = hooks.views[taskId];
+  if (v === undefined) return <button type="button" className="mt-1 text-xs underline" data-rootrun-load="true" onClick={() => hooks.load(taskId)}>Check root run</button>;
+  if ("error" in v) return <p className="mt-1 text-xs" data-rootrun="error">{`Root run unavailable: ${v.error}`}</p>;
+  return <RootRunSection view={v} />;
+}
+
+export function BlocksRow({ row, nowMs, onPick, onOpen, rootRun }: { row: QueueRowView; nowMs: number; onPick: Pick; onOpen: (thread: string) => void; rootRun?: RootRunHooks }) {
   const meta = [row.card_key, row.project, `age ${ageText(row.created_at, nowMs)}`, `blocks ${row.blocks_count}`].filter((x) => x !== null && x !== "").join(" - ");
   return (
     <article className="rounded-lg border border-border bg-card p-3" data-row={row.id} data-pinned={row.pinned ? "true" : "false"}>
@@ -98,6 +109,7 @@ export function BlocksRow({ row, nowMs, onPick, onOpen }: { row: QueueRowView; n
         />
       ) : null}
       <RootSection root={row.root} />
+      {rootRun ? <RootRunControl taskId={row.task_id} hooks={rootRun} /> : null}
     </article>
   );
 }
@@ -131,7 +143,7 @@ export function LegacyGroup({ legacy, onPick, onOpen }: { legacy: LegacyView; on
   );
 }
 
-export function BlocksPanel({ data, nowMs, thread, onPick, onOpen }: { data: QueueView; nowMs: number; thread?: string; onPick: Pick; onOpen: (thread: string) => void }) {
+export function BlocksPanel({ data, nowMs, thread, onPick, onOpen, rootRun }: { data: QueueView; nowMs: number; thread?: string; onPick: Pick; onOpen: (thread: string) => void; rootRun?: RootRunHooks }) {
   const { pinned, rest } = groupRows(data.rows);
   if (data.rows.length === 0 && data.legacy.count === 0) return <p className="p-4 text-sm text-muted-foreground">Nothing is blocking.</p>;
   return (
@@ -139,13 +151,13 @@ export function BlocksPanel({ data, nowMs, thread, onPick, onOpen }: { data: Que
       {pinned.length > 0 ? (
         <section data-section="this-thread">
           <h2 className="mb-2 text-xs font-semibold uppercase text-muted-foreground">{thread ? "This thread" : "Pinned"}</h2>
-          <div className="space-y-3">{pinned.map((r) => <BlocksRow key={r.id} row={r} nowMs={nowMs} onPick={onPick} onOpen={onOpen} />)}</div>
+          <div className="space-y-3">{pinned.map((r) => <BlocksRow key={r.id} row={r} nowMs={nowMs} onPick={onPick} onOpen={onOpen} {...(rootRun ? { rootRun } : {})} />)}</div>
         </section>
       ) : null}
       {rest.length > 0 ? (
         <section data-section="blocking">
           <h2 className="mb-2 text-xs font-semibold uppercase text-muted-foreground">Blocking</h2>
-          <div className="space-y-3">{rest.map((r) => <BlocksRow key={r.id} row={r} nowMs={nowMs} onPick={onPick} onOpen={onOpen} />)}</div>
+          <div className="space-y-3">{rest.map((r) => <BlocksRow key={r.id} row={r} nowMs={nowMs} onPick={onPick} onOpen={onOpen} {...(rootRun ? { rootRun } : {})} />)}</div>
         </section>
       ) : null}
       <LegacyGroup legacy={data.legacy} onPick={onPick} onOpen={onOpen} />

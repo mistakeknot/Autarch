@@ -28,6 +28,7 @@ describe("fs write scope (plan Task 2.7)", () => {
     expect(uses("ruling.ts")).toEqual(expect.arrayContaining(["openSync", "fsyncSync"]));
     expect(uses("export.ts")).toEqual(expect.arrayContaining(["renameSync", "writeSync"]));
     expect(uses("backup.ts")).toEqual(expect.arrayContaining(["openSync", "fsyncSync"]));
+    expect(uses("rootrun.ts")).toEqual(["openSync"]);
   });
 
   describe("positive fixtures", () => {

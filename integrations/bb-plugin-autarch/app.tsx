@@ -24,7 +24,7 @@ import { CatchupPanel, SeenTracker, snapshotIds } from "./ui/catchup.js";
 import type { CatchupEntry } from "./ui/catchup.js";
 import { MapPlaceholder } from "./ui/map-placeholder.js";
 import type { Lens } from "./ui/map-placeholder.js";
-import { BlocksPanel, QueueRefresher } from "./ui/blocks.js";
+import { BlocksPanel, QueueRefresher, type RootRunHooks } from "./ui/blocks.js";
 import type { QueueView } from "./ui/blocks.js";
 import { BindingsPanel, SettingsPanel } from "./ui/settings.js";
 import { keyAction, layoutStack, stackReducer, StackView } from "./ui/stack.js";
@@ -217,14 +217,34 @@ function useQueue(thread?: string) {
   return { rpc, queue, error, refetch };
 }
 
+/** Root-run views, loaded on demand: one tasks read and one file read per click, never on the refresh poll. */
+function useRootRuns(rpc: ReturnType<typeof useRpc<typeof rpcContract>>): RootRunHooks {
+  const [views, setViews] = useState<RootRunHooks["views"]>({});
+  const load = useCallback(
+    (taskId: string) => {
+      rpc.call("rootRun", { task_id: taskId }).then(
+        (r) => {
+          const res = r as unknown as { ok: true; view: never } | { ok: false; error: string };
+          setViews((v) => ({ ...v, [taskId]: res.ok ? res.view : { error: res.error } }));
+        },
+        (cause) => setViews((v) => ({ ...v, [taskId]: { error: cause instanceof Error ? cause.message : String(cause) } })),
+      );
+    },
+    [rpc],
+  );
+  return { views, load };
+}
+
 /** The same panel, opened beside a thread by the thread-panel action: this thread's cards are pinned. */
 function BlocksThreadPanel({ threadId }: { threadId: string }) {
   const { rpc, queue, error, refetch } = useQueue(threadId);
   const nav = useBbNavigate();
   const picks = useMemo(() => new PickController(() => crypto.randomUUID()), []);
+  const rootRun = useRootRuns(rpc);
   if (queue === null) return <EmptyState>{error ?? "Loading…"}</EmptyState>;
   return (
     <BlocksPanel
+      rootRun={rootRun}
       data={queue}
       nowMs={Date.now()}
       thread={threadId}
@@ -264,6 +284,7 @@ function HomePage() {
   const { rpc, asks, catchup, error, refetch } = useHomeData();
   const nav = useBbNavigate();
   const blocks = useQueue();
+  const rootRuns = useRootRuns(rpc);
   const [stack, setStack] = useState<StackState>({ panels: [{ id: "asks", kind: "decision", title: "Asks" }], width: "third" });
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [lens, setLens] = useState<Lens>("attention");
@@ -344,6 +365,7 @@ function HomePage() {
           <EmptyState>{blocks.error ?? "Loading blocking cards…"}</EmptyState>
         ) : (
           <BlocksPanel
+            rootRun={rootRuns}
             data={blocks.queue}
             nowMs={Date.now()}
             onOpen={openBeside}

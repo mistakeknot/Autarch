@@ -40,7 +40,7 @@ describe("wireHome", () => {
     expect(f.services.sort()).toEqual(["home-delegation-check", "home-feed-refresh", "home-queue", "home-wakes"]);
     expect(f.configure()).toBeTypeOf("function");
     expect(f.cli()).toBeDefined();
-    expect(Object.keys(home.handlers).sort()).toEqual(["catchup", "dismiss", "health", "listAsks", "listRecent", "markAllSeen", "markSeen", "override", "pick", "queue", "resend", "revokeApproval", "setBinding", "setDelegation", "stats"]);
+    expect(Object.keys(home.handlers).sort()).toEqual(["catchup", "dismiss", "health", "listAsks", "listRecent", "markAllSeen", "markSeen", "override", "pick", "queue", "resend", "revokeApproval", "rootRun", "setBinding", "setDelegation", "stats"]);
     f.disposers.forEach((d) => d());
   });
 
@@ -59,6 +59,18 @@ describe("wireHome", () => {
     const r = await f.cli()!.run(["rule", "dec", "a", "--reason", "x"], { threadId: "thr-v" });
     expect(JSON.stringify(r)).toMatch(/vizier|not found|usage|unknown/i);
     expect(db.prepare("SELECT COUNT(*) AS n FROM project_bindings").get()).toEqual({ n: 0 });
+    f.disposers.forEach((d) => d());
+  });
+
+  it("rootRun refuses an unknown card and a missing tasks client, and writes nothing", async () => {
+    const db = new Database(":memory:");
+    const handle = createStoreHandle(() => db, {});
+    const f = fakeBb();
+    const home = wireHome(f.bb, handle, cfg, { serve });
+    expect(await home.handlers.rootRun({ task_id: "01J0000000000000000000000A" })).toEqual({ ok: false, error: "unknown card" });
+    db.prepare("INSERT INTO cards(task_id, state) VALUES ('01J0000000000000000000000A', 'open')").run();
+    expect(await home.handlers.rootRun({ task_id: "01J0000000000000000000000A" })).toEqual({ ok: false, error: "tasks unavailable" });
+    expect(db.prepare("SELECT COUNT(*) AS n FROM approvals").get()).toEqual({ n: 0 });
     f.disposers.forEach((d) => d());
   });
 

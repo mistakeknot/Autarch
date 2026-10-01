@@ -25,6 +25,7 @@ import { parseAsk } from "./model.js";
 import { ServeClient, tokenReader } from "./serve.js";
 import { CardWriter } from "./cardwrites.js";
 import { Queue } from "./queue.js";
+import { rootRun } from "./rootrun.js";
 import { buildQueue, setBinding } from "./queueview.js";
 import { Service } from "./service.js";
 import { TasksClient, type PluginsLike } from "./tasks.js";
@@ -217,6 +218,7 @@ export function wireHome(bb: BbPluginApi, handle: StoreHandle, cfg: HomeConfig, 
     },
   });
   let queueRef: Queue | null = null;
+  let tasksRef: TasksClient | null = null;
   // Card poller (Task 2.4). Read-only toward tasks, over plugins.callRpc; never spawns the bb CLI.
   bb.background.service("home-queue", {
     async start(signal) {
@@ -229,7 +231,7 @@ export function wireHome(bb: BbPluginApi, handle: StoreHandle, cfg: HomeConfig, 
         console.error("home-queue: bb.sdk.plugins is unavailable, cards are not polled");
         return;
       }
-      const tasks = new TasksClient(plugins);
+      const tasks = (tasksRef = new TasksClient(plugins));
       const queue = (queueRef = new Queue({
         service: parts.svc,
         tasks,
@@ -303,6 +305,21 @@ export function wireHome(bb: BbPluginApi, handle: StoreHandle, cfg: HomeConfig, 
     async queue(i: { thread?: string }) {
       const p = need();
       return { ...buildQueue(p.svc, p.asks, i.thread === undefined ? {} : { thread: i.thread }), status: queueRef?.status() ?? null };
+    },
+    async rootRun(i: { task_id: string }) {
+      const p = need();
+      // Only a card Home already knows; the id is never used to read anything else.
+      const known = p.store.db.prepare("SELECT 1 AS x FROM cards WHERE task_id = ? AND deleted_at IS NULL").get(i.task_id);
+      if (!known) return { ok: false as const, error: "unknown card" };
+      if (!tasksRef) return { ok: false as const, error: "tasks unavailable" };
+      try {
+        const st = await tasksRef.taskState(i.task_id);
+        if (st.state === "deleted") return { ok: false as const, error: "card deleted in tasks" };
+        const comments = await tasksRef.listComments(i.task_id);
+        return { ok: true as const, view: await rootRun({ task: { id: st.task.id, projectId: st.task.projectId, description: st.task.description }, comments }) };
+      } catch {
+        return { ok: false as const, error: "tasks unavailable" };
+      }
     },
     async setBinding(i: { tasks_project_id: string; state: "confirmed" | "rejected"; home_project?: string }) {
       const p = need();
