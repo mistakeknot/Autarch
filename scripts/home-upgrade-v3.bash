@@ -32,9 +32,12 @@ trap finish EXIT
 RT=$BBDATA/bb-app-runtime.json
 { [ -f "$RT" ] && [ ! -L "$RT" ] && [ "$(stat -c %u "$RT")" = "$MKUID" ]; } || { say "runtime file not trusted"; exit 6; }
 [ -x "$BB" ] && [ "$(stat -c %u "$BB")" = "$MKUID" ] || { say "bb binary missing or not owned by mk"; exit 6; }
-URL_C=$(jq -r .serverUrl "$RT"); PID=$(jq -r .pid "$RT"); ENTRY=$(jq -r .entryPath "$RT")
+# mk-writable input: read it as mk, never as root, and validate before it reaches /proc paths.
+URL_C=$("${AS0[@]}" jq -r .serverUrl "$RT"); PID=$("${AS0[@]}" jq -r .pid "$RT"); ENTRY=$("${AS0[@]}" jq -r .entryPath "$RT")
+case "$PID" in ""|*[!0-9]*) say "runtime pid not numeric"; exit 6 ;; esac
 case "$URL_C" in http://127.0.0.1:[0-9]*) ;; *) say "serverUrl not loopback: $URL_C"; exit 6 ;; esac
 PORT=${URL_C##*:}
+case "$PORT" in ""|*[!0-9]*) say "runtime port not numeric"; exit 6 ;; esac
 [ "$(stat -c %u "/proc/$PID" 2>/dev/null)" = "$MKUID" ] || { say "runtime pid $PID not alive as mk"; exit 6; }
 [ "$(readlink -f "$ENTRY")" = "$BBDATA/npm/bin/bb-app" ] || { say "entryPath does not resolve to the pinned bb-app"; exit 6; }
 tr '\0' ' ' < "/proc/$PID/cmdline" | grep -qF "$ENTRY" || { say "pid $PID does not run entryPath"; exit 6; }
@@ -67,7 +70,7 @@ fi
 # 3. Report the backup path and the bb.log line.
 sleep 5
 say "plugin status: $("${AS[@]}" "$BB" plugin status autarch 2>&1 | head -5)"
-say "migration_log: $(sqlite3 -readonly "$DATA/data.db" "select version, at, backup_path, digest from migration_log order by rowid desc limit 1" 2>&1 || true)"
+say "migration_log: $("${AS0[@]}" sqlite3 -readonly "$DATA/data.db" "select version, at, backup_path, digest from migration_log order by rowid desc limit 1" 2>&1 || true)"
 LOGLINE=$("${AS[@]}" "$BB" plugin logs autarch 2>&1 | grep -E 'autarch: schema 2|QuiesceRequired|BackupNotVerified' | tail -3 || true)
 say "bb.log: ${LOGLINE:-no migration line found}"
 case "$LOGLINE" in
