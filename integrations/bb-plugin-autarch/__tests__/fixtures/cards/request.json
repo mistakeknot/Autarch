@@ -1,0 +1,146 @@
+{
+ "kind": "card",
+ "cases": [
+  {
+   "name": "key and identity parse",
+   "description": "Which collapse order?\n\nBlocks: bead:mk-okek.8 thread:thr_abc123 project:autarch\nRequest: 6f1c2a10-8a5e-4b8e-9d3a-0123456789ab sha256:0123456789abcdef\n\n```home-ask\n{\"schema\":\"home-ask/v2\",\"project\":\"autarch\",\"project_root\":\"/abs/root\",\"question\":\"Collapse per project or per day?\",\"options\":[{\"id\":\"a\",\"label\":\"Per project\",\"kind\":\"instruction\",\"instruction\":\"Group per project, run tests, report.\",\"reversible\":true},{\"id\":\"b\",\"label\":\"Per day\",\"kind\":\"instruction\",\"instruction\":\"Group per day, run tests, report.\",\"reversible\":true}],\"ask_key\":\"collapse-order\"}\n```\n",
+   "expect": {
+    "question": "Which collapse order?",
+    "blocks": [
+     {
+      "ref": "bead:mk-okek.8",
+      "kind": "bead",
+      "id": "mk-okek.8",
+      "counted": true
+     },
+     {
+      "ref": "thread:thr_abc123",
+      "kind": "thread",
+      "id": "thr_abc123",
+      "counted": true
+     },
+     {
+      "ref": "project:autarch",
+      "kind": "project",
+      "id": "autarch",
+      "counted": true
+     }
+    ],
+    "request": {
+     "key": "6f1c2a10-8a5e-4b8e-9d3a-0123456789ab",
+     "identity": "0123456789abcdef"
+    },
+    "pull": "",
+    "root_run": null
+   }
+  },
+  {
+   "name": "edited identity token is read as written (ingest compares with the registry)",
+   "description": "Which collapse order?\n\nBlocks: bead:mk-okek.8 thread:thr_abc123 project:autarch\nRequest: 6f1c2a10-8a5e-4b8e-9d3a-0123456789ab sha256:ffffffffffffffff\n\n```home-ask\n{\"schema\":\"home-ask/v2\",\"project\":\"autarch\",\"project_root\":\"/abs/root\",\"question\":\"Collapse per project or per day?\",\"options\":[{\"id\":\"a\",\"label\":\"Per project\",\"kind\":\"instruction\",\"instruction\":\"Group per project, run tests, report.\",\"reversible\":true},{\"id\":\"b\",\"label\":\"Per day\",\"kind\":\"instruction\",\"instruction\":\"Group per day, run tests, report.\",\"reversible\":true}],\"ask_key\":\"collapse-order\"}\n```\n",
+   "expect": {
+    "question": "Which collapse order?",
+    "blocks": [
+     {
+      "ref": "bead:mk-okek.8",
+      "kind": "bead",
+      "id": "mk-okek.8",
+      "counted": true
+     },
+     {
+      "ref": "thread:thr_abc123",
+      "kind": "thread",
+      "id": "thr_abc123",
+      "counted": true
+     },
+     {
+      "ref": "project:autarch",
+      "kind": "project",
+      "id": "autarch",
+      "counted": true
+     }
+    ],
+    "request": {
+     "key": "6f1c2a10-8a5e-4b8e-9d3a-0123456789ab",
+     "identity": "ffffffffffffffff"
+    },
+    "pull": "",
+    "root_run": null
+   }
+  },
+  {
+   "name": "edited key is read as written",
+   "description": "Which collapse order?\n\nBlocks: bead:mk-okek.8 thread:thr_abc123 project:autarch\nRequest: other-key sha256:0123456789abcdef\n\n```home-ask\n{\"schema\":\"home-ask/v2\",\"project\":\"autarch\",\"project_root\":\"/abs/root\",\"question\":\"Collapse per project or per day?\",\"options\":[{\"id\":\"a\",\"label\":\"Per project\",\"kind\":\"instruction\",\"instruction\":\"Group per project, run tests, report.\",\"reversible\":true},{\"id\":\"b\",\"label\":\"Per day\",\"kind\":\"instruction\",\"instruction\":\"Group per day, run tests, report.\",\"reversible\":true}],\"ask_key\":\"collapse-order\"}\n```\n",
+   "expect": {
+    "question": "Which collapse order?",
+    "blocks": [
+     {
+      "ref": "bead:mk-okek.8",
+      "kind": "bead",
+      "id": "mk-okek.8",
+      "counted": true
+     },
+     {
+      "ref": "thread:thr_abc123",
+      "kind": "thread",
+      "id": "thr_abc123",
+      "counted": true
+     },
+     {
+      "ref": "project:autarch",
+      "kind": "project",
+      "id": "autarch",
+      "counted": true
+     }
+    ],
+    "request": {
+     "key": "other-key",
+     "identity": "0123456789abcdef"
+    },
+    "pull": "",
+    "root_run": null
+   }
+  },
+  {
+   "name": "missing Request line",
+   "description": "Which collapse order?\n\nBlocks: bead:mk-okek.8 thread:thr_abc123 project:autarch\n\n```home-ask\n{\"schema\":\"home-ask/v2\",\"project\":\"autarch\",\"project_root\":\"/abs/root\",\"question\":\"Collapse per project or per day?\",\"options\":[{\"id\":\"a\",\"label\":\"Per project\",\"kind\":\"instruction\",\"instruction\":\"Group per project, run tests, report.\",\"reversible\":true},{\"id\":\"b\",\"label\":\"Per day\",\"kind\":\"instruction\",\"instruction\":\"Group per day, run tests, report.\",\"reversible\":true}],\"ask_key\":\"collapse-order\"}\n```\n",
+   "expect": {
+    "error": "missing Request line"
+   }
+  },
+  {
+   "name": "two Request lines",
+   "description": "Which collapse order?\n\nBlocks: bead:mk-okek.8 thread:thr_abc123 project:autarch\nRequest: 6f1c2a10-8a5e-4b8e-9d3a-0123456789ab sha256:0123456789abcdef\nRequest: 6f1c2a10-8a5e-4b8e-9d3a-0123456789ab sha256:0123456789abcdef\n\n```home-ask\n{\"schema\":\"home-ask/v2\",\"project\":\"autarch\",\"project_root\":\"/abs/root\",\"question\":\"Collapse per project or per day?\",\"options\":[{\"id\":\"a\",\"label\":\"Per project\",\"kind\":\"instruction\",\"instruction\":\"Group per project, run tests, report.\",\"reversible\":true},{\"id\":\"b\",\"label\":\"Per day\",\"kind\":\"instruction\",\"instruction\":\"Group per day, run tests, report.\",\"reversible\":true}],\"ask_key\":\"collapse-order\"}\n```\n",
+   "expect": {
+    "error": "more than one Request line"
+   }
+  },
+  {
+   "name": "identity not 16 hex",
+   "description": "Which collapse order?\n\nBlocks: bead:mk-okek.8 thread:thr_abc123 project:autarch\nRequest: k1 sha256:0123\n\n```home-ask\n{\"schema\":\"home-ask/v2\",\"project\":\"autarch\",\"project_root\":\"/abs/root\",\"question\":\"Collapse per project or per day?\",\"options\":[{\"id\":\"a\",\"label\":\"Per project\",\"kind\":\"instruction\",\"instruction\":\"Group per project, run tests, report.\",\"reversible\":true},{\"id\":\"b\",\"label\":\"Per day\",\"kind\":\"instruction\",\"instruction\":\"Group per day, run tests, report.\",\"reversible\":true}],\"ask_key\":\"collapse-order\"}\n```\n",
+   "expect": {
+    "error": "invalid Request line"
+   }
+  },
+  {
+   "name": "identity uppercase hex",
+   "description": "Which collapse order?\n\nBlocks: bead:mk-okek.8 thread:thr_abc123 project:autarch\nRequest: k1 sha256:0123456789ABCDEF\n\n```home-ask\n{\"schema\":\"home-ask/v2\",\"project\":\"autarch\",\"project_root\":\"/abs/root\",\"question\":\"Collapse per project or per day?\",\"options\":[{\"id\":\"a\",\"label\":\"Per project\",\"kind\":\"instruction\",\"instruction\":\"Group per project, run tests, report.\",\"reversible\":true},{\"id\":\"b\",\"label\":\"Per day\",\"kind\":\"instruction\",\"instruction\":\"Group per day, run tests, report.\",\"reversible\":true}],\"ask_key\":\"collapse-order\"}\n```\n",
+   "expect": {
+    "error": "invalid Request line"
+   }
+  },
+  {
+   "name": "identity missing",
+   "description": "Which collapse order?\n\nBlocks: bead:mk-okek.8 thread:thr_abc123 project:autarch\nRequest: k1\n\n```home-ask\n{\"schema\":\"home-ask/v2\",\"project\":\"autarch\",\"project_root\":\"/abs/root\",\"question\":\"Collapse per project or per day?\",\"options\":[{\"id\":\"a\",\"label\":\"Per project\",\"kind\":\"instruction\",\"instruction\":\"Group per project, run tests, report.\",\"reversible\":true},{\"id\":\"b\",\"label\":\"Per day\",\"kind\":\"instruction\",\"instruction\":\"Group per day, run tests, report.\",\"reversible\":true}],\"ask_key\":\"collapse-order\"}\n```\n",
+   "expect": {
+    "error": "invalid Request line"
+   }
+  },
+  {
+   "name": "key outside the grammar",
+   "description": "Which collapse order?\n\nBlocks: bead:mk-okek.8 thread:thr_abc123 project:autarch\nRequest: k/1 sha256:0123456789abcdef\n\n```home-ask\n{\"schema\":\"home-ask/v2\",\"project\":\"autarch\",\"project_root\":\"/abs/root\",\"question\":\"Collapse per project or per day?\",\"options\":[{\"id\":\"a\",\"label\":\"Per project\",\"kind\":\"instruction\",\"instruction\":\"Group per project, run tests, report.\",\"reversible\":true},{\"id\":\"b\",\"label\":\"Per day\",\"kind\":\"instruction\",\"instruction\":\"Group per day, run tests, report.\",\"reversible\":true}],\"ask_key\":\"collapse-order\"}\n```\n",
+   "expect": {
+    "error": "invalid Request line"
+   }
+  }
+ ]
+}

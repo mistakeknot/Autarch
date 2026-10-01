@@ -1,0 +1,124 @@
+{
+ "kind": "asking-thread",
+ "cases": [
+  {
+   "name": "user, agent A, agent B gives A",
+   "comments": [
+    {
+     "id": "01A",
+     "kind": "user",
+     "threadId": null,
+     "createdAt": "2026-10-01T10:00:00.000Z"
+    },
+    {
+     "id": "01B",
+     "kind": "agent",
+     "threadId": "thr_a",
+     "createdAt": "2026-10-01T10:01:00.000Z"
+    },
+    {
+     "id": "01C",
+     "kind": "agent",
+     "threadId": "thr_b",
+     "createdAt": "2026-10-01T10:02:00.000Z"
+    }
+   ],
+   "expect": "thr_a"
+  },
+  {
+   "name": "no agent comments gives none",
+   "comments": [
+    {
+     "id": "01A",
+     "kind": "user",
+     "threadId": null,
+     "createdAt": "2026-10-01T10:00:00.000Z"
+    },
+    {
+     "id": "01B",
+     "kind": "system",
+     "threadId": null,
+     "createdAt": "2026-10-01T10:01:00.000Z"
+    }
+   ],
+   "expect": ""
+  },
+  {
+   "name": "no comments gives none",
+   "comments": [],
+   "expect": ""
+  },
+  {
+   "name": "out of order input is sorted by createdAt first",
+   "comments": [
+    {
+     "id": "01C",
+     "kind": "agent",
+     "threadId": "thr_b",
+     "createdAt": "2026-10-01T10:02:00.000Z"
+    },
+    {
+     "id": "01B",
+     "kind": "agent",
+     "threadId": "thr_a",
+     "createdAt": "2026-10-01T10:01:00.000Z"
+    }
+   ],
+   "expect": "thr_a"
+  },
+  {
+   "name": "equal createdAt breaks the tie on id",
+   "comments": [
+    {
+     "id": "01Z",
+     "kind": "agent",
+     "threadId": "thr_z",
+     "createdAt": "2026-10-01T10:00:00.000Z"
+    },
+    {
+     "id": "01A",
+     "kind": "agent",
+     "threadId": "thr_a",
+     "createdAt": "2026-10-01T10:00:00.000Z"
+    }
+   ],
+   "expect": "thr_a"
+  },
+  {
+   "name": "an agent comment with no thread is the earliest and gives none",
+   "comments": [
+    {
+     "id": "01A",
+     "kind": "agent",
+     "threadId": null,
+     "createdAt": "2026-10-01T10:00:00.000Z"
+    },
+    {
+     "id": "01B",
+     "kind": "agent",
+     "threadId": "thr_b",
+     "createdAt": "2026-10-01T10:01:00.000Z"
+    }
+   ],
+   "expect": ""
+  },
+  {
+   "name": "a user comment carrying a thread id is ignored",
+   "comments": [
+    {
+     "id": "01A",
+     "kind": "user",
+     "threadId": "thr_u",
+     "createdAt": "2026-10-01T10:00:00.000Z"
+    },
+    {
+     "id": "01B",
+     "kind": "agent",
+     "threadId": "thr_b",
+     "createdAt": "2026-10-01T10:01:00.000Z"
+    }
+   ],
+   "expect": "thr_b"
+  }
+ ]
+}
