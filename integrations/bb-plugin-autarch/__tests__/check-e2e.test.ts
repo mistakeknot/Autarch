@@ -122,12 +122,12 @@ describe("check-e2e", () => {
     expect(r.stderr).toContain("env_absent_exit");
   });
 
-  it("rejects an upgrade-quiesce record that omits the explicit UNVERIFIED bb-hosted-v2 gap (s1 review3 P1)", () => {
+  it("rejects an upgrade-quiesce record that does not show bb keeping the previous v2 instance", () => {
     const f = materialise("accept", "real-bb");
-    writeFileSync(f, readFileSync(f, "utf8").replace(/,"unverified_gap":"[^"]*"/, "").replace(/,"v2_instance_hosted_by":"[^"]*"/, ""));
+    writeFileSync(f, readFileSync(f, "utf8").replace(/,"previous_instance_kept":true/, "").replace(/"v2_instance_hosted_by":"[^"]*"/, '"v2_instance_hosted_by":"standalone-store-process"'));
     const r = run(f, "real-bb");
     expect(r.status).toBe(1);
-    expect(r.stderr).toContain("unverified_gap");
+    expect(r.stderr).toContain("previous_instance_kept");
   });
 
   it("rejects an old scenario name that Task 2.11 retired", () => {
