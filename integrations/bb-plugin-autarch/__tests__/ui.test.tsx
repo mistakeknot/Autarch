@@ -486,16 +486,18 @@ describe("root-run section (Task 2.8)", () => {
     expect(html).toContain("no run record yet");
     expect(html).not.toMatch(/approv/i);
   });
-  it("states plainly that the card-file path is unpinned and shows the expected sha256 to compare (finding 2, pending Aleph)", () => {
+  it("shows the hash-pinned command, the verified sha256, and that it works only once Aleph's slice is live", () => {
     const sha = "ab".repeat(32);
-    const html = renderToStaticMarkup(<RootRunSection view={view({ tuple: { script: "/s.sh", sha256: sha, timeout: 60, set: "s1" } })} />);
-    expect(html).toContain('data-rootrun-unpinned="true"');
-    expect(html).toMatch(/does not pin the script hash/);
+    const html = renderToStaticMarkup(<RootRunSection view={view({ tuple: { script: "/s.sh", sha256: sha, timeout: 60, set: "s1" }, command: `todo-add --set 's1' --from-card 'card-X.json' --expect-sha256 '${sha}'` })} />);
+    expect(html).toContain('data-rootrun-pinned="true"');
+    expect(html).toContain("run by paste, not authenticated");
     expect(html).toContain(`verified: ${sha}`);
-    expect(html).toContain("todo-add --set");
-    expect(html).not.toMatch(/todo-add[^<]*--expect-sha256/);
+    expect(html).toMatch(/only once Aleph/);
+    expect(html).toContain(`--expect-sha256 &#x27;${sha}&#x27;`);
+    expect(html).not.toContain("data-rootrun-unpinned");
+    expect(html).not.toMatch(/does not pin/);
     const none = renderToStaticMarkup(<RootRunSection view={view({ command: null, item_json: null, card_file: null })} />);
-    expect(none).not.toContain("data-rootrun-unpinned");
+    expect(none).not.toContain("data-rootrun-pinned");
   });
   it("shows the status paste command, and says status is not read automatically", () => {
     const html = renderToStaticMarkup(<RootRunSection view={view({ status: null, status_command: "todo-run --status 's1' 'bbtask-X-1'" })} />);

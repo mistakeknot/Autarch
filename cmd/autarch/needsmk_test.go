@@ -206,3 +206,16 @@ func TestNeedsMkFileHomeDownIsExit3(t *testing.T) {
 		t.Fatalf("err=%v", err)
 	}
 }
+
+func TestNeedsMkFileRejectsNonObjectAskJSON(t *testing.T) {
+	t.Setenv("BB_THREAD_ID", "thr_x")
+	for _, body := range []string{"null", "[]", `"s"`, "7", "true"} {
+		p := filepath.Join(t.TempDir(), "ask.json")
+		os.WriteFile(p, []byte(body), 0o644)
+		s := &stubBB{}
+		_, err := runNeedsMk(t, s, "file", "--project", "P1", "--title", "x", "--ask-file", p)
+		if exitCode(err) != 2 {
+			t.Fatalf("%s: want usage error (exit 2), got %v", body, err)
+		}
+	}
+}

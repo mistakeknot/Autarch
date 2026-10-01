@@ -103,6 +103,9 @@ but the routing comment failed (re-run the same command), 5 not yet confirmed.`,
 			if err := json.Unmarshal(raw, &ask); err != nil {
 				return &usageError{"--ask-file is not a JSON object: " + err.Error()}
 			}
+			if ask == nil {
+				return &usageError{"--ask-file is not a JSON object: got null"}
+			}
 			if _, ok := ask["project_root"]; !ok {
 				ask["project_root"] = gitRoot()
 			}

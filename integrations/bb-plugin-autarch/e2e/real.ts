@@ -5,12 +5,13 @@
 import assert from "node:assert/strict";
 import Database from "better-sqlite3";
 import { createHash } from "node:crypto";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, renameSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { chromium, type Browser, type Page } from "playwright-core";
 import { FeedCaches } from "../feed.js";
-import { makeTarget, resolveBin, rigExecSync, rigRpc, type RigTarget } from "./rigexec.js";
+import { makeTarget, resolveBin, rigExecSync, rigRpc, rigSpawn, type RigTarget } from "./rigexec.js";
 import { freePort, pluginSettings, preflight, startOwnServe, statProject, type BuildFile, type Loaded, type OwnServe, type Readers } from "./preflight.js";
 
 const sha = (b: string | Buffer) => createHash("sha256").update(b).digest("hex");
@@ -418,6 +419,107 @@ export class Real {
       const shot = await p.screenshot();
       const ev = await this.waitFor("the composer message in bb", () => this.events(v).find((e) => e.type === "client/turn/requested" && !before.has(e.id) && (e.data?.input ?? []).some((x) => (x.text ?? "").includes(marker))));
       return { threads: [v], message_id: ev.id, screenshot_sha256: sha(shot) };
+    },
+
+    // Finding r5-1, on the owned server. v3 is installed and enabled by setup, so the scenario puts a legacy schema-2 database
+    // in its place while it is disabled. The "running v2 instance" is the real a9853e2 Store (extracted from git) in a child
+    // process that holds data.db open and answers the pick: bb does not host it, because installing a second plugin build
+    // under the same id would need a v2 plugin build the rig does not make. That is the plan's holder, one process removed.
+    "upgrade-quiesce": async () => {
+      const dataDir = join(this.env.data, "plugins", "autarch");
+      const dbFile = join(dataDir, "data.db");
+      const fileSha = (): string => sha(Buffer.concat(["", "-wal"].map((x) => (existsSync(dbFile + x) ? readFileSync(dbFile + x) : Buffer.alloc(0)))));
+      const backups = (): string[] => readdirSync(dataDir).filter((n) => /^home-v2-backup-.*\.db$/.test(n));
+      const status = (): string => this.bb(["plugin", "status", "autarch"], { allowFail: true }).stdout;
+      const logs = (): string => { const r = this.bb(["plugin", "logs", "autarch"], { allowFail: true }); return r.stdout + r.stderr; };
+      const REFUSAL = /home-refused:quiesce-required|another connection holds data\.db/;
+      const migrated = (): boolean => { try { return this.db("SELECT 1 FROM migration_log WHERE version >= 3").length > 0; } catch { return false; } };
+
+      // 1. v3 off, its database moved aside, a legacy v2 database made by the v2 build and held open by the v2 instance.
+      this.bb(["plugin", "disable", "autarch"]);
+      await this.waitFor("v3 to stop (its database closed)", () => !/running/i.test(status()) || undefined, 30_000).catch(() => undefined);
+      const aside = join(dataDir, `.e2e-v3-aside-${sha(this.runId).slice(0, 8)}`);
+      mkdirSync(aside);
+      for (const n of readdirSync(dataDir).filter((n) => /^data\.db/.test(n))) renameSync(join(dataDir, n), join(aside, n));
+      const v2dir = join(this.tmp, "v2src");
+      mkdirSync(v2dir, { recursive: true });
+      const top = rigExecSync("git", ["rev-parse", "--show-toplevel"], { cwd: dirname(fileURLToPath(import.meta.url)) }).stdout.trim();
+      for (const f of ["store.ts", "migrations.ts"]) {
+        const src = rigExecSync("git", ["-C", top, "show", `a9853e2:integrations/bb-plugin-autarch/${f}`]);
+        assert.equal(src.code, 0, `git show a9853e2:${f}: ${src.stderr}`);
+        writeFileSync(join(v2dir, f), src.stdout);
+      }
+      writeFileSync(join(v2dir, "holder.ts"), readFileSync(join(dirname(fileURLToPath(import.meta.url)), "v2-holder.src")));
+      symlinkSync(join(dirname(fileURLToPath(import.meta.url)), "..", "node_modules"), join(v2dir, "node_modules"));
+      const v2 = rigSpawn(process.execPath, ["--import", "tsx", join(v2dir, "holder.ts"), dbFile]);
+      const lines: string[] = [];
+      let buf = "";
+      v2.stdout!.on("data", (d) => { buf += d; const parts = buf.split("\n"); buf = parts.pop()!; lines.push(...parts); });
+      const next = (what: string, ms = 60_000) => this.waitFor(what, () => lines.shift(), ms);
+      let v2Closed = false;
+      const closeV2 = async () => { if (v2Closed) return; v2Closed = true; v2.stdin!.write("close\n"); await this.waitFor("the v2 instance to close", () => v2.exitCode !== null || undefined, 15_000).catch(() => v2.kill("SIGKILL")); };
+      try {
+        const ready = await next("the v2 instance to seed and hold data.db");
+        assert.match(ready, /^ready /, ready);
+        const seeded = JSON.parse(ready.slice(6)) as { schema_version: string | number; decisions: number };
+        assert.equal(String(seeded.schema_version), "2");
+        assert.equal(seeded.decisions, 2);
+        const hasLog = this.db("SELECT 1 FROM sqlite_master WHERE name = 'migration_log'")[0]; // this.db closes its connection
+        assert.equal(hasLog, undefined, "the legacy database already has a migration_log");
+
+        // 2. Enable v3 while the holder is open: refused, nothing written.
+        const shaBefore = fileSha();
+        const enabled = this.bb(["plugin", "enable", "autarch"], { allowFail: true });
+        await this.waitFor("the quiesce refusal in the plugin log", () => REFUSAL.test(logs()) || undefined, 60_000);
+        const refusedLog = logs().split("\n").filter((l) => REFUSAL.test(l)).slice(-1)[0] ?? "";
+        const statusDuring = status().trim().split("\n")[0] ?? "";
+        this.bb(["plugin", "disable", "autarch"], { allowFail: true }); // stops the plugin's own retry
+        const shaAfter = fileSha();
+        const backupFiles = backups().length;
+        assert.ok(!migrated(), "the database migrated while the holder was open");
+
+        // 3. The v2 instance still answers: pick a legacy ask through it.
+        v2.stdin!.write("pick legacy-1\n");
+        const picked = JSON.parse(await next("the v2 pick")) as { ok: boolean };
+
+        // 4. Release the holder, then disable (done) and enable: v3 migrates, the other legacy ask is listed.
+        await closeV2();
+        this.bb(["plugin", "enable", "autarch"]);
+        await this.waitFor("v3 to migrate", () => migrated() || undefined, 60_000).catch((e: Error) => { throw new Error(`${e.message}\n--- plugin status: ${status().trim()}\n--- plugin log tail:\n${logs().split("\n").slice(-25).join("\n")}`); });
+        let legacyListed = false;
+        let listErr = "";
+        let owedIds: string[] = [];
+        for (let i = 0; i < 60 && !legacyListed; i++) {
+          try {
+            const l = await this.rpc<{ owed: { id: string }[] }>("listAsks");
+            owedIds = l.owed.map((o) => o.id);
+            legacyListed = owedIds.includes("legacy-2");
+          } catch (e) { listErr = String(e); /* the plugin may still be starting */ }
+          if (!legacyListed) await sleep(500);
+        }
+        const row = this.db<{ version: number; backup_path: string | null }>("SELECT version, backup_path FROM migration_log WHERE version >= 3")[0];
+        const pickRows = this.db("SELECT 1 FROM picks WHERE decision_id = 'legacy-1'").length;
+        assert.ok(row?.backup_path && existsSync(row.backup_path), "the migration wrote no backup file");
+        assert.ok(legacyListed, `legacy-2 is not listed after the migration (owed: ${JSON.stringify(owedIds)}; last listAsks error: ${listErr})`);
+        assert.equal(pickRows, 1, "the pick made through the v2 instance did not survive the migration");
+        return {
+          quiesce_refused: REFUSAL.test(refusedLog),
+          db_sha256_unchanged: shaBefore === shaAfter,
+          backup_files: backupFiles,
+          legacy_ask_picked: picked.ok === true,
+          migrated_after_enable: true,
+          threads: [] as string[], // no thread is created here; the acceptance jq reads evidence.threads from every record
+          enable_exit: enabled.code,
+          status_during_refusal: statusDuring,
+          refusal_log: refusedLog,
+          backup_after_migrate: row.backup_path,
+          legacy_listed_after_migrate: legacyListed,
+          v2_pick_survived: pickRows === 1,
+        };
+      } finally {
+        await closeV2().catch(() => undefined);
+        v2.kill("SIGKILL");
+      }
     },
   };
 

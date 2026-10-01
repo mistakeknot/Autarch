@@ -93,8 +93,9 @@ describe("the paste command (Q1 default b: one named function)", () => {
     expect(v.badge).toBe(BADGE);
     expect(BADGE).toBe("run by paste, not authenticated");
     expect(v.problems).toEqual([]);
-    expect(v.command).toBe(`todo-add --set 'myset' --from-card 'card-${TASK}.json'`);
-    expect(v.command).toBe(pasteCommand({ set: "myset", task_id: TASK }));
+    expect(v.command).toBe(`todo-add --set 'myset' --from-card 'card-${TASK}.json' --expect-sha256 '${v.tuple!.sha256}'`);
+    expect(v.tuple!.sha256).toMatch(/^[0-9a-f]{64}$/);
+    expect(v.command).toBe(pasteCommand({ set: "myset", task_id: TASK, sha256: v.tuple!.sha256 }));
     const args = v.command!.split(" ").slice(1).filter((a) => !a.startsWith("--"));
     expect(args.every((a) => /^'[^']*'$/.test(a))).toBe(true);
   });
@@ -300,6 +301,26 @@ describe("status: a read-only GET on the Aleph runner, untrusted display data", 
       globalThis.fetch = real;
     }
     expect(global).toBe(0);
+  });
+
+  it("pasteCommand is null unless the sha256 is 64 lowercase hex", () => {
+    for (const bad of ["", "A".repeat(64), "a".repeat(63), "a".repeat(65), "g".repeat(64), "a'".repeat(32)]) {
+      expect(pasteCommand({ set: "myset", task_id: TASK, sha256: bad })).toBeNull();
+    }
+  });
+
+  it("no command of any kind for a hash mismatch or a missing owner thread (finding 4)", async () => {
+    const mism = await run(input({ description: desc(rrBlock({ script: script(), sha: "0".repeat(64) })) }));
+    expect(mism.state).toBe("mismatch");
+    expect(mism.command).toBeNull();
+    expect(mism.status_command).toBeNull();
+    const noOwner = await run(input({ comments: [] }));
+    expect(noOwner.problems.some((p) => p.field === "owner_thread")).toBe(true);
+    expect(noOwner.command).toBeNull();
+    expect(noOwner.status_command).toBeNull();
+    const badProject = await run(input({ projectId: "bad project" }));
+    expect(badProject.command).toBeNull();
+    expect(badProject.status_command).toBeNull();
   });
 
   it("no status command for an invalid set or task id", async () => {
