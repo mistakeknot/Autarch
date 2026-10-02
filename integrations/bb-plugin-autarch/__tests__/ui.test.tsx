@@ -535,3 +535,13 @@ describe("unbound projects in settings (mk-okek)", () => {
     expect(html).not.toContain("No tasks project has been seen yet");
   });
 });
+
+describe("unbound picker default", () => {
+  it("defaults to the asked-for project once serve lists it, and Confirm stays disabled until then", () => {
+    const u = [{ tasks_project_id: "tp9", cards: 1, targets: ["Sylveste"] }];
+    const down = renderToStaticMarkup(<BindingsPanel bindings={[]} unbound={u} serveProjects={[]} inactive={[]} legacyCount={0} onBind={() => {}} />);
+    expect(down).toMatch(/<button[^>]*disabled[^>]*>Confirm/);
+    const up = renderToStaticMarkup(<BindingsPanel bindings={[]} unbound={u} serveProjects={["Sylveste"]} inactive={[]} legacyCount={0} onBind={() => {}} />);
+    expect(up).not.toMatch(/<button[^>]*disabled[^>]*>Confirm/);
+  });
+});

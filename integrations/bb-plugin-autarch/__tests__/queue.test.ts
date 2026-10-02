@@ -856,6 +856,26 @@ describe("unbound tasks projects (mk-okek: no name match, so no binding row)", (
   });
 });
 
+describe("rebind racing an in-flight ingest (review finding)", () => {
+  it("an ingest that began before the rebind does not record its stale digest, so the next poll re-evaluates", async () => {
+    const r = rig({ projectName: "Shadow Work" });
+    const t = r.card();
+    const orig = r.svc.ingestCard.bind(r.svc);
+    const spy = vi.spyOn(r.svc, "ingestCard").mockImplementation(async (...a) => {
+      const res = await orig(...a);
+      // mk confirms the binding while this ingest is still in flight; it saw no binding.
+      setBinding(r.db, { tasks_project_id: r.tp.id, state: "confirmed", home_project: "Autarch" }, { now: r.env.now(), knownProjects: ["Autarch"], record: () => {} });
+      r.q.rebind([t.id]);
+      return res;
+    });
+    await r.poll();
+    spy.mockRestore();
+    expect(r.gens(t.id)).toHaveLength(0);
+    await r.poll();
+    expect(r.gens(t.id)).toHaveLength(1);
+  });
+});
+
 describe("setBinding (Q5: mk confirms once)", () => {
   const ctx = (r: Rig) => ({ now: r.env.now(), knownProjects: ["Autarch"], record: (type: string, detail: unknown) => void r.svc.store.recordEvent(type, null, detail) });
   it("confirms a suggested binding and records an event; delegation then clears the binding refusal", async () => {
