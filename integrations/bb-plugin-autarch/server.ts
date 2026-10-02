@@ -307,7 +307,13 @@ export function wireHome(bb: BbPluginApi, handle: StoreHandle, cfg: HomeConfig, 
     },
     async queue(i: { thread?: string }) {
       const p = need();
-      return { ...buildQueue(p.svc, p.asks, i.thread === undefined ? {} : { thread: i.thread }), status: queueRef?.status() ?? null };
+      let serveProjects: string[] = [];
+      try {
+        serveProjects = (await p.svc.serveProjects()).map((x) => x.name).sort();
+      } catch {
+        /* serve down: no picker choices until it is back */
+      }
+      return { ...buildQueue(p.svc, p.asks, i.thread === undefined ? {} : { thread: i.thread }), serve_projects: serveProjects, status: queueRef?.status() ?? null };
     },
     async rootRun(i: { task_id: string }) {
       const p = need();
@@ -329,6 +335,8 @@ export function wireHome(bb: BbPluginApi, handle: StoreHandle, cfg: HomeConfig, 
       const known = (await p.svc.serveProjects()).map((x) => x.name);
       const r = setBinding(p.store.db, i, { now: p.svc.time(), knownProjects: known, record: (type, detail) => p.store.recordEvent(type, null, detail) });
       if (r.ok) {
+        const ids = p.store.db.prepare("SELECT task_id FROM cards WHERE project_id = ?").all(i.tasks_project_id) as { task_id: string }[];
+        queueRef?.rebind(ids.map((x) => x.task_id));
         p.caches.invalidate();
         bb.realtime.publish("home-queue-changed", {});
       }

@@ -32,10 +32,13 @@ export type LegacyView = {
   machine: { lane: { id: string; subject: string; thread: string; owner: string | null; detail: string }[]; asks: { id: string; subject: string; thread: string; detail: string; label?: string }[] };
 };
 export type BindingView = { tasks_project_id: string; home_project: string; state: "suggested" | "confirmed" | "rejected"; suggested_at: string | null; confirmed_at: string | null };
+export type UnboundView = { tasks_project_id: string; cards: number; targets: string[] };
 export type QueueView = {
   rows: QueueRowView[];
   legacy: LegacyView;
   bindings: BindingView[];
+  unbound?: UnboundView[];
+  serve_projects?: string[];
   inactive_projects: string[];
   status?: { health: string; last_error: string | null; last_poll_at: string | null; open_cards: number; routing_worst_case_age_ms: number } | null;
 };

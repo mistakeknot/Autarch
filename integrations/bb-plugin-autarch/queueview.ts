@@ -86,6 +86,8 @@ export interface QueueData {
     machine: ReturnType<Asks["lists"]>;
   };
   bindings: { tasks_project_id: string; home_project: string; state: BindingState; suggested_at: string | null; confirmed_at: string | null }[];
+  /** Tasks projects with open cards and no binding row (no name match), for mk to bind by hand. */
+  unbound: { tasks_project_id: string; cards: number; targets: string[] }[];
   inactive_projects: string[];
 }
 
@@ -196,6 +198,19 @@ export function buildQueue(svc: Service, asks: Asks, opts: { thread?: string } =
   const legacyOwed = owed.filter((x) => x.source !== "card");
   const runbook = asks.runbook();
   const machine = asks.lists();
+  const unbound = (
+    db
+      .prepare(
+        `SELECT project_id, COUNT(*) AS cards FROM cards WHERE labelled = 1 AND deleted_at IS NULL AND project_id IS NOT NULL
+           AND status IN ('backlog','todo','in_progress','in_review')
+           AND project_id NOT IN (SELECT tasks_project_id FROM project_bindings) GROUP BY project_id ORDER BY project_id`,
+      )
+      .all() as { project_id: string; cards: number }[]
+  ).map((u) => {
+    const reasons = db.prepare("SELECT display_reason FROM cards WHERE project_id = ? AND display_reason LIKE 'project mismatch:%'").all(u.project_id) as { display_reason: string }[];
+    const targets = [...new Set(reasons.map((x) => /ask targets (.+)$/.exec(x.display_reason)?.[1]).filter((x): x is string => x !== undefined))].sort();
+    return { tasks_project_id: u.project_id, cards: u.cards, targets };
+  });
   let inactive: string[] = [];
   try {
     const v = JSON.parse(svc.store.setting("delegation.projects_inactive") ?? "[]");
@@ -212,6 +227,7 @@ export function buildQueue(svc: Service, asks: Asks, opts: { thread?: string } =
       machine,
     },
     bindings,
+    unbound,
     inactive_projects: inactive,
   };
 }

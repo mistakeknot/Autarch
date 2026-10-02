@@ -14,6 +14,7 @@ import { WakeLoop } from "../../wakes.js";
 import { cleanupEnvs, opened, pollN, rig, type Rig } from "../../__tests__/card-rig.js";
 import { archived, FakeSdk } from "../../__tests__/wakes-helpers.js";
 import { Asks } from "../../asks.js";
+import { buildQueue, setBinding } from "../../queueview.js";
 import { Catchup } from "../../catchup.js";
 import { homeCli } from "../../cli.js";
 import { FakeBbServer } from "../../__tests__/fake-bb-server.js";
@@ -608,4 +609,27 @@ export const scenarios: Record<string, Scenario> = {
       void askFile;
       return { card: first.card, cards: needsMkCards(r).length, registry_row: true };
     }),
+  // A tasks project whose name matches no serve project gets no binding row: its card is display-only
+  // ("project mismatch"), listed as unbound, and mk's confirm with home_project frees it on the next poll.
+  "bind-unmapped-project": () =>
+    withRig(
+      async (r) => {
+        const t = r.card({ key: "k-bup" });
+        await r.poll();
+        assert.match(r.cardRow(t.id).display_reason, /^project mismatch: /);
+        assert.equal(count(r, "SELECT COUNT(*) n FROM project_bindings"), 0);
+        const unbound = buildQueue(r.svc, new Asks(r.svc)).unbound;
+        assert.deepEqual(unbound, [{ tasks_project_id: r.tp.id, cards: 1, targets: ["Autarch"] }]);
+        const res = setBinding(r.db, { tasks_project_id: r.tp.id, state: "confirmed", home_project: "Autarch" }, { now: r.env.now(), knownProjects: ["Autarch"], record: (type, detail) => void r.svc.store.recordEvent(type, null, detail) });
+        assert.equal(res.ok, true);
+        r.q.rebind([t.id]);
+        r.advance(MAX_AGE);
+        await r.poll();
+        assert.equal(r.gens(t.id).length, 1);
+        assert.deepEqual(buildQueue(r.svc, new Asks(r.svc)).unbound, []);
+        return { card: t.id, unbound_before: 1, bound_state: "confirmed", generations: 1, unbound_after: 0 };
+      },
+      { projectName: "Shadow Work" },
+    ),
+
 };
