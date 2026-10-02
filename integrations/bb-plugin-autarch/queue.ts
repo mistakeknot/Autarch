@@ -44,6 +44,14 @@ export class Queue {
     this.pollMs = deps.pollMs ?? POLL_MS;
   }
 
+  /**
+   * A binding changed: forget the digests of the tasks project's cards so the next poll re-evaluates them
+   * (a card shown as a project mismatch is otherwise re-read only when the card itself is edited).
+   */
+  rebind(cardTaskIds: readonly string[]): void {
+    for (const id of cardTaskIds) this.digest.delete(id);
+  }
+
   status(): QueueStatus {
     const open = this.deps.service.openThreadCardCount();
     return {

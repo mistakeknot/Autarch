@@ -522,3 +522,16 @@ describe("root-run section (Task 2.8)", () => {
     );
   });
 });
+
+describe("unbound projects in settings (mk-okek)", () => {
+  it("lists a project with cards and no binding row, with a picker of serve projects and a Confirm", () => {
+    const html = renderToStaticMarkup(
+      <BindingsPanel bindings={[]} unbound={[{ tasks_project_id: "tp9", cards: 2, targets: ["Sylveste"] }]} serveProjects={["Autarch", "Sylveste"]} inactive={[]} legacyCount={0} onBind={() => {}} />,
+    );
+    expect(html).toContain('data-unbound="tp9"');
+    expect(html).toContain("2 open cards, no binding; asks target Sylveste");
+    expect(html).toMatch(/<option value="Sylveste"[^>]*>Sylveste<\/option>/);
+    expect(html).toContain("Confirm");
+    expect(html).not.toContain("No tasks project has been seen yet");
+  });
+});

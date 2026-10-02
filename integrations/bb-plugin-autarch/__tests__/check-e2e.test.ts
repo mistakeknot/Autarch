@@ -6,7 +6,7 @@ import { tmpDir } from "./helpers.js";
 
 const CHECK = join(import.meta.dirname, "..", "scripts", "check-e2e.mjs");
 const FIX = join(import.meta.dirname, "fixtures", "e2e");
-const FAKE = "answer-instruction,blocks-notices,card-blocks-only-edit,card-edited-after-pick,card-edited-before-pick,card-ingest,card-invalidated-old-tab-pick,card-unlabelled,comment-arrives-later,crash-after-pick,delegated-override,duplicate-request-reversed,edit-after-pick-failed-write-restart,label-recreated,override-unlabel-crash,pick-retry,project-mismatch-delegation,queued-then-archived,root-run-display,root-run-injection,ruling-file-blocked,serve-recovers,two-writers";
+const FAKE = "answer-instruction,bind-unmapped-project,blocks-notices,card-blocks-only-edit,card-edited-after-pick,card-edited-before-pick,card-ingest,card-invalidated-old-tab-pick,card-unlabelled,comment-arrives-later,crash-after-pick,delegated-override,duplicate-request-reversed,edit-after-pick-failed-write-restart,label-recreated,override-unlabel-crash,pick-retry,project-mismatch-delegation,queued-then-archived,root-run-display,root-run-injection,ruling-file-blocked,serve-recovers,two-writers";
 const REAL = "answer-instruction,comment-arrives-later-real,cross-project-panel,filer-from-thread,poller-refresh,queued-then-archived,upgrade-quiesce,vizier-chat";
 const PLUGIN = "c".repeat(64);
 const SERVE = "d".repeat(64);

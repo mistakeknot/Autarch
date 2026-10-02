@@ -838,6 +838,24 @@ describe("queue rows: display reasons, free-form cards, markers", () => {
   });
 });
 
+describe("unbound tasks projects (mk-okek: no name match, so no binding row)", () => {
+  const ctx = (r: Rig) => ({ now: r.env.now(), knownProjects: ["Autarch"], record: (type: string, detail: unknown) => void r.svc.store.recordEvent(type, null, detail) });
+  it("lists a tasks project with cards and no binding row, with the project its asks target; binding it frees the card", async () => {
+    const r = rig({ projectName: "Shadow Work" });
+    const t = r.card();
+    await r.poll();
+    expect(r.cardRow(t.id).display_reason).toMatch(/^project mismatch: card in .*, ask targets Autarch/);
+    expect(r.db.prepare("SELECT COUNT(*) AS n FROM project_bindings").get()).toEqual({ n: 0 });
+    expect(view(r).unbound).toEqual([{ tasks_project_id: r.tp.id, cards: 1, targets: ["Autarch"] }]);
+    expect(setBinding(r.db, { tasks_project_id: r.tp.id, state: "confirmed", home_project: "Autarch" }, ctx(r))).toMatchObject({ ok: true });
+    expect(view(r).unbound).toEqual([]);
+    r.q.rebind([t.id]);
+    r.advance(60_000);
+    await r.poll();
+    expect(r.gens(t.id)).toHaveLength(1);
+  });
+});
+
 describe("setBinding (Q5: mk confirms once)", () => {
   const ctx = (r: Rig) => ({ now: r.env.now(), knownProjects: ["Autarch"], record: (type: string, detail: unknown) => void r.svc.store.recordEvent(type, null, detail) });
   it("confirms a suggested binding and records an event; delegation then clears the binding refusal", async () => {

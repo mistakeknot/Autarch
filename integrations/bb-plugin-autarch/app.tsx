@@ -398,6 +398,8 @@ function HomePage() {
             {blocks.queue === null ? null : (
               <BindingsPanel
                 bindings={blocks.queue.bindings}
+                unbound={blocks.queue.unbound ?? []}
+                serveProjects={blocks.queue.serve_projects ?? []}
                 inactive={blocks.queue.inactive_projects}
                 legacyCount={blocks.queue.legacy.count}
                 onBind={(b) => void rpc.call("setBinding", b).then(refetchAll, () => {})}
