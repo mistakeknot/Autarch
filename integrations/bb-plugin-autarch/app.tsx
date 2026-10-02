@@ -18,6 +18,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Icon } from "@/components/ui/icon";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
+import { OVERLAY_PANEL_ID, OVERLAY_PATH, OverlayPanel } from "./ui/overlay.js";
 import { AsksPanel, PickController } from "./ui/asks.js";
 import type { AsksData } from "./ui/asks.js";
 import { CatchupPanel, SeenTracker, snapshotIds } from "./ui/catchup.js";
@@ -438,6 +439,24 @@ function HomePage() {
 }
 
 /** Sidebar badge: the owed count, or "!" when serve is not ready or a machine blocker has no owner. */
+/** The summoned overlay's route (`/plugins/autarch/home-overlay`); it never marks anything seen. */
+function OverlayPage() {
+  const { rpc, asks, catchup, error, refetch } = useHomeData();
+  const nav = useBbNavigate();
+  const picks = useMemo(() => new PickController(() => crypto.randomUUID()), []);
+  if (asks === null) return <EmptyState>{error ?? "Loading…"}</EmptyState>;
+  return (
+    <OverlayPanel
+      data={asks}
+      catchup={catchup}
+      onOpen={(thread) => nav.toThread(thread)}
+      onPick={(decision_id, option_id, revision) => {
+        picks.send((req) => rpc.call("pick", { ...req, surface: "overlay" }) as never, { decision_id, option_id, revision }, refetch).then(refetch, () => {});
+      }}
+    />
+  );
+}
+
 function HomeBadge() {
   const { asks, health } = useHomeData();
   const blocked = health !== null && !health.ready;
@@ -461,6 +480,7 @@ export default definePluginApp((app) => {
     component: HomePage,
     experimental_sidebarAccessory: HomeBadge,
   });
+  app.slots.navPanel({ id: OVERLAY_PANEL_ID, title: "Home overlay", icon: "House", path: OVERLAY_PATH, component: OverlayPage });
   app.slots.threadPanelAction({
     id: "home-blocks",
     title: "Blocking",

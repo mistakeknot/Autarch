@@ -138,6 +138,27 @@ describe("wireHome", () => {
     }
   });
 
+  it("a pick from the overlay is recorded with surface overlay; the default stays home", async () => {
+    const env = makeEnv();
+    try {
+      const handle = createStoreHandle(() => new Database(env.file), {});
+      const f = fakeBb();
+      const own = { projects: async () => env.projects, health: async () => ({}), healthy: async () => true } as unknown as ServeClient;
+      const home = wireHome(f.bb, handle, cfg, { serve: own, sdk: new FakeSdk() });
+      await new Promise((r) => setTimeout(r, 20));
+      const filed = await env.open().file(ask(env), { threadId: "thr-a" });
+      if (!filed.ok) throw new Error(filed.error);
+      const listed = (await home.handlers.listAsks(null)).owed[0];
+      const r = await home.handlers.pick({ decision_id: filed.decision_id, option_id: "project", revision: listed.revision, pick_id: "po", surface: "overlay" });
+      expect(r.status).toBe(201);
+      const row = new Database(env.file, { readonly: true }).prepare("SELECT surface FROM picks WHERE pick_id = 'po'").get();
+      expect(row).toEqual({ surface: "overlay" });
+      f.disposers.forEach((d) => d());
+    } finally {
+      env.cleanup();
+    }
+  });
+
   it("every RPC result is a JSON value: bb rejects undefined members (found by the real-bb run)", async () => {
     const env = makeEnv();
     try {

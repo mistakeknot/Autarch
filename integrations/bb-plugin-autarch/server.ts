@@ -337,8 +337,8 @@ export function wireHome(bb: BbPluginApi, handle: StoreHandle, cfg: HomeConfig, 
     async listRecent(i: { project: string; limit: number }) {
       return { recent: need().svc.recent(i.project, i.limit) };
     },
-    async pick(i: { decision_id: string; option_id: string; revision: string; pick_id: string; reason?: string }) {
-      return need().svc.pick(i.decision_id, i.option_id, i.revision, i.pick_id, MK, "home", i.reason);
+    async pick(i: { decision_id: string; option_id: string; revision: string; pick_id: string; reason?: string; surface?: "home" | "overlay" }) {
+      return need().svc.pick(i.decision_id, i.option_id, i.revision, i.pick_id, MK, i.surface ?? "home", i.reason);
     },
     async dismiss(i: { decision_id: string; obligation_id: string }) {
       return need().svc.dismiss(i.decision_id, i.obligation_id);
