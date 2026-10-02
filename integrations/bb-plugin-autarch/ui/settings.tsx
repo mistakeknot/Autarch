@@ -18,11 +18,13 @@ export type BindingInput = { tasks_project_id: string; state: "confirmed" | "rej
 
 /** A tasks project with cards but no binding row: mk picks the serve project, Confirm sends it as home_project. */
 function UnboundRow({ u, serveProjects, onBind }: { u: UnboundView; serveProjects: string[]; onBind: (b: BindingInput) => void }) {
-  const [home, setHome] = useState(u.targets.find((t) => serveProjects.includes(t)) ?? "");
+  const [picked, setPicked] = useState<string | null>(null);
+  // The default follows the serve list (it may load after the row first renders) until mk picks one.
+  const home = picked ?? u.targets.find((t) => serveProjects.includes(t)) ?? "";
   return (
     <li data-unbound={u.tasks_project_id}>
       {`${u.tasks_project_id}: ${u.cards} open card${u.cards === 1 ? "" : "s"}, no binding${u.targets.length > 0 ? `; asks target ${u.targets.join(", ")}` : ""}`}
-      <select aria-label={`Home project for ${u.tasks_project_id}`} className="ml-2 border border-border bg-background" value={home} onChange={(e) => setHome(e.target.value)}>
+      <select aria-label={`Home project for ${u.tasks_project_id}`} className="ml-2 border border-border bg-background" value={home} onChange={(e) => setPicked(e.target.value)}>
         <option value="">choose a Home project</option>
         {serveProjects.map((p) => <option key={p} value={p}>{p}</option>)}
       </select>
