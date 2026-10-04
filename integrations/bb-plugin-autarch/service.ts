@@ -660,11 +660,12 @@ export class Service {
 
   /**
    * Write `suggested` when the tasks project's name equals exactly one serve project name
-   * (case-insensitive, never fuzzy). No row otherwise; an existing row is never touched, because
+   * (case-insensitive, with spaces, hyphens and underscores ignored: "After Them" is after-them; never fuzzy). No row otherwise; an existing row is never touched, because
    * only mk confirms or rejects a binding (plan 1.3.6).
    */
   suggestBinding(tasksProjectId: string, tasksProjectName: string, serve: ProjectInfo[]): void {
-    const hits = serve.filter((p) => p.name.toLowerCase() === tasksProjectName.toLowerCase());
+    const key = (n: string) => n.toLowerCase().replace(/[\s_-]+/g, "");
+    const hits = serve.filter((p) => key(p.name) === key(tasksProjectName));
     if (hits.length !== 1) return;
     this.db
       .prepare("INSERT OR IGNORE INTO project_bindings(tasks_project_id, home_project, state, suggested_at) VALUES (?, ?, 'suggested', ?)")
