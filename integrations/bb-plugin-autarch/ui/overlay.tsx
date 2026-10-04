@@ -1,7 +1,7 @@
 // The summoned overlay (Task 1.12): owed decisions, one line to the vizier, a count strip. No map, no history.
 // Aleph desktop opens `/plugins/autarch/home-overlay` in its always-on-top window (`overlay-settings.json`
 // target `{pluginId: "autarch", panelId: OVERLAY_PANEL_ID}`); the web build shows the same panel in-page.
-import { AsksPanel, type AsksData } from "./asks.js";
+import { AsksPanel, type AsksData, type OnPick } from "./asks.js";
 import type { CatchupEntry } from "./catchup.js";
 import { VizierPanel } from "./vizier.js";
 
@@ -28,7 +28,7 @@ export function overlayCounts(data: AsksData, catchup: CatchupEntry[]): { undeli
  * Only the decision items rendered here count as seen, and decisions are answered, never "seen", so this
  * view never calls markSeen/markAllSeen and the catch-up counts stay owed until Home's catch-up shows them.
  */
-export function OverlayPanel({ data, catchup, onPick, onOpen }: { data: AsksData; catchup: CatchupEntry[]; onPick: (d: string, o: string, r: string) => void; onOpen: (thread: string) => void }) {
+export function OverlayPanel({ data, catchup, onPick, onOpen }: { data: AsksData; catchup: CatchupEntry[]; onPick: OnPick; onOpen: (thread: string) => void }) {
   const c = overlayCounts(data, catchup);
   return (
     <div className="flex h-full min-h-0 flex-col" data-overlay-panel={OVERLAY_PANEL_ID}>

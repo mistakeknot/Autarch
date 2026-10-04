@@ -1,6 +1,6 @@
 // The blocks panel (plan 1.4): open card generations across all tasks projects, then the legacy group.
 // The server sorts and pins (queueview.ts); this file only renders, and owns the refresh policy.
-import { AskCard, type OwedAsk, type RunbookGroup } from "./asks.js";
+import { AskCard, type OnPick, type OwedAsk, type RunbookGroup } from "./asks.js";
 import { RootRunSection, type RootRunPanelView } from "./rootrun.js";
 
 export type QueueRowView = {
@@ -59,7 +59,7 @@ export function groupRows(rows: QueueRowView[]): { pinned: QueueRowView[]; rest:
   return { pinned: rows.filter((r) => r.pinned), rest: rows.filter((r) => !r.pinned) };
 }
 
-type Pick = (decisionId: string, optionId: string, revision: string) => void;
+type Pick = OnPick;
 
 function RootSection({ root }: { root: QueueRowView["root"] }) {
   if (root.state === null && root.reason === null) return null;
