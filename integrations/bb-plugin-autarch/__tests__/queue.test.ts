@@ -582,8 +582,9 @@ describe("registry and scope", () => {
     expect(r.db.prepare("SELECT task_id FROM card_requests WHERE request_key = 'kreg'").get()).toEqual({ task_id: a.id });
   });
 
-  it("a project mismatch is display-only", async () => {
+  it("a project mismatch with a confirmed binding is display-only", async () => {
     const r = rig({ projects: ["Autarch", "Elsewhere"] });
+    r.db.prepare("INSERT INTO project_bindings(tasks_project_id, home_project, state) VALUES (?, 'Autarch', 'confirmed')").run(r.tp.id);
     const t = r.card({ ask: { project: "Elsewhere", project_root: undefined } });
     r.edit(t, { description: r.desc({ ask: { project: "Elsewhere", project_root: r.env.roots.Elsewhere } }).replace("key-default", "kmm") });
     await r.poll();
@@ -614,13 +615,14 @@ describe("project bindings", () => {
     await r.poll();
     expect(r.db.prepare("SELECT home_project, state FROM project_bindings").all()).toEqual([{ home_project: "after-them", state: "suggested" }]);
   });
-  it("a fuzzy name never writes a row", async () => {
+  it("a fuzzy name never writes a row, and the card still opens (fail open on bindings)", async () => {
     for (const name of ["Autarc", "Autarch Two", "autarch-2", "My Autarch"]) {
       const r = rig({ projectName: name });
       const t = r.card();
       await r.poll();
       expect(r.db.prepare("SELECT COUNT(*) AS n FROM project_bindings").get(), name).toEqual({ n: 0 });
-      expect(r.cardRow(t.id).state).toBe("display");
+      expect(r.cardRow(t.id).state, name).not.toBe("display");
+      expect(r.gens(t.id), name).toHaveLength(1);
     }
   });
   it("an existing confirmed or rejected row is never rewritten by the poller", async () => {
@@ -793,6 +795,7 @@ describe("queue rows: display reasons, free-form cards, markers", () => {
   });
   it("shows each display reason on its card", async () => {
     const r = rig({ projects: ["Autarch", "Other"] });
+    r.db.prepare("INSERT INTO project_bindings(tasks_project_id, home_project, state) VALUES (?, 'Autarch', 'confirmed')").run(r.tp.id);
     const bad = r.card({ key: "d-bad", breakJson: true });
     const first = r.card({ key: "d-dup" });
     const dup = r.card({ key: "d-dup" });
@@ -846,11 +849,12 @@ describe("queue rows: display reasons, free-form cards, markers", () => {
 
 describe("unbound tasks projects (no name match, so no binding row)", () => {
   const ctx = (r: Rig) => ({ now: r.env.now(), knownProjects: ["Autarch"], record: (type: string, detail: unknown) => void r.svc.store.recordEvent(type, null, detail) });
-  it("lists a tasks project with cards and no binding row, with the project its asks target; binding it frees the card", async () => {
+  it("lists a tasks project with cards and no binding row, with the project its asks target; the card is open meanwhile (fail open)", async () => {
     const r = rig({ projectName: "Shadow Work" });
     const t = r.card();
     await r.poll();
-    expect(r.cardRow(t.id).display_reason).toMatch(/^project mismatch: card in .*, ask targets Autarch/);
+    expect(r.cardRow(t.id).state).toBe("open");
+    expect(r.gens(t.id)).toHaveLength(1);
     expect(r.db.prepare("SELECT COUNT(*) AS n FROM project_bindings").get()).toEqual({ n: 0 });
     expect(view(r).unbound).toEqual([{ tasks_project_id: r.tp.id, cards: 1, targets: ["Autarch"] }]);
     expect(setBinding(r.db, { tasks_project_id: r.tp.id, state: "confirmed", home_project: "Autarch" }, ctx(r))).toMatchObject({ ok: true });
@@ -859,12 +863,14 @@ describe("unbound tasks projects (no name match, so no binding row)", () => {
     r.advance(60_000);
     await r.poll();
     expect(r.gens(t.id)).toHaveLength(1);
+    expect(r.cardRow(t.id).state).toBe("open");
   });
 });
 
 describe("rebind racing an in-flight ingest (review finding)", () => {
   it("an ingest that began before the rebind does not record its stale digest, so the next poll re-evaluates", async () => {
     const r = rig({ projectName: "Shadow Work" });
+    r.db.prepare("INSERT INTO project_bindings(tasks_project_id, home_project, state) VALUES (?, 'Autarch', 'rejected')").run(r.tp.id);
     const t = r.card();
     const orig = r.svc.ingestCard.bind(r.svc);
     const spy = vi.spyOn(r.svc, "ingestCard").mockImplementation(async (...a) => {
