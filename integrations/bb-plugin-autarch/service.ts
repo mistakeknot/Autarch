@@ -80,6 +80,11 @@ function median(sorted: number[]): number | null {
   return sorted.length % 2 ? sorted[m]! : (sorted[m - 1]! + sorted[m]!) / 2;
 }
 
+/** The shared validator's message is a vector Go also checks; Home says what mk or the vizier can do about a missing Request line. */
+function shownParseError(err: string): string {
+  return err === "missing Request line" ? "Request line missing: re-file the ask or restore the Request line" : err;
+}
+
 export class Service {
   readonly store: Store;
   private readonly deps: ServiceDeps;
@@ -800,7 +805,7 @@ export class Service {
     row: Record<string, any>,
     latest: Row,
   ): Promise<{ ok: true; card: Card; thread: string; fp: string } | { ok: false; reason: string; routing?: boolean } | { unavailable: string }> {
-    if (!card) return { ok: false, reason: parseErr };
+    if (!card) return { ok: false, reason: shownParseError(parseErr) };
     const reg = this.db.prepare("SELECT * FROM card_requests WHERE task_id = ?").get(task.id) as { request_key: string; identity: string } | undefined;
     if (reg && (reg.request_key !== card.request.key || reg.identity !== card.request.identity)) return { ok: false, reason: "the Request line changed" };
     const project = String(card.ask.project ?? "");
@@ -934,7 +939,7 @@ export class Service {
   }
 
   private async materializeNew(task: Task, card: Card | null, parseErr: string, ctx: { comments: () => Promise<TaskCommentRow[]> }, row: Record<string, any>): Promise<string | void> {
-    if (!card) return this.setDisplay(task.id, parseErr);
+    if (!card) return this.setDisplay(task.id, shownParseError(parseErr));
     const key = card.request.key;
     const reg = this.db.prepare("SELECT task_id FROM card_requests WHERE request_key = ?").get(key) as { task_id: string } | undefined;
     if (reg && reg.task_id !== task.id) return this.setDisplay(task.id, `duplicate Request of ${key}`);
