@@ -8,7 +8,7 @@ vi.mock("@get-bb/plugin-sdk/app", () => ({
 }));
 
 import { BlocksPanel, BlocksRow, groupRows, QueueRefresher, type QueueRowView, type QueueView } from "../ui/blocks.js";
-import { AsksPanel, buildAsksView, PickController, type AsksData } from "../ui/asks.js";
+import { AsksPanel, buildAsksView, PickController, pickOutcome, type AsksData } from "../ui/asks.js";
 import { CatchupPanel, observeVisibility, SeenTracker, snapshotIds, type CatchupEntry } from "../ui/catchup.js";
 import { MapPlaceholder } from "../ui/map-placeholder.js";
 import { BindingsPanel, parseDelegationForm, SettingsPanel } from "../ui/settings.js";
@@ -543,5 +543,22 @@ describe("unbound picker default", () => {
     expect(down).toMatch(/<button[^>]*disabled[^>]*>Confirm/);
     const up = renderToStaticMarkup(<BindingsPanel bindings={[]} unbound={u} serveProjects={["Sylveste"]} inactive={[]} legacyCount={0} onBind={() => {}} />);
     expect(up).not.toMatch(/<button[^>]*disabled[^>]*>Confirm/);
+  });
+});
+
+describe("pickOutcome: a failed pick is shown, never swallowed (H-UX, q171)", () => {
+  it("ok result is ok", async () => {
+    expect(await pickOutcome(Promise.resolve({ ok: true }))).toEqual({ ok: true });
+  });
+  it("a thrown error becomes a visible failure", async () => {
+    const r = await pickOutcome(Promise.reject(new Error("socket hang up")));
+    expect(r.ok).toBe(false);
+    expect(r.error).toContain("socket hang up");
+  });
+  it("a non-ok result carries its error, and a 409 says to reread", async () => {
+    expect(await pickOutcome(Promise.resolve({ ok: false, error: "ruled already" }))).toEqual({ ok: false, error: "ruled already" });
+    const r = await pickOutcome(Promise.resolve({ status: 409 }));
+    expect(r.ok).toBe(false);
+    expect(r.error).toMatch(/changed/);
   });
 });

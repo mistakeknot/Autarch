@@ -19,7 +19,7 @@ import { Icon } from "@/components/ui/icon";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
 import { OVERLAY_PANEL_ID, OVERLAY_PATH, OverlayPanel } from "./ui/overlay.js";
-import { AsksPanel, PickController } from "./ui/asks.js";
+import { AsksPanel, PickController, pickOutcome } from "./ui/asks.js";
 import type { AsksData } from "./ui/asks.js";
 import { CatchupPanel, SeenTracker, snapshotIds } from "./ui/catchup.js";
 import type { CatchupEntry } from "./ui/catchup.js";
@@ -250,7 +250,7 @@ function BlocksThreadPanel({ threadId }: { threadId: string }) {
       nowMs={Date.now()}
       thread={threadId}
       onOpen={(t) => nav.toThread(t)}
-      onPick={(decision_id, option_id, revision) => void picks.send((req) => rpc.call("pick", req) as never, { decision_id, option_id, revision }, refetch).then(refetch, () => {})}
+      onPick={(decision_id, option_id, revision) => pickOutcome(picks.send((req) => rpc.call("pick", req) as never, { decision_id, option_id, revision }, refetch)).finally(refetch)}
     />
   );
 }
@@ -357,7 +357,7 @@ function HomePage() {
             onOpen={(thread) => push({ id: `thread:${thread}`, kind: "thread", title: thread, ref: thread })}
             onRevoke={(approval_id) => void rpc.call("revokeApproval", { approval_id }).then(refetch, () => {})}
             onPick={(decision_id, option_id, revision) => {
-              picks.send((req) => rpc.call("pick", req) as never, { decision_id, option_id, revision }, refetch).then(refetch, () => {});
+              return pickOutcome(picks.send((req) => rpc.call("pick", req) as never, { decision_id, option_id, revision }, refetch)).finally(refetch);
             }}
           />
         );
@@ -371,7 +371,7 @@ function HomePage() {
             nowMs={Date.now()}
             onOpen={openBeside}
             onPick={(decision_id, option_id, revision) => {
-              picks.send((req) => rpc.call("pick", req) as never, { decision_id, option_id, revision }, refetchAll).then(refetchAll, () => {});
+              return pickOutcome(picks.send((req) => rpc.call("pick", req) as never, { decision_id, option_id, revision }, refetchAll)).finally(refetchAll);
             }}
           />
         );
@@ -453,7 +453,7 @@ function OverlayPage() {
       catchup={catchup}
       onOpen={(thread) => nav.toThread(thread)}
       onPick={(decision_id, option_id, revision) => {
-        picks.send((req) => rpc.call("pick", { ...req, surface: "overlay" }) as never, { decision_id, option_id, revision }, refetch).then(refetch, () => {});
+        return pickOutcome(picks.send((req) => rpc.call("pick", { ...req, surface: "overlay" }) as never, { decision_id, option_id, revision }, refetch)).finally(refetch);
       }}
     />
   );
