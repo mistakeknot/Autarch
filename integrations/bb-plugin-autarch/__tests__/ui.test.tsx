@@ -562,3 +562,17 @@ describe("pickOutcome: a failed pick is shown, never swallowed", () => {
     expect(r.error).toMatch(/changed/);
   });
 });
+
+describe("project binding flag (fail open)", () => {
+  const html = (over: Partial<QueueRowView>, onBind?: () => void) =>
+    renderToStaticMarkup(<BlocksRow row={row({ tasks_project_id: "tp-1", project: "shadow-work", ...over })} nowMs={NOW} onPick={() => {}} onOpen={() => {}} {...(onBind ? { onBind } : {})} />);
+  it("flags an unbound or only-suggested project, with a Bind button naming the Home project", () => {
+    expect(html({ binding_state: null }, () => {})).toMatch(/data-binding-flag="unbound"[^>]*>project not bound.*Bind to shadow-work/);
+    expect(html({ binding_state: "suggested" }, () => {})).toMatch(/data-binding-flag="suggested"/);
+  });
+  it("shows no flag for a confirmed or rejected binding, and no button without a handler", () => {
+    expect(html({ binding_state: "confirmed" })).not.toMatch(/data-binding-flag/);
+    expect(html({ binding_state: "rejected" })).not.toMatch(/data-binding-flag/);
+    expect(html({ binding_state: null })).not.toMatch(/data-bind=/);
+  });
+});
