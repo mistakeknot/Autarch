@@ -923,3 +923,46 @@ func (f *CardFiler) Card(ctx context.Context, taskID string) (CardView, error) {
 func DerivedKey(thread, ident string) string {
 	return uuid.NewSHA1(needsMkNS, []byte("thread\x00"+thread+"\x00"+ident)).String()
 }
+
+// ResolveAskProject checks the ask's project against the Home project the card's tasks project is
+// bound to. Home hides a card whose ask project is not the bound one, so a confirmed
+// binding is enforced at file time: the tasks key (prefix) is accepted as an alias and replaced by
+// the bound name; any other value is refused with the expected one. An unbound, suggested or
+// rejected binding, or a Home too old to answer, leaves the ask alone (Home shows the card flagged).
+func (f *CardFiler) ResolveAskProject(ctx context.Context, tasksProject, askProject string) (string, error) {
+	var projects struct {
+		Projects []struct {
+			ID     string `json:"id"`
+			Name   string `json:"name"`
+			Prefix string `json:"prefix"`
+		} `json:"projects"`
+	}
+	if err := f.call(ctx, "", &projects, "tasks", "project", "list", "--json"); err != nil {
+		return askProject, nil
+	}
+	id, prefix := "", ""
+	for _, p := range projects.Projects {
+		if p.ID == tasksProject || strings.EqualFold(p.Prefix, tasksProject) || strings.EqualFold(p.Name, tasksProject) {
+			id, prefix = p.ID, p.Prefix
+			break
+		}
+	}
+	if id == "" {
+		return askProject, nil
+	}
+	var b struct {
+		Home  *string `json:"home_project"`
+		State *string `json:"state"`
+	}
+	if err := f.call(ctx, "", &b, "home", "binding", id); err != nil || b.Home == nil || b.State == nil || *b.State != "confirmed" {
+		return askProject, nil
+	}
+	home := *b.Home
+	if askProject == home {
+		return askProject, nil
+	}
+	if prefix != "" && strings.EqualFold(askProject, prefix) {
+		return home, nil
+	}
+	return "", fmt.Errorf("%w: ask project %q is not the Home project bound to tasks project %q; expected project %q (the tasks key %q is also accepted)", ErrInvalid, askProject, tasksProject, home, prefix)
+}

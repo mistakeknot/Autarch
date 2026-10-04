@@ -165,6 +165,15 @@ export function homeCli(p: HomeCliParts) {
         run: ({ positionals }, ctx) => lifecycle(p.asks.withdraw(positionals.id, { threadId: ctx.threadId })),
       }),
 
+      binding: cliCommand({
+        summary: "Read the Home project a tasks project is bound to (read-only; the filer checks an ask's project against it)",
+        positionals: [{ name: "tasks_project_id", description: "Tasks project id.", required: true }],
+        run({ positionals }) {
+          const row = svc.store.db.prepare("SELECT home_project, state FROM project_bindings WHERE tasks_project_id = ?").get(positionals.tasks_project_id) as { home_project: string; state: string } | undefined;
+          return out({ tasks_project_id: positionals.tasks_project_id, home_project: row?.home_project ?? null, state: row?.state ?? null });
+        },
+      }),
+
       rule: cliCommand({
         summary: "Vizier only: rule on a delegable decision",
         positionals: [
