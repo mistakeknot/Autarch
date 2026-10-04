@@ -49,6 +49,7 @@ export type AsksData = {
 };
 
 export type ViewItem = { id: string; title: string; detail?: string; thread?: string };
+// operator-action items come first and stay first: Decide, Runbook, then Stalled, then Waiting.
 export type Section = { key: "stalled" | "decide" | "runbook" | "waiting"; title: string; items: ViewItem[] };
 
 export function buildAsksView(d: AsksData): Section[] {
@@ -59,9 +60,9 @@ export function buildAsksView(d: AsksData): Section[] {
     ...d.asks.map((a) => ({ id: a.id, title: `${a.label ?? "stalled"}: ${a.subject}`, detail: a.detail, thread: a.thread })),
   ];
   const sections: Section[] = [
-    { key: "stalled", title: "Stalled", items: stalled },
     { key: "decide", title: "Decide", items: d.owed.map((o) => ({ id: o.id, title: o.subject, thread: o.thread })) },
     { key: "runbook", title: "Runbook", items: d.runbook.flatMap((g) => g.items.map((i) => ({ id: i.id, title: i.subject, detail: i.question, thread: g.thread }))) },
+    { key: "stalled", title: "Stalled", items: stalled },
     { key: "waiting", title: "Waiting", items: d.lane.map((l) => ({ id: l.id, title: l.subject, detail: `${l.detail} (owner ${l.owner})`, thread: l.thread })) },
   ];
   return sections.filter((s) => s.items.length > 0);

@@ -49,7 +49,7 @@ const data = (over: Partial<AsksData> = {}): AsksData => ({
 });
 
 describe("Asks ordering", () => {
-  it("puts stalled first, then decide, then the runbook, then waiting", () => {
+  it("puts operator-action items first: decide, runbook, then stalled, then waiting", () => {
     const view = buildAsksView(
       data({
         owed: [ask()],
@@ -59,8 +59,8 @@ describe("Asks ordering", () => {
         undeliverable: [{ id: "o1", decision_id: "dec1", kind: "ruling-wake", recipient: "thr-a" }],
       }),
     );
-    expect(view.map((s) => s.key)).toEqual(["stalled", "decide", "runbook", "waiting"]);
-    expect(view[0]!.items.map((i) => i.id)).toEqual(["undeliverable:o1", "m2"]);
+    expect(view.map((s) => s.key)).toEqual(["decide", "runbook", "stalled", "waiting"]);
+    expect(view[2]!.items.map((i) => i.id)).toEqual(["undeliverable:o1", "m2"]);
   });
 
   it("omits empty sections", () => {
