@@ -256,7 +256,7 @@ export function normalizeAsk(input: Ask): Ask {
   if (a.thread !== "" && !REF_ID.test(a.thread)) fail("thread must match [A-Za-z0-9:_.-]{1,128}");
   if (blank(a.project) || count(a.project) > 200) fail("project is required (1-200 characters)");
   if (!a.project_root.startsWith("/") || blank(a.project_root)) fail("project_root must be an absolute path");
-  if (blank(a.question) || count(a.question) > MAX_QUESTION) fail("question must be 1-2000 characters");
+  if (blank(a.question) || count(a.question) > MAX_QUESTION) fail(`question must be 1-2000 characters (got ${count(a.question)})`);
   if (a.request_id !== "" && !REQUEST_ID.test(a.request_id)) fail("request_id must be 1-128 of [A-Za-z0-9:_.-]");
   for (const [field, v] of [["supersedes", a.supersedes], ["mention_of", a.mention_of]] as const) {
     if (v !== "" && !REF_ID.test(v)) fail(`${field} must match [A-Za-z0-9:_.-]{1,128}`);
@@ -350,7 +350,7 @@ function normalizeOptions(a: Work) {
       if (ttl < 0 || ttl > MAX_TTL) fail("approval ttl must be 1-604800 seconds");
     }
   }
-  if (a.recommendation !== "" && !seen.has(a.recommendation)) fail("recommendation must name an option");
+  if (a.recommendation !== "" && !seen.has(a.recommendation)) fail("recommendation must name an option: it is the id of one of the options, exactly, not a sentence");
 }
 
 // ---- canonical JSON ----

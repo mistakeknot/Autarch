@@ -608,6 +608,12 @@ describe("project bindings", () => {
     await r.poll();
     expect(r.db.prepare("SELECT * FROM project_bindings").all()).toMatchObject([{ tasks_project_id: r.tp.id, home_project: "Autarch", state: "suggested" }]);
   });
+  it("spaces, hyphens and underscores in the name are ignored: After Them is after-them", async () => {
+    const r = rig({ projectName: "After Them", projects: ["after-them"] });
+    r.card({ ask: { project: "after-them" } });
+    await r.poll();
+    expect(r.db.prepare("SELECT home_project, state FROM project_bindings").all()).toEqual([{ home_project: "after-them", state: "suggested" }]);
+  });
   it("a fuzzy name never writes a row", async () => {
     for (const name of ["Autarc", "Autarch Two", "autarch-2", "My Autarch"]) {
       const r = rig({ projectName: name });
