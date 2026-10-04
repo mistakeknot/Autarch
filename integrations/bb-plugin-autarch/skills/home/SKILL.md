@@ -23,7 +23,7 @@ undoing it is cheap and local; never for a push, merge, deploy or release.
 | --- | --- |
 | `bb home get --card <task id>` | The card, its current generation and its state. |
 | `bb home get --request <key>` | Look up a filed card by its request key (pre-card asks by their request id). |
-| `bb home list` | List the asks waiting for a ruling; `--pull mycroft` narrows to what Mycroft pulls. |
+| `bb home list` | List the asks waiting for a ruling, plus cards Home shows flagged (`display_only: true` with a `display_reason`, e.g. a missing Request line); `--pull mycroft` narrows to what Mycroft pulls and omits flagged cards. |
 | `bb home feed` | The recent-rulings feed a thread sees. |
 | `bb home stats` | Picks, delegation and filing counts over a window. |
 

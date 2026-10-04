@@ -394,8 +394,13 @@ describe("blocks panel", () => {
   it("shows age, the Blocks count, and which refs count", () => {
     const html = panel(q([row({ refs: [{ ref: "bead:a", counted: true }, { ref: "ticket:1", counted: false }], blocks_count: 1 })]));
     expect(html).toContain("age 3 d");
+    expect(html).toContain("owner thr-a");
     expect(html).toContain("blocks 1");
     expect(html).toContain('data-counted="false"');
+  });
+  it("a row with no asking thread says the owner is unknown", () => {
+    const html = renderToStaticMarkup(<BlocksRow row={row({ thread: null })} nowMs={NOW} onPick={() => {}} onOpen={() => {}} />);
+    expect(html).toContain("owner unknown");
   });
   it("a free-form card is display-only with its reason and no pick buttons", () => {
     const html = renderToStaticMarkup(<BlocksRow row={row({ id: "card:t2", decision_id: null, ask: null, revision: null, display_only: true, display_reason: "no home-ask block", title: "Prose card" })} nowMs={NOW} onPick={() => {}} onOpen={() => {}} />);
