@@ -4,6 +4,7 @@ import { Catchup } from "../catchup.js";
 import { parseAsk } from "../model.js";
 import { homeCli } from "../cli.js";
 import { Delegation } from "../delegation.js";
+import { removeBinding, setBinding } from "../queueview.js";
 import type { Service } from "../service.js";
 import { cleanupEnvs, opened, rig } from "./card-rig.js";
 import { ask, makeEnv, type Env, verifiedDelegation } from "./service-helpers.js";
@@ -273,5 +274,68 @@ describe("bb home binding", () => {
     expect(hit.exitCode).toBe(0);
     expect(JSON.parse(hit.stdout!)).toEqual({ tasks_project_id: "tp-1", home_project: "shadow-work", state: "confirmed" });
     expect(JSON.parse((await run(["binding", "tp-none"])).stdout!)).toEqual({ tasks_project_id: "tp-none", home_project: null, state: null });
+  });
+});
+
+describe("bb home bind / unbind (vizier only, logged)", () => {
+  beforeEach(() => enable());
+  const bindCli = () => {
+    const db = svc.store.db;
+    const rec = (by: string) => (type: string, detail: unknown) => svc.store.recordEvent(type, null, { ...(detail as object), by });
+    const cli = homeCli({
+      svc,
+      asks: new Asks(svc),
+      catchup: new Catchup(svc, dele),
+      rule: (id, option, reason, ctx) => dele.rule(id, option, reason, ctx),
+      isVizier: (t) => t !== undefined && dele.settings().vizierThreadId === t,
+      bind: async (ref, home, by) => {
+        const r = setBinding(db, { tasks_project_id: ref, state: "confirmed", home_project: home }, { now: svc.time(), knownProjects: ["Autarch", "shadow-work"], record: rec(by) });
+        return r.ok ? { ok: true as const, tasks_project_id: ref } : r;
+      },
+      unbind: async (ref, by) => {
+        const r = removeBinding(db, { tasks_project_id: ref }, { record: rec(by) });
+        return r.ok ? { ok: true as const, tasks_project_id: ref, was: r.was } : r;
+      },
+    });
+    return (argv: string[], ctx: { threadId?: string } = {}) => Promise.resolve(cli.run(argv, ctx));
+  };
+  const events = (type: string) => (svc.store.db.prepare("SELECT at, detail_json FROM events WHERE type = ?").all(type) as { at: string; detail_json: string }[]).map((e) => ({ at: e.at, ...JSON.parse(e.detail_json) }));
+
+  it("refuses every thread but the vizier, and writes nothing", async () => {
+    const r = bindCli();
+    for (const ctx of [{}, { threadId: "thr-a" }]) {
+      for (const argv of [["bind", "tp-1", "shadow-work"], ["unbind", "tp-1"]]) {
+        const res = await r(argv, ctx);
+        expect(res.exitCode).toBe(1);
+        expect(res.stderr).toMatch(/only the vizier/);
+      }
+    }
+    expect(svc.store.db.prepare("SELECT COUNT(*) AS n FROM project_bindings").get()).toEqual({ n: 0 });
+  });
+
+  it("binds confirmed, logging who and when, and unbind undoes it, logging the same", async () => {
+    const r = bindCli();
+    const b = await r(["bind", "tp-1", "shadow-work"], { threadId: VIZ });
+    expect(b.exitCode).toBe(0);
+    expect(svc.store.db.prepare("SELECT home_project, state FROM project_bindings").get()).toEqual({ home_project: "shadow-work", state: "confirmed" });
+    expect(events("binding-confirmed")).toMatchObject([{ tasks_project_id: "tp-1", home_project: "shadow-work", by: VIZ }]);
+    expect(events("binding-confirmed")[0]!.at).toBeTruthy();
+    const u = await r(["unbind", "tp-1"], { threadId: VIZ });
+    expect(u.exitCode).toBe(0);
+    expect(JSON.parse(u.stdout!).was).toEqual({ home_project: "shadow-work", state: "confirmed" });
+    expect(svc.store.db.prepare("SELECT COUNT(*) AS n FROM project_bindings").get()).toEqual({ n: 0 });
+    expect(events("binding-removed")).toMatchObject([{ tasks_project_id: "tp-1", was: "confirmed", by: VIZ }]);
+  });
+
+  it("an unknown Home project exits 2, and unbinding an unbound project exits 1", async () => {
+    const r = bindCli();
+    expect((await r(["bind", "tp-1", "nowhere"], { threadId: VIZ })).exitCode).toBe(2);
+    expect((await r(["unbind", "tp-1"], { threadId: VIZ })).exitCode).toBe(1);
+  });
+
+  it("is unavailable, not silent, when the plugin gave the CLI no binder", async () => {
+    const res = await run(["bind", "tp-1", "Autarch"], { threadId: VIZ });
+    expect(res.exitCode).toBe(1);
+    expect(res.stderr).toMatch(/not available/);
   });
 });
