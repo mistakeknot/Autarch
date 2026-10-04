@@ -191,7 +191,8 @@ export class WakeLoop {
       } else {
         to = "undeliverable";
         // A failure the card shows: the target rotated, was archived, or the send was cancelled.
-        const why = error ?? [...atts].reverse().find((a) => a.error)?.error ?? "";
+        const errs = [...atts].reverse().map((a) => a.error).filter((e): e is string => !!e);
+        const why = error ?? errs.find((e) => !/^cancel/i.test(e)) ?? errs[0] ?? "";
         fields = { last_error: `${why || "not delivered"} (recipient ${row.recipient ?? "?"})` };
       }
     }
