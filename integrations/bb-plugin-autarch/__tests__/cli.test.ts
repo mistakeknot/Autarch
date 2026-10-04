@@ -265,3 +265,13 @@ describe("cards in the CLI (Task 2.7)", () => {
     expect(pulled.find((x) => x.id === c.g1.id)!.task_id).toBe(c.t.id);
   });
 });
+
+describe("bb home binding", () => {
+  it("reads the binding row, or nulls when the tasks project is unbound", async () => {
+    svc.store.db.prepare("INSERT INTO project_bindings(tasks_project_id, home_project, state) VALUES ('tp-1', 'shadow-work', 'confirmed')").run();
+    const hit = await run(["binding", "tp-1"]);
+    expect(hit.exitCode).toBe(0);
+    expect(JSON.parse(hit.stdout!)).toEqual({ tasks_project_id: "tp-1", home_project: "shadow-work", state: "confirmed" });
+    expect(JSON.parse((await run(["binding", "tp-none"])).stdout!)).toEqual({ tasks_project_id: "tp-none", home_project: null, state: null });
+  });
+});

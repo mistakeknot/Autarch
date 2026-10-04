@@ -158,6 +158,15 @@ but the routing comment failed (re-run the same command), 5 not yet confirmed.`,
 			if err := checkFilingPreconditions(fmt.Sprint(ask["project"]), fmt.Sprint(ask["project_root"])); err != nil {
 				return err
 			}
+			ctx := cmd.Context()
+			if ctx == nil {
+				ctx = context.Background()
+			}
+			bound, err := newCardFiler().ResolveAskProject(ctx, project, fmt.Sprint(ask["project"]))
+			if err != nil {
+				return err
+			}
+			ask["project"] = bound
 			req := homeask.CardRequest{Project: project, Title: title, Blocks: blocks, Ask: ask, Key: request, Thread: thread}
 			if rootRun != "" {
 				if req.RootRun, err = parseRootRunFlag(rootRun); err != nil {
@@ -170,10 +179,6 @@ but the routing comment failed (re-run the same command), 5 not yet confirmed.`,
 					return err
 				}
 				req.Key = homeask.DerivedKey(thread, ident)
-			}
-			ctx := cmd.Context()
-			if ctx == nil {
-				ctx = context.Background()
 			}
 			res, err := newCardFiler().FileCard(ctx, req)
 			if err != nil {
