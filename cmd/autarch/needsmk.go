@@ -119,7 +119,7 @@ routing comment from it. --project is the tasks project. --ask-file is a JSON ob
 question, options and optionally subject, recommendation, ask_key, project and project_root.
 
 Exit codes: 2 usage or refused, 3 Home or tasks unavailable (nothing created), 4 card created
-but the routing comment failed (re-run the same command), 5 not yet confirmed.`,
+but the routing comment failed (re-run the same command), 5 already ruled (mk picked an option for this request).`,
 		Args:         cobra.NoArgs,
 		SilenceUsage: true,
 		RunE: func(cmd *cobra.Command, args []string) error {

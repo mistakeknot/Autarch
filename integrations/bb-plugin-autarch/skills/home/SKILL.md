@@ -29,6 +29,22 @@ undoing it is cheap and local; never for a push, merge, deploy or release.
 
 `bb home rule` and `bb home note` are for the vizier thread only.
 
+## Vizier: file, update, close
+
+An ask is a tasks card labelled `needs-mk`, so the vizier works one with three commands. Home picks
+up every change on its next queue refresh.
+
+| To | Run | Notes |
+| --- | --- | --- |
+| File | `autarch needs-mk file --project <tasks project> --title <t> --ask-file <json> [--blocks bead:ID] [--request <key>]` | Run from the vizier thread (`$BB_THREAD_ID` required). Re-running the same `--request` is safe. A project with no confirmed Home binding files anyway and prints a `warning:` line on stderr; its card shows flagged until `bb home bind` (vizier) or mk's Bind. |
+| Update | `bb tasks comment <KEY> --body <text>`; `bb tasks update <KEY> --title/--description-file/--priority` | Comment to add facts or answer mk. Do not remove the `needs-mk` label: that drops the card from Home. |
+| Close | `bb tasks update <KEY> --status done` (or `canceled` when the ask no longer applies) | Home lists only backlog, todo, in_progress and in_review cards, so a closed card leaves the queue. Add a `bb tasks comment` first saying why. Close an answered card only after the ruling reached the asking thread. |
+
+Exit codes of `file`: 2 usage or refused, 3 Home or tasks unavailable (nothing created), 4 card
+created but the routing comment failed (re-run the same command), 5 already ruled. Look an ask up
+with `bb home get --request <key>` before filing a duplicate. `bb home progress|resolve|withdraw`
+do not work on cards (exit 2, "card asks close through tasks").
+
 ## For asks filed before cards
 
 Asks filed before cards existed drain in place. Only these commands touch them, and they refuse a
