@@ -102,7 +102,7 @@ function RootRunControl({ taskId, hooks }: { taskId: string; hooks: RootRunHooks
 }
 
 export function BlocksRow({ row, nowMs, onPick, onOpen, rootRun, onBind }: { row: QueueRowView; nowMs: number; onPick: Pick; onOpen: (thread: string) => void; rootRun?: RootRunHooks; onBind?: OnBind }) {
-  const meta = [row.card_key, row.project, `age ${ageText(row.created_at, nowMs)}`, `blocks ${row.blocks_count}`].filter((x) => x !== null && x !== "").join(" - ");
+  const meta = [row.card_key, row.project, row.thread ? `owner ${row.thread}` : "owner unknown", `age ${ageText(row.created_at, nowMs)}`, `blocks ${row.blocks_count}`].filter((x) => x !== null && x !== "").join(" - ");
   return (
     <article className="rounded-lg border border-border bg-card p-3" data-row={row.id} data-pinned={row.pinned ? "true" : "false"}>
       <p className="text-xs text-muted-foreground">{meta}</p>

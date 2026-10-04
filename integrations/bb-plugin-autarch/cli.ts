@@ -9,6 +9,7 @@ import { cliCommand, defineCli, type PluginCliContext, type PluginCliResult } fr
 import type { Asks, LifecycleResult } from "./asks.js";
 import type { Catchup } from "./catchup.js";
 import { parseAsk } from "./model.js";
+import { buildQueue } from "./queueview.js";
 import type { PickResult, Service } from "./service.js";
 
 export const REQUEST_LIMIT = 16 * 1024;
@@ -123,7 +124,14 @@ export function homeCli(p: HomeCliParts) {
             .owed()
             .filter((d) => (options.asker ? d.asker === options.asker : true) && (options.project ? d.project === options.project : true) && (options.pull ? isPulled(d, options.pull) : true))
             .map((d) => ({ id: d.id, subject: d.subject, project: d.project, thread: d.thread, asker: d.asker, filed_at: d.filed_at, task_id: d.task_id ?? null }));
-          return { exitCode: 0, stdout: JSON.stringify(rows) };
+          // A card Home shows flagged (display only) is not owed a ruling but is still on mk's page: list it with its reason
+          // so a coordinator can check its own card. Not pulled by anyone, and no project name until it is bound.
+          const flagged = options.pull
+            ? []
+            : buildQueue(svc, p.asks)
+                .rows.filter((r) => r.display_only && (options.asker ? options.asker === "thread" : true) && (options.project ? r.project === options.project : true))
+                .map((r) => ({ id: r.id, subject: r.title, project: r.project, thread: r.thread ?? "", asker: "thread", filed_at: r.created_at, task_id: r.task_id, display_only: true, display_reason: r.display_reason, card_key: r.card_key }));
+          return { exitCode: 0, stdout: JSON.stringify([...rows, ...flagged]) };
         },
       }),
 

@@ -267,6 +267,25 @@ describe("cards in the CLI (Task 2.7)", () => {
   });
 });
 
+describe("bb home list shows cards Home flags", () => {
+  afterEach(() => cleanupEnvs());
+  it("includes a card that lost its Request line, with its reason, and leaves it out of --pull", async () => {
+    const r = rig();
+    const c = await opened(r, { key: "key-flag" });
+    const s = r.svc;
+    const d = verifiedDelegation(s);
+    const cli = homeCli({ svc: s, asks: new Asks(s), catchup: new Catchup(s, d), rule: (id, option, reason, ctx) => d.rule(id, option, reason, ctx), isVizier: () => false });
+    const go = (argv: string[]) => Promise.resolve(cli.run(argv, {}));
+    r.edit(c.t, { description: c.t.description.replace(/^Request: .*\n/m, "") });
+    await r.poll();
+    const rows = JSON.parse((await go(["list", "--json"])).stdout!) as { id: string; task_id: string; display_only?: boolean; display_reason?: string }[];
+    const flagged = rows.find((x) => x.task_id === c.t.id);
+    expect(flagged).toMatchObject({ id: `card:${c.t.id}`, display_only: true, thread: "thr_a" });
+    expect(flagged!.display_reason).toMatch(/^Request line missing/);
+    expect(JSON.parse((await go(["list", "--pull", "mycroft"])).stdout!)).toEqual([]);
+  });
+});
+
 describe("bb home binding", () => {
   it("reads the binding row, or nulls when the tasks project is unbound", async () => {
     svc.store.db.prepare("INSERT INTO project_bindings(tasks_project_id, home_project, state) VALUES ('tp-1', 'shadow-work', 'confirmed')").run();
