@@ -162,9 +162,12 @@ but the routing comment failed (re-run the same command), 5 not yet confirmed.`,
 			if ctx == nil {
 				ctx = context.Background()
 			}
-			bound, err := newCardFiler().ResolveAskProject(ctx, project, fmt.Sprint(ask["project"]))
+			bound, warn, err := newCardFiler().ResolveAskProject(ctx, project, fmt.Sprint(ask["project"]))
 			if err != nil {
 				return err
+			}
+			if warn != "" {
+				fmt.Fprintln(cmd.ErrOrStderr(), "warning:", warn)
 			}
 			ask["project"] = bound
 			req := homeask.CardRequest{Project: project, Title: title, Blocks: blocks, Ask: ask, Key: request, Thread: thread}

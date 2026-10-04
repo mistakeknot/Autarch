@@ -928,8 +928,9 @@ func DerivedKey(thread, ident string) string {
 // bound to. Home hides a card whose ask project is not the bound one, so a confirmed
 // binding is enforced at file time: the tasks key (prefix) is accepted as an alias and replaced by
 // the bound name; any other value is refused with the expected one. An unbound, suggested or
-// rejected binding, or a Home too old to answer, leaves the ask alone (Home shows the card flagged).
-func (f *CardFiler) ResolveAskProject(ctx context.Context, tasksProject, askProject string) (string, error) {
+// rejected binding leaves the ask alone (Home shows the card flagged) and returns a warning for the
+// caller to print; a Home too old to answer leaves it alone silently.
+func (f *CardFiler) ResolveAskProject(ctx context.Context, tasksProject, askProject string) (string, string, error) {
 	var projects struct {
 		Projects []struct {
 			ID     string `json:"id"`
@@ -938,7 +939,7 @@ func (f *CardFiler) ResolveAskProject(ctx context.Context, tasksProject, askProj
 		} `json:"projects"`
 	}
 	if err := f.call(ctx, "", &projects, "tasks", "project", "list", "--json"); err != nil {
-		return askProject, nil
+		return askProject, "", nil
 	}
 	id, prefix := "", ""
 	for _, p := range projects.Projects {
@@ -948,21 +949,25 @@ func (f *CardFiler) ResolveAskProject(ctx context.Context, tasksProject, askProj
 		}
 	}
 	if id == "" {
-		return askProject, nil
+		return askProject, "", nil
 	}
 	var b struct {
 		Home  *string `json:"home_project"`
 		State *string `json:"state"`
 	}
-	if err := f.call(ctx, "", &b, "home", "binding", id); err != nil || b.Home == nil || b.State == nil || *b.State != "confirmed" {
-		return askProject, nil
+	if err := f.call(ctx, "", &b, "home", "binding", id); err != nil {
+		return askProject, "", nil
+	}
+	if b.Home == nil || b.State == nil || *b.State != "confirmed" {
+		// Fails open (the card still shows, flagged with a Bind button), but say so at file time.
+		return askProject, fmt.Sprintf("tasks project %q has no confirmed Home project binding; the card will show in Home flagged \"project not bound\" until the vizier runs `bb home bind` or mk clicks Bind", tasksProject), nil
 	}
 	home := *b.Home
 	if askProject == home {
-		return askProject, nil
+		return askProject, "", nil
 	}
 	if prefix != "" && strings.EqualFold(askProject, prefix) {
-		return home, nil
+		return home, "", nil
 	}
-	return "", fmt.Errorf("%w: ask project %q is not the Home project bound to tasks project %q; expected project %q (the tasks key %q is also accepted)", ErrInvalid, askProject, tasksProject, home, prefix)
+	return "", "", fmt.Errorf("%w: ask project %q is not the Home project bound to tasks project %q; expected project %q (the tasks key %q is also accepted)", ErrInvalid, askProject, tasksProject, home, prefix)
 }
