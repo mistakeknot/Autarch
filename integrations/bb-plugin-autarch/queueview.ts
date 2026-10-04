@@ -207,8 +207,8 @@ export function buildQueue(svc: Service, asks: Asks, opts: { thread?: string } =
       )
       .all() as { project_id: string; cards: number }[]
   ).map((u) => {
-    const reasons = db.prepare("SELECT display_reason FROM cards WHERE project_id = ? AND display_reason LIKE 'project mismatch:%'").all(u.project_id) as { display_reason: string }[];
-    const targets = [...new Set(reasons.map((x) => /ask targets (.+)$/.exec(x.display_reason)?.[1]).filter((x): x is string => x !== undefined))].sort();
+    const asked = db.prepare("SELECT DISTINCT d.project FROM decisions d JOIN cards c ON c.task_id = d.task_id WHERE c.project_id = ? AND c.deleted_at IS NULL AND d.withdrawn_at IS NULL").all(u.project_id) as { project: string }[];
+    const targets = asked.map((x) => x.project).sort();
     return { tasks_project_id: u.project_id, cards: u.cards, targets };
   });
   let inactive: string[] = [];

@@ -828,13 +828,19 @@ export class Service {
     }
   }
 
-  /** Null when the card's ask targets the project its tasks project is bound to. */
+  /**
+   * Null when the card may open. A confirmed binding must name the ask's project. A tracker project
+   * with no binding, or only a name-match suggestion, fails open: the card shows in Home flagged
+   * "project not bound" so a filed ask is never hidden; only mk confirms a binding. A rejected
+   * binding still refuses.
+   */
   private bindingMismatch(task: Task, project: string): string | null {
     const b = this.db.prepare("SELECT home_project, state FROM project_bindings WHERE tasks_project_id = ?").get(task.projectId) as
       | { home_project: string; state: string }
       | undefined;
-    if (b && b.state !== "rejected" && b.home_project === project) return null;
-    return `project mismatch: card in ${b?.home_project ?? task.projectId}, ask targets ${project}`;
+    if (!b || b.state === "suggested") return null;
+    if (b.state !== "rejected" && b.home_project === project) return null;
+    return `project mismatch: card in ${b.home_project}, ask targets ${project}`;
   }
 
   private genInput(task: Task, card: Card, thread: string, fp: string, n: number, supersedes: string | null, root: { project_root: string; root_dev: string; root_ino: string }): DecisionInput {
