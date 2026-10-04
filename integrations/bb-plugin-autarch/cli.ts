@@ -20,6 +20,10 @@ export interface HomeCliParts {
   catchup: Catchup;
   /** Rule on a decision as the vizier thread; the caller decides who may. */
   rule: (decisionId: string, optionId: string, reason: string, ctx: { threadId?: string }) => PickResult;
+  /** Confirm a tasks project's binding to a Home project, as the vizier (who is logged). The caller decides who may. */
+  bind?: (tasksProject: string, homeProject: string, by: string) => Promise<{ ok: true; tasks_project_id: string } | { ok: false; status: number; error: string }>;
+  /** Remove a binding, as the vizier. */
+  unbind?: (tasksProject: string, by: string) => Promise<{ ok: true; tasks_project_id: string; was: { home_project: string; state: string } } | { ok: false; status: number; error: string }>;
   /** True when the thread is the configured vizier thread. */
   isVizier: (threadId: string | undefined) => boolean;
 }
@@ -171,6 +175,31 @@ export function homeCli(p: HomeCliParts) {
         run({ positionals }) {
           const row = svc.store.db.prepare("SELECT home_project, state FROM project_bindings WHERE tasks_project_id = ?").get(positionals.tasks_project_id) as { home_project: string; state: string } | undefined;
           return out({ tasks_project_id: positionals.tasks_project_id, home_project: row?.home_project ?? null, state: row?.state ?? null });
+        },
+      }),
+
+      bind: cliCommand({
+        summary: "Vizier only: bind a tasks project to a Home project (confirmed, logged with who and when)",
+        positionals: [
+          { name: "tasks_project", description: "Tasks project: id, key prefix or name.", required: true },
+          { name: "home_project", description: "Home project name, as `autarch serve` lists it.", required: true },
+        ],
+        async run({ positionals }, ctx) {
+          if (!p.isVizier(ctx.threadId)) return err(1, "only the vizier thread may bind a project");
+          if (!p.bind) return err(1, "binding is not available");
+          const r = await p.bind(positionals.tasks_project, positionals.home_project, ctx.threadId!);
+          return r.ok ? out({ ok: true, tasks_project_id: r.tasks_project_id, home_project: positionals.home_project, state: "confirmed" }) : err(exitFor(r.status), r.error);
+        },
+      }),
+
+      unbind: cliCommand({
+        summary: "Vizier only: remove a project binding (undoes `bind`)",
+        positionals: [{ name: "tasks_project", description: "Tasks project: id, key prefix or name.", required: true }],
+        async run({ positionals }, ctx) {
+          if (!p.isVizier(ctx.threadId)) return err(1, "only the vizier thread may unbind a project");
+          if (!p.unbind) return err(1, "binding is not available");
+          const r = await p.unbind(positionals.tasks_project, ctx.threadId!);
+          return r.ok ? out({ ok: true, tasks_project_id: r.tasks_project_id, was: r.was }) : err(exitFor(r.status), r.error);
         },
       }),
 

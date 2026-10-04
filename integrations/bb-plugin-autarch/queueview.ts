@@ -49,6 +49,22 @@ export function setBinding(
   return { ok: true, state: i.state };
 }
 
+/**
+ * Remove a binding row (the vizier's `bb home unbind`), returning the tasks project to unbound. The
+ * poller may suggest it again; a suggestion never opens a delegation. Recorded with who removed it.
+ */
+export function removeBinding(
+  db: Database.Database,
+  i: { tasks_project_id: string },
+  ctx: { record: (type: string, detail: unknown) => void },
+): { ok: true; was: { home_project: string; state: BindingState } } | { ok: false; status: number; error: string } {
+  const row = db.prepare("SELECT home_project, state FROM project_bindings WHERE tasks_project_id = ?").get(i.tasks_project_id) as { home_project: string; state: BindingState } | undefined;
+  if (!row) return { ok: false, status: 404, error: "no binding for this tasks project" };
+  db.prepare("DELETE FROM project_bindings WHERE tasks_project_id = ?").run(i.tasks_project_id);
+  ctx.record("binding-removed", { tasks_project_id: i.tasks_project_id, home_project: row.home_project, was: row.state });
+  return { ok: true, was: row };
+}
+
 export interface QueueRow {
   /** The open decision id, or `card:<task id>` for a display-only card. */
   id: string;
