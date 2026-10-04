@@ -107,7 +107,7 @@ func runNeedsMk(t *testing.T, s *stubBB, args ...string) (string, error) {
 	t.Cleanup(func() { newCardFiler = old })
 	oldCheck := checkFilingPreconditions
 	if !serveCheckSet {
-		checkFilingPreconditions = func(string) error { return nil }
+		checkFilingPreconditions = func(string, string) error { return nil }
 	}
 	t.Cleanup(func() { checkFilingPreconditions = oldCheck })
 	root := &cobra.Command{Use: "autarch", SilenceErrors: true}
@@ -202,7 +202,7 @@ func TestNeedsMkFileHomeDownIsExit3(t *testing.T) {
 	t.Setenv("BB_THREAD_ID", "thread-x")
 	old := newCardFiler
 	oldCheck := checkFilingPreconditions
-	checkFilingPreconditions = func(string) error { return nil }
+	checkFilingPreconditions = func(string, string) error { return nil }
 	t.Cleanup(func() { newCardFiler = old; checkFilingPreconditions = oldCheck })
 	newCardFiler = func() *homeask.CardFiler {
 		return &homeask.CardFiler{LockDir: t.TempDir(), Run: func(context.Context, []string, ...string) homeask.BBResult {
@@ -232,7 +232,7 @@ func TestNeedsMkFileRejectsNonObjectAskJSON(t *testing.T) {
 	}
 }
 
-func fileWithCheck(t *testing.T, s *stubBB, check func(string) error) error {
+func fileWithCheck(t *testing.T, s *stubBB, check func(string, string) error) error {
 	t.Helper()
 	t.Setenv("BB_THREAD_ID", "thread-x")
 	old := checkFilingPreconditions
@@ -246,7 +246,7 @@ func fileWithCheck(t *testing.T, s *stubBB, check func(string) error) error {
 // with serve down, filing stops before it touches bb, exits 3 and says why.
 func TestNeedsMkFileServeDownCreatesNothing(t *testing.T) {
 	s := &stubBB{}
-	err := fileWithCheck(t, s, func(string) error {
+	err := fileWithCheck(t, s, func(string, string) error {
 		return fmt.Errorf("%w: %w", homeask.ErrHomeDown, serve.ErrNotRunning)
 	})
 	if exitCode(err) != 3 || !strings.Contains(err.Error(), "autarch serve is not running") {
@@ -261,7 +261,7 @@ func TestNeedsMkFileServeDownCreatesNothing(t *testing.T) {
 func TestNeedsMkFileRefusesAnUnresolvedRoot(t *testing.T) {
 	s := &stubBB{}
 	var got string
-	err := fileWithCheck(t, s, func(root string) error {
+	err := fileWithCheck(t, s, func(_, root string) error {
 		got = root
 		return fmt.Errorf("%w: project_root %q is not a project root serve resolves", homeask.ErrInvalid, root)
 	})

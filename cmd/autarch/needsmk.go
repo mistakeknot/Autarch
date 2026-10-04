@@ -24,8 +24,8 @@ import (
 var newCardFiler = func() *homeask.CardFiler { return &homeask.CardFiler{Timeout: filerTimeout} }
 
 // checkFilingPreconditions runs before anything is created: serve must be up and the ask's
-// project_root must be a root it resolves. Tests replace it.
-var checkFilingPreconditions = func(root string) error {
+// project_root must be the root it resolves for the ask's project. Tests replace it.
+var checkFilingPreconditions = func(project, root string) error {
 	ps, err := serve.FetchProjects(serveURL(), serveTokenPath(), serveProbeTimeout)
 	if err != nil {
 		hint := ""
@@ -34,7 +34,7 @@ var checkFilingPreconditions = func(root string) error {
 		}
 		return fmt.Errorf("%w: %v%s: nothing was filed", homeask.ErrHomeDown, err, hint)
 	}
-	if err := serve.CheckRoot(ps, root); err != nil {
+	if err := serve.CheckAsk(ps, project, root); err != nil {
 		return fmt.Errorf("%w: %v", homeask.ErrInvalid, err)
 	}
 	return nil
@@ -155,7 +155,7 @@ but the routing comment failed (re-run the same command), 5 not yet confirmed.`,
 			if _, ok := ask["project"]; !ok {
 				ask["project"] = filepath.Base(fmt.Sprint(ask["project_root"]))
 			}
-			if err := checkFilingPreconditions(fmt.Sprint(ask["project_root"])); err != nil {
+			if err := checkFilingPreconditions(fmt.Sprint(ask["project"]), fmt.Sprint(ask["project_root"])); err != nil {
 				return err
 			}
 			req := homeask.CardRequest{Project: project, Title: title, Blocks: blocks, Ask: ask, Key: request, Thread: thread}

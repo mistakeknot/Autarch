@@ -76,6 +76,43 @@ func CheckRoot(projects []ProjectInfo, root string) error {
 	return fmt.Errorf("project_root %q is not a project root serve resolves (%d known); this checkout is not listed by serve: set project_root to the serve-listed root of the project, or list this worktree in serve's project dirs", root, len(projects))
 }
 
+// CheckAsk is CheckRoot plus the match the plugin enforces: the root must be the root serve resolves
+// for the project the ask names, or the card is filed and then hidden in Home as display-only.
+// The project is matched by exact name, then case-insensitively. A project serve does not list is
+// not checked here (the plugin's binding decides); the error names the expected root.
+func CheckAsk(projects []ProjectInfo, project, root string) error {
+	if err := CheckRoot(projects, root); err != nil {
+		return err
+	}
+	var hit *ProjectInfo
+	for i := range projects {
+		if projects[i].Name == project {
+			hit = &projects[i]
+			break
+		}
+	}
+	if hit == nil {
+		for i := range projects {
+			if strings.EqualFold(projects[i].Name, project) {
+				hit = &projects[i]
+				break
+			}
+		}
+	}
+	if hit == nil {
+		for _, p := range projects {
+			if p.Root == root {
+				return fmt.Errorf("project %q is not a project serve lists, and project_root %q belongs to serve project %q; set project to %q", project, root, p.Name, p.Name)
+			}
+		}
+		return nil
+	}
+	if hit.Root != root {
+		return fmt.Errorf("project_root %q does not match the root serve resolves for project %q; expected project_root %q (set it in the ask, or file from that checkout)", root, hit.Name, hit.Root)
+	}
+	return nil
+}
+
 // readToken reads serve's token without ever creating it (LoadOrCreateToken would on a race).
 func readToken(path string) (string, error) {
 	fi, err := os.Stat(path)

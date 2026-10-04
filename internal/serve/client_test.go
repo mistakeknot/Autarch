@@ -87,3 +87,29 @@ func TestFetchProjectsMissingTokenIsNotCreated(t *testing.T) {
 		t.Fatal("token was created")
 	}
 }
+
+// the filer put /tmp/wimby, a root that is not WIMBY's, in the ask and the card was hidden.
+func TestCheckAskRejectsARootThatIsNotTheNamedProjectsAndNamesTheExpectedOne(t *testing.T) {
+	ps := []ProjectInfo{{Name: "WIMBY", Root: "/srv/projects/WIMBY"}, {Name: "wimby-tmp", Root: "/tmp/wimby"}}
+	err := CheckAsk(ps, "WIMBY", "/tmp/wimby")
+	if err == nil || !strings.Contains(err.Error(), `expected project_root "/srv/projects/WIMBY"`) {
+		t.Fatalf("err = %v", err)
+	}
+	if err := CheckAsk(ps, "wimby", "/tmp/wimby"); err == nil || !strings.Contains(err.Error(), "/srv/projects/WIMBY") {
+		t.Fatalf("case-insensitive project name: err = %v", err)
+	}
+}
+
+func TestCheckAskAcceptsTheNamedProjectsRootAndNamesTheOwnerOfAForeignOne(t *testing.T) {
+	ps := []ProjectInfo{{Name: "WIMBY", Root: "/srv/projects/WIMBY"}, {Name: "autarch", Root: "/srv/projects/autarch"}}
+	if err := CheckAsk(ps, "WIMBY", "/srv/projects/WIMBY"); err != nil {
+		t.Fatal(err)
+	}
+	err := CheckAsk(ps, "nosuch", "/srv/projects/autarch")
+	if err == nil || !strings.Contains(err.Error(), `set project to "autarch"`) {
+		t.Fatalf("err = %v", err)
+	}
+	if err := CheckAsk(ps, "WIMBY", "/elsewhere"); err == nil {
+		t.Fatal("an unlisted root must still be refused")
+	}
+}
