@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -17,6 +18,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/mistakeknot/autarch/internal/homeask"
+	"github.com/mistakeknot/autarch/internal/serve"
 )
 
 // stubBB answers the whole filing protocol for an empty tasks service.
@@ -93,6 +95,9 @@ func (s *stubBB) run(_ context.Context, env []string, args ...string) homeask.BB
 	return homeask.BBResult{Code: 1, Stderr: []byte("unexpected")}
 }
 
+// serveCheckSet is true while a test installs its own checkFilingPreconditions.
+var serveCheckSet bool
+
 func runNeedsMk(t *testing.T, s *stubBB, args ...string) (string, error) {
 	t.Helper()
 	old := newCardFiler
@@ -100,6 +105,11 @@ func runNeedsMk(t *testing.T, s *stubBB, args ...string) (string, error) {
 		return &homeask.CardFiler{Run: s.run, LockDir: t.TempDir()}
 	}
 	t.Cleanup(func() { newCardFiler = old })
+	oldCheck := checkFilingPreconditions
+	if !serveCheckSet {
+		checkFilingPreconditions = func(string) error { return nil }
+	}
+	t.Cleanup(func() { checkFilingPreconditions = oldCheck })
 	root := &cobra.Command{Use: "autarch", SilenceErrors: true}
 	root.AddCommand(needsMkCmd())
 	var out bytes.Buffer
@@ -191,7 +201,9 @@ func TestNeedsMkFileRootRunHashesTheScript(t *testing.T) {
 func TestNeedsMkFileHomeDownIsExit3(t *testing.T) {
 	t.Setenv("BB_THREAD_ID", "thr_x")
 	old := newCardFiler
-	t.Cleanup(func() { newCardFiler = old })
+	oldCheck := checkFilingPreconditions
+	checkFilingPreconditions = func(string) error { return nil }
+	t.Cleanup(func() { newCardFiler = old; checkFilingPreconditions = oldCheck })
 	newCardFiler = func() *homeask.CardFiler {
 		return &homeask.CardFiler{LockDir: t.TempDir(), Run: func(context.Context, []string, ...string) homeask.BBResult {
 			return homeask.BBResult{Code: 3, Stderr: []byte("not ready")}
@@ -217,5 +229,46 @@ func TestNeedsMkFileRejectsNonObjectAskJSON(t *testing.T) {
 		if exitCode(err) != 2 {
 			t.Fatalf("%s: want usage error (exit 2), got %v", body, err)
 		}
+	}
+}
+
+func fileWithCheck(t *testing.T, s *stubBB, check func(string) error) error {
+	t.Helper()
+	t.Setenv("BB_THREAD_ID", "thr_x")
+	old := checkFilingPreconditions
+	checkFilingPreconditions = check
+	serveCheckSet = true
+	t.Cleanup(func() { checkFilingPreconditions = old; serveCheckSet = false })
+	_, err := runNeedsMk(t, s, "file", "--project", "P1", "--title", "Ship?", "--ask-file", writeAsk(t))
+	return err
+}
+
+// mk-okek.19: with serve down, filing stops before it touches bb, exits 3 and says why.
+func TestNeedsMkFileServeDownCreatesNothing(t *testing.T) {
+	s := &stubBB{}
+	err := fileWithCheck(t, s, func(string) error {
+		return fmt.Errorf("%w: %w", homeask.ErrHomeDown, serve.ErrNotRunning)
+	})
+	if exitCode(err) != 3 || !strings.Contains(err.Error(), "autarch serve is not running") {
+		t.Fatalf("exit=%d err=%v", exitCode(err), err)
+	}
+	if len(s.calls) != 0 || s.creates != 0 {
+		t.Fatalf("bb was called: %v", s.calls)
+	}
+}
+
+// mk-okek.20: a project_root serve does not resolve is refused at file time, exit 2.
+func TestNeedsMkFileRefusesAnUnresolvedRoot(t *testing.T) {
+	s := &stubBB{}
+	var got string
+	err := fileWithCheck(t, s, func(root string) error {
+		got = root
+		return fmt.Errorf("%w: project_root %q is not a project root serve resolves", homeask.ErrInvalid, root)
+	})
+	if got != "/srv/autarch" || exitCode(err) != 2 {
+		t.Fatalf("root=%q exit=%d err=%v", got, exitCode(err), err)
+	}
+	if len(s.calls) != 0 {
+		t.Fatalf("bb was called: %v", s.calls)
 	}
 }

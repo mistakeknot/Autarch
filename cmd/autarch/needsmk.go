@@ -11,14 +11,52 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/spf13/cobra"
 
 	"github.com/mistakeknot/autarch/internal/homeask"
+	"github.com/mistakeknot/autarch/internal/serve"
 )
 
 // newCardFiler builds the filer; tests replace it.
 var newCardFiler = func() *homeask.CardFiler { return &homeask.CardFiler{Timeout: filerTimeout} }
+
+// checkFilingPreconditions runs before anything is created: serve must be up and the ask's
+// project_root must be a root it resolves (mk-okek.19, .20). Tests replace it.
+var checkFilingPreconditions = func(root string) error {
+	ps, err := serve.FetchProjects(serveURL(), serveTokenPath(), serveProbeTimeout)
+	if err != nil {
+		return fmt.Errorf("%w: %v; start `autarch serve` (see AGENTS.md): nothing was filed", homeask.ErrHomeDown, err)
+	}
+	if err := serve.CheckRoot(ps, root); err != nil {
+		return fmt.Errorf("%w: %v", homeask.ErrInvalid, err)
+	}
+	return nil
+}
+
+// serveProbeTimeout bounds the serve probe so a dead serve costs seconds, not a minute.
+const serveProbeTimeout = 3 * time.Second
+
+// serveURL is where `autarch serve` listens (AUTARCH_SERVE_URL, default the serve address).
+func serveURL() string {
+	if u := os.Getenv("AUTARCH_SERVE_URL"); u != "" {
+		return u
+	}
+	return "http://" + serve.DefaultAddr
+}
+
+// serveTokenPath is serve's bearer token (AUTARCH_SERVE_TOKEN_FILE, default ~/.autarch/serve.token).
+func serveTokenPath() string {
+	if p := os.Getenv("AUTARCH_SERVE_TOKEN_FILE"); p != "" {
+		return p
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return ""
+	}
+	return filepath.Join(home, ".autarch", "serve.token")
+}
 
 func needsMkCmd() *cobra.Command {
 	cmd := &cobra.Command{
@@ -111,6 +149,9 @@ but the routing comment failed (re-run the same command), 5 not yet confirmed.`,
 			}
 			if _, ok := ask["project"]; !ok {
 				ask["project"] = filepath.Base(fmt.Sprint(ask["project_root"]))
+			}
+			if err := checkFilingPreconditions(fmt.Sprint(ask["project_root"])); err != nil {
+				return err
 			}
 			req := homeask.CardRequest{Project: project, Title: title, Blocks: blocks, Ask: ask, Key: request, Thread: thread}
 			if rootRun != "" {
