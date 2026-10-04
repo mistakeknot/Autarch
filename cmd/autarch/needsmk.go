@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -27,7 +28,11 @@ var newCardFiler = func() *homeask.CardFiler { return &homeask.CardFiler{Timeout
 var checkFilingPreconditions = func(root string) error {
 	ps, err := serve.FetchProjects(serveURL(), serveTokenPath(), serveProbeTimeout)
 	if err != nil {
-		return fmt.Errorf("%w: %v; start `autarch serve` (see AGENTS.md): nothing was filed", homeask.ErrHomeDown, err)
+		hint := ""
+		if errors.Is(err, serve.ErrNotRunning) {
+			hint = "; start `autarch serve` (see AGENTS.md)"
+		}
+		return fmt.Errorf("%w: %v%s: nothing was filed", homeask.ErrHomeDown, err, hint)
 	}
 	if err := serve.CheckRoot(ps, root); err != nil {
 		return fmt.Errorf("%w: %v", homeask.ErrInvalid, err)

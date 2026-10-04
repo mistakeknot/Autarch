@@ -1,6 +1,7 @@
 package serve
 
 import (
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -27,10 +28,7 @@ func FetchProjects(baseURL, tokenPath string, timeout time.Duration) ([]ProjectI
 	if ip := net.ParseIP(u.Hostname()); u.Hostname() != "localhost" && (ip == nil || !ip.IsLoopback()) {
 		return nil, fmt.Errorf("serve URL %q is not loopback", baseURL)
 	}
-	if _, err := os.Stat(tokenPath); err != nil { // never create serve's token from here
-		return nil, fmt.Errorf("serve token: %w", err)
-	}
-	tok, err := LoadOrCreateToken(tokenPath)
+	tok, err := readToken(tokenPath)
 	if err != nil {
 		return nil, fmt.Errorf("serve token: %w", err)
 	}
@@ -39,7 +37,9 @@ func FetchProjects(baseURL, tokenPath string, timeout time.Duration) ([]ProjectI
 		return nil, err
 	}
 	req.Header.Set("Authorization", "Bearer "+tok)
-	resp, err := (&http.Client{Timeout: timeout}).Do(req)
+	// A redirect would leave the loopback-checked destination, so none is followed.
+	hc := &http.Client{Timeout: timeout, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
+	resp, err := hc.Do(req)
 	if err != nil {
 		var ne net.Error
 		var oe *net.OpError
@@ -73,5 +73,25 @@ func CheckRoot(projects []ProjectInfo, root string) error {
 			return fmt.Errorf("project_root %q is not a project root serve resolves; did you mean %q?", root, p.Root)
 		}
 	}
-	return fmt.Errorf("project_root %q is not a project root serve resolves (%d known); set project_root in the ask file", root, len(projects))
+	return fmt.Errorf("project_root %q is not a project root serve resolves (%d known); this checkout is not listed by serve: set project_root to the serve-listed root of the project, or list this worktree in serve's project dirs", root, len(projects))
+}
+
+// readToken reads serve's token without ever creating it (LoadOrCreateToken would on a race).
+func readToken(path string) (string, error) {
+	fi, err := os.Stat(path)
+	if err != nil {
+		return "", err
+	}
+	if fi.Mode().Perm()&0o077 != 0 {
+		return "", fmt.Errorf("token file %s has mode %04o; refusing (want 0600)", path, fi.Mode().Perm())
+	}
+	b, err := os.ReadFile(path)
+	if err != nil {
+		return "", err
+	}
+	tok := strings.TrimSpace(string(b))
+	if _, err := hex.DecodeString(tok); err != nil || len(tok) != 64 {
+		return "", fmt.Errorf("token file %s is not a 64 hex-character token", path)
+	}
+	return tok, nil
 }

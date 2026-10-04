@@ -77,3 +77,13 @@ func TestCheckRootRejectsAnUnknownRootAndListsNone(t *testing.T) {
 		t.Fatalf("err = %v", err)
 	}
 }
+
+func TestFetchProjectsMissingTokenIsNotCreated(t *testing.T) {
+	p := filepath.Join(t.TempDir(), "serve.token")
+	if _, err := FetchProjects("http://127.0.0.1:1", p, time.Second); err == nil {
+		t.Fatal("want an error")
+	}
+	if _, err := os.Stat(p); err == nil {
+		t.Fatal("token was created")
+	}
+}
