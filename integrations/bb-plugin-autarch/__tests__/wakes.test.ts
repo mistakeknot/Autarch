@@ -227,6 +227,8 @@ describe("ambiguous failure, no crash [F-1]", () => {
     await loop.drain();
     expect(row(a.id).state).toBe("undeliverable");
     expect(states(a.id)).toEqual(["not-delivered"]);
+    // The card must show why: a rotated or archived target is a visible failure, never a blank one.
+    expect(row(a.id).last_error ?? "").not.toBe("");
   });
 });
 
@@ -418,6 +420,7 @@ describe("queued rows and events [D-9]", () => {
     await loop.onThreadGone("thr-a");
     expect(states(a.id)).toEqual(["not-delivered"]);
     expect(row(a.id).state).toBe("undeliverable");
+    expect(row(a.id).last_error ?? "").not.toBe("");
   });
 
   it("queued then message.cancelled is undeliverable", async () => {
