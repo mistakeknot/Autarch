@@ -246,6 +246,7 @@ function BlocksThreadPanel({ threadId }: { threadId: string }) {
   return (
     <BlocksPanel
       rootRun={rootRun}
+      onBind={(b) => void rpc.call("setBinding", b).then(refetch, () => {})}
       data={queue}
       nowMs={Date.now()}
       thread={threadId}
@@ -367,6 +368,7 @@ function HomePage() {
         ) : (
           <BlocksPanel
             rootRun={rootRuns}
+            onBind={(b) => void rpc.call("setBinding", b).then(refetchAll, () => {})}
             data={blocks.queue}
             nowMs={Date.now()}
             onOpen={openBeside}
