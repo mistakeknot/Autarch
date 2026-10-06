@@ -75,7 +75,41 @@ export function approvalExpiry(ttl: number | undefined): string {
   return `expires ${text} after you pick`;
 }
 
-export function AskCard({ ask, onPick, onOpen }: { ask: OwedAsk; onPick: OnPick; onOpen: (thread: string) => void }) {
+/** "3 h", "4 d": how long an ask has waited. Unknown or future times read as "now". */
+export function ageText(filedAt: string, nowMs: number): string {
+  const ms = nowMs - Date.parse(filedAt);
+  if (!(ms > 0)) return "now";
+  const m = Math.floor(ms / 60_000);
+  if (m < 60) return `${m} min`;
+  const h = Math.floor(m / 60);
+  return h < 48 ? `${h} h` : `${Math.floor(h / 24)} d`;
+}
+
+/** An ask that has waited this long is probably settled elsewhere or superseded: Home marks it so mk can clear it. */
+export const OLD_ASK_MS = 3 * 86_400_000;
+
+// Absolute paths, sha256 digests and URLs in an ask's text: shown as code, selectable in one click, and allowed to
+// break anywhere so a long path never pushes the card wider than its panel.
+const REF = /(https?:\/\/[^\s)]+[^\s).,;:]|(?<![\w/])\/(?:[\w.@+-]+\/)+[\w@+-]+(?:\.[\w@+-]+)*|\b[0-9a-f]{64}\b)/g;
+
+export function RefText({ text }: { text: string }) {
+  const parts = text.split(REF);
+  return (
+    <>
+      {parts.map((part, i) =>
+        i % 2 === 1 ? (
+          <code key={i} className="select-all rounded bg-muted px-1 font-mono text-xs [overflow-wrap:anywhere]" data-ref>
+            {part}
+          </code>
+        ) : (
+          part
+        ),
+      )}
+    </>
+  );
+}
+
+export function AskCard({ ask, onPick, onOpen, nowMs }: { ask: OwedAsk; onPick: OnPick; onOpen: (thread: string) => void; nowMs?: number }) {
   const [failure, setFailure] = useState<string | null>(null);
   const pick = async (optionId: string) => {
     setFailure(null);
@@ -83,39 +117,85 @@ export function AskCard({ ask, onPick, onOpen }: { ask: OwedAsk; onPick: OnPick;
     if (r && r.ok === false) setFailure(r.error ?? "pick failed");
   };
   const n = ask.mentions ?? 0;
+  const anyInstruction = ask.ask.options.some((o) => o.instruction !== undefined);
   return (
-    <article className="rounded-lg border border-border bg-card p-4" data-decision={ask.id}>
-      <h3 className="text-sm font-medium">{ask.subject}</h3>
-      <p className="mt-1 text-sm">{ask.ask.question}</p>
+    <article className="min-w-0 rounded-lg border border-border bg-card p-4" data-decision={ask.id}>
+      <h3 className="text-sm font-medium [overflow-wrap:anywhere]">{ask.subject}</h3>
       <p className="mt-1 text-xs text-muted-foreground">
+        {ask.project ? `${ask.project} · ` : ""}
+        {nowMs !== undefined ? `waiting ${ageText(ask.filed_at, nowMs)} · ` : ""}
         <button type="button" className="underline" onClick={() => onOpen(ask.thread)}>{ask.thread}</button>
         {n > 0 ? ` - ${`also mentioned in ${n} ${n === 1 ? "thread" : "threads"}`}` : ""}
       </p>
-      <ul className="mt-3 space-y-2">
-        {ask.ask.options.map((o) => (
-          <li key={o.id} className="rounded border border-border p-2" data-reversible={o.reversible === true ? "true" : "false"}>
-            {o.approval ? (
-              <p className="mb-1 text-xs" data-approval={o.approval.kind}>
-                {`Records your approval to ${o.approval.kind} ${o.approval.target} at ${o.approval.identity}; ${approvalExpiry(o.approval.ttl)}. This is a record only and does not authorize anything.`}
-              </p>
-            ) : null}
-            <div className="flex items-center gap-2 text-sm">
-              <button type="button" className="font-medium underline" onClick={() => void pick(o.id)}>{o.label}</button>
-              <span className="text-xs text-muted-foreground">{o.kind}</span>
-              <span className="text-xs">{o.reversible === true ? "reversible" : "not reversible"}</span>
-              {ask.ask.recommendation === o.id ? <span className="text-xs font-medium">recommended</span> : null}
-            </div>
-            {o.instruction !== undefined ? (
-              <>
-                <pre className="mt-1 whitespace-pre-wrap text-xs">{o.instruction}</pre>
-                <p className="text-xs text-muted-foreground">{`sent to ${ask.thread} as written; the agent acts on it under its own permissions`}</p>
-              </>
-            ) : null}
-          </li>
-        ))}
+      <p className="mt-2 whitespace-pre-wrap text-sm [overflow-wrap:anywhere]"><RefText text={ask.ask.question} /></p>
+      <ul className="mb-0 mt-3 list-none space-y-2 p-0">
+        {ask.ask.options.map((o) => {
+          const recommended = ask.ask.recommendation === o.id;
+          return (
+            <li key={o.id} className={`rounded border p-2 ${recommended ? "border-primary" : "border-border"}`} data-reversible={o.reversible === true ? "true" : "false"}>
+              {o.approval ? (
+                <p className="mb-1 text-xs" data-approval={o.approval.kind}>
+                  {`Records your approval to ${o.approval.kind} ${o.approval.target} at ${o.approval.identity}; ${approvalExpiry(o.approval.ttl)}. This is a record only and does not authorize anything.`}
+                </p>
+              ) : null}
+              <div className="flex flex-wrap items-baseline gap-x-2 text-sm">
+                <button type="button" className="font-medium underline" onClick={() => void pick(o.id)}>{o.label}</button>
+                {recommended ? <span className="text-xs font-medium">recommended</span> : null}
+                {o.reversible === true ? <span className="text-xs">reversible</span> : null}
+                <span className="text-xs text-muted-foreground">{o.kind}</span>
+              </div>
+              {o.instruction !== undefined ? (
+                <details className="mt-1 text-xs">
+                  <summary className="cursor-pointer text-muted-foreground">what the agent is told</summary>
+                  <pre className="mt-1 whitespace-pre-wrap [overflow-wrap:anywhere]">{o.instruction}</pre>
+                </details>
+              ) : null}
+            </li>
+          );
+        })}
       </ul>
+      {anyInstruction ? (
+        <p className="mt-2 text-xs text-muted-foreground">{`An instruction is sent to ${ask.thread} as written; the agent acts on it under its own permissions.`}</p>
+      ) : null}
       {failure !== null ? <p role="alert" className="mt-2 text-xs font-medium text-destructive" data-pick-failure>{`Your pick did not go through: ${failure}. The ask is still open; try again.`}</p> : null}
     </article>
+  );
+}
+
+/** The Decide queue: a short row per ask on the left, the selected ask in full on the right (below when narrow). */
+export function DecideQueue({ owed, onPick, onOpen, nowMs }: { owed: OwedAsk[]; onPick: OnPick; onOpen: (thread: string) => void; nowMs: number }) {
+  const [selected, setSelected] = useState<string | null>(null);
+  const current = owed.find((o) => o.id === selected) ?? owed[0];
+  if (current === undefined) return null;
+  return (
+    <div className="flex flex-wrap items-start gap-4">
+      <ol className="m-0 min-w-0 shrink-0 grow basis-64 list-none space-y-1 p-0" data-decide-list>
+        {owed.map((o) => {
+          const old = nowMs - Date.parse(o.filed_at) > OLD_ASK_MS;
+          const rec = o.ask.options.find((x) => x.id === o.ask.recommendation);
+          return (
+            <li key={o.id}>
+              <button
+                type="button"
+                aria-current={o.id === current.id ? "true" : undefined}
+                className={`w-full rounded border px-2 py-1.5 text-left ${o.id === current.id ? "border-primary bg-muted" : "border-border"}`}
+                onClick={() => setSelected(o.id)}
+              >
+                <span className="block truncate text-sm">{o.subject}</span>
+                <span className="block truncate text-xs text-muted-foreground">
+                  {`${o.project ? `${o.project} · ` : ""}${ageText(o.filed_at, nowMs)}`}
+                  {old ? <span className="font-medium" data-old-ask>{" · old: still needed?"}</span> : null}
+                  {rec ? ` · rec: ${rec.label}` : ""}
+                </span>
+              </button>
+            </li>
+          );
+        })}
+      </ol>
+      <div className="sticky top-0 min-w-0 grow-[3] basis-[28rem]">
+        <AskCard key={current.id} ask={current} onPick={onPick} onOpen={onOpen} nowMs={nowMs} />
+      </div>
+    </div>
   );
 }
 
@@ -136,28 +216,27 @@ export function ApprovalsList({ approvals, onRevoke }: { approvals: ApprovalReco
   );
 }
 
-export function AsksPanel({ data, onPick, onOpen, onRevoke }: { data: AsksData; onPick: OnPick; onOpen: (thread: string) => void; onRevoke?: (approvalId: string) => void }) {
+export function AsksPanel({ data, onPick, onOpen, onRevoke, nowMs = Date.now() }: { data: AsksData; onPick: OnPick; onOpen: (thread: string) => void; onRevoke?: (approvalId: string) => void; nowMs?: number }) {
   const view = buildAsksView(data);
-  const byId = new Map(data.owed.map((o) => [o.id, o]));
   const approvals = data.approvals ?? [];
   if (view.length === 0 && approvals.length === 0) return <p className="p-4 text-sm text-muted-foreground">Nothing needs you.</p>;
   return (
     <div className="space-y-6 p-4">
       {view.map((s) => (
         <section key={s.key} data-section={s.key}>
-          <h2 className="mb-2 text-xs font-semibold uppercase text-muted-foreground">{s.title}</h2>
-          <div className="space-y-3">
-            {s.items.map((i) =>
-              s.key === "decide" && byId.has(i.id) ? (
-                <AskCard key={i.id} ask={byId.get(i.id)!} onPick={onPick} onOpen={onOpen} />
-              ) : (
-                <div key={i.id} className="rounded border border-border p-3 text-sm">
-                  <div>{i.title}</div>
-                  {i.detail ? <div className="text-xs text-muted-foreground">{i.detail}</div> : null}
+          <h2 className="mb-2 text-xs font-semibold uppercase text-muted-foreground">{`${s.title} (${s.items.length})`}</h2>
+          {s.key === "decide" ? (
+            <DecideQueue owed={data.owed} onPick={onPick} onOpen={onOpen} nowMs={nowMs} />
+          ) : (
+            <div className="space-y-3">
+              {s.items.map((i) => (
+                <div key={i.id} className="rounded border border-border p-3 text-sm [overflow-wrap:anywhere]">
+                  <div><RefText text={i.title} /></div>
+                  {i.detail ? <div className="text-xs text-muted-foreground"><RefText text={i.detail} /></div> : null}
                 </div>
-              ),
-            )}
-          </div>
+              ))}
+            </div>
+          )}
         </section>
       ))}
       {approvals.length > 0 ? <ApprovalsList approvals={approvals} onRevoke={onRevoke ?? (() => {})} /> : null}

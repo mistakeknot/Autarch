@@ -27,12 +27,14 @@ export function stackReducer(s: StackState, a: StackAction): StackState {
   }
 }
 
-export type Placed = { panel: Panel; collapsed: boolean; width: string };
+// The top panel takes at least its width setting and grows into the rest of the row, so one open panel never leaves
+// two thirds of the screen empty.
+export type Placed = { panel: Panel; collapsed: boolean; width: string; grow: boolean };
 
 export function layoutStack(s: StackState): Placed[] {
   return s.panels.map((panel, i) => {
     const top = i === s.panels.length - 1;
-    return { panel, collapsed: !top, width: top ? CSS[s.width] : SPINE_WIDTH };
+    return { panel, collapsed: !top, width: top ? CSS[s.width] : SPINE_WIDTH, grow: top };
   });
 }
 
@@ -59,7 +61,7 @@ export function keyAction(key: string, target: { editable: boolean }): KeyIntent
 export function StackView({ placed, render, onExpand }: { placed: Placed[]; render: (p: Panel) => React.ReactNode; onExpand: (p: Panel) => void }) {
   return (
     <div className="flex h-full min-h-0 flex-1">
-      {placed.map(({ panel, collapsed, width }) =>
+      {placed.map(({ panel, collapsed, width, grow }) =>
         collapsed ? (
           <button
             key={panel.id}
@@ -72,7 +74,7 @@ export function StackView({ placed, render, onExpand }: { placed: Placed[]; rend
             {panel.title}
           </button>
         ) : (
-          <section key={panel.id} style={{ width, flex: "none" }} className="min-h-0 overflow-y-auto border-r border-border">
+          <section key={panel.id} style={grow ? { minWidth: width, flex: "1 1 0%" } : { width, flex: "none" }} className="min-w-0 min-h-0 overflow-y-auto border-r border-border">
             {render(panel)}
           </section>
         ),
