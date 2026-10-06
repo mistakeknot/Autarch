@@ -1,6 +1,6 @@
 # home-restore-v2.bash: body, started only by the home-restore-v2.sh launcher.
 # Restores Home (the autarch bb plugin) to its pre-v3 backup.
-# Run on zklw: sudo scripts/home-restore-v2.sh --thread <thr_...> --repo <Autarch checkout> [--backup <path>] [--check]
+# Run on the host from the root-owned copy (installed by the generated home-v3-run-<sha12>.sh package): sudo /usr/local/libexec/home-v3-<sha12>/home-restore-v2.sh --thread <thr_...> --repo <Autarch checkout> [--backup <path>] [--check]
 # Exit codes: 0 restored (or --check passed), 2 backup failed verification, 3 Home still holds the DB,
 # 4 build or install failed, 5 the plugin did not start on the backup, 6 the install could not be verified.
 # Tested in test mode by integrations/bb-plugin-autarch/__tests__/restore-script.test.ts (Task 2.8a); the sudo
@@ -20,6 +20,8 @@ while [ $# -gt 0 ]; do
   esac
 done
 [ -n "$THREAD" ] && [ -n "$REPO" ] || { echo "usage: $0 --thread <thr_...> --repo <checkout> [--backup <path>] [--check]" >&2; exit 64; }
+case $REPO in /*) ;; *) echo "--repo must be an absolute path" >&2; exit 64 ;; esac
+case ${BACKUP:-/} in /*) ;; *) echo "--backup must be an absolute path" >&2; exit 64 ;; esac
 common_setup home-restore
 BUILD=${BUILD_SET:-/home/mk/.local/share/autarch-home-v2}   # a9853e2 worktree for the v2 build
 V2_COMMIT=a9853e2
@@ -96,17 +98,16 @@ if [ "$TEST" = 0 ]; then
 else
   HEAD=$V2_COMMIT-test
 fi
-"${AS[@]}" "$BB" plugin install "$PD" || fail_after_move 4 "bb plugin install failed"
+"${AS[@]}" "$BB" plugin install --yes "$PD" || fail_after_move 4 "bb plugin install failed"
 
-# 7. Enable and wait for a healthy start. The status wording of the real bb is unprobed; the match is deliberately
-#    conservative (a running word and no failure word).
+# 7. Enable and wait for a healthy start. Health is read from `bb plugin list --json` (enabled and status running).
 "${AS[@]}" "$BB" plugin enable autarch || fail_after_move 5 "bb plugin enable failed"
 WAIT=60; [ "$TEST" = 1 ] && WAIT=3
 STATUS=
 healthy=0
 for _ in $(seq 1 "$WAIT"); do
-  STATUS=$("${AS[@]}" "$BB" plugin status autarch 2>&1 | head -5 || true)
-  if printf '%s' "$STATUS" | grep -Eiq '(running|healthy|ready)' && ! printf '%s' "$STATUS" | grep -Eiq '(not running|fail|error|disabled)'; then healthy=1; break; fi
+  plugin_state; STATUS=$PSTATE
+  if [ "$PHEALTHY" = 1 ]; then healthy=1; break; fi
   sleep 1
 done
 LOGS=$("${AS[@]}" "$BB" plugin logs autarch 2>&1 | tail -5 || true)

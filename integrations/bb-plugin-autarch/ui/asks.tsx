@@ -1,5 +1,22 @@
 // The Asks view: what is stalled, what mk must decide, the runbook, and what is merely waiting.
 
+import { useState } from "react";
+
+/** What a pick hands back to the card: not ok means the card stays open and shows the error. */
+export type PickOutcome = { ok: boolean; error?: string };
+export type OnPick = (decisionId: string, optionId: string, revision: string) => void | Promise<PickOutcome | void>;
+
+/** Turns a send into an outcome the card can show: a thrown error or a non-ok result is a failure. */
+export async function pickOutcome(send: Promise<{ ok?: boolean; status?: number; error?: string }>): Promise<PickOutcome> {
+  try {
+    const r = await send;
+    if (r?.ok === true) return { ok: true };
+    return { ok: false, error: r?.error ?? (r?.status === 409 ? "this ask changed; reread and pick again" : `pick failed${r?.status ? ` (${r.status})` : ""}`) };
+  } catch (e) {
+    return { ok: false, error: `pick not sent: ${e instanceof Error ? e.message : String(e)}` };
+  }
+}
+
 export type ApprovalSpec = { kind: string; target: string; identity: string; ttl?: number };
 export type Option = { id: string; label: string; kind: string; reversible?: boolean; instruction?: string; approval?: ApprovalSpec };
 export type ApprovalRecord = { approval_id: string; decision_id: string; kind: string; target: string; identity: string; minted_at: string; expires_at: string };
@@ -32,6 +49,7 @@ export type AsksData = {
 };
 
 export type ViewItem = { id: string; title: string; detail?: string; thread?: string };
+// operator-action items come first and stay first: Decide, Runbook, then Stalled, then Waiting.
 export type Section = { key: "stalled" | "decide" | "runbook" | "waiting"; title: string; items: ViewItem[] };
 
 export function buildAsksView(d: AsksData): Section[] {
@@ -42,9 +60,9 @@ export function buildAsksView(d: AsksData): Section[] {
     ...d.asks.map((a) => ({ id: a.id, title: `${a.label ?? "stalled"}: ${a.subject}`, detail: a.detail, thread: a.thread })),
   ];
   const sections: Section[] = [
-    { key: "stalled", title: "Stalled", items: stalled },
     { key: "decide", title: "Decide", items: d.owed.map((o) => ({ id: o.id, title: o.subject, thread: o.thread })) },
     { key: "runbook", title: "Runbook", items: d.runbook.flatMap((g) => g.items.map((i) => ({ id: i.id, title: i.subject, detail: i.question, thread: g.thread }))) },
+    { key: "stalled", title: "Stalled", items: stalled },
     { key: "waiting", title: "Waiting", items: d.lane.map((l) => ({ id: l.id, title: l.subject, detail: `${l.detail} (owner ${l.owner})`, thread: l.thread })) },
   ];
   return sections.filter((s) => s.items.length > 0);
@@ -57,7 +75,13 @@ export function approvalExpiry(ttl: number | undefined): string {
   return `expires ${text} after you pick`;
 }
 
-export function AskCard({ ask, onPick, onOpen }: { ask: OwedAsk; onPick: (decisionId: string, optionId: string, revision: string) => void; onOpen: (thread: string) => void }) {
+export function AskCard({ ask, onPick, onOpen }: { ask: OwedAsk; onPick: OnPick; onOpen: (thread: string) => void }) {
+  const [failure, setFailure] = useState<string | null>(null);
+  const pick = async (optionId: string) => {
+    setFailure(null);
+    const r = await onPick(ask.id, optionId, ask.revision);
+    if (r && r.ok === false) setFailure(r.error ?? "pick failed");
+  };
   const n = ask.mentions ?? 0;
   return (
     <article className="rounded-lg border border-border bg-card p-4" data-decision={ask.id}>
@@ -76,7 +100,7 @@ export function AskCard({ ask, onPick, onOpen }: { ask: OwedAsk; onPick: (decisi
               </p>
             ) : null}
             <div className="flex items-center gap-2 text-sm">
-              <button type="button" className="font-medium underline" onClick={() => onPick(ask.id, o.id, ask.revision)}>{o.label}</button>
+              <button type="button" className="font-medium underline" onClick={() => void pick(o.id)}>{o.label}</button>
               <span className="text-xs text-muted-foreground">{o.kind}</span>
               <span className="text-xs">{o.reversible === true ? "reversible" : "not reversible"}</span>
               {ask.ask.recommendation === o.id ? <span className="text-xs font-medium">recommended</span> : null}
@@ -90,6 +114,7 @@ export function AskCard({ ask, onPick, onOpen }: { ask: OwedAsk; onPick: (decisi
           </li>
         ))}
       </ul>
+      {failure !== null ? <p role="alert" className="mt-2 text-xs font-medium text-destructive" data-pick-failure>{`Your pick did not go through: ${failure}. The ask is still open; try again.`}</p> : null}
     </article>
   );
 }
@@ -111,7 +136,7 @@ export function ApprovalsList({ approvals, onRevoke }: { approvals: ApprovalReco
   );
 }
 
-export function AsksPanel({ data, onPick, onOpen, onRevoke }: { data: AsksData; onPick: (d: string, o: string, r: string) => void; onOpen: (thread: string) => void; onRevoke?: (approvalId: string) => void }) {
+export function AsksPanel({ data, onPick, onOpen, onRevoke }: { data: AsksData; onPick: OnPick; onOpen: (thread: string) => void; onRevoke?: (approvalId: string) => void }) {
   const view = buildAsksView(data);
   const byId = new Map(data.owed.map((o) => [o.id, o]));
   const approvals = data.approvals ?? [];

@@ -5,20 +5,63 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/spf13/cobra"
 
 	"github.com/mistakeknot/autarch/internal/homeask"
+	"github.com/mistakeknot/autarch/internal/serve"
 )
 
 // newCardFiler builds the filer; tests replace it.
 var newCardFiler = func() *homeask.CardFiler { return &homeask.CardFiler{Timeout: filerTimeout} }
+
+// checkFilingPreconditions runs before anything is created: serve must be up and the ask's
+// project_root must be the root it resolves for the ask's project. Tests replace it.
+var checkFilingPreconditions = func(project, root string) error {
+	ps, err := serve.FetchProjects(serveURL(), serveTokenPath(), serveProbeTimeout)
+	if err != nil {
+		hint := ""
+		if errors.Is(err, serve.ErrNotRunning) {
+			hint = "; start `autarch serve` (see AGENTS.md)"
+		}
+		return fmt.Errorf("%w: %v%s: nothing was filed", homeask.ErrHomeDown, err, hint)
+	}
+	if err := serve.CheckAsk(ps, project, root); err != nil {
+		return fmt.Errorf("%w: %v", homeask.ErrInvalid, err)
+	}
+	return nil
+}
+
+// serveProbeTimeout bounds the serve probe so a dead serve costs seconds, not a minute.
+const serveProbeTimeout = 3 * time.Second
+
+// serveURL is where `autarch serve` listens (AUTARCH_SERVE_URL, default the serve address).
+func serveURL() string {
+	if u := os.Getenv("AUTARCH_SERVE_URL"); u != "" {
+		return u
+	}
+	return "http://" + serve.DefaultAddr
+}
+
+// serveTokenPath is serve's bearer token (AUTARCH_SERVE_TOKEN_FILE, default ~/.autarch/serve.token).
+func serveTokenPath() string {
+	if p := os.Getenv("AUTARCH_SERVE_TOKEN_FILE"); p != "" {
+		return p
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return ""
+	}
+	return filepath.Join(home, ".autarch", "serve.token")
+}
 
 func needsMkCmd() *cobra.Command {
 	cmd := &cobra.Command{
@@ -76,7 +119,7 @@ routing comment from it. --project is the tasks project. --ask-file is a JSON ob
 question, options and optionally subject, recommendation, ask_key, project and project_root.
 
 Exit codes: 2 usage or refused, 3 Home or tasks unavailable (nothing created), 4 card created
-but the routing comment failed (re-run the same command), 5 not yet confirmed.`,
+but the routing comment failed (re-run the same command), 5 already ruled (mk picked an option for this request).`,
 		Args:         cobra.NoArgs,
 		SilenceUsage: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -103,12 +146,30 @@ but the routing comment failed (re-run the same command), 5 not yet confirmed.`,
 			if err := json.Unmarshal(raw, &ask); err != nil {
 				return &usageError{"--ask-file is not a JSON object: " + err.Error()}
 			}
+			if ask == nil {
+				return &usageError{"--ask-file is not a JSON object: got null"}
+			}
 			if _, ok := ask["project_root"]; !ok {
 				ask["project_root"] = gitRoot()
 			}
 			if _, ok := ask["project"]; !ok {
 				ask["project"] = filepath.Base(fmt.Sprint(ask["project_root"]))
 			}
+			if err := checkFilingPreconditions(fmt.Sprint(ask["project"]), fmt.Sprint(ask["project_root"])); err != nil {
+				return err
+			}
+			ctx := cmd.Context()
+			if ctx == nil {
+				ctx = context.Background()
+			}
+			bound, warn, err := newCardFiler().ResolveAskProject(ctx, project, fmt.Sprint(ask["project"]))
+			if err != nil {
+				return err
+			}
+			if warn != "" {
+				fmt.Fprintln(cmd.ErrOrStderr(), "warning:", warn)
+			}
+			ask["project"] = bound
 			req := homeask.CardRequest{Project: project, Title: title, Blocks: blocks, Ask: ask, Key: request, Thread: thread}
 			if rootRun != "" {
 				if req.RootRun, err = parseRootRunFlag(rootRun); err != nil {
@@ -121,10 +182,6 @@ but the routing comment failed (re-run the same command), 5 not yet confirmed.`,
 					return err
 				}
 				req.Key = homeask.DerivedKey(thread, ident)
-			}
-			ctx := cmd.Context()
-			if ctx == nil {
-				ctx = context.Background()
 			}
 			res, err := newCardFiler().FileCard(ctx, req)
 			if err != nil {

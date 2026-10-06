@@ -46,6 +46,14 @@ describe("label cache", () => {
     expect((await client.needsMkLabelIds(p.id)).sort()).toEqual([l1.id, l2.id].sort());
   });
 
+  it("a cached project with no needs-mk label is re-read, so a label created later is seen at once (real bb: the first poll can precede the label)", async () => {
+    const { fake, client } = setup();
+    const p = fake.addProject("Autarch");
+    expect(await client.needsMkLabelIds(p.id)).toEqual([]);
+    const l = fake.addLabel(p.id, "needs-mk");
+    expect(await client.needsMkLabelIds(p.id)).toEqual([l.id]);
+  });
+
   it("fresh bypasses the cache and replaces it at once", async () => {
     const { fake, client } = setup();
     const p = fake.addProject("Autarch");

@@ -78,7 +78,7 @@ export function RootRunSection({ view, onCopy }: { view: RootRunPanelView; onCop
           <p>{`Save this card's JSON (task and comments) as ${view.card_file ?? "the card file"}, then paste:`}</p>
           <pre className="overflow-x-auto rounded bg-muted p-1">{view.command}</pre>
           {onCopy ? <button type="button" className="underline" onClick={() => onCopy(view.command!)}>Copy command</button> : null}
-          <p data-rootrun-unpinned="true">{`Unpinned: this command does not pin the script hash (no --expect-sha256), so the card file you save is not checked against what Home verified. Before pasting, compare the sha256 in that file's root-run block with the one Home verified: ${view.tuple?.sha256 ?? "unknown"}`}</p>
+          <p data-rootrun-pinned="true">{`The command pins the script hash with --expect-sha256, the sha256 Home verified: ${view.tuple?.sha256 ?? "unknown"}. It works only once Aleph's card slice is live; until then todo-add rejects the flag and nothing runs. It is run by paste, not authenticated.`}</p>
           {view.item_json ? <p className="text-muted-foreground" data-rootrun-item="true">{`Item Aleph will build: ${view.item_json}`}</p> : null}
         </div>
       ) : (

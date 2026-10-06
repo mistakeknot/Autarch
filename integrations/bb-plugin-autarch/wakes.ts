@@ -188,7 +188,13 @@ export class WakeLoop {
         to = "pending";
         const delay = Math.min(BACKOFF_BASE_MS * 2 ** Math.max(0, (attemptN ?? row.attempt) - 1), BACKOFF_MAX_MS);
         fields = { last_error: error ?? "", next_try_at: new Date(Date.parse(this.svc.time()) + delay).toISOString() };
-      } else to = "undeliverable";
+      } else {
+        to = "undeliverable";
+        // A failure the card shows: the target rotated, was archived, or the send was cancelled.
+        const errs = [...atts].reverse().map((a) => a.error).filter((e): e is string => !!e);
+        const why = error ?? errs.find((e) => !/^cancel/i.test(e)) ?? errs[0] ?? "";
+        fields = { last_error: `${why || "not delivered"} (recipient ${row.recipient ?? "?"})` };
+      }
     }
     if (!to || to === row.state) return;
     // A row holding a resend permit stays pending [H-1]; the store refuses uncertain over it.

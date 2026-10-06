@@ -80,6 +80,11 @@ function median(sorted: number[]): number | null {
   return sorted.length % 2 ? sorted[m]! : (sorted[m - 1]! + sorted[m]!) / 2;
 }
 
+/** The shared validator's message is a vector Go also checks; Home says what mk or the vizier can do about a missing Request line. */
+function shownParseError(err: string): string {
+  return err === "missing Request line" ? "Request line missing: re-file the ask or restore the Request line" : err;
+}
+
 export class Service {
   readonly store: Store;
   private readonly deps: ServiceDeps;
@@ -660,11 +665,12 @@ export class Service {
 
   /**
    * Write `suggested` when the tasks project's name equals exactly one serve project name
-   * (case-insensitive, never fuzzy). No row otherwise; an existing row is never touched, because
+   * (case-insensitive, with spaces, hyphens and underscores ignored: "After Them" is after-them; never fuzzy). No row otherwise; an existing row is never touched, because
    * only mk confirms or rejects a binding (plan 1.3.6).
    */
   suggestBinding(tasksProjectId: string, tasksProjectName: string, serve: ProjectInfo[]): void {
-    const hits = serve.filter((p) => p.name.toLowerCase() === tasksProjectName.toLowerCase());
+    const key = (n: string) => n.toLowerCase().replace(/[\s_-]+/g, "");
+    const hits = serve.filter((p) => key(p.name) === key(tasksProjectName));
     if (hits.length !== 1) return;
     this.db
       .prepare("INSERT OR IGNORE INTO project_bindings(tasks_project_id, home_project, state, suggested_at) VALUES (?, ?, 'suggested', ?)")
@@ -799,7 +805,7 @@ export class Service {
     row: Record<string, any>,
     latest: Row,
   ): Promise<{ ok: true; card: Card; thread: string; fp: string } | { ok: false; reason: string; routing?: boolean } | { unavailable: string }> {
-    if (!card) return { ok: false, reason: parseErr };
+    if (!card) return { ok: false, reason: shownParseError(parseErr) };
     const reg = this.db.prepare("SELECT * FROM card_requests WHERE task_id = ?").get(task.id) as { request_key: string; identity: string } | undefined;
     if (reg && (reg.request_key !== card.request.key || reg.identity !== card.request.identity)) return { ok: false, reason: "the Request line changed" };
     const project = String(card.ask.project ?? "");
@@ -827,13 +833,19 @@ export class Service {
     }
   }
 
-  /** Null when the card's ask targets the project its tasks project is bound to. */
+  /**
+   * Null when the card may open. A confirmed binding must name the ask's project. A tracker project
+   * with no binding, or only a name-match suggestion, fails open: the card shows in Home flagged
+   * "project not bound" so a filed ask is never hidden; only mk confirms a binding. A rejected
+   * binding still refuses.
+   */
   private bindingMismatch(task: Task, project: string): string | null {
     const b = this.db.prepare("SELECT home_project, state FROM project_bindings WHERE tasks_project_id = ?").get(task.projectId) as
       | { home_project: string; state: string }
       | undefined;
-    if (b && b.state !== "rejected" && b.home_project === project) return null;
-    return `project mismatch: card in ${b?.home_project ?? task.projectId}, ask targets ${project}`;
+    if (!b || b.state === "suggested") return null;
+    if (b.state !== "rejected" && b.home_project === project) return null;
+    return `project mismatch: card in ${b.home_project}, ask targets ${project}`;
   }
 
   private genInput(task: Task, card: Card, thread: string, fp: string, n: number, supersedes: string | null, root: { project_root: string; root_dev: string; root_ino: string }): DecisionInput {
@@ -927,7 +939,7 @@ export class Service {
   }
 
   private async materializeNew(task: Task, card: Card | null, parseErr: string, ctx: { comments: () => Promise<TaskCommentRow[]> }, row: Record<string, any>): Promise<string | void> {
-    if (!card) return this.setDisplay(task.id, parseErr);
+    if (!card) return this.setDisplay(task.id, shownParseError(parseErr));
     const key = card.request.key;
     const reg = this.db.prepare("SELECT task_id FROM card_requests WHERE request_key = ?").get(key) as { task_id: string } | undefined;
     if (reg && reg.task_id !== task.id) return this.setDisplay(task.id, `duplicate Request of ${key}`);

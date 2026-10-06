@@ -8,7 +8,7 @@ vi.mock("@get-bb/plugin-sdk/app", () => ({
 }));
 
 import { BlocksPanel, BlocksRow, groupRows, QueueRefresher, type QueueRowView, type QueueView } from "../ui/blocks.js";
-import { AsksPanel, buildAsksView, PickController, type AsksData } from "../ui/asks.js";
+import { AsksPanel, buildAsksView, PickController, pickOutcome, type AsksData } from "../ui/asks.js";
 import { CatchupPanel, observeVisibility, SeenTracker, snapshotIds, type CatchupEntry } from "../ui/catchup.js";
 import { MapPlaceholder } from "../ui/map-placeholder.js";
 import { BindingsPanel, parseDelegationForm, SettingsPanel } from "../ui/settings.js";
@@ -49,7 +49,7 @@ const data = (over: Partial<AsksData> = {}): AsksData => ({
 });
 
 describe("Asks ordering", () => {
-  it("puts stalled first, then decide, then the runbook, then waiting", () => {
+  it("puts operator-action items first: decide, runbook, then stalled, then waiting", () => {
     const view = buildAsksView(
       data({
         owed: [ask()],
@@ -59,8 +59,8 @@ describe("Asks ordering", () => {
         undeliverable: [{ id: "o1", decision_id: "dec1", kind: "ruling-wake", recipient: "thr-a" }],
       }),
     );
-    expect(view.map((s) => s.key)).toEqual(["stalled", "decide", "runbook", "waiting"]);
-    expect(view[0]!.items.map((i) => i.id)).toEqual(["undeliverable:o1", "m2"]);
+    expect(view.map((s) => s.key)).toEqual(["decide", "runbook", "stalled", "waiting"]);
+    expect(view[2]!.items.map((i) => i.id)).toEqual(["undeliverable:o1", "m2"]);
   });
 
   it("omits empty sections", () => {
@@ -394,8 +394,13 @@ describe("blocks panel", () => {
   it("shows age, the Blocks count, and which refs count", () => {
     const html = panel(q([row({ refs: [{ ref: "bead:a", counted: true }, { ref: "ticket:1", counted: false }], blocks_count: 1 })]));
     expect(html).toContain("age 3 d");
+    expect(html).toContain("owner thr-a");
     expect(html).toContain("blocks 1");
     expect(html).toContain('data-counted="false"');
+  });
+  it("a row with no asking thread says the owner is unknown", () => {
+    const html = renderToStaticMarkup(<BlocksRow row={row({ thread: null })} nowMs={NOW} onPick={() => {}} onOpen={() => {}} />);
+    expect(html).toContain("owner unknown");
   });
   it("a free-form card is display-only with its reason and no pick buttons", () => {
     const html = renderToStaticMarkup(<BlocksRow row={row({ id: "card:t2", decision_id: null, ask: null, revision: null, display_only: true, display_reason: "no home-ask block", title: "Prose card" })} nowMs={NOW} onPick={() => {}} onOpen={() => {}} />);
@@ -486,16 +491,18 @@ describe("root-run section (Task 2.8)", () => {
     expect(html).toContain("no run record yet");
     expect(html).not.toMatch(/approv/i);
   });
-  it("states plainly that the card-file path is unpinned and shows the expected sha256 to compare (finding 2, pending Aleph)", () => {
+  it("shows the hash-pinned command, the verified sha256, and that it works only once Aleph's slice is live", () => {
     const sha = "ab".repeat(32);
-    const html = renderToStaticMarkup(<RootRunSection view={view({ tuple: { script: "/s.sh", sha256: sha, timeout: 60, set: "s1" } })} />);
-    expect(html).toContain('data-rootrun-unpinned="true"');
-    expect(html).toMatch(/does not pin the script hash/);
+    const html = renderToStaticMarkup(<RootRunSection view={view({ tuple: { script: "/s.sh", sha256: sha, timeout: 60, set: "s1" }, command: `todo-add --set 's1' --from-card 'card-X.json' --expect-sha256 '${sha}'` })} />);
+    expect(html).toContain('data-rootrun-pinned="true"');
+    expect(html).toContain("run by paste, not authenticated");
     expect(html).toContain(`verified: ${sha}`);
-    expect(html).toContain("todo-add --set");
-    expect(html).not.toMatch(/todo-add[^<]*--expect-sha256/);
+    expect(html).toMatch(/only once Aleph/);
+    expect(html).toContain(`--expect-sha256 &#x27;${sha}&#x27;`);
+    expect(html).not.toContain("data-rootrun-unpinned");
+    expect(html).not.toMatch(/does not pin/);
     const none = renderToStaticMarkup(<RootRunSection view={view({ command: null, item_json: null, card_file: null })} />);
-    expect(none).not.toContain("data-rootrun-unpinned");
+    expect(none).not.toContain("data-rootrun-pinned");
   });
   it("shows the status paste command, and says status is not read automatically", () => {
     const html = renderToStaticMarkup(<RootRunSection view={view({ status: null, status_command: "todo-run --status 's1' 'bbtask-X-1'" })} />);
@@ -518,5 +525,59 @@ describe("root-run section (Task 2.8)", () => {
     expect(statusLine({ kind: "run", attempt: 2, phase: "finalizing", terminal: "killed", exit: null, signal: "SIGKILL", reason: "supervisor-died", started: null, ended: null, log_complete: true, owner_alive: false })).toBe(
       "attempt 2, phase finalizing, ended: killed, signal SIGKILL, reason: the supervisor died, owner gone, log complete",
     );
+  });
+});
+
+describe("unbound projects in settings", () => {
+  it("lists a project with cards and no binding row, with a picker of serve projects and a Confirm", () => {
+    const html = renderToStaticMarkup(
+      <BindingsPanel bindings={[]} unbound={[{ tasks_project_id: "tp9", cards: 2, targets: ["Sylveste"] }]} serveProjects={["Autarch", "Sylveste"]} inactive={[]} legacyCount={0} onBind={() => {}} />,
+    );
+    expect(html).toContain('data-unbound="tp9"');
+    expect(html).toContain("2 open cards, no binding; asks target Sylveste");
+    expect(html).toMatch(/<option value="Sylveste"[^>]*>Sylveste<\/option>/);
+    expect(html).toContain("Confirm");
+    expect(html).not.toContain("No tasks project has been seen yet");
+  });
+});
+
+describe("unbound picker default", () => {
+  it("defaults to the asked-for project once serve lists it, and Confirm stays disabled until then", () => {
+    const u = [{ tasks_project_id: "tp9", cards: 1, targets: ["Sylveste"] }];
+    const down = renderToStaticMarkup(<BindingsPanel bindings={[]} unbound={u} serveProjects={[]} inactive={[]} legacyCount={0} onBind={() => {}} />);
+    expect(down).toMatch(/<button[^>]*disabled[^>]*>Confirm/);
+    const up = renderToStaticMarkup(<BindingsPanel bindings={[]} unbound={u} serveProjects={["Sylveste"]} inactive={[]} legacyCount={0} onBind={() => {}} />);
+    expect(up).not.toMatch(/<button[^>]*disabled[^>]*>Confirm/);
+  });
+});
+
+describe("pickOutcome: a failed pick is shown, never swallowed", () => {
+  it("ok result is ok", async () => {
+    expect(await pickOutcome(Promise.resolve({ ok: true }))).toEqual({ ok: true });
+  });
+  it("a thrown error becomes a visible failure", async () => {
+    const r = await pickOutcome(Promise.reject(new Error("socket hang up")));
+    expect(r.ok).toBe(false);
+    expect(r.error).toContain("socket hang up");
+  });
+  it("a non-ok result carries its error, and a 409 says to reread", async () => {
+    expect(await pickOutcome(Promise.resolve({ ok: false, error: "ruled already" }))).toEqual({ ok: false, error: "ruled already" });
+    const r = await pickOutcome(Promise.resolve({ status: 409 }));
+    expect(r.ok).toBe(false);
+    expect(r.error).toMatch(/changed/);
+  });
+});
+
+describe("project binding flag (fail open)", () => {
+  const html = (over: Partial<QueueRowView>, onBind?: () => void) =>
+    renderToStaticMarkup(<BlocksRow row={row({ tasks_project_id: "tp-1", project: "shadow-work", ...over })} nowMs={NOW} onPick={() => {}} onOpen={() => {}} {...(onBind ? { onBind } : {})} />);
+  it("flags an unbound or only-suggested project, with a Bind button naming the Home project", () => {
+    expect(html({ binding_state: null }, () => {})).toMatch(/data-binding-flag="unbound"[^>]*>project not bound.*Bind to shadow-work/);
+    expect(html({ binding_state: "suggested" }, () => {})).toMatch(/data-binding-flag="suggested"/);
+  });
+  it("shows no flag for a confirmed or rejected binding, and no button without a handler", () => {
+    expect(html({ binding_state: "confirmed" })).not.toMatch(/data-binding-flag/);
+    expect(html({ binding_state: "rejected" })).not.toMatch(/data-binding-flag/);
+    expect(html({ binding_state: null })).not.toMatch(/data-bind=/);
   });
 });

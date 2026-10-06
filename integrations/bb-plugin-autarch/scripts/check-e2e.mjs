@@ -32,6 +32,7 @@ export const SCHEMAS = {
   "two-writers": { decision: id, picks: eq(1), conflicts: eq(1) },
   "edit-after-pick-failed-write-restart": { card: id, decision: id, original_text_written: eq(true), ruling_sha256: hex },
   "ruling-file-blocked": { blocked_decision: id, blocked_state: eq("pending"), blocked_error: str, other_decision: id, other_ruling_sha256: hex },
+  "bind-unmapped-project": { card: id, unbound_before: eq(1), bound_state: eq("confirmed"), generations: eq(1), unbound_after: eq(0) },
   "blocks-notices": { decision: id, refs: num, counted: num },
   // filing (Task 2.9 owns the filer; these are checked once it exists)
   "card-file-retry": { card: id, exit_code: eq(0), cards: eq(1) },
@@ -58,7 +59,9 @@ export const SCHEMAS = {
   "poller-refresh": { threads: idList, card: id, panel_updated_without_reload: eq(true) },
   "comment-arrives-later-real": { threads: idList, card: id, routed_thread: id },
   "cross-project-panel": { threads: idList, cards: num, projects: num },
-  "upgrade-quiesce": { quiesce_refused: eq(true), db_sha256_unchanged: eq(true), backup_files: eq(0), legacy_ask_picked: eq(true), migrated_after_enable: eq(true) },
+  "upgrade-quiesce": { quiesce_refused: eq(true), db_sha256_unchanged: eq(true), backup_files: eq(0), legacy_ask_picked: eq(true), migrated_after_enable: eq(true),
+    // bb hosts the v2 instance (an a9853e2 plugin build); a v3 reload that hits the quiesce refusal must leave it running.
+    v2_instance_hosted_by: eq("bb-plugin-instance"), previous_instance_kept: eq(true), v2_pick_through_bb: eq(true) },
   "vizier-chat": { threads: idList, message_id: id, screenshot_sha256: hex },
 };
 

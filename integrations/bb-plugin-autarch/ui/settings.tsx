@@ -1,5 +1,6 @@
 import type { Delegation } from "./asks.js";
-import type { BindingView } from "./blocks.js";
+import { useState } from "react";
+import type { BindingView, UnboundView } from "./blocks.js";
 
 export type DelegationInput = { vizierThreadId: string; projects: string[]; dailyCap: number };
 export type Parsed = { ok: true; value: DelegationInput } | { ok: false; error: string };
@@ -13,10 +14,27 @@ export function parseDelegationForm(f: { vizierThreadId: string; projects: strin
   return { ok: true, value: { vizierThreadId, projects, dailyCap } };
 }
 
-export type BindingInput = { tasks_project_id: string; state: "confirmed" | "rejected" };
+export type BindingInput = { tasks_project_id: string; state: "confirmed" | "rejected"; home_project?: string };
+
+/** A tasks project with cards but no binding row: mk picks the serve project, Confirm sends it as home_project. */
+function UnboundRow({ u, serveProjects, onBind }: { u: UnboundView; serveProjects: string[]; onBind: (b: BindingInput) => void }) {
+  const [picked, setPicked] = useState<string | null>(null);
+  // The default follows the serve list (it may load after the row first renders) until mk picks one.
+  const home = picked ?? u.targets.find((t) => serveProjects.includes(t)) ?? "";
+  return (
+    <li data-unbound={u.tasks_project_id}>
+      {`${u.tasks_project_id}: ${u.cards} open card${u.cards === 1 ? "" : "s"}, no binding${u.targets.length > 0 ? `; asks target ${u.targets.join(", ")}` : ""}`}
+      <select aria-label={`Home project for ${u.tasks_project_id}`} className="ml-2 border border-border bg-background" value={home} onChange={(e) => setPicked(e.target.value)}>
+        <option value="">choose a Home project</option>
+        {serveProjects.map((p) => <option key={p} value={p}>{p}</option>)}
+      </select>
+      <button type="button" className="ml-2 underline" disabled={home === ""} onClick={() => onBind({ tasks_project_id: u.tasks_project_id, state: "confirmed", home_project: home })}>Confirm</button>
+    </li>
+  );
+}
 
 /** Project bindings (plan 1.3.6): only mk confirms or rejects; a name match stays suggested and allows mk's picks only. */
-export function BindingsPanel({ bindings, inactive, legacyCount, onBind }: { bindings: BindingView[]; inactive: string[]; legacyCount: number; onBind: (b: BindingInput) => void }) {
+export function BindingsPanel({ bindings, unbound = [], serveProjects = [], inactive, legacyCount, onBind }: { bindings: BindingView[]; unbound?: UnboundView[]; serveProjects?: string[]; inactive: string[]; legacyCount: number; onBind: (b: BindingInput) => void }) {
   return (
     <section className="space-y-2 p-4 text-sm" data-section="bindings">
       <h2 className="text-xs font-semibold uppercase text-muted-foreground">Project bindings</h2>
@@ -29,8 +47,9 @@ export function BindingsPanel({ bindings, inactive, legacyCount, onBind }: { bin
             {b.state !== "rejected" ? <button type="button" className="ml-2 underline" onClick={() => onBind({ tasks_project_id: b.tasks_project_id, state: "rejected" })}>Reject</button> : null}
           </li>
         ))}
+        {unbound.map((u) => <UnboundRow key={u.tasks_project_id} u={u} serveProjects={serveProjects} onBind={onBind} />)}
       </ul>
-      {bindings.length === 0 ? <p className="text-xs text-muted-foreground">No tasks project has been seen yet.</p> : null}
+      {bindings.length === 0 && unbound.length === 0 ? <p className="text-xs text-muted-foreground">No tasks project has been seen yet.</p> : null}
       {inactive.length > 0 ? <p data-inactive="true">{`Inactive delegation projects (serve does not know them): ${inactive.join(", ")}`}</p> : null}
       <p data-legacy-count={legacyCount}>{`Legacy asks still draining: ${legacyCount}`}</p>
     </section>

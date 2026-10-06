@@ -615,6 +615,9 @@ func (f *CardFiler) locate(ctx context.Context, key, ident string) (*found, erro
 	return c, nil
 }
 
+// ErrForeignPullCard: the card registered under a pull's legacy key is not that Mycroft pull.
+var ErrForeignPullCard = fmt.Errorf("%w: foreign card under the pull key", ErrInvalid)
+
 var errReused = fmt.Errorf("%w: Request reused for a different card", ErrInvalid)
 
 // ---- filing -------------------------------------------------------------------------
@@ -857,6 +860,24 @@ func (f *CardFiler) FileForPull(ctx context.Context, a Ask) (string, error) {
 		}
 		return "", fmt.Errorf("%w: %s", ErrAlreadyRuled, a.RequestID)
 	case "registered":
+		// The legacy key is predictable, so any same-uid filer can register a card under it. Report the card as
+		// this pull only when its parsed body says so: a Mycroft pull card, under this key, for this ask.
+		s, err := f.show(ctx, reg.TaskID)
+		if err != nil {
+			return "", err
+		}
+		c, perr := ParseCard(s.Task.Description)
+		wire, werr := wireFromAsk(a)
+		var want string
+		if werr == nil {
+			want, werr = RequestIdentity(CardRequest{Title: titleOf(a), Ask: wire, Pull: true})
+		}
+		if werr != nil {
+			return "", werr
+		}
+		if perr != nil || c.Pull != "mycroft" || c.Request.Key != a.RequestID || reg.Identity != want || c.Request.Identity != want {
+			return "", fmt.Errorf("%w: card %s registered under %s is not that Mycroft pull", ErrForeignPullCard, reg.TaskID, a.RequestID)
+		}
 		return reg.TaskID, nil
 	}
 	wire, err := wireFromAsk(a)
@@ -901,4 +922,52 @@ func (f *CardFiler) Card(ctx context.Context, taskID string) (CardView, error) {
 // the same thread is idempotent and a different ask never collides.
 func DerivedKey(thread, ident string) string {
 	return uuid.NewSHA1(needsMkNS, []byte("thread\x00"+thread+"\x00"+ident)).String()
+}
+
+// ResolveAskProject checks the ask's project against the Home project the card's tasks project is
+// bound to. Home hides a card whose ask project is not the bound one, so a confirmed
+// binding is enforced at file time: the tasks key (prefix) is accepted as an alias and replaced by
+// the bound name; any other value is refused with the expected one. An unbound, suggested or
+// rejected binding leaves the ask alone (Home shows the card flagged) and returns a warning for the
+// caller to print; a Home too old to answer leaves it alone silently.
+func (f *CardFiler) ResolveAskProject(ctx context.Context, tasksProject, askProject string) (string, string, error) {
+	var projects struct {
+		Projects []struct {
+			ID     string `json:"id"`
+			Name   string `json:"name"`
+			Prefix string `json:"prefix"`
+		} `json:"projects"`
+	}
+	if err := f.call(ctx, "", &projects, "tasks", "project", "list", "--json"); err != nil {
+		return askProject, "", nil
+	}
+	id, prefix := "", ""
+	for _, p := range projects.Projects {
+		if p.ID == tasksProject || strings.EqualFold(p.Prefix, tasksProject) || strings.EqualFold(p.Name, tasksProject) {
+			id, prefix = p.ID, p.Prefix
+			break
+		}
+	}
+	if id == "" {
+		return askProject, "", nil
+	}
+	var b struct {
+		Home  *string `json:"home_project"`
+		State *string `json:"state"`
+	}
+	if err := f.call(ctx, "", &b, "home", "binding", id); err != nil {
+		return askProject, "", nil
+	}
+	if b.Home == nil || b.State == nil || *b.State != "confirmed" {
+		// Fails open (the card still shows, flagged with a Bind button), but say so at file time.
+		return askProject, fmt.Sprintf("tasks project %q has no confirmed Home project binding; the card will show in Home flagged \"project not bound\" until the vizier runs `bb home bind` or mk clicks Bind", tasksProject), nil
+	}
+	home := *b.Home
+	if askProject == home {
+		return askProject, "", nil
+	}
+	if prefix != "" && strings.EqualFold(askProject, prefix) {
+		return home, "", nil
+	}
+	return "", "", fmt.Errorf("%w: ask project %q is not the Home project bound to tasks project %q; expected project %q (the tasks key %q is also accepted)", ErrInvalid, askProject, tasksProject, home, prefix)
 }

@@ -18,7 +18,8 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Icon } from "@/components/ui/icon";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
-import { AsksPanel, PickController } from "./ui/asks.js";
+import { OVERLAY_PANEL_ID, OVERLAY_PATH, OverlayPanel } from "./ui/overlay.js";
+import { AsksPanel, PickController, pickOutcome } from "./ui/asks.js";
 import type { AsksData } from "./ui/asks.js";
 import { CatchupPanel, SeenTracker, snapshotIds } from "./ui/catchup.js";
 import type { CatchupEntry } from "./ui/catchup.js";
@@ -245,11 +246,12 @@ function BlocksThreadPanel({ threadId }: { threadId: string }) {
   return (
     <BlocksPanel
       rootRun={rootRun}
+      onBind={(b) => void rpc.call("setBinding", b).then(refetch, () => {})}
       data={queue}
       nowMs={Date.now()}
       thread={threadId}
       onOpen={(t) => nav.toThread(t)}
-      onPick={(decision_id, option_id, revision) => void picks.send((req) => rpc.call("pick", req) as never, { decision_id, option_id, revision }, refetch).then(refetch, () => {})}
+      onPick={(decision_id, option_id, revision) => pickOutcome(picks.send((req) => rpc.call("pick", req) as never, { decision_id, option_id, revision }, refetch)).finally(refetch)}
     />
   );
 }
@@ -356,7 +358,7 @@ function HomePage() {
             onOpen={(thread) => push({ id: `thread:${thread}`, kind: "thread", title: thread, ref: thread })}
             onRevoke={(approval_id) => void rpc.call("revokeApproval", { approval_id }).then(refetch, () => {})}
             onPick={(decision_id, option_id, revision) => {
-              picks.send((req) => rpc.call("pick", req) as never, { decision_id, option_id, revision }, refetch).then(refetch, () => {});
+              return pickOutcome(picks.send((req) => rpc.call("pick", req) as never, { decision_id, option_id, revision }, refetch)).finally(refetch);
             }}
           />
         );
@@ -366,11 +368,12 @@ function HomePage() {
         ) : (
           <BlocksPanel
             rootRun={rootRuns}
+            onBind={(b) => void rpc.call("setBinding", b).then(refetchAll, () => {})}
             data={blocks.queue}
             nowMs={Date.now()}
             onOpen={openBeside}
             onPick={(decision_id, option_id, revision) => {
-              picks.send((req) => rpc.call("pick", req) as never, { decision_id, option_id, revision }, refetchAll).then(refetchAll, () => {});
+              return pickOutcome(picks.send((req) => rpc.call("pick", req) as never, { decision_id, option_id, revision }, refetchAll)).finally(refetchAll);
             }}
           />
         );
@@ -397,6 +400,8 @@ function HomePage() {
             {blocks.queue === null ? null : (
               <BindingsPanel
                 bindings={blocks.queue.bindings}
+                unbound={blocks.queue.unbound ?? []}
+                serveProjects={blocks.queue.serve_projects ?? []}
                 inactive={blocks.queue.inactive_projects}
                 legacyCount={blocks.queue.legacy.count}
                 onBind={(b) => void rpc.call("setBinding", b).then(refetchAll, () => {})}
@@ -438,6 +443,24 @@ function HomePage() {
 }
 
 /** Sidebar badge: the owed count, or "!" when serve is not ready or a machine blocker has no owner. */
+/** The summoned overlay's route (`/plugins/autarch/home-overlay`); it never marks anything seen. */
+function OverlayPage() {
+  const { rpc, asks, catchup, error, refetch } = useHomeData();
+  const nav = useBbNavigate();
+  const picks = useMemo(() => new PickController(() => crypto.randomUUID()), []);
+  if (asks === null) return <EmptyState>{error ?? "Loading…"}</EmptyState>;
+  return (
+    <OverlayPanel
+      data={asks}
+      catchup={catchup}
+      onOpen={(thread) => nav.toThread(thread)}
+      onPick={(decision_id, option_id, revision) => {
+        return pickOutcome(picks.send((req) => rpc.call("pick", { ...req, surface: "overlay" }) as never, { decision_id, option_id, revision }, refetch)).finally(refetch);
+      }}
+    />
+  );
+}
+
 function HomeBadge() {
   const { asks, health } = useHomeData();
   const blocked = health !== null && !health.ready;
@@ -461,6 +484,7 @@ export default definePluginApp((app) => {
     component: HomePage,
     experimental_sidebarAccessory: HomeBadge,
   });
+  app.slots.navPanel({ id: OVERLAY_PANEL_ID, title: "Home overlay", icon: "House", path: OVERLAY_PATH, component: OverlayPage });
   app.slots.threadPanelAction({
     id: "home-blocks",
     title: "Blocking",

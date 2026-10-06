@@ -582,8 +582,8 @@ different server. The script defends in three ways:
   executable on its own. On zklw `/bin/sh` is dash, which reads no `BASH_ENV` and reads
   `ENV` only for interactive shells. So `BASH_ENV`, `ENV`, `BB_*`, `NODE_*`, `HOME` and
   `PATH` from root's or sudo's environment never reach a Bash process. Probed 2026-10-01
-  (results in §8.8). mk runs the launcher by path (`sudo scripts/home-restore-v2.sh …`),
-  never with `bash scripts/…`, because that would start Bash, and run `BASH_ENV`, before
+  (results in §8.8). mk runs the launcher by path (`sudo /usr/local/libexec/home-v3-<sha12>/home-restore-v2.sh …`,
+  the root-owned copy from the generated package, see "Root-owned install copy" below), never with `bash scripts/…`, because that would start Bash, and run `BASH_ENV`, before
   the launcher's first line. Every mk command runs as `runuser -u mk -- env -i`, with only
   the variables set below.
 - **Verified install, before anything is touched.** `BBDATA` is the constant
@@ -602,15 +602,42 @@ different server. The script defends in three ways:
   so the wrapper's first branch execs exactly `$BBDATA/npm/bin/bb`. The script also checks
   that this file exists and is owned by mk.
 
+- **Root-owned install copy (review s1-3 P1).** The launchers and bodies in the checkout are
+  owned by mk, so a same-uid agent could edit a body before mk runs it as root. As root, each
+  launcher therefore exits 6 unless the launcher, its `.bash` body and `home-common.bash` are
+  `root:root`, not group/other-writable, on a path whose every directory is root-owned and
+  not group/other-writable (symlinks resolved first). Such a copy is made only by a generated package:
+  nothing in a checkout is ever run with sudo, piped to sudo, or read by root, because any user-writable byte
+  (a script, the `HEAD` ref, a Git replace ref) could be changed before the command runs. The only trusted
+  source is a self-contained generated package: the coordinator, as mk, runs
+  `scripts/home-build-root-package.sh --commit <full 40-hex sha> --thread <id>`. The generator refuses
+  anything but a full sha, checks `git --no-replace-objects cat-file -t` is `commit` and that `rev-parse` of
+  the sha equals itself, reads the five files with `git --no-replace-objects cat-file blob <sha>:scripts/<f>`,
+  and emits ONE `home-v3-run-<sha12>.sh` (`#!/bin/sh`, files embedded base64, each file's sha256 embedded in
+  the text, no git at run time, `env -i` re-exec first) and prints that script's own sha256. mk installs it
+  root-owned first (`sudo install -o root -g root -m 0700 <pkg> /root/home-v3-run-<sha12>.sh`), compares
+  `sudo sha256sum` with the printed hash, then runs the root copy. It requires euid 0, creates a NEW
+  root-owned `/usr/local/libexec/home-v3-<sha12>` (refusing a symlinked component or an existing directory
+  with unexpected content; staged in a mktemp dir inside the root-owned parent, sha256 re-verified, then
+  renamed), runs `home-upgrade-v3.sh --check` from that copy (installed copy and plugin build verified,
+  nothing changed), and runs the real upgrade only with `--go`. Everything mk owns goes through
+  `runuser -u mk`. A `trap EXIT` reports success or failure to the thread given by the required `--thread` via `bb thread tell`, printing the report if sending fails. The
+  restore is a separate command printed at the end:
+  `sudo /usr/local/libexec/home-v3-<sha12>/home-restore-v2.sh --thread … --repo … [--backup …]`.
+  The launchers keep their ownership guard as defence in depth. Test-only `HOME_V3_TEST_DEST` (and
+  `_BB`, `_LAUNCHER_ARGS`) redirect the install and are refused when the real euid is 0.
+  Tests: `__tests__/root-launcher.test.ts`. The real sudo path stays unprobed.
+
 ```sh
 #!/bin/sh
-exec /usr/bin/env -i PATH=/usr/sbin:/usr/bin:/sbin:/bin /bin/bash --noprofile --norc "${0%/*}/home-restore-v2.bash" "$@"
+# (root-trust check: refuse unless root-owned and tight; see above), then:
+exec /usr/bin/env -i PATH=/usr/sbin:/usr/bin:/sbin:/bin /bin/bash --noprofile --norc "$_d/home-restore-v2.bash" "$@"
 ```
 
 ```bash
 # home-restore-v2.bash: body, started only by the home-restore-v2.sh launcher above.
 # Restores Home (the autarch bb plugin) to its pre-v3 backup.
-# Run on zklw: sudo scripts/home-restore-v2.sh --thread <thr_…> --repo <Autarch checkout> [--backup <path>]
+# Run on the host from the root-owned copy: sudo /usr/local/libexec/home-v3/home-restore-v2.sh --thread <thr_…> --repo <Autarch checkout> [--backup <path>]
 set -euo pipefail
 BBDATA=/home/mk/.bb-machines/autarch.getbb.app      # constant; --bbdata only in test mode
 DATA=$BBDATA/plugins/autarch
@@ -1595,12 +1622,21 @@ bwrap --dev-bind / / --unshare-net --die-with-parent   --setenv HOME_E2E_OUTER_N
 - `queued-then-archived`: kept from the rev-4 real list.
 - `vizier-chat`: kept from the rev-4 real list, unchanged.
 - `upgrade-quiesce` (finding r5-1): on the owned server, install and enable the a9853e2
-  build, file a legacy ask, then `bb plugin install` the v3 build **while v2 is running**.
-  Expected: the reload fails with `QuiesceRequiredError`; `bb plugin list` shows autarch
-  running with "reload failed" (bb kept the previous instance); the `data.db` sha256 is
-  unchanged and no backup file exists; the legacy ask can still be picked through the v2
-  instance. Then `bb plugin disable autarch`, `bb plugin enable autarch`: v3 migrates, the
-  log names the backup, and the legacy ask is listed (A11).
+  build (a `bb plugin build` of a9853e2, `HOME_E2E_V2_PLUGIN_DIR`), install it under the autarch
+  id and enable it on a legacy schema-2 database (a standalone a9853e2 Store only seeds the
+  file), then put the v3 sources in the installed directory and `bb plugin reload autarch`
+  **while v2 is running**. Expected: the reload fails with `QuiesceRequiredError`; `bb plugin
+  list` shows autarch running with status detail "reload failed: [home-refused:quiesce-required]
+  ...", and the reload's own output ends "(the previous instance is still running)" with a
+  non-zero exit; the `data.db` sha256 is unchanged and no backup file exists; the legacy ask can
+  still be picked through the bb-hosted v2 instance. Then `bb plugin disable autarch`, `bb
+  plugin enable autarch`: v3 migrates, the log names the backup, and the legacy ask is listed
+  (A11).
+  **bb-hosted v2.** The keep-previous path is a
+  *reload* path. `bb plugin install` of v3 over a running v2 does not reach it: bb's install
+  disposes the running instance first (closing its database), so v3 would just migrate. Every
+  `upgrade-quiesce` record carries `v2_instance_hosted_by: "bb-plugin-instance"`,
+  `previous_instance_kept: true` and `v2_pick_through_bb: true`, and `check-e2e` requires them.
 
 The default list at `e2e/harness.ts:42` is changed to exactly these eight names, so a
 plain `--mode real-bb` run cannot silently drop one.
@@ -2035,7 +2071,7 @@ in `/home/mk/projects/Aleph` before it was fixed.
 
 | # | Finding | Verified evidence | Fix | Test |
 |---|---|---|---|---|
-| r5-1 (P1) | A running v2 instance misses the fence | `store.ts:196-208` checks the version only in the constructor. `plugin-runtime.ts:1612-1628` keeps the previous instance on a failed activation (`PREVIOUS_INSTANCE_KEPT`), and it is disposed only after the candidate succeeds (`:1664`). Each instance opens its own DB handle (`plugin-api.ts:679-696`). Probe: an idle connection blocks `journal_mode=DELETE` with `SQLITE_BUSY` | §1.3.8 quiesce: exclusive locking, then leaving WAL fails while any other connection is open, giving `QuiesceRequiredError` with nothing written. Upgrade is disable → install → enable through `home-upgrade-v3.sh` | Task 2.3 test 6, "existing reader" (same process and child process; v2 still picks). Real-bb `upgrade-quiesce`: install while enabled gives "reload failed", DB unchanged, v2 still picks; then disable and enable migrates |
+| r5-1 (P1) | A running v2 instance misses the fence | `store.ts:196-208` checks the version only in the constructor. `plugin-runtime.ts:1612-1628` keeps the previous instance on a failed activation (`PREVIOUS_INSTANCE_KEPT`), and it is disposed only after the candidate succeeds (`:1664`). Each instance opens its own DB handle (`plugin-api.ts:679-696`). Probe: an idle connection blocks `journal_mode=DELETE` with `SQLITE_BUSY` | §1.3.8 quiesce: exclusive locking, then leaving WAL fails while any other connection is open, giving `QuiesceRequiredError` with nothing written. Upgrade is disable → install → enable through `home-upgrade-v3.sh` | Task 2.3 test 6, "existing reader" (same process and child process; v2 still picks). Real-bb `upgrade-quiesce`: reload with v3 sources while v2 is enabled gives "reload failed" (install would dispose v2 first), DB unchanged, v2 still picks; then disable and enable migrates |
 | r5-2 (P1) | Row counts do not prove equality | A count check passes an UPDATE and an equal-count replacement | One exclusive hold covers `VACUUM INTO` through the v3 commit, and a full content digest (every column through `quote()`) is checked under that hold. No retry | Task 2.3 test 6: writers during the hold get `SQLITE_BUSY`; with the hold disabled by a test-only switch, the digest refuses an UPDATE and an equal-count replacement |
 | r5-3 (P1) | Launcher probes run before the ownership gate | `launcher.ts:2947` calls `waitForServerHealth` (`:2275`), which fetches `/health` before the harness checks the socket. The harness spy cannot see subprocesses | The whole real-bb run is in `bwrap --unshare-net` (loopback only). The harness refuses outside the namespace or when a LISTEN socket already exists. The step 1-6 checks stay as a second line. Probed: an outside listener was unreachable and saw nothing | `rig-isolation.test.ts`: a real outside listener on the rig's exact port (v4 and v6) receives zero connections during a full run, and the harness refuses outside the namespace. `rig-acceptance.jq` requires `netns_isolated` |
 | r5-4 (P1) | Restore commands follow ambient bb settings | `~/.local/bin/bb` execs `$BB_DATA_DIR/npm/bin/bb` when it is set. The CLI reads only `BB_SERVER_URL` (`packages/config/src/cli.ts`, `env.ts`) and otherwise uses the prod default | The script re-execs under `env -i` with `--noprofile --norc`. `BBDATA` is a constant. Step 0 verifies the runtime file, pid, entry path, socket owner and open files, then pins `BB_SERVER_URL`/`BB_DATA_DIR`. A verify failure exits 6 before any move and sends nothing | Task 2.8a test 2, "hostile ambient settings" (decoy URL, data dir, HOME, PATH, `BASH_ENV`): zero decoy connections, no markers, the pinned stub got the pinned env. "Unverifiable install" cases exit 6 with nothing moved |

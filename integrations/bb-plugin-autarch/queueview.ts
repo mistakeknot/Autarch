@@ -49,6 +49,22 @@ export function setBinding(
   return { ok: true, state: i.state };
 }
 
+/**
+ * Remove a binding row (the vizier's `bb home unbind`), returning the tasks project to unbound. The
+ * poller may suggest it again; a suggestion never opens a delegation. Recorded with who removed it.
+ */
+export function removeBinding(
+  db: Database.Database,
+  i: { tasks_project_id: string },
+  ctx: { record: (type: string, detail: unknown) => void },
+): { ok: true; was: { home_project: string; state: BindingState } } | { ok: false; status: number; error: string } {
+  const row = db.prepare("SELECT home_project, state FROM project_bindings WHERE tasks_project_id = ?").get(i.tasks_project_id) as { home_project: string; state: BindingState } | undefined;
+  if (!row) return { ok: false, status: 404, error: "no binding for this tasks project" };
+  db.prepare("DELETE FROM project_bindings WHERE tasks_project_id = ?").run(i.tasks_project_id);
+  ctx.record("binding-removed", { tasks_project_id: i.tasks_project_id, home_project: row.home_project, was: row.state });
+  return { ok: true, was: row };
+}
+
 export interface QueueRow {
   /** The open decision id, or `card:<task id>` for a display-only card. */
   id: string;
@@ -86,6 +102,8 @@ export interface QueueData {
     machine: ReturnType<Asks["lists"]>;
   };
   bindings: { tasks_project_id: string; home_project: string; state: BindingState; suggested_at: string | null; confirmed_at: string | null }[];
+  /** Tasks projects with open cards and no binding row (no name match), for mk to bind by hand. */
+  unbound: { tasks_project_id: string; cards: number; targets: string[] }[];
   inactive_projects: string[];
 }
 
@@ -196,6 +214,19 @@ export function buildQueue(svc: Service, asks: Asks, opts: { thread?: string } =
   const legacyOwed = owed.filter((x) => x.source !== "card");
   const runbook = asks.runbook();
   const machine = asks.lists();
+  const unbound = (
+    db
+      .prepare(
+        `SELECT project_id, COUNT(*) AS cards FROM cards WHERE labelled = 1 AND deleted_at IS NULL AND project_id IS NOT NULL
+           AND status IN ('backlog','todo','in_progress','in_review')
+           AND project_id NOT IN (SELECT tasks_project_id FROM project_bindings) GROUP BY project_id ORDER BY project_id`,
+      )
+      .all() as { project_id: string; cards: number }[]
+  ).map((u) => {
+    const asked = db.prepare("SELECT DISTINCT d.project FROM decisions d JOIN cards c ON c.task_id = d.task_id WHERE c.project_id = ? AND c.deleted_at IS NULL AND d.withdrawn_at IS NULL").all(u.project_id) as { project: string }[];
+    const targets = asked.map((x) => x.project).sort();
+    return { tasks_project_id: u.project_id, cards: u.cards, targets };
+  });
   let inactive: string[] = [];
   try {
     const v = JSON.parse(svc.store.setting("delegation.projects_inactive") ?? "[]");
@@ -212,6 +243,7 @@ export function buildQueue(svc: Service, asks: Asks, opts: { thread?: string } =
       machine,
     },
     bindings,
+    unbound,
     inactive_projects: inactive,
   };
 }

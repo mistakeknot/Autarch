@@ -9,6 +9,7 @@ import { cliCommand, defineCli, type PluginCliContext, type PluginCliResult } fr
 import type { Asks, LifecycleResult } from "./asks.js";
 import type { Catchup } from "./catchup.js";
 import { parseAsk } from "./model.js";
+import { buildQueue } from "./queueview.js";
 import type { PickResult, Service } from "./service.js";
 
 export const REQUEST_LIMIT = 16 * 1024;
@@ -20,6 +21,10 @@ export interface HomeCliParts {
   catchup: Catchup;
   /** Rule on a decision as the vizier thread; the caller decides who may. */
   rule: (decisionId: string, optionId: string, reason: string, ctx: { threadId?: string }) => PickResult;
+  /** Confirm a tasks project's binding to a Home project, as the vizier (who is logged). The caller decides who may. */
+  bind?: (tasksProject: string, homeProject: string, by: string) => Promise<{ ok: true; tasks_project_id: string } | { ok: false; status: number; error: string }>;
+  /** Remove a binding, as the vizier. */
+  unbind?: (tasksProject: string, by: string) => Promise<{ ok: true; tasks_project_id: string; was: { home_project: string; state: string } } | { ok: false; status: number; error: string }>;
   /** True when the thread is the configured vizier thread. */
   isVizier: (threadId: string | undefined) => boolean;
 }
@@ -77,6 +82,7 @@ export function homeCli(p: HomeCliParts) {
           request: { type: "string", description: "The request key: a card's, or a pre-card ask's request id." },
           "request-id": { type: "string", description: "Alias of --request." },
           id: { type: "string", description: "A decision id." },
+          json: { type: "boolean", description: "Print JSON (the only format)." },
         },
         constraints: [{ kind: "exactly-one", options: ["card", "request", "request-id", "id"] }],
         run({ options }) {
@@ -118,7 +124,14 @@ export function homeCli(p: HomeCliParts) {
             .owed()
             .filter((d) => (options.asker ? d.asker === options.asker : true) && (options.project ? d.project === options.project : true) && (options.pull ? isPulled(d, options.pull) : true))
             .map((d) => ({ id: d.id, subject: d.subject, project: d.project, thread: d.thread, asker: d.asker, filed_at: d.filed_at, task_id: d.task_id ?? null }));
-          return { exitCode: 0, stdout: JSON.stringify(rows) };
+          // A card Home shows flagged (display only) is not owed a ruling but is still on mk's page: list it with its reason
+          // so a coordinator can check its own card. Not pulled by anyone, and no project name until it is bound.
+          const flagged = options.pull
+            ? []
+            : buildQueue(svc, p.asks)
+                .rows.filter((r) => r.display_only && (options.asker ? options.asker === "thread" : true) && (options.project ? r.project === options.project : true))
+                .map((r) => ({ id: r.id, subject: r.title, project: r.project, thread: r.thread ?? "", asker: "thread", filed_at: r.created_at, task_id: r.task_id, display_only: true, display_reason: r.display_reason, card_key: r.card_key }));
+          return { exitCode: 0, stdout: JSON.stringify([...rows, ...flagged]) };
         },
       }),
 
@@ -162,6 +175,40 @@ export function homeCli(p: HomeCliParts) {
         summary: "Withdraw a machine blocker you filed",
         positionals: [{ name: "id", description: "Decision id.", required: true }],
         run: ({ positionals }, ctx) => lifecycle(p.asks.withdraw(positionals.id, { threadId: ctx.threadId })),
+      }),
+
+      binding: cliCommand({
+        summary: "Read the Home project a tasks project is bound to (read-only; the filer checks an ask's project against it)",
+        positionals: [{ name: "tasks_project_id", description: "Tasks project id.", required: true }],
+        run({ positionals }) {
+          const row = svc.store.db.prepare("SELECT home_project, state FROM project_bindings WHERE tasks_project_id = ?").get(positionals.tasks_project_id) as { home_project: string; state: string } | undefined;
+          return out({ tasks_project_id: positionals.tasks_project_id, home_project: row?.home_project ?? null, state: row?.state ?? null });
+        },
+      }),
+
+      bind: cliCommand({
+        summary: "Vizier only: bind a tasks project to a Home project (confirmed, logged with who and when)",
+        positionals: [
+          { name: "tasks_project", description: "Tasks project: id, key prefix or name.", required: true },
+          { name: "home_project", description: "Home project name, as `autarch serve` lists it.", required: true },
+        ],
+        async run({ positionals }, ctx) {
+          if (!p.isVizier(ctx.threadId)) return err(1, "only the vizier thread may bind a project");
+          if (!p.bind) return err(1, "binding is not available");
+          const r = await p.bind(positionals.tasks_project, positionals.home_project, ctx.threadId!);
+          return r.ok ? out({ ok: true, tasks_project_id: r.tasks_project_id, home_project: positionals.home_project, state: "confirmed" }) : err(exitFor(r.status), r.error);
+        },
+      }),
+
+      unbind: cliCommand({
+        summary: "Vizier only: remove a project binding (undoes `bind`)",
+        positionals: [{ name: "tasks_project", description: "Tasks project: id, key prefix or name.", required: true }],
+        async run({ positionals }, ctx) {
+          if (!p.isVizier(ctx.threadId)) return err(1, "only the vizier thread may unbind a project");
+          if (!p.unbind) return err(1, "binding is not available");
+          const r = await p.unbind(positionals.tasks_project, ctx.threadId!);
+          return r.ok ? out({ ok: true, tasks_project_id: r.tasks_project_id, was: r.was }) : err(exitFor(r.status), r.error);
+        },
       }),
 
       rule: cliCommand({

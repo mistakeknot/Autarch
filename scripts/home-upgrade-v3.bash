@@ -1,42 +1,87 @@
 # home-upgrade-v3.bash: body, started only by the home-upgrade-v3.sh launcher.
 # Upgrades Home (the autarch bb plugin) to the v3 build: disable, verify no holder, install, enable.
-# Run on zklw: sudo scripts/home-upgrade-v3.sh --thread <thr_...> --plugin <v3 build dir>
+# Run on the host only from the root-owned copy installed by the generated home-v3-run-<sha12>.sh package (scripts/home-build-root-package.sh); never run a checkout copy with sudo.
+# Arguments: --thread <thr_...> --plugin <v3 build dir> [--check: verify the install and plugin dir, change nothing]
 # Tested in test mode by integrations/bb-plugin-autarch/__tests__/restore-script.test.ts (Task 2.8a); the sudo
 # launch itself is unprobed (bead mk-schu.4): mk's dry run covers it.
 set -euo pipefail
 . "${BASH_SOURCE[0]%/*}/home-common.bash"
 parse_common "$@"
 set -- "${REST[@]}"
-PLUGIN=
+PLUGIN=; CHECK_ONLY=0
 while [ $# -gt 0 ]; do
   case "$1" in
     --thread) THREAD=${2:?}; shift 2 ;;
     --plugin) PLUGIN=${2:?}; shift 2 ;;
+    --check) CHECK_ONLY=1; shift ;;
     *) echo "unknown argument: $1" >&2; exit 64 ;;
   esac
 done
 [ -n "$THREAD" ] && [ -n "$PLUGIN" ] || { echo "usage: $0 --thread <thr_...> --plugin <dir> [test-mode flags]" >&2; exit 64; }
+case $PLUGIN in /*) ;; *) echo "--plugin must be an absolute path" >&2; exit 64 ;; esac
 common_setup home-upgrade
 verify_install
 [ -f "$PLUGIN/package.json" ] || { say "no plugin build at $PLUGIN"; exit 4; }
+if [ "$CHECK_ONLY" = 1 ]; then say "--check: install verified, plugin build present; nothing changed"; exit 0; fi
 
-# 1. Stop Home, then require that nothing holds the database.
-"${AS[@]}" "$BB" plugin disable autarch
-HOLDERS=$(db_holders)
-if [ -n "$HOLDERS" ]; then
-  say "Home still holds the DB; re-enabling the existing build. Holders:"
-  say "$HOLDERS"
-  say "(bb's plugin-state snapshot may hold it open: bead mk-schu.2)"
-  "${AS[@]}" "$BB" plugin enable autarch || true
-  exit 3
+# 0. Decide the mode from the live plugin list. A failing list aborts before anything changes.
+LIST_RAW=$("${AS[@]}" "$BB" plugin list --json 2>&1) || { say "bb plugin list failed; nothing changed: $(printf '%s' "$LIST_RAW" | head -c 200)"; exit 4; }
+NAUTARCH=$(printf '%s' "$LIST_RAW" | jq -e '[.plugins[]? | select(.id == "autarch")] | length' 2>/dev/null) || { say "bb plugin list output not parseable; nothing changed"; exit 4; }
+if [ "$NAUTARCH" = 0 ]; then
+  MODE=fresh
+  # A data.db with no plugin is somebody's data; never install over it unreviewed.
+  for f in "$DATA"/data.db "$DATA"/data.db-wal "$DATA"/data.db-shm; do
+    if [ -e "$f" ] || [ -L "$f" ]; then say "autarch is not installed but $f exists; refusing a fresh install over it. Nothing changed."; exit 6; fi
+  done
+  say "autarch is not installed: fresh v3 install (no disable, no holders check, no v2 DB to restore)"
+else
+  MODE=upgrade
+  # 1. Stop Home, then require that nothing holds the database.
+  "${AS[@]}" "$BB" plugin disable autarch
+  HOLDERS=$(db_holders)
+  if [ -n "$HOLDERS" ]; then
+    say "Home still holds the DB; re-enabling the existing build. Holders:"
+    say "$HOLDERS"
+    say "(bb's plugin-state snapshot may hold it open)"
+    "${AS[@]}" "$BB" plugin enable autarch || true
+    exit 3
+  fi
 fi
-# 2. Install the v3 build and enable it; the open migrates (quiesce, backup, verify, DDL).
-"${AS[@]}" "$BB" plugin install "$PLUGIN" || { say "install failed; plugin left disabled on the unchanged v2 DB"; exit 4; }
-"${AS[@]}" "$BB" plugin enable autarch || { say "enable failed; plugin left disabled"; exit 5; }
-# 3. Report the backup path and the bb.log line.
-if [ "$TEST" = 1 ]; then sleep 0; else sleep 5; fi
-say "plugin status: $("${AS[@]}" "$BB" plugin status autarch 2>&1 | head -5)"
-say "migration_log: $("${AS0[@]}" sqlite3 -readonly "$DATA/data.db" "select version, at, backup_path, digest from migration_log order by rowid desc limit 1" 2>&1 || true)"
+if [ "$MODE" = fresh ]; then
+  LEFT="fresh install; there is no v2 DB; see the plugin state line above for what was actually left"
+  RECOVER="Recovery: fix the cause and rerun this script (it takes the upgrade path if the plugin is now installed), or remove the plugin with 'bb plugin remove autarch'."
+else
+  LEFT="the plugin is left disabled on the unchanged v2 DB"
+  RECOVER="Recovery: run the restore from the root-owned copy, $(dirname "$(readlink -f "$0")")/home-restore-v2.sh --thread $THREAD --repo <Autarch checkout> [--backup <path>] (the backup path is in migration_log and bb.log), or retry this upgrade after fixing the cause."
+fi
+# Contain a failed install: bb registers a fresh plugin as enabled, so a failure can leave it enabled and retrying. The
+# only disable on the fresh path is this containment after a failure (never before the install); the state after it is
+# read back and reported, not assumed.
+contain() {
+  if [ "$MODE" = fresh ]; then
+    "${AS[@]}" "$BB" plugin disable autarch || say "plugin disable failed during containment"
+    plugin_state
+    say "plugin state after containment: $PSTATE"
+  else
+    "${AS[@]}" "$BB" plugin disable autarch || true
+  fi
+}
+# 2. Install the v3 build and enable it; the open migrates (quiesce, backup, verify, DDL) or, when fresh, creates the v3 schema.
+"${AS[@]}" "$BB" plugin install --yes "$PLUGIN" || { [ "$MODE" = fresh ] && contain; say "install failed; $LEFT"; exit 4; }
+"${AS[@]}" "$BB" plugin enable autarch || { contain; say "enable failed; $LEFT"; exit 5; }
+# 3. Report, and require success evidence: a healthy plugin status AND a v3 migration_log row (read as mk).
+# Enable can return before activation fails, so poll briefly; no evidence means failure (plan 1.3.9).
+if [ "$TEST" = 1 ]; then TRIES=2; WAIT=0; else TRIES=12; WAIT=5; fi
+STATUS=; MIGROW=; HEALTHY=0
+for _ in $(seq "$TRIES"); do
+  sleep "$WAIT"
+  plugin_state; STATUS=$PSTATE
+  MIGROW=$("${AS0[@]}" sqlite3 -readonly "$DATA/data.db" "select version, at, backup_path, digest from migration_log where version >= 3 order by version desc limit 1" 2>&1 || true)
+  HEALTHY=$PHEALTHY
+  [ "$HEALTHY" = 1 ] && printf '%s' "$MIGROW" | grep -Eq '^[0-9]+\|' && break
+done
+say "plugin status: $STATUS"
+say "migration_log: ${MIGROW:-no v3 row}"
 # The refusal markers are fixed tokens the plugin writes (backup.ts REFUSED_QUIESCE/REFUSED_BACKUP, logged by store.ts and
 # carried in the thrown error bb reports); the plain-text messages and the retry line are matched too, so a build that
 # predates the tokens, or a bb that rewraps the message, is still caught. The LAST matching line decides: an old
@@ -47,7 +92,17 @@ LOGLINE=$(printf '%s\n' "$LOGLINES" | tail -1)
 say "bb.log: ${LOGLINES:-no migration line found}"
 case "$LOGLINE" in
   *home-refused:*|*"another connection holds data.db"*|*"pre-migration backup not verified"*|*"store not ready, retrying"*)
-    "${AS[@]}" "$BB" plugin disable autarch || true
-    say "migration refused; plugin left disabled on the unchanged v2 DB. Re-enable the old build."
+    contain
+    say "migration refused; $LEFT. $RECOVER"
     exit 5 ;;
 esac
+if [ "$HEALTHY" != 1 ]; then
+  contain
+  say "plugin never became healthy after enable; $LEFT. $RECOVER"
+  exit 5
+fi
+if ! printf '%s' "$MIGROW" | grep -Eq '^[0-9]+\|'; then
+  contain
+  say "no v3 migration_log row after enable; $LEFT. $RECOVER"
+  exit 5
+fi

@@ -55,6 +55,9 @@ func buildAsk(raw []byte, thread, asker, projectRoot, project string) (homeask.A
 	if err := json.Unmarshal(raw, &m); err != nil {
 		return homeask.Ask{}, &usageError{"stdin is not a JSON object: " + err.Error()}
 	}
+	if m == nil { // JSON null unmarshals into a nil map without error
+		return homeask.Ask{}, &usageError{"stdin is not a JSON object: got null"}
+	}
 	if asker == "" {
 		if s, ok := m["asker"].(string); ok {
 			asker = s

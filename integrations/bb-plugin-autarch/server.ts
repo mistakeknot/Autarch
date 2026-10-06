@@ -26,7 +26,7 @@ import { ServeClient, tokenReader } from "./serve.js";
 import { CardWriter } from "./cardwrites.js";
 import { Queue } from "./queue.js";
 import { rootRun } from "./rootrun.js";
-import { buildQueue, setBinding } from "./queueview.js";
+import { buildQueue, removeBinding, setBinding } from "./queueview.js";
 import { Service } from "./service.js";
 import { TasksClient, type PluginsLike } from "./tasks.js";
 import { createStoreHandle, type Store, type StoreHandle } from "./store.js";
@@ -179,6 +179,35 @@ export function wireHome(bb: BbPluginApi, handle: StoreHandle, cfg: HomeConfig, 
   });
   bb.onDispose(() => parts?.svc.stop());
 
+  // The one write path for a binding, shared by mk's RPC and the vizier's CLI. `by` is logged on the event.
+  const applyBinding = async (i: { tasks_project_id: string; state: "confirmed" | "rejected"; home_project?: string }, by: string) => {
+    const p = need();
+    const known = (await p.svc.serveProjects()).map((x) => x.name);
+    const r = setBinding(p.store.db, i, { now: p.svc.time(), knownProjects: known, record: (type, detail) => p.store.recordEvent(type, null, { ...(detail as object), by }) });
+    if (r.ok) afterBindingChange(i.tasks_project_id);
+    return r;
+  };
+  const afterBindingChange = (tasksProjectId: string) => {
+    const p = need();
+    const ids = p.store.db.prepare("SELECT task_id FROM cards WHERE project_id = ?").all(tasksProjectId) as { task_id: string }[];
+    queueRef?.rebind(ids.map((x) => x.task_id));
+    p.caches.invalidate();
+    bb.realtime.publish("home-queue-changed", {});
+  };
+  const resolveTasksProject = async (ref: string): Promise<{ ok: true; id: string } | { ok: false; status: number; error: string }> => {
+    if (!tasksRef) return { ok: false, status: 503, error: "tasks unavailable" };
+    let projects;
+    try {
+      projects = await tasksRef.listProjects();
+    } catch {
+      return { ok: false, status: 503, error: "tasks unavailable" };
+    }
+    const hits = projects.filter((x) => x.id === ref || x.prefix.toLowerCase() === ref.toLowerCase() || x.name.toLowerCase() === ref.toLowerCase());
+    if (hits.length === 0) return { ok: false, status: 404, error: `no tasks project ${JSON.stringify(ref)}` };
+    if (hits.length > 1) return { ok: false, status: 400, error: `${JSON.stringify(ref)} matches ${hits.length} tasks projects; use the id` };
+    return { ok: true, id: hits[0]!.id };
+  };
+
   // ---- CLI ----------------------------------------------------------------------
   const lazy = <T extends object>(pick: (p: Parts) => T): T =>
     new Proxy({} as T, { get: (_t, k) => (pick(need()) as Record<string | symbol, unknown>)[k] });
@@ -188,6 +217,21 @@ export function wireHome(bb: BbPluginApi, handle: StoreHandle, cfg: HomeConfig, 
       asks: lazy((p) => p.asks),
       catchup: lazy((p) => p.catchup),
       rule: (id, option, reason, ctx) => need().dele.rule(id, option, reason, ctx),
+      bind: async (ref, home, by) => {
+        const t = await resolveTasksProject(ref);
+        if (!t.ok) return t;
+        const r = await applyBinding({ tasks_project_id: t.id, state: "confirmed", home_project: home }, by);
+        return r.ok ? { ok: true as const, tasks_project_id: t.id } : r;
+      },
+      unbind: async (ref, by) => {
+        const t = await resolveTasksProject(ref);
+        if (!t.ok) return t;
+        const p = need();
+        const r = removeBinding(p.store.db, { tasks_project_id: t.id }, { record: (type, detail) => p.store.recordEvent(type, null, { ...(detail as object), by }) });
+        if (!r.ok) return r;
+        afterBindingChange(t.id);
+        return { ok: true as const, tasks_project_id: t.id, was: r.was };
+      },
       isVizier: (t) => t !== undefined && parts !== null && parts.dele.settings().vizierThreadId === t,
     }),
   );
@@ -307,7 +351,13 @@ export function wireHome(bb: BbPluginApi, handle: StoreHandle, cfg: HomeConfig, 
     },
     async queue(i: { thread?: string }) {
       const p = need();
-      return { ...buildQueue(p.svc, p.asks, i.thread === undefined ? {} : { thread: i.thread }), status: queueRef?.status() ?? null };
+      let serveProjects: string[] = [];
+      try {
+        serveProjects = (await p.svc.serveProjects()).map((x) => x.name).sort();
+      } catch {
+        /* serve down: no picker choices until it is back */
+      }
+      return { ...buildQueue(p.svc, p.asks, i.thread === undefined ? {} : { thread: i.thread }), serve_projects: serveProjects, status: queueRef?.status() ?? null };
     },
     async rootRun(i: { task_id: string }) {
       const p = need();
@@ -325,20 +375,13 @@ export function wireHome(bb: BbPluginApi, handle: StoreHandle, cfg: HomeConfig, 
       }
     },
     async setBinding(i: { tasks_project_id: string; state: "confirmed" | "rejected"; home_project?: string }) {
-      const p = need();
-      const known = (await p.svc.serveProjects()).map((x) => x.name);
-      const r = setBinding(p.store.db, i, { now: p.svc.time(), knownProjects: known, record: (type, detail) => p.store.recordEvent(type, null, detail) });
-      if (r.ok) {
-        p.caches.invalidate();
-        bb.realtime.publish("home-queue-changed", {});
-      }
-      return r;
+      return applyBinding(i, MK);
     },
     async listRecent(i: { project: string; limit: number }) {
       return { recent: need().svc.recent(i.project, i.limit) };
     },
-    async pick(i: { decision_id: string; option_id: string; revision: string; pick_id: string; reason?: string }) {
-      return need().svc.pick(i.decision_id, i.option_id, i.revision, i.pick_id, MK, "home", i.reason);
+    async pick(i: { decision_id: string; option_id: string; revision: string; pick_id: string; reason?: string; surface?: "home" | "overlay" }) {
+      return need().svc.pick(i.decision_id, i.option_id, i.revision, i.pick_id, MK, i.surface ?? "home", i.reason);
     },
     async dismiss(i: { decision_id: string; obligation_id: string }) {
       return need().svc.dismiss(i.decision_id, i.obligation_id);

@@ -29,9 +29,28 @@ parse_common() {
   fi
 }
 
+# plugin_state: read Home's health from `bb plugin list --json` (this bb has no `plugin status`). Sets PSTATE (one report
+# line) and PHEALTHY=1 only for enabled=true and status=running, the real bb's two fields; anything else is unhealthy.
+plugin_state() {
+  local raw rc=0
+  raw=$("${AS[@]}" "$BB" plugin list --json 2>&1) || rc=$?
+  PHEALTHY=0; PSTATE=
+  if [ "$rc" != 0 ]; then
+    PSTATE="bb plugin list failed (exit $rc): $(printf '%s' "$raw" | head -c 200)"
+    return 0
+  fi
+  # Exact JSON types and values: enabled is the boolean true and status is exactly the string "running".
+  if printf '%s' "$raw" | jq -e '[.plugins[]? | select(.id == "autarch")] | length == 1 and (.[0].enabled == true) and (.[0].status == "running")' >/dev/null 2>&1; then PHEALTHY=1; fi
+  PSTATE=$(printf '%s' "$raw" | jq -r '[.plugins[]? | select(.id == "autarch")][0] // empty | "enabled=\(.enabled | tojson) status=\(.status | tojson) detail=\(.statusDetail | tojson)"' 2>/dev/null) || PSTATE=
+  [ -n "$PSTATE" ] || PSTATE="autarch is not in the plugin list: $(printf '%s' "$raw" | head -c 200)"
+}
+
 # common_setup <name>: identity, mk-command prefix, report file and the finish trap.
 common_setup() {
   NAME=$1
+  # bb.js spawns its child with cwd: process.cwd(); as root the caller's cwd is often /root, which mk cannot read (EACCES).
+  # Paths are required absolute (below), so leaving the caller's directory loses nothing.
+  cd / || exit 64
   DATA=$BBDATA/plugins/autarch
   if [ "$TEST" = 1 ]; then
     MKUID=$(id -u)
@@ -40,7 +59,7 @@ common_setup() {
     AS0=(env -i HOME="$MKHOME" USER="$MKNAME" LOGNAME="$MKNAME" PATH=/usr/bin:/bin XDG_RUNTIME_DIR=/run/user/$MKUID)
     BB=$BBDATA/npm/bin/bb
   else
-    [ "$(id -u)" -eq 0 ] || { echo "run as root: sudo $0 ..." >&2; exit 64; }
+    [ "$(id -u)" -eq 0 ] || { echo "run as root, from the root-owned copy" >&2; exit 64; }
     [ "$(hostname -s)" = zklw ] || { echo "zklw only" >&2; exit 64; }
     MKUID=$(id -u mk)
     AS0=(runuser -u mk -- env -i HOME=/home/mk USER=mk LOGNAME=mk PATH=/usr/bin:/bin XDG_RUNTIME_DIR=/run/user/$MKUID)
