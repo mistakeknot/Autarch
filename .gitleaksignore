@@ -1,6 +1,6 @@
 # Triaged gitleaks false positives. Each is a fingerprint of one finding; none is a live credential.
 
-# UUID card keys in plugin card fixtures (random identifiers, not credentials)
+# UUID card keys (and one escaped request description) in plugin card fixtures (not credentials)
 a68478865304eaf8fc1e10327a3c457294d73c49:integrations/bb-plugin-autarch/__tests__/fixtures/cards/blocks.json:generic-api-key:30
 a68478865304eaf8fc1e10327a3c457294d73c49:integrations/bb-plugin-autarch/__tests__/fixtures/cards/blocks.json:generic-api-key:69
 a68478865304eaf8fc1e10327a3c457294d73c49:integrations/bb-plugin-autarch/__tests__/fixtures/cards/blocks.json:generic-api-key:96
@@ -23,7 +23,7 @@ a68478865304eaf8fc1e10327a3c457294d73c49:integrations/bb-plugin-autarch/__tests_
 0fb86b7c42d815d13eb1b9d6590a64dbe059e069:cmd/mycroft/wiring_test.go:generic-api-key:85
 4578d1d0d7be39431cbcfd7bc1139666fad4095c:internal/serve/testutil_test.go:generic-api-key:10
 
-# sha256 semantic_key digests in the home-ask schema vectors (hashes)
+# sha256 semantic_key and revision hashes in the home-ask schema vectors and one card fixture (hashes)
 d9c339c036d1b83c892495b142648688f2fdd4c8:schema/home-ask/v1/vectors.json:generic-api-key:67
 d9c339c036d1b83c892495b142648688f2fdd4c8:schema/home-ask/v1/vectors.json:generic-api-key:94
 d9c339c036d1b83c892495b142648688f2fdd4c8:schema/home-ask/v1/vectors.json:generic-api-key:115
