@@ -8,6 +8,7 @@
 
 import { createHash } from "node:crypto";
 import { canonicalJson, normalizedJson, parseAsk, type Ask } from "./model.js";
+import { parseMove, type Move } from "./moves.js";
 
 export interface BlockRef {
   ref: string;
@@ -35,6 +36,8 @@ export interface Card {
   /** "mycroft" for a threadless card, otherwise "". */
   pull: "" | "mycroft";
   root_run: RootRun | null;
+  /** The optional home-move/v1 block: what mk owes. Never executed; commands are derived from its fields. */
+  move: Move | null;
   /** The home-ask/v2 object as written. */
   ask: Record<string, unknown>;
 }
@@ -70,12 +73,13 @@ export function parseCard(description: string): Card {
   const requests: string[] = [];
   const askBodies: string[] = [];
   const rootBodies: string[] = [];
+  const moveBodies: string[] = [];
 
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i]!;
     if (line.startsWith("```")) {
       const info = line.slice(3).trim();
-      const special = info === "home-ask" || info === "root-run";
+      const special = info === "home-ask" || info === "root-run" || info === "home-move";
       const body: string[] = [];
       let closed = false;
       for (i++; i < lines.length; i++) {
@@ -87,7 +91,7 @@ export function parseCard(description: string): Card {
       }
       if (special) {
         if (!closed) fail(`unterminated ${info} block`);
-        (info === "home-ask" ? askBodies : rootBodies).push(body.join("\n"));
+        (info === "home-ask" ? askBodies : info === "home-move" ? moveBodies : rootBodies).push(body.join("\n"));
         continue;
       }
       // An ordinary code fence is prose, and nothing inside it is a field.
@@ -116,7 +120,10 @@ export function parseCard(description: string): Card {
   if (rootBodies.length > 1) fail("more than one root-run block");
   const root_run = rootBodies.length === 1 ? parseRootRun(rootBodies[0]!) : null;
 
-  const card: Card = { question, blocks, request, pull, root_run, ask };
+  if (moveBodies.length > 1) fail("more than one home-move block");
+  const move = moveBodies.length === 1 ? parseMove(moveBodies[0]!) : null;
+
+  const card: Card = { question, blocks, request, pull, root_run, move, ask };
   // The ask must survive the unchanged rev-4 parser, so every v1 rule (approval tokens,
   // option bounds, ...) applies to a card. The thread is a stand-in: routing comes from
   // the card's comments, never from its text.
@@ -259,6 +266,8 @@ export function cardFingerprint(i: { title: string; card: Card; thread: string; 
     blocks: refs,
     ask,
     root_run: i.card.root_run,
+    // Only when present, so every fingerprint of a card without a move is unchanged.
+    ...(i.card.move ? { move: i.card.move } : {}),
     request: i.card.request,
     asking_thread: i.thread,
     tasks_project: i.tasksProject,

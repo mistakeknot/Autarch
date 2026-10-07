@@ -34,6 +34,7 @@ type stubBB struct {
 	card             bool // a card exists
 	commented        bool
 	thread           string
+	updated          [][]string
 }
 
 func (s *stubBB) run(_ context.Context, env []string, args ...string) homeask.BBResult {
@@ -51,6 +52,17 @@ func (s *stubBB) run(_ context.Context, env []string, args ...string) homeask.BB
 		return j(`{"status":"absent"}`)
 	case "tasks label list":
 		return j(`{"labels":[{"name":"needs-mk"}]}`)
+	case "tasks label create":
+		return j(`{"label":{"name":"mk-move"}}`)
+	case "tasks update T1":
+		for i, a := range args {
+			if a == "--description-file" {
+				b, _ := os.ReadFile(args[i+1])
+				s.desc = string(b)
+			}
+		}
+		s.updated = append(s.updated, args)
+		return j(`{"task":{"id":"T1"}}`)
 	case "tasks project list":
 		return j(`{"projects":[{"id":"P1","name":"P1"}]}`)
 	case "tasks list --project":
@@ -270,5 +282,89 @@ func TestNeedsMkFileRefusesAnUnresolvedRoot(t *testing.T) {
 	}
 	if len(s.calls) != 0 {
 		t.Fatalf("bb was called: %v", s.calls)
+	}
+}
+
+func writeMove(t *testing.T, body string) string {
+	p := filepath.Join(t.TempDir(), "move.json")
+	os.WriteFile(p, []byte(body), 0o644)
+	return p
+}
+
+const prMoveJSON = `{"schema":"home-move/v1","kind":"pr","pr":{"url":"https://github.com/o/r/pull/12"}}`
+
+func TestNeedsMkFileMoveWithoutAskFileSynthesizesARulingOnlyAsk(t *testing.T) {
+	t.Setenv("BB_THREAD_ID", "thr_x")
+	s := &stubBB{}
+	out, err := runNeedsMk(t, s, "file", "--project", "P1", "--title", "Merge the fix", "--move", writeMove(t, prMoveJSON))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var res homeask.CardResult
+	if json.Unmarshal([]byte(out), &res) != nil || res.ID != "T1" {
+		t.Fatalf("out=%q", out)
+	}
+	c, err := homeask.ParseCard(s.desc)
+	if err != nil || c.Move == nil || c.Move.Kind != "pr" {
+		t.Fatalf("desc=%q err=%v", s.desc, err)
+	}
+	if !strings.Contains(s.desc, `"kind":"ruling-only"`) || strings.Contains(s.desc, "needs-context") {
+		t.Fatalf("the synthesized ask is not ruling-only: %s", s.desc)
+	}
+	labels := 0
+	for _, c := range s.calls {
+		if strings.HasPrefix(strings.Join(c, " "), "tasks create") {
+			for i, a := range c {
+				if a == "--label" && c[i+1] == "mk-move" {
+					labels++
+				}
+			}
+		}
+	}
+	if labels != 1 {
+		t.Fatalf("the card was not created with the mk-move label: %v", s.calls)
+	}
+}
+
+func TestNeedsMkFileRefusesABadMoveBeforeAnyCall(t *testing.T) {
+	t.Setenv("BB_THREAD_ID", "thr_x")
+	for name, body := range map[string]string{
+		"not json":      "run it",
+		"unknown field": `{"schema":"home-move/v1","kind":"pr","pr":{"url":"https://github.com/o/r/pull/1"},"cmd":"x"}`,
+		"bad pr":        `{"schema":"home-move/v1","kind":"pr","pr":{"url":"https://example.com/x"}}`,
+		"shell arg":     `{"schema":"home-move/v1","kind":"script","script":{"path":"/a/b","sha256":"` + strings.Repeat("a", 64) + `","args":["$(id)"]}}`,
+	} {
+		s := &stubBB{}
+		_, err := runNeedsMk(t, s, "file", "--project", "P1", "--title", "T", "--move", writeMove(t, body))
+		var ue *usageError
+		if !errors.As(err, &ue) || len(s.calls) != 0 {
+			t.Fatalf("%s: err=%v calls=%v", name, err, s.calls)
+		}
+	}
+}
+
+func TestNeedsMkAdoptMoveAttachesAndRepeats(t *testing.T) {
+	t.Setenv("BB_THREAD_ID", "thr_x")
+	s := &stubBB{}
+	if _, err := runNeedsMk(t, s, "file", "--project", "P1", "--title", "Ship?", "--ask-file", writeAsk(t)); err != nil {
+		t.Fatal(err)
+	}
+	out, err := runNeedsMk(t, s, "adopt-move", "--card", "T1", "--move", writeMove(t, prMoveJSON))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out, `"replay":false`) || len(s.updated) != 1 {
+		t.Fatalf("out=%q updated=%v", out, s.updated)
+	}
+	if c, err := homeask.ParseCard(s.desc); err != nil || c.Move == nil {
+		t.Fatalf("desc=%q err=%v", s.desc, err)
+	}
+	out, err = runNeedsMk(t, s, "adopt-move", "--card", "T1", "--move", writeMove(t, prMoveJSON))
+	if err != nil || !strings.Contains(out, `"replay":true`) || len(s.updated) != 1 {
+		t.Fatalf("repeat: out=%q err=%v updated=%d", out, err, len(s.updated))
+	}
+	t.Setenv("BB_THREAD_ID", "")
+	if _, err := runNeedsMk(t, s, "adopt-move", "--card", "T1", "--move", writeMove(t, prMoveJSON)); err == nil {
+		t.Fatal("adopt without a thread succeeded")
 	}
 }

@@ -1,6 +1,6 @@
 // The blocks panel (plan 1.4): open card generations across all tasks projects, then the legacy group.
 // The server sorts and pins (queueview.ts); this file only renders, and owns the refresh policy.
-import { AskCard, type OnPick, type OwedAsk, type RunbookGroup } from "./asks.js";
+import { AskCard, type OnNote, type OnPick, type OwedAsk, type RunbookGroup } from "./asks.js";
 import { RootRunSection, type RootRunPanelView } from "./rootrun.js";
 
 export type QueueRowView = {
@@ -55,6 +55,11 @@ export function ageText(createdAt: string, nowMs: number): string {
   return `${s} s`;
 }
 
+/** A card whose project has no verified root cannot be ruled from Home: it goes to the Unbound projects group. */
+export function isUnbound(row: QueueRowView): boolean {
+  return row.root.state !== "verified";
+}
+
 /** Split the rows into the pinned group ("this thread") and the rest, preserving server order. */
 export function groupRows(rows: QueueRowView[]): { pinned: QueueRowView[]; rest: QueueRowView[] } {
   return { pinned: rows.filter((r) => r.pinned), rest: rows.filter((r) => !r.pinned) };
@@ -101,7 +106,7 @@ function RootRunControl({ taskId, hooks }: { taskId: string; hooks: RootRunHooks
   return <RootRunSection view={v} />;
 }
 
-export function BlocksRow({ row, nowMs, onPick, onOpen, rootRun, onBind }: { row: QueueRowView; nowMs: number; onPick: Pick; onOpen: (thread: string) => void; rootRun?: RootRunHooks; onBind?: OnBind }) {
+export function BlocksRow({ row, nowMs, onPick, onOpen, rootRun, onBind, onNote }: { row: QueueRowView; nowMs: number; onPick: Pick; onOpen: (thread: string) => void; rootRun?: RootRunHooks; onBind?: OnBind; onNote?: OnNote }) {
   const meta = [row.card_key, row.project, row.thread ? `owner ${row.thread}` : "owner unknown", `age ${ageText(row.created_at, nowMs)}`, `blocks ${row.blocks_count}`].filter((x) => x !== null && x !== "").join(" - ");
   return (
     <article className="rounded-lg border border-border bg-card p-3" data-row={row.id} data-pinned={row.pinned ? "true" : "false"}>
@@ -127,9 +132,11 @@ export function BlocksRow({ row, nowMs, onPick, onOpen, rootRun, onBind }: { row
         </div>
       ) : row.ask !== null && row.decision_id !== null && row.revision !== null ? (
         <AskCard
-          ask={{ id: row.decision_id, project: row.project ?? "", thread: row.thread ?? "", subject: row.title, asker: "card", filed_at: row.created_at, revision: row.revision, mentions: row.mentions, ask: row.ask }}
+          ask={{ id: row.decision_id, project: row.project ?? "", thread: row.thread ?? "", subject: row.title, asker: "card", filed_at: row.created_at, revision: row.revision, mentions: row.mentions, task_id: row.task_id, ask: row.ask }}
           onPick={onPick}
           onOpen={onOpen}
+          unbound={isUnbound(row)}
+          {...(onNote ? { onNote } : {})}
         />
       ) : null}
       <RootSection root={row.root} />
@@ -167,21 +174,30 @@ export function LegacyGroup({ legacy, onPick, onOpen }: { legacy: LegacyView; on
   );
 }
 
-export function BlocksPanel({ data, nowMs, thread, onPick, onOpen, rootRun, onBind }: { data: QueueView; nowMs: number; thread?: string; onPick: Pick; onOpen: (thread: string) => void; rootRun?: RootRunHooks; onBind?: OnBind }) {
-  const { pinned, rest } = groupRows(data.rows);
+export function BlocksPanel({ data, nowMs, thread, onPick, onOpen, rootRun, onBind, onNote }: { data: QueueView; nowMs: number; thread?: string; onPick: Pick; onOpen: (thread: string) => void; rootRun?: RootRunHooks; onBind?: OnBind; onNote?: OnNote }) {
+  const unbound = data.rows.filter(isUnbound);
+  const { pinned, rest } = groupRows(data.rows.filter((r) => !isUnbound(r)));
+  const row = (r: QueueRowView) => <BlocksRow key={r.id} row={r} nowMs={nowMs} onPick={onPick} onOpen={onOpen} {...(rootRun ? { rootRun } : {})} {...(onBind ? { onBind } : {})} {...(onNote ? { onNote } : {})} />;
   if (data.rows.length === 0 && data.legacy.count === 0) return <p className="p-4 text-sm text-muted-foreground">Nothing is blocking.</p>;
   return (
     <div className="space-y-6 p-4" data-panel="blocks">
       {pinned.length > 0 ? (
         <section data-section="this-thread">
           <h2 className="mb-2 text-xs font-semibold uppercase text-muted-foreground">{thread ? "This thread" : "Pinned"}</h2>
-          <div className="space-y-3">{pinned.map((r) => <BlocksRow key={r.id} row={r} nowMs={nowMs} onPick={onPick} onOpen={onOpen} {...(rootRun ? { rootRun } : {})} {...(onBind ? { onBind } : {})} />)}</div>
+          <div className="space-y-3">{pinned.map(row)}</div>
         </section>
       ) : null}
       {rest.length > 0 ? (
         <section data-section="blocking">
           <h2 className="mb-2 text-xs font-semibold uppercase text-muted-foreground">Blocking</h2>
-          <div className="space-y-3">{rest.map((r) => <BlocksRow key={r.id} row={r} nowMs={nowMs} onPick={onPick} onOpen={onOpen} {...(rootRun ? { rootRun } : {})} {...(onBind ? { onBind } : {})} />)}</div>
+          <div className="space-y-3">{rest.map(row)}</div>
+        </section>
+      ) : null}
+      {unbound.length > 0 ? (
+        <section data-section="unbound-projects">
+          <h2 className="mb-2 text-xs font-semibold uppercase text-muted-foreground">{`Unbound projects (${unbound.length})`}</h2>
+          <p className="mb-2 text-xs text-muted-foreground">These cards belong to a project with no verified root. Home shows them but cannot record a ruling on them, so there are no pick buttons. Bind the project, or use Ask / note to talk to the owner.</p>
+          <div className="space-y-3">{unbound.map(row)}</div>
         </section>
       ) : null}
       <LegacyGroup legacy={data.legacy} onPick={onPick} onOpen={onOpen} />

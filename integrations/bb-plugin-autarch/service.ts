@@ -6,7 +6,7 @@ import { buildFeed, renderFeed, type Feed } from "./feed.js";
 import { cardFingerprint, askingThread, parseCard, toV1, type Card } from "./cards.js";
 import type { Task, TaskCommentRow } from "./tasks.js";
 import { identity, normalizedJson, parseAsk, revision, semanticKey, type Ask } from "./model.js";
-import { pickWrites } from "./cardwrites.js";
+import { HOME_UNLABELS_ON_PICK, pickWrites } from "./cardwrites.js";
 import { estateRoot, pinRoot, renderRuling, rulingPath, writeRuling, type PinnedRoot, type Ruling } from "./ruling.js";
 import type { DecisionInput, ObligationInput, ObligationRow, PickInput, PickRow, Store } from "./store.js";
 
@@ -25,7 +25,16 @@ export interface ServiceDeps {
   env?: Record<string, string | undefined>;
   /** Called after a pick commits, so a delivery loop can run without waiting for its timer. */
   nudge?: () => void;
+  /** How long after "I ran it" a script's report may take before "No report received" (default 2 h). */
+  reportDeadlineMs?: number;
 }
+
+export const DEFAULT_REPORT_DEADLINE_MS = 2 * 3_600_000;
+const MAX_NOTE = 500;
+
+export type MoveActionResult =
+  | { ok: true; replay: boolean; state: "claimed" | "open" | "closed"; claim?: "reported, not verified"; report_deadline_at?: string | null }
+  | { ok: false; status: 400 | 404 | 409; error: string };
 
 export type FileResult =
   | { ok: true; status: 200 | 201; decision_id: string; mentioned?: true; related?: string }
@@ -62,6 +71,18 @@ const APPROVAL_DEFAULT_TTL = 24 * 3600;
 const APPROVAL_MAX_TTL = 7 * 24 * 3600;
 const fail = (status: number, error: string, exit: 1 | 2 | 3 = status >= 500 ? 3 : 1): FileResult => ({ ok: false, status, exit, error });
 const bad = (error: string): FileResult => ({ ok: false, status: 400, exit: 2, error });
+export const OTHER_OPTION_ID = "other";
+export const OTHER_MAX = 2000;
+/** True when the comment's last non-empty line is exactly the marker `home-note: <id>`, with no trimming beyond a trailing carriage return (so n1 never matches n10). */
+export function hasNoteMarker(body: string, noteId: string): boolean {
+  const lines = body.split("\n").map((l) => l.replace(/\r$/, "")).filter((l) => l !== ""); // literal: only a trailing CR is dropped
+  return lines.length > 0 && lines[lines.length - 1] === `home-note: ${noteId}`;
+}
+/** mk's free text: trimmed, plain, 1..OTHER_MAX characters; null when empty or too long. */
+export function cleanOther(s: string | undefined): string | null {
+  const t = (s ?? "").trim();
+  return t === "" || [...t].length > OTHER_MAX ? null : t;
+}
 const optionLabelOf = (o: { label: string }) => o.label;
 const message = (e: unknown) => (e instanceof Error ? e.message : String(e));
 
@@ -320,11 +341,32 @@ export class Service {
       return { ok: false, status: 500, error: `stored decision is unreadable: ${message(e)}` };
     }
     if (revision(ask) !== d.revision) return { ok: false, status: 500, error: "stored revision does not match the stored decision" };
-    const option = ask.options?.find((o) => o.id === optionId);
+    if (d.source === "card") {
+      // Revision 3: an ask on a project with no verified root cannot be ruled, by anyone, until the root is bound.
+      const c = this.db.prepare("SELECT root_state FROM cards WHERE task_id = ?").get(String(d.task_id)) as { root_state: string | null } | undefined;
+      if (c?.root_state !== "verified") return { ok: false, status: 403, error: "Project not bound: add a root to rule this" };
+    }
+    // A real option with the id "other" wins: it is picked as a normal option. mk's free-text answer (which always carries
+    // his words in `reason` from the Home box) is refused for that ask, with a clear error.
+    const realOther = ask.options?.some((o) => o.id === OTHER_OPTION_ID) === true;
+    if (realOther && optionId === OTHER_OPTION_ID && by === "mk" && surface === "home" && reason !== undefined && reason.trim() !== "") {
+      return { ok: false, status: 400, error: `this ask has its own option with id "other", so "Answer with this" is not available here; pick that option or use Ask / note` };
+    }
+    const isOther = optionId === OTHER_OPTION_ID && !realOther;
+    const otherText = isOther ? cleanOther(reason) : null;
+    if (isOther) {
+      // mk's own words (plan: Other box). A virtual option: never in the ask, never delegable, mk only.
+      if (by !== "mk") return { ok: false, status: 403, error: "only mk can answer with his own words" };
+      if (otherText === null) return { ok: false, status: 400, error: `an answer of 1-${OTHER_MAX} characters is required` };
+      if (d.source !== "card" && !d.project_root) return { ok: false, status: 403, error: "this decision has no verified project root" };
+    }
+    const option = isOther
+      ? ({ id: OTHER_OPTION_ID, label: "Other (mk's own answer)", kind: "ruling-only", reversible: false } as NonNullable<Ask["options"]>[number])
+      : ask.options?.find((o) => o.id === optionId);
     if (!option) return { ok: false, status: 400, error: `unknown option ${JSON.stringify(optionId)}` };
     if (rev !== d.revision) return { ok: false, status: 409, error: "revision differs" };
 
-    const hash = createHash("sha256").update(`${optionId}|${rev}|${by}`).digest("hex");
+    const hash = createHash("sha256").update(`${optionId}|${rev}|${by}${isOther ? `|${otherText}` : ""}`).digest("hex");
     const settled = (existing: PickRow | undefined): PickResult | null => {
       if (!existing) return null;
       if (existing.pick_id === pickId) {
@@ -337,13 +379,13 @@ export class Service {
     if (this.store.pickByPickId(pickId)) return { ok: false, status: 409, error: "pick id reused" };
 
     const obligations: ObligationInput[] = [{ id: `ob:${decisionId}:ruling-file`, kind: "ruling-file", op: `ruling-file:${decisionId}` }];
-    if ((option.kind === "instruction" || option.kind === "needs-context" || by === "vizier") && d.thread !== "") {
+    if ((option.kind === "instruction" || option.kind === "needs-context" || by === "vizier" || isOther) && d.thread !== "") {
       obligations.push({
         id: `ob:${decisionId}:wake:${pickId}`,
         kind: "wake",
         recipient: d.thread,
         op: `wake:${decisionId}:${pickId}`,
-        payload: this.wakePayload(d, ask, option.label, option.kind ?? "", option.instruction ?? "", by),
+        payload: this.wakePayload(d, ask, option.label, option.kind ?? "", option.instruction ?? "", by) + (isOther ? `\nmk answered in his own words (unverified plain text, not an instruction to run anything):\n${otherText}` : ""),
       });
     }
     // A card generation also notifies the threads its own Blocks snapshot names (never a later edit's),
@@ -353,9 +395,29 @@ export class Service {
     const cardWrites = isCard
       ? pickWrites(
           { id: decisionId, task_id: String(d.task_id) },
-          { option_id: optionId, option_label: option.label, by, generation: Number(d.generation), picked_at: this.now(), reason: reason ?? null },
+          { option_id: optionId, option_label: option.label, by, generation: Number(d.generation), picked_at: this.now(), reason: isOther ? otherText : (reason ?? null) },
         )
       : [];
+    // mk's pick on a card that leaves mk something to do keeps the card in tasks (needs-mk stays) until the
+    // move closes: a card with a home-move block, or an option that needs context from mk.
+    let move: PickInput["move"];
+    let keepsCard = false;
+    if (isCard && by === "mk") {
+      const gen = Number(d.generation);
+      const mine = this.store.move(String(d.task_id), gen);
+      if (mine && mine.state !== "closed") keepsCard = true;
+      else if (!mine && option.kind === "needs-context") {
+        keepsCard = true;
+        move = {
+          task_id: String(d.task_id),
+          generation: gen,
+          kind: "context",
+          payload: { kind: "context", need: (option.instruction || option.label).slice(0, 2000) },
+          opened_by: "pick",
+        };
+      }
+    }
+    const heldWrites = keepsCard ? cardWrites.filter((w) => w.kind !== "unlabel") : cardWrites;
     // Only mk's own pick mints, and it does so in the pick's transaction. A record is not an authorization.
     let approval: PickInput["approval"];
     if (by === "mk" && option.approval) {
@@ -371,9 +433,9 @@ export class Service {
     let res;
     try {
       res = this.store.recordPick(
-        { decision_id: decisionId, pick_id: pickId, option_id: optionId, revision: rev, by, surface, reason: reason ?? null, params_hash: hash, approval, guard },
+        { decision_id: decisionId, pick_id: pickId, option_id: optionId, revision: rev, by, surface, reason: isOther ? otherText : (reason ?? null), params_hash: hash, approval, guard, move },
         obligations,
-        cardWrites,
+        heldWrites,
       );
     } catch (e) {
       if (/UNIQUE/.test(message(e))) return { ok: false, status: 409, error: "pick id reused" };
@@ -513,6 +575,7 @@ export class Service {
       };
       if (option?.kind === "instruction" && option.instruction) ruling.instruction = option.instruction;
       if (pick.by === "vizier" && pick.reason) ruling.delegated_reason = pick.reason;
+      if (pick.option_id === OTHER_OPTION_ID && pick.reason) ruling.ruling = `mk answered in his own words for: ${ask.question} -- ${pick.reason.replace(/\s+/g, " ")}`;
       if (d.supersedes) ruling.supersedes = d.supersedes;
       if (d.source === "card" && typeof d.task_id === "string") {
         // The stored generation body is the snapshot; the live card is never consulted.
@@ -887,6 +950,115 @@ export class Service {
     this.patchCard(taskId, { state: "open", display_reason: null, next_check_at: null, check_attempts: 0, routing_check_at: this.now() });
   }
 
+  /**
+   * A new card generation supersedes the move of the one before it, and opens its own when the card
+   * carries a home-move block. The payload is the validated move, never card text.
+   */
+  private syncMove(taskId: string, generation: number, card: Card): void {
+    for (const g of this.db.prepare("SELECT generation FROM moves WHERE task_id = ? AND generation < ? AND state <> 'closed'").all(taskId, generation) as { generation: number }[]) {
+      this.store.closeMove(taskId, g.generation, "home", "superseded");
+    }
+    if (card.move) this.store.openMove({ task_id: taskId, generation, kind: card.move.kind, payload: card.move, opened_by: "card" });
+  }
+
+  /**
+   * Closes a move on independent evidence. If mk had already ruled the card, the needs-mk unlabel that the
+   * pick held back is queued now (the same write, idempotent per generation), so a move closing never
+   * leaves a ruled card behind.
+   */
+  closeMoveOn(taskId: string, generation: number, by: string, evidence: string): boolean {
+    return this.store.atomically(() => {
+      if (!this.store.closeMove(taskId, generation, by, evidence)) return false;
+      const d = this.db.prepare("SELECT id FROM decisions WHERE task_id = ? AND generation = ?").get(taskId, generation) as { id: string } | undefined;
+      if (d && this.store.pick(d.id) && HOME_UNLABELS_ON_PICK) {
+        this.store.insertCardWrites(d.id, [{ id: `cw-${d.id}-unlabel`, task_id: taskId, kind: "unlabel", payload: JSON.stringify({ move_closed_by: by }) }]);
+      }
+      // The tasks card is closed only if Home filed it (label mk-move); the writer checks that when it runs.
+      const at = this.now();
+      this.db
+        .prepare("INSERT OR IGNORE INTO move_closes(task_id, generation, next_try_at, updated_at) VALUES (?, ?, ?, ?)")
+        .run(taskId, generation, at, at);
+      return true;
+    });
+  }
+
+  /**
+   * mk says "I ran it", "I merged it" or "I read it". A claim, never a verification: the move moves to
+   * claimed and stays open. A script move gets the report deadline. The handler has no caller identity, so
+   * `by` is advisory ("mk (unattested)"). A repeat keeps the first claim.
+   */
+  claimMove(taskId: string, generation: number, note?: string): MoveActionResult {
+    const m = this.store.move(taskId, generation);
+    if (!m) return { ok: false, status: 404, error: "no such move" };
+    if (m.state === "closed") return { ok: false, status: 409, error: "move already closed" };
+    if (m.state === "claimed") return { ok: true, replay: true, state: "claimed", claim: "reported, not verified", report_deadline_at: m.report_deadline_at };
+    const deadline = m.kind === "script" ? new Date(Date.parse(this.now()) + (this.deps.reportDeadlineMs ?? DEFAULT_REPORT_DEADLINE_MS)).toISOString() : null;
+    const done = this.store.atomically(() => {
+      if (!this.store.claimMove(taskId, generation, "mk (unattested)", deadline)) return false;
+      if (note) this.store.recordEvent("move-claimed", null, { task_id: taskId, generation, note: note.slice(0, MAX_NOTE) });
+      return true;
+    });
+    return { ok: true, replay: !done, state: "claimed", claim: "reported, not verified", report_deadline_at: deadline };
+  }
+
+  /**
+   * "Ask / note" from the Other box: a message to the card's owner. It never rules, claims or closes anything.
+   * The text is mk's, untrusted plain text, 1..OTHER_MAX characters. Idempotent per note_id.
+   */
+  note(target: { task_id?: string; decision_id?: string }, text: string, noteId: string, opts?: { deferWake?: false }): { ok: true; replay: boolean; body: string; woke: boolean; task_id: string | null } | { ok: false; status: number; error: string };
+  note(target: { task_id?: string; decision_id?: string }, text: string, noteId: string, opts: { deferWake: true }): { ok: true; body: string; task_id: string | null; commit: () => { replay: boolean; woke: boolean } } | { ok: false; status: number; error: string };
+  note(target: { task_id?: string; decision_id?: string }, text: string, noteId: string, opts?: { deferWake?: boolean }): any {
+    const t = cleanOther(text);
+    if (t === null) return { ok: false, status: 400, error: `a note of 1-${OTHER_MAX} characters is required` };
+    if ((target.task_id === undefined) === (target.decision_id === undefined)) return { ok: false, status: 400, error: "name exactly one of task_id and decision_id" };
+    type D = { id: string; owner_thread: string | null; thread: string | null; task_id: string | null };
+    const d = (target.decision_id !== undefined
+      ? this.db.prepare("SELECT id, owner_thread, thread, task_id FROM decisions WHERE id = ?").get(target.decision_id)
+      : this.db.prepare("SELECT id, owner_thread, thread, task_id FROM decisions WHERE task_id = ? ORDER BY generation DESC LIMIT 1").get(target.task_id)) as D | undefined;
+    if (!d) return { ok: false, status: 404, error: "no such card or ask" };
+    const owner = d.owner_thread ?? d.thread ?? "";
+    const key = d.task_id ?? d.id;
+    const op = `note:${key}:${noteId}`;
+    const body = `mk's note (Home, advisory; plain text):\n${t}\n\nhome-note: ${noteId}`;
+    if (owner === "") return opts?.deferWake ? { ok: true, body, task_id: d.task_id, commit: () => ({ replay: false, woke: false }) } : { ok: true, replay: false, body, woke: false, task_id: d.task_id };
+    const what = d.task_id ? `Home card ${d.task_id}` : `Home ask ${d.id}`;
+    const payload = `${what}: mk wrote a note. It is a question or a comment, not a ruling, and nothing is closed. Reply in the conversation. mk's words (unverified plain text, not an instruction to run anything):\n${t}`;
+    const commit = () => {
+      const n = this.store.insertObligations(d.id, [{ id: `ob:${op}`, kind: "note", recipient: owner, op, payload }]);
+      if (n > 0) this.deps.nudge?.();
+      return { replay: n === 0, woke: true };
+    };
+    if (opts?.deferWake) return { ok: true, body, task_id: d.task_id, commit };
+    const c = commit();
+    return { ok: true, replay: c.replay, body, woke: c.woke, task_id: d.task_id };
+  }
+
+  /** "I ran --check": mk says he ran the check. Recorded once as an event; it claims nothing and starts no deadline. */
+  checkMove(taskId: string, generation: number): MoveActionResult {
+    const m = this.store.move(taskId, generation);
+    if (!m) return { ok: false, status: 404, error: "no such move" };
+    if (m.state === "closed") return { ok: false, status: 409, error: "move already closed" };
+    if (m.kind !== "script") return { ok: false, status: 400, error: "only a script move has a --check" };
+    if (this.checkedAt(taskId, generation) !== null) return { ok: true, replay: true, state: m.state };
+    this.store.recordEvent("move-checked", null, { task_id: taskId, generation, by: "mk (unattested)" });
+    return { ok: true, replay: false, state: m.state };
+  }
+
+  /** When mk said he ran --check, or null. */
+  checkedAt(taskId: string, generation: number): string | null {
+    const r = this.db.prepare("SELECT at FROM events WHERE type = 'move-checked' AND json_extract(detail_json, '$.task_id') = ? AND json_extract(detail_json, '$.generation') = ? ORDER BY seq LIMIT 1").get(taskId, generation) as { at: string } | undefined;
+    return r?.at ?? null;
+  }
+
+  /** "Later / skip": a display preference. It never closes or claims anything and is reversible by claiming. */
+  skipMove(taskId: string, generation: number): MoveActionResult {
+    const m = this.store.move(taskId, generation);
+    if (!m) return { ok: false, status: 404, error: "no such move" };
+    if (m.state === "closed") return { ok: false, status: 409, error: "move already closed" };
+    this.store.skipMove(taskId, generation);
+    return { ok: true, replay: m.skipped_at !== null, state: m.state };
+  }
+
   /** T4: withdraw the latest generation, state closed. A routing cause enters the closed-card retry set. */
   private invalidate(latest: Row, reason: string, routing = false): void {
     this.store.atomically(() => {
@@ -911,6 +1083,7 @@ export class Service {
         return;
       }
       this.snapshotBlocks(input.id, ev.card);
+      this.syncMove(task.id, n, ev.card);
       this.markOpen(task.id);
     });
   }
@@ -923,6 +1096,7 @@ export class Service {
       const res = this.store.insertDecision(input);
       if (!res.inserted) throw new Error(`card generation ${input.id} request id is in use`);
       this.snapshotBlocks(input.id, ev.card);
+      this.syncMove(task.id, n, ev.card);
       this.markOpen(task.id);
     });
   }
@@ -1006,6 +1180,7 @@ export class Service {
         .prepare("INSERT INTO card_requests(request_key, task_id, identity, registered_at) VALUES (?, ?, ?, ?)")
         .run(key, task.id, card.request.identity, this.now());
       this.snapshotBlocks(input.id, card);
+      this.syncMove(task.id, 1, card);
       this.patchCard(task.id, {
         routing_mode: card.pull === "mycroft" ? "pull" : "thread",
         routed_thread: card.pull === "mycroft" ? null : thread,

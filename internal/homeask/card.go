@@ -50,6 +50,7 @@ type Card struct {
 	// Pull is "mycroft" for a threadless card, otherwise "".
 	Pull    string         `json:"pull"`
 	RootRun *RootRun       `json:"root_run"`
+	Move    *Move          `json:"-"` // the optional home-move/v1 block; never executed
 	Ask     map[string]any `json:"-"` // the home-ask/v2 object as written
 }
 
@@ -89,12 +90,13 @@ func ParseCard(description string) (Card, error) {
 		requests   []string
 		askBodies  []string
 		rootBodies []string
+		moveBodies []string
 	)
 	for i := 0; i < len(lines); i++ {
 		line := lines[i]
 		if strings.HasPrefix(line, "```") {
 			info := strings.TrimSpace(line[3:])
-			special := info == "home-ask" || info == "root-run"
+			special := info == "home-ask" || info == "root-run" || info == "home-move"
 			var body []string
 			closed := false
 			for i++; i < len(lines); i++ {
@@ -110,6 +112,8 @@ func ParseCard(description string) (Card, error) {
 				}
 				if info == "home-ask" {
 					askBodies = append(askBodies, strings.Join(body, "\n"))
+				} else if info == "home-move" {
+					moveBodies = append(moveBodies, strings.Join(body, "\n"))
 				} else {
 					rootBodies = append(rootBodies, strings.Join(body, "\n"))
 				}
@@ -176,6 +180,18 @@ func ParseCard(description string) (Card, error) {
 		c.RootRun = rr
 	default:
 		return Card{}, errors.New("more than one root-run block")
+	}
+
+	switch len(moveBodies) {
+	case 0:
+	case 1:
+		mv, err := ParseMove(moveBodies[0])
+		if err != nil {
+			return Card{}, err
+		}
+		c.Move = &mv
+	default:
+		return Card{}, errors.New("more than one home-move block")
 	}
 
 	// The ask must survive the unchanged rev-4 parser, so every v1 rule (approval

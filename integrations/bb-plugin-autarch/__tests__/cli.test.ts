@@ -358,3 +358,61 @@ describe("bb home bind / unbind (vizier only, logged)", () => {
     expect(res.stderr).toMatch(/not available/);
   });
 });
+
+describe("bb home handoff", () => {
+  const handoffCli = (isVizier: (t: string | undefined) => boolean) => {
+    const calls: { to: string; ctx: { threadId?: string } }[] = [];
+    const cli = homeCli({
+      svc,
+      asks: new Asks(svc),
+      catchup: new Catchup(svc, dele),
+      rule: (id, option, reason, ctx) => dele.rule(id, option, reason, ctx),
+      isVizier,
+      handoff: async (to, ctx) => {
+        calls.push({ to, ctx });
+        return ctx.threadId === "thr_old" ? { ok: true as const, from: "thr_old", to } : { ok: false as const, status: 403, error: "only the vizier thread may hand off" };
+      },
+    });
+    return { calls, run: (argv: string[], ctx: { threadId?: string } = {}) => Promise.resolve(cli.run(argv, ctx)) };
+  };
+
+  it("passes the caller's thread and prints the move; a refusal carries its message", async () => {
+    const h = handoffCli(() => false);
+    const ok = await h.run(["handoff", "thr_new"], { threadId: "thr_old" });
+    expect(ok.exitCode).toBe(0);
+    expect(JSON.parse(ok.stdout!)).toEqual({ ok: true, from: "thr_old", to: "thr_new" });
+    const no = await h.run(["handoff", "thr_new"], { threadId: "thr_x" });
+    expect(no.exitCode).not.toBe(0);
+    expect(no.stderr).toMatch(/only the vizier thread may hand off/);
+    expect(h.calls.map((c) => c.ctx.threadId)).toEqual(["thr_old", "thr_x"]);
+  });
+
+  it("an awaited async isVizier gates bind, unbind, rule and note", async () => {
+    const h = handoffCli(() => false);
+    for (const argv of [["rule", "d1", "o", "--reason", "r"], ["note", "hello"]]) {
+      const r = await h.run(argv, { threadId: "thr_x" });
+      expect(r.exitCode).toBe(1);
+      expect(r.stderr).toMatch(/only the vizier/);
+    }
+  });
+
+  it("note rechecks the stored vizier right before writing: a handoff during the async check ends its authority", async () => {
+    let stored = "thr_old";
+    const cli = homeCli({
+      svc,
+      asks: new Asks(svc),
+      catchup: new Catchup(svc, dele),
+      rule: (id, option, reason, ctx) => dele.rule(id, option, reason, ctx),
+      isVizier: async (t) => {
+        await Promise.resolve();
+        const ok = t === stored;
+        stored = "thr_new"; // the handoff lands after the check resolves
+        return ok;
+      },
+      stillVizier: (t) => t === stored,
+    });
+    const r = await Promise.resolve(cli.run(["note", "hello"], { threadId: "thr_old" }));
+    expect(r.exitCode).toBe(1);
+    expect(r.stderr).toMatch(/only the vizier/);
+  });
+});

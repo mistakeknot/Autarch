@@ -92,7 +92,8 @@ finish() {
     if [ -n "$HOME_V3_TEST_BB" ]; then "$HOME_V3_TEST_BB" thread tell "$THREAD" --message-file "$REPORT"; else false; fi
   else
     MKHOME=$(getent passwd mk | cut -d: -f6)
-    [ -n "$MKHOME" ] && runuser -u mk -- env -i HOME="$MKHOME" USER=mk LOGNAME=mk PATH=/usr/bin:/bin XDG_RUNTIME_DIR="/run/user/$(id -u mk)" \
+    [ -n "$MKHOME" ] && [ -x "$MKHOME/.local/bin/bb" ] && \
+    runuser -u mk -- env -i HOME="$MKHOME" USER=mk LOGNAME=mk PATH=/usr/bin:/bin XDG_RUNTIME_DIR="/run/user/$(id -u mk)" \
       "$MKHOME/.local/bin/bb" thread tell "$THREAD" --message-file "$REPORT"
   fi || { echo "report not delivered to $THREAD; report follows (also in $REPORT):" >&2; cat "$REPORT" >&2; }
   exit "$rc"

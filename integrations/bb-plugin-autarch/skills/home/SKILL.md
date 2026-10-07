@@ -27,7 +27,14 @@ undoing it is cheap and local; never for a push, merge, deploy or release.
 | `bb home feed` | The recent-rulings feed a thread sees. |
 | `bb home stats` | Picks, delegation and filing counts over a window. |
 
-`bb home rule` and `bb home note` are for the vizier thread only.
+`bb home rule`, `bb home note`, `bb home bind` and `bb home unbind` are for the vizier thread only.
+
+Home knows the vizier as the stored vizier thread (mk sets it in Settings). When that is unset, archived
+or gone, Home adopts the single pinned, unarchived thread titled "Masaq' | vizier..." instead (the rule
+`vizier-tell` uses), records it, and keeps delegated rulings suspended until mk has seen the change. With
+no match or several, the vizier-only commands refuse. At a handoff the current vizier runs
+`bb home handoff <thr_id>` to name its successor (a live thread other than itself); that is recorded and
+does not suspend delegation.
 
 ## Vizier: file, update, close
 

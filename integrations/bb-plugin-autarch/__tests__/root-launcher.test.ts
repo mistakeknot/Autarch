@@ -166,6 +166,7 @@ describe("home-build-root-package.sh and the generated script", () => {
     expect(text).toContain("/usr/bin/env -i");
     expect(text).toContain(FIXTURE_THREAD);
     expect(text).toContain("getent passwd mk");
+    expect(text).toContain('"$MKHOME/.local/bin/bb"');
     expect(text).toContain("runuser -u mk");
     const code = text.split("\n").filter((l) => !l.startsWith("#")).join("\n").replace(/^[0-9a-zA-Z+/=]{1,76}$/gm, "");
     expect(code).not.toMatch(/\bgit\b/);

@@ -8,6 +8,7 @@
 // example todo list in bb.storage.kv serves the Example todos page only. A write
 // publishes a realtime signal so every open page refetches.
 import { randomUUID } from "node:crypto";
+import { existsSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -18,16 +19,20 @@ import { sourceSha256 } from "./scripts/source-hash.mjs";
 import { Asks } from "./asks.js";
 import { Catchup } from "./catchup.js";
 import { homeCli } from "./cli.js";
-import { Delegation } from "./delegation.js";
+import { Delegation, type ThreadRow } from "./delegation.js";
 import { exportEvents } from "./export.js";
 import { FeedCaches } from "./feed.js";
 import { parseAsk } from "./model.js";
 import { ServeClient, tokenReader } from "./serve.js";
 import { CardWriter } from "./cardwrites.js";
 import { Queue } from "./queue.js";
+import { ghViewReal, PrPoller } from "./movepoll.js";
+import { ReportWatcher } from "./movereport.js";
+import { moveViews } from "./moveview.js";
+import { CommentPoller, conversationView, openTaskIds, unreadCounts } from "./conversation.js";
 import { rootRun } from "./rootrun.js";
 import { buildQueue, removeBinding, setBinding } from "./queueview.js";
-import { Service } from "./service.js";
+import { hasNoteMarker, Service } from "./service.js";
 import { TasksClient, type PluginsLike } from "./tasks.js";
 import { createStoreHandle, type Store, type StoreHandle } from "./store.js";
 import { sdkAdapter, WakeLoop, type ThreadsLike, type WakeSdk } from "./wakes.js";
@@ -130,6 +135,7 @@ function pluginSource(): string | null {
 const FEED_REFRESH_MS = 30_000;
 const SERVE_CHECK_MS = 15_000;
 const MK = "mk";
+const MOVE_REPORT_SWEEP_MS = 60_000;
 
 const sleep = (ms: number, signal: AbortSignal) =>
   new Promise<void>((resolve) => {
@@ -156,6 +162,30 @@ interface Parts {
 export function wireHome(bb: BbPluginApi, handle: StoreHandle, cfg: HomeConfig, deps: { serve?: ServeClient; sdk?: WakeSdk } = {}) {
   const serve = deps.serve ?? new ServeClient({ addr: cfg.serveAddr, readToken: tokenReader(cfg.serveTokenFile) });
   let parts: Parts | null = null;
+  /** Every thread, paged: the vizier resolver needs title, pinnedAt, archivedAt and deletedAt. */
+  let threadCache: { at: number; rows: ThreadRow[] } | null = null;
+  const toRow = (t: ThreadRow): ThreadRow => ({ id: t.id, title: t.title ?? null, pinnedAt: t.pinnedAt ?? null, archivedAt: t.archivedAt ?? null, deletedAt: t.deletedAt ?? null });
+  const listThreadRows = async (o: { cached?: boolean } = {}): Promise<ThreadRow[]> => {
+    // Only the panel's read-only peek may be a few seconds old; every authority check lists fresh.
+    if (o.cached && threadCache && Date.now() - threadCache.at < 3000) return threadCache.rows;
+    const rows: ThreadRow[] = [];
+    let offset = 0;
+    for (let page = 0; page < 2000; page++) {
+      const got = (await bb.sdk.threads.list({ limit: 100, offset, includeHidden: true })) as unknown as ThreadRow[];
+      rows.push(...got.map(toRow));
+      offset += got.length; // advance by what came back: a host that caps the page size skips nothing
+      if (got.length === 0) {
+        if (new Set(rows.map((r) => r.id)).size !== rows.length) throw new Error("thread list shifted while it was paged");
+        threadCache = { at: Date.now(), rows };
+        return rows;
+      }
+    }
+    throw new Error("thread list did not end");
+  };
+  const getThreadRow = async (id: string): Promise<ThreadRow | null> => {
+    const t = (await bb.sdk.threads.get({ threadId: id })) as unknown as ThreadRow | null | undefined;
+    return t ? toRow(t) : null;
+  };
   const need = (): Parts => {
     if (!parts) throw new Error(`home store not ready${handle.error() ? `: ${handle.error()}` : ""}`);
     return parts;
@@ -169,10 +199,10 @@ export function wireHome(bb: BbPluginApi, handle: StoreHandle, cfg: HomeConfig, 
       void parts?.loop.nudge();
     };
     const svc = new Service({ store, projects: () => serve.projects(), nudge });
-    const dele = new Delegation(svc);
+    const dele = new Delegation(svc, listThreadRows, getThreadRow);
     const asks = new Asks(svc);
     const catchup = new Catchup(svc, dele);
-    const loop = new WakeLoop(svc, deps.sdk ?? sdkAdapter(bb.sdk.threads as unknown as ThreadsLike));
+    const loop = new WakeLoop(svc, deps.sdk ?? sdkAdapter(bb.sdk.threads as unknown as ThreadsLike), (gone) => resolveWakeTarget("", gone, true));
     const caches = new FeedCaches(() => store.db, () => Date.now());
     parts = { store, svc, asks, dele, catchup, loop, caches };
     svc.start();
@@ -180,9 +210,12 @@ export function wireHome(bb: BbPluginApi, handle: StoreHandle, cfg: HomeConfig, 
   bb.onDispose(() => parts?.svc.stop());
 
   // The one write path for a binding, shared by mk's RPC and the vizier's CLI. `by` is logged on the event.
-  const applyBinding = async (i: { tasks_project_id: string; state: "confirmed" | "rejected"; home_project?: string }, by: string) => {
+  const applyBinding = async (i: { tasks_project_id: string; state: "confirmed" | "rejected"; home_project?: string }, by: string, stillAllowed?: () => Promise<boolean>, recheck?: () => boolean) => {
     const p = need();
     const known = (await p.svc.serveProjects()).map((x) => x.name);
+    // The vizier's authority is re-read right before the write: a handoff or archive during the awaits above ends it.
+    // The last await is the liveness read; the stored-id recheck and the write share its continuation.
+    if (stillAllowed && (!(await stillAllowed()) || !recheck?.())) return { ok: false as const, status: 403, error: "only the vizier thread may bind a project" };
     const r = setBinding(p.store.db, i, { now: p.svc.time(), knownProjects: known, record: (type, detail) => p.store.recordEvent(type, null, { ...(detail as object), by }) });
     if (r.ok) afterBindingChange(i.tasks_project_id);
     return r;
@@ -216,23 +249,31 @@ export function wireHome(bb: BbPluginApi, handle: StoreHandle, cfg: HomeConfig, 
       svc: lazy((p) => p.svc),
       asks: lazy((p) => p.asks),
       catchup: lazy((p) => p.catchup),
-      rule: (id, option, reason, ctx) => need().dele.rule(id, option, reason, ctx),
+      rule: (id, option, reason, ctx) => need().dele.ruleResolved(id, option, reason, ctx),
+      handoff: (to, ctx) => need().dele.handoff(to, ctx),
       bind: async (ref, home, by) => {
         const t = await resolveTasksProject(ref);
         if (!t.ok) return t;
-        const r = await applyBinding({ tasks_project_id: t.id, state: "confirmed", home_project: home }, by);
+        const r = await applyBinding({ tasks_project_id: t.id, state: "confirmed", home_project: home }, by, async () => (await need().dele.isLive(by, false)) === true, () => need().dele.isStoredVizier(by));
         return r.ok ? { ok: true as const, tasks_project_id: t.id } : r;
       },
       unbind: async (ref, by) => {
         const t = await resolveTasksProject(ref);
         if (!t.ok) return t;
         const p = need();
+        const live = (await p.dele.isLive(by, false)) === true;
+        if (!live || !p.dele.isStoredVizier(by)) return { ok: false as const, status: 403, error: "only the vizier thread may unbind a project" };
         const r = removeBinding(p.store.db, { tasks_project_id: t.id }, { record: (type, detail) => p.store.recordEvent(type, null, { ...(detail as object), by }) });
         if (!r.ok) return r;
         afterBindingChange(t.id);
         return { ok: true as const, tasks_project_id: t.id, was: r.was };
       },
-      isVizier: (t) => t !== undefined && parts !== null && parts.dele.settings().vizierThreadId === t,
+      isVizier: async (t) => {
+        if (t === undefined || parts === null) return false;
+        const r = await parts.dele.resolveVizier();
+        return r.ok && r.id === t;
+      },
+      stillVizier: (t) => parts !== null && parts.dele.isStoredVizier(t),
     }),
   );
 
@@ -291,6 +332,90 @@ export function wireHome(bb: BbPluginApi, handle: StoreHandle, cfg: HomeConfig, 
       await queue.run(signal, sleep);
     },
   });
+  // PR poller (plan D2): the only automatic closer of a move. Read-only `gh pr view`; a failure leaves the move open.
+  bb.background.service("home-move-poll", {
+    async start(signal) {
+      while (!signal.aborted && !parts) await sleep(1000, signal);
+      if (!parts || signal.aborted) return;
+      const poller = new PrPoller({ svc: parts.svc, ghView: ghViewReal, log: (m) => console.error(`home-move-poll: ${m}`) });
+      await poller.run(signal, sleep);
+    },
+  });
+  // Conversation mirror: the selected card every 15 s, open cards every 60 s. Failures only mark "may be stale".
+  let commentPoller: CommentPoller | null = null;
+  bb.background.service("home-card-comments", {
+    async start(signal) {
+      while (!signal.aborted && !(parts && tasksRef)) await sleep(1000, signal);
+      if (!parts || !tasksRef || signal.aborted) return;
+      const p = parts;
+      const tasks = tasksRef;
+      const poller = (commentPoller = new CommentPoller({
+        store: p.svc.store,
+        listComments: (id) => tasks.listComments(id),
+        openTaskIds: () => openTaskIds(p.svc),
+        onChanged: () => bb.realtime.publish("home-queue-changed", {}),
+        log: (m) => console.error(`home-card-comments: ${m}`),
+      }));
+      await poller.run(signal, sleep);
+    },
+  });
+  // Script reports and the report deadline. Wakes the owner once on a failed report or no report.
+  bb.background.service("home-move-reports", {
+    async start(signal) {
+      while (!signal.aborted && !(parts && tasksRef)) await sleep(1000, signal);
+      if (!parts || !tasksRef || signal.aborted) return;
+      const p = parts;
+      const tasks = tasksRef;
+      const watcher = new ReportWatcher({
+        svc: p.svc,
+        listComments: (id) => tasks.listComments(id),
+        resolveTarget: async (m) => resolveWakeTarget(m.task_id, m.owner),
+        isReporter: async (m, thread) => {
+          if (m.owner === null) return false;
+          if (thread === m.owner) return true;
+          try {
+            const rows = await listThreadRows({ cached: false }); // never a stale cache: a just-archived successor must not report
+            const mine = rows.find((r) => r.id === m.owner);
+            if (!mine?.title) return false;
+            const succ = rows.filter((r) => r.archivedAt == null && r.deletedAt == null && r.title === mine.title);
+            return succ.length === 1 && succ[0]!.id === thread;
+          } catch {
+            return false;
+          }
+        },
+        reportRoots: [join(homedir(), ".bb-machines")].filter((d) => existsSync(d)),
+        log: (m) => console.error(`home-move-reports: ${m}`),
+      });
+      while (!signal.aborted) {
+        try {
+          const st = await watcher.sweep();
+          if (st.wakes > 0) void p.loop.nudge();
+          if (st.reports > 0 || st.wakes > 0) bb.realtime.publish("home-queue-changed", {});
+        } catch (e) {
+          console.error(`home-move-reports: ${e instanceof Error ? e.message : String(e)}`);
+        }
+        await sleep(MOVE_REPORT_SWEEP_MS, signal);
+      }
+    },
+  });
+  // Owner thread, else the one live thread with the owner's title (its successor), else the vizier, else nobody.
+  const resolveWakeTarget = async (_taskId: string, owner: string | null, fresh = false): Promise<string | null> => {
+    const live = (r: ThreadRow) => r.archivedAt == null && r.deletedAt == null;
+    try {
+      // A wake the host refused as "archived" lists fresh: a cached row may still call the thread live.
+      const rows = await listThreadRows({ cached: !fresh });
+      const mine = owner ? rows.find((r) => r.id === owner) : undefined;
+      if (mine && live(mine)) return mine.id;
+      if (mine?.title) {
+        const succ = rows.filter((r) => live(r) && r.title === mine.title);
+        if (succ.length === 1) return succ[0]!.id;
+      }
+      const v = await parts?.dele.resolveVizier({ adopt: false });
+      return v && v.ok ? v.id : null;
+    } catch {
+      return null;
+    }
+  };
   bb.background.service("home-feed-refresh", {
     async start(signal) {
       while (!signal.aborted) {
@@ -327,6 +452,7 @@ export function wireHome(bb: BbPluginApi, handle: StoreHandle, cfg: HomeConfig, 
         asker: d.asker,
         filed_at: d.filed_at,
         revision: d.revision,
+        task_id: d.task_id ?? null,
         ask: parseAsk(JSON.parse(d.body_json)),
         mentions: p.store.mentions(d.id).length,
       }));
@@ -336,7 +462,11 @@ export function wireHome(bb: BbPluginApi, handle: StoreHandle, cfg: HomeConfig, 
       } catch {
         /* unreadable: show none */
       }
-      const item = p.dele.latestSettingsItem();
+      // A read-only peek: the panel shows the vizier thread but never adopts (adoption comes with its catch-up notice).
+      const resolved = await p.dele.resolveVizier({ adopt: false });
+      const settings = p.dele.settings();
+      // When the resolver refuses, show no vizier thread rather than a stored id that may be archived or unknown.
+      settings.vizierThreadId = resolved.ok ? resolved.id : undefined;
       return {
         owed: rows,
         runbook: p.asks.runbook(),
@@ -345,7 +475,7 @@ export function wireHome(bb: BbPluginApi, handle: StoreHandle, cfg: HomeConfig, 
         failures: p.svc.failures(),
         uncertain: p.svc.wakes().filter((o) => o.state === "uncertain"),
         approvals: p.store.liveApprovals(),
-        delegation: { settings: p.dele.settings(), suspended: item !== undefined && !p.store.hasSeen(MK, item) },
+        delegation: { settings, suspended: p.dele.suspendedNow() },
         machineOwners,
       };
     },
@@ -380,8 +510,57 @@ export function wireHome(bb: BbPluginApi, handle: StoreHandle, cfg: HomeConfig, 
     async listRecent(i: { project: string; limit: number }) {
       return { recent: need().svc.recent(i.project, i.limit) };
     },
+    async moves(_: null) {
+      return moveViews(need().svc);
+    },
+    async conversation(i: { task_id: string }) {
+      commentPoller?.select(i.task_id);
+      const vizier = await parts?.dele.resolveVizier({ adopt: false }).then((v) => (v.ok ? v.id : null), () => null);
+      return conversationView(need().svc, i.task_id, vizier ?? null);
+    },
+    async conversationUnread(_: null) {
+      const s = need().svc;
+      return { unread: unreadCounts(s.store, openTaskIds(s)) };
+    },
+    async markConversationSeen(i: { task_id: string; through: string }) {
+      need().svc.store.markConversationSeen(i.task_id, i.through);
+      return { ok: true as const };
+    },
+    async claimMove(i: { task_id: string; generation: number; note?: string }) {
+      const r = need().svc.claimMove(i.task_id, i.generation, i.note);
+      if (r.ok && !r.replay) bb.realtime.publish("home-queue-changed", {});
+      return r;
+    },
+    async checkMove(i: { task_id: string; generation: number }) {
+      const r = need().svc.checkMove(i.task_id, i.generation);
+      if (r.ok && !r.replay) bb.realtime.publish("home-queue-changed", {});
+      return r;
+    },
+    async skipMove(i: { task_id: string; generation: number }) {
+      const r = need().svc.skipMove(i.task_id, i.generation);
+      if (r.ok && !r.replay) bb.realtime.publish("home-queue-changed", {});
+      return r;
+    },
     async pick(i: { decision_id: string; option_id: string; revision: string; pick_id: string; reason?: string; surface?: "home" | "overlay" }) {
       return need().svc.pick(i.decision_id, i.option_id, i.revision, i.pick_id, MK, i.surface ?? "home", i.reason);
+    },
+    async note(i: { task_id?: string; decision_id?: string; text: string; note_id: string }) {
+      // Comment first: the card comment is posted before any wake obligation exists. If the tasks write fails nothing is woken.
+      const r = need().svc.note({ ...(i.task_id !== undefined ? { task_id: i.task_id } : {}), ...(i.decision_id !== undefined ? { decision_id: i.decision_id } : {}) }, i.text, i.note_id, { deferWake: true });
+      if (!r.ok) return r;
+      if (r.task_id !== null) {
+        if (!tasksRef) return { ok: false as const, status: 503, error: "tasks unavailable; nothing was sent" };
+        try {
+          const have = (await tasksRef.listComments(r.task_id)).some((c) => hasNoteMarker(c.body, i.note_id));
+          if (!have) await tasksRef.createComment(r.task_id, r.body);
+        } catch {
+          return { ok: false as const, status: 502, error: "the card comment could not be posted, so nobody was woken; send it again" };
+        }
+        void commentPoller?.readNow(r.task_id);
+      }
+      const done = r.commit();
+      bb.realtime.publish("home-queue-changed", {});
+      return { ok: true as const, replay: done.replay, woke: done.woke };
     },
     async dismiss(i: { decision_id: string; obligation_id: string }) {
       return need().svc.dismiss(i.decision_id, i.obligation_id);

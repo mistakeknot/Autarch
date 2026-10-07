@@ -8,7 +8,7 @@ vi.mock("@get-bb/plugin-sdk/app", () => ({
 }));
 
 import { BlocksPanel, BlocksRow, groupRows, QueueRefresher, type QueueRowView, type QueueView } from "../ui/blocks.js";
-import { AsksPanel, buildAsksView, PickController, pickOutcome, type AsksData } from "../ui/asks.js";
+import { ageText, AsksPanel, optionEffect, currentAsk, isOldAsk, buildAsksView, PickController, pickOutcome, type AsksData } from "../ui/asks.js";
 import { CatchupPanel, observeVisibility, SeenTracker, snapshotIds, type CatchupEntry } from "../ui/catchup.js";
 import { MapPlaceholder } from "../ui/map-placeholder.js";
 import { BindingsPanel, parseDelegationForm, SettingsPanel } from "../ui/settings.js";
@@ -67,18 +67,94 @@ describe("Asks ordering", () => {
     expect(buildAsksView(data({ owed: [ask()] })).map((s) => s.key)).toEqual(["decide"]);
   });
 
-  it("renders the question, the mention count, each option with its kind and reversible mark, and the instruction exactly", () => {
+  it("renders the question, the mention count and one effect line per option, with no instruction box or kind label", () => {
     const html = renderToStaticMarkup(<AsksPanel data={data({ owed: [ask({ mentions: 2 })] })} onPick={() => {}} onOpen={() => {}} />);
     expect(html).toContain("Which day?");
     expect(html).toContain("also mentioned in 2 threads");
-    expect(html).toContain("instruction");
-    expect(html).toContain("needs-context");
-    expect(html).toContain("reversible");
-    expect(html.match(/data-reversible="true"/g)?.length).toBe(1);
-    expect(html.match(/data-reversible="false"/g)?.length).toBe(1);
-    expect(html).toContain("Ship on the day &lt;b&gt;exactly&lt;/b&gt; &amp; tell mk");
+    expect(html).not.toContain("what the agent is told");
+    expect(html).not.toContain("<details");
+    expect(html).not.toContain("needs-context</span>");
+    expect(html).toContain("Tells thr-a: Ship on the day &lt;b&gt;exactly&lt;/b&gt; &amp; tell mk");
+    expect(html).toContain("Asks you for the missing context first, then tells thr-a. Cannot be undone.");
+    expect(html.match(/data-effect/g)?.length).toBe(2);
     expect(html).toContain("sent to thr-a as written; the agent acts on it under its own permissions");
     expect(html).toContain("recommended");
+  });
+
+  it("optionEffect is never empty, only an irreversible option line says so, and a ruling-only option has no instruction footer", () => {
+    expect(optionEffect({ kind: "ruling-only" }, "t")).toBe("Records your pick only; nothing is sent. Cannot be undone.");
+    expect(optionEffect({ kind: "ruling-only", reversible: true }, "t")).toBe("Records your pick only; nothing is sent.");
+    expect(optionEffect({ kind: "instruction", instruction: "   " }, "t")).toBe("Records your pick only; nothing is sent. Cannot be undone.");
+    expect(optionEffect({ kind: "instruction", instruction: "First. Second." }, "t")).toBe("Tells t: First. Cannot be undone.");
+    expect(optionEffect({ kind: "instruction", instruction: "x".repeat(300) }, "t").length).toBeLessThan(170);
+    const html = renderToStaticMarkup(
+      <AsksPanel data={data({ owed: [ask({ ask: { question: "Q?", options: [{ id: "a", label: "Not now", kind: "ruling-only" }, { id: "b", label: "Later", kind: "ruling-only" }] } })] })} onPick={() => {}} onOpen={() => {}} />,
+    );
+    expect(html).toContain("Records your pick only; nothing is sent. Cannot be undone.");
+    expect(html).not.toContain("An instruction is sent");
+  });
+
+  it("lists every ask as a short row with project, age and recommendation, and shows the first in full", () => {
+    const now = Date.parse("2026-10-06T10:00:00Z");
+    const html = renderToStaticMarkup(
+      <AsksPanel
+        nowMs={now}
+        data={data({ owed: [ask({ filed_at: "2026-10-06T07:00:00Z" }), ask({ id: "dec2", subject: "Old one", filed_at: "2026-10-01T10:00:00Z", ask: { question: "Second?", options: [{ id: "x", label: "X", kind: "ruling-only" }] } })] })}
+        onPick={() => {}}
+        onOpen={() => {}}
+      />,
+    );
+    expect(html).toContain("Decide (2)");
+    expect(html.match(/<li><button/g)?.length).toBe(2);
+    expect(html).toContain(">Autarch</span>");
+    expect(html).toContain("3 h");
+    const metaClasses = [...html.matchAll(/<span data-ask-meta="true" class="([^"]*)"/g)].map((m) => m[1]);
+    expect(metaClasses.length).toBe(2);
+    for (const c of metaClasses) expect(c).not.toContain("truncate");
+    expect(html).toMatch(/<span class="[^"]*\btruncate\b[^"]*" data-ask-project="true">Autarch<\/span>/);
+    expect(html).toContain("rec: Day");
+    expect(html.match(/data-old-ask/g)?.length).toBe(1);
+    expect(html).toContain("Which day?");
+    expect(html).not.toContain("Second?");
+  });
+
+  it("says the instruction boilerplate once per card, not once per option", () => {
+    const two = ask({ ask: { question: "q", options: [{ id: "a", label: "A", kind: "instruction", instruction: "do a" }, { id: "b", label: "B", kind: "instruction", instruction: "do b" }] } });
+    const html = renderToStaticMarkup(<AsksPanel data={data({ owed: [two] })} onPick={() => {}} onOpen={() => {}} />);
+    expect(html.match(/acts on it under its own permissions/g)?.length).toBe(1);
+  });
+
+  it("shows paths, shas and URLs in an ask as code that can break anywhere", () => {
+    const sha = "32109540d47aaaafb3628b9e62275477ca817942ef0ea3dcb0" + "0".repeat(14);
+    const q = `Script: /srv/runs/walk-ward.sh, sha256 ${sha} (see https://github.com/o/r/pull/4). Feels right and/or not.`;
+    const html = renderToStaticMarkup(<AsksPanel data={data({ owed: [ask({ ask: { question: q, options: [{ id: "x", label: "X", kind: "ruling-only" }] } })] })} onPick={() => {}} onOpen={() => {}} />);
+    const refs = [...html.matchAll(/<code[^>]*data-ref="[^"]*">([^<]*)<\/code>/g)].map((m) => m[1]);
+    expect(refs).toEqual(["/srv/runs/walk-ward.sh", sha, "https://github.com/o/r/pull/4"]);
+  });
+
+  it("ageText reads minutes, hours, then days", () => {
+    const now = Date.parse("2026-10-06T10:00:00Z");
+    expect(ageText("2026-10-06T09:55:00Z", now)).toBe("5 min");
+    expect(ageText("2026-10-05T10:00:00Z", now)).toBe("24 h");
+    expect(ageText("2026-10-02T10:00:00Z", now)).toBe("4 d");
+    expect(ageText("garbage", now)).toBe("now");
+    expect(ageText("2026-10-07T10:00:00Z", now)).toBe("now");
+  });
+
+  it("flags an ask as old only past three days", () => {
+    const now = Date.parse("2026-10-06T10:00:00Z");
+    expect(isOldAsk("2026-10-03T10:00:00Z", now)).toBe(false);
+    expect(isOldAsk("2026-10-03T09:59:59Z", now)).toBe(true);
+    expect(isOldAsk("2026-10-07T10:00:00Z", now)).toBe(false);
+    expect(isOldAsk("garbage", now)).toBe(false);
+  });
+
+  it("shows the selected ask, and falls back to the first once it is no longer owed", () => {
+    const owed = [{ id: "a" }, { id: "b" }];
+    expect(currentAsk(owed, null)?.id).toBe("a");
+    expect(currentAsk(owed, "b")?.id).toBe("b");
+    expect(currentAsk(owed, "gone")?.id).toBe("a");
+    expect(currentAsk([], "b")).toBeUndefined();
   });
 });
 
@@ -126,6 +202,7 @@ describe("stack", () => {
       ["b", true, "34px"],
       ["c", false, "33.333%"],
     ]);
+    expect(l.map((x) => x.grow)).toEqual([false, false, true]);
   });
 
   it("[ and ] move between 1/4, 1/3 and 1/2; Esc closes the top panel; pushing an open panel moves it to the top", () => {

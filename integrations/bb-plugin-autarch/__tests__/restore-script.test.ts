@@ -488,7 +488,7 @@ describe("restore", () => {
 
 // The stand-in bb let `plugin status` (which the real bb lacks) pass once. Every bb subcommand the scripts call must exist
 // in the REAL CLI: `--help` is local and read-only (no server, no write). Skipped only where bb is not installed.
-const REAL_BB = process.env.AUTARCH_REAL_BB ?? `${process.env.HOME}/.local/bin/bb`;
+const REAL_BB = process.env.HOME_BB_BIN ?? process.env.AUTARCH_REAL_BB ?? join(process.env.HOME ?? "/nonexistent", ".local", "bin", "bb");
 describe.skipIf(!existsSync(REAL_BB))("every bb subcommand the scripts call exists in the real CLI", () => {
   const called = new Set<string>();
   for (const f of ["home-upgrade-v3.bash", "home-restore-v2.bash", "home-common.bash"]) {
@@ -728,7 +728,7 @@ describe("upgrade", () => {
   });
   it("a real migrated log line is a success (exit 0), also when it follows an older refusal", async () => {
     const ok = realLog("migrated");
-    expect(ok.join("\n")).toMatch(/autarch: schema 2 → 3/);
+    expect(ok.join("\n")).toMatch(/autarch: schema 2 → 4/);
     const { i, r } = await upgradeWithLog(["autarch: [home-refused:quiesce-required] earlier attempt", ...ok].join("\n") + "\n");
     expect(r.code, r.out).toBe(0);
     expect(verbs(i).filter((v) => v === "plugin disable").length).toBe(1);
