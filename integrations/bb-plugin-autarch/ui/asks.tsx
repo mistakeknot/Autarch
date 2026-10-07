@@ -212,7 +212,9 @@ export function AskCard({ ask, onPick, onOpen, nowMs, onNote, unbound = false }:
 
 /** One plain sentence on a card under an option: what picking it does. Never empty; built from structured fields. */
 export function optionEffect(o: { kind: string; instruction?: string; reversible?: boolean }, thread: string): string {
-  const undo = o.reversible === true ? "" : " Cannot be undone.";
+  // The schema cannot tell "unset" from "false", so only an option that acts says it cannot be undone; a ruling-only pick sends nothing.
+  const acts = o.kind === "instruction" || o.kind === "needs-context";
+  const undo = o.reversible === true || !acts ? "" : " Cannot be undone.";
   const text = (o.instruction ?? "").replace(/\s+/g, " ").trim();
   if (o.kind === "needs-context") return `Asks you for the missing context first, then tells ${thread}.${undo}`;
   if (o.kind === "instruction" && text !== "") {
