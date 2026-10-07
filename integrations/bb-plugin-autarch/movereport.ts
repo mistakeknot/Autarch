@@ -240,16 +240,14 @@ export class ReportWatcher {
           state = "no-report";
           this.store.setMoveReport(m.task_id, m.generation, "no-report", { deadline_at: m.report_deadline_at });
         }
-        if (state === "failed") {
-          // Every distinct failed report in this sweep gets its own wake (the op carries the report's comment id); the
-          // dedup makes a replay free.
-          const failedMatches = matches.filter((x) => x.r.outcome === "failed");
-          if (failedMatches.length > 0) {
-            for (const x of failedMatches) if (await this.wakeOnce(m, "failed", this.wakeText(m, s, "failed", x.r), x.c.id)) stats.wakes++;
-          } else {
-            const rep = report ?? (stored ? (stored as ParsedReport) : null);
-            if (await this.wakeOnce(m, "failed", this.wakeText(m, s, "failed", rep), stored?.comment_id)) stats.wakes++;
-          }
+        // Every distinct authorized failed report in this sweep gets its own wake (the op carries the report's comment id),
+        // whatever the latest display state is; the dedup makes a replay free.
+        const failedMatches = matches.filter((x) => x.r.outcome === "failed");
+        if (failedMatches.length > 0) {
+          for (const x of failedMatches) if (await this.wakeOnce(m, "failed", this.wakeText(m, s, "failed", x.r), x.c.id)) stats.wakes++;
+        } else if (state === "failed") {
+          const rep = report ?? (stored ? (stored as ParsedReport) : null);
+          if (await this.wakeOnce(m, "failed", this.wakeText(m, s, "failed", rep), stored?.comment_id)) stats.wakes++;
         } else if (state === "no-report") {
           if (await this.wakeOnce(m, "no-report", this.wakeText(m, s, "no-report", null))) stats.wakes++;
         }

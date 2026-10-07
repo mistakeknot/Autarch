@@ -300,6 +300,19 @@ describe("report watcher", () => {
     expect(await watcher(r).sweep()).toMatchObject({ wakes: 0 });
   });
 
+  it("a failed report followed by an OK report in one sweep wakes once for the failure; display state is succeeded", async () => {
+    const r = rig();
+    const t = await withMove(r, scriptMove());
+    r.advance(1000);
+    comment(r, t.id, `${SCRIPT} ${SHA}\nRESULT: FAILED\nfailing step: one`, { id: "R1" });
+    r.advance(1000);
+    comment(r, t.id, `${SCRIPT} ${SHA}\nRESULT: OK`, { id: "R2" });
+    expect(await watcher(r).sweep()).toMatchObject({ wakes: 1 });
+    expect(wakes(r).map((x) => x.op.split(":").pop())).toEqual(["R1"]);
+    expect(r.svc.store.move(t.id, 1)!.report_state).toBe("succeeded");
+    expect(await watcher(r).sweep()).toMatchObject({ wakes: 0 });
+  });
+
   it("routes through resolveTarget, and an unrouted wake is left pending and retried", async () => {
     const r = rig();
     const t = await withMove(r, scriptMove());

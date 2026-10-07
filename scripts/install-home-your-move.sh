@@ -7,7 +7,7 @@
 # REPORT_THREAD (env VIZIER_REPORT_THREAD, or the last argument). Stops at the first failure (set -e, report via the EXIT trap).
 #
 # --check changes nothing in Home, git or the plugin. It WRITES only, under a fresh 0700 directory
-# ($HOME_YOUR_MOVE_OUT_DIR or /tmp)/home-your-move-<UTC stamp>-<pid>/: install.log, report.txt and moves-before.json (the read-only
+# ($HOME_YOUR_MOVE_OUT_DIR or /tmp)/home-your-move-<UTC stamp>-<random>/ (made by mktemp -d; as root the override must sit in a root-owned directory others cannot write): install.log, report.txt and moves-before.json (the read-only
 # `bb home moves --json` export), and it sends report.txt through report-tell when a thread is given. Its read-only steps are
 # git rev-parse/branch/status, `bb plugin list --json`, `bb home moves --json` and sqlite3 -readonly. A failing export fails
 # the check, because --go would abort at the same step.
@@ -26,6 +26,20 @@
 set -euo pipefail
 export PATH=/usr/local/bin:/usr/bin:/bin
 umask 077
+
+# Root only: an output-directory override is honoured only when its parent (after symlinks) is a directory owned by $2 (uid 0
+# in real use; the argument exists so the rule can be tested without root) that no other user can write into, or one that is
+# sticky and owned by that user. Otherwise a writable parent would allow a symlink or rename race against root's writes.
+out_parent_ok() {   # $1 = parent directory, $2 = required owner uid
+  local p mode owner
+  p=$(realpath -e -- "$1" 2>/dev/null) && [ -d "$p" ] || return 1
+  owner=$(stat -c %u -- "$p") && mode=$(stat -c %a -- "$p") || return 1
+  [ "$owner" = "$2" ] || return 1
+  mode=$((8#$mode))
+  [ $((mode & 0022)) -eq 0 ] || [ $((mode & 01000)) -ne 0 ]
+}
+# Sourced (by the tests), the function above is all that is defined.
+[ "${BASH_SOURCE[0]}" = "$0" ] || return 0
 
 MODE= WANT= ARG_THREAD= PREV= BKFILE=
 while [ $# -gt 0 ]; do
@@ -69,6 +83,9 @@ if [ "$TESTHOOK" = 0 ]; then
   if [ -z "$BBDATA" ]; then
     mapfile -t FOUND < <(find "$MKHOME" -maxdepth 3 -name bb-app-runtime.json -not -path '*/node_modules/*' 2>/dev/null | sort)
     [ "${#FOUND[@]}" -eq 1 ] || { echo "cannot tell bb's data directory (${#FOUND[@]} candidates); set HOME_BB_DATA" >&2; exit 64; }
+    # The one candidate must also name a live process, or it is a stale leftover.
+    RTPID=$(jq -r '.pid // empty' "${FOUND[0]}" 2>/dev/null || true)
+    { [[ "$RTPID" =~ ^[0-9]+$ ]] && kill -0 "$RTPID" 2>/dev/null; } || { echo "${FOUND[0]} does not name a live process; set HOME_BB_DATA" >&2; exit 64; }
     BBDATA=$(dirname "${FOUND[0]}")
   fi
   DATA=$BBDATA/plugins/autarch
@@ -81,8 +98,14 @@ else
 fi
 
 STAMP=$(date -u +%Y%m%dT%H%M%SZ)
-OUT=${HOME_YOUR_MOVE_OUT_DIR:-/tmp}/home-your-move-$STAMP-$$
-mkdir -m 0700 "$OUT"
+OUTPARENT=${HOME_YOUR_MOVE_OUT_DIR:-/tmp}
+if [ "$(id -u)" -eq 0 ] && [ -n "${HOME_YOUR_MOVE_OUT_DIR:-}" ]; then
+  out_parent_ok "$OUTPARENT" 0 || { echo "HOME_YOUR_MOVE_OUT_DIR $OUTPARENT must resolve to a directory owned by root that others cannot write (or a root-owned sticky one); refusing as root" >&2; exit 64; }
+  OUTPARENT=$(realpath -e -- "$OUTPARENT")
+fi
+# A fresh 0700 directory made atomically by mktemp, never a predictable name; every output file lives only inside it.
+OUT=$(mktemp -d "$OUTPARENT/home-your-move-$STAMP-XXXXXX") || { echo "cannot create an output directory under $OUTPARENT" >&2; exit 64; }
+chmod 0700 "$OUT"
 LOG=$OUT/install.log
 MSG=$OUT/report.txt
 : >"$MSG"

@@ -73,9 +73,9 @@ const fail = (status: number, error: string, exit: 1 | 2 | 3 = status >= 500 ? 3
 const bad = (error: string): FileResult => ({ ok: false, status: 400, exit: 2, error });
 export const OTHER_OPTION_ID = "other";
 export const OTHER_MAX = 2000;
-/** True when the comment's last non-empty line is exactly the marker `home-note: <id>` (so n1 never matches n10). */
+/** True when the comment's last non-empty line is exactly the marker `home-note: <id>`, with no trimming beyond a trailing carriage return (so n1 never matches n10). */
 export function hasNoteMarker(body: string, noteId: string): boolean {
-  const lines = body.split(/\r?\n/).map((l) => l.trim()).filter((l) => l !== "");
+  const lines = body.split("\n").map((l) => l.replace(/\r$/, "")).filter((l) => l !== ""); // literal: only a trailing CR is dropped
   return lines.length > 0 && lines[lines.length - 1] === `home-note: ${noteId}`;
 }
 /** mk's free text: trimmed, plain, 1..OTHER_MAX characters; null when empty or too long. */

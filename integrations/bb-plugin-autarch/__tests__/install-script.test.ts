@@ -1,6 +1,6 @@
 // scripts/install-home-your-move.sh --check against a temp data.db and a stub bb (the --check-only test hook). Never live.
 import { spawnSync } from "node:child_process";
-import { chmodSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdirSync, statSync, mkdtempSync, readdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -83,5 +83,57 @@ describe("install-home-your-move.sh export step", () => {
   it("the test hook is refused outside --check", () => {
     const { r } = run(3, LIST, ["--rollback"]);
     expect(r.status).toBe(64);
+  });
+
+  it("non-root: the per-run directory is a fresh mktemp directory of mode 700 and the override still works", () => {
+    const { r } = run(3, LIST);
+    expect(r.status).toBe(0);
+    const out = /output dir (\S+)/.exec(r.stdout)![1]!;
+    expect(out).toMatch(/home-your-move-\d{8}T\d{6}Z-[A-Za-z0-9]{6}$/);
+    expect(statSync(out).mode & 0o777).toBe(0o700);
+  });
+});
+
+describe("out_parent_ok (the root-only check on HOME_YOUR_MOVE_OUT_DIR, exercised with the current uid)", () => {
+  const ok = (dir: string, uid: number) => spawnSync("bash", ["-c", `source "${SCRIPT}"; out_parent_ok "$1" "$2"`, "x", dir, String(uid)], { encoding: "utf8" }).status === 0;
+  const me = process.getuid!();
+  const tmp = () => { const d = mkdtempSync(join(tmpdir(), "ihym-")); dirs.push(d); return d; };
+
+  it("accepts an own-uid directory nobody else can write, and refuses group or other write", () => {
+    const d = tmp();
+    chmodSync(d, 0o755);
+    expect(ok(d, me)).toBe(true);
+    chmodSync(d, 0o775);
+    expect(ok(d, me)).toBe(false);
+    chmodSync(d, 0o757);
+    expect(ok(d, me)).toBe(false);
+  });
+
+  it("accepts a writable directory only when sticky", () => {
+    const d = tmp();
+    chmodSync(d, 0o1777);
+    expect(ok(d, me)).toBe(true);
+    chmodSync(d, 0o777);
+    expect(ok(d, me)).toBe(false);
+  });
+
+  it("refuses another owner, a missing path and a plain file; resolves a symlink to its target", () => {
+    const d = tmp();
+    chmodSync(d, 0o755);
+    expect(ok(d, me + 1)).toBe(false);
+    expect(ok(join(d, "missing"), me)).toBe(false);
+    writeFileSync(join(d, "f"), "x");
+    expect(ok(join(d, "f"), me)).toBe(false);
+    const open = join(d, "open");
+    mkdirSync(open);
+    chmodSync(open, 0o777);
+    symlinkSync(open, join(d, "link"));
+    expect(ok(join(d, "link"), me)).toBe(false);
+  });
+
+  it("sourcing the script defines the function and runs nothing else", () => {
+    const r = spawnSync("bash", ["-c", `source "${SCRIPT}"; echo sourced`], { encoding: "utf8" });
+    expect(r.status).toBe(0);
+    expect(r.stdout).toBe("sourced\n");
   });
 });

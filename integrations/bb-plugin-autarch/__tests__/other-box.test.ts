@@ -81,6 +81,10 @@ describe("note marker and an ask with a real option named other", () => {
     expect(hasNoteMarker(body("n1"), "n10")).toBe(false);
     expect(hasNoteMarker(body("n1"), "n1")).toBe(true);
     expect(hasNoteMarker(body("n1") + "\n", "n1")).toBe(true);
+    expect(hasNoteMarker(" home-note: n1 ", "n1")).toBe(false);
+    expect(hasNoteMarker("hi\nhome-note: n1 ", "n1")).toBe(false);
+    expect(hasNoteMarker("hi\r\nhome-note: n1\r", "n1")).toBe(true);
+    expect(hasNoteMarker("hi\nhome-note: n1\r\n", "n1")).toBe(true);
     expect(hasNoteMarker("a home-note: n1 in the middle\nmore", "n1")).toBe(false);
   });
 
