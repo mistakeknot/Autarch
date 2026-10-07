@@ -171,6 +171,15 @@ describe("out_parent_resolve (the root-only check on HOME_YOUR_MOVE_OUT_DIR, exe
     }
   });
 
+  it("refuses an override that ends in a newline even when the path without it exists", () => {
+    const top = tmp();
+    const d = join(top, "run");
+    mkdirSync(d, { mode: 0o755 });
+    mkdirSync(d + "\n", { mode: 0o755 });
+    expect(ok(d + "\n", top)).toBe(false);
+    expect(ok(d, top)).toBe(true);
+  });
+
   it("refuses another owner, a missing path and a plain file", () => {
     const top = tmp();
     expect(ok(top + "/", top, me + 1)).toBe(true); // the anchor itself is not checked

@@ -33,6 +33,7 @@ umask 077
 # link in the chain would allow a symlink or rename race against root's writes. Callers use only the printed path afterwards.
 out_parent_resolve() {   # $1 = directory, $2 = required owner uid, $3 = anchor (optional)
   local p top=${3:-/} mode final=1
+  case $1 in *[[:cntrl:]]*) return 1 ;; esac   # trailing newlines are lost by command substitution below
   p=$(realpath -e -- "$1" 2>/dev/null) && [ -d "$p" ] || return 1
   [ "$top" = / ] || top=$(realpath -e -- "$top") || return 1
   case $p in *[[:cntrl:]]*) return 1 ;; esac   # a newline would be lost by dirname below and defeat the walk
