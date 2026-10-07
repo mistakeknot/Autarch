@@ -1,0 +1,34 @@
+// The upgrade-quiesce scenario's "running v2 instance": copied next to the a9853e2 store.ts, migrations.ts and model.ts (extracted
+// from git by e2e/real.ts) and run with tsx. It creates a schema-2 database with two open legacy asks, holds it open,
+// and answers "pick <id>" and "close" lines on stdin. Plain JavaScript on purpose: it imports a file that exists only
+// in the scenario's scratch directory, so it is neither compiled nor scanned with the e2e sources.
+import Database from "better-sqlite3";
+import { createInterface } from "node:readline";
+import { Store } from "./store.ts";
+import { identity, parseAsk, revision } from "./model.ts";
+
+const dbFile = process.argv[2];
+const store = new Store(new Database(dbFile));
+const body = (n) => JSON.stringify({ v: 1, kind: "decide", project: "Autarch", project_root: "/tmp/legacy-project", asker: "thread", thread: `thr-legacy-${n}`, question: `legacy ${n}: which order?`, options: [{ id: "a", label: "A", kind: "ruling-only" }, { id: "b", label: "B", kind: "ruling-only" }] });
+for (const n of [1, 2]) {
+  const ask = parseAsk(JSON.parse(body(n))); // the stored revision must be the one the v2 service recomputes on a pick
+  store.insertDecision({ id: `legacy-${n}`, request_id: `legacy-req-${n}`, identity: identity(ask), revision: revision(ask), semantic_key: `legacy-sem-${n}`, subject: `legacy ask ${n}`, kind: "decide", project: "Autarch", asker: "thread", thread: `thr-legacy-${n}`, body_json: body(n) });
+}
+store.db.pragma("wal_checkpoint(TRUNCATE)");
+store.db.prepare("SELECT COUNT(*) FROM sqlite_master").get();
+const schema = store.db.prepare("SELECT value FROM schema_meta WHERE key = 'schema_version'").get().value;
+const decisions = store.db.prepare("SELECT COUNT(*) n FROM decisions").get().n;
+process.stdout.write(`ready ${JSON.stringify({ schema_version: schema, decisions })}\n`);
+const rl = createInterface({ input: process.stdin });
+rl.on("line", (line) => {
+  const [cmd, id] = line.trim().split(/\s+/);
+  if (cmd === "pick") {
+    const r = store.recordPick({ decision_id: id, pick_id: `pick-${id}`, option_id: "a", revision: store.db.prepare("SELECT revision FROM decisions WHERE id = ?").get(id).revision, by: "mk", surface: "home" });
+    process.stdout.write(`${JSON.stringify({ ok: r.ok })}\n`);
+  } else if (cmd === "close") {
+    store.close();
+    process.stdout.write("closed\n");
+    process.exit(0);
+  }
+});
+rl.on("close", () => process.exit(0));

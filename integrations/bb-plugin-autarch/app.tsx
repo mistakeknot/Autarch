@@ -18,7 +18,11 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Icon } from "@/components/ui/icon";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
-import { AsksPanel, PickController } from "./ui/asks.js";
+import { OVERLAY_PANEL_ID, OVERLAY_PATH, OverlayPanel } from "./ui/overlay.js";
+import { AsksPanel, PickController, pickOutcome } from "./ui/asks.js";
+import { ConversationProvider, type ConversationApi, type ConversationData } from "./ui/conversation.js";
+import { YourMovePanel, type MoveHandlers } from "./ui/yourmove.js";
+import type { MoveViewGroups } from "./moveview.js";
 import type { AsksData } from "./ui/asks.js";
 import { CatchupPanel, SeenTracker, snapshotIds } from "./ui/catchup.js";
 import type { CatchupEntry } from "./ui/catchup.js";
@@ -235,22 +239,49 @@ function useRootRuns(rpc: ReturnType<typeof useRpc<typeof rpcContract>>): RootRu
   return { views, load };
 }
 
+/** Conversation on the card: unread counts (polled), the conversation read, and the read mark. All display; no write but the read mark. */
+function useConversationApi(rpc: ReturnType<typeof useRpc<typeof rpcContract>>): ConversationApi {
+  const [unread, setUnread] = useState<Record<string, number>>({});
+  const refetch = useCallback(() => {
+    rpc.call("conversationUnread").then((r) => setUnread((r as { unread: Record<string, number> }).unread ?? {}), () => {});
+  }, [rpc]);
+  useEffect(() => {
+    refetch();
+    const t = setInterval(refetch, POLL_MS);
+    return () => clearInterval(t);
+  }, [refetch]);
+  return useMemo(
+    () => ({
+      unread,
+      load: (task_id) => rpc.call("conversation", { task_id }).then((d) => d as unknown as ConversationData),
+      markSeen: (task_id, through) => void rpc.call("markConversationSeen", { task_id, through }).then(refetch, () => {}),
+    }),
+    [rpc, unread, refetch],
+  );
+}
+
 /** The same panel, opened beside a thread by the thread-panel action: this thread's cards are pinned. */
 function BlocksThreadPanel({ threadId }: { threadId: string }) {
   const { rpc, queue, error, refetch } = useQueue(threadId);
+  const noteOnly = useMoves(rpc, refetch, false);
   const nav = useBbNavigate();
   const picks = useMemo(() => new PickController(() => crypto.randomUUID()), []);
   const rootRun = useRootRuns(rpc);
+  const conversation = useConversationApi(rpc);
   if (queue === null) return <EmptyState>{error ?? "Loading…"}</EmptyState>;
   return (
+    <ConversationProvider value={conversation}>
     <BlocksPanel
       rootRun={rootRun}
+      onBind={(b) => void rpc.call("setBinding", b).then(refetch, () => {})}
       data={queue}
       nowMs={Date.now()}
       thread={threadId}
+      onNote={(decision_id, text) => noteOnly.note({ decision_id }, text)}
       onOpen={(t) => nav.toThread(t)}
-      onPick={(decision_id, option_id, revision) => void picks.send((req) => rpc.call("pick", req) as never, { decision_id, option_id, revision }, refetch).then(refetch, () => {})}
+      onPick={(decision_id, option_id, revision, reason) => pickOutcome(picks.send((req) => rpc.call("pick", req) as never, { decision_id, option_id, revision, ...(reason !== undefined ? { reason } : {}) }, refetch)).finally(refetch)}
     />
+    </ConversationProvider>
   );
 }
 
@@ -280,11 +311,68 @@ function useHomeData() {
   return { rpc, asks, catchup, health, error, refetch };
 }
 
+type RpcResult = { ok?: boolean; status?: number; error?: string };
+/** A send becomes an outcome the card can show; a thrown error or a non-ok result is a failure with its reason. */
+async function rpcOutcome(send: Promise<unknown>): Promise<{ ok: boolean; error?: string }> {
+  try {
+    const r = (await send) as RpcResult | null;
+    if (r?.ok === true) return { ok: true };
+    return { ok: false, error: r?.error ?? `failed${r?.status ? ` (${r.status})` : ""}` };
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : String(e) };
+  }
+}
+
+/** Your move: the grouped read model, refetched on the queue signal and on the poll. */
+function useMoves(rpc: ReturnType<typeof useRpc<typeof rpcContract>>, onChanged: () => void, load = true) {
+  const [moves, setMoves] = useState<MoveViewGroups | null>(null);
+  const refetch = useCallback(() => {
+    rpc.call("moves").then((m) => setMoves(m as unknown as MoveViewGroups), () => {});
+  }, [rpc]);
+  useRealtime("home-queue-changed", () => {
+    if (load) refetch();
+  });
+  useEffect(() => {
+    if (!load) return;
+    refetch();
+    const t = setInterval(refetch, POLL_MS);
+    return () => clearInterval(t);
+  }, [refetch, load]);
+  // A note id is stable per (target, text) until it is accepted, so a retry cannot post the comment twice.
+  const noteIds = useMemo(() => new Map<string, string>(), []);
+  const note = useCallback(
+    async (target: { task_id: string } | { decision_id: string }, text: string) => {
+      const key = `${JSON.stringify(target)}|${text}`;
+      const note_id = noteIds.get(key) ?? crypto.randomUUID().slice(0, 32);
+      noteIds.set(key, note_id);
+      const r = await rpcOutcome(rpc.call("note", { ...target, text, note_id }));
+      if (r.ok) {
+        noteIds.delete(key);
+        onChanged();
+      }
+      return r;
+    },
+    [rpc, noteIds, onChanged],
+  );
+  const handlers: MoveHandlers = useMemo(
+    () => ({
+      onCheck: (m) => rpcOutcome(rpc.call("checkMove", { task_id: m.task_id, generation: m.generation })).finally(refetch),
+      onClaim: (m) => rpcOutcome(rpc.call("claimMove", { task_id: m.task_id, generation: m.generation })).finally(refetch),
+      onSkip: (m) => rpcOutcome(rpc.call("skipMove", { task_id: m.task_id, generation: m.generation })).finally(refetch),
+      onNote: (m, text) => note({ task_id: m.task_id }, text),
+    }),
+    [rpc, refetch, note],
+  );
+  return { moves, handlers, refetch, note };
+}
+
 function HomePage() {
   const { rpc, asks, catchup, error, refetch } = useHomeData();
   const nav = useBbNavigate();
   const blocks = useQueue();
   const rootRuns = useRootRuns(rpc);
+  const yourMove = useMoves(rpc, () => {});
+  const conversation = useConversationApi(rpc);
   const [stack, setStack] = useState<StackState>({ panels: [{ id: "asks", kind: "decision", title: "Asks" }], width: "third" });
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [lens, setLens] = useState<Lens>("attention");
@@ -351,14 +439,19 @@ function HomePage() {
         return asks === null ? (
           <EmptyState>{error ?? "Loading asks…"}</EmptyState>
         ) : (
+          <>
+          {yourMove.moves ? <YourMovePanel data={yourMove.moves} handlers={yourMove.handlers} /> : null}
           <AsksPanel
             data={asks}
+            onNote={(decision_id, text) => yourMove.note({ decision_id }, text)}
+            onDismiss={(decision_id, obligation_id) => void rpc.call("dismiss", { decision_id, obligation_id }).then(refetch, () => {})}
             onOpen={(thread) => push({ id: `thread:${thread}`, kind: "thread", title: thread, ref: thread })}
             onRevoke={(approval_id) => void rpc.call("revokeApproval", { approval_id }).then(refetch, () => {})}
-            onPick={(decision_id, option_id, revision) => {
-              picks.send((req) => rpc.call("pick", req) as never, { decision_id, option_id, revision }, refetch).then(refetch, () => {});
+            onPick={(decision_id, option_id, revision, reason) => {
+              return pickOutcome(picks.send((req) => rpc.call("pick", req) as never, { decision_id, option_id, revision, ...(reason !== undefined ? { reason } : {}) }, refetch)).finally(refetch);
             }}
           />
+          </>
         );
       case "blocks":
         return blocks.queue === null ? (
@@ -366,11 +459,13 @@ function HomePage() {
         ) : (
           <BlocksPanel
             rootRun={rootRuns}
+            onBind={(b) => void rpc.call("setBinding", b).then(refetchAll, () => {})}
             data={blocks.queue}
             nowMs={Date.now()}
+            onNote={(decision_id, text) => yourMove.note({ decision_id }, text)}
             onOpen={openBeside}
-            onPick={(decision_id, option_id, revision) => {
-              picks.send((req) => rpc.call("pick", req) as never, { decision_id, option_id, revision }, refetchAll).then(refetchAll, () => {});
+            onPick={(decision_id, option_id, revision, reason) => {
+              return pickOutcome(picks.send((req) => rpc.call("pick", req) as never, { decision_id, option_id, revision, ...(reason !== undefined ? { reason } : {}) }, refetchAll)).finally(refetchAll);
             }}
           />
         );
@@ -397,6 +492,8 @@ function HomePage() {
             {blocks.queue === null ? null : (
               <BindingsPanel
                 bindings={blocks.queue.bindings}
+                unbound={blocks.queue.unbound ?? []}
+                serveProjects={blocks.queue.serve_projects ?? []}
                 inactive={blocks.queue.inactive_projects}
                 legacyCount={blocks.queue.legacy.count}
                 onBind={(b) => void rpc.call("setBinding", b).then(refetchAll, () => {})}
@@ -412,6 +509,7 @@ function HomePage() {
   };
 
   return (
+    <ConversationProvider value={conversation}>
     <div className="flex h-full min-h-0 flex-1 flex-col" data-home-source={HOME_SOURCE}>
       <nav className="flex gap-3 border-b border-border px-4 py-2 text-sm">
         {(
@@ -434,10 +532,29 @@ function HomePage() {
       </nav>
       <StackView placed={layoutStack(stack)} render={render} onExpand={push} />
     </div>
+    </ConversationProvider>
   );
 }
 
 /** Sidebar badge: the owed count, or "!" when serve is not ready or a machine blocker has no owner. */
+/** The summoned overlay's route (`/plugins/autarch/home-overlay`); it never marks anything seen. */
+function OverlayPage() {
+  const { rpc, asks, catchup, error, refetch } = useHomeData();
+  const nav = useBbNavigate();
+  const picks = useMemo(() => new PickController(() => crypto.randomUUID()), []);
+  if (asks === null) return <EmptyState>{error ?? "Loading…"}</EmptyState>;
+  return (
+    <OverlayPanel
+      data={asks}
+      catchup={catchup}
+      onOpen={(thread) => nav.toThread(thread)}
+      onPick={(decision_id, option_id, revision, reason) => {
+        return pickOutcome(picks.send((req) => rpc.call("pick", { ...req, surface: "overlay" }) as never, { decision_id, option_id, revision, ...(reason !== undefined ? { reason } : {}) }, refetch)).finally(refetch);
+      }}
+    />
+  );
+}
+
 function HomeBadge() {
   const { asks, health } = useHomeData();
   const blocked = health !== null && !health.ready;
@@ -461,6 +578,7 @@ export default definePluginApp((app) => {
     component: HomePage,
     experimental_sidebarAccessory: HomeBadge,
   });
+  app.slots.navPanel({ id: OVERLAY_PANEL_ID, title: "Home overlay", icon: "House", path: OVERLAY_PATH, component: OverlayPage });
   app.slots.threadPanelAction({
     id: "home-blocks",
     title: "Blocking",

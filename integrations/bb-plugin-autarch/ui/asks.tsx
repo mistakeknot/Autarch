@@ -1,5 +1,25 @@
 // The Asks view: what is stalled, what mk must decide, the runbook, and what is merely waiting.
 
+import { useState } from "react";
+import { ActionButton, RecommendedMark } from "./buttons.js";
+import { CardConversation } from "./conversation.js";
+import { OtherBox, type OtherOutcome } from "./other.js";
+
+/** What a pick hands back to the card: not ok means the card stays open and shows the error. */
+export type PickOutcome = { ok: boolean; error?: string };
+export type OnPick = (decisionId: string, optionId: string, revision: string, reason?: string) => void | Promise<PickOutcome | void>;
+
+/** Turns a send into an outcome the card can show: a thrown error or a non-ok result is a failure. */
+export async function pickOutcome(send: Promise<{ ok?: boolean; status?: number; error?: string }>): Promise<PickOutcome> {
+  try {
+    const r = await send;
+    if (r?.ok === true) return { ok: true };
+    return { ok: false, error: r?.error ?? (r?.status === 409 ? "this ask changed; reread and pick again" : `pick failed${r?.status ? ` (${r.status})` : ""}`) };
+  } catch (e) {
+    return { ok: false, error: `pick not sent: ${e instanceof Error ? e.message : String(e)}` };
+  }
+}
+
 export type ApprovalSpec = { kind: string; target: string; identity: string; ttl?: number };
 export type Option = { id: string; label: string; kind: string; reversible?: boolean; instruction?: string; approval?: ApprovalSpec };
 export type ApprovalRecord = { approval_id: string; decision_id: string; kind: string; target: string; identity: string; minted_at: string; expires_at: string };
@@ -12,6 +32,8 @@ export type OwedAsk = {
   filed_at: string;
   revision: string;
   mentions?: number;
+  /** The tasks card behind this ask, when it is a card: the conversation reads its comments. */
+  task_id?: string | null;
   ask: { question: string; recommendation?: string; options: Option[] };
 };
 export type Lane = { id: string; subject: string; thread: string; owner: string | null; detail: string; updated_at: string; label?: string };
@@ -31,20 +53,26 @@ export type AsksData = {
   machineOwners: Record<string, string>;
 };
 
-export type ViewItem = { id: string; title: string; detail?: string; thread?: string };
+export type ViewItem = { id: string; title: string; detail?: string; thread?: string; /** Set on an undeliverable wake: the Dismiss button's target. */ dismiss?: { decision_id: string; obligation_id: string } };
+// mk-action items come first and stay first: Decide, Runbook, then Stalled, then Waiting.
 export type Section = { key: "stalled" | "decide" | "runbook" | "waiting"; title: string; items: ViewItem[] };
 
 export function buildAsksView(d: AsksData): Section[] {
   const stalled: ViewItem[] = [
-    ...d.undeliverable.map((o) => ({ id: `undeliverable:${o.id}`, title: `Undeliverable ${o.kind ?? "wake"} to ${o.recipient ?? "?"}`, detail: o.last_error ?? undefined })),
+    ...d.undeliverable.map((o) => ({
+      id: `undeliverable:${o.id}`,
+      title: `Undeliverable ${o.kind ?? "wake"} to ${o.recipient ?? "?"}`,
+      detail: o.last_error ?? undefined,
+      ...(o.decision_id ? { dismiss: { decision_id: o.decision_id, obligation_id: o.id } } : {}),
+    })),
     ...d.uncertain.map((o) => ({ id: `uncertain:${o.id}`, title: `Uncertain ${o.kind ?? "wake"} to ${o.recipient ?? "?"}` })),
     ...d.failures.map((o) => ({ id: `failure:${o.id}`, title: `Ruling file failed for ${o.decision_id ?? o.id}`, detail: o.last_error ?? undefined })),
     ...d.asks.map((a) => ({ id: a.id, title: `${a.label ?? "stalled"}: ${a.subject}`, detail: a.detail, thread: a.thread })),
   ];
   const sections: Section[] = [
-    { key: "stalled", title: "Stalled", items: stalled },
     { key: "decide", title: "Decide", items: d.owed.map((o) => ({ id: o.id, title: o.subject, thread: o.thread })) },
     { key: "runbook", title: "Runbook", items: d.runbook.flatMap((g) => g.items.map((i) => ({ id: i.id, title: i.subject, detail: i.question, thread: g.thread }))) },
+    { key: "stalled", title: "Stalled", items: stalled },
     { key: "waiting", title: "Waiting", items: d.lane.map((l) => ({ id: l.id, title: l.subject, detail: `${l.detail} (owner ${l.owner})`, thread: l.thread })) },
   ];
   return sections.filter((s) => s.items.length > 0);
@@ -57,40 +85,179 @@ export function approvalExpiry(ttl: number | undefined): string {
   return `expires ${text} after you pick`;
 }
 
-export function AskCard({ ask, onPick, onOpen }: { ask: OwedAsk; onPick: (decisionId: string, optionId: string, revision: string) => void; onOpen: (thread: string) => void }) {
-  const n = ask.mentions ?? 0;
+/** "3 h", "4 d": how long an ask has waited. Unknown or future times read as "now". */
+export function ageText(filedAt: string, nowMs: number): string {
+  const ms = nowMs - Date.parse(filedAt);
+  if (!(ms > 0)) return "now";
+  const m = Math.floor(ms / 60_000);
+  if (m < 60) return `${m} min`;
+  const h = Math.floor(m / 60);
+  return h < 48 ? `${h} h` : `${Math.floor(h / 24)} d`;
+}
+
+/** An ask that has waited this long is probably settled elsewhere or superseded: Home marks it so mk can clear it. */
+export const OLD_ASK_MS = 3 * 86_400_000;
+
+/** An ask is old once it has waited more than three days; an unparseable or future time is not old. */
+export function isOldAsk(filedAt: string, nowMs: number): boolean {
+  return nowMs - Date.parse(filedAt) > OLD_ASK_MS;
+}
+
+/** The ask shown in full: the selected one while it is still owed, else the first. */
+export function currentAsk<T extends { id: string }>(owed: T[], selected: string | null): T | undefined {
+  return owed.find((o) => o.id === selected) ?? owed[0];
+}
+
+// Absolute paths, sha256 digests and URLs in an ask's text: shown as code, selectable in one click, and allowed to
+// break anywhere so a long path never pushes the card wider than its panel.
+const REF = /(https?:\/\/[^\s)]+[^\s).,;:]|(?<![\w/])\/(?:[\w.@+-]+\/)+[\w@+-]+(?:\.[\w@+-]+)*|\b[0-9a-f]{64}\b)/g;
+
+export function RefText({ text }: { text: string }) {
+  const parts = text.split(REF);
   return (
-    <article className="rounded-lg border border-border bg-card p-4" data-decision={ask.id}>
-      <h3 className="text-sm font-medium">{ask.subject}</h3>
-      <p className="mt-1 text-sm">{ask.ask.question}</p>
+    <>
+      {parts.map((part, i) =>
+        i % 2 === 1 ? (
+          <code key={i} className="select-all rounded bg-muted px-1 font-mono text-xs [overflow-wrap:anywhere]" data-ref>
+            {part}
+          </code>
+        ) : (
+          part
+        ),
+      )}
+    </>
+  );
+}
+
+/** Wording only: an irreversible option whose label says it throws something away or turns something down. */
+const DESTRUCTIVE = /\b(abort|cancel|delete|discard|reject|drop|revert|wipe|destroy|remove|decline)\b/i;
+export function isDestructiveOption(o: { label: string; reversible?: boolean }): boolean {
+  return o.reversible !== true && DESTRUCTIVE.test(o.label);
+}
+
+export const UNBOUND_EXPLANATION = "This card's project is not bound to a Home project, so Home cannot record a ruling here. Bind the project, or use Ask / note to talk to the owner.";
+
+/** Which asks can take a note from the Other box: the callback gets the decision id and mk's trimmed text. */
+export type OnNote = (decisionId: string, text: string) => Promise<OtherOutcome | void> | void;
+
+export function AskCard({ ask, onPick, onOpen, nowMs, onNote, unbound = false }: { ask: OwedAsk; onPick: OnPick; onOpen: (thread: string) => void; nowMs?: number; onNote?: OnNote; unbound?: boolean }) {
+  const [failure, setFailure] = useState<string | null>(null);
+  const [pending, setPending] = useState<string | null>(null);
+  const pick = async (optionId: string) => {
+    setFailure(null);
+    setPending(optionId);
+    try {
+      const r = await onPick(ask.id, optionId, ask.revision);
+      if (r && r.ok === false) setFailure(r.error ?? "pick failed");
+    } finally {
+      setPending(null);
+    }
+  };
+  const n = ask.mentions ?? 0;
+  const hasRealOther = ask.ask.options.some((o) => o.id === "other");
+  const anyInstruction = ask.ask.options.some((o) => o.kind === "needs-context" || (o.kind === "instruction" && (o.instruction ?? "").trim() !== ""));
+  return (
+    <article className="min-w-0 rounded-lg border border-border bg-card p-4" data-decision={ask.id}>
+      <h3 className="text-sm font-medium [overflow-wrap:anywhere]">{ask.subject}</h3>
       <p className="mt-1 text-xs text-muted-foreground">
+        {ask.project ? `${ask.project} · ` : ""}
+        {nowMs !== undefined ? `waiting ${ageText(ask.filed_at, nowMs)} · ` : ""}
         <button type="button" className="underline" onClick={() => onOpen(ask.thread)}>{ask.thread}</button>
         {n > 0 ? ` - ${`also mentioned in ${n} ${n === 1 ? "thread" : "threads"}`}` : ""}
       </p>
-      <ul className="mt-3 space-y-2">
-        {ask.ask.options.map((o) => (
-          <li key={o.id} className="rounded border border-border p-2" data-reversible={o.reversible === true ? "true" : "false"}>
-            {o.approval ? (
-              <p className="mb-1 text-xs" data-approval={o.approval.kind}>
-                {`Records your approval to ${o.approval.kind} ${o.approval.target} at ${o.approval.identity}; ${approvalExpiry(o.approval.ttl)}. This is a record only and does not authorize anything.`}
-              </p>
-            ) : null}
-            <div className="flex items-center gap-2 text-sm">
-              <button type="button" className="font-medium underline" onClick={() => onPick(ask.id, o.id, ask.revision)}>{o.label}</button>
-              <span className="text-xs text-muted-foreground">{o.kind}</span>
-              <span className="text-xs">{o.reversible === true ? "reversible" : "not reversible"}</span>
-              {ask.ask.recommendation === o.id ? <span className="text-xs font-medium">recommended</span> : null}
-            </div>
-            {o.instruction !== undefined ? (
-              <>
-                <pre className="mt-1 whitespace-pre-wrap text-xs">{o.instruction}</pre>
-                <p className="text-xs text-muted-foreground">{`sent to ${ask.thread} as written; the agent acts on it under its own permissions`}</p>
-              </>
-            ) : null}
-          </li>
-        ))}
+      <p className="mt-2 whitespace-pre-wrap text-sm [overflow-wrap:anywhere]"><RefText text={ask.ask.question} /></p>
+      <ul className="mb-0 mt-3 list-none space-y-2 p-0">
+        {ask.ask.options.map((o) => {
+          const recommended = ask.ask.recommendation === o.id;
+          return (
+            <li key={o.id} className={`rounded border p-2 ${recommended ? "border-primary" : "border-border"}`} data-reversible={o.reversible === true ? "true" : "false"}>
+              {o.approval ? (
+                <p className="mb-1 text-xs" data-approval={o.approval.kind}>
+                  {`Records your approval to ${o.approval.kind} ${o.approval.target} at ${o.approval.identity}; ${approvalExpiry(o.approval.ttl)}. This is a record only and does not authorize anything.`}
+                </p>
+              ) : null}
+              <div className="flex flex-wrap items-center gap-2 text-sm">
+                {unbound ? (
+                  <span className="font-medium [overflow-wrap:anywhere]" data-option-label>{o.label}</span>
+                ) : (
+                  <ActionButton tone={isDestructiveOption(o) ? "destructive" : recommended ? "recommended" : "default"} selected={pending === o.id} disabled={pending !== null} onClick={() => void pick(o.id)} data-option={o.id}>{o.label}</ActionButton>
+                )}
+                {recommended ? <RecommendedMark /> : null}
+              </div>
+              <p className="mt-1 text-xs text-muted-foreground" data-effect>{optionEffect(o, ask.thread)}</p>
+            </li>
+          );
+        })}
       </ul>
+      {unbound ? <p role="note" className="mt-2 text-xs font-medium" data-unbound-note>{UNBOUND_EXPLANATION}</p> : null}
+      {anyInstruction && !unbound ? (
+        <p className="mt-2 text-xs text-muted-foreground">{`An instruction is sent to ${ask.thread} as written; the agent acts on it under its own permissions.`}</p>
+      ) : null}
+      {failure !== null ? <p role="alert" className="mt-2 text-xs font-medium text-destructive" data-pick-failure>{`Your pick did not go through: ${failure}. The ask is still open; try again.`}</p> : null}
+      {onNote ? (
+        <OtherBox
+          onNote={(t) => onNote(ask.id, t)}
+          onAnswer={unbound || hasRealOther ? undefined : async (t) => {
+            const r = await onPick(ask.id, "other", ask.revision, t);
+            if (r && r.ok === false) return { ok: false, error: r.error ?? "pick failed" };
+            return { ok: true };
+          }}
+          answerDisabledReason={unbound ? "Not available: this project is not bound." : hasRealOther ? "Not available: this ask has its own option named other." : undefined}
+        />
+      ) : null}
+      <CardConversation taskId={ask.task_id} />
     </article>
+  );
+}
+
+/** One plain sentence on a card under an option: what picking it does. Never empty; built from structured fields. */
+export function optionEffect(o: { kind: string; instruction?: string; reversible?: boolean }, thread: string): string {
+  const undo = o.reversible === true ? "" : " Cannot be undone.";
+  const text = (o.instruction ?? "").replace(/\s+/g, " ").trim();
+  if (o.kind === "needs-context") return `Asks you for the missing context first, then tells ${thread}.${undo}`;
+  if (o.kind === "instruction" && text !== "") {
+    const first = text.match(/^.*?[.!?](?=\s|$)/)?.[0] ?? text;
+    const summary = first.length > 140 ? `${first.slice(0, 139).trimEnd()}…` : first;
+    return `Tells ${thread}: ${summary}${undo}`;
+  }
+  return `Records your pick only; nothing is sent.${undo}`;
+}
+
+/** The Decide queue: a short row per ask on the left, the selected ask in full on the right (below when narrow). */
+export function DecideQueue({ owed, onPick, onOpen, nowMs, onNote }: { owed: OwedAsk[]; onPick: OnPick; onOpen: (thread: string) => void; nowMs: number; onNote?: OnNote }) {
+  const [selected, setSelected] = useState<string | null>(null);
+  const current = currentAsk(owed, selected);
+  if (current === undefined) return null;
+  return (
+    <div className="flex flex-wrap items-start gap-4">
+      <ol className="m-0 min-w-0 shrink-0 grow basis-64 list-none space-y-1 p-0" data-decide-list>
+        {owed.map((o) => {
+          const old = isOldAsk(o.filed_at, nowMs);
+          const rec = o.ask.options.find((x) => x.id === o.ask.recommendation);
+          return (
+            <li key={o.id}>
+              <button
+                type="button"
+                aria-current={o.id === current.id ? "true" : undefined}
+                className={`w-full rounded border px-2 py-1.5 text-left ${o.id === current.id ? "border-primary bg-muted" : "border-border"}`}
+                onClick={() => setSelected(o.id)}
+              >
+                <span className="block truncate text-sm">{o.subject}</span>
+                {o.project ? <span className="block truncate text-xs text-muted-foreground" data-ask-project>{o.project}</span> : null}
+                <span data-ask-meta className="block text-xs text-muted-foreground [overflow-wrap:anywhere]">
+                  {ageText(o.filed_at, nowMs)}
+                  {old ? <span className="font-medium" data-old-ask>{" · old: still needed?"}</span> : null}
+                  {rec ? ` · rec: ${rec.label}` : ""}
+                </span>
+              </button>
+            </li>
+          );
+        })}
+      </ol>
+      <div className="sticky top-0 min-w-0 grow-[3] basis-[28rem]">
+        <AskCard key={current.id} ask={current} onPick={onPick} onOpen={onOpen} nowMs={nowMs} {...(onNote ? { onNote } : {})} />
+      </div>
+    </div>
   );
 }
 
@@ -111,28 +278,32 @@ export function ApprovalsList({ approvals, onRevoke }: { approvals: ApprovalReco
   );
 }
 
-export function AsksPanel({ data, onPick, onOpen, onRevoke }: { data: AsksData; onPick: (d: string, o: string, r: string) => void; onOpen: (thread: string) => void; onRevoke?: (approvalId: string) => void }) {
+export function AsksPanel({ data, onPick, onOpen, onRevoke, onDismiss, onNote, nowMs = Date.now() }: { data: AsksData; onPick: OnPick; onOpen: (thread: string) => void; onRevoke?: (approvalId: string) => void; onDismiss?: (decisionId: string, obligationId: string) => void; onNote?: OnNote; nowMs?: number }) {
   const view = buildAsksView(data);
-  const byId = new Map(data.owed.map((o) => [o.id, o]));
   const approvals = data.approvals ?? [];
   if (view.length === 0 && approvals.length === 0) return <p className="p-4 text-sm text-muted-foreground">Nothing needs you.</p>;
   return (
     <div className="space-y-6 p-4">
       {view.map((s) => (
         <section key={s.key} data-section={s.key}>
-          <h2 className="mb-2 text-xs font-semibold uppercase text-muted-foreground">{s.title}</h2>
-          <div className="space-y-3">
-            {s.items.map((i) =>
-              s.key === "decide" && byId.has(i.id) ? (
-                <AskCard key={i.id} ask={byId.get(i.id)!} onPick={onPick} onOpen={onOpen} />
-              ) : (
-                <div key={i.id} className="rounded border border-border p-3 text-sm">
-                  <div>{i.title}</div>
-                  {i.detail ? <div className="text-xs text-muted-foreground">{i.detail}</div> : null}
+          <h2 className="mb-2 text-xs font-semibold uppercase text-muted-foreground">{`${s.title} (${s.items.length})`}</h2>
+          {s.key === "decide" ? (
+            <DecideQueue owed={data.owed} onPick={onPick} onOpen={onOpen} nowMs={nowMs} {...(onNote ? { onNote } : {})} />
+          ) : (
+            <div className="space-y-3">
+              {s.items.map((i) => (
+                <div key={i.id} className="rounded border border-border p-3 text-sm [overflow-wrap:anywhere]">
+                  <div><RefText text={i.title} /></div>
+                  {i.detail ? <div className="text-xs text-muted-foreground"><RefText text={i.detail} /></div> : null}
+                  {s.key === "stalled" && i.dismiss && onDismiss ? (
+                    <div className="mt-2">
+                      <ActionButton onClick={() => onDismiss(i.dismiss!.decision_id, i.dismiss!.obligation_id)} data-dismiss={i.dismiss.obligation_id}>Dismiss</ActionButton>
+                    </div>
+                  ) : null}
                 </div>
-              ),
-            )}
-          </div>
+              ))}
+            </div>
+          )}
         </section>
       ))}
       {approvals.length > 0 ? <ApprovalsList approvals={approvals} onRevoke={onRevoke ?? (() => {})} /> : null}
@@ -140,7 +311,7 @@ export function AsksPanel({ data, onPick, onOpen, onRevoke }: { data: AsksData; 
   );
 }
 
-type PickReq = { decision_id: string; option_id: string; revision: string };
+type PickReq = { decision_id: string; option_id: string; revision: string; reason?: string };
 type Result = { ok?: boolean; status?: number; error?: string };
 
 /** One pick_id per (decision, option, revision) until the pick resolves, so a retry cannot double-file. */
@@ -149,7 +320,7 @@ export class PickController {
   constructor(private mint: () => string) {}
 
   async send(rpc: (req: PickReq & { pick_id: string }) => Promise<Result>, req: PickReq, reread: () => void): Promise<Result> {
-    const key = `${req.decision_id}|${req.option_id}|${req.revision}`;
+    const key = `${req.decision_id}|${req.option_id}|${req.revision}|${req.reason ?? ""}`;
     let id = this.ids.get(key);
     if (id === undefined) {
       id = this.mint();

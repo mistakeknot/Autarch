@@ -1,6 +1,7 @@
 // The scenario harness (Task 1.10). Fake mode drives the real plugin wiring with a fake bb;
 // real-bb mode is checked but its driver arrives with Task 1.11 (it needs an isolated bb server).
 //   tsx e2e/harness.ts --mode fake --run-id <uuid> --out <file.jsonl> [--scenarios a,b]
+//   tsx e2e/harness.ts --mode real-bb --owned-server <bb-app copy> --build <file> --install --run-id <uuid> --out <file>  (inside bwrap --unshare-net)
 import { resolveBin, rigExecSync } from "./rigexec.js";
 import { appendFileSync, existsSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -38,11 +39,8 @@ if (mode === "real-bb") {
   } catch (e) {
     usage(e instanceof Error ? e.message : String(e));
   }
-  if (flags.has("owned-server")) {
-    const app = process.env.HOME_E2E_BB_APP;
-    if (!app || !existsSync(app)) usage("--owned-server needs HOME_E2E_BB_APP naming the bb app to launch");
-  }
-  if (flags.has("owned-server")) usage("--owned-server: UNVERIFIABLE on this host (Task 2.12 part B): the installed bb-app 0.44.0+aleph.0.5.1 failed to start on a fresh data dir inside bwrap --unshare-net (server DrizzleError: cannot rollback - no transaction is active, during initDb migrate); the launcher is not implemented and there is no looser mode");
+  // The operator-launched server mode is gone: every real-bb run needs a server this harness started and proved (A7).
+  if (!flags.get("owned-server")) usage("real-bb needs --owned-server <bb-app copy> (also HOME_E2E_BB_APP): the harness launches and proves its own server");
 }
 
 const git = (...a: string[]) => rigExecSync("git", a, { cwd: here }).stdout.trim();
@@ -60,10 +58,21 @@ const wanted =
 writeFileSync(out!, "");
 let failed = 0;
 if (mode === "real-bb") {
-  const { Real, readRealEnv } = await import("./real.js");
+  const { Real } = await import("./real.js");
+  const { launchOwned } = await import("./launcher.js");
   const build = JSON.parse(readFileSync(flags.get("build")!, "utf8"));
   if (build.commit !== commit) usage(`build file commit ${build.commit} is not HEAD ${commit}`);
-  const real = new Real(readRealEnv(process.env), runId!, build);
+  const appArg = flags.get("owned-server")!;
+  if (process.env.HOME_E2E_BB_APP && resolve(process.env.HOME_E2E_BB_APP) !== resolve(appArg)) usage("--owned-server and HOME_E2E_BB_APP name different apps");
+  let owned: Awaited<ReturnType<typeof launchOwned>>;
+  try {
+    owned = await launchOwned({ app: appArg, netnsIsolated: true, toolchainSeed: process.env.HOME_E2E_TOOLCHAIN_SEED });
+  } catch (e) {
+    process.stderr.write(`ABORT ${e instanceof Error ? e.message : String(e)}\n`);
+    process.exit(1);
+  }
+  const t = owned.target;
+  const real = new Real({ url: t.url, hostPort: t.hostPort, data: t.dataDir, home: t.home, cli: owned.bbCli }, runId!, build, t);
   const recorded: string[] = [];
   let loaded: unknown;
   try {
@@ -71,8 +80,10 @@ if (mode === "real-bb") {
   } catch (e) {
     process.stderr.write(`ABORT ${e instanceof Error ? e.message : String(e)}\n`);
     await real.cleanup([]);
+    await owned.stop();
     process.exit(1);
   }
+  const lines: Record<string, unknown>[] = [];
   for (const name of wanted) {
     const run = real.scenarios[name];
     if (!run) usage(`unknown real-bb scenario ${name}`);
@@ -85,13 +96,22 @@ if (mode === "real-bb") {
       line = { pass: false, error: e instanceof Error ? e.message : String(e), evidence: {} };
     }
     recorded.push(...real.threads.filter((t) => !recorded.includes(t)));
-    appendFileSync(out!, `${JSON.stringify({ scenario: name, mode, run_id: runId, commit, tree, dirty, loaded, ...line })}\n`);
+    lines.push({ scenario: name, mode, run_id: runId, commit, tree, dirty, loaded, ...line });
     process.stderr.write(`${line.pass ? "PASS" : "FAIL"} ${name} (${((Date.now() - started) / 1000).toFixed(1)} s)${line.pass ? "" : `: ${line.error}`}\n`);
   }
   const cleanup = await real.cleanup(recorded);
+  const halt = await owned.stop();
+  process.stderr.write(`stop: stopped=${halt.stopped} killed=${halt.killed.length} exit=${halt.stop_exit}\n`);
+  // Records are written after teardown so each one carries the rig proof, the stop result and its own archived threads.
+  for (const l of lines) {
+    const ev = (l.evidence ?? {}) as Record<string, unknown>;
+    const threads = Array.isArray(ev.threads) ? (ev.threads as string[]) : [];
+    l.evidence = { ...ev, rig: { ...owned.rig, stopped: halt.stopped, killed: halt.killed }, cleanup: { archived: threads.filter((x) => cleanup.archived.includes(x)) } };
+    appendFileSync(out!, `${JSON.stringify(l)}\n`);
+  }
   writeFileSync(`${out}.cleanup.json`, JSON.stringify({ run_id: runId, threads: recorded, ...cleanup }, null, 2) + "\n");
   process.stderr.write(`cleanup: archived ${cleanup.archived.length}, failed ${cleanup.failed.length}\n`);
-  process.exit(failed || cleanup.failed.length ? 1 : 0);
+  process.exit(failed || cleanup.failed.length || !halt.stopped ? 1 : 0);
 }
 
 const scratch = mkdtempSync(join(tmpdir(), "autarch-e2e-build-"));

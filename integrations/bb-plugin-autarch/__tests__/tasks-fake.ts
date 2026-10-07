@@ -172,6 +172,7 @@ export class FakeTasks implements PluginsLike {
         const t = this.tasks.find((x) => x.id === input.taskId);
         if (!t) throw new Error("task not found");
         if (input.labelIds !== undefined) t.labelIds = [...input.labelIds];
+        if (input.status !== undefined) t.status = input.status;
         t.updatedAt = `2026-10-03T00:01:${String(this.calls.length % 60).padStart(2, "0")}.000Z`;
         return { task: t };
       }

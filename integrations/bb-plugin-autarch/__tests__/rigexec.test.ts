@@ -122,6 +122,37 @@ describe("refusals open no socket", () => {
   it("an env override of BB_*, PATH or HOME", () => {
     for (const k of ["BB_SERVER_URL", "BB_DATA_DIR", "PATH", "HOME"]) refused(() => rigEnv({ env: { [k]: "x" } }), "env-override");
   });
+  it("TMPDIR is the only inherited variable: an unwritable default /tmp makes bb's first migration fail with a masked error", () => {
+    const old = process.env.TMPDIR;
+    process.env.TMPDIR = t.dir;
+    try {
+      expect(rigEnv().TMPDIR).toBe(t.dir);
+      delete process.env.TMPDIR;
+      expect("TMPDIR" in rigEnv()).toBe(false);
+      process.env.TMPDIR = t.dir;
+      refused(() => rigEnv({ env: { TMPDIR: "/other" } }), "env-override");
+    } finally {
+      if (old === undefined) delete process.env.TMPDIR;
+      else process.env.TMPDIR = old;
+    }
+  });
+  it("the claude CLI's directory joins PATH when the harness can resolve it, after the fixed directories (the server finds providers there)", () => {
+    const bin = join(t.dir, "provbin");
+    mkdirSync(bin, { recursive: true });
+    writeFileSync(join(bin, "claude"), "#!/bin/sh\n");
+    chmodSync(join(bin, "claude"), 0o755);
+    const old = process.env.PATH;
+    try {
+      process.env.PATH = `${bin}:/usr/bin:/bin`;
+      const dirs = rigEnv().PATH!.split(":");
+      expect(dirs).toContain(bin);
+      expect(dirs.indexOf(bin)).toBeGreaterThan(dirs.indexOf("/bin"));
+      process.env.PATH = "/usr/bin:/bin";
+      expect(rigEnv().PATH!.split(":")).not.toContain(bin);
+    } finally {
+      process.env.PATH = old;
+    }
+  });
   it("rigFetch refuses ambient, aliases, non-loopback and default ports", async () => {
     for (const u of [`http://localhost:${amb.port}/health`, `http://[::1]:${amb.port}/`, "http://example.com:45871/", "http://127.0.0.1/"]) {
       await expect(rigFetch(u, undefined, ambient)).rejects.toBeInstanceOf(RefusedError);

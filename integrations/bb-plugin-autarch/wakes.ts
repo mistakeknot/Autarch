@@ -36,6 +36,7 @@ export type QueueEvent = { type: "dispatched" | "cancelled"; id: string; threadI
 export const RECONCILE_MS = 60_000;
 const BACKOFF_BASE_MS = 30_000;
 const BACKOFF_MAX_MS = 3_600_000;
+const MAX_HOPS = 3;
 
 // (e) Step 0: the SDK documents no error shapes for threads.send. Only these are treated as
 // proof that the request never reached the server; everything else is an unknown outcome.
@@ -77,6 +78,11 @@ export class WakeLoop {
   constructor(
     readonly svc: Service,
     readonly sdk: WakeSdk,
+    /**
+     * Where a wake to an archived or deleted thread goes instead: the live title-successor, else the vizier, else
+     * null (nowhere, so the row stalls). Called only after the host said the thread is gone.
+     */
+    private readonly resolveRecipient?: (gone: string) => Promise<string | null>,
   ) {}
 
   private get store() {
@@ -155,6 +161,21 @@ export class WakeLoop {
     const message = errInfo(failure).message;
     if (isGone(failure)) {
       this.store.updateAttempt(row.id, n, "not-delivered", { error: message });
+      // HTTP 409 "Thread is archived": retry once per hop to the routed successor instead of stalling. A row
+      // stalls only when no route resolves (or after MAX_HOPS gone threads in a row).
+      let next: string | null = null;
+      if (this.resolveRecipient && this.store.attempts(row.id).length <= MAX_HOPS) {
+        try {
+          next = await this.resolveRecipient(threadId);
+        } catch {
+          next = null;
+        }
+      }
+      if (next && next !== threadId && this.store.retarget(row.id, threadId, next)) {
+        this.settle(row.id, "retry-now");
+        this.again = true;
+        return;
+      }
       this.settle(row.id, "gone");
     } else if (isPreAcceptance(failure)) {
       this.store.updateAttempt(row.id, n, "not-delivered", { error: message });
@@ -172,7 +193,7 @@ export class WakeLoop {
    * Derive the row's state from its attempts. `hint` says what an all-not-delivered row means:
    * `gone` (removed or thread gone) is undeliverable, `retry` is pending with a delay.
    */
-  private settle(id: string, hint: "gone" | "retry" | "none" = "none", error?: string, attemptN?: number): void {
+  private settle(id: string, hint: "gone" | "retry" | "retry-now" | "none" = "none", error?: string, attemptN?: number): void {
     const row = this.store.obligation(id);
     if (!row || row.state === "done" || row.state === "dismissed") return;
     const atts = this.store.attempts(id);
@@ -184,11 +205,17 @@ export class WakeLoop {
     else if (atts.some((a) => a.state === "uncertain")) to = "uncertain";
     else if (atts.length > 0) {
       if (row.state === "pending" || row.state === "undeliverable") return;
-      if (hint === "retry" && !row.voided_at) {
+      if ((hint === "retry" || hint === "retry-now") && !row.voided_at) {
         to = "pending";
-        const delay = Math.min(BACKOFF_BASE_MS * 2 ** Math.max(0, (attemptN ?? row.attempt) - 1), BACKOFF_MAX_MS);
+        const delay = hint === "retry-now" ? 0 : Math.min(BACKOFF_BASE_MS * 2 ** Math.max(0, (attemptN ?? row.attempt) - 1), BACKOFF_MAX_MS);
         fields = { last_error: error ?? "", next_try_at: new Date(Date.parse(this.svc.time()) + delay).toISOString() };
-      } else to = "undeliverable";
+      } else {
+        to = "undeliverable";
+        // A failure the card shows: the target rotated, was archived, or the send was cancelled.
+        const errs = [...atts].reverse().map((a) => a.error).filter((e): e is string => !!e);
+        const why = error ?? errs.find((e) => !/^cancel/i.test(e)) ?? errs[0] ?? "";
+        fields = { last_error: `${why || "not delivered"} (recipient ${row.recipient ?? "?"})` };
+      }
     }
     if (!to || to === row.state) return;
     // A row holding a resend permit stays pending [H-1]; the store refuses uncertain over it.

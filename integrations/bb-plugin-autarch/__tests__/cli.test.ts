@@ -4,6 +4,7 @@ import { Catchup } from "../catchup.js";
 import { parseAsk } from "../model.js";
 import { homeCli } from "../cli.js";
 import { Delegation } from "../delegation.js";
+import { removeBinding, setBinding } from "../queueview.js";
 import type { Service } from "../service.js";
 import { cleanupEnvs, opened, rig } from "./card-rig.js";
 import { ask, makeEnv, type Env, verifiedDelegation } from "./service-helpers.js";
@@ -81,6 +82,13 @@ describe("bb home get, list, stats, feed", () => {
     expect(first.thread).toBe("thr-a");
     expect(first.project).toBe((svc.store.decision(id) as { project: string }).project);
     expect(JSON.parse(g2.stdout!)).toMatchObject({ thread: "thr-b" });
+  });
+
+  it("get takes --json like every other home command (the Go filer always passes it; real bb rejects an undeclared flag)", async () => {
+    const absent = await run(["get", "--request", "no-such-key", "--json"]);
+    expect(absent.exitCode).toBe(0);
+    expect(JSON.parse(absent.stdout!)).toMatchObject({ status: "absent" });
+    expect((await run(["get", "--card", "no-such-card", "--json"])).exitCode).toBe(1);
   });
 
   it("get --id reports lifecycle state; unknown ids exit 1; no selector exits 2", async () => {
@@ -256,5 +264,155 @@ describe("cards in the CLI (Task 2.7)", () => {
     const pulled = JSON.parse((await go(["list", "--pull", "mycroft"])).stdout!) as { id: string; task_id: string | null }[];
     expect(pulled.map((x) => x.id).sort()).toEqual([c.g1.id, lf.decision_id].sort());
     expect(pulled.find((x) => x.id === c.g1.id)!.task_id).toBe(c.t.id);
+  });
+});
+
+describe("bb home list shows cards Home flags", () => {
+  afterEach(() => cleanupEnvs());
+  it("includes a card that lost its Request line, with its reason, and leaves it out of --pull", async () => {
+    const r = rig();
+    const c = await opened(r, { key: "key-flag" });
+    const s = r.svc;
+    const d = verifiedDelegation(s);
+    const cli = homeCli({ svc: s, asks: new Asks(s), catchup: new Catchup(s, d), rule: (id, option, reason, ctx) => d.rule(id, option, reason, ctx), isVizier: () => false });
+    const go = (argv: string[]) => Promise.resolve(cli.run(argv, {}));
+    r.edit(c.t, { description: c.t.description.replace(/^Request: .*\n/m, "") });
+    await r.poll();
+    const rows = JSON.parse((await go(["list", "--json"])).stdout!) as { id: string; task_id: string; display_only?: boolean; display_reason?: string }[];
+    const flagged = rows.find((x) => x.task_id === c.t.id);
+    expect(flagged).toMatchObject({ id: `card:${c.t.id}`, display_only: true, thread: "thr_a" });
+    expect(flagged!.display_reason).toMatch(/^Request line missing/);
+    expect(JSON.parse((await go(["list", "--pull", "mycroft"])).stdout!)).toEqual([]);
+  });
+});
+
+describe("bb home binding", () => {
+  it("reads the binding row, or nulls when the tasks project is unbound", async () => {
+    svc.store.db.prepare("INSERT INTO project_bindings(tasks_project_id, home_project, state) VALUES ('tp-1', 'shadow-work', 'confirmed')").run();
+    const hit = await run(["binding", "tp-1"]);
+    expect(hit.exitCode).toBe(0);
+    expect(JSON.parse(hit.stdout!)).toEqual({ tasks_project_id: "tp-1", home_project: "shadow-work", state: "confirmed" });
+    expect(JSON.parse((await run(["binding", "tp-none"])).stdout!)).toEqual({ tasks_project_id: "tp-none", home_project: null, state: null });
+  });
+});
+
+describe("bb home bind / unbind (vizier only, logged)", () => {
+  beforeEach(() => enable());
+  const bindCli = () => {
+    const db = svc.store.db;
+    const rec = (by: string) => (type: string, detail: unknown) => svc.store.recordEvent(type, null, { ...(detail as object), by });
+    const cli = homeCli({
+      svc,
+      asks: new Asks(svc),
+      catchup: new Catchup(svc, dele),
+      rule: (id, option, reason, ctx) => dele.rule(id, option, reason, ctx),
+      isVizier: (t) => t !== undefined && dele.settings().vizierThreadId === t,
+      bind: async (ref, home, by) => {
+        const r = setBinding(db, { tasks_project_id: ref, state: "confirmed", home_project: home }, { now: svc.time(), knownProjects: ["Autarch", "shadow-work"], record: rec(by) });
+        return r.ok ? { ok: true as const, tasks_project_id: ref } : r;
+      },
+      unbind: async (ref, by) => {
+        const r = removeBinding(db, { tasks_project_id: ref }, { record: rec(by) });
+        return r.ok ? { ok: true as const, tasks_project_id: ref, was: r.was } : r;
+      },
+    });
+    return (argv: string[], ctx: { threadId?: string } = {}) => Promise.resolve(cli.run(argv, ctx));
+  };
+  const events = (type: string) => (svc.store.db.prepare("SELECT at, detail_json FROM events WHERE type = ?").all(type) as { at: string; detail_json: string }[]).map((e) => ({ at: e.at, ...JSON.parse(e.detail_json) }));
+
+  it("refuses every thread but the vizier, and writes nothing", async () => {
+    const r = bindCli();
+    for (const ctx of [{}, { threadId: "thr-a" }]) {
+      for (const argv of [["bind", "tp-1", "shadow-work"], ["unbind", "tp-1"]]) {
+        const res = await r(argv, ctx);
+        expect(res.exitCode).toBe(1);
+        expect(res.stderr).toMatch(/only the vizier/);
+      }
+    }
+    expect(svc.store.db.prepare("SELECT COUNT(*) AS n FROM project_bindings").get()).toEqual({ n: 0 });
+  });
+
+  it("binds confirmed, logging who and when, and unbind undoes it, logging the same", async () => {
+    const r = bindCli();
+    const b = await r(["bind", "tp-1", "shadow-work"], { threadId: VIZ });
+    expect(b.exitCode).toBe(0);
+    expect(svc.store.db.prepare("SELECT home_project, state FROM project_bindings").get()).toEqual({ home_project: "shadow-work", state: "confirmed" });
+    expect(events("binding-confirmed")).toMatchObject([{ tasks_project_id: "tp-1", home_project: "shadow-work", by: VIZ }]);
+    expect(events("binding-confirmed")[0]!.at).toBeTruthy();
+    const u = await r(["unbind", "tp-1"], { threadId: VIZ });
+    expect(u.exitCode).toBe(0);
+    expect(JSON.parse(u.stdout!).was).toEqual({ home_project: "shadow-work", state: "confirmed" });
+    expect(svc.store.db.prepare("SELECT COUNT(*) AS n FROM project_bindings").get()).toEqual({ n: 0 });
+    expect(events("binding-removed")).toMatchObject([{ tasks_project_id: "tp-1", was: "confirmed", by: VIZ }]);
+  });
+
+  it("an unknown Home project exits 2, and unbinding an unbound project exits 1", async () => {
+    const r = bindCli();
+    expect((await r(["bind", "tp-1", "nowhere"], { threadId: VIZ })).exitCode).toBe(2);
+    expect((await r(["unbind", "tp-1"], { threadId: VIZ })).exitCode).toBe(1);
+  });
+
+  it("is unavailable, not silent, when the plugin gave the CLI no binder", async () => {
+    const res = await run(["bind", "tp-1", "Autarch"], { threadId: VIZ });
+    expect(res.exitCode).toBe(1);
+    expect(res.stderr).toMatch(/not available/);
+  });
+});
+
+describe("bb home handoff", () => {
+  const handoffCli = (isVizier: (t: string | undefined) => boolean) => {
+    const calls: { to: string; ctx: { threadId?: string } }[] = [];
+    const cli = homeCli({
+      svc,
+      asks: new Asks(svc),
+      catchup: new Catchup(svc, dele),
+      rule: (id, option, reason, ctx) => dele.rule(id, option, reason, ctx),
+      isVizier,
+      handoff: async (to, ctx) => {
+        calls.push({ to, ctx });
+        return ctx.threadId === "thr_old" ? { ok: true as const, from: "thr_old", to } : { ok: false as const, status: 403, error: "only the vizier thread may hand off" };
+      },
+    });
+    return { calls, run: (argv: string[], ctx: { threadId?: string } = {}) => Promise.resolve(cli.run(argv, ctx)) };
+  };
+
+  it("passes the caller's thread and prints the move; a refusal carries its message", async () => {
+    const h = handoffCli(() => false);
+    const ok = await h.run(["handoff", "thr_new"], { threadId: "thr_old" });
+    expect(ok.exitCode).toBe(0);
+    expect(JSON.parse(ok.stdout!)).toEqual({ ok: true, from: "thr_old", to: "thr_new" });
+    const no = await h.run(["handoff", "thr_new"], { threadId: "thr_x" });
+    expect(no.exitCode).not.toBe(0);
+    expect(no.stderr).toMatch(/only the vizier thread may hand off/);
+    expect(h.calls.map((c) => c.ctx.threadId)).toEqual(["thr_old", "thr_x"]);
+  });
+
+  it("an awaited async isVizier gates bind, unbind, rule and note", async () => {
+    const h = handoffCli(() => false);
+    for (const argv of [["rule", "d1", "o", "--reason", "r"], ["note", "hello"]]) {
+      const r = await h.run(argv, { threadId: "thr_x" });
+      expect(r.exitCode).toBe(1);
+      expect(r.stderr).toMatch(/only the vizier/);
+    }
+  });
+
+  it("note rechecks the stored vizier right before writing: a handoff during the async check ends its authority", async () => {
+    let stored = "thr_old";
+    const cli = homeCli({
+      svc,
+      asks: new Asks(svc),
+      catchup: new Catchup(svc, dele),
+      rule: (id, option, reason, ctx) => dele.rule(id, option, reason, ctx),
+      isVizier: async (t) => {
+        await Promise.resolve();
+        const ok = t === stored;
+        stored = "thr_new"; // the handoff lands after the check resolves
+        return ok;
+      },
+      stillVizier: (t) => t === stored,
+    });
+    const r = await Promise.resolve(cli.run(["note", "hello"], { threadId: "thr_old" }));
+    expect(r.exitCode).toBe(1);
+    expect(r.stderr).toMatch(/only the vizier/);
   });
 });

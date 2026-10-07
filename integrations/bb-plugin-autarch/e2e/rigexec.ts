@@ -280,14 +280,21 @@ export interface ExecOptions {
 /** Built from nothing. PATH = shim dir, /usr/bin, /bin, then the directories of the resolved bb and node. */
 export function rigEnv(o: ExecOptions = {}): Record<string, string> {
   const extra = o.env ?? {};
-  for (const k of Object.keys(extra)) if (/^BB_/.test(k) || k === "PATH" || k === "HOME") throw new RefusedError("env-override", `${k} cannot be set through env`);
+  for (const k of Object.keys(extra)) if (/^BB_/.test(k) || k === "PATH" || k === "HOME" || k === "TMPDIR") throw new RefusedError("env-override", `${k} cannot be set through env`);
   const dirs: string[] = [];
   dirs.push(o.target ? o.target.shimDir : refusingShimDir());
   dirs.push("/usr/bin", "/bin");
   const bb = resolveBin("bb");
   if (bb) dirs.push(dirname(bb));
   dirs.push(dirname(process.execPath));
+  // The server finds the Claude Code CLI on its PATH; without it a fresh server cannot load the provider's models and
+  // `bb thread spawn` fails with HTTP 503. The harness's PATH decides where it lives (a scratch dir holding only a link).
+  const claude = resolveBin("claude");
+  if (claude) dirs.push(dirname(claude));
   const env: Record<string, string> = { PATH: [...new Set(dirs)].join(delimiter), HOME: o.target ? o.target.home : (o.home ?? throwawayHome()), ...extra };
+  // The one inherited variable. Inside the read-only sandbox /tmp is unwritable; SQLite then cannot make temp files,
+  // aborts the first migration and drizzle masks it as "cannot rollback - no transaction is active" (Task 2.12 part B).
+  if (process.env.TMPDIR) env.TMPDIR = process.env.TMPDIR;
   if (o.target) {
     env.BB_SERVER_URL = o.target.url;
     env.BB_DATA_DIR = o.target.dataDir;

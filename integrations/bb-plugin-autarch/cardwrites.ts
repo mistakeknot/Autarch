@@ -15,6 +15,8 @@ export const HOME_RELABELS_ON_OVERRIDE = true;
 const BACKOFF_MS = 30_000;
 const MAX_BACKOFF_MS = 3_600_000;
 const MARKER = "home-write:";
+/** The label a card carries when Home filed it for a move; only such cards are closed when the move closes. */
+export const HOME_MOVE_LABEL = "mk-move";
 
 export interface PickPayload {
   option_id: string;
@@ -45,6 +47,7 @@ export function commentBody(id: string, payload: Partial<PickPayload>): string {
   const gen = payload.generation == null ? "" : ` generation ${payload.generation}`;
   const lines = [`Ruled: ${label} (Home, advisory; ruled by: ${payload.by ?? "mk"})${gen}`];
   if (payload.by === "vizier" && payload.reason) lines.push(`Reason: ${payload.reason}`);
+  if (payload.option_id === "other" && payload.reason) lines.push("", "mk's answer (plain text):", payload.reason);
   lines.push("", `${MARKER} ${id}`);
   return lines.join("\n");
 }
@@ -118,10 +121,49 @@ export class CardWriter {
           out.failed++;
         }
       }
+      await this.drainMoveCloses(out);
     } finally {
       this.running = false;
     }
     return out;
+  }
+
+  /**
+   * After a move closes: mark its tasks card done, but only a card Home filed (label mk-move). A stopgap card
+   * the vizier filed is left for its owner. Idempotent per (task, generation); a failure backs off and retries.
+   */
+  private async drainMoveCloses(out: { done: number; failed: number }): Promise<void> {
+    const rows = this.db.prepare("SELECT task_id, generation, attempt FROM move_closes WHERE state = 'pending' AND next_try_at <= ? ORDER BY rowid").all(this.now()) as { task_id: string; generation: number; attempt: number }[];
+    const settle = (r: { task_id: string; generation: number }, state: "done" | "skipped", note: string | null) =>
+      this.db.prepare("UPDATE move_closes SET state = ?, last_error = ?, updated_at = ? WHERE task_id = ? AND generation = ?").run(state, note, this.now(), r.task_id, r.generation);
+    for (const r of rows) {
+      try {
+        // A newer live move on the card means the card is still owed.
+        if (this.db.prepare("SELECT 1 FROM moves WHERE task_id = ? AND state <> 'closed'").get(r.task_id)) {
+          settle(r, "skipped", "card has another live move");
+          continue;
+        }
+        const st = await this.tasks.taskState(r.task_id);
+        if (st.state === "deleted") {
+          settle(r, "skipped", "task deleted");
+          continue;
+        }
+        const labels = await this.tasks.listLabels(st.task.projectId, { fresh: true });
+        const filed = labels.some((l) => l.name === HOME_MOVE_LABEL && st.task.labelIds.includes(l.id));
+        if (!filed) settle(r, "skipped", "not filed by Home (no mk-move label)");
+        else {
+          if (st.task.status !== "done" && st.task.status !== "canceled") await this.tasks.closeTask(r.task_id);
+          settle(r, "done", null);
+        }
+        out.done++;
+      } catch (e) {
+        const delay = Math.min(BACKOFF_MS * 2 ** Math.min(r.attempt, 20), MAX_BACKOFF_MS);
+        this.db
+          .prepare("UPDATE move_closes SET attempt = attempt + 1, last_error = ?, next_try_at = ?, updated_at = ? WHERE task_id = ? AND generation = ? AND state = 'pending'")
+          .run(message(e), new Date(Date.parse(this.now()) + delay).toISOString(), this.now(), r.task_id, r.generation);
+        out.failed++;
+      }
+    }
   }
 
   private async run(r: WriteRow): Promise<void> {

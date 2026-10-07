@@ -1,0 +1,150 @@
+{
+ "kind": "move",
+ "env": {"HOME_MOVE_READ_HOSTS": "docs.example.test"},
+ "cases": [
+  {
+   "name": "script with args and recover",
+   "body": "{\"schema\":\"home-move/v1\",\"kind\":\"script\",\"script\":{\"path\":\"/srv/x/run.sh\",\"sha256\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"args\":[\"--check\",\"--dir=/tmp/x\"],\"recover\":{\"path\":\"/srv/x/undo.sh\",\"sha256\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"}}}",
+   "error": null,
+   "kind": "script"
+  },
+  {
+   "name": "pr",
+   "body": "{\"schema\":\"home-move/v1\",\"kind\":\"pr\",\"pr\":{\"url\":\"https://github.com/o/r/pull/12\"}}",
+   "error": null,
+   "kind": "pr"
+  },
+  {
+   "name": "read github",
+   "body": "{\"schema\":\"home-move/v1\",\"kind\":\"read\",\"read\":{\"url\":\"https://github.com/o/r/issues/3\"}}",
+   "error": null,
+   "kind": "read"
+  },
+  {
+   "name": "read on a configured extra host",
+   "body": "{\"schema\":\"home-move/v1\",\"kind\":\"read\",\"read\":{\"url\":\"https://docs.example.test/docs/plan\"}}",
+   "error": null,
+   "kind": "read"
+  },
+  {
+   "name": "read on an unlisted host",
+   "body": "{\"schema\":\"home-move/v1\",\"kind\":\"read\",\"read\":{\"url\":\"https://other.example.test/docs/plan\"}}",
+   "error": "read url must be https on an allowed host",
+   "kind": null
+  },
+  {
+   "name": "context",
+   "body": "{\"schema\":\"home-move/v1\",\"kind\":\"context\",\"context\":{\"need\":\"the staging token owner\"}}",
+   "error": null,
+   "kind": "context"
+  },
+  {
+   "name": "not an object",
+   "body": "[1]",
+   "error": "home-move must be a JSON object",
+   "kind": null
+  },
+  {
+   "name": "wrong schema",
+   "body": "{\"schema\":\"home-move/v2\",\"kind\":\"pr\",\"pr\":{\"url\":\"https://github.com/o/r/pull/1\"}}",
+   "error": "schema must be home-move/v1",
+   "kind": null
+  },
+  {
+   "name": "unknown kind",
+   "body": "{\"schema\":\"home-move/v1\",\"kind\":\"exec\",\"exec\":{}}",
+   "error": "kind must be script, pr, read or context",
+   "kind": null
+  },
+  {
+   "name": "extra top-level field",
+   "body": "{\"schema\":\"home-move/v1\",\"kind\":\"pr\",\"pr\":{\"url\":\"https://github.com/o/r/pull/1\"},\"run\":\"x\"}",
+   "error": "unknown field \"run\" in home-move/v1",
+   "kind": null
+  },
+  {
+   "name": "missing member",
+   "body": "{\"schema\":\"home-move/v1\",\"kind\":\"pr\"}",
+   "error": "pr move needs a \"pr\" member",
+   "kind": null
+  },
+  {
+   "name": "pr off github",
+   "body": "{\"schema\":\"home-move/v1\",\"kind\":\"pr\",\"pr\":{\"url\":\"https://example.com/o/r/pull/1\"}}",
+   "error": "pr url must be https://github.com/<owner>/<repo>/pull/<n>",
+   "kind": null
+  },
+  {
+   "name": "pr number zero",
+   "body": "{\"schema\":\"home-move/v1\",\"kind\":\"pr\",\"pr\":{\"url\":\"https://github.com/o/r/pull/0\"}}",
+   "error": "pr url must be https://github.com/<owner>/<repo>/pull/<n>",
+   "kind": null
+  },
+  {
+   "name": "read other host",
+   "body": "{\"schema\":\"home-move/v1\",\"kind\":\"read\",\"read\":{\"url\":\"https://example.com/x\"}}",
+   "error": "read url must be https on an allowed host",
+   "kind": null
+  },
+  {
+   "name": "read http",
+   "body": "{\"schema\":\"home-move/v1\",\"kind\":\"read\",\"read\":{\"url\":\"http://github.com/x\"}}",
+   "error": "read url must be https on an allowed host",
+   "kind": null
+  },
+  {
+   "name": "read with port",
+   "body": "{\"schema\":\"home-move/v1\",\"kind\":\"read\",\"read\":{\"url\":\"https://github.com:444/x\"}}",
+   "error": "read url must be https on an allowed host",
+   "kind": null
+  },
+  {
+   "name": "relative script path",
+   "body": "{\"schema\":\"home-move/v1\",\"kind\":\"script\",\"script\":{\"path\":\"run.sh\",\"sha256\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"}}",
+   "error": "script path must be an absolute path of letters, digits and ._/+- with no .. segment",
+   "kind": null
+  },
+  {
+   "name": "dotdot script path",
+   "body": "{\"schema\":\"home-move/v1\",\"kind\":\"script\",\"script\":{\"path\":\"/a/../b\",\"sha256\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"}}",
+   "error": "script path must be an absolute path of letters, digits and ._/+- with no .. segment",
+   "kind": null
+  },
+  {
+   "name": "short sha",
+   "body": "{\"schema\":\"home-move/v1\",\"kind\":\"script\",\"script\":{\"path\":\"/a/b\",\"sha256\":\"abc\"}}",
+   "error": "script sha256 must be 64 lowercase hex characters",
+   "kind": null
+  },
+  {
+   "name": "shell metacharacter arg",
+   "body": "{\"schema\":\"home-move/v1\",\"kind\":\"script\",\"script\":{\"path\":\"/a/b\",\"sha256\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"args\":[\"$(id)\"]}}",
+   "error": "each arg must match ^[A-Za-z0-9._/:=+@-]{1,200}$",
+   "kind": null
+  },
+  {
+   "name": "too many args",
+   "body": "{\"schema\":\"home-move/v1\",\"kind\":\"script\",\"script\":{\"path\":\"/a/b\",\"sha256\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"args\":[\"a\",\"a\",\"a\",\"a\",\"a\",\"a\",\"a\",\"a\",\"a\"]}}",
+   "error": "args must be an array of at most 8 strings",
+   "kind": null
+  },
+  {
+   "name": "recover with args",
+   "body": "{\"schema\":\"home-move/v1\",\"kind\":\"script\",\"script\":{\"path\":\"/a/b\",\"sha256\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"recover\":{\"path\":\"/a/c\",\"sha256\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"args\":[\"x\"]}}}",
+   "error": "recover takes only path and sha256",
+   "kind": null
+  },
+  {
+   "name": "empty need",
+   "body": "{\"schema\":\"home-move/v1\",\"kind\":\"context\",\"context\":{\"need\":\"   \"}}",
+   "error": "context need must be 1-2000 characters of text",
+   "kind": null
+  },
+  {
+   "name": "need too long",
+   "body": "{\"schema\":\"home-move/v1\",\"kind\":\"context\",\"context\":{\"need\":\"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\"}}",
+   "error": "context need must be 1-2000 characters of text",
+   "kind": null
+  }
+ ]
+}

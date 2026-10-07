@@ -35,6 +35,8 @@ const digestOf = (t: Task) => `${t.updatedAt}|${t.status}|${[...t.labelIds].sort
 export class Queue {
   private readonly pollMs: number;
   private readonly digest = new Map<string, string>();
+  /** Bumped by rebind: an ingest that began before it must not record its (stale) digest. */
+  private rebindEpoch = 0;
   private health: QueueStatus["health"] = "ok";
   private lastError: string | null = null;
   private lastPollAt: string | null = null;
@@ -42,6 +44,15 @@ export class Queue {
 
   constructor(private readonly deps: QueueDeps) {
     this.pollMs = deps.pollMs ?? POLL_MS;
+  }
+
+  /**
+   * A binding changed: forget the digests of the tasks project's cards so the next poll re-evaluates them
+   * (a card shown as a project mismatch is otherwise re-read only when the card itself is edited).
+   */
+  rebind(cardTaskIds: readonly string[]): void {
+    this.rebindEpoch++;
+    for (const id of cardTaskIds) this.digest.delete(id);
   }
 
   status(): QueueStatus {
@@ -139,9 +150,10 @@ export class Queue {
     const ingest = async (t: Task, commit: boolean) => {
       if (seen.has(t.id)) return;
       seen.add(t.id);
+      const epoch = this.rebindEpoch;
       const r = await service.ingestCard(t, { comments: comments(t.id) });
       note(r);
-      if (commit && !r.unavailable) this.digest.set(t.id, digestOf(t));
+      if (commit && !r.unavailable && epoch === this.rebindEpoch) this.digest.set(t.id, digestOf(t));
     };
     for (const t of all) if (this.digest.get(t.id) !== digestOf(t)) await ingest(t, true);
     // Unresolved-retry set, independent of the digest.

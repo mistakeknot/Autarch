@@ -6,7 +6,7 @@ import { tmpDir } from "./helpers.js";
 
 const CHECK = join(import.meta.dirname, "..", "scripts", "check-e2e.mjs");
 const FIX = join(import.meta.dirname, "fixtures", "e2e");
-const FAKE = "answer-instruction,blocks-notices,card-blocks-only-edit,card-edited-after-pick,card-edited-before-pick,card-ingest,card-invalidated-old-tab-pick,card-unlabelled,comment-arrives-later,crash-after-pick,delegated-override,duplicate-request-reversed,edit-after-pick-failed-write-restart,label-recreated,override-unlabel-crash,pick-retry,project-mismatch-delegation,queued-then-archived,root-run-display,root-run-injection,ruling-file-blocked,serve-recovers,two-writers";
+const FAKE = "answer-instruction,bind-unmapped-project,blocks-notices,card-blocks-only-edit,card-edited-after-pick,card-edited-before-pick,card-ingest,card-invalidated-old-tab-pick,card-unlabelled,comment-arrives-later,crash-after-pick,delegated-override,duplicate-request-reversed,edit-after-pick-failed-write-restart,label-recreated,override-unlabel-crash,pick-retry,project-mismatch-delegation,queued-then-archived,root-run-display,root-run-injection,ruling-file-blocked,serve-recovers,two-writers";
 const REAL = "answer-instruction,comment-arrives-later-real,cross-project-panel,filer-from-thread,poller-refresh,queued-then-archived,upgrade-quiesce,vizier-chat";
 const PLUGIN = "c".repeat(64);
 const SERVE = "d".repeat(64);
@@ -120,6 +120,14 @@ describe("check-e2e", () => {
     const r = run(f, "real-bb");
     expect(r.status).toBe(1);
     expect(r.stderr).toContain("env_absent_exit");
+  });
+
+  it("rejects an upgrade-quiesce record that does not show bb keeping the previous v2 instance (mk-schu.5)", () => {
+    const f = materialise("accept", "real-bb");
+    writeFileSync(f, readFileSync(f, "utf8").replace(/,"previous_instance_kept":true/, "").replace(/"v2_instance_hosted_by":"[^"]*"/, '"v2_instance_hosted_by":"standalone-store-process"'));
+    const r = run(f, "real-bb");
+    expect(r.status).toBe(1);
+    expect(r.stderr).toContain("previous_instance_kept");
   });
 
   it("rejects an old scenario name that Task 2.11 retired", () => {

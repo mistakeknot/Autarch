@@ -227,6 +227,8 @@ describe("ambiguous failure, no crash [F-1]", () => {
     await loop.drain();
     expect(row(a.id).state).toBe("undeliverable");
     expect(states(a.id)).toEqual(["not-delivered"]);
+    // The card must show why: a rotated or archived target is a visible failure, never a blank one.
+    expect(row(a.id).last_error ?? "").not.toBe("");
   });
 });
 
@@ -418,6 +420,7 @@ describe("queued rows and events [D-9]", () => {
     await loop.onThreadGone("thr-a");
     expect(states(a.id)).toEqual(["not-delivered"]);
     expect(row(a.id).state).toBe("undeliverable");
+    expect(row(a.id).last_error ?? "").not.toBe("");
   });
 
   it("queued then message.cancelled is undeliverable", async () => {
@@ -573,5 +576,52 @@ describe("sdkAdapter against the real threads.send contract", () => {
     };
     await sdkAdapter(threads as never).send({ threadId: "thr_x", input: "hello", mode: "queue-if-active" });
     expect(seen).toEqual([[{ type: "text", text: "hello" }]]);
+  });
+});
+
+describe("archived recipient routing (Stalled addendum)", () => {
+  it("a 409 to an archived owner retries to the routed successor", async () => {
+    loop = new WakeLoop(svc, sdk, async (gone) => (gone === "thr-a" ? "thr-succ" : null));
+    const a = await wake("thr-a");
+    sdk.script = [{ kind: "throw", err: archived() }];
+    await loop.drain();
+    expect(sdk.sent.map((s) => s.threadId)).toEqual(["thr-a", "thr-succ"]);
+    expect(row(a.id).state).toBe("done");
+    expect(row(a.id).recipient).toBe("thr-succ");
+    expect(states(a.id)).toEqual(["not-delivered", "delivered"]);
+  });
+
+  it("with no successor it falls to the vizier (the resolver's answer) and with no route at all it stalls", async () => {
+    loop = new WakeLoop(svc, sdk, async () => "thr-vizier");
+    const a = await wake("thr-a");
+    sdk.script = [{ kind: "throw", err: archived() }];
+    await loop.drain();
+    expect(row(a.id).recipient).toBe("thr-vizier");
+    expect(row(a.id).state).toBe("done");
+
+    loop = new WakeLoop(svc, sdk, async () => null);
+    const b = await wake("thr-b");
+    sdk.script = [{ kind: "throw", err: archived() }];
+    await loop.drain();
+    expect(row(b.id).state).toBe("undeliverable");
+    expect(row(b.id).recipient).toBe("thr-b");
+  });
+
+  it("a resolver that keeps naming gone threads stops after a few hops", async () => {
+    let n = 0;
+    loop = new WakeLoop(svc, sdk, async () => `thr-gone-${++n}`);
+    const a = await wake("thr-a");
+    sdk.fallback = { kind: "throw", err: archived() };
+    await loop.drain();
+    expect(row(a.id).state).toBe("undeliverable");
+    expect(sdk.sent.length).toBeLessThanOrEqual(5);
+  });
+
+  it("dismiss clears an undeliverable row", async () => {
+    const a = await wake("thr-a");
+    sdk.script = [{ kind: "throw", err: archived() }];
+    await loop.drain();
+    expect(svc.dismiss(a.decision_id!, a.id)).toEqual({ ok: true });
+    expect(row(a.id).state).toBe("dismissed");
   });
 });

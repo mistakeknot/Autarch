@@ -9,6 +9,8 @@ export const TASKS_PLUGIN_ID = "tasks";
 export const NEEDS_MK_LABEL = "needs-mk";
 export const LABEL_TTL_MS = 60_000;
 export const HOME_AUTHOR = "Home";
+/** The trailer Home's own note path appends to a comment it posts. Used to label (and to never read as a report); it grants nothing. */
+export const HOME_NOTE_TRAILER = /\n\nhome-note: [A-Za-z0-9_-]{1,64}\s*$/;
 export const PAGE_LIMIT = 500;
 export const OPEN_STATUSES = ["backlog", "todo", "in_progress", "in_review"] as const;
 
@@ -100,7 +102,10 @@ export class TasksClient {
 
   /** Every label id in the project named needs-mk (a project may carry several). */
   async needsMkLabelIds(projectId: string, opts: { fresh?: boolean; signal?: AbortSignal } = {}): Promise<string[]> {
-    return (await this.listLabels(projectId, opts)).filter((l) => l.name === NEEDS_MK_LABEL).map((l) => l.id);
+    const ids = (await this.listLabels(projectId, opts)).filter((l) => l.name === NEEDS_MK_LABEL).map((l) => l.id);
+    if (ids.length > 0 || opts.fresh) return ids;
+    // The label can be created after the first poll saw the project; an empty answer is never trusted from cache.
+    return (await this.listLabels(projectId, { ...opts, fresh: true })).filter((l) => l.name === NEEDS_MK_LABEL).map((l) => l.id);
   }
 
   /** All pages. Any failure rejects; a partial read is never returned. */
@@ -137,6 +142,11 @@ export class TasksClient {
   /** Replace a task's whole label set (updateTask semantics), attributed to Home. */
   async setLabels(taskId: string, labelIds: readonly string[], signal?: AbortSignal): Promise<void> {
     await this.call("updateTask", { taskId, labelIds: [...labelIds], authorName: HOME_AUTHOR }, z.object({}).passthrough(), signal);
+  }
+
+  /** Mark a task done (updateTask semantics), attributed to Home. Used only for cards Home filed. */
+  async closeTask(taskId: string, signal?: AbortSignal): Promise<void> {
+    await this.call("updateTask", { taskId, status: "done", authorName: HOME_AUTHOR }, z.object({}).passthrough(), signal);
   }
 
   /**

@@ -20,7 +20,7 @@ import {
 export { BackupNotVerifiedError, QuiesceRequiredError } from "./backup.js";
 
 /** The schema version this code writes and the highest it can read. */
-export const CODE_VERSION = 3;
+export const CODE_VERSION = 4;
 
 export interface Migration {
   version: number;
@@ -302,10 +302,82 @@ CREATE TABLE migration_log (
 );
 `;
 
+
+// Home Your move (plan mk-okek.24). Expand-only: no min_reader bump, so a v3 reader still opens a v4
+// database (it ignores `moves`). A move is one thing mk owes, keyed by (task ULID, generation).
+const V4 = `
+CREATE TABLE moves (
+  task_id TEXT NOT NULL,
+  generation INTEGER NOT NULL,
+  kind TEXT NOT NULL CHECK (kind IN ('script','pr','read','context')),
+  payload_json TEXT NOT NULL,
+  state TEXT NOT NULL DEFAULT 'open' CHECK (state IN ('open','claimed','closed')),
+  opened_by TEXT NOT NULL CHECK (opened_by IN ('card','pick')),
+  opened_at TEXT NOT NULL,
+  claimed_at TEXT,
+  claimed_by TEXT,
+  closed_at TEXT,
+  closed_by TEXT,
+  evidence TEXT,
+  -- What the script itself reported: kept apart from what mk said he did. Reported, never verified.
+  report_state TEXT CHECK (report_state IS NULL OR report_state IN ('succeeded','failed','no-report')),
+  report_json TEXT,
+  report_at TEXT,
+  report_deadline_at TEXT,
+  skipped_at TEXT,
+  hidden_by TEXT,
+  hidden_at TEXT,
+  last_checked_at TEXT,
+  last_error TEXT,
+  PRIMARY KEY (task_id, generation)
+);
+CREATE INDEX moves_state ON moves(state, opened_at);
+-- Closing the tasks card of a move Home filed (label mk-move) after the move closes. One row per move.
+CREATE TABLE move_closes (
+  task_id TEXT NOT NULL,
+  generation INTEGER NOT NULL,
+  state TEXT NOT NULL DEFAULT 'pending' CHECK (state IN ('pending','done','skipped')),
+  attempt INTEGER NOT NULL DEFAULT 0,
+  last_error TEXT,
+  next_try_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  PRIMARY KEY (task_id, generation)
+);
+-- Conversation on the card. A read-only mirror of the tasks card's comments: display only, never an input
+-- to any decision. author_id is the id the tasks plugin recorded (thread id, or null); the author class is derived
+-- from it, never from the text.
+CREATE TABLE card_comments (
+  task_id TEXT NOT NULL,
+  comment_id TEXT NOT NULL,
+  kind TEXT NOT NULL,
+  author_name TEXT NOT NULL,
+  author_id TEXT,
+  body TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  fetched_at TEXT NOT NULL,
+  PRIMARY KEY (task_id, comment_id)
+);
+CREATE INDEX card_comments_task ON card_comments(task_id, created_at, comment_id);
+-- When the comments of a card were last read, and whether the last read failed ("comments may be stale").
+CREATE TABLE card_comment_polls (
+  task_id TEXT PRIMARY KEY,
+  last_ok_at TEXT,
+  last_attempt_at TEXT NOT NULL,
+  last_error TEXT
+);
+-- How far mk has read a card's conversation (unread dots). One row per card.
+CREATE TABLE card_seen (
+  task_id TEXT PRIMARY KEY,
+  seen_through TEXT NOT NULL,
+  seen_at TEXT NOT NULL
+);
+`;
+
 export const MIGRATIONS: readonly Migration[] = [
   { version: 1, sql: V1 },
   { version: 2, sql: V2 },
   { version: 3, minReaderVersion: 3, sql: V3 },
+  { version: 4, sql: V4 },
 ];
 
 const META = `CREATE TABLE IF NOT EXISTS schema_meta (key TEXT PRIMARY KEY, value INTEGER NOT NULL)`;

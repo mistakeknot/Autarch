@@ -72,12 +72,24 @@ setInterval(()=>{},1000);
 `;
 const STUB_BB = `#!/bin/bash
 D="$(cd "$(dirname "$0")/../.." && pwd)/stub"; mkdir -p "$D"
+# bb.js spawns its child with cwd: process.cwd(); an unreadable cwd (root's /root, as mk) is EACCES. Emulate that.
+[ -x "$(pwd -P)" ] || { echo "spawn bb-app EACCES (cwd unreadable)" >&2; exit 1; }
 n=$(( $(cat "$D/n" 2>/dev/null || echo 0) + 1 )); echo $n > "$D/n"
 { echo "== call $n"; printf 'ARGV'; for a in "$@"; do printf '\\t%s' "$a"; done; echo
   env | sort | grep -E '^(BB_|NODE_ENV=|HOME=|PATH=)' | sed 's/^/ENV /'; } >> "$D/calls.log"
+# Strict like the real bb: only the commands it has (checked against its help). No "plugin status" there.
 case "$1 $2" in
-  "plugin status") cat "$D/status" 2>/dev/null || echo "autarch: running" ;;
+  "plugin list")
+    st=$(cat "$D/status" 2>/dev/null || echo running)
+    en=true; [ "$st" = disabled ] && en=false
+    me=',{"id":"autarch","enabled":'$en',"status":"'$st'","statusDetail":null}'; [ -e "$D/absent" ] && me=
+    printf '{"plugins":[{"id":"tasks","enabled":true,"status":"running"}%s]}\n' "$me" ;;
   "plugin logs") cat "$D/logs" 2>/dev/null || true ;;
+  "plugin install")
+    case " $* " in *" --yes "*) ;; *) echo "error: confirmation required (pass --yes)" >&2; exit 1 ;; esac
+    rm -f "$D/absent"; [ -f "$D/fresh.db" ] && cp "$D/fresh.db" "$(cat "$D/fresh-dest")" ;;
+  "plugin disable"|"plugin enable"|"plugin build"|"thread tell") ;;
+  *) echo "error: unknown command '$2'" >&2; exit 1 ;;
 esac
 exit 0
 `;
@@ -163,6 +175,8 @@ const calls = (i: Install): Call[] => {
     });
 };
 const verbs = (i: Install) => calls(i).map((c) => c.argv.slice(0, 2).join(" "));
+// The upgrade body opens with one `plugin list` (mode probe); the upgrade-path tests assert the calls after it.
+const uverbs = (i: Install) => { const v = verbs(i); return v[0] === "plugin list" ? v.slice(1) : v; };
 
 const TM = ["--test-as-current-user"];
 const restoreArgs = (i: Install, extra: string[] = []) => [...TM, "--bbdata", i.bbdata, "--build", i.build, "--thread", THREAD, "--repo", i.repo, ...extra];
@@ -170,6 +184,17 @@ const upgradeArgs = (i: Install, extra: string[] = []) => [...TM, "--bbdata", i.
 
 function run(script: string, args: string[], env: NodeJS.ProcessEnv = { PATH: process.env.PATH }) {
   const r = spawnSync(script, args, { env, encoding: "utf8", timeout: 60_000 });
+  const out = `${r.stdout}${r.stderr}`;
+  for (const m of out.matchAll(/(\/tmp\/home-(?:restore|upgrade)-report\.[A-Za-z0-9]+)/g)) toClean.push(m[1]!);
+  return { code: r.status, out };
+}
+/** Runs the script from a directory that is entered and then made mode 000, like root's /root seen from mk. */
+function runFromUnreadableCwd(script: string, args: string[]) {
+  const d = mkdtempSync(join(tmpdir(), "unreadable-cwd-"));
+  toClean.push(d);
+  const q = (x: string) => `'${x.replace(/'/g, "'\\''")}'`;
+  const r = spawnSync("bash", ["-c", `cd ${q(d)} && chmod 000 . && exec ${[script, ...args].map(q).join(" ")}`], { env: { PATH: process.env.PATH }, encoding: "utf8", timeout: 60_000 });
+  chmodSync(d, 0o700);
   const out = `${r.stdout}${r.stderr}`;
   for (const m of out.matchAll(/(\/tmp\/home-(?:restore|upgrade)-report\.[A-Za-z0-9]+)/g)) toClean.push(m[1]!);
   return { code: r.status, out };
@@ -186,13 +211,15 @@ const movedAside = (i: Install) => readdirSync(i.data).filter((f) => f.startsWit
 
 describe("launchers", () => {
   for (const name of ["home-restore-v2.sh", "home-upgrade-v3.sh"]) {
-    it(`${name}: shebang #!/bin/sh, first executable line is the env -i exec, mode 0755`, () => {
+    it(`${name}: shebang #!/bin/sh, root-trust check then the env -i exec, mode 0755`, () => {
       const lines = readFileSync(join(SCRIPTS, name), "utf8").split("\n");
       expect(lines[0]).toBe("#!/bin/sh");
-      const first = lines.slice(1).find((l) => l.trim() !== "" && !l.startsWith("#"))!;
-      expect(first).toBe(
-        `exec /usr/bin/env -i PATH=/usr/sbin:/usr/bin:/sbin:/bin /bin/bash --noprofile --norc "\${0%/*}/${name.replace(/\.sh$/, ".bash")}" "$@"`,
-      );
+      // The root-trust check (root-launcher.test.ts) runs first, in pure POSIX sh; the env -i exec is the only exec.
+      const execs = lines.filter((l) => l.startsWith("exec "));
+      expect(execs).toEqual([
+        `exec /usr/bin/env -i PATH=/usr/sbin:/usr/bin:/sbin:/bin /bin/bash --noprofile --norc "$_d/${name.replace(/\.sh$/, ".bash")}" "$@"`,
+      ]);
+      expect(lines.findIndex((l) => l.includes("refusing to run as root"))).toBeLessThan(lines.findIndex((l) => l.startsWith("exec ")));
       expect(statSync(join(SCRIPTS, name)).mode & 0o777).toBe(0o755);
     });
   }
@@ -351,8 +378,8 @@ describe("restore", () => {
     expect(sha(join(i.data, moved.find((m) => !m.endsWith("-wal"))!))).toBe(v3sha);
     expect(statSync(join(i.data, "data.db")).mode & 0o777).toBe(0o600);
     expect(sha(join(i.data, "data.db"))).toBe(sha(join(i.data, basename(tmplBackup))));
-    expect(verbs(i)).toEqual(["plugin disable", "plugin install", "plugin enable", "plugin status", "plugin logs", "thread tell"]);
-    expect(calls(i)[1]!.argv[2]).toBe(i.plugin);
+    expect(verbs(i)).toEqual(["plugin disable", "plugin install", "plugin enable", "plugin list", "plugin logs", "thread tell"]);
+    expect(calls(i)[1]!.argv.slice(2)).toEqual(["--yes", i.plugin]);
     const report = reportOf(i);
     expect(report).toContain(join(i.data, basename(tmplBackup)));
     for (const m of moved) expect(report).toContain(join(i.data, m));
@@ -429,7 +456,7 @@ describe("restore", () => {
     const r = run(RESTORE, restoreArgs(i));
     expect(r.code, r.out).toBe(3);
     expect(movedAside(i)).toEqual([]);
-    expect(verbs(i)).toEqual(["plugin disable", "plugin enable", "thread tell"]);
+    expect(uverbs(i)).toEqual(["plugin disable", "plugin enable", "thread tell"]);
     const report = reportOf(i);
     expect(report).toContain("Home still holds the DB");
     expect(report).toContain(String(holder.pid));
@@ -449,7 +476,7 @@ describe("restore", () => {
   it("a plugin that never reports healthy exits 5, with the moved paths and the undo steps in the report", async () => {
     const i = await install();
     mkdirSync(join(i.bbdata, "stub"), { recursive: true });
-    writeFileSync(join(i.bbdata, "stub", "status"), "autarch: failed to start\n");
+    writeFileSync(join(i.bbdata, "stub", "status"), "error");
     const r = run(RESTORE, restoreArgs(i));
     expect(r.code, r.out).toBe(5);
     const report = reportOf(i);
@@ -459,14 +486,184 @@ describe("restore", () => {
   }, 30_000);
 });
 
+// The stand-in bb let `plugin status` (which the real bb lacks) pass once. Every bb subcommand the scripts call must exist
+// in the REAL CLI: `--help` is local and read-only (no server, no write). Skipped only where bb is not installed.
+const REAL_BB = process.env.HOME_BB_BIN ?? join(process.env.HOME ?? "/nonexistent", ".local", "bin", "bb");
+describe.skipIf(!existsSync(REAL_BB))("every bb subcommand the scripts call exists in the real CLI", () => {
+  const called = new Set<string>();
+  for (const f of ["home-upgrade-v3.bash", "home-restore-v2.bash", "home-common.bash"]) {
+    for (const m of readFileSync(join(SCRIPTS, f), "utf8").matchAll(/"\$BB" ([a-z]+) ([a-z-]+)/g)) called.add(`${m[1]} ${m[2]}`);
+  }
+  it("found the calls", () => expect([...called].sort()).toEqual(expect.arrayContaining(["plugin disable", "plugin enable", "plugin install", "plugin list", "plugin logs", "thread tell"])));
+  for (const c of called) {
+    it(`bb ${c} --help exits 0`, () => {
+      const r = spawnSync(REAL_BB, [...c.split(" "), "--help"], { cwd: "/tmp", encoding: "utf8", timeout: 30_000 });
+      expect(r.status, r.stderr).toBe(0);
+    });
+  }
+  it("negative control: the old `plugin status` is not a real command", () => {
+    const r = spawnSync(REAL_BB, ["plugin", "status", "--help"], { cwd: "/tmp", encoding: "utf8", timeout: 30_000 });
+    expect(r.status).not.toBe(0);
+  });
+});
+
+describe("plugin health parsing (review: exact types, exit status)", () => {
+  const stubList = async (body: string) => {
+    const i = await install();
+    const f = join(i.bbdata, "npm", "bin", "bb");
+    // The first `plugin list` is the script's mode probe (autarch installed); later ones are the health polls under test.
+    writeFileSync(f, `#!/bin/bash\nif [ "$1 $2" = "plugin list" ]; then c="$(dirname "$0")/listn"; n=$(( $(cat "$c" 2>/dev/null || echo 0) + 1 )); echo $n > "$c"; if [ $n = 1 ]; then echo '{"plugins":[{"id":"autarch","enabled":true,"status":"running"}]}'; else ${body}; fi; fi\nexit 0\n`);
+    chmodSync(f, 0o755);
+    return i;
+  };
+  const upgradeHealth = async (body: string) => {
+    const i = await stubList(body);
+    // enable returns ok; health comes only from the list; the v3 row exists, so health alone decides the exit
+    mkdirSync(join(i.bbdata, "stub"), { recursive: true });
+    const r = run(UPGRADE, upgradeArgs(i));
+    return r;
+  };
+  const J = (o: unknown) => `echo '${JSON.stringify(o)}'`;
+  it("a string \"true\", a status \"running error\" or a different id is not healthy", async () => {
+    for (const p of [
+      { id: "autarch", enabled: "true", status: "running" },
+      { id: "autarch", enabled: true, status: "running error" },
+      { id: "autarch2", enabled: true, status: "running" },
+      { id: "autarch", enabled: true },
+    ]) expect((await upgradeHealth(J({ plugins: [p] }))).code, JSON.stringify(p)).toBe(5);
+  });
+  it("a failing `plugin list` is not health even when it printed a running entry", async () => {
+    const r = await upgradeHealth(`echo '{"plugins":[{"id":"autarch","enabled":true,"status":"running"}]}'; exit 7`);
+    expect(r.code, r.out).toBe(5);
+    expect(r.out).toContain("plugin list failed (exit 7)");
+  });
+  it("the exact real shape is healthy", async () => {
+    expect((await upgradeHealth(J({ plugins: [{ id: "autarch", enabled: true, status: "running", statusDetail: null }] }))).code).toBe(0);
+  });
+});
+
+describe("unreadable caller cwd (bb spawns with process.cwd(); root's /root is EACCES for mk)", () => {
+  it("upgrade from an unreadable cwd still reaches bb: disable, install, enable, thread tell", async () => {
+    const i = await install();
+    const r = runFromUnreadableCwd(UPGRADE, upgradeArgs(i));
+    expect(r.code, r.out).toBe(0);
+    expect(uverbs(i).slice(0, 3)).toEqual(["plugin disable", "plugin install", "plugin enable"]);
+    expect(verbs(i).at(-1)).toBe("thread tell");
+  });
+  it("restore from an unreadable cwd still reaches bb and tells the thread", async () => {
+    const i = await install();
+    const r = runFromUnreadableCwd(RESTORE, restoreArgs(i, ["--check"]));
+    expect(r.code, r.out).toBe(0);
+    expect(verbs(i).at(-1)).toBe("thread tell");
+  });
+  it("relative --plugin / --repo are refused (the launcher leaves the caller's directory)", async () => {
+    const i = await install();
+    expect(run(UPGRADE, upgradeArgs(i).map((a) => (a === i.plugin ? "rel/plugin" : a))).code).toBe(64);
+    expect(run(RESTORE, restoreArgs(i).map((a) => (a === i.repo ? "rel/repo" : a))).code).toBe(64);
+  });
+});
+
+describe("fresh install (mk ruling #438 a): autarch absent from the live bb", () => {
+  const fresh = async () => {
+    const i = await install();
+    rmSync(join(i.data, "data.db"), { force: true });
+    rmSync(join(i.data, "data.db-wal"), { force: true });
+    rmSync(join(i.data, "data.db-shm"), { force: true });
+    const stub = join(i.bbdata, "stub");
+    mkdirSync(stub, { recursive: true });
+    writeFileSync(join(stub, "absent"), "");
+    return { i, stub };
+  };
+  const realFreshDb = (stub: string, dest: string) => {
+    const f = join(stub, "fresh.db");
+    const db = new Database(f);
+    db.pragma("journal_mode = WAL");
+    migrate(db, { codeVersion: MIGRATIONS.at(-1)!.version, migrations: MIGRATIONS });
+    db.close();
+    writeFileSync(join(stub, "fresh-dest"), dest);
+  };
+  it("a real fresh v3 DB records a v3 migration_log row (the success evidence)", () => {
+    const dir = mkdtempSync(join(tmpdir(), "freshdb-"));
+    toClean.push(dir);
+    const db = new Database(join(dir, "data.db"));
+    migrate(db, { codeVersion: MIGRATIONS.at(-1)!.version, migrations: MIGRATIONS });
+    const row = db.prepare("select version from migration_log where version >= 3 order by version desc limit 1").get();
+    db.close();
+    expect(row).toBeTruthy();
+  });
+  it("installs and enables with no disable and no holders check, then reports success", async () => {
+    const { i, stub } = await fresh();
+    realFreshDb(stub, join(i.data, "data.db"));
+    const r = run(UPGRADE, upgradeArgs(i));
+    expect(r.code, r.out).toBe(0);
+    expect(r.out).toContain("fresh v3 install");
+    expect(verbs(i).filter((v) => v !== "plugin list" && v !== "plugin logs")).toEqual(["plugin install", "plugin enable", "thread tell"]);
+    expect(verbs(i)).not.toContain("plugin disable");
+    expect(calls(i).find((c) => c.argv[1] === "install")!.argv.slice(2)).toEqual(["--yes", i.plugin]);
+  });
+  it("a fresh install that never becomes healthy fails (exit 5) and says there is no v2 DB to restore", async () => {
+    const { i, stub } = await fresh();
+    realFreshDb(stub, join(i.data, "data.db"));
+    writeFileSync(join(stub, "status"), "error");
+    const r = run(UPGRADE, upgradeArgs(i));
+    expect(r.code, r.out).toBe(5);
+    expect(r.out).toContain("fresh install; there is no v2 DB");
+    expect(r.out).toContain("plugin state after containment:");
+    expect(r.out).not.toContain("home-restore-v2.sh");
+  });
+  it("a fresh install whose install step fails is contained: disable after the failure, state read back (exit 4)", async () => {
+    const { i } = await fresh();
+    const f = join(i.bbdata, "npm", "bin", "bb");
+    writeFileSync(f, `#!/bin/bash\nd="$(dirname "$0")"; echo "$1 $2" >> "$d/verbs.log"\ncase "$1 $2" in "plugin list") echo '{"plugins":[]}';; "plugin install") exit 1;; esac\nexit 0\n`);
+    chmodSync(f, 0o755);
+    const r = run(UPGRADE, upgradeArgs(i));
+    expect(r.code, r.out).toBe(4);
+    const vs = readFileSync(join(i.bbdata, "npm", "bin", "verbs.log"), "utf8").trim().split("\n");
+    expect(vs.indexOf("plugin disable")).toBeGreaterThan(vs.indexOf("plugin install"));
+    expect(r.out).toContain("plugin state after containment:");
+  });
+  it("a fresh install that never becomes healthy is contained too, and the disable comes only after the install", async () => {
+    const { i, stub } = await fresh();
+    realFreshDb(stub, join(i.data, "data.db"));
+    writeFileSync(join(stub, "status"), "error");
+    run(UPGRADE, upgradeArgs(i));
+    const vs = verbs(i);
+    expect(vs.indexOf("plugin disable")).toBeGreaterThan(vs.indexOf("plugin install"));
+    expect(vs.filter((v) => v === "plugin disable")).toHaveLength(1);
+  });
+  it("a dangling data.db symlink also refuses the fresh install (exit 6)", async () => {
+    const { i } = await fresh();
+    symlinkSync(join(i.data, "nowhere"), join(i.data, "data.db"));
+    const r = run(UPGRADE, upgradeArgs(i));
+    expect(r.code, r.out).toBe(6);
+    expect(verbs(i).filter((v) => v === "plugin install")).toEqual([]);
+  });
+  it("autarch absent but a data.db present: refuse (exit 6), install nothing", async () => {
+    const { i } = await fresh();
+    writeFileSync(join(i.data, "data.db"), "someone's data");
+    const r = run(UPGRADE, upgradeArgs(i));
+    expect(r.code, r.out).toBe(6);
+    expect(verbs(i).filter((v) => v === "plugin install" || v === "plugin enable" || v === "plugin disable")).toEqual([]);
+  });
+  it("a failing `plugin list` aborts before any change (exit 4)", async () => {
+    const i = await install();
+    const f = join(i.bbdata, "npm", "bin", "bb");
+    writeFileSync(f, `#!/bin/bash\necho "$@" >> "$(dirname "$0")/argv.log"\nif [ "$1 $2" = "plugin list" ]; then echo boom >&2; exit 9; fi\nexit 0\n`);
+    chmodSync(f, 0o755);
+    const r = run(UPGRADE, upgradeArgs(i));
+    expect(r.code, r.out).toBe(4);
+    expect(readFileSync(join(i.bbdata, "npm", "bin", "argv.log"), "utf8")).not.toMatch(/plugin (disable|install|enable)/);
+  });
+});
+
 describe("upgrade", () => {
   it("happy path: disable, install, enable in that order; the backup path comes from migration_log; the thread told", async () => {
     const i = await install();
     const r = run(UPGRADE, upgradeArgs(i));
     expect(r.code, r.out).toBe(0);
-    expect(verbs(i).slice(0, 3)).toEqual(["plugin disable", "plugin install", "plugin enable"]);
+    expect(uverbs(i).slice(0, 3)).toEqual(["plugin disable", "plugin install", "plugin enable"]);
     expect(verbs(i).at(-1)).toBe("thread tell");
-    expect(calls(i)[1]!.argv[2]).toBe(i.plugin);
+    expect(calls(i)[2]!.argv.slice(2)).toEqual(["--yes", i.plugin]);
     expect(reportOf(i)).toContain(tmplBackup);
   });
 
@@ -512,7 +709,7 @@ describe("upgrade", () => {
       expect(lines.join("\n")).toMatch(kind === "quiesce" ? /home-refused:quiesce-required/ : /home-refused:backup-not-verified/);
       const { i, r } = await upgradeWithLog(lines.join("\n") + "\n");
       expect(r.code, r.out).toBe(5);
-      const vs = verbs(i);
+      const vs = uverbs(i);
       expect(vs.slice(0, 3)).toEqual(["plugin disable", "plugin install", "plugin enable"]);
       expect(vs.at(-2)).toBe("plugin disable");
       expect(reportOf(i)).toMatch(/home-refused:[\s\S]*left disabled/);
@@ -531,10 +728,32 @@ describe("upgrade", () => {
   });
   it("a real migrated log line is a success (exit 0), also when it follows an older refusal", async () => {
     const ok = realLog("migrated");
-    expect(ok.join("\n")).toMatch(/autarch: schema 2 → 3/);
+    expect(ok.join("\n")).toMatch(/autarch: schema 2 → 4/);
     const { i, r } = await upgradeWithLog(["autarch: [home-refused:quiesce-required] earlier attempt", ...ok].join("\n") + "\n");
     expect(r.code, r.out).toBe(0);
     expect(verbs(i).filter((v) => v === "plugin disable").length).toBe(1);
+  });
+
+  it("enable returns ok but the plugin never becomes healthy: failure, plugin disabled (exit 5)", async () => {
+    const i = await install();
+    mkdirSync(join(i.bbdata, "stub"), { recursive: true });
+    writeFileSync(join(i.bbdata, "stub", "status"), "error");
+    const r = run(UPGRADE, upgradeArgs(i));
+    expect(r.code, r.out).toBe(5);
+    expect(verbs(i).filter((v) => v === "plugin disable").length).toBe(2);
+    expect(verbs(i).at(-2)).toBe("plugin disable");
+    expect(reportOf(i)).toMatch(/never became healthy[\s\S]*left disabled/);
+  });
+
+  it("healthy status but no v3 migration_log row: failure, plugin disabled (exit 5)", async () => {
+    const i = await install();
+    const db = new Database(join(i.data, "data.db"));
+    db.prepare("DELETE FROM migration_log").run();
+    db.close();
+    const r = run(UPGRADE, upgradeArgs(i));
+    expect(r.code, r.out).toBe(5);
+    expect(verbs(i).at(-2)).toBe("plugin disable");
+    expect(reportOf(i)).toMatch(/no v3 migration_log row[\s\S]*left disabled/);
   });
 
   it("a DB holder exits 3 after re-enabling, before anything is installed", async () => {
@@ -544,7 +763,7 @@ describe("upgrade", () => {
     await new Promise((r) => setTimeout(r, 300));
     const r = run(UPGRADE, upgradeArgs(i));
     expect(r.code, r.out).toBe(3);
-    expect(verbs(i)).toEqual(["plugin disable", "plugin enable", "thread tell"]);
+    expect(uverbs(i)).toEqual(["plugin disable", "plugin enable", "thread tell"]);
   });
 
   it("a missing plugin build exits 4 before the plugin is stopped", async () => {

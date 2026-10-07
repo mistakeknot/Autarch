@@ -168,7 +168,7 @@ function schemaValue(db: Database.Database, key: string): number | undefined {
 
 /**
  * Steps 3-6 of 1.3.8. Writes `<dir>/home-v2-backup-<UTC stamp>.db` with VACUUM INTO, fsyncs it and
- * its directory, then verifies integrity, schema_version, min_reader_version <= 2 and the full
+ * its directory, then verifies integrity, schema_version, min_reader_version <= the live database's and the full
  * content digest against the live database. Any failure throws BackupNotVerifiedError, with no
  * retry; the partial file stays in place.
  */
@@ -176,6 +176,7 @@ export function backupBeforeMigrate(db: Database.Database, opts: BackupOptions =
   if (isMemory(db)) throw new BackupNotVerifiedError(null, "backup target", "an in-memory database has no directory to back up into");
   const hook = opts.test?.hook ?? (() => {});
   const live = schemaValue(db, "schema_version") ?? 0;
+  const liveMr = schemaValue(db, "min_reader_version") ?? 0;
   const dir = dirname(resolve(db.name));
   const path = join(dir, `home-v2-backup-${stamp((opts.now ?? (() => new Date()))())}.db`);
   if (existsSync(path)) throw new BackupNotVerifiedError(path, "VACUUM INTO", "target already exists");
@@ -202,7 +203,9 @@ export function backupBeforeMigrate(db: Database.Database, opts: BackupOptions =
     const sv = schemaValue(b, "schema_version");
     if (sv !== live) throw new BackupNotVerifiedError(path, "schema_version", `backup has ${sv}, live database has ${live}`);
     const mr = schemaValue(b, "min_reader_version") ?? 0;
-    if (mr > 2) throw new BackupNotVerifiedError(path, "min_reader_version", `backup demands reader ${mr}, restore needs <= 2`);
+    // A faithful copy of the live file: it may demand no newer reader than the live file already does.
+    // (This was a fixed 2, which refused every backup of a v3 database and so blocked v3 -> v4.)
+    if (mr > liveMr) throw new BackupNotVerifiedError(path, "min_reader_version", `backup demands reader ${mr}, live database demands ${liveMr}`);
     backupDigest = contentDigest(b);
   } finally {
     b?.close();

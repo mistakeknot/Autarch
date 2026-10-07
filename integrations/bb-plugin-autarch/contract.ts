@@ -28,10 +28,27 @@ export const homeMethods = {
       option_id: z.string().min(1),
       revision: z.string().min(1),
       pick_id: z.string().min(1),
-      reason: z.string().max(1000).optional(),
+      reason: z.string().max(2000).optional(),
+      /** Where mk picked: Home (default) or the summoned overlay. The CLI records its own. */
+      surface: z.enum(["home", "overlay"]).default("home"),
     }),
     output: out,
   },
+  // Your move (plan Revision 2, 6). `claimMove` records mk's "I did it" as reported, not verified: it never closes
+  // a move. `skipMove` is "Later / skip". Neither carries a caller identity, so both are advisory (unattested).
+  moves: { input: z.null(), output: out },
+  claimMove: {
+    input: z.object({ task_id: z.string().min(1).max(64), generation: z.number().int().min(1).max(1_000_000), note: z.string().max(500).optional() }).strict(),
+    output: out,
+  },
+  checkMove: { input: z.object({ task_id: z.string().min(1).max(64), generation: z.number().int().min(1).max(1_000_000) }).strict(), output: out },
+  skipMove: { input: z.object({ task_id: z.string().min(1).max(64), generation: z.number().int().min(1).max(1_000_000) }).strict(), output: out },
+  // The Other box's "Ask / note": a comment on the card plus an owner wake. Never rules or closes.
+  note: { input: z.object({ task_id: z.string().min(1).max(64).optional(), decision_id: z.string().min(1).max(128).optional(), text: z.string().min(1).max(2000), note_id: z.string().min(1).max(64) }).strict(), output: out },
+  // Conversation on the card: read-only views of the mirrored comments. Display only; nothing here rules or closes.
+  conversation: { input: z.object({ task_id: z.string().min(1).max(64) }).strict(), output: out },
+  conversationUnread: { input: z.null(), output: out },
+  markConversationSeen: { input: z.object({ task_id: z.string().min(1).max(64), through: z.string().min(1).max(200) }).strict(), output: out },
   dismiss: { input: z.object({ decision_id: z.string().min(1), obligation_id: z.string().min(1) }), output: out },
   override: { input: z.object({ decision_id: z.string().min(1) }), output: out },
   setDelegation: {
