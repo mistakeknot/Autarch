@@ -96,6 +96,10 @@ describe("Asks ordering", () => {
     expect(html.match(/<li><button/g)?.length).toBe(2);
     expect(html).toContain(">Autarch</span>");
     expect(html).toContain("3 h");
+    const metaClasses = [...html.matchAll(/<span data-ask-meta="true" class="([^"]*)"/g)].map((m) => m[1]);
+    expect(metaClasses.length).toBe(2);
+    for (const c of metaClasses) expect(c).not.toContain("truncate");
+    expect(html).toMatch(/<span class="[^"]*\btruncate\b[^"]*" data-ask-project="true">Autarch<\/span>/);
     expect(html).toContain("rec: Day");
     expect(html.match(/data-old-ask/g)?.length).toBe(1);
     expect(html).toContain("Which day?");

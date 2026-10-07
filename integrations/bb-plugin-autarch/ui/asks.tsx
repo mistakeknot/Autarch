@@ -192,8 +192,8 @@ export function DecideQueue({ owed, onPick, onOpen, nowMs }: { owed: OwedAsk[]; 
                 onClick={() => setSelected(o.id)}
               >
                 <span className="block truncate text-sm">{o.subject}</span>
-                {o.project ? <span className="block truncate text-xs text-muted-foreground">{o.project}</span> : null}
-                <span className="block text-xs text-muted-foreground [overflow-wrap:anywhere]">
+                {o.project ? <span className="block truncate text-xs text-muted-foreground" data-ask-project>{o.project}</span> : null}
+                <span data-ask-meta className="block text-xs text-muted-foreground [overflow-wrap:anywhere]">
                   {ageText(o.filed_at, nowMs)}
                   {old ? <span className="font-medium" data-old-ask>{" · old: still needed?"}</span> : null}
                   {rec ? ` · rec: ${rec.label}` : ""}
