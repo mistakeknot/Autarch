@@ -1,5 +1,5 @@
 #!/bin/bash
-# Install the Home "your move" build (branch home-your-move: chunks A, B, C; schema V4, expand-only).
+# Install the Home "your move" build (PR 17 build: chunks A, B, C; schema V4, expand-only).
 #   scripts/install-home-your-move.sh --check    [--commit <40-hex sha>] [REPORT_THREAD]
 #   scripts/install-home-your-move.sh --go       --commit <40-hex sha>  [REPORT_THREAD]
 #   scripts/install-home-your-move.sh --rollback [--previous-plugin DIR] [--backup FILE] [REPORT_THREAD]
@@ -224,8 +224,7 @@ if [ "$TESTHOOK" = 1 ]; then say "test hook: git checks skipped"; BRANCH=home-yo
 else
 BRANCH=$(gitmk branch --show-current)
 HEAD=$(gitmk rev-parse HEAD)
-say "branch $BRANCH, HEAD $HEAD"
-[ "$BRANCH" = home-your-move ] || { say "wrong branch: need home-your-move"; exit 2; }
+say "branch ${BRANCH:-(detached)}, HEAD $HEAD"   # the pinned --commit, not a branch name, says what is installed
 if [ -n "$WANT" ]; then
   [ "$HEAD" = "$WANT" ] || { say "HEAD is not the requested commit $WANT"; exit 2; }
 else
