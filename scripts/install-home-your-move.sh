@@ -35,6 +35,7 @@ out_parent_resolve() {   # $1 = directory, $2 = required owner uid, $3 = anchor 
   local p top=${3:-/} mode final=1
   p=$(realpath -e -- "$1" 2>/dev/null) && [ -d "$p" ] || return 1
   [ "$top" = / ] || top=$(realpath -e -- "$top") || return 1
+  case $p in *[[:cntrl:]]*) return 1 ;; esac   # a newline would be lost by dirname below and defeat the walk
   printf '%s\n' "$p"
   while :; do
     [ "$p" != "$top" ] || return 0
@@ -47,16 +48,21 @@ out_parent_resolve() {   # $1 = directory, $2 = required owner uid, $3 = anchor 
     p=$(dirname -- "$p"); final=0
   done
 }
-# A reused pid is not the bb server: the runtime file ($1) must name a live pid whose command line (under proc root $2, /proc
-# unless a test overrides it) contains the file's entryPath or its basename.
+# A reused pid is not the bb server: the runtime file ($1) must name a live pid (under proc root $2, /proc unless a test passes
+# another) with one argv element exactly equal to the file's entryPath or to its resolved (realpath) form. No substring or
+# basename match.
 runtime_names_live_process() {   # $1 = bb-app-runtime.json, $2 = proc root
-  local pid entry cmd
+  local pid entry real arg
   pid=$(jq -r '.pid // empty' "$1" 2>/dev/null || true)
   entry=$(jq -r '.entryPath // empty' "$1" 2>/dev/null || true)
   [[ "$pid" =~ ^[0-9]+$ ]] && [ -n "$entry" ] || return 1
   [ "$2" != /proc ] || kill -0 "$pid" 2>/dev/null || return 1
-  cmd=$(tr '\0' ' ' <"$2/$pid/cmdline" 2>/dev/null) || return 1
-  [[ "$cmd" == *"$entry"* || "$cmd" == *"$(basename -- "$entry")"* ]]
+  [ -r "$2/$pid/cmdline" ] || return 1
+  real=$(realpath -e -- "$entry" 2>/dev/null || true)
+  while IFS= read -r -d '' arg || [ -n "$arg" ]; do
+    if [ "$arg" = "$entry" ] || { [ -n "$real" ] && [ "$arg" = "$real" ]; }; then return 0; fi
+  done <"$2/$pid/cmdline"
+  return 1
 }
 # Sourced (by the tests), the function above is all that is defined.
 [ "${BASH_SOURCE[0]}" = "$0" ] || return 0

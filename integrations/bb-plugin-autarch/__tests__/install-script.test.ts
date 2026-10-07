@@ -160,6 +160,17 @@ describe("out_parent_resolve (the root-only check on HOME_YOUR_MOVE_OUT_DIR, exe
     expect(resolve_(join(top, "link"), me, top).stdout.trim()).toBe(realpathSync(target));
   });
 
+  it("refuses a resolved path with a newline (or other control character) in a directory name", () => {
+    const top = tmp();
+    for (const name of ["a\nb", "c\td"]) {
+      const d = join(top, name, "x");
+      mkdirSync(d, { recursive: true });
+      chmodSync(join(top, name), 0o755);
+      chmodSync(d, 0o755);
+      expect(ok(d, top), JSON.stringify(name)).toBe(false);
+    }
+  });
+
   it("refuses another owner, a missing path and a plain file", () => {
     const top = tmp();
     expect(ok(top + "/", top, me + 1)).toBe(true); // the anchor itself is not checked
@@ -181,24 +192,31 @@ describe("out_parent_resolve (the root-only check on HOME_YOUR_MOVE_OUT_DIR, exe
 
 describe("runtime_names_live_process (reused pid defence, fed a fake proc root)", () => {
   const tmp = () => { const d = mkdtempSync(join(tmpdir(), "ihym-")); dirs.push(d); return d; };
-  function check(runtime: object, procs: Record<string, string>): boolean {
+  function check(runtime: object, procs: Record<string, string>, setup?: (root: string) => void): boolean {
     const root = tmp();
     const proc = join(root, "proc");
-    for (const [pid, cmd] of Object.entries(procs)) { mkdirSync(join(proc, pid), { recursive: true }); writeFileSync(join(proc, pid, "cmdline"), cmd); }
     mkdirSync(proc, { recursive: true });
+    for (const [pid, cmd] of Object.entries(procs)) { mkdirSync(join(proc, pid), { recursive: true }); writeFileSync(join(proc, pid, "cmdline"), cmd.replaceAll("@ROOT@", root)); }
+    setup?.(root);
     const f = join(root, "bb-app-runtime.json");
-    writeFileSync(f, JSON.stringify(runtime));
+    writeFileSync(f, JSON.stringify(runtime).replaceAll("@ROOT@", root));
     return spawnSync("bash", ["-c", `source "${SCRIPT}"; runtime_names_live_process "$1" "$2"`, "x", f, proc], { encoding: "utf8" }).status === 0;
   }
   const cmd = "node\x00/opt/bb/dist/server.js\x00--port\x00123\x00";
 
-  it("accepts a pid whose command line holds the entryPath", () => {
+  it("accepts a pid with an argv element exactly equal to the entryPath", () => {
     expect(check({ pid: 42, entryPath: "/opt/bb/dist/server.js" }, { "42": cmd })).toBe(true);
+    expect(check({ pid: 42, entryPath: "/opt/bb/dist/server.js" }, { "42": "node\x00/opt/bb/dist/server.js" })).toBe(true); // no trailing NUL
   });
-  it("accepts the entryPath's basename", () => {
-    expect(check({ pid: 42, entryPath: "/elsewhere/server.js" }, { "42": cmd })).toBe(true);
+  it("accepts the resolved (symlink-free) form of the entryPath", () => {
+    const setup = (root: string) => { mkdirSync(join(root, "real")); writeFileSync(join(root, "real", "server.js"), ""); symlinkSync(join(root, "real"), join(root, "link")); };
+    expect(check({ pid: 42, entryPath: "@ROOT@/link/server.js" }, { "42": "node\x00@ROOT@/real/server.js\x00" }, setup)).toBe(true);
   });
-  it("refuses a reused pid running something else", () => {
+  it("refuses a different full path with the same basename", () => {
+    expect(check({ pid: 42, entryPath: "/elsewhere/server.js" }, { "42": cmd })).toBe(false);
+  });
+  it("refuses an argument that only contains the path as a substring", () => {
+    expect(check({ pid: 42, entryPath: "/opt/bb/dist/server.js" }, { "42": "sleep\x00--note=/opt/bb/dist/server.js.bak\x00600\x00" })).toBe(false);
     expect(check({ pid: 42, entryPath: "/opt/bb/dist/server.js" }, { "42": "sleep\x00600\x00" })).toBe(false);
   });
   it("refuses a missing process, a missing or non-numeric pid, and a missing entryPath", () => {
