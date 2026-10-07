@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -17,6 +18,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/mistakeknot/autarch/internal/homeask"
+	"github.com/mistakeknot/autarch/internal/serve"
 )
 
 // stubBB answers the whole filing protocol for an empty tasks service.
@@ -32,6 +34,7 @@ type stubBB struct {
 	card             bool // a card exists
 	commented        bool
 	thread           string
+	updated          [][]string
 }
 
 func (s *stubBB) run(_ context.Context, env []string, args ...string) homeask.BBResult {
@@ -49,6 +52,17 @@ func (s *stubBB) run(_ context.Context, env []string, args ...string) homeask.BB
 		return j(`{"status":"absent"}`)
 	case "tasks label list":
 		return j(`{"labels":[{"name":"needs-mk"}]}`)
+	case "tasks label create":
+		return j(`{"label":{"name":"mk-move"}}`)
+	case "tasks update T1":
+		for i, a := range args {
+			if a == "--description-file" {
+				b, _ := os.ReadFile(args[i+1])
+				s.desc = string(b)
+			}
+		}
+		s.updated = append(s.updated, args)
+		return j(`{"task":{"id":"T1"}}`)
 	case "tasks project list":
 		return j(`{"projects":[{"id":"P1","name":"P1"}]}`)
 	case "tasks list --project":
@@ -93,6 +107,9 @@ func (s *stubBB) run(_ context.Context, env []string, args ...string) homeask.BB
 	return homeask.BBResult{Code: 1, Stderr: []byte("unexpected")}
 }
 
+// serveCheckSet is true while a test installs its own checkFilingPreconditions.
+var serveCheckSet bool
+
 func runNeedsMk(t *testing.T, s *stubBB, args ...string) (string, error) {
 	t.Helper()
 	old := newCardFiler
@@ -100,6 +117,11 @@ func runNeedsMk(t *testing.T, s *stubBB, args ...string) (string, error) {
 		return &homeask.CardFiler{Run: s.run, LockDir: t.TempDir()}
 	}
 	t.Cleanup(func() { newCardFiler = old })
+	oldCheck := checkFilingPreconditions
+	if !serveCheckSet {
+		checkFilingPreconditions = func(string, string) error { return nil }
+	}
+	t.Cleanup(func() { checkFilingPreconditions = oldCheck })
 	root := &cobra.Command{Use: "autarch", SilenceErrors: true}
 	root.AddCommand(needsMkCmd())
 	var out bytes.Buffer
@@ -191,7 +213,9 @@ func TestNeedsMkFileRootRunHashesTheScript(t *testing.T) {
 func TestNeedsMkFileHomeDownIsExit3(t *testing.T) {
 	t.Setenv("BB_THREAD_ID", "thr_x")
 	old := newCardFiler
-	t.Cleanup(func() { newCardFiler = old })
+	oldCheck := checkFilingPreconditions
+	checkFilingPreconditions = func(string, string) error { return nil }
+	t.Cleanup(func() { newCardFiler = old; checkFilingPreconditions = oldCheck })
 	newCardFiler = func() *homeask.CardFiler {
 		return &homeask.CardFiler{LockDir: t.TempDir(), Run: func(context.Context, []string, ...string) homeask.BBResult {
 			return homeask.BBResult{Code: 3, Stderr: []byte("not ready")}
@@ -204,5 +228,143 @@ func TestNeedsMkFileHomeDownIsExit3(t *testing.T) {
 	root.SetArgs([]string{"needs-mk", "file", "--project", "P1", "--title", "x", "--ask-file", writeAsk(t)})
 	if err := root.Execute(); exitCode(err) != 3 {
 		t.Fatalf("err=%v", err)
+	}
+}
+
+func TestNeedsMkFileRejectsNonObjectAskJSON(t *testing.T) {
+	t.Setenv("BB_THREAD_ID", "thr_x")
+	for _, body := range []string{"null", "[]", `"s"`, "7", "true"} {
+		p := filepath.Join(t.TempDir(), "ask.json")
+		os.WriteFile(p, []byte(body), 0o644)
+		s := &stubBB{}
+		_, err := runNeedsMk(t, s, "file", "--project", "P1", "--title", "x", "--ask-file", p)
+		if exitCode(err) != 2 {
+			t.Fatalf("%s: want usage error (exit 2), got %v", body, err)
+		}
+	}
+}
+
+func fileWithCheck(t *testing.T, s *stubBB, check func(string, string) error) error {
+	t.Helper()
+	t.Setenv("BB_THREAD_ID", "thr_x")
+	old := checkFilingPreconditions
+	checkFilingPreconditions = check
+	serveCheckSet = true
+	t.Cleanup(func() { checkFilingPreconditions = old; serveCheckSet = false })
+	_, err := runNeedsMk(t, s, "file", "--project", "P1", "--title", "Ship?", "--ask-file", writeAsk(t))
+	return err
+}
+
+// mk-okek.19: with serve down, filing stops before it touches bb, exits 3 and says why.
+func TestNeedsMkFileServeDownCreatesNothing(t *testing.T) {
+	s := &stubBB{}
+	err := fileWithCheck(t, s, func(string, string) error {
+		return fmt.Errorf("%w: %w", homeask.ErrHomeDown, serve.ErrNotRunning)
+	})
+	if exitCode(err) != 3 || !strings.Contains(err.Error(), "autarch serve is not running") {
+		t.Fatalf("exit=%d err=%v", exitCode(err), err)
+	}
+	if len(s.calls) != 0 || s.creates != 0 {
+		t.Fatalf("bb was called: %v", s.calls)
+	}
+}
+
+// mk-okek.20: a project_root serve does not resolve is refused at file time, exit 2.
+func TestNeedsMkFileRefusesAnUnresolvedRoot(t *testing.T) {
+	s := &stubBB{}
+	var got string
+	err := fileWithCheck(t, s, func(_, root string) error {
+		got = root
+		return fmt.Errorf("%w: project_root %q is not a project root serve resolves", homeask.ErrInvalid, root)
+	})
+	if got != "/srv/autarch" || exitCode(err) != 2 {
+		t.Fatalf("root=%q exit=%d err=%v", got, exitCode(err), err)
+	}
+	if len(s.calls) != 0 {
+		t.Fatalf("bb was called: %v", s.calls)
+	}
+}
+
+func writeMove(t *testing.T, body string) string {
+	p := filepath.Join(t.TempDir(), "move.json")
+	os.WriteFile(p, []byte(body), 0o644)
+	return p
+}
+
+const prMoveJSON = `{"schema":"home-move/v1","kind":"pr","pr":{"url":"https://github.com/o/r/pull/12"}}`
+
+func TestNeedsMkFileMoveWithoutAskFileSynthesizesARulingOnlyAsk(t *testing.T) {
+	t.Setenv("BB_THREAD_ID", "thr_x")
+	s := &stubBB{}
+	out, err := runNeedsMk(t, s, "file", "--project", "P1", "--title", "Merge the fix", "--move", writeMove(t, prMoveJSON))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var res homeask.CardResult
+	if json.Unmarshal([]byte(out), &res) != nil || res.ID != "T1" {
+		t.Fatalf("out=%q", out)
+	}
+	c, err := homeask.ParseCard(s.desc)
+	if err != nil || c.Move == nil || c.Move.Kind != "pr" {
+		t.Fatalf("desc=%q err=%v", s.desc, err)
+	}
+	if !strings.Contains(s.desc, `"kind":"ruling-only"`) || strings.Contains(s.desc, "needs-context") {
+		t.Fatalf("the synthesized ask is not ruling-only: %s", s.desc)
+	}
+	labels := 0
+	for _, c := range s.calls {
+		if strings.HasPrefix(strings.Join(c, " "), "tasks create") {
+			for i, a := range c {
+				if a == "--label" && c[i+1] == "mk-move" {
+					labels++
+				}
+			}
+		}
+	}
+	if labels != 1 {
+		t.Fatalf("the card was not created with the mk-move label: %v", s.calls)
+	}
+}
+
+func TestNeedsMkFileRefusesABadMoveBeforeAnyCall(t *testing.T) {
+	t.Setenv("BB_THREAD_ID", "thr_x")
+	for name, body := range map[string]string{
+		"not json":      "run it",
+		"unknown field": `{"schema":"home-move/v1","kind":"pr","pr":{"url":"https://github.com/o/r/pull/1"},"cmd":"x"}`,
+		"bad pr":        `{"schema":"home-move/v1","kind":"pr","pr":{"url":"https://example.com/x"}}`,
+		"shell arg":     `{"schema":"home-move/v1","kind":"script","script":{"path":"/a/b","sha256":"` + strings.Repeat("a", 64) + `","args":["$(id)"]}}`,
+	} {
+		s := &stubBB{}
+		_, err := runNeedsMk(t, s, "file", "--project", "P1", "--title", "T", "--move", writeMove(t, body))
+		var ue *usageError
+		if !errors.As(err, &ue) || len(s.calls) != 0 {
+			t.Fatalf("%s: err=%v calls=%v", name, err, s.calls)
+		}
+	}
+}
+
+func TestNeedsMkAdoptMoveAttachesAndRepeats(t *testing.T) {
+	t.Setenv("BB_THREAD_ID", "thr_x")
+	s := &stubBB{}
+	if _, err := runNeedsMk(t, s, "file", "--project", "P1", "--title", "Ship?", "--ask-file", writeAsk(t)); err != nil {
+		t.Fatal(err)
+	}
+	out, err := runNeedsMk(t, s, "adopt-move", "--card", "T1", "--move", writeMove(t, prMoveJSON))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out, `"replay":false`) || len(s.updated) != 1 {
+		t.Fatalf("out=%q updated=%v", out, s.updated)
+	}
+	if c, err := homeask.ParseCard(s.desc); err != nil || c.Move == nil {
+		t.Fatalf("desc=%q err=%v", s.desc, err)
+	}
+	out, err = runNeedsMk(t, s, "adopt-move", "--card", "T1", "--move", writeMove(t, prMoveJSON))
+	if err != nil || !strings.Contains(out, `"replay":true`) || len(s.updated) != 1 {
+		t.Fatalf("repeat: out=%q err=%v updated=%d", out, err, len(s.updated))
+	}
+	t.Setenv("BB_THREAD_ID", "")
+	if _, err := runNeedsMk(t, s, "adopt-move", "--card", "T1", "--move", writeMove(t, prMoveJSON)); err == nil {
+		t.Fatal("adopt without a thread succeeded")
 	}
 }

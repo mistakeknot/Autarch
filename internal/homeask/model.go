@@ -272,7 +272,7 @@ func Normalize(in Ask) (Ask, error) {
 		return Ask{}, errors.New("project_root must be an absolute path")
 	}
 	if strings.TrimSpace(a.Question) == "" || runes(a.Question) > maxQuestion {
-		return Ask{}, errors.New("question must be 1-2000 characters")
+		return Ask{}, fmt.Errorf("question must be 1-2000 characters (got %d)", runes(a.Question))
 	}
 	if a.RequestID != "" && !requestIDRe.MatchString(a.RequestID) {
 		return Ask{}, errors.New("request_id must be 1-128 of [A-Za-z0-9:_.-]")
@@ -430,7 +430,7 @@ func normalizeOptions(a *Ask) error {
 		}
 	}
 	if a.Recommendation != "" && !seen[a.Recommendation] {
-		return errors.New("recommendation must name an option")
+		return errors.New("recommendation must name an option: it is the id of one of the options, exactly, not a sentence")
 	}
 	return nil
 }

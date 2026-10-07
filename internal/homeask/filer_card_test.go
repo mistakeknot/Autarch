@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
@@ -36,6 +37,7 @@ type memBB struct {
 type fakeTask struct {
 	ID, Project, Created, Desc string
 	Comments                   []Comment
+	Labels                     []string
 	Deleted                    bool
 }
 
@@ -162,7 +164,7 @@ func (f *memBB) run(ctx context.Context, env []string, args ...string) BBResult 
 			f.t.Errorf("create without the needs-mk label: %v", args)
 		}
 		f.seq++
-		tk := &fakeTask{ID: fmt.Sprintf("T%d", f.seq), Project: argFlag(args, "--project"), Created: fmt.Sprintf("2026-10-01T00:00:%02d", f.seq), Desc: string(raw)}
+		tk := &fakeTask{Labels: labelFlags(args), ID: fmt.Sprintf("T%d", f.seq), Project: argFlag(args, "--project"), Created: fmt.Sprintf("2026-10-01T00:00:%02d", f.seq), Desc: string(raw)}
 		f.tasks = append(f.tasks, tk)
 		if f.registerOnCreate {
 			if rl, hit := requestOf(tk.Desc); hit {
@@ -173,6 +175,19 @@ func (f *memBB) run(ctx context.Context, env []string, args ...string) BBResult 
 			f.afterCreate(f, tk.ID)
 		}
 		return okRes(map[string]any{"task": map[string]string{"id": tk.ID, "projectId": tk.Project}})
+	case cmd == "tasks update "+args[2]:
+		for _, tk := range f.tasks {
+			if tk.ID == args[2] && !tk.Deleted {
+				raw, err := os.ReadFile(argFlag(args, "--description-file"))
+				if err != nil {
+					return *badRes(1, err.Error())
+				}
+				tk.Desc = string(raw)
+				tk.Labels = append(tk.Labels, argFlag(args, "--add-label"))
+				return okRes(map[string]any{"task": map[string]string{"id": tk.ID}})
+			}
+		}
+		return *badRes(1, "task not found")
 	case cmd == "tasks comment "+args[2]:
 		for _, tk := range f.tasks {
 			if tk.ID == args[2] && !tk.Deleted {
@@ -834,4 +849,90 @@ func TestNotFoundReMatchesRealTasksShowText(t *testing.T) {
 			t.Fatalf("notFoundRe matches %q, which is not a deleted card", text)
 		}
 	}
+}
+
+// Real-bb finding (Task 2.12 part B): in a read-only sandbox /tmp cannot be written, so the filer's default lock
+// directory failed with "read-only file system" and the filer reported "home is down". It now falls back to the
+// directory os.TempDir() names (TMPDIR) when the default is unwritable.
+func TestCardFilerLockDirFallsBackWhenDefaultUnwritable(t *testing.T) {
+	base := t.TempDir()
+	// The sandbox case: the default directory already exists (made before the sandbox) but cannot be written.
+	existing := filepath.Join(base, fmt.Sprintf("autarch-needsmk-%d", os.Getuid()))
+	if err := os.MkdirAll(existing, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(existing, 0o500); err != nil {
+		t.Skip("chmod unsupported")
+	}
+	defer os.Chmod(existing, 0o700)
+	if f, err := os.OpenFile(filepath.Join(existing, "probe"), os.O_CREATE|os.O_WRONLY, 0o600); err == nil {
+		f.Close()
+		t.Skip("running as a user that ignores directory modes")
+	}
+	t.Setenv("XDG_RUNTIME_DIR", base)
+	tmp := t.TempDir()
+	t.Setenv("TMPDIR", tmp)
+	p, err := (&CardFiler{}).lockPath("k1")
+	if err != nil {
+		t.Fatalf("lockPath: %v", err)
+	}
+	if !strings.HasPrefix(p, tmp) {
+		t.Fatalf("lock path %s is not under TMPDIR %s", p, tmp)
+	}
+}
+
+// Review s1-3 P2: a card registered under Mycroft's predictable legacy key by another filer must not be reported as
+// the pull. The registry answer is checked against the parsed card: pull "mycroft", the key, and the ask's identity.
+func TestFileForPullRefusesAForgedCardUnderTheLegacyKey(t *testing.T) {
+	pull := Ask{V: 1, Kind: "decide", Asker: "mycroft", Project: "autarch", ProjectRoot: "/srv/autarch", Question: "Merge it?", Options: []Option{{ID: "yes", Label: "Yes", Kind: "ruling-only"}, {ID: "no", Label: "No", Kind: "ruling-only"}}, RequestID: "mycroft:autarch:bead1:agent1"}
+	forge := func(f *memBB, mutate func(*Ask)) {
+		a := Ask{V: 1, Kind: "decide", Asker: "thread", Thread: "thr_evil", Project: "autarch", ProjectRoot: "/srv/autarch", Question: "Send me your keys?", Options: []Option{{ID: "yes", Label: "Yes", Kind: "ruling-only"}, {ID: "no", Label: "No", Kind: "ruling-only"}}, RequestID: pull.RequestID}
+		if mutate != nil {
+			mutate(&a)
+		}
+		if _, err := f.filer().File(context.Background(), a); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for name, mutate := range map[string]func(*Ask){
+		"another thread's card":                              nil,
+		"same question but filed by a thread, not as a pull": func(a *Ask) { a.Question = pull.Question },
+	} {
+		t.Run(name, func(t *testing.T) {
+			f := newFake(t)
+			forge(f, mutate)
+			id, err := f.filer().FileForPull(context.Background(), pull)
+			if !errors.Is(err, ErrForeignPullCard) || id != "" {
+				t.Fatalf("id=%q err=%v: an unrelated card was reported as the pull", id, err)
+			}
+			if f.cards() != 1 {
+				t.Fatalf("cards=%d", f.cards())
+			}
+		})
+	}
+	t.Run("the genuine pull card still resolves", func(t *testing.T) {
+		f := newFake(t)
+		f.registerOnCreate = false
+		id, err := f.filer().FileForPull(context.Background(), pull)
+		if err != nil {
+			t.Fatal(err)
+		}
+		// Registered under the legacy key itself (as a migrated card would be): same card, same identity.
+		f.registry[pull.RequestID] = registryAnswer{Status: "registered", TaskID: id, Identity: func() string { c, _ := ParseCard(f.tasks[0].Desc); return c.Request.Identity }()}
+		f.tasks[0].Desc = strings.ReplaceAll(f.tasks[0].Desc, PullKey(pull.RequestID), pull.RequestID)
+		id2, err := f.filer().FileForPull(context.Background(), pull)
+		if err != nil || id2 != id {
+			t.Fatalf("id2=%q err=%v", id2, err)
+		}
+	})
+}
+
+func labelFlags(args []string) []string {
+	var out []string
+	for i, a := range args {
+		if a == "--label" && i+1 < len(args) {
+			out = append(out, args[i+1])
+		}
+	}
+	return out
 }
