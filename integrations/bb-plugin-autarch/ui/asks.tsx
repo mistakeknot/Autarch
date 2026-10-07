@@ -88,6 +88,16 @@ export function ageText(filedAt: string, nowMs: number): string {
 /** An ask that has waited this long is probably settled elsewhere or superseded: Home marks it so mk can clear it. */
 export const OLD_ASK_MS = 3 * 86_400_000;
 
+/** An ask is old once it has waited more than three days; an unparseable or future time is not old. */
+export function isOldAsk(filedAt: string, nowMs: number): boolean {
+  return nowMs - Date.parse(filedAt) > OLD_ASK_MS;
+}
+
+/** The ask shown in full: the selected one while it is still owed, else the first. */
+export function currentAsk<T extends { id: string }>(owed: T[], selected: string | null): T | undefined {
+  return owed.find((o) => o.id === selected) ?? owed[0];
+}
+
 // Absolute paths, sha256 digests and URLs in an ask's text: shown as code, selectable in one click, and allowed to
 // break anywhere so a long path never pushes the card wider than its panel.
 const REF = /(https?:\/\/[^\s)]+[^\s).,;:]|(?<![\w/])\/(?:[\w.@+-]+\/)+[\w@+-]+(?:\.[\w@+-]+)*|\b[0-9a-f]{64}\b)/g;
@@ -141,7 +151,7 @@ export function AskCard({ ask, onPick, onOpen, nowMs }: { ask: OwedAsk; onPick: 
               <div className="flex flex-wrap items-baseline gap-x-2 text-sm">
                 <button type="button" className="font-medium underline" onClick={() => void pick(o.id)}>{o.label}</button>
                 {recommended ? <span className="text-xs font-medium">recommended</span> : null}
-                {o.reversible === true ? <span className="text-xs">reversible</span> : null}
+                <span className="text-xs" data-reversible-label>{o.reversible === true ? "reversible" : "not reversible"}</span>
                 <span className="text-xs text-muted-foreground">{o.kind}</span>
               </div>
               {o.instruction !== undefined ? (
@@ -165,13 +175,13 @@ export function AskCard({ ask, onPick, onOpen, nowMs }: { ask: OwedAsk; onPick: 
 /** The Decide queue: a short row per ask on the left, the selected ask in full on the right (below when narrow). */
 export function DecideQueue({ owed, onPick, onOpen, nowMs }: { owed: OwedAsk[]; onPick: OnPick; onOpen: (thread: string) => void; nowMs: number }) {
   const [selected, setSelected] = useState<string | null>(null);
-  const current = owed.find((o) => o.id === selected) ?? owed[0];
+  const current = currentAsk(owed, selected);
   if (current === undefined) return null;
   return (
     <div className="flex flex-wrap items-start gap-4">
       <ol className="m-0 min-w-0 shrink-0 grow basis-64 list-none space-y-1 p-0" data-decide-list>
         {owed.map((o) => {
-          const old = nowMs - Date.parse(o.filed_at) > OLD_ASK_MS;
+          const old = isOldAsk(o.filed_at, nowMs);
           const rec = o.ask.options.find((x) => x.id === o.ask.recommendation);
           return (
             <li key={o.id}>
@@ -182,8 +192,9 @@ export function DecideQueue({ owed, onPick, onOpen, nowMs }: { owed: OwedAsk[]; 
                 onClick={() => setSelected(o.id)}
               >
                 <span className="block truncate text-sm">{o.subject}</span>
-                <span className="block truncate text-xs text-muted-foreground">
-                  {`${o.project ? `${o.project} · ` : ""}${ageText(o.filed_at, nowMs)}`}
+                {o.project ? <span className="block truncate text-xs text-muted-foreground">{o.project}</span> : null}
+                <span className="block text-xs text-muted-foreground [overflow-wrap:anywhere]">
+                  {ageText(o.filed_at, nowMs)}
                   {old ? <span className="font-medium" data-old-ask>{" · old: still needed?"}</span> : null}
                   {rec ? ` · rec: ${rec.label}` : ""}
                 </span>

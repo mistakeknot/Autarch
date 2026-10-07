@@ -8,7 +8,7 @@ vi.mock("@get-bb/plugin-sdk/app", () => ({
 }));
 
 import { BlocksPanel, BlocksRow, groupRows, QueueRefresher, type QueueRowView, type QueueView } from "../ui/blocks.js";
-import { ageText, AsksPanel, buildAsksView, PickController, pickOutcome, type AsksData } from "../ui/asks.js";
+import { ageText, AsksPanel, currentAsk, isOldAsk, buildAsksView, PickController, pickOutcome, type AsksData } from "../ui/asks.js";
 import { CatchupPanel, observeVisibility, SeenTracker, snapshotIds, type CatchupEntry } from "../ui/catchup.js";
 import { MapPlaceholder } from "../ui/map-placeholder.js";
 import { BindingsPanel, parseDelegationForm, SettingsPanel } from "../ui/settings.js";
@@ -73,7 +73,8 @@ describe("Asks ordering", () => {
     expect(html).toContain("also mentioned in 2 threads");
     expect(html).toContain("instruction");
     expect(html).toContain("needs-context");
-    expect(html).toContain("reversible");
+    expect(html.match(/data-reversible-label="true">reversible</g)?.length).toBe(1);
+    expect(html.match(/data-reversible-label="true">not reversible</g)?.length).toBe(1);
     expect(html.match(/data-reversible="true"/g)?.length).toBe(1);
     expect(html.match(/data-reversible="false"/g)?.length).toBe(1);
     expect(html).toContain("Ship on the day &lt;b&gt;exactly&lt;/b&gt; &amp; tell mk");
@@ -93,7 +94,8 @@ describe("Asks ordering", () => {
     );
     expect(html).toContain("Decide (2)");
     expect(html.match(/<li><button/g)?.length).toBe(2);
-    expect(html).toContain("Autarch · 3 h");
+    expect(html).toContain(">Autarch</span>");
+    expect(html).toContain("3 h");
     expect(html).toContain("rec: Day");
     expect(html.match(/data-old-ask/g)?.length).toBe(1);
     expect(html).toContain("Which day?");
@@ -120,6 +122,23 @@ describe("Asks ordering", () => {
     expect(ageText("2026-10-05T10:00:00Z", now)).toBe("24 h");
     expect(ageText("2026-10-02T10:00:00Z", now)).toBe("4 d");
     expect(ageText("garbage", now)).toBe("now");
+    expect(ageText("2026-10-07T10:00:00Z", now)).toBe("now");
+  });
+
+  it("flags an ask as old only past three days", () => {
+    const now = Date.parse("2026-10-06T10:00:00Z");
+    expect(isOldAsk("2026-10-03T10:00:00Z", now)).toBe(false);
+    expect(isOldAsk("2026-10-03T09:59:59Z", now)).toBe(true);
+    expect(isOldAsk("2026-10-07T10:00:00Z", now)).toBe(false);
+    expect(isOldAsk("garbage", now)).toBe(false);
+  });
+
+  it("shows the selected ask, and falls back to the first once it is no longer owed", () => {
+    const owed = [{ id: "a" }, { id: "b" }];
+    expect(currentAsk(owed, null)?.id).toBe("a");
+    expect(currentAsk(owed, "b")?.id).toBe("b");
+    expect(currentAsk(owed, "gone")?.id).toBe("a");
+    expect(currentAsk([], "b")).toBeUndefined();
   });
 });
 
