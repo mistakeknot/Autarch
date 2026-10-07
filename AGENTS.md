@@ -107,6 +107,11 @@ retired (exits 2, "moved"). `bb home get`, `list`, `feed` and `stats` read; `bb 
 `resolve` and `withdraw` are for asks filed before cards and refuse a card. The bb plugin never
 starts `autarch serve`; run it yourself.
 
+A card can carry what mk owes: `autarch needs-mk file --move move.json` (a home-move/v1 file: kind script, pr,
+read or context; `--ask-file` may be left out) labels it `mk-move`, and `autarch needs-mk adopt-move --card ID
+--move move.json` attaches a move to a card this thread already filed. Both validate with the parser Home uses;
+nothing in the file is executed.
+
 ## Design Decisions (Do Not Re-Ask)
 
 - Module: `github.com/mistakeknot/autarch`

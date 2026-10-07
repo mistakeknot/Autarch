@@ -368,6 +368,63 @@ Gurgeh and Pollard stay as tools that agents call through the CLI and MCP.
       same-user risk already accepted in decision 21.
     - This revises decisions 14, 16, 18, 21 and 22 for v1. Plan:
       `docs/plans/2026-09-26-home-serve-and-decisions-plan.md`.
+24. **Decisions live in the Home plugin's own database** (mk, 2026-09-27,
+    chosen over Go storage in `autarch serve` and git as the database).
+    - **Why:** hub beads can't store a pick safely. On `bd` 1.1.2, a
+      duplicate `create --id` silently overwrites a bead, even a closed
+      one. A metadata-plus-label update tore under kill -9 in 7 of 200
+      runs. And `bd` has no conditional write
+      ([bd write guarantees](../research/2026-09-26-bd-write-guarantees.md)).
+      The plugin's SQLite database (`bb.storage.database()`, WAL,
+      transactions) gives all three guarantees. Go storage would do the
+      same, but only so that decisions keep working without bb. That
+      barely matters, because mk picks in Home and nearly every asker is a
+      bb thread.
+    - **What changes:**
+      - Filing, picking and marking a wake done are each one transaction.
+      - A unique request id makes a retried filing harmless.
+      - A pick is `UPDATE … WHERE pick IS NULL`.
+      - Wakes go through bb's own thread API.
+      - `autarch serve` becomes read-only: the feed, the map and Mycroft's
+        proposals. This keeps "Autarch writes no world state".
+      - Mycroft and other agents outside bb file through `bb home ask`.
+      - Hub beads become an optional one-way copy, never read back.
+    - **Either way:**
+      - a nightly append-only JSONL export;
+      - one JSON schema that the TypeScript and Go sides both test
+        against.
+    - **Checked** in installed bb `0.43.4+aleph.4` and the local source:
+      - The API is documented in the installed build's plugin guide.
+      - `bb plugin remove` deletes the plugin's settings, schedules,
+        `secrets/` folder and install folder, but not `data.db`
+        (`plugin-service.ts:1513-1561`, local source).
+      - A plugin's server code runs inside bb's server process
+        (`plugin-runtime.ts:1644`), so every write is a short
+        transaction and nothing slow runs on the request path.
+    - This revises decision 3 (the hub bead as the store) and 9 (an owed
+      decision is a bead), and the "one queue" item of decision 21. The
+      rail stays the only queue, now held in the plugin.
+25. **The rail is fed by structured asks** (mk, 2026-09-27, after reading a
+    screenshot of a four-pane, ~45-thread session). The asks there were
+    one-line tails under long narration, the same go-ahead appeared in
+    three threads, and machine blockers sat beside mk's own.
+    - **Structured turn endings.** Every turn ends with an ask block: an
+      ask, steps for mk to run, a machine blocker, or nothing. A Clavain
+      Stop hook checks the format, and Home reads the block instead of
+      guessing from prose. It moves into v1 and mostly replaces the net
+      (decision 20), which stays as a fallback for threads without the hook.
+    - **One entry per ask.** An ask has an identity (subject plus action).
+      Relays by coordinators and publishers attach to it as mentions, so
+      mk sees one card with "mentioned in 3 threads".
+    - **Machine blockers get their own lane.** Disk space, permission
+      refusals and the like go to a rig-health lane, and reach mk's queue
+      only when nobody owns them.
+    - **One runbook.** Every "run this" across threads is merged into one
+      ordered list. When mk marks steps done, each asking thread wakes.
+    - **Standing rulings, after the trial.** A kind of ask mk always
+      approves can be answered by a standing ruling, and the rail shows
+      which rule answered it. mk: this is largely Clavain's and Sylveste's
+      job, so Clavain owns the policy and Home only shows the result.
 
 ## Open questions
 

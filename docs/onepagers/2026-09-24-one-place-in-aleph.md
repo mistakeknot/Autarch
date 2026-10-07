@@ -13,15 +13,18 @@ they serve attention.
 
 **How it works.**
 - **An Aleph plugin, not a separate app.** The plugin provides a Home tab,
-  sidebar badges and a decisions inbox. Its host part runs `autarch serve`:
-  one Go service that consolidates the Bigend daemon, Gurgeh, Signals and
-  MCP, and has no UI of its own.
+  sidebar badges and a decisions inbox, and it stores decisions in its own
+  SQLite database. Its host part runs `autarch serve`: one read-only Go
+  service that consolidates the Bigend daemon, Gurgeh, Signals and MCP,
+  and has no UI of its own.
 - **Home** has two parts:
   - the estate map;
   - the rail: decisions owed and Mycroft's proposals.
 - **Decisions are owed, then ruled.**
-  - An owed decision is a hub-tracker bead.
-  - Answering closes the bead and writes a stamped ruling file.
+  - An owed decision is a row in the Home plugin's own database, where
+    filing and picking are each one transaction (mk, 2026-09-27). Hub beads
+    get an optional one-way copy.
+  - Answering records the pick and writes a stamped ruling file.
   - A companion proposes beads for prose decisions that were never filed. It
     never shows a guess as real.
 - **Continuations.** Each option on a decision bead carries one of these:
@@ -85,7 +88,7 @@ where a chat spends a wake on every look.
 2. Whether a decisions rail works across all 98 projects without any
    focus lens.
 
-**Status.** Discover. Refined with mk on 2026-09-24, 25 and 26 (23 decisions).
+**Status.** Discover. Refined with mk on 2026-09-24 to 27 (24 decisions).
 CUJs autarch-07 (decide and continue) and 09 (the net) are validated.
 - v1 is decisions and the estate picture. Rig health and PRs come
   after the trial.
@@ -96,3 +99,5 @@ CUJs autarch-07 (decide and continue) and 09 (the net) are validated.
   fix (decisions 21 and 22). After two plan reviews, mk cut command picks
   and deferred signing (decision 23, 2026-09-26). autarch-07 still
   describes both and is revised when mk walks it on the real rail.
+- Decisions moved from hub beads to the plugin's database after `bd`
+  proved unable to store a pick safely (decision 24, 2026-09-27).

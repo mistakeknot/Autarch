@@ -1,0 +1,41 @@
+{
+  "narrowHorizontalOverflow": false,
+  "commandBoxesScroll": [
+    {
+      "scrolls": true,
+      "overflowX": "auto",
+      "whiteSpace": "pre"
+    },
+    {
+      "scrolls": true,
+      "overflowX": "auto",
+      "whiteSpace": "pre"
+    },
+    {
+      "scrolls": true,
+      "overflowX": "auto",
+      "whiteSpace": "pre"
+    },
+    {
+      "scrolls": true,
+      "overflowX": "auto",
+      "whiteSpace": "pre"
+    }
+  ],
+  "clipboardApi": {
+    "equalsBlockText": true,
+    "length": 170,
+    "hasNewline": false,
+    "hasBacktick": false,
+    "trailingSpace": false
+  },
+  "copiedLabel": "Copied",
+  "fallbackPath": {
+    "copyEventText": "bash '/home/example/scripts/cutover.sh' '--set' '--set=cutover-2026-10-07-primary-region-eu-west-1-with-a-very-long-descriptive-suffix-to-prove-the-line-scrolls-sideways'",
+    "equalsBlockText": true,
+    "label": "Copied"
+  },
+  "tripleClickSelection": "bash '/home/example/scripts/cutover.sh' '--set' '--set=cutover-2026-10-07-primary-region-eu-west-1-with-a-very-long-descriptive-suffix-to-prove-the-line-scrolls-sideways'",
+  "tripleClickEqualsCommand": true,
+  "otherCounter": "89 / 2000"
+}
