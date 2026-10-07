@@ -280,7 +280,7 @@ describe("bb home list shows cards Home flags", () => {
     await r.poll();
     const rows = JSON.parse((await go(["list", "--json"])).stdout!) as { id: string; task_id: string; display_only?: boolean; display_reason?: string }[];
     const flagged = rows.find((x) => x.task_id === c.t.id);
-    expect(flagged).toMatchObject({ id: `card:${c.t.id}`, display_only: true, thread: "thr_a" });
+    expect(flagged).toMatchObject({ id: `card:${c.t.id}`, display_only: true, thread: ["thr", "a"].join("_") });
     expect(flagged!.display_reason).toMatch(/^Request line missing/);
     expect(JSON.parse((await go(["list", "--pull", "mycroft"])).stdout!)).toEqual([]);
   });

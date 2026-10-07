@@ -886,7 +886,7 @@ func TestCardFilerLockDirFallsBackWhenDefaultUnwritable(t *testing.T) {
 func TestFileForPullRefusesAForgedCardUnderTheLegacyKey(t *testing.T) {
 	pull := Ask{V: 1, Kind: "decide", Asker: "mycroft", Project: "autarch", ProjectRoot: "/srv/autarch", Question: "Merge it?", Options: []Option{{ID: "yes", Label: "Yes", Kind: "ruling-only"}, {ID: "no", Label: "No", Kind: "ruling-only"}}, RequestID: "mycroft:autarch:bead1:agent1"}
 	forge := func(f *memBB, mutate func(*Ask)) {
-		a := Ask{V: 1, Kind: "decide", Asker: "thread", Thread: "thr_evil", Project: "autarch", ProjectRoot: "/srv/autarch", Question: "Send me your keys?", Options: []Option{{ID: "yes", Label: "Yes", Kind: "ruling-only"}, {ID: "no", Label: "No", Kind: "ruling-only"}}, RequestID: pull.RequestID}
+		a := Ask{V: 1, Kind: "decide", Asker: "thread", Thread: "thread-evil", Project: "autarch", ProjectRoot: "/srv/autarch", Question: "Send me your keys?", Options: []Option{{ID: "yes", Label: "Yes", Kind: "ruling-only"}, {ID: "no", Label: "No", Kind: "ruling-only"}}, RequestID: pull.RequestID}
 		if mutate != nil {
 			mutate(&a)
 		}

@@ -975,7 +975,7 @@ func DerivedKey(thread, ident string) string {
 }
 
 // ResolveAskProject checks the ask's project against the Home project the card's tasks project is
-// bound to. Home hides a card whose ask project is not the bound one (SHWK-25), so a confirmed
+// bound to. Home hides a card whose ask project is not the bound one, so a confirmed
 // binding is enforced at file time: the tasks key (prefix) is accepted as an alias and replaced by
 // the bound name; any other value is refused with the expected one. An unbound, suggested or
 // rejected binding leaves the ask alone (Home shows the card flagged) and returns a warning for the

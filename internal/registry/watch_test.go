@@ -330,10 +330,13 @@ func TestAnAbsentRecordClosesOnlyWithACompleteSweep(t *testing.T) {
 func TestAttributionRecordsWhyItFailed(t *testing.T) {
 	s := newStore(t)
 	dir := t.TempDir()
+	// projectFromCWD reads the umbrella directory as <home>/projects, so the
+	// fixture pins home rather than depending on the host running the test.
+	t.Setenv("HOME", "/fixture/home")
 	// The shape of ten of twelve live agents: the umbrella cwd and a session
 	// name following no project convention.
-	writeRecord(t, dir, 100, record(100, "unattributable", "2:@2.%2", "/Users/sma/projects", "projects-14", "derived", 1000, 2000))
-	writeRecord(t, dir, 101, record(101, "attributable", "iterm]jawnomicon|ui - x:@66.%66", "/Users/sma/projects", "ui", "auto", 1000, 2000))
+	writeRecord(t, dir, 100, record(100, "unattributable", "2:@2.%2", "/fixture/home/projects", "projects-14", "derived", 1000, 2000))
+	writeRecord(t, dir, 101, record(101, "attributable", "iterm]jawnomicon|ui - x:@66.%66", "/fixture/home/projects", "ui", "auto", 1000, 2000))
 	scanAndProject(t, s, dir)
 
 	if n := count(t, s.DB(), `SELECT COUNT(*) FROM project_association

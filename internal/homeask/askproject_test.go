@@ -24,7 +24,7 @@ func bindingFiler(binding string) *CardFiler {
 
 const confirmed = `{"home_project":"shadow-work","state":"confirmed"}`
 
-// SHWK-25: "shadow-workipedia" and then "SHWK" were accepted at file time and hidden in Home.
+// "shadow-workipedia" and then "SHWK" were accepted at file time and hidden in Home.
 func TestResolveAskProjectRefusesAnythingButTheBoundProjectNamingIt(t *testing.T) {
 	_, _, err := bindingFiler(confirmed).ResolveAskProject(context.Background(), "SHWK", "shadow-workipedia")
 	if !errors.Is(err, ErrInvalid) || !strings.Contains(err.Error(), `expected project "shadow-work"`) {

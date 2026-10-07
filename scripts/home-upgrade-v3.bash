@@ -42,7 +42,7 @@ else
   if [ -n "$HOLDERS" ]; then
     say "Home still holds the DB; re-enabling the existing build. Holders:"
     say "$HOLDERS"
-    say "(bb's plugin-state snapshot may hold it open: bead mk-schu.2)"
+    say "(bb's plugin-state snapshot may hold it open)"
     "${AS[@]}" "$BB" plugin enable autarch || true
     exit 3
   fi

@@ -139,7 +139,7 @@ func writeAsk(t *testing.T) string {
 }
 
 func TestNeedsMkFileFilesAndPrintsTheCard(t *testing.T) {
-	t.Setenv("BB_THREAD_ID", "thr_x")
+	t.Setenv("BB_THREAD_ID", "thread-x")
 	s := &stubBB{}
 	out, err := runNeedsMk(t, s, "file", "--project", "P1", "--title", "Ship?", "--blocks", "thread:thr_x", "--blocks", "bead:A-1", "--ask-file", writeAsk(t))
 	if err != nil {
@@ -174,7 +174,7 @@ func TestNeedsMkFileRequiresThreadAndFlags(t *testing.T) {
 	if exitCode(err) != 2 || !strings.Contains(err.Error(), "BB_THREAD_ID") || len(s.calls) != 0 {
 		t.Fatalf("err=%v calls=%v", err, s.calls)
 	}
-	t.Setenv("BB_THREAD_ID", "thr_x")
+	t.Setenv("BB_THREAD_ID", "thread-x")
 	for _, args := range [][]string{
 		{"file", "--title", "x", "--ask-file", writeAsk(t)},
 		{"file", "--project", "P1", "--ask-file", writeAsk(t)},
@@ -191,7 +191,7 @@ func TestNeedsMkFileRequiresThreadAndFlags(t *testing.T) {
 }
 
 func TestNeedsMkFileRootRunHashesTheScript(t *testing.T) {
-	t.Setenv("BB_THREAD_ID", "thr_x")
+	t.Setenv("BB_THREAD_ID", "thread-x")
 	script := filepath.Join(t.TempDir(), "run.sh")
 	os.WriteFile(script, []byte("#!/bin/sh\necho hi\n"), 0o755)
 	sum := sha256.Sum256([]byte("#!/bin/sh\necho hi\n"))
@@ -211,7 +211,7 @@ func TestNeedsMkFileRootRunHashesTheScript(t *testing.T) {
 }
 
 func TestNeedsMkFileHomeDownIsExit3(t *testing.T) {
-	t.Setenv("BB_THREAD_ID", "thr_x")
+	t.Setenv("BB_THREAD_ID", "thread-x")
 	old := newCardFiler
 	oldCheck := checkFilingPreconditions
 	checkFilingPreconditions = func(string, string) error { return nil }
@@ -232,7 +232,7 @@ func TestNeedsMkFileHomeDownIsExit3(t *testing.T) {
 }
 
 func TestNeedsMkFileRejectsNonObjectAskJSON(t *testing.T) {
-	t.Setenv("BB_THREAD_ID", "thr_x")
+	t.Setenv("BB_THREAD_ID", "thread-x")
 	for _, body := range []string{"null", "[]", `"s"`, "7", "true"} {
 		p := filepath.Join(t.TempDir(), "ask.json")
 		os.WriteFile(p, []byte(body), 0o644)
@@ -246,7 +246,7 @@ func TestNeedsMkFileRejectsNonObjectAskJSON(t *testing.T) {
 
 func fileWithCheck(t *testing.T, s *stubBB, check func(string, string) error) error {
 	t.Helper()
-	t.Setenv("BB_THREAD_ID", "thr_x")
+	t.Setenv("BB_THREAD_ID", "thread-x")
 	old := checkFilingPreconditions
 	checkFilingPreconditions = check
 	serveCheckSet = true
@@ -255,7 +255,7 @@ func fileWithCheck(t *testing.T, s *stubBB, check func(string, string) error) er
 	return err
 }
 
-// mk-okek.19: with serve down, filing stops before it touches bb, exits 3 and says why.
+// with serve down, filing stops before it touches bb, exits 3 and says why.
 func TestNeedsMkFileServeDownCreatesNothing(t *testing.T) {
 	s := &stubBB{}
 	err := fileWithCheck(t, s, func(string, string) error {
@@ -269,7 +269,7 @@ func TestNeedsMkFileServeDownCreatesNothing(t *testing.T) {
 	}
 }
 
-// mk-okek.20: a project_root serve does not resolve is refused at file time, exit 2.
+// a project_root serve does not resolve is refused at file time, exit 2.
 func TestNeedsMkFileRefusesAnUnresolvedRoot(t *testing.T) {
 	s := &stubBB{}
 	var got string

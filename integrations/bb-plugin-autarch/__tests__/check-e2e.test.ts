@@ -122,7 +122,7 @@ describe("check-e2e", () => {
     expect(r.stderr).toContain("env_absent_exit");
   });
 
-  it("rejects an upgrade-quiesce record that does not show bb keeping the previous v2 instance (mk-schu.5)", () => {
+  it("rejects an upgrade-quiesce record that does not show bb keeping the previous v2 instance", () => {
     const f = materialise("accept", "real-bb");
     writeFileSync(f, readFileSync(f, "utf8").replace(/,"previous_instance_kept":true/, "").replace(/"v2_instance_hosted_by":"[^"]*"/, '"v2_instance_hosted_by":"standalone-store-process"'));
     const r = run(f, "real-bb");

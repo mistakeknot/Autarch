@@ -24,7 +24,7 @@ import (
 var newCardFiler = func() *homeask.CardFiler { return &homeask.CardFiler{Timeout: filerTimeout} }
 
 // checkFilingPreconditions runs before anything is created: serve must be up and the ask's
-// project_root must be the root it resolves for the ask's project (mk-okek.19, .20). Tests replace it.
+// project_root must be the root it resolves for the ask's project. Tests replace it.
 var checkFilingPreconditions = func(project, root string) error {
 	ps, err := serve.FetchProjects(serveURL(), serveTokenPath(), serveProbeTimeout)
 	if err != nil {

@@ -28,11 +28,11 @@ func TestFetchProjectsReadsTheListWithTheToken(t *testing.T) {
 			http.Error(w, "no", http.StatusUnauthorized)
 			return
 		}
-		_, _ = w.Write([]byte(`[{"name":"auraken","root":"/home/example/projects/auraken"}]`))
+		_, _ = w.Write([]byte(`[{"name":"auraken","root":"/srv/projects/auraken"}]`))
 	}))
 	defer srv.Close()
 	got, err := FetchProjects(srv.URL, tokenFile(t, testTok), time.Second)
-	if err != nil || len(got) != 1 || got[0].Root != "/home/example/projects/auraken" {
+	if err != nil || len(got) != 1 || got[0].Root != "/srv/projects/auraken" {
 		t.Fatalf("got %v, %v", got, err)
 	}
 }
@@ -56,17 +56,17 @@ func TestFetchProjectsServeDownIsNamedAndFast(t *testing.T) {
 }
 
 func TestCheckRootAcceptsAResolvedRoot(t *testing.T) {
-	ps := []ProjectInfo{{Name: "auraken", Root: "/home/example/projects/auraken"}}
-	if err := CheckRoot(ps, "/home/example/projects/auraken"); err != nil {
+	ps := []ProjectInfo{{Name: "auraken", Root: "/srv/projects/auraken"}}
+	if err := CheckRoot(ps, "/srv/projects/auraken"); err != nil {
 		t.Fatal(err)
 	}
 }
 
-// The case seen on 2026-10-02: /home/example/projects/Auraken was accepted at file time and failed later.
+// The case seen on 2026-10-02: /srv/projects/Auraken was accepted at file time and failed later.
 func TestCheckRootRejectsWrongCaseNamingTheNearestMatch(t *testing.T) {
-	ps := []ProjectInfo{{Name: "auraken", Root: "/home/example/projects/auraken"}, {Name: "autarch", Root: "/home/example/projects/autarch"}}
-	err := CheckRoot(ps, "/home/example/projects/Auraken")
-	if err == nil || !strings.Contains(err.Error(), "/home/example/projects/auraken") {
+	ps := []ProjectInfo{{Name: "auraken", Root: "/srv/projects/auraken"}, {Name: "autarch", Root: "/srv/projects/autarch"}}
+	err := CheckRoot(ps, "/srv/projects/Auraken")
+	if err == nil || !strings.Contains(err.Error(), "/srv/projects/auraken") {
 		t.Fatalf("err = %v", err)
 	}
 }
@@ -88,24 +88,24 @@ func TestFetchProjectsMissingTokenIsNotCreated(t *testing.T) {
 	}
 }
 
-// A filed ask: the filer put /tmp/wimby, a root that is not WIMBY's, in the ask and the card was hidden.
+// the filer put /tmp/wimby, a root that is not WIMBY's, in the ask and the card was hidden.
 func TestCheckAskRejectsARootThatIsNotTheNamedProjectsAndNamesTheExpectedOne(t *testing.T) {
-	ps := []ProjectInfo{{Name: "WIMBY", Root: "/home/example/projects/WIMBY"}, {Name: "wimby-tmp", Root: "/tmp/wimby"}}
+	ps := []ProjectInfo{{Name: "WIMBY", Root: "/srv/projects/WIMBY"}, {Name: "wimby-tmp", Root: "/tmp/wimby"}}
 	err := CheckAsk(ps, "WIMBY", "/tmp/wimby")
-	if err == nil || !strings.Contains(err.Error(), `expected project_root "/home/example/projects/WIMBY"`) {
+	if err == nil || !strings.Contains(err.Error(), `expected project_root "/srv/projects/WIMBY"`) {
 		t.Fatalf("err = %v", err)
 	}
-	if err := CheckAsk(ps, "wimby", "/tmp/wimby"); err == nil || !strings.Contains(err.Error(), "/home/example/projects/WIMBY") {
+	if err := CheckAsk(ps, "wimby", "/tmp/wimby"); err == nil || !strings.Contains(err.Error(), "/srv/projects/WIMBY") {
 		t.Fatalf("case-insensitive project name: err = %v", err)
 	}
 }
 
 func TestCheckAskAcceptsTheNamedProjectsRootAndNamesTheOwnerOfAForeignOne(t *testing.T) {
-	ps := []ProjectInfo{{Name: "WIMBY", Root: "/home/example/projects/WIMBY"}, {Name: "autarch", Root: "/home/example/projects/autarch"}}
-	if err := CheckAsk(ps, "WIMBY", "/home/example/projects/WIMBY"); err != nil {
+	ps := []ProjectInfo{{Name: "WIMBY", Root: "/srv/projects/WIMBY"}, {Name: "autarch", Root: "/srv/projects/autarch"}}
+	if err := CheckAsk(ps, "WIMBY", "/srv/projects/WIMBY"); err != nil {
 		t.Fatal(err)
 	}
-	err := CheckAsk(ps, "nosuch", "/home/example/projects/autarch")
+	err := CheckAsk(ps, "nosuch", "/srv/projects/autarch")
 	if err == nil || !strings.Contains(err.Error(), `set project to "autarch"`) {
 		t.Fatalf("err = %v", err)
 	}

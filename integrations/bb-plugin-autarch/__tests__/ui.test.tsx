@@ -49,7 +49,7 @@ const data = (over: Partial<AsksData> = {}): AsksData => ({
 });
 
 describe("Asks ordering", () => {
-  it("puts mk-action items first: decide, runbook, then stalled, then waiting", () => {
+  it("puts operator-action items first: decide, runbook, then stalled, then waiting", () => {
     const view = buildAsksView(
       data({
         owed: [ask()],
@@ -605,7 +605,7 @@ describe("root-run section (Task 2.8)", () => {
   });
 });
 
-describe("unbound projects in settings (mk-okek)", () => {
+describe("unbound projects in settings", () => {
   it("lists a project with cards and no binding row, with a picker of serve projects and a Confirm", () => {
     const html = renderToStaticMarkup(
       <BindingsPanel bindings={[]} unbound={[{ tasks_project_id: "tp9", cards: 2, targets: ["Sylveste"] }]} serveProjects={["Autarch", "Sylveste"]} inactive={[]} legacyCount={0} onBind={() => {}} />,
@@ -628,7 +628,7 @@ describe("unbound picker default", () => {
   });
 });
 
-describe("pickOutcome: a failed pick is shown, never swallowed (H-UX)", () => {
+describe("pickOutcome: a failed pick is shown, never swallowed", () => {
   it("ok result is ok", async () => {
     expect(await pickOutcome(Promise.resolve({ ok: true }))).toEqual({ ok: true });
   });

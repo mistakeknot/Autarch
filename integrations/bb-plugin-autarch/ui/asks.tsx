@@ -54,7 +54,7 @@ export type AsksData = {
 };
 
 export type ViewItem = { id: string; title: string; detail?: string; thread?: string; /** Set on an undeliverable wake: the Dismiss button's target. */ dismiss?: { decision_id: string; obligation_id: string } };
-// mk-action items come first and stay first: Decide, Runbook, then Stalled, then Waiting.
+// operator-action items come first and stay first: Decide, Runbook, then Stalled, then Waiting.
 export type Section = { key: "stalled" | "decide" | "runbook" | "waiting"; title: string; items: ViewItem[] };
 
 export function buildAsksView(d: AsksData): Section[] {

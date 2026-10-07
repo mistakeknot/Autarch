@@ -488,7 +488,7 @@ describe("restore", () => {
 
 // The stand-in bb let `plugin status` (which the real bb lacks) pass once. Every bb subcommand the scripts call must exist
 // in the REAL CLI: `--help` is local and read-only (no server, no write). Skipped only where bb is not installed.
-const REAL_BB = process.env.HOME_BB_BIN ?? join(process.env.HOME ?? "/nonexistent", ".local", "bin", "bb");
+const REAL_BB = process.env.HOME_BB_BIN ?? process.env.AUTARCH_REAL_BB ?? join(process.env.HOME ?? "/nonexistent", ".local", "bin", "bb");
 describe.skipIf(!existsSync(REAL_BB))("every bb subcommand the scripts call exists in the real CLI", () => {
   const called = new Set<string>();
   for (const f of ["home-upgrade-v3.bash", "home-restore-v2.bash", "home-common.bash"]) {
@@ -563,7 +563,7 @@ describe("unreadable caller cwd (bb spawns with process.cwd(); root's /root is E
   });
 });
 
-describe("fresh install (mk ruling #438 a): autarch absent from the live bb", () => {
+describe("fresh install (a): autarch absent from the live bb", () => {
   const fresh = async () => {
     const i = await install();
     rmSync(join(i.data, "data.db"), { force: true });

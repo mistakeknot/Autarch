@@ -60,7 +60,7 @@ export const SCHEMAS = {
   "comment-arrives-later-real": { threads: idList, card: id, routed_thread: id },
   "cross-project-panel": { threads: idList, cards: num, projects: num },
   "upgrade-quiesce": { quiesce_refused: eq(true), db_sha256_unchanged: eq(true), backup_files: eq(0), legacy_ask_picked: eq(true), migrated_after_enable: eq(true),
-    // bb hosts the v2 instance (an a9853e2 plugin build); a v3 reload that hits the quiesce refusal must leave it running (mk-schu.5).
+    // bb hosts the v2 instance (an a9853e2 plugin build); a v3 reload that hits the quiesce refusal must leave it running.
     v2_instance_hosted_by: eq("bb-plugin-instance"), previous_instance_kept: eq(true), v2_pick_through_bb: eq(true) },
   "vizier-chat": { threads: idList, message_id: id, screenshot_sha256: hex },
 };
