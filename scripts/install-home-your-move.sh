@@ -27,16 +27,36 @@ set -euo pipefail
 export PATH=/usr/local/bin:/usr/bin:/bin
 umask 077
 
-# Root only: an output-directory override is honoured only when its parent (after symlinks) is a directory owned by $2 (uid 0
-# in real use; the argument exists so the rule can be tested without root) that no other user can write into, or one that is
-# sticky and owned by that user. Otherwise a writable parent would allow a symlink or rename race against root's writes.
-out_parent_ok() {   # $1 = parent directory, $2 = required owner uid
-  local p mode owner
+# Root only: resolve an output-directory override ($1) once and print the resolved path. Every ancestor up to $3 (default /, the
+# anchor itself is not checked) must be owned by $2 (uid 0 in real use; an argument so the rule can be tested without root) and
+# not group/other writable; the final directory itself may instead be sticky and owned by $2 (like /tmp). A writable or foreign
+# link in the chain would allow a symlink or rename race against root's writes. Callers use only the printed path afterwards.
+out_parent_resolve() {   # $1 = directory, $2 = required owner uid, $3 = anchor (optional)
+  local p top=${3:-/} mode final=1
   p=$(realpath -e -- "$1" 2>/dev/null) && [ -d "$p" ] || return 1
-  owner=$(stat -c %u -- "$p") && mode=$(stat -c %a -- "$p") || return 1
-  [ "$owner" = "$2" ] || return 1
-  mode=$((8#$mode))
-  [ $((mode & 0022)) -eq 0 ] || [ $((mode & 01000)) -ne 0 ]
+  [ "$top" = / ] || top=$(realpath -e -- "$top") || return 1
+  printf '%s\n' "$p"
+  while :; do
+    [ "$p" != "$top" ] || return 0
+    [ "$(stat -c %u -- "$p")" = "$2" ] || return 1
+    mode=$((8#$(stat -c %a -- "$p"))) || return 1
+    if [ $((mode & 0022)) -ne 0 ]; then
+      { [ "$final" = 1 ] && [ $((mode & 01000)) -ne 0 ]; } || return 1
+    fi
+    [ "$p" != / ] || return 0
+    p=$(dirname -- "$p"); final=0
+  done
+}
+# A reused pid is not the bb server: the runtime file ($1) must name a live pid whose command line (under proc root $2, /proc
+# unless a test overrides it) contains the file's entryPath or its basename.
+runtime_names_live_process() {   # $1 = bb-app-runtime.json, $2 = proc root
+  local pid entry cmd
+  pid=$(jq -r '.pid // empty' "$1" 2>/dev/null || true)
+  entry=$(jq -r '.entryPath // empty' "$1" 2>/dev/null || true)
+  [[ "$pid" =~ ^[0-9]+$ ]] && [ -n "$entry" ] || return 1
+  [ "$2" != /proc ] || kill -0 "$pid" 2>/dev/null || return 1
+  cmd=$(tr '\0' ' ' <"$2/$pid/cmdline" 2>/dev/null) || return 1
+  [[ "$cmd" == *"$entry"* || "$cmd" == *"$(basename -- "$entry")"* ]]
 }
 # Sourced (by the tests), the function above is all that is defined.
 [ "${BASH_SOURCE[0]}" = "$0" ] || return 0
@@ -84,8 +104,7 @@ if [ "$TESTHOOK" = 0 ]; then
     mapfile -t FOUND < <(find "$MKHOME" -maxdepth 3 -name bb-app-runtime.json -not -path '*/node_modules/*' 2>/dev/null | sort)
     [ "${#FOUND[@]}" -eq 1 ] || { echo "cannot tell bb's data directory (${#FOUND[@]} candidates); set HOME_BB_DATA" >&2; exit 64; }
     # The one candidate must also name a live process, or it is a stale leftover.
-    RTPID=$(jq -r '.pid // empty' "${FOUND[0]}" 2>/dev/null || true)
-    { [[ "$RTPID" =~ ^[0-9]+$ ]] && kill -0 "$RTPID" 2>/dev/null; } || { echo "${FOUND[0]} does not name a live process; set HOME_BB_DATA" >&2; exit 64; }
+    runtime_names_live_process "${FOUND[0]}" /proc || { echo "${FOUND[0]} does not name a live bb process (pid and entryPath); set HOME_BB_DATA" >&2; exit 64; }
     BBDATA=$(dirname "${FOUND[0]}")
   fi
   DATA=$BBDATA/plugins/autarch
@@ -100,8 +119,8 @@ fi
 STAMP=$(date -u +%Y%m%dT%H%M%SZ)
 OUTPARENT=${HOME_YOUR_MOVE_OUT_DIR:-/tmp}
 if [ "$(id -u)" -eq 0 ] && [ -n "${HOME_YOUR_MOVE_OUT_DIR:-}" ]; then
-  out_parent_ok "$OUTPARENT" 0 || { echo "HOME_YOUR_MOVE_OUT_DIR $OUTPARENT must resolve to a directory owned by root that others cannot write (or a root-owned sticky one); refusing as root" >&2; exit 64; }
-  OUTPARENT=$(realpath -e -- "$OUTPARENT")
+  # Resolved and checked once; only the resolved path is used from here on.
+  OUTPARENT=$(out_parent_resolve "$OUTPARENT" 0) || { echo "HOME_YOUR_MOVE_OUT_DIR $OUTPARENT must resolve to a directory owned by root, with every ancestor root-owned and not group/other writable (the directory itself may be root-owned sticky); refusing as root" >&2; exit 64; }
 fi
 # A fresh 0700 directory made atomically by mktemp, never a predictable name; every output file lives only inside it.
 OUT=$(mktemp -d "$OUTPARENT/home-your-move-$STAMP-XXXXXX") || { echo "cannot create an output directory under $OUTPARENT" >&2; exit 64; }

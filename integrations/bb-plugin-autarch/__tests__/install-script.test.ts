@@ -1,6 +1,6 @@
 // scripts/install-home-your-move.sh --check against a temp data.db and a stub bb (the --check-only test hook). Never live.
 import { spawnSync } from "node:child_process";
-import { chmodSync, mkdirSync, statSync, mkdtempSync, readdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdirSync, statSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -94,46 +94,117 @@ describe("install-home-your-move.sh export step", () => {
   });
 });
 
-describe("out_parent_ok (the root-only check on HOME_YOUR_MOVE_OUT_DIR, exercised with the current uid)", () => {
-  const ok = (dir: string, uid: number) => spawnSync("bash", ["-c", `source "${SCRIPT}"; out_parent_ok "$1" "$2"`, "x", dir, String(uid)], { encoding: "utf8" }).status === 0;
+describe("out_parent_resolve (the root-only check on HOME_YOUR_MOVE_OUT_DIR, exercised with the current uid)", () => {
   const me = process.getuid!();
-  const tmp = () => { const d = mkdtempSync(join(tmpdir(), "ihym-")); dirs.push(d); return d; };
+  const resolve_ = (dir: string, uid: number, top: string) => spawnSync("bash", ["-c", `source "${SCRIPT}"; out_parent_resolve "$1" "$2" "$3"`, "x", dir, String(uid), top], { encoding: "utf8" });
+  const tmp = () => { const d = mkdtempSync(join(tmpdir(), "ihym-")); dirs.push(d); chmodSync(d, 0o755); return d; };
+  const ok = (dir: string, top: string, uid = me) => resolve_(dir, uid, top).status === 0;
 
-  it("accepts an own-uid directory nobody else can write, and refuses group or other write", () => {
-    const d = tmp();
-    chmodSync(d, 0o755);
-    expect(ok(d, me)).toBe(true);
-    chmodSync(d, 0o775);
-    expect(ok(d, me)).toBe(false);
-    chmodSync(d, 0o757);
-    expect(ok(d, me)).toBe(false);
+  it("accepts a compliant chain and prints the resolved path", () => {
+    const top = tmp();
+    const a = join(top, "a");
+    const b = join(a, "b");
+    mkdirSync(b, { recursive: true });
+    chmodSync(a, 0o755);
+    chmodSync(b, 0o755);
+    const r = resolve_(b, me, top);
+    expect(r.status).toBe(0);
+    expect(r.stdout.trim()).toBe(realpathSync(b));
   });
 
-  it("accepts a writable directory only when sticky", () => {
-    const d = tmp();
+  it("refuses group or other write on the final directory", () => {
+    const top = tmp();
+    const d = join(top, "d");
+    mkdirSync(d);
+    for (const m of [0o775, 0o757, 0o777]) { chmodSync(d, m); expect(ok(d, top), m.toString(8)).toBe(false); }
+    chmodSync(d, 0o755);
+    expect(ok(d, top)).toBe(true);
+  });
+
+  it("refuses an ancestor that others can write, even when the final directory is fine", () => {
+    const top = tmp();
+    const a = join(top, "a");
+    const b = join(a, "b");
+    mkdirSync(b, { recursive: true });
+    chmodSync(b, 0o755);
+    chmodSync(a, 0o775);
+    expect(ok(b, top)).toBe(false);
+    chmodSync(a, 0o777);
+    expect(ok(b, top)).toBe(false);
+    chmodSync(a, 0o1777); // sticky is acceptable only for the final directory
+    expect(ok(b, top)).toBe(false);
+    chmodSync(a, 0o755);
+    expect(ok(b, top)).toBe(true);
+  });
+
+  it("allows a sticky final directory but not a plain writable one", () => {
+    const top = tmp();
+    const d = join(top, "d");
+    mkdirSync(d);
     chmodSync(d, 0o1777);
-    expect(ok(d, me)).toBe(true);
+    expect(ok(d, top)).toBe(true);
     chmodSync(d, 0o777);
-    expect(ok(d, me)).toBe(false);
+    expect(ok(d, top)).toBe(false);
   });
 
-  it("refuses another owner, a missing path and a plain file; resolves a symlink to its target", () => {
-    const d = tmp();
+  it("resolves symlinks first: a link into a writable ancestor chain is refused", () => {
+    const top = tmp();
+    const bad = join(top, "bad");
+    const target = join(bad, "t");
+    mkdirSync(target, { recursive: true });
+    chmodSync(target, 0o755);
+    chmodSync(bad, 0o777);
+    symlinkSync(target, join(top, "link"));
+    expect(ok(join(top, "link"), top)).toBe(false);
+    chmodSync(bad, 0o755);
+    expect(resolve_(join(top, "link"), me, top).stdout.trim()).toBe(realpathSync(target));
+  });
+
+  it("refuses another owner, a missing path and a plain file", () => {
+    const top = tmp();
+    expect(ok(top + "/", top, me + 1)).toBe(true); // the anchor itself is not checked
+    const d = join(top, "d");
+    mkdirSync(d);
     chmodSync(d, 0o755);
-    expect(ok(d, me + 1)).toBe(false);
-    expect(ok(join(d, "missing"), me)).toBe(false);
-    writeFileSync(join(d, "f"), "x");
-    expect(ok(join(d, "f"), me)).toBe(false);
-    const open = join(d, "open");
-    mkdirSync(open);
-    chmodSync(open, 0o777);
-    symlinkSync(open, join(d, "link"));
-    expect(ok(join(d, "link"), me)).toBe(false);
+    expect(ok(d, top, me + 1)).toBe(false);
+    expect(ok(join(top, "missing"), top)).toBe(false);
+    writeFileSync(join(top, "f"), "x");
+    expect(ok(join(top, "f"), top)).toBe(false);
   });
 
-  it("sourcing the script defines the function and runs nothing else", () => {
+  it("sourcing the script defines the functions and runs nothing else", () => {
     const r = spawnSync("bash", ["-c", `source "${SCRIPT}"; echo sourced`], { encoding: "utf8" });
     expect(r.status).toBe(0);
     expect(r.stdout).toBe("sourced\n");
+  });
+});
+
+describe("runtime_names_live_process (reused pid defence, fed a fake proc root)", () => {
+  const tmp = () => { const d = mkdtempSync(join(tmpdir(), "ihym-")); dirs.push(d); return d; };
+  function check(runtime: object, procs: Record<string, string>): boolean {
+    const root = tmp();
+    const proc = join(root, "proc");
+    for (const [pid, cmd] of Object.entries(procs)) { mkdirSync(join(proc, pid), { recursive: true }); writeFileSync(join(proc, pid, "cmdline"), cmd); }
+    mkdirSync(proc, { recursive: true });
+    const f = join(root, "bb-app-runtime.json");
+    writeFileSync(f, JSON.stringify(runtime));
+    return spawnSync("bash", ["-c", `source "${SCRIPT}"; runtime_names_live_process "$1" "$2"`, "x", f, proc], { encoding: "utf8" }).status === 0;
+  }
+  const cmd = "node\x00/opt/bb/dist/server.js\x00--port\x00123\x00";
+
+  it("accepts a pid whose command line holds the entryPath", () => {
+    expect(check({ pid: 42, entryPath: "/opt/bb/dist/server.js" }, { "42": cmd })).toBe(true);
+  });
+  it("accepts the entryPath's basename", () => {
+    expect(check({ pid: 42, entryPath: "/elsewhere/server.js" }, { "42": cmd })).toBe(true);
+  });
+  it("refuses a reused pid running something else", () => {
+    expect(check({ pid: 42, entryPath: "/opt/bb/dist/server.js" }, { "42": "sleep\x00600\x00" })).toBe(false);
+  });
+  it("refuses a missing process, a missing or non-numeric pid, and a missing entryPath", () => {
+    expect(check({ pid: 43, entryPath: "/opt/bb/dist/server.js" }, { "42": cmd })).toBe(false);
+    expect(check({ entryPath: "/opt/bb/dist/server.js" }, { "42": cmd })).toBe(false);
+    expect(check({ pid: "4x", entryPath: "/opt/bb/dist/server.js" }, { "42": cmd })).toBe(false);
+    expect(check({ pid: 42 }, { "42": cmd })).toBe(false);
   });
 });
