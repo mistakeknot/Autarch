@@ -235,7 +235,7 @@ export function homeCli(p: HomeCliParts) {
 
       hold: cliCommand({
         summary: "Vizier only: put a card on hold (greyed out with a reason, out of needs-you-now). A later comment carrying a sha256, or `unhold`, makes it live",
-        positionals: [{ name: "card", description: "Task id or tasks key (AUTA-24).", required: true }],
+        positionals: [{ name: "card", description: "Task id or tasks key (PROJ-24).", required: true }],
         options: { reason: { type: "string", required: true, description: "Why it is on hold (one line)." } },
         async run({ positionals, options }, ctx) {
           if (!(await p.isVizier(ctx.threadId)) || (p.stillVizier && !p.stillVizier(ctx.threadId))) return err(1, "only the vizier thread may hold a card");
@@ -246,7 +246,7 @@ export function homeCli(p: HomeCliParts) {
 
       unhold: cliCommand({
         summary: "Vizier only: make a held card live again",
-        positionals: [{ name: "card", description: "Task id or tasks key (AUTA-24).", required: true }],
+        positionals: [{ name: "card", description: "Task id or tasks key (PROJ-24).", required: true }],
         async run({ positionals }, ctx) {
           if (!(await p.isVizier(ctx.threadId)) || (p.stillVizier && !p.stillVizier(ctx.threadId))) return err(1, "only the vizier thread may release a hold");
           const r = svc.unhold(positionals.card);

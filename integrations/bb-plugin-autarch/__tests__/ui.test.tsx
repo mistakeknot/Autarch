@@ -85,8 +85,8 @@ describe("Asks ordering", () => {
   });
 
   it("shows the task key in the queue row and the item header, and nothing for an ask with no key", () => {
-    const withKey = renderToStaticMarkup(<AsksPanel data={data({ owed: [ask({ key: "AUTA-24" })] })} onPick={() => {}} onOpen={() => {}} />);
-    expect(withKey.match(/data-task-key="true">AUTA-24</g)?.length).toBe(2);
+    const withKey = renderToStaticMarkup(<AsksPanel data={data({ owed: [ask({ key: "PROJ-24" })] })} onPick={() => {}} onOpen={() => {}} />);
+    expect(withKey.match(/data-task-key="true">PROJ-24</g)?.length).toBe(2);
     const without = renderToStaticMarkup(<AsksPanel data={data({ owed: [ask({ key: null })] })} onPick={() => {}} onOpen={() => {}} />);
     expect(without).not.toContain("data-task-key");
   });

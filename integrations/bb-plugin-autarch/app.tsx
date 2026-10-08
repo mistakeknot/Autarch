@@ -375,7 +375,7 @@ function HomePage() {
   const yourMove = useMoves(rpc, () => {});
   const conversation = useConversationApi(rpc);
   const [stack, setStack] = useState<StackState>({ panels: [{ id: "queue", kind: "decision", title: "Queue" }], width: "third" });
-  // Q: one ranked queue is the default (mk picked A on AUTA-17); the old Asks / Blocking / Catch-up tabs stay behind this setting.
+  // Q: one ranked queue is the default; the old Asks / Blocking / Catch-up tabs stay behind this setting.
   const [classic, setClassic] = useState(() => { try { return localStorage.getItem("home.classicTabs") === "1"; } catch { return false; } });
   const toggleClassic = () => setClassic((c) => { const n = !c; try { localStorage.setItem("home.classicTabs", n ? "1" : "0"); } catch { /* storage unavailable: the choice lasts this session */ } return n; });
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
