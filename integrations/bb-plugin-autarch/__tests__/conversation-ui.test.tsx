@@ -22,9 +22,9 @@ const data = (over: Partial<ConversationData> = {}): ConversationData => ({
 const api = (unread: Record<string, number> = {}): ConversationApi => ({ unread, load: async () => data(), markSeen: () => {} });
 
 describe("conversation view", () => {
-  it("shows comment text as plain text, never HTML", () => {
+  it("shows comment text safely: HTML is escaped, a small Markdown subset is rendered", () => {
     const html = renderToStaticMarkup(<ConversationBody data={data()} />);
-    expect(html).toContain("&lt;img src=x onerror=alert(1)&gt; **done** &amp; ready");
+    expect(html).toContain("&lt;img src=x onerror=alert(1)&gt; <strong>done</strong> &amp; ready");
     expect(html).not.toContain("<img");
   });
 
