@@ -265,6 +265,18 @@ describe("cards in the CLI (Task 2.7)", () => {
     expect(pulled.map((x) => x.id).sort()).toEqual([c.g1.id, lf.decision_id].sort());
     expect(pulled.find((x) => x.id === c.g1.id)!.task_id).toBe(c.t.id);
   });
+
+  it("list --json carries the card's tasks key, and null for a legacy ask", async () => {
+    const { r, c, run: go } = await cardCli({ pull: true });
+    const ma = ask(r.env, { asker: "mycroft", subject: "legacy key", question: "Legacy?", options: [{ id: "a", label: "A" }, { id: "b", label: "B" }] });
+    delete ma.thread;
+    const lf = await r.svc.file(ma, {});
+    if (!lf.ok) throw new Error(lf.error);
+    const rows = JSON.parse((await go(["list", "--json"])).stdout!) as { id: string; key: string | null }[];
+    const expected = (r.svc.store.db.prepare("SELECT card_key FROM cards WHERE task_id = ?").get(c.t.id) as { card_key: string | null }).card_key;
+    expect(rows.find((x) => x.id === c.g1.id)!.key).toBe(expected);
+    expect(rows.find((x) => x.id === lf.decision_id)!.key).toBeNull();
+  });
 });
 
 describe("bb home list shows cards Home flags", () => {
@@ -283,6 +295,28 @@ describe("bb home list shows cards Home flags", () => {
     expect(flagged).toMatchObject({ id: `card:${c.t.id}`, display_only: true, thread: ["thr", "a"].join("_") });
     expect(flagged!.display_reason).toMatch(/^Request line missing/);
     expect(JSON.parse((await go(["list", "--pull", "mycroft"])).stdout!)).toEqual([]);
+  });
+});
+
+describe("bb home viewing", () => {
+  afterEach(() => cleanupEnvs());
+  it("answers null until Home shows an ask, then the last ask shown with its key, and null again once it is closed", async () => {
+    const r = rig();
+    const c = await opened(r, { key: "key-view" });
+    const d = verifiedDelegation(r.svc);
+    const cli = homeCli({ svc: r.svc, asks: new Asks(r.svc), catchup: new Catchup(r.svc, d), rule: (id, option, reason, ctx) => d.rule(id, option, reason, ctx), isVizier: () => false });
+    const go = (argv: string[]) => Promise.resolve(cli.run(argv, {}));
+    const view = async () => JSON.parse((await go(["viewing", "--json"])).stdout!) as { viewing: { decision_id: string; key: string | null; task_id: string; subject: string } | null; reason?: string };
+    expect((await view()).viewing).toBeNull();
+    r.svc.store.setSetting("viewing", JSON.stringify({ decision_id: c.g1.id, at: "2026-10-07T10:00:00.000Z" }));
+    const v = (await view()).viewing!;
+    expect(v).toMatchObject({ decision_id: c.g1.id, task_id: c.t.id });
+    const key = (r.svc.store.db.prepare("SELECT card_key FROM cards WHERE task_id = ?").get(c.t.id) as { card_key: string | null }).card_key;
+    expect(v.key).toBe(key);
+    r.svc.store.setSetting("viewing", JSON.stringify({ decision_id: "no-such", at: "2026-10-07T10:00:00.000Z" }));
+    expect((await view()).viewing).toBeNull();
+    r.svc.store.setSetting("viewing", "not json");
+    expect((await view()).viewing).toBeNull();
   });
 });
 

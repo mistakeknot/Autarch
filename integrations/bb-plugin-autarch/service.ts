@@ -5,6 +5,9 @@ import { createHash, randomUUID } from "node:crypto";
 import { buildFeed, renderFeed, type Feed } from "./feed.js";
 import { cardFingerprint, askingThread, parseCard, toV1, type Card } from "./cards.js";
 import type { Task, TaskCommentRow } from "./tasks.js";
+
+/** A vizier hold on a card; n tells one hold from a replacement made in the same millisecond. */
+export type Hold = { reason: string; by: string; at: string; n?: string };
 import { identity, normalizedJson, parseAsk, revision, semanticKey, type Ask } from "./model.js";
 import { HOME_UNLABELS_ON_PICK, pickWrites } from "./cardwrites.js";
 import { estateRoot, pinRoot, renderRuling, rulingPath, writeRuling, type PinnedRoot, type Ruling } from "./ruling.js";
@@ -345,6 +348,8 @@ export class Service {
       // Revision 3: an ask on a project with no verified root cannot be ruled, by anyone, until the root is bound.
       const c = this.db.prepare("SELECT root_state FROM cards WHERE task_id = ?").get(String(d.task_id)) as { root_state: string | null } | undefined;
       if (c?.root_state !== "verified") return { ok: false, status: 403, error: "Project not bound: add a root to rule this" };
+      // A held card is greyed out; a page opened before the hold must not rule it.
+      if (this.holdOf(String(d.task_id))) return { ok: false, status: 409, error: "this card is on hold; the vizier releases it when its script or question is current" };
     }
     // A real option with the id "other" wins: it is picked as a normal option. mk's free-text answer (which always carries
     // his words in `reason` from the Home box) is refused for that ask, with a clear error.
@@ -638,6 +643,81 @@ export class Service {
     return r.ok ? { ok: true } : { ok: false, reason: r.reason };
   }
 
+  // ---- holds: the vizier greys a card out while its script or question is superseded. Kept in one settings_kv value
+  // (no schema change). A hold hides the card from "needs you now"; it never closes, rules or edits the card.
+  private readHolds(): Record<string, Hold> {
+    try {
+      const v = JSON.parse(this.store.setting("holds") ?? "{}");
+      if (!v || typeof v !== "object" || Array.isArray(v)) return {};
+      // Fail open: an entry without a reason, a writer and a readable time is not a hold.
+      const ok: Record<string, Hold> = {};
+      for (const [id, h] of Object.entries(v as Record<string, unknown>)) {
+        const e = h as { reason?: unknown; by?: unknown; at?: unknown } | null;
+        if (e && typeof e.reason === "string" && e.reason.trim() !== "" && typeof e.by === "string" && typeof e.at === "string" && !Number.isNaN(Date.parse(e.at))) ok[id] = { reason: e.reason, by: e.by, at: e.at, ...(typeof (e as { n?: unknown }).n === "string" ? { n: (e as { n: string }).n } : {}) };
+      }
+      return ok;
+    } catch {
+      return {};
+    }
+  }
+  holds(): Record<string, Hold> {
+    return this.readHolds();
+  }
+  holdOf(taskId: string | null | undefined): Hold | null {
+    return taskId ? (this.readHolds()[taskId] ?? null) : null;
+  }
+  /** The task id of a card named by its task id or its tasks key (PROJ-24). */
+  cardTaskId(ref: string): string | null {
+    const r = this.db.prepare("SELECT task_id FROM cards WHERE (task_id = ? OR card_key = ?) AND deleted_at IS NULL ORDER BY created_at DESC LIMIT 1").get(ref, ref) as { task_id: string } | undefined;
+    return r?.task_id ?? null;
+  }
+  hold(ref: string, reason: string, by: string): { ok: true; task_id: string } | { ok: false; error: string } {
+    const why = reason.trim();
+    if (!why) return { ok: false, error: "a hold needs a reason" };
+    if (why.length > 500 || /[\r\n]/.test(why)) return { ok: false, error: "the reason is one line of at most 500 characters" };
+    const id = this.cardTaskId(ref);
+    if (!id) return { ok: false, error: "no such card" };
+    const h = this.readHolds();
+    h[id] = { reason: why, by, at: this.now(), n: randomUUID() };
+    this.store.setSetting("holds", JSON.stringify(h));
+    return { ok: true, task_id: id };
+  }
+  unhold(ref: string): { ok: true; task_id: string; was: boolean } | { ok: false; error: string } {
+    const id = this.cardTaskId(ref);
+    if (!id) return { ok: false, error: "no such card" };
+    const h = this.readHolds();
+    const was = id in h;
+    if (was) {
+      delete h[id];
+      this.store.setSetting("holds", JSON.stringify(h));
+    }
+    return { ok: true, task_id: id, was };
+  }
+  /** A comment posted after the hold that carries a sha256 (a new script) makes the card live again. */
+  async releaseHoldOnSha(taskId: string, comments: () => Promise<TaskCommentRow[]>): Promise<boolean> {
+    const hold = this.holdOf(taskId);
+    if (!hold) return false;
+    let list: TaskCommentRow[];
+    try {
+      list = await comments();
+    } catch {
+      return false; // unreadable now: stay held, try on the next change
+    }
+    if (!list.some((c) => c.kind !== "system" && Date.parse(c.createdAt) > Date.parse(hold.at) && /\b[0-9a-f]{64}\b/.test(c.body))) return false;
+    // The vizier may have replaced the hold while the comments were read: clear only the hold those comments were judged against.
+    const now = this.holdOf(taskId);
+    if (now?.at !== hold.at || now?.n !== hold.n) return false;
+    this.unhold(taskId);
+    return true;
+  }
+
+  /** The tasks key of a card (for example PROJ-24), or null for a legacy ask or a card without one. */
+  cardKey(taskId: string | null | undefined): string | null {
+    if (!taskId) return null;
+    const r = this.db.prepare("SELECT card_key FROM cards WHERE task_id = ?").get(taskId) as { card_key: string | null } | undefined;
+    return r?.card_key ?? null;
+  }
+
   /** Open decide asks with no pick, not withdrawn, resolved or replaced. */
   owed(): Row[] {
     return this.db
@@ -818,7 +898,9 @@ export class Service {
     if (!this.cardRow(task.id)) this.observeCards([task]);
     const before = this.sig(task.id);
     const unavailable = await this.ingestInner(task, ctx);
-    return unavailable ? { changed: before !== this.sig(task.id), unavailable } : { changed: before !== this.sig(task.id) };
+    const released = await this.releaseHoldOnSha(task.id, ctx.comments);
+    const changed = released || before !== this.sig(task.id);
+    return unavailable ? { changed, unavailable } : { changed };
   }
 
   private async ingestInner(task: Task, ctx: { comments: () => Promise<TaskCommentRow[]> }): Promise<string | void> {

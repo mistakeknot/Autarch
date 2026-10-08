@@ -1,7 +1,7 @@
 // The stack: panels open to the right, the newest at full size, older ones collapsed to spines.
 
 export type PanelKind = "decision" | "thread" | "vizier" | "catchup" | "settings" | "map" | "runbook";
-export type Panel = { id: string; kind: PanelKind; title: string; ref?: string; hideOwed?: boolean };
+export type Panel = { id: string; kind: PanelKind; title: string; ref?: string; hideOwed?: boolean; hideHeld?: boolean };
 export type WidthName = "quarter" | "third" | "half";
 export type StackState = { panels: Panel[]; width: WidthName };
 export type StackAction =

@@ -1,6 +1,6 @@
 // The Asks view: what is stalled, what mk must decide, the runbook, and what is merely waiting.
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { ActionButton, RecommendedMark } from "./buttons.js";
 import { CardConversation } from "./conversation.js";
 import { OtherBox, type OtherOutcome } from "./other.js";
@@ -28,12 +28,16 @@ export type OwedAsk = {
   project: string;
   thread: string;
   subject: string;
+  /** The tasks key (PROJ-24); absent or null for an ask with no card. */
+  key?: string | null;
   asker: string;
   filed_at: string;
   revision: string;
   mentions?: number;
   /** The tasks card behind this ask, when it is a card: the conversation reads its comments. */
   task_id?: string | null;
+  /** Set while the vizier holds the card: shown greyed under "On hold", with no pick buttons. */
+  held?: { reason: string; by: string; at: string } | null;
   ask: { question: string; recommendation?: string; options: Option[] };
 };
 export type Lane = { id: string; subject: string; thread: string; owner: string | null; detail: string; updated_at: string; label?: string };
@@ -158,7 +162,10 @@ export function AskCard({ ask, onPick, onOpen, nowMs, onNote, unbound = false }:
   const anyInstruction = ask.ask.options.some((o) => o.kind === "needs-context" || (o.kind === "instruction" && (o.instruction ?? "").trim() !== ""));
   return (
     <article className="min-w-0 rounded-lg border border-border bg-card p-4" data-decision={ask.id}>
-      <h3 className="text-sm font-medium [overflow-wrap:anywhere]">{ask.subject}</h3>
+      <h3 className="text-sm font-medium [overflow-wrap:anywhere]">
+        {ask.key ? <span className="mr-2 select-all rounded bg-muted px-1.5 font-mono text-xs font-semibold" data-task-key>{ask.key}</span> : null}
+        {ask.subject}
+      </h3>
       <p className="mt-1 text-xs text-muted-foreground">
         {ask.project ? `${ask.project} · ` : ""}
         {nowMs !== undefined ? `waiting ${ageText(ask.filed_at, nowMs)} · ` : ""}
@@ -226,9 +233,14 @@ export function optionEffect(o: { kind: string; instruction?: string; reversible
 }
 
 /** The Decide queue: a short row per ask on the left, the selected ask in full on the right (below when narrow). */
-export function DecideQueue({ owed, onPick, onOpen, nowMs, onNote }: { owed: OwedAsk[]; onPick: OnPick; onOpen: (thread: string) => void; nowMs: number; onNote?: OnNote }) {
+export function DecideQueue({ owed, onPick, onOpen, nowMs, onNote, onView }: { owed: OwedAsk[]; onPick: OnPick; onOpen: (thread: string) => void; nowMs: number; onNote?: OnNote; onView?: (decisionId: string | null) => void }) {
   const [selected, setSelected] = useState<string | null>(null);
   const current = currentAsk(owed, selected);
+  const viewingId = current?.id ?? null;
+  // Tell the plugin which ask is on screen, so `bb home viewing` can answer "which card is mk looking at".
+  useEffect(() => {
+    onView?.(viewingId);
+  }, [viewingId]); // eslint-disable-line react-hooks/exhaustive-deps
   if (current === undefined) return null;
   return (
     <div className="flex flex-wrap items-start gap-4">
@@ -244,7 +256,10 @@ export function DecideQueue({ owed, onPick, onOpen, nowMs, onNote }: { owed: Owe
                 className={`w-full rounded border px-2 py-1.5 text-left ${o.id === current.id ? "border-primary bg-muted" : "border-border"}`}
                 onClick={() => setSelected(o.id)}
               >
-                <span className="block truncate text-sm">{o.subject}</span>
+                <span className="flex min-w-0 items-baseline gap-1.5 text-sm">
+                  {o.key ? <span className="shrink-0 select-all font-mono text-xs font-semibold" data-task-key>{o.key}</span> : null}
+                  <span className="min-w-0 truncate">{o.subject}</span>
+                </span>
                 {o.project ? <span className="block truncate text-xs text-muted-foreground" data-ask-project>{o.project}</span> : null}
                 <span data-ask-meta className="block text-xs text-muted-foreground [overflow-wrap:anywhere]">
                   {ageText(o.filed_at, nowMs)}
@@ -280,17 +295,20 @@ export function ApprovalsList({ approvals, onRevoke }: { approvals: ApprovalReco
   );
 }
 
-export function AsksPanel({ data, onPick, onOpen, onRevoke, onDismiss, onNote, nowMs = Date.now() }: { data: AsksData; onPick: OnPick; onOpen: (thread: string) => void; onRevoke?: (approvalId: string) => void; onDismiss?: (decisionId: string, obligationId: string) => void; onNote?: OnNote; nowMs?: number }) {
-  const view = buildAsksView(data);
+export function AsksPanel({ data, onPick, onOpen, onRevoke, onDismiss, onNote, onView, hideHeld, nowMs = Date.now() }: { hideHeld?: boolean; data: AsksData; onPick: OnPick; onOpen: (thread: string) => void; onRevoke?: (approvalId: string) => void; onDismiss?: (decisionId: string, obligationId: string) => void; onNote?: OnNote; onView?: (decisionId: string | null) => void; nowMs?: number }) {
+  // In the Queue the held cards show under "Blocked on others"; shown here only on the Asks page.
+  const held = hideHeld ? [] : data.owed.filter((o) => o.held);
+  const live = data.owed.some((o) => o.held) ? { ...data, owed: data.owed.filter((o) => !o.held) } : data;
+  const view = buildAsksView(live);
   const approvals = data.approvals ?? [];
-  if (view.length === 0 && approvals.length === 0) return <p className="p-4 text-sm text-muted-foreground">Nothing needs you.</p>;
+  if (view.length === 0 && approvals.length === 0 && held.length === 0) return <p className="p-4 text-sm text-muted-foreground">Nothing needs you.</p>;
   return (
     <div className="space-y-6 p-4">
       {view.map((s) => (
         <section key={s.key} data-section={s.key}>
           <h2 className="mb-2 text-xs font-semibold uppercase text-muted-foreground">{`${s.title} (${s.items.length})`}</h2>
           {s.key === "decide" ? (
-            <DecideQueue owed={data.owed} onPick={onPick} onOpen={onOpen} nowMs={nowMs} {...(onNote ? { onNote } : {})} />
+            <DecideQueue owed={live.owed} onPick={onPick} onOpen={onOpen} nowMs={nowMs} {...(onNote ? { onNote } : {})} {...(onView ? { onView } : {})} />
           ) : (
             <div className="space-y-3">
               {s.items.map((i) => (
@@ -308,6 +326,22 @@ export function AsksPanel({ data, onPick, onOpen, onRevoke, onDismiss, onNote, n
           )}
         </section>
       ))}
+      {held.length > 0 ? (
+        <section data-section="on-hold">
+          <h2 className="mb-2 text-xs font-semibold uppercase text-muted-foreground">{`On hold (${held.length})`}</h2>
+          <ul className="m-0 list-none space-y-2 p-0">
+            {held.map((o) => (
+              <li key={o.id} className="rounded border border-border p-2 text-sm text-muted-foreground opacity-70" data-held={o.id}>
+                <span className="flex min-w-0 items-baseline gap-1.5">
+                  {o.key ? <span className="shrink-0 select-all font-mono text-xs font-semibold" data-task-key>{o.key}</span> : null}
+                  <span className="min-w-0 truncate">{o.subject}</span>
+                </span>
+                <span className="block text-xs [overflow-wrap:anywhere]" data-hold-reason>{`On hold: ${o.held!.reason}`}</span>
+              </li>
+            ))}
+          </ul>
+        </section>
+      ) : null}
       {approvals.length > 0 ? <ApprovalsList approvals={approvals} onRevoke={onRevoke ?? (() => {})} /> : null}
     </div>
   );

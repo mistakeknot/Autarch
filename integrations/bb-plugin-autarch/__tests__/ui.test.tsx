@@ -13,7 +13,7 @@ import { CatchupPanel, observeVisibility, SeenTracker, snapshotIds, type Catchup
 import { MapPlaceholder } from "../ui/map-placeholder.js";
 import { BindingsPanel, parseDelegationForm, SettingsPanel } from "../ui/settings.js";
 import { layoutStack, stackReducer, type Panel, type StackState } from "../ui/stack.js";
-import { ThreadPanel, VizierPanel } from "../ui/vizier.js";
+import { TellVizier, ThreadPanel, VizierPanel } from "../ui/vizier.js";
 import { RootRunSection, statusLine, type RootRunPanelView } from "../ui/rootrun.js";
 
 const ask = (over: Record<string, unknown> = {}) => ({
@@ -65,6 +65,30 @@ describe("Asks ordering", () => {
 
   it("omits empty sections", () => {
     expect(buildAsksView(data({ owed: [ask()] })).map((s) => s.key)).toEqual(["decide"]);
+  });
+
+  it("a held ask leaves the Decide queue and shows greyed under On hold with its reason and no pick buttons", () => {
+    const html = renderToStaticMarkup(<AsksPanel data={data({ owed: [ask({ id: "live", subject: "Live one" }), ask({ id: "held1", subject: "Held one", held: { reason: "script superseded", by: "thr_viz", at: "2026-10-07T00:00:00.000Z" } })] })} onPick={() => {}} onOpen={() => {}} />);
+    expect(html).toContain("On hold (1)");
+    expect(html).toContain("On hold: script superseded");
+    expect(html).toContain('data-held="held1"');
+    expect(html).toContain("Decide (1)");
+    const only = renderToStaticMarkup(<AsksPanel data={data({ owed: [ask({ id: "h", held: { reason: "r", by: "v", at: "t" } })] })} onPick={() => {}} onOpen={() => {}} />);
+    expect(only).not.toContain("Nothing needs you");
+    expect(only).not.toContain("data-decide-list");
+  });
+
+  it("hideHeld keeps the held ask out of the Asks panel (the Queue shows it under Blocked on others)", () => {
+    const html = renderToStaticMarkup(<AsksPanel hideHeld data={data({ owed: [ask({ id: "live" }), ask({ id: "held1", held: { reason: "r", by: "v", at: "2026-10-07T00:00:00.000Z" } })] })} onPick={() => {}} onOpen={() => {}} />);
+    expect(html).not.toContain("On hold");
+    expect(html).toContain("Decide (1)");
+  });
+
+  it("shows the task key in the queue row and the item header, and nothing for an ask with no key", () => {
+    const withKey = renderToStaticMarkup(<AsksPanel data={data({ owed: [ask({ key: "PROJ-24" })] })} onPick={() => {}} onOpen={() => {}} />);
+    expect(withKey.match(/data-task-key="true">PROJ-24</g)?.length).toBe(2);
+    const without = renderToStaticMarkup(<AsksPanel data={data({ owed: [ask({ key: null })] })} onPick={() => {}} onOpen={() => {}} />);
+    expect(without).not.toContain("data-task-key");
   });
 
   it("renders the question, the mention count and one effect line per option, with no instruction box or kind label", () => {
@@ -460,6 +484,33 @@ const emptyLegacy = { count: 0, owed: [], runbook: [], machine: { lane: [], asks
 const q = (rows: QueueRowView[], legacy = emptyLegacy): QueueView => ({ rows, legacy, bindings: [], inactive_projects: [] });
 const panel = (v: QueueView, thread?: string) => renderToStaticMarkup(<BlocksPanel data={v} nowMs={NOW} {...(thread ? { thread } : {})} onPick={() => {}} onOpen={() => {}} />);
 
+describe("held display-only card", () => {
+  const held = { reason: "script superseded", by: "thr_viz", at: "2026-10-07T00:00:00.000Z" };
+  const flagged = row({ id: "card:h", decision_id: null, ask: null, revision: null, display_only: true, display_reason: "no home-ask block", title: "Held prose card", held });
+
+  it("shows the hold reason beside the display reason, with no pick controls", () => {
+    const html = renderToStaticMarkup(<BlocksRow row={flagged} nowMs={NOW} onPick={() => {}} onOpen={() => {}} />);
+    expect(html).toContain("On hold: script superseded");
+    expect(html).toContain("display only: no home-ask block");
+    expect(html).toContain("opacity-60");
+    expect(html).not.toContain("data-option");
+  });
+
+  it("is placed under On hold, not among the live rows", () => {
+    const html = panel(q([flagged, row({ id: "live", title: "Live row" })]));
+    const heldAt = html.indexOf("Held prose card");
+    expect(html).toContain("On hold");
+    expect(heldAt).toBeGreaterThan(html.indexOf("On hold"));
+    expect(html.indexOf("Live row")).toBeLessThan(html.indexOf("On hold"));
+  });
+
+  it("stays out of Needs you now (hideHeld asks panel)", () => {
+    const html = renderToStaticMarkup(<AsksPanel hideHeld data={data({ owed: [ask({ id: "h", subject: "Held prose card", held })] })} onPick={() => {}} onOpen={() => {}} />);
+    expect(html).not.toContain("Held prose card");
+    expect(html).not.toContain("On hold");
+  });
+});
+
 describe("blocks panel", () => {
   it("renders rows in server order and pins this thread's cards in their own section first", () => {
     const html = panel(q([row({ id: "p", pinned: true, title: "pinned one" }), row({ id: "r", title: "rest one" })]), "thr-a");
@@ -656,5 +707,15 @@ describe("project binding flag (fail open)", () => {
     expect(html({ binding_state: "confirmed" })).not.toMatch(/data-binding-flag/);
     expect(html({ binding_state: "rejected" })).not.toMatch(/data-binding-flag/);
     expect(html({ binding_state: null })).not.toMatch(/data-bind=/);
+  });
+});
+
+describe("Tell the vizier box", () => {
+  it("is a closed disclosure over the vizier thread, and says so when no vizier is set", () => {
+    const html = renderToStaticMarkup(<TellVizier threadId={undefined} />);
+    expect(html).toContain("data-tell-vizier");
+    expect(html).toContain("Tell the vizier");
+    expect(html).not.toContain("<details open");
+    expect(html).toContain("No vizier thread is set");
   });
 });

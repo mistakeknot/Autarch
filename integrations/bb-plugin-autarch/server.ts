@@ -448,6 +448,8 @@ export function wireHome(bb: BbPluginApi, handle: StoreHandle, cfg: HomeConfig, 
         id: d.id,
         project: d.project,
         thread: d.thread,
+        key: p.svc.cardKey(d.task_id as string | null),
+        held: p.svc.holdOf(d.task_id as string | null),
         subject: d.subject,
         asker: d.asker,
         filed_at: d.filed_at,
@@ -581,6 +583,17 @@ export function wireHome(bb: BbPluginApi, handle: StoreHandle, cfg: HomeConfig, 
       const r = p.loop.resend(i.id, i.attempt, i.click_id);
       if (r.ok) void p.loop.nudge();
       return r;
+    },
+    /** Home reports which ask is on screen. Only the last one is kept, in this plugin's own store; `bb home viewing` reads it. */
+    async setViewing(i: { decision_id: string | null }) {
+      const p = need();
+      if (i.decision_id === null) {
+        p.store.setSetting("viewing", "null");
+        return { ok: true };
+      }
+      if (!p.svc.owed().some((d) => d.id === i.decision_id)) return { ok: false, error: "not an open ask" };
+      p.store.setSetting("viewing", JSON.stringify({ decision_id: i.decision_id, at: p.svc.time() }));
+      return { ok: true };
     },
     async markSeen(i: { item: string }) {
       need().dele.markSeen(MK, i.item);
