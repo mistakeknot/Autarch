@@ -28,6 +28,8 @@ export interface MoveView {
   report_deadline_at: string | null;
   /** pr and read: the link. context: null. */
   url: string | null;
+  /** pr: the optional merge-card facts (what merging does, review verdict and link, why it is mk's). */
+  pr: { summary: string | null; verdict: string | null; review_url: string | null; why: string | null } | null;
   /** context: the text mk is asked for. */
   need: string | null;
   script: { path: string; sha256: string } | null;
@@ -97,6 +99,7 @@ export function viewOf(svc: Service, m: MoveRow): MoveView {
     report_deadline_at: m.report_deadline_at,
     url: str(p.url),
     need: str(p.need),
+    pr: m.kind === "pr" ? { summary: str(p.summary), verdict: str(p.verdict), review_url: str(p.review_url), why: str(p.why) } : null,
     script,
     commands,
     report,

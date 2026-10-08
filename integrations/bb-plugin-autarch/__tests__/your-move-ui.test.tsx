@@ -18,7 +18,7 @@ const decode = (s: string) => s.replace(/&lt;/g, "<").replace(/&gt;/g, ">").repl
 
 const move = (o: Partial<MoveView> = {}): MoveView => ({
   task_id: "t1", generation: 1, kind: "script", state: "open", title: "Run the cutover", owner: "thr-a", opened_at: "2026-10-06T10:00:00.000Z",
-  claimed_at: null, skipped_at: null, checked_at: null, report_deadline_at: null, url: null, need: null,
+  claimed_at: null, skipped_at: null, checked_at: null, report_deadline_at: null, url: null, need: null, pr: null,
   script: { path: "/opt/run.sh", sha256: SHA },
   commands: scriptCommands({ path: "/opt/run.sh", sha256: SHA, args: ["--set", "s1"], recover: { path: "/opt/undo.sh", sha256: "b".repeat(64) } }),
   report: null, closed_at: null, closed_by: null, evidence: null, ...o,
