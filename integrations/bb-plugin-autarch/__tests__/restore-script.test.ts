@@ -1,6 +1,6 @@
 // Task 2.8a test 2 (A10, finding r5-4): scripts/home-restore-v2.sh and scripts/home-upgrade-v3.sh against a
 // temporary install, in test mode (--test-as-current-user, --bbdata, --build). Never root, never sudo, never the
-// live /home/mk/.bb-machines data. The launchers are executed by path, so the kernel runs the #!/bin/sh line.
+// live bb machine data. The launchers are executed by path, so the kernel runs the #!/bin/sh line.
 import { spawn, spawnSync, type ChildProcess } from "node:child_process";
 import { chmodSync, copyFileSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
 import { createHash } from "node:crypto";
@@ -72,7 +72,7 @@ setInterval(()=>{},1000);
 `;
 const STUB_BB = `#!/bin/bash
 D="$(cd "$(dirname "$0")/../.." && pwd)/stub"; mkdir -p "$D"
-# bb.js spawns its child with cwd: process.cwd(); an unreadable cwd (root's /root, as mk) is EACCES. Emulate that.
+# bb.js spawns its child with cwd: process.cwd(); an unreadable cwd (root's /root, as the operator) is EACCES. Emulate that.
 [ -x "$(pwd -P)" ] || { echo "spawn bb-app EACCES (cwd unreadable)" >&2; exit 1; }
 n=$(( $(cat "$D/n" 2>/dev/null || echo 0) + 1 )); echo $n > "$D/n"
 { echo "== call $n"; printf 'ARGV'; for a in "$@"; do printf '\\t%s' "$a"; done; echo
@@ -188,7 +188,7 @@ function run(script: string, args: string[], env: NodeJS.ProcessEnv = { PATH: pr
   for (const m of out.matchAll(/(\/tmp\/home-(?:restore|upgrade)-report\.[A-Za-z0-9]+)/g)) toClean.push(m[1]!);
   return { code: r.status, out };
 }
-/** Runs the script from a directory that is entered and then made mode 000, like root's /root seen from mk. */
+/** Runs the script from a directory that is entered and then made mode 000, like root's /root seen from the operator account. */
 function runFromUnreadableCwd(script: string, args: string[]) {
   const d = mkdtempSync(join(tmpdir(), "unreadable-cwd-"));
   toClean.push(d);
@@ -542,7 +542,7 @@ describe("plugin health parsing (review: exact types, exit status)", () => {
   });
 });
 
-describe("unreadable caller cwd (bb spawns with process.cwd(); root's /root is EACCES for mk)", () => {
+describe("unreadable caller cwd (bb spawns with process.cwd(); root's /root is EACCES for the operator)", () => {
   it("upgrade from an unreadable cwd still reaches bb: disable, install, enable, thread tell", async () => {
     const i = await install();
     const r = runFromUnreadableCwd(UPGRADE, upgradeArgs(i));

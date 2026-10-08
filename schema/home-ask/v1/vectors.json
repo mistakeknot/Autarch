@@ -2,12 +2,12 @@
  "_comment": "Shared vectors for the Home ask protocol. Go (internal/homeask) and TypeScript (integrations/bb-plugin-autarch/model.ts) must both reproduce every output byte for byte.",
  "asks": [
   {
-   "identity": "dc351e71bc7a15734a7424f8b3827b0eed805f439cca927829b03e4477761e70",
+   "identity": "21b3174ac85ed53cbb92d7f94e57cfa3e740ca954e8605d87ce469a888bf99a6",
    "input": {
     "v": 1,
     "kind": "decide",
     "project": "Autarch",
-    "project_root": "/home/mk/projects/Autarch",
+    "project_root": "/home/dev/projects/Autarch",
     "asker": "thread",
     "thread": "thr_abc123",
     "question": "Collapse per project or per day?",
@@ -21,12 +21,12 @@
     ]
    },
    "name": "minimal decide",
-   "normalized": "{\"ask_key\":\"collapse per project or per day?\",\"asker\":\"thread\",\"kind\":\"decide\",\"options\":[{\"id\":\"per-project\",\"kind\":\"needs-context\",\"label\":\"Per project\"},{\"id\":\"per-day\",\"kind\":\"needs-context\",\"label\":\"Per day\"}],\"project\":\"Autarch\",\"project_root\":\"/home/mk/projects/Autarch\",\"question\":\"Collapse per project or per day?\",\"request_id\":\"dc351e71bc7a15734a7424f8b3827b0eed805f439cca927829b03e4477761e70\",\"thread\":\"thr_abc123\",\"v\":1}",
-   "revision": "b19646f0d09b566ef59dc83a8c9ffddda8d5c4e526b5a6607784fe9dac74e556",
+   "normalized": "{\"ask_key\":\"collapse per project or per day?\",\"asker\":\"thread\",\"kind\":\"decide\",\"options\":[{\"id\":\"per-project\",\"kind\":\"needs-context\",\"label\":\"Per project\"},{\"id\":\"per-day\",\"kind\":\"needs-context\",\"label\":\"Per day\"}],\"project\":\"Autarch\",\"project_root\":\"/home/dev/projects/Autarch\",\"question\":\"Collapse per project or per day?\",\"request_id\":\"21b3174ac85ed53cbb92d7f94e57cfa3e740ca954e8605d87ce469a888bf99a6\",\"thread\":\"thr_abc123\",\"v\":1}",
+   "revision": "36a93a6d11c834c4f1f23ae5c8cbd63e507b3076c79bd6cb37938a7c27b952b8",
    "semantic_key": ""
   },
   {
-   "identity": "f178b5542d9eaf7125e1505beebd0a0674ece887c6cf15acc3ed671f8442c3ef",
+   "identity": "1267a5da0de5ac19251b4185ede7e11a7517a6f287475c02c52de73ffc897579",
    "input": {
     "v": 1,
     "kind": "decide",
@@ -34,7 +34,7 @@
     "ask_key": "Catch-up   Collapse ORDER",
     "subject": "Autarch/Catch-up:  Collapse Order",
     "project": "Autarch",
-    "project_root": "/home/mk/projects/Autarch",
+    "project_root": "/home/dev/projects/Autarch",
     "asker": "thread",
     "thread": "thr_abc123",
     "question": "Collapse routine catch-up items per project or per day?",
@@ -62,8 +62,8 @@
     ]
    },
    "name": "full decide with instructions",
-   "normalized": "{\"ask_key\":\"catch-up collapse order\",\"asker\":\"thread\",\"kind\":\"decide\",\"options\":[{\"id\":\"project\",\"instruction\":\"On branch feat/bb-catchup, group routine catch-up items per project, run npm test, commit locally, and report. Do not push or merge.\",\"kind\":\"instruction\",\"label\":\"Collapse per project\",\"reversible\":true},{\"id\":\"day\",\"instruction\":\"On branch feat/bb-catchup, group routine catch-up items per day, run npm test, commit locally, and report. Do not push or merge.\",\"kind\":\"instruction\",\"label\":\"Collapse per day\",\"reversible\":true},{\"id\":\"ask\",\"kind\":\"needs-context\",\"label\":\"Show me both first\"}],\"project\":\"Autarch\",\"project_root\":\"/home/mk/projects/Autarch\",\"question\":\"Collapse routine catch-up items per project or per day?\",\"recommendation\":\"project\",\"request_id\":\"req_7f3a\",\"subject\":\"autarch/catch-up: collapse order\",\"thread\":\"thr_abc123\",\"v\":1}",
-   "revision": "8be7991c84963c5887c0ddf253bec10161f293c03e6ad46af6befdcb505e0701",
+   "normalized": "{\"ask_key\":\"catch-up collapse order\",\"asker\":\"thread\",\"kind\":\"decide\",\"options\":[{\"id\":\"project\",\"instruction\":\"On branch feat/bb-catchup, group routine catch-up items per project, run npm test, commit locally, and report. Do not push or merge.\",\"kind\":\"instruction\",\"label\":\"Collapse per project\",\"reversible\":true},{\"id\":\"day\",\"instruction\":\"On branch feat/bb-catchup, group routine catch-up items per day, run npm test, commit locally, and report. Do not push or merge.\",\"kind\":\"instruction\",\"label\":\"Collapse per day\",\"reversible\":true},{\"id\":\"ask\",\"kind\":\"needs-context\",\"label\":\"Show me both first\"}],\"project\":\"Autarch\",\"project_root\":\"/home/dev/projects/Autarch\",\"question\":\"Collapse routine catch-up items per project or per day?\",\"recommendation\":\"project\",\"request_id\":\"req_7f3a\",\"subject\":\"autarch/catch-up: collapse order\",\"thread\":\"thr_abc123\",\"v\":1}",
+   "revision": "ed9b55418e71074d216ac8f502a4cfa4348db229d36dffa4968be85409eee229",
    "semantic_key": "32dd70ba3d024b79825c5f1d7dcaf68312cc06ce7b3a03bae66f800fad07737f"
   },
   {

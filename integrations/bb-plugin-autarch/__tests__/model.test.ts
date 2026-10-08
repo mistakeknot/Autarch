@@ -22,7 +22,7 @@ function base(): Ask {
     kind: "decide",
     subject: "autarch/catch-up: collapse order",
     project: "Autarch",
-    project_root: "/home/mk/projects/Autarch",
+    project_root: "/home/dev/projects/Autarch",
     asker: "thread",
     thread: "thr_abc123",
     question: "Collapse routine catch-up items per project or per day?",
