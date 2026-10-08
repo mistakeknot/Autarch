@@ -238,7 +238,7 @@ export function homeCli(p: HomeCliParts) {
         positionals: [{ name: "card", description: "Task id or tasks key (AUTA-24).", required: true }],
         options: { reason: { type: "string", required: true, description: "Why it is on hold (one line)." } },
         async run({ positionals, options }, ctx) {
-          if (!(await p.isVizier(ctx.threadId))) return err(1, "only the vizier thread may hold a card");
+          if (!(await p.isVizier(ctx.threadId)) || (p.stillVizier && !p.stillVizier(ctx.threadId))) return err(1, "only the vizier thread may hold a card");
           const r = svc.hold(positionals.card, options.reason, ctx.threadId!);
           return r.ok ? out({ ok: true, task_id: r.task_id, held: true }) : err(1, r.error);
         },
@@ -248,7 +248,7 @@ export function homeCli(p: HomeCliParts) {
         summary: "Vizier only: make a held card live again",
         positionals: [{ name: "card", description: "Task id or tasks key (AUTA-24).", required: true }],
         async run({ positionals }, ctx) {
-          if (!(await p.isVizier(ctx.threadId))) return err(1, "only the vizier thread may release a hold");
+          if (!(await p.isVizier(ctx.threadId)) || (p.stillVizier && !p.stillVizier(ctx.threadId))) return err(1, "only the vizier thread may release a hold");
           const r = svc.unhold(positionals.card);
           return r.ok ? out({ ok: true, task_id: r.task_id, was_held: r.was }) : err(1, r.error);
         },

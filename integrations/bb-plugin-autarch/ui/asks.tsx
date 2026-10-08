@@ -295,9 +295,10 @@ export function ApprovalsList({ approvals, onRevoke }: { approvals: ApprovalReco
   );
 }
 
-export function AsksPanel({ data, onPick, onOpen, onRevoke, onDismiss, onNote, onView, nowMs = Date.now() }: { data: AsksData; onPick: OnPick; onOpen: (thread: string) => void; onRevoke?: (approvalId: string) => void; onDismiss?: (decisionId: string, obligationId: string) => void; onNote?: OnNote; onView?: (decisionId: string | null) => void; nowMs?: number }) {
-  const held = data.owed.filter((o) => o.held);
-  const live = held.length > 0 ? { ...data, owed: data.owed.filter((o) => !o.held) } : data;
+export function AsksPanel({ data, onPick, onOpen, onRevoke, onDismiss, onNote, onView, hideHeld, nowMs = Date.now() }: { hideHeld?: boolean; data: AsksData; onPick: OnPick; onOpen: (thread: string) => void; onRevoke?: (approvalId: string) => void; onDismiss?: (decisionId: string, obligationId: string) => void; onNote?: OnNote; onView?: (decisionId: string | null) => void; nowMs?: number }) {
+  // In the Queue the held cards show under "Blocked on others"; shown here only on the Asks page.
+  const held = hideHeld ? [] : data.owed.filter((o) => o.held);
+  const live = data.owed.some((o) => o.held) ? { ...data, owed: data.owed.filter((o) => !o.held) } : data;
   const view = buildAsksView(live);
   const approvals = data.approvals ?? [];
   if (view.length === 0 && approvals.length === 0 && held.length === 0) return <p className="p-4 text-sm text-muted-foreground">Nothing needs you.</p>;

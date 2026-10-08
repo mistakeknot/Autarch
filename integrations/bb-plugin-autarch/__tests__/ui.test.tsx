@@ -78,6 +78,12 @@ describe("Asks ordering", () => {
     expect(only).not.toContain("data-decide-list");
   });
 
+  it("hideHeld keeps the held ask out of the Asks panel (the Queue shows it under Blocked on others)", () => {
+    const html = renderToStaticMarkup(<AsksPanel hideHeld data={data({ owed: [ask({ id: "live" }), ask({ id: "held1", held: { reason: "r", by: "v", at: "2026-10-07T00:00:00.000Z" } })] })} onPick={() => {}} onOpen={() => {}} />);
+    expect(html).not.toContain("On hold");
+    expect(html).toContain("Decide (1)");
+  });
+
   it("shows the task key in the queue row and the item header, and nothing for an ask with no key", () => {
     const withKey = renderToStaticMarkup(<AsksPanel data={data({ owed: [ask({ key: "AUTA-24" })] })} onPick={() => {}} onOpen={() => {}} />);
     expect(withKey.match(/data-task-key="true">AUTA-24</g)?.length).toBe(2);

@@ -5,6 +5,9 @@ import { createHash, randomUUID } from "node:crypto";
 import { buildFeed, renderFeed, type Feed } from "./feed.js";
 import { cardFingerprint, askingThread, parseCard, toV1, type Card } from "./cards.js";
 import type { Task, TaskCommentRow } from "./tasks.js";
+
+/** A vizier hold on a card; n tells one hold from a replacement made in the same millisecond. */
+export type Hold = { reason: string; by: string; at: string; n?: string };
 import { identity, normalizedJson, parseAsk, revision, semanticKey, type Ask } from "./model.js";
 import { HOME_UNLABELS_ON_PICK, pickWrites } from "./cardwrites.js";
 import { estateRoot, pinRoot, renderRuling, rulingPath, writeRuling, type PinnedRoot, type Ruling } from "./ruling.js";
@@ -642,25 +645,25 @@ export class Service {
 
   // ---- holds: the vizier greys a card out while its script or question is superseded. Kept in one settings_kv value
   // (no schema change). A hold hides the card from "needs you now"; it never closes, rules or edits the card.
-  private readHolds(): Record<string, { reason: string; by: string; at: string }> {
+  private readHolds(): Record<string, Hold> {
     try {
       const v = JSON.parse(this.store.setting("holds") ?? "{}");
       if (!v || typeof v !== "object" || Array.isArray(v)) return {};
       // Fail open: an entry without a reason, a writer and a readable time is not a hold.
-      const ok: Record<string, { reason: string; by: string; at: string }> = {};
+      const ok: Record<string, Hold> = {};
       for (const [id, h] of Object.entries(v as Record<string, unknown>)) {
         const e = h as { reason?: unknown; by?: unknown; at?: unknown } | null;
-        if (e && typeof e.reason === "string" && e.reason.trim() !== "" && typeof e.by === "string" && typeof e.at === "string" && !Number.isNaN(Date.parse(e.at))) ok[id] = { reason: e.reason, by: e.by, at: e.at };
+        if (e && typeof e.reason === "string" && e.reason.trim() !== "" && typeof e.by === "string" && typeof e.at === "string" && !Number.isNaN(Date.parse(e.at))) ok[id] = { reason: e.reason, by: e.by, at: e.at, ...(typeof (e as { n?: unknown }).n === "string" ? { n: (e as { n: string }).n } : {}) };
       }
       return ok;
     } catch {
       return {};
     }
   }
-  holds(): Record<string, { reason: string; by: string; at: string }> {
+  holds(): Record<string, Hold> {
     return this.readHolds();
   }
-  holdOf(taskId: string | null | undefined): { reason: string; by: string; at: string } | null {
+  holdOf(taskId: string | null | undefined): Hold | null {
     return taskId ? (this.readHolds()[taskId] ?? null) : null;
   }
   /** The task id of a card named by its task id or its tasks key (AUTA-24). */
@@ -675,7 +678,7 @@ export class Service {
     const id = this.cardTaskId(ref);
     if (!id) return { ok: false, error: "no such card" };
     const h = this.readHolds();
-    h[id] = { reason: why, by, at: this.now() };
+    h[id] = { reason: why, by, at: this.now(), n: randomUUID() };
     this.store.setSetting("holds", JSON.stringify(h));
     return { ok: true, task_id: id };
   }
@@ -702,7 +705,8 @@ export class Service {
     }
     if (!list.some((c) => c.kind !== "system" && Date.parse(c.createdAt) > Date.parse(hold.at) && /\b[0-9a-f]{64}\b/.test(c.body))) return false;
     // The vizier may have replaced the hold while the comments were read: clear only the hold those comments were judged against.
-    if (this.holdOf(taskId)?.at !== hold.at) return false;
+    const now = this.holdOf(taskId);
+    if (now?.at !== hold.at || now?.n !== hold.n) return false;
     this.unhold(taskId);
     return true;
   }

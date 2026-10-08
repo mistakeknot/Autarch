@@ -49,6 +49,14 @@ describe("holds (vizier greys a card out)", () => {
     });
     expect(released).toBe(false);
     expect(r.svc.holdOf(t.id)).toMatchObject({ reason: "second" });
+    // replaced within the same millisecond: the timestamp alone cannot tell the two holds apart
+    const first = r.svc.holdOf(t.id)!;
+    const again = await r.svc.releaseHoldOnSha(t.id, async () => {
+      r.svc.hold(t.id, "third", "thr_viz");
+      return [{ id: "c2", taskId: t.id, kind: "agent" as const, authorName: "a", threadId: "thr_a", body: `bash /x ${SHA}`, createdAt: new Date(Date.parse(first.at) + 60_000).toISOString() }];
+    });
+    expect(again).toBe(false);
+    expect(r.svc.holdOf(t.id)).toMatchObject({ reason: "third" });
   });
 
   it("a held setting that is not JSON means no holds", async () => {

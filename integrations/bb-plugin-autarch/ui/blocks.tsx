@@ -46,8 +46,9 @@ export type QueueView = {
 };
 
 /** The Queue shows Asks above Blocking: drop from Blocking what Asks already owes, so one ask is never answerable twice. */
-export function withoutOwed(q: QueueView, asks: { owed: { id: string }[] }): QueueView {
-  const ids = new Set(asks.owed.map((o) => o.id));
+export function withoutOwed(q: QueueView, asks: { owed: { id: string; held?: unknown }[] }): QueueView {
+  // A held ask is not owed (it is not in "Needs you now"), so Blocking keeps it, under On hold.
+  const ids = new Set(asks.owed.filter((o) => !o.held).map((o) => o.id));
   const owed = q.legacy.owed.filter((o) => !ids.has(o.id));
   return {
     ...q,
