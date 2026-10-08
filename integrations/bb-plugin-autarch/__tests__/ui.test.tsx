@@ -67,6 +67,13 @@ describe("Asks ordering", () => {
     expect(buildAsksView(data({ owed: [ask()] })).map((s) => s.key)).toEqual(["decide"]);
   });
 
+  it("shows the task key in the queue row and the item header, and nothing for an ask with no key", () => {
+    const withKey = renderToStaticMarkup(<AsksPanel data={data({ owed: [ask({ key: "AUTA-24" })] })} onPick={() => {}} onOpen={() => {}} />);
+    expect(withKey.match(/data-task-key="true">AUTA-24</g)?.length).toBe(2);
+    const without = renderToStaticMarkup(<AsksPanel data={data({ owed: [ask({ key: null })] })} onPick={() => {}} onOpen={() => {}} />);
+    expect(without).not.toContain("data-task-key");
+  });
+
   it("renders the question, the mention count and one effect line per option, with no instruction box or kind label", () => {
     const html = renderToStaticMarkup(<AsksPanel data={data({ owed: [ask({ mentions: 2 })] })} onPick={() => {}} onOpen={() => {}} />);
     expect(html).toContain("Which day?");

@@ -28,6 +28,8 @@ export type OwedAsk = {
   project: string;
   thread: string;
   subject: string;
+  /** The tasks key (AUTA-24); absent or null for an ask with no card. */
+  key?: string | null;
   asker: string;
   filed_at: string;
   revision: string;
@@ -158,7 +160,10 @@ export function AskCard({ ask, onPick, onOpen, nowMs, onNote, unbound = false }:
   const anyInstruction = ask.ask.options.some((o) => o.kind === "needs-context" || (o.kind === "instruction" && (o.instruction ?? "").trim() !== ""));
   return (
     <article className="min-w-0 rounded-lg border border-border bg-card p-4" data-decision={ask.id}>
-      <h3 className="text-sm font-medium [overflow-wrap:anywhere]">{ask.subject}</h3>
+      <h3 className="text-sm font-medium [overflow-wrap:anywhere]">
+        {ask.key ? <span className="mr-2 rounded bg-muted px-1.5 font-mono text-xs font-semibold" data-task-key>{ask.key}</span> : null}
+        {ask.subject}
+      </h3>
       <p className="mt-1 text-xs text-muted-foreground">
         {ask.project ? `${ask.project} · ` : ""}
         {nowMs !== undefined ? `waiting ${ageText(ask.filed_at, nowMs)} · ` : ""}
@@ -244,7 +249,10 @@ export function DecideQueue({ owed, onPick, onOpen, nowMs, onNote }: { owed: Owe
                 className={`w-full rounded border px-2 py-1.5 text-left ${o.id === current.id ? "border-primary bg-muted" : "border-border"}`}
                 onClick={() => setSelected(o.id)}
               >
-                <span className="block truncate text-sm">{o.subject}</span>
+                <span className="block truncate text-sm">
+                  {o.key ? <span className="mr-1.5 font-mono text-xs font-semibold" data-task-key>{o.key}</span> : null}
+                  {o.subject}
+                </span>
                 {o.project ? <span className="block truncate text-xs text-muted-foreground" data-ask-project>{o.project}</span> : null}
                 <span data-ask-meta className="block text-xs text-muted-foreground [overflow-wrap:anywhere]">
                   {ageText(o.filed_at, nowMs)}

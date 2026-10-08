@@ -143,7 +143,7 @@ export function BlocksRow({ row, nowMs, onPick, onOpen, rootRun, onBind, onNote 
         </div>
       ) : row.ask !== null && row.decision_id !== null && row.revision !== null ? (
         <AskCard
-          ask={{ id: row.decision_id, project: row.project ?? "", thread: row.thread ?? "", subject: row.title, asker: "card", filed_at: row.created_at, revision: row.revision, mentions: row.mentions, task_id: row.task_id, ask: row.ask }}
+          ask={{ id: row.decision_id, project: row.project ?? "", thread: row.thread ?? "", subject: row.title, key: row.card_key, asker: "card", filed_at: row.created_at, revision: row.revision, mentions: row.mentions, task_id: row.task_id, ask: row.ask }}
           onPick={onPick}
           onOpen={onOpen}
           unbound={isUnbound(row)}

@@ -265,6 +265,18 @@ describe("cards in the CLI (Task 2.7)", () => {
     expect(pulled.map((x) => x.id).sort()).toEqual([c.g1.id, lf.decision_id].sort());
     expect(pulled.find((x) => x.id === c.g1.id)!.task_id).toBe(c.t.id);
   });
+
+  it("list --json carries the card's tasks key, and null for a legacy ask", async () => {
+    const { r, c, run: go } = await cardCli({ pull: true });
+    const ma = ask(r.env, { asker: "mycroft", subject: "legacy key", question: "Legacy?", options: [{ id: "a", label: "A" }, { id: "b", label: "B" }] });
+    delete ma.thread;
+    const lf = await r.svc.file(ma, {});
+    if (!lf.ok) throw new Error(lf.error);
+    const rows = JSON.parse((await go(["list", "--json"])).stdout!) as { id: string; key: string | null }[];
+    const expected = (r.svc.store.db.prepare("SELECT card_key FROM cards WHERE task_id = ?").get(c.t.id) as { card_key: string | null }).card_key;
+    expect(rows.find((x) => x.id === c.g1.id)!.key).toBe(expected);
+    expect(rows.find((x) => x.id === lf.decision_id)!.key).toBeNull();
+  });
 });
 
 describe("bb home list shows cards Home flags", () => {

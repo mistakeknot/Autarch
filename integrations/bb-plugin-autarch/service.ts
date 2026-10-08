@@ -638,6 +638,13 @@ export class Service {
     return r.ok ? { ok: true } : { ok: false, reason: r.reason };
   }
 
+  /** The tasks key of a card (for example AUTA-24), or null for a legacy ask or a card without one. */
+  cardKey(taskId: string | null | undefined): string | null {
+    if (!taskId) return null;
+    const r = this.db.prepare("SELECT card_key FROM cards WHERE task_id = ?").get(taskId) as { card_key: string | null } | undefined;
+    return r?.card_key ?? null;
+  }
+
   /** Open decide asks with no pick, not withdrawn, resolved or replaced. */
   owed(): Row[] {
     return this.db
