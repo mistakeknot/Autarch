@@ -373,7 +373,10 @@ function HomePage() {
   const rootRuns = useRootRuns(rpc);
   const yourMove = useMoves(rpc, () => {});
   const conversation = useConversationApi(rpc);
-  const [stack, setStack] = useState<StackState>({ panels: [{ id: "asks", kind: "decision", title: "Asks" }], width: "third" });
+  const [stack, setStack] = useState<StackState>({ panels: [{ id: "queue", kind: "decision", title: "Queue" }], width: "third" });
+  // Q: one ranked queue is the default (mk picked A on AUTA-17); the old Asks / Blocking / Catch-up tabs stay behind this setting.
+  const [classic, setClassic] = useState(() => { try { return localStorage.getItem("home.classicTabs") === "1"; } catch { return false; } });
+  const toggleClassic = () => setClassic((c) => { const n = !c; try { localStorage.setItem("home.classicTabs", n ? "1" : "0"); } catch { /* storage unavailable: the choice lasts this session */ } return n; });
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [lens, setLens] = useState<Lens>("attention");
   const picks = useMemo(() => new PickController(() => crypto.randomUUID()), []);
@@ -435,6 +438,21 @@ function HomePage() {
 
   const render = (panel: Panel): ReactNode => {
     switch (panel.id) {
+      case "queue":
+        return (
+          <>
+            {([
+              ["Needs you now", { id: "asks", kind: "decision", title: "Asks" }],
+              ["Blocked on others", { id: "blocks", kind: "decision", title: "Blocking" }],
+              ["Since you left", { id: "catchup", kind: "catchup", title: "Catch-up" }],
+            ] as const).map(([heading, p]) => (
+              <section key={p.id} aria-label={heading} className="border-b border-border">
+                <h2 className="px-4 pt-3 text-xs font-semibold uppercase text-muted-foreground">{heading}</h2>
+                {render(p)}
+              </section>
+            ))}
+          </>
+        );
       case "asks":
         return asks === null ? (
           <EmptyState>{error ?? "Loading asks…"}</EmptyState>
@@ -514,9 +532,8 @@ function HomePage() {
       <nav className="flex gap-3 border-b border-border px-4 py-2 text-sm">
         {(
           [
-            ["asks", "decision", "Asks"],
-            ["blocks", "decision", "Blocking"],
-            ["catchup", "catchup", "Catch-up"],
+            ["queue", "decision", "Queue"],
+            ...(classic ? ([["asks", "decision", "Asks"], ["blocks", "decision", "Blocking"], ["catchup", "catchup", "Catch-up"]] as const) : []),
             ["vizier", "vizier", "Vizier"],
             ["map", "map", "Map"],
             ["settings", "settings", "Settings"],
@@ -526,7 +543,10 @@ function HomePage() {
             {title}
           </button>
         ))}
-        <button type="button" className="ml-auto text-muted-foreground" onClick={() => nav.toPluginPanel("example-todos")}>
+        <button type="button" className="ml-auto text-muted-foreground" aria-pressed={classic} onClick={toggleClassic}>
+          Classic tabs
+        </button>
+        <button type="button" className="text-muted-foreground" onClick={() => nav.toPluginPanel("example-todos")}>
           Todos
         </button>
       </nav>
