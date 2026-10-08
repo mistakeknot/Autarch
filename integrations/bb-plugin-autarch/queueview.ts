@@ -91,6 +91,8 @@ export interface QueueRow {
   overrides_generation: number | null;
   changed_after_ruling: boolean;
   root: { state: string | null; reason: string | null };
+  /** Set while the vizier holds the card: greyed, with the reason, out of "needs you now". */
+  held: { reason: string; by: string; at: string } | null;
 }
 
 export interface QueueData {
@@ -165,6 +167,7 @@ export function buildQueue(svc: Service, asks: Asks, opts: { thread?: string } =
       overrides_generation: prior?.generation ?? null,
       changed_after_ruling: false,
       root: { state: rootOk ? "verified" : (c?.root_state ?? null), reason: rootOk ? null : (c?.root_reason ?? "root not verified") },
+      held: svc.holdOf(String(d.task_id)),
     });
   }
 

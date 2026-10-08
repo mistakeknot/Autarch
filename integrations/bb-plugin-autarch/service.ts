@@ -638,6 +638,64 @@ export class Service {
     return r.ok ? { ok: true } : { ok: false, reason: r.reason };
   }
 
+  // ---- holds: the vizier greys a card out while its script or question is superseded. Kept in one settings_kv value
+  // (no schema change). A hold hides the card from "needs you now"; it never closes, rules or edits the card.
+  private readHolds(): Record<string, { reason: string; by: string; at: string }> {
+    try {
+      const v = JSON.parse(this.store.setting("holds") ?? "{}");
+      return v && typeof v === "object" && !Array.isArray(v) ? v : {};
+    } catch {
+      return {};
+    }
+  }
+  holds(): Record<string, { reason: string; by: string; at: string }> {
+    return this.readHolds();
+  }
+  holdOf(taskId: string | null | undefined): { reason: string; by: string; at: string } | null {
+    return taskId ? (this.readHolds()[taskId] ?? null) : null;
+  }
+  /** The task id of a card named by its task id or its tasks key (AUTA-24). */
+  cardTaskId(ref: string): string | null {
+    const r = this.db.prepare("SELECT task_id FROM cards WHERE (task_id = ? OR card_key = ?) AND deleted_at IS NULL ORDER BY created_at DESC LIMIT 1").get(ref, ref) as { task_id: string } | undefined;
+    return r?.task_id ?? null;
+  }
+  hold(ref: string, reason: string, by: string): { ok: true; task_id: string } | { ok: false; error: string } {
+    const why = reason.trim();
+    if (!why) return { ok: false, error: "a hold needs a reason" };
+    if (why.length > 500 || /[\r\n]/.test(why)) return { ok: false, error: "the reason is one line of at most 500 characters" };
+    const id = this.cardTaskId(ref);
+    if (!id) return { ok: false, error: "no such card" };
+    const h = this.readHolds();
+    h[id] = { reason: why, by, at: this.now() };
+    this.store.setSetting("holds", JSON.stringify(h));
+    return { ok: true, task_id: id };
+  }
+  unhold(ref: string): { ok: true; task_id: string; was: boolean } | { ok: false; error: string } {
+    const id = this.cardTaskId(ref);
+    if (!id) return { ok: false, error: "no such card" };
+    const h = this.readHolds();
+    const was = id in h;
+    if (was) {
+      delete h[id];
+      this.store.setSetting("holds", JSON.stringify(h));
+    }
+    return { ok: true, task_id: id, was };
+  }
+  /** A comment posted after the hold that carries a sha256 (a new script) makes the card live again. */
+  async releaseHoldOnSha(taskId: string, comments: () => Promise<TaskCommentRow[]>): Promise<boolean> {
+    const hold = this.holdOf(taskId);
+    if (!hold) return false;
+    let list: TaskCommentRow[];
+    try {
+      list = await comments();
+    } catch {
+      return false; // unreadable now: stay held, try on the next change
+    }
+    if (!list.some((c) => c.kind !== "system" && Date.parse(c.createdAt) > Date.parse(hold.at) && /\b[0-9a-f]{64}\b/.test(c.body))) return false;
+    this.unhold(taskId);
+    return true;
+  }
+
   /** The tasks key of a card (for example AUTA-24), or null for a legacy ask or a card without one. */
   cardKey(taskId: string | null | undefined): string | null {
     if (!taskId) return null;
@@ -825,7 +883,9 @@ export class Service {
     if (!this.cardRow(task.id)) this.observeCards([task]);
     const before = this.sig(task.id);
     const unavailable = await this.ingestInner(task, ctx);
-    return unavailable ? { changed: before !== this.sig(task.id), unavailable } : { changed: before !== this.sig(task.id) };
+    const released = await this.releaseHoldOnSha(task.id, ctx.comments);
+    const changed = released || before !== this.sig(task.id);
+    return unavailable ? { changed, unavailable } : { changed };
   }
 
   private async ingestInner(task: Task, ctx: { comments: () => Promise<TaskCommentRow[]> }): Promise<string | void> {
