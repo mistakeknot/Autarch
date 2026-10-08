@@ -10,6 +10,8 @@ import { cliCommand, defineCli, type PluginCliContext, type PluginCliResult } fr
 import type { Asks, LifecycleResult } from "./asks.js";
 import type { Catchup } from "./catchup.js";
 import { parseAsk } from "./model.js";
+import { plainLine } from "./movereport.js";
+import { validScriptPath } from "./moves.js";
 import { buildQueue } from "./queueview.js";
 import type { PickResult, Service } from "./service.js";
 
@@ -259,6 +261,66 @@ export function homeCli(p: HomeCliParts) {
         run({ options }) {
           // Reads only. Nothing here can spend a record, by design.
           return out(svc.approvalCheck(options.kind, options.target, options.identity));
+        },
+      }),
+
+      report: cliCommand({
+        summary: "Record a script's report against the open Your move script row with that sha256 (display only; never closes the move)",
+        options: {
+          "script-sha256": { type: "string", description: "The 64-hex sha256 of the script that ran." },
+          "script-path": { type: "string", description: "The absolute path of the script that ran; must be the move's script path." },
+          result: { type: "string", description: "ok or failed." },
+          step: { type: "string", description: "The failing step, when failed." },
+          log: { type: "string", description: "Absolute path of the script's log." },
+          "report-id": { type: "string", description: "One id per run of the sender; sending the same id again changes nothing. Default: a fresh id per call." },
+        },
+        run({ options }) {
+          const sha = String(options["script-sha256"] ?? "");
+          const result = String(options.result ?? "");
+          const path = String(options["script-path"] ?? "");
+          if (!validScriptPath(path)) return err(2, "--script-path must be an absolute path of safe characters");
+          if (!/^[0-9a-f]{64}$/.test(sha)) return err(2, "--script-sha256 must be 64 lowercase hex digits");
+          if (result !== "ok" && result !== "failed") return err(2, "--result must be ok or failed");
+          const log = options.log === undefined ? null : String(options.log);
+          if (log !== null && !validScriptPath(log)) return err(2, "--log must be an absolute path of safe characters");
+          const step = options.step === undefined ? null : plainLine(String(options.step), 100) || null;
+          const rid = options["report-id"] === undefined ? crypto.randomUUID() : String(options["report-id"]);
+          if (!/^[A-Za-z0-9._:-]{1,64}$/.test(rid)) return err(2, "--report-id must be 1 to 64 of letters, digits and . _ : -");
+          const state = result === "ok" ? "succeeded" : "failed";
+          const at = svc.time();
+          const hits = svc.store.moves().filter((m) => {
+            if (m.kind !== "script" || m.state === "closed") return false;
+            try {
+              const sc = (JSON.parse(m.payload_json) as { script?: { sha256?: unknown; path?: unknown } }).script;
+              return sc?.sha256 === sha && sc?.path === path;
+            } catch {
+              return false;
+            }
+          });
+          let n = 0;
+          // Each run has its own id, so two runs with the same outcome are two reports (each failure wakes the owner).
+          // A retry of the same run carries the same id and is skipped, even after a later report replaced the display.
+          const reportId = `cli:${sha}:${rid}`;
+          for (const m of hits) {
+            const prev = m.report_json ? (JSON.parse(m.report_json) as { cli_ids?: string[]; cli_failed?: { id: string; step: string | null }[] }) : {};
+            const ids = prev.cli_ids ?? [];
+            if (ids.includes(reportId)) continue;
+            const done = svc.store.setMoveReport(m.task_id, m.generation, state, {
+              outcome: state,
+              failing_step: state === "failed" ? step : null,
+              error_line: null,
+              comment_id: reportId,
+              author: "report-tell",
+              thread_id: null,
+              report_link: log,
+              reported_at: at,
+              source: "cli",
+              cli_ids: [...ids, reportId],
+              cli_failed: state === "failed" ? [...(prev.cli_failed ?? []), { id: reportId, step }] : (prev.cli_failed ?? []),
+            });
+            if (done) n++;
+          }
+          return out({ ok: true, matched: n });
         },
       }),
 
