@@ -28,7 +28,7 @@ export type OwedAsk = {
   project: string;
   thread: string;
   subject: string;
-  /** The tasks key (AUTA-24); absent or null for an ask with no card. */
+  /** The tasks key (PROJ-24); absent or null for an ask with no card. */
   key?: string | null;
   asker: string;
   filed_at: string;
