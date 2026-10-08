@@ -112,6 +112,26 @@ describe("bb home get, list, stats, feed", () => {
     expect(f).toHaveProperty("own");
     expect((await run(["feed", "--json"])).exitCode).toBe(2);
   });
+
+  it("stats carries the traceability block over the same window when it is wired", async () => {
+    const seen: string[] = [];
+    const cli = homeCli({
+      svc,
+      asks: new Asks(svc),
+      catchup: new Catchup(svc, dele),
+      rule: (id, option, reason, ctx) => dele.rule(id, option, reason, ctx),
+      isVizier: () => false,
+      traceability: async (since) => {
+        seen.push(since);
+        return { threads: { ended: 1 } };
+      },
+    });
+    const s = JSON.parse((await Promise.resolve(cli.run(["stats", "--since", "3d", "--json"], {}))).stdout!);
+    expect(s).toHaveProperty("picks_by");
+    expect(s.traceability).toEqual({ threads: { ended: 1 } });
+    expect(seen).toEqual([new Date(Date.parse(svc.time()) - 3 * 86_400_000).toISOString()]);
+    expect(JSON.parse((await run(["stats", "--json"])).stdout!)).not.toHaveProperty("traceability");
+  });
 });
 
 describe("rule and note (vizier only)", () => {
