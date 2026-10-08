@@ -1,6 +1,6 @@
 // The Asks view: what is stalled, what mk must decide, the runbook, and what is merely waiting.
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { ActionButton, RecommendedMark } from "./buttons.js";
 import { CardConversation } from "./conversation.js";
 import { OtherBox, type OtherOutcome } from "./other.js";
@@ -231,9 +231,14 @@ export function optionEffect(o: { kind: string; instruction?: string; reversible
 }
 
 /** The Decide queue: a short row per ask on the left, the selected ask in full on the right (below when narrow). */
-export function DecideQueue({ owed, onPick, onOpen, nowMs, onNote }: { owed: OwedAsk[]; onPick: OnPick; onOpen: (thread: string) => void; nowMs: number; onNote?: OnNote }) {
+export function DecideQueue({ owed, onPick, onOpen, nowMs, onNote, onView }: { owed: OwedAsk[]; onPick: OnPick; onOpen: (thread: string) => void; nowMs: number; onNote?: OnNote; onView?: (decisionId: string | null) => void }) {
   const [selected, setSelected] = useState<string | null>(null);
   const current = currentAsk(owed, selected);
+  const viewingId = current?.id ?? null;
+  // Tell the plugin which ask is on screen, so `bb home viewing` can answer "which card is mk looking at".
+  useEffect(() => {
+    onView?.(viewingId);
+  }, [viewingId]); // eslint-disable-line react-hooks/exhaustive-deps
   if (current === undefined) return null;
   return (
     <div className="flex flex-wrap items-start gap-4">
@@ -288,7 +293,7 @@ export function ApprovalsList({ approvals, onRevoke }: { approvals: ApprovalReco
   );
 }
 
-export function AsksPanel({ data, onPick, onOpen, onRevoke, onDismiss, onNote, nowMs = Date.now() }: { data: AsksData; onPick: OnPick; onOpen: (thread: string) => void; onRevoke?: (approvalId: string) => void; onDismiss?: (decisionId: string, obligationId: string) => void; onNote?: OnNote; nowMs?: number }) {
+export function AsksPanel({ data, onPick, onOpen, onRevoke, onDismiss, onNote, onView, nowMs = Date.now() }: { data: AsksData; onPick: OnPick; onOpen: (thread: string) => void; onRevoke?: (approvalId: string) => void; onDismiss?: (decisionId: string, obligationId: string) => void; onNote?: OnNote; onView?: (decisionId: string | null) => void; nowMs?: number }) {
   const view = buildAsksView(data);
   const approvals = data.approvals ?? [];
   if (view.length === 0 && approvals.length === 0) return <p className="p-4 text-sm text-muted-foreground">Nothing needs you.</p>;
@@ -298,7 +303,7 @@ export function AsksPanel({ data, onPick, onOpen, onRevoke, onDismiss, onNote, n
         <section key={s.key} data-section={s.key}>
           <h2 className="mb-2 text-xs font-semibold uppercase text-muted-foreground">{`${s.title} (${s.items.length})`}</h2>
           {s.key === "decide" ? (
-            <DecideQueue owed={data.owed} onPick={onPick} onOpen={onOpen} nowMs={nowMs} {...(onNote ? { onNote } : {})} />
+            <DecideQueue owed={data.owed} onPick={onPick} onOpen={onOpen} nowMs={nowMs} {...(onNote ? { onNote } : {})} {...(onView ? { onView } : {})} />
           ) : (
             <div className="space-y-3">
               {s.items.map((i) => (

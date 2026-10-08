@@ -60,6 +60,7 @@ export const homeMethods = {
     output: out,
   },
   revokeApproval: { input: z.object({ approval_id: z.string().min(1) }), output: out },
+  setViewing: { input: z.object({ decision_id: z.string().min(1).nullable() }), output: out },
   resend: { input: z.object({ id: z.string().min(1), attempt: z.number().int().min(0), click_id: z.string().min(1) }), output: out },
   markSeen: { input: z.object({ item: z.string().min(1) }), output: out },
   markAllSeen: { input: z.object({ ids: z.array(z.string().min(1)).max(500) }), output: out },
