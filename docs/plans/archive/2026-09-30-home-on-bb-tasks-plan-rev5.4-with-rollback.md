@@ -602,7 +602,7 @@ Otherwise the panel names the field that failed and renders no command.
 `todo-add --set '<SET>' --from-card '<task.id>' --expect-sha256 '<hex>'`
 
 **Item JSON.** `JSON.stringify` of
-`{run_as:"mk", script, script_sha256, owner_thread, run_timeout_s, label}`.
+`{run_as:"operator", script, script_sha256, owner_thread, run_timeout_s, label}`.
 
 **Status.** The panel shows the read-only `todo-run --status '<set>' '<item>'` command for
 mk to paste. Reading it automatically is question D-1.

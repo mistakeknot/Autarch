@@ -24,7 +24,7 @@ reasons:
   - an approval card inside a thread;
   - a queued, retractable message to a thread.
 
-Using it as mk, alongside Home, is a separate choice. It does not conflict
+Using it as the operator, alongside Home, is a separate choice. It does not conflict
 with Home, and installing it needs mk.
 
 ## What it is
@@ -89,7 +89,7 @@ with Home, and installing it needs mk.
      down (decision 21), because the question still gets a card with
      options. It could also show an owed decision in the asking thread
      next to the rail.
-   - The same limit applies to us as to them: whoever runs as mk can answer
+   - The same limit applies to us as to them: whoever runs as the operator account can answer
      it. This matches the same-user risk mk accepted.
 4. **The filing helper can be a plugin CLI.** `bb.cli.register` gives
    `bb home ask …` inside any thread, with the thread's id known. There is no

@@ -14,7 +14,7 @@ Method: isolated bb 0.44.0+aleph.0.5.1 server (127.0.0.1:52055, scratch data dir
 
 ## Q7 design only (no code)
 - Card carries a fenced `root-run` block: path, sha256, timeout.
-- Panel shows the tuple, re-checks the file's real sha256 at hand-off, and renders only the item JSON ({run_as:"mk", script, script_sha256, owner_thread, run_timeout_s, label}) and the paste command for Aleph's `todo-add --from-card` adapter (see 2026-09-30-aleph-runner-interface.md).
+- Panel shows the tuple, re-checks the file's real sha256 at hand-off, and renders only the item JSON ({run_as:"operator", script, script_sha256, owner_thread, run_timeout_s, label}) and the paste command for Aleph's `todo-add --from-card` adapter (see 2026-09-30-aleph-runner-interface.md).
 - Never execs todo-run, never writes status, never marks approved. Approval is slice B only. Card state is untrusted.
 
 ## Not proven

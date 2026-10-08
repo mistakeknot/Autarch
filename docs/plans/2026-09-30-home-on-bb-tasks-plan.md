@@ -563,7 +563,7 @@ label and is not re-materialized.
 
 Rollback is the mk-run script `scripts/home-restore-v2.sh`, delivered and tested in Task
 2.8a. Home never execs it, and no agent runs it. It runs as root on devhost; every action on
-mk's files and every `bb` call runs as mk through `runuser -u mk --`. It reports back to the
+mk's files and every `bb` call runs as the operator account through `runuser -u operator --`. It reports back to the
 thread named by `--thread`.
 
 **Commands are bound to the verified installation (finding r5-4).** The `bb` wrapper at
@@ -584,13 +584,13 @@ different server. The script defends in three ways:
   `PATH` from root's or sudo's environment never reach a Bash process. Probed 2026-10-01
   (results in §8.8). mk runs the launcher by path (`sudo /usr/local/libexec/home-v3-<sha12>/home-restore-v2.sh …`,
   the root-owned copy from the generated package, see "Root-owned install copy" below), never with `bash scripts/…`, because that would start Bash, and run `BASH_ENV`, before
-  the launcher's first line. Every mk command runs as `runuser -u mk -- env -i`, with only
+  the launcher's first line. Every operator-account command runs as `runuser -u operator -- env -i`, with only
   the variables set below.
 - **Verified install, before anything is touched.** `BBDATA` is the constant
   `<bb-data-dir>`. The script reads `$BBDATA/bb-app-runtime.json`
   (owned by mk, not a symlink) and requires:
   - `serverUrl` is `http://127.0.0.1:<port>`;
-  - the recorded `pid` is alive, runs as mk, and its command line runs `entryPath`, which
+  - the recorded `pid` is alive, runs as the operator account, and its command line runs `entryPath`, which
     must resolve to `$BBDATA/npm/bin/bb-app`;
   - the LISTEN socket on `<port>` is held by that pid or a descendant (the `/proc/net/tcp`
     inode found among the fd links of the owned set, the Task 2.12 method);
@@ -609,7 +609,7 @@ different server. The script defends in three ways:
   not group/other-writable (symlinks resolved first). Such a copy is made only by a generated package:
   nothing in a checkout is ever run with sudo, piped to sudo, or read by root, because any user-writable byte
   (a script, the `HEAD` ref, a Git replace ref) could be changed before the command runs. The only trusted
-  source is a self-contained generated package: the coordinator, as mk, runs
+  source is a self-contained generated package: the coordinator, as the operator account, runs
   `scripts/home-build-root-package.sh --commit <full 40-hex sha> --thread <id>`. The generator refuses
   anything but a full sha, checks `git --no-replace-objects cat-file -t` is `commit` and that `rev-parse` of
   the sha equals itself, reads the five files with `git --no-replace-objects cat-file blob <sha>:scripts/<f>`,
@@ -621,7 +621,7 @@ different server. The script defends in three ways:
   with unexpected content; staged in a mktemp dir inside the root-owned parent, sha256 re-verified, then
   renamed), runs `home-upgrade-v3.sh --check` from that copy (installed copy and plugin build verified,
   nothing changed), and runs the real upgrade only with `--go`. Everything mk owns goes through
-  `runuser -u mk`. A `trap EXIT` reports success or failure to the thread given by the required `--thread` via `bb thread tell`, printing the report if sending fails. The
+  `runuser -u operator`. A `trap EXIT` reports success or failure to the thread given by the required `--thread` via `bb thread tell`, printing the report if sending fails. The
   restore is a separate command printed at the end:
   `sudo /usr/local/libexec/home-v3-<sha12>/home-restore-v2.sh --thread … --repo … [--backup …]`.
   The launchers keep their ownership guard as defence in depth. Test-only `HOME_V3_TEST_DEST` (and
@@ -664,14 +664,14 @@ trap finish EXIT
 #    AS=("${AS0[@]}" BB_DATA_DIR="$BBDATA" BB_SERVER_URL="$URL" NODE_ENV=production).
 #    Failure → exit 6; nothing touched; nothing sent to any server.
 # 1. Backup: --backup, else the newest $DATA/home-v2-backup-*.db. It must be inside $DATA.
-# 2. Verify it, as mk, read-only: sqlite3 -readonly "$BACKUP" 'PRAGMA integrity_check' = ok;
+# 2. Verify it, as the operator, read-only: sqlite3 -readonly "$BACKUP" 'PRAGMA integrity_check' = ok;
 #    schema_meta.schema_version in (1,2); min_reader_version <= 2. Fail → exit 2, nothing touched.
 #    --check stops here (exit 0).
 # 3. Stop Home: "${AS[@]}" "$BB" plugin disable autarch; then fuser "$DATA"/data.db* must
 #    show no holder, else "${AS[@]}" "$BB" plugin enable autarch and exit 3.
 # 4. Move aside, never delete: data.db, data.db-wal, data.db-shm → data.db.v3-<ts>{,-wal,-shm}.
-# 5. Install the backup as mk: cp --no-clobber "$BACKUP" "$DATA/data.db"; chmod 0600.
-# 6. v2 build as mk: git -C "$REPO" worktree add "$BUILD" a9853e2 (if absent; verify
+# 5. Install the backup as the operator: cp --no-clobber "$BACKUP" "$DATA/data.db"; chmod 0600.
+# 6. v2 build as the operator: git -C "$REPO" worktree add "$BUILD" a9853e2 (if absent; verify
 #    HEAD = a9853e2); npm ci; bb plugin build; "$BB" plugin install "$BUILD/integrations/bb-plugin-autarch".
 # 7. "${AS[@]}" "$BB" plugin enable autarch; wait up to 60 s for a healthy start;
 #    record the tail of `bb plugin logs autarch` and the open-ask count (sqlite3 -readonly).
@@ -737,7 +737,7 @@ Otherwise the panel names the field that failed and renders no command.
 `todo-add --set '<SET>' --from-card '<task.id>' --expect-sha256 '<hex>'`
 
 **Item JSON.** `JSON.stringify` of
-`{run_as:"mk", script, script_sha256, owner_thread, run_timeout_s, label}`.
+`{run_as:"operator", script, script_sha256, owner_thread, run_timeout_s, label}`.
 
 **Status.** The panel shows the read-only `todo-run --status '<set>' '<item>'` command for
 mk to paste. Reading it automatically is question D-1.

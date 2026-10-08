@@ -1043,7 +1043,7 @@ a `home` block with decision id, `pick_id`, revision, asking thread, `options_sh
   3. opens a temp file with `O_CREAT|O_EXCL|O_WRONLY|O_NOFOLLOW`, writes, `fsync`s, and
      renames it into place;
   4. re-checks the root's `dev` and `ino` after the rename.
-- Node has no `openat`, so a swap between steps is possible for a process running as mk. That
+- Node has no `openat`, so a swap between steps is possible for a process running as the operator account. That
   residual is the same-user risk accepted in `[D21]`, and is stated in the README.
 - Writing is idempotent: same path, same bytes.
 

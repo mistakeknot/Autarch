@@ -6,7 +6,7 @@ Reviewed under governed dispatch by `claude-fable-5-1` at high effort, `plan-rev
 
 ## What the live estate actually looks like
 
-Measured on Clavain, 2026-09-19, from `~/.claude/sessions/*.json`. Twelve records, all twelve processes alive. Every design decision below is answering something in this table rather than something imagined.
+Measured on a Mac laptop, 2026-09-19, from `~/.claude/sessions/*.json`. Twelve records, all twelve processes alive. Every design decision below is answering something in this table rather than something imagined.
 
 | Observation | Count | Consequence for the schema |
 | --- | --- | --- |
@@ -29,7 +29,7 @@ Two of those rows are worth stating plainly, because they are the difference bet
 
 A single "session" record would have to be three things at once, and the estate proves all three lifetimes differ.
 
-**`conversation`** is durable and outlives every process that runs it. Keyed `(provider, host, provider_session_id)`. `host` is in the key because the estate spans Clavain and devhost: without it, a synced copy of another machine's record merges into this one's history. It also carries `display_name` and `display_name_source`, because the provider's `auto` names are genuine topic summaries (`completion-driven-handoffs`, `constellation-front-door`) while its `derived` names are placeholders (`projects-14`) — and storing which is which is what stops a placeholder being read as a subject.
+**`conversation`** is durable and outlives every process that runs it. Keyed `(provider, host, provider_session_id)`. `host` is in the key because the estate spans a laptop and devhost: without it, a synced copy of another machine's record merges into this one's history. It also carries `display_name` and `display_name_source`, because the provider's `auto` names are genuine topic summaries (`completion-driven-handoffs`, `constellation-front-door`) while its `derived` names are placeholders (`projects-14`) — and storing which is which is what stops a placeholder being read as a subject.
 
 **`launch_instance`** is one process launch. Keyed `(host, pid, proc_start_ms)`; pid alone recurs after a reboot, and the orphaned August records prove the directory keeps no tombstones. `entrypoint` distinguishes a human `cli` launch from an agent-spawned `sdk-cli` one, which is what separates the parent from the child inside `%67`.
 

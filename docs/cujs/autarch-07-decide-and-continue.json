@@ -84,7 +84,7 @@
         "confidence": "firm"
       },
       {
-        "decision": "Home's key accepts the same-user risk: agents on devhost run as mk and could reach the key, as with Claude Code and Codex, where the sandbox is the boundary. The key stops hand-written rulings, not a hostile agent. mk 2026-09-25 after flux-drive",
+        "decision": "Home's key accepts the same-user risk: agents on devhost run as the operator's account and could reach the key, as with Claude Code and Codex, where the sandbox is the boundary. The key stops hand-written rulings, not a hostile agent. mk 2026-09-25 after flux-drive",
         "confidence": "firm"
       },
       {
