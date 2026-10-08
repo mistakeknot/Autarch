@@ -1,6 +1,6 @@
 // The Asks view: what is stalled, what mk must decide, the runbook, and what is merely waiting.
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { ActionButton, RecommendedMark } from "./buttons.js";
 import { CardConversation } from "./conversation.js";
 import { OtherBox, type OtherOutcome } from "./other.js";
@@ -241,10 +241,17 @@ export function DecideQueue({ owed, onPick, onOpen, nowMs, onNote, onView }: { o
   useEffect(() => {
     onView?.(viewingId);
   }, [viewingId]); // eslint-disable-line react-hooks/exhaustive-deps
+  const cardRef = useRef<HTMLDivElement>(null);
   if (current === undefined) return null;
+  // The project line says nothing when every ask is from the same project.
+  const showProject = new Set(owed.map((o) => o.project ?? "")).size > 1;
+  // Stacked (narrow) layout: the card sits below the whole list, so bring it into view on selection.
+  const reveal = () => {
+    if (typeof window.matchMedia === "function" && window.matchMedia("(max-width: 639px)").matches) cardRef.current?.scrollIntoView({ block: "start" });
+  };
   return (
-    <div className="flex flex-wrap items-start gap-4">
-      <ol className="m-0 min-w-0 shrink-0 grow basis-64 list-none space-y-1 p-0" data-decide-list>
+    <div className="flex flex-wrap items-start gap-2 sm:gap-4">
+      <ol className="m-0 min-w-0 shrink-0 grow basis-64 list-none space-y-1 p-0 max-sm:[font-family:ui-sans-serif,system-ui,sans-serif]" data-decide-list>
         {owed.map((o) => {
           const old = isOldAsk(o.filed_at, nowMs);
           const rec = o.ask.options.find((x) => x.id === o.ask.recommendation);
@@ -253,14 +260,17 @@ export function DecideQueue({ owed, onPick, onOpen, nowMs, onNote, onView }: { o
               <button
                 type="button"
                 aria-current={o.id === current.id ? "true" : undefined}
-                className={`w-full rounded border px-2 py-1.5 text-left ${o.id === current.id ? "border-primary bg-muted" : "border-border"}`}
-                onClick={() => setSelected(o.id)}
+                className={`min-h-11 w-full rounded border px-2 py-1.5 text-left ${o.id === current.id ? "border-primary bg-muted" : "border-border"}`}
+                onClick={() => {
+                  setSelected(o.id);
+                  reveal();
+                }}
               >
                 <span className="flex min-w-0 items-baseline gap-1.5 text-sm">
                   {o.key ? <span className="shrink-0 select-all font-mono text-xs font-semibold" data-task-key>{o.key}</span> : null}
-                  <span className="min-w-0 truncate">{o.subject}</span>
+                  <span className="min-w-0 [overflow-wrap:anywhere] max-sm:line-clamp-3 sm:truncate">{o.subject}</span>
                 </span>
-                {o.project ? <span className="block truncate text-xs text-muted-foreground" data-ask-project>{o.project}</span> : null}
+                {showProject && o.project ? <span className="block truncate text-xs text-muted-foreground" data-ask-project>{o.project}</span> : null}
                 <span data-ask-meta className="block text-xs text-muted-foreground [overflow-wrap:anywhere]">
                   {ageText(o.filed_at, nowMs)}
                   {old ? <span className="font-medium" data-old-ask>{" · old: still needed?"}</span> : null}
@@ -271,7 +281,7 @@ export function DecideQueue({ owed, onPick, onOpen, nowMs, onNote, onView }: { o
           );
         })}
       </ol>
-      <div className="sticky top-0 min-w-0 grow-[3] basis-[28rem]">
+      <div ref={cardRef} className="min-w-0 grow-[3] basis-[28rem] scroll-mt-2 sm:sticky sm:top-0">
         <AskCard key={current.id} ask={current} onPick={onPick} onOpen={onOpen} nowMs={nowMs} {...(onNote ? { onNote } : {})} />
       </div>
     </div>
@@ -303,7 +313,7 @@ export function AsksPanel({ data, onPick, onOpen, onRevoke, onDismiss, onNote, o
   const approvals = data.approvals ?? [];
   if (view.length === 0 && approvals.length === 0 && held.length === 0) return <p className="p-4 text-sm text-muted-foreground">Nothing needs you.</p>;
   return (
-    <div className="space-y-6 p-4">
+    <div className="space-y-3 p-2 sm:space-y-6 sm:p-4">
       {view.map((s) => (
         <section key={s.key} data-section={s.key}>
           <h2 className="mb-2 text-xs font-semibold uppercase text-muted-foreground">{`${s.title} (${s.items.length})`}</h2>
