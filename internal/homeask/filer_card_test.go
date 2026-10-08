@@ -123,6 +123,12 @@ func (f *memBB) run(ctx context.Context, env []string, args ...string) BBResult 
 		return okRes(map[string]any{"projects": ps})
 	case strings.HasPrefix(cmd, "tasks list"):
 		p, search := argFlag(args, "--project"), argFlag(args, "--search")
+		for _, kv := range env {
+			if p == "" && strings.HasPrefix(kv, "BB_PROJECT_ID=") {
+				// the real bb scopes an unfiltered list to the project linked to this context
+				return okRes(map[string]any{"tasks": []map[string]string{}, "nextCursor": nil, "limit": 500})
+			}
+		}
 		var hits []*fakeTask
 		for _, tk := range f.tasks {
 			if !tk.Deleted && (p == "" || tk.Project == p) && strings.Contains(tk.Desc, search) {
@@ -952,4 +958,19 @@ func labelFlags(args []string) []string {
 		}
 	}
 	return out
+}
+
+func TestCardFilerSearchIgnoresAnInheritedProjectContext(t *testing.T) {
+	t.Setenv("BB_PROJECT_ID", "proj_other")
+	f := newFake(t)
+	f.registerOnCreate = false
+	f.projects = []string{"P1", "P2"}
+	r := testReq()
+	_, ident, _ := r.Description()
+	f.tasks = append(f.tasks, &fakeTask{ID: "ELSEWHERE", Project: "P2", Created: "2026-09-03T00:00:00", Desc: seedDesc(t, r.Key, ident),
+		Comments: []Comment{{ID: "c", Kind: "agent", ThreadID: "thr_a", CreatedAt: "2026-09-03T01:00:00"}}})
+	res, err := f.filer().FileCard(context.Background(), r)
+	if err != nil || !res.Replay || res.ID != "ELSEWHERE" || f.count("tasks", "create") != 0 {
+		t.Fatalf("res=%+v err=%v", res, err)
+	}
 }
