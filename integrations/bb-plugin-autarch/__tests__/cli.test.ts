@@ -420,7 +420,7 @@ describe("bb home handoff", () => {
 describe("home report", () => {
   const SHA = "a".repeat(64);
   const open = (sha = SHA) => svc.store.openMove({ task_id: "T1", generation: 1, kind: "script", payload: { script: { path: "/x/s.sh", sha256: sha, args: [], recover: null } }, opened_by: "card" } as never);
-  const rep = (...a: string[]) => run(["report", ...a]);
+  const rep = (...a: string[]) => run(["report", "--script-path", "/x/s.sh", ...a]);
   it("records an ok report on the open script row and leaves the move open", async () => {
     open();
     const r = await rep("--script-sha256", SHA, "--result", "ok", "--log", "/tmp/s.log");
@@ -442,6 +442,15 @@ describe("home report", () => {
     const r = await rep("--script-sha256", "b".repeat(64), "--result", "ok");
     expect(JSON.parse(r.stdout!)).toEqual({ ok: true, matched: 0 });
     expect(svc.store.move("T1", 1)!.report_state).toBeNull();
+  });
+  it("a retry of the same report is a no-op, and a wrong path matches nothing", async () => {
+    open();
+    await rep("--script-sha256", SHA, "--result", "failed", "--step", "s");
+    const first = svc.store.move("T1", 1)!.report_json;
+    await rep("--script-sha256", SHA, "--result", "failed", "--step", "s");
+    expect(svc.store.move("T1", 1)!.report_json).toBe(first);
+    const r = await run(["report", "--script-path", "/other.sh", "--script-sha256", SHA, "--result", "ok"]);
+    expect(JSON.parse(r.stdout!).matched).toBe(0);
   });
   it("refuses a bad sha, a bad result and an unsafe log path", async () => {
     expect((await rep("--script-sha256", "zz", "--result", "ok")).exitCode).toBe(2);

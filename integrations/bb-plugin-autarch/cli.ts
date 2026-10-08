@@ -268,6 +268,7 @@ export function homeCli(p: HomeCliParts) {
         summary: "Record a script's report against the open Your move script row with that sha256 (display only; never closes the move)",
         options: {
           "script-sha256": { type: "string", description: "The 64-hex sha256 of the script that ran." },
+          "script-path": { type: "string", description: "The absolute path of the script that ran; must be the move's script path." },
           result: { type: "string", description: "ok or failed." },
           step: { type: "string", description: "The failing step, when failed." },
           log: { type: "string", description: "Absolute path of the script's log." },
@@ -275,6 +276,8 @@ export function homeCli(p: HomeCliParts) {
         run({ options }) {
           const sha = String(options["script-sha256"] ?? "");
           const result = String(options.result ?? "");
+          const path = String(options["script-path"] ?? "");
+          if (!validScriptPath(path)) return err(2, "--script-path must be an absolute path of safe characters");
           if (!/^[0-9a-f]{64}$/.test(sha)) return err(2, "--script-sha256 must be 64 lowercase hex digits");
           if (result !== "ok" && result !== "failed") return err(2, "--result must be ok or failed");
           const log = options.log === undefined ? null : String(options.log);
@@ -285,18 +288,22 @@ export function homeCli(p: HomeCliParts) {
           const hits = svc.store.moves().filter((m) => {
             if (m.kind !== "script" || m.state === "closed") return false;
             try {
-              return (JSON.parse(m.payload_json) as { script?: { sha256?: unknown } }).script?.sha256 === sha;
+              const sc = (JSON.parse(m.payload_json) as { script?: { sha256?: unknown; path?: unknown } }).script;
+              return sc?.sha256 === sha && sc?.path === path;
             } catch {
               return false;
             }
           });
           let n = 0;
+          // The same report sent again (a retry) has the same id: it rewrites nothing and wakes nobody twice.
+          const reportId = `cli:${sha}:${state}:${step ?? ""}:${log ?? ""}`;
           for (const m of hits) {
+            if ((m.report_json ? (JSON.parse(m.report_json) as { comment_id?: string }).comment_id : null) === reportId) continue;
             const done = svc.store.setMoveReport(m.task_id, m.generation, state, {
               outcome: state,
               failing_step: state === "failed" ? step : null,
               error_line: null,
-              comment_id: `cli:${sha}:${at}`,
+              comment_id: reportId,
               author: "report-tell",
               thread_id: null,
               report_link: log,

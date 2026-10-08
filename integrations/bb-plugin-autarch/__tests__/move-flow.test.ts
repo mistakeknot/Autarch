@@ -215,6 +215,18 @@ describe("report watcher", () => {
     expect(wakes(r)).toHaveLength(0);
   });
 
+  it("a report the CLI recorded is not overwritten by an older card comment", async () => {
+    const r = rig();
+    const t = await withMove(r, scriptMove());
+    r.advance(1000);
+    comment(r, t.id, `${SCRIPT} ${SHA}\nRESULT: OK`);
+    r.advance(60_000);
+    r.svc.store.setMoveReport(t.id, 1, "failed", { outcome: "failed", failing_step: "build", error_line: null, comment_id: "cli:x", author: "report-tell", thread_id: null, report_link: null, reported_at: new Date(r.env.clock.t).toISOString(), source: "cli" } as never);
+    expect(await watcher(r).sweep()).toMatchObject({ reports: 0 });
+    expect(r.svc.store.move(t.id, 1)).toMatchObject({ state: "open", report_state: "failed" });
+    expect(JSON.parse(r.svc.store.move(t.id, 1)!.report_json!)).toMatchObject({ source: "cli", failing_step: "build" });
+  });
+
   it("ignores reports for another script, older than the move, or written by Home", async () => {
     const r = rig();
     const t = await withMove(r, scriptMove());

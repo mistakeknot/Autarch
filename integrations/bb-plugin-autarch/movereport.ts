@@ -221,7 +221,10 @@ export class ReportWatcher {
         const stored = m.report_json ? (JSON.parse(m.report_json) as { comment_id?: string }) : null;
         let state = m.report_state;
         let report: ParsedReport | null = null;
-        if (found && stored?.comment_id !== found.c.id) {
+        // A report the CLI recorded stands against any comment older than it (an old success must not hide a new failure).
+        const storedAt = stored && (stored as { source?: string }).source === "cli" ? Date.parse((stored as { reported_at?: string }).reported_at ?? "") : NaN;
+        const older = found !== null && !Number.isNaN(storedAt) && Date.parse(found.c.createdAt) <= storedAt;
+        if (found && !older && stored?.comment_id !== found.c.id) {
           report = found.r;
           state = found.r.outcome;
           this.store.setMoveReport(m.task_id, m.generation, state, {
