@@ -139,7 +139,7 @@ func moveReadURL(v any) error {
 	if u.Scheme != "https" || !moveReadHostAllowed(u.Hostname()) || u.User != nil || u.Port() != "" || u.Host != u.Hostname() {
 		return errors.New("read url must be https on an allowed host")
 	}
-	if u.String() != s || u.Path == "" || moveHasDotSegment(u.EscapedPath()) {
+	if u.String() != s || u.Path == "" || strings.ContainsAny(s, "<>\"'`{}|^\\") || moveHasDotSegment(u.EscapedPath()) {
 		return errors.New("read url must be in canonical form")
 	}
 	return nil

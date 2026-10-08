@@ -223,6 +223,18 @@
    "body": "{\"schema\":\"home-move/v1\",\"kind\":\"read\",\"read\":{\"url\":\"https://github.com/a/./b\"}}",
    "error": "read url must be in canonical form",
    "kind": null
+  },
+  {
+   "name": "read url raw angle in query",
+   "body": "{\"schema\":\"home-move/v1\",\"kind\":\"read\",\"read\":{\"url\":\"https://github.com/a?x=<\"}}",
+   "error": "read url must be in canonical form",
+   "kind": null
+  },
+  {
+   "name": "read url raw quote in query",
+   "body": "{\"schema\":\"home-move/v1\",\"kind\":\"read\",\"read\":{\"url\":\"https://github.com/a?x='\"}}",
+   "error": "read url must be in canonical form",
+   "kind": null
   }
  ]
 }
