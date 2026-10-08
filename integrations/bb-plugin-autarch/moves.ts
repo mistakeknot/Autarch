@@ -138,7 +138,7 @@ export function parseMove(body: string): Move {
       if (typeof m.url !== "string" || !PR_URL.test(m.url)) return fail("pr url must be https://github.com/<owner>/<repo>/pull/<n>");
       const pr: Extract<Move, { kind: "pr" }> = { kind, url: m.url };
       if (m.summary !== undefined) {
-        if (typeof m.summary !== "string" || m.summary.trim() === "" || m.summary.length > MAX_SUMMARY || /[\r\n]/.test(m.summary) || !m.summary.isWellFormed()) {
+        if (typeof m.summary !== "string" || m.summary.trim() === "" || m.summary.length > MAX_SUMMARY || /[\r\n\u0085\u2028\u2029]/.test(m.summary) || !m.summary.isWellFormed()) {
           return fail(`pr summary must be one line of 1-${MAX_SUMMARY} characters`);
         }
         pr.summary = m.summary;

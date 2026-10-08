@@ -196,11 +196,33 @@ func ParseMove(body string) (Move, error) {
 		if !ok {
 			return Move{}, errors.New("pr must be an object")
 		}
-		if err := onlyKeys(po, []string{"url"}, "pr"); err != nil {
+		if err := onlyKeys(po, []string{"url", "summary", "verdict", "review_url", "why"}, "pr"); err != nil {
 			return Move{}, err
 		}
 		if s, ok := po["url"].(string); !ok || !movePRRe.MatchString(s) {
 			return Move{}, errors.New("pr url must be https://github.com/<owner>/<repo>/pull/<n>")
+		}
+		// Optional merge-card facts; the same rules as the Home plugin's parser (moves.ts).
+		if v, has := po["summary"]; has {
+			s, ok := v.(string)
+			if !ok || strings.TrimSpace(s) == "" || len([]rune(s)) > maxMoveSummary || !utf8.ValidString(s) || strings.ContainsAny(s, "\r\n\u0085\u2028\u2029") {
+				return Move{}, fmt.Errorf("pr summary must be one line of 1-%d characters", maxMoveSummary)
+			}
+		}
+		if v, has := po["verdict"]; has {
+			if s, ok := v.(string); !ok || !movePRVerdicts[s] {
+				return Move{}, errors.New("pr verdict must be one of PASS, PASS-WITH-NOTES, HOLD, FAIL")
+			}
+		}
+		if v, has := po["why"]; has {
+			if s, ok := v.(string); !ok || (s != "design" && s != "taste" && s != "spend") {
+				return Move{}, errors.New("pr why must be one of design, taste, spend")
+			}
+		}
+		if v, has := po["review_url"]; has {
+			if err := moveReadURL(v); err != nil {
+				return Move{}, err
+			}
 		}
 	case "read":
 		ro, ok := isObj(m)
@@ -230,6 +252,10 @@ func ParseMove(body string) (Move, error) {
 }
 
 // moveBlock is the fenced block a card carries for a move: the validated object as one JSON line.
+const maxMoveSummary = 200
+
+var movePRVerdicts = map[string]bool{"PASS": true, "PASS-WITH-NOTES": true, "HOLD": true, "FAIL": true}
+
 func moveBlock(raw map[string]any) (string, error) {
 	buf := &bytes.Buffer{}
 	enc := json.NewEncoder(buf)
