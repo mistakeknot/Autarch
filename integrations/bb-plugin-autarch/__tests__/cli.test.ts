@@ -416,3 +416,36 @@ describe("bb home handoff", () => {
     expect(r.stderr).toMatch(/only the vizier/);
   });
 });
+
+describe("home report", () => {
+  const SHA = "a".repeat(64);
+  const open = (sha = SHA) => svc.store.openMove({ task_id: "T1", generation: 1, kind: "script", payload: { script: { path: "/x/s.sh", sha256: sha, args: [], recover: null } }, opened_by: "card" } as never);
+  const rep = (...a: string[]) => run(["report", ...a]);
+  it("records an ok report on the open script row and leaves the move open", async () => {
+    open();
+    const r = await rep("--script-sha256", SHA, "--result", "ok", "--log", "/tmp/s.log");
+    expect(r.exitCode).toBe(0);
+    expect(JSON.parse(r.stdout!)).toEqual({ ok: true, matched: 1 });
+    const m = svc.store.move("T1", 1)!;
+    expect(m.state).toBe("open");
+    expect(m.report_state).toBe("succeeded");
+  });
+  it("a failed report keeps the step and the log link", async () => {
+    open();
+    await rep("--script-sha256", SHA, "--result", "failed", "--step", "migrate", "--log", "/tmp/s.log");
+    const m = svc.store.move("T1", 1)!;
+    expect(m.report_state).toBe("failed");
+    expect(JSON.parse(m.report_json!)).toMatchObject({ failing_step: "migrate", report_link: "/tmp/s.log" });
+  });
+  it("an unmatched sha changes nothing and says so", async () => {
+    open();
+    const r = await rep("--script-sha256", "b".repeat(64), "--result", "ok");
+    expect(JSON.parse(r.stdout!)).toEqual({ ok: true, matched: 0 });
+    expect(svc.store.move("T1", 1)!.report_state).toBeNull();
+  });
+  it("refuses a bad sha, a bad result and an unsafe log path", async () => {
+    expect((await rep("--script-sha256", "zz", "--result", "ok")).exitCode).toBe(2);
+    expect((await rep("--script-sha256", SHA, "--result", "maybe")).exitCode).toBe(2);
+    expect((await rep("--script-sha256", SHA, "--result", "ok", "--log", "rel; rm -rf /")).exitCode).toBe(2);
+  });
+});
