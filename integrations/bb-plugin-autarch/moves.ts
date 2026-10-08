@@ -138,7 +138,7 @@ export function parseMove(body: string): Move {
       if (typeof m.url !== "string" || !PR_URL.test(m.url)) return fail("pr url must be https://github.com/<owner>/<repo>/pull/<n>");
       const pr: Extract<Move, { kind: "pr" }> = { kind, url: m.url };
       if (m.summary !== undefined) {
-        if (typeof m.summary !== "string" || m.summary.trim() === "" || m.summary.length > MAX_SUMMARY || /[\r\n\u0085\u2028\u2029]/.test(m.summary) || !m.summary.isWellFormed()) {
+        if (typeof m.summary !== "string" || m.summary.replace(/^[\s\uFEFF]+|[\s\uFEFF]+$/g, "") === "" || m.summary.length > MAX_SUMMARY || /[\r\n\u0085\u2028\u2029]/.test(m.summary) || !m.summary.isWellFormed() || m.summary.includes("\uFFFD")) {
           return fail(`pr summary must be one line of 1-${MAX_SUMMARY} characters`);
         }
         pr.summary = m.summary;
@@ -147,11 +147,11 @@ export function parseMove(body: string): Move {
         if (typeof m.verdict !== "string" || !(PR_VERDICTS as readonly string[]).includes(m.verdict)) return fail(`pr verdict must be one of ${PR_VERDICTS.join(", ")}`);
         pr.verdict = m.verdict as PrVerdict;
       }
-      if (m.review_url !== undefined) pr.review_url = readUrl(m.review_url);
       if (m.why !== undefined) {
         if (typeof m.why !== "string" || !(PR_WHYS as readonly string[]).includes(m.why)) return fail(`pr why must be one of ${PR_WHYS.join(", ")}`);
         pr.why = m.why as PrWhy;
       }
+      if (m.review_url !== undefined) pr.review_url = readUrl(m.review_url);
       return pr;
     }
     case "read": {

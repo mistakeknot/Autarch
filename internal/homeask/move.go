@@ -15,6 +15,8 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+	"unicode"
+	"unicode/utf16"
 	"unicode/utf8"
 )
 
@@ -205,7 +207,7 @@ func ParseMove(body string) (Move, error) {
 		// Optional merge-card facts; the same rules as the Home plugin's parser (moves.ts).
 		if v, has := po["summary"]; has {
 			s, ok := v.(string)
-			if !ok || strings.TrimSpace(s) == "" || len([]rune(s)) > maxMoveSummary || !utf8.ValidString(s) || strings.ContainsAny(s, "\r\n\u0085\u2028\u2029") {
+			if !ok || strings.TrimFunc(s, func(r rune) bool { return unicode.IsSpace(r) || r == 0xFEFF }) == "" || len(utf16.Encode([]rune(s))) > maxMoveSummary || !utf8.ValidString(s) || strings.ContainsRune(s, utf8.RuneError) || strings.ContainsAny(s, "\r\n\u0085\u2028\u2029") {
 				return Move{}, fmt.Errorf("pr summary must be one line of 1-%d characters", maxMoveSummary)
 			}
 		}
