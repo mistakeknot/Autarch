@@ -217,15 +217,17 @@ export class ReportWatcher {
           if (r && !(await reporterOk(c.threadId))) r = null; // mirrored as a comment, never a report
           if (r) matches.push({ c, r, link });
         }
-        const found = matches.length > 0 ? matches[matches.length - 1]! : null; // display state uses the latest
-        const stored = m.report_json ? (JSON.parse(m.report_json) as { comment_id?: string }) : null;
+        // Order is by what the sweep has read, never by clock: `seen` lists the card comments already taken into account.
+        const stored = m.report_json ? (JSON.parse(m.report_json) as { comment_id?: string; outcome?: string; seen?: string[]; cli_ids?: string[]; source?: string }) : null;
+        const seen = new Set(stored?.seen ?? (stored && stored.source !== "cli" && stored.comment_id ? [stored.comment_id] : []));
+        const fresh = matches.filter((x) => !seen.has(x.c.id));
+        const found = fresh.length > 0 ? fresh[fresh.length - 1]! : null; // display uses the latest one not read before
         let state = m.report_state;
-        let report: ParsedReport | null = null;
-        // A report the CLI recorded stands against any comment older than it (an old success must not hide a new failure).
-        const storedAt = stored && (stored as { source?: string }).source === "cli" ? Date.parse((stored as { reported_at?: string }).reported_at ?? "") : NaN;
-        const older = found !== null && !Number.isNaN(storedAt) && Date.parse(found.c.createdAt) <= storedAt;
-        if (found && !older && stored?.comment_id !== found.c.id) {
-          report = found.r;
+        // A failure the CLI recorded wakes the owner even if a card comment then replaces it on the display.
+        if (stored?.source === "cli" && stored.outcome === "failed" && stored.comment_id) {
+          if (await this.wakeOnce(m, "failed", this.wakeText(m, s, "failed", stored as unknown as ParsedReport), stored.comment_id)) stats.wakes++;
+        }
+        if (found) {
           state = found.r.outcome;
           this.store.setMoveReport(m.task_id, m.generation, state, {
             outcome: found.r.outcome,
@@ -237,23 +239,21 @@ export class ReportWatcher {
             report_link: found.link,
             reported_at: found.c.createdAt,
             source: found.link ? "file" : "comment",
+            seen: matches.map((x) => x.c.id),
+            cli_ids: stored?.cli_ids ?? [],
           });
           stats.reports++;
-        } else if (!found && m.report_state === null && m.state === "claimed" && m.report_deadline_at !== null && now > m.report_deadline_at) {
+        } else if (stored && matches.length > 0 && (stored.seen ?? []).length < matches.length && stored.source === "cli") {
+          // Nothing new, but remember what has been read so a later sweep cannot mistake it for newer than the CLI report.
+          this.store.setMoveReport(m.task_id, m.generation, m.report_state as "succeeded" | "failed", { ...(stored as object), seen: matches.map((x) => x.c.id) } as never);
+        } else if (matches.length === 0 && m.report_state === null && m.state === "claimed" && m.report_deadline_at !== null && now > m.report_deadline_at) {
           state = "no-report";
           this.store.setMoveReport(m.task_id, m.generation, "no-report", { deadline_at: m.report_deadline_at });
         }
-        // Every distinct authorized failed report in this sweep gets its own wake (the op carries the report's comment id),
-        // whatever the latest display state is; the dedup makes a replay free.
-        const failedMatches = matches.filter((x) => x.r.outcome === "failed");
-        if (failedMatches.length > 0) {
-          for (const x of failedMatches) if (await this.wakeOnce(m, "failed", this.wakeText(m, s, "failed", x.r), x.c.id)) stats.wakes++;
-        } else if (state === "failed") {
-          const rep = report ?? (stored ? (stored as ParsedReport) : null);
-          if (await this.wakeOnce(m, "failed", this.wakeText(m, s, "failed", rep), stored?.comment_id)) stats.wakes++;
-        } else if (state === "no-report") {
-          if (await this.wakeOnce(m, "no-report", this.wakeText(m, s, "no-report", null))) stats.wakes++;
-        }
+        // Every distinct authorized failed card report gets its own wake (the op carries the comment id); the dedup makes a
+        // replay free and lets an unrouted wake be retried.
+        for (const x of matches) if (x.r.outcome === "failed" && (await this.wakeOnce(m, "failed", this.wakeText(m, s, "failed", x.r), x.c.id))) stats.wakes++;
+        if (state === "no-report" && (await this.wakeOnce(m, "no-report", this.wakeText(m, s, "no-report", null)))) stats.wakes++;
       } catch (e) {
         stats.errors++;
         this.o.log?.(`report sweep ${m.task_id}: ${e instanceof Error ? e.message : String(e)}`);

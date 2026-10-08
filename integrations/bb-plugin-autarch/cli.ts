@@ -272,6 +272,7 @@ export function homeCli(p: HomeCliParts) {
           result: { type: "string", description: "ok or failed." },
           step: { type: "string", description: "The failing step, when failed." },
           log: { type: "string", description: "Absolute path of the script's log." },
+          "report-id": { type: "string", description: "One id per run of the sender; sending the same id again changes nothing. Default: a fresh id per call." },
         },
         run({ options }) {
           const sha = String(options["script-sha256"] ?? "");
@@ -283,6 +284,8 @@ export function homeCli(p: HomeCliParts) {
           const log = options.log === undefined ? null : String(options.log);
           if (log !== null && !validScriptPath(log)) return err(2, "--log must be an absolute path of safe characters");
           const step = options.step === undefined ? null : plainLine(String(options.step), 100) || null;
+          const rid = options["report-id"] === undefined ? crypto.randomUUID() : String(options["report-id"]);
+          if (!/^[A-Za-z0-9._:-]{1,64}$/.test(rid)) return err(2, "--report-id must be 1 to 64 of letters, digits and . _ : -");
           const state = result === "ok" ? "succeeded" : "failed";
           const at = svc.time();
           const hits = svc.store.moves().filter((m) => {
@@ -295,10 +298,13 @@ export function homeCli(p: HomeCliParts) {
             }
           });
           let n = 0;
-          // The same report sent again (a retry) has the same id: it rewrites nothing and wakes nobody twice.
-          const reportId = `cli:${sha}:${state}:${step ?? ""}:${log ?? ""}`;
+          // Each run has its own id, so two runs with the same outcome are two reports (each failure wakes the owner).
+          // A retry of the same run carries the same id and is skipped, even after a later report replaced the display.
+          const reportId = `cli:${sha}:${rid}`;
           for (const m of hits) {
-            if ((m.report_json ? (JSON.parse(m.report_json) as { comment_id?: string }).comment_id : null) === reportId) continue;
+            const prev = m.report_json ? (JSON.parse(m.report_json) as { cli_ids?: string[]; seen?: string[] }) : {};
+            const ids = prev.cli_ids ?? [];
+            if (ids.includes(reportId)) continue;
             const done = svc.store.setMoveReport(m.task_id, m.generation, state, {
               outcome: state,
               failing_step: state === "failed" ? step : null,
@@ -309,6 +315,8 @@ export function homeCli(p: HomeCliParts) {
               report_link: log,
               reported_at: at,
               source: "cli",
+              cli_ids: [...ids, reportId].slice(-50),
+              seen: prev.seen ?? [], // card comments the sweep had already read stay read; later ones are newer
             });
             if (done) n++;
           }

@@ -443,12 +443,18 @@ describe("home report", () => {
     expect(JSON.parse(r.stdout!)).toEqual({ ok: true, matched: 0 });
     expect(svc.store.move("T1", 1)!.report_state).toBeNull();
   });
-  it("a retry of the same report is a no-op, and a wrong path matches nothing", async () => {
+  it("a retry of the same run is a no-op even after a later report; a new run with the same outcome is its own report", async () => {
     open();
-    await rep("--script-sha256", SHA, "--result", "failed", "--step", "s");
-    const first = svc.store.move("T1", 1)!.report_json;
-    await rep("--script-sha256", SHA, "--result", "failed", "--step", "s");
-    expect(svc.store.move("T1", 1)!.report_json).toBe(first);
+    await rep("--script-sha256", SHA, "--result", "failed", "--step", "s", "--report-id", "run1");
+    await rep("--script-sha256", SHA, "--result", "ok", "--report-id", "run2");
+    await rep("--script-sha256", SHA, "--result", "failed", "--step", "s", "--report-id", "run1"); // delayed retry
+    expect(svc.store.move("T1", 1)!.report_state).toBe("succeeded");
+    await rep("--script-sha256", SHA, "--result", "failed", "--step", "s", "--report-id", "run3");
+    expect(svc.store.move("T1", 1)!.report_state).toBe("failed");
+    expect(JSON.parse(svc.store.move("T1", 1)!.report_json!).comment_id).toContain("run3");
+  });
+  it("a wrong path matches nothing", async () => {
+    open();
     const r = await run(["report", "--script-path", "/other.sh", "--script-sha256", SHA, "--result", "ok"]);
     expect(JSON.parse(r.stdout!).matched).toBe(0);
   });

@@ -220,11 +220,19 @@ describe("report watcher", () => {
     const t = await withMove(r, scriptMove());
     r.advance(1000);
     comment(r, t.id, `${SCRIPT} ${SHA}\nRESULT: OK`);
-    r.advance(60_000);
-    r.svc.store.setMoveReport(t.id, 1, "failed", { outcome: "failed", failing_step: "build", error_line: null, comment_id: "cli:x", author: "report-tell", thread_id: null, report_link: null, reported_at: new Date(r.env.clock.t).toISOString(), source: "cli" } as never);
-    expect(await watcher(r).sweep()).toMatchObject({ reports: 0 });
+    const w = watcher(r);
+    expect(await w.sweep()).toMatchObject({ reports: 1 });
+    // The CLI failure lands with a clock behind the card's: order is by what the sweep read, not by time.
+    r.svc.store.setMoveReport(t.id, 1, "failed", { outcome: "failed", failing_step: "build", error_line: null, comment_id: "cli:x:1", author: "report-tell", thread_id: null, report_link: null, reported_at: new Date(r.env.clock.t - 3_600_000).toISOString(), source: "cli", cli_ids: ["cli:x:1"], seen: JSON.parse(r.svc.store.move(t.id, 1)!.report_json!).seen } as never);
+    expect(await w.sweep()).toMatchObject({ reports: 0, wakes: 1 });
     expect(r.svc.store.move(t.id, 1)).toMatchObject({ state: "open", report_state: "failed" });
     expect(JSON.parse(r.svc.store.move(t.id, 1)!.report_json!)).toMatchObject({ source: "cli", failing_step: "build" });
+    // A newer card comment then does replace it, and the CLI failure's wake is not lost.
+    r.advance(1000);
+    comment(r, t.id, `${SCRIPT} ${SHA}\nRESULT: OK`);
+    expect(await w.sweep()).toMatchObject({ reports: 1, wakes: 0 });
+    expect(r.svc.store.move(t.id, 1)!.report_state).toBe("succeeded");
+    expect(wakes(r)).toHaveLength(1);
   });
 
   it("ignores reports for another script, older than the move, or written by Home", async () => {
