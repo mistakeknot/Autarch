@@ -4,7 +4,6 @@
 // Images are NOT fetched (a remote image is a tracking beacon and a layout hazard): ![alt](url) shows as a link to
 // the image when the url is https, else as its alt text.
 import type { ReactNode } from "react";
-import { RefText } from "./asks.js";
 
 // Every quantifier is bounded so an unmatched marker repeated many times cannot make the scan quadratic.
 const INLINE = /(`[^`\n]{1,500}`|\*\*[^*\n]{1,500}\*\*|!?\[[^\]\n]{0,200}\]\([^)\s]{0,2000}\))/g;
@@ -25,7 +24,7 @@ export function safeHref(raw: string): string | null {
 function inline(text: string, key: string): ReactNode[] {
   return text.split(INLINE).map((part, i) => {
     const k = `${key}-${i}`;
-    if (i % 2 === 0) return <RefText key={k} text={part} />;
+    if (i % 2 === 0) return part;
     if (part.startsWith("`")) return <code key={k} className="rounded bg-muted px-1 font-mono text-xs [overflow-wrap:anywhere]">{part.slice(1, -1)}</code>;
     if (part.startsWith("**")) return <strong key={k}>{part.slice(2, -2)}</strong>;
     const m = LINK.exec(part);
