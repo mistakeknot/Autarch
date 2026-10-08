@@ -55,4 +55,10 @@ describe("Markdown", () => {
     expect(html("**x**" + "a".repeat(MARKDOWN_MAX_CHARS - 5))).toContain("<strong>x</strong>");
     expect(html("**x**" + "a".repeat(MARKDOWN_MAX_CHARS - 4))).toContain("data-markdown-plain");
   });
+  it("rejects schemes split by tab, CR or LF", () => {
+    for (const bad of ["java\tscript:alert(1)", "java\rscript:alert(1)", "java\nscript:alert(1)", "jav&#x09;ascript:x"]) {
+      expect(html(`[a](${bad})`)).not.toContain("<a ");
+      expect(safeHref(bad)).toBeNull();
+    }
+  });
 });
