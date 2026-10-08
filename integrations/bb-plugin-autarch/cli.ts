@@ -137,7 +137,7 @@ export function homeCli(p: HomeCliParts) {
             ? []
             : buildQueue(svc, p.asks)
                 .rows.filter((r) => r.display_only && (options.asker ? options.asker === "thread" : true) && (options.project ? r.project === options.project : true))
-                .map((r) => ({ id: r.id, subject: r.title, project: r.project, thread: r.thread ?? "", asker: "thread", filed_at: r.created_at, task_id: r.task_id, key: r.card_key, display_only: true, display_reason: r.display_reason, card_key: r.card_key }));
+                .map((r) => ({ id: r.id, subject: r.title, project: r.project, thread: r.thread ?? "", asker: "thread", filed_at: r.created_at, task_id: r.task_id, key: r.card_key, display_only: true, display_reason: r.display_reason, card_key: r.card_key, held: r.held }));
           return { exitCode: 0, stdout: JSON.stringify([...rows, ...flagged]) };
         },
       }),

@@ -33,6 +33,12 @@ describe("holds (vizier greys a card out)", () => {
     expect(r.svc.holdOf(t.id)).toBeNull();
     r.svc.store.setSetting("holds", "[1]");
     expect(r.svc.holdOf(t.id)).toBeNull();
+    r.svc.store.setSetting("holds", JSON.stringify({ [t.id]: "bad" }));
+    expect(r.svc.holdOf(t.id)).toBeNull();
+    r.svc.store.setSetting("holds", JSON.stringify({ [t.id]: { reason: "", by: "v", at: "2026-10-07T00:00:00.000Z" } }));
+    expect(r.svc.holdOf(t.id)).toBeNull();
+    r.svc.store.setSetting("holds", JSON.stringify({ [t.id]: { reason: "r", by: "v", at: "never" } }));
+    expect(r.svc.holdOf(t.id)).toBeNull();
   });
 
   it("a later non-system comment with a sha256 releases the hold; an earlier one, a system one or no sha does not", async () => {
@@ -50,7 +56,7 @@ describe("holds (vizier greys a card out)", () => {
     await r.poll();
     expect(r.svc.holdOf(t.id)).not.toBeNull();
     r.fake.addComment(t.id, { kind: "agent", threadId: "thr_a", body: `new script bash /x.sh sha256 ${SHA}`, createdAt: later });
-    r.edit(t);
+    // no edit(t): the task's updatedAt is unchanged, so only the held-card sweep can see the comment
     r.advance(61_000);
     await r.poll();
     expect(r.svc.holdOf(t.id)).toBeNull();

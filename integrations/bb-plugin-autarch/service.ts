@@ -643,7 +643,14 @@ export class Service {
   private readHolds(): Record<string, { reason: string; by: string; at: string }> {
     try {
       const v = JSON.parse(this.store.setting("holds") ?? "{}");
-      return v && typeof v === "object" && !Array.isArray(v) ? v : {};
+      if (!v || typeof v !== "object" || Array.isArray(v)) return {};
+      // Fail open: an entry without a reason, a writer and a readable time is not a hold.
+      const ok: Record<string, { reason: string; by: string; at: string }> = {};
+      for (const [id, h] of Object.entries(v as Record<string, unknown>)) {
+        const e = h as { reason?: unknown; by?: unknown; at?: unknown } | null;
+        if (e && typeof e.reason === "string" && e.reason.trim() !== "" && typeof e.by === "string" && typeof e.at === "string" && !Number.isNaN(Date.parse(e.at))) ok[id] = { reason: e.reason, by: e.by, at: e.at };
+      }
+      return ok;
     } catch {
       return {};
     }

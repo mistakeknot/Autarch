@@ -166,6 +166,11 @@ export class Queue {
       if (seen.has(id)) continue;
       note(await service.revalidateRouting(id, comments(id)));
     }
+    // A held card whose task did not change this poll can still have a new comment with a script digest.
+    for (const id of Object.keys(service.holds())) {
+      if (seen.has(id) || !listed.has(id)) continue;
+      if (await service.releaseHoldOnSha(id, comments(id))) note({ changed: true });
+    }
     for (const id of service.dueRoutingClosed(CLOSED_BATCH)) {
       const t = listed.get(id);
       if (!t || seen.has(id)) continue;
