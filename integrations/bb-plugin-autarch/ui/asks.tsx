@@ -161,7 +161,7 @@ export function AskCard({ ask, onPick, onOpen, nowMs, onNote, unbound = false }:
   return (
     <article className="min-w-0 rounded-lg border border-border bg-card p-4" data-decision={ask.id}>
       <h3 className="text-sm font-medium [overflow-wrap:anywhere]">
-        {ask.key ? <span className="mr-2 rounded bg-muted px-1.5 font-mono text-xs font-semibold" data-task-key>{ask.key}</span> : null}
+        {ask.key ? <span className="mr-2 select-all rounded bg-muted px-1.5 font-mono text-xs font-semibold" data-task-key>{ask.key}</span> : null}
         {ask.subject}
       </h3>
       <p className="mt-1 text-xs text-muted-foreground">
@@ -254,9 +254,9 @@ export function DecideQueue({ owed, onPick, onOpen, nowMs, onNote, onView }: { o
                 className={`w-full rounded border px-2 py-1.5 text-left ${o.id === current.id ? "border-primary bg-muted" : "border-border"}`}
                 onClick={() => setSelected(o.id)}
               >
-                <span className="block truncate text-sm">
-                  {o.key ? <span className="mr-1.5 font-mono text-xs font-semibold" data-task-key>{o.key}</span> : null}
-                  {o.subject}
+                <span className="flex min-w-0 items-baseline gap-1.5 text-sm">
+                  {o.key ? <span className="shrink-0 select-all font-mono text-xs font-semibold" data-task-key>{o.key}</span> : null}
+                  <span className="min-w-0 truncate">{o.subject}</span>
                 </span>
                 {o.project ? <span className="block truncate text-xs text-muted-foreground" data-ask-project>{o.project}</span> : null}
                 <span data-ask-meta className="block text-xs text-muted-foreground [overflow-wrap:anywhere]">
