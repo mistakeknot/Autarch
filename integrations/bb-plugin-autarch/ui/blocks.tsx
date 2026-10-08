@@ -44,6 +44,17 @@ export type QueueView = {
   status?: { health: string; last_error: string | null; last_poll_at: string | null; open_cards: number; routing_worst_case_age_ms: number } | null;
 };
 
+/** The Queue shows Asks above Blocking: drop from Blocking what Asks already owes, so one ask is never answerable twice. */
+export function withoutOwed(q: QueueView, asks: { owed: { id: string }[] }): QueueView {
+  const ids = new Set(asks.owed.map((o) => o.id));
+  const owed = q.legacy.owed.filter((o) => !ids.has(o.id));
+  return {
+    ...q,
+    rows: q.rows.filter((r) => r.decision_id === null || !ids.has(r.decision_id)),
+    legacy: { ...q.legacy, owed, count: q.legacy.count - (q.legacy.owed.length - owed.length) },
+  };
+}
+
 /** A human age such as "3 d" or "5 min", from an ISO time and a clock. */
 export function ageText(createdAt: string, nowMs: number): string {
   const t = Date.parse(createdAt);

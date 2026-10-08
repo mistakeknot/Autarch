@@ -30,6 +30,7 @@ import { MapPlaceholder } from "./ui/map-placeholder.js";
 import type { Lens } from "./ui/map-placeholder.js";
 import { BlocksPanel, QueueRefresher, type RootRunHooks } from "./ui/blocks.js";
 import type { QueueView } from "./ui/blocks.js";
+import { withoutOwed } from "./ui/blocks.js";
 import { BindingsPanel, SettingsPanel } from "./ui/settings.js";
 import { keyAction, layoutStack, stackReducer, StackView } from "./ui/stack.js";
 import type { Panel, StackState } from "./ui/stack.js";
@@ -573,12 +574,6 @@ function OverlayPage() {
       }}
     />
   );
-}
-
-/** The Queue shows Asks above Blocking: drop from Blocking what Asks already owes, so one ask is never answerable twice. */
-function withoutOwed(q: QueueView, asks: { owed: { id: string }[] }): QueueView {
-  const ids = new Set(asks.owed.map((o) => o.id));
-  return { ...q, legacy: { ...q.legacy, owed: q.legacy.owed.filter((o) => !ids.has(o.id)) } };
 }
 
 function HomeBadge() {
