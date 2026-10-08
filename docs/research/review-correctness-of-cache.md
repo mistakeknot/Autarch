@@ -35,7 +35,7 @@ From code inspection and Autarch CLAUDE.md:
 ## Issue 1: CRITICAL — Model Value Type with Pointer Cache (Race Condition)
 
 ### Location
-- Model struct: `/home/mk/projects/Demarch/apps/autarch/internal/bigend/tui/model.go:254-286`
+- Model struct: `~/projects/Demarch/apps/autarch/internal/bigend/tui/model.go:254-286`
 - Cache field: line 285 `dashCache *sectionCache`
 - Usage: `m.dashCache.getOrRender()` in render_dashboard.go:21, 29, 37, etc.
 
@@ -103,8 +103,8 @@ func (c *sectionCache) getOrRender(id sectionID, hash uint64, renderFn func() st
 ## Issue 2: HIGH — Shallow Copy GetState() → Hash Collision After Mutation
 
 ### Location
-- `GetState()`: `/home/mk/projects/Demarch/apps/autarch/internal/bigend/aggregator/aggregator.go:807-810`
-- Hash functions: `/home/mk/projects/Demarch/apps/autarch/internal/bigend/tui/section_cache.go:60-211`
+- `GetState()`: `~/projects/Demarch/apps/autarch/internal/bigend/aggregator/aggregator.go:807-810`
+- Hash functions: `~/projects/Demarch/apps/autarch/internal/bigend/tui/section_cache.go:60-211`
 - Usage: `renderDashboard()` line 17, hash computed after GetState() at lines 21, 29, 37, etc.
 
 ### Root Cause
@@ -294,7 +294,7 @@ case refreshMsg:
 ## Issue 4: MINOR — Hash Functions Don't Cover All Renders
 
 ### Location
-Hash functions: `/home/mk/projects/Demarch/apps/autarch/internal/bigend/tui/section_cache.go:105-211`
+Hash functions: `~/projects/Demarch/apps/autarch/internal/bigend/tui/section_cache.go:105-211`
 
 ### Finding
 The hash functions hash **aggregated data only**, not render state like:

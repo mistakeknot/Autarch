@@ -41,7 +41,7 @@ model call was made. Existing unrelated changes were left alone.
 |---|---|
 | Flere main | Local HEAD and live remote main both `4e494929998d6bc4fccf75e0a233f727db4b70ee`. |
 | Local fork work | Identity, packaging, RPC-client repairs, and worker tests are uncommitted. `worker-rpc.ts` is untracked and contains throwing stubs. |
-| Installed command | `/Users/sma/.local/bin/flere` invokes `/Users/sma/projects/Flere/pi-test.sh`, which runs the checkout's TypeScript CLI. A fresh version probe returned `0.84.3`; this does not identify a clean released fork artifact. |
+| Installed command | `~/.local/bin/flere` invokes `~/projects/Flere/pi-test.sh`, which runs the checkout's TypeScript CLI. A fresh version probe returned `0.84.3`; this does not identify a clean released fork artifact. |
 | Clavain source | Main `fa70851`; its dispatch parser rejects `--to flere --help` before launching anything. No Flere backend exists in inspected dispatch/config/hook source. |
 | Intercore source | Main `bc64530`; local uncommitted work repairs backend forwarding and public dispatch schema. The governed Flere worker and authoritative direct-spawn admission are not established in that inspected source. |
 | Installed ecosystem | Installed `ic` reports build `bc645304f0e3`. The Clavain shim selects compiled `081f257`, containing Intercore `ac2dc66`; it differs from current source. |
@@ -98,7 +98,7 @@ Source references: [RPC documentation](https://github.com/mistakeknot/Flere/blob
    support is not proof that a specific account can access a specific model,
    or that the model performs equivalently through different agent harnesses.
 
-The prior [integration review](/Users/sma/projects/Flere/docs/research/flux-drive/2026-09-04-flere-integration/summary.md)
+The prior [integration review](~/projects/Flere/docs/research/flux-drive/2026-09-04-flere-integration/summary.md)
 recommended an optional host/backend under Clavain and Intercore. Today's
 product recommendation goes further toward an intended default because the
 user has now agreed to a continuing embedded project collaborator. It does

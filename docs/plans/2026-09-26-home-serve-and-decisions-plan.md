@@ -86,7 +86,7 @@ authorizes a merge, deploy or release. Each pick leaves a ruling file.
 - [bd write guarantees](../research/2026-09-26-bd-write-guarantees.md). It confirmed C-1 (a
   duplicate `create --id` overwrites and reopens the bead, erasing the pick) and C-2 (metadata
   plus label updates tore in 7 of 200 kill -9 runs). It is why decisions left bd.
-- Prototype `thread-storage/thr_uqy4fzn88x/reports/home-stack-prototype.html` (layout).
+- Prototype `<thread-storage>/thr_uqy4fzn88x/reports/home-stack-prototype.html` (layout).
 - [One-pager](../onepagers/2026-09-24-one-place-in-aleph.md); CUJs
   [autarch-07](../cujs/autarch-07-decide-and-continue.json) and autarch-09 (autarch-07 is
   revised when G-6 walks it).
@@ -109,7 +109,7 @@ authorizes a merge, deploy or release. Each pick leaves a ruling file.
 - **Review role:** review-astra (gpt-6-astra, xhigh), another lab; review-opus is excluded
   (`producer_model_conflict`). Dispatch: `$CLAVAIN_SELECTED_ROOT/scripts/dispatch.sh --role
   plan-review --producer-identity=claude-opus-5-5`, with `CLAVAIN_DECISION_CONTEXT` at
-  `thread-storage/thr_awr853efiy/home-plan-decision.json`.
+  `<thread-storage>/thr_awr853efiy/home-plan-decision.json`.
 - **Status:** rounds 1 to 3 returned needs-rework (22, 19 and 14 findings, cited `[A-n]`,
   `[B-n]`, `[C-n]`; `home-plan-review.md`, `home-plan-review2.md`,
   `thr_awr853efiy/home-plan-review3.md`; revision 3 is commit `f134c3e`). Rounds 4 to 10
@@ -119,7 +119,7 @@ authorizes a merge, deploy or release. Each pick leaves a ruling file.
   (P2) is fixed below.
   - **Round 11 on this revision is required before execution.** It must cover the items in
     "Foundational items for cross-lab review".
-  - Still unverified in every round: the GitHub repository identity and the zklw CI status.
+  - Still unverified in every round: the GitHub repository identity and the devhost CI status.
 
 ## Revision 4 changes
 
@@ -763,7 +763,7 @@ caller. Both Go and TS validate against it and pass the vectors in
  "request_id":"req_7f3a…",
  "ask_key":"catch-up collapse order",
  "subject":"autarch/catch-up: collapse order",
- "project":"Autarch","project_root":"/home/mk/projects/Autarch",
+ "project":"Autarch","project_root":"~/projects/Autarch",
  "asker":"thread","thread":"thr_abc123",
  "question":"Collapse routine catch-up items per project or per day?",
  "recommendation":"project",
@@ -1839,7 +1839,7 @@ either, they are recorded as not run and criterion 14 stays unmet; that is not c
 verification.
 
 **Steps:**
-1. On zklw, against the permitted isolated bb server (its address in `HOME_E2E_BB`), build
+1. On devhost, against the permitted isolated bb server (its address in `HOME_E2E_BB`), build
    with `scripts/build-identity.mjs`, generate
    `rid=$(node -e 'console.log(crypto.randomUUID())')`, and run
    `npm run e2e -- --mode real-bb --build <file> --install --run-id "$rid" --out ~/.autarch/home-e2e/<commit>/<rid>.jsonl`
@@ -1997,8 +1997,8 @@ These are **not agent-completable**. Each is a checklist item for mk; none is a 
 - **G-0:** mk approved `mk-okek` (2026-09-26). The round-11 review-astra pass returned PASS
   with no new findings (rounds 4 to 10 returned D-1 to D-17 through J-1, folded in here).
   Checked 2026-09-29: the immutable GitHub repository ID is 1140086114
-  (`mistakeknot/Autarch`, `gh api repos/mistakeknot/autarch --jq .id`), and `zklw-ci status
-  --repo mistakeknot/Autarch --json` on zklw shows it registered (campaign `mk-ag2s`,
+  (`mistakeknot/Autarch`, `gh api repos/mistakeknot/autarch --jq .id`), and `devhost-ci status
+  --repo mistakeknot/Autarch --json` on devhost shows it registered (campaign `mk-ag2s`,
   disposition `pending-inventory`, inventory `requires-workflow-review`, evidence
   `ci/fleet/evidence/2026-09-10-autarch-visit-registration.json`). Migration is **not
   complete**: the migration task is `mk-ag2s.18`, still in progress. The lowercase name

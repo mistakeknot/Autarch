@@ -95,7 +95,7 @@ Ask the Aleph coordinator (thr_39wwcmwi84) before writing it into the plan.
    - **mk-qap9** (epic, P1, open; plan rev 6 on branch
      `plan/qap9-biometric-root-approval`, APPROVE-WITH-CHANGES; blocked on mk:
      Apple Developer team, P0 key rotation). A hash-bound broker
-     (`aleph-rootd` on zklw) verifies Secure Enclave signatures over one exact
+     (`aleph-rootd` on devhost) verifies Secure Enclave signatures over one exact
      root script. Scope is one action pinned by hash, root scripts only.
    - **Release plan v8 section 5.1** (mk-7l2o): an "mk approval record", JSON
      signed with `ssh-keygen -Y sign -n aleph-approval` using mk's

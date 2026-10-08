@@ -76,7 +76,7 @@
         "confidence": "firm"
       },
       {
-        "decision": "Home signs with its own dedicated ed25519 key on the host that runs Aleph (zklw), used for nothing else. Its public key sits in an allowed_signers file committed to the Uqbar, so every machine learns it through git; rotation adds the new key with valid-after and expires the old. mk 2026-09-24 at validation",
+        "decision": "Home signs with its own dedicated ed25519 key on the host that runs Aleph (devhost), used for nothing else. Its public key sits in an allowed_signers file committed to the Uqbar, so every machine learns it through git; rotation adds the new key with valid-after and expires the old. mk 2026-09-24 at validation",
         "confidence": "firm"
       },
       {
@@ -84,7 +84,7 @@
         "confidence": "firm"
       },
       {
-        "decision": "Home's key accepts the same-user risk: agents on zklw run as mk and could reach the key, as with Claude Code and Codex, where the sandbox is the boundary. The key stops hand-written rulings, not a hostile agent. mk 2026-09-25 after flux-drive",
+        "decision": "Home's key accepts the same-user risk: agents on devhost run as mk and could reach the key, as with Claude Code and Codex, where the sandbox is the boundary. The key stops hand-written rulings, not a hostile agent. mk 2026-09-25 after flux-drive",
         "confidence": "firm"
       },
       {

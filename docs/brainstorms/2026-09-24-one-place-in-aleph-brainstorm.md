@@ -262,7 +262,7 @@ Gurgeh and Pollard stay as tools that agents call through the CLI and MCP.
     - **A failed continuation reopens a decision.** The ruling stands with
       state `failed`, and a new decision is owed: retry, pick another
       option, or hand it to a thread. There is one queue.
-    - **Signing key.** Home has its own ed25519 key on zklw, used for
+    - **Signing key.** Home has its own ed25519 key on devhost, used for
       nothing else. Its public key goes in an `allowed_signers` file
       committed to the Uqbar, so every machine gets it through git. To
       rotate, add the new key with `valid-after` and expire the old one.
@@ -296,7 +296,7 @@ Gurgeh and Pollard stay as tools that agents call through the CLI and MCP.
 21. **Review fixes from the 2026-09-25 flux-drive**
     ([summary](../research/flux-drive/2026-09-24-one-place-in-aleph-brainstorm-fc1c03fa/summary.md)):
     - **Home's key accepts the same-user risk** (mk, 2026-09-25). Every
-      agent on zklw runs as mk, so an agent that set out to could read the
+      agent on devhost runs as mk, so an agent that set out to could read the
       key or edit `allowed_signers`. Claude Code and Codex draw the same
       line: the sandbox and permission prompts are the boundary, not Unix
       users. The key guards against the realistic failure, an agent

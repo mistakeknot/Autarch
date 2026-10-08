@@ -495,7 +495,7 @@ All M1 requirements met with comprehensive test coverage and production-ready im
 
 All M1 implementation code available at:
 ```
-/Users/sma/Tandemonium/app/
+~/Tandemonium/app/
 ├── src-tauri/
 │   ├── src/
 │   │   ├── lib.rs              # Tauri command handlers + menu + file watching

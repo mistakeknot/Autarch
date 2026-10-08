@@ -21,9 +21,9 @@ All validation criteria passed successfully. Path locking algorithm with glob pa
 ### ✅ 1. Path Normalization
 - **Result:** PASS
 - **Test Cases:**
-  - `./src/main.rs` → `/Users/sma/.../src/main.rs` ✓
-  - `../prototypes/test.txt` → `/Users/sma/.../prototypes/test.txt` ✓
-  - `src/./lib/../main.rs` → `/Users/sma/.../src/main.rs` ✓
+  - `./src/main.rs` → `~/.../src/main.rs` ✓
+  - `../prototypes/test.txt` → `~/.../prototypes/test.txt` ✓
+  - `src/./lib/../main.rs` → `~/.../src/main.rs` ✓
 - **Behavior:** All relative paths converted to absolute
 - **Component Resolution:** `.` and `..` resolved correctly
 

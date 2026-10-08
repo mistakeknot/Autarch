@@ -87,7 +87,7 @@ continuations turn out to be needs-context, their model was the right one.
 - **Chief.** It overlaps Mycroft's dispatch. Its per-project opt-in with a
   direct single worker otherwise is worth recalling at T2.
 - **Plugin-local SQLite.** Our decisions span the estate.
-- **`osascript` notifications.** They only work on macOS, and zklw is
+- **`osascript` notifications.** They only work on macOS, and devhost is
   Linux.
 - **Voice.**
 

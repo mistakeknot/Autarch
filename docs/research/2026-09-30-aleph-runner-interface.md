@@ -13,9 +13,9 @@ Source: Aleph coordinator thr_39wwcmwi84, reviewed branch slice5a (4fb84f0) and 
 - Time limit: systemd RuntimeMaxSec. Status: `todo-run --status <set> <item>` (exit 0 handed off, 2 usage, 3 refused, 4 launch_failed,
   5 start not yet reported); phases launching/running/finalizing; terminal exited/killed/timeout/launch_failed/interrupted.
   Max 3 concurrent; once per item (a retry is a new item). Label text: "run by paste, not authenticated" everywhere; nothing says "approved by mk".
-- `run_as: "mk"` runs in mk's user manager scope; the zklw-root part is mk pasting from a root-capable shell.
+- `run_as: "mk"` runs in mk's user manager scope; the devhost-root part is mk pasting from a root-capable shell.
 
-## Slice B: passkey page (zklw:444): NOT built, gated on mk leaving the docker group (ALPH-3 / mk-todo #419) and v5 section 5 open items.
+## Slice B: passkey page (devhost:444): NOT built, gated on mk leaving the docker group (PROJ-3 / mk-todo #419) and v5 section 5 open items.
 Requester input will be the pinned tuple (set, item, script path, sha256, timeout, owner_thread). Return shape unspecified. Do not design Home against it.
 
 ## Aleph's asks of Home

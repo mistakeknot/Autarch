@@ -55,7 +55,7 @@ Asked one at a time against the probe document. Transcribed by Claude Fable 5.1
 - Branch `cuj-lineage`, worktree `apps/Autarch/.claude/worktrees/door`; main is behind, not ahead.
 - Live substrate on this machine: 39 tmux sessions, all panes at `~/projects`; 32 panes
   run a Claude Code version binary; 33 Claude transcripts resolve by id under
-  `~/.claude/projects/*/<id>.jsonl`, 31 of them in `-Users-sma-projects`.
+  `~/.claude/projects/*/<id>.jsonl`, 31 of them in `-Users-user-projects`.
 - Existing `ListSessions` (`internal/door/sessions.go:106`) parses exactly 5 `\x1f` fields.
   Adding a field changes the parser and its fixtures.
 - Existing `IndexSessions` (`internal/door/briefing.go:165`) counts `.jsonl` by ModTime.
@@ -297,7 +297,7 @@ serves: DONE WHEN "a real render over the estate"; the validator's machine check
   `drift` as JSON. Exit 0 on success; exit 2 when tmux could not be listed (message on stderr).
 - Acceptance: `go build ./cmd/autarch`; `autarch --help` lists `threads`;
   `autarch threads --json | jq '.threads | map(select(.runtime=="claude")) | length'` ≥ 30 on
-  this machine (32 on 2026-09-02); `autarch threads --registry /Users/sma/.claude/jobs/cfe8ca13/tmp/session-note.txt`
+  this machine (32 on 2026-09-02); `autarch threads --registry ~/.claude/jobs/cfe8ca13/tmp/session-note.txt`
   prints lines containing `stale id: ushas/bridger`, `renamed: rakes-of-the-new-sun`,
   `no seat: shadewright`.
 

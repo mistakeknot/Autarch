@@ -241,7 +241,7 @@ type Override struct { ADR, Reason string }
   - `bb:<threadId>:error` for an errored thread
   - `beads:<trackerKey>:<issueId>`, where `trackerKey` identifies the **physical tracker**,
     independent of garden attribution [A2-2]:
-    - `hub` for `/home/mk/hub`
+    - `hub` for `~/hub`
     - otherwise `t-` plus the first 10 hex characters of the SHA-256 of the tracker identity
       (see `ReadBeads`)
   - `health:<check>`
@@ -318,7 +318,7 @@ bb: {host_id: host_pda34naxgq, include_personal: true}
 
 `door.DiscoverProjects` yields the direct children of each root. `--root` flags replace the
 list. The plugin passes no `--root`, so `estate.yaml` or the default governs. The local host
-ID is the `bb host list --json` entry whose `name` equals `os.Hostname()` (today `zklw` →
+ID is the `bb host list --json` entry whose `name` equals `os.Hostname()` (today `devhost` →
 `host_pda34naxgq`), and it can be overridden with `estate.yaml` `bb: {host_id: …}`. If
 neither resolves, rule 1 below is skipped and coverage says so.
 
@@ -370,7 +370,7 @@ neither resolves, rule 1 below is skipped and coverage says so.
 - Coverage reports the counts, for example `bb: 41 threads → 29 gardens, 12 unattributed`.
 
 **`ReadBeads(ctx, trackers []string, run Runner)` [R1-2, R1-3]**
-- Trackers: `/home/mk/hub` plus every discovered repo with its own `.beads`, plus any
+- Trackers: `~/hub` plus every discovered repo with its own `.beads`, plus any
   configured `trackers.paths`.
 - **Physical tracker identity [A2-2]:**
   - Follow `.beads/redirect`, if present, to the target directory.
@@ -388,8 +388,8 @@ neither resolves, rule 1 below is skipped and coverage says so.
     - `bd -C <dir>` always runs from a **referring checkout**: the lexically first
       symlink-resolved garden root (or configured path) whose `.beads` resolves to that
       binding. It never runs from the redirect target, which can resolve differently (from
-      `tracker-binding-uncrancher` itself, `bd where` reports `/home/mk/.beads`). The hub runs
-      from `/home/mk/hub`.
+      `tracker-binding-uncrancher` itself, `bd where` reports `~/.beads`). The hub runs
+      from `~/hub`.
     - Before querying, the reader runs `bd -C <dir> --readonly --sandbox where --json` in the
       same worker. If the reported tracker path differs from the redirect-resolved
       expectation, that tracker is **unchecked** (`resolution mismatch`) and nothing is
@@ -768,7 +768,7 @@ Scaffold with `bb plugin new autarch`, then move the result into the repo path.
   - Every call is bounded by the 15 s timeout.
   - An unmounted page discards the result.
 - **Binary [R1-15, R2-7]:**
-  - The plugin setting `autarchBin` defaults to `/home/mk/.local/bin/autarch`, an absolute
+  - The plugin setting `autarchBin` defaults to `~/.local/bin/autarch`, an absolute
     path, because the host daemon's PATH may not include `~/.local/bin`.
   - That file is created by `go build -o ~/.local/bin/autarch ./cmd/autarch` (verification
     step 0) [A2-10]. It does not exist today, and `go install` would target `~/go/bin`.
@@ -1037,7 +1037,7 @@ inside agent-text containers.
    - the concurrency tests (WI-3), the real-git writes-nothing test, and the contract goldens
      diffed against the committed files
    - the trial state machine, catch deduplication and adjudication, and config errors
-2. **Live, read-only on zklw.** Run `time $B estate --json | tee /tmp/estate.json`, then check:
+2. **Live, read-only on devhost.** Run `time $B estate --json | tee /tmp/estate.json`, then check:
    - **Schema [A-17]:**
      `npx --prefix integrations/bb-plugin-autarch ajv validate --spec=draft2020 -s docs/reference/estate-v1.schema.json -d /tmp/estate.json`
      succeeds, and so does `npm --prefix integrations/bb-plugin-autarch run check-snapshot -- /tmp/estate.json`,
@@ -1049,7 +1049,7 @@ inside agent-text containers.
    - the counts reconcile [R2-1]:
      - `bb thread list --json` threads with status `error` and without `archivedAt` match the
        errored-thread blockers
-     - the `bd -C /home/mk/hub --readonly --sandbox list --json --limit 0 --status blocked`
+     - the `bd -C ~/hub --readonly --sandbox list --json --limit 0 --status blocked`
        count matches the hub-sourced beads blockers
      - the live errored checkout thread under `~/bb-thread-migration-20260921/checkouts` is
        attributed to its garden, not `""`
@@ -1105,11 +1105,11 @@ inside agent-text containers.
 
 - **Checkout ownership:** reconcile with the paused @thread:thr_nn4veeieqr before any
   implementation edit.
-- **CI:** the repo has ID 1140086114 and zklw-ci status `pending-inventory` (migration
+- **CI:** the repo has ID 1140086114 and devhost-ci status `pending-inventory` (migration
   `mk-ag2s.18` is open). Tests run locally meanwhile, and no GitHub Actions dependency is
   added.
 - **Escalation:**
-  - If WI-0 shows that the CanonGraph read path is not usable from zklw, the trial proceeds
+  - If WI-0 shows that the CanonGraph read path is not usable from devhost, the trial proceeds
     with every garden **unplaced**. Placement is the hypothesis under test, so that outcome
     is recorded in the trial and not papered over.
   - Today there are 72 repo trackers plus the hub. Each healthy call measured about 0.06 s,

@@ -11,7 +11,7 @@ integration needs.
 ## Cross-Repo Coordination Note
 This schema is consumed directly by Tandemonium. When changing this document,
 update Tandemonium's design doc:
-`/Users/sma/Tandemonium/docs/plans/2026-01-15-coordination-spec-graph-design.md`.
+`~/Tandemonium/docs/plans/2026-01-15-coordination-spec-graph-design.md`.
 
 ## Storage
 - Specs: `.praude/specs/PRD-###.yaml`

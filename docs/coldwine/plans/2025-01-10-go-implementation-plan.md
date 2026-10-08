@@ -20,7 +20,7 @@
 **Step 1: Initialize Go module**
 
 ```bash
-cd /Users/sma/Tandemonium
+cd ~/Tandemonium
 go mod init github.com/sma/tandemonium
 ```
 

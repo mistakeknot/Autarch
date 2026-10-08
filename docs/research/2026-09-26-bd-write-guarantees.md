@@ -10,7 +10,7 @@ C-2 on the [Home plan](../plans/2026-09-26-home-serve-and-decisions-plan.md), an
 Task 1.2 step 0.
 
 **Setup.** A throwaway database made with `bd init --prefix mk` in `/tmp`, using the embedded
-Dolt engine. The hub runs an external Dolt server on 127.0.0.1:3311, which was not touched. The
+Dolt engine. The hub runs an external Dolt server on a local port, which was not touched. The
 create and update code is shared between the two modes, but the kill timings below are specific
 to the embedded engine.
 
