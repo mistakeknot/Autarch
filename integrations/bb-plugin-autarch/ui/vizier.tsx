@@ -10,3 +10,15 @@ export function VizierPanel({ threadId, compact = false }: { threadId: string | 
 export function ThreadPanel({ threadId }: { threadId: string }) {
   return <ThreadChat threadId={threadId} variant="compact" permissionPolicy="inherit" />;
 }
+
+/** The top of the Asks page: a short note to the vizier without leaving the queue. Closed until mk opens it, so the queue keeps the page. */
+export function TellVizier({ threadId }: { threadId: string | undefined }) {
+  return (
+    <details className="mx-4 mt-4 rounded-lg border border-border" data-tell-vizier>
+      <summary className="cursor-pointer px-3 py-2 text-sm font-medium">Tell the vizier</summary>
+      <div className="h-64 border-t border-border">
+        <VizierPanel threadId={threadId} compact />
+      </div>
+    </details>
+  );
+}

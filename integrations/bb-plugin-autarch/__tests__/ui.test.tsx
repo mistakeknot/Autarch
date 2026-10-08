@@ -13,7 +13,7 @@ import { CatchupPanel, observeVisibility, SeenTracker, snapshotIds, type Catchup
 import { MapPlaceholder } from "../ui/map-placeholder.js";
 import { BindingsPanel, parseDelegationForm, SettingsPanel } from "../ui/settings.js";
 import { layoutStack, stackReducer, type Panel, type StackState } from "../ui/stack.js";
-import { ThreadPanel, VizierPanel } from "../ui/vizier.js";
+import { TellVizier, ThreadPanel, VizierPanel } from "../ui/vizier.js";
 import { RootRunSection, statusLine, type RootRunPanelView } from "../ui/rootrun.js";
 
 const ask = (over: Record<string, unknown> = {}) => ({
@@ -663,5 +663,15 @@ describe("project binding flag (fail open)", () => {
     expect(html({ binding_state: "confirmed" })).not.toMatch(/data-binding-flag/);
     expect(html({ binding_state: "rejected" })).not.toMatch(/data-binding-flag/);
     expect(html({ binding_state: null })).not.toMatch(/data-bind=/);
+  });
+});
+
+describe("Tell the vizier box", () => {
+  it("is a closed disclosure over the vizier thread, and says so when no vizier is set", () => {
+    const html = renderToStaticMarkup(<TellVizier threadId={undefined} />);
+    expect(html).toContain("data-tell-vizier");
+    expect(html).toContain("Tell the vizier");
+    expect(html).not.toContain("<details open");
+    expect(html).toContain("No vizier thread is set");
   });
 });

@@ -35,7 +35,7 @@ import { BindingsPanel, SettingsPanel } from "./ui/settings.js";
 import { keyAction, layoutStack, stackReducer, StackView } from "./ui/stack.js";
 import type { Panel, StackState } from "./ui/stack.js";
 import { HOME_SOURCE } from "./ui/identity.js";
-import { ThreadPanel, VizierPanel } from "./ui/vizier.js";
+import { TellVizier, ThreadPanel, VizierPanel } from "./ui/vizier.js";
 
 /** The todo list, kept current by the server's "todos-changed" signal. */
 function useTodos() {
@@ -459,6 +459,7 @@ function HomePage() {
           <EmptyState>{error ?? "Loading asks…"}</EmptyState>
         ) : (
           <>
+          <TellVizier threadId={asks.delegation.settings.vizierThreadId} />
           {yourMove.moves ? <YourMovePanel data={yourMove.moves} handlers={yourMove.handlers} /> : null}
           <AsksPanel
             data={asks}
