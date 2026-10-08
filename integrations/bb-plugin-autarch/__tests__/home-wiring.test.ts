@@ -40,7 +40,7 @@ describe("wireHome", () => {
     expect(f.services.sort()).toEqual(["home-delegation-check", "home-feed-refresh", "home-queue", "home-wakes"]);
     expect(f.configure()).toBeTypeOf("function");
     expect(f.cli()).toBeDefined();
-    expect(Object.keys(home.handlers).sort()).toEqual(["catchup", "dismiss", "health", "listAsks", "listRecent", "markAllSeen", "markSeen", "override", "pick", "queue", "resend", "revokeApproval", "rootRun", "setBinding", "setDelegation", "stats"]);
+    expect(Object.keys(home.handlers).sort()).toEqual(["catchup", "dismiss", "health", "listAsks", "listRecent", "markAllSeen", "markSeen", "override", "pick", "queue", "resend", "revokeApproval", "rootRun", "setBinding", "setDelegation", "setViewing", "stats"]);
     f.disposers.forEach((d) => d());
   });
 

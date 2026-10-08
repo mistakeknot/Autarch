@@ -298,6 +298,28 @@ describe("bb home list shows cards Home flags", () => {
   });
 });
 
+describe("bb home viewing", () => {
+  afterEach(() => cleanupEnvs());
+  it("answers null until Home shows an ask, then the last ask shown with its key, and null again once it is closed", async () => {
+    const r = rig();
+    const c = await opened(r, { key: "key-view" });
+    const d = verifiedDelegation(r.svc);
+    const cli = homeCli({ svc: r.svc, asks: new Asks(r.svc), catchup: new Catchup(r.svc, d), rule: (id, option, reason, ctx) => d.rule(id, option, reason, ctx), isVizier: () => false });
+    const go = (argv: string[]) => Promise.resolve(cli.run(argv, {}));
+    const view = async () => JSON.parse((await go(["viewing", "--json"])).stdout!) as { viewing: { decision_id: string; key: string | null; task_id: string; subject: string } | null; reason?: string };
+    expect((await view()).viewing).toBeNull();
+    r.svc.store.setSetting("viewing", JSON.stringify({ decision_id: c.g1.id, at: "2026-10-07T10:00:00.000Z" }));
+    const v = (await view()).viewing!;
+    expect(v).toMatchObject({ decision_id: c.g1.id, task_id: c.t.id });
+    const key = (r.svc.store.db.prepare("SELECT card_key FROM cards WHERE task_id = ?").get(c.t.id) as { card_key: string | null }).card_key;
+    expect(v.key).toBe(key);
+    r.svc.store.setSetting("viewing", JSON.stringify({ decision_id: "no-such", at: "2026-10-07T10:00:00.000Z" }));
+    expect((await view()).viewing).toBeNull();
+    r.svc.store.setSetting("viewing", "not json");
+    expect((await view()).viewing).toBeNull();
+  });
+});
+
 describe("bb home binding", () => {
   it("reads the binding row, or nulls when the tasks project is unbound", async () => {
     svc.store.db.prepare("INSERT INTO project_bindings(tasks_project_id, home_project, state) VALUES ('tp-1', 'shadow-work', 'confirmed')").run();

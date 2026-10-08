@@ -135,6 +135,23 @@ export function homeCli(p: HomeCliParts) {
         },
       }),
 
+      viewing: cliCommand({
+        summary: "The ask Home last showed mk (the last selection only; read from this machine's plugin store)",
+        options: { json: { type: "boolean", description: "Print JSON (the only format)." } },
+        run() {
+          let raw: { decision_id?: string; at?: string } | null = null;
+          try {
+            raw = JSON.parse(svc.store.setting("viewing") ?? "null");
+          } catch {
+            raw = null;
+          }
+          if (!raw || !raw.decision_id) return out({ viewing: null, reason: "Home has not shown an ask yet, or nothing is open" });
+          const d = svc.owed().find((x) => x.id === raw!.decision_id);
+          if (!d) return out({ viewing: null, reason: "the ask last shown is no longer open", decision_id: raw.decision_id, at: raw.at ?? null });
+          return out({ viewing: { decision_id: d.id, task_id: d.task_id ?? null, key: svc.cardKey(d.task_id as string | null), subject: d.subject, project: d.project, thread: d.thread, at: raw.at ?? null } });
+        },
+      }),
+
       stats: cliCommand({
         summary: "Picks, delegation and filing counts over a window",
         options: {

@@ -357,6 +357,7 @@ function HomePage() {
             data={asks}
             onOpen={(thread) => push({ id: `thread:${thread}`, kind: "thread", title: thread, ref: thread })}
             onRevoke={(approval_id) => void rpc.call("revokeApproval", { approval_id }).then(refetch, () => {})}
+            onView={(decision_id) => void rpc.call("setViewing", { decision_id }).catch(() => {})}
             onPick={(decision_id, option_id, revision) => {
               return pickOutcome(picks.send((req) => rpc.call("pick", req) as never, { decision_id, option_id, revision }, refetch)).finally(refetch);
             }}

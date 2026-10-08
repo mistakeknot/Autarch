@@ -1,6 +1,6 @@
 // The Asks view: what is stalled, what mk must decide, the runbook, and what is merely waiting.
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 /** What a pick hands back to the card: not ok means the card stays open and shows the error. */
 export type PickOutcome = { ok: boolean; error?: string };
@@ -178,9 +178,14 @@ export function AskCard({ ask, onPick, onOpen, nowMs }: { ask: OwedAsk; onPick: 
 }
 
 /** The Decide queue: a short row per ask on the left, the selected ask in full on the right (below when narrow). */
-export function DecideQueue({ owed, onPick, onOpen, nowMs }: { owed: OwedAsk[]; onPick: OnPick; onOpen: (thread: string) => void; nowMs: number }) {
+export function DecideQueue({ owed, onPick, onOpen, nowMs, onView }: { owed: OwedAsk[]; onPick: OnPick; onOpen: (thread: string) => void; nowMs: number; onView?: (decisionId: string | null) => void }) {
   const [selected, setSelected] = useState<string | null>(null);
   const current = currentAsk(owed, selected);
+  const viewingId = current?.id ?? null;
+  // Tell the plugin which ask is on screen, so `bb home viewing` can answer "which card is mk looking at".
+  useEffect(() => {
+    onView?.(viewingId);
+  }, [viewingId]); // eslint-disable-line react-hooks/exhaustive-deps
   if (current === undefined) return null;
   return (
     <div className="flex flex-wrap items-start gap-4">
@@ -235,7 +240,7 @@ export function ApprovalsList({ approvals, onRevoke }: { approvals: ApprovalReco
   );
 }
 
-export function AsksPanel({ data, onPick, onOpen, onRevoke, nowMs = Date.now() }: { data: AsksData; onPick: OnPick; onOpen: (thread: string) => void; onRevoke?: (approvalId: string) => void; nowMs?: number }) {
+export function AsksPanel({ data, onPick, onOpen, onRevoke, onView, nowMs = Date.now() }: { data: AsksData; onPick: OnPick; onOpen: (thread: string) => void; onRevoke?: (approvalId: string) => void; onView?: (decisionId: string | null) => void; nowMs?: number }) {
   const view = buildAsksView(data);
   const approvals = data.approvals ?? [];
   if (view.length === 0 && approvals.length === 0) return <p className="p-4 text-sm text-muted-foreground">Nothing needs you.</p>;
@@ -245,7 +250,7 @@ export function AsksPanel({ data, onPick, onOpen, onRevoke, nowMs = Date.now() }
         <section key={s.key} data-section={s.key}>
           <h2 className="mb-2 text-xs font-semibold uppercase text-muted-foreground">{`${s.title} (${s.items.length})`}</h2>
           {s.key === "decide" ? (
-            <DecideQueue owed={data.owed} onPick={onPick} onOpen={onOpen} nowMs={nowMs} />
+            <DecideQueue owed={data.owed} onPick={onPick} onOpen={onOpen} nowMs={nowMs} {...(onView ? { onView } : {})} />
           ) : (
             <div className="space-y-3">
               {s.items.map((i) => (
