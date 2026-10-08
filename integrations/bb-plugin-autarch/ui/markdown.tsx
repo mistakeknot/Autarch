@@ -6,8 +6,11 @@
 import type { ReactNode } from "react";
 import { RefText } from "./asks.js";
 
-const INLINE = /(`[^`\n]+`|\*\*[^*\n]+\*\*|!?\[[^\]\n]*\]\([^)\s]*\))/g;
+// Every quantifier is bounded so an unmatched marker repeated many times cannot make the scan quadratic.
+const INLINE = /(`[^`\n]{1,500}`|\*\*[^*\n]{1,500}\*\*|!?\[[^\]\n]{0,200}\]\([^)\s]{0,2000}\))/g;
 const LINK = /^(!?)\[([^\]\n]*)\]\(([^)\s]*)\)$/;
+/** Above this size a body is shown as plain wrapped text: no parsing at all. */
+export const MARKDOWN_MAX_CHARS = 20_000;
 
 /** Only absolute http(s) URLs may become anchors. */
 export function safeHref(raw: string): string | null {
@@ -39,6 +42,7 @@ function inline(text: string, key: string): ReactNode[] {
 }
 
 export function Markdown({ text }: { text: string }) {
+  if (text.length > MARKDOWN_MAX_CHARS) return <p className="m-0 whitespace-pre-wrap" data-markdown-plain>{text}</p>;
   const lines = text.replace(/\r\n?/g, "\n").split("\n");
   const out: ReactNode[] = [];
   let i = 0;
