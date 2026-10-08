@@ -8,7 +8,7 @@ const DAY_MS = 86_400_000;
 const OUTPUT_CONCURRENCY = 8;
 const TOP_PROJECTS = 10;
 
-/** A tasks key such as AUTA-24. Only prefixes of real tracker projects count, so "GPT-6" or "SHA-256" do not. */
+/** A tasks key such as PROJ-24. Only prefixes of real tracker projects count, so "GPT-6" or "SHA-256" do not. */
 const KEY_RE = /\b([A-Z][A-Z0-9]{0,9})-(\d+)\b/g;
 /** The opt-out a thread gives when its work needs no card: `no-card: <reason>` starting a line. A bare `no-card:` does not count. */
 const NO_CARD_RE = /(?:^|\n)[ \t]*no-card:[ \t]*\S/i;

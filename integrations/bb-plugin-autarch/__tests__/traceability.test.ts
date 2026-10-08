@@ -27,12 +27,12 @@ const task = (projectId: string, n: number, status: Task["status"], updatedAt: s
 const thread = (id: string, status: string, updatedAt: string, parentThreadId: string | null = null): ThreadLike => ({ id, status, updatedAt: Date.parse(updatedAt), parentThreadId });
 
 describe("classifyOutput", () => {
-  const prefixes = new Set(["AUTA", "OPS", "SHDW2"]);
+  const prefixes = new Set(["PROJ", "CORE", "DOCS2"]);
   it("counts a key only when its prefix is a tracker project", () => {
-    expect(classifyOutput("Done; recorded on AUTA-24.", prefixes)).toBe("task_key");
-    expect(classifyOutput("closed SHDW2-7", prefixes)).toBe("task_key");
+    expect(classifyOutput("Done; recorded on PROJ-24.", prefixes)).toBe("task_key");
+    expect(classifyOutput("closed DOCS2-7", prefixes)).toBe("task_key");
     expect(classifyOutput("Ran GPT-6 against SHA-256 fixtures in W-41", prefixes)).toBe("neither");
-    expect(classifyOutput("see auta-24", prefixes)).toBe("neither");
+    expect(classifyOutput("see proj-24", prefixes)).toBe("neither");
   });
   it("counts no-card only with a reason", () => {
     expect(classifyOutput("Answered the question.\nno-card: one-off Q&A", prefixes)).toBe("no_card");
@@ -46,15 +46,15 @@ describe("classifyOutput", () => {
     expect(classifyOutput("Threads should give no-card: <reason> when trivial.", prefixes)).toBe("neither");
   });
   it("a key wins over no-card", () => {
-    expect(classifyOutput("no-card: x, but OPS-3 updated", prefixes)).toBe("task_key");
+    expect(classifyOutput("no-card: x, but CORE-3 updated", prefixes)).toBe("task_key");
   });
 });
 
 describe("traceability", () => {
   const deps = (over: Partial<TraceabilityDeps> = {}): TraceabilityDeps => {
-    const outputs: Record<string, string | null> = { a: "Finished AUTA-1", b: "no-card: chat", c: "all done", d: null, e: "OPS-2 closed", old: "AUTA-9", run: "AUTA-3" };
+    const outputs: Record<string, string | null> = { a: "Finished PROJ-1", b: "no-card: chat", c: "all done", d: null, e: "CORE-2 closed", old: "PROJ-9", run: "PROJ-3" };
     return {
-      listProjects: async () => [project("AUTA"), project("OPS")],
+      listProjects: async () => [project("PROJ"), project("CORE")],
       listOpenTasks: async (id) =>
         id === "p_AUTA"
           ? [task(id, 1, "todo", ago(30)), task(id, 2, "in_progress", ago(20)), task(id, 3, "backlog", ago(1)), task(id, 4, "done", ago(40))]
@@ -94,8 +94,8 @@ describe("traceability", () => {
       stale: 4,
       share: 4 / 6,
       top_projects: [
-        { project: "AUTA", open: 3, stale: 2 },
-        { project: "OPS", open: 3, stale: 2 },
+        { project: "CORE", open: 3, stale: 2 },
+        { project: "PROJ", open: 3, stale: 2 },
       ],
     });
   });
@@ -112,7 +112,7 @@ describe("traceability", () => {
       deps({
         output: async (id) => {
           if (id === "e") throw new Error("boom");
-          return "AUTA-1";
+          return "PROJ-1";
         },
         listOpenTasks: async (id) => {
           if (calls++ > 0) throw new Error("page 2 failed");
@@ -166,7 +166,7 @@ describe("listAllThreads", () => {
     const { list } = pager({ live: [[row("a"), row("b"), row("c")]], archived: [[row("d")]] }, (a) => a.archived && a.offset > 0);
     await expect(listAllThreads(list)).rejects.toThrow("page failed");
     const r = await traceability(
-      { listProjects: async () => [project("AUTA")], listOpenTasks: async () => [], listThreads: () => listAllThreads(list), output: async () => "AUTA-1" },
+      { listProjects: async () => [project("PROJ")], listOpenTasks: async () => [], listThreads: () => listAllThreads(list), output: async () => "PROJ-1" },
       { since: SINCE, now: NOW },
     );
     expect(r.threads).toEqual({ error: "threads: page failed" });
