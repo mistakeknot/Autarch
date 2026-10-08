@@ -345,6 +345,8 @@ export class Service {
       // Revision 3: an ask on a project with no verified root cannot be ruled, by anyone, until the root is bound.
       const c = this.db.prepare("SELECT root_state FROM cards WHERE task_id = ?").get(String(d.task_id)) as { root_state: string | null } | undefined;
       if (c?.root_state !== "verified") return { ok: false, status: 403, error: "Project not bound: add a root to rule this" };
+      // A held card is greyed out; a page opened before the hold must not rule it.
+      if (this.holdOf(String(d.task_id))) return { ok: false, status: 409, error: "this card is on hold; the vizier releases it when its script or question is current" };
     }
     // A real option with the id "other" wins: it is picked as a normal option. mk's free-text answer (which always carries
     // his words in `reason` from the Home box) is refused for that ask, with a clear error.
@@ -699,6 +701,8 @@ export class Service {
       return false; // unreadable now: stay held, try on the next change
     }
     if (!list.some((c) => c.kind !== "system" && Date.parse(c.createdAt) > Date.parse(hold.at) && /\b[0-9a-f]{64}\b/.test(c.body))) return false;
+    // The vizier may have replaced the hold while the comments were read: clear only the hold those comments were judged against.
+    if (this.holdOf(taskId)?.at !== hold.at) return false;
     this.unhold(taskId);
     return true;
   }

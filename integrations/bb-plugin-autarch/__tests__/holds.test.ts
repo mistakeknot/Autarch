@@ -26,6 +26,31 @@ describe("holds (vizier greys a card out)", () => {
     expect(r.svc.unhold(t.id)).toMatchObject({ ok: true, was: false });
   });
 
+  it("a held card cannot be picked, even from a page opened before the hold", async () => {
+    const r = rig();
+    const { t, g1 } = await opened(r);
+    r.svc.hold(t.id, "superseded", "thr_viz");
+    expect(r.mkPick(g1.id)).toMatchObject({ ok: false, status: 409 });
+    expect(r.gens(t.id)).toHaveLength(1);
+    r.svc.unhold(t.id);
+    expect(r.mkPick(g1.id, "p-after")).toMatchObject({ ok: true });
+  });
+
+  it("a hold replaced while its comments were being read is not cleared by the old reading", async () => {
+    const r = rig();
+    const { t } = await opened(r);
+    r.env.clock.t = Date.parse("2026-10-02T00:00:00.000Z");
+    r.svc.hold(t.id, "first", "thr_viz");
+    const later = new Date(Date.parse(r.svc.holdOf(t.id)!.at) + 60_000).toISOString();
+    const released = await r.svc.releaseHoldOnSha(t.id, async () => {
+      r.env.clock.t += 120_000;
+      r.svc.hold(t.id, "second", "thr_viz");
+      return [{ id: "c1", taskId: t.id, kind: "agent" as const, authorName: "a", threadId: "thr_a", body: `bash /x ${SHA}`, createdAt: later }];
+    });
+    expect(released).toBe(false);
+    expect(r.svc.holdOf(t.id)).toMatchObject({ reason: "second" });
+  });
+
   it("a held setting that is not JSON means no holds", async () => {
     const r = rig();
     const { t } = await opened(r);
