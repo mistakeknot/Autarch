@@ -847,7 +847,7 @@ describe("queue rows: display reasons, free-form cards, markers", () => {
   });
 });
 
-describe("unbound tasks projects (mk-okek: no name match, so no binding row)", () => {
+describe("unbound tasks projects (no name match, so no binding row)", () => {
   const ctx = (r: Rig) => ({ now: r.env.now(), knownProjects: ["Autarch"], record: (type: string, detail: unknown) => void r.svc.store.recordEvent(type, null, detail) });
   it("lists a tasks project with cards and no binding row, with the project its asks target; the card is open meanwhile (fail open)", async () => {
     const r = rig({ projectName: "Shadow Work" });

@@ -80,6 +80,62 @@ export interface PickInput {
    * depend on other rows (a daily cap) belong here, not before the transaction.
    */
   guard?: () => { status: number; error: string } | null;
+  /** Opens this move in the pick's own transaction (a pick on an option that leaves mk something to do). */
+  move?: MoveInput;
+}
+
+/** A thing mk owes on a card generation (plan mk-okek.24). `payload` is the validated home-move/v1 object. */
+export interface MoveInput {
+  task_id: string;
+  generation: number;
+  kind: "script" | "pr" | "read" | "context";
+  payload: unknown;
+  opened_by: "card" | "pick";
+}
+
+export type MoveState = "open" | "claimed" | "closed";
+
+export interface MoveRow {
+  task_id: string;
+  generation: number;
+  kind: "script" | "pr" | "read" | "context";
+  payload_json: string;
+  state: MoveState;
+  opened_by: "card" | "pick";
+  opened_at: string;
+  claimed_at: string | null;
+  claimed_by: string | null;
+  closed_at: string | null;
+  closed_by: string | null;
+  evidence: string | null;
+  report_state: "succeeded" | "failed" | "no-report" | null;
+  report_json: string | null;
+  report_at: string | null;
+  report_deadline_at: string | null;
+  skipped_at: string | null;
+  hidden_by: string | null;
+  hidden_at: string | null;
+  last_checked_at: string | null;
+  last_error: string | null;
+}
+
+export interface CommentInput {
+  id: string;
+  kind: string;
+  authorName: string;
+  authorId: string | null;
+  body: string;
+  createdAt: string;
+}
+export interface CommentRow {
+  task_id: string;
+  comment_id: string;
+  kind: string;
+  author_name: string;
+  author_id: string | null;
+  body: string;
+  created_at: string;
+  fetched_at: string;
 }
 
 export interface ApprovalMint {
@@ -561,7 +617,7 @@ export class Store {
 
   /** Insert the pick and its obligations and one event in one transaction [C-3] [C-5]. */
   recordPick(p: PickInput, obligations: ObligationInput[] = [], cardWrites: CardWriteInput[] = []): PickResult {
-    const { approval, guard, ...pickParams } = p;
+    const { approval, guard, move, ...pickParams } = p;
     return this.tx((): PickResult => {
       const at = p.picked_at ?? this.now();
       if (guard && !this.pick(p.decision_id)) {
@@ -586,6 +642,7 @@ export class Store {
         this.hook("obligations-inserted");
         this.insertCardWriteRows(p.decision_id, cardWrites);
         this.hook("card-writes-inserted");
+        if (move) this.insertMoveRow(move, at);
         // T9: a picked card generation moves its card to ruled in the same transaction.
         this.db
           .prepare("UPDATE cards SET state = 'ruled', display_reason = NULL, updated_at = @at WHERE task_id = (SELECT task_id FROM decisions WHERE id = @id AND source = 'card')")
@@ -604,6 +661,142 @@ export class Store {
       if (existing || d?.resolved_at) return { ok: false, reason: "already-ruled", existing };
       return { ok: false, reason: "stale" };
     });
+  }
+
+  // ---- moves (what mk owes; plan mk-okek.24) -----------------------------------
+
+  private insertMoveRow(m: MoveInput, at: string): boolean {
+    return (
+      this.db
+        .prepare(
+          `INSERT OR IGNORE INTO moves(task_id, generation, kind, payload_json, state, opened_by, opened_at)
+           VALUES (?, ?, ?, ?, 'open', ?, ?)`,
+        )
+        .run(m.task_id, m.generation, m.kind, JSON.stringify(m.payload), m.opened_by, at).changes === 1
+    );
+  }
+
+  /** Opens a move; false when (task, generation) already has one. Joins an open transaction. */
+  openMove(m: MoveInput): boolean {
+    return this.tx(() => this.insertMoveRow(m, this.now()));
+  }
+
+  move(taskId: string, generation: number): MoveRow | undefined {
+    return this.db.prepare("SELECT * FROM moves WHERE task_id = ? AND generation = ?").get(taskId, generation) as MoveRow | undefined;
+  }
+
+  /** Every move, newest first; the Your move view and `bb home moves --json` read this. */
+  moves(): MoveRow[] {
+    return this.db.prepare("SELECT * FROM moves ORDER BY opened_at DESC, task_id, generation").all() as MoveRow[];
+  }
+
+  /** The move that is still owed (open or claimed) for a card, if any. */
+  liveMove(taskId: string): MoveRow | undefined {
+    return this.db
+      .prepare("SELECT * FROM moves WHERE task_id = ? AND state IN ('open','claimed') ORDER BY generation DESC LIMIT 1")
+      .get(taskId) as MoveRow | undefined;
+  }
+
+  /**
+   * mk says he did it. This is a claim and never closes the move (only independent state does).
+   * Idempotent: a repeat keeps the first claim.
+   */
+  claimMove(taskId: string, generation: number, by: string, reportDeadlineAt: string | null = null): boolean {
+    return (
+      this.db
+        .prepare(
+          `UPDATE moves SET state = 'claimed', claimed_at = ?, claimed_by = ?, report_deadline_at = ?
+           WHERE task_id = ? AND generation = ? AND state = 'open'`,
+        )
+        .run(this.now(), by, reportDeadlineAt, taskId, generation).changes === 1
+    );
+  }
+
+  /** Records a poll of the move's external state: the time, and the error when it failed. Never changes `state`. */
+  markMoveChecked(taskId: string, generation: number, error: string | null): void {
+    this.db.prepare("UPDATE moves SET last_checked_at = ?, last_error = ? WHERE task_id = ? AND generation = ?").run(this.now(), error, taskId, generation);
+  }
+
+  /** "Later / skip": a display preference, never closes anything. */
+  skipMove(taskId: string, generation: number): boolean {
+    return this.db.prepare("UPDATE moves SET skipped_at = COALESCE(skipped_at, ?) WHERE task_id = ? AND generation = ? AND state <> 'closed'").run(this.now(), taskId, generation).changes === 1;
+  }
+
+  /** Closes a move from independent evidence (or supersession). Returns true only on the transition. */
+  closeMove(taskId: string, generation: number, by: string, evidence: string): boolean {
+    return (
+      this.db
+        .prepare(
+          `UPDATE moves SET state = 'closed', closed_at = ?, closed_by = ?, evidence = ?
+           WHERE task_id = ? AND generation = ? AND state <> 'closed'`,
+        )
+        .run(this.now(), by, evidence, taskId, generation).changes === 1
+    );
+  }
+
+  /** Records what a script reported. Never changes `state`: a report is reported, not verified. */
+  setMoveReport(taskId: string, generation: number, state: "succeeded" | "failed" | "no-report", report: unknown): boolean {
+    return (
+      this.db
+        .prepare("UPDATE moves SET report_state = ?, report_json = ?, report_at = ? WHERE task_id = ? AND generation = ? AND state <> 'closed'")
+        .run(state, JSON.stringify(report), this.now(), taskId, generation).changes === 1
+    );
+  }
+
+  // ---- card conversation mirror: display only, never an input to a decision ----------------
+
+  /** Mirrors a card's comments (insert-or-ignore on the comment id: a recorded comment is never rewritten). */
+  upsertComments(taskId: string, rows: readonly CommentInput[]): number {
+    const at = this.now();
+    const stmt = this.db.prepare(
+      `INSERT OR IGNORE INTO card_comments(task_id, comment_id, kind, author_name, author_id, body, created_at, fetched_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+    );
+    return this.tx(() => {
+      let n = 0;
+      for (const r of rows) n += stmt.run(taskId, r.id, r.kind, r.authorName, r.authorId, r.body, r.createdAt, at).changes;
+      this.db
+        .prepare(
+          `INSERT INTO card_comment_polls(task_id, last_ok_at, last_attempt_at, last_error) VALUES (?, ?, ?, NULL)
+           ON CONFLICT(task_id) DO UPDATE SET last_ok_at = excluded.last_ok_at, last_attempt_at = excluded.last_attempt_at, last_error = NULL`,
+        )
+        .run(taskId, at, at);
+      return n;
+    });
+  }
+
+  /** A failed read: remembered so the UI can say "comments may be stale". Touches nothing else. */
+  markCommentsFailed(taskId: string, error: string): void {
+    const at = this.now();
+    this.db
+      .prepare(
+        `INSERT INTO card_comment_polls(task_id, last_ok_at, last_attempt_at, last_error) VALUES (?, NULL, ?, ?)
+         ON CONFLICT(task_id) DO UPDATE SET last_attempt_at = excluded.last_attempt_at, last_error = excluded.last_error`,
+      )
+      .run(taskId, at, error.slice(0, 300));
+  }
+
+  comments(taskId: string): CommentRow[] {
+    return this.db.prepare("SELECT * FROM card_comments WHERE task_id = ? ORDER BY created_at, comment_id").all(taskId) as CommentRow[];
+  }
+
+  commentPoll(taskId: string): { last_ok_at: string | null; last_attempt_at: string; last_error: string | null } | undefined {
+    return this.db.prepare("SELECT last_ok_at, last_attempt_at, last_error FROM card_comment_polls WHERE task_id = ?").get(taskId) as never;
+  }
+
+  /** Where mk has read to (a `created_at#comment_id` key), or null when never opened. */
+  seenThrough(taskId: string): string | null {
+    return (this.db.prepare("SELECT seen_through FROM card_seen WHERE task_id = ?").get(taskId) as { seen_through: string } | undefined)?.seen_through ?? null;
+  }
+
+  /** Marks the conversation read through a key. Only moves forward. */
+  markConversationSeen(taskId: string, through: string): void {
+    this.db
+      .prepare(
+        `INSERT INTO card_seen(task_id, seen_through, seen_at) VALUES (?, ?, ?)
+         ON CONFLICT(task_id) DO UPDATE SET seen_through = excluded.seen_through, seen_at = excluded.seen_at WHERE excluded.seen_through > card_seen.seen_through`,
+      )
+      .run(taskId, through, this.now());
   }
 
   private insertCardWriteRows(decisionId: string, rows: CardWriteInput[]): number {
@@ -742,6 +935,11 @@ export class Store {
       if (row.resend_permit === 1 && to === "uncertain") return { ok: false, reason: "permit" };
     }
     return { ok: false, reason: "lost-race" };
+  }
+
+  /** Point a message row at another thread after its recipient was archived; only while it still names `from`. */
+  retarget(id: string, from: string, to: string): boolean {
+    return this.db.prepare("UPDATE obligations SET recipient = @to, updated_at = @now WHERE id = @id AND recipient = @from AND state NOT IN ('done','dismissed')").run({ id, from, to, now: this.now() }).changes === 1;
   }
 
   /** Suppress a row without changing its state [G-2]; also clears any resend permit. */

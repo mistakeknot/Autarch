@@ -37,6 +37,7 @@ type memBB struct {
 type fakeTask struct {
 	ID, Project, Created, Desc string
 	Comments                   []Comment
+	Labels                     []string
 	Deleted                    bool
 }
 
@@ -163,7 +164,7 @@ func (f *memBB) run(ctx context.Context, env []string, args ...string) BBResult 
 			f.t.Errorf("create without the needs-mk label: %v", args)
 		}
 		f.seq++
-		tk := &fakeTask{ID: fmt.Sprintf("T%d", f.seq), Project: argFlag(args, "--project"), Created: fmt.Sprintf("2026-10-01T00:00:%02d", f.seq), Desc: string(raw)}
+		tk := &fakeTask{Labels: labelFlags(args), ID: fmt.Sprintf("T%d", f.seq), Project: argFlag(args, "--project"), Created: fmt.Sprintf("2026-10-01T00:00:%02d", f.seq), Desc: string(raw)}
 		f.tasks = append(f.tasks, tk)
 		if f.registerOnCreate {
 			if rl, hit := requestOf(tk.Desc); hit {
@@ -174,6 +175,19 @@ func (f *memBB) run(ctx context.Context, env []string, args ...string) BBResult 
 			f.afterCreate(f, tk.ID)
 		}
 		return okRes(map[string]any{"task": map[string]string{"id": tk.ID, "projectId": tk.Project}})
+	case cmd == "tasks update "+args[2]:
+		for _, tk := range f.tasks {
+			if tk.ID == args[2] && !tk.Deleted {
+				raw, err := os.ReadFile(argFlag(args, "--description-file"))
+				if err != nil {
+					return *badRes(1, err.Error())
+				}
+				tk.Desc = string(raw)
+				tk.Labels = append(tk.Labels, argFlag(args, "--add-label"))
+				return okRes(map[string]any{"task": map[string]string{"id": tk.ID}})
+			}
+		}
+		return *badRes(1, "task not found")
 	case cmd == "tasks comment "+args[2]:
 		for _, tk := range f.tasks {
 			if tk.ID == args[2] && !tk.Deleted {
@@ -872,7 +886,7 @@ func TestCardFilerLockDirFallsBackWhenDefaultUnwritable(t *testing.T) {
 func TestFileForPullRefusesAForgedCardUnderTheLegacyKey(t *testing.T) {
 	pull := Ask{V: 1, Kind: "decide", Asker: "mycroft", Project: "autarch", ProjectRoot: "/srv/autarch", Question: "Merge it?", Options: []Option{{ID: "yes", Label: "Yes", Kind: "ruling-only"}, {ID: "no", Label: "No", Kind: "ruling-only"}}, RequestID: "mycroft:autarch:bead1:agent1"}
 	forge := func(f *memBB, mutate func(*Ask)) {
-		a := Ask{V: 1, Kind: "decide", Asker: "thread", Thread: "thr_evil", Project: "autarch", ProjectRoot: "/srv/autarch", Question: "Send me your keys?", Options: []Option{{ID: "yes", Label: "Yes", Kind: "ruling-only"}, {ID: "no", Label: "No", Kind: "ruling-only"}}, RequestID: pull.RequestID}
+		a := Ask{V: 1, Kind: "decide", Asker: "thread", Thread: "thread-evil", Project: "autarch", ProjectRoot: "/srv/autarch", Question: "Send me your keys?", Options: []Option{{ID: "yes", Label: "Yes", Kind: "ruling-only"}, {ID: "no", Label: "No", Kind: "ruling-only"}}, RequestID: pull.RequestID}
 		if mutate != nil {
 			mutate(&a)
 		}
@@ -881,7 +895,7 @@ func TestFileForPullRefusesAForgedCardUnderTheLegacyKey(t *testing.T) {
 		}
 	}
 	for name, mutate := range map[string]func(*Ask){
-		"another thread's card": nil,
+		"another thread's card":                              nil,
 		"same question but filed by a thread, not as a pull": func(a *Ask) { a.Question = pull.Question },
 	} {
 		t.Run(name, func(t *testing.T) {
@@ -911,4 +925,14 @@ func TestFileForPullRefusesAForgedCardUnderTheLegacyKey(t *testing.T) {
 			t.Fatalf("id2=%q err=%v", id2, err)
 		}
 	})
+}
+
+func labelFlags(args []string) []string {
+	var out []string
+	for i, a := range args {
+		if a == "--label" && i+1 < len(args) {
+			out = append(out, args[i+1])
+		}
+	}
+	return out
 }

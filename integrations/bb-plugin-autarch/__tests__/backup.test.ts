@@ -81,11 +81,11 @@ describe("backup before migrate", () => {
     expect(row.backup_path).toBe(path);
     expect(row.digest).toBe(before.digest);
     expect(JSON.parse(row.table_counts_json!)).toMatchObject({ decisions: 2, notes: 1 });
-    const line = logs.find((l) => l.startsWith("autarch: schema 2 → 3;"));
+    const line = logs.find((l) => l.startsWith("autarch: schema 2 → 4;"));
     expect(line).toContain(`backup ${path} verified`);
     expect(line).toContain(`digest ${before.digest.slice(0, 12)}`);
     expect(line).toMatch(/integrity ok.*\d+ tables, \d+ rows/);
-    expect(readSchemaState(s.db)).toEqual({ schemaVersion: 3, minReaderVersion: 3 });
+    expect(readSchemaState(s.db)).toEqual({ schemaVersion: 4, minReaderVersion: 3 });
     // the hold is released: another connection can read and write
     const other = new Database(file, { timeout: 50 });
     other.prepare("UPDATE notes SET text = 'x' WHERE id = 'n1'").run();
@@ -337,17 +337,17 @@ describe("backup before migrate", () => {
       if (v === 2) {
         expect(probe.prepare("SELECT 1 FROM sqlite_master WHERE name IN ('cards','migration_log')").all()).toEqual([]);
       } else {
-        expect(v).toBe(3);
-        expect(probe.prepare("SELECT version FROM migration_log").all()).toEqual([{ version: 3 }]);
+        expect(v).toBe(4);
+        expect(probe.prepare("SELECT version FROM migration_log ORDER BY version").all()).toEqual([{ version: 3 }, { version: 4 }]);
       }
       outcomes[step] = v;
       probe.close();
       const s = new Store(new Database(file), { ...quick, migrate: { now: () => new Date(Date.now() + 120_000) } });
-      expect(readSchemaState(s.db).schemaVersion).toBe(3);
-      expect(s.db.prepare("SELECT COUNT(*) c FROM migration_log").get()).toEqual({ c: 1 });
+      expect(readSchemaState(s.db).schemaVersion).toBe(4);
+      expect(s.db.prepare("SELECT COUNT(*) c FROM migration_log").get()).toEqual({ c: 2 });
       s.close();
     }
-    expect(outcomes).toEqual({ "backup-written": 2, verified: 2, "ddl-applied": 2, committed: 3 });
+    expect(outcomes).toEqual({ "backup-written": 2, verified: 2, "ddl-applied": 2, committed: 4 });
   });
 
   it("a fresh database migrates with no backup, but still refuses while another connection is open", () => {
@@ -358,7 +358,7 @@ describe("backup before migrate", () => {
       backup_path: null,
       digest: null,
     });
-    expect(logs.some((l) => l.startsWith("autarch: schema 0 → 3; no backup"))).toBe(true);
+    expect(logs.some((l) => l.startsWith("autarch: schema 0 → 4; no backup"))).toBe(true);
     s.close();
 
     const file2 = join(t.dir, "fresh2.db");

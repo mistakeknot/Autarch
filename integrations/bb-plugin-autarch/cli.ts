@@ -5,10 +5,13 @@
 // delegation settings, and no verb here touches them [D-16]: only the RPC path, driven by mk's
 // own browser, can. Exit codes: 2 usage or validation, 3 not filed, 5 already ruled, replaced
 // or closed, 1 anything else.
+import { groupMoves } from "./moveselect.js";
 import { cliCommand, defineCli, type PluginCliContext, type PluginCliResult } from "@get-bb/plugin-sdk";
 import type { Asks, LifecycleResult } from "./asks.js";
 import type { Catchup } from "./catchup.js";
 import { parseAsk } from "./model.js";
+import { plainLine } from "./movereport.js";
+import { validScriptPath } from "./moves.js";
 import { buildQueue } from "./queueview.js";
 import type { PickResult, Service } from "./service.js";
 
@@ -20,13 +23,17 @@ export interface HomeCliParts {
   asks: Asks;
   catchup: Catchup;
   /** Rule on a decision as the vizier thread; the caller decides who may. */
-  rule: (decisionId: string, optionId: string, reason: string, ctx: { threadId?: string }) => PickResult;
+  rule: (decisionId: string, optionId: string, reason: string, ctx: { threadId?: string }) => PickResult | Promise<PickResult>;
+  /** Hand the vizier role to another thread. Only the current vizier may; the caller decides who. */
+  /** Sync stored-id recheck run right before a vizier write. */
+  stillVizier?: (threadId: string | undefined) => boolean;
+  handoff?: (to: string, ctx: { threadId?: string }) => Promise<{ ok: true; from: string; to: string } | { ok: false; status: number; error: string }>;
   /** Confirm a tasks project's binding to a Home project, as the vizier (who is logged). The caller decides who may. */
   bind?: (tasksProject: string, homeProject: string, by: string) => Promise<{ ok: true; tasks_project_id: string } | { ok: false; status: number; error: string }>;
   /** Remove a binding, as the vizier. */
   unbind?: (tasksProject: string, by: string) => Promise<{ ok: true; tasks_project_id: string; was: { home_project: string; state: string } } | { ok: false; status: number; error: string }>;
-  /** True when the thread is the configured vizier thread. */
-  isVizier: (threadId: string | undefined) => boolean;
+  /** True when the thread is the vizier, as the one resolver says (stored id, else the pinned-title fallback). */
+  isVizier: (threadId: string | undefined) => boolean | Promise<boolean>;
 }
 
 const out = (v: unknown): PluginCliResult => ({ exitCode: 0, stdout: JSON.stringify(v) });
@@ -135,6 +142,15 @@ export function homeCli(p: HomeCliParts) {
         },
       }),
 
+      moves: cliCommand({
+        summary: "Every Your move row with its claim, report and closing evidence (rollback export)",
+        options: { json: { type: "boolean", description: "Print JSON (the only format)." } },
+        run() {
+          const rows = svc.store.moves();
+          return out({ moves: rows, groups: groupMoves(rows) });
+        },
+      }),
+
       viewing: cliCommand({
         summary: "The ask Home last showed mk (the last selection only; read from this machine's plugin store)",
         options: { json: { type: "boolean", description: "Print JSON (the only format)." } },
@@ -210,7 +226,7 @@ export function homeCli(p: HomeCliParts) {
           { name: "home_project", description: "Home project name, as `autarch serve` lists it.", required: true },
         ],
         async run({ positionals }, ctx) {
-          if (!p.isVizier(ctx.threadId)) return err(1, "only the vizier thread may bind a project");
+          if (!(await p.isVizier(ctx.threadId))) return err(1, "only the vizier thread may bind a project");
           if (!p.bind) return err(1, "binding is not available");
           const r = await p.bind(positionals.tasks_project, positionals.home_project, ctx.threadId!);
           return r.ok ? out({ ok: true, tasks_project_id: r.tasks_project_id, home_project: positionals.home_project, state: "confirmed" }) : err(exitFor(r.status), r.error);
@@ -221,7 +237,7 @@ export function homeCli(p: HomeCliParts) {
         summary: "Vizier only: remove a project binding (undoes `bind`)",
         positionals: [{ name: "tasks_project", description: "Tasks project: id, key prefix or name.", required: true }],
         async run({ positionals }, ctx) {
-          if (!p.isVizier(ctx.threadId)) return err(1, "only the vizier thread may unbind a project");
+          if (!(await p.isVizier(ctx.threadId))) return err(1, "only the vizier thread may unbind a project");
           if (!p.unbind) return err(1, "binding is not available");
           const r = await p.unbind(positionals.tasks_project, ctx.threadId!);
           return r.ok ? out({ ok: true, tasks_project_id: r.tasks_project_id, was: r.was }) : err(exitFor(r.status), r.error);
@@ -235,10 +251,20 @@ export function homeCli(p: HomeCliParts) {
           { name: "option", description: "Option id.", required: true },
         ],
         options: { reason: { type: "string", required: true, description: "Why this option." } },
-        run({ positionals, options }, ctx) {
-          if (!p.isVizier(ctx.threadId)) return err(1, "only the vizier thread may rule");
-          const r = p.rule(positionals.id, positionals.option, options.reason, { threadId: ctx.threadId });
+        async run({ positionals, options }, ctx) {
+          if (!(await p.isVizier(ctx.threadId))) return err(1, "only the vizier thread may rule");
+          const r = await p.rule(positionals.id, positionals.option, options.reason, { threadId: ctx.threadId });
           return r.ok ? out({ ok: true, decision_id: positionals.id, option: r.pick.option_id }) : err(exitFor(r.status), r.error);
+        },
+      }),
+
+      handoff: cliCommand({
+        summary: "Vizier only: hand the vizier role to another thread (recorded; the successor must be live)",
+        positionals: [{ name: "thread", description: "The successor thread id, for example thr_abc123.", required: true }],
+        async run({ positionals }, ctx) {
+          if (!p.handoff) return err(1, "handoff is not available");
+          const r = await p.handoff(positionals.thread, { threadId: ctx.threadId });
+          return r.ok ? out({ ok: true, from: r.from, to: r.to }) : err(exitFor(r.status), r.error);
         },
       }),
 
@@ -255,12 +281,74 @@ export function homeCli(p: HomeCliParts) {
         },
       }),
 
+      report: cliCommand({
+        summary: "Record a script's report against the open Your move script row with that sha256 (display only; never closes the move)",
+        options: {
+          "script-sha256": { type: "string", description: "The 64-hex sha256 of the script that ran." },
+          "script-path": { type: "string", description: "The absolute path of the script that ran; must be the move's script path." },
+          result: { type: "string", description: "ok or failed." },
+          step: { type: "string", description: "The failing step, when failed." },
+          log: { type: "string", description: "Absolute path of the script's log." },
+          "report-id": { type: "string", description: "One id per run of the sender; sending the same id again changes nothing. Default: a fresh id per call." },
+        },
+        run({ options }) {
+          const sha = String(options["script-sha256"] ?? "");
+          const result = String(options.result ?? "");
+          const path = String(options["script-path"] ?? "");
+          if (!validScriptPath(path)) return err(2, "--script-path must be an absolute path of safe characters");
+          if (!/^[0-9a-f]{64}$/.test(sha)) return err(2, "--script-sha256 must be 64 lowercase hex digits");
+          if (result !== "ok" && result !== "failed") return err(2, "--result must be ok or failed");
+          const log = options.log === undefined ? null : String(options.log);
+          if (log !== null && !validScriptPath(log)) return err(2, "--log must be an absolute path of safe characters");
+          const step = options.step === undefined ? null : plainLine(String(options.step), 100) || null;
+          const rid = options["report-id"] === undefined ? crypto.randomUUID() : String(options["report-id"]);
+          if (!/^[A-Za-z0-9._:-]{1,64}$/.test(rid)) return err(2, "--report-id must be 1 to 64 of letters, digits and . _ : -");
+          const state = result === "ok" ? "succeeded" : "failed";
+          const at = svc.time();
+          const hits = svc.store.moves().filter((m) => {
+            if (m.kind !== "script" || m.state === "closed") return false;
+            try {
+              const sc = (JSON.parse(m.payload_json) as { script?: { sha256?: unknown; path?: unknown } }).script;
+              return sc?.sha256 === sha && sc?.path === path;
+            } catch {
+              return false;
+            }
+          });
+          let n = 0;
+          // Each run has its own id, so two runs with the same outcome are two reports (each failure wakes the owner).
+          // A retry of the same run carries the same id and is skipped, even after a later report replaced the display.
+          const reportId = `cli:${sha}:${rid}`;
+          for (const m of hits) {
+            const prev = m.report_json ? (JSON.parse(m.report_json) as { cli_ids?: string[]; cli_failed?: { id: string; step: string | null }[] }) : {};
+            const ids = prev.cli_ids ?? [];
+            if (ids.includes(reportId)) continue;
+            const done = svc.store.setMoveReport(m.task_id, m.generation, state, {
+              outcome: state,
+              failing_step: state === "failed" ? step : null,
+              error_line: null,
+              comment_id: reportId,
+              author: "report-tell",
+              thread_id: null,
+              report_link: log,
+              reported_at: at,
+              source: "cli",
+              cli_ids: [...ids, reportId],
+              cli_failed: state === "failed" ? [...(prev.cli_failed ?? []), { id: reportId, step }] : (prev.cli_failed ?? []),
+            });
+            if (done) n++;
+          }
+          return out({ ok: true, matched: n });
+        },
+      }),
+
       note: cliCommand({
         summary: "Vizier only: leave a note for mk that cites existing facts",
         positionals: [{ name: "text", description: "The note.", required: true }],
         options: { cites: { type: "string", repeatable: true, split: ",", description: "Ids of the facts the note cites." } },
-        run({ positionals, options }, ctx) {
-          if (!p.isVizier(ctx.threadId)) return err(1, "only the vizier thread may leave a note");
+        async run({ positionals, options }, ctx) {
+          if (!(await p.isVizier(ctx.threadId))) return err(1, "only the vizier thread may leave a note");
+          // Same continuation as the write: a handoff during the checks above ends this thread's authority.
+          if (p.stillVizier && !p.stillVizier(ctx.threadId)) return err(1, "only the vizier thread may leave a note");
           const r = p.catchup.addNote(positionals.text, options.cites);
           return r.ok ? out({ ok: true, id: r.id }) : err(2, r.error);
         },

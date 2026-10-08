@@ -607,10 +607,10 @@ different server. The script defends in three ways:
   launcher therefore exits 6 unless the launcher, its `.bash` body and `home-common.bash` are
   `root:root`, not group/other-writable, on a path whose every directory is root-owned and
   not group/other-writable (symlinks resolved first). Such a copy is made only by a generated package:
-  nothing in a checkout is ever run with sudo, piped to sudo, or read by root, because any mk-writable byte
+  nothing in a checkout is ever run with sudo, piped to sudo, or read by root, because any user-writable byte
   (a script, the `HEAD` ref, a Git replace ref) could be changed before the command runs. The only trusted
   source is a self-contained generated package: the coordinator, as mk, runs
-  `scripts/home-build-root-package.sh --commit <full 40-hex sha> [--thread thr_…]`. The generator refuses
+  `scripts/home-build-root-package.sh --commit <full 40-hex sha> --thread <id>`. The generator refuses
   anything but a full sha, checks `git --no-replace-objects cat-file -t` is `commit` and that `rev-parse` of
   the sha equals itself, reads the five files with `git --no-replace-objects cat-file blob <sha>:scripts/<f>`,
   and emits ONE `home-v3-run-<sha12>.sh` (`#!/bin/sh`, files embedded base64, each file's sha256 embedded in
@@ -621,13 +621,12 @@ different server. The script defends in three ways:
   with unexpected content; staged in a mktemp dir inside the root-owned parent, sha256 re-verified, then
   renamed), runs `home-upgrade-v3.sh --check` from that copy (installed copy and plugin build verified,
   nothing changed), and runs the real upgrade only with `--go`. Everything mk owns goes through
-  `runuser -u mk`. A `trap EXIT` reports success or failure to the baked-in thread (default
-  `thr_uqy4fzn88x`) via `/home/mk/.local/bin/bb thread tell`, printing the report if sending fails. The
+  `runuser -u mk`. A `trap EXIT` reports success or failure to the thread given by the required `--thread` via `bb thread tell`, printing the report if sending fails. The
   restore is a separate command printed at the end:
   `sudo /usr/local/libexec/home-v3-<sha12>/home-restore-v2.sh --thread … --repo … [--backup …]`.
   The launchers keep their ownership guard as defence in depth. Test-only `HOME_V3_TEST_DEST` (and
   `_BB`, `_LAUNCHER_ARGS`) redirect the install and are refused when the real euid is 0.
-  Tests: `__tests__/root-launcher.test.ts`. The real sudo path stays unprobed (bead mk-schu.4).
+  Tests: `__tests__/root-launcher.test.ts`. The real sudo path stays unprobed.
 
 ```sh
 #!/bin/sh
@@ -638,7 +637,7 @@ exec /usr/bin/env -i PATH=/usr/sbin:/usr/bin:/sbin:/bin /bin/bash --noprofile --
 ```bash
 # home-restore-v2.bash: body, started only by the home-restore-v2.sh launcher above.
 # Restores Home (the autarch bb plugin) to its pre-v3 backup.
-# Run on zklw from the root-owned copy: sudo /usr/local/libexec/home-v3/home-restore-v2.sh --thread <thr_…> --repo <Autarch checkout> [--backup <path>]
+# Run on the host from the root-owned copy: sudo /usr/local/libexec/home-v3/home-restore-v2.sh --thread <thr_…> --repo <Autarch checkout> [--backup <path>]
 set -euo pipefail
 BBDATA=/home/mk/.bb-machines/autarch.getbb.app      # constant; --bbdata only in test mode
 DATA=$BBDATA/plugins/autarch
@@ -1633,7 +1632,7 @@ bwrap --dev-bind / / --unshare-net --die-with-parent   --setenv HOME_E2E_OUTER_N
   still be picked through the bb-hosted v2 instance. Then `bb plugin disable autarch`, `bb
   plugin enable autarch`: v3 migrates, the log names the backup, and the legacy ask is listed
   (A11).
-  **bb-hosted v2 (mk-schu.5, verified on the owned rig).** The keep-previous path is a
+  **bb-hosted v2.** The keep-previous path is a
   *reload* path. `bb plugin install` of v3 over a running v2 does not reach it: bb's install
   disposes the running instance first (closing its database), so v3 would just migrate. Every
   `upgrade-quiesce` record carries `v2_instance_hosted_by: "bb-plugin-instance"`,

@@ -133,7 +133,7 @@ export class Catchup {
       item: p.item,
       kind: "delegated" as const,
       at: p.at,
-      ...(p.decision ? { decision: p.decision, project: this.dec(p.decision)?.project, text: `The vizier ruled on ${this.title(p.decision)}.` } : { text: "Delegation settings changed." }),
+      ...(p.decision ? { decision: p.decision, project: this.dec(p.decision)?.project, text: `The vizier ruled on ${this.title(p.decision)}.` } : { text: p.text ?? "Delegation settings changed." }),
     }));
 
     const groups = new Map<string, CatchupItem>();

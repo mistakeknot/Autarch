@@ -1,6 +1,6 @@
 # home-upgrade-v3.bash: body, started only by the home-upgrade-v3.sh launcher.
 # Upgrades Home (the autarch bb plugin) to the v3 build: disable, verify no holder, install, enable.
-# Run on zklw only from the root-owned copy installed by the generated home-v3-run-<sha12>.sh package (scripts/home-build-root-package.sh); never run a checkout copy with sudo.
+# Run on the host only from the root-owned copy installed by the generated home-v3-run-<sha12>.sh package (scripts/home-build-root-package.sh); never run a checkout copy with sudo.
 # Arguments: --thread <thr_...> --plugin <v3 build dir> [--check: verify the install and plugin dir, change nothing]
 # Tested in test mode by integrations/bb-plugin-autarch/__tests__/restore-script.test.ts (Task 2.8a); the sudo
 # launch itself is unprobed (bead mk-schu.4): mk's dry run covers it.
@@ -42,7 +42,7 @@ else
   if [ -n "$HOLDERS" ]; then
     say "Home still holds the DB; re-enabling the existing build. Holders:"
     say "$HOLDERS"
-    say "(bb's plugin-state snapshot may hold it open: bead mk-schu.2)"
+    say "(bb's plugin-state snapshot may hold it open)"
     "${AS[@]}" "$BB" plugin enable autarch || true
     exit 3
   fi

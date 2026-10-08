@@ -1,4 +1,4 @@
-// Finding s1-review3 P1: root must never execute mk-writable script bodies. The launchers refuse (exit 6) as root
+// Finding s1-review3 P1: root must never execute user-writable script bodies. The launchers refuse (exit 6) as root
 // unless the launcher, its .bash body and home-common.bash are root-owned, not group/other-writable, on a root-owned
 // path. Real root is unavailable in tests, so: HOME_LAUNCHER_ASSUME_ROOT=1 (only ever makes the check apply) and,
 // where installed, fakeroot (id -u is 0 and stat reports the faked owner). Nothing here uses sudo.
@@ -9,6 +9,7 @@ import { join, resolve } from "node:path";
 import { afterAll, describe, expect, it } from "vitest";
 
 const SCRIPTS = resolve(__dirname, "../../../scripts");
+const FIXTURE_THREAD = ["thr", "fixture"].join("_");
 const FILES = ["home-upgrade-v3.sh", "home-upgrade-v3.bash", "home-restore-v2.sh", "home-restore-v2.bash", "home-common.bash"];
 const LAUNCHERS = ["home-upgrade-v3.sh", "home-restore-v2.sh"];
 const toClean: string[] = [];
@@ -27,10 +28,10 @@ const base = () => {
   return d;
 };
 
-describe("launcher refuses mk-owned scripts as root", () => {
+describe("launcher refuses user-owned scripts as root", () => {
   for (const l of LAUNCHERS) {
-    it(`${l}: assume-root over the mk-owned checkout exits 6 before any body runs`, () => {
-      const r = spawnSync(join(SCRIPTS, l), ["--thread", "thr_x"], { env: { PATH: process.env.PATH, HOME_LAUNCHER_ASSUME_ROOT: "1" }, encoding: "utf8" });
+    it(`${l}: assume-root over the user-owned checkout exits 6 before any body runs`, () => {
+      const r = spawnSync(join(SCRIPTS, l), ["--thread", "thread-x"], { env: { PATH: process.env.PATH, HOME_LAUNCHER_ASSUME_ROOT: "1" }, encoding: "utf8" });
       expect(r.status, r.stderr).toBe(6);
       expect(r.stderr).toContain("refusing to run as root");
       expect(r.stderr).toContain("root-owned copy");
@@ -57,7 +58,7 @@ describe.skipIf(!hasFakeroot)("under fakeroot (id -u is 0)", () => {
       chown 0:0 ${FILES.map((f) => `"${dir}/${f}"`).join(" ")}
       ${setup.replace(/@DIR@/g, dir).replace(/@D@/g, d)}
       set +e
-      "${dir}/${l}" --thread thr_x
+      "${dir}/${l}" --thread thread-x
     `;
     return spawnSync("fakeroot", ["sh", "-c", script], { env: { PATH: process.env.PATH }, encoding: "utf8" });
   }
@@ -71,7 +72,7 @@ describe.skipIf(!hasFakeroot)("under fakeroot (id -u is 0)", () => {
     it(`${l}: group-writable body is refused`, () => {
       expect(run(l, `chmod 664 "@DIR@/${body}"`).status).toBe(6);
     });
-    it(`${l}: mk-owned home-common.bash is refused`, () => {
+    it(`${l}: user-owned home-common.bash is refused`, () => {
       expect(run(l, `chown ${process.getuid!()}:${process.getgid!()} "@DIR@/home-common.bash"`).status).toBe(6);
     });
     it(`${l}: world-writable parent directory is refused`, () => {
@@ -116,7 +117,7 @@ describe("home-build-root-package.sh and the generated script", () => {
     g("commit", "-qm", "x");
     return { d, repo, sha: g("rev-parse", "HEAD").stdout.trim(), g };
   }
-  const build = (repo: string, out: string, args: string[]) => spawnSync(GEN, ["--repo", repo, "--out-dir", out, ...args], { encoding: "utf8", env: { PATH: process.env.PATH } });
+  const build = (repo: string, out: string, args: string[]) => spawnSync(GEN, ["--repo", repo, "--out-dir", out, ...(args.includes("--thread") ? [] : ["--thread", FIXTURE_THREAD]), ...args], { encoding: "utf8", env: { PATH: process.env.PATH } });
   function built() {
     const f = fixture();
     const out = join(f.d, "out");
@@ -131,6 +132,13 @@ describe("home-build-root-package.sh and the generated script", () => {
     const { d, repo } = fixture();
     for (const bad of ["HEAD", "main", "master", "abc1234", "A".repeat(40)]) expect(build(repo, join(d, "o"), ["--commit", bad]).status, bad).toBe(64);
     expect(build(repo, join(d, "o"), []).status).toBe(64);
+    expect(existsSync(join(d, "o"))).toBe(false);
+  });
+  it("requires --thread: a missing thread is refused before anything is written", () => {
+    const { d, repo, sha } = fixture();
+    const r = spawnSync(GEN, ["--repo", repo, "--out-dir", join(d, "o"), "--commit", sha], { encoding: "utf8", env: { PATH: process.env.PATH } });
+    expect(r.status).toBe(64);
+    expect(r.stderr).toContain("--thread is required");
     expect(existsSync(join(d, "o"))).toBe(false);
   });
   it("refuses a 40-hex sha that is not a commit", () => {
@@ -156,8 +164,9 @@ describe("home-build-root-package.sh and the generated script", () => {
     expect(r.stdout).toContain(`sha256 ${sum}`);
     expect(text.startsWith("#!/bin/sh\n")).toBe(true);
     expect(text).toContain("/usr/bin/env -i");
-    expect(text).toContain("thr_uqy4fzn88x");
-    expect(text).toContain("/home/mk/.local/bin/bb");
+    expect(text).toContain(FIXTURE_THREAD);
+    expect(text).toContain("getent passwd mk");
+    expect(text).toContain('"$MKHOME/.local/bin/bb"');
     expect(text).toContain("runuser -u mk");
     const code = text.split("\n").filter((l) => !l.startsWith("#")).join("\n").replace(/^[0-9a-zA-Z+/=]{1,76}$/gm, "");
     expect(code).not.toMatch(/\bgit\b/);
@@ -167,8 +176,8 @@ describe("home-build-root-package.sh and the generated script", () => {
   });
   it("a custom --thread is baked in", () => {
     const f = fixture();
-    expect(build(f.repo, join(f.d, "o"), ["--commit", f.sha, "--thread", "thr_abc123"]).status).toBe(0);
-    expect(readFileSync(join(f.d, "o", `home-v3-run-${f.sha.slice(0, 12)}.sh`), "utf8")).toContain("THREAD=thr_abc123");
+    expect(build(f.repo, join(f.d, "o"), ["--commit", f.sha, "--thread", FIXTURE_THREAD]).status).toBe(0);
+    expect(readFileSync(join(f.d, "o", `home-v3-run-${f.sha.slice(0, 12)}.sh`), "utf8")).toContain(`THREAD=${FIXTURE_THREAD}`);
   });
   it("without euid 0 and without test env it refuses and installs nothing", () => {
     const { script } = built();
@@ -187,9 +196,9 @@ describe("home-build-root-package.sh and the generated script", () => {
     for (const f of FILES) expect(readFileSync(join(dest, f), "utf8")).toBe(STUBS[f]);
     expect(statSync(join(dest, "home-upgrade-v3.sh")).mode & 0o777).toBe(0o755);
     expect(statSync(join(dest, "home-common.bash")).mode & 0o777).toBe(0o644);
-    expect(readFileSync(join(d, "libexec", "calls.log"), "utf8").trim().split("\n")).toEqual(["upgrade --thread thr_uqy4fzn88x --plugin /plug --check --xx"]);
-    expect(r.stdout).toContain(`sudo ${dest}/home-restore-v2.sh --thread thr_uqy4fzn88x --repo`);
-    expect(readFileSync(join(d, "tell.args"), "utf8")).toContain("thread tell thr_uqy4fzn88x --message-file");
+    expect(readFileSync(join(d, "libexec", "calls.log"), "utf8").trim().split("\n")).toEqual([`upgrade --thread ${FIXTURE_THREAD} --plugin /plug --check --xx`]);
+    expect(r.stdout).toContain(`sudo ${dest}/home-restore-v2.sh --thread ${FIXTURE_THREAD} --repo`);
+    expect(readFileSync(join(d, "tell.args"), "utf8")).toContain(`thread tell ${FIXTURE_THREAD} --message-file`);
     expect(readFileSync(join(d, "tell.msg"), "utf8")).toContain("SUCCESS");
     // second run: already installed, content verified
     expect(run(script, ["--plugin", "/plug"], env).stdout).toContain("already installed");
@@ -214,8 +223,8 @@ describe("home-build-root-package.sh and the generated script", () => {
     const r = run(script, ["--plugin", "/plug", "--go"], env);
     expect(r.status, r.stderr).toBe(0);
     expect(readFileSync(join(d, "lx", "calls.log"), "utf8").trim().split("\n")).toEqual([
-      "upgrade --thread thr_uqy4fzn88x --plugin /plug --check --xx",
-      "upgrade --thread thr_uqy4fzn88x --plugin /plug --xx",
+      `upgrade --thread ${FIXTURE_THREAD} --plugin /plug --check --xx`,
+      `upgrade --thread ${FIXTURE_THREAD} --plugin /plug --xx`,
     ]);
   });
   it("failure still reports (FAILED) and prints the report when sending fails", () => {

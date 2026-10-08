@@ -292,7 +292,7 @@ describe("bb home list shows cards Home flags", () => {
     await r.poll();
     const rows = JSON.parse((await go(["list", "--json"])).stdout!) as { id: string; task_id: string; display_only?: boolean; display_reason?: string }[];
     const flagged = rows.find((x) => x.task_id === c.t.id);
-    expect(flagged).toMatchObject({ id: `card:${c.t.id}`, display_only: true, thread: "thr_a" });
+    expect(flagged).toMatchObject({ id: `card:${c.t.id}`, display_only: true, thread: ["thr", "a"].join("_") });
     expect(flagged!.display_reason).toMatch(/^Request line missing/);
     expect(JSON.parse((await go(["list", "--pull", "mycroft"])).stdout!)).toEqual([]);
   });
@@ -390,5 +390,111 @@ describe("bb home bind / unbind (vizier only, logged)", () => {
     const res = await run(["bind", "tp-1", "Autarch"], { threadId: VIZ });
     expect(res.exitCode).toBe(1);
     expect(res.stderr).toMatch(/not available/);
+  });
+});
+
+describe("bb home handoff", () => {
+  const handoffCli = (isVizier: (t: string | undefined) => boolean) => {
+    const calls: { to: string; ctx: { threadId?: string } }[] = [];
+    const cli = homeCli({
+      svc,
+      asks: new Asks(svc),
+      catchup: new Catchup(svc, dele),
+      rule: (id, option, reason, ctx) => dele.rule(id, option, reason, ctx),
+      isVizier,
+      handoff: async (to, ctx) => {
+        calls.push({ to, ctx });
+        return ctx.threadId === "thr_old" ? { ok: true as const, from: "thr_old", to } : { ok: false as const, status: 403, error: "only the vizier thread may hand off" };
+      },
+    });
+    return { calls, run: (argv: string[], ctx: { threadId?: string } = {}) => Promise.resolve(cli.run(argv, ctx)) };
+  };
+
+  it("passes the caller's thread and prints the move; a refusal carries its message", async () => {
+    const h = handoffCli(() => false);
+    const ok = await h.run(["handoff", "thr_new"], { threadId: "thr_old" });
+    expect(ok.exitCode).toBe(0);
+    expect(JSON.parse(ok.stdout!)).toEqual({ ok: true, from: "thr_old", to: "thr_new" });
+    const no = await h.run(["handoff", "thr_new"], { threadId: "thr_x" });
+    expect(no.exitCode).not.toBe(0);
+    expect(no.stderr).toMatch(/only the vizier thread may hand off/);
+    expect(h.calls.map((c) => c.ctx.threadId)).toEqual(["thr_old", "thr_x"]);
+  });
+
+  it("an awaited async isVizier gates bind, unbind, rule and note", async () => {
+    const h = handoffCli(() => false);
+    for (const argv of [["rule", "d1", "o", "--reason", "r"], ["note", "hello"]]) {
+      const r = await h.run(argv, { threadId: "thr_x" });
+      expect(r.exitCode).toBe(1);
+      expect(r.stderr).toMatch(/only the vizier/);
+    }
+  });
+
+  it("note rechecks the stored vizier right before writing: a handoff during the async check ends its authority", async () => {
+    let stored = "thr_old";
+    const cli = homeCli({
+      svc,
+      asks: new Asks(svc),
+      catchup: new Catchup(svc, dele),
+      rule: (id, option, reason, ctx) => dele.rule(id, option, reason, ctx),
+      isVizier: async (t) => {
+        await Promise.resolve();
+        const ok = t === stored;
+        stored = "thr_new"; // the handoff lands after the check resolves
+        return ok;
+      },
+      stillVizier: (t) => t === stored,
+    });
+    const r = await Promise.resolve(cli.run(["note", "hello"], { threadId: "thr_old" }));
+    expect(r.exitCode).toBe(1);
+    expect(r.stderr).toMatch(/only the vizier/);
+  });
+});
+
+describe("home report", () => {
+  const SHA = "a".repeat(64);
+  const open = (sha = SHA) => svc.store.openMove({ task_id: "T1", generation: 1, kind: "script", payload: { script: { path: "/x/s.sh", sha256: sha, args: [], recover: null } }, opened_by: "card" } as never);
+  const rep = (...a: string[]) => run(["report", "--script-path", "/x/s.sh", ...a]);
+  it("records an ok report on the open script row and leaves the move open", async () => {
+    open();
+    const r = await rep("--script-sha256", SHA, "--result", "ok", "--log", "/tmp/s.log");
+    expect(r.exitCode).toBe(0);
+    expect(JSON.parse(r.stdout!)).toEqual({ ok: true, matched: 1 });
+    const m = svc.store.move("T1", 1)!;
+    expect(m.state).toBe("open");
+    expect(m.report_state).toBe("succeeded");
+  });
+  it("a failed report keeps the step and the log link", async () => {
+    open();
+    await rep("--script-sha256", SHA, "--result", "failed", "--step", "migrate", "--log", "/tmp/s.log");
+    const m = svc.store.move("T1", 1)!;
+    expect(m.report_state).toBe("failed");
+    expect(JSON.parse(m.report_json!)).toMatchObject({ failing_step: "migrate", report_link: "/tmp/s.log" });
+  });
+  it("an unmatched sha changes nothing and says so", async () => {
+    open();
+    const r = await rep("--script-sha256", "b".repeat(64), "--result", "ok");
+    expect(JSON.parse(r.stdout!)).toEqual({ ok: true, matched: 0 });
+    expect(svc.store.move("T1", 1)!.report_state).toBeNull();
+  });
+  it("a retry of the same run is a no-op even after a later report; a new run with the same outcome is its own report", async () => {
+    open();
+    await rep("--script-sha256", SHA, "--result", "failed", "--step", "s", "--report-id", "run1");
+    await rep("--script-sha256", SHA, "--result", "ok", "--report-id", "run2");
+    await rep("--script-sha256", SHA, "--result", "failed", "--step", "s", "--report-id", "run1"); // delayed retry
+    expect(svc.store.move("T1", 1)!.report_state).toBe("succeeded");
+    await rep("--script-sha256", SHA, "--result", "failed", "--step", "s", "--report-id", "run3");
+    expect(svc.store.move("T1", 1)!.report_state).toBe("failed");
+    expect(JSON.parse(svc.store.move("T1", 1)!.report_json!).comment_id).toContain("run3");
+  });
+  it("a wrong path matches nothing", async () => {
+    open();
+    const r = await run(["report", "--script-path", "/other.sh", "--script-sha256", SHA, "--result", "ok"]);
+    expect(JSON.parse(r.stdout!).matched).toBe(0);
+  });
+  it("refuses a bad sha, a bad result and an unsafe log path", async () => {
+    expect((await rep("--script-sha256", "zz", "--result", "ok")).exitCode).toBe(2);
+    expect((await rep("--script-sha256", SHA, "--result", "maybe")).exitCode).toBe(2);
+    expect((await rep("--script-sha256", SHA, "--result", "ok", "--log", "rel; rm -rf /")).exitCode).toBe(2);
   });
 });

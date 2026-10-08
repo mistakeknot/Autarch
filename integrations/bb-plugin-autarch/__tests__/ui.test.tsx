@@ -8,7 +8,7 @@ vi.mock("@get-bb/plugin-sdk/app", () => ({
 }));
 
 import { BlocksPanel, BlocksRow, groupRows, QueueRefresher, type QueueRowView, type QueueView } from "../ui/blocks.js";
-import { ageText, AsksPanel, currentAsk, isOldAsk, buildAsksView, PickController, pickOutcome, type AsksData } from "../ui/asks.js";
+import { ageText, AsksPanel, optionEffect, currentAsk, isOldAsk, buildAsksView, PickController, pickOutcome, type AsksData } from "../ui/asks.js";
 import { CatchupPanel, observeVisibility, SeenTracker, snapshotIds, type CatchupEntry } from "../ui/catchup.js";
 import { MapPlaceholder } from "../ui/map-placeholder.js";
 import { BindingsPanel, parseDelegationForm, SettingsPanel } from "../ui/settings.js";
@@ -49,7 +49,7 @@ const data = (over: Partial<AsksData> = {}): AsksData => ({
 });
 
 describe("Asks ordering", () => {
-  it("puts mk-action items first: decide, runbook, then stalled, then waiting", () => {
+  it("puts operator-action items first: decide, runbook, then stalled, then waiting", () => {
     const view = buildAsksView(
       data({
         owed: [ask()],
@@ -74,19 +74,31 @@ describe("Asks ordering", () => {
     expect(without).not.toContain("data-task-key");
   });
 
-  it("renders the question, the mention count, each option with its kind and reversible mark, and the instruction exactly", () => {
+  it("renders the question, the mention count and one effect line per option, with no instruction box or kind label", () => {
     const html = renderToStaticMarkup(<AsksPanel data={data({ owed: [ask({ mentions: 2 })] })} onPick={() => {}} onOpen={() => {}} />);
     expect(html).toContain("Which day?");
     expect(html).toContain("also mentioned in 2 threads");
-    expect(html).toContain("instruction");
-    expect(html).toContain("needs-context");
-    expect(html.match(/data-reversible-label="true">reversible</g)?.length).toBe(1);
-    expect(html.match(/data-reversible-label="true">not reversible</g)?.length).toBe(1);
-    expect(html.match(/data-reversible="true"/g)?.length).toBe(1);
-    expect(html.match(/data-reversible="false"/g)?.length).toBe(1);
-    expect(html).toContain("Ship on the day &lt;b&gt;exactly&lt;/b&gt; &amp; tell mk");
+    expect(html).not.toContain("what the agent is told");
+    expect(html).not.toContain("<details");
+    expect(html).not.toContain("needs-context</span>");
+    expect(html).toContain("Tells thr-a: Ship on the day &lt;b&gt;exactly&lt;/b&gt; &amp; tell mk");
+    expect(html).toContain("Asks you for the missing context first, then tells thr-a. Cannot be undone.");
+    expect(html.match(/data-effect/g)?.length).toBe(2);
     expect(html).toContain("sent to thr-a as written; the agent acts on it under its own permissions");
     expect(html).toContain("recommended");
+  });
+
+  it("optionEffect is never empty, only an irreversible option line says so, and a ruling-only option has no instruction footer", () => {
+    expect(optionEffect({ kind: "ruling-only" }, "t")).toBe("Records your pick only; nothing is sent.");
+    expect(optionEffect({ kind: "ruling-only", reversible: true }, "t")).toBe("Records your pick only; nothing is sent.");
+    expect(optionEffect({ kind: "instruction", instruction: "   " }, "t")).toBe("Records your pick only; nothing is sent. Cannot be undone.");
+    expect(optionEffect({ kind: "instruction", instruction: "First. Second." }, "t")).toBe("Tells t: First. Cannot be undone.");
+    expect(optionEffect({ kind: "instruction", instruction: "x".repeat(300) }, "t").length).toBeLessThan(170);
+    const html = renderToStaticMarkup(
+      <AsksPanel data={data({ owed: [ask({ ask: { question: "Q?", options: [{ id: "a", label: "Not now", kind: "ruling-only" }, { id: "b", label: "Later", kind: "ruling-only" }] } })] })} onPick={() => {}} onOpen={() => {}} />,
+    );
+    expect(html).toContain("Records your pick only; nothing is sent.");
+    expect(html).not.toContain("An instruction is sent");
   });
 
   it("lists every ask as a short row with project, age and recommendation, and shows the first in full", () => {
@@ -600,7 +612,7 @@ describe("root-run section (Task 2.8)", () => {
   });
 });
 
-describe("unbound projects in settings (mk-okek)", () => {
+describe("unbound projects in settings", () => {
   it("lists a project with cards and no binding row, with a picker of serve projects and a Confirm", () => {
     const html = renderToStaticMarkup(
       <BindingsPanel bindings={[]} unbound={[{ tasks_project_id: "tp9", cards: 2, targets: ["Sylveste"] }]} serveProjects={["Autarch", "Sylveste"]} inactive={[]} legacyCount={0} onBind={() => {}} />,
@@ -623,7 +635,7 @@ describe("unbound picker default", () => {
   });
 });
 
-describe("pickOutcome: a failed pick is shown, never swallowed (H-UX, q171)", () => {
+describe("pickOutcome: a failed pick is shown, never swallowed", () => {
   it("ok result is ok", async () => {
     expect(await pickOutcome(Promise.resolve({ ok: true }))).toEqual({ ok: true });
   });

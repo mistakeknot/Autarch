@@ -357,7 +357,7 @@ func TestBuildAskRejectsNonObjectJSON(t *testing.T) {
 					t.Fatalf("buildAsk(%s) panicked: %v", raw, r)
 				}
 			}()
-			_, err := buildAsk([]byte(raw), "thr_a", "", "/srv/x", "x")
+			_, err := buildAsk([]byte(raw), "thread-a", "", "/srv/x", "x")
 			var ue *usageError
 			if !errors.As(err, &ue) {
 				t.Fatalf("buildAsk(%s) = %v, want a usageError", raw, err)

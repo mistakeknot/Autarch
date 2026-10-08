@@ -10,7 +10,7 @@ import { sourceSha256 } from "../scripts/source-hash.mjs";
 
 const cfg: HomeConfig = { serveAddr: "127.0.0.1:8110", serveTokenFile: "/nope", serveProjectDirs: [], autarchBin: "autarch" };
 
-function fakeBb() {
+function fakeBb(threads: object = {}) {
   const events = new Map<string, ((p: unknown) => unknown)[]>();
   const services: string[] = [];
   const disposers: (() => void)[] = [];
@@ -23,7 +23,7 @@ function fakeBb() {
     events: { on: (name: string, fn: (p: unknown) => unknown) => events.set(name, [...(events.get(name) ?? []), fn]) },
     agents: { configure: (fn: typeof configure) => (configure = fn) },
     cli: { register: (r: typeof cli) => (cli = r) },
-    sdk: { threads: {} },
+    sdk: { threads },
   };
   return { bb: bb as never, events, services, disposers, configure: () => configure, cli: () => cli };
 }
@@ -37,10 +37,10 @@ describe("wireHome", () => {
     const f = fakeBb();
     const home = wireHome(f.bb, handle, cfg, { serve });
     expect([...f.events.keys()].sort()).toEqual(["message.cancelled", "message.dispatched", "thread.archived", "thread.deleted", "turn.failed"]);
-    expect(f.services.sort()).toEqual(["home-delegation-check", "home-feed-refresh", "home-queue", "home-wakes"]);
+    expect(f.services.sort()).toEqual(["home-card-comments", "home-delegation-check", "home-feed-refresh", "home-move-poll", "home-move-reports", "home-queue", "home-wakes"]);
     expect(f.configure()).toBeTypeOf("function");
     expect(f.cli()).toBeDefined();
-    expect(Object.keys(home.handlers).sort()).toEqual(["catchup", "dismiss", "health", "listAsks", "listRecent", "markAllSeen", "markSeen", "override", "pick", "queue", "resend", "revokeApproval", "rootRun", "setBinding", "setDelegation", "setViewing", "stats"]);
+    expect(Object.keys(home.handlers).sort()).toEqual(["catchup", "checkMove", "claimMove", "conversation", "conversationUnread", "dismiss", "health", "listAsks", "listRecent", "markAllSeen", "markConversationSeen", "markSeen", "moves", "note", "override", "pick", "queue", "resend", "revokeApproval", "rootRun", "setBinding", "setDelegation", "setViewing", "skipMove", "stats"]);
     f.disposers.forEach((d) => d());
   });
 
@@ -182,5 +182,30 @@ describe("wireHome", () => {
     } finally {
       env.cleanup();
     }
+  });
+
+  it("the vizier fallback reads every thread even when the host caps a page below the requested size", async () => {
+    const row = (id: string, over: Record<string, unknown> = {}) => ({  id, title: "work", pinnedAt: null, archivedAt: null, deletedAt: null, ...over });
+    const all = Array.from({ length: 130 }, (_, i) => row(`thr_${i}`));
+    const run = async (extra: ReturnType<typeof row>[]) => {
+      const rows = [...all, ...extra];
+      const threads = {
+        // a host that never returns more than 40 rows per page
+        list: async (o: { limit: number; offset: number }) => rows.slice(o.offset, o.offset + Math.min(o.limit, 40)),
+        get: async ({ threadId }: { threadId: string }) => rows.find((r) => r.id === threadId) ?? null,
+      };
+      const db = new Database(":memory:");
+      const handle = createStoreHandle(() => db, {});
+      const f = fakeBb(threads);
+      wireHome(f.bb, handle, cfg, { serve });
+      const r = await f.cli()!.run(["handoff", "thr_5"], { threadId: "thr_vizier" });
+      f.disposers.forEach((d) => d());
+      return JSON.stringify(r);
+    };
+    // the one pinned vizier thread sits past the first pages: found, so its handoff goes through
+    expect(await run([row("thr_vizier", { title: "Masaq' | vizier", pinnedAt: 1 })])).toContain('\\"from\\":\\"thr_vizier\\",\\"to\\":\\"thr_5\\"');
+    // a second pinned match hiding past the first pages makes the fallback refuse
+    const two = await run([row("thr_vizier", { title: "Masaq' | vizier", pinnedAt: 1 }), row("thr_other", { title: "Masaq' | vizier two", pinnedAt: 2 })]);
+    expect(two).toContain("2 pinned, unarchived threads match");
   });
 });

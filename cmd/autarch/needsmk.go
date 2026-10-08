@@ -24,7 +24,7 @@ import (
 var newCardFiler = func() *homeask.CardFiler { return &homeask.CardFiler{Timeout: filerTimeout} }
 
 // checkFilingPreconditions runs before anything is created: serve must be up and the ask's
-// project_root must be the root it resolves for the ask's project (mk-okek.19, .20). Tests replace it.
+// project_root must be the root it resolves for the ask's project. Tests replace it.
 var checkFilingPreconditions = func(project, root string) error {
 	ps, err := serve.FetchProjects(serveURL(), serveTokenPath(), serveProbeTimeout)
 	if err != nil {
@@ -71,6 +71,7 @@ func needsMkCmd() *cobra.Command {
 		SilenceErrors: true,
 	}
 	cmd.AddCommand(needsMkFileCmd())
+	cmd.AddCommand(needsMkAdoptMoveCmd())
 	return cmd
 }
 
@@ -108,8 +109,86 @@ func parseRootRunFlag(v string) (*homeask.RootRun, error) {
 	return &homeask.RootRun{Script: vals["script"], SHA256: hex.EncodeToString(sum[:]), Timeout: n, Set: vals["set"]}, nil
 }
 
+// readMoveFile reads a home-move/v1 JSON file (at most 16 KiB) and validates it with the strict parser the
+// plugin uses, so a move Home would show as display-only is refused here. Nothing in it is executed.
+func readMoveFile(path string) (map[string]any, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return nil, &usageError{"--move: " + err.Error()}
+	}
+	raw, err := io.ReadAll(io.LimitReader(f, 16*1024+1))
+	f.Close()
+	if err != nil {
+		return nil, &usageError{"--move: " + err.Error()}
+	}
+	if len(raw) > 16*1024 {
+		return nil, &usageError{"--move is over 16 KiB"}
+	}
+	mv, err := homeask.ParseMove(string(raw))
+	if err != nil {
+		return nil, &usageError{"--move is not a valid home-move/v1: " + err.Error()}
+	}
+	return mv.Raw, nil
+}
+
+// moveOnlyAsk is the minimal ruling-only ask a move card carries when the filer gave none: the card needs a
+// home-ask block to be a card, and mk's pick keeps the card open until independent evidence closes the move.
+func moveOnlyAsk(title string) map[string]any {
+	return map[string]any{
+		"question": strings.TrimSpace(title),
+		"options": []any{
+			map[string]any{"id": "noted", "label": "Noted", "kind": "ruling-only"},
+			map[string]any{"id": "not-now", "label": "Not now", "kind": "ruling-only"},
+		},
+	}
+}
+
+func needsMkAdoptMoveCmd() *cobra.Command {
+	var card, moveFile string
+	cmd := &cobra.Command{
+		Use:   "adopt-move",
+		Short: "Attach a home-move/v1 block to a card this thread already filed; prints the card as one JSON line",
+		Long: `Run inside the asking thread ($BB_THREAD_ID is required). --card is the tasks card id and --move is a
+home-move/v1 JSON file (kind script, pr, read or context). The card must already parse as a Home card and
+must have been filed from this thread. The block is validated with the same strict parser Home uses, the
+card gets the mk-move label, and nothing in the file is executed. Adopting the same move again changes
+nothing; a different move on the same card is refused.
+
+Exit codes: 2 usage or refused, 3 Home or tasks unavailable.`,
+		Args:         cobra.NoArgs,
+		SilenceUsage: true,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			thread := os.Getenv("BB_THREAD_ID")
+			if thread == "" {
+				return &usageError{"BB_THREAD_ID is required: run inside the asking bb thread"}
+			}
+			if card == "" || moveFile == "" {
+				return &usageError{"--card and --move are required"}
+			}
+			mv, err := readMoveFile(moveFile)
+			if err != nil {
+				return err
+			}
+			ctx := cmd.Context()
+			if ctx == nil {
+				ctx = context.Background()
+			}
+			res, err := newCardFiler().AdoptMove(ctx, card, thread, mv)
+			if err != nil {
+				return err
+			}
+			out, _ := json.Marshal(res)
+			fmt.Fprintln(cmd.OutOrStdout(), string(out))
+			return nil
+		},
+	}
+	cmd.Flags().StringVar(&card, "card", "", "Tasks card id")
+	cmd.Flags().StringVar(&moveFile, "move", "", "home-move/v1 JSON file")
+	return cmd
+}
+
 func needsMkFileCmd() *cobra.Command {
-	var project, title, askFile, rootRun, request string
+	var project, title, askFile, rootRun, request, moveFile string
 	var blocks []string
 	cmd := &cobra.Command{
 		Use:   "file",
@@ -117,6 +196,9 @@ func needsMkFileCmd() *cobra.Command {
 		Long: `Run inside the asking thread ($BB_THREAD_ID is required): the filer posts the
 routing comment from it. --project is the tasks project. --ask-file is a JSON object with
 question, options and optionally subject, recommendation, ask_key, project and project_root.
+--move is a home-move/v1 JSON file (script, pr, read or context): the card carries it as a home-move block
+and gets the mk-move label. With --move, --ask-file may be left out and the card carries a minimal
+ruling-only ask. Nothing in the move is executed; Home derives commands from its validated fields.
 
 Exit codes: 2 usage or refused, 3 Home or tasks unavailable (nothing created), 4 card created
 but the routing comment failed (re-run the same command), 5 already ruled (mk picked an option for this request).`,
@@ -127,27 +209,38 @@ but the routing comment failed (re-run the same command), 5 already ruled (mk pi
 			if thread == "" {
 				return &usageError{"BB_THREAD_ID is required: run inside the asking bb thread"}
 			}
-			if project == "" || title == "" || askFile == "" {
-				return &usageError{"--project, --title and --ask-file are required"}
+			if project == "" || title == "" || (askFile == "" && moveFile == "") {
+				return &usageError{"--project, --title and --ask-file are required (--ask-file may be left out with --move)"}
 			}
-			f, err := os.Open(askFile)
-			if err != nil {
-				return &usageError{"--ask-file: " + err.Error()}
-			}
-			raw, err := io.ReadAll(io.LimitReader(f, 16*1024+1))
-			f.Close()
-			if err != nil {
-				return &usageError{"--ask-file: " + err.Error()}
-			}
-			if len(raw) > 16*1024 {
-				return &usageError{"--ask-file is over 16 KiB"}
+			var move map[string]any
+			if moveFile != "" {
+				var err error
+				if move, err = readMoveFile(moveFile); err != nil {
+					return err
+				}
 			}
 			var ask map[string]any
-			if err := json.Unmarshal(raw, &ask); err != nil {
-				return &usageError{"--ask-file is not a JSON object: " + err.Error()}
-			}
-			if ask == nil {
-				return &usageError{"--ask-file is not a JSON object: got null"}
+			if askFile == "" {
+				ask = moveOnlyAsk(title)
+			} else {
+				f, err := os.Open(askFile)
+				if err != nil {
+					return &usageError{"--ask-file: " + err.Error()}
+				}
+				raw, err := io.ReadAll(io.LimitReader(f, 16*1024+1))
+				f.Close()
+				if err != nil {
+					return &usageError{"--ask-file: " + err.Error()}
+				}
+				if len(raw) > 16*1024 {
+					return &usageError{"--ask-file is over 16 KiB"}
+				}
+				if err := json.Unmarshal(raw, &ask); err != nil {
+					return &usageError{"--ask-file is not a JSON object: " + err.Error()}
+				}
+				if ask == nil {
+					return &usageError{"--ask-file is not a JSON object: got null"}
+				}
 			}
 			if _, ok := ask["project_root"]; !ok {
 				ask["project_root"] = gitRoot()
@@ -170,7 +263,7 @@ but the routing comment failed (re-run the same command), 5 already ruled (mk pi
 				fmt.Fprintln(cmd.ErrOrStderr(), "warning:", warn)
 			}
 			ask["project"] = bound
-			req := homeask.CardRequest{Project: project, Title: title, Blocks: blocks, Ask: ask, Key: request, Thread: thread}
+			req := homeask.CardRequest{Project: project, Title: title, Blocks: blocks, Ask: ask, Move: move, Key: request, Thread: thread}
 			if rootRun != "" {
 				if req.RootRun, err = parseRootRunFlag(rootRun); err != nil {
 					return err
@@ -196,6 +289,7 @@ but the routing comment failed (re-run the same command), 5 already ruled (mk pi
 	cmd.Flags().StringVar(&title, "title", "", "Card title")
 	cmd.Flags().StringArrayVar(&blocks, "blocks", nil, "Blocks ref (bead:ID, thread:thr_ID, project:ID); repeatable")
 	cmd.Flags().StringVar(&askFile, "ask-file", "", "JSON file with the ask")
+	cmd.Flags().StringVar(&moveFile, "move", "", "home-move/v1 JSON file: what mk owes (script, pr, read or context); adds the mk-move label")
 	cmd.Flags().StringVar(&rootRun, "root-run", "", "script=<abs path>,timeout=<seconds>,set=<name>")
 	cmd.Flags().StringVar(&request, "request", "", "Request key (default: derived from thread and ask)")
 	return cmd
