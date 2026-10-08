@@ -643,7 +643,6 @@ export class Service {
     return r.ok ? { ok: true } : { ok: false, reason: r.reason };
   }
 
-<<<<<<< HEAD
   // ---- holds: the vizier greys a card out while its script or question is superseded. Kept in one settings_kv value
   // (no schema change). A hold hides the card from "needs you now"; it never closes, rules or edits the card.
   private readHolds(): Record<string, Hold> {
@@ -713,9 +712,6 @@ export class Service {
   }
 
   /** The tasks key of a card (for example PROJ-24), or null for a legacy ask or a card without one. */
-=======
-  /** The tasks key of a card (for example PROJ-24), or null for a legacy ask or a card without one. */
->>>>>>> home-task-key
   cardKey(taskId: string | null | undefined): string | null {
     if (!taskId) return null;
     const r = this.db.prepare("SELECT card_key FROM cards WHERE task_id = ?").get(taskId) as { card_key: string | null } | undefined;
