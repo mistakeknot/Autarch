@@ -194,7 +194,7 @@ func TestBuildOrchestratorQueueHoldsACardFiler(t *testing.T) {
 			return homeask.BBResult{Stdout: []byte(`{"labels":[{"name":"needs-mk"}]}`)}
 		case "tasks project list":
 			return homeask.BBResult{Stdout: []byte(`{"projects":[{"id":"TP1","name":"x"}]}`)}
-		case "tasks list --project":
+		case "tasks list --status":
 			return homeask.BBResult{Stdout: []byte(`{"tasks":[],"nextCursor":null}`)}
 		case "tasks create --project":
 			return homeask.BBResult{Stdout: []byte(`{"task":{"id":"T9","projectId":"TP1"}}`)}
