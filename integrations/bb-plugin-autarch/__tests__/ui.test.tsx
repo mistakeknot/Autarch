@@ -123,7 +123,7 @@ describe("Asks ordering", () => {
     const html = renderToStaticMarkup(
       <AsksPanel
         nowMs={now}
-        data={data({ owed: [ask({ filed_at: "2026-10-06T07:00:00Z" }), ask({ id: "dec2", subject: "Old one", filed_at: "2026-10-01T10:00:00Z", ask: { question: "Second?", options: [{ id: "x", label: "X", kind: "ruling-only" }] } })] })}
+        data={data({ owed: [ask({ filed_at: "2026-10-06T07:00:00Z" }), ask({ id: "dec2", subject: "Old one", project: "Other", filed_at: "2026-10-01T10:00:00Z", ask: { question: "Second?", options: [{ id: "x", label: "X", kind: "ruling-only" }] } })] })}
         onPick={() => {}}
         onOpen={() => {}}
       />,
@@ -140,6 +140,15 @@ describe("Asks ordering", () => {
     expect(html.match(/data-old-ask/g)?.length).toBe(1);
     expect(html).toContain("Which day?");
     expect(html).not.toContain("Second?");
+  });
+
+  it("hides the project line when every ask is from one project, and keeps rows tall enough to tap", () => {
+    const html = renderToStaticMarkup(
+      <AsksPanel nowMs={Date.parse("2026-10-06T10:00:00Z")} data={data({ owed: [ask({}), ask({ id: "dec2", subject: "Another" })] })} onPick={() => {}} onOpen={() => {}} />,
+    );
+    expect(html).not.toContain("data-ask-project");
+    expect(html.match(/<li><button[^>]*class="[^"]*\bmin-h-11\b/g)?.length).toBe(2);
+    expect(html).toMatch(/max-sm:line-clamp-3[^"]*sm:truncate/);
   });
 
   it("says the instruction boilerplate once per card, not once per option", () => {

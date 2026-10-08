@@ -33,6 +33,7 @@ import type { QueueView } from "./ui/blocks.js";
 import { withoutOwed } from "./ui/blocks.js";
 import { BindingsPanel, SettingsPanel } from "./ui/settings.js";
 import { keyAction, layoutStack, stackReducer, StackView } from "./ui/stack.js";
+import { HomeTabs } from "./ui/tabs.js";
 import type { Panel, StackState } from "./ui/stack.js";
 import { HOME_SOURCE } from "./ui/identity.js";
 import { TellVizier, ThreadPanel, VizierPanel } from "./ui/vizier.js";
@@ -448,7 +449,7 @@ function HomePage() {
               ["Since you left", { id: "catchup", kind: "catchup", title: "Catch-up" }],
             ] as const).map(([heading, p]) => (
               <section key={p.id} aria-label={heading} className="border-b border-border">
-                <h2 className="px-4 pt-3 text-xs font-semibold uppercase text-muted-foreground">{heading}</h2>
+                <h2 className="px-2 pt-2 text-xs font-semibold uppercase text-muted-foreground sm:px-4 sm:pt-3">{heading}</h2>
                 {render(p)}
               </section>
             ))}
@@ -533,27 +534,7 @@ function HomePage() {
   return (
     <ConversationProvider value={conversation}>
     <div className="flex h-full min-h-0 flex-1 flex-col" data-home-source={HOME_SOURCE}>
-      <nav className="flex gap-3 border-b border-border px-4 py-2 text-sm">
-        {(
-          [
-            ["queue", "decision", "Queue"],
-            ...(classic ? ([["asks", "decision", "Asks"], ["blocks", "decision", "Blocking"], ["catchup", "catchup", "Catch-up"]] as const) : []),
-            ["vizier", "vizier", "Vizier"],
-            ["map", "map", "Map"],
-            ["settings", "settings", "Settings"],
-          ] as const
-        ).map(([id, kind, title]) => (
-          <button key={id} type="button" className="underline-offset-2 hover:underline" onClick={() => push({ id, kind, title })}>
-            {title}
-          </button>
-        ))}
-        <button type="button" className="ml-auto text-muted-foreground" aria-pressed={classic} onClick={toggleClassic}>
-          Classic tabs
-        </button>
-        <button type="button" className="text-muted-foreground" onClick={() => nav.toPluginPanel("example-todos")}>
-          Todos
-        </button>
-      </nav>
+      <HomeTabs classic={classic} onOpen={push} onToggleClassic={toggleClassic} onTodos={() => nav.toPluginPanel("example-todos")} />
       <StackView placed={layoutStack(stack)} render={render} onExpand={push} />
     </div>
     </ConversationProvider>

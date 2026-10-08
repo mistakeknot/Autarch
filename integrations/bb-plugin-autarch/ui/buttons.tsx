@@ -6,7 +6,7 @@ import type { ButtonHTMLAttributes } from "react";
 export type ButtonTone = "default" | "recommended" | "destructive" | "quiet";
 
 const BASE =
-  "inline-flex min-h-8 cursor-pointer items-center justify-center gap-1 rounded-md border px-3 py-1 text-sm font-medium transition-colors " +
+  "inline-flex min-h-11 sm:min-h-8 cursor-pointer items-center justify-center gap-1 rounded-md border px-3 py-1 text-sm font-medium transition-colors " +
   "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 " +
   "disabled:cursor-not-allowed disabled:opacity-50";
 
