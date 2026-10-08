@@ -484,6 +484,33 @@ const emptyLegacy = { count: 0, owed: [], runbook: [], machine: { lane: [], asks
 const q = (rows: QueueRowView[], legacy = emptyLegacy): QueueView => ({ rows, legacy, bindings: [], inactive_projects: [] });
 const panel = (v: QueueView, thread?: string) => renderToStaticMarkup(<BlocksPanel data={v} nowMs={NOW} {...(thread ? { thread } : {})} onPick={() => {}} onOpen={() => {}} />);
 
+describe("held display-only card", () => {
+  const held = { reason: "script superseded", by: "thr_viz", at: "2026-10-07T00:00:00.000Z" };
+  const flagged = row({ id: "card:h", decision_id: null, ask: null, revision: null, display_only: true, display_reason: "no home-ask block", title: "Held prose card", held });
+
+  it("shows the hold reason beside the display reason, with no pick controls", () => {
+    const html = renderToStaticMarkup(<BlocksRow row={flagged} nowMs={NOW} onPick={() => {}} onOpen={() => {}} />);
+    expect(html).toContain("On hold: script superseded");
+    expect(html).toContain("display only: no home-ask block");
+    expect(html).toContain("opacity-60");
+    expect(html).not.toContain("data-option");
+  });
+
+  it("is placed under On hold, not among the live rows", () => {
+    const html = panel(q([flagged, row({ id: "live", title: "Live row" })]));
+    const heldAt = html.indexOf("Held prose card");
+    expect(html).toContain("On hold");
+    expect(heldAt).toBeGreaterThan(html.indexOf("On hold"));
+    expect(html.indexOf("Live row")).toBeLessThan(html.indexOf("On hold"));
+  });
+
+  it("stays out of Needs you now (hideHeld asks panel)", () => {
+    const html = renderToStaticMarkup(<AsksPanel hideHeld data={data({ owed: [ask({ id: "h", subject: "Held prose card", held })] })} onPick={() => {}} onOpen={() => {}} />);
+    expect(html).not.toContain("Held prose card");
+    expect(html).not.toContain("On hold");
+  });
+});
+
 describe("blocks panel", () => {
   it("renders rows in server order and pins this thread's cards in their own section first", () => {
     const html = panel(q([row({ id: "p", pinned: true, title: "pinned one" }), row({ id: "r", title: "rest one" })]), "thr-a");
