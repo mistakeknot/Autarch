@@ -205,6 +205,24 @@
    "body": "{\"schema\":\"home-move/v1\",\"kind\":\"pr\",\"pr\":{\"url\":\"https://github.com/a/b/pull/1\",\"why\":\"whim\",\"review_url\":\"https://evil.example/x\"}}",
    "error": "pr why must be one of design, taste, spend",
    "kind": null
+  },
+  {
+   "name": "read url dot segment",
+   "body": "{\"schema\":\"home-move/v1\",\"kind\":\"read\",\"read\":{\"url\":\"https://github.com/a/../b\"}}",
+   "error": "read url must be in canonical form",
+   "kind": null
+  },
+  {
+   "name": "read url encoded dot segment",
+   "body": "{\"schema\":\"home-move/v1\",\"kind\":\"read\",\"read\":{\"url\":\"https://github.com/a/%2e%2e/b\"}}",
+   "error": "read url must be in canonical form",
+   "kind": null
+  },
+  {
+   "name": "read url single dot",
+   "body": "{\"schema\":\"home-move/v1\",\"kind\":\"read\",\"read\":{\"url\":\"https://github.com/a/./b\"}}",
+   "error": "read url must be in canonical form",
+   "kind": null
   }
  ]
 }

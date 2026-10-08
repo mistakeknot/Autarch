@@ -114,6 +114,18 @@ func moveReadHostAllowed(host string) bool {
 	return false
 }
 
+// moveHasDotSegment reports a "." or ".." path segment, including percent-encoded dots, which the URL class
+// in the plugin normalizes away (so the plugin rejects them as non-canonical).
+func moveHasDotSegment(escaped string) bool {
+	for _, seg := range strings.Split(escaped, "/") {
+		switch strings.ToLower(seg) {
+		case ".", "..", "%2e", ".%2e", "%2e.", "%2e%2e":
+			return true
+		}
+	}
+	return false
+}
+
 func moveReadURL(v any) error {
 	s, ok := v.(string)
 	if !ok || len(s) > 2048 {
@@ -127,7 +139,7 @@ func moveReadURL(v any) error {
 	if u.Scheme != "https" || !moveReadHostAllowed(u.Hostname()) || u.User != nil || u.Port() != "" || u.Host != u.Hostname() {
 		return errors.New("read url must be https on an allowed host")
 	}
-	if u.String() != s || u.Path == "" {
+	if u.String() != s || u.Path == "" || moveHasDotSegment(u.EscapedPath()) {
 		return errors.New("read url must be in canonical form")
 	}
 	return nil
