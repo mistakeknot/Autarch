@@ -217,17 +217,19 @@ export class ReportWatcher {
           if (r && !(await reporterOk(c.threadId))) r = null; // mirrored as a comment, never a report
           if (r) matches.push({ c, r, link });
         }
-        // Order is by what the sweep has read, never by clock: `seen` lists the card comments already taken into account.
-        const stored = m.report_json ? (JSON.parse(m.report_json) as { comment_id?: string; outcome?: string; seen?: string[]; cli_ids?: string[]; source?: string }) : null;
-        const seen = new Set(stored?.seen ?? (stored && stored.source !== "cli" && stored.comment_id ? [stored.comment_id] : []));
-        const fresh = matches.filter((x) => !seen.has(x.c.id));
-        const found = fresh.length > 0 ? fresh[fresh.length - 1]! : null; // display uses the latest one not read before
+        const found = matches.length > 0 ? matches[matches.length - 1]! : null; // display uses the latest
+        const stored = m.report_json ? (JSON.parse(m.report_json) as { comment_id?: string; source?: string; reported_at?: string; cli_failed?: { id: string; step: string | null }[]; cli_ids?: string[] }) : null;
         let state = m.report_state;
-        // A failure the CLI recorded wakes the owner even if a card comment then replaces it on the display.
-        if (stored?.source === "cli" && stored.outcome === "failed" && stored.comment_id) {
-          if (await this.wakeOnce(m, "failed", this.wakeText(m, s, "failed", stored as unknown as ParsedReport), stored.comment_id)) stats.wakes++;
+        // The CLI and the card run on one host's clock. A report the CLI recorded stands against a card comment that is not newer
+        // than it (an old success must not hide a new failure); a newer card comment replaces it.
+        const cliAt = stored?.source === "cli" ? Date.parse(stored.reported_at ?? "") : NaN;
+        const older = found !== null && !Number.isNaN(cliAt) && Date.parse(found.c.createdAt) <= cliAt;
+        // Each failure the CLI recorded wakes the owner under its own key, even once a later report has replaced it on the display;
+        // the dedup makes a replay free and lets an unrouted wake be retried.
+        for (const f of stored?.cli_failed ?? []) {
+          if (await this.wakeOnce(m, "failed", this.wakeText(m, s, "failed", { failing_step: f.step, error_line: null } as unknown as ParsedReport), f.id)) stats.wakes++;
         }
-        if (found) {
+        if (found && !older && stored?.comment_id !== found.c.id) {
           state = found.r.outcome;
           this.store.setMoveReport(m.task_id, m.generation, state, {
             outcome: found.r.outcome,
@@ -239,14 +241,11 @@ export class ReportWatcher {
             report_link: found.link,
             reported_at: found.c.createdAt,
             source: found.link ? "file" : "comment",
-            seen: matches.map((x) => x.c.id),
             cli_ids: stored?.cli_ids ?? [],
+            cli_failed: stored?.cli_failed ?? [],
           });
           stats.reports++;
-        } else if (stored && matches.length > 0 && (stored.seen ?? []).length < matches.length && stored.source === "cli") {
-          // Nothing new, but remember what has been read so a later sweep cannot mistake it for newer than the CLI report.
-          this.store.setMoveReport(m.task_id, m.generation, m.report_state as "succeeded" | "failed", { ...(stored as object), seen: matches.map((x) => x.c.id) } as never);
-        } else if (matches.length === 0 && m.report_state === null && m.state === "claimed" && m.report_deadline_at !== null && now > m.report_deadline_at) {
+        } else if (!found && m.report_state === null && m.state === "claimed" && m.report_deadline_at !== null && now > m.report_deadline_at) {
           state = "no-report";
           this.store.setMoveReport(m.task_id, m.generation, "no-report", { deadline_at: m.report_deadline_at });
         }

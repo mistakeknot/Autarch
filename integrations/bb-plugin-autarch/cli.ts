@@ -302,7 +302,7 @@ export function homeCli(p: HomeCliParts) {
           // A retry of the same run carries the same id and is skipped, even after a later report replaced the display.
           const reportId = `cli:${sha}:${rid}`;
           for (const m of hits) {
-            const prev = m.report_json ? (JSON.parse(m.report_json) as { cli_ids?: string[]; seen?: string[] }) : {};
+            const prev = m.report_json ? (JSON.parse(m.report_json) as { cli_ids?: string[]; cli_failed?: { id: string; step: string | null }[] }) : {};
             const ids = prev.cli_ids ?? [];
             if (ids.includes(reportId)) continue;
             const done = svc.store.setMoveReport(m.task_id, m.generation, state, {
@@ -315,8 +315,8 @@ export function homeCli(p: HomeCliParts) {
               report_link: log,
               reported_at: at,
               source: "cli",
-              cli_ids: [...ids, reportId].slice(-50),
-              seen: prev.seen ?? [], // card comments the sweep had already read stay read; later ones are newer
+              cli_ids: [...ids, reportId].slice(-200),
+              cli_failed: state === "failed" ? [...(prev.cli_failed ?? []), { id: reportId, step }].slice(-20) : (prev.cli_failed ?? []),
             });
             if (done) n++;
           }

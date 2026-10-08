@@ -222,17 +222,28 @@ describe("report watcher", () => {
     comment(r, t.id, `${SCRIPT} ${SHA}\nRESULT: OK`);
     const w = watcher(r);
     expect(await w.sweep()).toMatchObject({ reports: 1 });
-    // The CLI failure lands with a clock behind the card's: order is by what the sweep read, not by time.
-    r.svc.store.setMoveReport(t.id, 1, "failed", { outcome: "failed", failing_step: "build", error_line: null, comment_id: "cli:x:1", author: "report-tell", thread_id: null, report_link: null, reported_at: new Date(r.env.clock.t - 3_600_000).toISOString(), source: "cli", cli_ids: ["cli:x:1"], seen: JSON.parse(r.svc.store.move(t.id, 1)!.report_json!).seen } as never);
+    // The CLI failure is newer than the card success (reported_at an hour ahead of the comment).
+    r.svc.store.setMoveReport(t.id, 1, "failed", { outcome: "failed", failing_step: "build", error_line: null, comment_id: "cli:x:1", author: "report-tell", thread_id: null, report_link: null, reported_at: new Date(r.env.clock.t + 3_600_000).toISOString(), source: "cli", cli_ids: ["cli:x:1"], cli_failed: [{ id: "cli:x:1", step: "build" }] } as never);
     expect(await w.sweep()).toMatchObject({ reports: 0, wakes: 1 });
     expect(r.svc.store.move(t.id, 1)).toMatchObject({ state: "open", report_state: "failed" });
     expect(JSON.parse(r.svc.store.move(t.id, 1)!.report_json!)).toMatchObject({ source: "cli", failing_step: "build" });
     // A newer card comment then does replace it, and the CLI failure's wake is not lost.
-    r.advance(1000);
+    r.advance(7_200_000);
     comment(r, t.id, `${SCRIPT} ${SHA}\nRESULT: OK`);
     expect(await w.sweep()).toMatchObject({ reports: 1, wakes: 0 });
     expect(r.svc.store.move(t.id, 1)!.report_state).toBe("succeeded");
     expect(wakes(r)).toHaveLength(1);
+  });
+
+  it("two CLI failures recorded before one sweep wake the owner twice, and a replay adds nothing", async () => {
+    const r = rig();
+    const t = await withMove(r, scriptMove());
+    r.advance(1000);
+    r.svc.store.setMoveReport(t.id, 1, "succeeded", { outcome: "succeeded", comment_id: "cli:x:3", source: "cli", reported_at: new Date(r.env.clock.t).toISOString(), cli_ids: ["cli:x:1", "cli:x:2", "cli:x:3"], cli_failed: [{ id: "cli:x:1", step: "a" }, { id: "cli:x:2", step: "b" }] } as never);
+    const w = watcher(r);
+    expect(await w.sweep()).toMatchObject({ wakes: 2 });
+    expect(await w.sweep()).toMatchObject({ wakes: 0 });
+    expect(await watcher(r).sweep()).toMatchObject({ wakes: 0 });
   });
 
   it("ignores reports for another script, older than the move, or written by Home", async () => {
