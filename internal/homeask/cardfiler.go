@@ -359,6 +359,19 @@ func cardEnv(thread string) []string {
 	return env
 }
 
+// unscopedEnv is cardEnv without the project context. bb defaults an unfiltered `tasks list` to the
+// tasks project linked to BB_PROJECT_ID, which would hide a card filed in another project.
+func unscopedEnv(thread string) []string {
+	env := cardEnv(thread)
+	out := env[:0:0]
+	for _, kv := range env {
+		if !strings.HasPrefix(kv, "BB_PROJECT_ID=") {
+			out = append(out, kv)
+		}
+	}
+	return out
+}
+
 func (f *CardFiler) exec(ctx context.Context, env []string, args ...string) BBResult {
 	if f.Run != nil {
 		return f.Run(ctx, env, args...)
@@ -410,7 +423,11 @@ func (r BBResult) text() string {
 
 // call runs bb and decodes its JSON stdout into out. Any failure is "unavailable".
 func (f *CardFiler) call(ctx context.Context, thread string, out any, args ...string) error {
-	r := f.exec(ctx, cardEnv(thread), args...)
+	return f.callEnv(ctx, cardEnv(thread), out, args...)
+}
+
+func (f *CardFiler) callEnv(ctx context.Context, env []string, out any, args ...string) error {
+	r := f.exec(ctx, env, args...)
 	if r.failed() {
 		return fmt.Errorf("%w: bb %s: %s", ErrHomeDown, strings.Join(args[:min(len(args), 3)], " "), r.text())
 	}
@@ -541,26 +558,20 @@ type found struct {
 
 // search is step 2.4: every tasks project, every page, exact key. It returns nil when no card
 // carries the key. Any failure is ErrHomeDown, so nothing is created on an incomplete read.
+// `bb tasks list` without --project searches every project in one call, so the cost of a search
+// is one bb process per page plus one per hit, however many projects exist.
 func (f *CardFiler) search(ctx context.Context, key string) (*found, error) {
-	var projects struct {
-		Projects []struct {
-			ID string `json:"id"`
-		} `json:"projects"`
-	}
-	if err := f.call(ctx, "", &projects, "tasks", "project", "list", "--json"); err != nil {
-		return nil, err
-	}
 	exact := regexp.MustCompile(`(?m)^Request: ` + regexp.QuoteMeta(key) + `(?:[^A-Za-z0-9:_.-]|$)`)
 	var keep []*found
 	seen := map[string]bool{}
-	for _, p := range projects.Projects {
+	{
 		cursor := ""
 		seenCursor := map[string]bool{}
 		for page := 0; ; page++ {
 			if page >= maxPages {
 				return nil, fmt.Errorf("%w: tasks search did not finish", ErrHomeDown)
 			}
-			args := []string{"tasks", "list", "--project", p.ID, "--status", searchStatuses, "--search", "Request: " + key, "--limit", pageLimit}
+			args := []string{"tasks", "list", "--status", searchStatuses, "--search", "Request: " + key, "--limit", pageLimit}
 			if cursor != "" {
 				args = append(args, "--cursor", cursor)
 			}
@@ -569,7 +580,7 @@ func (f *CardFiler) search(ctx context.Context, key string) (*found, error) {
 				Tasks      []taskRow `json:"tasks"`
 				NextCursor *string   `json:"nextCursor"`
 			}
-			if err := f.call(ctx, "", &res, args...); err != nil {
+			if err := f.callEnv(ctx, unscopedEnv(""), &res, args...); err != nil {
 				return nil, err
 			}
 			for _, t := range res.Tasks {

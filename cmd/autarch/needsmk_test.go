@@ -65,7 +65,7 @@ func (s *stubBB) run(_ context.Context, env []string, args ...string) homeask.BB
 		return j(`{"task":{"id":"T1"}}`)
 	case "tasks project list":
 		return j(`{"projects":[{"id":"P1","name":"P1"}]}`)
-	case "tasks list --project":
+	case "tasks list --status":
 		if s.card {
 			return j(`{"tasks":[{"id":"T1","projectId":"P1","description":` + strconv.Quote(s.desc) + `}],"nextCursor":null}`)
 		}
