@@ -76,7 +76,7 @@ export interface V2Fixture {
   steps: string;
   /** Owned by thr-own, with a progress report from thr-own. */
   machine: string;
-  /** mk picked it; the ruling file is still pending (the project root was read-only at pick time). */
+  /** The operator picked it; the ruling file is still pending (the project root was read-only at pick time). */
   picked: string;
   /** The vizier picked it (ruling file written). */
   delegated: string;

@@ -60,7 +60,7 @@ or until mk rules otherwise.
 | The ask as filed (title, question, options, Blocks refs, Request, root-run tuple) | **tasks card**, label `needs-mk` | **Untrusted and mutable.** Any same-uid agent can edit any card, so Home never treats the card as the ruling's content. |
 | Who asked | **The earliest `kind:"agent"` comment on the card** | The tasks server sets `threadId` from the CLI context (`cli/index.ts:1856`). One selector, `askingThread(comments)`, is used everywhere: ingest, filer replay and the root-run hand-off (§1.3). `authorName` is never read: RPC comments always say "You" (`api/index.ts:828`). |
 | Agents' own work | **beads** | Unchanged. |
-| Immutable ask generations, picks, revision gate, ruling files, delegation, overrides, catch-up, wakes, card write-backs, interim approvals | **Home layer** (`bb.storage.database()`) | Keyed by `task.id` (ULID) and a generation number. The card key (e.g. `AUTA-2`) is display only. |
+| Immutable ask generations, picks, revision gate, ruling files, delegation, overrides, catch-up, wakes, card write-backs, interim approvals | **Home layer** (`bb.storage.database()`) | Keyed by `task.id` (ULID) and a generation number. The card key (e.g. `PROJ-2`) is display only. |
 | Request → canonical card | **Home `card_requests` registry** (insert-once) | It is separate from card observations, which are not unique (§1.3.3). |
 | tasks project → Home project | **Home `project_bindings`** (mk-confirmed) | Delegation scope and ruling scope are one key, the Home project name (§1.3.6). |
 | Pre-v3 asks | **Home legacy lane** | Drained in place, without migrating them to cards (§1.3.7). |
