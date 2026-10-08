@@ -65,3 +65,12 @@ prototypes/*/target/
 .clavain/**/*.db-wal
 # the built binary at the repo root, not cmd/autarch-registry/
 /autarch-registry
+
+# Agent run outputs (review findings, handoffs, triage and decision logs): kept on
+# disk, not published. Curated .clavain content (learnings/, contracts/) may be tracked.
+.clavain/scratch/
+.clavain/quality-gates/
+.clavain/intercept/
+.clavain/interflux/
+.clavain/sdd/
+docs/research/flux-drive/
