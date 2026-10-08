@@ -142,6 +142,7 @@ export function BlocksRow({ row, nowMs, onPick, onOpen, rootRun, onBind, onNote 
             {row.card_key ? `Open ${row.card_key} in Tasks to fix it. ` : ""}
             {row.thread ? <button type="button" className="underline" onClick={() => onOpen(row.thread!)}>{row.thread}</button> : null}
           </p>
+          {row.held ? <p className="text-xs" data-hold-reason>{`On hold: ${row.held.reason}`}</p> : null}
         </div>
       ) : row.held ? (
         <div data-held="true">
