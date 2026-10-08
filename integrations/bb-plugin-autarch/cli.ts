@@ -34,6 +34,8 @@ export interface HomeCliParts {
   unbind?: (tasksProject: string, by: string) => Promise<{ ok: true; tasks_project_id: string; was: { home_project: string; state: string } } | { ok: false; status: number; error: string }>;
   /** True when the thread is the vizier, as the one resolver says (stored id, else the pinned-title fallback). */
   isVizier: (threadId: string | undefined) => boolean | Promise<boolean>;
+  /** Thread endings and stale open tasks over the window (traceability.ts); omitted, stats reports only Home's own counts. */
+  traceability?: (since: string) => Promise<unknown>;
 }
 
 const out = (v: unknown): PluginCliResult => ({ exitCode: 0, stdout: JSON.stringify(v) });
@@ -157,8 +159,10 @@ export function homeCli(p: HomeCliParts) {
           since: { type: "duration", defaultUnit: "d", default: 14 * DAY_MS, description: "Window, default 14d." },
           json: { type: "boolean", description: "Print JSON (the only format)." },
         },
-        run({ options }) {
-          return out(svc.stats(new Date(Date.parse(svc.time()) - options.since).toISOString()));
+        async run({ options }) {
+          const since = new Date(Date.parse(svc.time()) - options.since).toISOString();
+          const stats = svc.stats(since);
+          return out(p.traceability ? { ...stats, traceability: await p.traceability(since) } : stats);
         },
       }),
 

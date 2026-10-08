@@ -33,7 +33,8 @@ import { CommentPoller, conversationView, openTaskIds, unreadCounts } from "./co
 import { rootRun } from "./rootrun.js";
 import { buildQueue, removeBinding, setBinding } from "./queueview.js";
 import { hasNoteMarker, Service } from "./service.js";
-import { TasksClient, type PluginsLike } from "./tasks.js";
+import { OPEN_STATUSES, TasksClient, type PluginsLike } from "./tasks.js";
+import { listAllThreads, traceability, type ThreadLike } from "./traceability.js";
 import { createStoreHandle, type Store, type StoreHandle } from "./store.js";
 import { sdkAdapter, WakeLoop, type ThreadsLike, type WakeSdk } from "./wakes.js";
 
@@ -268,6 +269,16 @@ export function wireHome(bb: BbPluginApi, handle: StoreHandle, cfg: HomeConfig, 
         afterBindingChange(t.id);
         return { ok: true as const, tasks_project_id: t.id, was: r.was };
       },
+      traceability: (since) =>
+        traceability(
+          {
+            listProjects: () => (tasksRef ? tasksRef.listProjects() : Promise.reject(new Error("tasks unavailable"))),
+            listOpenTasks: (projectId) => tasksRef!.listTasks({ projectId, statuses: OPEN_STATUSES }),
+            listThreads: () => listAllThreads(async (a) => (await bb.sdk.threads.list(a)) as unknown as (ThreadLike & { deletedAt?: unknown })[]),
+            output: async (threadId) => ((await bb.sdk.threads.output({ threadId })) as { output: string | null }).output,
+          },
+          { since, now: need().svc.time() },
+        ),
       isVizier: async (t) => {
         if (t === undefined || parts === null) return false;
         const r = await parts.dele.resolveVizier();
