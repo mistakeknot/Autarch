@@ -235,6 +235,24 @@ describe("report watcher", () => {
     expect(wakes(r)).toHaveLength(1);
   });
 
+  it("a CLI failure recorded while the sweep reads comments is not overwritten by the older card success", async () => {
+    const r = rig();
+    const t = await withMove(r, scriptMove());
+    r.advance(1000);
+    comment(r, t.id, `${SCRIPT} ${SHA}\nRESULT: OK`);
+    const w = new ReportWatcher({
+      svc: r.svc,
+      listComments: async (id) => {
+        const rows = r.fake.comments.filter((c) => c.taskId === id) as never;
+        r.svc.store.setMoveReport(t.id, 1, "failed", { outcome: "failed", failing_step: "build", error_line: null, comment_id: "cli:x:1", author: "report-tell", thread_id: null, report_link: null, reported_at: new Date(r.env.clock.t + 60_000).toISOString(), source: "cli", cli_ids: ["cli:x:1"], cli_failed: [{ id: "cli:x:1", step: "build" }] } as never);
+        return rows;
+      },
+    });
+    expect(await w.sweep()).toMatchObject({ reports: 0, wakes: 1 });
+    expect(r.svc.store.move(t.id, 1)).toMatchObject({ report_state: "failed" });
+    expect(JSON.parse(r.svc.store.move(t.id, 1)!.report_json!).cli_failed).toHaveLength(1);
+  });
+
   it("two CLI failures recorded before one sweep wake the owner twice, and a replay adds nothing", async () => {
     const r = rig();
     const t = await withMove(r, scriptMove());
