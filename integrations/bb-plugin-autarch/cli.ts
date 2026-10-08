@@ -130,7 +130,7 @@ export function homeCli(p: HomeCliParts) {
           const rows = svc
             .owed()
             .filter((d) => (options.asker ? d.asker === options.asker : true) && (options.project ? d.project === options.project : true) && (options.pull ? isPulled(d, options.pull) : true))
-            .map((d) => ({ id: d.id, subject: d.subject, project: d.project, thread: d.thread, asker: d.asker, filed_at: d.filed_at, task_id: d.task_id ?? null, key: svc.cardKey(d.task_id as string | null) }));
+            .map((d) => ({ id: d.id, subject: d.subject, project: d.project, thread: d.thread, asker: d.asker, filed_at: d.filed_at, task_id: d.task_id ?? null, key: svc.cardKey(d.task_id as string | null), held: svc.holdOf(d.task_id as string | null) }));
           // A card Home shows flagged (display only) is not owed a ruling but is still on mk's page: list it with its reason
           // so a coordinator can check its own card. Not pulled by anyone, and no project name until it is bound.
           const flagged = options.pull
@@ -230,6 +230,27 @@ export function homeCli(p: HomeCliParts) {
           if (!p.bind) return err(1, "binding is not available");
           const r = await p.bind(positionals.tasks_project, positionals.home_project, ctx.threadId!);
           return r.ok ? out({ ok: true, tasks_project_id: r.tasks_project_id, home_project: positionals.home_project, state: "confirmed" }) : err(exitFor(r.status), r.error);
+        },
+      }),
+
+      hold: cliCommand({
+        summary: "Vizier only: put a card on hold (greyed out with a reason, out of needs-you-now). A later comment carrying a sha256, or `unhold`, makes it live",
+        positionals: [{ name: "card", description: "Task id or tasks key (AUTA-24).", required: true }],
+        options: { reason: { type: "string", required: true, description: "Why it is on hold (one line)." } },
+        async run({ positionals, options }, ctx) {
+          if (!(await p.isVizier(ctx.threadId))) return err(1, "only the vizier thread may hold a card");
+          const r = svc.hold(positionals.card, options.reason, ctx.threadId!);
+          return r.ok ? out({ ok: true, task_id: r.task_id, held: true }) : err(1, r.error);
+        },
+      }),
+
+      unhold: cliCommand({
+        summary: "Vizier only: make a held card live again",
+        positionals: [{ name: "card", description: "Task id or tasks key (AUTA-24).", required: true }],
+        async run({ positionals }, ctx) {
+          if (!(await p.isVizier(ctx.threadId))) return err(1, "only the vizier thread may release a hold");
+          const r = svc.unhold(positionals.card);
+          return r.ok ? out({ ok: true, task_id: r.task_id, was_held: r.was }) : err(1, r.error);
         },
       }),
 

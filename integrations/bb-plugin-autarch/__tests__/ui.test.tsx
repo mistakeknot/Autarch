@@ -67,6 +67,17 @@ describe("Asks ordering", () => {
     expect(buildAsksView(data({ owed: [ask()] })).map((s) => s.key)).toEqual(["decide"]);
   });
 
+  it("a held ask leaves the Decide queue and shows greyed under On hold with its reason and no pick buttons", () => {
+    const html = renderToStaticMarkup(<AsksPanel data={data({ owed: [ask({ id: "live", subject: "Live one" }), ask({ id: "held1", subject: "Held one", held: { reason: "script superseded", by: "thr_viz", at: "2026-10-07T00:00:00.000Z" } })] })} onPick={() => {}} onOpen={() => {}} />);
+    expect(html).toContain("On hold (1)");
+    expect(html).toContain("On hold: script superseded");
+    expect(html).toContain('data-held="held1"');
+    expect(html).toContain("Decide (1)");
+    const only = renderToStaticMarkup(<AsksPanel data={data({ owed: [ask({ id: "h", held: { reason: "r", by: "v", at: "t" } })] })} onPick={() => {}} onOpen={() => {}} />);
+    expect(only).not.toContain("Nothing needs you");
+    expect(only).not.toContain("data-decide-list");
+  });
+
   it("shows the task key in the queue row and the item header, and nothing for an ask with no key", () => {
     const withKey = renderToStaticMarkup(<AsksPanel data={data({ owed: [ask({ key: "AUTA-24" })] })} onPick={() => {}} onOpen={() => {}} />);
     expect(withKey.match(/data-task-key="true">AUTA-24</g)?.length).toBe(2);

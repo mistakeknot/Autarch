@@ -211,6 +211,7 @@ export function buildQueue(svc: Service, asks: Asks, opts: { thread?: string } =
       overrides_generation: null,
       changed_after_ruling: c.changed_after_ruling === 1,
       root: { state: c.root_state ?? null, reason: c.root_reason ?? null },
+      held: svc.holdOf(c.task_id),
     });
   }
 
