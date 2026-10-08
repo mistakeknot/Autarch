@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://autarch.getbb.app/schema/home-ask/v1/ask.schema.json",
+  "$id": "https://github.com/mistakeknot/autarch/schema/home-ask/v1/ask.schema.json",
   "title": "Home ask, v1",
   "description": "The filing request every caller (thread, Mycroft, vizier, CLI, MCP) sends to Home. Structural rules only; the cross-field rules (kind inference, limits, refusals, defaults) are implemented identically in internal/homeask/model.go and integrations/bb-plugin-autarch/model.ts and pinned by vectors.json.",
   "type": "object",

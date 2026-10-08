@@ -54,8 +54,8 @@ func (s *Store) DB() *sql.DB { return s.db }
 func (s *Store) Host() string { return s.host }
 
 // DefaultHost is the machine name, normalised. os.Hostname returns
-// "Clavain.local" under mDNS while every other reference to the machine says
-// "clavain", and an identity that depends on which one answered is not an
+// "Host.local" under mDNS while every other reference to the machine says
+// "host", and an identity that depends on which one answered is not an
 // identity.
 func DefaultHost() string {
 	name, err := os.Hostname()

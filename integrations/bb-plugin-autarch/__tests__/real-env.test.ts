@@ -14,7 +14,7 @@ const ok = (d: string) => ({ HOME_E2E_BB: "http://127.0.0.1:33143", HOME_E2E_BB_
 describe("readRealEnv refuses anything but a separate loopback server", () => {
   it("accepts an isolated server", () => expect(readRealEnv(ok(dir())).url).toBe("http://127.0.0.1:33143"));
   it("needs all three variables", () => expect(() => readRealEnv({})).toThrow(/isolated/));
-  it("refuses a non-loopback host", () => expect(() => readRealEnv({ ...ok(dir()), HOME_E2E_BB: "https://autarch.getbb.app" })).toThrow(/loopback/));
+  it("refuses a non-loopback host", () => expect(() => readRealEnv({ ...ok(dir()), HOME_E2E_BB: "https://bb.example.com" })).toThrow(/loopback/));
   it("refuses the ambient server", () => expect(() => readRealEnv({ ...ok(dir()), BB_SERVER_URL: "http://127.0.0.1:33143" })).toThrow(/ambient/));
   it("refuses the ambient data dir", () => {
     const d = dir();
