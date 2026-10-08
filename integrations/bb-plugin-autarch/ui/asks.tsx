@@ -242,16 +242,20 @@ export function DecideQueue({ owed, onPick, onOpen, nowMs, onNote, onView }: { o
     onView?.(viewingId);
   }, [viewingId]); // eslint-disable-line react-hooks/exhaustive-deps
   const cardRef = useRef<HTMLDivElement>(null);
+  const listRef = useRef<HTMLOListElement>(null);
   if (current === undefined) return null;
   // The project line says nothing when every ask is from the same project.
   const showProject = new Set(owed.map((o) => o.project ?? "")).size > 1;
-  // Stacked (narrow) layout: the card sits below the whole list, so bring it into view on selection.
+  // When the layout wraps (narrow window or narrow panel) the card sits below the whole list; bring it into view on selection.
   const reveal = () => {
-    if (typeof window.matchMedia === "function" && window.matchMedia("(max-width: 639px)").matches) cardRef.current?.scrollIntoView({ block: "start" });
+    const list = listRef.current;
+    const card = cardRef.current;
+    // Stacked means the card starts below the list's end; side by side it does not (any window width).
+    if (list && card && card.getBoundingClientRect().top >= list.getBoundingClientRect().bottom - 1) card.scrollIntoView({ block: "start" });
   };
   return (
     <div className="flex flex-wrap items-start gap-2 sm:gap-4">
-      <ol className="m-0 min-w-0 shrink-0 grow basis-64 list-none space-y-1 p-0 max-sm:[font-family:ui-sans-serif,system-ui,sans-serif]" data-decide-list>
+      <ol ref={listRef} className="m-0 min-w-0 shrink-0 grow basis-64 list-none space-y-1 p-0 max-sm:[font-family:ui-sans-serif,system-ui,sans-serif]" data-decide-list>
         {owed.map((o) => {
           const old = isOldAsk(o.filed_at, nowMs);
           const rec = o.ask.options.find((x) => x.id === o.ask.recommendation);
