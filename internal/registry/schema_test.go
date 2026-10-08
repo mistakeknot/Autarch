@@ -25,7 +25,7 @@ func openTest(t *testing.T) *sql.DB {
 func seed(t *testing.T, db *sql.DB) int64 {
 	t.Helper()
 	mustExec(t, db, `INSERT INTO source (source_id, host, kind, locator, status, last_success_ms)
-		VALUES ('claude-sessions','clavain','session_file','~/.claude/sessions','ok',1)`)
+		VALUES ('claude-sessions','laptop','session_file','~/.claude/sessions','ok',1)`)
 	mustExec(t, db, `INSERT INTO source_scan (scan_id, source_id, started_ms, finished_ms, complete, records_seen)
 		VALUES (1,'claude-sessions',1,2,1,12)`)
 	res := mustExec(t, db, `INSERT INTO event (source_id, scan_id, dedupe_key, kind, observed_ms)
@@ -52,19 +52,19 @@ func wantErr(t *testing.T, label string, err error) {
 
 func seedConversation(t *testing.T, db *sql.DB, ev int64, sessionID string) string {
 	t.Helper()
-	id := ConversationID("claude", "clavain", sessionID)
+	id := ConversationID("claude", "laptop", sessionID)
 	mustExec(t, db, `INSERT INTO conversation
 		(conversation_id, provider, host, provider_session_id, first_seen_ms, last_seen_ms, first_event_id, last_event_id)
-		VALUES (?, 'claude', 'clavain', ?, 1, 1, ?, ?)`, id, sessionID, ev, ev)
+		VALUES (?, 'claude', 'laptop', ?, 1, 1, ?, ?)`, id, sessionID, ev, ev)
 	return id
 }
 
 func seedInstance(t *testing.T, db *sql.DB, ev int64, pid int64) string {
 	t.Helper()
-	id := InstanceID("clavain", "darwin", pid, 1000+pid)
+	id := InstanceID("laptop", "darwin", pid, 1000+pid)
 	mustExec(t, db, `INSERT INTO launch_instance
 		(instance_id, host, pid_domain, pid, started_ms, first_event_id, last_event_id)
-		VALUES (?, 'clavain', 'darwin', ?, ?, ?, ?)`, id, pid, 1000+pid, ev, ev)
+		VALUES (?, 'laptop', 'darwin', ?, ?, ?, ?)`, id, pid, 1000+pid, ev, ev)
 	return id
 }
 
@@ -194,7 +194,7 @@ func TestProjectionsCanBeDropped(t *testing.T) {
 	if got != conv {
 		t.Errorf("item conversation_id = %q, want %q", got, conv)
 	}
-	if got != ConversationID("claude", "clavain", "sess-1") {
+	if got != ConversationID("claude", "laptop", "sess-1") {
 		t.Error("the id must be reproducible from natural keys, or the rebuild orphans it")
 	}
 }
@@ -241,7 +241,7 @@ func TestDedupeKeyIsScopedPerSourceAndOrIgnoreIsNotSafe(t *testing.T) {
 	// A different producer using the same key is a different fact, not a
 	// duplicate. A global unique key would drop it silently.
 	mustExec(t, db, `INSERT INTO source (source_id, host, kind, locator, status, last_success_ms)
-		VALUES ('tmux','clavain','tmux_inventory','/private/tmp/tmux-501/default','ok',1)`)
+		VALUES ('tmux','laptop','tmux_inventory','/private/tmp/tmux-501/default','ok',1)`)
 	if _, err := db.Exec(`INSERT INTO event (source_id, dedupe_key, kind, observed_ms) VALUES ('tmux','k1','x',2)`); err != nil {
 		t.Fatalf("same key from another source must be accepted: %v", err)
 	}
@@ -303,7 +303,7 @@ func TestEventIsAppendOnlyAndAttestationsCannotBeWithdrawn(t *testing.T) {
 
 func TestSourceCannotClaimHealthItNeverHad(t *testing.T) {
 	db := openTest(t)
-	mustExec(t, db, `INSERT INTO source (source_id, host, kind, locator) VALUES ('tmux','clavain','tmux_inventory','/s')`)
+	mustExec(t, db, `INSERT INTO source (source_id, host, kind, locator) VALUES ('tmux','laptop','tmux_inventory','/s')`)
 
 	var status string
 	var lastSuccess sql.NullInt64
@@ -321,7 +321,7 @@ func TestSourceCannotClaimHealthItNeverHad(t *testing.T) {
 	wantErr(t, "claiming ok with no successful run", err)
 
 	// The same producer id on two hosts is two producers.
-	_, err = db.Exec(`INSERT INTO source (source_id, host, kind, locator) VALUES ('tmux2','clavain','tmux_inventory','/s')`)
+	_, err = db.Exec(`INSERT INTO source (source_id, host, kind, locator) VALUES ('tmux2','laptop','tmux_inventory','/s')`)
 	wantErr(t, "a second producer watching the same thing on the same host", err)
 	if _, err := db.Exec(`INSERT INTO source (source_id, host, kind, locator) VALUES ('tmux-devhost','devhost','tmux_inventory','/s')`); err != nil {
 		t.Fatalf("the same watcher on another host is a separate producer: %v", err)
@@ -342,7 +342,7 @@ func TestIncompleteScanCannotClaimCompleteness(t *testing.T) {
 // ---------------------------------------------------------------- identity
 
 // /clear replaces sessionId in place, same pid and same startedAt. Measured on
-// Clavain 2026-09-19. One process therefore carries several conversations.
+// a Mac 2026-09-19. One process therefore carries several conversations.
 func TestOneProcessCarriesManyConversationsOverTime(t *testing.T) {
 	db := openTest(t)
 	ev := seed(t, db)
@@ -558,9 +558,9 @@ func TestOneRulingSeenTwiceIsOneItem(t *testing.T) {
 	db := openTest(t)
 	ev := seed(t, db)
 	mustExec(t, db, `INSERT INTO item (item_id, kind, anchor_key, created_ms, created_event_id)
-		VALUES ('i1','ruling','wait_state:clavain:darwin:25476:1789851648696',1,?)`, ev)
+		VALUES ('i1','ruling','wait_state:laptop:darwin:25476:1789851648696',1,?)`, ev)
 	_, err := db.Exec(`INSERT INTO item (item_id, kind, anchor_key, created_ms, created_event_id)
-		VALUES ('i2','ruling','wait_state:clavain:darwin:25476:1789851648696',2,?)`, ev)
+		VALUES ('i2','ruling','wait_state:laptop:darwin:25476:1789851648696',2,?)`, ev)
 	wantErr(t, "a second sweep creating a second item for one anchor", err)
 
 	// Two sources describing one ruling in incompatible terms cannot share an
@@ -638,19 +638,19 @@ func TestByteRangeMustNotRunBackwards(t *testing.T) {
 // ---------------------------------------------------------------- ids
 
 func TestIdentifiersAreDeterministicAndUnforgeable(t *testing.T) {
-	a := ConversationID("claude", "clavain", "9e72b443")
-	if a != ConversationID("claude", "clavain", "9e72b443") {
+	a := ConversationID("claude", "laptop", "9e72b443")
+	if a != ConversationID("claude", "laptop", "9e72b443") {
 		t.Error("ids must be reproducible, or a rebuild orphans every durable row")
 	}
 	if a == ConversationID("claude", "devhost", "9e72b443") {
 		t.Error("the same session id on another host must be a different conversation")
 	}
 	// A component carrying the separator must not be able to forge another id.
-	if ConversationID("claude", "clavain:x", "y") == ConversationID("claude", "clavain", "x:y") {
+	if ConversationID("claude", "laptop:x", "y") == ConversationID("claude", "laptop", "x:y") {
 		t.Error("a colon in a component forges a different identity")
 	}
-	if InstanceID("clavain", "darwin", 43066, 1789858817805) != "clavain:darwin:43066:1789858817805" {
-		t.Errorf("unexpected instance id form: %s", InstanceID("clavain", "darwin", 43066, 1789858817805))
+	if InstanceID("laptop", "darwin", 43066, 1789858817805) != "laptop:darwin:43066:1789858817805" {
+		t.Errorf("unexpected instance id form: %s", InstanceID("laptop", "darwin", 43066, 1789858817805))
 	}
 }
 
@@ -671,7 +671,7 @@ func TestConversationIsUniquePerHost(t *testing.T) {
 
 	_, err := db.Exec(`INSERT INTO conversation
 		(conversation_id, provider, host, provider_session_id, first_seen_ms, last_seen_ms, first_event_id, last_event_id)
-		VALUES ('dup','claude','clavain','9e72b443',1,1,?,?)`, ev, ev)
+		VALUES ('dup','claude','laptop','9e72b443',1,1,?,?)`, ev, ev)
 	wantErr(t, "the same provider session id twice on one host", err)
 
 	if _, err := db.Exec(`INSERT INTO conversation

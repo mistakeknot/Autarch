@@ -21,7 +21,7 @@ func newStore(t *testing.T) *Store {
 		t.Fatalf("Open: %v", err)
 	}
 	t.Cleanup(func() { db.Close() })
-	s := NewStore(db, "clavain")
+	s := NewStore(db, "laptop")
 	// A fixed clock, so a replay produces a byte-identical projection.
 	var tick int64 = 1_700_000_000_000
 	s.now = func() int64 { tick++; return tick }
@@ -252,7 +252,7 @@ func TestTwoConversationsInOnePaneAreBothRetained(t *testing.T) {
 	}
 }
 
-// Measured on Clavain: /clear replaces sessionId in place, same pid and same
+// Measured on a Mac: /clear replaces sessionId in place, same pid and same
 // startedAt. The previous conversation must be retained, not overwritten.
 func TestClearKeepsBothConversationsOnOneProcess(t *testing.T) {
 	s := newStore(t)
@@ -270,7 +270,7 @@ func TestClearKeepsBothConversationsOnOneProcess(t *testing.T) {
 		t.Errorf("instances after /clear = %d, want 1 -- same pid, same start", n)
 	}
 	if n := count(t, s.DB(), `SELECT COUNT(*) FROM instance_conversation WHERE instance_id = ?`,
-		InstanceID("clavain", "darwin", 43066, 1789858817805)); n != 2 {
+		InstanceID("laptop", "darwin", 43066, 1789858817805)); n != 2 {
 		t.Errorf("conversation links on one process = %d, want 2", n)
 	}
 	if n := count(t, s.DB(), `SELECT COUNT(*) FROM instance_conversation WHERE observed_to_ms IS NULL`); n != 1 {
@@ -341,7 +341,7 @@ func TestAttributionRecordsWhyItFailed(t *testing.T) {
 
 	if n := count(t, s.DB(), `SELECT COUNT(*) FROM project_association
 		WHERE conversation_id = ? AND project_key = 'jawnomicon' AND basis = 'tmux_session_name'`,
-		ConversationID("claude", "clavain", "attributable")); n != 1 {
+		ConversationID("claude", "laptop", "attributable")); n != 1 {
 		t.Error("a session name carrying a project must produce an association")
 	}
 
@@ -397,7 +397,7 @@ func TestRebuildFromTheLogIsIdentical(t *testing.T) {
 
 	// A durable row naming a conversation must survive the rebuild pointing
 	// at the same thing.
-	conv := ConversationID("claude", "clavain", "5d183345")
+	conv := ConversationID("claude", "laptop", "5d183345")
 	ev := count(t, s.DB(), `SELECT MIN(event_id) FROM event`)
 	mustExec(t, s.DB(), `INSERT INTO item (item_id, conversation_id, kind, created_ms, created_event_id)
 		VALUES ('item-1', ?, 'ruling', 1, ?)`, conv, ev)
@@ -577,7 +577,7 @@ func TestAScanEventWithoutARosterIsRefused(t *testing.T) {
 	scanAndProject(t, s, dir)
 
 	mustExec(t, s.DB(), `INSERT INTO event (source_id, dedupe_key, kind, observed_ms, payload)
-		VALUES (?, 'hand-written', 'scan.completed', 9999, '{"records_seen":0,"source_id":"claude-sessions","host":"clavain"}')`,
+		VALUES (?, 'hand-written', 'scan.completed', 9999, '{"records_seen":0,"source_id":"claude-sessions","host":"laptop"}')`,
 		SourceClaudeSessions)
 	res, err := Project(s)
 	if err != nil {
@@ -616,14 +616,14 @@ func TestASweepDoesNotJudgeAnotherSourcesInstances(t *testing.T) {
 
 	// A second producer, with an agent of its own.
 	mustExec(t, s.DB(), `INSERT INTO source (source_id, host, kind, locator, status, last_success_ms)
-		VALUES ('codex-rollouts','clavain','session_file','~/.codex/sessions','ok',1)`)
+		VALUES ('codex-rollouts','laptop','session_file','~/.codex/sessions','ok',1)`)
 	res := mustExec(t, s.DB(), `INSERT INTO event (source_id, dedupe_key, kind, observed_ms)
 		VALUES ('codex-rollouts','c1','session.observed',1)`)
 	ev, _ := res.LastInsertId()
-	other := InstanceID("clavain", "darwin", 777, 777)
+	other := InstanceID("laptop", "darwin", 777, 777)
 	mustExec(t, s.DB(), `INSERT INTO launch_instance
 		(instance_id, host, pid_domain, pid, started_ms, first_event_id, last_event_id)
-		VALUES (?, 'clavain', 'darwin', 777, 777, ?, ?)`, other, ev, ev)
+		VALUES (?, 'laptop', 'darwin', 777, 777, ?, ?)`, other, ev, ev)
 
 	// A complete Claude sweep that has never heard of it, with everything it
 	// does know reported dead.
@@ -772,7 +772,7 @@ func TestMigrateReplaysRatherThanDiscarding(t *testing.T) {
 	}
 }
 
-// Measured on Clavain 2026-09-19: `claude --continue` starts a new process
+// Measured on a Mac 2026-09-19: `claude --continue` starts a new process
 // with a new pid and a new startedAt, carrying the SAME sessionId. So a
 // resume is a new launch instance under a continuing conversation -- which is
 // the case the three-identity split exists for, and the reason a conversation
@@ -804,7 +804,7 @@ func TestAResumeIsANewInstanceOnTheSameConversation(t *testing.T) {
 		t.Errorf("open instances = %d, want 1 -- the old process was observed dead", n)
 	}
 	if n := count(t, s.DB(), `SELECT COUNT(*) FROM instance_conversation WHERE conversation_id = ?`,
-		ConversationID("claude", "clavain", session)); n != 2 {
+		ConversationID("claude", "laptop", session)); n != 2 {
 		t.Error("the conversation should be linked to both processes that ran it")
 	}
 	// The pane moved with it, and the old binding closed with its instance.
@@ -822,8 +822,8 @@ func TestAResumeIsANewInstanceOnTheSameConversation(t *testing.T) {
 func TestParentPidIsCapturedWhileTheProcessLives(t *testing.T) {
 	s := newStore(t)
 	dir := t.TempDir()
-	parentID := InstanceID("clavain", "darwin", 55409, 1000)
-	childID := InstanceID("clavain", "darwin", 81453, 1100)
+	parentID := InstanceID("laptop", "darwin", 55409, 1000)
+	childID := InstanceID("laptop", "darwin", 81453, 1100)
 	// The parent's own parent is the pane's login shell, which this registry
 	// does not track. The child's parent is the agent that spawned it.
 	s.probe = aliveWithParents(map[string]int64{parentID: 3000, childID: 55409})
@@ -860,8 +860,8 @@ func TestParentPidIsCapturedWhileTheProcessLives(t *testing.T) {
 func TestAnUnreadParentIsNotTheAbsenceOfOne(t *testing.T) {
 	s := newStore(t)
 	dir := t.TempDir()
-	childID := InstanceID("clavain", "darwin", 81453, 1100)
-	parentID := InstanceID("clavain", "darwin", 55409, 1000)
+	childID := InstanceID("laptop", "darwin", 81453, 1100)
+	parentID := InstanceID("laptop", "darwin", 55409, 1000)
 
 	writeRecord(t, dir, 55409, record(55409, "e4bedaf5", "iterm[autarch:@98.%98", "/Users/dev/projects", "parent", "auto", 1000, 2000))
 	writeRecord(t, dir, 81453, record(81453, "e13b1e95", "iterm[autarch:@98.%98", "/Users/dev/projects", "child", "derived", 1100, 2100))

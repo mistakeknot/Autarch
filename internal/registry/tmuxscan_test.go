@@ -594,8 +594,8 @@ func TestAVerifiedBindingFollowsItsPaneToANewWindow(t *testing.T) {
 func TestTheProcessTableCorroboratesAndContradicts(t *testing.T) {
 	s := newStore(t)
 	dir := t.TempDir()
-	here := InstanceID("clavain", "darwin", 55409, 1000)
-	elsewhere := InstanceID("clavain", "darwin", 81453, 1100)
+	here := InstanceID("laptop", "darwin", 55409, 1000)
+	elsewhere := InstanceID("laptop", "darwin", 81453, 1100)
 	// 53126 is %98's root process; 36230 is %67's. The second agent claims
 	// %98, but the process table puts its parent in %67.
 	s.probe = aliveWithParents(map[string]int64{here: 53126, elsewhere: 36230})
@@ -795,7 +795,7 @@ func TestADeadPaneIsRecordedAsDeadAndStillPresent(t *testing.T) {
 func TestADeadPaneStopsBeingAPlace(t *testing.T) {
 	s := newStore(t)
 	dir := t.TempDir()
-	instID := InstanceID("clavain", "darwin", 52620, 1000)
+	instID := InstanceID("laptop", "darwin", 52620, 1000)
 	s.probe = aliveWithParents(map[string]int64{instID: 36230})
 
 	live := paneLine("$3", "@67", "%67", 36230, "iterm[]linsekasten", "zsh")

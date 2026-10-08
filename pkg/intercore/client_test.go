@@ -37,14 +37,14 @@ func TestUnmarshalRun(t *testing.T) {
 }
 
 func TestUnmarshalRunWithBudget(t *testing.T) {
-	raw := `{"auto_advance":true,"budget_warn_pct":80,"complexity":3,"created_at":1771831094,"force_full":false,"goal":"Dashboard views","id":"liq11b4x","phase":"planned","phases":["brainstorm","brainstorm-reviewed","strategized","planned"],"project_dir":"/home/dev/projects/Demarch","scope_id":"iv-o9yh","status":"active","token_budget":250000,"updated_at":1771831379}`
+	raw := `{"auto_advance":true,"budget_warn_pct":80,"complexity":3,"created_at":1771831094,"force_full":false,"goal":"Dashboard views","id":"liq11b4x","phase":"planned","phases":["brainstorm","brainstorm-reviewed","strategized","planned"],"project_dir":"/home/dev/projects/Demarch","scope_id":"iv-test1","status":"active","token_budget":250000,"updated_at":1771831379}`
 
 	var r Run
 	if err := json.Unmarshal([]byte(raw), &r); err != nil {
 		t.Fatalf("unmarshal Run: %v", err)
 	}
-	if r.ScopeID != "iv-o9yh" {
-		t.Errorf("ScopeID = %q, want %q", r.ScopeID, "iv-o9yh")
+	if r.ScopeID != "iv-test1" {
+		t.Errorf("ScopeID = %q, want %q", r.ScopeID, "iv-test1")
 	}
 	if r.TokenBudget != 250000 {
 		t.Errorf("TokenBudget = %d, want 250000", r.TokenBudget)
