@@ -25,9 +25,11 @@ describe("UpdateMenu", () => {
     expect(h).not.toContain("data-update-request");
   });
   it("shows a failed result and an error", () => {
-    const h = html({ ...base, available: false, result: { sha: B, ok: false, finished_at: "t2", message: "rolled back" } }, "refused");
+    const h = html({ ...base, result: { sha: B, ok: false, finished_at: "t2", message: "rolled back" } }, "refused");
     expect(h).toContain("Update failed");
     expect(h).toContain("rolled back");
     expect(h).toContain("refused");
+    expect(h).toContain("Retry update to bbbbbbb");
+    expect(h).not.toContain("Update available");
   });
 });

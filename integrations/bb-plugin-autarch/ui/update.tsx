@@ -21,10 +21,10 @@ export function UpdateMenu({ info, onRequest, error }: { info: UpdateInfoView | 
   const failed = result !== null && !result.ok && result.sha === status.latest;
   const label = info.pending
     ? `Update requested (${short(status.latest)})`
-    : info.available
-      ? `Update available (${status.count} commit${status.count === 1 ? "" : "s"})`
-      : failed
-        ? "Update failed"
+    : failed
+      ? "Update failed"
+      : info.available
+        ? `Update available (${status.count} commit${status.count === 1 ? "" : "s"})`
         : null;
   if (label === null) return null;
   return (
@@ -43,7 +43,7 @@ export function UpdateMenu({ info, onRequest, error }: { info: UpdateInfoView | 
           <p className="mt-2 text-muted-foreground" data-update-pending>Waiting for the update runner to pick this up. It runs on its own schedule.</p>
         ) : info.available ? (
           <div className="mt-2">
-            <ActionButton tone="recommended" onClick={() => onRequest(status.latest)} data-update-request>{`Request update to ${short(status.latest)}`}</ActionButton>
+            <ActionButton tone="recommended" onClick={() => onRequest(status.latest)} data-update-request>{`${failed ? "Retry update to" : "Request update to"} ${short(status.latest)}`}</ActionButton>
             <p className="mt-1 text-muted-foreground">The runner checks this commit is on main, backs up the data, installs, and rolls back if it fails.</p>
           </div>
         ) : null}

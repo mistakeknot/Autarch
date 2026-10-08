@@ -49,7 +49,7 @@ export function readStatus(dir: string): UpdateStatus | null {
 export function readResult(dir: string): UpdateResult | null {
   const v = readJson(join(dir, "result.json")) as Record<string, unknown> | null;
   if (!v || typeof v !== "object") return null;
-  if (!str(v.sha, 40) || !SHA.test(v.sha) || typeof v.ok !== "boolean" || !str(v.finished_at, 40) || !str(v.message, 2000)) return null;
+  if (!str(v.sha, 40) || !SHA.test(v.sha) || typeof v.ok !== "boolean" || !str(v.finished_at, 40) || Number.isNaN(Date.parse(v.finished_at)) || !str(v.message, 2000)) return null;
   return { sha: v.sha, ok: v.ok, finished_at: v.finished_at, message: v.message };
 }
 
@@ -68,7 +68,7 @@ export interface UpdateInfo {
   status: UpdateStatus | null;
   result: UpdateResult | null;
   request: UpdateRequest | null;
-  /** True when a newer main exists, no request is waiting for it and the last result is not for it. */
+  /** True when a newer main exists, no request is waiting for it and it is not already installed (a failed run stays available to retry). */
   available: boolean;
   pending: boolean;
 }
@@ -80,7 +80,9 @@ export function updateInfo(dir: string, requestRaw: string | undefined): UpdateI
   const newer = status !== null && status.count > 0 && status.latest !== status.installed;
   // A request is pending until the runner reports a result for that sha (or the installed commit is it).
   const pending = request !== null && status !== null && status.installed !== request.sha && !(result && result.sha === request.sha && Date.parse(result.finished_at) >= Date.parse(request.clicked_at));
-  return { status, result, request, available: newer && !pending, pending };
+  // A successful result for the latest commit settles it even if status.json has not caught up yet.
+  const installedNow = result !== null && result.ok && status !== null && result.sha === status.latest;
+  return { status, result, request, available: newer && !pending && !installedNow, pending };
 }
 
 export type RequestOutcome = { ok: true; request: UpdateRequest } | { ok: false; error: string };

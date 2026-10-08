@@ -36,6 +36,15 @@ describe("updateInfo", () => {
     const done = { sha: B, ok: false, finished_at: "2026-10-07T05:05:00Z", message: "rolled back" };
     expect(updateInfo(dir({ "status.json": status, "result.json": done }), req)).toMatchObject({ pending: false });
   });
+  it("a successful result settles the request even before status catches up; a failed one stays retryable", () => {
+    const req = JSON.stringify({ sha: B, clicked_at: "2026-10-07T05:01:00Z" });
+    const ok = { sha: B, ok: true, finished_at: "2026-10-07T05:05:00Z", message: "done" };
+    expect(updateInfo(dir({ "status.json": status, "result.json": ok }), req)).toMatchObject({ pending: false, available: false });
+    expect(updateInfo(dir({ "status.json": status, "result.json": { ...ok, ok: false } }), req)).toMatchObject({ pending: false, available: true });
+  });
+  it("a result with an unparseable date is ignored", () => {
+    expect(updateInfo(dir({ "status.json": status, "result.json": { sha: B, ok: true, finished_at: "soon", message: "x" } }), undefined).result).toBeNull();
+  });
   it("ignores a result older than the click", () => {
     const req = JSON.stringify({ sha: B, clicked_at: "2026-10-07T05:10:00Z" });
     const old = { sha: B, ok: false, finished_at: "2026-10-07T05:05:00Z", message: "x" };
