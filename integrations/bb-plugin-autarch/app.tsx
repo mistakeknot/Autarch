@@ -443,7 +443,7 @@ function HomePage() {
           <>
             {([
               ["Needs you now", { id: "asks", kind: "decision", title: "Asks" }],
-              ["Blocked on others", { id: "blocks", kind: "decision", title: "Blocking" }],
+              ["Blocked on others", { id: "blocks", kind: "decision", title: "Blocking", hideOwed: true }],
               ["Since you left", { id: "catchup", kind: "catchup", title: "Catch-up" }],
             ] as const).map(([heading, p]) => (
               <section key={p.id} aria-label={heading} className="border-b border-border">
@@ -466,7 +466,7 @@ function HomePage() {
             onOpen={(thread) => push({ id: `thread:${thread}`, kind: "thread", title: thread, ref: thread })}
             onRevoke={(approval_id) => void rpc.call("revokeApproval", { approval_id }).then(refetch, () => {})}
             onPick={(decision_id, option_id, revision, reason) => {
-              return pickOutcome(picks.send((req) => rpc.call("pick", req) as never, { decision_id, option_id, revision, ...(reason !== undefined ? { reason } : {}) }, refetch)).finally(refetch);
+              return pickOutcome(picks.send((req) => rpc.call("pick", req) as never, { decision_id, option_id, revision, ...(reason !== undefined ? { reason } : {}) }, refetchAll)).finally(refetchAll);
             }}
           />
           </>
@@ -478,7 +478,7 @@ function HomePage() {
           <BlocksPanel
             rootRun={rootRuns}
             onBind={(b) => void rpc.call("setBinding", b).then(refetchAll, () => {})}
-            data={blocks.queue}
+            data={panel.hideOwed && asks ? withoutOwed(blocks.queue, asks) : blocks.queue}
             nowMs={Date.now()}
             onNote={(decision_id, text) => yourMove.note({ decision_id }, text)}
             onOpen={openBeside}
@@ -575,11 +575,18 @@ function OverlayPage() {
   );
 }
 
+/** The Queue shows Asks above Blocking: drop from Blocking what Asks already owes, so one ask is never answerable twice. */
+function withoutOwed(q: QueueView, asks: { owed: { id: string }[] }): QueueView {
+  const ids = new Set(asks.owed.map((o) => o.id));
+  return { ...q, legacy: { ...q.legacy, owed: q.legacy.owed.filter((o) => !ids.has(o.id)) } };
+}
+
 function HomeBadge() {
-  const { asks, health } = useHomeData();
+  const { asks, catchup, health } = useHomeData();
   const blocked = health !== null && !health.ready;
   const unowned = asks?.asks.some((a) => a.owner === null) ?? false;
-  const n = asks?.owed.length ?? 0;
+  // Queue sections: owed asks plus catch-up items that still need a look (owed ones are already in the first count).
+  const n = (asks?.owed.length ?? 0) + catchup.filter((c) => c.kind !== "owed" && c.kind !== "routine").length;
   if (blocked || unowned) return <span aria-label="needs attention">!</span>;
   return n > 0 ? <span>{n}</span> : null;
 }
