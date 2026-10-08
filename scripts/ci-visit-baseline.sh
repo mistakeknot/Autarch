@@ -31,11 +31,16 @@ tmux -V
 go build -mod=readonly ./... 2>&1 | tee "$visit_tools/build.log"
 go test -mod=readonly -race ./... 2>&1 | tee "$visit_tools/race.log"
 # Home plugin: no merge-conflict markers in tracked source, then typecheck and unit tests.
-if git grep -nE '^(<<<<<<< |>>>>>>> |=======$)' -- integrations/bb-plugin-autarch ':!*/node_modules/*' ':!*.md'; then
-  echo 'conflict markers in the Home plugin' >&2; exit 1
-fi
+# git grep exits 0 on a match, 1 on none; only 1 is clean, any other status (an error) fails.
+marker_rc=0
+git grep -nE '^(<<<<<<< |>>>>>>> |=======$)' -- integrations/bb-plugin-autarch ':!*/node_modules/*' ':!*.md' || marker_rc=$?
+[[ $marker_rc -eq 1 ]] || { echo "conflict markers in the Home plugin, or the scan failed (git grep exit $marker_rc)" >&2; exit 1; }
 node --version
-(cd integrations/bb-plugin-autarch && npm ci --no-audit --no-fund && npm run typecheck && npx vitest run --testTimeout=60000) 2>&1 | tee "$visit_tools/plugin.log"
+# npm reads no user or global config and keeps its cache under visit_tools; dev dependencies are installed explicitly.
+# The tests run from the installed binary with the guest's environment, which some of them assert on.
+mkdir -p "$visit_tools/npm"
+npm_cfg=(npm_config_cache="$visit_tools/npm/cache" npm_config_userconfig="$visit_tools/npm/user.npmrc" npm_config_globalconfig="$visit_tools/npm/global.npmrc" npm_config_include=dev npm_config_update_notifier=false)
+(cd integrations/bb-plugin-autarch && env "${npm_cfg[@]}" npm ci --no-audit --no-fund && env "${npm_cfg[@]}" npm run typecheck && ./node_modules/.bin/vitest run --testTimeout=60000) 2>&1 | tee "$visit_tools/plugin.log"
 git diff --exit-code
 [[ -z $(git status --porcelain) ]]
 sha256sum go.mod go.sum integrations/bb-plugin-autarch/package-lock.json "$visit_tools/build.log" "$visit_tools/race.log" "$visit_tools/plugin.log"
