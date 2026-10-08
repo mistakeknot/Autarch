@@ -30,6 +30,7 @@ import { MapPlaceholder } from "./ui/map-placeholder.js";
 import type { Lens } from "./ui/map-placeholder.js";
 import { BlocksPanel, QueueRefresher, type RootRunHooks } from "./ui/blocks.js";
 import type { QueueView } from "./ui/blocks.js";
+import { withoutOwed } from "./ui/blocks.js";
 import { BindingsPanel, SettingsPanel } from "./ui/settings.js";
 import { keyAction, layoutStack, stackReducer, StackView } from "./ui/stack.js";
 import type { Panel, StackState } from "./ui/stack.js";
@@ -373,7 +374,10 @@ function HomePage() {
   const rootRuns = useRootRuns(rpc);
   const yourMove = useMoves(rpc, () => {});
   const conversation = useConversationApi(rpc);
-  const [stack, setStack] = useState<StackState>({ panels: [{ id: "asks", kind: "decision", title: "Asks" }], width: "third" });
+  const [stack, setStack] = useState<StackState>({ panels: [{ id: "queue", kind: "decision", title: "Queue" }], width: "third" });
+  // Q: one ranked queue is the default (mk picked A on AUTA-17); the old Asks / Blocking / Catch-up tabs stay behind this setting.
+  const [classic, setClassic] = useState(() => { try { return localStorage.getItem("home.classicTabs") === "1"; } catch { return false; } });
+  const toggleClassic = () => setClassic((c) => { const n = !c; try { localStorage.setItem("home.classicTabs", n ? "1" : "0"); } catch { /* storage unavailable: the choice lasts this session */ } return n; });
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [lens, setLens] = useState<Lens>("attention");
   const picks = useMemo(() => new PickController(() => crypto.randomUUID()), []);
@@ -435,6 +439,21 @@ function HomePage() {
 
   const render = (panel: Panel): ReactNode => {
     switch (panel.id) {
+      case "queue":
+        return (
+          <>
+            {([
+              ["Needs you now", { id: "asks", kind: "decision", title: "Asks" }],
+              ["Blocked on others", { id: "blocks", kind: "decision", title: "Blocking", hideOwed: true }],
+              ["Since you left", { id: "catchup", kind: "catchup", title: "Catch-up" }],
+            ] as const).map(([heading, p]) => (
+              <section key={p.id} aria-label={heading} className="border-b border-border">
+                <h2 className="px-4 pt-3 text-xs font-semibold uppercase text-muted-foreground">{heading}</h2>
+                {render(p)}
+              </section>
+            ))}
+          </>
+        );
       case "asks":
         return asks === null ? (
           <EmptyState>{error ?? "Loading asks…"}</EmptyState>
@@ -448,7 +467,7 @@ function HomePage() {
             onOpen={(thread) => push({ id: `thread:${thread}`, kind: "thread", title: thread, ref: thread })}
             onRevoke={(approval_id) => void rpc.call("revokeApproval", { approval_id }).then(refetch, () => {})}
             onPick={(decision_id, option_id, revision, reason) => {
-              return pickOutcome(picks.send((req) => rpc.call("pick", req) as never, { decision_id, option_id, revision, ...(reason !== undefined ? { reason } : {}) }, refetch)).finally(refetch);
+              return pickOutcome(picks.send((req) => rpc.call("pick", req) as never, { decision_id, option_id, revision, ...(reason !== undefined ? { reason } : {}) }, refetchAll)).finally(refetchAll);
             }}
           />
           </>
@@ -460,7 +479,7 @@ function HomePage() {
           <BlocksPanel
             rootRun={rootRuns}
             onBind={(b) => void rpc.call("setBinding", b).then(refetchAll, () => {})}
-            data={blocks.queue}
+            data={panel.hideOwed && asks ? withoutOwed(blocks.queue, asks) : blocks.queue}
             nowMs={Date.now()}
             onNote={(decision_id, text) => yourMove.note({ decision_id }, text)}
             onOpen={openBeside}
@@ -514,9 +533,8 @@ function HomePage() {
       <nav className="flex gap-3 border-b border-border px-4 py-2 text-sm">
         {(
           [
-            ["asks", "decision", "Asks"],
-            ["blocks", "decision", "Blocking"],
-            ["catchup", "catchup", "Catch-up"],
+            ["queue", "decision", "Queue"],
+            ...(classic ? ([["asks", "decision", "Asks"], ["blocks", "decision", "Blocking"], ["catchup", "catchup", "Catch-up"]] as const) : []),
             ["vizier", "vizier", "Vizier"],
             ["map", "map", "Map"],
             ["settings", "settings", "Settings"],
@@ -526,7 +544,10 @@ function HomePage() {
             {title}
           </button>
         ))}
-        <button type="button" className="ml-auto text-muted-foreground" onClick={() => nav.toPluginPanel("example-todos")}>
+        <button type="button" className="ml-auto text-muted-foreground" aria-pressed={classic} onClick={toggleClassic}>
+          Classic tabs
+        </button>
+        <button type="button" className="text-muted-foreground" onClick={() => nav.toPluginPanel("example-todos")}>
           Todos
         </button>
       </nav>
@@ -556,10 +577,11 @@ function OverlayPage() {
 }
 
 function HomeBadge() {
-  const { asks, health } = useHomeData();
+  const { asks, catchup, health } = useHomeData();
   const blocked = health !== null && !health.ready;
   const unowned = asks?.asks.some((a) => a.owner === null) ?? false;
-  const n = asks?.owed.length ?? 0;
+  // Queue sections: owed asks plus catch-up items that still need a look (owed ones are already in the first count).
+  const n = (asks?.owed.length ?? 0) + catchup.filter((c) => c.kind !== "owed" && c.kind !== "routine").length;
   if (blocked || unowned) return <span aria-label="needs attention">!</span>;
   return n > 0 ? <span>{n}</span> : null;
 }
