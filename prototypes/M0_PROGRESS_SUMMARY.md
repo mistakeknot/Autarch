@@ -216,7 +216,7 @@ All prototypes include:
 - ✅ Performance benchmarks
 - ✅ Committed to repository
 
-**Repository:** `/Users/sma/Tandemonium/prototypes/`
+**Repository:** `~/Tandemonium/prototypes/`
 - `m0-worktrees/` - Git worktree validation
 - `m0-terminal/` - Terminal/command runner
 - `m0-yaml/` - Atomic YAML writes

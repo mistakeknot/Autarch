@@ -6,11 +6,11 @@ Reviewed under governed dispatch by `claude-fable-5-1` at high effort, `plan-rev
 
 ## What the live estate actually looks like
 
-Measured on Clavain, 2026-09-19, from `~/.claude/sessions/*.json`. Twelve records, all twelve processes alive. Every design decision below is answering something in this table rather than something imagined.
+Measured on a Mac laptop, 2026-09-19, from `~/.claude/sessions/*.json`. Twelve records, all twelve processes alive. Every design decision below is answering something in this table rather than something imagined.
 
 | Observation | Count | Consequence for the schema |
 | --- | --- | --- |
-| Records whose `cwd` is `/Users/sma/projects` | 10 of 12 | cwd cannot carry project attribution |
+| Records whose `cwd` is `~/projects` | 10 of 12 | cwd cannot carry project attribution |
 | Distinct panes | 11 | so two conversations share one pane |
 | Panes holding two live conversations | 1 (`%67`) | a pane binding is many-to-one, at a single instant |
 | Records where `entrypoint` is `sdk-cli` | 1 | the second occupant of `%67` is a dispatched child, not a human launch |
@@ -29,7 +29,7 @@ Two of those rows are worth stating plainly, because they are the difference bet
 
 A single "session" record would have to be three things at once, and the estate proves all three lifetimes differ.
 
-**`conversation`** is durable and outlives every process that runs it. Keyed `(provider, host, provider_session_id)`. `host` is in the key because the estate spans Clavain and zklw: without it, a synced copy of another machine's record merges into this one's history. It also carries `display_name` and `display_name_source`, because the provider's `auto` names are genuine topic summaries (`completion-driven-handoffs`, `constellation-front-door`) while its `derived` names are placeholders (`projects-14`) — and storing which is which is what stops a placeholder being read as a subject.
+**`conversation`** is durable and outlives every process that runs it. Keyed `(provider, host, provider_session_id)`. `host` is in the key because the estate spans a laptop and devhost: without it, a synced copy of another machine's record merges into this one's history. It also carries `display_name` and `display_name_source`, because the provider's `auto` names are genuine topic summaries (`completion-driven-handoffs`, `constellation-front-door`) while its `derived` names are placeholders (`projects-14`) — and storing which is which is what stops a placeholder being read as a subject.
 
 **`launch_instance`** is one process launch. Keyed `(host, pid, proc_start_ms)`; pid alone recurs after a reboot, and the orphaned August records prove the directory keeps no tombstones. `entrypoint` distinguishes a human `cli` launch from an agent-spawned `sdk-cli` one, which is what separates the parent from the child inside `%67`.
 
@@ -68,7 +68,7 @@ B1 writes `source`, `event`, `evidence`, `conversation`, `conversation_lineage`,
 1. `project_association` records only positive associations, and the *reason* a conversation is unattributed lives in an `attribution.attempted` event rather than a row. That keeps the table meaning one thing, at the cost of making `#unassigned`'s reason an event scan. Is that the right split, or should a failed attempt be a first-class row?
 2. `conversation_lineage.relation` includes `spawn` for the SDK-child case. A dispatched child is arguably not lineage at all but a distinct conversation with a causal parent. Same edge, different word — does the distinction need two tables?
 3. `pane_binding` stores the tmux `session_name_seen` for display. It is excluded from `pane_key`, so it cannot corrupt identity, but it will go stale in the row. Should it instead be resolved at read time from the live server?
-4. `host` is a bare string. zklw sessions are unobserved today and the coverage line must say so rather than reading as empty. Is a string enough, or does coverage need its own table from the start?
+4. `host` is a bare string. devhost sessions are unobserved today and the coverage line must say so rather than reading as empty. Is a string enough, or does coverage need its own table from the start?
 5. `SchemaVersion` is stamped in `PRAGMA user_version`, and `Open` refuses a database newer than the build but does not migrate an older one. For a registry that is rebuildable by replay, is refuse-and-rebuild the right migration story, or is that too casual about the event log itself?
 
 ## Review record

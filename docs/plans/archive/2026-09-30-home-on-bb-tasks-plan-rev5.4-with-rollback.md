@@ -17,7 +17,7 @@ SURVIVES.
 **Inputs:**
 - `docs/research/2026-09-30-tasks-rpc-spike.md`
 - `docs/research/2026-09-30-aleph-runner-interface.md`
-- tasks@0.1.2: `/home/mk/bb-picker-switch/plugins/tasks/{shared/contract.ts,api/index.ts,cli/index.ts}`
+- tasks@0.1.2: `~/bb-picker-switch/plugins/tasks/{shared/contract.ts,api/index.ts,cli/index.ts}`
 - plugin SDK: `packages/plugin-sdk/src/backend-contract.ts`
 - the committed plugin at `integrations/bb-plugin-autarch/` (a9853e2)
 
@@ -602,7 +602,7 @@ Otherwise the panel names the field that failed and renders no command.
 `todo-add --set '<SET>' --from-card '<task.id>' --expect-sha256 '<hex>'`
 
 **Item JSON.** `JSON.stringify` of
-`{run_as:"mk", script, script_sha256, owner_thread, run_timeout_s, label}`.
+`{run_as:"operator", script, script_sha256, owner_thread, run_timeout_s, label}`.
 
 **Status.** The panel shows the read-only `todo-run --status '<set>' '<item>'` command for
 mk to paste. Reading it automatically is question D-1.
@@ -710,7 +710,7 @@ Every task is TDD: write the failing test, make it pass, then verify. Nothing is
   2026-10-01:
   - `gh api repos/mistakeknot/Autarch --jq '.id,.full_name,.private'` →
     `1140086114`, `mistakeknot/Autarch`, `false`;
-  - `zklw-ci status --repo mistakeknot/Autarch --json` lists id 1140086114 with
+  - `<host>-ci status --repo mistakeknot/Autarch --json` lists id 1140086114 with
     `campaign: mk-ag2s`, `disposition: pending-inventory`,
     `inventory_disposition: requires-workflow-review`, `enabled: true`.
 
@@ -1325,7 +1325,7 @@ The grep covers every tracked Go file in the repository, not only `cmd/` and `in
 - **Refusal.** A target is refused when it:
   - is in the loopback class (`localhost`, `127/8`, `::1`, `::ffff:127.0.0.1`,
     `0.0.0.0`) and uses any ambient port. Ambient ports come from env and from every
-    `bb-app-runtime.json` under `~/.bb` and `~/.bb-machines/*`;
+    `bb-app-runtime.json` under `~/.bb` and `<bb-data-dirs>`;
   - is not loopback;
   - has no environment, because there is no default.
 
@@ -1413,7 +1413,7 @@ The harness launches the server itself. The only operator input is `HOME_E2E_BB_
    create a tasks project named `e2e-<nonce>`. It then opens
    **`<data>/plugins/tasks/data.db`** read-only (`file:…?mode=ro`). That is the per-plugin
    DB (`packages/plugin-sdk/src/backend-contract.ts:183`), and it was confirmed on the live
-   machine at `~/.bb-machines/autarch.getbb.app/plugins/tasks/data.db`. The harness requires
+   machine at `<bb-data-dir>/plugins/tasks/data.db`. The harness requires
    a project row with that name. This proves that the URL and the data dir belong to one
    server.
 6. **Teardown.**
@@ -1594,7 +1594,7 @@ These descriptions are for mk or a later session to apply. The hub Dolt was not 
 - **CI prerequisite (corrected in rev 5.3, r3-9):** as in rev-4 G-0, the repository id is
   `1140086114`, the canonical registry name is `mistakeknot/Autarch`, and the migration task
   is `mk-ag2s.18`. A fresh canonical lookup on 2026-10-01 agrees: `gh api
-  repos/mistakeknot/Autarch` returns id 1140086114, and `zklw-ci status` lists it with
+  repos/mistakeknot/Autarch` returns id 1140086114, and `<host>-ci status` lists it with
   campaign mk-ag2s, disposition `pending-inventory`, inventory `requires-workflow-review`,
   enabled. The rev-5.2 "not registered" claim came from the lowercase lookup that rev 4
   already called misleading, and it is withdrawn. Claiming mk-ag2s.18 needs the hub, which
@@ -1673,7 +1673,7 @@ All 11 findings were verified against a9853e2 and the bb sources. None is rebutt
 | r2-1 **[ROLLBACK-ONLY]** | v2 override of a card generation leaves `task_id` NULL; re-upgrade only back-fills | Rev-4 `delegation.ts:154-176` builds the row with no card columns; `service.ts:88` mints `dec_…` | **Fix.** Adoption at v3 open (§1.3.8): a supersedes chain reaching a card generation → link-once update to the next generation; state recomputed; writes and blocks back-filled | Task 2.8a rollback test (moved from Task 2.3 test 6 in rev 5.3); A10 |
 | r2-2 | Malformed edit after materialization leaves the stale generation pickable | Pick gate `store.ts:494-503` checks only that row (withdrawn, resolved, superseded, picked, revision) | **Fix.** T4: an invalidating edit withdraws the unpicked generation, so the existing gate refuses it in v3 **and** in a rolled-back v2. T5 reopens as a new generation | Task 2.4 T4 old-tab tests (three causes); scenario `card-invalidated-old-tab-pick` |
 | r2-3 | Crash between unlabel and its acknowledgement can withdraw the override | Rev 5.1 rule depended on `home_unlabelled_at` | **Fix.** Label-loss withdrawal requires that no generation has a pick. The pick is committed in the same transaction that enqueues the unlabel. Override generations are also immune (T11) | Task 2.4 crash-window tests (lost response, restart before and after override); scenario `override-unlabel-crash` |
-| r2-4 | Tasks data is in `<data>/plugins/tasks/data.db`; `/proc/<pid>/net/tcp` is per namespace | `plugin-sdk/src/backend-contract.ts:183`; live `~/.bb-machines/autarch.getbb.app/plugins/tasks/data.db` | **Fix.** LISTEN inode ∈ fd socket inodes of the owned set, checked before any request; runtime-json cross-check; then the nonce read from `plugins/tasks/data.db`. Rev 5.3 (r3-4) widens the set to `{L} ∪ descendants(L)` and checks the runtime pid against `L` | Task 2.12 rig; `check-e2e --require-ownership` |
+| r2-4 | Tasks data is in `<data>/plugins/tasks/data.db`; `/proc/<pid>/net/tcp` is per namespace | `plugin-sdk/src/backend-contract.ts:183`; live `<bb-data-dir>/plugins/tasks/data.db` | **Fix.** LISTEN inode ∈ fd socket inodes of the owned set, checked before any request; runtime-json cross-check; then the nonce read from `plugins/tasks/data.db`. Rev 5.3 (r3-4) widens the set to `{L} ∪ descendants(L)` and checks the runtime pid against `L` | Task 2.12 rig; `check-e2e --require-ownership` |
 | r2-5 | No cutover for open pre-v3 asks | v1 kinds `decide`, `steps`, `machine` (`model.ts:12,250`) | **Fix.** Legacy lane (§1.3.7): drain in place, lifecycle commands legacy-only, `asks.ts` kept and guarded, retirement bead after drain | Task 2.8a cutover test (moved in rev 5.3); A11 |
 | r2-6 | Delegation on `task.projectId` while the ruling targets `ask.project` | `delegation.ts:61` (names), `:129` (`d.project`) | **Fix.** The rev-5.1 switch is withdrawn. Delegation stays on `d.project` (ruling scope) and also requires a confirmed tasks → Home binding; mismatch is display-only. Names re-validated at open; unknown names inactive | Task 2.5 #4; A12 |
 | r2-7 | `cards.request_id UNIQUE` contradicts display-only duplicates | Rev 5.1 schema | **Fix.** Non-unique `cards.request_key` plus insert-once `card_requests`; earliest `(createdAt, id)` before registration | Task 2.4 registry tests (reversed order, Request edit) |
@@ -1721,7 +1721,7 @@ Each finding was checked against committed code before it was fixed. None is reb
 | r3-6 | A stale cached label id falsely withdraws after delete, recreate, reapply | `getTask` returns label ids only | Label cache maps name → all ids; before any label-loss T6, a cache-bypassing `listLabels`; a failed read is T12 | Task 2.4 label tests (recreate/reapply, genuine removal, failed read, duplicate names) |
 | r3-7 | Task 2.3 tests need 2.4–2.7; steps-ask progress impossible through v2 | `asks.ts:133` permits progress only on `machine` | Task 2.3 is store-level only; integration rollback and cutover move to new Task 2.8a; progress fixture is the machine ask | Task 2.3 tests 1–7; Task 2.8a |
 | r3-8 | Scenario lists dropped `two-writers`, `not-ready-at-start`, real `vizier-chat` and others | `e2e/scenarios/index.ts`, `harness.ts:42`, `check-e2e.mjs` SCHEMAS | Every rev-4 scenario kept or mapped in the Task 2.11 table; real list and `harness.ts:42` default include `queued-then-archived` and `vizier-chat`; `ask-cli-proxy` → `filer-from-thread` | Criterion 13 and 14 commands; check-e2e retired-name test |
-| r3-9 | CI prerequisite contradicted rev-4 G-0 | Rev-4 G-0; fresh `gh api repos/mistakeknot/Autarch` → 1140086114; `zklw-ci status` → mk-ag2s, `pending-inventory` | §5 and Task 2.0 restore the G-0 evidence and record the fresh lookup; claiming mk-ag2s.18 stays with mk (hub not touched) | None (documentation) |
+| r3-9 | CI prerequisite contradicted rev-4 G-0 | Rev-4 G-0; fresh `gh api repos/mistakeknot/Autarch` → 1140086114; `<host>-ci status` → mk-ag2s, `pending-inventory` | §5 and Task 2.0 restore the G-0 evidence and record the fresh lookup; claiming mk-ag2s.18 stays with mk (hub not touched) | None (documentation) |
 
 ### 8.5 Enumerated self-pass (rev 5.3)
 

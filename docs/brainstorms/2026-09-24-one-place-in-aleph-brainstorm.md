@@ -262,7 +262,7 @@ Gurgeh and Pollard stay as tools that agents call through the CLI and MCP.
     - **A failed continuation reopens a decision.** The ruling stands with
       state `failed`, and a new decision is owed: retry, pick another
       option, or hand it to a thread. There is one queue.
-    - **Signing key.** Home has its own ed25519 key on zklw, used for
+    - **Signing key.** Home has its own ed25519 key on devhost, used for
       nothing else. Its public key goes in an `allowed_signers` file
       committed to the Uqbar, so every machine gets it through git. To
       rotate, add the new key with `valid-after` and expire the old one.
@@ -296,7 +296,7 @@ Gurgeh and Pollard stay as tools that agents call through the CLI and MCP.
 21. **Review fixes from the 2026-09-25 flux-drive**
     ([summary](../research/flux-drive/2026-09-24-one-place-in-aleph-brainstorm-fc1c03fa/summary.md)):
     - **Home's key accepts the same-user risk** (mk, 2026-09-25). Every
-      agent on zklw runs as mk, so an agent that set out to could read the
+      agent on devhost runs as the operator account, so an agent that set out to could read the
       key or edit `allowed_signers`. Claude Code and Codex draw the same
       line: the sandbox and permission prompts are the boundary, not Unix
       users. The key guards against the realistic failure, an agent
@@ -311,7 +311,7 @@ Gurgeh and Pollard stay as tools that agents call through the CLI and MCP.
     - **What the hash freezes.** The command string, its working
       directory, an environment allowlist, and the hashes of any repo
       scripts it calls. Editing one of those scripts invalidates the
-      option, and the pick becomes a re-ask. A continuation runs as mk in
+      option, and the pick becomes a re-ask. A continuation runs as the operator account in
       the project's directory, and the card says so.
     - **The feed carries only what mk ruled:** the option label and the
       outcome state, quoted and clipped. It never carries the asker's free
@@ -353,7 +353,7 @@ Gurgeh and Pollard stay as tools that agents call through the CLI and MCP.
 23. **Instructions instead of commands, and signing later** (mk, 2026-09-26,
     after the second plan review). The aim is less context switching and more
     time on product, design, taste and QA, not saving tokens. Home running
-    commands as mk was where both plan reviews found their defects.
+    commands as the operator account was where both plan reviews found their defects.
     - **Command picks are cut from v1.** An option can instead carry a
       pre-written **instruction**. The card shows it exactly. Picking it
       wakes the asking agent with exactly that text, and the agent does the

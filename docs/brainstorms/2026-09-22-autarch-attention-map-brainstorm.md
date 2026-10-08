@@ -207,8 +207,8 @@ reasoning was given before the ruling.
 2. **Dependency edges.** `serving_map` holds 5 edges, and the prototype's edges are illustrative.
    The candidate sources are go.mod and package manifests, bead cross-references, and edges mk
    declares.
-3. **Core-document discovery.** A filename scan on zklw found documents for 20 of 29 named
-   gardens. Nine have no canonical path on zklw. Backlogs often live in the workspace tracker
+3. **Core-document discovery.** A filename scan on devhost found documents for 20 of 29 named
+   gardens. Nine have no canonical path on devhost. Backlogs often live in the workspace tracker
    rather than in the repo; Autarch has no `.beads` directory, so the scan marks its backlog
    missing even though `Sylveste-fuwn` exists. The shelf needs per-garden document locations, not
    filename heuristics, or it will report gaps that aren't real.

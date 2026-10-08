@@ -22,7 +22,7 @@ SURVIVES.
 **Inputs:**
 - `docs/research/2026-09-30-tasks-rpc-spike.md`
 - `docs/research/2026-09-30-aleph-runner-interface.md`
-- tasks@0.1.2: `/home/mk/bb-picker-switch/plugins/tasks/{shared/contract.ts,api/index.ts,cli/index.ts}`
+- tasks@0.1.2: `~/bb-picker-switch/plugins/tasks/{shared/contract.ts,api/index.ts,cli/index.ts}`
 - plugin SDK: `packages/plugin-sdk/src/backend-contract.ts`
 - the committed plugin at `integrations/bb-plugin-autarch/` (a9853e2)
 
@@ -562,12 +562,12 @@ label and is not re-materialized.
 #### 1.3.9 Rollback procedure: restore from backup (condition 4)
 
 Rollback is the mk-run script `scripts/home-restore-v2.sh`, delivered and tested in Task
-2.8a. Home never execs it, and no agent runs it. It runs as root on zklw; every action on
-mk's files and every `bb` call runs as mk through `runuser -u mk --`. It reports back to the
+2.8a. Home never execs it, and no agent runs it. It runs as root on devhost; every action on
+mk's files and every `bb` call runs as the operator account through `runuser -u operator --`. It reports back to the
 thread named by `--thread`.
 
 **Commands are bound to the verified installation (finding r5-4).** The `bb` wrapper at
-`/home/mk/.local/bin/bb` execs `$BB_DATA_DIR/npm/bin/bb` whenever an ambient `BB_DATA_DIR`
+`~/.local/bin/bb` execs `$BB_DATA_DIR/npm/bin/bb` whenever an ambient `BB_DATA_DIR`
 names an install. The machine CLI takes its server URL only from `BB_SERVER_URL`, and
 without it falls back to the production default port (`packages/config/src/cli.ts:19-41`,
 `env.ts:48-57`). An ambient value can therefore point disable, install and enable at a
@@ -579,18 +579,18 @@ different server. The script defends in three ways:
   executable line is
   `exec /usr/bin/env -i PATH=/usr/sbin:/usr/bin:/sbin:/bin /bin/bash --noprofile --norc "${0%/*}/home-restore-v2.bash" "$@"`.
   The real body is `home-restore-v2.bash`, which sits next to it, is root-owned and is not
-  executable on its own. On zklw `/bin/sh` is dash, which reads no `BASH_ENV` and reads
+  executable on its own. On devhost `/bin/sh` is dash, which reads no `BASH_ENV` and reads
   `ENV` only for interactive shells. So `BASH_ENV`, `ENV`, `BB_*`, `NODE_*`, `HOME` and
   `PATH` from root's or sudo's environment never reach a Bash process. Probed 2026-10-01
   (results in §8.8). mk runs the launcher by path (`sudo /usr/local/libexec/home-v3-<sha12>/home-restore-v2.sh …`,
   the root-owned copy from the generated package, see "Root-owned install copy" below), never with `bash scripts/…`, because that would start Bash, and run `BASH_ENV`, before
-  the launcher's first line. Every mk command runs as `runuser -u mk -- env -i`, with only
+  the launcher's first line. Every operator-account command runs as `runuser -u operator -- env -i`, with only
   the variables set below.
 - **Verified install, before anything is touched.** `BBDATA` is the constant
-  `/home/mk/.bb-machines/autarch.getbb.app`. The script reads `$BBDATA/bb-app-runtime.json`
+  `<bb-data-dir>`. The script reads `$BBDATA/bb-app-runtime.json`
   (owned by mk, not a symlink) and requires:
   - `serverUrl` is `http://127.0.0.1:<port>`;
-  - the recorded `pid` is alive, runs as mk, and its command line runs `entryPath`, which
+  - the recorded `pid` is alive, runs as the operator account, and its command line runs `entryPath`, which
     must resolve to `$BBDATA/npm/bin/bb-app`;
   - the LISTEN socket on `<port>` is held by that pid or a descendant (the `/proc/net/tcp`
     inode found among the fd links of the owned set, the Task 2.12 method);
@@ -598,7 +598,7 @@ different server. The script defends in three ways:
     one using this data directory.
   Only then are `BB_SERVER_URL=<that url>`, `BB_DATA_DIR=$BBDATA` and `NODE_ENV=production`
   pinned. Any failure exits 6 before any file is moved.
-- **Pinned binary.** `bb` calls use `/home/mk/.local/bin/bb` with the pinned `BB_DATA_DIR`,
+- **Pinned binary.** `bb` calls use `~/.local/bin/bb` with the pinned `BB_DATA_DIR`,
   so the wrapper's first branch execs exactly `$BBDATA/npm/bin/bb`. The script also checks
   that this file exists and is owned by mk.
 
@@ -609,7 +609,7 @@ different server. The script defends in three ways:
   not group/other-writable (symlinks resolved first). Such a copy is made only by a generated package:
   nothing in a checkout is ever run with sudo, piped to sudo, or read by root, because any user-writable byte
   (a script, the `HEAD` ref, a Git replace ref) could be changed before the command runs. The only trusted
-  source is a self-contained generated package: the coordinator, as mk, runs
+  source is a self-contained generated package: the coordinator, as the operator account, runs
   `scripts/home-build-root-package.sh --commit <full 40-hex sha> --thread <id>`. The generator refuses
   anything but a full sha, checks `git --no-replace-objects cat-file -t` is `commit` and that `rev-parse` of
   the sha equals itself, reads the five files with `git --no-replace-objects cat-file blob <sha>:scripts/<f>`,
@@ -621,7 +621,7 @@ different server. The script defends in three ways:
   with unexpected content; staged in a mktemp dir inside the root-owned parent, sha256 re-verified, then
   renamed), runs `home-upgrade-v3.sh --check` from that copy (installed copy and plugin build verified,
   nothing changed), and runs the real upgrade only with `--go`. Everything mk owns goes through
-  `runuser -u mk`. A `trap EXIT` reports success or failure to the thread given by the required `--thread` via `bb thread tell`, printing the report if sending fails. The
+  `runuser -u operator`. A `trap EXIT` reports success or failure to the thread given by the required `--thread` via `bb thread tell`, printing the report if sending fails. The
   restore is a separate command printed at the end:
   `sudo /usr/local/libexec/home-v3-<sha12>/home-restore-v2.sh --thread … --repo … [--backup …]`.
   The launchers keep their ownership guard as defence in depth. Test-only `HOME_V3_TEST_DEST` (and
@@ -639,17 +639,18 @@ exec /usr/bin/env -i PATH=/usr/sbin:/usr/bin:/sbin:/bin /bin/bash --noprofile --
 # Restores Home (the autarch bb plugin) to its pre-v3 backup.
 # Run on the host from the root-owned copy: sudo /usr/local/libexec/home-v3/home-restore-v2.sh --thread <thr_…> --repo <Autarch checkout> [--backup <path>]
 set -euo pipefail
-BBDATA=/home/mk/.bb-machines/autarch.getbb.app      # constant; --bbdata only in test mode
+BBDATA="<bb-data-dir>"    # constant (substitute the install path); --bbdata only in test mode
 DATA=$BBDATA/plugins/autarch
-BB=/home/mk/.local/bin/bb
-BUILD=/home/mk/.local/share/autarch-home-v2          # a9853e2 worktree for the v2 build
-MKUID=$(id -u mk)
+OPER=operator                                 # the account that owns the bb install
+BB=/home/$OPER/.local/bin/bb
+BUILD=/home/$OPER/.local/share/autarch-home-v2  # a9853e2 worktree for the v2 build
+MKUID=$(id -u "$OPER")
 THREAD=; REPO=; BACKUP=; CHECK_ONLY=0; URL=
 # parse --thread (required), --repo (required), --backup, --check (stop after step 2)
 
 [ "$(id -u)" -eq 0 ] || { echo "run as root: sudo $0 …" >&2; exit 64; }
-[ "$(hostname -s)" = zklw ] || { echo "zklw only" >&2; exit 64; }
-AS0=(runuser -u mk -- env -i HOME=/home/mk USER=mk LOGNAME=mk PATH=/usr/bin:/bin
+[ "$(hostname -s)" = devhost ] || { echo "devhost only" >&2; exit 64; }
+AS0=(runuser -u "$OPER" -- env -i HOME=/home/$OPER USER=$OPER LOGNAME=$OPER PATH=/usr/bin:/bin
      XDG_RUNTIME_DIR=/run/user/$MKUID)                 # no bb variables yet
 REPORT=$("${AS0[@]}" mktemp /tmp/home-restore-report.XXXXXX)
 say()    { printf '%s\n' "$*" | "${AS0[@]}" tee -a "$REPORT"; }
@@ -663,14 +664,14 @@ trap finish EXIT
 #    AS=("${AS0[@]}" BB_DATA_DIR="$BBDATA" BB_SERVER_URL="$URL" NODE_ENV=production).
 #    Failure → exit 6; nothing touched; nothing sent to any server.
 # 1. Backup: --backup, else the newest $DATA/home-v2-backup-*.db. It must be inside $DATA.
-# 2. Verify it, as mk, read-only: sqlite3 -readonly "$BACKUP" 'PRAGMA integrity_check' = ok;
+# 2. Verify it, as the operator, read-only: sqlite3 -readonly "$BACKUP" 'PRAGMA integrity_check' = ok;
 #    schema_meta.schema_version in (1,2); min_reader_version <= 2. Fail → exit 2, nothing touched.
 #    --check stops here (exit 0).
 # 3. Stop Home: "${AS[@]}" "$BB" plugin disable autarch; then fuser "$DATA"/data.db* must
 #    show no holder, else "${AS[@]}" "$BB" plugin enable autarch and exit 3.
 # 4. Move aside, never delete: data.db, data.db-wal, data.db-shm → data.db.v3-<ts>{,-wal,-shm}.
-# 5. Install the backup as mk: cp --no-clobber "$BACKUP" "$DATA/data.db"; chmod 0600.
-# 6. v2 build as mk: git -C "$REPO" worktree add "$BUILD" a9853e2 (if absent; verify
+# 5. Install the backup as the operator: cp --no-clobber "$BACKUP" "$DATA/data.db"; chmod 0600.
+# 6. v2 build as the operator: git -C "$REPO" worktree add "$BUILD" a9853e2 (if absent; verify
 #    HEAD = a9853e2); npm ci; bb plugin build; "$BB" plugin install "$BUILD/integrations/bb-plugin-autarch".
 # 7. "${AS[@]}" "$BB" plugin enable autarch; wait up to 60 s for a healthy start;
 #    record the tail of `bb plugin logs autarch` and the open-ask count (sqlite3 -readonly).
@@ -736,7 +737,7 @@ Otherwise the panel names the field that failed and renders no command.
 `todo-add --set '<SET>' --from-card '<task.id>' --expect-sha256 '<hex>'`
 
 **Item JSON.** `JSON.stringify` of
-`{run_as:"mk", script, script_sha256, owner_thread, run_timeout_s, label}`.
+`{run_as:"operator", script, script_sha256, owner_thread, run_timeout_s, label}`.
 
 **Status.** The panel shows the read-only `todo-run --status '<set>' '<item>'` command for
 mk to paste. Reading it automatically is question D-1.
@@ -844,7 +845,7 @@ Every task is TDD: write the failing test, make it pass, then verify. Nothing is
   2026-10-01:
   - `gh api repos/mistakeknot/Autarch --jq '.id,.full_name,.private'` →
     `1140086114`, `mistakeknot/Autarch`, `false`;
-  - `zklw-ci status --repo mistakeknot/Autarch --json` lists id 1140086114 with
+  - `<host>-ci status --repo mistakeknot/Autarch --json` lists id 1140086114 with
     `campaign: mk-ag2s`, `disposition: pending-inventory`,
     `inventory_disposition: requires-workflow-review`, `enabled: true`.
 
@@ -1472,7 +1473,7 @@ The grep covers every tracked Go file in the repository, not only `cmd/` and `in
 - **Refusal.** A target is refused when it:
   - is in the loopback class (`localhost`, `127/8`, `::1`, `::ffff:127.0.0.1`,
     `0.0.0.0`) and uses any ambient port. Ambient ports come from env and from every
-    `bb-app-runtime.json` under `~/.bb` and `~/.bb-machines/*`;
+    `bb-app-runtime.json` under `~/.bb` and `<bb-data-dirs>`;
   - is not loopback;
   - has no environment, because there is no default.
 
@@ -1599,7 +1600,7 @@ bwrap --dev-bind / / --unshare-net --die-with-parent   --setenv HOME_E2E_OUTER_N
    create a tasks project named `e2e-<nonce>`. It then opens
    **`<data>/plugins/tasks/data.db`** read-only (`file:…?mode=ro`). That is the per-plugin
    DB (`packages/plugin-sdk/src/backend-contract.ts:183`), and it was confirmed on the live
-   machine at `~/.bb-machines/autarch.getbb.app/plugins/tasks/data.db`. The harness requires
+   machine at `<bb-data-dir>/plugins/tasks/data.db`. The harness requires
    a project row with that name. This proves that the URL and the data dir belong to one
    server.
 6. **Teardown.**
@@ -1812,7 +1813,7 @@ These descriptions are for mk or a later session to apply. The hub Dolt was not 
 - **CI prerequisite (corrected in rev 5.3, r3-9):** as in rev-4 G-0, the repository id is
   `1140086114`, the canonical registry name is `mistakeknot/Autarch`, and the migration task
   is `mk-ag2s.18`. A fresh canonical lookup on 2026-10-01 agrees: `gh api
-  repos/mistakeknot/Autarch` returns id 1140086114, and `zklw-ci status` lists it with
+  repos/mistakeknot/Autarch` returns id 1140086114, and `<host>-ci status` lists it with
   campaign mk-ag2s, disposition `pending-inventory`, inventory `requires-workflow-review`,
   enabled. The rev-5.2 "not registered" claim came from the lowercase lookup that rev 4
   already called misleading, and it is withdrawn. Claiming mk-ag2s.18 needs the hub, which
@@ -1890,7 +1891,7 @@ All 11 findings were verified against a9853e2 and the bb sources. None is rebutt
 | r2-1 | v2 override of a card generation leaves `task_id` NULL; re-upgrade only back-fills | Rev-4 `delegation.ts:154-176` builds the row with no card columns; `service.ts:88` mints `dec_…` | **Withdrawn by the rev-5.4a ruling.** A v2 build can no longer open a v3 DB (§1.3.8 condition 3), so there is nothing to adopt; adoption is deleted | Task 2.3 test 7; Task 2.8a test 1 |
 | r2-2 | Malformed edit after materialization leaves the stale generation pickable | Pick gate `store.ts:494-503` checks only that row (withdrawn, resolved, superseded, picked, revision) | **Fix.** T4: an invalidating edit withdraws the unpicked generation, so the existing gate refuses it in v3 **and** in a rolled-back v2. T5 reopens as a new generation | Task 2.4 T4 old-tab tests (three causes); scenario `card-invalidated-old-tab-pick` |
 | r2-3 | Crash between unlabel and its acknowledgement can withdraw the override | Rev 5.1 rule depended on `home_unlabelled_at` | **Fix.** Label-loss withdrawal requires that no generation has a pick. The pick is committed in the same transaction that enqueues the unlabel. Override generations are also immune (T11) | Task 2.4 crash-window tests (lost response, restart before and after override); scenario `override-unlabel-crash` |
-| r2-4 | Tasks data is in `<data>/plugins/tasks/data.db`; `/proc/<pid>/net/tcp` is per namespace | `plugin-sdk/src/backend-contract.ts:183`; live `~/.bb-machines/autarch.getbb.app/plugins/tasks/data.db` | **Fix.** LISTEN inode ∈ fd socket inodes of the owned set, checked before any request; runtime-json cross-check; then the nonce read from `plugins/tasks/data.db`. Rev 5.3 (r3-4) widens the set to `{L} ∪ descendants(L)` and checks the runtime pid against `L` | Task 2.12 rig; `check-e2e --require-ownership` |
+| r2-4 | Tasks data is in `<data>/plugins/tasks/data.db`; `/proc/<pid>/net/tcp` is per namespace | `plugin-sdk/src/backend-contract.ts:183`; live `<bb-data-dir>/plugins/tasks/data.db` | **Fix.** LISTEN inode ∈ fd socket inodes of the owned set, checked before any request; runtime-json cross-check; then the nonce read from `plugins/tasks/data.db`. Rev 5.3 (r3-4) widens the set to `{L} ∪ descendants(L)` and checks the runtime pid against `L` | Task 2.12 rig; `check-e2e --require-ownership` |
 | r2-5 | No cutover for open pre-v3 asks | v1 kinds `decide`, `steps`, `machine` (`model.ts:12,250`) | **Fix.** Legacy lane (§1.3.7): drain in place, lifecycle commands legacy-only, `asks.ts` kept and guarded, retirement bead after drain | Task 2.8a cutover test (moved in rev 5.3); A11 |
 | r2-6 | Delegation on `task.projectId` while the ruling targets `ask.project` | `delegation.ts:61` (names), `:129` (`d.project`) | **Fix.** The rev-5.1 switch is withdrawn. Delegation stays on `d.project` (ruling scope) and also requires a confirmed tasks → Home binding; mismatch is display-only. Names re-validated at open; unknown names inactive | Task 2.5 #4; A12 |
 | r2-7 | `cards.request_id UNIQUE` contradicts display-only duplicates | Rev 5.1 schema | **Fix.** Non-unique `cards.request_key` plus insert-once `card_requests`; earliest `(createdAt, id)` before registration | Task 2.4 registry tests (reversed order, Request edit) |
@@ -1938,7 +1939,7 @@ Each finding was checked against committed code before it was fixed. None is reb
 | r3-6 | A stale cached label id falsely withdraws after delete, recreate, reapply | `getTask` returns label ids only | Label cache maps name → all ids; before any label-loss T6, a cache-bypassing `listLabels`; a failed read is T12 | Task 2.4 label tests (recreate/reapply, genuine removal, failed read, duplicate names) |
 | r3-7 | Task 2.3 tests need 2.4–2.7; steps-ask progress impossible through v2 | `asks.ts:133` permits progress only on `machine` | Task 2.3 is store-level only; integration rollback and cutover move to new Task 2.8a; progress fixture is the machine ask | Task 2.3 tests 1–7; Task 2.8a |
 | r3-8 | Scenario lists dropped `two-writers`, `not-ready-at-start`, real `vizier-chat` and others | `e2e/scenarios/index.ts`, `harness.ts:42`, `check-e2e.mjs` SCHEMAS | Every rev-4 scenario kept or mapped in the Task 2.11 table; real list and `harness.ts:42` default include `queued-then-archived` and `vizier-chat`; `ask-cli-proxy` → `filer-from-thread` | Criterion 13 and 14 commands; check-e2e retired-name test |
-| r3-9 | CI prerequisite contradicted rev-4 G-0 | Rev-4 G-0; fresh `gh api repos/mistakeknot/Autarch` → 1140086114; `zklw-ci status` → mk-ag2s, `pending-inventory` | §5 and Task 2.0 restore the G-0 evidence and record the fresh lookup; claiming mk-ag2s.18 stays with mk (hub not touched) | None (documentation) |
+| r3-9 | CI prerequisite contradicted rev-4 G-0 | Rev-4 G-0; fresh `gh api repos/mistakeknot/Autarch` → 1140086114; `<host>-ci status` → mk-ag2s, `pending-inventory` | §5 and Task 2.0 restore the G-0 evidence and record the fresh lookup; claiming mk-ag2s.18 stays with mk (hub not touched) | None (documentation) |
 
 ### 8.5 Enumerated self-pass (rev 5.3)
 
@@ -2067,7 +2068,7 @@ Every test cited in §8.1–§8.6 exists under its current number: Task 2.3 test
 ### 8.8 Round 5 (Astra, Reject, 6 findings, 4 P1): all accepted in rev 5.5
 
 Each finding was checked against the committed plugin code (a9853e2) and the Aleph sources
-in `/home/mk/projects/Aleph` before it was fixed.
+in `~/projects/Aleph` before it was fixed.
 
 | # | Finding | Verified evidence | Fix | Test |
 |---|---|---|---|---|
@@ -2099,7 +2100,7 @@ in `/home/mk/projects/Aleph` before it was fixed.
    to WAL before releasing it, which is the sequence the probe exercised. The `-wal` and
    `-shm` files are absent during the hold, and test 7 asserts that `-wal` is empty
    afterwards.
-5. **bwrap requirements.** These are unprivileged user namespaces (enabled on zklw:
+5. **bwrap requirements.** These are unprivileged user namespaces (enabled on devhost:
    `kernel.apparmor_restrict_unprivileged_userns=0`) and `bwrap`. If either is missing the
    harness refuses. There is no fallback to the shared namespace. Chromium's own sandbox
    inside the namespace is untested; if Playwright cannot start there, that is a decision

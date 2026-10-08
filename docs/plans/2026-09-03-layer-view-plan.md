@@ -24,8 +24,8 @@ Written 2026-09-03 under intercore goal `fdaae66d` ("Write the nativity thesis f
 
 - `go test -race ./internal/door` → `ok … 5.345s` (exit 0).
 - `go vet ./internal/door ./cmd/autarch` → clean (exit 0).
-- Live graph on 2026-09-03: `projects_in_layer` answers for every letter A–L and X (G and L return zero rows), 51 rows in total; `serving_map` returns 5 rows, all machine `zklw`. The MCP tool result arrives as text content holding JSON of the form `{"result":{"query_id":"…","rows":[…]}}`.
-- Token file: `~/.config/canongraph/canongraph.env` exists on this machine, one line, `CG_AUTH_TOKEN=…`. The endpoint recorded in the graph's own serving edge is `http://100.78.63.67:3943/mcp` (tailnet-only).
+- Live graph on 2026-09-03: `projects_in_layer` answers for every letter A–L and X (G and L return zero rows), 51 rows in total; `serving_map` returns 5 rows, all machine `devhost`. The MCP tool result arrives as text content holding JSON of the form `{"result":{"query_id":"…","rows":[…]}}`.
+- Token file: `~/.config/canongraph/canongraph.env` exists on this machine, one line, `CG_AUTH_TOKEN=…`. The endpoint recorded in the graph's own serving edge is `http://<tailnet-ip>:3943/mcp` (tailnet-only).
 - Autarch has no Project row in the graph (`resolve` → `is_new: true`); the view must render "no row in the graph" for gardens that exist locally but not in the catalog, as a fact, not an error.
 - The card at `docs/why.md` is `status: confirmed`; this plan file landing without `AUTARCH_CARD_OVERRIDE` set is the guard passing.
 
@@ -53,9 +53,9 @@ type GraphEnv struct{ URL, Token string }
 // caller renders as unchecked, never a crash.
 func LoadGraphEnv(path string) (GraphEnv, error)
 
-const DefaultGraphURL = "http://100.78.63.67:3943/mcp"
+const DefaultGraphURL = "http://<tailnet-ip>:3943/mcp"
 
-// graphCallTimeout bounds one HTTP round trip. The graph lives on zklw over
+// graphCallTimeout bounds one HTTP round trip. The graph lives on devhost over
 // Tailscale; two seconds is the budget the recall hook already runs on.
 const graphCallTimeout = 2 * time.Second
 

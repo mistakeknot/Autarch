@@ -369,7 +369,7 @@ Based on M0 validation, M1 should achieve:
 
 All prototype code and validation reports available at:
 ```
-/Users/sma/Tandemonium/prototypes/
+~/Tandemonium/prototypes/
 ├── m0-worktrees/       # Git worktree validation
 │   └── test-worktrees.sh
 ├── m0-terminal/        # Terminal/command runner

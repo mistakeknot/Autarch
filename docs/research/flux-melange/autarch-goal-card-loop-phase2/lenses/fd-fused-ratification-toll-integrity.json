@@ -34,8 +34,8 @@
     "Cannot judge parse-level or schema-level correctness on its own; needs fd-datamodel-format-durability to supply the mechanism behind any cost/certification claim about card-check.py.",
     "Being a two-parent intersection, it will under-report in areas where one parent was already thorough \u2014 its yield is narrow by design, and a low finding count is not evidence the region is clean."
   ],
-  "generated_agent": "/Users/sma/projects/Sylveste/apps/Autarch/.claude/agents/fd-fused-ratification-toll-integrity.md",
-  "source_spec": "/Users/sma/projects/Sylveste/apps/Autarch/.claude/flux-gen-specs/autarch-goal-card-loop-phase2-fusion-0.json",
+  "generated_agent": "~/projects/Sylveste/apps/Autarch/.claude/agents/fd-fused-ratification-toll-integrity.md",
+  "source_spec": "~/projects/Sylveste/apps/Autarch/.claude/flux-gen-specs/autarch-goal-card-loop-phase2-fusion-0.json",
   "hard_constraint": "Report a finding ONLY if it requires BOTH parent perspectives. Every finding must carry an intersection_justification naming what fd-hci-ratification-cost supplies, what fd-assay-mark-integrity supplies, and why either parent alone lands on the wrong claim.",
   "findings": [
     "f-039",
