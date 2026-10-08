@@ -21,7 +21,7 @@
 
 ```bash
 cd ~/Tandemonium
-go mod init github.com/sma/tandemonium
+go mod init github.com/example/tandemonium
 ```
 
 **Step 2: Add dependencies**
@@ -47,7 +47,7 @@ import (
 	"os"
 
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/sma/tandemonium/internal/app"
+	"github.com/example/tandemonium/internal/app"
 )
 
 func main() {
@@ -936,7 +936,7 @@ import (
 	"os"
 	"testing"
 
-	"github.com/sma/tandemonium/internal/models"
+	"github.com/example/tandemonium/internal/models"
 )
 
 func TestStoreTaskCRUD(t *testing.T) {
@@ -1014,7 +1014,7 @@ import (
 
 	_ "github.com/mattn/go-sqlite3"
 
-	"github.com/sma/tandemonium/internal/models"
+	"github.com/example/tandemonium/internal/models"
 )
 
 type Store struct {
@@ -1322,7 +1322,7 @@ import (
 	"strings"
 
 	"github.com/charmbracelet/lipgloss"
-	"github.com/sma/tandemonium/internal/models"
+	"github.com/example/tandemonium/internal/models"
 )
 
 var (
@@ -1504,8 +1504,8 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 
-	"github.com/sma/tandemonium/internal/models"
-	"github.com/sma/tandemonium/internal/views/fleet"
+	"github.com/example/tandemonium/internal/models"
+	"github.com/example/tandemonium/internal/views/fleet"
 )
 
 type View int
@@ -1671,9 +1671,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/sma/tandemonium/internal/agents/detector"
-	"github.com/sma/tandemonium/internal/agents/tmux"
-	"github.com/sma/tandemonium/internal/models"
+	"github.com/example/tandemonium/internal/agents/detector"
+	"github.com/example/tandemonium/internal/agents/tmux"
+	"github.com/example/tandemonium/internal/models"
 )
 
 type StateChangeHandler func(agent *models.Agent, oldState, newState detector.State)

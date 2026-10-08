@@ -1105,7 +1105,7 @@ inside agent-text containers.
 
 - **Checkout ownership:** reconcile with the paused @thread:thr_nn4veeieqr before any
   implementation edit.
-- **CI:** the repo has ID 1140086114 and devhost-ci status `pending-inventory` (migration
+- **CI:** the repo has ID 1140086114 and <host>-ci status `pending-inventory` (migration
   `mk-ag2s.18` is open). Tests run locally meanwhile, and no GitHub Actions dependency is
   added.
 - **Escalation:**

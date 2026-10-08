@@ -98,7 +98,7 @@ Source references: [RPC documentation](https://github.com/mistakeknot/Flere/blob
    support is not proof that a specific account can access a specific model,
    or that the model performs equivalently through different agent harnesses.
 
-The prior [integration review](~/projects/Flere/docs/research/flux-drive/2026-09-04-flere-integration/summary.md)
+The prior integration review (Flere repository, `docs/research/flux-drive/2026-09-04-flere-integration/summary.md`)
 recommended an optional host/backend under Clavain and Intercore. Today's
 product recommendation goes further toward an intended default because the
 user has now agreed to a continuing embedded project collaborator. It does

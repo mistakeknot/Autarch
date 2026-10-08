@@ -710,7 +710,7 @@ Every task is TDD: write the failing test, make it pass, then verify. Nothing is
   2026-10-01:
   - `gh api repos/mistakeknot/Autarch --jq '.id,.full_name,.private'` →
     `1140086114`, `mistakeknot/Autarch`, `false`;
-  - `devhost-ci status --repo mistakeknot/Autarch --json` lists id 1140086114 with
+  - `<host>-ci status --repo mistakeknot/Autarch --json` lists id 1140086114 with
     `campaign: mk-ag2s`, `disposition: pending-inventory`,
     `inventory_disposition: requires-workflow-review`, `enabled: true`.
 
@@ -1594,7 +1594,7 @@ These descriptions are for mk or a later session to apply. The hub Dolt was not 
 - **CI prerequisite (corrected in rev 5.3, r3-9):** as in rev-4 G-0, the repository id is
   `1140086114`, the canonical registry name is `mistakeknot/Autarch`, and the migration task
   is `mk-ag2s.18`. A fresh canonical lookup on 2026-10-01 agrees: `gh api
-  repos/mistakeknot/Autarch` returns id 1140086114, and `devhost-ci status` lists it with
+  repos/mistakeknot/Autarch` returns id 1140086114, and `<host>-ci status` lists it with
   campaign mk-ag2s, disposition `pending-inventory`, inventory `requires-workflow-review`,
   enabled. The rev-5.2 "not registered" claim came from the lowercase lookup that rev 4
   already called misleading, and it is withdrawn. Claiming mk-ag2s.18 needs the hub, which
@@ -1721,7 +1721,7 @@ Each finding was checked against committed code before it was fixed. None is reb
 | r3-6 | A stale cached label id falsely withdraws after delete, recreate, reapply | `getTask` returns label ids only | Label cache maps name → all ids; before any label-loss T6, a cache-bypassing `listLabels`; a failed read is T12 | Task 2.4 label tests (recreate/reapply, genuine removal, failed read, duplicate names) |
 | r3-7 | Task 2.3 tests need 2.4–2.7; steps-ask progress impossible through v2 | `asks.ts:133` permits progress only on `machine` | Task 2.3 is store-level only; integration rollback and cutover move to new Task 2.8a; progress fixture is the machine ask | Task 2.3 tests 1–7; Task 2.8a |
 | r3-8 | Scenario lists dropped `two-writers`, `not-ready-at-start`, real `vizier-chat` and others | `e2e/scenarios/index.ts`, `harness.ts:42`, `check-e2e.mjs` SCHEMAS | Every rev-4 scenario kept or mapped in the Task 2.11 table; real list and `harness.ts:42` default include `queued-then-archived` and `vizier-chat`; `ask-cli-proxy` → `filer-from-thread` | Criterion 13 and 14 commands; check-e2e retired-name test |
-| r3-9 | CI prerequisite contradicted rev-4 G-0 | Rev-4 G-0; fresh `gh api repos/mistakeknot/Autarch` → 1140086114; `devhost-ci status` → mk-ag2s, `pending-inventory` | §5 and Task 2.0 restore the G-0 evidence and record the fresh lookup; claiming mk-ag2s.18 stays with mk (hub not touched) | None (documentation) |
+| r3-9 | CI prerequisite contradicted rev-4 G-0 | Rev-4 G-0; fresh `gh api repos/mistakeknot/Autarch` → 1140086114; `<host>-ci status` → mk-ag2s, `pending-inventory` | §5 and Task 2.0 restore the G-0 evidence and record the fresh lookup; claiming mk-ag2s.18 stays with mk (hub not touched) | None (documentation) |
 
 ### 8.5 Enumerated self-pass (rev 5.3)
 

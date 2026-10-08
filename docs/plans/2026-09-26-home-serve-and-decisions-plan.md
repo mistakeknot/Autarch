@@ -1997,7 +1997,7 @@ These are **not agent-completable**. Each is a checklist item for mk; none is a 
 - **G-0:** mk approved `mk-okek` (2026-09-26). The round-11 review-astra pass returned PASS
   with no new findings (rounds 4 to 10 returned D-1 to D-17 through J-1, folded in here).
   Checked 2026-09-29: the immutable GitHub repository ID is 1140086114
-  (`mistakeknot/Autarch`, `gh api repos/mistakeknot/autarch --jq .id`), and `devhost-ci status
+  (`mistakeknot/Autarch`, `gh api repos/mistakeknot/autarch --jq .id`), and `<host>-ci status
   --repo mistakeknot/Autarch --json` on devhost shows it registered (campaign `mk-ag2s`,
   disposition `pending-inventory`, inventory `requires-workflow-review`, evidence
   `ci/fleet/evidence/2026-09-10-autarch-visit-registration.json`). Migration is **not

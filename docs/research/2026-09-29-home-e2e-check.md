@@ -14,7 +14,7 @@ the real trial on mk's server is not part of this run).
 
     node scripts/build-identity.mjs --out /tmp/e2e-run-build.json --scratch /tmp/e2e-run-build
     HOME_E2E_BB=http://127.0.0.1:33143 HOME_E2E_BB_HOST_PORT=37761 HOME_E2E_BB_DATA=$ISO/data HOME_E2E_BB_HOME=$ISO/home \
-      HOME_E2E_BB_CLI=<bb-data-dir>/npm/bin/bb \
+      HOME_E2E_BB_CLI="<bb-data-dir>/npm/bin/bb" \
       npm run e2e -- --mode real-bb --build /tmp/e2e-run-build.json --install --run-id 3601e12a-8a66-47af-b930-5a2112e7f136 --out ~/.autarch/home-e2e/e5cd4688f57049b6441b1708880c4e6c60b14546/3601e12a-8a66-47af-b930-5a2112e7f136.jsonl
     node scripts/check-e2e.mjs ~/.autarch/home-e2e/e5cd4688f57049b6441b1708880c4e6c60b14546/3601e12a-8a66-47af-b930-5a2112e7f136.jsonl --mode real-bb --run-id 3601e12a-8a66-47af-b930-5a2112e7f136 --product-commit e5cd4688f57049b6441b1708880c4e6c60b14546 \
       --build /tmp/e2e-run-build.json --scenarios answer-instruction,ask-cli-proxy,queued-then-archived,vizier-chat
