@@ -3,7 +3,7 @@
 // path (cli.ts, delegation.ts) holds no reference to anything exported here that writes.
 import type Database from "better-sqlite3";
 import { COUNTED } from "./cards.js";
-import { ROUTING_PREFIX, type Service } from "./service.js";
+import { ROUTING_PREFIX, type Hold, type Service } from "./service.js";
 import { OPEN_STATUSES } from "./tasks.js";
 import { parseAsk } from "./model.js";
 import type { Asks } from "./asks.js";
@@ -91,6 +91,8 @@ export interface QueueRow {
   overrides_generation: number | null;
   changed_after_ruling: boolean;
   root: { state: string | null; reason: string | null };
+  /** Set while the vizier holds the card: greyed, with the reason, out of "needs you now". */
+  held: Hold | null;
 }
 
 export interface QueueData {
@@ -165,6 +167,7 @@ export function buildQueue(svc: Service, asks: Asks, opts: { thread?: string } =
       overrides_generation: prior?.generation ?? null,
       changed_after_ruling: false,
       root: { state: rootOk ? "verified" : (c?.root_state ?? null), reason: rootOk ? null : (c?.root_reason ?? "root not verified") },
+      held: svc.holdOf(String(d.task_id)),
     });
   }
 
@@ -208,6 +211,7 @@ export function buildQueue(svc: Service, asks: Asks, opts: { thread?: string } =
       overrides_generation: null,
       changed_after_ruling: c.changed_after_ruling === 1,
       root: { state: c.root_state ?? null, reason: c.root_reason ?? null },
+      held: svc.holdOf(c.task_id),
     });
   }
 

@@ -25,6 +25,7 @@ export type QueueRowView = {
   overrides_generation: number | null;
   changed_after_ruling: boolean;
   root: { state: string | null; reason: string | null };
+  held?: { reason: string; by: string; at: string } | null;
 };
 export type LegacyView = {
   count: number;
@@ -45,8 +46,9 @@ export type QueueView = {
 };
 
 /** The Queue shows Asks above Blocking: drop from Blocking what Asks already owes, so one ask is never answerable twice. */
-export function withoutOwed(q: QueueView, asks: { owed: { id: string }[] }): QueueView {
-  const ids = new Set(asks.owed.map((o) => o.id));
+export function withoutOwed(q: QueueView, asks: { owed: { id: string; held?: unknown }[] }): QueueView {
+  // A held ask is not owed (it is not in "Needs you now"), so Blocking keeps it, under On hold.
+  const ids = new Set(asks.owed.filter((o) => !o.held).map((o) => o.id));
   const owed = q.legacy.owed.filter((o) => !ids.has(o.id));
   return {
     ...q,
@@ -120,7 +122,7 @@ function RootRunControl({ taskId, hooks }: { taskId: string; hooks: RootRunHooks
 export function BlocksRow({ row, nowMs, onPick, onOpen, rootRun, onBind, onNote }: { row: QueueRowView; nowMs: number; onPick: Pick; onOpen: (thread: string) => void; rootRun?: RootRunHooks; onBind?: OnBind; onNote?: OnNote }) {
   const meta = [row.card_key, row.project, row.thread ? `owner ${row.thread}` : "owner unknown", `age ${ageText(row.created_at, nowMs)}`, `blocks ${row.blocks_count}`].filter((x) => x !== null && x !== "").join(" - ");
   return (
-    <article className="rounded-lg border border-border bg-card p-3" data-row={row.id} data-pinned={row.pinned ? "true" : "false"}>
+    <article className={`rounded-lg border border-border bg-card p-3${row.held ? " opacity-60" : ""}`} data-row={row.id} data-pinned={row.pinned ? "true" : "false"}>
       <p className="text-xs text-muted-foreground">{meta}</p>
       {row.refs.length > 0 ? (
         <p className="text-xs" data-refs="true">
@@ -140,6 +142,12 @@ export function BlocksRow({ row, nowMs, onPick, onOpen, rootRun, onBind, onNote 
             {row.card_key ? `Open ${row.card_key} in Tasks to fix it. ` : ""}
             {row.thread ? <button type="button" className="underline" onClick={() => onOpen(row.thread!)}>{row.thread}</button> : null}
           </p>
+          {row.held ? <p className="text-xs" data-hold-reason>{`On hold: ${row.held.reason}`}</p> : null}
+        </div>
+      ) : row.held ? (
+        <div data-held="true">
+          <h3 className="text-sm font-medium">{row.title}</h3>
+          <p className="text-xs" data-hold-reason>{`On hold: ${row.held.reason}`}</p>
         </div>
       ) : row.ask !== null && row.decision_id !== null && row.revision !== null ? (
         <AskCard
@@ -186,8 +194,9 @@ export function LegacyGroup({ legacy, onPick, onOpen }: { legacy: LegacyView; on
 }
 
 export function BlocksPanel({ data, nowMs, thread, onPick, onOpen, rootRun, onBind, onNote }: { data: QueueView; nowMs: number; thread?: string; onPick: Pick; onOpen: (thread: string) => void; rootRun?: RootRunHooks; onBind?: OnBind; onNote?: OnNote }) {
-  const unbound = data.rows.filter(isUnbound);
-  const { pinned, rest } = groupRows(data.rows.filter((r) => !isUnbound(r)));
+  const held = data.rows.filter((r) => r.held);
+  const unbound = data.rows.filter((r) => !r.held && isUnbound(r));
+  const { pinned, rest } = groupRows(data.rows.filter((r) => !r.held && !isUnbound(r)));
   const row = (r: QueueRowView) => <BlocksRow key={r.id} row={r} nowMs={nowMs} onPick={onPick} onOpen={onOpen} {...(rootRun ? { rootRun } : {})} {...(onBind ? { onBind } : {})} {...(onNote ? { onNote } : {})} />;
   if (data.rows.length === 0 && data.legacy.count === 0) return <p className="p-4 text-sm text-muted-foreground">Nothing is blocking.</p>;
   return (
@@ -209,6 +218,12 @@ export function BlocksPanel({ data, nowMs, thread, onPick, onOpen, rootRun, onBi
           <h2 className="mb-2 text-xs font-semibold uppercase text-muted-foreground">{`Unbound projects (${unbound.length})`}</h2>
           <p className="mb-2 text-xs text-muted-foreground">These cards belong to a project with no verified root. Home shows them but cannot record a ruling on them, so there are no pick buttons. Bind the project, or use Ask / note to talk to the owner.</p>
           <div className="space-y-3">{unbound.map(row)}</div>
+        </section>
+      ) : null}
+      {held.length > 0 ? (
+        <section data-section="on-hold">
+          <h2 className="mb-2 text-xs font-semibold uppercase text-muted-foreground">{`On hold (${held.length})`}</h2>
+          <div className="space-y-3">{held.map(row)}</div>
         </section>
       ) : null}
       <LegacyGroup legacy={data.legacy} onPick={onPick} onOpen={onOpen} />

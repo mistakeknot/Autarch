@@ -35,7 +35,7 @@ import { BindingsPanel, SettingsPanel } from "./ui/settings.js";
 import { keyAction, layoutStack, stackReducer, StackView } from "./ui/stack.js";
 import type { Panel, StackState } from "./ui/stack.js";
 import { HOME_SOURCE } from "./ui/identity.js";
-import { ThreadPanel, VizierPanel } from "./ui/vizier.js";
+import { TellVizier, ThreadPanel, VizierPanel } from "./ui/vizier.js";
 
 /** The todo list, kept current by the server's "todos-changed" signal. */
 function useTodos() {
@@ -443,7 +443,7 @@ function HomePage() {
         return (
           <>
             {([
-              ["Needs you now", { id: "asks", kind: "decision", title: "Asks" }],
+              ["Needs you now", { id: "asks", kind: "decision", title: "Asks", hideHeld: true }],
               ["Blocked on others", { id: "blocks", kind: "decision", title: "Blocking", hideOwed: true }],
               ["Since you left", { id: "catchup", kind: "catchup", title: "Catch-up" }],
             ] as const).map(([heading, p]) => (
@@ -459,9 +459,11 @@ function HomePage() {
           <EmptyState>{error ?? "Loading asks…"}</EmptyState>
         ) : (
           <>
+          <TellVizier threadId={asks.delegation.settings.vizierThreadId} />
           {yourMove.moves ? <YourMovePanel data={yourMove.moves} handlers={yourMove.handlers} /> : null}
           <AsksPanel
             data={asks}
+            {...(panel.hideHeld ? { hideHeld: true } : {})}
             onNote={(decision_id, text) => yourMove.note({ decision_id }, text)}
             onDismiss={(decision_id, obligation_id) => void rpc.call("dismiss", { decision_id, obligation_id }).then(refetch, () => {})}
             onOpen={(thread) => push({ id: `thread:${thread}`, kind: "thread", title: thread, ref: thread })}
