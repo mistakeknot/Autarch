@@ -315,8 +315,8 @@ export function homeCli(p: HomeCliParts) {
               report_link: log,
               reported_at: at,
               source: "cli",
-              cli_ids: [...ids, reportId].slice(-200),
-              cli_failed: state === "failed" ? [...(prev.cli_failed ?? []), { id: reportId, step }].slice(-20) : (prev.cli_failed ?? []),
+              cli_ids: [...ids, reportId],
+              cli_failed: state === "failed" ? [...(prev.cli_failed ?? []), { id: reportId, step }] : (prev.cli_failed ?? []),
             });
             if (done) n++;
           }
