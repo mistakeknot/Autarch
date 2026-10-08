@@ -26,6 +26,7 @@ import { parseAsk } from "./model.js";
 import { ServeClient, tokenReader } from "./serve.js";
 import { CardWriter } from "./cardwrites.js";
 import { Queue } from "./queue.js";
+import { checkRequest, updateInfo } from "./updates.js";
 import { ghViewReal, PrPoller } from "./movepoll.js";
 import { ReportWatcher } from "./movereport.js";
 import { moveViews } from "./moveview.js";
@@ -118,6 +119,8 @@ export interface HomeConfig {
   serveTokenFile: string;
   serveProjectDirs: string[];
   autarchBin: string;
+  /** Where the update runner writes status.json and result.json (read-only here). */
+  updateDir?: string;
 }
 
 let sourceHash: string | null = null;
@@ -161,6 +164,7 @@ interface Parts {
  * RPC handlers so the caller registers them together with the other contract methods.
  */
 export function wireHome(bb: BbPluginApi, handle: StoreHandle, cfg: HomeConfig, deps: { serve?: ServeClient; sdk?: WakeSdk } = {}) {
+  const updateDir = cfg.updateDir ?? join(homedir(), ".local", "state", "autarch-home-update");
   const serve = deps.serve ?? new ServeClient({ addr: cfg.serveAddr, readToken: tokenReader(cfg.serveTokenFile) });
   let parts: Parts | null = null;
   /** Every thread, paged: the vizier resolver needs title, pinnedAt, archivedAt and deletedAt. */
@@ -605,6 +609,19 @@ export function wireHome(bb: BbPluginApi, handle: StoreHandle, cfg: HomeConfig, 
       if (!p.svc.owed().some((d) => d.id === i.decision_id)) return { ok: false, error: "not an open ask" };
       p.store.setSetting("viewing", JSON.stringify({ decision_id: i.decision_id, at: p.svc.time() }));
       return { ok: true };
+    },
+    /** The runner's status and last result, and any waiting request. Reads two files; runs nothing. */
+    async updateInfo() {
+      const p = need();
+      return updateInfo(updateDir, p.store.setting("update_request"));
+    },
+    /** A click only records {sha, clicked_at} in this plugin's store; the runner outside the plugin acts on it. */
+    async requestUpdate(i: { sha: string }) {
+      const p = need();
+      const r = checkRequest(updateInfo(updateDir, p.store.setting("update_request")), i.sha, p.svc.time());
+      if (!r.ok) return r;
+      p.store.setSetting("update_request", JSON.stringify(r.request));
+      return { ok: true, request: r.request };
     },
     async markSeen(i: { item: string }) {
       need().dele.markSeen(MK, i.item);

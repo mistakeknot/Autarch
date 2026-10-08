@@ -40,7 +40,7 @@ describe("wireHome", () => {
     expect(f.services.sort()).toEqual(["home-card-comments", "home-delegation-check", "home-feed-refresh", "home-move-poll", "home-move-reports", "home-queue", "home-wakes"]);
     expect(f.configure()).toBeTypeOf("function");
     expect(f.cli()).toBeDefined();
-    expect(Object.keys(home.handlers).sort()).toEqual(["catchup", "checkMove", "claimMove", "conversation", "conversationUnread", "dismiss", "health", "listAsks", "listRecent", "markAllSeen", "markConversationSeen", "markSeen", "moves", "note", "override", "pick", "queue", "resend", "revokeApproval", "rootRun", "setBinding", "setDelegation", "setViewing", "skipMove", "stats"]);
+    expect(Object.keys(home.handlers).sort()).toEqual(["catchup", "checkMove", "claimMove", "conversation", "conversationUnread", "dismiss", "health", "listAsks", "listRecent", "markAllSeen", "markConversationSeen", "markSeen", "moves", "note", "override", "pick", "queue", "requestUpdate", "resend", "revokeApproval", "rootRun", "setBinding", "setDelegation", "setViewing", "skipMove", "stats", "updateInfo"]);
     f.disposers.forEach((d) => d());
   });
 
@@ -207,5 +207,28 @@ describe("wireHome", () => {
     // a second pinned match hiding past the first pages makes the fallback refuse
     const two = await run([row("thr_vizier", { title: "Masaq' | vizier", pinnedAt: 1 }), row("thr_other", { title: "Masaq' | vizier two", pinnedAt: 2 })]);
     expect(two).toContain("2 pinned, unarchived threads match");
+  });
+});
+
+describe("update request", () => {
+  it("stores one request row for the latest offered sha and never executes anything", async () => {
+    const { writeFileSync, mkdtempSync } = await import("node:fs");
+    const { tmpdir } = await import("node:os");
+    const { join } = await import("node:path");
+    const updateDir = mkdtempSync(join(tmpdir(), "upd-"));
+    const A = "a".repeat(40);
+    const B = "b".repeat(40);
+    writeFileSync(join(updateDir, "status.json"), JSON.stringify({ installed: A, latest: B, count: 1, subjects: ["s"], checked_at: "2026-10-07T05:00:00Z" }));
+    
+    const db = new Database(":memory:");
+    const handle = createStoreHandle(() => db, {});
+    const f = fakeBb();
+    const home = wireHome(f.bb, handle, { ...cfg, updateDir }, { serve });
+    expect(((await home.handlers.updateInfo()) as { available: boolean }).available).toBe(true);
+    expect(await home.handlers.requestUpdate({ sha: A })).toMatchObject({ ok: false });
+    expect(await home.handlers.requestUpdate({ sha: B })).toMatchObject({ ok: true });
+    expect(((await home.handlers.updateInfo()) as { pending: boolean }).pending).toBe(true);
+    expect(await home.handlers.requestUpdate({ sha: B })).toMatchObject({ ok: false });
+    f.disposers.forEach((d) => d());
   });
 });

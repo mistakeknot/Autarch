@@ -32,6 +32,7 @@ import { BlocksPanel, QueueRefresher, type RootRunHooks } from "./ui/blocks.js";
 import type { QueueView } from "./ui/blocks.js";
 import { withoutOwed } from "./ui/blocks.js";
 import { BindingsPanel, SettingsPanel } from "./ui/settings.js";
+import { UpdateMenu, type UpdateInfoView } from "./ui/update.js";
 import { keyAction, layoutStack, stackReducer, StackView } from "./ui/stack.js";
 import type { Panel, StackState } from "./ui/stack.js";
 import { HOME_SOURCE } from "./ui/identity.js";
@@ -394,6 +395,22 @@ function HomePage() {
   };
   const dispatch = (a: Parameters<typeof stackReducer>[1]) => setStack((s) => stackReducer(s, a));
   const push = (panel: Panel) => dispatch({ type: "push", panel });
+  const [update, setUpdate] = useState<UpdateInfoView | null>(null);
+  const [updateError, setUpdateError] = useState<string | null>(null);
+  const loadUpdate = useCallback(() => void rpc.call("updateInfo", null).then((v) => setUpdate(v as UpdateInfoView), () => {}), [rpc]);
+  useEffect(() => {
+    loadUpdate();
+    const t = setInterval(loadUpdate, 300_000);
+    return () => clearInterval(t);
+  }, [loadUpdate]);
+  const requestUpdate = (sha: string) => {
+    setUpdateError(null);
+    void rpc.call("requestUpdate", { sha }).then((r) => {
+      const v = r as { ok: boolean; error?: string };
+      if (!v.ok) setUpdateError(v.error ?? "the request was refused");
+      loadUpdate();
+    }, (e) => setUpdateError(String(e)));
+  };
 
   useEffect(() => {
     const sync = () => tracker.setActive(document.visibilityState === "visible" && document.hasFocus());
@@ -547,6 +564,7 @@ function HomePage() {
             {title}
           </button>
         ))}
+        <UpdateMenu info={update} onRequest={requestUpdate} error={updateError} />
         <button type="button" className="ml-auto text-muted-foreground" aria-pressed={classic} onClick={toggleClassic}>
           Classic tabs
         </button>
