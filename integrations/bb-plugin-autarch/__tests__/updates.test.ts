@@ -42,6 +42,10 @@ describe("updateInfo", () => {
     expect(updateInfo(dir({ "status.json": status, "result.json": ok }), req)).toMatchObject({ pending: false, available: false });
     expect(updateInfo(dir({ "status.json": status, "result.json": { ...ok, ok: false } }), req)).toMatchObject({ pending: false, available: true });
   });
+  it("a status checked after a successful result takes precedence", () => {
+    const ok = { sha: B, ok: true, finished_at: "2026-10-07T04:00:00Z", message: "done" };
+    expect(updateInfo(dir({ "status.json": status, "result.json": ok }), undefined).available).toBe(true);
+  });
   it("a result with an unparseable date is ignored", () => {
     expect(updateInfo(dir({ "status.json": status, "result.json": { sha: B, ok: true, finished_at: "soon", message: "x" } }), undefined).result).toBeNull();
   });

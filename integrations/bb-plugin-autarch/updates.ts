@@ -80,8 +80,8 @@ export function updateInfo(dir: string, requestRaw: string | undefined): UpdateI
   const newer = status !== null && status.count > 0 && status.latest !== status.installed;
   // A request is pending until the runner reports a result for that sha (or the installed commit is it).
   const pending = request !== null && status !== null && status.installed !== request.sha && !(result && result.sha === request.sha && Date.parse(result.finished_at) >= Date.parse(request.clicked_at));
-  // A successful result for the latest commit settles it even if status.json has not caught up yet.
-  const installedNow = result !== null && result.ok && status !== null && result.sha === status.latest;
+  // A successful result for the latest commit settles it even if status.json has not caught up yet (a status checked after the result wins).
+  const installedNow = result !== null && result.ok && status !== null && result.sha === status.latest && Date.parse(result.finished_at) > Date.parse(status.checked_at);
   return { status, result, request, available: newer && !pending && !installedNow, pending };
 }
 
