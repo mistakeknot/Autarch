@@ -323,7 +323,7 @@ func TestSourceCannotClaimHealthItNeverHad(t *testing.T) {
 	// The same producer id on two hosts is two producers.
 	_, err = db.Exec(`INSERT INTO source (source_id, host, kind, locator) VALUES ('tmux2','clavain','tmux_inventory','/s')`)
 	wantErr(t, "a second producer watching the same thing on the same host", err)
-	if _, err := db.Exec(`INSERT INTO source (source_id, host, kind, locator) VALUES ('tmux-zklw','zklw','tmux_inventory','/s')`); err != nil {
+	if _, err := db.Exec(`INSERT INTO source (source_id, host, kind, locator) VALUES ('tmux-devhost','devhost','tmux_inventory','/s')`); err != nil {
 		t.Fatalf("the same watcher on another host is a separate producer: %v", err)
 	}
 }
@@ -642,7 +642,7 @@ func TestIdentifiersAreDeterministicAndUnforgeable(t *testing.T) {
 	if a != ConversationID("claude", "clavain", "9e72b443") {
 		t.Error("ids must be reproducible, or a rebuild orphans every durable row")
 	}
-	if a == ConversationID("claude", "zklw", "9e72b443") {
+	if a == ConversationID("claude", "devhost", "9e72b443") {
 		t.Error("the same session id on another host must be a different conversation")
 	}
 	// A component carrying the separator must not be able to forge another id.
@@ -676,8 +676,8 @@ func TestConversationIsUniquePerHost(t *testing.T) {
 
 	if _, err := db.Exec(`INSERT INTO conversation
 		(conversation_id, provider, host, provider_session_id, first_seen_ms, last_seen_ms, first_event_id, last_event_id)
-		VALUES (?,'claude','zklw','9e72b443',1,1,?,?)`,
-		ConversationID("claude", "zklw", "9e72b443"), ev, ev); err != nil {
+		VALUES (?,'claude','devhost','9e72b443',1,1,?,?)`,
+		ConversationID("claude", "devhost", "9e72b443"), ev, ev); err != nil {
 		t.Fatalf("the same id on another host must be a separate record: %v", err)
 	}
 }

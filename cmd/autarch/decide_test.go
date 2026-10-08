@@ -66,7 +66,7 @@ func withCardFiler(t *testing.T, s *stubBB, tune ...func(*homeask.CardFiler)) {
 func askJSON(thread string) string {
 	m := map[string]any{
 		"v": 1, "kind": "decide", "asker": "thread", "subject": "autarch/decide: order", "project": "Autarch",
-		"project_root": "/home/mk/projects/Autarch", "question": "Which order?",
+		"project_root": "/home/dev/projects/Autarch", "question": "Which order?",
 		"options": []map[string]any{
 			{"id": "a", "label": "A first", "kind": "instruction", "reversible": true, "instruction": "Do A then B and report."},
 			{"id": "b", "label": "B first", "kind": "needs-context"},
@@ -158,7 +158,7 @@ func TestDecideNeedsAThread(t *testing.T) {
 	}
 }
 
-// The autarch CLI has no way to file threadless: only Mycroft's FileForPull does (mk question 4).
+// The autarch CLI has no way to file threadless: only Mycroft's FileForPull does (operator question 4).
 func TestDecideRefusesAThreadlessMycroftAskAndRunsNothing(t *testing.T) {
 	s := &stubBB{}
 	withCardFiler(t, s)

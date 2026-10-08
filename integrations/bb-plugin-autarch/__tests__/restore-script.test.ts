@@ -1,6 +1,6 @@
 // Task 2.8a test 2 (A10, finding r5-4): scripts/home-restore-v2.sh and scripts/home-upgrade-v3.sh against a
 // temporary install, in test mode (--test-as-current-user, --bbdata, --build). Never root, never sudo, never the
-// live /home/mk/.bb-machines data. The launchers are executed by path, so the kernel runs the #!/bin/sh line.
+// live bb machine data. The launchers are executed by path, so the kernel runs the #!/bin/sh line.
 import { spawn, spawnSync, type ChildProcess } from "node:child_process";
 import { chmodSync, copyFileSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
 import { createHash } from "node:crypto";

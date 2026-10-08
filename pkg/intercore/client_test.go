@@ -10,7 +10,7 @@ import (
 // Test JSON parsing against real ic output samples.
 
 func TestUnmarshalRun(t *testing.T) {
-	raw := `{"auto_advance":true,"complexity":3,"created_at":1772048200,"force_full":false,"goal":"[autarch] Go wrapper for ic CLI","id":"q9m1soaj","phase":"brainstorm","project_dir":"/home/mk/projects/Demarch","status":"active","updated_at":1772048200}`
+	raw := `{"auto_advance":true,"complexity":3,"created_at":1772048200,"force_full":false,"goal":"[autarch] Go wrapper for ic CLI","id":"q9m1soaj","phase":"brainstorm","project_dir":"/home/dev/projects/Demarch","status":"active","updated_at":1772048200}`
 
 	var r Run
 	if err := json.Unmarshal([]byte(raw), &r); err != nil {
@@ -37,7 +37,7 @@ func TestUnmarshalRun(t *testing.T) {
 }
 
 func TestUnmarshalRunWithBudget(t *testing.T) {
-	raw := `{"auto_advance":true,"budget_warn_pct":80,"complexity":3,"created_at":1771831094,"force_full":false,"goal":"Dashboard views","id":"liq11b4x","phase":"planned","phases":["brainstorm","brainstorm-reviewed","strategized","planned"],"project_dir":"/home/mk/projects/Demarch","scope_id":"iv-o9yh","status":"active","token_budget":250000,"updated_at":1771831379}`
+	raw := `{"auto_advance":true,"budget_warn_pct":80,"complexity":3,"created_at":1771831094,"force_full":false,"goal":"Dashboard views","id":"liq11b4x","phase":"planned","phases":["brainstorm","brainstorm-reviewed","strategized","planned"],"project_dir":"/home/dev/projects/Demarch","scope_id":"iv-o9yh","status":"active","token_budget":250000,"updated_at":1771831379}`
 
 	var r Run
 	if err := json.Unmarshal([]byte(raw), &r); err != nil {

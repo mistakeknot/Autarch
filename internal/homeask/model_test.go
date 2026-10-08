@@ -12,7 +12,7 @@ func base() Ask {
 	return Ask{
 		V: 1, Kind: "decide",
 		Subject: "autarch/catch-up: collapse order",
-		Project: "Autarch", ProjectRoot: "/home/mk/projects/Autarch",
+		Project: "Autarch", ProjectRoot: "/home/dev/projects/Autarch",
 		Asker: "thread", Thread: "thr_abc123",
 		Question:       "Collapse routine catch-up items per project or per day?",
 		Recommendation: "project",

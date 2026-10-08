@@ -17,8 +17,8 @@ import (
 
 func TestEncodeTranscriptDir(t *testing.T) {
 	cases := map[string]string{
-		"/Users/sma/projects/Sylveste":                                     "-Users-sma-projects-Sylveste",
-		"/Users/sma/projects/Sylveste/apps/Autarch/.claude/worktrees/door": "-Users-sma-projects-Sylveste-apps-Autarch--claude-worktrees-door",
+		"/Users/dev/projects/Sylveste":                                     "-Users-dev-projects-Sylveste",
+		"/Users/dev/projects/Sylveste/apps/Autarch/.claude/worktrees/door": "-Users-dev-projects-Sylveste-apps-Autarch--claude-worktrees-door",
 	}
 	for in, want := range cases {
 		if got := encodeTranscriptDir(in); got != want {
@@ -98,7 +98,7 @@ func TestIndexSessionsRollsUpNestedAndKeepsSiblingsApart(t *testing.T) {
 	}
 }
 
-// gitEnv isolates test repositories from mk's global git config: no signing,
+// gitEnv isolates test repositories from the user's global git config: no signing,
 // no hooks path, a fixed identity, plus any dates the caller pins.
 func gitEnv(extra ...string) []string {
 	env := append(os.Environ(),
