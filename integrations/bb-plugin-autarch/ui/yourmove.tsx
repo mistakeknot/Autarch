@@ -41,6 +41,26 @@ export function moveButtons(m: Pick<MoveView, "kind" | "state" | "claimed_at" | 
   return out;
 }
 
+const WHY_LABEL: Record<string, string> = { design: "a design choice", taste: "a matter of taste", spend: "a spend decision" };
+
+/** The compact merge card: what merging does, the review verdict (linked), and why this one is still mk's. */
+export function PrFacts({ m }: { m: Pick<MoveView, "pr"> }) {
+  const pr = m.pr;
+  if (!pr || (!pr.summary && !pr.verdict && !pr.why)) return null;
+  return (
+    <div className="mt-2 space-y-1 text-sm" data-pr-facts>
+      {pr.summary ? <p className="m-0 [overflow-wrap:anywhere]" data-pr-summary>{`Merging this: ${pr.summary}`}</p> : null}
+      {pr.verdict ? (
+        <p className="m-0 text-xs" data-pr-verdict={pr.verdict}>
+          {"Review: "}
+          {pr.review_url ? <a href={pr.review_url} target="_blank" rel="noopener noreferrer nofollow" className="underline">{pr.verdict}</a> : <span>{pr.verdict}</span>}
+        </p>
+      ) : null}
+      {pr.why && WHY_LABEL[pr.why] ? <p className="m-0 text-xs text-muted-foreground" data-pr-why={pr.why}>{`Yours because it is ${WHY_LABEL[pr.why]}.`}</p> : null}
+    </div>
+  );
+}
+
 function Report({ r }: { r: MoveReportView }) {
   if (r.outcome === "succeeded") {
     return (
@@ -92,6 +112,7 @@ export function MoveCard({ m, h, env, section }: { m: MoveView; h: MoveHandlers;
       <h3 className="m-0 text-sm font-medium [overflow-wrap:anywhere]">{m.title}</h3>
       <p className="mt-1 text-xs text-muted-foreground">{`${m.kind} move · ${m.task_id}${m.owner ? ` · owner ${m.owner}` : ""} · opened ${fmtTime(m.opened_at)}`}</p>
       {m.kind === "context" && m.need ? <p className="mt-2 whitespace-pre-wrap text-sm [overflow-wrap:anywhere]" data-need>{`Needed from you: ${m.need}`}</p> : null}
+      {m.kind === "pr" && m.pr ? <PrFacts m={m} /> : null}
       {m.url ? <p className="mt-2 text-sm [overflow-wrap:anywhere]">{m.kind === "pr" ? "Pull request: " : "Open: "}<code className="font-mono text-xs" data-url>{m.url}</code></p> : null}
       {m.kind === "script" && m.commands.length > 0 ? (
         <div className="mt-3 space-y-3" data-commands>

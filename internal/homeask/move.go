@@ -15,6 +15,8 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+	"unicode"
+	"unicode/utf16"
 	"unicode/utf8"
 )
 
@@ -112,6 +114,18 @@ func moveReadHostAllowed(host string) bool {
 	return false
 }
 
+// moveHasDotSegment reports a "." or ".." path segment, including percent-encoded dots, which the URL class
+// in the plugin normalizes away (so the plugin rejects them as non-canonical).
+func moveHasDotSegment(escaped string) bool {
+	for _, seg := range strings.Split(escaped, "/") {
+		switch strings.ToLower(seg) {
+		case ".", "..", "%2e", ".%2e", "%2e.", "%2e%2e":
+			return true
+		}
+	}
+	return false
+}
+
 func moveReadURL(v any) error {
 	s, ok := v.(string)
 	if !ok || len(s) > 2048 {
@@ -125,7 +139,7 @@ func moveReadURL(v any) error {
 	if u.Scheme != "https" || !moveReadHostAllowed(u.Hostname()) || u.User != nil || u.Port() != "" || u.Host != u.Hostname() {
 		return errors.New("read url must be https on an allowed host")
 	}
-	if u.String() != s || u.Path == "" {
+	if u.String() != s || u.Path == "" || strings.ContainsAny(s, "<>\"'`{}|^\\") || moveHasDotSegment(u.EscapedPath()) {
 		return errors.New("read url must be in canonical form")
 	}
 	return nil
@@ -196,11 +210,33 @@ func ParseMove(body string) (Move, error) {
 		if !ok {
 			return Move{}, errors.New("pr must be an object")
 		}
-		if err := onlyKeys(po, []string{"url"}, "pr"); err != nil {
+		if err := onlyKeys(po, []string{"url", "summary", "verdict", "review_url", "why"}, "pr"); err != nil {
 			return Move{}, err
 		}
 		if s, ok := po["url"].(string); !ok || !movePRRe.MatchString(s) {
 			return Move{}, errors.New("pr url must be https://github.com/<owner>/<repo>/pull/<n>")
+		}
+		// Optional merge-card facts; the same rules as the Home plugin's parser (moves.ts).
+		if v, has := po["summary"]; has {
+			s, ok := v.(string)
+			if !ok || strings.TrimFunc(s, func(r rune) bool { return unicode.IsSpace(r) || r == 0xFEFF }) == "" || len(utf16.Encode([]rune(s))) > maxMoveSummary || !utf8.ValidString(s) || strings.ContainsRune(s, utf8.RuneError) || strings.ContainsAny(s, "\r\n\u0085\u2028\u2029") {
+				return Move{}, fmt.Errorf("pr summary must be one line of 1-%d characters", maxMoveSummary)
+			}
+		}
+		if v, has := po["verdict"]; has {
+			if s, ok := v.(string); !ok || !movePRVerdicts[s] {
+				return Move{}, errors.New("pr verdict must be one of PASS, PASS-WITH-NOTES, HOLD, FAIL")
+			}
+		}
+		if v, has := po["why"]; has {
+			if s, ok := v.(string); !ok || (s != "design" && s != "taste" && s != "spend") {
+				return Move{}, errors.New("pr why must be one of design, taste, spend")
+			}
+		}
+		if v, has := po["review_url"]; has {
+			if err := moveReadURL(v); err != nil {
+				return Move{}, err
+			}
 		}
 	case "read":
 		ro, ok := isObj(m)
@@ -230,6 +266,10 @@ func ParseMove(body string) (Move, error) {
 }
 
 // moveBlock is the fenced block a card carries for a move: the validated object as one JSON line.
+const maxMoveSummary = 200
+
+var movePRVerdicts = map[string]bool{"PASS": true, "PASS-WITH-NOTES": true, "HOLD": true, "FAIL": true}
+
 func moveBlock(raw map[string]any) (string, error) {
 	buf := &bytes.Buffer{}
 	enc := json.NewEncoder(buf)

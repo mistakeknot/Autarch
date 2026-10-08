@@ -8,6 +8,13 @@ import { shQuote } from "./rootrun.js";
 
 export type MoveKind = "script" | "pr" | "read" | "context";
 
+/** A merge card that is still mk's: what merging does, the review verdict, and why it was not merged automatically. */
+export const PR_VERDICTS = ["PASS", "PASS-WITH-NOTES", "HOLD", "FAIL"] as const;
+export type PrVerdict = (typeof PR_VERDICTS)[number];
+export const PR_WHYS = ["design", "taste", "spend"] as const;
+export type PrWhy = (typeof PR_WHYS)[number];
+const MAX_SUMMARY = 200;
+
 export interface ScriptRef {
   path: string;
   sha256: string;
@@ -20,7 +27,7 @@ export interface ScriptMove extends ScriptRef {
 
 export type Move =
   | { kind: "script"; script: ScriptMove }
-  | { kind: "pr"; url: string }
+  | { kind: "pr"; url: string; summary?: string; verdict?: PrVerdict; review_url?: string; why?: PrWhy }
   | { kind: "read"; url: string }
   | { kind: "context"; need: string };
 
@@ -127,9 +134,25 @@ export function parseMove(body: string): Move {
     }
     case "pr": {
       if (!isObj(m)) return fail("pr must be an object");
-      only(m, ["url"], "pr");
+      only(m, ["url", "summary", "verdict", "review_url", "why"], "pr");
       if (typeof m.url !== "string" || !PR_URL.test(m.url)) return fail("pr url must be https://github.com/<owner>/<repo>/pull/<n>");
-      return { kind, url: m.url };
+      const pr: Extract<Move, { kind: "pr" }> = { kind, url: m.url };
+      if (m.summary !== undefined) {
+        if (typeof m.summary !== "string" || m.summary.replace(/^[\s\uFEFF]+|[\s\uFEFF]+$/g, "") === "" || m.summary.length > MAX_SUMMARY || /[\r\n\u0085\u2028\u2029]/.test(m.summary) || !m.summary.isWellFormed() || m.summary.includes("\uFFFD")) {
+          return fail(`pr summary must be one line of 1-${MAX_SUMMARY} characters`);
+        }
+        pr.summary = m.summary;
+      }
+      if (m.verdict !== undefined) {
+        if (typeof m.verdict !== "string" || !(PR_VERDICTS as readonly string[]).includes(m.verdict)) return fail(`pr verdict must be one of ${PR_VERDICTS.join(", ")}`);
+        pr.verdict = m.verdict as PrVerdict;
+      }
+      if (m.why !== undefined) {
+        if (typeof m.why !== "string" || !(PR_WHYS as readonly string[]).includes(m.why)) return fail(`pr why must be one of ${PR_WHYS.join(", ")}`);
+        pr.why = m.why as PrWhy;
+      }
+      if (m.review_url !== undefined) pr.review_url = readUrl(m.review_url);
+      return pr;
     }
     case "read": {
       if (!isObj(m)) return fail("read must be an object");

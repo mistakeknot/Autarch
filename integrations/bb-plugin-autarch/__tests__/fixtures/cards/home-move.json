@@ -145,6 +145,96 @@
    "body": "{\"schema\":\"home-move/v1\",\"kind\":\"context\",\"context\":{\"need\":\"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\"}}",
    "error": "context need must be 1-2000 characters of text",
    "kind": null
+  },
+  {
+   "name": "pr with merge-card facts",
+   "body": "{\"schema\":\"home-move/v1\",\"kind\":\"pr\",\"pr\":{\"url\":\"https://github.com/a/b/pull/1\",\"summary\":\"adds X\",\"verdict\":\"PASS-WITH-NOTES\",\"why\":\"taste\",\"review_url\":\"https://github.com/a/b/pull/1\"}}",
+   "error": null,
+   "kind": "pr"
+  },
+  {
+   "name": "pr summary multiline",
+   "body": "{\"schema\":\"home-move/v1\",\"kind\":\"pr\",\"pr\":{\"url\":\"https://github.com/a/b/pull/1\",\"summary\":\"a\\nb\"}}",
+   "error": "pr summary must be one line of 1-200 characters",
+   "kind": null
+  },
+  {
+   "name": "pr summary line separator",
+   "body": "{\"schema\":\"home-move/v1\",\"kind\":\"pr\",\"pr\":{\"url\":\"https://github.com/a/b/pull/1\",\"summary\":\"a\\u2028b\"}}",
+   "error": "pr summary must be one line of 1-200 characters",
+   "kind": null
+  },
+  {
+   "name": "pr bad verdict",
+   "body": "{\"schema\":\"home-move/v1\",\"kind\":\"pr\",\"pr\":{\"url\":\"https://github.com/a/b/pull/1\",\"verdict\":\"great\"}}",
+   "error": "pr verdict must be one of PASS, PASS-WITH-NOTES, HOLD, FAIL",
+   "kind": null
+  },
+  {
+   "name": "pr bad why",
+   "body": "{\"schema\":\"home-move/v1\",\"kind\":\"pr\",\"pr\":{\"url\":\"https://github.com/a/b/pull/1\",\"why\":\"whim\"}}",
+   "error": "pr why must be one of design, taste, spend",
+   "kind": null
+  },
+  {
+   "name": "pr review url off host",
+   "body": "{\"schema\":\"home-move/v1\",\"kind\":\"pr\",\"pr\":{\"url\":\"https://github.com/a/b/pull/1\",\"review_url\":\"https://evil.example/x\"}}",
+   "error": "read url must be https on an allowed host",
+   "kind": null
+  },
+  {
+   "name": "pr summary 101 emoji",
+   "body": "{\"schema\":\"home-move/v1\",\"kind\":\"pr\",\"pr\":{\"url\":\"https://github.com/a/b/pull/1\",\"summary\":\"\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\"}}",
+   "error": "pr summary must be one line of 1-200 characters",
+   "kind": null
+  },
+  {
+   "name": "pr summary only BOM",
+   "body": "{\"schema\":\"home-move/v1\",\"kind\":\"pr\",\"pr\":{\"url\":\"https://github.com/a/b/pull/1\",\"summary\":\"\\ufeff\"}}",
+   "error": "pr summary must be one line of 1-200 characters",
+   "kind": null
+  },
+  {
+   "name": "pr summary replacement char",
+   "body": "{\"schema\":\"home-move/v1\",\"kind\":\"pr\",\"pr\":{\"url\":\"https://github.com/a/b/pull/1\",\"summary\":\"a\\ufffdb\"}}",
+   "error": "pr summary must be one line of 1-200 characters",
+   "kind": null
+  },
+  {
+   "name": "pr why before review url",
+   "body": "{\"schema\":\"home-move/v1\",\"kind\":\"pr\",\"pr\":{\"url\":\"https://github.com/a/b/pull/1\",\"why\":\"whim\",\"review_url\":\"https://evil.example/x\"}}",
+   "error": "pr why must be one of design, taste, spend",
+   "kind": null
+  },
+  {
+   "name": "read url dot segment",
+   "body": "{\"schema\":\"home-move/v1\",\"kind\":\"read\",\"read\":{\"url\":\"https://github.com/a/../b\"}}",
+   "error": "read url must be in canonical form",
+   "kind": null
+  },
+  {
+   "name": "read url encoded dot segment",
+   "body": "{\"schema\":\"home-move/v1\",\"kind\":\"read\",\"read\":{\"url\":\"https://github.com/a/%2e%2e/b\"}}",
+   "error": "read url must be in canonical form",
+   "kind": null
+  },
+  {
+   "name": "read url single dot",
+   "body": "{\"schema\":\"home-move/v1\",\"kind\":\"read\",\"read\":{\"url\":\"https://github.com/a/./b\"}}",
+   "error": "read url must be in canonical form",
+   "kind": null
+  },
+  {
+   "name": "read url raw angle in query",
+   "body": "{\"schema\":\"home-move/v1\",\"kind\":\"read\",\"read\":{\"url\":\"https://github.com/a?x=<\"}}",
+   "error": "read url must be in canonical form",
+   "kind": null
+  },
+  {
+   "name": "read url raw quote in query",
+   "body": "{\"schema\":\"home-move/v1\",\"kind\":\"read\",\"read\":{\"url\":\"https://github.com/a?x='\"}}",
+   "error": "read url must be in canonical form",
+   "kind": null
   }
  ]
 }

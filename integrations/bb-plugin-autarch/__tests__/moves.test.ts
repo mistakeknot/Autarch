@@ -79,3 +79,21 @@ describe("home-move block in a card", () => {
     expect(() => parseCard(base(blk(script({})) + "\n" + blk(script({}))))).toThrow("more than one home-move block");
   });
 });
+
+describe("pr move merge-card facts", () => {
+  const pr = (o: Record<string, unknown>) => JSON.stringify({ schema: "home-move/v1", kind: "pr", pr: { url: "https://github.com/a/b/pull/1", ...o } });
+  it("accepts the optional facts and keeps a bare pr unchanged", () => {
+    expect(parseMove(pr({}))).toEqual({ kind: "pr", url: "https://github.com/a/b/pull/1" });
+    expect(parseMove(pr({ summary: "adds X", verdict: "PASS", why: "taste", review_url: "https://github.com/a/b/pull/1#issuecomment-2" }))).toMatchObject({ summary: "adds X", verdict: "PASS", why: "taste" });
+  });
+  it.each([
+    ["multiline summary", { summary: "a\nb" }],
+    ["long summary", { summary: "x".repeat(201) }],
+    ["bad verdict", { verdict: "great" }],
+    ["bad why", { why: "whim" }],
+    ["off-host review url", { review_url: "https://evil.example/x" }],
+    ["unknown field", { note: "x" }],
+  ])("rejects %s", (_n, o) => {
+    expect(() => parseMove(pr(o))).toThrow();
+  });
+});
