@@ -3,7 +3,7 @@
 import type { MoveHandlers, MoveActionOutcome } from "./ui/yourmove.js";
 
 type MoveMethod = "checkMove" | "claimMove" | "skipMove";
-type RpcLike = { call: (method: MoveMethod, input: { task_id: string; generation: number }) => Promise<unknown> };
+type RpcLike = { call: (method: MoveMethod | "unlater", input: { task_id: string; generation: number } | { ref: string }) => Promise<unknown> };
 type RpcResult = { ok?: boolean; status?: number; error?: string };
 
 /** A send becomes an outcome the card can show; a thrown error or a non-ok result is a failure with its reason. */
@@ -28,5 +28,10 @@ export function buildMoveHandlers(
       refetchMoves();
       onChanged();
     });
-  return { onCheck: act("checkMove"), onClaim: act("claimMove"), onSkip: act("skipMove"), onNote: (m, text) => note({ task_id: m.task_id }, text) };
+  const back = (m: { task_id: string }): Promise<MoveActionOutcome> =>
+    rpcOutcome(rpc.call("unlater", { ref: m.task_id })).finally(() => {
+      refetchMoves();
+      onChanged();
+    });
+  return { onUnlater: back, onCheck: act("checkMove"), onClaim: act("claimMove"), onSkip: act("skipMove"), onNote: (m, text) => note({ task_id: m.task_id }, text) };
 }

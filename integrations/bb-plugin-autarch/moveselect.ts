@@ -20,13 +20,14 @@ const byOpened = (a: MoveRow, b: MoveRow) => (a.opened_at < b.opened_at ? -1 : a
 /**
  * Precedence for a live (not closed) move: hidden, then skipped (Later), then reported (claimed or a
  * report is present), else Your move. A hidden or skipped row is still counted by its own group.
+ * A move whose card mk set aside for later (`laterTasks`, task ids) is in the Later group like a skipped one.
  */
-export function groupMoves(rows: readonly MoveRow[]): MoveGroups {
+export function groupMoves(rows: readonly MoveRow[], laterTasks: ReadonlySet<string> = new Set()): MoveGroups {
   const g: MoveGroups = { yourMove: [], reported: [], later: [], hidden: [], audit: [] };
   for (const m of rows) {
     if (m.state === "closed") continue;
     if (m.hidden_at !== null || m.hidden_by !== null) g.hidden.push(m);
-    else if (m.skipped_at !== null) g.later.push(m);
+    else if (m.skipped_at !== null || laterTasks.has(m.task_id)) g.later.push(m);
     else if (m.state === "claimed" || m.report_state !== null) g.reported.push(m);
     else g.yourMove.push(m);
   }

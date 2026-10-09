@@ -6,6 +6,8 @@ import { describe, expect, it, vi } from "vitest";
 vi.mock("@get-bb/plugin-sdk/app", () => ({ ThreadChat: () => null }));
 
 import { AsksPanel, AskCard, type AsksData, type OwedAsk } from "../ui/asks.js";
+import { MoveCard, moveButtons } from "../ui/yourmove.js";
+import type { MoveView } from "../moveview.js";
 import { waitingSummary, WaitingStrip } from "../ui/waiting.js";
 import type { Waiting } from "../waiting.js";
 
@@ -114,5 +116,26 @@ describe("Later beside the count", () => {
     expect(waitingSummary({ ...W, updates: 1, held: 1 }).beside).toEqual(["1 update to read", "1 on hold", "2 for later"]);
     expect(html.indexOf("1 update to read")).toBeLessThan(html.indexOf("1 on hold"));
     expect(html.indexOf("1 on hold")).toBeLessThan(html.indexOf("2 for later"));
+  });
+});
+
+describe("a move on a Later card", () => {
+  const mv: MoveView = {
+    task_id: "t1", generation: 1, kind: "read", state: "open", title: "Read the plan", owner: "thr-a", opened_at: "2026-10-06T10:00:00.000Z",
+    claimed_at: null, skipped_at: null, card_later: true, checked_at: null, report_deadline_at: null, url: "https://x.test/doc", need: null, pr: null,
+    script: null, commands: [], report: null, closed_at: null, closed_by: null, evidence: null,
+  };
+  const h = { onCheck: noop, onClaim: noop, onSkip: noop, onNote: noop };
+  it("offers Move back at tap height (not a second Later / skip), and says the card is set aside", () => {
+    const html = renderToStaticMarkup(<MoveCard m={mv} h={{ ...h, onUnlater: noop }} section="later" />);
+    const btn = html.match(/<button[^>]*data-later-clear="t1"[^>]*>/)![0];
+    expect(btn).toContain("min-h-11");
+    expect(html).toContain("Move back");
+    expect(html).not.toContain("Later / skip");
+    expect(html).toContain("data-card-later");
+    expect(moveButtons(mv).map((b) => b.label)).toEqual(["I read it"]);
+  });
+  it("without the handler there is no Move back", () => {
+    expect(renderToStaticMarkup(<MoveCard m={mv} h={h} section="later" />)).not.toContain("data-later-clear");
   });
 });

@@ -2,6 +2,7 @@
 // it leaves "Waiting on you" and is counted beside it. Stored in settings_kv like holds, so there is no schema change.
 import { afterEach, describe, expect, it } from "vitest";
 import { Catchup } from "../catchup.js";
+import { moveViews } from "../moveview.js";
 import { waitingNow } from "../waiting.js";
 import { cleanupEnvs, opened, rig, type Rig } from "./card-rig.js";
 
@@ -168,6 +169,50 @@ describe("later and the Waiting-on-you count", () => {
     await r.poll();
     r.svc.later(a.id, "mk");
     expect(count(r)).toMatchObject({ decide: 0, moves: 0, total: 0, later: 1 });
+  });
+
+  it("a skipped move (Later / skip) is counted beside the number too, once", async () => {
+    const r = rig();
+    r.enableDelegation();
+    const a = card(r);
+    const b = card(r);
+    withMove(a, prMove(41));
+    withMove(b, prMove(42));
+    await r.poll();
+    r.mkPick(r.gens(a.id)[0].id);
+    r.mkPick(r.gens(b.id)[0].id);
+    r.svc.skipMove(a.id, 1);
+    expect(count(r)).toMatchObject({ moves: 1, total: 1, later: 1 });
+    r.svc.later(a.id, "mk"); // skipped and set aside: still one
+    expect(count(r)).toMatchObject({ moves: 1, total: 1, later: 1 });
+  });
+
+  it("a move on a Later card shows in the Your move Later group, with the card flag, and leaves it on Move back", async () => {
+    const r = rig();
+    r.enableDelegation();
+    const a = card(r);
+    withMove(a, prMove(51));
+    await r.poll();
+    r.mkPick(r.gens(a.id)[0].id);
+    expect(moveViews(r.svc).yourMove.map((m) => m.task_id)).toEqual([a.id]);
+    r.svc.later(a.id, "mk");
+    const v = moveViews(r.svc);
+    expect(v.yourMove).toEqual([]);
+    expect(v.later.map((m) => [m.task_id, m.card_later])).toEqual([[a.id, true]]);
+    r.svc.unlater(a.id);
+    expect(moveViews(r.svc).yourMove.map((m) => m.task_id)).toEqual([a.id]);
+  });
+
+  it("two connections to one database see each other's Later (every write re-reads inside a transaction)", async () => {
+    const r = rig();
+    const { t: a } = await opened(r);
+    const { t: b } = await opened(r);
+    const svc2 = r.env.open();
+    r.svc.later(a.id, "mk");
+    svc2.later(b.id, "mk");
+    expect(Object.keys(r.svc.laters()).sort()).toEqual([a.id, b.id].sort());
+    svc2.unlater(a.id);
+    expect(Object.keys(r.svc.laters())).toEqual([b.id]);
   });
 
   it("a stale Later on a card with nothing open is not counted", async () => {

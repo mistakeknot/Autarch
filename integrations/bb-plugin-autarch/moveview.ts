@@ -24,6 +24,8 @@ export interface MoveView {
   opened_at: string;
   claimed_at: string | null;
   skipped_at: string | null;
+  /** True while mk has set the whole card aside (Later on the card): "Move back" undoes it. */
+  card_later?: boolean;
   checked_at: string | null;
   report_deadline_at: string | null;
   /** pr and read: the link. context: null. */
@@ -95,6 +97,7 @@ export function viewOf(svc: Service, m: MoveRow): MoveView {
     opened_at: m.opened_at,
     claimed_at: m.claimed_at,
     skipped_at: m.skipped_at,
+    card_later: svc.laterOf(m.task_id) !== null,
     checked_at: m.kind === "script" ? svc.checkedAt(m.task_id, m.generation) : null,
     report_deadline_at: m.report_deadline_at,
     url: str(p.url),
@@ -110,7 +113,7 @@ export function viewOf(svc: Service, m: MoveRow): MoveView {
 }
 
 export function moveViews(svc: Service, rows: readonly MoveRow[] = svc.store.moves()): MoveViewGroups {
-  const g = groupMoves(rows);
+  const g = groupMoves(rows, new Set(Object.keys(svc.laters())));
   const v = (list: MoveRow[]) => list.map((m) => viewOf(svc, m));
   return { yourMove: v(g.yourMove), reported: v(g.reported), later: v(g.later), hidden: v(g.hidden), audit: g.audit };
 }

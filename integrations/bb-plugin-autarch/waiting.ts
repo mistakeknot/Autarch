@@ -50,7 +50,13 @@ export function waitingNow(svc: Service, dele: Delegation, catchup: Catchup): Wa
   const decideTasks = new Set(active.map((d) => d.task_id as string | null).filter((t): t is string => !!t));
 
   const moves = new Set<string>();
-  for (const m of groupMoves(svc.store.moves()).yourMove) {
+  const g = groupMoves(svc.store.moves(), new Set(Object.keys(svc.laters())));
+  // A move set aside (skipped, or its card put in Later) is counted beside the number; a hold still beats it.
+  for (const m of g.later) {
+    if (svc.holdOf(m.task_id)) heldTasks.add(m.task_id);
+    else laterTasks.add(m.task_id);
+  }
+  for (const m of g.yourMove) {
     if (svc.holdOf(m.task_id)) {
       heldTasks.add(m.task_id);
       continue;

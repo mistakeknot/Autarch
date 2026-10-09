@@ -723,24 +723,29 @@ export class Service {
   later(ref: string, by: string): { ok: true; task_id: string; was: boolean } | { ok: false; error: string } {
     const id = this.cardTaskId(ref);
     if (!id) return { ok: false, error: "no such card" };
-    const l = this.readLaters();
-    const was = id in l;
-    if (!was) {
-      l[id] = { at: this.now(), by };
-      this.store.setSetting("later", JSON.stringify(l));
-    }
-    return { ok: true, task_id: id, was };
+    // One transaction per read-modify-write, so two connections adding different cards cannot drop each other's.
+    return this.store.atomically(() => {
+      const l = this.readLaters();
+      const was = id in l;
+      if (!was) {
+        l[id] = { at: this.now(), by };
+        this.store.setSetting("later", JSON.stringify(l));
+      }
+      return { ok: true as const, task_id: id, was };
+    });
   }
   unlater(ref: string): { ok: true; task_id: string; was: boolean } | { ok: false; error: string } {
     const id = this.cardTaskId(ref);
     if (!id) return { ok: false, error: "no such card" };
-    const l = this.readLaters();
-    const was = id in l;
-    if (was) {
-      delete l[id];
-      this.store.setSetting("later", JSON.stringify(l));
-    }
-    return { ok: true, task_id: id, was };
+    return this.store.atomically(() => {
+      const l = this.readLaters();
+      const was = id in l;
+      if (was) {
+        delete l[id];
+        this.store.setSetting("later", JSON.stringify(l));
+      }
+      return { ok: true as const, task_id: id, was };
+    });
   }
   /** A comment posted after the hold that carries a sha256 (a new script) makes the card live again. */
   async releaseHoldOnSha(taskId: string, comments: () => Promise<TaskCommentRow[]>): Promise<boolean> {

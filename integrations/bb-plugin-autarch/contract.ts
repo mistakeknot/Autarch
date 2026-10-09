@@ -44,7 +44,7 @@ export const homeMethods = {
   checkMove: { input: z.object({ task_id: z.string().min(1).max(64), generation: z.number().int().min(1).max(1_000_000) }).strict(), output: out },
   skipMove: { input: z.object({ task_id: z.string().min(1).max(64), generation: z.number().int().min(1).max(1_000_000) }).strict(), output: out },
   // Later (bead mk-8741): set an open card aside, below the active ones and outside the Waiting count; undo moves it back.
-  // `ref` is a task id, a tasks key or a decision id. Neither rules, closes or refuses a pick.
+  // `ref` is a task id or a tasks key. Neither rules, closes or refuses a pick.
   later: { input: z.object({ ref: z.string().min(1).max(128) }).strict(), output: out },
   unlater: { input: z.object({ ref: z.string().min(1).max(128) }).strict(), output: out },
   // The Other box's "Ask / note": a comment on the card plus an owner wake. Never rules or closes.

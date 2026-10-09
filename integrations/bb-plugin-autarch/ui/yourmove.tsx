@@ -13,6 +13,8 @@ export interface MoveHandlers {
   onCheck: (m: MoveView) => Promise<MoveActionOutcome> | MoveActionOutcome;
   onClaim: (m: MoveView) => Promise<MoveActionOutcome> | MoveActionOutcome;
   onSkip: (m: MoveView) => Promise<MoveActionOutcome> | MoveActionOutcome;
+  /** Moves a card back out of Later when it was set aside as a whole card. */
+  onUnlater?: (m: MoveView) => Promise<MoveActionOutcome> | MoveActionOutcome;
   onNote: (m: MoveView, text: string) => Promise<OtherOutcome | void> | void;
 }
 
@@ -24,7 +26,7 @@ export function fmtTime(iso: string | null | undefined): string {
 }
 
 /** The button labels for a move: what mk says about himself. Exported so tests can assert the rules. */
-export function moveButtons(m: Pick<MoveView, "kind" | "state" | "claimed_at" | "skipped_at">): { key: "check" | "claim" | "skip"; label: string }[] {
+export function moveButtons(m: Pick<MoveView, "kind" | "state" | "claimed_at" | "skipped_at" | "card_later">): { key: "check" | "claim" | "skip"; label: string }[] {
   const out: { key: "check" | "claim" | "skip"; label: string }[] = [];
   const claimed = m.claimed_at !== null;
   if (m.kind === "script") {
@@ -37,7 +39,7 @@ export function moveButtons(m: Pick<MoveView, "kind" | "state" | "claimed_at" | 
   } else if (m.kind === "read") {
     if (!claimed) out.push({ key: "claim", label: "I read it" });
   }
-  if (m.skipped_at === null && !claimed) out.push({ key: "skip", label: "Later / skip" });
+  if (m.skipped_at === null && !m.card_later && !claimed) out.push({ key: "skip", label: "Later / skip" });
   return out;
 }
 
@@ -92,12 +94,12 @@ function Report({ r }: { r: MoveReportView }) {
 export function MoveCard({ m, h, env, section }: { m: MoveView; h: MoveHandlers; env?: CopyEnv | undefined; section: "yourMove" | "reported" | "later" | "hidden" }) {
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const act = async (key: "check" | "claim" | "skip") => {
+  const act = async (key: "check" | "claim" | "skip" | "back") => {
     setBusy(key);
     setError(null);
     try {
-      const f = key === "check" ? h.onCheck : key === "claim" ? h.onClaim : h.onSkip;
-      const r = await f(m);
+      const f = key === "check" ? h.onCheck : key === "claim" ? h.onClaim : key === "back" ? h.onUnlater : h.onSkip;
+      const r = await f?.(m);
       if (r && r.ok === false) setError(r.error ?? "that did not go through");
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
@@ -127,9 +129,11 @@ export function MoveCard({ m, h, env, section }: { m: MoveView; h: MoveHandlers;
         </p>
       ) : null}
       {m.skipped_at ? <p className="mt-2 text-xs text-muted-foreground" data-skipped>{`Later: you skipped this at ${fmtTime(m.skipped_at)}. It is still open.`}</p> : null}
+      {m.card_later ? <p className="mt-2 text-xs text-muted-foreground" data-card-later>Later: you set this card aside. It is still open and not in Waiting on you.</p> : null}
       {m.report ? <div className="mt-2"><Report r={m.report} /></div> : null}
-      {buttons.length > 0 ? (
+      {buttons.length > 0 || (m.card_later && h.onUnlater) ? (
         <div className="mt-3 flex flex-wrap items-center gap-2" data-move-buttons>
+          {m.card_later && h.onUnlater ? <ActionButton disabled={busy !== null} onClick={() => void act("back")} data-later-clear={m.task_id}>Move back</ActionButton> : null}
           {buttons.map((b) => (
             <ActionButton key={b.key} disabled={busy !== null} onClick={() => void act(b.key)} data-move-action={b.key}>{b.label}</ActionButton>
           ))}
