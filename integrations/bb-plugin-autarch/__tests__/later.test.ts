@@ -291,4 +291,23 @@ describe("later and moves (one reversible state per card)", () => {
     expect(v.yourMove.map((m) => [m.task_id, m.card_later])).toEqual([[a.id, false]]);
     expect(count(r)).toMatchObject({ held: 1, later: 0, moves: 0, total: 0 });
   });
+
+  it("a held card's claimed move still counts as held", async () => {
+    const r = rig();
+    r.enableDelegation();
+    const a = await pickedMove(r, 65);
+    r.svc.skipMove(a.id, 1);
+    r.svc.claimMove(a.id, 1);
+    r.svc.hold(a.id, "superseded", "thr_viz");
+    expect(count(r)).toMatchObject({ held: 1, later: 0, moves: 0, total: 0 });
+  });
+
+  it("a held move says it is on hold, with the reason, and a skip note is not shown for it", async () => {
+    const r = rig();
+    r.enableDelegation();
+    const a = await pickedMove(r, 66);
+    expect(moveViews(r.svc).yourMove[0]!.held).toBeNull();
+    r.svc.hold(a.id, "superseded", "thr_viz");
+    expect(moveViews(r.svc).yourMove[0]!.held).toMatchObject({ reason: "superseded" });
+  });
 });

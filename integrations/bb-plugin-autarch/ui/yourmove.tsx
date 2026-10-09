@@ -129,7 +129,8 @@ export function MoveCard({ m, h, env, section }: { m: MoveView; h: MoveHandlers;
           {m.kind === "script" && !m.report && m.report_deadline_at ? <span className="text-xs text-muted-foreground">{` The report is due by ${fmtTime(m.report_deadline_at)}.`}</span> : null}
         </p>
       ) : null}
-      {m.skipped_at ? <p className="mt-2 text-xs text-muted-foreground" data-skipped>{`Later: you skipped this at ${fmtTime(m.skipped_at)}. It is still open.`}</p> : null}
+      {m.held ? <p className="mt-2 text-xs text-muted-foreground" data-held>{`On hold: ${m.held.reason}`}</p> : null}
+      {m.skipped_at && !m.held ? <p className="mt-2 text-xs text-muted-foreground" data-skipped>{`Later: you skipped this at ${fmtTime(m.skipped_at)}. It is still open.`}</p> : null}
       {m.card_later ? <p className="mt-2 text-xs text-muted-foreground" data-card-later>Later: you set this card aside. It is still open and not in Waiting on you.</p> : null}
       {m.report ? <div className="mt-2"><Report r={m.report} /></div> : null}
       {buttons.length > 0 || (aside && h.onUnlater) ? (
@@ -148,6 +149,11 @@ export function MoveCard({ m, h, env, section }: { m: MoveView; h: MoveHandlers;
 }
 
 const HEAD = "mb-2 text-xs font-semibold uppercase text-muted-foreground";
+
+/** The move Later group without the tasks the Decide Later group already lists, so one card is not shown twice. */
+export function omitLaterTasks(data: MoveViewGroups, tasks: ReadonlySet<string>): MoveViewGroups {
+  return { ...data, later: data.later.filter((m) => !tasks.has(m.task_id)) };
+}
 
 /** `part` splits the panel so the Later group can sit below the Decide cards: "active" is everything else. */
 export function YourMovePanel({ data, handlers, env, part }: { data: MoveViewGroups; handlers: MoveHandlers; env?: CopyEnv | undefined; part?: "active" | "later" }) {

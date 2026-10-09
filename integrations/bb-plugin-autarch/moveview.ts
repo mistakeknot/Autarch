@@ -26,6 +26,8 @@ export interface MoveView {
   skipped_at: string | null;
   /** True while mk has set the whole card aside (Later on the card): "Move back" undoes it. */
   card_later?: boolean;
+  /** Set while the vizier has the card on hold (it still shows here, with the reason). */
+  held?: { reason: string; by: string; at: string } | null;
   checked_at: string | null;
   report_deadline_at: string | null;
   /** pr and read: the link. context: null. */
@@ -98,6 +100,7 @@ export function viewOf(svc: Service, m: MoveRow): MoveView {
     claimed_at: m.claimed_at,
     skipped_at: m.skipped_at,
     card_later: svc.laterTasks().has(m.task_id),
+    held: ((h) => (h ? { reason: h.reason, by: h.by, at: h.at } : null))(svc.holdOf(m.task_id)),
     checked_at: m.kind === "script" ? svc.checkedAt(m.task_id, m.generation) : null,
     report_deadline_at: m.report_deadline_at,
     url: str(p.url),

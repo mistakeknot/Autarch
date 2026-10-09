@@ -21,7 +21,7 @@ import { cn } from "@/lib/utils";
 import { OVERLAY_PANEL_ID, OVERLAY_PATH, OverlayPanel } from "./ui/overlay.js";
 import { AsksPanel, PickController, pickOutcome } from "./ui/asks.js";
 import { ConversationProvider, type ConversationApi, type ConversationData } from "./ui/conversation.js";
-import { YourMovePanel, type MoveHandlers } from "./ui/yourmove.js";
+import { omitLaterTasks, YourMovePanel, type MoveHandlers } from "./ui/yourmove.js";
 import type { MoveViewGroups } from "./moveview.js";
 import type { AsksData } from "./ui/asks.js";
 import { CatchupPanel, markPlan, markResultText, normalizeCatchup, SeenTracker } from "./ui/catchup.js";
@@ -499,7 +499,7 @@ function HomePage() {
               return pickOutcome(picks.send((req) => rpc.call("pick", req) as never, { decision_id, option_id, revision, ...(reason !== undefined ? { reason } : {}) }, refetchAll)).finally(refetchAll);
             }}
           />
-          {yourMove.moves ? <YourMovePanel data={yourMove.moves} handlers={yourMove.handlers} part="later" /> : null}
+          {yourMove.moves ? <YourMovePanel data={omitLaterTasks(yourMove.moves, new Set(asks.owed.filter((o) => o.later && !o.held && o.task_id).map((o) => o.task_id as string)))} handlers={yourMove.handlers} part="later" /> : null}
           </>
         );
       case "blocks":

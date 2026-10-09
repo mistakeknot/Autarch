@@ -6,7 +6,7 @@ import { describe, expect, it, vi } from "vitest";
 vi.mock("@get-bb/plugin-sdk/app", () => ({ ThreadChat: () => null }));
 
 import { AsksPanel, AskCard, type AsksData, type OwedAsk } from "../ui/asks.js";
-import { MoveCard, moveButtons, YourMovePanel } from "../ui/yourmove.js";
+import { MoveCard, moveButtons, omitLaterTasks, YourMovePanel } from "../ui/yourmove.js";
 import type { MoveView } from "../moveview.js";
 import { waitingSummary, WaitingStrip } from "../ui/waiting.js";
 import type { Waiting } from "../waiting.js";
@@ -171,5 +171,18 @@ describe("Your move panel split (the move Later group sits below Decide)", () =>
   it("renders nothing for a part with nothing in it", () => {
     expect(renderToStaticMarkup(<YourMovePanel data={groups({ later: [mv] })} handlers={h} part="active" />)).toBe("");
     expect(renderToStaticMarkup(<YourMovePanel data={groups({ yourMove: [mv] })} handlers={h} part="later" />)).toBe("");
+  });
+  it("omitLaterTasks drops a task already shown in the Decide Later group, so a card is not listed twice", () => {
+    const d = groups({ later: [mv, { ...mv, task_id: "t2" }], yourMove: [mv] });
+    const out = omitLaterTasks(d, new Set(["t1"]));
+    expect(out.later.map((m: MoveView) => m.task_id)).toEqual(["t2"]);
+    expect(out.yourMove).toHaveLength(1); // only the Later group is deduplicated
+  });
+  it("a held move shows its hold reason and no skip note", () => {
+    const m = { ...mv, card_later: false, skipped_at: "2026-10-07T10:00:00.000Z", held: { reason: "script superseded", by: "thr_viz", at: "2026-10-08T00:00:00.000Z" } };
+    const html = renderToStaticMarkup(<MoveCard m={m} h={h} section="yourMove" />);
+    expect(html).toContain("data-held");
+    expect(html).toContain("script superseded");
+    expect(html).not.toContain("data-skipped");
   });
 });
