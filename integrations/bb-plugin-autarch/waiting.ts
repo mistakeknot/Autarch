@@ -50,7 +50,7 @@ export function waitingNow(svc: Service, dele: Delegation, catchup: Catchup): Wa
   const decideTasks = new Set(active.map((d) => d.task_id as string | null).filter((t): t is string => !!t));
 
   const moves = new Set<string>();
-  const g = groupMoves(svc.store.moves(), svc.laterTasks());
+  const g = groupMoves(svc.store.moves(), svc.laterTasks(), svc.skipIgnored());
   // A move set aside (skipped, or its card put in Later) is counted beside the number; a hold still beats it, and a
   // skipped move on a card that still owes a decision stays with that decision.
   for (const m of g.later) {

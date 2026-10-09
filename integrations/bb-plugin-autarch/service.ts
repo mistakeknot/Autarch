@@ -720,6 +720,13 @@ export class Service {
   laterOf(taskId: string | null | undefined): Later | null {
     return taskId ? (this.readLaters()[taskId] ?? null) : null;
   }
+  /** Cards whose skipped moves do not make them Later: on hold (a hold wins), or still owing a decision that counts as waiting. */
+  skipIgnored(): Set<string> {
+    const later = this.readLaters();
+    const out = new Set(Object.keys(this.readHolds()));
+    for (const d of this.owed()) if (d.task_id && !(String(d.task_id) in later)) out.add(String(d.task_id));
+    return out;
+  }
   /** Task ids set aside as whole cards and not on hold: a hold beats Later everywhere it is shown or counted. */
   laterTasks(): Set<string> {
     return new Set(Object.keys(this.readLaters()).filter((t) => !this.holdOf(t)));

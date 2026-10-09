@@ -262,6 +262,22 @@ describe("later and moves (one reversible state per card)", () => {
     await r.poll();
     r.svc.skipMove(a.id, 1);
     expect(count(r)).toMatchObject({ total: 1, decide: 1, moves: 0, later: 0 });
+    // and the screen agrees: the move is not in the Later group while its card still waits in Decide
+    const v = moveViews(r.svc);
+    expect(v.later).toEqual([]);
+    expect(v.yourMove.map((m) => m.task_id)).toEqual([a.id]);
+  });
+
+  it("a skipped move on a held card is shown and counted as held, never under Later", async () => {
+    const r = rig();
+    r.enableDelegation();
+    const a = await pickedMove(r, 64);
+    r.svc.skipMove(a.id, 1);
+    expect(moveViews(r.svc).later.map((m) => m.task_id)).toEqual([a.id]);
+    r.svc.hold(a.id, "superseded", "thr_viz");
+    const v = moveViews(r.svc);
+    expect(v.later).toEqual([]);
+    expect(count(r)).toMatchObject({ held: 1, later: 0, moves: 0, total: 0 });
   });
 
   it("a held move is not shown in the Your move Later group, even if its card was set aside first", async () => {

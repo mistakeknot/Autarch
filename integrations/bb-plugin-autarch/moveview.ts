@@ -113,7 +113,7 @@ export function viewOf(svc: Service, m: MoveRow): MoveView {
 }
 
 export function moveViews(svc: Service, rows: readonly MoveRow[] = svc.store.moves()): MoveViewGroups {
-  const g = groupMoves(rows, svc.laterTasks());
+  const g = groupMoves(rows, svc.laterTasks(), svc.skipIgnored());
   const v = (list: MoveRow[]) => list.map((m) => viewOf(svc, m));
   return { yourMove: v(g.yourMove), reported: v(g.reported), later: v(g.later), hidden: v(g.hidden), audit: g.audit };
 }
