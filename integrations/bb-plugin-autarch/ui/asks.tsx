@@ -22,6 +22,37 @@ export async function pickOutcome(send: Promise<{ ok?: boolean; status?: number;
   }
 }
 
+/** Turns a Later / Move back send into an outcome: a thrown error or a not-ok result is a failure. */
+export async function laterOutcome(send: Promise<unknown>): Promise<PickOutcome> {
+  try {
+    const r = (await send) as { ok?: boolean; status?: number; error?: string } | null;
+    if (r?.ok === true) return { ok: true };
+    return { ok: false, error: r?.error ?? `failed${r?.status ? ` (${r.status})` : ""}` };
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : String(e) };
+  }
+}
+
+/** Runs a Later / Move back tap and reports its failure, if any, through `setError`; a handler that returns nothing is taken as done. */
+export async function runLater(onLater: OnLater, taskId: string, on: boolean, setError: (error: string | null) => void): Promise<void> {
+  setError(null);
+  let result: unknown;
+  try {
+    result = await onLater(taskId, on);
+  } catch (e) {
+    setError(e instanceof Error ? e.message : String(e));
+    return;
+  }
+  const r = result as { ok?: boolean; error?: string } | null | undefined;
+  if (r && typeof r === "object" && r.ok === false) setError(r.error ?? "failed");
+}
+
+/** The short inline error under a Later or Move back tap that did not go through. */
+export function LaterFailure({ error }: { error: string | null }) {
+  if (error === null) return null;
+  return <p role="alert" className="mt-2 w-full text-xs font-medium text-destructive" data-later-failure>{`The card did not move: ${error}. Try again.`}</p>;
+}
+
 export type ApprovalSpec = { kind: string; target: string; identity: string; ttl?: number };
 export type Option = { id: string; label: string; kind: string; reversible?: boolean; instruction?: string; approval?: ApprovalSpec };
 export type ApprovalRecord = { approval_id: string; decision_id: string; kind: string; target: string; identity: string; minted_at: string; expires_at: string };
@@ -173,6 +204,7 @@ export type OnLater = (taskId: string, on: boolean) => void | Promise<unknown>;
 
 export function AskCard({ ask, onPick, onOpen, nowMs, onNote, onLater, unbound = false }: { ask: OwedAsk; onPick: OnPick; onOpen: (thread: string) => void; nowMs?: number; onNote?: OnNote; onLater?: OnLater; unbound?: boolean }) {
   const [failure, setFailure] = useState<string | null>(null);
+  const [laterError, setLaterError] = useState<string | null>(null);
   const [pending, setPending] = useState<string | null>(null);
   const pick = async (optionId: string) => {
     setFailure(null);
@@ -229,10 +261,11 @@ export function AskCard({ ask, onPick, onOpen, nowMs, onNote, onLater, unbound =
       ) : null}
       {onLater && ask.task_id ? (
         <div className="mt-3 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
-          <ActionButton tone="quiet" onClick={() => void onLater(ask.task_id!, true)} data-later-set={ask.id}>Later</ActionButton>
+          <ActionButton tone="quiet" className="sm:!min-h-11" onClick={() => void runLater(onLater, ask.task_id!, true, setLaterError)} data-later-set={ask.id}>Later</ActionButton>
           <span>Sets this card aside: it stays open, moves below the others and drops out of Waiting on you.</span>
         </div>
       ) : null}
+      <LaterFailure error={laterError} />
       {failure !== null ? <p role="alert" className="mt-2 text-xs font-medium text-destructive" data-pick-failure>{`Your pick did not go through: ${failure}. The ask is still open; try again.`}</p> : null}
       {onNote ? (
         <OtherBox
@@ -342,6 +375,30 @@ export function ApprovalsList({ approvals, onRevoke }: { approvals: ApprovalReco
   );
 }
 
+/** One card in the Later section. It owns the error from a Move back that did not go through. */
+function LaterEntry({ o, onPick, onOpen, nowMs, onNote, onLater, renderMoves }: { o: OwedAsk; onPick: OnPick; onOpen: (thread: string) => void; nowMs: number; onNote?: OnNote; onLater?: OnLater; renderMoves?: (taskId: string) => ReactNode }) {
+  const [error, setError] = useState<string | null>(null);
+  return (
+    <li className="min-w-0 rounded border border-border p-2 text-sm" data-later={o.id}>
+      <div className="flex flex-wrap items-center gap-2">
+        <span className="flex min-w-0 grow items-baseline gap-1.5">
+          {o.key ? <span className="shrink-0 select-all font-mono text-xs font-semibold" data-task-key>{o.key}</span> : null}
+          <span className="min-w-0 [overflow-wrap:anywhere]">{o.subject}</span>
+        </span>
+        {onLater && o.task_id ? <ActionButton className="sm:!min-h-11" onClick={() => void runLater(onLater, o.task_id!, false, setError)} data-later-clear={o.id}>Move back</ActionButton> : null}
+      </div>
+      <LaterFailure error={error} />
+      <details className="mt-2">
+        <summary className="flex min-h-11 cursor-pointer items-center text-xs text-muted-foreground">Open card</summary>
+        <div className="mt-2">
+          <AskCard ask={o} onPick={onPick} onOpen={onOpen} nowMs={nowMs} {...(onNote ? { onNote } : {})} />
+        </div>
+        {renderMoves && o.task_id ? <div className="mt-2 space-y-3">{renderMoves(o.task_id)}</div> : null}
+      </details>
+    </li>
+  );
+}
+
 export function AsksPanel({ data, onPick, onOpen, onRevoke, onDismiss, onNote, onLater, onView, renderMoves, hideHeld, nowMs = Date.now() }: { hideHeld?: boolean; renderMoves?: (taskId: string) => ReactNode; data: AsksData; onPick: OnPick; onOpen: (thread: string) => void; onRevoke?: (approvalId: string) => void; onDismiss?: (decisionId: string, obligationId: string) => void; onNote?: OnNote; onLater?: OnLater; onView?: (decisionId: string | null) => void; nowMs?: number }) {
   // In the Queue the held cards show under "Blocked on others"; shown here only on the Asks page.
   const held = hideHeld ? [] : data.owed.filter((o) => o.held);
@@ -383,22 +440,7 @@ export function AsksPanel({ data, onPick, onOpen, onRevoke, onDismiss, onNote, o
           </p>
           <ul className="m-0 list-none space-y-2 p-0">
             {later.map((o) => (
-              <li key={o.id} className="min-w-0 rounded border border-border p-2 text-sm" data-later={o.id}>
-                <div className="flex flex-wrap items-center gap-2">
-                  <span className="flex min-w-0 grow items-baseline gap-1.5">
-                    {o.key ? <span className="shrink-0 select-all font-mono text-xs font-semibold" data-task-key>{o.key}</span> : null}
-                    <span className="min-w-0 [overflow-wrap:anywhere]">{o.subject}</span>
-                  </span>
-                  {onLater && o.task_id ? <ActionButton onClick={() => void onLater(o.task_id!, false)} data-later-clear={o.id}>Move back</ActionButton> : null}
-                </div>
-                <details className="mt-2">
-                  <summary className="flex min-h-11 cursor-pointer items-center text-xs text-muted-foreground sm:min-h-0">Open card</summary>
-                  <div className="mt-2">
-                    <AskCard ask={o} onPick={onPick} onOpen={onOpen} nowMs={nowMs} {...(onNote ? { onNote } : {})} />
-                  </div>
-                  {renderMoves && o.task_id ? <div className="mt-2 space-y-3">{renderMoves(o.task_id)}</div> : null}
-                </details>
-              </li>
+              <LaterEntry key={o.id} o={o} onPick={onPick} onOpen={onOpen} nowMs={nowMs} {...(onNote ? { onNote } : {})} {...(onLater ? { onLater } : {})} {...(renderMoves ? { renderMoves } : {})} />
             ))}
           </ul>
         </section>

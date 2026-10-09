@@ -19,7 +19,7 @@ import { Icon } from "@/components/ui/icon";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
 import { OVERLAY_PANEL_ID, OVERLAY_PATH, OverlayPanel } from "./ui/overlay.js";
-import { AsksPanel, PickController, pickOutcome } from "./ui/asks.js";
+import { AsksPanel, PickController, pickOutcome, laterOutcome } from "./ui/asks.js";
 import { ConversationProvider, type ConversationApi, type ConversationData } from "./ui/conversation.js";
 import { MoveCard, omitLaterTasks, YourMovePanel, type MoveHandlers } from "./ui/yourmove.js";
 import type { MoveViewGroups } from "./moveview.js";
@@ -490,7 +490,7 @@ function HomePage() {
             data={asks}
             {...(panel.hideHeld ? { hideHeld: true } : {})}
             onNote={(decision_id, text) => yourMove.note({ decision_id }, text)}
-            onLater={(ref, on) => rpc.call(on ? "later" : "unlater", { ref }).then(refetchAll, () => {})}
+            onLater={(ref, on) => laterOutcome(rpc.call(on ? "later" : "unlater", { ref })).then((o) => { refetchAll(); return o; })}
             renderMoves={(taskId) => {
               // The card's own Move back sits on the Later entry, so the move cards inside it do not repeat it.
               const { onUnlater: _own, ...h } = yourMove.handlers;

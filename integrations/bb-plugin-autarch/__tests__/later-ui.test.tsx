@@ -5,7 +5,7 @@ import { describe, expect, it, vi } from "vitest";
 
 vi.mock("@get-bb/plugin-sdk/app", () => ({ ThreadChat: () => null }));
 
-import { AsksPanel, AskCard, type AsksData, type OwedAsk } from "../ui/asks.js";
+import { AsksPanel, AskCard, laterOutcome, runLater, LaterFailure, type AsksData, type OwedAsk } from "../ui/asks.js";
 import { MoveCard, moveButtons, omitLaterTasks, YourMovePanel } from "../ui/yourmove.js";
 import type { MoveView } from "../moveview.js";
 import { waitingSummary, WaitingStrip } from "../ui/waiting.js";
@@ -137,6 +137,7 @@ describe("a move on a Later card", () => {
     const html = renderToStaticMarkup(<MoveCard m={mv} h={{ ...h, onUnlater: noop }} section="later" />);
     const btn = html.match(/<button[^>]*data-later-clear="t1"[^>]*>/)![0];
     expect(btn).toContain("min-h-11");
+    expect(btn).toContain("sm:!min-h-11");
     expect(html).toContain("Move back");
     expect(html).not.toContain("Later / skip");
     expect(html).toContain("data-card-later");
@@ -191,5 +192,49 @@ describe("Your move panel split (the move Later group sits below Decide)", () =>
     expect(html).toContain("data-held");
     expect(html).toContain("script superseded");
     expect(html).not.toContain("data-skipped");
+  });
+});
+
+describe("tap targets at every width (44px, not just on phones)", () => {
+  it("Later and Move back keep 44px at sm and wider, and so do the Open card summary and the strip jumps", () => {
+    const html = panel([ask({ id: "a" }), ask({ id: "b", task_id: "task-2", later: LATER })]);
+    for (const attr of ['data-later-set="a"', 'data-later-clear="b"']) {
+      const btn = html.match(new RegExp(`<button[^>]*${attr}[^>]*>`))![0];
+      expect(btn).toContain("min-h-11");
+      expect(btn).toContain("sm:!min-h-11");
+    }
+    const summary = html.match(/<summary[^>]*>Open card/)![0];
+    expect(summary).toContain("min-h-11");
+    expect(summary).not.toContain("sm:min-h-0");
+    const W: Waiting = { total: 1, decide: 1, moves: 0, notices: 0, noticeItems: [], updates: 1, held: 1, later: 1, suspended: false, definition: "x" };
+    const strip = renderToStaticMarkup(<WaitingStrip waiting={W} onJump={noop} />);
+    const jump = strip.match(/<button[^>]*>1 for later/)![0];
+    expect(jump).toContain("sm:!min-h-11");
+    expect(jump).not.toContain("sm:min-h-0");
+  });
+});
+
+describe("a failed Later or Move back is shown", () => {
+  it("laterOutcome: ok is ok; a not-ok result or a thrown error carries a reason", async () => {
+    expect(await laterOutcome(Promise.resolve({ ok: true, was: false }))).toEqual({ ok: true });
+    expect(await laterOutcome(Promise.resolve({ ok: false, error: "no such card" }))).toEqual({ ok: false, error: "no such card" });
+    expect(await laterOutcome(Promise.resolve(null))).toMatchObject({ ok: false });
+    expect(await laterOutcome(Promise.reject(new Error("offline")))).toEqual({ ok: false, error: "offline" });
+  });
+  it("runLater clears the error first, then sets it from a failed outcome, and tolerates a handler that returns nothing", async () => {
+    const seen: (string | null)[] = [];
+    await runLater(async () => ({ ok: false, error: "no such card" }), "t", true, (e) => void seen.push(e));
+    expect(seen).toEqual([null, "no such card"]);
+    const ok: (string | null)[] = [];
+    await runLater(() => undefined, "t", false, (e) => void ok.push(e));
+    await runLater(async () => ({ ok: true }), "t", false, (e) => void ok.push(e));
+    expect(ok).toEqual([null, null]);
+  });
+  it("LaterFailure is an alert that says the card did not move and can be retried", () => {
+    expect(renderToStaticMarkup(<LaterFailure error={null} />)).toBe("");
+    const html = renderToStaticMarkup(<LaterFailure error="no such card" />);
+    expect(html).toContain('role="alert"');
+    expect(html).toContain("no such card");
+    expect(html).toMatch(/try again/i);
   });
 });
