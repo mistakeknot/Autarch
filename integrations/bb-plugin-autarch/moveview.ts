@@ -97,7 +97,7 @@ export function viewOf(svc: Service, m: MoveRow): MoveView {
     opened_at: m.opened_at,
     claimed_at: m.claimed_at,
     skipped_at: m.skipped_at,
-    card_later: svc.laterOf(m.task_id) !== null,
+    card_later: svc.laterTasks().has(m.task_id),
     checked_at: m.kind === "script" ? svc.checkedAt(m.task_id, m.generation) : null,
     report_deadline_at: m.report_deadline_at,
     url: str(p.url),
@@ -113,7 +113,7 @@ export function viewOf(svc: Service, m: MoveRow): MoveView {
 }
 
 export function moveViews(svc: Service, rows: readonly MoveRow[] = svc.store.moves()): MoveViewGroups {
-  const g = groupMoves(rows, new Set(Object.keys(svc.laters())));
+  const g = groupMoves(rows, svc.laterTasks());
   const v = (list: MoveRow[]) => list.map((m) => viewOf(svc, m));
   return { yourMove: v(g.yourMove), reported: v(g.reported), later: v(g.later), hidden: v(g.hidden), audit: g.audit };
 }

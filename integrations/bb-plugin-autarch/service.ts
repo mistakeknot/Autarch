@@ -720,6 +720,10 @@ export class Service {
   laterOf(taskId: string | null | undefined): Later | null {
     return taskId ? (this.readLaters()[taskId] ?? null) : null;
   }
+  /** Task ids set aside as whole cards and not on hold: a hold beats Later everywhere it is shown or counted. */
+  laterTasks(): Set<string> {
+    return new Set(Object.keys(this.readLaters()).filter((t) => !this.holdOf(t)));
+  }
   later(ref: string, by: string): { ok: true; task_id: string; was: boolean } | { ok: false; error: string } {
     const id = this.cardTaskId(ref);
     if (!id) return { ok: false, error: "no such card" };
@@ -739,11 +743,13 @@ export class Service {
     if (!id) return { ok: false, error: "no such card" };
     return this.store.atomically(() => {
       const l = this.readLaters();
-      const was = id in l;
+      let was = id in l;
       if (was) {
         delete l[id];
         this.store.setSetting("later", JSON.stringify(l));
       }
+      // A move set aside with "Later / skip" is the same Later to mk, so Move back undoes it too.
+      if (this.store.unskipMoves(id) > 0) was = true;
       return { ok: true as const, task_id: id, was };
     });
   }

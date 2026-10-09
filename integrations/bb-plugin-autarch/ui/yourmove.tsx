@@ -109,6 +109,7 @@ export function MoveCard({ m, h, env, section }: { m: MoveView; h: MoveHandlers;
   };
   const buttons = section === "hidden" ? [] : moveButtons(m);
   const claimed = m.claimed_at !== null;
+  const aside = m.card_later === true || m.skipped_at !== null;
   return (
     <article className="min-w-0 rounded-lg border border-border bg-card p-4" data-move={m.task_id} data-kind={m.kind} data-section-of={section}>
       <h3 className="m-0 text-sm font-medium [overflow-wrap:anywhere]">{m.title}</h3>
@@ -131,9 +132,9 @@ export function MoveCard({ m, h, env, section }: { m: MoveView; h: MoveHandlers;
       {m.skipped_at ? <p className="mt-2 text-xs text-muted-foreground" data-skipped>{`Later: you skipped this at ${fmtTime(m.skipped_at)}. It is still open.`}</p> : null}
       {m.card_later ? <p className="mt-2 text-xs text-muted-foreground" data-card-later>Later: you set this card aside. It is still open and not in Waiting on you.</p> : null}
       {m.report ? <div className="mt-2"><Report r={m.report} /></div> : null}
-      {buttons.length > 0 || (m.card_later && h.onUnlater) ? (
+      {buttons.length > 0 || (aside && h.onUnlater) ? (
         <div className="mt-3 flex flex-wrap items-center gap-2" data-move-buttons>
-          {m.card_later && h.onUnlater ? <ActionButton disabled={busy !== null} onClick={() => void act("back")} data-later-clear={m.task_id}>Move back</ActionButton> : null}
+          {aside && h.onUnlater ? <ActionButton disabled={busy !== null} onClick={() => void act("back")} data-later-clear={m.task_id}>Move back</ActionButton> : null}
           {buttons.map((b) => (
             <ActionButton key={b.key} disabled={busy !== null} onClick={() => void act(b.key)} data-move-action={b.key}>{b.label}</ActionButton>
           ))}
@@ -148,8 +149,11 @@ export function MoveCard({ m, h, env, section }: { m: MoveView; h: MoveHandlers;
 
 const HEAD = "mb-2 text-xs font-semibold uppercase text-muted-foreground";
 
-export function YourMovePanel({ data, handlers, env }: { data: MoveViewGroups; handlers: MoveHandlers; env?: CopyEnv | undefined }) {
-  const n = data.yourMove.length + data.reported.length + data.later.length + data.hidden.length + data.audit.length;
+/** `part` splits the panel so the Later group can sit below the Decide cards: "active" is everything else. */
+export function YourMovePanel({ data, handlers, env, part }: { data: MoveViewGroups; handlers: MoveHandlers; env?: CopyEnv | undefined; part?: "active" | "later" }) {
+  const showLater = part !== "active";
+  const showRest = part !== "later";
+  const n = (showRest ? data.yourMove.length + data.reported.length + data.hidden.length + data.audit.length : 0) + (showLater ? data.later.length : 0);
   if (n === 0) return null;
   const group = (key: "yourMove" | "reported" | "later" | "hidden", title: string, note?: string) =>
     data[key].length === 0 ? null : (
@@ -161,11 +165,11 @@ export function YourMovePanel({ data, handlers, env }: { data: MoveViewGroups; h
     );
   return (
     <div className="space-y-6 p-4 pb-0" data-panel="your-move">
-      {group("yourMove", "Your move")}
-      {group("reported", "Reported done, not verified", "These say what you or a script reported. Only a report or GitHub closes a move.")}
-      {group("later", "Later")}
-      {group("hidden", "Hidden")}
-      {data.audit.length > 0 ? (
+      {showRest ? group("yourMove", "Your move") : null}
+      {showRest ? group("reported", "Reported done, not verified", "These say what you or a script reported. Only a report or GitHub closes a move.") : null}
+      {showLater ? group("later", "Later") : null}
+      {showRest ? group("hidden", "Hidden") : null}
+      {showRest && data.audit.length > 0 ? (
         <details data-section="move-audit">
           <summary className="cursor-pointer text-xs font-semibold uppercase text-muted-foreground">{`Closed (${data.audit.length})`}</summary>
           <ul className="mt-2 list-none space-y-1 p-0 text-xs text-muted-foreground">

@@ -485,7 +485,7 @@ function HomePage() {
         ) : (
           <>
           <TellVizier threadId={asks.delegation.settings.vizierThreadId} />
-          {yourMove.moves ? <YourMovePanel data={yourMove.moves} handlers={yourMove.handlers} /> : null}
+          {yourMove.moves ? <YourMovePanel data={yourMove.moves} handlers={yourMove.handlers} part="active" /> : null}
           <AsksPanel
             data={asks}
             {...(panel.hideHeld ? { hideHeld: true } : {})}
@@ -499,6 +499,7 @@ function HomePage() {
               return pickOutcome(picks.send((req) => rpc.call("pick", req) as never, { decision_id, option_id, revision, ...(reason !== undefined ? { reason } : {}) }, refetchAll)).finally(refetchAll);
             }}
           />
+          {yourMove.moves ? <YourMovePanel data={yourMove.moves} handlers={yourMove.handlers} part="later" /> : null}
           </>
         );
       case "blocks":

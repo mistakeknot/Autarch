@@ -230,3 +230,49 @@ describe("later and the Waiting-on-you count", () => {
     expect(WAITING_DEFINITION).toMatch(/later/i);
   });
 });
+
+describe("later and moves (one reversible state per card)", () => {
+  const pickedMove = async (r: Rig, k: number) => {
+    const a = card(r);
+    withMove(a, prMove(k));
+    await r.poll();
+    r.mkPick(r.gens(a.id)[0].id);
+    return a;
+  };
+
+  it("Move back also clears a skipped move, so a move-only card can always return", async () => {
+    const r = rig();
+    r.enableDelegation();
+    const a = await pickedMove(r, 61);
+    r.svc.skipMove(a.id, 1);
+    expect(moveViews(r.svc).later.map((m) => m.task_id)).toEqual([a.id]);
+    expect(r.svc.unlater(a.id)).toEqual({ ok: true, task_id: a.id, was: true });
+    const v = moveViews(r.svc);
+    expect(v.later).toEqual([]);
+    expect(v.yourMove.map((m) => m.task_id)).toEqual([a.id]);
+    expect(count(r)).toMatchObject({ moves: 1, total: 1, later: 0 });
+    expect(r.svc.unlater(a.id)).toEqual({ ok: true, task_id: a.id, was: false });
+  });
+
+  it("a skipped move on a card that still owes a decision is counted once, as a decision", async () => {
+    const r = rig();
+    r.enableDelegation();
+    const a = card(r);
+    withMove(a, prMove(62));
+    await r.poll();
+    r.svc.skipMove(a.id, 1);
+    expect(count(r)).toMatchObject({ total: 1, decide: 1, moves: 0, later: 0 });
+  });
+
+  it("a held move is not shown in the Your move Later group, even if its card was set aside first", async () => {
+    const r = rig();
+    r.enableDelegation();
+    const a = await pickedMove(r, 63);
+    r.svc.later(a.id, "mk");
+    r.svc.hold(a.id, "superseded", "thr_viz");
+    const v = moveViews(r.svc);
+    expect(v.later).toEqual([]);
+    expect(v.yourMove.map((m) => [m.task_id, m.card_later])).toEqual([[a.id, false]]);
+    expect(count(r)).toMatchObject({ held: 1, later: 0, moves: 0, total: 0 });
+  });
+});

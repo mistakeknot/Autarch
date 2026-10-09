@@ -6,7 +6,7 @@ import { describe, expect, it, vi } from "vitest";
 vi.mock("@get-bb/plugin-sdk/app", () => ({ ThreadChat: () => null }));
 
 import { AsksPanel, AskCard, type AsksData, type OwedAsk } from "../ui/asks.js";
-import { MoveCard, moveButtons } from "../ui/yourmove.js";
+import { MoveCard, moveButtons, YourMovePanel } from "../ui/yourmove.js";
 import type { MoveView } from "../moveview.js";
 import { waitingSummary, WaitingStrip } from "../ui/waiting.js";
 import type { Waiting } from "../waiting.js";
@@ -137,5 +137,39 @@ describe("a move on a Later card", () => {
   });
   it("without the handler there is no Move back", () => {
     expect(renderToStaticMarkup(<MoveCard m={mv} h={h} section="later" />)).not.toContain("data-later-clear");
+  });
+  it("a skipped move (no card-level Later) also gets Move back, so every move in Later can return", () => {
+    const skipped = { ...mv, card_later: false, skipped_at: "2026-10-07T10:00:00.000Z" };
+    const html = renderToStaticMarkup(<MoveCard m={skipped} h={{ ...h, onUnlater: noop }} section="later" />);
+    expect(html).toContain('data-later-clear="t1"');
+    expect(html).not.toContain("Later / skip");
+  });
+  it("a skipped context move, which has no other button, still has Move back", () => {
+    const ctx = { ...mv, kind: "context" as const, url: null, need: "pick a date", card_later: false, skipped_at: "2026-10-07T10:00:00.000Z" };
+    expect(moveButtons(ctx)).toEqual([]);
+    expect(renderToStaticMarkup(<MoveCard m={ctx} h={{ ...h, onUnlater: noop }} section="later" />)).toContain('data-later-clear="t1"');
+  });
+});
+
+describe("Your move panel split (the move Later group sits below Decide)", () => {
+  const groups = (over: object) => ({ yourMove: [], reported: [], later: [], hidden: [], audit: [], ...over }) as never;
+  const mv: MoveView = {
+    task_id: "t1", generation: 1, kind: "read", state: "open", title: "Read the plan", owner: "thr-a", opened_at: "2026-10-06T10:00:00.000Z",
+    claimed_at: null, skipped_at: null, card_later: true, checked_at: null, report_deadline_at: null, url: "https://x.test/doc", need: null, pr: null,
+    script: null, commands: [], report: null, closed_at: null, closed_by: null, evidence: null,
+  };
+  const h = { onCheck: noop, onClaim: noop, onSkip: noop, onNote: noop, onUnlater: noop };
+  it("part=active leaves the Later group out, part=later renders only it", () => {
+    const d = groups({ yourMove: [{ ...mv, task_id: "a", card_later: false }], later: [mv] });
+    const active = renderToStaticMarkup(<YourMovePanel data={d} handlers={h} part="active" />);
+    const later = renderToStaticMarkup(<YourMovePanel data={d} handlers={h} part="later" />);
+    expect(active).toContain('data-section="move-yourMove"');
+    expect(active).not.toContain('data-section="move-later"');
+    expect(later).toContain('data-section="move-later"');
+    expect(later).not.toContain('data-section="move-yourMove"');
+  });
+  it("renders nothing for a part with nothing in it", () => {
+    expect(renderToStaticMarkup(<YourMovePanel data={groups({ later: [mv] })} handlers={h} part="active" />)).toBe("");
+    expect(renderToStaticMarkup(<YourMovePanel data={groups({ yourMove: [mv] })} handlers={h} part="later" />)).toBe("");
   });
 });
