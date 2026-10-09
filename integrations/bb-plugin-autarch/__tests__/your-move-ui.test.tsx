@@ -140,7 +140,7 @@ describe("copyable command blocks", () => {
   it("the block's text equals the command, and the command is one clean line", () => {
     for (const c of cmds) {
       const html = renderToStaticMarkup(<CommandBlock label={c.label} command={c.command} expectedSha={c.expectedSha} />);
-      const text = decode(/<code data-command-text="true">([\s\S]*?)<\/code>/.exec(html)![1]!);
+      const text = decode(/<code data-command-text="true">([\s\S]*?)<\/code>/.exec(html)![1]!.replace(/<\/?b[^>]*>/g, ""));
       expect(text).toBe(c.command);
       expect(c.command).not.toMatch(/[\n\r`]/);
       expect(c.command).toBe(c.command.trim());

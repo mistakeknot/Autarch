@@ -13,12 +13,12 @@ export function homeTabs(classic: boolean): ReadonlyArray<readonly [TabId, Panel
   ];
 }
 
-export function HomeTabs({ classic, onOpen, onToggleClassic, onTodos }: { classic: boolean; onOpen: (p: { id: string; kind: Panel["kind"]; title: string }) => void; onToggleClassic: () => void; onTodos: () => void }) {
+export function HomeTabs({ classic, waiting, onOpen, onToggleClassic, onTodos }: { classic: boolean; waiting?: number | undefined; onOpen: (p: { id: string; kind: Panel["kind"]; title: string }) => void; onToggleClassic: () => void; onTodos: () => void }) {
   return (
     <nav className="flex gap-3 overflow-x-auto whitespace-nowrap border-b border-border px-4 py-1 text-sm sm:py-2" data-home-tabs>
       {homeTabs(classic).map(([id, kind, title]) => (
         <button key={id} type="button" className="min-h-11 shrink-0 underline-offset-2 hover:underline sm:min-h-0" onClick={() => onOpen({ id, kind, title })}>
-          {title}
+          {id === "queue" && waiting !== undefined ? `${title} (${waiting})` : title}
         </button>
       ))}
       <button type="button" className="ml-auto min-h-11 shrink-0 text-muted-foreground sm:min-h-0" aria-pressed={classic} onClick={onToggleClassic}>

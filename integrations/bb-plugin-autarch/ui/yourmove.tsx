@@ -116,7 +116,7 @@ export function MoveCard({ m, h, env, section }: { m: MoveView; h: MoveHandlers;
       {m.url ? <p className="mt-2 text-sm [overflow-wrap:anywhere]">{m.kind === "pr" ? "Pull request: " : "Open: "}<code className="font-mono text-xs" data-url>{m.url}</code></p> : null}
       {m.kind === "script" && m.commands.length > 0 ? (
         <div className="mt-3 space-y-3" data-commands>
-          {m.commands.map((c) => <CommandBlock key={c.label} label={c.label === "sha256sum" ? "1. Check the file (sha256sum)" : c.label === "check" ? "2. Dry run (--check)" : c.label === "run" ? "3. The real run" : "Recovery"} command={c.command} expectedSha={c.expectedSha} {...(env ? { env } : {})} />)}
+          {m.commands.map((c) => <CommandBlock key={c.label} label={c.label === "sha256sum" ? "1. Check the file (sha256sum)" : c.label === "check" ? "2. Dry run (--check)" : c.label === "run" ? "3. The real run" : "Recovery"} command={c.command} expectedSha={c.expectedSha} primary={c.label === "run"} showFlags={c.label === "run"} {...(env ? { env } : {})} />)}
         </div>
       ) : null}
       {m.kind === "script" && m.checked_at ? <p className="mt-2 text-xs text-muted-foreground" data-checked>{`You said you ran --check at ${fmtTime(m.checked_at)}. This does not start the report clock.`}</p> : null}

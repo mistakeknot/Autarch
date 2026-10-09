@@ -25,7 +25,7 @@ undoing it is cheap and local; never for a push, merge, deploy or release.
 | `bb home get --request <key>` | Look up a filed card by its request key (pre-card asks by their request id). |
 | `bb home list` | List the asks waiting for a ruling, plus cards Home shows flagged (`display_only: true` with a `display_reason`, e.g. a missing Request line); `--pull mycroft` narrows to what Mycroft pulls and omits flagged cards. |
 | `bb home feed` | The recent-rulings feed a thread sees. |
-| `bb home stats` | Picks, delegation and filing counts over a window, plus `traceability`: the share of threads that ended in the window whose final output names a tasks key (a real tracker prefix, e.g. `PROJ-24`) or has a line starting `no-card: <reason>`, split into root and child threads; and the open tasks across every tracker project with no update in 14+ days. A failed read shows as `error` on that part. |
+| `bb home stats` | Picks, delegation and filing counts over a window, plus `waiting`: the one count of what is waiting on mk (decisions not on hold + open moves + notices that suspend delegation), its parts, and the definition Home shows on screen; plus `traceability`: the share of threads that ended in the window whose final output names a tasks key (a real tracker prefix, e.g. `PROJ-24`) or has a line starting `no-card: <reason>`, split into root and child threads; and the open tasks across every tracker project with no update in 14+ days. A failed read shows as `error` on that part. |
 
 `bb home rule`, `bb home note`, `bb home bind` and `bb home unbind` are for the vizier thread only.
 

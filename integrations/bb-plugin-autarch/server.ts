@@ -18,6 +18,7 @@ import { homeMethods } from "./contract.js";
 import { sourceSha256 } from "./scripts/source-hash.mjs";
 import { Asks } from "./asks.js";
 import { Catchup } from "./catchup.js";
+import { waitingNow } from "./waiting.js";
 import { homeCli } from "./cli.js";
 import { Delegation, type ThreadRow } from "./delegation.js";
 import { exportEvents } from "./export.js";
@@ -250,6 +251,7 @@ export function wireHome(bb: BbPluginApi, handle: StoreHandle, cfg: HomeConfig, 
       svc: lazy((p) => p.svc),
       asks: lazy((p) => p.asks),
       catchup: lazy((p) => p.catchup),
+      waiting: () => waitingNow(need().svc, need().dele, need().catchup),
       rule: (id, option, reason, ctx) => need().dele.ruleResolved(id, option, reason, ctx),
       handoff: (to, ctx) => need().dele.handoff(to, ctx),
       bind: async (ref, home, by) => {
@@ -608,13 +610,20 @@ export function wireHome(bb: BbPluginApi, handle: StoreHandle, cfg: HomeConfig, 
     },
     async markSeen(i: { item: string }) {
       need().dele.markSeen(MK, i.item);
+      bb.realtime.publish("home-queue-changed", {}); // acknowledging a notice changes the waiting count on every open surface
       return { ok: true };
     },
     async markAllSeen(i: { ids: string[] }) {
-      return { marked: need().catchup.markAllSeen(i.ids) };
+      const marked = need().catchup.markAllSeen(i.ids);
+      if (marked.length > 0) bb.realtime.publish("home-queue-changed", {});
+      return { marked };
     },
     async catchup(_: null) {
       return { items: need().catchup.items() };
+    },
+    async waiting(_: null) {
+      const p = need();
+      return waitingNow(p.svc, p.dele, p.catchup);
     },
     async stats(i: { days: number }) {
       const p = need();
