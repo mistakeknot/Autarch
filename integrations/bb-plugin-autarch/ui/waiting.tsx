@@ -42,7 +42,7 @@ export function WaitingStrip({ waiting: w, onJump }: { waiting: Waiting; onJump:
         <p className="m-0 mt-1 flex flex-wrap items-center gap-x-2 text-xs text-muted-foreground" data-waiting-beside>
           <span>Not in that number:</span>
           {besideItems(w).map((i) => (
-            <ActionButton key={i.to} tone="quiet" className="min-h-11 sm:min-h-0 !px-1 !py-0" onClick={() => onJump(i.to)}>{i.text}</ActionButton>
+            <ActionButton key={i.to} tone="quiet" className="min-h-11 sm:!min-h-11 !px-1 !py-0" onClick={() => onJump(i.to)}>{i.text}</ActionButton>
           ))}
         </p>
       ) : null}
