@@ -3,6 +3,8 @@
 import { useEffect, useRef, useState } from "react";
 import { ActionButton, RecommendedMark } from "./buttons.js";
 import { CardConversation } from "./conversation.js";
+import { splitCommands, type CommandRole } from "./commandtext.js";
+import { CommandBlock } from "./copy.js";
 import { OtherBox, type OtherOutcome } from "./other.js";
 
 /** What a pick hands back to the card: not ok means the card stays open and shows the error. */
@@ -116,6 +118,26 @@ export function currentAsk<T extends { id: string }>(owed: T[], selected: string
 // break anywhere so a long path never pushes the card wider than its panel.
 const REF = /(https?:\/\/[^\s)]+[^\s).,;:]|(?<![\w/])\/(?:[\w.@+-]+\/)+[\w@+-]+(?:\.[\w@+-]+)*|\b[0-9a-f]{64}\b)/g;
 
+const ROLE_LABEL: Record<CommandRole, string> = { check: "Before it (dry run / check)", step: "Earlier step", final: "Final command" };
+
+/** A card's question: prose as paragraphs, each command as a copyable block. The last one is the one to run. */
+export function QuestionText({ text }: { text: string }) {
+  const parts = splitCommands(text);
+  if (!parts.some((p) => p.type === "command")) return <p className="mt-2 whitespace-pre-wrap text-sm [overflow-wrap:anywhere]"><RefText text={text} /></p>;
+  const several = parts.filter((p) => p.type === "command").length > 1;
+  return (
+    <div className="mt-2 space-y-3" data-question>
+      {parts.map((p, i) =>
+        p.type === "prose" ? (
+          <p key={i} className="m-0 whitespace-pre-wrap text-sm [overflow-wrap:anywhere]"><RefText text={p.text} /></p>
+        ) : (
+          <CommandBlock key={i} label={several ? ROLE_LABEL[p.role] : "Command"} command={p.text} primary={p.role === "final"} showFlags={p.role === "final"} />
+        ),
+      )}
+    </div>
+  );
+}
+
 export function RefText({ text }: { text: string }) {
   const parts = text.split(REF);
   return (
@@ -169,10 +191,10 @@ export function AskCard({ ask, onPick, onOpen, nowMs, onNote, unbound = false }:
       <p className="mt-1 text-xs text-muted-foreground">
         {ask.project ? `${ask.project} · ` : ""}
         {nowMs !== undefined ? `waiting ${ageText(ask.filed_at, nowMs)} · ` : ""}
-        <button type="button" className="underline" onClick={() => onOpen(ask.thread)}>{ask.thread}</button>
+        <button type="button" className="inline-flex min-h-11 items-center underline sm:min-h-0" onClick={() => onOpen(ask.thread)}>{ask.thread}</button>
         {n > 0 ? ` - ${`also mentioned in ${n} ${n === 1 ? "thread" : "threads"}`}` : ""}
       </p>
-      <p className="mt-2 whitespace-pre-wrap text-sm [overflow-wrap:anywhere]"><RefText text={ask.ask.question} /></p>
+      <QuestionText text={ask.ask.question} />
       <ul className="mb-0 mt-3 list-none space-y-2 p-0">
         {ask.ask.options.map((o) => {
           const recommended = ask.ask.recommendation === o.id;

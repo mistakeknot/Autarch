@@ -9,6 +9,7 @@ import { groupMoves } from "./moveselect.js";
 import { cliCommand, defineCli, type PluginCliContext, type PluginCliResult } from "@get-bb/plugin-sdk";
 import type { Asks, LifecycleResult } from "./asks.js";
 import type { Catchup } from "./catchup.js";
+import type { Waiting } from "./waiting.js";
 import { parseAsk } from "./model.js";
 import { plainLine } from "./movereport.js";
 import { validScriptPath } from "./moves.js";
@@ -22,6 +23,8 @@ export interface HomeCliParts {
   svc: Service;
   asks: Asks;
   catchup: Catchup;
+  /** The one waiting-on-mk count (waiting.ts); omitted, stats reports no `waiting` block. */
+  waiting?: () => Waiting;
   /** Rule on a decision as the vizier thread; the caller decides who may. */
   rule: (decisionId: string, optionId: string, reason: string, ctx: { threadId?: string }) => PickResult | Promise<PickResult>;
   /** Hand the vizier role to another thread. Only the current vizier may; the caller decides who. */
@@ -178,7 +181,7 @@ export function homeCli(p: HomeCliParts) {
         },
         async run({ options }) {
           const since = new Date(Date.parse(svc.time()) - options.since).toISOString();
-          const stats = svc.stats(since);
+          const stats = { ...svc.stats(since), ...(p.waiting ? { waiting: p.waiting() } : {}) };
           return out(p.traceability ? { ...stats, traceability: await p.traceability(since) } : stats);
         },
       }),

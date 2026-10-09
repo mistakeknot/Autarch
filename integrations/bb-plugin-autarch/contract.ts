@@ -65,6 +65,7 @@ export const homeMethods = {
   markSeen: { input: z.object({ item: z.string().min(1) }), output: out },
   markAllSeen: { input: z.object({ ids: z.array(z.string().min(1)).max(500) }), output: out },
   catchup: { input: z.null(), output: out },
+  waiting: { input: z.null(), output: out },
   stats: { input: z.object({ days: z.number().int().min(1).max(365).default(14) }), output: out },
   health: { input: z.null(), output: out },
 };

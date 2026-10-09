@@ -367,12 +367,16 @@ describe("seen marker before the first observer report", () => {
   });
 });
 
+/** An entry for a row that fits the screen and is wholly in view; "visible" now means fully displayed. */
+const WHOLE = { isIntersecting: true, intersectionRatio: 1, intersectionRect: { height: 50 }, boundingClientRect: { top: 10, bottom: 60, height: 50 }, rootBounds: { top: 0, bottom: 800, height: 800 } };
+const PART = { ...WHOLE, intersectionRatio: 0.4, intersectionRect: { height: 20 } };
+
 describe("observeVisibility", () => {
   class FakeIO {
     static all: FakeIO[] = [];
     disconnected = false;
     observed: unknown[] = [];
-    constructor(public cb: (e: { isIntersecting: boolean }[]) => void) {
+    constructor(public cb: (e: unknown[]) => void) {
       FakeIO.all.push(this);
     }
     observe(el: unknown) {
@@ -391,8 +395,10 @@ describe("observeVisibility", () => {
   it("reports what the observer sees, and on cleanup disconnects and reports not visible", () => {
     const reports: [string, boolean][] = [];
     const stop = observeVisibility({} as Element, "ruling:d1", (i, v) => reports.push([i, v]));
-    FakeIO.all[0]!.cb([{ isIntersecting: true }]);
-    expect(reports).toEqual([["ruling:d1", true]]);
+    FakeIO.all[0]!.cb([PART]);
+    expect(reports).toEqual([["ruling:d1", false]]); // partly in view is not fully displayed
+    FakeIO.all[0]!.cb([WHOLE]);
+    expect(reports.at(-1)).toEqual(["ruling:d1", true]);
     stop();
     expect(FakeIO.all[0]!.disconnected).toBe(true);
     expect(reports.at(-1)).toEqual(["ruling:d1", false]);
@@ -406,10 +412,10 @@ describe("observeVisibility", () => {
       tr.setActive(true);
       tr.expand("ruling:d1");
       const stop = observeVisibility({} as Element, "ruling:d1", (i, v) => tr.setVisible(i, v));
-      FakeIO.all[0]!.cb([{ isIntersecting: true }]);
+      FakeIO.all[0]!.cb([WHOLE]);
       vi.advanceTimersByTime(400);
       stop();
-      FakeIO.all[0]!.cb([{ isIntersecting: true }]); // queued entry delivered late
+      FakeIO.all[0]!.cb([WHOLE]); // queued entry delivered late
       expect(tr.isVisible("ruling:d1")).toBe(false);
       expect(vi.getTimerCount()).toBe(0);
       vi.advanceTimersByTime(5000);
@@ -442,15 +448,16 @@ describe("catch-up panel", () => {
     const html = renderToStaticMarkup(<CatchupPanel items={items} expanded={new Set()} onToggle={() => {}} onOverride={() => {}} onMarkAll={() => {}} />);
     expect(html).toContain("The vizier ruled on Ship it?");
     expect(html).toContain("Override");
-    expect(html).toContain("mark all seen");
+    expect(html).toContain("Mark 0 seen"); // nothing reported on screen yet, and the panel says why
+    expect(html).toContain("data-mark-reason");
     expect(html).toContain("vizier&#x27;s note");
   });
 
-  it("mark all seen sends only the ids of expanded, visible items", () => {
+  it("mark all seen sends the ids of rows shown in full on screen: a plain row needs only to be visible, a routine group must be open too", () => {
     const ids = snapshotIds(items, new Set(["ruling:d1", "routine:Autarch", "owed:d2"]), new Set(["ruling:d1", "routine:Autarch", "owed:d2", "note:n1"]));
-    expect(ids.sort()).toEqual(["ruling:a", "ruling:b", "ruling:d1"]);
+    expect(ids.sort()).toEqual(["note:n1", "ruling:a", "ruling:b", "ruling:d1"]);
     expect(snapshotIds(items, new Set(["ruling:d1"]), new Set())).toEqual([]);
-    expect(snapshotIds(items, new Set(), new Set(["ruling:d1"]))).toEqual([]);
+    expect(snapshotIds(items, new Set(), new Set(["ruling:d1"]))).toEqual(["ruling:d1"]);
   });
 });
 

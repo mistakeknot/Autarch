@@ -9,7 +9,8 @@ import { randomUUID } from "node:crypto";
 import type { Delegation } from "./delegation.js";
 import type { Service } from "./service.js";
 
-export type CatchupKind = "failure" | "owed" | "delegated" | "routine" | "note";
+/** A `notice` changes what Home does (a vizier adoption, a delegation-settings change): the UI acknowledges it, dwell never does. */
+export type CatchupKind = "failure" | "owed" | "delegated" | "routine" | "note" | "notice";
 export interface CatchupItem {
   /** The seen-row key; for a routine group, `routine:<project>`. */
   item: string;
@@ -20,6 +21,8 @@ export interface CatchupItem {
   decision?: string;
   /** A routine group's own seen-row keys. */
   members?: string[];
+  /** One line per member, in the same order, so a routine group can be read before it is marked. */
+  lines?: string[];
   /** A note's cited facts. */
   cites?: string[];
 }
@@ -129,27 +132,27 @@ export class Catchup {
       text: `Waiting for you: ${d.subject || this.title(d.id)}`,
     }));
 
-    const delegated: CatchupItem[] = this.dele.pinned().map((p) => ({
-      item: p.item,
-      kind: "delegated" as const,
-      at: p.at,
-      ...(p.decision ? { decision: p.decision, project: this.dec(p.decision)?.project, text: `The vizier ruled on ${this.title(p.decision)}.` } : { text: p.text ?? "Delegation settings changed." }),
-    }));
+    const delegated: CatchupItem[] = this.dele.pinned().map((p) =>
+      p.decision
+        ? { item: p.item, kind: "delegated" as const, at: p.at, decision: p.decision, project: this.dec(p.decision)?.project, text: `The vizier ruled on ${this.title(p.decision)}.` }
+        : { item: p.item, kind: "notice" as const, at: p.at, text: p.text ?? "Delegation settings changed; delegated rulings stay suspended until you see this." },
+    );
 
     const groups = new Map<string, CatchupItem>();
-    const add = (project: string, member: string, at: string) => {
-      const g = groups.get(project) ?? { item: `routine:${project}`, kind: "routine" as const, project, at, text: "", members: [] as string[] };
+    const add = (project: string, member: string, at: string, line: string) => {
+      const g = groups.get(project) ?? { item: `routine:${project}`, kind: "routine" as const, project, at, text: "", members: [] as string[], lines: [] as string[] };
       g.members!.push(member);
+      g.lines!.push(line);
       if (at > g.at) g.at = at;
       groups.set(project, g);
     };
     for (const p of this.db.prepare(`SELECT k.decision_id, k.picked_at, d.project FROM picks k JOIN decisions d ON d.id = k.decision_id WHERE k."by" = 'mk' ORDER BY k.picked_at, k.rowid`).all() as { decision_id: string; picked_at: string; project: string }[]) {
       const item = `ruling:${p.decision_id}`;
-      if (!seen(item)) add(p.project, item, p.picked_at);
+      if (!seen(item)) add(p.project, item, p.picked_at, `You ruled on ${this.title(p.decision_id)}.`);
     }
     for (const e of this.db.prepare("SELECT e.decision_id, e.at, d.project FROM events e JOIN decisions d ON d.id = e.decision_id WHERE e.type IN ('resolved','withdrawn') ORDER BY e.seq").all() as { decision_id: string; at: string; project: string }[]) {
       const item = `closed:${e.decision_id}`;
-      if (!seen(item)) add(e.project, item, e.at);
+      if (!seen(item)) add(e.project, item, e.at, `Closed: ${this.title(e.decision_id)}.`);
     }
     const routine = [...groups.values()].sort((a, b) => (a.at < b.at ? 1 : a.at > b.at ? -1 : 0));
     for (const g of routine) g.text = `${g.members!.length} routine update${g.members!.length === 1 ? "" : "s"} in ${g.project}`;
@@ -160,7 +163,8 @@ export class Catchup {
       if (seen(item)) continue;
       notes.push({ item, kind: "note", at: n.at, text: `vizier's note: ${n.text}`, cites: JSON.parse(n.cites_json) as string[] });
     }
-    return [...failures, ...owed, ...delegated, ...routine, ...notes];
+    const notices = delegated.filter((d) => d.kind === "notice");
+    return [...notices, ...failures, ...owed, ...delegated.filter((d) => d.kind !== "notice"), ...routine, ...notes];
   }
 
   /**
@@ -170,7 +174,7 @@ export class Catchup {
   markAllSeen(snapshot: string[]): string[] {
     const valid = new Set<string>();
     for (const i of this.items()) {
-      if (i.kind === "owed") continue;
+      if (i.kind === "owed" || i.kind === "notice") continue;
       if (i.kind === "routine") for (const m of i.members ?? []) valid.add(m);
       else valid.add(i.item);
     }

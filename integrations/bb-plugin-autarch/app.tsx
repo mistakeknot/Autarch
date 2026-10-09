@@ -24,7 +24,11 @@ import { ConversationProvider, type ConversationApi, type ConversationData } fro
 import { YourMovePanel, type MoveHandlers } from "./ui/yourmove.js";
 import type { MoveViewGroups } from "./moveview.js";
 import type { AsksData } from "./ui/asks.js";
-import { CatchupPanel, SeenTracker, snapshotIds } from "./ui/catchup.js";
+import { CatchupPanel, markPlan, markResultText, normalizeCatchup, SeenTracker } from "./ui/catchup.js";
+import { NoticeBanner } from "./ui/notices.js";
+import { buildMoveHandlers, rpcOutcome } from "./movehandlers.js";
+import { badgeCount, WaitingStrip, type WaitingJump } from "./ui/waiting.js";
+import type { Waiting } from "./waiting.js";
 import type { CatchupEntry } from "./ui/catchup.js";
 import { MapPlaceholder } from "./ui/map-placeholder.js";
 import type { Lens } from "./ui/map-placeholder.js";
@@ -292,37 +296,29 @@ function useHomeData() {
   const rpc = useRpc<typeof rpcContract>();
   const [asks, setAsks] = useState<AsksData | null>(null);
   const [catchup, setCatchup] = useState<CatchupEntry[]>([]);
+  const [waiting, setWaiting] = useState<Waiting | null>(null);
   const [health, setHealth] = useState<{ ready: boolean } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const refetch = useCallback(() => {
-    Promise.all([rpc.call("listAsks"), rpc.call("catchup"), rpc.call("health")]).then(
-      ([a, c, h]) => {
+    Promise.all([rpc.call("listAsks"), rpc.call("catchup"), rpc.call("health"), rpc.call("waiting").catch(() => null)]).then(
+      ([a, c, h, w]) => {
         setAsks(a as unknown as AsksData);
-        setCatchup((c as { items: CatchupEntry[] }).items);
+        setCatchup(normalizeCatchup((c as { items: CatchupEntry[] }).items));
+        setWaiting(w as Waiting | null);
         setHealth(h as { ready: boolean });
         setError(null);
       },
       (cause) => setError(cause instanceof Error ? cause.message : String(cause)),
     );
   }, [rpc]);
+  // The totals move when a card is answered, a move is claimed or a hold changes, not only on the poll.
+  useRealtime("home-queue-changed", refetch);
   useEffect(() => {
     refetch();
     const t = setInterval(refetch, POLL_MS);
     return () => clearInterval(t);
   }, [refetch]);
-  return { rpc, asks, catchup, health, error, refetch };
-}
-
-type RpcResult = { ok?: boolean; status?: number; error?: string };
-/** A send becomes an outcome the card can show; a thrown error or a non-ok result is a failure with its reason. */
-async function rpcOutcome(send: Promise<unknown>): Promise<{ ok: boolean; error?: string }> {
-  try {
-    const r = (await send) as RpcResult | null;
-    if (r?.ok === true) return { ok: true };
-    return { ok: false, error: r?.error ?? `failed${r?.status ? ` (${r.status})` : ""}` };
-  } catch (e) {
-    return { ok: false, error: e instanceof Error ? e.message : String(e) };
-  }
+  return { rpc, asks, catchup, waiting, health, error, refetch };
 }
 
 /** Your move: the grouped read model, refetched on the queue signal and on the poll. */
@@ -356,34 +352,54 @@ function useMoves(rpc: ReturnType<typeof useRpc<typeof rpcContract>>, onChanged:
     },
     [rpc, noteIds, onChanged],
   );
-  const handlers: MoveHandlers = useMemo(
-    () => ({
-      onCheck: (m) => rpcOutcome(rpc.call("checkMove", { task_id: m.task_id, generation: m.generation })).finally(refetch),
-      onClaim: (m) => rpcOutcome(rpc.call("claimMove", { task_id: m.task_id, generation: m.generation })).finally(refetch),
-      onSkip: (m) => rpcOutcome(rpc.call("skipMove", { task_id: m.task_id, generation: m.generation })).finally(refetch),
-      onNote: (m, text) => note({ task_id: m.task_id }, text),
-    }),
-    [rpc, refetch, note],
-  );
+  const handlers: MoveHandlers = useMemo(() => buildMoveHandlers(rpc, refetch, onChanged, note), [rpc, refetch, onChanged, note]);
   return { moves, handlers, refetch, note };
 }
 
 function HomePage() {
-  const { rpc, asks, catchup, error, refetch } = useHomeData();
+  const { rpc, asks, catchup, waiting, error, refetch } = useHomeData();
   const nav = useBbNavigate();
   const blocks = useQueue();
   const rootRuns = useRootRuns(rpc);
-  const yourMove = useMoves(rpc, () => {});
+  const yourMove = useMoves(rpc, refetch);
   const conversation = useConversationApi(rpc);
   const [stack, setStack] = useState<StackState>({ panels: [{ id: "queue", kind: "decision", title: "Queue" }], width: "third" });
   // Q: one ranked queue is the default; the old Asks / Blocking / Catch-up tabs stay behind this setting.
   const [classic, setClassic] = useState(() => { try { return localStorage.getItem("home.classicTabs") === "1"; } catch { return false; } });
   const toggleClassic = () => setClassic((c) => { const n = !c; try { localStorage.setItem("home.classicTabs", n ? "1" : "0"); } catch { /* storage unavailable: the choice lasts this session */ } return n; });
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
+  // Rows on screen right now: React state (not just the tracker) so "Mark N seen" can say N.
+  const [visible, setVisible] = useState<Set<string>>(new Set());
+  const [markResult, setMarkResult] = useState<string | null>(null);
   const [lens, setLens] = useState<Lens>("attention");
   const picks = useMemo(() => new PickController(() => crypto.randomUUID()), []);
   const tracker = useMemo(() => new SeenTracker((item) => void rpc.call("markSeen", { item }).then(refetch, () => {})), [rpc, refetch]);
-  const onVisibility = useCallback((item: string, visible: boolean) => tracker.setVisible(item, visible), [tracker]);
+  const onVisibility = useCallback(
+    (item: string, on: boolean) => {
+      tracker.setVisible(item, on);
+      setVisible((prev) => {
+        if (prev.has(item) === on) return prev;
+        const next = new Set(prev);
+        if (on) next.add(item);
+        else next.delete(item);
+        return next;
+      });
+    },
+    [tracker],
+  );
+  const notices = useMemo(() => catchup.filter((c) => c.kind === "notice"), [catchup]);
+  const readable = useMemo(() => catchup.filter((c) => c.kind !== "notice"), [catchup]);
+  const jump = (to: WaitingJump) => document.querySelector(`[data-queue-section="${to === "updates" ? "catchup" : to === "held" ? "blocks" : "asks"}"]`)?.scrollIntoView({ block: "start" });
+  const markIds = (ids: string[], routineLeft: number) => {
+    if (ids.length === 0) return;
+    void rpc.call("markAllSeen", { ids }).then(
+      (r) => {
+        setMarkResult(markResultText((r as { marked: string[] }).marked.length, routineLeft));
+        refetch();
+      },
+      () => setMarkResult("That did not go through. Nothing was marked."),
+    );
+  };
   const refetchAll = () => {
     refetch();
     blocks.refetch();
@@ -443,13 +459,21 @@ function HomePage() {
       case "queue":
         return (
           <>
+            {waiting ? <WaitingStrip waiting={waiting} onJump={jump} /> : null}
+            {notices.length > 0 ? (
+              <div className="p-2 sm:p-4">
+                <NoticeBanner notices={notices} suspended={waiting?.suspended ?? true} onAcknowledge={(item) => void rpc.call("markSeen", { item }).then(refetch, () => {})} />
+              </div>
+            ) : null}
             {([
               ["Needs you now", { id: "asks", kind: "decision", title: "Asks", hideHeld: true }],
               ["Blocked on others", { id: "blocks", kind: "decision", title: "Blocking", hideOwed: true }],
               ["Since you left", { id: "catchup", kind: "catchup", title: "Catch-up" }],
             ] as const).map(([heading, p]) => (
-              <section key={p.id} aria-label={heading} className="border-b border-border">
-                <h2 className="px-2 pt-2 text-xs font-semibold uppercase text-muted-foreground sm:px-4 sm:pt-3">{heading}</h2>
+              <section key={p.id} aria-label={heading} data-queue-section={p.id === "catchup" ? "catchup" : p.id} className="border-b border-border">
+                <h2 className="px-2 pt-2 text-xs font-semibold uppercase text-muted-foreground sm:px-4 sm:pt-3">
+                  {waiting ? `${heading} (${p.id === "asks" ? waiting.decide + waiting.moves : p.id === "blocks" ? waiting.held : waiting.updates})` : heading}
+                </h2>
                 {render(p)}
               </section>
             ))}
@@ -495,14 +519,20 @@ function HomePage() {
       case "catchup":
         return (
           <CatchupPanel
-            items={catchup}
+            items={readable}
             expanded={expanded}
+            visible={visible}
+            result={markResult}
             onToggle={toggle}
             onOverride={(decision_id) => void rpc.call("override", { decision_id }).then(refetch, () => {})}
             onVisibility={onVisibility}
             onMarkAll={() => {
-              const ids = snapshotIds(catchup, expanded, new Set(catchup.filter((c) => tracker.isVisible(c.item)).map((c) => c.item)));
-              if (ids.length > 0) void rpc.call("markAllSeen", { ids }).then(refetch, () => {});
+              const plan = markPlan(readable, expanded, visible);
+              markIds(plan.ids, plan.routineLeft);
+            }}
+            onMarkOne={(item, members) => {
+              setMarkResult(null);
+              markIds(members ?? [item], 0);
             }}
           />
         );
@@ -534,17 +564,16 @@ function HomePage() {
   return (
     <ConversationProvider value={conversation}>
     <div className="flex h-full min-h-0 flex-1 flex-col" data-home-source={HOME_SOURCE}>
-      <HomeTabs classic={classic} onOpen={push} onToggleClassic={toggleClassic} onTodos={() => nav.toPluginPanel("example-todos")} />
+      <HomeTabs classic={classic} {...(waiting ? { waiting: waiting.total } : {})} onOpen={push} onToggleClassic={toggleClassic} onTodos={() => nav.toPluginPanel("example-todos")} />
       <StackView placed={layoutStack(stack)} render={render} onExpand={push} />
     </div>
     </ConversationProvider>
   );
 }
 
-/** Sidebar badge: the owed count, or "!" when serve is not ready or a machine blocker has no owner. */
 /** The summoned overlay's route (`/plugins/autarch/home-overlay`); it never marks anything seen. */
 function OverlayPage() {
-  const { rpc, asks, catchup, error, refetch } = useHomeData();
+  const { rpc, asks, catchup, waiting, error, refetch } = useHomeData();
   const nav = useBbNavigate();
   const picks = useMemo(() => new PickController(() => crypto.randomUUID()), []);
   if (asks === null) return <EmptyState>{error ?? "Loading…"}</EmptyState>;
@@ -552,6 +581,7 @@ function OverlayPage() {
     <OverlayPanel
       data={asks}
       catchup={catchup}
+      waiting={waiting}
       onOpen={(thread) => nav.toThread(thread)}
       onPick={(decision_id, option_id, revision, reason) => {
         return pickOutcome(picks.send((req) => rpc.call("pick", { ...req, surface: "overlay" }) as never, { decision_id, option_id, revision, ...(reason !== undefined ? { reason } : {}) }, refetch)).finally(refetch);
@@ -560,14 +590,16 @@ function OverlayPage() {
   );
 }
 
+/** Sidebar badge: the one waiting count, or "!" when serve is not ready or a machine blocker has no owner. */
 function HomeBadge() {
-  const { asks, catchup, health } = useHomeData();
+  const { asks, waiting, health } = useHomeData();
   const blocked = health !== null && !health.ready;
   const unowned = asks?.asks.some((a) => a.owner === null) ?? false;
-  // Queue sections: owed asks plus catch-up items that still need a look (owed ones are already in the first count).
-  const n = (asks?.owed.length ?? 0) + catchup.filter((c) => c.kind !== "owed" && c.kind !== "routine").length;
-  if (blocked || unowned) return <span aria-label="needs attention">!</span>;
-  return n > 0 ? <span>{n}</span> : null;
+  // An older server has no `waiting`: fall back to the live (not held) owed asks rather than a different number.
+  const total = waiting?.total ?? asks?.owed.filter((o) => !o.held).length ?? 0;
+  const n = badgeCount({ total }, { blocked, unowned });
+  if (n === "!") return <span aria-label="needs attention">!</span>;
+  return n ? <span>{n}</span> : null;
 }
 
 // The default export must be definePluginApp(...); BB interprets it after

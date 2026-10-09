@@ -1,7 +1,8 @@
 // Copyable command blocks. The command is one line, shown in a monospace block that scrolls sideways and
-// selects normally; the Copy button puts exactly that line on the clipboard: no prompt, no backticks, no trailing space.
+// selects normally (the command to run wraps instead, so no flag is hidden off-screen); the Copy button puts exactly that line on the clipboard: no prompt, no backticks, no trailing space.
 import { useRef, useState } from "react";
 import { ActionButton } from "./buttons.js";
+import { flagsOf } from "./commandtext.js";
 
 /** What copyText needs from the browser; injectable so tests can use a fake clipboard and a fake document. */
 export interface CopyEnv {
@@ -54,7 +55,17 @@ export async function copyText(text: string, env: CopyEnv = browserCopyEnv()): P
   return env.legacyCopy ? env.legacyCopy(text) : false;
 }
 
-export function CommandBlock({ label, command, expectedSha, env, copiedMs = 1500 }: { label: string; command: string; expectedSha?: string | undefined; env?: CopyEnv; copiedMs?: number }) {
+/** The command with each `--flag` in bold. Only markup changes: the text content is the command, character for character. */
+function Flagged({ command }: { command: string }) {
+  return (
+    <>
+      {command.split(/(\s+)/).map((tok, i) => (/^--[A-Za-z]/.test(tok) ? <b key={i} className="font-bold text-foreground" data-flag>{tok}</b> : tok))}
+    </>
+  );
+}
+
+export function CommandBlock({ label, command, expectedSha, env, copiedMs = 1500, primary = false, showFlags = false }: { label: string; command: string; expectedSha?: string | undefined; env?: CopyEnv; copiedMs?: number; /** The command to run: its Copy button is the primary one. */ primary?: boolean; /** List the flags under the block so none is missed. */ showFlags?: boolean }) {
+  const flags = showFlags ? flagsOf(command) : [];
   const [state, setState] = useState<"idle" | "copied" | "failed">("idle");
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const onCopy = async () => {
@@ -71,13 +82,18 @@ export function CommandBlock({ label, command, expectedSha, env, copiedMs = 1500
       </div>
       <div className="flex min-w-0 items-stretch gap-2">
         {/* The scrolling box holds only the command. Selection (drag or triple-click) covers exactly that text. */}
-        <pre className="m-0 min-w-0 flex-1 overflow-x-auto whitespace-pre rounded-md border border-border bg-muted px-3 py-2 font-mono text-xs [overflow-wrap:normal]" style={{ overflowX: "auto", whiteSpace: "pre" }} data-command-box>
-          <code data-command-text>{command}</code>
+        <pre className={`m-0 min-w-0 flex-1 rounded-md border border-border bg-muted px-3 py-2 font-mono text-xs ${primary ? "whitespace-pre-wrap [overflow-wrap:anywhere]" : "overflow-x-auto whitespace-pre [overflow-wrap:normal]"}`} style={primary ? { whiteSpace: "pre-wrap" } : { overflowX: "auto", whiteSpace: "pre" }} data-command-box>
+          <code data-command-text><Flagged command={command} /></code>
         </pre>
-        <ActionButton tone={state === "failed" ? "destructive" : "default"} onClick={() => void onCopy()} aria-label={`Copy ${label} command`} data-copy-button data-copy-state={state}>
+        <ActionButton tone={state === "failed" ? "destructive" : primary ? "recommended" : "default"} onClick={() => void onCopy()} aria-label={`Copy ${label} command`} data-copy-button data-copy-state={state}>
           {state === "copied" ? "Copied" : state === "failed" ? "Copy failed: select it" : "Copy"}
         </ActionButton>
       </div>
+      {flags.length > 0 ? (
+        <p className="mb-0 mt-1 text-xs text-muted-foreground" data-command-flags>
+          {`Flags in this command: ${flags.join(" ")}. Copy the whole line; the Copy button includes all of them.`}
+        </p>
+      ) : null}
     </div>
   );
 }
