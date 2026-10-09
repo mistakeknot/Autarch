@@ -24,6 +24,7 @@ import { ConversationProvider, type ConversationApi, type ConversationData } fro
 import { MoveCard, omitLaterTasks, YourMovePanel, type MoveHandlers } from "./ui/yourmove.js";
 import type { MoveViewGroups } from "./moveview.js";
 import type { AsksData } from "./ui/asks.js";
+import { MobileInbox, useIsPhone } from "./ui/inbox.js";
 import { CatchupPanel, markPlan, markResultText, normalizeCatchup, SeenTracker } from "./ui/catchup.js";
 import { NoticeBanner } from "./ui/notices.js";
 import { buildMoveHandlers, rpcOutcome } from "./movehandlers.js";
@@ -367,6 +368,9 @@ function HomePage() {
   // Q: one ranked queue is the default; the old Asks / Blocking / Catch-up tabs stay behind this setting.
   const [classic, setClassic] = useState(() => { try { return localStorage.getItem("home.classicTabs") === "1"; } catch { return false; } });
   const toggleClassic = () => setClassic((c) => { const n = !c; try { localStorage.setItem("home.classicTabs", n ? "1" : "0"); } catch { /* storage unavailable: the choice lasts this session */ } return n; });
+  // Phones get the inbox layout; "Full view" keeps the desktop layout on this device until the page is reopened.
+  const phone = useIsPhone();
+  const [fullView, setFullView] = useState(false);
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   // Rows on screen right now: React state (not just the tracker) so "Mark N seen" can say N.
   const [visible, setVisible] = useState<Set<string>>(new Set());
@@ -568,9 +572,42 @@ function HomePage() {
     }
   };
 
+  if (phone && !fullView && asks !== null) {
+    return (
+      <ConversationProvider value={conversation}>
+        <div className="flex h-full min-h-0 flex-1 flex-col" data-home-source={HOME_SOURCE}>
+          <MobileInbox
+            asks={asks}
+            moves={yourMove.moves}
+            waiting={waiting?.total ?? 0}
+            sinceCount={waiting ? waiting.updates + waiting.notices : readable.length + notices.length}
+            sinceNode={
+              <>
+                {notices.length > 0 ? (
+                  <div className="p-2">
+                    <NoticeBanner notices={notices} suspended={waiting?.suspended ?? true} onAcknowledge={(item) => void rpc.call("markSeen", { item }).then(refetch, () => {})} />
+                  </div>
+                ) : null}
+                {render({ id: "catchup", kind: "catchup", title: "Catch-up" })}
+              </>
+            }
+            handlers={yourMove.handlers}
+            onOpen={openBeside}
+            onNote={(decision_id, text) => yourMove.note({ decision_id }, text)}
+            onLater={(ref, on) => laterOutcome(rpc.call(on ? "later" : "unlater", { ref })).then((o) => { refetchAll(); return o; })}
+            onPick={(decision_id, option_id, revision, reason) => {
+              return pickOutcome(picks.send((req) => rpc.call("pick", req) as never, { decision_id, option_id, revision, ...(reason !== undefined ? { reason } : {}) }, refetchAll)).finally(refetchAll);
+            }}
+            onDesktop={() => setFullView(true)}
+          />
+        </div>
+      </ConversationProvider>
+    );
+  }
   return (
     <ConversationProvider value={conversation}>
     <div className="flex h-full min-h-0 flex-1 flex-col" data-home-source={HOME_SOURCE}>
+      {phone && fullView ? <button type="button" className="min-h-11 border-b border-border px-4 text-left text-sm underline" onClick={() => setFullView(false)} data-inbox-return>‹ Back to the phone inbox</button> : null}
       <HomeTabs classic={classic} {...(waiting ? { waiting: waiting.total } : {})} onOpen={push} onToggleClassic={toggleClassic} onTodos={() => nav.toPluginPanel("example-todos")} />
       <StackView placed={layoutStack(stack)} render={render} onExpand={push} />
     </div>
