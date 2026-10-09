@@ -41,6 +41,11 @@ describe("inboxRows", () => {
     const r = inboxRows(asks([ask({ task_id: "m1" })]), groups({ yourMove: [move()] }), NOW);
     expect(r.waiting.map((x) => x.key)).toEqual(["ask:d1"]);
   });
+  it("keeps held moves out of both lists", () => {
+    const r = inboxRows(asks([]), groups({ yourMove: [move({ held: { reason: "r", by: "v", at: "z" } })], later: [move({ task_id: "m2", held: { reason: "r", by: "v", at: "z" } })] }), NOW);
+    expect(r.waiting).toEqual([]);
+    expect(r.later).toEqual([]);
+  });
   it("labels the kind and age", () => {
     const r = inboxRows(asks([ask()]), groups({ yourMove: [move()] }), NOW);
     expect(r.waiting[0]).toMatchObject({ chip: "Decide", age: "5 h", project: "Clavain" });
@@ -90,6 +95,11 @@ describe("MobileInbox", () => {
     expect(view(asks([ask({ later: LATER })]), null, { tab: "later", open: "ask:d1" }).match(/<button[^>]*data-bar-later[^>]*>[^<]*/)![0]).toMatch(/Move back$/);
     const html = view(asks([]), groups({ yourMove: [move()] }), { open: "move:m1:1" });
     expect(html.match(/<button[^>]*data-bar-main[^>]*>[^<]*/)![0]).toMatch(/I ran it$/);
+  });
+  it("a move on a decision's card shows under the decision in the detail view", () => {
+    const html = view(asks([ask({ task_id: "m1" })]), groups({ yourMove: [move()] }), { open: "ask:d1" });
+    expect(html).toContain('data-move="m1"');
+    expect(html).toContain("Run the bundle script");
   });
   it("a stale open key falls back to the list", () => {
     expect(view(asks([ask()]), null, { open: "ask:gone" })).not.toContain("data-inbox-detail");

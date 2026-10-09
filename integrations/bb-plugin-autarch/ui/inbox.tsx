@@ -34,9 +34,16 @@ const moveRow = (m: MoveView, nowMs: number): InboxRow => ({ key: `move:${m.task
 export function inboxRows(asks: AsksData, moves: MoveViewGroups | null, nowMs: number): { waiting: InboxRow[]; later: InboxRow[] } {
   const live = asks.owed.filter((o) => !o.held);
   const askTasks = new Set(live.map((o) => o.task_id).filter((t): t is string => typeof t === "string"));
-  const waiting = [...live.filter((o) => !o.later).map((o) => askRow(o, nowMs)), ...(moves?.yourMove ?? []).filter((m) => !askTasks.has(m.task_id)).map((m) => moveRow(m, nowMs))];
-  const later = [...live.filter((o) => o.later).map((o) => askRow(o, nowMs)), ...(moves?.later ?? []).filter((m) => !askTasks.has(m.task_id)).map((m) => moveRow(m, nowMs))];
+  const waiting = [...live.filter((o) => !o.later).map((o) => askRow(o, nowMs)), ...(moves?.yourMove ?? []).filter((m) => !m.held && !askTasks.has(m.task_id)).map((m) => moveRow(m, nowMs))];
+  const later = [...live.filter((o) => o.later).map((o) => askRow(o, nowMs)), ...(moves?.later ?? []).filter((m) => !m.held && !askTasks.has(m.task_id)).map((m) => moveRow(m, nowMs))];
   return { waiting, later };
+}
+
+/** The moves that ride on a decision's card (same task), shown under it in the detail view; held ones stay out. */
+export function attached(r: InboxRow, moves: MoveViewGroups | null): MoveView[] {
+  const task = r.ask?.task_id;
+  if (!task || !moves) return [];
+  return [...moves.yourMove, ...moves.later].filter((m) => m.task_id === task && !m.held);
 }
 
 /** True while the screen is phone-sized (below Tailwind's sm breakpoint). */
@@ -154,6 +161,7 @@ export function MobileInbox({ asks, moves, waiting, onPick, onOpen, onNote, onLa
         {current ? (
           <div className="p-3" data-inbox-detail={current.key}>
             {current.ask ? <AskCard ask={current.ask} onPick={onPick} onOpen={onOpen} nowMs={now} onNote={onNote} onLater={onLater} /> : null}
+            {attached(current, moves).map((m) => <div key={`${m.task_id}:${m.generation}`} className="mt-3"><MoveCard m={m} h={handlers} section="yourMove" /></div>)}
             {current.move ? <MoveCard m={current.move} h={handlers} section={tab === "later" ? "later" : "yourMove"} /> : null}
           </div>
         ) : tab === "since" ? (
