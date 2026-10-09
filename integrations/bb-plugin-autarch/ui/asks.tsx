@@ -1,6 +1,6 @@
 // The Asks view: what is stalled, what mk must decide, the runbook, and what is merely waiting.
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { ActionButton, RecommendedMark } from "./buttons.js";
 import { CardConversation } from "./conversation.js";
 import { splitCommands, type CommandRole } from "./commandtext.js";
@@ -40,6 +40,8 @@ export type OwedAsk = {
   task_id?: string | null;
   /** Set while the vizier holds the card: shown greyed under "On hold", with no pick buttons. */
   held?: { reason: string; by: string; at: string } | null;
+  /** Set while mk has set the card aside for later: it stays open and unruled, in the Later group, outside the Waiting count. */
+  later?: { at: string; by: string } | null;
   ask: { question: string; recommendation?: string; options: Option[] };
 };
 export type Lane = { id: string; subject: string; thread: string; owner: string | null; detail: string; updated_at: string; label?: string };
@@ -166,7 +168,10 @@ export const UNBOUND_EXPLANATION = "This card's project is not bound to a Home p
 /** Which asks can take a note from the Other box: the callback gets the decision id and mk's trimmed text. */
 export type OnNote = (decisionId: string, text: string) => Promise<OtherOutcome | void> | void;
 
-export function AskCard({ ask, onPick, onOpen, nowMs, onNote, unbound = false }: { ask: OwedAsk; onPick: OnPick; onOpen: (thread: string) => void; nowMs?: number; onNote?: OnNote; unbound?: boolean }) {
+/** Sets a card aside (on) or moves it back (off), by its task id. A thrown error or not-ok result is shown by the caller. */
+export type OnLater = (taskId: string, on: boolean) => void | Promise<unknown>;
+
+export function AskCard({ ask, onPick, onOpen, nowMs, onNote, onLater, unbound = false }: { ask: OwedAsk; onPick: OnPick; onOpen: (thread: string) => void; nowMs?: number; onNote?: OnNote; onLater?: OnLater; unbound?: boolean }) {
   const [failure, setFailure] = useState<string | null>(null);
   const [pending, setPending] = useState<string | null>(null);
   const pick = async (optionId: string) => {
@@ -222,6 +227,12 @@ export function AskCard({ ask, onPick, onOpen, nowMs, onNote, unbound = false }:
       {anyInstruction && !unbound ? (
         <p className="mt-2 text-xs text-muted-foreground">{`An instruction is sent to ${ask.thread} as written; the agent acts on it under its own permissions.`}</p>
       ) : null}
+      {onLater && ask.task_id ? (
+        <div className="mt-3 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+          <ActionButton tone="quiet" onClick={() => void onLater(ask.task_id!, true)} data-later-set={ask.id}>Later</ActionButton>
+          <span>Sets this card aside: it stays open, moves below the others and drops out of Waiting on you.</span>
+        </div>
+      ) : null}
       {failure !== null ? <p role="alert" className="mt-2 text-xs font-medium text-destructive" data-pick-failure>{`Your pick did not go through: ${failure}. The ask is still open; try again.`}</p> : null}
       {onNote ? (
         <OtherBox
@@ -255,7 +266,7 @@ export function optionEffect(o: { kind: string; instruction?: string; reversible
 }
 
 /** The Decide queue: a short row per ask on the left, the selected ask in full on the right (below when narrow). */
-export function DecideQueue({ owed, onPick, onOpen, nowMs, onNote, onView }: { owed: OwedAsk[]; onPick: OnPick; onOpen: (thread: string) => void; nowMs: number; onNote?: OnNote; onView?: (decisionId: string | null) => void }) {
+export function DecideQueue({ owed, onPick, onOpen, nowMs, onNote, onLater, onView }: { owed: OwedAsk[]; onPick: OnPick; onOpen: (thread: string) => void; nowMs: number; onNote?: OnNote; onLater?: OnLater; onView?: (decisionId: string | null) => void }) {
   const [selected, setSelected] = useState<string | null>(null);
   const current = currentAsk(owed, selected);
   const viewingId = current?.id ?? null;
@@ -308,7 +319,7 @@ export function DecideQueue({ owed, onPick, onOpen, nowMs, onNote, onView }: { o
         })}
       </ol>
       <div ref={cardRef} className="min-w-0 grow-[3] basis-[28rem] scroll-mt-2 sm:sticky sm:top-0">
-        <AskCard key={current.id} ask={current} onPick={onPick} onOpen={onOpen} nowMs={nowMs} {...(onNote ? { onNote } : {})} />
+        <AskCard key={current.id} ask={current} onPick={onPick} onOpen={onOpen} nowMs={nowMs} {...(onNote ? { onNote } : {})} {...(onLater ? { onLater } : {})} />
       </div>
     </div>
   );
@@ -331,20 +342,22 @@ export function ApprovalsList({ approvals, onRevoke }: { approvals: ApprovalReco
   );
 }
 
-export function AsksPanel({ data, onPick, onOpen, onRevoke, onDismiss, onNote, onView, hideHeld, nowMs = Date.now() }: { hideHeld?: boolean; data: AsksData; onPick: OnPick; onOpen: (thread: string) => void; onRevoke?: (approvalId: string) => void; onDismiss?: (decisionId: string, obligationId: string) => void; onNote?: OnNote; onView?: (decisionId: string | null) => void; nowMs?: number }) {
+export function AsksPanel({ data, onPick, onOpen, onRevoke, onDismiss, onNote, onLater, onView, renderMoves, hideHeld, nowMs = Date.now() }: { hideHeld?: boolean; renderMoves?: (taskId: string) => ReactNode; data: AsksData; onPick: OnPick; onOpen: (thread: string) => void; onRevoke?: (approvalId: string) => void; onDismiss?: (decisionId: string, obligationId: string) => void; onNote?: OnNote; onLater?: OnLater; onView?: (decisionId: string | null) => void; nowMs?: number }) {
   // In the Queue the held cards show under "Blocked on others"; shown here only on the Asks page.
   const held = hideHeld ? [] : data.owed.filter((o) => o.held);
-  const live = data.owed.some((o) => o.held) ? { ...data, owed: data.owed.filter((o) => !o.held) } : data;
+  // Later cards leave the Decide list for their own group below it; a held card stays held even if it was also set aside.
+  const later = data.owed.filter((o) => o.later && !o.held);
+  const live = data.owed.some((o) => o.held || o.later) ? { ...data, owed: data.owed.filter((o) => !o.held && !o.later) } : data;
   const view = buildAsksView(live);
   const approvals = data.approvals ?? [];
-  if (view.length === 0 && approvals.length === 0 && held.length === 0) return <p className="p-4 text-sm text-muted-foreground">Nothing needs you.</p>;
+  if (view.length === 0 && approvals.length === 0 && held.length === 0 && later.length === 0) return <p className="p-4 text-sm text-muted-foreground">Nothing needs you.</p>;
   return (
     <div className="space-y-3 p-2 sm:space-y-6 sm:p-4">
       {view.map((s) => (
         <section key={s.key} data-section={s.key}>
           <h2 className="mb-2 text-xs font-semibold uppercase text-muted-foreground">{`${s.title} (${s.items.length})`}</h2>
           {s.key === "decide" ? (
-            <DecideQueue owed={live.owed} onPick={onPick} onOpen={onOpen} nowMs={nowMs} {...(onNote ? { onNote } : {})} {...(onView ? { onView } : {})} />
+            <DecideQueue owed={live.owed} onPick={onPick} onOpen={onOpen} nowMs={nowMs} {...(onNote ? { onNote } : {})} {...(onLater ? { onLater } : {})} {...(onView ? { onView } : {})} />
           ) : (
             <div className="space-y-3">
               {s.items.map((i) => (
@@ -362,6 +375,34 @@ export function AsksPanel({ data, onPick, onOpen, onRevoke, onDismiss, onNote, o
           )}
         </section>
       ))}
+      {later.length > 0 ? (
+        <section data-section="later">
+          <h2 className="mb-2 text-xs font-semibold uppercase text-muted-foreground">{`Later (${later.length})`}</h2>
+          <p className="mb-2 text-xs text-muted-foreground">
+            {`Set aside by you. Still open and not ruled; not in Waiting on you.${view.length === 0 ? " Nothing else needs you now." : ""}`}
+          </p>
+          <ul className="m-0 list-none space-y-2 p-0">
+            {later.map((o) => (
+              <li key={o.id} className="min-w-0 rounded border border-border p-2 text-sm" data-later={o.id}>
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="flex min-w-0 grow items-baseline gap-1.5">
+                    {o.key ? <span className="shrink-0 select-all font-mono text-xs font-semibold" data-task-key>{o.key}</span> : null}
+                    <span className="min-w-0 [overflow-wrap:anywhere]">{o.subject}</span>
+                  </span>
+                  {onLater && o.task_id ? <ActionButton onClick={() => void onLater(o.task_id!, false)} data-later-clear={o.id}>Move back</ActionButton> : null}
+                </div>
+                <details className="mt-2">
+                  <summary className="flex min-h-11 cursor-pointer items-center text-xs text-muted-foreground sm:min-h-0">Open card</summary>
+                  <div className="mt-2">
+                    <AskCard ask={o} onPick={onPick} onOpen={onOpen} nowMs={nowMs} {...(onNote ? { onNote } : {})} />
+                  </div>
+                  {renderMoves && o.task_id ? <div className="mt-2 space-y-3">{renderMoves(o.task_id)}</div> : null}
+                </details>
+              </li>
+            ))}
+          </ul>
+        </section>
+      ) : null}
       {held.length > 0 ? (
         <section data-section="on-hold">
           <h2 className="mb-2 text-xs font-semibold uppercase text-muted-foreground">{`On hold (${held.length})`}</h2>

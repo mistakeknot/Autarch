@@ -18,6 +18,7 @@ const W: Waiting = {
   noticeItems: [{ item: "vizier-adopted:3", at: "2026-10-07T12:00:00Z", text: "Home adopted thr_viz as the vizier thread; delegated rulings stay suspended until you see this." }],
   updates: 3,
   held: 2,
+  later: 0,
   suspended: true,
   definition: "Counts open decisions (not on hold), open moves nobody has claimed, and notices you must acknowledge.",
 };

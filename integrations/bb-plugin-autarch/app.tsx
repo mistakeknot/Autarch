@@ -21,7 +21,7 @@ import { cn } from "@/lib/utils";
 import { OVERLAY_PANEL_ID, OVERLAY_PATH, OverlayPanel } from "./ui/overlay.js";
 import { AsksPanel, PickController, pickOutcome } from "./ui/asks.js";
 import { ConversationProvider, type ConversationApi, type ConversationData } from "./ui/conversation.js";
-import { YourMovePanel, type MoveHandlers } from "./ui/yourmove.js";
+import { MoveCard, omitLaterTasks, YourMovePanel, type MoveHandlers } from "./ui/yourmove.js";
 import type { MoveViewGroups } from "./moveview.js";
 import type { AsksData } from "./ui/asks.js";
 import { CatchupPanel, markPlan, markResultText, normalizeCatchup, SeenTracker } from "./ui/catchup.js";
@@ -389,7 +389,7 @@ function HomePage() {
   );
   const notices = useMemo(() => catchup.filter((c) => c.kind === "notice"), [catchup]);
   const readable = useMemo(() => catchup.filter((c) => c.kind !== "notice"), [catchup]);
-  const jump = (to: WaitingJump) => document.querySelector(`[data-queue-section="${to === "updates" ? "catchup" : to === "held" ? "blocks" : "asks"}"]`)?.scrollIntoView({ block: "start" });
+  const jump = (to: WaitingJump) => document.querySelector(to === "later" ? '[data-section="later"], [data-section="move-later"]' : `[data-queue-section="${to === "updates" ? "catchup" : to === "held" ? "blocks" : "asks"}"]`)?.scrollIntoView({ block: "start" });
   const markIds = (ids: string[], routineLeft: number) => {
     if (ids.length === 0) return;
     void rpc.call("markAllSeen", { ids }).then(
@@ -485,11 +485,17 @@ function HomePage() {
         ) : (
           <>
           <TellVizier threadId={asks.delegation.settings.vizierThreadId} />
-          {yourMove.moves ? <YourMovePanel data={yourMove.moves} handlers={yourMove.handlers} /> : null}
+          {yourMove.moves ? <YourMovePanel data={yourMove.moves} handlers={yourMove.handlers} part="active" /> : null}
           <AsksPanel
             data={asks}
             {...(panel.hideHeld ? { hideHeld: true } : {})}
             onNote={(decision_id, text) => yourMove.note({ decision_id }, text)}
+            onLater={(ref, on) => rpc.call(on ? "later" : "unlater", { ref }).then(refetchAll, () => {})}
+            renderMoves={(taskId) => {
+              // The card's own Move back sits on the Later entry, so the move cards inside it do not repeat it.
+              const { onUnlater: _own, ...h } = yourMove.handlers;
+              return (yourMove.moves?.later ?? []).filter((m) => m.task_id === taskId).map((m) => <MoveCard key={`${m.task_id}:${m.generation}`} m={m} h={h} section="later" />);
+            }}
             onDismiss={(decision_id, obligation_id) => void rpc.call("dismiss", { decision_id, obligation_id }).then(refetch, () => {})}
             onOpen={(thread) => push({ id: `thread:${thread}`, kind: "thread", title: thread, ref: thread })}
             onRevoke={(approval_id) => void rpc.call("revokeApproval", { approval_id }).then(refetch, () => {})}
@@ -498,6 +504,7 @@ function HomePage() {
               return pickOutcome(picks.send((req) => rpc.call("pick", req) as never, { decision_id, option_id, revision, ...(reason !== undefined ? { reason } : {}) }, refetchAll)).finally(refetchAll);
             }}
           />
+          {yourMove.moves ? <YourMovePanel data={omitLaterTasks(yourMove.moves, new Set(asks.owed.filter((o) => o.later && !o.held && o.task_id).map((o) => o.task_id as string)))} handlers={yourMove.handlers} part="later" /> : null}
           </>
         );
       case "blocks":

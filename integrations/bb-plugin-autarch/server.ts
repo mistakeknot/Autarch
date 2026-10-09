@@ -463,6 +463,7 @@ export function wireHome(bb: BbPluginApi, handle: StoreHandle, cfg: HomeConfig, 
         thread: d.thread,
         key: p.svc.cardKey(d.task_id as string | null),
         held: p.svc.holdOf(d.task_id as string | null),
+        later: p.svc.laterOf(d.task_id as string | null),
         subject: d.subject,
         asker: d.asker,
         filed_at: d.filed_at,
@@ -554,6 +555,16 @@ export function wireHome(bb: BbPluginApi, handle: StoreHandle, cfg: HomeConfig, 
     async skipMove(i: { task_id: string; generation: number }) {
       const r = need().svc.skipMove(i.task_id, i.generation);
       if (r.ok && !r.replay) bb.realtime.publish("home-queue-changed", {});
+      return r;
+    },
+    async later(i: { ref: string }) {
+      const r = need().svc.later(i.ref, MK);
+      if (r.ok && !r.was) bb.realtime.publish("home-queue-changed", {});
+      return r;
+    },
+    async unlater(i: { ref: string }) {
+      const r = need().svc.unlater(i.ref);
+      if (r.ok && r.was) bb.realtime.publish("home-queue-changed", {});
       return r;
     },
     async pick(i: { decision_id: string; option_id: string; revision: string; pick_id: string; reason?: string; surface?: "home" | "overlay" }) {
