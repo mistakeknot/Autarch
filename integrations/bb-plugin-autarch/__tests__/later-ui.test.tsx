@@ -214,7 +214,23 @@ describe("tap targets at every width (44px, not just on phones)", () => {
   });
 });
 
+describe("every Your move action keeps 44px at sm and wider", () => {
+  it("check, claim and Later / skip are tap height, not only Move back", () => {
+    const mv = { task_id: "t1", generation: 1, kind: "script", subject: "s", key: null, need: null, pr: null, script: null, commands: [], report: null, url: null, held: null, claimed_at: null, skipped_at: null, card_later: false, checked_at: null, report_deadline_at: null, closed_at: null, closed_by: null, evidence: null } as unknown as Parameters<typeof MoveCard>[0]["m"];
+    const html = renderToStaticMarkup(<MoveCard m={mv} h={{ onCheck: noop, onClaim: noop, onSkip: noop, onNote: noop }} section="yourMove" />);
+    const actions = html.match(/<button[^>]*data-move-action="[a-z]+"[^>]*>/g) ?? [];
+    expect(actions.length).toBeGreaterThanOrEqual(3);
+    for (const b of actions) expect(b).toContain("sm:!min-h-11");
+  });
+});
+
 describe("a failed Later or Move back is shown", () => {
+  it("runLater turns a handler that throws into an error, and a retry clears it first", async () => {
+    const seen: (string | null)[] = [];
+    await runLater(async () => { throw new Error("offline"); }, "t", true, (e) => void seen.push(e));
+    await runLater(async () => ({ ok: true }), "t", true, (e) => void seen.push(e));
+    expect(seen).toEqual([null, "offline", null]);
+  });
   it("laterOutcome: ok is ok; a not-ok result or a thrown error carries a reason", async () => {
     expect(await laterOutcome(Promise.resolve({ ok: true, was: false }))).toEqual({ ok: true });
     expect(await laterOutcome(Promise.resolve({ ok: false, error: "no such card" }))).toEqual({ ok: false, error: "no such card" });

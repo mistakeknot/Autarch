@@ -137,7 +137,7 @@ export function MoveCard({ m, h, env, section }: { m: MoveView; h: MoveHandlers;
         <div className="mt-3 flex flex-wrap items-center gap-2" data-move-buttons>
           {aside && h.onUnlater ? <ActionButton className="sm:!min-h-11" disabled={busy !== null} onClick={() => void act("back")} data-later-clear={m.task_id}>Move back</ActionButton> : null}
           {buttons.map((b) => (
-            <ActionButton key={b.key} disabled={busy !== null} onClick={() => void act(b.key)} data-move-action={b.key}>{b.label}</ActionButton>
+            <ActionButton key={b.key} className="sm:!min-h-11" disabled={busy !== null} onClick={() => void act(b.key)} data-move-action={b.key}>{b.label}</ActionButton>
           ))}
         </div>
       ) : null}
