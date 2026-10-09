@@ -8,6 +8,8 @@ import type { Task, TaskCommentRow } from "./tasks.js";
 
 /** A vizier hold on a card; n tells one hold from a replacement made in the same millisecond. */
 export type Hold = { reason: string; by: string; at: string; n?: string };
+/** mk set the card aside to do after the fast ones (bead mk-8741). The card stays open and unruled. */
+export type Later = { at: string; by: string };
 import { identity, normalizedJson, parseAsk, revision, semanticKey, type Ask } from "./model.js";
 import { HOME_UNLABELS_ON_PICK, pickWrites } from "./cardwrites.js";
 import { estateRoot, pinRoot, renderRuling, rulingPath, writeRuling, type PinnedRoot, type Ruling } from "./ruling.js";
@@ -465,6 +467,8 @@ export class Service {
     } finally {
       this.deps.nudge?.();
     }
+    // Ruling a card ends its time in Later.
+    if (isCard) this.unlater(String(d.task_id));
     return { ok: true, status: 201, pick: this.store.pick(decisionId)! };
   }
 
@@ -690,6 +694,51 @@ export class Service {
     if (was) {
       delete h[id];
       this.store.setSetting("holds", JSON.stringify(h));
+    }
+    return { ok: true, task_id: id, was };
+  }
+  // ---- later: mk sets an open card aside to do after the fast ones. Kept in one settings_kv value keyed by task id
+  // (no schema change). Unlike a hold it never refuses a pick and it is mk's own choice; ruling the card clears it.
+  private readLaters(): Record<string, Later> {
+    try {
+      const v = JSON.parse(this.store.setting("later") ?? "{}");
+      if (!v || typeof v !== "object" || Array.isArray(v)) return {};
+      // Fail open: an entry without a writer and a readable time is not a Later.
+      const ok: Record<string, Later> = {};
+      for (const [id, l] of Object.entries(v as Record<string, unknown>)) {
+        const e = l as { at?: unknown; by?: unknown } | null;
+        if (e && typeof e.by === "string" && typeof e.at === "string" && !Number.isNaN(Date.parse(e.at))) ok[id] = { at: e.at, by: e.by };
+      }
+      return ok;
+    } catch {
+      return {};
+    }
+  }
+  laters(): Record<string, Later> {
+    return this.readLaters();
+  }
+  laterOf(taskId: string | null | undefined): Later | null {
+    return taskId ? (this.readLaters()[taskId] ?? null) : null;
+  }
+  later(ref: string, by: string): { ok: true; task_id: string; was: boolean } | { ok: false; error: string } {
+    const id = this.cardTaskId(ref);
+    if (!id) return { ok: false, error: "no such card" };
+    const l = this.readLaters();
+    const was = id in l;
+    if (!was) {
+      l[id] = { at: this.now(), by };
+      this.store.setSetting("later", JSON.stringify(l));
+    }
+    return { ok: true, task_id: id, was };
+  }
+  unlater(ref: string): { ok: true; task_id: string; was: boolean } | { ok: false; error: string } {
+    const id = this.cardTaskId(ref);
+    if (!id) return { ok: false, error: "no such card" };
+    const l = this.readLaters();
+    const was = id in l;
+    if (was) {
+      delete l[id];
+      this.store.setSetting("later", JSON.stringify(l));
     }
     return { ok: true, task_id: id, was };
   }

@@ -43,6 +43,10 @@ export const homeMethods = {
   },
   checkMove: { input: z.object({ task_id: z.string().min(1).max(64), generation: z.number().int().min(1).max(1_000_000) }).strict(), output: out },
   skipMove: { input: z.object({ task_id: z.string().min(1).max(64), generation: z.number().int().min(1).max(1_000_000) }).strict(), output: out },
+  // Later (bead mk-8741): set an open card aside, below the active ones and outside the Waiting count; undo moves it back.
+  // `ref` is a task id, a tasks key or a decision id. Neither rules, closes or refuses a pick.
+  later: { input: z.object({ ref: z.string().min(1).max(128) }).strict(), output: out },
+  unlater: { input: z.object({ ref: z.string().min(1).max(128) }).strict(), output: out },
   // The Other box's "Ask / note": a comment on the card plus an owner wake. Never rules or closes.
   note: { input: z.object({ task_id: z.string().min(1).max(64).optional(), decision_id: z.string().min(1).max(128).optional(), text: z.string().min(1).max(2000), note_id: z.string().min(1).max(64) }).strict(), output: out },
   // Conversation on the card: read-only views of the mirrored comments. Display only; nothing here rules or closes.

@@ -389,7 +389,7 @@ function HomePage() {
   );
   const notices = useMemo(() => catchup.filter((c) => c.kind === "notice"), [catchup]);
   const readable = useMemo(() => catchup.filter((c) => c.kind !== "notice"), [catchup]);
-  const jump = (to: WaitingJump) => document.querySelector(`[data-queue-section="${to === "updates" ? "catchup" : to === "held" ? "blocks" : "asks"}"]`)?.scrollIntoView({ block: "start" });
+  const jump = (to: WaitingJump) => document.querySelector(to === "later" ? '[data-section="later"]' : `[data-queue-section="${to === "updates" ? "catchup" : to === "held" ? "blocks" : "asks"}"]`)?.scrollIntoView({ block: "start" });
   const markIds = (ids: string[], routineLeft: number) => {
     if (ids.length === 0) return;
     void rpc.call("markAllSeen", { ids }).then(
@@ -490,6 +490,7 @@ function HomePage() {
             data={asks}
             {...(panel.hideHeld ? { hideHeld: true } : {})}
             onNote={(decision_id, text) => yourMove.note({ decision_id }, text)}
+            onLater={(ref, on) => rpc.call(on ? "later" : "unlater", { ref }).then(refetchAll, () => {})}
             onDismiss={(decision_id, obligation_id) => void rpc.call("dismiss", { decision_id, obligation_id }).then(refetch, () => {})}
             onOpen={(thread) => push({ id: `thread:${thread}`, kind: "thread", title: thread, ref: thread })}
             onRevoke={(approval_id) => void rpc.call("revokeApproval", { approval_id }).then(refetch, () => {})}

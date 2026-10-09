@@ -8,7 +8,7 @@ import type { Service } from "./service.js";
 
 /** Shown on screen beside the number so a mismatch with another list can be explained. */
 export const WAITING_DEFINITION =
-  "Counts open decisions (not on hold), open moves nobody has claimed, and notices you must acknowledge. Does not count updates to read, held cards, or moves you already claimed or skipped.";
+  "Counts open decisions (not on hold), open moves nobody has claimed, and notices you must acknowledge. Does not count updates to read, held cards, cards you set aside for later, or moves you already claimed or skipped.";
 
 export interface WaitingNotice {
   item: string;
@@ -28,6 +28,8 @@ export interface Waiting {
   updates: number;
   /** Owed decisions and open moves on hold (shown beside the count). */
   held: number;
+  /** Open cards mk set aside for later (shown beside the count, never in it). A card with a decision and a move is one. */
+  later: number;
   suspended: boolean;
   definition: string;
 }
@@ -37,12 +39,24 @@ export function waitingNow(svc: Service, dele: Delegation, catchup: Catchup): Wa
   const live = owed.filter((d) => !svc.holdOf(d.task_id as string | null));
   const heldTasks = new Set<string>();
   for (const d of owed) if (d.task_id && svc.holdOf(d.task_id as string)) heldTasks.add(d.task_id as string);
-  const decideTasks = new Set(live.map((d) => d.task_id as string | null).filter((t): t is string => !!t));
+  // A hold beats Later: a held card is counted in `held` only.
+  const laterTasks = new Set<string>();
+  const isLater = (t: string | null) => !!t && !svc.holdOf(t) && !!svc.laterOf(t);
+  const active = live.filter((d) => {
+    if (!isLater(d.task_id as string | null)) return true;
+    laterTasks.add(d.task_id as string);
+    return false;
+  });
+  const decideTasks = new Set(active.map((d) => d.task_id as string | null).filter((t): t is string => !!t));
 
   const moves = new Set<string>();
   for (const m of groupMoves(svc.store.moves()).yourMove) {
     if (svc.holdOf(m.task_id)) {
       heldTasks.add(m.task_id);
+      continue;
+    }
+    if (isLater(m.task_id)) {
+      laterTasks.add(m.task_id);
       continue;
     }
     if (!decideTasks.has(m.task_id)) moves.add(m.task_id);
@@ -51,7 +65,7 @@ export function waitingNow(svc: Service, dele: Delegation, catchup: Catchup): Wa
   const all: CatchupItem[] = catchup.items();
   const noticeItems = all.filter((i) => i.kind === "notice").map((i) => ({ item: i.item, at: i.at, text: i.text }));
   const updates = all.filter((i) => i.kind !== "owed" && i.kind !== "notice").length;
-  const decide = live.length;
+  const decide = active.length;
   return {
     total: decide + moves.size + noticeItems.length,
     decide,
@@ -60,6 +74,7 @@ export function waitingNow(svc: Service, dele: Delegation, catchup: Catchup): Wa
     noticeItems,
     updates,
     held: heldTasks.size,
+    later: laterTasks.size,
     suspended: dele.suspendedNow(),
     definition: WAITING_DEFINITION,
   };
