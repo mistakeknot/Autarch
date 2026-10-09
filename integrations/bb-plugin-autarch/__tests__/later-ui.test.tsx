@@ -92,6 +92,13 @@ describe("Later group", () => {
     expect(html).not.toContain('data-section="later"');
   });
 
+  it("a Later card that also has a move keeps the move inside its card (plan link, read action)", () => {
+    const html = panel([ask({ later: LATER })], { renderMoves: (t) => (t === "task-1" ? <p data-move-slot>I read it</p> : null) });
+    const later = html.slice(html.indexOf('data-section="later"'));
+    expect(later).toContain("data-move-slot");
+    expect(later.match(/data-later-clear=/g)).toHaveLength(1);
+  });
+
   it("without a handler (the overlay) the group lists the cards and has no Move back button", () => {
     const html = renderToStaticMarkup(<AsksPanel data={data([ask({ later: LATER })])} onPick={noop as never} onOpen={noop} />);
     expect(html).toContain("Later (1)");

@@ -1,6 +1,6 @@
 // The Asks view: what is stalled, what mk must decide, the runbook, and what is merely waiting.
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { ActionButton, RecommendedMark } from "./buttons.js";
 import { CardConversation } from "./conversation.js";
 import { splitCommands, type CommandRole } from "./commandtext.js";
@@ -342,7 +342,7 @@ export function ApprovalsList({ approvals, onRevoke }: { approvals: ApprovalReco
   );
 }
 
-export function AsksPanel({ data, onPick, onOpen, onRevoke, onDismiss, onNote, onLater, onView, hideHeld, nowMs = Date.now() }: { hideHeld?: boolean; data: AsksData; onPick: OnPick; onOpen: (thread: string) => void; onRevoke?: (approvalId: string) => void; onDismiss?: (decisionId: string, obligationId: string) => void; onNote?: OnNote; onLater?: OnLater; onView?: (decisionId: string | null) => void; nowMs?: number }) {
+export function AsksPanel({ data, onPick, onOpen, onRevoke, onDismiss, onNote, onLater, onView, renderMoves, hideHeld, nowMs = Date.now() }: { hideHeld?: boolean; renderMoves?: (taskId: string) => ReactNode; data: AsksData; onPick: OnPick; onOpen: (thread: string) => void; onRevoke?: (approvalId: string) => void; onDismiss?: (decisionId: string, obligationId: string) => void; onNote?: OnNote; onLater?: OnLater; onView?: (decisionId: string | null) => void; nowMs?: number }) {
   // In the Queue the held cards show under "Blocked on others"; shown here only on the Asks page.
   const held = hideHeld ? [] : data.owed.filter((o) => o.held);
   // Later cards leave the Decide list for their own group below it; a held card stays held even if it was also set aside.
@@ -396,6 +396,7 @@ export function AsksPanel({ data, onPick, onOpen, onRevoke, onDismiss, onNote, o
                   <div className="mt-2">
                     <AskCard ask={o} onPick={onPick} onOpen={onOpen} nowMs={nowMs} {...(onNote ? { onNote } : {})} />
                   </div>
+                  {renderMoves && o.task_id ? <div className="mt-2 space-y-3">{renderMoves(o.task_id)}</div> : null}
                 </details>
               </li>
             ))}

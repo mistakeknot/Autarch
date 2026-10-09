@@ -21,7 +21,7 @@ import { cn } from "@/lib/utils";
 import { OVERLAY_PANEL_ID, OVERLAY_PATH, OverlayPanel } from "./ui/overlay.js";
 import { AsksPanel, PickController, pickOutcome } from "./ui/asks.js";
 import { ConversationProvider, type ConversationApi, type ConversationData } from "./ui/conversation.js";
-import { omitLaterTasks, YourMovePanel, type MoveHandlers } from "./ui/yourmove.js";
+import { MoveCard, omitLaterTasks, YourMovePanel, type MoveHandlers } from "./ui/yourmove.js";
 import type { MoveViewGroups } from "./moveview.js";
 import type { AsksData } from "./ui/asks.js";
 import { CatchupPanel, markPlan, markResultText, normalizeCatchup, SeenTracker } from "./ui/catchup.js";
@@ -491,6 +491,11 @@ function HomePage() {
             {...(panel.hideHeld ? { hideHeld: true } : {})}
             onNote={(decision_id, text) => yourMove.note({ decision_id }, text)}
             onLater={(ref, on) => rpc.call(on ? "later" : "unlater", { ref }).then(refetchAll, () => {})}
+            renderMoves={(taskId) => {
+              // The card's own Move back sits on the Later entry, so the move cards inside it do not repeat it.
+              const { onUnlater: _own, ...h } = yourMove.handlers;
+              return (yourMove.moves?.later ?? []).filter((m) => m.task_id === taskId).map((m) => <MoveCard key={`${m.task_id}:${m.generation}`} m={m} h={h} section="later" />);
+            }}
             onDismiss={(decision_id, obligation_id) => void rpc.call("dismiss", { decision_id, obligation_id }).then(refetch, () => {})}
             onOpen={(thread) => push({ id: `thread:${thread}`, kind: "thread", title: thread, ref: thread })}
             onRevoke={(approval_id) => void rpc.call("revokeApproval", { approval_id }).then(refetch, () => {})}
