@@ -103,6 +103,9 @@ describe("glance: pulling the context out of a check card", () => {
     expect(t("It is about 5 minutes of play.")).toBeNull();
     expect(t("This check takes about 10 minutes.", "Check the build (2 min)")).toBeNull();
     expect(t("It takes 2 minutes.", "Check the build (2 min)")).toBe("2 min");
+    expect(t("This check takes 5 minutes, or 8 minutes with the export.", "Check the build (2 min)")).toBeNull();
+    expect(t("This check takes about 1 hour 30 minutes.", "Check the build (2 min)")).toBeNull();
+    expect(t("Nothing about how long.", "Check the build (2 min)")).toBe("2 min");
     expect(t("Anything.", "Check the build (2 min)")).toBe("2 min");
   });
   it("keeps the closing parenthesis of a link that has one, and drops one that closes the prose", () => {
@@ -119,6 +122,7 @@ describe("glance: pulling the context out of a check card", () => {
   it("is not a check card just because the title has a duration", () => {
     expect(glance(card("Release in 2 hours", "Pick the rollout day. See https://example.test/notes."))).toBeNull();
     expect(glance(card("Rotate the key within 5 minutes", "Which key? https://example.test/k"))).toBeNull();
+    expect(glance(card("Which check took 5 minutes?", "Open https://example.test/k"))).toBeNull();
   });
 });
 

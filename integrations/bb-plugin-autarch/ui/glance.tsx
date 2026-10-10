@@ -42,19 +42,20 @@ const MARK = /(?:^|[\s(;:])\(?(\d{1,2})\)\s*/g;
 const MAX_ITEMS = 6;
 const clip = (s: string, n: number) => (s.length > n ? `${s.slice(0, n - 1).trimEnd()}…` : s);
 
-/** The one duration the text states for the check, or null. A second, different duration (or one the text does not call the check's own) makes the card ambiguous, so it says nothing. */
+/** The one duration the text states for the check; null when it states none, AMBIGUOUS when it states several or one it does not call the check's own. A second, different duration (or one the text does not call the check's own) makes the card ambiguous, so it says nothing. */
+const AMBIGUOUS = "ambiguous";
 function timeOf(t: string): string | null {
   const found = new Set<string>();
   for (const m of t.matchAll(TIME)) {
     const before = t.slice(Math.max(0, m.index! - 24), m.index!);
     const after = t.slice(m.index! + m[0].length);
     if (MOMENT_AFTER.test(after)) continue;
-    if (!DURATION_CUE.test(before) || COMPOUND_AFTER.test(after)) return null;
+    if (!DURATION_CUE.test(before) || COMPOUND_AFTER.test(after)) return AMBIGUOUS;
     const unit = m[3]!.toLowerCase().startsWith("h") ? "hr" : "min";
     const span = m[2] ? `${m[1]}–${m[2]}` : m[1]!;
     found.add(`${/(?:about|around|roughly|~)\s*(?:about\s+|around\s+)?$/i.test(before) ? "About " : ""}${span} ${unit}`);
   }
-  return found.size === 1 ? [...found][0]! : null;
+  return found.size === 0 ? null : found.size === 1 ? [...found][0]! : AMBIGUOUS;
 }
 
 /** Drops prose punctuation after a link, and a closing bracket only while it has no opener in the link. */
@@ -102,7 +103,7 @@ function numbered(prose: string): string[] {
 export function glance(ask: Pick<OwedAsk, "subject" | "ask">): Glance | null {
   const subject = ask.subject ?? "";
   const timeInTitle = timeOf(subject);
-  if (!CHECK.test(subject) && !(timeInTitle !== null && CHECK_WORD.test(subject))) return null;
+  if (!CHECK.test(subject) && !(timeInTitle !== null && timeInTitle !== AMBIGUOUS && CHECK_WORD.test(subject))) return null;
   // Commands are the card's own copyable blocks; a path inside one is not the thing to open.
   const prose = splitCommands(ask.ask.question).flatMap((p) => (p.type === "prose" ? [p.text] : [])).join("\n");
   const flat = prose.replace(/\s+/g, " ").trim();
@@ -114,7 +115,8 @@ export function glance(ask: Pick<OwedAsk, "subject" | "ask">): Glance | null {
   }
   // The title and the text must agree: two different durations mean the card does not say.
   const timeInText = timeOf(flat);
-  const time = timeInTitle !== null && timeInText !== null && timeInTitle !== timeInText ? null : (timeInTitle ?? timeInText);
+  const either = timeInTitle ?? timeInText;
+  const time = timeInTitle === AMBIGUOUS || timeInText === AMBIGUOUS || (timeInTitle !== null && timeInText !== null && timeInTitle !== timeInText) ? null : either;
   if (time === null && !ACTION.test(flat)) return null;
   if (link === null && time === null && judging.length === 0) return null;
   return { lead: clip(firstSentence(flat), 220), link, time, judging };
