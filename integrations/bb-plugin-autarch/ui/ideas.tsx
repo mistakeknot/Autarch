@@ -36,9 +36,9 @@ export function IdeaBox({ projects, project, text, busy, error, notice, onProjec
         {projects.map((p) => <option key={p.id} value={p.id}>{`${p.name} (${p.prefix})`}</option>)}
       </select>
       <label className="block text-xs font-semibold uppercase text-muted-foreground" htmlFor="idea-text">Your idea, in a line</label>
-      <textarea id="idea-text" rows={2} maxLength={IDEA_MAX} className="w-full rounded-md border border-input bg-background p-2 text-sm" value={text} disabled={busy} onChange={(e) => onText(e.target.value)} placeholder="It would be cool if…" data-idea-text />
+      <textarea id="idea-text" rows={2} className="w-full rounded-md border border-input bg-background p-2 text-sm" value={text} disabled={busy} onChange={(e) => onText(e.target.value)} placeholder="It would be cool if…" data-idea-text />
       <div className="flex flex-wrap items-center gap-2">
-        <ActionButton tone="recommended" type="submit" disabled={busy || project === "" || text.trim() === ""} data-idea-file>File idea</ActionButton>
+        <ActionButton tone="recommended" type="submit" disabled={busy || project === "" || text.trim() === "" || left < 0} data-idea-file>File idea</ActionButton>
         <span className="text-xs text-muted-foreground">{`${left} left. It is filed as an idea in that project and is not work until it is picked.`}</span>
       </div>
       {error !== null ? <p role="alert" className="m-0 text-xs font-medium text-destructive" data-idea-failure>{`That did not go through: ${error}`}</p> : null}

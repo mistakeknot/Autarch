@@ -221,6 +221,19 @@ describe("list and act", () => {
     expect(await ideas.act({ task_id: own.id, action: "drop" })).toMatchObject({ ok: false, status: 409 });
     expect(own.status).not.toBe("canceled");
   });
+  it("does not list or drop a from-mk card Home did not file, nor an idea already in progress", async () => {
+    const r = rig();
+    const ideas = desk(r);
+    const lab = (n: string) => r.fake.addLabel(r.tp.id, n).id;
+    const fake = r.fake.addTask(r.tp.id, { title: "labelled by hand", labelIds: [lab("idea"), lab("from-mk")] });
+    expect(await ideas.list()).toEqual([]);
+    expect(await ideas.act({ task_id: fake.id, action: "drop" })).toMatchObject({ ok: false, status: 409 });
+    const a = await filed(r, ideas);
+    r.fake.tasks.find((t) => t.id === a)!.status = "in_progress";
+    expect(await ideas.list()).toEqual([]);
+    expect(await ideas.act({ task_id: a, action: "drop" })).toMatchObject({ ok: false, status: 409 });
+    expect(r.fake.tasks.find((t) => t.id === a)!.status).toBe("in_progress");
+  });
 });
 
 describe("digest", () => {

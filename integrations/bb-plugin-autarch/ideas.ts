@@ -4,7 +4,7 @@
 // for this; the only Home state is two settings_kv values (`ideaFiled`, `ideaDigest`), so there is no schema change.
 import type { Store } from "./store.js";
 import type { Task, TaskLabel, TasksClient } from "./tasks.js";
-import { HOME_AUTHOR, OPEN_STATUSES } from "./tasks.js";
+import { HOME_AUTHOR } from "./tasks.js";
 
 export const IDEA_LABEL = "idea";
 export const FROM_MK_LABEL = "from-mk";
@@ -25,6 +25,10 @@ export function cleanIdea(s: string | undefined): string | null {
 }
 
 export const ideaMarker = (id: string) => `home-idea: ${id}`;
+/** True for a card Home filed: its description carries a `home-idea:` marker line. */
+export const isHomeFiled = (description: string): boolean => description.split("\n").some((l) => /^home-idea: \S+$/.test(l.trim()));
+/** An idea is undecided only while nobody has started it; a card in progress or review is work already underway. */
+const IDEA_STATUSES = ["backlog", "todo"] as const;
 export const hasIdeaMarker = (description: string, id: string): boolean => description.split("\n").some((l) => l.trim() === ideaMarker(id));
 
 /** The description: mk's words first and untouched, then the provenance line and the marker that makes a retry find this card. */
@@ -187,10 +191,10 @@ export class Ideas {
       if (idea.length === 0) continue;
       const fromMk = new Set(labels.filter((l) => l.name === FROM_MK_LABEL).map((l) => l.id));
       const out2 = new Set(labels.filter((l) => l.name === PURSUE_LABEL || l.name === PARKED_LABEL).map((l) => l.id));
-      for (const t of await this.d.tasks.listTasks({ projectId: p.id, statuses: OPEN_STATUSES, labelIds: idea })) {
+      for (const t of await this.d.tasks.listTasks({ projectId: p.id, statuses: IDEA_STATUSES, labelIds: idea })) {
         if (t.labelIds.some((l) => out2.has(l))) continue;
         // Only cards Home filed (labelled from-mk): a project's own "idea" cards are not Home's to decide.
-        if (!t.labelIds.some((l) => fromMk.has(l))) continue;
+        if (!t.labelIds.some((l) => fromMk.has(l)) || !isHomeFiled(t.description)) continue;
         out.push({ task_id: t.id, key: t.key, project_id: p.id, project: p.name, prefix: p.prefix, title: t.title, words: ideaWords(t.description), filed_at: t.createdAt });
       }
     }
@@ -210,13 +214,14 @@ export class Ideas {
       const idea = new Set(labels.filter((l) => l.name === IDEA_LABEL).map((l) => l.id));
       if (![...idea].some((l) => task.labelIds.includes(l))) return { ok: false, status: 409, error: "that card is not an idea" };
       if (!labels.some((l) => l.name === FROM_MK_LABEL && task.labelIds.includes(l.id))) return { ok: false, status: 409, error: "that card was not filed from Home" };
+      if (!isHomeFiled(task.description)) return { ok: false, status: 409, error: "that card was not filed from Home" };
       const project = (await this.d.tasks.listProjects()).find((p) => p.id === task.projectId);
       const marker = `home-idea-action: ${task.id}:${i.action}`;
       const prior = (await this.d.tasks.listComments(task.id)).some((c) => c.body.includes(marker));
       const has = (name: string) => labels.filter((l) => l.name === name).some((l) => task.labelIds.includes(l.id));
       // Pursued, parked or closed ideas are no longer open: a stale view or a direct call cannot re-decide them, and a
       // state that Home did not record (no action comment) is never claimed as mk's choice.
-      const decided = has(PURSUE_LABEL) || has(PARKED_LABEL) || !(OPEN_STATUSES as readonly string[]).includes(task.status);
+      const decided = has(PURSUE_LABEL) || has(PARKED_LABEL) || !(IDEA_STATUSES as readonly string[]).includes(task.status);
       if (!prior && decided) return { ok: false, status: 409, error: "that idea was already decided" };
       // A retry whose comment landed but whose card has since been decided another way is a conflict, not a success.
       const done = i.action === "drop" ? task.status === "canceled" : has(i.action === "pursue" ? PURSUE_LABEL : PARKED_LABEL);
@@ -229,7 +234,7 @@ export class Ideas {
         // compare-and-set, so a write landing inside this last gap can still win; the action comment records what Home did.
         const fresh = await this.d.tasks.getTask(task.id);
         const nowLabels = await this.d.tasks.listLabels(task.projectId, { fresh: true });
-        const freshDecided = !fresh || fresh.labelIds.some((l) => nowLabels.some((x) => x.id === l && (x.name === PURSUE_LABEL || x.name === PARKED_LABEL))) || !(OPEN_STATUSES as readonly string[]).includes(fresh.status);
+        const freshDecided = !fresh || fresh.labelIds.some((l) => nowLabels.some((x) => x.id === l && (x.name === PURSUE_LABEL || x.name === PARKED_LABEL))) || !(IDEA_STATUSES as readonly string[]).includes(fresh.status);
         if (freshDecided) return { ok: false, status: 409, error: "that idea was decided while you were choosing" };
         if (i.action === "drop") await this.d.tasks.setStatus(task.id, "canceled");
         else {
