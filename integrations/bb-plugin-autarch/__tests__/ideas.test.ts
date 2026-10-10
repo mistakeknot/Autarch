@@ -221,6 +221,16 @@ describe("list and act", () => {
     expect(await ideas.act({ task_id: own.id, action: "drop" })).toMatchObject({ ok: false, status: 409 });
     expect(own.status).not.toBe("canceled");
   });
+  it("refuses when the idea labels came off between the first read and the write", async () => {
+    const r = rig();
+    const ideas = desk(r);
+    const a = await filed(r, ideas);
+    const t = r.fake.tasks.find((x) => x.id === a)!;
+    const orig = r.fake.addComment.bind(r.fake);
+    r.fake.addComment = (id, over) => { const c = orig(id, over); t.labelIds = []; return c; };
+    expect(await ideas.act({ task_id: a, action: "drop" })).toMatchObject({ ok: false, status: 409 });
+    expect(t.status).not.toBe("canceled");
+  });
   it("reports a refused update as a failure and does not wake", async () => {
     const r = rig();
     const ideas = desk(r);

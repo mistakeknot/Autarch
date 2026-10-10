@@ -235,6 +235,9 @@ export class Ideas {
         const fresh = await this.d.tasks.getTask(task.id);
         const nowLabels = await this.d.tasks.listLabels(task.projectId, { fresh: true });
         const freshDecided = !fresh || fresh.labelIds.some((l) => nowLabels.some((x) => x.id === l && (x.name === PURSUE_LABEL || x.name === PARKED_LABEL))) || !(IDEA_STATUSES as readonly string[]).includes(fresh.status);
+        const owned = (name: string) => fresh?.labelIds.some((l) => nowLabels.some((x) => x.id === l && x.name === name)) ?? false;
+        // Still a Home idea: another actor may have taken the labels off since the first read.
+        if (!freshDecided && !(owned(IDEA_LABEL) && owned(FROM_MK_LABEL) && isHomeFiled(fresh!.description))) return { ok: false, status: 409, error: "that card is no longer a Home idea" };
         if (freshDecided) return { ok: false, status: 409, error: "that idea was decided while you were choosing" };
         if (i.action === "drop") await this.d.tasks.setStatus(task.id, "canceled");
         else {
