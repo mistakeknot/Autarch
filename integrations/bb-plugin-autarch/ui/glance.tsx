@@ -30,14 +30,14 @@ const CHECK = /(?:^|[:—–?]\s*)(?:please\s+)?(?:play|playtest|walk|walkthroug
 const CHECK_WORD = /\b(?:play|playtest|walk|walkthrough|check|try)\b/i;
 /** A check word in the title is not enough ("Which CI check should block merging?"): the card must also ask for a time or a go-and-do. */
 const ACTION = /\b(open|play|walk|try|visit|look at|go through|click|run it)\b/i;
-const TIME = /\b(\d{1,3})(?:\s*(?:-|–|to)\s*(\d{1,3}))?\s*(minutes?|mins?|hours?|hrs?)\b/gi;
+const TIME = /(?<![\d.])\b(\d{1,3})(?![.½¼¾\d])(?:\s*(?:-|–|to)\s*(\d{1,3}))?\s*(minutes?|mins?|hours?|hrs?)\b/gi;
 /** What may stand right before a duration for it to be how long the check takes, and what may follow it for it to be a moment instead. */
 const DURATION_CUE = /(?:\(|~|\btakes?)\s*(?:about\s+|around\s+|roughly\s+)?$/i;
 /** Words just before a duration that turn it into a limit or a denial, not how long the check takes. */
 const NOT_A_DURATION = /(?:no longer|\bnot\b|n't|\bnever\b|more than|less than|at least|up to)\s*(?:\w+\s+){0,2}$/i;
 const MOMENT_AFTER = /^\)?\s+(?:ago|after|before|from now|later)\b/i;
 /** A second number and unit right after ("1 hour 30 minutes"): not a duration this block can show whole. */
-const COMPOUND_AFTER = /^\s*(?:and\s+|,\s*)?\d{1,3}\s*(?:minutes?|mins?|hours?|hrs?)\b/i;
+const COMPOUND_AFTER = /^\s*(?:and\s+(?:a\s+)?(?:half|quarter)\b|(?:and\s+|,\s*)?\d{1,3}\s*(?:minutes?|mins?|hours?|hrs?)\b)/i;
 const URL_RE = /https?:\/\/[^\s<>"'`]+/;
 const PATH_RE = /(?<![\w:/.~-])\/(?:[\w.@+-]+\/)+[\w.@+-]*\.[A-Za-z0-9]{1,8}\b/;
 const MARK = /(?:^|[\s(;:])\(?(\d{1,2})\)\s*/g;
@@ -84,7 +84,16 @@ function linkOf(prose: string): GlanceLink | null {
   return p ? { kind: "path", href: p[0], text: p[0] } : null;
 }
 
-const firstSentence = (s: string): string => /^(.*?[.!?])(?=\s|$)/s.exec(s)?.[1] ?? s;
+/** The text up to the first sentence end; a period after an abbreviation ("Dr.", "e.g.") is not one. */
+const ABBREVIATION = /(?:^|[\s(])(?:dr|mr|mrs|ms|st|vs|etc|e\.g|i\.e)\.$/i;
+function firstSentence(s: string): string {
+  for (const m of s.matchAll(/[.!?](?=\s|$)/g)) {
+    const end = m.index! + 1;
+    if (m[0] === "." && ABBREVIATION.test(s.slice(0, end))) continue;
+    return s.slice(0, end);
+  }
+  return s;
+}
 
 /** "1) a; 2) b" or "(1) a; (2) b": the markers must count up from 1, so a version or a PR number is never a list. */
 function numbered(prose: string): string[] {

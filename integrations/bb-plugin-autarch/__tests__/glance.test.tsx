@@ -112,6 +112,9 @@ describe("glance: pulling the context out of a check card", () => {
     expect(glance(card("Check the build", "Open https://play.example.test. We already settled whether to ship. Check whether the controls feel good."))!.judging).toEqual(["whether the controls feel good"]);
     expect(glance(card("Check the build", "Open https://play.example.test. We already settled whether to ship."))!.judging).toEqual([]);
   });
+  it("does not cut a judging question at an abbreviation", () => {
+    expect(glance(card("Check the build", "Open https://x.example.test. 1) Can you find the Dr. Smith sign? 2) Can you read it, e.g. from the street?"))!.judging).toEqual(["Can you find the Dr. Smith sign?", "Can you read it, e.g. from the street?"]);
+  });
   it("does not put a backtick or other closer into a link", () => {
     expect(glance(card("Check the page", "Open `https://play.example.test` and play a round."))!.link!.href).toBe("https://play.example.test");
   });
@@ -120,6 +123,9 @@ describe("glance: pulling the context out of a check card", () => {
     expect(t("This no longer takes 5 minutes.")).toBeNull();
     expect(t("It doesn't take 5 minutes.")).toBeNull();
     expect(t("It takes more than 5 minutes.")).toBeNull();
+    expect(t("It takes 1 hour and a half.")).toBeNull();
+    expect(t("It takes 1.5 hours.")).toBeNull();
+    expect(t("It takes 1½ hours.")).toBeNull();
   });
   it("keeps the closing parenthesis of a link that has one, and drops one that closes the prose", () => {
     expect(glance(card("Check the page", "Open https://en.example.test/wiki/Prototype_(game) now."))!.link!.href).toBe("https://en.example.test/wiki/Prototype_(game)");
