@@ -127,7 +127,7 @@ function DetailBar({ r, onPick, onLater, handlers, onDone }: { r: InboxRow; onPi
   );
 }
 
-export function MobileInbox({ asks, moves, waiting, onPick, onOpen, onNote, onLater, handlers, sinceNode, sinceCount, onDesktop, now = Date.now(), initial }: {
+export function MobileInbox({ asks, moves, waiting, onPick, onOpen, onNote, onLater, handlers, sinceNode, sinceCount, onDesktop, onIdea, ideaNode, now = Date.now(), initial }: {
   asks: AsksData;
   moves: MoveViewGroups | null;
   waiting: number;
@@ -140,6 +140,9 @@ export function MobileInbox({ asks, moves, waiting, onPick, onOpen, onNote, onLa
   sinceNode: ReactNode;
   sinceCount: number;
   onDesktop: () => void;
+  /** The Idea box (bead mk-2zojo): a header button and, when open, its body in place of the list. */
+  onIdea?: () => void;
+  ideaNode?: ReactNode;
   now?: number;
   /** Where to start (tests render the detail view this way). */
   initial?: { tab?: InboxTab; open?: string };
@@ -161,10 +164,17 @@ export function MobileInbox({ asks, moves, waiting, onPick, onOpen, onNote, onLa
         ) : (
           <h1 className="m-0 text-base font-semibold" data-inbox-title>{title}</h1>
         )}
-        {current ? null : <ActionButton tone="quiet" className="min-h-11" onClick={onDesktop} data-inbox-desktop>Full view</ActionButton>}
+        {current ? null : (
+          <span className="flex items-center gap-1">
+            {onIdea ? <ActionButton tone="quiet" className="min-h-11" onClick={onIdea} aria-expanded={ideaNode ? true : false} data-inbox-idea>Idea</ActionButton> : null}
+            <ActionButton tone="quiet" className="min-h-11" onClick={onDesktop} data-inbox-desktop>Full view</ActionButton>
+          </span>
+        )}
       </header>
       <div className="min-h-0 flex-1 overflow-y-auto">
-        {current ? (
+        {ideaNode && !current ? (
+          ideaNode
+        ) : current ? (
           <div className="p-3" data-inbox-detail={current.key}>
             {current.ask ? <AskCard ask={current.ask} onPick={onPick} onOpen={onOpen} nowMs={now} onNote={onNote} onLater={onLater} /> : null}
             {attached(current, moves).map((m) => <div key={`${m.task_id}:${m.generation}`} className="mt-3"><MoveCard m={m} h={handlers} section="yourMove" /></div>)}
@@ -183,7 +193,7 @@ export function MobileInbox({ asks, moves, waiting, onPick, onOpen, onNote, onLa
       ) : (
         <nav className="flex border-t border-border bg-background" data-inbox-tabs>
           {tabs.map(([id, label]) => (
-            <button key={id} type="button" aria-current={tab === id ? "page" : undefined} className={`min-h-14 flex-1 px-1 text-sm ${tab === id ? "font-semibold underline" : "text-muted-foreground"}`} onClick={() => setTab(id)} data-inbox-tab={id}>{label}</button>
+            <button key={id} type="button" aria-current={tab === id ? "page" : undefined} className={`min-h-14 flex-1 px-1 text-sm ${tab === id ? "font-semibold underline" : "text-muted-foreground"}`} onClick={() => { setTab(id); if (ideaNode) onIdea?.(); }} data-inbox-tab={id}>{label}</button>
           ))}
         </nav>
       )}
