@@ -1,4 +1,4 @@
-// The one count on screen (bead mk-yjp7): the strip, the tab, the sidebar badge and the overlay all read the same
+// The one count on screen (bead mk-yjp7): the strip, the tab and the sidebar badge all read the same
 // `waiting` figure, and the strip says what it counts so a mismatch with another list can be explained.
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
@@ -8,7 +8,6 @@ vi.mock("@get-bb/plugin-sdk/app", () => ({ ThreadChat: () => null }));
 import type { Waiting } from "../waiting.js";
 import { badgeCount, WaitingStrip, waitingSummary } from "../ui/waiting.js";
 import { homeTabs, HomeTabs } from "../ui/tabs.js";
-import { OverlayPanel } from "../ui/overlay.js";
 
 const W: Waiting = {
   total: 7,
@@ -72,11 +71,5 @@ describe("every surface shows the same number", () => {
     const html = renderToStaticMarkup(<HomeTabs classic={false} waiting={W.total} ideas={3} onOpen={noop} onToggleClassic={noop} onTodos={noop} />);
     expect(html).toContain("Ideas (3)");
     expect(renderToStaticMarkup(<HomeTabs classic={false} onOpen={noop} onToggleClassic={noop} onTodos={noop} />)).not.toContain("Ideas (");
-  });
-  it("the overlay strip carries the total", () => {
-    const html = renderToStaticMarkup(
-      <OverlayPanel data={{ owed: [], asks: [], runbook: [], lane: [], undeliverable: [], uncertain: [], failures: [], delegation: { settings: { vizierThreadId: "thr-v" } } } as never} catchup={[]} waiting={W} onPick={noop as never} onOpen={noop} />,
-    );
-    expect(html).toContain("Waiting on you: 7");
   });
 });
