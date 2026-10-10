@@ -51,8 +51,10 @@ func Print(w io.Writer, o Options) error {
 	if o.Now != nil {
 		now = o.Now
 	}
-	// Taken before any read, so a pick that lands while the footer is built is shown next time, not lost.
-	start := now().UTC().Format(stampLayout)
+	// Taken before any read, so a pick that lands while the footer is built is shown next time, not lost. It is one
+	// millisecond early: picked_at has millisecond precision and is compared with >, so a pick committed in the
+	// same millisecond as the start is shown again rather than skipped.
+	start := now().UTC().Add(-time.Millisecond).Format(stampLayout)
 	since := epoch
 	if o.Cursor != "" {
 		if b, err := os.ReadFile(o.Cursor); err == nil {
@@ -151,7 +153,7 @@ func cards(db *sql.DB, later map[string]bool) (open, parked []string, err error)
 
 func newPicks(db *sql.DB, since string) ([]string, error) {
 	rows, err := db.Query(`SELECT c.card_key, p.option_id, p.picked_at, COALESCE(p.reason, '')
-		FROM picks p JOIN cards c ON p.decision_id = 'card-' || c.task_id || '-g1'
+		FROM picks p JOIN cards c ON p.decision_id LIKE 'card-' || c.task_id || '-g%'
 		WHERE p.picked_at > ? ORDER BY p.picked_at`, since)
 	if err != nil {
 		return nil, fmt.Errorf("read picks: %w", err)
@@ -174,7 +176,7 @@ func newPicks(db *sql.DB, since string) ([]string, error) {
 
 func obligations(db *sql.DB) ([]string, error) {
 	rows, err := db.Query(`SELECT o.kind, o.state, COALESCE(o.recipient, '-'), COALESCE(c.card_key, o.decision_id), COALESCE(o.last_error, '')
-		FROM obligations o LEFT JOIN cards c ON o.decision_id = 'card-' || c.task_id || '-g1'
+		FROM obligations o LEFT JOIN cards c ON o.decision_id LIKE 'card-' || c.task_id || '-g%'
 		WHERE o.state NOT IN ('done', 'dismissed') AND o.voided_at IS NULL ORDER BY o.rowid`)
 	if err != nil {
 		return nil, fmt.Errorf("read obligations: %w", err)

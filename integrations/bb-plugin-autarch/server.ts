@@ -121,6 +121,8 @@ export interface HomeConfig {
   serveTokenFile: string;
   serveProjectDirs: string[];
   autarchBin: string;
+  /** The rulings ledger file; null turns it off. Unset means the default path (see ledger.ts). */
+  rulingsLedger?: string | null;
 }
 
 let sourceHash: string | null = null;
@@ -202,7 +204,7 @@ export function wireHome(bb: BbPluginApi, handle: StoreHandle, cfg: HomeConfig, 
       parts?.caches.invalidate();
       void parts?.loop.nudge();
     };
-    const svc = new Service({ store, projects: () => serve.projects(), nudge, rulingsLedger: ledgerPath() });
+    const svc = new Service({ store, projects: () => serve.projects(), nudge, rulingsLedger: cfg.rulingsLedger !== undefined ? cfg.rulingsLedger : ledgerPath() });
     const dele = new Delegation(svc, listThreadRows, getThreadRow);
     const asks = new Asks(svc);
     const catchup = new Catchup(svc, dele);

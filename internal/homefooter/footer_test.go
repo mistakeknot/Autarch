@@ -97,7 +97,7 @@ func TestCursorMovesToRunStartAndPeekLeavesIt(t *testing.T) {
 		t.Fatalf("first run should show the pick:\n%s", first)
 	}
 	b, err := os.ReadFile(cur)
-	if err != nil || strings.TrimSpace(string(b)) != "2026-10-11T01:02:03.004Z" {
+	if err != nil || strings.TrimSpace(string(b)) != "2026-10-11T01:02:03.003Z" {
 		t.Fatalf("cursor = %q, %v", b, err)
 	}
 	// A peek shows the same footer and does not move the cursor.
@@ -113,6 +113,15 @@ func TestCursorMovesToRunStartAndPeekLeavesIt(t *testing.T) {
 	other := run(t, Options{DB: db, Cursor: filepath.Join(t.TempDir(), "o"), Peek: true})
 	if !strings.Contains(other, "AUTA-1 -> a") {
 		t.Fatal("a fresh cursor should see every pick")
+	}
+}
+
+func TestPickOnALaterCardGenerationIsShown(t *testing.T) {
+	db := fixture(t,
+		`INSERT INTO cards VALUES ('t1','AUTA-1','x','ruled',NULL)`,
+		`INSERT INTO picks VALUES ('card-t1-g2','p1','b','2026-10-10T10:00:00.000Z',NULL)`)
+	if got := run(t, Options{DB: db, Peek: true}); !strings.Contains(got, "AUTA-1 -> b") {
+		t.Fatalf("generation 2 pick missing:\n%s", got)
 	}
 }
 
