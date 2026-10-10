@@ -94,7 +94,11 @@ describe("glance: pulling the context out of a check card", () => {
     expect(t("It is live about 2 hours ago.")).toBeNull();
     expect(t("Deadline is in 3 days, or 5 minutes after the sync.")).toBeNull();
     expect(t("It takes about 10 minutes.")).toBe("About 10 min");
-    expect(t("Only 5 minutes.")).toBe("5 min");
+    expect(t("Published (about 2 hours) ago.")).toBeNull();
+    expect(t("The previous playtest took only 5 minutes. This one is longer.")).toBeNull();
+    expect(t("The playtest takes about 1 hour 30 minutes.")).toBeNull();
+    expect(t("It takes 5 minutes, or 8 minutes with the export.")).toBeNull();
+    expect(t("It takes 10 minutes.")).toBe("10 min");
     expect(t("Anything.", "Check the build (2 min)")).toBe("2 min");
   });
   it("keeps the closing parenthesis of a link that has one, and drops one that closes the prose", () => {
@@ -103,6 +107,10 @@ describe("glance: pulling the context out of a check card", () => {
   });
   it("leaves a policy decision alone even when its title says check and it links background", () => {
     expect(glance(card("Which CI check should block merging?", "Choose the merge policy. Background: https://example.test/policy"))).toBeNull();
+  });
+  it("needs the title to ask for the check, not mention one", () => {
+    expect(glance(card("Which CI check should block merging?", "Open https://example.test/policy for background, then choose the merge policy."))).toBeNull();
+    expect(glance(card("Prototype G1: play the slice now?", "Open https://play.example.test and play a round."))).not.toBeNull();
   });
   it("is not a check card just because the title has a duration", () => {
     expect(glance(card("Release in 2 hours", "Pick the rollout day. See https://example.test/notes."))).toBeNull();

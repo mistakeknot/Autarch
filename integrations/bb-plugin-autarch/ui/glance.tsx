@@ -24,31 +24,37 @@ export interface Glance {
   judging: string[];
 }
 
-/** A title that asks mk to go and do something. A link alone does not make a card a check card. */
-const CHECK = /\b(play|playtest|walk|walkthrough|check|try)\b/i;
+/** A title that asks mk to go and do something: the verb opens the title or a clause of it ("Prototype G1: play the slice"). A link alone does not make a card a check card. */
+const CHECK = /(?:^|[:—–?]\s*)(?:please\s+)?(?:play|playtest|walk|walkthrough|check|try)\b/i;
+/** A check word elsewhere in the title counts only with a stated time ("Street check: three questions (2 min)"). */
+const CHECK_WORD = /\b(?:play|playtest|walk|walkthrough|check|try)\b/i;
 /** A check word in the title is not enough ("Which CI check should block merging?"): the card must also ask for a time or a go-and-do. */
 const ACTION = /\b(open|play|walk|try|visit|look at|go through|click|run it)\b/i;
 const TIME = /\b(\d{1,3})(?:\s*(?:-|–|to)\s*(\d{1,3}))?\s*(minutes?|mins?|hours?|hrs?)\b/gi;
 /** What may stand right before a duration for it to be how long the check takes, and what may follow it for it to be a moment instead. */
-const DURATION_CUE = /(?:\(|~|\b(?:about|around|roughly|takes?|allow|only|just|quick|quickly))\s*(?:about\s+|around\s+)?$/i;
-const MOMENT_AFTER = /^\s+(?:ago|after|before|from now|later)\b/i;
+const DURATION_CUE = /(?:\(|~|\b(?:about|around|roughly|takes?))\s*(?:about\s+|around\s+)?$/i;
+const MOMENT_AFTER = /^\)?\s+(?:ago|after|before|from now|later)\b/i;
+/** A second number and unit right after ("1 hour 30 minutes"): not a duration this block can show whole. */
+const COMPOUND_AFTER = /^\s*(?:and\s+|,\s*)?\d{1,3}\s*(?:minutes?|mins?|hours?|hrs?)\b/i;
 const URL_RE = /https?:\/\/[^\s<>"']+/;
 const PATH_RE = /(?<![\w:/.~-])\/(?:[\w.@+-]+\/)+[\w.@+-]*\.[A-Za-z0-9]{1,8}\b/;
 const MARK = /(?:^|[\s(;:])\(?(\d{1,2})\)\s*/g;
 const MAX_ITEMS = 6;
 const clip = (s: string, n: number) => (s.length > n ? `${s.slice(0, n - 1).trimEnd()}…` : s);
 
-function timeOf(...texts: string[]): string | null {
-  for (const t of texts) {
-    for (const m of t.matchAll(TIME)) {
-      const before = t.slice(Math.max(0, m.index! - 24), m.index!);
-      if (!DURATION_CUE.test(before) || MOMENT_AFTER.test(t.slice(m.index! + m[0].length))) continue;
-      const unit = m[3]!.toLowerCase().startsWith("h") ? "hr" : "min";
-      const span = m[2] ? `${m[1]}–${m[2]}` : m[1]!;
-      return `${/(?:about|around|roughly|~)\s*(?:about\s+|around\s+)?$/i.test(before) ? "About " : ""}${span} ${unit}`;
-    }
+/** The one duration the text states for the check, or null. A second, different duration (or one the text does not call the check's own) makes the card ambiguous, so it says nothing. */
+function timeOf(t: string): string | null {
+  const found = new Set<string>();
+  for (const m of t.matchAll(TIME)) {
+    const before = t.slice(Math.max(0, m.index! - 24), m.index!);
+    const after = t.slice(m.index! + m[0].length);
+    if (MOMENT_AFTER.test(after)) continue;
+    if (!DURATION_CUE.test(before) || COMPOUND_AFTER.test(after)) return null;
+    const unit = m[3]!.toLowerCase().startsWith("h") ? "hr" : "min";
+    const span = m[2] ? `${m[1]}–${m[2]}` : m[1]!;
+    found.add(`${/(?:about|around|roughly|~)\s*(?:about\s+|around\s+)?$/i.test(before) ? "About " : ""}${span} ${unit}`);
   }
-  return null;
+  return found.size === 1 ? [...found][0]! : null;
 }
 
 /** Drops prose punctuation after a link, and a closing bracket only while it has no opener in the link. */
@@ -96,7 +102,7 @@ function numbered(prose: string): string[] {
 export function glance(ask: Pick<OwedAsk, "subject" | "ask">): Glance | null {
   const subject = ask.subject ?? "";
   const timeInTitle = timeOf(subject);
-  if (!CHECK.test(subject)) return null;
+  if (!CHECK.test(subject) && !(timeInTitle !== null && CHECK_WORD.test(subject))) return null;
   // Commands are the card's own copyable blocks; a path inside one is not the thing to open.
   const prose = splitCommands(ask.ask.question).flatMap((p) => (p.type === "prose" ? [p.text] : [])).join("\n");
   const flat = prose.replace(/\s+/g, " ").trim();
