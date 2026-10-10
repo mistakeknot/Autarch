@@ -32,7 +32,7 @@ const CHECK_WORD = /\b(?:play|playtest|walk|walkthrough|check|try)\b/i;
 const ACTION = /\b(open|play|walk|try|visit|look at|go through|click|run it)\b/i;
 const TIME = /\b(\d{1,3})(?:\s*(?:-|–|to)\s*(\d{1,3}))?\s*(minutes?|mins?|hours?|hrs?)\b/gi;
 /** What may stand right before a duration for it to be how long the check takes, and what may follow it for it to be a moment instead. */
-const DURATION_CUE = /(?:\(|~|\b(?:about|around|roughly|takes?))\s*(?:about\s+|around\s+)?$/i;
+const DURATION_CUE = /(?:\(|~|\btakes?)\s*(?:about\s+|around\s+|roughly\s+)?$/i;
 const MOMENT_AFTER = /^\)?\s+(?:ago|after|before|from now|later)\b/i;
 /** A second number and unit right after ("1 hour 30 minutes"): not a duration this block can show whole. */
 const COMPOUND_AFTER = /^\s*(?:and\s+|,\s*)?\d{1,3}\s*(?:minutes?|mins?|hours?|hrs?)\b/i;
@@ -112,7 +112,9 @@ export function glance(ask: Pick<OwedAsk, "subject" | "ask">): Glance | null {
     const w = /\bwhether\b[^.!?]*/.exec(flat);
     if (w) judging = [clip(w[0].trim(), 200)];
   }
-  const time = timeInTitle ?? timeOf(flat);
+  // The title and the text must agree: two different durations mean the card does not say.
+  const timeInText = timeOf(flat);
+  const time = timeInTitle !== null && timeInText !== null && timeInTitle !== timeInText ? null : (timeInTitle ?? timeInText);
   if (time === null && !ACTION.test(flat)) return null;
   if (link === null && time === null && judging.length === 0) return null;
   return { lead: clip(firstSentence(flat), 220), link, time, judging };

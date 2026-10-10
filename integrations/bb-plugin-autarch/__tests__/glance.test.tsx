@@ -99,6 +99,10 @@ describe("glance: pulling the context out of a check card", () => {
     expect(t("The playtest takes about 1 hour 30 minutes.")).toBeNull();
     expect(t("It takes 5 minutes, or 8 minutes with the export.")).toBeNull();
     expect(t("It takes 10 minutes.")).toBe("10 min");
+    expect(t("The previous playtest lasted about 5 minutes. This one is longer.")).toBeNull();
+    expect(t("It is about 5 minutes of play.")).toBeNull();
+    expect(t("This check takes about 10 minutes.", "Check the build (2 min)")).toBeNull();
+    expect(t("It takes 2 minutes.", "Check the build (2 min)")).toBe("2 min");
     expect(t("Anything.", "Check the build (2 min)")).toBe("2 min");
   });
   it("keeps the closing parenthesis of a link that has one, and drops one that closes the prose", () => {
