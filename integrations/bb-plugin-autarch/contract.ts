@@ -29,7 +29,7 @@ export const homeMethods = {
       revision: z.string().min(1),
       pick_id: z.string().min(1),
       reason: z.string().max(2000).optional(),
-      /** Where the operator picked: Home (default) or the summoned overlay. The CLI records its own. */
+      /** Where the operator picked: Home (default). "overlay" is historical (the overlay panel was removed) and stays so old rows read. The CLI records its own. */
       surface: z.enum(["home", "overlay"]).default("home"),
     }),
     output: out,

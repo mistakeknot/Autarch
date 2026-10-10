@@ -18,7 +18,6 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Icon } from "@/components/ui/icon";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
-import { OVERLAY_PANEL_ID, OVERLAY_PATH, OverlayPanel } from "./ui/overlay.js";
 import { AsksPanel, PickController, pickOutcome, laterOutcome } from "./ui/asks.js";
 import { ConversationProvider, type ConversationApi, type ConversationData } from "./ui/conversation.js";
 import { MoveCard, omitLaterTasks, YourMovePanel, type MoveHandlers } from "./ui/yourmove.js";
@@ -639,25 +638,6 @@ function HomePage() {
   );
 }
 
-/** The summoned overlay's route (`/plugins/autarch/home-overlay`); it never marks anything seen. */
-function OverlayPage() {
-  const { rpc, asks, catchup, waiting, error, refetch } = useHomeData();
-  const nav = useBbNavigate();
-  const picks = useMemo(() => new PickController(() => crypto.randomUUID()), []);
-  if (asks === null) return <EmptyState>{error ?? "Loading…"}</EmptyState>;
-  return (
-    <OverlayPanel
-      data={asks}
-      catchup={catchup}
-      waiting={waiting}
-      onOpen={(thread) => nav.toThread(thread)}
-      onPick={(decision_id, option_id, revision, reason) => {
-        return pickOutcome(picks.send((req) => rpc.call("pick", { ...req, surface: "overlay" }) as never, { decision_id, option_id, revision, ...(reason !== undefined ? { reason } : {}) }, refetch)).finally(refetch);
-      }}
-    />
-  );
-}
-
 /** Sidebar badge: the one waiting count, or "!" when serve is not ready or a machine blocker has no owner. */
 function HomeBadge() {
   const { asks, waiting, health } = useHomeData();
@@ -684,7 +664,6 @@ export default definePluginApp((app) => {
     component: HomePage,
     experimental_sidebarAccessory: HomeBadge,
   });
-  app.slots.navPanel({ id: OVERLAY_PANEL_ID, title: "Home overlay", icon: "House", path: OVERLAY_PATH, component: OverlayPage });
   app.slots.threadPanelAction({
     id: "home-blocks",
     title: "Blocking",

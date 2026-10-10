@@ -40,25 +40,6 @@ host's version so those imports typecheck; keep them there (never in
 repins declared packages alongside the SDK; unused packages may be removed. Ship `dist/` (npm tarball or committed for
 git installs) so people installing your plugin never need npm.
 
-## Summoned overlay
-
-Home registers a second panel, `home-overlay`, routed at `/plugins/autarch/home-overlay`: owed decisions (pick in
-place), one compact input line to the vizier, and a count strip (undeliverable wakes, delegated rulings unseen). It
-has no map and no history, and never marks anything seen. The id is stable; `__tests__/overlay.test.tsx` pins it.
-
-Aleph desktop opens it in a frameless always-on-top window. Until there is a settings UI, set the target in
-`overlay-settings.json` in Aleph's userData directory:
-
-```json
-{ "accelerator": "CommandOrControl+Shift+Space", "target": { "pluginId": "autarch", "panelId": "home-overlay" } }
-```
-
-The vizier input is the SDK's `ThreadChat` at `variant: "compact"`, as the plan specifies, in a fixed-height box. The
-SDK has no prop to hide history, so the vizier's last reply is the bottom of that conversation, not a separate widget.
-
-Aleph does not check that the panel exists (an unknown id shows the app's not-found page), and the plugin must be
-installed and enabled. The web build has no global shortcut; open the panel at the same route in a page.
-
 ## Manifest
 
 `package.json` is the plugin manifest. Notable fields:
