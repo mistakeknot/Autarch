@@ -152,7 +152,7 @@ export class FakeTasks implements PluginsLike {
         const p = this.projects.find((x) => x.id === input.projectId);
         if (!p) throw new Error("project not found");
         const t = this.addTask(p.id, { title: input.title, description: input.description ?? "", labelIds: [...(input.labelIds ?? [])], createdAt: `2026-10-03T00:00:${String(this.tasks.length % 60).padStart(2, "0")}.000Z` });
-        return { task: t };
+        return { ok: true, task: t };
       }
       case "createLabel": {
         if (this.labels.some((l) => l.projectId === input.projectId && l.name.toLowerCase() === String(input.name).toLowerCase())) throw new Error(`label name already in use: ${input.name}`);

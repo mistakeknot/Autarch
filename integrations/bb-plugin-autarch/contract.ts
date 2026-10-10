@@ -53,6 +53,12 @@ export const homeMethods = {
   conversation: { input: z.object({ task_id: z.string().min(1).max(64) }).strict(), output: out },
   conversationUnread: { input: z.null(), output: out },
   markConversationSeen: { input: z.object({ task_id: z.string().min(1).max(64), through: z.string().min(1).max(200) }).strict(), output: out },
+  // The Idea box and weekly digest (bead mk-2zojo). An idea is a tracker card; none of these rules, closes or starts anything.
+  ideaProjects: { input: z.null(), output: out },
+  ideas: { input: z.null(), output: out },
+  fileIdea: { input: z.object({ project_id: z.string().min(1).max(64), text: z.string().max(4000), idea_id: z.string().min(1).max(64) }).strict(), output: out },
+  actIdea: { input: z.object({ task_id: z.string().min(1).max(64), action: z.enum(["pursue", "park", "drop"]) }).strict(), output: out },
+  clearIdeaDigest: { input: z.null(), output: out },
   dismiss: { input: z.object({ decision_id: z.string().min(1), obligation_id: z.string().min(1) }), output: out },
   override: { input: z.object({ decision_id: z.string().min(1) }), output: out },
   setDelegation: {

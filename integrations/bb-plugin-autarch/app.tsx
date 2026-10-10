@@ -25,6 +25,8 @@ import { MoveCard, omitLaterTasks, YourMovePanel, type MoveHandlers } from "./ui
 import type { MoveViewGroups } from "./moveview.js";
 import type { AsksData } from "./ui/asks.js";
 import { MobileInbox, useIsPhone } from "./ui/inbox.js";
+import { IdeaDesk, IdeaDigest, type IdeaApi } from "./ui/ideas.js";
+import type { IdeaProject, IdeaView } from "./ideas.js";
 import { CatchupPanel, markPlan, markResultText, normalizeCatchup, SeenTracker } from "./ui/catchup.js";
 import { NoticeBanner } from "./ui/notices.js";
 import { buildMoveHandlers, rpcOutcome } from "./movehandlers.js";
@@ -371,6 +373,17 @@ function HomePage() {
   // Phones get the inbox layout; "Full view" keeps the desktop layout on this device until the page is reopened.
   const phone = useIsPhone();
   const [fullView, setFullView] = useState(false);
+  // The Idea box (bead mk-2zojo): a panel on the desktop queue, a header button on the phone.
+  const [ideaOpen, setIdeaOpen] = useState(false);
+  const [ideaTick, setIdeaTick] = useState(0);
+  useRealtime("home-queue-changed", () => setIdeaTick((n) => n + 1));
+  const ideaApi = useMemo<IdeaApi>(() => ({
+    projects: async () => { const r = (await rpc.call("ideaProjects")) as { ok: boolean; projects?: IdeaProject[]; error?: string }; if (!r.ok) throw new Error(r.error ?? "the Idea box could not load projects"); return r.projects ?? []; },
+    digest: async () => { const r = (await rpc.call("ideas")) as { ok: boolean; ideas?: IdeaView[]; show?: boolean; error?: string }; if (!r.ok) throw new Error(r.error ?? "the ideas could not load"); return { ideas: r.ideas ?? [], show: r.show ?? false }; },
+    file: async (project_id, text, idea_id) => (await rpc.call("fileIdea", { project_id, text, idea_id })) as { ok: boolean; error?: string },
+    act: async (task_id, action) => (await rpc.call("actIdea", { task_id, action })) as { ok: boolean; error?: string },
+    clear: async () => { await rpc.call("clearIdeaDigest"); },
+  }), [rpc]);
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   // Rows on screen right now: React state (not just the tracker) so "Mark N seen" can say N.
   const [visible, setVisible] = useState<Set<string>>(new Set());
@@ -464,6 +477,11 @@ function HomePage() {
         return (
           <>
             {waiting ? <WaitingStrip waiting={waiting} onJump={jump} /> : null}
+            <IdeaDigest api={ideaApi} refreshKey={ideaTick} />
+            <details className="border-b border-border" data-idea-panel>
+              <summary className="flex min-h-11 cursor-pointer items-center px-2 text-sm font-medium sm:min-h-8 sm:px-4">Idea box</summary>
+              <IdeaDesk api={ideaApi} refreshKey={ideaTick} heading={false} />
+            </details>
             {notices.length > 0 ? (
               <div className="p-2 sm:p-4">
                 <NoticeBanner notices={notices} suspended={waiting?.suspended ?? true} onAcknowledge={(item) => void rpc.call("markSeen", { item }).then(refetch, () => {})} />
@@ -599,6 +617,8 @@ function HomePage() {
               return pickOutcome(picks.send((req) => rpc.call("pick", req) as never, { decision_id, option_id, revision, ...(reason !== undefined ? { reason } : {}) }, refetchAll)).finally(refetchAll);
             }}
             onDesktop={() => setFullView(true)}
+            onIdea={() => setIdeaOpen((o) => !o)}
+            ideaNode={ideaOpen ? <><IdeaDigest api={ideaApi} refreshKey={ideaTick} /><IdeaDesk api={ideaApi} refreshKey={ideaTick} /></> : null}
           />
         </div>
       </ConversationProvider>

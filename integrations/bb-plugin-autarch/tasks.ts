@@ -144,6 +144,30 @@ export class TasksClient {
     await this.call("updateTask", { taskId, labelIds: [...labelIds], authorName: HOME_AUTHOR }, z.object({}).passthrough(), signal);
   }
 
+  /** One task, or null when it does not exist. */
+  async getTask(taskId: string, signal?: AbortSignal): Promise<Task | null> {
+    return (await this.call("getTask", { taskId }, z.object({ task: taskSchema.nullable() }), signal)).task;
+  }
+
+  /** File a task in a project (the Idea box). Not idempotent: the caller looks for its own marker first. */
+  async createTask(a: { projectId: string; title: string; description: string; labelIds: readonly string[] }, signal?: AbortSignal): Promise<Task> {
+    // The real RPC answers {ok:true,task} or {ok:false,error}; a refusal is an error here, never a task.
+    const r = await this.call("createTask", { ...a, labelIds: [...a.labelIds] }, z.union([z.object({ ok: z.literal(true), task: taskSchema }).passthrough(), z.object({ ok: z.literal(false) }).passthrough()]), signal);
+    if (!r.ok) throw new TasksError(`tasks.createTask refused: ${JSON.stringify((r as { error?: unknown }).error ?? null)}`);
+    return r.task;
+  }
+
+  async createLabel(projectId: string, name: string, color: string, signal?: AbortSignal): Promise<void> {
+    await this.call("createLabel", { projectId, name, color }, z.object({}).passthrough(), signal);
+    this.labelCache.delete(projectId);
+  }
+
+  /** Set a task's status (updateTask semantics), attributed to Home. */
+  async setStatus(taskId: string, status: "canceled" | "done", signal?: AbortSignal): Promise<void> {
+    const r = await this.call("updateTask", { taskId, status, authorName: HOME_AUTHOR }, z.object({ ok: z.boolean().optional() }).passthrough(), signal);
+    if (r.ok === false) throw new TasksError("tasks.updateTask refused");
+  }
+
   /** Mark a task done (updateTask semantics), attributed to Home. Used only for cards Home filed. */
   async closeTask(taskId: string, signal?: AbortSignal): Promise<void> {
     await this.call("updateTask", { taskId, status: "done", authorName: HOME_AUTHOR }, z.object({}).passthrough(), signal);
