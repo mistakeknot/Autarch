@@ -26,8 +26,13 @@ export interface Glance {
 
 /** A title that asks mk to go and do something. A link alone does not make a card a check card. */
 const CHECK = /\b(play|playtest|walk|walkthrough|check|try)\b/i;
-const TIME = /(?:(about|around|roughly|~)\s*)?\b(\d{1,3})(?:\s*(?:-|–|to)\s*(\d{1,3}))?\s*(minutes?|mins?|hours?|hrs?)\b/i;
-const URL_RE = /https?:\/\/[^\s<>"')\]]+/;
+/** A check word in the title is not enough ("Which CI check should block merging?"): the card must also ask for a time or a go-and-do. */
+const ACTION = /\b(open|play|walk|try|visit|look at|go through|click|run it)\b/i;
+const TIME = /\b(\d{1,3})(?:\s*(?:-|–|to)\s*(\d{1,3}))?\s*(minutes?|mins?|hours?|hrs?)\b/gi;
+/** What may stand right before a duration for it to be how long the check takes, and what may follow it for it to be a moment instead. */
+const DURATION_CUE = /(?:\(|~|\b(?:about|around|roughly|takes?|allow|only|just|quick|quickly))\s*(?:about\s+|around\s+)?$/i;
+const MOMENT_AFTER = /^\s+(?:ago|after|before|from now|later)\b/i;
+const URL_RE = /https?:\/\/[^\s<>"']+/;
 const PATH_RE = /(?<![\w:/.~-])\/(?:[\w.@+-]+\/)+[\w.@+-]*\.[A-Za-z0-9]{1,8}\b/;
 const MARK = /(?:^|[\s(;:])\(?(\d{1,2})\)\s*/g;
 const MAX_ITEMS = 6;
@@ -35,19 +40,33 @@ const clip = (s: string, n: number) => (s.length > n ? `${s.slice(0, n - 1).trim
 
 function timeOf(...texts: string[]): string | null {
   for (const t of texts) {
-    const m = TIME.exec(t);
-    if (!m) continue;
-    const unit = m[4]!.toLowerCase().startsWith("h") ? "hr" : "min";
-    const span = m[3] ? `${m[2]}–${m[3]}` : m[2]!;
-    return `${m[1] ? "About " : ""}${span} ${unit}`;
+    for (const m of t.matchAll(TIME)) {
+      const before = t.slice(Math.max(0, m.index! - 24), m.index!);
+      if (!DURATION_CUE.test(before) || MOMENT_AFTER.test(t.slice(m.index! + m[0].length))) continue;
+      const unit = m[3]!.toLowerCase().startsWith("h") ? "hr" : "min";
+      const span = m[2] ? `${m[1]}–${m[2]}` : m[1]!;
+      return `${/(?:about|around|roughly|~)\s*(?:about\s+|around\s+)?$/i.test(before) ? "About " : ""}${span} ${unit}`;
+    }
   }
   return null;
+}
+
+/** Drops prose punctuation after a link, and a closing bracket only while it has no opener in the link. */
+function trimUrl(raw: string): string {
+  let u = raw;
+  for (;;) {
+    const last = u.at(-1);
+    if (last !== undefined && ".,;:!?".includes(last)) u = u.slice(0, -1);
+    else if (last === ")" && (u.match(/\(/g)?.length ?? 0) < (u.match(/\)/g)?.length ?? 0)) u = u.slice(0, -1);
+    else if (last === "]" && (u.match(/\[/g)?.length ?? 0) < (u.match(/\]/g)?.length ?? 0)) u = u.slice(0, -1);
+    else return u;
+  }
 }
 
 function linkOf(prose: string): GlanceLink | null {
   const u = URL_RE.exec(prose);
   if (u) {
-    const href = u[0].replace(/[.,;:!?]+$/, "");
+    const href = trimUrl(u[0]);
     return { kind: "url", href, text: href.replace(/^https?:\/\//, "").replace(/\/$/, "") };
   }
   const p = PATH_RE.exec(prose);
@@ -62,7 +81,7 @@ function numbered(prose: string): string[] {
   for (const m of prose.matchAll(MARK)) {
     const n = Number(m[1]);
     if (n === marks.length + 1) marks.push({ at: m.index!, end: m.index! + m[0].length });
-    else if (marks.length > 0) return []; // a skip, repeat or swap: not a list we can read
+    else return []; // the first marker is not 1, or a skip, repeat or swap: not a list we can read
   }
   if (marks.length < 2) return [];
   return marks.slice(0, MAX_ITEMS).map((m, i) => {
@@ -88,6 +107,7 @@ export function glance(ask: Pick<OwedAsk, "subject" | "ask">): Glance | null {
     if (w) judging = [clip(w[0].trim(), 200)];
   }
   const time = timeInTitle ?? timeOf(flat);
+  if (time === null && !ACTION.test(flat)) return null;
   if (link === null && time === null && judging.length === 0) return null;
   return { lead: clip(firstSentence(flat), 220), link, time, judging };
 }

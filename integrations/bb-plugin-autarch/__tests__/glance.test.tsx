@@ -84,6 +84,26 @@ describe("glance: pulling the context out of a check card", () => {
     expect(j("1) first; 3) third")).toEqual([]);
     expect(j("1) first; 2) second; 3) third")).toEqual(["first", "second", "third"]);
   });
+  it("rejects a list whose first marker is not 1, whatever follows", () => {
+    const j = (q: string) => glance(card("Check the build", `Look at https://x.example.test. ${q}`))!.judging;
+    expect(j("2) second; 1) first; 2) second")).toEqual([]);
+  });
+  it("reads a time only when it is stated as how long the check takes, never a past or future moment", () => {
+    const t = (q: string, title = "Check the build") => glance(card(title, `Open https://home.example.test. ${q}`))!.time;
+    expect(t("The build went live 2 hours ago.")).toBeNull();
+    expect(t("It is live about 2 hours ago.")).toBeNull();
+    expect(t("Deadline is in 3 days, or 5 minutes after the sync.")).toBeNull();
+    expect(t("It takes about 10 minutes.")).toBe("About 10 min");
+    expect(t("Only 5 minutes.")).toBe("5 min");
+    expect(t("Anything.", "Check the build (2 min)")).toBe("2 min");
+  });
+  it("keeps the closing parenthesis of a link that has one, and drops one that closes the prose", () => {
+    expect(glance(card("Check the page", "Open https://en.example.test/wiki/Prototype_(game) now."))!.link!.href).toBe("https://en.example.test/wiki/Prototype_(game)");
+    expect(glance(card("Check the page", "Open it (see https://en.example.test/page) now."))!.link!.href).toBe("https://en.example.test/page");
+  });
+  it("leaves a policy decision alone even when its title says check and it links background", () => {
+    expect(glance(card("Which CI check should block merging?", "Choose the merge policy. Background: https://example.test/policy"))).toBeNull();
+  });
   it("is not a check card just because the title has a duration", () => {
     expect(glance(card("Release in 2 hours", "Pick the rollout day. See https://example.test/notes."))).toBeNull();
     expect(glance(card("Rotate the key within 5 minutes", "Which key? https://example.test/k"))).toBeNull();
