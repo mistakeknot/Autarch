@@ -33,12 +33,16 @@ const ACTION = /\b(open|play|walk|try|visit|look at|go through|click|run it)\b/i
 const TIME = /\b(\d{1,3})(?:\s*(?:-|–|to)\s*(\d{1,3}))?\s*(minutes?|mins?|hours?|hrs?)\b/gi;
 /** What may stand right before a duration for it to be how long the check takes, and what may follow it for it to be a moment instead. */
 const DURATION_CUE = /(?:\(|~|\btakes?)\s*(?:about\s+|around\s+|roughly\s+)?$/i;
+/** Words just before a duration that turn it into a limit or a denial, not how long the check takes. */
+const NOT_A_DURATION = /(?:no longer|\bnot\b|n't|\bnever\b|more than|less than|at least|up to)\s*(?:\w+\s+){0,2}$/i;
 const MOMENT_AFTER = /^\)?\s+(?:ago|after|before|from now|later)\b/i;
 /** A second number and unit right after ("1 hour 30 minutes"): not a duration this block can show whole. */
 const COMPOUND_AFTER = /^\s*(?:and\s+|,\s*)?\d{1,3}\s*(?:minutes?|mins?|hours?|hrs?)\b/i;
-const URL_RE = /https?:\/\/[^\s<>"']+/;
+const URL_RE = /https?:\/\/[^\s<>"'`]+/;
 const PATH_RE = /(?<![\w:/.~-])\/(?:[\w.@+-]+\/)+[\w.@+-]*\.[A-Za-z0-9]{1,8}\b/;
 const MARK = /(?:^|[\s(;:])\(?(\d{1,2})\)\s*/g;
+/** "nobody has checked yet whether ...", "check whether ...": a whether that names what is still to be judged, not one already settled. */
+const OPEN_WHETHER = /\b(?:checked(?:\s+yet)?|check|see|judge|tell|verify|confirm|test|find out)\s+(whether\b[^.!?]*)/i;
 const MAX_ITEMS = 6;
 const clip = (s: string, n: number) => (s.length > n ? `${s.slice(0, n - 1).trimEnd()}…` : s);
 
@@ -50,7 +54,7 @@ function timeOf(t: string): string | null {
     const before = t.slice(Math.max(0, m.index! - 24), m.index!);
     const after = t.slice(m.index! + m[0].length);
     if (MOMENT_AFTER.test(after)) continue;
-    if (!DURATION_CUE.test(before) || COMPOUND_AFTER.test(after)) return AMBIGUOUS;
+    if (!DURATION_CUE.test(before) || NOT_A_DURATION.test(before) || COMPOUND_AFTER.test(after)) return AMBIGUOUS;
     const unit = m[3]!.toLowerCase().startsWith("h") ? "hr" : "min";
     const span = m[2] ? `${m[1]}–${m[2]}` : m[1]!;
     found.add(`${/(?:about|around|roughly|~)\s*(?:about\s+|around\s+)?$/i.test(before) ? "About " : ""}${span} ${unit}`);
@@ -110,8 +114,8 @@ export function glance(ask: Pick<OwedAsk, "subject" | "ask">): Glance | null {
   const link = linkOf(prose);
   let judging = numbered(flat);
   if (judging.length === 0) {
-    const w = /\bwhether\b[^.!?]*/.exec(flat);
-    if (w) judging = [clip(w[0].trim(), 200)];
+    const w = OPEN_WHETHER.exec(flat);
+    if (w) judging = [clip(w[1]!.trim(), 200)];
   }
   // The title and the text must agree: two different durations mean the card does not say.
   const timeInText = timeOf(flat);

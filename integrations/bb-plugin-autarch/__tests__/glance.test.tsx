@@ -108,6 +108,19 @@ describe("glance: pulling the context out of a check card", () => {
     expect(t("Nothing about how long.", "Check the build (2 min)")).toBe("2 min");
     expect(t("Anything.", "Check the build (2 min)")).toBe("2 min");
   });
+  it("takes the judging sentence only where it names an open check, and ignores a settled whether", () => {
+    expect(glance(card("Check the build", "Open https://play.example.test. We already settled whether to ship. Check whether the controls feel good."))!.judging).toEqual(["whether the controls feel good"]);
+    expect(glance(card("Check the build", "Open https://play.example.test. We already settled whether to ship."))!.judging).toEqual([]);
+  });
+  it("does not put a backtick or other closer into a link", () => {
+    expect(glance(card("Check the page", "Open `https://play.example.test` and play a round."))!.link!.href).toBe("https://play.example.test");
+  });
+  it("gives no time for a negated or bounded duration", () => {
+    const t = (q: string) => glance(card("Check the build", `Open https://home.example.test. ${q}`))!.time;
+    expect(t("This no longer takes 5 minutes.")).toBeNull();
+    expect(t("It doesn't take 5 minutes.")).toBeNull();
+    expect(t("It takes more than 5 minutes.")).toBeNull();
+  });
   it("keeps the closing parenthesis of a link that has one, and drops one that closes the prose", () => {
     expect(glance(card("Check the page", "Open https://en.example.test/wiki/Prototype_(game) now."))!.link!.href).toBe("https://en.example.test/wiki/Prototype_(game)");
     expect(glance(card("Check the page", "Open it (see https://en.example.test/page) now."))!.link!.href).toBe("https://en.example.test/page");
