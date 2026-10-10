@@ -13,6 +13,7 @@ export type Later = { at: string; by: string };
 import { identity, normalizedJson, parseAsk, revision, semanticKey, type Ask } from "./model.js";
 import { HOME_UNLABELS_ON_PICK, pickWrites } from "./cardwrites.js";
 import { estateRoot, pinRoot, renderRuling, rulingPath, writeRuling, type PinnedRoot, type Ruling } from "./ruling.js";
+import { appendRuling } from "./ledger.js";
 import type { DecisionInput, ObligationInput, ObligationRow, PickInput, PickRow, Store } from "./store.js";
 
 export interface ProjectInfo {
@@ -32,6 +33,8 @@ export interface ServiceDeps {
   nudge?: () => void;
   /** How long after "I ran it" a script's report may take before "No report received" (default 2 h). */
   reportDeadlineMs?: number;
+  /** The vizier's rulings.jsonl. Each ruled pick appends one line there (idempotent on the pick id); omitted, none is written. */
+  rulingsLedger?: string | null;
 }
 
 export const DEFAULT_REPORT_DEADLINE_MS = 2 * 3_600_000;
@@ -595,6 +598,21 @@ export class Service {
       }
       const threads = this.store.mentions(d.id).map((m) => m.thread);
       if (threads.length > 0) ruling.mentions = threads;
+      // The ledger comes first: it does not depend on the project having a root, so a pick on an unbound project still
+      // reaches it. A retry after a later failure finds its line and writes nothing.
+      if (this.deps.rulingsLedger) {
+        appendRuling(this.deps.rulingsLedger, {
+          pick_id: pick.pick_id,
+          picked_at: pick.picked_at,
+          by: pick.by,
+          surface: pick.surface,
+          card: ruling.card_key ?? d.id,
+          subject: ruling.subject,
+          option_id: pick.option_id,
+          option_label: option?.label ?? pick.option_id,
+          reason: pick.reason,
+        });
+      }
       const target = rulingPath({ scope: estate ? "estate" : "project", decision_id: d.id, subject: ruling.subject, date: pick.picked_at.slice(0, 10) });
       writeRuling({ path: d.project_root ?? "", dev: d.root_dev ?? "", ino: d.root_ino ?? "" }, target.dirs, target.file, renderRuling(ruling));
       this.store.transition(ob.id, "pending", "done", ob.attempt);

@@ -20,6 +20,7 @@ import { Asks } from "./asks.js";
 import { Catchup } from "./catchup.js";
 import { waitingNow } from "./waiting.js";
 import { homeCli } from "./cli.js";
+import { ledgerPath } from "./ledger.js";
 import { Delegation, type ThreadRow } from "./delegation.js";
 import { exportEvents } from "./export.js";
 import { FeedCaches } from "./feed.js";
@@ -201,7 +202,7 @@ export function wireHome(bb: BbPluginApi, handle: StoreHandle, cfg: HomeConfig, 
       parts?.caches.invalidate();
       void parts?.loop.nudge();
     };
-    const svc = new Service({ store, projects: () => serve.projects(), nudge });
+    const svc = new Service({ store, projects: () => serve.projects(), nudge, rulingsLedger: ledgerPath() });
     const dele = new Delegation(svc, listThreadRows, getThreadRow);
     const asks = new Asks(svc);
     const catchup = new Catchup(svc, dele);
