@@ -112,6 +112,16 @@ read or context; `--ask-file` may be left out) labels it `mk-move`, and `autarch
 --move move.json` attaches a move to a card this thread already filed. Both validate with the parser Home uses;
 nothing in the file is executed.
 
+`autarch needs-mk footer` prints what is open for mk, read-only from Home's `data.db`: To decide, Parked (Later),
+new picks since this caller's cursor, and undelivered obligations. The cursor is per caller (`--caller`, default
+`$BB_THREAD_ID`) under `$XDG_STATE_HOME/autarch/needs-mk-footer/`; `--peek` leaves it alone; `--db` or
+`AUTARCH_HOME_DB` overrides the database.
+
+Each decision pick also appends one line to the vizier rulings ledger (`~/.local/state/vizier/rulings.jsonl`, or
+`AUTARCH_RULINGS_LEDGER`; `off` disables it). The entry id is `home-<pick_id>`, so it never matches a hand-logged
+`q<number>`, and a retried pick finds its line instead of adding a second. Picks made before this shipped are not
+backfilled.
+
 ## Design Decisions (Do Not Re-Ask)
 
 - Module: `github.com/mistakeknot/autarch`
