@@ -77,6 +77,17 @@ describe("glance: pulling the context out of a check card", () => {
   it("does not read a version or PR number as a list, and needs the list to start at 1", () => {
     expect(glance(card("Check the build", "Look at https://x.example.test. v2) is out, 3) here too."))!.judging).toEqual([]);
   });
+  it("takes a list only when its markers count 1, 2, 3 in order, with no skip, repeat or swap", () => {
+    const j = (q: string) => glance(card("Check the build", `Look at https://x.example.test. ${q}`))!.judging;
+    expect(j("1) first; 3) third; 2) second")).toEqual([]);
+    expect(j("1) first; 2) second; 2) again")).toEqual([]);
+    expect(j("1) first; 3) third")).toEqual([]);
+    expect(j("1) first; 2) second; 3) third")).toEqual(["first", "second", "third"]);
+  });
+  it("is not a check card just because the title has a duration", () => {
+    expect(glance(card("Release in 2 hours", "Pick the rollout day. See https://example.test/notes."))).toBeNull();
+    expect(glance(card("Rotate the key within 5 minutes", "Which key? https://example.test/k"))).toBeNull();
+  });
 });
 
 describe("the At a glance block on a card", () => {
@@ -122,6 +133,19 @@ describe("the At a glance block on a card", () => {
     const a = card("Check the deploy (5 min)", "Look at https://x.example.test: 1) does it load? 2) is it fast?", [{ id: "go", label: "Ship it", kind: "instruction", instruction: "Deploy the build to production now." }, RULING("no", "Not yet")]);
     const h = html(a);
     expect(h).toMatch(/data-glance-answer[^>]*>[\s\S]*Ship it[\s\S]*Tells thr-a: Deploy the build/);
+  });
+  it("shows the whole instruction an acting answer sends, not its first sentence", () => {
+    const a = card("Check the deploy (5 min)", "Look at https://x.example.test: 1) does it load? 2) is it fast?", [{ id: "go", label: "Ship it", kind: "instruction", instruction: "Run the tests. Then deploy the build to production now." }, RULING("no", "Not yet")]);
+    const h = html(a);
+    const g = h.slice(h.indexOf("data-glance-answers"), h.indexOf("</section>"));
+    expect(g).toContain("Run the tests. Then deploy the build to production now.");
+  });
+  it("keeps each answer's own line when the options are mixed, and says it once only when all are ruling-only", () => {
+    const mixed = html(card("Check the deploy (5 min)", "Look at https://x.example.test: 1) does it load? 2) is it fast?", [{ id: "go", label: "Ship it", kind: "instruction", instruction: "Deploy it." }, RULING("no", "Not yet")]));
+    const block = mixed.slice(mixed.indexOf("data-glance-answers"), mixed.indexOf("</section>"));
+    expect(block).toMatch(/Not yet[\s\S]*Records your pick only; nothing is sent\./);
+    expect(block).not.toContain("data-glance-records");
+    expect(html(PLAY)).toContain("data-glance-records");
   });
   it("keeps the full text, the commands and the pick buttons below it", () => {
     const h = html(WALK);

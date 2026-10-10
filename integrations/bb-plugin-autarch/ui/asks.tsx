@@ -222,11 +222,12 @@ export function AskCard({ ask, onPick, onOpen, nowMs, onNote, onLater, unbound =
   const anyInstruction = ask.ask.options.some((o) => o.kind === "needs-context" || (o.kind === "instruction" && (o.instruction ?? "").trim() !== ""));
   // A play or walk card gets its link, time, what is judged and what each answer does above the full text.
   const glanceOf = glance(ask);
+  // The plain "records your pick only" line is said once for the block when every answer is ruling-only; any acting
+  // answer is shown in full (the whole instruction it sends), and then each answer keeps its own line.
+  const ruling = (o: Option) => o.kind !== "instruction" && o.kind !== "needs-context";
+  const allRuling = ask.ask.options.every(ruling);
   const glanceAnswers: GlanceAnswer[] = glanceOf
-    ? ask.ask.options.map((o) => {
-        const effect = optionEffect(o, ask.thread);
-        return { id: o.id, label: o.label, recommended: ask.ask.recommendation === o.id, effect: effect.startsWith("Records your pick only") ? null : effect };
-      })
+    ? ask.ask.options.map((o) => ({ id: o.id, label: o.label, recommended: ask.ask.recommendation === o.id, effect: allRuling ? null : optionEffect(o, ask.thread, true) }))
     : [];
   return (
     <article className="min-w-0 rounded-lg border border-border bg-card p-4" data-decision={ask.id}>
@@ -294,7 +295,7 @@ export function AskCard({ ask, onPick, onOpen, nowMs, onNote, onLater, unbound =
 }
 
 /** One plain sentence on a card under an option: what picking it does. Never empty; built from structured fields. */
-export function optionEffect(o: { kind: string; instruction?: string; reversible?: boolean }, thread: string): string {
+export function optionEffect(o: { kind: string; instruction?: string; reversible?: boolean }, thread: string, full = false): string {
   // The schema cannot tell "unset" from "false", so only an option that acts says it cannot be undone; a ruling-only pick sends nothing.
   const acts = o.kind === "instruction" || o.kind === "needs-context";
   const undo = o.reversible === true || !acts ? "" : " Cannot be undone.";
@@ -302,6 +303,7 @@ export function optionEffect(o: { kind: string; instruction?: string; reversible
   if (o.kind === "needs-context") return `Asks you for the missing context first, then tells ${thread}.${undo}`;
   if (o.kind === "instruction" && text !== "") {
     const first = text.match(/^.*?[.!?](?=\s|$)/)?.[0] ?? text;
+    if (full) return `Tells ${thread}: ${text}${undo}`;
     const summary = first.length > 140 ? `${first.slice(0, 139).trimEnd()}…` : first;
     return `Tells ${thread}: ${summary}${undo}`;
   }

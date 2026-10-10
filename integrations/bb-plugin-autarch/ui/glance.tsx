@@ -60,7 +60,9 @@ const firstSentence = (s: string): string => /^(.*?[.!?])(?=\s|$)/s.exec(s)?.[1]
 function numbered(prose: string): string[] {
   const marks: { at: number; end: number }[] = [];
   for (const m of prose.matchAll(MARK)) {
-    if (Number(m[1]) === marks.length + 1) marks.push({ at: m.index!, end: m.index! + m[0].length });
+    const n = Number(m[1]);
+    if (n === marks.length + 1) marks.push({ at: m.index!, end: m.index! + m[0].length });
+    else if (marks.length > 0) return []; // a skip, repeat or swap: not a list we can read
   }
   if (marks.length < 2) return [];
   return marks.slice(0, MAX_ITEMS).map((m, i) => {
@@ -75,7 +77,7 @@ function numbered(prose: string): string[] {
 export function glance(ask: Pick<OwedAsk, "subject" | "ask">): Glance | null {
   const subject = ask.subject ?? "";
   const timeInTitle = timeOf(subject);
-  if (!CHECK.test(subject) && timeInTitle === null) return null;
+  if (!CHECK.test(subject)) return null;
   // Commands are the card's own copyable blocks; a path inside one is not the thing to open.
   const prose = splitCommands(ask.ask.question).flatMap((p) => (p.type === "prose" ? [p.text] : [])).join("\n");
   const flat = prose.replace(/\s+/g, " ").trim();
