@@ -377,6 +377,7 @@ function HomePage() {
   const [ideaOpen, setIdeaOpen] = useState(false);
   const [ideaTick, setIdeaTick] = useState(0);
   useRealtime("home-queue-changed", () => setIdeaTick((n) => n + 1));
+  const [openIdeas, setOpenIdeas] = useState<number | undefined>(undefined);
   const ideaApi = useMemo<IdeaApi>(() => ({
     projects: async () => { const r = (await rpc.call("ideaProjects")) as { ok: boolean; projects?: IdeaProject[]; error?: string }; if (!r.ok) throw new Error(r.error ?? "the Idea box could not load projects"); return r.projects ?? []; },
     digest: async () => { const r = (await rpc.call("ideas")) as { ok: boolean; ideas?: IdeaView[]; show?: boolean; error?: string }; if (!r.ok) throw new Error(r.error ?? "the ideas could not load"); return { ideas: r.ideas ?? [], show: r.show ?? false }; },
@@ -384,6 +385,8 @@ function HomePage() {
     act: async (task_id, action) => (await rpc.call("actIdea", { task_id, action })) as { ok: boolean; error?: string },
     clear: async () => { const r = (await rpc.call("clearIdeaDigest")) as { ok?: boolean; error?: string }; if (r && r.ok === false) throw new Error(r.error ?? "could not hide the digest"); },
   }), [rpc]);
+  // The Ideas tab carries the open-idea count, as Queue carries the waiting count; no count when the read fails.
+  useEffect(() => { void ideaApi.digest().then((d) => setOpenIdeas(d.ideas.length), () => setOpenIdeas(undefined)); }, [ideaApi, ideaTick]);
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   // Rows on screen right now: React state (not just the tracker) so "Mark N seen" can say N.
   const [visible, setVisible] = useState<Set<string>>(new Set());
@@ -477,11 +480,6 @@ function HomePage() {
         return (
           <>
             {waiting ? <WaitingStrip waiting={waiting} onJump={jump} /> : null}
-            <IdeaDigest api={ideaApi} refreshKey={ideaTick} />
-            <details className="border-b border-border" data-idea-panel>
-              <summary className="flex min-h-11 cursor-pointer items-center px-2 text-sm font-medium sm:min-h-8 sm:px-4">Idea box</summary>
-              <IdeaDesk api={ideaApi} refreshKey={ideaTick} heading={false} />
-            </details>
             {notices.length > 0 ? (
               <div className="p-2 sm:p-4">
                 <NoticeBanner notices={notices} suspended={waiting?.suspended ?? true} onAcknowledge={(item) => void rpc.call("markSeen", { item }).then(refetch, () => {})} />
@@ -506,7 +504,6 @@ function HomePage() {
           <EmptyState>{error ?? "Loading asks…"}</EmptyState>
         ) : (
           <>
-          <TellVizier threadId={asks.delegation.settings.vizierThreadId} />
           {yourMove.moves ? <YourMovePanel data={yourMove.moves} handlers={yourMove.handlers} part="active" /> : null}
           <AsksPanel
             data={asks}
@@ -565,8 +562,15 @@ function HomePage() {
             }}
           />
         );
+      case "ideas":
+        return (
+          <>
+            <IdeaDigest api={ideaApi} refreshKey={ideaTick} onChanged={() => setIdeaTick((n) => n + 1)} />
+            <IdeaDesk api={ideaApi} refreshKey={ideaTick} heading={false} onChanged={() => setIdeaTick((n) => n + 1)} />
+          </>
+        );
       case "vizier":
-        return <VizierPanel threadId={asks?.delegation.settings.vizierThreadId} />;
+        return <TellVizier threadId={asks?.delegation.settings.vizierThreadId} />;
       case "settings":
         return asks === null ? null : (
           <>
@@ -628,7 +632,7 @@ function HomePage() {
     <ConversationProvider value={conversation}>
     <div className="flex h-full min-h-0 flex-1 flex-col" data-home-source={HOME_SOURCE}>
       {phone && fullView ? <button type="button" className="min-h-11 border-b border-border px-4 text-left text-sm underline" onClick={() => setFullView(false)} data-inbox-return>‹ Back to the phone inbox</button> : null}
-      <HomeTabs classic={classic} {...(waiting ? { waiting: waiting.total } : {})} onOpen={push} onToggleClassic={toggleClassic} onTodos={() => nav.toPluginPanel("example-todos")} />
+      <HomeTabs classic={classic} {...(waiting ? { waiting: waiting.total } : {})} ideas={openIdeas} onOpen={push} onToggleClassic={toggleClassic} onTodos={() => nav.toPluginPanel("example-todos")} />
       <StackView placed={layoutStack(stack)} render={render} onExpand={push} />
     </div>
     </ConversationProvider>

@@ -67,6 +67,12 @@ describe("every surface shows the same number", () => {
     expect(html).toContain("Queue (7)");
     expect(homeTabs(false)[0]![2]).toBe("Queue");
   });
+  it("the Ideas tab sits between Queue and Vizier and carries the open-idea count", () => {
+    expect(homeTabs(false).map((t) => t[2])).toEqual(["Queue", "Ideas", "Vizier", "Map", "Settings"]);
+    const html = renderToStaticMarkup(<HomeTabs classic={false} waiting={W.total} ideas={3} onOpen={noop} onToggleClassic={noop} onTodos={noop} />);
+    expect(html).toContain("Ideas (3)");
+    expect(renderToStaticMarkup(<HomeTabs classic={false} onOpen={noop} onToggleClassic={noop} onTodos={noop} />)).not.toContain("Ideas (");
+  });
   it("the overlay strip carries the total", () => {
     const html = renderToStaticMarkup(
       <OverlayPanel data={{ owed: [], asks: [], runbook: [], lane: [], undeliverable: [], uncertain: [], failures: [], delegation: { settings: { vizierThreadId: "thr-v" } } } as never} catchup={[]} waiting={W} onPick={noop as never} onOpen={noop} />,
