@@ -42,7 +42,9 @@ const URL_RE = /https?:\/\/[^\s<>"'`]+/;
 const PATH_RE = /(?<![\w:/.~-])\/(?:[\w.@+-]+\/)+[\w.@+-]*\.[A-Za-z0-9]{1,8}\b/;
 const MARK = /(?:^|[\s(;:])\(?(\d{1,2})\)\s*/g;
 /** "nobody has checked yet whether ...", "check whether ...": a whether that names what is still to be judged, not one already settled. */
-const OPEN_WHETHER = /\b(?:checked(?:\s+yet)?|check|see|judge|tell|verify|confirm|test|find out)\s+(whether\b[^.!?]*)/i;
+const OPEN_WHETHER = /\b(?:checked(?:\s+yet)?|check|see|judge|tell|verify|confirm|test|find out)\s+(?=whether\b)/i;
+/** A fractional duration ("1.5 hours", "1½ minutes", "a ½ hour") is not one this block can show whole. */
+const FRACTIONAL = /(?:\d[.,]\d+|\d?\s*[½¼¾])\s*(?:minutes?|mins?|hours?|hrs?)\b/i;
 const MAX_ITEMS = 6;
 const clip = (s: string, n: number) => (s.length > n ? `${s.slice(0, n - 1).trimEnd()}…` : s);
 
@@ -50,6 +52,7 @@ const clip = (s: string, n: number) => (s.length > n ? `${s.slice(0, n - 1).trim
 const AMBIGUOUS = "ambiguous";
 function timeOf(t: string): string | null {
   const found = new Set<string>();
+  if (FRACTIONAL.test(t)) return AMBIGUOUS;
   for (const m of t.matchAll(TIME)) {
     const before = t.slice(Math.max(0, m.index! - 24), m.index!);
     const after = t.slice(m.index! + m[0].length);
@@ -124,7 +127,7 @@ export function glance(ask: Pick<OwedAsk, "subject" | "ask">): Glance | null {
   let judging = numbered(flat);
   if (judging.length === 0) {
     const w = OPEN_WHETHER.exec(flat);
-    if (w) judging = [clip(w[1]!.trim(), 200)];
+    if (w) judging = [clip(firstSentence(flat.slice(w.index + w[0].length)).replace(/[.!?]+$/, "").trim(), 200)];
   }
   // The title and the text must agree: two different durations mean the card does not say.
   const timeInText = timeOf(flat);
