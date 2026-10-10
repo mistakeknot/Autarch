@@ -231,6 +231,13 @@ describe("list and act", () => {
     expect(await ideas.act({ task_id: a, action: "drop" })).toMatchObject({ ok: false, status: 409 });
     expect(t.status).not.toBe("canceled");
   });
+  it("files into a project whose labels differ only in case", async () => {
+    const r = rig();
+    const ideas = desk(r);
+    r.fake.addLabel(r.tp.id, "Idea");
+    expect(await ideas.file({ project_id: r.tp.id, text: "x", idea_id: "case1" })).toMatchObject({ ok: true });
+    expect(await ideas.list()).toHaveLength(1);
+  });
   it("reports a refused update as a failure and does not wake", async () => {
     const r = rig();
     const ideas = desk(r);

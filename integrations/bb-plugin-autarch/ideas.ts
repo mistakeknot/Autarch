@@ -6,6 +6,8 @@ import type { Store } from "./store.js";
 import type { Task, TaskLabel, TasksClient } from "./tasks.js";
 import { HOME_AUTHOR } from "./tasks.js";
 
+/** Label names match without regard to case, as the tracker treats them. */
+const sameName = (a: string, b: string): boolean => a.toLowerCase() === b.toLowerCase();
 export const IDEA_LABEL = "idea";
 export const FROM_MK_LABEL = "from-mk";
 export const PURSUE_LABEL = "pursue";
@@ -123,7 +125,7 @@ export class Ideas {
 
   /** The label with this name in the project, created when missing (a lost creation race re-reads). */
   private async label(projectId: string, name: string): Promise<TaskLabel> {
-    const find = (ls: TaskLabel[]) => ls.find((l) => l.name === name);
+    const find = (ls: TaskLabel[]) => ls.find((l) => sameName(l.name, name));
     const have = find(await this.d.tasks.listLabels(projectId, { fresh: true }));
     if (have) return have;
     try {
@@ -187,10 +189,10 @@ export class Ideas {
     const out: IdeaView[] = [];
     for (const p of await this.d.tasks.listProjects()) {
       const labels = await this.d.tasks.listLabels(p.id, { fresh: true });
-      const idea = labels.filter((l) => l.name === IDEA_LABEL).map((l) => l.id);
+      const idea = labels.filter((l) => sameName(l.name, IDEA_LABEL)).map((l) => l.id);
       if (idea.length === 0) continue;
-      const fromMk = new Set(labels.filter((l) => l.name === FROM_MK_LABEL).map((l) => l.id));
-      const out2 = new Set(labels.filter((l) => l.name === PURSUE_LABEL || l.name === PARKED_LABEL).map((l) => l.id));
+      const fromMk = new Set(labels.filter((l) => sameName(l.name, FROM_MK_LABEL)).map((l) => l.id));
+      const out2 = new Set(labels.filter((l) => sameName(l.name, PURSUE_LABEL) || sameName(l.name, PARKED_LABEL)).map((l) => l.id));
       for (const t of await this.d.tasks.listTasks({ projectId: p.id, statuses: IDEA_STATUSES, labelIds: idea })) {
         if (t.labelIds.some((l) => out2.has(l))) continue;
         // Only cards Home filed (labelled from-mk): a project's own "idea" cards are not Home's to decide.
@@ -211,14 +213,14 @@ export class Ideas {
       const task = await this.d.tasks.getTask(i.task_id);
       if (!task) return { ok: false, status: 404, error: "no such idea" };
       const labels = await this.d.tasks.listLabels(task.projectId, { fresh: true });
-      const idea = new Set(labels.filter((l) => l.name === IDEA_LABEL).map((l) => l.id));
+      const idea = new Set(labels.filter((l) => sameName(l.name, IDEA_LABEL)).map((l) => l.id));
       if (![...idea].some((l) => task.labelIds.includes(l))) return { ok: false, status: 409, error: "that card is not an idea" };
-      if (!labels.some((l) => l.name === FROM_MK_LABEL && task.labelIds.includes(l.id))) return { ok: false, status: 409, error: "that card was not filed from Home" };
+      if (!labels.some((l) => sameName(l.name, FROM_MK_LABEL) && task.labelIds.includes(l.id))) return { ok: false, status: 409, error: "that card was not filed from Home" };
       if (!isHomeFiled(task.description)) return { ok: false, status: 409, error: "that card was not filed from Home" };
       const project = (await this.d.tasks.listProjects()).find((p) => p.id === task.projectId);
       const marker = `home-idea-action: ${task.id}:${i.action}`;
       const prior = (await this.d.tasks.listComments(task.id)).some((c) => c.body.includes(marker));
-      const has = (name: string) => labels.filter((l) => l.name === name).some((l) => task.labelIds.includes(l.id));
+      const has = (name: string) => labels.filter((l) => sameName(l.name, name)).some((l) => task.labelIds.includes(l.id));
       // Pursued, parked or closed ideas are no longer open: a stale view or a direct call cannot re-decide them, and a
       // state that Home did not record (no action comment) is never claimed as mk's choice.
       const decided = has(PURSUE_LABEL) || has(PARKED_LABEL) || !(IDEA_STATUSES as readonly string[]).includes(task.status);
@@ -234,8 +236,8 @@ export class Ideas {
         // compare-and-set, so a write landing inside this last gap can still win; the action comment records what Home did.
         const fresh = await this.d.tasks.getTask(task.id);
         const nowLabels = await this.d.tasks.listLabels(task.projectId, { fresh: true });
-        const freshDecided = !fresh || fresh.labelIds.some((l) => nowLabels.some((x) => x.id === l && (x.name === PURSUE_LABEL || x.name === PARKED_LABEL))) || !(IDEA_STATUSES as readonly string[]).includes(fresh.status);
-        const owned = (name: string) => fresh?.labelIds.some((l) => nowLabels.some((x) => x.id === l && x.name === name)) ?? false;
+        const freshDecided = !fresh || fresh.labelIds.some((l) => nowLabels.some((x) => x.id === l && (sameName(x.name, PURSUE_LABEL) || sameName(x.name, PARKED_LABEL)))) || !(IDEA_STATUSES as readonly string[]).includes(fresh.status);
+        const owned = (name: string) => fresh?.labelIds.some((l) => nowLabels.some((x) => x.id === l && sameName(x.name, name))) ?? false;
         // Still a Home idea: another actor may have taken the labels off since the first read.
         if (!freshDecided && !(owned(IDEA_LABEL) && owned(FROM_MK_LABEL) && isHomeFiled(fresh!.description))) return { ok: false, status: 409, error: "that card is no longer a Home idea" };
         if (freshDecided) return { ok: false, status: 409, error: "that idea was decided while you were choosing" };
