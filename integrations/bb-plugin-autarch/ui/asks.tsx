@@ -5,6 +5,7 @@ import { ActionButton, RecommendedMark } from "./buttons.js";
 import { CardConversation } from "./conversation.js";
 import { splitCommands, type CommandRole } from "./commandtext.js";
 import { CommandBlock } from "./copy.js";
+import { glance, GlanceBlock, type GlanceAnswer } from "./glance.js";
 import { OtherBox, type OtherOutcome } from "./other.js";
 
 /** What a pick hands back to the card: not ok means the card stays open and shows the error. */
@@ -219,6 +220,14 @@ export function AskCard({ ask, onPick, onOpen, nowMs, onNote, onLater, unbound =
   const n = ask.mentions ?? 0;
   const hasRealOther = ask.ask.options.some((o) => o.id === "other");
   const anyInstruction = ask.ask.options.some((o) => o.kind === "needs-context" || (o.kind === "instruction" && (o.instruction ?? "").trim() !== ""));
+  // A play or walk card gets its link, time, what is judged and what each answer does above the full text.
+  const glanceOf = glance(ask);
+  const glanceAnswers: GlanceAnswer[] = glanceOf
+    ? ask.ask.options.map((o) => {
+        const effect = optionEffect(o, ask.thread);
+        return { id: o.id, label: o.label, recommended: ask.ask.recommendation === o.id, effect: effect.startsWith("Records your pick only") ? null : effect };
+      })
+    : [];
   return (
     <article className="min-w-0 rounded-lg border border-border bg-card p-4" data-decision={ask.id}>
       <h3 className="text-sm font-medium [overflow-wrap:anywhere]">
@@ -231,6 +240,7 @@ export function AskCard({ ask, onPick, onOpen, nowMs, onNote, onLater, unbound =
         <button type="button" className="inline-flex min-h-11 items-center underline sm:min-h-0" onClick={() => onOpen(ask.thread)}>{ask.thread}</button>
         {n > 0 ? ` - ${`also mentioned in ${n} ${n === 1 ? "thread" : "threads"}`}` : ""}
       </p>
+      {glanceOf ? <GlanceBlock g={glanceOf} answers={glanceAnswers} recordsOnly={glanceAnswers.every((a) => a.effect === null)} /> : null}
       <QuestionText text={ask.ask.question} />
       <ul className="mb-0 mt-3 list-none space-y-2 p-0">
         {ask.ask.options.map((o) => {
