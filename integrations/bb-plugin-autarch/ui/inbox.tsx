@@ -5,6 +5,7 @@
 import { useEffect, useState, type ReactNode } from "react";
 import type { MoveView, MoveViewGroups } from "../moveview.js";
 import { ActionButton } from "./buttons.js";
+import { glance } from "./glance.js";
 import { ageText, AskCard, isDestructiveOption, type AsksData, type OnLater, type OnNote, type OnPick, type OwedAsk } from "./asks.js";
 import { MoveCard, moveButtons, type MoveHandlers } from "./yourmove.js";
 
@@ -17,13 +18,18 @@ export interface InboxRow {
   project: string;
   age: string;
   title: string;
+  /** How long a play or walk card says it takes ("About 2 min"); unset for every other row. */
+  time?: string;
   ask?: OwedAsk;
   move?: MoveView;
 }
 
 const MOVE_CHIP: Record<MoveView["kind"], string> = { script: "Run a script", pr: "Merge a PR", read: "Read", context: "Needs context" };
 
-const askRow = (o: OwedAsk, nowMs: number): InboxRow => ({ key: `ask:${o.id}`, chip: "Decide", project: o.project, age: ageText(o.filed_at, nowMs), title: o.subject, ask: o });
+const askRow = (o: OwedAsk, nowMs: number): InboxRow => {
+  const time = glance(o)?.time ?? undefined;
+  return { key: `ask:${o.id}`, chip: "Decide", project: o.project, age: ageText(o.filed_at, nowMs), title: o.subject, ...(time ? { time } : {}), ask: o };
+};
 const moveRow = (m: MoveView, nowMs: number): InboxRow => ({ key: `move:${m.task_id}:${m.generation}`, chip: MOVE_CHIP[m.kind], project: "", age: ageText(m.opened_at, nowMs), title: m.title, move: m });
 
 /**
@@ -72,7 +78,7 @@ function Row({ r, onOpen }: { r: InboxRow; onOpen: () => void }) {
           <span className="text-xs text-muted-foreground">{r.age}</span>
         </span>
         <span className="text-sm font-medium [overflow-wrap:anywhere]">{r.title}</span>
-        {r.project ? <span className="text-xs text-muted-foreground">{r.project}</span> : null}
+        {r.project || r.time ? <span className="text-xs text-muted-foreground">{[r.project, r.time].filter(Boolean).join(" · ")}</span> : null}
       </button>
     </li>
   );
