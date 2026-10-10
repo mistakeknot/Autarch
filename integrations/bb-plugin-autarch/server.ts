@@ -33,7 +33,8 @@ import { moveViews } from "./moveview.js";
 import { CommentPoller, conversationView, openTaskIds, unreadCounts } from "./conversation.js";
 import { rootRun } from "./rootrun.js";
 import { buildQueue, removeBinding, setBinding } from "./queueview.js";
-import { hasNoteMarker, Service } from "./service.js";
+import { hasNoteMarker, isoWeek, Service } from "./service.js";
+import { Ideas } from "./ideas.js";
 import { OPEN_STATUSES, TasksClient, type PluginsLike } from "./tasks.js";
 import { listAllThreads, traceability, type ThreadLike } from "./traceability.js";
 import { createStoreHandle, type Store, type StoreHandle } from "./store.js";
@@ -320,6 +321,13 @@ export function wireHome(bb: BbPluginApi, handle: StoreHandle, cfg: HomeConfig, 
   });
   let queueRef: Queue | null = null;
   let tasksRef: TasksClient | null = null;
+  // One desk for the process: its per-key serialisation only works when every RPC shares the same instance.
+  let ideaDeskRef: { tasks: TasksClient; desk: Ideas } | null = null;
+  const ideaDesk = (): Ideas | null => {
+    if (!tasksRef || !parts) return null;
+    if (!ideaDeskRef || ideaDeskRef.tasks !== tasksRef) ideaDeskRef = { tasks: tasksRef, desk: new Ideas({ tasks: tasksRef, store: parts.svc.store, now: () => new Date().toISOString(), nudge: () => void parts?.loop.nudge() }) };
+    return ideaDeskRef.desk;
+  };
   // Card poller (Task 2.4). Read-only toward tasks, over plugins.callRpc; never spawns the bb CLI.
   bb.background.service("home-queue", {
     async start(signal) {
@@ -587,6 +595,45 @@ export function wireHome(bb: BbPluginApi, handle: StoreHandle, cfg: HomeConfig, 
       const done = r.commit();
       bb.realtime.publish("home-queue-changed", {});
       return { ok: true as const, replay: done.replay, woke: done.woke };
+    },
+    async ideaProjects(_: null) {
+      const d = ideaDesk();
+      if (!d) return { ok: false as const, status: 503, error: "tasks unavailable" };
+      try {
+        return { ok: true as const, projects: await d.projects() };
+      } catch (e) {
+        return { ok: false as const, status: 502, error: `tasks unavailable: ${e instanceof Error ? e.message : String(e)}` };
+      }
+    },
+    async ideas(_: null) {
+      const d = ideaDesk();
+      if (!d) return { ok: false as const, status: 503, error: "tasks unavailable" };
+      try {
+        return { ok: true as const, ...(await d.digest(isoWeek(Date.now()))) };
+      } catch (e) {
+        return { ok: false as const, status: 502, error: `tasks unavailable: ${e instanceof Error ? e.message : String(e)}` };
+      }
+    },
+    async fileIdea(i: { project_id: string; text: string; idea_id: string }) {
+      const d = ideaDesk();
+      if (!d) return { ok: false as const, status: 503, error: "tasks unavailable; nothing was filed" };
+      const r = await d.file(i);
+      if (r.ok) bb.realtime.publish("home-queue-changed", {});
+      return r;
+    },
+    async actIdea(i: { task_id: string; action: "pursue" | "park" | "drop" }) {
+      const d = ideaDesk();
+      if (!d) return { ok: false as const, status: 503, error: "tasks unavailable; nothing was changed" };
+      const r = await d.act(i);
+      if (r.ok) bb.realtime.publish("home-queue-changed", {});
+      return r;
+    },
+    async clearIdeaDigest(_: null) {
+      const d = ideaDesk();
+      if (!d) return { ok: false as const, status: 503, error: "tasks unavailable" };
+      d.clearDigest(isoWeek(Date.now()));
+      bb.realtime.publish("home-queue-changed", {});
+      return { ok: true as const };
     },
     async dismiss(i: { decision_id: string; obligation_id: string }) {
       return need().svc.dismiss(i.decision_id, i.obligation_id);
