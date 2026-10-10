@@ -727,11 +727,11 @@ describe("project binding flag (fail open)", () => {
 });
 
 describe("Tell the vizier box", () => {
-  it("is a closed disclosure over the vizier thread, and says so when no vizier is set", () => {
+  it("is the top of the Vizier tab over the vizier thread, and says so when no vizier is set", () => {
     const html = renderToStaticMarkup(<TellVizier threadId={undefined} />);
     expect(html).toContain("data-tell-vizier");
     expect(html).toContain("Tell the vizier");
-    expect(html).not.toContain("<details open");
+    expect(html).not.toContain("<details");
     expect(html).toContain("No vizier thread is set");
   });
 });
