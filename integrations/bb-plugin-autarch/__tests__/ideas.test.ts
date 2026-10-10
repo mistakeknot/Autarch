@@ -221,6 +221,15 @@ describe("list and act", () => {
     expect(await ideas.act({ task_id: own.id, action: "drop" })).toMatchObject({ ok: false, status: 409 });
     expect(own.status).not.toBe("canceled");
   });
+  it("reports a refused update as a failure and does not wake", async () => {
+    const r = rig();
+    const ideas = desk(r);
+    const a = await filed(r, ideas);
+    const before = obligations(r).length;
+    r.fake.refuseUpdates = true;
+    expect((await ideas.act({ task_id: a, action: "pursue" })).ok).toBe(false);
+    expect(obligations(r)).toHaveLength(before);
+  });
   it("does not list or drop a from-mk card Home did not file, nor an idea already in progress", async () => {
     const r = rig();
     const ideas = desk(r);

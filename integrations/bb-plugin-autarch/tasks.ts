@@ -141,7 +141,8 @@ export class TasksClient {
 
   /** Replace a task's whole label set (updateTask semantics), attributed to Home. */
   async setLabels(taskId: string, labelIds: readonly string[], signal?: AbortSignal): Promise<void> {
-    await this.call("updateTask", { taskId, labelIds: [...labelIds], authorName: HOME_AUTHOR }, z.object({}).passthrough(), signal);
+    const r = await this.call("updateTask", { taskId, labelIds: [...labelIds], authorName: HOME_AUTHOR }, z.object({ ok: z.boolean().optional() }).passthrough(), signal);
+    if (r.ok === false) throw new TasksError("tasks.updateTask refused");
   }
 
   /** One task, or null when it does not exist. */

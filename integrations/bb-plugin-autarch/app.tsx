@@ -382,7 +382,7 @@ function HomePage() {
     digest: async () => { const r = (await rpc.call("ideas")) as { ok: boolean; ideas?: IdeaView[]; show?: boolean; error?: string }; if (!r.ok) throw new Error(r.error ?? "the ideas could not load"); return { ideas: r.ideas ?? [], show: r.show ?? false }; },
     file: async (project_id, text, idea_id) => (await rpc.call("fileIdea", { project_id, text, idea_id })) as { ok: boolean; error?: string },
     act: async (task_id, action) => (await rpc.call("actIdea", { task_id, action })) as { ok: boolean; error?: string },
-    clear: async () => { await rpc.call("clearIdeaDigest"); },
+    clear: async () => { const r = (await rpc.call("clearIdeaDigest")) as { ok?: boolean; error?: string }; if (r && r.ok === false) throw new Error(r.error ?? "could not hide the digest"); },
   }), [rpc]);
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   // Rows on screen right now: React state (not just the tracker) so "Mark N seen" can say N.

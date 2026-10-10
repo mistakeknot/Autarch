@@ -75,6 +75,7 @@ export class FakeTasks implements PluginsLike {
   /** Replace a method's raw output, to exercise response validation. */
   rawOutput = new Map<string, (real: unknown) => unknown>();
   /** Run the nth call of a method for real, then reject it: the effect landed but the response was lost. */
+  refuseUpdates = false;
   lostResponses: { method: string; nth: number }[] = [];
   private counts = new Map<string, number>();
 
@@ -171,6 +172,7 @@ export class FakeTasks implements PluginsLike {
       case "updateTask": {
         const t = this.tasks.find((x) => x.id === input.taskId);
         if (!t) throw new Error("task not found");
+        if (this.refuseUpdates) return { ok: false, error: "refused" };
         if (input.labelIds !== undefined) t.labelIds = [...input.labelIds];
         if (input.status !== undefined) t.status = input.status;
         t.updatedAt = `2026-10-03T00:01:${String(this.calls.length % 60).padStart(2, "0")}.000Z`;
