@@ -49,7 +49,9 @@ const openCards = (prefix: string): string[] | null => {
     do {
       const args = ["tasks", "list", "--project", prefix, "--status", "backlog,todo,in_progress,in_review", "--search", "Request:", "--limit", "500", "--json", ...(cursor ? ["--cursor", cursor] : [])];
       const page = JSON.parse(execFileSync("bb", args, { encoding: "utf8", timeout: 60_000, maxBuffer: 32 * 1024 * 1024 })) as { tasks: { description?: string }[]; nextCursor: string | null };
-      out.push(...page.tasks.map((t) => t.description ?? ""));
+      // A list row without a description cannot be checked for a Request key: fail closed rather than treat it as no card.
+      if (page.tasks.some((t) => typeof t.description !== "string")) throw new Error("task list rows carry no description");
+      out.push(...page.tasks.map((t) => t.description!));
       cursor = page.nextCursor;
     } while (cursor);
     openCache.set(prefix, out);
