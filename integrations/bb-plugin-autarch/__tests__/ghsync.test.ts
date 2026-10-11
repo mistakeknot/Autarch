@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { classify, cleanTitle, ghPrListArgv, ghRepoListArgv, mkOnlyPaths, parsePrList, renderDryRun, type GhPrRow } from "../ghsync.js";
+import { REPO_PROJECTS, planCards, renderPlan, classify, cleanTitle, ghPrListArgv, ghRepoListArgv, mkOnlyPaths, parsePrList, renderDryRun, type GhPrRow } from "../ghsync.js";
 
 const pr = (o: Partial<GhPrRow> | Readonly<Record<string, unknown>> = {}): GhPrRow => ({
   repo: "mistakeknot/Autarch", number: 7, url: "https://github.com/mistakeknot/Autarch/pull/7", title: "t", isDraft: false,
@@ -91,5 +91,49 @@ describe("renderDryRun", () => {
     expect(text.split("\n")[0]).toBe("open PRs: 4; would get a card: 3 (waiting on mk 1, vizier 1, coordinator 1); drafts, no card: 1");
     expect(text).toContain("waiting on mk");
     expect(text).toContain("repos with no Tasks project (no card): x/y");
+  });
+});
+
+describe("planCards", () => {
+  const bot = (n: number, repo = "mistakeknot/Autarch") => classify(pr({ repo, number: n, url: `https://github.com/${repo}/pull/${n}`, authorIsBot: true, authorLogin: "app/dependabot", files: [".github/workflows/ci.yml"] }));
+  it("batches a repo's bot CI-only PRs into one card and gives other mk PRs one card each", () => {
+    const rows = [bot(1), bot(2), bot(3, "mistakeknot/Clavain"), classify(pr({ number: 9, url: "https://github.com/mistakeknot/Autarch/pull/9", files: ["AGENTS.md"] }))];
+    const plan = planCards(rows);
+    expect(plan.cards.map((c) => [c.kind, c.urls.length])).toEqual([["batch", 2], ["batch", 1], ["pr", 1]]);
+    const single = plan.cards.find((c) => c.kind === "pr")!;
+    expect(single.key).toBe("gh-pr:mistakeknot:Autarch:9");
+    expect(single.move).toMatchObject({ schema: "home-move/v1", kind: "pr", pr: { url: "https://github.com/mistakeknot/Autarch/pull/9" } });
+    expect((plan.cards.find((c) => c.urls.length === 2)!.ask!.options as { id: string }[]).map((o) => o.id)).toEqual(["merge-all", "close-all", "leave"]);
+  });
+  it("makes no card for vizier, coordinator or draft PRs, and none for unmapped repos", () => {
+    const plan = planCards([classify(pr()), classify(pr({ mergeable: "CONFLICTING" })), classify(pr({ isDraft: true })), bot(5, "mistakeknot/interbase")]);
+    expect(plan.cards).toEqual([]);
+    expect(plan.unmapped).toEqual([{ repo: "mistakeknot/interbase", urls: ["https://github.com/mistakeknot/interbase/pull/5"] }]);
+  });
+  it("keys are filer-safe, stable, and the batch key follows the set of URLs", () => {
+    const a = planCards([bot(1), bot(2)]).cards[0]!;
+    expect(planCards([bot(2), bot(1)]).cards[0]!.key).toBe(a.key);
+    expect(planCards([bot(1), bot(2), bot(3)]).cards[0]!.key).not.toBe(a.key);
+    expect(a.key).toMatch(/^[A-Za-z0-9:_.-]{1,128}$/);
+  });
+  it("every move it makes passes Home's strict parser, and every mapped prefix is a prefix", async () => {
+    const { parseMove } = await import("../moves.js");
+    const plan = planCards([classify(pr({ number: 9, url: "https://github.com/mistakeknot/Autarch/pull/9", title: "x\ny\u0007", files: ["AGENTS.md"] }))]);
+    for (const c of plan.cards) if (c.move) expect(() => parseMove(JSON.stringify(c.move))).not.toThrow();
+    for (const p of Object.values(REPO_PROJECTS)) expect(p).toMatch(/^[A-Z]{1,6}$/);
+    expect(renderPlan(plan)).toContain("cards to file: 1");
+  });
+});
+
+describe("planCards batch size", () => {
+  it("splits a big batch so every question fits the ask limit", () => {
+    const rows = Array.from({ length: 60 }, (_, i) =>
+      classify({ repo: "mistakeknot/Autarch", number: 100 + i, title: "bump", url: `https://github.com/mistakeknot/Autarch/pull/${100 + i}`, isDraft: false, authorIsBot: true, files: [".github/workflows/ci.yml"], mergeable: "MERGEABLE", reviewDecision: "", checks: "pass" } as never),
+    );
+    const plan = planCards(rows);
+    const batches = plan.cards.filter((c) => c.kind === "batch");
+    expect(batches.length).toBeGreaterThan(1);
+    expect(batches.reduce((n, c) => n + c.urls.length, 0)).toBe(60);
+    for (const b of batches) expect(String((b.ask as { question: string }).question).length).toBeLessThanOrEqual(2000);
   });
 });
