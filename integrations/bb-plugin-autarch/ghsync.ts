@@ -175,7 +175,7 @@ const urlHash = (urls: string[]): string => createHash("sha256").update(urls.joi
 /** Prefix of the catch-all project: mk-waiting PRs in repos with no Tasks project get one card per repo here. */
 export const CATCH_ALL_PREFIX = "MSQ";
 const unmappedQuestion = (repo: string, urls: string[]): string =>
-  `${urls.length} open pull request${urls.length === 1 ? "" : "s"} in ${repo} wait on you, and ${repo} has no Tasks project of its own. Look at them, close them or leave them?\n${urls.map((u) => `- ${u}`).join("\n")}`;
+  `${urls.length} open pull request${urls.length === 1 ? "" : "s"} in ${repo} wait on you, and Home has no project to file ${repo} under. Look at them, close them or leave them?\n${urls.map((u) => `- ${u}`).join("\n")}`;
 /** Filer-safe and short: the filer takes keys of at most 128 characters, and a repo name can be 100. */
 const keyPart = (s: string): string => {
   const clean = s.replace(/[^A-Za-z0-9_.-]/g, "-");
@@ -189,14 +189,15 @@ export const keyFamily = (key: string): string => key.replace(/:[0-9a-f]{8}$/, "
  * The cards to file for the PRs that wait on mk (and only those): one card per PR, except that a repo's bot-opened
  * CI-workflow-only PRs share one batched card with merge-all / close-all / leave. Pure; filing is the caller's job.
  */
-export function planCards(rows: readonly Classified[]): CardPlan {
+export function planCards(rows: readonly Classified[], bound?: ReadonlySet<string>): CardPlan {
   const mine = rows.filter((r) => r.waitingOn === "mk");
   const cards: CardSpec[] = [];
   const unmapped = new Map<string, string[]>();
   const batches = new Map<string, Classified[]>();
   for (const r of mine) {
     const prefix = REPO_PROJECTS[r.pr.repo];
-    if (!prefix) {
+    // A prefix Home cannot file to (not bound, when the caller knows which are) goes to the catch-all like an unmapped repo.
+    if (!prefix || (bound && !bound.has(prefix))) {
       unmapped.set(r.pr.repo, [...(unmapped.get(r.pr.repo) ?? []), r.pr.url]);
       continue;
     }
@@ -211,7 +212,7 @@ export function planCards(rows: readonly Classified[]): CardPlan {
       title: `Merge or decide: ${r.pr.repo}#${r.pr.number} ${cleanTitle(r.pr.title, 80)}`,
       kind: "pr",
       urls: [r.pr.url],
-      move: { schema: "home-move/v1", kind: "pr", pr: { url: r.pr.url, summary: `${r.pr.repo}#${r.pr.number} is waiting on you` } },
+      move: { schema: "home-move/v1", kind: "pr", pr: { url: r.pr.url } },
       ask: null,
     });
   }
@@ -245,7 +246,7 @@ export function planCards(rows: readonly Classified[]): CardPlan {
       cards.push({
         key: `gh-unmapped:${keyPart(owner)}:${keyPart(name)}:${urlHash(urls)}`,
         prefix: CATCH_ALL_PREFIX,
-        title: `${urls.length} open PR${urls.length === 1 ? "" : "s"} in ${repo} (no Tasks project)`,
+        title: `${urls.length} open PR${urls.length === 1 ? "" : "s"} in ${repo} (no project of its own)`,
         kind: "unmapped",
         urls,
         move: null,
