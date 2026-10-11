@@ -1,3 +1,5 @@
+import { createHash } from "node:crypto";
+
 // GitHub PR sync, the pure part (plan mk-8loz7): which open PRs wait on whom. Nothing here runs a process or
 // touches the network; the caller hands in rows read from `gh pr list` and gets back a classification.
 // GitHub text is untrusted: titles are cleaned with `cleanTitle` before they go anywhere.
@@ -123,3 +125,101 @@ export function parsePrList(repo: string, json: string): GhPrRow[] {
 export const PR_FIELDS = "number,title,url,isDraft,author,reviewRequests,reviewDecision,mergeable,statusCheckRollup,files,updatedAt";
 export const ghRepoListArgv = (owner: string): string[] => ["repo", "list", owner, "--no-archived", "--limit", String(REPO_LIMIT), "--json", "nameWithOwner"];
 export const ghPrListArgv = (repo: string): string[] => ["pr", "list", "--repo", repo, "--state", "open", "--limit", String(PR_LIMIT), "--json", PR_FIELDS];
+
+/** GitHub repo -> Tasks project prefix. A repo not listed gets no card and shows up as unmapped in the plan. */
+export const REPO_PROJECTS: Readonly<Record<string, string>> = {
+  "mistakeknot/Autarch": "AUTA",
+  "mistakeknot/Clavain": "CLAV",
+  "mistakeknot/Sylveste": "SYLV",
+  "mistakeknot/Sylveste-lane": "SYLV",
+  "mistakeknot/amtiskaw-hermes-agent": "AMTK",
+  "mistakeknot/dotfiles": "DOTF",
+  "mistakeknot/intercore": "ICOR",
+  "mistakeknot/pattern-royale": "PR",
+  "mistakeknot/ushas": "USH",
+};
+
+export interface CardSpec {
+  /** The Request key the filer dedupes on: [A-Za-z0-9:_.-] only. */
+  key: string;
+  prefix: string;
+  title: string;
+  kind: "pr" | "batch";
+  urls: string[];
+  /** home-move/v1 body for a single PR; null for a batch. */
+  move: Record<string, unknown> | null;
+  /** home-ask body for a batch; null for a single PR (the filer adds a minimal ruling-only ask). */
+  ask: Record<string, unknown> | null;
+}
+
+export interface CardPlan {
+  cards: CardSpec[];
+  /** Repos with PRs waiting on mk but no Tasks project: no card is made for them. */
+  unmapped: { repo: string; urls: string[] }[];
+}
+
+const isBotCiOnly = (c: Classified): boolean => c.pr.authorIsBot && c.pr.files.length > 0 && c.pr.files.every((f) => f.startsWith(".github/workflows/"));
+const keyPart = (s: string): string => s.replace(/[^A-Za-z0-9_.-]/g, "-");
+
+/**
+ * The cards to file for the PRs that wait on mk (and only those): one card per PR, except that a repo's bot-opened
+ * CI-workflow-only PRs share one batched card with merge-all / close-all / leave. Pure; filing is the caller's job.
+ */
+export function planCards(rows: readonly Classified[]): CardPlan {
+  const mine = rows.filter((r) => r.waitingOn === "mk");
+  const cards: CardSpec[] = [];
+  const unmapped = new Map<string, string[]>();
+  const batches = new Map<string, Classified[]>();
+  for (const r of mine) {
+    const prefix = REPO_PROJECTS[r.pr.repo];
+    if (!prefix) {
+      unmapped.set(r.pr.repo, [...(unmapped.get(r.pr.repo) ?? []), r.pr.url]);
+      continue;
+    }
+    if (isBotCiOnly(r)) {
+      batches.set(r.pr.repo, [...(batches.get(r.pr.repo) ?? []), r]);
+      continue;
+    }
+    const [owner, name] = r.pr.repo.split("/") as [string, string];
+    cards.push({
+      key: `gh-pr:${keyPart(owner)}:${keyPart(name)}:${r.pr.number}`,
+      prefix,
+      title: `Merge or decide: ${r.pr.repo}#${r.pr.number} ${cleanTitle(r.pr.title, 80)}`,
+      kind: "pr",
+      urls: [r.pr.url],
+      move: { schema: "home-move/v1", kind: "pr", pr: { url: r.pr.url, summary: cleanTitle(`${r.pr.repo}#${r.pr.number}: ${r.reason}`, 190) } },
+      ask: null,
+    });
+  }
+  for (const [repo, group] of batches) {
+    const urls = group.map((g) => g.pr.url).sort();
+    const [owner, name] = repo.split("/") as [string, string];
+    const hash = createHash("sha256").update(urls.join("\n")).digest("hex").slice(0, 8);
+    cards.push({
+      key: `gh-bots:${keyPart(owner)}:${keyPart(name)}:${hash}`,
+      prefix: REPO_PROJECTS[repo]!,
+      title: `${urls.length} dependency bumps to CI workflows in ${repo}`,
+      kind: "batch",
+      urls,
+      move: null,
+      ask: {
+        question: `${urls.length} bot-opened pull requests in ${repo} change only CI workflows. Merge, close or leave them all?\n${urls.map((u) => `- ${u}`).join("\n")}`,
+        options: [
+          { id: "merge-all", label: "Merge all", kind: "ruling-only" },
+          { id: "close-all", label: "Close all", kind: "ruling-only" },
+          { id: "leave", label: "Leave", kind: "ruling-only" },
+        ],
+      },
+    });
+  }
+  cards.sort((a, b) => (a.key < b.key ? -1 : 1));
+  return { cards, unmapped: [...unmapped].map(([repo, urls]) => ({ repo, urls })) };
+}
+
+/** The plan as text for mk and the vizier: counts first, then one line per card, then repos with no project. */
+export function renderPlan(plan: CardPlan): string {
+  const out = [`cards to file: ${plan.cards.length} (${plan.cards.filter((c) => c.kind === "batch").length} batched, covering ${plan.cards.filter((c) => c.kind === "batch").reduce((n, c) => n + c.urls.length, 0)} PRs)`];
+  for (const c of plan.cards) out.push(`  [${c.prefix}] ${c.kind === "batch" ? `batch of ${c.urls.length}` : "PR"}  ${c.title}  (${c.key})`);
+  if (plan.unmapped.length) out.push("", "no Tasks project, no card: " + plan.unmapped.map((u) => `${u.repo} (${u.urls.length})`).join(", "));
+  return out.join("\n");
+}
