@@ -177,7 +177,11 @@ export const CATCH_ALL_PREFIX = "MSQ";
 const unmappedQuestion = (repo: string, urls: string[]): string =>
   `${urls.length} open pull request${urls.length === 1 ? "" : "s"} in ${repo} wait on you, and ${repo} has no Tasks project of its own. Look at them, close them or leave them?\n${urls.map((u) => `- ${u}`).join("\n")}`;
 /** Filer-safe and short: the filer takes keys of at most 128 characters, and a repo name can be 100. */
-const keyPart = (s: string): string => s.replace(/[^A-Za-z0-9_.-]/g, "-").slice(0, 50);
+const keyPart = (s: string): string => {
+  const clean = s.replace(/[^A-Za-z0-9_.-]/g, "-");
+  // A long name keeps a hash of the whole name, so two names that differ only after the cut still get different keys.
+  return clean.length <= 50 && clean === s ? clean : `${clean.slice(0, 40)}-${createHash("sha256").update(s).digest("hex").slice(0, 8)}`;
+};
 /** A set-keyed card key minus its trailing hash: what an earlier card for the same repo shares with this one. */
 export const keyFamily = (key: string): string => key.replace(/:[0-9a-f]{8}$/, ":");
 

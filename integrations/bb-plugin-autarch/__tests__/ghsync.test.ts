@@ -121,6 +121,9 @@ describe("planCards", () => {
     const b = planCards([bot(1, "mistakeknot/interbase"), bot(2, "mistakeknot/interbase")]).cards[0]!.key;
     expect(a).not.toBe(b);
     expect(keyFamily(a)).toBe(keyFamily(b));
+    const l1 = planCards([bot(1, `mistakeknot/${"y".repeat(60)}a`)]).cards[0]!.key;
+    const l2 = planCards([bot(1, `mistakeknot/${"y".repeat(60)}b`)]).cards[0]!.key;
+    expect(keyFamily(l1)).not.toBe(keyFamily(l2));
   });
   it("keys are filer-safe, stable, and the batch key follows the set of URLs", () => {
     const a = planCards([bot(1), bot(2)]).cards[0]!;
