@@ -3,7 +3,9 @@
 // files nothing twice. Needs BB_THREAD_ID (the card routes its picks there) and --roots <json> mapping each Tasks prefix to
 // the serve project name and root serve lists for it: {"AUTA":{"project":"Sylveste","root":"/abs/path"}}. The project must be a
 // name `autarch serve` lists (the Tasks prefix is NOT accepted when a root is given); take names and roots from serve's
-// /api/projects. A prefix with no entry has no Home binding to file under: its PRs go to the MSQ catch-all (so MSQ needs an entry).
+// /api/projects. A Tasks project need not be a serve project: give its prefix an entry naming the serve project that owns the checkout
+// (for example "Sylveste"); the card lands in its own Tasks project, flagged "project not bound" until mk confirms the binding.
+// A prefix with no entry has no Home binding to file under: its PRs go to the MSQ catch-all (so MSQ needs an entry).
 // Usage: npx tsx scripts/gh-sync-cards.ts [--roots file.json] [--apply]
 import { execFileSync } from "node:child_process";
 import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";

@@ -86,7 +86,8 @@ describe("renderDryRun", () => {
     expect(classify(pr({ files })).waitingOn).toBe("mk");
   });
   it("reports counts by who is waited on, drafts apart, and unmapped repos", () => {
-    const rows = [classify(pr()), classify(pr({ isDraft: true })), classify(pr({ files: ["AGENTS.md"] })), classify(pr({ mergeable: "CONFLICTING" }))];
+    const u = (n: number) => ({ number: n, url: `https://github.com/mistakeknot/Autarch/pull/${n}` });
+    const rows = [classify(pr(u(1))), classify(pr({ ...u(2), isDraft: true })), classify(pr({ ...u(3), files: ["AGENTS.md"] })), classify(pr({ ...u(4), mergeable: "CONFLICTING" }))];
     const text = renderDryRun(rows, ["x/y"]);
     expect(text.split("\n")[0]).toBe("open PRs: 4; would get a card: 3 (waiting on mk 1, vizier 1, coordinator 1); drafts, no card: 1");
     expect(text).toContain("waiting on mk");
@@ -95,6 +96,10 @@ describe("renderDryRun", () => {
 });
 
 describe("planCards", () => {
+  it("renderDryRun counts a PR read twice once", () => {
+    const row = classify(pr());
+    expect(renderDryRun([row, row]).split("\n")[0]).toMatch(/^open PRs: 1;/);
+  });
   it("lists a PR read twice once", () => {
     const row = classify(pr({ repo: "mistakeknot/dotfiles", number: 3, url: "https://github.com/mistakeknot/dotfiles/pull/3", files: ["AGENTS.md"] }));
     const plan = planCards([row, row]);
@@ -111,19 +116,19 @@ describe("planCards", () => {
     expect((plan.cards.find((c) => c.urls.length === 2)!.ask!.options as { id: string }[]).map((o) => o.id)).toEqual(["merge-all", "close-all", "leave"]);
   });
   it("makes no card for vizier, coordinator or draft PRs, and one MSQ catch-all card per unmapped repo", () => {
-    const plan = planCards([classify(pr()), classify(pr({ mergeable: "CONFLICTING" })), classify(pr({ isDraft: true })), bot(5, "mistakeknot/interbase"), bot(6, "mistakeknot/interbase")]);
+    const plan = planCards([classify(pr()), classify(pr({ mergeable: "CONFLICTING" })), classify(pr({ isDraft: true })), bot(5, "mistakeknot/unlisted-repo"), bot(6, "mistakeknot/unlisted-repo")]);
     expect(plan.cards).toHaveLength(1);
     expect(plan.cards[0]).toMatchObject({ prefix: "MSQ", kind: "unmapped", move: null });
-    expect(plan.cards[0]!.key).toMatch(/^gh-unmapped:mistakeknot:interbase:[0-9a-f]{8}$/);
+    expect(plan.cards[0]!.key).toMatch(/^gh-unmapped:mistakeknot:unlisted-repo:[0-9a-f]{8}$/);
     expect(plan.cards[0]!.urls).toHaveLength(2);
-    expect(plan.unmapped).toEqual([{ repo: "mistakeknot/interbase", urls: ["https://github.com/mistakeknot/interbase/pull/5", "https://github.com/mistakeknot/interbase/pull/6"] }]);
+    expect(plan.unmapped).toEqual([{ repo: "mistakeknot/unlisted-repo", urls: ["https://github.com/mistakeknot/unlisted-repo/pull/5", "https://github.com/mistakeknot/unlisted-repo/pull/6"] }]);
   });
   it("stay within the filer's 128 characters for a 100-character repo name, and share a family across sets", () => {
     const long = "x".repeat(100);
     const plan = planCards([bot(1, `mistakeknot/${long}`), bot(2, `mistakeknot/${long}`)]);
     expect(plan.cards[0]!.key.length).toBeLessThanOrEqual(128);
-    const a = planCards([bot(1, "mistakeknot/interbase")]).cards[0]!.key;
-    const b = planCards([bot(1, "mistakeknot/interbase"), bot(2, "mistakeknot/interbase")]).cards[0]!.key;
+    const a = planCards([bot(1, "mistakeknot/unlisted-repo")]).cards[0]!.key;
+    const b = planCards([bot(1, "mistakeknot/unlisted-repo"), bot(2, "mistakeknot/unlisted-repo")]).cards[0]!.key;
     expect(a).not.toBe(b);
     expect(keyFamily(a)).toBe(keyFamily(b));
     const l1 = planCards([bot(1, `mistakeknot/${"y".repeat(60)}a`)]).cards[0]!.key;
