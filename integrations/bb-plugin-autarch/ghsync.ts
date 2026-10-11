@@ -190,7 +190,9 @@ export const keyFamily = (key: string): string => key.replace(/:[0-9a-f]{8}$/, "
  * CI-workflow-only PRs share one batched card with merge-all / close-all / leave. Pure; filing is the caller's job.
  */
 export function planCards(rows: readonly Classified[], bound?: ReadonlySet<string>): CardPlan {
-  const mine = rows.filter((r) => r.waitingOn === "mk");
+  // A PR read twice (a repo listed under two owners or twice in one list) is one PR.
+  const seenUrls = new Set<string>();
+  const mine = rows.filter((r) => r.waitingOn === "mk" && !seenUrls.has(r.pr.url) && seenUrls.add(r.pr.url));
   const cards: CardSpec[] = [];
   const unmapped = new Map<string, string[]>();
   const batches = new Map<string, Classified[]>();
