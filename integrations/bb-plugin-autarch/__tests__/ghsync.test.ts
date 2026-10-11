@@ -95,6 +95,11 @@ describe("renderDryRun", () => {
 });
 
 describe("planCards", () => {
+  it("lists a PR read twice once", () => {
+    const row = classify(pr({ repo: "mistakeknot/dotfiles", number: 3, url: "https://github.com/mistakeknot/dotfiles/pull/3", files: ["AGENTS.md"] }));
+    const plan = planCards([row, row]);
+    expect(plan.cards.filter((c) => c.urls.includes(row.pr.url))).toHaveLength(1);
+  });
   const bot = (n: number, repo = "mistakeknot/Autarch") => classify(pr({ repo, number: n, url: `https://github.com/${repo}/pull/${n}`, authorIsBot: true, authorLogin: "app/dependabot", files: [".github/workflows/ci.yml"] }));
   it("batches a repo's bot CI-only PRs into one card and gives other mk PRs one card each", () => {
     const rows = [bot(1), bot(2), bot(3, "mistakeknot/Clavain"), classify(pr({ number: 9, url: "https://github.com/mistakeknot/Autarch/pull/9", files: ["AGENTS.md"] }))];
