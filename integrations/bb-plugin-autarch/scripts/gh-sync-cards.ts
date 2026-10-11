@@ -1,16 +1,18 @@
 // Plans (and, with --apply, files) Home cards for open PRs that wait on mk. Default is a dry run: it prints the plan and
 // files nothing. --apply files each card through `autarch needs-mk file`, which dedupes on the Request key, so a re-run
 // files nothing twice. Needs BB_THREAD_ID (the card routes its picks there) and --roots <json> mapping each Tasks prefix to
-// its Home project name and root: {"AUTA":{"project":"autarch","root":"/abs/path"}}; a card with no entry is skipped.
+// the serve project name and root serve lists for it: {"AUTA":{"project":"Sylveste","root":"/abs/path"}}. The project must be a
+// name `autarch serve` lists (the Tasks prefix is NOT accepted when a root is given); take names and roots from serve's
+// /api/projects. A prefix with no entry has no Home binding to file under: its PRs go to the MSQ catch-all (so MSQ needs an entry).
 // Usage: npx tsx scripts/gh-sync-cards.ts [--roots file.json] [--apply]
 import { execFileSync } from "node:child_process";
 import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { gh } from "./gh-util.js";
 import { OWNERS, keyFamily, PR_LIMIT, REPO_LIMIT, REPO, classify, ghPrListArgv, ghRepoListArgv, parsePrList, planCards, renderPlan, type Classified } from "../ghsync.js";
 
 const argValue = (n: string) => (process.argv.includes(n) ? process.argv[process.argv.indexOf(n) + 1] : undefined);
-const gh = (argv: string[]) => execFileSync("gh", argv, { encoding: "utf8", maxBuffer: 32 * 1024 * 1024, timeout: 60_000, env: { ...process.env, GH_PROMPT_DISABLED: "1", NO_COLOR: "1" } });
 const rows: Classified[] = [];
 const notRead: string[] = [];
 for (const owner of OWNERS) {
@@ -26,16 +28,17 @@ for (const owner of OWNERS) {
     }
   }
 }
-const plan = planCards(rows);
+const rootsFile = argValue("--roots");
+if (process.argv.includes("--apply") && !rootsFile) throw new Error("--apply needs --roots <json>");
+const roots = rootsFile ? (JSON.parse(readFileSync(rootsFile, "utf8")) as Record<string, { project: string; root: string }>) : {};
+// With a roots file, only the prefixes it lists can be filed under; the rest go to the catch-all.
+const plan = planCards(rows, rootsFile ? new Set(Object.keys(roots)) : undefined);
 console.log(renderPlan(plan));
 if (notRead.length) console.log(`\nnot read (${notRead.length}):\n  ${notRead.join("\n  ")}`);
 if (!process.argv.includes("--apply")) process.exit(0);
 
 // Applying: refuse when any list was incomplete, so a partial read never files a partial set.
 if (notRead.length) throw new Error("some lists were not fully read; nothing filed");
-const rootsFile = argValue("--roots");
-if (!rootsFile) throw new Error("--apply needs --roots <json>");
-const roots = JSON.parse(readFileSync(rootsFile, "utf8")) as Record<string, { project: string; root: string }>;
 /** Descriptions of the open cards in a Tasks project (every page), cached per run so cards filed here do not hold their siblings. */
 const openCache = new Map<string, string[] | null>();
 const openCards = (prefix: string): string[] | null => {

@@ -2,9 +2,9 @@
 // Runs `gh repo list` and `gh pr list` only (argv arrays, no shell). Creates and changes nothing.
 // Usage: npx tsx scripts/gh-sync-dryrun.ts [--json]
 import { execFileSync } from "node:child_process";
+import { gh } from "./gh-util.js";
 import { OWNERS, PR_LIMIT, REPO_LIMIT, classify, ghPrListArgv, ghRepoListArgv, parsePrList, renderDryRun, REPO } from "../ghsync.js";
 
-const gh = (argv: string[]) => execFileSync("gh", argv, { encoding: "utf8", maxBuffer: 32 * 1024 * 1024, timeout: 60_000, env: { ...process.env, GH_PROMPT_DISABLED: "1", NO_COLOR: "1" } });
 const rows = [];
 const failed: string[] = [];
 for (const owner of OWNERS) {

@@ -125,6 +125,20 @@ describe("planCards", () => {
     const l2 = planCards([bot(1, `mistakeknot/${"y".repeat(60)}b`)]).cards[0]!.key;
     expect(keyFamily(l1)).not.toBe(keyFamily(l2));
   });
+  it("the planner's pr move carries only url, which both the plugin and the Go parser (any build) accept", async () => {
+    const m = planCards([classify(pr({ number: 9, url: "https://github.com/mistakeknot/Autarch/pull/9", files: ["AGENTS.md"] }))]).cards[0]!.move as { pr: Record<string, unknown> };
+    expect(Object.keys(m.pr)).toEqual(["url"]);
+    const { parseMove } = await import("../moves.js");
+    expect(() => parseMove(JSON.stringify(m))).not.toThrow();
+  });
+  it("sends a prefix Home cannot file under to the MSQ catch-all, with its PRs listed", () => {
+    const rows = [bot(1, "mistakeknot/ushas"), classify(pr({ repo: "mistakeknot/ushas", number: 3, url: "https://github.com/mistakeknot/ushas/pull/3", files: ["AGENTS.md"] }))];
+    const plan = planCards(rows, new Set(["AUTA", "MSQ"]));
+    expect(plan.cards).toHaveLength(1);
+    expect(plan.cards[0]).toMatchObject({ prefix: "MSQ", kind: "unmapped" });
+    expect(plan.cards[0]!.urls).toHaveLength(2);
+    expect(planCards(rows).cards.map((c) => c.prefix)).toEqual(expect.arrayContaining(["USH"]));
+  });
   it("keys are filer-safe, stable, and the batch key follows the set of URLs", () => {
     const a = planCards([bot(1), bot(2)]).cards[0]!;
     expect(planCards([bot(2), bot(1)]).cards[0]!.key).toBe(a.key);
