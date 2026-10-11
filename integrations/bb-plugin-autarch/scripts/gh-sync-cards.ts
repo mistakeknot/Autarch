@@ -10,9 +10,14 @@ import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { gh } from "./gh-util.js";
-import { OWNERS, keyFamily, PR_LIMIT, REPO_LIMIT, REPO, classify, ghPrListArgv, ghRepoListArgv, parsePrList, planCards, renderPlan, type Classified } from "../ghsync.js";
+import { OWNERS, keyFamily, PR_LIMIT, REPO_LIMIT, REPO, classify, ghPrListArgv, ghRepoListArgv, pageDescriptions, nextCursor, parseSyncArgs, parsePrList, planCards, mentionsPr, renderPlan, requestKey, type Classified } from "../ghsync.js";
 
-const argValue = (n: string) => (process.argv.includes(n) ? process.argv[process.argv.indexOf(n) + 1] : undefined);
+// One plain line for a failed read (for example a rate limit) instead of a stack trace.
+process.on("uncaughtException", (e) => {
+  console.error(`error: ${e.message}`);
+  process.exit(1);
+});
+const args0 = parseSyncArgs(process.argv.slice(2));
 const rows: Classified[] = [];
 const notRead: string[] = [];
 for (const owner of OWNERS) {
@@ -28,14 +33,14 @@ for (const owner of OWNERS) {
     }
   }
 }
-const rootsFile = argValue("--roots");
-if (process.argv.includes("--apply") && !rootsFile) throw new Error("--apply needs --roots <json>");
+const rootsFile = args0.roots;
+if (args0.apply && !rootsFile) throw new Error("--apply needs --roots <json>");
 const roots = rootsFile ? (JSON.parse(readFileSync(rootsFile, "utf8")) as Record<string, { project: string; root: string }>) : {};
 // With a roots file, only the prefixes it lists can be filed under; the rest go to the catch-all.
 const plan = planCards(rows, rootsFile ? new Set(Object.keys(roots)) : undefined);
 console.log(renderPlan(plan));
 if (notRead.length) console.log(`\nnot read (${notRead.length}):\n  ${notRead.join("\n  ")}`);
-if (!process.argv.includes("--apply")) process.exit(0);
+if (!args0.apply) process.exit(0);
 
 // Applying: refuse when any list was incomplete, so a partial read never files a partial set.
 if (notRead.length) throw new Error("some lists were not fully read; nothing filed");
@@ -46,13 +51,12 @@ const openCards = (prefix: string): string[] | null => {
   const out: string[] = [];
   try {
     let cursor: string | null = null;
+    const seen = new Set<string>();
     do {
       const args = ["tasks", "list", "--project", prefix, "--status", "backlog,todo,in_progress,in_review", "--search", "Request:", "--limit", "500", "--json", ...(cursor ? ["--cursor", cursor] : [])];
       const page = JSON.parse(execFileSync("bb", args, { encoding: "utf8", timeout: 60_000, maxBuffer: 32 * 1024 * 1024 })) as { tasks: { description?: string }[]; nextCursor: string | null };
-      // A list row without a description cannot be checked for a Request key: fail closed rather than treat it as no card.
-      if (page.tasks.some((t) => typeof t.description !== "string")) throw new Error("task list rows carry no description");
-      out.push(...page.tasks.map((t) => t.description!));
-      cursor = page.nextCursor;
+      out.push(...pageDescriptions(page));
+      cursor = nextCursor(seen, page.nextCursor);
     } while (cursor);
     openCache.set(prefix, out);
   } catch {
@@ -60,17 +64,16 @@ const openCards = (prefix: string): string[] | null => {
   }
   return openCache.get(prefix)!;
 };
-/** The key on a card's own `Request: <key> sha256:<id>` line; a description that has none is not a filed card. */
-const requestKey = (desc: string): string | null => /^Request: (\S+) sha256:\S+$/m.exec(desc)?.[1] ?? null;
 /** A repo's batch and catch-all cards are one family: a repo rerouted between them must not get a second card. */
-const repoFamily = (key: string): string => keyFamily(key).replace(/^gh-(bots|unmapped):/, "gh-set:");
+const repoFamily = (key: string): string => keyFamily(key.replace(/^(gh-pr:.*:)\d+$/, "$1")).replace(/^gh-(bots|unmapped|pr):/, "gh-set:");
 const failed: string[] = [];
 const held: string[] = [];
 const dir = mkdtempSync(join(tmpdir(), "gh-sync-"));
 for (const c of plan.cards) {
   const r = roots[c.prefix];
   if (!r) {
-    console.log(`skip ${c.key}: no root for ${c.prefix}`);
+    failed.push(c.key);
+    console.log(`FAILED ${c.key}: no root for ${c.prefix} in the roots file`);
     continue;
   }
   const args = ["needs-mk", "file", "--project", c.prefix, "--title", c.title, "--request", c.key];
@@ -104,6 +107,19 @@ for (const c of plan.cards) {
     const inFamily = keys.filter((k) => repoFamily(k) === fam);
     if (inFamily.includes(c.key)) { console.log(`already filed ${c.key}`); continue; }
     if (inFamily.some((k) => !mine.has(k))) { console.log(`HELD ${c.key}: an open card for an earlier set of this repo exists; close it, then re-run`); held.push(c.key); continue; }
+  }
+  if (c.kind === "pr") {
+    // A bot PR that already sits in an open batch or catch-all card must not also get a card of its own.
+    const url = (c.move as { pr: { url: string } }).pr.url;
+    let unread = false;
+    let inSet = false;
+    for (const p of Object.keys(roots)) {
+      const list = openCards(p);
+      if (!list) unread = true;
+      else if (list.some((d) => /^gh-(bots|unmapped):/.test(requestKey(d) ?? "") && mentionsPr(d, url))) inSet = true;
+    }
+    if (unread) { failed.push(c.key); console.log(`FAILED ${c.key}: could not check for an open card of the same repo`); continue; }
+    if (inSet) { console.log(`HELD ${c.key}: the PR is in an open batch card; close it, then re-run`); held.push(c.key); continue; }
   }
   try {
     console.log(execFileSync("autarch", args, { encoding: "utf8", timeout: 120_000 }).trim());

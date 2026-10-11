@@ -274,3 +274,36 @@ export function renderPlan(plan: CardPlan): string {
   if (plan.unmapped.length) out.push("", `no Tasks project of their own, filed under ${CATCH_ALL_PREFIX}: ` + plan.unmapped.map((u) => `${u.repo} (${u.urls.length})`).join(", "));
   return out.join("\n");
 }
+
+/** The key on a card's own `Request: <key> sha256:<id>` line; a description that has none is not a filed card. */
+export const requestKey = (desc: string): string | null => /^Request: (\S+) sha256:\S+$/m.exec(desc)?.[1] ?? null;
+
+/** Descriptions from one `bb tasks list --json` page. A row without a description cannot be checked, so the read fails. */
+export function pageDescriptions(page: { tasks: { description?: unknown }[] }): string[] {
+  if (page.tasks.some((t) => typeof t.description !== "string")) throw new Error("task list rows carry no description");
+  return page.tasks.map((t) => t.description as string);
+}
+
+/** Rejects a cursor already seen, so a server that repeats one cannot loop the read forever. */
+export function nextCursor(seen: Set<string>, cursor: string | null | undefined): string | null {
+  if (cursor === null) return null;
+  if (typeof cursor !== "string") throw new Error("task list page has no nextCursor");
+  if (seen.has(cursor)) throw new Error("task list repeated a cursor");
+  seen.add(cursor);
+  return cursor;
+}
+
+/** Splits argv into known flags; an unknown flag is an error rather than a silent dry run. */
+export function parseSyncArgs(argv: string[]): { apply: boolean; roots?: string } {
+  let apply = false;
+  let roots: string | undefined;
+  for (let i = 0; i < argv.length; i++) {
+    if (argv[i] === "--apply") apply = true;
+    else if (argv[i] === "--roots" && argv[i + 1] !== undefined) roots = argv[++i];
+    else throw new Error(`unknown argument ${argv[i]}; usage: gh-sync-cards.ts [--roots file.json] [--apply]`);
+  }
+  return { apply, roots };
+}
+
+/** True when the text lists this exact PR URL (`/pull/1` does not match `/pull/10`). */
+export const mentionsPr = (text: string, url: string): boolean => text.split(/[\s,()<>"']+/).includes(url);
