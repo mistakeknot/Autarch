@@ -10,7 +10,7 @@ import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { gh } from "./gh-util.js";
-import { OWNERS, keyFamily, PR_LIMIT, REPO_LIMIT, REPO, classify, ghPrListArgv, ghRepoListArgv, pageDescriptions, nextCursor, parseSyncArgs, parsePrList, planCards, renderPlan, requestKey, type Classified } from "../ghsync.js";
+import { OWNERS, keyFamily, PR_LIMIT, REPO_LIMIT, REPO, classify, ghPrListArgv, ghRepoListArgv, pageDescriptions, nextCursor, parseSyncArgs, parsePrList, planCards, mentionsPr, renderPlan, requestKey, type Classified } from "../ghsync.js";
 
 // One plain line for a failed read (for example a rate limit) instead of a stack trace.
 process.on("uncaughtException", (e) => {
@@ -116,7 +116,7 @@ for (const c of plan.cards) {
     for (const p of Object.keys(roots)) {
       const list = openCards(p);
       if (!list) unread = true;
-      else if (list.some((d) => /^gh-(bots|unmapped):/.test(requestKey(d) ?? "") && d.includes(url))) inSet = true;
+      else if (list.some((d) => /^gh-(bots|unmapped):/.test(requestKey(d) ?? "") && mentionsPr(d, url))) inSet = true;
     }
     if (unread) { failed.push(c.key); console.log(`FAILED ${c.key}: could not check for an open card of the same repo`); continue; }
     if (inSet) { console.log(`HELD ${c.key}: the PR is in an open batch card; close it, then re-run`); held.push(c.key); continue; }

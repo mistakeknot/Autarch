@@ -192,4 +192,10 @@ describe("sync script helpers", () => {
     expect(requestKey("x\nRequest: gh-pr:a:b:1 sha256:abc\n")).toBe("gh-pr:a:b:1");
     expect(requestKey("mentions Request: gh-pr:a:b:1 sha256:abc inline")).toBeNull();
   });
+  it("mentionsPr matches whole PR URLs only", async () => {
+    const { mentionsPr } = await import("../ghsync.js");
+    const batch = "Look at:\nhttps://github.com/o/r/pull/10\nhttps://github.com/o/r/pull/11";
+    expect(mentionsPr(batch, "https://github.com/o/r/pull/10")).toBe(true);
+    expect(mentionsPr(batch, "https://github.com/o/r/pull/1")).toBe(false);
+  });
 });

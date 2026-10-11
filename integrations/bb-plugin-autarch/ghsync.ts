@@ -304,3 +304,6 @@ export function parseSyncArgs(argv: string[]): { apply: boolean; roots?: string 
   }
   return { apply, roots };
 }
+
+/** True when the text lists this exact PR URL (`/pull/1` does not match `/pull/10`). */
+export const mentionsPr = (text: string, url: string): boolean => text.split(/[\s,()<>"']+/).includes(url);
