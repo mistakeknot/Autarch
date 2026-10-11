@@ -58,6 +58,10 @@ const openCards = (prefix: string): string[] | null => {
   }
   return openCache.get(prefix)!;
 };
+/** The key on a card's own `Request: <key> sha256:<id>` line; a description that has none is not a filed card. */
+const requestKey = (desc: string): string | null => /^Request: (\S+) sha256:\S+$/m.exec(desc)?.[1] ?? null;
+/** A repo's batch and catch-all cards are one family: a repo rerouted between them must not get a second card. */
+const repoFamily = (key: string): string => keyFamily(key).replace(/^gh-(bots|unmapped):/, "gh-set:");
 const failed: string[] = [];
 const held: string[] = [];
 const dir = mkdtempSync(join(tmpdir(), "gh-sync-"));
@@ -79,17 +83,25 @@ for (const c of plan.cards) {
   if (c.kind !== "pr") {
     // A batch key follows its PR set, so a changed set would file a second card beside the open one. Hold the repo while an
     // open card of the same family is not one of this run's cards; sibling chunks of this run never hold each other.
-    const fam = keyFamily(c.key);
-    const mine = new Set(plan.cards.filter((x) => keyFamily(x.key) === fam).map((x) => x.key));
-    const list = openCards(c.prefix);
-    if (!list) {
+    const fam = repoFamily(c.key);
+    const mine = new Set(plan.cards.filter((x) => repoFamily(x.key) === fam).map((x) => x.key));
+    // The repo's earlier card may sit in another project (a repo rerouted to the catch-all keeps its old card in its own
+    // project), so every project the roots file lists is checked, by the exact key on each card's Request line.
+    const keys: string[] = [];
+    let unread = false;
+    for (const p of Object.keys(roots)) {
+      const list = openCards(p);
+      if (!list) unread = true;
+      else keys.push(...list.map(requestKey).filter((k): k is string => k !== null));
+    }
+    if (unread) {
       failed.push(c.key);
       console.log(`FAILED ${c.key}: could not check for an open card of the same repo`);
       continue;
     }
-    const inFamily = list.filter((d) => d.includes(fam));
-    if (inFamily.some((d) => d.includes(c.key))) { console.log(`already filed ${c.key}`); continue; }
-    if (inFamily.some((d) => ![...mine].some((k) => d.includes(k)))) { console.log(`HELD ${c.key}: an open card for an earlier set of this repo exists; close it, then re-run`); held.push(c.key); continue; }
+    const inFamily = keys.filter((k) => repoFamily(k) === fam);
+    if (inFamily.includes(c.key)) { console.log(`already filed ${c.key}`); continue; }
+    if (inFamily.some((k) => !mine.has(k))) { console.log(`HELD ${c.key}: an open card for an earlier set of this repo exists; close it, then re-run`); held.push(c.key); continue; }
   }
   try {
     console.log(execFileSync("autarch", args, { encoding: "utf8", timeout: 120_000 }).trim());
