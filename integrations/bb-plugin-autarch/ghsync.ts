@@ -78,7 +78,9 @@ export function cleanTitle(s: string, max = 120): string {
 }
 
 /** The dry-run table mk reads: count by waiting-on, then one line per PR. */
-export function renderDryRun(rows: readonly Classified[], unmappedRepos: readonly string[] = []): string {
+export function renderDryRun(all: readonly Classified[], unmappedRepos: readonly string[] = []): string {
+  const seen = new Set<string>();
+  const rows = all.filter((r) => !seen.has(r.pr.url) && seen.add(r.pr.url));
   const count = (w: WaitingOn | null) => rows.filter((r) => r.waitingOn === w).length;
   const out = [
     `open PRs: ${rows.length}; would get a card: ${rows.length - count(null)} (waiting on mk ${count("mk")}, vizier ${count("vizier")}, coordinator ${count("coordinator")}); drafts, no card: ${count(null)}`,
@@ -135,6 +137,11 @@ export const REPO_PROJECTS: Readonly<Record<string, string>> = {
   "mistakeknot/amtiskaw-hermes-agent": "AMTK",
   "mistakeknot/dotfiles": "DOTF",
   "mistakeknot/intercore": "ICOR",
+  "mistakeknot/interbase": "IBAS",
+  "mistakeknot/interkasten": "IKAS",
+  "mistakeknot/intermute": "IMUT",
+  "mistakeknot/intermute-lane": "IMUL",
+  "mistakeknot/interphase": "IPHS",
   "mistakeknot/pattern-royale": "PR",
   "mistakeknot/ushas": "USH",
 };
