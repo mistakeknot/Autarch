@@ -108,6 +108,19 @@ for (const c of plan.cards) {
     if (inFamily.includes(c.key)) { console.log(`already filed ${c.key}`); continue; }
     if (inFamily.some((k) => !mine.has(k))) { console.log(`HELD ${c.key}: an open card for an earlier set of this repo exists; close it, then re-run`); held.push(c.key); continue; }
   }
+  if (c.kind === "pr") {
+    // A bot PR that already sits in an open batch or catch-all card must not also get a card of its own.
+    const url = (c.move as { pr: { url: string } }).pr.url;
+    let unread = false;
+    let inSet = false;
+    for (const p of Object.keys(roots)) {
+      const list = openCards(p);
+      if (!list) unread = true;
+      else if (list.some((d) => /^gh-(bots|unmapped):/.test(requestKey(d) ?? "") && d.includes(url))) inSet = true;
+    }
+    if (unread) { failed.push(c.key); console.log(`FAILED ${c.key}: could not check for an open card of the same repo`); continue; }
+    if (inSet) { console.log(`HELD ${c.key}: the PR is in an open batch card; close it, then re-run`); held.push(c.key); continue; }
+  }
   try {
     console.log(execFileSync("autarch", args, { encoding: "utf8", timeout: 120_000 }).trim());
   } catch (e) {
