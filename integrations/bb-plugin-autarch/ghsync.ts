@@ -110,7 +110,10 @@ export function parsePrList(repo: string, json: string): GhPrRow[] {
       reviewDecision: String(r.reviewDecision ?? ""),
       mergeable: String(r.mergeable ?? "UNKNOWN"),
       checks: (r.statusCheckRollup ?? []).map((c: any) => String(c.conclusion || c.state || c.status || "")).filter(Boolean),
-      files: r.files.map((f: any) => String(f.path ?? "")),
+      files: r.files.map((f: any) => {
+        if (typeof f?.path !== "string" || !f.path) throw new Error("malformed file entry");
+        return f.path;
+      }),
       updatedAt: String(r.updatedAt ?? ""),
     };
   });

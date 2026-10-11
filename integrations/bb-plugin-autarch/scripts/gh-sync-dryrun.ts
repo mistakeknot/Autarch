@@ -20,5 +20,9 @@ for (const owner of OWNERS) {
     }
   }
 }
-console.log(process.argv.includes("--json") ? JSON.stringify(rows, null, 1) : renderDryRun(rows));
-if (failed.length) console.log(`\nnot read (${failed.length}):\n  ${failed.join("\n  ")}`);
+if (process.argv.includes("--json")) {
+  console.log(JSON.stringify({ rows, notRead: failed }, null, 1));
+} else {
+  console.log(renderDryRun(rows));
+  if (failed.length) console.log(`\nnot read (${failed.length}):\n  ${failed.join("\n  ")}`);
+}

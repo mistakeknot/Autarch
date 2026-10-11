@@ -60,6 +60,9 @@ describe("parsePrList", () => {
     const { files: _f, ...nofiles } = row;
     expect(() => parsePrList("a/b", JSON.stringify([nofiles]))).toThrow();
   });
+  it("rejects a file entry with no path", () => {
+    expect(() => parsePrList("a/b", JSON.stringify([{ ...row, files: [{}] }]))).toThrow();
+  });
   it("rejects a bad repo name", () => {
     expect(() => parsePrList("a b/c", "[]")).toThrow();
   });
