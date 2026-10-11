@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { REPO_PROJECTS, planCards, renderPlan, classify, cleanTitle, ghPrListArgv, ghRepoListArgv, mkOnlyPaths, parsePrList, renderDryRun, type GhPrRow } from "../ghsync.js";
+import { REPO_PROJECTS, keyFamily, planCards, renderPlan, classify, cleanTitle, ghPrListArgv, ghRepoListArgv, mkOnlyPaths, parsePrList, renderDryRun, type GhPrRow } from "../ghsync.js";
 
 const pr = (o: Partial<GhPrRow> | Readonly<Record<string, unknown>> = {}): GhPrRow => ({
   repo: "mistakeknot/Autarch", number: 7, url: "https://github.com/mistakeknot/Autarch/pull/7", title: "t", isDraft: false,
@@ -112,6 +112,15 @@ describe("planCards", () => {
     expect(plan.cards[0]!.key).toMatch(/^gh-unmapped:mistakeknot:interbase:[0-9a-f]{8}$/);
     expect(plan.cards[0]!.urls).toHaveLength(2);
     expect(plan.unmapped).toEqual([{ repo: "mistakeknot/interbase", urls: ["https://github.com/mistakeknot/interbase/pull/5", "https://github.com/mistakeknot/interbase/pull/6"] }]);
+  });
+  it("stay within the filer's 128 characters for a 100-character repo name, and share a family across sets", () => {
+    const long = "x".repeat(100);
+    const plan = planCards([bot(1, `mistakeknot/${long}`), bot(2, `mistakeknot/${long}`)]);
+    expect(plan.cards[0]!.key.length).toBeLessThanOrEqual(128);
+    const a = planCards([bot(1, "mistakeknot/interbase")]).cards[0]!.key;
+    const b = planCards([bot(1, "mistakeknot/interbase"), bot(2, "mistakeknot/interbase")]).cards[0]!.key;
+    expect(a).not.toBe(b);
+    expect(keyFamily(a)).toBe(keyFamily(b));
   });
   it("keys are filer-safe, stable, and the batch key follows the set of URLs", () => {
     const a = planCards([bot(1), bot(2)]).cards[0]!;

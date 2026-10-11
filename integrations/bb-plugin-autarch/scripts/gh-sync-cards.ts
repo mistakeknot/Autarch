@@ -7,7 +7,7 @@ import { execFileSync } from "node:child_process";
 import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { OWNERS, PR_LIMIT, REPO_LIMIT, REPO, classify, ghPrListArgv, ghRepoListArgv, parsePrList, planCards, renderPlan, type Classified } from "../ghsync.js";
+import { OWNERS, keyFamily, PR_LIMIT, REPO_LIMIT, REPO, classify, ghPrListArgv, ghRepoListArgv, parsePrList, planCards, renderPlan, type Classified } from "../ghsync.js";
 
 const argValue = (n: string) => (process.argv.includes(n) ? process.argv[process.argv.indexOf(n) + 1] : undefined);
 const gh = (argv: string[]) => execFileSync("gh", argv, { encoding: "utf8", maxBuffer: 32 * 1024 * 1024, timeout: 60_000, env: { ...process.env, GH_PROMPT_DISABLED: "1", NO_COLOR: "1" } });
@@ -37,6 +37,7 @@ const rootsFile = argValue("--roots");
 if (!rootsFile) throw new Error("--apply needs --roots <json>");
 const roots = JSON.parse(readFileSync(rootsFile, "utf8")) as Record<string, { project: string; root: string }>;
 const failed: string[] = [];
+const held: string[] = [];
 const dir = mkdtempSync(join(tmpdir(), "gh-sync-"));
 for (const c of plan.cards) {
   const r = roots[c.prefix];
@@ -53,6 +54,22 @@ for (const c of plan.cards) {
     writeFileSync(join(dir, "move.json"), JSON.stringify(c.move));
     args.push("--move", join(dir, "move.json"));
   }
+  if (c.kind !== "pr") {
+    // A batch key follows its PR set, so a changed set would file a second card beside the open one. Look for an open card
+    // of the same family and leave the repo alone until mk closes it; if the look fails, file nothing for this card.
+    try {
+      const open = JSON.parse(execFileSync("bb", ["tasks", "list", "--project", c.prefix, "--status", "backlog,todo,in_progress,in_review", "--search", keyFamily(c.key), "--limit", "500", "--json"], { encoding: "utf8", timeout: 60_000 })) as { tasks: { key?: string; description?: string }[] };
+      const fam = keyFamily(c.key);
+      const same = open.tasks.some((t) => (t.description ?? "").includes(c.key));
+      const older = open.tasks.some((t) => (t.description ?? "").includes(fam) && !(t.description ?? "").includes(c.key));
+      if (same) { console.log(`already filed ${c.key}`); continue; }
+      if (older) { console.log(`HELD ${c.key}: an open card for an earlier set of this repo exists; close it, then re-run`); held.push(c.key); continue; }
+    } catch (e) {
+      failed.push(c.key);
+      console.log(`FAILED ${c.key}: could not check for an open card of the same repo: ${String((e as Error).message).split("\n")[0]}`);
+      continue;
+    }
+  }
   try {
     console.log(execFileSync("autarch", args, { encoding: "utf8", timeout: 120_000 }).trim());
   } catch (e) {
@@ -61,8 +78,9 @@ for (const c of plan.cards) {
     console.log(`FAILED ${c.key}: ${String((e as Error).message).split("\n")[0]}`);
   }
 }
+if (held.length) console.log(`\n${held.length} card(s) held because an older card for the same repo is still open.`);
 if (failed.length) {
   console.log(`\n${failed.length} card(s) not filed; the rest were. Re-running files only what is missing.`);
   process.exitCode = 1;
 }
-console.log("Note: a batch card is keyed on its PR set. If that set changed since an earlier run, the earlier batch card stays open until mk closes it.");
+console.log("Note: a batch or catch-all card is keyed on its PR set; a changed set is held until the older card is closed.");
