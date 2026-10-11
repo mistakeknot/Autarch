@@ -285,8 +285,9 @@ export function pageDescriptions(page: { tasks: { description?: unknown }[] }): 
 }
 
 /** Rejects a cursor already seen, so a server that repeats one cannot loop the read forever. */
-export function nextCursor(seen: Set<string>, cursor: string | null): string | null {
+export function nextCursor(seen: Set<string>, cursor: string | null | undefined): string | null {
   if (cursor === null) return null;
+  if (typeof cursor !== "string") throw new Error("task list page has no nextCursor");
   if (seen.has(cursor)) throw new Error("task list repeated a cursor");
   seen.add(cursor);
   return cursor;

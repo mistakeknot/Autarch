@@ -179,6 +179,7 @@ describe("sync script helpers", () => {
     expect(nextCursor(seen, "a")).toBe("a");
     expect(nextCursor(seen, null)).toBeNull();
     expect(() => nextCursor(seen, "a")).toThrow(/repeated/);
+    expect(() => nextCursor(seen, undefined)).toThrow(/no nextCursor/);
   });
   it("parseSyncArgs rejects unknown flags", async () => {
     const { parseSyncArgs } = await import("../ghsync.js");

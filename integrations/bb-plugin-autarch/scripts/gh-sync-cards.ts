@@ -12,6 +12,11 @@ import { join } from "node:path";
 import { gh } from "./gh-util.js";
 import { OWNERS, keyFamily, PR_LIMIT, REPO_LIMIT, REPO, classify, ghPrListArgv, ghRepoListArgv, pageDescriptions, nextCursor, parseSyncArgs, parsePrList, planCards, renderPlan, requestKey, type Classified } from "../ghsync.js";
 
+// One plain line for a failed read (for example a rate limit) instead of a stack trace.
+process.on("uncaughtException", (e) => {
+  console.error(`error: ${e.message}`);
+  process.exit(1);
+});
 const args0 = parseSyncArgs(process.argv.slice(2));
 const rows: Classified[] = [];
 const notRead: string[] = [];
@@ -60,14 +65,15 @@ const openCards = (prefix: string): string[] | null => {
   return openCache.get(prefix)!;
 };
 /** A repo's batch and catch-all cards are one family: a repo rerouted between them must not get a second card. */
-const repoFamily = (key: string): string => keyFamily(key).replace(/^gh-(bots|unmapped):/, "gh-set:");
+const repoFamily = (key: string): string => keyFamily(key.replace(/^(gh-pr:.*:)\d+$/, "$1")).replace(/^gh-(bots|unmapped|pr):/, "gh-set:");
 const failed: string[] = [];
 const held: string[] = [];
 const dir = mkdtempSync(join(tmpdir(), "gh-sync-"));
 for (const c of plan.cards) {
   const r = roots[c.prefix];
   if (!r) {
-    console.log(`skip ${c.key}: no root for ${c.prefix}`);
+    failed.push(c.key);
+    console.log(`FAILED ${c.key}: no root for ${c.prefix} in the roots file`);
     continue;
   }
   const args = ["needs-mk", "file", "--project", c.prefix, "--title", c.title, "--request", c.key];
