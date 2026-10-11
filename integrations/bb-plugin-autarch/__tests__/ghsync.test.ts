@@ -166,3 +166,29 @@ describe("planCards batch size", () => {
     for (const b of batches) expect(String((b.ask as { question: string }).question).length).toBeLessThanOrEqual(2000);
   });
 });
+
+describe("sync script helpers", () => {
+  it("pageDescriptions fails closed on a row without a description", async () => {
+    const { pageDescriptions } = await import("../ghsync.js");
+    expect(pageDescriptions({ tasks: [{ description: "a" }] })).toEqual(["a"]);
+    expect(() => pageDescriptions({ tasks: [{ description: "a" }, {}] })).toThrow(/no description/);
+  });
+  it("nextCursor rejects a repeated cursor", async () => {
+    const { nextCursor } = await import("../ghsync.js");
+    const seen = new Set<string>();
+    expect(nextCursor(seen, "a")).toBe("a");
+    expect(nextCursor(seen, null)).toBeNull();
+    expect(() => nextCursor(seen, "a")).toThrow(/repeated/);
+  });
+  it("parseSyncArgs rejects unknown flags", async () => {
+    const { parseSyncArgs } = await import("../ghsync.js");
+    expect(parseSyncArgs(["--apply", "--roots", "r.json"])).toEqual({ apply: true, roots: "r.json" });
+    expect(() => parseSyncArgs(["--help"])).toThrow(/unknown argument/);
+    expect(() => parseSyncArgs(["--roots"])).toThrow(/unknown argument/);
+  });
+  it("requestKey reads the exact Request line", async () => {
+    const { requestKey } = await import("../ghsync.js");
+    expect(requestKey("x\nRequest: gh-pr:a:b:1 sha256:abc\n")).toBe("gh-pr:a:b:1");
+    expect(requestKey("mentions Request: gh-pr:a:b:1 sha256:abc inline")).toBeNull();
+  });
+});
