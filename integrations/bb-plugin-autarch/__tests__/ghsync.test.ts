@@ -15,6 +15,12 @@ describe("classify: who a PR waits on", () => {
     [{ files: [".github/workflows/ci.yml"] }, "mk"],
     [{ files: ["common/.claude/hooks/a.sh"] }, "mk"],
     [{ files: ["scripts/install-home.sh"] }, "mk"],
+    [{ files: [".github/copilot-instructions.md"] }, "mk"],
+    [{ files: [".agents/skills/foo/SKILL.md"] }, "mk"],
+    [{ files: ["scripts/release.bash"] }, "mk"],
+    [{ files: ["scripts/install"] }, "mk"],
+    [{ files: ["scripts/publish"] }, "mk"],
+    [{ files: [] }, "mk"],
     [{ mergeable: "CONFLICTING" }, "coordinator"],
     [{ reviewDecision: "CHANGES_REQUESTED" }, "coordinator"],
     [{ checks: ["SUCCESS", "FAILURE"] }, "coordinator"],
@@ -50,6 +56,10 @@ describe("parsePrList", () => {
   it.each([["not json"], ["{}"], [JSON.stringify([{ ...row, url: "https://evil.example/a/b/pull/3" }])], [JSON.stringify([{ ...row, number: "3" }])]])("rejects %s", (j) => {
     expect(() => parsePrList("a/b", j)).toThrow();
   });
+  it("rejects a row with no files array, so unknown files never classify as clean", () => {
+    const { files: _f, ...nofiles } = row;
+    expect(() => parsePrList("a/b", JSON.stringify([nofiles]))).toThrow();
+  });
   it("rejects a bad repo name", () => {
     expect(() => parsePrList("a b/c", "[]")).toThrow();
   });
@@ -64,6 +74,14 @@ describe("the gh argv allowlist", () => {
 });
 
 describe("renderDryRun", () => {
+  it("cleans control characters out of file paths in the reason", () => {
+    const text = renderDryRun([classify(pr({ files: ["AGENTS.md\u001b[31m"] }))]);
+    expect(text).not.toMatch(/\u001b/);
+  });
+  it("sends a capped file list to mk", () => {
+    const files = Array.from({ length: 100 }, (_, i) => `f${i}.go`);
+    expect(classify(pr({ files })).waitingOn).toBe("mk");
+  });
   it("reports counts by who is waited on, drafts apart, and unmapped repos", () => {
     const rows = [classify(pr()), classify(pr({ isDraft: true })), classify(pr({ files: ["AGENTS.md"] })), classify(pr({ mergeable: "CONFLICTING" }))];
     const text = renderDryRun(rows, ["x/y"]);

@@ -38,11 +38,18 @@ const MK_ONLY = [
   /(^|\/)\.codex\//,
   /(^|\/)hooks?\//,
   /(^|\/)settings(\.[a-z]+)?\.json$/,
-  /^\.github\/workflows\//,
-  /(^|\/)(release|install|publish)[^/]*\.(sh|py|mjs|js|ts)$/,
+  /(^|\/)\.agents\//,
+  /(^|\/)SKILL\.md$/,
+  /^\.github\/(workflows\/|[^/]*instructions[^/]*\.md$)/,
+  /(^|\/)(release|install|publish)[^/]*$/, // any extension, or none
 ];
 
 export const mkOnlyPaths = (files: readonly string[]): string[] => files.filter((f) => MK_ONLY.some((re) => re.test(f)));
+
+/** `gh pr list --json files` returns at most this many paths per PR. */
+export const FILE_CAP = 100;
+export const REPO_LIMIT = 300;
+export const PR_LIMIT = 100;
 
 const FAIL = new Set(["FAILURE", "ERROR", "TIMED_OUT", "CANCELLED", "STARTUP_FAILURE", "ACTION_REQUIRED"]);
 const GREEN = new Set(["SUCCESS", "NEUTRAL", "SKIPPED"]);
@@ -50,8 +57,10 @@ const GREEN = new Set(["SUCCESS", "NEUTRAL", "SKIPPED"]);
 /** Who the PR waits on. Drafts wait on nobody (no card). The vizier column is a hint, not an authorization. */
 export function classify(pr: GhPrRow): Classified {
   if (pr.isDraft) return { pr, waitingOn: null, reason: "draft" };
+  // An empty or capped file list cannot clear the protected-path gate, so it goes to mk.
+  if (pr.files.length === 0 || pr.files.length >= FILE_CAP) return { pr, waitingOn: "mk", reason: "changed files unknown or truncated" };
   const protectedPaths = mkOnlyPaths(pr.files);
-  if (protectedPaths.length) return { pr, waitingOn: "mk", reason: `touches ${protectedPaths.slice(0, 3).join(", ")}` };
+  if (protectedPaths.length) return { pr, waitingOn: "mk", reason: `touches ${protectedPaths.slice(0, 3).map((f) => cleanTitle(f, 80)).join(", ")}` };
   if (pr.mergeable === "CONFLICTING") return { pr, waitingOn: "coordinator", reason: "conflicts with base" };
   if (pr.reviewDecision === "CHANGES_REQUESTED") return { pr, waitingOn: "coordinator", reason: "changes requested" };
   if (pr.checks.some((c) => FAIL.has(c))) return { pr, waitingOn: "coordinator", reason: "a check is failing" };
@@ -88,7 +97,7 @@ export function parsePrList(repo: string, json: string): GhPrRow[] {
   const v: unknown = JSON.parse(json);
   if (!Array.isArray(v)) throw new Error("gh pr list did not return an array");
   return v.map((r: Record<string, any>) => {
-    if (typeof r.number !== "number" || typeof r.url !== "string" || !PR_URL.test(r.url)) throw new Error("malformed PR row");
+    if (typeof r.number !== "number" || typeof r.url !== "string" || !PR_URL.test(r.url) || !Array.isArray(r.files)) throw new Error("malformed PR row");
     return {
       repo,
       number: r.number,
@@ -101,7 +110,7 @@ export function parsePrList(repo: string, json: string): GhPrRow[] {
       reviewDecision: String(r.reviewDecision ?? ""),
       mergeable: String(r.mergeable ?? "UNKNOWN"),
       checks: (r.statusCheckRollup ?? []).map((c: any) => String(c.conclusion || c.state || c.status || "")).filter(Boolean),
-      files: (r.files ?? []).map((f: any) => String(f.path ?? "")),
+      files: r.files.map((f: any) => String(f.path ?? "")),
       updatedAt: String(r.updatedAt ?? ""),
     };
   });
@@ -109,5 +118,5 @@ export function parsePrList(repo: string, json: string): GhPrRow[] {
 
 /** The only gh argv this feature may use: read verbs, fixed fields. */
 export const PR_FIELDS = "number,title,url,isDraft,author,reviewRequests,reviewDecision,mergeable,statusCheckRollup,files,updatedAt";
-export const ghRepoListArgv = (owner: string): string[] => ["repo", "list", owner, "--no-archived", "--limit", "300", "--json", "nameWithOwner"];
-export const ghPrListArgv = (repo: string): string[] => ["pr", "list", "--repo", repo, "--state", "open", "--limit", "100", "--json", PR_FIELDS];
+export const ghRepoListArgv = (owner: string): string[] => ["repo", "list", owner, "--no-archived", "--limit", String(REPO_LIMIT), "--json", "nameWithOwner"];
+export const ghPrListArgv = (repo: string): string[] => ["pr", "list", "--repo", repo, "--state", "open", "--limit", String(PR_LIMIT), "--json", PR_FIELDS];
