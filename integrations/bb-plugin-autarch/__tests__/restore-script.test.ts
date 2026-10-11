@@ -220,7 +220,11 @@ describe("launchers", () => {
         `exec /usr/bin/env -i PATH=/usr/sbin:/usr/bin:/sbin:/bin /bin/bash --noprofile --norc "$_d/${name.replace(/\.sh$/, ".bash")}" "$@"`,
       ]);
       expect(lines.findIndex((l) => l.includes("refusing to run as root"))).toBeLessThan(lines.findIndex((l) => l.startsWith("exec ")));
-      expect(statSync(join(SCRIPTS, name)).mode & 0o777).toBe(0o755);
+      // git stores only 644/755 and the checkout applies the umask, so a group-writable 0775 is the same file: assert the
+      // readable-and-executable bits and no world write, not the exact mode.
+      const mode = statSync(join(SCRIPTS, name)).mode;
+      expect(mode & 0o755).toBe(0o755);
+      expect(mode & 0o002).toBe(0);
     });
   }
   it("the bodies are not executable on their own", () => {

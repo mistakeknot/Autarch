@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { REPO_PROJECTS, planCards, renderPlan, classify, cleanTitle, ghPrListArgv, ghRepoListArgv, mkOnlyPaths, parsePrList, renderDryRun, type GhPrRow } from "../ghsync.js";
+import { REPO_PROJECTS, keyFamily, planCards, renderPlan, classify, cleanTitle, ghPrListArgv, ghRepoListArgv, mkOnlyPaths, parsePrList, renderDryRun, type GhPrRow } from "../ghsync.js";
 
 const pr = (o: Partial<GhPrRow> | Readonly<Record<string, unknown>> = {}): GhPrRow => ({
   repo: "mistakeknot/Autarch", number: 7, url: "https://github.com/mistakeknot/Autarch/pull/7", title: "t", isDraft: false,
@@ -105,10 +105,25 @@ describe("planCards", () => {
     expect(single.move).toMatchObject({ schema: "home-move/v1", kind: "pr", pr: { url: "https://github.com/mistakeknot/Autarch/pull/9" } });
     expect((plan.cards.find((c) => c.urls.length === 2)!.ask!.options as { id: string }[]).map((o) => o.id)).toEqual(["merge-all", "close-all", "leave"]);
   });
-  it("makes no card for vizier, coordinator or draft PRs, and none for unmapped repos", () => {
-    const plan = planCards([classify(pr()), classify(pr({ mergeable: "CONFLICTING" })), classify(pr({ isDraft: true })), bot(5, "mistakeknot/interbase")]);
-    expect(plan.cards).toEqual([]);
-    expect(plan.unmapped).toEqual([{ repo: "mistakeknot/interbase", urls: ["https://github.com/mistakeknot/interbase/pull/5"] }]);
+  it("makes no card for vizier, coordinator or draft PRs, and one MSQ catch-all card per unmapped repo", () => {
+    const plan = planCards([classify(pr()), classify(pr({ mergeable: "CONFLICTING" })), classify(pr({ isDraft: true })), bot(5, "mistakeknot/interbase"), bot(6, "mistakeknot/interbase")]);
+    expect(plan.cards).toHaveLength(1);
+    expect(plan.cards[0]).toMatchObject({ prefix: "MSQ", kind: "unmapped", move: null });
+    expect(plan.cards[0]!.key).toMatch(/^gh-unmapped:mistakeknot:interbase:[0-9a-f]{8}$/);
+    expect(plan.cards[0]!.urls).toHaveLength(2);
+    expect(plan.unmapped).toEqual([{ repo: "mistakeknot/interbase", urls: ["https://github.com/mistakeknot/interbase/pull/5", "https://github.com/mistakeknot/interbase/pull/6"] }]);
+  });
+  it("stay within the filer's 128 characters for a 100-character repo name, and share a family across sets", () => {
+    const long = "x".repeat(100);
+    const plan = planCards([bot(1, `mistakeknot/${long}`), bot(2, `mistakeknot/${long}`)]);
+    expect(plan.cards[0]!.key.length).toBeLessThanOrEqual(128);
+    const a = planCards([bot(1, "mistakeknot/interbase")]).cards[0]!.key;
+    const b = planCards([bot(1, "mistakeknot/interbase"), bot(2, "mistakeknot/interbase")]).cards[0]!.key;
+    expect(a).not.toBe(b);
+    expect(keyFamily(a)).toBe(keyFamily(b));
+    const l1 = planCards([bot(1, `mistakeknot/${"y".repeat(60)}a`)]).cards[0]!.key;
+    const l2 = planCards([bot(1, `mistakeknot/${"y".repeat(60)}b`)]).cards[0]!.key;
+    expect(keyFamily(l1)).not.toBe(keyFamily(l2));
   });
   it("keys are filer-safe, stable, and the batch key follows the set of URLs", () => {
     const a = planCards([bot(1), bot(2)]).cards[0]!;

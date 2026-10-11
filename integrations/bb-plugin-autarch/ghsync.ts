@@ -144,7 +144,7 @@ export interface CardSpec {
   key: string;
   prefix: string;
   title: string;
-  kind: "pr" | "batch";
+  kind: "pr" | "batch" | "unmapped";
   urls: string[];
   /** home-move/v1 body for a single PR; null for a batch. */
   move: Record<string, unknown> | null;
@@ -162,7 +162,28 @@ const isBotCiOnly = (c: Classified): boolean => c.pr.authorIsBot && c.pr.files.l
 const BATCH_QUESTION_MAX = 1900;
 const batchQuestion = (repo: string, urls: string[]): string =>
   `${urls.length} bot-opened pull requests in ${repo} change only CI workflows. Merge, close or leave them all?\n${urls.map((u) => `- ${u}`).join("\n")}`;
-const keyPart = (s: string): string => s.replace(/[^A-Za-z0-9_.-]/g, "-");
+const chunkUrls = (question: (urls: string[]) => string, all: string[]): string[][] => {
+  const chunks: string[][] = [];
+  for (const url of [...all].sort()) {
+    const cur = chunks[chunks.length - 1];
+    if (cur && question([...cur, url]).length <= BATCH_QUESTION_MAX) cur.push(url);
+    else chunks.push([url]);
+  }
+  return chunks;
+};
+const urlHash = (urls: string[]): string => createHash("sha256").update(urls.join("\n")).digest("hex").slice(0, 8);
+/** Prefix of the catch-all project: mk-waiting PRs in repos with no Tasks project get one card per repo here. */
+export const CATCH_ALL_PREFIX = "MSQ";
+const unmappedQuestion = (repo: string, urls: string[]): string =>
+  `${urls.length} open pull request${urls.length === 1 ? "" : "s"} in ${repo} wait on you, and ${repo} has no Tasks project of its own. Look at them, close them or leave them?\n${urls.map((u) => `- ${u}`).join("\n")}`;
+/** Filer-safe and short: the filer takes keys of at most 128 characters, and a repo name can be 100. */
+const keyPart = (s: string): string => {
+  const clean = s.replace(/[^A-Za-z0-9_.-]/g, "-");
+  // A long name keeps a hash of the whole name, so two names that differ only after the cut still get different keys.
+  return clean.length <= 50 && clean === s ? clean : `${clean.slice(0, 40)}-${createHash("sha256").update(s).digest("hex").slice(0, 8)}`;
+};
+/** A set-keyed card key minus its trailing hash: what an earlier card for the same repo shares with this one. */
+export const keyFamily = (key: string): string => key.replace(/:[0-9a-f]{8}$/, ":");
 
 /**
  * The cards to file for the PRs that wait on mk (and only those): one card per PR, except that a repo's bot-opened
@@ -197,14 +218,9 @@ export function planCards(rows: readonly Classified[]): CardPlan {
   for (const [repo, group] of batches) {
     const [owner, name] = repo.split("/") as [string, string];
     // The question lists every URL and must stay under the ask parser's 2000-character limit, so a big set is split.
-    const chunks: string[][] = [];
-    for (const url of group.map((g) => g.pr.url).sort()) {
-      const cur = chunks[chunks.length - 1];
-      if (cur && batchQuestion(repo, [...cur, url]).length <= BATCH_QUESTION_MAX) cur.push(url);
-      else chunks.push([url]);
-    }
+    const chunks = chunkUrls((u) => batchQuestion(repo, u), group.map((g) => g.pr.url));
     for (const urls of chunks) {
-      const hash = createHash("sha256").update(urls.join("\n")).digest("hex").slice(0, 8);
+      const hash = urlHash(urls);
       cards.push({
         key: `gh-bots:${keyPart(owner)}:${keyPart(name)}:${hash}`,
         prefix: REPO_PROJECTS[repo]!,
@@ -223,14 +239,37 @@ export function planCards(rows: readonly Classified[]): CardPlan {
       });
     }
   }
+  for (const [repo, all] of unmapped) {
+    const [owner, name] = repo.split("/") as [string, string];
+    for (const urls of chunkUrls((u) => unmappedQuestion(repo, u), all)) {
+      cards.push({
+        key: `gh-unmapped:${keyPart(owner)}:${keyPart(name)}:${urlHash(urls)}`,
+        prefix: CATCH_ALL_PREFIX,
+        title: `${urls.length} open PR${urls.length === 1 ? "" : "s"} in ${repo} (no Tasks project)`,
+        kind: "unmapped",
+        urls,
+        move: null,
+        ask: {
+          question: unmappedQuestion(repo, urls),
+          options: [
+            { id: "look", label: "Look at them", kind: "ruling-only" },
+            { id: "close-all", label: "Close all", kind: "ruling-only" },
+            { id: "leave", label: "Leave", kind: "ruling-only" },
+          ],
+        },
+      });
+    }
+  }
   cards.sort((a, b) => (a.key < b.key ? -1 : 1));
   return { cards, unmapped: [...unmapped].map(([repo, urls]) => ({ repo, urls })) };
 }
 
 /** The plan as text for mk and the vizier: counts first, then one line per card, then repos with no project. */
 export function renderPlan(plan: CardPlan): string {
-  const out = [`cards to file: ${plan.cards.length} (${plan.cards.filter((c) => c.kind === "batch").length} batched, covering ${plan.cards.filter((c) => c.kind === "batch").reduce((n, c) => n + c.urls.length, 0)} PRs)`];
-  for (const c of plan.cards) out.push(`  [${c.prefix}] ${c.kind === "batch" ? `batch of ${c.urls.length}` : "PR"}  ${c.title}  (${c.key})`);
-  if (plan.unmapped.length) out.push("", "no Tasks project, no card: " + plan.unmapped.map((u) => `${u.repo} (${u.urls.length})`).join(", "));
+  const n = (k: CardSpec["kind"]) => plan.cards.filter((c) => c.kind === k);
+  const covered = (k: CardSpec["kind"]) => n(k).reduce((t, c) => t + c.urls.length, 0);
+  const out = [`cards to file: ${plan.cards.length} (${n("batch").length} batched, covering ${covered("batch")} PRs; ${n("unmapped").length} catch-all under ${CATCH_ALL_PREFIX}, covering ${covered("unmapped")} PRs)`];
+  for (const c of plan.cards) out.push(`  [${c.prefix}] ${c.kind === "pr" ? "PR" : `${c.kind} of ${c.urls.length}`}  ${c.title}  (${c.key})`);
+  if (plan.unmapped.length) out.push("", `no Tasks project of their own, filed under ${CATCH_ALL_PREFIX}: ` + plan.unmapped.map((u) => `${u.repo} (${u.urls.length})`).join(", "));
   return out.join("\n");
 }
