@@ -159,6 +159,9 @@ export interface CardPlan {
 }
 
 const isBotCiOnly = (c: Classified): boolean => c.pr.authorIsBot && c.pr.files.length > 0 && c.pr.files.every((f) => f.startsWith(".github/workflows/"));
+const BATCH_QUESTION_MAX = 1900;
+const batchQuestion = (repo: string, urls: string[]): string =>
+  `${urls.length} bot-opened pull requests in ${repo} change only CI workflows. Merge, close or leave them all?\n${urls.map((u) => `- ${u}`).join("\n")}`;
 const keyPart = (s: string): string => s.replace(/[^A-Za-z0-9_.-]/g, "-");
 
 /**
@@ -187,30 +190,38 @@ export function planCards(rows: readonly Classified[]): CardPlan {
       title: `Merge or decide: ${r.pr.repo}#${r.pr.number} ${cleanTitle(r.pr.title, 80)}`,
       kind: "pr",
       urls: [r.pr.url],
-      move: { schema: "home-move/v1", kind: "pr", pr: { url: r.pr.url, summary: cleanTitle(`${r.pr.repo}#${r.pr.number}: ${r.reason}`, 190) } },
+      move: { schema: "home-move/v1", kind: "pr", pr: { url: r.pr.url, summary: `${r.pr.repo}#${r.pr.number} is waiting on you` } },
       ask: null,
     });
   }
   for (const [repo, group] of batches) {
-    const urls = group.map((g) => g.pr.url).sort();
     const [owner, name] = repo.split("/") as [string, string];
-    const hash = createHash("sha256").update(urls.join("\n")).digest("hex").slice(0, 8);
-    cards.push({
-      key: `gh-bots:${keyPart(owner)}:${keyPart(name)}:${hash}`,
-      prefix: REPO_PROJECTS[repo]!,
-      title: `${urls.length} dependency bumps to CI workflows in ${repo}`,
-      kind: "batch",
-      urls,
-      move: null,
-      ask: {
-        question: `${urls.length} bot-opened pull requests in ${repo} change only CI workflows. Merge, close or leave them all?\n${urls.map((u) => `- ${u}`).join("\n")}`,
-        options: [
-          { id: "merge-all", label: "Merge all", kind: "ruling-only" },
-          { id: "close-all", label: "Close all", kind: "ruling-only" },
-          { id: "leave", label: "Leave", kind: "ruling-only" },
-        ],
-      },
-    });
+    // The question lists every URL and must stay under the ask parser's 2000-character limit, so a big set is split.
+    const chunks: string[][] = [];
+    for (const url of group.map((g) => g.pr.url).sort()) {
+      const cur = chunks[chunks.length - 1];
+      if (cur && batchQuestion(repo, [...cur, url]).length <= BATCH_QUESTION_MAX) cur.push(url);
+      else chunks.push([url]);
+    }
+    for (const urls of chunks) {
+      const hash = createHash("sha256").update(urls.join("\n")).digest("hex").slice(0, 8);
+      cards.push({
+        key: `gh-bots:${keyPart(owner)}:${keyPart(name)}:${hash}`,
+        prefix: REPO_PROJECTS[repo]!,
+        title: `${urls.length} dependency bumps to CI workflows in ${repo}`,
+        kind: "batch",
+        urls,
+        move: null,
+        ask: {
+          question: batchQuestion(repo, urls),
+          options: [
+            { id: "merge-all", label: "Merge all", kind: "ruling-only" },
+            { id: "close-all", label: "Close all", kind: "ruling-only" },
+            { id: "leave", label: "Leave", kind: "ruling-only" },
+          ],
+        },
+      });
+    }
   }
   cards.sort((a, b) => (a.key < b.key ? -1 : 1));
   return { cards, unmapped: [...unmapped].map(([repo, urls]) => ({ repo, urls })) };

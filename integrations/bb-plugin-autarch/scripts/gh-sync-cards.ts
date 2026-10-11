@@ -36,6 +36,7 @@ if (notRead.length) throw new Error("some lists were not fully read; nothing fil
 const rootsFile = argValue("--roots");
 if (!rootsFile) throw new Error("--apply needs --roots <json>");
 const roots = JSON.parse(readFileSync(rootsFile, "utf8")) as Record<string, { project: string; root: string }>;
+const failed: string[] = [];
 const dir = mkdtempSync(join(tmpdir(), "gh-sync-"));
 for (const c of plan.cards) {
   const r = roots[c.prefix];
@@ -44,12 +45,24 @@ for (const c of plan.cards) {
     continue;
   }
   const args = ["needs-mk", "file", "--project", c.prefix, "--title", c.title, "--request", c.key];
+  // Every card carries its own project and root, so a PR in another repo never takes the checkout's.
+  const ask = c.ask ?? { question: c.title, options: [{ id: "noted", label: "Noted", kind: "ruling-only" }, { id: "not-now", label: "Not now", kind: "ruling-only" }] };
+  writeFileSync(join(dir, "ask.json"), JSON.stringify({ ...ask, project: r.project, project_root: r.root }));
+  args.push("--ask-file", join(dir, "ask.json"));
   if (c.move) {
     writeFileSync(join(dir, "move.json"), JSON.stringify(c.move));
     args.push("--move", join(dir, "move.json"));
-  } else {
-    writeFileSync(join(dir, "ask.json"), JSON.stringify({ ...c.ask, project: r.project, project_root: r.root }));
-    args.push("--ask-file", join(dir, "ask.json"));
   }
-  console.log(execFileSync("autarch", args, { encoding: "utf8", timeout: 120_000 }).trim());
+  try {
+    console.log(execFileSync("autarch", args, { encoding: "utf8", timeout: 120_000 }).trim());
+  } catch (e) {
+    // One refused card (for example a PR whose title changed since it was filed) must not stop the rest.
+    failed.push(c.key);
+    console.log(`FAILED ${c.key}: ${String((e as Error).message).split("\n")[0]}`);
+  }
 }
+if (failed.length) {
+  console.log(`\n${failed.length} card(s) not filed; the rest were. Re-running files only what is missing.`);
+  process.exitCode = 1;
+}
+console.log("Note: a batch card is keyed on its PR set. If that set changed since an earlier run, the earlier batch card stays open until mk closes it.");

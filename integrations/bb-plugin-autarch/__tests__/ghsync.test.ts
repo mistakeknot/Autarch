@@ -124,3 +124,16 @@ describe("planCards", () => {
     expect(renderPlan(plan)).toContain("cards to file: 1");
   });
 });
+
+describe("planCards batch size", () => {
+  it("splits a big batch so every question fits the ask limit", () => {
+    const rows = Array.from({ length: 60 }, (_, i) =>
+      classify({ repo: "mistakeknot/Autarch", number: 100 + i, title: "bump", url: `https://github.com/mistakeknot/Autarch/pull/${100 + i}`, isDraft: false, authorIsBot: true, files: [".github/workflows/ci.yml"], mergeable: "MERGEABLE", reviewDecision: "", checks: "pass" } as never),
+    );
+    const plan = planCards(rows);
+    const batches = plan.cards.filter((c) => c.kind === "batch");
+    expect(batches.length).toBeGreaterThan(1);
+    expect(batches.reduce((n, c) => n + c.urls.length, 0)).toBe(60);
+    for (const b of batches) expect(String((b.ask as { question: string }).question).length).toBeLessThanOrEqual(2000);
+  });
+});
