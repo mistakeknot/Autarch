@@ -166,7 +166,7 @@ export interface CardPlan {
 }
 
 const prQuestion = (repo: string, n: number, title: string, url: string): string =>
-  `${repo}#${n} ${cleanTitle(title, 80)} waits on you. Merge it, close it or leave it?\n${url}`;
+  `${url}\n${repo}#${n} ${cleanTitle(title, 80)} waits on you. Merge it, close it or leave it?`;
 /** Key an earlier gh-sync filed a single-PR card under (a Noted / Not now ask); an open one stands in for the new card. */
 export const legacyPrKey = (key: string): string => key.replace(/^gh-ask:/, "gh-pr:");
 const isBotCiOnly = (c: Classified): boolean => c.pr.authorIsBot && c.pr.files.length > 0 && c.pr.files.every((f) => f.startsWith(".github/workflows/"));
@@ -222,7 +222,7 @@ export function planCards(rows: readonly Classified[], bound?: ReadonlySet<strin
     cards.push({
       key: `gh-ask:${keyPart(owner)}:${keyPart(name)}:${r.pr.number}`,
       prefix,
-      title: `Merge or decide: ${r.pr.repo}#${r.pr.number} ${cleanTitle(r.pr.title, 80)}`,
+      title: `Merge or decide: ${r.pr.url} ${cleanTitle(r.pr.title, 60)}`,
       kind: "pr",
       urls: [r.pr.url],
       // The move stays so a PR merged or closed on GitHub still clears the card; the Queue shows only the decision.
@@ -328,3 +328,16 @@ export function parseSyncArgs(argv: string[]): { apply: boolean; roots?: string 
 
 /** True when the text lists this exact PR URL (`/pull/1` does not match `/pull/10`). */
 export const mentionsPr = (text: string, url: string): boolean => text.split(/[\s,()<>"']+/).includes(url);
+
+/**
+ * What to do with a single-PR card given the descriptions of every open card in the rooted projects. An open card under the same
+ * key is "filed" whatever its wording (the filer's identity includes title and question, so replaying changed text would be
+ * refused); an open card under the old gh-pr: key or a batch listing the PR holds it.
+ */
+export function prCardAction(open: readonly string[], key: string, url: string): "filed" | "legacy" | "in-set" | "file" {
+  const keys = open.map(requestKey);
+  if (keys.includes(key)) return "filed";
+  if (keys.includes(legacyPrKey(key))) return "legacy";
+  if (open.some((d) => /^gh-(bots|unmapped):/.test(requestKey(d) ?? "") && mentionsPr(d, url))) return "in-set";
+  return "file";
+}

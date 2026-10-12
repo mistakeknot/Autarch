@@ -12,7 +12,7 @@ import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { gh } from "./gh-util.js";
-import { OWNERS, keyFamily, legacyPrKey, PR_LIMIT, REPO_LIMIT, REPO, classify, ghPrListArgv, ghRepoListArgv, pageDescriptions, nextCursor, parseSyncArgs, parsePrList, planCards, mentionsPr, renderPlan, requestKey, type Classified } from "../ghsync.js";
+import { OWNERS, keyFamily, prCardAction, legacyPrKey, PR_LIMIT, REPO_LIMIT, REPO, classify, ghPrListArgv, ghRepoListArgv, pageDescriptions, nextCursor, parseSyncArgs, parsePrList, planCards, mentionsPr, renderPlan, requestKey, type Classified } from "../ghsync.js";
 
 // One plain line for a failed read (for example a rate limit) instead of a stack trace.
 process.on("uncaughtException", (e) => {
@@ -112,18 +112,18 @@ for (const c of plan.cards) {
   if (c.kind === "pr") {
     // A bot PR that already sits in an open batch or catch-all card must not also get a card of its own.
     const url = (c.move as { pr: { url: string } }).pr.url;
+    const all: string[] = [];
     let unread = false;
-    let inSet = false;
-    let legacy = false;
     for (const p of Object.keys(roots)) {
       const list = openCards(p);
       if (!list) unread = true;
-      else if (list.some((d) => /^gh-(bots|unmapped):/.test(requestKey(d) ?? "") && mentionsPr(d, url))) inSet = true;
-      else if (list.some((d) => requestKey(d) === legacyPrKey(c.key))) legacy = true;
+      else all.push(...list);
     }
     if (unread) { failed.push(c.key); console.log(`FAILED ${c.key}: could not check for an open card of the same repo`); continue; }
-    if (legacy) { console.log(`HELD ${c.key}: an older card for this PR (${legacyPrKey(c.key)}) is still open; close it, then re-run`); held.push(c.key); continue; }
-    if (inSet) { console.log(`HELD ${c.key}: the PR is in an open batch card; close it, then re-run`); held.push(c.key); continue; }
+    const action = prCardAction(all, c.key, url);
+    if (action === "filed") { console.log(`already filed ${c.key}`); continue; }
+    if (action === "legacy") { console.log(`HELD ${c.key}: an older card for this PR (${legacyPrKey(c.key)}) is still open; close it, then re-run`); held.push(c.key); continue; }
+    if (action === "in-set") { console.log(`HELD ${c.key}: the PR is in an open batch card; close it, then re-run`); held.push(c.key); continue; }
   }
   try {
     console.log(execFileSync("autarch", args, { encoding: "utf8", timeout: 120_000 }).trim());

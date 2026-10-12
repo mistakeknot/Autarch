@@ -474,6 +474,142 @@ describe("card close", () => {
   });
 });
 
+describe("a card gone from tasks closes its moves", () => {
+  it.each([
+    ["canceled", (r: Rig, t: { id: string }) => r.edit(r.fake.tasks.find((x) => x.id === t.id)!, { status: "canceled" }), "card canceled in tasks"],
+    ["deleted", (r: Rig, t: { id: string }) => void (r.fake.tasks = r.fake.tasks.filter((x) => x.id !== t.id)), "card deleted in tasks"],
+  ])("%s: an open move and a claimed move close, by home, with the reason as evidence", async (_n, gone, evidence) => {
+    const r = rig();
+    const a = await withMove(r, prMove());
+    const b = await withMove(r, prMove("https://github.com/o/r/pull/13"));
+    r.svc.claimMove(b.id, 1);
+    gone(r, a);
+    gone(r, b);
+    await r.poll();
+    for (const t of [a, b]) expect(r.svc.store.move(t.id, 1)).toMatchObject({ state: "closed", closed_by: "home", evidence });
+    expect(r.db.prepare("SELECT COUNT(*) c FROM move_closes").get()).toEqual({ c: 0 }); // the tasks card is already gone
+  });
+
+  it("unlabelled keeps the move: the card is still open in tasks", async () => {
+    const r = rig();
+    const t = await withMove(r, prMove());
+    r.edit(t, { labelIds: [] });
+    await r.poll();
+    expect(r.svc.store.move(t.id, 1)!.state).toBe("open");
+  });
+
+  // As a card that left before gone cards closed their moves: closed in Home's cache, its move still live.
+  const orphan = (r: Rig, id: string) => r.db.prepare("UPDATE moves SET state = 'open', closed_at = NULL, closed_by = NULL, evidence = NULL WHERE task_id = ?").run(id);
+
+  it("a sweep re-reads a card with a live move and closes it when tasks still has the card closed; a live card is untouched", async () => {
+    const r = rig();
+    const gone = await withMove(r, prMove());
+    const live = await withMove(r, prMove("https://github.com/o/r/pull/13"));
+    r.edit(gone, { status: "canceled" });
+    await r.poll();
+    orphan(r, gone.id);
+    await r.poll();
+    expect(r.svc.store.move(gone.id, 1)).toMatchObject({ state: "closed", closed_by: "home", evidence: "card canceled in tasks" });
+    expect(r.svc.store.move(live.id, 1)!.state).toBe("open");
+    expect(r.svc.liveMoveCards()).toEqual([live.id]);
+  });
+
+  it("a card reopened in tasks keeps its move, though Home's cache still says closed", async () => {
+    const r = rig();
+    const t = await withMove(r, prMove());
+    r.edit(t, { status: "canceled" });
+    await r.poll();
+    orphan(r, t.id);
+    r.edit(t, { status: "todo" });
+    await r.poll();
+    // Reopening asks again (a new generation supersedes the old move); the sweep did not close it as gone.
+    expect(r.svc.store.move(t.id, 1)!.evidence).toBe("superseded");
+    expect(r.svc.liveMoveCards()).toEqual([t.id]);
+  });
+
+  it("a card unlabelled first and cancelled later has its move closed on the next sweep", async () => {
+    const r = rig();
+    const t = await withMove(r, prMove());
+    r.edit(t, { labelIds: [] });
+    await r.poll();
+    await r.poll(); // still open and unlabelled: re-read, nothing changes
+    expect(r.svc.store.move(t.id, 1)!.state).toBe("open");
+    r.edit(t, { status: "canceled" });
+    await r.poll();
+    expect(r.svc.store.move(t.id, 1)).toMatchObject({ state: "closed", closed_by: "home", evidence: "card canceled in tasks" });
+  });
+
+  it("a deleted card whose move was left live has it closed on the next sweep", async () => {
+    const r = rig();
+    const t = await withMove(r, prMove());
+    r.fake.tasks = r.fake.tasks.filter((x) => x.id !== t.id);
+    await r.poll();
+    orphan(r, t.id);
+    await r.poll();
+    expect(r.svc.store.move(t.id, 1)).toMatchObject({ state: "closed", evidence: "card deleted in tasks" });
+  });
+
+  it("a sweep whose second re-read fails closes neither move, and the next sweep closes both", async () => {
+    const r = rig();
+    const a = await withMove(r, prMove());
+    const b = await withMove(r, prMove("https://github.com/o/r/pull/13"));
+    r.edit(a, { status: "canceled" });
+    r.edit(b, { status: "done" });
+    await r.poll();
+    orphan(r, a.id);
+    orphan(r, b.id);
+    r.fake.failures.push({ method: "getTask", nth: r.fake.callsOf("getTask").length + 2, error: new Error("tasks is down") });
+    expect(await r.poll()).toMatchObject({ changed: false, ok: false });
+    expect([r.svc.store.move(a.id, 1)!.state, r.svc.store.move(b.id, 1)!.state]).toEqual(["open", "open"]);
+    expect((await r.poll()).ok).toBe(true);
+    expect([r.svc.store.move(a.id, 1)!.state, r.svc.store.move(b.id, 1)!.state]).toEqual(["closed", "closed"]);
+  });
+
+  it("a repeat sweep changes nothing and keeps the closed move's evidence", async () => {
+    const r = rig();
+    const t = await withMove(r, prMove());
+    r.edit(t, { status: "canceled" });
+    await r.poll();
+    orphan(r, t.id);
+    await r.poll();
+    const closed = r.svc.store.move(t.id, 1)!;
+    expect(closed.state).toBe("closed");
+    expect(await r.poll()).toMatchObject({ changed: false, ok: true });
+    expect(r.svc.store.move(t.id, 1)).toEqual(closed);
+    expect(r.svc.liveMoveCards()).toEqual([]);
+  });
+
+  it("a card unlabelled and labelled again keeps its move", async () => {
+    const r = rig();
+    const t = await withMove(r, prMove());
+    const labels = t.labelIds;
+    r.edit(t, { labelIds: [] });
+    await r.poll();
+    r.edit(t, { labelIds: labels });
+    await r.poll();
+    expect(r.svc.liveMoveCards()).toEqual([t.id]);
+    expect(r.svc.store.move(t.id, 1)!.evidence ?? "").not.toMatch(/in tasks$/);
+  });
+
+  it("a card gone as closed with no status read closes its moves as closed", async () => {
+    const r = rig();
+    const t = await withMove(r, prMove());
+    expect(r.svc.cardGone(t.id, "closed", undefined).changed).toBe(true);
+    expect(r.svc.store.move(t.id, 1)).toMatchObject({ state: "closed", evidence: "card closed in tasks" });
+  });
+
+  it("a picked card closed in tasks closes its move too, and stays ruled", async () => {
+    const r = rig();
+    const t = await withMove(r, prMove());
+    const d = r.gens(t.id)[0];
+    r.mkPick(d.id);
+    r.edit(t, { status: "done" });
+    await r.poll();
+    expect(r.svc.store.move(t.id, 1)).toMatchObject({ state: "closed", evidence: "card done in tasks" });
+    expect(r.cardRow(t.id).state).toBe("ruled");
+  });
+});
+
 describe("rpc contract and CLI", () => {
   const parse = (k: keyof typeof homeMethods, v: unknown) => (homeMethods[k].input as z.ZodTypeAny).safeParse(v).success;
 
