@@ -5,8 +5,8 @@ import { describe, expect, it, vi } from "vitest";
 
 vi.mock("@get-bb/plugin-sdk/app", () => ({ ThreadChat: () => null }));
 
-import { AsksPanel, AskCard, owedTasks, laterOutcome, runLater, LaterFailure, type AsksData, type OwedAsk } from "../ui/asks.js";
-import { MoveCard, moveButtons, omitDecisionPrMoves, omitLaterTasks, YourMovePanel } from "../ui/yourmove.js";
+import { AsksPanel, AskCard, decideTasks, owedTasks, laterOutcome, runLater, LaterFailure, type AsksData, type OwedAsk } from "../ui/asks.js";
+import { decideMoves, MoveCard, moveButtons, omitDecideTasks, omitDecisionPrMoves, omitLaterTasks, YourMovePanel } from "../ui/yourmove.js";
 import type { MoveView } from "../moveview.js";
 import { waitingSummary, WaitingStrip } from "../ui/waiting.js";
 import type { Waiting } from "../waiting.js";
@@ -273,5 +273,51 @@ describe("a failed Later or Move back is shown", () => {
     expect(html).toContain('role="alert"');
     expect(html).toContain("no such card");
     expect(html).toMatch(/try again/i);
+  });
+});
+
+describe("a Decide card shows its card's own moves (bead mk-1g829)", () => {
+  const groups = (over: object) => ({ yourMove: [], reported: [], later: [], hidden: [], audit: [], ...over }) as never;
+  const mv: MoveView = {
+    task_id: "task-1", generation: 1, kind: "script", state: "open", title: "Run the install", owner: "thr-a", opened_at: "2026-10-12T02:40:07.000Z",
+    claimed_at: null, skipped_at: null, card_later: false, checked_at: null, report_deadline_at: null, url: null, need: null, pr: null,
+    script: null, commands: [], report: null, closed_at: null, closed_by: null, evidence: null,
+  };
+  const HOLD = { reason: "waiting on CI", by: "thr-a", at: "2026-10-12T02:41:00.000Z" };
+
+  it("decideTasks lists only cards in the Decide list, not set-aside or held ones", () => {
+    const d = data([ask(), ask({ id: "d2", task_id: "task-2", later: LATER }), ask({ id: "d3", task_id: "task-3", held: HOLD } as never), ask({ id: "d4", task_id: null } as never)]);
+    expect([...decideTasks(d)]).toEqual(["task-1"]);
+  });
+
+  it("omitDecideTasks takes those cards' moves out of the panel above; held moves and other cards stay", () => {
+    const d = groups({ yourMove: [mv, { ...mv, task_id: "t2" }, { ...mv, generation: 2, held: HOLD }], reported: [{ ...mv, generation: 3 }], later: [mv] });
+    const out = omitDecideTasks(d, new Set(["task-1"]));
+    expect(out.yourMove.map((m: MoveView) => `${m.task_id}:${m.generation}`)).toEqual(["t2:1", "task-1:2"]);
+    expect(out.reported).toHaveLength(0);
+    expect(out.later).toHaveLength(1); // the Later group is left to omitLaterTasks
+  });
+
+  it("decideMoves gives the card's waiting and reported moves with their section, held ones left out", () => {
+    const d = groups({ yourMove: [mv, { ...mv, task_id: "t2" }, { ...mv, generation: 2, held: HOLD }], reported: [{ ...mv, generation: 3 }] });
+    expect(decideMoves(d, "task-1").map(({ m, section }) => `${section}:${m.generation}`)).toEqual(["yourMove:1", "reported:3"]);
+  });
+
+  it("the selected Decide card renders its moves under it, and the list row says one is inside", () => {
+    const h = { onCheck: noop, onClaim: noop, onSkip: noop, onNote: noop };
+    const d = groups({ yourMove: [mv] });
+    const html = panel([ask()], {
+      renderDecideMoves: (id) => decideMoves(d, id).map(({ m, section }) => <MoveCard key={m.generation} m={m} h={h} section={section} />),
+      decideMovesOn: (id) => decideMoves(d, id).length,
+    });
+    const card = html.slice(html.indexOf("data-decide-moves"));
+    expect(card).toContain("Run the install");
+    expect(html).toContain("data-ask-moves");
+    expect(html).toMatch(/your move inside/);
+  });
+
+  it("a card with no moves shows no marker", () => {
+    const html = panel([ask()], { renderDecideMoves: () => [], decideMovesOn: () => 0 });
+    expect(html).not.toContain("data-ask-moves");
   });
 });

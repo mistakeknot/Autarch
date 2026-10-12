@@ -155,6 +155,20 @@ export function omitLaterTasks(data: MoveViewGroups, tasks: ReadonlySet<string>)
   return { ...data, later: data.later.filter((m) => !tasks.has(m.task_id)) };
 }
 
+/** The active groups without the moves of cards in the Decide list, which show those moves under the card itself (bead mk-1g829). */
+export function omitDecideTasks(data: MoveViewGroups, tasks: ReadonlySet<string>): MoveViewGroups {
+  const keep = (m: Pick<MoveView, "held" | "task_id">) => !!m.held || !tasks.has(m.task_id);
+  return { ...data, yourMove: data.yourMove.filter(keep), reported: data.reported.filter(keep) };
+}
+
+/** The moves a Decide card shows under itself: its card's moves waiting on you or reported, held ones left out. */
+export function decideMoves(data: MoveViewGroups, task: string): { m: MoveView; section: "yourMove" | "reported" }[] {
+  return [
+    ...data.yourMove.filter((m) => m.task_id === task && !m.held).map((m) => ({ m, section: "yourMove" as const })),
+    ...data.reported.filter((m) => m.task_id === task && !m.held).map((m) => ({ m, section: "reported" as const })),
+  ];
+}
+
 /** The groups without the PR moves on cards that have a decision: a PR waiting on mk is that decision card alone. The move
  * still runs out of sight, so a PR merged or closed on GitHub closes its card. */
 export function omitDecisionPrMoves(data: MoveViewGroups, tasks: ReadonlySet<string>): MoveViewGroups {

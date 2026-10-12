@@ -311,7 +311,7 @@ export function optionEffect(o: { kind: string; instruction?: string; reversible
 }
 
 /** The Decide queue: a short row per ask on the left, the selected ask in full on the right (below when narrow). */
-export function DecideQueue({ owed, onPick, onOpen, nowMs, onNote, onLater, onView }: { owed: OwedAsk[]; onPick: OnPick; onOpen: (thread: string) => void; nowMs: number; onNote?: OnNote; onLater?: OnLater; onView?: (decisionId: string | null) => void }) {
+export function DecideQueue({ owed, onPick, onOpen, nowMs, onNote, onLater, onView, renderMoves, movesOn }: { owed: OwedAsk[]; onPick: OnPick; onOpen: (thread: string) => void; nowMs: number; onNote?: OnNote; onLater?: OnLater; onView?: (decisionId: string | null) => void; renderMoves?: (taskId: string) => ReactNode; movesOn?: (taskId: string) => number }) {
   const [selected, setSelected] = useState<string | null>(null);
   const current = currentAsk(owed, selected);
   const viewingId = current?.id ?? null;
@@ -357,6 +357,7 @@ export function DecideQueue({ owed, onPick, onOpen, nowMs, onNote, onLater, onVi
                   {ageText(o.filed_at, nowMs)}
                   {old ? <span className="font-medium" data-old-ask>{" · old: still needed?"}</span> : null}
                   {rec ? ` · rec: ${rec.label}` : ""}
+                  {movesOn && o.task_id && movesOn(o.task_id) > 0 ? <span className="font-medium" data-ask-moves>{" · your move inside"}</span> : null}
                 </span>
               </button>
             </li>
@@ -365,6 +366,8 @@ export function DecideQueue({ owed, onPick, onOpen, nowMs, onNote, onLater, onVi
       </ol>
       <div ref={cardRef} className="min-w-0 grow-[3] basis-[28rem] scroll-mt-2 sm:sticky sm:top-0">
         <AskCard key={current.id} ask={current} onPick={onPick} onOpen={onOpen} nowMs={nowMs} {...(onNote ? { onNote } : {})} {...(onLater ? { onLater } : {})} />
+        {/* The card's own script, read or context move sits under its decision, not only in a panel above (bead mk-1g829). */}
+        {renderMoves && current.task_id ? <div className="mt-3 space-y-3" data-decide-moves>{renderMoves(current.task_id)}</div> : null}
       </div>
     </div>
   );
@@ -411,12 +414,17 @@ function LaterEntry({ o, onPick, onOpen, nowMs, onNote, onLater, renderMoves }: 
   );
 }
 
+/** The tasks whose decision card is in the Decide list (not set aside, not on hold); each shows its moves under it. */
+export function decideTasks(data: AsksData): Set<string> {
+  return new Set(data.owed.filter((o) => !o.held && !o.later && o.task_id).map((o) => o.task_id as string));
+}
+
 /** The tasks that have an owed decision card, wherever it shows (Decide, Later or on hold). */
 export function owedTasks(data: AsksData): Set<string> {
   return new Set(data.owed.map((o) => o.task_id).filter((t): t is string => typeof t === "string"));
 }
 
-export function AsksPanel({ data, onPick, onOpen, onRevoke, onDismiss, onNote, onLater, onView, renderMoves, hideHeld, nowMs = Date.now() }: { hideHeld?: boolean; renderMoves?: (taskId: string) => ReactNode; data: AsksData; onPick: OnPick; onOpen: (thread: string) => void; onRevoke?: (approvalId: string) => void; onDismiss?: (decisionId: string, obligationId: string) => void; onNote?: OnNote; onLater?: OnLater; onView?: (decisionId: string | null) => void; nowMs?: number }) {
+export function AsksPanel({ data, onPick, onOpen, onRevoke, onDismiss, onNote, onLater, onView, renderMoves, renderDecideMoves, decideMovesOn, hideHeld, nowMs = Date.now() }: { hideHeld?: boolean; renderMoves?: (taskId: string) => ReactNode; renderDecideMoves?: (taskId: string) => ReactNode; decideMovesOn?: (taskId: string) => number; data: AsksData; onPick: OnPick; onOpen: (thread: string) => void; onRevoke?: (approvalId: string) => void; onDismiss?: (decisionId: string, obligationId: string) => void; onNote?: OnNote; onLater?: OnLater; onView?: (decisionId: string | null) => void; nowMs?: number }) {
   // In the Queue the held cards show under "Blocked on others"; shown here only on the Asks page.
   const held = hideHeld ? [] : data.owed.filter((o) => o.held);
   // Later cards leave the Decide list for their own group below it; a held card stays held even if it was also set aside.
@@ -431,7 +439,7 @@ export function AsksPanel({ data, onPick, onOpen, onRevoke, onDismiss, onNote, o
         <section key={s.key} data-section={s.key}>
           <h2 className="mb-2 text-xs font-semibold uppercase text-muted-foreground">{`${s.title} (${s.items.length})`}</h2>
           {s.key === "decide" ? (
-            <DecideQueue owed={live.owed} onPick={onPick} onOpen={onOpen} nowMs={nowMs} {...(onNote ? { onNote } : {})} {...(onLater ? { onLater } : {})} {...(onView ? { onView } : {})} />
+            <DecideQueue owed={live.owed} onPick={onPick} onOpen={onOpen} nowMs={nowMs} {...(onNote ? { onNote } : {})} {...(onLater ? { onLater } : {})} {...(onView ? { onView } : {})} {...(renderDecideMoves ? { renderMoves: renderDecideMoves } : {})} {...(decideMovesOn ? { movesOn: decideMovesOn } : {})} />
           ) : (
             <div className="space-y-3">
               {s.items.map((i) => (
