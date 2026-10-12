@@ -132,6 +132,7 @@ export class Queue {
       if (service.cardGone(g.id, g.why, g.status).changed) changed = true;
       this.digest.delete(g.id);
     }
+    if (service.closeOrphanMoves() > 0) changed = true;
 
     const all = [...listed.values()];
     service.observeCards(all);

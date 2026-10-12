@@ -474,6 +474,45 @@ describe("card close", () => {
   });
 });
 
+describe("a card gone from tasks closes its moves", () => {
+  it.each([
+    ["canceled", (r: Rig, t: { id: string }) => r.edit(r.fake.tasks.find((x) => x.id === t.id)!, { status: "canceled" }), "card closed in tasks"],
+    ["deleted", (r: Rig, t: { id: string }) => void (r.fake.tasks = r.fake.tasks.filter((x) => x.id !== t.id)), "card deleted in tasks"],
+  ])("%s: an open move and a claimed move close, by home, with the reason as evidence", async (_n, gone, evidence) => {
+    const r = rig();
+    const a = await withMove(r, prMove());
+    const b = await withMove(r, prMove("https://github.com/o/r/pull/13"));
+    r.svc.claimMove(b.id, 1);
+    gone(r, a);
+    gone(r, b);
+    await r.poll();
+    for (const t of [a, b]) expect(r.svc.store.move(t.id, 1)).toMatchObject({ state: "closed", closed_by: "home", evidence });
+    expect(r.db.prepare("SELECT COUNT(*) c FROM move_closes").get()).toEqual({ c: 0 }); // the tasks card is already gone
+  });
+
+  it("unlabelled keeps the move: the card is still open in tasks", async () => {
+    const r = rig();
+    const t = await withMove(r, prMove());
+    r.edit(t, { labelIds: [] });
+    await r.poll();
+    expect(r.svc.store.move(t.id, 1)!.state).toBe("open");
+  });
+
+  it("the sweep closes a move left live on a card that was already gone, and nothing on a live card", async () => {
+    const r = rig();
+    const gone = await withMove(r, prMove());
+    const live = await withMove(r, prMove("https://github.com/o/r/pull/13"));
+    r.edit(gone, { status: "canceled" });
+    await r.poll();
+    // As a card cancelled before gone cards closed their moves: the card is closed and its move still open.
+    r.db.prepare("UPDATE moves SET state = 'open', closed_at = NULL, closed_by = NULL, evidence = NULL WHERE task_id = ?").run(gone.id);
+    expect(r.svc.closeOrphanMoves()).toBe(1);
+    expect(r.svc.store.move(gone.id, 1)).toMatchObject({ state: "closed", closed_by: "home", evidence: "card canceled in tasks" });
+    expect(r.svc.store.move(live.id, 1)!.state).toBe("open");
+    expect(r.svc.closeOrphanMoves()).toBe(0);
+  });
+});
+
 describe("rpc contract and CLI", () => {
   const parse = (k: keyof typeof homeMethods, v: unknown) => (homeMethods[k].input as z.ZodTypeAny).safeParse(v).success;
 

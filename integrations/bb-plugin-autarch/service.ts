@@ -1362,6 +1362,7 @@ export class Service {
   /** T6/T7/T11: the card was closed, unlabelled or deleted in tasks. */
   cardGone(taskId: string, why: "closed" | "unlabelled" | "deleted", status?: string): { changed: boolean } {
     const before = this.sig(taskId);
+    let movesClosed = 0;
     this.store.atomically(() => {
       const row = this.cardRow(taskId);
       if (!row) return;
@@ -1371,6 +1372,9 @@ export class Service {
         ...(why === "deleted" ? { deleted_at: this.now() } : {}),
       });
       const reason = why === "closed" ? "card closed in tasks" : why === "unlabelled" ? "unlabelled" : "card deleted in tasks";
+      // A card closed or deleted in tasks leaves nothing to merge, run or read, so its live moves close with it
+      // (bead mk-t7656). Unlabelled is not gone: the card is still open in tasks and its move may still be owed.
+      if (why !== "unlabelled") movesClosed = this.closeLiveMoves(taskId, reason);
       const latest = this.currentGeneration(taskId);
       if (!latest) {
         this.patchCard(taskId, { state: "closed", display_reason: reason });
@@ -1383,7 +1387,33 @@ export class Service {
       if (!latest.withdrawn_at) this.store.withdrawDecision(latest.id, reason);
       this.patchCard(taskId, { state: "closed", display_reason: reason, next_check_at: null });
     });
-    return { changed: before !== this.sig(taskId) };
+    return { changed: before !== this.sig(taskId) || movesClosed > 0 };
+  }
+
+  private closeLiveMoves(taskId: string, evidence: string): number {
+    let n = 0;
+    for (const g of this.db.prepare("SELECT generation FROM moves WHERE task_id = ? AND state <> 'closed'").all(taskId) as { generation: number }[]) {
+      if (this.store.closeMove(taskId, g.generation, "home", evidence)) n++;
+    }
+    return n;
+  }
+
+  /**
+   * Live moves on cards tasks already closed or deleted: cards that went before a gone card closed its moves,
+   * and so are no longer re-read. Each sweep closes them; once closed they leave the set. Returns how many closed.
+   */
+  closeOrphanMoves(): number {
+    const rows = this.db
+      .prepare(
+        `SELECT DISTINCT c.task_id, c.status, c.deleted_at FROM moves m JOIN cards c ON c.task_id = m.task_id
+         WHERE m.state <> 'closed' AND (c.deleted_at IS NOT NULL OR c.status NOT IN ('backlog','todo','in_progress','in_review'))`,
+      )
+      .all() as { task_id: string; status: string | null; deleted_at: string | null }[];
+    let n = 0;
+    for (const r of rows) {
+      n += this.store.atomically(() => this.closeLiveMoves(r.task_id, r.deleted_at ? "card deleted in tasks" : `card ${r.status} in tasks`));
+    }
+    return n;
   }
 
   /** Observed cards whose retry time has come (the unresolved-retry set). */
