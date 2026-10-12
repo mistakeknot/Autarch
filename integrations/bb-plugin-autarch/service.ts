@@ -970,6 +970,7 @@ export class Service {
   }
   private patchCard(taskId: string, set: Record<string, string | number | null>): void {
     const keys = Object.keys(set);
+    if (keys.length === 0) return;
     this.db
       .prepare(`UPDATE cards SET ${keys.map((k) => `${k} = @${k}`).join(", ")}, updated_at = @__at WHERE task_id = @__id`)
       .run({ ...set, __at: this.now(), __id: taskId });
@@ -1402,6 +1403,7 @@ export class Service {
   /**
    * Cards with a live move, whatever their label or cached status. The sweep re-reads each one not listed open, so a
    * fresh read, never the cache, decides whether its moves close; once they are closed the card leaves this set.
+   * Whatever its project or binding, a card's moves close only on that card's own fresh read.
    */
   liveMoveCards(): string[] {
     return (this.db.prepare("SELECT DISTINCT task_id FROM moves WHERE state <> 'closed' ORDER BY task_id").all() as { task_id: string }[]).map((r) => r.task_id);

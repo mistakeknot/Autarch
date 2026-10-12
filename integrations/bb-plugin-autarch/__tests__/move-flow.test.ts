@@ -549,6 +549,25 @@ describe("a card gone from tasks closes its moves", () => {
     expect(r.svc.store.move(t.id, 1)).toMatchObject({ state: "closed", evidence: "card deleted in tasks" });
   });
 
+  it("a card unlabelled and labelled again keeps its move", async () => {
+    const r = rig();
+    const t = await withMove(r, prMove());
+    const labels = t.labelIds;
+    r.edit(t, { labelIds: [] });
+    await r.poll();
+    r.edit(t, { labelIds: labels });
+    await r.poll();
+    expect(r.svc.liveMoveCards()).toEqual([t.id]);
+    expect(r.svc.store.move(t.id, 1)!.evidence ?? "").not.toMatch(/in tasks$/);
+  });
+
+  it("a card gone as closed with no status read closes its moves as closed", async () => {
+    const r = rig();
+    const t = await withMove(r, prMove());
+    expect(r.svc.cardGone(t.id, "closed", undefined).changed).toBe(true);
+    expect(r.svc.store.move(t.id, 1)).toMatchObject({ state: "closed", evidence: "card closed in tasks" });
+  });
+
   it("a picked card closed in tasks closes its move too, and stays ruled", async () => {
     const r = rig();
     const t = await withMove(r, prMove());
