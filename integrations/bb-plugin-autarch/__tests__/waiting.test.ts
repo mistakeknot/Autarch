@@ -88,7 +88,7 @@ describe("waiting on mk", () => {
 
   it("states what it counts", () => {
     expect(WAITING_DEFINITION).toMatch(/decision/i);
-    expect(WAITING_DEFINITION).toMatch(/move/i);
+    expect(WAITING_DEFINITION).not.toMatch(/move/i); // Home opens no moves (bead mk-1k8pg)
     expect(WAITING_DEFINITION).toMatch(/hold/i);
   });
 });

@@ -211,6 +211,13 @@ export function wireHome(bb: BbPluginApi, handle: StoreHandle, cfg: HomeConfig, 
     const loop = new WakeLoop(svc, deps.sdk ?? sdkAdapter(bb.sdk.threads as unknown as ThreadsLike), (gone) => resolveWakeTarget("", gone, true));
     const caches = new FeedCaches(() => store.db, () => Date.now());
     parts = { store, svc, asks, dele, catchup, loop, caches };
+    // Moves are retired (bead mk-1k8pg): close any left open as soon as the store is ready, before any reader or
+    // poller sees them and whether or not the tasks client exists. A picked card's held unlabel waits for the writer.
+    try {
+      svc.retireMoves();
+    } catch (e) {
+      bb.log.warn(`retire moves: ${e instanceof Error ? e.message : String(e)}`);
+    }
     svc.start();
   });
   bb.onDispose(() => parts?.svc.stop());
@@ -353,16 +360,11 @@ export function wireHome(bb: BbPluginApi, handle: StoreHandle, cfg: HomeConfig, 
           bb.realtime.publish("home-queue-changed", {});
         },
       }));
-      // Moves are retired (bead mk-1k8pg): close any left open before the first poll.
-      if (parts.svc.retireMoves() > 0) {
-        parts.caches.invalidate();
-        bb.realtime.publish("home-queue-changed", {});
-      }
       await queue.run(signal, sleep);
     },
   });
   // PR poller (plan D2): the only automatic closer of a move. Read-only `gh pr view`; a failure leaves the move open.
-  // Home opens no moves since mk-1k8pg, so after the retirement above it finds nothing to poll.
+  // Home opens no moves since mk-1k8pg, so after the retirement at store ready it finds nothing to poll.
   bb.background.service("home-move-poll", {
     async start(signal) {
       while (!signal.aborted && !parts) await sleep(1000, signal);
