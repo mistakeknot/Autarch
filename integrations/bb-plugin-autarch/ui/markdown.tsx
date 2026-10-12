@@ -10,6 +10,8 @@ import { linkify } from "./links.js";
 const INLINE = /(`[^`\n]{1,500}`|\*\*[^*\n]{1,500}\*\*|!?\[[^\]\n]{0,200}\]\([^)\s]{0,2000}\))/g;
 /** A backtick span of any length on one line; a single unmatched backtick scans to the line's end once. */
 const TICKED = /(`[^`\n]*`)/;
+/** A backtick span too long to show as code: split off before bold and links are parsed, so nothing inside it links. */
+const LONG_TICKED = /(`[^`\n]{501,}`)/;
 const LINK = /^(!?)\[([^\]\n]*)\]\(([^)\s]*)\)$/;
 /** Above this size a body is shown as plain wrapped text: no parsing at all. */
 export const MARKDOWN_MAX_CHARS = 20_000;
@@ -24,13 +26,21 @@ export function safeHref(raw: string): string | null {
   }
 }
 
+/** Plain text with its references linked, except inside backticks: code is never linked. */
+function plainLinks(text: string, key: string): ReactNode[] {
+  return text.split(TICKED).map((t, j) => (j % 2 === 0 ? linkify(t, `${key}-${j}`) : t));
+}
+
 function inline(text: string, key: string): ReactNode[] {
+  return text.split(LONG_TICKED).map((chunk, c) => (c % 2 === 1 ? chunk : inlineShort(chunk, `${key}-c${c}`)));
+}
+
+function inlineShort(text: string, key: string): ReactNode[] {
   return text.split(INLINE).map((part, i) => {
     const k = `${key}-${i}`;
-    // A backtick span too long to show as code still is code: nothing inside it becomes a link.
-    if (i % 2 === 0) return part.split(TICKED).map((t, j) => (j % 2 === 0 ? linkify(t, `${k}-${j}`) : t));
+    if (i % 2 === 0) return plainLinks(part, k);
     if (part.startsWith("`")) return <code key={k} className="rounded bg-muted px-1 font-mono text-xs [overflow-wrap:anywhere]">{part.slice(1, -1)}</code>;
-    if (part.startsWith("**")) return <strong key={k}>{linkify(part.slice(2, -2), k)}</strong>;
+    if (part.startsWith("**")) return <strong key={k}>{plainLinks(part.slice(2, -2), k)}</strong>;
     const m = LINK.exec(part);
     if (!m) return part;
     const [, bang, label, url] = m;

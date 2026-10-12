@@ -17,7 +17,7 @@ const LINKS = new RegExp(`(${URL_SRC}|${GH_REF_SRC})`, "g");
 /**
  * Splits a matched address token into the address and the text after it: trailing sentence punctuation and
  * closing brackets with no opener inside the address stay text, so "(see https://x.io/a)." links https://x.io/a
- * and https://en.wikipedia.org/wiki/Foo_(bar) keeps its ")". The address is null when it is too long or empty.
+ * and https://en.wikipedia.org/wiki/Foo_(bar) keeps its ")". A trailing "*" is emphasis, not address. The address is null when it is too long or empty.
  */
 export function urlParts(token: string): { url: string | null; rest: string } {
   // Bracket counts are taken once and kept as characters are trimmed, so a long run of closers stays linear.
@@ -26,7 +26,7 @@ export function urlParts(token: string): { url: string | null; rest: string } {
   let end = token.length;
   for (;;) {
     const c = token[end - 1];
-    if (c !== undefined && ".,;:!?'\"".includes(c)) end--;
+    if (c !== undefined && ".,;:!?'\"*".includes(c)) end--;
     else if (c !== undefined && CLOSERS[c] !== undefined && (count[c] ?? 0) > (count[CLOSERS[c]] ?? 0)) {
       count[c]--;
       end--;

@@ -94,4 +94,16 @@ describe("GitHub references and URLs are links", () => {
     const html = renderToStaticMarkup(<AskCard ask={ask} onPick={(() => {}) as never} onOpen={() => {}} />);
     expect(anchors(html)).toEqual([["mistakeknot/Sylveste#106", "https://github.com/mistakeknot/Sylveste/pull/106"]]);
   });
+
+  it("nothing inside a long code span links, even with bold inside it; emphasis markers stay out of link targets", () => {
+    for (const t of ["`" + "a".repeat(501) + " **o/r#5** https://x.io`", "**`o/r#5`**"]) expect(anchors(renderToStaticMarkup(<Markdown text={t} />))).toEqual([]);
+    expect(anchors(renderToStaticMarkup(<Markdown text={"**see https://github.com/o/r/pull/58**"} />))).toEqual([["https://github.com/o/r/pull/58", "https://github.com/o/r/pull/58"]]);
+    expect(urlParts("https://example.com/a*")).toEqual({ url: "https://example.com/a", rest: "*" });
+    expect(anchors(renderToStaticMarkup(<Markdown text={"*https://example.com/a*"} />))).toEqual([["https://example.com/a", "https://example.com/a"]]);
+  });
+
+  it("a path with many dotted parts is code whole", () => {
+    const p = "/tmp/archive.backup.2026.10.11.release.linux.amd64.tar.gz";
+    expect(renderToStaticMarkup(<RefText text={`see ${p} now`} />)).toContain(`>${p}</code>`);
+  });
 });
