@@ -132,16 +132,45 @@ func readMoveFile(path string) (map[string]any, error) {
 	return mv.Raw, nil
 }
 
-// moveOnlyAsk is the minimal ruling-only ask a move card carries when the filer gave none: the card needs a
-// home-ask block to be a card, and mk's pick keeps the card open until independent evidence closes the move.
-func moveOnlyAsk(title string) map[string]any {
+// moveOnlyAsk is the ask a move card carries when the filer gave none. Home opens no moves (bead mk-1k8pg):
+// the card is a plain decision, so its question says what mk owes and Done records that mk did it.
+func moveOnlyAsk(title string, move map[string]any) map[string]any {
+	q := strings.TrimSpace(title)
+	if d := moveDetail(move); d != "" {
+		q += "\n\n" + d
+	}
+	if r := []rune(q); len(r) > 2000 {
+		q = string(r[:2000])
+	}
 	return map[string]any{
-		"question": strings.TrimSpace(title),
+		"question": q,
 		"options": []any{
-			map[string]any{"id": "noted", "label": "Noted", "kind": "ruling-only"},
+			map[string]any{"id": "done", "label": "Done", "kind": "ruling-only"},
 			map[string]any{"id": "not-now", "label": "Not now", "kind": "ruling-only"},
 		},
 	}
+}
+
+// moveDetail is what a validated move asks of mk, in words: the command to run, the URL to open or the
+// context to give. The fields passed ParseMove, so a script path and its args hold no shell metacharacters.
+func moveDetail(move map[string]any) string {
+	kind, _ := move["kind"].(string)
+	o, _ := move[kind].(map[string]any)
+	switch kind {
+	case "script":
+		cmd := "bash " + fmt.Sprint(o["path"])
+		if args, ok := o["args"].([]any); ok {
+			for _, a := range args {
+				cmd += " " + fmt.Sprint(a)
+			}
+		}
+		return "Run: " + cmd + "\nsha256: " + fmt.Sprint(o["sha256"])
+	case "pr", "read":
+		return fmt.Sprint(o["url"])
+	case "context":
+		return fmt.Sprint(o["need"])
+	}
+	return ""
 }
 
 func needsMkAdoptMoveCmd() *cobra.Command {
@@ -198,8 +227,8 @@ func needsMkFileCmd() *cobra.Command {
 routing comment from it. --project is the tasks project. --ask-file is a JSON object with
 question, options and optionally subject, recommendation, ask_key, project and project_root.
 --move is a home-move/v1 JSON file (script, pr, read or context): the card carries it as a home-move block
-and gets the mk-move label. With --move, --ask-file may be left out and the card carries a minimal
-ruling-only ask. Nothing in the move is executed; Home derives commands from its validated fields.
+and gets the mk-move label. With --move, --ask-file may be left out and the card carries a Done / Not now
+ask whose question says what the move asks of mk. Nothing in the move is executed; Home derives commands from its validated fields.
 
 Exit codes: 2 usage or refused, 3 Home or tasks unavailable (nothing created), 4 card created
 but the routing comment failed (re-run the same command), 5 already ruled (mk picked an option for this request).`,
@@ -222,7 +251,7 @@ but the routing comment failed (re-run the same command), 5 already ruled (mk pi
 			}
 			var ask map[string]any
 			if askFile == "" {
-				ask = moveOnlyAsk(title)
+				ask = moveOnlyAsk(title, move)
 			} else {
 				f, err := os.Open(askFile)
 				if err != nil {

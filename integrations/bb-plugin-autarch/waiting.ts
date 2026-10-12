@@ -8,7 +8,7 @@ import type { Service } from "./service.js";
 
 /** Shown on screen beside the number so a mismatch with another list can be explained. */
 export const WAITING_DEFINITION =
-  "Counts open decisions (not on hold), open moves nobody has claimed, and notices you must acknowledge. Does not count updates to read, held cards, cards you set aside for later, or moves you already claimed or skipped.";
+  "Counts open decisions (not on hold) and notices you must acknowledge. Does not count updates to read, held cards, or cards you set aside for later.";
 
 export interface WaitingNotice {
   item: string;

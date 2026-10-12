@@ -153,7 +153,7 @@ export interface CardSpec {
   title: string;
   kind: "pr" | "batch" | "unmapped";
   urls: string[];
-  /** home-move/v1 body for a single PR; null for a batch. */
+  /** home-move/v1 body; always null, since a card carries no move (bead mk-1k8pg). */
   move: Record<string, unknown> | null;
   /** home-ask body: merge / close / leave for every kind. */
   ask: Record<string, unknown>;
@@ -225,8 +225,8 @@ export function planCards(rows: readonly Classified[], bound?: ReadonlySet<strin
       title: `Merge or decide: ${r.pr.url} ${cleanTitle(r.pr.title, 60)}`,
       kind: "pr",
       urls: [r.pr.url],
-      // The move stays so a PR merged or closed on GitHub still clears the card; the Queue shows only the decision.
-      move: { schema: "home-move/v1", kind: "pr", pr: { url: r.pr.url } },
+      // No home-move block: the card's decision is all mk sees (bead mk-1k8pg).
+      move: null,
       ask: {
         question: prQuestion(r.pr.repo, r.pr.number, r.pr.title, r.pr.url),
         options: [

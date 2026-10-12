@@ -311,6 +311,13 @@ func TestNeedsMkFileMoveWithoutAskFileSynthesizesARulingOnlyAsk(t *testing.T) {
 	if !strings.Contains(s.desc, `"kind":"ruling-only"`) || strings.Contains(s.desc, "needs-context") {
 		t.Fatalf("the synthesized ask is not ruling-only: %s", s.desc)
 	}
+	// Home opens no moves (bead mk-1k8pg): the decision itself names the PR and offers Done.
+	if q := c.Ask["question"]; q != "Merge the fix\n\nhttps://github.com/o/r/pull/12" {
+		t.Fatalf("question = %q", q)
+	}
+	if !strings.Contains(s.desc, `{"id":"done","kind":"ruling-only","label":"Done"}`) && !strings.Contains(s.desc, `{"id":"done","label":"Done","kind":"ruling-only"}`) {
+		t.Fatalf("no Done option: %s", s.desc)
+	}
 	labels := 0
 	for _, c := range s.calls {
 		if strings.HasPrefix(strings.Join(c, " "), "tasks create") {
@@ -323,6 +330,27 @@ func TestNeedsMkFileMoveWithoutAskFileSynthesizesARulingOnlyAsk(t *testing.T) {
 	}
 	if labels != 1 {
 		t.Fatalf("the card was not created with the mk-move label: %v", s.calls)
+	}
+}
+
+func TestMoveOnlyAskSaysWhatTheMoveAsks(t *testing.T) {
+	sha := strings.Repeat("a", 64)
+	for _, tc := range []struct{ move, want string }{
+		{`{"schema":"home-move/v1","kind":"script","script":{"path":"/opt/run.sh","sha256":"` + sha + `","args":["--day","x=1"]}}`, "T\n\nRun: bash /opt/run.sh --day x=1\nsha256: " + sha},
+		{`{"schema":"home-move/v1","kind":"read","read":{"url":"https://github.com/o/r/blob/main/plan.md"}}`, "T\n\nhttps://github.com/o/r/blob/main/plan.md"},
+		{`{"schema":"home-move/v1","kind":"context","context":{"need":"Which day?"}}`, "T\n\nWhich day?"},
+	} {
+		mv, err := homeask.ParseMove(tc.move)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if q := moveOnlyAsk(" T ", mv.Raw)["question"]; q != tc.want {
+			t.Errorf("%s: question = %q, want %q", tc.move, q, tc.want)
+		}
+	}
+	long, _ := homeask.ParseMove(`{"schema":"home-move/v1","kind":"context","context":{"need":"` + strings.Repeat("é", 2000) + `"}}`)
+	if q := moveOnlyAsk("T", long.Raw)["question"].(string); len([]rune(q)) != 2000 {
+		t.Errorf("a long question is cut to 2000 runes, got %d", len([]rune(q)))
 	}
 }
 

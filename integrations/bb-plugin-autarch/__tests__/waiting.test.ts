@@ -19,7 +19,7 @@ const count = (r: Rig) => waitingNow(r.svc, r.dele, new Catchup(r.svc, r.dele));
 
 describe("waiting on mk", () => {
   it("counts owed decisions, not held ones, and shows the held count beside it", async () => {
-    const r = rig();
+    const r = rig({ legacyMoves: true });
     r.enableDelegation();
     const cards = Array.from({ length: 6 }, () => card(r));
     await r.poll();
@@ -29,7 +29,7 @@ describe("waiting on mk", () => {
   });
 
   it("a move on a card that also has an owed decision counts once", async () => {
-    const r = rig();
+    const r = rig({ legacyMoves: true });
     r.enableDelegation();
     const a = card(r);
     const b = card(r);
@@ -44,7 +44,7 @@ describe("waiting on mk", () => {
   });
 
   it("a claimed, skipped or held move is not waiting", async () => {
-    const r = rig();
+    const r = rig({ legacyMoves: true });
     r.enableDelegation();
     const t = [card(r), card(r), card(r), card(r)];
     t.forEach((x, i) => withMove(x, prMove(i + 10)));
@@ -58,7 +58,7 @@ describe("waiting on mk", () => {
   });
 
   it("an unseen vizier adoption is one notice; acknowledging it lifts the suspension and the count", async () => {
-    const r = rig();
+    const r = rig({ legacyMoves: true });
     r.enableDelegation();
     card(r);
     await r.poll();
@@ -74,7 +74,7 @@ describe("waiting on mk", () => {
   });
 
   it("unseen catch-up reading is shown beside the count, never in it", async () => {
-    const r = rig();
+    const r = rig({ legacyMoves: true });
     r.enableDelegation();
     card(r);
     await r.poll();
@@ -88,7 +88,7 @@ describe("waiting on mk", () => {
 
   it("states what it counts", () => {
     expect(WAITING_DEFINITION).toMatch(/decision/i);
-    expect(WAITING_DEFINITION).toMatch(/move/i);
+    expect(WAITING_DEFINITION).not.toMatch(/move/i); // Home opens no moves (bead mk-1k8pg)
     expect(WAITING_DEFINITION).toMatch(/hold/i);
   });
 });
@@ -96,7 +96,7 @@ describe("waiting on mk", () => {
 describe("one number everywhere", () => {
   it("the badge, the strip, the tab and the stats output show the same total", async () => {
     const { badgeCount, waitingSummary } = await import("../ui/waiting.js");
-    const r = rig();
+    const r = rig({ legacyMoves: true });
     r.enableDelegation();
     card(r);
     card(r);

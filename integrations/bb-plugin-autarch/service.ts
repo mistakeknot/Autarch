@@ -408,24 +408,12 @@ export class Service {
           { option_id: optionId, option_label: option.label, by, generation: Number(d.generation), picked_at: this.now(), reason: isOther ? otherText : (reason ?? null) },
         )
       : [];
-    // mk's pick on a card that leaves mk something to do keeps the card in tasks (needs-mk stays) until the
-    // move closes: a card with a home-move block, or an option that needs context from mk.
-    let move: PickInput["move"];
+    // A pick never opens a move: everything mk owes is a decision card (bead mk-1k8pg). A pick on a card whose
+    // move is still live (one opened before moves were retired) keeps needs-mk until that move closes.
     let keepsCard = false;
     if (isCard && by === "mk") {
-      const gen = Number(d.generation);
-      const mine = this.store.move(String(d.task_id), gen);
+      const mine = this.store.move(String(d.task_id), Number(d.generation));
       if (mine && mine.state !== "closed") keepsCard = true;
-      else if (!mine && option.kind === "needs-context") {
-        keepsCard = true;
-        move = {
-          task_id: String(d.task_id),
-          generation: gen,
-          kind: "context",
-          payload: { kind: "context", need: (option.instruction || option.label).slice(0, 2000) },
-          opened_by: "pick",
-        };
-      }
     }
     const heldWrites = keepsCard ? cardWrites.filter((w) => w.kind !== "unlabel") : cardWrites;
     // Only mk's own pick mints, and it does so in the pick's transaction. A record is not an authorization.
@@ -443,7 +431,7 @@ export class Service {
     let res;
     try {
       res = this.store.recordPick(
-        { decision_id: decisionId, pick_id: pickId, option_id: optionId, revision: rev, by, surface, reason: isOther ? otherText : (reason ?? null), params_hash: hash, approval, guard, move },
+        { decision_id: decisionId, pick_id: pickId, option_id: optionId, revision: rev, by, surface, reason: isOther ? otherText : (reason ?? null), params_hash: hash, approval, guard },
         obligations,
         heldWrites,
       );
@@ -1119,14 +1107,38 @@ export class Service {
   }
 
   /**
-   * A new card generation supersedes the move of the one before it, and opens its own when the card
-   * carries a home-move block. The payload is the validated move, never card text.
+   * A new card generation supersedes the move of the one before it. A home-move block on the card opens
+   * nothing: what mk owes is the card's decision (bead mk-1k8pg).
    */
-  private syncMove(taskId: string, generation: number, card: Card): void {
+  private syncMove(taskId: string, generation: number): void {
     for (const g of this.db.prepare("SELECT generation FROM moves WHERE task_id = ? AND generation < ? AND state <> 'closed'").all(taskId, generation) as { generation: number }[]) {
       this.store.closeMove(taskId, g.generation, "home", "superseded");
     }
-    if (card.move) this.store.openMove({ task_id: taskId, generation, kind: card.move.kind, payload: card.move, opened_by: "card" });
+  }
+
+  /**
+   * Closes every live move left from before moves were retired (bead mk-1k8pg). A card mk already ruled gets the
+   * needs-mk unlabel its pick held back; no tasks card is closed, since retiring a move is not evidence it was done.
+   * Idempotent: returns how many it closed.
+   */
+  retireMoves(): number {
+    let n = 0;
+    for (const m of this.db.prepare("SELECT task_id, generation FROM moves WHERE state <> 'closed' ORDER BY task_id, generation").all() as { task_id: string; generation: number }[]) {
+      this.store.atomically(() => {
+        if (!this.store.closeMove(m.task_id, m.generation, "home", "moves retired")) return;
+        n++;
+        // A pending close of an older move was held back by this live one, so the card is still owed: the writer
+        // must not close it now that nothing live is left to hold it back.
+        this.db
+          .prepare("UPDATE move_closes SET state = 'skipped', last_error = 'card had a live move when moves were retired', updated_at = ? WHERE task_id = ? AND state = 'pending'")
+          .run(this.now(), m.task_id);
+        const d = this.db.prepare("SELECT id FROM decisions WHERE task_id = ? AND generation = ?").get(m.task_id, m.generation) as { id: string } | undefined;
+        if (d && this.store.pick(d.id) && HOME_UNLABELS_ON_PICK) {
+          this.store.insertCardWrites(d.id, [{ id: `cw-${d.id}-unlabel`, task_id: m.task_id, kind: "unlabel", payload: JSON.stringify({ move_closed_by: "home" }) }]);
+        }
+      });
+    }
+    return n;
   }
 
   /**
@@ -1251,7 +1263,7 @@ export class Service {
         return;
       }
       this.snapshotBlocks(input.id, ev.card);
-      this.syncMove(task.id, n, ev.card);
+      this.syncMove(task.id, n);
       this.markOpen(task.id);
     });
   }
@@ -1264,7 +1276,7 @@ export class Service {
       const res = this.store.insertDecision(input);
       if (!res.inserted) throw new Error(`card generation ${input.id} request id is in use`);
       this.snapshotBlocks(input.id, ev.card);
-      this.syncMove(task.id, n, ev.card);
+      this.syncMove(task.id, n);
       this.markOpen(task.id);
     });
   }
@@ -1348,7 +1360,7 @@ export class Service {
         .prepare("INSERT INTO card_requests(request_key, task_id, identity, registered_at) VALUES (?, ?, ?, ?)")
         .run(key, task.id, card.request.identity, this.now());
       this.snapshotBlocks(input.id, card);
-      this.syncMove(task.id, 1, card);
+      this.syncMove(task.id, 1);
       this.patchCard(task.id, {
         routing_mode: card.pull === "mycroft" ? "pull" : "thread",
         routed_thread: card.pull === "mycroft" ? null : thread,

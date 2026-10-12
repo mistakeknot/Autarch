@@ -117,7 +117,7 @@ describe("planCards", () => {
     expect(single.ask.question).toContain("https://github.com/mistakeknot/Autarch/pull/9");
     expect(single.ask.question).toMatch(/^https:\/\/github\.com\/mistakeknot\/Autarch\/pull\/9\n/);
     expect(single.title).toContain("https://github.com/mistakeknot/Autarch/pull/9");
-    expect(single.move).toMatchObject({ schema: "home-move/v1", kind: "pr", pr: { url: "https://github.com/mistakeknot/Autarch/pull/9" } });
+    expect(single.move).toBeNull();
     expect((plan.cards.find((c) => c.urls.length === 2)!.ask.options as { id: string }[]).map((o) => o.id)).toEqual(["merge-all", "close-all", "leave"]);
   });
   it("makes no card for vizier, coordinator or draft PRs, and one MSQ catch-all card per unmapped repo", () => {
@@ -140,11 +140,9 @@ describe("planCards", () => {
     const l2 = planCards([bot(1, `mistakeknot/${"y".repeat(60)}b`)]).cards[0]!.key;
     expect(keyFamily(l1)).not.toBe(keyFamily(l2));
   });
-  it("the planner's pr move carries only url, which both the plugin and the Go parser (any build) accept", async () => {
-    const m = planCards([classify(pr({ number: 9, url: "https://github.com/mistakeknot/Autarch/pull/9", files: ["AGENTS.md"] }))]).cards[0]!.move as { pr: Record<string, unknown> };
-    expect(Object.keys(m.pr)).toEqual(["url"]);
-    const { parseMove } = await import("../moves.js");
-    expect(() => parseMove(JSON.stringify(m))).not.toThrow();
+  it("plans no move for any card: what mk owes a PR is its decision (bead mk-1k8pg)", () => {
+    const rows = [bot(1), bot(2), classify(pr({ number: 9, url: "https://github.com/mistakeknot/Autarch/pull/9", files: ["AGENTS.md"] })), bot(5, "mistakeknot/unlisted-repo")];
+    expect(planCards(rows).cards.map((c) => c.move)).toEqual([null, null, null]);
   });
   it("sends a prefix Home cannot file under to the MSQ catch-all, with its PRs listed", () => {
     const rows = [bot(1, "mistakeknot/ushas"), classify(pr({ repo: "mistakeknot/ushas", number: 3, url: "https://github.com/mistakeknot/ushas/pull/3", files: ["AGENTS.md"] }))];
@@ -160,10 +158,8 @@ describe("planCards", () => {
     expect(planCards([bot(1), bot(2), bot(3)]).cards[0]!.key).not.toBe(a.key);
     expect(a.key).toMatch(/^[A-Za-z0-9:_.-]{1,128}$/);
   });
-  it("every move it makes passes Home's strict parser, and every mapped prefix is a prefix", async () => {
-    const { parseMove } = await import("../moves.js");
+  it("every mapped prefix is a prefix, and the plan renders", () => {
     const plan = planCards([classify(pr({ number: 9, url: "https://github.com/mistakeknot/Autarch/pull/9", title: "x\ny\u0007", files: ["AGENTS.md"] }))]);
-    for (const c of plan.cards) if (c.move) expect(() => parseMove(JSON.stringify(c.move))).not.toThrow();
     for (const p of Object.values(REPO_PROJECTS)) expect(p).toMatch(/^[A-Z]{1,6}$/);
     expect(renderPlan(plan)).toContain("cards to file: 1");
   });

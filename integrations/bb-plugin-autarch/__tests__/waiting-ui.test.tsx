@@ -19,7 +19,7 @@ const W: Waiting = {
   held: 2,
   later: 0,
   suspended: true,
-  definition: "Counts open decisions (not on hold), open moves nobody has claimed, and notices you must acknowledge.",
+  definition: "Counts open decisions (not on hold) and notices you must acknowledge.",
 };
 const noop = () => {};
 

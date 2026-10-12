@@ -45,6 +45,16 @@ describe("wireHome", () => {
     f.disposers.forEach((d) => d());
   });
 
+  it("closes a move left open when the store is ready, even with no tasks client (bead mk-1k8pg)", () => {
+    const db = new Database(":memory:");
+    const handle = createStoreHandle(() => db, {});
+    handle.store().openMove({ task_id: "01J0000000000000000000000A", generation: 1, kind: "pr", payload: { kind: "pr", url: "https://github.com/o/r/pull/1" }, opened_by: "card" });
+    const f = fakeBb(); // its sdk has no plugins, so the card poller never starts
+    wireHome(f.bb, handle, cfg, { serve });
+    expect(db.prepare("SELECT state, closed_by, evidence FROM moves").all()).toEqual([{ state: "closed", closed_by: "home", evidence: "moves retired" }]);
+    f.disposers.forEach((d) => d());
+  });
+
   it("setBinding is an RPC only: no CLI verb, so the vizier's rule path cannot reach it (Q5)", async () => {
     const db = new Database(":memory:");
     const handle = createStoreHandle(() => db, {});
