@@ -40,7 +40,7 @@ import type { QueueView } from "./ui/blocks.js";
 import { withoutOwed } from "./ui/blocks.js";
 import { BindingsPanel, SettingsPanel } from "./ui/settings.js";
 import { keyAction, layoutStack, stackReducer, StackView } from "./ui/stack.js";
-import { HomeTabs } from "./ui/tabs.js";
+import { HomeTabs, QueueTabs, type QueueTab } from "./ui/tabs.js";
 import type { Panel, StackState } from "./ui/stack.js";
 import { HOME_SOURCE } from "./ui/identity.js";
 import { TellVizier, ThreadPanel, VizierPanel } from "./ui/vizier.js";
@@ -430,7 +430,9 @@ function HomePage() {
   );
   const notices = useMemo(() => catchup.filter((c) => c.kind === "notice"), [catchup]);
   const readable = useMemo(() => catchup.filter((c) => c.kind !== "notice"), [catchup]);
-  const jump = (to: WaitingJump) => document.querySelector(to === "later" ? '[data-section="later"], [data-section="move-later"]' : `[data-queue-section="${to === "updates" ? "catchup" : to === "held" ? "blocks" : "asks"}"]`)?.scrollIntoView({ block: "start" });
+  const [queueTab, setQueueTab] = useState<QueueTab>("decide");
+  // The strip's buttons open the tab that holds what they count, instead of scrolling down to it.
+  const jump = (to: WaitingJump) => setQueueTab(to === "later" ? "later" : to === "updates" ? "catchup" : to === "held" ? "blocks" : "decide");
   const markIds = (ids: string[], routineLeft: number) => {
     if (ids.length === 0) return;
     void rpc.call("markAllSeen", { ids }).then(
@@ -506,18 +508,16 @@ function HomePage() {
                 <NoticeBanner notices={notices} suspended={waiting?.suspended ?? true} onAcknowledge={(item) => void rpc.call("markSeen", { item }).then(refetch, () => {})} />
               </div>
             ) : null}
-            {([
-              ["Needs you now", { id: "asks", kind: "decision", title: "Asks", hideHeld: true }],
-              ["Blocked on others", { id: "blocks", kind: "decision", title: "Blocking", hideOwed: true }],
-              ["Since you left", { id: "catchup", kind: "catchup", title: "Catch-up" }],
-            ] as const).map(([heading, p]) => (
-              <section key={p.id} aria-label={heading} data-queue-section={p.id === "catchup" ? "catchup" : p.id} className="border-b border-border">
-                <h2 className="px-2 pt-2 text-xs font-semibold uppercase text-muted-foreground sm:px-4 sm:pt-3">
-                  {waiting ? `${heading} (${p.id === "asks" ? waiting.decide : p.id === "blocks" ? waiting.held : waiting.updates})` : heading}
-                </h2>
-                {render(p)}
-              </section>
-            ))}
+            <QueueTabs tab={queueTab} onTab={setQueueTab} counts={waiting ? { decide: waiting.decide, later: waiting.later, blocks: waiting.held, catchup: waiting.updates } : null} />
+            <section aria-label={queueTab} data-queue-section={queueTab === "decide" ? "asks" : queueTab} className="border-b border-border">
+              {queueTab === "decide"
+                ? render({ id: "asks", kind: "decision", title: "Asks", hideHeld: true, part: "decide" })
+                : queueTab === "later"
+                  ? render({ id: "asks", kind: "decision", title: "Asks", hideHeld: true, part: "later" })
+                  : queueTab === "blocks"
+                    ? render({ id: "blocks", kind: "decision", title: "Blocking", hideOwed: true })
+                    : render({ id: "catchup", kind: "catchup", title: "Catch-up" })}
+            </section>
           </>
         );
       case "asks":
@@ -528,6 +528,7 @@ function HomePage() {
           <AsksPanel
             data={asks}
             {...(panel.hideHeld ? { hideHeld: true } : {})}
+            {...(panel.part ? { part: panel.part } : {})}
             onNote={(decision_id, text) => yourMove.note({ decision_id }, text)}
             onLater={(ref, on) => laterOutcome(rpc.call(on ? "later" : "unlater", { ref })).then((o) => { refetchAll(); return o; })}
             onDismiss={(decision_id, obligation_id) => void rpc.call("dismiss", { decision_id, obligation_id }).then(refetch, () => {})}

@@ -31,3 +31,19 @@ export function HomeTabs({ classic, waiting, ideas, onOpen, onToggleClassic, onT
     </nav>
   );
 }
+
+export type QueueTab = "decide" | "later" | "blocks" | "catchup";
+
+/** The Queue's own tabs: each paradigm gets a tab with its count, so no view makes mk scroll past one to reach another. */
+export function QueueTabs({ tab, counts, onTab }: { tab: QueueTab; counts: Record<QueueTab, number> | null; onTab: (t: QueueTab) => void }) {
+  const items: [QueueTab, string][] = [["decide", "Needs you now"], ["later", "Later"], ["blocks", "Blocked on others"], ["catchup", "Since you left"]];
+  return (
+    <div role="tablist" aria-label="Queue" className="flex gap-3 overflow-x-auto whitespace-nowrap border-b border-border px-2 sm:px-4" data-queue-tabs>
+      {items.map(([id, label]) => (
+        <button key={id} type="button" role="tab" aria-selected={tab === id} data-queue-tab={id} className={`min-h-11 shrink-0 px-1 text-sm underline-offset-4 ${tab === id ? "font-semibold underline" : "text-muted-foreground hover:underline"}`} onClick={() => onTab(id)}>
+          {counts ? `${label} (${counts[id]})` : label}
+        </button>
+      ))}
+    </div>
+  );
+}

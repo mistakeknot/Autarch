@@ -8,6 +8,7 @@ vi.mock("@get-bb/plugin-sdk/app", () => ({ ThreadChat: () => null }));
 import { AsksPanel, AskCard, owedTasks, laterOutcome, runLater, LaterFailure, type AsksData, type OwedAsk } from "../ui/asks.js";
 import { MoveCard, moveButtons, omitDecisionPrMoves, omitLaterTasks, YourMovePanel } from "../ui/yourmove.js";
 import type { MoveView } from "../moveview.js";
+import { QueueTabs } from "../ui/tabs.js";
 import { waitingSummary, WaitingStrip } from "../ui/waiting.js";
 import type { Waiting } from "../waiting.js";
 
@@ -273,5 +274,38 @@ describe("a failed Later or Move back is shown", () => {
     expect(html).toContain('role="alert"');
     expect(html).toContain("no such card");
     expect(html).toMatch(/try again/i);
+  });
+});
+
+describe("Queue tabs", () => {
+  const owed = [ask({ id: "live", subject: "Live one" }), ask({ id: "set-aside", subject: "Aside one", later: LATER })];
+  it("the decide part shows the decision list and no Later section; the later part shows only Later", () => {
+    const decide = panel(owed, { part: "decide" });
+    expect(decide).toContain("Live one");
+    expect(decide).not.toContain('data-section="later"');
+    expect(decide).not.toContain("Aside one");
+    const later = panel(owed, { part: "later" });
+    expect(later).toContain('data-section="later"');
+    expect(later).toContain("Aside one");
+    expect(later).not.toContain('data-section="decide"');
+    expect(later).not.toContain("Live one");
+  });
+  it("with no part both still show, as on the Asks page", () => {
+    const both = panel(owed);
+    expect(both).toContain('data-section="decide"');
+    expect(both).toContain('data-section="later"');
+  });
+  it("says so when a tab is empty", () => {
+    expect(panel([ask()], { part: "later" })).toContain("Nothing is set aside.");
+    expect(panel([ask({ later: LATER })], { part: "decide" })).toContain("Nothing needs you.");
+  });
+  it("the tab row has the four tabs with their counts, the chosen one selected and tap height", () => {
+    const html = renderToStaticMarkup(<QueueTabs tab="later" onTab={noop} counts={{ decide: 4, later: 3, blocks: 0, catchup: 26 }} />);
+    for (const [id, label] of [["decide", "Needs you now (4)"], ["later", "Later (3)"], ["blocks", "Blocked on others (0)"], ["catchup", "Since you left (26)"]]) {
+      expect(html).toMatch(new RegExp(`<button[^>]*data-queue-tab="${id}"[^>]*>${label.replace(/[()]/g, "\\$&")}</button>`));
+    }
+    expect(html.match(/aria-selected="true"/g)?.length).toBe(1);
+    expect(html.match(/min-h-11/g)?.length).toBe(4);
+    expect(renderToStaticMarkup(<QueueTabs tab="decide" onTab={noop} counts={null} />)).toContain(">Later</button>");
   });
 });
