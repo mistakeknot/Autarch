@@ -550,7 +550,7 @@ describe("a card gone from tasks closes its moves", () => {
   });
 
   it("a sweep whose second re-read fails closes neither move, and the next sweep closes both", async () => {
-    const r = rig();
+    const r = rig({ legacyMoves: true });
     const a = await withMove(r, prMove());
     const b = await withMove(r, prMove("https://github.com/o/r/pull/13"));
     r.edit(a, { status: "canceled" });
@@ -566,7 +566,7 @@ describe("a card gone from tasks closes its moves", () => {
   });
 
   it("a repeat sweep changes nothing and keeps the closed move's evidence", async () => {
-    const r = rig();
+    const r = rig({ legacyMoves: true });
     const t = await withMove(r, prMove());
     r.edit(t, { status: "canceled" });
     await r.poll();
