@@ -65,6 +65,14 @@ describe("MobileInbox", () => {
     expect(html).toContain("Since you left 3");
     expect(html).toContain("data-inbox-desktop");
   });
+  it("a row shows the card key, the title and the recommended option", () => {
+    const html = view(asks([ask({ key: "AUTA-318", subject: "Which effort change?" })]), null);
+    expect(html).toContain('data-row-key="true">AUTA-318<');
+    expect(html).toContain("Which effort change?");
+    expect(html).toContain("Rec: A: no change");
+    expect(view(asks([ask({ key: null, ask: { question: "q", options: [{ id: "a", label: "A", kind: "ruling-only" }] } })]), null)).not.toContain("data-row-rec");
+  });
+
   it("says so when nothing waits", () => {
     expect(view(asks([]), null)).toContain("Nothing is waiting on you.");
   });

@@ -70,15 +70,20 @@ export function useIsPhone(): boolean {
 const CHIP = "rounded-full bg-muted px-2 py-0.5 text-xs text-muted-foreground";
 
 function Row({ r, onOpen }: { r: InboxRow; onOpen: () => void }) {
+  const rec = r.ask?.ask.options.find((o) => o.id === r.ask?.ask.recommendation);
   return (
     <li className="m-0 list-none border-b border-border">
       <button type="button" className="flex min-h-16 w-full flex-col items-stretch gap-1 px-4 py-3 text-left" onClick={onOpen} data-inbox-row={r.key}>
         <span className="flex items-center justify-between gap-2">
-          <span className={CHIP}>{r.chip}</span>
+          <span className="flex min-w-0 items-center gap-2">
+            <span className={CHIP}>{r.chip}</span>
+            {r.ask?.key ? <span className="font-mono text-xs text-muted-foreground" data-row-key>{r.ask.key}</span> : null}
+          </span>
           <span className="text-xs text-muted-foreground">{r.age}</span>
         </span>
-        <span className="text-sm font-medium [overflow-wrap:anywhere]">{r.title}</span>
+        <span className="line-clamp-2 text-sm font-medium [overflow-wrap:anywhere]">{r.title}</span>
         {r.project || r.time ? <span className="text-xs text-muted-foreground">{[r.project, r.time].filter(Boolean).join(" · ")}</span> : null}
+        {rec ? <span className="line-clamp-1 text-xs text-muted-foreground" data-row-rec>{`Rec: ${rec.label}`}</span> : null}
       </button>
     </li>
   );

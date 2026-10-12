@@ -62,6 +62,8 @@ export type OwedAsk = {
   id: string;
   project: string;
   thread: string;
+  /** The asking thread's title when bb knows one; the card shows it in place of the id. */
+  thread_title?: string | null;
   subject: string;
   /** The tasks key (PROJ-24); absent or null for an ask with no card. */
   key?: string | null;
@@ -205,6 +207,9 @@ export type OnNote = (decisionId: string, text: string) => Promise<OtherOutcome 
 /** Sets a card aside (on) or moves it back (off), by its task id. A thrown error or not-ok result is shown by the caller. */
 export type OnLater = (taskId: string, on: boolean) => void | Promise<unknown>;
 
+/** What a card calls its asking thread: the title when there is one, else the id. */
+export const threadName = (a: { thread: string; thread_title?: string | null }): string => a.thread_title?.trim() || a.thread;
+
 export function AskCard({ ask, onPick, onOpen, nowMs, onNote, onLater, unbound = false }: { ask: OwedAsk; onPick: OnPick; onOpen: (thread: string) => void; nowMs?: number; onNote?: OnNote; onLater?: OnLater; unbound?: boolean }) {
   const [failure, setFailure] = useState<string | null>(null);
   const [laterError, setLaterError] = useState<string | null>(null);
@@ -221,7 +226,7 @@ export function AskCard({ ask, onPick, onOpen, nowMs, onNote, onLater, unbound =
   };
   const n = ask.mentions ?? 0;
   const hasRealOther = ask.ask.options.some((o) => o.id === "other");
-  const anyInstruction = ask.ask.options.some((o) => o.kind === "needs-context" || (o.kind === "instruction" && (o.instruction ?? "").trim() !== ""));
+  const anyInstruction = ask.ask.options.some((o) => o.kind === "instruction" && (o.instruction ?? "").trim() !== "");
   // A play or walk card gets its link, time, what is judged and what each answer does above the full text.
   const glanceOf = glance(ask);
   // The plain "records your pick only" line is said once for the block when every answer is ruling-only; any acting
@@ -229,7 +234,7 @@ export function AskCard({ ask, onPick, onOpen, nowMs, onNote, onLater, unbound =
   const ruling = (o: Option) => o.kind !== "instruction" && o.kind !== "needs-context";
   const allRuling = ask.ask.options.every(ruling);
   const glanceAnswers: GlanceAnswer[] = glanceOf
-    ? ask.ask.options.map((o) => ({ id: o.id, label: o.label, recommended: ask.ask.recommendation === o.id, effect: allRuling ? null : optionEffect(o, ask.thread, true) }))
+    ? ask.ask.options.map((o) => ({ id: o.id, label: o.label, recommended: ask.ask.recommendation === o.id, effect: allRuling ? null : optionEffect(o, threadName(ask), true) || null }))
     : [];
   return (
     <article className="min-w-0 rounded-lg border border-border bg-card p-4" data-decision={ask.id}>
@@ -240,7 +245,7 @@ export function AskCard({ ask, onPick, onOpen, nowMs, onNote, onLater, unbound =
       <p className="mt-1 text-xs text-muted-foreground">
         {ask.project ? `${ask.project} · ` : ""}
         {nowMs !== undefined ? `waiting ${ageText(ask.filed_at, nowMs)} · ` : ""}
-        <button type="button" className="inline-flex min-h-11 items-center underline sm:min-h-0" onClick={() => onOpen(ask.thread)}>{ask.thread}</button>
+        <button type="button" className="inline-flex min-h-11 items-center underline sm:min-h-0" onClick={() => onOpen(ask.thread)}>{threadName(ask)}</button>
         {n > 0 ? ` - ${`also mentioned in ${n} ${n === 1 ? "thread" : "threads"}`}` : ""}
       </p>
       {glanceOf ? <GlanceBlock g={glanceOf} answers={glanceAnswers} recordsOnly={glanceAnswers.every((a) => a.effect === null)} /> : null}
@@ -263,14 +268,14 @@ export function AskCard({ ask, onPick, onOpen, nowMs, onNote, onLater, unbound =
                 )}
                 {recommended ? <RecommendedMark /> : null}
               </div>
-              <p className="mt-1 text-xs text-muted-foreground" data-effect>{optionEffect(o, ask.thread)}</p>
+              {optionEffect(o, threadName(ask)) !== "" ? <p className="mt-1 text-xs text-muted-foreground" data-effect>{optionEffect(o, threadName(ask))}</p> : null}
             </li>
           );
         })}
       </ul>
       {unbound ? <p role="note" className="mt-2 text-xs font-medium" data-unbound-note>{UNBOUND_EXPLANATION}</p> : null}
       {anyInstruction && !unbound ? (
-        <p className="mt-2 text-xs text-muted-foreground">{`An instruction is sent to ${ask.thread} as written; the agent acts on it under its own permissions.`}</p>
+        <p className="mt-2 text-xs text-muted-foreground">{`A "Tells ${threadName(ask)}" line is sent exactly as shown.`}</p>
       ) : null}
       {onLater && ask.task_id ? (
         <div className="mt-3 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
@@ -302,7 +307,8 @@ export function optionEffect(o: { kind: string; instruction?: string; reversible
   const acts = o.kind === "instruction" || o.kind === "needs-context";
   const undo = o.reversible === true || !acts ? "" : " Cannot be undone.";
   const text = (o.instruction ?? "").replace(/\s+/g, " ").trim();
-  if (o.kind === "needs-context") return `Asks you for the missing context first, then tells ${thread}.${undo}`;
+  // The default kind says nothing mk needs to know before picking, so it gets no line.
+  if (o.kind === "needs-context") return "";
   if (o.kind === "instruction" && text !== "") {
     const first = text.match(/^.*?[.!?](?=\s|$)/)?.[0] ?? text;
     if (full) return `Tells ${thread}: ${text}${undo}`;

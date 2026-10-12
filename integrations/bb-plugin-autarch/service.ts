@@ -540,7 +540,7 @@ export class Service {
     }
     const over = this.store.overriddenRuling(d.id);
     if (over) lines.push(`This supersedes the vizier's ruling on ${over.decision_id}.`);
-    lines.push(`Ruling on ${d.id}${d.subject ? ` (${d.subject})` : ""}: ${by} picked ${JSON.stringify(label)} [${kind}].`);
+    lines.push(`Ruling on ${d.id}${d.subject ? ` (${d.subject})` : ""}: ${by} picked ${JSON.stringify(label)}.`);
     lines.push(`Question: ${ask.question}`);
     if (kind === "instruction") lines.push(`Instruction: ${instruction}`);
     else if (kind === "needs-context") lines.push("This choice needs more context from you before you act.");
@@ -789,6 +789,13 @@ export class Service {
     if (!taskId) return null;
     const r = this.db.prepare("SELECT card_key FROM cards WHERE task_id = ?").get(taskId) as { card_key: string | null } | undefined;
     return r?.card_key ?? null;
+  }
+
+  /** The title of a card, or null for a legacy ask or a card without one. */
+  cardTitle(taskId: string | null | undefined): string | null {
+    if (!taskId) return null;
+    const r = this.db.prepare("SELECT title FROM cards WHERE task_id = ?").get(taskId) as { title: string | null } | undefined;
+    return r?.title ?? null;
   }
 
   /** Open decide asks with no pick, not withdrawn, resolved or replaced. */
