@@ -275,7 +275,7 @@ export function AskCard({ ask, onPick, onOpen, nowMs, onNote, onLater, unbound =
       </ul>
       {unbound ? <p role="note" className="mt-2 text-xs font-medium" data-unbound-note>{UNBOUND_EXPLANATION}</p> : null}
       {anyInstruction && !unbound ? (
-        <p className="mt-2 text-xs text-muted-foreground">{`A "Tells ${threadName(ask)}" line is sent exactly as shown.`}</p>
+        <p className="mt-2 text-xs text-muted-foreground">{`A "Tells ${threadName(ask)}" line shows the first sentence; the full instruction is sent.`}</p>
       ) : null}
       {onLater && ask.task_id ? (
         <div className="mt-3 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
