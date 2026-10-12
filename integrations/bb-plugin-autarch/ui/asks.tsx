@@ -1,12 +1,12 @@
 // The Asks view: what is stalled, what mk must decide, the runbook, and what is merely waiting.
 
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { Fragment, useEffect, useRef, useState, type ReactNode } from "react";
 import { ActionButton, RecommendedMark } from "./buttons.js";
 import { CardConversation } from "./conversation.js";
 import { splitCommands, type CommandRole } from "./commandtext.js";
 import { CommandBlock } from "./copy.js";
 import { glance, GlanceBlock, type GlanceAnswer } from "./glance.js";
-import { GH_REF_SRC, LinkOut, refHref, URL_SRC } from "./links.js";
+import { GH_REF_SRC, refNodes, URL_SRC } from "./links.js";
 import { OtherBox, type OtherOutcome } from "./other.js";
 
 /** What a pick hands back to the card: not ok means the card stays open and shows the error. */
@@ -179,8 +179,8 @@ export function RefText({ text }: { text: string }) {
     <>
       {parts.map((part, i) => {
         if (i % 2 === 0) return part;
-        const href = refHref(part);
-        if (href !== null) return <LinkOut key={i} href={href}>{part}</LinkOut>;
+        const link = refNodes(part, String(i));
+        if (link !== null) return <Fragment key={i}>{link}</Fragment>;
         return (
           <code key={i} className="select-all rounded bg-muted px-1 font-mono text-xs [overflow-wrap:anywhere]" data-ref>
             {part}

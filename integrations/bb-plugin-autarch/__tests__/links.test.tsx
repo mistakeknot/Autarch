@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
 import { RefText } from "../ui/asks.js";
 import { Markdown } from "../ui/markdown.js";
-import { refHref } from "../ui/links.js";
+import { refHref, URL_MAX, urlParts } from "../ui/links.js";
 
 const anchors = (html: string) => [...html.matchAll(/<a href="([^"]*)" target="_blank" rel="noopener noreferrer nofollow"[^>]*>([^<]*)<\/a>/g)].map((m) => [m[2], m[1]]);
 
@@ -38,5 +38,32 @@ describe("GitHub references and URLs are links", () => {
       ["https://github.com/o/r/pull/5", "https://github.com/o/r/pull/5"],
     ]);
     expect(html).toContain("<code");
+  });
+
+  it("an address keeps balanced brackets and drops a closing one it never opened, or trailing punctuation", () => {
+    expect(urlParts("https://example.com/a]")).toEqual({ url: "https://example.com/a", rest: "]" });
+    expect(urlParts("https://en.wikipedia.org/wiki/Foo_(bar)")).toEqual({ url: "https://en.wikipedia.org/wiki/Foo_(bar)", rest: "" });
+    expect(urlParts("https://en.wikipedia.org/wiki/Foo_(bar)).")).toEqual({ url: "https://en.wikipedia.org/wiki/Foo_(bar)", rest: ")." });
+    expect(urlParts("https://x.io/a?q=1&b=2,")).toEqual({ url: "https://x.io/a?q=1&b=2", rest: "," });
+    expect(urlParts("https://)")).toEqual({ url: null, rest: ")" });
+    for (const [t, links] of [
+      ["[https://example.com/a]", [["https://example.com/a", "https://example.com/a"]]],
+      ["[https://example.com]", [["https://example.com", "https://example.com/"]]],
+      ["(https://en.wikipedia.org/wiki/Foo_(bar))", [["https://en.wikipedia.org/wiki/Foo_(bar)", "https://en.wikipedia.org/wiki/Foo_(bar)"]]],
+    ] as const) {
+      expect(anchors(renderToStaticMarkup(<RefText text={t} />))).toEqual(links);
+      expect(anchors(renderToStaticMarkup(<Markdown text={t} />))).toEqual(links);
+    }
+    expect(renderToStaticMarkup(<RefText text="[https://example.com/a]" />)).toMatch(/<\/a>\]$/);
+  });
+
+  it("a long address is linked whole, and one past the limit stays text with nothing inside it linked", () => {
+    const long = `https://example.com/${"a".repeat(URL_MAX - 30)}`;
+    expect(anchors(renderToStaticMarkup(<RefText text={`${long} next`} />))).toEqual([[long, long]]);
+    const over = `https://example.com/${"a".repeat(URL_MAX)}/o/r#5`;
+    for (const html of [renderToStaticMarkup(<RefText text={over} />), renderToStaticMarkup(<Markdown text={over} />)]) {
+      expect(anchors(html)).toEqual([]);
+      expect(html).toContain(over);
+    }
   });
 });
