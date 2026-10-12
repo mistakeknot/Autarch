@@ -4,7 +4,7 @@
 
 ## Repo to project
 
-<!-- figure:repo-mappings=14 -->14 GitHub repositories map to Tasks projects in `REPO_PROJECTS`. 
+<!-- figure:repo-mappings=14 -->14 GitHub repositories map to Tasks projects in `REPO_PROJECTS`.
 | Repository | Tasks project |
 |---|---|
 | `mistakeknot/Autarch` | `AUTA` |

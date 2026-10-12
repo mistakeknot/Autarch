@@ -48,7 +48,7 @@ func TestProseMatchesMarkers(t *testing.T) {
 			if m[1] == "cmd-names" {
 				continue // a list; checked below
 			}
-			if !strings.HasPrefix(m[3], m[2]) {
+			if strings.Trim(m[3], ".,;:)") != m[2] {
 				t.Errorf("%s: figure %s=%s is followed by %q", p, m[1], m[2], m[3])
 			}
 		}
@@ -143,9 +143,19 @@ func TestGhSyncFigures(t *testing.T) {
 	if len(rows) != len(code) {
 		t.Errorf("table has %d rows, code has %d mappings", len(rows), len(code))
 	}
+	seen := map[string]bool{}
 	for _, r := range rows {
 		if !code[r] {
 			t.Errorf("table row %s is not in REPO_PROJECTS", r)
+		}
+		if seen[r] {
+			t.Errorf("table row %s is duplicated", r)
+		}
+		seen[r] = true
+	}
+	for r := range code {
+		if !seen[r] {
+			t.Errorf("REPO_PROJECTS pair %s is missing from the table", r)
 		}
 	}
 }
