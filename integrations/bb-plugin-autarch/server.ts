@@ -479,7 +479,9 @@ export function wireHome(bb: BbPluginApi, handle: StoreHandle, cfg: HomeConfig, 
       // Thread titles are a read-only peek; when the thread list cannot be read the card shows the thread id.
       let titles = new Map<string, string>();
       try {
-        titles = new Map((await listThreadRows({ cached: true })).filter((t) => t.title).map((t) => [t.id, t.title as string]));
+        // Bounded: a slow thread list must not hold the inbox, so the ids show after 1.5 s.
+        const rows = await Promise.race([listThreadRows({ cached: true }), new Promise<ThreadRow[]>((_, no) => setTimeout(() => no(new Error("thread list slow")), 1500).unref?.())]);
+        titles = new Map(rows.filter((t) => t.title).map((t) => [t.id, t.title as string]));
       } catch {
         /* show ids */
       }

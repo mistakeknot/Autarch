@@ -248,7 +248,7 @@ export function AskCard({ ask, onPick, onOpen, nowMs, onNote, onLater, unbound =
         <button type="button" className="inline-flex min-h-11 items-center underline sm:min-h-0" onClick={() => onOpen(ask.thread)}>{threadName(ask)}</button>
         {n > 0 ? ` - ${`also mentioned in ${n} ${n === 1 ? "thread" : "threads"}`}` : ""}
       </p>
-      {glanceOf ? <GlanceBlock g={glanceOf} answers={glanceAnswers} recordsOnly={glanceAnswers.every((a) => a.effect === null)} /> : null}
+      {glanceOf ? <GlanceBlock g={glanceOf} answers={glanceAnswers} recordsOnly={allRuling} /> : null}
       <QuestionText text={ask.ask.question} />
       <ul className="mb-0 mt-3 list-none space-y-2 p-0">
         {ask.ask.options.map((o) => {
