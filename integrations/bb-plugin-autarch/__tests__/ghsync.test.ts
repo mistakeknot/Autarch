@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { REPO_PROJECTS, keyFamily, planCards, renderPlan, classify, cleanTitle, ghPrListArgv, ghRepoListArgv, mkOnlyPaths, parsePrList, renderDryRun, type GhPrRow } from "../ghsync.js";
+import { REPO_PROJECTS, keyFamily, legacyPrKey, planCards, renderPlan, classify, cleanTitle, ghPrListArgv, ghRepoListArgv, mkOnlyPaths, parsePrList, renderDryRun, type GhPrRow } from "../ghsync.js";
 
 const pr = (o: Partial<GhPrRow> | Readonly<Record<string, unknown>> = {}): GhPrRow => ({
   repo: "mistakeknot/Autarch", number: 7, url: "https://github.com/mistakeknot/Autarch/pull/7", title: "t", isDraft: false,
@@ -109,11 +109,14 @@ describe("planCards", () => {
   it("batches a repo's bot CI-only PRs into one card and gives other mk PRs one card each", () => {
     const rows = [bot(1), bot(2), bot(3, "mistakeknot/Clavain"), classify(pr({ number: 9, url: "https://github.com/mistakeknot/Autarch/pull/9", files: ["AGENTS.md"] }))];
     const plan = planCards(rows);
-    expect(plan.cards.map((c) => [c.kind, c.urls.length])).toEqual([["batch", 2], ["batch", 1], ["pr", 1]]);
+    expect(plan.cards.map((c) => [c.kind, c.urls.length])).toEqual([["pr", 1], ["batch", 2], ["batch", 1]]);
     const single = plan.cards.find((c) => c.kind === "pr")!;
-    expect(single.key).toBe("gh-pr:mistakeknot:Autarch:9");
+    expect(single.key).toBe("gh-ask:mistakeknot:Autarch:9");
+    expect(legacyPrKey(single.key)).toBe("gh-pr:mistakeknot:Autarch:9");
+    expect((single.ask.options as { id: string }[]).map((o) => o.id)).toEqual(["merge", "close", "leave"]);
+    expect(single.ask.question).toContain("https://github.com/mistakeknot/Autarch/pull/9");
     expect(single.move).toMatchObject({ schema: "home-move/v1", kind: "pr", pr: { url: "https://github.com/mistakeknot/Autarch/pull/9" } });
-    expect((plan.cards.find((c) => c.urls.length === 2)!.ask!.options as { id: string }[]).map((o) => o.id)).toEqual(["merge-all", "close-all", "leave"]);
+    expect((plan.cards.find((c) => c.urls.length === 2)!.ask.options as { id: string }[]).map((o) => o.id)).toEqual(["merge-all", "close-all", "leave"]);
   });
   it("makes no card for vizier, coordinator or draft PRs, and one MSQ catch-all card per unmapped repo", () => {
     const plan = planCards([classify(pr()), classify(pr({ mergeable: "CONFLICTING" })), classify(pr({ isDraft: true })), bot(5, "mistakeknot/unlisted-repo"), bot(6, "mistakeknot/unlisted-repo")]);
