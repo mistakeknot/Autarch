@@ -13,6 +13,9 @@ import (
 
 var figureRe = regexp.MustCompile(`<!-- figure:([a-z-]+)=([^ ]+?) -->`)
 
+// proseRe finds a marker with the text that follows it, so the written figure can be checked too.
+var proseRe = regexp.MustCompile(`<!-- figure:([a-z-]+)=([^ ]+?) -->\s*(\S+)`)
+
 // figures reads every marker in the book as name -> values.
 func figures(t *testing.T) map[string][]string {
 	t.Helper()
@@ -31,6 +34,31 @@ func figures(t *testing.T) map[string][]string {
 		}
 	}
 	return out
+}
+
+// TestProseMatchesMarkers: the number written after a marker must be the marker's value, so editing the prose alone fails.
+func TestProseMatchesMarkers(t *testing.T) {
+	pages, _ := filepath.Glob("src/*.md")
+	for _, p := range pages {
+		if strings.HasSuffix(p, "introduction.md") {
+			continue // its marker is an example inside a code span
+		}
+		b, _ := os.ReadFile(p)
+		for _, m := range proseRe.FindAllStringSubmatch(string(b), -1) {
+			if m[1] == "cmd-names" {
+				continue // a list; checked below
+			}
+			if !strings.HasPrefix(m[3], m[2]) {
+				t.Errorf("%s: figure %s=%s is followed by %q", p, m[1], m[2], m[3])
+			}
+		}
+	}
+	b, _ := os.ReadFile("src/tools.md")
+	for _, n := range strings.Split(figures(t)["cmd-names"][0], ",") {
+		if !strings.Contains(string(b), "`"+n+"`") {
+			t.Errorf("tools.md does not list command %s", n)
+		}
+	}
 }
 
 func dirs(t *testing.T, rel string) []string {
@@ -105,4 +133,19 @@ func TestGhSyncFigures(t *testing.T) {
 	}
 	n := len(regexp.MustCompile(`(?m)^\s*"[^"]+": "[A-Z]+",`).FindAllString(block[1], -1))
 	expect(t, "repo-mappings", strconv.Itoa(n))
+	// Every repository-to-project pair in the code must be a row of the page's table, and the other way round.
+	code := map[string]bool{}
+	for _, m := range regexp.MustCompile(`(?m)^\s*"([^"]+)": "([A-Z]+)",`).FindAllStringSubmatch(block[1], -1) {
+		code["| `"+m[1]+"` | `"+m[2]+"` |"] = true
+	}
+	page := read(t, "docs/wiki/src/gh-sync.md")
+	rows := regexp.MustCompile("(?m)^\\| `[^`]+` \\| `[A-Z]+` \\|$").FindAllString(page, -1)
+	if len(rows) != len(code) {
+		t.Errorf("table has %d rows, code has %d mappings", len(rows), len(code))
+	}
+	for _, r := range rows {
+		if !code[r] {
+			t.Errorf("table row %s is not in REPO_PROJECTS", r)
+		}
+	}
 }

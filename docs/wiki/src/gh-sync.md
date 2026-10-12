@@ -1,10 +1,28 @@
 # The gh-sync card filer
 
-`integrations/bb-plugin-autarch/ghsync.ts` classifies open pull requests by who they wait on and plans one decision card per PR waiting on mk. `scripts/gh-sync-cards.ts` files the plan with `autarch needs-mk file`; a dry run is the default and `--apply` files.
+`integrations/bb-plugin-autarch/ghsync.ts` classifies open pull requests by who they wait on and plans decision cards for the PRs waiting on mk: one per PR, except that bot-opened CI-workflow PRs are batched per repository and PRs of an unmapped repository are grouped per repository. `scripts/gh-sync-cards.ts` files the plan with `autarch needs-mk file`; a dry run is the default and `--apply` files.
 
 ## Repo to project
 
-<!-- figure:repo-mappings=14 -->14 GitHub repositories map to Tasks projects in `REPO_PROJECTS`. A repository with no entry is filed under the catch-all project `MSQ`.
+<!-- figure:repo-mappings=14 -->14 GitHub repositories map to Tasks projects in `REPO_PROJECTS`. 
+| Repository | Tasks project |
+|---|---|
+| `mistakeknot/Autarch` | `AUTA` |
+| `mistakeknot/Clavain` | `CLAV` |
+| `mistakeknot/Sylveste` | `SYLV` |
+| `mistakeknot/Sylveste-lane` | `SYLV` |
+| `mistakeknot/amtiskaw-hermes-agent` | `AMTK` |
+| `mistakeknot/dotfiles` | `DOTF` |
+| `mistakeknot/intercore` | `ICOR` |
+| `mistakeknot/interbase` | `IBAS` |
+| `mistakeknot/interkasten` | `IKAS` |
+| `mistakeknot/intermute` | `IMUT` |
+| `mistakeknot/intermute-lane` | `IMUL` |
+| `mistakeknot/interphase` | `IPHS` |
+| `mistakeknot/pattern-royale` | `PR` |
+| `mistakeknot/ushas` | `USH` |
+
+A repository with no entry is filed under the catch-all project `MSQ`.
 
 ## Card kinds
 
