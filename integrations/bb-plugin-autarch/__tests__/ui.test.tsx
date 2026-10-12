@@ -157,12 +157,13 @@ describe("Asks ordering", () => {
     expect(html.match(/acts on it under its own permissions/g)?.length).toBe(1);
   });
 
-  it("shows paths, shas and URLs in an ask as code that can break anywhere", () => {
+  it("shows paths and shas in an ask as code that can break anywhere, and URLs as links", () => {
     const sha = "32109540d47aaaafb3628b9e62275477ca817942ef0ea3dcb0" + "0".repeat(14);
     const q = `Script: /srv/runs/walk-ward.sh, sha256 ${sha} (see https://github.com/o/r/pull/4). Feels right and/or not.`;
     const html = renderToStaticMarkup(<AsksPanel data={data({ owed: [ask({ ask: { question: q, options: [{ id: "x", label: "X", kind: "ruling-only" }] } })] })} onPick={() => {}} onOpen={() => {}} />);
     const refs = [...html.matchAll(/<code[^>]*data-ref="[^"]*">([^<]*)<\/code>/g)].map((m) => m[1]);
-    expect(refs).toEqual(["/srv/runs/walk-ward.sh", sha, "https://github.com/o/r/pull/4"]);
+    expect(refs).toEqual(["/srv/runs/walk-ward.sh", sha]);
+    expect(html).toContain('<a href="https://github.com/o/r/pull/4" target="_blank" rel="noopener noreferrer nofollow"');
   });
 
   it("ageText reads minutes, hours, then days", () => {

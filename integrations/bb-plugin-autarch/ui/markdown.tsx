@@ -1,9 +1,10 @@
 // A deliberately small, safe Markdown subset for card text: paragraphs, "-" lists, fenced code, `code`, **bold** and
-// [text](https://link). Everything is built as React elements from parsed text, never as HTML, so a card body cannot
+// [text](https://link); bare URLs and owner/repo#N link too. Everything is built as React elements from parsed text, never as HTML, so a card body cannot
 // inject markup. Only http(s) links become anchors (new tab, noopener); every other scheme stays literal text.
 // Images are NOT fetched (a remote image is a tracking beacon and a layout hazard): ![alt](url) shows as a link to
 // the image when the url is https, else as its alt text.
 import type { ReactNode } from "react";
+import { linkify } from "./links.js";
 
 // Every quantifier is bounded so an unmatched marker repeated many times cannot make the scan quadratic.
 const INLINE = /(`[^`\n]{1,500}`|\*\*[^*\n]{1,500}\*\*|!?\[[^\]\n]{0,200}\]\([^)\s]{0,2000}\))/g;
@@ -24,7 +25,7 @@ export function safeHref(raw: string): string | null {
 function inline(text: string, key: string): ReactNode[] {
   return text.split(INLINE).map((part, i) => {
     const k = `${key}-${i}`;
-    if (i % 2 === 0) return part;
+    if (i % 2 === 0) return linkify(part, k);
     if (part.startsWith("`")) return <code key={k} className="rounded bg-muted px-1 font-mono text-xs [overflow-wrap:anywhere]">{part.slice(1, -1)}</code>;
     if (part.startsWith("**")) return <strong key={k}>{part.slice(2, -2)}</strong>;
     const m = LINK.exec(part);
