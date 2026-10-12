@@ -7,7 +7,7 @@ import { createHash } from "node:crypto";
 import { createServer, type Server } from "node:net";
 import { tmpdir } from "node:os";
 import { basename, dirname, join, resolve } from "node:path";
-import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import Database from "better-sqlite3";
 import { MIGRATIONS, migrate } from "../migrations.js";
 import { createStoreHandle } from "../store.js";
@@ -18,6 +18,10 @@ const SCRIPTS = resolve(__dirname, "../../../scripts");
 const RESTORE = join(SCRIPTS, "home-restore-v2.sh");
 const UPGRADE = join(SCRIPTS, "home-upgrade-v3.sh");
 const THREAD = "thr_test123";
+
+// Each test runs the real launchers, which take seconds; on a loaded host the 5s default timed them out at random
+// (bead mk-03uvn). The spawns carry their own 60s limits, so a hung script still fails, with its own error.
+vi.setConfig({ testTimeout: 90_000 });
 
 let tmpl: Env;
 let fx: V2Fixture;
