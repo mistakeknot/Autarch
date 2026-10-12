@@ -31,8 +31,11 @@ export function urlParts(token: string): { url: string | null; rest: string } {
   // Bracket counts are taken once and kept as characters are trimmed, so a long run of closers stays linear.
   const count: Record<string, number> = {};
   for (const c of token) if (c in CLOSERS || "([{".includes(c)) count[c] = (count[c] ?? 0) + 1;
-  // A "*" is emphasis only when every "*" in the token is in its trailing punctuation; https://x/**/y** keeps its glob.
-  const trail = /^[^*]*\*[*.,;:!?'"\])}]*$/.test(token) ? ".,;:!?'\"*" : ".,;:!?'\"";
+  // Trailing "*" is emphasis unless the address before its trailing run still holds a "**" glob: https://x/**/y** keeps
+  // its stars, https://x/src/*.go** loses them. Found by walking back once, so it stays linear.
+  let core = token.length;
+  while (core > 0 && "*.,;:!?'\"])}".includes(token[core - 1])) core--;
+  const trail = token.lastIndexOf("**", core - 2) === -1 ? ".,;:!?'\"*" : ".,;:!?'\"";
   let end = token.length;
   for (;;) {
     const c = token[end - 1];

@@ -100,6 +100,10 @@ describe("GitHub references and URLs are links", () => {
     expect(anchors(renderToStaticMarkup(<Markdown text={"**see https://github.com/o/r/pull/58**"} />))).toEqual([["https://github.com/o/r/pull/58", "https://github.com/o/r/pull/58"]]);
     expect(urlParts("https://example.com/a*")).toEqual({ url: "https://example.com/a", rest: "*" });
     expect(anchors(renderToStaticMarkup(<Markdown text={"*https://example.com/a*"} />))).toEqual([["https://example.com/a", "https://example.com/a"]]);
+    // A single "*" inside the address does not stop bold's closing "**" from being trimmed.
+    const g = "https://github.com/search?q=path:src/*.go";
+    expect(urlParts(`${g}**`)).toEqual({ url: g, rest: "**" });
+    expect(renderToStaticMarkup(<Markdown text={`**see ${g}**`} />)).toMatch(/<strong>see <a href="[^"]*src\/\*\.go"[^>]*>[^<]*src\/\*\.go<\/a><\/strong>/);
   });
 
   it("backticks pair left to right, so prose between two code spans never pairs into one, and bold cannot reach into code", () => {
