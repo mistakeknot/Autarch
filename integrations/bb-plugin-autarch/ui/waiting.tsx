@@ -33,20 +33,20 @@ export type WaitingJump = "decide" | "moves" | "updates" | "held" | "later";
 export function WaitingStrip({ waiting: w, onJump }: { waiting: Waiting; onJump: (to: WaitingJump) => void }) {
   const s = waitingSummary(w);
   return (
-    <div className="border-b border-border px-2 py-2 sm:px-4" data-waiting-strip>
+    <div className="flex flex-wrap items-center gap-x-4 border-b border-border px-2 py-0.5 sm:px-4" data-waiting-strip>
       <p className="m-0 text-sm [overflow-wrap:anywhere]">
         <b data-waiting-total>{s.headline}</b>
         <span className="text-muted-foreground">{` — ${s.parts}`}</span>
       </p>
       {s.beside.length > 0 ? (
-        <p className="m-0 mt-1 flex flex-wrap items-center gap-x-2 text-xs text-muted-foreground" data-waiting-beside>
+        <p className="m-0 flex flex-wrap items-center gap-x-2 text-xs text-muted-foreground" data-waiting-beside>
           <span>Not in that number:</span>
           {besideItems(w).map((i) => (
             <ActionButton key={i.to} tone="quiet" className="min-h-11 sm:!min-h-11 !px-1 !py-0" onClick={() => onJump(i.to)}>{i.text}</ActionButton>
           ))}
         </p>
       ) : null}
-      <details className="mt-1 text-xs text-muted-foreground" data-waiting-definition>
+      <details className="text-xs text-muted-foreground open:basis-full" data-waiting-definition>
         <summary className="flex min-h-11 cursor-pointer items-center sm:min-h-0">What this counts</summary>
         <p className="m-0 mt-1 [overflow-wrap:anywhere]">{w.definition}</p>
       </details>

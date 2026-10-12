@@ -236,6 +236,17 @@ describe("tap targets at every width (44px, not just on phones)", () => {
   });
 });
 
+describe("a Later card is one row", () => {
+  it("title, Open card and Move back share the card's row; opening moves the card body to its own line", () => {
+    const html = panel([ask({ id: "b", task_id: "task-2", later: LATER })]);
+    const li = html.match(/<li[^>]*data-later="b"[^>]*>/)![0];
+    expect(li).toContain("flex-wrap");
+    expect(li).not.toMatch(/\bp-2\b/);
+    expect(html).toMatch(/<details[^>]*class="[^"]*open:basis-full/);
+    expect(html.indexOf("Open card")).toBeLessThan(html.indexOf("data-later-clear"));
+  });
+});
+
 describe("every Your move action keeps 44px at sm and wider", () => {
   it("check, claim and Later / skip are tap height, not only Move back", () => {
     const mv = { task_id: "t1", generation: 1, kind: "script", subject: "s", key: null, need: null, pr: null, script: null, commands: [], report: null, url: null, held: null, claimed_at: null, skipped_at: null, card_later: false, checked_at: null, report_deadline_at: null, closed_at: null, closed_by: null, evidence: null } as unknown as Parameters<typeof MoveCard>[0]["m"];
