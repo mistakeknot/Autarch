@@ -151,7 +151,7 @@ export function currentAsk<T extends { id: string }>(owed: T[], selected: string
 
 // Absolute paths and sha256 digests in an ask's text: shown as code, selectable in one click, and allowed to break
 // anywhere so a long path never pushes the card wider than its panel. URLs and owner/repo#N are links (new tab).
-const REF = new RegExp(`(${URL_SRC}|(?<![\\w/])\\/(?:[\\w.@+-]+\\/)+[\\w@+-]+(?:\\.[\\w@+-]+)*|\\b[0-9a-f]{64}\\b|${GH_REF_SRC})`, "g");
+const REF = new RegExp(`(${URL_SRC}|(?<![\\w/])\\/(?:[\\w.@+-]{1,255}\\/){1,64}[\\w@+-]{1,255}(?:\\.[\\w@+-]{1,64}){0,8}|\\b[0-9a-f]{64}\\b|${GH_REF_SRC})`, "g");
 
 const ROLE_LABEL: Record<CommandRole, string> = { check: "Before it (dry run / check)", step: "Earlier step", final: "Final command" };
 
@@ -235,7 +235,7 @@ export function AskCard({ ask, onPick, onOpen, nowMs, onNote, onLater, unbound =
     <article className="min-w-0 rounded-lg border border-border bg-card p-4" data-decision={ask.id}>
       <h3 className="text-sm font-medium [overflow-wrap:anywhere]">
         {ask.key ? <span className="mr-2 select-all rounded bg-muted px-1.5 font-mono text-xs font-semibold" data-task-key>{ask.key}</span> : null}
-        {ask.subject}
+        <RefText text={ask.subject} />
       </h3>
       <p className="mt-1 text-xs text-muted-foreground">
         {ask.project ? `${ask.project} · ` : ""}

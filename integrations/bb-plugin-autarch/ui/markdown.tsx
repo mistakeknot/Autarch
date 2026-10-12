@@ -8,6 +8,8 @@ import { linkify } from "./links.js";
 
 // Every quantifier is bounded so an unmatched marker repeated many times cannot make the scan quadratic.
 const INLINE = /(`[^`\n]{1,500}`|\*\*[^*\n]{1,500}\*\*|!?\[[^\]\n]{0,200}\]\([^)\s]{0,2000}\))/g;
+/** A backtick span of any length on one line; a single unmatched backtick scans to the line's end once. */
+const TICKED = /(`[^`\n]*`)/;
 const LINK = /^(!?)\[([^\]\n]*)\]\(([^)\s]*)\)$/;
 /** Above this size a body is shown as plain wrapped text: no parsing at all. */
 export const MARKDOWN_MAX_CHARS = 20_000;
@@ -25,9 +27,10 @@ export function safeHref(raw: string): string | null {
 function inline(text: string, key: string): ReactNode[] {
   return text.split(INLINE).map((part, i) => {
     const k = `${key}-${i}`;
-    if (i % 2 === 0) return linkify(part, k);
+    // A backtick span too long to show as code still is code: nothing inside it becomes a link.
+    if (i % 2 === 0) return part.split(TICKED).map((t, j) => (j % 2 === 0 ? linkify(t, `${k}-${j}`) : t));
     if (part.startsWith("`")) return <code key={k} className="rounded bg-muted px-1 font-mono text-xs [overflow-wrap:anywhere]">{part.slice(1, -1)}</code>;
-    if (part.startsWith("**")) return <strong key={k}>{part.slice(2, -2)}</strong>;
+    if (part.startsWith("**")) return <strong key={k}>{linkify(part.slice(2, -2), k)}</strong>;
     const m = LINK.exec(part);
     if (!m) return part;
     const [, bang, label, url] = m;

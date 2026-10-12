@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
-import { RefText } from "../ui/asks.js";
+import { AskCard, RefText, type OwedAsk } from "../ui/asks.js";
 import { Markdown } from "../ui/markdown.js";
 import { refHref, URL_MAX, urlParts } from "../ui/links.js";
 
@@ -31,11 +31,12 @@ describe("GitHub references and URLs are links", () => {
     expect(anchors(renderToStaticMarkup(<RefText text="https://github.com/o/r/pull/4#issuecomment-1" />))).toHaveLength(1);
   });
 
-  it("links references and bare URLs in comments, but not inside code", () => {
+  it("links references and bare URLs in comments, bold included, but not inside code", () => {
     const html = renderToStaticMarkup(<Markdown text={"Opened o/r#5, see https://github.com/o/r/pull/5.\n\n`o/r#6` and **o/r#7**"} />);
     expect(anchors(html)).toEqual([
       ["o/r#5", "https://github.com/o/r/pull/5"],
       ["https://github.com/o/r/pull/5", "https://github.com/o/r/pull/5"],
+      ["o/r#7", "https://github.com/o/r/pull/7"],
     ]);
     expect(html).toContain("<code");
   });
@@ -65,5 +66,32 @@ describe("GitHub references and URLs are links", () => {
       expect(anchors(html)).toEqual([]);
       expect(html).toContain(over);
     }
+  });
+
+  it("links a decision card's title, a bold reference and a mixed-case scheme, but not inside a long code span or an email", () => {
+    expect(anchors(renderToStaticMarkup(<Markdown text={"**o/r#7** and HtTpS://x.io/a"} />))).toEqual([["o/r#7", "https://github.com/o/r/pull/7"], ["HtTpS://x.io/a", "https://x.io/a"]]);
+    const code = "`" + "x ".repeat(300) + "o/r#5 https://x.io`";
+    expect(anchors(renderToStaticMarkup(<Markdown text={code} />))).toEqual([]);
+    expect(renderToStaticMarkup(<Markdown text={code} />)).toContain("o/r#5 https://x.io");
+    expect(anchors(renderToStaticMarkup(<RefText text="a/b#1@example.com" />))).toEqual([]);
+  });
+
+  it("adversarial runs stay fast", () => {
+    const start = Date.now();
+    for (const t of ["https://x.io/" + ")".repeat(50_000), "/.".repeat(25_000), "`".repeat(20_000), "o/r#1".repeat(4_000)]) {
+      renderToStaticMarkup(<RefText text={t} />);
+      renderToStaticMarkup(<Markdown text={t.slice(0, 19_000)} />);
+    }
+    expect(Date.now() - start).toBeLessThan(2_000);
+  });
+
+  it("a decision card's title links its pull request", () => {
+    const ask: OwedAsk = {
+      id: "dec1", project: "Autarch", thread: "thr-a", subject: "Merge or decide: mistakeknot/Sylveste#106", asker: "thread",
+      filed_at: "2026-09-29T10:00:00Z", revision: "rev1", mentions: 0, task_id: "task-1",
+      ask: { question: "Which?", options: [{ id: "a", label: "A", kind: "ruling-only" }] },
+    };
+    const html = renderToStaticMarkup(<AskCard ask={ask} onPick={(() => {}) as never} onOpen={() => {}} />);
+    expect(anchors(html)).toEqual([["mistakeknot/Sylveste#106", "https://github.com/mistakeknot/Sylveste/pull/106"]]);
   });
 });

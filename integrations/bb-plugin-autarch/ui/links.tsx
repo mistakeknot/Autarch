@@ -5,9 +5,9 @@ import type { ReactNode } from "react";
 import { safeHref } from "./markdown.js";
 
 /** owner/repo#N, not inside a path or a longer word. Owner follows GitHub's rules: letters, digits, inner hyphens. */
-export const GH_REF_SRC = String.raw`(?<![\w./#-])[A-Za-z0-9][A-Za-z0-9-]{0,38}\/[A-Za-z0-9._-]{1,100}#\d{1,9}\b`;
+export const GH_REF_SRC = String.raw`(?<![\w./#-])[A-Za-z0-9][A-Za-z0-9-]{0,38}\/[A-Za-z0-9._-]{1,100}#\d{1,9}\b(?![@\/])`;
 /** A whole web-address token, up to whitespace or an angle bracket; urlParts trims what trails it. One run, so the scan stays linear. */
-export const URL_SRC = String.raw`https?:\/\/[^\s<>]+`;
+export const URL_SRC = String.raw`[hH][tT][tT][pP][sS]?:\/\/[^\s<>]+`;
 /** Longer addresses stay plain text rather than becoming a link that is cut short. */
 export const URL_MAX = 2000;
 const CLOSERS: Record<string, string> = { ")": "(", "]": "[", "}": "{" };
@@ -20,23 +20,25 @@ const LINKS = new RegExp(`(${URL_SRC}|${GH_REF_SRC})`, "g");
  * and https://en.wikipedia.org/wiki/Foo_(bar) keeps its ")". The address is null when it is too long or empty.
  */
 export function urlParts(token: string): { url: string | null; rest: string } {
+  // Bracket counts are taken once and kept as characters are trimmed, so a long run of closers stays linear.
+  const count: Record<string, number> = {};
+  for (const c of token) if (c in CLOSERS || "([{".includes(c)) count[c] = (count[c] ?? 0) + 1;
   let end = token.length;
   for (;;) {
     const c = token[end - 1];
     if (c !== undefined && ".,;:!?'\"".includes(c)) end--;
-    else if (c !== undefined && CLOSERS[c] !== undefined) {
-      const body = token.slice(0, end);
-      if (body.split(c).length > body.split(CLOSERS[c]).length) end--;
-      else break;
+    else if (c !== undefined && CLOSERS[c] !== undefined && (count[c] ?? 0) > (count[CLOSERS[c]] ?? 0)) {
+      count[c]--;
+      end--;
     } else break;
   }
   const url = token.slice(0, end);
-  return { url: /^https?:\/\/./.test(url) && url.length <= URL_MAX ? url : null, rest: token.slice(end) };
+  return { url: /^https?:\/\/./i.test(url) && url.length <= URL_MAX ? url : null, rest: token.slice(end) };
 }
 
 /** A matched reference as nodes: a link when it is one (plus any text trimmed off an address), else null. */
 export function refNodes(part: string, key: string): ReactNode[] | null {
-  if (/^https?:\/\//.test(part)) {
+  if (/^https?:\/\//i.test(part)) {
     const { url, rest } = urlParts(part);
     const href = url === null ? null : safeHref(url);
     return href === null ? [part] : [<LinkOut key={key} href={href}>{url}</LinkOut>, rest];
@@ -47,7 +49,7 @@ export function refNodes(part: string, key: string): ReactNode[] | null {
 
 /** Where a matched reference goes, or null when it is not a link. */
 export function refHref(part: string): string | null {
-  if (/^https?:\/\//.test(part)) return safeHref(part);
+  if (/^https?:\/\//i.test(part)) return safeHref(part);
   const m = GH_REF.exec(part);
   return m ? `https://github.com/${m[1]}/${m[2]}/pull/${m[3]}` : null;
 }
