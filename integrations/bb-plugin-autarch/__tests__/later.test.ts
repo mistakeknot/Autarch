@@ -17,6 +17,16 @@ const withMove = (t: { description: string }, move: object) => void (t.descripti
 const prMove = (k: number) => ({ schema: "home-move/v1", kind: "pr", pr: { url: `https://github.com/o/r/pull/${k}` } });
 const count = (r: Rig) => waitingNow(r.svc, r.dele, new Catchup(r.svc, r.dele));
 
+describe("cardTitle", () => {
+  it("returns the card's own title, and null for a missing or unset task", async () => {
+    const r = rig({ legacyMoves: true });
+    const { t } = await opened(r);
+    expect(r.svc.cardTitle(t.id)).toBe(t.title);
+    expect(r.svc.cardTitle("no-such-task")).toBeNull();
+    expect(r.svc.cardTitle(null)).toBeNull();
+  });
+});
+
 describe("later (store)", () => {
   it("sets a card aside, names who and when, and is idempotent", async () => {
     const r = rig({ legacyMoves: true });
