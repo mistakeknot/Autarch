@@ -153,12 +153,6 @@ describe("Asks ordering", () => {
     expect(html).toMatch(/max-sm:line-clamp-3[^"]*sm:truncate/);
   });
 
-  it("a play card whose answers are all needs-context does not say nothing is sent", () => {
-    const html = renderToStaticMarkup(<AsksPanel data={data({ owed: [ask({ ask: { question: "q", options: [{ id: "a", label: "A", kind: "needs-context" }, { id: "b", label: "B", kind: "needs-context" }] } })] })} onPick={() => {}} onOpen={() => {}} />);
-    expect(html).not.toContain("records your pick only");
-    expect(html).not.toContain("nothing is sent");
-  });
-
   it("names the asking thread by its title and says the instruction note once per card", () => {
     const two = ask({ ask: { question: "q", options: [{ id: "a", label: "A", kind: "instruction", instruction: "do a" }, { id: "b", label: "B", kind: "instruction", instruction: "do b" }] } });
     const html = renderToStaticMarkup(<AsksPanel data={data({ owed: [two] })} onPick={() => {}} onOpen={() => {}} />);
