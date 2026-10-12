@@ -472,6 +472,20 @@ describe("card close", () => {
     await r.writer.drain();
     expect((r.fake.tasks.find((x) => x.id === t.id) as { status?: string }).status).not.toBe("done");
   });
+
+  it("retiring the live move does not release a close held back by it (bead mk-1k8pg)", async () => {
+    const r = rig({ legacyMoves: true });
+    const t = await withMove(r, prMove());
+    const l = r.fake.addLabel(r.tp.id, HOME_MOVE_LABEL);
+    t.labelIds = [...t.labelIds, l.id];
+    r.svc.store.openMove({ task_id: t.id, generation: 2, kind: "pr", payload: { kind: "pr", url: "https://github.com/o/r/pull/21" }, opened_by: "card" });
+    expect(r.svc.closeMoveOn(t.id, 1, "github", "merged")).toBe(true); // gen 1's close is queued, gen 2 still live
+    expect(r.db.prepare("SELECT state FROM move_closes WHERE task_id = ?").all(t.id)).toEqual([{ state: "pending" }]);
+    expect(r.svc.retireMoves()).toBe(1);
+    await r.writer.drain();
+    expect((r.fake.tasks.find((x) => x.id === t.id) as { status?: string }).status).not.toBe("done");
+    expect(r.db.prepare("SELECT state FROM move_closes WHERE task_id = ?").all(t.id)).toEqual([{ state: "skipped" }]);
+  });
 });
 
 describe("a card gone from tasks closes its moves", () => {

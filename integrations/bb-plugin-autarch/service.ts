@@ -1127,6 +1127,11 @@ export class Service {
       this.store.atomically(() => {
         if (!this.store.closeMove(m.task_id, m.generation, "home", "moves retired")) return;
         n++;
+        // A pending close of an older move was held back by this live one, so the card is still owed: the writer
+        // must not close it now that nothing live is left to hold it back.
+        this.db
+          .prepare("UPDATE move_closes SET state = 'skipped', last_error = 'card had a live move when moves were retired', updated_at = ? WHERE task_id = ? AND state = 'pending'")
+          .run(this.now(), m.task_id);
         const d = this.db.prepare("SELECT id FROM decisions WHERE task_id = ? AND generation = ?").get(m.task_id, m.generation) as { id: string } | undefined;
         if (d && this.store.pick(d.id) && HOME_UNLABELS_ON_PICK) {
           this.store.insertCardWrites(d.id, [{ id: `cw-${d.id}-unlabel`, task_id: m.task_id, kind: "unlabel", payload: JSON.stringify({ move_closed_by: "home" }) }]);
