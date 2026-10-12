@@ -476,7 +476,7 @@ describe("card close", () => {
 
 describe("a card gone from tasks closes its moves", () => {
   it.each([
-    ["canceled", (r: Rig, t: { id: string }) => r.edit(r.fake.tasks.find((x) => x.id === t.id)!, { status: "canceled" }), "card closed in tasks"],
+    ["canceled", (r: Rig, t: { id: string }) => r.edit(r.fake.tasks.find((x) => x.id === t.id)!, { status: "canceled" }), "card canceled in tasks"],
     ["deleted", (r: Rig, t: { id: string }) => void (r.fake.tasks = r.fake.tasks.filter((x) => x.id !== t.id)), "card deleted in tasks"],
   ])("%s: an open move and a claimed move close, by home, with the reason as evidence", async (_n, gone, evidence) => {
     const r = rig();
@@ -498,18 +498,66 @@ describe("a card gone from tasks closes its moves", () => {
     expect(r.svc.store.move(t.id, 1)!.state).toBe("open");
   });
 
-  it("the sweep closes a move left live on a card that was already gone, and nothing on a live card", async () => {
+  // As a card that left before gone cards closed their moves: closed in Home's cache, its move still live.
+  const orphan = (r: Rig, id: string) => r.db.prepare("UPDATE moves SET state = 'open', closed_at = NULL, closed_by = NULL, evidence = NULL WHERE task_id = ?").run(id);
+
+  it("a sweep re-reads a card with a live move and closes it when tasks still has the card closed; a live card is untouched", async () => {
     const r = rig();
     const gone = await withMove(r, prMove());
     const live = await withMove(r, prMove("https://github.com/o/r/pull/13"));
     r.edit(gone, { status: "canceled" });
     await r.poll();
-    // As a card cancelled before gone cards closed their moves: the card is closed and its move still open.
-    r.db.prepare("UPDATE moves SET state = 'open', closed_at = NULL, closed_by = NULL, evidence = NULL WHERE task_id = ?").run(gone.id);
-    expect(r.svc.closeOrphanMoves()).toBe(1);
+    orphan(r, gone.id);
+    await r.poll();
     expect(r.svc.store.move(gone.id, 1)).toMatchObject({ state: "closed", closed_by: "home", evidence: "card canceled in tasks" });
     expect(r.svc.store.move(live.id, 1)!.state).toBe("open");
-    expect(r.svc.closeOrphanMoves()).toBe(0);
+    expect(r.svc.liveMoveCards()).toEqual([live.id]);
+  });
+
+  it("a card reopened in tasks keeps its move, though Home's cache still says closed", async () => {
+    const r = rig();
+    const t = await withMove(r, prMove());
+    r.edit(t, { status: "canceled" });
+    await r.poll();
+    orphan(r, t.id);
+    r.edit(t, { status: "todo" });
+    await r.poll();
+    // Reopening asks again (a new generation supersedes the old move); the sweep did not close it as gone.
+    expect(r.svc.store.move(t.id, 1)!.evidence).toBe("superseded");
+    expect(r.svc.liveMoveCards()).toEqual([t.id]);
+  });
+
+  it("a card unlabelled first and cancelled later has its move closed on the next sweep", async () => {
+    const r = rig();
+    const t = await withMove(r, prMove());
+    r.edit(t, { labelIds: [] });
+    await r.poll();
+    await r.poll(); // still open and unlabelled: re-read, nothing changes
+    expect(r.svc.store.move(t.id, 1)!.state).toBe("open");
+    r.edit(t, { status: "canceled" });
+    await r.poll();
+    expect(r.svc.store.move(t.id, 1)).toMatchObject({ state: "closed", closed_by: "home", evidence: "card canceled in tasks" });
+  });
+
+  it("a deleted card whose move was left live has it closed on the next sweep", async () => {
+    const r = rig();
+    const t = await withMove(r, prMove());
+    r.fake.tasks = r.fake.tasks.filter((x) => x.id !== t.id);
+    await r.poll();
+    orphan(r, t.id);
+    await r.poll();
+    expect(r.svc.store.move(t.id, 1)).toMatchObject({ state: "closed", evidence: "card deleted in tasks" });
+  });
+
+  it("a picked card closed in tasks closes its move too, and stays ruled", async () => {
+    const r = rig();
+    const t = await withMove(r, prMove());
+    const d = r.gens(t.id)[0];
+    r.mkPick(d.id);
+    r.edit(t, { status: "done" });
+    await r.poll();
+    expect(r.svc.store.move(t.id, 1)).toMatchObject({ state: "closed", evidence: "card done in tasks" });
+    expect(r.cardRow(t.id).state).toBe("ruled");
   });
 });
 
