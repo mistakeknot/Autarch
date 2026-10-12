@@ -411,6 +411,11 @@ function LaterEntry({ o, onPick, onOpen, nowMs, onNote, onLater, renderMoves }: 
   );
 }
 
+/** The tasks that have an owed decision card, wherever it shows (Decide, Later or on hold). */
+export function owedTasks(data: AsksData): Set<string> {
+  return new Set(data.owed.map((o) => o.task_id).filter((t): t is string => typeof t === "string"));
+}
+
 export function AsksPanel({ data, onPick, onOpen, onRevoke, onDismiss, onNote, onLater, onView, renderMoves, hideHeld, nowMs = Date.now() }: { hideHeld?: boolean; renderMoves?: (taskId: string) => ReactNode; data: AsksData; onPick: OnPick; onOpen: (thread: string) => void; onRevoke?: (approvalId: string) => void; onDismiss?: (decisionId: string, obligationId: string) => void; onNote?: OnNote; onLater?: OnLater; onView?: (decisionId: string | null) => void; nowMs?: number }) {
   // In the Queue the held cards show under "Blocked on others"; shown here only on the Asks page.
   const held = hideHeld ? [] : data.owed.filter((o) => o.held);

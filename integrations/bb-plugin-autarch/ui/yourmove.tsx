@@ -155,6 +155,13 @@ export function omitLaterTasks(data: MoveViewGroups, tasks: ReadonlySet<string>)
   return { ...data, later: data.later.filter((m) => !tasks.has(m.task_id)) };
 }
 
+/** The groups without the PR moves on cards that have a decision: a PR waiting on mk is that decision card alone. The move
+ * still runs out of sight, so a PR merged or closed on GitHub closes its card. */
+export function omitDecisionPrMoves(data: MoveViewGroups, tasks: ReadonlySet<string>): MoveViewGroups {
+  const keep = (m: { kind: string; task_id: string }) => !(m.kind === "pr" && tasks.has(m.task_id));
+  return { ...data, yourMove: data.yourMove.filter(keep), reported: data.reported.filter(keep), later: data.later.filter(keep), audit: data.audit.filter(keep) };
+}
+
 /** `part` splits the panel so the Later group can sit below the Decide cards: "active" is everything else. */
 export function YourMovePanel({ data, handlers, env, part }: { data: MoveViewGroups; handlers: MoveHandlers; env?: CopyEnv | undefined; part?: "active" | "later" }) {
   const showLater = part !== "active";

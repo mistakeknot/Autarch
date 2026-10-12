@@ -9,7 +9,7 @@
 // `npx shadcn add @bb/<name>` (see components.json) — dropdowns, tables,
 // the full shadcn set, version-matched to this BB install. Run
 // `npm install` once before `bb plugin build`.
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { FormEvent, ReactNode } from "react";
 import { definePluginApp, useBbNavigate, useRealtime, useRpc } from "@get-bb/plugin-sdk/app";
 import type { rpcContract, Todo } from "./server";
@@ -18,9 +18,9 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Icon } from "@/components/ui/icon";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
-import { AsksPanel, PickController, pickOutcome, laterOutcome } from "./ui/asks.js";
+import { AsksPanel, PickController, owedTasks, pickOutcome, laterOutcome } from "./ui/asks.js";
 import { ConversationProvider, type ConversationApi, type ConversationData } from "./ui/conversation.js";
-import { MoveCard, omitLaterTasks, YourMovePanel, type MoveHandlers } from "./ui/yourmove.js";
+import { MoveCard, omitDecisionPrMoves, omitLaterTasks, YourMovePanel, type MoveHandlers } from "./ui/yourmove.js";
 import type { MoveViewGroups } from "./moveview.js";
 import type { AsksData } from "./ui/asks.js";
 import { MobileInbox, useIsPhone } from "./ui/inbox.js";
@@ -28,6 +28,7 @@ import { IdeaDesk, IdeaDigest, type IdeaApi } from "./ui/ideas.js";
 import type { IdeaProject, IdeaView } from "./ideas.js";
 import { CatchupPanel, markPlan, markResultText, normalizeCatchup, SeenTracker } from "./ui/catchup.js";
 import { NoticeBanner } from "./ui/notices.js";
+import { singleFlight, type Flight } from "./ui/singleflight.js";
 import { buildMoveHandlers, rpcOutcome } from "./movehandlers.js";
 import { badgeCount, WaitingStrip, type WaitingJump } from "./ui/waiting.js";
 import type { Waiting } from "./waiting.js";
@@ -293,6 +294,26 @@ function BlocksThreadPanel({ threadId }: { threadId: string }) {
   );
 }
 
+/** A read run now, on the poll and on each returned call, one at a time (see singleFlight). Unmounting stops it, and a
+ * reply that lands after that is dropped. When `enabled` is false nothing runs and the returned call does nothing. */
+function usePolledRead(run: (live: () => boolean) => Promise<unknown>, deps: readonly unknown[], enabled = true): () => void {
+  const flight = useRef<Flight | null>(null);
+  useEffect(() => {
+    if (!enabled) return;
+    const f = singleFlight(run);
+    flight.current = f;
+    f.go();
+    const t = setInterval(f.go, POLL_MS);
+    return () => {
+      clearInterval(t);
+      f.stop();
+      if (flight.current === f) flight.current = null;
+    };
+    // run is rebuilt each render; deps say when it changes.
+  }, [...deps, enabled]);
+  return useCallback(() => flight.current?.go(), []);
+}
+
 /** The server publishes no realtime channel for Home, so the page polls and refetches after each action. */
 function useHomeData() {
   const rpc = useRpc<typeof rpcContract>();
@@ -301,43 +322,43 @@ function useHomeData() {
   const [waiting, setWaiting] = useState<Waiting | null>(null);
   const [health, setHealth] = useState<{ ready: boolean } | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const refetch = useCallback(() => {
-    Promise.all([rpc.call("listAsks"), rpc.call("catchup"), rpc.call("health"), rpc.call("waiting").catch(() => null)]).then(
-      ([a, c, h, w]) => {
-        setAsks(a as unknown as AsksData);
-        setCatchup(normalizeCatchup((c as { items: CatchupEntry[] }).items));
-        setWaiting(w as Waiting | null);
-        setHealth(h as { ready: boolean });
-        setError(null);
-      },
-      (cause) => setError(cause instanceof Error ? cause.message : String(cause)),
-    );
-  }, [rpc]);
+  // Reads overlap (poll, realtime signal, after an action); one runs at a time, so an older reply never overwrites a
+  // newer snapshot.
+  const refetch = usePolledRead(
+    (live) =>
+      Promise.all([rpc.call("listAsks"), rpc.call("catchup"), rpc.call("health"), rpc.call("waiting").catch(() => null)]).then(
+        ([a, c, h, w]) => {
+          if (!live()) return;
+          setAsks(a as unknown as AsksData);
+          setCatchup(normalizeCatchup((c as { items: CatchupEntry[] }).items));
+          setWaiting(w as Waiting | null);
+          setHealth(h as { ready: boolean });
+          setError(null);
+        },
+        (cause) => {
+          if (live()) setError(cause instanceof Error ? cause.message : String(cause));
+        },
+      ),
+    [rpc],
+  );
   // The totals move when a card is answered, a move is claimed or a hold changes, not only on the poll.
   useRealtime("home-queue-changed", refetch);
-  useEffect(() => {
-    refetch();
-    const t = setInterval(refetch, POLL_MS);
-    return () => clearInterval(t);
-  }, [refetch]);
   return { rpc, asks, catchup, waiting, health, error, refetch };
 }
 
 /** Your move: the grouped read model, refetched on the queue signal and on the poll. */
 function useMoves(rpc: ReturnType<typeof useRpc<typeof rpcContract>>, onChanged: () => void, load = true) {
   const [moves, setMoves] = useState<MoveViewGroups | null>(null);
-  const refetch = useCallback(() => {
-    rpc.call("moves").then((m) => setMoves(m as unknown as MoveViewGroups), () => {});
-  }, [rpc]);
-  useRealtime("home-queue-changed", () => {
-    if (load) refetch();
-  });
-  useEffect(() => {
-    if (!load) return;
-    refetch();
-    const t = setInterval(refetch, POLL_MS);
-    return () => clearInterval(t);
-  }, [refetch, load]);
+  // As in useHomeData: one read at a time, so an older reply never overwrites a newer one.
+  const refetch = usePolledRead(
+    (live) =>
+      rpc.call("moves").then((m) => {
+        if (live()) setMoves(m as unknown as MoveViewGroups);
+      }),
+    [rpc],
+    load,
+  );
+  useRealtime("home-queue-changed", refetch);
   // A note id is stable per (target, text) until it is accepted, so a retry cannot post the comment twice.
   const noteIds = useMemo(() => new Map<string, string>(), []);
   const note = useCallback(
@@ -473,6 +494,9 @@ function HomePage() {
     });
   };
 
+  // A PR waiting on mk is its decision card only, never a move card beside it (bead mk-t7656).
+  const moves = yourMove.moves && asks ? omitDecisionPrMoves(yourMove.moves, owedTasks(asks)) : yourMove.moves;
+
   const render = (panel: Panel): ReactNode => {
     switch (panel.id) {
       case "queue":
@@ -503,7 +527,7 @@ function HomePage() {
           <EmptyState>{error ?? "Loading asks…"}</EmptyState>
         ) : (
           <>
-          {yourMove.moves ? <YourMovePanel data={yourMove.moves} handlers={yourMove.handlers} part="active" /> : null}
+          {moves ? <YourMovePanel data={moves} handlers={yourMove.handlers} part="active" /> : null}
           <AsksPanel
             data={asks}
             {...(panel.hideHeld ? { hideHeld: true } : {})}
@@ -512,7 +536,7 @@ function HomePage() {
             renderMoves={(taskId) => {
               // The card's own Move back sits on the Later entry, so the move cards inside it do not repeat it.
               const { onUnlater: _own, ...h } = yourMove.handlers;
-              return (yourMove.moves?.later ?? []).filter((m) => m.task_id === taskId).map((m) => <MoveCard key={`${m.task_id}:${m.generation}`} m={m} h={h} section="later" />);
+              return (moves?.later ?? []).filter((m) => m.task_id === taskId).map((m) => <MoveCard key={`${m.task_id}:${m.generation}`} m={m} h={h} section="later" />);
             }}
             onDismiss={(decision_id, obligation_id) => void rpc.call("dismiss", { decision_id, obligation_id }).then(refetch, () => {})}
             onOpen={(thread) => push({ id: `thread:${thread}`, kind: "thread", title: thread, ref: thread })}
@@ -522,7 +546,7 @@ function HomePage() {
               return pickOutcome(picks.send((req) => rpc.call("pick", req) as never, { decision_id, option_id, revision, ...(reason !== undefined ? { reason } : {}) }, refetchAll)).finally(refetchAll);
             }}
           />
-          {yourMove.moves ? <YourMovePanel data={omitLaterTasks(yourMove.moves, new Set(asks.owed.filter((o) => o.later && !o.held && o.task_id).map((o) => o.task_id as string)))} handlers={yourMove.handlers} part="later" /> : null}
+          {moves ? <YourMovePanel data={omitLaterTasks(moves, new Set(asks.owed.filter((o) => o.later && !o.held && o.task_id).map((o) => o.task_id as string)))} handlers={yourMove.handlers} part="later" /> : null}
           </>
         );
       case "blocks":
@@ -599,7 +623,7 @@ function HomePage() {
         <div className="flex h-full min-h-0 flex-1 flex-col" data-home-source={HOME_SOURCE}>
           <MobileInbox
             asks={asks}
-            moves={yourMove.moves}
+            moves={moves}
             waiting={waiting?.total ?? 0}
             sinceCount={waiting ? waiting.updates + waiting.notices : readable.length + notices.length}
             sinceNode={
