@@ -120,6 +120,24 @@ describe("GitHub references and URLs are links", () => {
     expect(html).not.toContain("](https://example.com/d)");
   });
 
+  it("double-backtick code holds its text unlinked; ** inside an address stays in it; bold may hold code", () => {
+    const dbl = renderToStaticMarkup(<Markdown text={"run ``o/r#5 `x` https://x.io`` now"} />);
+    expect(dbl).not.toContain("<a ");
+    expect(dbl).toContain(">o/r#5 `x` https://x.io</code>");
+    const u = "https://github.com/search?q=path:**/foo/**";
+    expect([...renderToStaticMarkup(<Markdown text={`see ${u} now`} />).matchAll(/<a href="([^"]*)"/g)].map((m) => m[1])).toEqual([new URL(u).href]);
+    const bold = renderToStaticMarkup(<Markdown text={"**see `command` and o/r#7**"} />);
+    expect(bold).toMatch(/<strong>see <code[^>]*>command<\/code> and <a href="https:\/\/github.com\/o\/r\/pull\/7"/);
+    expect(renderToStaticMarkup(<Markdown text={"empty `` ticks"} />)).not.toContain("<code");
+  });
+
+  it("the tokenizer stays fast on hostile runs of markers", () => {
+    const t0 = Date.now();
+    for (const t of ["**`".repeat(5000), "``".repeat(5000) + "x", "[".repeat(5000), "**" + "`a`".repeat(3000), "https://" + "*".repeat(9000)])
+      renderToStaticMarkup(<Markdown text={t.slice(0, 19_000)} />);
+    expect(Date.now() - t0).toBeLessThan(2000);
+  });
+
   it("a repo named . or .. is not a reference", () => {
     for (const t of ["o/.#5", "o/..#5"]) {
       expect(refHref(t)).toBeNull();

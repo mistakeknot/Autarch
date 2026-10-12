@@ -4,46 +4,43 @@
 // Images are NOT fetched (a remote image is a tracking beacon and a layout hazard): ![alt](url) shows as a link to
 // the image when the url is https, else as its alt text.
 import type { ReactNode } from "react";
-import { linkify } from "./links.js";
+import { GH_REF_SRC, refNodes, safeHref, URL_SRC } from "./links.js";
+
+export { safeHref };
 
 // Every quantifier is bounded so an unmatched marker repeated many times cannot make the scan quadratic.
-const BOLD = /(\*\*[^*\n]{1,500}\*\*)/;
-/** Backtick spans, paired left to right; a single unmatched backtick scans to the line's end once. */
-const TICKED = /(`[^`\n]*`)/;
-/** A backtick span or a [text](url) link, whichever starts first, so a link's label may hold code and code may hold link syntax. */
-const CODE_OR_LINK = /(`[^`\n]*`|!?\[[^\]\n]{0,200}\]\([^)\s]{0,2000}\))/;
+/** Backtick spans, paired left to right: a ``double`` span may hold single backticks. */
+const TICKED = /(``[^\n]*?``|`[^`\n]+`)/;
+/**
+ * Every inline token, whichever starts first winning: code, [text](url), **bold** (which may hold whole code spans but
+ * no stray backtick, so it can never reach into code), a bare address, owner/repo#N. One left-to-right scan decides
+ * them all, so nothing inside code ever links and a "**" inside an address stays part of it (bead mk-qi1s7).
+ */
+const TOKEN = new RegExp(
+  String.raw`(${TICKED.source.slice(1, -1)}|!?\[[^\]\n]{0,200}\]\([^)\s]{0,2000}\)|\*\*(?:\x60[^\x60\n]{1,500}\x60|[^*\x60\n]){1,500}\*\*|${URL_SRC}|${GH_REF_SRC})`,
+);
 /** Longer backtick spans show as plain text, not code. */
 const CODE_MAX = 500;
 const LINK = /^(!?)\[([^\]\n]*)\]\(([^)\s]*)\)$/;
 /** Above this size a body is shown as plain wrapped text: no parsing at all. */
 export const MARKDOWN_MAX_CHARS = 20_000;
 
-/** Only absolute http(s) URLs may become anchors. */
-export function safeHref(raw: string): string | null {
-  try {
-    const u = new URL(raw);
-    return u.protocol === "https:" || u.protocol === "http:" ? u.href : null;
-  } catch {
-    return null;
-  }
-}
-
-/**
- * Code spans and [text](url) links are split off first, so bold and bare references are found only between them and
- * nothing inside code ever links (bead mk-qi1s7). A code span longer than CODE_MAX shows as plain text.
- */
 function inline(text: string, key: string): ReactNode[] {
-  return text.split(CODE_OR_LINK).map((chunk, c) => {
-    const k = `${key}-c${c}`;
-    if (c % 2 === 0) return chunk.split(BOLD).map((part, i) => (i % 2 === 0 ? linkify(part, `${k}-${i}`) : <strong key={`${k}-${i}`}>{linkify(part.slice(2, -2), `${k}-${i}`)}</strong>));
-    if (chunk.startsWith("`")) return code(chunk, k);
-    return mdLink(chunk, k);
+  return text.split(TOKEN).map((part, i) => {
+    const k = `${key}-${i}`;
+    if (i % 2 === 0) return part;
+    if (part.startsWith("`")) return code(part, k);
+    if (part.startsWith("**")) return <strong key={k}>{inline(part.slice(2, -2), k)}</strong>;
+    if (part.startsWith("[") || part.startsWith("![")) return mdLink(part, k);
+    return refNodes(part, k) ?? part;
   });
 }
 
 function code(span: string, key: string): ReactNode {
-  if (span.length - 2 > CODE_MAX) return span;
-  return <code key={key} className="rounded bg-muted px-1 font-mono text-xs [overflow-wrap:anywhere]">{span.slice(1, -1)}</code>;
+  const ticks = span.startsWith("``") ? 2 : 1;
+  const body = span.slice(ticks, -ticks);
+  if (body.length > CODE_MAX) return span;
+  return <code key={key} className="rounded bg-muted px-1 font-mono text-xs [overflow-wrap:anywhere]">{ticks === 2 ? body.replace(/^ (.*) $/s, "$1") : body}</code>;
 }
 
 function mdLink(part: string, k: string): ReactNode {
