@@ -8,7 +8,7 @@ vi.mock("@get-bb/plugin-sdk/app", () => ({ ThreadChat: () => null }));
 import { AsksPanel, AskCard, owedTasks, laterOutcome, runLater, LaterFailure, type AsksData, type OwedAsk } from "../ui/asks.js";
 import { MoveCard, moveButtons, omitDecisionPrMoves, omitLaterTasks, YourMovePanel } from "../ui/yourmove.js";
 import type { MoveView } from "../moveview.js";
-import { QueueTabs } from "../ui/tabs.js";
+import { nextQueueTab, QueueTabs } from "../ui/tabs.js";
 import { waitingSummary, WaitingStrip } from "../ui/waiting.js";
 import type { Waiting } from "../waiting.js";
 
@@ -307,5 +307,17 @@ describe("Queue tabs", () => {
     expect(html.match(/aria-selected="true"/g)?.length).toBe(1);
     expect(html.match(/min-h-11/g)?.length).toBe(4);
     expect(renderToStaticMarkup(<QueueTabs tab="decide" onTab={noop} counts={null} />)).toContain(">Later</button>");
+  });
+  it("the tablist follows the W3C pattern: one tab stop, panel link, arrow, Home and End keys wrap", () => {
+    const html = renderToStaticMarkup(<QueueTabs tab="later" onTab={noop} counts={null} />);
+    expect(html.match(/tabindex="0"/g)?.length).toBe(1);
+    expect(html.match(/tabindex="-1"/g)?.length).toBe(3);
+    expect(html.match(/aria-controls="queue-tabpanel"/g)?.length).toBe(4);
+    expect(nextQueueTab("decide", "ArrowRight")).toBe("later");
+    expect(nextQueueTab("catchup", "ArrowRight")).toBe("decide");
+    expect(nextQueueTab("decide", "ArrowLeft")).toBe("catchup");
+    expect(nextQueueTab("later", "Home")).toBe("decide");
+    expect(nextQueueTab("later", "End")).toBe("catchup");
+    expect(nextQueueTab("later", "a")).toBeNull();
   });
 });

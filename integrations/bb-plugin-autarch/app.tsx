@@ -508,8 +508,8 @@ function HomePage() {
                 <NoticeBanner notices={notices} suspended={waiting?.suspended ?? true} onAcknowledge={(item) => void rpc.call("markSeen", { item }).then(refetch, () => {})} />
               </div>
             ) : null}
-            <QueueTabs tab={queueTab} onTab={setQueueTab} counts={waiting ? { decide: waiting.decide, later: waiting.later, blocks: waiting.held, catchup: waiting.updates } : null} />
-            <section aria-label={queueTab} data-queue-section={queueTab === "decide" ? "asks" : queueTab} className="border-b border-border">
+            <QueueTabs tab={queueTab} onTab={setQueueTab} counts={waiting ? { decide: waiting.decide, later: asks ? asks.owed.filter((o) => o.later && !o.held).length : waiting.later, blocks: waiting.held, catchup: waiting.updates } : null} />
+            <section role="tabpanel" id="queue-tabpanel" aria-labelledby={`queue-tab-${queueTab}`} data-queue-section={queueTab === "decide" ? "asks" : queueTab} className="border-b border-border">
               {queueTab === "decide"
                 ? render({ id: "asks", kind: "decision", title: "Asks", hideHeld: true, part: "decide" })
                 : queueTab === "later"
