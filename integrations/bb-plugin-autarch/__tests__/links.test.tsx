@@ -102,6 +102,23 @@ describe("GitHub references and URLs are links", () => {
     expect(anchors(renderToStaticMarkup(<Markdown text={"*https://example.com/a*"} />))).toEqual([["https://example.com/a", "https://example.com/a"]]);
   });
 
+  it("backticks pair left to right, so prose between two code spans never pairs into one, and bold cannot reach into code", () => {
+    const t = "`a` " + "x".repeat(600) + " `see https://evil.example/x o/r#5`";
+    const html = renderToStaticMarkup(<Markdown text={t} />);
+    expect(anchors(html)).toEqual([]);
+    expect(html).toContain("<code");
+    expect(anchors(renderToStaticMarkup(<Markdown text={"**`a **o/r#5** b`**"} />))).toEqual([]);
+    expect(anchors(renderToStaticMarkup(<Markdown text={"`x` o/r#6 `y`"} />))).toEqual([["o/r#6", "https://github.com/o/r/pull/6"]]);
+  });
+
+  it("a repo named . or .. is not a reference", () => {
+    for (const t of ["o/.#5", "o/..#5"]) {
+      expect(refHref(t)).toBeNull();
+      expect(anchors(renderToStaticMarkup(<Markdown text={t} />))).toEqual([]);
+    }
+    expect(refHref("o/.r#5")).toBe("https://github.com/o/.r/pull/5");
+  });
+
   it("a path with many dotted parts is code whole", () => {
     const p = "/tmp/archive.backup.2026.10.11.release.linux.amd64.tar.gz";
     expect(renderToStaticMarkup(<RefText text={`see ${p} now`} />)).toContain(`>${p}</code>`);
