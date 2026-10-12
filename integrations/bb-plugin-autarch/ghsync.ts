@@ -155,8 +155,8 @@ export interface CardSpec {
   urls: string[];
   /** home-move/v1 body for a single PR; null for a batch. */
   move: Record<string, unknown> | null;
-  /** home-ask body for a batch; null for a single PR (the filer adds a minimal ruling-only ask). */
-  ask: Record<string, unknown> | null;
+  /** home-ask body: merge / close / leave for every kind. */
+  ask: Record<string, unknown>;
 }
 
 export interface CardPlan {
@@ -165,6 +165,10 @@ export interface CardPlan {
   unmapped: { repo: string; urls: string[] }[];
 }
 
+const prQuestion = (repo: string, n: number, title: string, url: string): string =>
+  `${repo}#${n} ${cleanTitle(title, 80)} waits on you. Merge it, close it or leave it?\n${url}`;
+/** Key an earlier gh-sync filed a single-PR card under (a Noted / Not now ask); an open one stands in for the new card. */
+export const legacyPrKey = (key: string): string => key.replace(/^gh-ask:/, "gh-pr:");
 const isBotCiOnly = (c: Classified): boolean => c.pr.authorIsBot && c.pr.files.length > 0 && c.pr.files.every((f) => f.startsWith(".github/workflows/"));
 const BATCH_QUESTION_MAX = 1900;
 const batchQuestion = (repo: string, urls: string[]): string =>
@@ -216,13 +220,21 @@ export function planCards(rows: readonly Classified[], bound?: ReadonlySet<strin
     }
     const [owner, name] = r.pr.repo.split("/") as [string, string];
     cards.push({
-      key: `gh-pr:${keyPart(owner)}:${keyPart(name)}:${r.pr.number}`,
+      key: `gh-ask:${keyPart(owner)}:${keyPart(name)}:${r.pr.number}`,
       prefix,
       title: `Merge or decide: ${r.pr.repo}#${r.pr.number} ${cleanTitle(r.pr.title, 80)}`,
       kind: "pr",
       urls: [r.pr.url],
+      // The move stays so a PR merged or closed on GitHub still clears the card; the Queue shows only the decision.
       move: { schema: "home-move/v1", kind: "pr", pr: { url: r.pr.url } },
-      ask: null,
+      ask: {
+        question: prQuestion(r.pr.repo, r.pr.number, r.pr.title, r.pr.url),
+        options: [
+          { id: "merge", label: "Merge it", kind: "ruling-only" },
+          { id: "close", label: "Close it", kind: "ruling-only" },
+          { id: "leave", label: "Leave", kind: "ruling-only" },
+        ],
+      },
     });
   }
   for (const [repo, group] of batches) {

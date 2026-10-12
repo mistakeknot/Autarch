@@ -12,7 +12,7 @@ import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { gh } from "./gh-util.js";
-import { OWNERS, keyFamily, PR_LIMIT, REPO_LIMIT, REPO, classify, ghPrListArgv, ghRepoListArgv, pageDescriptions, nextCursor, parseSyncArgs, parsePrList, planCards, mentionsPr, renderPlan, requestKey, type Classified } from "../ghsync.js";
+import { OWNERS, keyFamily, legacyPrKey, PR_LIMIT, REPO_LIMIT, REPO, classify, ghPrListArgv, ghRepoListArgv, pageDescriptions, nextCursor, parseSyncArgs, parsePrList, planCards, mentionsPr, renderPlan, requestKey, type Classified } from "../ghsync.js";
 
 // One plain line for a failed read (for example a rate limit) instead of a stack trace.
 process.on("uncaughtException", (e) => {
@@ -67,7 +67,7 @@ const openCards = (prefix: string): string[] | null => {
   return openCache.get(prefix)!;
 };
 /** A repo's batch and catch-all cards are one family: a repo rerouted between them must not get a second card. */
-const repoFamily = (key: string): string => keyFamily(key.replace(/^(gh-pr:.*:)\d+$/, "$1")).replace(/^gh-(bots|unmapped|pr):/, "gh-set:");
+const repoFamily = (key: string): string => keyFamily(key.replace(/^(gh-(?:pr|ask):.*:)\d+$/, "$1")).replace(/^gh-(bots|unmapped|pr|ask):/, "gh-set:");
 const failed: string[] = [];
 const held: string[] = [];
 const dir = mkdtempSync(join(tmpdir(), "gh-sync-"));
@@ -80,8 +80,7 @@ for (const c of plan.cards) {
   }
   const args = ["needs-mk", "file", "--project", c.prefix, "--title", c.title, "--request", c.key];
   // Every card carries its own project and root, so a PR in another repo never takes the checkout's.
-  const ask = c.ask ?? { question: c.title, options: [{ id: "noted", label: "Noted", kind: "ruling-only" }, { id: "not-now", label: "Not now", kind: "ruling-only" }] };
-  writeFileSync(join(dir, "ask.json"), JSON.stringify({ ...ask, project: r.project, project_root: r.root }));
+  writeFileSync(join(dir, "ask.json"), JSON.stringify({ ...c.ask, project: r.project, project_root: r.root }));
   args.push("--ask-file", join(dir, "ask.json"));
   if (c.move) {
     writeFileSync(join(dir, "move.json"), JSON.stringify(c.move));
@@ -115,12 +114,15 @@ for (const c of plan.cards) {
     const url = (c.move as { pr: { url: string } }).pr.url;
     let unread = false;
     let inSet = false;
+    let legacy = false;
     for (const p of Object.keys(roots)) {
       const list = openCards(p);
       if (!list) unread = true;
       else if (list.some((d) => /^gh-(bots|unmapped):/.test(requestKey(d) ?? "") && mentionsPr(d, url))) inSet = true;
+      else if (list.some((d) => requestKey(d) === legacyPrKey(c.key))) legacy = true;
     }
     if (unread) { failed.push(c.key); console.log(`FAILED ${c.key}: could not check for an open card of the same repo`); continue; }
+    if (legacy) { console.log(`HELD ${c.key}: an older card for this PR (${legacyPrKey(c.key)}) is still open; close it, then re-run`); held.push(c.key); continue; }
     if (inSet) { console.log(`HELD ${c.key}: the PR is in an open batch card; close it, then re-run`); held.push(c.key); continue; }
   }
   try {
