@@ -4,21 +4,22 @@
 // Images are NOT fetched (a remote image is a tracking beacon and a layout hazard): ![alt](url) shows as a link to
 // the image when the url is https, else as its alt text.
 import type { ReactNode } from "react";
-import { GH_REF_SRC, refNodes, safeHref, URL_SRC } from "./links.js";
+import { GH_REF_SRC, refNodes, safeHref, URL_SRC, urlParts } from "./links.js";
 
 export { safeHref };
 
-// Every quantifier is bounded so an unmatched marker repeated many times cannot make the scan quadratic.
+// Every scan is bounded so an unmatched marker repeated many times cannot make it quadratic.
 /** Backtick spans, paired left to right: a ``double`` span may hold single backticks. */
 const TICKED = /(``[^\n]*?``|`[^`\n]+`)/;
 /**
- * Every inline token, whichever starts first winning: code, [text](url), **bold** (which may hold whole code spans but
- * no stray backtick, so it can never reach into code), a bare address, owner/repo#N. One left-to-right scan decides
- * them all, so nothing inside code ever links and a "**" inside an address stays part of it (bead mk-qi1s7).
+ * Where the next inline token starts, whichever comes first: code, [text](url), a "**" bold opener, a bare address,
+ * owner/repo#N. One left-to-right scan decides them all, so nothing inside code ever links (bead mk-qi1s7).
  */
-const TOKEN = new RegExp(
-  String.raw`(${TICKED.source.slice(1, -1)}|!?\[[^\]\n]{0,200}\]\([^)\s]{0,2000}\)|\*\*(?:\x60[^\x60\n]{1,500}\x60|[^*\x60\n]){1,500}\*\*|${URL_SRC}|${GH_REF_SRC})`,
-);
+const TOKEN = new RegExp(String.raw`${TICKED.source.slice(1, -1)}|!?\[[^\]\n]{0,200}\]\([^)\s]{0,2000}\)|\*\*|${URL_SRC}|${GH_REF_SRC}`, "g");
+const CODE_AT = new RegExp(TICKED.source.slice(1, -1), "y");
+const URL_AT = new RegExp(URL_SRC, "y");
+/** A bold span is at most this long, so an opener with no closer scans a bounded distance. */
+const BOLD_MAX = 1000;
 /** Longer backtick spans show as plain text, not code. */
 const CODE_MAX = 500;
 const LINK = /^(!?)\[([^\]\n]*)\]\(([^)\s]*)\)$/;
@@ -26,14 +27,60 @@ const LINK = /^(!?)\[([^\]\n]*)\]\(([^)\s]*)\)$/;
 export const MARKDOWN_MAX_CHARS = 20_000;
 
 function inline(text: string, key: string): ReactNode[] {
-  return text.split(TOKEN).map((part, i) => {
-    const k = `${key}-${i}`;
-    if (i % 2 === 0) return part;
-    if (part.startsWith("`")) return code(part, k);
-    if (part.startsWith("**")) return <strong key={k}>{inline(part.slice(2, -2), k)}</strong>;
-    if (part.startsWith("[") || part.startsWith("![")) return mdLink(part, k);
-    return refNodes(part, k) ?? part;
-  });
+  const out: ReactNode[] = [];
+  let pos = 0;
+  const re = new RegExp(TOKEN);
+  for (let m = re.exec(text); m !== null; m = re.exec(text)) {
+    const part = m[0];
+    const k = `${key}-${m.index}`;
+    if (m.index > pos) out.push(text.slice(pos, m.index));
+    pos = m.index + part.length;
+    if (part === "**") {
+      const close = boldClose(text, pos);
+      if (close === -1) out.push(part);
+      else {
+        out.push(<strong key={k}>{inline(text.slice(pos, close), k)}</strong>);
+        pos = close + 2;
+      }
+    } else if (part.startsWith("`")) out.push(code(part, k));
+    else if (part.startsWith("[") || part.startsWith("![")) out.push(mdLink(part, k));
+    else out.push(...(refNodes(part, k) ?? [part]));
+    re.lastIndex = pos;
+  }
+  if (pos < text.length) out.push(text.slice(pos));
+  return out;
+}
+
+/**
+ * Where the "**" closing a bold opened just before `from` starts, or -1. Code spans and addresses inside are skipped
+ * whole, so bold may hold code and a "**" inside an address is not a closer; a stray backtick, a single "*" or a line
+ * break means no bold.
+ */
+function boldClose(text: string, from: number): number {
+  let q = from;
+  while (q < text.length && q - from <= BOLD_MAX) {
+    const c = text[q];
+    if (c === "*") return text[q + 1] === "*" && q > from ? q : -1;
+    if (c === "\n") return -1;
+    if (c === "`") {
+      CODE_AT.lastIndex = q;
+      const m = CODE_AT.exec(text);
+      if (!m) return -1;
+      q += m[0].length;
+      continue;
+    }
+    if (c === "h" || c === "H") {
+      URL_AT.lastIndex = q;
+      const m = URL_AT.exec(text);
+      if (m && /^https?:\/\//i.test(m[0])) {
+        // The address as linked: emphasis trimmed off its end stays outside it, so "**see https://x.io**" closes.
+        q += m[0].length - urlParts(m[0]).rest.length;
+        continue;
+      }
+    }
+    q++;
+  }
+  return -1;
 }
 
 function code(span: string, key: string): ReactNode {

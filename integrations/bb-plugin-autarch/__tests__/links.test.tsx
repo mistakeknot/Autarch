@@ -131,9 +131,20 @@ describe("GitHub references and URLs are links", () => {
     expect(renderToStaticMarkup(<Markdown text={"empty `` ticks"} />)).not.toContain("<code");
   });
 
+  it("bold holding an address with ** in it, or ``double`` code, keeps both", () => {
+    const u = "https://github.com/search?q=path:**/foo/**";
+    const html = renderToStaticMarkup(<Markdown text={`**see ${u} now**`} />);
+    expect(html).toMatch(/<p[^>]*><strong>see <a href="([^"]*)"/);
+    expect([...html.matchAll(/<a href="([^"]*)"/g)].map((m) => m[1])).toEqual([new URL(u).href]);
+    expect(renderToStaticMarkup(<Markdown text={"**see ``command``**"} />)).toMatch(/<strong>see <code[^>]*>command<\/code><\/strong>/);
+    expect(renderToStaticMarkup(<Markdown text={"**see https://x.io/a**"} />)).toMatch(/<strong>see <a href="https:\/\/x.io\/a"[^>]*>https:\/\/x.io\/a<\/a><\/strong>/);
+    expect(renderToStaticMarkup(<Markdown text={"a ** b and c**"} />)).toContain("<strong> b and c</strong>");
+    expect(renderToStaticMarkup(<Markdown text={"**unclosed `x` o/r#3"} />)).toMatch(/<p[^>]*>\*\*unclosed <code/);
+  });
+
   it("the tokenizer stays fast on hostile runs of markers", () => {
     const t0 = Date.now();
-    for (const t of ["**`".repeat(5000), "``".repeat(5000) + "x", "[".repeat(5000), "**" + "`a`".repeat(3000), "https://" + "*".repeat(9000)])
+    for (const t of ["**`".repeat(5000), "``".repeat(5000) + "x", "[".repeat(5000), "**" + "`a`".repeat(3000), "https://" + "*".repeat(9000), "** h".repeat(4000), "**https://x".repeat(1500), "**" + "a".repeat(990) + "\n".repeat(1)])
       renderToStaticMarkup(<Markdown text={t.slice(0, 19_000)} />);
     expect(Date.now() - t0).toBeLessThan(2000);
   });
