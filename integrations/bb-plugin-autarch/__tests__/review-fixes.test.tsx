@@ -137,10 +137,10 @@ describe("the waiting count follows move actions", () => {
 });
 
 describe("the definition is a tap target", () => {
-  it("What this counts has a 44px minimum on a phone", () => {
+  it("What this counts has a 44px minimum at every width", () => {
     const w: Waiting = { total: 1, decide: 1, moves: 0, notices: 0, noticeItems: [], updates: 0, held: 0, suspended: false, definition: "d" } as never;
     const html = renderToStaticMarkup(<WaitingStrip waiting={w} onJump={() => {}} />);
-    expect(html).toMatch(/<summary[^>]*class="[^"]*min-h-11[^"]*sm:min-h-0/);
+    expect(html).toMatch(/<summary[^>]*class="[^"]*min-h-11/);
   });
 });
 

@@ -275,7 +275,7 @@ export function AskCard({ ask, onPick, onOpen, nowMs, onNote, onLater, unbound =
       </ul>
       {unbound ? <p role="note" className="mt-2 text-xs font-medium" data-unbound-note>{UNBOUND_EXPLANATION}</p> : null}
       {anyInstruction && !unbound ? (
-        <p className="mt-2 text-xs text-muted-foreground">{`A "Tells ${threadName(ask)}" line shows the first sentence; the full instruction is sent.`}</p>
+        <p className="mt-2 text-xs text-muted-foreground">{`A "Tells ${threadName(ask)}" line is a preview of the first sentence; the full instruction is sent.`}</p>
       ) : null}
       {onLater && ask.task_id ? (
         <div className="mt-3 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
@@ -399,22 +399,20 @@ export function ApprovalsList({ approvals, onRevoke }: { approvals: ApprovalReco
 function LaterEntry({ o, onPick, onOpen, nowMs, onNote, onLater, renderMoves }: { o: OwedAsk; onPick: OnPick; onOpen: (thread: string) => void; nowMs: number; onNote?: OnNote; onLater?: OnLater; renderMoves?: (taskId: string) => ReactNode }) {
   const [error, setError] = useState<string | null>(null);
   return (
-    <li className="min-w-0 rounded border border-border p-2 text-sm" data-later={o.id}>
-      <div className="flex flex-wrap items-center gap-2">
-        <span className="flex min-w-0 grow items-baseline gap-1.5">
-          {o.key ? <span className="shrink-0 select-all font-mono text-xs font-semibold" data-task-key>{o.key}</span> : null}
-          <span className="min-w-0 [overflow-wrap:anywhere]">{o.subject}</span>
-        </span>
-        {onLater && o.task_id ? <ActionButton className="sm:!min-h-11" onClick={() => void runLater(onLater, o.task_id!, false, setError)} data-later-clear={o.id}>Move back</ActionButton> : null}
-      </div>
-      <LaterFailure error={error} />
-      <details className="mt-2">
+    <li className="flex min-w-0 flex-wrap items-center gap-x-2 rounded border border-border px-2 py-0.5 text-sm" data-later={o.id}>
+      <span className="flex min-w-0 grow items-baseline gap-1.5">
+        {o.key ? <span className="shrink-0 select-all font-mono text-xs font-semibold" data-task-key>{o.key}</span> : null}
+        <span className="min-w-0 [overflow-wrap:anywhere]">{o.subject}</span>
+      </span>
+      {onLater && o.task_id ? <ActionButton className="sm:!min-h-11" onClick={() => void runLater(onLater, o.task_id!, false, setError)} data-later-clear={o.id}>Move back</ActionButton> : null}
+      <details className="shrink-0 open:basis-full">
         <summary className="flex min-h-11 cursor-pointer items-center text-xs text-muted-foreground">Open card</summary>
-        <div className="mt-2">
+        <div className="mt-1">
           <AskCard ask={o} onPick={onPick} onOpen={onOpen} nowMs={nowMs} {...(onNote ? { onNote } : {})} />
         </div>
         {renderMoves && o.task_id ? <div className="mt-2 space-y-3">{renderMoves(o.task_id)}</div> : null}
       </details>
+      <LaterFailure error={error} />
     </li>
   );
 }
@@ -436,7 +434,7 @@ export function AsksPanel({ part, data, onPick, onOpen, onRevoke, onDismiss, onN
   if (onlyLater && later.length === 0) return <p className="p-4 text-sm text-muted-foreground">Nothing is set aside.</p>;
   if (view.length === 0 && approvals.length === 0 && held.length === 0 && (part === "decide" || later.length === 0)) return <p className="p-4 text-sm text-muted-foreground">Nothing needs you.</p>;
   return (
-    <div className="space-y-3 p-2 sm:space-y-6 sm:p-4">
+    <div className="space-y-3 p-2 sm:space-y-4 sm:p-3">
       {view.map((s) => (
         <section key={s.key} data-section={s.key}>
           <h2 className="mb-2 text-xs font-semibold uppercase text-muted-foreground">{`${s.title} (${s.items.length})`}</h2>
@@ -461,11 +459,11 @@ export function AsksPanel({ part, data, onPick, onOpen, onRevoke, onDismiss, onN
       ))}
       {later.length > 0 && part !== "decide" ? (
         <section data-section="later">
-          <h2 className="mb-2 text-xs font-semibold uppercase text-muted-foreground">{`Later (${later.length})`}</h2>
-          <p className="mb-2 text-xs text-muted-foreground">
+          <h2 className="mb-1 text-xs font-semibold uppercase text-muted-foreground">{`Later (${later.length})`}</h2>
+          <p className="mb-1 text-xs text-muted-foreground">
             {`Set aside by you. Still open and not ruled; not in Waiting on you.${buildAsksView(live).length === 0 ? " Nothing else needs you now." : ""}`}
           </p>
-          <ul className="m-0 list-none space-y-2 p-0">
+          <ul className="m-0 list-none space-y-1 p-0">
             {later.map((o) => (
               <LaterEntry key={o.id} o={o} onPick={onPick} onOpen={onOpen} nowMs={nowMs} {...(onNote ? { onNote } : {})} {...(onLater ? { onLater } : {})} {...(renderMoves ? { renderMoves } : {})} />
             ))}
