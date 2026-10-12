@@ -457,7 +457,7 @@ export function AsksPanel({ part, data, onPick, onOpen, onRevoke, onDismiss, onN
         <section data-section="later">
           <h2 className="mb-2 text-xs font-semibold uppercase text-muted-foreground">{`Later (${later.length})`}</h2>
           <p className="mb-2 text-xs text-muted-foreground">
-            {`Set aside by you. Still open and not ruled; not in Waiting on you.${view.length === 0 ? " Nothing else needs you now." : ""}`}
+            {`Set aside by you. Still open and not ruled; not in Waiting on you.${buildAsksView(live).length === 0 ? " Nothing else needs you now." : ""}`}
           </p>
           <ul className="m-0 list-none space-y-2 p-0">
             {later.map((o) => (

@@ -289,6 +289,8 @@ describe("Queue tabs", () => {
     expect(later).toContain("Aside one");
     expect(later).not.toContain('data-section="decide"');
     expect(later).not.toContain("Live one");
+    expect(later).not.toMatch(/Nothing else needs you now/);
+    expect(panel([owed[1]!], { part: "later" })).toMatch(/Nothing else needs you now/);
   });
   it("with no part both still show, as on the Asks page", () => {
     const both = panel(owed);
