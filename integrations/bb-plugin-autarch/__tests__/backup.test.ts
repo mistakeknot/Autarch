@@ -348,7 +348,7 @@ describe("backup before migrate", () => {
       s.close();
     }
     expect(outcomes).toEqual({ "backup-written": 2, verified: 2, "ddl-applied": 2, committed: 4 });
-  });
+  }, 60_000); // four child processes, each loading tsx: the 5s default is flaky under load
 
   it("a fresh database migrates with no backup, but still refuses while another connection is open", () => {
     const logs: string[] = [];

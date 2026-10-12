@@ -549,6 +549,36 @@ describe("a card gone from tasks closes its moves", () => {
     expect(r.svc.store.move(t.id, 1)).toMatchObject({ state: "closed", evidence: "card deleted in tasks" });
   });
 
+  it("a sweep whose second re-read fails closes neither move, and the next sweep closes both", async () => {
+    const r = rig();
+    const a = await withMove(r, prMove());
+    const b = await withMove(r, prMove("https://github.com/o/r/pull/13"));
+    r.edit(a, { status: "canceled" });
+    r.edit(b, { status: "done" });
+    await r.poll();
+    orphan(r, a.id);
+    orphan(r, b.id);
+    r.fake.failures.push({ method: "getTask", nth: r.fake.callsOf("getTask").length + 2, error: new Error("tasks is down") });
+    expect(await r.poll()).toMatchObject({ changed: false, ok: false });
+    expect([r.svc.store.move(a.id, 1)!.state, r.svc.store.move(b.id, 1)!.state]).toEqual(["open", "open"]);
+    expect((await r.poll()).ok).toBe(true);
+    expect([r.svc.store.move(a.id, 1)!.state, r.svc.store.move(b.id, 1)!.state]).toEqual(["closed", "closed"]);
+  });
+
+  it("a repeat sweep changes nothing and keeps the closed move's evidence", async () => {
+    const r = rig();
+    const t = await withMove(r, prMove());
+    r.edit(t, { status: "canceled" });
+    await r.poll();
+    orphan(r, t.id);
+    await r.poll();
+    const closed = r.svc.store.move(t.id, 1)!;
+    expect(closed.state).toBe("closed");
+    expect(await r.poll()).toMatchObject({ changed: false, ok: true });
+    expect(r.svc.store.move(t.id, 1)).toEqual(closed);
+    expect(r.svc.liveMoveCards()).toEqual([]);
+  });
+
   it("a card unlabelled and labelled again keeps its move", async () => {
     const r = rig();
     const t = await withMove(r, prMove());
