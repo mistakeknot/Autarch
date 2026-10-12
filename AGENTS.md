@@ -107,10 +107,11 @@ retired (exits 2, "moved"). `bb home get`, `list`, `feed` and `stats` read; `bb 
 `resolve` and `withdraw` are for asks filed before cards and refuse a card. The bb plugin never
 starts `autarch serve`; run it yourself.
 
-A card can carry what mk owes: `autarch needs-mk file --move move.json` (a home-move/v1 file: kind script, pr,
-read or context; `--ask-file` may be left out) labels it `mk-move`, and `autarch needs-mk adopt-move --card ID
---move move.json` attaches a move to a card this thread already filed. Both validate with the parser Home uses;
-nothing in the file is executed.
+Home opens no moves: everything mk owes is a decision card. `autarch needs-mk file --move move.json` (a
+home-move/v1 file: kind script, pr, read or context) still validates the move and files it as a block, labelled
+`mk-move`; without `--ask-file` the card's question names the command, URL or context, and its options are Done
+and Not now. `autarch needs-mk adopt-move --card ID --move move.json` still attaches a block to a card this thread
+filed, but Home shows only the card's decision. Nothing in the file is executed.
 
 `autarch needs-mk footer` prints what is open for mk, read-only from Home's `data.db`: To decide, Parked (Later),
 new picks since this caller's cursor, and undelivered obligations. The cursor is per caller (`--caller`, default
