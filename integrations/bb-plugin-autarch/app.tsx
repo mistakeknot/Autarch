@@ -9,7 +9,7 @@
 // `npx shadcn add @bb/<name>` (see components.json) — dropdowns, tables,
 // the full shadcn set, version-matched to this BB install. Run
 // `npm install` once before `bb plugin build`.
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { FormEvent, ReactNode } from "react";
 import { definePluginApp, useBbNavigate, useRealtime, useRpc } from "@get-bb/plugin-sdk/app";
 import type { rpcContract, Todo } from "./server";
@@ -301,16 +301,23 @@ function useHomeData() {
   const [waiting, setWaiting] = useState<Waiting | null>(null);
   const [health, setHealth] = useState<{ ready: boolean } | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // Reads overlap (poll, realtime signal, after an action); only the newest one may land, so an older reply never
+  // overwrites a newer snapshot.
+  const seq = useRef(0);
   const refetch = useCallback(() => {
+    const n = ++seq.current;
     Promise.all([rpc.call("listAsks"), rpc.call("catchup"), rpc.call("health"), rpc.call("waiting").catch(() => null)]).then(
       ([a, c, h, w]) => {
+        if (n !== seq.current) return;
         setAsks(a as unknown as AsksData);
         setCatchup(normalizeCatchup((c as { items: CatchupEntry[] }).items));
         setWaiting(w as Waiting | null);
         setHealth(h as { ready: boolean });
         setError(null);
       },
-      (cause) => setError(cause instanceof Error ? cause.message : String(cause)),
+      (cause) => {
+        if (n === seq.current) setError(cause instanceof Error ? cause.message : String(cause));
+      },
     );
   }, [rpc]);
   // The totals move when a card is answered, a move is claimed or a hold changes, not only on the poll.
@@ -326,8 +333,13 @@ function useHomeData() {
 /** Your move: the grouped read model, refetched on the queue signal and on the poll. */
 function useMoves(rpc: ReturnType<typeof useRpc<typeof rpcContract>>, onChanged: () => void, load = true) {
   const [moves, setMoves] = useState<MoveViewGroups | null>(null);
+  // As in useHomeData: an older reply never overwrites a newer one.
+  const seq = useRef(0);
   const refetch = useCallback(() => {
-    rpc.call("moves").then((m) => setMoves(m as unknown as MoveViewGroups), () => {});
+    const n = ++seq.current;
+    rpc.call("moves").then((m) => {
+      if (n === seq.current) setMoves(m as unknown as MoveViewGroups);
+    }, () => {});
   }, [rpc]);
   useRealtime("home-queue-changed", () => {
     if (load) refetch();

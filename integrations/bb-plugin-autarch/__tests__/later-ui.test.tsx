@@ -197,6 +197,12 @@ describe("Your move panel split (the move Later group sits below Decide)", () =>
     expect(out.hidden).toHaveLength(1); // what mk hid stays in Hidden
     expect(renderToStaticMarkup(<YourMovePanel data={omitDecisionPrMoves(groups({ yourMove: [pr] }), new Set(["t1"]))} handlers={h} part="active" />)).toBe("");
   });
+  it("omitDecisionPrMoves drops closed PR moves on cards with a decision from the Closed rows too", () => {
+    const row = (kind: string, task_id: string) => ({ task_id, generation: 1, kind, closed_at: "2026-10-08T00:00:00.000Z", closed_by: "superseded", evidence: null });
+    const d = groups({ audit: [row("pr", "t1"), row("script", "t1"), row("pr", "t2")] });
+    const out = omitDecisionPrMoves(d, new Set(["t1"]));
+    expect(out.audit.map((r: { kind: string; task_id: string }) => `${r.kind}:${r.task_id}`)).toEqual(["script:t1", "pr:t2"]);
+  });
   it("owedTasks lists every task with an owed decision: Decide, Later and on hold", () => {
     const owed = [ask({ id: "a", task_id: "t1" }), ask({ id: "b", task_id: "t2", later: LATER }), ask({ id: "c", task_id: "t3", held: { reason: "r", by: "v", at: "x" } }), ask({ id: "d", task_id: null })];
     expect([...owedTasks(data(owed))].sort()).toEqual(["t1", "t2", "t3"]);
