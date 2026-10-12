@@ -111,7 +111,7 @@ for (const c of plan.cards) {
   }
   if (c.kind === "pr") {
     // A bot PR that already sits in an open batch or catch-all card must not also get a card of its own.
-    const url = (c.move as { pr: { url: string } }).pr.url;
+    const url = c.urls[0]!;
     const all: string[] = [];
     let unread = false;
     for (const p of Object.keys(roots)) {

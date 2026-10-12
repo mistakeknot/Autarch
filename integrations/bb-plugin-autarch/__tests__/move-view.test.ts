@@ -11,7 +11,7 @@ const script = { schema: "home-move/v1", kind: "script", script: { path: "/opt/r
 
 describe("moveViews", () => {
   it("carries the commands built by the safe builder, in run order, and the card title", async () => {
-    const r = rig();
+    const r = rig({ legacyMoves: true });
     const t = r.card({ title: "Run the thing" });
     t.description += fence(script);
     await r.poll();
@@ -25,7 +25,7 @@ describe("moveViews", () => {
   });
 
   it("shows a report as plain fields and a no-report as its deadline", async () => {
-    const r = rig();
+    const r = rig({ legacyMoves: true });
     const t = r.card({});
     t.description += fence(script);
     await r.poll();
@@ -40,7 +40,7 @@ describe("moveViews", () => {
 
 describe("checkMove (I ran --check)", () => {
   it("records once, claims nothing, starts no deadline", async () => {
-    const r = rig();
+    const r = rig({ legacyMoves: true });
     const t = r.card({});
     t.description += fence(script);
     await r.poll();
@@ -50,7 +50,7 @@ describe("checkMove (I ran --check)", () => {
     expect(moveViews(r.svc).yourMove[0]!.checked_at).not.toBeNull();
   });
   it("is for script moves only", async () => {
-    const r = rig();
+    const r = rig({ legacyMoves: true });
     const t = r.card({});
     t.description += fence({ schema: "home-move/v1", kind: "pr", pr: { url: "https://github.com/o/r/pull/12" } });
     await r.poll();
@@ -69,7 +69,7 @@ describe("gitCommand", () => {
 
 describe("pick on an unbound card", () => {
   it("is refused for every option, and nothing is recorded", async () => {
-    const r = rig();
+    const r = rig({ legacyMoves: true });
     const { t, g1 } = await opened(r);
     r.db.prepare("UPDATE cards SET root_state = 'unverified' WHERE task_id = ?").run(t.id);
     expect(r.mkPick(g1.id)).toMatchObject({ ok: false, status: 403, error: "Project not bound: add a root to rule this" });

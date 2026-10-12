@@ -19,7 +19,7 @@ const count = (r: Rig) => waitingNow(r.svc, r.dele, new Catchup(r.svc, r.dele));
 
 describe("later (store)", () => {
   it("sets a card aside, names who and when, and is idempotent", async () => {
-    const r = rig();
+    const r = rig({ legacyMoves: true });
     const { t } = await opened(r);
     expect(r.svc.laterOf(t.id)).toBeNull();
     const a = r.svc.later(t.id, "mk");
@@ -33,7 +33,7 @@ describe("later (store)", () => {
   });
 
   it("names a card by its tasks key, and refuses an unknown card", async () => {
-    const r = rig();
+    const r = rig({ legacyMoves: true });
     const { t } = await opened(r);
     const key = r.svc.cardKey(t.id)!;
     expect(r.svc.later(key, "mk")).toMatchObject({ ok: true, task_id: t.id });
@@ -42,7 +42,7 @@ describe("later (store)", () => {
   });
 
   it("move back clears it, and says whether there was anything to clear", async () => {
-    const r = rig();
+    const r = rig({ legacyMoves: true });
     const { t } = await opened(r);
     r.svc.later(t.id, "mk");
     expect(r.svc.unlater(t.id)).toEqual({ ok: true, task_id: t.id, was: true });
@@ -51,7 +51,7 @@ describe("later (store)", () => {
   });
 
   it("fails open: an unreadable or malformed value is no one's Later", async () => {
-    const r = rig();
+    const r = rig({ legacyMoves: true });
     const { t } = await opened(r);
     for (const bad of ["{not json", "[]", "7", JSON.stringify({ [t.id]: { by: "mk" } }), JSON.stringify({ [t.id]: { at: "never", by: "mk" } }), JSON.stringify({ [t.id]: { at: "2026-10-08T00:00:00.000Z" } })]) {
       r.svc.store.setSetting("later", bad);
@@ -64,7 +64,7 @@ describe("later (store)", () => {
   });
 
   it("keeps other cards' Later when one is moved back", async () => {
-    const r = rig();
+    const r = rig({ legacyMoves: true });
     const a = await opened(r);
     const b = await opened(r, { key: "other", ident: "fedcba9876543210" });
     r.svc.later(a.t.id, "mk");
@@ -74,7 +74,7 @@ describe("later (store)", () => {
   });
 
   it("survives a restart", async () => {
-    const r = rig();
+    const r = rig({ legacyMoves: true });
     const { t } = await opened(r);
     r.svc.later(t.id, "mk");
     r.restart();
@@ -82,7 +82,7 @@ describe("later (store)", () => {
   });
 
   it("does not touch the card, its decision or its tasks labels", async () => {
-    const r = rig();
+    const r = rig({ legacyMoves: true });
     const { t, g1 } = await opened(r);
     const before = JSON.stringify(r.cardRow(t.id));
     r.svc.later(t.id, "mk");
@@ -94,7 +94,7 @@ describe("later (store)", () => {
 
 describe("later and picking", () => {
   it("a Later card can still be ruled, and ruling it clears the Later", async () => {
-    const r = rig();
+    const r = rig({ legacyMoves: true });
     const { t, g1 } = await opened(r);
     r.svc.later(t.id, "mk");
     expect(r.mkPick(g1.id)).toMatchObject({ ok: true });
@@ -102,7 +102,7 @@ describe("later and picking", () => {
   });
 
   it("a refused pick leaves the Later alone", async () => {
-    const r = rig();
+    const r = rig({ legacyMoves: true });
     const { t, g1 } = await opened(r);
     r.svc.later(t.id, "mk");
     const bad = r.svc.pick(g1.id, "nope", (r.svc.store.decision(g1.id) as any).revision, "p-bad", "mk", "home");
@@ -111,7 +111,7 @@ describe("later and picking", () => {
   });
 
   it("a hold wins over Later: the held card is refused as before, and Later does not unhold it", async () => {
-    const r = rig();
+    const r = rig({ legacyMoves: true });
     const { t, g1 } = await opened(r);
     r.svc.later(t.id, "mk");
     r.svc.hold(t.id, "script superseded", "thr_viz");
@@ -123,7 +123,7 @@ describe("later and picking", () => {
 
 describe("later and the Waiting-on-you count", () => {
   it("a Later card leaves the count and is counted beside it, not in it", async () => {
-    const r = rig();
+    const r = rig({ legacyMoves: true });
     r.enableDelegation();
     const cards = Array.from({ length: 5 }, () => card(r));
     await r.poll();
@@ -136,7 +136,7 @@ describe("later and the Waiting-on-you count", () => {
   });
 
   it("a held card is held, not Later: it is counted once, in held", async () => {
-    const r = rig();
+    const r = rig({ legacyMoves: true });
     r.enableDelegation();
     const cards = [card(r), card(r), card(r)];
     await r.poll();
@@ -147,7 +147,7 @@ describe("later and the Waiting-on-you count", () => {
   });
 
   it("a move on a Later card is not waiting either, and the card is one Later, not two", async () => {
-    const r = rig();
+    const r = rig({ legacyMoves: true });
     r.enableDelegation();
     const a = card(r);
     const b = card(r);
@@ -162,7 +162,7 @@ describe("later and the Waiting-on-you count", () => {
   });
 
   it("a card with both an owed decision and a move is one Later", async () => {
-    const r = rig();
+    const r = rig({ legacyMoves: true });
     r.enableDelegation();
     const a = card(r);
     withMove(a, prMove(31));
@@ -172,7 +172,7 @@ describe("later and the Waiting-on-you count", () => {
   });
 
   it("a skipped move (Later / skip) is counted beside the number too, once", async () => {
-    const r = rig();
+    const r = rig({ legacyMoves: true });
     r.enableDelegation();
     const a = card(r);
     const b = card(r);
@@ -188,7 +188,7 @@ describe("later and the Waiting-on-you count", () => {
   });
 
   it("a move on a Later card shows in the Your move Later group, with the card flag, and leaves it on Move back", async () => {
-    const r = rig();
+    const r = rig({ legacyMoves: true });
     r.enableDelegation();
     const a = card(r);
     withMove(a, prMove(51));
@@ -204,7 +204,7 @@ describe("later and the Waiting-on-you count", () => {
   });
 
   it("two connections to one database see each other's Later (every write re-reads inside a transaction)", async () => {
-    const r = rig();
+    const r = rig({ legacyMoves: true });
     const { t: a } = await opened(r);
     const { t: b } = await opened(r);
     const svc2 = r.env.open();
@@ -216,7 +216,7 @@ describe("later and the Waiting-on-you count", () => {
   });
 
   it("a stale Later on a card with nothing open is not counted", async () => {
-    const r = rig();
+    const r = rig({ legacyMoves: true });
     r.enableDelegation();
     const a = card(r);
     await r.poll();
@@ -241,7 +241,7 @@ describe("later and moves (one reversible state per card)", () => {
   };
 
   it("Move back also clears a skipped move, so a move-only card can always return", async () => {
-    const r = rig();
+    const r = rig({ legacyMoves: true });
     r.enableDelegation();
     const a = await pickedMove(r, 61);
     r.svc.skipMove(a.id, 1);
@@ -255,7 +255,7 @@ describe("later and moves (one reversible state per card)", () => {
   });
 
   it("a skipped move on a card that still owes a decision is counted once, as a decision", async () => {
-    const r = rig();
+    const r = rig({ legacyMoves: true });
     r.enableDelegation();
     const a = card(r);
     withMove(a, prMove(62));
@@ -269,7 +269,7 @@ describe("later and moves (one reversible state per card)", () => {
   });
 
   it("a skipped move on a held card is shown and counted as held, never under Later", async () => {
-    const r = rig();
+    const r = rig({ legacyMoves: true });
     r.enableDelegation();
     const a = await pickedMove(r, 64);
     r.svc.skipMove(a.id, 1);
@@ -281,7 +281,7 @@ describe("later and moves (one reversible state per card)", () => {
   });
 
   it("a held move is not shown in the Your move Later group, even if its card was set aside first", async () => {
-    const r = rig();
+    const r = rig({ legacyMoves: true });
     r.enableDelegation();
     const a = await pickedMove(r, 63);
     r.svc.later(a.id, "mk");
@@ -293,7 +293,7 @@ describe("later and moves (one reversible state per card)", () => {
   });
 
   it("a held card's claimed move still counts as held", async () => {
-    const r = rig();
+    const r = rig({ legacyMoves: true });
     r.enableDelegation();
     const a = await pickedMove(r, 65);
     r.svc.skipMove(a.id, 1);
@@ -303,7 +303,7 @@ describe("later and moves (one reversible state per card)", () => {
   });
 
   it("a held move says it is on hold, with the reason, and a skip note is not shown for it", async () => {
-    const r = rig();
+    const r = rig({ legacyMoves: true });
     r.enableDelegation();
     const a = await pickedMove(r, 66);
     expect(moveViews(r.svc).yourMove[0]!.held).toBeNull();

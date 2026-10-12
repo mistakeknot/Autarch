@@ -18,9 +18,9 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Icon } from "@/components/ui/icon";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
-import { AsksPanel, PickController, owedTasks, pickOutcome, laterOutcome } from "./ui/asks.js";
+import { AsksPanel, PickController, pickOutcome, laterOutcome } from "./ui/asks.js";
 import { ConversationProvider, type ConversationApi, type ConversationData } from "./ui/conversation.js";
-import { MoveCard, omitDecisionPrMoves, omitLaterTasks, YourMovePanel, type MoveHandlers } from "./ui/yourmove.js";
+import type { MoveHandlers } from "./ui/yourmove.js";
 import type { MoveViewGroups } from "./moveview.js";
 import type { AsksData } from "./ui/asks.js";
 import { MobileInbox, useIsPhone } from "./ui/inbox.js";
@@ -384,7 +384,8 @@ function HomePage() {
   const nav = useBbNavigate();
   const blocks = useQueue();
   const rootRuns = useRootRuns(rpc);
-  const yourMove = useMoves(rpc, refetch);
+  // Moves are retired (bead mk-1k8pg): the hook only carries notes and the move handlers, and reads no moves.
+  const yourMove = useMoves(rpc, refetch, false);
   const conversation = useConversationApi(rpc);
   const [stack, setStack] = useState<StackState>({ panels: [{ id: "queue", kind: "decision", title: "Queue" }], width: "third" });
   // Q: one ranked queue is the default; the old Asks / Blocking / Catch-up tabs stay behind this setting.
@@ -494,9 +495,6 @@ function HomePage() {
     });
   };
 
-  // A PR waiting on mk is its decision card only, never a move card beside it (bead mk-t7656).
-  const moves = yourMove.moves && asks ? omitDecisionPrMoves(yourMove.moves, owedTasks(asks)) : yourMove.moves;
-
   const render = (panel: Panel): ReactNode => {
     switch (panel.id) {
       case "queue":
@@ -515,7 +513,7 @@ function HomePage() {
             ] as const).map(([heading, p]) => (
               <section key={p.id} aria-label={heading} data-queue-section={p.id === "catchup" ? "catchup" : p.id} className="border-b border-border">
                 <h2 className="px-2 pt-2 text-xs font-semibold uppercase text-muted-foreground sm:px-4 sm:pt-3">
-                  {waiting ? `${heading} (${p.id === "asks" ? waiting.decide + waiting.moves : p.id === "blocks" ? waiting.held : waiting.updates})` : heading}
+                  {waiting ? `${heading} (${p.id === "asks" ? waiting.decide : p.id === "blocks" ? waiting.held : waiting.updates})` : heading}
                 </h2>
                 {render(p)}
               </section>
@@ -527,17 +525,11 @@ function HomePage() {
           <EmptyState>{error ?? "Loading asks…"}</EmptyState>
         ) : (
           <>
-          {moves ? <YourMovePanel data={moves} handlers={yourMove.handlers} part="active" /> : null}
           <AsksPanel
             data={asks}
             {...(panel.hideHeld ? { hideHeld: true } : {})}
             onNote={(decision_id, text) => yourMove.note({ decision_id }, text)}
             onLater={(ref, on) => laterOutcome(rpc.call(on ? "later" : "unlater", { ref })).then((o) => { refetchAll(); return o; })}
-            renderMoves={(taskId) => {
-              // The card's own Move back sits on the Later entry, so the move cards inside it do not repeat it.
-              const { onUnlater: _own, ...h } = yourMove.handlers;
-              return (moves?.later ?? []).filter((m) => m.task_id === taskId).map((m) => <MoveCard key={`${m.task_id}:${m.generation}`} m={m} h={h} section="later" />);
-            }}
             onDismiss={(decision_id, obligation_id) => void rpc.call("dismiss", { decision_id, obligation_id }).then(refetch, () => {})}
             onOpen={(thread) => push({ id: `thread:${thread}`, kind: "thread", title: thread, ref: thread })}
             onRevoke={(approval_id) => void rpc.call("revokeApproval", { approval_id }).then(refetch, () => {})}
@@ -546,7 +538,6 @@ function HomePage() {
               return pickOutcome(picks.send((req) => rpc.call("pick", req) as never, { decision_id, option_id, revision, ...(reason !== undefined ? { reason } : {}) }, refetchAll)).finally(refetchAll);
             }}
           />
-          {moves ? <YourMovePanel data={omitLaterTasks(moves, new Set(asks.owed.filter((o) => o.later && !o.held && o.task_id).map((o) => o.task_id as string)))} handlers={yourMove.handlers} part="later" /> : null}
           </>
         );
       case "blocks":
@@ -623,7 +614,7 @@ function HomePage() {
         <div className="flex h-full min-h-0 flex-1 flex-col" data-home-source={HOME_SOURCE}>
           <MobileInbox
             asks={asks}
-            moves={moves}
+            moves={null}
             waiting={waiting?.total ?? 0}
             sinceCount={waiting ? waiting.updates + waiting.notices : readable.length + notices.length}
             sinceNode={

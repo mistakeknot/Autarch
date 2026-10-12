@@ -353,10 +353,16 @@ export function wireHome(bb: BbPluginApi, handle: StoreHandle, cfg: HomeConfig, 
           bb.realtime.publish("home-queue-changed", {});
         },
       }));
+      // Moves are retired (bead mk-1k8pg): close any left open before the first poll.
+      if (parts.svc.retireMoves() > 0) {
+        parts.caches.invalidate();
+        bb.realtime.publish("home-queue-changed", {});
+      }
       await queue.run(signal, sleep);
     },
   });
   // PR poller (plan D2): the only automatic closer of a move. Read-only `gh pr view`; a failure leaves the move open.
+  // Home opens no moves since mk-1k8pg, so after the retirement above it finds nothing to poll.
   bb.background.service("home-move-poll", {
     async start(signal) {
       while (!signal.aborted && !parts) await sleep(1000, signal);
