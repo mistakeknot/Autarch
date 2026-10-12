@@ -166,7 +166,7 @@ export interface CardPlan {
 }
 
 const prQuestion = (repo: string, n: number, title: string, url: string): string =>
-  `${repo}#${n} ${cleanTitle(title, 80)} waits on you. Merge it, close it or leave it?\n${url}`;
+  `${url}\n${repo}#${n} ${cleanTitle(title, 80)} waits on you. Merge it, close it or leave it?`;
 /** Key an earlier gh-sync filed a single-PR card under (a Noted / Not now ask); an open one stands in for the new card. */
 export const legacyPrKey = (key: string): string => key.replace(/^gh-ask:/, "gh-pr:");
 const isBotCiOnly = (c: Classified): boolean => c.pr.authorIsBot && c.pr.files.length > 0 && c.pr.files.every((f) => f.startsWith(".github/workflows/"));
@@ -222,7 +222,7 @@ export function planCards(rows: readonly Classified[], bound?: ReadonlySet<strin
     cards.push({
       key: `gh-ask:${keyPart(owner)}:${keyPart(name)}:${r.pr.number}`,
       prefix,
-      title: `Merge or decide: ${r.pr.repo}#${r.pr.number} ${cleanTitle(r.pr.title, 80)}`,
+      title: `Merge or decide: ${r.pr.url} ${cleanTitle(r.pr.title, 60)}`,
       kind: "pr",
       urls: [r.pr.url],
       // The move stays so a PR merged or closed on GitHub still clears the card; the Queue shows only the decision.

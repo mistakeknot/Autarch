@@ -115,6 +115,8 @@ describe("planCards", () => {
     expect(legacyPrKey(single.key)).toBe("gh-pr:mistakeknot:Autarch:9");
     expect((single.ask.options as { id: string }[]).map((o) => o.id)).toEqual(["merge", "close", "leave"]);
     expect(single.ask.question).toContain("https://github.com/mistakeknot/Autarch/pull/9");
+    expect(single.ask.question).toMatch(/^https:\/\/github\.com\/mistakeknot\/Autarch\/pull\/9\n/);
+    expect(single.title).toContain("https://github.com/mistakeknot/Autarch/pull/9");
     expect(single.move).toMatchObject({ schema: "home-move/v1", kind: "pr", pr: { url: "https://github.com/mistakeknot/Autarch/pull/9" } });
     expect((plan.cards.find((c) => c.urls.length === 2)!.ask.options as { id: string }[]).map((o) => o.id)).toEqual(["merge-all", "close-all", "leave"]);
   });
