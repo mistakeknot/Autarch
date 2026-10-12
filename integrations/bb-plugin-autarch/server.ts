@@ -476,6 +476,15 @@ export function wireHome(bb: BbPluginApi, handle: StoreHandle, cfg: HomeConfig, 
   const handlers = {
     async listAsks(_: null) {
       const p = need();
+      // Thread titles are a read-only peek; when the thread list cannot be read the card shows the thread id.
+      let titles = new Map<string, string>();
+      try {
+        // Bounded: a slow thread list must not hold the inbox, so the ids show after 1.5 s.
+        const rows = await Promise.race([listThreadRows({ cached: true }), new Promise<ThreadRow[]>((_, no) => setTimeout(() => no(new Error("thread list slow")), 1500).unref?.())]);
+        titles = new Map(rows.filter((t) => t.title).map((t) => [t.id, t.title as string]));
+      } catch {
+        /* show ids */
+      }
       const rows = p.svc.owed().map((d) => ({
         id: d.id,
         project: d.project,
@@ -483,7 +492,9 @@ export function wireHome(bb: BbPluginApi, handle: StoreHandle, cfg: HomeConfig, 
         key: p.svc.cardKey(d.task_id as string | null),
         held: p.svc.holdOf(d.task_id as string | null),
         later: p.svc.laterOf(d.task_id as string | null),
-        subject: d.subject,
+        // A card filed the v2 way has no subject of its own; its title is what the phone list and detail show.
+        subject: d.subject || p.svc.cardTitle(d.task_id as string | null) || "",
+        thread_title: titles.get(d.thread) ?? null,
         asker: d.asker,
         filed_at: d.filed_at,
         revision: d.revision,

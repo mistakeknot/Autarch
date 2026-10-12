@@ -208,6 +208,12 @@ describe("the At a glance block on a card", () => {
     expect(block).not.toContain("data-glance-records");
     expect(html(PLAY)).toContain("data-glance-records");
   });
+  it("an all needs-context check card never says nothing is sent", () => {
+    const h = html(card("Check the deploy (5 min)", "Look at https://x.example.test: 1) does it load? 2) is it fast?", [{ id: "a", label: "Looks fine", kind: "needs-context" }, { id: "b", label: "Broken", kind: "needs-context" }]));
+    expect(h).toContain("data-glance-answers");
+    expect(h).not.toContain("data-glance-records");
+    expect(h).not.toContain("nothing is sent");
+  });
   it("keeps the full text, the commands and the pick buttons below it", () => {
     const h = html(WALK);
     expect(h).toContain("bash /tmp/x.sh ");

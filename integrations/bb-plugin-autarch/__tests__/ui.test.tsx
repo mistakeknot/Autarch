@@ -99,13 +99,15 @@ describe("Asks ordering", () => {
     expect(html).not.toContain("<details");
     expect(html).not.toContain("needs-context</span>");
     expect(html).toContain("Tells thr-a: Ship on the day &lt;b&gt;exactly&lt;/b&gt; &amp; tell mk");
-    expect(html).toContain("Asks you for the missing context first, then tells thr-a. Cannot be undone.");
-    expect(html.match(/data-effect/g)?.length).toBe(2);
-    expect(html).toContain("sent to thr-a as written; the agent acts on it under its own permissions");
+    expect(html).not.toContain("Asks you for the missing context");
+    expect(html.match(/data-effect/g)?.length).toBe(1);
+    expect(html).toContain("the full instruction is sent");
+    expect(html).not.toContain("under its own permissions");
     expect(html).toContain("recommended");
   });
 
-  it("optionEffect is never empty, only an irreversible option line says so, and a ruling-only option has no instruction footer", () => {
+  it("optionEffect is empty only for the default kind, only an irreversible option line says so, and a ruling-only option has no instruction footer", () => {
+    expect(optionEffect({ kind: "needs-context" }, "t")).toBe("");
     expect(optionEffect({ kind: "ruling-only" }, "t")).toBe("Records your pick only; nothing is sent.");
     expect(optionEffect({ kind: "ruling-only", reversible: true }, "t")).toBe("Records your pick only; nothing is sent.");
     expect(optionEffect({ kind: "instruction", instruction: "   " }, "t")).toBe("Records your pick only; nothing is sent. Cannot be undone.");
@@ -151,10 +153,14 @@ describe("Asks ordering", () => {
     expect(html).toMatch(/max-sm:line-clamp-3[^"]*sm:truncate/);
   });
 
-  it("says the instruction boilerplate once per card, not once per option", () => {
+  it("names the asking thread by its title and says the instruction note once per card", () => {
     const two = ask({ ask: { question: "q", options: [{ id: "a", label: "A", kind: "instruction", instruction: "do a" }, { id: "b", label: "B", kind: "instruction", instruction: "do b" }] } });
     const html = renderToStaticMarkup(<AsksPanel data={data({ owed: [two] })} onPick={() => {}} onOpen={() => {}} />);
-    expect(html.match(/acts on it under its own permissions/g)?.length).toBe(1);
+    expect(html.match(/the full instruction is sent/g)?.length).toBe(1);
+    const titled = renderToStaticMarkup(<AsksPanel data={data({ owed: [ask({ thread_title: "Release coordinator" })] })} onPick={() => {}} onOpen={() => {}} />);
+    expect(titled).toContain("Release coordinator");
+    expect(titled).toContain("Tells Release coordinator:");
+    expect(titled).not.toContain(">thr-a<");
   });
 
   it("shows paths and shas in an ask as code that can break anywhere, and URLs as links", () => {
