@@ -4,7 +4,7 @@
 import { createHash, randomUUID } from "node:crypto";
 import { buildFeed, renderFeed, type Feed } from "./feed.js";
 import { cardFingerprint, askingThread, parseCard, toV1, type Card } from "./cards.js";
-import type { Task, TaskCommentRow } from "./tasks.js";
+import { OPEN_STATUSES, type Task, type TaskCommentRow } from "./tasks.js";
 
 /** A vizier hold on a card; n tells one hold from a replacement made in the same millisecond. */
 export type Hold = { reason: string; by: string; at: string; n?: string };
@@ -970,6 +970,7 @@ export class Service {
   }
   private patchCard(taskId: string, set: Record<string, string | number | null>): void {
     const keys = Object.keys(set);
+    if (keys.length === 0) return;
     this.db
       .prepare(`UPDATE cards SET ${keys.map((k) => `${k} = @${k}`).join(", ")}, updated_at = @__at WHERE task_id = @__id`)
       .run({ ...set, __at: this.now(), __id: taskId });
@@ -1362,6 +1363,7 @@ export class Service {
   /** T6/T7/T11: the card was closed, unlabelled or deleted in tasks. */
   cardGone(taskId: string, why: "closed" | "unlabelled" | "deleted", status?: string): { changed: boolean } {
     const before = this.sig(taskId);
+    let movesClosed = 0;
     this.store.atomically(() => {
       const row = this.cardRow(taskId);
       if (!row) return;
@@ -1371,6 +1373,10 @@ export class Service {
         ...(why === "deleted" ? { deleted_at: this.now() } : {}),
       });
       const reason = why === "closed" ? "card closed in tasks" : why === "unlabelled" ? "unlabelled" : "card deleted in tasks";
+      // A card closed or deleted in tasks leaves nothing to merge, run or read, so its live moves close with it
+      // (bead mk-t7656). A card only unlabelled is still open in tasks, and its move may still be owed.
+      const closedInTasks = why !== "unlabelled" || (status !== undefined && !(OPEN_STATUSES as readonly string[]).includes(status));
+      if (closedInTasks) movesClosed = this.closeLiveMoves(taskId, why === "deleted" ? reason : `card ${status ?? "closed"} in tasks`);
       const latest = this.currentGeneration(taskId);
       if (!latest) {
         this.patchCard(taskId, { state: "closed", display_reason: reason });
@@ -1383,7 +1389,24 @@ export class Service {
       if (!latest.withdrawn_at) this.store.withdrawDecision(latest.id, reason);
       this.patchCard(taskId, { state: "closed", display_reason: reason, next_check_at: null });
     });
-    return { changed: before !== this.sig(taskId) };
+    return { changed: before !== this.sig(taskId) || movesClosed > 0 };
+  }
+
+  private closeLiveMoves(taskId: string, evidence: string): number {
+    let n = 0;
+    for (const g of this.db.prepare("SELECT generation FROM moves WHERE task_id = ? AND state <> 'closed'").all(taskId) as { generation: number }[]) {
+      if (this.store.closeMove(taskId, g.generation, "home", evidence)) n++;
+    }
+    return n;
+  }
+
+  /**
+   * Cards with a live move, whatever their label or cached status. The sweep re-reads each one not listed open, so a
+   * fresh read, never the cache, decides whether its moves close; once they are closed the card leaves this set.
+   * Whatever its project or binding, a card's moves close only on that card's own fresh read.
+   */
+  liveMoveCards(): string[] {
+    return (this.db.prepare("SELECT DISTINCT task_id FROM moves WHERE state <> 'closed' ORDER BY task_id").all() as { task_id: string }[]).map((r) => r.task_id);
   }
 
   /** Observed cards whose retry time has come (the unresolved-retry set). */
