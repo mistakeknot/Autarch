@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { REPO_PROJECTS, keyFamily, legacyPrKey, planCards, renderPlan, classify, cleanTitle, ghPrListArgv, ghRepoListArgv, mkOnlyPaths, parsePrList, renderDryRun, type GhPrRow } from "../ghsync.js";
+import { REPO_PROJECTS, keyFamily, legacyPrKey, prCardAction, planCards, renderPlan, classify, cleanTitle, ghPrListArgv, ghRepoListArgv, mkOnlyPaths, parsePrList, renderDryRun, type GhPrRow } from "../ghsync.js";
 
 const pr = (o: Partial<GhPrRow> | Readonly<Record<string, unknown>> = {}): GhPrRow => ({
   repo: "mistakeknot/Autarch", number: 7, url: "https://github.com/mistakeknot/Autarch/pull/7", title: "t", isDraft: false,
@@ -115,6 +115,8 @@ describe("planCards", () => {
     expect(legacyPrKey(single.key)).toBe("gh-pr:mistakeknot:Autarch:9");
     expect((single.ask.options as { id: string }[]).map((o) => o.id)).toEqual(["merge", "close", "leave"]);
     expect(single.ask.question).toContain("https://github.com/mistakeknot/Autarch/pull/9");
+    expect(single.ask.question).toMatch(/^https:\/\/github\.com\/mistakeknot\/Autarch\/pull\/9\n/);
+    expect(single.title).toContain("https://github.com/mistakeknot/Autarch/pull/9");
     expect(single.move).toMatchObject({ schema: "home-move/v1", kind: "pr", pr: { url: "https://github.com/mistakeknot/Autarch/pull/9" } });
     expect((plan.cards.find((c) => c.urls.length === 2)!.ask.options as { id: string }[]).map((o) => o.id)).toEqual(["merge-all", "close-all", "leave"]);
   });
@@ -210,5 +212,18 @@ describe("sync script helpers", () => {
     const batch = "Look at:\nhttps://github.com/o/r/pull/10\nhttps://github.com/o/r/pull/11";
     expect(mentionsPr(batch, "https://github.com/o/r/pull/10")).toBe(true);
     expect(mentionsPr(batch, "https://github.com/o/r/pull/1")).toBe(false);
+  });
+});
+
+describe("prCardAction", () => {
+  const url = "https://github.com/mistakeknot/Autarch/pull/9";
+  const card = (key: string, extra = "") => `Request: ${key} sha256:abcd\n${extra}`;
+  it("treats an open card under the same key as filed, whatever its wording", () => {
+    expect(prCardAction([card("gh-ask:mistakeknot:Autarch:9", "old wording")], "gh-ask:mistakeknot:Autarch:9", url)).toBe("filed");
+  });
+  it("holds on the old gh-pr key and on a batch that lists the PR, files otherwise", () => {
+    expect(prCardAction([card("gh-pr:mistakeknot:Autarch:9")], "gh-ask:mistakeknot:Autarch:9", url)).toBe("legacy");
+    expect(prCardAction([card("gh-bots:mistakeknot:Autarch:aaaaaaaa", `- ${url}`)], "gh-ask:mistakeknot:Autarch:9", url)).toBe("in-set");
+    expect(prCardAction([card("gh-ask:mistakeknot:Autarch:10")], "gh-ask:mistakeknot:Autarch:9", url)).toBe("file");
   });
 });
