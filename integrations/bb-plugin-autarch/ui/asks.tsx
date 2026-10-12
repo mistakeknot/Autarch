@@ -424,15 +424,17 @@ export function owedTasks(data: AsksData): Set<string> {
   return new Set(data.owed.map((o) => o.task_id).filter((t): t is string => typeof t === "string"));
 }
 
-export function AsksPanel({ data, onPick, onOpen, onRevoke, onDismiss, onNote, onLater, onView, renderMoves, hideHeld, nowMs = Date.now() }: { hideHeld?: boolean; renderMoves?: (taskId: string) => ReactNode; data: AsksData; onPick: OnPick; onOpen: (thread: string) => void; onRevoke?: (approvalId: string) => void; onDismiss?: (decisionId: string, obligationId: string) => void; onNote?: OnNote; onLater?: OnLater; onView?: (decisionId: string | null) => void; nowMs?: number }) {
+export function AsksPanel({ part, data, onPick, onOpen, onRevoke, onDismiss, onNote, onLater, onView, renderMoves, hideHeld, nowMs = Date.now() }: { /** Which part of the panel shows: the decide list alone, or Later alone. Unset shows both, as the Asks page does. */ part?: "decide" | "later"; hideHeld?: boolean; renderMoves?: (taskId: string) => ReactNode; data: AsksData; onPick: OnPick; onOpen: (thread: string) => void; onRevoke?: (approvalId: string) => void; onDismiss?: (decisionId: string, obligationId: string) => void; onNote?: OnNote; onLater?: OnLater; onView?: (decisionId: string | null) => void; nowMs?: number }) {
   // In the Queue the held cards show under "Blocked on others"; shown here only on the Asks page.
   const held = hideHeld ? [] : data.owed.filter((o) => o.held);
   // Later cards leave the Decide list for their own group below it; a held card stays held even if it was also set aside.
   const later = data.owed.filter((o) => o.later && !o.held);
   const live = data.owed.some((o) => o.held || o.later) ? { ...data, owed: data.owed.filter((o) => !o.held && !o.later) } : data;
-  const view = buildAsksView(live);
-  const approvals = data.approvals ?? [];
-  if (view.length === 0 && approvals.length === 0 && held.length === 0 && later.length === 0) return <p className="p-4 text-sm text-muted-foreground">Nothing needs you.</p>;
+  const onlyLater = part === "later";
+  const view = onlyLater ? [] : buildAsksView(live);
+  const approvals = onlyLater ? [] : data.approvals ?? [];
+  if (onlyLater && later.length === 0) return <p className="p-4 text-sm text-muted-foreground">Nothing is set aside.</p>;
+  if (view.length === 0 && approvals.length === 0 && held.length === 0 && (part === "decide" || later.length === 0)) return <p className="p-4 text-sm text-muted-foreground">Nothing needs you.</p>;
   return (
     <div className="space-y-3 p-2 sm:space-y-6 sm:p-4">
       {view.map((s) => (
@@ -457,11 +459,11 @@ export function AsksPanel({ data, onPick, onOpen, onRevoke, onDismiss, onNote, o
           )}
         </section>
       ))}
-      {later.length > 0 ? (
+      {later.length > 0 && part !== "decide" ? (
         <section data-section="later">
           <h2 className="mb-2 text-xs font-semibold uppercase text-muted-foreground">{`Later (${later.length})`}</h2>
           <p className="mb-2 text-xs text-muted-foreground">
-            {`Set aside by you. Still open and not ruled; not in Waiting on you.${view.length === 0 ? " Nothing else needs you now." : ""}`}
+            {`Set aside by you. Still open and not ruled; not in Waiting on you.${buildAsksView(live).length === 0 ? " Nothing else needs you now." : ""}`}
           </p>
           <ul className="m-0 list-none space-y-2 p-0">
             {later.map((o) => (
