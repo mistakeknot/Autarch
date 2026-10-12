@@ -8,6 +8,6 @@ An ask option has one of <!-- figure:option-kinds=3 -->3 kinds: `instruction`, `
 
 ## Moves
 
-A card may carry one move, a `home-move/v1` object. There are <!-- figure:move-kinds=4 -->4 move kinds: `script`, `pr`, `read` and `context`. A `pr` move names a pull request by `url`; when the PR is merged or closed on GitHub the poller closes the move and the card.
+A card may carry one move, a `home-move/v1` object. There are <!-- figure:move-kinds=4 -->4 move kinds: `script`, `pr`, `read` and `context`. Home opens no moves: what mk owes is the card's decision. A card filed with only a move asks with Done and Not now, and its question names the command to run, the URL to open or the context to give.
 
-A pull request that waits on mk is shown as a plain decision card in Decide. Its `pr` move stays in the database as a tracker and is not drawn as a separate card.
+Moves opened before this change were closed when Home started. The rows stay in the database, and no tasks card was closed because of them.
