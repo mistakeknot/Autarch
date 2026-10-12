@@ -1,11 +1,12 @@
 // The Asks view: what is stalled, what mk must decide, the runbook, and what is merely waiting.
 
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { Fragment, useEffect, useRef, useState, type ReactNode } from "react";
 import { ActionButton, RecommendedMark } from "./buttons.js";
 import { CardConversation } from "./conversation.js";
 import { splitCommands, type CommandRole } from "./commandtext.js";
 import { CommandBlock } from "./copy.js";
 import { glance, GlanceBlock, type GlanceAnswer } from "./glance.js";
+import { GH_REF_SRC, refNodes, URL_SRC } from "./links.js";
 import { OtherBox, type OtherOutcome } from "./other.js";
 
 /** What a pick hands back to the card: not ok means the card stays open and shows the error. */
@@ -148,9 +149,9 @@ export function currentAsk<T extends { id: string }>(owed: T[], selected: string
   return owed.find((o) => o.id === selected) ?? owed[0];
 }
 
-// Absolute paths, sha256 digests and URLs in an ask's text: shown as code, selectable in one click, and allowed to
-// break anywhere so a long path never pushes the card wider than its panel.
-const REF = /(https?:\/\/[^\s)]+[^\s).,;:]|(?<![\w/])\/(?:[\w.@+-]+\/)+[\w@+-]+(?:\.[\w@+-]+)*|\b[0-9a-f]{64}\b)/g;
+// Absolute paths and sha256 digests in an ask's text: shown as code, selectable in one click, and allowed to break
+// anywhere so a long path never pushes the card wider than its panel. URLs and owner/repo#N are links (new tab).
+const REF = new RegExp(`(${URL_SRC}|(?<![\\w/])\\/(?:[\\w.@+-]{1,255}\\/){1,64}[\\w@+-]{1,255}(?:\\.[\\w@+-]{1,255}){0,32}|\\b[0-9a-f]{64}\\b|${GH_REF_SRC})`, "g");
 
 const ROLE_LABEL: Record<CommandRole, string> = { check: "Before it (dry run / check)", step: "Earlier step", final: "Final command" };
 
@@ -176,15 +177,16 @@ export function RefText({ text }: { text: string }) {
   const parts = text.split(REF);
   return (
     <>
-      {parts.map((part, i) =>
-        i % 2 === 1 ? (
+      {parts.map((part, i) => {
+        if (i % 2 === 0) return part;
+        const link = refNodes(part, String(i));
+        if (link !== null) return <Fragment key={i}>{link}</Fragment>;
+        return (
           <code key={i} className="select-all rounded bg-muted px-1 font-mono text-xs [overflow-wrap:anywhere]" data-ref>
             {part}
           </code>
-        ) : (
-          part
-        ),
-      )}
+        );
+      })}
     </>
   );
 }
@@ -233,7 +235,7 @@ export function AskCard({ ask, onPick, onOpen, nowMs, onNote, onLater, unbound =
     <article className="min-w-0 rounded-lg border border-border bg-card p-4" data-decision={ask.id}>
       <h3 className="text-sm font-medium [overflow-wrap:anywhere]">
         {ask.key ? <span className="mr-2 select-all rounded bg-muted px-1.5 font-mono text-xs font-semibold" data-task-key>{ask.key}</span> : null}
-        {ask.subject}
+        <RefText text={ask.subject} />
       </h3>
       <p className="mt-1 text-xs text-muted-foreground">
         {ask.project ? `${ask.project} · ` : ""}
