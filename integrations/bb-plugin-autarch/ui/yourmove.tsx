@@ -155,6 +155,11 @@ export function omitLaterTasks(data: MoveViewGroups, tasks: ReadonlySet<string>)
   return { ...data, later: data.later.filter((m) => !tasks.has(m.task_id)) };
 }
 
+/** The Your move group without the moves on cards that have a Decide card: those ride in the Decide card's detail, so one card is not shown twice. */
+export function omitDecideTasks(data: MoveViewGroups, tasks: ReadonlySet<string>): MoveViewGroups {
+  return { ...data, yourMove: data.yourMove.filter((m) => m.held || !tasks.has(m.task_id)) };
+}
+
 /** `part` splits the panel so the Later group can sit below the Decide cards: "active" is everything else. */
 export function YourMovePanel({ data, handlers, env, part }: { data: MoveViewGroups; handlers: MoveHandlers; env?: CopyEnv | undefined; part?: "active" | "later" }) {
   const showLater = part !== "active";

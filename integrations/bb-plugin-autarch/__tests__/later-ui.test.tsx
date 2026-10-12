@@ -5,8 +5,8 @@ import { describe, expect, it, vi } from "vitest";
 
 vi.mock("@get-bb/plugin-sdk/app", () => ({ ThreadChat: () => null }));
 
-import { AsksPanel, AskCard, laterOutcome, runLater, LaterFailure, type AsksData, type OwedAsk } from "../ui/asks.js";
-import { MoveCard, moveButtons, omitLaterTasks, YourMovePanel } from "../ui/yourmove.js";
+import { AsksPanel, AskCard, decideTasks, laterOutcome, runLater, LaterFailure, type AsksData, type OwedAsk } from "../ui/asks.js";
+import { MoveCard, moveButtons, omitDecideTasks, omitLaterTasks, YourMovePanel } from "../ui/yourmove.js";
 import type { MoveView } from "../moveview.js";
 import { waitingSummary, WaitingStrip } from "../ui/waiting.js";
 import type { Waiting } from "../waiting.js";
@@ -185,6 +185,23 @@ describe("Your move panel split (the move Later group sits below Decide)", () =>
     const out = omitLaterTasks(d, new Set(["t1"]));
     expect(out.later.map((m: MoveView) => m.task_id)).toEqual(["t2"]);
     expect(out.yourMove).toHaveLength(1); // only the Later group is deduplicated
+  });
+  it("omitDecideTasks drops a move whose card is in the Decide list, so a PR card is not shown twice on the Queue", () => {
+    const held = { ...mv, task_id: "t3", held: { reason: "r", by: "thr_viz", at: "2026-10-08T00:00:00.000Z" } };
+    const d = groups({ yourMove: [mv, { ...mv, task_id: "t2" }, held], later: [mv] });
+    const out = omitDecideTasks(d, new Set(["t1", "t3"]));
+    expect(out.yourMove.map((m: MoveView) => m.task_id)).toEqual(["t2", "t3"]); // a held move stays where its hold shows
+    expect(out.later).toHaveLength(1);
+  });
+  it("decideTasks lists only the cards in the Decide list: not held, not Later", () => {
+    const owed = [ask({ id: "a", task_id: "t1" }), ask({ id: "b", task_id: "t2", later: LATER }), ask({ id: "c", task_id: "t3", held: { reason: "r", by: "v", at: "x" } }), ask({ id: "d", task_id: null })];
+    expect([...decideTasks(data(owed))]).toEqual(["t1"]);
+  });
+  it("the Decide detail carries the selected card's moves", () => {
+    const html = panel([ask()], { renderDecideMoves: (t) => (t === "task-1" ? <p data-move-slot>I'll merge it</p> : null) });
+    const decide = html.slice(html.indexOf('data-section="decide"'));
+    expect(decide).toContain("data-decide-moves");
+    expect(decide).toContain("data-move-slot");
   });
   it("a held move shows its hold reason and no skip note", () => {
     const m = { ...mv, card_later: false, skipped_at: "2026-10-07T10:00:00.000Z", held: { reason: "script superseded", by: "thr_viz", at: "2026-10-08T00:00:00.000Z" } };

@@ -18,9 +18,9 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Icon } from "@/components/ui/icon";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
-import { AsksPanel, PickController, pickOutcome, laterOutcome } from "./ui/asks.js";
+import { AsksPanel, PickController, decideTasks, pickOutcome, laterOutcome } from "./ui/asks.js";
 import { ConversationProvider, type ConversationApi, type ConversationData } from "./ui/conversation.js";
-import { MoveCard, omitLaterTasks, YourMovePanel, type MoveHandlers } from "./ui/yourmove.js";
+import { MoveCard, omitDecideTasks, omitLaterTasks, YourMovePanel, type MoveHandlers } from "./ui/yourmove.js";
 import type { MoveViewGroups } from "./moveview.js";
 import type { AsksData } from "./ui/asks.js";
 import { MobileInbox, useIsPhone } from "./ui/inbox.js";
@@ -503,7 +503,7 @@ function HomePage() {
           <EmptyState>{error ?? "Loading asks…"}</EmptyState>
         ) : (
           <>
-          {yourMove.moves ? <YourMovePanel data={yourMove.moves} handlers={yourMove.handlers} part="active" /> : null}
+          {yourMove.moves ? <YourMovePanel data={omitDecideTasks(yourMove.moves, decideTasks(asks))} handlers={yourMove.handlers} part="active" /> : null}
           <AsksPanel
             data={asks}
             {...(panel.hideHeld ? { hideHeld: true } : {})}
@@ -514,6 +514,10 @@ function HomePage() {
               const { onUnlater: _own, ...h } = yourMove.handlers;
               return (yourMove.moves?.later ?? []).filter((m) => m.task_id === taskId).map((m) => <MoveCard key={`${m.task_id}:${m.generation}`} m={m} h={h} section="later" />);
             }}
+            renderDecideMoves={(taskId) =>
+              // A move on a card that has a Decide card rides in that card's detail, not in Your move above it.
+              (yourMove.moves?.yourMove ?? []).filter((m) => m.task_id === taskId && !m.held).map((m) => <MoveCard key={`${m.task_id}:${m.generation}`} m={m} h={yourMove.handlers} section="yourMove" />)
+            }
             onDismiss={(decision_id, obligation_id) => void rpc.call("dismiss", { decision_id, obligation_id }).then(refetch, () => {})}
             onOpen={(thread) => push({ id: `thread:${thread}`, kind: "thread", title: thread, ref: thread })}
             onRevoke={(approval_id) => void rpc.call("revokeApproval", { approval_id }).then(refetch, () => {})}
