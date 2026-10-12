@@ -328,3 +328,16 @@ export function parseSyncArgs(argv: string[]): { apply: boolean; roots?: string 
 
 /** True when the text lists this exact PR URL (`/pull/1` does not match `/pull/10`). */
 export const mentionsPr = (text: string, url: string): boolean => text.split(/[\s,()<>"']+/).includes(url);
+
+/**
+ * What to do with a single-PR card given the descriptions of every open card in the rooted projects. An open card under the same
+ * key is "filed" whatever its wording (the filer's identity includes title and question, so replaying changed text would be
+ * refused); an open card under the old gh-pr: key or a batch listing the PR holds it.
+ */
+export function prCardAction(open: readonly string[], key: string, url: string): "filed" | "legacy" | "in-set" | "file" {
+  const keys = open.map(requestKey);
+  if (keys.includes(key)) return "filed";
+  if (keys.includes(legacyPrKey(key))) return "legacy";
+  if (open.some((d) => /^gh-(bots|unmapped):/.test(requestKey(d) ?? "") && mentionsPr(d, url))) return "in-set";
+  return "file";
+}
