@@ -1,7 +1,10 @@
 // The card poller (plan 1.3.2): reads tasks, ingests changed cards, and keeps three independent
 // retry sets (unresolved cards, routing revalidation of open cards, routing-closed cards). It
-// never spawns a process; every read goes through the TasksClient. A failed or partial read
-// changes nothing (T12) and only flips the health to "degraded: tasks".
+// never spawns a process; every read goes through the TasksClient. A failure in the first read
+// phase (projects, task lists, fresh re-reads of missing cards) changes nothing (T12) and only flips
+// the health to "degraded: tasks". The poll is not one transaction: gone cards are written before
+// per-card comment reads, so a later comment-read failure leaves earlier card writes in place, and
+// the writer drain runs after every poll on its own.
 import type { CardWriter } from "./cardwrites.js";
 import type { Service } from "./service.js";
 import { OPEN_STATUSES, type Task, type TasksClient } from "./tasks.js";
