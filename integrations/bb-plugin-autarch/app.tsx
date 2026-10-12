@@ -9,7 +9,7 @@
 // `npx shadcn add @bb/<name>` (see components.json) — dropdowns, tables,
 // the full shadcn set, version-matched to this BB install. Run
 // `npm install` once before `bb plugin build`.
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import type { FormEvent, ReactNode } from "react";
 import { definePluginApp, useBbNavigate, useRealtime, useRpc } from "@get-bb/plugin-sdk/app";
 import type { rpcContract, Todo } from "./server";
@@ -28,6 +28,7 @@ import { IdeaDesk, IdeaDigest, type IdeaApi } from "./ui/ideas.js";
 import type { IdeaProject, IdeaView } from "./ideas.js";
 import { CatchupPanel, markPlan, markResultText, normalizeCatchup, SeenTracker } from "./ui/catchup.js";
 import { NoticeBanner } from "./ui/notices.js";
+import { singleFlight } from "./ui/singleflight.js";
 import { buildMoveHandlers, rpcOutcome } from "./movehandlers.js";
 import { badgeCount, WaitingStrip, type WaitingJump } from "./ui/waiting.js";
 import type { Waiting } from "./waiting.js";
@@ -301,25 +302,24 @@ function useHomeData() {
   const [waiting, setWaiting] = useState<Waiting | null>(null);
   const [health, setHealth] = useState<{ ready: boolean } | null>(null);
   const [error, setError] = useState<string | null>(null);
-  // Reads overlap (poll, realtime signal, after an action); only the newest one may land, so an older reply never
-  // overwrites a newer snapshot.
-  const seq = useRef(0);
-  const refetch = useCallback(() => {
-    const n = ++seq.current;
-    Promise.all([rpc.call("listAsks"), rpc.call("catchup"), rpc.call("health"), rpc.call("waiting").catch(() => null)]).then(
-      ([a, c, h, w]) => {
-        if (n !== seq.current) return;
-        setAsks(a as unknown as AsksData);
-        setCatchup(normalizeCatchup((c as { items: CatchupEntry[] }).items));
-        setWaiting(w as Waiting | null);
-        setHealth(h as { ready: boolean });
-        setError(null);
-      },
-      (cause) => {
-        if (n === seq.current) setError(cause instanceof Error ? cause.message : String(cause));
-      },
-    );
-  }, [rpc]);
+  // Reads overlap (poll, realtime signal, after an action); one runs at a time, so an older reply never overwrites a
+  // newer snapshot.
+  const refetch = useMemo(
+    () =>
+      singleFlight(() =>
+        Promise.all([rpc.call("listAsks"), rpc.call("catchup"), rpc.call("health"), rpc.call("waiting").catch(() => null)]).then(
+          ([a, c, h, w]) => {
+            setAsks(a as unknown as AsksData);
+            setCatchup(normalizeCatchup((c as { items: CatchupEntry[] }).items));
+            setWaiting(w as Waiting | null);
+            setHealth(h as { ready: boolean });
+            setError(null);
+          },
+          (cause) => setError(cause instanceof Error ? cause.message : String(cause)),
+        ),
+      ),
+    [rpc],
+  );
   // The totals move when a card is answered, a move is claimed or a hold changes, not only on the poll.
   useRealtime("home-queue-changed", refetch);
   useEffect(() => {
@@ -333,14 +333,8 @@ function useHomeData() {
 /** Your move: the grouped read model, refetched on the queue signal and on the poll. */
 function useMoves(rpc: ReturnType<typeof useRpc<typeof rpcContract>>, onChanged: () => void, load = true) {
   const [moves, setMoves] = useState<MoveViewGroups | null>(null);
-  // As in useHomeData: an older reply never overwrites a newer one.
-  const seq = useRef(0);
-  const refetch = useCallback(() => {
-    const n = ++seq.current;
-    rpc.call("moves").then((m) => {
-      if (n === seq.current) setMoves(m as unknown as MoveViewGroups);
-    }, () => {});
-  }, [rpc]);
+  // As in useHomeData: one read at a time, so an older reply never overwrites a newer one.
+  const refetch = useMemo(() => singleFlight(() => rpc.call("moves").then((m) => setMoves(m as unknown as MoveViewGroups))), [rpc]);
   useRealtime("home-queue-changed", () => {
     if (load) refetch();
   });
