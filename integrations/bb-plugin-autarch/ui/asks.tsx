@@ -404,14 +404,14 @@ function LaterEntry({ o, onPick, onOpen, nowMs, onNote, onLater, renderMoves }: 
         {o.key ? <span className="shrink-0 select-all font-mono text-xs font-semibold" data-task-key>{o.key}</span> : null}
         <span className="min-w-0 [overflow-wrap:anywhere]">{o.subject}</span>
       </span>
-      <details className="shrink-0 open:order-last open:basis-full">
+      {onLater && o.task_id ? <ActionButton className="sm:!min-h-11" onClick={() => void runLater(onLater, o.task_id!, false, setError)} data-later-clear={o.id}>Move back</ActionButton> : null}
+      <details className="shrink-0 open:basis-full">
         <summary className="flex min-h-11 cursor-pointer items-center text-xs text-muted-foreground">Open card</summary>
         <div className="mt-1">
           <AskCard ask={o} onPick={onPick} onOpen={onOpen} nowMs={nowMs} {...(onNote ? { onNote } : {})} />
         </div>
         {renderMoves && o.task_id ? <div className="mt-2 space-y-3">{renderMoves(o.task_id)}</div> : null}
       </details>
-      {onLater && o.task_id ? <ActionButton className="sm:!min-h-11" onClick={() => void runLater(onLater, o.task_id!, false, setError)} data-later-clear={o.id}>Move back</ActionButton> : null}
       <LaterFailure error={error} />
     </li>
   );

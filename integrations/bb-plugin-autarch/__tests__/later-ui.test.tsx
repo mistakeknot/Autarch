@@ -243,7 +243,8 @@ describe("a Later card is one row", () => {
     expect(li).toContain("flex-wrap");
     expect(li).not.toMatch(/\bp-2\b/);
     expect(html).toMatch(/<details[^>]*class="[^"]*open:basis-full/);
-    expect(html.indexOf("Open card")).toBeLessThan(html.indexOf("data-later-clear"));
+    // DOM order is visual order (title, Move back, Open card), so focus order matches what is seen, closed or open.
+    expect(html.indexOf("data-later-clear")).toBeLessThan(html.indexOf("Open card"));
   });
 });
 

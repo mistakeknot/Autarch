@@ -47,7 +47,7 @@ export function WaitingStrip({ waiting: w, onJump }: { waiting: Waiting; onJump:
         </p>
       ) : null}
       <details className="text-xs text-muted-foreground open:basis-full" data-waiting-definition>
-        <summary className="flex min-h-11 cursor-pointer items-center sm:min-h-0">What this counts</summary>
+        <summary className="flex min-h-11 cursor-pointer items-center">What this counts</summary>
         <p className="m-0 mt-1 [overflow-wrap:anywhere]">{w.definition}</p>
       </details>
     </div>
