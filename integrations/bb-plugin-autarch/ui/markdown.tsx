@@ -57,15 +57,18 @@ function inline(text: string, key: string): ReactNode[] {
  * break means no bold.
  */
 function boldClose(text: string, from: number): number {
+  // A "**" ending an address inside the bold closes it only when no later "**" does: "**see https://x/**/foo**" links
+  // https://x/**/foo, while "**see https://x/**/foo/** now**" keeps the address's glob whole.
+  let fallback = -1;
   let q = from;
   while (q < text.length && q - from <= BOLD_MAX) {
     const c = text[q];
-    if (c === "*") return text[q + 1] === "*" && q > from ? q : -1;
-    if (c === "\n") return -1;
+    if (c === "*") return text[q + 1] === "*" && q > from ? q : fallback;
+    if (c === "\n") return fallback;
     if (c === "`") {
       CODE_AT.lastIndex = q;
       const m = CODE_AT.exec(text);
-      if (!m) return -1;
+      if (!m) return fallback;
       q += m[0].length;
       continue;
     }
@@ -73,6 +76,9 @@ function boldClose(text: string, from: number): number {
       URL_AT.lastIndex = q;
       const m = URL_AT.exec(text);
       if (m && /^https?:\/\//i.test(m[0])) {
+        let end = m[0].length;
+        while (end > 0 && ".,;:!?'\"])}".includes(m[0][end - 1])) end--;
+        if (fallback === -1 && m[0].endsWith("**", end) && q + end - 2 > from) fallback = q + end - 2;
         // The address as linked: emphasis trimmed off its end stays outside it, so "**see https://x.io**" closes.
         q += m[0].length - urlParts(m[0]).rest.length;
         continue;
@@ -80,7 +86,7 @@ function boldClose(text: string, from: number): number {
     }
     q++;
   }
-  return -1;
+  return fallback;
 }
 
 function code(span: string, key: string): ReactNode {

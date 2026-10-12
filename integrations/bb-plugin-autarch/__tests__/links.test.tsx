@@ -143,6 +143,13 @@ describe("GitHub references and URLs are links", () => {
     expect(renderToStaticMarkup(<Markdown text={"**see ``command``**"} />)).toMatch(/<strong>see <code[^>]*>command<\/code><\/strong>/);
     expect(renderToStaticMarkup(<Markdown text={"**see https://x.io/a**"} />)).toMatch(/<strong>see <a href="https:\/\/x.io\/a"[^>]*>https:\/\/x.io\/a<\/a><\/strong>/);
     expect(renderToStaticMarkup(<Markdown text={"a ** b and c**"} />)).toContain("<strong> b and c</strong>");
+    // With no later closer, a "**" ending an address that holds a glob closes the bold and stays out of the link.
+    const g = "https://github.com/search?q=path:**/foo";
+    for (const text of [`**see ${g}**`, `**see ${g}**).`, `(**see ${g}**) and * more`]) {
+      const out = renderToStaticMarkup(<Markdown text={text} />);
+      expect(out, text).toMatch(/<strong>see <a href="[^"]*"[^>]*>[^<]*<\/a><\/strong>/);
+      expect([...out.matchAll(/<a href="([^"]*)"/g)].map((m) => m[1]), text).toEqual([new URL(g).href]);
+    }
     expect(renderToStaticMarkup(<Markdown text={"**unclosed `x` o/r#3"} />)).toMatch(/<p[^>]*>\*\*unclosed <code/);
   });
 
