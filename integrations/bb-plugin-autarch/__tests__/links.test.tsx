@@ -111,6 +111,15 @@ describe("GitHub references and URLs are links", () => {
     expect(anchors(renderToStaticMarkup(<Markdown text={"`x` o/r#6 `y`"} />))).toEqual([["o/r#6", "https://github.com/o/r/pull/6"]]);
   });
 
+  it("a backtick-quoted address in plain text links without its backtick; a link label may be code", () => {
+    expect(anchors(renderToStaticMarkup(<RefText text={"see `https://github.com/o/r/pull/5` now"} />)).map((a) => a[1])).toEqual(["https://github.com/o/r/pull/5"]);
+    const html = renderToStaticMarkup(<Markdown text={"[`docs`](https://example.com/d) and `[a](https://x.io)`"} />);
+    expect([...html.matchAll(/<a href="([^"]*)"/g)].map((m) => m[1])).toEqual(["https://example.com/d"]);
+    expect(html).toMatch(/<a href="https:\/\/example.com\/d"[^>]*><code[^>]*>docs<\/code><\/a>/);
+    expect(html).toContain(">[a](https://x.io)</code>");
+    expect(html).not.toContain("](https://example.com/d)");
+  });
+
   it("a repo named . or .. is not a reference", () => {
     for (const t of ["o/.#5", "o/..#5"]) {
       expect(refHref(t)).toBeNull();

@@ -6,8 +6,8 @@ import { safeHref } from "./markdown.js";
 
 /** owner/repo#N, not inside a path or a longer word. Owner follows GitHub's rules: letters, digits, inner hyphens; a repo is never "." or "..". */
 export const GH_REF_SRC = String.raw`(?<![\w./#-])[A-Za-z0-9][A-Za-z0-9-]{0,38}\/(?!\.\.?#)[A-Za-z0-9._-]{1,100}#\d{1,9}\b(?![@\/])`;
-/** A whole web-address token, up to whitespace or an angle bracket; urlParts trims what trails it. One run, so the scan stays linear. */
-export const URL_SRC = String.raw`[hH][tT][tT][pP][sS]?:\/\/[^\s<>]+`;
+/** A whole web-address token, up to whitespace, an angle bracket or a backtick (a quoted address); urlParts trims what trails it. One run, so the scan stays linear. */
+export const URL_SRC = String.raw`[hH][tT][tT][pP][sS]?:\/\/[^\s<>\x60]+`;
 /** Longer addresses stay plain text rather than becoming a link that is cut short. */
 export const URL_MAX = 2000;
 const CLOSERS: Record<string, string> = { ")": "(", "]": "[", "}": "{" };
