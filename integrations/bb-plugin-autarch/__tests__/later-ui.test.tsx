@@ -5,8 +5,8 @@ import { describe, expect, it, vi } from "vitest";
 
 vi.mock("@get-bb/plugin-sdk/app", () => ({ ThreadChat: () => null }));
 
-import { AsksPanel, AskCard, laterOutcome, runLater, LaterFailure, type AsksData, type OwedAsk } from "../ui/asks.js";
-import { MoveCard, moveButtons, omitLaterTasks, YourMovePanel } from "../ui/yourmove.js";
+import { AsksPanel, AskCard, owedTasks, laterOutcome, runLater, LaterFailure, type AsksData, type OwedAsk } from "../ui/asks.js";
+import { MoveCard, moveButtons, omitDecisionPrMoves, omitLaterTasks, YourMovePanel } from "../ui/yourmove.js";
 import type { MoveView } from "../moveview.js";
 import { waitingSummary, WaitingStrip } from "../ui/waiting.js";
 import type { Waiting } from "../waiting.js";
@@ -185,6 +185,21 @@ describe("Your move panel split (the move Later group sits below Decide)", () =>
     const out = omitLaterTasks(d, new Set(["t1"]));
     expect(out.later.map((m: MoveView) => m.task_id)).toEqual(["t2"]);
     expect(out.yourMove).toHaveLength(1); // only the Later group is deduplicated
+  });
+  it("omitDecisionPrMoves drops PR moves on cards with a decision from every group, and keeps other moves", () => {
+    const pr = { ...mv, kind: "pr" as const };
+    const script = { ...mv, kind: "script" as const, task_id: "t1", generation: 2 };
+    const d = groups({ yourMove: [pr, script, { ...pr, task_id: "t2" }], reported: [pr], later: [pr], hidden: [pr] });
+    const out = omitDecisionPrMoves(d, new Set(["t1"]));
+    expect(out.yourMove.map((m: MoveView) => `${m.kind}:${m.task_id}`)).toEqual(["script:t1", "pr:t2"]);
+    expect(out.reported).toHaveLength(0);
+    expect(out.later).toHaveLength(0);
+    expect(out.hidden).toHaveLength(1); // what mk hid stays in Hidden
+    expect(renderToStaticMarkup(<YourMovePanel data={omitDecisionPrMoves(groups({ yourMove: [pr] }), new Set(["t1"]))} handlers={h} part="active" />)).toBe("");
+  });
+  it("owedTasks lists every task with an owed decision: Decide, Later and on hold", () => {
+    const owed = [ask({ id: "a", task_id: "t1" }), ask({ id: "b", task_id: "t2", later: LATER }), ask({ id: "c", task_id: "t3", held: { reason: "r", by: "v", at: "x" } }), ask({ id: "d", task_id: null })];
+    expect([...owedTasks(data(owed))].sort()).toEqual(["t1", "t2", "t3"]);
   });
   it("a held move shows its hold reason and no skip note", () => {
     const m = { ...mv, card_later: false, skipped_at: "2026-10-07T10:00:00.000Z", held: { reason: "script superseded", by: "thr_viz", at: "2026-10-08T00:00:00.000Z" } };

@@ -18,9 +18,9 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Icon } from "@/components/ui/icon";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
-import { AsksPanel, PickController, pickOutcome, laterOutcome } from "./ui/asks.js";
+import { AsksPanel, PickController, owedTasks, pickOutcome, laterOutcome } from "./ui/asks.js";
 import { ConversationProvider, type ConversationApi, type ConversationData } from "./ui/conversation.js";
-import { MoveCard, omitLaterTasks, YourMovePanel, type MoveHandlers } from "./ui/yourmove.js";
+import { MoveCard, omitDecisionPrMoves, omitLaterTasks, YourMovePanel, type MoveHandlers } from "./ui/yourmove.js";
 import type { MoveViewGroups } from "./moveview.js";
 import type { AsksData } from "./ui/asks.js";
 import { MobileInbox, useIsPhone } from "./ui/inbox.js";
@@ -473,6 +473,9 @@ function HomePage() {
     });
   };
 
+  // A PR waiting on mk is its decision card only, never a move card beside it (bead mk-t7656).
+  const moves = yourMove.moves && asks ? omitDecisionPrMoves(yourMove.moves, owedTasks(asks)) : yourMove.moves;
+
   const render = (panel: Panel): ReactNode => {
     switch (panel.id) {
       case "queue":
@@ -503,7 +506,7 @@ function HomePage() {
           <EmptyState>{error ?? "Loading asks…"}</EmptyState>
         ) : (
           <>
-          {yourMove.moves ? <YourMovePanel data={yourMove.moves} handlers={yourMove.handlers} part="active" /> : null}
+          {moves ? <YourMovePanel data={moves} handlers={yourMove.handlers} part="active" /> : null}
           <AsksPanel
             data={asks}
             {...(panel.hideHeld ? { hideHeld: true } : {})}
@@ -512,7 +515,7 @@ function HomePage() {
             renderMoves={(taskId) => {
               // The card's own Move back sits on the Later entry, so the move cards inside it do not repeat it.
               const { onUnlater: _own, ...h } = yourMove.handlers;
-              return (yourMove.moves?.later ?? []).filter((m) => m.task_id === taskId).map((m) => <MoveCard key={`${m.task_id}:${m.generation}`} m={m} h={h} section="later" />);
+              return (moves?.later ?? []).filter((m) => m.task_id === taskId).map((m) => <MoveCard key={`${m.task_id}:${m.generation}`} m={m} h={h} section="later" />);
             }}
             onDismiss={(decision_id, obligation_id) => void rpc.call("dismiss", { decision_id, obligation_id }).then(refetch, () => {})}
             onOpen={(thread) => push({ id: `thread:${thread}`, kind: "thread", title: thread, ref: thread })}
@@ -522,7 +525,7 @@ function HomePage() {
               return pickOutcome(picks.send((req) => rpc.call("pick", req) as never, { decision_id, option_id, revision, ...(reason !== undefined ? { reason } : {}) }, refetchAll)).finally(refetchAll);
             }}
           />
-          {yourMove.moves ? <YourMovePanel data={omitLaterTasks(yourMove.moves, new Set(asks.owed.filter((o) => o.later && !o.held && o.task_id).map((o) => o.task_id as string)))} handlers={yourMove.handlers} part="later" /> : null}
+          {moves ? <YourMovePanel data={omitLaterTasks(moves, new Set(asks.owed.filter((o) => o.later && !o.held && o.task_id).map((o) => o.task_id as string)))} handlers={yourMove.handlers} part="later" /> : null}
           </>
         );
       case "blocks":
@@ -599,7 +602,7 @@ function HomePage() {
         <div className="flex h-full min-h-0 flex-1 flex-col" data-home-source={HOME_SOURCE}>
           <MobileInbox
             asks={asks}
-            moves={yourMove.moves}
+            moves={moves}
             waiting={waiting?.total ?? 0}
             sinceCount={waiting ? waiting.updates + waiting.notices : readable.length + notices.length}
             sinceNode={
