@@ -1,6 +1,5 @@
-// The one count on screen: "Waiting on you: N", its parts, what sits beside it, and what it counts (bead mk-yjp7).
+// The one count on screen: "Waiting on you: N", its parts and what sits beside it (bead mk-yjp7). The Queue tabs carry the numbers; "What this counts" lives beside them.
 import type { Waiting } from "../waiting.js";
-import { ActionButton } from "./buttons.js";
 
 const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
 
@@ -29,27 +28,3 @@ export function badgeCount(w: Pick<Waiting, "total">, o: { blocked: boolean; uno
 }
 
 export type WaitingJump = "decide" | "moves" | "updates" | "held" | "later";
-
-export function WaitingStrip({ waiting: w, onJump }: { waiting: Waiting; onJump: (to: WaitingJump) => void }) {
-  const s = waitingSummary(w);
-  return (
-    <div className="flex flex-wrap items-center gap-x-4 border-b border-border px-2 py-0.5 sm:px-4" data-waiting-strip>
-      <p className="m-0 text-sm [overflow-wrap:anywhere]">
-        <b data-waiting-total>{s.headline}</b>
-        <span className="text-muted-foreground">{` — ${s.parts}`}</span>
-      </p>
-      {s.beside.length > 0 ? (
-        <p className="m-0 flex flex-wrap items-center gap-x-2 text-xs text-muted-foreground" data-waiting-beside>
-          <span>Not in that number:</span>
-          {besideItems(w).map((i) => (
-            <ActionButton key={i.to} tone="quiet" className="min-h-11 sm:!min-h-11 !px-1 !py-0" onClick={() => onJump(i.to)}>{i.text}</ActionButton>
-          ))}
-        </p>
-      ) : null}
-      <details className="text-xs text-muted-foreground open:basis-full" data-waiting-definition>
-        <summary className="flex min-h-11 cursor-pointer items-center">What this counts</summary>
-        <p className="m-0 mt-1 [overflow-wrap:anywhere]">{w.definition}</p>
-      </details>
-    </div>
-  );
-}

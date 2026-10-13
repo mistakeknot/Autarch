@@ -5,7 +5,7 @@ import { describe, expect, it, vi } from "vitest";
 import { displayedTracker, isNoticeItem, markPlan, normalizeCatchup, SeenTracker, type CatchupEntry } from "../ui/catchup.js";
 import { buildMoveHandlers } from "../movehandlers.js";
 import { splitCommands, flagsOf } from "../ui/commandtext.js";
-import { WaitingStrip } from "../ui/waiting.js";
+import { QueueTabs } from "../ui/tabs.js";
 import type { Waiting } from "../waiting.js";
 
 describe("an old server's notices stay notices", () => {
@@ -138,8 +138,7 @@ describe("the waiting count follows move actions", () => {
 
 describe("the definition is a tap target", () => {
   it("What this counts has a 44px minimum at every width", () => {
-    const w: Waiting = { total: 1, decide: 1, moves: 0, notices: 0, noticeItems: [], updates: 0, held: 0, suspended: false, definition: "d" } as never;
-    const html = renderToStaticMarkup(<WaitingStrip waiting={w} onJump={() => {}} />);
+    const html = renderToStaticMarkup(<QueueTabs tab="decide" onTab={() => {}} counts={null} definition="d" />);
     expect(html).toMatch(/<summary[^>]*class="[^"]*min-h-11/);
   });
 });
