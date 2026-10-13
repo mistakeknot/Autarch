@@ -1,7 +1,7 @@
 // Render checks for the Idea box, its list and the phone entry point (bead mk-2zojo).
 import { describe, expect, it } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
-import { IdeaBox, IdeaList } from "../ui/ideas.js";
+import { filterProjects, IdeaBox, IdeaList } from "../ui/ideas.js";
 import { MobileInbox } from "../ui/inbox.js";
 
 const noop = () => {};
@@ -11,10 +11,25 @@ const idea = { task_id: "t1", key: "AUTA-9", project_id: "p1", project: "Autarch
 describe("Idea box UI", () => {
   it("offers a project choice, one text box and a File button that waits for both", () => {
     const h = renderToStaticMarkup(<IdeaBox projects={projects} project="" text="" busy={false} error={null} notice={null} onProject={noop} onText={noop} onFile={noop} />);
-    expect(h).toContain("Autarch (AUTA)");
+    expect(h).toContain('role="combobox"');
+    expect(h).toContain('placeholder="Choose a project"');
+    expect(h).not.toContain("<select");
+    expect(h).toContain('aria-expanded="false"');
+    expect(h).not.toContain("aria-controls");
     expect(h).toContain("data-idea-text");
     expect(h).toMatch(/data-idea-file[^>]*disabled|disabled[^>]*data-idea-file/);
     expect(h).toContain("not work until it is picked");
+  });
+  it("shows the chosen project's label in the box", () => {
+    expect(renderToStaticMarkup(<IdeaBox projects={projects} project="p1" text="" busy={false} error={null} notice={null} onProject={noop} onText={noop} onFile={noop} />)).toContain('value="Autarch (AUTA)"');
+  });
+  it("filters by name or prefix, case-insensitively, as a substring", () => {
+    const ps = [{ id: "a", name: "Autarch", prefix: "AUTA" }, { id: "b", name: "Shadow Work", prefix: "SHAD" }, { id: "c", name: "Bridger", prefix: "BRID" }];
+    expect(filterProjects(ps, "").map((p) => p.id)).toEqual(["a", "b", "c"]);
+    expect(filterProjects(ps, "dow").map((p) => p.id)).toEqual(["b"]);
+    expect(filterProjects(ps, "auta").map((p) => p.id)).toEqual(["a"]);
+    expect(filterProjects(ps, " RID ").map((p) => p.id)).toEqual(["c"]);
+    expect(filterProjects(ps, "zzz")).toEqual([]);
   });
   it("shows a refusal in words", () => {
     const h = renderToStaticMarkup(<IdeaBox projects={projects} project="p1" text="x" busy={false} error="tasks unavailable" notice={null} onProject={noop} onText={noop} onFile={noop} />);
