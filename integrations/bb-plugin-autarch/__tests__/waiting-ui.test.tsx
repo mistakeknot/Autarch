@@ -6,7 +6,8 @@ import { describe, expect, it, vi } from "vitest";
 vi.mock("@get-bb/plugin-sdk/app", () => ({ ThreadChat: () => null }));
 
 import type { Waiting } from "../waiting.js";
-import { badgeCount, WaitingStrip, waitingSummary } from "../ui/waiting.js";
+import { badgeCount, waitingSummary } from "../ui/waiting.js";
+import { QueueTabs } from "../ui/tabs.js";
 import { homeTabs, HomeTabs } from "../ui/tabs.js";
 
 const W: Waiting = {
@@ -30,15 +31,16 @@ describe("waiting strip", () => {
       parts: "5 to decide, 1 move, 1 notice",
       beside: ["3 updates to read", "2 on hold"],
     });
-    const html = renderToStaticMarkup(<WaitingStrip waiting={W} onJump={noop} />);
-    expect(html).toContain("Waiting on you: 7");
-    expect(html).toContain("5 to decide, 1 move, 1 notice");
-    expect(html).toContain("3 updates to read");
-    expect(html).toContain("2 on hold");
+  });
+
+  it("there is no ribbon repeating the tab row", () => {
+    const html = renderToStaticMarkup(<QueueTabs tab="decide" onTab={noop} counts={{ decide: 5, later: 0, blocks: 2, catchup: 3 }} definition={W.definition} />);
+    expect(html).not.toContain("data-waiting-strip");
+    expect(html).not.toContain("Not in that number");
   });
 
   it("prints the definition so a mismatch with another list is explainable", () => {
-    const html = renderToStaticMarkup(<WaitingStrip waiting={W} onJump={noop} />);
+    const html = renderToStaticMarkup(<QueueTabs tab="decide" onTab={noop} counts={null} definition={W.definition} />);
     expect(html).toContain("What this counts");
     expect(html).toContain("not on hold");
   });

@@ -27,6 +27,11 @@ export function normalizeCatchup(items: CatchupEntry[]): CatchupEntry[] {
   return items.map((e) => (e.kind !== "notice" && isNoticeItem(e) ? { ...e, kind: "notice" as const } : e));
 }
 
+/** The rows to read under "Since you left": no notices, and no "Waiting for you" row for an ask set aside to Later or on hold (its own tab lists it, and the count excludes it). */
+export function readableCatchup(items: CatchupEntry[], asks: { id: string; later?: unknown; held?: unknown }[] | null): CatchupEntry[] {
+  return items.filter((c) => c.kind !== "notice" && !(c.kind === "owed" && asks?.some((o) => o.id === c.decision && (o.later || o.held))));
+}
+
 type Timer = { ids: string[]; remaining: number; startedAt: number | null; handle: ReturnType<typeof setTimeout> | null };
 
 /** Marks an expanded item after 1 s of continuous visibility; hidden or unfocused pauses the clock. */

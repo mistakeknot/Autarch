@@ -47,9 +47,11 @@ export function nextQueueTab(tab: QueueTab, key: string): QueueTab | null {
 }
 
 /** The Queue's own tabs: each paradigm gets a tab with its count, so no view makes mk scroll past one to reach another. */
-export function QueueTabs({ tab, counts, onTab }: { tab: QueueTab; counts: Record<QueueTab, number> | null; onTab: (t: QueueTab) => void }) {
+export function QueueTabs({ tab, counts, onTab, definition = null }: { tab: QueueTab; counts: Record<QueueTab, number> | null; onTab: (t: QueueTab) => void; definition?: string | null }) {
   return (
-    <div role="tablist" aria-label="Queue" className="flex gap-3 overflow-x-auto whitespace-nowrap border-b border-border px-2 sm:px-4" data-queue-tabs>
+    <div className="border-b border-border px-2 sm:px-4">
+    <div className="flex flex-wrap items-center gap-x-3">
+    <div role="tablist" aria-label="Queue" className="flex min-w-0 flex-1 gap-3 overflow-x-auto whitespace-nowrap" data-queue-tabs>
       {QUEUE_TABS.map(([id, label]) => (
         <button
           key={id}
@@ -73,6 +75,14 @@ export function QueueTabs({ tab, counts, onTab }: { tab: QueueTab; counts: Recor
           {counts ? `${label} (${counts[id]})` : label}
         </button>
       ))}
+    </div>
+    {definition ? (
+      <details className="shrink-0 text-xs text-muted-foreground open:basis-full" data-waiting-definition>
+        <summary className="flex min-h-11 cursor-pointer items-center">What this counts</summary>
+        <p className="m-0 mb-2 [overflow-wrap:anywhere]">{definition}</p>
+      </details>
+    ) : null}
+    </div>
     </div>
   );
 }

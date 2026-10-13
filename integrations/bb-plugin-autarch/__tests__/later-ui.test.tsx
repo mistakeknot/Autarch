@@ -9,7 +9,7 @@ import { AsksPanel, AskCard, owedTasks, laterOutcome, runLater, LaterFailure, ty
 import { MoveCard, moveButtons, omitDecisionPrMoves, omitLaterTasks, YourMovePanel } from "../ui/yourmove.js";
 import type { MoveView } from "../moveview.js";
 import { nextQueueTab, QueueTabs } from "../ui/tabs.js";
-import { waitingSummary, WaitingStrip } from "../ui/waiting.js";
+import { waitingSummary } from "../ui/waiting.js";
 import type { Waiting } from "../waiting.js";
 
 const ask = (over: Partial<OwedAsk> = {}): OwedAsk => ({
@@ -111,19 +111,12 @@ describe("Later beside the count", () => {
   const W: Waiting = { total: 3, decide: 3, moves: 0, notices: 0, noticeItems: [], updates: 0, held: 0, later: 2, suspended: false, definition: "Counts open decisions." };
   it("reads '2 for later' beside the total, never in it", () => {
     expect(waitingSummary(W)).toEqual({ headline: "Waiting on you: 3", parts: "3 to decide", beside: ["2 for later"] });
-    const html = renderToStaticMarkup(<WaitingStrip waiting={W} onJump={noop} />);
-    expect(html).toContain("Waiting on you: 3");
-    expect(html).toContain("2 for later");
   });
   it("is absent at zero", () => {
     expect(waitingSummary({ ...W, later: 0 }).beside).toEqual([]);
   });
-  it("sits after updates and holds, each with its own jump", () => {
-    const jumps: string[] = [];
-    const html = renderToStaticMarkup(<WaitingStrip waiting={{ ...W, updates: 1, held: 1 }} onJump={(t) => void jumps.push(t)} />);
+  it("sits after updates and holds", () => {
     expect(waitingSummary({ ...W, updates: 1, held: 1 }).beside).toEqual(["1 update to read", "1 on hold", "2 for later"]);
-    expect(html.indexOf("1 update to read")).toBeLessThan(html.indexOf("1 on hold"));
-    expect(html.indexOf("1 on hold")).toBeLessThan(html.indexOf("2 for later"));
   });
 });
 
@@ -228,11 +221,6 @@ describe("tap targets at every width (44px, not just on phones)", () => {
     const summary = html.match(/<summary[^>]*>Open card/)![0];
     expect(summary).toContain("min-h-11");
     expect(summary).not.toContain("sm:min-h-0");
-    const W: Waiting = { total: 1, decide: 1, moves: 0, notices: 0, noticeItems: [], updates: 1, held: 1, later: 1, suspended: false, definition: "x" };
-    const strip = renderToStaticMarkup(<WaitingStrip waiting={W} onJump={noop} />);
-    const jump = strip.match(/<button[^>]*>1 for later/)![0];
-    expect(jump).toContain("sm:!min-h-11");
-    expect(jump).not.toContain("sm:min-h-0");
   });
 });
 

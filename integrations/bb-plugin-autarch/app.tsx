@@ -26,11 +26,11 @@ import type { AsksData } from "./ui/asks.js";
 import { MobileInbox, useIsPhone } from "./ui/inbox.js";
 import { IdeaDesk, IdeaDigest, type IdeaApi } from "./ui/ideas.js";
 import type { IdeaProject, IdeaView } from "./ideas.js";
-import { CatchupPanel, markPlan, markResultText, normalizeCatchup, SeenTracker } from "./ui/catchup.js";
+import { CatchupPanel, markPlan, markResultText, normalizeCatchup, readableCatchup, SeenTracker } from "./ui/catchup.js";
 import { NoticeBanner } from "./ui/notices.js";
 import { singleFlight, type Flight } from "./ui/singleflight.js";
 import { buildMoveHandlers, rpcOutcome } from "./movehandlers.js";
-import { badgeCount, WaitingStrip, type WaitingJump } from "./ui/waiting.js";
+import { badgeCount } from "./ui/waiting.js";
 import type { Waiting } from "./waiting.js";
 import type { CatchupEntry } from "./ui/catchup.js";
 import { MapPlaceholder } from "./ui/map-placeholder.js";
@@ -429,10 +429,9 @@ function HomePage() {
     [tracker],
   );
   const notices = useMemo(() => catchup.filter((c) => c.kind === "notice"), [catchup]);
-  const readable = useMemo(() => catchup.filter((c) => c.kind !== "notice"), [catchup]);
+  // A "Waiting for you" row for an ask that is set aside (Later or on hold) is not waiting; its tab already lists it.
+  const readable = useMemo(() => readableCatchup(catchup, asks?.owed ?? null), [catchup, asks]);
   const [queueTab, setQueueTab] = useState<QueueTab>("decide");
-  // The strip's buttons open the tab that holds what they count, instead of scrolling down to it.
-  const jump = (to: WaitingJump) => setQueueTab(to === "later" ? "later" : to === "updates" ? "catchup" : to === "held" ? "blocks" : "decide");
   const markIds = (ids: string[], routineLeft: number) => {
     if (ids.length === 0) return;
     void rpc.call("markAllSeen", { ids }).then(
@@ -502,13 +501,12 @@ function HomePage() {
       case "queue":
         return (
           <>
-            {waiting ? <WaitingStrip waiting={waiting} onJump={jump} /> : null}
             {notices.length > 0 ? (
               <div className="p-2 sm:p-4">
                 <NoticeBanner notices={notices} suspended={waiting?.suspended ?? true} onAcknowledge={(item) => void rpc.call("markSeen", { item }).then(refetch, () => {})} />
               </div>
             ) : null}
-            <QueueTabs tab={queueTab} onTab={setQueueTab} counts={waiting ? { decide: waiting.decide, later: asks ? asks.owed.filter((o) => o.later && !o.held).length : waiting.later, blocks: waiting.held, catchup: waiting.updates } : null} />
+            <QueueTabs tab={queueTab} onTab={setQueueTab} definition={waiting?.definition ?? null} counts={waiting ? { decide: waiting.decide, later: asks ? asks.owed.filter((o) => o.later && !o.held).length : waiting.later, blocks: waiting.held, catchup: waiting.updates } : null} />
             <section role="tabpanel" id="queue-tabpanel" aria-labelledby={`queue-tab-${queueTab}`} data-queue-section={queueTab === "decide" ? "asks" : queueTab} className="border-b border-border">
               {queueTab === "decide"
                 ? render({ id: "asks", kind: "decision", title: "Asks", hideHeld: true, part: "decide" })
