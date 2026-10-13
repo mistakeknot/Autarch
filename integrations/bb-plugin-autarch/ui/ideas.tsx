@@ -78,7 +78,7 @@ export function ProjectCombobox({ projects, value, disabled, onChange }: { proje
               id={`${listId}-${p.id}`}
               role="option"
               aria-selected={p.id === value}
-              className={`flex min-h-11 cursor-pointer items-center px-2 text-sm sm:min-h-8 ${i === active ? "bg-accent" : ""}`}
+              className={`flex min-h-11 cursor-pointer items-center px-2 text-sm sm:min-h-8 ${i === active ? "bg-muted" : ""}`}
               onMouseDown={(e) => { e.preventDefault(); pick(p); }}
               onMouseEnter={() => setActive(i)}
             >{projectLabel(p)}</li>
