@@ -14,6 +14,8 @@ describe("Idea box UI", () => {
     expect(h).toContain('role="combobox"');
     expect(h).toContain('placeholder="Choose a project"');
     expect(h).not.toContain("<select");
+    expect(h).toContain('aria-expanded="false"');
+    expect(h).not.toContain("aria-controls");
     expect(h).toContain("data-idea-text");
     expect(h).toMatch(/data-idea-file[^>]*disabled|disabled[^>]*data-idea-file/);
     expect(h).toContain("not work until it is picked");

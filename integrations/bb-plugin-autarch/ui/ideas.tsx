@@ -33,6 +33,8 @@ export function ProjectCombobox({ projects, value, disabled, onChange }: { proje
   const shown = typed ?? (chosen ? projectLabel(chosen) : "");
   const matches = filterProjects(projects, typed ?? "");
   const close = () => { setOpen(false); setTyped(null); };
+  const activeId = open && matches[active] ? `${listId}-${matches[active]!.id}` : undefined;
+  useEffect(() => { if (activeId) document.getElementById(activeId)?.scrollIntoView?.({ block: "nearest" }); }, [activeId]);
   const pick = (p: IdeaProject) => { onChange(p.id); close(); };
   return (
     <div className="relative">
@@ -42,9 +44,9 @@ export function ProjectCombobox({ projects, value, disabled, onChange }: { proje
         role="combobox"
         autoComplete="off"
         aria-expanded={open}
-        aria-controls={listId}
         aria-autocomplete="list"
-        {...(open && matches[active] ? { "aria-activedescendant": `${listId}-${matches[active]!.id}` } : {})}
+        {...(open ? { "aria-controls": listId } : {})}
+        {...(activeId ? { "aria-activedescendant": activeId } : {})}
         className="min-h-11 w-full rounded-md border border-input bg-background px-2 text-sm sm:min-h-8"
         placeholder="Choose a project"
         value={shown}
@@ -57,9 +59,10 @@ export function ProjectCombobox({ projects, value, disabled, onChange }: { proje
             e.preventDefault();
             setOpen(true);
             if (matches.length > 0) setActive((a) => (a + (e.key === "ArrowDown" ? 1 : matches.length - 1)) % matches.length);
-          } else if (e.key === "Enter" && open && matches[active]) {
-            e.preventDefault(); // pick, do not submit the form
-            pick(matches[active]!);
+          } else if (e.key === "Enter") {
+            e.preventDefault(); // never file from the project box: Enter picks, or opens the list
+            if (open && matches[active]) pick(matches[active]!);
+            else setOpen(true);
           } else if (e.key === "Escape" && open) {
             e.preventDefault();
             close();
