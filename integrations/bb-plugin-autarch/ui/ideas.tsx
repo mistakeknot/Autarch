@@ -1,6 +1,6 @@
 // The Idea box and the weekly idea digest (bead mk-2zojo). Presentation plus one small container; the data comes from
 // the ideas RPCs, which file and act over the tasks plugin. mk's words are shown as plain text, never rendered as markup.
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useId, useMemo, useState } from "react";
 import type { IdeaAction, IdeaProject, IdeaView } from "../ideas.js";
 import { IDEA_MAX } from "../ideas.js";
 import { ActionButton } from "./buttons.js";
@@ -14,6 +14,77 @@ export interface IdeaApi {
 }
 
 const ACTIONS: [IdeaAction, string, "recommended" | "default" | "destructive"][] = [["pursue", "Pursue", "recommended"], ["park", "Park", "default"], ["drop", "Drop", "destructive"]];
+
+const projectLabel = (p: IdeaProject) => `${p.name} (${p.prefix})`;
+
+/** The projects whose name or prefix contains what was typed (case-insensitive substring); an empty query keeps them all. */
+export function filterProjects(projects: IdeaProject[], query: string): IdeaProject[] {
+  const q = query.trim().toLowerCase();
+  return q === "" ? projects : projects.filter((p) => p.name.toLowerCase().includes(q) || p.prefix.toLowerCase().includes(q));
+}
+
+/** Search-as-you-type project picker (ARIA 1.2 combobox): type to filter, arrows and Enter to pick, Escape to close. */
+export function ProjectCombobox({ projects, value, disabled, onChange }: { projects: IdeaProject[]; value: string; disabled: boolean; onChange: (id: string) => void }) {
+  const listId = useId();
+  const chosen = projects.find((p) => p.id === value);
+  const [typed, setTyped] = useState<string | null>(null); // null: show the chosen project's label
+  const [open, setOpen] = useState(false);
+  const [active, setActive] = useState(0);
+  const shown = typed ?? (chosen ? projectLabel(chosen) : "");
+  const matches = filterProjects(projects, typed ?? "");
+  const close = () => { setOpen(false); setTyped(null); };
+  const pick = (p: IdeaProject) => { onChange(p.id); close(); };
+  return (
+    <div className="relative">
+      <input
+        id="idea-project"
+        type="text"
+        role="combobox"
+        autoComplete="off"
+        aria-expanded={open}
+        aria-controls={listId}
+        aria-autocomplete="list"
+        {...(open && matches[active] ? { "aria-activedescendant": `${listId}-${matches[active]!.id}` } : {})}
+        className="min-h-11 w-full rounded-md border border-input bg-background px-2 text-sm sm:min-h-8"
+        placeholder="Choose a project"
+        value={shown}
+        disabled={disabled}
+        onFocus={(e) => { setOpen(true); e.currentTarget.select(); }}
+        onBlur={close}
+        onChange={(e) => { setTyped(e.target.value); setOpen(true); setActive(0); if (value !== "") onChange(""); }}
+        onKeyDown={(e) => {
+          if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+            e.preventDefault();
+            setOpen(true);
+            if (matches.length > 0) setActive((a) => (a + (e.key === "ArrowDown" ? 1 : matches.length - 1)) % matches.length);
+          } else if (e.key === "Enter" && open && matches[active]) {
+            e.preventDefault(); // pick, do not submit the form
+            pick(matches[active]!);
+          } else if (e.key === "Escape" && open) {
+            e.preventDefault();
+            close();
+          }
+        }}
+        data-idea-project
+      />
+      {open ? (
+        <ul id={listId} role="listbox" aria-label="Projects" className="absolute z-10 m-0 mt-1 max-h-60 w-full list-none overflow-y-auto rounded-md border border-border bg-background p-0 shadow-md" data-idea-project-list>
+          {matches.length === 0 ? <li className="px-2 py-2 text-sm text-muted-foreground" data-idea-project-none>No project matches.</li> : matches.map((p, i) => (
+            <li
+              key={p.id}
+              id={`${listId}-${p.id}`}
+              role="option"
+              aria-selected={p.id === value}
+              className={`flex min-h-11 cursor-pointer items-center px-2 text-sm sm:min-h-8 ${i === active ? "bg-accent" : ""}`}
+              onMouseDown={(e) => { e.preventDefault(); pick(p); }}
+              onMouseEnter={() => setActive(i)}
+            >{projectLabel(p)}</li>
+          ))}
+        </ul>
+      ) : null}
+    </div>
+  );
+}
 
 /** The Idea box: pick a project, type one line, File. Stateless; the container owns the submission id. */
 export function IdeaBox({ projects, project, text, busy, error, notice, onProject, onText, onFile }: {
@@ -31,10 +102,7 @@ export function IdeaBox({ projects, project, text, busy, error, notice, onProjec
   return (
     <form className="space-y-2" onSubmit={(e) => { e.preventDefault(); onFile(); }} data-idea-box>
       <label className="block text-xs font-semibold uppercase text-muted-foreground" htmlFor="idea-project">Project</label>
-      <select id="idea-project" className="min-h-11 w-full rounded-md border border-input bg-background px-2 text-sm sm:min-h-8" value={project} disabled={busy} onChange={(e) => onProject(e.target.value)} data-idea-project>
-        <option value="">Choose a project</option>
-        {projects.map((p) => <option key={p.id} value={p.id}>{`${p.name} (${p.prefix})`}</option>)}
-      </select>
+      <ProjectCombobox projects={projects} value={project} disabled={busy} onChange={onProject} />
       <label className="block text-xs font-semibold uppercase text-muted-foreground" htmlFor="idea-text">Your idea, in a line</label>
       <textarea id="idea-text" rows={2} className="w-full rounded-md border border-input bg-background p-2 text-sm" value={text} disabled={busy} onChange={(e) => onText(e.target.value)} placeholder="It would be cool if…" data-idea-text />
       <div className="flex flex-wrap items-center gap-2">
