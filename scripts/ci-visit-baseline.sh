@@ -14,9 +14,11 @@ fetch() {
 fetch https://go.dev/dl/go1.26.4.linux-amd64.tar.gz "$visit_tools/go.tgz" 1153d3d50e0ac764b447adfe05c2bcf08e889d42a02e0fe0259bd47f6733ad7f
 tar -xzf "$visit_tools/go.tgz" -C "$visit_tools"
 # Extract exact Ubuntu 24.04 packages privately; the guest image is unchanged.
-fetch https://archive.ubuntu.com/ubuntu/pool/main/t/tmux/tmux_3.4-1ubuntu0.1_amd64.deb "$visit_tools/tmux.deb" 2913e17aa61879d1f905aab6f374f153f1ece63aefba1b996e387325d1d5338d
-fetch https://archive.ubuntu.com/ubuntu/pool/main/libe/libevent/libevent-core-2.1-7t64_2.1.12-stable-9ubuntu2.1_amd64.deb "$visit_tools/event.deb" f8af913312f8de9cab6efcd2259918b3df92f5b7d501aba7ce9a55699fa452b8
-fetch https://archive.ubuntu.com/ubuntu/pool/main/libu/libutempter/libutempter0_1.2.1-3build1_amd64.deb "$visit_tools/utempter.deb" 46c0dfbfeca19ba0773398d654b7e7225b178f26b414f0e2f8250519551bfb32
+# Fetched from an immutable snapshot: archive.ubuntu.com drops superseded versions (libevent 9ubuntu2.1 went 404).
+ubuntu_snapshot=https://snapshot.ubuntu.com/ubuntu/20261001T000000Z/pool/main
+fetch "$ubuntu_snapshot/t/tmux/tmux_3.4-1ubuntu0.1_amd64.deb" "$visit_tools/tmux.deb" 2913e17aa61879d1f905aab6f374f153f1ece63aefba1b996e387325d1d5338d
+fetch "$ubuntu_snapshot/libe/libevent/libevent-core-2.1-7t64_2.1.12-stable-9ubuntu2.2_amd64.deb" "$visit_tools/event.deb" 2a5264b572f5fe50fc9d63e115d308c79b9fb746d13cc55b5ea1f0f01a78daa7
+fetch "$ubuntu_snapshot/libu/libutempter/libutempter0_1.2.1-3build1_amd64.deb" "$visit_tools/utempter.deb" 46c0dfbfeca19ba0773398d654b7e7225b178f26b414f0e2f8250519551bfb32
 fetch https://nodejs.org/dist/v22.22.2/node-v22.22.2-linux-x64.tar.xz "$visit_tools/node.txz" 88fd1ce767091fd8d4a99fdb2356e98c819f93f3b1f8663853a2dee9b438068a
 tar -xJf "$visit_tools/node.txz" -C "$visit_tools"
 for package in tmux event utempter; do dpkg-deb -x "$visit_tools/$package.deb" "$visit_tools/root"; done
