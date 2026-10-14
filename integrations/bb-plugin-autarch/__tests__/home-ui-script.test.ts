@@ -107,6 +107,17 @@ describe("home-ui.sh gates", () => {
     expect(r.run(["preview", "--plugin-code"]).status).toBe(64);
   });
 
+  it("--plugin-code refuses changed plugin code that contains schema statements", () => {
+    const r = rig();
+    const n = plugin(r.root, "new", 3);
+    writeFileSync(join(n, "store.ts"), 'db.exec("CREATE TABLE gate_bypassed(x TEXT)");');
+    const out = r.run(["check", "--path", n, "--plugin-code"]);
+    expect(out.status).toBe(3);
+    expect(out.stderr).toContain("schema statements");
+    writeFileSync(join(n, "store.ts"), "ok();");
+    expect(r.run(["check", "--path", n, "--plugin-code"]).status).toBe(0);
+  });
+
   it("--plugin-code refuses any added, changed or dangling lockfile and .npmrc", () => {
     const r = rig();
     for (const f of ["package-lock.json", "npm-shrinkwrap.json", ".npmrc", "pnpm-lock.yaml", "yarn.lock"]) {

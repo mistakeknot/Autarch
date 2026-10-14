@@ -111,6 +111,13 @@ plugin_code_only() {   # $1 = installed build, $2 = target; dependencies and the
         || die "NOT plugin-code-only: $f differs from the installed build. A dependency change goes to mk as a script." 3
     fi
   done
+  # Defence in depth, not proof: changed plugin code must not contain schema statements. The deploy's real guarantee on code
+  # behaviour is the cross-lab review of the merged head that the deploy approval requires.
+  local changed
+  changed=$(diff -rq -x node_modules "$1" "$2" 2>/dev/null | sed -n 's/^Files .* and \(.*\) differ$/\1/p; s/^Only in \(.*\): \(.*\)$/\1\/\2/p' | grep -v '/__tests__/' | grep -v "^$2/ui/" || true)
+  if [ -n "$changed" ] && echo "$changed" | xargs -d '\n' -r grep -Eil '(create|alter|drop)[[:space:]]+(virtual[[:space:]]+)?(table|index|trigger|view)|pragma[[:space:]]+(user_version|writable_schema)|schema_meta' >/dev/null 2>&1; then
+    die "NOT plugin-code-only: a changed plugin file mentions schema statements (CREATE/ALTER/DROP, schema_meta). A schema change goes to mk as a script." 3
+  fi
 }
 backup() {   # prints the backup directory
   local dir=$BBDATA/home-backups/$STAMP prev
