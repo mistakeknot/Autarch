@@ -32,70 +32,83 @@ func nonEmptyLines(b []byte) []string {
 	return out
 }
 
-// checkReview reads a text review receipt. Only the trailing block counts:
+// reviewDoc is a review receipt read and parsed, not yet bound to a pull
+// request or script.
+type reviewDoc struct {
+	early     []Item // set when the receipt could not be used
+	verdict   Item
+	vals      map[string][]string
+	malformed string
+}
+
+// readReview reads a text review receipt. Only the trailing block counts:
 // exact-format REVIEWED-* lines then the verdict as the last line. Narrative
 // mentions of a commit anywhere else are ignored. The lines establish what the
 // reviewer says it reviewed, not that the reviewer is who it claims to be.
-func checkReview(o Options, pr *prEvidence, scriptDigest string) []Item {
-	b, _, err := readRegular(o.Review, maxReview)
+func readReview(o Options, env Env) *reviewDoc {
+	b, _, err := env.read(o.Review, maxReview)
 	if err != nil {
-		return []Item{
+		return &reviewDoc{early: []Item{
 			item("review.verdict", Unknown, "cannot read the review: %v", err),
 			item("review.binds", Unknown, "cannot read the review"),
-		}
+		}}
 	}
 	lines := nonEmptyLines(b)
-	var verdictItem Item
 	if len(lines) == 0 {
-		return []Item{item("review.verdict", Unknown, "the review is empty"), item("review.binds", Unknown, "the review is empty")}
+		return &reviewDoc{early: []Item{item("review.verdict", Unknown, "the review is empty"), item("review.binds", Unknown, "the review is empty")}}
 	}
+	d := &reviewDoc{vals: map[string][]string{}}
 	m := verdictRe.FindStringSubmatch(lines[len(lines)-1])
 	switch {
 	case m == nil:
-		verdictItem = item("review.verdict", Unknown, "the last non-empty line is not a VERDICT line")
+		d.verdict = item("review.verdict", Unknown, "the last non-empty line is not a VERDICT line")
 	case m[1] == "FAIL":
-		verdictItem = item("review.verdict", Fail, "the review's verdict is FAIL")
+		d.verdict = item("review.verdict", Fail, "the review's verdict is FAIL")
 	default:
-		verdictItem = item("review.verdict", Pass, "VERDICT: %s", m[1])
+		d.verdict = item("review.verdict", Pass, "VERDICT: %s", m[1])
 		if m[1] == "PASS WITH NOTES" {
 			notes, trunc := extractNotes(lines)
-			verdictItem.Data = map[string]any{"notes": notes, "notes_truncated": trunc}
+			d.verdict.Data = map[string]any{"notes": notes, "notes_truncated": trunc}
 		}
+	}
+	if side := sidecarNote(env, o.Review, m); side != "" {
+		d.verdict.Detail += "; " + side
 	}
 
 	start := len(lines) - bindWindow
 	if start < 0 {
 		start = 0
 	}
-	window := lines[start:]
-	vals := map[string][]string{}
-	malformed := ""
-	for _, l := range window {
+	for _, l := range lines[start:] {
 		if !strings.HasPrefix(l, "REVIEWED-") {
 			continue
 		}
 		switch {
 		case bindPRRe.MatchString(l):
-			vals["pr"] = append(vals["pr"], bindPRRe.FindStringSubmatch(l)[1])
+			d.vals["pr"] = append(d.vals["pr"], bindPRRe.FindStringSubmatch(l)[1])
 		case bindHead.MatchString(l):
-			vals["head"] = append(vals["head"], bindHead.FindStringSubmatch(l)[1])
+			d.vals["head"] = append(d.vals["head"], bindHead.FindStringSubmatch(l)[1])
 		case bindSHA.MatchString(l):
-			vals["sha"] = append(vals["sha"], bindSHA.FindStringSubmatch(l)[1])
+			d.vals["sha"] = append(d.vals["sha"], bindSHA.FindStringSubmatch(l)[1])
 		default:
-			malformed = l
+			d.malformed = l
 		}
 	}
-	if side := sidecarNote(o.Review, m); side != "" {
-		verdictItem.Detail += "; " + side
+	return d
+}
+
+func (d *reviewDoc) items(o Options, pr *prEvidence, scriptDigest string) []Item {
+	if d.early != nil {
+		return d.early
 	}
-	return []Item{verdictItem, bindItem(o, pr, scriptDigest, vals, malformed)}
+	return []Item{d.verdict, bindItem(o, pr, scriptDigest, d.vals, d.malformed)}
 }
 
 // sidecarNote reports a sibling <receipt>.verdict file that disagrees with the
 // receipt's last line. The sidecar is dispatch-tool output, not the reviewer's,
 // so it never changes the status; it only appears in the detail.
-func sidecarNote(review string, m []string) string {
-	b, _, err := readRegular(review+".verdict", 64<<10)
+func sidecarNote(env Env, review string, m []string) string {
+	b, _, err := env.read(review+".verdict", 64<<10)
 	if err != nil {
 		return ""
 	}

@@ -62,6 +62,16 @@ type Env struct {
 	Now     func() time.Time
 	Environ func() []string
 	TempDir string
+	// OnRead, when set, is called with each evidence file's path just before it
+	// is read, so tests can check the order of reads.
+	OnRead func(path string)
+}
+
+func (e Env) read(path string, max int64) ([]byte, os.FileInfo, error) {
+	if e.OnRead != nil {
+		e.OnRead(path)
+	}
+	return readRegular(path, max)
 }
 
 // DefaultEnv is the real environment.
@@ -144,8 +154,9 @@ func Run(ctx context.Context, o Options, env Env) Report {
 		set("ruling", o.Ruling)
 	}
 
-	// Order: script, first PR read, ruling, final PR read, review. The final
-	// read comes after every other check; the review is bound to its head.
+	// Order: script, first PR read, ruling, review file, final PR read. The
+	// final read comes after every other evidence read; the review is bound to
+	// its head.
 	var scriptItems, prItems, reviewItems, rulingItems []Item
 	var scriptDigest string
 	if o.Script != "" {
@@ -158,12 +169,16 @@ func Run(ctx context.Context, o Options, env Env) Report {
 	if o.Ruling != "" {
 		rulingItems = checkRuling(o, env)
 	}
+	var rv *reviewDoc
+	if o.Review != "" {
+		rv = readReview(o, env)
+	}
 	var pr *prEvidence
 	if run != nil {
 		prItems, pr = run.finish(ctx)
 	}
-	if o.Review != "" {
-		reviewItems = checkReview(o, pr, scriptDigest)
+	if rv != nil {
+		reviewItems = rv.items(o, pr, scriptDigest)
 	}
 	r.Items = append(append(append(append(r.Items, scriptItems...), prItems...), reviewItems...), rulingItems...)
 	r.Overall, r.Summary = roll(r.Items)

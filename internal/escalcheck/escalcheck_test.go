@@ -271,6 +271,14 @@ func TestStateDirIsPinnedAndAbsolute(t *testing.T) {
 		}
 		f.run.calls, f.run.envs = nil, nil
 	}
+	reported := func(name string, r Report) {
+		t.Helper()
+		for _, it := range r.Items {
+			if it.ID == "script.rehearsed" && it.Data["state_dir"] != f.state {
+				t.Errorf("%s: reported state_dir %v, want %s", name, it.Data["state_dir"], f.state)
+			}
+		}
+	}
 	o := f.opts()
 	o.PR = ""
 	// inherited override
@@ -278,6 +286,7 @@ func TestStateDirIsPinnedAndAbsolute(t *testing.T) {
 	o.RehearseState = ""
 	r := Run(context.Background(), o, f.env)
 	wantVar("inherited", f.state)
+	reported("inherited", r)
 	if status(t, r, "script.rehearsed") != Pass {
 		t.Error("inherited state should pass")
 	}
@@ -286,6 +295,7 @@ func TestStateDirIsPinnedAndAbsolute(t *testing.T) {
 	o.RehearseState = f.state
 	r = Run(context.Background(), o, f.env)
 	wantVar("flag", f.state)
+	reported("flag", r)
 	if status(t, r, "script.rehearsed") != Pass {
 		t.Error("flag state should pass")
 	}
@@ -296,6 +306,16 @@ func TestStateDirIsPinnedAndAbsolute(t *testing.T) {
 	o.RehearseState = "state"
 	r = Run(context.Background(), o, f.env)
 	wantVar("relative", f.state)
+	reported("relative", r)
+	// relative inherited override
+	o.RehearseState = ""
+	f.env.Environ = func() []string { return []string{"HOME=" + f.dir, "HANDOFF_REHEARSE_STATE=state"} }
+	r = Run(context.Background(), o, f.env)
+	wantVar("relative inherited", f.state)
+	reported("relative inherited", r)
+	if status(t, r, "script.rehearsed") != Pass {
+		t.Errorf("relative inherited state should pass: %v", r.Items)
+	}
 	if status(t, r, "script.rehearsed") != Pass {
 		t.Errorf("relative state should pass: %v", r.Items)
 	}
@@ -511,6 +531,10 @@ func TestRulings(t *testing.T) {
 		{"trailing garbage", []string{good + " garbage"}, "q1", Unknown, Unknown, "malformed"},
 		{"null id beside match", []string{good, `{"id":null}`}, "q1", Unknown, Unknown, "malformed"},
 		{"no id", []string{`{"ts":"2026-10-14"}`}, "q1", Unknown, Unknown, "malformed"},
+		{"id null beside ruling_id", []string{`{"id":null,"ruling_id":"q1","ts":"2026-10-14","by":"mk"}`}, "q1", Unknown, Unknown, "malformed"},
+		{"id int beside ruling_id", []string{`{"id":17,"ruling_id":"q1","ts":"2026-10-14","by":"mk"}`}, "q1", Unknown, Unknown, "malformed"},
+		{"ruling_id null beside id", []string{`{"id":"q1","ruling_id":null,"ts":"2026-10-14","by":"mk"}`}, "q1", Unknown, Unknown, "malformed"},
+		{"both ids same", []string{`{"id":"q1","ruling_id":"q1","ts":"2026-10-14","by":"mk"}`}, "q1", Pass, Pass, ""},
 		{"both ids differ", []string{`{"id":"a","ruling_id":"b"}`}, "a", Unknown, Unknown, "malformed"},
 		{"no by", []string{`{"id":"q1","ts":"2026-10-14"}`}, "q1", Pass, Fail, ""},
 		{"bad date", []string{`{"id":"q1","ts":"yesterday","by":"mk"}`}, "q1", Pass, Fail, ""},
@@ -610,5 +634,40 @@ func TestStubGhOnPath(t *testing.T) {
 	if r.Overall != Pass || status(t, r, "pr.head") != Pass {
 		b, _ := json.Marshal(r)
 		t.Errorf("stub gh: %s", b)
+	}
+}
+
+func TestFinalPRReadComesAfterEvidenceReads(t *testing.T) {
+	f := newFixture(t)
+	var events []string
+	f.env.OnRead = func(p string) { events = append(events, "read:"+filepath.Base(p)) }
+	f.run.fn = func(a []string, e []string) (Result, error) {
+		if a[0] == "gh" {
+			events = append(events, "gh")
+		}
+		return f.dispatch(a, e)
+	}
+	f.gh = []string{ghJSON("OPEN", false, head1, okRun), ghJSON("OPEN", false, head1, okRun)}
+	led := filepath.Join(f.dir, "rulings.jsonl")
+	_ = os.WriteFile(led, []byte(`{"id":"q1","ts":"2026-10-14","by":"mk"}`+"\n"), 0o644)
+	rv := f.review("REVIEWED-PR: o/r#7", "REVIEWED-HEAD: "+head1, "VERDICT: PASS")
+	Run(context.Background(), Options{PR: prURL, Review: rv, Ruling: "q1", Rulings: led}, f.env)
+	last := -1
+	for i, e := range events {
+		if e == "gh" {
+			last = i
+		}
+	}
+	reads := 0
+	for i, e := range events {
+		if strings.HasPrefix(e, "read:") {
+			reads++
+			if i > last {
+				t.Errorf("%s was read after the final PR read: %v", e, events)
+			}
+		}
+	}
+	if reads < 3 {
+		t.Errorf("expected ledger, review and sidecar reads, got %v", events)
 	}
 }

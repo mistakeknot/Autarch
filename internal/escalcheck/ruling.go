@@ -72,17 +72,23 @@ func parseObject(line []byte) (map[string]json.RawMessage, error) {
 // revision rows. A row with neither, a non-string, or two different values is
 // malformed.
 func rulingID(obj map[string]json.RawMessage) (string, bool) {
-	a, aok := str(obj["id"])
-	b, bok := str(obj["ruling_id"])
-	switch {
-	case aok && bok:
-		return a, a == b
-	case aok:
-		return a, true
-	case bok:
-		return b, true
+	var vals []string
+	for _, k := range []string{"id", "ruling_id"} {
+		raw, present := obj[k]
+		if !present {
+			continue
+		}
+		v, ok := str(raw)
+		if !ok {
+			return "", false // a present ID field of the wrong type is malformed
+		}
+		vals = append(vals, v)
 	}
-	return "", false
+	switch {
+	case len(vals) == 0, len(vals) == 2 && vals[0] != vals[1]:
+		return "", false
+	}
+	return vals[0], true
 }
 
 func str(raw json.RawMessage) (string, bool) {
@@ -95,7 +101,7 @@ func str(raw json.RawMessage) (string, bool) {
 
 func checkRuling(o Options, env Env) []Item {
 	path := ledgerPath(o, env.Environ())
-	b, _, err := readRegular(path, maxLedger)
+	b, _, err := env.read(path, maxLedger)
 	if err != nil {
 		return []Item{
 			item("ruling.present", Unknown, "cannot read the ledger: %v", err),
