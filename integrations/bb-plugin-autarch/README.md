@@ -6,7 +6,7 @@ the vizier thread, delegation settings, and a small example todo page.
 - `server.ts` — the backend: the Home store in `data.db`, RPC methods for the page,
   the `bb home` look-up CLI (`cli.ts`), settings, and a realtime signal that keeps every
   open page current. It also keeps the example todo list in `bb.storage.kv`.
-- `app.tsx` — the frontend: the **Home** page (asks, catch-up, vizier, map, settings)
+- `app.tsx` — the frontend: the **Citadel** page (asks, catch-up, vizier, map, settings)
   and the **Example todos** page, both in the left sidebar.
 - `skills/home/SKILL.md` — a skill that tells agents to file asks as `needs-mk` cards with
   `autarch needs-mk file` and to read them with `bb home`. The lifecycle commands

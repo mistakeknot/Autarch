@@ -147,7 +147,7 @@ function TodosPage() {
     <div className="h-full min-h-0 flex-1 overflow-y-auto">
       <div className="mx-auto box-border w-full max-w-3xl px-4 pb-4 pt-3 md:px-5 md:pt-4">
         <p className="text-sm text-muted-foreground">
-          A small example list, managed on this page only. Agents reach Home with{" "}
+          A small example list, managed on this page only. Agents reach Citadel with{" "}
           <code>bb home</code>.
         </p>
         <form onSubmit={add} className="mt-4 flex items-center gap-2">
@@ -672,7 +672,7 @@ function HomeBadge() {
 export default definePluginApp((app) => {
   app.slots.navPanel({
     id: "autarch-home",
-    title: "Home",
+    title: "Citadel",
     icon: "House",
     path: "home",
     component: HomePage,

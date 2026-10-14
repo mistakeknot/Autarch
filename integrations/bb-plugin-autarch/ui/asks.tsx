@@ -199,7 +199,7 @@ export function isDestructiveOption(o: { label: string; reversible?: boolean }):
   return o.reversible !== true && DESTRUCTIVE.test(o.label);
 }
 
-export const UNBOUND_EXPLANATION = "This card's project is not bound to a Home project, so Home cannot record a ruling here. Bind the project, or use Ask / note to talk to the owner.";
+export const UNBOUND_EXPLANATION = "This card's project is not bound to a Citadel project, so Citadel cannot record a ruling here. Bind the project, or use Ask / note to talk to the owner.";
 
 /** Which asks can take a note from the Other box: the callback gets the decision id and mk's trimmed text. */
 export type OnNote = (decisionId: string, text: string) => Promise<OtherOutcome | void> | void;

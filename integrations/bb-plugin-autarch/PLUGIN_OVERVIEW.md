@@ -2,7 +2,7 @@ Keep what is waiting for you in one place, in the sidebar and in your agent thre
 
 ## What you get
 
-- A **Home** page in the left sidebar with the asks waiting for a ruling, a catch-up
+- A **Citadel** page in the left sidebar with the asks waiting for a ruling, a catch-up
   feed of what happened while you were away, the vizier thread, and delegation settings.
 - A `bb home` command that lets agents look up cards and asks. Agents file new asks as `needs-mk` cards with `autarch needs-mk file`.
 - An **Example todos** page that adds, completes, and removes todos.

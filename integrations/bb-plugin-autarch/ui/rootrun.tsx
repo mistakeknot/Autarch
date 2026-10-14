@@ -50,7 +50,7 @@ const REASON_TEXT: Record<string, string> = {
 };
 
 export function statusLine(s: RunStatusView | null): string {
-  if (s === null) return "status not read by Home; paste the status command to see it";
+  if (s === null) return "status not read by Citadel; paste the status command to see it";
   if (s.kind === "none") return "no run record yet";
   if (s.kind === "unavailable") return "status unavailable";
   const parts = [`attempt ${s.attempt}`, `phase ${s.phase ?? "unknown"}`];
@@ -78,7 +78,7 @@ export function RootRunSection({ view, onCopy }: { view: RootRunPanelView; onCop
           <p>{`Save this card's JSON (task and comments) as ${view.card_file ?? "the card file"}, then paste:`}</p>
           <pre className="overflow-x-auto rounded bg-muted p-1">{view.command}</pre>
           {onCopy ? <button type="button" className="underline" onClick={() => onCopy(view.command!)}>Copy command</button> : null}
-          <p data-rootrun-pinned="true">{`The command pins the script hash with --expect-sha256, the sha256 Home verified: ${view.tuple?.sha256 ?? "unknown"}. It works only once Aleph's card slice is live; until then todo-add rejects the flag and nothing runs. It is run by paste, not authenticated.`}</p>
+          <p data-rootrun-pinned="true">{`The command pins the script hash with --expect-sha256, the sha256 Citadel verified: ${view.tuple?.sha256 ?? "unknown"}. It works only once Aleph's card slice is live; until then todo-add rejects the flag and nothing runs. It is run by paste, not authenticated.`}</p>
           {view.item_json ? <p className="text-muted-foreground" data-rootrun-item="true">{`Item Aleph will build: ${view.item_json}`}</p> : null}
         </div>
       ) : (

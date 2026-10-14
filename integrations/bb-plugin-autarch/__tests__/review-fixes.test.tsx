@@ -10,7 +10,7 @@ import type { Waiting } from "../waiting.js";
 
 describe("an old server's notices stay notices", () => {
   const legacy: CatchupEntry[] = [
-    { item: "vizier-adopted:7", kind: "delegated", at: "1", text: "Home adopted thr_x as the vizier thread; delegated rulings stay suspended until you see this." },
+    { item: "vizier-adopted:7", kind: "delegated", at: "1", text: "Citadel adopted thr_x as the vizier thread; delegated rulings stay suspended until you see this." },
     { item: "delegation-settings:3", kind: "delegated", at: "2", text: "Delegation settings changed." },
     { item: "ruling:d1", kind: "delegated", at: "3", text: "The vizier ruled on Ship it?", decision: "d1" },
   ];

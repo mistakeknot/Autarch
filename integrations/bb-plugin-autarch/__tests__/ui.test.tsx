@@ -659,7 +659,7 @@ describe("root-run section (Task 2.8)", () => {
     const html = renderToStaticMarkup(<RootRunSection view={view({ status: null, status_command: "todo-run --status 's1' 'bbtask-X-1'" })} />);
     expect(html).toContain("todo-run --status");
     expect(html).toContain("not read automatically");
-    expect(html).toContain("status not read by Home");
+    expect(html).toContain("status not read by Citadel");
   });
   it("shows the reason and no command when suppressed, and escapes hostile text", () => {
     const html = renderToStaticMarkup(<RootRunSection view={view({ state: "mismatch", command: null, item_json: null, problems: [{ field: "set", why: "<img src=x onerror=alert(1)>" }], tuple: { script: "/a/<b>.sh", sha256: "a".repeat(64), timeout: 1, set: "S" } })} />);

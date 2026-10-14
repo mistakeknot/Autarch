@@ -42,7 +42,7 @@ describe("what mark all seen marks", () => {
   });
 
   it("a notice is acknowledged, never marked by mark all", () => {
-    const withNotice: CatchupEntry[] = [...items, { item: "vizier-adopted:3", kind: "notice", at: "6", text: "Home adopted thr_x" }];
+    const withNotice: CatchupEntry[] = [...items, { item: "vizier-adopted:3", kind: "notice", at: "6", text: "Citadel adopted thr_x" }];
     const plan = markPlan(withNotice, new Set(), new Set(withNotice.map((i) => i.item)));
     expect(plan.ids).not.toContain("vizier-adopted:3");
   });
@@ -89,13 +89,13 @@ describe("the catch-up panel controls", () => {
 });
 
 describe("the Needs your eyes banner", () => {
-  const notice = { item: "vizier-adopted:3", at: "2026-10-07T12:00:00Z", text: "Home adopted thr_viz as the vizier thread; delegated rulings stay suspended until you see this." };
+  const notice = { item: "vizier-adopted:3", at: "2026-10-07T12:00:00Z", text: "Citadel adopted thr_viz as the vizier thread; delegated rulings stay suspended until you see this." };
 
   it("states the consequence, the notice, and an explicit Acknowledge", () => {
     const html = renderToStaticMarkup(<NoticeBanner notices={[notice]} suspended onAcknowledge={noop} />);
     expect(html).toContain("Needs your eyes");
     expect(html).toContain("Delegated rulings are suspended");
-    expect(html).toContain("Home adopted thr_viz");
+    expect(html).toContain("Citadel adopted thr_viz");
     expect(html).toContain('data-acknowledge="vizier-adopted:3"');
     expect(html).toContain("Acknowledge");
   });

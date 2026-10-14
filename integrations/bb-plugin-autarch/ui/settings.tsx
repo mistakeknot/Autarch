@@ -24,8 +24,8 @@ function UnboundRow({ u, serveProjects, onBind }: { u: UnboundView; serveProject
   return (
     <li data-unbound={u.tasks_project_id}>
       {`${u.tasks_project_id}: ${u.cards} open card${u.cards === 1 ? "" : "s"}, no binding${u.targets.length > 0 ? `; asks target ${u.targets.join(", ")}` : ""}`}
-      <select aria-label={`Home project for ${u.tasks_project_id}`} className="ml-2 border border-border bg-background" value={home} onChange={(e) => setPicked(e.target.value)}>
-        <option value="">choose a Home project</option>
+      <select aria-label={`Citadel project for ${u.tasks_project_id}`} className="ml-2 border border-border bg-background" value={home} onChange={(e) => setPicked(e.target.value)}>
+        <option value="">choose a Citadel project</option>
         {serveProjects.map((p) => <option key={p} value={p}>{p}</option>)}
       </select>
       <button type="button" className="ml-2 underline" disabled={home === ""} onClick={() => onBind({ tasks_project_id: u.tasks_project_id, state: "confirmed", home_project: home })}>Confirm</button>
