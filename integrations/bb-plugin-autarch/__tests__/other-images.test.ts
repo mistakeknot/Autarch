@@ -212,6 +212,30 @@ describe("service + wake loop", () => {
     expect(svc.pick(id, "other", r, "p1", "mk", "home", "w", undefined, [im(PNG2)])).toMatchObject({ ok: false });
   });
 
+  it("a note id cannot change its attachments in either direction, before or after a sweep", async () => {
+    const svc = env.open({ images: new ImageStore(root) });
+    const id = await card(svc);
+    // text-only first, then the same id with an image
+    expect(svc.note({ decision_id: id }, "A", "t1")).toMatchObject({ ok: true });
+    expect(svc.note({ decision_id: id }, "A", "t1", { images: [im(PNG)] })).toMatchObject({ ok: false, status: 409 });
+    expect(svc.note({ decision_id: id }, "B", "t1", { images: [im(PNG)] })).toMatchObject({ ok: false, status: 409 });
+    // image first, then the same id without one, even after the files are swept
+    expect(svc.note({ decision_id: id }, "C", "t2", { images: [im(PNG)] })).toMatchObject({ ok: true });
+    rmSync(join(root, "sets"), { recursive: true });
+    expect(svc.note({ decision_id: id }, "C", "t2")).toMatchObject({ ok: false, status: 409 });
+    expect(svc.store.obligationsFor(id).filter((o) => o.kind === "note")).toHaveLength(2);
+  });
+
+  it("an answer whose words imitate the image suffix does not share an identity with the imaged answer", async () => {
+    const svc = env.open({ images: new ImageStore(root) });
+    const id = await card(svc);
+    const r = rev(svc, id);
+    const digest = validateImages([im(PNG)]);
+    if (!digest.ok) throw new Error("bad");
+    expect(svc.pick(id, "other", r, "p1", "mk", "home", `w|images:${digest.digest}`)).toMatchObject({ ok: true });
+    expect(svc.pick(id, "other", r, "p1", "mk", "home", "w", undefined, [im(PNG)])).toMatchObject({ ok: false });
+  });
+
   it("images gone before the send: the text goes out unchanged and an images-missing event is recorded", async () => {
     const svc = env.open({ images: new ImageStore(root) });
     const id = await card(svc);

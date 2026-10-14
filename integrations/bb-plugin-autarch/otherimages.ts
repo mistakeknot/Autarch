@@ -161,7 +161,9 @@ export class ImageStore {
     try {
       v.files.forEach((f, i) => writeNew(join(stage, `${i}.${f.ext}`), f.buf));
       fsyncDir(stage);
-      rmSync(setDir, { recursive: true, force: true }); // a damaged leftover under this hashed name
+      // A damaged leftover under this hashed name. Re-checked as a real directory right before the recursive delete;
+      // the store directories are owned by this process (0700), so no other process is trusted to swap them.
+      if (isDir(d.sets) && isDir(setDir)) rmSync(setDir, { recursive: true, force: true });
       renameSync(stage, setDir);
       fsyncDir(d.sets);
     } catch (e) {

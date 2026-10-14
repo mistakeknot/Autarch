@@ -493,7 +493,17 @@ export function AsksPanel({ part, data, onPick, onOpen, onRevoke, onDismiss, onN
 
 type PickReq = { decision_id: string; option_id: string; revision: string; reason?: string; images?: OtherImage[] };
 /** A short identity for a set of images, so a retry with the same images keeps its pick id and a changed set does not. */
-export const imagesSig = (im?: readonly OtherImage[]): string => (im ?? []).map((i) => `${i.data_base64.length}:${i.data_base64.slice(0, 48)}:${i.data_base64.slice(-48)}`).join(",");
+export const imagesSig = (im?: readonly OtherImage[]): string => (im ?? []).map((i) => `${i.mime}:${i.data_base64.length}:${fnv1a(i.data_base64)}`).join(",");
+/** FNV-1a over every character: a changed image changes the key. Not a security hash; the server holds the real identity. */
+function fnv1a(s: string): string {
+  let a = 0x811c9dc5, b = 0x01000193 ^ 0x5bd1e995;
+  for (let i = 0; i < s.length; i++) {
+    const c = s.charCodeAt(i);
+    a = Math.imul(a ^ c, 0x01000193) >>> 0;
+    b = Math.imul(b ^ c, 0x85ebca6b) >>> 0;
+  }
+  return `${a.toString(16)}${b.toString(16)}`;
+}
 type Result = { ok?: boolean; status?: number; error?: string };
 
 /** One pick_id per (decision, option, revision) until the pick resolves, so a retry cannot double-file. */

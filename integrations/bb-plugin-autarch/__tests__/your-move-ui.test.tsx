@@ -8,7 +8,7 @@ import { ActionButton, buttonClass } from "../ui/buttons.js";
 import { CommandBlock, copyText, legacyCopyViaDocument, type CopyEnv } from "../ui/copy.js";
 import { OtherBox, otherText, OTHER_MAX } from "../ui/other.js";
 import { MoveCard, moveButtons, YourMovePanel, type MoveHandlers } from "../ui/yourmove.js";
-import { AskCard, AsksPanel, buildAsksView, isDestructiveOption, PickController, UNBOUND_EXPLANATION, type AsksData, type OwedAsk } from "../ui/asks.js";
+import { AskCard, AsksPanel, buildAsksView, imagesSig, isDestructiveOption, PickController, UNBOUND_EXPLANATION, type AsksData, type OwedAsk } from "../ui/asks.js";
 import { BlocksPanel, type QueueRowView, type QueueView } from "../ui/blocks.js";
 import { scriptCommands } from "../moves.js";
 import type { MoveView, MoveViewGroups } from "../moveview.js";
@@ -338,5 +338,15 @@ describe("pick controller with the Other text", () => {
     await c.send(rpc, { decision_id: "d", option_id: "other", revision: "r", reason: "one" }, () => {});
     await c.send(rpc, { decision_id: "d", option_id: "other", revision: "r", reason: "two" }, () => {});
     expect(ids).toEqual(["id1", "id1", "id2"]);
+  });
+});
+
+describe("imagesSig", () => {
+  it("differs when only the middle of an image, or its type, changes", () => {
+    const a = "A".repeat(48) + "x".repeat(200) + "Z".repeat(48);
+    const b = "A".repeat(48) + "y".repeat(200) + "Z".repeat(48);
+    expect(imagesSig([{ mime: "image/png", data_base64: a }])).not.toBe(imagesSig([{ mime: "image/png", data_base64: b }]));
+    expect(imagesSig([{ mime: "image/png", data_base64: a }])).not.toBe(imagesSig([{ mime: "image/gif", data_base64: a }]));
+    expect(imagesSig([{ mime: "image/png", data_base64: a }])).toBe(imagesSig([{ mime: "image/png", data_base64: a }]));
   });
 });

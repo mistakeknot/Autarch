@@ -48,34 +48,57 @@ export function OtherBox({
   const [raw, setRaw] = useState("");
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
-  const [imgs, setImgs] = useState<Staged[]>([]);
+  const [imgs, setImgsState] = useState<Staged[]>([]);
+  const imgsRef = useRef<Staged[]>([]);
+  const setImgs = (v: Staged[]) => {
+    imgsRef.current = v;
+    setImgsState(v);
+  };
   const [imgErr, setImgErr] = useState<string | null>(null);
+  const [loading, setLoading] = useState(0);
   const nextId = useRef(1);
-  const addFiles = async (files: File[]) => {
+  const chain = useRef<Promise<void>>(Promise.resolve());
+  // One read at a time, each against the images as they are when it finishes, so a send, a removal or a second
+  // paste cannot lose or resurrect an image. Send stays disabled while any read is pending.
+  const addNow = async (files: File[]) => {
     setImgErr(null);
-    const next = [...imgs];
     for (const f of files) {
+      const cur = imgsRef.current;
       if (!IMG_TYPES.includes(f.type)) { setImgErr(`${f.name || "That file"} is not a PNG, JPEG, GIF or WebP image.`); continue; }
-      if (next.length >= OTHER_IMG_MAX_COUNT) { setImgErr(`At most ${OTHER_IMG_MAX_COUNT} images.`); break; }
+      if (cur.length >= OTHER_IMG_MAX_COUNT) { setImgErr(`At most ${OTHER_IMG_MAX_COUNT} images.`); break; }
       if (f.size > OTHER_IMG_MAX_BYTES) { setImgErr(`${f.name || "That image"} is over ${OTHER_IMG_MAX_BYTES / (1024 * 1024)} MB.`); continue; }
-      if (next.reduce((a, x) => a + x.bytes, 0) + f.size > OTHER_IMG_MAX_TOTAL) { setImgErr(`Images total over ${OTHER_IMG_MAX_TOTAL / (1024 * 1024)} MB.`); break; }
-      const buf = await f.arrayBuffer();
-      next.push({ id: nextId.current++, mime: f.type, data_base64: toBase64(buf), name: f.name || "pasted image", bytes: f.size, url: URL.createObjectURL(f) });
+      if (cur.reduce((a, x) => a + x.bytes, 0) + f.size > OTHER_IMG_MAX_TOTAL) { setImgErr(`Images total over ${OTHER_IMG_MAX_TOTAL / (1024 * 1024)} MB.`); break; }
+      let item: Staged;
+      try {
+        const buf = await f.arrayBuffer();
+        item = { id: nextId.current++, mime: f.type, data_base64: toBase64(buf), name: f.name || "pasted image", bytes: f.size, url: URL.createObjectURL(f) };
+      } catch {
+        setImgErr(`${f.name || "That image"} could not be read.`);
+        continue;
+      }
+      const now = imgsRef.current;
+      if (now.length >= OTHER_IMG_MAX_COUNT || now.reduce((a, x) => a + x.bytes, 0) + item.bytes > OTHER_IMG_MAX_TOTAL) {
+        URL.revokeObjectURL(item.url);
+        setImgErr(`At most ${OTHER_IMG_MAX_COUNT} images, ${OTHER_IMG_MAX_TOTAL / (1024 * 1024)} MB in all.`);
+        break;
+      }
+      setImgs([...now, item]);
     }
-    setImgs(next);
+  };
+  const addFiles = (files: File[]) => {
+    setLoading((n) => n + 1);
+    chain.current = chain.current.then(() => addNow(files)).catch(() => {}).finally(() => setLoading((n) => n - 1));
   };
   const dropImg = (id: number) => {
-    setImgs((cur) => {
-      const gone = cur.find((x) => x.id === id);
-      if (gone) URL.revokeObjectURL(gone.url);
-      return cur.filter((x) => x.id !== id);
-    });
+    const gone = imgsRef.current.find((x) => x.id === id);
+    if (gone) URL.revokeObjectURL(gone.url);
+    setImgs(imgsRef.current.filter((x) => x.id !== id));
   };
   const t = otherText(raw);
   const count = Array.from(raw.trim()).length;
   const over = count > OTHER_MAX;
   const run = async (f: (text: string, images?: OtherImage[]) => Promise<OtherOutcome | void> | void, okText: string, clear: boolean) => {
-    if (t === null || busy) return;
+    if (t === null || busy || loading > 0) return;
     setBusy(true);
     setMsg(null);
     try {
@@ -106,7 +129,7 @@ export function OtherBox({
             const files = Array.from(e.clipboardData?.files ?? []).filter((f) => f.type.startsWith("image/"));
             if (files.length > 0) {
               e.preventDefault();
-              void addFiles(files);
+              addFiles(files);
             }
           }}
           rows={3}
@@ -129,13 +152,13 @@ export function OtherBox({
       <div className="mt-1 flex flex-wrap items-center gap-2">
         <label className="cursor-pointer text-xs text-muted-foreground underline">
           Attach image
-          <input type="file" accept={IMG_TYPES.join(",")} multiple className="sr-only" data-other-attach onChange={(e) => { const fs = Array.from(e.target.files ?? []); e.target.value = ""; void addFiles(fs); }} />
+          <input type="file" accept={IMG_TYPES.join(",")} multiple className="sr-only" data-other-attach onChange={(e) => { const fs = Array.from(e.target.files ?? []); e.target.value = ""; addFiles(fs); }} />
         </label>
         <span className={`text-xs ${over ? "font-medium text-destructive" : "text-muted-foreground"}`} data-other-counter aria-live="polite">{`${count} / ${OTHER_MAX}`}</span>
-        <ActionButton disabled={t === null || busy} onClick={() => void run(onNote, "Sent. The owner is woken; nothing was ruled or closed.", true)} data-other-note>Ask / note</ActionButton>
+        <ActionButton disabled={t === null || busy || loading > 0} onClick={() => void run(onNote, "Sent. The owner is woken; nothing was ruled or closed.", true)} data-other-note>Ask / note</ActionButton>
         {onAnswer || answerDisabledReason ? (
           <ActionButton
-            disabled={t === null || busy || !onAnswer || answerDisabledReason !== undefined}
+            disabled={t === null || busy || loading > 0 || !onAnswer || answerDisabledReason !== undefined}
             title={answerDisabledReason}
             onClick={() => onAnswer && void run(onAnswer, "Recorded as your answer.", false)}
             data-other-answer
