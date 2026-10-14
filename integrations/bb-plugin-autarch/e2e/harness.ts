@@ -3,7 +3,7 @@
 //   tsx e2e/harness.ts --mode fake --run-id <uuid> --out <file.jsonl> [--scenarios a,b]
 //   tsx e2e/harness.ts --mode real-bb --owned-server <bb-app copy> --build <file> --install --run-id <uuid> --out <file>  (inside bwrap --unshare-net)
 import { resolveBin, rigExecSync } from "./rigexec.js";
-import { appendFileSync, existsSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { appendFileSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";

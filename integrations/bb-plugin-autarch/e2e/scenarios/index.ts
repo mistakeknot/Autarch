@@ -512,7 +512,7 @@ export const scenarios: Record<string, Scenario> = {
     }),
 
   "root-run-injection": () =>
-    withRig(async (r) => {
+    withRig(async () => {
       const TASK = "01J0000000000000000000000A";
       const calls: string[] = [];
       const spy = async (u: string) => {

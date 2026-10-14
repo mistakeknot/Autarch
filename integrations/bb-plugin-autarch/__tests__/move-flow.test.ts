@@ -178,6 +178,7 @@ describe("report parser", () => {
     const r = parseReport(`RESULT: FAILED\nfailing step: ${"s".repeat(500)}\nERROR: \u001b[31mboom\u001b[0m\u0007 ${"e".repeat(2000)}`)!;
     expect(r.failing_step!.length).toBeLessThanOrEqual(100);
     expect(r.error_line!.length).toBeLessThanOrEqual(300);
+    // eslint-disable-next-line no-control-regex
     expect(r.error_line).not.toMatch(/\u001b|\u0007/);
     expect(r.error_line!.startsWith("ERROR: boom")).toBe(true);
     // a huge body is truncated before parsing: a result line past the cap is not seen

@@ -61,7 +61,10 @@ describe("scriptCommands", () => {
     ]);
     expect(cmds[0]!.expectedSha).toBe(SHA);
     expect(cmds[3]!.expectedSha).toBe(SHA2);
-    for (const c of cmds) expect(c.command).toBe(c.command.trim()), expect(c.command).not.toMatch(/[\n\r`]/);
+    for (const c of cmds) {
+      expect(c.command).toBe(c.command.trim());
+      expect(c.command).not.toMatch(/[\n\r`]/);
+    }
   });
 });
 

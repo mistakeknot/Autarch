@@ -6,7 +6,6 @@ import { displayedTracker, isNoticeItem, markPlan, normalizeCatchup, SeenTracker
 import { buildMoveHandlers } from "../movehandlers.js";
 import { splitCommands, flagsOf } from "../ui/commandtext.js";
 import { QueueTabs } from "../ui/tabs.js";
-import type { Waiting } from "../waiting.js";
 
 describe("an old server's notices stay notices", () => {
   const legacy: CatchupEntry[] = [

@@ -2,7 +2,6 @@
 import assert from "node:assert/strict";
 import { parseCard } from "../cards.js";
 import { CardWriter } from "../cardwrites.js";
-import { Delegation } from "../delegation.js";
 import { Queue } from "../queue.js";
 import { Service } from "../service.js";
 import { TasksClient } from "../tasks.js";

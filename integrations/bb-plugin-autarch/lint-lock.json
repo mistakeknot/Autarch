@@ -1,0 +1,89 @@
+{
+  "__tests__/asks.test.ts": {
+    "as_unknown_as": 1
+  },
+  "__tests__/card-rig.ts": {
+    "as_any": 4
+  },
+  "__tests__/cards.test.ts": {
+    "as_any": 2
+  },
+  "__tests__/delegation.test.ts": {
+    "as_unknown_as": 1
+  },
+  "__tests__/ghsync.test.ts": {
+    "lint_disable": 1
+  },
+  "__tests__/home-wiring.test.ts": {
+    "as_unknown_as": 4
+  },
+  "__tests__/later-ui.test.tsx": {
+    "as_unknown_as": 1
+  },
+  "__tests__/later.test.ts": {
+    "as_any": 1
+  },
+  "__tests__/model.test.ts": {
+    "as_any": 4
+  },
+  "__tests__/move-flow.test.ts": {
+    "lint_disable": 1
+  },
+  "__tests__/other-box.test.ts": {
+    "as_any": 5
+  },
+  "__tests__/queue.test.ts": {
+    "as_any": 5
+  },
+  "__tests__/review-fixes.test.tsx": {
+    "as_unknown_as": 7
+  },
+  "__tests__/service.test.ts": {
+    "as_any": 1
+  },
+  "__tests__/tasks-fake.ts": {
+    "as_any": 1
+  },
+  "__tests__/tasks.test.ts": {
+    "as_any": 1
+  },
+  "__tests__/v2-home.ts": {
+    "as_unknown_as": 1
+  },
+  "__tests__/your-move-ui.test.tsx": {
+    "as_unknown_as": 1
+  },
+  "app.tsx": {
+    "as_unknown_as": 5,
+    "oxlint_warning": 5
+  },
+  "e2e/real.ts": {
+    "as_unknown_as": 2
+  },
+  "e2e/rig.ts": {
+    "as_unknown_as": 1
+  },
+  "feed.ts": {
+    "lint_disable": 1
+  },
+  "ghsync.ts": {
+    "lint_disable": 1
+  },
+  "model.ts": {
+    "as_unknown_as": 1
+  },
+  "movereport.ts": {
+    "as_unknown_as": 1,
+    "lint_disable": 2
+  },
+  "server.ts": {
+    "as_unknown_as": 5
+  },
+  "ui/asks.tsx": {
+    "lint_disable": 1,
+    "oxlint_warning": 1
+  },
+  "ui/inbox.tsx": {
+    "oxlint_warning": 2
+  }
+}

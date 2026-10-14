@@ -32,7 +32,7 @@ go env CGO_ENABLED CC
 tmux -V
 go build -mod=readonly ./... 2>&1 | tee "$visit_tools/build.log"
 go test -mod=readonly -race ./... 2>&1 | tee "$visit_tools/race.log"
-# Home plugin: no merge-conflict markers in tracked source, then typecheck and unit tests.
+# Home plugin: no merge-conflict markers in tracked source, then typecheck, lint (oxlint plus the escape ratchet) and unit tests.
 # git grep exits 0 on a match, 1 on none; only 1 is clean, any other status (an error) fails.
 marker_rc=0
 git grep -nE '^(<<<<<<< |>>>>>>> |=======$)' -- integrations/bb-plugin-autarch ':!*/node_modules/*' ':!*.md' || marker_rc=$?
@@ -42,7 +42,7 @@ node --version
 # The tests run from the installed binary with the guest's environment, which some of them assert on.
 mkdir -p "$visit_tools/npm"
 npm_cfg=(npm_config_cache="$visit_tools/npm/cache" npm_config_userconfig="$visit_tools/npm/user.npmrc" npm_config_globalconfig="$visit_tools/npm/global.npmrc" npm_config_include=dev npm_config_update_notifier=false)
-(cd integrations/bb-plugin-autarch && env "${npm_cfg[@]}" npm ci --no-audit --no-fund && env "${npm_cfg[@]}" npm run typecheck && ./node_modules/.bin/vitest run --testTimeout=60000) 2>&1 | tee "$visit_tools/plugin.log"
+(cd integrations/bb-plugin-autarch && env "${npm_cfg[@]}" npm ci --no-audit --no-fund && env "${npm_cfg[@]}" npm run typecheck && env "${npm_cfg[@]}" npm run lint && ./node_modules/.bin/vitest run --testTimeout=60000) 2>&1 | tee "$visit_tools/plugin.log"
 git diff --exit-code
 [[ -z $(git status --porcelain) ]]
 sha256sum go.mod go.sum integrations/bb-plugin-autarch/package-lock.json "$visit_tools/build.log" "$visit_tools/race.log" "$visit_tools/plugin.log"
