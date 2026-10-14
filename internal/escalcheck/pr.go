@@ -57,38 +57,66 @@ func readPR(ctx context.Context, env Env, repo, num string) (*prView, error) {
 	return &v, nil
 }
 
-func checkPR(ctx context.Context, o Options, env Env) ([]Item, *prEvidence) {
+// prRun is a pull request check split in two: the first read happens early,
+// the final read after every other check, so a push, a draft flip or a new
+// failing check during the rest of the run is seen.
+type prRun struct {
+	o     Options
+	env   Env
+	repo  string
+	num   string
+	items []Item
+	first *prView
+	err   string
+}
+
+var prItemIDs = []string{"pr.state", "pr.checks", "pr.head"}
+
+func startPR(ctx context.Context, o Options, env Env) *prRun {
+	p := &prRun{o: o, env: env}
 	m := prURLRe.FindStringSubmatch(o.PR)
 	if m == nil {
-		return []Item{item("pr.url", Fail, "not a https://github.com/OWNER/REPO/pull/N URL")}, nil
+		p.items = []Item{item("pr.url", Fail, "not a https://github.com/OWNER/REPO/pull/N URL")}
+		p.err = "bad url"
+		return p
 	}
-	repo, num := m[1]+"/"+m[2], m[3]
-	items := []Item{item("pr.url", Pass, "github.com/%s pull %s", repo, num)}
-	ids := []string{"pr.state", "pr.checks", "pr.head"}
+	p.repo, p.num = m[1]+"/"+m[2], m[3]
+	p.items = []Item{item("pr.url", Pass, "github.com/%s pull %s", p.repo, p.num)}
+	if o.Offline {
+		p.err = "--offline: the pull request was not read"
+		return p
+	}
+	first, err := readPR(ctx, env, p.repo, p.num)
+	if err != nil {
+		p.err = err.Error()
+		return p
+	}
+	p.first = first
+	return p
+}
+
+func (p *prRun) finish(ctx context.Context) ([]Item, *prEvidence) {
+	items := p.items
 	unknown := func(why string) ([]Item, *prEvidence) {
-		for _, id := range ids {
+		for _, id := range prItemIDs {
 			items = append(items, item(id, Unknown, "%s", why))
 		}
 		return items, nil
 	}
-	if o.Offline {
-		return unknown("--offline: the pull request was not read")
+	if p.err == "bad url" {
+		return items, nil
 	}
-	first, err := readPR(ctx, env, repo, num)
+	if p.err != "" {
+		return unknown(p.err)
+	}
+	final, err := readPR(ctx, p.env, p.repo, p.num)
 	if err != nil {
-		return unknown(err.Error())
+		return unknown("final read: " + err.Error())
 	}
-	// The evidence below comes from a second read taken after everything else
-	// the PR group needs, so a draft flip, a closure or a new failing check on
-	// an unchanged head is seen.
-	final, err := readPR(ctx, env, repo, num)
-	if err != nil {
-		return unknown("second read: " + err.Error())
-	}
-	ev := &prEvidence{Repo: repo, Number: num, Head: final.HeadRefOid}
+	ev := &prEvidence{Repo: p.repo, Number: p.num, Head: final.HeadRefOid}
 
 	want := "OPEN"
-	if o.PostMerge {
+	if p.o.PostMerge {
 		want = "MERGED"
 	}
 	switch {
@@ -97,18 +125,17 @@ func checkPR(ctx context.Context, o Options, env Env) ([]Item, *prEvidence) {
 	case final.IsDraft:
 		items = append(items, item("pr.state", Fail, "the pull request is a draft"))
 	default:
-		it := item("pr.state", Pass, "%s, base %s, observed at the final read", final.State, final.BaseRefName)
-		items = append(items, it)
+		items = append(items, item("pr.state", Pass, "%s, base %s, observed at the final read", final.State, final.BaseRefName))
 	}
 
-	st, detail := evalChecks(final.StatusCheckRollup, o.RequireChecks)
+	st, detail := evalChecks(final.StatusCheckRollup, p.o.RequireChecks)
 	items = append(items, item("pr.checks", st, "%s", detail))
 
-	if first.HeadRefOid != final.HeadRefOid {
-		items = append(items, item("pr.head", Fail, "the head moved from %s to %s while checking (pr.head_moved)", first.HeadRefOid, final.HeadRefOid))
+	if p.first.HeadRefOid != final.HeadRefOid {
+		items = append(items, item("pr.head", Fail, "the head moved from %s to %s while checking (pr.head_moved)", p.first.HeadRefOid, final.HeadRefOid))
 	} else {
 		it := item("pr.head", Pass, "%s", final.HeadRefOid)
-		it.Data = map[string]any{"repo": repo, "number": num, "head": final.HeadRefOid}
+		it.Data = map[string]any{"repo": p.repo, "number": p.num, "head": final.HeadRefOid}
 		items = append(items, it)
 	}
 	return items, ev

@@ -199,6 +199,10 @@ func TestReceiptForgery(t *testing.T) {
 		"other uid":   {"uid": 7},
 		"other path":  {"script": "/elsewhere"},
 		"string true": {"passed": "true"},
+		"lint string": {"lint_rc": "1"},
+		"lint null":   {"lint_rc": nil},
+		"lint bool":   {"lint_rc": false},
+		"lint object": {"lint_rc": map[string]any{}},
 	}
 	for name, over := range cases {
 		f := newFixture(t)
@@ -244,26 +248,56 @@ func TestRehearsedLineForOtherSha(t *testing.T) {
 	}
 }
 
-func TestStateEnvIsPinned(t *testing.T) {
+func TestStateDirIsPinnedAndAbsolute(t *testing.T) {
 	f := newFixture(t)
-	f.env.Environ = func() []string { return []string{"HOME=" + f.dir, "HANDOFF_REHEARSE_STATE=/attacker"} }
-	o := f.opts()
-	o.PR = ""
-	o.RehearseState = ""
-	Run(context.Background(), o, f.env)
-	for i, c := range f.run.calls {
-		if c[0] == "handoff-rehearse" {
-			var got []string
+	wantVar := func(name, want string) {
+		t.Helper()
+		found := false
+		for i, c := range f.run.calls {
+			if c[0] != "handoff-rehearse" {
+				continue
+			}
 			for _, kv := range f.run.envs[i] {
 				if strings.HasPrefix(kv, "HANDOFF_REHEARSE_STATE=") {
-					got = append(got, kv)
+					if found || kv != "HANDOFF_REHEARSE_STATE="+want {
+						t.Errorf("%s: got %s, want %s", name, kv, want)
+					}
+					found = true
 				}
 			}
-			// the inherited override is the caller's own choice and is honoured once
-			if len(got) != 1 {
-				t.Errorf("want exactly one state var, got %v", got)
-			}
 		}
+		if !found {
+			t.Errorf("%s: no state variable passed", name)
+		}
+		f.run.calls, f.run.envs = nil, nil
+	}
+	o := f.opts()
+	o.PR = ""
+	// inherited override
+	f.env.Environ = func() []string { return []string{"HOME=" + f.dir, "HANDOFF_REHEARSE_STATE=" + f.state} }
+	o.RehearseState = ""
+	r := Run(context.Background(), o, f.env)
+	wantVar("inherited", f.state)
+	if status(t, r, "script.rehearsed") != Pass {
+		t.Error("inherited state should pass")
+	}
+	// explicit flag wins over the inherited value
+	f.env.Environ = func() []string { return []string{"HOME=" + f.dir, "HANDOFF_REHEARSE_STATE=/attacker"} }
+	o.RehearseState = f.state
+	r = Run(context.Background(), o, f.env)
+	wantVar("flag", f.state)
+	if status(t, r, "script.rehearsed") != Pass {
+		t.Error("flag state should pass")
+	}
+	// relative flag is made absolute
+	wd, _ := os.Getwd()
+	defer os.Chdir(wd)
+	_ = os.Chdir(f.dir)
+	o.RehearseState = "state"
+	r = Run(context.Background(), o, f.env)
+	wantVar("relative", f.state)
+	if status(t, r, "script.rehearsed") != Pass {
+		t.Errorf("relative state should pass: %v", r.Items)
 	}
 }
 
@@ -474,6 +508,8 @@ func TestRulings(t *testing.T) {
 		{"malformed line", []string{good, `not json`}, "q1", Unknown, Unknown, "malformed"},
 		{"dup key", []string{`{"id":"q1","id":"q9","ts":"2026-10-14","by":"mk"}`}, "q9", Unknown, Unknown, "malformed"},
 		{"escaped dup key", []string{`{"id":"q1","id":"q9"}`}, "q9", Unknown, Unknown, "malformed"},
+		{"trailing garbage", []string{good + " garbage"}, "q1", Unknown, Unknown, "malformed"},
+		{"null id beside match", []string{good, `{"id":null}`}, "q1", Unknown, Unknown, "malformed"},
 		{"no id", []string{`{"ts":"2026-10-14"}`}, "q1", Unknown, Unknown, "malformed"},
 		{"both ids differ", []string{`{"id":"a","ruling_id":"b"}`}, "a", Unknown, Unknown, "malformed"},
 		{"no by", []string{`{"id":"q1","ts":"2026-10-14"}`}, "q1", Pass, Fail, ""},

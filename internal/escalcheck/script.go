@@ -82,17 +82,23 @@ func getenv(environ []string, key string) string {
 // stateDir is where the rehearsal tool keeps receipts: the override, else the
 // tool's own default, computed once and passed to the child explicitly.
 func stateDir(o Options, environ []string) string {
-	if o.RehearseState != "" {
-		return filepath.Clean(o.RehearseState)
+	var d string
+	switch {
+	case o.RehearseState != "":
+		d = o.RehearseState
+	case getenv(environ, "HANDOFF_REHEARSE_STATE") != "":
+		d = getenv(environ, "HANDOFF_REHEARSE_STATE")
+	default:
+		base := getenv(environ, "XDG_STATE_HOME")
+		if base == "" {
+			base = filepath.Join(getenv(environ, "HOME"), ".local", "state")
+		}
+		d = filepath.Join(base, "handoff-rehearse")
 	}
-	if v := getenv(environ, "HANDOFF_REHEARSE_STATE"); v != "" {
-		return filepath.Clean(v)
+	if abs, err := filepath.Abs(d); err == nil {
+		d = abs
 	}
-	base := getenv(environ, "XDG_STATE_HOME")
-	if base == "" {
-		base = filepath.Join(getenv(environ, "HOME"), ".local", "state")
-	}
-	return filepath.Join(base, "handoff-rehearse")
+	return filepath.Clean(d)
 }
 
 var rehearsedRe = regexp.MustCompile(`^REHEARSED sha256=([0-9a-f]{64}) uid=([0-9]+) check_rc=(-?[0-9]+) log=(.+)$`)
@@ -239,8 +245,10 @@ func rehearsedItem(ctx context.Context, o Options, env Env, s *snapshot) Item {
 	if rc, ok := num("check_rc"); !ok || rc != "0" {
 		return item(id, Fail, "the receipt's check_rc is not 0")
 	}
-	if rc, ok := num("lint_rc"); ok && rc != "0" {
-		return item(id, Fail, "the receipt's lint_rc is %s", rc)
+	if _, present := rec["lint_rc"]; present {
+		if rc, ok := num("lint_rc"); !ok || rc != "0" {
+			return item(id, Fail, "the receipt's lint_rc is not the number 0")
+		}
 	}
 	if p, ok := rec["problems"].([]any); (ok && len(p) > 0) || (!ok && rec["problems"] != nil) {
 		return item(id, Fail, "the receipt lists problems")

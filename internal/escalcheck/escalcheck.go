@@ -144,24 +144,28 @@ func Run(ctx context.Context, o Options, env Env) Report {
 		set("ruling", o.Ruling)
 	}
 
-	var pr *prEvidence
+	// Order: script, first PR read, ruling, final PR read, review. The final
+	// read comes after every other check; the review is bound to its head.
+	var scriptItems, prItems, reviewItems, rulingItems []Item
 	var scriptDigest string
 	if o.Script != "" {
-		items, digest := checkScript(ctx, o, env)
-		r.Items = append(r.Items, items...)
-		scriptDigest = digest
+		scriptItems, scriptDigest = checkScript(ctx, o, env)
 	}
+	var run *prRun
 	if o.PR != "" {
-		items, ev := checkPR(ctx, o, env)
-		r.Items = append(r.Items, items...)
-		pr = ev
-	}
-	if o.Review != "" {
-		r.Items = append(r.Items, checkReview(o, pr, scriptDigest)...)
+		run = startPR(ctx, o, env)
 	}
 	if o.Ruling != "" {
-		r.Items = append(r.Items, checkRuling(o, env)...)
+		rulingItems = checkRuling(o, env)
 	}
+	var pr *prEvidence
+	if run != nil {
+		prItems, pr = run.finish(ctx)
+	}
+	if o.Review != "" {
+		reviewItems = checkReview(o, pr, scriptDigest)
+	}
+	r.Items = append(append(append(append(r.Items, scriptItems...), prItems...), reviewItems...), rulingItems...)
 	r.Overall, r.Summary = roll(r.Items)
 	return r
 }

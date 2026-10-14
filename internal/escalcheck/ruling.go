@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"errors"
+	"io"
 	"path/filepath"
 	"strings"
 	"time"
@@ -61,7 +62,7 @@ func parseObject(line []byte) (map[string]json.RawMessage, error) {
 	if _, err := dec.Token(); err != nil { // closing brace
 		return nil, err
 	}
-	if _, err := dec.Token(); err == nil {
+	if _, err := dec.Token(); err != io.EOF {
 		return nil, errors.New("trailing data after the object")
 	}
 	return out, nil
@@ -86,7 +87,7 @@ func rulingID(obj map[string]json.RawMessage) (string, bool) {
 
 func str(raw json.RawMessage) (string, bool) {
 	var s string
-	if raw == nil || json.Unmarshal(raw, &s) != nil {
+	if len(raw) == 0 || raw[0] != '"' || json.Unmarshal(raw, &s) != nil {
 		return "", false
 	}
 	return s, true
