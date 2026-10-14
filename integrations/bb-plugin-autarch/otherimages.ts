@@ -132,11 +132,10 @@ export class ImageStore {
   }
 
   /**
-   * Records the request's images under `op`. Same op and same content is a replay (and repairs a set that went missing);
+   * Records the request's images under `op` (an empty set records that none were sent). Same op and same content is a replay (and repairs a set that went missing);
    * the same op with different content is refused. `target` and `textSha` bind the set to the card and the text.
    */
   put(op: string, target: string, textSha: string, v: Extract<Validated, { ok: true }>): PutResult {
-    if (v.files.length === 0) return { ok: true, replay: true };
     const d = this.dirs();
     const name = this.keyName(op);
     const idxPath = join(d.index, `${name}.json`);
@@ -148,11 +147,14 @@ export class ImageStore {
     } catch (e) {
       if ((e as NodeJS.ErrnoException).code !== "EEXIST") throw e;
       const have = this.readIndex(op);
-      if (!have || have.digest !== want.digest || have.target !== target || have.text_sha !== textSha) {
+      // A text-only request reserves its id too (count 0), so a later request with images under it is refused.
+      const same = !!have && have.digest === want.digest && (v.files.length === 0 || (have.target === target && have.text_sha === textSha));
+      if (!same) {
         return { ok: false, status: 409, error: "this request id was already used with different content" };
       }
       replay = true;
     }
+    if (v.files.length === 0) return { ok: true, replay };
     const setDir = join(d.sets, name);
     if (isDir(setDir) && this.setIntact(setDir, want)) return { ok: true, replay };
     // Stage the whole set, then publish it with one rename. A half-written set is never visible.

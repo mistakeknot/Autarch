@@ -86,6 +86,7 @@ export function OtherBox({
     }
   };
   const addFiles = (files: File[]) => {
+    if (busy) return; // a send in flight owns the staged images; anything added now would be cleared unsent
     setLoading((n) => n + 1);
     chain.current = chain.current.then(() => addNow(files)).catch(() => {}).finally(() => setLoading((n) => n - 1));
   };
@@ -152,7 +153,7 @@ export function OtherBox({
       <div className="mt-1 flex flex-wrap items-center gap-2">
         <label className="cursor-pointer text-xs text-muted-foreground underline">
           Attach image
-          <input type="file" accept={IMG_TYPES.join(",")} multiple className="sr-only" data-other-attach onChange={(e) => { const fs = Array.from(e.target.files ?? []); e.target.value = ""; addFiles(fs); }} />
+          <input type="file" accept={IMG_TYPES.join(",")} multiple disabled={busy} className="sr-only" data-other-attach onChange={(e) => { const fs = Array.from(e.target.files ?? []); e.target.value = ""; addFiles(fs); }} />
         </label>
         <span className={`text-xs ${over ? "font-medium text-destructive" : "text-muted-foreground"}`} data-other-counter aria-live="polite">{`${count} / ${OTHER_MAX}`}</span>
         <ActionButton disabled={t === null || busy || loading > 0} onClick={() => void run(onNote, "Sent. The owner is woken; nothing was ruled or closed.", true)} data-other-note>Ask / note</ActionButton>

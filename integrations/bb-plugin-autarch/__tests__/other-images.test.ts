@@ -226,6 +226,19 @@ describe("service + wake loop", () => {
     expect(svc.store.obligationsFor(id).filter((o) => o.kind === "note")).toHaveLength(2);
   });
 
+  it("two deferred notes prepared under one id cannot mix text and images, whichever commits first", async () => {
+    const svc = env.open({ images: new ImageStore(root) });
+    const id = await card(svc);
+    const a = svc.note({ decision_id: id }, "A", "d1", { deferWake: true });
+    const b = svc.note({ decision_id: id }, "A", "d1", { deferWake: true, images: [im(PNG)] });
+    expect(a).toMatchObject({ ok: true });
+    expect(b).toMatchObject({ ok: false, status: 409 });
+    const c = svc.note({ decision_id: id }, "C", "d2", { deferWake: true, images: [im(PNG)] });
+    const d = svc.note({ decision_id: id }, "C", "d2", { deferWake: true });
+    expect(c).toMatchObject({ ok: true });
+    expect(d).toMatchObject({ ok: false, status: 409 });
+  });
+
   it("an answer whose words imitate the image suffix does not share an identity with the imaged answer", async () => {
     const svc = env.open({ images: new ImageStore(root) });
     const id = await card(svc);
