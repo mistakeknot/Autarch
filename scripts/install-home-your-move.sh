@@ -152,6 +152,15 @@ finish() {
 }
 trap finish EXIT
 
+# A failed precondition: --go and --rollback stop at the first ($2 is the exit code); --check records it, goes on, and exits with
+# the first code after the last check, so one run lists everything that would stop --go.
+FAILS=0 FIRSTRC=
+bad() {   # $1 = message, $2 = exit code
+  say "$1"
+  [ "$MODE" = check ] || exit "$2"
+  FAILS=$((FAILS+1)); [ -n "$FIRSTRC" ] || FIRSTRC=$2
+}
+
 run() { say "+ $*"; "$@" >>"$LOG" 2>&1; }
 gitmk() { "${AS[@]}" git -C "$REPO" "$@"; }   # via mk, never safe.directory
 
@@ -166,19 +175,19 @@ export_moves() {   # fatal where moves can exist: a rollback record must exist, 
   fi
   say "+ bb home moves --json > $EXPORT"
   if ! "${AS0[@]}" "$BB" home moves --json >"$EXPORT" 2>>"$LOG"; then
-    say "ABORT: 'bb home moves --json' failed; no rollback export, so nothing was changed (a plugin build before chunk A has no such command)"
-    exit 3
+    bad "ABORT: 'bb home moves --json' failed; no rollback export, so nothing was changed (a plugin build before chunk A has no such command)" 3
+    return 0
   fi
-  [ -s "$EXPORT" ] || { say "ABORT: the moves export is empty; nothing was changed"; exit 3; }
-  jq -e '(.moves | type) == "array"' "$EXPORT" >/dev/null 2>&1 || { say "ABORT: the moves export is not JSON with a moves array; nothing was changed"; exit 3; }
+  [ -s "$EXPORT" ] || { bad "ABORT: the moves export is empty; nothing was changed" 3; return 0; }
+  jq -e '(.moves | type) == "array"' "$EXPORT" >/dev/null 2>&1 || { bad "ABORT: the moves export is not JSON with a moves array; nothing was changed" 3; return 0; }
   say "export: $EXPORT ($(wc -c <"$EXPORT") bytes, $(jq '.moves | length' "$EXPORT") moves)"
 }
 
 # Home state (read only), common to all modes.
 read_state() {
-  LIST=$("${AS0[@]}" "$BB" plugin list --json 2>&1) || { say "bb plugin list failed: $(printf '%s' "$LIST" | head -c 200)"; exit 3; }
+  LIST=$("${AS0[@]}" "$BB" plugin list --json 2>&1) || { bad "bb plugin list failed: $(printf '%s' "$LIST" | head -c 200)" 3; LIST='{}'; }
   say "plugin: $(printf '%s' "$LIST" | jq -c '[.plugins[]? | select(.id == "autarch") | {enabled, status}]' 2>&1)"
-  [ -f "$DATA/data.db" ] || { say "no $DATA/data.db"; exit 3; }
+  [ -f "$DATA/data.db" ] || bad "no $DATA/data.db" 3
   say "schema: $("${AS0[@]}" sqlite3 -readonly "$DATA/data.db" 'select max(version) from migration_log' 2>&1)"
 }
 
@@ -226,11 +235,11 @@ BRANCH=$(gitmk branch --show-current)
 HEAD=$(gitmk rev-parse HEAD)
 say "branch ${BRANCH:-(detached)}, HEAD $HEAD"   # the pinned --commit, not a branch name, says what is installed
 if [ -n "$WANT" ]; then
-  [ "$HEAD" = "$WANT" ] || { say "HEAD is not the requested commit $WANT"; exit 2; }
+  [ "$HEAD" = "$WANT" ] || bad "HEAD is not the requested commit $WANT" 2
 else
   say "no --commit given: the sha is not pinned (fine for --check only)"
 fi
-[ -z "$(gitmk status --porcelain --untracked-files=no)" ] || { say "tracked files are modified; install only a clean commit"; exit 2; }
+[ -z "$(gitmk status --porcelain --untracked-files=no)" ] || bad "tracked files are modified; install only a clean commit" 2
 fi
 [ "$TESTHOOK" = 1 ] || [ -d "$PLUGIN/node_modules" ] || manual "in $PLUGIN run 'npm install' as mk (the README step); node_modules is missing"
 
@@ -239,6 +248,10 @@ read_state
 export_moves
 BACKUP=$OUT/data.db.pre-your-move
 if [ "$MODE" = check ]; then
+  if [ "$FAILS" -gt 0 ]; then
+    say "--check: $FAILS precondition(s) failed; --go would stop at the first of them. Nothing was changed; only $OUT was written."
+    exit "$FIRSTRC"
+  fi
   say "--check: would back up $DATA/data.db to $BACKUP,"
   say "--check: then run 'bb plugin disable autarch', 'bb plugin install --yes $PLUGIN', 'bb plugin enable autarch', and poll status and migration_log."
   say "--check: Home, git and the plugin were not changed; only $OUT was written."

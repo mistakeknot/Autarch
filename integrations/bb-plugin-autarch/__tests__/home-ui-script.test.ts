@@ -243,4 +243,31 @@ describe("home-ui.sh preview and rollback", () => {
     if (process.getuid?.() !== 0) return;
     expect(spawnSync("bash", [SCRIPT, "check"], { encoding: "utf8" }).status).toBe(64);
   });
+  // R5: check lists every failed gate in one run; deploy and preview stay fail-fast.
+  describe("accumulation", () => {
+    it("every subset of {no node_modules, other schema, file outside ui/} is reported whole by check", () => {
+      const names = ["no node_modules", "the build is schema", "files outside ui/"];
+      for (let mask = 1; mask < 8; mask++) {
+        const r = rig();
+        const n = plugin(r.root, "new", mask & 2 ? 4 : 3);
+        if (mask & 1) rmSync(join(n, "node_modules"), { recursive: true });
+        if (mask & 4) writeFileSync(join(n, "server.ts"), "export {};\n");
+        const out = r.run(["check", "--path", n]);
+        expect(out.status, `mask ${mask}`).toBe(3);
+        names.forEach((say, i) => { if (mask & (1 << i)) expect(out.stderr, `mask ${mask}: ${say}`).toContain(say); });
+        expect(out.stderr).toContain("failed gate(s)");
+        expect(r.log()).not.toContain("plugin disable");
+      }
+    });
+    it("preview stops at the first failed gate", () => {
+      const r = rig();
+      const n = plugin(r.root, "new", 4);
+      rmSync(join(n, "node_modules"), { recursive: true });
+      const out = r.run(["preview", "--path", n]);
+      expect(out.status).not.toBe(0);
+      expect(out.stderr).toContain("no node_modules");
+      expect(out.stderr).not.toContain("the build is schema");
+    });
+  });
+
 });
