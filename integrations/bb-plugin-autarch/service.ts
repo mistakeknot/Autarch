@@ -402,7 +402,7 @@ export class Service {
       if (!put.ok) return { ok: false, status: put.status, error: put.error };
     }
     const obligations: ObligationInput[] = [{ id: `ob:${decisionId}:ruling-file`, kind: "ruling-file", op: `ruling-file:${decisionId}` }];
-    if ((option.kind === "instruction" || option.kind === "needs-context" || by === "vizier" || isOther) && d.thread !== "") {
+    if ((option.kind === "instruction" || option.kind === "needs-context" || by === "vizier" || by === "auto" || isOther) && d.thread !== "") {
       obligations.push({
         id: `ob:${decisionId}:wake:${pickId}`,
         kind: "wake",
@@ -485,7 +485,7 @@ export class Service {
       kind: "notice",
       recipient: t,
       op: `notice:${d.id}:${t}`,
-      payload: `${by === "vizier" ? "The vizier" : "mk"} ruled on the card ${d.id}${d.subject ? ` (${d.subject})` : ""}, which names your thread: picked ${JSON.stringify(label)}. This is not merge, deploy, release or publish authorization.`,
+      payload: `${by === "vizier" ? "The vizier ruled on" : by === "auto" ? "Home closed, on evidence and not by mk's click," : "mk ruled on"} the card ${d.id}${d.subject ? ` (${d.subject})` : ""}, which names your thread: picked ${JSON.stringify(label)}. This is not merge, deploy, release or publish authorization.`,
     }));
   }
 
@@ -551,6 +551,9 @@ export class Service {
         `The vizier ruled on your decision ${d.id} in mk's place (you marked this option reversible). mk may override it. This is not merge, deploy, release or publish authorization.`,
       );
     }
+    if (by === "auto") {
+      lines.push("Home closed this card automatically because independent evidence shows the action was done. mk did not click, and this is not mk's ruling or any authorization.");
+    }
     const over = this.store.overriddenRuling(d.id);
     if (over) lines.push(`This supersedes the vizier's ruling on ${over.decision_id}.`);
     lines.push(`Ruling on ${d.id}${d.subject ? ` (${d.subject})` : ""}: ${by} picked ${JSON.stringify(label)}.`);
@@ -581,13 +584,14 @@ export class Service {
         subject: d.subject || ask.question.slice(0, 80),
         options_shown: (ask.options ?? []).map((o) => ({ id: o.id!, label: o.label })),
         picked: pick.option_id,
-        ruled_by: pick.by === "vizier" ? "vizier" : "mk",
+        ruled_by: pick.by === "vizier" ? "vizier" : pick.by === "auto" ? "auto" : "mk",
         ruled_at: pick.picked_at,
         ruling: `Picked ${JSON.stringify(option?.label ?? pick.option_id)} for: ${ask.question}`,
         source: `autarch-home:${pick.surface}`,
       };
       if (option?.kind === "instruction" && option.instruction) ruling.instruction = option.instruction;
       if (pick.by === "vizier" && pick.reason) ruling.delegated_reason = pick.reason;
+      if (pick.by === "auto" && pick.reason) ruling.auto_evidence = pick.reason;
       if (pick.option_id === OTHER_OPTION_ID && pick.reason) ruling.ruling = `mk answered in his own words for: ${ask.question} -- ${pick.reason.replace(/\s+/g, " ")}`;
       if (d.supersedes) ruling.supersedes = d.supersedes;
       if (d.source === "card" && typeof d.task_id === "string") {

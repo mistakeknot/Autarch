@@ -152,7 +152,7 @@ func cards(db *sql.DB, later map[string]bool) (open, parked []string, err error)
 }
 
 func newPicks(db *sql.DB, since string) ([]string, error) {
-	rows, err := db.Query(`SELECT c.card_key, p.option_id, p.picked_at, COALESCE(p.reason, '')
+	rows, err := db.Query(`SELECT c.card_key, p.option_id, p.picked_at, COALESCE(p.reason, ''), p.by
 		FROM picks p JOIN cards c ON p.decision_id LIKE 'card-' || c.task_id || '-g%'
 		WHERE p.picked_at > ? ORDER BY p.picked_at`, since)
 	if err != nil {
@@ -161,11 +161,14 @@ func newPicks(db *sql.DB, since string) ([]string, error) {
 	defer rows.Close()
 	var out []string
 	for rows.Next() {
-		var key, opt, at, reason string
-		if err := rows.Scan(&key, &opt, &at, &reason); err != nil {
+		var key, opt, at, reason, by string
+		if err := rows.Scan(&key, &opt, &at, &reason, &by); err != nil {
 			return nil, err
 		}
 		l := fmt.Sprintf("  %s -> %s at %s", key, opt, at)
+		if by == "auto" {
+			l += " [closed automatically on evidence, not by mk]"
+		}
 		if reason != "" {
 			l += " | " + truncate(strings.ReplaceAll(reason, "\n", " "), 120)
 		}

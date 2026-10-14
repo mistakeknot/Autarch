@@ -1,0 +1,267 @@
+{
+ "kind": "card",
+ "cases": [
+  {
+   "name": "valid auto_close",
+   "description": "Merge it?\n\nBlocks: bead:mk-okek.8\nRequest: AUTA-366 sha256:0123456789abcdef\n\n```home-ask\n{\"schema\":\"home-ask/v2\",\"project\":\"autarch\",\"project_root\":\"/abs/root\",\"question\":\"Merge it?\",\"options\":[{\"id\":\"merged\",\"label\":\"PR owner/name#7 is merged\",\"kind\":\"ruling-only\"},{\"id\":\"other\",\"label\":\"Something else\",\"kind\":\"ruling-only\"}],\"ask_key\":\"merge-it\",\"auto_close\":{\"option\":\"merged\",\"evidence\":{\"kind\":\"pr_merged\",\"repo\":\"owner/name\",\"number\":7}}}\n```\n",
+   "expect": {
+    "question": "Merge it?",
+    "blocks": [
+     {
+      "ref": "bead:mk-okek.8",
+      "kind": "bead",
+      "id": "mk-okek.8",
+      "counted": true
+     }
+    ],
+    "request": {
+     "key": "AUTA-366",
+     "identity": "0123456789abcdef"
+    },
+    "pull": "",
+    "root_run": null,
+    "v1": [
+     {
+      "thread": "thr_abc123",
+      "asker": "thread",
+      "identity": "5921e1a1ecf1c7f2a9f55bf5856d149a5b687dc0cb66aa284d1a79bf843d974e",
+      "revision": "6df19dd3c1c3c7d584c40f83b222ff66ead91743d37b54a7a86903812b64e22c",
+      "semantic_key": ""
+     }
+    ]
+   }
+  },
+  {
+   "name": "valid auto_close with head",
+   "description": "Merge it?\n\nBlocks: bead:mk-okek.8\nRequest: AUTA-366 sha256:0123456789abcdef\n\n```home-ask\n{\"schema\":\"home-ask/v2\",\"project\":\"autarch\",\"project_root\":\"/abs/root\",\"question\":\"Merge it?\",\"options\":[{\"id\":\"merged\",\"label\":\"PR owner/name#7 is merged\",\"kind\":\"ruling-only\"},{\"id\":\"other\",\"label\":\"Something else\",\"kind\":\"ruling-only\"}],\"ask_key\":\"merge-it\",\"auto_close\":{\"option\":\"merged\",\"evidence\":{\"kind\":\"pr_merged\",\"repo\":\"owner/name\",\"number\":7,\"head\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"}}}\n```\n",
+   "expect": {
+    "question": "Merge it?",
+    "blocks": [
+     {
+      "ref": "bead:mk-okek.8",
+      "kind": "bead",
+      "id": "mk-okek.8",
+      "counted": true
+     }
+    ],
+    "request": {
+     "key": "AUTA-366",
+     "identity": "0123456789abcdef"
+    },
+    "pull": "",
+    "root_run": null,
+    "v1": [
+     {
+      "thread": "thr_abc123",
+      "asker": "thread",
+      "identity": "5921e1a1ecf1c7f2a9f55bf5856d149a5b687dc0cb66aa284d1a79bf843d974e",
+      "revision": "6df19dd3c1c3c7d584c40f83b222ff66ead91743d37b54a7a86903812b64e22c",
+      "semantic_key": ""
+     }
+    ]
+   }
+  },
+  {
+   "name": "auto_close is not part of the ask identity",
+   "description": "Merge it?\n\nBlocks: bead:mk-okek.8\nRequest: AUTA-366 sha256:0123456789abcdef\n\n```home-ask\n{\"schema\":\"home-ask/v2\",\"project\":\"autarch\",\"project_root\":\"/abs/root\",\"question\":\"Merge it?\",\"options\":[{\"id\":\"merged\",\"label\":\"PR owner/name#7 is merged\",\"kind\":\"ruling-only\"},{\"id\":\"other\",\"label\":\"Something else\",\"kind\":\"ruling-only\"}],\"ask_key\":\"merge-it\"}\n```\n",
+   "expect": {
+    "question": "Merge it?",
+    "blocks": [
+     {
+      "ref": "bead:mk-okek.8",
+      "kind": "bead",
+      "id": "mk-okek.8",
+      "counted": true
+     }
+    ],
+    "request": {
+     "key": "AUTA-366",
+     "identity": "0123456789abcdef"
+    },
+    "pull": "",
+    "root_run": null,
+    "v1": [
+     {
+      "thread": "thr_abc123",
+      "asker": "thread",
+      "identity": "5921e1a1ecf1c7f2a9f55bf5856d149a5b687dc0cb66aa284d1a79bf843d974e",
+      "revision": "6df19dd3c1c3c7d584c40f83b222ff66ead91743d37b54a7a86903812b64e22c",
+      "semantic_key": ""
+     }
+    ]
+   }
+  },
+  {
+   "name": "unknown field in auto_close",
+   "description": "Merge it?\n\nBlocks: bead:mk-okek.8\nRequest: AUTA-366 sha256:0123456789abcdef\n\n```home-ask\n{\"schema\":\"home-ask/v2\",\"project\":\"autarch\",\"project_root\":\"/abs/root\",\"question\":\"Merge it?\",\"options\":[{\"id\":\"merged\",\"label\":\"PR owner/name#7 is merged\",\"kind\":\"ruling-only\"},{\"id\":\"other\",\"label\":\"Something else\",\"kind\":\"ruling-only\"}],\"ask_key\":\"merge-it\",\"auto_close\":{\"option\":\"merged\",\"evidence\":{\"kind\":\"pr_merged\",\"repo\":\"owner/name\",\"number\":7},\"extra\":1}}\n```\n",
+   "expect": {
+    "error": "unknown field \"extra\" in auto_close"
+   }
+  },
+  {
+   "name": "auto_close must be an object",
+   "description": "Merge it?\n\nBlocks: bead:mk-okek.8\nRequest: AUTA-366 sha256:0123456789abcdef\n\n```home-ask\n{\"schema\":\"home-ask/v2\",\"project\":\"autarch\",\"project_root\":\"/abs/root\",\"question\":\"Merge it?\",\"options\":[{\"id\":\"merged\",\"label\":\"PR owner/name#7 is merged\",\"kind\":\"ruling-only\"},{\"id\":\"other\",\"label\":\"Something else\",\"kind\":\"ruling-only\"}],\"ask_key\":\"merge-it\",\"auto_close\":\"merged\"}\n```\n",
+   "expect": {
+    "error": "auto_close must be an object"
+   }
+  },
+  {
+   "name": "wrong option id",
+   "description": "Merge it?\n\nBlocks: bead:mk-okek.8\nRequest: AUTA-366 sha256:0123456789abcdef\n\n```home-ask\n{\"schema\":\"home-ask/v2\",\"project\":\"autarch\",\"project_root\":\"/abs/root\",\"question\":\"Merge it?\",\"options\":[{\"id\":\"merged\",\"label\":\"PR owner/name#7 is merged\",\"kind\":\"ruling-only\"},{\"id\":\"other\",\"label\":\"Something else\",\"kind\":\"ruling-only\"}],\"ask_key\":\"merge-it\",\"auto_close\":{\"option\":\"done\",\"evidence\":{\"kind\":\"pr_merged\",\"repo\":\"owner/name\",\"number\":7}}}\n```\n",
+   "expect": {
+    "error": "auto_close option must be \"merged\""
+   }
+  },
+  {
+   "name": "unknown evidence kind",
+   "description": "Merge it?\n\nBlocks: bead:mk-okek.8\nRequest: AUTA-366 sha256:0123456789abcdef\n\n```home-ask\n{\"schema\":\"home-ask/v2\",\"project\":\"autarch\",\"project_root\":\"/abs/root\",\"question\":\"Merge it?\",\"options\":[{\"id\":\"merged\",\"label\":\"PR owner/name#7 is merged\",\"kind\":\"ruling-only\"},{\"id\":\"other\",\"label\":\"Something else\",\"kind\":\"ruling-only\"}],\"ask_key\":\"merge-it\",\"auto_close\":{\"option\":\"merged\",\"evidence\":{\"kind\":\"script_ran\"}}}\n```\n",
+   "expect": {
+    "error": "auto_close evidence kind must be pr_merged"
+   }
+  },
+  {
+   "name": "unknown field in evidence",
+   "description": "Merge it?\n\nBlocks: bead:mk-okek.8\nRequest: AUTA-366 sha256:0123456789abcdef\n\n```home-ask\n{\"schema\":\"home-ask/v2\",\"project\":\"autarch\",\"project_root\":\"/abs/root\",\"question\":\"Merge it?\",\"options\":[{\"id\":\"merged\",\"label\":\"PR owner/name#7 is merged\",\"kind\":\"ruling-only\"},{\"id\":\"other\",\"label\":\"Something else\",\"kind\":\"ruling-only\"}],\"ask_key\":\"merge-it\",\"auto_close\":{\"option\":\"merged\",\"evidence\":{\"kind\":\"pr_merged\",\"repo\":\"owner/name\",\"number\":7,\"url\":\"x\"}}}\n```\n",
+   "expect": {
+    "error": "unknown field \"url\" in auto_close evidence"
+   }
+  },
+  {
+   "name": "bad repo",
+   "description": "Merge it?\n\nBlocks: bead:mk-okek.8\nRequest: AUTA-366 sha256:0123456789abcdef\n\n```home-ask\n{\"schema\":\"home-ask/v2\",\"project\":\"autarch\",\"project_root\":\"/abs/root\",\"question\":\"Merge it?\",\"options\":[{\"id\":\"merged\",\"label\":\"PR owner/name#7 is merged\",\"kind\":\"ruling-only\"},{\"id\":\"other\",\"label\":\"Something else\",\"kind\":\"ruling-only\"}],\"ask_key\":\"merge-it\",\"auto_close\":{\"option\":\"merged\",\"evidence\":{\"kind\":\"pr_merged\",\"repo\":\"owner\",\"number\":7}}}\n```\n",
+   "expect": {
+    "error": "auto_close evidence repo must be owner/name"
+   }
+  },
+  {
+   "name": "bad number",
+   "description": "Merge it?\n\nBlocks: bead:mk-okek.8\nRequest: AUTA-366 sha256:0123456789abcdef\n\n```home-ask\n{\"schema\":\"home-ask/v2\",\"project\":\"autarch\",\"project_root\":\"/abs/root\",\"question\":\"Merge it?\",\"options\":[{\"id\":\"merged\",\"label\":\"PR owner/name#7 is merged\",\"kind\":\"ruling-only\"},{\"id\":\"other\",\"label\":\"Something else\",\"kind\":\"ruling-only\"}],\"ask_key\":\"merge-it\",\"auto_close\":{\"option\":\"merged\",\"evidence\":{\"kind\":\"pr_merged\",\"repo\":\"owner/name\",\"number\":0}}}\n```\n",
+   "expect": {
+    "error": "auto_close evidence number must be a pull request number"
+   }
+  },
+  {
+   "name": "a whole number written 7.0 reads as 7",
+   "description": "Merge it?\n\nBlocks: bead:mk-okek.8\nRequest: AUTA-366 sha256:0123456789abcdef\n\n```home-ask\n{\"schema\":\"home-ask/v2\",\"project\":\"autarch\",\"project_root\":\"/abs/root\",\"question\":\"Merge it?\",\"options\":[{\"id\":\"merged\",\"label\":\"PR owner/name#7 is merged\",\"kind\":\"ruling-only\"},{\"id\":\"other\",\"label\":\"Something else\",\"kind\":\"ruling-only\"}],\"ask_key\":\"merge-it\",\"auto_close\":{\"option\":\"merged\",\"evidence\":{\"kind\":\"pr_merged\",\"repo\":\"owner/name\",\"number\":7.0}}}\n```\n",
+   "expect": {
+    "question": "Merge it?",
+    "blocks": [
+     {
+      "ref": "bead:mk-okek.8",
+      "kind": "bead",
+      "id": "mk-okek.8",
+      "counted": true
+     }
+    ],
+    "request": {
+     "key": "AUTA-366",
+     "identity": "0123456789abcdef"
+    },
+    "pull": "",
+    "root_run": null,
+    "v1": [
+     {
+      "thread": "thr_abc123",
+      "asker": "thread",
+      "identity": "5921e1a1ecf1c7f2a9f55bf5856d149a5b687dc0cb66aa284d1a79bf843d974e",
+      "revision": "6df19dd3c1c3c7d584c40f83b222ff66ead91743d37b54a7a86903812b64e22c",
+      "semantic_key": ""
+     }
+    ]
+   }
+  },
+  {
+   "name": "a whole number written 7e0 reads as 7",
+   "description": "Merge it?\n\nBlocks: bead:mk-okek.8\nRequest: AUTA-366 sha256:0123456789abcdef\n\n```home-ask\n{\"schema\":\"home-ask/v2\",\"project\":\"autarch\",\"project_root\":\"/abs/root\",\"question\":\"Merge it?\",\"options\":[{\"id\":\"merged\",\"label\":\"PR owner/name#7 is merged\",\"kind\":\"ruling-only\"},{\"id\":\"other\",\"label\":\"Something else\",\"kind\":\"ruling-only\"}],\"ask_key\":\"merge-it\",\"auto_close\":{\"option\":\"merged\",\"evidence\":{\"kind\":\"pr_merged\",\"repo\":\"owner/name\",\"number\":7e0}}}\n```\n",
+   "expect": {
+    "question": "Merge it?",
+    "blocks": [
+     {
+      "ref": "bead:mk-okek.8",
+      "kind": "bead",
+      "id": "mk-okek.8",
+      "counted": true
+     }
+    ],
+    "request": {
+     "key": "AUTA-366",
+     "identity": "0123456789abcdef"
+    },
+    "pull": "",
+    "root_run": null,
+    "v1": [
+     {
+      "thread": "thr_abc123",
+      "asker": "thread",
+      "identity": "5921e1a1ecf1c7f2a9f55bf5856d149a5b687dc0cb66aa284d1a79bf843d974e",
+      "revision": "6df19dd3c1c3c7d584c40f83b222ff66ead91743d37b54a7a86903812b64e22c",
+      "semantic_key": ""
+     }
+    ]
+   }
+  },
+  {
+   "name": "a number string is refused",
+   "description": "Merge it?\n\nBlocks: bead:mk-okek.8\nRequest: AUTA-366 sha256:0123456789abcdef\n\n```home-ask\n{\"schema\":\"home-ask/v2\",\"project\":\"autarch\",\"project_root\":\"/abs/root\",\"question\":\"Merge it?\",\"options\":[{\"id\":\"merged\",\"label\":\"PR owner/name#7 is merged\",\"kind\":\"ruling-only\"},{\"id\":\"other\",\"label\":\"Something else\",\"kind\":\"ruling-only\"}],\"ask_key\":\"merge-it\",\"auto_close\":{\"option\":\"merged\",\"evidence\":{\"kind\":\"pr_merged\",\"repo\":\"owner/name\",\"number\":\"7\"}}}\n```\n",
+   "expect": {
+    "error": "auto_close evidence number must be a pull request number"
+   }
+  },
+  {
+   "name": "a fractional number is refused",
+   "description": "Merge it?\n\nBlocks: bead:mk-okek.8\nRequest: AUTA-366 sha256:0123456789abcdef\n\n```home-ask\n{\"schema\":\"home-ask/v2\",\"project\":\"autarch\",\"project_root\":\"/abs/root\",\"question\":\"Merge it?\",\"options\":[{\"id\":\"merged\",\"label\":\"PR owner/name#7 is merged\",\"kind\":\"ruling-only\"},{\"id\":\"other\",\"label\":\"Something else\",\"kind\":\"ruling-only\"}],\"ask_key\":\"merge-it\",\"auto_close\":{\"option\":\"merged\",\"evidence\":{\"kind\":\"pr_merged\",\"repo\":\"owner/name\",\"number\":7.5}}}\n```\n",
+   "expect": {
+    "error": "auto_close evidence number must be a pull request number"
+   }
+  },
+  {
+   "name": "ten digits is refused",
+   "description": "Merge it?\n\nBlocks: bead:mk-okek.8\nRequest: AUTA-366 sha256:0123456789abcdef\n\n```home-ask\n{\"schema\":\"home-ask/v2\",\"project\":\"autarch\",\"project_root\":\"/abs/root\",\"question\":\"Merge it?\",\"options\":[{\"id\":\"merged\",\"label\":\"PR owner/name#1000000000 is merged\",\"kind\":\"ruling-only\"},{\"id\":\"other\",\"label\":\"Something else\",\"kind\":\"ruling-only\"}],\"ask_key\":\"merge-it\",\"auto_close\":{\"option\":\"merged\",\"evidence\":{\"kind\":\"pr_merged\",\"repo\":\"owner/name\",\"number\":1000000000}}}\n```\n",
+   "expect": {
+    "error": "auto_close evidence number must be a pull request number"
+   }
+  },
+  {
+   "name": "bad head",
+   "description": "Merge it?\n\nBlocks: bead:mk-okek.8\nRequest: AUTA-366 sha256:0123456789abcdef\n\n```home-ask\n{\"schema\":\"home-ask/v2\",\"project\":\"autarch\",\"project_root\":\"/abs/root\",\"question\":\"Merge it?\",\"options\":[{\"id\":\"merged\",\"label\":\"PR owner/name#7 is merged\",\"kind\":\"ruling-only\"},{\"id\":\"other\",\"label\":\"Something else\",\"kind\":\"ruling-only\"}],\"ask_key\":\"merge-it\",\"auto_close\":{\"option\":\"merged\",\"evidence\":{\"kind\":\"pr_merged\",\"repo\":\"owner/name\",\"number\":7,\"head\":\"abc\"}}}\n```\n",
+   "expect": {
+    "error": "auto_close evidence head must be 40 lowercase hex characters"
+   }
+  },
+  {
+   "name": "option without a kind is not ruling-only",
+   "description": "Merge it?\n\nBlocks: bead:mk-okek.8\nRequest: AUTA-366 sha256:0123456789abcdef\n\n```home-ask\n{\"schema\":\"home-ask/v2\",\"project\":\"autarch\",\"project_root\":\"/abs/root\",\"question\":\"Merge it?\",\"options\":[{\"id\":\"merged\",\"label\":\"PR owner/name#7 is merged\"},{\"id\":\"other\",\"label\":\"Something else\",\"kind\":\"ruling-only\"}],\"ask_key\":\"merge-it\",\"auto_close\":{\"option\":\"merged\",\"evidence\":{\"kind\":\"pr_merged\",\"repo\":\"owner/name\",\"number\":7}}}\n```\n",
+   "expect": {
+    "error": "auto_close option must be ruling-only"
+   }
+  },
+  {
+   "name": "option missing",
+   "description": "Merge it?\n\nBlocks: bead:mk-okek.8\nRequest: AUTA-366 sha256:0123456789abcdef\n\n```home-ask\n{\"schema\":\"home-ask/v2\",\"project\":\"autarch\",\"project_root\":\"/abs/root\",\"question\":\"Merge it?\",\"options\":[{\"id\":\"a\",\"label\":\"A\",\"kind\":\"ruling-only\"},{\"id\":\"b\",\"label\":\"B\",\"kind\":\"ruling-only\"}],\"ask_key\":\"merge-it\",\"auto_close\":{\"option\":\"merged\",\"evidence\":{\"kind\":\"pr_merged\",\"repo\":\"owner/name\",\"number\":7}}}\n```\n",
+   "expect": {
+    "error": "auto_close names an option that is not in options"
+   }
+  },
+  {
+   "name": "option with an instruction",
+   "description": "Merge it?\n\nBlocks: bead:mk-okek.8\nRequest: AUTA-366 sha256:0123456789abcdef\n\n```home-ask\n{\"schema\":\"home-ask/v2\",\"project\":\"autarch\",\"project_root\":\"/abs/root\",\"question\":\"Merge it?\",\"options\":[{\"id\":\"merged\",\"label\":\"PR owner/name#7 is merged\",\"kind\":\"instruction\",\"instruction\":\"do it\"},{\"id\":\"other\",\"label\":\"Something else\",\"kind\":\"ruling-only\"}],\"ask_key\":\"merge-it\",\"auto_close\":{\"option\":\"merged\",\"evidence\":{\"kind\":\"pr_merged\",\"repo\":\"owner/name\",\"number\":7}}}\n```\n",
+   "expect": {
+    "error": "auto_close option must be ruling-only"
+   }
+  },
+  {
+   "name": "option with an approval",
+   "description": "Merge it?\n\nBlocks: bead:mk-okek.8\nRequest: AUTA-366 sha256:0123456789abcdef\n\n```home-ask\n{\"schema\":\"home-ask/v2\",\"project\":\"autarch\",\"project_root\":\"/abs/root\",\"question\":\"Merge it?\",\"options\":[{\"id\":\"merged\",\"label\":\"PR owner/name#7 is merged\",\"kind\":\"ruling-only\",\"approval\":{\"token\":\"x\"}},{\"id\":\"other\",\"label\":\"Something else\",\"kind\":\"ruling-only\"}],\"ask_key\":\"merge-it\",\"auto_close\":{\"option\":\"merged\",\"evidence\":{\"kind\":\"pr_merged\",\"repo\":\"owner/name\",\"number\":7}}}\n```\n",
+   "expect": {
+    "error": "auto_close option must carry no instruction or approval"
+   }
+  },
+  {
+   "name": "label does not state the PR",
+   "description": "Merge it?\n\nBlocks: bead:mk-okek.8\nRequest: AUTA-366 sha256:0123456789abcdef\n\n```home-ask\n{\"schema\":\"home-ask/v2\",\"project\":\"autarch\",\"project_root\":\"/abs/root\",\"question\":\"Merge it?\",\"options\":[{\"id\":\"merged\",\"label\":\"PR owner/name#8 is merged\",\"kind\":\"ruling-only\"},{\"id\":\"other\",\"label\":\"Something else\",\"kind\":\"ruling-only\"}],\"ask_key\":\"merge-it\",\"auto_close\":{\"option\":\"merged\",\"evidence\":{\"kind\":\"pr_merged\",\"repo\":\"owner/name\",\"number\":7}}}\n```\n",
+   "expect": {
+    "error": "auto_close option label must state the pull request"
+   }
+  }
+ ]
+}

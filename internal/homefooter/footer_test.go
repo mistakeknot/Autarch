@@ -13,7 +13,7 @@ import (
 const schema = `
 CREATE TABLE settings_kv (key TEXT PRIMARY KEY, value TEXT);
 CREATE TABLE cards (task_id TEXT PRIMARY KEY, card_key TEXT, title TEXT, state TEXT, deleted_at TEXT);
-CREATE TABLE picks (decision_id TEXT PRIMARY KEY, pick_id TEXT, option_id TEXT, picked_at TEXT, reason TEXT);
+CREATE TABLE picks (decision_id TEXT PRIMARY KEY, pick_id TEXT, option_id TEXT, picked_at TEXT, reason TEXT, "by" TEXT NOT NULL DEFAULT 'mk');
 CREATE TABLE obligations (id TEXT PRIMARY KEY, decision_id TEXT, kind TEXT, state TEXT, recipient TEXT, voided_at TEXT, last_error TEXT);
 `
 
@@ -53,9 +53,9 @@ func TestSectionsOpenParkedPicksObligations(t *testing.T) {
 			('t6','AUTA-6','Closed','closed',NULL),
 			('t7','AUTA-7','Ruled not parked','ruled',NULL)`,
 		`INSERT INTO settings_kv VALUES ('later','{"t3":{"by":"mk"},"t4":{"by":"mk"}}')`,
-		`INSERT INTO picks VALUES ('card-t7-g1','p1','run','2026-10-10T10:00:00.000Z','line one
+		`INSERT INTO picks(decision_id,pick_id,option_id,picked_at,reason) VALUES ('card-t7-g1','p1','run','2026-10-10T10:00:00.000Z','line one
 line two')`,
-		`INSERT INTO picks VALUES ('card-t6-g1','p2','old','2026-10-01T00:00:00.000Z',NULL)`,
+		`INSERT INTO picks(decision_id,pick_id,option_id,picked_at,reason) VALUES ('card-t6-g1','p2','old','2026-10-01T00:00:00.000Z',NULL)`,
 		`INSERT INTO obligations VALUES ('o1','card-t7-g1','notice','queued','thr_x',NULL,NULL),
 			('o2','card-t7-g1','wake','done','thr_x',NULL,NULL),
 			('o3','card-t7-g1','wake','dismissed','thr_x',NULL,NULL),
@@ -88,7 +88,7 @@ func TestNoLaterSettingAndEmpty(t *testing.T) {
 func TestCursorMovesToRunStartAndPeekLeavesIt(t *testing.T) {
 	db := fixture(t,
 		`INSERT INTO cards VALUES ('t1','AUTA-1','x','ruled',NULL)`,
-		`INSERT INTO picks VALUES ('card-t1-g1','p1','a','2026-10-10T10:00:00.000Z',NULL)`)
+		`INSERT INTO picks(decision_id,pick_id,option_id,picked_at,reason) VALUES ('card-t1-g1','p1','a','2026-10-10T10:00:00.000Z',NULL)`)
 	cur := filepath.Join(t.TempDir(), "sub", "c")
 	clock := func() time.Time { return time.Date(2026, 10, 11, 1, 2, 3, 4_000_000, time.UTC) }
 
@@ -119,7 +119,7 @@ func TestCursorMovesToRunStartAndPeekLeavesIt(t *testing.T) {
 func TestPickOnALaterCardGenerationIsShown(t *testing.T) {
 	db := fixture(t,
 		`INSERT INTO cards VALUES ('t1','AUTA-1','x','ruled',NULL)`,
-		`INSERT INTO picks VALUES ('card-t1-g2','p1','b','2026-10-10T10:00:00.000Z',NULL)`)
+		`INSERT INTO picks(decision_id,pick_id,option_id,picked_at,reason) VALUES ('card-t1-g2','p1','b','2026-10-10T10:00:00.000Z',NULL)`)
 	if got := run(t, Options{DB: db, Peek: true}); !strings.Contains(got, "AUTA-1 -> b") {
 		t.Fatalf("generation 2 pick missing:\n%s", got)
 	}
@@ -155,5 +155,16 @@ func TestDefaultDB(t *testing.T) {
 	t.Setenv("HOME_BB_DATA", "")
 	if _, err := DefaultDB(); err == nil {
 		t.Fatal("no database must be an error")
+	}
+}
+
+func TestAutoPickIsMarked(t *testing.T) {
+	db := fixture(t,
+		`INSERT INTO cards VALUES ('t1','AUTA-1','x','ruled',NULL)`,
+		`INSERT INTO picks(decision_id,pick_id,option_id,picked_at,reason,"by") VALUES ('card-t1-g1','auto:card-t1-g1','merged','2026-10-10T10:00:00.000Z','PR o/n#7 merged','auto')`)
+	got := run(t, Options{DB: db, Peek: true})
+	want := "  AUTA-1 -> merged at 2026-10-10T10:00:00.000Z [closed automatically on evidence, not by mk] | PR o/n#7 merged\n"
+	if !strings.Contains(got, want) {
+		t.Fatalf("got:\n%s\nwant a line:\n%s", got, want)
 	}
 }

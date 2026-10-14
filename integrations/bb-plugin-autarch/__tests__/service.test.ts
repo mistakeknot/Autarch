@@ -112,6 +112,23 @@ describe("pick", () => {
     expect(wakes[0]!.payload).toContain("Collapse per project");
   });
 
+  it("an auto pick records the evidence, wakes the asker, is not mk's ruling and mints no approval", async () => {
+    const a = await fileOk();
+    const evidence = "PR owner/name#7 merged at 2026-10-14T00:00:00Z";
+    const r = svc.pick(a.decision_id, "day", rev(a.decision_id), `auto:${a.decision_id}`, "auto", "home", evidence);
+    if (!r.ok) throw new Error(`pick failed: ${r.error}`);
+    expect(r.pick.by).toBe("auto");
+    const files = rulingFiles();
+    expect(files).toHaveLength(1);
+    const ruled = parseRuling(readFileSync(join(env.roots.Autarch!, "docs", "decisions", files[0]!), "utf8"));
+    expect(ruled).toMatchObject({ picked: "day", ruled_by: "auto", auto_evidence: evidence });
+    const wakes = svc.wakes();
+    expect(wakes).toHaveLength(1);
+    expect(wakes[0]!.payload).toContain("Home closed this card automatically");
+    expect(wakes[0]!.payload).toContain("not mk's ruling");
+    expect(JSON.stringify(wakes[0])).not.toContain("approval_token");
+  });
+
   it("a needs-context pick wakes; a ruling-only pick by mk does not, and the feed carries it", async () => {
     const a = await fileOk();
     pickOk(a.decision_id, "ask");
