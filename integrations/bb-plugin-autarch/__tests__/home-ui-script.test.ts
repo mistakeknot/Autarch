@@ -131,6 +131,22 @@ describe("home-ui.sh gates", () => {
     expect(out.stderr).toContain("schema statement");
   });
 
+  it("--plugin-code scans binary-looking files, lines starting with ++ and odd file names", () => {
+    const r = rig();
+    const bad = 'db.exec("CREATE TABLE bypass(x)");';
+    for (const [name, body] of [["bin.js", `\0${bad}`], ["pp.js", `++c; ${bad}`], ["a b ui", bad]] as const) {
+      const n = plugin(r.root, `n-${name.replace(/\W/g, "_")}`, 3);
+      mkdirSync(join(n, "lib"), { recursive: true });
+      writeFileSync(join(n, "lib", name), body);
+      expect(r.run(["check", "--path", n, "--plugin-code"]).status, name).toBe(3);
+    }
+    const n2 = plugin(r.root, "n-sp", 3);
+    mkdirSync(join(n2, "lib x"), { recursive: true });
+    mkdirSync(join(n2, "lib x", "ui"));
+    writeFileSync(join(n2, "lib x", "ui", "p.js"), bad);
+    expect(r.run(["check", "--path", n2, "--plugin-code"]).status).toBe(3);
+  });
+
   it("--plugin-code refuses any added, changed or dangling lockfile and .npmrc", () => {
     const r = rig();
     for (const f of ["package-lock.json", "npm-shrinkwrap.json", ".npmrc", "pnpm-lock.yaml", "yarn.lock"]) {

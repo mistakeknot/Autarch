@@ -113,11 +113,15 @@ plugin_code_only() {   # $1 = installed build, $2 = target; dependencies and the
   done
   # Defence in depth, not proof: lines added to plugin code outside ui/ and __tests__/ must not contain schema statements. The
   # deploy's real guarantee on code behaviour is the cross-lab review of the merged head that the deploy approval requires.
-  local d rc=0 added
-  d=$(diff -rN -U0 -x node_modules "$1" "$2") || rc=$?
-  [ "$rc" -le 1 ] || die "NOT plugin-code-only: could not diff the installed build against the target (diff exit $rc)" 3
-  added=$(printf '%s\n' "$d" | awk -v ui="$2/ui/" -v t="$2/__tests__/" '/^diff /{skip=(index($NF,ui)==1||index($NF,t)==1); next} /^(\+\+\+|---)/{next} !skip && /^\+/{printf "%s ", substr($0,2)}')
-  if printf '%s' "$added" | grep -Eiq '(create|alter|drop)[[:space:]]+(virtual[[:space:]]+)?(table|index|trigger|view)|pragma[[:space:]]+(user_version|writable_schema)|schema_meta'; then
+  local f rel old rc added=
+  while IFS= read -r -d '' f; do
+    rel=${f#"$2"/}
+    case $rel in ui/*|__tests__/*|node_modules/*) continue ;; esac
+    old=$1/$rel; [ -f "$old" ] || old=/dev/null
+    rc=0; added+=$(diff -a --unchanged-line-format= --old-line-format= --new-line-format='%L ' -- "$old" "$f") || rc=$?
+    [ "$rc" -le 1 ] || die "NOT plugin-code-only: could not diff $rel against the installed build (diff exit $rc)" 3
+  done < <(find "$2" -path "$2/node_modules" -prune -o -type f -print0)
+  if printf '%s' "$added" | tr '\n\0' '  ' | grep -Eiq '(create|alter|drop)[[:space:]]+(virtual[[:space:]]+)?(table|index|trigger|view)|pragma[[:space:]]+(user_version|writable_schema)|schema_meta'; then
     die "NOT plugin-code-only: changed plugin code adds a schema statement (CREATE/ALTER/DROP, schema_meta). A schema change goes to mk as a script." 3
   fi
 }
