@@ -47,6 +47,7 @@ export function commentBody(id: string, payload: Partial<PickPayload>): string {
   const gen = payload.generation == null ? "" : ` generation ${payload.generation}`;
   const lines = [`Ruled: ${label} (Home, advisory; ruled by: ${payload.by ?? "mk"})${gen}`];
   if (payload.by === "vizier" && payload.reason) lines.push(`Reason: ${payload.reason}`);
+  if (payload.by === "auto" && payload.reason) lines.push(`Closed automatically, not by mk's click. Evidence: ${payload.reason}`);
   if (payload.option_id === "other" && payload.reason) lines.push("", "mk's answer (plain text):", payload.reason);
   lines.push("", `${MARKER} ${id}`);
   return lines.join("\n");

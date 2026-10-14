@@ -13,6 +13,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"regexp"
 	"sort"
 	"strconv"
@@ -74,7 +75,7 @@ const (
 
 var (
 	v2Allowed = map[string]bool{"schema": true, "project": true, "project_root": true, "question": true,
-		"options": true, "ask_key": true, "subject": true, "recommendation": true, "pull": true}
+		"options": true, "ask_key": true, "subject": true, "recommendation": true, "pull": true, "auto_close": true}
 	v1Only = map[string]bool{"v": true, "kind": true, "thread": true, "asker": true, "request_id": true,
 		"supersedes": true, "mention_of": true, "steps": true, "machine": true}
 	countedKinds = map[string]bool{"bead": true, "thread": true, "project": true}
@@ -266,7 +267,107 @@ func parseWireAsk(body string, c *Card) error {
 		}
 		c.Pull = "mycroft"
 	}
+	if ac, present := m["auto_close"]; present {
+		if err := parseAutoClose(ac, m["options"]); err != nil {
+			return err
+		}
+	}
 	c.Ask = m
+	return nil
+}
+
+var (
+	acRepoRe = regexp.MustCompile(`^[A-Za-z0-9_.-]{1,100}/[A-Za-z0-9_.-]{1,100}$`)
+	acHeadRe = regexp.MustCompile(`^[0-9a-f]{40}$`)
+)
+
+func acExactKeys(o map[string]any, allowed []string, what string) error {
+	keys := make([]string, 0, len(o))
+	for k := range o {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	for _, k := range keys {
+		ok := false
+		for _, a := range allowed {
+			if a == k {
+				ok = true
+			}
+		}
+		if !ok {
+			return fmt.Errorf("unknown field %q in %s", k, what)
+		}
+	}
+	return nil
+}
+
+// parseAutoClose validates the optional auto_close block. It mirrors parseAutoClose in cards.ts: the
+// block is only a claim, never part of the v1 ask or the fingerprint.
+func parseAutoClose(raw any, options any) error {
+	a, ok := raw.(map[string]any)
+	if !ok {
+		return errors.New("auto_close must be an object")
+	}
+	if err := acExactKeys(a, []string{"option", "evidence"}, "auto_close"); err != nil {
+		return err
+	}
+	if o, _ := a["option"].(string); o != "merged" {
+		return errors.New(`auto_close option must be "merged"`)
+	}
+	ev, ok := a["evidence"].(map[string]any)
+	if !ok {
+		return errors.New("auto_close evidence must be an object")
+	}
+	if k, _ := ev["kind"].(string); k != "pr_merged" {
+		return errors.New("auto_close evidence kind must be pr_merged")
+	}
+	if err := acExactKeys(ev, []string{"kind", "repo", "number", "head"}, "auto_close evidence"); err != nil {
+		return err
+	}
+	repo, _ := ev["repo"].(string)
+	if !acRepoRe.MatchString(repo) {
+		return errors.New("auto_close evidence repo must be owner/name")
+	}
+	// The same rule as cards.ts: a JSON number that is a whole number in float64 (7, 7.0 and 7e0 all
+	// read as 7), 1 to 9 digits.
+	jn, ok := ev["number"].(json.Number)
+	if !ok {
+		return errors.New("auto_close evidence number must be a pull request number")
+	}
+	f, perr := strconv.ParseFloat(jn.String(), 64)
+	if perr != nil || f != math.Trunc(f) || f < 1 || f >= 1e9 {
+		return errors.New("auto_close evidence number must be a pull request number")
+	}
+	num := strconv.FormatInt(int64(f), 10)
+	if h, present := ev["head"]; present {
+		if hs, _ := h.(string); !acHeadRe.MatchString(hs) {
+			return errors.New("auto_close evidence head must be 40 lowercase hex characters")
+		}
+	}
+	var opt map[string]any
+	if list, ok := options.([]any); ok {
+		for _, it := range list {
+			if om, ok := it.(map[string]any); ok && om["id"] == "merged" {
+				opt = om
+				break
+			}
+		}
+	}
+	if opt == nil {
+		return errors.New("auto_close names an option that is not in options")
+	}
+	if k, _ := opt["kind"].(string); k != "ruling-only" {
+		return errors.New("auto_close option must be ruling-only")
+	}
+	if _, has := opt["instruction"]; has {
+		return errors.New("auto_close option must carry no instruction or approval")
+	}
+	if _, has := opt["approval"]; has {
+		return errors.New("auto_close option must carry no instruction or approval")
+	}
+	if l, _ := opt["label"].(string); l != fmt.Sprintf("PR %s#%s is merged", repo, num) {
+		return errors.New("auto_close option label must state the pull request")
+	}
 	return nil
 }
 
@@ -276,7 +377,7 @@ func parseWireAsk(body string, c *Card) error {
 func (c Card) ToV1(thread string) (Ask, error) {
 	v1 := make(map[string]any, len(c.Ask)+4)
 	for k, v := range c.Ask {
-		if k != "schema" && k != "pull" {
+		if k != "schema" && k != "pull" && k != "auto_close" {
 			v1[k] = v
 		}
 	}

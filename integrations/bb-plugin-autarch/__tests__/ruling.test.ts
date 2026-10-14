@@ -65,6 +65,13 @@ describe("format", () => {
     expect(text).toContain('ruled_by: "vizier"');
   });
 
+  it("round trips an automatic ruling with its evidence line", () => {
+    const r = ruling({ ruled_by: "auto", auto_evidence: "PR owner/name#7 merged at 2026-10-14T00:00:00Z" });
+    expect(parseRuling(renderRuling(r))).toEqual(r);
+    expect(renderRuling(r)).toContain('ruled_by: "auto"');
+    expect(renderRuling(r)).toContain('auto_evidence: "PR owner/name#7 merged at 2026-10-14T00:00:00Z"');
+  });
+
   it("round trips a minimal ruling without optional fields", () => {
     expect(parseRuling(renderRuling(ruling()))).toEqual(ruling());
   });

@@ -34,6 +34,7 @@ describe("clipLabel", () => {
 describe("renderLine", () => {
   it("renders effective, vizier, supersedes and void lines", () => {
     expect(renderLine(line())).toBe('ruled 2026-09-26T14:03Z "Collapse per day" (dec-1)');
+    expect(renderLine(line({ by: "auto" }))).toBe('ruled 2026-09-26T14:03Z "Collapse per day" (dec-1) [auto]');
     expect(renderLine(line({ by: "vizier" }))).toBe('ruled 2026-09-26T14:03Z "Collapse per day" (dec-1) [vizier]');
     expect(renderLine(line({ supersedes: "dec-0" }))).toBe('ruled 2026-09-26T14:03Z "Collapse per day" (dec-1), supersedes dec-0');
     expect(renderLine(line({ by: "vizier", supersedes: "dec-0" }))).toBe('ruled 2026-09-26T14:03Z "Collapse per day" (dec-1) [vizier], supersedes dec-0');
