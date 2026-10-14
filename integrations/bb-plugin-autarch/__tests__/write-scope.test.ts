@@ -4,12 +4,14 @@ import { fsWriteUses, isFdOnly, isOpener, parse, parseFile, readOnlyFlags, rel, 
 // Plan 1.3.8 and Task 2.7: fs writes live only in ruling.ts and export.ts. backup.ts may open O_RDONLY and fsync
 // (the backup itself is written by SQLite's VACUUM INTO); rootrun.ts may only open files O_RDONLY.
 // ledger.ts joined the writers with the rulings ledger: it only appends one line per pick to that one file.
-const FULL = new Set(["ruling.ts", "export.ts", "ledger.ts"]);
+// otherimages.ts joined with the Other box's images: it writes only under its own images root, with hashed directory
+// names, generated file names, exclusive create and lstat checks on every directory (see its header).
+const FULL = new Set(["ruling.ts", "export.ts", "ledger.ts", "otherimages.ts"]);
 const RDONLY_PLUS_FSYNC = new Set(["backup.ts"]);
 const RDONLY_ONLY = new Set(["rootrun.ts"]);
 
 describe("fs write scope (plan Task 2.7)", () => {
-  it("only ruling.ts, export.ts and ledger.ts write; backup.ts only opens read-only and fsyncs; rootrun.ts only opens read-only", () => {
+  it("only ruling.ts, export.ts, ledger.ts and otherimages.ts write; backup.ts only opens read-only and fsyncs; rootrun.ts only opens read-only", () => {
     const problems: string[] = [];
     for (const f of serverSources()) {
       const name = rel(f);

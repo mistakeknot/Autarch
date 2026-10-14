@@ -1,6 +1,7 @@
 // The "Your move" actions. A claim, skip or check changes what is waiting on mk, so each one refreshes the moves
 // list and Home's totals (the badge, the Queue header and the tab) together [bead mk-yjp7].
 import type { MoveHandlers, MoveActionOutcome } from "./ui/yourmove.js";
+import type { OtherImage } from "./ui/other.js";
 
 type MoveMethod = "checkMove" | "claimMove" | "skipMove";
 type RpcLike = { call: (method: MoveMethod | "unlater", input: { task_id: string; generation: number } | { ref: string }) => Promise<unknown> };
@@ -21,7 +22,7 @@ export function buildMoveHandlers(
   rpc: RpcLike,
   refetchMoves: () => void,
   onChanged: () => void,
-  note: (target: { task_id: string }, text: string) => ReturnType<MoveHandlers["onNote"]>,
+  note: (target: { task_id: string }, text: string, images?: OtherImage[]) => ReturnType<MoveHandlers["onNote"]>,
 ): MoveHandlers {
   const act = (method: MoveMethod) => (m: { task_id: string; generation: number }): Promise<MoveActionOutcome> =>
     rpcOutcome(rpc.call(method, { task_id: m.task_id, generation: m.generation })).finally(() => {
@@ -33,5 +34,5 @@ export function buildMoveHandlers(
       refetchMoves();
       onChanged();
     });
-  return { onUnlater: back, onCheck: act("checkMove"), onClaim: act("claimMove"), onSkip: act("skipMove"), onNote: (m, text) => note({ task_id: m.task_id }, text) };
+  return { onUnlater: back, onCheck: act("checkMove"), onClaim: act("claimMove"), onSkip: act("skipMove"), onNote: (m, text, images) => note({ task_id: m.task_id }, text, images) };
 }

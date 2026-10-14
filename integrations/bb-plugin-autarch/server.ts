@@ -39,6 +39,7 @@ import { Ideas } from "./ideas.js";
 import { OPEN_STATUSES, TasksClient, type PluginsLike } from "./tasks.js";
 import { listAllThreads, traceability, type ThreadLike } from "./traceability.js";
 import { createStoreHandle, type Store, type StoreHandle } from "./store.js";
+import { defaultImagesRoot, ImageStore } from "./otherimages.js";
 import { sdkAdapter, WakeLoop, type ThreadsLike, type WakeSdk } from "./wakes.js";
 
 const todoSchema = z.object({
@@ -204,7 +205,13 @@ export function wireHome(bb: BbPluginApi, handle: StoreHandle, cfg: HomeConfig, 
       parts?.caches.invalidate();
       void parts?.loop.nudge();
     };
-    const svc = new Service({ store, projects: () => serve.projects(), nudge, rulingsLedger: cfg.rulingsLedger !== undefined ? cfg.rulingsLedger : ledgerPath() });
+    const images = new ImageStore(defaultImagesRoot());
+    try {
+      images.sweep();
+    } catch (e) {
+      bb.log.warn(`image sweep failed: ${e instanceof Error ? e.message : String(e)}`);
+    }
+    const svc = new Service({ store, images, projects: () => serve.projects(), nudge, rulingsLedger: cfg.rulingsLedger !== undefined ? cfg.rulingsLedger : ledgerPath() });
     const dele = new Delegation(svc, listThreadRows, getThreadRow);
     const asks = new Asks(svc);
     const catchup = new Catchup(svc, dele);
@@ -597,12 +604,12 @@ export function wireHome(bb: BbPluginApi, handle: StoreHandle, cfg: HomeConfig, 
       if (r.ok && r.was) bb.realtime.publish("home-queue-changed", {});
       return r;
     },
-    async pick(i: { decision_id: string; option_id: string; revision: string; pick_id: string; reason?: string; surface?: "home" | "overlay" }) {
-      return need().svc.pick(i.decision_id, i.option_id, i.revision, i.pick_id, MK, i.surface ?? "home", i.reason);
+    async pick(i: { decision_id: string; option_id: string; revision: string; pick_id: string; reason?: string; images?: { mime: string; data_base64: string }[]; surface?: "home" | "overlay" }) {
+      return need().svc.pick(i.decision_id, i.option_id, i.revision, i.pick_id, MK, i.surface ?? "home", i.reason, undefined, i.images);
     },
-    async note(i: { task_id?: string; decision_id?: string; text: string; note_id: string }) {
+    async note(i: { task_id?: string; decision_id?: string; text: string; note_id: string; images?: { mime: string; data_base64: string }[] }) {
       // Comment first: the card comment is posted before any wake obligation exists. If the tasks write fails nothing is woken.
-      const r = need().svc.note({ ...(i.task_id !== undefined ? { task_id: i.task_id } : {}), ...(i.decision_id !== undefined ? { decision_id: i.decision_id } : {}) }, i.text, i.note_id, { deferWake: true });
+      const r = need().svc.note({ ...(i.task_id !== undefined ? { task_id: i.task_id } : {}), ...(i.decision_id !== undefined ? { decision_id: i.decision_id } : {}) }, i.text, i.note_id, { deferWake: true, ...(i.images ? { images: i.images } : {}) });
       if (!r.ok) return r;
       if (r.task_id !== null) {
         if (!tasksRef) return { ok: false as const, status: 503, error: "tasks unavailable; nothing was sent" };
