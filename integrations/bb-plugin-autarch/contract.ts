@@ -28,7 +28,7 @@ export const homeMethods = {
       option_id: z.string().min(1),
       revision: z.string().min(1),
       pick_id: z.string().min(1),
-      reason: z.string().max(2000).optional(),
+      reason: z.string().max(20000).optional(),
       /** Where the operator picked: Home (default). "overlay" is historical (the overlay panel was removed) and stays so old rows read. The CLI records its own. */
       surface: z.enum(["home", "overlay"]).default("home"),
     }),
@@ -48,7 +48,7 @@ export const homeMethods = {
   later: { input: z.object({ ref: z.string().min(1).max(128) }).strict(), output: out },
   unlater: { input: z.object({ ref: z.string().min(1).max(128) }).strict(), output: out },
   // The Other box's "Ask / note": a comment on the card plus an owner wake. Never rules or closes.
-  note: { input: z.object({ task_id: z.string().min(1).max(64).optional(), decision_id: z.string().min(1).max(128).optional(), text: z.string().min(1).max(2000), note_id: z.string().min(1).max(64) }).strict(), output: out },
+  note: { input: z.object({ task_id: z.string().min(1).max(64).optional(), decision_id: z.string().min(1).max(128).optional(), text: z.string().min(1).max(20000), note_id: z.string().min(1).max(64) }).strict(), output: out },
   // Conversation on the card: read-only views of the mirrored comments. Display only; nothing here rules or closes.
   conversation: { input: z.object({ task_id: z.string().min(1).max(64) }).strict(), output: out },
   conversationUnread: { input: z.null(), output: out },

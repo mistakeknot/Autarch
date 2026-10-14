@@ -229,16 +229,16 @@ describe("button look", () => {
 });
 
 describe("Other box", () => {
-  it("trims, and refuses empty or over 2000", () => {
+  it("trims, and refuses empty or over 20000", () => {
     expect(otherText("  hi  ")).toBe("hi");
     expect(otherText("   ")).toBeNull();
     expect(otherText("x".repeat(OTHER_MAX))).toBe("x".repeat(OTHER_MAX));
     expect(otherText("x".repeat(OTHER_MAX + 1))).toBeNull();
   });
-  it("counts Unicode code points like the service: 1000 emoji fit, 2001 do not", () => {
+  it("counts Unicode code points like the service: 20000 emoji fit, 20001 do not", () => {
     expect(otherText("\u{1F600}".repeat(OTHER_MAX))).not.toBeNull();
     expect(otherText("\u{1F600}".repeat(OTHER_MAX + 1))).toBeNull();
-    expect(renderToStaticMarkup(<OtherBox onNote={() => {}} onAnswer={() => {}} />)).toContain("0 / 2000");
+    expect(renderToStaticMarkup(<OtherBox onNote={() => {}} onAnswer={() => {}} />)).toContain("0 / 20000");
   });
   it("hides Answer with this on an ask that has its own option named other", () => {
     const a: OwedAsk = { id: "d", project: "P", thread: "thr", subject: "S", asker: "x", filed_at: "2026-10-01T00:00:00Z", revision: "r", ask: { question: "Q", options: [{ id: "other", label: "Else", kind: "ruling-only", reversible: true }] } };
@@ -246,9 +246,9 @@ describe("Other box", () => {
     expect(html).toContain("data-other-answer-reason");
     expect(html).toMatch(/disabled=""[^>]*data-other-answer|data-other-answer[^>]*disabled=""/);
   });
-  it("starts with both buttons disabled and a 0 / 2000 counter", () => {
+  it("starts with both buttons disabled and a 0 / 20000 counter", () => {
     const html = renderToStaticMarkup(<OtherBox onNote={() => {}} onAnswer={() => {}} />);
-    expect(html).toContain("0 / 2000");
+    expect(html).toContain("0 / 20000");
     expect(html).toMatch(/disabled=""[^>]*data-other-note/);
     expect(html).toMatch(/disabled=""[^>]*data-other-answer/);
     expect(html).toContain("Ask / note");
