@@ -1,7 +1,7 @@
 // scripts/home-ui.sh against a stub bb and a temp data directory. Never live. The deploy subcommand fetches origin, so it is
 // covered by the same gates through `check`/`preview`, not run here.
 import { spawnSync } from "node:child_process";
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -105,6 +105,31 @@ describe("home-ui.sh gates", () => {
     const m = plugin(r.root, "new3", 3, "// changed\n");
     expect(r.run(["check", "--path", m, "--plugin-code"]).stderr).toContain("migrations.ts differs");
     expect(r.run(["preview", "--plugin-code"]).status).toBe(64);
+  });
+
+  it("--plugin-code refuses any added, changed or dangling lockfile and .npmrc", () => {
+    const r = rig();
+    for (const f of ["package-lock.json", "npm-shrinkwrap.json", ".npmrc", "pnpm-lock.yaml", "yarn.lock"]) {
+      const n = plugin(r.root, `n-${f}`, 3);
+      writeFileSync(join(n, f), "new");
+      const out = r.run(["check", "--path", n, "--plugin-code"]);
+      expect(out.status, f).toBe(3);
+      expect(out.stderr).toContain(f);
+    }
+    const d = plugin(r.root, "dangling", 3);
+    symlinkSync("/nonexistent-lock", join(d, "package-lock.json"));
+    expect(r.run(["check", "--path", d, "--plugin-code"]).status).toBe(3);
+  });
+
+  it("refuses to pick when no Home database or more than one is found", () => {
+    const r = rig();
+    const n = plugin(r.root, "new", 3);
+    const home = join(r.root, "h");
+    mkdirSync(home);
+    const env = { PATH: process.env.PATH!, HOME: home, HOME_BB_BIN: join(r.root, "bb"), HOME_UI_WAIT: "2" };
+    expect(spawnSync("bash", [SCRIPT, "check", "--path", n], { env, encoding: "utf8" }).stderr).toContain("found 0");
+    for (const x of ["x", "y"]) { mkdirSync(join(home, x, "plugins", "autarch"), { recursive: true }); writeFileSync(join(home, x, "plugins", "autarch", "data.db"), ""); }
+    expect(spawnSync("bash", [SCRIPT, "check", "--path", n], { env, encoding: "utf8" }).stderr).toContain("found 2");
   });
 
   it("finds the Home database in a data directory five levels below the home directory", () => {

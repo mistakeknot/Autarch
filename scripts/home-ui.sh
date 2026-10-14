@@ -89,7 +89,7 @@ gate_ui_only() {   # $1 = plugin dir to run
   cmp -s "$cur/migrations.ts" "$new/migrations.ts" || die "NOT UI-only: migrations.ts differs from the installed build ($cur). This goes to mk as a script." 3
   if [ "$PLUGIN_CODE" = 1 ]; then
     plugin_code_only "$cur" "$new"
-    echo "gate ok: schema $live, migrations.ts identical, package.json and package-lock.json identical; plugin code may differ from the installed build"
+    echo "gate ok: schema $live, migrations.ts identical, package.json, lockfiles and .npmrc identical; plugin code may differ from the installed build"
   else
     ui_files_only "$cur" "$new"
     echo "gate ok: schema $live, only ui/ and __tests__/ differ from the installed build"
@@ -104,9 +104,11 @@ This goes to mk as a script (or a reviewed PR + deploy of a build that only touc
 }
 plugin_code_only() {   # $1 = installed build, $2 = target; dependencies and the schema must not move (migrations.ts was compared by the caller)
   local f
-  for f in package.json package-lock.json; do
-    if [ -e "$1/$f" ] || [ -e "$2/$f" ]; then
-      cmp -s "$1/$f" "$2/$f" || die "NOT plugin-code-only: $f differs from the installed build. A dependency change goes to mk as a script." 3
+  [ -f "$1/package.json" ] && [ -f "$2/package.json" ] || die "NOT plugin-code-only: package.json is missing from the installed build or the target" 3
+  for f in package.json package-lock.json npm-shrinkwrap.json .npmrc pnpm-lock.yaml yarn.lock; do
+    if [ -e "$1/$f" ] || [ -L "$1/$f" ] || [ -e "$2/$f" ] || [ -L "$2/$f" ]; then
+      { [ -f "$1/$f" ] && [ ! -L "$1/$f" ] && [ -f "$2/$f" ] && [ ! -L "$2/$f" ] && cmp -s "$1/$f" "$2/$f"; } \
+        || die "NOT plugin-code-only: $f differs from the installed build. A dependency change goes to mk as a script." 3
     fi
   done
 }
