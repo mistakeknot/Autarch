@@ -6,7 +6,7 @@ import type { MoveView, MoveViewGroups, MoveReportView } from "../moveview.js";
 import { ActionButton } from "./buttons.js";
 import { CommandBlock, type CopyEnv } from "./copy.js";
 import { CardConversation } from "./conversation.js";
-import { OtherBox, type OtherOutcome } from "./other.js";
+import { OtherBox, type OtherImage, type OtherOutcome } from "./other.js";
 
 export type MoveActionOutcome = { ok: boolean; error?: string } | void;
 export interface MoveHandlers {
@@ -15,7 +15,7 @@ export interface MoveHandlers {
   onSkip: (m: MoveView) => Promise<MoveActionOutcome> | MoveActionOutcome;
   /** Moves a card back out of Later when it was set aside as a whole card. */
   onUnlater?: (m: MoveView) => Promise<MoveActionOutcome> | MoveActionOutcome;
-  onNote: (m: MoveView, text: string) => Promise<OtherOutcome | void> | void;
+  onNote: (m: MoveView, text: string, images?: OtherImage[]) => Promise<OtherOutcome | void> | void;
 }
 
 /** "2026-10-07 00:12 UTC" from an ISO time; anything unparseable is shown as unknown. */
@@ -142,7 +142,7 @@ export function MoveCard({ m, h, env, section }: { m: MoveView; h: MoveHandlers;
         </div>
       ) : null}
       {error !== null ? <p role="alert" className="mt-2 text-xs font-medium text-destructive" data-move-failure>{`That did not go through: ${error}`}</p> : null}
-      {section !== "hidden" ? <OtherBox onNote={(t) => h.onNote(m, t)} /> : null}
+      {section !== "hidden" ? <OtherBox onNote={(t, im) => h.onNote(m, t, im)} /> : null}
       <CardConversation taskId={m.task_id} />
     </article>
   );

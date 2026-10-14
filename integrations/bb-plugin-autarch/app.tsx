@@ -18,7 +18,8 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Icon } from "@/components/ui/icon";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
-import { AsksPanel, PickController, pickOutcome, laterOutcome } from "./ui/asks.js";
+import { AsksPanel, PickController, imagesSig, pickOutcome, laterOutcome } from "./ui/asks.js";
+import type { OtherImage } from "./ui/other.js";
 import { ConversationProvider, type ConversationApi, type ConversationData } from "./ui/conversation.js";
 import type { MoveHandlers } from "./ui/yourmove.js";
 import type { MoveViewGroups } from "./moveview.js";
@@ -286,9 +287,9 @@ function BlocksThreadPanel({ threadId }: { threadId: string }) {
       data={queue}
       nowMs={Date.now()}
       thread={threadId}
-      onNote={(decision_id, text) => noteOnly.note({ decision_id }, text)}
+      onNote={(decision_id, text, images) => noteOnly.note({ decision_id }, text, images)}
       onOpen={(t) => nav.toThread(t)}
-      onPick={(decision_id, option_id, revision, reason) => pickOutcome(picks.send((req) => rpc.call("pick", req) as never, { decision_id, option_id, revision, ...(reason !== undefined ? { reason } : {}) }, refetch)).finally(refetch)}
+      onPick={(decision_id, option_id, revision, reason, images) => pickOutcome(picks.send((req) => rpc.call("pick", req) as never, { decision_id, option_id, revision, ...(reason !== undefined ? { reason } : {}), ...(images && images.length > 0 ? { images } : {}) }, refetch)).finally(refetch)}
     />
     </ConversationProvider>
   );
@@ -362,11 +363,11 @@ function useMoves(rpc: ReturnType<typeof useRpc<typeof rpcContract>>, onChanged:
   // A note id is stable per (target, text) until it is accepted, so a retry cannot post the comment twice.
   const noteIds = useMemo(() => new Map<string, string>(), []);
   const note = useCallback(
-    async (target: { task_id: string } | { decision_id: string }, text: string) => {
-      const key = `${JSON.stringify(target)}|${text}`;
+    async (target: { task_id: string } | { decision_id: string }, text: string, images?: OtherImage[]) => {
+      const key = `${JSON.stringify(target)}|${text}|${imagesSig(images)}`;
       const note_id = noteIds.get(key) ?? crypto.randomUUID().slice(0, 32);
       noteIds.set(key, note_id);
-      const r = await rpcOutcome(rpc.call("note", { ...target, text, note_id }));
+      const r = await rpcOutcome(rpc.call("note", { ...target, text, note_id, ...(images && images.length > 0 ? { images } : {}) }));
       if (r.ok) {
         noteIds.delete(key);
         onChanged();
@@ -527,14 +528,14 @@ function HomePage() {
             data={asks}
             {...(panel.hideHeld ? { hideHeld: true } : {})}
             {...(panel.part ? { part: panel.part } : {})}
-            onNote={(decision_id, text) => yourMove.note({ decision_id }, text)}
+            onNote={(decision_id, text, images) => yourMove.note({ decision_id }, text, images)}
             onLater={(ref, on) => laterOutcome(rpc.call(on ? "later" : "unlater", { ref })).then((o) => { refetchAll(); return o; })}
             onDismiss={(decision_id, obligation_id) => void rpc.call("dismiss", { decision_id, obligation_id }).then(refetch, () => {})}
             onOpen={(thread) => push({ id: `thread:${thread}`, kind: "thread", title: thread, ref: thread })}
             onRevoke={(approval_id) => void rpc.call("revokeApproval", { approval_id }).then(refetch, () => {})}
             onView={(decision_id) => void rpc.call("setViewing", { decision_id }).catch(() => {})}
-            onPick={(decision_id, option_id, revision, reason) => {
-              return pickOutcome(picks.send((req) => rpc.call("pick", req) as never, { decision_id, option_id, revision, ...(reason !== undefined ? { reason } : {}) }, refetchAll)).finally(refetchAll);
+            onPick={(decision_id, option_id, revision, reason, images) => {
+              return pickOutcome(picks.send((req) => rpc.call("pick", req) as never, { decision_id, option_id, revision, ...(reason !== undefined ? { reason } : {}), ...(images && images.length > 0 ? { images } : {}) }, refetchAll)).finally(refetchAll);
             }}
           />
           </>
@@ -548,10 +549,10 @@ function HomePage() {
             onBind={(b) => void rpc.call("setBinding", b).then(refetchAll, () => {})}
             data={panel.hideOwed && asks ? withoutOwed(blocks.queue, asks) : blocks.queue}
             nowMs={Date.now()}
-            onNote={(decision_id, text) => yourMove.note({ decision_id }, text)}
+            onNote={(decision_id, text, images) => yourMove.note({ decision_id }, text, images)}
             onOpen={openBeside}
-            onPick={(decision_id, option_id, revision, reason) => {
-              return pickOutcome(picks.send((req) => rpc.call("pick", req) as never, { decision_id, option_id, revision, ...(reason !== undefined ? { reason } : {}) }, refetchAll)).finally(refetchAll);
+            onPick={(decision_id, option_id, revision, reason, images) => {
+              return pickOutcome(picks.send((req) => rpc.call("pick", req) as never, { decision_id, option_id, revision, ...(reason !== undefined ? { reason } : {}), ...(images && images.length > 0 ? { images } : {}) }, refetchAll)).finally(refetchAll);
             }}
           />
         );
@@ -628,10 +629,10 @@ function HomePage() {
             }
             handlers={yourMove.handlers}
             onOpen={openBeside}
-            onNote={(decision_id, text) => yourMove.note({ decision_id }, text)}
+            onNote={(decision_id, text, images) => yourMove.note({ decision_id }, text, images)}
             onLater={(ref, on) => laterOutcome(rpc.call(on ? "later" : "unlater", { ref })).then((o) => { refetchAll(); return o; })}
-            onPick={(decision_id, option_id, revision, reason) => {
-              return pickOutcome(picks.send((req) => rpc.call("pick", req) as never, { decision_id, option_id, revision, ...(reason !== undefined ? { reason } : {}) }, refetchAll)).finally(refetchAll);
+            onPick={(decision_id, option_id, revision, reason, images) => {
+              return pickOutcome(picks.send((req) => rpc.call("pick", req) as never, { decision_id, option_id, revision, ...(reason !== undefined ? { reason } : {}), ...(images && images.length > 0 ? { images } : {}) }, refetchAll)).finally(refetchAll);
             }}
             onDesktop={() => setFullView(true)}
             onIdea={() => setIdeaOpen((o) => !o)}

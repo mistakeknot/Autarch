@@ -7,11 +7,11 @@ import { splitCommands, type CommandRole } from "./commandtext.js";
 import { CommandBlock } from "./copy.js";
 import { glance, GlanceBlock, type GlanceAnswer } from "./glance.js";
 import { GH_REF_SRC, refNodes, URL_SRC } from "./links.js";
-import { OtherBox, type OtherOutcome } from "./other.js";
+import { OtherBox, type OtherImage, type OtherOutcome } from "./other.js";
 
 /** What a pick hands back to the card: not ok means the card stays open and shows the error. */
 export type PickOutcome = { ok: boolean; error?: string };
-export type OnPick = (decisionId: string, optionId: string, revision: string, reason?: string) => void | Promise<PickOutcome | void>;
+export type OnPick = (decisionId: string, optionId: string, revision: string, reason?: string, images?: OtherImage[]) => void | Promise<PickOutcome | void>;
 
 /** Turns a send into an outcome the card can show: a thrown error or a non-ok result is a failure. */
 export async function pickOutcome(send: Promise<{ ok?: boolean; status?: number; error?: string }>): Promise<PickOutcome> {
@@ -202,7 +202,7 @@ export function isDestructiveOption(o: { label: string; reversible?: boolean }):
 export const UNBOUND_EXPLANATION = "This card's project is not bound to a Citadel project, so Citadel cannot record a ruling here. Bind the project, or use Ask / note to talk to the owner.";
 
 /** Which asks can take a note from the Other box: the callback gets the decision id and mk's trimmed text. */
-export type OnNote = (decisionId: string, text: string) => Promise<OtherOutcome | void> | void;
+export type OnNote = (decisionId: string, text: string, images?: OtherImage[]) => Promise<OtherOutcome | void> | void;
 
 /** Sets a card aside (on) or moves it back (off), by its task id. A thrown error or not-ok result is shown by the caller. */
 export type OnLater = (taskId: string, on: boolean) => void | Promise<unknown>;
@@ -287,9 +287,9 @@ export function AskCard({ ask, onPick, onOpen, nowMs, onNote, onLater, unbound =
       {failure !== null ? <p role="alert" className="mt-2 text-xs font-medium text-destructive" data-pick-failure>{`Your pick did not go through: ${failure}. The ask is still open; try again.`}</p> : null}
       {onNote ? (
         <OtherBox
-          onNote={(t) => onNote(ask.id, t)}
-          onAnswer={unbound || hasRealOther ? undefined : async (t) => {
-            const r = await onPick(ask.id, "other", ask.revision, t);
+          onNote={(t, im) => onNote(ask.id, t, im)}
+          onAnswer={unbound || hasRealOther ? undefined : async (t, im) => {
+            const r = await onPick(ask.id, "other", ask.revision, t, im);
             if (r && r.ok === false) return { ok: false, error: r.error ?? "pick failed" };
             return { ok: true };
           }}
@@ -491,7 +491,9 @@ export function AsksPanel({ part, data, onPick, onOpen, onRevoke, onDismiss, onN
   );
 }
 
-type PickReq = { decision_id: string; option_id: string; revision: string; reason?: string };
+type PickReq = { decision_id: string; option_id: string; revision: string; reason?: string; images?: OtherImage[] };
+/** A short identity for a set of images, so a retry with the same images keeps its pick id and a changed set does not. */
+export const imagesSig = (im?: readonly OtherImage[]): string => (im ?? []).map((i) => `${i.data_base64.length}:${i.data_base64.slice(0, 48)}:${i.data_base64.slice(-48)}`).join(",");
 type Result = { ok?: boolean; status?: number; error?: string };
 
 /** One pick_id per (decision, option, revision) until the pick resolves, so a retry cannot double-file. */
@@ -500,7 +502,7 @@ export class PickController {
   constructor(private mint: () => string) {}
 
   async send(rpc: (req: PickReq & { pick_id: string }) => Promise<Result>, req: PickReq, reread: () => void): Promise<Result> {
-    const key = `${req.decision_id}|${req.option_id}|${req.revision}|${req.reason ?? ""}`;
+    const key = `${req.decision_id}|${req.option_id}|${req.revision}|${req.reason ?? ""}|${imagesSig(req.images)}`;
     let id = this.ids.get(key);
     if (id === undefined) {
       id = this.mint();

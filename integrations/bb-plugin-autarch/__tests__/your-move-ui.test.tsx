@@ -254,6 +254,13 @@ describe("Other box", () => {
     expect(html).toContain("Ask / note");
     expect(html).toContain("Answer with this");
   });
+  it("offers an image attach control limited to the four formats, and says an image alone is not sent", () => {
+    const html = renderToStaticMarkup(<OtherBox onNote={() => {}} onAnswer={() => {}} />);
+    expect(html).toContain("data-other-attach");
+    expect(html).toContain('accept="image/png,image/jpeg,image/gif,image/webp"');
+    expect(html).toContain("an image alone is not sent");
+    expect(html).not.toContain("data-other-images");
+  });
   it("omits Answer with this when there is no answer handler and explains a disabled one", () => {
     expect(renderToStaticMarkup(<OtherBox onNote={() => {}} />)).not.toContain("Answer with this");
     expect(renderToStaticMarkup(<OtherBox onNote={() => {}} answerDisabledReason="not bound" />)).toContain("not bound");

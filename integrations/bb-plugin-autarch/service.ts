@@ -1,6 +1,7 @@
 // The Home decision service: file, pick once, reconcile the ruling file, wake and feed.
 // Every state change goes through one Store transaction; this layer maps outcomes to
 // HTTP-shaped results and never holds state of its own.
+import { ImageStore, textSha, validateImages, type ImageIn, type PathsResult } from "./otherimages.js";
 import { createHash, randomUUID } from "node:crypto";
 import { buildFeed, renderFeed, type Feed } from "./feed.js";
 import { cardFingerprint, askingThread, parseCard, toV1, type Card } from "./cards.js";
@@ -35,6 +36,8 @@ export interface ServiceDeps {
   reportDeadlineMs?: number;
   /** The vizier's rulings.jsonl. Each ruled pick appends one line there (idempotent on the pick id); omitted, none is written. */
   rulingsLedger?: string | null;
+  /** Where the Other box's images are kept. Omitted, a request that carries images is refused. */
+  images?: ImageStore;
 }
 
 export const DEFAULT_REPORT_DEADLINE_MS = 2 * 3_600_000;
@@ -337,7 +340,7 @@ export class Service {
 
   // ---- picking --------------------------------------------------------------
 
-  pick(decisionId: string, optionId: string, rev: string, pickId: string, by: string, surface: "home" | "overlay" | "cli", reason?: string, guard?: PickInput["guard"]): PickResult {
+  pick(decisionId: string, optionId: string, rev: string, pickId: string, by: string, surface: "home" | "overlay" | "cli", reason?: string, guard?: PickInput["guard"], images?: readonly ImageIn[]): PickResult {
     const d = this.row(decisionId);
     if (!d) return { ok: false, status: 404, error: "unknown decision" };
     if (d.kind === "steps") return this.pickSteps(d, optionId, rev, pickId, by, surface);
@@ -370,13 +373,17 @@ export class Service {
       if (otherText === null) return { ok: false, status: 400, error: `an answer of 1-${OTHER_MAX} characters is required` };
       if (d.source !== "card" && !d.project_root) return { ok: false, status: 403, error: "this decision has no verified project root" };
     }
+    if (images && images.length > 0 && !isOther) return { ok: false, status: 400, error: "images go only with your own answer" };
+    const imgs = validateImages(images);
+    if (!imgs.ok) return { ok: false, status: 400, error: imgs.error };
+    if (imgs.files.length > 0 && !this.deps.images) return { ok: false, status: 503, error: "images are not available; nothing was sent" };
     const option = isOther
       ? ({ id: OTHER_OPTION_ID, label: "Other (mk's own answer)", kind: "ruling-only", reversible: false } as NonNullable<Ask["options"]>[number])
       : ask.options?.find((o) => o.id === optionId);
     if (!option) return { ok: false, status: 400, error: `unknown option ${JSON.stringify(optionId)}` };
     if (rev !== d.revision) return { ok: false, status: 409, error: "revision differs" };
 
-    const hash = createHash("sha256").update(`${optionId}|${rev}|${by}${isOther ? `|${otherText}` : ""}`).digest("hex");
+    const hash = createHash("sha256").update(`${optionId}|${rev}|${by}${isOther ? `|${otherText}` : ""}${imgs.files.length > 0 ? `|images:${imgs.digest}` : ""}`).digest("hex");
     const settled = (existing: PickRow | undefined): PickResult | null => {
       if (!existing) return null;
       if (existing.pick_id === pickId) {
@@ -388,6 +395,10 @@ export class Service {
     if (prior) return prior;
     if (this.store.pickByPickId(pickId)) return { ok: false, status: 409, error: "pick id reused" };
 
+    if (imgs.files.length > 0 && d.thread !== "") {
+      const put = this.deps.images!.put(`wake:${decisionId}:${pickId}`, decisionId, textSha(otherText ?? ""), imgs);
+      if (!put.ok) return { ok: false, status: put.status, error: put.error };
+    }
     const obligations: ObligationInput[] = [{ id: `ob:${decisionId}:ruling-file`, kind: "ruling-file", op: `ruling-file:${decisionId}` }];
     if ((option.kind === "instruction" || option.kind === "needs-context" || by === "vizier" || isOther) && d.thread !== "") {
       obligations.push({
@@ -1192,9 +1203,9 @@ export class Service {
    * "Ask / note" from the Other box: a message to the card's owner. It never rules, claims or closes anything.
    * The text is mk's, untrusted plain text, 1..OTHER_MAX characters. Idempotent per note_id.
    */
-  note(target: { task_id?: string; decision_id?: string }, text: string, noteId: string, opts?: { deferWake?: false }): { ok: true; replay: boolean; body: string; woke: boolean; task_id: string | null } | { ok: false; status: number; error: string };
-  note(target: { task_id?: string; decision_id?: string }, text: string, noteId: string, opts: { deferWake: true }): { ok: true; body: string; task_id: string | null; commit: () => { replay: boolean; woke: boolean } } | { ok: false; status: number; error: string };
-  note(target: { task_id?: string; decision_id?: string }, text: string, noteId: string, opts?: { deferWake?: boolean }): any {
+  note(target: { task_id?: string; decision_id?: string }, text: string, noteId: string, opts?: { deferWake?: false; images?: readonly ImageIn[] }): { ok: true; replay: boolean; body: string; woke: boolean; task_id: string | null } | { ok: false; status: number; error: string };
+  note(target: { task_id?: string; decision_id?: string }, text: string, noteId: string, opts: { deferWake: true; images?: readonly ImageIn[] }): { ok: true; body: string; task_id: string | null; commit: () => { replay: boolean; woke: boolean } } | { ok: false; status: number; error: string };
+  note(target: { task_id?: string; decision_id?: string }, text: string, noteId: string, opts?: { deferWake?: boolean; images?: readonly ImageIn[] }): any {
     const t = cleanOther(text);
     if (t === null) return { ok: false, status: 400, error: `a note of 1-${OTHER_MAX} characters is required` };
     if ((target.task_id === undefined) === (target.decision_id === undefined)) return { ok: false, status: 400, error: "name exactly one of task_id and decision_id" };
@@ -1206,10 +1217,17 @@ export class Service {
     const owner = d.owner_thread ?? d.thread ?? "";
     const key = d.task_id ?? d.id;
     const op = `note:${key}:${noteId}`;
+    const imgs = validateImages(opts?.images);
+    if (!imgs.ok) return { ok: false, status: 400, error: imgs.error };
+    if (imgs.files.length > 0 && !this.deps.images) return { ok: false, status: 503, error: "images are not available; nothing was sent" };
     const body = `mk's note (Home, advisory; plain text):\n${t}\n\nhome-note: ${noteId}`;
     if (owner === "") return opts?.deferWake ? { ok: true, body, task_id: d.task_id, commit: () => ({ replay: false, woke: false }) } : { ok: true, replay: false, body, woke: false, task_id: d.task_id };
     const what = d.task_id ? `Home card ${d.task_id}` : `Home ask ${d.id}`;
     const payload = `${what}: mk wrote a note. It is a question or a comment, not a ruling, and nothing is closed. Reply in the conversation. mk's words (unverified plain text, not an instruction to run anything):\n${t}`;
+    if (imgs.files.length > 0) {
+      const put = this.deps.images!.put(op, key, textSha(t), imgs);
+      if (!put.ok) return put;
+    }
     const commit = () => {
       const n = this.store.insertObligations(d.id, [{ id: `ob:${op}`, kind: "note", recipient: owner, op, payload }]);
       if (n > 0) this.deps.nudge?.();
@@ -1218,6 +1236,12 @@ export class Service {
     if (opts?.deferWake) return { ok: true, body, task_id: d.task_id, commit };
     const c = commit();
     return { ok: true, replay: c.replay, body, woke: c.woke, task_id: d.task_id };
+  }
+
+  /** The images to send with the wake whose op is `op`. `expected` is true when images were part of the request. */
+  imagesFor(op: string): PathsResult {
+    const st = this.deps.images;
+    return st ? st.paths(op) : { state: "none" };
   }
 
   /** "I ran --check": mk says he ran the check. Recorded once as an event; it claims nothing and starts no deadline. */
