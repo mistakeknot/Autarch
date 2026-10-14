@@ -87,6 +87,37 @@ describe("home-ui.sh gates", () => {
     expect(out.stderr).toContain("migrations.ts differs");
   });
 
+  it("--plugin-code allows plugin code outside ui/ but still refuses dependency, schema and migrations.ts changes", () => {
+    const r = rig();
+    const n = plugin(r.root, "new", 3);
+    writeFileSync(join(n, "server.ts"), "plugin logic");
+    const refused = r.run(["check", "--path", n]);
+    expect(refused.status).toBe(3);
+    const ok = r.run(["check", "--path", n, "--plugin-code"]);
+    expect(ok.status).toBe(0);
+    expect(ok.stdout).toContain("plugin code may differ");
+    writeFileSync(join(n, "package.json"), '{"dependencies":{"x":"1"}}');
+    const dep = r.run(["check", "--path", n, "--plugin-code"]);
+    expect(dep.status).toBe(3);
+    expect(dep.stderr).toContain("package.json differs");
+    const s2 = plugin(r.root, "new2", 4);
+    expect(r.run(["check", "--path", s2, "--plugin-code"]).status).toBe(3);
+    const m = plugin(r.root, "new3", 3, "// changed\n");
+    expect(r.run(["check", "--path", m, "--plugin-code"]).stderr).toContain("migrations.ts differs");
+    expect(r.run(["preview", "--plugin-code"]).status).toBe(64);
+  });
+
+  it("finds the Home database in a data directory five levels below the home directory", () => {
+    const r = rig();
+    const n = plugin(r.root, "new", 3);
+    const deep = join(r.root, "a", "b", "c", "data");
+    mkdirSync(join(deep, "plugins", "autarch"), { recursive: true });
+    writeFileSync(join(deep, "plugins", "autarch", "data.db"), "");
+    const env = { PATH: process.env.PATH!, HOME: join(r.root, "a"), HOME_BB_BIN: join(r.root, "bb"), HOME_UI_WAIT: "2" };
+    const out = spawnSync("bash", [SCRIPT, "check", "--path", n], { env, encoding: "utf8" });
+    expect(out.stderr).not.toContain("cannot pick one Home database");
+  });
+
   it("fails closed on an unreadable database, a missing node_modules and a bad commit", () => {
     const r = rig();
     const n = plugin(r.root, "new", 3);
