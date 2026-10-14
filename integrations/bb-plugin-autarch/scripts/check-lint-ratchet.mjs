@@ -11,18 +11,21 @@
 //
 // LINT_RATCHET_ROOT=<dir> points the CLI at another tree (tests use it).
 import { execFileSync } from "node:child_process";
-import { existsSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
 import { dirname, join, relative, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 
 export const KINDS = ["as_unknown_as", "as_any", "lint_disable", "oxlint_warning"];
 const SKIP = new Set(["node_modules", "dist", ".git"]);
-const SOURCE = /\.(ts|tsx|mts|mjs)$/;
+const SOURCE = /\.(ts|tsx|mts|cts|js|jsx|mjs|cjs)$/;
+const SELF = "scripts/check-lint-ratchet.mjs";
+// Whitespace and comments may sit between the tokens of a cast.
+const GAP = "(?:\\s|/\\*[\\s\\S]*?\\*/|//[^\\n]*\\n)+";
 
 export function countEscapes(text) {
   return {
-    as_unknown_as: (text.match(/\bas\s+unknown\s+as\b/g) ?? []).length,
-    as_any: (text.match(/\bas\s+any\b/g) ?? []).length,
+    as_unknown_as: (text.match(new RegExp(`\\bas${GAP}unknown${GAP}as\\b`, "g")) ?? []).length,
+    as_any: (text.match(new RegExp(`\\bas${GAP}any\\b`, "g")) ?? []).length,
     lint_disable: (text.match(/\b(?:eslint|oxlint)-disable/g) ?? []).length,
   };
 }
@@ -34,9 +37,11 @@ export function scanTree(root) {
       if (SKIP.has(e.name) || e.name.startsWith(".")) continue;
       const p = join(dir, e.name);
       if (e.isDirectory()) walk(p);
-      else if (e.isFile() && SOURCE.test(e.name) && e.name !== "check-lint-ratchet.mjs") {
+      else if (e.isFile() && SOURCE.test(e.name)) {
+        const rel = relative(root, p).split(sep).join("/");
+        if (rel === SELF) continue;
         const c = countEscapes(readFileSync(p, "utf8"));
-        if (c.as_unknown_as || c.as_any || c.lint_disable) out[relative(root, p).split(sep).join("/")] = c;
+        if (c.as_unknown_as || c.as_any || c.lint_disable) out[rel] = c;
       }
     }
   };
@@ -139,4 +144,4 @@ export function main(argv = process.argv.slice(2), env = process.env) {
   return 0;
 }
 
-if (import.meta.url === `file://${process.argv[1]}`) process.exit(main());
+if (process.argv[1] && realpathSync(fileURLToPath(import.meta.url)) === realpathSync(process.argv[1])) process.exit(main());

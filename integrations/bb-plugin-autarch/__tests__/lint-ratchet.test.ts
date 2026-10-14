@@ -1,5 +1,6 @@
 // The lint ratchet counts escapes per file and moves in one direction only: down.
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { spawnSync } from "node:child_process";
+import { copyFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -30,6 +31,9 @@ describe("countEscapes", () => {
   it("counts every occurrence, not matched lines", () => {
     const c = countEscapes(`a ${ANY} ${ANY}; b ${AS} unknown   ${AS} T; // ${DIS}-next-line x\n/* ox` + `lint-disable y */`);
     expect(c).toEqual({ as_unknown_as: 1, as_any: 2, lint_disable: 2 });
+  });
+  it("counts a cast with a comment between its tokens", () => {
+    expect(countEscapes(`x ${AS} /* c */ any; y ${AS} unknown /* c */ ${AS} T`)).toEqual({ as_unknown_as: 1, as_any: 1, lint_disable: 0 });
   });
   it("does not count words that merely contain the tokens", () => {
     expect(countEscapes("class any; const has any = 1; alias anything")).toEqual({ as_unknown_as: 0, as_any: 0, lint_disable: 0 });
@@ -87,5 +91,20 @@ describe("main", () => {
     put("node_modules/p/i.ts", ANY);
     put("notes.md", ANY);
     expect(scanTree(dir)).toEqual({});
+  });
+  it("scans every source extension oxlint reads and only exempts the script at its exact path", () => {
+    for (const f of ["a.js", "b.jsx", "c.cts", "d.cjs"]) put(f, ANY);
+    put("sub/check-lint-ratchet.mjs", ANY);
+    put("scripts/check-lint-ratchet.mjs", ANY);
+    expect(Object.keys(scanTree(dir)).sort()).toEqual(["a.js", "b.jsx", "c.cts", "d.cjs", "sub/check-lint-ratchet.mjs"]);
+  });
+  it("runs as a CLI from a path with spaces and fails on a new escape", () => {
+    const root = join(dir, "with space");
+    mkdirSync(join(root, "scripts"), { recursive: true });
+    const script = join(root, "scripts", "check-lint-ratchet.mjs");
+    copyFileSync(join(__dirname, "..", "scripts", "check-lint-ratchet.mjs"), script);
+    writeFileSync(join(root, "a.ts"), `const x = y ${ANY};\n`);
+    const e = { ...process.env, LINT_RATCHET_ROOT: root, LINT_RATCHET_NO_OXLINT: "1" };
+    expect(spawnSync("node", [script], { env: e }).status).toBe(1);
   });
 });
