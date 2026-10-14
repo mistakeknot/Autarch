@@ -1,10 +1,10 @@
 // The Other box on every card: mk's own words. "Ask / note" posts a comment and wakes the owner and never rules;
-// "Answer with this" records the words as a custom pick. The text is plain text, trimmed, capped at 2000 characters.
+// "Answer with this" records the words as a custom pick. The text is plain text, trimmed, capped at 20000 characters.
 // The server enforces the same cap; the counter here is a courtesy.
 import { useState } from "react";
 import { ActionButton } from "./buttons.js";
 
-export const OTHER_MAX = 2000;
+export const OTHER_MAX = 20000;
 
 export type OtherOutcome = { ok: boolean; error?: string };
 

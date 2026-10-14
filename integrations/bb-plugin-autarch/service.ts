@@ -80,7 +80,7 @@ const APPROVAL_MAX_TTL = 7 * 24 * 3600;
 const fail = (status: number, error: string, exit: 1 | 2 | 3 = status >= 500 ? 3 : 1): FileResult => ({ ok: false, status, exit, error });
 const bad = (error: string): FileResult => ({ ok: false, status: 400, exit: 2, error });
 export const OTHER_OPTION_ID = "other";
-export const OTHER_MAX = 2000;
+export const OTHER_MAX = 20000;
 /** True when the comment's last non-empty line is exactly the marker `home-note: <id>`, with no trimming beyond a trailing carriage return (so n1 never matches n10). */
 export function hasNoteMarker(body: string, noteId: string): boolean {
   const lines = body.split("\n").map((l) => l.replace(/\r$/, "")).filter((l) => l !== ""); // literal: only a trailing CR is dropped
