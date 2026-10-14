@@ -6,11 +6,10 @@
 // own browser, can. Exit codes: 2 usage or validation, 3 not filed, 5 already ruled, replaced
 // or closed, 1 anything else.
 import { groupMoves } from "./moveselect.js";
-import { cliCommand, defineCli, type PluginCliContext, type PluginCliResult } from "@get-bb/plugin-sdk";
+import { cliCommand, defineCli, type PluginCliResult } from "@get-bb/plugin-sdk";
 import type { Asks, LifecycleResult } from "./asks.js";
 import type { Catchup } from "./catchup.js";
 import type { Waiting } from "./waiting.js";
-import { parseAsk } from "./model.js";
 import { plainLine } from "./movereport.js";
 import { validScriptPath } from "./moves.js";
 import { buildQueue } from "./queueview.js";

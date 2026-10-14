@@ -12,7 +12,7 @@ import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { gh } from "./gh-util.js";
-import { OWNERS, keyFamily, prCardAction, legacyPrKey, PR_LIMIT, REPO_LIMIT, REPO, classify, ghPrListArgv, ghRepoListArgv, pageDescriptions, nextCursor, parseSyncArgs, parsePrList, planCards, mentionsPr, renderPlan, requestKey, type Classified } from "../ghsync.js";
+import { OWNERS, keyFamily, prCardAction, legacyPrKey, PR_LIMIT, REPO_LIMIT, REPO, classify, ghPrListArgv, ghRepoListArgv, pageDescriptions, nextCursor, parseSyncArgs, parsePrList, planCards, renderPlan, requestKey, type Classified } from "../ghsync.js";
 
 // One plain line for a failed read (for example a rate limit) instead of a stack trace.
 process.on("uncaughtException", (e) => {

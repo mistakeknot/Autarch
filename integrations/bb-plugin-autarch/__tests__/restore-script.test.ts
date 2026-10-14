@@ -6,7 +6,7 @@ import { chmodSync, copyFileSync, existsSync, lstatSync, mkdirSync, mkdtempSync,
 import { createHash } from "node:crypto";
 import { createServer, type Server } from "node:net";
 import { tmpdir } from "node:os";
-import { basename, dirname, join, resolve } from "node:path";
+import { basename, join, resolve } from "node:path";
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import Database from "better-sqlite3";
 import { MIGRATIONS, migrate } from "../migrations.js";

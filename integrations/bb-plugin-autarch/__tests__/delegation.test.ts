@@ -4,7 +4,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { Delegation } from "../delegation.js";
 import { renderFeed } from "../feed.js";
 import type { Service } from "../service.js";
-import { ask, makeEnv, OPTIONS, type Env, verifiedDelegation } from "./service-helpers.js";
+import { ask, makeEnv, type Env, verifiedDelegation } from "./service-helpers.js";
 
 let env: Env;
 let svc: Service;

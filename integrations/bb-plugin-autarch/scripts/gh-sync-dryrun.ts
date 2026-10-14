@@ -1,7 +1,6 @@
 // Read-only dry run of the GitHub PR sync: lists what would get a card and who each PR waits on.
 // Runs `gh repo list` and `gh pr list` only (argv arrays, no shell). Creates and changes nothing.
 // Usage: npx tsx scripts/gh-sync-dryrun.ts [--json]
-import { execFileSync } from "node:child_process";
 import { gh } from "./gh-util.js";
 import { OWNERS, PR_LIMIT, REPO_LIMIT, classify, ghPrListArgv, ghRepoListArgv, parsePrList, renderDryRun, REPO } from "../ghsync.js";
 

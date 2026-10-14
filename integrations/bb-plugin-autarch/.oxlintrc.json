@@ -1,0 +1,14 @@
+{
+  "$schema": "./node_modules/oxlint/configuration_schema.json",
+  "plugins": ["typescript", "react"],
+  "categories": { "correctness": "error" },
+  "env": { "builtin": true, "browser": true, "node": true },
+  "rules": {
+    "eslint/no-unused-vars": ["error", { "argsIgnorePattern": "^_", "varsIgnorePattern": "^_", "caughtErrorsIgnorePattern": "^_" }],
+    "react/purity": "warn",
+    "react/immutability": "warn",
+    "react/set-state-in-effect": "warn",
+    "react-hooks/exhaustive-deps": "warn"
+  },
+  "ignorePatterns": ["**/node_modules/**", "**/dist/**"]
+}

@@ -42,6 +42,7 @@
     "clsx": "^2.1.1",
     "cron-parser": "^5.5.0",
     "hono": "^4.11.9",
+    "oxlint": "^1.88.0",
     "playwright-core": "1.58.2",
     "sonner": "^1.7.4",
     "tailwind-merge": "^3.4.0",
@@ -52,6 +53,7 @@
   },
   "scripts": {
     "typecheck": "tsc -p tsconfig.json",
+    "lint": "oxlint -c .oxlintrc.json . && node scripts/check-lint-ratchet.mjs",
     "test": "vitest run --passWithNoTests",
     "e2e": "tsx e2e/harness.ts"
   }

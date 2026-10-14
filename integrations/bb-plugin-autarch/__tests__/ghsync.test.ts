@@ -79,6 +79,7 @@ describe("the gh argv allowlist", () => {
 describe("renderDryRun", () => {
   it("cleans control characters out of file paths in the reason", () => {
     const text = renderDryRun([classify(pr({ files: ["AGENTS.md\u001b[31m"] }))]);
+    // eslint-disable-next-line no-control-regex
     expect(text).not.toMatch(/\u001b/);
   });
   it("sends a capped file list to mk", () => {

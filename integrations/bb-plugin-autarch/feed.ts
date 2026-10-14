@@ -30,6 +30,7 @@ const DAY = 86_400_000;
 const HEADER = "Rulings made (newest first; [auto] means Home closed the card on evidence, not mk):";
 const NOTE = "If your question is already answered above, do not file it again.";
 
+// eslint-disable-next-line no-control-regex
 const CONTROL = new RegExp("[\\u0000-\\u001f\\u007f-\\u009f\\u2028\\u2029]", "g");
 
 /** Control characters stripped, then clipped to 80 UTF-16 units without splitting a surrogate pair. */

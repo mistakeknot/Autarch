@@ -1,5 +1,4 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { Delegation } from "../delegation.js";
 import type { Service } from "../service.js";
 import { framed, sdkAdapter, WakeLoop } from "../wakes.js";
 import { ask, makeEnv, type Env, verifiedDelegation } from "./service-helpers.js";

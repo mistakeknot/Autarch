@@ -58,7 +58,12 @@ export function ownedSet(launcher: number, proc = "/proc"): number[] {
   const owned = new Set<number>([launcher]);
   for (let grew = true; grew; ) {
     grew = false;
-    for (const [pid, ppid] of par) if (!owned.has(pid) && owned.has(ppid)) (owned.add(pid), (grew = true));
+    for (const [pid, ppid] of par) {
+      if (!owned.has(pid) && owned.has(ppid)) {
+        owned.add(pid);
+        grew = true;
+      }
+    }
   }
   return [...owned].sort((a, b) => a - b);
 }

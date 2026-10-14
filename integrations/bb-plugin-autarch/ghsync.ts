@@ -73,6 +73,7 @@ export function classify(pr: GhPrRow): Classified {
 
 /** One line of text with control characters removed and a length cap; GitHub text is untrusted. */
 export function cleanTitle(s: string, max = 120): string {
+  // eslint-disable-next-line no-control-regex
   const t = s.replace(/[\u0000-\u001f\u007f-\u009f\u2028\u2029]/g, " ").replace(/\s+/g, " ").trim();
   return (t.length > max ? t.slice(0, max - 1) + "…" : t) || "(no title)";
 }

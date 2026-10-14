@@ -44,7 +44,7 @@ import { keyAction, layoutStack, stackReducer, StackView } from "./ui/stack.js";
 import { HomeTabs, QueueTabs, type QueueTab } from "./ui/tabs.js";
 import type { Panel, StackState } from "./ui/stack.js";
 import { HOME_SOURCE } from "./ui/identity.js";
-import { TellVizier, ThreadPanel, VizierPanel } from "./ui/vizier.js";
+import { TellVizier, ThreadPanel } from "./ui/vizier.js";
 
 /** The todo list, kept current by the server's "todos-changed" signal. */
 function useTodos() {

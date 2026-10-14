@@ -256,7 +256,7 @@ describe("cards in the CLI (Task 2.7)", () => {
   });
 
   it("get --request resolves a card key through card_requests, and a legacy key through the registry", async () => {
-    const { r, c, run: go } = await cardCli({ key: "key-card-1" });
+    const { c, run: go } = await cardCli({ key: "key-card-1" });
     const x = await go(["get", "--request", "key-card-1"]);
     expect(JSON.parse(x.stdout!)).toMatchObject({ status: "registered", task_id: c.t.id, request_key: "key-card-1", decision_id: c.g1.id });
     expect(JSON.parse(x.stdout!).identity).toEqual(expect.any(String));
