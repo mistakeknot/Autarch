@@ -259,6 +259,14 @@ describe("home-ui.sh preview and rollback", () => {
         expect(r.log()).not.toContain("plugin disable");
       }
     });
+    it("check names a build that has no package.json", () => {
+      const r = rig();
+      const n = plugin(r.root, "new", 3);
+      rmSync(join(n, "package.json"));
+      const out = r.run(["check", "--path", n]);
+      expect(out.status).toBe(3);
+      expect(out.stderr).toContain("is not a Home plugin build");
+    });
     it("preview stops at the first failed gate", () => {
       const r = rig();
       const n = plugin(r.root, "new", 4);

@@ -104,7 +104,7 @@ gate_collect() {   # $1 = plugin dir to run
     local var=$1; shift
     if out=$( ("$@") 2>"$err" ); then printf -v "$var" '%s' "$out"; else cat "$err" >&2; n=$((n+1)); printf -v "$var" '%s' ''; return 1; fi
   }
-  tryv out test -f "$new/package.json" -a -f "$new/migrations.ts" || true
+  { [ -f "$new/package.json" ] && [ -f "$new/migrations.ts" ]; } || bad "$new is not a Home plugin build (package.json or migrations.ts is missing)"
   [ -d "$new/node_modules" ] || bad "$new has no node_modules (run npm ci there as mk)"
   tryv live live_schema || true
   tryv code code_version "$new" || true
