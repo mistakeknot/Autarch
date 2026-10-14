@@ -111,12 +111,14 @@ plugin_code_only() {   # $1 = installed build, $2 = target; dependencies and the
         || die "NOT plugin-code-only: $f differs from the installed build. A dependency change goes to mk as a script." 3
     fi
   done
-  # Defence in depth, not proof: changed plugin code must not contain schema statements. The deploy's real guarantee on code
-  # behaviour is the cross-lab review of the merged head that the deploy approval requires.
-  local changed
-  changed=$(diff -rq -x node_modules "$1" "$2" 2>/dev/null | sed -n 's/^Files .* and \(.*\) differ$/\1/p; s/^Only in \(.*\): \(.*\)$/\1\/\2/p' | grep -v '/__tests__/' | grep -v "^$2/ui/" || true)
-  if [ -n "$changed" ] && echo "$changed" | xargs -d '\n' -r grep -Eil '(create|alter|drop)[[:space:]]+(virtual[[:space:]]+)?(table|index|trigger|view)|pragma[[:space:]]+(user_version|writable_schema)|schema_meta' >/dev/null 2>&1; then
-    die "NOT plugin-code-only: a changed plugin file mentions schema statements (CREATE/ALTER/DROP, schema_meta). A schema change goes to mk as a script." 3
+  # Defence in depth, not proof: lines added to plugin code outside ui/ and __tests__/ must not contain schema statements. The
+  # deploy's real guarantee on code behaviour is the cross-lab review of the merged head that the deploy approval requires.
+  local d rc=0 added
+  d=$(diff -rN -U0 -x node_modules "$1" "$2") || rc=$?
+  [ "$rc" -le 1 ] || die "NOT plugin-code-only: could not diff the installed build against the target (diff exit $rc)" 3
+  added=$(printf '%s\n' "$d" | awk -v ui="$2/ui/" -v t="$2/__tests__/" '/^diff /{skip=(index($NF,ui)==1||index($NF,t)==1); next} /^(\+\+\+|---)/{next} !skip && /^\+/{printf "%s ", substr($0,2)}')
+  if printf '%s' "$added" | grep -Eiq '(create|alter|drop)[[:space:]]+(virtual[[:space:]]+)?(table|index|trigger|view)|pragma[[:space:]]+(user_version|writable_schema)|schema_meta'; then
+    die "NOT plugin-code-only: changed plugin code adds a schema statement (CREATE/ALTER/DROP, schema_meta). A schema change goes to mk as a script." 3
   fi
 }
 backup() {   # prints the backup directory

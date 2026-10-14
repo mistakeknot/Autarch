@@ -113,9 +113,22 @@ describe("home-ui.sh gates", () => {
     writeFileSync(join(n, "store.ts"), 'db.exec("CREATE TABLE gate_bypassed(x TEXT)");');
     const out = r.run(["check", "--path", n, "--plugin-code"]);
     expect(out.status).toBe(3);
-    expect(out.stderr).toContain("schema statements");
+    expect(out.stderr).toContain("schema statement");
     writeFileSync(join(n, "store.ts"), "ok();");
     expect(r.run(["check", "--path", n, "--plugin-code"]).status).toBe(0);
+  });
+
+  it("--plugin-code scans added lines, including new directories and multi-line SQL, and ignores unchanged references", () => {
+    const r = rig();
+    writeFileSync(join(r.cur, "backup.ts"), 'q("SELECT value FROM schema_meta");\n');
+    const n = plugin(r.root, "new", 3);
+    writeFileSync(join(n, "backup.ts"), 'q("SELECT value FROM schema_meta");\n// comment only\n');
+    expect(r.run(["check", "--path", n, "--plugin-code"]).status).toBe(0);
+    mkdirSync(join(n, "lib"));
+    writeFileSync(join(n, "lib", "x.ts"), "db.exec(`CREATE\n  TABLE t2(x)`);\n");
+    const out = r.run(["check", "--path", n, "--plugin-code"]);
+    expect(out.status).toBe(3);
+    expect(out.stderr).toContain("schema statement");
   });
 
   it("--plugin-code refuses any added, changed or dangling lockfile and .npmrc", () => {
