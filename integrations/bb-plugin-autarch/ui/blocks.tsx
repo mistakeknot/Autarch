@@ -216,7 +216,7 @@ export function BlocksPanel({ data, nowMs, thread, onPick, onOpen, rootRun, onBi
       {unbound.length > 0 ? (
         <section data-section="unbound-projects">
           <h2 className="mb-2 text-xs font-semibold uppercase text-muted-foreground">{`Unbound projects (${unbound.length})`}</h2>
-          <p className="mb-2 text-xs text-muted-foreground">These cards belong to a project with no verified root. Home shows them but cannot record a ruling on them, so there are no pick buttons. Bind the project, or use Ask / note to talk to the owner.</p>
+          <p className="mb-2 text-xs text-muted-foreground">These cards belong to a project with no verified root. Citadel shows them but cannot record a ruling on them, so there are no pick buttons. Bind the project, or use Ask / note to talk to the owner.</p>
           <div className="space-y-3">{unbound.map(row)}</div>
         </section>
       ) : null}

@@ -215,8 +215,8 @@ export class Ideas {
       const labels = await this.d.tasks.listLabels(task.projectId, { fresh: true });
       const idea = new Set(labels.filter((l) => sameName(l.name, IDEA_LABEL)).map((l) => l.id));
       if (![...idea].some((l) => task.labelIds.includes(l))) return { ok: false, status: 409, error: "that card is not an idea" };
-      if (!labels.some((l) => sameName(l.name, FROM_MK_LABEL) && task.labelIds.includes(l.id))) return { ok: false, status: 409, error: "that card was not filed from Home" };
-      if (!isHomeFiled(task.description)) return { ok: false, status: 409, error: "that card was not filed from Home" };
+      if (!labels.some((l) => sameName(l.name, FROM_MK_LABEL) && task.labelIds.includes(l.id))) return { ok: false, status: 409, error: "that card was not filed from Citadel" };
+      if (!isHomeFiled(task.description)) return { ok: false, status: 409, error: "that card was not filed from Citadel" };
       const project = (await this.d.tasks.listProjects()).find((p) => p.id === task.projectId);
       const marker = `home-idea-action: ${task.id}:${i.action}`;
       const prior = (await this.d.tasks.listComments(task.id)).some((c) => c.body.includes(marker));
@@ -239,7 +239,7 @@ export class Ideas {
         const freshDecided = !fresh || fresh.labelIds.some((l) => nowLabels.some((x) => x.id === l && (sameName(x.name, PURSUE_LABEL) || sameName(x.name, PARKED_LABEL)))) || !(IDEA_STATUSES as readonly string[]).includes(fresh.status);
         const owned = (name: string) => fresh?.labelIds.some((l) => nowLabels.some((x) => x.id === l && sameName(x.name, name))) ?? false;
         // Still a Home idea: another actor may have taken the labels off since the first read.
-        if (!freshDecided && !(owned(IDEA_LABEL) && owned(FROM_MK_LABEL) && isHomeFiled(fresh!.description))) return { ok: false, status: 409, error: "that card is no longer a Home idea" };
+        if (!freshDecided && !(owned(IDEA_LABEL) && owned(FROM_MK_LABEL) && isHomeFiled(fresh!.description))) return { ok: false, status: 409, error: "that card is no longer a Citadel idea" };
         if (freshDecided) return { ok: false, status: 409, error: "that idea was decided while you were choosing" };
         if (i.action === "drop") await this.d.tasks.setStatus(task.id, "canceled");
         else {

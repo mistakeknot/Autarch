@@ -34,7 +34,7 @@ export interface ConversationApi {
 export const ConversationContext = createContext<ConversationApi | null>(null);
 export const ConversationProvider = ConversationContext.Provider;
 
-export const HOME_POSTED_LABEL = "posted from Home (unattested)";
+export const HOME_POSTED_LABEL = "posted from Citadel (unattested)";
 const CLASS_LABEL: Record<AuthorClass, string> = { mk: "mk", owner: "owner", vizier: "vizier", other: "other" };
 
 function stamp(iso: string): string {

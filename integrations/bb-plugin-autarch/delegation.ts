@@ -321,7 +321,7 @@ export class Delegation {
       const item = `delegation-settings:${e.seq}`;
       if (!this.store.hasSeen(MK, item)) out.push({ item, at: e.at });
     }
-    for (const a of this.unseenAdoptions()) out.push({ item: a.item, at: a.at, text: `Home adopted ${a.to} as the vizier thread; delegated rulings stay suspended until you see this.` });
+    for (const a of this.unseenAdoptions()) out.push({ item: a.item, at: a.at, text: `Citadel adopted ${a.to} as the vizier thread; delegated rulings stay suspended until you see this.` });
     for (const p of this.db.prepare(`SELECT decision_id, picked_at FROM picks WHERE "by" = 'vizier' ORDER BY picked_at, rowid`).all() as { decision_id: string; picked_at: string }[]) {
       const item = `ruling:${p.decision_id}`;
       if (!this.store.hasSeen(MK, item)) out.push({ item, decision: p.decision_id, at: p.picked_at });
