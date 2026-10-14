@@ -1,7 +1,10 @@
 #!/bin/bash
 # Home UI deploy and live preview, for changes that do not touch the database schema.
-#   scripts/home-ui.sh check    [--commit SHA | --path DIR]   gates only; changes nothing
-#   scripts/home-ui.sh deploy   --commit <40-hex sha>         backup, install that merged-main commit, verify, print the rollback
+#   scripts/home-ui.sh check    [--commit SHA | --path DIR] [--plugin-code]   gates only; changes nothing
+#   scripts/home-ui.sh deploy   --commit <40-hex sha> [--plugin-code]
+#                                                             backup, install that merged-main commit, verify, print the rollback.
+#                                                             --plugin-code also allows plugin code changes outside ui/ (not package.json,
+#                                                             package-lock.json or migrations.ts, and never a schema change)
 #   scripts/home-ui.sh preview  [--path DIR]                  backup, run DIR (default: this checkout) as Home with hot reload on the
 #                                                             live data; Ctrl+C restores the previous build
 #   scripts/home-ui.sh rollback BACKUP_DIR [--restore-data]   reinstall the build the backup recorded (data restore only if asked)
@@ -26,7 +29,7 @@ die() { echo "home-ui: $*" >&2; exit "${2:-1}"; }
 MKHOME=${HOME:?}
 BB=${HOME_BB_BIN:-$MKHOME/.local/bin/bb}
 if [ -z "${HOME_BB_DATA:-}" ]; then   # discover the one BB data directory that holds the Home database
-  mapfile -t found < <(find "$MKHOME" -maxdepth 4 -path '*/plugins/autarch/data.db' -type f 2>/dev/null)
+  mapfile -t found < <(find "$MKHOME" -maxdepth 6 -path '*/plugins/autarch/data.db' -type f 2>/dev/null)
   [ ${#found[@]} -eq 1 ] || die "cannot pick one Home database (found ${#found[@]}); set HOME_BB_DATA to the BB data directory" 64
   HOME_BB_DATA=${found[0]%/plugins/autarch/data.db}
 fi
@@ -38,7 +41,7 @@ PLUGIN_REL=integrations/bb-plugin-autarch
 STAMP=$(date -u +%Y%m%dT%H%M%SZ)
 
 SUB=${1:-}; [ $# -gt 0 ] && shift || true
-COMMIT=; PATH_ARG=; RESTORE_DATA=0; BACKUP_ARG=
+COMMIT=; PATH_ARG=; RESTORE_DATA=0; BACKUP_ARG=; PLUGIN_CODE=0
 case $SUB in
   rollback) BACKUP_ARG=${1:?rollback needs the backup directory}; shift ;;
   check|deploy|preview|migrate-check) ;;
@@ -49,10 +52,12 @@ while [ $# -gt 0 ]; do
     --commit) COMMIT=${2:?--commit needs a sha}; shift 2 ;;
     --path) PATH_ARG=${2:?--path needs a directory}; shift 2 ;;
     --restore-data) RESTORE_DATA=1; shift ;;
+    --plugin-code) PLUGIN_CODE=1; shift ;;
     *) die "unknown argument: $1" 64 ;;
   esac
 done
 [[ -z $COMMIT || $COMMIT =~ ^[0-9a-f]{40}$ ]] || die "--commit must be a full 40-hex sha" 64
+[ "$PLUGIN_CODE" = 0 ] || [ "$SUB" = deploy ] || [ "$SUB" = check ] || die "--plugin-code applies to check and deploy only" 64
 [ "$SUB" != deploy ] || [ -n "$COMMIT" ] || die "deploy needs --commit <40-hex sha>" 64
 
 live_schema() {
@@ -82,8 +87,13 @@ gate_ui_only() {   # $1 = plugin dir to run
   [ "$live" = "$code" ] || die "NOT UI-only: the build is schema $code, the live database is schema $live. This is a migration; it goes to mk as a script." 3
   cur=$(installed_dir)
   cmp -s "$cur/migrations.ts" "$new/migrations.ts" || die "NOT UI-only: migrations.ts differs from the installed build ($cur). This goes to mk as a script." 3
-  ui_files_only "$cur" "$new"
-  echo "gate ok: schema $live, only ui/ and __tests__/ differ from the installed build"
+  if [ "$PLUGIN_CODE" = 1 ]; then
+    plugin_code_only "$cur" "$new"
+    echo "gate ok: schema $live, migrations.ts identical, package.json, lockfiles and .npmrc identical; plugin code may differ from the installed build"
+  else
+    ui_files_only "$cur" "$new"
+    echo "gate ok: schema $live, only ui/ and __tests__/ differ from the installed build"
+  fi
 }
 ui_files_only() {   # $1 = installed build, $2 = target; every difference must be under ui/ or __tests__/
   local out
@@ -91,6 +101,29 @@ ui_files_only() {   # $1 = installed build, $2 = target; every difference must b
   [ -z "$out" ] || die "NOT UI-only: files outside ui/ and __tests__/ differ from the installed build:
 $out
 This goes to mk as a script (or a reviewed PR + deploy of a build that only touches ui/)." 3
+}
+plugin_code_only() {   # $1 = installed build, $2 = target; dependencies and the schema must not move (migrations.ts was compared by the caller)
+  local f
+  [ -f "$1/package.json" ] && [ -f "$2/package.json" ] || die "NOT plugin-code-only: package.json is missing from the installed build or the target" 3
+  for f in package.json package-lock.json npm-shrinkwrap.json .npmrc pnpm-lock.yaml yarn.lock; do
+    if [ -e "$1/$f" ] || [ -L "$1/$f" ] || [ -e "$2/$f" ] || [ -L "$2/$f" ]; then
+      { [ -f "$1/$f" ] && [ ! -L "$1/$f" ] && [ -f "$2/$f" ] && [ ! -L "$2/$f" ] && cmp -s "$1/$f" "$2/$f"; } \
+        || die "NOT plugin-code-only: $f differs from the installed build. A dependency change goes to mk as a script." 3
+    fi
+  done
+  # Defence in depth, not proof: lines added to plugin code outside ui/ and __tests__/ must not contain schema statements. The
+  # deploy's real guarantee on code behaviour is the cross-lab review of the merged head that the deploy approval requires.
+  local f rel old rc added=
+  while IFS= read -r -d '' f; do
+    rel=${f#"$2"/}
+    case $rel in ui/*|__tests__/*|node_modules/*) continue ;; esac
+    old=$1/$rel; [ -f "$old" ] || old=/dev/null
+    rc=0; added+=$(diff -a --unchanged-line-format= --old-line-format= --new-line-format='%L ' -- "$old" "$f") || rc=$?
+    [ "$rc" -le 1 ] || die "NOT plugin-code-only: could not diff $rel against the installed build (diff exit $rc)" 3
+  done < <(find "$2" -path "$2/node_modules" -prune -o -type f -print0)
+  if printf '%s' "$added" | tr '\n\0' '  ' | grep -Eiq '(create|alter|drop)[[:space:]]+(virtual[[:space:]]+)?(table|index|trigger|view)|pragma[[:space:]]+(user_version|writable_schema)|schema_meta'; then
+    die "NOT plugin-code-only: changed plugin code adds a schema statement (CREATE/ALTER/DROP, schema_meta). A schema change goes to mk as a script." 3
+  fi
 }
 backup() {   # prints the backup directory
   local dir=$BBDATA/home-backups/$STAMP prev
