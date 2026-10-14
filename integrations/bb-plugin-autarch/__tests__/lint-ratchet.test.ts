@@ -35,6 +35,11 @@ describe("countEscapes", () => {
   it("counts a cast with a comment between its tokens", () => {
     expect(countEscapes(`x ${AS} /* c */ any; y ${AS} unknown /* c */ ${AS} T`)).toEqual({ as_unknown_as: 1, as_any: 1, lint_disable: 0 });
   });
+  it("counts a cast split by a line comment ending in any line terminator", () => {
+    for (const eol of ["\n", "\r", "\r\n", "\u2028", "\u2029"]) {
+      expect(countEscapes(`x ${AS} // c${eol}any`).as_any).toBe(1);
+    }
+  });
   it("does not count words that merely contain the tokens", () => {
     expect(countEscapes("class any; const has any = 1; alias anything")).toEqual({ as_unknown_as: 0, as_any: 0, lint_disable: 0 });
   });

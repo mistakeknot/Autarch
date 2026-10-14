@@ -20,7 +20,7 @@ const SKIP = new Set(["node_modules", "dist", ".git"]);
 const SOURCE = /\.(ts|tsx|mts|cts|js|jsx|mjs|cjs)$/;
 const SELF = "scripts/check-lint-ratchet.mjs";
 // Whitespace and comments may sit between the tokens of a cast.
-const GAP = "(?:\\s|/\\*[\\s\\S]*?\\*/|//[^\\n]*\\n)+";
+const GAP = "(?:\\s|/\\*[\\s\\S]*?\\*/|//[^\\n\\r\\u2028\\u2029]*[\\n\\r\\u2028\\u2029])+";
 
 export function countEscapes(text) {
   return {
