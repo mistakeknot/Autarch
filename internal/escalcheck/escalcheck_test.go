@@ -307,6 +307,9 @@ func TestStateDirIsPinnedAndAbsolute(t *testing.T) {
 	r = Run(context.Background(), o, f.env)
 	wantVar("relative", f.state)
 	reported("relative", r)
+	if status(t, r, "script.rehearsed") != Pass {
+		t.Errorf("relative flag state should pass: %v", r.Items)
+	}
 	// relative inherited override
 	o.RehearseState = ""
 	f.env.Environ = func() []string { return []string{"HOME=" + f.dir, "HANDOFF_REHEARSE_STATE=state"} }
@@ -315,9 +318,6 @@ func TestStateDirIsPinnedAndAbsolute(t *testing.T) {
 	reported("relative inherited", r)
 	if status(t, r, "script.rehearsed") != Pass {
 		t.Errorf("relative inherited state should pass: %v", r.Items)
-	}
-	if status(t, r, "script.rehearsed") != Pass {
-		t.Errorf("relative state should pass: %v", r.Items)
 	}
 }
 
