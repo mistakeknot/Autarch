@@ -3,6 +3,8 @@ import { Asks } from "../asks.js";
 import { Catchup } from "../catchup.js";
 import { homeCli } from "../cli.js";
 import { cliOnlyVerbs, homeCliMap, homeMethods } from "../contract.js";
+import { conversationView } from "../conversation.js";
+import { moveViews } from "../moveview.js";
 import { makeEnv, type Env, verifiedDelegation } from "./service-helpers.js";
 
 let env: Env;
@@ -54,8 +56,11 @@ describe("the CLI and the RPC contract", () => {
   });
 
   it("read the stats window from the same limits as the stats method", async () => {
-    expect((await Promise.resolve(cli.run(["stats", "--since", "400d", "--json"], {}))).exitCode).toBe(2);
-    expect((await Promise.resolve(cli.run(["stats", "--since", "14d", "--json"], {}))).exitCode).toBe(0);
+    const code = async (since: string) => (await Promise.resolve(cli.run(["stats", "--since", since, "--json"], {}))).exitCode;
+    for (const [since, want] of [["12h", 2], ["23h", 2], ["1d", 0], ["14d", 0], ["365d", 0], ["366d", 2], ["400d", 2]] as const) expect(await code(since), since).toBe(want);
+    // The panel's method enforces the same two edges.
+    expect(homeMethods.stats.input.safeParse({ days: 0 }).success).toBe(false);
+    expect(homeMethods.stats.input.safeParse({ days: 366 }).success).toBe(false);
   });
 });
 
@@ -65,6 +70,20 @@ describe("RPC outputs", () => {
       expect(m.output.safeParse(7).success, name).toBe(false);
       expect(m.output.safeParse("x").success, name).toBe(false);
     }
+  });
+
+  it("keep every field the panel reads from the real read models", () => {
+    const svc = env.open();
+    const conv = conversationView(svc, "no-such-task", null);
+    expect(homeMethods.conversation.output.parse(conv)).toEqual(conv);
+    expect(Object.keys(conv)).toEqual(expect.arrayContaining(["comments", "unread", "stale", "last_ok_at", "options"]));
+    const mv = moveViews(svc);
+    expect(homeMethods.moves.output.parse(mv)).toEqual(mv);
+    expect(Object.keys(mv)).toEqual(expect.arrayContaining(["yourMove", "reported", "later", "hidden", "audit"]));
+    const health = { ready: true, error: null, source_sha256: "x", build: {}, projects: null, projects_error: null };
+    expect(homeMethods.health.output.parse(health)).toEqual(health);
+    expect(homeMethods.health.output.safeParse({ ready: "yes" }).success).toBe(false);
+    expect(homeMethods.conversation.output.safeParse({ ...conv, options: undefined }).success).toBe(false);
   });
 
   it("accept the shapes the service returns, extra fields included", () => {

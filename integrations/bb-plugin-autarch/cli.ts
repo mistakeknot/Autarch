@@ -180,8 +180,8 @@ export function homeCli(p: HomeCliParts) {
           json: { type: "boolean", description: "Print JSON (the only format)." },
         },
         async run({ options }) {
-          // The window obeys the same limits as the panel's `stats` method.
-          const days = homeMethods.stats.input.safeParse({ days: Math.ceil(options.since / DAY_MS) });
+          // The window obeys the same limits as the panel's `stats` method (whole days read downward, so 12h is under the minimum).
+          const days = homeMethods.stats.input.safeParse({ days: Math.floor(options.since / DAY_MS) });
           if (!days.success) return err(2, "--since must be between 1d and 365d");
           const since = new Date(Date.parse(svc.time()) - options.since).toISOString();
           const stats = { ...svc.stats(since), ...(p.waiting ? { waiting: p.waiting() } : {}) };
