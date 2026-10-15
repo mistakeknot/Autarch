@@ -1,17 +1,24 @@
 // The Home RPC methods. The panel calls only these; nothing here carries an attested caller,
 // so `pick` records `by: mk` as advisory attribution [P-10] [G-15]. Inputs are strict; outputs
-// are shaped by the service and pass through as JSON.
+// are checked loosely (see `result`) and pass through as JSON.
 import { z } from "zod";
 
-const out = z.unknown();
+// Outputs are checked only for the shape every caller relies on, and every object passes extra fields
+// through, so a service that adds a field never breaks a panel. Most write methods answer with the
+// `{ ok }` envelope; the read models answer with the one key their panel reads.
+const result = z.object({ ok: z.boolean() }).passthrough();
+const readModel = z.custom<object>((v) => typeof v === "object" && v !== null && !Array.isArray(v), "expected an object");
+const list = z.array(z.unknown());
+const conversationView = z.object({ task_id: z.string(), comments: list, unread: z.number(), stale: z.boolean(), last_ok_at: z.string().nullable(), options: list });
+const moveGroups = z.object({ yourMove: list, reported: list, later: list, hidden: list, audit: z.unknown() });
 
 export const homeMethods = {
-  listAsks: { input: z.null(), output: out },
+  listAsks: { input: z.null(), output: readModel },
   // The blocks panel's read model (plan 1.4). `thread` pins the cards that involve that thread.
-  queue: { input: z.object({ thread: z.string().min(1).max(128).optional() }), output: out },
+  queue: { input: z.object({ thread: z.string().min(1).max(128).optional() }), output: readModel },
   // A card's root-run display (plan 1.5, Task 2.8): the paste command and read-only status. Reads the card
   // from tasks and the script file from disk; writes nothing and runs nothing.
-  rootRun: { input: z.object({ task_id: z.string().min(1).max(64) }), output: out },
+  rootRun: { input: z.object({ task_id: z.string().min(1).max(64) }), output: result },
   // mk's one-time confirmation of a tasks-project to Home-project binding (plan 1.3.6, Q5). RPC only: no CLI verb.
   setBinding: {
     input: z.object({
@@ -19,9 +26,9 @@ export const homeMethods = {
       state: z.enum(["confirmed", "rejected"]),
       home_project: z.string().min(1).max(200).optional(),
     }),
-    output: out,
+    output: result,
   },
-  listRecent: { input: z.object({ project: z.string().min(1), limit: z.number().int().min(1).max(200).default(50) }), output: out },
+  listRecent: { input: z.object({ project: z.string().min(1), limit: z.number().int().min(1).max(200).default(50) }), output: z.object({ recent: list }).passthrough() },
   pick: {
     input: z.object({
       decision_id: z.string().min(1),
@@ -34,50 +41,105 @@ export const homeMethods = {
       /** Where the operator picked: Home (default). "overlay" is historical (the overlay panel was removed) and stays so old rows read. The CLI records its own. */
       surface: z.enum(["home", "overlay"]).default("home"),
     }),
-    output: out,
+    output: result,
   },
   // Your move (plan Revision 2, 6). `claimMove` records mk's "I did it" as reported, not verified: it never closes
   // a move. `skipMove` is "Later / skip". Neither carries a caller identity, so both are advisory (unattested).
-  moves: { input: z.null(), output: out },
+  moves: { input: z.null(), output: moveGroups },
   claimMove: {
     input: z.object({ task_id: z.string().min(1).max(64), generation: z.number().int().min(1).max(1_000_000), note: z.string().max(500).optional() }).strict(),
-    output: out,
+    output: result,
   },
-  checkMove: { input: z.object({ task_id: z.string().min(1).max(64), generation: z.number().int().min(1).max(1_000_000) }).strict(), output: out },
-  skipMove: { input: z.object({ task_id: z.string().min(1).max(64), generation: z.number().int().min(1).max(1_000_000) }).strict(), output: out },
+  checkMove: { input: z.object({ task_id: z.string().min(1).max(64), generation: z.number().int().min(1).max(1_000_000) }).strict(), output: result },
+  skipMove: { input: z.object({ task_id: z.string().min(1).max(64), generation: z.number().int().min(1).max(1_000_000) }).strict(), output: result },
   // Later (bead mk-8741): set an open card aside, below the active ones and outside the Waiting count; undo moves it back.
   // `ref` is a task id or a tasks key. Neither rules, closes or refuses a pick.
-  later: { input: z.object({ ref: z.string().min(1).max(128) }).strict(), output: out },
-  unlater: { input: z.object({ ref: z.string().min(1).max(128) }).strict(), output: out },
+  later: { input: z.object({ ref: z.string().min(1).max(128) }).strict(), output: result },
+  unlater: { input: z.object({ ref: z.string().min(1).max(128) }).strict(), output: result },
   // The Other box's "Ask / note": a comment on the card plus an owner wake. Never rules or closes.
-  note: { input: z.object({ task_id: z.string().min(1).max(64).optional(), decision_id: z.string().min(1).max(128).optional(), text: z.string().min(1).max(20000), note_id: z.string().min(1).max(64), images: z.array(z.object({ mime: z.string().max(32), data_base64: z.string().max(7_300_000) }).strict()).max(4).optional() }).strict(), output: out },
+  note: { input: z.object({ task_id: z.string().min(1).max(64).optional(), decision_id: z.string().min(1).max(128).optional(), text: z.string().min(1).max(20000), note_id: z.string().min(1).max(64), images: z.array(z.object({ mime: z.string().max(32), data_base64: z.string().max(7_300_000) }).strict()).max(4).optional() }).strict(), output: result },
   // Conversation on the card: read-only views of the mirrored comments. Display only; nothing here rules or closes.
-  conversation: { input: z.object({ task_id: z.string().min(1).max(64) }).strict(), output: out },
-  conversationUnread: { input: z.null(), output: out },
-  markConversationSeen: { input: z.object({ task_id: z.string().min(1).max(64), through: z.string().min(1).max(200) }).strict(), output: out },
+  conversation: { input: z.object({ task_id: z.string().min(1).max(64) }).strict(), output: conversationView },
+  conversationUnread: { input: z.null(), output: z.object({ unread: z.record(z.string(), z.number()) }) },
+  markConversationSeen: { input: z.object({ task_id: z.string().min(1).max(64), through: z.string().min(1).max(200) }).strict(), output: result },
   // The Idea box and weekly digest (bead mk-2zojo). An idea is a tracker card; none of these rules, closes or starts anything.
-  ideaProjects: { input: z.null(), output: out },
-  ideas: { input: z.null(), output: out },
-  fileIdea: { input: z.object({ project_id: z.string().min(1).max(64), text: z.string().max(4000), idea_id: z.string().min(1).max(64) }).strict(), output: out },
-  actIdea: { input: z.object({ task_id: z.string().min(1).max(64), action: z.enum(["pursue", "park", "drop"]) }).strict(), output: out },
-  clearIdeaDigest: { input: z.null(), output: out },
-  dismiss: { input: z.object({ decision_id: z.string().min(1), obligation_id: z.string().min(1) }), output: out },
-  override: { input: z.object({ decision_id: z.string().min(1) }), output: out },
+  ideaProjects: { input: z.null(), output: result },
+  ideas: { input: z.null(), output: result },
+  fileIdea: { input: z.object({ project_id: z.string().min(1).max(64), text: z.string().max(4000), idea_id: z.string().min(1).max(64) }).strict(), output: result },
+  actIdea: { input: z.object({ task_id: z.string().min(1).max(64), action: z.enum(["pursue", "park", "drop"]) }).strict(), output: result },
+  clearIdeaDigest: { input: z.null(), output: result },
+  dismiss: { input: z.object({ decision_id: z.string().min(1), obligation_id: z.string().min(1) }), output: result },
+  override: { input: z.object({ decision_id: z.string().min(1) }), output: result },
   setDelegation: {
     input: z.object({
       vizierThreadId: z.string().min(1),
       projects: z.array(z.string().min(1)).max(100),
       dailyCap: z.number().int().min(0).max(1000),
     }),
-    output: out,
+    output: result,
   },
-  revokeApproval: { input: z.object({ approval_id: z.string().min(1) }), output: out },
-  setViewing: { input: z.object({ decision_id: z.string().min(1).nullable() }), output: out },
-  resend: { input: z.object({ id: z.string().min(1), attempt: z.number().int().min(0), click_id: z.string().min(1) }), output: out },
-  markSeen: { input: z.object({ item: z.string().min(1) }), output: out },
-  markAllSeen: { input: z.object({ ids: z.array(z.string().min(1)).max(500) }), output: out },
-  catchup: { input: z.null(), output: out },
-  waiting: { input: z.null(), output: out },
-  stats: { input: z.object({ days: z.number().int().min(1).max(365).default(14) }), output: out },
-  health: { input: z.null(), output: out },
+  revokeApproval: { input: z.object({ approval_id: z.string().min(1) }), output: result },
+  setViewing: { input: z.object({ decision_id: z.string().min(1).nullable() }), output: result },
+  resend: { input: z.object({ id: z.string().min(1), attempt: z.number().int().min(0), click_id: z.string().min(1) }), output: result },
+  markSeen: { input: z.object({ item: z.string().min(1) }), output: result },
+  markAllSeen: { input: z.object({ ids: z.array(z.string().min(1)).max(500) }), output: z.object({ marked: list }).passthrough() },
+  catchup: { input: z.null(), output: z.object({ items: list }).passthrough() },
+  waiting: { input: z.null(), output: readModel },
+  stats: { input: z.object({ days: z.number().int().min(1).max(365).default(14) }), output: readModel },
+  health: { input: z.null(), output: z.object({ ready: z.boolean() }).passthrough() },
 };
+
+// How each RPC method meets the CLI (bead mk-uoiwp). A method either has a CLI verb, whose summary
+// and input limits cli.ts reads from here, or is RPC only: the panel calls it and no verb may. A
+// method added to `homeMethods` without an entry here fails the typecheck, and the CLI test fails
+// when a verb is neither listed here nor in `cliOnlyVerbs`.
+export type CliMapping = { verb: string; summary: string } | { rpcOnly: string };
+
+export const homeCliMap = {
+  listAsks: { verb: "list", summary: "List the asks waiting for a ruling" },
+  moves: { verb: "moves", summary: "Every Your move row with its claim, report and closing evidence (rollback export)" },
+  stats: { verb: "stats", summary: "Picks, delegation and filing counts over a window" },
+  listRecent: { verb: "feed", summary: "The recent-rulings feed a thread sees" },
+  queue: { rpcOnly: "the panel's read model" },
+  rootRun: { rpcOnly: "a card's paste command display" },
+  setBinding: { rpcOnly: "mk's confirmation of a binding; the CLI can only read (`binding`) or, as the vizier, bind" },
+  pick: { rpcOnly: "mk's ruling, advisory attribution from the browser" },
+  claimMove: { rpcOnly: "mk's own report" },
+  checkMove: { rpcOnly: "mk's own check" },
+  skipMove: { rpcOnly: "mk's own choice" },
+  later: { rpcOnly: "mk's own choice" },
+  unlater: { rpcOnly: "mk's own choice" },
+  note: { rpcOnly: "the Other box; the CLI `note` is a different, vizier-only note" },
+  conversation: { rpcOnly: "the panel's read model" },
+  conversationUnread: { rpcOnly: "the panel's read model" },
+  markConversationSeen: { rpcOnly: "the panel's own state" },
+  ideaProjects: { rpcOnly: "the Idea box" },
+  ideas: { rpcOnly: "the Idea box" },
+  fileIdea: { rpcOnly: "the Idea box" },
+  actIdea: { rpcOnly: "the Idea box" },
+  clearIdeaDigest: { rpcOnly: "the Idea box" },
+  dismiss: { rpcOnly: "mk's own choice" },
+  override: { rpcOnly: "delegation settings are never reachable from the CLI" },
+  setDelegation: { rpcOnly: "delegation settings are never reachable from the CLI" },
+  revokeApproval: { rpcOnly: "mk's own choice" },
+  setViewing: { rpcOnly: "the panel reports what it shows; the CLI reads it with `viewing`" },
+  resend: { rpcOnly: "mk's own choice" },
+  markSeen: { rpcOnly: "the panel's own state" },
+  markAllSeen: { rpcOnly: "the panel's own state" },
+  catchup: { rpcOnly: "the panel's read model" },
+  waiting: { rpcOnly: "the panel's read model" },
+  health: { rpcOnly: "the panel's read model" },
+} satisfies Record<keyof typeof homeMethods, CliMapping>;
+
+/** CLI verbs with no RPC twin: lookups, machine-blocker lifecycle, and the vizier-only writes. */
+export const cliOnlyVerbs = [
+  "ask", "get", "viewing", "progress", "resolve", "withdraw", "binding", "bind", "hold", "unhold",
+  "unbind", "rule", "handoff", "approval check", "report", "note",
+] as const;
+
+/** The summary of a verb that mirrors an RPC method. */
+export function verbSummary<K extends keyof typeof homeCliMap>(method: K): string {
+  const m: CliMapping = homeCliMap[method];
+  if ("verb" in m) return m.summary;
+  throw new Error(`${method} is RPC only`);
+}
