@@ -6,7 +6,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { diff, KINDS } from "../scripts/check-lint-ratchet.mjs";
-import { CODE_VERSION, MIGRATIONS, migrate, readSchemaState, type Migration } from "../migrations.js";
+import { CODE_VERSION, MIGRATIONS, migrate, readSchemaState, SchemaTooNewError, type Migration } from "../migrations.js";
 import { canonicalJson, identity, normalizedJson, parseAsk, revision, semanticKey } from "../model.js";
 import { tmpDir } from "./helpers.js";
 
@@ -138,21 +138,30 @@ describe(`migration ordering (seed ${SEED})`, () => {
     }
   }, 30_000);
 
-  it("a migration above codeVersion is never applied, and the version never goes down", () => {
+  it("a migration above codeVersion is never applied, and older code never lowers the stored version", () => {
     const extra: Migration = { version: CODE_VERSION + 1, sql: "CREATE TABLE should_not_exist (x INTEGER);" };
     const db = open("cap.db");
     const s = migrate(db, { migrations: [...MIGRATIONS, extra], now });
     expect(s.schemaVersion).toBe(CODE_VERSION);
     expect(db.prepare("SELECT 1 FROM sqlite_master WHERE name='should_not_exist'").get()).toBeUndefined();
-    let last = 0;
-    for (let v = 1; v <= CODE_VERSION; v++) {
-      const d = open(`mono${v}.db`);
-      const got = migrate(d, { codeVersion: v, now }).schemaVersion;
-      expect(got).toBeGreaterThanOrEqual(last);
-      last = got;
+    // One database, upgraded to the newest schema, then opened by code that knows only an older one:
+    // code at or above the reader fence leaves the version and schema put; code below it is refused.
+    for (let v = 1; v < CODE_VERSION; v++) {
+      const d = open(`down${v}.db`);
+      migrate(d, { now });
+      const before = schemaOf(d);
+      if (v < readSchemaState(d).minReaderVersion) {
+        expect(() => migrate(d, { codeVersion: v, now }), `code ${v}`).toThrow(SchemaTooNewError);
+        expect(readSchemaState(d).schemaVersion, `code ${v}`).toBe(CODE_VERSION);
+        d.close();
+        continue;
+      }
+      expect(migrate(d, { codeVersion: v, now }).schemaVersion, `code ${v}`).toBe(CODE_VERSION);
+      expect(readSchemaState(d).schemaVersion, `code ${v}`).toBe(CODE_VERSION);
+      expect(schemaOf(d), `code ${v}`).toEqual(before);
       d.close();
     }
-  });
+  }, 30_000);
 });
 
 describe(`ask round-trip (seed ${SEED})`, () => {

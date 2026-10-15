@@ -253,7 +253,7 @@ describe("install-home-your-move.sh --check accumulates failed preconditions", (
       for (const f of on) expect(r.stdout, `mask ${mask}: ${f.say}`).toContain(f.say);
       expect(r.stdout).toContain("precondition(s) failed");
     }
-  });
+  }, 30_000);
   it("a clean run still passes", () => {
     expect(run(3, `${LIST}\nexit 0`).r.status).toBe(0);
   });

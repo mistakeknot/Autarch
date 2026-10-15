@@ -3,6 +3,7 @@ package homeask
 import (
 	"encoding/json"
 	"fmt"
+	"math/rand"
 	"testing"
 	"testing/quick"
 )
@@ -28,6 +29,9 @@ func TestVectorsRoundTrip(t *testing.T) {
 		}
 	}
 }
+
+// propertySeed fixes the generator so a failure reproduces.
+const propertySeed = 20261014
 
 // Normalizing twice equals normalizing once, for generated asks.
 func TestNormalizeIdempotent(t *testing.T) {
@@ -57,7 +61,7 @@ func TestNormalizeIdempotent(t *testing.T) {
 		}
 		return NormalizedJSON(once) == NormalizedJSON(twice) && Identity(once) == Identity(twice)
 	}
-	if err := quick.Check(prop, &quick.Config{MaxCount: 500}); err != nil {
+	if err := quick.Check(prop, &quick.Config{MaxCount: 500, Rand: rand.New(rand.NewSource(propertySeed))}); err != nil {
 		t.Fatal(err)
 	}
 }
