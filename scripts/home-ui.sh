@@ -95,6 +95,32 @@ gate_ui_only() {   # $1 = plugin dir to run
     echo "gate ok: schema $live, only ui/ and __tests__/ differ from the installed build"
   fi
 }
+# check only: run every gate and report all failures before exiting 3, where gate_ui_only (deploy, preview) stops at the first.
+gate_collect() {   # $1 = plugin dir to run
+  local new=$1 n=0 live= code= cur= out err
+  err=$(mktemp)
+  bad() { echo "home-ui: $*" >&2; n=$((n+1)); }
+  tryv() {   # $1 = variable to fill with stdout; the rest is a command run in a subshell, so its die only ends that step
+    local var=$1; shift
+    if out=$( ("$@") 2>"$err" ); then printf -v "$var" '%s' "$out"; else cat "$err" >&2; n=$((n+1)); printf -v "$var" '%s' ''; return 1; fi
+  }
+  { [ -f "$new/package.json" ] && [ -f "$new/migrations.ts" ]; } || bad "$new is not a Home plugin build (package.json or migrations.ts is missing)"
+  [ -d "$new/node_modules" ] || bad "$new has no node_modules (run npm ci there as mk)"
+  tryv live live_schema || true
+  tryv code code_version "$new" || true
+  [ -z "$live" ] || [ -z "$code" ] || [ "$live" = "$code" ] || bad "NOT UI-only: the build is schema $code, the live database is schema $live. This is a migration; it goes to mk as a script."
+  if tryv cur installed_dir; then
+    cmp -s "$cur/migrations.ts" "$new/migrations.ts" || bad "NOT UI-only: migrations.ts differs from the installed build ($cur). This goes to mk as a script."
+    if [ "$PLUGIN_CODE" = 1 ]; then tryv out plugin_code_only "$cur" "$new" || true; else tryv out ui_files_only "$cur" "$new" || true; fi
+  fi
+  rm -f "$err"
+  [ "$n" -eq 0 ] || { echo "home-ui: check found $n failed gate(s); deploy would stop at the first" >&2; exit 3; }
+  if [ "$PLUGIN_CODE" = 1 ]; then
+    echo "gate ok: schema $live, migrations.ts identical, package.json, lockfiles and .npmrc identical; plugin code may differ from the installed build"
+  else
+    echo "gate ok: schema $live, only ui/ and __tests__/ differ from the installed build"
+  fi
+}
 ui_files_only() {   # $1 = installed build, $2 = target; every difference must be under ui/ or __tests__/
   local out
   out=$(diff -rq -x node_modules -x .git -x dist "$1" "$2" 2>&1 | grep -Ev "^(Files .*/(ui|__tests__)/.* differ|Only in [^:]*/(ui|__tests__)(/[^:]*)?: |Only in [^:]*: (ui|__tests__)$)" || true)
@@ -158,7 +184,7 @@ check)
     git -C "$REPO" merge-base --is-ancestor "$COMMIT" origin/main || die "$COMMIT is not on origin/main"
     echo "commit is on origin/main; the schema gate runs after the build exists (deploy)"
   else
-    gate_ui_only "${PATH_ARG:-$REPO/$PLUGIN_REL}"
+    gate_collect "${PATH_ARG:-$REPO/$PLUGIN_REL}"
   fi ;;
 
 deploy)

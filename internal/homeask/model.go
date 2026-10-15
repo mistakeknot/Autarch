@@ -156,22 +156,72 @@ func slug(label string) string {
 	return strings.TrimRight(s, "-")
 }
 
-func clean(field, s string) error {
-	if !utf8.ValidString(s) {
-		return fmt.Errorf("%s must be valid UTF-8", field)
+// Problem is one thing wrong with an ask: the field it is about and why.
+type Problem struct {
+	Field string `json:"field"`
+	Why   string `json:"why"`
+}
+
+// ValidationError carries every problem an ask has, in the order the checks run.
+// Its message starts with the first problem, so a caller that matches on that
+// text keeps working; the rest follow after "; also: ".
+type ValidationError struct{ Problems []Problem }
+
+func (e *ValidationError) Error() string {
+	if len(e.Problems) == 0 {
+		return "invalid ask"
 	}
-	if strings.ContainsRune(s, 0) {
-		return fmt.Errorf("%s must not contain NUL", field)
+	s := e.Problems[0].Why
+	if len(e.Problems) > 1 {
+		rest := make([]string, 0, len(e.Problems)-1)
+		for _, p := range e.Problems[1:] {
+			rest = append(rest, p.Field+": "+p.Why)
+		}
+		s += "; also: " + strings.Join(rest, "; ")
 	}
-	if approvalTok.MatchString(s) {
-		return errors.New("approval tokens are not accepted in Home text")
+	return s
+}
+
+type problemList []Problem
+
+func (l *problemList) add(field, why string) { *l = append(*l, Problem{field, why}) }
+
+func (l *problemList) addf(field, format string, args ...any) {
+	l.add(field, fmt.Sprintf(format, args...))
+}
+
+// clean reports a hygiene problem with s and whether s may be used further.
+func (l *problemList) clean(field, s string) {
+	switch {
+	case !utf8.ValidString(s):
+		l.add(field, field+" must be valid UTF-8")
+	case strings.ContainsRune(s, 0):
+		l.add(field, field+" must not contain NUL")
+	case approvalTok.MatchString(s):
+		l.add(field, "approval tokens are not accepted in Home text")
 	}
-	return nil
+}
+
+// Problems returns every problem with a, or nil when it is valid. Unlike
+// Normalize it does not stop at the first one.
+func Problems(in Ask) []Problem {
+	_, ps := normalize(in)
+	return ps
 }
 
 // Normalize validates a and returns it with defaults applied and every string
-// NFC-normalized. It is idempotent.
+// NFC-normalized. It is idempotent. An invalid ask returns a *ValidationError
+// holding every problem.
 func Normalize(in Ask) (Ask, error) {
+	a, ps := normalize(in)
+	if len(ps) > 0 {
+		return Ask{}, &ValidationError{Problems: ps}
+	}
+	return a, nil
+}
+
+func normalize(in Ask) (Ask, []Problem) {
+	var ps problemList
 	a := in
 	a.Options = append([]Option(nil), in.Options...)
 	a.Steps = append([]string(nil), in.Steps...)
@@ -196,9 +246,7 @@ func Normalize(in Ask) (Ask, error) {
 		{"recommendation", &a.Recommendation}, {"supersedes", &a.Supersedes}, {"mention_of", &a.MentionOf},
 	}
 	for _, s := range strs {
-		if err := clean(s.field, *s.p); err != nil {
-			return Ask{}, err
-		}
+		ps.clean(s.field, *s.p)
 		*s.p = norm.NFC.String(*s.p)
 	}
 	for i := range a.Options {
@@ -207,9 +255,7 @@ func Normalize(in Ask) (Ask, error) {
 			field string
 			p     *string
 		}{{"option id", &o.ID}, {"label", &o.Label}, {"instruction", &o.Instruction}} {
-			if err := clean(s.field, *s.p); err != nil {
-				return Ask{}, err
-			}
+			ps.clean(s.field, *s.p)
 			*s.p = norm.NFC.String(*s.p)
 		}
 		if o.Approval != nil {
@@ -217,17 +263,13 @@ func Normalize(in Ask) (Ask, error) {
 				field string
 				p     *string
 			}{{"approval kind", &o.Approval.Kind}, {"approval target", &o.Approval.Target}, {"approval identity", &o.Approval.Identity}} {
-				if err := clean(s.field, *s.p); err != nil {
-					return Ask{}, err
-				}
+				ps.clean(s.field, *s.p)
 				*s.p = norm.NFC.String(*s.p)
 			}
 		}
 	}
 	for i := range a.Steps {
-		if err := clean("step", a.Steps[i]); err != nil {
-			return Ask{}, err
-		}
+		ps.clean("step", a.Steps[i])
 		a.Steps[i] = norm.NFC.String(a.Steps[i])
 	}
 	if a.Machine != nil {
@@ -235,55 +277,53 @@ func Normalize(in Ask) (Ask, error) {
 			field string
 			p     *string
 		}{{"machine class", &a.Machine.Class}, {"machine detail", &a.Machine.Detail}, {"owner_thread", &a.Machine.OwnerThread}} {
-			if err := clean(s.field, *s.p); err != nil {
-				return Ask{}, err
-			}
+			ps.clean(s.field, *s.p)
 			*s.p = norm.NFC.String(*s.p)
 		}
 	}
 
 	if a.V != 1 {
-		return Ask{}, errors.New("v must be 1")
+		ps.add("v", "v must be 1")
 	}
 	switch a.Kind {
 	case "decide", "steps", "machine":
 	default:
-		return Ask{}, errors.New("kind must be decide, steps or machine")
+		ps.add("kind", "kind must be decide, steps or machine")
 	}
 	switch a.Asker {
 	case "thread":
 		if a.Thread == "" {
-			return Ask{}, errors.New("thread asker needs a thread")
+			ps.add("thread", "thread asker needs a thread")
 		}
 	case "mycroft":
 		if a.Thread != "" {
-			return Ask{}, errors.New("mycroft asker takes no thread")
+			ps.add("thread", "mycroft asker takes no thread")
 		}
 	default:
-		return Ask{}, errors.New("asker must be thread or mycroft")
+		ps.add("asker", "asker must be thread or mycroft")
 	}
 	if a.Thread != "" && !refIDRe.MatchString(a.Thread) {
-		return Ask{}, errors.New("thread must match [A-Za-z0-9:_.-]{1,128}")
+		ps.add("thread", "thread must match [A-Za-z0-9:_.-]{1,128}")
 	}
 	if strings.TrimSpace(a.Project) == "" || runes(a.Project) > 200 {
-		return Ask{}, errors.New("project is required (1-200 characters)")
+		ps.add("project", "project is required (1-200 characters)")
 	}
 	if !strings.HasPrefix(a.ProjectRoot, "/") || strings.TrimSpace(a.ProjectRoot) == "" {
-		return Ask{}, errors.New("project_root must be an absolute path")
+		ps.add("project_root", "project_root must be an absolute path")
 	}
 	if strings.TrimSpace(a.Question) == "" || runes(a.Question) > maxQuestion {
-		return Ask{}, fmt.Errorf("question must be 1-2000 characters (got %d)", runes(a.Question))
+		ps.addf("question", "question must be 1-2000 characters (got %d)", runes(a.Question))
 	}
 	if a.RequestID != "" && !requestIDRe.MatchString(a.RequestID) {
-		return Ask{}, errors.New("request_id must be 1-128 of [A-Za-z0-9:_.-]")
+		ps.add("request_id", "request_id must be 1-128 of [A-Za-z0-9:_.-]")
 	}
 	for _, r := range []struct{ field, v string }{{"supersedes", a.Supersedes}, {"mention_of", a.MentionOf}} {
 		if r.v != "" && !refIDRe.MatchString(r.v) {
-			return Ask{}, fmt.Errorf("%s must match [A-Za-z0-9:_.-]{1,128}", r.field)
+			ps.addf(r.field, "%s must match [A-Za-z0-9:_.-]{1,128}", r.field)
 		}
 	}
 	if a.Supersedes != "" && a.MentionOf != "" {
-		return Ask{}, errors.New("supersedes and mention_of cannot be used together")
+		ps.add("supersedes", "supersedes and mention_of cannot be used together")
 	}
 
 	if a.AskKey == "" {
@@ -292,91 +332,98 @@ func Normalize(in Ask) (Ask, error) {
 		a.AskKey = normText(a.AskKey)
 	}
 	if n := runes(a.AskKey); n < 1 || n > maxKey {
-		return Ask{}, errors.New("ask_key must be 1-120 characters")
+		ps.add("ask_key", "ask_key must be 1-120 characters")
 	}
 	if a.Subject != "" {
 		a.Subject = normText(a.Subject)
 		if n := runes(a.Subject); n < 1 || n > maxKey {
-			return Ask{}, errors.New("subject must be 1-120 characters")
+			ps.add("subject", "subject must be 1-120 characters")
 		}
 	}
 
 	switch a.Kind {
 	case "decide":
 		if len(a.Steps) > 0 || a.Machine != nil {
-			return Ask{}, errors.New("decide takes no steps or machine block")
+			ps.add("kind", "decide takes no steps or machine block")
 		}
-		if err := normalizeOptions(&a); err != nil {
-			return Ask{}, err
-		}
+		normalizeOptions(&a, &ps)
 	case "steps":
 		if len(a.Options) > 0 {
-			return Ask{}, errors.New("steps takes no options")
+			ps.add("options", "steps takes no options")
 		}
 		if a.Machine != nil {
-			return Ask{}, errors.New("steps takes no machine block")
+			ps.add("machine", "steps takes no machine block")
 		}
 		if a.Recommendation != "" {
-			return Ask{}, errors.New("recommendation must name an option")
+			ps.add("recommendation", "recommendation must name an option")
 		}
 		if len(a.Steps) < 1 || len(a.Steps) > maxSteps {
-			return Ask{}, errors.New("steps needs 1-20 steps")
+			ps.add("steps", "steps needs 1-20 steps")
 		}
 		for _, s := range a.Steps {
 			if strings.TrimSpace(s) == "" || runes(s) > maxInstruction {
-				return Ask{}, errors.New("each step must be 1-2000 characters")
+				ps.add("steps", "each step must be 1-2000 characters")
+				break
 			}
 		}
 	case "machine":
 		if len(a.Options) > 0 || len(a.Steps) > 0 {
-			return Ask{}, errors.New("machine takes no steps or options")
+			ps.add("kind", "machine takes no steps or options")
 		}
 		if a.Recommendation != "" {
-			return Ask{}, errors.New("recommendation must name an option")
+			ps.add("recommendation", "recommendation must name an option")
 		}
 		if a.Machine == nil {
-			return Ask{}, errors.New("machine needs a machine block")
+			ps.add("machine", "machine needs a machine block")
+			break
 		}
 		if !machineClass.MatchString(a.Machine.Class) {
-			return Ask{}, errors.New("machine class must match [a-z0-9-]{1,32}")
+			ps.add("machine class", "machine class must match [a-z0-9-]{1,32}")
 		}
 		if strings.TrimSpace(a.Machine.Detail) == "" || runes(a.Machine.Detail) > maxInstruction {
-			return Ask{}, errors.New("machine detail must be 1-2000 characters")
+			ps.add("machine detail", "machine detail must be 1-2000 characters")
 		}
 		if a.Machine.OwnerThread != "" && !refIDRe.MatchString(a.Machine.OwnerThread) {
-			return Ask{}, errors.New("owner_thread must match [A-Za-z0-9:_.-]{1,128}")
+			ps.add("owner_thread", "owner_thread must match [A-Za-z0-9:_.-]{1,128}")
 		}
 	}
 
+	if len(ps) > 0 {
+		return Ask{}, ps
+	}
 	if a.RequestID == "" {
 		a.RequestID = identityOf(a)
 	}
 	return a, nil
 }
 
-func normalizeOptions(a *Ask) error {
+func normalizeOptions(a *Ask, ps *problemList) {
 	if n := len(a.Options); n < 2 || n > 6 {
-		return errors.New("decide needs 2-6 options")
+		ps.add("options", "decide needs 2-6 options")
 	}
 	seen := map[string]bool{}
 	for i := range a.Options {
 		o := &a.Options[i]
+		at := fmt.Sprintf("options[%d]", i)
 		if n := runes(o.Label); strings.TrimSpace(o.Label) == "" || n > maxLabel {
-			return errors.New("label must be 1-80 characters")
+			ps.add(at+".label", "label must be 1-80 characters")
 		}
+		idOK := true
 		if o.ID == "" {
 			o.ID = slug(o.Label)
 			if o.ID == "" {
-				return errors.New("option id is required when the label has no ASCII letters or digits")
+				ps.add(at+".id", "option id is required when the label has no ASCII letters or digits")
+				idOK = false
 			}
 		}
-		if !optionIDRe.MatchString(o.ID) {
-			return errors.New("option id must match [a-z0-9-]{1,32}")
+		if idOK {
+			if !optionIDRe.MatchString(o.ID) {
+				ps.add(at+".id", "option id must match [a-z0-9-]{1,32}")
+			} else if seen[o.ID] {
+				ps.add(at+".id", fmt.Sprintf("duplicate option id %q", o.ID))
+			}
+			seen[o.ID] = true
 		}
-		if seen[o.ID] {
-			return fmt.Errorf("duplicate option id %q", o.ID)
-		}
-		seen[o.ID] = true
 
 		if o.Kind == "" {
 			switch {
@@ -391,48 +438,47 @@ func normalizeOptions(a *Ask) error {
 		switch o.Kind {
 		case "instruction", "needs-context", "ruling-only":
 		default:
-			return errors.New("option kind must be instruction, needs-context or ruling-only")
+			ps.add(at+".kind", "option kind must be instruction, needs-context or ruling-only")
 		}
 		if a.Asker == "mycroft" {
 			if o.Kind != "ruling-only" {
-				return errors.New("mycroft may offer only ruling-only options")
+				ps.add(at+".kind", "mycroft may offer only ruling-only options")
 			}
 			if o.Reversible {
-				return errors.New("reversible is not allowed when asker is mycroft")
+				ps.add(at+".reversible", "reversible is not allowed when asker is mycroft")
 			}
 		}
 		if o.Kind == "instruction" && o.Instruction == "" {
-			return errors.New("an instruction option needs an instruction")
+			ps.add(at+".instruction", "an instruction option needs an instruction")
 		}
 		if o.Kind != "instruction" && o.Instruction != "" {
-			return errors.New("instruction is only allowed on an instruction option")
+			ps.add(at+".instruction", "instruction is only allowed on an instruction option")
 		}
 		if o.Instruction != "" {
 			if n := runes(o.Instruction); n < 1 || n > maxInstruction {
-				return errors.New("instruction must be 1-2000 characters")
+				ps.add(at+".instruction", "instruction must be 1-2000 characters")
 			}
 		}
 		if o.Approval != nil {
 			if o.Reversible {
-				return errors.New("reversible is not allowed on an option with an approval spec")
+				ps.add(at+".reversible", "reversible is not allowed on an option with an approval spec")
 			}
 			switch o.Approval.Kind {
 			case "merge", "deploy", "release":
 			default:
-				return errors.New("approval kind must be merge, deploy or release")
+				ps.add(at+".approval.kind", "approval kind must be merge, deploy or release")
 			}
 			if strings.TrimSpace(o.Approval.Target) == "" || strings.TrimSpace(o.Approval.Identity) == "" {
-				return errors.New("approval needs a target and an identity")
+				ps.add(at+".approval", "approval needs a target and an identity")
 			}
 			if o.Approval.TTL < 0 || o.Approval.TTL > maxTTL {
-				return errors.New("approval ttl must be 1-604800 seconds")
+				ps.add(at+".approval.ttl", "approval ttl must be 1-604800 seconds")
 			}
 		}
 	}
 	if a.Recommendation != "" && !seen[a.Recommendation] {
-		return errors.New("recommendation must name an option: it is the id of one of the options, exactly, not a sentence")
+		ps.add("recommendation", "recommendation must name an option: it is the id of one of the options, exactly, not a sentence")
 	}
-	return nil
 }
 
 // ---- canonical JSON ----
