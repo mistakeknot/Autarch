@@ -184,7 +184,7 @@ describe("the At a glance block on a card", () => {
     expect(h).toContain("data-glance-judging");
     expect(h.match(/<li[^>]*data-glance-item/g)).toHaveLength(4);
   });
-  it("lists every answer with what it does: a ruling-only pick sends nothing", () => {
+  it("lists every answer with what it does: a ruling-only answer has no line", () => {
     const h = html(PLAY);
     expect(h.match(/<li[^>]*data-glance-answer/g)).toHaveLength(3);
     expect(h).toMatch(/data-glance-answers[\s\S]*Merge PR #9 first, then I play/);

@@ -332,7 +332,7 @@ export function AskCard({ ask, onPick, onOpen, nowMs, onNote, onLater, unbound =
 
 /** One plain sentence on a card under an option: what picking it does. Empty when there is nothing to add. */
 export function optionEffect(o: { kind: string; instruction?: string; reversible?: boolean }, thread: string, full = false): string {
-  // The schema cannot tell "unset" from "false", so only an option that acts says it cannot be undone; a ruling-only pick sends nothing.
+  // The schema cannot tell "unset" from "false", so only an option that acts says it cannot be undone; a ruling-only pick has no instruction to undo.
   const acts = o.kind === "instruction" || o.kind === "needs-context";
   const undo = o.reversible === true || !acts ? "" : " Cannot be undone.";
   const text = (o.instruction ?? "").replace(/\s+/g, " ").trim();

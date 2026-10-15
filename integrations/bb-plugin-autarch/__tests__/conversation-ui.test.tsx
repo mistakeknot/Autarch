@@ -47,7 +47,7 @@ describe("conversation view", () => {
     expect(html).toContain("<details");
     expect(html).toContain("Full instruction");
     expect(html).toContain("Group per project.\nRun the tests, then report.");
-    expect(html).toContain("Nothing is sent for this option.");
+    expect(html).toContain("No instruction for this option; the asking thread is told your ruling.");
     expect(renderToStaticMarkup(<ConversationBody data={data({ options: [{ id: "b", label: "x", kind: "ruling-only", instruction: null }] })} />)).not.toContain("Full instruction");
   });
 

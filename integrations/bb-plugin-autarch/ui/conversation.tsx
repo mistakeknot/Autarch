@@ -74,7 +74,7 @@ export function ConversationBody({ data, children }: { data: ConversationData; c
             {data.options.map((o) => (
               <li key={o.id} data-instruction-option={o.id}>
                 <p className="m-0 text-xs font-medium">{o.label}</p>
-                <pre className="m-0 whitespace-pre-wrap rounded bg-muted p-2 font-mono text-xs [overflow-wrap:anywhere]">{o.instruction ?? "Nothing is sent for this option."}</pre>
+                <pre className="m-0 whitespace-pre-wrap rounded bg-muted p-2 font-mono text-xs [overflow-wrap:anywhere]">{o.instruction ?? "No instruction for this option; the asking thread is told your ruling."}</pre>
               </li>
             ))}
           </ul>
