@@ -45,7 +45,7 @@ import { keyAction, layoutStack, stackReducer, StackView } from "./ui/stack.js";
 import { HomeTabs, QueueTabs, type QueueTab } from "./ui/tabs.js";
 import type { Panel, StackState } from "./ui/stack.js";
 import { HOME_SOURCE } from "./ui/identity.js";
-import { LearnPanel, LearnSwitch, type LearnCardView } from "./ui/learn.js";
+import { LearnPanel, LearnSwitch, latestOnly, type LearnCardView } from "./ui/learn.js";
 import { TellVizier, ThreadPanel } from "./ui/vizier.js";
 
 /** The todo list, kept current by the server's "todos-changed" signal. */
@@ -411,7 +411,10 @@ function HomePage() {
   // The Learn deck (bead mk-uoiwp): off by default; the tab shows only when Settings turns it on.
   const [learn, setLearn] = useState<{ enabled: boolean; cards: LearnCardView[] }>({ enabled: false, cards: [] });
   const [learnBusy, setLearnBusy] = useState(false);
-  const loadLearn = useCallback(() => { void (rpc.call("learn") as Promise<{ ok: boolean; enabled?: boolean; cards?: LearnCardView[] }>).then((r) => { if (r.ok) setLearn({ enabled: r.enabled ?? false, cards: r.cards ?? [] }); }, () => {}); }, [rpc]);
+  const loadLearn = useMemo(() => latestOnly(
+    () => rpc.call("learn") as Promise<{ ok: boolean; enabled?: boolean; cards?: LearnCardView[] }>,
+    (r) => { if (r.ok) setLearn({ enabled: r.enabled ?? false, cards: r.cards ?? [] }); },
+  ), [rpc]);
   useEffect(loadLearn, [loadLearn]);
   useRealtime("home-learn-changed", loadLearn);
   const setLearnState = (args: { enabled?: boolean; card?: string; mark?: "got" | "later" | "clear" }) => { setLearnBusy(true); void (rpc.call("learnSet", args) as Promise<unknown>).then(loadLearn, () => {}).finally(() => setLearnBusy(false)); };

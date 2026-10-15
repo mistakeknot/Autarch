@@ -47,3 +47,15 @@ export function LearnSwitch({ enabled, busy = false, onChange }: { enabled: bool
     </section>
   );
 }
+
+/**
+ * Wraps a loader so only the response of the most recent call is delivered: an older read that finishes late
+ * must not overwrite a newer one (the tab would come back after it was turned off).
+ */
+export function latestOnly<T>(load: () => Promise<T>, deliver: (v: T) => void): () => void {
+  let seq = 0;
+  return () => {
+    const mine = ++seq;
+    void load().then((v) => { if (mine === seq) deliver(v); }, () => {});
+  };
+}

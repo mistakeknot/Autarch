@@ -10,7 +10,7 @@ vi.mock("@get-bb/plugin-sdk/app", () => ({ ThreadChat: () => null }));
 
 import { learnEnabled, learnSet, learnView, loadDeck, type LearnSettings } from "../learn.js";
 import { homeTabs, HomeTabs } from "../ui/tabs.js";
-import { LearnPanel, LearnSwitch, orderDeck } from "../ui/learn.js";
+import { LearnPanel, LearnSwitch, latestOnly, orderDeck } from "../ui/learn.js";
 import { MIGRATIONS } from "../migrations.js";
 import { openStore, tmpDir } from "./helpers.js";
 
@@ -122,6 +122,21 @@ describe("against the real store", () => {
     } finally {
       t.cleanup();
     }
+  });
+});
+
+describe("reading Learn state", () => {
+  it("an older read that finishes late does not overwrite a newer one", async () => {
+    const waits: ((v: string) => void)[] = [];
+    const got: string[] = [];
+    const load = latestOnly(() => new Promise<string>((res) => void waits.push(res)), (v) => got.push(v));
+    load();
+    load();
+    waits[1]!("newer: off");
+    waits[0]!("older: on");
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(got).toEqual(["newer: off"]);
   });
 });
 
