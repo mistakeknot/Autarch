@@ -5,6 +5,7 @@
 // delegation settings, and no verb here touches them [D-16]: only the RPC path, driven by mk's
 // own browser, can. Exit codes: 2 usage or validation, 3 not filed, 5 already ruled, replaced
 // or closed, 1 anything else.
+import { homeMethods, verbSummary } from "./contract.js";
 import { groupMoves } from "./moveselect.js";
 import { cliCommand, defineCli, type PluginCliResult } from "@get-bb/plugin-sdk";
 import type { Asks, LifecycleResult } from "./asks.js";
@@ -123,7 +124,7 @@ export function homeCli(p: HomeCliParts) {
       }),
 
       list: cliCommand({
-        summary: "List the asks waiting for a ruling",
+        summary: verbSummary("listAsks"),
         options: {
           asker: { type: "enum", values: ["thread", "mycroft"], description: "Only asks from this asker." },
           project: { type: "string", description: "Only this project." },
@@ -147,7 +148,7 @@ export function homeCli(p: HomeCliParts) {
       }),
 
       moves: cliCommand({
-        summary: "Every Your move row with its claim, report and closing evidence (rollback export)",
+        summary: verbSummary("moves"),
         options: { json: { type: "boolean", description: "Print JSON (the only format)." } },
         run() {
           const rows = svc.store.moves();
@@ -173,12 +174,15 @@ export function homeCli(p: HomeCliParts) {
       }),
 
       stats: cliCommand({
-        summary: "Picks, delegation and filing counts over a window",
+        summary: verbSummary("stats"),
         options: {
           since: { type: "duration", defaultUnit: "d", default: 14 * DAY_MS, description: "Window, default 14d." },
           json: { type: "boolean", description: "Print JSON (the only format)." },
         },
         async run({ options }) {
+          // The window obeys the same limits as the panel's `stats` method.
+          const days = homeMethods.stats.input.safeParse({ days: Math.ceil(options.since / DAY_MS) });
+          if (!days.success) return err(2, "--since must be between 1d and 365d");
           const since = new Date(Date.parse(svc.time()) - options.since).toISOString();
           const stats = { ...svc.stats(since), ...(p.waiting ? { waiting: p.waiting() } : {}) };
           return out(p.traceability ? { ...stats, traceability: await p.traceability(since) } : stats);
@@ -186,7 +190,7 @@ export function homeCli(p: HomeCliParts) {
       }),
 
       feed: cliCommand({
-        summary: "The recent-rulings feed a thread sees",
+        summary: verbSummary("listRecent"),
         options: {
           project: { type: "string", required: true, description: "Project name." },
           thread: { type: "string", description: "Thread id; defaults to the caller's." },
