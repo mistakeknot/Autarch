@@ -32,6 +32,7 @@ import { ghViewReal, PrPoller } from "./movepoll.js";
 import { ReportWatcher } from "./movereport.js";
 import { moveViews } from "./moveview.js";
 import { CommentPoller, conversationView, openTaskIds, unreadCounts } from "./conversation.js";
+import { readDoc } from "./docread.js";
 import { rootRun } from "./rootrun.js";
 import { buildQueue, removeBinding, setBinding } from "./queueview.js";
 import { hasNoteMarker, isoWeek, Service } from "./service.js";
@@ -574,6 +575,9 @@ export function wireHome(bb: BbPluginApi, handle: StoreHandle, cfg: HomeConfig, 
     async conversationUnread(_: null) {
       const s = need().svc;
       return { unread: unreadCounts(s.store, openTaskIds(s)) };
+    },
+    async readDoc(i: { path: string; sha256?: string }) {
+      return readDoc(i.path, { sha256: i.sha256 });
     },
     async markConversationSeen(i: { task_id: string; through: string }) {
       need().svc.store.markConversationSeen(i.task_id, i.through);

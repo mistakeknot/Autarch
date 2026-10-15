@@ -19,6 +19,7 @@ import { Icon } from "@/components/ui/icon";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
 import { AsksPanel, PickController, imagesSig, pickOutcome, laterOutcome } from "./ui/asks.js";
+import { DocReaderHost, type DocReaderApi, type DocResultT } from "./ui/docreader.js";
 import type { OtherImage } from "./ui/other.js";
 import { ConversationProvider, type ConversationApi, type ConversationData } from "./ui/conversation.js";
 import type { MoveHandlers } from "./ui/yourmove.js";
@@ -249,6 +250,11 @@ function useRootRuns(rpc: ReturnType<typeof useRpc<typeof rpcContract>>): RootRu
   return { views, load };
 }
 
+/** The reader's one call: the server decides what may be read, so a failure comes back as its refusal text. */
+function useDocReaderApi(rpc: ReturnType<typeof useRpc<typeof rpcContract>>): DocReaderApi {
+  return useMemo(() => ({ read: (path, sha256) => rpc.call("readDoc", { path, ...(sha256 !== undefined ? { sha256 } : {}) }).then((r) => r as DocResultT) }), [rpc]);
+}
+
 /** Conversation on the card: unread counts (polled), the conversation read, and the read mark. All display; no write but the read mark. */
 function useConversationApi(rpc: ReturnType<typeof useRpc<typeof rpcContract>>): ConversationApi {
   const [unread, setUnread] = useState<Record<string, number>>({});
@@ -278,9 +284,10 @@ function BlocksThreadPanel({ threadId }: { threadId: string }) {
   const picks = useMemo(() => new PickController(() => crypto.randomUUID()), []);
   const rootRun = useRootRuns(rpc);
   const conversation = useConversationApi(rpc);
+  const docs = useDocReaderApi(rpc);
   if (queue === null) return <EmptyState>{error ?? "Loading…"}</EmptyState>;
   return (
-    <ConversationProvider value={conversation}>
+    <ConversationProvider value={conversation}><DocReaderHost api={docs}>
     <BlocksPanel
       rootRun={rootRun}
       onBind={(b) => void rpc.call("setBinding", b).then(refetch, () => {})}
@@ -291,7 +298,7 @@ function BlocksThreadPanel({ threadId }: { threadId: string }) {
       onOpen={(t) => nav.toThread(t)}
       onPick={(decision_id, option_id, revision, reason, images) => pickOutcome(picks.send((req) => rpc.call("pick", req) as never, { decision_id, option_id, revision, ...(reason !== undefined ? { reason } : {}), ...(images && images.length > 0 ? { images } : {}) }, refetch)).finally(refetch)}
     />
-    </ConversationProvider>
+    </DocReaderHost></ConversationProvider>
   );
 }
 
@@ -388,6 +395,7 @@ function HomePage() {
   // Moves are retired (bead mk-1k8pg): the hook only carries notes and the move handlers, and reads no moves.
   const yourMove = useMoves(rpc, refetch, false);
   const conversation = useConversationApi(rpc);
+  const docs = useDocReaderApi(rpc);
   const [stack, setStack] = useState<StackState>({ panels: [{ id: "queue", kind: "decision", title: "Queue" }], width: "third" });
   // Q: one ranked queue is the default; the old Asks / Blocking / Catch-up tabs stay behind this setting.
   const [classic, setClassic] = useState(() => { try { return localStorage.getItem("home.classicTabs") === "1"; } catch { return false; } });
@@ -610,7 +618,7 @@ function HomePage() {
 
   if (phone && !fullView && asks !== null) {
     return (
-      <ConversationProvider value={conversation}>
+      <ConversationProvider value={conversation}><DocReaderHost api={docs}>
         <div className="flex h-full min-h-0 flex-1 flex-col" data-home-source={HOME_SOURCE}>
           <MobileInbox
             asks={asks}
@@ -639,17 +647,17 @@ function HomePage() {
             ideaNode={ideaOpen ? <><IdeaDigest api={ideaApi} refreshKey={ideaTick} /><IdeaDesk api={ideaApi} refreshKey={ideaTick} /></> : null}
           />
         </div>
-      </ConversationProvider>
+      </DocReaderHost></ConversationProvider>
     );
   }
   return (
-    <ConversationProvider value={conversation}>
+    <ConversationProvider value={conversation}><DocReaderHost api={docs}>
     <div className="flex h-full min-h-0 flex-1 flex-col" data-home-source={HOME_SOURCE}>
       {phone && fullView ? <button type="button" className="min-h-11 border-b border-border px-4 text-left text-sm underline" onClick={() => setFullView(false)} data-inbox-return>‹ Back to the phone inbox</button> : null}
       <HomeTabs classic={classic} {...(waiting ? { waiting: waiting.total } : {})} ideas={openIdeas} onOpen={push} onToggleClassic={toggleClassic} onTodos={() => nav.toPluginPanel("example-todos")} />
       <StackView placed={layoutStack(stack)} render={render} onExpand={push} />
     </div>
-    </ConversationProvider>
+    </DocReaderHost></ConversationProvider>
   );
 }
 

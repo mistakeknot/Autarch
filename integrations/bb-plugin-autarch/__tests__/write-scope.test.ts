@@ -8,10 +8,11 @@ import { fsWriteUses, isFdOnly, isOpener, parse, parseFile, readOnlyFlags, rel, 
 // names, generated file names, exclusive create and lstat checks on every directory (see its header).
 const FULL = new Set(["ruling.ts", "export.ts", "ledger.ts", "otherimages.ts"]);
 const RDONLY_PLUS_FSYNC = new Set(["backup.ts"]);
-const RDONLY_ONLY = new Set(["rootrun.ts"]);
+// docread.ts is the document reader: it opens one allowlisted file O_RDONLY | O_NOFOLLOW and writes nothing.
+const RDONLY_ONLY = new Set(["rootrun.ts", "docread.ts"]);
 
 describe("fs write scope (plan Task 2.7)", () => {
-  it("only ruling.ts, export.ts, ledger.ts and otherimages.ts write; backup.ts only opens read-only and fsyncs; rootrun.ts only opens read-only", () => {
+  it("only ruling.ts, export.ts, ledger.ts and otherimages.ts write; backup.ts only opens read-only and fsyncs; rootrun.ts and docread.ts only open read-only", () => {
     const problems: string[] = [];
     for (const f of serverSources()) {
       const name = rel(f);
@@ -32,6 +33,7 @@ describe("fs write scope (plan Task 2.7)", () => {
     expect(uses("export.ts")).toEqual(expect.arrayContaining(["renameSync", "writeSync"]));
     expect(uses("backup.ts")).toEqual(expect.arrayContaining(["openSync", "fsyncSync"]));
     expect(uses("rootrun.ts")).toEqual(["openSync"]);
+    expect(uses("docread.ts")).toEqual(["openSync"]);
   });
 
   describe("positive fixtures", () => {

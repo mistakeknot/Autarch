@@ -9,6 +9,10 @@ import { z } from "zod";
 const result = z.object({ ok: z.boolean() }).passthrough();
 const readModel = z.custom<object>((v) => typeof v === "object" && v !== null && !Array.isArray(v), "expected an object");
 const list = z.array(z.unknown());
+const docResult = z.union([
+  z.object({ ok: z.literal(true), path: z.string(), size: z.number(), sha256: z.string(), text: z.string(), markdown: z.boolean(), matches: z.boolean().nullable() }),
+  z.object({ ok: z.literal(false), error: z.string() }),
+]);
 const conversationView = z.object({ task_id: z.string(), comments: list, unread: z.number(), stale: z.boolean(), last_ok_at: z.string().nullable(), options: list });
 const moveGroups = z.object({ yourMove: list, reported: list, later: list, hidden: list, audit: z.unknown() });
 
@@ -61,6 +65,8 @@ export const homeMethods = {
   // Conversation on the card: read-only views of the mirrored comments. Display only; nothing here rules or closes.
   conversation: { input: z.object({ task_id: z.string().min(1).max(64) }).strict(), output: conversationView },
   conversationUnread: { input: z.null(), output: z.object({ unread: z.record(z.string(), z.number()) }) },
+  // The document reader (bead mk-5zfbg): a read-only view of one allowlisted text file, see docread.ts.
+  readDoc: { input: z.object({ path: z.string().min(1).max(1024), sha256: z.string().regex(/^[0-9a-fA-F]{64}$/).optional() }).strict(), output: docResult },
   markConversationSeen: { input: z.object({ task_id: z.string().min(1).max(64), through: z.string().min(1).max(200) }).strict(), output: result },
   // The Idea box and weekly digest (bead mk-2zojo). An idea is a tracker card; none of these rules, closes or starts anything.
   ideaProjects: { input: z.null(), output: result },
@@ -112,6 +118,7 @@ export const homeCliMap = {
   note: { rpcOnly: "the Other box; the CLI `note` is a different, vizier-only note" },
   conversation: { rpcOnly: "the panel's read model" },
   conversationUnread: { rpcOnly: "the panel's read model" },
+  readDoc: { rpcOnly: "the document reader pane; the CLI has no file-reading verb" },
   markConversationSeen: { rpcOnly: "the panel's own state" },
   ideaProjects: { rpcOnly: "the Idea box" },
   ideas: { rpcOnly: "the Idea box" },
