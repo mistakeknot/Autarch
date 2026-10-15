@@ -7,6 +7,7 @@ import { splitCommands, type CommandRole } from "./commandtext.js";
 import { CommandBlock } from "./copy.js";
 import { glance, GlanceBlock, type GlanceAnswer } from "./glance.js";
 import { GH_REF_SRC, refNodes, URL_SRC } from "./links.js";
+import { DocLink } from "./docreader.js";
 import { OtherBox, type OtherImage, type OtherOutcome } from "./other.js";
 
 /** What a pick hands back to the card: not ok means the card stays open and shows the error. */
@@ -175,8 +176,36 @@ export function QuestionText({ text }: { text: string }) {
   );
 }
 
+const SHA_ONLY = /^[0-9a-f]{64}$/;
+/** A digest belongs to a path only when it sits this close to it, in the text between them. */
+const PAIR_GAP = 40;
+
+/**
+ * Pairs each sha256 with a path. Candidates are the path just before it and the path just after it (nothing else
+ * referenced between), each within PAIR_GAP characters and not across a blank line. A candidate on the same line wins
+ * over one on another line; otherwise the one before wins. So "a.md sha1; b.md sha2" and
+ * "a.md\nsha256: sha1\nb.md\nsha256: sha2" give each document its own digest, "a.md\n\nsha2  b.md" gives b.md the
+ * digest, and a digest with no such neighbour is used for none: no check is better than a check against the wrong
+ * document.
+ */
+export function pairDigests(parts: readonly string[]): Map<number, string> {
+  const out = new Map<number, string>();
+  const isPath = (i: number) => i >= 0 && i < parts.length && i % 2 === 1 && parts[i].startsWith("/");
+  const usable = (path: number, between: string) => isPath(path) && !out.has(path) && between.length <= PAIR_GAP && !/\n\s*\n/.test(between);
+  parts.forEach((p, i) => {
+    if (i % 2 !== 1 || !SHA_ONLY.test(p)) return;
+    const before = usable(i - 2, parts[i - 1] ?? "") ? i - 2 : -1;
+    const after = usable(i + 2, parts[i + 1] ?? "") ? i + 2 : -1;
+    const sameLine = (between: string) => !between.includes("\n");
+    const pick = before >= 0 && (after < 0 || sameLine(parts[i - 1]) || !sameLine(parts[i + 1])) ? before : after;
+    if (pick >= 0) out.set(pick, p);
+  });
+  return out;
+}
+
 export function RefText({ text }: { text: string }) {
   const parts = text.split(REF);
+  const digests = pairDigests(parts);
   return (
     <>
       {parts.map((part, i) => {
@@ -184,9 +213,12 @@ export function RefText({ text }: { text: string }) {
         const link = refNodes(part, String(i));
         if (link !== null) return <Fragment key={i}>{link}</Fragment>;
         return (
-          <code key={i} className="select-all rounded bg-muted px-1 font-mono text-xs [overflow-wrap:anywhere]" data-ref>
-            {part}
-          </code>
+          <Fragment key={i}>
+            <code className="select-all rounded bg-muted px-1 font-mono text-xs [overflow-wrap:anywhere]" data-ref>
+              {part}
+            </code>
+            {part.startsWith("/") ? <DocLink path={part} sha256={digests.get(i)} /> : null}
+          </Fragment>
         );
       })}
     </>
