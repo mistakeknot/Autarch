@@ -106,17 +106,18 @@ describe("Asks ordering", () => {
     expect(html).toContain("recommended");
   });
 
-  it("optionEffect is empty only for the default kind, only an irreversible option line says so, and a ruling-only option has no instruction footer", () => {
+  it("optionEffect is empty for the default and ruling-only kinds, only an irreversible option line says so, and a ruling-only option has no instruction footer", () => {
     expect(optionEffect({ kind: "needs-context" }, "t")).toBe("");
-    expect(optionEffect({ kind: "ruling-only" }, "t")).toBe("Records your pick only; nothing is sent.");
-    expect(optionEffect({ kind: "ruling-only", reversible: true }, "t")).toBe("Records your pick only; nothing is sent.");
-    expect(optionEffect({ kind: "instruction", instruction: "   " }, "t")).toBe("Records your pick only; nothing is sent. Cannot be undone.");
+    expect(optionEffect({ kind: "ruling-only" }, "t")).toBe("");
+    expect(optionEffect({ kind: "ruling-only", reversible: true }, "t")).toBe("");
+    expect(optionEffect({ kind: "instruction", instruction: "   " }, "t")).toBe("Cannot be undone.");
     expect(optionEffect({ kind: "instruction", instruction: "First. Second." }, "t")).toBe("Tells t: First. Cannot be undone.");
     expect(optionEffect({ kind: "instruction", instruction: "x".repeat(300) }, "t").length).toBeLessThan(170);
     const html = renderToStaticMarkup(
       <AsksPanel data={data({ owed: [ask({ ask: { question: "Q?", options: [{ id: "a", label: "Not now", kind: "ruling-only" }, { id: "b", label: "Later", kind: "ruling-only" }] } })] })} onPick={() => {}} onOpen={() => {}} />,
     );
-    expect(html).toContain("Records your pick only; nothing is sent.");
+    expect(html).not.toContain("nothing is sent");
+    expect(html).not.toContain("data-effect");
     expect(html).not.toContain("An instruction is sent");
   });
 

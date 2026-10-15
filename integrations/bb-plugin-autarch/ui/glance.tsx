@@ -142,14 +142,14 @@ export interface GlanceAnswer {
   id: string;
   label: string;
   recommended: boolean;
-  /** What picking it does; null when it is the plain "records your pick" line, which is said once for the whole list. */
+  /** What picking it does; null when there is nothing to add (a ruling-only answer). */
   effect: string | null;
 }
 
 const SMALL = "m-0 mt-2 text-xs font-semibold uppercase text-muted-foreground";
 
 /** The block itself: link and time on the first line, then the lead, what is judged and what each answer does. */
-export function GlanceBlock({ g, answers, recordsOnly }: { g: Glance; answers: GlanceAnswer[]; recordsOnly: boolean }) {
+export function GlanceBlock({ g, answers }: { g: Glance; answers: GlanceAnswer[] }) {
   return (
     <section className="mt-3 min-w-0 rounded-lg border border-border bg-muted/40 p-3" aria-label="At a glance" data-glance>
       <div className="flex flex-wrap items-center gap-2">
@@ -187,7 +187,6 @@ export function GlanceBlock({ g, answers, recordsOnly }: { g: Glance; answers: G
               </li>
             ))}
           </ul>
-          {recordsOnly ? <p className="m-0 mt-1 text-xs text-muted-foreground" data-glance-records>Each answer records your pick only; nothing is sent.</p> : null}
         </>
       ) : null}
     </section>

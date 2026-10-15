@@ -184,11 +184,11 @@ describe("the At a glance block on a card", () => {
     expect(h).toContain("data-glance-judging");
     expect(h.match(/<li[^>]*data-glance-item/g)).toHaveLength(4);
   });
-  it("lists every answer with what it does: a ruling-only pick sends nothing", () => {
+  it("lists every answer with what it does: a ruling-only answer has no line", () => {
     const h = html(PLAY);
     expect(h.match(/<li[^>]*data-glance-answer/g)).toHaveLength(3);
     expect(h).toMatch(/data-glance-answers[\s\S]*Merge PR #9 first, then I play/);
-    expect(h).toMatch(/records your pick only/i);
+    expect(h).not.toMatch(/records your pick only/i);
   });
   it("spells out what an answer that acts will do", () => {
     const a = card("Check the deploy (5 min)", "Look at https://x.example.test: 1) does it load? 2) is it fast?", [{ id: "go", label: "Ship it", kind: "instruction", instruction: "Deploy the build to production now." }, RULING("no", "Not yet")]);
@@ -201,12 +201,13 @@ describe("the At a glance block on a card", () => {
     const g = h.slice(h.indexOf("data-glance-answers"), h.indexOf("</section>"));
     expect(g).toContain("Run the tests. Then deploy the build to production now.");
   });
-  it("keeps each answer's own line when the options are mixed, and says it once only when all are ruling-only", () => {
+  it("keeps each acting answer's own line, and a ruling-only answer has none, whether mixed or all ruling-only", () => {
     const mixed = html(card("Check the deploy (5 min)", "Look at https://x.example.test: 1) does it load? 2) is it fast?", [{ id: "go", label: "Ship it", kind: "instruction", instruction: "Deploy it." }, RULING("no", "Not yet")]));
     const block = mixed.slice(mixed.indexOf("data-glance-answers"), mixed.indexOf("</section>"));
-    expect(block).toMatch(/Not yet[\s\S]*Records your pick only; nothing is sent\./);
-    expect(block).not.toContain("data-glance-records");
-    expect(html(PLAY)).toContain("data-glance-records");
+    expect(block).toContain("Tells thr-a: Deploy it.");
+    expect(block).not.toContain("nothing is sent");
+    expect(html(PLAY)).not.toContain("nothing is sent");
+    expect(html(PLAY)).not.toContain("data-glance-records");
   });
   it("an all needs-context check card never says nothing is sent", () => {
     const h = html(card("Check the deploy (5 min)", "Look at https://x.example.test: 1) does it load? 2) is it fast?", [{ id: "a", label: "Looks fine", kind: "needs-context" }, { id: "b", label: "Broken", kind: "needs-context" }]));

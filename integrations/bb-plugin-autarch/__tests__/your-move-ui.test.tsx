@@ -222,7 +222,7 @@ describe("button look", () => {
     expect(html).toContain("data-recommended-mark");
     expect(html).toMatch(/data-tone="recommended"[^>]*data-option="go"|data-option="go"[^>]*data-tone="recommended"/);
     expect(html).toMatch(/data-tone="destructive"[^>]*data-option="no"|data-option="no"[^>]*data-tone="destructive"/);
-    // a ruling-only option sends nothing, so none of the three says it cannot be undone
+    // a ruling-only option sends no instruction, so none of the three says it cannot be undone
     expect(html.match(/Cannot be undone\./g)?.length).toBeUndefined();
     expect(isDestructiveOption({ label: "Cancel it", reversible: true })).toBe(false);
   });
