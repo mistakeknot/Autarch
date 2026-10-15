@@ -15,7 +15,8 @@ const CARD_FILE = /^(\d{2}-[a-z0-9-]+)\.md$/;
 export function loadDeck(dir: string): Array<{ id: string; title: string; body: string }> {
   let names: string[];
   try {
-    names = readdirSync(dir).sort();
+    // Regular files only: a symlink named like a card must not carry text in from outside the deck.
+    names = readdirSync(dir, { withFileTypes: true }).filter((e) => e.isFile()).map((e) => e.name).sort();
   } catch {
     return [];
   }

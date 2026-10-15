@@ -1,5 +1,5 @@
 // The Learn deck (bead mk-uoiwp): eight shipped Markdown cards, off by default, marks kept in the settings table.
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, symlinkSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -35,6 +35,14 @@ describe("the shipped deck", () => {
     ]);
     for (const c of d) expect(c.body.length).toBeGreaterThan(40);
   });
+  it("says who gets a pick and what Waiting on you counts, as the code does", () => {
+    const d = loadDeck(shipped);
+    expect(d[1]!.body).toContain("first agent comment");
+    expect(d[1]!.body).not.toContain("latest agent comment");
+    expect(d[2]!.body).toContain("updates that are only for reading");
+    expect(d[2]!.body).toContain("put on hold");
+
+  });
   it("skips files that are not cards and reads nothing from a missing directory", () => {
     const dir = mkdtempSync(join(tmpdir(), "learn-"));
     try {
@@ -42,6 +50,8 @@ describe("the shipped deck", () => {
       writeFileSync(join(dir, "02-notitle.md"), "no heading\n");
       writeFileSync(join(dir, "notes.md"), "# Not a card\n");
       mkdirSync(join(dir, "03-dir.md"));
+      writeFileSync(join(dir, "outside.txt"), "# Outside\n\nnot part of the deck\n");
+      symlinkSync(join(dir, "outside.txt"), join(dir, "04-link.md"));
       expect(loadDeck(dir).map((c) => c.id)).toEqual(["01-a"]);
     } finally {
       rmSync(dir, { recursive: true });

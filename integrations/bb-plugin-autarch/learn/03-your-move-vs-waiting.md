@@ -1,8 +1,7 @@
 # Your move versus Waiting on you
 
-The Queue separates two kinds of items.
+The number on the Queue tab is "Waiting on you". It counts open decisions that are not on hold, open moves, and notices you must acknowledge.
 
-- **Needs you now**: a card where only you can act or decide.
-- **Blocked on others / Waiting on you**: work that is stuck on someone else, or items that wait for your reply but do not block an agent.
+It does not count updates that are only for reading, cards you put on hold, or cards you set aside with Later. Those are shown beside the number, so a different list can be reconciled with it.
 
-If a card sits in "Needs you now" and you are not sure why, open it: the card names what is blocked and who is waiting.
+The Queue's own tabs split the same cards another way: "Needs you now", "Later", "Blocked on others" (work stuck on someone else) and "Since you left".
