@@ -37,6 +37,7 @@ import { rootRun } from "./rootrun.js";
 import { buildQueue, removeBinding, setBinding } from "./queueview.js";
 import { hasNoteMarker, isoWeek, Service } from "./service.js";
 import { Ideas } from "./ideas.js";
+import { learnSet, learnView, type LearnSet } from "./learn.js";
 import { OPEN_STATUSES, TasksClient, type PluginsLike } from "./tasks.js";
 import { listAllThreads, traceability, type ThreadLike } from "./traceability.js";
 import { createStoreHandle, type Store, type StoreHandle } from "./store.js";
@@ -481,6 +482,7 @@ export function wireHome(bb: BbPluginApi, handle: StoreHandle, cfg: HomeConfig, 
   });
 
   // ---- RPC ------------------------------------------------------------------------
+  const learnDir = join(dirname(fileURLToPath(import.meta.url)), "learn");
   const handlers = {
     async listAsks(_: null) {
       const p = need();
@@ -646,6 +648,14 @@ export function wireHome(bb: BbPluginApi, handle: StoreHandle, cfg: HomeConfig, 
       } catch (e) {
         return { ok: false as const, status: 502, error: `tasks unavailable: ${e instanceof Error ? e.message : String(e)}` };
       }
+    },
+    async learn(_: null) {
+      return { ok: true as const, ...learnView(need().svc.store, learnDir) };
+    },
+    async learnSet(i: LearnSet) {
+      const r = learnSet(need().svc.store, learnDir, i);
+      if (r.ok) bb.realtime.publish("home-learn-changed", {});
+      return r;
     },
     async fileIdea(i: { project_id: string; text: string; idea_id: string }) {
       const d = ideaDesk();

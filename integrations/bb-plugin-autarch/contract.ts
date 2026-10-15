@@ -71,6 +71,9 @@ export const homeMethods = {
   // The Idea box and weekly digest (bead mk-2zojo). An idea is a tracker card; none of these rules, closes or starts anything.
   ideaProjects: { input: z.null(), output: result },
   ideas: { input: z.null(), output: result },
+  // The Learn deck (bead mk-uoiwp): off by default; the marks live in the settings table. Neither rules or starts anything.
+  learn: { input: z.null(), output: result },
+  learnSet: { input: z.object({ enabled: z.boolean().optional(), card: z.string().regex(/^\d{2}-[a-z0-9-]{1,60}$/).optional(), mark: z.enum(["got", "later", "clear"]).optional() }).strict(), output: result },
   fileIdea: { input: z.object({ project_id: z.string().min(1).max(64), text: z.string().max(4000), idea_id: z.string().min(1).max(64) }).strict(), output: result },
   actIdea: { input: z.object({ task_id: z.string().min(1).max(64), action: z.enum(["pursue", "park", "drop"]) }).strict(), output: result },
   clearIdeaDigest: { input: z.null(), output: result },
@@ -122,6 +125,8 @@ export const homeCliMap = {
   markConversationSeen: { rpcOnly: "the panel's own state" },
   ideaProjects: { rpcOnly: "the Idea box" },
   ideas: { rpcOnly: "the Idea box" },
+  learn: { rpcOnly: "the Learn tab" },
+  learnSet: { rpcOnly: "the Learn tab" },
   fileIdea: { rpcOnly: "the Idea box" },
   actIdea: { rpcOnly: "the Idea box" },
   clearIdeaDigest: { rpcOnly: "the Idea box" },

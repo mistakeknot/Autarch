@@ -45,6 +45,7 @@ import { keyAction, layoutStack, stackReducer, StackView } from "./ui/stack.js";
 import { HomeTabs, QueueTabs, type QueueTab } from "./ui/tabs.js";
 import type { Panel, StackState } from "./ui/stack.js";
 import { HOME_SOURCE } from "./ui/identity.js";
+import { LearnPanel, LearnSwitch, type LearnCardView } from "./ui/learn.js";
 import { TellVizier, ThreadPanel } from "./ui/vizier.js";
 
 /** The todo list, kept current by the server's "todos-changed" signal. */
@@ -407,6 +408,13 @@ function HomePage() {
   const [ideaOpen, setIdeaOpen] = useState(false);
   const [ideaTick, setIdeaTick] = useState(0);
   useRealtime("home-queue-changed", () => setIdeaTick((n) => n + 1));
+  // The Learn deck (bead mk-uoiwp): off by default; the tab shows only when Settings turns it on.
+  const [learn, setLearn] = useState<{ enabled: boolean; cards: LearnCardView[] }>({ enabled: false, cards: [] });
+  const [learnBusy, setLearnBusy] = useState(false);
+  const loadLearn = useCallback(() => { void (rpc.call("learn") as Promise<{ ok: boolean; enabled?: boolean; cards?: LearnCardView[] }>).then((r) => { if (r.ok) setLearn({ enabled: r.enabled ?? false, cards: r.cards ?? [] }); }, () => {}); }, [rpc]);
+  useEffect(loadLearn, [loadLearn]);
+  useRealtime("home-learn-changed", loadLearn);
+  const setLearnState = (args: { enabled?: boolean; card?: string; mark?: "got" | "later" | "clear" }) => { setLearnBusy(true); void (rpc.call("learnSet", args) as Promise<unknown>).then(loadLearn, () => {}).finally(() => setLearnBusy(false)); };
   const [openIdeas, setOpenIdeas] = useState<number | undefined>(undefined);
   const ideaApi = useMemo<IdeaApi>(() => ({
     projects: async () => { const r = (await rpc.call("ideaProjects")) as { ok: boolean; projects?: IdeaProject[]; error?: string }; if (!r.ok) throw new Error(r.error ?? "the Idea box could not load projects"); return r.projects ?? []; },
@@ -591,11 +599,14 @@ function HomePage() {
             <IdeaDesk api={ideaApi} refreshKey={ideaTick} heading={false} onChanged={() => setIdeaTick((n) => n + 1)} />
           </>
         );
+      case "learn":
+        return <LearnPanel cards={learn.cards} busy={learnBusy} onMark={(card, mark) => setLearnState({ card, mark })} />;
       case "vizier":
         return <TellVizier threadId={asks?.delegation.settings.vizierThreadId} />;
       case "settings":
         return asks === null ? null : (
           <>
+            <LearnSwitch enabled={learn.enabled} busy={learnBusy} onChange={(enabled) => setLearnState({ enabled })} />
             <SettingsPanel delegation={asks.delegation} machineOwners={asks.machineOwners} onSave={(v) => void rpc.call("setDelegation", v).then(refetch, () => {})} />
             {blocks.queue === null ? null : (
               <BindingsPanel
@@ -654,7 +665,7 @@ function HomePage() {
     <ConversationProvider value={conversation}><DocReaderHost api={docs}>
     <div className="flex h-full min-h-0 flex-1 flex-col" data-home-source={HOME_SOURCE}>
       {phone && fullView ? <button type="button" className="min-h-11 border-b border-border px-4 text-left text-sm underline" onClick={() => setFullView(false)} data-inbox-return>‹ Back to the phone inbox</button> : null}
-      <HomeTabs classic={classic} {...(waiting ? { waiting: waiting.total } : {})} ideas={openIdeas} onOpen={push} onToggleClassic={toggleClassic} onTodos={() => nav.toPluginPanel("example-todos")} />
+      <HomeTabs classic={classic} learn={learn.enabled} {...(waiting ? { waiting: waiting.total } : {})} ideas={openIdeas} onOpen={push} onToggleClassic={toggleClassic} onTodos={() => nav.toPluginPanel("example-todos")} />
       <StackView placed={layoutStack(stack)} render={render} onExpand={push} />
     </div>
     </DocReaderHost></ConversationProvider>
