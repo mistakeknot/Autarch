@@ -261,12 +261,9 @@ export function AskCard({ ask, onPick, onOpen, nowMs, onNote, onLater, unbound =
   const anyInstruction = ask.ask.options.some((o) => o.kind === "instruction" && (o.instruction ?? "").trim() !== "");
   // A play or walk card gets its link, time, what is judged and what each answer does above the full text.
   const glanceOf = glance(ask);
-  // The plain "records your pick only" line is said once for the block when every answer is ruling-only; any acting
-  // answer is shown in full (the whole instruction it sends), and then each answer keeps its own line.
-  const ruling = (o: Option) => o.kind !== "instruction" && o.kind !== "needs-context";
-  const allRuling = ask.ask.options.every(ruling);
+  // Each answer shows in full what it sends; a ruling-only answer has no line.
   const glanceAnswers: GlanceAnswer[] = glanceOf
-    ? ask.ask.options.map((o) => ({ id: o.id, label: o.label, recommended: ask.ask.recommendation === o.id, effect: allRuling ? null : optionEffect(o, threadName(ask), true) || null }))
+    ? ask.ask.options.map((o) => ({ id: o.id, label: o.label, recommended: ask.ask.recommendation === o.id, effect: optionEffect(o, threadName(ask), true) || null }))
     : [];
   return (
     <article className="min-w-0 rounded-lg border border-border bg-card p-4" data-decision={ask.id}>
@@ -280,7 +277,7 @@ export function AskCard({ ask, onPick, onOpen, nowMs, onNote, onLater, unbound =
         <button type="button" className="inline-flex min-h-11 items-center underline sm:min-h-0" onClick={() => onOpen(ask.thread)}>{threadName(ask)}</button>
         {n > 0 ? ` - ${`also mentioned in ${n} ${n === 1 ? "thread" : "threads"}`}` : ""}
       </p>
-      {glanceOf ? <GlanceBlock g={glanceOf} answers={glanceAnswers} recordsOnly={allRuling} /> : null}
+      {glanceOf ? <GlanceBlock g={glanceOf} answers={glanceAnswers} /> : null}
       <QuestionText text={ask.ask.question} />
       <ul className="mb-0 mt-3 list-none space-y-2 p-0">
         {ask.ask.options.map((o) => {
@@ -333,7 +330,7 @@ export function AskCard({ ask, onPick, onOpen, nowMs, onNote, onLater, unbound =
   );
 }
 
-/** One plain sentence on a card under an option: what picking it does. Never empty; built from structured fields. */
+/** One plain sentence on a card under an option: what picking it does. Empty when there is nothing to add. */
 export function optionEffect(o: { kind: string; instruction?: string; reversible?: boolean }, thread: string, full = false): string {
   // The schema cannot tell "unset" from "false", so only an option that acts says it cannot be undone; a ruling-only pick sends nothing.
   const acts = o.kind === "instruction" || o.kind === "needs-context";
@@ -347,7 +344,9 @@ export function optionEffect(o: { kind: string; instruction?: string; reversible
     const summary = first.length > 140 ? `${first.slice(0, 139).trimEnd()}…` : first;
     return `Tells ${thread}: ${summary}${undo}`;
   }
-  return `Records your pick only; nothing is sent.${undo}`;
+  // A ruling-only pick still wakes the asking thread with the ruling, so no line claims it sends nothing. An acting
+  // option with no instruction text has nothing to preview, but still says it cannot be undone.
+  return undo.trim();
 }
 
 /** The Decide queue: a short row per ask on the left, the selected ask in full on the right (below when narrow). */
