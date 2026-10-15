@@ -12,6 +12,7 @@ import { learnEnabled, learnSet, learnView, loadDeck, type LearnSettings } from 
 import { homeTabs, HomeTabs } from "../ui/tabs.js";
 import { LearnPanel, LearnSwitch, orderDeck } from "../ui/learn.js";
 import { MIGRATIONS } from "../migrations.js";
+import { openStore, tmpDir } from "./helpers.js";
 
 const shipped = join(dirname(fileURLToPath(import.meta.url)), "..", "learn");
 const kv = (): LearnSettings & { m: Map<string, string> } => {
@@ -95,6 +96,32 @@ describe("settings state", () => {
     expect(MIGRATIONS.length).toBeGreaterThan(0);
     const src = readFileSync(join(shipped, "..", "learn.ts"), "utf8");
     expect(src).not.toMatch(/create\s+table|alter\s+table|user_version|schema_meta/i);
+  });
+});
+
+describe("against the real store", () => {
+  it("changes only settings rows: the schema and every other table stay as they were", () => {
+    const t = tmpDir();
+    try {
+      const st = openStore(join(t.dir, "data.db"));
+      const snap = () => {
+        const names = (st.db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name<>'settings_kv' ORDER BY name").all() as { name: string }[]).map((r) => r.name);
+        return {
+          schema: st.db.prepare("SELECT type, name, sql FROM sqlite_master ORDER BY name").all(),
+          counts: names.map((n) => [n, (st.db.prepare(`SELECT COUNT(*) AS c FROM "${n}"`).get() as { c: number }).c]),
+        };
+      };
+      const before = snap();
+      const id = loadDeck(shipped)[0]!.id;
+      expect(learnSet(st, shipped, { enabled: true })).toMatchObject({ ok: true });
+      expect(learnSet(st, shipped, { card: id, mark: "got" })).toMatchObject({ ok: true });
+      expect(learnView(st, shipped).cards.find((c) => c.id === id)?.mark).toBe("got");
+      expect(learnSet(st, shipped, { card: id, mark: "clear" })).toMatchObject({ ok: true });
+      expect(learnSet(st, shipped, { enabled: false })).toMatchObject({ ok: true });
+      expect(snap()).toEqual(before);
+    } finally {
+      t.cleanup();
+    }
   });
 });
 
