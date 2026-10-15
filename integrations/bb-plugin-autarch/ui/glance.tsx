@@ -142,7 +142,7 @@ export interface GlanceAnswer {
   id: string;
   label: string;
   recommended: boolean;
-  /** What picking it does; null when it is the plain "records your pick" line, which is said once for the whole list. */
+  /** What picking it does; null when there is nothing to add (a ruling-only answer). */
   effect: string | null;
 }
 
