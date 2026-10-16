@@ -15,14 +15,14 @@ type FleetView struct {
 
 // AgentView represents a single agent's state, composed from multiple sources.
 type AgentView struct {
-	Name         string      `json:"name"`          // Culture ship name (canonical)
-	Runtime      string      `json:"runtime"`       // "claude-code" | "skaffen"
-	Capabilities []string    `json:"capabilities"`  // from fleet-registry.yaml
-	Status       string      `json:"status"`        // from intermux: active, idle, stuck, crashed
-	CostProfile  CostProfile `json:"cost_profile"`  // from fleet-registry + interstat
-	CurrentBead  string      `json:"current_bead"`  // from beads claim state
+	Name         string       `json:"name"`         // Culture ship name (canonical)
+	Runtime      string       `json:"runtime"`      // "claude-code" | "skaffen"
+	Capabilities []string     `json:"capabilities"` // from fleet-registry.yaml
+	Status       string       `json:"status"`       // from intermux: active, idle, stuck, crashed
+	CostProfile  CostProfile  `json:"cost_profile"` // from fleet-registry + interstat
+	CurrentBead  string       `json:"current_bead"` // from beads claim state
 	Health       HealthReport `json:"health"`
-	Reservations []string    `json:"reservations"` // from interlock
+	Reservations []string     `json:"reservations"` // from interlock
 }
 
 // CostProfile holds cost estimation data for an agent.

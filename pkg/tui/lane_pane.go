@@ -144,4 +144,3 @@ func truncate(s string, max int) string {
 	runes := []rune(s)
 	return string(runes[:max-1]) + "…"
 }
-

@@ -20,8 +20,8 @@ const (
 
 // Layout breakpoints
 const (
-	BreakpointSingle  = 50  // Below this: single column
-	BreakpointStacked = 80  // Below this: stacked, above: dual
+	BreakpointSingle  = 50 // Below this: single column
+	BreakpointStacked = 80 // Below this: stacked, above: dual
 )
 
 // GetLayoutMode returns the appropriate layout mode for the given width

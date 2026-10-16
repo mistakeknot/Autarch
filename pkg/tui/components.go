@@ -72,12 +72,13 @@ func UnifyStatusForRender(raw string) icdata.UnifiedStatus {
 
 // StatusIndicator returns a styled status indicator string with consistent symbols.
 // Status symbols:
-//   ● running/working - actively executing
-//   ○ waiting/todo/pending/assigned - ready but not started
-//   ◐ in_progress - work in progress
-//   ◌ idle/draft - inactive
-//   ✓ done/completed - successfully finished
-//   ✗ error/blocked/failed - problem state
+//
+//	● running/working - actively executing
+//	○ waiting/todo/pending/assigned - ready but not started
+//	◐ in_progress - work in progress
+//	◌ idle/draft - inactive
+//	✓ done/completed - successfully finished
+//	✗ error/blocked/failed - problem state
 func StatusIndicator(status string) string {
 	switch status {
 	// Active/running states

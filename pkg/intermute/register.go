@@ -11,8 +11,8 @@ import (
 	"sync"
 	"time"
 
-	ic "github.com/mistakeknot/intermute/client"
 	"github.com/mistakeknot/autarch/pkg/timeout"
+	ic "github.com/mistakeknot/intermute/client"
 )
 
 // Options configures agent registration with Intermute

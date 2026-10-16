@@ -11,8 +11,8 @@ var (
 
 	// Full screen container - fills entire terminal with background
 	FullScreenStyle = lipgloss.NewStyle().
-				Background(ColorBg).
-				Foreground(ColorFg)
+			Background(ColorBg).
+			Foreground(ColorFg)
 
 	// Content container with padding
 	ContentStyle = lipgloss.NewStyle().

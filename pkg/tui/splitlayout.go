@@ -45,7 +45,7 @@ func (l *SplitLayout) LeftWidth() int {
 	if l.IsStacked() {
 		return l.width
 	}
-	return int(float64(l.width) * l.leftRatio) - 2 // Account for separator
+	return int(float64(l.width)*l.leftRatio) - 2 // Account for separator
 }
 
 // RightWidth returns the width available for the right pane.

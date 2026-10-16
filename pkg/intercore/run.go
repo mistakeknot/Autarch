@@ -222,7 +222,15 @@ func (c *Client) RunEvents(ctx context.Context, runID string) ([]Event, error) {
 	if err != nil {
 		return nil, err
 	}
-	return unmarshal[[]Event](data)
+	raw, err := unmarshal[[]RunEvent](data)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]Event, len(raw))
+	for i, e := range raw {
+		out[i] = e.ToEvent()
+	}
+	return out, nil
 }
 
 func isNoRunError(err error) bool {

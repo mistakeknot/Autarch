@@ -336,14 +336,18 @@ func (m Model) renderCostSection(cb *icdata.CostBaseline) string {
 
 	// Row 1: shipped beads + coverage
 	coverage := 0
-	if cb.ShippedBeads > 0 && cb.Stats.Count > 0 {
-		coverage = cb.Stats.Count * 100 / cb.ShippedBeads
+	if cb.LandedChanges > 0 && cb.Stats.Count > 0 {
+		coverage = cb.Stats.Count * 100 / cb.LandedChanges
 		if coverage > 100 {
 			coverage = 100
 		}
 	}
-	lines = append(lines, fmt.Sprintf("  Shipped: %s beads    Coverage: %s",
-		TitleStyle.Render(fmt.Sprintf("%d", cb.ShippedBeads)),
+	countLabel := "Landed changes"
+	if cb.Source == "shipped_beads" {
+		countLabel = "Shipped beads"
+	}
+	lines = append(lines, fmt.Sprintf("  %s: %s    Coverage: %s", countLabel,
+		TitleStyle.Render(fmt.Sprintf("%d", cb.LandedChanges)),
 		TitleStyle.Render(fmt.Sprintf("%d%%", coverage)),
 	))
 

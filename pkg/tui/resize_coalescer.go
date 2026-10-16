@@ -9,12 +9,12 @@ import (
 // Resize coalescing thresholds, ported from FrankenTUI.
 const (
 	ResizeSteadyDelay    = 16 * time.Millisecond  // ~60fps responsiveness in steady state
-	ResizeBurstDelay     = 40 * time.Millisecond   // aggressive coalescing during bursts
-	ResizeHardDeadline   = 100 * time.Millisecond  // max latency guarantee
-	resizeBurstEnterRate = 10.0                     // events/sec to enter burst mode
-	resizeBurstExitRate  = 5.0                      // events/sec to exit burst mode
-	resizeCooldownFrames = 3                        // consecutive low-rate ticks before exiting burst
-	resizeRateWindowSize = 8                        // sliding window for rate calculation
+	ResizeBurstDelay     = 40 * time.Millisecond  // aggressive coalescing during bursts
+	ResizeHardDeadline   = 100 * time.Millisecond // max latency guarantee
+	resizeBurstEnterRate = 10.0                   // events/sec to enter burst mode
+	resizeBurstExitRate  = 5.0                    // events/sec to exit burst mode
+	resizeCooldownFrames = 3                      // consecutive low-rate ticks before exiting burst
+	resizeRateWindowSize = 8                      // sliding window for rate calculation
 )
 
 // CoalesceAction tells the caller what to do with a resize event.

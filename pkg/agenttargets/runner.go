@@ -28,7 +28,7 @@ type RunHandle struct {
 	Target    ResolvedTarget
 	Policy    SafetyPolicy
 	StartedAt time.Time
-	Done      <-chan struct{}     // Closed when process exits
+	Done      <-chan struct{}    // Closed when process exits
 	Cancel    context.CancelFunc // Kill the process
 	Wait      func() (RunResult, error)
 }
