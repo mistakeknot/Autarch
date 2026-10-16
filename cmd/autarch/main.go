@@ -86,6 +86,7 @@ Available tools:
 	root.AddCommand(eventsCmd())
 	root.AddCommand(planstatus.NewCommand())
 	root.AddCommand(statusCmd())
+	root.AddCommand(backlogRunCmd())
 	root.AddCommand(serveCmd())
 	root.AddCommand(mcpCmd())
 	root.AddCommand(decideCmd())
