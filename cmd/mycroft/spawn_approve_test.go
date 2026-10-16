@@ -8,11 +8,17 @@ import (
 
 	"github.com/mistakeknot/autarch/internal/mycroft"
 	"github.com/mistakeknot/autarch/internal/mycroft/scheduler"
+	"github.com/mistakeknot/autarch/internal/mycroft/spawn"
 )
 
 type fakeWorker struct {
-	err    error
-	detail string
+	err     error
+	planErr error
+	detail  string
+}
+
+func (f fakeWorker) Plan(mycroft.BeadView) (string, spawn.Seat, string, error) {
+	return "title", spawn.Seat{}, "", f.planErr
 }
 
 func (f fakeWorker) Spawn(string, mycroft.BeadView, string) (string, error) { return "thr_w", f.err }
@@ -82,5 +88,23 @@ func TestApproveSpawnReportsALogWriteFailureAfterStart(t *testing.T) {
 	err = approveSpawn(disp, fakeWorker{}, mycroft.BeadView{ID: "mk-3", Card: "AUTA-3"})
 	if err == nil || !strings.Contains(err.Error(), "thr_w is running") {
 		t.Fatalf("want an error naming the running thread, got %v", err)
+	}
+}
+
+func TestApproveSpawnLogsAnUnresolvableSeat(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "d.db")
+	db, err := mycroft.OpenDB(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	disp := scheduler.NewDispatcher(db, nil, "demarch")
+	err = approveSpawn(disp, fakeWorker{planErr: errors.New("seat unresolved")}, mycroft.BeadView{ID: "mk-4", Card: "AUTA-4"})
+	if err == nil || !strings.Contains(err.Error(), "no dispatch") {
+		t.Fatalf("want a no-dispatch error, got %v", err)
+	}
+	db.Close()
+	outcome, reason, _, _, n := logRows(t, path)
+	if n != 1 || outcome != "failure" || !strings.Contains(reason, "seat unresolved") {
+		t.Fatalf("log row: n=%d outcome=%q reason=%q", n, outcome, reason)
 	}
 }
