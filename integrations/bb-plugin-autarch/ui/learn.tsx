@@ -43,7 +43,7 @@ export function LearnSwitch({ enabled, busy = false, onChange }: { enabled: bool
         <input type="checkbox" checked={enabled} disabled={busy} onChange={(e) => onChange(e.target.checked)} />
         Show the Learn tab
       </label>
-      <p className="m-0 text-xs text-muted-foreground">A short deck that explains how Home and the estate work. Off until you turn it on.</p>
+      <p className="m-0 text-xs text-muted-foreground">A short deck that explains how Citadel and the estate work. Off until you turn it on.</p>
     </section>
   );
 }

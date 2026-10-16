@@ -708,7 +708,7 @@ export default definePluginApp((app) => {
   app.slots.navPanel({
     id: "autarch-home",
     title: "Citadel",
-    icon: "House",
+    icon: "Target",
     path: "home",
     component: HomePage,
     experimental_sidebarAccessory: HomeBadge,
@@ -716,7 +716,7 @@ export default definePluginApp((app) => {
   app.slots.threadPanelAction({
     id: "home-blocks",
     title: "Blocking",
-    icon: "House",
+    icon: "Target",
     component: ({ threadId }) => <BlocksThreadPanel threadId={threadId} />,
   });
   app.slots.navPanel({

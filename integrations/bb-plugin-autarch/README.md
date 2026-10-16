@@ -1,9 +1,9 @@
 # bb-plugin-autarch
 
-A BB plugin that puts Autarch's Home in BB: the asks waiting for mk, a catch-up feed,
+A BB plugin that puts Autarch's Citadel in BB: the asks waiting for mk, a catch-up feed,
 the vizier thread, delegation settings, and a small example todo page.
 
-- `server.ts` — the backend: the Home store in `data.db`, RPC methods for the page,
+- `server.ts` — the backend: the Citadel store in `data.db`, RPC methods for the page,
   the `bb home` look-up CLI (`cli.ts`), settings, and a realtime signal that keeps every
   open page current. It also keeps the example todo list in `bb.storage.kv`.
 - `app.tsx` — the frontend: the **Citadel** page (asks, catch-up, vizier, map, settings)
@@ -16,7 +16,7 @@ the vizier thread, delegation settings, and a small example todo page.
   `bb.description` that the plugin detail page shows under it. See
   [Store listing](#store-listing).
 
-Try it: install the plugin, open **Home** in the sidebar, then run
+Try it: install the plugin, open **Citadel** in the sidebar, then run
 `bb home list` in a terminal. The example todos are managed on their page only.
 
 ## UI components
