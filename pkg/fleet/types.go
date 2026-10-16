@@ -50,6 +50,7 @@ type BeadView struct {
 	DepsResolved bool      `json:"deps_resolved"`
 	CreatedAt    time.Time `json:"created_at"`
 	ClaimedBy    string    `json:"claimed_by,omitempty"`
+	Card         string    `json:"card,omitempty"` // task-board key the work belongs to (for example AUTA-399)
 }
 
 // ConflictView represents a file reservation conflict.
