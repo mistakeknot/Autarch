@@ -313,10 +313,7 @@ func (p *RunDetailPanel) renderDispatches() string {
 		}
 
 		dispStyle := lipgloss.NewStyle().Foreground(color)
-		agent := d.Agent
-		if agent == "" {
-			agent = d.Type
-		}
+		agent := d.AgentType
 		idPrefix := d.ID
 		if len(idPrefix) > 8 {
 			idPrefix = idPrefix[:8]

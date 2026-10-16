@@ -13,8 +13,8 @@ import (
 	"sync"
 	"time"
 
-	ic "github.com/mistakeknot/intermute/client"
 	"github.com/mistakeknot/autarch/pkg/timeout"
+	ic "github.com/mistakeknot/intermute/client"
 )
 
 // ErrOffline is returned by all methods when the client is in no-op mode

@@ -1,0 +1,32 @@
+[
+  {
+    "id": "d1abc234",
+    "agent_type": "codex",
+    "status": "running",
+    "project_dir": "/work/proj",
+    "name": "reviewer",
+    "turns": 2,
+    "commands": 5,
+    "messages": 7,
+    "in_tokens": 1200,
+    "out_tokens": 340,
+    "created_at": 1772048200,
+    "started_at": 1772048205,
+    "scope_id": "scope-1"
+  },
+  {
+    "id": "d2def567",
+    "agent_type": "claude",
+    "status": "completed",
+    "project_dir": "/work/proj",
+    "exit_code": 0,
+    "turns": 1,
+    "commands": 0,
+    "messages": 1,
+    "in_tokens": 10,
+    "out_tokens": 20,
+    "created_at": 1772048300,
+    "completed_at": 1772048400,
+    "verdict_summary": "ok"
+  }
+]

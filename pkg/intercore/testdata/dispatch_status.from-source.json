@@ -1,0 +1,15 @@
+{
+  "id": "d2def567",
+  "agent_type": "claude",
+  "status": "completed",
+  "project_dir": "/work/proj",
+  "exit_code": 0,
+  "turns": 1,
+  "commands": 0,
+  "messages": 1,
+  "in_tokens": 10,
+  "out_tokens": 20,
+  "created_at": 1772048300,
+  "completed_at": 1772048400,
+  "verdict_summary": "ok"
+}

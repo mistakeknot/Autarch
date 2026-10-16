@@ -2,11 +2,12 @@ package icdata
 
 // CostBaseline holds the cost-per-landable-change baseline from ic cost baseline.
 type CostBaseline struct {
-	Period       CostPeriod                `json:"period"`
-	ShippedBeads int                       `json:"shipped_beads"`
-	Stats        CostTokenStats            `json:"stats"`
-	ByPhase      map[string]CostTokenStats `json:"by_phase,omitempty"`
-	ByAgent      map[string]CostTokenStats `json:"by_agent,omitempty"`
+	Period        CostPeriod                `json:"period"`
+	LandedChanges int                       `json:"landed_changes"`
+	Source        string                    `json:"source,omitempty"`
+	Stats         CostTokenStats            `json:"stats"`
+	ByPhase       map[string]CostTokenStats `json:"by_phase,omitempty"`
+	ByAgent       map[string]CostTokenStats `json:"by_agent,omitempty"`
 }
 
 // CostPeriod describes the time window of the baseline query.

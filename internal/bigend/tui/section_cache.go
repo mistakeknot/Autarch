@@ -227,7 +227,7 @@ func hashCostBaseline(kernel *aggregator.KernelState) uint64 {
 	}
 	cb := kernel.CostBaseline
 	b := make([]byte, 8)
-	binary.LittleEndian.PutUint64(b, uint64(cb.ShippedBeads))
+	binary.LittleEndian.PutUint64(b, uint64(cb.LandedChanges))
 	h.Write(b)
 	binary.LittleEndian.PutUint64(b, uint64(cb.Stats.Count))
 	h.Write(b)

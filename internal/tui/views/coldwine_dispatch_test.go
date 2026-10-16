@@ -31,7 +31,7 @@ func TestTaskMatchesDispatch_ByName(t *testing.T) {
 
 func TestTaskMatchesDispatch_ByAgent(t *testing.T) {
 	task := autarch.Task{ID: "task-3", Title: "Write tests", Status: autarch.TaskStatusRunning}
-	d := intercore.Dispatch{ID: "d-999", Agent: "Write tests", Status: "completed"}
+	d := intercore.Dispatch{ID: "d-999", AgentType: "Write tests", Status: "completed"}
 
 	// Legacy fallback via Agent field.
 	if !taskMatchesDispatch(task, d, nil) {
@@ -41,7 +41,7 @@ func TestTaskMatchesDispatch_ByAgent(t *testing.T) {
 
 func TestTaskMatchesDispatch_NoMatch(t *testing.T) {
 	task := autarch.Task{ID: "task-4", Title: "My task", Status: autarch.TaskStatusRunning}
-	d := intercore.Dispatch{ID: "d-000", Agent: "other task", Status: "completed"}
+	d := intercore.Dispatch{ID: "d-000", AgentType: "other task", Status: "completed"}
 
 	dispatches := map[string]string{"task-4": "d-different"}
 

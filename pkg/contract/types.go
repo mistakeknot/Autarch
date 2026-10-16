@@ -50,7 +50,7 @@ const (
 type SourceTool string
 
 const (
-	SourceGurgeh  SourceTool = "gurgeh"
+	SourceGurgeh   SourceTool = "gurgeh"
 	SourceColdwine SourceTool = "coldwine"
 	SourcePollard  SourceTool = "pollard"
 	SourceBigend   SourceTool = "bigend"
@@ -110,7 +110,7 @@ type Task struct {
 	Priority    int        `json:"priority" yaml:"priority"`
 	Assignee    string     `json:"assignee,omitempty" yaml:"assignee,omitempty"`
 	WorktreeRef string     `json:"worktree_ref,omitempty" yaml:"worktree_ref,omitempty"` // Git worktree path
-	SessionRef  string     `json:"session_ref,omitempty" yaml:"session_ref,omitempty"`  // Agent session ID
+	SessionRef  string     `json:"session_ref,omitempty" yaml:"session_ref,omitempty"`   // Agent session ID
 	SourceTool  SourceTool `json:"source_tool" yaml:"source_tool"`
 	CreatedAt   time.Time  `json:"created_at" yaml:"created_at"`
 	UpdatedAt   time.Time  `json:"updated_at" yaml:"updated_at"`
@@ -153,9 +153,9 @@ type RunArtifact struct {
 
 // InsightLink represents a connection between a Pollard insight and an initiative/feature.
 type InsightLink struct {
-	InsightID     string    `json:"insight_id" yaml:"insight_id"`
-	InitiativeID  string    `json:"initiative_id,omitempty" yaml:"initiative_id,omitempty"`
-	FeatureRef    string    `json:"feature_ref,omitempty" yaml:"feature_ref,omitempty"` // Gurgeh spec ID
-	LinkedAt      time.Time `json:"linked_at" yaml:"linked_at"`
-	LinkedBy      string    `json:"linked_by,omitempty" yaml:"linked_by,omitempty"` // Agent or user
+	InsightID    string    `json:"insight_id" yaml:"insight_id"`
+	InitiativeID string    `json:"initiative_id,omitempty" yaml:"initiative_id,omitempty"`
+	FeatureRef   string    `json:"feature_ref,omitempty" yaml:"feature_ref,omitempty"` // Gurgeh spec ID
+	LinkedAt     time.Time `json:"linked_at" yaml:"linked_at"`
+	LinkedBy     string    `json:"linked_by,omitempty" yaml:"linked_by,omitempty"` // Agent or user
 }

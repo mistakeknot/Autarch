@@ -17,10 +17,10 @@ type mockDataSource struct {
 	insights []Insight
 }
 
-func (m *mockDataSource) ListSpecs(status string) ([]Spec, error)              { return m.specs, nil }
-func (m *mockDataSource) ListEpics(specID string) ([]Epic, error)              { return m.epics, nil }
-func (m *mockDataSource) ListStories(epicID string) ([]Story, error)           { return m.stories, nil }
-func (m *mockDataSource) ListTasks(status, agent string) ([]Task, error)       { return m.tasks, nil }
+func (m *mockDataSource) ListSpecs(status string) ([]Spec, error)        { return m.specs, nil }
+func (m *mockDataSource) ListEpics(specID string) ([]Epic, error)        { return m.epics, nil }
+func (m *mockDataSource) ListStories(epicID string) ([]Story, error)     { return m.stories, nil }
+func (m *mockDataSource) ListTasks(status, agent string) ([]Task, error) { return m.tasks, nil }
 func (m *mockDataSource) ListInsights(specID, category string) ([]Insight, error) {
 	return m.insights, nil
 }

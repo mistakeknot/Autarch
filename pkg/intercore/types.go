@@ -41,14 +41,14 @@ func (r Run) UpdatedTime() time.Time { return time.Unix(r.UpdatedAt, 0) }
 
 // Dispatch represents an agent dispatch.
 type Dispatch struct {
-	ID        string `json:"id"`
-	RunID     string `json:"run_id"`
-	Type      string `json:"type"`
-	Agent     string `json:"agent,omitempty"`
+	ID string `json:"id"`
+	// RunID is NOT emitted by `ic dispatch status|list` (public contract in
+	// internal/dispatch/output.go); it stays empty until ic exposes run linkage.
+	RunID     string `json:"run_id,omitempty"`
+	AgentType string `json:"agent_type"`
 	Status    string `json:"status"`
 	ExitCode  *int   `json:"exit_code,omitempty"`
 	CreatedAt int64  `json:"created_at"`
-	UpdatedAt int64  `json:"updated_at"`
 
 	// Result fields — populated by ic dispatch status/list after completion.
 	Name           *string `json:"name,omitempty"`
@@ -64,8 +64,8 @@ func (d Dispatch) DisplayName() string {
 	if d.Name != nil && *d.Name != "" {
 		return *d.Name
 	}
-	if d.Agent != "" {
-		return d.Agent
+	if d.AgentType != "" {
+		return d.AgentType
 	}
 	return d.ID
 }
@@ -116,9 +116,9 @@ type GateCondition struct {
 
 // GateRule describes a gate transition rule.
 type GateRule struct {
-	From   string           `json:"from"`
-	To     string           `json:"to"`
-	Checks []GateRuleCheck  `json:"checks"`
+	From   string          `json:"from"`
+	To     string          `json:"to"`
+	Checks []GateRuleCheck `json:"checks"`
 }
 
 // GateRuleCheck is a single check within a gate rule.
@@ -171,7 +171,7 @@ func (e Event) EventTime() time.Time { return time.Unix(e.Timestamp, 0) }
 type RunAgent struct {
 	ID         string `json:"id"`
 	RunID      string `json:"run_id"`
-	Type       string `json:"type"`
+	AgentType  string `json:"agent_type"`
 	Name       string `json:"name,omitempty"`
 	DispatchID string `json:"dispatch_id,omitempty"`
 	Status     string `json:"status"`
@@ -179,9 +179,35 @@ type RunAgent struct {
 
 // BudgetResult from ic run budget.
 type BudgetResult struct {
-	RunID       string `json:"run_id"`
-	TokenBudget int64  `json:"token_budget"`
-	TokensUsed  int64  `json:"tokens_used"`
-	Exceeded    bool   `json:"exceeded"`
-	WarnPct     int    `json:"warn_pct,omitempty"`
+	RunID       string  `json:"run_id"`
+	TokenBudget int64   `json:"budget"`
+	TokensUsed  int64   `json:"used"`
+	Exceeded    bool    `json:"exceeded"`
+	Warning     bool    `json:"warning,omitempty"`
+	WarnPct     int     `json:"warn_pct,omitempty"`
+	UsagePct    float64 `json:"usage_pct,omitempty"`
+}
+
+// RunEvent is one phase event as emitted by `ic run events` (distinct from the
+// unified event stream decoded into Event).
+type RunEvent struct {
+	ID         int64   `json:"id"`
+	RunID      string  `json:"run_id"`
+	FromPhase  string  `json:"from_phase"`
+	ToPhase    string  `json:"to_phase"`
+	EventType  string  `json:"event_type"`
+	GateResult *string `json:"gate_result,omitempty"`
+	GateTier   *string `json:"gate_tier,omitempty"`
+	Reason     *string `json:"reason,omitempty"`
+	CreatedAt  int64   `json:"created_at"`
+}
+
+// ToEvent converts a phase event to the common Event shape used by views.
+func (e RunEvent) ToEvent() Event {
+	ev := Event{ID: e.ID, RunID: e.RunID, Source: "phase", Type: e.EventType,
+		FromState: e.FromPhase, ToState: e.ToPhase, Timestamp: e.CreatedAt}
+	if e.Reason != nil {
+		ev.Reason = *e.Reason
+	}
+	return ev
 }
