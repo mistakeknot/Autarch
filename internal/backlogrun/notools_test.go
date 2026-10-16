@@ -25,12 +25,22 @@ func TestRequireNoToolsRefusesAWrapperWithoutIt(t *testing.T) {
 	}
 }
 
-func TestActualSeatReportsTheRecordedModel(t *testing.T) {
-	r := Router{Repo: "/x", Run: func(ctx context.Context, name string, args ...string) ([]byte, error) {
-		return []byte("gpt-6.1-sol\n"), nil
-	}}
-	got := r.actualSeat(context.Background(), Seat{ProfileRef: "coordination-sonnet", Model: "claude-sonnet-5-5"})
-	if got.Model != "gpt-6.1-sol" || !strings.Contains(got.ProfileRef, "fell back") {
-		t.Fatalf("seat = %+v", got)
+func TestActualSeatUsesOnlyANewRecordAndNeverKeepsMixedFields(t *testing.T) {
+	run := func(out string) Runner {
+		return func(ctx context.Context, name string, args ...string) ([]byte, error) { return []byte(out), nil }
+	}
+	seat := Seat{Role: "coordination", ProfileRef: "coordination-sonnet", Backend: "claude", Model: "claude-sonnet-5-5", Effort: "medium"}
+	got := Router{Run: run("gpt-6.1-sol\n")}.actualSeat(context.Background(), seat, "4")
+	if got.Model != "gpt-6.1-sol" || got.Backend != "unrecorded" || got.Effort != "unrecorded" || !strings.Contains(got.ProfileRef, "fell back") {
+		t.Fatalf("fallback seat = %+v", got)
+	}
+	if got := (Router{Run: run("")}).actualSeat(context.Background(), seat, "4"); !strings.Contains(got.ProfileRef, "unverified") {
+		t.Fatalf("no new record must be marked unverified: %+v", got)
+	}
+	if got := (Router{Run: run("claude-sonnet-5-5")}).actualSeat(context.Background(), seat, ""); !strings.Contains(got.ProfileRef, "unverified") {
+		t.Fatalf("no baseline must be marked unverified: %+v", got)
+	}
+	if got := (Router{Run: run("claude-sonnet-5-5")}).actualSeat(context.Background(), seat, "4"); got.ProfileRef != "coordination-sonnet" {
+		t.Fatalf("a matching record leaves the seat: %+v", got)
 	}
 }

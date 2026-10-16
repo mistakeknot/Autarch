@@ -168,11 +168,12 @@ func (r Router) Triage(ctx context.Context, cards []Card) ([]Verdict, Seat, erro
 			return nil, seat, fmt.Errorf("initialise routing record in %s: %w", r.Repo, err)
 		}
 	}
+	before := r.lastRoutingID(ctx)
 	args := append(seatEnvArgs(os.Environ()), "bash", r.Dispatch, "--role", r.role(), "--policy", r.Policy, "--context-file", ctxFile, "--no-tools", "-s", "read-only", "-C", r.Repo, "-o", of, "--prompt-file", pf)
 	if _, err := r.Run(ctx, "env", args...); err != nil {
 		return nil, seat, fmt.Errorf("dispatch triage: %w", err)
 	}
-	seat = r.actualSeat(ctx, seat)
+	seat = r.actualSeat(ctx, seat, before)
 	b, err := os.ReadFile(of)
 	if err != nil {
 		return nil, seat, fmt.Errorf("triage output: %w", err)
@@ -214,17 +215,39 @@ func (r Router) RequireNoTools() error {
 	return nil
 }
 
-// actualSeat replaces the model of the preliminary routing answer with the model the wrapper recorded for this dispatch,
-// since the wrapper resolves routing again and may fall back to another profile. The empty directory is used only by
-// this run, so its newest routing record is this dispatch. When the record cannot be read the preliminary seat stands.
-func (r Router) actualSeat(ctx context.Context, s Seat) Seat {
-	out, err := r.Run(ctx, "sqlite3", "-readonly", filepath.Join(r.Repo, ".clavain", "intercore.db"), "select selected_model from routing_decisions order by id desc limit 1")
-	if err != nil {
+// routingRow reads one value from the run's own routing record (the empty directory's .clavain/intercore.db).
+func (r Router) routingRow(ctx context.Context, query string) (string, error) {
+	out, err := r.Run(ctx, "sqlite3", "-readonly", filepath.Join(r.Repo, ".clavain", "intercore.db"), query)
+	return strings.TrimSpace(string(out)), err
+}
+
+// lastRoutingID is the newest routing record before the dispatch, so the record the dispatch wrote can be told from older ones.
+func (r Router) lastRoutingID(ctx context.Context) string {
+	id, err := r.routingRow(ctx, "select coalesce(max(id),0) from routing_decisions")
+	if err != nil || id == "" {
+		return ""
+	}
+	return id
+}
+
+// actualSeat replaces the preliminary routing answer with the seat the wrapper recorded for this dispatch, because the
+// wrapper resolves routing again and may fall back to another profile. Only a record newer than before counts. When there
+// is none, or it cannot be read, the seat is marked unverified rather than left looking confirmed. The record holds the
+// model and the rule, not the backend or effort, so a fallback seat reports those as unrecorded.
+func (r Router) actualSeat(ctx context.Context, s Seat, before string) Seat {
+	unverified := func(why string) Seat {
+		s.ProfileRef += " (unverified: " + why + ")"
 		return s
 	}
-	if m := strings.TrimSpace(string(out)); m != "" && m != s.Model {
-		s.ProfileRef += " (fell back; routing record shows " + m + ")"
-		s.Model = m
+	if before == "" {
+		return unverified("no routing record before dispatch")
+	}
+	m, err := r.routingRow(ctx, "select selected_model from routing_decisions where id > "+before+" order by id desc limit 1")
+	if err != nil || m == "" {
+		return unverified("no routing record for this dispatch")
+	}
+	if m != s.Model {
+		s = Seat{Role: s.Role, ProfileRef: s.ProfileRef + " (fell back; recorded model " + m + ")", Backend: "unrecorded", Model: m, Effort: "unrecorded", PolicyHash: s.PolicyHash}
 	}
 	return s
 }
