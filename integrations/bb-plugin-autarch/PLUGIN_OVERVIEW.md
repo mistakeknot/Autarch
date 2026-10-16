@@ -10,7 +10,7 @@ Keep what is waiting for you in one place, in the sidebar and in your agent thre
 
 ## How it works
 
-Home data lives in this plugin's own storage on the BB server. The plugin reads a local
+Citadel data lives in this plugin's own storage on the BB server. The plugin reads a local
 Autarch service on this machine, which it does not start, and needs no account, API key, or external service.
 
 ## For agents

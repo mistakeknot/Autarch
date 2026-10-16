@@ -25,7 +25,7 @@ describe("the shipped deck", () => {
     const d = loadDeck(shipped);
     expect(d.map((c) => c.id.slice(0, 2))).toEqual(["01", "02", "03", "04", "05", "06", "07", "08"]);
     expect(d.map((c) => c.title)).toEqual([
-      "What Home is and what it never does",
+      "What Citadel is and what it never does",
       "Cards and options: how a pick works",
       "Your move versus Waiting on you",
       "The vizier and the sub-vizier trial",

@@ -8,9 +8,9 @@
   },
   "bb": {
     "name": "Autarch",
-    "description": "A BB plugin with an example todo list.",
+    "description": "Citadel: the asks waiting for mk, a catch-up feed, and an example todo list.",
     "branding": {
-      "icon": "ListTodo"
+      "icon": "./assets/citadel.svg"
     },
     "server": "./server.ts",
     "app": "./app.tsx"
