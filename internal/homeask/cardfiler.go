@@ -759,7 +759,10 @@ func (f *CardFiler) awaitCardKey(ctx context.Context, id string) string {
 	if interval <= 0 {
 		interval = 200 * time.Millisecond
 	}
-	deadline := time.Now().Add(f.ReadbackTimeout)
+	// The deadline is on the context, so a stalled read is cut off at ReadbackTimeout, not at the per-call timeout.
+	ctx, cancel := context.WithTimeout(ctx, f.ReadbackTimeout)
+	defer cancel()
+	deadline, _ := ctx.Deadline()
 	for {
 		if v, err := f.Card(ctx, id); err == nil && v.CardKey != "" {
 			return v.CardKey
