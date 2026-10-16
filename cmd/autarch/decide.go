@@ -135,12 +135,12 @@ Exit codes: 2 validation, 3 Home down or not filed, 4 outcome unknown
 		Args:         cobra.NoArgs,
 		SilenceUsage: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			raw, err := io.ReadAll(io.LimitReader(cmd.InOrStdin(), 16*1024+1))
+			raw, err := io.ReadAll(io.LimitReader(cmd.InOrStdin(), maxCardFileBytes+1))
 			if err != nil {
 				return err
 			}
-			if len(raw) > 16*1024 {
-				return &usageError{"request is over 16 KiB"}
+			if len(raw) > maxCardFileBytes {
+				return &usageError{"request is over 1 MiB"}
 			}
 			t, err := resolveThread(thread)
 			if err != nil {

@@ -240,7 +240,7 @@ export function planCards(rows: readonly Classified[], bound?: ReadonlySet<strin
   }
   for (const [repo, group] of batches) {
     const [owner, name] = repo.split("/") as [string, string];
-    // The question lists every URL and must stay under the ask parser's 2000-character limit, so a big set is split.
+    // The question lists every URL and is kept short (BATCH_QUESTION_MAX) so a card stays readable, so a big set is split.
     const chunks = chunkUrls((u) => batchQuestion(repo, u), group.map((g) => g.pr.url));
     for (const urls of chunks) {
       const hash = urlHash(urls);

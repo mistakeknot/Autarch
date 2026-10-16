@@ -348,9 +348,13 @@ func TestMoveOnlyAskSaysWhatTheMoveAsks(t *testing.T) {
 			t.Errorf("%s: question = %q, want %q", tc.move, q, tc.want)
 		}
 	}
-	long, _ := homeask.ParseMove(`{"schema":"home-move/v1","kind":"context","context":{"need":"` + strings.Repeat("é", 2000) + `"}}`)
-	if q := moveOnlyAsk("T", long.Raw)["question"].(string); len([]rune(q)) != 2000 {
-		t.Errorf("a long question is cut to 2000 runes, got %d", len([]rune(q)))
+	long, _ := homeask.ParseMove(`{"schema":"home-move/v1","kind":"context","context":{"need":"` + strings.Repeat("é", 3000) + `"}}`)
+	if q := moveOnlyAsk("T", long.Raw)["question"].(string); !strings.Contains(q, strings.Repeat("é", 3000)) {
+		t.Errorf("a need under the 8000 limit is kept whole in the question, got %d runes", len([]rune(q)))
+	}
+	full, _ := homeask.ParseMove(`{"schema":"home-move/v1","kind":"context","context":{"need":"` + strings.Repeat("😀", 8000) + `"}}`)
+	if q := moveOnlyAsk("T", full.Raw)["question"].(string); len([]rune(q)) != 8000 {
+		t.Errorf("a question is cut to the 8000-character limit, got %d runes", len([]rune(q)))
 	}
 }
 
@@ -394,5 +398,16 @@ func TestNeedsMkAdoptMoveAttachesAndRepeats(t *testing.T) {
 	t.Setenv("BB_THREAD_ID", "")
 	if _, err := runNeedsMk(t, s, "adopt-move", "--card", "T1", "--move", writeMove(t, prMoveJSON)); err == nil {
 		t.Fatal("adopt without a thread succeeded")
+	}
+}
+
+func TestReadMoveFileTakesAFullEightThousandCharacterNeed(t *testing.T) {
+	p := filepath.Join(t.TempDir(), "move.json")
+	body := `{"schema":"home-move/v1","kind":"context","context":{"need":"` + strings.Repeat("😀", 8000) + `"}}`
+	if err := os.WriteFile(p, []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := readMoveFile(p); err != nil {
+		t.Errorf("a 8000-character need (%d bytes) is refused: %v", len(body), err)
 	}
 }
