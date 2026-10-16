@@ -15,4 +15,4 @@ The repository builds <!-- figure:cmd-count=12 -->12 commands from `cmd/`:
 
 The unified `autarch` command hosts the TUI, `serve`, the Home asks (`needs-mk`, `decide`) and the maintenance commands.
 
-Shared Go packages live under `internal/` (<!-- figure:internal-count=23 -->23 packages) and reusable ones under `pkg/` (<!-- figure:pkg-count=26 -->26 packages).
+Shared Go packages live under `internal/` (<!-- figure:internal-count=24 -->24 packages) and reusable ones under `pkg/` (<!-- figure:pkg-count=26 -->26 packages).
