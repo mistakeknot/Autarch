@@ -69,6 +69,11 @@ type CardFiler struct {
 	// ConfigErr, when set, makes File and FileForPull refuse (ErrInvalid): the binding config was
 	// unreadable, so nothing may be filed against a guess.
 	ConfigErr error
+	// ReadbackTimeout bounds how long FileCard polls `bb home get --card` for the card's card_key after
+	// filing it (Home indexes a card shortly after it exists). Zero reads nothing back.
+	ReadbackTimeout time.Duration
+	// ReadbackInterval is the pause between polls, default 200 ms.
+	ReadbackInterval time.Duration
 }
 
 // Environment variables CardFilerFromEnv reads.
@@ -138,6 +143,9 @@ type CardResult struct {
 	Project string `json:"project,omitempty"`
 	// Replay is true when the card already existed (a routing comment may still have been repaired).
 	Replay bool `json:"replay"`
+	// CardKey is Home's card_key for the card, read back after filing. Empty when readback is off or Home had
+	// not indexed the card within ReadbackTimeout.
+	CardKey string `json:"card_key,omitempty"`
 }
 
 // CardView is `bb home get --card`.
@@ -736,6 +744,58 @@ func (f *CardFiler) replay(ctx context.Context, req CardRequest, c *found) (Card
 
 // FileCard files one card, or finds the card this Request already filed.
 func (f *CardFiler) FileCard(ctx context.Context, req CardRequest) (CardResult, error) {
+	res, err := f.fileCard(ctx, req)
+	if err == nil && !req.Pull && res.ID != "" && f.ReadbackTimeout > 0 {
+		res.CardKey = f.awaitCardKey(ctx, res.ID)
+	}
+	return res, err
+}
+
+// awaitCardKey polls `bb home get --card` until Home reports the card's card_key or ReadbackTimeout passes
+// (one read is always made). Home indexes a card shortly after it exists, so a caller that reads the key
+// right after filing would otherwise miss it. It returns "" when Home has not indexed the card in time.
+func (f *CardFiler) awaitCardKey(ctx context.Context, id string) string {
+	interval := f.ReadbackInterval
+	if interval <= 0 {
+		interval = 200 * time.Millisecond
+	}
+	// The deadline is on the context, so a stalled read is cut off at ReadbackTimeout, not at the per-call timeout.
+	ctx, cancel := context.WithTimeout(ctx, f.ReadbackTimeout)
+	defer cancel()
+	deadline, _ := ctx.Deadline()
+	for {
+		if v, err := f.Card(ctx, id); err == nil && v.CardKey != "" {
+			return v.CardKey
+		}
+		if !time.Now().Add(interval).Before(deadline) {
+			return ""
+		}
+		select {
+		case <-ctx.Done():
+			return ""
+		case <-time.After(interval):
+		}
+	}
+}
+
+// CheckOptionIDs refuses an ask whose option ids Home would reject, so the filer can fail before it
+// probes serve or runs bb. Ids are lowercase letters, digits and hyphens, 1-32 characters.
+func CheckOptionIDs(ask map[string]any) error {
+	opts, _ := ask["options"].([]any)
+	for i, o := range opts {
+		m, _ := o.(map[string]any)
+		id, ok := m["id"].(string)
+		if !ok {
+			continue
+		}
+		if !optionIDRe.MatchString(id) {
+			return fmt.Errorf("%w: options[%d].id %q must be lowercase (letters a-z, digits and hyphens, 1-32 characters), e.g. %q; nothing was filed", ErrInvalid, i, id, strings.ToLower(id))
+		}
+	}
+	return nil
+}
+
+func (f *CardFiler) fileCard(ctx context.Context, req CardRequest) (CardResult, error) {
 	if !req.Pull && req.Thread == "" {
 		return CardResult{}, fmt.Errorf("%w: BB_THREAD_ID is required: the asking thread routes the card", ErrInvalid)
 	}
