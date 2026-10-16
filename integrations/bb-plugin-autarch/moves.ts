@@ -60,7 +60,7 @@ function readHosts(): Set<string> {
 }
 const MAX_PATH = 1024;
 const MAX_ARGS = 8;
-const MAX_NEED = 2000;
+const MAX_NEED = 8000;
 
 const fail = (msg: string): never => {
   throw new Error(msg);

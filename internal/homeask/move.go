@@ -28,7 +28,7 @@ const (
 	moveSchema  = "home-move/v1"
 	maxMovePath = 1024
 	maxMoveArgs = 8
-	maxMoveNeed = 2000
+	maxMoveNeed = 8000
 )
 
 var (

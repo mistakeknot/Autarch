@@ -62,7 +62,7 @@ describe("validate rules", () => {
     ["bad kind", (a) => { (a as any).kind = "vote"; }, "kind must be"],
     ["instruction on needs-context", (a) => { a.options![2].instruction = "x"; }, "instruction is only allowed on an instruction option"],
     ["instruction kind without text", (a) => { a.options![0].instruction = ""; }, "an instruction option needs an instruction"],
-    ["instruction too long", (a) => { a.options![0].instruction = "a".repeat(2001); }, "instruction must be 1-2000"],
+    ["instruction too long", (a) => { a.options![0].instruction = "a".repeat(8001); }, "instruction must be 1-8000"],
     ["instruction NUL", (a) => { a.options![0].instruction = "a\u0000b"; }, "NUL"],
     ["instruction lone surrogate", (a) => { a.options![0].instruction = "a\ud800b"; }, "valid UTF-8"],
     ["duplicate ids", (a) => { a.options![1].id = "project"; }, "duplicate option id"],
@@ -106,6 +106,28 @@ describe("validate rules", () => {
       expect(() => norm(a)).toThrow(want);
     });
   }
+
+  it("every long text field takes 8000 characters and refuses 8001", () => {
+    const long = "é".repeat(8000), over = "é".repeat(8001);
+    const q = base();
+    q.question = long; norm(q);
+    q.question = over;
+    expect(() => norm(q)).toThrow("question must be 1-8000");
+    const o = base();
+    o.options![0].instruction = long; norm(o);
+    o.options![0].instruction = over;
+    expect(() => norm(o)).toThrow("instruction must be 1-8000");
+    const s = base();
+    s.kind = "steps"; s.options = undefined; s.recommendation = "";
+    s.steps = [long]; norm(s);
+    s.steps = [over];
+    expect(() => norm(s)).toThrow("each step must be 1-8000");
+    const m = base();
+    m.kind = "machine"; m.options = undefined; m.recommendation = "";
+    m.machine = { class: "dns", detail: long }; norm(m);
+    m.machine = { class: "dns", detail: over };
+    expect(() => norm(m)).toThrow("machine detail must be 1-8000");
+  });
 
   it("steps and machine kinds", () => {
     const s = base();

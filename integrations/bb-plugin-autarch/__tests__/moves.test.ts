@@ -13,6 +13,7 @@ describe("parseMove", () => {
     expect(parseMove(mv({ kind: "pr", pr: { url: "https://github.com/o/r/pull/12" } }))).toEqual({ kind: "pr", url: "https://github.com/o/r/pull/12" });
     expect(parseMove(mv({ kind: "read", read: { url: "https://github.com/o/r" } }))).toMatchObject({ kind: "read" });
     expect(parseMove(mv({ kind: "context", context: { need: "which host?" } }))).toEqual({ kind: "context", need: "which host?" });
+    expect(parseMove(mv({ kind: "context", context: { need: "x".repeat(8000) } }))).toMatchObject({ kind: "context" });
   });
 
   it.each([
@@ -41,7 +42,7 @@ describe("parseMove", () => {
     ["read other host", mv({ kind: "read", read: { url: "https://evil.example/" } })],
     ["read userinfo", mv({ kind: "read", read: { url: "https://u:p@github.com/" } })],
     ["context empty", mv({ kind: "context", context: { need: "  " } })],
-    ["context too long", mv({ kind: "context", context: { need: "x".repeat(2001) } })],
+    ["context too long", mv({ kind: "context", context: { need: "x".repeat(8001) } })],
   ])("refuses %s", (_n, body) => {
     expect(() => parseMove(body)).toThrow();
   });

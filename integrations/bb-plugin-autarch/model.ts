@@ -53,10 +53,10 @@ export interface Ask {
   machine?: Machine;
 }
 
-const MAX_INSTRUCTION = 2000;
+const MAX_INSTRUCTION = 8000;
 const MAX_LABEL = 80;
 const MAX_KEY = 120;
-const MAX_QUESTION = 2000;
+const MAX_QUESTION = 8000;
 const MAX_STEPS = 20;
 const MAX_TTL = 7 * 24 * 3600;
 
@@ -285,7 +285,7 @@ function normalize(input: Ask): { ask?: Ask; problems: Problem[] } {
   if (a.thread !== "" && !REF_ID.test(a.thread)) add("thread", "thread must match [A-Za-z0-9:_.-]{1,128}");
   if (blank(a.project) || count(a.project) > 200) add("project", "project is required (1-200 characters)");
   if (!a.project_root.startsWith("/") || blank(a.project_root)) add("project_root", "project_root must be an absolute path");
-  if (blank(a.question) || count(a.question) > MAX_QUESTION) add("question", `question must be 1-2000 characters (got ${count(a.question)})`);
+  if (blank(a.question) || count(a.question) > MAX_QUESTION) add("question", `question must be 1-8000 characters (got ${count(a.question)})`);
   if (a.request_id !== "" && !REQUEST_ID.test(a.request_id)) add("request_id", "request_id must be 1-128 of [A-Za-z0-9:_.-]");
   for (const [field, v] of [["supersedes", a.supersedes], ["mention_of", a.mention_of]] as const) {
     if (v !== "" && !REF_ID.test(v)) add(field, `${field} must match [A-Za-z0-9:_.-]{1,128}`);
@@ -309,7 +309,7 @@ function normalize(input: Ask): { ask?: Ask; problems: Problem[] } {
       if (a.machine) add("machine", "steps takes no machine block");
       if (a.recommendation !== "") add("recommendation", "recommendation must name an option");
       if (a.steps.length < 1 || a.steps.length > MAX_STEPS) add("steps", "steps needs 1-20 steps");
-      if (a.steps.some((s) => blank(s) || count(s) > MAX_INSTRUCTION)) add("steps", "each step must be 1-2000 characters");
+      if (a.steps.some((s) => blank(s) || count(s) > MAX_INSTRUCTION)) add("steps", "each step must be 1-8000 characters");
       break;
     case "machine":
       if (a.options.length > 0 || a.steps.length > 0) add("kind", "machine takes no steps or options");
@@ -317,7 +317,7 @@ function normalize(input: Ask): { ask?: Ask; problems: Problem[] } {
       if (!a.machine) add("machine", "machine needs a machine block");
       else {
         if (!MACHINE_CLASS.test(a.machine.class)) add("machine class", "machine class must match [a-z0-9-]{1,32}");
-        if (blank(a.machine.detail) || count(a.machine.detail) > MAX_INSTRUCTION) add("machine detail", "machine detail must be 1-2000 characters");
+        if (blank(a.machine.detail) || count(a.machine.detail) > MAX_INSTRUCTION) add("machine detail", "machine detail must be 1-8000 characters");
         if (a.machine.owner_thread && !REF_ID.test(a.machine.owner_thread)) add("owner_thread", "owner_thread must match [A-Za-z0-9:_.-]{1,128}");
       }
       break;
@@ -379,7 +379,7 @@ function normalizeOptions(a: Work, add: (field: string, why: string) => void) {
     }
     if (o.kind === "instruction" && !o.instruction) add(`${at}.instruction`, "an instruction option needs an instruction");
     if (o.kind !== "instruction" && o.instruction) add(`${at}.instruction`, "instruction is only allowed on an instruction option");
-    if (o.instruction && (count(o.instruction) < 1 || count(o.instruction) > MAX_INSTRUCTION)) add(`${at}.instruction`, "instruction must be 1-2000 characters");
+    if (o.instruction && (count(o.instruction) < 1 || count(o.instruction) > MAX_INSTRUCTION)) add(`${at}.instruction`, "instruction must be 1-8000 characters");
     if (o.approval) {
       if (o.reversible) add(`${at}.reversible`, "reversible is not allowed on an option with an approval spec");
       if (!["merge", "deploy", "release"].includes(o.approval.kind)) add(`${at}.approval.kind`, "approval kind must be merge, deploy or release");

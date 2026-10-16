@@ -2,7 +2,7 @@
 // a person copies is the line, character for character.
 import { describe, expect, it } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
-import { QuestionText } from "../ui/asks.js";
+import { LONG_QUESTION, QuestionText } from "../ui/asks.js";
 import { CommandBlock } from "../ui/copy.js";
 
 const SCRIPT = "/tmp/example/run-it.sh";
@@ -46,5 +46,20 @@ describe("QuestionText (the AUTA-133 shape)", () => {
     const p = renderToStaticMarkup(<QuestionText text="Should we ship on Friday?" />);
     expect(p).not.toContain("data-command-box");
     expect(p).toContain("Should we ship on Friday?");
+  });
+});
+
+describe("QuestionText with long text", () => {
+  it("scrolls inside its own box past the limit and stays plain below it", () => {
+    const long = "word ".repeat(1700);
+    expect(long.length).toBeGreaterThan(LONG_QUESTION);
+    const html = renderToStaticMarkup(<QuestionText text={long} />);
+    expect(html).toContain('data-long="true"');
+    expect(html).toContain("overflow-y-auto");
+    expect(textOf(html)).toBe(long);
+    expect(renderToStaticMarkup(<QuestionText text="short" />)).not.toContain("data-long");
+    const cmd = renderToStaticMarkup(<QuestionText text={`${"x ".repeat(900)}\n\nbash /tmp/a.sh --check`} />);
+    expect(cmd).toContain('data-long="true"');
+    expect(cmd).toContain("data-question");
   });
 });

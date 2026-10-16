@@ -159,12 +159,19 @@ const REF = new RegExp(`(${URL_SRC}|(?<![\\w/])\\/(?:[\\w.@+-]{1,255}\\/){1,64}[
 const ROLE_LABEL: Record<CommandRole, string> = { check: "Before it (dry run / check)", step: "Earlier step", final: "Final command" };
 
 /** A card's question: prose as paragraphs, each command as a copyable block. The last one is the one to run. */
+/** A question longer than this scrolls inside its own box, so eight thousand characters do not push the options off screen. */
+export const LONG_QUESTION = 1500;
+const LONG_BOX = "max-h-[28rem] overflow-y-auto rounded border border-border p-2";
+
 export function QuestionText({ text }: { text: string }) {
   const parts = splitCommands(text);
-  if (!parts.some((p) => p.type === "command")) return <p className="mt-2 whitespace-pre-wrap text-sm [overflow-wrap:anywhere]"><RefText text={text} /></p>;
+  const scroll = text.length > LONG_QUESTION ? ` ${LONG_BOX}` : "";
+  const mark = scroll === "" ? {} : { "data-long": "true" };
+  if (!parts.some((p) => p.type === "command"))
+    return <p className={`mt-2 whitespace-pre-wrap text-sm [overflow-wrap:anywhere]${scroll}`} {...mark}><RefText text={text} /></p>;
   const several = parts.filter((p) => p.type === "command").length > 1;
   return (
-    <div className="mt-2 space-y-3" data-question>
+    <div className={`mt-2 space-y-3${scroll}`} data-question {...mark}>
       {parts.map((p, i) =>
         p.type === "prose" ? (
           <p key={i} className="m-0 whitespace-pre-wrap text-sm [overflow-wrap:anywhere]"><RefText text={p.text} /></p>
