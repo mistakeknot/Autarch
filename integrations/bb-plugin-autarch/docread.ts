@@ -69,6 +69,16 @@ function nameOk(p: string): boolean {
   return !SECRET_NAME.test(base) && TEXT_EXT.has(extname(base).toLowerCase());
 }
 
+/** The projects folder the file panel may also open (a card names scripts and docs in repositories). Real path, or null when it is not a real directory. */
+export function projectRoots(home = homedir()): string[] {
+  try {
+    const want = join(realpathSync(home), "projects");
+    return realpathSync(want) === want && lstatSync(want).isDirectory() ? [want] : [];
+  } catch {
+    return [];
+  }
+}
+
 const underRoot = (real: string, roots: readonly string[]) => roots.some((r) => real.startsWith(r + sep));
 
 /**
@@ -88,6 +98,30 @@ export function readDoc(path: unknown, opts: { roots?: readonly string[]; maxByt
   // The name is checked again after resolving: a link named notes.md must not reach a key or an .env file.
   if (!underRoot(real, roots) || !nameOk(real)) return refuse();
   return openChecked(real, roots, opts.maxBytes ?? DOC_MAX_BYTES, opts.sha256);
+}
+
+export type OpenTarget = { ok: true; path: string } | { ok: false; error: string };
+
+/**
+ * The real path of a file the bb file panel may show for a card, or a refusal. Same allowlist as readDoc (thread
+ * storage) plus the projects folder; the same name rules (no secrets, no .git or node_modules, text types only). It
+ * reads nothing and opens nothing: bb's own panel shows the file, read-only. The check is of the path now; the panel
+ * opens it a moment later, so a file swapped for a symlink in that gap is shown to the same user who owns the folder,
+ * on their own host. It crosses no privilege boundary, and nothing here can bind the check to the panel's open.
+ */
+export function resolveOpenTarget(path: unknown, opts: { roots?: readonly string[] } = {}): OpenTarget {
+  if (typeof path !== "string" || path.length === 0 || path.length > PATH_MAX || path.includes("\0") || !path.startsWith("/")) return refuse();
+  if (path.split("/").includes("..") || !nameOk(path)) return refuse();
+  const roots = opts.roots ?? [...docRoots(), ...projectRoots()];
+  try {
+    const real = realpathSync(path);
+    if (!underRoot(real, roots) || !nameOk(real)) return refuse();
+    const st = lstatSync(real);
+    if (!st.isFile() || st.nlink > 1) return refuse();
+    return { ok: true, path: real };
+  } catch {
+    return refuse();
+  }
 }
 
 /**

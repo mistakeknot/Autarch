@@ -253,7 +253,19 @@ function useRootRuns(rpc: ReturnType<typeof useRpc<typeof rpcContract>>): RootRu
 
 /** The reader's one call: the server decides what may be read, so a failure comes back as its refusal text. */
 function useDocReaderApi(rpc: ReturnType<typeof useRpc<typeof rpcContract>>): DocReaderApi {
-  return useMemo(() => ({ read: (path, sha256) => rpc.call("readDoc", { path, ...(sha256 !== undefined ? { sha256 } : {}) }).then((r) => r as DocResultT) }), [rpc]);
+  const nav = useBbNavigate();
+  return useMemo(
+    () => ({
+      read: (path, sha256) => rpc.call("readDoc", { path, ...(sha256 !== undefined ? { sha256 } : {}) }).then((r) => r as DocResultT),
+      // The server checks the path and names the target; bb's own file panel shows it, read-only.
+      openFile: async (path) => {
+        const r = (await rpc.call("openTarget", { path })) as { ok: true; target: { kind: "host"; hostId: string; path: string } } | { ok: false; error: string };
+        if (!r.ok) return r;
+        return nav.experimental_openFilePreview({ target: r.target, location: null }) ? { ok: true } : { ok: false, error: "bb could not open the file panel here" };
+      },
+    }),
+    [rpc, nav],
+  );
 }
 
 /** Conversation on the card: unread counts (polled), the conversation read, and the read mark. All display; no write but the read mark. */

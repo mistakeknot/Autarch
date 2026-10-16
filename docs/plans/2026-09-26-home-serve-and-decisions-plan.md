@@ -364,7 +364,7 @@ costly and hard to see from the author's seat.
     resolution is deferred (G-9).
 - **P-6: kinds, instructions and reversibility** `[D22]`.
   - Kinds are `instruction`, `needs-context` and `ruling-only`, inferred as in rev 3. An
-    instruction is plain text of at most 2,000 characters, shown and delivered exactly, never
+    instruction is plain text of at most 8,000 characters (raised from 2,000 by mk-98y4s), shown and delivered exactly, never
     parsed or run by Home.
   - An option may carry `reversible: true`, set by the asker at filing. The mark is
     **necessary, never sufficient** for delegation `[D-2]`: the bounded delegation policy
@@ -821,7 +821,7 @@ run `npm install && npm test` on the empty scaffold, and commit
 **Design** (identical rules on both sides):
 - Kind inference and limits as in rev 3: no kind and no instruction is `needs-context`; an
   instruction and no kind is `instruction`; an instruction on another kind is an error;
-  instructions 1–2,000 characters, valid UTF-8, no NUL; option ids unique `[a-z0-9-]{1,32}`,
+  instructions 1–8,000 characters, valid UTF-8, no NUL; option ids unique `[a-z0-9-]{1,32}`,
   defaulting to a slug of the label; 2–6 options for `decide`; labels 1–80 characters;
   `recommendation` names an option; `request_id` 1–128 of `[A-Za-z0-9:_.-]`.
 - `reversible` is refused on an option with an `approval` spec, and on any option when

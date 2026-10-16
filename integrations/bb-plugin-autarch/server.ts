@@ -32,7 +32,7 @@ import { ghViewReal, PrPoller } from "./movepoll.js";
 import { ReportWatcher } from "./movereport.js";
 import { moveViews } from "./moveview.js";
 import { CommentPoller, conversationView, openTaskIds, unreadCounts } from "./conversation.js";
-import { readDoc } from "./docread.js";
+import { readDoc, resolveOpenTarget } from "./docread.js";
 import { rootRun } from "./rootrun.js";
 import { buildQueue, removeBinding, setBinding } from "./queueview.js";
 import { hasNoteMarker, isoWeek, Service } from "./service.js";
@@ -580,6 +580,13 @@ export function wireHome(bb: BbPluginApi, handle: StoreHandle, cfg: HomeConfig, 
     },
     async readDoc(i: { path: string; sha256?: string }) {
       return readDoc(i.path, { sha256: i.sha256 });
+    },
+    async openTarget(i: { path: string }) {
+      const r = resolveOpenTarget(i.path);
+      if (!r.ok) return r;
+      const cfg = (await bb.sdk.system.config()) as { primaryHostId?: string | null };
+      if (!cfg.primaryHostId) return { ok: false as const, error: "bb has no primary host to open the file on" };
+      return { ok: true as const, target: { kind: "host" as const, hostId: cfg.primaryHostId, path: r.path } };
     },
     async markConversationSeen(i: { task_id: string; through: string }) {
       need().svc.store.markConversationSeen(i.task_id, i.through);

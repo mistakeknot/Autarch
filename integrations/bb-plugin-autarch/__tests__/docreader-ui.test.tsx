@@ -23,6 +23,15 @@ describe("document opener", () => {
     expect(opens(html)).toEqual([PATH]);
   });
 
+  it("adds an open button only when the host can open the file panel", () => {
+    const text = `read ${PATH}`;
+    const plain = renderToStaticMarkup(<DocReaderHost api={api}><RefText text={text} /></DocReaderHost>);
+    expect(plain).not.toContain("data-file-open");
+    const withOpen = renderToStaticMarkup(<DocReaderHost api={{ ...api, openFile: async () => ({ ok: true }) }}><RefText text={text} /></DocReaderHost>);
+    expect([...withOpen.matchAll(/data-file-open="([^"]*)"/g)].map((m) => m[1])).toEqual([PATH]);
+    expect(withOpen).toContain("data-doc-open");
+  });
+
   it("recognises text document endings only", () => {
     for (const p of ["/a/b.md", "/a/b.TXT", "/a/b.json", "/a/b.sh"]) expect(looksLikeDoc(p), p).toBe(true);
     for (const p of ["/a/b", "/a/b.png", "/a/b.env", "/a/b.pem", "/a/.env"]) expect(looksLikeDoc(p), p).toBe(false);

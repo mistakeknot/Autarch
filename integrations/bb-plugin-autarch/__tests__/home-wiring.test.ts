@@ -41,7 +41,17 @@ describe("wireHome", () => {
     expect(f.services.sort()).toEqual(["home-card-comments", "home-delegation-check", "home-feed-refresh", "home-move-poll", "home-move-reports", "home-queue", "home-wakes"]);
     expect(f.configure()).toBeTypeOf("function");
     expect(f.cli()).toBeDefined();
-    expect(Object.keys(home.handlers).sort()).toEqual(["actIdea", "catchup", "checkMove", "claimMove", "clearIdeaDigest", "conversation", "conversationUnread", "dismiss", "fileIdea", "health", "ideaProjects", "ideas", "later", "learn", "learnSet", "listAsks", "listRecent", "markAllSeen", "markConversationSeen", "markSeen", "moves", "note", "override", "pick", "queue", "readDoc", "resend", "revokeApproval", "rootRun", "setBinding", "setDelegation", "setViewing", "skipMove", "stats", "unlater", "waiting"]);
+    expect(Object.keys(home.handlers).sort()).toEqual(["actIdea", "catchup", "checkMove", "claimMove", "clearIdeaDigest", "conversation", "conversationUnread", "dismiss", "fileIdea", "health", "ideaProjects", "ideas", "later", "learn", "learnSet", "listAsks", "listRecent", "markAllSeen", "markConversationSeen", "markSeen", "moves", "note", "openTarget", "override", "pick", "queue", "readDoc", "resend", "revokeApproval", "rootRun", "setBinding", "setDelegation", "setViewing", "skipMove", "stats", "unlater", "waiting"]);
+    f.disposers.forEach((d) => d());
+  });
+
+  it("openTarget refuses a path outside the allowlist before it asks bb for a host (bead mk-98y4s)", async () => {
+    const db = new Database(":memory:");
+    const f = fakeBb();
+    const home = wireHome(f.bb, createStoreHandle(() => db, {}), cfg, { serve });
+    const open = home.handlers.openTarget;
+    expect(await open({ path: "/etc/hostname.md" })).toMatchObject({ ok: false });
+    expect(await open({ path: "relative.md" })).toMatchObject({ ok: false });
     f.disposers.forEach((d) => d());
   });
 

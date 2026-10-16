@@ -3,7 +3,7 @@ import { appendFileSync, linkSync, mkdirSync, mkdtempSync, realpathSync, rmSync,
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { docRoots, NOT_AVAILABLE, openChecked, readDoc } from "../docread.js";
+import { docRoots, NOT_AVAILABLE, openChecked, projectRoots, readDoc, resolveOpenTarget } from "../docread.js";
 
 let home: string;
 let root: string;
@@ -197,5 +197,44 @@ describe("readDoc allowlist", () => {
     expect(first).toMatchObject({ ok: true, matches: true });
     appendFileSync(p("grow.md"), "f");
     expect(readDoc(p("grow.md"), { ...opts(), sha256: sha("abcde") })).toMatchObject({ ok: true, matches: false, size: 6 });
+  });
+});
+
+describe("resolveOpenTarget (the file panel link, bead mk-98y4s)", () => {
+  let projects: string;
+  beforeAll(() => {
+    projects = join(home, "projects");
+    mkdirSync(join(projects, "repo", "scripts"), { recursive: true });
+    mkdirSync(join(projects, "repo", ".git"), { recursive: true });
+    writeFileSync(join(projects, "repo", "scripts", "go.sh"), "echo hi\n");
+    writeFileSync(join(projects, "repo", ".git", "config.md"), "no");
+    writeFileSync(join(projects, "repo", "prod.env"), "no");
+    symlinkSync(outside, join(projects, "repo", "out"));
+  });
+  const roots = () => [...docRoots(home), ...projectRoots(home)];
+  it("finds the projects folder under the home it is given, and only when it is a real directory", () => {
+    expect(projectRoots(home)).toEqual([projects]);
+    expect(projectRoots(join(home, "nowhere"))).toEqual([]);
+  });
+  it("accepts a text file under thread storage or the projects folder, and returns its real path", () => {
+    expect(resolveOpenTarget(join(root, "thr_a", "plan.md"), { roots: roots() })).toEqual({ ok: true, path: join(root, "thr_a", "plan.md") });
+    expect(resolveOpenTarget(join(projects, "repo", "scripts", "go.sh"), { roots: roots() })).toEqual({ ok: true, path: join(projects, "repo", "scripts", "go.sh") });
+  });
+  it.each([
+    ["relative", () => "repo/scripts/go.sh"],
+    ["dot-dot", () => "/x/../etc/passwd.md"],
+    ["outside every root", () => join(outside, "plain.md")],
+    ["a symlink out of the projects folder", () => join(projects, "repo", "out", "plain.md")],
+    ["a .git file", () => join(projects, "repo", ".git", "config.md")],
+    ["a secret name", () => join(projects, "repo", "prod.env")],
+    ["a missing file", () => join(projects, "repo", "nope.md")],
+    ["a directory", () => join(projects, "repo", "scripts")],
+    ["a binary type", () => join(root, "thr_a", "data.bin")],
+    ["a NUL in the path", () => join(projects, "repo", "scripts", "go.sh") + "\0.md"],
+  ])("refuses %s with the one generic reason", (_n, p) => {
+    expect(resolveOpenTarget(p(), { roots: roots() })).toEqual({ ok: false, error: NOT_AVAILABLE });
+  });
+  it("refuses a non-string", () => {
+    expect(resolveOpenTarget(42, { roots: roots() })).toEqual({ ok: false, error: NOT_AVAILABLE });
   });
 });

@@ -71,10 +71,10 @@ type Ask struct {
 }
 
 const (
-	maxInstruction = 2000
+	maxInstruction = 8000
 	maxLabel       = 80
 	maxKey         = 120
-	maxQuestion    = 2000
+	maxQuestion    = 8000
 	maxSteps       = 20
 	maxTTL         = 7 * 24 * 3600
 )
@@ -312,7 +312,7 @@ func normalize(in Ask) (Ask, []Problem) {
 		ps.add("project_root", "project_root must be an absolute path")
 	}
 	if strings.TrimSpace(a.Question) == "" || runes(a.Question) > maxQuestion {
-		ps.addf("question", "question must be 1-2000 characters (got %d)", runes(a.Question))
+		ps.addf("question", "question must be 1-8000 characters (got %d)", runes(a.Question))
 	}
 	if a.RequestID != "" && !requestIDRe.MatchString(a.RequestID) {
 		ps.add("request_id", "request_id must be 1-128 of [A-Za-z0-9:_.-]")
@@ -362,7 +362,7 @@ func normalize(in Ask) (Ask, []Problem) {
 		}
 		for _, s := range a.Steps {
 			if strings.TrimSpace(s) == "" || runes(s) > maxInstruction {
-				ps.add("steps", "each step must be 1-2000 characters")
+				ps.add("steps", "each step must be 1-8000 characters")
 				break
 			}
 		}
@@ -381,7 +381,7 @@ func normalize(in Ask) (Ask, []Problem) {
 			ps.add("machine class", "machine class must match [a-z0-9-]{1,32}")
 		}
 		if strings.TrimSpace(a.Machine.Detail) == "" || runes(a.Machine.Detail) > maxInstruction {
-			ps.add("machine detail", "machine detail must be 1-2000 characters")
+			ps.add("machine detail", "machine detail must be 1-8000 characters")
 		}
 		if a.Machine.OwnerThread != "" && !refIDRe.MatchString(a.Machine.OwnerThread) {
 			ps.add("owner_thread", "owner_thread must match [A-Za-z0-9:_.-]{1,128}")
@@ -456,7 +456,7 @@ func normalizeOptions(a *Ask, ps *problemList) {
 		}
 		if o.Instruction != "" {
 			if n := runes(o.Instruction); n < 1 || n > maxInstruction {
-				ps.add(at+".instruction", "instruction must be 1-2000 characters")
+				ps.add(at+".instruction", "instruction must be 1-8000 characters")
 			}
 		}
 		if o.Approval != nil {

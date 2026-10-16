@@ -11,9 +11,11 @@ export type DocResultT =
 
 export interface DocReaderApi {
   read: (path: string, sha256?: string) => Promise<DocResultT>;
+  /** Opens the file in bb's file panel. Absent where the host cannot (then no "open" button shows). */
+  openFile?: (path: string) => Promise<{ ok: true } | { ok: false; error: string }>;
 }
 
-const DocReaderContext = createContext<{ open: (path: string, sha256?: string) => void } | null>(null);
+const DocReaderContext = createContext<{ open: (path: string, sha256?: string) => void; openFile: ((path: string) => void) | null } | null>(null);
 
 /** Text types the server will show; a path with another ending gets no opener. A hint only: the server decides. */
 const DOC_PATH = /^\/.+\.(md|markdown|txt|log|json|jsonl|ya?ml|toml|sh|patch|diff|csv)$/i;
@@ -24,9 +26,16 @@ export function DocLink({ path, sha256 }: { path: string; sha256?: string }) {
   const ctx = useContext(DocReaderContext);
   if (ctx === null || !looksLikeDoc(path)) return null;
   return (
-    <button type="button" className="ml-1 rounded border border-border px-1 text-xs text-primary hover:bg-muted" data-doc-open={path} onClick={() => ctx.open(path, sha256)}>
-      read
-    </button>
+    <>
+      <button type="button" className="ml-1 rounded border border-border px-1 text-xs text-primary hover:bg-muted" data-doc-open={path} onClick={() => ctx.open(path, sha256)}>
+        read
+      </button>
+      {ctx.openFile !== null ? (
+        <button type="button" className="ml-1 rounded border border-border px-1 text-xs text-primary hover:bg-muted" data-file-open={path} onClick={() => ctx.openFile?.(path)}>
+          open
+        </button>
+      ) : null}
+    </>
   );
 }
 
@@ -98,12 +107,30 @@ function DigestLine({ r, want }: { r: Extract<DocResultT, { ok: true }>; want?: 
 /** Wraps a panel: lays the reader pane beside the children when a document is open, and lets DocLink open one. */
 export function DocReaderHost({ api, children }: { api: DocReaderApi; children: ReactNode }) {
   const [open, setOpen] = useState<{ path: string; sha256?: string } | null>(null);
-  const ctx = useMemo(() => ({ open: (path: string, sha256?: string) => setOpen({ path, sha256 }) }), []);
+  const [fileError, setFileError] = useState<string | null>(null);
+  const openFile = api.openFile;
+  const ctx = useMemo(
+    () => ({
+      open: (path: string, sha256?: string) => setOpen({ path, sha256 }),
+      openFile:
+        openFile === undefined
+          ? null
+          : (path: string) => {
+              setFileError(null);
+              openFile(path).then(
+                (r) => setFileError(r.ok ? null : r.error),
+                (e) => setFileError(e instanceof Error ? e.message : String(e)),
+              );
+            },
+    }),
+    [openFile],
+  );
   const close = useCallback(() => setOpen(null), []);
   return (
     <DocReaderContext.Provider value={ctx}>
       <div className={open === null ? "contents" : "grid h-full min-h-0 grid-cols-1 lg:grid-cols-2"}>
         <div className={open === null ? "contents" : "min-h-0 overflow-auto"}>{children}</div>
+        {fileError !== null ? <p role="alert" className="fixed bottom-2 right-2 z-10 m-0 rounded border border-border bg-background p-2 text-xs text-destructive" data-file-error>{fileError}</p> : null}
         {open !== null ? <DocPane key={`${open.path}#${open.sha256 ?? ""}`} api={api} path={open.path} sha256={open.sha256} onClose={close} /> : null}
       </div>
     </DocReaderContext.Provider>

@@ -67,6 +67,8 @@ export const homeMethods = {
   conversationUnread: { input: z.null(), output: z.object({ unread: z.record(z.string(), z.number()) }) },
   // The document reader (bead mk-5zfbg): a read-only view of one allowlisted text file, see docread.ts.
   readDoc: { input: z.object({ path: z.string().min(1).max(1024), sha256: z.string().regex(/^[0-9a-fA-F]{64}$/).optional() }).strict(), output: docResult },
+  // Open one allowlisted file in bb's own file panel (bead mk-98y4s): the server checks the path and names the panel target.
+  openTarget: { input: z.object({ path: z.string().min(1).max(1024) }).strict(), output: z.union([z.object({ ok: z.literal(true), target: z.object({ kind: z.literal("host"), hostId: z.string().min(1), path: z.string().min(1) }).strict() }).strict(), z.object({ ok: z.literal(false), error: z.string() }).strict()]) },
   markConversationSeen: { input: z.object({ task_id: z.string().min(1).max(64), through: z.string().min(1).max(200) }).strict(), output: result },
   // The Idea box and weekly digest (bead mk-2zojo). An idea is a tracker card; none of these rules, closes or starts anything.
   ideaProjects: { input: z.null(), output: result },
@@ -122,6 +124,7 @@ export const homeCliMap = {
   conversation: { rpcOnly: "the panel's read model" },
   conversationUnread: { rpcOnly: "the panel's read model" },
   readDoc: { rpcOnly: "the document reader pane; the CLI has no file-reading verb" },
+  openTarget: { rpcOnly: "the file link on a card; bb's file panel does the showing" },
   markConversationSeen: { rpcOnly: "the panel's own state" },
   ideaProjects: { rpcOnly: "the Idea box" },
   ideas: { rpcOnly: "the Idea box" },

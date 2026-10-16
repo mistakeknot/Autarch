@@ -110,20 +110,20 @@ func parseRootRunFlag(v string) (*homeask.RootRun, error) {
 	return &homeask.RootRun{Script: vals["script"], SHA256: hex.EncodeToString(sum[:]), Timeout: n, Set: vals["set"]}, nil
 }
 
-// readMoveFile reads a home-move/v1 JSON file (at most 16 KiB) and validates it with the strict parser the
+// readMoveFile reads a home-move/v1 JSON file (at most 1 MiB) and validates it with the strict parser the
 // plugin uses, so a move Home would show as display-only is refused here. Nothing in it is executed.
 func readMoveFile(path string) (map[string]any, error) {
 	f, err := os.Open(path)
 	if err != nil {
 		return nil, &usageError{"--move: " + err.Error()}
 	}
-	raw, err := io.ReadAll(io.LimitReader(f, 16*1024+1))
+	raw, err := io.ReadAll(io.LimitReader(f, maxCardFileBytes+1))
 	f.Close()
 	if err != nil {
 		return nil, &usageError{"--move: " + err.Error()}
 	}
-	if len(raw) > 16*1024 {
-		return nil, &usageError{"--move is over 16 KiB"}
+	if len(raw) > maxCardFileBytes {
+		return nil, &usageError{"--move is over 1 MiB"}
 	}
 	mv, err := homeask.ParseMove(string(raw))
 	if err != nil {
@@ -132,6 +132,13 @@ func readMoveFile(path string) (map[string]any, error) {
 	return mv.Raw, nil
 }
 
+// maxCardFileBytes bounds a card JSON file: one 8000-character field of 4-byte text is about 32 KB, and an ask
+// holds many such fields. maxCardText is the card text limit the Go validator enforces.
+const (
+	maxCardFileBytes = 1 << 20
+	maxCardText      = 8000
+)
+
 // moveOnlyAsk is the ask a move card carries when the filer gave none. Home opens no moves (bead mk-1k8pg):
 // the card is a plain decision, so its question says what mk owes and Done records that mk did it.
 func moveOnlyAsk(title string, move map[string]any) map[string]any {
@@ -139,8 +146,8 @@ func moveOnlyAsk(title string, move map[string]any) map[string]any {
 	if d := moveDetail(move); d != "" {
 		q += "\n\n" + d
 	}
-	if r := []rune(q); len(r) > 2000 {
-		q = string(r[:2000])
+	if r := []rune(q); len(r) > maxCardText {
+		q = string(r[:maxCardText])
 	}
 	return map[string]any{
 		"question": q,
@@ -257,13 +264,13 @@ but the routing comment failed (re-run the same command), 5 already ruled (mk pi
 				if err != nil {
 					return &usageError{"--ask-file: " + err.Error()}
 				}
-				raw, err := io.ReadAll(io.LimitReader(f, 16*1024+1))
+				raw, err := io.ReadAll(io.LimitReader(f, maxCardFileBytes+1))
 				f.Close()
 				if err != nil {
 					return &usageError{"--ask-file: " + err.Error()}
 				}
-				if len(raw) > 16*1024 {
-					return &usageError{"--ask-file is over 16 KiB"}
+				if len(raw) > maxCardFileBytes {
+					return &usageError{"--ask-file is over 1 MiB"}
 				}
 				if err := json.Unmarshal(raw, &ask); err != nil {
 					return &usageError{"--ask-file is not a JSON object: " + err.Error()}
