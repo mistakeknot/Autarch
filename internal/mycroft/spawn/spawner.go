@@ -139,11 +139,16 @@ func (s *BBSpawner) Spawn(agentName string, bead mycroft.BeadView, _ string) (st
 		"--provider", provider, "--model", seat.Model, "--reasoning-level", seat.Effort,
 		"--title", Title(bead), "--prompt-file", f.Name())
 	if err != nil {
-		return "", err
+		// The thread may exist even though the command failed (interrupted CLI, lost reply). Stop it if the output
+		// names it; otherwise the outcome is unknown and the caller must reconcile before retrying.
+		if id, ierr := threadID(out); ierr == nil {
+			return "", s.stopAfter(id, fmt.Errorf("thread create failed: %w", err))
+		}
+		return "", fmt.Errorf("thread create failed, outcome unknown (check the project for a thread titled %q before retrying): %w", Title(bead), err)
 	}
 	id, err := threadID(out)
 	if err != nil {
-		return "", err
+		return "", fmt.Errorf("thread create answered without a thread id, outcome unknown (check the project for a thread titled %q before retrying): %w", Title(bead), err)
 	}
 	if _, err := s.run(ctx, "bb", "tasks", "attach", bead.Card, "--thread", id); err != nil {
 		return "", s.stopAfter(id, fmt.Errorf("attach card %s to %s: %w", bead.Card, id, err))

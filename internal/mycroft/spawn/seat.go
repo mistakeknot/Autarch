@@ -68,7 +68,7 @@ type routeReply struct {
 		Effort  string `json:"reasoning_effort"`
 	} `json:"profile"`
 	PolicyHash        string `json:"policy_hash"`
-	FrontierRequired  bool   `json:"frontier_required"`
+	FrontierRequired  *bool  `json:"frontier_required"`
 	ReviewRequirement string `json:"review_requirement"`
 }
 
@@ -100,10 +100,10 @@ func (r *ICResolver) Resolve(ctx context.Context, role string) (Seat, error) {
 		return Seat{}, fmt.Errorf("route role %q: unreadable reply: %w", role, err)
 	}
 	s := Seat{Role: rep.RequestedRole, ProfileRef: rep.ProfileRef, Backend: rep.Profile.Backend, Model: rep.Profile.Model, Effort: rep.Profile.Effort, PolicyHash: rep.PolicyHash}
-	if s.Role != role || s.Backend == "" || s.Model == "" || s.Effort == "" || s.PolicyHash == "" {
+	if s.Role != role || s.ProfileRef == "" || rep.FrontierRequired == nil || s.Backend == "" || s.Model == "" || s.Effort == "" || s.PolicyHash == "" {
 		return Seat{}, fmt.Errorf("route role %q: incomplete answer %+v", role, s)
 	}
-	if rep.FrontierRequired {
+	if *rep.FrontierRequired {
 		return Seat{}, fmt.Errorf("route role %q: needs a frontier seat; a card worker does not dispatch it", role)
 	}
 	return s, nil

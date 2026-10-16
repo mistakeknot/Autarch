@@ -164,12 +164,15 @@ func TestICResolverFailsClosed(t *testing.T) {
 		return &ICResolver{Policy: "/p", run: func(context.Context, string, ...string) ([]byte, error) { return []byte(out), err }}
 	}
 	cases := map[string]*ICResolver{
-		"ic error":   ok("", errors.New("no dispatch profile found")),
-		"garbage":    ok("not json", nil),
-		"no hash":    ok(`{"requested_role":"routine-execution","profile":{"backend":"claude","model":"m","reasoning_effort":"high"}}`, nil),
-		"wrong role": ok(`{"requested_role":"other","profile":{"backend":"claude","model":"m","reasoning_effort":"high"},"policy_hash":"h"}`, nil),
-		"frontier":   ok(`{"requested_role":"routine-execution","profile":{"backend":"claude","model":"m","reasoning_effort":"high"},"policy_hash":"h","frontier_required":true}`, nil),
-		"no policy":  {},
+		"ic error":          ok("", errors.New("no dispatch profile found")),
+		"garbage":           ok("not json", nil),
+		"no hash":           ok(`{"requested_role":"routine-execution","profile":{"backend":"claude","model":"m","reasoning_effort":"high"}}`, nil),
+		"wrong role":        ok(`{"requested_role":"other","profile":{"backend":"claude","model":"m","reasoning_effort":"high"},"policy_hash":"h"}`, nil),
+		"frontier":          ok(`{"requested_role":"routine-execution","profile":{"backend":"claude","model":"m","reasoning_effort":"high"},"policy_hash":"h","frontier_required":true}`, nil),
+		"no profile ref":    ok(`{"requested_role":"routine-execution","profile":{"backend":"claude","model":"m","reasoning_effort":"high"},"policy_hash":"h","frontier_required":false}`, nil),
+		"frontier unstated": ok(`{"requested_role":"routine-execution","profile_ref":"r","profile":{"backend":"claude","model":"m","reasoning_effort":"high"},"policy_hash":"h"}`, nil),
+		"frontier null":     ok(`{"requested_role":"routine-execution","profile_ref":"r","profile":{"backend":"claude","model":"m","reasoning_effort":"high"},"policy_hash":"h","frontier_required":null}`, nil),
+		"no policy":         {},
 	}
 	for name, r := range cases {
 		if _, err := r.Resolve(context.Background(), "routine-execution"); err == nil {
@@ -249,5 +252,37 @@ func TestStopFailureIsReported(t *testing.T) {
 	_, err := s.Spawn("a", bead, "")
 	if err == nil || !strings.Contains(err.Error(), "could NOT be stopped") {
 		t.Fatalf("err=%v", err)
+	}
+}
+
+func TestCreateErrorStopsNamedThreadAndFlagsUnknown(t *testing.T) {
+	for name, tc := range map[string]struct {
+		out      string
+		wantStop bool
+		wantText string
+	}{
+		"id in output": {`{"id":"thr_c"}`, true, "stopped"},
+		"no id":        {"", false, "outcome unknown"},
+	} {
+		var calls []call
+		run := func(_ context.Context, n string, args ...string) ([]byte, error) {
+			calls = append(calls, call{n, args})
+			switch args[0] + " " + args[1] {
+			case "tasks show":
+				return []byte(showReply), nil
+			case "thread create":
+				return []byte(tc.out), errors.New("interrupted")
+			}
+			return nil, nil
+		}
+		s := newTest(&fakeResolver{seat: seat}, run, "")
+		_, err := s.Spawn("a", bead, "")
+		if err == nil || !strings.Contains(err.Error(), tc.wantText) {
+			t.Fatalf("%s: err=%v", name, err)
+		}
+		stopped := strings.Join(calls[len(calls)-1].args, " ") == "thread stop thr_c"
+		if stopped != tc.wantStop {
+			t.Errorf("%s: stopped=%v calls=%v", name, stopped, calls)
+		}
 	}
 }
