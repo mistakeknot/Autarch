@@ -278,4 +278,14 @@ describe("schema", () => {
       ["v", "kind", "request_id", "ask_key", "subject", "project", "project_root", "asker", "thread", "question", "recommendation", "supersedes", "mention_of", "options", "steps", "machine"].sort(),
     );
   });
+
+  it("publishes the same 8000-character limit the validators enforce", () => {
+    const s = JSON.parse(readFileSync(join(schemaDir, "ask.schema.json"), "utf8"));
+    const raw = readFileSync(join(schemaDir, "ask.schema.json"), "utf8");
+    expect(s.properties.question.maxLength).toBe(8000);
+    expect(s.properties.steps.items.maxLength).toBe(8000);
+    expect(s.properties.machine.properties.detail.maxLength).toBe(8000);
+    expect(raw).not.toContain('"maxLength": 2000');
+    expect(raw.match(/"instruction": \{[^}]*"maxLength": 8000/)).not.toBeNull();
+  });
 });
