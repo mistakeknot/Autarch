@@ -61,7 +61,7 @@ func Title(bead mycroft.BeadView) string {
 }
 
 // Brief is the opening prompt for the worker, built from the card and bead.
-func Brief(bead mycroft.BeadView) string {
+func Brief(bead mycroft.BeadView, cardText string) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "You are a card worker started by Mycroft for bead %s", bead.ID)
 	if bead.Card != "" {
@@ -71,7 +71,12 @@ func Brief(bead mycroft.BeadView) string {
 	if len(bead.Labels) > 0 {
 		fmt.Fprintf(&b, "Labels: %s\n", strings.Join(bead.Labels, ", "))
 	}
-	b.WriteString("\nRead the card and the bead first (bb tasks show, bd show). Work only what they describe, in this environment. ")
+	if cardText != "" {
+		b.WriteString("\nCard description (from the task board):\n\n")
+		b.WriteString(cardText)
+		b.WriteString("\n")
+	}
+	b.WriteString("\nRead the card and the bead first (bb tasks show, bd show) in case the description above is cut short. Work only what they describe, in this environment. ")
 	b.WriteString("Publication, merges, deploys and anything that needs mk follow the repository's rules: report instead of acting. ")
 	b.WriteString("End with a short report of what changed and the evidence.\n")
 	return b.String()
@@ -89,7 +94,7 @@ func (s *BBSpawner) Plan(bead mycroft.BeadView) (title string, seat Seat, brief 
 	if err != nil {
 		return "", Seat{}, "", fmt.Errorf("seat unresolved: %w", err)
 	}
-	return Title(bead), seat, Brief(bead), nil
+	return Title(bead), seat, Brief(bead, ""), nil
 }
 
 // Spawn resolves the seat, creates the thread and attaches the card. If routing cannot resolve the role it returns
@@ -99,6 +104,9 @@ func (s *BBSpawner) Spawn(agentName string, bead mycroft.BeadView, _ string) (st
 	defer cancel()
 	if s.Project == "" || s.Environment == "" {
 		return "", errors.New("spawn: project and environment are required")
+	}
+	if bead.Card == "" {
+		return "", errors.New("spawn refused: a card worker needs the card key, so the thread can be attached to it")
 	}
 	role := s.Role
 	if role == "" {
@@ -112,12 +120,16 @@ func (s *BBSpawner) Spawn(agentName string, bead mycroft.BeadView, _ string) (st
 	if !ok {
 		return "", fmt.Errorf("spawn refused: no bb provider for backend %q", seat.Backend)
 	}
+	cardText, err := s.cardText(ctx, bead.Card)
+	if err != nil {
+		return "", fmt.Errorf("spawn refused, card unreadable: %w", err)
+	}
 	f, err := os.CreateTemp("", "mycroft-brief-*.md")
 	if err != nil {
 		return "", err
 	}
 	defer os.Remove(f.Name())
-	if _, err := f.WriteString(Brief(bead)); err != nil {
+	if _, err := f.WriteString(Brief(bead, cardText)); err != nil {
 		f.Close()
 		return "", err
 	}
@@ -133,21 +145,57 @@ func (s *BBSpawner) Spawn(agentName string, bead mycroft.BeadView, _ string) (st
 	if err != nil {
 		return "", err
 	}
-	if bead.Card != "" {
-		if _, err := s.run(ctx, "bb", "tasks", "attach", bead.Card, "--thread", id); err != nil {
-			// A worker that cannot be tied to its card is not left running unseen.
-			_, _ = s.run(ctx, "bb", "thread", "stop", id)
-			return "", fmt.Errorf("attach card %s to %s (thread stopped): %w", bead.Card, id, err)
-		}
+	if _, err := s.run(ctx, "bb", "tasks", "attach", bead.Card, "--thread", id); err != nil {
+		return "", s.stopAfter(id, fmt.Errorf("attach card %s to %s: %w", bead.Card, id, err))
 	}
 	r := Receipt{At: time.Now().UTC(), Thread: id, Bead: bead.ID, Card: bead.Card, Project: s.Project, Seat: seat, Provider: provider}
+	if err := s.appendReceipt(r); err != nil {
+		// No durable seat receipt means no accepted dispatch: the worker is stopped, not left running.
+		return "", s.stopAfter(id, fmt.Errorf("receipt not written: %w", err))
+	}
 	s.mu.Lock()
 	s.details[id] = r
 	s.mu.Unlock()
-	if err := s.appendReceipt(r); err != nil {
-		return id, fmt.Errorf("thread %s started but its receipt was not written: %w", id, err)
-	}
 	return id, nil
+}
+
+// stopAfter stops a thread that must not keep running, on a fresh context so an expired dispatch deadline does not
+// skip the stop, and says whether the stop worked.
+func (s *BBSpawner) stopAfter(id string, cause error) error {
+	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+	defer cancel()
+	if _, err := s.run(ctx, "bb", "thread", "stop", id); err != nil {
+		return fmt.Errorf("%w; thread %s could NOT be stopped and is still running: %v", cause, id, err)
+	}
+	return fmt.Errorf("%w (thread %s stopped)", cause, id)
+}
+
+// maxCardText bounds the card description placed in the brief.
+const maxCardText = 6000
+
+// cardText reads the card from the task board. A card that cannot be read is not dispatched.
+func (s *BBSpawner) cardText(ctx context.Context, key string) (string, error) {
+	out, err := s.run(ctx, "bb", "tasks", "show", key, "--json")
+	if err != nil {
+		return "", err
+	}
+	var v struct {
+		Task struct {
+			Key         string `json:"key"`
+			Description string `json:"description"`
+		} `json:"task"`
+	}
+	if err := json.Unmarshal(out, &v); err != nil {
+		return "", fmt.Errorf("unreadable reply: %w", err)
+	}
+	if !strings.EqualFold(v.Task.Key, key) {
+		return "", fmt.Errorf("reply is for card %q, not %q", v.Task.Key, key)
+	}
+	d := []rune(v.Task.Description)
+	if len(d) > maxCardText {
+		return string(d[:maxCardText]) + "\n[cut]", nil
+	}
+	return v.Task.Description, nil
 }
 
 // Detail describes a dispatched thread for the dispatch log: role, model, effort and policy hash.

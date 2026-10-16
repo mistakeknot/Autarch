@@ -40,6 +40,8 @@ func stub(calls *[]call, replies map[string]string, fail map[string]error) Runne
 	}
 }
 
+const showReply = `{"task":{"key":"AUTA-9","description":"do the thing; done when X"}}`
+
 var seat = Seat{ProfileRef: "routine-exec-sonnet", Backend: "claude", Model: "claude-sonnet-5-5", Effort: "high", PolicyHash: "abc"}
 var bead = mycroft.BeadView{ID: "mk-1", Title: "fix thing", Type: "task", Priority: 2, Card: "AUTA-9"}
 
@@ -61,21 +63,24 @@ func argOf(c call, flag string) string {
 func TestSpawnCreatesThreadWithRoutedSeatAndAttachesCard(t *testing.T) {
 	var calls []call
 	rf := filepath.Join(t.TempDir(), "r.jsonl")
-	s := newTest(&fakeResolver{seat: seat}, stub(&calls, map[string]string{"bb thread create": `{"id":"thr_x"}`}, nil), rf)
+	s := newTest(&fakeResolver{seat: seat}, stub(&calls, map[string]string{"bb thread create": `{"id":"thr_x"}`, "bb tasks show": showReply}, nil), rf)
 	id, err := s.Spawn("a", bead, "")
 	if err != nil || id != "thr_x" {
 		t.Fatalf("id=%q err=%v", id, err)
 	}
-	if len(calls) != 2 {
+	if len(calls) != 3 {
 		t.Fatalf("calls: %v", calls)
 	}
-	c := calls[0]
+	if got := strings.Join(calls[0].args, " "); got != "tasks show AUTA-9 --json" {
+		t.Errorf("card read first: %s", got)
+	}
+	c := calls[1]
 	for flag, want := range map[string]string{"--project": "proj", "--environment": "env", "--provider": "claude-code", "--model": "claude-sonnet-5-5", "--reasoning-level": "high", "--title": "AUTA-9 | mk-1 | fix thing"} {
 		if got := argOf(c, flag); got != want {
 			t.Errorf("%s = %q, want %q", flag, got, want)
 		}
 	}
-	if got := strings.Join(calls[1].args, " "); got != "tasks attach AUTA-9 --thread thr_x" {
+	if got := strings.Join(calls[2].args, " "); got != "tasks attach AUTA-9 --thread thr_x" {
 		t.Errorf("attach: %s", got)
 	}
 	b, _ := os.ReadFile(rf)
@@ -113,7 +118,7 @@ func TestSpawnRefusesUnknownBackend(t *testing.T) {
 
 func TestSpawnStopsThreadWhenCardAttachFails(t *testing.T) {
 	var calls []call
-	s := newTest(&fakeResolver{seat: seat}, stub(&calls, map[string]string{"bb thread create": `{"thread":{"id":"thr_y"}}`}, map[string]error{"bb tasks attach": errors.New("nope")}), "")
+	s := newTest(&fakeResolver{seat: seat}, stub(&calls, map[string]string{"bb thread create": `{"thread":{"id":"thr_y"}}`, "bb tasks show": showReply}, map[string]error{"bb tasks attach": errors.New("nope")}), "")
 	if _, err := s.Spawn("a", bead, ""); err == nil {
 		t.Fatal("want error")
 	}
@@ -173,5 +178,76 @@ func TestICResolverFailsClosed(t *testing.T) {
 	}
 	if _, err := ok("{}", nil).Resolve(context.Background(), ""); err == nil {
 		t.Error("empty role: want error")
+	}
+}
+
+func TestSpawnRefusesWithoutCard(t *testing.T) {
+	var calls []call
+	s := newTest(&fakeResolver{seat: seat}, stub(&calls, nil, nil), "")
+	b := bead
+	b.Card = ""
+	if _, err := s.Spawn("a", b, ""); err == nil || len(calls) != 0 {
+		t.Fatalf("err=%v calls=%v", err, calls)
+	}
+}
+
+func TestSpawnRefusesUnreadableOrWrongCard(t *testing.T) {
+	for name, run := range map[string]map[string]string{"wrong": {"bb tasks show": `{"task":{"key":"AUTA-1"}}`}, "garbage": {"bb tasks show": "x"}} {
+		var calls []call
+		s := newTest(&fakeResolver{seat: seat}, stub(&calls, run, nil), "")
+		if _, err := s.Spawn("a", bead, ""); err == nil {
+			t.Errorf("%s: want error", name)
+		}
+		for _, c := range calls {
+			if c.args[0] == "thread" {
+				t.Errorf("%s: thread created", name)
+			}
+		}
+	}
+}
+
+func TestBriefCarriesCardText(t *testing.T) {
+	var calls []call
+	s := newTest(&fakeResolver{seat: seat}, stub(&calls, map[string]string{"bb thread create": `{"id":"t"}`, "bb tasks show": showReply}, nil), "")
+	var brief string
+	inner := s.run
+	s.run = func(ctx context.Context, name string, args ...string) ([]byte, error) {
+		for i, a := range args {
+			if a == "--prompt-file" {
+				b, _ := os.ReadFile(args[i+1])
+				brief = string(b)
+			}
+		}
+		return inner(ctx, name, args...)
+	}
+	if _, err := s.Spawn("a", bead, ""); err != nil || !strings.Contains(brief, "done when X") {
+		t.Fatalf("err=%v brief=%q", err, brief)
+	}
+}
+
+func TestSpawnStopsThreadWhenReceiptCannotBeWritten(t *testing.T) {
+	var calls []call
+	dir := t.TempDir()
+	blocker := filepath.Join(dir, "file")
+	os.WriteFile(blocker, nil, 0o644)
+	s := newTest(&fakeResolver{seat: seat}, stub(&calls, map[string]string{"bb thread create": `{"id":"thr_z"}`, "bb tasks show": showReply}, nil), filepath.Join(blocker, "sub", "r.jsonl"))
+	_, err := s.Spawn("a", bead, "")
+	if err == nil || !strings.Contains(err.Error(), "stopped") {
+		t.Fatalf("err=%v", err)
+	}
+	if strings.Join(calls[len(calls)-1].args, " ") != "thread stop thr_z" {
+		t.Fatalf("calls: %v", calls)
+	}
+	if s.Detail("thr_z") != "" {
+		t.Error("detail kept for a refused dispatch")
+	}
+}
+
+func TestStopFailureIsReported(t *testing.T) {
+	var calls []call
+	s := newTest(&fakeResolver{seat: seat}, stub(&calls, map[string]string{"bb thread create": `{"id":"thr_w"}`, "bb tasks show": showReply}, map[string]error{"bb tasks attach": errors.New("a"), "bb thread stop": errors.New("b")}), "")
+	_, err := s.Spawn("a", bead, "")
+	if err == nil || !strings.Contains(err.Error(), "could NOT be stopped") {
+		t.Fatalf("err=%v", err)
 	}
 }

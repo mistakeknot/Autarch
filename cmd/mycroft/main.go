@@ -263,6 +263,9 @@ var spawnCmd = &cobra.Command{
 	Short: "Show, or with --approve start, a bb-thread worker for a bead",
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
+		if spawnCard == "" {
+			return fmt.Errorf("--card is required: a worker is attached to its card")
+		}
 		sp := newSpawner()
 		bead := mycroft.BeadView{ID: args[0], Title: spawnTitle, Card: spawnCard}
 		title, seat, _, err := sp.Plan(bead)
