@@ -21,7 +21,12 @@ import (
 )
 
 // newCardFiler builds the filer; tests replace it.
-var newCardFiler = func() *homeask.CardFiler { return &homeask.CardFiler{Timeout: filerTimeout} }
+var newCardFiler = func() *homeask.CardFiler {
+	return &homeask.CardFiler{Timeout: filerTimeout, ReadbackTimeout: readbackTimeout}
+}
+
+// readbackTimeout bounds how long a filing waits for Home to index the new card and report its card_key.
+const readbackTimeout = 5 * time.Second
 
 // checkFilingPreconditions runs before anything is created: serve must be up and the ask's
 // project_root must be the root it resolves for the ask's project. Tests replace it.
@@ -285,14 +290,17 @@ but the routing comment failed (re-run the same command), 5 already ruled (mk pi
 			if _, ok := ask["project"]; !ok {
 				ask["project"] = filepath.Base(fmt.Sprint(ask["project_root"]))
 			}
-			if err := checkFilingPreconditions(fmt.Sprint(ask["project"]), fmt.Sprint(ask["project_root"])); err != nil {
+			if err := homeask.CheckOptionIDs(ask); err != nil {
 				return err
 			}
 			ctx := cmd.Context()
 			if ctx == nil {
 				ctx = context.Background()
 			}
-			bound, warn, err := newCardFiler().ResolveAskProject(ctx, project, fmt.Sprint(ask["project"]))
+			filer := newCardFiler()
+			// Resolve the bound Home project first: serve lists projects by that name, so the root check
+			// below must see it, not the tasks-key alias the ask may carry.
+			bound, warn, err := filer.ResolveAskProject(ctx, project, fmt.Sprint(ask["project"]))
 			if err != nil {
 				return err
 			}
@@ -300,6 +308,9 @@ but the routing comment failed (re-run the same command), 5 already ruled (mk pi
 				fmt.Fprintln(cmd.ErrOrStderr(), "warning:", warn)
 			}
 			ask["project"] = bound
+			if err := checkFilingPreconditions(bound, fmt.Sprint(ask["project_root"])); err != nil {
+				return err
+			}
 			req := homeask.CardRequest{Project: project, Title: title, Blocks: blocks, Ask: ask, Move: move, Key: request, Thread: thread}
 			if rootRun != "" {
 				if req.RootRun, err = parseRootRunFlag(rootRun); err != nil {
@@ -313,9 +324,12 @@ but the routing comment failed (re-run the same command), 5 already ruled (mk pi
 				}
 				req.Key = homeask.DerivedKey(thread, ident)
 			}
-			res, err := newCardFiler().FileCard(ctx, req)
+			res, err := filer.FileCard(ctx, req)
 			if err != nil {
 				return err
+			}
+			if filer.ReadbackTimeout > 0 && res.CardKey == "" {
+				fmt.Fprintf(cmd.ErrOrStderr(), "warning: card %s is filed but Home has not indexed it yet (card_key not indexed within %s); read it with `bb home get --card %s --json`\n", res.ID, filer.ReadbackTimeout, res.ID)
 			}
 			out, _ := json.Marshal(res)
 			fmt.Fprintln(cmd.OutOrStdout(), string(out))
