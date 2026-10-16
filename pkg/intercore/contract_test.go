@@ -73,6 +73,17 @@ func TestContractRunBudget(t *testing.T) {
 	}
 }
 
+func TestContractRunBudgetNonzero(t *testing.T) {
+	c := fakeIC(t, map[string]string{"run budget r2": "run_budget_nonzero.from-source.json"})
+	b, err := c.RunBudget(context.Background(), "r2")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if b.TokenBudget != 250000 || b.TokensUsed != 210000 || !b.Warning || b.UsagePct != 84 || b.WarnPct != 80 {
+		t.Errorf("budget not decoded: %+v", b)
+	}
+}
+
 func TestContractDispatch(t *testing.T) {
 	c := fakeIC(t, map[string]string{
 		"dispatch list":            "dispatch_list.from-source.json",
