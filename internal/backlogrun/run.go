@@ -79,7 +79,11 @@ func Run(ctx context.Context, d Deps, o Options) (Result, error) {
 		return finish("paused", "pause file present: "+d.State.PauseFile(), nil)
 	}
 	fail := func(stage string, err error) (Result, error) {
-		msg := fmt.Sprintf("Backlog run (%s) FAILED at %s: %v\nNo coordinator was messaged. Receipt: %s", o.Mode, stage, err, filepath.Join(d.State.Dir, "receipts.jsonl"))
+		told := "No coordinator was messaged."
+		if len(rec.Messaged) > 0 {
+			told = fmt.Sprintf("%d coordinator(s) were messaged before the failure: %s.", len(rec.Messaged), strings.Join(rec.Messaged, ", "))
+		}
+		msg := fmt.Sprintf("Backlog run (%s) FAILED at %s: %v\n%s Receipt: %s", o.Mode, stage, err, told, filepath.Join(d.State.Dir, "receipts.jsonl"))
 		if terr := d.Notify.TellVizier(ctx, msg); terr != nil {
 			msg += fmt.Sprintf("\n(vizier message also failed: %v)", terr)
 		}
@@ -234,7 +238,7 @@ func Run(ctx context.Context, d Deps, o Options) (Result, error) {
 		}
 		var ready []Verdict
 		for _, v := range current {
-			if v.Label == LabelReady && due(v.Key, "ready") {
+			if s, was := mem.Sent[v.Key]; v.Label == LabelReady && (!was || s.Kind != "ready" || s.UpdatedAt != v.UpdatedAt) {
 				ready = append(ready, v)
 			}
 		}
@@ -262,7 +266,7 @@ func Run(ctx context.Context, d Deps, o Options) (Result, error) {
 			}
 			room[v.Board] = r - 1
 			boardMsg(v.Board).ready = append(boardMsg(v.Board).ready, v)
-			sentNow[v.Key] = Sent{Kind: "ready", At: now}
+			sentNow[v.Key] = Sent{Kind: "ready", At: now, UpdatedAt: v.UpdatedAt}
 		}
 	}
 	rec.Counts["ready_skipped"] = len(skipped)
@@ -277,6 +281,18 @@ func Run(ctx context.Context, d Deps, o Options) (Result, error) {
 	}
 	sort.Strings(boards)
 	delivered := map[string]bool{}
+	// What was delivered is remembered even when a later send fails, so the next run does not repeat it.
+	remember := func() error {
+		if o.DryRun {
+			return nil
+		}
+		for k, st := range sentNow {
+			if delivered[k] {
+				mem.Sent[k] = st
+			}
+		}
+		return d.State.Save(mem)
+	}
 	for _, b := range boards {
 		thr, cerr := d.Notify.Coordinator(ctx, b)
 		if cerr != nil {
@@ -291,6 +307,9 @@ func Run(ctx context.Context, d Deps, o Options) (Result, error) {
 		}
 		text := msgs[b].text(o.Mode, now)
 		if terr := d.Notify.Tell(ctx, thr, text); terr != nil {
+			if serr := remember(); serr != nil {
+				terr = fmt.Errorf("%w (and saving what was delivered failed: %v)", terr, serr)
+			}
 			return fail("message "+thr+" ("+b+")", terr)
 		}
 		rec.Messaged = append(rec.Messaged, b+":"+thr)
@@ -299,12 +318,7 @@ func Run(ctx context.Context, d Deps, o Options) (Result, error) {
 		}
 	}
 	if !o.DryRun {
-		for k, s := range sentNow {
-			if delivered[k] {
-				mem.Sent[k] = s
-			}
-		}
-		if err := d.State.Save(mem); err != nil {
+		if err := remember(); err != nil {
 			return fail("save memory", err)
 		}
 	} else if o.Mode == Weekly {

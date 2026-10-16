@@ -281,3 +281,71 @@ func TestHomeIsReadOnlyAndPicksMostLiveState(t *testing.T) {
 		t.Error("missing database must be an error, not created")
 	}
 }
+
+func TestDailyDoesNotRepeatAnUnchangedReadyCard(t *testing.T) {
+	d, _, _, n := setup(t)
+	if _, err := Run(context.Background(), d, opts(Weekly)); err != nil {
+		t.Fatal(err)
+	}
+	later := Options{Mode: Daily, Now: func() time.Time { return t0.AddDate(0, 0, 15) }}
+	if _, err := Run(context.Background(), d, later); err != nil {
+		t.Fatal(err)
+	}
+	if len(n.told["thr_a"]) != 1 {
+		t.Errorf("an unchanged ready card was sent again: %d messages", len(n.told["thr_a"]))
+	}
+}
+
+type failSecond struct {
+	*fakeNotify
+	n int
+}
+
+func (f *failSecond) Tell(ctx context.Context, t, m string) error {
+	f.n++
+	if f.n == 2 {
+		return errors.New("bb down")
+	}
+	return f.fakeNotify.Tell(ctx, t, m)
+}
+
+func TestPartialDeliveryIsRememberedAndReportedTruthfully(t *testing.T) {
+	d, b, _, n := setup(t)
+	b.cards = append(b.cards, card("OTH-1", "OTH"))
+	d.Triage.(*fakeTriage).labels["OTH-1"] = LabelReady
+	n.coord["OTH"] = "thr_o"
+	f := &failSecond{fakeNotify: n}
+	d.Notify = f
+	if _, err := Run(context.Background(), d, opts(Weekly)); err == nil {
+		t.Fatal("want the failed send to fail the run")
+	}
+	if !strings.Contains(n.vizier[0], "were messaged before the failure") || strings.Contains(n.vizier[0], "No coordinator was messaged") {
+		t.Errorf("failure message misreports delivery: %s", n.vizier[0])
+	}
+	mem, _ := d.State.Load()
+	if _, ok := mem.Sent["AUTA-1"]; !ok {
+		t.Errorf("a delivered card was not remembered: %+v", mem.Sent)
+	}
+	if _, ok := mem.Sent["OTH-1"]; ok {
+		t.Errorf("an undelivered card was marked sent")
+	}
+}
+
+func TestUnknownUtilizationIsNotHeadroom(t *testing.T) {
+	ok, _, err := headroomFrom([]byte(`{"accepting":true,"accounts":[{"enabled":true}]}`))
+	if err != nil || ok {
+		t.Errorf("an account with no utilization must fail closed: %v %v", ok, err)
+	}
+}
+
+func TestScrubEnvArgsNamesCredentials(t *testing.T) {
+	got := strings.Join(scrubEnvArgs([]string{"HOME=/h", "ANTHROPIC_API_KEY=x", "GH_TOKEN=y", "OPENAI_BASE_URL=z", "PATH=/bin", "CLAVAIN_SELECTED_ROOT=/c"}), " ")
+	for _, want := range []string{"-u ANTHROPIC_API_KEY", "-u GH_TOKEN", "-u OPENAI_BASE_URL"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("missing %q in %q", want, got)
+		}
+	}
+	if strings.Contains(got, "HOME") || strings.Contains(got, "PATH") || strings.Contains(got, "CLAVAIN") {
+		t.Errorf("scrubbed a variable it must keep: %q", got)
+	}
+}

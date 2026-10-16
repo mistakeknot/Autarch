@@ -42,12 +42,20 @@ Touch <state-dir>/PAUSE to stop all runs. --dry-run writes the digest and messag
 			if policy == "" && root != "" {
 				policy = filepath.Join(root, "config", "routing.yaml")
 			}
+			// --check changes nothing under the state directory: its scratch space is a temporary directory.
 			work := filepath.Join(stateDir, "work")
-			if err := os.MkdirAll(work, 0o700); err != nil {
+			if check {
+				tmp, err := os.MkdirTemp("", "backlog-run-check-")
+				if err != nil {
+					return err
+				}
+				defer os.RemoveAll(tmp)
+				work = tmp
+			} else if err := os.MkdirAll(work, 0o700); err != nil {
 				return err
 			}
 			bb := backlogrun.BB{Run: backlogrun.ExecRunner, VizierTell: vizierTell, TempDir: work}
-			router := backlogrun.Router{Run: backlogrun.ExecRunner, Policy: policy, Dispatch: filepath.Join(root, "scripts", "dispatch.sh"), WorkDir: work, Repo: work}
+			router := backlogrun.Router{Run: backlogrun.ExecRunner, Policy: policy, Dispatch: filepath.Join(root, "scripts", "dispatch.sh"), WorkDir: work, Repo: filepath.Join(work, "empty")}
 			if check {
 				return backlogCheck(ctx, stateDir, homeDB, vizierTell, root, policy, bb, router)
 			}

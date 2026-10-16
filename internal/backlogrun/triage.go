@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"unicode/utf8"
 )
@@ -152,7 +153,13 @@ func (r Router) Triage(ctx context.Context, cards []Card) ([]Verdict, Seat, erro
 	if err := os.WriteFile(pf, []byte(Prompt(cards)), 0o600); err != nil {
 		return nil, seat, err
 	}
-	if _, err := r.Run(ctx, "bash", r.Dispatch, "--role", r.role(), "--policy", r.Policy, "--context-file", ctxFile, "-C", r.Repo, "-o", of, "--prompt-file", pf); err != nil {
+	// The seat is dispatched without inherited credentials: the wrapper supplies its own subscription auth, and a stray
+	// API key or token in this process's environment must not reach it. It runs in an empty directory.
+	if err := os.MkdirAll(r.Repo, 0o700); err != nil {
+		return nil, seat, err
+	}
+	args := append(scrubEnvArgs(os.Environ()), "bash", r.Dispatch, "--role", r.role(), "--policy", r.Policy, "--context-file", ctxFile, "-C", r.Repo, "-o", of, "--prompt-file", pf)
+	if _, err := r.Run(ctx, "env", args...); err != nil {
 		return nil, seat, fmt.Errorf("dispatch triage: %w", err)
 	}
 	b, err := os.ReadFile(of)
@@ -161,4 +168,18 @@ func (r Router) Triage(ctx context.Context, cards []Card) ([]Verdict, Seat, erro
 	}
 	vs, err := ParseVerdicts(string(b), cards)
 	return vs, seat, err
+}
+
+var credentialName = regexp.MustCompile(`(?i)(API_?KEY|SECRET|TOKEN|PASSWORD|PASSWD|CREDENTIAL|^ANTHROPIC_|^OPENAI_)`)
+
+// scrubEnvArgs returns `-u NAME` arguments for env(1) for each credential-looking variable in environ.
+func scrubEnvArgs(environ []string) []string {
+	var out []string
+	for _, kv := range environ {
+		name, _, _ := strings.Cut(kv, "=")
+		if credentialName.MatchString(name) {
+			out = append(out, "-u", name)
+		}
+	}
+	return out
 }

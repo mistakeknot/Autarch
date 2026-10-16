@@ -33,6 +33,8 @@ type Memory struct {
 type Sent struct {
 	Kind string    `json:"kind"` // ready, needs-spec, gated:<home state>
 	At   time.Time `json:"at"`
+	// UpdatedAt is the card's updatedAt when it was sent. A ready card is sent once per version of the card.
+	UpdatedAt string `json:"updatedAt,omitempty"`
 }
 
 func (s State) Load() (Memory, error) {

@@ -240,13 +240,14 @@ func headroomFrom(raw []byte) (bool, string, error) {
 		if !a.Enabled || a.Held != nil {
 			continue
 		}
-		if (a.Five != nil && *a.Five >= 0.85) || (a.Seven != nil && *a.Seven >= 0.85) {
+		// An account that does not report both windows is unknown, and unknown is not headroom.
+		if a.Five == nil || a.Seven == nil || *a.Five >= 0.85 || *a.Seven >= 0.85 {
 			continue
 		}
 		roomy++
 	}
 	if roomy == 0 {
-		return false, "no enabled account is under 85 percent of its windows", nil
+		return false, "no enabled account reports both quota windows under 85 percent", nil
 	}
 	return true, "", nil
 }
