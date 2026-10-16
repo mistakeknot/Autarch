@@ -90,7 +90,7 @@ func TestSpawnCreatesThreadWithRoutedSeatAndAttachesCard(t *testing.T) {
 		}
 	}
 	d := s.Detail("thr_x")
-	if !strings.Contains(d, "policy=abc") || !strings.Contains(d, "effort=high") {
+	if !strings.Contains(d, "policy=abc") || !strings.Contains(d, "effort=high") || !strings.Contains(d, " bead=") || !strings.Contains(d, " card=") {
 		t.Errorf("detail: %q", d)
 	}
 }

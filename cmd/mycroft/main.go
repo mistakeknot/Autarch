@@ -268,22 +268,61 @@ var spawnCmd = &cobra.Command{
 		}
 		sp := newSpawner()
 		bead := mycroft.BeadView{ID: args[0], Title: spawnTitle, Card: spawnCard}
-		title, seat, _, err := sp.Plan(bead)
-		if err != nil {
-			return fmt.Errorf("no dispatch: %w", err)
-		}
-		fmt.Printf("thread: %s\nseat: role=%s model=%s effort=%s policy=%s\n", title, seat.Role, seat.Model, seat.Effort, seat.PolicyHash)
 		if !spawnApprove {
+			if err := showPlan(sp, bead); err != nil {
+				return err
+			}
 			fmt.Println("not started (pass --approve to start it)")
 			return nil
 		}
-		id, err := sp.Spawn("mycroft", bead, "")
-		if err != nil {
-			return err
+		// Open the decisions database before anything else: a worker is not started when the log cannot be opened.
+		disp, closeDB, derr := openDB()
+		if derr != nil {
+			return fmt.Errorf("not started, dispatch log unavailable: %w", derr)
 		}
-		fmt.Printf("started thread %s\n", id)
-		return nil
+		defer closeDB()
+		return approveSpawn(disp, sp, bead)
 	},
+}
+
+// workerSpawner is the part of the bb-thread spawner that an approval needs.
+type workerSpawner interface {
+	Plan(bead mycroft.BeadView) (string, spawn.Seat, string, error)
+	Spawn(agentName string, bead mycroft.BeadView, contextFile string) (string, error)
+	Detail(sessionID string) string
+}
+
+// showPlan prints the thread title and the seat routing resolved; it starts nothing.
+func showPlan(sp workerSpawner, bead mycroft.BeadView) error {
+	title, seat, _, err := sp.Plan(bead)
+	if err != nil {
+		return fmt.Errorf("no dispatch: %w", err)
+	}
+	fmt.Printf("thread: %s\nseat: role=%s model=%s effort=%s policy=%s\n", title, seat.Role, seat.Model, seat.Effort, seat.PolicyHash)
+	return nil
+}
+
+// approveSpawn shows the plan, starts the worker and records the approval in dispatch_log. A plan that cannot be
+// resolved and a failed start are logged as failures.
+func approveSpawn(disp *scheduler.Dispatcher, sp workerSpawner, bead mycroft.BeadView) error {
+	if err := showPlan(sp, bead); err != nil {
+		if lerr := disp.LogApprovalWith("mycroft", bead.ID, mycroft.OutcomeFailure, err.Error()); lerr != nil {
+			return fmt.Errorf("%w (and the failure could not be logged: %v)", err, lerr)
+		}
+		return err
+	}
+	id, err := sp.Spawn("mycroft", bead, "")
+	if err != nil {
+		if lerr := disp.LogApprovalWith("mycroft", bead.ID, mycroft.OutcomeFailure, err.Error()); lerr != nil {
+			return fmt.Errorf("%w (and the failure could not be logged: %v)", err, lerr)
+		}
+		return err
+	}
+	fmt.Printf("started thread %s\n", id)
+	if lerr := disp.LogApprovalWith("mycroft", bead.ID, mycroft.OutcomeAccepted, sp.Detail(id)); lerr != nil {
+		return fmt.Errorf("thread %s is running but the dispatch log write failed: %w", id, lerr)
+	}
+	return nil
 }
 
 var statusCmd = &cobra.Command{

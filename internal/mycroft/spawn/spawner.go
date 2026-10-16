@@ -203,7 +203,7 @@ func (s *BBSpawner) cardText(ctx context.Context, key string) (string, error) {
 	return v.Task.Description, nil
 }
 
-// Detail describes a dispatched thread for the dispatch log: role, model, effort and policy hash.
+// Detail describes a dispatched thread for the dispatch log: thread, bead, card, role, model, effort and policy hash.
 func (s *BBSpawner) Detail(sessionID string) string {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -211,7 +211,7 @@ func (s *BBSpawner) Detail(sessionID string) string {
 	if !ok {
 		return ""
 	}
-	return fmt.Sprintf("thread %s role=%s model=%s effort=%s policy=%s", r.Thread, r.Seat.Role, r.Seat.Model, r.Seat.Effort, r.Seat.PolicyHash)
+	return fmt.Sprintf("thread %s bead=%s card=%s role=%s model=%s effort=%s policy=%s", r.Thread, r.Bead, r.Card, r.Seat.Role, r.Seat.Model, r.Seat.Effort, r.Seat.PolicyHash)
 }
 
 // Kill stops a worker thread.
