@@ -45,7 +45,7 @@ func TestShellLayoutDimensionInvariant(t *testing.T) {
 	}
 
 	// Content area check (approximate - split layout has its own padding logic)
-	if leftW + rightW > contentArea {
+	if leftW+rightW > contentArea {
 		t.Logf("content widths: left=%d, right=%d, available=%d", leftW, rightW, contentArea)
 		// This is expected due to split layout's internal separator handling
 	}

@@ -68,12 +68,12 @@ func TestIntermuteBridge_ForwardWithRecipients(t *testing.T) {
 		WithRecipients([]string{"bigend-agent", "gurgeh-agent"})
 
 	evt := &Event{
-		EventType:   EventTaskStarted,
-		EntityType:  EntityTask,
-		EntityID:    "task-456",
-		SourceTool:  SourceColdwine,
-		Payload:     []byte(`{}`),
-		CreatedAt:   time.Now(),
+		EventType:  EventTaskStarted,
+		EntityType: EntityTask,
+		EntityID:   "task-456",
+		SourceTool: SourceColdwine,
+		Payload:    []byte(`{}`),
+		CreatedAt:  time.Now(),
 	}
 
 	err := bridge.Forward(context.Background(), evt)
@@ -92,7 +92,7 @@ func TestIntermuteBridge_ForwardWithRecipients(t *testing.T) {
 
 func TestIntermuteBridge_HighImportanceForErrorEvents(t *testing.T) {
 	testCases := []struct {
-		eventType         EventType
+		eventType          EventType
 		expectedImportance string
 	}{
 		{EventTaskBlocked, "high"},

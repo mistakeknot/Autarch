@@ -264,8 +264,8 @@ func TestNeedsMkFileServeDownCreatesNothing(t *testing.T) {
 	if exitCode(err) != 3 || !strings.Contains(err.Error(), "autarch serve is not running") {
 		t.Fatalf("exit=%d err=%v", exitCode(err), err)
 	}
-	if len(s.calls) != 0 || s.creates != 0 {
-		t.Fatalf("bb was called: %v", s.calls)
+	if w := writeCalls(s); len(w) != 0 || s.creates != 0 {
+		t.Fatalf("bb wrote: %v", w)
 	}
 }
 
@@ -280,9 +280,20 @@ func TestNeedsMkFileRefusesAnUnresolvedRoot(t *testing.T) {
 	if got != "/srv/autarch" || exitCode(err) != 2 {
 		t.Fatalf("root=%q exit=%d err=%v", got, exitCode(err), err)
 	}
-	if len(s.calls) != 0 {
-		t.Fatalf("bb was called: %v", s.calls)
+	if w := writeCalls(s); len(w) != 0 {
+		t.Fatalf("bb wrote: %v", w)
 	}
+}
+
+// writeCalls are the bb calls other than the read-only project-binding lookup that runs before the serve probe.
+func writeCalls(s *stubBB) [][]string {
+	var w [][]string
+	for _, c := range s.calls {
+		if k := strings.Join(c[:min(len(c), 2)], " "); k != "tasks project" && k != "home binding" {
+			w = append(w, c)
+		}
+	}
+	return w
 }
 
 func writeMove(t *testing.T, body string) string {

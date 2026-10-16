@@ -32,9 +32,9 @@ const (
 type Signal struct {
 	ID            string     `json:"id" yaml:"id"`
 	Type          SignalType `json:"type" yaml:"type"`
-	Source        string     `json:"source" yaml:"source"`       // "pollard", "gurgeh", "coldwine"
+	Source        string     `json:"source" yaml:"source"` // "pollard", "gurgeh", "coldwine"
 	SpecID        string     `json:"spec_id" yaml:"spec_id"`
-	AffectedField string    `json:"affected_field" yaml:"affected_field"` // spec field this signal targets (dedup key)
+	AffectedField string     `json:"affected_field" yaml:"affected_field"` // spec field this signal targets (dedup key)
 	Severity      Severity   `json:"severity" yaml:"severity"`
 	Title         string     `json:"title" yaml:"title"`
 	Detail        string     `json:"detail" yaml:"detail"`

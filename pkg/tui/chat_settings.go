@@ -2,9 +2,9 @@ package tui
 
 // ChatSettings controls chat panel behavior.
 type ChatSettings struct {
-	AutoScroll            bool
-	ShowHistoryOnNewChat  bool
-	GroupMessages         bool
+	AutoScroll           bool
+	ShowHistoryOnNewChat bool
+	GroupMessages        bool
 }
 
 // DefaultChatSettings returns the default chat settings.

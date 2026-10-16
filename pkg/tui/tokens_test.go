@@ -161,15 +161,15 @@ func TestTokensForWidth(t *testing.T) {
 
 func TestAdaptiveCardDimensions(t *testing.T) {
 	tests := []struct {
-		name            string
-		totalWidth      int
-		minCardWidth    int
-		maxCardWidth    int
-		gap             int
-		wantMinCards    int
-		wantMaxCards    int
-		wantMinWidth    int
-		wantMaxWidth    int
+		name         string
+		totalWidth   int
+		minCardWidth int
+		maxCardWidth int
+		gap          int
+		wantMinCards int
+		wantMaxCards int
+		wantMinWidth int
+		wantMaxWidth int
 	}{
 		{
 			name:         "standard grid",

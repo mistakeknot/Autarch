@@ -7,8 +7,8 @@ import (
 	"fmt"
 	"io"
 	"os/exec"
-	"strings"
 	"strconv"
+	"strings"
 )
 
 // EventsTail returns a channel of events for a run.

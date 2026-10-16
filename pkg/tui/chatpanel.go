@@ -23,11 +23,11 @@ type ChatMessage struct {
 // in-flight content during a turn, and history holds only completed messages.
 // Pre-rendered line caches avoid re-running glamour markdown on every frame.
 type ChatPanel struct {
-	history       []ChatMessage  // finalized messages only
-	historyLines  [][]string     // pre-rendered lines per history message
-	historyWidth  int            // width the cache was rendered at
-	buffer        *StreamBuffer  // live streaming content (nil when idle)
-	followTail    bool           // true = auto-scroll to bottom on new content
+	history       []ChatMessage // finalized messages only
+	historyLines  [][]string    // pre-rendered lines per history message
+	historyWidth  int           // width the cache was rendered at
+	buffer        *StreamBuffer // live streaming content (nil when idle)
+	followTail    bool          // true = auto-scroll to bottom on new content
 	composer      *Composer
 	selector      *AgentSelector
 	commandPicker *CommandPicker

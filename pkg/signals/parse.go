@@ -35,8 +35,8 @@ func parseAgentSignalsAt(data []byte, t time.Time) []AgentSignal {
 			continue
 		}
 		out = append(out, AgentSignal{
-			State:   state,
-			Message: string(m[2]),
+			State:     state,
+			Message:   string(m[2]),
 			Timestamp: t,
 		})
 	}
