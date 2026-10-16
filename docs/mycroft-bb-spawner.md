@@ -9,7 +9,9 @@
   2. runs `bb thread create --project --environment --provider --model --reasoning-level --title --prompt-file`;
   3. runs `bb tasks attach <card> --thread <id>` (the card is required and is read first, its description goes into the brief; if the attach or the receipt write fails the thread is stopped and the error says whether the stop worked);
   4. appends a receipt line (role, profile, model, effort, policy hash, thread, bead, card) to `spawn-receipts.jsonl`
-     and puts the same facts in the dispatch log reason.
+     and `mycroft spawn --approve` writes a `dispatch_log` row (action `suggest`, outcome `accepted`) whose reason is the
+     spawner's detail line: seat, thread, bead and card. A failed start is logged with outcome `failure` and the error. The
+     decisions database is opened before anything starts, so a worker never starts when its dispatch cannot be logged.
 - Mycroft holds **no seat table**. The only map is backend name to bb provider id (`claude` to `claude-code`,
   `codex` to `codex`), which is transport naming. Role defaults to `routine-execution`; routing returns Sonnet 5.5 at high
   today. Elevated work would use `deep-execution`; a frontier-required answer is refused here.
