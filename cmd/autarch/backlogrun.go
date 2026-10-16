@@ -112,6 +112,8 @@ func backlogCheck(ctx context.Context, stateDir, homeDB, vizierTell, root, polic
 	if policy != "" && root != "" {
 		_, err = r.Seat(ctx)
 		note(err == nil, "triage seat resolves through routing", err)
+		err = r.RequireNoTools()
+		note(err == nil, "dispatch wrapper implements --no-tools", err)
 	}
 	if len(bad) > 0 {
 		return fmt.Errorf("check failed: %d item(s)", len(bad))

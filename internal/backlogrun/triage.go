@@ -153,6 +153,9 @@ func (r Router) Triage(ctx context.Context, cards []Card) ([]Verdict, Seat, erro
 	if err := os.WriteFile(pf, []byte(Prompt(cards)), 0o600); err != nil {
 		return nil, seat, err
 	}
+	if err := r.RequireNoTools(); err != nil {
+		return nil, seat, err
+	}
 	// The seat is dispatched without inherited credentials: the wrapper supplies its own subscription auth, and a stray
 	// API key or token in this process's environment must not reach it. It runs in an empty directory.
 	if err := os.MkdirAll(r.Repo, 0o700); err != nil {
@@ -169,6 +172,7 @@ func (r Router) Triage(ctx context.Context, cards []Card) ([]Verdict, Seat, erro
 	if _, err := r.Run(ctx, "env", args...); err != nil {
 		return nil, seat, fmt.Errorf("dispatch triage: %w", err)
 	}
+	seat = r.actualSeat(ctx, seat)
 	b, err := os.ReadFile(of)
 	if err != nil {
 		return nil, seat, fmt.Errorf("triage output: %w", err)
@@ -194,4 +198,33 @@ func seatEnvArgs(environ []string) []string {
 		}
 	}
 	return out
+}
+
+// RequireNoTools refuses to dispatch through a wrapper that does not implement --no-tools. An older wrapper treats the
+// flag as an unknown passthrough argument and would run the seat with its tools, so the card text could reach a model
+// that can run commands. This fails closed; it does not replace the wrapper's own enforcement.
+func (r Router) RequireNoTools() error {
+	b, err := os.ReadFile(r.Dispatch)
+	if err != nil {
+		return fmt.Errorf("read dispatch wrapper: %w", err)
+	}
+	if !strings.Contains(string(b), "--no-tools)") {
+		return fmt.Errorf("dispatch wrapper %s does not implement --no-tools; refusing to run triage with tools enabled", r.Dispatch)
+	}
+	return nil
+}
+
+// actualSeat replaces the model of the preliminary routing answer with the model the wrapper recorded for this dispatch,
+// since the wrapper resolves routing again and may fall back to another profile. The empty directory is used only by
+// this run, so its newest routing record is this dispatch. When the record cannot be read the preliminary seat stands.
+func (r Router) actualSeat(ctx context.Context, s Seat) Seat {
+	out, err := r.Run(ctx, "sqlite3", "-readonly", filepath.Join(r.Repo, ".clavain", "intercore.db"), "select selected_model from routing_decisions order by id desc limit 1")
+	if err != nil {
+		return s
+	}
+	if m := strings.TrimSpace(string(out)); m != "" && m != s.Model {
+		s.ProfileRef += " (fell back; routing record shows " + m + ")"
+		s.Model = m
+	}
+	return s
 }
