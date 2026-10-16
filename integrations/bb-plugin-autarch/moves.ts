@@ -162,7 +162,7 @@ export function parseMove(body: string): Move {
     case "context": {
       if (!isObj(m)) return fail("context must be an object");
       only(m, ["need"], "context");
-      if (typeof m.need !== "string" || m.need.trim() === "" || m.need.length > MAX_NEED || !m.need.isWellFormed()) {
+      if (typeof m.need !== "string" || m.need.trim() === "" || [...m.need].length > MAX_NEED || !m.need.isWellFormed()) {
         return fail(`context need must be 1-${MAX_NEED} characters of text`);
       }
       return { kind, need: m.need };

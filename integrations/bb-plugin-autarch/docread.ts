@@ -105,7 +105,9 @@ export type OpenTarget = { ok: true; path: string } | { ok: false; error: string
 /**
  * The real path of a file the bb file panel may show for a card, or a refusal. Same allowlist as readDoc (thread
  * storage) plus the projects folder; the same name rules (no secrets, no .git or node_modules, text types only). It
- * reads nothing and opens nothing: bb's own panel shows the file, read-only.
+ * reads nothing and opens nothing: bb's own panel shows the file, read-only. The check is of the path now; the panel
+ * opens it a moment later, so a file swapped for a symlink in that gap is shown to the same user who owns the folder,
+ * on their own host. It crosses no privilege boundary, and nothing here can bind the check to the panel's open.
  */
 export function resolveOpenTarget(path: unknown, opts: { roots?: readonly string[] } = {}): OpenTarget {
   if (typeof path !== "string" || path.length === 0 || path.length > PATH_MAX || path.includes("\0") || !path.startsWith("/")) return refuse();

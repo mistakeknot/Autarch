@@ -14,6 +14,8 @@ describe("parseMove", () => {
     expect(parseMove(mv({ kind: "read", read: { url: "https://github.com/o/r" } }))).toMatchObject({ kind: "read" });
     expect(parseMove(mv({ kind: "context", context: { need: "which host?" } }))).toEqual({ kind: "context", need: "which host?" });
     expect(parseMove(mv({ kind: "context", context: { need: "x".repeat(8000) } }))).toMatchObject({ kind: "context" });
+    expect(parseMove(mv({ kind: "context", context: { need: "😀".repeat(8000) } }))).toMatchObject({ kind: "context" });
+    expect(() => parseMove(mv({ kind: "context", context: { need: "😀".repeat(8001) } }))).toThrow(/1-8000 characters/);
   });
 
   it.each([
