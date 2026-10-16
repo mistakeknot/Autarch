@@ -296,6 +296,9 @@ func Run(ctx context.Context, d Deps, o Options) (Result, error) {
 	for _, b := range boards {
 		thr, cerr := d.Notify.Coordinator(ctx, b)
 		if cerr != nil {
+			if serr := remember(); serr != nil {
+				cerr = fmt.Errorf("%w (and saving what was delivered failed: %v)", cerr, serr)
+			}
 			return fail("find coordinator for "+b, cerr)
 		}
 		if thr == "" {

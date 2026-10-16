@@ -338,14 +338,16 @@ func TestUnknownUtilizationIsNotHeadroom(t *testing.T) {
 	}
 }
 
-func TestScrubEnvArgsNamesCredentials(t *testing.T) {
-	got := strings.Join(scrubEnvArgs([]string{"HOME=/h", "ANTHROPIC_API_KEY=x", "GH_TOKEN=y", "OPENAI_BASE_URL=z", "PATH=/bin", "CLAVAIN_SELECTED_ROOT=/c"}), " ")
-	for _, want := range []string{"-u ANTHROPIC_API_KEY", "-u GH_TOKEN", "-u OPENAI_BASE_URL"} {
+func TestSeatEnvIsAnAllowlist(t *testing.T) {
+	got := strings.Join(seatEnvArgs([]string{"HOME=/h", "ANTHROPIC_API_KEY=x", "GH_TOKEN=y", "CLAUDE_CODE_USE_BEDROCK=1", "AWS_PROFILE=p", "PATH=/bin", "CLAVAIN_SELECTED_ROOT=/c", "BB_TOKEN=t"}), " ")
+	for _, want := range []string{"-i", "HOME=/h", "PATH=/bin", "CLAVAIN_SELECTED_ROOT=/c"} {
 		if !strings.Contains(got, want) {
 			t.Errorf("missing %q in %q", want, got)
 		}
 	}
-	if strings.Contains(got, "HOME") || strings.Contains(got, "PATH") || strings.Contains(got, "CLAVAIN") {
-		t.Errorf("scrubbed a variable it must keep: %q", got)
+	for _, bad := range []string{"ANTHROPIC", "GH_TOKEN", "BEDROCK", "AWS_", "BB_TOKEN"} {
+		if strings.Contains(got, bad) {
+			t.Errorf("%q survived: %q", bad, got)
+		}
 	}
 }

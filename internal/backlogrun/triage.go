@@ -158,7 +158,14 @@ func (r Router) Triage(ctx context.Context, cards []Card) ([]Verdict, Seat, erro
 	if err := os.MkdirAll(r.Repo, 0o700); err != nil {
 		return nil, seat, err
 	}
-	args := append(scrubEnvArgs(os.Environ()), "bash", r.Dispatch, "--role", r.role(), "--policy", r.Policy, "--context-file", ctxFile, "-C", r.Repo, "-o", of, "--prompt-file", pf)
+	// The wrapper records its routing decision in .clavain/intercore.db under its working directory, so the empty
+	// directory needs one. ic init is a no-op when the database already exists.
+	if _, err := os.Stat(filepath.Join(r.Repo, ".clavain", "intercore.db")); err != nil {
+		if _, err := r.Run(ctx, "sh", "-c", `cd "$1" && ic init`, "sh", r.Repo); err != nil {
+			return nil, seat, fmt.Errorf("initialise routing record in %s: %w", r.Repo, err)
+		}
+	}
+	args := append(seatEnvArgs(os.Environ()), "bash", r.Dispatch, "--role", r.role(), "--policy", r.Policy, "--context-file", ctxFile, "-s", "read-only", "-C", r.Repo, "-o", of, "--prompt-file", pf)
 	if _, err := r.Run(ctx, "env", args...); err != nil {
 		return nil, seat, fmt.Errorf("dispatch triage: %w", err)
 	}
@@ -170,15 +177,20 @@ func (r Router) Triage(ctx context.Context, cards []Card) ([]Verdict, Seat, erro
 	return vs, seat, err
 }
 
-var credentialName = regexp.MustCompile(`(?i)(API_?KEY|SECRET|TOKEN|PASSWORD|PASSWD|CREDENTIAL|^ANTHROPIC_|^OPENAI_)`)
+var credentialName = regexp.MustCompile(`(?i)(API_?KEY|SECRET|TOKEN|PASSWORD|PASSWD|CREDENTIAL)`)
 
-// scrubEnvArgs returns `-u NAME` arguments for env(1) for each credential-looking variable in environ.
-func scrubEnvArgs(environ []string) []string {
-	var out []string
+// seatEnvAllowed names the variables the dispatch wrapper may inherit. Everything else is dropped, so a cloud-provider
+// selector (Bedrock, Vertex, an AWS profile) or an API key in this process's environment cannot choose the transport:
+// the wrapper supplies its own subscription auth.
+var seatEnvAllowed = regexp.MustCompile(`^(HOME|PATH|USER|LOGNAME|SHELL|LANG|LC_[A-Z]+|TERM|TMPDIR|XDG_RUNTIME_DIR|CLAVAIN_[A-Z0-9_]+|DISPATCH_[A-Z0-9_]+|BB_[A-Z0-9_]+)$`)
+
+// seatEnvArgs returns the arguments for env(1) that start the wrapper with only the allowed, credential-free variables.
+func seatEnvArgs(environ []string) []string {
+	out := []string{"-i"}
 	for _, kv := range environ {
 		name, _, _ := strings.Cut(kv, "=")
-		if credentialName.MatchString(name) {
-			out = append(out, "-u", name)
+		if seatEnvAllowed.MatchString(name) && !credentialName.MatchString(name) {
+			out = append(out, kv)
 		}
 	}
 	return out
