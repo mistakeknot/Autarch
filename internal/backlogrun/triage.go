@@ -165,7 +165,7 @@ func (r Router) Triage(ctx context.Context, cards []Card) ([]Verdict, Seat, erro
 			return nil, seat, fmt.Errorf("initialise routing record in %s: %w", r.Repo, err)
 		}
 	}
-	args := append(seatEnvArgs(os.Environ()), "bash", r.Dispatch, "--role", r.role(), "--policy", r.Policy, "--context-file", ctxFile, "-s", "read-only", "-C", r.Repo, "-o", of, "--prompt-file", pf)
+	args := append(seatEnvArgs(os.Environ()), "bash", r.Dispatch, "--role", r.role(), "--policy", r.Policy, "--context-file", ctxFile, "--no-tools", "-s", "read-only", "-C", r.Repo, "-o", of, "--prompt-file", pf)
 	if _, err := r.Run(ctx, "env", args...); err != nil {
 		return nil, seat, fmt.Errorf("dispatch triage: %w", err)
 	}
