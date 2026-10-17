@@ -617,8 +617,8 @@ export function wireHome(bb: BbPluginApi, handle: StoreHandle, cfg: HomeConfig, 
       if (r.ok && r.was) bb.realtime.publish("home-queue-changed", {});
       return r;
     },
-    async pick(i: { decision_id: string; option_id: string; revision: string; pick_id: string; reason?: string; images?: { mime: string; data_base64: string }[]; surface?: "home" | "overlay" }) {
-      return need().svc.pick(i.decision_id, i.option_id, i.revision, i.pick_id, MK, i.surface ?? "home", i.reason, undefined, i.images);
+    async pick(i: { decision_id: string; option_id: string; revision: string; pick_id: string; reason?: string; images?: { mime: string; data_base64: string }[]; answers?: Record<string, string>; surface?: "home" | "overlay" }) {
+      return need().svc.pick(i.decision_id, i.option_id, i.revision, i.pick_id, MK, i.surface ?? "home", i.reason, undefined, i.images, i.answers);
     },
     async note(i: { task_id?: string; decision_id?: string; text: string; note_id: string; images?: { mime: string; data_base64: string }[] }) {
       // Comment first: the card comment is posted before any wake obligation exists. If the tasks write fails nothing is woken.

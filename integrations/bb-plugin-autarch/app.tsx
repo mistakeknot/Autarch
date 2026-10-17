@@ -309,7 +309,7 @@ function BlocksThreadPanel({ threadId }: { threadId: string }) {
       thread={threadId}
       onNote={(decision_id, text, images) => noteOnly.note({ decision_id }, text, images)}
       onOpen={(t) => nav.toThread(t)}
-      onPick={(decision_id, option_id, revision, reason, images) => pickOutcome(picks.send((req) => rpc.call("pick", req) as never, { decision_id, option_id, revision, ...(reason !== undefined ? { reason } : {}), ...(images && images.length > 0 ? { images } : {}) }, refetch)).finally(refetch)}
+      onPick={(decision_id, option_id, revision, reason, images, answers) => pickOutcome(picks.send((req) => rpc.call("pick", req) as never, { decision_id, option_id, revision, ...(reason !== undefined ? { reason } : {}), ...(images && images.length > 0 ? { images } : {}), ...(answers ? { answers } : {}) }, refetch)).finally(refetch)}
     />
     </DocReaderHost></ConversationProvider>
   );
@@ -565,8 +565,8 @@ function HomePage() {
             onOpen={(thread) => push({ id: `thread:${thread}`, kind: "thread", title: thread, ref: thread })}
             onRevoke={(approval_id) => void rpc.call("revokeApproval", { approval_id }).then(refetch, () => {})}
             onView={(decision_id) => void rpc.call("setViewing", { decision_id }).catch(() => {})}
-            onPick={(decision_id, option_id, revision, reason, images) => {
-              return pickOutcome(picks.send((req) => rpc.call("pick", req) as never, { decision_id, option_id, revision, ...(reason !== undefined ? { reason } : {}), ...(images && images.length > 0 ? { images } : {}) }, refetchAll)).finally(refetchAll);
+            onPick={(decision_id, option_id, revision, reason, images, answers) => {
+              return pickOutcome(picks.send((req) => rpc.call("pick", req) as never, { decision_id, option_id, revision, ...(reason !== undefined ? { reason } : {}), ...(images && images.length > 0 ? { images } : {}), ...(answers ? { answers } : {}) }, refetchAll)).finally(refetchAll);
             }}
           />
           </>
@@ -582,8 +582,8 @@ function HomePage() {
             nowMs={Date.now()}
             onNote={(decision_id, text, images) => yourMove.note({ decision_id }, text, images)}
             onOpen={openBeside}
-            onPick={(decision_id, option_id, revision, reason, images) => {
-              return pickOutcome(picks.send((req) => rpc.call("pick", req) as never, { decision_id, option_id, revision, ...(reason !== undefined ? { reason } : {}), ...(images && images.length > 0 ? { images } : {}) }, refetchAll)).finally(refetchAll);
+            onPick={(decision_id, option_id, revision, reason, images, answers) => {
+              return pickOutcome(picks.send((req) => rpc.call("pick", req) as never, { decision_id, option_id, revision, ...(reason !== undefined ? { reason } : {}), ...(images && images.length > 0 ? { images } : {}), ...(answers ? { answers } : {}) }, refetchAll)).finally(refetchAll);
             }}
           />
         );
@@ -665,8 +665,8 @@ function HomePage() {
             onOpen={openBeside}
             onNote={(decision_id, text, images) => yourMove.note({ decision_id }, text, images)}
             onLater={(ref, on) => laterOutcome(rpc.call(on ? "later" : "unlater", { ref })).then((o) => { refetchAll(); return o; })}
-            onPick={(decision_id, option_id, revision, reason, images) => {
-              return pickOutcome(picks.send((req) => rpc.call("pick", req) as never, { decision_id, option_id, revision, ...(reason !== undefined ? { reason } : {}), ...(images && images.length > 0 ? { images } : {}) }, refetchAll)).finally(refetchAll);
+            onPick={(decision_id, option_id, revision, reason, images, answers) => {
+              return pickOutcome(picks.send((req) => rpc.call("pick", req) as never, { decision_id, option_id, revision, ...(reason !== undefined ? { reason } : {}), ...(images && images.length > 0 ? { images } : {}), ...(answers ? { answers } : {}) }, refetchAll)).finally(refetchAll);
             }}
             onDesktop={() => setFullView(true)}
             onIdea={() => setIdeaOpen((o) => !o)}

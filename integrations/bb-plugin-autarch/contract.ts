@@ -42,6 +42,8 @@ export const homeMethods = {
       reason: z.string().max(20000).optional(),
       /** Images with the Other box answer (png, jpeg, gif, webp); delivered to the owner thread next to the text. */
       images: z.array(z.object({ mime: z.string().max(32), data_base64: z.string().max(7_300_000) }).strict()).max(4).optional(),
+      /** A multi-pick ask's answer: question id to option id, one per question. Goes with option_id "answers"; `reason` is then an optional note. */
+      answers: z.record(z.string().max(32), z.string().max(32)).optional(),
       /** Where the operator picked: Home (default). "overlay" is historical (the overlay panel was removed) and stays so old rows read. The CLI records its own. */
       surface: z.enum(["home", "overlay"]).default("home"),
     }),

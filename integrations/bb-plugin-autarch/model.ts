@@ -28,6 +28,21 @@ export interface AskOption {
   approval?: Approval;
 }
 
+/** One option of a sub-question: a label and an optional one-line detail shown under it. */
+export interface QuestionOption {
+  id: string;
+  label: string;
+  detail?: string;
+}
+
+/** One independent choice inside a multi-pick ask. Answered together with the others by one pick. */
+export interface Question {
+  id: string;
+  prompt: string;
+  options: QuestionOption[];
+  recommendation?: string;
+}
+
 export interface Machine {
   class: string;
   detail: string;
@@ -49,6 +64,7 @@ export interface Ask {
   supersedes?: string;
   mention_of?: string;
   options?: AskOption[];
+  questions?: Question[];
   steps?: string[];
   machine?: Machine;
 }
@@ -58,6 +74,9 @@ const MAX_LABEL = 80;
 const MAX_KEY = 120;
 const MAX_QUESTION = 8000;
 const MAX_STEPS = 20;
+const MAX_QUESTIONS = 8;
+const MAX_PROMPT = 500;
+const MAX_DETAIL = 300;
 const MAX_TTL = 7 * 24 * 3600;
 
 const OPTION_ID = /^[a-z0-9-]{1,32}$/;
@@ -69,6 +88,8 @@ const APPROVAL_TOKEN = /APPROVED-[A-Z]+/;
 const nfc = (s: string) => s.normalize("NFC");
 const count = (s: string) => Array.from(s).length;
 const blank = (s: string) => s.trim() === "";
+/** The twin of Go's strings.Trim(s, " \t\n\r\f\v") == "": blank text in a multi-pick ask, the same set of characters on both sides. */
+const blankAscii = (s: string) => /^[ \t\n\r\f\v]*$/.test(s);
 const fail = (msg: string): never => {
   throw new Error(msg);
 };
@@ -110,8 +131,10 @@ function slug(label: string): string {
   return firstChars(out, 32).replace(/-+$/, "");
 }
 
-const TOP_FIELDS = ["v", "kind", "request_id", "ask_key", "subject", "project", "project_root", "asker", "thread", "question", "recommendation", "supersedes", "mention_of", "options", "steps", "machine"];
+const TOP_FIELDS = ["v", "kind", "request_id", "ask_key", "subject", "project", "project_root", "asker", "thread", "question", "recommendation", "supersedes", "mention_of", "options", "questions", "steps", "machine"];
 const OPTION_FIELDS = ["id", "label", "kind", "reversible", "instruction", "approval"];
+const QUESTION_FIELDS = ["id", "prompt", "options", "recommendation"];
+const QUESTION_OPTION_FIELDS = ["id", "label", "detail"];
 const APPROVAL_FIELDS = ["kind", "target", "identity", "ttl"];
 const MACHINE_FIELDS = ["class", "detail", "owner_thread"];
 
@@ -164,6 +187,24 @@ export function parseAsk(input: unknown): Ask {
       return opt;
     });
   }
+  if (o.questions !== undefined && o.questions !== null) {
+    if (!Array.isArray(o.questions)) fail("invalid ask: questions must be an array");
+    a.questions = (o.questions as unknown[]).map((raw) => {
+      const q = obj(raw, "question");
+      known(q, QUESTION_FIELDS, "question");
+      if (q.options !== undefined && q.options !== null && !Array.isArray(q.options)) fail("invalid ask: question options must be an array");
+      return {
+        id: str(q, "id"),
+        prompt: str(q, "prompt"),
+        recommendation: str(q, "recommendation"),
+        options: ((q.options ?? []) as unknown[]).map((r) => {
+          const p = obj(r, "question option");
+          known(p, QUESTION_OPTION_FIELDS, "question option");
+          return { id: str(p, "id"), label: str(p, "label"), detail: str(p, "detail") };
+        }),
+      };
+    });
+  }
   if (o.steps !== undefined && o.steps !== null) {
     if (!Array.isArray(o.steps) || (o.steps as unknown[]).some((s) => typeof s !== "string")) fail("invalid ask: steps must be an array of strings");
     a.steps = [...(o.steps as string[])];
@@ -191,6 +232,7 @@ interface Work {
   supersedes: string;
   mention_of: string;
   options: AskOption[];
+  questions: Question[];
   steps: string[];
   machine: Machine | undefined;
 }
@@ -265,6 +307,12 @@ function normalize(input: Ask): { ask?: Ask; problems: Problem[] } {
       }
       return opt;
     }),
+    questions: (input.questions ?? []).map((q) => ({
+      id: clean("question id", q.id ?? ""),
+      prompt: clean("question prompt", q.prompt ?? ""),
+      recommendation: clean("question recommendation", q.recommendation ?? ""),
+      options: (q.options ?? []).map((o) => ({ id: clean("question option id", o.id ?? ""), label: clean("question option label", o.label ?? ""), detail: clean("question option detail", o.detail ?? "") })),
+    })),
     steps: (input.steps ?? []).map((s) => clean("step", s)),
     machine: input.machine
       ? {
@@ -302,9 +350,11 @@ function normalize(input: Ask): { ask?: Ask; problems: Problem[] } {
   switch (a.kind) {
     case "decide":
       if (a.steps.length > 0 || a.machine) add("kind", "decide takes no steps or machine block");
+      normalizeQuestions(a, add);
       normalizeOptions(a, add);
       break;
     case "steps":
+      if (a.questions.length > 0) add("questions", "questions are only for a decide ask");
       if (a.options.length > 0) add("options", "steps takes no options");
       if (a.machine) add("machine", "steps takes no machine block");
       if (a.recommendation !== "") add("recommendation", "recommendation must name an option");
@@ -312,6 +362,7 @@ function normalize(input: Ask): { ask?: Ask; problems: Problem[] } {
       if (a.steps.some((s) => blank(s) || count(s) > MAX_INSTRUCTION)) add("steps", "each step must be 1-8000 characters");
       break;
     case "machine":
+      if (a.questions.length > 0) add("questions", "questions are only for a decide ask");
       if (a.options.length > 0 || a.steps.length > 0) add("kind", "machine takes no steps or options");
       if (a.recommendation !== "") add("recommendation", "recommendation must name an option");
       if (!a.machine) add("machine", "machine needs a machine block");
@@ -343,11 +394,40 @@ function normalize(input: Ask): { ask?: Ask; problems: Problem[] } {
     steps: a.steps,
     machine: a.machine,
   };
+  if (a.questions.length > 0) out.questions = a.questions;
   if (out.request_id === "") out.request_id = identityOf(out);
   return { ask: out, problems: ps };
 }
 
+function normalizeQuestions(a: Work, add: (field: string, why: string) => void) {
+  if (a.questions.length > MAX_QUESTIONS) add("questions", `a multi-pick ask takes 1-${MAX_QUESTIONS} questions`);
+  const ids = new Set<string>();
+  a.questions.forEach((q, i) => {
+    const at = `questions[${i}]`;
+    if (!OPTION_ID.test(q.id)) add(`${at}.id`, "question id must match [a-z0-9-]{1,32}");
+    else if (ids.has(q.id)) add(`${at}.id`, `duplicate question id "${q.id}"`);
+    ids.add(q.id);
+    if (blankAscii(q.prompt) || count(q.prompt) > MAX_PROMPT) add(`${at}.prompt`, `prompt must be 1-${MAX_PROMPT} characters`);
+    if (q.options.length < 2 || q.options.length > 6) add(`${at}.options`, "a question needs 2-6 options");
+    const seen = new Set<string>();
+    q.options.forEach((o, j) => {
+      const oat = `${at}.options[${j}]`;
+      if (!OPTION_ID.test(o.id)) add(`${oat}.id`, "option id must match [a-z0-9-]{1,32}");
+      else if (seen.has(o.id)) add(`${oat}.id`, `duplicate option id "${o.id}"`);
+      seen.add(o.id);
+      if (blankAscii(o.label) || count(o.label) > MAX_LABEL) add(`${oat}.label`, "label must be 1-80 characters");
+      if (count(o.detail ?? "") > MAX_DETAIL) add(`${oat}.detail`, `detail must be at most ${MAX_DETAIL} characters`);
+    });
+    if ((q.recommendation ?? "") !== "" && !seen.has(q.recommendation as string)) add(`${at}.recommendation`, "recommendation must be the id of one of the question's options");
+  });
+}
+
 function normalizeOptions(a: Work, add: (field: string, why: string) => void) {
+  // A multi-pick ask may carry no overall options: its answer is the set of picks.
+  if (a.questions.length > 0 && a.options.length === 0) {
+    if (a.recommendation !== "") add("recommendation", "recommendation must name an option; a multi-pick ask recommends per question");
+    return;
+  }
   if (a.options.length < 2 || a.options.length > 6) add("options", "decide needs 2-6 options");
   const seen = new Set<string>();
   a.options.forEach((o, i) => {
@@ -364,6 +444,7 @@ function normalizeOptions(a: Work, add: (field: string, why: string) => void) {
     if (idOK) {
       if (!OPTION_ID.test(o.id as string)) add(`${at}.id`, "option id must match [a-z0-9-]{1,32}");
       else if (seen.has(o.id as string)) add(`${at}.id`, `duplicate option id "${o.id}"`);
+      if (a.questions.length > 0 && o.id === "answers") add(`${at}.id`, 'option id "answers" is reserved in a multi-pick ask');
       seen.add(o.id as string);
     }
 
@@ -454,6 +535,8 @@ function optionNode(o: AskOption): Node {
   return n;
 }
 const optionsNode = (os?: AskOption[]): Node => (os ?? []).map(optionNode);
+const questionsNode = (qs?: Question[]): Node =>
+  (qs ?? []).map((q) => ({ id: q.id, prompt: q.prompt, recommendation: q.recommendation ?? "", options: q.options.map((o) => ({ id: o.id, label: o.label, detail: o.detail ?? "" })) }));
 const machineNode = (m: Machine | undefined, withOwner: boolean): Node =>
   m ? (withOwner ? { class: m.class, detail: m.detail, owner_thread: m.owner_thread ?? "" } : { class: m.class, detail: m.detail }) : null;
 const scopeNode = (a: Ask): Node => ({ project: a.project, project_root: a.project_root, asker: a.asker, thread: a.thread ?? "" });
@@ -469,6 +552,7 @@ function bodyNode(a: Ask): { [k: string]: Node } {
     supersedes: a.supersedes,
     mention_of: a.mention_of,
     options: optionsNode(a.options),
+    questions: questionsNode(a.questions),
     steps: a.steps ?? [],
     machine: machineNode(a.machine, true),
   };
@@ -506,6 +590,7 @@ export function revision(a: Ask): string {
     kind: n.kind,
     question: n.question,
     options: optionsNode(n.options),
+    questions: questionsNode(n.questions),
     recommendation: n.recommendation,
     supersedes: n.supersedes,
     steps: n.steps ?? [],
@@ -522,6 +607,7 @@ export function semanticKey(a: Ask): string {
     subject: n.subject,
     question: normText(n.question),
     options: optionsNode(n.options),
+    questions: questionsNode(n.questions),
     recommendation: n.recommendation,
     steps: n.steps ?? [],
     machine: machineNode(n.machine, false),

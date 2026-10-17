@@ -421,7 +421,7 @@ func TestSchemaFieldsMatch(t *testing.T) {
 		t.Fatal(err)
 	}
 	want := []string{"v", "kind", "request_id", "ask_key", "subject", "project", "project_root", "asker", "thread",
-		"question", "recommendation", "supersedes", "mention_of", "options", "steps", "machine"}
+		"question", "recommendation", "supersedes", "mention_of", "options", "questions", "steps", "machine"}
 	if len(s.Properties) != len(want) {
 		t.Fatalf("schema has %d properties, want %d", len(s.Properties), len(want))
 	}

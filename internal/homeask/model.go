@@ -50,24 +50,40 @@ type Machine struct {
 	OwnerThread string `json:"owner_thread,omitempty"`
 }
 
+// QuestionOption is one choice of a Question, with an optional one-line detail.
+type QuestionOption struct {
+	ID     string `json:"id"`
+	Label  string `json:"label"`
+	Detail string `json:"detail,omitempty"`
+}
+
+// Question is one independent choice in a multi-pick ask. One pick answers all of an ask's questions.
+type Question struct {
+	ID             string           `json:"id"`
+	Prompt         string           `json:"prompt"`
+	Recommendation string           `json:"recommendation,omitempty"`
+	Options        []QuestionOption `json:"options"`
+}
+
 // Ask is the filing request for every caller.
 type Ask struct {
-	V              int      `json:"v"`
-	Kind           string   `json:"kind"`
-	RequestID      string   `json:"request_id,omitempty"`
-	AskKey         string   `json:"ask_key,omitempty"`
-	Subject        string   `json:"subject,omitempty"`
-	Project        string   `json:"project"`
-	ProjectRoot    string   `json:"project_root"`
-	Asker          string   `json:"asker"`
-	Thread         string   `json:"thread,omitempty"`
-	Question       string   `json:"question"`
-	Recommendation string   `json:"recommendation,omitempty"`
-	Supersedes     string   `json:"supersedes,omitempty"`
-	MentionOf      string   `json:"mention_of,omitempty"`
-	Options        []Option `json:"options,omitempty"`
-	Steps          []string `json:"steps,omitempty"`
-	Machine        *Machine `json:"machine,omitempty"`
+	V              int        `json:"v"`
+	Kind           string     `json:"kind"`
+	RequestID      string     `json:"request_id,omitempty"`
+	AskKey         string     `json:"ask_key,omitempty"`
+	Subject        string     `json:"subject,omitempty"`
+	Project        string     `json:"project"`
+	ProjectRoot    string     `json:"project_root"`
+	Asker          string     `json:"asker"`
+	Thread         string     `json:"thread,omitempty"`
+	Question       string     `json:"question"`
+	Recommendation string     `json:"recommendation,omitempty"`
+	Supersedes     string     `json:"supersedes,omitempty"`
+	MentionOf      string     `json:"mention_of,omitempty"`
+	Options        []Option   `json:"options,omitempty"`
+	Questions      []Question `json:"questions,omitempty"`
+	Steps          []string   `json:"steps,omitempty"`
+	Machine        *Machine   `json:"machine,omitempty"`
 }
 
 const (
@@ -76,6 +92,9 @@ const (
 	maxKey         = 120
 	maxQuestion    = 8000
 	maxSteps       = 20
+	maxQuestions   = 8
+	maxPrompt      = 500
+	maxDetail      = 300
 	maxTTL         = 7 * 24 * 3600
 )
 
@@ -225,6 +244,14 @@ func normalize(in Ask) (Ask, []Problem) {
 	a := in
 	a.Options = append([]Option(nil), in.Options...)
 	a.Steps = append([]string(nil), in.Steps...)
+	a.Questions = make([]Question, len(in.Questions))
+	for i, q := range in.Questions {
+		q.Options = append([]QuestionOption(nil), q.Options...)
+		a.Questions[i] = q
+	}
+	if len(a.Questions) == 0 {
+		a.Questions = nil
+	}
 	if in.Machine != nil {
 		m := *in.Machine
 		a.Machine = &m
@@ -248,6 +275,26 @@ func normalize(in Ask) (Ask, []Problem) {
 	for _, s := range strs {
 		ps.clean(s.field, *s.p)
 		*s.p = norm.NFC.String(*s.p)
+	}
+	for i := range a.Questions {
+		q := &a.Questions[i]
+		for _, s := range []struct {
+			field string
+			p     *string
+		}{{"question id", &q.ID}, {"question prompt", &q.Prompt}, {"question recommendation", &q.Recommendation}} {
+			ps.clean(s.field, *s.p)
+			*s.p = norm.NFC.String(*s.p)
+		}
+		for j := range q.Options {
+			o := &q.Options[j]
+			for _, s := range []struct {
+				field string
+				p     *string
+			}{{"question option id", &o.ID}, {"question option label", &o.Label}, {"question option detail", &o.Detail}} {
+				ps.clean(s.field, *s.p)
+				*s.p = norm.NFC.String(*s.p)
+			}
+		}
 	}
 	for i := range a.Options {
 		o := &a.Options[i]
@@ -346,8 +393,12 @@ func normalize(in Ask) (Ask, []Problem) {
 		if len(a.Steps) > 0 || a.Machine != nil {
 			ps.add("kind", "decide takes no steps or machine block")
 		}
+		normalizeQuestions(&a, &ps)
 		normalizeOptions(&a, &ps)
 	case "steps":
+		if len(a.Questions) > 0 {
+			ps.add("questions", "questions are only for a decide ask")
+		}
 		if len(a.Options) > 0 {
 			ps.add("options", "steps takes no options")
 		}
@@ -367,6 +418,9 @@ func normalize(in Ask) (Ask, []Problem) {
 			}
 		}
 	case "machine":
+		if len(a.Questions) > 0 {
+			ps.add("questions", "questions are only for a decide ask")
+		}
 		if len(a.Options) > 0 || len(a.Steps) > 0 {
 			ps.add("kind", "machine takes no steps or options")
 		}
@@ -397,7 +451,58 @@ func normalize(in Ask) (Ask, []Problem) {
 	return a, nil
 }
 
+// blankASCII is the twin of the TypeScript blankAscii: only these six characters count as blank in a multi-pick ask.
+func blankASCII(s string) bool { return strings.Trim(s, " \t\n\r\f\v") == "" }
+
+func normalizeQuestions(a *Ask, ps *problemList) {
+	if len(a.Questions) > maxQuestions {
+		ps.add("questions", fmt.Sprintf("a multi-pick ask takes 1-%d questions", maxQuestions))
+	}
+	ids := map[string]bool{}
+	for i, q := range a.Questions {
+		at := fmt.Sprintf("questions[%d]", i)
+		if !optionIDRe.MatchString(q.ID) {
+			ps.add(at+".id", "question id must match [a-z0-9-]{1,32}")
+		} else if ids[q.ID] {
+			ps.add(at+".id", fmt.Sprintf("duplicate question id %q", q.ID))
+		}
+		ids[q.ID] = true
+		if n := runes(q.Prompt); blankASCII(q.Prompt) || n > maxPrompt {
+			ps.add(at+".prompt", fmt.Sprintf("prompt must be 1-%d characters", maxPrompt))
+		}
+		if n := len(q.Options); n < 2 || n > 6 {
+			ps.add(at+".options", "a question needs 2-6 options")
+		}
+		seen := map[string]bool{}
+		for j, o := range q.Options {
+			oat := fmt.Sprintf("%s.options[%d]", at, j)
+			if !optionIDRe.MatchString(o.ID) {
+				ps.add(oat+".id", "option id must match [a-z0-9-]{1,32}")
+			} else if seen[o.ID] {
+				ps.add(oat+".id", fmt.Sprintf("duplicate option id %q", o.ID))
+			}
+			seen[o.ID] = true
+			if n := runes(o.Label); blankASCII(o.Label) || n > maxLabel {
+				ps.add(oat+".label", "label must be 1-80 characters")
+			}
+			if runes(o.Detail) > maxDetail {
+				ps.add(oat+".detail", fmt.Sprintf("detail must be at most %d characters", maxDetail))
+			}
+		}
+		if q.Recommendation != "" && !seen[q.Recommendation] {
+			ps.add(at+".recommendation", "recommendation must be the id of one of the question's options")
+		}
+	}
+}
+
 func normalizeOptions(a *Ask, ps *problemList) {
+	// A multi-pick ask may carry no overall options: its answer is the set of picks.
+	if len(a.Questions) > 0 && len(a.Options) == 0 {
+		if a.Recommendation != "" {
+			ps.add("recommendation", "recommendation must name an option; a multi-pick ask recommends per question")
+		}
+		return
+	}
 	if n := len(a.Options); n < 2 || n > 6 {
 		ps.add("options", "decide needs 2-6 options")
 	}
@@ -421,6 +526,9 @@ func normalizeOptions(a *Ask, ps *problemList) {
 				ps.add(at+".id", "option id must match [a-z0-9-]{1,32}")
 			} else if seen[o.ID] {
 				ps.add(at+".id", fmt.Sprintf("duplicate option id %q", o.ID))
+			}
+			if len(a.Questions) > 0 && o.ID == "answers" {
+				ps.add(at+".id", `option id "answers" is reserved in a multi-pick ask`)
 			}
 			seen[o.ID] = true
 		}
@@ -503,6 +611,18 @@ func optionsNode(os []Option) []any {
 	return out
 }
 
+func questionsNode(qs []Question) []any {
+	out := make([]any, 0, len(qs))
+	for _, q := range qs {
+		opts := make([]any, 0, len(q.Options))
+		for _, o := range q.Options {
+			opts = append(opts, map[string]any{"id": o.ID, "label": o.Label, "detail": o.Detail})
+		}
+		out = append(out, map[string]any{"id": q.ID, "prompt": q.Prompt, "recommendation": q.Recommendation, "options": opts})
+	}
+	return out
+}
+
 func stepsNode(ss []string) []any {
 	out := make([]any, 0, len(ss))
 	for _, s := range ss {
@@ -530,7 +650,7 @@ func bodyNode(a Ask) map[string]any {
 	return map[string]any{
 		"v": a.V, "kind": a.Kind, "ask_key": a.AskKey, "subject": a.Subject, "question": a.Question,
 		"recommendation": a.Recommendation, "supersedes": a.Supersedes, "mention_of": a.MentionOf,
-		"options": optionsNode(a.Options), "steps": stepsNode(a.Steps), "machine": machineNode(a.Machine, true),
+		"options": optionsNode(a.Options), "questions": questionsNode(a.Questions), "steps": stepsNode(a.Steps), "machine": machineNode(a.Machine, true),
 	}
 }
 
@@ -579,7 +699,7 @@ func Revision(a Ask) string {
 		opts = append(opts, optionNode(o))
 	}
 	return hashOf(map[string]any{
-		"scope": scopeNode(n), "kind": n.Kind, "question": n.Question, "options": opts,
+		"scope": scopeNode(n), "kind": n.Kind, "question": n.Question, "options": opts, "questions": questionsNode(n.Questions),
 		"recommendation": n.Recommendation, "supersedes": n.Supersedes,
 		"steps": stepsNode(n.Steps), "machine": machineNode(n.Machine, true),
 	})
@@ -596,7 +716,7 @@ func SemanticKey(a Ask) string {
 	}
 	return hashOf(map[string]any{
 		"kind": n.Kind, "subject": n.Subject, "question": normText(n.Question),
-		"options": optionsNode(n.Options), "recommendation": n.Recommendation,
+		"options": optionsNode(n.Options), "questions": questionsNode(n.Questions), "recommendation": n.Recommendation,
 		"steps": stepsNode(n.Steps), "machine": machineNode(n.Machine, false),
 	})
 }

@@ -275,7 +275,7 @@ describe("schema", () => {
   it("lists exactly the ask fields", () => {
     const s = JSON.parse(readFileSync(join(schemaDir, "ask.schema.json"), "utf8"));
     expect(Object.keys(s.properties).sort()).toEqual(
-      ["v", "kind", "request_id", "ask_key", "subject", "project", "project_root", "asker", "thread", "question", "recommendation", "supersedes", "mention_of", "options", "steps", "machine"].sort(),
+      ["v", "kind", "request_id", "ask_key", "subject", "project", "project_root", "asker", "thread", "question", "recommendation", "supersedes", "mention_of", "options", "questions", "steps", "machine"].sort(),
     );
   });
 

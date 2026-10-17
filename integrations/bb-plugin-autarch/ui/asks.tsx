@@ -8,11 +8,13 @@ import { CommandBlock } from "./copy.js";
 import { glance, GlanceBlock, type GlanceAnswer } from "./glance.js";
 import { GH_REF_SRC, refNodes, URL_SRC } from "./links.js";
 import { DocLink } from "./docreader.js";
+import type { Question } from "../model.js";
+import { MultiPick } from "./multipick.js";
 import { OtherBox, type OtherImage, type OtherOutcome } from "./other.js";
 
 /** What a pick hands back to the card: not ok means the card stays open and shows the error. */
 export type PickOutcome = { ok: boolean; error?: string };
-export type OnPick = (decisionId: string, optionId: string, revision: string, reason?: string, images?: OtherImage[]) => void | Promise<PickOutcome | void>;
+export type OnPick = (decisionId: string, optionId: string, revision: string, reason?: string, images?: OtherImage[], answers?: Record<string, string>) => void | Promise<PickOutcome | void>;
 
 /** Turns a send into an outcome the card can show: a thrown error or a non-ok result is a failure. */
 export async function pickOutcome(send: Promise<{ ok?: boolean; status?: number; error?: string }>): Promise<PickOutcome> {
@@ -78,7 +80,7 @@ export type OwedAsk = {
   held?: { reason: string; by: string; at: string } | null;
   /** Set while mk has set the card aside for later: it stays open and unruled, in the Later group, outside the Waiting count. */
   later?: { at: string; by: string } | null;
-  ask: { question: string; recommendation?: string; options: Option[] };
+  ask: { question: string; recommendation?: string; options: Option[]; questions?: Question[] };
 };
 export type Lane = { id: string; subject: string; thread: string; owner: string | null; detail: string; updated_at: string; label?: string };
 export type RunbookGroup = { thread: string; items: { id: string; subject: string; question: string; steps: string[]; filed_at: string }[] };
@@ -286,6 +288,16 @@ export function AskCard({ ask, onPick, onOpen, nowMs, onNote, onLater, unbound =
       </p>
       {glanceOf ? <GlanceBlock g={glanceOf} answers={glanceAnswers} /> : null}
       <QuestionText text={ask.ask.question} />
+      {ask.ask.questions && ask.ask.questions.length > 0 ? (
+        <MultiPick
+          questions={ask.ask.questions}
+          disabled={unbound}
+          onAnswer={async (answers, note) => {
+            const r = await onPick(ask.id, "answers", ask.revision, note, undefined, answers);
+            return r && r.ok === false ? { ok: false, error: r.error ?? "pick failed" } : { ok: true };
+          }}
+        />
+      ) : null}
       <ul className="mb-0 mt-3 list-none space-y-2 p-0">
         {ask.ask.options.map((o) => {
           const recommended = ask.ask.recommendation === o.id;
