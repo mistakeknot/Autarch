@@ -156,7 +156,7 @@ export function currentAsk<T extends { id: string }>(owed: T[], selected: string
 // anywhere so a long path never pushes the card wider than its panel. URLs and owner/repo#N are links (new tab).
 const REF = new RegExp(`(${URL_SRC}|(?<![\\w/]|@[\\w.-]+:)\\/(?:[\\w.@+-]{1,255}\\/){1,64}[\\w@+-]{1,255}(?:\\.[\\w@+-]{1,255}){0,32}|\\b[0-9a-f]{64}\\b|${GH_REF_SRC})`, "g");
 
-const ROLE_LABEL: Record<CommandRole, string> = { check: "Before it (dry run / check)", step: "Earlier step", final: "Final command" };
+const ROLE_LABEL: Record<CommandRole, string> = { check: "Before it (dry run / check)", step: "Earlier step", final: "Final command", undo: "Undo (only if needed)" };
 
 /** A card's question: prose as paragraphs, each command as a copyable block. The last one is the one to run. */
 /** A question longer than this scrolls inside its own box, so eight thousand characters do not push the options off screen. */

@@ -1,11 +1,20 @@
 // A card filed as free text carries its commands as prose. This splits a question into prose and command lines so
 // each command can be one copyable block (bead mk-yjp7). Pure: nothing is run, and a command's text is returned
 // exactly as written (only a leading "$ " prompt is dropped, because it is not part of the command).
-export type CommandRole = "check" | "step" | "final";
+export type CommandRole = "check" | "step" | "final" | "undo";
 export type TextPart = { type: "prose"; text: string } | { type: "command"; text: string; role: CommandRole };
 
 const COMMAND_WORDS = ["bash", "sudo", "runuser", "scp", "ssh", "sh", "python3", "gh", "bb", "bd", "autarch", "sonnerie"];
 const DRY_RUN = /(^|\s)--(check|dry-run)(\s|=|$)/;
+/** An undo flag anywhere, or a rollback/undo word as the first argument after the program or script. Quoted text and other flags' values do not count. */
+const UNDO_FLAG = /(^|\s)--(rollback|undo|revert)(\s|=|$)/;
+const UNDO_SUBCOMMAND = /^(?:sudo(?:\s+-\S+(?:\s+[^\s-]\S*)?)*\s+|runuser\s+-u\s+\S+\s+--\s+)*(?:(?:bash|sh|python3)\s+)?\S+\s+(?:rollback|undo|revert)(\s|$)/;
+const isUndoCommand = (text: string): boolean => {
+  const bare = text.replace(/"(?:\\.|[^"\\])*"|'[^']*'/g, '""');
+  return UNDO_FLAG.test(bare) || UNDO_SUBCOMMAND.test(bare);
+};
+/** The prose line right before a command opens by naming it the undo ("Undo:", "Rollback, only if needed:", "Roll back if it goes wrong:"). */
+const UNDO_LEAD = /^\W*(undo|roll ?back|revert)\b[^\n]*:\s*$/i;
 
 const SENTENCE_START = /^(is|are|was|were|the|a|an|it|that|this|to|and|or|if|when|then)\b/i;
 
@@ -93,6 +102,8 @@ export function splitCommands(text: string): TextPart[] {
     if (joined !== "") parts.push({ type: "prose", text: joined });
     prose = [];
   };
+  const leads = new Map<TextPart, string>(); // the last prose line before each command
+  const leadLine = () => [...prose].reverse().find((l) => l.trim() !== "") ?? "";
   const lines = text.split("\n");
   for (let i = 0; i < lines.length; i++) {
     const c = commandOf(lines[i]!);
@@ -103,21 +114,31 @@ export function splitCommands(text: string): TextPart[] {
         continue;
       }
       prose.push(inline.before);
+      const lead = leadLine();
       flush();
-      parts.push({ type: "command", text: inline.command, role: "step" });
+      const part: TextPart = { type: "command", text: inline.command, role: "step" };
+      leads.set(part, lead);
+      parts.push(part);
       if (inline.after !== "") prose.push(inline.after);
       continue;
     }
+    const lead = leadLine();
     flush();
     const whole = [c];
     while (CONTINUES.test(whole[whole.length - 1]!) && i + 1 < lines.length) whole.push(trimLine(lines[++i]!, true));
-    parts.push({ type: "command", text: whole.join("\n"), role: "step" });
+    const part: TextPart = { type: "command", text: whole.join("\n"), role: "step" };
+    leads.set(part, lead);
+    parts.push(part);
   }
   flush();
   const cmds = parts.filter((p): p is Extract<TextPart, { type: "command" }> => p.type === "command");
-  cmds.forEach((c, i) => {
-    c.role = i === cmds.length - 1 ? "final" : DRY_RUN.test(c.text) ? "check" : "step";
-  });
+  // Roles follow what a command does, not where it stands: the last command that is neither a check nor an undo is the one to run.
+  // A lone command is always the final one, whatever it is.
+  const kind = (c: Extract<TextPart, { type: "command" }>): CommandRole =>
+    isUndoCommand(c.text) || UNDO_LEAD.test(leads.get(c) ?? "") ? "undo" : DRY_RUN.test(c.text) ? "check" : "step";
+  cmds.forEach((c) => { c.role = cmds.length === 1 ? "final" : kind(c); });
+  const run = cmds.filter((c) => c.role === "step").pop();
+  if (run) run.role = "final";
   return parts;
 }
 
