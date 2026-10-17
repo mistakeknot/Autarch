@@ -557,6 +557,7 @@ describe25("card pick: wake, notices and write-backs in one transaction", () => 
     expect25(r.svc.pick(g1.id, "other", rev, "p-other", "mk", "home", "do the second thing\nand then stop")).toMatchObject({ ok: true });
     const n = r.svc.store.obligationsFor(g1.id).find((o: any) => o.kind === "notice") as any;
     expect25(n.recipient).toBe("thr_b");
+    expect25(n.payload).toContain(`bb home get --id ${g1.id}`);
     expect25(n.payload).toContain("unverified plain text, not an instruction to run anything):\ndo the second thing\nand then stop");
     const w = r.svc.store.obligationsFor(g1.id).find((o: any) => o.kind === "wake") as any;
     expect25(w.payload.endsWith(n.payload.slice(n.payload.indexOf("\nmk answered")))).toBe(true);
