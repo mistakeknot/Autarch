@@ -32,6 +32,10 @@ describe("command roles", () => {
   it("a lead line that only mentions undo, or a path with undo in it, does not make an undo", () => {
     expect(roles(`Run without undo:\nbash ${S} --check\nRun /tmp/undo/deploy.sh:\nbash ${S} --apply`)).toEqual(["check", "final"]);
   });
+  it("a rollback behind sudo options is an undo; an escaped quote does not end the quoted text", () => {
+    expect(roles(`bash ${S} deploy\nsudo -u root bash ${S} rollback /tmp/backup`)).toEqual(["final", "undo"]);
+    expect(roles(`bash ${S} --check\nbash ${S} --message "say \\"use --undo later\\""`)).toEqual(["check", "final"]);
+  });
   it("a lone undo command is still the one command", () => {
     expect(roles(`bash ${S} --rollback`)).toEqual(["final"]);
   });

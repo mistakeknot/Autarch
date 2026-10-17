@@ -8,9 +8,9 @@ const COMMAND_WORDS = ["bash", "sudo", "runuser", "scp", "ssh", "sh", "python3",
 const DRY_RUN = /(^|\s)--(check|dry-run)(\s|=|$)/;
 /** An undo flag anywhere, or a rollback/undo word as the first argument after the program or script. Quoted text and other flags' values do not count. */
 const UNDO_FLAG = /(^|\s)--(rollback|undo|revert)(\s|=|$)/;
-const UNDO_SUBCOMMAND = /^(?:(?:sudo|runuser\s+-u\s+\S+\s+--)\s+)*(?:(?:bash|sh|python3)\s+)?\S+\s+(?:rollback|undo|revert)(\s|$)/;
+const UNDO_SUBCOMMAND = /^(?:sudo(?:\s+-\S+(?:\s+[^\s-]\S*)?)*\s+|runuser\s+-u\s+\S+\s+--\s+)*(?:(?:bash|sh|python3)\s+)?\S+\s+(?:rollback|undo|revert)(\s|$)/;
 const isUndoCommand = (text: string): boolean => {
-  const bare = text.replace(/"[^"]*"|'[^']*'/g, '""');
+  const bare = text.replace(/"(?:\\.|[^"\\])*"|'[^']*'/g, '""');
   return UNDO_FLAG.test(bare) || UNDO_SUBCOMMAND.test(bare);
 };
 /** The prose line right before a command opens by naming it the undo ("Undo:", "Rollback, only if needed:", "Roll back if it goes wrong:"). */
