@@ -24,6 +24,14 @@ describe("command roles", () => {
     expect(roles(`bash ${S} --apply`)).toEqual(["final"]);
     expect(roles(`bash ${S} --a\nbash ${S} --b`)).toEqual(["step", "final"]);
   });
+  it("the word undo as an option value, quoted text or a path is not an undo", () => {
+    expect(roles(`bash ${S} --check\nbash ${S} --label undo`)).toEqual(["check", "final"]);
+    expect(roles(`bash ${S} --check\nbash ${S} --message "please undo later"`)).toEqual(["check", "final"]);
+    expect(roles(`bash ${S} --check\nbash /tmp/undo/deploy.sh --apply`)).toEqual(["check", "final"]);
+  });
+  it("a lead line that only mentions undo, or a path with undo in it, does not make an undo", () => {
+    expect(roles(`Run without undo:\nbash ${S} --check\nRun /tmp/undo/deploy.sh:\nbash ${S} --apply`)).toEqual(["check", "final"]);
+  });
   it("a lone undo command is still the one command", () => {
     expect(roles(`bash ${S} --rollback`)).toEqual(["final"]);
   });

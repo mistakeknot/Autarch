@@ -6,10 +6,15 @@ export type TextPart = { type: "prose"; text: string } | { type: "command"; text
 
 const COMMAND_WORDS = ["bash", "sudo", "runuser", "scp", "ssh", "sh", "python3", "gh", "bb", "bd", "autarch", "sonnerie"];
 const DRY_RUN = /(^|\s)--(check|dry-run)(\s|=|$)/;
-/** A command that undoes the run: an undo flag, or a rollback/undo subcommand word. */
-const UNDO_CMD = /(^|\s)(--(rollback|undo|revert)(\s|=|$)|(rollback|undo|revert)(\s|$))/;
-/** The prose line right before a command says it is the undo ("Undo:", "Rollback, only if needed:", "If it goes wrong, roll back:"). */
-const UNDO_LEAD = /\b(undo|roll ?back|revert)\b[^\n]*:\s*$/i;
+/** An undo flag anywhere, or a rollback/undo word as the first argument after the program or script. Quoted text and other flags' values do not count. */
+const UNDO_FLAG = /(^|\s)--(rollback|undo|revert)(\s|=|$)/;
+const UNDO_SUBCOMMAND = /^(?:(?:sudo|runuser\s+-u\s+\S+\s+--)\s+)*(?:(?:bash|sh|python3)\s+)?\S+\s+(?:rollback|undo|revert)(\s|$)/;
+const isUndoCommand = (text: string): boolean => {
+  const bare = text.replace(/"[^"]*"|'[^']*'/g, '""');
+  return UNDO_FLAG.test(bare) || UNDO_SUBCOMMAND.test(bare);
+};
+/** The prose line right before a command opens by naming it the undo ("Undo:", "Rollback, only if needed:", "Roll back if it goes wrong:"). */
+const UNDO_LEAD = /^\W*(undo|roll ?back|revert)\b[^\n]*:\s*$/i;
 
 const SENTENCE_START = /^(is|are|was|were|the|a|an|it|that|this|to|and|or|if|when|then)\b/i;
 
@@ -130,7 +135,7 @@ export function splitCommands(text: string): TextPart[] {
   // Roles follow what a command does, not where it stands: the last command that is neither a check nor an undo is the one to run.
   // A lone command is always the final one, whatever it is.
   const kind = (c: Extract<TextPart, { type: "command" }>): CommandRole =>
-    UNDO_CMD.test(c.text) || UNDO_LEAD.test(leads.get(c) ?? "") ? "undo" : DRY_RUN.test(c.text) ? "check" : "step";
+    isUndoCommand(c.text) || UNDO_LEAD.test(leads.get(c) ?? "") ? "undo" : DRY_RUN.test(c.text) ? "check" : "step";
   cmds.forEach((c) => { c.role = cmds.length === 1 ? "final" : kind(c); });
   const run = cmds.filter((c) => c.role === "step").pop();
   if (run) run.role = "final";
