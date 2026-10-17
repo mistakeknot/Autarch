@@ -13,7 +13,7 @@ const SENTENCE_START = /^(is|are|was|were|the|a|an|it|that|this|to|and|or|if|whe
 const PATH_LIKE = /[/\\=]|\w\.\w/;
 
 // Words that make a line a sentence. Words that are also real arguments ("all", "list", "for", "with", "only") are left out.
-const PROSE_WORDS = new Set(("the a an is are was were be been to of that this these those it its because when then if will can could should would may might has have had does supports support reports shows prints returns outputs works means gives lets says uses helps").split(" "));
+const PROSE_WORDS = new Set(("the a an is are was were be been to of that this these those it its because when then if will can could should would may might has have had need needs must not does supports support reports shows prints returns outputs works means gives lets says uses helps").split(" "));
 
 /** Quoted strings and the value right after a flag ("--label support") are arguments, whatever words they hold; any other sentence word makes a line prose. */
 function readsAsSentence(args: string): boolean {

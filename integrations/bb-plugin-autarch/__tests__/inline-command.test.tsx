@@ -50,6 +50,8 @@ describe("where an inline command ends", () => {
     expect(cmdOf("Run: bash /tmp/x.sh --out ..")).toEqual(["bash /tmp/x.sh --out .."]);
     expect(cmdOf("Note: bash scripts (including this one) need review.")).toEqual([]);
     expect(cmdOf("Note: bash scripts (including ours) need review.")).toEqual([]);
+    expect(cmdOf("Note: bash scripts in /tmp need review.")).toEqual([]);
+    expect(cmdOf("Note: ssh keys on /srv must not be shared.")).toEqual([]);
     expect(splitCommands("Run: bash /tmp/x.sh. Then rest.").map((p) => p.text)).toEqual(["Run:", "bash /tmp/x.sh", ". Then rest."]);
   });
   it("keeps the words before and after, and the digest note outside the block", () => {
