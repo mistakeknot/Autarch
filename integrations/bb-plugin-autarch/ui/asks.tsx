@@ -154,7 +154,7 @@ export function currentAsk<T extends { id: string }>(owed: T[], selected: string
 
 // Absolute paths and sha256 digests in an ask's text: shown as code, selectable in one click, and allowed to break
 // anywhere so a long path never pushes the card wider than its panel. URLs and owner/repo#N are links (new tab).
-const REF = new RegExp(`(${URL_SRC}|(?<![\\w/])\\/(?:[\\w.@+-]{1,255}\\/){1,64}[\\w@+-]{1,255}(?:\\.[\\w@+-]{1,255}){0,32}|\\b[0-9a-f]{64}\\b|${GH_REF_SRC})`, "g");
+const REF = new RegExp(`(${URL_SRC}|(?<![\\w/]|@[\\w.-]+:)\\/(?:[\\w.@+-]{1,255}\\/){1,64}[\\w@+-]{1,255}(?:\\.[\\w@+-]{1,255}){0,32}|\\b[0-9a-f]{64}\\b|${GH_REF_SRC})`, "g");
 
 const ROLE_LABEL: Record<CommandRole, string> = { check: "Before it (dry run / check)", step: "Earlier step", final: "Final command" };
 
