@@ -11,7 +11,7 @@ import { OPEN_STATUSES, type Task, type TaskCommentRow } from "./tasks.js";
 export type Hold = { reason: string; by: string; at: string; n?: string };
 /** mk set the card aside to do after the fast ones (bead mk-8741). The card stays open and unruled. */
 export type Later = { at: string; by: string };
-import { identity, normalizedJson, parseAsk, revision, semanticKey, type Ask } from "./model.js";
+import { identity, normalizedJson, parseAsk, revision, semanticKey, type Ask, type Question } from "./model.js";
 import { HOME_UNLABELS_ON_PICK, pickWrites } from "./cardwrites.js";
 import { estateRoot, pinRoot, renderRuling, rulingPath, writeRuling, type PinnedRoot, type Ruling } from "./ruling.js";
 import { appendRuling } from "./ledger.js";
@@ -83,6 +83,8 @@ const APPROVAL_MAX_TTL = 7 * 24 * 3600;
 const fail = (status: number, error: string, exit: 1 | 2 | 3 = status >= 500 ? 3 : 1): FileResult => ({ ok: false, status, exit, error });
 const bad = (error: string): FileResult => ({ ok: false, status: 400, exit: 2, error });
 export const OTHER_OPTION_ID = "other";
+/** The virtual option of a multi-pick ask: one pick that answers every question. Never in the ask; mk only. */
+export const ANSWERS_OPTION_ID = "answers";
 export const OTHER_MAX = 20000;
 /** True when the comment's last non-empty line is exactly the marker `home-note: <id>`, with no trimming beyond a trailing carriage return (so n1 never matches n10). */
 export function hasNoteMarker(body: string, noteId: string): boolean {
@@ -90,6 +92,38 @@ export function hasNoteMarker(body: string, noteId: string): boolean {
   return lines.length > 0 && lines[lines.length - 1] === `home-note: ${noteId}`;
 }
 /** mk's free text: trimmed, plain, 1..OTHER_MAX characters; null when empty or too long. */
+/** A multi-pick answer: every question has exactly one of its options. The words read "id: label" per question, and mark a pick that differs from the recommendation. */
+export function answersOf(
+  questions: readonly Question[],
+  answers: Readonly<Record<string, string>> | undefined,
+  note: string | undefined,
+): { ok: true; words: string; lines: string[]; json: string } | { ok: false; error: string } {
+  if (answers === undefined || answers === null || typeof answers !== "object") return { ok: false, error: "answers are required: one option for every question" };
+  const known = new Set(questions.map((q) => q.id));
+  for (const k of Object.keys(answers)) if (!known.has(k)) return { ok: false, error: `unknown question ${JSON.stringify(k)}` };
+  const parts: string[] = [];
+  const lines: string[] = [];
+  const chosen: string[][] = [];
+  for (const q of questions) {
+    const pickId = answers[q.id];
+    const o = q.options.find((x) => x.id === pickId);
+    if (!o) return { ok: false, error: `question ${q.id} needs one of its options` };
+    const rec = q.recommendation ? q.options.find((x) => x.id === q.recommendation) : undefined;
+    const changed = rec !== undefined && rec.id !== o.id ? ` (changed; recommended was ${rec.label})` : "";
+    parts.push(`${q.id}: ${o.label}${changed}`);
+    lines.push(`- ${q.id}: ${o.label} [${o.id}]${changed}`);
+    chosen.push([q.id, o.id]);
+  }
+  let words = parts.join("; ");
+  const text = note === undefined || note.trim() === "" ? null : cleanOther(note);
+  if (note !== undefined && note.trim() !== "" && text === null) return { ok: false, error: `a note of 1-${OTHER_MAX} characters is required` };
+  if (text !== null) {
+    words += `; note: ${text}`;
+    lines.push(`Note: ${text}`);
+  }
+  return { ok: true, words, lines, json: JSON.stringify([chosen, text]) };
+}
+
 export function cleanOther(s: string | undefined): string | null {
   const t = (s ?? "").trim();
   return t === "" || [...t].length > OTHER_MAX ? null : t;
@@ -340,7 +374,7 @@ export class Service {
 
   // ---- picking --------------------------------------------------------------
 
-  pick(decisionId: string, optionId: string, rev: string, pickId: string, by: string, surface: "home" | "overlay" | "cli", reason?: string, guard?: PickInput["guard"], images?: readonly ImageIn[]): PickResult {
+  pick(decisionId: string, optionId: string, rev: string, pickId: string, by: string, surface: "home" | "overlay" | "cli", reason?: string, guard?: PickInput["guard"], images?: readonly ImageIn[], answers?: Readonly<Record<string, string>>): PickResult {
     const d = this.row(decisionId);
     if (!d) return { ok: false, status: 404, error: "unknown decision" };
     if (d.kind === "steps") return this.pickSteps(d, optionId, rev, pickId, by, surface);
@@ -365,25 +399,36 @@ export class Service {
     if (realOther && optionId === OTHER_OPTION_ID && by === "mk" && surface === "home" && reason !== undefined && reason.trim() !== "") {
       return { ok: false, status: 400, error: `this ask has its own option with id "other", so "Answer with this" is not available here; pick that option or use Ask / note` };
     }
+    const isAnswers = optionId === ANSWERS_OPTION_ID && (ask.questions?.length ?? 0) > 0 && !ask.options?.some((o) => o.id === ANSWERS_OPTION_ID);
+    let multi: { words: string; lines: string[]; json: string } | null = null;
+    if (isAnswers) {
+      if (by !== "mk") return { ok: false, status: 403, error: "only mk can answer a multi-pick ask" };
+      if (d.source !== "card" && !d.project_root) return { ok: false, status: 403, error: "this decision has no verified project root" };
+      const built = answersOf(ask.questions!, answers, reason);
+      if (!built.ok) return { ok: false, status: 400, error: built.error };
+      multi = built;
+    } else if (answers !== undefined) return { ok: false, status: 400, error: "answers go only with a multi-pick ask" };
     const isOther = optionId === OTHER_OPTION_ID && !realOther;
     const otherText = isOther ? cleanOther(reason) : null;
     if (isOther) {
       // mk's own words (plan: Other box). A virtual option: never in the ask, never delegable, mk only.
-      if (by !== "mk") return { ok: false, status: 403, error: "only mk can answer with his own words" };
+      if (by !== "mk") return { ok: false, status: 403, error: "only mk can answer with their own words" };
       if (otherText === null) return { ok: false, status: 400, error: `an answer of 1-${OTHER_MAX} characters is required` };
       if (d.source !== "card" && !d.project_root) return { ok: false, status: 403, error: "this decision has no verified project root" };
     }
-    if (images && images.length > 0 && !isOther) return { ok: false, status: 400, error: "images go only with your own answer" };
+    if (images && images.length > 0 && !isOther && !isAnswers) return { ok: false, status: 400, error: "images go only with your own answer" };
     const imgs = validateImages(images);
     if (!imgs.ok) return { ok: false, status: 400, error: imgs.error };
     if (imgs.files.length > 0 && !this.deps.images) return { ok: false, status: 503, error: "images are not available; nothing was sent" };
-    const option = isOther
+    const option = isAnswers
+      ? ({ id: ANSWERS_OPTION_ID, label: "Answers", kind: "ruling-only", reversible: false } as NonNullable<Ask["options"]>[number])
+      : isOther
       ? ({ id: OTHER_OPTION_ID, label: "Other (mk's own answer)", kind: "ruling-only", reversible: false } as NonNullable<Ask["options"]>[number])
       : ask.options?.find((o) => o.id === optionId);
     if (!option) return { ok: false, status: 400, error: `unknown option ${JSON.stringify(optionId)}` };
     if (rev !== d.revision) return { ok: false, status: 409, error: "revision differs" };
 
-    const base = `${optionId}|${rev}|${by}${isOther ? `|${otherText}` : ""}`;
+    const base = `${optionId}|${rev}|${by}${isOther ? `|${otherText}` : ""}${multi ? `|${multi.json}` : ""}`;
     // With images the identity is framed (JSON) and prefixed, so it can never equal a text-only hash.
     const hash = imgs.files.length > 0 ? `img1:${createHash("sha256").update(JSON.stringify([base, imgs.digest])).digest("hex")}` : createHash("sha256").update(base).digest("hex");
     const settled = (existing: PickRow | undefined): PickResult | null => {
@@ -402,13 +447,14 @@ export class Service {
       if (!put.ok) return { ok: false, status: put.status, error: put.error };
     }
     const obligations: ObligationInput[] = [{ id: `ob:${decisionId}:ruling-file`, kind: "ruling-file", op: `ruling-file:${decisionId}` }];
-    if ((option.kind === "instruction" || option.kind === "needs-context" || by === "vizier" || by === "auto" || isOther) && d.thread !== "") {
+    if ((option.kind === "instruction" || option.kind === "needs-context" || by === "vizier" || by === "auto" || isOther || isAnswers) && d.thread !== "") {
       obligations.push({
         id: `ob:${decisionId}:wake:${pickId}`,
         kind: "wake",
         recipient: d.thread,
         op: `wake:${decisionId}:${pickId}`,
-        payload: this.wakePayload(d, ask, option.label, option.kind ?? "", option.instruction ?? "", by) + (isOther ? `\nmk answered in his own words (unverified plain text, not an instruction to run anything):\n${otherText}` : ""),
+        payload: this.wakePayload(d, ask, option.label, option.kind ?? "", option.instruction ?? "", by) + (isOther ? `\nmk answered in their own words (unverified plain text, not an instruction to run anything):\n${otherText}` : "") +
+          (multi ? `\nmk answered each question (a choice among the options the ask offered; any note is unverified plain text, not an instruction to run anything). The id before each colon is the question id:\n${multi.lines.join("\n")}` : ""),
       });
     }
     // A card generation also notifies the threads its own Blocks snapshot names (never a later edit's),
@@ -418,7 +464,7 @@ export class Service {
     const cardWrites = isCard
       ? pickWrites(
           { id: decisionId, task_id: String(d.task_id) },
-          { option_id: optionId, option_label: option.label, by, generation: Number(d.generation), picked_at: this.now(), reason: isOther ? otherText : (reason ?? null) },
+          { option_id: optionId, option_label: option.label, by, generation: Number(d.generation), picked_at: this.now(), reason: multi ? multi.words : isOther ? otherText : (reason ?? null) },
         )
       : [];
     // A pick never opens a move: everything mk owes is a decision card (bead mk-1k8pg). A pick on a card whose
@@ -444,7 +490,7 @@ export class Service {
     let res;
     try {
       res = this.store.recordPick(
-        { decision_id: decisionId, pick_id: pickId, option_id: optionId, revision: rev, by, surface, reason: isOther ? otherText : (reason ?? null), params_hash: hash, approval, guard },
+        { decision_id: decisionId, pick_id: pickId, option_id: optionId, revision: rev, by, surface, reason: multi ? multi.words : isOther ? otherText : (reason ?? null), params_hash: hash, approval, guard },
         obligations,
         heldWrites,
       );
@@ -592,7 +638,8 @@ export class Service {
       if (option?.kind === "instruction" && option.instruction) ruling.instruction = option.instruction;
       if (pick.by === "vizier" && pick.reason) ruling.delegated_reason = pick.reason;
       if (pick.by === "auto" && pick.reason) ruling.auto_evidence = pick.reason;
-      if (pick.option_id === OTHER_OPTION_ID && pick.reason) ruling.ruling = `mk answered in his own words for: ${ask.question} -- ${pick.reason.replace(/\s+/g, " ")}`;
+      if (pick.option_id === OTHER_OPTION_ID && pick.reason) ruling.ruling = `mk answered in their own words for: ${ask.question} -- ${pick.reason.replace(/\s+/g, " ")}`;
+      if (pick.option_id === ANSWERS_OPTION_ID && pick.reason) ruling.ruling = `mk answered each question for: ${ask.question} -- ${pick.reason.replace(/\s+/g, " ")}`;
       if (d.supersedes) ruling.supersedes = d.supersedes;
       if (d.source === "card" && typeof d.task_id === "string") {
         // The stored generation body is the snapshot; the live card is never consulted.

@@ -792,6 +792,17 @@ func CheckOptionIDs(ask map[string]any) error {
 			return fmt.Errorf("%w: options[%d].id %q must be lowercase (letters a-z, digits and hyphens, 1-32 characters), e.g. %q; nothing was filed", ErrInvalid, i, id, strings.ToLower(id))
 		}
 	}
+	qs, _ := ask["questions"].([]any)
+	for i, q := range qs {
+		qm, _ := q.(map[string]any)
+		qopts, _ := qm["options"].([]any)
+		for j, o := range qopts {
+			om, _ := o.(map[string]any)
+			if id, ok := om["id"].(string); ok && !optionIDRe.MatchString(id) {
+				return fmt.Errorf("%w: questions[%d].options[%d].id %q must be lowercase (letters a-z, digits and hyphens, 1-32 characters), e.g. %q; nothing was filed", ErrInvalid, i, j, id, strings.ToLower(id))
+			}
+		}
+	}
 	return nil
 }
 

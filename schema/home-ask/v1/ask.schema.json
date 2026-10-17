@@ -49,6 +49,37 @@
         }
       }
     },
+    "questions": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 8,
+      "description": "decide only. A multi-pick ask: independent choices answered together with one pick; replaces top-level options and recommendation.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "prompt", "options"],
+        "properties": {
+          "id": { "type": "string", "pattern": "^[a-z0-9-]{1,32}$" },
+          "prompt": { "type": "string", "minLength": 1, "maxLength": 500 },
+          "recommendation": { "type": "string", "description": "Must name one of this question's option ids." },
+          "options": {
+            "type": "array",
+            "minItems": 2,
+            "maxItems": 6,
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["id", "label"],
+              "properties": {
+                "id": { "type": "string", "pattern": "^[a-z0-9-]{1,32}$" },
+                "label": { "type": "string", "minLength": 1, "maxLength": 80 },
+                "detail": { "type": "string", "maxLength": 300 }
+              }
+            }
+          }
+        }
+      }
+    },
     "steps": { "type": "array", "minItems": 1, "maxItems": 20, "items": { "type": "string", "minLength": 1, "maxLength": 8000 }, "description": "steps only." },
     "machine": {
       "type": ["object", "null"],
