@@ -46,6 +46,40 @@ function commandOf(line: string): string | null {
   return t;
 }
 
+/** Where an inline command ends: before a note in parentheses or a sentence end, outside quotes. A "(" right after an operator ("&& (cd x)") opens a subshell, and a period after a space ("--out .") is an argument. */
+function inlineEnd(rest: string, atParen = true): number {
+  let quote = "";
+  for (let i = 0; i < rest.length; i++) {
+    const c = rest[i]!;
+    if (quote !== "") {
+      if (c === "\\" && quote === '"') i++;
+      else if (c === quote) quote = "";
+    } else if (c === "'" || c === '"') quote = c;
+    else if (c === "\\") i++;
+    else if (atParen && c === "(" && i > 0 && /\s/.test(rest[i - 1]!) && !/(?:&&|\|\||[|;&])\s*$/.test(rest.slice(0, i))) return i;
+    else if (c === "." && i > 0 && /[^\s.]/.test(rest[i - 1]!) && (i + 1 === rest.length || /^\s+(?:[A-Z]|$)/.test(rest.slice(i + 1)))) return i;
+  }
+  return rest.length;
+}
+
+/** A command written inside a sentence after a colon ("paste one line: scp host:/p /tmp/x && bash /tmp/x (sha256 ...). It builds"). */
+function inlineOf(line: string): { before: string; command: string; after: string } | null {
+  for (const m of line.matchAll(/:\s+(?=(\S+)\s+\S)/g)) {
+    if (!COMMAND_WORDS.includes(m[1]!)) continue;
+    const start = m.index! + m[0].length;
+    const rest = line.slice(start);
+    const end = inlineEnd(rest);
+    const command = trimLine(rest.slice(0, end));
+    if (commandOf(command) !== command) continue;
+    // A command has something that only a command has (a path, flag, operator or variable); "bash scripts" alone is a phrase.
+    if (!/[/\\=.|&$]|(?:^|\s)-/.test(command.slice(command.indexOf(" ") + 1))) continue;
+    // The whole sentence must not read as prose either ("Note: bash scripts (including this one) need review."): a note in parentheses is not part of the command but is part of that judgement.
+    if (readsAsSentence(rest.slice(command.length === 0 ? 0 : rest.indexOf(" ") + 1, inlineEnd(rest, false)))) continue;
+    return { before: line.slice(0, start).replace(/\s+$/, ""), command, after: rest.slice(end).replace(/^\s+/, "") };
+  }
+  return null;
+}
+
 /** A command that is continued onto the next line with a trailing backslash is one command. */
 const CONTINUES = /(?:^|[^\\])(?:\\\\)*\\$/; // an odd run of backslashes right at the end: the newline is escaped
 
@@ -61,7 +95,15 @@ export function splitCommands(text: string): TextPart[] {
   for (let i = 0; i < lines.length; i++) {
     const c = commandOf(lines[i]!);
     if (c === null) {
-      prose.push(lines[i]!);
+      const inline = inlineOf(lines[i]!);
+      if (inline === null) {
+        prose.push(lines[i]!);
+        continue;
+      }
+      prose.push(inline.before);
+      flush();
+      parts.push({ type: "command", text: inline.command, role: "step" });
+      if (inline.after !== "") prose.push(inline.after);
       continue;
     }
     flush();

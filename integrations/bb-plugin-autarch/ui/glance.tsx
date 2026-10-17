@@ -40,6 +40,8 @@ const MOMENT_AFTER = /^\)?\s+(?:ago|after|before|from now|later)\b/i;
 const COMPOUND_AFTER = /^\s*(?:and\s+(?:a\s+)?(?:half|quarter)\b|(?:and\s+|,\s*)?\d{1,3}\s*(?:minutes?|mins?|hours?|hrs?)\b)/i;
 const URL_RE = /https?:\/\/[^\s<>"'`]+/;
 const PATH_RE = /(?<![\w:/.~-])\/(?:[\w.@+-]+\/)+[\w.@+-]*\.[A-Za-z0-9]{1,8}\b/;
+/** The path after "host:" in a command's scp source. */
+const REMOTE_SOURCE = /^scp\s+(?:-\S+\s+)*[\w.@-]+:(\/\S+)/;
 const MARK = /(?:^|[\s(;:])\(?(\d{1,2})\)\s*/g;
 /** "nobody has checked yet whether ...", "check whether ...": a whether that names what is still to be judged, not one already settled. */
 const OPEN_WHETHER = /\b(?:checked(?:\s+yet)?|check|see|judge|tell|verify|confirm|test|find out)\s+(?=whether\b)/i;
@@ -121,9 +123,12 @@ export function glance(ask: Pick<OwedAsk, "subject" | "ask">): Glance | null {
   const timeInTitle = timeOf(subject);
   if (!CHECK.test(subject) && !(timeInTitle !== null && timeInTitle !== AMBIGUOUS && CHECK_WORD.test(subject))) return null;
   // Commands are the card's own copyable blocks; a path inside one is not the thing to open.
-  const prose = splitCommands(ask.ask.question).flatMap((p) => (p.type === "prose" ? [p.text] : [])).join("\n");
+  const parts = splitCommands(ask.ask.question);
+  const prose = parts.flatMap((p) => (p.type === "prose" ? [p.text] : [])).join("\n");
+  // A fetch-and-run command ("scp host:/path/x.sh /tmp/x.sh && bash /tmp/x.sh") names the script by its source, not by its temp copy; a link in the prose still comes first.
+  const fetched = parts.flatMap((p) => (p.type === "command" ? [REMOTE_SOURCE.exec(p.text)?.[1]] : [])).find((x) => x !== undefined);
   const flat = prose.replace(/\s+/g, " ").trim();
-  const link = linkOf(prose);
+  const link: GlanceLink | null = linkOf(prose) ?? (fetched ? { kind: "path", href: fetched, text: fetched } : null);
   let judging = numbered(flat);
   if (judging.length === 0) {
     const w = OPEN_WHETHER.exec(flat);
