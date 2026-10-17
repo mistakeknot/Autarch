@@ -535,7 +535,7 @@ export class Service {
       kind: "notice",
       recipient: t,
       op: `notice:${d.id}:${t}`,
-      payload: `${by === "vizier" ? "The vizier ruled on" : by === "auto" ? "Home closed, on evidence and not by mk's click," : "mk ruled on"} the card ${d.id}${d.subject ? ` (${d.subject})` : ""}, which names your thread: picked ${JSON.stringify(label)}. This is not merge, deploy, release or publish authorization.${words}`,
+      payload: `${by === "vizier" ? "The vizier ruled on" : by === "auto" ? "Home closed, on evidence and not by mk's click," : "mk ruled on"} the card ${d.id}${d.subject ? ` (${d.subject})` : ""}, which names your thread: picked ${JSON.stringify(label)}. This is not merge, deploy, release or publish authorization. Look the card up with \`bb home get --id ${d.id}\`.${words}`,
     }));
   }
 
