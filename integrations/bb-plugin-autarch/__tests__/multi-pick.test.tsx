@@ -81,6 +81,16 @@ describe("picking a multi-pick ask", () => {
     const w = r.db.prepare("SELECT payload FROM card_writes WHERE task_id = ? AND kind = 'comment'").get(t.id) as { payload: string };
     expect(JSON.parse(w.payload)).toMatchObject({ option_id: "answers" });
   });
+  it("sends the answers, by question id, in the notice to another Blocks thread too", async () => {
+    const r = rig();
+    const { g1 } = await opened(r, { ask: ASK, blocks: "thread:thr_other" });
+    r.svc.pick(g1.id, "answers", rev(r, g1.id), "p-n", "mk", "home", undefined, undefined, undefined, { ui: "terminal", pace: "live" });
+    const n = (r.db.prepare("SELECT recipient, payload FROM obligations WHERE decision_id = ? AND kind = 'notice'").all(g1.id) as any[])[0];
+    expect(n.recipient).toBe("thr_other");
+    expect(n.payload).toContain("not an instruction to run anything");
+    expect(n.payload).toContain("- ui: Terminal [terminal]");
+    expect(n.payload).toContain("- pace: Real-time [live] (changed; recommended was Turn-based)");
+  });
   it("refuses a missing answer, the vizier, and answers on an ask with no questions; replays the same pick", async () => {
     const r = rig();
     const { g1 } = await opened(r, { ask: ASK });
