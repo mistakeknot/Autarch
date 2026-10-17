@@ -53,6 +53,8 @@ describe("where an inline command ends", () => {
     expect(cmdOf("Note: bash scripts in /tmp need review.")).toEqual([]);
     expect(cmdOf("Note: bash scripts in /tmp require review.")).toEqual([]);
     expect(cmdOf("Note: ssh keys in /srv remain private.")).toEqual([]);
+    expect(cmdOf("Note: bash scripts in /tmp/example.sh require review.")).toEqual([]);
+    expect(cmdOf("Note: ssh keys in /srv/keys.pub remain private.")).toEqual([]);
     expect(cmdOf("Note: ssh keys on /srv must not be shared.")).toEqual([]);
     expect(splitCommands("Run: bash /tmp/x.sh. Then rest.").map((p) => p.text)).toEqual(["Run:", "bash /tmp/x.sh", ". Then rest."]);
   });

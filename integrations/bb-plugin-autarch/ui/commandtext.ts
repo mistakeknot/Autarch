@@ -72,7 +72,9 @@ function inlineOf(line: string): { before: string; command: string; after: strin
     const command = trimLine(rest.slice(0, end));
     if (commandOf(command) !== command) continue;
     // A command has something that only a command has (a path, flag, operator or variable); "bash scripts" alone is a phrase.
-    if (!/[=|&;$]|\w\.\w|\w:\/|(?:^|\s)-/.test(command.slice(command.indexOf(" ") + 1))) continue;
+    // A flag, operator, "=", variable or host path anywhere counts; a plain file or path counts only as the first argument ("bash x.sh"), so "ssh keys in /srv/k.pub" stays prose.
+    const args = command.slice(command.indexOf(" ") + 1);
+    if (!/[=|&;$]|\w:\/|(?:^|\s)-/.test(args) && !/^(?:\S*\/\S*|\S*\w\.\w\S*)(?:\s|$)/.test(args)) continue;
     // The whole sentence must not read as prose either ("Note: bash scripts (including this one) need review."): a note in parentheses is not part of the command but is part of that judgement.
     if (readsAsSentence(rest.slice(command.length === 0 ? 0 : rest.indexOf(" ") + 1, inlineEnd(rest, false)))) continue;
     return { before: line.slice(0, start).replace(/\s+$/, ""), command, after: rest.slice(end).replace(/^\s+/, "") };
