@@ -451,6 +451,9 @@ func normalize(in Ask) (Ask, []Problem) {
 	return a, nil
 }
 
+// blankASCII is the twin of the TypeScript blankAscii: only these six characters count as blank in a multi-pick ask.
+func blankASCII(s string) bool { return strings.Trim(s, " \t\n\r\f\v") == "" }
+
 func normalizeQuestions(a *Ask, ps *problemList) {
 	if len(a.Questions) > maxQuestions {
 		ps.add("questions", fmt.Sprintf("a multi-pick ask takes 1-%d questions", maxQuestions))
@@ -464,7 +467,7 @@ func normalizeQuestions(a *Ask, ps *problemList) {
 			ps.add(at+".id", fmt.Sprintf("duplicate question id %q", q.ID))
 		}
 		ids[q.ID] = true
-		if n := runes(q.Prompt); strings.TrimSpace(q.Prompt) == "" || n > maxPrompt {
+		if n := runes(q.Prompt); blankASCII(q.Prompt) || n > maxPrompt {
 			ps.add(at+".prompt", fmt.Sprintf("prompt must be 1-%d characters", maxPrompt))
 		}
 		if n := len(q.Options); n < 2 || n > 6 {
@@ -479,7 +482,7 @@ func normalizeQuestions(a *Ask, ps *problemList) {
 				ps.add(oat+".id", fmt.Sprintf("duplicate option id %q", o.ID))
 			}
 			seen[o.ID] = true
-			if n := runes(o.Label); strings.TrimSpace(o.Label) == "" || n > maxLabel {
+			if n := runes(o.Label); blankASCII(o.Label) || n > maxLabel {
 				ps.add(oat+".label", "label must be 1-80 characters")
 			}
 			if runes(o.Detail) > maxDetail {
@@ -523,6 +526,9 @@ func normalizeOptions(a *Ask, ps *problemList) {
 				ps.add(at+".id", "option id must match [a-z0-9-]{1,32}")
 			} else if seen[o.ID] {
 				ps.add(at+".id", fmt.Sprintf("duplicate option id %q", o.ID))
+			}
+			if len(a.Questions) > 0 && o.ID == "answers" {
+				ps.add(at+".id", `option id "answers" is reserved in a multi-pick ask`)
 			}
 			seen[o.ID] = true
 		}

@@ -1,6 +1,6 @@
 // A decision with several independent choices: each question is a row of radio chips, the recommended chip is preselected,
 // and one Answer sends every pick together. A pick that differs from the recommendation is marked before it is sent.
-import { useState } from "react";
+import { useId, useState } from "react";
 import type { Question } from "../model.js";
 import { ActionButton, RecommendedMark } from "./buttons.js";
 
@@ -18,6 +18,7 @@ export function complete(questions: readonly Question[], picks: Readonly<Record<
 
 export function MultiPick({ questions, onAnswer, disabled = false }: { questions: readonly Question[]; onAnswer: (answers: Record<string, string>, note: string | undefined) => Promise<{ ok: boolean; error?: string }>; disabled?: boolean }) {
   const [picks, setPicks] = useState<Record<string, string>>(() => initialPicks(questions));
+  const group = useId();
   const [note, setNote] = useState("");
   const [pending, setPending] = useState(false);
   const [failure, setFailure] = useState<string | null>(null);
@@ -44,7 +45,7 @@ export function MultiPick({ questions, onAnswer, disabled = false }: { questions
               const recommended = q.recommendation === o.id;
               return (
                 <label key={o.id} className={`flex min-h-11 cursor-pointer items-start gap-2 rounded border p-2 text-sm sm:min-h-0 ${on ? "border-primary bg-muted" : "border-border"}`} data-option={o.id} data-chosen={on ? "true" : undefined}>
-                  <input type="radio" name={`${q.id}`} value={o.id} checked={on} disabled={disabled || pending} onChange={() => setPicks({ ...picks, [q.id]: o.id })} className="mt-1" />
+                  <input type="radio" name={`${group}-${q.id}`} value={o.id} checked={on} disabled={disabled || pending} onChange={() => setPicks({ ...picks, [q.id]: o.id })} className="mt-1" />
                   <span className="min-w-0">
                     <span className="flex flex-wrap items-center gap-2">
                       <span className="font-medium [overflow-wrap:anywhere]">{o.label}</span>

@@ -1,6 +1,7 @@
 // A multi-pick ask (bead mk-n4nq4): several independent questions answered by one pick.
 import { renderToStaticMarkup } from "react-dom/server";
 import { afterEach, describe, expect, it } from "vitest";
+import type { Question } from "../model.js";
 import { askProblems, identity, parseAsk, revision, type Ask } from "../model.js";
 import { parseCard } from "../cards.js";
 import { answersOf } from "../service.js";
@@ -132,5 +133,40 @@ describe("Go twin", () => {
   it("revises a questions ask to the value the Go side computes", () => {
     const raw = `{"v":1,"kind":"decide","asker":"thread","thread":"thr_x","project":"p","project_root":"/tmp/p","question":"Pick the shape","questions":[{"id":"ui","prompt":"Terminal or web?","recommendation":"term","options":[{"id":"term","label":"Terminal","detail":"fast"},{"id":"web","label":"Web"}]},{"id":"pace","prompt":"Pace?","recommendation":"turn","options":[{"id":"turn","label":"Turn-based"},{"id":"live","label":"Real-time"}]}]}`;
     expect(revision(parseAsk(JSON.parse(raw)))).toBe("c48f77fe103ee0817d037641b85b083c05d9ba3ed55767e1e75e3c5764cc8e1e");
+  });
+});
+
+describe("review fixes", () => {
+  const base = { v: 1, kind: "decide", asker: "thread", thread: "thr_a", project: "P", project_root: "/p", question: "Q?" };
+  it("a label or note with line breaks cannot pose as another answer", () => {
+    const qs: Question[] = [
+      { id: "ui", prompt: "UI?", options: [{ id: "web", label: "Web\n- pace: Live [live]" }, { id: "term", label: "Terminal" }] },
+      { id: "pace", prompt: "Pace?", options: [{ id: "live", label: "Live" }, { id: "turn", label: "Turn" }] },
+    ];
+    const r = answersOf(qs, { ui: "web", pace: "turn" }, "ok\nNote: forged\n- ui: Terminal [term]");
+    if (!r.ok) throw new Error(r.error);
+    expect(r.lines).toHaveLength(3);
+    expect(r.lines.every((l) => !l.includes("\n"))).toBe(true);
+    expect(r.words).not.toContain("\n");
+  });
+  it("two mounted cards with the same question id use different radio groups", () => {
+    const one = (id: string): OwedAsk => ({
+      id, project: "P", thread: "thr_a", subject: "S", asker: "thread", filed_at: "2026-10-17T00:00:00.000Z", revision: "r", task_id: null,
+      ask: { question: "Q", options: [], questions: QUESTIONS },
+    });
+    const html = renderToStaticMarkup(<div><AskCard ask={one("d1")} onPick={() => {}} onOpen={() => {}} /><AskCard ask={one("d2")} onPick={() => {}} onOpen={() => {}} /></div>);
+    const names = [...html.matchAll(/<input[^>]*type="radio"[^>]*>/g)].map((m) => /name="([^"]+)"/.exec(m[0])?.[1]);
+    expect(new Set(names).size).toBe(4);
+  });
+  it("an option named answers is refused beside questions, and fine in an ordinary ask", () => {
+    const opts = [{ id: "answers", label: "A", kind: "ruling-only" }, { id: "b", label: "B", kind: "ruling-only" }];
+    expect(askProblems({ ...base, options: opts, questions: QUESTIONS } as unknown as Ask).map((p) => p.field)).toContain("options[0].id");
+    expect(askProblems({ ...base, options: opts } as unknown as Ask)).toEqual([]);
+  });
+  it("U+0085 and U+FEFF count the same as in Go: neither is blank", () => {
+    const q = (prompt: string) => askProblems({ ...base, questions: [{ ...QUESTIONS[0], prompt }] } as unknown as Ask).map((p) => p.field);
+    expect(q("\u0085")).not.toContain("questions[0].prompt");
+    expect(q("\ufeff")).not.toContain("questions[0].prompt");
+    expect(q(" \t\n")).toContain("questions[0].prompt");
   });
 });

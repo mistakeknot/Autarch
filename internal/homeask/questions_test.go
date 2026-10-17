@@ -71,3 +71,28 @@ func TestQuestionsCardV2(t *testing.T) {
 		t.Fatal("questions lost through ToV1")
 	}
 }
+
+func TestQuestionsReviewFixes(t *testing.T) {
+	has := func(raw, field string) bool {
+		_, err := Parse([]byte(raw))
+		return err != nil && strings.Contains(err.Error(), field)
+	}
+	// U+0085 and U+FEFF are not blank: the TypeScript twin agrees.
+	for _, p := range []string{"\u0085", "\ufeff"} {
+		if has(strings.Replace(questionsAsk, `"Pace?"`, `"`+p+`"`, 1), "prompt must be") {
+			t.Errorf("%q must not count as blank", p)
+		}
+	}
+	if !has(strings.Replace(questionsAsk, `"Pace?"`, `" \t"`, 1), "prompt must be") {
+		_, err := Parse([]byte(strings.Replace(questionsAsk, `"Pace?"`, `" \t"`, 1)))
+		t.Errorf("ASCII whitespace is blank: %v", err)
+	}
+	ordinary := `{"v":1,"kind":"decide","asker":"thread","thread":"thr_x","project":"p","project_root":"/tmp/p","question":"Q","options":[{"id":"answers","label":"A"},{"id":"b","label":"B"}]}`
+	if _, err := Parse([]byte(ordinary)); err != nil {
+		t.Errorf("an ordinary ask may name an option answers: %v", err)
+	}
+	withQ := strings.Replace(questionsAsk, `"questions"`, `"options":[{"id":"answers","label":"A"},{"id":"b","label":"B"}],"questions"`, 1)
+	if !has(withQ, "reserved") {
+		t.Error("answers is reserved beside questions")
+	}
+}

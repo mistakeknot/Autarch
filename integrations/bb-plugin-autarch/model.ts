@@ -88,6 +88,8 @@ const APPROVAL_TOKEN = /APPROVED-[A-Z]+/;
 const nfc = (s: string) => s.normalize("NFC");
 const count = (s: string) => Array.from(s).length;
 const blank = (s: string) => s.trim() === "";
+/** The twin of Go's strings.Trim(s, " \t\n\r\f\v") == "": blank text in a multi-pick ask, the same set of characters on both sides. */
+const blankAscii = (s: string) => /^[ \t\n\r\f\v]*$/.test(s);
 const fail = (msg: string): never => {
   throw new Error(msg);
 };
@@ -405,7 +407,7 @@ function normalizeQuestions(a: Work, add: (field: string, why: string) => void) 
     if (!OPTION_ID.test(q.id)) add(`${at}.id`, "question id must match [a-z0-9-]{1,32}");
     else if (ids.has(q.id)) add(`${at}.id`, `duplicate question id "${q.id}"`);
     ids.add(q.id);
-    if (blank(q.prompt) || count(q.prompt) > MAX_PROMPT) add(`${at}.prompt`, `prompt must be 1-${MAX_PROMPT} characters`);
+    if (blankAscii(q.prompt) || count(q.prompt) > MAX_PROMPT) add(`${at}.prompt`, `prompt must be 1-${MAX_PROMPT} characters`);
     if (q.options.length < 2 || q.options.length > 6) add(`${at}.options`, "a question needs 2-6 options");
     const seen = new Set<string>();
     q.options.forEach((o, j) => {
@@ -413,7 +415,7 @@ function normalizeQuestions(a: Work, add: (field: string, why: string) => void) 
       if (!OPTION_ID.test(o.id)) add(`${oat}.id`, "option id must match [a-z0-9-]{1,32}");
       else if (seen.has(o.id)) add(`${oat}.id`, `duplicate option id "${o.id}"`);
       seen.add(o.id);
-      if (blank(o.label) || count(o.label) > MAX_LABEL) add(`${oat}.label`, "label must be 1-80 characters");
+      if (blankAscii(o.label) || count(o.label) > MAX_LABEL) add(`${oat}.label`, "label must be 1-80 characters");
       if (count(o.detail ?? "") > MAX_DETAIL) add(`${oat}.detail`, `detail must be at most ${MAX_DETAIL} characters`);
     });
     if ((q.recommendation ?? "") !== "" && !seen.has(q.recommendation as string)) add(`${at}.recommendation`, "recommendation must be the id of one of the question's options");
@@ -442,6 +444,7 @@ function normalizeOptions(a: Work, add: (field: string, why: string) => void) {
     if (idOK) {
       if (!OPTION_ID.test(o.id as string)) add(`${at}.id`, "option id must match [a-z0-9-]{1,32}");
       else if (seen.has(o.id as string)) add(`${at}.id`, `duplicate option id "${o.id}"`);
+      if (a.questions.length > 0 && o.id === "answers") add(`${at}.id`, 'option id "answers" is reserved in a multi-pick ask');
       seen.add(o.id as string);
     }
 
