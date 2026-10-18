@@ -41,6 +41,7 @@ import { BlocksPanel, QueueRefresher, type RootRunHooks } from "./ui/blocks.js";
 import type { QueueView } from "./ui/blocks.js";
 import { withoutOwed } from "./ui/blocks.js";
 import { BindingsPanel, SettingsPanel } from "./ui/settings.js";
+import { UpdateMenu, updateLabel, type UpdateInfoView } from "./ui/update.js";
 import { keyAction, layoutStack, stackReducer, StackView } from "./ui/stack.js";
 import { HomeTabs, QueueTabs, type QueueTab } from "./ui/tabs.js";
 import type { Panel, StackState } from "./ui/stack.js";
@@ -485,6 +486,22 @@ function HomePage() {
   };
   const dispatch = (a: Parameters<typeof stackReducer>[1]) => setStack((s) => stackReducer(s, a));
   const push = (panel: Panel) => dispatch({ type: "push", panel });
+  const [update, setUpdate] = useState<UpdateInfoView | null>(null);
+  const [updateError, setUpdateError] = useState<string | null>(null);
+  const loadUpdate = useCallback(() => void rpc.call("updateInfo", null).then((v) => setUpdate(v as UpdateInfoView), () => {}), [rpc]);
+  useEffect(() => {
+    loadUpdate();
+    const t = setInterval(loadUpdate, 300_000);
+    return () => clearInterval(t);
+  }, [loadUpdate]);
+  const requestUpdate = (sha: string) => {
+    setUpdateError(null);
+    void rpc.call("requestUpdate", { sha }).then((r) => {
+      const v = r as { ok: boolean; error?: string };
+      if (!v.ok) setUpdateError(v.error ?? "the request was refused");
+      loadUpdate();
+    }, (e) => setUpdateError(String(e)));
+  };
 
   useEffect(() => {
     const sync = () => tracker.setActive(document.visibilityState === "visible" && document.hasFocus());
@@ -680,7 +697,7 @@ function HomePage() {
     <ConversationProvider value={conversation}><DocReaderHost api={docs}>
     <div className="flex h-full min-h-0 flex-1 flex-col" data-home-source={HOME_SOURCE}>
       {phone && fullView ? <button type="button" className="min-h-11 border-b border-border px-4 text-left text-sm underline" onClick={() => setFullView(false)} data-inbox-return>‹ Back to the phone inbox</button> : null}
-      <HomeTabs classic={classic} learn={learn.enabled} {...(waiting ? { waiting: waiting.total } : {})} ideas={openIdeas} onOpen={push} onToggleClassic={toggleClassic} onTodos={() => nav.toPluginPanel("example-todos")} />
+      <HomeTabs extra={updateLabel(update) ? <UpdateMenu info={update} onRequest={requestUpdate} error={updateError} /> : undefined} classic={classic} learn={learn.enabled} {...(waiting ? { waiting: waiting.total } : {})} ideas={openIdeas} onOpen={push} onToggleClassic={toggleClassic} onTodos={() => nav.toPluginPanel("example-todos")} />
       <StackView placed={layoutStack(stack)} render={render} onExpand={push} />
     </div>
     </DocReaderHost></ConversationProvider>

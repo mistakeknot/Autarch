@@ -92,6 +92,8 @@ export const homeMethods = {
     output: result,
   },
   revokeApproval: { input: z.object({ approval_id: z.string().min(1) }), output: result },
+  updateInfo: { input: z.null(), output: readModel },
+  requestUpdate: { input: z.object({ sha: z.string().regex(/^[0-9a-f]{40}$/) }).strict(), output: result },
   setViewing: { input: z.object({ decision_id: z.string().min(1).nullable() }), output: result },
   resend: { input: z.object({ id: z.string().min(1), attempt: z.number().int().min(0), click_id: z.string().min(1) }), output: result },
   markSeen: { input: z.object({ item: z.string().min(1) }), output: result },
@@ -145,6 +147,8 @@ export const homeCliMap = {
   markAllSeen: { rpcOnly: "the panel's own state" },
   catchup: { rpcOnly: "the panel's read model" },
   waiting: { rpcOnly: "the panel's read model" },
+  updateInfo: { rpcOnly: "the panel's read model" },
+  requestUpdate: { rpcOnly: "mk's own choice; the runner outside the plugin installs" },
   health: { rpcOnly: "the panel's read model" },
 } satisfies Record<keyof typeof homeMethods, CliMapping>;
 
