@@ -113,7 +113,7 @@ The threads are running processes with a named seat, not parked transcripts. Bec
 
 ## What the transcripts say
 
-Every one of the 33 Claude Code ids resolves to a transcript. 31 sit under the estate root directory (`~/.claude/projects/-Users-sma-projects`), 1 under Sylveste (grey-area), 1 under the jetty/fissionchips worktree. The per-garden directory attribution the briefing shipped with (plan WI-1, `IndexSessions`) therefore sees 2 of 33 threads.
+Every one of the 33 Claude Code ids resolves to a transcript. 31 sit under the estate root directory (`~/.claude/projects/-Users-user-projects`), 1 under Sylveste (grey-area), 1 under the jetty/fissionchips worktree. The per-garden directory attribution the briefing shipped with (plan WI-1, `IndexSessions`) therefore sees 2 of 33 threads.
 
 Every transcript's mtime read as today, but the tails are bookkeeping entries with no timestamp (`bridge-session`, `mode`, `permission-mode`, `last-prompt`, `atis-latch`), not conversation. The last real turn tells a different story:
 
@@ -128,7 +128,7 @@ Every transcript's mtime read as today, but the tails are bookkeeping entries wi
 
 mtime is not a liveness signal for Claude Code transcripts. The last `user` or `assistant` entry's timestamp is. The briefing's sessions column counts files by mtime and will overstate.
 
-Attribution from transcript content works where the directory does not. Counting mentions of `/Users/sma/projects/<garden>` across each transcript (1,010 MB scanned in about a minute) gives a dominant garden that matches mk's topic label for 31 of the 32 threads that mention any path:
+Attribution from transcript content works where the directory does not. Counting mentions of `~/projects/<garden>` across each transcript (1,010 MB scanned in about a minute) gives a dominant garden that matches mk's topic label for 31 of the 32 threads that mention any path:
 
 | thread | gardens mentioned | top gardens |
 |---|---|---|
@@ -163,7 +163,7 @@ The wide threads (after-them 111, clavain 100, jawnbase 57, auraken-inkling 50) 
 
 - Note parsed with `^(wezterm|iterm|rio)?(\[\]|\[|\])\s*(.+?)(?:\s+-\s+(\S+))?$`.
 - Transcript lookup: `~/.claude/projects/*/<id>.jsonl`; Codex: `~/.codex/sessions/**/rollout-*<id>.jsonl`.
-- Attribution: regex over `/Users/sma/projects/([^/]+)(/[^/]+)?(/[^/]+)?`, Sylveste expanded one level, counted per line.
+- Attribution: regex over `~/projects/([^/]+)(/[^/]+)?(/[^/]+)?`, Sylveste expanded one level, counted per line.
 - Liveness: `tmux list-panes -a -F '#{pane_current_command}|#{pane_pid}|#{session_name}'`; last real turn from the trailing 200 KB of each transcript.
 
 ## First live render (2026-09-02, after the build, goal cf9e8644)

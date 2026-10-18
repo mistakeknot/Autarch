@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { Asks } from "../asks.js";
 import { Catchup } from "../catchup.js";
+import { waitingNow } from "../waiting.js";
 import { parseAsk } from "../model.js";
 import { homeCli } from "../cli.js";
 import { Delegation } from "../delegation.js";
@@ -132,6 +133,23 @@ describe("bb home get, list, stats, feed", () => {
     expect(seen).toEqual([new Date(Date.parse(svc.time()) - 3 * 86_400_000).toISOString()]);
     expect(JSON.parse((await run(["stats", "--json"])).stdout!)).not.toHaveProperty("traceability");
   });
+
+  it("stats carries the one waiting count, with its parts and definition, when it is wired", async () => {
+    await filed();
+    const cu = new Catchup(svc, dele);
+    const cli = homeCli({
+      svc,
+      asks: new Asks(svc),
+      catchup: cu,
+      waiting: () => waitingNow(svc, dele, cu),
+      rule: (id, option, reason, ctx) => dele.rule(id, option, reason, ctx),
+      isVizier: () => false,
+    });
+    const s = JSON.parse((await Promise.resolve(cli.run(["stats", "--json"], {}))).stdout!);
+    expect(s.waiting).toMatchObject({ total: 1, decide: 1, moves: 0, notices: 0 });
+    expect(typeof s.waiting.definition).toBe("string");
+    expect(JSON.parse((await run(["stats", "--json"])).stdout!)).not.toHaveProperty("waiting");
+  });
 });
 
 describe("rule and note (vizier only)", () => {
@@ -238,7 +256,7 @@ describe("cards in the CLI (Task 2.7)", () => {
   });
 
   it("get --request resolves a card key through card_requests, and a legacy key through the registry", async () => {
-    const { r, c, run: go } = await cardCli({ key: "key-card-1" });
+    const { c, run: go } = await cardCli({ key: "key-card-1" });
     const x = await go(["get", "--request", "key-card-1"]);
     expect(JSON.parse(x.stdout!)).toMatchObject({ status: "registered", task_id: c.t.id, request_key: "key-card-1", decision_id: c.g1.id });
     expect(JSON.parse(x.stdout!).identity).toEqual(expect.any(String));

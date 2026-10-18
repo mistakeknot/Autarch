@@ -52,7 +52,7 @@ with a timeout. Recorded on the spec as a closed decision at v1.4.
 - `go vet ./internal/door ./cmd/autarch` → clean.
 - Bare `autarch` today prints cobra help (root has no RunE) — wiring it is additive.
 - Data-source probes on this machine:
-  - tmux: every live session's active pane sits at `/Users/sma/projects` (estate
+  - tmux: every live session's active pane sits at `~/projects` (estate
     root), so `session_activity` cannot attribute movement to a garden.
   - cass: `cass search --robot` returns `checkpoint_incomplete` (index degraded;
     the repair is `cass index --full`, which memory says must wait for a backup).

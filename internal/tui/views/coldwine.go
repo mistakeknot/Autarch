@@ -895,10 +895,6 @@ func taskMatchesDispatch(task autarch.Task, d intercore.Dispatch, taskDispatches
 	if d.Name != nil && *d.Name == task.Title {
 		return true
 	}
-	// Legacy fallback: ic maps name to agent field in some responses.
-	if d.Agent == task.Title {
-		return true
-	}
 	return false
 }
 

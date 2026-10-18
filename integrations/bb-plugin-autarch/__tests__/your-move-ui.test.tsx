@@ -8,7 +8,7 @@ import { ActionButton, buttonClass } from "../ui/buttons.js";
 import { CommandBlock, copyText, legacyCopyViaDocument, type CopyEnv } from "../ui/copy.js";
 import { OtherBox, otherText, OTHER_MAX } from "../ui/other.js";
 import { MoveCard, moveButtons, YourMovePanel, type MoveHandlers } from "../ui/yourmove.js";
-import { AskCard, AsksPanel, buildAsksView, isDestructiveOption, PickController, UNBOUND_EXPLANATION, type AsksData, type OwedAsk } from "../ui/asks.js";
+import { AskCard, AsksPanel, buildAsksView, imagesSig, isDestructiveOption, PickController, UNBOUND_EXPLANATION, type AsksData, type OwedAsk } from "../ui/asks.js";
 import { BlocksPanel, type QueueRowView, type QueueView } from "../ui/blocks.js";
 import { scriptCommands } from "../moves.js";
 import type { MoveView, MoveViewGroups } from "../moveview.js";
@@ -18,7 +18,7 @@ const decode = (s: string) => s.replace(/&lt;/g, "<").replace(/&gt;/g, ">").repl
 
 const move = (o: Partial<MoveView> = {}): MoveView => ({
   task_id: "t1", generation: 1, kind: "script", state: "open", title: "Run the cutover", owner: "thr-a", opened_at: "2026-10-06T10:00:00.000Z",
-  claimed_at: null, skipped_at: null, checked_at: null, report_deadline_at: null, url: null, need: null,
+  claimed_at: null, skipped_at: null, checked_at: null, report_deadline_at: null, url: null, need: null, pr: null,
   script: { path: "/opt/run.sh", sha256: SHA },
   commands: scriptCommands({ path: "/opt/run.sh", sha256: SHA, args: ["--set", "s1"], recover: { path: "/opt/undo.sh", sha256: "b".repeat(64) } }),
   report: null, closed_at: null, closed_by: null, evidence: null, ...o,
@@ -140,7 +140,7 @@ describe("copyable command blocks", () => {
   it("the block's text equals the command, and the command is one clean line", () => {
     for (const c of cmds) {
       const html = renderToStaticMarkup(<CommandBlock label={c.label} command={c.command} expectedSha={c.expectedSha} />);
-      const text = decode(/<code data-command-text="true">([\s\S]*?)<\/code>/.exec(html)![1]!);
+      const text = decode(/<code data-command-text="true">([\s\S]*?)<\/code>/.exec(html)![1]!.replace(/<\/?b[^>]*>/g, ""));
       expect(text).toBe(c.command);
       expect(c.command).not.toMatch(/[\n\r`]/);
       expect(c.command).toBe(c.command.trim());
@@ -222,23 +222,23 @@ describe("button look", () => {
     expect(html).toContain("data-recommended-mark");
     expect(html).toMatch(/data-tone="recommended"[^>]*data-option="go"|data-option="go"[^>]*data-tone="recommended"/);
     expect(html).toMatch(/data-tone="destructive"[^>]*data-option="no"|data-option="no"[^>]*data-tone="destructive"/);
-    // a ruling-only option sends nothing, so none of the three says it cannot be undone
+    // a ruling-only option sends no instruction, so none of the three says it cannot be undone
     expect(html.match(/Cannot be undone\./g)?.length).toBeUndefined();
     expect(isDestructiveOption({ label: "Cancel it", reversible: true })).toBe(false);
   });
 });
 
 describe("Other box", () => {
-  it("trims, and refuses empty or over 2000", () => {
+  it("trims, and refuses empty or over 20000", () => {
     expect(otherText("  hi  ")).toBe("hi");
     expect(otherText("   ")).toBeNull();
     expect(otherText("x".repeat(OTHER_MAX))).toBe("x".repeat(OTHER_MAX));
     expect(otherText("x".repeat(OTHER_MAX + 1))).toBeNull();
   });
-  it("counts Unicode code points like the service: 1000 emoji fit, 2001 do not", () => {
+  it("counts Unicode code points like the service: 20000 emoji fit, 20001 do not", () => {
     expect(otherText("\u{1F600}".repeat(OTHER_MAX))).not.toBeNull();
     expect(otherText("\u{1F600}".repeat(OTHER_MAX + 1))).toBeNull();
-    expect(renderToStaticMarkup(<OtherBox onNote={() => {}} onAnswer={() => {}} />)).toContain("0 / 2000");
+    expect(renderToStaticMarkup(<OtherBox onNote={() => {}} onAnswer={() => {}} />)).toContain("0 / 20000");
   });
   it("hides Answer with this on an ask that has its own option named other", () => {
     const a: OwedAsk = { id: "d", project: "P", thread: "thr", subject: "S", asker: "x", filed_at: "2026-10-01T00:00:00Z", revision: "r", ask: { question: "Q", options: [{ id: "other", label: "Else", kind: "ruling-only", reversible: true }] } };
@@ -246,13 +246,20 @@ describe("Other box", () => {
     expect(html).toContain("data-other-answer-reason");
     expect(html).toMatch(/disabled=""[^>]*data-other-answer|data-other-answer[^>]*disabled=""/);
   });
-  it("starts with both buttons disabled and a 0 / 2000 counter", () => {
+  it("starts with both buttons disabled and a 0 / 20000 counter", () => {
     const html = renderToStaticMarkup(<OtherBox onNote={() => {}} onAnswer={() => {}} />);
-    expect(html).toContain("0 / 2000");
+    expect(html).toContain("0 / 20000");
     expect(html).toMatch(/disabled=""[^>]*data-other-note/);
     expect(html).toMatch(/disabled=""[^>]*data-other-answer/);
     expect(html).toContain("Ask / note");
     expect(html).toContain("Answer with this");
+  });
+  it("offers an image attach control limited to the four formats, and says an image alone is not sent", () => {
+    const html = renderToStaticMarkup(<OtherBox onNote={() => {}} onAnswer={() => {}} />);
+    expect(html).toContain("data-other-attach");
+    expect(html).toContain('accept="image/png,image/jpeg,image/gif,image/webp"');
+    expect(html).toContain("an image alone is not sent");
+    expect(html).not.toContain("data-other-images");
   });
   it("omits Answer with this when there is no answer handler and explains a disabled one", () => {
     expect(renderToStaticMarkup(<OtherBox onNote={() => {}} />)).not.toContain("Answer with this");
@@ -331,5 +338,15 @@ describe("pick controller with the Other text", () => {
     await c.send(rpc, { decision_id: "d", option_id: "other", revision: "r", reason: "one" }, () => {});
     await c.send(rpc, { decision_id: "d", option_id: "other", revision: "r", reason: "two" }, () => {});
     expect(ids).toEqual(["id1", "id1", "id2"]);
+  });
+});
+
+describe("imagesSig", () => {
+  it("differs when only the middle of an image, or its type, changes", () => {
+    const a = "A".repeat(48) + "x".repeat(200) + "Z".repeat(48);
+    const b = "A".repeat(48) + "y".repeat(200) + "Z".repeat(48);
+    expect(imagesSig([{ mime: "image/png", data_base64: a }])).not.toBe(imagesSig([{ mime: "image/png", data_base64: b }]));
+    expect(imagesSig([{ mime: "image/png", data_base64: a }])).not.toBe(imagesSig([{ mime: "image/gif", data_base64: a }]));
+    expect(imagesSig([{ mime: "image/png", data_base64: a }])).toBe(imagesSig([{ mime: "image/png", data_base64: a }]));
   });
 });

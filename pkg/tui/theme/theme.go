@@ -409,9 +409,9 @@ type Styles struct {
 // NewStyles creates a Styles instance from a theme.
 func NewStyles(t Theme) Styles {
 	styles := Styles{
-		App:    lipgloss.NewStyle().Background(t.Base),
-		Header: lipgloss.NewStyle().Bold(true).Foreground(t.Primary).Padding(0, 1),
-		Title:  lipgloss.NewStyle().Bold(true).Foreground(t.Text),
+		App:     lipgloss.NewStyle().Background(t.Base),
+		Header:  lipgloss.NewStyle().Bold(true).Foreground(t.Primary).Padding(0, 1),
+		Title:   lipgloss.NewStyle().Bold(true).Foreground(t.Text),
 		Divider: lipgloss.NewStyle().Foreground(t.Surface2),
 
 		Normal:    lipgloss.NewStyle().Foreground(t.Text),
@@ -424,10 +424,10 @@ func NewStyles(t Theme) Styles {
 		Error:   lipgloss.NewStyle().Bold(true).Foreground(t.Error),
 		Info:    lipgloss.NewStyle().Bold(true).Foreground(t.Info),
 
-		Box:      lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).BorderForeground(t.Surface2).Padding(1, 2),
-		BoxTitle: lipgloss.NewStyle().Bold(true).Foreground(t.Primary).Padding(0, 1),
-		List:     lipgloss.NewStyle().Padding(0, 1),
-		ListItem: lipgloss.NewStyle().Foreground(t.Text).Padding(0, 1),
+		Box:          lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).BorderForeground(t.Surface2).Padding(1, 2),
+		BoxTitle:     lipgloss.NewStyle().Bold(true).Foreground(t.Primary).Padding(0, 1),
+		List:         lipgloss.NewStyle().Padding(0, 1),
+		ListItem:     lipgloss.NewStyle().Foreground(t.Text).Padding(0, 1),
 		ListSelected: lipgloss.NewStyle().Bold(true).Foreground(t.Base).Background(t.Primary).Padding(0, 1),
 		ListCursor:   lipgloss.NewStyle().Bold(true).Foreground(t.Primary),
 

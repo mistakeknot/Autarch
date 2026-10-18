@@ -1,0 +1,19 @@
+{
+  "period": {
+    "days": 30,
+    "start": "2026-09-16",
+    "end": "2026-10-16"
+  },
+  "landed_changes": 12,
+  "source": "landed_changes",
+  "stats": {
+    "p50": 1000,
+    "p90": 5000,
+    "p95": 6000,
+    "mean": 2000,
+    "total": 24000,
+    "input_total": 20000,
+    "output_total": 4000,
+    "count": 9
+  }
+}

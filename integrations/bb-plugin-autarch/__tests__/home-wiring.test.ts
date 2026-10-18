@@ -24,8 +24,9 @@ function fakeBb(threads: object = {}) {
     agents: { configure: (fn: typeof configure) => (configure = fn) },
     cli: { register: (r: typeof cli) => (cli = r) },
     sdk: { threads },
+    realtime: { publish: vi.fn() },
   };
-  return { bb: bb as never, events, services, disposers, configure: () => configure, cli: () => cli };
+  return { bb: bb as never, published: bb.realtime.publish, events, services, disposers, configure: () => configure, cli: () => cli };
 }
 
 const serve = { projects: async () => [], health: async () => ({ build: { commit: "abc" } }), healthy: async () => true } as unknown as ServeClient;
@@ -40,7 +41,27 @@ describe("wireHome", () => {
     expect(f.services.sort()).toEqual(["home-card-comments", "home-delegation-check", "home-feed-refresh", "home-move-poll", "home-move-reports", "home-queue", "home-wakes"]);
     expect(f.configure()).toBeTypeOf("function");
     expect(f.cli()).toBeDefined();
-    expect(Object.keys(home.handlers).sort()).toEqual(["catchup", "checkMove", "claimMove", "conversation", "conversationUnread", "dismiss", "health", "listAsks", "listRecent", "markAllSeen", "markConversationSeen", "markSeen", "moves", "note", "override", "pick", "queue", "requestUpdate", "resend", "revokeApproval", "rootRun", "setBinding", "setDelegation", "setViewing", "skipMove", "stats", "updateInfo"]);
+    expect(Object.keys(home.handlers).sort()).toEqual(["actIdea", "catchup", "checkMove", "claimMove", "clearIdeaDigest", "conversation", "conversationUnread", "dismiss", "fileIdea", "health", "ideaProjects", "ideas", "later", "learn", "learnSet", "listAsks", "listRecent", "markAllSeen", "markConversationSeen", "markSeen", "moves", "note", "openTarget", "override", "pick", "queue", "readDoc", "requestUpdate", "resend", "revokeApproval", "rootRun", "setBinding", "setDelegation", "setViewing", "skipMove", "stats", "unlater", "updateInfo", "waiting"]);
+    f.disposers.forEach((d) => d());
+  });
+
+  it("openTarget refuses a path outside the allowlist before it asks bb for a host (bead mk-98y4s)", async () => {
+    const db = new Database(":memory:");
+    const f = fakeBb();
+    const home = wireHome(f.bb, createStoreHandle(() => db, {}), cfg, { serve });
+    const open = home.handlers.openTarget;
+    expect(await open({ path: "/etc/hostname.md" })).toMatchObject({ ok: false });
+    expect(await open({ path: "relative.md" })).toMatchObject({ ok: false });
+    f.disposers.forEach((d) => d());
+  });
+
+  it("closes a move left open when the store is ready, even with no tasks client (bead mk-1k8pg)", () => {
+    const db = new Database(":memory:");
+    const handle = createStoreHandle(() => db, {});
+    handle.store().openMove({ task_id: "01J0000000000000000000000A", generation: 1, kind: "pr", payload: { kind: "pr", url: "https://github.com/o/r/pull/1" }, opened_by: "card" });
+    const f = fakeBb(); // its sdk has no plugins, so the card poller never starts
+    wireHome(f.bb, handle, cfg, { serve });
+    expect(db.prepare("SELECT state, closed_by, evidence FROM moves").all()).toEqual([{ state: "closed", closed_by: "home", evidence: "moves retired" }]);
     f.disposers.forEach((d) => d());
   });
 
@@ -71,6 +92,25 @@ describe("wireHome", () => {
     db.prepare("INSERT INTO cards(task_id, state) VALUES ('01J0000000000000000000000A', 'open')").run();
     expect(await home.handlers.rootRun({ task_id: "01J0000000000000000000000A" })).toEqual({ ok: false, error: "tasks unavailable" });
     expect(db.prepare("SELECT COUNT(*) AS n FROM approvals").get()).toEqual({ n: 0 });
+    f.disposers.forEach((d) => d());
+  });
+
+  it("later and unlater set a card aside and move it back, refresh the queue once each, and refuse an unknown card (bead mk-8741)", async () => {
+    const db = new Database(":memory:");
+    const handle = createStoreHandle(() => db, {});
+    const f = fakeBb();
+    const home = wireHome(f.bb, handle, cfg, { serve });
+    const id = "01J0000000000000000000000B";
+    expect(await home.handlers.later({ ref: id })).toEqual({ ok: false, error: "no such card" });
+    expect(await home.handlers.unlater({ ref: id })).toEqual({ ok: false, error: "no such card" });
+    expect(f.published).not.toHaveBeenCalled();
+    db.prepare("INSERT INTO cards(task_id, state) VALUES (?, 'open')").run(id);
+    expect(await home.handlers.later({ ref: id })).toEqual({ ok: true, task_id: id, was: false });
+    expect(await home.handlers.later({ ref: id })).toEqual({ ok: true, task_id: id, was: true });
+    expect(f.published).toHaveBeenCalledTimes(1);
+    expect(await home.handlers.unlater({ ref: id })).toEqual({ ok: true, task_id: id, was: true });
+    expect(await home.handlers.unlater({ ref: id })).toEqual({ ok: true, task_id: id, was: false });
+    expect(f.published).toHaveBeenCalledTimes(2);
     f.disposers.forEach((d) => d());
   });
 

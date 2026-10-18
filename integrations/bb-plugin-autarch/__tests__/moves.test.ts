@@ -13,6 +13,9 @@ describe("parseMove", () => {
     expect(parseMove(mv({ kind: "pr", pr: { url: "https://github.com/o/r/pull/12" } }))).toEqual({ kind: "pr", url: "https://github.com/o/r/pull/12" });
     expect(parseMove(mv({ kind: "read", read: { url: "https://github.com/o/r" } }))).toMatchObject({ kind: "read" });
     expect(parseMove(mv({ kind: "context", context: { need: "which host?" } }))).toEqual({ kind: "context", need: "which host?" });
+    expect(parseMove(mv({ kind: "context", context: { need: "x".repeat(8000) } }))).toMatchObject({ kind: "context" });
+    expect(parseMove(mv({ kind: "context", context: { need: "😀".repeat(8000) } }))).toMatchObject({ kind: "context" });
+    expect(() => parseMove(mv({ kind: "context", context: { need: "😀".repeat(8001) } }))).toThrow(/1-8000 characters/);
   });
 
   it.each([
@@ -41,7 +44,7 @@ describe("parseMove", () => {
     ["read other host", mv({ kind: "read", read: { url: "https://evil.example/" } })],
     ["read userinfo", mv({ kind: "read", read: { url: "https://u:p@github.com/" } })],
     ["context empty", mv({ kind: "context", context: { need: "  " } })],
-    ["context too long", mv({ kind: "context", context: { need: "x".repeat(2001) } })],
+    ["context too long", mv({ kind: "context", context: { need: "x".repeat(8001) } })],
   ])("refuses %s", (_n, body) => {
     expect(() => parseMove(body)).toThrow();
   });
@@ -61,7 +64,10 @@ describe("scriptCommands", () => {
     ]);
     expect(cmds[0]!.expectedSha).toBe(SHA);
     expect(cmds[3]!.expectedSha).toBe(SHA2);
-    for (const c of cmds) expect(c.command).toBe(c.command.trim()), expect(c.command).not.toMatch(/[\n\r`]/);
+    for (const c of cmds) {
+      expect(c.command).toBe(c.command.trim());
+      expect(c.command).not.toMatch(/[\n\r`]/);
+    }
   });
 });
 
@@ -77,5 +83,23 @@ describe("home-move block in a card", () => {
     expect(parseCard(base(blk(script({})))).move?.kind).toBe("script");
     expect(() => parseCard(base(blk("{}")))).toThrow();
     expect(() => parseCard(base(blk(script({})) + "\n" + blk(script({}))))).toThrow("more than one home-move block");
+  });
+});
+
+describe("pr move merge-card facts", () => {
+  const pr = (o: Record<string, unknown>) => JSON.stringify({ schema: "home-move/v1", kind: "pr", pr: { url: "https://github.com/a/b/pull/1", ...o } });
+  it("accepts the optional facts and keeps a bare pr unchanged", () => {
+    expect(parseMove(pr({}))).toEqual({ kind: "pr", url: "https://github.com/a/b/pull/1" });
+    expect(parseMove(pr({ summary: "adds X", verdict: "PASS", why: "taste", review_url: "https://github.com/a/b/pull/1#issuecomment-2" }))).toMatchObject({ summary: "adds X", verdict: "PASS", why: "taste" });
+  });
+  it.each([
+    ["multiline summary", { summary: "a\nb" }],
+    ["long summary", { summary: "x".repeat(201) }],
+    ["bad verdict", { verdict: "great" }],
+    ["bad why", { why: "whim" }],
+    ["off-host review url", { review_url: "https://evil.example/x" }],
+    ["unknown field", { note: "x" }],
+  ])("rejects %s", (_n, o) => {
+    expect(() => parseMove(pr(o))).toThrow();
   });
 });

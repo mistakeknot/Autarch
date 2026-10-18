@@ -248,7 +248,7 @@ live design a project is carrying, which means the 82× estimate is not a single
 number but a distribution with a long right tail, and the pilot happened to be
 drawn from the tail.
 
-**Prior art, in-tree.** `cujgel` (`/Users/sma/projects/cujgel`) already defines a
+**Prior art, in-tree.** `cujgel` (`~/projects/cujgel`) already defines a
 CUJ schema with `actor`, `trigger`, `mental_model`, `ambiguity_ledger`,
 `implied_features`, `success_condition`, `provenance`, and 126 CUJs exist across
 the estate. The card should adopt or subset this rather than invent a rival
@@ -314,7 +314,7 @@ and its PRD are the obvious overlap candidates and were not read for this doc.
    Mk's ruling accepts a known cost, recorded here so it can be revisited against
    evidence: the worst-documented project sits permanently at the top of the
    unfunded tail, and may read as a nag rather than a prompt.
-5. **Cross-machine scope.** zklw runs sessions too. Same door, or separate space?
+5. **Cross-machine scope.** devhost runs sessions too. Same door, or separate space?
    The tmux-server unification argument does not cross the network.
 6. **The 1-of-21 blindness.** `intermux` reports one session, mis-parses it, calls
    it crashed while its PID is alive, and discloses no coverage gap. Whatever

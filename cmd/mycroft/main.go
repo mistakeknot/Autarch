@@ -203,6 +203,11 @@ func homeRoots(list func() ([]serve.ProjectInfo, error), uqbar string) escalate.
 	}
 }
 
+// newSpawner builds the bb-thread spawner from AUTARCH_BB_PROJECT and AUTARCH_BB_ENVIRONMENT.
+func newSpawner() *spawn.BBSpawner {
+	return spawn.NewBBSpawner(os.Getenv("AUTARCH_BB_PROJECT"), os.Getenv("AUTARCH_BB_ENVIRONMENT"), filepath.Join(dataDir(), "spawn-receipts.jsonl"))
+}
+
 var runCmd = &cobra.Command{
 	Use:   "run",
 	Short: "Start the patrol loop",
@@ -220,7 +225,12 @@ var runCmd = &cobra.Command{
 		defer db.Close()
 
 		// Create spawner and orchestrator.
-		spawner := spawn.NewClaudeCodeSpawner("", "Demarch")
+		// Card workers start as bb threads under a routed seat. This bead ships suggest-only (T1):
+		// auto-dispatch (T2/T3) waits for the quota-budget bead, so the patrol loop refuses it here.
+		if cfg.Tier > mycroft.T1 {
+			return fmt.Errorf("tier %s auto-dispatch is not enabled for bb-thread workers yet; use T0 or T1", cfg.Tier)
+		}
+		spawner := newSpawner()
 		orch := buildOrchestrator(db, spawner, cfg)
 
 		src := newSource()
@@ -239,6 +249,80 @@ var runCmd = &cobra.Command{
 		fmt.Printf("mycroft patrol starting (tier: %s)\n", cfg.Tier)
 		return p.Run(ctx)
 	},
+}
+
+var (
+	spawnCard    string
+	spawnTitle   string
+	spawnApprove bool
+)
+
+// spawnCmd is the approval step for a T1 suggestion: without --approve it shows the plan and starts nothing.
+var spawnCmd = &cobra.Command{
+	Use:   "spawn <bead>",
+	Short: "Show, or with --approve start, a bb-thread worker for a bead",
+	Args:  cobra.ExactArgs(1),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		if spawnCard == "" {
+			return fmt.Errorf("--card is required: a worker is attached to its card")
+		}
+		sp := newSpawner()
+		bead := mycroft.BeadView{ID: args[0], Title: spawnTitle, Card: spawnCard}
+		if !spawnApprove {
+			if err := showPlan(sp, bead); err != nil {
+				return err
+			}
+			fmt.Println("not started (pass --approve to start it)")
+			return nil
+		}
+		// Open the decisions database before anything else: a worker is not started when the log cannot be opened.
+		disp, closeDB, derr := openDB()
+		if derr != nil {
+			return fmt.Errorf("not started, dispatch log unavailable: %w", derr)
+		}
+		defer closeDB()
+		return approveSpawn(disp, sp, bead)
+	},
+}
+
+// workerSpawner is the part of the bb-thread spawner that an approval needs.
+type workerSpawner interface {
+	Plan(bead mycroft.BeadView) (string, spawn.Seat, string, error)
+	Spawn(agentName string, bead mycroft.BeadView, contextFile string) (string, error)
+	Detail(sessionID string) string
+}
+
+// showPlan prints the thread title and the seat routing resolved; it starts nothing.
+func showPlan(sp workerSpawner, bead mycroft.BeadView) error {
+	title, seat, _, err := sp.Plan(bead)
+	if err != nil {
+		return fmt.Errorf("no dispatch: %w", err)
+	}
+	fmt.Printf("thread: %s\nseat: role=%s model=%s effort=%s policy=%s\n", title, seat.Role, seat.Model, seat.Effort, seat.PolicyHash)
+	return nil
+}
+
+// approveSpawn shows the plan, starts the worker and records the approval in dispatch_log. A plan that cannot be
+// resolved and a failed start are logged as failures.
+func approveSpawn(disp *scheduler.Dispatcher, sp workerSpawner, bead mycroft.BeadView) error {
+	if err := showPlan(sp, bead); err != nil {
+		if lerr := disp.LogApprovalWith("mycroft", bead.ID, mycroft.OutcomeFailure, err.Error()); lerr != nil {
+			return fmt.Errorf("%w (and the failure could not be logged: %v)", err, lerr)
+		}
+		return err
+	}
+	id, err := sp.Spawn("mycroft", bead, "")
+	if err != nil {
+		if lerr := disp.LogApprovalWith("mycroft", bead.ID, mycroft.OutcomeFailure, err.Error()); lerr != nil {
+			return fmt.Errorf("%w (and the failure could not be logged: %v)", err, lerr)
+		}
+		return err
+	}
+	fmt.Printf("started thread %s\n", id)
+	if lerr := disp.LogApprovalWith("mycroft", bead.ID, mycroft.OutcomeAccepted, sp.Detail(id)); lerr != nil {
+		return fmt.Errorf("thread %s is running but the dispatch log write failed: %w", id, lerr)
+	}
+	return nil
 }
 
 var statusCmd = &cobra.Command{
@@ -556,5 +640,8 @@ func init() {
 	pruneCmd.Flags().String("older-than", "720h", "Delete entries older than this duration (default 30 days)")
 	promoteCmd.Flags().String("reason", "", "Reason for the promotion")
 	demoteCmd.Flags().String("reason", "", "Reason for the demotion")
-	rootCmd.AddCommand(runCmd, statusCmd, shadowsCmd, pauseCmd, resumeCmd, overrideCmd, pruneCmd, promoteCmd, demoteCmd, tierCmd)
+	spawnCmd.Flags().StringVar(&spawnCard, "card", "", "task-board card key to attach (for example AUTA-399)")
+	spawnCmd.Flags().StringVar(&spawnTitle, "title", "", "bead title for the thread title and brief")
+	spawnCmd.Flags().BoolVar(&spawnApprove, "approve", false, "start the thread; without it nothing starts")
+	rootCmd.AddCommand(runCmd, statusCmd, shadowsCmd, pauseCmd, resumeCmd, overrideCmd, pruneCmd, promoteCmd, demoteCmd, tierCmd, spawnCmd)
 }

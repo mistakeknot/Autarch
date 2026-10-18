@@ -9,7 +9,7 @@
 // `npx shadcn add @bb/<name>` (see components.json) — dropdowns, tables,
 // the full shadcn set, version-matched to this BB install. Run
 // `npm install` once before `bb plugin build`.
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { FormEvent, ReactNode } from "react";
 import { definePluginApp, useBbNavigate, useRealtime, useRpc } from "@get-bb/plugin-sdk/app";
 import type { rpcContract, Todo } from "./server";
@@ -18,13 +18,22 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Icon } from "@/components/ui/icon";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
-import { OVERLAY_PANEL_ID, OVERLAY_PATH, OverlayPanel } from "./ui/overlay.js";
-import { AsksPanel, PickController, pickOutcome } from "./ui/asks.js";
+import { AsksPanel, PickController, imagesSig, pickOutcome, laterOutcome } from "./ui/asks.js";
+import { DocReaderHost, type DocReaderApi, type DocResultT } from "./ui/docreader.js";
+import type { OtherImage } from "./ui/other.js";
 import { ConversationProvider, type ConversationApi, type ConversationData } from "./ui/conversation.js";
-import { YourMovePanel, type MoveHandlers } from "./ui/yourmove.js";
+import type { MoveHandlers } from "./ui/yourmove.js";
 import type { MoveViewGroups } from "./moveview.js";
 import type { AsksData } from "./ui/asks.js";
-import { CatchupPanel, SeenTracker, snapshotIds } from "./ui/catchup.js";
+import { MobileInbox, useIsPhone } from "./ui/inbox.js";
+import { IdeaDesk, IdeaDigest, type IdeaApi } from "./ui/ideas.js";
+import type { IdeaProject, IdeaView } from "./ideas.js";
+import { CatchupPanel, markPlan, markResultText, normalizeCatchup, readableCatchup, SeenTracker } from "./ui/catchup.js";
+import { NoticeBanner } from "./ui/notices.js";
+import { singleFlight, type Flight } from "./ui/singleflight.js";
+import { buildMoveHandlers, rpcOutcome } from "./movehandlers.js";
+import { badgeCount } from "./ui/waiting.js";
+import type { Waiting } from "./waiting.js";
 import type { CatchupEntry } from "./ui/catchup.js";
 import { MapPlaceholder } from "./ui/map-placeholder.js";
 import type { Lens } from "./ui/map-placeholder.js";
@@ -34,9 +43,11 @@ import { withoutOwed } from "./ui/blocks.js";
 import { BindingsPanel, SettingsPanel } from "./ui/settings.js";
 import { UpdateMenu, type UpdateInfoView } from "./ui/update.js";
 import { keyAction, layoutStack, stackReducer, StackView } from "./ui/stack.js";
+import { HomeTabs, QueueTabs, type QueueTab } from "./ui/tabs.js";
 import type { Panel, StackState } from "./ui/stack.js";
 import { HOME_SOURCE } from "./ui/identity.js";
-import { TellVizier, ThreadPanel, VizierPanel } from "./ui/vizier.js";
+import { LearnPanel, LearnSwitch, latestOnly, type LearnCardView } from "./ui/learn.js";
+import { TellVizier, ThreadPanel } from "./ui/vizier.js";
 
 /** The todo list, kept current by the server's "todos-changed" signal. */
 function useTodos() {
@@ -140,7 +151,7 @@ function TodosPage() {
     <div className="h-full min-h-0 flex-1 overflow-y-auto">
       <div className="mx-auto box-border w-full max-w-3xl px-4 pb-4 pt-3 md:px-5 md:pt-4">
         <p className="text-sm text-muted-foreground">
-          A small example list, managed on this page only. Agents reach Home with{" "}
+          A small example list, managed on this page only. Agents reach Citadel with{" "}
           <code>bb home</code>.
         </p>
         <form onSubmit={add} className="mt-4 flex items-center gap-2">
@@ -241,6 +252,23 @@ function useRootRuns(rpc: ReturnType<typeof useRpc<typeof rpcContract>>): RootRu
   return { views, load };
 }
 
+/** The reader's one call: the server decides what may be read, so a failure comes back as its refusal text. */
+function useDocReaderApi(rpc: ReturnType<typeof useRpc<typeof rpcContract>>): DocReaderApi {
+  const nav = useBbNavigate();
+  return useMemo(
+    () => ({
+      read: (path, sha256) => rpc.call("readDoc", { path, ...(sha256 !== undefined ? { sha256 } : {}) }).then((r) => r as DocResultT),
+      // The server checks the path and names the target; bb's own file panel shows it, read-only.
+      openFile: async (path) => {
+        const r = (await rpc.call("openTarget", { path })) as { ok: true; target: { kind: "host"; hostId: string; path: string } } | { ok: false; error: string };
+        if (!r.ok) return r;
+        return nav.experimental_openFilePreview({ target: r.target, location: null }) ? { ok: true } : { ok: false, error: "bb could not open the file panel here" };
+      },
+    }),
+    [rpc, nav],
+  );
+}
+
 /** Conversation on the card: unread counts (polled), the conversation read, and the read mark. All display; no write but the read mark. */
 function useConversationApi(rpc: ReturnType<typeof useRpc<typeof rpcContract>>): ConversationApi {
   const [unread, setUnread] = useState<Record<string, number>>({});
@@ -270,21 +298,42 @@ function BlocksThreadPanel({ threadId }: { threadId: string }) {
   const picks = useMemo(() => new PickController(() => crypto.randomUUID()), []);
   const rootRun = useRootRuns(rpc);
   const conversation = useConversationApi(rpc);
+  const docs = useDocReaderApi(rpc);
   if (queue === null) return <EmptyState>{error ?? "Loading…"}</EmptyState>;
   return (
-    <ConversationProvider value={conversation}>
+    <ConversationProvider value={conversation}><DocReaderHost api={docs}>
     <BlocksPanel
       rootRun={rootRun}
       onBind={(b) => void rpc.call("setBinding", b).then(refetch, () => {})}
       data={queue}
       nowMs={Date.now()}
       thread={threadId}
-      onNote={(decision_id, text) => noteOnly.note({ decision_id }, text)}
+      onNote={(decision_id, text, images) => noteOnly.note({ decision_id }, text, images)}
       onOpen={(t) => nav.toThread(t)}
-      onPick={(decision_id, option_id, revision, reason) => pickOutcome(picks.send((req) => rpc.call("pick", req) as never, { decision_id, option_id, revision, ...(reason !== undefined ? { reason } : {}) }, refetch)).finally(refetch)}
+      onPick={(decision_id, option_id, revision, reason, images, answers) => pickOutcome(picks.send((req) => rpc.call("pick", req) as never, { decision_id, option_id, revision, ...(reason !== undefined ? { reason } : {}), ...(images && images.length > 0 ? { images } : {}), ...(answers ? { answers } : {}) }, refetch)).finally(refetch)}
     />
-    </ConversationProvider>
+    </DocReaderHost></ConversationProvider>
   );
+}
+
+/** A read run now, on the poll and on each returned call, one at a time (see singleFlight). Unmounting stops it, and a
+ * reply that lands after that is dropped. When `enabled` is false nothing runs and the returned call does nothing. */
+function usePolledRead(run: (live: () => boolean) => Promise<unknown>, deps: readonly unknown[], enabled = true): () => void {
+  const flight = useRef<Flight | null>(null);
+  useEffect(() => {
+    if (!enabled) return;
+    const f = singleFlight(run);
+    flight.current = f;
+    f.go();
+    const t = setInterval(f.go, POLL_MS);
+    return () => {
+      clearInterval(t);
+      f.stop();
+      if (flight.current === f) flight.current = null;
+    };
+    // run is rebuilt each render; deps say when it changes.
+  }, [...deps, enabled]);
+  return useCallback(() => flight.current?.go(), []);
 }
 
 /** The server publishes no realtime channel for Home, so the page polls and refetches after each action. */
@@ -292,62 +341,54 @@ function useHomeData() {
   const rpc = useRpc<typeof rpcContract>();
   const [asks, setAsks] = useState<AsksData | null>(null);
   const [catchup, setCatchup] = useState<CatchupEntry[]>([]);
+  const [waiting, setWaiting] = useState<Waiting | null>(null);
   const [health, setHealth] = useState<{ ready: boolean } | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const refetch = useCallback(() => {
-    Promise.all([rpc.call("listAsks"), rpc.call("catchup"), rpc.call("health")]).then(
-      ([a, c, h]) => {
-        setAsks(a as unknown as AsksData);
-        setCatchup((c as { items: CatchupEntry[] }).items);
-        setHealth(h as { ready: boolean });
-        setError(null);
-      },
-      (cause) => setError(cause instanceof Error ? cause.message : String(cause)),
-    );
-  }, [rpc]);
-  useEffect(() => {
-    refetch();
-    const t = setInterval(refetch, POLL_MS);
-    return () => clearInterval(t);
-  }, [refetch]);
-  return { rpc, asks, catchup, health, error, refetch };
-}
-
-type RpcResult = { ok?: boolean; status?: number; error?: string };
-/** A send becomes an outcome the card can show; a thrown error or a non-ok result is a failure with its reason. */
-async function rpcOutcome(send: Promise<unknown>): Promise<{ ok: boolean; error?: string }> {
-  try {
-    const r = (await send) as RpcResult | null;
-    if (r?.ok === true) return { ok: true };
-    return { ok: false, error: r?.error ?? `failed${r?.status ? ` (${r.status})` : ""}` };
-  } catch (e) {
-    return { ok: false, error: e instanceof Error ? e.message : String(e) };
-  }
+  // Reads overlap (poll, realtime signal, after an action); one runs at a time, so an older reply never overwrites a
+  // newer snapshot.
+  const refetch = usePolledRead(
+    (live) =>
+      Promise.all([rpc.call("listAsks"), rpc.call("catchup"), rpc.call("health"), rpc.call("waiting").catch(() => null)]).then(
+        ([a, c, h, w]) => {
+          if (!live()) return;
+          setAsks(a as unknown as AsksData);
+          setCatchup(normalizeCatchup((c as { items: CatchupEntry[] }).items));
+          setWaiting(w as Waiting | null);
+          setHealth(h as { ready: boolean });
+          setError(null);
+        },
+        (cause) => {
+          if (live()) setError(cause instanceof Error ? cause.message : String(cause));
+        },
+      ),
+    [rpc],
+  );
+  // The totals move when a card is answered, a move is claimed or a hold changes, not only on the poll.
+  useRealtime("home-queue-changed", refetch);
+  return { rpc, asks, catchup, waiting, health, error, refetch };
 }
 
 /** Your move: the grouped read model, refetched on the queue signal and on the poll. */
 function useMoves(rpc: ReturnType<typeof useRpc<typeof rpcContract>>, onChanged: () => void, load = true) {
   const [moves, setMoves] = useState<MoveViewGroups | null>(null);
-  const refetch = useCallback(() => {
-    rpc.call("moves").then((m) => setMoves(m as unknown as MoveViewGroups), () => {});
-  }, [rpc]);
-  useRealtime("home-queue-changed", () => {
-    if (load) refetch();
-  });
-  useEffect(() => {
-    if (!load) return;
-    refetch();
-    const t = setInterval(refetch, POLL_MS);
-    return () => clearInterval(t);
-  }, [refetch, load]);
+  // As in useHomeData: one read at a time, so an older reply never overwrites a newer one.
+  const refetch = usePolledRead(
+    (live) =>
+      rpc.call("moves").then((m) => {
+        if (live()) setMoves(m as unknown as MoveViewGroups);
+      }),
+    [rpc],
+    load,
+  );
+  useRealtime("home-queue-changed", refetch);
   // A note id is stable per (target, text) until it is accepted, so a retry cannot post the comment twice.
   const noteIds = useMemo(() => new Map<string, string>(), []);
   const note = useCallback(
-    async (target: { task_id: string } | { decision_id: string }, text: string) => {
-      const key = `${JSON.stringify(target)}|${text}`;
+    async (target: { task_id: string } | { decision_id: string }, text: string, images?: OtherImage[]) => {
+      const key = `${JSON.stringify(target)}|${text}|${imagesSig(images)}`;
       const note_id = noteIds.get(key) ?? crypto.randomUUID().slice(0, 32);
       noteIds.set(key, note_id);
-      const r = await rpcOutcome(rpc.call("note", { ...target, text, note_id }));
+      const r = await rpcOutcome(rpc.call("note", { ...target, text, note_id, ...(images && images.length > 0 ? { images } : {}) }));
       if (r.ok) {
         noteIds.delete(key);
         onChanged();
@@ -356,34 +397,84 @@ function useMoves(rpc: ReturnType<typeof useRpc<typeof rpcContract>>, onChanged:
     },
     [rpc, noteIds, onChanged],
   );
-  const handlers: MoveHandlers = useMemo(
-    () => ({
-      onCheck: (m) => rpcOutcome(rpc.call("checkMove", { task_id: m.task_id, generation: m.generation })).finally(refetch),
-      onClaim: (m) => rpcOutcome(rpc.call("claimMove", { task_id: m.task_id, generation: m.generation })).finally(refetch),
-      onSkip: (m) => rpcOutcome(rpc.call("skipMove", { task_id: m.task_id, generation: m.generation })).finally(refetch),
-      onNote: (m, text) => note({ task_id: m.task_id }, text),
-    }),
-    [rpc, refetch, note],
-  );
+  const handlers: MoveHandlers = useMemo(() => buildMoveHandlers(rpc, refetch, onChanged, note), [rpc, refetch, onChanged, note]);
   return { moves, handlers, refetch, note };
 }
 
 function HomePage() {
-  const { rpc, asks, catchup, error, refetch } = useHomeData();
+  const { rpc, asks, catchup, waiting, error, refetch } = useHomeData();
   const nav = useBbNavigate();
   const blocks = useQueue();
   const rootRuns = useRootRuns(rpc);
-  const yourMove = useMoves(rpc, () => {});
+  // Moves are retired (bead mk-1k8pg): the hook only carries notes and the move handlers, and reads no moves.
+  const yourMove = useMoves(rpc, refetch, false);
   const conversation = useConversationApi(rpc);
+  const docs = useDocReaderApi(rpc);
   const [stack, setStack] = useState<StackState>({ panels: [{ id: "queue", kind: "decision", title: "Queue" }], width: "third" });
   // Q: one ranked queue is the default; the old Asks / Blocking / Catch-up tabs stay behind this setting.
   const [classic, setClassic] = useState(() => { try { return localStorage.getItem("home.classicTabs") === "1"; } catch { return false; } });
   const toggleClassic = () => setClassic((c) => { const n = !c; try { localStorage.setItem("home.classicTabs", n ? "1" : "0"); } catch { /* storage unavailable: the choice lasts this session */ } return n; });
+  // Phones get the inbox layout; "Full view" keeps the desktop layout on this device until the page is reopened.
+  const phone = useIsPhone();
+  const [fullView, setFullView] = useState(false);
+  // The Idea box (bead mk-2zojo): a panel on the desktop queue, a header button on the phone.
+  const [ideaOpen, setIdeaOpen] = useState(false);
+  const [ideaTick, setIdeaTick] = useState(0);
+  useRealtime("home-queue-changed", () => setIdeaTick((n) => n + 1));
+  // The Learn deck (bead mk-uoiwp): off by default; the tab shows only when Settings turns it on.
+  const [learn, setLearn] = useState<{ enabled: boolean; cards: LearnCardView[] }>({ enabled: false, cards: [] });
+  const [learnBusy, setLearnBusy] = useState(false);
+  const loadLearn = useMemo(() => latestOnly(
+    () => rpc.call("learn") as Promise<{ ok: boolean; enabled?: boolean; cards?: LearnCardView[] }>,
+    (r) => { if (r.ok) setLearn({ enabled: r.enabled ?? false, cards: r.cards ?? [] }); },
+  ), [rpc]);
+  useEffect(loadLearn, [loadLearn]);
+  useRealtime("home-learn-changed", loadLearn);
+  const setLearnState = (args: { enabled?: boolean; card?: string; mark?: "got" | "later" | "clear" }) => { setLearnBusy(true); void (rpc.call("learnSet", args) as Promise<unknown>).then(loadLearn, () => {}).finally(() => setLearnBusy(false)); };
+  const [openIdeas, setOpenIdeas] = useState<number | undefined>(undefined);
+  const ideaApi = useMemo<IdeaApi>(() => ({
+    projects: async () => { const r = (await rpc.call("ideaProjects")) as { ok: boolean; projects?: IdeaProject[]; error?: string }; if (!r.ok) throw new Error(r.error ?? "the Idea box could not load projects"); return r.projects ?? []; },
+    digest: async () => { const r = (await rpc.call("ideas")) as { ok: boolean; ideas?: IdeaView[]; show?: boolean; error?: string }; if (!r.ok) throw new Error(r.error ?? "the ideas could not load"); return { ideas: r.ideas ?? [], show: r.show ?? false }; },
+    file: async (project_id, text, idea_id) => (await rpc.call("fileIdea", { project_id, text, idea_id })) as { ok: boolean; error?: string },
+    act: async (task_id, action) => (await rpc.call("actIdea", { task_id, action })) as { ok: boolean; error?: string },
+    clear: async () => { const r = (await rpc.call("clearIdeaDigest")) as { ok?: boolean; error?: string }; if (r && r.ok === false) throw new Error(r.error ?? "could not hide the digest"); },
+  }), [rpc]);
+  // The Ideas tab carries the open-idea count, as Queue carries the waiting count; no count when the read fails.
+  useEffect(() => { void ideaApi.digest().then((d) => setOpenIdeas(d.ideas.length), () => setOpenIdeas(undefined)); }, [ideaApi, ideaTick]);
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
+  // Rows on screen right now: React state (not just the tracker) so "Mark N seen" can say N.
+  const [visible, setVisible] = useState<Set<string>>(new Set());
+  const [markResult, setMarkResult] = useState<string | null>(null);
   const [lens, setLens] = useState<Lens>("attention");
   const picks = useMemo(() => new PickController(() => crypto.randomUUID()), []);
   const tracker = useMemo(() => new SeenTracker((item) => void rpc.call("markSeen", { item }).then(refetch, () => {})), [rpc, refetch]);
-  const onVisibility = useCallback((item: string, visible: boolean) => tracker.setVisible(item, visible), [tracker]);
+  const onVisibility = useCallback(
+    (item: string, on: boolean) => {
+      tracker.setVisible(item, on);
+      setVisible((prev) => {
+        if (prev.has(item) === on) return prev;
+        const next = new Set(prev);
+        if (on) next.add(item);
+        else next.delete(item);
+        return next;
+      });
+    },
+    [tracker],
+  );
+  const notices = useMemo(() => catchup.filter((c) => c.kind === "notice"), [catchup]);
+  // A "Waiting for you" row for an ask that is set aside (Later or on hold) is not waiting; its tab already lists it.
+  const readable = useMemo(() => readableCatchup(catchup, asks?.owed ?? null), [catchup, asks]);
+  const [queueTab, setQueueTab] = useState<QueueTab>("decide");
+  const markIds = (ids: string[], routineLeft: number) => {
+    if (ids.length === 0) return;
+    void rpc.call("markAllSeen", { ids }).then(
+      (r) => {
+        setMarkResult(markResultText((r as { marked: string[] }).marked.length, routineLeft));
+        refetch();
+      },
+      () => setMarkResult("That did not go through. Nothing was marked."),
+    );
+  };
   const refetchAll = () => {
     refetch();
     blocks.refetch();
@@ -459,16 +550,21 @@ function HomePage() {
       case "queue":
         return (
           <>
-            {([
-              ["Needs you now", { id: "asks", kind: "decision", title: "Asks", hideHeld: true }],
-              ["Blocked on others", { id: "blocks", kind: "decision", title: "Blocking", hideOwed: true }],
-              ["Since you left", { id: "catchup", kind: "catchup", title: "Catch-up" }],
-            ] as const).map(([heading, p]) => (
-              <section key={p.id} aria-label={heading} className="border-b border-border">
-                <h2 className="px-4 pt-3 text-xs font-semibold uppercase text-muted-foreground">{heading}</h2>
-                {render(p)}
-              </section>
-            ))}
+            {notices.length > 0 ? (
+              <div className="p-2 sm:p-4">
+                <NoticeBanner notices={notices} suspended={waiting?.suspended ?? true} onAcknowledge={(item) => void rpc.call("markSeen", { item }).then(refetch, () => {})} />
+              </div>
+            ) : null}
+            <QueueTabs tab={queueTab} onTab={setQueueTab} definition={waiting?.definition ?? null} counts={waiting ? { decide: waiting.decide, later: asks ? asks.owed.filter((o) => o.later && !o.held).length : waiting.later, blocks: waiting.held, catchup: waiting.updates } : null} />
+            <section role="tabpanel" id="queue-tabpanel" aria-labelledby={`queue-tab-${queueTab}`} data-queue-section={queueTab === "decide" ? "asks" : queueTab} className="border-b border-border">
+              {queueTab === "decide"
+                ? render({ id: "asks", kind: "decision", title: "Asks", hideHeld: true, part: "decide" })
+                : queueTab === "later"
+                  ? render({ id: "asks", kind: "decision", title: "Asks", hideHeld: true, part: "later" })
+                  : queueTab === "blocks"
+                    ? render({ id: "blocks", kind: "decision", title: "Blocking", hideOwed: true })
+                    : render({ id: "catchup", kind: "catchup", title: "Catch-up" })}
+            </section>
           </>
         );
       case "asks":
@@ -476,18 +572,18 @@ function HomePage() {
           <EmptyState>{error ?? "Loading asks…"}</EmptyState>
         ) : (
           <>
-          <TellVizier threadId={asks.delegation.settings.vizierThreadId} />
-          {yourMove.moves ? <YourMovePanel data={yourMove.moves} handlers={yourMove.handlers} /> : null}
           <AsksPanel
             data={asks}
             {...(panel.hideHeld ? { hideHeld: true } : {})}
-            onNote={(decision_id, text) => yourMove.note({ decision_id }, text)}
+            {...(panel.part ? { part: panel.part } : {})}
+            onNote={(decision_id, text, images) => yourMove.note({ decision_id }, text, images)}
+            onLater={(ref, on) => laterOutcome(rpc.call(on ? "later" : "unlater", { ref })).then((o) => { refetchAll(); return o; })}
             onDismiss={(decision_id, obligation_id) => void rpc.call("dismiss", { decision_id, obligation_id }).then(refetch, () => {})}
             onOpen={(thread) => push({ id: `thread:${thread}`, kind: "thread", title: thread, ref: thread })}
             onRevoke={(approval_id) => void rpc.call("revokeApproval", { approval_id }).then(refetch, () => {})}
             onView={(decision_id) => void rpc.call("setViewing", { decision_id }).catch(() => {})}
-            onPick={(decision_id, option_id, revision, reason) => {
-              return pickOutcome(picks.send((req) => rpc.call("pick", req) as never, { decision_id, option_id, revision, ...(reason !== undefined ? { reason } : {}) }, refetchAll)).finally(refetchAll);
+            onPick={(decision_id, option_id, revision, reason, images, answers) => {
+              return pickOutcome(picks.send((req) => rpc.call("pick", req) as never, { decision_id, option_id, revision, ...(reason !== undefined ? { reason } : {}), ...(images && images.length > 0 ? { images } : {}), ...(answers ? { answers } : {}) }, refetchAll)).finally(refetchAll);
             }}
           />
           </>
@@ -501,32 +597,48 @@ function HomePage() {
             onBind={(b) => void rpc.call("setBinding", b).then(refetchAll, () => {})}
             data={panel.hideOwed && asks ? withoutOwed(blocks.queue, asks) : blocks.queue}
             nowMs={Date.now()}
-            onNote={(decision_id, text) => yourMove.note({ decision_id }, text)}
+            onNote={(decision_id, text, images) => yourMove.note({ decision_id }, text, images)}
             onOpen={openBeside}
-            onPick={(decision_id, option_id, revision, reason) => {
-              return pickOutcome(picks.send((req) => rpc.call("pick", req) as never, { decision_id, option_id, revision, ...(reason !== undefined ? { reason } : {}) }, refetchAll)).finally(refetchAll);
+            onPick={(decision_id, option_id, revision, reason, images, answers) => {
+              return pickOutcome(picks.send((req) => rpc.call("pick", req) as never, { decision_id, option_id, revision, ...(reason !== undefined ? { reason } : {}), ...(images && images.length > 0 ? { images } : {}), ...(answers ? { answers } : {}) }, refetchAll)).finally(refetchAll);
             }}
           />
         );
       case "catchup":
         return (
           <CatchupPanel
-            items={catchup}
+            items={readable}
             expanded={expanded}
+            visible={visible}
+            result={markResult}
             onToggle={toggle}
             onOverride={(decision_id) => void rpc.call("override", { decision_id }).then(refetch, () => {})}
             onVisibility={onVisibility}
             onMarkAll={() => {
-              const ids = snapshotIds(catchup, expanded, new Set(catchup.filter((c) => tracker.isVisible(c.item)).map((c) => c.item)));
-              if (ids.length > 0) void rpc.call("markAllSeen", { ids }).then(refetch, () => {});
+              const plan = markPlan(readable, expanded, visible);
+              markIds(plan.ids, plan.routineLeft);
+            }}
+            onMarkOne={(item, members) => {
+              setMarkResult(null);
+              markIds(members ?? [item], 0);
             }}
           />
         );
+      case "ideas":
+        return (
+          <>
+            <IdeaDigest api={ideaApi} refreshKey={ideaTick} onChanged={() => setIdeaTick((n) => n + 1)} />
+            <IdeaDesk api={ideaApi} refreshKey={ideaTick} heading={false} onChanged={() => setIdeaTick((n) => n + 1)} />
+          </>
+        );
+      case "learn":
+        return <LearnPanel cards={learn.cards} busy={learnBusy} onMark={(card, mark) => setLearnState({ card, mark })} />;
       case "vizier":
-        return <VizierPanel threadId={asks?.delegation.settings.vizierThreadId} />;
+        return <TellVizier threadId={asks?.delegation.settings.vizierThreadId} />;
       case "settings":
         return asks === null ? null : (
           <>
+            <LearnSwitch enabled={learn.enabled} busy={learnBusy} onChange={(enabled) => setLearnState({ enabled })} />
             <SettingsPanel delegation={asks.delegation} machineOwners={asks.machineOwners} onSave={(v) => void rpc.call("setDelegation", v).then(refetch, () => {})} />
             {blocks.queue === null ? null : (
               <BindingsPanel
@@ -547,64 +659,61 @@ function HomePage() {
     }
   };
 
+  if (phone && !fullView && asks !== null) {
+    return (
+      <ConversationProvider value={conversation}><DocReaderHost api={docs}>
+        <div className="flex h-full min-h-0 flex-1 flex-col" data-home-source={HOME_SOURCE}>
+          <MobileInbox
+            asks={asks}
+            moves={null}
+            waiting={waiting?.total ?? 0}
+            sinceCount={waiting ? waiting.updates + waiting.notices : readable.length + notices.length}
+            sinceNode={
+              <>
+                {notices.length > 0 ? (
+                  <div className="p-2">
+                    <NoticeBanner notices={notices} suspended={waiting?.suspended ?? true} onAcknowledge={(item) => void rpc.call("markSeen", { item }).then(refetch, () => {})} />
+                  </div>
+                ) : null}
+                {render({ id: "catchup", kind: "catchup", title: "Catch-up" })}
+              </>
+            }
+            handlers={yourMove.handlers}
+            onOpen={openBeside}
+            onNote={(decision_id, text, images) => yourMove.note({ decision_id }, text, images)}
+            onLater={(ref, on) => laterOutcome(rpc.call(on ? "later" : "unlater", { ref })).then((o) => { refetchAll(); return o; })}
+            onPick={(decision_id, option_id, revision, reason, images, answers) => {
+              return pickOutcome(picks.send((req) => rpc.call("pick", req) as never, { decision_id, option_id, revision, ...(reason !== undefined ? { reason } : {}), ...(images && images.length > 0 ? { images } : {}), ...(answers ? { answers } : {}) }, refetchAll)).finally(refetchAll);
+            }}
+            onDesktop={() => setFullView(true)}
+            onIdea={() => setIdeaOpen((o) => !o)}
+            ideaNode={ideaOpen ? <><IdeaDigest api={ideaApi} refreshKey={ideaTick} /><IdeaDesk api={ideaApi} refreshKey={ideaTick} /></> : null}
+          />
+        </div>
+      </DocReaderHost></ConversationProvider>
+    );
+  }
   return (
-    <ConversationProvider value={conversation}>
+    <ConversationProvider value={conversation}><DocReaderHost api={docs}>
     <div className="flex h-full min-h-0 flex-1 flex-col" data-home-source={HOME_SOURCE}>
-      <nav className="flex gap-3 border-b border-border px-4 py-2 text-sm">
-        {(
-          [
-            ["queue", "decision", "Queue"],
-            ...(classic ? ([["asks", "decision", "Asks"], ["blocks", "decision", "Blocking"], ["catchup", "catchup", "Catch-up"]] as const) : []),
-            ["vizier", "vizier", "Vizier"],
-            ["map", "map", "Map"],
-            ["settings", "settings", "Settings"],
-          ] as const
-        ).map(([id, kind, title]) => (
-          <button key={id} type="button" className="underline-offset-2 hover:underline" onClick={() => push({ id, kind, title })}>
-            {title}
-          </button>
-        ))}
-        <UpdateMenu info={update} onRequest={requestUpdate} error={updateError} />
-        <button type="button" className="ml-auto text-muted-foreground" aria-pressed={classic} onClick={toggleClassic}>
-          Classic tabs
-        </button>
-        <button type="button" className="text-muted-foreground" onClick={() => nav.toPluginPanel("example-todos")}>
-          Todos
-        </button>
-      </nav>
+      {phone && fullView ? <button type="button" className="min-h-11 border-b border-border px-4 text-left text-sm underline" onClick={() => setFullView(false)} data-inbox-return>‹ Back to the phone inbox</button> : null}
+      <HomeTabs extra={<UpdateMenu info={update} onRequest={requestUpdate} error={updateError} />} classic={classic} learn={learn.enabled} {...(waiting ? { waiting: waiting.total } : {})} ideas={openIdeas} onOpen={push} onToggleClassic={toggleClassic} onTodos={() => nav.toPluginPanel("example-todos")} />
       <StackView placed={layoutStack(stack)} render={render} onExpand={push} />
     </div>
-    </ConversationProvider>
+    </DocReaderHost></ConversationProvider>
   );
 }
 
-/** Sidebar badge: the owed count, or "!" when serve is not ready or a machine blocker has no owner. */
-/** The summoned overlay's route (`/plugins/autarch/home-overlay`); it never marks anything seen. */
-function OverlayPage() {
-  const { rpc, asks, catchup, error, refetch } = useHomeData();
-  const nav = useBbNavigate();
-  const picks = useMemo(() => new PickController(() => crypto.randomUUID()), []);
-  if (asks === null) return <EmptyState>{error ?? "Loading…"}</EmptyState>;
-  return (
-    <OverlayPanel
-      data={asks}
-      catchup={catchup}
-      onOpen={(thread) => nav.toThread(thread)}
-      onPick={(decision_id, option_id, revision, reason) => {
-        return pickOutcome(picks.send((req) => rpc.call("pick", { ...req, surface: "overlay" }) as never, { decision_id, option_id, revision, ...(reason !== undefined ? { reason } : {}) }, refetch)).finally(refetch);
-      }}
-    />
-  );
-}
-
+/** Sidebar badge: the one waiting count, or "!" when serve is not ready or a machine blocker has no owner. */
 function HomeBadge() {
-  const { asks, catchup, health } = useHomeData();
+  const { asks, waiting, health } = useHomeData();
   const blocked = health !== null && !health.ready;
   const unowned = asks?.asks.some((a) => a.owner === null) ?? false;
-  // Queue sections: owed asks plus catch-up items that still need a look (owed ones are already in the first count).
-  const n = (asks?.owed.length ?? 0) + catchup.filter((c) => c.kind !== "owed" && c.kind !== "routine").length;
-  if (blocked || unowned) return <span aria-label="needs attention">!</span>;
-  return n > 0 ? <span>{n}</span> : null;
+  // An older server has no `waiting`: fall back to the live (not held) owed asks rather than a different number.
+  const total = waiting?.total ?? asks?.owed.filter((o) => !o.held).length ?? 0;
+  const n = badgeCount({ total }, { blocked, unowned });
+  if (n === "!") return <span aria-label="needs attention">!</span>;
+  return n ? <span>{n}</span> : null;
 }
 
 // The default export must be definePluginApp(...); BB interprets it after
@@ -615,17 +724,16 @@ function HomeBadge() {
 export default definePluginApp((app) => {
   app.slots.navPanel({
     id: "autarch-home",
-    title: "Home",
-    icon: "House",
+    title: "Citadel",
+    icon: "Target",
     path: "home",
     component: HomePage,
     experimental_sidebarAccessory: HomeBadge,
   });
-  app.slots.navPanel({ id: OVERLAY_PANEL_ID, title: "Home overlay", icon: "House", path: OVERLAY_PATH, component: OverlayPage });
   app.slots.threadPanelAction({
     id: "home-blocks",
     title: "Blocking",
-    icon: "House",
+    icon: "Target",
     component: ({ threadId }) => <BlocksThreadPanel threadId={threadId} />,
   });
   app.slots.navPanel({

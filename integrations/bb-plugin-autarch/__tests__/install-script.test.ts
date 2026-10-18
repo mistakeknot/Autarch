@@ -10,7 +10,7 @@ const SCRIPT = resolve(__dirname, "../../../scripts/install-home-your-move.sh");
 const dirs: string[] = [];
 afterEach(() => dirs.splice(0).forEach((d) => rmSync(d, { recursive: true, force: true })));
 
-function run(version: number | null, stub: string, args = ["--check"]) {
+function run(version: number | null, stub: string, args = ["--check"], removeDb = false) {
   const root = mkdtempSync(join(tmpdir(), "ihym-"));
   dirs.push(root);
   const data = join(root, "data");
@@ -23,6 +23,7 @@ function run(version: number | null, stub: string, args = ["--check"]) {
     db.prepare("INSERT INTO migration_log VALUES (?)").run(version);
   }
   db.close();
+  if (removeDb) rmSync(join(data, "data.db"));
   const bb = join(root, "bb");
   writeFileSync(bb, `#!/bin/sh\n${stub}\n`);
   chmodSync(bb, 0o755);
@@ -233,5 +234,27 @@ describe("runtime_names_live_process (reused pid defence, fed a fake proc root)"
     expect(check({ entryPath: "/opt/bb/dist/server.js" }, { "42": cmd })).toBe(false);
     expect(check({ pid: "4x", entryPath: "/opt/bb/dist/server.js" }, { "42": cmd })).toBe(false);
     expect(check({ pid: 42 }, { "42": cmd })).toBe(false);
+  });
+});
+
+// --check lists every failed precondition before it exits; each fault below is independent of the others.
+describe("install-home-your-move.sh --check accumulates failed preconditions", () => {
+  const faults = [
+    { say: "bb plugin list failed", stub: `if [ "$2" = list ]; then echo boom; exit 1; fi`, removeDb: false },
+    { say: "no ", stub: "", removeDb: true },
+    { say: "ABORT: 'bb home moves --json' failed", stub: `if [ "$2" = moves ]; then exit 1; fi`, removeDb: false },
+  ];
+  it("every subset of faults reports each of its faults in one run and exits non-zero", () => {
+    for (let mask = 1; mask < 1 << faults.length; mask++) {
+      const on = faults.filter((_, i) => mask & (1 << i));
+      const stub = [LIST, ...on.map((f) => f.stub), "exit 0"].join("\n").replace(LIST, on.some((f) => f.stub.includes("list")) ? "" : LIST);
+      const { r } = run(4, stub, ["--check"], on.some((f) => f.removeDb));
+      expect(r.status, `mask ${mask}`).toBe(3);
+      for (const f of on) expect(r.stdout, `mask ${mask}: ${f.say}`).toContain(f.say);
+      expect(r.stdout).toContain("precondition(s) failed");
+    }
+  }, 30_000);
+  it("a clean run still passes", () => {
+    expect(run(3, `${LIST}\nexit 0`).r.status).toBe(0);
   });
 });

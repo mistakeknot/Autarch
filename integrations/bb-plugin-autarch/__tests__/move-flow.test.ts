@@ -32,7 +32,7 @@ const wakes = (r: Rig) => r.db.prepare("SELECT recipient, op, payload FROM oblig
 
 describe("closure rules: only independent evidence or supersession closes a move", () => {
   it("a claim never closes the move, and says reported, not verified", async () => {
-    const r = rig();
+    const r = rig({ legacyMoves: true });
     const t = await withMove(r, prMove());
     const res = r.svc.claimMove(t.id, 1, "merged it");
     expect(res).toMatchObject({ ok: true, replay: false, state: "claimed", claim: "reported, not verified" });
@@ -45,7 +45,7 @@ describe("closure rules: only independent evidence or supersession closes a move
   });
 
   it("a failed poll never closes, is counted, and backs off", async () => {
-    const r = rig();
+    const r = rig({ legacyMoves: true });
     const t = await withMove(r, prMove());
     let calls = 0;
     const p = poller(r, async () => {
@@ -64,7 +64,7 @@ describe("closure rules: only independent evidence or supersession closes a move
   });
 
   it("an unknown state or OPEN never closes", async () => {
-    const r = rig();
+    const r = rig({ legacyMoves: true });
     const t = await withMove(r, prMove());
     const p = poller(r, async () => ({ state: "WEIRD", mergedAt: null }));
     await p.pollOnce();
@@ -76,7 +76,7 @@ describe("closure rules: only independent evidence or supersession closes a move
   });
 
   it("MERGED closes, with evidence of state and mergedAt", async () => {
-    const r = rig();
+    const r = rig({ legacyMoves: true });
     const t = await withMove(r, prMove());
     const p = poller(r, async () => ({ state: "MERGED", mergedAt: "2026-10-02T00:00:00Z" }));
     await p.pollOnce();
@@ -87,7 +87,7 @@ describe("closure rules: only independent evidence or supersession closes a move
   });
 
   it("CLOSED closes too, and a claimed move is closed by GitHub, not by the claim", async () => {
-    const r = rig();
+    const r = rig({ legacyMoves: true });
     const t = await withMove(r, prMove());
     r.svc.claimMove(t.id, 1);
     await poller(r, async () => ({ state: "CLOSED", mergedAt: null })).pollOnce();
@@ -95,7 +95,7 @@ describe("closure rules: only independent evidence or supersession closes a move
   });
 
   it("supersede closes the old generation", async () => {
-    const r = rig();
+    const r = rig({ legacyMoves: true });
     const t = await withMove(r, prMove(), { key: "k-sup" });
     r.edit(t, { description: r.desc({ key: "k-sup", question: "Rewritten?" }) + fence(prMove("https://github.com/o/r/pull/13")) });
     await r.poll();
@@ -104,7 +104,7 @@ describe("closure rules: only independent evidence or supersession closes a move
   });
 
   it("replay is idempotent: a second poll or close changes nothing", async () => {
-    const r = rig();
+    const r = rig({ legacyMoves: true });
     const t = await withMove(r, prMove());
     const p = poller(r, async () => ({ state: "MERGED", mergedAt: "2026-10-02T00:00:00Z" }));
     await p.pollOnce();
@@ -122,7 +122,7 @@ describe("closure rules: only independent evidence or supersession closes a move
   });
 
   it("the run loop polls at once, then per interval, and stops on abort", async () => {
-    const r = rig();
+    const r = rig({ legacyMoves: true });
     await withMove(r, prMove());
     let n = 0;
     const ac = new AbortController();
@@ -136,7 +136,7 @@ describe("closure rules: only independent evidence or supersession closes a move
 
 describe("claim and skip", () => {
   it("skip is Later: it never closes, replays, and refuses a closed move", async () => {
-    const r = rig();
+    const r = rig({ legacyMoves: true });
     const t = await withMove(r, prMove());
     expect(r.svc.skipMove(t.id, 1)).toMatchObject({ ok: true, replay: false, state: "open" });
     expect(r.svc.skipMove(t.id, 1)).toMatchObject({ ok: true, replay: true });
@@ -148,7 +148,7 @@ describe("claim and skip", () => {
   });
 
   it("a script claim sets a 2 hour report deadline; a pr claim sets none", async () => {
-    const r = rig();
+    const r = rig({ legacyMoves: true });
     const s = await withMove(r, scriptMove());
     const p = await withMove(r, prMove());
     const a = r.svc.claimMove(s.id, 1);
@@ -178,6 +178,7 @@ describe("report parser", () => {
     const r = parseReport(`RESULT: FAILED\nfailing step: ${"s".repeat(500)}\nERROR: \u001b[31mboom\u001b[0m\u0007 ${"e".repeat(2000)}`)!;
     expect(r.failing_step!.length).toBeLessThanOrEqual(100);
     expect(r.error_line!.length).toBeLessThanOrEqual(300);
+    // eslint-disable-next-line no-control-regex
     expect(r.error_line).not.toMatch(/\u001b|\u0007/);
     expect(r.error_line!.startsWith("ERROR: boom")).toBe(true);
     // a huge body is truncated before parsing: a result line past the cap is not seen
@@ -189,7 +190,7 @@ describe("report watcher", () => {
   const comment = (r: Rig, id: string, body: string, over: object = {}) => r.fake.addComment(id, { threadId: "thr_a", body, createdAt: r.env.now(), ...over });
 
   it("a failed report is stored, never closes or claims, and wakes the owner once", async () => {
-    const r = rig();
+    const r = rig({ legacyMoves: true });
     const t = await withMove(r, scriptMove());
     r.advance(60_000);
     comment(r, t.id, `${SCRIPT} sha256:${SHA}\nrun mode=live exit=3 failing_step=build\nerror: disk full`);
@@ -206,7 +207,7 @@ describe("report watcher", () => {
   });
 
   it("a success report is stored for display and does not close, wake or claim", async () => {
-    const r = rig();
+    const r = rig({ legacyMoves: true });
     const t = await withMove(r, scriptMove());
     r.advance(1000);
     comment(r, t.id, `${SCRIPT} ${SHA}\nRESULT: OK`);
@@ -216,7 +217,7 @@ describe("report watcher", () => {
   });
 
   it("a report the CLI recorded is not overwritten by an older card comment", async () => {
-    const r = rig();
+    const r = rig({ legacyMoves: true });
     const t = await withMove(r, scriptMove());
     r.advance(1000);
     comment(r, t.id, `${SCRIPT} ${SHA}\nRESULT: OK`);
@@ -236,7 +237,7 @@ describe("report watcher", () => {
   });
 
   it("a CLI failure recorded while the sweep reads comments is not overwritten by the older card success", async () => {
-    const r = rig();
+    const r = rig({ legacyMoves: true });
     const t = await withMove(r, scriptMove());
     r.advance(1000);
     comment(r, t.id, `${SCRIPT} ${SHA}\nRESULT: OK`);
@@ -254,7 +255,7 @@ describe("report watcher", () => {
   });
 
   it("two CLI failures recorded before one sweep wake the owner twice, and a replay adds nothing", async () => {
-    const r = rig();
+    const r = rig({ legacyMoves: true });
     const t = await withMove(r, scriptMove());
     r.advance(1000);
     r.svc.store.setMoveReport(t.id, 1, "succeeded", { outcome: "succeeded", comment_id: "cli:x:3", source: "cli", reported_at: new Date(r.env.clock.t).toISOString(), cli_ids: ["cli:x:1", "cli:x:2", "cli:x:3"], cli_failed: [{ id: "cli:x:1", step: "a" }, { id: "cli:x:2", step: "b" }] } as never);
@@ -265,7 +266,7 @@ describe("report watcher", () => {
   });
 
   it("ignores reports for another script, older than the move, or written by Home", async () => {
-    const r = rig();
+    const r = rig({ legacyMoves: true });
     const t = await withMove(r, scriptMove());
     comment(r, t.id, `${SCRIPT} sha256:${"b".repeat(64)}\nRESULT: OK`, { createdAt: new Date(r.env.clock.t + 1000).toISOString() });
     comment(r, t.id, `${SCRIPT} ${SHA}\nRESULT: OK`, { createdAt: new Date(r.env.clock.t - 60_000).toISOString() });
@@ -276,7 +277,7 @@ describe("report watcher", () => {
   });
 
   it("the deadline passing with no report wakes the owner once, and a claim is needed first", async () => {
-    const r = rig();
+    const r = rig({ legacyMoves: true });
     const t = await withMove(r, scriptMove());
     const w = watcher(r);
     r.advance(3 * 3600_000);
@@ -294,7 +295,7 @@ describe("report watcher", () => {
   });
 
   it("a late report replaces no-report, and a failed late report wakes once more under its own key", async () => {
-    const r = rig();
+    const r = rig({ legacyMoves: true });
     const t = await withMove(r, scriptMove());
     r.svc.claimMove(t.id, 1);
     r.advance(3 * 3600_000);
@@ -307,7 +308,7 @@ describe("report watcher", () => {
   });
 
   it("only the owner thread or its live title-successor can author a report; anyone else stays a comment", async () => {
-    const r = rig();
+    const r = rig({ legacyMoves: true });
     const t = await withMove(r, scriptMove());
     r.advance(1000);
     comment(r, t.id, `${SCRIPT} ${SHA}\nRESULT: OK`, { threadId: "thr_stranger" });
@@ -322,7 +323,7 @@ describe("report watcher", () => {
   });
 
   it("two distinct failed reports wake twice; the same report replayed wakes once", async () => {
-    const r = rig();
+    const r = rig({ legacyMoves: true });
     const t = await withMove(r, scriptMove());
     r.advance(1000);
     const w = watcher(r);
@@ -337,7 +338,7 @@ describe("report watcher", () => {
   });
 
   it("two distinct failed reports in one sweep wake twice, in order; display uses the latest", async () => {
-    const r = rig();
+    const r = rig({ legacyMoves: true });
     const t = await withMove(r, scriptMove());
     r.advance(1000);
     comment(r, t.id, `${SCRIPT} ${SHA}\nRESULT: FAILED\nfailing step: one`, { id: "R1" });
@@ -350,7 +351,7 @@ describe("report watcher", () => {
   });
 
   it("a failed report followed by an OK report in one sweep wakes once for the failure; display state is succeeded", async () => {
-    const r = rig();
+    const r = rig({ legacyMoves: true });
     const t = await withMove(r, scriptMove());
     r.advance(1000);
     comment(r, t.id, `${SCRIPT} ${SHA}\nRESULT: FAILED\nfailing step: one`, { id: "R1" });
@@ -363,7 +364,7 @@ describe("report watcher", () => {
   });
 
   it("routes through resolveTarget, and an unrouted wake is left pending and retried", async () => {
-    const r = rig();
+    const r = rig({ legacyMoves: true });
     const t = await withMove(r, scriptMove());
     r.advance(1000);
     comment(r, t.id, `${SCRIPT} ${SHA}\nRESULT: FAILED`);
@@ -380,14 +381,14 @@ describe("report watcher", () => {
   });
 
   it("a comment read failure changes nothing and is counted", async () => {
-    const r = rig();
+    const r = rig({ legacyMoves: true });
     await withMove(r, scriptMove());
     const w = new ReportWatcher({ svc: r.svc, listComments: async () => { throw new Error("tasks down"); } });
     expect(await w.sweep()).toMatchObject({ errors: 1, reports: 0, wakes: 0 });
   });
 
   it("reads a report file only from an allowed root", async () => {
-    const r = rig();
+    const r = rig({ legacyMoves: true });
     const t = await withMove(r, scriptMove());
     r.advance(1000);
     comment(r, t.id, `Report: ${r.env.dir}/report.md`);
@@ -403,7 +404,7 @@ describe("report watcher", () => {
 
 describe("grouping selector", () => {
   it("groups live moves by precedence and lists closed ones as an audit, newest first", async () => {
-    const r = rig();
+    const r = rig({ legacyMoves: true });
     const a = await withMove(r, prMove("https://github.com/o/r/pull/1"));
     const b = await withMove(r, prMove("https://github.com/o/r/pull/2"));
     const c = await withMove(r, prMove("https://github.com/o/r/pull/3"));
@@ -426,7 +427,7 @@ describe("grouping selector", () => {
   });
 
   it("is pure: it does not modify its input", async () => {
-    const r = rig();
+    const r = rig({ legacyMoves: true });
     await withMove(r, prMove());
     const rows = r.svc.store.moves();
     const snap = JSON.stringify(rows);
@@ -443,7 +444,7 @@ describe("card close", () => {
   };
 
   it("closes the tasks card when Home filed it (mk-move label)", async () => {
-    const r = rig();
+    const r = rig({ legacyMoves: true });
     const t = await withMove(r, prMove());
     const l = r.fake.addLabel(r.tp.id, HOME_MOVE_LABEL);
     t.labelIds = [...t.labelIds, l.id];
@@ -455,7 +456,7 @@ describe("card close", () => {
   });
 
   it("leaves a card Home did not file alone", async () => {
-    const r = rig();
+    const r = rig({ legacyMoves: true });
     const t = await withMove(r, prMove());
     await closeAndDrain(r, t.id);
     expect((r.fake.tasks.find((x) => x.id === t.id) as { status?: string }).status).not.toBe("done");
@@ -463,7 +464,7 @@ describe("card close", () => {
   });
 
   it("does not close the card while another move on it is live", async () => {
-    const r = rig();
+    const r = rig({ legacyMoves: true });
     const t = await withMove(r, prMove(), { key: "k-two" });
     const l = r.fake.addLabel(r.tp.id, HOME_MOVE_LABEL);
     t.labelIds = [...t.labelIds, l.id];
@@ -471,6 +472,156 @@ describe("card close", () => {
     await r.poll(); // gen 1 superseded, gen 2 open
     await r.writer.drain();
     expect((r.fake.tasks.find((x) => x.id === t.id) as { status?: string }).status).not.toBe("done");
+  });
+
+  it("retiring the live move does not release a close held back by it (bead mk-1k8pg)", async () => {
+    const r = rig({ legacyMoves: true });
+    const t = await withMove(r, prMove());
+    const l = r.fake.addLabel(r.tp.id, HOME_MOVE_LABEL);
+    t.labelIds = [...t.labelIds, l.id];
+    r.svc.store.openMove({ task_id: t.id, generation: 2, kind: "pr", payload: { kind: "pr", url: "https://github.com/o/r/pull/21" }, opened_by: "card" });
+    expect(r.svc.closeMoveOn(t.id, 1, "github", "merged")).toBe(true); // gen 1's close is queued, gen 2 still live
+    expect(r.db.prepare("SELECT state FROM move_closes WHERE task_id = ?").all(t.id)).toEqual([{ state: "pending" }]);
+    expect(r.svc.retireMoves()).toBe(1);
+    await r.writer.drain();
+    expect((r.fake.tasks.find((x) => x.id === t.id) as { status?: string }).status).not.toBe("done");
+    expect(r.db.prepare("SELECT state FROM move_closes WHERE task_id = ?").all(t.id)).toEqual([{ state: "skipped" }]);
+  });
+});
+
+describe("a card gone from tasks closes its moves", () => {
+  it.each([
+    ["canceled", (r: Rig, t: { id: string }) => r.edit(r.fake.tasks.find((x) => x.id === t.id)!, { status: "canceled" }), "card canceled in tasks"],
+    ["deleted", (r: Rig, t: { id: string }) => void (r.fake.tasks = r.fake.tasks.filter((x) => x.id !== t.id)), "card deleted in tasks"],
+  ])("%s: an open move and a claimed move close, by home, with the reason as evidence", async (_n, gone, evidence) => {
+    const r = rig({ legacyMoves: true });
+    const a = await withMove(r, prMove());
+    const b = await withMove(r, prMove("https://github.com/o/r/pull/13"));
+    r.svc.claimMove(b.id, 1);
+    gone(r, a);
+    gone(r, b);
+    await r.poll();
+    for (const t of [a, b]) expect(r.svc.store.move(t.id, 1)).toMatchObject({ state: "closed", closed_by: "home", evidence });
+    expect(r.db.prepare("SELECT COUNT(*) c FROM move_closes").get()).toEqual({ c: 0 }); // the tasks card is already gone
+  });
+
+  it("unlabelled keeps the move: the card is still open in tasks", async () => {
+    const r = rig({ legacyMoves: true });
+    const t = await withMove(r, prMove());
+    r.edit(t, { labelIds: [] });
+    await r.poll();
+    expect(r.svc.store.move(t.id, 1)!.state).toBe("open");
+  });
+
+  // As a card that left before gone cards closed their moves: closed in Home's cache, its move still live.
+  const orphan = (r: Rig, id: string) => r.db.prepare("UPDATE moves SET state = 'open', closed_at = NULL, closed_by = NULL, evidence = NULL WHERE task_id = ?").run(id);
+
+  it("a sweep re-reads a card with a live move and closes it when tasks still has the card closed; a live card is untouched", async () => {
+    const r = rig({ legacyMoves: true });
+    const gone = await withMove(r, prMove());
+    const live = await withMove(r, prMove("https://github.com/o/r/pull/13"));
+    r.edit(gone, { status: "canceled" });
+    await r.poll();
+    orphan(r, gone.id);
+    await r.poll();
+    expect(r.svc.store.move(gone.id, 1)).toMatchObject({ state: "closed", closed_by: "home", evidence: "card canceled in tasks" });
+    expect(r.svc.store.move(live.id, 1)!.state).toBe("open");
+    expect(r.svc.liveMoveCards()).toEqual([live.id]);
+  });
+
+  it("a card reopened in tasks keeps its move, though Home's cache still says closed", async () => {
+    const r = rig({ legacyMoves: true });
+    const t = await withMove(r, prMove());
+    r.edit(t, { status: "canceled" });
+    await r.poll();
+    orphan(r, t.id);
+    r.edit(t, { status: "todo" });
+    await r.poll();
+    // Reopening asks again (a new generation supersedes the old move); the sweep did not close it as gone.
+    expect(r.svc.store.move(t.id, 1)!.evidence).toBe("superseded");
+    expect(r.svc.liveMoveCards()).toEqual([t.id]);
+  });
+
+  it("a card unlabelled first and cancelled later has its move closed on the next sweep", async () => {
+    const r = rig({ legacyMoves: true });
+    const t = await withMove(r, prMove());
+    r.edit(t, { labelIds: [] });
+    await r.poll();
+    await r.poll(); // still open and unlabelled: re-read, nothing changes
+    expect(r.svc.store.move(t.id, 1)!.state).toBe("open");
+    r.edit(t, { status: "canceled" });
+    await r.poll();
+    expect(r.svc.store.move(t.id, 1)).toMatchObject({ state: "closed", closed_by: "home", evidence: "card canceled in tasks" });
+  });
+
+  it("a deleted card whose move was left live has it closed on the next sweep", async () => {
+    const r = rig({ legacyMoves: true });
+    const t = await withMove(r, prMove());
+    r.fake.tasks = r.fake.tasks.filter((x) => x.id !== t.id);
+    await r.poll();
+    orphan(r, t.id);
+    await r.poll();
+    expect(r.svc.store.move(t.id, 1)).toMatchObject({ state: "closed", evidence: "card deleted in tasks" });
+  });
+
+  it("a sweep whose second re-read fails closes neither move, and the next sweep closes both", async () => {
+    const r = rig({ legacyMoves: true });
+    const a = await withMove(r, prMove());
+    const b = await withMove(r, prMove("https://github.com/o/r/pull/13"));
+    r.edit(a, { status: "canceled" });
+    r.edit(b, { status: "done" });
+    await r.poll();
+    orphan(r, a.id);
+    orphan(r, b.id);
+    r.fake.failures.push({ method: "getTask", nth: r.fake.callsOf("getTask").length + 2, error: new Error("tasks is down") });
+    expect(await r.poll()).toMatchObject({ changed: false, ok: false });
+    expect([r.svc.store.move(a.id, 1)!.state, r.svc.store.move(b.id, 1)!.state]).toEqual(["open", "open"]);
+    expect((await r.poll()).ok).toBe(true);
+    expect([r.svc.store.move(a.id, 1)!.state, r.svc.store.move(b.id, 1)!.state]).toEqual(["closed", "closed"]);
+  });
+
+  it("a repeat sweep changes nothing and keeps the closed move's evidence", async () => {
+    const r = rig({ legacyMoves: true });
+    const t = await withMove(r, prMove());
+    r.edit(t, { status: "canceled" });
+    await r.poll();
+    orphan(r, t.id);
+    await r.poll();
+    const closed = r.svc.store.move(t.id, 1)!;
+    expect(closed.state).toBe("closed");
+    expect(await r.poll()).toMatchObject({ changed: false, ok: true });
+    expect(r.svc.store.move(t.id, 1)).toEqual(closed);
+    expect(r.svc.liveMoveCards()).toEqual([]);
+  });
+
+  it("a card unlabelled and labelled again keeps its move", async () => {
+    const r = rig({ legacyMoves: true });
+    const t = await withMove(r, prMove());
+    const labels = t.labelIds;
+    r.edit(t, { labelIds: [] });
+    await r.poll();
+    r.edit(t, { labelIds: labels });
+    await r.poll();
+    expect(r.svc.liveMoveCards()).toEqual([t.id]);
+    expect(r.svc.store.move(t.id, 1)!.evidence ?? "").not.toMatch(/in tasks$/);
+  });
+
+  it("a card gone as closed with no status read closes its moves as closed", async () => {
+    const r = rig({ legacyMoves: true });
+    const t = await withMove(r, prMove());
+    expect(r.svc.cardGone(t.id, "closed", undefined).changed).toBe(true);
+    expect(r.svc.store.move(t.id, 1)).toMatchObject({ state: "closed", evidence: "card closed in tasks" });
+  });
+
+  it("a picked card closed in tasks closes its move too, and stays ruled", async () => {
+    const r = rig({ legacyMoves: true });
+    const t = await withMove(r, prMove());
+    const d = r.gens(t.id)[0];
+    r.mkPick(d.id);
+    r.edit(t, { status: "done" });
+    await r.poll();
+    expect(r.svc.store.move(t.id, 1)).toMatchObject({ state: "closed", evidence: "card done in tasks" });
+    expect(r.cardRow(t.id).state).toBe("ruled");
   });
 });
 
@@ -489,7 +640,7 @@ describe("rpc contract and CLI", () => {
   });
 
   it("bb home moves --json exports every move with its groups", async () => {
-    const r = rig();
+    const r = rig({ legacyMoves: true });
     const a = await withMove(r, prMove());
     const b = await withMove(r, prMove("https://github.com/o/r/pull/9"));
     r.svc.claimMove(b.id, 1);

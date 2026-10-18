@@ -669,12 +669,9 @@ func (v *BigendView) renderSessionsPane(width int) string {
 				icon, color := dispatchStatusDisplay(d.Status)
 				dispStyle := lipgloss.NewStyle().Foreground(color)
 
-				agent := d.Agent
+				agent := d.AgentType
 				if d.Name != nil && *d.Name != "" {
 					agent = *d.Name
-				}
-				if agent == "" {
-					agent = d.Type
 				}
 
 				idPrefix := d.ID

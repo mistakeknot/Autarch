@@ -1,16 +1,20 @@
 // The Home decision service: file, pick once, reconcile the ruling file, wake and feed.
 // Every state change goes through one Store transaction; this layer maps outcomes to
 // HTTP-shaped results and never holds state of its own.
+import { ImageStore, textSha, validateImages, type ImageIn, type PathsResult } from "./otherimages.js";
 import { createHash, randomUUID } from "node:crypto";
 import { buildFeed, renderFeed, type Feed } from "./feed.js";
 import { cardFingerprint, askingThread, parseCard, toV1, type Card } from "./cards.js";
-import type { Task, TaskCommentRow } from "./tasks.js";
+import { OPEN_STATUSES, type Task, type TaskCommentRow } from "./tasks.js";
 
 /** A vizier hold on a card; n tells one hold from a replacement made in the same millisecond. */
 export type Hold = { reason: string; by: string; at: string; n?: string };
-import { identity, normalizedJson, parseAsk, revision, semanticKey, type Ask } from "./model.js";
+/** mk set the card aside to do after the fast ones (bead mk-8741). The card stays open and unruled. */
+export type Later = { at: string; by: string };
+import { identity, normalizedJson, parseAsk, revision, semanticKey, type Ask, type Question } from "./model.js";
 import { HOME_UNLABELS_ON_PICK, pickWrites } from "./cardwrites.js";
 import { estateRoot, pinRoot, renderRuling, rulingPath, writeRuling, type PinnedRoot, type Ruling } from "./ruling.js";
+import { appendRuling } from "./ledger.js";
 import type { DecisionInput, ObligationInput, ObligationRow, PickInput, PickRow, Store } from "./store.js";
 
 export interface ProjectInfo {
@@ -30,6 +34,10 @@ export interface ServiceDeps {
   nudge?: () => void;
   /** How long after "I ran it" a script's report may take before "No report received" (default 2 h). */
   reportDeadlineMs?: number;
+  /** The vizier's rulings.jsonl. Each ruled pick appends one line there (idempotent on the pick id); omitted, none is written. */
+  rulingsLedger?: string | null;
+  /** Where the Other box's images are kept. Omitted, a request that carries images is refused. */
+  images?: ImageStore;
 }
 
 export const DEFAULT_REPORT_DEADLINE_MS = 2 * 3_600_000;
@@ -75,13 +83,49 @@ const APPROVAL_MAX_TTL = 7 * 24 * 3600;
 const fail = (status: number, error: string, exit: 1 | 2 | 3 = status >= 500 ? 3 : 1): FileResult => ({ ok: false, status, exit, error });
 const bad = (error: string): FileResult => ({ ok: false, status: 400, exit: 2, error });
 export const OTHER_OPTION_ID = "other";
-export const OTHER_MAX = 2000;
+/** The virtual option of a multi-pick ask: one pick that answers every question. Never in the ask; mk only. */
+export const ANSWERS_OPTION_ID = "answers";
+export const OTHER_MAX = 20000;
 /** True when the comment's last non-empty line is exactly the marker `home-note: <id>`, with no trimming beyond a trailing carriage return (so n1 never matches n10). */
 export function hasNoteMarker(body: string, noteId: string): boolean {
   const lines = body.split("\n").map((l) => l.replace(/\r$/, "")).filter((l) => l !== ""); // literal: only a trailing CR is dropped
   return lines.length > 0 && lines[lines.length - 1] === `home-note: ${noteId}`;
 }
 /** mk's free text: trimmed, plain, 1..OTHER_MAX characters; null when empty or too long. */
+/** A multi-pick answer: every question has exactly one of its options. The words read "id: label" per question, and mark a pick that differs from the recommendation. */
+export function answersOf(
+  questions: readonly Question[],
+  answers: Readonly<Record<string, string>> | undefined,
+  note: string | undefined,
+): { ok: true; words: string; lines: string[]; json: string } | { ok: false; error: string } {
+  if (answers === undefined || answers === null || typeof answers !== "object") return { ok: false, error: "answers are required: one option for every question" };
+  const known = new Set(questions.map((q) => q.id));
+  for (const k of Object.keys(answers)) if (!known.has(k)) return { ok: false, error: `unknown question ${JSON.stringify(k)}` };
+  // Labels and the note are unverified text: one line each, so none can pose as another answer.
+  const flat = (t: string) => t.replace(/\s+/g, " ").trim();
+  const parts: string[] = [];
+  const lines: string[] = [];
+  const chosen: string[][] = [];
+  for (const q of questions) {
+    const pickId = answers[q.id];
+    const o = q.options.find((x) => x.id === pickId);
+    if (!o) return { ok: false, error: `question ${q.id} needs one of its options` };
+    const rec = q.recommendation ? q.options.find((x) => x.id === q.recommendation) : undefined;
+    const changed = rec !== undefined && rec.id !== o.id ? ` (changed; recommended was ${flat(rec.label)})` : "";
+    parts.push(`${q.id}: ${flat(o.label)}${changed}`);
+    lines.push(`- ${q.id}: ${flat(o.label)} [${o.id}]${changed}`);
+    chosen.push([q.id, o.id]);
+  }
+  let words = parts.join("; ");
+  const text = note === undefined || note.trim() === "" ? null : cleanOther(note);
+  if (note !== undefined && note.trim() !== "" && text === null) return { ok: false, error: `a note of 1-${OTHER_MAX} characters is required` };
+  if (text !== null) {
+    words += `; note: ${flat(text)}`;
+    lines.push(`Note: ${flat(text)}`);
+  }
+  return { ok: true, words, lines, json: JSON.stringify([chosen, text]) };
+}
+
 export function cleanOther(s: string | undefined): string | null {
   const t = (s ?? "").trim();
   return t === "" || [...t].length > OTHER_MAX ? null : t;
@@ -332,7 +376,7 @@ export class Service {
 
   // ---- picking --------------------------------------------------------------
 
-  pick(decisionId: string, optionId: string, rev: string, pickId: string, by: string, surface: "home" | "overlay" | "cli", reason?: string, guard?: PickInput["guard"]): PickResult {
+  pick(decisionId: string, optionId: string, rev: string, pickId: string, by: string, surface: "home" | "overlay" | "cli", reason?: string, guard?: PickInput["guard"], images?: readonly ImageIn[], answers?: Readonly<Record<string, string>>): PickResult {
     const d = this.row(decisionId);
     if (!d) return { ok: false, status: 404, error: "unknown decision" };
     if (d.kind === "steps") return this.pickSteps(d, optionId, rev, pickId, by, surface);
@@ -357,21 +401,38 @@ export class Service {
     if (realOther && optionId === OTHER_OPTION_ID && by === "mk" && surface === "home" && reason !== undefined && reason.trim() !== "") {
       return { ok: false, status: 400, error: `this ask has its own option with id "other", so "Answer with this" is not available here; pick that option or use Ask / note` };
     }
+    const isAnswers = optionId === ANSWERS_OPTION_ID && (ask.questions?.length ?? 0) > 0 && !ask.options?.some((o) => o.id === ANSWERS_OPTION_ID);
+    let multi: { words: string; lines: string[]; json: string } | null = null;
+    if (isAnswers) {
+      if (by !== "mk") return { ok: false, status: 403, error: "only mk can answer a multi-pick ask" };
+      if (d.source !== "card" && !d.project_root) return { ok: false, status: 403, error: "this decision has no verified project root" };
+      const built = answersOf(ask.questions!, answers, reason);
+      if (!built.ok) return { ok: false, status: 400, error: built.error };
+      multi = built;
+    } else if (answers !== undefined) return { ok: false, status: 400, error: "answers go only with a multi-pick ask" };
     const isOther = optionId === OTHER_OPTION_ID && !realOther;
     const otherText = isOther ? cleanOther(reason) : null;
     if (isOther) {
       // mk's own words (plan: Other box). A virtual option: never in the ask, never delegable, mk only.
-      if (by !== "mk") return { ok: false, status: 403, error: "only mk can answer with his own words" };
+      if (by !== "mk") return { ok: false, status: 403, error: "only mk can answer with their own words" };
       if (otherText === null) return { ok: false, status: 400, error: `an answer of 1-${OTHER_MAX} characters is required` };
       if (d.source !== "card" && !d.project_root) return { ok: false, status: 403, error: "this decision has no verified project root" };
     }
-    const option = isOther
+    if (images && images.length > 0 && !isOther && !isAnswers) return { ok: false, status: 400, error: "images go only with your own answer" };
+    const imgs = validateImages(images);
+    if (!imgs.ok) return { ok: false, status: 400, error: imgs.error };
+    if (imgs.files.length > 0 && !this.deps.images) return { ok: false, status: 503, error: "images are not available; nothing was sent" };
+    const option = isAnswers
+      ? ({ id: ANSWERS_OPTION_ID, label: "Answers", kind: "ruling-only", reversible: false } as NonNullable<Ask["options"]>[number])
+      : isOther
       ? ({ id: OTHER_OPTION_ID, label: "Other (mk's own answer)", kind: "ruling-only", reversible: false } as NonNullable<Ask["options"]>[number])
       : ask.options?.find((o) => o.id === optionId);
     if (!option) return { ok: false, status: 400, error: `unknown option ${JSON.stringify(optionId)}` };
     if (rev !== d.revision) return { ok: false, status: 409, error: "revision differs" };
 
-    const hash = createHash("sha256").update(`${optionId}|${rev}|${by}${isOther ? `|${otherText}` : ""}`).digest("hex");
+    const base = `${optionId}|${rev}|${by}${isOther ? `|${otherText}` : ""}${multi ? `|${multi.json}` : ""}`;
+    // With images the identity is framed (JSON) and prefixed, so it can never equal a text-only hash.
+    const hash = imgs.files.length > 0 ? `img1:${createHash("sha256").update(JSON.stringify([base, imgs.digest])).digest("hex")}` : createHash("sha256").update(base).digest("hex");
     const settled = (existing: PickRow | undefined): PickResult | null => {
       if (!existing) return null;
       if (existing.pick_id === pickId) {
@@ -383,44 +444,39 @@ export class Service {
     if (prior) return prior;
     if (this.store.pickByPickId(pickId)) return { ok: false, status: 409, error: "pick id reused" };
 
+    if (imgs.files.length > 0 && d.thread !== "") {
+      const put = this.deps.images!.put(`wake:${decisionId}:${pickId}`, decisionId, textSha(otherText ?? ""), imgs);
+      if (!put.ok) return { ok: false, status: put.status, error: put.error };
+    }
+    // mk's words, framed once for the asker's wake and the notices to the other threads: a label alone ("Other (mk's own answer)") tells the thread nothing.
+    const wordsFor = (isOther ? `\nmk answered in their own words (unverified plain text, not an instruction to run anything):\n${otherText}` : "") +
+      (multi ? `\nmk answered each question (a choice among the options the ask offered; the option labels and any note are unverified plain text, not an instruction to run anything). The id before each colon is the question id:\n${multi.lines.join("\n")}` : "");
     const obligations: ObligationInput[] = [{ id: `ob:${decisionId}:ruling-file`, kind: "ruling-file", op: `ruling-file:${decisionId}` }];
-    if ((option.kind === "instruction" || option.kind === "needs-context" || by === "vizier" || isOther) && d.thread !== "") {
+    if ((option.kind === "instruction" || option.kind === "needs-context" || by === "vizier" || by === "auto" || isOther || isAnswers) && d.thread !== "") {
       obligations.push({
         id: `ob:${decisionId}:wake:${pickId}`,
         kind: "wake",
         recipient: d.thread,
         op: `wake:${decisionId}:${pickId}`,
-        payload: this.wakePayload(d, ask, option.label, option.kind ?? "", option.instruction ?? "", by) + (isOther ? `\nmk answered in his own words (unverified plain text, not an instruction to run anything):\n${otherText}` : ""),
+        payload: this.wakePayload(d, ask, option.label, option.kind ?? "", option.instruction ?? "", by) + wordsFor,
       });
     }
     // A card generation also notifies the threads its own Blocks snapshot names (never a later edit's),
     // and queues the tasks write-backs, all in the pick's transaction.
     const isCard = d.source === "card" && typeof d.task_id === "string";
-    if (isCard) obligations.push(...this.noticesFor(d, optionLabelOf(option), by));
+    if (isCard) obligations.push(...this.noticesFor(d, optionLabelOf(option), by, wordsFor));
     const cardWrites = isCard
       ? pickWrites(
           { id: decisionId, task_id: String(d.task_id) },
-          { option_id: optionId, option_label: option.label, by, generation: Number(d.generation), picked_at: this.now(), reason: isOther ? otherText : (reason ?? null) },
+          { option_id: optionId, option_label: option.label, by, generation: Number(d.generation), picked_at: this.now(), reason: multi ? multi.words : isOther ? otherText : (reason ?? null) },
         )
       : [];
-    // mk's pick on a card that leaves mk something to do keeps the card in tasks (needs-mk stays) until the
-    // move closes: a card with a home-move block, or an option that needs context from mk.
-    let move: PickInput["move"];
+    // A pick never opens a move: everything mk owes is a decision card (bead mk-1k8pg). A pick on a card whose
+    // move is still live (one opened before moves were retired) keeps needs-mk until that move closes.
     let keepsCard = false;
     if (isCard && by === "mk") {
-      const gen = Number(d.generation);
-      const mine = this.store.move(String(d.task_id), gen);
+      const mine = this.store.move(String(d.task_id), Number(d.generation));
       if (mine && mine.state !== "closed") keepsCard = true;
-      else if (!mine && option.kind === "needs-context") {
-        keepsCard = true;
-        move = {
-          task_id: String(d.task_id),
-          generation: gen,
-          kind: "context",
-          payload: { kind: "context", need: (option.instruction || option.label).slice(0, 2000) },
-          opened_by: "pick",
-        };
-      }
     }
     const heldWrites = keepsCard ? cardWrites.filter((w) => w.kind !== "unlabel") : cardWrites;
     // Only mk's own pick mints, and it does so in the pick's transaction. A record is not an authorization.
@@ -438,7 +494,7 @@ export class Service {
     let res;
     try {
       res = this.store.recordPick(
-        { decision_id: decisionId, pick_id: pickId, option_id: optionId, revision: rev, by, surface, reason: isOther ? otherText : (reason ?? null), params_hash: hash, approval, guard, move },
+        { decision_id: decisionId, pick_id: pickId, option_id: optionId, revision: rev, by, surface, reason: multi ? multi.words : isOther ? otherText : (reason ?? null), params_hash: hash, approval, guard },
         obligations,
         heldWrites,
       );
@@ -465,11 +521,13 @@ export class Service {
     } finally {
       this.deps.nudge?.();
     }
+    // Ruling a card ends its time in Later.
+    if (isCard) this.unlater(String(d.task_id));
     return { ok: true, status: 201, pick: this.store.pick(decisionId)! };
   }
 
   /** One notice per distinct thread in the generation's Blocks snapshot, except the asking thread. */
-  private noticesFor(d: Row, label: string, by: string): ObligationInput[] {
+  private noticesFor(d: Row, label: string, by: string, words = ""): ObligationInput[] {
     const refs = this.db.prepare("SELECT ref FROM decision_blocks WHERE decision_id = ? ORDER BY ref").all(d.id) as { ref: string }[];
     const threads = [...new Set(refs.map((r) => r.ref).filter((r) => r.startsWith("thread:")).map((r) => r.slice("thread:".length)))].filter((t) => t !== "" && t !== d.thread);
     return threads.map((t) => ({
@@ -477,7 +535,7 @@ export class Service {
       kind: "notice",
       recipient: t,
       op: `notice:${d.id}:${t}`,
-      payload: `${by === "vizier" ? "The vizier" : "mk"} ruled on the card ${d.id}${d.subject ? ` (${d.subject})` : ""}, which names your thread: picked ${JSON.stringify(label)}. This is not merge, deploy, release or publish authorization.`,
+      payload: `${by === "vizier" ? "The vizier ruled on" : by === "auto" ? "Home closed, on evidence and not by mk's click," : "mk ruled on"} the card ${d.id}${d.subject ? ` (${d.subject})` : ""}, which names your thread: picked ${JSON.stringify(label)}. This is not merge, deploy, release or publish authorization. Look the card up with \`bb home get --id ${d.id}\`.${words}`,
     }));
   }
 
@@ -543,9 +601,12 @@ export class Service {
         `The vizier ruled on your decision ${d.id} in mk's place (you marked this option reversible). mk may override it. This is not merge, deploy, release or publish authorization.`,
       );
     }
+    if (by === "auto") {
+      lines.push("Home closed this card automatically because independent evidence shows the action was done. mk did not click, and this is not mk's ruling or any authorization.");
+    }
     const over = this.store.overriddenRuling(d.id);
     if (over) lines.push(`This supersedes the vizier's ruling on ${over.decision_id}.`);
-    lines.push(`Ruling on ${d.id}${d.subject ? ` (${d.subject})` : ""}: ${by} picked ${JSON.stringify(label)} [${kind}].`);
+    lines.push(`Ruling on ${d.id}${d.subject ? ` (${d.subject})` : ""}: ${by} picked ${JSON.stringify(label)}.`);
     lines.push(`Question: ${ask.question}`);
     if (kind === "instruction") lines.push(`Instruction: ${instruction}`);
     else if (kind === "needs-context") lines.push("This choice needs more context from you before you act.");
@@ -573,14 +634,16 @@ export class Service {
         subject: d.subject || ask.question.slice(0, 80),
         options_shown: (ask.options ?? []).map((o) => ({ id: o.id!, label: o.label })),
         picked: pick.option_id,
-        ruled_by: pick.by === "vizier" ? "vizier" : "mk",
+        ruled_by: pick.by === "vizier" ? "vizier" : pick.by === "auto" ? "auto" : "mk",
         ruled_at: pick.picked_at,
         ruling: `Picked ${JSON.stringify(option?.label ?? pick.option_id)} for: ${ask.question}`,
         source: `autarch-home:${pick.surface}`,
       };
       if (option?.kind === "instruction" && option.instruction) ruling.instruction = option.instruction;
       if (pick.by === "vizier" && pick.reason) ruling.delegated_reason = pick.reason;
-      if (pick.option_id === OTHER_OPTION_ID && pick.reason) ruling.ruling = `mk answered in his own words for: ${ask.question} -- ${pick.reason.replace(/\s+/g, " ")}`;
+      if (pick.by === "auto" && pick.reason) ruling.auto_evidence = pick.reason;
+      if (pick.option_id === OTHER_OPTION_ID && pick.reason) ruling.ruling = `mk answered in their own words for: ${ask.question} -- ${pick.reason.replace(/\s+/g, " ")}`;
+      if (pick.option_id === ANSWERS_OPTION_ID && pick.reason) ruling.ruling = `mk answered each question for: ${ask.question} -- ${pick.reason.replace(/\s+/g, " ")}`;
       if (d.supersedes) ruling.supersedes = d.supersedes;
       if (d.source === "card" && typeof d.task_id === "string") {
         // The stored generation body is the snapshot; the live card is never consulted.
@@ -591,6 +654,21 @@ export class Service {
       }
       const threads = this.store.mentions(d.id).map((m) => m.thread);
       if (threads.length > 0) ruling.mentions = threads;
+      // The ledger comes first: it does not depend on the project having a root, so a pick on an unbound project still
+      // reaches it. A retry after a later failure finds its line and writes nothing.
+      if (this.deps.rulingsLedger) {
+        appendRuling(this.deps.rulingsLedger, {
+          pick_id: pick.pick_id,
+          picked_at: pick.picked_at,
+          by: pick.by,
+          surface: pick.surface,
+          card: ruling.card_key ?? d.id,
+          subject: ruling.subject,
+          option_id: pick.option_id,
+          option_label: option?.label ?? pick.option_id,
+          reason: pick.reason,
+        });
+      }
       const target = rulingPath({ scope: estate ? "estate" : "project", decision_id: d.id, subject: ruling.subject, date: pick.picked_at.slice(0, 10) });
       writeRuling({ path: d.project_root ?? "", dev: d.root_dev ?? "", ino: d.root_ino ?? "" }, target.dirs, target.file, renderRuling(ruling));
       this.store.transition(ob.id, "pending", "done", ob.attempt);
@@ -693,6 +771,69 @@ export class Service {
     }
     return { ok: true, task_id: id, was };
   }
+  // ---- later: mk sets an open card aside to do after the fast ones. Kept in one settings_kv value keyed by task id
+  // (no schema change). Unlike a hold it never refuses a pick and it is mk's own choice; ruling the card clears it.
+  private readLaters(): Record<string, Later> {
+    try {
+      const v = JSON.parse(this.store.setting("later") ?? "{}");
+      if (!v || typeof v !== "object" || Array.isArray(v)) return {};
+      // Fail open: an entry without a writer and a readable time is not a Later.
+      const ok: Record<string, Later> = {};
+      for (const [id, l] of Object.entries(v as Record<string, unknown>)) {
+        const e = l as { at?: unknown; by?: unknown } | null;
+        if (e && typeof e.by === "string" && typeof e.at === "string" && !Number.isNaN(Date.parse(e.at))) ok[id] = { at: e.at, by: e.by };
+      }
+      return ok;
+    } catch {
+      return {};
+    }
+  }
+  laters(): Record<string, Later> {
+    return this.readLaters();
+  }
+  laterOf(taskId: string | null | undefined): Later | null {
+    return taskId ? (this.readLaters()[taskId] ?? null) : null;
+  }
+  /** Cards whose skipped moves do not make them Later: on hold (a hold wins), or still owing a decision that counts as waiting. */
+  skipIgnored(): Set<string> {
+    const later = this.readLaters();
+    const out = new Set(Object.keys(this.readHolds()));
+    for (const d of this.owed()) if (d.task_id && !(String(d.task_id) in later)) out.add(String(d.task_id));
+    return out;
+  }
+  /** Task ids set aside as whole cards and not on hold: a hold beats Later everywhere it is shown or counted. */
+  laterTasks(): Set<string> {
+    return new Set(Object.keys(this.readLaters()).filter((t) => !this.holdOf(t)));
+  }
+  later(ref: string, by: string): { ok: true; task_id: string; was: boolean } | { ok: false; error: string } {
+    const id = this.cardTaskId(ref);
+    if (!id) return { ok: false, error: "no such card" };
+    // One transaction per read-modify-write, so two connections adding different cards cannot drop each other's.
+    return this.store.atomically(() => {
+      const l = this.readLaters();
+      const was = id in l;
+      if (!was) {
+        l[id] = { at: this.now(), by };
+        this.store.setSetting("later", JSON.stringify(l));
+      }
+      return { ok: true as const, task_id: id, was };
+    });
+  }
+  unlater(ref: string): { ok: true; task_id: string; was: boolean } | { ok: false; error: string } {
+    const id = this.cardTaskId(ref);
+    if (!id) return { ok: false, error: "no such card" };
+    return this.store.atomically(() => {
+      const l = this.readLaters();
+      let was = id in l;
+      if (was) {
+        delete l[id];
+        this.store.setSetting("later", JSON.stringify(l));
+      }
+      // A move set aside with "Later / skip" is the same Later to mk, so Move back undoes it too.
+      if (this.store.unskipMoves(id) > 0) was = true;
+      return { ok: true as const, task_id: id, was };
+    });
+  }
   /** A comment posted after the hold that carries a sha256 (a new script) makes the card live again. */
   async releaseHoldOnSha(taskId: string, comments: () => Promise<TaskCommentRow[]>): Promise<boolean> {
     const hold = this.holdOf(taskId);
@@ -716,6 +857,13 @@ export class Service {
     if (!taskId) return null;
     const r = this.db.prepare("SELECT card_key FROM cards WHERE task_id = ?").get(taskId) as { card_key: string | null } | undefined;
     return r?.card_key ?? null;
+  }
+
+  /** The title of a card, or null for a legacy ask or a card without one. */
+  cardTitle(taskId: string | null | undefined): string | null {
+    if (!taskId) return null;
+    const r = this.db.prepare("SELECT title FROM cards WHERE task_id = ?").get(taskId) as { title: string | null } | undefined;
+    return r?.title ?? null;
   }
 
   /** Open decide asks with no pick, not withdrawn, resolved or replaced. */
@@ -885,6 +1033,7 @@ export class Service {
   }
   private patchCard(taskId: string, set: Record<string, string | number | null>): void {
     const keys = Object.keys(set);
+    if (keys.length === 0) return;
     this.db
       .prepare(`UPDATE cards SET ${keys.map((k) => `${k} = @${k}`).join(", ")}, updated_at = @__at WHERE task_id = @__id`)
       .run({ ...set, __at: this.now(), __id: taskId });
@@ -1033,14 +1182,38 @@ export class Service {
   }
 
   /**
-   * A new card generation supersedes the move of the one before it, and opens its own when the card
-   * carries a home-move block. The payload is the validated move, never card text.
+   * A new card generation supersedes the move of the one before it. A home-move block on the card opens
+   * nothing: what mk owes is the card's decision (bead mk-1k8pg).
    */
-  private syncMove(taskId: string, generation: number, card: Card): void {
+  private syncMove(taskId: string, generation: number): void {
     for (const g of this.db.prepare("SELECT generation FROM moves WHERE task_id = ? AND generation < ? AND state <> 'closed'").all(taskId, generation) as { generation: number }[]) {
       this.store.closeMove(taskId, g.generation, "home", "superseded");
     }
-    if (card.move) this.store.openMove({ task_id: taskId, generation, kind: card.move.kind, payload: card.move, opened_by: "card" });
+  }
+
+  /**
+   * Closes every live move left from before moves were retired (bead mk-1k8pg). A card mk already ruled gets the
+   * needs-mk unlabel its pick held back; no tasks card is closed, since retiring a move is not evidence it was done.
+   * Idempotent: returns how many it closed.
+   */
+  retireMoves(): number {
+    let n = 0;
+    for (const m of this.db.prepare("SELECT task_id, generation FROM moves WHERE state <> 'closed' ORDER BY task_id, generation").all() as { task_id: string; generation: number }[]) {
+      this.store.atomically(() => {
+        if (!this.store.closeMove(m.task_id, m.generation, "home", "moves retired")) return;
+        n++;
+        // A pending close of an older move was held back by this live one, so the card is still owed: the writer
+        // must not close it now that nothing live is left to hold it back.
+        this.db
+          .prepare("UPDATE move_closes SET state = 'skipped', last_error = 'card had a live move when moves were retired', updated_at = ? WHERE task_id = ? AND state = 'pending'")
+          .run(this.now(), m.task_id);
+        const d = this.db.prepare("SELECT id FROM decisions WHERE task_id = ? AND generation = ?").get(m.task_id, m.generation) as { id: string } | undefined;
+        if (d && this.store.pick(d.id) && HOME_UNLABELS_ON_PICK) {
+          this.store.insertCardWrites(d.id, [{ id: `cw-${d.id}-unlabel`, task_id: m.task_id, kind: "unlabel", payload: JSON.stringify({ move_closed_by: "home" }) }]);
+        }
+      });
+    }
+    return n;
   }
 
   /**
@@ -1087,9 +1260,9 @@ export class Service {
    * "Ask / note" from the Other box: a message to the card's owner. It never rules, claims or closes anything.
    * The text is mk's, untrusted plain text, 1..OTHER_MAX characters. Idempotent per note_id.
    */
-  note(target: { task_id?: string; decision_id?: string }, text: string, noteId: string, opts?: { deferWake?: false }): { ok: true; replay: boolean; body: string; woke: boolean; task_id: string | null } | { ok: false; status: number; error: string };
-  note(target: { task_id?: string; decision_id?: string }, text: string, noteId: string, opts: { deferWake: true }): { ok: true; body: string; task_id: string | null; commit: () => { replay: boolean; woke: boolean } } | { ok: false; status: number; error: string };
-  note(target: { task_id?: string; decision_id?: string }, text: string, noteId: string, opts?: { deferWake?: boolean }): any {
+  note(target: { task_id?: string; decision_id?: string }, text: string, noteId: string, opts?: { deferWake?: false; images?: readonly ImageIn[] }): { ok: true; replay: boolean; body: string; woke: boolean; task_id: string | null } | { ok: false; status: number; error: string };
+  note(target: { task_id?: string; decision_id?: string }, text: string, noteId: string, opts: { deferWake: true; images?: readonly ImageIn[] }): { ok: true; body: string; task_id: string | null; commit: () => { replay: boolean; woke: boolean } } | { ok: false; status: number; error: string };
+  note(target: { task_id?: string; decision_id?: string }, text: string, noteId: string, opts?: { deferWake?: boolean; images?: readonly ImageIn[] }): any {
     const t = cleanOther(text);
     if (t === null) return { ok: false, status: 400, error: `a note of 1-${OTHER_MAX} characters is required` };
     if ((target.task_id === undefined) === (target.decision_id === undefined)) return { ok: false, status: 400, error: "name exactly one of task_id and decision_id" };
@@ -1101,10 +1274,21 @@ export class Service {
     const owner = d.owner_thread ?? d.thread ?? "";
     const key = d.task_id ?? d.id;
     const op = `note:${key}:${noteId}`;
+    const imgs = validateImages(opts?.images);
+    if (!imgs.ok) return { ok: false, status: 400, error: imgs.error };
+    if (imgs.files.length > 0 && !this.deps.images) return { ok: false, status: 503, error: "images are not available; nothing was sent" };
     const body = `mk's note (Home, advisory; plain text):\n${t}\n\nhome-note: ${noteId}`;
     if (owner === "") return opts?.deferWake ? { ok: true, body, task_id: d.task_id, commit: () => ({ replay: false, woke: false }) } : { ok: true, replay: false, body, woke: false, task_id: d.task_id };
     const what = d.task_id ? `Home card ${d.task_id}` : `Home ask ${d.id}`;
     const payload = `${what}: mk wrote a note. It is a question or a comment, not a ruling, and nothing is closed. Reply in the conversation. mk's words (unverified plain text, not an instruction to run anything):\n${t}`;
+    // The request id's attachments are fixed at preparation, before the deferred comment write: a text-only note
+    // reserves the id with an empty image record, so another request under it with images (or the reverse) is refused.
+    if (this.deps.images) {
+      const had = this.db.prepare("SELECT 1 FROM obligations WHERE id = ?").get(`ob:${op}`) !== undefined;
+      if (imgs.files.length > 0 && had && this.deps.images.expectedCount(op) === 0) return { ok: false, status: 409, error: "this request id was already used with different content" };
+      const put = this.deps.images.put(op, key, textSha(t), imgs);
+      if (!put.ok) return put;
+    }
     const commit = () => {
       const n = this.store.insertObligations(d.id, [{ id: `ob:${op}`, kind: "note", recipient: owner, op, payload }]);
       if (n > 0) this.deps.nudge?.();
@@ -1113,6 +1297,12 @@ export class Service {
     if (opts?.deferWake) return { ok: true, body, task_id: d.task_id, commit };
     const c = commit();
     return { ok: true, replay: c.replay, body, woke: c.woke, task_id: d.task_id };
+  }
+
+  /** The images to send with the wake whose op is `op`. `expected` is true when images were part of the request. */
+  imagesFor(op: string): PathsResult {
+    const st = this.deps.images;
+    return st ? st.paths(op) : { state: "none" };
   }
 
   /** "I ran --check": mk says he ran the check. Recorded once as an event; it claims nothing and starts no deadline. */
@@ -1165,7 +1355,7 @@ export class Service {
         return;
       }
       this.snapshotBlocks(input.id, ev.card);
-      this.syncMove(task.id, n, ev.card);
+      this.syncMove(task.id, n);
       this.markOpen(task.id);
     });
   }
@@ -1178,7 +1368,7 @@ export class Service {
       const res = this.store.insertDecision(input);
       if (!res.inserted) throw new Error(`card generation ${input.id} request id is in use`);
       this.snapshotBlocks(input.id, ev.card);
-      this.syncMove(task.id, n, ev.card);
+      this.syncMove(task.id, n);
       this.markOpen(task.id);
     });
   }
@@ -1262,7 +1452,7 @@ export class Service {
         .prepare("INSERT INTO card_requests(request_key, task_id, identity, registered_at) VALUES (?, ?, ?, ?)")
         .run(key, task.id, card.request.identity, this.now());
       this.snapshotBlocks(input.id, card);
-      this.syncMove(task.id, 1, card);
+      this.syncMove(task.id, 1);
       this.patchCard(task.id, {
         routing_mode: card.pull === "mycroft" ? "pull" : "thread",
         routed_thread: card.pull === "mycroft" ? null : thread,
@@ -1277,6 +1467,7 @@ export class Service {
   /** T6/T7/T11: the card was closed, unlabelled or deleted in tasks. */
   cardGone(taskId: string, why: "closed" | "unlabelled" | "deleted", status?: string): { changed: boolean } {
     const before = this.sig(taskId);
+    let movesClosed = 0;
     this.store.atomically(() => {
       const row = this.cardRow(taskId);
       if (!row) return;
@@ -1286,6 +1477,10 @@ export class Service {
         ...(why === "deleted" ? { deleted_at: this.now() } : {}),
       });
       const reason = why === "closed" ? "card closed in tasks" : why === "unlabelled" ? "unlabelled" : "card deleted in tasks";
+      // A card closed or deleted in tasks leaves nothing to merge, run or read, so its live moves close with it
+      // (bead mk-t7656). A card only unlabelled is still open in tasks, and its move may still be owed.
+      const closedInTasks = why !== "unlabelled" || (status !== undefined && !(OPEN_STATUSES as readonly string[]).includes(status));
+      if (closedInTasks) movesClosed = this.closeLiveMoves(taskId, why === "deleted" ? reason : `card ${status ?? "closed"} in tasks`);
       const latest = this.currentGeneration(taskId);
       if (!latest) {
         this.patchCard(taskId, { state: "closed", display_reason: reason });
@@ -1298,7 +1493,24 @@ export class Service {
       if (!latest.withdrawn_at) this.store.withdrawDecision(latest.id, reason);
       this.patchCard(taskId, { state: "closed", display_reason: reason, next_check_at: null });
     });
-    return { changed: before !== this.sig(taskId) };
+    return { changed: before !== this.sig(taskId) || movesClosed > 0 };
+  }
+
+  private closeLiveMoves(taskId: string, evidence: string): number {
+    let n = 0;
+    for (const g of this.db.prepare("SELECT generation FROM moves WHERE task_id = ? AND state <> 'closed'").all(taskId) as { generation: number }[]) {
+      if (this.store.closeMove(taskId, g.generation, "home", evidence)) n++;
+    }
+    return n;
+  }
+
+  /**
+   * Cards with a live move, whatever their label or cached status. The sweep re-reads each one not listed open, so a
+   * fresh read, never the cache, decides whether its moves close; once they are closed the card leaves this set.
+   * Whatever its project or binding, a card's moves close only on that card's own fresh read.
+   */
+  liveMoveCards(): string[] {
+    return (this.db.prepare("SELECT DISTINCT task_id FROM moves WHERE state <> 'closed' ORDER BY task_id").all() as { task_id: string }[]).map((r) => r.task_id);
   }
 
   /** Observed cards whose retry time has come (the unresolved-retry set). */

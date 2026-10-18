@@ -14,17 +14,17 @@ const (
 
 // DispatchConfig controls how an agent dispatch is executed.
 type DispatchConfig struct {
-	PreferredBackend BackendType   // Default: subscription-cli
-	PreferredAgent   string        // "claude", "codex", "" (auto-detect)
-	Timeout          time.Duration // Max wall-clock time (0 = no limit)
-	Sandbox          string        // Sandbox mode: "workspace-write", "read-only", "danger-full-access"
-	Model            string        // Model override (empty = CLI default)
-	SessionID        string        // For --resume (Claude) or resume (Codex)
-	OutputFile       string        // Where to write final output (Codex -o)
-	ExtraArgs        []string      // Additional CLI flags
-	WorkDir          string        // Working directory override (empty = caller's cwd)
-	Verbose          bool          // Enable verbose output
-	Print            bool          // Print-only mode (no interactive)
+	PreferredBackend BackendType       // Default: subscription-cli
+	PreferredAgent   string            // "claude", "codex", "" (auto-detect)
+	Timeout          time.Duration     // Max wall-clock time (0 = no limit)
+	Sandbox          string            // Sandbox mode: "workspace-write", "read-only", "danger-full-access"
+	Model            string            // Model override (empty = CLI default)
+	SessionID        string            // For --resume (Claude) or resume (Codex)
+	OutputFile       string            // Where to write final output (Codex -o)
+	ExtraArgs        []string          // Additional CLI flags
+	WorkDir          string            // Working directory override (empty = caller's cwd)
+	Verbose          bool              // Enable verbose output
+	Print            bool              // Print-only mode (no interactive)
 	Env              map[string]string // Extra environment variables for the agent process
 }
 

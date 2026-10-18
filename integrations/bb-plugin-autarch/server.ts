@@ -18,7 +18,9 @@ import { homeMethods } from "./contract.js";
 import { sourceSha256 } from "./scripts/source-hash.mjs";
 import { Asks } from "./asks.js";
 import { Catchup } from "./catchup.js";
+import { waitingNow } from "./waiting.js";
 import { homeCli } from "./cli.js";
+import { ledgerPath } from "./ledger.js";
 import { Delegation, type ThreadRow } from "./delegation.js";
 import { exportEvents } from "./export.js";
 import { FeedCaches } from "./feed.js";
@@ -31,12 +33,16 @@ import { ghViewReal, PrPoller } from "./movepoll.js";
 import { ReportWatcher } from "./movereport.js";
 import { moveViews } from "./moveview.js";
 import { CommentPoller, conversationView, openTaskIds, unreadCounts } from "./conversation.js";
+import { readDoc, resolveOpenTarget } from "./docread.js";
 import { rootRun } from "./rootrun.js";
 import { buildQueue, removeBinding, setBinding } from "./queueview.js";
-import { hasNoteMarker, Service } from "./service.js";
+import { hasNoteMarker, isoWeek, Service } from "./service.js";
+import { Ideas } from "./ideas.js";
+import { learnSet, learnView, type LearnSet } from "./learn.js";
 import { OPEN_STATUSES, TasksClient, type PluginsLike } from "./tasks.js";
 import { listAllThreads, traceability, type ThreadLike } from "./traceability.js";
 import { createStoreHandle, type Store, type StoreHandle } from "./store.js";
+import { defaultImagesRoot, ImageStore } from "./otherimages.js";
 import { sdkAdapter, WakeLoop, type ThreadsLike, type WakeSdk } from "./wakes.js";
 
 const todoSchema = z.object({
@@ -121,6 +127,8 @@ export interface HomeConfig {
   autarchBin: string;
   /** Where the update runner writes status.json and result.json (read-only here). */
   updateDir?: string;
+  /** The rulings ledger file; null turns it off. Unset means the default path (see ledger.ts). */
+  rulingsLedger?: string | null;
 }
 
 let sourceHash: string | null = null;
@@ -203,13 +211,26 @@ export function wireHome(bb: BbPluginApi, handle: StoreHandle, cfg: HomeConfig, 
       parts?.caches.invalidate();
       void parts?.loop.nudge();
     };
-    const svc = new Service({ store, projects: () => serve.projects(), nudge });
+    const images = new ImageStore(defaultImagesRoot());
+    try {
+      images.sweep();
+    } catch (e) {
+      bb.log.warn(`image sweep failed: ${e instanceof Error ? e.message : String(e)}`);
+    }
+    const svc = new Service({ store, images, projects: () => serve.projects(), nudge, rulingsLedger: cfg.rulingsLedger !== undefined ? cfg.rulingsLedger : ledgerPath() });
     const dele = new Delegation(svc, listThreadRows, getThreadRow);
     const asks = new Asks(svc);
     const catchup = new Catchup(svc, dele);
     const loop = new WakeLoop(svc, deps.sdk ?? sdkAdapter(bb.sdk.threads as unknown as ThreadsLike), (gone) => resolveWakeTarget("", gone, true));
     const caches = new FeedCaches(() => store.db, () => Date.now());
     parts = { store, svc, asks, dele, catchup, loop, caches };
+    // Moves are retired (bead mk-1k8pg): close any left open as soon as the store is ready, before any reader or
+    // poller sees them and whether or not the tasks client exists. A picked card's held unlabel waits for the writer.
+    try {
+      svc.retireMoves();
+    } catch (e) {
+      bb.log.warn(`retire moves: ${e instanceof Error ? e.message : String(e)}`);
+    }
     svc.start();
   });
   bb.onDispose(() => parts?.svc.stop());
@@ -254,6 +275,7 @@ export function wireHome(bb: BbPluginApi, handle: StoreHandle, cfg: HomeConfig, 
       svc: lazy((p) => p.svc),
       asks: lazy((p) => p.asks),
       catchup: lazy((p) => p.catchup),
+      waiting: () => waitingNow(need().svc, need().dele, need().catchup),
       rule: (id, option, reason, ctx) => need().dele.ruleResolved(id, option, reason, ctx),
       handoff: (to, ctx) => need().dele.handoff(to, ctx),
       bind: async (ref, home, by) => {
@@ -322,6 +344,13 @@ export function wireHome(bb: BbPluginApi, handle: StoreHandle, cfg: HomeConfig, 
   });
   let queueRef: Queue | null = null;
   let tasksRef: TasksClient | null = null;
+  // One desk for the process: its per-key serialisation only works when every RPC shares the same instance.
+  let ideaDeskRef: { tasks: TasksClient; desk: Ideas } | null = null;
+  const ideaDesk = (): Ideas | null => {
+    if (!tasksRef || !parts) return null;
+    if (!ideaDeskRef || ideaDeskRef.tasks !== tasksRef) ideaDeskRef = { tasks: tasksRef, desk: new Ideas({ tasks: tasksRef, store: parts.svc.store, now: () => new Date().toISOString(), nudge: () => void parts?.loop.nudge() }) };
+    return ideaDeskRef.desk;
+  };
   // Card poller (Task 2.4). Read-only toward tasks, over plugins.callRpc; never spawns the bb CLI.
   bb.background.service("home-queue", {
     async start(signal) {
@@ -348,6 +377,7 @@ export function wireHome(bb: BbPluginApi, handle: StoreHandle, cfg: HomeConfig, 
     },
   });
   // PR poller (plan D2): the only automatic closer of a move. Read-only `gh pr view`; a failure leaves the move open.
+  // Home opens no moves since mk-1k8pg, so after the retirement at store ready it finds nothing to poll.
   bb.background.service("home-move-poll", {
     async start(signal) {
       while (!signal.aborted && !parts) await sleep(1000, signal);
@@ -456,16 +486,29 @@ export function wireHome(bb: BbPluginApi, handle: StoreHandle, cfg: HomeConfig, 
   });
 
   // ---- RPC ------------------------------------------------------------------------
+  const learnDir = join(dirname(fileURLToPath(import.meta.url)), "learn");
   const handlers = {
     async listAsks(_: null) {
       const p = need();
+      // Thread titles are a read-only peek; when the thread list cannot be read the card shows the thread id.
+      let titles = new Map<string, string>();
+      try {
+        // Bounded: a slow thread list must not hold the inbox, so the ids show after 1.5 s.
+        const rows = await Promise.race([listThreadRows({ cached: true }), new Promise<ThreadRow[]>((_, no) => setTimeout(() => no(new Error("thread list slow")), 1500).unref?.())]);
+        titles = new Map(rows.filter((t) => t.title).map((t) => [t.id, t.title as string]));
+      } catch {
+        /* show ids */
+      }
       const rows = p.svc.owed().map((d) => ({
         id: d.id,
         project: d.project,
         thread: d.thread,
         key: p.svc.cardKey(d.task_id as string | null),
         held: p.svc.holdOf(d.task_id as string | null),
-        subject: d.subject,
+        later: p.svc.laterOf(d.task_id as string | null),
+        // A card filed the v2 way has no subject of its own; its title is what the phone list and detail show.
+        subject: d.subject || p.svc.cardTitle(d.task_id as string | null) || "",
+        thread_title: titles.get(d.thread) ?? null,
         asker: d.asker,
         filed_at: d.filed_at,
         revision: d.revision,
@@ -539,6 +582,16 @@ export function wireHome(bb: BbPluginApi, handle: StoreHandle, cfg: HomeConfig, 
       const s = need().svc;
       return { unread: unreadCounts(s.store, openTaskIds(s)) };
     },
+    async readDoc(i: { path: string; sha256?: string }) {
+      return readDoc(i.path, { sha256: i.sha256 });
+    },
+    async openTarget(i: { path: string }) {
+      const r = resolveOpenTarget(i.path);
+      if (!r.ok) return r;
+      const cfg = (await bb.sdk.system.config()) as { primaryHostId?: string | null };
+      if (!cfg.primaryHostId) return { ok: false as const, error: "bb has no primary host to open the file on" };
+      return { ok: true as const, target: { kind: "host" as const, hostId: cfg.primaryHostId, path: r.path } };
+    },
     async markConversationSeen(i: { task_id: string; through: string }) {
       need().svc.store.markConversationSeen(i.task_id, i.through);
       return { ok: true as const };
@@ -558,12 +611,22 @@ export function wireHome(bb: BbPluginApi, handle: StoreHandle, cfg: HomeConfig, 
       if (r.ok && !r.replay) bb.realtime.publish("home-queue-changed", {});
       return r;
     },
-    async pick(i: { decision_id: string; option_id: string; revision: string; pick_id: string; reason?: string; surface?: "home" | "overlay" }) {
-      return need().svc.pick(i.decision_id, i.option_id, i.revision, i.pick_id, MK, i.surface ?? "home", i.reason);
+    async later(i: { ref: string }) {
+      const r = need().svc.later(i.ref, MK);
+      if (r.ok && !r.was) bb.realtime.publish("home-queue-changed", {});
+      return r;
     },
-    async note(i: { task_id?: string; decision_id?: string; text: string; note_id: string }) {
+    async unlater(i: { ref: string }) {
+      const r = need().svc.unlater(i.ref);
+      if (r.ok && r.was) bb.realtime.publish("home-queue-changed", {});
+      return r;
+    },
+    async pick(i: { decision_id: string; option_id: string; revision: string; pick_id: string; reason?: string; images?: { mime: string; data_base64: string }[]; answers?: Record<string, string>; surface?: "home" | "overlay" }) {
+      return need().svc.pick(i.decision_id, i.option_id, i.revision, i.pick_id, MK, i.surface ?? "home", i.reason, undefined, i.images, i.answers);
+    },
+    async note(i: { task_id?: string; decision_id?: string; text: string; note_id: string; images?: { mime: string; data_base64: string }[] }) {
       // Comment first: the card comment is posted before any wake obligation exists. If the tasks write fails nothing is woken.
-      const r = need().svc.note({ ...(i.task_id !== undefined ? { task_id: i.task_id } : {}), ...(i.decision_id !== undefined ? { decision_id: i.decision_id } : {}) }, i.text, i.note_id, { deferWake: true });
+      const r = need().svc.note({ ...(i.task_id !== undefined ? { task_id: i.task_id } : {}), ...(i.decision_id !== undefined ? { decision_id: i.decision_id } : {}) }, i.text, i.note_id, { deferWake: true, ...(i.images ? { images: i.images } : {}) });
       if (!r.ok) return r;
       if (r.task_id !== null) {
         if (!tasksRef) return { ok: false as const, status: 503, error: "tasks unavailable; nothing was sent" };
@@ -578,6 +641,53 @@ export function wireHome(bb: BbPluginApi, handle: StoreHandle, cfg: HomeConfig, 
       const done = r.commit();
       bb.realtime.publish("home-queue-changed", {});
       return { ok: true as const, replay: done.replay, woke: done.woke };
+    },
+    async ideaProjects(_: null) {
+      const d = ideaDesk();
+      if (!d) return { ok: false as const, status: 503, error: "tasks unavailable" };
+      try {
+        return { ok: true as const, projects: await d.projects() };
+      } catch (e) {
+        return { ok: false as const, status: 502, error: `tasks unavailable: ${e instanceof Error ? e.message : String(e)}` };
+      }
+    },
+    async ideas(_: null) {
+      const d = ideaDesk();
+      if (!d) return { ok: false as const, status: 503, error: "tasks unavailable" };
+      try {
+        return { ok: true as const, ...(await d.digest(isoWeek(Date.now()))) };
+      } catch (e) {
+        return { ok: false as const, status: 502, error: `tasks unavailable: ${e instanceof Error ? e.message : String(e)}` };
+      }
+    },
+    async learn(_: null) {
+      return { ok: true as const, ...learnView(need().svc.store, learnDir) };
+    },
+    async learnSet(i: LearnSet) {
+      const r = learnSet(need().svc.store, learnDir, i);
+      if (r.ok) bb.realtime.publish("home-learn-changed", {});
+      return r;
+    },
+    async fileIdea(i: { project_id: string; text: string; idea_id: string }) {
+      const d = ideaDesk();
+      if (!d) return { ok: false as const, status: 503, error: "tasks unavailable; nothing was filed" };
+      const r = await d.file(i);
+      if (r.ok) bb.realtime.publish("home-queue-changed", {});
+      return r;
+    },
+    async actIdea(i: { task_id: string; action: "pursue" | "park" | "drop" }) {
+      const d = ideaDesk();
+      if (!d) return { ok: false as const, status: 503, error: "tasks unavailable; nothing was changed" };
+      const r = await d.act(i);
+      if (r.ok) bb.realtime.publish("home-queue-changed", {});
+      return r;
+    },
+    async clearIdeaDigest(_: null) {
+      const d = ideaDesk();
+      if (!d) return { ok: false as const, status: 503, error: "tasks unavailable" };
+      d.clearDigest(isoWeek(Date.now()));
+      bb.realtime.publish("home-queue-changed", {});
+      return { ok: true as const };
     },
     async dismiss(i: { decision_id: string; obligation_id: string }) {
       return need().svc.dismiss(i.decision_id, i.obligation_id);
@@ -625,13 +735,20 @@ export function wireHome(bb: BbPluginApi, handle: StoreHandle, cfg: HomeConfig, 
     },
     async markSeen(i: { item: string }) {
       need().dele.markSeen(MK, i.item);
+      bb.realtime.publish("home-queue-changed", {}); // acknowledging a notice changes the waiting count on every open surface
       return { ok: true };
     },
     async markAllSeen(i: { ids: string[] }) {
-      return { marked: need().catchup.markAllSeen(i.ids) };
+      const marked = need().catchup.markAllSeen(i.ids);
+      if (marked.length > 0) bb.realtime.publish("home-queue-changed", {});
+      return { marked };
     },
     async catchup(_: null) {
       return { items: need().catchup.items() };
+    },
+    async waiting(_: null) {
+      const p = need();
+      return waitingNow(p.svc, p.dele, p.catchup);
     },
     async stats(i: { days: number }) {
       const p = need();

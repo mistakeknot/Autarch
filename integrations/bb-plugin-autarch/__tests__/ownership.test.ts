@@ -63,12 +63,14 @@ describe("runtime file", () => {
 
 describe("a real process tree", () => {
   const kids: ChildProcess[] = [];
-  afterAll(() => kids.forEach((k) => k.kill("SIGKILL")));
+  // The launcher's grandchild holds the listener; killing only the launcher would reparent it and leave it running forever.
+  // Launchers are detached (their own process group), so killing the group takes the whole tree.
+  afterAll(() => kids.forEach((k) => { try { process.kill(-k.pid!, "SIGKILL"); } catch { k.kill("SIGKILL"); } }));
   const LISTEN = `require("node:net").createServer().listen(0,"127.0.0.1",function(){console.log(this.address().port)});setInterval(()=>{},1000)`;
 
   /** A launcher that spawns a grandchild which holds the listener; resolves with the launcher pid and port. */
   async function tree(): Promise<{ launcher: number; port: number }> {
-    const launcher = spawn(process.execPath, ["-e", `const c=require("node:child_process").spawn(process.execPath,["-e",${JSON.stringify(LISTEN)}],{stdio:["ignore","inherit","inherit"]});setInterval(()=>{},1000)`], { stdio: ["ignore", "pipe", "inherit"] });
+    const launcher = spawn(process.execPath, ["-e", `const c=require("node:child_process").spawn(process.execPath,["-e",${JSON.stringify(LISTEN)}],{stdio:["ignore","inherit","inherit"]});setInterval(()=>{},1000)`], { stdio: ["ignore", "pipe", "inherit"], detached: true });
     kids.push(launcher);
     const port = await new Promise<number>((res) => launcher.stdout!.once("data", (d) => res(Number(String(d).trim()))));
     return { launcher: launcher.pid!, port };
@@ -87,7 +89,7 @@ describe("a real process tree", () => {
 
   it("refuses a listener the launcher's tree does not hold", async () => {
     const { port } = await tree();
-    const other = spawn("sleep", ["30"]);
+    const other = spawn("sleep", ["30"], { detached: true });
     kids.push(other);
     expect(() => proveSocket(other.pid!, port)).toThrow(/held by no process of the owned set/);
     expect(ownedSet(other.pid!)).toEqual([other.pid]);

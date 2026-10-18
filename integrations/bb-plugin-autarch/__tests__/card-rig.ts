@@ -1,7 +1,7 @@
 // Shared fixture for the Task 2.5 card tests: a fake tasks plugin, a poller and a card writer over one temp store.
 import assert from "node:assert/strict";
+import { parseCard } from "../cards.js";
 import { CardWriter } from "../cardwrites.js";
-import { Delegation } from "../delegation.js";
 import { Queue } from "../queue.js";
 import { Service } from "../service.js";
 import { TasksClient } from "../tasks.js";
@@ -54,7 +54,23 @@ function desc(env: Env, o: CardOpts = {}): string {
   return lines.join("\n") + "\n";
 }
 
-export function rig(opts: { projectName?: string; projects?: string[] } = {}) {
+/**
+ * Home opens no moves since bead mk-1k8pg. With legacyMoves, each poll then opens the move a card's home-move block
+ * opened before that, at the card's newest generation, so the tests of the move rows a live database still holds
+ * (a pick held by a live move, the poller, the report watcher, the views) keep a way to make one.
+ */
+function openLegacyMoves(svc: Service, fake: FakeTasks) {
+  for (const t of fake.tasks) {
+    let card;
+    try { card = parseCard(t.description); } catch { continue; }
+    if (!card.move) continue;
+    const g = svc.store.db.prepare("SELECT MAX(generation) AS g FROM decisions WHERE task_id = ?").get(t.id) as { g: number | null };
+    if (g.g === null || svc.store.move(t.id, g.g)) continue;
+    svc.store.openMove({ task_id: t.id, generation: g.g, kind: card.move.kind, payload: card.move, opened_by: "card" });
+  }
+}
+
+export function rig(opts: { projectName?: string; projects?: string[]; legacyMoves?: boolean } = {}) {
   const env = makeEnv(opts.projects ?? ["Autarch"]);
   envs.push(env);
   const fake = new FakeTasks();
@@ -101,7 +117,11 @@ export function rig(opts: { projectName?: string; projects?: string[] } = {}) {
     edit(t: FakeTask, patch: Partial<FakeTask> = {}) {
       Object.assign(t, patch, { updatedAt: `2026-10-02T00:00:${String(++tick % 60).padStart(2, "0")}.${String(tick).padStart(3, "0")}Z` });
     },
-    poll: () => cur.q.pollOnce(),
+    poll: async () => {
+      const res = await cur.q.pollOnce();
+      if (opts.legacyMoves) openLegacyMoves(cur.svc, fake);
+      return res;
+    },
     advance: (ms: number) => void (env.clock.t += ms),
     gens: (taskId: string) => cur.svc.store.db.prepare("SELECT * FROM decisions WHERE task_id = ? ORDER BY generation").all(taskId) as any[],
     cardRow: (taskId: string) => cur.svc.store.db.prepare("SELECT * FROM cards WHERE task_id = ?").get(taskId) as any,

@@ -397,10 +397,10 @@ sha is a **claim**: the row shows "reported OK by <thread> at <time>, unverified
 stays open. Close paths for a script, in order of strength:
 1. **Receipt**: the install/handoff script's EXIT trap writes `report-<sha>.json`
    (exit status, timestamp, uid, hostname) into a Home-readable receipts dir
-   (`<dataDir>/home-receipts/`, mode 0644, created by root-run scripts as mk's
-   report path). Home accepts a receipt only if its file owner is mk or root (stat),
+   (`<dataDir>/home-receipts/`, mode 0644, created by root-run scripts as the operator's
+   report path). Home accepts a receipt only if its file owner is the operator account or root (stat),
    it names the full sha and the move's script path, and status 0. This is still
-   forgeable by anything that can write as mk or root; stated residual.
+   forgeable by anything that can write as the operator account or root; stated residual.
 2. **mk confirmation** of a claim or receipt-less run (one click, attestation per
    S-B).
 Phase 1 ships (2) plus claim display; (1) ships in Phase 1 only if the script header

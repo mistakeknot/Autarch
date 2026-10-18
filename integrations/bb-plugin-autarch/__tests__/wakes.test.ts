@@ -1,5 +1,4 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { Delegation } from "../delegation.js";
 import type { Service } from "../service.js";
 import { framed, sdkAdapter, WakeLoop } from "../wakes.js";
 import { ask, makeEnv, type Env, verifiedDelegation } from "./service-helpers.js";
@@ -28,6 +27,11 @@ async function wake(thread = "thr-a", service: Service = svc) {
   if (!p.ok) throw new Error(p.error);
   return service.store.obligationsFor(r.decision_id).find((o) => o.kind === "wake")!;
 }
+it("the wake text carries no internal kind tag", async () => {
+  const w = await wake();
+  expect(w.payload).toContain("picked");
+  expect(w.payload).not.toMatch(/\[(needs-context|instruction|ruling-only)\]/);
+});
 const row = (id: string) => svc.store.obligation(id)!;
 const states = (id: string) => svc.store.attempts(id).map((a) => a.state);
 const restart = () => {

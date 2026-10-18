@@ -28,6 +28,21 @@ export interface AskOption {
   approval?: Approval;
 }
 
+/** One option of a sub-question: a label and an optional one-line detail shown under it. */
+export interface QuestionOption {
+  id: string;
+  label: string;
+  detail?: string;
+}
+
+/** One independent choice inside a multi-pick ask. Answered together with the others by one pick. */
+export interface Question {
+  id: string;
+  prompt: string;
+  options: QuestionOption[];
+  recommendation?: string;
+}
+
 export interface Machine {
   class: string;
   detail: string;
@@ -49,15 +64,19 @@ export interface Ask {
   supersedes?: string;
   mention_of?: string;
   options?: AskOption[];
+  questions?: Question[];
   steps?: string[];
   machine?: Machine;
 }
 
-const MAX_INSTRUCTION = 2000;
+const MAX_INSTRUCTION = 8000;
 const MAX_LABEL = 80;
 const MAX_KEY = 120;
-const MAX_QUESTION = 2000;
+const MAX_QUESTION = 8000;
 const MAX_STEPS = 20;
+const MAX_QUESTIONS = 8;
+const MAX_PROMPT = 500;
+const MAX_DETAIL = 300;
 const MAX_TTL = 7 * 24 * 3600;
 
 const OPTION_ID = /^[a-z0-9-]{1,32}$/;
@@ -69,6 +88,8 @@ const APPROVAL_TOKEN = /APPROVED-[A-Z]+/;
 const nfc = (s: string) => s.normalize("NFC");
 const count = (s: string) => Array.from(s).length;
 const blank = (s: string) => s.trim() === "";
+/** The twin of Go's strings.Trim(s, " \t\n\r\f\v") == "": blank text in a multi-pick ask, the same set of characters on both sides. */
+const blankAscii = (s: string) => /^[ \t\n\r\f\v]*$/.test(s);
 const fail = (msg: string): never => {
   throw new Error(msg);
 };
@@ -110,15 +131,10 @@ function slug(label: string): string {
   return firstChars(out, 32).replace(/-+$/, "");
 }
 
-function clean(field: string, s: string): string {
-  if (!s.isWellFormed()) fail(`${field} must be valid UTF-8`);
-  if (s.includes("\u0000")) fail(`${field} must not contain NUL`);
-  if (APPROVAL_TOKEN.test(s)) fail("approval tokens are not accepted in Home text");
-  return nfc(s);
-}
-
-const TOP_FIELDS = ["v", "kind", "request_id", "ask_key", "subject", "project", "project_root", "asker", "thread", "question", "recommendation", "supersedes", "mention_of", "options", "steps", "machine"];
+const TOP_FIELDS = ["v", "kind", "request_id", "ask_key", "subject", "project", "project_root", "asker", "thread", "question", "recommendation", "supersedes", "mention_of", "options", "questions", "steps", "machine"];
 const OPTION_FIELDS = ["id", "label", "kind", "reversible", "instruction", "approval"];
+const QUESTION_FIELDS = ["id", "prompt", "options", "recommendation"];
+const QUESTION_OPTION_FIELDS = ["id", "label", "detail"];
 const APPROVAL_FIELDS = ["kind", "target", "identity", "ttl"];
 const MACHINE_FIELDS = ["class", "detail", "owner_thread"];
 
@@ -171,6 +187,24 @@ export function parseAsk(input: unknown): Ask {
       return opt;
     });
   }
+  if (o.questions !== undefined && o.questions !== null) {
+    if (!Array.isArray(o.questions)) fail("invalid ask: questions must be an array");
+    a.questions = (o.questions as unknown[]).map((raw) => {
+      const q = obj(raw, "question");
+      known(q, QUESTION_FIELDS, "question");
+      if (q.options !== undefined && q.options !== null && !Array.isArray(q.options)) fail("invalid ask: question options must be an array");
+      return {
+        id: str(q, "id"),
+        prompt: str(q, "prompt"),
+        recommendation: str(q, "recommendation"),
+        options: ((q.options ?? []) as unknown[]).map((r) => {
+          const p = obj(r, "question option");
+          known(p, QUESTION_OPTION_FIELDS, "question option");
+          return { id: str(p, "id"), label: str(p, "label"), detail: str(p, "detail") };
+        }),
+      };
+    });
+  }
   if (o.steps !== undefined && o.steps !== null) {
     if (!Array.isArray(o.steps) || (o.steps as unknown[]).some((s) => typeof s !== "string")) fail("invalid ask: steps must be an array of strings");
     a.steps = [...(o.steps as string[])];
@@ -198,12 +232,49 @@ interface Work {
   supersedes: string;
   mention_of: string;
   options: AskOption[];
+  questions: Question[];
   steps: string[];
   machine: Machine | undefined;
 }
 
-/** Validates an ask and returns it with defaults applied and strings NFC-normalized. Idempotent. */
+/** One thing wrong with an ask: the field it is about and why. */
+export interface Problem {
+  field: string;
+  why: string;
+}
+
+/** Carries every problem an ask has; the message leads with the first, the rest follow after "; also: ". */
+export class ValidationError extends Error {
+  readonly problems: Problem[];
+  constructor(problems: Problem[]) {
+    const [first, ...rest] = problems;
+    super(first ? first.why + (rest.length ? `; also: ${rest.map((p) => `${p.field}: ${p.why}`).join("; ")}` : "") : "invalid ask");
+    this.name = "ValidationError";
+    this.problems = problems;
+  }
+}
+
+/** Every problem with an ask, in the order the checks run; empty when it is valid. Unlike normalizeAsk it does not stop at the first. */
+export function askProblems(input: Ask): Problem[] {
+  return normalize(input).problems;
+}
+
+/** Validates an ask and returns it with defaults applied and strings NFC-normalized. Idempotent. Throws a ValidationError holding every problem. */
 export function normalizeAsk(input: Ask): Ask {
+  const { ask, problems } = normalize(input);
+  if (problems.length > 0 || !ask) throw new ValidationError(problems);
+  return ask;
+}
+
+function normalize(input: Ask): { ask?: Ask; problems: Problem[] } {
+  const ps: Problem[] = [];
+  const add = (field: string, why: string) => void ps.push({ field, why });
+  const clean = (field: string, s: string): string => {
+    if (!s.isWellFormed()) add(field, `${field} must be valid UTF-8`);
+    else if (s.includes("\u0000")) add(field, `${field} must not contain NUL`);
+    else if (APPROVAL_TOKEN.test(s)) add(field, "approval tokens are not accepted in Home text");
+    return nfc(s);
+  };
   const a: Work = {
     v: input.v as number,
     kind: input.kind as string,
@@ -236,6 +307,12 @@ export function normalizeAsk(input: Ask): Ask {
       }
       return opt;
     }),
+    questions: (input.questions ?? []).map((q) => ({
+      id: clean("question id", q.id ?? ""),
+      prompt: clean("question prompt", q.prompt ?? ""),
+      recommendation: clean("question recommendation", q.recommendation ?? ""),
+      options: (q.options ?? []).map((o) => ({ id: clean("question option id", o.id ?? ""), label: clean("question option label", o.label ?? ""), detail: clean("question option detail", o.detail ?? "") })),
+    })),
     steps: (input.steps ?? []).map((s) => clean("step", s)),
     machine: input.machine
       ? {
@@ -246,53 +323,58 @@ export function normalizeAsk(input: Ask): Ask {
       : undefined,
   };
 
-  if (a.v !== 1) fail("v must be 1");
-  if (!["decide", "steps", "machine"].includes(a.kind)) fail("kind must be decide, steps or machine");
+  if (a.v !== 1) add("v", "v must be 1");
+  if (!["decide", "steps", "machine"].includes(a.kind)) add("kind", "kind must be decide, steps or machine");
   if (a.asker === "thread") {
-    if (a.thread === "") fail("thread asker needs a thread");
+    if (a.thread === "") add("thread", "thread asker needs a thread");
   } else if (a.asker === "mycroft") {
-    if (a.thread !== "") fail("mycroft asker takes no thread");
-  } else fail("asker must be thread or mycroft");
-  if (a.thread !== "" && !REF_ID.test(a.thread)) fail("thread must match [A-Za-z0-9:_.-]{1,128}");
-  if (blank(a.project) || count(a.project) > 200) fail("project is required (1-200 characters)");
-  if (!a.project_root.startsWith("/") || blank(a.project_root)) fail("project_root must be an absolute path");
-  if (blank(a.question) || count(a.question) > MAX_QUESTION) fail(`question must be 1-2000 characters (got ${count(a.question)})`);
-  if (a.request_id !== "" && !REQUEST_ID.test(a.request_id)) fail("request_id must be 1-128 of [A-Za-z0-9:_.-]");
+    if (a.thread !== "") add("thread", "mycroft asker takes no thread");
+  } else add("asker", "asker must be thread or mycroft");
+  if (a.thread !== "" && !REF_ID.test(a.thread)) add("thread", "thread must match [A-Za-z0-9:_.-]{1,128}");
+  if (blank(a.project) || count(a.project) > 200) add("project", "project is required (1-200 characters)");
+  if (!a.project_root.startsWith("/") || blank(a.project_root)) add("project_root", "project_root must be an absolute path");
+  if (blank(a.question) || count(a.question) > MAX_QUESTION) add("question", `question must be 1-8000 characters (got ${count(a.question)})`);
+  if (a.request_id !== "" && !REQUEST_ID.test(a.request_id)) add("request_id", "request_id must be 1-128 of [A-Za-z0-9:_.-]");
   for (const [field, v] of [["supersedes", a.supersedes], ["mention_of", a.mention_of]] as const) {
-    if (v !== "" && !REF_ID.test(v)) fail(`${field} must match [A-Za-z0-9:_.-]{1,128}`);
+    if (v !== "" && !REF_ID.test(v)) add(field, `${field} must match [A-Za-z0-9:_.-]{1,128}`);
   }
-  if (a.supersedes !== "" && a.mention_of !== "") fail("supersedes and mention_of cannot be used together");
+  if (a.supersedes !== "" && a.mention_of !== "") add("supersedes", "supersedes and mention_of cannot be used together");
 
   a.ask_key = a.ask_key === "" ? firstChars(normText(a.question), MAX_KEY).replace(/ +$/, "") : normText(a.ask_key);
-  if (count(a.ask_key) < 1 || count(a.ask_key) > MAX_KEY) fail("ask_key must be 1-120 characters");
+  if (count(a.ask_key) < 1 || count(a.ask_key) > MAX_KEY) add("ask_key", "ask_key must be 1-120 characters");
   if (a.subject !== "") {
     a.subject = normText(a.subject);
-    if (count(a.subject) < 1 || count(a.subject) > MAX_KEY) fail("subject must be 1-120 characters");
+    if (count(a.subject) < 1 || count(a.subject) > MAX_KEY) add("subject", "subject must be 1-120 characters");
   }
 
   switch (a.kind) {
     case "decide":
-      if (a.steps.length > 0 || a.machine) fail("decide takes no steps or machine block");
-      normalizeOptions(a);
+      if (a.steps.length > 0 || a.machine) add("kind", "decide takes no steps or machine block");
+      normalizeQuestions(a, add);
+      normalizeOptions(a, add);
       break;
     case "steps":
-      if (a.options.length > 0) fail("steps takes no options");
-      if (a.machine) fail("steps takes no machine block");
-      if (a.recommendation !== "") fail("recommendation must name an option");
-      if (a.steps.length < 1 || a.steps.length > MAX_STEPS) fail("steps needs 1-20 steps");
-      for (const s of a.steps) if (blank(s) || count(s) > MAX_INSTRUCTION) fail("each step must be 1-2000 characters");
+      if (a.questions.length > 0) add("questions", "questions are only for a decide ask");
+      if (a.options.length > 0) add("options", "steps takes no options");
+      if (a.machine) add("machine", "steps takes no machine block");
+      if (a.recommendation !== "") add("recommendation", "recommendation must name an option");
+      if (a.steps.length < 1 || a.steps.length > MAX_STEPS) add("steps", "steps needs 1-20 steps");
+      if (a.steps.some((s) => blank(s) || count(s) > MAX_INSTRUCTION)) add("steps", "each step must be 1-8000 characters");
       break;
     case "machine":
-      if (a.options.length > 0 || a.steps.length > 0) fail("machine takes no steps or options");
-      if (a.recommendation !== "") fail("recommendation must name an option");
-      if (!a.machine) fail("machine needs a machine block");
+      if (a.questions.length > 0) add("questions", "questions are only for a decide ask");
+      if (a.options.length > 0 || a.steps.length > 0) add("kind", "machine takes no steps or options");
+      if (a.recommendation !== "") add("recommendation", "recommendation must name an option");
+      if (!a.machine) add("machine", "machine needs a machine block");
       else {
-        if (!MACHINE_CLASS.test(a.machine.class)) fail("machine class must match [a-z0-9-]{1,32}");
-        if (blank(a.machine.detail) || count(a.machine.detail) > MAX_INSTRUCTION) fail("machine detail must be 1-2000 characters");
-        if (a.machine.owner_thread && !REF_ID.test(a.machine.owner_thread)) fail("owner_thread must match [A-Za-z0-9:_.-]{1,128}");
+        if (!MACHINE_CLASS.test(a.machine.class)) add("machine class", "machine class must match [a-z0-9-]{1,32}");
+        if (blank(a.machine.detail) || count(a.machine.detail) > MAX_INSTRUCTION) add("machine detail", "machine detail must be 1-8000 characters");
+        if (a.machine.owner_thread && !REF_ID.test(a.machine.owner_thread)) add("owner_thread", "owner_thread must match [A-Za-z0-9:_.-]{1,128}");
       }
       break;
   }
+
+  if (ps.length > 0) return { problems: ps };
 
   const out: Ask = {
     v: 1,
@@ -312,45 +394,82 @@ export function normalizeAsk(input: Ask): Ask {
     steps: a.steps,
     machine: a.machine,
   };
+  if (a.questions.length > 0) out.questions = a.questions;
   if (out.request_id === "") out.request_id = identityOf(out);
-  return out;
+  return { ask: out, problems: ps };
 }
 
-function normalizeOptions(a: Work) {
-  if (a.options.length < 2 || a.options.length > 6) fail("decide needs 2-6 options");
+function normalizeQuestions(a: Work, add: (field: string, why: string) => void) {
+  if (a.questions.length > MAX_QUESTIONS) add("questions", `a multi-pick ask takes 1-${MAX_QUESTIONS} questions`);
+  const ids = new Set<string>();
+  a.questions.forEach((q, i) => {
+    const at = `questions[${i}]`;
+    if (!OPTION_ID.test(q.id)) add(`${at}.id`, "question id must match [a-z0-9-]{1,32}");
+    else if (ids.has(q.id)) add(`${at}.id`, `duplicate question id "${q.id}"`);
+    ids.add(q.id);
+    if (blankAscii(q.prompt) || count(q.prompt) > MAX_PROMPT) add(`${at}.prompt`, `prompt must be 1-${MAX_PROMPT} characters`);
+    if (q.options.length < 2 || q.options.length > 6) add(`${at}.options`, "a question needs 2-6 options");
+    const seen = new Set<string>();
+    q.options.forEach((o, j) => {
+      const oat = `${at}.options[${j}]`;
+      if (!OPTION_ID.test(o.id)) add(`${oat}.id`, "option id must match [a-z0-9-]{1,32}");
+      else if (seen.has(o.id)) add(`${oat}.id`, `duplicate option id "${o.id}"`);
+      seen.add(o.id);
+      if (blankAscii(o.label) || count(o.label) > MAX_LABEL) add(`${oat}.label`, "label must be 1-80 characters");
+      if (count(o.detail ?? "") > MAX_DETAIL) add(`${oat}.detail`, `detail must be at most ${MAX_DETAIL} characters`);
+    });
+    if ((q.recommendation ?? "") !== "" && !seen.has(q.recommendation as string)) add(`${at}.recommendation`, "recommendation must be the id of one of the question's options");
+  });
+}
+
+function normalizeOptions(a: Work, add: (field: string, why: string) => void) {
+  // A multi-pick ask may carry no overall options: its answer is the set of picks.
+  if (a.questions.length > 0 && a.options.length === 0) {
+    if (a.recommendation !== "") add("recommendation", "recommendation must name an option; a multi-pick ask recommends per question");
+    return;
+  }
+  if (a.options.length < 2 || a.options.length > 6) add("options", "decide needs 2-6 options");
   const seen = new Set<string>();
-  for (const o of a.options) {
-    if (blank(o.label) || count(o.label) > MAX_LABEL) fail("label must be 1-80 characters");
+  a.options.forEach((o, i) => {
+    const at = `options[${i}]`;
+    if (blank(o.label) || count(o.label) > MAX_LABEL) add(`${at}.label`, "label must be 1-80 characters");
+    let idOK = true;
     if (!o.id) {
       o.id = slug(o.label);
-      if (!o.id) fail("option id is required when the label has no ASCII letters or digits");
+      if (!o.id) {
+        add(`${at}.id`, "option id is required when the label has no ASCII letters or digits");
+        idOK = false;
+      }
     }
-    if (!OPTION_ID.test(o.id as string)) fail("option id must match [a-z0-9-]{1,32}");
-    if (seen.has(o.id as string)) fail(`duplicate option id "${o.id}"`);
-    seen.add(o.id as string);
+    if (idOK) {
+      if (!OPTION_ID.test(o.id as string)) add(`${at}.id`, "option id must match [a-z0-9-]{1,32}");
+      else if (seen.has(o.id as string)) add(`${at}.id`, `duplicate option id "${o.id}"`);
+      if (a.questions.length > 0 && o.id === "answers") add(`${at}.id`, 'option id "answers" is reserved in a multi-pick ask');
+      seen.add(o.id as string);
+    }
 
     if (!o.kind) {
       if (o.instruction) o.kind = "instruction";
       else if (a.asker === "mycroft") o.kind = "ruling-only";
       else o.kind = "needs-context";
     }
-    if (!["instruction", "needs-context", "ruling-only"].includes(o.kind)) fail("option kind must be instruction, needs-context or ruling-only");
+    if (!["instruction", "needs-context", "ruling-only"].includes(o.kind)) add(`${at}.kind`, "option kind must be instruction, needs-context or ruling-only");
     if (a.asker === "mycroft") {
-      if (o.kind !== "ruling-only") fail("mycroft may offer only ruling-only options");
-      if (o.reversible) fail("reversible is not allowed when asker is mycroft");
+      if (o.kind !== "ruling-only") add(`${at}.kind`, "mycroft may offer only ruling-only options");
+      if (o.reversible) add(`${at}.reversible`, "reversible is not allowed when asker is mycroft");
     }
-    if (o.kind === "instruction" && !o.instruction) fail("an instruction option needs an instruction");
-    if (o.kind !== "instruction" && o.instruction) fail("instruction is only allowed on an instruction option");
-    if (o.instruction && (count(o.instruction) < 1 || count(o.instruction) > MAX_INSTRUCTION)) fail("instruction must be 1-2000 characters");
+    if (o.kind === "instruction" && !o.instruction) add(`${at}.instruction`, "an instruction option needs an instruction");
+    if (o.kind !== "instruction" && o.instruction) add(`${at}.instruction`, "instruction is only allowed on an instruction option");
+    if (o.instruction && (count(o.instruction) < 1 || count(o.instruction) > MAX_INSTRUCTION)) add(`${at}.instruction`, "instruction must be 1-8000 characters");
     if (o.approval) {
-      if (o.reversible) fail("reversible is not allowed on an option with an approval spec");
-      if (!["merge", "deploy", "release"].includes(o.approval.kind)) fail("approval kind must be merge, deploy or release");
-      if (blank(o.approval.target) || blank(o.approval.identity)) fail("approval needs a target and an identity");
+      if (o.reversible) add(`${at}.reversible`, "reversible is not allowed on an option with an approval spec");
+      if (!["merge", "deploy", "release"].includes(o.approval.kind)) add(`${at}.approval.kind`, "approval kind must be merge, deploy or release");
+      if (blank(o.approval.target) || blank(o.approval.identity)) add(`${at}.approval`, "approval needs a target and an identity");
       const ttl = o.approval.ttl ?? 0;
-      if (ttl < 0 || ttl > MAX_TTL) fail("approval ttl must be 1-604800 seconds");
+      if (ttl < 0 || ttl > MAX_TTL) add(`${at}.approval.ttl`, "approval ttl must be 1-604800 seconds");
     }
-  }
-  if (a.recommendation !== "" && !seen.has(a.recommendation)) fail("recommendation must name an option: it is the id of one of the options, exactly, not a sentence");
+  });
+  if (a.recommendation !== "" && !seen.has(a.recommendation)) add("recommendation", "recommendation must name an option: it is the id of one of the options, exactly, not a sentence");
 }
 
 // ---- canonical JSON ----
@@ -416,6 +535,8 @@ function optionNode(o: AskOption): Node {
   return n;
 }
 const optionsNode = (os?: AskOption[]): Node => (os ?? []).map(optionNode);
+const questionsNode = (qs?: Question[]): Node =>
+  (qs ?? []).map((q) => ({ id: q.id, prompt: q.prompt, recommendation: q.recommendation ?? "", options: q.options.map((o) => ({ id: o.id, label: o.label, detail: o.detail ?? "" })) }));
 const machineNode = (m: Machine | undefined, withOwner: boolean): Node =>
   m ? (withOwner ? { class: m.class, detail: m.detail, owner_thread: m.owner_thread ?? "" } : { class: m.class, detail: m.detail }) : null;
 const scopeNode = (a: Ask): Node => ({ project: a.project, project_root: a.project_root, asker: a.asker, thread: a.thread ?? "" });
@@ -431,6 +552,7 @@ function bodyNode(a: Ask): { [k: string]: Node } {
     supersedes: a.supersedes,
     mention_of: a.mention_of,
     options: optionsNode(a.options),
+    questions: questionsNode(a.questions),
     steps: a.steps ?? [],
     machine: machineNode(a.machine, true),
   };
@@ -468,6 +590,7 @@ export function revision(a: Ask): string {
     kind: n.kind,
     question: n.question,
     options: optionsNode(n.options),
+    questions: questionsNode(n.questions),
     recommendation: n.recommendation,
     supersedes: n.supersedes,
     steps: n.steps ?? [],
@@ -484,6 +607,7 @@ export function semanticKey(a: Ask): string {
     subject: n.subject,
     question: normText(n.question),
     options: optionsNode(n.options),
+    questions: questionsNode(n.questions),
     recommendation: n.recommendation,
     steps: n.steps ?? [],
     machine: machineNode(n.machine, false),

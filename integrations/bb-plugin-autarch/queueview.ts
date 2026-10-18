@@ -37,10 +37,10 @@ export function setBinding(
   ctx: { now: string; knownProjects: readonly string[]; record: (type: string, detail: unknown) => void },
 ): BindingResult {
   const row = db.prepare("SELECT home_project, state FROM project_bindings WHERE tasks_project_id = ?").get(i.tasks_project_id) as { home_project: string; state: BindingState } | undefined;
-  if (i.home_project !== undefined && !ctx.knownProjects.includes(i.home_project)) return { ok: false, status: 400, error: `unknown Home project ${JSON.stringify(i.home_project)}` };
+  if (i.home_project !== undefined && !ctx.knownProjects.includes(i.home_project)) return { ok: false, status: 400, error: `unknown Citadel project ${JSON.stringify(i.home_project)}` };
   const home = i.home_project ?? row?.home_project;
   if (home === undefined) return { ok: false, status: 404, error: "no binding for this tasks project; give home_project" };
-  if (i.state === "confirmed" && !ctx.knownProjects.includes(home)) return { ok: false, status: 400, error: `unknown Home project ${JSON.stringify(home)}` };
+  if (i.state === "confirmed" && !ctx.knownProjects.includes(home)) return { ok: false, status: 400, error: `unknown Citadel project ${JSON.stringify(home)}` };
   db.prepare(
     `INSERT INTO project_bindings(tasks_project_id, home_project, state, suggested_at, confirmed_at) VALUES (@id, @home, @state, @at, @confirmed)
      ON CONFLICT(tasks_project_id) DO UPDATE SET home_project = @home, state = @state, confirmed_at = @confirmed`,

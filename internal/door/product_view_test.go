@@ -79,7 +79,9 @@ func TestProductViewShowsIntentAndExplicitMissingMeasure(t *testing.T) {
 	// paths reproduced this in CI). Assert content across visual wraps.
 	for _, path := range []string{m.product.Backlog.Source.Path, "/tmp/TestProductViewShowsIntentAndExplicitMissingMeasure3795888195/001"} {
 		m.product.Backlog.Source.Path = path
-		view := oneLine(m.View())
+		// The box border (│) lands between wrapped lines, so drop it before
+		// joining; the wrap point moves with the random TempDir suffix length.
+		view := oneLine(strings.ReplaceAll(m.View(), "│", " "))
 		if !strings.Contains(view, "label reader") || !strings.Contains(view, "spec: reader-01") {
 			t.Fatal(m.View())
 		}

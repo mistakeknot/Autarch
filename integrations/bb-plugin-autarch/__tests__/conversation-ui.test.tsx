@@ -22,9 +22,9 @@ const data = (over: Partial<ConversationData> = {}): ConversationData => ({
 const api = (unread: Record<string, number> = {}): ConversationApi => ({ unread, load: async () => data(), markSeen: () => {} });
 
 describe("conversation view", () => {
-  it("shows comment text as plain text, never HTML", () => {
+  it("shows comment text safely: HTML is escaped, a small Markdown subset is rendered", () => {
     const html = renderToStaticMarkup(<ConversationBody data={data()} />);
-    expect(html).toContain("&lt;img src=x onerror=alert(1)&gt; **done** &amp; ready");
+    expect(html).toContain("&lt;img src=x onerror=alert(1)&gt; <strong>done</strong> &amp; ready");
     expect(html).not.toContain("<img");
   });
 
@@ -47,7 +47,7 @@ describe("conversation view", () => {
     expect(html).toContain("<details");
     expect(html).toContain("Full instruction");
     expect(html).toContain("Group per project.\nRun the tests, then report.");
-    expect(html).toContain("Nothing is sent for this option.");
+    expect(html).toContain("No instruction for this option; the asking thread is told your ruling.");
     expect(renderToStaticMarkup(<ConversationBody data={data({ options: [{ id: "b", label: "x", kind: "ruling-only", instruction: null }] })} />)).not.toContain("Full instruction");
   });
 

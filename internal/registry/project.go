@@ -582,7 +582,7 @@ func (s *Store) reconcileAbsences(ex execer, eventID, observedMs int64, payload 
 	alive := string(aliveJSON)
 
 	// Scoped to the source that ran the sweep. A sweep of the Claude session
-	// directory has no standing over a Codex agent or a zklw one, and judging
+	// directory has no standing over a Codex agent or one on a remote dev host, and judging
 	// them absent because they were never in scope is the same error again.
 	//
 	// Ended instances are included: a sweep that positively sees a process it

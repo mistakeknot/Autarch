@@ -11,7 +11,7 @@ context. Preserve traceability while allowing fast execution.
 ## Cross-Repo Coordination Note
 This design depends on the Praude PRD schema and validation behavior.
 When changing this document, update the corresponding Praude design doc:
-`/Users/sma/praude/docs/plans/2026-01-15-prd-schema-cuj-validation-design.md`.
+`~/praude/docs/plans/2026-01-15-prd-schema-cuj-validation-design.md`.
 
 ## Architecture Overview
 Tandemonium runs as a single coordinator process with four core modules:

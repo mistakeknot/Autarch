@@ -54,8 +54,8 @@ func (s *Store) DB() *sql.DB { return s.db }
 func (s *Store) Host() string { return s.host }
 
 // DefaultHost is the machine name, normalised. os.Hostname returns
-// "Clavain.local" under mDNS while every other reference to the machine says
-// "clavain", and an identity that depends on which one answered is not an
+// "Host.local" under mDNS while every other reference to the machine says
+// "host", and an identity that depends on which one answered is not an
 // identity.
 func DefaultHost() string {
 	name, err := os.Hostname()
@@ -731,7 +731,7 @@ func (s *Store) probeTargetsFor(sourceID string, seen map[string]probeTarget) ([
 
 // localPIDDomain is the pid namespace this process can ask about. Taken from
 // the running OS rather than hard-coded: as a constant "darwin" it would make
-// nothing local on zklw, which is Linux, so nothing there would ever close.
+// nothing local on a Linux dev host, so nothing there would ever close.
 var localPIDDomain = runtime.GOOS
 
 // processAlive reports whether a pid currently exists.

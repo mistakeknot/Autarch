@@ -49,7 +49,7 @@ function target(over: Partial<Parameters<typeof makeTarget>[0]> = {}): RigTarget
 
 describe("isLoopbackHost", () => {
   it.each(["localhost", "LOCALHOST", "localhost.", "a.localhost", "127.0.0.1", "127.9.9.9", "[::1]", "::1", "[::ffff:7f00:1]", "::ffff:127.0.0.1", "0.0.0.0", "[::]"])("%s is loopback", (h) => expect(isLoopbackHost(h)).toBe(true));
-  it.each(["example.com", "10.0.0.1", "192.168.1.5", "100.97.18.105", "autarch.getbb.app", "128.0.0.1", "[2001:db8::1]"])("%s is not", (h) => expect(isLoopbackHost(h)).toBe(false));
+  it.each(["example.com", "10.0.0.1", "192.168.1.5", "203.0.113.5", "bb.example.com", "128.0.0.1", "[2001:db8::1]"])("%s is not", (h) => expect(isLoopbackHost(h)).toBe(false));
 });
 
 describe("ambient ports", () => {
@@ -105,7 +105,7 @@ describe("refusals open no socket", () => {
     const home = fakeHome({ server: amb.port });
     refused(() => target({ url: `http://[::1]:${amb.port}`, ambient: ambientPorts({}, [home]) }), "ambient-port");
   });
-  it.each(["https://autarch.getbb.app:443", "http://autarch.getbb.app:45871", "http://10.1.2.3:45871", "http://100.97.18.105:45871"])("a non-loopback target %s", (u) => refused(() => target({ url: u, ambient }), "not-loopback"));
+  it.each(["https://bb.example.com:443", "http://bb.example.com:45871", "http://10.0.0.1:45871", "http://203.0.113.5:45871"])("a non-loopback target %s", (u) => refused(() => target({ url: u, ambient }), "not-loopback"));
   it("an absent environment: there is no default", () => {
     refused(() => target({ url: undefined, ambient }), "no-environment");
     refused(() => target({ url: "", ambient }), "no-environment");
@@ -118,7 +118,7 @@ describe("refusals open no socket", () => {
     refused(() => target({ url: "not a url", ambient }), "bad-url");
     refused(() => target({ url: "ftp://127.0.0.1:45871", ambient }), "bad-url");
   });
-  it("a live bb data dir", () => refused(() => target({ dataDir: join(t.dir, ".bb-machines", "autarch.getbb.app"), ambient }), "ambient-data"));
+  it("a live bb data dir", () => refused(() => target({ dataDir: join(t.dir, ".bb-machines", "bb.example.com"), ambient }), "ambient-data"));
   it("an env override of BB_*, PATH or HOME", () => {
     for (const k of ["BB_SERVER_URL", "BB_DATA_DIR", "PATH", "HOME"]) refused(() => rigEnv({ env: { [k]: "x" } }), "env-override");
   });

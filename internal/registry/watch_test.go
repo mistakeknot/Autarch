@@ -21,7 +21,7 @@ func newStore(t *testing.T) *Store {
 		t.Fatalf("Open: %v", err)
 	}
 	t.Cleanup(func() { db.Close() })
-	s := NewStore(db, "clavain")
+	s := NewStore(db, "laptop")
 	// A fixed clock, so a replay produces a byte-identical projection.
 	var tick int64 = 1_700_000_000_000
 	s.now = func() int64 { tick++; return tick }
@@ -144,7 +144,7 @@ func TestParseTmuxRefHandlesTheNamesThisEstateActuallyUses(t *testing.T) {
 func TestScanIsIdempotent(t *testing.T) {
 	s := newStore(t)
 	dir := t.TempDir()
-	writeRecord(t, dir, 100, record(100, "sess-a", "proj:@1.%1", "/Users/sma/projects/autarch", "a", "auto", 1000, 2000))
+	writeRecord(t, dir, 100, record(100, "sess-a", "proj:@1.%1", "/Users/dev/projects/autarch", "a", "auto", 1000, 2000))
 
 	first := scanAndProject(t, s, dir)
 	if first.Inserted != 1 || !first.Complete {
@@ -167,7 +167,7 @@ func TestScanIsIdempotent(t *testing.T) {
 func TestAFailedReadFreezesRatherThanDemotes(t *testing.T) {
 	s := newStore(t)
 	dir := t.TempDir()
-	writeRecord(t, dir, deadPID, record(deadPID, "sess-a", "proj:@1.%1", "/Users/sma/projects/autarch", "a", "auto", 1000, 2000))
+	writeRecord(t, dir, deadPID, record(deadPID, "sess-a", "proj:@1.%1", "/Users/dev/projects/autarch", "a", "auto", 1000, 2000))
 	scanAndProject(t, s, dir)
 
 	before := count(t, s.DB(), `SELECT COUNT(*) FROM launch_instance WHERE ended_ms IS NULL`)
@@ -208,7 +208,7 @@ func TestAFailedReadFreezesRatherThanDemotes(t *testing.T) {
 func TestAnUnparsableRecordMakesTheSweepIncomplete(t *testing.T) {
 	s := newStore(t)
 	dir := t.TempDir()
-	writeRecord(t, dir, 100, record(100, "sess-a", "proj:@1.%1", "/Users/sma/projects/autarch", "a", "auto", 1000, 2000))
+	writeRecord(t, dir, 100, record(100, "sess-a", "proj:@1.%1", "/Users/dev/projects/autarch", "a", "auto", 1000, 2000))
 	scanAndProject(t, s, dir)
 
 	writeRecord(t, dir, 101, `{"this is": not json`)
@@ -230,10 +230,10 @@ func TestTwoConversationsInOnePaneAreBothRetained(t *testing.T) {
 	s := newStore(t)
 	dir := t.TempDir()
 	pane := "iterm[]linsekasten - 74e5950e:@67.%67"
-	writeRecord(t, dir, 52620, record(52620, "74e5950e", pane, "/Users/sma/projects", "parent", "auto", 1000, 2000))
+	writeRecord(t, dir, 52620, record(52620, "74e5950e", pane, "/Users/dev/projects", "parent", "auto", 1000, 2000))
 	// The child's record names the pane by its PARENT's uuid: the embedded id
 	// identifies the pane's first occupant, not the process reading it.
-	writeRecord(t, dir, 37995, record(37995, "90057d0b", pane, "/Users/sma/projects/linsenkasten", "child", "derived", 1100, 2100))
+	writeRecord(t, dir, 37995, record(37995, "90057d0b", pane, "/Users/dev/projects/linsenkasten", "child", "derived", 1100, 2100))
 	scanAndProject(t, s, dir)
 
 	if n := count(t, s.DB(), `SELECT COUNT(*) FROM conversation`); n != 2 {
@@ -247,12 +247,12 @@ func TestTwoConversationsInOnePaneAreBothRetained(t *testing.T) {
 	if err := s.DB().QueryRow(`SELECT launch_cwd FROM launch_instance WHERE pid = 37995`).Scan(&childCWD); err != nil {
 		t.Fatalf("read child: %v", err)
 	}
-	if childCWD != "/Users/sma/projects/linsenkasten" {
+	if childCWD != "/Users/dev/projects/linsenkasten" {
 		t.Errorf("child cwd = %q; the two conversations in one pane were merged", childCWD)
 	}
 }
 
-// Measured on Clavain: /clear replaces sessionId in place, same pid and same
+// Measured on a Mac: /clear replaces sessionId in place, same pid and same
 // startedAt. The previous conversation must be retained, not overwritten.
 func TestClearKeepsBothConversationsOnOneProcess(t *testing.T) {
 	s := newStore(t)
@@ -270,7 +270,7 @@ func TestClearKeepsBothConversationsOnOneProcess(t *testing.T) {
 		t.Errorf("instances after /clear = %d, want 1 -- same pid, same start", n)
 	}
 	if n := count(t, s.DB(), `SELECT COUNT(*) FROM instance_conversation WHERE instance_id = ?`,
-		InstanceID("clavain", "darwin", 43066, 1789858817805)); n != 2 {
+		InstanceID("laptop", "darwin", 43066, 1789858817805)); n != 2 {
 		t.Errorf("conversation links on one process = %d, want 2", n)
 	}
 	if n := count(t, s.DB(), `SELECT COUNT(*) FROM instance_conversation WHERE observed_to_ms IS NULL`); n != 1 {
@@ -291,8 +291,8 @@ func TestClearKeepsBothConversationsOnOneProcess(t *testing.T) {
 func TestAnAbsentRecordClosesOnlyWithACompleteSweep(t *testing.T) {
 	s := newStore(t)
 	dir := t.TempDir()
-	writeRecord(t, dir, 100, record(100, "stays", "proj:@1.%1", "/Users/sma/projects/autarch", "a", "auto", 1000, 2000))
-	writeRecord(t, dir, deadPID, record(deadPID, "goes", "proj:@2.%2", "/Users/sma/projects/autarch", "b", "auto", 1000, 2000))
+	writeRecord(t, dir, 100, record(100, "stays", "proj:@1.%1", "/Users/dev/projects/autarch", "a", "auto", 1000, 2000))
+	writeRecord(t, dir, deadPID, record(deadPID, "goes", "proj:@2.%2", "/Users/dev/projects/autarch", "b", "auto", 1000, 2000))
 	scanAndProject(t, s, dir)
 	if n := count(t, s.DB(), `SELECT COUNT(*) FROM launch_instance WHERE ended_ms IS NULL`); n != 2 {
 		t.Fatalf("open instances = %d, want 2", n)
@@ -341,7 +341,7 @@ func TestAttributionRecordsWhyItFailed(t *testing.T) {
 
 	if n := count(t, s.DB(), `SELECT COUNT(*) FROM project_association
 		WHERE conversation_id = ? AND project_key = 'jawnomicon' AND basis = 'tmux_session_name'`,
-		ConversationID("claude", "clavain", "attributable")); n != 1 {
+		ConversationID("claude", "laptop", "attributable")); n != 1 {
 		t.Error("a session name carrying a project must produce an association")
 	}
 
@@ -368,8 +368,8 @@ func TestRebuildFromTheLogIsIdentical(t *testing.T) {
 	s := newStore(t)
 	dir := t.TempDir()
 	writeRecord(t, dir, 43066, record(43066, "5d183345", "clrtest:@114.%114", "/private/tmp", "tmp-80", "derived", 1789858817805, 1000))
-	writeRecord(t, dir, 52620, record(52620, "74e5950e", "iterm[]linsekasten:@67.%67", "/Users/sma/projects", "parent", "auto", 1100, 1100))
-	writeRecord(t, dir, 37995, record(37995, "90057d0b", "iterm[]linsekasten:@67.%67", "/Users/sma/projects/linsenkasten", "child", "derived", 1200, 1200))
+	writeRecord(t, dir, 52620, record(52620, "74e5950e", "iterm[]linsekasten:@67.%67", "/Users/dev/projects", "parent", "auto", 1100, 1100))
+	writeRecord(t, dir, 37995, record(37995, "90057d0b", "iterm[]linsekasten:@67.%67", "/Users/dev/projects/linsenkasten", "child", "derived", 1200, 1200))
 	scanAndProject(t, s, dir)
 
 	// Verification, so the replay has to reproduce an in-place upgrade.
@@ -397,7 +397,7 @@ func TestRebuildFromTheLogIsIdentical(t *testing.T) {
 
 	// A durable row naming a conversation must survive the rebuild pointing
 	// at the same thing.
-	conv := ConversationID("claude", "clavain", "5d183345")
+	conv := ConversationID("claude", "laptop", "5d183345")
 	ev := count(t, s.DB(), `SELECT MIN(event_id) FROM event`)
 	mustExec(t, s.DB(), `INSERT INTO item (item_id, conversation_id, kind, created_ms, created_event_id)
 		VALUES ('item-1', ?, 'ruling', 1, ?)`, conv, ev)
@@ -478,7 +478,7 @@ func snapshotProjections(t *testing.T, db *sql.DB) string {
 func TestReobservingAVerifiedInstanceNeitherCrashesNorDuplicates(t *testing.T) {
 	s := newStore(t)
 	dir := t.TempDir()
-	writeRecord(t, dir, 17120, record(17120, "d58d5e63", "iterm]jawnomicon - x:@65.%65", "/Users/sma/projects", "a", "auto", 1000, 2000))
+	writeRecord(t, dir, 17120, record(17120, "d58d5e63", "iterm]jawnomicon - x:@65.%65", "/Users/dev/projects", "a", "auto", 1000, 2000))
 	scanAndProject(t, s, dir)
 
 	if _, err := ScanTmuxPanesWith(s, fakeSocket,
@@ -492,7 +492,7 @@ func TestReobservingAVerifiedInstanceNeitherCrashesNorDuplicates(t *testing.T) {
 	// The record changes, so a fresh session.observed lands on an instance
 	// whose binding is already verified. This is the sweep that crashed.
 	for i, updated := range []int64{3000, 4000, 5000} {
-		writeRecord(t, dir, 17120, record(17120, "d58d5e63", "iterm]jawnomicon - x:@65.%65", "/Users/sma/projects", "a", "auto", 1000, updated))
+		writeRecord(t, dir, 17120, record(17120, "d58d5e63", "iterm]jawnomicon - x:@65.%65", "/Users/dev/projects", "a", "auto", 1000, updated))
 		res, err := ScanClaudeSessions(s, dir)
 		if err != nil {
 			t.Fatalf("sweep %d: %v", i, err)
@@ -521,7 +521,7 @@ func TestReobservingAVerifiedInstanceNeitherCrashesNorDuplicates(t *testing.T) {
 func TestReplayUsesTheRecordedProbeNotThePresent(t *testing.T) {
 	s := newStore(t)
 	dir := t.TempDir()
-	writeRecord(t, dir, deadPID, record(deadPID, "sess-a", "proj:@1.%1", "/Users/sma/projects/autarch", "a", "auto", 1000, 2000))
+	writeRecord(t, dir, deadPID, record(deadPID, "sess-a", "proj:@1.%1", "/Users/dev/projects/autarch", "a", "auto", 1000, 2000))
 	scanAndProject(t, s, dir)
 
 	// The record vanishes, but the sweep observed the process still alive, so
@@ -553,7 +553,7 @@ func TestReplayUsesTheRecordedProbeNotThePresent(t *testing.T) {
 func TestAnOrphanedRecordClosesAsProcessExited(t *testing.T) {
 	s := newStore(t)
 	dir := t.TempDir()
-	writeRecord(t, dir, deadPID, record(deadPID, "sess-a", "proj:@1.%1", "/Users/sma/projects/autarch", "a", "auto", 1000, 2000))
+	writeRecord(t, dir, deadPID, record(deadPID, "sess-a", "proj:@1.%1", "/Users/dev/projects/autarch", "a", "auto", 1000, 2000))
 	scanAndProject(t, s, dir)
 
 	// The record is still present in every sweep, unchanged; only the process
@@ -573,11 +573,11 @@ func TestAnOrphanedRecordClosesAsProcessExited(t *testing.T) {
 func TestAScanEventWithoutARosterIsRefused(t *testing.T) {
 	s := newStore(t)
 	dir := t.TempDir()
-	writeRecord(t, dir, 100, record(100, "sess-a", "proj:@1.%1", "/Users/sma/projects/autarch", "a", "auto", 1000, 2000))
+	writeRecord(t, dir, 100, record(100, "sess-a", "proj:@1.%1", "/Users/dev/projects/autarch", "a", "auto", 1000, 2000))
 	scanAndProject(t, s, dir)
 
 	mustExec(t, s.DB(), `INSERT INTO event (source_id, dedupe_key, kind, observed_ms, payload)
-		VALUES (?, 'hand-written', 'scan.completed', 9999, '{"records_seen":0,"source_id":"claude-sessions","host":"clavain"}')`,
+		VALUES (?, 'hand-written', 'scan.completed', 9999, '{"records_seen":0,"source_id":"claude-sessions","host":"laptop"}')`,
 		SourceClaudeSessions)
 	res, err := Project(s)
 	if err != nil {
@@ -611,19 +611,19 @@ func TestAScanEventWithoutARosterIsRefused(t *testing.T) {
 func TestASweepDoesNotJudgeAnotherSourcesInstances(t *testing.T) {
 	s := newStore(t)
 	dir := t.TempDir()
-	writeRecord(t, dir, 100, record(100, "mine", "proj:@1.%1", "/Users/sma/projects/autarch", "a", "auto", 1000, 2000))
+	writeRecord(t, dir, 100, record(100, "mine", "proj:@1.%1", "/Users/dev/projects/autarch", "a", "auto", 1000, 2000))
 	scanAndProject(t, s, dir)
 
 	// A second producer, with an agent of its own.
 	mustExec(t, s.DB(), `INSERT INTO source (source_id, host, kind, locator, status, last_success_ms)
-		VALUES ('codex-rollouts','clavain','session_file','~/.codex/sessions','ok',1)`)
+		VALUES ('codex-rollouts','laptop','session_file','~/.codex/sessions','ok',1)`)
 	res := mustExec(t, s.DB(), `INSERT INTO event (source_id, dedupe_key, kind, observed_ms)
 		VALUES ('codex-rollouts','c1','session.observed',1)`)
 	ev, _ := res.LastInsertId()
-	other := InstanceID("clavain", "darwin", 777, 777)
+	other := InstanceID("laptop", "darwin", 777, 777)
 	mustExec(t, s.DB(), `INSERT INTO launch_instance
 		(instance_id, host, pid_domain, pid, started_ms, first_event_id, last_event_id)
-		VALUES (?, 'clavain', 'darwin', 777, 777, ?, ?)`, other, ev, ev)
+		VALUES (?, 'laptop', 'darwin', 777, 777, ?, ?)`, other, ev, ev)
 
 	// A complete Claude sweep that has never heard of it, with everything it
 	// does know reported dead.
@@ -646,7 +646,7 @@ func TestASweepDoesNotJudgeAnotherSourcesInstances(t *testing.T) {
 func TestAQuietAgentRecoversFromAFalseClosure(t *testing.T) {
 	s := newStore(t)
 	dir := t.TempDir()
-	writeRecord(t, dir, deadPID, record(deadPID, "sess-a", "proj:@1.%1", "/Users/sma/projects/autarch", "a", "auto", 1000, 2000))
+	writeRecord(t, dir, deadPID, record(deadPID, "sess-a", "proj:@1.%1", "/Users/dev/projects/autarch", "a", "auto", 1000, 2000))
 	scanAndProject(t, s, dir)
 
 	// A false death. The record stays exactly as it is from here on: the
@@ -678,7 +678,7 @@ func TestAQuietAgentRecoversFromAFalseClosure(t *testing.T) {
 func TestLineageSurvivesAClearDuringAFalseClosure(t *testing.T) {
 	s := newStore(t)
 	dir := t.TempDir()
-	writeRecord(t, dir, deadPID, record(deadPID, "sess-a", "proj:@1.%1", "/Users/sma/projects/autarch", "a", "auto", 1000, 2000))
+	writeRecord(t, dir, deadPID, record(deadPID, "sess-a", "proj:@1.%1", "/Users/dev/projects/autarch", "a", "auto", 1000, 2000))
 	scanAndProject(t, s, dir)
 
 	s.probe = deadPIDs(deadPID)
@@ -686,7 +686,7 @@ func TestLineageSurvivesAClearDuringAFalseClosure(t *testing.T) {
 
 	// The agent was alive all along, and has just been /clear'ed.
 	s.probe = allAlive
-	writeRecord(t, dir, deadPID, record(deadPID, "sess-b", "proj:@1.%1", "/Users/sma/projects/autarch", "a", "auto", 1000, 3000))
+	writeRecord(t, dir, deadPID, record(deadPID, "sess-b", "proj:@1.%1", "/Users/dev/projects/autarch", "a", "auto", 1000, 3000))
 	scanAndProject(t, s, dir)
 
 	if n := count(t, s.DB(), `SELECT COUNT(*) FROM conversation_lineage WHERE relation = 'clear'`); n != 1 {
@@ -703,7 +703,7 @@ func TestLineageSurvivesAClearDuringAFalseClosure(t *testing.T) {
 func TestASweepWithADeadProbeIsDegraded(t *testing.T) {
 	s := newStore(t)
 	dir := t.TempDir()
-	writeRecord(t, dir, deadPID, record(deadPID, "sess-a", "proj:@1.%1", "/Users/sma/projects/autarch", "a", "auto", 1000, 2000))
+	writeRecord(t, dir, deadPID, record(deadPID, "sess-a", "proj:@1.%1", "/Users/dev/projects/autarch", "a", "auto", 1000, 2000))
 	scanAndProject(t, s, dir)
 
 	s.probe = func(targets []probeTarget) probeReport {
@@ -740,7 +740,7 @@ func TestASweepWithADeadProbeIsDegraded(t *testing.T) {
 func TestMigrateReplaysRatherThanDiscarding(t *testing.T) {
 	s := newStore(t)
 	dir := t.TempDir()
-	writeRecord(t, dir, 100, record(100, "sess-a", "proj:@1.%1", "/Users/sma/projects/autarch", "a", "auto", 1000, 2000))
+	writeRecord(t, dir, 100, record(100, "sess-a", "proj:@1.%1", "/Users/dev/projects/autarch", "a", "auto", 1000, 2000))
 	scanAndProject(t, s, dir)
 
 	before := snapshotProjections(t, s.DB())
@@ -772,7 +772,7 @@ func TestMigrateReplaysRatherThanDiscarding(t *testing.T) {
 	}
 }
 
-// Measured on Clavain 2026-09-19: `claude --continue` starts a new process
+// Measured on a Mac 2026-09-19: `claude --continue` starts a new process
 // with a new pid and a new startedAt, carrying the SAME sessionId. So a
 // resume is a new launch instance under a continuing conversation -- which is
 // the case the three-identity split exists for, and the reason a conversation
@@ -804,7 +804,7 @@ func TestAResumeIsANewInstanceOnTheSameConversation(t *testing.T) {
 		t.Errorf("open instances = %d, want 1 -- the old process was observed dead", n)
 	}
 	if n := count(t, s.DB(), `SELECT COUNT(*) FROM instance_conversation WHERE conversation_id = ?`,
-		ConversationID("claude", "clavain", session)); n != 2 {
+		ConversationID("claude", "laptop", session)); n != 2 {
 		t.Error("the conversation should be linked to both processes that ran it")
 	}
 	// The pane moved with it, and the old binding closed with its instance.
@@ -822,14 +822,14 @@ func TestAResumeIsANewInstanceOnTheSameConversation(t *testing.T) {
 func TestParentPidIsCapturedWhileTheProcessLives(t *testing.T) {
 	s := newStore(t)
 	dir := t.TempDir()
-	parentID := InstanceID("clavain", "darwin", 55409, 1000)
-	childID := InstanceID("clavain", "darwin", 81453, 1100)
+	parentID := InstanceID("laptop", "darwin", 55409, 1000)
+	childID := InstanceID("laptop", "darwin", 81453, 1100)
 	// The parent's own parent is the pane's login shell, which this registry
 	// does not track. The child's parent is the agent that spawned it.
 	s.probe = aliveWithParents(map[string]int64{parentID: 3000, childID: 55409})
 
-	writeRecord(t, dir, 55409, record(55409, "e4bedaf5", "iterm[autarch:@98.%98", "/Users/sma/projects", "parent", "auto", 1000, 2000))
-	writeRecord(t, dir, 81453, record(81453, "e13b1e95", "iterm[autarch:@98.%98", "/Users/sma/projects", "child", "derived", 1100, 2100))
+	writeRecord(t, dir, 55409, record(55409, "e4bedaf5", "iterm[autarch:@98.%98", "/Users/dev/projects", "parent", "auto", 1000, 2000))
+	writeRecord(t, dir, 81453, record(81453, "e13b1e95", "iterm[autarch:@98.%98", "/Users/dev/projects", "child", "derived", 1100, 2100))
 	scanAndProject(t, s, dir)
 
 	var parentPPID, childPPID sql.NullInt64
@@ -860,11 +860,11 @@ func TestParentPidIsCapturedWhileTheProcessLives(t *testing.T) {
 func TestAnUnreadParentIsNotTheAbsenceOfOne(t *testing.T) {
 	s := newStore(t)
 	dir := t.TempDir()
-	childID := InstanceID("clavain", "darwin", 81453, 1100)
-	parentID := InstanceID("clavain", "darwin", 55409, 1000)
+	childID := InstanceID("laptop", "darwin", 81453, 1100)
+	parentID := InstanceID("laptop", "darwin", 55409, 1000)
 
-	writeRecord(t, dir, 55409, record(55409, "e4bedaf5", "iterm[autarch:@98.%98", "/Users/sma/projects", "parent", "auto", 1000, 2000))
-	writeRecord(t, dir, 81453, record(81453, "e13b1e95", "iterm[autarch:@98.%98", "/Users/sma/projects", "child", "derived", 1100, 2100))
+	writeRecord(t, dir, 55409, record(55409, "e4bedaf5", "iterm[autarch:@98.%98", "/Users/dev/projects", "parent", "auto", 1000, 2000))
+	writeRecord(t, dir, 81453, record(81453, "e13b1e95", "iterm[autarch:@98.%98", "/Users/dev/projects", "child", "derived", 1100, 2100))
 
 	// A sweep whose probe reported no parents at all -- which is also every
 	// sweep written before schema v4, whose rosters carry no ppids field.
@@ -878,7 +878,7 @@ func TestAnUnreadParentIsNotTheAbsenceOfOne(t *testing.T) {
 
 	// Now one that did read them.
 	s.probe = aliveWithParents(map[string]int64{childID: 55409})
-	writeRecord(t, dir, 81453, record(81453, "e13b1e95", "iterm[autarch:@98.%98", "/Users/sma/projects", "child", "derived", 1100, 2200))
+	writeRecord(t, dir, 81453, record(81453, "e13b1e95", "iterm[autarch:@98.%98", "/Users/dev/projects", "child", "derived", 1100, 2200))
 	scanAndProject(t, s, dir)
 	mustScan(t, s.DB(), `SELECT ppid FROM launch_instance WHERE pid = 81453`, &ppid)
 	if ppid.Int64 != 55409 {
@@ -888,7 +888,7 @@ func TestAnUnreadParentIsNotTheAbsenceOfOne(t *testing.T) {
 	// And a later sweep that could not read it again must not retract it. The
 	// parent exiting does not unmake the fact that it was the parent.
 	s.probe = allAlive
-	writeRecord(t, dir, 81453, record(81453, "e13b1e95", "iterm[autarch:@98.%98", "/Users/sma/projects", "child", "derived", 1100, 2300))
+	writeRecord(t, dir, 81453, record(81453, "e13b1e95", "iterm[autarch:@98.%98", "/Users/dev/projects", "child", "derived", 1100, 2300))
 	scanAndProject(t, s, dir)
 	var parentOf sql.NullString
 	mustScan(t, s.DB(), `SELECT parent_instance_id FROM launch_instance WHERE pid = 81453`, &parentOf)
@@ -903,7 +903,7 @@ func TestAnUnreadParentIsNotTheAbsenceOfOne(t *testing.T) {
 	// one another agent dispatched. The launch parent is a fact about a
 	// launch, and a later reading is not a correction of it.
 	s.probe = aliveWithParents(map[string]int64{childID: 1})
-	writeRecord(t, dir, 81453, record(81453, "e13b1e95", "iterm[autarch:@98.%98", "/Users/sma/projects", "child", "derived", 1100, 2400))
+	writeRecord(t, dir, 81453, record(81453, "e13b1e95", "iterm[autarch:@98.%98", "/Users/dev/projects", "child", "derived", 1100, 2400))
 	scanAndProject(t, s, dir)
 	mustScan(t, s.DB(), `SELECT ppid FROM launch_instance WHERE pid = 81453`, &ppid)
 	if ppid.Int64 != 55409 {

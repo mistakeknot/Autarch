@@ -87,7 +87,7 @@ export class Rig {
     this.abort = new AbortController();
     this.events.clear();
     this.services.clear();
-    const cfg: HomeConfig = { serveAddr: "127.0.0.1:1", serveTokenFile: "/nonexistent", serveProjectDirs: [], autarchBin: "autarch" };
+    const cfg: HomeConfig = { serveAddr: "127.0.0.1:1", serveTokenFile: "/nonexistent", serveProjectDirs: [], autarchBin: "autarch", rulingsLedger: null };
     const serve = { projects: async () => JSON.parse(readFileSync(this.projectsFile, "utf8")), health: async () => ({}), healthy: async () => true } as unknown as ServeClient;
     this.handle = createStoreHandle(() => new Database(this.file, { timeout: 200 }), { initialDelayMs: 300, maxDelayMs: 300, closeOnFailure: true });
     const bb = {

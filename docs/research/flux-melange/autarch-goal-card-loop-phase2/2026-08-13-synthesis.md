@@ -74,7 +74,7 @@ against synthetic cards:
 **One finding is corrected downward.** f-033 claimed the four-row-states DONE WHEN clause
 cannot be satisfied because only CONFIRMED and ABSENT will be populated at completion. A
 sixth card already exists on disk that no lens found:
-`/Users/sma/projects/After-Them/docs/why.md`, untracked, `card-check.py` exit 1, three
+`~/projects/After-Them/docs/why.md`, untracked, `card-check.py` exit 1, three
 fields drafted with real project-scope citations. PROVISIONAL is reachable with real data.
 INVALID still has no honest path at completion. The clause is 3/4 satisfiable, not 2/4 —
 risk drops from 6 to 4, novelty holds.
@@ -627,7 +627,7 @@ Whether the project-row door is a new surface or a change to an existing one, an
 already renders session state there, is unknown to this review.
 
 **A sixth card exists on disk and no lens found it.**
-`/Users/sma/projects/After-Them/docs/why.md`, untracked, `card-check.py` exit 1, three fields
+`~/projects/After-Them/docs/why.md`, untracked, `card-check.py` exit 1, three fields
 drafted with real project-scope citations, `line: null` with an inline comment explaining the
 R4 block. It is outside the five measured repos. It corrects f-033 and it raises a question
 this review cannot answer: it was drafted by something, recently, into a repo the measurement

@@ -22,7 +22,7 @@ func TestRunPathSetsDecisionQueue(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer db.Close()
-	o := buildOrchestrator(db, spawn.NewClaudeCodeSpawner("", "Demarch"), mycroft.DefaultConfig())
+	o := buildOrchestrator(db, spawn.NewBBSpawner("p", "e", ""), mycroft.DefaultConfig())
 	if !o.HasQueue() {
 		t.Fatal("production orchestrator has no decision queue")
 	}
@@ -172,7 +172,7 @@ func TestBuildOrchestratorQueueHoldsACardFiler(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer db.Close()
-	q := buildOrchestrator(db, spawn.NewClaudeCodeSpawner("", "Demarch"), mycroft.DefaultConfig()).Queue()
+	q := buildOrchestrator(db, spawn.NewBBSpawner("p", "e", ""), mycroft.DefaultConfig()).Queue()
 	cf, ok := q.Filer().(*homeask.CardFiler)
 	if !ok {
 		t.Fatalf("queue filer is %T, want *homeask.CardFiler", q.Filer())
@@ -194,7 +194,7 @@ func TestBuildOrchestratorQueueHoldsACardFiler(t *testing.T) {
 			return homeask.BBResult{Stdout: []byte(`{"labels":[{"name":"needs-mk"}]}`)}
 		case "tasks project list":
 			return homeask.BBResult{Stdout: []byte(`{"projects":[{"id":"TP1","name":"x"}]}`)}
-		case "tasks list --project":
+		case "tasks list --status":
 			return homeask.BBResult{Stdout: []byte(`{"tasks":[],"nextCursor":null}`)}
 		case "tasks create --project":
 			return homeask.BBResult{Stdout: []byte(`{"task":{"id":"T9","projectId":"TP1"}}`)}

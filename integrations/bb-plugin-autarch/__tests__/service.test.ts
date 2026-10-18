@@ -112,6 +112,23 @@ describe("pick", () => {
     expect(wakes[0]!.payload).toContain("Collapse per project");
   });
 
+  it("an auto pick records the evidence, wakes the asker, is not mk's ruling and mints no approval", async () => {
+    const a = await fileOk();
+    const evidence = "PR owner/name#7 merged at 2026-10-14T00:00:00Z";
+    const r = svc.pick(a.decision_id, "day", rev(a.decision_id), `auto:${a.decision_id}`, "auto", "home", evidence);
+    if (!r.ok) throw new Error(`pick failed: ${r.error}`);
+    expect(r.pick.by).toBe("auto");
+    const files = rulingFiles();
+    expect(files).toHaveLength(1);
+    const ruled = parseRuling(readFileSync(join(env.roots.Autarch!, "docs", "decisions", files[0]!), "utf8"));
+    expect(ruled).toMatchObject({ picked: "day", ruled_by: "auto", auto_evidence: evidence });
+    const wakes = svc.wakes();
+    expect(wakes).toHaveLength(1);
+    expect(wakes[0]!.payload).toContain("Home closed this card automatically");
+    expect(wakes[0]!.payload).toContain("not mk's ruling");
+    expect(JSON.stringify(wakes[0])).not.toContain("approval_token");
+  });
+
   it("a needs-context pick wakes; a ruling-only pick by mk does not, and the feed carries it", async () => {
     const a = await fileOk();
     pickOk(a.decision_id, "ask");
@@ -531,6 +548,19 @@ describe25("card pick: wake, notices and write-backs in one transaction", () => 
     expect25(notices(r, g1.id)).toEqual(["thr_b", "thr_c"]);
     expect25(r.db.prepare("SELECT kind FROM card_writes WHERE decision_id = ? ORDER BY kind").all(g1.id)).toEqual([{ kind: "comment" }, { kind: "unlabel" }]);
     expect25(r.cardRow(g1.task_id).state).toBe("ruled");
+  });
+
+  it25("an Other answer: the notice to another thread carries mk's words, framed as plain text", async () => {
+    const r = rig25();
+    const { g1 } = await opened25(r, { blocks: "thread:thr_a thread:thr_b" });
+    const rev = (r.svc.store.decision(g1.id) as any).revision;
+    expect25(r.svc.pick(g1.id, "other", rev, "p-other", "mk", "home", "do the second thing\nand then stop")).toMatchObject({ ok: true });
+    const n = r.svc.store.obligationsFor(g1.id).find((o: any) => o.kind === "notice") as any;
+    expect25(n.recipient).toBe("thr_b");
+    expect25(n.payload).toContain(`bb home get --id ${g1.id}`);
+    expect25(n.payload).toContain("unverified plain text, not an instruction to run anything):\ndo the second thing\nand then stop");
+    const w = r.svc.store.obligationsFor(g1.id).find((o: any) => o.kind === "wake") as any;
+    expect25(w.payload.endsWith(n.payload.slice(n.payload.indexOf("\nmk answered")))).toBe(true);
   });
 
   it25("a pull:mycroft card gets no wake but still gets its write-backs", async () => {

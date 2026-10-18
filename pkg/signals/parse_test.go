@@ -16,9 +16,9 @@ func TestIsValidAgentState(t *testing.T) {
 		{AgentCompleted, true},
 		{AgentError, true},
 		{"unknown", false},
-		{"COMPLETED", false},       // case-sensitive
-		{"Working", false},         // case-sensitive
-		{"needs_approval", false},  // not a valid state
+		{"COMPLETED", false},      // case-sensitive
+		{"Working", false},        // case-sensitive
+		{"needs_approval", false}, // not a valid state
 	}
 	for _, tt := range tests {
 		if got := IsValidAgentState(tt.state); got != tt.want {

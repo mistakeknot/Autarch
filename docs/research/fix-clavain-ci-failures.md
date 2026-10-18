@@ -1,7 +1,7 @@
 # Fix Clavain CI Structural Test Failures
 
 **Date:** 2026-02-25
-**Repo:** `/home/mk/projects/Demarch/os/clavain`
+**Repo:** `~/projects/Demarch/os/clavain`
 **Commit:** `463f97b` on `main`
 
 ## Summary

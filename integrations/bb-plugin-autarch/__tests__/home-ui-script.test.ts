@@ -1,7 +1,7 @@
 // scripts/home-ui.sh against a stub bb and a temp data directory. Never live. The deploy subcommand fetches origin, so it is
 // covered by the same gates through `check`/`preview`, not run here.
 import { spawnSync } from "node:child_process";
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -87,6 +87,102 @@ describe("home-ui.sh gates", () => {
     expect(out.stderr).toContain("migrations.ts differs");
   });
 
+  it("--plugin-code allows plugin code outside ui/ but still refuses dependency, schema and migrations.ts changes", () => {
+    const r = rig();
+    const n = plugin(r.root, "new", 3);
+    writeFileSync(join(n, "server.ts"), "plugin logic");
+    const refused = r.run(["check", "--path", n]);
+    expect(refused.status).toBe(3);
+    const ok = r.run(["check", "--path", n, "--plugin-code"]);
+    expect(ok.status).toBe(0);
+    expect(ok.stdout).toContain("plugin code may differ");
+    writeFileSync(join(n, "package.json"), '{"dependencies":{"x":"1"}}');
+    const dep = r.run(["check", "--path", n, "--plugin-code"]);
+    expect(dep.status).toBe(3);
+    expect(dep.stderr).toContain("package.json differs");
+    const s2 = plugin(r.root, "new2", 4);
+    expect(r.run(["check", "--path", s2, "--plugin-code"]).status).toBe(3);
+    const m = plugin(r.root, "new3", 3, "// changed\n");
+    expect(r.run(["check", "--path", m, "--plugin-code"]).stderr).toContain("migrations.ts differs");
+    expect(r.run(["preview", "--plugin-code"]).status).toBe(64);
+  });
+
+  it("--plugin-code refuses changed plugin code that contains schema statements", () => {
+    const r = rig();
+    const n = plugin(r.root, "new", 3);
+    writeFileSync(join(n, "store.ts"), 'db.exec("CREATE TABLE gate_bypassed(x TEXT)");');
+    const out = r.run(["check", "--path", n, "--plugin-code"]);
+    expect(out.status).toBe(3);
+    expect(out.stderr).toContain("schema statement");
+    writeFileSync(join(n, "store.ts"), "ok();");
+    expect(r.run(["check", "--path", n, "--plugin-code"]).status).toBe(0);
+  });
+
+  it("--plugin-code scans added lines, including new directories and multi-line SQL, and ignores unchanged references", () => {
+    const r = rig();
+    writeFileSync(join(r.cur, "backup.ts"), 'q("SELECT value FROM schema_meta");\n');
+    const n = plugin(r.root, "new", 3);
+    writeFileSync(join(n, "backup.ts"), 'q("SELECT value FROM schema_meta");\n// comment only\n');
+    expect(r.run(["check", "--path", n, "--plugin-code"]).status).toBe(0);
+    mkdirSync(join(n, "lib"));
+    writeFileSync(join(n, "lib", "x.ts"), "db.exec(`CREATE\n  TABLE t2(x)`);\n");
+    const out = r.run(["check", "--path", n, "--plugin-code"]);
+    expect(out.status).toBe(3);
+    expect(out.stderr).toContain("schema statement");
+  });
+
+  it("--plugin-code scans binary-looking files, lines starting with ++ and odd file names", () => {
+    const r = rig();
+    const bad = 'db.exec("CREATE TABLE bypass(x)");';
+    for (const [name, body] of [["bin.js", `\0${bad}`], ["pp.js", `++c; ${bad}`], ["a b ui", bad]] as const) {
+      const n = plugin(r.root, `n-${name.replace(/\W/g, "_")}`, 3);
+      mkdirSync(join(n, "lib"), { recursive: true });
+      writeFileSync(join(n, "lib", name), body);
+      expect(r.run(["check", "--path", n, "--plugin-code"]).status, name).toBe(3);
+    }
+    const n2 = plugin(r.root, "n-sp", 3);
+    mkdirSync(join(n2, "lib x"), { recursive: true });
+    mkdirSync(join(n2, "lib x", "ui"));
+    writeFileSync(join(n2, "lib x", "ui", "p.js"), bad);
+    expect(r.run(["check", "--path", n2, "--plugin-code"]).status).toBe(3);
+  });
+
+  it("--plugin-code refuses any added, changed or dangling lockfile and .npmrc", () => {
+    const r = rig();
+    for (const f of ["package-lock.json", "npm-shrinkwrap.json", ".npmrc", "pnpm-lock.yaml", "yarn.lock"]) {
+      const n = plugin(r.root, `n-${f}`, 3);
+      writeFileSync(join(n, f), "new");
+      const out = r.run(["check", "--path", n, "--plugin-code"]);
+      expect(out.status, f).toBe(3);
+      expect(out.stderr).toContain(f);
+    }
+    const d = plugin(r.root, "dangling", 3);
+    symlinkSync("/nonexistent-lock", join(d, "package-lock.json"));
+    expect(r.run(["check", "--path", d, "--plugin-code"]).status).toBe(3);
+  });
+
+  it("refuses to pick when no Home database or more than one is found", () => {
+    const r = rig();
+    const n = plugin(r.root, "new", 3);
+    const home = join(r.root, "h");
+    mkdirSync(home);
+    const env = { PATH: process.env.PATH!, HOME: home, HOME_BB_BIN: join(r.root, "bb"), HOME_UI_WAIT: "2" };
+    expect(spawnSync("bash", [SCRIPT, "check", "--path", n], { env, encoding: "utf8" }).stderr).toContain("found 0");
+    for (const x of ["x", "y"]) { mkdirSync(join(home, x, "plugins", "autarch"), { recursive: true }); writeFileSync(join(home, x, "plugins", "autarch", "data.db"), ""); }
+    expect(spawnSync("bash", [SCRIPT, "check", "--path", n], { env, encoding: "utf8" }).stderr).toContain("found 2");
+  });
+
+  it("finds the Home database in a data directory five levels below the home directory", () => {
+    const r = rig();
+    const n = plugin(r.root, "new", 3);
+    const deep = join(r.root, "a", "b", "c", "data");
+    mkdirSync(join(deep, "plugins", "autarch"), { recursive: true });
+    writeFileSync(join(deep, "plugins", "autarch", "data.db"), "");
+    const env = { PATH: process.env.PATH!, HOME: join(r.root, "a"), HOME_BB_BIN: join(r.root, "bb"), HOME_UI_WAIT: "2" };
+    const out = spawnSync("bash", [SCRIPT, "check", "--path", n], { env, encoding: "utf8" });
+    expect(out.stderr).not.toContain("cannot pick one Home database");
+  });
+
   it("fails closed on an unreadable database, a missing node_modules and a bad commit", () => {
     const r = rig();
     const n = plugin(r.root, "new", 3);
@@ -147,4 +243,39 @@ describe("home-ui.sh preview and rollback", () => {
     if (process.getuid?.() !== 0) return;
     expect(spawnSync("bash", [SCRIPT, "check"], { encoding: "utf8" }).status).toBe(64);
   });
+  // R5: check lists every failed gate in one run; deploy and preview stay fail-fast.
+  describe("accumulation", () => {
+    it("every subset of {no node_modules, other schema, file outside ui/} is reported whole by check", () => {
+      const names = ["no node_modules", "the build is schema", "files outside ui/"];
+      for (let mask = 1; mask < 8; mask++) {
+        const r = rig();
+        const n = plugin(r.root, "new", mask & 2 ? 4 : 3);
+        if (mask & 1) rmSync(join(n, "node_modules"), { recursive: true });
+        if (mask & 4) writeFileSync(join(n, "server.ts"), "export {};\n");
+        const out = r.run(["check", "--path", n]);
+        expect(out.status, `mask ${mask}`).toBe(3);
+        names.forEach((say, i) => { if (mask & (1 << i)) expect(out.stderr, `mask ${mask}: ${say}`).toContain(say); });
+        expect(out.stderr).toContain("failed gate(s)");
+        expect(r.log()).not.toContain("plugin disable");
+      }
+    });
+    it("check names a build that has no package.json", () => {
+      const r = rig();
+      const n = plugin(r.root, "new", 3);
+      rmSync(join(n, "package.json"));
+      const out = r.run(["check", "--path", n]);
+      expect(out.status).toBe(3);
+      expect(out.stderr).toContain("is not a Home plugin build");
+    });
+    it("preview stops at the first failed gate", () => {
+      const r = rig();
+      const n = plugin(r.root, "new", 4);
+      rmSync(join(n, "node_modules"), { recursive: true });
+      const out = r.run(["preview", "--path", n]);
+      expect(out.status).not.toBe(0);
+      expect(out.stderr).toContain("no node_modules");
+      expect(out.stderr).not.toContain("the build is schema");
+    });
+  });
+
 });

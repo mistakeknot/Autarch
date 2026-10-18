@@ -20,7 +20,7 @@ export type QueuedRowState = "queued" | "dispatched" | "cancelled" | "unknown";
 
 /** The slice of bb.sdk.threads the loop touches. Any method may throw when the host lacks it. */
 export interface WakeSdk {
-  send(a: { threadId: string; input: string; mode: "queue-if-active" }): Promise<SendResult>;
+  send(a: { threadId: string; input: string; mode: "queue-if-active"; images?: readonly string[] }): Promise<SendResult>;
   queuedState(threadId: string, id: string): Promise<QueuedRowState>;
   queuedList(threadId: string): Promise<QueuedRow[]>;
   queuedDelete(threadId: string, id: string): Promise<void>;
@@ -135,12 +135,17 @@ export class WakeLoop {
     const key = `${row.id}#${n}`;
     const threadId = row.recipient ?? "";
     const input = framed(row.op ?? row.id, n, row.payload ?? "");
+    // Images come from the server-written index for this obligation, never from the text. The text sent is the
+    // same either way; a missing set is logged as an event and the text still goes.
+    const imgs = row.op ? this.svc.imagesFor(row.op) : ({ state: "none" } as const);
+    if (imgs.state === "missing") this.store.recordEvent("images-missing", null, { op: row.op, recipient: threadId });
+    const images = imgs.state === "ok" ? imgs.paths : [];
     this.inflight.add(key);
     let res: SendResult | undefined;
     let failure: unknown;
     let failed = false;
     try {
-      res = await this.sdk.send({ threadId, input, mode: "queue-if-active" });
+      res = await this.sdk.send({ threadId, input, mode: "queue-if-active", ...(images.length > 0 ? { images } : {}) });
     } catch (err) {
       failed = true;
       failure = err;
@@ -424,7 +429,7 @@ const textOf = (parts: unknown): string =>
 
 /** The slice of bb.sdk.threads the adapter uses. */
 export interface ThreadsLike {
-  send(a: { threadId: string; input: readonly { type: "text"; text: string }[]; mode?: string }): Promise<unknown>;
+  send(a: { threadId: string; input: readonly ({ type: "text"; text: string } | { type: "localImage"; path: string })[]; mode?: string }): Promise<unknown>;
   queuedMessages: {
     list(a: { threadId: string }): Promise<unknown>;
     delete(a: { threadId: string; queuedMessageId: string }): Promise<unknown>;
@@ -444,7 +449,7 @@ export function sdkAdapter(threads: ThreadsLike): WakeSdk {
   };
   return {
     async send(a) {
-      const r = (await threads.send({ threadId: a.threadId, input: [{ type: "text", text: a.input }], mode: a.mode })) as {
+      const r = (await threads.send({ threadId: a.threadId, input: [{ type: "text", text: a.input }, ...(a.images ?? []).map((path) => ({ type: "localImage" as const, path }))], mode: a.mode })) as {
         delivery: "sent" | "queued";
         queuedMessage?: { id: string };
         messageId?: string;

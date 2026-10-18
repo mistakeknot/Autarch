@@ -23,21 +23,21 @@ The GATE asked that mk articulate the pain before anything was drafted. The ques
 
 - **Shape: catalog, not canon.** It answers where a project lives and which layer letter it carries, but a theme, a card, a stamp or a season has no node to land on; the estate's structure stays in mk's head and in `docs/why.md` files.
 - **Decisions are flat.** Eight decisions, each a title and a rationale string: none supersedes or contradicts another, none points at the artifact it ratified, the sitting is a bare run id. The trace of governance is metadata on the fact, not the fact's form.
-- **Reaching it is the friction.** zklw-only over a bearer-token MCP, the Kùzu single-writer lock forbids the CLI, capture is a skill mk must remember to invoke, and the lane doctrine is a markdown rule the graph cannot enforce.
+- **Reaching it is the friction.** devhost-only over a bearer-token MCP, the Kùzu single-writer lock forbids the CLI, capture is a skill mk must remember to invoke, and the lane doctrine is a markdown rule the graph cannot enforce.
 - **Not in the graph at all.** It works. The pain is that it is a fourth memory system with its own shape beside cards, beads and the salon, instead of the one world model that intercore, Autarch and the salon all read.
 
 Read with the 2026-09-01 ruling, the pain is not a defect list. It is that the graph's shape is somebody else's answer to a different question, and parity with it is the floor, not the goal.
 
 ## CanonGraph as it is, read rather than remembered
 
-**The live profile.** Topology `sylveste`: Person, Machine, Project, Plugin, Client, Decision, Run; twelve relationships, each between one fixed pair of types; ten named cypher queries, no other query path. Projects by layer on 2026-09-03: A 9, B 5, C 8, D 5, E 4, F 3, G 0, H 3, I 1, J 3, K 1, L 0, X 9, total 51. Five `serves` edges, every one on zklw. Eight decisions concern canongraph, every one `made_by: mk`, every one `decided`, none pointing at any other. Zero decisions concern Autarch, and Autarch has no Project row at all: the HUD that reads the graph is absent from it. The catalog fields (designation, layer, ecosystem, constellation) arrived by an additive `extend` on 2026-07-15, the only schema change the system permits.
+**The live profile.** Topology `sylveste`: Person, Machine, Project, Plugin, Client, Decision, Run; twelve relationships, each between one fixed pair of types; ten named cypher queries, no other query path. Projects by layer on 2026-09-03: A 9, B 5, C 8, D 5, E 4, F 3, G 0, H 3, I 1, J 3, K 1, L 0, X 9, total 51. Five `serves` edges, every one on devhost. Eight decisions concern canongraph, every one `made_by: mk`, every one `decided`, none pointing at any other. Zero decisions concern Autarch, and Autarch has no Project row at all: the HUD that reads the graph is absent from it. The catalog fields (designation, layer, ecosystem, constellation) arrived by an additive `extend` on 2026-07-15, the only schema change the system permits.
 
 **The source, at 28f072d.** Six limits that are architecture, not missing features:
 
 1. **No supersession or retraction.** Replay merges each new payload's properties over the existing row, last write wins (`canongraph/backends/sqlite_log_store.py:256-267`). The only removal is physical deletion by redaction (`sqlite_log_store.py:173-191`). Nothing can say "this was true and is no longer".
 2. **Flat scalar property bags.** Entities and relationships each hold one flat list of properties; the optional type hint is limited to STRING, DOUBLE, INT64, BOOL (`canongraph/topology.py:17-28, 145-148`). No nesting, no enums, no validity interval, no time-varying value.
 3. **Binary, singly-typed edges.** A relationship is declared from one entity key to one entity key (`topology.py:17-28`). It cannot reach "whatever a theme concerns", cannot point at another relationship, cannot carry an interval.
-4. **Exact identity.** `resolve` lowercases and folds whitespace and then matches exactly (`canongraph/backends/log_base.py:216-236`). One name per entity, no aliases; the 2026-07-14 decision "zklw spelling wins" exists because the system cannot hold two spellings.
+4. **Exact identity.** `resolve` lowercases and folds whitespace and then matches exactly (`canongraph/backends/log_base.py:216-236`). One name per entity, no aliases; the 2026-07-14 decision "devhost spelling wins" exists because the system cannot hold two spellings.
 5. **Asserted actors, one token.** `actor` is caller-supplied text that defaults to "assistant" (`canongraph/server.py:187`); one shared bearer token covers every writer (`server.py:450-485`). Nothing in the store knows who mk is.
 6. **`verified` is a boolean nobody reads.** It is a column on the event log (`log_base.py:25`) with no read path, no workflow, no state beyond true and false.
 
@@ -102,10 +102,10 @@ In the containment tree Ultan is a platform beside intercore, as the ontology no
 ## Parity and migration path (ruling 7, spelled out)
 
 1. **Freeze.** The `sylveste` profile becomes read-only in practice: capture stops writing to it once Ultan's proposal path exists. Recall keeps reading it.
-2. **Export.** `canongraph export --format json` against a copy of `~/.canongraph/sylveste` on zklw (the command opens `graph.kuzu`, so not beside the running service), or a direct read of `log.sqlite`, the viewer's path, which is safe beside it. The export carries every entity and relationship with `source` and `confidence`; the log carries `actor` and `ts` per event.
+2. **Export.** `canongraph export --format json` against a copy of `~/.canongraph/sylveste` on devhost (the command opens `graph.kuzu`, so not beside the running service), or a direct read of `log.sqlite`, the viewer's path, which is safe beside it. The export carries every entity and relationship with `source` and `confidence`; the log carries `actor` and `ts` per event.
 3. **Files.** A catalog file per layer for the 51 projects, holding designation, layer, status, ecosystem, constellation, hosting and serving; a decision record per decision with `made_by: mk` and `decided_on` preserved and `source: migrated from canongraph <event_id>`; runs are not migrated, intercore owns them. Where these files live is opened on the spec (provisional: the Sylveste monorepo, where the lane doctrine already lives).
 4. **Parity.** The ten named queries run against both sides, rows diffed; both reads are read-only. The floor is met when every query matches for every parameter the estate uses (each layer letter, each machine, each project with decisions).
-5. **Cutover.** The recall hook's graph step, the capture skill and Autarch point at Ultan; `canongraph.service` on zklw stops; `ops/canongraph/memory-lanes.md` renames the lane and keeps its litmus test; `recall-lanes.md` rewrites row 1.
+5. **Cutover.** The recall hook's graph step, the capture skill and Autarch point at Ultan; `canongraph.service` on devhost stops; `ops/canongraph/memory-lanes.md` renames the lane and keeps its litmus test; `recall-lanes.md` rewrites row 1.
 6. **Upstream.** The 2026-07-14 decision "Adopt CanonGraph as tracked upstream" is superseded by a new decision that points at it (ruling 6's first real use). The PR watch on jvattimo1/canongraph is a courtesy and can continue.
 
 ## Open questions derived here, not ruled

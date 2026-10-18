@@ -1,13 +1,13 @@
 // Task 2.8a test 2 (A10, finding r5-4): scripts/home-restore-v2.sh and scripts/home-upgrade-v3.sh against a
 // temporary install, in test mode (--test-as-current-user, --bbdata, --build). Never root, never sudo, never the
-// live /home/mk/.bb-machines data. The launchers are executed by path, so the kernel runs the #!/bin/sh line.
+// live bb machine data. The launchers are executed by path, so the kernel runs the #!/bin/sh line.
 import { spawn, spawnSync, type ChildProcess } from "node:child_process";
 import { chmodSync, copyFileSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
 import { createHash } from "node:crypto";
 import { createServer, type Server } from "node:net";
 import { tmpdir } from "node:os";
-import { basename, dirname, join, resolve } from "node:path";
-import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
+import { basename, join, resolve } from "node:path";
+import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import Database from "better-sqlite3";
 import { MIGRATIONS, migrate } from "../migrations.js";
 import { createStoreHandle } from "../store.js";
@@ -18,6 +18,10 @@ const SCRIPTS = resolve(__dirname, "../../../scripts");
 const RESTORE = join(SCRIPTS, "home-restore-v2.sh");
 const UPGRADE = join(SCRIPTS, "home-upgrade-v3.sh");
 const THREAD = "thr_test123";
+
+// Each test runs the real launchers, which take seconds; on a loaded host the 5s default timed them out at random
+// (bead mk-03uvn). The spawns carry their own 60s limits, so a hung script still fails, with its own error.
+vi.setConfig({ testTimeout: 90_000 });
 
 let tmpl: Env;
 let fx: V2Fixture;
@@ -72,7 +76,7 @@ setInterval(()=>{},1000);
 `;
 const STUB_BB = `#!/bin/bash
 D="$(cd "$(dirname "$0")/../.." && pwd)/stub"; mkdir -p "$D"
-# bb.js spawns its child with cwd: process.cwd(); an unreadable cwd (root's /root, as mk) is EACCES. Emulate that.
+# bb.js spawns its child with cwd: process.cwd(); an unreadable cwd (root's /root, as the operator) is EACCES. Emulate that.
 [ -x "$(pwd -P)" ] || { echo "spawn bb-app EACCES (cwd unreadable)" >&2; exit 1; }
 n=$(( $(cat "$D/n" 2>/dev/null || echo 0) + 1 )); echo $n > "$D/n"
 { echo "== call $n"; printf 'ARGV'; for a in "$@"; do printf '\\t%s' "$a"; done; echo
@@ -188,7 +192,7 @@ function run(script: string, args: string[], env: NodeJS.ProcessEnv = { PATH: pr
   for (const m of out.matchAll(/(\/tmp\/home-(?:restore|upgrade)-report\.[A-Za-z0-9]+)/g)) toClean.push(m[1]!);
   return { code: r.status, out };
 }
-/** Runs the script from a directory that is entered and then made mode 000, like root's /root seen from mk. */
+/** Runs the script from a directory that is entered and then made mode 000, like root's /root seen from the operator account. */
 function runFromUnreadableCwd(script: string, args: string[]) {
   const d = mkdtempSync(join(tmpdir(), "unreadable-cwd-"));
   toClean.push(d);
@@ -220,7 +224,11 @@ describe("launchers", () => {
         `exec /usr/bin/env -i PATH=/usr/sbin:/usr/bin:/sbin:/bin /bin/bash --noprofile --norc "$_d/${name.replace(/\.sh$/, ".bash")}" "$@"`,
       ]);
       expect(lines.findIndex((l) => l.includes("refusing to run as root"))).toBeLessThan(lines.findIndex((l) => l.startsWith("exec ")));
-      expect(statSync(join(SCRIPTS, name)).mode & 0o777).toBe(0o755);
+      // git stores only 644/755 and the checkout applies the umask, so a group-writable 0775 is the same file: assert the
+      // readable-and-executable bits and no world write, not the exact mode.
+      const mode = statSync(join(SCRIPTS, name)).mode;
+      expect(mode & 0o755).toBe(0o755);
+      expect(mode & 0o002).toBe(0);
     });
   }
   it("the bodies are not executable on their own", () => {
@@ -542,7 +550,7 @@ describe("plugin health parsing (review: exact types, exit status)", () => {
   });
 });
 
-describe("unreadable caller cwd (bb spawns with process.cwd(); root's /root is EACCES for mk)", () => {
+describe("unreadable caller cwd (bb spawns with process.cwd(); root's /root is EACCES for the operator)", () => {
   it("upgrade from an unreadable cwd still reaches bb: disable, install, enable, thread tell", async () => {
     const i = await install();
     const r = runFromUnreadableCwd(UPGRADE, upgradeArgs(i));

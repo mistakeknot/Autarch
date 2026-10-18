@@ -4,6 +4,7 @@
 // (unattested)" label come from the server, which derives them from the recorded author id, never from the text.
 import { createContext, useCallback, useContext, useEffect, useState } from "react";
 import type { ReactNode } from "react";
+import { Markdown } from "./markdown.js";
 
 export type AuthorClass = "mk" | "owner" | "vizier" | "other";
 export interface CommentViewT {
@@ -33,7 +34,7 @@ export interface ConversationApi {
 export const ConversationContext = createContext<ConversationApi | null>(null);
 export const ConversationProvider = ConversationContext.Provider;
 
-export const HOME_POSTED_LABEL = "posted from Home (unattested)";
+export const HOME_POSTED_LABEL = "posted from Citadel (unattested)";
 const CLASS_LABEL: Record<AuthorClass, string> = { mk: "mk", owner: "owner", vizier: "vizier", other: "other" };
 
 function stamp(iso: string): string {
@@ -62,7 +63,7 @@ export function ConversationBody({ data, children }: { data: ConversationData; c
               {` · ${stamp(c.created_at)}`}
               {c.home_posted ? <span className="ml-1 rounded-sm border border-border px-1" data-home-posted>{HOME_POSTED_LABEL}</span> : null}
             </p>
-            <p className="mb-0 mt-1 whitespace-pre-wrap text-sm [overflow-wrap:anywhere]" data-comment-body>{c.body}</p>
+            <div className="mb-0 mt-1 text-sm [overflow-wrap:anywhere]" data-comment-body><Markdown text={c.body} /></div>
           </li>
         ))}
       </ul>
@@ -73,7 +74,7 @@ export function ConversationBody({ data, children }: { data: ConversationData; c
             {data.options.map((o) => (
               <li key={o.id} data-instruction-option={o.id}>
                 <p className="m-0 text-xs font-medium">{o.label}</p>
-                <pre className="m-0 whitespace-pre-wrap rounded bg-muted p-2 font-mono text-xs [overflow-wrap:anywhere]">{o.instruction ?? "Nothing is sent for this option."}</pre>
+                <pre className="m-0 whitespace-pre-wrap rounded bg-muted p-2 font-mono text-xs [overflow-wrap:anywhere]">{o.instruction ?? "No instruction for this option; the asking thread is told your ruling."}</pre>
               </li>
             ))}
           </ul>

@@ -51,9 +51,11 @@ export interface Ruling {
   picked: string;
   /** For instruction picks: the free-text instruction. */
   instruction?: string;
-  ruled_by: "mk" | "vizier";
+  ruled_by: "mk" | "vizier" | "auto";
   /** Set when ruled_by is vizier. */
   delegated_reason?: string;
+  /** Set when ruled_by is auto: the evidence the card closed on. Never mk's words. */
+  auto_evidence?: string;
   ruled_at: string;
   /** The ruling in words. */
   ruling: string;
@@ -95,6 +97,7 @@ export function renderRuling(r: Ruling): string {
     "ratification:",
     `  ruled_by: ${j(r.ruled_by)}`,
     ...(r.delegated_reason !== undefined ? [`  delegated_reason: ${j(r.delegated_reason)}`] : []),
+    ...(r.auto_evidence !== undefined ? [`  auto_evidence: ${j(r.auto_evidence)}`] : []),
     `  ruled_at: ${j(r.ruled_at)}`,
     `  ruling: ${j(r.ruling)}`,
     `  transcribed_by: "autarch-home"`,
@@ -153,13 +156,14 @@ export function parseRuling(text: string): Ruling {
     subject: home.subject as string,
     options_shown: home.options_shown as RulingOption[],
     picked: home.picked as string,
-    ruled_by: rat.ruled_by as "mk" | "vizier",
+    ruled_by: rat.ruled_by as "mk" | "vizier" | "auto",
     ruled_at: rat.ruled_at as string,
     ruling: rat.ruling as string,
     source: rat.source as string,
   };
   if (home.instruction !== undefined) out.instruction = home.instruction as string;
   if (rat.delegated_reason !== undefined) out.delegated_reason = rat.delegated_reason as string;
+  if (rat.auto_evidence !== undefined) out.auto_evidence = rat.auto_evidence as string;
   if (rat.session_id !== undefined) out.session_id = rat.session_id as string;
   if (rat.supersedes !== undefined) out.supersedes = rat.supersedes as string;
   if (home.card_id !== undefined) out.card_id = home.card_id as string;

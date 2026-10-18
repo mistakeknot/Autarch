@@ -56,7 +56,7 @@ const MAX_ROOT_SCRIPT = 4096;
 const MAX_ROOT_TIMEOUT = 3600;
 const PLACEHOLDER_THREAD = "thr_placeholder";
 
-const V2_ALLOWED = new Set(["schema", "project", "project_root", "question", "options", "ask_key", "subject", "recommendation", "pull"]);
+const V2_ALLOWED = new Set(["schema", "project", "project_root", "question", "options", "questions", "ask_key", "subject", "recommendation", "pull", "auto_close"]);
 const V1_ONLY = new Set(["v", "kind", "thread", "asker", "request_id", "supersedes", "mention_of", "steps", "machine"]);
 /** Block-ref kinds that count toward the Blocks count; others are shown but not counted. */
 export const COUNTED = new Set(["bead", "thread", "project"]);
@@ -169,7 +169,54 @@ function parseWireAsk(body: string): { ask: Record<string, unknown>; pull: "" | 
     if (m.pull !== "mycroft") fail("pull must be mycroft");
     pull = "mycroft";
   }
+  if (Object.prototype.hasOwnProperty.call(m, "auto_close")) parseAutoClose(m.auto_close, m.options);
   return { ask: m, pull };
+}
+
+const AC_REPO = /^[A-Za-z0-9_.-]{1,100}\/[A-Za-z0-9_.-]{1,100}$/;
+const AC_NUMBER = /^[1-9][0-9]{0,8}$/;
+const AC_HEAD = /^[0-9a-f]{40}$/;
+
+/** A parsed auto_close block: close the card when the named PR is merged. */
+export interface AutoClose {
+  option: "merged";
+  evidence: { kind: "pr_merged"; repo: string; number: number; head?: string };
+}
+
+const exactKeys = (o: Record<string, unknown>, allowed: string[], what: string): void => {
+  for (const k of Object.keys(o).sort()) if (!allowed.includes(k)) fail(`unknown field "${k}" in ${what}`);
+};
+
+/**
+ * Validates the optional auto_close block of a home-ask/v2 object. The block is only a claim; it is
+ * parsed so a reader that does not act on it still accepts the card. It never reaches the v1 ask or
+ * the fingerprint. The option it names must be a plain ruling-only "merged" option whose label states the PR.
+ */
+export function parseAutoClose(raw: unknown, options: unknown): AutoClose {
+  if (raw === null || typeof raw !== "object" || Array.isArray(raw)) return fail("auto_close must be an object");
+  const a = raw as Record<string, unknown>;
+  exactKeys(a, ["option", "evidence"], "auto_close");
+  if (a.option !== "merged") fail('auto_close option must be "merged"');
+  const e = a.evidence;
+  if (e === null || typeof e !== "object" || Array.isArray(e)) return fail("auto_close evidence must be an object");
+  const ev = e as Record<string, unknown>;
+  if (ev.kind !== "pr_merged") fail("auto_close evidence kind must be pr_merged");
+  exactKeys(ev, ["kind", "repo", "number", "head"], "auto_close evidence");
+  if (typeof ev.repo !== "string" || !AC_REPO.test(ev.repo)) fail("auto_close evidence repo must be owner/name");
+  // The same rule as the Go twin: a JSON number that is a whole number in float64, 1 to 9 digits.
+  if (typeof ev.number !== "number" || !Number.isInteger(ev.number) || !AC_NUMBER.test(String(ev.number))) fail("auto_close evidence number must be a pull request number");
+  let head: string | undefined;
+  if (Object.prototype.hasOwnProperty.call(ev, "head")) {
+    if (typeof ev.head !== "string" || !AC_HEAD.test(ev.head)) fail("auto_close evidence head must be 40 lowercase hex characters");
+    head = ev.head as string;
+  }
+  const opt = Array.isArray(options) ? options.find((o) => o !== null && typeof o === "object" && (o as Record<string, unknown>).id === "merged") : undefined;
+  if (!opt) fail("auto_close names an option that is not in options");
+  const o = opt as Record<string, unknown>;
+  if (o.kind !== "ruling-only") fail("auto_close option must be ruling-only");
+  if (Object.prototype.hasOwnProperty.call(o, "instruction") || Object.prototype.hasOwnProperty.call(o, "approval")) fail("auto_close option must carry no instruction or approval");
+  if (o.label !== `PR ${ev.repo}#${ev.number} is merged`) fail("auto_close option label must state the pull request");
+  return { option: "merged", evidence: { kind: "pr_merged", repo: ev.repo as string, number: ev.number as number, ...(head ? { head } : {}) } };
 }
 
 /**
@@ -179,7 +226,7 @@ function parseWireAsk(body: string): { ask: Record<string, unknown>; pull: "" | 
  */
 export function toV1(card: Pick<Card, "ask" | "pull">, thread: string): Ask {
   const v1: Record<string, unknown> = {};
-  for (const [k, v] of Object.entries(card.ask)) if (k !== "schema" && k !== "pull") v1[k] = v;
+  for (const [k, v] of Object.entries(card.ask)) if (k !== "schema" && k !== "pull" && k !== "auto_close") v1[k] = v;
   v1.v = 1;
   v1.kind = "decide";
   if (card.pull === "mycroft") v1.asker = "mycroft";

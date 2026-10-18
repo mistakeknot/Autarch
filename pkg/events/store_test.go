@@ -8,8 +8,8 @@ import (
 	"testing"
 	"time"
 
-	ic "github.com/mistakeknot/intermute/client"
 	"github.com/mistakeknot/autarch/pkg/contract"
+	ic "github.com/mistakeknot/intermute/client"
 )
 
 // mockMessenger implements MessageSender for testing Writer bridge integration

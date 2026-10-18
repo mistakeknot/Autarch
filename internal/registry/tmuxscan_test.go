@@ -27,7 +27,7 @@ const fakeSocket = "/tmp/registry-test-socket"
 func paneLine(sessionID, windowID, paneID string, panePID int64, sessionName, command string) string {
 	return strings.Join([]string{
 		fakeSocket, "1691", "100", sessionID, windowID, paneID,
-		fmt.Sprint(panePID), "0", sessionName, "win", "1000", "/Users/sma/projects", command,
+		fmt.Sprint(panePID), "0", sessionName, "win", "1000", "/Users/dev/projects", command,
 	}, "\x1f")
 }
 
@@ -52,7 +52,7 @@ func TestAnEmptyInventoryIsARefusalNotAnEmptyEstate(t *testing.T) {
 func TestAClaimIsUpgradedInPlaceNotReplaced(t *testing.T) {
 	s := newStore(t)
 	dir := t.TempDir()
-	writeRecord(t, dir, 52620, record(52620, "74e5950e", "iterm[]linsekasten:@67.%67", "/Users/sma/projects", "parent", "auto", 1000, 2000))
+	writeRecord(t, dir, 52620, record(52620, "74e5950e", "iterm[]linsekasten:@67.%67", "/Users/dev/projects", "parent", "auto", 1000, 2000))
 	scanAndProject(t, s, dir)
 
 	var beforeID int64
@@ -96,7 +96,7 @@ func TestAClaimIsUpgradedInPlaceNotReplaced(t *testing.T) {
 func TestAFailedTmuxReadDoesNotDemoteVerifiedBindings(t *testing.T) {
 	s := newStore(t)
 	dir := t.TempDir()
-	writeRecord(t, dir, 52620, record(52620, "74e5950e", "iterm[]linsekasten:@67.%67", "/Users/sma/projects", "parent", "auto", 1000, 2000))
+	writeRecord(t, dir, 52620, record(52620, "74e5950e", "iterm[]linsekasten:@67.%67", "/Users/dev/projects", "parent", "auto", 1000, 2000))
 	scanAndProject(t, s, dir)
 	if _, err := ScanTmuxPanesWith(s, fakeSocket,
 		fakeTmux{out: paneLine("$3", "@67", "%67", 36230, "iterm[]linsekasten", "2.1.278")}); err != nil {
@@ -134,8 +134,8 @@ func TestVerificationKeepsBothOccupantsOfOnePane(t *testing.T) {
 	s := newStore(t)
 	dir := t.TempDir()
 	pane := "iterm[]linsekasten:@67.%67"
-	writeRecord(t, dir, 52620, record(52620, "74e5950e", pane, "/Users/sma/projects", "parent", "auto", 1000, 2000))
-	writeRecord(t, dir, 37995, record(37995, "90057d0b", pane, "/Users/sma/projects/linsenkasten", "child", "derived", 1100, 2100))
+	writeRecord(t, dir, 52620, record(52620, "74e5950e", pane, "/Users/dev/projects", "parent", "auto", 1000, 2000))
+	writeRecord(t, dir, 37995, record(37995, "90057d0b", pane, "/Users/dev/projects/linsenkasten", "child", "derived", 1100, 2100))
 	scanAndProject(t, s, dir)
 
 	if _, err := ScanTmuxPanesWith(s, fakeSocket,
@@ -176,7 +176,7 @@ func TestAClaimInAQuietPaneIsVerifiedFromWhatIsAlreadyKnown(t *testing.T) {
 
 	// A conversation appears in it. No new pane event will follow, because
 	// the pane itself is unchanged.
-	writeRecord(t, dir, 81453, record(81453, "e13b1e95", "iterm[autarch - e4bedaf5:@98.%98", "/Users/sma/projects", "child", "derived", 1000, 2000))
+	writeRecord(t, dir, 81453, record(81453, "e13b1e95", "iterm[autarch - e4bedaf5:@98.%98", "/Users/dev/projects", "child", "derived", 1000, 2000))
 	scanAndProject(t, s, dir)
 	// The next sweep is what verifies it, and the pane is unchanged, so that
 	// sweep emits no observation at all: only the roster can do this.
@@ -196,7 +196,7 @@ func TestAClaimInAQuietPaneIsVerifiedFromWhatIsAlreadyKnown(t *testing.T) {
 
 	// And a second occupant of that same quiet pane lands on the same key, so
 	// "how many conversations are in this pane" is answerable at once.
-	writeRecord(t, dir, 55409, record(55409, "e4bedaf5", "tmux-organizer:@98.%98", "/Users/sma/projects", "parent", "auto", 1100, 2100))
+	writeRecord(t, dir, 55409, record(55409, "e4bedaf5", "tmux-organizer:@98.%98", "/Users/dev/projects", "parent", "auto", 1100, 2100))
 	scanAndProject(t, s, dir)
 	sweep(t, s, paneLine("$3", "@98", "%98", 53126, "iterm[autarch", "zsh"))
 	if n := count(t, s.DB(), `SELECT COUNT(DISTINCT pane_key) FROM pane_binding WHERE observed_to_ms IS NULL`); n != 1 {
@@ -270,7 +270,7 @@ func TestAPaneThatDisappearsClosesItsBinding(t *testing.T) {
 	survivor := paneLine("$3", "@98", "%98", 53126, "iterm[autarch", "zsh")
 
 	sweep(t, s, doomed, survivor)
-	writeRecord(t, dir, 52620, record(52620, "74e5950e", "iterm[]linsekasten:@67.%67", "/Users/sma/projects", "parent", "auto", 1000, 2000))
+	writeRecord(t, dir, 52620, record(52620, "74e5950e", "iterm[]linsekasten:@67.%67", "/Users/dev/projects", "parent", "auto", 1000, 2000))
 	scanAndProject(t, s, dir)
 	sweep(t, s, doomed, survivor)
 	if n := count(t, s.DB(), `SELECT COUNT(*) FROM pane_binding WHERE binding_basis = 'tmux_inventory' AND observed_to_ms IS NULL`); n != 1 {
@@ -306,7 +306,7 @@ func TestAClaimInAnUnsweptPaneStaysClaimed(t *testing.T) {
 	dir := t.TempDir()
 
 	sweep(t, s, paneLine("$3", "@98", "%98", 53126, "iterm[autarch", "zsh"))
-	writeRecord(t, dir, 52620, record(52620, "74e5950e", "elsewhere:@67.%67", "/Users/sma/projects", "parent", "auto", 1000, 2000))
+	writeRecord(t, dir, 52620, record(52620, "74e5950e", "elsewhere:@67.%67", "/Users/dev/projects", "parent", "auto", 1000, 2000))
 	scanAndProject(t, s, dir)
 
 	// And again, so the sweep has had every chance to act on it.
@@ -348,7 +348,7 @@ func TestAClaimIsNotVerifiedAgainstAPaneTheLastSweepDidNotList(t *testing.T) {
 	sweep(t, s, paneLine("$3", "@98", "%98", 53126, "iterm[autarch", "zsh"))
 
 	// Now an agent claims it.
-	writeRecord(t, dir, 52620, record(52620, "74e5950e", "iterm[]linsekasten:@67.%67", "/Users/sma/projects", "parent", "auto", 1000, 2000))
+	writeRecord(t, dir, 52620, record(52620, "74e5950e", "iterm[]linsekasten:@67.%67", "/Users/dev/projects", "parent", "auto", 1000, 2000))
 	scanAndProject(t, s, dir)
 
 	var basis string
@@ -370,7 +370,7 @@ func TestAClaimNamingADifferentWindowIsNotVerified(t *testing.T) {
 
 	sweep(t, s, paneLine("$3", "@67", "%67", 36230, "iterm[]linsekasten", "zsh"))
 	// Same pane id, different window: not the pane this record means.
-	writeRecord(t, dir, 52620, record(52620, "74e5950e", "somewhere-else:@99.%67", "/Users/sma/projects", "parent", "auto", 1000, 2000))
+	writeRecord(t, dir, 52620, record(52620, "74e5950e", "somewhere-else:@99.%67", "/Users/dev/projects", "parent", "auto", 1000, 2000))
 	scanAndProject(t, s, dir)
 
 	var basis, claimedWindow string
@@ -403,7 +403,7 @@ func TestVerificationPreservesWhatTheRecordClaimed(t *testing.T) {
 	dir := t.TempDir()
 
 	sweep(t, s, paneLine("$3", "@98", "%98", 53126, "iterm[autarch - e4bedaf5", "zsh"))
-	writeRecord(t, dir, 55409, record(55409, "e4bedaf5", "tmux-organizer:@98.%98", "/Users/sma/projects", "parent", "auto", 1000, 2000))
+	writeRecord(t, dir, 55409, record(55409, "e4bedaf5", "tmux-organizer:@98.%98", "/Users/dev/projects", "parent", "auto", 1000, 2000))
 	scanAndProject(t, s, dir)
 	sweep(t, s, paneLine("$3", "@98", "%98", 53126, "iterm[autarch - e4bedaf5", "zsh"))
 
@@ -430,7 +430,7 @@ func TestVerificationPreservesWhatTheRecordClaimed(t *testing.T) {
 	// A later record rewrite refreshes the claim without writing over the
 	// observation: the record is the sole author of one and no author at all
 	// of the other.
-	writeRecord(t, dir, 55409, record(55409, "e4bedaf5", "renamed-by-hand:@98.%98", "/Users/sma/projects", "parent", "auto", 1000, 3000))
+	writeRecord(t, dir, 55409, record(55409, "e4bedaf5", "renamed-by-hand:@98.%98", "/Users/dev/projects", "parent", "auto", 1000, 3000))
 	scanAndProject(t, s, dir)
 	mustScan(t, s.DB(), `SELECT session_name_seen FROM pane_binding`, &seen)
 	mustScan(t, s.DB(), `SELECT claimed_session_name FROM pane_binding`, &claimed)
@@ -449,7 +449,7 @@ func TestARespawnedPaneClosesAsPanePidChanged(t *testing.T) {
 	dir := t.TempDir()
 
 	sweep(t, s, paneLine("$3", "@67", "%67", 36230, "iterm[]linsekasten", "zsh"))
-	writeRecord(t, dir, 52620, record(52620, "74e5950e", "iterm[]linsekasten:@67.%67", "/Users/sma/projects", "parent", "auto", 1000, 2000))
+	writeRecord(t, dir, 52620, record(52620, "74e5950e", "iterm[]linsekasten:@67.%67", "/Users/dev/projects", "parent", "auto", 1000, 2000))
 	scanAndProject(t, s, dir)
 	sweep(t, s, paneLine("$3", "@67", "%67", 36230, "iterm[]linsekasten", "zsh"))
 
@@ -470,7 +470,7 @@ func TestAFailedSweepClosesNoBinding(t *testing.T) {
 	dir := t.TempDir()
 
 	sweep(t, s, paneLine("$3", "@67", "%67", 36230, "iterm[]linsekasten", "zsh"))
-	writeRecord(t, dir, 52620, record(52620, "74e5950e", "iterm[]linsekasten:@67.%67", "/Users/sma/projects", "parent", "auto", 1000, 2000))
+	writeRecord(t, dir, 52620, record(52620, "74e5950e", "iterm[]linsekasten:@67.%67", "/Users/dev/projects", "parent", "auto", 1000, 2000))
 	scanAndProject(t, s, dir)
 	sweep(t, s, paneLine("$3", "@67", "%67", 36230, "iterm[]linsekasten", "zsh"))
 
@@ -499,8 +499,8 @@ func TestOnlyAVerifiedBindingCarriesPresence(t *testing.T) {
 	dir := t.TempDir()
 
 	sweep(t, s, paneLine("$3", "@98", "%98", 53126, "iterm[autarch", "zsh"))
-	writeRecord(t, dir, 55409, record(55409, "e4bedaf5", "iterm[autarch:@98.%98", "/Users/sma/projects", "parent", "auto", 1000, 2000))
-	writeRecord(t, dir, 52620, record(52620, "74e5950e", "elsewhere:@67.%67", "/Users/sma/projects", "parent", "auto", 1000, 2000))
+	writeRecord(t, dir, 55409, record(55409, "e4bedaf5", "iterm[autarch:@98.%98", "/Users/dev/projects", "parent", "auto", 1000, 2000))
+	writeRecord(t, dir, 52620, record(52620, "74e5950e", "elsewhere:@67.%67", "/Users/dev/projects", "parent", "auto", 1000, 2000))
 	scanAndProject(t, s, dir)
 	sweep(t, s, paneLine("$3", "@98", "%98", 53126, "iterm[autarch", "zsh"))
 
@@ -529,7 +529,7 @@ func TestAStuckClaimIsRetriedAgainstALaterRoster(t *testing.T) {
 
 	sweep(t, s, pane)
 	// The record names the wrong window, so the claim is refused.
-	writeRecord(t, dir, 52620, record(52620, "74e5950e", "iterm[]linsekasten:@99.%67", "/Users/sma/projects", "parent", "auto", 1000, 2000))
+	writeRecord(t, dir, 52620, record(52620, "74e5950e", "iterm[]linsekasten:@99.%67", "/Users/dev/projects", "parent", "auto", 1000, 2000))
 	scanAndProject(t, s, dir)
 	sweep(t, s, pane)
 
@@ -542,7 +542,7 @@ func TestAStuckClaimIsRetriedAgainstALaterRoster(t *testing.T) {
 	// The record corrects itself. This takes claimPane's UPDATE branch, which
 	// never verified anything, and the pane is unchanged so no observation
 	// follows. Only a roster-driven retry can reach it.
-	writeRecord(t, dir, 52620, record(52620, "74e5950e", "iterm[]linsekasten:@67.%67", "/Users/sma/projects", "parent", "auto", 1000, 3000))
+	writeRecord(t, dir, 52620, record(52620, "74e5950e", "iterm[]linsekasten:@67.%67", "/Users/dev/projects", "parent", "auto", 1000, 3000))
 	scanAndProject(t, s, dir)
 	res := sweep(t, s, pane)
 	if res.Inserted != 0 {
@@ -564,7 +564,7 @@ func TestAVerifiedBindingFollowsItsPaneToANewWindow(t *testing.T) {
 	dir := t.TempDir()
 
 	sweep(t, s, paneLine("$3", "@67", "%67", 36230, "iterm[]linsekasten", "zsh"))
-	writeRecord(t, dir, 52620, record(52620, "74e5950e", "iterm[]linsekasten:@67.%67", "/Users/sma/projects", "parent", "auto", 1000, 2000))
+	writeRecord(t, dir, 52620, record(52620, "74e5950e", "iterm[]linsekasten:@67.%67", "/Users/dev/projects", "parent", "auto", 1000, 2000))
 	scanAndProject(t, s, dir)
 	sweep(t, s, paneLine("$3", "@67", "%67", 36230, "iterm[]linsekasten", "zsh"))
 
@@ -594,8 +594,8 @@ func TestAVerifiedBindingFollowsItsPaneToANewWindow(t *testing.T) {
 func TestTheProcessTableCorroboratesAndContradicts(t *testing.T) {
 	s := newStore(t)
 	dir := t.TempDir()
-	here := InstanceID("clavain", "darwin", 55409, 1000)
-	elsewhere := InstanceID("clavain", "darwin", 81453, 1100)
+	here := InstanceID("laptop", "darwin", 55409, 1000)
+	elsewhere := InstanceID("laptop", "darwin", 81453, 1100)
 	// 53126 is %98's root process; 36230 is %67's. The second agent claims
 	// %98, but the process table puts its parent in %67.
 	s.probe = aliveWithParents(map[string]int64{here: 53126, elsewhere: 36230})
@@ -603,8 +603,8 @@ func TestTheProcessTableCorroboratesAndContradicts(t *testing.T) {
 	sweep(t, s,
 		paneLine("$3", "@98", "%98", 53126, "iterm[autarch", "zsh"),
 		paneLine("$3", "@67", "%67", 36230, "iterm[]linsekasten", "zsh"))
-	writeRecord(t, dir, 55409, record(55409, "e4bedaf5", "iterm[autarch:@98.%98", "/Users/sma/projects", "parent", "auto", 1000, 2000))
-	writeRecord(t, dir, 81453, record(81453, "e13b1e95", "iterm[autarch:@98.%98", "/Users/sma/projects", "impostor", "auto", 1100, 2100))
+	writeRecord(t, dir, 55409, record(55409, "e4bedaf5", "iterm[autarch:@98.%98", "/Users/dev/projects", "parent", "auto", 1000, 2000))
+	writeRecord(t, dir, 81453, record(81453, "e13b1e95", "iterm[autarch:@98.%98", "/Users/dev/projects", "impostor", "auto", 1100, 2100))
 	// Twice: the first sweep is what gives the probe a target, so parent pids
 	// are not known until the second.
 	scanAndProject(t, s, dir)
@@ -641,12 +641,12 @@ func TestARefusalOutlivesThePassThatMadeItAndNamesItsOwnEvent(t *testing.T) {
 	survivor := paneLine("$3", "@98", "%98", 53126, "iterm[autarch", "zsh")
 
 	sweep(t, s, doomed, survivor)
-	writeRecord(t, dir, 52620, record(52620, "74e5950e", "iterm[]linsekasten:@67.%67", "/Users/sma/projects", "parent", "auto", 1000, 2000))
+	writeRecord(t, dir, 52620, record(52620, "74e5950e", "iterm[]linsekasten:@67.%67", "/Users/dev/projects", "parent", "auto", 1000, 2000))
 	scanAndProject(t, s, dir)
 	sweep(t, s, doomed, survivor)
 	sweep(t, s, survivor)
 	// The record is rewritten, naming a pane that was watched to vanish.
-	writeRecord(t, dir, 52620, record(52620, "74e5950e", "iterm[]linsekasten:@67.%67", "/Users/sma/projects", "parent", "auto", 1000, 3000))
+	writeRecord(t, dir, 52620, record(52620, "74e5950e", "iterm[]linsekasten:@67.%67", "/Users/dev/projects", "parent", "auto", 1000, 3000))
 	scanAndProject(t, s, dir)
 
 	incrementalCount := count(t, s.DB(), `SELECT refusal_count FROM projection_state WHERE projection = 'registry'`)
@@ -702,7 +702,7 @@ func TestAPermanentlyStuckClaimDoesNotInflateTheRefusalCount(t *testing.T) {
 	pane := paneLine("$3", "@67", "%67", 36230, "iterm[]linsekasten", "zsh")
 
 	sweep(t, s, pane)
-	writeRecord(t, dir, 52620, record(52620, "74e5950e", "somewhere-else:@99.%67", "/Users/sma/projects", "parent", "auto", 1000, 2000))
+	writeRecord(t, dir, 52620, record(52620, "74e5950e", "somewhere-else:@99.%67", "/Users/dev/projects", "parent", "auto", 1000, 2000))
 	scanAndProject(t, s, dir)
 
 	for i := 0; i < 5; i++ {
@@ -728,13 +728,13 @@ func TestAVanishedPaneIsNotReclaimed(t *testing.T) {
 	survivor := paneLine("$3", "@98", "%98", 53126, "iterm[autarch", "zsh")
 
 	sweep(t, s, doomed, survivor)
-	writeRecord(t, dir, 52620, record(52620, "74e5950e", "iterm[]linsekasten:@67.%67", "/Users/sma/projects", "parent", "auto", 1000, 2000))
+	writeRecord(t, dir, 52620, record(52620, "74e5950e", "iterm[]linsekasten:@67.%67", "/Users/dev/projects", "parent", "auto", 1000, 2000))
 	scanAndProject(t, s, dir)
 	sweep(t, s, doomed, survivor)
 	sweep(t, s, survivor)
 
 	// The agent rewrites its record, still naming the pane it was started in.
-	writeRecord(t, dir, 52620, record(52620, "74e5950e", "iterm[]linsekasten:@67.%67", "/Users/sma/projects", "parent", "auto", 1000, 3000))
+	writeRecord(t, dir, 52620, record(52620, "74e5950e", "iterm[]linsekasten:@67.%67", "/Users/dev/projects", "parent", "auto", 1000, 3000))
 	res := scanAndProject(t, s, dir)
 	_ = res
 	if n := count(t, s.DB(), `SELECT COUNT(*) FROM pane_binding WHERE pane_id = '%67' AND observed_to_ms IS NULL`); n != 0 {
@@ -746,7 +746,7 @@ func TestAVanishedPaneIsNotReclaimed(t *testing.T) {
 
 	// And if the pane comes back, it is a place again.
 	sweep(t, s, doomed, survivor)
-	writeRecord(t, dir, 52620, record(52620, "74e5950e", "iterm[]linsekasten:@67.%67", "/Users/sma/projects", "parent", "auto", 1000, 4000))
+	writeRecord(t, dir, 52620, record(52620, "74e5950e", "iterm[]linsekasten:@67.%67", "/Users/dev/projects", "parent", "auto", 1000, 4000))
 	scanAndProject(t, s, dir)
 	if n := count(t, s.DB(), `SELECT COUNT(*) FROM pane_binding WHERE pane_id = '%67' AND observed_to_ms IS NULL`); n != 1 {
 		t.Errorf("open bindings after the pane returned = %d, want 1", n)
@@ -762,7 +762,7 @@ func TestADeadPaneIsRecordedAsDeadAndStillPresent(t *testing.T) {
 	dir := t.TempDir()
 
 	sweep(t, s, paneLine("$3", "@67", "%67", 36230, "iterm[]linsekasten", "zsh"))
-	writeRecord(t, dir, 52620, record(52620, "74e5950e", "iterm[]linsekasten:@67.%67", "/Users/sma/projects", "parent", "auto", 1000, 2000))
+	writeRecord(t, dir, 52620, record(52620, "74e5950e", "iterm[]linsekasten:@67.%67", "/Users/dev/projects", "parent", "auto", 1000, 2000))
 	scanAndProject(t, s, dir)
 
 	// The same line with the dead flag set.
@@ -795,12 +795,12 @@ func TestADeadPaneIsRecordedAsDeadAndStillPresent(t *testing.T) {
 func TestADeadPaneStopsBeingAPlace(t *testing.T) {
 	s := newStore(t)
 	dir := t.TempDir()
-	instID := InstanceID("clavain", "darwin", 52620, 1000)
+	instID := InstanceID("laptop", "darwin", 52620, 1000)
 	s.probe = aliveWithParents(map[string]int64{instID: 36230})
 
 	live := paneLine("$3", "@67", "%67", 36230, "iterm[]linsekasten", "zsh")
 	sweep(t, s, live)
-	writeRecord(t, dir, 52620, record(52620, "74e5950e", "iterm[]linsekasten:@67.%67", "/Users/sma/projects", "parent", "auto", 1000, 2000))
+	writeRecord(t, dir, 52620, record(52620, "74e5950e", "iterm[]linsekasten:@67.%67", "/Users/dev/projects", "parent", "auto", 1000, 2000))
 	scanAndProject(t, s, dir)
 	sweep(t, s, live)
 
@@ -839,7 +839,7 @@ func TestADeadPaneStopsBeingAPlace(t *testing.T) {
 	}
 
 	// And no fresh claim may be verified against it.
-	writeRecord(t, dir, 81453, record(81453, "e13b1e95", "iterm[]linsekasten:@67.%67", "/Users/sma/projects", "second", "auto", 1100, 2100))
+	writeRecord(t, dir, 81453, record(81453, "e13b1e95", "iterm[]linsekasten:@67.%67", "/Users/dev/projects", "second", "auto", 1100, 2100))
 	scanAndProject(t, s, dir)
 	sweep(t, s, dead)
 	var basis string

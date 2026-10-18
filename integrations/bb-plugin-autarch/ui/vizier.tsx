@@ -11,14 +11,14 @@ export function ThreadPanel({ threadId }: { threadId: string }) {
   return <ThreadChat threadId={threadId} variant="compact" permissionPolicy="inherit" />;
 }
 
-/** The top of the Asks page: a short note to the vizier without leaving the queue. Closed until mk opens it, so the queue keeps the page. */
+/** The Vizier tab: "Tell the vizier" on top of the full chat, so a note to the vizier no longer sits above the decisions on the Queue. */
 export function TellVizier({ threadId }: { threadId: string | undefined }) {
   return (
-    <details className="mx-4 mt-4 rounded-lg border border-border" data-tell-vizier>
-      <summary className="cursor-pointer px-3 py-2 text-sm font-medium">Tell the vizier</summary>
-      <div className="h-64 border-t border-border">
-        <VizierPanel threadId={threadId} compact />
+    <section className="flex h-full min-h-0 flex-col" aria-label="Tell the vizier" data-tell-vizier>
+      <h2 className="m-0 px-4 py-2 text-sm font-semibold">Tell the vizier</h2>
+      <div className="min-h-0 flex-1 border-t border-border">
+        <VizierPanel threadId={threadId} />
       </div>
-    </details>
+    </section>
   );
 }

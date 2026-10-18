@@ -1,12 +1,12 @@
 # bb-plugin-autarch
 
-A BB plugin that puts Autarch's Home in BB: the asks waiting for mk, a catch-up feed,
+A BB plugin that puts Autarch's Citadel in BB: the asks waiting for mk, a catch-up feed,
 the vizier thread, delegation settings, and a small example todo page.
 
-- `server.ts` — the backend: the Home store in `data.db`, RPC methods for the page,
+- `server.ts` — the backend: the Citadel store in `data.db`, RPC methods for the page,
   the `bb home` look-up CLI (`cli.ts`), settings, and a realtime signal that keeps every
   open page current. It also keeps the example todo list in `bb.storage.kv`.
-- `app.tsx` — the frontend: the **Home** page (asks, catch-up, vizier, map, settings)
+- `app.tsx` — the frontend: the **Citadel** page (asks, catch-up, vizier, map, settings)
   and the **Example todos** page, both in the left sidebar.
 - `skills/home/SKILL.md` — a skill that tells agents to file asks as `needs-mk` cards with
   `autarch needs-mk file` and to read them with `bb home`. The lifecycle commands
@@ -16,7 +16,7 @@ the vizier thread, delegation settings, and a small example todo page.
   `bb.description` that the plugin detail page shows under it. See
   [Store listing](#store-listing).
 
-Try it: install the plugin, open **Home** in the sidebar, then run
+Try it: install the plugin, open **Citadel** in the sidebar, then run
 `bb home list` in a terminal. The example todos are managed on their page only.
 
 ## UI components
@@ -39,25 +39,6 @@ host's version so those imports typecheck; keep them there (never in
 `dependencies`, which would bundle a second copy), and `bb plugin types`
 repins declared packages alongside the SDK; unused packages may be removed. Ship `dist/` (npm tarball or committed for
 git installs) so people installing your plugin never need npm.
-
-## Summoned overlay
-
-Home registers a second panel, `home-overlay`, routed at `/plugins/autarch/home-overlay`: owed decisions (pick in
-place), one compact input line to the vizier, and a count strip (undeliverable wakes, delegated rulings unseen). It
-has no map and no history, and never marks anything seen. The id is stable; `__tests__/overlay.test.tsx` pins it.
-
-Aleph desktop opens it in a frameless always-on-top window. Until there is a settings UI, set the target in
-`overlay-settings.json` in Aleph's userData directory:
-
-```json
-{ "accelerator": "CommandOrControl+Shift+Space", "target": { "pluginId": "autarch", "panelId": "home-overlay" } }
-```
-
-The vizier input is the SDK's `ThreadChat` at `variant: "compact"`, as the plan specifies, in a fixed-height box. The
-SDK has no prop to hide history, so the vizier's last reply is the bottom of that conversation, not a separate widget.
-
-Aleph does not check that the panel exists (an unknown id shows the app's not-found page), and the plugin must be
-installed and enabled. The web build has no global shortcut; open the panel at the same route in a page.
 
 ## Manifest
 

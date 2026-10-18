@@ -12,7 +12,7 @@ func base() Ask {
 	return Ask{
 		V: 1, Kind: "decide",
 		Subject: "autarch/catch-up: collapse order",
-		Project: "Autarch", ProjectRoot: "/home/mk/projects/Autarch",
+		Project: "Autarch", ProjectRoot: "/home/dev/projects/Autarch",
 		Asker: "thread", Thread: "thr_abc123",
 		Question:       "Collapse routine catch-up items per project or per day?",
 		Recommendation: "project",
@@ -84,7 +84,7 @@ func TestValidateRules(t *testing.T) {
 		{"bad kind", func(a *Ask) { a.Kind = "vote" }, "kind must be"},
 		{"instruction on needs-context", func(a *Ask) { a.Options[2].Instruction = "x" }, "instruction is only allowed on an instruction option"},
 		{"instruction kind without text", func(a *Ask) { a.Options[0].Instruction = "" }, "instruction option needs an instruction"},
-		{"instruction too long", func(a *Ask) { a.Options[0].Instruction = strings.Repeat("a", 2001) }, "instruction must be 1-2000"},
+		{"instruction too long", func(a *Ask) { a.Options[0].Instruction = strings.Repeat("a", 8001) }, "instruction must be 1-8000"},
 		{"instruction NUL", func(a *Ask) { a.Options[0].Instruction = "a\x00b" }, "NUL"},
 		{"instruction invalid utf8", func(a *Ask) { a.Options[0].Instruction = "a\xffb" }, "valid UTF-8"},
 		{"duplicate ids", func(a *Ask) { a.Options[1].ID = "project" }, "duplicate option id"},
@@ -138,6 +138,36 @@ func TestValidateRules(t *testing.T) {
 			wantErr(t, a, c.want)
 		})
 	}
+}
+
+// Every long text field takes 8000 characters and refuses 8001 (a script with six paths and hashes did not fit in 2000).
+func TestTextLimit8000(t *testing.T) {
+	long, over := strings.Repeat("é", 8000), strings.Repeat("é", 8001)
+	q := base()
+	q.Question = long
+	mustNorm(t, q)
+	q.Question = over
+	wantErr(t, q, "question must be 1-8000")
+
+	o := base()
+	o.Options[0].Instruction = long
+	mustNorm(t, o)
+	o.Options[0].Instruction = over
+	wantErr(t, o, "instruction must be 1-8000")
+
+	s := base()
+	s.Kind, s.Options, s.Recommendation = "steps", nil, ""
+	s.Steps = []string{long}
+	mustNorm(t, s)
+	s.Steps = []string{over}
+	wantErr(t, s, "each step must be 1-8000")
+
+	m := base()
+	m.Kind, m.Options, m.Recommendation = "machine", nil, ""
+	m.Machine = &Machine{Class: "dns", Detail: long}
+	mustNorm(t, m)
+	m.Machine = &Machine{Class: "dns", Detail: over}
+	wantErr(t, m, "machine detail must be 1-8000")
 }
 
 func TestValidateKinds(t *testing.T) {
@@ -391,7 +421,7 @@ func TestSchemaFieldsMatch(t *testing.T) {
 		t.Fatal(err)
 	}
 	want := []string{"v", "kind", "request_id", "ask_key", "subject", "project", "project_root", "asker", "thread",
-		"question", "recommendation", "supersedes", "mention_of", "options", "steps", "machine"}
+		"question", "recommendation", "supersedes", "mention_of", "options", "questions", "steps", "machine"}
 	if len(s.Properties) != len(want) {
 		t.Fatalf("schema has %d properties, want %d", len(s.Properties), len(want))
 	}

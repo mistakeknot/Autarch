@@ -99,22 +99,25 @@ describe("Asks ordering", () => {
     expect(html).not.toContain("<details");
     expect(html).not.toContain("needs-context</span>");
     expect(html).toContain("Tells thr-a: Ship on the day &lt;b&gt;exactly&lt;/b&gt; &amp; tell mk");
-    expect(html).toContain("Asks you for the missing context first, then tells thr-a. Cannot be undone.");
-    expect(html.match(/data-effect/g)?.length).toBe(2);
-    expect(html).toContain("sent to thr-a as written; the agent acts on it under its own permissions");
+    expect(html).not.toContain("Asks you for the missing context");
+    expect(html.match(/data-effect/g)?.length).toBe(1);
+    expect(html).toContain("the full instruction is sent");
+    expect(html).not.toContain("under its own permissions");
     expect(html).toContain("recommended");
   });
 
-  it("optionEffect is never empty, only an irreversible option line says so, and a ruling-only option has no instruction footer", () => {
-    expect(optionEffect({ kind: "ruling-only" }, "t")).toBe("Records your pick only; nothing is sent.");
-    expect(optionEffect({ kind: "ruling-only", reversible: true }, "t")).toBe("Records your pick only; nothing is sent.");
-    expect(optionEffect({ kind: "instruction", instruction: "   " }, "t")).toBe("Records your pick only; nothing is sent. Cannot be undone.");
+  it("optionEffect is empty for the default and ruling-only kinds, only an irreversible option line says so, and a ruling-only option has no instruction footer", () => {
+    expect(optionEffect({ kind: "needs-context" }, "t")).toBe("");
+    expect(optionEffect({ kind: "ruling-only" }, "t")).toBe("");
+    expect(optionEffect({ kind: "ruling-only", reversible: true }, "t")).toBe("");
+    expect(optionEffect({ kind: "instruction", instruction: "   " }, "t")).toBe("Cannot be undone.");
     expect(optionEffect({ kind: "instruction", instruction: "First. Second." }, "t")).toBe("Tells t: First. Cannot be undone.");
     expect(optionEffect({ kind: "instruction", instruction: "x".repeat(300) }, "t").length).toBeLessThan(170);
     const html = renderToStaticMarkup(
       <AsksPanel data={data({ owed: [ask({ ask: { question: "Q?", options: [{ id: "a", label: "Not now", kind: "ruling-only" }, { id: "b", label: "Later", kind: "ruling-only" }] } })] })} onPick={() => {}} onOpen={() => {}} />,
     );
-    expect(html).toContain("Records your pick only; nothing is sent.");
+    expect(html).not.toContain("nothing is sent");
+    expect(html).not.toContain("data-effect");
     expect(html).not.toContain("An instruction is sent");
   });
 
@@ -123,7 +126,7 @@ describe("Asks ordering", () => {
     const html = renderToStaticMarkup(
       <AsksPanel
         nowMs={now}
-        data={data({ owed: [ask({ filed_at: "2026-10-06T07:00:00Z" }), ask({ id: "dec2", subject: "Old one", filed_at: "2026-10-01T10:00:00Z", ask: { question: "Second?", options: [{ id: "x", label: "X", kind: "ruling-only" }] } })] })}
+        data={data({ owed: [ask({ filed_at: "2026-10-06T07:00:00Z" }), ask({ id: "dec2", subject: "Old one", project: "Other", filed_at: "2026-10-01T10:00:00Z", ask: { question: "Second?", options: [{ id: "x", label: "X", kind: "ruling-only" }] } })] })}
         onPick={() => {}}
         onOpen={() => {}}
       />,
@@ -142,18 +145,32 @@ describe("Asks ordering", () => {
     expect(html).not.toContain("Second?");
   });
 
-  it("says the instruction boilerplate once per card, not once per option", () => {
-    const two = ask({ ask: { question: "q", options: [{ id: "a", label: "A", kind: "instruction", instruction: "do a" }, { id: "b", label: "B", kind: "instruction", instruction: "do b" }] } });
-    const html = renderToStaticMarkup(<AsksPanel data={data({ owed: [two] })} onPick={() => {}} onOpen={() => {}} />);
-    expect(html.match(/acts on it under its own permissions/g)?.length).toBe(1);
+  it("hides the project line when every ask is from one project, and keeps rows tall enough to tap", () => {
+    const html = renderToStaticMarkup(
+      <AsksPanel nowMs={Date.parse("2026-10-06T10:00:00Z")} data={data({ owed: [ask({}), ask({ id: "dec2", subject: "Another" })] })} onPick={() => {}} onOpen={() => {}} />,
+    );
+    expect(html).not.toContain("data-ask-project");
+    expect(html.match(/<li><button[^>]*class="[^"]*\bmin-h-11\b/g)?.length).toBe(2);
+    expect(html).toMatch(/max-sm:line-clamp-3[^"]*sm:truncate/);
   });
 
-  it("shows paths, shas and URLs in an ask as code that can break anywhere", () => {
+  it("names the asking thread by its title and says the instruction note once per card", () => {
+    const two = ask({ ask: { question: "q", options: [{ id: "a", label: "A", kind: "instruction", instruction: "do a" }, { id: "b", label: "B", kind: "instruction", instruction: "do b" }] } });
+    const html = renderToStaticMarkup(<AsksPanel data={data({ owed: [two] })} onPick={() => {}} onOpen={() => {}} />);
+    expect(html.match(/the full instruction is sent/g)?.length).toBe(1);
+    const titled = renderToStaticMarkup(<AsksPanel data={data({ owed: [ask({ thread_title: "Release coordinator" })] })} onPick={() => {}} onOpen={() => {}} />);
+    expect(titled).toContain("Release coordinator");
+    expect(titled).toContain("Tells Release coordinator:");
+    expect(titled).not.toContain(">thr-a<");
+  });
+
+  it("shows paths and shas in an ask as code that can break anywhere, and URLs as links", () => {
     const sha = "32109540d47aaaafb3628b9e62275477ca817942ef0ea3dcb0" + "0".repeat(14);
     const q = `Script: /srv/runs/walk-ward.sh, sha256 ${sha} (see https://github.com/o/r/pull/4). Feels right and/or not.`;
     const html = renderToStaticMarkup(<AsksPanel data={data({ owed: [ask({ ask: { question: q, options: [{ id: "x", label: "X", kind: "ruling-only" }] } })] })} onPick={() => {}} onOpen={() => {}} />);
     const refs = [...html.matchAll(/<code[^>]*data-ref="[^"]*">([^<]*)<\/code>/g)].map((m) => m[1]);
-    expect(refs).toEqual(["/srv/runs/walk-ward.sh", sha, "https://github.com/o/r/pull/4"]);
+    expect(refs).toEqual(["/srv/runs/walk-ward.sh", sha]);
+    expect(html).toContain('<a href="https://github.com/o/r/pull/4" target="_blank" rel="noopener noreferrer nofollow"');
   });
 
   it("ageText reads minutes, hours, then days", () => {
@@ -358,12 +375,16 @@ describe("seen marker before the first observer report", () => {
   });
 });
 
+/** An entry for a row that fits the screen and is wholly in view; "visible" now means fully displayed. */
+const WHOLE = { isIntersecting: true, intersectionRatio: 1, intersectionRect: { height: 50 }, boundingClientRect: { top: 10, bottom: 60, height: 50 }, rootBounds: { top: 0, bottom: 800, height: 800 } };
+const PART = { ...WHOLE, intersectionRatio: 0.4, intersectionRect: { height: 20 } };
+
 describe("observeVisibility", () => {
   class FakeIO {
     static all: FakeIO[] = [];
     disconnected = false;
     observed: unknown[] = [];
-    constructor(public cb: (e: { isIntersecting: boolean }[]) => void) {
+    constructor(public cb: (e: unknown[]) => void) {
       FakeIO.all.push(this);
     }
     observe(el: unknown) {
@@ -382,8 +403,10 @@ describe("observeVisibility", () => {
   it("reports what the observer sees, and on cleanup disconnects and reports not visible", () => {
     const reports: [string, boolean][] = [];
     const stop = observeVisibility({} as Element, "ruling:d1", (i, v) => reports.push([i, v]));
-    FakeIO.all[0]!.cb([{ isIntersecting: true }]);
-    expect(reports).toEqual([["ruling:d1", true]]);
+    FakeIO.all[0]!.cb([PART]);
+    expect(reports).toEqual([["ruling:d1", false]]); // partly in view is not fully displayed
+    FakeIO.all[0]!.cb([WHOLE]);
+    expect(reports.at(-1)).toEqual(["ruling:d1", true]);
     stop();
     expect(FakeIO.all[0]!.disconnected).toBe(true);
     expect(reports.at(-1)).toEqual(["ruling:d1", false]);
@@ -397,10 +420,10 @@ describe("observeVisibility", () => {
       tr.setActive(true);
       tr.expand("ruling:d1");
       const stop = observeVisibility({} as Element, "ruling:d1", (i, v) => tr.setVisible(i, v));
-      FakeIO.all[0]!.cb([{ isIntersecting: true }]);
+      FakeIO.all[0]!.cb([WHOLE]);
       vi.advanceTimersByTime(400);
       stop();
-      FakeIO.all[0]!.cb([{ isIntersecting: true }]); // queued entry delivered late
+      FakeIO.all[0]!.cb([WHOLE]); // queued entry delivered late
       expect(tr.isVisible("ruling:d1")).toBe(false);
       expect(vi.getTimerCount()).toBe(0);
       vi.advanceTimersByTime(5000);
@@ -433,15 +456,16 @@ describe("catch-up panel", () => {
     const html = renderToStaticMarkup(<CatchupPanel items={items} expanded={new Set()} onToggle={() => {}} onOverride={() => {}} onMarkAll={() => {}} />);
     expect(html).toContain("The vizier ruled on Ship it?");
     expect(html).toContain("Override");
-    expect(html).toContain("mark all seen");
+    expect(html).toContain("Mark 0 seen"); // nothing reported on screen yet, and the panel says why
+    expect(html).toContain("data-mark-reason");
     expect(html).toContain("vizier&#x27;s note");
   });
 
-  it("mark all seen sends only the ids of expanded, visible items", () => {
+  it("mark all seen sends the ids of rows shown in full on screen: a plain row needs only to be visible, a routine group must be open too", () => {
     const ids = snapshotIds(items, new Set(["ruling:d1", "routine:Autarch", "owed:d2"]), new Set(["ruling:d1", "routine:Autarch", "owed:d2", "note:n1"]));
-    expect(ids.sort()).toEqual(["ruling:a", "ruling:b", "ruling:d1"]);
+    expect(ids.sort()).toEqual(["note:n1", "ruling:a", "ruling:b", "ruling:d1"]);
     expect(snapshotIds(items, new Set(["ruling:d1"]), new Set())).toEqual([]);
-    expect(snapshotIds(items, new Set(), new Set(["ruling:d1"]))).toEqual([]);
+    expect(snapshotIds(items, new Set(), new Set(["ruling:d1"]))).toEqual(["ruling:d1"]);
   });
 });
 
@@ -636,7 +660,7 @@ describe("root-run section (Task 2.8)", () => {
     const html = renderToStaticMarkup(<RootRunSection view={view({ status: null, status_command: "todo-run --status 's1' 'bbtask-X-1'" })} />);
     expect(html).toContain("todo-run --status");
     expect(html).toContain("not read automatically");
-    expect(html).toContain("status not read by Home");
+    expect(html).toContain("status not read by Citadel");
   });
   it("shows the reason and no command when suppressed, and escapes hostile text", () => {
     const html = renderToStaticMarkup(<RootRunSection view={view({ state: "mismatch", command: null, item_json: null, problems: [{ field: "set", why: "<img src=x onerror=alert(1)>" }], tuple: { script: "/a/<b>.sh", sha256: "a".repeat(64), timeout: 1, set: "S" } })} />);
@@ -711,11 +735,11 @@ describe("project binding flag (fail open)", () => {
 });
 
 describe("Tell the vizier box", () => {
-  it("is a closed disclosure over the vizier thread, and says so when no vizier is set", () => {
+  it("is the top of the Vizier tab over the vizier thread, and says so when no vizier is set", () => {
     const html = renderToStaticMarkup(<TellVizier threadId={undefined} />);
     expect(html).toContain("data-tell-vizier");
     expect(html).toContain("Tell the vizier");
-    expect(html).not.toContain("<details open");
+    expect(html).not.toContain("<details");
     expect(html).toContain("No vizier thread is set");
   });
 });

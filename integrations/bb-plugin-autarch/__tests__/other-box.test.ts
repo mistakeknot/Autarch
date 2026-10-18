@@ -25,14 +25,23 @@ describe("Answer with this (option other)", () => {
     expect(wake.payload).toContain("not an instruction");
   });
 
-  it("enforces the 2000-character cap and rejects empty text", async () => {
+  it("enforces the 20000-character cap and rejects empty text", async () => {
     const r = rig();
     const { g1 } = await opened(r);
-    expect(answer(r, g1.id, "x".repeat(2001))).toMatchObject({ ok: false, status: 400 });
+    expect(answer(r, g1.id, "x".repeat(20001))).toMatchObject({ ok: false, status: 400 });
     expect(answer(r, g1.id, "   ")).toMatchObject({ ok: false, status: 400 });
     expect(answer(r, g1.id, undefined)).toMatchObject({ ok: false, status: 400 });
     expect(r.svc.store.pick(g1.id)).toBeUndefined();
-    expect(answer(r, g1.id, "y".repeat(2000), "p-ok")).toMatchObject({ ok: true });
+    expect(answer(r, g1.id, "y".repeat(20000), "p-ok")).toMatchObject({ ok: true });
+  });
+
+  it("delivers a full-length answer to the owner whole", async () => {
+    const r = rig();
+    const { g1 } = await opened(r);
+    const words = "z".repeat(20000);
+    expect(answer(r, g1.id, words, "p-long")).toMatchObject({ ok: true });
+    const wake = (r.db.prepare("SELECT payload FROM obligations WHERE decision_id = ? AND kind = 'wake'").all(g1.id) as any[])[0];
+    expect(wake.payload).toContain(words);
   });
 
   it("is refused on an unbound card (root not verified)", async () => {
@@ -138,10 +147,19 @@ describe("Ask / note", () => {
     expect(r.svc.note({}, "hi", "n7")).toMatchObject({ ok: false, status: 400 });
   });
 
-  it("enforces the 2000 cap and knows unknown cards", async () => {
+  it("delivers a full-length note to the owner whole", async () => {
+    const r = rig();
+    const { t, g1 } = await opened(r);
+    const words = "q".repeat(20000);
+    expect(r.svc.note({ task_id: t.id }, words, "n-long")).toMatchObject({ ok: true, woke: true });
+    const ob = (r.db.prepare("SELECT payload FROM obligations WHERE decision_id = ? AND kind = 'note'").all(g1.id) as any[])[0];
+    expect(ob.payload).toContain(words);
+  });
+
+  it("enforces the 20000 cap and knows unknown cards", async () => {
     const r = rig();
     const { t } = await opened(r);
-    expect(r.svc.note({ task_id: t.id }, "x".repeat(2001), "n2")).toMatchObject({ ok: false, status: 400 });
+    expect(r.svc.note({ task_id: t.id }, "x".repeat(20001), "n2")).toMatchObject({ ok: false, status: 400 });
     expect(r.svc.note({ task_id: t.id }, "", "n3")).toMatchObject({ ok: false, status: 400 });
     expect(r.svc.note({ task_id: "no-such" }, "hi", "n4")).toMatchObject({ ok: false, status: 404 });
   });

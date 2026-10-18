@@ -85,7 +85,7 @@ only honest rendering.
 
 ## Blind spots (named, not waved at)
 
-- **zklw**: the canonical fleet runs there; none of it is in this corpus.
+- **devhost**: the canonical fleet runs there; none of it is in this corpus.
 - **codex**: counted, not thread-analyzed; "codex-first" repos under-observed.
 - **Non-agent work**: Zed, Ghostty, browsing, and the door TUI itself leave no
   transcripts here.

@@ -1,7 +1,10 @@
 // The card poller (plan 1.3.2): reads tasks, ingests changed cards, and keeps three independent
 // retry sets (unresolved cards, routing revalidation of open cards, routing-closed cards). It
-// never spawns a process; every read goes through the TasksClient. A failed or partial read
-// changes nothing (T12) and only flips the health to "degraded: tasks".
+// never spawns a process; every read goes through the TasksClient. A failure in the first read
+// phase (projects, task lists, fresh re-reads of missing cards) changes nothing (T12) and only flips
+// the health to "degraded: tasks". The poll is not one transaction: gone cards are written before
+// per-card comment reads, so a later comment-read failure leaves earlier card writes in place, and
+// the writer drain runs after every poll on its own.
 import type { CardWriter } from "./cardwrites.js";
 import type { Service } from "./service.js";
 import { OPEN_STATUSES, type Task, type TasksClient } from "./tasks.js";
@@ -107,13 +110,19 @@ export class Queue {
       }
       // Known cards missing from the list: a fresh read decides deleted, unlabelled, closed or still there.
       const gone = goneCards;
-      for (const k of service.knownOpenCards()) {
-        if (listed.has(k.task_id)) continue;
-        const st = await tasks.taskState(k.task_id);
-        if (st.state === "deleted") gone.push({ id: k.task_id, why: "deleted" });
-        else if (st.state === "unlabelled") gone.push({ id: k.task_id, why: "unlabelled", status: st.task.status });
-        else if ((OPEN_STATUSES as readonly string[]).includes(st.task.status)) listed.set(st.task.id, st.task);
-        else gone.push({ id: k.task_id, why: "closed", status: st.task.status });
+      const known = new Set(service.knownOpenCards().map((k) => k.task_id));
+      // A card with a live move is re-read too, whatever its label or cached status, so a card that left before its
+      // moves closed (or was unlabelled first) still has them closed on a fresh read (bead mk-t7656).
+      const moveOnly = new Set(service.liveMoveCards().filter((id) => !known.has(id)));
+      for (const id of [...known, ...moveOnly]) {
+        if (listed.has(id)) continue;
+        const st = await tasks.taskState(id);
+        const open = st.state !== "deleted" && (OPEN_STATUSES as readonly string[]).includes(st.task.status);
+        if (st.state === "deleted") gone.push({ id, why: "deleted" });
+        else if (st.state === "unlabelled") {
+          if (!(moveOnly.has(id) && open)) gone.push({ id, why: "unlabelled", status: st.task.status }); // a move-only re-read: already handled
+        } else if (open) listed.set(st.task.id, st.task);
+        else gone.push({ id, why: "closed", status: st.task.status });
       }
     } catch (e) {
       this.degrade(e);

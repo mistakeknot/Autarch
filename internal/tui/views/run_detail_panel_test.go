@@ -39,7 +39,7 @@ func TestRunDetailPanel_RenderWithRun(t *testing.T) {
 			AutoAdvance: true,
 		},
 		[]intercore.Dispatch{
-			{ID: "d1", RunID: "test123", Status: "completed", Agent: "review", ExitCode: &exitCode},
+			{ID: "d1", RunID: "test123", Status: "completed", AgentType: "review", ExitCode: &exitCode},
 		},
 		&intercore.BudgetResult{RunID: "test123", TokenBudget: 100000, TokensUsed: 50000},
 		[]intercore.Event{
@@ -99,7 +99,7 @@ func TestRunDetailPanel_CompactRender(t *testing.T) {
 			ID: "test123", Goal: "Build feature", Status: "active",
 			Phase: "plan", Phases: []string{"brainstorm", "plan"},
 		},
-		[]intercore.Dispatch{{ID: "d1", RunID: "test123", Status: "running", Agent: "build"}},
+		[]intercore.Dispatch{{ID: "d1", RunID: "test123", Status: "running", AgentType: "build"}},
 		&intercore.BudgetResult{RunID: "test123", TokenBudget: 100000, TokensUsed: 50000},
 		nil, // no events
 		&intercore.GateResult{RunID: "test123", FromPhase: "plan", ToPhase: "execute", Result: "pass", Tier: "basic"},

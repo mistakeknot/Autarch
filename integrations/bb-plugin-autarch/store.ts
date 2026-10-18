@@ -718,6 +718,10 @@ export class Store {
   }
 
   /** "Later / skip": a display preference, never closes anything. */
+  /** Undo "Later / skip" on every open move of a card; returns how many were skipped. */
+  unskipMoves(taskId: string): number {
+    return this.db.prepare("UPDATE moves SET skipped_at = NULL WHERE task_id = ? AND skipped_at IS NOT NULL AND state <> 'closed'").run(taskId).changes;
+  }
   skipMove(taskId: string, generation: number): boolean {
     return this.db.prepare("UPDATE moves SET skipped_at = COALESCE(skipped_at, ?) WHERE task_id = ? AND generation = ? AND state <> 'closed'").run(this.now(), taskId, generation).changes === 1;
   }

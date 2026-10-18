@@ -69,6 +69,11 @@ type CardFiler struct {
 	// ConfigErr, when set, makes File and FileForPull refuse (ErrInvalid): the binding config was
 	// unreadable, so nothing may be filed against a guess.
 	ConfigErr error
+	// ReadbackTimeout bounds how long FileCard polls `bb home get --card` for the card's card_key after
+	// filing it (Home indexes a card shortly after it exists). Zero reads nothing back.
+	ReadbackTimeout time.Duration
+	// ReadbackInterval is the pause between polls, default 200 ms.
+	ReadbackInterval time.Duration
 }
 
 // Environment variables CardFilerFromEnv reads.
@@ -138,6 +143,9 @@ type CardResult struct {
 	Project string `json:"project,omitempty"`
 	// Replay is true when the card already existed (a routing comment may still have been repaired).
 	Replay bool `json:"replay"`
+	// CardKey is Home's card_key for the card, read back after filing. Empty when readback is off or Home had
+	// not indexed the card within ReadbackTimeout.
+	CardKey string `json:"card_key,omitempty"`
 }
 
 // CardView is `bb home get --card`.
@@ -359,6 +367,19 @@ func cardEnv(thread string) []string {
 	return env
 }
 
+// unscopedEnv is cardEnv without the project context. bb defaults an unfiltered `tasks list` to the
+// tasks project linked to BB_PROJECT_ID, which would hide a card filed in another project.
+func unscopedEnv(thread string) []string {
+	env := cardEnv(thread)
+	out := env[:0:0]
+	for _, kv := range env {
+		if !strings.HasPrefix(kv, "BB_PROJECT_ID=") {
+			out = append(out, kv)
+		}
+	}
+	return out
+}
+
 func (f *CardFiler) exec(ctx context.Context, env []string, args ...string) BBResult {
 	if f.Run != nil {
 		return f.Run(ctx, env, args...)
@@ -410,7 +431,11 @@ func (r BBResult) text() string {
 
 // call runs bb and decodes its JSON stdout into out. Any failure is "unavailable".
 func (f *CardFiler) call(ctx context.Context, thread string, out any, args ...string) error {
-	r := f.exec(ctx, cardEnv(thread), args...)
+	return f.callEnv(ctx, cardEnv(thread), out, args...)
+}
+
+func (f *CardFiler) callEnv(ctx context.Context, env []string, out any, args ...string) error {
+	r := f.exec(ctx, env, args...)
 	if r.failed() {
 		return fmt.Errorf("%w: bb %s: %s", ErrHomeDown, strings.Join(args[:min(len(args), 3)], " "), r.text())
 	}
@@ -541,26 +566,20 @@ type found struct {
 
 // search is step 2.4: every tasks project, every page, exact key. It returns nil when no card
 // carries the key. Any failure is ErrHomeDown, so nothing is created on an incomplete read.
+// `bb tasks list` without --project searches every project in one call, so the cost of a search
+// is one bb process per page plus one per hit, however many projects exist.
 func (f *CardFiler) search(ctx context.Context, key string) (*found, error) {
-	var projects struct {
-		Projects []struct {
-			ID string `json:"id"`
-		} `json:"projects"`
-	}
-	if err := f.call(ctx, "", &projects, "tasks", "project", "list", "--json"); err != nil {
-		return nil, err
-	}
 	exact := regexp.MustCompile(`(?m)^Request: ` + regexp.QuoteMeta(key) + `(?:[^A-Za-z0-9:_.-]|$)`)
 	var keep []*found
 	seen := map[string]bool{}
-	for _, p := range projects.Projects {
+	{
 		cursor := ""
 		seenCursor := map[string]bool{}
 		for page := 0; ; page++ {
 			if page >= maxPages {
 				return nil, fmt.Errorf("%w: tasks search did not finish", ErrHomeDown)
 			}
-			args := []string{"tasks", "list", "--project", p.ID, "--status", searchStatuses, "--search", "Request: " + key, "--limit", pageLimit}
+			args := []string{"tasks", "list", "--status", searchStatuses, "--search", "Request: " + key, "--limit", pageLimit}
 			if cursor != "" {
 				args = append(args, "--cursor", cursor)
 			}
@@ -569,7 +588,7 @@ func (f *CardFiler) search(ctx context.Context, key string) (*found, error) {
 				Tasks      []taskRow `json:"tasks"`
 				NextCursor *string   `json:"nextCursor"`
 			}
-			if err := f.call(ctx, "", &res, args...); err != nil {
+			if err := f.callEnv(ctx, unscopedEnv(""), &res, args...); err != nil {
 				return nil, err
 			}
 			for _, t := range res.Tasks {
@@ -725,6 +744,69 @@ func (f *CardFiler) replay(ctx context.Context, req CardRequest, c *found) (Card
 
 // FileCard files one card, or finds the card this Request already filed.
 func (f *CardFiler) FileCard(ctx context.Context, req CardRequest) (CardResult, error) {
+	res, err := f.fileCard(ctx, req)
+	if err == nil && !req.Pull && res.ID != "" && f.ReadbackTimeout > 0 {
+		res.CardKey = f.awaitCardKey(ctx, res.ID)
+	}
+	return res, err
+}
+
+// awaitCardKey polls `bb home get --card` until Home reports the card's card_key or ReadbackTimeout passes
+// (one read is always made). Home indexes a card shortly after it exists, so a caller that reads the key
+// right after filing would otherwise miss it. It returns "" when Home has not indexed the card in time.
+func (f *CardFiler) awaitCardKey(ctx context.Context, id string) string {
+	interval := f.ReadbackInterval
+	if interval <= 0 {
+		interval = 200 * time.Millisecond
+	}
+	// The deadline is on the context, so a stalled read is cut off at ReadbackTimeout, not at the per-call timeout.
+	ctx, cancel := context.WithTimeout(ctx, f.ReadbackTimeout)
+	defer cancel()
+	deadline, _ := ctx.Deadline()
+	for {
+		if v, err := f.Card(ctx, id); err == nil && v.CardKey != "" {
+			return v.CardKey
+		}
+		if !time.Now().Add(interval).Before(deadline) {
+			return ""
+		}
+		select {
+		case <-ctx.Done():
+			return ""
+		case <-time.After(interval):
+		}
+	}
+}
+
+// CheckOptionIDs refuses an ask whose option ids Home would reject, so the filer can fail before it
+// probes serve or runs bb. Ids are lowercase letters, digits and hyphens, 1-32 characters.
+func CheckOptionIDs(ask map[string]any) error {
+	opts, _ := ask["options"].([]any)
+	for i, o := range opts {
+		m, _ := o.(map[string]any)
+		id, ok := m["id"].(string)
+		if !ok {
+			continue
+		}
+		if !optionIDRe.MatchString(id) {
+			return fmt.Errorf("%w: options[%d].id %q must be lowercase (letters a-z, digits and hyphens, 1-32 characters), e.g. %q; nothing was filed", ErrInvalid, i, id, strings.ToLower(id))
+		}
+	}
+	qs, _ := ask["questions"].([]any)
+	for i, q := range qs {
+		qm, _ := q.(map[string]any)
+		qopts, _ := qm["options"].([]any)
+		for j, o := range qopts {
+			om, _ := o.(map[string]any)
+			if id, ok := om["id"].(string); ok && !optionIDRe.MatchString(id) {
+				return fmt.Errorf("%w: questions[%d].options[%d].id %q must be lowercase (letters a-z, digits and hyphens, 1-32 characters), e.g. %q; nothing was filed", ErrInvalid, i, j, id, strings.ToLower(id))
+			}
+		}
+	}
+	return nil
+}
+
+func (f *CardFiler) fileCard(ctx context.Context, req CardRequest) (CardResult, error) {
 	if !req.Pull && req.Thread == "" {
 		return CardResult{}, fmt.Errorf("%w: BB_THREAD_ID is required: the asking thread routes the card", ErrInvalid)
 	}

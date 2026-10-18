@@ -10,7 +10,7 @@ import (
 // Test JSON parsing against real ic output samples.
 
 func TestUnmarshalRun(t *testing.T) {
-	raw := `{"auto_advance":true,"complexity":3,"created_at":1772048200,"force_full":false,"goal":"[autarch] Go wrapper for ic CLI","id":"q9m1soaj","phase":"brainstorm","project_dir":"/home/mk/projects/Demarch","status":"active","updated_at":1772048200}`
+	raw := `{"auto_advance":true,"complexity":3,"created_at":1772048200,"force_full":false,"goal":"[autarch] Go wrapper for ic CLI","id":"q9m1soaj","phase":"brainstorm","project_dir":"/home/dev/projects/Demarch","status":"active","updated_at":1772048200}`
 
 	var r Run
 	if err := json.Unmarshal([]byte(raw), &r); err != nil {
@@ -37,14 +37,14 @@ func TestUnmarshalRun(t *testing.T) {
 }
 
 func TestUnmarshalRunWithBudget(t *testing.T) {
-	raw := `{"auto_advance":true,"budget_warn_pct":80,"complexity":3,"created_at":1771831094,"force_full":false,"goal":"Dashboard views","id":"liq11b4x","phase":"planned","phases":["brainstorm","brainstorm-reviewed","strategized","planned"],"project_dir":"/home/mk/projects/Demarch","scope_id":"iv-o9yh","status":"active","token_budget":250000,"updated_at":1771831379}`
+	raw := `{"auto_advance":true,"budget_warn_pct":80,"complexity":3,"created_at":1771831094,"force_full":false,"goal":"Dashboard views","id":"liq11b4x","phase":"planned","phases":["brainstorm","brainstorm-reviewed","strategized","planned"],"project_dir":"/home/dev/projects/Demarch","scope_id":"iv-test1","status":"active","token_budget":250000,"updated_at":1771831379}`
 
 	var r Run
 	if err := json.Unmarshal([]byte(raw), &r); err != nil {
 		t.Fatalf("unmarshal Run: %v", err)
 	}
-	if r.ScopeID != "iv-o9yh" {
-		t.Errorf("ScopeID = %q, want %q", r.ScopeID, "iv-o9yh")
+	if r.ScopeID != "iv-test1" {
+		t.Errorf("ScopeID = %q, want %q", r.ScopeID, "iv-test1")
 	}
 	if r.TokenBudget != 250000 {
 		t.Errorf("TokenBudget = %d, want 250000", r.TokenBudget)
@@ -169,14 +169,14 @@ func TestUnmarshalEmptyList(t *testing.T) {
 }
 
 func TestUnmarshalRunAgent(t *testing.T) {
-	raw := `{"id":"agent-1","run_id":"run-1","type":"claude","name":"reviewer","status":"active"}`
+	raw := `{"id":"agent-1","run_id":"run-1","agent_type":"claude","name":"reviewer","status":"active"}`
 
 	var a RunAgent
 	if err := json.Unmarshal([]byte(raw), &a); err != nil {
 		t.Fatalf("unmarshal RunAgent: %v", err)
 	}
-	if a.Type != "claude" {
-		t.Errorf("Type = %q, want %q", a.Type, "claude")
+	if a.AgentType != "claude" {
+		t.Errorf("Type = %q, want %q", a.AgentType, "claude")
 	}
 }
 
@@ -336,9 +336,9 @@ func TestDispatchDisplayName(t *testing.T) {
 		d    Dispatch
 		want string
 	}{
-		{"name set", Dispatch{ID: "d-1", Name: &name, Agent: agent}, "Task title"},
-		{"name nil, agent set", Dispatch{ID: "d-1", Agent: agent}, "claude"},
-		{"name empty, agent set", Dispatch{ID: "d-1", Name: strPtr(""), Agent: agent}, "claude"},
+		{"name set", Dispatch{ID: "d-1", Name: &name, AgentType: agent}, "Task title"},
+		{"name nil, agent set", Dispatch{ID: "d-1", AgentType: agent}, "claude"},
+		{"name empty, agent set", Dispatch{ID: "d-1", Name: strPtr(""), AgentType: agent}, "claude"},
 		{"both empty", Dispatch{ID: "d-1"}, "d-1"},
 	}
 	for _, tt := range tests {

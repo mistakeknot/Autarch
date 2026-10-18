@@ -71,6 +71,13 @@ describe("interim approvals", () => {
     expect(a[0]!.pick_id).toBe(`p-${id}-merge-mk`);
   });
 
+  it("mints nothing on an auto pick", async () => {
+    const id = await filed();
+    pickAs(id, "merge", "auto");
+    expect(rows("SELECT * FROM approvals")).toHaveLength(0);
+    expect(rows("SELECT * FROM approval_events")).toHaveLength(0);
+  });
+
   it("mints nothing on a vizier pick", async () => {
     const id = await filed();
     pickAs(id, "merge", "vizier");

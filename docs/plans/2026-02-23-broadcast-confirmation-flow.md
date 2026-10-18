@@ -106,7 +106,7 @@ func TestPaneCountsForTarget(t *testing.T) {
 
 **Step 2: Run test to verify it fails**
 
-Run: `cd /home/mk/projects/Demarch/apps/autarch && go test ./internal/tui/ -run TestPhase -v`
+Run: `cd ~/projects/Demarch/apps/autarch && go test ./internal/tui/ -run TestPhase -v`
 Expected: FAIL — types not defined yet.
 
 **Step 3: Write the types**
@@ -213,7 +213,7 @@ type Command struct {
 
 **Step 5: Run tests to verify they pass**
 
-Run: `cd /home/mk/projects/Demarch/apps/autarch && go test ./internal/tui/ -run "TestPhase|TestTarget|TestPaneCounts" -v -race`
+Run: `cd ~/projects/Demarch/apps/autarch && go test ./internal/tui/ -run "TestPhase|TestTarget|TestPaneCounts" -v -race`
 Expected: PASS
 
 **Step 6: Commit**
@@ -353,7 +353,7 @@ func TestDetectAgentType(t *testing.T) {
 
 **Step 2: Run test to verify it fails**
 
-Run: `cd /home/mk/projects/Demarch/apps/autarch && go test ./internal/bigend/tmux/ -run "TestGetAgentPanes|TestDetectAgentType" -v`
+Run: `cd ~/projects/Demarch/apps/autarch && go test ./internal/bigend/tmux/ -run "TestGetAgentPanes|TestDetectAgentType" -v`
 Expected: FAIL — `GetAgentPanes` and `detectAgentType` not defined.
 
 **Step 3: Write the implementation**
@@ -448,7 +448,7 @@ func detectAgentType(title string) AgentType {
 
 **Step 4: Run tests to verify they pass**
 
-Run: `cd /home/mk/projects/Demarch/apps/autarch && go test ./internal/bigend/tmux/ -run "TestGetAgentPanes|TestDetectAgentType" -v -race`
+Run: `cd ~/projects/Demarch/apps/autarch && go test ./internal/bigend/tmux/ -run "TestGetAgentPanes|TestDetectAgentType" -v -race`
 Expected: PASS
 
 **Step 5: Commit**
@@ -645,7 +645,7 @@ func TestPalette_ShowResetsPhasesToCommand(t *testing.T) {
 
 **Step 2: Run tests to verify they fail**
 
-Run: `cd /home/mk/projects/Demarch/apps/autarch && go test ./internal/tui/ -run "TestPalette_" -v`
+Run: `cd ~/projects/Demarch/apps/autarch && go test ./internal/tui/ -run "TestPalette_" -v`
 Expected: FAIL — `phase`, `target` fields don't exist on Palette.
 
 **Step 3: Modify palette.go — add fields and phase-aware Update**
@@ -837,12 +837,12 @@ func (p *Palette) updateConfirmPhase(msg tea.KeyMsg) (*Palette, tea.Cmd) {
 
 **Step 4: Run tests to verify they pass**
 
-Run: `cd /home/mk/projects/Demarch/apps/autarch && go test ./internal/tui/ -run "TestPalette_" -v -race`
+Run: `cd ~/projects/Demarch/apps/autarch && go test ./internal/tui/ -run "TestPalette_" -v -race`
 Expected: PASS
 
 **Step 5: Build to verify no compile errors**
 
-Run: `cd /home/mk/projects/Demarch/apps/autarch && go build ./cmd/autarch/`
+Run: `cd ~/projects/Demarch/apps/autarch && go build ./cmd/autarch/`
 Expected: Clean build (the Broadcast field has zero value `false`, so all existing Command literals continue to work).
 
 **Step 6: Commit**
@@ -928,7 +928,7 @@ Add `"strings"` to the test file imports.
 
 **Step 2: Run tests to verify they fail**
 
-Run: `cd /home/mk/projects/Demarch/apps/autarch && go test ./internal/tui/ -run "TestPalette_View" -v`
+Run: `cd ~/projects/Demarch/apps/autarch && go test ./internal/tui/ -run "TestPalette_View" -v`
 Expected: FAIL — view still renders command phase content for all phases.
 
 **Step 3: Replace View method with phase-aware rendering**
@@ -1074,12 +1074,12 @@ Add `"fmt"` to the palette.go imports.
 
 **Step 4: Run tests to verify they pass**
 
-Run: `cd /home/mk/projects/Demarch/apps/autarch && go test ./internal/tui/ -run "TestPalette_" -v -race`
+Run: `cd ~/projects/Demarch/apps/autarch && go test ./internal/tui/ -run "TestPalette_" -v -race`
 Expected: PASS (all palette tests including new view tests).
 
 **Step 5: Build to verify compile**
 
-Run: `cd /home/mk/projects/Demarch/apps/autarch && go build ./cmd/autarch/`
+Run: `cd ~/projects/Demarch/apps/autarch && go build ./cmd/autarch/`
 
 **Step 6: Commit**
 
@@ -1139,7 +1139,7 @@ func TestPalette_PaneCountMsgUpdatesCounts(t *testing.T) {
 
 **Step 2: Run tests to verify they fail**
 
-Run: `cd /home/mk/projects/Demarch/apps/autarch && go test ./internal/tui/ -run "TestPalette_TargetPhaseReturns|TestPalette_PaneCount" -v`
+Run: `cd ~/projects/Demarch/apps/autarch && go test ./internal/tui/ -run "TestPalette_TargetPhaseReturns|TestPalette_PaneCount" -v`
 Expected: FAIL — `PaneCountMsg` not defined, target phase doesn't return a cmd.
 
 **Step 3: Add PaneCountMsg and fetch wiring**
@@ -1211,12 +1211,12 @@ Add the import `"github.com/mistakeknot/autarch/internal/bigend/tmux"` to unifie
 
 **Step 5: Run tests to verify they pass**
 
-Run: `cd /home/mk/projects/Demarch/apps/autarch && go test ./internal/tui/ -run "TestPalette_" -v -race`
+Run: `cd ~/projects/Demarch/apps/autarch && go test ./internal/tui/ -run "TestPalette_" -v -race`
 Expected: PASS
 
 **Step 6: Build to verify compile**
 
-Run: `cd /home/mk/projects/Demarch/apps/autarch && go build ./cmd/autarch/`
+Run: `cd ~/projects/Demarch/apps/autarch && go build ./cmd/autarch/`
 
 **Step 7: Commit**
 
@@ -1264,11 +1264,11 @@ The Action implementations are stubs for now — the actual tmux SendKeys logic 
 
 **Step 2: Build to verify compile**
 
-Run: `cd /home/mk/projects/Demarch/apps/autarch && go build ./cmd/autarch/`
+Run: `cd ~/projects/Demarch/apps/autarch && go build ./cmd/autarch/`
 
 **Step 3: Run all tests**
 
-Run: `cd /home/mk/projects/Demarch/apps/autarch && go test ./internal/tui/ -v -race`
+Run: `cd ~/projects/Demarch/apps/autarch && go test ./internal/tui/ -v -race`
 Expected: PASS
 
 **Step 4: Commit**
@@ -1372,12 +1372,12 @@ func TestPalette_FullBroadcastFlow(t *testing.T) {
 
 **Step 2: Run the integration test**
 
-Run: `cd /home/mk/projects/Demarch/apps/autarch && go test ./internal/tui/ -run "TestPalette_FullBroadcastFlow" -v -race`
+Run: `cd ~/projects/Demarch/apps/autarch && go test ./internal/tui/ -run "TestPalette_FullBroadcastFlow" -v -race`
 Expected: PASS
 
 **Step 3: Run ALL tests to verify no regressions**
 
-Run: `cd /home/mk/projects/Demarch/apps/autarch && go test ./internal/tui/... -v -race`
+Run: `cd ~/projects/Demarch/apps/autarch && go test ./internal/tui/... -v -race`
 Expected: PASS (all existing + new tests)
 
 **Step 4: Commit**

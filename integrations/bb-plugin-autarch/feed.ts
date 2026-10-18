@@ -27,9 +27,10 @@ const OWN_DAYS = 30;
 const PROJECT_DAYS = 14;
 const DAY = 86_400_000;
 
-const HEADER = "Rulings mk has made (newest first):";
+const HEADER = "Rulings made (newest first; [auto] means Home closed the card on evidence, not mk):";
 const NOTE = "If your question is already answered above, do not file it again.";
 
+// eslint-disable-next-line no-control-regex
 const CONTROL = new RegExp("[\\u0000-\\u001f\\u007f-\\u009f\\u2028\\u2029]", "g");
 
 /** Control characters stripped, then clipped to 80 UTF-16 units without splitting a surrogate pair. */
@@ -45,7 +46,7 @@ export function clipLabel(label: string): string {
 export function renderLine(l: FeedLine): string {
   if (l.status === "void") return `void ${l.decision}: overridden, awaiting mk (${l.tip ?? ""})`;
   const at = `${l.picked_at.slice(0, 16)}Z`;
-  return `ruled ${at} "${clipLabel(l.label)}" (${l.decision})${l.by === "vizier" ? " [vizier]" : ""}${
+  return `ruled ${at} "${clipLabel(l.label)}" (${l.decision})${l.by === "vizier" ? " [vizier]" : l.by === "auto" ? " [auto]" : ""}${
     l.supersedes ? `, supersedes ${l.supersedes}` : ""
   }`;
 }

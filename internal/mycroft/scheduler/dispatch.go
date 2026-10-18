@@ -45,6 +45,12 @@ func (d *Dispatcher) LogApproval(agent string, beadID string) error {
 	return d.logDispatch(agent, beadID, mycroft.ActionSuggest, string(mycroft.OutcomeAccepted), "", 0)
 }
 
+// LogApprovalWith records user approval of a suggestion together with what the approval did (for a bb-thread worker:
+// the seat, thread and card facts), or with the failure when the start failed.
+func (d *Dispatcher) LogApprovalWith(agent string, beadID string, outcome mycroft.DispatchOutcome, reason string) error {
+	return d.logDispatch(agent, beadID, mycroft.ActionSuggest, string(outcome), reason, 0)
+}
+
 // LogRejection records user rejection of a suggestion with reason.
 func (d *Dispatcher) LogRejection(agent string, beadID string, reason string) error {
 	return d.logDispatch(agent, beadID, mycroft.ActionSuggest, string(mycroft.OutcomeRejected), reason, 0)

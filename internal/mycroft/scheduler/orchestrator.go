@@ -216,7 +216,11 @@ func (o *Orchestrator) dispatchToAgent(agent mycroft.AgentView, bead mycroft.Bea
 		"bead", bead.ID,
 		"session", sessionID,
 	)
-	o.logDispatch(agent.Name, bead.ID, mycroft.ActionAutoDispatch, string(mycroft.OutcomeAccepted), "")
+	detail := ""
+	if d, ok := o.spawner.(interface{ Detail(sessionID string) string }); ok {
+		detail = d.Detail(sessionID)
+	}
+	o.logDispatch(agent.Name, bead.ID, mycroft.ActionAutoDispatch, string(mycroft.OutcomeAccepted), detail)
 }
 
 func (o *Orchestrator) logDispatch(agent, beadID string, action mycroft.DispatchAction, outcome, reason string) {

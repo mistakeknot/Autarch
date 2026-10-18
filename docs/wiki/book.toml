@@ -1,0 +1,17 @@
+[book]
+title = "Autarch Wiki"
+description = "Reference for Autarch: its tools, the Home ask and move model, and the gh-sync card filer, stated from the current code."
+authors = ["Autarch"]
+language = "en"
+src = "src"
+
+[build]
+build-dir = "book"
+create-missing = false
+
+[output.html]
+default-theme = "navy"
+preferred-dark-theme = "navy"
+
+[output.html.search]
+enable = true

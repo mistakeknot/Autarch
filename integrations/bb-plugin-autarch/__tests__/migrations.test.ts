@@ -94,7 +94,6 @@ describe("staged migrations", () => {
 
 // ---- v3 schema (Task 2.3 tests 1-5, 7) ----------------------------------------
 
-const DEC_COLS = "id, request_id, identity, revision, semantic_key, subject, kind, project, asker, thread, body_json, filed_at, updated_at";
 function insDecision(db: Database.Database, id: string, extra: Record<string, unknown> = {}): void {
   const base: Record<string, unknown> = {
     id, request_id: `req-${id}`, identity: "i", revision: "rev-1", semantic_key: "s", subject: "subj", kind: "decide",

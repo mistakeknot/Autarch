@@ -158,7 +158,7 @@ func TestMCPDefaultFilerIsACardFiler(t *testing.T) {
 				return j(`{"labels":[{"name":"needs-mk"}]}`)
 			case "tasks project list":
 				return j(`{"projects":[{"id":"P1"}]}`)
-			case "tasks list --project":
+			case "tasks list --status":
 				return j(`{"tasks":[],"nextCursor":null}`)
 			case "tasks create --project":
 				for _, kv := range e {

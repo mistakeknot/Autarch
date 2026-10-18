@@ -119,5 +119,5 @@ The `mcputil` package existed locally but the commit (`a7cc97b feat(mcputil): ad
 
 ## Files Changed
 
-- `/home/mk/projects/Demarch/interverse/interlock/.github/workflows/ci.yml` -- added interbase checkout and replace override steps
-- `/home/mk/projects/Demarch/sdk/interbase/` -- pushed existing commit `a7cc97b` (mcputil package) to GitHub
+- `~/projects/Demarch/interverse/interlock/.github/workflows/ci.yml` -- added interbase checkout and replace override steps
+- `~/projects/Demarch/sdk/interbase/` -- pushed existing commit `a7cc97b` (mcputil package) to GitHub

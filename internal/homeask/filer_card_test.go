@@ -121,14 +121,17 @@ func (f *memBB) run(ctx context.Context, env []string, args ...string) BBResult 
 			ps = append(ps, map[string]string{"id": p, "name": p})
 		}
 		return okRes(map[string]any{"projects": ps})
-	case cmd == "tasks list --project":
+	case strings.HasPrefix(cmd, "tasks list"):
 		p, search := argFlag(args, "--project"), argFlag(args, "--search")
-		if p == "" {
-			f.t.Errorf("tasks list without --project: %v", args)
+		for _, kv := range env {
+			if p == "" && strings.HasPrefix(kv, "BB_PROJECT_ID=") {
+				// the real bb scopes an unfiltered list to the project linked to this context
+				return okRes(map[string]any{"tasks": []map[string]string{}, "nextCursor": nil, "limit": 500})
+			}
 		}
 		var hits []*fakeTask
 		for _, tk := range f.tasks {
-			if !tk.Deleted && tk.Project == p && strings.Contains(tk.Desc, search) {
+			if !tk.Deleted && (p == "" || tk.Project == p) && strings.Contains(tk.Desc, search) {
 				hits = append(hits, tk)
 			}
 		}
@@ -545,7 +548,7 @@ func TestCardFilerKeepsKeyMatchWhateverItsIdentityAndPicksEarliest(t *testing.T)
 	}
 }
 
-func TestCardFilerSearchesEveryProjectExplicitly(t *testing.T) {
+func TestCardFilerSearchesEveryProjectInOneCall(t *testing.T) {
 	f := newFake(t)
 	f.registerOnCreate = false
 	f.projects = []string{"P1", "P2", "P3"}
@@ -557,30 +560,50 @@ func TestCardFilerSearchesEveryProjectExplicitly(t *testing.T) {
 	if err != nil || !res.Replay || res.ID != "INB" {
 		t.Fatalf("res=%+v err=%v", res, err)
 	}
-	seen := map[string]bool{}
 	for _, c := range f.calls {
 		if len(c) > 2 && c[1] == "list" {
-			seen[argFlag(c, "--project")] = true
-			if argFlag(c, "--status") != searchStatuses || argFlag(c, "--search") != "Request: "+r.Key {
+			if argFlag(c, "--project") != "" || argFlag(c, "--status") != searchStatuses || argFlag(c, "--search") != "Request: "+r.Key {
 				t.Fatalf("list args %v", c)
 			}
 		}
 	}
-	if len(seen) != 3 {
-		t.Fatalf("projects searched: %v", seen)
+	// One list call (one page), no per-project loop, no project listing for the search.
+	if n := f.count("tasks", "list"); n != 1 {
+		t.Fatalf("tasks list calls: %d", n)
 	}
-	// a project listing that fails is exit 3
-	f2 := newFake(t)
-	f2.projects = []string{"P1", "P2"}
-	f2.fail = func(a []string) *BBResult {
-		if len(a) > 2 && a[1] == "list" && argFlag(a, "--project") == "P2" {
+	if n := f.count("tasks", "project"); n != 0 {
+		t.Fatalf("tasks project calls: %d", n)
+	}
+}
+
+func TestCardFilerBBInvocationsDoNotGrowWithProjectCount(t *testing.T) {
+	calls := func(projects int) int {
+		f := newFake(t)
+		f.projects = nil
+		for i := 0; i < projects; i++ {
+			f.projects = append(f.projects, fmt.Sprintf("P%d", i))
+		}
+		if _, err := f.filer().FileCard(context.Background(), testReq()); err != nil {
+			t.Fatal(err)
+		}
+		return len(f.calls)
+	}
+	if small, big := calls(2), calls(150); small != big {
+		t.Fatalf("bb invocations depend on the project count: %d with 2 projects, %d with 150", small, big)
+	}
+}
+
+func TestCardFilerAFailingListIsExit3(t *testing.T) {
+	f := newFake(t)
+	f.fail = func(a []string) *BBResult {
+		if len(a) > 2 && a[1] == "list" {
 			return badRes(1, "no")
 		}
 		return nil
 	}
-	_, err = f2.filer().FileCard(context.Background(), testReq())
+	_, err := f.filer().FileCard(context.Background(), testReq())
 	wantErrIs(t, err, ErrHomeDown)
-	if f2.count("tasks", "create") != 0 {
+	if f.count("tasks", "create") != 0 {
 		t.Fatal("created")
 	}
 }
@@ -935,4 +958,19 @@ func labelFlags(args []string) []string {
 		}
 	}
 	return out
+}
+
+func TestCardFilerSearchIgnoresAnInheritedProjectContext(t *testing.T) {
+	t.Setenv("BB_PROJECT_ID", "proj_other")
+	f := newFake(t)
+	f.registerOnCreate = false
+	f.projects = []string{"P1", "P2"}
+	r := testReq()
+	_, ident, _ := r.Description()
+	f.tasks = append(f.tasks, &fakeTask{ID: "ELSEWHERE", Project: "P2", Created: "2026-09-03T00:00:00", Desc: seedDesc(t, r.Key, ident),
+		Comments: []Comment{{ID: "c", Kind: "agent", ThreadID: "thr_a", CreatedAt: "2026-09-03T01:00:00"}}})
+	res, err := f.filer().FileCard(context.Background(), r)
+	if err != nil || !res.Replay || res.ID != "ELSEWHERE" || f.count("tasks", "create") != 0 {
+		t.Fatalf("res=%+v err=%v", res, err)
+	}
 }
