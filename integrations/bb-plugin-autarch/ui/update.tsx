@@ -15,22 +15,27 @@ const short = (sha: string) => sha.slice(0, 7);
  * request for the latest commit. Home runs nothing; a runner outside the plugin does the install.
  * Nothing renders when there is no update, no waiting request and no result worth showing.
  */
-export function UpdateMenu({ info, onRequest, error }: { info: UpdateInfoView | null; onRequest: (sha: string) => void; error?: string | null }) {
+/** The menu's summary line, or null when there is nothing to show (the caller then leaves out the row). */
+export function updateLabel(info: UpdateInfoView | null): { label: string; state: "pending" | "failed" | "available" } | null {
   if (!info || !info.status) return null;
   const { status, result } = info;
   const failed = result !== null && !result.ok && result.sha === status.latest;
-  const label = info.pending
-    ? `Update requested (${short(status.latest)})`
-    : failed
-      ? "Update failed"
-      : info.available
-        ? `Update available (${status.count} commit${status.count === 1 ? "" : "s"})`
-        : null;
-  if (label === null) return null;
+  if (info.pending) return { label: `Update requested (${short(status.latest)})`, state: "pending" };
+  if (failed) return { label: "Update failed", state: "failed" };
+  if (info.available) return { label: `Update available (${status.count} commit${status.count === 1 ? "" : "s"})`, state: "available" };
+  return null;
+}
+
+export function UpdateMenu({ info, onRequest, error }: { info: UpdateInfoView | null; onRequest: (sha: string) => void; error?: string | null }) {
+  const head = updateLabel(info);
+  if (!info || !info.status || head === null) return null;
+  const { status, result } = info;
+  const failed = head.state === "failed";
+  const label = head.label;
   return (
-    <details className="relative" data-update-menu data-update-state={info.pending ? "pending" : failed ? "failed" : "available"}>
+    <details data-update-menu data-update-state={head.state}>
       <summary className="cursor-pointer text-sm font-medium" data-update-label>{label}</summary>
-      <div className="absolute right-0 z-10 mt-1 w-96 rounded-lg border border-border bg-card p-3 text-xs shadow">
+      <div className="mt-1 max-w-xl rounded-lg border border-border bg-card p-3 text-xs shadow">
         <p>{`Installed ${short(status.installed)}, latest ${short(status.latest)}, checked ${status.checked_at}.`}</p>
         {status.subjects.length > 0 ? (
           <ul className="mt-2 max-h-48 list-disc overflow-auto pl-4" data-update-commits>

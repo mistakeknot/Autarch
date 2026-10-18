@@ -33,3 +33,17 @@ describe("UpdateMenu", () => {
     expect(h).not.toContain("Update available");
   });
 });
+
+describe("UpdateMenu placement", () => {
+  it("opens in flow, not absolutely positioned inside a scrolling row", () => {
+    expect(html(base)).not.toContain("absolute");
+  });
+  it("HomeTabs puts the extra outside the scrolling nav", async () => {
+    const { HomeTabs } = await import("../ui/tabs.js");
+    const h = renderToStaticMarkup(<HomeTabs classic={false} extra={<UpdateMenu info={base} onRequest={() => {}} />} onOpen={() => {}} onToggleClassic={() => {}} onTodos={() => {}} />);
+    const nav = h.slice(h.indexOf("<nav"), h.indexOf("</nav>"));
+    expect(nav).not.toContain("data-update-menu");
+    expect(h).toContain("data-home-extra");
+    expect(h.indexOf("data-update-menu")).toBeGreaterThan(h.indexOf("</nav>"));
+  });
+});

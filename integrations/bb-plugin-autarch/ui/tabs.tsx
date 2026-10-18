@@ -18,13 +18,13 @@ export function homeTabs(classic: boolean, learn = false): ReadonlyArray<readonl
 
 export function HomeTabs({ classic, learn = false, waiting, ideas, onOpen, onToggleClassic, onTodos, extra }: { extra?: ReactNode; classic: boolean; learn?: boolean | undefined; waiting?: number | undefined; ideas?: number | undefined; onOpen: (p: { id: string; kind: Panel["kind"]; title: string }) => void; onToggleClassic: () => void; onTodos: () => void }) {
   return (
+    <>
     <nav className="flex gap-3 overflow-x-auto whitespace-nowrap border-b border-border px-4 py-1 text-sm sm:py-2" data-home-tabs>
       {homeTabs(classic, learn).map(([id, kind, title]) => (
         <button key={id} type="button" className="min-h-11 shrink-0 underline-offset-2 hover:underline sm:min-h-0" onClick={() => onOpen({ id, kind, title })}>
           {id === "queue" && waiting !== undefined ? `${title} (${waiting})` : id === "ideas" && ideas !== undefined ? `${title} (${ideas})` : title}
         </button>
       ))}
-      {extra}
       <button type="button" className="ml-auto min-h-11 shrink-0 text-muted-foreground sm:min-h-0" aria-pressed={classic} onClick={onToggleClassic}>
         Classic tabs
       </button>
@@ -32,6 +32,8 @@ export function HomeTabs({ classic, learn = false, waiting, ideas, onOpen, onTog
         Todos
       </button>
     </nav>
+    {extra ? <div className="border-b border-border px-4 py-1 sm:py-2" data-home-extra>{extra}</div> : null}
+    </>
   );
 }
 
