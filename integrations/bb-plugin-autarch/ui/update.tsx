@@ -20,7 +20,7 @@ export function updateLabel(info: UpdateInfoView | null): { label: string; state
   if (!info || !info.status) return null;
   const { status, result } = info;
   const failed = result !== null && !result.ok && result.sha === status.latest;
-  if (info.pending) return { label: `Update requested (${short(status.latest)})`, state: "pending" };
+  if (info.pending) return { label: `Update requested (${short(info.request?.sha ?? status.latest)})`, state: "pending" };
   if (failed) return { label: "Update failed", state: "failed" };
   if (info.available) return { label: `Update available (${status.count} commit${status.count === 1 ? "" : "s"})`, state: "available" };
   return null;

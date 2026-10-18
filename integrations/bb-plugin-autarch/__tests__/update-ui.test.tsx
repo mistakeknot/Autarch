@@ -47,3 +47,11 @@ describe("UpdateMenu placement", () => {
     expect(h.indexOf("data-update-menu")).toBeGreaterThan(h.indexOf("</nav>"));
   });
 });
+
+describe("UpdateMenu pending label", () => {
+  it("names the requested sha, not a newer latest", () => {
+    const h = html({ ...base, available: false, pending: true, request: { sha: A, clicked_at: "t" } });
+    expect(h).toContain("Update requested (aaaaaaa)");
+    expect(h).not.toContain("Update requested (bbbbbbb)");
+  });
+});
