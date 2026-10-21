@@ -41,6 +41,7 @@ import { Ideas } from "./ideas.js";
 import { learnSet, learnView, type LearnSet } from "./learn.js";
 import { OPEN_STATUSES, TasksClient, type PluginsLike } from "./tasks.js";
 import { listAllThreads, traceability, type ThreadLike } from "./traceability.js";
+import { cardStateOf } from "./cardstate.js";
 import { createStoreHandle, type Store, type StoreHandle } from "./store.js";
 import { defaultImagesRoot, ImageStore } from "./otherimages.js";
 import { sdkAdapter, WakeLoop, type ThreadsLike, type WakeSdk } from "./wakes.js";
@@ -719,6 +720,10 @@ export function wireHome(bb: BbPluginApi, handle: StoreHandle, cfg: HomeConfig, 
       if (!p.svc.owed().some((d) => d.id === i.decision_id)) return { ok: false, error: "not an open ask" };
       p.store.setSetting("viewing", JSON.stringify({ decision_id: i.decision_id, at: p.svc.time() }));
       return { ok: true };
+    },
+    /** The state of the card with this key, for the link /plugins/autarch/home/<KEY>; reads one row. */
+    async cardState(i: { key: string }) {
+      return cardStateOf(need().store.db, i.key);
     },
     /** The runner's status and last result, and any waiting request. Reads two files; runs nothing. */
     async updateInfo() {
