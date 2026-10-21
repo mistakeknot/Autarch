@@ -55,6 +55,39 @@ function commandOf(line: string): string | null {
   return t;
 }
 
+const LIST_MARKER = /^\s*(?:\(\d{1,3}\)|\d{1,3}[.)])\s+/;
+/** A trailing note in square brackets that holds words and opens right at its text ("[read-only: one GET]"). A shell test ("[ -f x ]", "[[ ... ]]") opens with a space or a second bracket, and one without a space ("[a-z]") is an argument. */
+const MAX_NOTE_LINE = 2000; // longer lines skip note splitting, which keeps the match cheap
+const TRAILING_NOTE = /\s+(\[[^\[\]\s\\'"][^\[\]\\'"]*\s[^\[\]\\'"]*\])\s*$/; // no backslash or quote inside: "[a\ b]" and '[a" "b]' are arguments
+const ENDS_IN_ESCAPE = /(?:^|[^\\])(?:\\\\)*\\$/;
+const ENDS_IN_OPERATOR = /(?:&&|\|\||[|;&])\s*$/;
+
+/** True when every quote in the text is closed, so a bracket after it is outside any quoted argument. */
+function quotesClosed(text: string): boolean {
+  let quote = "";
+  for (let i = 0; i < text.length; i++) {
+    const c = text[i]!;
+    if (quote !== "") {
+      if (c === "\\" && quote === '"') i++;
+      else if (c === quote) quote = "";
+    } else if (c === "'" || c === '"') quote = c;
+    else if (c === "\\") i++;
+  }
+  return quote === "";
+}
+
+/** A command line, allowing a list number in front ("(1) ", "1. ") and a bracketed note after. Neither is part of the command, so it is split off before the line is judged. */
+function listedCommandOf(line: string): { command: string; note: string | null } | null {
+  const body = line.replace(LIST_MARKER, "");
+  const m = body.length > MAX_NOTE_LINE ? null : TRAILING_NOTE.exec(body);
+  if (m && !ENDS_IN_OPERATOR.test(body.slice(0, m.index)) && !ENDS_IN_ESCAPE.test(body.slice(0, m.index)) && quotesClosed(body.slice(0, m.index))) {
+    const command = commandOf(body.slice(0, m.index));
+    if (command !== null) return { command, note: m[1]! };
+  }
+  const command = commandOf(body);
+  return command === null ? null : { command, note: null };
+}
+
 /** Where an inline command ends: before a note in parentheses or a sentence end, outside quotes. A "(" right after an operator ("&& (cd x)") opens a subshell, and a period after a space ("--out .") is an argument. */
 function inlineEnd(rest: string, atParen = true): number {
   let quote = "";
@@ -106,7 +139,8 @@ export function splitCommands(text: string): TextPart[] {
   const leadLine = () => [...prose].reverse().find((l) => l.trim() !== "") ?? "";
   const lines = text.split("\n");
   for (let i = 0; i < lines.length; i++) {
-    const c = commandOf(lines[i]!);
+    const listed = listedCommandOf(lines[i]!);
+    const c = listed === null ? null : listed.command;
     if (c === null) {
       const inline = inlineOf(lines[i]!);
       if (inline === null) {
@@ -129,6 +163,7 @@ export function splitCommands(text: string): TextPart[] {
     const part: TextPart = { type: "command", text: whole.join("\n"), role: "step" };
     leads.set(part, lead);
     parts.push(part);
+    if (listed!.note !== null) prose.push(listed!.note);
   }
   flush();
   const cmds = parts.filter((p): p is Extract<TextPart, { type: "command" }> => p.type === "command");

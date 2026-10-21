@@ -223,7 +223,7 @@ export function RefText({ text }: { text: string }) {
         if (link !== null) return <Fragment key={i}>{link}</Fragment>;
         return (
           <Fragment key={i}>
-            <code className="select-all rounded bg-muted px-1 font-mono text-xs [overflow-wrap:anywhere]" data-ref>
+            <code className={`select-all rounded bg-muted px-1 font-mono text-xs ${SHA_ONLY.test(part) ? "inline-block max-w-full overflow-x-auto whitespace-nowrap align-bottom" : "[overflow-wrap:anywhere]"}`} data-ref>
               {part}
             </code>
             {part.startsWith("/") ? <DocLink path={part} sha256={digests.get(i)} /> : null}
