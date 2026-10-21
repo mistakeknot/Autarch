@@ -57,7 +57,8 @@ function commandOf(line: string): string | null {
 
 const LIST_MARKER = /^\s*(?:\(\d{1,3}\)|\d{1,3}[.)])\s+/;
 /** A trailing note in square brackets that holds words and opens right at its text ("[read-only: one GET]"). A shell test ("[ -f x ]", "[[ ... ]]") opens with a space or a second bracket, and one without a space ("[a-z]") is an argument. */
-const TRAILING_NOTE = /\s+(\[[^\[\]\s\\'"][^\]\\'"]*\s[^\]\\'"]*\])\s*$/; // no backslash or quote inside: "[a\ b]" and '[a" "b]' are arguments
+const MAX_NOTE_LINE = 2000; // longer lines skip note splitting, which keeps the match cheap
+const TRAILING_NOTE = /\s+(\[[^\[\]\s\\'"][^\[\]\\'"]*\s[^\[\]\\'"]*\])\s*$/; // no backslash or quote inside: "[a\ b]" and '[a" "b]' are arguments
 const ENDS_IN_ESCAPE = /(?:^|[^\\])(?:\\\\)*\\$/;
 const ENDS_IN_OPERATOR = /(?:&&|\|\||[|;&])\s*$/;
 
@@ -78,7 +79,7 @@ function quotesClosed(text: string): boolean {
 /** A command line, allowing a list number in front ("(1) ", "1. ") and a bracketed note after. Neither is part of the command, so it is split off before the line is judged. */
 function listedCommandOf(line: string): { command: string; note: string | null } | null {
   const body = line.replace(LIST_MARKER, "");
-  const m = TRAILING_NOTE.exec(body);
+  const m = body.length > MAX_NOTE_LINE ? null : TRAILING_NOTE.exec(body);
   if (m && !ENDS_IN_OPERATOR.test(body.slice(0, m.index)) && !ENDS_IN_ESCAPE.test(body.slice(0, m.index)) && quotesClosed(body.slice(0, m.index))) {
     const command = commandOf(body.slice(0, m.index));
     if (command !== null) return { command, note: m[1]! };

@@ -18,6 +18,13 @@ const cmds = (t: string) => splitCommands(t).filter((p) => p.type === "command")
 const textOf = (html: string) => html.replace(/<[^>]+>/g, "").replace(/&#x27;/g, "'").replace(/&amp;/g, "&");
 
 describe("a numbered command line", () => {
+  it("stays fast on a long line full of brackets and spaces", () => {
+    const line = "1. bash x " + "[a ".repeat(20000);
+    const t0 = Date.now();
+    splitCommands(line);
+    expect(Date.now() - t0).toBeLessThan(500);
+  });
+
   it.each(["(1) ", "1. ", "1) ", "  (12) "])("drops the list marker %j from the copied text", (m) => {
     expect(cmds(`${m}bash ${P} --check`).map((c) => c.text)).toEqual([`bash ${P} --check`]);
   });
