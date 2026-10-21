@@ -40,7 +40,7 @@ import type { Lens } from "./ui/map-placeholder.js";
 import { BlocksPanel, QueueRefresher, type RootRunHooks } from "./ui/blocks.js";
 import type { QueueView } from "./ui/blocks.js";
 import { withoutOwed } from "./ui/blocks.js";
-import { CardKeyNotice, cardKeyFrom, type CardLookup } from "./ui/cardlink.js";
+import { CardKeyNotice, cardKeyFrom, focusedAsks, type CardLookup } from "./ui/cardlink.js";
 import { BindingsPanel, SettingsPanel } from "./ui/settings.js";
 import { UpdateMenu, updateLabel, type UpdateInfoView } from "./ui/update.js";
 import { keyAction, layoutStack, stackReducer, StackView } from "./ui/stack.js";
@@ -674,7 +674,7 @@ function HomePage({ subPath }: { subPath?: string }) {
       () => { if (live) setLookup({ key: linkKey, result: "error" }); },
     );
     return () => { live = false; };
-  }, [needLookup, linkKey, rpc]);
+  }, [needLookup, linkKey, rpc, asks]); // each Home poll looks again, so a notice never goes stale
   const showAll = () => nav.toPluginPanel("home");
   if (linked !== null && asks !== null) {
     return (
@@ -682,7 +682,7 @@ function HomePage({ subPath }: { subPath?: string }) {
         <div className="flex h-full min-h-0 flex-1 flex-col overflow-y-auto" data-home-source={HOME_SOURCE} data-card-link={linkKey}>
           <button type="button" className="min-h-11 border-b border-border px-4 text-left text-sm underline" onClick={showAll} data-card-link-back>‹ All cards</button>
           <AsksPanel
-            data={{ ...asks, owed: [linked] }}
+            data={focusedAsks(asks, linked)}
             onNote={(decision_id, text, images) => yourMove.note({ decision_id }, text, images)}
             onLater={(ref, on) => laterOutcome(rpc.call(on ? "later" : "unlater", { ref })).then((o) => { refetchAll(); return o; })}
             onOpen={openBeside}

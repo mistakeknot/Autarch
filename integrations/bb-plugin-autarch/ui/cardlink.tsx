@@ -1,5 +1,6 @@
 // Card-key deep links (bead mk-a51hu): the key in the path, the link to it, and the notice for a key that is not an open card.
 import type { CardState } from "../cardstate.js";
+import type { AsksData, OwedAsk } from "./asks.js";
 
 const KEY = /^[A-Z][A-Z0-9]{1,11}-\d{1,7}$/;
 
@@ -33,4 +34,9 @@ export function CardKeyNotice({ cardKey, lookup }: { cardKey: string; lookup: Ca
       {text}
     </p>
   );
+}
+
+/** The asks model for the focused view: the one card, with nothing else of Home's (runbooks, stalled rows, approvals) beside it. */
+export function focusedAsks(asks: AsksData, card: OwedAsk): AsksData {
+  return { owed: [card], runbook: [], lane: [], asks: [], undeliverable: [], failures: [], uncertain: [], delegation: asks.delegation, machineOwners: asks.machineOwners };
 }

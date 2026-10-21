@@ -3,8 +3,9 @@
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 
-import { cardHref, cardKeyFrom, CardKeyNotice } from "../ui/cardlink.js";
+import { cardHref, cardKeyFrom, CardKeyNotice, focusedAsks } from "../ui/cardlink.js";
 import { cardStateOf } from "../cardstate.js";
+import type { AsksData, OwedAsk } from "../ui/asks.js";
 import { openStore, tmpDir } from "./helpers.js";
 
 describe("cardKeyFrom", () => {
@@ -65,5 +66,22 @@ describe("CardKeyNotice", () => {
   it("shows nothing while the lookup is pending and says so when it fails", () => {
     expect(html(null)).toBe("");
     expect(html("error")).toContain("could not be looked up");
+  });
+});
+
+describe("focusedAsks", () => {
+  it("keeps the one card and drops the rest of Home's items", () => {
+    const card = { id: "d1", project: "p", thread: "t", subject: "s", key: "DEMO-1", asker: "card", filed_at: "2026-10-21T00:00:00Z", revision: "r", ask: { question: "q", options: [] } } as OwedAsk;
+    const other = { ...card, id: "d2", key: "DEMO-2" };
+    const lane = { id: "l1", subject: "waiting", thread: "t", owner: null, detail: "", updated_at: "2026-10-21T00:00:00Z" };
+    const asks = {
+      owed: [card, other], runbook: [{ thread: "t", items: [] }], lane: [lane], asks: [lane], undeliverable: [{ id: "o1" }], failures: [{ id: "o2" }], uncertain: [{ id: "o3" }],
+      delegation: { settings: {}, suspended: false }, approvals: [{ approval_id: "a1", decision_id: "d2", kind: "k", target: "t", identity: "i", minted_at: "x", expires_at: "y" }], machineOwners: { m: "o" },
+    } as AsksData;
+    const f = focusedAsks(asks, card);
+    expect(f.owed).toEqual([card]);
+    for (const k of ["runbook", "lane", "asks", "undeliverable", "failures", "uncertain"] as const) expect(f[k]).toEqual([]);
+    expect(f.approvals).toBeUndefined();
+    expect(f.delegation).toBe(asks.delegation);
   });
 });
