@@ -40,6 +40,7 @@ import type { Lens } from "./ui/map-placeholder.js";
 import { BlocksPanel, QueueRefresher, type RootRunHooks } from "./ui/blocks.js";
 import type { QueueView } from "./ui/blocks.js";
 import { withoutOwed } from "./ui/blocks.js";
+import { CardKeyNotice, cardKeyFrom, type CardLookup } from "./ui/cardlink.js";
 import { BindingsPanel, SettingsPanel } from "./ui/settings.js";
 import { UpdateMenu, updateLabel, type UpdateInfoView } from "./ui/update.js";
 import { keyAction, layoutStack, stackReducer, StackView } from "./ui/stack.js";
@@ -401,7 +402,7 @@ function useMoves(rpc: ReturnType<typeof useRpc<typeof rpcContract>>, onChanged:
   return { moves, handlers, refetch, note };
 }
 
-function HomePage() {
+function HomePage({ subPath }: { subPath?: string }) {
   const { rpc, asks, catchup, waiting, error, refetch } = useHomeData();
   const nav = useBbNavigate();
   const blocks = useQueue();
@@ -659,10 +660,48 @@ function HomePage() {
     }
   };
 
+  // A card-key link (bead mk-a51hu): /plugins/autarch/home/<KEY>. An open card shows alone, with a way back to the list;
+  // any other key gets a notice with the card's state, and the list stays under it.
+  const linkKey = cardKeyFrom(subPath);
+  const linked = linkKey !== null && asks !== null ? asks.owed.find((o) => o.key === linkKey) ?? null : null;
+  const [lookup, setLookup] = useState<{ key: string; result: CardLookup } | null>(null);
+  const needLookup = linkKey !== null && asks !== null && linked === null;
+  useEffect(() => {
+    if (!needLookup || linkKey === null) return;
+    let live = true;
+    void (rpc.call("cardState", { key: linkKey }) as Promise<{ found: boolean; state?: string; title?: string }>).then(
+      (r) => { if (live) setLookup({ key: linkKey, result: r.found ? { found: true, state: r.state ?? "unknown", title: r.title ?? "" } : { found: false } }); },
+      () => { if (live) setLookup({ key: linkKey, result: "error" }); },
+    );
+    return () => { live = false; };
+  }, [needLookup, linkKey, rpc]);
+  const showAll = () => nav.toPluginPanel("home");
+  if (linked !== null && asks !== null) {
+    return (
+      <ConversationProvider value={conversation}><DocReaderHost api={docs}>
+        <div className="flex h-full min-h-0 flex-1 flex-col overflow-y-auto" data-home-source={HOME_SOURCE} data-card-link={linkKey}>
+          <button type="button" className="min-h-11 border-b border-border px-4 text-left text-sm underline" onClick={showAll} data-card-link-back>‹ All cards</button>
+          <AsksPanel
+            data={{ ...asks, owed: [linked] }}
+            onNote={(decision_id, text, images) => yourMove.note({ decision_id }, text, images)}
+            onLater={(ref, on) => laterOutcome(rpc.call(on ? "later" : "unlater", { ref })).then((o) => { refetchAll(); return o; })}
+            onOpen={openBeside}
+            onView={(decision_id) => void rpc.call("setViewing", { decision_id }).catch(() => {})}
+            onPick={(decision_id, option_id, revision, reason, images, answers) => {
+              return pickOutcome(picks.send((req) => rpc.call("pick", req) as never, { decision_id, option_id, revision, ...(reason !== undefined ? { reason } : {}), ...(images && images.length > 0 ? { images } : {}), ...(answers ? { answers } : {}) }, refetchAll)).finally(refetchAll);
+            }}
+          />
+        </div>
+      </DocReaderHost></ConversationProvider>
+    );
+  }
+  const keyNotice = linkKey !== null && lookup !== null && lookup.key === linkKey ? <CardKeyNotice cardKey={linkKey} lookup={lookup.result} /> : null;
+
   if (phone && !fullView && asks !== null) {
     return (
       <ConversationProvider value={conversation}><DocReaderHost api={docs}>
         <div className="flex h-full min-h-0 flex-1 flex-col" data-home-source={HOME_SOURCE}>
+          {keyNotice}
           <MobileInbox
             asks={asks}
             moves={null}
@@ -696,6 +735,7 @@ function HomePage() {
   return (
     <ConversationProvider value={conversation}><DocReaderHost api={docs}>
     <div className="flex h-full min-h-0 flex-1 flex-col" data-home-source={HOME_SOURCE}>
+      {keyNotice}
       {phone && fullView ? <button type="button" className="min-h-11 border-b border-border px-4 text-left text-sm underline" onClick={() => setFullView(false)} data-inbox-return>‹ Back to the phone inbox</button> : null}
       <HomeTabs extra={updateLabel(update) ? <UpdateMenu info={update} onRequest={requestUpdate} error={updateError} /> : undefined} classic={classic} learn={learn.enabled} {...(waiting ? { waiting: waiting.total } : {})} ideas={openIdeas} onOpen={push} onToggleClassic={toggleClassic} onTodos={() => nav.toPluginPanel("example-todos")} />
       <StackView placed={layoutStack(stack)} render={render} onExpand={push} />
