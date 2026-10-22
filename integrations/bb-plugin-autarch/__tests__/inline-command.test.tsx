@@ -111,5 +111,8 @@ describe("a command whose digest note holds sentence words", () => {
     expect(one("Note: ssh keys from host:/p (which must be kept private).")).toEqual([]);
     expect(one(`Note: bash scripts named "x\\";y.sh" (which must be reviewed).`)).toEqual([]);
     expect(one("Note: bash scripts; ssh keys (which must be kept private).")).toEqual([]);
+    expect(one("Note: bash scripts in /tmp; ssh keys in /srv (which must be kept private).")).toEqual([]);
+    expect(one("Note: bash x.sh in /tmp (sha256 must be reviewed).")).toEqual([]);
+    expect(one(`Note: bash scripts in /tmp; ssh keys in /srv (sha256 must be ${"ab".repeat(8)}) before use.`)).toEqual([]);
   });
 });
