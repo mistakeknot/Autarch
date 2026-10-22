@@ -80,3 +80,29 @@ describe("a remote path in prose", () => {
     expect(html).not.toContain("data-ref");
   });
 });
+
+// A real card: the digest note after the command held "must be", which the whole-sentence check took for prose,
+// so the command rendered as text with a chip on every path (bead mk-bjfpq).
+describe("a command whose digest note holds sentence words", () => {
+  const HOST_PATH = "/srv/work/session-build/pkg/pack4/run-session-4.sh";
+  const CMD = `scp dev@buildhost:${HOST_PATH} /tmp/run-session-4.sh && shasum -a 256 /tmp/run-session-4.sh && bash /tmp/run-session-4.sh solo`;
+  const QUESTION = `Option A is one more solo run, about 2 minutes. On the Mac: ${CMD}  (sha256 must be ${"fe".repeat(32)}). During a cycle's open window press E, then Q to quit. Option B skips it, and the next run becomes the first test; a failure there costs a day.`;
+  it("splits out as one command, with the note left as prose", () => {
+    const parts = splitCommands(QUESTION);
+    expect(parts.filter((p) => p.type === "command").map((p) => p.text)).toEqual([CMD]);
+    expect(parts.map((p) => p.text).join(" ")).toContain(`(sha256 must be ${"fe".repeat(32)})`);
+  });
+  it("renders as one code block with no read or open button inside it", () => {
+    const html = renderToStaticMarkup(<QuestionText text={QUESTION} />);
+    const box = /<code data-command-text="true">([\s\S]*?)<\/code>/.exec(html);
+    expect(box).not.toBeNull();
+    expect(textOf(box![1]!)).toBe(CMD);
+    expect(box![1]).not.toContain("data-ref");
+    expect(html).toContain("data-copy-button");
+  });
+  it("still leaves a plain sentence with a parenthesis alone", () => {
+    const one = (l: string) => splitCommands(l).filter((p) => p.type === "command");
+    expect(one("Note: bash scripts (sha256 must be checked) need review.")).toEqual([]);
+    expect(one("Note: ssh keys on /srv (which must be kept) remain private.")).toEqual([]);
+  });
+});
