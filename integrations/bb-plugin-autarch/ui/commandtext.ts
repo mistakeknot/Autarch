@@ -104,6 +104,37 @@ function inlineEnd(rest: string, atParen = true): number {
   return rest.length;
 }
 
+/** The line with its quoted strings (and escaped characters) blanked, so an operator inside quotes is not seen. */
+function blankQuoted(line: string): string {
+  let out = "";
+  let quote = "";
+  for (let i = 0; i < line.length; i++) {
+    const c = line[i]!;
+    if (quote !== "") {
+      if (c === "\\" && quote === '"') i++;
+      else if (c === quote) quote = "";
+      out += " ";
+    } else if (c === "'" || c === '"') {
+      quote = c;
+      out += " ";
+    } else if (c === "\\") {
+      i++;
+      out += "  ";
+    } else out += c;
+  }
+  return out;
+}
+
+/** A chain of commands ("a && b | c"): an operator outside quotes, and every piece carries its own command evidence (a path, flag, variable or file). "bash scripts; ssh keys" is two phrases. */
+function isChain(command: string): boolean {
+  const blank = blankQuoted(command);
+  if (!/&&|\|\||[|;]/.test(blank)) return false;
+  return blank.split(/&&|\|\||[|;]/).every((piece) => {
+    const t = piece.trim();
+    return t !== "" && /[=$]|(?:^|\s)-\w|\/|\w\.\w/.test(t.slice(t.indexOf(" ") + 1));
+  });
+}
+
 /** A command written inside a sentence after a colon ("paste one line: scp host:/p /tmp/x && bash /tmp/x (sha256 ...). It builds"). */
 function inlineOf(line: string): { before: string; command: string; after: string } | null {
   for (const m of line.matchAll(/:\s+(?=(\S+)\s+\S)/g)) {
@@ -120,7 +151,7 @@ function inlineOf(line: string): { before: string; command: string; after: strin
     // The whole sentence must not read as prose either ("Note: bash scripts (including this one) need review."): a note in parentheses is not part of the command but is part of that judgement.
     // A chained command or a host path is a command whatever its parenthesised note says ("(sha256 must be ...)"), so the note is not judged,
     // but it must be a note: the line has to end or the sentence has to stop right after its closing parenthesis ("(this one) must be kept" is prose).
-    const chained = /&&|\|\||[|;]|\w:\/\S/.test(args.replace(/"[^"]*"|'[^']*'/g, " "));
+    const chained = isChain(command);
     const note = chained && rest[end] === "(" ? /^\([^()]*\)(?=\s*(?:\.|$))/.exec(rest.slice(end)) : null;
     if (chained && rest[end] === "(" && note === null) continue;
     const from = command.length === 0 ? 0 : rest.indexOf(" ") + 1;
