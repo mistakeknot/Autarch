@@ -118,9 +118,13 @@ function inlineOf(line: string): { before: string; command: string; after: strin
     const args = command.slice(command.indexOf(" ") + 1);
     if (!/[=|&;$]|\w:\/|(?:^|\s)-/.test(args) && !/^(?:\S*\/\S*|\S*\w\.\w\S*)(?:\s|$)/.test(args)) continue;
     // The whole sentence must not read as prose either ("Note: bash scripts (including this one) need review."): a note in parentheses is not part of the command but is part of that judgement.
-    // A chained command or a host path is a command whatever its note says ("(sha256 must be ...)"), so only the command's own words are judged then.
-    const chained = /&&|\|\||[|;]|\w:\/\S/.test(args);
-    if (readsAsSentence(rest.slice(command.length === 0 ? 0 : rest.indexOf(" ") + 1, inlineEnd(rest, chained)))) continue;
+    // A chained command or a host path is a command whatever its parenthesised note says ("(sha256 must be ...)"), so the note is not judged,
+    // but it must be a note: the line has to end or the sentence has to stop right after its closing parenthesis ("(this one) must be kept" is prose).
+    const chained = /&&|\|\||[|;]|\w:\/\S/.test(args.replace(/"[^"]*"|'[^']*'/g, " "));
+    const note = chained && rest[end] === "(" ? /^\([^()]*\)(?=\s*(?:\.|$))/.exec(rest.slice(end)) : null;
+    if (chained && rest[end] === "(" && note === null) continue;
+    const from = command.length === 0 ? 0 : rest.indexOf(" ") + 1;
+    if (readsAsSentence(note !== null ? rest.slice(from, end) : rest.slice(from, inlineEnd(rest, false)))) continue;
     return { before: line.slice(0, start).replace(/\s+$/, ""), command, after: rest.slice(end).replace(/^\s+/, "") };
   }
   return null;

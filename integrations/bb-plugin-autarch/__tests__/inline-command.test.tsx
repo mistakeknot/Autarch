@@ -104,5 +104,9 @@ describe("a command whose digest note holds sentence words", () => {
     const one = (l: string) => splitCommands(l).filter((p) => p.type === "command");
     expect(one("Note: bash scripts (sha256 must be checked) need review.")).toEqual([]);
     expect(one("Note: ssh keys on /srv (which must be kept) remain private.")).toEqual([]);
+    // Sentence words after the note, or a semicolon inside quotes, do not make a command.
+    expect(one("Note: ssh keys from host:/p (including this one) must be kept.")).toEqual([]);
+    expect(one("Note: bash scripts; ssh keys (including this one) need review.")).toEqual([]);
+    expect(one(`Note: bash "x;y.sh" (including this one) need review.`)).toEqual([]);
   });
 });
