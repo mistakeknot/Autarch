@@ -40,7 +40,7 @@ import type { Lens } from "./ui/map-placeholder.js";
 import { BlocksPanel, QueueRefresher, type RootRunHooks } from "./ui/blocks.js";
 import type { QueueView } from "./ui/blocks.js";
 import { withoutOwed } from "./ui/blocks.js";
-import { CardKeyNotice, cardKeyFrom, focusedAsks, type CardLookup } from "./ui/cardlink.js";
+import { CardKeyNotice, cardKeyFrom, focusedAsks, startCardLookup, type CardLookup } from "./ui/cardlink.js";
 import { BindingsPanel, SettingsPanel } from "./ui/settings.js";
 import { UpdateMenu, updateLabel, type UpdateInfoView } from "./ui/update.js";
 import { keyAction, layoutStack, stackReducer, StackView } from "./ui/stack.js";
@@ -668,12 +668,7 @@ function HomePage({ subPath }: { subPath?: string }) {
   const needLookup = linkKey !== null && asks !== null && linked === null;
   useEffect(() => {
     if (!needLookup || linkKey === null) return;
-    let live = true;
-    void (rpc.call("cardState", { key: linkKey }) as Promise<{ found: boolean; state?: string; title?: string }>).then(
-      (r) => { if (live) setLookup({ key: linkKey, result: r.found ? { found: true, state: r.state ?? "unknown", title: r.title ?? "" } : { found: false } }); },
-      () => { if (live) setLookup({ key: linkKey, result: "error" }); },
-    );
-    return () => { live = false; };
+    return startCardLookup((i) => rpc.call("cardState", i), linkKey, (key, result) => setLookup({ key, result }));
   }, [needLookup, linkKey, rpc, asks]); // each Home poll looks again, so a notice never goes stale
   const showAll = () => nav.toPluginPanel("home");
   if (linked !== null && asks !== null) {

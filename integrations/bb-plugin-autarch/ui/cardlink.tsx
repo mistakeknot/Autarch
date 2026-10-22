@@ -21,6 +21,20 @@ export function cardHref(key: string): string {
 /** null while the lookup runs. */
 export type CardLookup = CardState | "error" | null;
 
+/** Looks one key up through the plugin's `cardState` call (passed in as `cardState`) and hands the result to `onResult`. The returned function cancels it: a result that arrives after the cancel (a poll, or a switch to another key) is dropped. */
+export function startCardLookup(
+  cardState: (input: { key: string }) => Promise<unknown>,
+  key: string,
+  onResult: (key: string, result: Exclude<CardLookup, null>) => void,
+): () => void {
+  let live = true;
+  void (cardState({ key }) as Promise<{ found: boolean; state?: string; title?: string }>).then(
+    (r) => { if (live) onResult(key, r.found ? { found: true, state: r.state ?? "unknown", title: r.title ?? "" } : { found: false }); },
+    () => { if (live) onResult(key, "error"); },
+  );
+  return () => { live = false; };
+}
+
 export function CardKeyNotice({ cardKey, lookup }: { cardKey: string; lookup: CardLookup }) {
   if (lookup === null) return null;
   const text =
