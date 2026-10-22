@@ -118,7 +118,11 @@ function inlineOf(line: string): { before: string; command: string; after: strin
     const args = command.slice(command.indexOf(" ") + 1);
     if (!/[=|&;$]|\w:\/|(?:^|\s)-/.test(args) && !/^(?:\S*\/\S*|\S*\w\.\w\S*)(?:\s|$)/.test(args)) continue;
     // The whole sentence must not read as prose either ("Note: bash scripts (including this one) need review."): a note in parentheses is not part of the command but is part of that judgement.
-    if (readsAsSentence(rest.slice(command.length === 0 ? 0 : rest.indexOf(" ") + 1, inlineEnd(rest, false)))) continue;
+    // A digest note ("(sha256 must be <hex>)") is not part of the command and not judged as a sentence, though its words ("must be") are prose.
+    // It has to name a hash and hold hex, and the sentence has to stop right after its closing parenthesis. Any other note is part of the sentence.
+    const note = rest[end] === "(" ? /^\((?=[^()]*\bsha-?(?:1|256|512)\b)(?=[^()]*[0-9a-f]{8})[^()]*\)(?=\s*(?:\.|$))/i.exec(rest.slice(end)) : null;
+    const from = command.length === 0 ? 0 : rest.indexOf(" ") + 1;
+    if (readsAsSentence(note !== null ? rest.slice(from, end) : rest.slice(from, inlineEnd(rest, false)))) continue;
     return { before: line.slice(0, start).replace(/\s+$/, ""), command, after: rest.slice(end).replace(/^\s+/, "") };
   }
   return null;
