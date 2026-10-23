@@ -148,3 +148,59 @@ describe("markAllSeen(snapshot) [D-12]", () => {
     expect(cu.items().find((i) => i.kind === "routine")!.members).toHaveLength(2);
   });
 });
+
+describe("routine groups on the wire (bead mk-ykk6r)", () => {
+  it("sends the newest ROUTINE_GROUP_MAX members of a big group, with the full count", async () => {
+    const { ROUTINE_GROUP_MAX } = await import("../catchup.js");
+    const total = ROUTINE_GROUP_MAX + 5;
+    const ids: string[] = [];
+    for (let i = 0; i < total; i++) {
+      const d = await file(`thr-cap-${i}`);
+      pick(d);
+      ids.push(d);
+    }
+    const g = cu.items().find((i) => i.kind === "routine")!;
+    expect(g.total).toBe(total);
+    expect(g.text).toBe(`${total} routine updates in Autarch`);
+    expect(g.members).toHaveLength(ROUTINE_GROUP_MAX);
+    expect(g.lines).toHaveLength(ROUTINE_GROUP_MAX);
+    // marking what was sent leaves the rest unseen, and it shows next
+    const marked = cu.markAllSeen(g.members!);
+    expect(marked).toHaveLength(ROUTINE_GROUP_MAX);
+    const next = cu.items().find((i) => i.kind === "routine")!;
+    expect(next.total).toBe(5);
+    expect(next.members).toHaveLength(5);
+  });
+});
+
+describe("the cap keeps the newest across rulings and closures (bead mk-ykk6r review)", () => {
+  it("a recent ruling is sent even when more than the cap of older closures were read after it", async () => {
+    const { ROUTINE_GROUP_MAX } = await import("../catchup.js");
+    // old closures first (resolved by someone else), then one fresh ruling by mk
+    const old: string[] = [];
+    for (let i = 0; i < ROUTINE_GROUP_MAX + 2; i++) {
+      const d = await file(`thr-old-${i}`);
+      svc.store.db.prepare("INSERT INTO events(at, type, decision_id, detail_json) VALUES (?, 'resolved', ?, '{}')").run("2026-09-01T00:00:00.000Z", d);
+      old.push(d);
+    }
+    const fresh = await file("thr-fresh");
+    pick(fresh);
+    const g = cu.items().find((i) => i.kind === "routine")!;
+    expect(g.members).toHaveLength(ROUTINE_GROUP_MAX);
+    expect(g.members).toContain(`ruling:${fresh}`);
+    expect(g.members![g.members!.length - 1]).toBe(`ruling:${fresh}`);
+  });
+});
+
+describe("mark-seen is not limited to the page last sent (bead mk-ykk6r review)", () => {
+  it("marks every displayed member even when a newer ruling displaced one from the capped page", async () => {
+    const { ROUTINE_GROUP_MAX } = await import("../catchup.js");
+    for (let i = 0; i < ROUTINE_GROUP_MAX; i++) pick(await file(`thr-pg-${i}`));
+    const shown = cu.items().find((i) => i.kind === "routine")!.members!;
+    expect(shown).toHaveLength(ROUTINE_GROUP_MAX);
+    env.clock.t += 1000;
+    pick(await file("thr-newer")); // arrives after the panel rendered, pushing the oldest shown member out of the page
+    expect(cu.items().find((i) => i.kind === "routine")!.members).not.toContain(shown[0]);
+    expect(cu.markAllSeen(shown)).toHaveLength(ROUTINE_GROUP_MAX);
+  });
+});

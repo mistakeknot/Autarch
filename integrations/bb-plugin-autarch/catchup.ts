@@ -23,12 +23,31 @@ export interface CatchupItem {
   members?: string[];
   /** One line per member, in the same order, so a routine group can be read before it is marked. */
   lines?: string[];
+  /** A routine group's unseen count in full; `members` and `lines` carry only the newest of them (see capRoutine). */
+  total?: number;
   /** A note's cited facts. */
   cites?: string[];
 }
 
 const MK = "mk";
 const NOTE_MAX = 1000;
+/** Most members (and lines) one routine group sends, newest first; the rest is counted in `total` and shows after these are marked. */
+export const ROUTINE_GROUP_MAX = 50;
+/** Most members the routine groups send together, so a catch-up reply stays small however many rulings have piled up. */
+export const ROUTINE_TOTAL_MAX = 300;
+
+/** Trims each group to its newest members within the per-group and total budgets, keeping members and lines paired and in order. Groups arrive newest first, so the budget goes to them in that order. */
+export function capRoutine(groups: CatchupItem[], perGroup = ROUTINE_GROUP_MAX, total = ROUTINE_TOTAL_MAX): void {
+  let left = total;
+  for (const g of groups) {
+    const members = g.members ?? [];
+    const keep = Math.max(0, Math.min(members.length, perGroup, left));
+    g.total = members.length;
+    g.members = keep === 0 ? [] : members.slice(-keep);
+    g.lines = keep === 0 ? [] : (g.lines ?? []).slice(-keep);
+    left -= keep;
+  }
+}
 
 interface Dec {
   id: string;
@@ -100,7 +119,8 @@ export class Catchup {
 
   // ---- the ranked list ------------------------------------------------------------
 
-  items(): CatchupItem[] {
+  /** What the panel gets. `all` skips the routine cap: mark-seen validates against every eligible fact, not only the page last sent. */
+  items(all = false): CatchupItem[] {
     const seen = (item: string) => this.store.hasSeen(MK, item);
     const failures: CatchupItem[] = [];
     for (const e of this.db.prepare("SELECT seq, at, detail_json FROM events WHERE type = 'turn-failed' ORDER BY seq DESC").all() as { seq: number; at: string; detail_json: string }[]) {
@@ -139,10 +159,12 @@ export class Catchup {
     );
 
     const groups = new Map<string, CatchupItem>();
+    const ats = new Map<string, string[]>(); // each group's member times, parallel to members and lines
     const add = (project: string, member: string, at: string, line: string) => {
       const g = groups.get(project) ?? { item: `routine:${project}`, kind: "routine" as const, project, at, text: "", members: [] as string[], lines: [] as string[] };
       g.members!.push(member);
       g.lines!.push(line);
+      (ats.get(project) ?? ats.set(project, []).get(project)!).push(at);
       if (at > g.at) g.at = at;
       groups.set(project, g);
     };
@@ -156,6 +178,14 @@ export class Catchup {
     }
     const routine = [...groups.values()].sort((a, b) => (a.at < b.at ? 1 : a.at > b.at ? -1 : 0));
     for (const g of routine) g.text = `${g.members!.length} routine update${g.members!.length === 1 ? "" : "s"} in ${g.project}`;
+    // Rulings are read before closures, so a group is not yet in time order; the cap keeps the newest, so order first (stable).
+    for (const g of routine) {
+      const t = ats.get(g.project!)!;
+      const order = t.map((_, i) => i).sort((a, b) => (t[a]! < t[b]! ? -1 : t[a]! > t[b]! ? 1 : a - b));
+      g.members = order.map((i) => g.members![i]!);
+      g.lines = order.map((i) => g.lines![i]!);
+    }
+    if (!all) capRoutine(routine);
 
     const notes: CatchupItem[] = [];
     for (const n of this.db.prepare("SELECT id, at, text, cites_json FROM notes ORDER BY at, rowid").all() as { id: string; at: string; text: string; cites_json: string }[]) {
@@ -173,7 +203,7 @@ export class Catchup {
    */
   markAllSeen(snapshot: string[]): string[] {
     const valid = new Set<string>();
-    for (const i of this.items()) {
+    for (const i of this.items(true)) {
       if (i.kind === "owed" || i.kind === "notice") continue;
       if (i.kind === "routine") for (const m of i.members ?? []) valid.add(m);
       else valid.add(i.item);

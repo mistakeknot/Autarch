@@ -28,7 +28,7 @@ import type { AsksData } from "./ui/asks.js";
 import { MobileInbox, useIsPhone } from "./ui/inbox.js";
 import { IdeaDesk, IdeaDigest, type IdeaApi } from "./ui/ideas.js";
 import type { IdeaProject, IdeaView } from "./ideas.js";
-import { CatchupPanel, markPlan, markResultText, normalizeCatchup, readableCatchup, SeenTracker } from "./ui/catchup.js";
+import { CatchupPanel, markPlan, markResultText, normalizeCatchup, readableCatchup, SeenTracker, settleCatchup } from "./ui/catchup.js";
 import { NoticeBanner } from "./ui/notices.js";
 import { singleFlight, type Flight } from "./ui/singleflight.js";
 import { buildMoveHandlers, rpcOutcome } from "./movehandlers.js";
@@ -342,6 +342,8 @@ function useHomeData() {
   const rpc = useRpc<typeof rpcContract>();
   const [asks, setAsks] = useState<AsksData | null>(null);
   const [catchup, setCatchup] = useState<CatchupEntry[]>([]);
+  // The catch-up read can fail alone (an oversized or cut-off reply); the rest of the panel stays up with a line saying so.
+  const [catchupError, setCatchupError] = useState<string | null>(null);
   const [waiting, setWaiting] = useState<Waiting | null>(null);
   const [health, setHealth] = useState<{ ready: boolean } | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -349,11 +351,14 @@ function useHomeData() {
   // newer snapshot.
   const refetch = usePolledRead(
     (live) =>
-      Promise.all([rpc.call("listAsks"), rpc.call("catchup"), rpc.call("health"), rpc.call("waiting").catch(() => null)]).then(
+      Promise.all([rpc.call("listAsks"), settleCatchup(rpc.call("catchup")), rpc.call("health"), rpc.call("waiting").catch(() => null)]).then(
         ([a, c, h, w]) => {
           if (!live()) return;
           setAsks(a as unknown as AsksData);
-          setCatchup(normalizeCatchup((c as { items: CatchupEntry[] }).items));
+          if (c.ok) {
+            setCatchup(normalizeCatchup(c.items));
+            setCatchupError(null);
+          } else setCatchupError(c.error);
           setWaiting(w as Waiting | null);
           setHealth(h as { ready: boolean });
           setError(null);
@@ -366,7 +371,7 @@ function useHomeData() {
   );
   // The totals move when a card is answered, a move is claimed or a hold changes, not only on the poll.
   useRealtime("home-queue-changed", refetch);
-  return { rpc, asks, catchup, waiting, health, error, refetch };
+  return { rpc, asks, catchup, catchupError, waiting, health, error, refetch };
 }
 
 /** Your move: the grouped read model, refetched on the queue signal and on the poll. */
@@ -403,7 +408,7 @@ function useMoves(rpc: ReturnType<typeof useRpc<typeof rpcContract>>, onChanged:
 }
 
 function HomePage({ subPath }: { subPath?: string }) {
-  const { rpc, asks, catchup, waiting, error, refetch } = useHomeData();
+  const { rpc, asks, catchup, catchupError, waiting, error, refetch } = useHomeData();
   const nav = useBbNavigate();
   const blocks = useQueue();
   const rootRuns = useRootRuns(rpc);
@@ -608,6 +613,7 @@ function HomePage({ subPath }: { subPath?: string }) {
       case "catchup":
         return (
           <CatchupPanel
+            loadError={catchupError}
             items={readable}
             expanded={expanded}
             visible={visible}
