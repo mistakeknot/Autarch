@@ -4,7 +4,8 @@ import { UpdateMenu, type UpdateInfoView } from "../ui/update.js";
 
 const A = "a".repeat(40);
 const B = "b".repeat(40);
-const base: UpdateInfoView = { status: { installed: A, latest: B, count: 3, subjects: ["fix x", "add y"], checked_at: "t" }, result: null, request: null, available: true, pending: false };
+const base: UpdateInfoView = { status: { installed: A, latest: B, count: 3, subjects: ["fix x", "add y"], checked_at: "t" }, result: null, request: null, available: true, pending: false, now: "2026-10-23T18:32:00Z", interval_ms: 300_000, busy: false, log_path: "/state/runner.log", unit: "autarch-home-update.service" };
+const pend: UpdateInfoView = { ...base, available: false, pending: true, request: { sha: B, clicked_at: "2026-10-23T18:30:00Z" } };
 const html = (info: UpdateInfoView | null, error?: string) => renderToStaticMarkup(<UpdateMenu info={info} onRequest={() => {}} error={error} />);
 
 describe("UpdateMenu", () => {
@@ -53,5 +54,41 @@ describe("UpdateMenu pending label", () => {
     const h = html({ ...base, available: false, pending: true, request: { sha: A, clicked_at: "t" } });
     expect(h).toContain("Update requested (aaaaaaa)");
     expect(h).not.toContain("Update requested (bbbbbbb)");
+  });
+});
+
+describe("UpdateMenu pending states", () => {
+  it("waiting: says when the request was made and when the runner should start", () => {
+    const h = html(pend);
+    expect(h).toContain("Requested 2 min ago. The runner checks every 5 minutes, so it should start by 18:35 UTC.");
+    expect(h).toContain('data-update-pending-kind="waiting"');
+    expect(h).not.toContain("on its own schedule");
+    expect(h).not.toContain("Installing");
+  });
+  it("waiting: uses the interval it is given", () => {
+    expect(html({ ...pend, interval_ms: 600_000 })).toContain("checks every 10 minutes, so it should start by 18:40 UTC");
+  });
+  it("installing: shows Installing instead of Waiting while the runner holds its lock", () => {
+    const h = html({ ...pend, busy: true });
+    expect(h).toContain('data-update-pending-kind="installing"');
+    expect(h).toContain("Installing…");
+    expect(h).toContain("Installing update (bbbbbbb)…");
+    expect(h).not.toContain("should start by");
+    expect(h).not.toContain("Update requested");
+  });
+  it("stuck: after two intervals with no result, names the log and the unit", () => {
+    const h = html({ ...pend, now: "2026-10-23T18:41:00Z" });
+    expect(h).toContain('data-update-pending-kind="stuck"');
+    expect(h).toContain("looks stuck");
+    expect(h).toContain("/state/runner.log");
+    expect(h).toContain("systemctl --user status autarch-home-update.service");
+    expect(h).not.toContain("should start by");
+  });
+  it("not stuck at exactly two intervals, and a running install is never called stuck", () => {
+    expect(html({ ...pend, now: "2026-10-23T18:40:00Z" })).toContain('data-update-pending-kind="waiting"');
+    expect(html({ ...pend, now: "2026-10-23T19:40:00Z", busy: true })).toContain('data-update-pending-kind="installing"');
+  });
+  it("an unreadable request time still says something plain", () => {
+    expect(html({ ...pend, request: { sha: B, clicked_at: "soon" } })).toContain("The runner checks every 5 minutes.");
   });
 });

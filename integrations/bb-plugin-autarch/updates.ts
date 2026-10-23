@@ -2,8 +2,16 @@
 // writes status.json beside result.json in the update directory, and acts on the request row this
 // plugin stores. The plugin only reads those two files and writes one request row to its own store;
 // it never executes anything.
-import { readFileSync } from "node:fs";
+import { readFileSync, statSync } from "node:fs";
+import { homedir } from "node:os";
 import { join } from "node:path";
+
+/** The systemd user units that run the update runner; the panel names them when a request looks stuck. */
+export const UPDATE_UNIT = "autarch-home-update.service";
+export const UPDATE_TIMER = "autarch-home-update.timer";
+/** The timer's OnUnitActiveSec is read when the timer file is there; this is the interval it was installed with. */
+export const DEFAULT_CHECK_INTERVAL_MS = 5 * 60_000;
+export const defaultTimerFile = () => join(homedir(), ".config", "systemd", "user", UPDATE_TIMER);
 
 export interface UpdateStatus {
   installed: string;
@@ -64,6 +72,60 @@ export function parseRequest(raw: string | undefined): UpdateRequest | null {
   return null;
 }
 
+/** systemd time span such as "5min", "300s", "1h 30min" or a bare number of seconds, in ms; null when unparseable. */
+export function parseSpan(raw: string): number | null {
+  const unit: Record<string, number> = { ms: 1, s: 1000, sec: 1000, second: 1000, seconds: 1000, m: 60_000, min: 60_000, minute: 60_000, minutes: 60_000, h: 3_600_000, hr: 3_600_000, hour: 3_600_000, hours: 3_600_000 };
+  const text = raw.trim();
+  if (!/^(\d+(\.\d+)?\s*[a-z]*\s*)+$/i.test(text)) return null;
+  let total = 0;
+  for (const m of text.matchAll(/(\d+(?:\.\d+)?)\s*([a-z]*)/gi)) {
+    const mult = m[2] === "" ? 1000 : unit[m[2]!.toLowerCase()];
+    if (mult === undefined) return null;
+    total += Number(m[1]) * mult;
+  }
+  return total > 0 ? Math.round(total) : null;
+}
+
+/** How often the runner's timer fires: its OnUnitActiveSec if readable, else the named default. */
+export function checkIntervalMs(timerFile: string): number {
+  try {
+    const line = readFileSync(timerFile, "utf8").split("\n").map((l) => l.trim()).find((l) => /^OnUnitActiveSec\s*=/.test(l));
+    const ms = line ? parseSpan(line.slice(line.indexOf("=") + 1)) : null;
+    if (ms !== null) return ms;
+  } catch {
+    /* default */
+  }
+  return DEFAULT_CHECK_INTERVAL_MS;
+}
+
+/**
+ * True while another process holds an flock on the runner's lock file (the runner holds it for the
+ * whole tick, including the install). Reads /proc/locks; runs nothing. False when it cannot tell.
+ */
+export function runnerBusy(lockFile: string, procLocks = "/proc/locks"): boolean {
+  try {
+    const st = statSync(lockFile, { bigint: true });
+    // Linux dev_t: major in bits 8-19 and 32+, minor in bits 0-7 and 12-31 (the form /proc/locks prints).
+    const major = ((st.dev >> 8n) & 0xfffn) | ((st.dev >> 32n) << 12n);
+    const minor = (st.dev & 0xffn) | ((st.dev >> 12n) & ~0xffn);
+    return readFileSync(procLocks, "utf8").split("\n").some((line) => {
+      const f = line.trim().split(/\s+/);
+      if (f[1] !== "FLOCK") return false;
+      const m = /^([0-9a-f]+):([0-9a-f]+):(\d+)$/i.exec(f[5] ?? "");
+      return m !== null && BigInt(parseInt(m[1]!, 16)) === major && BigInt(parseInt(m[2]!, 16)) === minor && BigInt(m[3]!) === st.ino;
+    });
+  } catch {
+    return false;
+  }
+}
+
+export interface UpdateEnv {
+  /** Server time as an ISO string; the panel measures ages against it so it needs no clock of its own. */
+  now: string;
+  timerFile?: string;
+  procLocks?: string;
+}
+
 export interface UpdateInfo {
   status: UpdateStatus | null;
   result: UpdateResult | null;
@@ -71,18 +133,30 @@ export interface UpdateInfo {
   /** True when a newer main exists, no request is waiting for it and it is not already installed (a failed run stays available to retry). */
   available: boolean;
   pending: boolean;
+  now: string;
+  /** Milliseconds between runner checks. */
+  interval_ms: number;
+  /** The runner holds its lock: it is checking or installing right now. */
+  busy: boolean;
+  log_path: string;
+  unit: string;
 }
 
-export function updateInfo(dir: string, requestRaw: string | undefined): UpdateInfo {
-  const status = readStatus(dir);
+export function updateInfo(dir: string, requestRaw: string | undefined, env: UpdateEnv = { now: new Date().toISOString() }): UpdateInfo {
+  const rawStatus = readStatus(dir);
   const result = readResult(dir);
+  // The runner writes status.json before it installs, so right after an install it still names the old
+  // commit. A successful result written after that status is newer evidence: show it as installed at once.
+  const settled = rawStatus !== null && result !== null && result.ok && Date.parse(result.finished_at) > Date.parse(rawStatus.checked_at);
+  const status = rawStatus && settled && result ? { ...rawStatus, installed: result.sha, ...(result.sha === rawStatus.latest ? { count: 0, subjects: [] } : {}) } : rawStatus;
   const request = parseRequest(requestRaw);
   const newer = status !== null && status.count > 0 && status.latest !== status.installed;
   // A request is pending until the runner reports a result for that sha (or the installed commit is it).
   const pending = request !== null && status !== null && status.installed !== request.sha && !(result && result.sha === request.sha && Date.parse(result.finished_at) >= Date.parse(request.clicked_at));
   // A successful result for the latest commit settles it even if status.json has not caught up yet (a status checked after the result wins).
   const installedNow = result !== null && result.ok && status !== null && result.sha === status.latest && Date.parse(result.finished_at) > Date.parse(status.checked_at);
-  return { status, result, request, available: newer && !pending && !installedNow, pending };
+  const interval_ms = checkIntervalMs(env.timerFile ?? defaultTimerFile());
+  return { status, result, request, available: newer && !pending && !installedNow, pending, now: env.now, interval_ms, busy: pending && runnerBusy(join(dir, "lock"), env.procLocks), log_path: join(dir, "runner.log"), unit: UPDATE_UNIT };
 }
 
 export type RequestOutcome = { ok: true; request: UpdateRequest } | { ok: false; error: string };
