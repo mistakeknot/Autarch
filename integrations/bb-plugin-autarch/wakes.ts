@@ -123,7 +123,8 @@ export class WakeLoop {
     const cands = this.candidates();
     if (cands.length) await this.reconcileRows(cands);
     // Rows never attempted go before a manual Resend (stable, so id order holds within each).
-    const due = this.store.dueMessages();
+    // Home's information-only notices to one thread leave as one digest per window; a notice with images goes alone.
+    const due = this.store.dueMessagesBatched((r) => !!r.op && this.svc.imagesFor(r.op).state !== "none");
     for (const row of [...due.filter((r) => r.resend_permit !== 1), ...due.filter((r) => r.resend_permit === 1)]) {
       const c = this.store.claim(row.id, row.attempt);
       if (!c.ok) continue;
