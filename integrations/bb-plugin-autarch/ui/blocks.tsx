@@ -57,6 +57,11 @@ export function withoutOwed(q: QueueView, asks: { owed: { id: string; held?: unk
   };
 }
 
+/** What the Blocked on others tab lists: the rows left after withoutOwed, plus the legacy asks. The tab count is this number. */
+export function blocksCount(q: QueueView): number {
+  return q.rows.length + q.legacy.count;
+}
+
 /** A human age such as "3 d" or "5 min", from an ISO time and a clock. */
 export function ageText(createdAt: string, nowMs: number): string {
   const t = Date.parse(createdAt);
@@ -150,13 +155,23 @@ export function BlocksRow({ row, nowMs, onPick, onOpen, rootRun, onBind, onNote 
           <p className="text-xs" data-hold-reason>{`On hold: ${row.held.reason}`}</p>
         </div>
       ) : row.ask !== null && row.decision_id !== null && row.revision !== null ? (
-        <AskCard
-          ask={{ id: row.decision_id, project: row.project ?? "", thread: row.thread ?? "", subject: row.title, key: row.card_key, asker: "card", filed_at: row.created_at, revision: row.revision, mentions: row.mentions, task_id: row.task_id, ask: row.ask }}
-          onPick={onPick}
-          onOpen={onOpen}
-          unbound={isUnbound(row)}
-          {...(onNote ? { onNote } : {})}
-        />
+        // One line until opened: mk scans these cards and rarely answers one, so the full card sits behind "Open card".
+        <details data-row-card>
+          <summary className="flex min-h-11 cursor-pointer list-none items-center gap-x-2 text-sm sm:min-h-0" data-row-summary>
+            {row.card_key ? <span className="shrink-0 select-all font-mono text-xs font-semibold" data-task-key>{row.card_key}</span> : null}
+            <span className="min-w-0 grow [overflow-wrap:anywhere] font-medium">{row.title}</span>
+            <span className="shrink-0 text-xs text-muted-foreground underline">Open card</span>
+          </summary>
+          <div className="mt-2">
+            <AskCard
+              ask={{ id: row.decision_id, project: row.project ?? "", thread: row.thread ?? "", subject: row.title, key: row.card_key, asker: "card", filed_at: row.created_at, revision: row.revision, mentions: row.mentions, task_id: row.task_id, ask: row.ask }}
+              onPick={onPick}
+              onOpen={onOpen}
+              unbound={isUnbound(row)}
+              {...(onNote ? { onNote } : {})}
+            />
+          </div>
+        </details>
       ) : null}
       <RootSection root={row.root} />
       {rootRun ? <RootRunControl taskId={row.task_id} hooks={rootRun} /> : null}

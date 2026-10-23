@@ -2,6 +2,7 @@
 
 import { Fragment, useEffect, useRef, useState, type ReactNode } from "react";
 import { ActionButton, RecommendedMark } from "./buttons.js";
+import { CONFIRM_LABEL, ConfirmTap } from "./confirmtap.js";
 import { CardConversation } from "./conversation.js";
 import { splitCommands, type CommandRole } from "./commandtext.js";
 import { CommandBlock } from "./copy.js";
@@ -312,7 +313,11 @@ export function AskCard({ ask, onPick, onOpen, nowMs, onNote, onLater, unbound =
                 {unbound ? (
                   <span className="font-medium [overflow-wrap:anywhere]" data-option-label>{o.label}</span>
                 ) : (
-                  <ActionButton tone={isDestructiveOption(o) ? "destructive" : recommended ? "recommended" : "default"} selected={pending === o.id} disabled={pending !== null} onClick={() => void pick(o.id)} data-option={o.id}>{o.label}</ActionButton>
+                  <ConfirmTap needsConfirm={isDestructiveOption(o)} onConfirmed={() => void pick(o.id)} resetKey={`${ask.id}|${ask.revision}`}>
+                    {({ armed, onClick, onBlur }) => (
+                      <ActionButton tone={isDestructiveOption(o) ? "destructive" : recommended ? "recommended" : "default"} selected={pending === o.id} disabled={pending !== null} onClick={onClick} onBlur={onBlur} data-option={o.id} {...(armed ? { "data-confirming": "true", "aria-label": `${CONFIRM_LABEL}: ${o.label}` } : {})}>{armed ? CONFIRM_LABEL : o.label}</ActionButton>
+                    )}
+                  </ConfirmTap>
                 )}
                 {recommended ? <RecommendedMark /> : null}
               </div>
@@ -445,7 +450,11 @@ export function ApprovalsList({ approvals, onRevoke, nowMs = Date.now() }: { app
         {approvals.map((a) => (
           <li key={a.approval_id} className="flex flex-wrap items-center gap-x-2 rounded border border-border p-2 text-sm" data-approval-id={a.approval_id}>
             <span className="min-w-0 [overflow-wrap:anywhere]" title={a.expires_at}>{`${a.kind} ${a.target} at ${a.identity}, ${expiryText(a.expires_at, nowMs)}`}</span>
-            <button type="button" className="min-h-11 text-xs underline sm:min-h-0" onClick={() => onRevoke(a.approval_id)}>Revoke</button>
+            <ConfirmTap needsConfirm onConfirmed={() => onRevoke(a.approval_id)} resetKey={a.approval_id}>
+              {({ armed, onClick, onBlur }) => (
+                <button type="button" className={`min-h-11 text-xs underline sm:min-h-0${armed ? " font-medium text-destructive" : ""}`} onClick={onClick} onBlur={onBlur} {...(armed ? { "data-confirming": "true" } : {})}>{armed ? CONFIRM_LABEL : "Revoke"}</button>
+              )}
+            </ConfirmTap>
           </li>
         ))}
       </ul>
