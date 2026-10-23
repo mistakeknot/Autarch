@@ -245,13 +245,23 @@ func (r CardRequest) wireAsk() (map[string]any, error) {
 	return m, nil
 }
 
+// CheckRequestKey refuses a Request key the card's Request line cannot carry. A card without a
+// readable Request line shows in Home as "Request line missing" and mk cannot act on it, so the
+// filer refuses before it creates anything.
+func CheckRequestKey(key string) error {
+	if !cardKeyRe.MatchString(key) {
+		return fmt.Errorf("%w: Request line missing: the Request key %q must match %s", ErrInvalid, key, cardKeyRe)
+	}
+	return nil
+}
+
 // Description renders the card description and returns it with the identity token. The
 // result is parsed back with ParseCard and must read as the same card, so an ask the card
 // convention cannot carry (a question line that starts with "Blocks:", an approval token,
 // a v1-only field) is refused here, before anything is created.
 func (r CardRequest) Description() (desc, ident string, err error) {
-	if !cardKeyRe.MatchString(r.Key) {
-		return "", "", fmt.Errorf("%w: Request key must match %s", ErrInvalid, cardKeyRe)
+	if err := CheckRequestKey(r.Key); err != nil {
+		return "", "", err
 	}
 	if strings.TrimSpace(r.Title) == "" {
 		return "", "", fmt.Errorf("%w: a title is required", ErrInvalid)
