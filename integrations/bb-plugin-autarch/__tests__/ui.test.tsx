@@ -11,7 +11,7 @@ import { BlocksPanel, BlocksRow, groupRows, QueueRefresher, type QueueRowView, t
 import { ageText, ApprovalsList, AsksPanel, expiryText, optionEffect, currentAsk, isOldAsk, buildAsksView, PickController, pickOutcome, type AsksData } from "../ui/asks.js";
 import { CatchupPanel, observeVisibility, SeenTracker, snapshotIds, type CatchupEntry } from "../ui/catchup.js";
 import { MapPlaceholder } from "../ui/map-placeholder.js";
-import { BindingsPanel, parseDelegationForm, SettingsPanel } from "../ui/settings.js";
+import { BindingsPanel, parseDelegationForm, saveError, SettingsPanel } from "../ui/settings.js";
 import { keyAction, layoutStack, ROOT_PANEL, stackReducer, type Panel, type StackState } from "../ui/stack.js";
 import { TellVizier, ThreadPanel, VizierPanel } from "../ui/vizier.js";
 import { RootRunSection, statusLine, type RootRunPanelView } from "../ui/rootrun.js";
@@ -504,7 +504,8 @@ describe("vizier, thread, settings and map", () => {
     const html = renderToStaticMarkup(
       <SettingsPanel delegation={{ settings: { vizierThreadId: "thr-v", projects: ["Autarch"], dailyCap: 5 }, suspended: true }} machineOwners={{ "test-host": "thr-o" }} onSave={() => {}} />,
     );
-    expect(html).toContain("delegation suspended until you see this change");
+    expect(html).toContain("Delegation is suspended until you see this change.");
+    expect(html).toMatch(/<button type="submit"[^>]*min-h-11[^>]*data-save/);
     expect(html).toContain("test-host");
     expect(parseDelegationForm({ vizierThreadId: " thr-v ", projects: "Autarch, Other", dailyCap: "3" })).toEqual({ ok: true, value: { vizierThreadId: "thr-v", projects: ["Autarch", "Other"], dailyCap: 3 } });
     expect(parseDelegationForm({ vizierThreadId: "", projects: "", dailyCap: "3" }).ok).toBe(false);
@@ -650,6 +651,22 @@ describe("bindings settings (Q5)", () => {
     const tp2 = html.slice(html.indexOf('data-binding="tp2"'));
     expect(tp2).not.toContain("Confirm");
   });
+  it("Save names the server's refusal, or that no answer came, instead of staying silent", () => {
+    expect(saveError({ ok: true, item: {} })).toBeNull();
+    expect(saveError({ ok: false, status: 400, error: "vizierThreadId must be a thread id" })).toBe("vizierThreadId must be a thread id");
+    expect(saveError({ ok: false })).toBe("Citadel refused the change");
+    expect(saveError(null, true)).toMatch(/did not answer/);
+  });
+  it("Confirm and Reject are tap-sized Home buttons; Reject keeps its tap-again confirm", () => {
+    const html = renderToStaticMarkup(
+      <BindingsPanel bindings={[{ tasks_project_id: "tp1", home_project: "Autarch", state: "suggested", suggested_at: null, confirmed_at: null }]} inactive={[]} legacyCount={0} onBind={() => {}} />,
+    );
+    expect(html).toMatch(/<button[^>]*min-h-11[^>]*>Confirm<\/button>/);
+    const reject = html.match(/<button[^>]*data-reject="tp1"[^>]*>/)?.[0] ?? "";
+    expect(reject).toContain('data-tone="destructive"');
+    expect(reject).not.toContain("data-confirming");
+    expect(html).not.toContain('class="ml-2 underline"');
+  });
 });
 
 describe("root-run section (Task 2.8)", () => {
@@ -718,9 +735,9 @@ describe("unbound picker default", () => {
   it("defaults to the asked-for project once serve lists it, and Confirm stays disabled until then", () => {
     const u = [{ tasks_project_id: "tp9", cards: 1, targets: ["Sylveste"] }];
     const down = renderToStaticMarkup(<BindingsPanel bindings={[]} unbound={u} serveProjects={[]} inactive={[]} legacyCount={0} onBind={() => {}} />);
-    expect(down).toMatch(/<button[^>]*disabled[^>]*>Confirm/);
+    expect(down).toMatch(/<button[^>]*disabled=""[^>]*>Confirm/);
     const up = renderToStaticMarkup(<BindingsPanel bindings={[]} unbound={u} serveProjects={["Sylveste"]} inactive={[]} legacyCount={0} onBind={() => {}} />);
-    expect(up).not.toMatch(/<button[^>]*disabled[^>]*>Confirm/);
+    expect(up).not.toMatch(/<button[^>]*disabled=""[^>]*>Confirm/);
   });
 });
 

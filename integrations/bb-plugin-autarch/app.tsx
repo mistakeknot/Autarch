@@ -648,7 +648,7 @@ function HomePage({ subPath }: { subPath?: string }) {
         return asks === null ? null : (
           <>
             <LearnSwitch enabled={learn.enabled} busy={learnBusy} onChange={(enabled) => setLearnState({ enabled })} />
-            <SettingsPanel delegation={asks.delegation} machineOwners={asks.machineOwners} onSave={(v) => void rpc.call("setDelegation", v).then(refetch, () => {})} />
+            <SettingsPanel delegation={asks.delegation} machineOwners={asks.machineOwners} onSave={(v) => rpc.call("setDelegation", v).finally(refetch)} />
             {blocks.queue === null ? null : (
               <BindingsPanel
                 bindings={blocks.queue.bindings}
