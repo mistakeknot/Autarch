@@ -158,10 +158,12 @@ export class Catchup {
     );
 
     const groups = new Map<string, CatchupItem>();
+    const ats = new Map<string, string[]>(); // each group's member times, parallel to members and lines
     const add = (project: string, member: string, at: string, line: string) => {
       const g = groups.get(project) ?? { item: `routine:${project}`, kind: "routine" as const, project, at, text: "", members: [] as string[], lines: [] as string[] };
       g.members!.push(member);
       g.lines!.push(line);
+      (ats.get(project) ?? ats.set(project, []).get(project)!).push(at);
       if (at > g.at) g.at = at;
       groups.set(project, g);
     };
@@ -175,6 +177,13 @@ export class Catchup {
     }
     const routine = [...groups.values()].sort((a, b) => (a.at < b.at ? 1 : a.at > b.at ? -1 : 0));
     for (const g of routine) g.text = `${g.members!.length} routine update${g.members!.length === 1 ? "" : "s"} in ${g.project}`;
+    // Rulings are read before closures, so a group is not yet in time order; the cap keeps the newest, so order first (stable).
+    for (const g of routine) {
+      const t = ats.get(g.project!)!;
+      const order = t.map((_, i) => i).sort((a, b) => (t[a]! < t[b]! ? -1 : t[a]! > t[b]! ? 1 : a - b));
+      g.members = order.map((i) => g.members![i]!);
+      g.lines = order.map((i) => g.lines![i]!);
+    }
     capRoutine(routine);
 
     const notes: CatchupItem[] = [];

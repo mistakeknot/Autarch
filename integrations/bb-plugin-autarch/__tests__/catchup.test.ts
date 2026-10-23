@@ -172,3 +172,22 @@ describe("routine groups on the wire (bead mk-ykk6r)", () => {
     expect(next.members).toHaveLength(5);
   });
 });
+
+describe("the cap keeps the newest across rulings and closures (bead mk-ykk6r review)", () => {
+  it("a recent ruling is sent even when more than the cap of older closures were read after it", async () => {
+    const { ROUTINE_GROUP_MAX } = await import("../catchup.js");
+    // old closures first (resolved by someone else), then one fresh ruling by mk
+    const old: string[] = [];
+    for (let i = 0; i < ROUTINE_GROUP_MAX + 2; i++) {
+      const d = await file(`thr-old-${i}`);
+      svc.store.db.prepare("INSERT INTO events(at, type, decision_id, detail_json) VALUES (?, 'resolved', ?, '{}')").run("2026-09-01T00:00:00.000Z", d);
+      old.push(d);
+    }
+    const fresh = await file("thr-fresh");
+    pick(fresh);
+    const g = cu.items().find((i) => i.kind === "routine")!;
+    expect(g.members).toHaveLength(ROUTINE_GROUP_MAX);
+    expect(g.members).toContain(`ruling:${fresh}`);
+    expect(g.members![g.members!.length - 1]).toBe(`ruling:${fresh}`);
+  });
+});
