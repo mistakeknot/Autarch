@@ -128,6 +128,8 @@ export interface HomeConfig {
   autarchBin: string;
   /** Where the update runner writes status.json and result.json (read-only here). */
   updateDir?: string;
+  /** The runner's systemd timer file, read for its check interval; unset means the default user-unit path. */
+  updateTimerFile?: string;
   /** The rulings ledger file; null turns it off. Unset means the default path (see ledger.ts). */
   rulingsLedger?: string | null;
 }
@@ -174,6 +176,7 @@ interface Parts {
  */
 export function wireHome(bb: BbPluginApi, handle: StoreHandle, cfg: HomeConfig, deps: { serve?: ServeClient; sdk?: WakeSdk } = {}) {
   const updateDir = cfg.updateDir ?? join(homedir(), ".local", "state", "autarch-home-update");
+  const updateEnv = (now: string) => ({ now, ...(cfg.updateTimerFile ? { timerFile: cfg.updateTimerFile } : {}) });
   const serve = deps.serve ?? new ServeClient({ addr: cfg.serveAddr, readToken: tokenReader(cfg.serveTokenFile) });
   let parts: Parts | null = null;
   /** Every thread, paged: the vizier resolver needs title, pinnedAt, archivedAt and deletedAt. */
@@ -733,12 +736,12 @@ export function wireHome(bb: BbPluginApi, handle: StoreHandle, cfg: HomeConfig, 
     /** The runner's status and last result, and any waiting request. Reads two files; runs nothing. */
     async updateInfo() {
       const p = need();
-      return updateInfo(updateDir, p.store.setting("update_request"));
+      return updateInfo(updateDir, p.store.setting("update_request"), updateEnv(p.svc.time()));
     },
     /** A click only records {sha, clicked_at} in this plugin's store; the runner outside the plugin acts on it. */
     async requestUpdate(i: { sha: string }) {
       const p = need();
-      const r = checkRequest(updateInfo(updateDir, p.store.setting("update_request")), i.sha, p.svc.time());
+      const r = checkRequest(updateInfo(updateDir, p.store.setting("update_request"), updateEnv(p.svc.time())), i.sha, p.svc.time());
       if (!r.ok) return r;
       p.store.setSetting("update_request", JSON.stringify(r.request));
       return { ok: true, request: r.request };
