@@ -428,16 +428,24 @@ export function DecideQueue({ owed, onPick, onOpen, nowMs, onNote, onLater, onVi
   );
 }
 
-export function ApprovalsList({ approvals, onRevoke }: { approvals: ApprovalRecord[]; onRevoke: (approvalId: string) => void }) {
+/** "expires in 10 h", "expired": an approval's expiry against a clock. An unparseable time is shown as given. */
+export function expiryText(expiresAt: string, nowMs: number): string {
+  const ms = Date.parse(expiresAt) - nowMs;
+  if (Number.isNaN(ms)) return `expires ${expiresAt}`;
+  if (ms <= 0) return "expired";
+  return `expires in ${ageText(new Date(nowMs - ms).toISOString(), nowMs)}`;
+}
+
+export function ApprovalsList({ approvals, onRevoke, nowMs = Date.now() }: { approvals: ApprovalRecord[]; onRevoke: (approvalId: string) => void; nowMs?: number }) {
   return (
     <section data-section="approvals">
       <h2 className="mb-2 text-xs font-semibold uppercase text-muted-foreground">Recorded approvals</h2>
       <p className="mb-2 text-xs text-muted-foreground">Records of what you approved. They do not authorize a merge, deploy or release.</p>
       <ul className="space-y-2">
         {approvals.map((a) => (
-          <li key={a.approval_id} className="rounded border border-border p-2 text-sm" data-approval-id={a.approval_id}>
-            {`${a.kind} ${a.target} at ${a.identity}, expires ${a.expires_at}`}
-            <button type="button" className="ml-2 text-xs underline" onClick={() => onRevoke(a.approval_id)}>Revoke</button>
+          <li key={a.approval_id} className="flex flex-wrap items-center gap-x-2 rounded border border-border p-2 text-sm" data-approval-id={a.approval_id}>
+            <span className="min-w-0 [overflow-wrap:anywhere]" title={a.expires_at}>{`${a.kind} ${a.target} at ${a.identity}, ${expiryText(a.expires_at, nowMs)}`}</span>
+            <button type="button" className="min-h-11 text-xs underline sm:min-h-0" onClick={() => onRevoke(a.approval_id)}>Revoke</button>
           </li>
         ))}
       </ul>
@@ -536,7 +544,7 @@ export function AsksPanel({ part, data, onPick, onOpen, onRevoke, onDismiss, onN
           </ul>
         </section>
       ) : null}
-      {approvals.length > 0 ? <ApprovalsList approvals={approvals} onRevoke={onRevoke ?? (() => {})} /> : null}
+      {approvals.length > 0 ? <ApprovalsList approvals={approvals} onRevoke={onRevoke ?? (() => {})} nowMs={nowMs} /> : null}
     </div>
   );
 }

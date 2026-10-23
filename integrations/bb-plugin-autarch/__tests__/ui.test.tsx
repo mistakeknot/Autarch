@@ -8,7 +8,7 @@ vi.mock("@get-bb/plugin-sdk/app", () => ({
 }));
 
 import { BlocksPanel, BlocksRow, groupRows, QueueRefresher, type QueueRowView, type QueueView } from "../ui/blocks.js";
-import { ageText, AsksPanel, optionEffect, currentAsk, isOldAsk, buildAsksView, PickController, pickOutcome, type AsksData } from "../ui/asks.js";
+import { ageText, ApprovalsList, AsksPanel, expiryText, optionEffect, currentAsk, isOldAsk, buildAsksView, PickController, pickOutcome, type AsksData } from "../ui/asks.js";
 import { CatchupPanel, observeVisibility, SeenTracker, snapshotIds, type CatchupEntry } from "../ui/catchup.js";
 import { MapPlaceholder } from "../ui/map-placeholder.js";
 import { BindingsPanel, parseDelegationForm, SettingsPanel } from "../ui/settings.js";
@@ -246,7 +246,7 @@ describe("stack", () => {
     expect(l.map((x) => x.grow)).toEqual([false, false, true]);
   });
 
-  it("[ and ] move between 1/4, 1/3 and 1/2; Esc closes the top panel; pushing an open panel moves it to the top", () => {
+  it("[ and ] move between 1/4, 1/3 and 1/2; Esc closes the top panel but never the last; pushing an open panel moves it to the top", () => {
     let s = stackReducer(start, { type: "push", panel: p("a") });
     expect(layoutStack(stackReducer(s, { type: "width", key: "[" }))[0]!.width).toBe("25%");
     expect(layoutStack(stackReducer(s, { type: "width", key: "]" }))[0]!.width).toBe("50%");
@@ -255,7 +255,7 @@ describe("stack", () => {
     expect(s.panels.map((x) => x.id)).toEqual(["b", "a"]);
     s = stackReducer(s, { type: "close" });
     expect(s.panels.map((x) => x.id)).toEqual(["b"]);
-    expect(stackReducer(stackReducer(s, { type: "close" }), { type: "close" }).panels).toEqual([]);
+    expect(stackReducer(stackReducer(s, { type: "close" }), { type: "close" }).panels.map((x) => x.id)).toEqual(["b"]);
   });
 });
 
@@ -741,5 +741,21 @@ describe("Tell the vizier box", () => {
     expect(html).toContain("Tell the vizier");
     expect(html).not.toContain("<details");
     expect(html).toContain("No vizier thread is set");
+  });
+});
+
+describe("recorded approvals", () => {
+  const at = Date.parse("2026-10-08T00:00:00.000Z");
+  it("say how long an approval has left, not its raw timestamp, and keep the timestamp on hover", () => {
+    expect(expiryText("2026-10-08T10:00:00.000Z", at)).toBe("expires in 10 h");
+    expect(expiryText("2026-10-07T23:00:00.000Z", at)).toBe("expired");
+    expect(expiryText("not a time", at)).toBe("expires not a time");
+    const html = renderToStaticMarkup(<ApprovalsList approvals={[{ approval_id: "a1", decision_id: "d1", kind: "merge", target: "repo#9", identity: "abc1234", minted_at: "2026-10-07T10:00:00.000Z", expires_at: "2026-10-08T10:00:00.000Z" }]} onRevoke={() => {}} nowMs={at} />);
+    expect(html).toContain("merge repo#9 at abc1234, expires in 10 h");
+    expect(html).toContain('title="2026-10-08T10:00:00.000Z"');
+  });
+  it("give Revoke a full-height tap target on a phone", () => {
+    const html = renderToStaticMarkup(<ApprovalsList approvals={[{ approval_id: "a1", decision_id: "d1", kind: "k", target: "t", identity: "i", minted_at: "x", expires_at: "y" }]} onRevoke={() => {}} nowMs={at} />);
+    expect(html).toMatch(/class="[^"]*min-h-11[^"]*sm:min-h-0[^"]*"[^>]*>Revoke</);
   });
 });
