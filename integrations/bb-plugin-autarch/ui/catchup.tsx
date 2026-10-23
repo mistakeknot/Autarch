@@ -12,8 +12,15 @@ export type CatchupEntry = {
   members?: string[];
   /** One line per routine member, shown when the group is opened. */
   lines?: string[];
+  /** The group's full unseen count when `members` carries only the newest of them. */
+  total?: number;
   cites?: string[];
 };
+
+/** How many of a routine group's updates are not sent yet; they show once the ones listed are marked. */
+export function olderCount(e: Pick<CatchupEntry, "members" | "total">): number {
+  return Math.max(0, (e.total ?? 0) - (e.members?.length ?? 0));
+}
 
 export const SEEN_AFTER_MS = 1000;
 
@@ -231,9 +238,10 @@ function CatchupRow({ e, expanded, onToggle, onOverride, onMarkOne, onVisibility
     <div ref={ref} className="rounded border border-border p-3 text-sm" data-kind={e.kind} data-expanded={expanded ? "true" : "false"}>
       <button type="button" className="min-h-11 text-left [overflow-wrap:anywhere] sm:min-h-0" onClick={() => onToggle(e.item, e.members)}>{e.text}</button>
       {expanded && e.cites && e.cites.length > 0 ? <div className="text-xs text-muted-foreground">{`cites ${e.cites.join(", ")}`}</div> : null}
-      {expanded && e.lines && e.lines.length > 0 ? (
+      {expanded && e.lines && (e.lines.length > 0 || olderCount(e) > 0) ? (
         <ul className="m-0 mt-1 list-disc space-y-0.5 pl-5 text-xs text-muted-foreground" data-routine-lines>
           {e.lines.map((l, i) => <li key={i} className="[overflow-wrap:anywhere]">{l}</li>)}
+          {olderCount(e) > 0 ? <li className="list-none" data-routine-older>{`${olderCount(e)} older not shown here; they appear after you mark these.`}</li> : null}
         </ul>
       ) : null}
       <div className="mt-1 flex flex-wrap items-center gap-2">
@@ -256,7 +264,10 @@ export function CatchupPanel({
   onMarkAll,
   onMarkOne,
   onVisibility,
+  loadError,
 }: {
+  /** Set when the catch-up read failed: a line says so, and an empty list is not "caught up". */
+  loadError?: string | null;
   items: CatchupEntry[];
   expanded: Set<string>;
   /** The rows on screen right now; decides what Mark N seen will mark. */
@@ -279,10 +290,22 @@ export function CatchupPanel({
       </div>
       {plan.reason ? <p className="m-0 text-xs text-muted-foreground" data-mark-reason>{plan.reason}</p> : null}
       {result ? <p className="m-0 text-xs" role="status" data-mark-result>{result}</p> : null}
-      {items.length === 0 ? <p className="text-sm text-muted-foreground">You are caught up.</p> : null}
+      {loadError ? <p className="m-0 text-xs text-destructive" role="alert" data-catchup-error>{`Catch-up could not be loaded: ${loadError}. The rest of Home is current; this retries on the next refresh.`}</p> : null}
+      {items.length === 0 && !loadError ? <p className="text-sm text-muted-foreground">You are caught up.</p> : null}
       {items.map((e) => (
         <CatchupRow key={e.item} e={e} expanded={expanded.has(e.item)} onToggle={onToggle} onOverride={onOverride} onMarkOne={onMarkOne} onVisibility={onVisibility} />
       ))}
     </div>
   );
+}
+
+/** The catch-up read's outcome as data, so its failure reaches the panel as a line and not as an exception that takes the other reads down with it. */
+export async function settleCatchup(call: Promise<unknown>): Promise<{ ok: true; items: CatchupEntry[] } | { ok: false; error: string }> {
+  try {
+    const r = (await call) as { items?: CatchupEntry[] } | null;
+    if (!r || !Array.isArray(r.items)) return { ok: false, error: "the catch-up reply had no items" };
+    return { ok: true, items: r.items };
+  } catch (cause) {
+    return { ok: false, error: cause instanceof Error ? cause.message : String(cause) };
+  }
 }

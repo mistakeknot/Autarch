@@ -23,12 +23,31 @@ export interface CatchupItem {
   members?: string[];
   /** One line per member, in the same order, so a routine group can be read before it is marked. */
   lines?: string[];
+  /** A routine group's unseen count in full; `members` and `lines` carry only the newest of them (see capRoutine). */
+  total?: number;
   /** A note's cited facts. */
   cites?: string[];
 }
 
 const MK = "mk";
 const NOTE_MAX = 1000;
+/** Most members (and lines) one routine group sends, newest first; the rest is counted in `total` and shows after these are marked. */
+export const ROUTINE_GROUP_MAX = 50;
+/** Most members the routine groups send together, so a catch-up reply stays small however many rulings have piled up. */
+export const ROUTINE_TOTAL_MAX = 300;
+
+/** Trims each group to its newest members within the per-group and total budgets, keeping members and lines paired and in order. Groups arrive newest first, so the budget goes to them in that order. */
+export function capRoutine(groups: CatchupItem[], perGroup = ROUTINE_GROUP_MAX, total = ROUTINE_TOTAL_MAX): void {
+  let left = total;
+  for (const g of groups) {
+    const members = g.members ?? [];
+    const keep = Math.max(0, Math.min(members.length, perGroup, left));
+    g.total = members.length;
+    g.members = keep === 0 ? [] : members.slice(-keep);
+    g.lines = keep === 0 ? [] : (g.lines ?? []).slice(-keep);
+    left -= keep;
+  }
+}
 
 interface Dec {
   id: string;
@@ -156,6 +175,7 @@ export class Catchup {
     }
     const routine = [...groups.values()].sort((a, b) => (a.at < b.at ? 1 : a.at > b.at ? -1 : 0));
     for (const g of routine) g.text = `${g.members!.length} routine update${g.members!.length === 1 ? "" : "s"} in ${g.project}`;
+    capRoutine(routine);
 
     const notes: CatchupItem[] = [];
     for (const n of this.db.prepare("SELECT id, at, text, cites_json FROM notes ORDER BY at, rowid").all() as { id: string; at: string; text: string; cites_json: string }[]) {

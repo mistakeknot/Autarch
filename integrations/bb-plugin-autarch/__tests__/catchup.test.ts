@@ -148,3 +148,27 @@ describe("markAllSeen(snapshot) [D-12]", () => {
     expect(cu.items().find((i) => i.kind === "routine")!.members).toHaveLength(2);
   });
 });
+
+describe("routine groups on the wire (bead mk-ykk6r)", () => {
+  it("sends the newest ROUTINE_GROUP_MAX members of a big group, with the full count", async () => {
+    const { ROUTINE_GROUP_MAX } = await import("../catchup.js");
+    const total = ROUTINE_GROUP_MAX + 5;
+    const ids: string[] = [];
+    for (let i = 0; i < total; i++) {
+      const d = await file(`thr-cap-${i}`);
+      pick(d);
+      ids.push(d);
+    }
+    const g = cu.items().find((i) => i.kind === "routine")!;
+    expect(g.total).toBe(total);
+    expect(g.text).toBe(`${total} routine updates in Autarch`);
+    expect(g.members).toHaveLength(ROUTINE_GROUP_MAX);
+    expect(g.lines).toHaveLength(ROUTINE_GROUP_MAX);
+    // marking what was sent leaves the rest unseen, and it shows next
+    const marked = cu.markAllSeen(g.members!);
+    expect(marked).toHaveLength(ROUTINE_GROUP_MAX);
+    const next = cu.items().find((i) => i.kind === "routine")!;
+    expect(next.total).toBe(5);
+    expect(next.members).toHaveLength(5);
+  });
+});
