@@ -74,12 +74,20 @@ export function parseRequest(raw: string | undefined): UpdateRequest | null {
 
 /** systemd time span such as "5min", "300s", "1h 30min" or a bare number of seconds, in ms; null when unparseable. */
 export function parseSpan(raw: string): number | null {
-  const unit: Record<string, number> = { ms: 1, s: 1000, sec: 1000, second: 1000, seconds: 1000, m: 60_000, min: 60_000, minute: 60_000, minutes: 60_000, h: 3_600_000, hr: 3_600_000, hour: 3_600_000, hours: 3_600_000 };
+  const MIN = 60_000;
+  const DAY = 24 * 60 * MIN;
+  const unit: Record<string, number> = {
+    us: 0.001, usec: 0.001, "μs": 0.001, ms: 1, msec: 1, s: 1000, sec: 1000, second: 1000, seconds: 1000,
+    m: MIN, min: MIN, minute: MIN, minutes: MIN, h: 60 * MIN, hr: 60 * MIN, hour: 60 * MIN, hours: 60 * MIN,
+    d: DAY, day: DAY, days: DAY, w: 7 * DAY, week: 7 * DAY, weeks: 7 * DAY,
+    M: 30.44 * DAY, month: 30.44 * DAY, months: 30.44 * DAY, y: 365.25 * DAY, year: 365.25 * DAY, years: 365.25 * DAY,
+  };
   const text = raw.trim();
-  if (!/^(\d+(\.\d+)?\s*[a-z]*\s*)+$/i.test(text)) return null;
+  if (!/^(\d+(\.\d+)?\s*[a-zμ]*\s*)+$/i.test(text)) return null;
   let total = 0;
-  for (const m of text.matchAll(/(\d+(?:\.\d+)?)\s*([a-z]*)/gi)) {
-    const mult = m[2] === "" ? 1000 : unit[m[2]!.toLowerCase()];
+  for (const m of text.matchAll(/(\d+(?:\.\d+)?)\s*([a-zμ]*)/gi)) {
+    const u = m[2]!;
+    const mult = u === "" ? 1000 : (unit[u] ?? (u === "M" ? undefined : unit[u.toLowerCase()]));
     if (mult === undefined) return null;
     total += Number(m[1]) * mult;
   }

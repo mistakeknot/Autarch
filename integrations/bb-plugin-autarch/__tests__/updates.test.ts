@@ -79,6 +79,12 @@ describe("check interval", () => {
     expect(parseSpan("5min")).toBe(300_000);
     expect(parseSpan("1h 30min")).toBe(5_400_000);
     expect(parseSpan("90")).toBe(90_000);
+    expect(parseSpan("1d")).toBe(86_400_000);
+    expect(parseSpan("2 weeks")).toBe(1_209_600_000);
+    expect(parseSpan("500ms")).toBe(500);
+    expect(parseSpan("1500us")).toBe(2);
+    expect(parseSpan("1M")).toBe(Math.round(30.44 * 86_400_000));
+    expect(parseSpan("1m")).toBe(60_000);
     expect(parseSpan("soon")).toBeNull();
     expect(parseSpan("5 fortnights")).toBeNull();
   });

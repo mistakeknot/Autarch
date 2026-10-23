@@ -42,7 +42,7 @@ import type { QueueView } from "./ui/blocks.js";
 import { withoutOwed } from "./ui/blocks.js";
 import { CardKeyNotice, cardKeyFrom, focusedAsks, startCardLookup, type CardLookup } from "./ui/cardlink.js";
 import { BindingsPanel, SettingsPanel } from "./ui/settings.js";
-import { UpdateMenu, updateLabel, type UpdateInfoView } from "./ui/update.js";
+import { UpdateMenu, updateLabel, updatePollMs, type UpdateInfoView } from "./ui/update.js";
 import { keyAction, layoutStack, ROOT_PANEL, stackReducer, StackView } from "./ui/stack.js";
 import { HomeTabs, QueueTabs, type QueueTab } from "./ui/tabs.js";
 import type { Panel, StackState } from "./ui/stack.js";
@@ -492,11 +492,12 @@ function HomePage({ subPath }: { subPath?: string }) {
   const [update, setUpdate] = useState<UpdateInfoView | null>(null);
   const [updateError, setUpdateError] = useState<string | null>(null);
   const loadUpdate = useCallback(() => void rpc.call("updateInfo", null).then((v) => setUpdate(v as UpdateInfoView), () => {}), [rpc]);
+  const updatePoll = updatePollMs(update);
   useEffect(() => {
     loadUpdate();
-    const t = setInterval(loadUpdate, 300_000);
+    const t = setInterval(loadUpdate, updatePoll);
     return () => clearInterval(t);
-  }, [loadUpdate]);
+  }, [loadUpdate, updatePoll]);
   const requestUpdate = (sha: string) => {
     setUpdateError(null);
     void rpc.call("requestUpdate", { sha }).then((r) => {

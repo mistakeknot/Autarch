@@ -18,6 +18,11 @@ export type UpdateInfoView = {
 /** A request this many check intervals old with no result for it looks stuck. */
 export const STUCK_AFTER_INTERVALS = 2;
 
+/** How often the panel re-reads the update state: slowly at rest, quickly while a request is out so Installing and the age show. */
+export const UPDATE_POLL_IDLE_MS = 300_000;
+export const UPDATE_POLL_PENDING_MS = 15_000;
+export const updatePollMs = (info: UpdateInfoView | null) => (info?.pending ? UPDATE_POLL_PENDING_MS : UPDATE_POLL_IDLE_MS);
+
 const age = (ms: number) => {
   const min = Math.max(0, Math.floor(ms / 60_000));
   if (min < 1) return "just now";

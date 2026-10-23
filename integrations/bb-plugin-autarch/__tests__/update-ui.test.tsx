@@ -1,6 +1,6 @@
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
-import { UpdateMenu, type UpdateInfoView } from "../ui/update.js";
+import { UPDATE_POLL_IDLE_MS, UPDATE_POLL_PENDING_MS, UpdateMenu, updatePollMs, type UpdateInfoView } from "../ui/update.js";
 
 const A = "a".repeat(40);
 const B = "b".repeat(40);
@@ -90,5 +90,21 @@ describe("UpdateMenu pending states", () => {
   });
   it("an unreadable request time still says something plain", () => {
     expect(html({ ...pend, request: { sha: B, clicked_at: "soon" } })).toContain("The runner checks every 5 minutes.");
+  });
+});
+
+describe("update polling", () => {
+  it("polls fast while a request is out so Installing and the age show, slowly otherwise", () => {
+    expect(updatePollMs(pend)).toBe(UPDATE_POLL_PENDING_MS);
+    expect(updatePollMs(base)).toBe(UPDATE_POLL_IDLE_MS);
+    expect(updatePollMs(null)).toBe(UPDATE_POLL_IDLE_MS);
+    expect(UPDATE_POLL_PENDING_MS).toBeLessThan(UPDATE_POLL_IDLE_MS);
+  });
+  it("app.tsx re-arms its timer from updatePollMs", async () => {
+    const { readFileSync } = await import("node:fs");
+    const src = readFileSync(new URL("../app.tsx", import.meta.url), "utf8");
+    expect(src).toMatch(/updatePollMs\(update\)/);
+    expect(src).toMatch(/setInterval\(loadUpdate, updatePoll\)/);
+    expect(src).toMatch(/\[loadUpdate, updatePoll\]/);
   });
 });
