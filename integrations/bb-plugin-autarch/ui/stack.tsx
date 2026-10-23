@@ -1,13 +1,16 @@
 // The stack: panels open to the right, the newest at full size, older ones collapsed to spines.
 
 export type PanelKind = "decision" | "thread" | "vizier" | "catchup" | "ideas" | "learn" | "settings" | "map" | "runbook";
-export type Panel = { id: string; kind: PanelKind; title: string; ref?: string; hideOwed?: boolean; hideHeld?: boolean; part?: "decide" | "later" };
+export type Panel = { id: string; kind: PanelKind; title: string; ref?: string; part?: "decide" | "later" };
 export type WidthName = "quarter" | "third" | "half";
 export type StackState = { panels: Panel[]; width: WidthName };
 export type StackAction =
   | { type: "push"; panel: Panel }
   | { type: "close" }
   | { type: "width"; key: "[" | "]" };
+
+/** Home's root panel. Esc never closes it, so Home is never left without the Queue. */
+export const ROOT_PANEL: Panel = { id: "queue", kind: "decision", title: "Queue" };
 
 const ORDER: WidthName[] = ["quarter", "third", "half"];
 const CSS: Record<WidthName, string> = { quarter: "25%", third: "33.333%", half: "50%" };
@@ -18,8 +21,11 @@ export function stackReducer(s: StackState, a: StackAction): StackState {
     case "push":
       // An open panel moves to the top rather than duplicating.
       return { ...s, panels: [...s.panels.filter((p) => p.id !== a.panel.id), a.panel] };
-    case "close":
-      return { ...s, panels: s.panels.slice(0, -1) };
+    case "close": {
+      // Esc closes the top panel, but never the Queue (which a push can move off the bottom) and never the last panel.
+      const top = s.panels[s.panels.length - 1];
+      return s.panels.length > 1 && top?.id !== ROOT_PANEL.id ? { ...s, panels: s.panels.slice(0, -1) } : s;
+    }
     case "width": {
       const i = ORDER.indexOf(s.width) + (a.key === "]" ? 1 : -1);
       return { ...s, width: ORDER[Math.min(ORDER.length - 1, Math.max(0, i))]! };

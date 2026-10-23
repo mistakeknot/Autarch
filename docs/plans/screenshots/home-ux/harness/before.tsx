@@ -11,7 +11,7 @@ const H = "px-2 pt-2 text-xs font-semibold uppercase text-muted-foreground sm:px
 const items = [...catchupItems, { item: "pinned:vizier-adopted:9", kind: "delegated", at: "2026-10-07T23:00:00Z", text: waiting.noticeItems[0]!.text }];
 createRoot(document.getElementById("root")!).render(
   <div>
-    <HomeTabs classic={false} onOpen={() => {}} onToggleClassic={() => {}} onTodos={() => {}} />
+    <HomeTabs onOpen={() => {}} onTodos={() => {}} />
     <section className="border-b border-border">
       <h2 className={H}>Needs you now</h2>
       <AsksPanel data={asksData as never} nowMs={NOW} hideHeld onPick={() => {}} onOpen={() => {}} />
