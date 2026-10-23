@@ -115,6 +115,28 @@ describe("picking a multi-pick ask", () => {
   });
 });
 
+describe("the card's standing help", () => {
+  const card = (over: Partial<OwedAsk> = {}): OwedAsk => ({
+    id: "d9", project: "P", thread: "thr_a", subject: "One choice", asker: "thread", filed_at: "2026-10-17T00:00:00.000Z", revision: "r1", task_id: "t9",
+    ask: { question: "Which?", options: [{ id: "a", label: "A", kind: "ruling" }] } as never, ...over,
+  });
+  it("Later and Ask / note explain themselves once, inside a closed How this works disclosure", () => {
+    const html = renderToStaticMarkup(<AskCard ask={card()} onPick={() => {}} onOpen={() => {}} onNote={() => {}} onLater={async () => ({ ok: true })} />);
+    expect((html.match(/data-how/g) ?? []).length).toBe(1);
+    expect((html.match(/data-other-help/g) ?? []).length).toBe(1);
+    expect((html.match(/stays open, moves below/g) ?? []).length).toBe(1);
+    const how = html.slice(html.indexOf("data-how"), html.indexOf("</details>", html.indexOf("data-how")));
+    expect(how).toContain("data-how");
+    expect(how).toContain("stays open, moves below");
+    expect(how).toContain("never rules or closes");
+    expect(how).toContain("records your words as your ruling");
+    expect(html).not.toMatch(/<details[^>]*data-how[^>]* open/);
+  });
+  it("a card with neither Later nor Ask / note has no disclosure", () => {
+    expect(renderToStaticMarkup(<AskCard ask={card()} onPick={() => {}} onOpen={() => {}} />)).not.toContain("data-how");
+  });
+});
+
 describe("multi-pick card view", () => {
   const owed = (): OwedAsk => ({
     id: "d1", project: "P", thread: "thr_a", subject: "Four choices", asker: "thread", filed_at: "2026-10-17T00:00:00.000Z", revision: "r1", task_id: null,
