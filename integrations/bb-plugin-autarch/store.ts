@@ -236,6 +236,8 @@ export interface StoreOptions {
   hook?: StoreHook;
   /** Milliseconds; SQLite busy_timeout. Default 2000. */
   busyTimeoutMs?: number;
+  /** Milliseconds; a thread hears Home's `notice` messages at most once per window, as one digest. Default one hour; 0 turns batching off. */
+  noticeWindowMs?: number;
   migrate?: MigrateOptions;
   /** bb.log: the migration outcome line and the handle's readiness messages. */
   log?: { warn(msg: string): void; info(msg: string): void };
@@ -261,9 +263,15 @@ const DUE = `(
         SELECT 1 FROM attempts t WHERE t.obligation_id = o.id AND t.state IN ('sending','queued','uncertain')))
 )`;
 
+/** Home messages that are information for another thread and not an answer or an action: these batch per recipient. */
+export const BATCHED_KIND = "notice";
+export const DIGEST_KIND = "notice-digest";
+export const NOTICE_WINDOW_MS = 3_600_000;
+
 export class Store {
   private readonly now: () => string;
   private readonly hook: StoreHook;
+  private readonly noticeWindowMs: number;
 
   constructor(
     readonly db: Database.Database,
@@ -271,6 +279,7 @@ export class Store {
   ) {
     this.now = opts.now ?? iso;
     this.hook = opts.hook ?? (() => {});
+    this.noticeWindowMs = opts.noticeWindowMs ?? NOTICE_WINDOW_MS;
     if (String(db.pragma("journal_mode", { simple: true })).toLowerCase() !== "wal") {
       db.pragma("journal_mode = WAL");
     }
@@ -886,12 +895,82 @@ export class Store {
         after_id: null,
         ...o,
         decision_id: decisionId,
-        next_try_at: o.next_try_at ?? now,
+        next_try_at: o.next_try_at ?? this.noticeSendAt(o, now),
         now,
       }).changes;
       this.hook("obligation-row");
     }
     return n;
+  }
+
+  /**
+   * When a new row first goes out. A `notice` joins its recipient's open window (the latest still-future
+   * time a pending notice waits for), else opens one that ends a window from now; everything else is due now.
+   * The window lives in the pending rows' `next_try_at`, so a restart neither loses nor re-opens it.
+   */
+  private noticeSendAt(o: ObligationInput, now: string): string {
+    if (o.kind !== BATCHED_KIND || !o.recipient || this.noticeWindowMs <= 0) return now;
+    const open = this.db
+      .prepare(
+        `SELECT MIN(next_try_at) AS at FROM obligations
+         WHERE kind = @kind AND recipient = @recipient AND state = 'pending' AND voided_at IS NULL AND next_try_at > @now`,
+      )
+      .get({ kind: BATCHED_KIND, recipient: o.recipient, now }) as { at: string | null };
+    return open.at ?? new Date(Date.parse(now) + this.noticeWindowMs).toISOString();
+  }
+
+  /**
+   * Hold back and merge the due information-only rows, in one transaction.
+   * Spacing: a due `notice` or `notice-digest` whose recipient was sent one in the last window waits until that
+   * window is over (this also covers a delayed drain, and digests retargeted to one successor).
+   * One per pass: of several due rows for one recipient only the first stays due.
+   * Merging: the due `notice` rows that share a recipient become one `notice-digest` row (exactly one message),
+   * and the members are done with their text carried by the digest, so a crash leaves either the members or the
+   * digest, never both and never neither. A lone due notice goes out as it is.
+   * `skip` keeps a row out of a digest (it goes alone, still spaced). Returns the digests created.
+   */
+  batchDueNotices(skip: (row: ObligationRow) => boolean = () => false, now: string = this.now()): ObligationRow[] {
+    if (this.noticeWindowMs <= 0) return [];
+    return this.tx(() => {
+      const classOf = (r: ObligationRow) => (r.kind === BATCHED_KIND || r.kind === DIGEST_KIND) && !!r.recipient && r.resend_permit !== 1;
+      const lastSent = this.db.prepare(
+        `SELECT MAX(a.at) AS at FROM attempts a JOIN obligations o ON o.id = a.obligation_id
+         WHERE o.kind IN ('${BATCHED_KIND}','${DIGEST_KIND}') AND o.recipient = ? AND a.state IN ('sending','queued','uncertain','delivered')`,
+      );
+      const hold = this.db.prepare("UPDATE obligations SET next_try_at = @at, updated_at = @now WHERE id = @id AND state = 'pending'");
+      const due: ObligationRow[] = [];
+      for (const r of this.dueMessages(now).filter(classOf)) {
+        const last = (lastSent.get(r.recipient!) as { at: string | null }).at;
+        const free = last ? new Date(Date.parse(last) + this.noticeWindowMs).toISOString() : null;
+        if (free && free > now) hold.run({ id: r.id, at: free, now });
+        else due.push(r);
+      }
+      const byThread = new Map<string, ObligationRow[]>();
+      for (const r of due) if (r.kind === BATCHED_KIND && !skip(r)) byThread.set(r.recipient!, [...(byThread.get(r.recipient!) ?? []), r]);
+      const made: ObligationRow[] = [];
+      for (const [recipient, members] of byThread) {
+        if (members.length < 2) continue;
+        const lead = members[0]!;
+        const op = `${DIGEST_KIND}:${recipient}:${lead.id}`;
+        const payload = [`${members.length} Home notices for this thread, batched (Home sends a thread at most one such message per hour):`, ...members.map((m, i) => `${i + 1}. ${m.payload ?? ""}`)].join("\n\n");
+        this.insertObligationRows(lead.decision_id, [{ id: `ob:${op}`, kind: DIGEST_KIND, recipient, payload, op, next_try_at: now }], true);
+        for (const m of members) {
+          this.db
+            .prepare("UPDATE obligations SET state = 'done', last_error = @note, updated_at = @now WHERE id = @id AND state = 'pending'")
+            .run({ id: m.id, note: `batched into ob:${op}`, now });
+        }
+        this.hook("notice-batched");
+        made.push(this.obligation(`ob:${op}`)!);
+      }
+      // One message per recipient per pass: a second due row for a recipient (two digests retargeted to one successor,
+      // or a notice kept out of a digest) waits a window, and the pass after the first send holds it to that send.
+      const seen = new Set<string>();
+      for (const r of this.dueMessages(now).filter(classOf)) {
+        if (!seen.has(r.recipient!)) seen.add(r.recipient!);
+        else hold.run({ id: r.id, at: new Date(Date.parse(now) + this.noticeWindowMs).toISOString(), now });
+      }
+      return made;
+    });
   }
 
   /** Insert a recipient set atomically; a retry (same `op`) inserts none [F-6]. Returns rows inserted. */
@@ -968,6 +1047,13 @@ export class Store {
         )
         .run({ id, now: this.now() }).changes === 1
     );
+  }
+
+  /** Batch and space the information-only rows, then the rows due at that same instant (a row that falls due between the two calls waits for the next pass). */
+  dueMessagesBatched(skip?: (row: ObligationRow) => boolean): ObligationRow[] {
+    const now = this.now();
+    this.batchDueNotices(skip, now);
+    return this.dueMessages(now);
   }
 
   dueMessages(now: string = this.now()): ObligationRow[] {

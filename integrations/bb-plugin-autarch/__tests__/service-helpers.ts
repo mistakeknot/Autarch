@@ -13,6 +13,8 @@ export interface Env {
   projects: ProjectInfo[];
   clock: { t: number };
   down: { value: boolean };
+  /** Home's notice batching window; 0 (the default here) sends every notice at once. */
+  batch: { noticeWindowMs: number };
   ids: { n: number };
   now: () => string;
   open: (over?: Partial<ServiceDeps>) => Service;
@@ -27,6 +29,7 @@ export function makeEnv(projectNames = ["Autarch"], idPrefix = "dec"): Env {
   const t = tmpDir();
   const clock = { t: T0 };
   const down = { value: false };
+  const batch = { noticeWindowMs: 0 };
   const ids = { n: 0 };
   const projects: ProjectInfo[] = [];
   const roots: Record<string, string> = {};
@@ -42,7 +45,7 @@ export function makeEnv(projectNames = ["Autarch"], idPrefix = "dec"): Env {
   projectNames.forEach(addProject);
   const file = join(t.dir, "data.db");
   const open = (over: Partial<ServiceDeps> = {}) => {
-    const store = new Store(new Database(file), { now });
+    const store = new Store(new Database(file), { now, noticeWindowMs: batch.noticeWindowMs });
     return new Service({
       store,
       now,
@@ -65,7 +68,7 @@ export function makeEnv(projectNames = ["Autarch"], idPrefix = "dec"): Env {
     }
     t.cleanup();
   };
-  return { dir: t.dir, file, roots, projects, clock, down, ids, now, open, addProject, cleanup };
+  return { dir: t.dir, file, roots, projects, clock, down, batch, ids, now, open, addProject, cleanup };
 }
 
 export const OPTIONS = [
