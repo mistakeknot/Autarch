@@ -12,7 +12,7 @@ import { ageText, ApprovalsList, AsksPanel, expiryText, optionEffect, currentAsk
 import { CatchupPanel, observeVisibility, SeenTracker, snapshotIds, type CatchupEntry } from "../ui/catchup.js";
 import { MapPlaceholder } from "../ui/map-placeholder.js";
 import { BindingsPanel, parseDelegationForm, SettingsPanel } from "../ui/settings.js";
-import { layoutStack, stackReducer, type Panel, type StackState } from "../ui/stack.js";
+import { layoutStack, ROOT_PANEL, stackReducer, type Panel, type StackState } from "../ui/stack.js";
 import { TellVizier, ThreadPanel, VizierPanel } from "../ui/vizier.js";
 import { RootRunSection, statusLine, type RootRunPanelView } from "../ui/rootrun.js";
 
@@ -256,6 +256,18 @@ describe("stack", () => {
     s = stackReducer(s, { type: "close" });
     expect(s.panels.map((x) => x.id)).toEqual(["b"]);
     expect(stackReducer(stackReducer(s, { type: "close" }), { type: "close" }).panels.map((x) => x.id)).toEqual(["b"]);
+  });
+
+  it("Esc never closes the Queue, even after a push moves it off the bottom", () => {
+    let s: StackState = { panels: [ROOT_PANEL], width: "third" };
+    s = stackReducer(s, { type: "push", panel: p("settings") });
+    s = stackReducer(s, { type: "push", panel: ROOT_PANEL });
+    expect(s.panels.map((x) => x.id)).toEqual(["settings", "queue"]);
+    s = stackReducer(stackReducer(s, { type: "close" }), { type: "close" });
+    expect(s.panels.map((x) => x.id)).toEqual(["settings", "queue"]);
+    s = stackReducer(s, { type: "push", panel: p("settings") });
+    s = stackReducer(s, { type: "close" });
+    expect(s.panels.map((x) => x.id)).toEqual(["queue"]);
   });
 });
 

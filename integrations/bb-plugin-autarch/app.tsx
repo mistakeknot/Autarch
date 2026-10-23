@@ -43,7 +43,7 @@ import { withoutOwed } from "./ui/blocks.js";
 import { CardKeyNotice, cardKeyFrom, focusedAsks, startCardLookup, type CardLookup } from "./ui/cardlink.js";
 import { BindingsPanel, SettingsPanel } from "./ui/settings.js";
 import { UpdateMenu, updateLabel, type UpdateInfoView } from "./ui/update.js";
-import { keyAction, layoutStack, stackReducer, StackView } from "./ui/stack.js";
+import { keyAction, layoutStack, ROOT_PANEL, stackReducer, StackView } from "./ui/stack.js";
 import { HomeTabs, QueueTabs, type QueueTab } from "./ui/tabs.js";
 import type { Panel, StackState } from "./ui/stack.js";
 import { HOME_SOURCE } from "./ui/identity.js";
@@ -416,7 +416,7 @@ function HomePage({ subPath }: { subPath?: string }) {
   const yourMove = useMoves(rpc, refetch, false);
   const conversation = useConversationApi(rpc);
   const docs = useDocReaderApi(rpc);
-  const [stack, setStack] = useState<StackState>({ panels: [{ id: "queue", kind: "decision", title: "Queue" }], width: "third" });
+  const [stack, setStack] = useState<StackState>({ panels: [ROOT_PANEL], width: "third" });
   // Phones get the inbox layout; "Full view" keeps the desktop layout on this device until the page is reopened.
   const phone = useIsPhone();
   const [fullView, setFullView] = useState(false);

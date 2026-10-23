@@ -9,6 +9,9 @@ export type StackAction =
   | { type: "close" }
   | { type: "width"; key: "[" | "]" };
 
+/** Home's root panel. Esc never closes it, so Home is never left without the Queue. */
+export const ROOT_PANEL: Panel = { id: "queue", kind: "decision", title: "Queue" };
+
 const ORDER: WidthName[] = ["quarter", "third", "half"];
 const CSS: Record<WidthName, string> = { quarter: "25%", third: "33.333%", half: "50%" };
 export const SPINE_WIDTH = "34px";
@@ -18,9 +21,11 @@ export function stackReducer(s: StackState, a: StackAction): StackState {
     case "push":
       // An open panel moves to the top rather than duplicating.
       return { ...s, panels: [...s.panels.filter((p) => p.id !== a.panel.id), a.panel] };
-    case "close":
-      // The bottom panel is Home's root (the Queue): Esc never closes it, so Home is never left empty.
-      return s.panels.length > 1 ? { ...s, panels: s.panels.slice(0, -1) } : s;
+    case "close": {
+      // Esc closes the top panel, but never the Queue (which a push can move off the bottom) and never the last panel.
+      const top = s.panels[s.panels.length - 1];
+      return s.panels.length > 1 && top?.id !== ROOT_PANEL.id ? { ...s, panels: s.panels.slice(0, -1) } : s;
+    }
     case "width": {
       const i = ORDER.indexOf(s.width) + (a.key === "]" ? 1 : -1);
       return { ...s, width: ORDER[Math.min(ORDER.length - 1, Math.max(0, i))]! };
