@@ -140,6 +140,12 @@ describe("the definition is a tap target", () => {
     const html = renderToStaticMarkup(<QueueTabs tab="decide" onTab={() => {}} counts={null} definition="d" />);
     expect(html).toMatch(/<summary[^>]*class="[^"]*min-h-11/);
   });
+  it("below sm the Queue tabs wrap instead of scrolling off-screen, and no label splits", () => {
+    const html = renderToStaticMarkup(<QueueTabs tab="decide" onTab={() => {}} counts={null} />);
+    expect(html).toMatch(/class="[^"]*\bflex-wrap\b[^"]*\bsm:flex-nowrap\b[^"]*" data-queue-tabs/);
+    expect(html).not.toMatch(/[" ]overflow-x-auto/);
+    expect(html.match(/data-queue-tab="[^"]+" class="[^"]*whitespace-nowrap/g)).toHaveLength(4);
+  });
 });
 
 describe("second review: container height, changed content, unpunctuated prose", () => {
