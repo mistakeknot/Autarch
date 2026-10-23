@@ -133,6 +133,28 @@ describe("AUTA-456: each Blocked row collapses to one line", () => {
     expect(inside).toContain('data-option="a"');
   });
 
+  it("keeps only the line outside the disclosure: meta, refs, flags and the root state are behind Open card", () => {
+    const flagged = renderToStaticMarkup(<BlocksPanel data={q([row({ binding_state: null, refs: [{ ref: "K-9", counted: true }], overrides_generation: 2, changed_after_ruling: true })])} nowMs={NOW} onPick={noop as never} onOpen={noop} />);
+    const outside = flagged.slice(0, flagged.indexOf("<details")) + flagged.slice(flagged.indexOf("</details>"));
+    expect(outside).not.toContain("owner thr-a");
+    expect(outside).not.toContain("data-refs");
+    expect(outside).not.toContain("data-marker");
+    expect(outside).not.toContain("data-binding-flag");
+    expect(outside).not.toContain("data-root");
+    const summary = flagged.slice(flagged.indexOf("<summary"), flagged.indexOf("</summary>"));
+    expect(summary).toContain("data-row-flags");
+    expect(summary).toMatch(/not bound, overrides, changed/);
+    const inside = flagged.slice(flagged.indexOf("</summary>"), flagged.indexOf("</details>"));
+    expect(inside).toContain("owner thr-a");
+    expect(inside).toContain("data-binding-flag");
+    expect(inside).toContain('data-marker="override"');
+  });
+
+  it("the summary is one truncated line", () => {
+    const summary = html.slice(html.indexOf("<summary"), html.indexOf("</summary>"));
+    expect(summary).toContain("truncate");
+  });
+
   it("puts no card in front of a held or display-only row, which are already short", () => {
     const short = renderToStaticMarkup(
       <BlocksPanel data={q([row({ id: "h", decision_id: null, ask: null, revision: null, title: "Held", held }), row({ id: "o", decision_id: null, ask: null, revision: null, display_only: true, title: "Prose" })])} nowMs={NOW} onPick={noop as never} onOpen={noop} />,
