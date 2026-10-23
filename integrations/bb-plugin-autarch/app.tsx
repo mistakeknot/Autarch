@@ -28,7 +28,7 @@ import type { AsksData } from "./ui/asks.js";
 import { MobileInbox, useIsPhone } from "./ui/inbox.js";
 import { IdeaDesk, IdeaDigest, type IdeaApi } from "./ui/ideas.js";
 import type { IdeaProject, IdeaView } from "./ideas.js";
-import { CatchupPanel, markPlan, markResultText, normalizeCatchup, readableCatchup, SeenTracker, settleCatchup } from "./ui/catchup.js";
+import { CatchupPanel, markedRows, markPlan, markResultText, normalizeCatchup, readableCatchup, SeenTracker, settleCatchup } from "./ui/catchup.js";
 import { NoticeBanner } from "./ui/notices.js";
 import { singleFlight, type Flight } from "./ui/singleflight.js";
 import { buildMoveHandlers, rpcOutcome } from "./movehandlers.js";
@@ -39,7 +39,7 @@ import { MapPlaceholder } from "./ui/map-placeholder.js";
 import type { Lens } from "./ui/map-placeholder.js";
 import { BlocksPanel, QueueRefresher, type RootRunHooks } from "./ui/blocks.js";
 import type { QueueView } from "./ui/blocks.js";
-import { withoutOwed } from "./ui/blocks.js";
+import { blocksCount, withoutOwed } from "./ui/blocks.js";
 import { CardKeyNotice, cardKeyFrom, focusedAsks, startCardLookup, type CardLookup } from "./ui/cardlink.js";
 import { BindingsPanel, SettingsPanel } from "./ui/settings.js";
 import { UpdateMenu, updateLabel, type UpdateInfoView } from "./ui/update.js";
@@ -468,11 +468,12 @@ function HomePage({ subPath }: { subPath?: string }) {
   // A "Waiting for you" row for an ask that is set aside (Later or on hold) is not waiting; its tab already lists it.
   const readable = useMemo(() => readableCatchup(catchup, asks?.owed ?? null), [catchup, asks]);
   const [queueTab, setQueueTab] = useState<QueueTab>("decide");
-  const markIds = (ids: string[], routineLeft: number) => {
+  const markIds = (rows: string[][], routineLeft: number) => {
+    const ids = rows.flat();
     if (ids.length === 0) return;
     void rpc.call("markAllSeen", { ids }).then(
       (r) => {
-        setMarkResult(markResultText((r as { marked: string[] }).marked.length, routineLeft));
+        setMarkResult(markResultText(markedRows(rows, (r as { marked: string[] }).marked), routineLeft));
         refetch();
       },
       () => setMarkResult("That did not go through. Nothing was marked."),
@@ -558,7 +559,7 @@ function HomePage({ subPath }: { subPath?: string }) {
                 <NoticeBanner notices={notices} suspended={waiting?.suspended ?? true} onAcknowledge={(item) => void rpc.call("markSeen", { item }).then(refetch, () => {})} />
               </div>
             ) : null}
-            <QueueTabs tab={queueTab} onTab={setQueueTab} definition={waiting?.definition ?? null} counts={waiting ? { decide: waiting.decide, later: asks ? asks.owed.filter((o) => o.later && !o.held).length : waiting.later, blocks: waiting.held, catchup: waiting.updates } : null} />
+            <QueueTabs tab={queueTab} onTab={setQueueTab} definition={waiting?.definition ?? null} counts={waiting ? { decide: waiting.decide, later: asks ? asks.owed.filter((o) => o.later && !o.held).length : waiting.later, blocks: blocks.queue ? blocksCount(asks ? withoutOwed(blocks.queue, asks) : blocks.queue) : waiting.held, catchup: waiting.updates } : null} />
             <section role="tabpanel" id="queue-tabpanel" aria-labelledby={`queue-tab-${queueTab}`} data-queue-section={queueTab === "decide" ? "asks" : queueTab} className="border-b border-border">
               {queueTab === "decide"
                 ? render({ id: "asks", kind: "decision", title: "Asks", part: "decide" })
@@ -620,11 +621,11 @@ function HomePage({ subPath }: { subPath?: string }) {
             onVisibility={onVisibility}
             onMarkAll={() => {
               const plan = markPlan(readable, expanded, visible);
-              markIds(plan.ids, plan.routineLeft);
+              markIds(plan.rows, plan.routineLeft);
             }}
             onMarkOne={(item, members) => {
               setMarkResult(null);
-              markIds(members ?? [item], 0);
+              markIds([members ?? [item]], 0);
             }}
           />
         );

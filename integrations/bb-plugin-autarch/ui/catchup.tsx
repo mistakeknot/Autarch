@@ -107,10 +107,11 @@ export class SeenTracker {
  * What "Mark N seen" marks: exactly the rows the panel shows in full on screen. A row's text is its whole content, so
  * it only has to be on screen; a routine group needs to be opened (its lines listed) and on screen. An owed ask is
  * answered, never seen, and a notice is acknowledged on purpose, so neither is ever marked here [D-12].
+ * `count` is rows, as the "Since you left (N)" tab counts them: a routine group is one row however many updates it
+ * holds. `rows` lists each marked row's ids, so a result can be said in rows too.
  */
-export function markPlan(items: CatchupEntry[], expanded: Set<string>, visible: Set<string>): { ids: string[]; count: number; routineLeft: number; reason: string | null } {
-  const ids: string[] = [];
-  let count = 0;
+export function markPlan(items: CatchupEntry[], expanded: Set<string>, visible: Set<string>): { ids: string[]; rows: string[][]; count: number; routineLeft: number; reason: string | null } {
+  const rows: string[][] = [];
   let routineLeft = 0;
   for (const e of items) {
     if (e.kind === "owed" || isNoticeItem(e)) continue;
@@ -119,21 +120,26 @@ export function markPlan(items: CatchupEntry[], expanded: Set<string>, visible: 
         routineLeft += 1;
         continue;
       }
-      ids.push(...(e.members ?? [e.item]));
-      count += (e.members ?? [e.item]).length;
+      rows.push(e.members ?? [e.item]);
       continue;
     }
     if (!visible.has(e.item)) continue;
-    ids.push(e.item);
-    count += 1;
+    rows.push([e.item]);
   }
+  const count = rows.length;
   const reason = count > 0 ? null : `Nothing to mark: no unread row is on screen.${routineLeft > 0 ? " Open a routine group to read it, then mark it." : ""}`;
-  return { ids, count, routineLeft, reason };
+  return { ids: rows.flat(), rows, count, routineLeft, reason };
 }
 
 /** The ids "mark all seen" may send. */
 export function snapshotIds(items: CatchupEntry[], expanded: Set<string>, visible: Set<string>): string[] {
   return markPlan(items, expanded, visible).ids;
+}
+
+/** How many of the rows sent were marked: a row counts once any of its ids is, so the result is said in the same rows as the button and the tab. */
+export function markedRows(rows: string[][], marked: string[]): number {
+  const done = new Set(marked);
+  return rows.filter((r) => r.some((id) => done.has(id))).length;
 }
 
 /** What the panel says after a Mark N seen click: how many, and what was left. Never empty. */

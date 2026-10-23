@@ -1,6 +1,7 @@
 import type { Delegation } from "./asks.js";
 import { useState } from "react";
 import type { BindingView, UnboundView } from "./blocks.js";
+import { CONFIRM_LABEL, ConfirmTap } from "./confirmtap.js";
 
 export type DelegationInput = { vizierThreadId: string; projects: string[]; dailyCap: number };
 export type Parsed = { ok: true; value: DelegationInput } | { ok: false; error: string };
@@ -44,7 +45,13 @@ export function BindingsPanel({ bindings, unbound = [], serveProjects = [], inac
           <li key={b.tasks_project_id} data-binding={b.tasks_project_id} data-state={b.state}>
             {`${b.tasks_project_id} to ${b.home_project}: ${b.state}`}
             {b.state !== "confirmed" ? <button type="button" className="ml-2 underline" onClick={() => onBind({ tasks_project_id: b.tasks_project_id, state: "confirmed" })}>Confirm</button> : null}
-            {b.state !== "rejected" ? <button type="button" className="ml-2 underline" onClick={() => onBind({ tasks_project_id: b.tasks_project_id, state: "rejected" })}>Reject</button> : null}
+            {b.state !== "rejected" ? (
+              <ConfirmTap needsConfirm onConfirmed={() => onBind({ tasks_project_id: b.tasks_project_id, state: "rejected" })} resetKey={`${b.tasks_project_id}|${b.state}`}>
+                {({ armed, onClick, onBlur }) => (
+                  <button type="button" className={`ml-2 underline${armed ? " font-medium text-destructive" : ""}`} onClick={onClick} onBlur={onBlur} {...(armed ? { "data-confirming": "true" } : {})}>{armed ? CONFIRM_LABEL : "Reject"}</button>
+                )}
+              </ConfirmTap>
+            ) : null}
           </li>
         ))}
         {unbound.map((u) => <UnboundRow key={u.tasks_project_id} u={u} serveProjects={serveProjects} onBind={onBind} />)}

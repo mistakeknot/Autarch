@@ -57,6 +57,11 @@ export function withoutOwed(q: QueueView, asks: { owed: { id: string; held?: unk
   };
 }
 
+/** What the Blocked on others tab lists: the rows left after withoutOwed, plus the legacy asks. The tab count is this number. */
+export function blocksCount(q: QueueView): number {
+  return q.rows.length + q.legacy.count;
+}
+
 /** A human age such as "3 d" or "5 min", from an ISO time and a clock. */
 export function ageText(createdAt: string, nowMs: number): string {
   const t = Date.parse(createdAt);
@@ -121,8 +126,9 @@ function RootRunControl({ taskId, hooks }: { taskId: string; hooks: RootRunHooks
 
 export function BlocksRow({ row, nowMs, onPick, onOpen, rootRun, onBind, onNote }: { row: QueueRowView; nowMs: number; onPick: Pick; onOpen: (thread: string) => void; rootRun?: RootRunHooks; onBind?: OnBind; onNote?: OnNote }) {
   const meta = [row.card_key, row.project, row.thread ? `owner ${row.thread}` : "owner unknown", `age ${ageText(row.created_at, nowMs)}`, `blocks ${row.blocks_count}`].filter((x) => x !== null && x !== "").join(" - ");
-  return (
-    <article className={`rounded-lg border border-border bg-card p-3${row.held ? " opacity-60" : ""}`} data-row={row.id} data-pinned={row.pinned ? "true" : "false"}>
+  // Meta, refs, markers, the binding flag and the root state: shown on every row, and inside the disclosure on a card row.
+  const details = (
+    <>
       <p className="text-xs text-muted-foreground">{meta}</p>
       {row.refs.length > 0 ? (
         <p className="text-xs" data-refs="true">
@@ -134,6 +140,46 @@ export function BlocksRow({ row, nowMs, onPick, onOpen, rootRun, onBind, onNote 
       {row.overrides_generation !== null ? <p className="text-xs font-medium" data-marker="override">{`overrides vizier ruling g${row.overrides_generation}`}</p> : null}
       {row.changed_after_ruling ? <p className="text-xs font-medium" data-marker="changed">changed after ruling</p> : null}
       <BindingFlag row={row} {...(onBind ? { onBind } : {})} />
+    </>
+  );
+  const root = (
+    <>
+      <RootSection root={row.root} />
+      {rootRun ? <RootRunControl taskId={row.task_id} hooks={rootRun} /> : null}
+    </>
+  );
+  const className = `rounded-lg border border-border bg-card p-3${row.held ? " opacity-60" : ""}`;
+  if (!row.display_only && !row.held && row.ask !== null && row.decision_id !== null && row.revision !== null) {
+    // One line until opened: mk scans these cards and rarely answers one. The line carries the key, the title and short
+    // flags for what needs a look (not bound, overrides, changed); everything else sits behind "Open card".
+    const flags = [row.binding_state === "confirmed" || row.binding_state === "rejected" ? null : "not bound", row.overrides_generation !== null ? "overrides" : null, row.changed_after_ruling ? "changed" : null].filter((f): f is string => f !== null);
+    return (
+      <article className={className} data-row={row.id} data-pinned={row.pinned ? "true" : "false"}>
+        <details data-row-card>
+          <summary className="flex min-h-11 cursor-pointer list-none items-center gap-x-2 text-sm sm:min-h-0" data-row-summary>
+            {row.card_key ? <span className="shrink-0 select-all font-mono text-xs font-semibold" data-task-key>{row.card_key}</span> : null}
+            <span className="min-w-0 grow truncate font-medium">{row.title}</span>
+            {flags.length > 0 ? <span className="shrink-0 text-xs font-medium" data-row-flags>{flags.join(", ")}</span> : null}
+            <span className="shrink-0 text-xs text-muted-foreground underline">Open card</span>
+          </summary>
+          <div className="mt-2">
+            {details}
+            <AskCard
+              ask={{ id: row.decision_id, project: row.project ?? "", thread: row.thread ?? "", subject: row.title, key: row.card_key, asker: "card", filed_at: row.created_at, revision: row.revision, mentions: row.mentions, task_id: row.task_id, ask: row.ask }}
+              onPick={onPick}
+              onOpen={onOpen}
+              unbound={isUnbound(row)}
+              {...(onNote ? { onNote } : {})}
+            />
+            {root}
+          </div>
+        </details>
+      </article>
+    );
+  }
+  return (
+    <article className={className} data-row={row.id} data-pinned={row.pinned ? "true" : "false"}>
+      {details}
       {row.display_only ? (
         <div data-display-only="true">
           <h3 className="text-sm font-medium">{row.title}</h3>
@@ -149,17 +195,8 @@ export function BlocksRow({ row, nowMs, onPick, onOpen, rootRun, onBind, onNote 
           <h3 className="text-sm font-medium">{row.title}</h3>
           <p className="text-xs" data-hold-reason>{`On hold: ${row.held.reason}`}</p>
         </div>
-      ) : row.ask !== null && row.decision_id !== null && row.revision !== null ? (
-        <AskCard
-          ask={{ id: row.decision_id, project: row.project ?? "", thread: row.thread ?? "", subject: row.title, key: row.card_key, asker: "card", filed_at: row.created_at, revision: row.revision, mentions: row.mentions, task_id: row.task_id, ask: row.ask }}
-          onPick={onPick}
-          onOpen={onOpen}
-          unbound={isUnbound(row)}
-          {...(onNote ? { onNote } : {})}
-        />
       ) : null}
-      <RootSection root={row.root} />
-      {rootRun ? <RootRunControl taskId={row.task_id} hooks={rootRun} /> : null}
+      {root}
     </article>
   );
 }

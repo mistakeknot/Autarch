@@ -2,7 +2,7 @@
 // continued commands, prose false positives, and a waiting count that follows move actions.
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
-import { displayedTracker, isNoticeItem, markPlan, normalizeCatchup, SeenTracker, type CatchupEntry } from "../ui/catchup.js";
+import { displayedTracker, isNoticeItem, markedRows, markPlan, normalizeCatchup, SeenTracker, type CatchupEntry } from "../ui/catchup.js";
 import { buildMoveHandlers } from "../movehandlers.js";
 import { splitCommands, flagsOf } from "../ui/commandtext.js";
 import { QueueTabs } from "../ui/tabs.js";
@@ -230,8 +230,10 @@ describe("third review: valid commands, containment, one unit, badge refresh", (
   it("the button and the confirmation count the same thing: updates", () => {
     const group: CatchupEntry = { item: "routine:A", kind: "routine", at: "1", text: "3 routine updates in A", members: ["ruling:a", "ruling:b", "ruling:c"], lines: ["a", "b", "c"] };
     const plan = markPlan([group], new Set(["routine:A"]), new Set(["routine:A"]));
-    expect(plan.count).toBe(3);
-    expect(plan.ids).toHaveLength(plan.count);
+    // Rows, as the tab counts them: a routine group is one row, though marking it sends every member.
+    expect(plan.count).toBe(1);
+    expect(plan.ids).toHaveLength(3);
+    expect(markedRows(plan.rows, plan.ids)).toBe(plan.count);
   });
   it("acknowledging a notice tells every open surface, so the badge follows", async () => {
     const Database = (await import("better-sqlite3")).default;
