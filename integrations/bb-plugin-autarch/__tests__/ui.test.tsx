@@ -12,7 +12,7 @@ import { ageText, ApprovalsList, AsksPanel, expiryText, optionEffect, currentAsk
 import { CatchupPanel, observeVisibility, SeenTracker, snapshotIds, type CatchupEntry } from "../ui/catchup.js";
 import { MapPlaceholder } from "../ui/map-placeholder.js";
 import { BindingsPanel, parseDelegationForm, SettingsPanel } from "../ui/settings.js";
-import { layoutStack, ROOT_PANEL, stackReducer, type Panel, type StackState } from "../ui/stack.js";
+import { keyAction, layoutStack, ROOT_PANEL, stackReducer, type Panel, type StackState } from "../ui/stack.js";
 import { TellVizier, ThreadPanel, VizierPanel } from "../ui/vizier.js";
 import { RootRunSection, statusLine, type RootRunPanelView } from "../ui/rootrun.js";
 
@@ -232,6 +232,15 @@ describe("pick", () => {
 describe("stack", () => {
   const p = (id: string): Panel => ({ id, kind: "decision", title: id });
   const start: StackState = { panels: [], width: "third" };
+
+  it("the keyboard map holds only keys Home acts on, and 1-4 change the lens only while Map is on top", () => {
+    for (const k of ["j", "k", "Enter"]) expect(keyAction(k, { editable: false, mapOnTop: true })).toBeNull();
+    expect(keyAction("2", { editable: false })).toBeNull();
+    expect(keyAction("2", { editable: false, mapOnTop: false })).toBeNull();
+    expect(keyAction("2", { editable: false, mapOnTop: true })).toEqual({ type: "lens", lens: 2 });
+    expect(keyAction("Escape", { editable: false })).toEqual({ type: "close" });
+    expect(keyAction("Escape", { editable: true })).toBeNull();
+  });
 
   it("keeps the newest panel at 1/3 and collapses older ones to 34px spines", () => {
     let s = stackReducer(start, { type: "push", panel: p("a") });

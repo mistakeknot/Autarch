@@ -489,6 +489,9 @@ function HomePage({ subPath }: { subPath?: string }) {
     nav.openThreadPanel({ actionId: "home-blocks" });
   };
   const dispatch = (a: Parameters<typeof stackReducer>[1]) => setStack((s) => stackReducer(s, a));
+  // The key handler is registered once, so it reads the current stack through a ref.
+  const stackRef = useRef(stack);
+  stackRef.current = stack;
   const push = (panel: Panel) => dispatch({ type: "push", panel });
   const [update, setUpdate] = useState<UpdateInfoView | null>(null);
   const [updateError, setUpdateError] = useState<string | null>(null);
@@ -525,7 +528,8 @@ function HomePage({ subPath }: { subPath?: string }) {
     const onKey = (e: KeyboardEvent) => {
       const el = e.target as HTMLElement | null;
       const editable = !!el && (el.isContentEditable || ["INPUT", "TEXTAREA", "SELECT"].includes(el.tagName));
-      const intent = keyAction(e.key, { editable });
+      const mapOnTop = stackRef.current.panels[stackRef.current.panels.length - 1]?.kind === "map";
+      const intent = keyAction(e.key, { editable, mapOnTop });
       if (!intent) return;
       if (intent.type === "close") dispatch({ type: "close" });
       else if (intent.type === "width") dispatch(intent);
