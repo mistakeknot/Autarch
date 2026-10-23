@@ -472,8 +472,8 @@ export function owedTasks(data: AsksData): Set<string> {
   return new Set(data.owed.map((o) => o.task_id).filter((t): t is string => typeof t === "string"));
 }
 
-export function AsksPanel({ part, data, onPick, onOpen, onRevoke, onDismiss, onNote, onLater, onView, renderMoves, hideHeld, nowMs = Date.now() }: { /** Which part of the panel shows: the decide list alone, or Later alone. Unset shows both, as the Asks page does. */ part?: "decide" | "later"; hideHeld?: boolean; renderMoves?: (taskId: string) => ReactNode; data: AsksData; onPick: OnPick; onOpen: (thread: string) => void; onRevoke?: (approvalId: string) => void; onDismiss?: (decisionId: string, obligationId: string) => void; onNote?: OnNote; onLater?: OnLater; onView?: (decisionId: string | null) => void; nowMs?: number }) {
-  // In the Queue the held cards show under "Blocked on others"; shown here only on the Asks page.
+export function AsksPanel({ part, data, onPick, onOpen, onRevoke, onDismiss, onNote, onLater, onView, renderMoves, hideHeld, nowMs = Date.now() }: { /** Which part of the panel shows: the decide list alone, or Later alone. Unset shows both, as a card-key link does. */ part?: "decide" | "later"; hideHeld?: boolean; renderMoves?: (taskId: string) => ReactNode; data: AsksData; onPick: OnPick; onOpen: (thread: string) => void; onRevoke?: (approvalId: string) => void; onDismiss?: (decisionId: string, obligationId: string) => void; onNote?: OnNote; onLater?: OnLater; onView?: (decisionId: string | null) => void; nowMs?: number }) {
+  // In the Queue the held cards show under "Blocked on others"; shown here only on a card-key link.
   const held = hideHeld ? [] : data.owed.filter((o) => o.held);
   // Later cards leave the Decide list for their own group below it; a held card stays held even if it was also set aside.
   const later = data.owed.filter((o) => o.later && !o.held);

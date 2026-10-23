@@ -64,14 +64,20 @@ describe("every surface shows the same number", () => {
     expect(badgeCount({ ...W, total: 0 }, { blocked: false, unowned: false })).toBeNull();
   });
   it("the Queue tab carries the total", () => {
-    const html = renderToStaticMarkup(<HomeTabs classic={false} waiting={W.total} onOpen={noop} onToggleClassic={noop} onTodos={noop} />);
+    const html = renderToStaticMarkup(<HomeTabs waiting={W.total} onOpen={noop} onTodos={noop} />);
     expect(html).toContain("Queue (7)");
-    expect(homeTabs(false)[0]![2]).toBe("Queue");
+    expect(homeTabs()[0]![2]).toBe("Queue");
   });
   it("the Ideas tab sits between Queue and Vizier and carries the open-idea count", () => {
-    expect(homeTabs(false).map((t) => t[2])).toEqual(["Queue", "Ideas", "Vizier", "Map", "Settings"]);
-    const html = renderToStaticMarkup(<HomeTabs classic={false} waiting={W.total} ideas={3} onOpen={noop} onToggleClassic={noop} onTodos={noop} />);
+    expect(homeTabs().map((t) => t[2])).toEqual(["Queue", "Ideas", "Vizier", "Map", "Settings"]);
+    const html = renderToStaticMarkup(<HomeTabs waiting={W.total} ideas={3} onOpen={noop} onTodos={noop} />);
     expect(html).toContain("Ideas (3)");
-    expect(renderToStaticMarkup(<HomeTabs classic={false} onOpen={noop} onToggleClassic={noop} onTodos={noop} />)).not.toContain("Ideas (");
+    expect(renderToStaticMarkup(<HomeTabs onOpen={noop} onTodos={noop} />)).not.toContain("Ideas (");
+  });
+  it("the tab row has no Classic tabs switch and no separate Asks, Blocking or Catch-up tab: the Queue holds them", () => {
+    const html = renderToStaticMarkup(<HomeTabs learn onOpen={noop} onTodos={noop} />);
+    expect(html).not.toContain("Classic tabs");
+    expect(html).not.toContain("aria-pressed");
+    for (const id of ["asks", "blocks", "catchup"]) expect(homeTabs(true).some((t) => t[0] === id)).toBe(false);
   });
 });

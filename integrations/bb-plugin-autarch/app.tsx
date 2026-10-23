@@ -417,9 +417,6 @@ function HomePage({ subPath }: { subPath?: string }) {
   const conversation = useConversationApi(rpc);
   const docs = useDocReaderApi(rpc);
   const [stack, setStack] = useState<StackState>({ panels: [{ id: "queue", kind: "decision", title: "Queue" }], width: "third" });
-  // Q: one ranked queue is the default; the old Asks / Blocking / Catch-up tabs stay behind this setting.
-  const [classic, setClassic] = useState(() => { try { return localStorage.getItem("home.classicTabs") === "1"; } catch { return false; } });
-  const toggleClassic = () => setClassic((c) => { const n = !c; try { localStorage.setItem("home.classicTabs", n ? "1" : "0"); } catch { /* storage unavailable: the choice lasts this session */ } return n; });
   // Phones get the inbox layout; "Full view" keeps the desktop layout on this device until the page is reopened.
   const phone = useIsPhone();
   const [fullView, setFullView] = useState(false);
@@ -564,11 +561,11 @@ function HomePage({ subPath }: { subPath?: string }) {
             <QueueTabs tab={queueTab} onTab={setQueueTab} definition={waiting?.definition ?? null} counts={waiting ? { decide: waiting.decide, later: asks ? asks.owed.filter((o) => o.later && !o.held).length : waiting.later, blocks: waiting.held, catchup: waiting.updates } : null} />
             <section role="tabpanel" id="queue-tabpanel" aria-labelledby={`queue-tab-${queueTab}`} data-queue-section={queueTab === "decide" ? "asks" : queueTab} className="border-b border-border">
               {queueTab === "decide"
-                ? render({ id: "asks", kind: "decision", title: "Asks", hideHeld: true, part: "decide" })
+                ? render({ id: "asks", kind: "decision", title: "Asks", part: "decide" })
                 : queueTab === "later"
-                  ? render({ id: "asks", kind: "decision", title: "Asks", hideHeld: true, part: "later" })
+                  ? render({ id: "asks", kind: "decision", title: "Asks", part: "later" })
                   : queueTab === "blocks"
-                    ? render({ id: "blocks", kind: "decision", title: "Blocking", hideOwed: true })
+                    ? render({ id: "blocks", kind: "decision", title: "Blocking" })
                     : render({ id: "catchup", kind: "catchup", title: "Catch-up" })}
             </section>
           </>
@@ -580,7 +577,7 @@ function HomePage({ subPath }: { subPath?: string }) {
           <>
           <AsksPanel
             data={asks}
-            {...(panel.hideHeld ? { hideHeld: true } : {})}
+            hideHeld
             {...(panel.part ? { part: panel.part } : {})}
             onNote={(decision_id, text, images) => yourMove.note({ decision_id }, text, images)}
             onLater={(ref, on) => laterOutcome(rpc.call(on ? "later" : "unlater", { ref })).then((o) => { refetchAll(); return o; })}
@@ -601,7 +598,7 @@ function HomePage({ subPath }: { subPath?: string }) {
           <BlocksPanel
             rootRun={rootRuns}
             onBind={(b) => void rpc.call("setBinding", b).then(refetchAll, () => {})}
-            data={panel.hideOwed && asks ? withoutOwed(blocks.queue, asks) : blocks.queue}
+            data={asks ? withoutOwed(blocks.queue, asks) : blocks.queue}
             nowMs={Date.now()}
             onNote={(decision_id, text, images) => yourMove.note({ decision_id }, text, images)}
             onOpen={openBeside}
@@ -738,7 +735,7 @@ function HomePage({ subPath }: { subPath?: string }) {
     <div className="flex h-full min-h-0 flex-1 flex-col" data-home-source={HOME_SOURCE}>
       {keyNotice}
       {phone && fullView ? <button type="button" className="min-h-11 border-b border-border px-4 text-left text-sm underline" onClick={() => setFullView(false)} data-inbox-return>‹ Back to the phone inbox</button> : null}
-      <HomeTabs extra={updateLabel(update) ? <UpdateMenu info={update} onRequest={requestUpdate} error={updateError} /> : undefined} classic={classic} learn={learn.enabled} {...(waiting ? { waiting: waiting.total } : {})} ideas={openIdeas} onOpen={push} onToggleClassic={toggleClassic} onTodos={() => nav.toPluginPanel("example-todos")} />
+      <HomeTabs extra={updateLabel(update) ? <UpdateMenu info={update} onRequest={requestUpdate} error={updateError} /> : undefined} learn={learn.enabled} {...(waiting ? { waiting: waiting.total } : {})} ideas={openIdeas} onOpen={push} onTodos={() => nav.toPluginPanel("example-todos")} />
       <StackView placed={layoutStack(stack)} render={render} onExpand={push} />
     </div>
     </DocReaderHost></ConversationProvider>

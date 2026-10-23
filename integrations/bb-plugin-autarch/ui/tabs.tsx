@@ -2,12 +2,12 @@
 import type { ReactNode } from "react";
 import type { Panel } from "./stack.js";
 
-export type TabId = "queue" | "asks" | "blocks" | "catchup" | "ideas" | "learn" | "vizier" | "map" | "settings";
+export type TabId = "queue" | "ideas" | "learn" | "vizier" | "map" | "settings";
 
-export function homeTabs(classic: boolean, learn = false): ReadonlyArray<readonly [TabId, Panel["kind"], string]> {
+/** The Queue holds asks, Later, blocked cards and catch-up as its own tabs; the row has no separate Asks, Blocking or Catch-up tab. */
+export function homeTabs(learn = false): ReadonlyArray<readonly [TabId, Panel["kind"], string]> {
   return [
     ["queue", "decision", "Queue"],
-    ...(classic ? ([["asks", "decision", "Asks"], ["blocks", "decision", "Blocking"], ["catchup", "catchup", "Catch-up"]] as const) : []),
     ["ideas", "ideas", "Ideas"],
     ...(learn ? ([["learn", "learn", "Learn"]] as const) : []),
     ["vizier", "vizier", "Vizier"],
@@ -16,19 +16,16 @@ export function homeTabs(classic: boolean, learn = false): ReadonlyArray<readonl
   ];
 }
 
-export function HomeTabs({ classic, learn = false, waiting, ideas, onOpen, onToggleClassic, onTodos, extra }: { extra?: ReactNode; classic: boolean; learn?: boolean | undefined; waiting?: number | undefined; ideas?: number | undefined; onOpen: (p: { id: string; kind: Panel["kind"]; title: string }) => void; onToggleClassic: () => void; onTodos: () => void }) {
+export function HomeTabs({ learn = false, waiting, ideas, onOpen, onTodos, extra }: { extra?: ReactNode; learn?: boolean | undefined; waiting?: number | undefined; ideas?: number | undefined; onOpen: (p: { id: string; kind: Panel["kind"]; title: string }) => void; onTodos: () => void }) {
   return (
     <>
     <nav className="flex gap-3 overflow-x-auto whitespace-nowrap border-b border-border px-4 py-1 text-sm sm:py-2" data-home-tabs>
-      {homeTabs(classic, learn).map(([id, kind, title]) => (
+      {homeTabs(learn).map(([id, kind, title]) => (
         <button key={id} type="button" className="min-h-11 shrink-0 underline-offset-2 hover:underline sm:min-h-0" onClick={() => onOpen({ id, kind, title })}>
           {id === "queue" && waiting !== undefined ? `${title} (${waiting})` : id === "ideas" && ideas !== undefined ? `${title} (${ideas})` : title}
         </button>
       ))}
-      <button type="button" className="ml-auto min-h-11 shrink-0 text-muted-foreground sm:min-h-0" aria-pressed={classic} onClick={onToggleClassic}>
-        Classic tabs
-      </button>
-      <button type="button" className="min-h-11 shrink-0 text-muted-foreground sm:min-h-0" onClick={onTodos}>
+      <button type="button" className="ml-auto min-h-11 shrink-0 text-muted-foreground sm:min-h-0" onClick={onTodos}>
         Todos
       </button>
     </nav>

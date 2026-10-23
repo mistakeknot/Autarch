@@ -143,10 +143,10 @@ describe("reading Learn state", () => {
 describe("the tab and the panel", () => {
   const noop = () => {};
   it("the Learn tab is absent by default and present when on", () => {
-    expect(homeTabs(false).map((t) => t[2])).toEqual(["Queue", "Ideas", "Vizier", "Map", "Settings"]);
-    expect(homeTabs(false, true).map((t) => t[2])).toEqual(["Queue", "Ideas", "Learn", "Vizier", "Map", "Settings"]);
-    expect(renderToStaticMarkup(<HomeTabs classic={false} onOpen={noop} onToggleClassic={noop} onTodos={noop} />)).not.toContain("Learn");
-    expect(renderToStaticMarkup(<HomeTabs classic={false} learn onOpen={noop} onToggleClassic={noop} onTodos={noop} />)).toContain("Learn");
+    expect(homeTabs().map((t) => t[2])).toEqual(["Queue", "Ideas", "Vizier", "Map", "Settings"]);
+    expect(homeTabs(true).map((t) => t[2])).toEqual(["Queue", "Ideas", "Learn", "Vizier", "Map", "Settings"]);
+    expect(renderToStaticMarkup(<HomeTabs onOpen={noop} onTodos={noop} />)).not.toContain("Learn");
+    expect(renderToStaticMarkup(<HomeTabs learn onOpen={noop} onTodos={noop} />)).toContain("Learn");
   });
   const cards = loadDeck(shipped).map((c, i) => ({ ...c, mark: (i === 0 ? "got" : i === 1 ? "later" : null) as "got" | "later" | null }));
   it("orders unread first, then Later, then Got it", () => {

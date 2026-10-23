@@ -10,7 +10,7 @@ const NOW = Date.parse("2026-10-08T00:00:00Z");
 const H = "px-2 pt-2 text-xs font-semibold uppercase text-muted-foreground sm:px-4 sm:pt-3";
 createRoot(document.getElementById("root")!).render(
   <div>
-    <HomeTabs classic={false} waiting={waiting.total} onOpen={() => {}} onToggleClassic={() => {}} onTodos={() => {}} />
+    <HomeTabs waiting={waiting.total} onOpen={() => {}} onTodos={() => {}} />
     <WaitingStrip waiting={waiting as never} onJump={() => {}} />
     <div className="p-2 sm:p-4"><NoticeBanner notices={waiting.noticeItems} suspended onAcknowledge={() => {}} /></div>
     <section className="border-b border-border">

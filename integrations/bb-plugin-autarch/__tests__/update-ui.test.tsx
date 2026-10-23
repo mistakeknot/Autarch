@@ -40,7 +40,7 @@ describe("UpdateMenu placement", () => {
   });
   it("HomeTabs puts the extra outside the scrolling nav", async () => {
     const { HomeTabs } = await import("../ui/tabs.js");
-    const h = renderToStaticMarkup(<HomeTabs classic={false} extra={<UpdateMenu info={base} onRequest={() => {}} />} onOpen={() => {}} onToggleClassic={() => {}} onTodos={() => {}} />);
+    const h = renderToStaticMarkup(<HomeTabs extra={<UpdateMenu info={base} onRequest={() => {}} />} onOpen={() => {}} onTodos={() => {}} />);
     const nav = h.slice(h.indexOf("<nav"), h.indexOf("</nav>"));
     expect(nav).not.toContain("data-update-menu");
     expect(h).toContain("data-home-extra");
