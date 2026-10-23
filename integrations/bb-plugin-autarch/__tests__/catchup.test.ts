@@ -191,3 +191,16 @@ describe("the cap keeps the newest across rulings and closures (bead mk-ykk6r re
     expect(g.members![g.members!.length - 1]).toBe(`ruling:${fresh}`);
   });
 });
+
+describe("mark-seen is not limited to the page last sent (bead mk-ykk6r review)", () => {
+  it("marks every displayed member even when a newer ruling displaced one from the capped page", async () => {
+    const { ROUTINE_GROUP_MAX } = await import("../catchup.js");
+    for (let i = 0; i < ROUTINE_GROUP_MAX; i++) pick(await file(`thr-pg-${i}`));
+    const shown = cu.items().find((i) => i.kind === "routine")!.members!;
+    expect(shown).toHaveLength(ROUTINE_GROUP_MAX);
+    env.clock.t += 1000;
+    pick(await file("thr-newer")); // arrives after the panel rendered, pushing the oldest shown member out of the page
+    expect(cu.items().find((i) => i.kind === "routine")!.members).not.toContain(shown[0]);
+    expect(cu.markAllSeen(shown)).toHaveLength(ROUTINE_GROUP_MAX);
+  });
+});

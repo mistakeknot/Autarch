@@ -119,7 +119,8 @@ export class Catchup {
 
   // ---- the ranked list ------------------------------------------------------------
 
-  items(): CatchupItem[] {
+  /** What the panel gets. `all` skips the routine cap: mark-seen validates against every eligible fact, not only the page last sent. */
+  items(all = false): CatchupItem[] {
     const seen = (item: string) => this.store.hasSeen(MK, item);
     const failures: CatchupItem[] = [];
     for (const e of this.db.prepare("SELECT seq, at, detail_json FROM events WHERE type = 'turn-failed' ORDER BY seq DESC").all() as { seq: number; at: string; detail_json: string }[]) {
@@ -184,7 +185,7 @@ export class Catchup {
       g.members = order.map((i) => g.members![i]!);
       g.lines = order.map((i) => g.lines![i]!);
     }
-    capRoutine(routine);
+    if (!all) capRoutine(routine);
 
     const notes: CatchupItem[] = [];
     for (const n of this.db.prepare("SELECT id, at, text, cites_json FROM notes ORDER BY at, rowid").all() as { id: string; at: string; text: string; cites_json: string }[]) {
@@ -202,7 +203,7 @@ export class Catchup {
    */
   markAllSeen(snapshot: string[]): string[] {
     const valid = new Set<string>();
-    for (const i of this.items()) {
+    for (const i of this.items(true)) {
       if (i.kind === "owed" || i.kind === "notice") continue;
       if (i.kind === "routine") for (const m of i.members ?? []) valid.add(m);
       else valid.add(i.item);
