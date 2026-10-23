@@ -2,6 +2,18 @@
 import type { ReactNode } from "react";
 import type { Panel } from "./stack.js";
 
+/** The removed Classic tabs switch stored its choice here; nothing reads it now, so Home clears it on load. */
+export const RETIRED_CLASSIC_KEY = "home.classicTabs";
+
+/** Takes a getter because reading localStorage itself throws where storage is blocked. */
+export function forgetClassicTabs(storage: () => Pick<Storage, "removeItem"> | null | undefined): void {
+  try {
+    storage()?.removeItem(RETIRED_CLASSIC_KEY);
+  } catch {
+    // storage unavailable or blocked: nothing to clear
+  }
+}
+
 export type TabId = "queue" | "ideas" | "learn" | "vizier" | "map" | "settings";
 
 /** The Queue holds asks, Later, blocked cards and catch-up as its own tabs; the row has no separate Asks, Blocking or Catch-up tab. */
