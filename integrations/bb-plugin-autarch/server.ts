@@ -488,18 +488,20 @@ export function wireHome(bb: BbPluginApi, handle: StoreHandle, cfg: HomeConfig, 
 
   // ---- RPC ------------------------------------------------------------------------
   const learnDir = join(dirname(fileURLToPath(import.meta.url)), "learn");
+  // Thread titles are a read-only peek; when the thread list cannot be read the card shows the thread id.
+  const threadTitles = async (): Promise<Map<string, string>> => {
+    try {
+      // Bounded: a slow thread list must not hold the inbox, so the ids show after 1.5 s.
+      const rows = await Promise.race([listThreadRows({ cached: true }), new Promise<ThreadRow[]>((_, no) => setTimeout(() => no(new Error("thread list slow")), 1500).unref?.())]);
+      return new Map(rows.filter((t) => t.title).map((t) => [t.id, t.title as string]));
+    } catch {
+      return new Map(); // show ids
+    }
+  };
   const handlers = {
     async listAsks(_: null) {
       const p = need();
-      // Thread titles are a read-only peek; when the thread list cannot be read the card shows the thread id.
-      let titles = new Map<string, string>();
-      try {
-        // Bounded: a slow thread list must not hold the inbox, so the ids show after 1.5 s.
-        const rows = await Promise.race([listThreadRows({ cached: true }), new Promise<ThreadRow[]>((_, no) => setTimeout(() => no(new Error("thread list slow")), 1500).unref?.())]);
-        titles = new Map(rows.filter((t) => t.title).map((t) => [t.id, t.title as string]));
-      } catch {
-        /* show ids */
-      }
+      const titles = await threadTitles();
       const rows = p.svc.owed().map((d) => ({
         id: d.id,
         project: d.project,
@@ -548,7 +550,10 @@ export function wireHome(bb: BbPluginApi, handle: StoreHandle, cfg: HomeConfig, 
       } catch {
         /* serve down: no picker choices until it is back */
       }
-      return { ...buildQueue(p.svc, p.asks, i.thread === undefined ? {} : { thread: i.thread }), serve_projects: serveProjects, status: queueRef?.status() ?? null };
+      const q = buildQueue(p.svc, p.asks, i.thread === undefined ? {} : { thread: i.thread });
+      // A Blocked row names its owner thread by title, as an Asks card does (bead mk-4mhv2).
+      const titles = q.rows.some((r) => r.thread) ? await threadTitles() : new Map<string, string>();
+      return { ...q, rows: q.rows.map((r) => ({ ...r, thread_title: r.thread ? titles.get(r.thread) ?? null : null })), serve_projects: serveProjects, status: queueRef?.status() ?? null };
     },
     async rootRun(i: { task_id: string }) {
       const p = need();

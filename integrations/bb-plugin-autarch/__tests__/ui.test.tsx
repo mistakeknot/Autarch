@@ -572,6 +572,14 @@ describe("blocks panel", () => {
     expect(html).toContain("blocks 1");
     expect(html).toContain('data-counted="false"');
   });
+  it("the owner thread shows by title when the server knows it, and by id when it does not", () => {
+    const titled = renderToStaticMarkup(<BlocksRow row={row({ thread: "thr-a", thread_title: "Autarch | coordinator" })} nowMs={NOW} onPick={() => {}} onOpen={() => {}} />);
+    expect(titled).toContain("owner Autarch | coordinator");
+    expect(titled).not.toContain("owner thr-a");
+    const shown = renderToStaticMarkup(<BlocksRow row={row({ thread: "thr-a", thread_title: "Autarch | coordinator", decision_id: null, ask: null, revision: null, display_only: true, display_reason: "no home-ask block" })} nowMs={NOW} onPick={() => {}} onOpen={() => {}} />);
+    expect(shown).toMatch(/<button type="button" class="underline">Autarch \| coordinator<\/button>/);
+    expect(renderToStaticMarkup(<BlocksRow row={row({ thread: "thr-a" })} nowMs={NOW} onPick={() => {}} onOpen={() => {}} />)).toContain("owner thr-a");
+  });
   it("a row with no asking thread says the owner is unknown", () => {
     const html = renderToStaticMarkup(<BlocksRow row={row({ thread: null })} nowMs={NOW} onPick={() => {}} onOpen={() => {}} />);
     expect(html).toContain("owner unknown");

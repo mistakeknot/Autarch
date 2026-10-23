@@ -16,6 +16,7 @@ export type QueueRowView = {
   blocks_count: number;
   created_at: string;
   thread: string | null;
+  thread_title?: string | null;
   pinned: boolean;
   ask: OwedAsk["ask"] | null;
   revision: string | null;
@@ -125,7 +126,7 @@ function RootRunControl({ taskId, hooks }: { taskId: string; hooks: RootRunHooks
 }
 
 export function BlocksRow({ row, nowMs, onPick, onOpen, rootRun, onBind, onNote }: { row: QueueRowView; nowMs: number; onPick: Pick; onOpen: (thread: string) => void; rootRun?: RootRunHooks; onBind?: OnBind; onNote?: OnNote }) {
-  const meta = [row.card_key, row.project, row.thread ? `owner ${row.thread}` : "owner unknown", `age ${ageText(row.created_at, nowMs)}`, `blocks ${row.blocks_count}`].filter((x) => x !== null && x !== "").join(" - ");
+  const meta = [row.card_key, row.project, row.thread ? `owner ${row.thread_title || row.thread}` : "owner unknown", `age ${ageText(row.created_at, nowMs)}`, `blocks ${row.blocks_count}`].filter((x) => x !== null && x !== "").join(" - ");
   // Meta, refs, markers, the binding flag and the root state: shown on every row, and inside the disclosure on a card row.
   const details = (
     <>
@@ -165,7 +166,7 @@ export function BlocksRow({ row, nowMs, onPick, onOpen, rootRun, onBind, onNote 
           <div className="mt-2">
             {details}
             <AskCard
-              ask={{ id: row.decision_id, project: row.project ?? "", thread: row.thread ?? "", subject: row.title, key: row.card_key, asker: "card", filed_at: row.created_at, revision: row.revision, mentions: row.mentions, task_id: row.task_id, ask: row.ask }}
+              ask={{ id: row.decision_id, project: row.project ?? "", thread: row.thread ?? "", thread_title: row.thread_title ?? null, subject: row.title, key: row.card_key, asker: "card", filed_at: row.created_at, revision: row.revision, mentions: row.mentions, task_id: row.task_id, ask: row.ask }}
               onPick={onPick}
               onOpen={onOpen}
               unbound={isUnbound(row)}
@@ -186,7 +187,7 @@ export function BlocksRow({ row, nowMs, onPick, onOpen, rootRun, onBind, onNote 
           <p className="text-xs" role="note">{`display only: ${row.display_reason ?? "unknown"}`}</p>
           <p className="text-xs text-muted-foreground">
             {row.card_key ? `Open ${row.card_key} in Tasks to fix it. ` : ""}
-            {row.thread ? <button type="button" className="underline" onClick={() => onOpen(row.thread!)}>{row.thread}</button> : null}
+            {row.thread ? <button type="button" className="underline" onClick={() => onOpen(row.thread!)}>{row.thread_title || row.thread}</button> : null}
           </p>
           {row.held ? <p className="text-xs" data-hold-reason>{`On hold: ${row.held.reason}`}</p> : null}
         </div>
