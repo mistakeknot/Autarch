@@ -254,6 +254,11 @@ but the routing comment failed (re-run the same command), 5 already ruled (mk pi
 			if project == "" || title == "" || (askFile == "" && moveFile == "") {
 				return &usageError{"--project, --title and --ask-file are required (--ask-file may be left out with --move)"}
 			}
+			if cmd.Flags().Changed("request") {
+				if err := homeask.CheckRequestKey(request); err != nil {
+					return &usageError{"--request: " + err.Error()}
+				}
+			}
 			var move map[string]any
 			if moveFile != "" {
 				var err error
@@ -342,6 +347,6 @@ but the routing comment failed (re-run the same command), 5 already ruled (mk pi
 	cmd.Flags().StringVar(&askFile, "ask-file", "", "JSON file with the ask")
 	cmd.Flags().StringVar(&moveFile, "move", "", "home-move/v1 JSON file: what mk owes (script, pr, read or context); adds the mk-move label")
 	cmd.Flags().StringVar(&rootRun, "root-run", "", "script=<abs path>,timeout=<seconds>,set=<name>")
-	cmd.Flags().StringVar(&request, "request", "", "Request key (default: derived from thread and ask)")
+	cmd.Flags().StringVar(&request, "request", "", "Request key (default: derived from thread and ask); when given it must be non-empty and match the Request line key pattern")
 	return cmd
 }

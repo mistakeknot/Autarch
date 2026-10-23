@@ -974,3 +974,12 @@ func TestCardFilerSearchIgnoresAnInheritedProjectContext(t *testing.T) {
 		t.Fatalf("res=%+v err=%v", res, err)
 	}
 }
+
+func TestDescriptionRefusesAMissingRequestLine(t *testing.T) {
+	for _, key := range []string{"", "  ", "has space"} {
+		_, _, err := CardRequest{Title: "t", Key: key, Ask: map[string]any{"question": "q?", "project": "p", "project_root": "/p"}}.Description()
+		if !errors.Is(err, ErrInvalid) || !strings.Contains(err.Error(), "Request line") {
+			t.Errorf("key %q: err=%v", key, err)
+		}
+	}
+}

@@ -422,3 +422,32 @@ func TestReadMoveFileTakesAFullEightThousandCharacterNeed(t *testing.T) {
 		t.Errorf("a 8000-character need (%d bytes) is refused: %v", len(body), err)
 	}
 }
+
+// A card without a Request line shows in Home as "Request line missing" and mk cannot act on it. The filer
+// must refuse before it calls bb, and the error must name the missing field.
+func TestNeedsMkFileRefusesAnEmptyRequestKey(t *testing.T) {
+	t.Setenv("BB_THREAD_ID", "thread-x")
+	for _, rq := range []string{"", "   ", "a b"} {
+		s := &stubBB{}
+		_, err := runNeedsMk(t, s, "file", "--project", "P1", "--title", "x", "--ask-file", writeAsk(t), "--request", rq)
+		if exitCode(err) != 2 || err == nil || !strings.Contains(err.Error(), "--request") || !strings.Contains(err.Error(), "Request line") {
+			t.Errorf("--request %q: err=%v", rq, err)
+		}
+		if len(s.calls) != 0 || s.creates != 0 {
+			t.Errorf("--request %q: bb was run: %v", rq, s.calls)
+		}
+	}
+}
+
+// Without --request the filer derives a key, so the card it writes always carries a parseable Request line.
+func TestNeedsMkFileAlwaysWritesARequestLine(t *testing.T) {
+	t.Setenv("BB_THREAD_ID", "thread-x")
+	s := &stubBB{}
+	if _, err := runNeedsMk(t, s, "file", "--project", "P1", "--title", "x", "--ask-file", writeAsk(t)); err != nil {
+		t.Fatal(err)
+	}
+	c, err := homeask.ParseCard(s.desc)
+	if err != nil || c.Request.Key == "" || c.Request.Identity == "" {
+		t.Fatalf("card=%+v err=%v desc=%q", c, err, s.desc)
+	}
+}
