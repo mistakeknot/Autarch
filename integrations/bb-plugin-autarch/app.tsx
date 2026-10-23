@@ -44,7 +44,7 @@ import { CardKeyNotice, cardKeyFrom, focusedAsks, startCardLookup, type CardLook
 import { BindingsPanel, SettingsPanel } from "./ui/settings.js";
 import { UpdateMenu, updateLabel, updatePollMs, type UpdateInfoView } from "./ui/update.js";
 import { keyAction, layoutStack, ROOT_PANEL, stackReducer, StackView } from "./ui/stack.js";
-import { HomeTabs, QueueTabs, type QueueTab } from "./ui/tabs.js";
+import { forgetClassicTabs, HomeTabs, QueueTabs, type QueueTab } from "./ui/tabs.js";
 import type { Panel, StackState } from "./ui/stack.js";
 import { HOME_SOURCE } from "./ui/identity.js";
 import { LearnPanel, LearnSwitch, latestOnly, type LearnCardView } from "./ui/learn.js";
@@ -417,6 +417,7 @@ function HomePage({ subPath }: { subPath?: string }) {
   const conversation = useConversationApi(rpc);
   const docs = useDocReaderApi(rpc);
   const [stack, setStack] = useState<StackState>({ panels: [ROOT_PANEL], width: "third" });
+  useEffect(() => forgetClassicTabs(() => localStorage), []);
   // Phones get the inbox layout; "Full view" keeps the desktop layout on this device until the page is reopened.
   const phone = useIsPhone();
   const [fullView, setFullView] = useState(false);
@@ -489,6 +490,9 @@ function HomePage({ subPath }: { subPath?: string }) {
     nav.openThreadPanel({ actionId: "home-blocks" });
   };
   const dispatch = (a: Parameters<typeof stackReducer>[1]) => setStack((s) => stackReducer(s, a));
+  // The key handler is registered once, so it reads the current stack through a ref.
+  const stackRef = useRef(stack);
+  stackRef.current = stack;
   const push = (panel: Panel) => dispatch({ type: "push", panel });
   const [update, setUpdate] = useState<UpdateInfoView | null>(null);
   const [updateError, setUpdateError] = useState<string | null>(null);
@@ -526,7 +530,8 @@ function HomePage({ subPath }: { subPath?: string }) {
     const onKey = (e: KeyboardEvent) => {
       const el = e.target as HTMLElement | null;
       const editable = !!el && (el.isContentEditable || ["INPUT", "TEXTAREA", "SELECT"].includes(el.tagName));
-      const intent = keyAction(e.key, { editable });
+      const mapOnTop = stackRef.current.panels[stackRef.current.panels.length - 1]?.kind === "map";
+      const intent = keyAction(e.key, { editable, mapOnTop });
       if (!intent) return;
       if (intent.type === "close") dispatch({ type: "close" });
       else if (intent.type === "width") dispatch(intent);
@@ -645,7 +650,7 @@ function HomePage({ subPath }: { subPath?: string }) {
         return asks === null ? null : (
           <>
             <LearnSwitch enabled={learn.enabled} busy={learnBusy} onChange={(enabled) => setLearnState({ enabled })} />
-            <SettingsPanel delegation={asks.delegation} machineOwners={asks.machineOwners} onSave={(v) => void rpc.call("setDelegation", v).then(refetch, () => {})} />
+            <SettingsPanel delegation={asks.delegation} machineOwners={asks.machineOwners} onSave={(v) => rpc.call("setDelegation", v).finally(refetch)} />
             {blocks.queue === null ? null : (
               <BindingsPanel
                 bindings={blocks.queue.bindings}

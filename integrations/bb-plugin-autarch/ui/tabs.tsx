@@ -2,6 +2,18 @@
 import type { ReactNode } from "react";
 import type { Panel } from "./stack.js";
 
+/** The removed Classic tabs switch stored its choice here; nothing reads it now, so Home clears it on load. */
+export const RETIRED_CLASSIC_KEY = "home.classicTabs";
+
+/** Takes a getter because reading localStorage itself throws where storage is blocked. */
+export function forgetClassicTabs(storage: () => Pick<Storage, "removeItem"> | null | undefined): void {
+  try {
+    storage()?.removeItem(RETIRED_CLASSIC_KEY);
+  } catch {
+    // storage unavailable or blocked: nothing to clear
+  }
+}
+
 export type TabId = "queue" | "ideas" | "learn" | "vizier" | "map" | "settings";
 
 /** The Queue holds asks, Later, blocked cards and catch-up as its own tabs; the row has no separate Asks, Blocking or Catch-up tab. */
@@ -49,11 +61,12 @@ export function nextQueueTab(tab: QueueTab, key: string): QueueTab | null {
 }
 
 /** The Queue's own tabs: each paradigm gets a tab with its count, so no view makes mk scroll past one to reach another. */
+// Below sm the tabs wrap to a second line rather than scroll, so no tab sits off-screen with no cue; a label never splits.
 export function QueueTabs({ tab, counts, onTab, definition = null }: { tab: QueueTab; counts: Record<QueueTab, number> | null; onTab: (t: QueueTab) => void; definition?: string | null }) {
   return (
     <div className="border-b border-border px-2 sm:px-4">
     <div className="flex flex-wrap items-center gap-x-3">
-    <div role="tablist" aria-label="Queue" className="flex min-w-0 flex-1 gap-3 overflow-x-auto whitespace-nowrap" data-queue-tabs>
+    <div role="tablist" aria-label="Queue" className="flex min-w-0 flex-1 flex-wrap gap-x-3 sm:flex-nowrap sm:overflow-x-auto" data-queue-tabs>
       {QUEUE_TABS.map(([id, label]) => (
         <button
           key={id}
@@ -64,7 +77,7 @@ export function QueueTabs({ tab, counts, onTab, definition = null }: { tab: Queu
           aria-controls="queue-tabpanel"
           tabIndex={tab === id ? 0 : -1}
           data-queue-tab={id}
-          className={`min-h-11 shrink-0 px-1 text-sm underline-offset-4 ${tab === id ? "font-semibold underline" : "text-muted-foreground hover:underline"}`}
+          className={`min-h-11 shrink-0 whitespace-nowrap px-1 text-sm underline-offset-4 ${tab === id ? "font-semibold underline" : "text-muted-foreground hover:underline"}`}
           onClick={() => onTab(id)}
           onKeyDown={(e) => {
             const to = nextQueueTab(tab, e.key);

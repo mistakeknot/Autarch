@@ -11,7 +11,7 @@ import { GH_REF_SRC, refNodes, URL_SRC } from "./links.js";
 import { DocLink } from "./docreader.js";
 import type { Question } from "../model.js";
 import { MultiPick } from "./multipick.js";
-import { OtherBox, type OtherImage, type OtherOutcome } from "./other.js";
+import { OtherBox, otherHelpText, type OtherImage, type OtherOutcome } from "./other.js";
 
 /** What a pick hands back to the card: not ok means the card stays open and shows the error. */
 export type PickOutcome = { ok: boolean; error?: string };
@@ -333,7 +333,6 @@ export function AskCard({ ask, onPick, onOpen, nowMs, onNote, onLater, unbound =
       {onLater && ask.task_id ? (
         <div className="mt-3 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
           <ActionButton tone="quiet" className="sm:!min-h-11" onClick={() => void runLater(onLater, ask.task_id!, true, setLaterError)} data-later-set={ask.id}>Later</ActionButton>
-          <span>Sets this card aside: it stays open, moves below the others and drops out of Waiting on you.</span>
         </div>
       ) : null}
       <LaterFailure error={laterError} />
@@ -347,10 +346,26 @@ export function AskCard({ ask, onPick, onOpen, nowMs, onNote, onLater, unbound =
             return { ok: true };
           }}
           answerDisabledReason={unbound ? "Not available: this project is not bound." : hasRealOther ? "Not available: this ask has its own option named other." : undefined}
+          showHelp={false}
         />
       ) : null}
+      <HowThisWorks later={!!onLater && !!ask.task_id} note={onNote ? otherHelpText(!(unbound || hasRealOther)) : null} />
       <CardConversation taskId={ask.task_id} />
     </article>
+  );
+}
+
+export const LATER_HELP = "Later sets this card aside: it stays open, moves below the others and drops out of Waiting on you.";
+
+/** The card's standing help (Later, Ask / note), folded into one disclosure so it does not repeat open on every card. */
+function HowThisWorks({ later, note }: { later: boolean; note: string | null }) {
+  if (!later && note === null) return null;
+  return (
+    <details className="mt-2 text-xs text-muted-foreground" data-how>
+      <summary className="flex min-h-11 cursor-pointer items-center sm:min-h-0">How this works</summary>
+      {later ? <p className="mt-1" data-later-help>{LATER_HELP}</p> : null}
+      {note !== null ? <p className="mt-1" data-other-help>{note}</p> : null}
+    </details>
   );
 }
 

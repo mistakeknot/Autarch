@@ -32,11 +32,17 @@ export function otherText(raw: string): string | null {
   return n === 0 || n > OTHER_MAX ? null : t;
 }
 
+/** What Ask / note and the answer button do; an AskCard folds this into its "How this works" disclosure. */
+export function otherHelpText(withAnswer: boolean): string {
+  return `Ask / note sends a comment and wakes the owner; it never rules or closes. Images go to the owner with your words; an image alone is not sent.${withAnswer ? " The answer button records your words as your ruling." : ""}`;
+}
+
 export function OtherBox({
   onNote,
   onAnswer,
   answerDisabledReason,
   label = "Other",
+  showHelp = true,
 }: {
   onNote: (text: string, images?: OtherImage[]) => Promise<OtherOutcome | void> | void;
   /** Absent: the card cannot be ruled here (no pick buttons), so only Ask / note is offered. */
@@ -44,6 +50,8 @@ export function OtherBox({
   /** When set, "Answer with this" is shown disabled with this reason. */
   answerDisabledReason?: string | undefined;
   label?: string;
+  /** False when the caller shows the help text itself. */
+  showHelp?: boolean;
 }) {
   const [raw, setRaw] = useState("");
   const [busy, setBusy] = useState(false);
@@ -169,7 +177,7 @@ export function OtherBox({
         ) : null}
       </div>
       {answerDisabledReason ? <p className="mt-1 text-xs text-muted-foreground" data-other-answer-reason>{answerDisabledReason}</p> : null}
-      <p className="mt-1 text-xs text-muted-foreground" data-other-help>{`Ask / note sends a comment and wakes the owner; it never rules or closes. Images go to the owner with your words; an image alone is not sent.${onAnswer ? " The answer button records your words as your ruling." : ""}`}</p>
+      {showHelp ? <p className="mt-1 text-xs text-muted-foreground" data-other-help>{otherHelpText(!!onAnswer)}</p> : null}
       {msg ? <p role={msg.ok ? "status" : "alert"} className={`mt-1 text-xs ${msg.ok ? "text-muted-foreground" : "font-medium text-destructive"}`} data-other-result={msg.ok ? "ok" : "error"}>{msg.text}</p> : null}
     </div>
   );

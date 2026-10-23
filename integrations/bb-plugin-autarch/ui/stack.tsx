@@ -44,23 +44,18 @@ export function layoutStack(s: StackState): Placed[] {
   });
 }
 
-/** Keyboard map; null means the key is not ours and must fall through. */
+/** Keyboard map; null means the key is not ours and must fall through. Only keys Home acts on are here. */
 export type KeyIntent =
-  | { type: "next" }
-  | { type: "prev" }
-  | { type: "open" }
   | { type: "close" }
   | { type: "lens"; lens: number }
   | { type: "width"; key: "[" | "]" };
 
-export function keyAction(key: string, target: { editable: boolean }): KeyIntent | null {
+/** 1-4 pick the Map lens only while Map is the top panel, so a stray digit never changes a lens mk cannot see. */
+export function keyAction(key: string, target: { editable: boolean; mapOnTop?: boolean }): KeyIntent | null {
   if (target.editable) return null;
-  if (key === "j") return { type: "next" };
-  if (key === "k") return { type: "prev" };
-  if (key === "Enter") return { type: "open" };
   if (key === "Escape") return { type: "close" };
   if (key === "[" || key === "]") return { type: "width", key };
-  if (/^[1-4]$/.test(key)) return { type: "lens", lens: Number(key) };
+  if (target.mapOnTop && /^[1-4]$/.test(key)) return { type: "lens", lens: Number(key) };
   return null;
 }
 

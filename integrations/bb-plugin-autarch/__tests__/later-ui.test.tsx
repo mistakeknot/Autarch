@@ -8,7 +8,7 @@ vi.mock("@get-bb/plugin-sdk/app", () => ({ ThreadChat: () => null }));
 import { AsksPanel, AskCard, owedTasks, laterOutcome, runLater, LaterFailure, type AsksData, type OwedAsk } from "../ui/asks.js";
 import { MoveCard, moveButtons, omitDecisionPrMoves, omitLaterTasks, YourMovePanel } from "../ui/yourmove.js";
 import type { MoveView } from "../moveview.js";
-import { nextQueueTab, QueueTabs } from "../ui/tabs.js";
+import { forgetClassicTabs, nextQueueTab, QueueTabs, RETIRED_CLASSIC_KEY } from "../ui/tabs.js";
 import { waitingSummary } from "../ui/waiting.js";
 import type { Waiting } from "../waiting.js";
 
@@ -321,5 +321,16 @@ describe("Queue tabs", () => {
     expect(nextQueueTab("later", "Home")).toBe("decide");
     expect(nextQueueTab("later", "End")).toBe("catchup");
     expect(nextQueueTab("later", "a")).toBeNull();
+  });
+});
+
+describe("the retired Classic tabs key", () => {
+  it("is cleared on load, and blocked or missing storage is not an error", () => {
+    const removed: string[] = [];
+    forgetClassicTabs(() => ({ removeItem: (k: string) => void removed.push(k) }));
+    expect(removed).toEqual([RETIRED_CLASSIC_KEY]);
+    expect(RETIRED_CLASSIC_KEY).toBe("home.classicTabs");
+    expect(() => forgetClassicTabs(() => { throw new Error("SecurityError"); })).not.toThrow();
+    expect(() => forgetClassicTabs(() => null)).not.toThrow();
   });
 });
