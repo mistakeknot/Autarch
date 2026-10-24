@@ -921,7 +921,8 @@ export class Service {
    * windowed by `since`; `open` and `oldest_open_age_ms` are the state now (the age is null with nothing open).
    */
   private statsByProject(since: string): Record<string, ProjectStats> {
-    const out: Record<string, ProjectStats> = {};
+    // No prototype: a project may be named `constructor` or `__proto__`.
+    const out: Record<string, ProjectStats> = Object.create(null);
     const of = (project: string) => (out[project] ??= { filed: 0, filed_per_week: {}, picks: 0, picks_by: {}, open: 0, oldest_open_age_ms: null });
     for (const e of this.db
       .prepare("SELECT e.at AS at, d.project AS project FROM events e JOIN decisions d ON d.id = e.decision_id WHERE e.type IN ('filed','replaced') AND e.at >= ? ORDER BY e.seq")

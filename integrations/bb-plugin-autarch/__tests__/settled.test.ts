@@ -1,3 +1,4 @@
+import { execFileSync } from "node:child_process";
 import { mkdirSync, symlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -43,6 +44,15 @@ describe("readSettled", () => {
 
   it("a header-only file is zero, not an error", () => {
     expect(readSettled(put(HEADER))).toMatchObject({ ok: true, total: 0, count: 0 });
+  });
+
+  it("refuses a FIFO named settled-for-mk.md without blocking on it", () => {
+    const d = join(t.dir, "fifo");
+    mkdirSync(d);
+    execFileSync("mkfifo", [join(d, SETTLED_FILE)]);
+    const t0 = Date.now();
+    expect(readSettled(join(d, SETTLED_FILE))).toMatchObject({ ok: false });
+    expect(Date.now() - t0).toBeLessThan(1000);
   });
 
   it("refuses a relative path, another file name, a missing file, a directory, a symlink and an oversize file, without reading them", () => {

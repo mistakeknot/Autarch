@@ -1,6 +1,6 @@
 // Reader for a coordinator's `settled-for-mk.md` (bead mk-p02ft): the asks it settled itself instead of sending to mk,
 // so `bb home stats --settled-file PATH` can show them beside the ask counts. Read-only: it opens one file O_RDONLY |
-// O_NOFOLLOW, writes nothing and touches no Home table. An entry is a line after the `#` header that starts with
+// O_NOFOLLOW | O_NONBLOCK (so a FIFO is refused after fstat instead of blocking the open), writes nothing and touches no Home table. An entry is a line after the `#` header that starts with
 // `YYYY-MM-DD |`; every other line is ignored.
 import { constants as fsc, closeSync, fstatSync, openSync, readSync } from "node:fs";
 import { basename, isAbsolute } from "node:path";
@@ -31,7 +31,7 @@ export function readSettled(path: string, since?: string): SettledResult {
   let text: string;
   let fd = -1;
   try {
-    fd = openSync(path, fsc.O_RDONLY | fsc.O_NOFOLLOW);
+    fd = openSync(path, fsc.O_RDONLY | fsc.O_NOFOLLOW | fsc.O_NONBLOCK);
     const st = fstatSync(fd);
     if (!st.isFile()) return fail("not a regular file");
     if (st.size > SETTLED_MAX_BYTES) return fail("file too large");

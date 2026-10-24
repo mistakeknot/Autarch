@@ -570,6 +570,18 @@ describe("stats per project (bead mk-p02ft)", () => {
     expect(s.per_project).toEqual({ Autarch: { filed: 0, filed_per_week: {}, picks: 0, picks_by: {}, open: 1, oldest_open_age_ms: Date.parse("2026-10-20T09:00:00.000Z") - T0 } });
   });
 
+  it("handles a project named like an Object.prototype member", async () => {
+    for (const name of ["constructor", "toString", "__proto__"]) {
+      const root = env.addProject(name); // the helper's roots map is a plain object, so it cannot hold "__proto__"
+      await fileOk({ project: name, project_root: root, question: `${name}?`, subject: `s-${name}` });
+    }
+    const s = svc.stats("2026-09-01T00:00:00.000Z");
+    expect(Object.keys(s.per_project).sort()).toEqual(["__proto__", "constructor", "toString"]);
+    expect(s.per_project["constructor"]).toMatchObject({ filed: 1, open: 1 });
+    expect(s.per_project["__proto__"]).toMatchObject({ filed: 1, open: 1 });
+    expect(Object.keys(JSON.parse(JSON.stringify(s)).per_project)).toHaveLength(3);
+  });
+
   it("is an empty object with nothing filed, and a settled or replaced ask is not open", async () => {
     expect(svc.stats("2026-09-01T00:00:00.000Z").per_project).toEqual({});
     const a = await fileOk();
