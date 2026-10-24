@@ -55,13 +55,13 @@ describe("waiting strip", () => {
 });
 
 describe("every surface shows the same number", () => {
-  it("the badge is the total", () => {
-    expect(badgeCount(W, { blocked: false, unowned: false })).toBe("7");
+  it("the badge is the decision-card count, not the total", () => {
+    expect(badgeCount({ count: 4 }, { blocked: false, unowned: false })).toBe("4");
   });
   it("the badge keeps '!' for a blocked serve or an unowned machine blocker, and hides at zero", () => {
-    expect(badgeCount(W, { blocked: true, unowned: false })).toBe("!");
-    expect(badgeCount(W, { blocked: false, unowned: true })).toBe("!");
-    expect(badgeCount({ ...W, total: 0 }, { blocked: false, unowned: false })).toBeNull();
+    expect(badgeCount({ count: 4 }, { blocked: true, unowned: false })).toBe("!");
+    expect(badgeCount({ count: 4 }, { blocked: false, unowned: true })).toBe("!");
+    expect(badgeCount({ count: 0 }, { blocked: false, unowned: false })).toBeNull();
   });
   it("the Queue tab carries the total", () => {
     const html = renderToStaticMarkup(<HomeTabs waiting={W.total} onOpen={noop} onTodos={noop} />);

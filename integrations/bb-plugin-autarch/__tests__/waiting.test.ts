@@ -93,8 +93,21 @@ describe("waiting on mk", () => {
   });
 });
 
+describe("decisionCount (the rail badge)", () => {
+  it("counts open cards, held ones included, and is zero with none", async () => {
+    const r = rig({ legacyMoves: true });
+    r.enableDelegation();
+    expect(r.svc.decisionCount()).toBe(0);
+    const cards = Array.from({ length: 3 }, () => card(r));
+    await r.poll();
+    expect(r.svc.decisionCount()).toBe(3);
+    expect(r.svc.hold(cards[2]!.id, "waiting on the vendor", "mk")).toMatchObject({ ok: true });
+    expect(r.svc.decisionCount()).toBe(3);
+  });
+});
+
 describe("one number everywhere", () => {
-  it("the badge, the strip, the tab and the stats output show the same total", async () => {
+  it("the strip, the tab and the stats output show the same total; the badge shows the decision count", async () => {
     const { badgeCount, waitingSummary } = await import("../ui/waiting.js");
     const r = rig({ legacyMoves: true });
     r.enableDelegation();
@@ -104,7 +117,7 @@ describe("one number everywhere", () => {
     r.svc.store.recordEvent("vizier-adopted", null, { from: null, to: "thr_viz3", reason: "unset" });
     const w = count(r);
     expect(w.total).toBe(3);
-    expect(badgeCount(w, { blocked: false, unowned: false })).toBe("3");
+    expect(badgeCount({ count: r.svc.decisionCount() }, { blocked: false, unowned: false })).toBe("2");
     expect(waitingSummary(w).headline).toBe("Waiting on you: 3");
   });
 });
