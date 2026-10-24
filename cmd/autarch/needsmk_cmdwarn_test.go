@@ -15,6 +15,9 @@ func TestCommandWarning(t *testing.T) {
 		"own-line commands do not": {ownLine, false},
 		"prompt line does not":     {prompt, false},
 		"numbered line does not":   {listed, false},
+		"plain host and word":      {"Please run ssh buildhost uptime", true},
+		"plain file name":          {"Please run bash deploy.sh", true},
+		"two plain files":          {"Please run scp source.txt destination.txt", true},
 		"no command mention":       {"Collapse per project or per day?", false},
 		"the word bash alone":      {"Is bash the right shell?", false},
 	} {

@@ -69,6 +69,17 @@ describe("a command written inside a sentence, ended by a period after its path"
     expect(cmds("Run this: bash /tmp/x.sh --out .").map((x) => x.text)).toEqual(["bash /tmp/x.sh --out ."]);
     expect(cmds("Run this: bash /tmp/x.sh --out=/tmp/o --force. Then wait.").map((x) => x.text)).toEqual(["bash /tmp/x.sh --out=/tmp/o --force"]);
   });
+  it("keeps a later flag: a lowercase word after the period does not end a command that carries one", () => {
+    const c = cmds("Run: bash /tmp/check.sh --target=prod. check --dry-run");
+    expect(c.map((x) => x.text)).toEqual(["bash /tmp/check.sh --target=prod. check --dry-run"]);
+    const d = cmds("Run: bash /tmp/check. production --check");
+    expect(d.map((x) => x.text)).toEqual(["bash /tmp/check. production --check"]);
+  });
+
+  it("does not split on then after a comment mark or inside quotes", () => {
+    expect(cmds("Run: bash /tmp/check.sh # then bash /tmp/apply.sh").map((x) => x.text)).not.toContain("bash /tmp/apply.sh");
+    expect(cmds('Run: bash -c "first then bash /tmp/apply.sh"').map((x) => x.text)).toEqual(['bash -c "first then bash /tmp/apply.sh"']);
+  });
 });
 
 describe("flagsOf", () => {

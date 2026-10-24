@@ -231,7 +231,8 @@ Exit codes: 2 usage or refused, 3 Home or tasks unavailable.`,
 }
 
 var (
-	mentionsCommand = regexp.MustCompile(`\b(scp|ssh|bash)\s+(?:-|\S*[/@])`)
+	// An argument that looks like one (a flag, path, host or file name), or any argument after "run", "paste" and the like.
+	mentionsCommand = regexp.MustCompile(`(?i)\b(?:scp|ssh|bash)\s+(?:-|\S*[/@]|\S*\.\S)|\b(?:run|paste|execute|type)\b[^\n]{0,40}\b(?:scp|ssh|bash)\s+\S`)
 	ownLineCommand  = regexp.MustCompile(`(?m)^\s*(?:\$\s+|\(?\d{1,3}[.)]\s+)?(?:bash|sudo|runuser|scp|ssh|sh|python3)\s+\S`)
 )
 

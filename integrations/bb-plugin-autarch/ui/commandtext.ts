@@ -88,6 +88,12 @@ function listedCommandOf(line: string): { command: string; note: string | null }
   return command === null ? null : { command, note: null };
 }
 
+/** A period ends the sentence when a capital word follows. A lowercase word counts only when no flag follows on the line, so "--target=prod. check --dry-run" stays one command and loses no safety flag. */
+function sentenceEndsAfter(tail: string): boolean {
+  if (/^\s+(?:[A-Z]|$)/.test(tail)) return true;
+  return /^\s+[^\s\-&|;<>(]/.test(tail) && !/\s-\S/.test(tail);
+}
+
 /** Where an inline command ends: before a note in parentheses or a sentence end, outside quotes. A "(" right after an operator ("&& (cd x)") opens a subshell, and a period after a space ("--out .") is an argument. */
 function inlineEnd(rest: string, atParen = true): number {
   let quote = "";
@@ -99,7 +105,7 @@ function inlineEnd(rest: string, atParen = true): number {
     } else if (c === "'" || c === '"') quote = c;
     else if (c === "\\") i++;
     else if (atParen && c === "(" && i > 0 && /\s/.test(rest[i - 1]!) && !/(?:&&|\|\||[|;&])\s*$/.test(rest.slice(0, i))) return i;
-    else if (c === "." && i > 0 && /[^\s.]/.test(rest[i - 1]!) && (i + 1 === rest.length || /^\s+(?:[^\s\-&|;<>(]|$)/.test(rest.slice(i + 1)))) return i;
+    else if (c === "." && i > 0 && /[^\s.]/.test(rest[i - 1]!) && (i + 1 === rest.length || sentenceEndsAfter(rest.slice(i + 1)))) return i;
   }
   return rest.length;
 }
@@ -115,7 +121,8 @@ function inlineOf(line: string): { before: string; commands: string[]; after: st
     const rest = line.slice(start);
     const end = inlineEnd(rest);
     const whole = trimLine(rest.slice(0, end));
-    const pieces = whole.split(THEN_COMMAND);
+    // "then" is a word, not a step break, inside a quote, after a comment mark or after an escape: the shell reads those differently.
+    const pieces = /["'\\]|(?:^|\s)#/.test(whole) ? [whole] : whole.split(THEN_COMMAND);
     if (pieces.some((piece) => commandOf(piece) !== piece)) continue;
     const command = pieces[0]!;
     // A command has something that only a command has (a path, flag, operator or variable); "bash scripts" alone is a phrase.
