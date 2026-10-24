@@ -10,6 +10,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -229,6 +230,31 @@ Exit codes: 2 usage or refused, 3 Home or tasks unavailable.`,
 	return cmd
 }
 
+var (
+	// scp, ssh or bash followed by a word that is not common English ("bash is fine", "the bash scripts") reads as a command.
+	mentionsCommand = regexp.MustCompile(`(?i)\b(?:scp|ssh|bash)\s+`)
+	proseAfter      = regexp.MustCompile(`(?i)^(?:the|a|an|and|or|to|in|for|on|of|as|is|are|was|be|can|will|should|must|does|not|it|this|that|with|vs|scripts?|shell|keys?|access|commands?|sessions?|login|vs\.?)\b`)
+	ownLineCommand  = regexp.MustCompile(`(?m)^\s*(?:\$\s+|\(?\d{1,3}[.)]\s+)?(?:bash|sudo|runuser|scp|ssh|sh|python3)\s+\S`)
+)
+
+// commandWarning is non-empty when the question mentions scp, ssh or bash with an argument but no command stands on
+// its own line. Home puts a copy button on a command that has its own line; one buried in a sentence may get none.
+func commandWarning(question string) string {
+	if ownLineCommand.MatchString(question) {
+		return ""
+	}
+	found := false
+	for _, m := range mentionsCommand.FindAllStringSubmatchIndex(question, -1) {
+		if rest := strings.TrimLeft(question[m[1]:], " \t"); rest != "" && !proseAfter.MatchString(rest) {
+			found = true
+		}
+	}
+	if !found {
+		return ""
+	}
+	return "the question mentions scp, ssh or bash but no command stands on its own line, so Home may show no copy button for it; put each command on its own line"
+}
+
 func needsMkFileCmd() *cobra.Command {
 	var project, title, askFile, rootRun, request, moveFile string
 	var blocks []string
@@ -297,6 +323,9 @@ but the routing comment failed (re-run the same command), 5 already ruled (mk pi
 			}
 			if err := homeask.CheckOptionIDs(ask); err != nil {
 				return err
+			}
+			if w := commandWarning(fmt.Sprint(ask["question"])); w != "" {
+				fmt.Fprintln(cmd.ErrOrStderr(), "warning:", w)
 			}
 			ctx := cmd.Context()
 			if ctx == nil {

@@ -44,6 +44,50 @@ describe("splitCommands", () => {
   });
 });
 
+describe("a command written inside a sentence, ended by a period after its path", () => {
+  const TAIL = " sha256 aece88db373cb50e33bdb3ce53f8f10682c868f6906ea850ee21a898402d4e54; REHEARSED sha256=aece88db373cb50e33bdb3ce53f8f10682c868f6906ea850ee21a898402d4e54 check_rc=0; handoff-lint 0. Options: Run the check.";
+  const SCP = "scp user@host:/srv/x/check-mac.sh /tmp/";
+  const cmds = (t: string) => splitCommands(t).filter((p): p is Extract<ReturnType<typeof splitCommands>[number], { type: "command" }> => p.type === "command");
+
+  it("with && the copied command stops at the sentence end", () => {
+    const c = cmds(`In a second Mac terminal run this read-only check: ${SCP} && bash /tmp/check-mac.sh.${TAIL}`);
+    expect(c.map((x) => x.text)).toEqual([`${SCP} && bash /tmp/check-mac.sh`]);
+  });
+
+  it("with 'then' it becomes two commands, the last the one to run", () => {
+    const c = cmds(`In a second Mac terminal run this read-only check: ${SCP} then bash /tmp/check-mac.sh.${TAIL}`);
+    expect(c.map((x) => x.text)).toEqual([SCP, "bash /tmp/check-mac.sh"]);
+    expect(c.map((x) => x.role)).toEqual(["step", "final"]);
+  });
+
+  it("prose after the sentence end stays prose", () => {
+    const parts = splitCommands(`Run this: bash /tmp/x.sh. sha256 abc`);
+    expect(parts.at(-1)).toEqual({ type: "prose", text: ". sha256 abc" });
+  });
+
+  it("a flag or a lone dot after the command is still an argument", () => {
+    expect(cmds("Run this: bash /tmp/x.sh --out .").map((x) => x.text)).toEqual(["bash /tmp/x.sh --out ."]);
+    expect(cmds("Run this: bash /tmp/x.sh --out=/tmp/o --force. Then wait.").map((x) => x.text)).toEqual(["bash /tmp/x.sh --out=/tmp/o --force"]);
+  });
+  it("keeps a later flag: a lowercase word after the period does not end a command that carries one", () => {
+    const c = cmds("Run: bash /tmp/check.sh --target=prod. check --dry-run");
+    expect(c.map((x) => x.text)).toEqual(["bash /tmp/check.sh --target=prod. check --dry-run"]);
+    const d = cmds("Run: bash /tmp/check. production --check");
+    expect(d.map((x) => x.text)).toEqual(["bash /tmp/check. production --check"]);
+  });
+
+  it("keeps a quoted later flag and does not end a command at an abbreviation", () => {
+    expect(cmds(`Run: bash /tmp/check.sh --target=prod. check "--dry-run"`).map((x) => x.text)).toEqual([`bash /tmp/check.sh --target=prod. check "--dry-run"`]);
+    expect(cmds("Run: bash /tmp/check. production '--dry-run'").map((x) => x.text)).toEqual(["bash /tmp/check. production '--dry-run'"]);
+    expect(cmds("Run: bash /tmp/check.sh e.g. examples").map((x) => x.text)).not.toContain("bash /tmp/check.sh e.g");
+  });
+
+  it("does not split on then after a comment mark or inside quotes", () => {
+    expect(cmds("Run: bash /tmp/check.sh # then bash /tmp/apply.sh").map((x) => x.text)).not.toContain("bash /tmp/apply.sh");
+    expect(cmds('Run: bash -c "first then bash /tmp/apply.sh"').map((x) => x.text)).toEqual(['bash -c "first then bash /tmp/apply.sh"']);
+  });
+});
+
 describe("flagsOf", () => {
   it("lists the flags in order, without values", () => {
     expect(flagsOf(APPLY)).toEqual(["--apply", "--accept-install-diff"]);
