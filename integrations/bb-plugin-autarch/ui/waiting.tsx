@@ -27,4 +27,9 @@ export function badgeCount(w: { count: number }, o: { blocked: boolean; unowned:
   return w.count > 0 ? String(w.count) : null;
 }
 
+/** The number behind the badge: the server's decision count; an older server without it gets the live (not held) owed asks, then the waiting decide count. */
+export function railCount(decisionCount: number | null, owed: { held?: unknown }[] | undefined, decide: number | undefined): number {
+  return decisionCount ?? owed?.filter((o) => !o.held).length ?? decide ?? 0;
+}
+
 export type WaitingJump = "decide" | "moves" | "updates" | "held" | "later";

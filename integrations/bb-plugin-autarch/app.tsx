@@ -32,7 +32,7 @@ import { CatchupPanel, markedRows, markPlan, markResultText, normalizeCatchup, r
 import { NoticeBanner } from "./ui/notices.js";
 import { singleFlight, type Flight } from "./ui/singleflight.js";
 import { buildMoveHandlers, rpcOutcome } from "./movehandlers.js";
-import { badgeCount } from "./ui/waiting.js";
+import { badgeCount, railCount } from "./ui/waiting.js";
 import type { Waiting } from "./waiting.js";
 import type { CatchupEntry } from "./ui/catchup.js";
 import { MapPlaceholder } from "./ui/map-placeholder.js";
@@ -757,7 +757,7 @@ function HomeBadge() {
   const blocked = health !== null && !health.ready;
   const unowned = asks?.asks.some((a) => a.owner === null) ?? false;
   // An older server has no `decisionCount`: fall back to the live (not held) owed asks rather than a different number.
-  const count = decisionCount ?? asks?.owed.filter((o) => !o.held).length ?? waiting?.decide ?? 0;
+  const count = railCount(decisionCount, asks?.owed, waiting?.decide);
   const n = badgeCount({ count }, { blocked, unowned });
   if (n === "!") return <span aria-label="needs attention">!</span>;
   return n ? <span>{n}</span> : null;
