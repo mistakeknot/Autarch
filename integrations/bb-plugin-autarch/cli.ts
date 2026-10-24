@@ -11,6 +11,7 @@ import { cliCommand, defineCli, type PluginCliResult } from "@get-bb/plugin-sdk"
 import type { Asks, LifecycleResult } from "./asks.js";
 import type { Catchup } from "./catchup.js";
 import type { Waiting } from "./waiting.js";
+import { readSettled } from "./settled.js";
 import { plainLine } from "./movereport.js";
 import { validScriptPath } from "./moves.js";
 import { buildQueue } from "./queueview.js";
@@ -177,6 +178,7 @@ export function homeCli(p: HomeCliParts) {
         summary: verbSummary("stats"),
         options: {
           since: { type: "duration", defaultUnit: "d", default: 14 * DAY_MS, description: "Window, default 14d." },
+          "settled-file": { type: "string", description: "Absolute path of a coordinator's settled-for-mk.md; adds settled_for_mk, its entries over the window, beside the ask counts." },
           json: { type: "boolean", description: "Print JSON (the only format)." },
         },
         async run({ options }) {
@@ -184,7 +186,8 @@ export function homeCli(p: HomeCliParts) {
           const days = homeMethods.stats.input.safeParse({ days: Math.floor(options.since / DAY_MS) });
           if (!days.success) return err(2, "--since must be between 1d and 365d");
           const since = new Date(Date.parse(svc.time()) - options.since).toISOString();
-          const stats = { ...svc.stats(since), ...(p.waiting ? { waiting: p.waiting() } : {}) };
+          const settled = options["settled-file"];
+          const stats = { ...svc.stats(since), ...(p.waiting ? { waiting: p.waiting() } : {}), ...(settled !== undefined ? { settled_for_mk: readSettled(settled, since) } : {}) };
           return out(p.traceability ? { ...stats, traceability: await p.traceability(since) } : stats);
         },
       }),

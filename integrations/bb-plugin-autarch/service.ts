@@ -133,6 +133,16 @@ export function cleanOther(s: string | undefined): string | null {
 const optionLabelOf = (o: { label: string }) => o.label;
 const message = (e: unknown) => (e instanceof Error ? e.message : String(e));
 
+/** One project's slice of `stats`. */
+export interface ProjectStats {
+  filed: number;
+  filed_per_week: Record<string, number>;
+  picks: number;
+  picks_by: Record<string, number>;
+  open: number;
+  oldest_open_age_ms: number | null;
+}
+
 export function isoWeek(ms: number): string {
   const d = new Date(ms);
   const day = (d.getUTCDay() + 6) % 7; // Monday = 0
@@ -906,6 +916,38 @@ export class Service {
     return { ...f, text: renderFeed(f) };
   }
 
+  /**
+   * `stats` split by project (bead mk-p02ft), from the same tables and with no schema change. Filings and picks are
+   * windowed by `since`; `open` and `oldest_open_age_ms` are the state now (the age is null with nothing open).
+   */
+  private statsByProject(since: string): Record<string, ProjectStats> {
+    const out: Record<string, ProjectStats> = {};
+    const of = (project: string) => (out[project] ??= { filed: 0, filed_per_week: {}, picks: 0, picks_by: {}, open: 0, oldest_open_age_ms: null });
+    for (const e of this.db
+      .prepare("SELECT e.at AS at, d.project AS project FROM events e JOIN decisions d ON d.id = e.decision_id WHERE e.type IN ('filed','replaced') AND e.at >= ? ORDER BY e.seq")
+      .all(since) as { at: string; project: string }[]) {
+      const p = of(e.project);
+      const w = isoWeek(Date.parse(e.at));
+      p.filed++;
+      p.filed_per_week[w] = (p.filed_per_week[w] ?? 0) + 1;
+    }
+    for (const r of this.db
+      .prepare(`SELECT d.project AS project, k."by" AS by, COUNT(*) AS n FROM picks k JOIN decisions d ON d.id = k.decision_id WHERE k.picked_at >= ? GROUP BY d.project, k."by"`)
+      .all(since) as { project: string; by: string; n: number }[]) {
+      const p = of(r.project);
+      p.picks += r.n;
+      p.picks_by[r.by] = r.n;
+    }
+    const now = Date.parse(this.now());
+    for (const d of this.owed()) {
+      const p = of(d.project as string);
+      p.open++;
+      const age = now - Date.parse(d.filed_at as string);
+      if (p.oldest_open_age_ms === null || age > p.oldest_open_age_ms) p.oldest_open_age_ms = age;
+    }
+    return out;
+  }
+
   stats(since: string) {
     const count = (col: string) => {
       const out: Record<string, number> = {};
@@ -937,6 +979,7 @@ export class Service {
       .sort((a, b) => a - b);
     return {
       filed_per_week,
+      per_project: this.statsByProject(since),
       picks_by: count(`"by"`),
       picks_by_surface: count("surface"),
       mk_latency_ms: { n: lat.length, median: median(lat), p90 },

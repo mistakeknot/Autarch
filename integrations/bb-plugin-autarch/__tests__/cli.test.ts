@@ -1,3 +1,5 @@
+import { writeFileSync } from "node:fs";
+import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { Asks } from "../asks.js";
 import { Catchup } from "../catchup.js";
@@ -8,6 +10,7 @@ import { Delegation } from "../delegation.js";
 import { removeBinding, setBinding } from "../queueview.js";
 import type { Service } from "../service.js";
 import { cleanupEnvs, opened, rig } from "./card-rig.js";
+import { tmpDir } from "./helpers.js";
 import { ask, makeEnv, type Env, verifiedDelegation } from "./service-helpers.js";
 
 const VIZ = "thr-vizier";
@@ -112,6 +115,30 @@ describe("bb home get, list, stats, feed", () => {
     const f = JSON.parse((await run(["feed", "--project", "Autarch", "--thread", "thr-a", "--json"])).stdout!);
     expect(f).toHaveProperty("own");
     expect((await run(["feed", "--json"])).exitCode).toBe(2);
+  });
+
+  it("stats carries per_project beside the global counts", async () => {
+    await filed();
+    const s = JSON.parse((await run(["stats", "--json"])).stdout!);
+    expect(s.per_project.Autarch).toMatchObject({ filed: 1, open: 1, picks: 0 });
+  });
+
+  it("stats --settled-file puts a coordinator's settled-for-mk count beside the ask counts, over the same window", async () => {
+    const t = tmpDir();
+    try {
+      const day = (n: number) => new Date(Date.parse(svc.time()) - n * 86_400_000).toISOString().slice(0, 10);
+      const p = join(t.dir, "settled-for-mk.md");
+      writeFileSync(p, `# Settled for mk: trial\n${day(30)} | old\n${day(2)} | a\n${day(1)} | b\n`);
+      const s = JSON.parse((await run(["stats", "--since", "7d", "--settled-file", p, "--json"])).stdout!);
+      expect(s).toHaveProperty("picks_by");
+      expect(s.settled_for_mk).toMatchObject({ ok: true, path: p, total: 3, count: 2 });
+      expect(JSON.parse((await run(["stats", "--json"])).stdout!)).not.toHaveProperty("settled_for_mk");
+      const bad = JSON.parse((await run(["stats", "--settled-file", join(t.dir, "nope", "settled-for-mk.md"), "--json"])).stdout!);
+      expect(bad.settled_for_mk).toMatchObject({ ok: false });
+      expect(bad).toHaveProperty("picks_by");
+    } finally {
+      t.cleanup();
+    }
   });
 
   it("stats carries the traceability block over the same window when it is wired", async () => {
