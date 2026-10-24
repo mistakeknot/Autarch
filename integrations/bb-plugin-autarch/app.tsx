@@ -10,7 +10,7 @@
 // the full shadcn set, version-matched to this BB install. Run
 // `npm install` once before `bb plugin build`.
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { FormEvent, ReactNode } from "react";
+import type { ComponentType, FormEvent, ReactNode } from "react";
 import { definePluginApp, useBbNavigate, useRealtime, useRpc } from "@get-bb/plugin-sdk/app";
 import type { rpcContract, Todo } from "./server";
 import { Button } from "@/components/ui/button";
@@ -763,20 +763,32 @@ function HomeBadge() {
   return n ? <span>{n}</span> : null;
 }
 
+/** Icon-corner pill: the count of decision cards waiting on mk, nothing at zero. The host supplies the pill colors, and a host without the slot ignores it. */
+function DecisionCountBadge() {
+  const { asks, waiting, decisionCount } = useHomeData();
+  const count = railCount(decisionCount, asks?.owed, waiting?.decide);
+  const n = badgeCount({ count }, { blocked: false, unowned: false });
+  return n && n !== "!" ? <span>{n}</span> : null;
+}
+
 // The default export must be definePluginApp(...); BB interprets it after
 // loading the bundle. navPanel adds a page to the left sidebar; register
 // other UI under app.slots and composer actions, plus-menu rows, banners, or
 // rich-text rules with app.composer.customize(...) (see the bb guide's
 // plugins chapter).
 export default definePluginApp((app) => {
-  app.slots.navPanel({
+  // `experimental_sidebarIconBadge` is in Aleph main but in no published @get-bb/plugin-sdk (0.5.29 is pinned here), so it is
+  // added through a typed variable, which the excess-property check does not reach. Move it back into the literal once an SDK has it.
+  const home = {
     id: "autarch-home",
     title: "Citadel",
     icon: "Target",
     path: "home",
     component: HomePage,
     experimental_sidebarAccessory: HomeBadge,
-  });
+    experimental_sidebarIconBadge: DecisionCountBadge as ComponentType,
+  } as const;
+  app.slots.navPanel(home);
   app.slots.threadPanelAction({
     id: "home-blocks",
     title: "Blocking",
