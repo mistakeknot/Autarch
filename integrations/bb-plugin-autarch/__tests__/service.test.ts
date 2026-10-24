@@ -518,6 +518,78 @@ describe("recent, owed and stats", () => {
   });
 });
 
+describe("stats per project (bead mk-p02ft)", () => {
+  const other = (over: Record<string, unknown> = {}) => ({ project: "Other", project_root: env.roots.Other, ...over });
+
+  it("breaks filings, picks, open count and oldest open age down by project, leaving the global fields alone", async () => {
+    // T0 is Saturday 2026-09-26 (ISO week 39)
+    const a1 = await fileOk({ question: "a1?", subject: "s-a1" });
+    env.clock.t = T0 + 60_000;
+    await fileOk({ question: "a2?", subject: "s-a2" });
+    const o1 = await fileOk(other({ question: "o1?", subject: "s-o1" }));
+    env.clock.t = T0 + 120_000;
+    pickOk(a1.decision_id, "day"); // mk, Autarch
+    env.clock.t = Date.parse("2026-09-29T09:00:00.000Z"); // week 40
+    await fileOk(other({ question: "o2?", subject: "s-o2" }));
+    env.clock.t = Date.parse("2026-09-30T09:00:00.000Z");
+    const s = svc.stats("2026-09-01T00:00:00.000Z");
+    expect(s.filed_per_week).toEqual({ "2026-W39": 3, "2026-W40": 1 });
+    expect(s.picks_by).toEqual({ mk: 1 });
+    expect(s.per_project.Autarch).toEqual({
+      filed: 2,
+      filed_per_week: { "2026-W39": 2 },
+      picks: 1,
+      picks_by: { mk: 1 },
+      open: 1,
+      oldest_open_age_ms: Date.parse("2026-09-30T09:00:00.000Z") - (T0 + 60_000),
+    });
+    expect(s.per_project.Other).toEqual({
+      filed: 2,
+      filed_per_week: { "2026-W39": 1, "2026-W40": 1 },
+      picks: 0,
+      picks_by: {},
+      open: 2,
+      oldest_open_age_ms: Date.parse("2026-09-30T09:00:00.000Z") - T0 - 60_000,
+    });
+    expect(o1.decision_id).toBeTruthy();
+  });
+
+  it("windows filings and picks by since, but open and oldest open are the state now", async () => {
+    await fileOk({ question: "old?", subject: "s-old" });
+    env.clock.t = Date.parse("2026-10-06T09:00:00.000Z");
+    const n = await fileOk({ question: "new?", subject: "s-new" });
+    pickOk(n.decision_id, "day");
+    const s = svc.stats("2026-10-01T00:00:00.000Z");
+    expect(s.per_project.Autarch).toMatchObject({ filed: 1, filed_per_week: { "2026-W41": 1 }, picks: 1, open: 1, oldest_open_age_ms: Date.parse("2026-10-06T09:00:00.000Z") - T0 });
+  });
+
+  it("lists a project that has only an open ask older than the window, with zero filings", async () => {
+    await fileOk({ question: "old?", subject: "s-old" });
+    env.clock.t = Date.parse("2026-10-20T09:00:00.000Z");
+    const s = svc.stats("2026-10-15T00:00:00.000Z");
+    expect(s.per_project).toEqual({ Autarch: { filed: 0, filed_per_week: {}, picks: 0, picks_by: {}, open: 1, oldest_open_age_ms: Date.parse("2026-10-20T09:00:00.000Z") - T0 } });
+  });
+
+  it("handles a project named like an Object.prototype member", async () => {
+    for (const name of ["constructor", "toString", "__proto__"]) {
+      const root = env.addProject(name); // the helper's roots map is a plain object, so it cannot hold "__proto__"
+      await fileOk({ project: name, project_root: root, question: `${name}?`, subject: `s-${name}` });
+    }
+    const s = svc.stats("2026-09-01T00:00:00.000Z");
+    expect(Object.keys(s.per_project).sort()).toEqual(["__proto__", "constructor", "toString"]);
+    expect(s.per_project["constructor"]).toMatchObject({ filed: 1, open: 1 });
+    expect(s.per_project["__proto__"]).toMatchObject({ filed: 1, open: 1 });
+    expect(Object.keys(JSON.parse(JSON.stringify(s)).per_project)).toHaveLength(3);
+  });
+
+  it("is an empty object with nothing filed, and a settled or replaced ask is not open", async () => {
+    expect(svc.stats("2026-09-01T00:00:00.000Z").per_project).toEqual({});
+    const a = await fileOk();
+    pickOk(a.decision_id, "day");
+    expect(svc.stats("2026-09-01T00:00:00.000Z").per_project.Autarch).toMatchObject({ open: 0, oldest_open_age_ms: null });
+  });
+});
+
 describe("Task 2.4 store and fingerprint additions", () => {
   it("insertDecision writes the card link columns at INSERT, defaulting to a home row", async () => {
     const id = (await fileOk()).decision_id;
