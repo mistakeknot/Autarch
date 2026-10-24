@@ -122,6 +122,7 @@ export class WakeLoop {
     // send is in flight belongs to the next drain.
     const cands = this.candidates();
     if (cands.length) await this.reconcileRows(cands);
+    await this.rerouteStranded();
     // Rows never attempted go before a manual Resend (stable, so id order holds within each).
     // Home's information-only notices to one thread leave as one digest per window; a notice with images goes alone.
     const due = this.store.dueMessagesBatched((r) => !!r.op && this.svc.imagesFor(r.op).state !== "none");
@@ -129,6 +130,45 @@ export class WakeLoop {
       const c = this.store.claim(row.id, row.attempt);
       if (!c.ok) continue;
       await this.sendOne(row, c.attempt);
+    }
+  }
+
+  /**
+   * Point a message row whose recipient is gone at the live title-successor, else the vizier (the resolver's
+   * answer). Every try is recorded as an event on the decision, so the card shows where the answer went or that
+   * no route was found. Returns true when the row now names another thread.
+   */
+  private async reroute(row: ObligationRow, gone: string): Promise<boolean> {
+    let next: string | null = null;
+    if (this.resolveRecipient) {
+      try {
+        next = await this.resolveRecipient(gone);
+      } catch {
+        next = null;
+      }
+    }
+    const moved = !!next && next !== gone && this.store.retarget(row.id, gone, next);
+    this.store.recordEvent(moved ? "rerouted" : "reroute-failed", row.decision_id, { obligation: row.id, from: gone, to: moved ? next : null });
+    return moved;
+  }
+
+  /**
+   * Rows that went undeliverable because their thread was archived or gone get one reroute try, so an answer
+   * stranded before this existed (or by a path that did not reroute) still reaches a live thread.
+   */
+  private async rerouteStranded(): Promise<void> {
+    const rows = this.db
+      .prepare(
+        `SELECT o.* FROM obligations o WHERE o.state = 'undeliverable' AND o.recipient IS NOT NULL AND o.voided_at IS NULL
+           AND o.kind IN ('wake','notice') AND (o.last_error LIKE '%archived%' OR o.last_error LIKE '%thread gone%')
+           AND NOT EXISTS (SELECT 1 FROM events e WHERE e.decision_id = o.decision_id AND e.type IN ('rerouted','reroute-failed')
+                           AND e.detail_json LIKE '%' || o.id || '%')
+         ORDER BY o.rowid`,
+      )
+      .all() as ObligationRow[];
+    for (const row of rows) {
+      if (!(await this.reroute(row, row.recipient!))) continue;
+      if (this.store.transition(row.id, "undeliverable", "pending", row.attempt, { last_error: "", next_try_at: this.svc.time() }).ok) this.again = true;
     }
   }
 
@@ -169,15 +209,7 @@ export class WakeLoop {
       this.store.updateAttempt(row.id, n, "not-delivered", { error: message });
       // HTTP 409 "Thread is archived": retry once per hop to the routed successor instead of stalling. A row
       // stalls only when no route resolves (or after MAX_HOPS gone threads in a row).
-      let next: string | null = null;
-      if (this.resolveRecipient && this.store.attempts(row.id).length <= MAX_HOPS) {
-        try {
-          next = await this.resolveRecipient(threadId);
-        } catch {
-          next = null;
-        }
-      }
-      if (next && next !== threadId && this.store.retarget(row.id, threadId, next)) {
+      if (this.store.attempts(row.id).length <= MAX_HOPS && (await this.reroute(row, threadId))) {
         this.settle(row.id, "retry-now");
         this.again = true;
         return;
@@ -262,6 +294,12 @@ export class WakeLoop {
       .all(threadId) as { id: string }[];
     for (const { id } of rows) {
       for (const a of this.store.attempts(id)) if (a.state === "queued") this.store.updateAttempt(id, a.n, "not-delivered", { error: "thread gone" });
+      const row = this.store.obligation(id);
+      if (row && row.recipient === threadId && this.store.attempts(id).length <= MAX_HOPS && (await this.reroute(row, threadId))) {
+        this.settle(id, "retry-now");
+        void this.drain();
+        continue;
+      }
       this.settle(id, "gone");
     }
   }
