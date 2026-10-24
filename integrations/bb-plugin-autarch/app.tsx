@@ -13,6 +13,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ComponentType, FormEvent, ReactNode } from "react";
 import { definePluginApp, useBbNavigate, useRealtime, useRpc } from "@get-bb/plugin-sdk/app";
 import type { rpcContract, Todo } from "./server";
+import { registerWithOptionalField } from "./ui/optionalslot";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Icon } from "@/components/ui/icon";
@@ -777,18 +778,21 @@ function DecisionCountBadge() {
 // rich-text rules with app.composer.customize(...) (see the bb guide's
 // plugins chapter).
 export default definePluginApp((app) => {
-  // `experimental_sidebarIconBadge` is in Aleph main but in no published @get-bb/plugin-sdk (0.5.29 is pinned here), so it is
-  // added through a typed variable, which the excess-property check does not reach. Move it back into the literal once an SDK has it.
-  const home = {
-    id: "autarch-home",
-    title: "Citadel",
-    icon: "Target",
-    path: "home",
-    component: HomePage,
-    experimental_sidebarAccessory: HomeBadge,
-    experimental_sidebarIconBadge: DecisionCountBadge as ComponentType,
-  } as const;
-  app.slots.navPanel(home);
+  // `experimental_sidebarIconBadge` is in Aleph main but in no published @get-bb/plugin-sdk (0.5.29 is pinned here), and a host
+  // without it may refuse the field outright, so it is added by a retrying helper that never loses the panel. Move it into the
+  // literal once an SDK and the oldest supported host have it.
+  registerWithOptionalField(
+    (panel) => app.slots.navPanel(panel),
+    {
+      id: "autarch-home",
+      title: "Citadel",
+      icon: "Target" as const,
+      path: "home",
+      component: HomePage,
+      experimental_sidebarAccessory: HomeBadge,
+    },
+    { experimental_sidebarIconBadge: DecisionCountBadge as ComponentType },
+  );
   app.slots.threadPanelAction({
     id: "home-blocks",
     title: "Blocking",
