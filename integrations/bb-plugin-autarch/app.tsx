@@ -32,7 +32,7 @@ import { CatchupPanel, markedRows, markPlan, markResultText, normalizeCatchup, r
 import { NoticeBanner } from "./ui/notices.js";
 import { singleFlight, type Flight } from "./ui/singleflight.js";
 import { buildMoveHandlers, rpcOutcome } from "./movehandlers.js";
-import { badgeCount } from "./ui/waiting.js";
+import { badgeCount, railCount } from "./ui/waiting.js";
 import type { Waiting } from "./waiting.js";
 import type { CatchupEntry } from "./ui/catchup.js";
 import { MapPlaceholder } from "./ui/map-placeholder.js";
@@ -346,13 +346,14 @@ function useHomeData() {
   const [catchupError, setCatchupError] = useState<string | null>(null);
   const [waiting, setWaiting] = useState<Waiting | null>(null);
   const [health, setHealth] = useState<{ ready: boolean } | null>(null);
+  const [decisionCount, setDecisionCount] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
   // Reads overlap (poll, realtime signal, after an action); one runs at a time, so an older reply never overwrites a
   // newer snapshot.
   const refetch = usePolledRead(
     (live) =>
-      Promise.all([rpc.call("listAsks"), settleCatchup(rpc.call("catchup")), rpc.call("health"), rpc.call("waiting").catch(() => null)]).then(
-        ([a, c, h, w]) => {
+      Promise.all([rpc.call("listAsks"), settleCatchup(rpc.call("catchup")), rpc.call("health"), rpc.call("waiting").catch(() => null), rpc.call("decisionCount").catch(() => null)]).then(
+        ([a, c, h, w, dc]) => {
           if (!live()) return;
           setAsks(a as unknown as AsksData);
           if (c.ok) {
@@ -361,6 +362,7 @@ function useHomeData() {
           } else setCatchupError(c.error);
           setWaiting(w as Waiting | null);
           setHealth(h as { ready: boolean });
+          setDecisionCount(dc ? (dc as { count: number }).count : null);
           setError(null);
         },
         (cause) => {
@@ -371,7 +373,7 @@ function useHomeData() {
   );
   // The totals move when a card is answered, a move is claimed or a hold changes, not only on the poll.
   useRealtime("home-queue-changed", refetch);
-  return { rpc, asks, catchup, catchupError, waiting, health, error, refetch };
+  return { rpc, asks, catchup, catchupError, waiting, health, decisionCount, error, refetch };
 }
 
 /** Your move: the grouped read model, refetched on the queue signal and on the poll. */
@@ -749,14 +751,14 @@ function HomePage({ subPath }: { subPath?: string }) {
   );
 }
 
-/** Sidebar badge: the one waiting count, or "!" when serve is not ready or a machine blocker has no owner. */
+/** Sidebar badge: the count of decision cards waiting on mk, or "!" when serve is not ready or a machine blocker has no owner. */
 function HomeBadge() {
-  const { asks, waiting, health } = useHomeData();
+  const { asks, waiting, health, decisionCount } = useHomeData();
   const blocked = health !== null && !health.ready;
   const unowned = asks?.asks.some((a) => a.owner === null) ?? false;
-  // An older server has no `waiting`: fall back to the live (not held) owed asks rather than a different number.
-  const total = waiting?.total ?? asks?.owed.filter((o) => !o.held).length ?? 0;
-  const n = badgeCount({ total }, { blocked, unowned });
+  // An older server has no `decisionCount`: fall back to the live (not held) owed asks rather than a different number.
+  const count = railCount(decisionCount, asks?.owed, waiting?.decide);
+  const n = badgeCount({ count }, { blocked, unowned });
   if (n === "!") return <span aria-label="needs attention">!</span>;
   return n ? <span>{n}</span> : null;
 }

@@ -759,6 +759,9 @@ export function wireHome(bb: BbPluginApi, handle: StoreHandle, cfg: HomeConfig, 
     async catchup(_: null) {
       return { items: need().catchup.items() };
     },
+    async decisionCount(_: null) {
+      return { count: need().svc.decisionCount() };
+    },
     async waiting(_: null) {
       const p = need();
       return waitingNow(p.svc, p.dele, p.catchup);

@@ -18,6 +18,8 @@ const moveGroups = z.object({ yourMove: list, reported: list, later: list, hidde
 
 export const homeMethods = {
   listAsks: { input: z.null(), output: readModel },
+  // The rail badge: the count of cards waiting on mk (open or display, labelled, not deleted). Read only.
+  decisionCount: { input: z.null(), output: readModel },
   // The blocks panel's read model (plan 1.4). `thread` pins the cards that involve that thread.
   queue: { input: z.object({ thread: z.string().min(1).max(128).optional() }), output: readModel },
   // A card's root-run display (plan 1.5, Task 2.8): the paste command and read-only status. Reads the card
@@ -149,6 +151,7 @@ export const homeCliMap = {
   markAllSeen: { rpcOnly: "the panel's own state" },
   catchup: { rpcOnly: "the panel's read model" },
   waiting: { rpcOnly: "the panel's read model" },
+  decisionCount: { rpcOnly: "the rail badge number" },
   updateInfo: { rpcOnly: "the panel's read model" },
   requestUpdate: { rpcOnly: "mk's own choice; the runner outside the plugin installs" },
   health: { rpcOnly: "the panel's read model" },

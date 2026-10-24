@@ -21,10 +21,15 @@ export function waitingSummary(w: Waiting): { headline: string; parts: string; b
   };
 }
 
-/** The sidebar badge: the same total, "!" when serve is not ready or a machine blocker has no owner, nothing at zero. */
-export function badgeCount(w: Pick<Waiting, "total">, o: { blocked: boolean; unowned: boolean }): string | null {
+/** The sidebar badge: the count of decision cards waiting on mk, "!" when serve is not ready or a machine blocker has no owner, nothing at zero. */
+export function badgeCount(w: { count: number }, o: { blocked: boolean; unowned: boolean }): string | null {
   if (o.blocked || o.unowned) return "!";
-  return w.total > 0 ? String(w.total) : null;
+  return w.count > 0 ? String(w.count) : null;
+}
+
+/** The number behind the badge: the server's decision count; an older server without it gets the live (not held) owed asks, then the waiting decide count. */
+export function railCount(decisionCount: number | null, owed: { held?: unknown }[] | undefined, decide: number | undefined): number {
+  return decisionCount ?? owed?.filter((o) => !o.held).length ?? decide ?? 0;
 }
 
 export type WaitingJump = "decide" | "moves" | "updates" | "held" | "later";

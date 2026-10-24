@@ -93,8 +93,49 @@ describe("waiting on mk", () => {
   });
 });
 
+describe("decisionCount (the rail badge)", () => {
+  it("counts open cards, held ones included, and is zero with none", async () => {
+    const r = rig({ legacyMoves: true });
+    r.enableDelegation();
+    expect(r.svc.decisionCount()).toBe(0);
+    const cards = Array.from({ length: 3 }, () => card(r));
+    await r.poll();
+    expect(r.svc.decisionCount()).toBe(3);
+    expect(r.svc.hold(cards[2]!.id, "waiting on the vendor", "mk")).toMatchObject({ ok: true });
+    expect(r.svc.decisionCount()).toBe(3);
+  });
+});
+
+describe("decisionCount excludes what is not waiting", () => {
+  it("counts display cards, not deleted, unlabelled or other states", async () => {
+    const r = rig({ legacyMoves: true });
+    r.enableDelegation();
+    const cards = Array.from({ length: 6 }, () => card(r));
+    await r.poll();
+    expect(r.svc.decisionCount()).toBe(6);
+    const db = (r.svc as unknown as { db: { prepare(q: string): { run(...a: unknown[]): unknown } } }).db;
+    const set = (i: number, sql: string) => db.prepare(`UPDATE cards SET ${sql} WHERE task_id = ?`).run(cards[i]!.id);
+    set(0, "state = 'display'");
+    set(1, "deleted_at = '2026-10-23T00:00:00Z'");
+    set(2, "labelled = 0");
+    set(3, "state = 'closed'");
+    set(4, "state = 'observed'");
+    expect(r.svc.decisionCount()).toBe(2); // the display card and the untouched open one
+  });
+});
+
+describe("railCount (the badge number)", () => {
+  it("prefers the server count, then live owed asks, then the waiting decide count", async () => {
+    const { railCount } = await import("../ui/waiting.js");
+    expect(railCount(0, [{}, {}], 5)).toBe(0);
+    expect(railCount(null, [{}, { held: true }, {}], 5)).toBe(2);
+    expect(railCount(null, undefined, 5)).toBe(5);
+    expect(railCount(null, undefined, undefined)).toBe(0);
+  });
+});
+
 describe("one number everywhere", () => {
-  it("the badge, the strip, the tab and the stats output show the same total", async () => {
+  it("the strip, the tab and the stats output show the same total; the badge shows the decision count", async () => {
     const { badgeCount, waitingSummary } = await import("../ui/waiting.js");
     const r = rig({ legacyMoves: true });
     r.enableDelegation();
@@ -104,7 +145,7 @@ describe("one number everywhere", () => {
     r.svc.store.recordEvent("vizier-adopted", null, { from: null, to: "thr_viz3", reason: "unset" });
     const w = count(r);
     expect(w.total).toBe(3);
-    expect(badgeCount(w, { blocked: false, unowned: false })).toBe("3");
+    expect(badgeCount({ count: r.svc.decisionCount() }, { blocked: false, unowned: false })).toBe("2");
     expect(waitingSummary(w).headline).toBe("Waiting on you: 3");
   });
 });

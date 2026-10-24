@@ -949,6 +949,11 @@ export class Service {
     return out;
   }
 
+  /** The rail badge's number: Citadel cards waiting on mk (open, or shown flagged), not deleted. */
+  decisionCount(): number {
+    return (this.db.prepare("SELECT COUNT(*) AS n FROM cards WHERE labelled = 1 AND deleted_at IS NULL AND state IN ('open','display')").get() as { n: number }).n;
+  }
+
   stats(since: string) {
     const count = (col: string) => {
       const out: Record<string, number> = {};
