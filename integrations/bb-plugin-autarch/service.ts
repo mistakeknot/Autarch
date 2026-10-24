@@ -723,10 +723,19 @@ export class Service {
       .all() as ObligationRow[];
   }
 
+  private rerouteTried(o: ObligationRow): boolean {
+    return !!this.db
+      .prepare("SELECT 1 FROM events WHERE decision_id = ? AND type IN ('rerouted','reroute-failed') AND json_extract(detail_json, '$.obligation') = ? LIMIT 1")
+      .get(o.decision_id, o.id);
+  }
+
   dismiss(decisionId: string, obligationId: string): { ok: true } | { ok: false; reason: string } {
     const o = this.store.obligation(obligationId);
     if (!o || o.decision_id !== decisionId) return { ok: false, reason: "unknown" };
     if (o.state !== "undeliverable") return { ok: false, reason: "not-undeliverable" };
+    // An answer stranded by an archived or gone thread is dismissed only after a reroute was tried and recorded.
+    const recoverable = !!o.recipient && o.voided_at == null && (o.kind === "wake" || o.kind === "notice");
+    if (recoverable && /archived|thread gone/.test(o.last_error ?? "") && !this.rerouteTried(o)) return { ok: false, reason: "not-rerouted" };
     const r = this.store.transition(o.id, "undeliverable", "dismissed", o.attempt);
     return r.ok ? { ok: true } : { ok: false, reason: r.reason };
   }

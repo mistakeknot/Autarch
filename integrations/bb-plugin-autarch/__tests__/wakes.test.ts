@@ -621,9 +621,111 @@ describe("archived recipient routing (Stalled addendum)", () => {
     expect(sdk.sent.length).toBeLessThanOrEqual(5);
   });
 
+  const evs = (type: string) => svc.store.events().filter((e) => e.type === type);
+
+  it("a reroute is recorded on the decision, with where it went", async () => {
+    loop = new WakeLoop(svc, sdk, async () => "thr-succ");
+    const a = await wake("thr-a");
+    sdk.script = [{ kind: "throw", err: archived() }];
+    await loop.drain();
+    const [e] = evs("rerouted");
+    expect(e!.decision_id).toBe(a.decision_id);
+    expect(JSON.parse(e!.detail_json)).toMatchObject({ from: "thr-a", to: "thr-succ" });
+  });
+
+  it("a queued answer whose thread is then archived goes to the successor", async () => {
+    loop = new WakeLoop(svc, sdk, async (gone) => (gone === "thr-a" ? "thr-succ" : null));
+    sdk.fallback = { kind: "queue" };
+    const a = await wake("thr-a");
+    await loop.drain();
+    expect(states(a.id)).toEqual(["queued"]);
+    sdk.fallback = { kind: "sent" };
+    await loop.onThreadGone("thr-a");
+    await loop.drain();
+    expect(row(a.id).recipient).toBe("thr-succ");
+    expect(row(a.id).state).toBe("done");
+    expect(evs("rerouted")).toHaveLength(1);
+  });
+
+  it("a row settled undeliverable while the resolver is pending is brought back and delivered", async () => {
+    let release!: (v: string) => void;
+    const gate = new Promise<string>((r) => (release = r));
+    loop = new WakeLoop(svc, sdk, () => gate);
+    sdk.fallback = { kind: "queue" };
+    const a = await wake("thr-a");
+    await loop.drain();
+    const gone = loop.onThreadGone("thr-a");
+    // Reconciliation settles the row undeliverable before the resolver answers.
+    svc.store.db.prepare("UPDATE obligations SET state = 'undeliverable', last_error = 'thread gone' WHERE id = ?").run(a.id);
+    sdk.fallback = { kind: "sent" };
+    release("thr-succ");
+    await gone;
+    await loop.drain();
+    expect(row(a.id).recipient).toBe("thr-succ");
+    expect(row(a.id).state).toBe("done");
+  });
+
+  it("an event for another obligation whose id differs only by a wildcard is not reroute evidence", async () => {
+    const a = await wake("thr-a");
+    sdk.script = [{ kind: "throw", err: archived() }];
+    await loop.drain();
+    svc.store.db.prepare("DELETE FROM events WHERE type LIKE 'reroute%'").run();
+    svc.store.recordEvent("rerouted", a.decision_id!, { obligation: a.id.slice(0, -1) + "%", from: "x", to: "y" });
+    expect(svc.dismiss(a.decision_id!, a.id)).toEqual({ ok: false, reason: "not-rerouted" });
+  });
+
+  it("a voided stranded row can be dismissed without a reroute", async () => {
+    const a = await wake("thr-a");
+    sdk.script = [{ kind: "throw", err: archived() }];
+    await loop.drain();
+    svc.store.db.prepare("DELETE FROM events WHERE type LIKE 'reroute%'").run();
+    svc.store.voidObligation(a.id);
+    expect(svc.dismiss(a.decision_id!, a.id)).toEqual({ ok: true });
+  });
+
+  it("a queued answer whose thread is archived with no route stays undeliverable and records the failure", async () => {
+    loop = new WakeLoop(svc, sdk, async () => null);
+    sdk.fallback = { kind: "queue" };
+    const a = await wake("thr-a");
+    await loop.drain();
+    await loop.onThreadGone("thr-a");
+    expect(row(a.id).state).toBe("undeliverable");
+    expect(evs("reroute-failed")).toHaveLength(1);
+  });
+
+  it("an answer stranded before rerouting existed is rerouted on the next pass", async () => {
+    const a = await wake("thr-a");
+    sdk.script = [{ kind: "throw", err: archived() }];
+    await loop.drain();
+    expect(row(a.id).state).toBe("undeliverable");
+    // A row stranded before rerouting existed has no reroute event.
+    svc.store.db.prepare("DELETE FROM events WHERE type LIKE 'reroute%'").run();
+    loop = new WakeLoop(svc, sdk, async () => "thr-vizier");
+    await loop.drain();
+    expect(row(a.id).recipient).toBe("thr-vizier");
+    expect(row(a.id).state).toBe("done");
+    expect(evs("rerouted")).toHaveLength(1);
+  });
+
+  it("dismiss refuses an archived-thread answer until a reroute was tried", async () => {
+    const a = await wake("thr-a");
+    sdk.script = [{ kind: "throw", err: archived() }];
+    await loop.drain();
+    // A row stranded before rerouting existed has no reroute event.
+    svc.store.db.prepare("DELETE FROM events WHERE type LIKE 'reroute%'").run();
+    expect(svc.dismiss(a.decision_id!, a.id)).toEqual({ ok: false, reason: "not-rerouted" });
+    loop = new WakeLoop(svc, sdk, async () => null);
+    await loop.drain();
+    expect(evs("reroute-failed")).toHaveLength(1);
+    expect(svc.dismiss(a.decision_id!, a.id)).toEqual({ ok: true });
+    expect(row(a.id).state).toBe("dismissed");
+  });
+
   it("dismiss clears an undeliverable row", async () => {
     const a = await wake("thr-a");
     sdk.script = [{ kind: "throw", err: archived() }];
+    await loop.drain();
+    loop = new WakeLoop(svc, sdk, async () => null);
     await loop.drain();
     expect(svc.dismiss(a.decision_id!, a.id)).toEqual({ ok: true });
     expect(row(a.id).state).toBe("dismissed");
