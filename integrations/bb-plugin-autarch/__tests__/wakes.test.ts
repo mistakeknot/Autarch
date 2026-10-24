@@ -643,7 +643,44 @@ describe("archived recipient routing (Stalled addendum)", () => {
     await loop.onThreadGone("thr-a");
     await loop.drain();
     expect(row(a.id).recipient).toBe("thr-succ");
+    expect(row(a.id).state).toBe("done");
     expect(evs("rerouted")).toHaveLength(1);
+  });
+
+  it("a row settled undeliverable while the resolver is pending is brought back and delivered", async () => {
+    let release!: (v: string) => void;
+    const gate = new Promise<string>((r) => (release = r));
+    loop = new WakeLoop(svc, sdk, () => gate);
+    sdk.fallback = { kind: "queue" };
+    const a = await wake("thr-a");
+    await loop.drain();
+    const gone = loop.onThreadGone("thr-a");
+    // Reconciliation settles the row undeliverable before the resolver answers.
+    svc.store.db.prepare("UPDATE obligations SET state = 'undeliverable', last_error = 'thread gone' WHERE id = ?").run(a.id);
+    sdk.fallback = { kind: "sent" };
+    release("thr-succ");
+    await gone;
+    await loop.drain();
+    expect(row(a.id).recipient).toBe("thr-succ");
+    expect(row(a.id).state).toBe("done");
+  });
+
+  it("an event for another obligation whose id differs only by a wildcard is not reroute evidence", async () => {
+    const a = await wake("thr-a");
+    sdk.script = [{ kind: "throw", err: archived() }];
+    await loop.drain();
+    svc.store.db.prepare("DELETE FROM events WHERE type LIKE 'reroute%'").run();
+    svc.store.recordEvent("rerouted", a.decision_id!, { obligation: a.id.slice(0, -1) + "%", from: "x", to: "y" });
+    expect(svc.dismiss(a.decision_id!, a.id)).toEqual({ ok: false, reason: "not-rerouted" });
+  });
+
+  it("a voided stranded row can be dismissed without a reroute", async () => {
+    const a = await wake("thr-a");
+    sdk.script = [{ kind: "throw", err: archived() }];
+    await loop.drain();
+    svc.store.db.prepare("DELETE FROM events WHERE type LIKE 'reroute%'").run();
+    svc.store.voidObligation(a.id);
+    expect(svc.dismiss(a.decision_id!, a.id)).toEqual({ ok: true });
   });
 
   it("a queued answer whose thread is archived with no route stays undeliverable and records the failure", async () => {

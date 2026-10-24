@@ -162,7 +162,7 @@ export class WakeLoop {
         `SELECT o.* FROM obligations o WHERE o.state = 'undeliverable' AND o.recipient IS NOT NULL AND o.voided_at IS NULL
            AND o.kind IN ('wake','notice') AND (o.last_error LIKE '%archived%' OR o.last_error LIKE '%thread gone%')
            AND NOT EXISTS (SELECT 1 FROM events e WHERE e.decision_id = o.decision_id AND e.type IN ('rerouted','reroute-failed')
-                           AND e.detail_json LIKE '%' || o.id || '%')
+                           AND json_extract(e.detail_json, '$.obligation') = o.id)
          ORDER BY o.rowid`,
       )
       .all() as ObligationRow[];
@@ -296,7 +296,10 @@ export class WakeLoop {
       for (const a of this.store.attempts(id)) if (a.state === "queued") this.store.updateAttempt(id, a.n, "not-delivered", { error: "thread gone" });
       const row = this.store.obligation(id);
       if (row && row.recipient === threadId && this.store.attempts(id).length <= MAX_HOPS && (await this.reroute(row, threadId))) {
-        this.settle(id, "retry-now");
+        // Reconciliation may have settled the row undeliverable while the resolver was pending; bring it back.
+        const cur = this.store.obligation(id);
+        if (cur?.state === "undeliverable") this.store.transition(id, "undeliverable", "pending", cur.attempt, { last_error: "", next_try_at: this.svc.time() });
+        else this.settle(id, "retry-now");
         void this.drain();
         continue;
       }
