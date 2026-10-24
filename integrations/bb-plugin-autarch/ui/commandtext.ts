@@ -99,31 +99,40 @@ function inlineEnd(rest: string, atParen = true): number {
     } else if (c === "'" || c === '"') quote = c;
     else if (c === "\\") i++;
     else if (atParen && c === "(" && i > 0 && /\s/.test(rest[i - 1]!) && !/(?:&&|\|\||[|;&])\s*$/.test(rest.slice(0, i))) return i;
-    else if (c === "." && i > 0 && /[^\s.]/.test(rest[i - 1]!) && (i + 1 === rest.length || /^\s+(?:[A-Z]|$)/.test(rest.slice(i + 1)))) return i;
+    else if (c === "." && i > 0 && /[^\s.]/.test(rest[i - 1]!) && (i + 1 === rest.length || /^\s+(?:[^\s\-&|;<>(]|$)/.test(rest.slice(i + 1)))) return i;
   }
   return rest.length;
 }
 
+/** "scp host:/p /tmp/ then bash /tmp/x.sh": "then" between two commands reads as two steps, so the copied blocks are one command each. */
+const THEN_COMMAND = new RegExp(`\\s+then\\s+(?=(?:${COMMAND_WORDS.join("|")})\\s)`);
+
 /** A command written inside a sentence after a colon ("paste one line: scp host:/p /tmp/x && bash /tmp/x (sha256 ...). It builds"). */
-function inlineOf(line: string): { before: string; command: string; after: string } | null {
+function inlineOf(line: string): { before: string; commands: string[]; after: string } | null {
   for (const m of line.matchAll(/:\s+(?=(\S+)\s+\S)/g)) {
     if (!COMMAND_WORDS.includes(m[1]!)) continue;
     const start = m.index! + m[0].length;
     const rest = line.slice(start);
     const end = inlineEnd(rest);
-    const command = trimLine(rest.slice(0, end));
-    if (commandOf(command) !== command) continue;
+    const whole = trimLine(rest.slice(0, end));
+    const pieces = whole.split(THEN_COMMAND);
+    if (pieces.some((piece) => commandOf(piece) !== piece)) continue;
+    const command = pieces[0]!;
     // A command has something that only a command has (a path, flag, operator or variable); "bash scripts" alone is a phrase.
     // A flag, operator, "=", variable or host path anywhere counts; a plain file or path counts only as the first argument ("bash x.sh"), so "ssh keys in /srv/k.pub" stays prose.
-    const args = command.slice(command.indexOf(" ") + 1);
-    if (!/[=|&;$]|\w:\/|(?:^|\s)-/.test(args) && !/^(?:\S*\/\S*|\S*\w\.\w\S*)(?:\s|$)/.test(args)) continue;
+    const hasCommandPart = (piece: string) => {
+      const args = piece.slice(piece.indexOf(" ") + 1);
+      return /[=|&;$]|\w:\/|(?:^|\s)-/.test(args) || /^(?:\S*\/\S*|\S*\w\.\w\S*)(?:\s|$)/.test(args);
+    };
+    if (!pieces.every(hasCommandPart)) continue;
     // The whole sentence must not read as prose either ("Note: bash scripts (including this one) need review."): a note in parentheses is not part of the command but is part of that judgement.
     // A digest note ("(sha256 must be <hex>)") is not part of the command and not judged as a sentence, though its words ("must be") are prose.
     // It has to name a hash and hold hex, and the sentence has to stop right after its closing parenthesis. Any other note is part of the sentence.
     const note = rest[end] === "(" ? /^\((?=[^()]*\bsha-?(?:1|256|512)\b)(?=[^()]*[0-9a-f]{8})[^()]*\)(?=\s*(?:\.|$))/i.exec(rest.slice(end)) : null;
     const from = command.length === 0 ? 0 : rest.indexOf(" ") + 1;
-    if (readsAsSentence(note !== null ? rest.slice(from, end) : rest.slice(from, inlineEnd(rest, false)))) continue;
-    return { before: line.slice(0, start).replace(/\s+$/, ""), command, after: rest.slice(end).replace(/^\s+/, "") };
+    const judged = note !== null ? rest.slice(from, end) : rest.slice(from, inlineEnd(rest, false));
+    if (pieces.length > 1 ? pieces.some((piece) => readsAsSentence(piece.slice(piece.indexOf(" ") + 1))) : readsAsSentence(judged)) continue;
+    return { before: line.slice(0, start).replace(/\s+$/, ""), commands: pieces, after: rest.slice(end).replace(/^\s+/, "") };
   }
   return null;
 }
@@ -154,9 +163,11 @@ export function splitCommands(text: string): TextPart[] {
       prose.push(inline.before);
       const lead = leadLine();
       flush();
-      const part: TextPart = { type: "command", text: inline.command, role: "step" };
-      leads.set(part, lead);
-      parts.push(part);
+      for (const text of inline.commands) {
+        const part: TextPart = { type: "command", text, role: "step" };
+        leads.set(part, lead);
+        parts.push(part);
+      }
       if (inline.after !== "") prose.push(inline.after);
       continue;
     }

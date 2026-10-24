@@ -10,6 +10,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -229,6 +230,20 @@ Exit codes: 2 usage or refused, 3 Home or tasks unavailable.`,
 	return cmd
 }
 
+var (
+	mentionsCommand = regexp.MustCompile(`\b(scp|ssh|bash)\s+(?:-|\S*[/@])`)
+	ownLineCommand  = regexp.MustCompile(`(?m)^\s*(?:\$\s+|\(?\d{1,3}[.)]\s+)?(?:bash|sudo|runuser|scp|ssh|sh|python3)\s+\S`)
+)
+
+// commandWarning is non-empty when the question mentions scp, ssh or bash with an argument but no command stands on
+// its own line. Home puts a copy button on a command that has its own line; one buried in a sentence may get none.
+func commandWarning(question string) string {
+	if !mentionsCommand.MatchString(question) || ownLineCommand.MatchString(question) {
+		return ""
+	}
+	return "the question mentions scp, ssh or bash but no command stands on its own line, so Home may show no copy button for it; put each command on its own line"
+}
+
 func needsMkFileCmd() *cobra.Command {
 	var project, title, askFile, rootRun, request, moveFile string
 	var blocks []string
@@ -297,6 +312,9 @@ but the routing comment failed (re-run the same command), 5 already ruled (mk pi
 			}
 			if err := homeask.CheckOptionIDs(ask); err != nil {
 				return err
+			}
+			if w := commandWarning(fmt.Sprint(ask["question"])); w != "" {
+				fmt.Fprintln(cmd.ErrOrStderr(), "warning:", w)
 			}
 			ctx := cmd.Context()
 			if ctx == nil {
