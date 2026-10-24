@@ -76,6 +76,12 @@ describe("a command written inside a sentence, ended by a period after its path"
     expect(d.map((x) => x.text)).toEqual(["bash /tmp/check. production --check"]);
   });
 
+  it("keeps a quoted later flag and does not end a command at an abbreviation", () => {
+    expect(cmds(`Run: bash /tmp/check.sh --target=prod. check "--dry-run"`).map((x) => x.text)).toEqual([`bash /tmp/check.sh --target=prod. check "--dry-run"`]);
+    expect(cmds("Run: bash /tmp/check. production '--dry-run'").map((x) => x.text)).toEqual(["bash /tmp/check. production '--dry-run'"]);
+    expect(cmds("Run: bash /tmp/check.sh e.g. examples").map((x) => x.text)).not.toContain("bash /tmp/check.sh e.g");
+  });
+
   it("does not split on then after a comment mark or inside quotes", () => {
     expect(cmds("Run: bash /tmp/check.sh # then bash /tmp/apply.sh").map((x) => x.text)).not.toContain("bash /tmp/apply.sh");
     expect(cmds('Run: bash -c "first then bash /tmp/apply.sh"').map((x) => x.text)).toEqual(['bash -c "first then bash /tmp/apply.sh"']);

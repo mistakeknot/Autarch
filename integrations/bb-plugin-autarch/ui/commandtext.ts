@@ -88,10 +88,10 @@ function listedCommandOf(line: string): { command: string; note: string | null }
   return command === null ? null : { command, note: null };
 }
 
-/** A period ends the sentence when a capital word follows. A lowercase word counts only when no flag follows on the line, so "--target=prod. check --dry-run" stays one command and loses no safety flag. */
+/** A period ends the sentence when a capital word follows. A lowercase word counts only when no flag, quote or escape follows on the line, and not after an abbreviation ("e.g.", "i.e.", "etc."), so "--target=prod. check --dry-run" stays one command and loses no safety flag. */
 function sentenceEndsAfter(tail: string): boolean {
   if (/^\s+(?:[A-Z]|$)/.test(tail)) return true;
-  return /^\s+[^\s\-&|;<>(]/.test(tail) && !/\s-\S/.test(tail);
+  return /^\s+[^\s\-&|;<>(]/.test(tail) && !/\s["']?-|["'\\]/.test(tail);
 }
 
 /** Where an inline command ends: before a note in parentheses or a sentence end, outside quotes. A "(" right after an operator ("&& (cd x)") opens a subshell, and a period after a space ("--out .") is an argument. */
@@ -105,7 +105,7 @@ function inlineEnd(rest: string, atParen = true): number {
     } else if (c === "'" || c === '"') quote = c;
     else if (c === "\\") i++;
     else if (atParen && c === "(" && i > 0 && /\s/.test(rest[i - 1]!) && !/(?:&&|\|\||[|;&])\s*$/.test(rest.slice(0, i))) return i;
-    else if (c === "." && i > 0 && /[^\s.]/.test(rest[i - 1]!) && (i + 1 === rest.length || sentenceEndsAfter(rest.slice(i + 1)))) return i;
+    else if (c === "." && i > 0 && /[^\s.]/.test(rest[i - 1]!) && (i + 1 === rest.length || (sentenceEndsAfter(rest.slice(i + 1)) && !/(?:^|\s)(?:e\.g|i\.e|etc|vs)$/i.test(rest.slice(0, i))))) return i;
   }
   return rest.length;
 }

@@ -18,6 +18,9 @@ func TestCommandWarning(t *testing.T) {
 		"plain host and word":      {"Please run ssh buildhost uptime", true},
 		"plain file name":          {"Please run bash deploy.sh", true},
 		"two plain files":          {"Please run scp source.txt destination.txt", true},
+		"use form":                 {"Please use ssh buildhost uptime", true},
+		"copy form":                {"Copy with scp source destination", true},
+		"bash is prose":            {"bash is fine here; ssh keys in the vault", false},
 		"no command mention":       {"Collapse per project or per day?", false},
 		"the word bash alone":      {"Is bash the right shell?", false},
 	} {

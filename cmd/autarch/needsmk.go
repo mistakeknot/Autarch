@@ -231,15 +231,25 @@ Exit codes: 2 usage or refused, 3 Home or tasks unavailable.`,
 }
 
 var (
-	// An argument that looks like one (a flag, path, host or file name), or any argument after "run", "paste" and the like.
-	mentionsCommand = regexp.MustCompile(`(?i)\b(?:scp|ssh|bash)\s+(?:-|\S*[/@]|\S*\.\S)|\b(?:run|paste|execute|type)\b[^\n]{0,40}\b(?:scp|ssh|bash)\s+\S`)
+	// scp, ssh or bash followed by a word that is not common English ("bash is fine", "the bash scripts") reads as a command.
+	mentionsCommand = regexp.MustCompile(`(?i)\b(?:scp|ssh|bash)\s+`)
+	proseAfter      = regexp.MustCompile(`(?i)^(?:the|a|an|and|or|to|in|for|on|of|as|is|are|was|be|can|will|should|must|does|not|it|this|that|with|vs|scripts?|shell|keys?|access|commands?|sessions?|login|vs\.?)\b`)
 	ownLineCommand  = regexp.MustCompile(`(?m)^\s*(?:\$\s+|\(?\d{1,3}[.)]\s+)?(?:bash|sudo|runuser|scp|ssh|sh|python3)\s+\S`)
 )
 
 // commandWarning is non-empty when the question mentions scp, ssh or bash with an argument but no command stands on
 // its own line. Home puts a copy button on a command that has its own line; one buried in a sentence may get none.
 func commandWarning(question string) string {
-	if !mentionsCommand.MatchString(question) || ownLineCommand.MatchString(question) {
+	if ownLineCommand.MatchString(question) {
+		return ""
+	}
+	found := false
+	for _, m := range mentionsCommand.FindAllStringSubmatchIndex(question, -1) {
+		if rest := strings.TrimLeft(question[m[1]:], " \t"); rest != "" && !proseAfter.MatchString(rest) {
+			found = true
+		}
+	}
+	if !found {
 		return ""
 	}
 	return "the question mentions scp, ssh or bash but no command stands on its own line, so Home may show no copy button for it; put each command on its own line"
