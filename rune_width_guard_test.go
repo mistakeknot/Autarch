@@ -25,18 +25,22 @@ func runeWidthPattern(src string) (bool, error) {
 	if err != nil {
 		return false, err
 	}
-	lipgloss := ""
+	names := map[string]bool{}
 	dot := false
 	for _, imp := range f.Imports {
 		p, uerr := strconv.Unquote(imp.Path.Value)
 		if uerr != nil || p != lipglossPath {
 			continue
 		}
-		lipgloss = "lipgloss"
+		name := "lipgloss"
 		if imp.Name != nil {
-			lipgloss = imp.Name.Name
+			name = imp.Name.Name
 		}
-		dot = lipgloss == "."
+		if name == "." {
+			dot = true
+		} else {
+			names[name] = true
+		}
 	}
 	var conv, width bool
 	ast.Inspect(f, func(n ast.Node) bool {
@@ -50,7 +54,7 @@ func runeWidthPattern(src string) (bool, error) {
 				conv = true
 			}
 		case *ast.SelectorExpr:
-			if id, ok := fn.X.(*ast.Ident); ok && lipgloss != "" && !dot && id.Obj == nil && id.Name == lipgloss && fn.Sel.Name == "Width" {
+			if id, ok := fn.X.(*ast.Ident); ok && id.Obj == nil && names[id.Name] && fn.Sel.Name == "Width" {
 				width = true // an identifier with a local binding (Obj set) shadows the import
 			}
 		case *ast.Ident:
@@ -80,6 +84,7 @@ func TestRuneWidthPatternDetector(t *testing.T) {
 		{"dot import", "package x\nimport . \"github.com/charmbracelet/lipgloss\"\nfunc f(s string) { _ = []rune(s)[:Width(s)] }\n", true},
 		{"parenthesized element type", "package x\nimport \"github.com/charmbracelet/lipgloss\"\nfunc f(s string) { _ = [](rune)(s)[:lipgloss.Width(s)] }\n", true},
 		{"shadowed alias", "package x\nimport lg \"github.com/charmbracelet/lipgloss\"\nvar _ = lg.Width\ntype w struct{}\nfunc (w) Width(string) int { return 0 }\nfunc f(s string) { lg := w{}; _ = []rune(s)[:lg.Width(s)] }\n", false},
+		{"two imports of lipgloss", "package x\nimport lg \"github.com/charmbracelet/lipgloss\"\nimport other \"github.com/charmbracelet/lipgloss\"\nvar _ = other.Width\nfunc f(s string) { _ = []rune(s)[:lg.Width(s)] }\n", true},
 		{"another package named lipgloss", "package x\nimport lipgloss \"example.com/other\"\nfunc f(s string) { _ = []rune(s); _ = lipgloss.Width(s) }\n", false},
 	}
 	for _, c := range cases {
