@@ -14,6 +14,9 @@ import (
 
 // A []rune conversion in the same file as a lipgloss.Width call is the pattern that slices ANSI-styled strings by
 // rune count where visual columns are meant. Use ansi.Truncate/TruncateLeft from charmbracelet/x/ansi instead.
+// Known limitation: each file is parsed alone, so a package-level declaration such as "type rune = byte" in a sibling
+// file is not seen and the file is still reported (see the "rune redeclared in a sibling file" case). Nothing
+// in the repository redeclares rune; if that ever changes, resolve package-level types here.
 // The check parses the file, so comments and string literals never count, lipgloss imported under another name
 // still counts, and a []rune literal such as []rune{','} is not a conversion.
 
@@ -85,6 +88,7 @@ func TestRuneWidthPatternDetector(t *testing.T) {
 		{"parenthesized element type", "package x\nimport \"github.com/charmbracelet/lipgloss\"\nfunc f(s string) { _ = [](rune)(s)[:lipgloss.Width(s)] }\n", true},
 		{"shadowed alias", "package x\nimport lg \"github.com/charmbracelet/lipgloss\"\nvar _ = lg.Width\ntype w struct{}\nfunc (w) Width(string) int { return 0 }\nfunc f(s string) { lg := w{}; _ = []rune(s)[:lg.Width(s)] }\n", false},
 		{"two imports of lipgloss", "package x\nimport lg \"github.com/charmbracelet/lipgloss\"\nimport other \"github.com/charmbracelet/lipgloss\"\nvar _ = other.Width\nfunc f(s string) { _ = []rune(s)[:lg.Width(s)] }\n", true},
+		{"rune redeclared in a sibling file (limitation: one file is parsed at a time, so this is still reported)", "package x\nimport lg \"github.com/charmbracelet/lipgloss\"\nfunc f(s string) { _ = []rune(s)[:lg.Width(s)] }\n", true},
 		{"another package named lipgloss", "package x\nimport lipgloss \"example.com/other\"\nfunc f(s string) { _ = []rune(s); _ = lipgloss.Width(s) }\n", false},
 	}
 	for _, c := range cases {
