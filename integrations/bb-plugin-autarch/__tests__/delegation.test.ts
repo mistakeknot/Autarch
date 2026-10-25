@@ -78,12 +78,12 @@ describe("rule: claimed-caller checks [E-13] [F-8]", () => {
     expect(rule(c.decision_id)).toMatchObject({ ok: false, status: 403, error: expect.stringContaining("project") });
   });
 
-  it("a direct pick RPC by a non-mk caller succeeds as by:mk with no wake and no limits (documented bypass)", async () => {
+  it("a direct pick RPC by a non-mk caller succeeds as by:mk with no limits (documented bypass); the asking thread is woken (mk-vh20p)", async () => {
     const id = await fileId(); // delegation never configured
     const r = svc.pick(id, "day", rev(id), "direct-1", "mk", "cli");
     expect(r).toMatchObject({ ok: true, pick: { by: "mk" } });
-    expect(svc.store.obligationsFor(id).map((o) => o.kind)).toEqual(["ruling-file"]);
-    expect(wakeOf(id)).toBeUndefined();
+    expect(svc.store.obligationsFor(id).map((o) => o.kind)).toEqual(["ruling-file", "wake"]);
+    expect(wakeOf(id)).toBeDefined();
   });
 });
 

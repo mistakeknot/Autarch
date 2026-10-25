@@ -136,8 +136,8 @@ describe("cutover: a populated v2 database drains in place under v3", () => {
     const rev = (svc.store.decision(fx.decide) as { revision: string }).revision;
     expect(svc.pick(fx.decide, "day", rev, "pick-cutover-1", "mk", "home")).toMatchObject({ ok: true });
     for (const t of ["thr-a", "thr-b", "thr-c"]) expect(svc.feed("Autarch", t).text, t).toContain(fx.decide);
-    // a plain option wakes nobody: the feed (read at the thread's next turn) is how the mentioners learn
-    expect(svc.store.obligationsFor(fx.decide).filter((o) => o.kind === "wake")).toEqual([]);
+    // a plain option wakes the asking thread only (mk-vh20p); the feed (read at the thread's next turn) is how the mentioners learn
+    expect(svc.store.obligationsFor(fx.decide).filter((o) => o.kind === "wake").map((o) => o.recipient)).toEqual(["thr-a"]);
   });
 
   it("an override of the vizier pick works and the replacement is a legacy ask", () => {
