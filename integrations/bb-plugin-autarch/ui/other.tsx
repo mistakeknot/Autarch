@@ -2,7 +2,7 @@
 // "Answer with this" records the words as a custom pick. The text is plain text, trimmed, capped at 20000 characters.
 // The server enforces the same cap; the counter here is a courtesy. Images (paste or attach) travel with the text;
 // the server checks type, size and count again, and an image alone (no text) is not sent.
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { ActionButton } from "./buttons.js";
 
 export const OTHER_MAX = 20000;
@@ -37,6 +37,8 @@ export function settleWithin<T>(p: Promise<T>, ms: number, onTimeout: () => T): 
     );
   });
 }
+
+const TIMED_OUT = Symbol("timed-out");
 
 export type OtherOutcome = { ok: boolean; error?: string };
 
@@ -81,9 +83,13 @@ export function OtherBox({
   const [loading, setLoading] = useState(0);
   const nextId = useRef(1);
   const chain = useRef<Promise<void>>(Promise.resolve());
+  // A read that timed out, or outlives the box, is stale: it must not attach its image later.
+  const readGen = useRef(0);
+  const alive = useRef(true);
+  useEffect(() => () => { alive.current = false; readGen.current++; }, []);
   // One read at a time, each against the images as they are when it finishes, so a send, a removal or a second
   // paste cannot lose or resurrect an image. Send stays disabled while any read is pending.
-  const addNow = async (files: File[]) => {
+  const addNow = async (files: File[], gen: number) => {
     setImgErr(null);
     for (const f of files) {
       const cur = imgsRef.current;
@@ -94,11 +100,13 @@ export function OtherBox({
       let item: Staged;
       try {
         const buf = await f.arrayBuffer();
+        if (gen !== readGen.current) return;
         item = { id: nextId.current++, mime: f.type, data_base64: toBase64(buf), name: f.name || "pasted image", bytes: f.size, url: URL.createObjectURL(f) };
       } catch {
         setImgErr(`${f.name || "That image"} could not be read.`);
         continue;
       }
+      if (gen !== readGen.current) { URL.revokeObjectURL(item.url); return; }
       const now = imgsRef.current;
       if (now.length >= OTHER_IMG_MAX_COUNT || now.reduce((a, x) => a + x.bytes, 0) + item.bytes > OTHER_IMG_MAX_TOTAL) {
         URL.revokeObjectURL(item.url);
@@ -112,7 +120,12 @@ export function OtherBox({
     if (busy) return; // a send in flight owns the staged images; anything added now would be cleared unsent
     setLoading((n) => n + 1);
     chain.current = chain.current
-      .then(() => settleWithin(addNow(files), IMG_READ_TIMEOUT_MS, () => setImgErr("An image took too long to read and was skipped. Try attaching it again.")))
+      .then(() => {
+        const gen = readGen.current;
+        return settleWithin(addNow(files, gen), IMG_READ_TIMEOUT_MS, () => {
+          if (gen === readGen.current) { readGen.current++; setImgErr("An image took too long to read and was skipped. Try attaching it again."); }
+        });
+      })
       .catch(() => {})
       .finally(() => setLoading((n) => n - 1));
   };
@@ -129,17 +142,24 @@ export function OtherBox({
     setBusy(true);
     setMsg(null);
     try {
-      const sent = f(t, ...(imgs.length > 0 ? [imgs.map(({ mime, data_base64 }) => ({ mime, data_base64 }))] : []));
-      const r = await settleWithin(Promise.resolve(sent), SEND_TIMEOUT_MS, (): OtherOutcome => ({ ok: false, error: "no reply yet; it may still go through. Press the button again to retry (a retry never posts twice)" }));
-      if (r && r.ok === false) setMsg({ ok: false, text: r.error ?? "not sent" });
-      else {
+      const sent = Promise.resolve(f(t, ...(imgs.length > 0 ? [imgs.map(({ mime, data_base64 }) => ({ mime, data_base64 }))] : [])));
+      const sentImgs = imgs;
+      const done = (r: OtherOutcome | void) => {
+        if (r && r.ok === false) { setMsg({ ok: false, text: r.error ?? "not sent" }); return; }
         setMsg({ ok: true, text: okText });
         if (clear) {
-          setRaw("");
-          imgs.forEach((x) => URL.revokeObjectURL(x.url));
-          setImgs([]);
+          setRaw((cur) => (otherText(cur) === t ? "" : cur));
+          sentImgs.forEach((x) => URL.revokeObjectURL(x.url));
+          if (imgsRef.current === sentImgs) setImgs([]);
         }
-      }
+      };
+      let timedOut = false;
+      const r = await settleWithin<OtherOutcome | void | typeof TIMED_OUT>(sent, SEND_TIMEOUT_MS, () => { timedOut = true; return TIMED_OUT; });
+      if (timedOut) {
+        // The send may still land. Keep the text, so a retry reuses the same note id, and finish the job if it does.
+        setMsg({ ok: false, text: "no reply yet; it may still go through. Press the button again to retry (a retry never posts twice)" });
+        sent.then((late) => { if (alive.current) done(late); }, () => {});
+      } else done(r as OtherOutcome | void);
     } catch (e) {
       setMsg({ ok: false, text: e instanceof Error ? e.message : String(e) });
     } finally {

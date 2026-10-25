@@ -10,6 +10,7 @@ import { glance, GlanceBlock, type GlanceAnswer } from "./glance.js";
 import { GH_REF_SRC, refNodes, URL_SRC } from "./links.js";
 import { DocLink } from "./docreader.js";
 import type { Question } from "../model.js";
+import { freeOwnWordsId } from "../ownwords.js";
 import { MultiPick } from "./multipick.js";
 import { OtherBox, otherHelpText, type OtherImage, type OtherOutcome } from "./other.js";
 
@@ -342,7 +343,7 @@ export function AskCard({ ask, onPick, onOpen, nowMs, onNote, onLater, unbound =
           onNote={(t, im) => onNote(ask.id, t, im)}
           onAnswer={unbound ? undefined : async (t, im) => {
             // An ask with its own option named "other" keeps it as a normal option; mk's words are recorded under their own id.
-            const r = await onPick(ask.id, hasRealOther ? "mk-own-words" : "other", ask.revision, t, im);
+            const r = await onPick(ask.id, hasRealOther ? freeOwnWordsId(ask.ask.options) : "other", ask.revision, t, im);
             if (r && r.ok === false) return { ok: false, error: r.error ?? "pick failed" };
             return { ok: true };
           }}

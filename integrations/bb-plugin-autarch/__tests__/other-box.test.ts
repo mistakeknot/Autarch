@@ -1,5 +1,6 @@
 // The Other box: "Answer with this" is a virtual pick option `other`; "Ask / note" is a comment plus
 // an owner wake that never rules or closes.
+import { freeOwnWordsId } from "../ownwords.js";
 import { afterEach, describe, expect, it } from "vitest";
 import { cleanupEnvs, opened, rig } from "./card-rig.js";
 import { hasNoteMarker } from "../service.js";
@@ -106,6 +107,18 @@ describe("note marker and an ask with a real option named other", () => {
     const words = r.svc.pick(g1.id, "mk-own-words", rev(r, g1.id), "p-words", "mk", "home", "my own words");
     expect(words).toMatchObject({ ok: true });
     expect(r.svc.store.pick(g1.id)).toMatchObject({ option_id: "mk-own-words", reason: "my own words" });
+  });
+
+  it("free text never selects a real option: with a real mk-own-words option the box uses the next free id", async () => {
+    const r = rig();
+    const opts = [{ id: "other", label: "Something else", kind: "ruling-only" as const, reversible: true }, { id: "mk-own-words", label: "Real", kind: "ruling-only" as const, reversible: true }];
+    expect(freeOwnWordsId(opts)).toBe("mk-own-words-2");
+    expect(freeOwnWordsId([...opts, { id: "mk-own-words-2" }])).toBe("mk-own-words-3");
+    expect(freeOwnWordsId(undefined)).toBe("mk-own-words");
+    const { g1 } = await opened(r, { ask: { options: opts } });
+    const words = r.svc.pick(g1.id, freeOwnWordsId(opts), rev(r, g1.id), "p-w2", "mk", "home", "Do not run anything");
+    expect(words).toMatchObject({ ok: true });
+    expect(r.svc.store.pick(g1.id)).toMatchObject({ option_id: "mk-own-words-2", reason: "Do not run anything" });
   });
 
   it("picking the real option other still works on such an ask", async () => {

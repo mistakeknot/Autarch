@@ -1,6 +1,7 @@
 // The Home decision service: file, pick once, reconcile the ruling file, wake and feed.
 // Every state change goes through one Store transaction; this layer maps outcomes to
 // HTTP-shaped results and never holds state of its own.
+import { isOwnWordsForm } from "./ownwords.js";
 import { ImageStore, textSha, validateImages, type ImageIn, type PathsResult } from "./otherimages.js";
 import { createHash, randomUUID } from "node:crypto";
 import { buildFeed, renderFeed, type Feed } from "./feed.js";
@@ -83,10 +84,8 @@ const APPROVAL_MAX_TTL = 7 * 24 * 3600;
 const fail = (status: number, error: string, exit: 1 | 2 | 3 = status >= 500 ? 3 : 1): FileResult => ({ ok: false, status, exit, error });
 const bad = (error: string): FileResult => ({ ok: false, status: 400, exit: 2, error });
 export const OTHER_OPTION_ID = "other";
-/** The id mk's own words are recorded under when the ask has a real option named "other" (bead mk-1poq7). */
-export const OWN_WORDS_OPTION_ID = "mk-own-words";
-/** True for either id a free-text answer is recorded under. */
-export const isOwnWordsId = (id: string): boolean => id === OTHER_OPTION_ID || id === OWN_WORDS_OPTION_ID;
+/** True for either id a free-text answer is recorded under (the reserved form is in ownwords.ts, bead mk-1poq7). */
+export const isOwnWordsId = (id: string): boolean => id === OTHER_OPTION_ID || isOwnWordsForm(id);
 /** The virtual option of a multi-pick ask: one pick that answers every question. Never in the ask; mk only. */
 export const ANSWERS_OPTION_ID = "answers";
 export const OTHER_MAX = 20000;
@@ -425,7 +424,7 @@ export class Service {
       multi = built;
     } else if (answers !== undefined) return { ok: false, status: 400, error: "answers go only with a multi-pick ask" };
     // The Home box sends "other", or "mk-own-words" when the ask has its own option named "other", so mk can always answer in their own words.
-    const isOther = (optionId === OTHER_OPTION_ID && !realOther) || (optionId === OWN_WORDS_OPTION_ID && !ask.options?.some((o) => o.id === OWN_WORDS_OPTION_ID));
+    const isOther = (optionId === OTHER_OPTION_ID && !realOther) || (isOwnWordsForm(optionId) && !ask.options?.some((o) => o.id === optionId));
     const otherText = isOther ? cleanOther(reason) : null;
     if (isOther) {
       // mk's own words (plan: Other box). A virtual option: never in the ask, never delegable, mk only.
