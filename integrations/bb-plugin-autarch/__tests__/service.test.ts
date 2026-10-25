@@ -129,14 +129,17 @@ describe("pick", () => {
     expect(JSON.stringify(wakes[0])).not.toContain("approval_token");
   });
 
-  it("a needs-context pick wakes; a ruling-only pick by mk does not, and the feed carries it", async () => {
+  it("a needs-context pick wakes, and so does a ruling-only pick by mk (mk-vh20p); the feed carries it too", async () => {
     const a = await fileOk();
     pickOk(a.decision_id, "ask");
     expect(svc.wakes()).toHaveLength(1);
     const b = await fileOk({ question: "second question?", subject: "autarch/second" });
     pickOk(b.decision_id, "day");
-    expect(svc.wakes()).toHaveLength(1);
-    expect(svc.store.obligationsFor(b.decision_id).map((o) => o.kind)).toEqual(["ruling-file"]);
+    expect(svc.wakes()).toHaveLength(2);
+    expect(svc.store.obligationsFor(b.decision_id).map((o) => o.kind).sort()).toEqual(["ruling-file", "wake"]);
+    const w = svc.wakes().find((x) => x.decision_id === b.decision_id)!;
+    expect(w.recipient).toBe("thr-a");
+    expect(w.payload).toContain("mk picked");
     expect(svc.feed("Autarch", "thr-a").own.map((l) => l.decision)).toContain(b.decision_id);
   });
 
