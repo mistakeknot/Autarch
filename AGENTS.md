@@ -3,6 +3,7 @@
 ## Canonical References
 1. [`PHILOSOPHY.md`](../../PHILOSOPHY.md) — direction for ideation and planning decisions.
 2. `CLAUDE.md` — implementation details, architecture, testing, and release workflow.
+3. `CODING_STANDARDS.md` — reviewer-only judgement rules (Bubble Tea message handling, `Clone()` snapshots, chrome dimensions). The review sub-agent reads it; the implementing agent does not. Pilot: measured after two weeks, reverted if nothing changes.
 
 Unified monorepo for AI agent development tools: Bigend, Gurgeh, Coldwine, and Pollard.
 
