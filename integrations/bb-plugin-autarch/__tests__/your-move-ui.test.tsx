@@ -6,7 +6,7 @@ vi.mock("@get-bb/plugin-sdk/app", () => ({}));
 
 import { ActionButton, buttonClass } from "../ui/buttons.js";
 import { CommandBlock, copyText, legacyCopyViaDocument, type CopyEnv } from "../ui/copy.js";
-import { OtherBox, otherText, OTHER_MAX } from "../ui/other.js";
+import { OtherBox, otherText, OTHER_MAX, settleWithin, SEND_TIMEOUT_MS } from "../ui/other.js";
 import { MoveCard, moveButtons, YourMovePanel, type MoveHandlers } from "../ui/yourmove.js";
 import { AskCard, AsksPanel, buildAsksView, imagesSig, isDestructiveOption, PickController, UNBOUND_EXPLANATION, type AsksData, type OwedAsk } from "../ui/asks.js";
 import { BlocksPanel, type QueueRowView, type QueueView } from "../ui/blocks.js";
@@ -240,11 +240,22 @@ describe("Other box", () => {
     expect(otherText("\u{1F600}".repeat(OTHER_MAX + 1))).toBeNull();
     expect(renderToStaticMarkup(<OtherBox onNote={() => {}} onAnswer={() => {}} />)).toContain("0 / 20000");
   });
-  it("hides Answer with this on an ask that has its own option named other", () => {
+  it("keeps Answer with this on an ask that has its own option named other (mk-1poq7)", () => {
     const a: OwedAsk = { id: "d", project: "P", thread: "thr", subject: "S", asker: "x", filed_at: "2026-10-01T00:00:00Z", revision: "r", ask: { question: "Q", options: [{ id: "other", label: "Else", kind: "ruling-only", reversible: true }] } };
     const html = renderToStaticMarkup(<AskCard ask={a} onPick={() => {}} onOpen={() => {}} onNote={() => {}} />);
-    expect(html).toContain("data-other-answer-reason");
-    expect(html).toMatch(/disabled=""[^>]*data-other-answer|data-other-answer[^>]*disabled=""/);
+    expect(html).not.toContain("data-other-answer-reason");
+    expect(html).not.toContain("has its own option named other");
+  });
+  it("a read or a send that never settles gives up, so the buttons come back (mk-1poq7)", async () => {
+    vi.useFakeTimers();
+    try {
+      const never = new Promise<string>(() => {});
+      const p = settleWithin(never, SEND_TIMEOUT_MS, () => "timed out");
+      await vi.advanceTimersByTimeAsync(SEND_TIMEOUT_MS + 1);
+      await expect(p).resolves.toBe("timed out");
+      await expect(settleWithin(Promise.resolve("ok"), 10, () => "late")).resolves.toBe("ok");
+      await expect(settleWithin(Promise.reject(new Error("boom")), 10, () => "late")).rejects.toThrow("boom");
+    } finally { vi.useRealTimers(); }
   });
   it("starts with both buttons disabled and a 0 / 20000 counter", () => {
     const html = renderToStaticMarkup(<OtherBox onNote={() => {}} onAnswer={() => {}} />);

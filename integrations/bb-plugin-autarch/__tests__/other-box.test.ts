@@ -97,13 +97,20 @@ describe("note marker and an ask with a real option named other", () => {
     expect(hasNoteMarker("a home-note: n1 in the middle\nmore", "n1")).toBe(false);
   });
 
-  it("a real option with id other wins; the free-text answer is refused for that ask", async () => {
+  it("an ask with a real option id other still takes mk's own words, recorded under mk-own-words", async () => {
     const r = rig();
     const { g1 } = await opened(r, { ask: { options: [{ id: "other", label: "Something else", kind: "ruling-only", reversible: true }, { id: "a", label: "A", kind: "ruling-only", reversible: true }] } });
-    const refused = answer(r, g1.id, "my own words", "p-x");
-    expect(refused).toMatchObject({ ok: false, status: 400 });
-    expect(JSON.stringify(refused)).toContain("its own option");
+    // the bare id other is the ask's own option and takes no reason from the free-text box
+    expect(answer(r, g1.id, "my own words", "p-x")).toMatchObject({ ok: false, status: 400 });
     expect(r.svc.store.pick(g1.id)).toBeUndefined();
+    const words = r.svc.pick(g1.id, "mk-own-words", rev(r, g1.id), "p-words", "mk", "home", "my own words");
+    expect(words).toMatchObject({ ok: true });
+    expect(r.svc.store.pick(g1.id)).toMatchObject({ option_id: "mk-own-words", reason: "my own words" });
+  });
+
+  it("picking the real option other still works on such an ask", async () => {
+    const r = rig();
+    const { g1 } = await opened(r, { ask: { options: [{ id: "other", label: "Something else", kind: "ruling-only", reversible: true }, { id: "a", label: "A", kind: "ruling-only", reversible: true }] } });
     const real = r.svc.pick(g1.id, "other", rev(r, g1.id), "p-real", "mk", "home");
     expect(real).toMatchObject({ ok: true });
     expect(r.svc.store.pick(g1.id)).toMatchObject({ option_id: "other", reason: null });

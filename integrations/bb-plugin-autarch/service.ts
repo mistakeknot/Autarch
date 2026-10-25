@@ -83,6 +83,10 @@ const APPROVAL_MAX_TTL = 7 * 24 * 3600;
 const fail = (status: number, error: string, exit: 1 | 2 | 3 = status >= 500 ? 3 : 1): FileResult => ({ ok: false, status, exit, error });
 const bad = (error: string): FileResult => ({ ok: false, status: 400, exit: 2, error });
 export const OTHER_OPTION_ID = "other";
+/** The id mk's own words are recorded under when the ask has a real option named "other" (bead mk-1poq7). */
+export const OWN_WORDS_OPTION_ID = "mk-own-words";
+/** True for either id a free-text answer is recorded under. */
+export const isOwnWordsId = (id: string): boolean => id === OTHER_OPTION_ID || id === OWN_WORDS_OPTION_ID;
 /** The virtual option of a multi-pick ask: one pick that answers every question. Never in the ask; mk only. */
 export const ANSWERS_OPTION_ID = "answers";
 export const OTHER_MAX = 20000;
@@ -420,7 +424,8 @@ export class Service {
       if (!built.ok) return { ok: false, status: 400, error: built.error };
       multi = built;
     } else if (answers !== undefined) return { ok: false, status: 400, error: "answers go only with a multi-pick ask" };
-    const isOther = optionId === OTHER_OPTION_ID && !realOther;
+    // The Home box sends "other", or "mk-own-words" when the ask has its own option named "other", so mk can always answer in their own words.
+    const isOther = (optionId === OTHER_OPTION_ID && !realOther) || (optionId === OWN_WORDS_OPTION_ID && !ask.options?.some((o) => o.id === OWN_WORDS_OPTION_ID));
     const otherText = isOther ? cleanOther(reason) : null;
     if (isOther) {
       // mk's own words (plan: Other box). A virtual option: never in the ask, never delegable, mk only.
@@ -435,7 +440,7 @@ export class Service {
     const option = isAnswers
       ? ({ id: ANSWERS_OPTION_ID, label: "Answers", kind: "ruling-only", reversible: false } as NonNullable<Ask["options"]>[number])
       : isOther
-      ? ({ id: OTHER_OPTION_ID, label: "Other (mk's own answer)", kind: "ruling-only", reversible: false } as NonNullable<Ask["options"]>[number])
+      ? ({ id: optionId, label: "Other (mk's own answer)", kind: "ruling-only", reversible: false } as NonNullable<Ask["options"]>[number])
       : ask.options?.find((o) => o.id === optionId);
     if (!option) return { ok: false, status: 400, error: `unknown option ${JSON.stringify(optionId)}` };
     if (rev !== d.revision) return { ok: false, status: 409, error: "revision differs" };
@@ -653,7 +658,7 @@ export class Service {
       if (option?.kind === "instruction" && option.instruction) ruling.instruction = option.instruction;
       if (pick.by === "vizier" && pick.reason) ruling.delegated_reason = pick.reason;
       if (pick.by === "auto" && pick.reason) ruling.auto_evidence = pick.reason;
-      if (pick.option_id === OTHER_OPTION_ID && pick.reason) ruling.ruling = `mk answered in their own words for: ${ask.question} -- ${pick.reason.replace(/\s+/g, " ")}`;
+      if (isOwnWordsId(pick.option_id) && pick.reason) ruling.ruling = `mk answered in their own words for: ${ask.question} -- ${pick.reason.replace(/\s+/g, " ")}`;
       if (pick.option_id === ANSWERS_OPTION_ID && pick.reason) ruling.ruling = `mk answered each question for: ${ask.question} -- ${pick.reason.replace(/\s+/g, " ")}`;
       if (d.supersedes) ruling.supersedes = d.supersedes;
       if (d.source === "card" && typeof d.task_id === "string") {

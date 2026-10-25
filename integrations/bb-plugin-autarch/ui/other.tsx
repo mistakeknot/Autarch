@@ -23,6 +23,21 @@ function toBase64(buf: ArrayBuffer): string {
   return btoa(bin);
 }
 
+/** A read or a send that never settles must not leave the buttons disabled for good (bead mk-1poq7). */
+export const IMG_READ_TIMEOUT_MS = 15_000;
+export const SEND_TIMEOUT_MS = 60_000;
+
+/** Settles with p, or with `onTimeout()` after ms, whichever comes first; the timer never outlives the race. */
+export function settleWithin<T>(p: Promise<T>, ms: number, onTimeout: () => T): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timer = setTimeout(() => resolve(onTimeout()), ms);
+    p.then(
+      (v) => { clearTimeout(timer); resolve(v); },
+      (e) => { clearTimeout(timer); reject(e); },
+    );
+  });
+}
+
 export type OtherOutcome = { ok: boolean; error?: string };
 
 /** The trimmed text, or null when it is empty or over the cap (the buttons stay disabled). */
@@ -96,7 +111,10 @@ export function OtherBox({
   const addFiles = (files: File[]) => {
     if (busy) return; // a send in flight owns the staged images; anything added now would be cleared unsent
     setLoading((n) => n + 1);
-    chain.current = chain.current.then(() => addNow(files)).catch(() => {}).finally(() => setLoading((n) => n - 1));
+    chain.current = chain.current
+      .then(() => settleWithin(addNow(files), IMG_READ_TIMEOUT_MS, () => setImgErr("An image took too long to read and was skipped. Try attaching it again.")))
+      .catch(() => {})
+      .finally(() => setLoading((n) => n - 1));
   };
   const dropImg = (id: number) => {
     const gone = imgsRef.current.find((x) => x.id === id);
@@ -111,7 +129,8 @@ export function OtherBox({
     setBusy(true);
     setMsg(null);
     try {
-      const r = await f(t, ...(imgs.length > 0 ? [imgs.map(({ mime, data_base64 }) => ({ mime, data_base64 }))] : []));
+      const sent = f(t, ...(imgs.length > 0 ? [imgs.map(({ mime, data_base64 }) => ({ mime, data_base64 }))] : []));
+      const r = await settleWithin(Promise.resolve(sent), SEND_TIMEOUT_MS, (): OtherOutcome => ({ ok: false, error: "no reply yet; it may still go through. Press the button again to retry (a retry never posts twice)" }));
       if (r && r.ok === false) setMsg({ ok: false, text: r.error ?? "not sent" });
       else {
         setMsg({ ok: true, text: okText });
@@ -176,6 +195,7 @@ export function OtherBox({
           </ActionButton>
         ) : null}
       </div>
+      {busy || loading > 0 ? <p className="mt-1 text-xs text-muted-foreground" data-other-wait>{busy ? "Sending..." : "Reading an image..."}</p> : null}
       {answerDisabledReason ? <p className="mt-1 text-xs text-muted-foreground" data-other-answer-reason>{answerDisabledReason}</p> : null}
       {showHelp ? <p className="mt-1 text-xs text-muted-foreground" data-other-help>{otherHelpText(!!onAnswer)}</p> : null}
       {msg ? <p role={msg.ok ? "status" : "alert"} className={`mt-1 text-xs ${msg.ok ? "text-muted-foreground" : "font-medium text-destructive"}`} data-other-result={msg.ok ? "ok" : "error"}>{msg.text}</p> : null}
