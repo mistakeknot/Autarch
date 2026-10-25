@@ -167,7 +167,7 @@ export function parseMove(body: string): Move {
         pr.door_why = m.door_why as PrDoorWhy;
       }
       if (m.blast !== undefined) {
-        if (typeof m.blast !== "string" || m.blast.replace(/^[\s\uFEFF]+|[\s\uFEFF]+$/g, "") === "" || m.blast.length > MAX_BLAST || /[\r\n\u0085\u2028\u2029]/.test(m.blast) || !m.blast.isWellFormed() || m.blast.includes("\uFFFD")) {
+        if (typeof m.blast !== "string" || m.blast.replace(/^[\s\uFEFF]+|[\s\uFEFF]+$/g, "") === "" || m.blast.length > MAX_BLAST || /[\u0000-\u001f\u007f-\u009f\u2028\u2029]/.test(m.blast) || !m.blast.isWellFormed() || m.blast.includes("\uFFFD")) {
           return fail(`pr blast must be one line of 1-${MAX_BLAST} characters`);
         }
         pr.blast = m.blast;

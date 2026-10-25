@@ -110,6 +110,11 @@ describe("pr move merge-card facts", () => {
     ["multiline blast", { blast: "a\nb" }],
     ["long blast", { blast: "x".repeat(201) }],
     ["empty blast", { blast: "  " }],
+    ["NUL blast", { blast: "\u0000" }],
+    ["ESC in blast", { blast: "a\u001b[31mb" }],
+    ["DEL in blast", { blast: "a\u007fb" }],
+    ["C1 control in blast", { blast: "a\u009fb" }],
+    ["tab or form feed in blast", { blast: "a\u000cb" }],
   ])("rejects %s", (_n, o) => {
     expect(() => parseMove(pr(o))).toThrow();
   });
