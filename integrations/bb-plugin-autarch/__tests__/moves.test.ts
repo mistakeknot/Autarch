@@ -92,6 +92,10 @@ describe("pr move merge-card facts", () => {
     expect(parseMove(pr({}))).toEqual({ kind: "pr", url: "https://github.com/a/b/pull/1" });
     expect(parseMove(pr({ summary: "adds X", verdict: "PASS", why: "taste", review_url: "https://github.com/a/b/pull/1#issuecomment-2" }))).toMatchObject({ summary: "adds X", verdict: "PASS", why: "taste" });
   });
+  it("accepts door, door_why and blast", () => {
+    expect(parseMove(pr({ door: "one-way", door_why: "deploy-timer", blast: "deploys the Home plugin" }))).toMatchObject({ door: "one-way", door_why: "deploy-timer", blast: "deploys the Home plugin" });
+    expect(parseMove(pr({ door: "two-way" }))).toEqual({ kind: "pr", url: "https://github.com/a/b/pull/1", door: "two-way" });
+  });
   it.each([
     ["multiline summary", { summary: "a\nb" }],
     ["long summary", { summary: "x".repeat(201) }],
@@ -99,6 +103,18 @@ describe("pr move merge-card facts", () => {
     ["bad why", { why: "whim" }],
     ["off-host review url", { review_url: "https://evil.example/x" }],
     ["unknown field", { note: "x" }],
+    ["bad door", { door: "maybe" }],
+    ["door_why without door", { door_why: "data-migration" }],
+    ["door_why on a two-way door", { door: "two-way", door_why: "data-migration" }],
+    ["bad door_why", { door: "one-way", door_why: "vibes" }],
+    ["multiline blast", { blast: "a\nb" }],
+    ["long blast", { blast: "x".repeat(201) }],
+    ["empty blast", { blast: "  " }],
+    ["NUL blast", { blast: "\u0000" }],
+    ["ESC in blast", { blast: "a\u001b[31mb" }],
+    ["DEL in blast", { blast: "a\u007fb" }],
+    ["C1 control in blast", { blast: "a\u009fb" }],
+    ["tab or form feed in blast", { blast: "a\u000cb" }],
   ])("rejects %s", (_n, o) => {
     expect(() => parseMove(pr(o))).toThrow();
   });

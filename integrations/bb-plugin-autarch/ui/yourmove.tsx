@@ -45,10 +45,12 @@ export function moveButtons(m: Pick<MoveView, "kind" | "state" | "claimed_at" | 
 
 const WHY_LABEL: Record<string, string> = { design: "a design choice", taste: "a matter of taste", spend: "a spend decision" };
 
+const DOOR_WHY_LABEL: Record<string, string> = { "data-migration": "a data migration", "external-message": "external messages", "signing-or-production": "signing or production paths", "deploy-timer": "a repo with a deploy timer" };
+
 /** The compact merge card: what merging does, the review verdict (linked), and why this one is still mk's. */
 export function PrFacts({ m }: { m: Pick<MoveView, "pr"> }) {
   const pr = m.pr;
-  if (!pr || (!pr.summary && !pr.verdict && !pr.why)) return null;
+  if (!pr || (!pr.summary && !pr.verdict && !pr.why && !pr.door && !pr.blast)) return null;
   return (
     <div className="mt-2 space-y-1 text-sm" data-pr-facts>
       {pr.summary ? <p className="m-0 [overflow-wrap:anywhere]" data-pr-summary>{`Merging this: ${pr.summary}`}</p> : null}
@@ -59,6 +61,10 @@ export function PrFacts({ m }: { m: Pick<MoveView, "pr"> }) {
         </p>
       ) : null}
       {pr.why && WHY_LABEL[pr.why] ? <p className="m-0 text-xs text-muted-foreground" data-pr-why={pr.why}>{`Yours because it is ${WHY_LABEL[pr.why]}.`}</p> : null}
+      {pr.door === "one-way" || pr.door === "two-way" ? (
+        <p className="m-0 text-xs" data-pr-door={pr.door}>{`Door: ${pr.door}${pr.door === "one-way" && pr.door_why && DOOR_WHY_LABEL[pr.door_why] ? ` (${DOOR_WHY_LABEL[pr.door_why]})` : ""}. This only orders your attention; every review and approval still applies.`}</p>
+      ) : null}
+      {pr.blast ? <p className="m-0 text-xs [overflow-wrap:anywhere]" data-pr-blast>{`Blast radius: ${pr.blast}`}</p> : null}
     </div>
   );
 }
