@@ -94,6 +94,7 @@ export function OtherBox({
   const addNow = async (files: File[], gen: number) => {
     setImgErr(null);
     for (const f of files) {
+      if (gen !== readGen.current) return;
       const cur = imgsRef.current;
       if (!IMG_TYPES.includes(f.type)) { setImgErr(`${f.name || "That file"} is not a PNG, JPEG, GIF or WebP image.`); continue; }
       if (cur.length >= OTHER_IMG_MAX_COUNT) { setImgErr(`At most ${OTHER_IMG_MAX_COUNT} images.`); break; }
@@ -105,6 +106,7 @@ export function OtherBox({
         if (gen !== readGen.current) return;
         item = { id: nextId.current++, mime: f.type, data_base64: toBase64(buf), name: f.name || "pasted image", bytes: f.size, url: URL.createObjectURL(f) };
       } catch {
+        if (gen !== readGen.current) return;
         setImgErr(`${f.name || "That image"} could not be read.`);
         continue;
       }
