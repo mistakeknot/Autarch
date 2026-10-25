@@ -1,6 +1,6 @@
 # Coding standards (reviewer-only)
 
-Read by the review sub-agent when it reviews a Go change. The implementing agent is not pointed here: this is a pilot to see whether judgement rules work better as a review check than as always-loaded instructions. Deterministic checks (for example `rune_width_guard_test.go`) run in CI and need no reading.
+Read by the review sub-agent when it reviews a Go change. The implementing agent is not pointed here: this is a pilot to see whether judgement rules work better as a review check than as always-loaded instructions. Deterministic checks need no reading; the first one, `rune_width_guard_test.go`, is added in a separate change and runs in CI once merged.
 
 Review a change against these. A violation is a defect to report, not a style note.
 
@@ -16,4 +16,4 @@ Review a change against these. A violation is a defect to report, not a style no
 ## Bubble Tea sizing and text
 
 - Subtract chrome dimensions (header, footer, sidebar, padding) from `WindowSizeMsg` before passing it to child views. A child knows only its allocated space: available width = terminal width minus the parent's horizontal padding.
-- Never slice an ANSI-styled string with `[]rune` for visual-column work. Use `ansi.Truncate` / `TruncateLeft` from `charmbracelet/x/ansi`. A `[]rune(...)` conversion beside `lipgloss.Width` in one file is always a bug; `rune_width_guard_test.go` fails on it.
+- Never slice an ANSI-styled string with `[]rune` for visual-column work. Use `ansi.Truncate` / `TruncateLeft` from `charmbracelet/x/ansi`. A `[]rune(...)` conversion beside `lipgloss.Width` in one file is always a bug; the guard test `rune_width_guard_test.go` fails on it once merged; until then, check for it in review.
