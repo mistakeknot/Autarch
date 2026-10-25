@@ -13,7 +13,13 @@ export const PR_VERDICTS = ["PASS", "PASS-WITH-NOTES", "HOLD", "FAIL"] as const;
 export type PrVerdict = (typeof PR_VERDICTS)[number];
 export const PR_WHYS = ["design", "taste", "spend"] as const;
 export type PrWhy = (typeof PR_WHYS)[number];
+export const PR_DOORS = ["one-way", "two-way"] as const;
+export type PrDoor = (typeof PR_DOORS)[number];
+/** Why a merge is one-way: a data migration, an external message, signing or production paths, or a repo with a deploy timer. */
+export const PR_DOOR_WHYS = ["data-migration", "external-message", "signing-or-production", "deploy-timer"] as const;
+export type PrDoorWhy = (typeof PR_DOOR_WHYS)[number];
 const MAX_SUMMARY = 200;
+const MAX_BLAST = 200;
 
 export interface ScriptRef {
   path: string;
@@ -27,7 +33,7 @@ export interface ScriptMove extends ScriptRef {
 
 export type Move =
   | { kind: "script"; script: ScriptMove }
-  | { kind: "pr"; url: string; summary?: string; verdict?: PrVerdict; review_url?: string; why?: PrWhy }
+  | { kind: "pr"; url: string; summary?: string; verdict?: PrVerdict; review_url?: string; why?: PrWhy; door?: PrDoor; door_why?: PrDoorWhy; blast?: string }
   | { kind: "read"; url: string }
   | { kind: "context"; need: string };
 
@@ -134,7 +140,7 @@ export function parseMove(body: string): Move {
     }
     case "pr": {
       if (!isObj(m)) return fail("pr must be an object");
-      only(m, ["url", "summary", "verdict", "review_url", "why"], "pr");
+      only(m, ["url", "summary", "verdict", "review_url", "why", "door", "door_why", "blast"], "pr");
       if (typeof m.url !== "string" || !PR_URL.test(m.url)) return fail("pr url must be https://github.com/<owner>/<repo>/pull/<n>");
       const pr: Extract<Move, { kind: "pr" }> = { kind, url: m.url };
       if (m.summary !== undefined) {
@@ -150,6 +156,21 @@ export function parseMove(body: string): Move {
       if (m.why !== undefined) {
         if (typeof m.why !== "string" || !(PR_WHYS as readonly string[]).includes(m.why)) return fail(`pr why must be one of ${PR_WHYS.join(", ")}`);
         pr.why = m.why as PrWhy;
+      }
+      if (m.door !== undefined) {
+        if (typeof m.door !== "string" || !(PR_DOORS as readonly string[]).includes(m.door)) return fail(`pr door must be one of ${PR_DOORS.join(", ")}`);
+        pr.door = m.door as PrDoor;
+      }
+      if (m.door_why !== undefined) {
+        if (pr.door !== "one-way") return fail("pr door_why is only allowed with door one-way");
+        if (typeof m.door_why !== "string" || !(PR_DOOR_WHYS as readonly string[]).includes(m.door_why)) return fail(`pr door_why must be one of ${PR_DOOR_WHYS.join(", ")}`);
+        pr.door_why = m.door_why as PrDoorWhy;
+      }
+      if (m.blast !== undefined) {
+        if (typeof m.blast !== "string" || m.blast.replace(/^[\s\uFEFF]+|[\s\uFEFF]+$/g, "") === "" || m.blast.length > MAX_BLAST || /[\r\n\u0085\u2028\u2029]/.test(m.blast) || !m.blast.isWellFormed() || m.blast.includes("\uFFFD")) {
+          return fail(`pr blast must be one line of 1-${MAX_BLAST} characters`);
+        }
+        pr.blast = m.blast;
       }
       if (m.review_url !== undefined) pr.review_url = readUrl(m.review_url);
       return pr;
