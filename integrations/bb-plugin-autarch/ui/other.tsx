@@ -71,6 +71,8 @@ export function OtherBox({
   showHelp?: boolean;
 }) {
   const [raw, setRaw] = useState("");
+  const rawRef = useRef("");
+  rawRef.current = raw;
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
   const [imgs, setImgsState] = useState<Staged[]>([]);
@@ -121,6 +123,7 @@ export function OtherBox({
     setLoading((n) => n + 1);
     chain.current = chain.current
       .then(() => {
+        if (!alive.current) return;
         const gen = readGen.current;
         return settleWithin(addNow(files, gen), IMG_READ_TIMEOUT_MS, () => {
           if (gen === readGen.current) { readGen.current++; setImgErr("An image took too long to read and was skipped. Try attaching it again."); }
@@ -146,11 +149,14 @@ export function OtherBox({
       const sentImgs = imgs;
       const done = (r: OtherOutcome | void) => {
         if (r && r.ok === false) { setMsg({ ok: false, text: r.error ?? "not sent" }); return; }
+        // A late success must not wipe a newer draft: clear only while the text and the staged images are still what was sent.
+        const unchanged = otherText(rawRef.current) === t && imgsRef.current === sentImgs;
+        if (clear && !unchanged) { setMsg({ ok: true, text: `${okText} Your newer draft was kept.` }); return; }
         setMsg({ ok: true, text: okText });
         if (clear) {
-          setRaw((cur) => (otherText(cur) === t ? "" : cur));
+          setRaw("");
           sentImgs.forEach((x) => URL.revokeObjectURL(x.url));
-          if (imgsRef.current === sentImgs) setImgs([]);
+          setImgs([]);
         }
       };
       let timedOut = false;
