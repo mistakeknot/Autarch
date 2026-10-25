@@ -21,11 +21,12 @@ const lipglossPath = "github.com/charmbracelet/lipgloss"
 
 // runeWidthPattern reports whether src converts a value with []rune(...) and also calls lipgloss.Width(...).
 func runeWidthPattern(src string) (bool, error) {
-	f, err := parser.ParseFile(token.NewFileSet(), "", src, parser.SkipObjectResolution)
+	f, err := parser.ParseFile(token.NewFileSet(), "", src, 0)
 	if err != nil {
 		return false, err
 	}
 	lipgloss := ""
+	dot := false
 	for _, imp := range f.Imports {
 		p, uerr := strconv.Unquote(imp.Path.Value)
 		if uerr != nil || p != lipglossPath {
@@ -35,6 +36,7 @@ func runeWidthPattern(src string) (bool, error) {
 		if imp.Name != nil {
 			lipgloss = imp.Name.Name
 		}
+		dot = lipgloss == "."
 	}
 	var conv, width bool
 	ast.Inspect(f, func(n ast.Node) bool {
@@ -44,11 +46,15 @@ func runeWidthPattern(src string) (bool, error) {
 		}
 		switch fn := ast.Unparen(call.Fun).(type) {
 		case *ast.ArrayType:
-			if id, ok := fn.Elt.(*ast.Ident); ok && id.Name == "rune" && fn.Len == nil {
+			if id, ok := ast.Unparen(fn.Elt).(*ast.Ident); ok && id.Name == "rune" && id.Obj == nil && fn.Len == nil {
 				conv = true
 			}
 		case *ast.SelectorExpr:
-			if id, ok := fn.X.(*ast.Ident); ok && lipgloss != "" && id.Name == lipgloss && fn.Sel.Name == "Width" {
+			if id, ok := fn.X.(*ast.Ident); ok && lipgloss != "" && !dot && id.Obj == nil && id.Name == lipgloss && fn.Sel.Name == "Width" {
+				width = true // an identifier with a local binding (Obj set) shadows the import
+			}
+		case *ast.Ident:
+			if dot && fn.Name == "Width" && fn.Obj == nil {
 				width = true
 			}
 		}
@@ -71,6 +77,9 @@ func TestRuneWidthPatternDetector(t *testing.T) {
 		{"string only", "package x\nvar _ = \"[]rune(s) lipgloss.Width(s)\"\n", false},
 		{"conversion alone", "package x\nfunc f(s string) { _ = []rune(s) }\n", false},
 		{"width alone", head, false},
+		{"dot import", "package x\nimport . \"github.com/charmbracelet/lipgloss\"\nfunc f(s string) { _ = []rune(s)[:Width(s)] }\n", true},
+		{"parenthesized element type", "package x\nimport \"github.com/charmbracelet/lipgloss\"\nfunc f(s string) { _ = [](rune)(s)[:lipgloss.Width(s)] }\n", true},
+		{"shadowed alias", "package x\nimport lg \"github.com/charmbracelet/lipgloss\"\nvar _ = lg.Width\ntype w struct{}\nfunc (w) Width(string) int { return 0 }\nfunc f(s string) { lg := w{}; _ = []rune(s)[:lg.Width(s)] }\n", false},
 		{"another package named lipgloss", "package x\nimport lipgloss \"example.com/other\"\nfunc f(s string) { _ = []rune(s); _ = lipgloss.Width(s) }\n", false},
 	}
 	for _, c := range cases {
