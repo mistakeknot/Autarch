@@ -7,6 +7,7 @@
 // (cli.ts) and the skill in skills/home/SKILL.md that tells agents how to use it. The
 // example todo list in bb.storage.kv serves the Example todos page only. A write
 // publishes a realtime signal so every open page refetches.
+import { postNoteOnce } from "./notepost.js";
 import { randomUUID } from "node:crypto";
 import { existsSync } from "node:fs";
 import { homedir } from "node:os";
@@ -640,8 +641,7 @@ export function wireHome(bb: BbPluginApi, handle: StoreHandle, cfg: HomeConfig, 
       if (r.task_id !== null) {
         if (!tasksRef) return { ok: false as const, status: 503, error: "tasks unavailable; nothing was sent" };
         try {
-          const have = (await tasksRef.listComments(r.task_id)).some((c) => hasNoteMarker(c.body, i.note_id));
-          if (!have) await tasksRef.createComment(r.task_id, r.body);
+          await postNoteOnce(tasksRef, r.task_id, i.note_id, r.body);
         } catch {
           return { ok: false as const, status: 502, error: "the card comment could not be posted, so nobody was woken; send it again" };
         }
