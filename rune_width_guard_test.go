@@ -53,7 +53,7 @@ func runeWidthPattern(src string) (bool, error) {
 		}
 		switch fn := ast.Unparen(call.Fun).(type) {
 		case *ast.ArrayType:
-			if id, ok := ast.Unparen(fn.Elt).(*ast.Ident); ok && id.Name == "rune" && id.Obj == nil && fn.Len == nil {
+			if id, ok := ast.Unparen(fn.Elt).(*ast.Ident); ok && id.Name == "rune" && fn.Len == nil && isRuneType(id) {
 				conv = true
 			}
 		case *ast.SelectorExpr:
@@ -68,6 +68,20 @@ func runeWidthPattern(src string) (bool, error) {
 		return true
 	})
 	return conv && width, nil
+}
+
+// isRuneType reports whether id names the builtin rune, or a file-local declaration that is int32 under another
+// spelling ("type rune = int32" or "type rune int32"), which still converts a string to a slice of runes.
+func isRuneType(id *ast.Ident) bool {
+	if id.Obj == nil {
+		return true
+	}
+	ts, ok := id.Obj.Decl.(*ast.TypeSpec)
+	if !ok {
+		return false
+	}
+	base, ok := ast.Unparen(ts.Type).(*ast.Ident)
+	return ok && base.Name == "int32" && base.Obj == nil
 }
 
 func TestRuneWidthPatternDetector(t *testing.T) {
@@ -89,7 +103,15 @@ func TestRuneWidthPatternDetector(t *testing.T) {
 		{"shadowed alias", "package x\nimport lg \"github.com/charmbracelet/lipgloss\"\nvar _ = lg.Width\ntype w struct{}\nfunc (w) Width(string) int { return 0 }\nfunc f(s string) { lg := w{}; _ = []rune(s)[:lg.Width(s)] }\n", false},
 		{"two imports of lipgloss", "package x\nimport lg \"github.com/charmbracelet/lipgloss\"\nimport other \"github.com/charmbracelet/lipgloss\"\nvar _ = other.Width\nfunc f(s string) { _ = []rune(s)[:lg.Width(s)] }\n", true},
 		{"rune redeclared in a sibling file (limitation: one file is parsed at a time, so this is still reported)", "package x\nimport lg \"github.com/charmbracelet/lipgloss\"\nfunc f(s string) { _ = []rune(s)[:lg.Width(s)] }\n", true},
+		{"rune alias to int32", "package x\nimport lg \"github.com/charmbracelet/lipgloss\"\ntype rune = int32\nfunc f(s string) { _ = []rune(s)[:lg.Width(s)] }\n", true},
+		{"rune defined as int32", "package x\nimport lg \"github.com/charmbracelet/lipgloss\"\ntype rune int32\nfunc f(s string) { _ = []rune(s)[:lg.Width(s)] }\n", true},
+		{"rune shadowed by an unrelated type in the same file", "package x\nimport lg \"github.com/charmbracelet/lipgloss\"\ntype rune struct{}\nfunc f(r []rune, s string) { _ = lg.Width(s); _ = []rune(r) }\n", false},
+		{"rune shadowed by a local variable", "package x\nimport lg \"github.com/charmbracelet/lipgloss\"\nfunc f(s string) { rune := 1; _ = rune; _ = lg.Width(s) }\n", false},
+		{"dot-imported Width shadowed in the same file", "package x\nimport . \"github.com/charmbracelet/lipgloss\"\nfunc Width(string) int { return 0 }\nfunc f(s string) { _ = []rune(s)[:Width(s)] }\n", false},
 		{"another package named lipgloss", "package x\nimport lipgloss \"example.com/other\"\nfunc f(s string) { _ = []rune(s); _ = lipgloss.Width(s) }\n", false},
+	}
+	if _, err := runeWidthPattern("package x\nfunc f( {"); err == nil {
+		t.Error("malformed source: want a parse error, got none")
 	}
 	for _, c := range cases {
 		got, err := runeWidthPattern(c.src)
