@@ -10,7 +10,7 @@ const MAX_DEPTH = 6;
 const HEADING = /^ {0,3}(#{1,6})[ \t]+(.*?)(?:[ \t]+#+)?[ \t]*$/;
 const RULE = /^ {0,3}([-*_])(?:[ \t]*\1){2,}[ \t]*$/;
 const ITEM = /^(\s*)([-*+]|\d{1,9}[.)])[ \t]+(.*)$/;
-const TABLE_SEP = /^\s*\|?\s*:?-+:?\s*(?:\|\s*:?-+:?\s*)*\|?\s*$/;
+const TABLE_SEP = /^[ \t]*\|?[ \t]*:?-+:?[ \t]*(?:\|[ \t]*:?-+:?[ \t]*)*\|?[ \t]*$/;
 const HEADING_CLASS = ["text-2xl", "text-xl", "text-lg", "text-base", "text-sm", "text-sm"];
 
 type Item = { indent: number; ordered: boolean; text: string; kids: Item[] };
@@ -21,6 +21,9 @@ function cells(line: string): string[] {
   if (s.endsWith("|") && !s.endsWith("\\|")) s = s.slice(0, -1);
   return s.split(/(?<!\\)\|/).map((c) => c.trim().replace(/\\\|/g, "|"));
 }
+
+// Block patterns run on at most this many characters of a line, so no pattern can be driven quadratic by one long line.
+const MAX_LINE = 2000;
 
 function startsBlock(line: string, next: string | undefined): boolean {
   return (
@@ -135,5 +138,5 @@ function blocks(lines: string[], depth: number): ReactNode[] {
 
 export function DocMarkdown({ text }: { text: string }) {
   if (text.length > MARKDOWN_MAX_CHARS * 10) return <p className="m-0 whitespace-pre-wrap font-sans text-sm" data-markdown-plain>{text}</p>;
-  return <div className="flex min-w-0 flex-col gap-2 font-sans text-sm leading-6 [overflow-wrap:anywhere]" data-doc-markdown>{blocks(text.replace(/\r\n?/g, "\n").split("\n"), 0)}</div>;
+  return <div className="flex min-w-0 flex-col gap-2 font-sans text-sm leading-6 [overflow-wrap:anywhere]" data-doc-markdown>{blocks(text.replace(/\r\n?/g, "\n").split("\n").map((l) => (l.length > MAX_LINE ? l.slice(0, MAX_LINE) : l)), 0)}</div>;
 }

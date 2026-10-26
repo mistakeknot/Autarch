@@ -108,3 +108,12 @@ describe("document reader Markdown", () => {
     expect(card).not.toMatch(/<h1|<ol|<table/);
   });
 });
+
+describe("document reader Markdown: hostile lines", () => {
+  it("a very long whitespace or dash line renders fast", () => {
+    const t0 = Date.now();
+    html(`a |${" ".repeat(200000)}x\n${" ".repeat(200000)}-`);
+    html(`| a |\n|${"- ".repeat(100000)}`);
+    expect(Date.now() - t0).toBeLessThan(2000);
+  });
+});
