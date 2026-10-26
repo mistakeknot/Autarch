@@ -82,7 +82,7 @@ func NewServer(cfg config.ServerConfig, agg aggregatorAPI) *Server {
 	layoutStr := string(layoutBytes)
 
 	// Pages to load
-	pages := []string{"dashboard.html", "projects.html", "project_detail.html", "agents.html", "sessions.html", "tasks.html", "agent_detail.html"}
+	pages := []string{"dashboard.html", "projects.html", "project_detail.html", "agents.html", "sessions.html", "tasks.html", "agent_detail.html", "colony.html"}
 
 	for _, page := range pages {
 		pageBytes, err := fs.ReadFile(tmplFS, page)
@@ -103,6 +103,16 @@ func (s *Server) ListenAndServe(addr string) error {
 	if err := netguard.EnsureLocalOnly(addr); err != nil {
 		return err
 	}
+	s.srv = &http.Server{
+		Addr:    addr,
+		Handler: s.routes(),
+	}
+
+	return s.srv.ListenAndServe()
+}
+
+// routes builds the HTTP handler for every page and API route.
+func (s *Server) routes() http.Handler {
 	mux := http.NewServeMux()
 	api := s.withLocalhostOriginCheck
 
@@ -113,6 +123,8 @@ func (s *Server) ListenAndServe(addr string) error {
 	mux.HandleFunc("/agents", s.handleAgents)
 	mux.HandleFunc("/agents/", s.handleAgentDetail)
 	mux.HandleFunc("/sessions", s.handleSessions)
+	mux.HandleFunc("/colony", s.handleColony)
+	mux.HandleFunc("/colony/scene", s.handleColonyScene)
 	mux.HandleFunc("/api/sessions/new", api(s.handleSessionNew))
 	mux.HandleFunc("/api/sessions/", api(s.handleSessionAction))
 	mux.HandleFunc("/api/projects/", api(s.handleProjectMCPAction))
@@ -125,12 +137,7 @@ func (s *Server) ListenAndServe(addr string) error {
 	// Static files
 	mux.Handle("/static/", http.StripPrefix("/static/", http.FileServer(http.Dir("static"))))
 
-	s.srv = &http.Server{
-		Addr:    addr,
-		Handler: mux,
-	}
-
-	return s.srv.ListenAndServe()
+	return mux
 }
 
 // Shutdown gracefully stops the server
