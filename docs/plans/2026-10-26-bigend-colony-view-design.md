@@ -7,7 +7,7 @@ Bead mk-ogl3p. Status: scout and proposal. Nothing is built.
 Show the whole estate the way a strategy or factory game shows a base. Projects are
 bases. Agents are units working at them. Beads and cards are items that move through
 the base. Stuck or neglected work shows as a visible jam. Inspiration: the agent-graph
-plugin idea (AUTA-249) and the Stellaris teardown in `docs/`.
+plugin idea and the Stellaris teardown in `docs/`.
 
 ## What Bigend already has
 
