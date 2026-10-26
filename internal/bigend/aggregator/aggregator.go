@@ -82,7 +82,59 @@ type State struct {
 	MCP        map[string][]mcp.ComponentStatus `json:"mcp"`
 	Activities []Activity                       `json:"activities"`
 	Kernel     *KernelState                     `json:"kernel,omitempty"`
+	Items      []Item                           `json:"items"`
+	Flow       []FlowCount                      `json:"flow,omitempty"`
 	UpdatedAt  time.Time                        `json:"updated_at"`
+}
+
+// Clone returns a snapshot that shares no slices or maps with s, so callers
+// may hold or modify it while the aggregator keeps refreshing. Element values
+// are copied by value; the pointer fields inside Projects and the icdata
+// records under Kernel are shared, as they are replaced and never mutated in
+// place.
+func (s State) Clone() State {
+	c := s
+	c.Projects = cloneSlice(s.Projects)
+	c.Agents = cloneSlice(s.Agents)
+	c.Sessions = cloneSlice(s.Sessions)
+	c.Colonies = cloneSlice(s.Colonies)
+	c.Activities = cloneSlice(s.Activities)
+	c.Items = cloneSlice(s.Items)
+	c.Flow = cloneSlice(s.Flow)
+	if s.MCP != nil {
+		c.MCP = make(map[string][]mcp.ComponentStatus, len(s.MCP))
+		for k, v := range s.MCP {
+			c.MCP[k] = cloneSlice(v)
+		}
+	}
+	if s.Kernel != nil {
+		k := *s.Kernel
+		k.Runs = cloneSliceMap(s.Kernel.Runs)
+		k.Dispatches = cloneSliceMap(s.Kernel.Dispatches)
+		k.Events = cloneSliceMap(s.Kernel.Events)
+		c.Kernel = &k
+	}
+	return c
+}
+
+// cloneSlice copies a slice, keeping nil as nil and empty as empty so JSON
+// output ([] versus null) is unchanged.
+func cloneSlice[T any](s []T) []T {
+	if s == nil {
+		return nil
+	}
+	return append(make([]T, 0, len(s)), s...)
+}
+
+func cloneSliceMap[T any](m map[string][]T) map[string][]T {
+	if m == nil {
+		return nil
+	}
+	c := make(map[string][]T, len(m))
+	for k, v := range m {
+		c[k] = cloneSlice(v)
+	}
+	return c
 }
 
 type tmuxAPI interface {
@@ -120,6 +172,10 @@ type Aggregator struct {
 	mu              sync.RWMutex
 	state           State
 	refreshing      atomic.Bool
+
+	// Colony view items: bead source and the age past which an item is a jam.
+	beads        BeadLister
+	jamThreshold time.Duration
 
 	// Lifecycle context: all internal goroutines derive from this.
 	// Cancelled by Shutdown().
@@ -173,6 +229,8 @@ func New(scanner *discovery.Scanner, cfg *config.Config, store *events.Store) *A
 		lifecycleCancel: cancel,
 		broker:          signals.NewBroker(),
 		eventsStore:     store,
+		beads:           BDLister{},
+		jamThreshold:    DefaultJamThreshold,
 		handlers:        make(map[string][]EventHandler),
 		seenEvents:      make(map[string]struct{}),
 		state: State{
@@ -182,6 +240,7 @@ func New(scanner *discovery.Scanner, cfg *config.Config, store *events.Store) *A
 			Colonies:   []colony.Colony{},
 			MCP:        map[string][]mcp.ComponentStatus{},
 			Activities: []Activity{},
+			Items:      nil, // nil until the first refresh so no flow is computed against nothing
 		},
 	}
 }
@@ -552,6 +611,10 @@ func (a *Aggregator) Refresh(ctx context.Context) error {
 	// Load MCP statuses
 	mcpStatuses := a.loadMCPStatuses(projects)
 
+	// Colony view items and flow against the previous snapshot (bd I/O outside lock)
+	now := time.Now()
+	items, flow := a.collectItems(ctx, projects, now)
+
 	// Merge kernel events into activity feed with dedup
 	a.mu.RLock()
 	existingActivities := make([]Activity, len(a.state.Activities))
@@ -584,7 +647,9 @@ func (a *Aggregator) Refresh(ctx context.Context) error {
 		MCP:        mcpStatuses,
 		Activities: mergedActivities,
 		Kernel:     kernelState,
-		UpdatedAt:  time.Now(),
+		Items:      items,
+		Flow:       flow,
+		UpdatedAt:  now,
 	}
 	a.mu.Unlock()
 
@@ -938,7 +1003,7 @@ func pathIsDir(path string) bool {
 func (a *Aggregator) GetState() State {
 	a.mu.RLock()
 	defer a.mu.RUnlock()
-	return a.state
+	return a.state.Clone()
 }
 
 // GetProject returns a specific project by path
