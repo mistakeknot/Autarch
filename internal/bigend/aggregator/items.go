@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"os"
@@ -66,9 +67,35 @@ type BeadLister interface {
 	ListBeads(ctx context.Context, projectPath string) ([]BeadRecord, error)
 }
 
+// Output caps for one `bd list` call. Variables so tests can lower them.
+var (
+	maxBDStdout int64 = 64 << 20
+	maxBDStderr int64 = 64 << 10
+)
+
+// cappedBuffer collects up to limit bytes. The write that crosses the limit
+// fails and cancels the command, so a runaway bd is killed instead of filling
+// memory or blocking on a full pipe.
+type cappedBuffer struct {
+	buf      bytes.Buffer
+	limit    int64
+	cancel   context.CancelFunc
+	exceeded bool
+}
+
+func (c *cappedBuffer) Write(p []byte) (int, error) {
+	if int64(c.buf.Len())+int64(len(p)) > c.limit {
+		c.exceeded = true
+		c.cancel()
+		return 0, errors.New("output limit exceeded")
+	}
+	return c.buf.Write(p)
+}
+
 // BDLister lists beads by running `bd --readonly list --json --limit 0` in the
 // project directory. --limit 0 lifts bd's default cap of 50, which would hide
-// the oldest beads. It never writes to bd.
+// the oldest beads. It never writes to bd, and it fails if bd prints more than
+// maxBDStdout bytes to stdout or maxBDStderr bytes to stderr.
 type BDLister struct{}
 
 // ListBeads implements BeadLister.
@@ -77,14 +104,21 @@ func (BDLister) ListBeads(ctx context.Context, projectPath string) ([]BeadRecord
 	defer cancel()
 	cmd := exec.CommandContext(ctx, "bd", "--readonly", "list", "--json", "--limit", "0")
 	cmd.Dir = projectPath
-	var stderr bytes.Buffer
-	cmd.Stderr = &stderr // bd prints configuration warnings here; keep stdout pure JSON
-	out, err := cmd.Output()
-	if err != nil {
-		return nil, fmt.Errorf("bd list in %s: %w: %s", projectPath, err, bytes.TrimSpace(stderr.Bytes()))
+	cmd.WaitDelay = 2 * time.Second
+	stdout := &cappedBuffer{limit: maxBDStdout, cancel: cancel}
+	stderr := &cappedBuffer{limit: maxBDStderr, cancel: cancel} // bd prints configuration warnings here; keep stdout pure JSON
+	cmd.Stdout, cmd.Stderr = stdout, stderr
+	err := cmd.Run()
+	switch {
+	case stdout.exceeded:
+		return nil, fmt.Errorf("bd list in %s: stdout exceeded %d bytes", projectPath, maxBDStdout)
+	case stderr.exceeded:
+		return nil, fmt.Errorf("bd list in %s: stderr exceeded %d bytes", projectPath, maxBDStderr)
+	case err != nil:
+		return nil, fmt.Errorf("bd list in %s: %w: %s", projectPath, err, bytes.TrimSpace(stderr.buf.Bytes()))
 	}
 	var recs []BeadRecord
-	if err := json.Unmarshal(out, &recs); err != nil {
+	if err := json.Unmarshal(stdout.buf.Bytes(), &recs); err != nil {
 		return nil, fmt.Errorf("decode bd list output for %s: %w", projectPath, err)
 	}
 	return recs, nil
@@ -184,48 +218,81 @@ func (a *Aggregator) SetJamThreshold(d time.Duration) {
 	a.jamThreshold = d
 }
 
+// itemResult is what one collection pass produces; commit it under the lock.
+type itemResult struct {
+	items []Item
+	flow  []FlowCount
+	// seen holds each listed project's last valid bead records. A project is
+	// baselined (flow may be computed for it) only while it has an entry.
+	seen map[string][]BeadRecord
+}
+
 // collectItems lists beads for every project that has a .beads directory and
-// returns the items plus the flow against the previous snapshot. When a
-// project cannot be listed its previous items are carried forward, so a bd
-// failure is not reported as everything leaving.
-func (a *Aggregator) collectItems(ctx context.Context, projects []discovery.Project, now time.Time) ([]Item, []FlowCount) {
+// returns the items plus the flow against the previous snapshot.
+//
+// A project is only compared once it has two valid observations: a failed
+// listing publishes nothing for a project that has no earlier valid listing,
+// and the first valid listing sets its baseline without producing flow. When a
+// later listing fails, the project's last valid records are rebuilt into items
+// against now, so they keep ageing and can still become jams, and they
+// produce no flow. Projects that vanish from discovery lose their baseline.
+func (a *Aggregator) collectItems(ctx context.Context, projects []discovery.Project, now time.Time) itemResult {
 	a.mu.RLock()
 	lister, jam := a.beads, a.jamThreshold
 	prev := a.state.Items
+	prevSeen := a.itemSeen
 	a.mu.RUnlock()
 
-	havePrev := prev != nil
-	prevByProject := map[string][]Item{}
-	for _, it := range prev {
-		prevByProject[it.Project] = append(prevByProject[it.Project], it)
-	}
-
-	items := []Item{}
+	res := itemResult{items: []Item{}, seen: map[string][]BeadRecord{}}
+	compare := map[string]bool{} // projects with a valid observation now and before
 	for _, p := range projects {
 		if info, err := os.Stat(filepath.Join(p.Path, ".beads")); err != nil || !info.IsDir() {
 			continue
 		}
 		recs, err := lister.ListBeads(ctx, p.Path)
 		if err != nil {
-			slog.Warn("bead listing failed; keeping previous items", "project", p.Path, "error", err)
-			items = append(items, prevByProject[p.Path]...)
+			if last, ok := prevSeen[p.Path]; ok {
+				slog.Warn("bead listing failed; ageing the last valid items", "project", p.Path, "error", err)
+				res.seen[p.Path] = last
+				res.items = append(res.items, buildItems(p.Path, last, now, jam)...)
+			} else {
+				slog.Warn("bead listing failed; no earlier listing to fall back on", "project", p.Path, "error", err)
+			}
 			continue
 		}
-		items = append(items, buildItems(p.Path, recs, now, jam)...)
+		recs = append([]BeadRecord(nil), recs...)
+		if _, ok := prevSeen[p.Path]; ok {
+			compare[p.Path] = true
+		}
+		res.seen[p.Path] = recs
+		res.items = append(res.items, buildItems(p.Path, recs, now, jam)...)
 	}
 
-	var flow []FlowCount
-	if havePrev {
-		flow = computeFlow(prev, items)
+	only := func(items []Item) []Item {
+		var out []Item
+		for _, it := range items {
+			if compare[it.Project] {
+				out = append(out, it)
+			}
+		}
+		return out
 	}
-	return items, flow
+	res.flow = computeFlow(only(prev), only(res.items))
+	return res
+}
+
+// commitItemsLocked stores a collection result in the aggregator. Callers hold a.mu
+// for writing.
+func (a *Aggregator) commitItemsLocked(res itemResult) {
+	a.itemSeen = res.seen
+	a.state.Items = res.items
+	a.state.Flow = res.flow
 }
 
 // refreshItems collects items and flow and stores them in the state.
 func (a *Aggregator) refreshItems(ctx context.Context, projects []discovery.Project, now time.Time) {
-	items, flow := a.collectItems(ctx, projects, now)
+	res := a.collectItems(ctx, projects, now)
 	a.mu.Lock()
-	a.state.Items = items
-	a.state.Flow = flow
+	a.commitItemsLocked(res)
 	a.mu.Unlock()
 }

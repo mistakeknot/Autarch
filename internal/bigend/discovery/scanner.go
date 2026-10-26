@@ -203,3 +203,20 @@ func expandHome(path string) string {
 	}
 	return path
 }
+
+func clonePtr[T any](p *T) *T {
+	if p == nil {
+		return nil
+	}
+	c := *p
+	return &c
+}
+
+// Clone returns a deep copy of the project, including its stats pointers.
+func (p Project) Clone() Project {
+	p.TaskStats = clonePtr(p.TaskStats)
+	p.PollardStats = clonePtr(p.PollardStats)
+	p.GurgStats = clonePtr(p.GurgStats)
+	p.InterspectStats = clonePtr(p.InterspectStats)
+	return p
+}

@@ -87,38 +87,30 @@ type State struct {
 	UpdatedAt  time.Time                        `json:"updated_at"`
 }
 
-// Clone returns a snapshot that shares no slices or maps with s, so callers
-// may hold or modify it while the aggregator keeps refreshing. Element values
-// are copied by value; the pointer fields inside Projects and the icdata
-// records under Kernel are shared, as they are replaced and never mutated in
-// place.
+// Clone returns a deep copy of the state: it shares no slice, map or pointer
+// with s, so callers may hold or modify it while the aggregator keeps
+// refreshing. nil stays nil and empty stays empty so JSON output ([] versus
+// null) is unchanged.
 func (s State) Clone() State {
 	c := s
-	c.Projects = cloneSlice(s.Projects)
+	c.Projects = cloneEach(s.Projects, discovery.Project.Clone)
 	c.Agents = cloneSlice(s.Agents)
 	c.Sessions = cloneSlice(s.Sessions)
-	c.Colonies = cloneSlice(s.Colonies)
+	c.Colonies = cloneEach(s.Colonies, colony.Colony.Clone)
 	c.Activities = cloneSlice(s.Activities)
 	c.Items = cloneSlice(s.Items)
 	c.Flow = cloneSlice(s.Flow)
 	if s.MCP != nil {
 		c.MCP = make(map[string][]mcp.ComponentStatus, len(s.MCP))
 		for k, v := range s.MCP {
-			c.MCP[k] = cloneSlice(v)
+			c.MCP[k] = cloneEach(v, mcp.ComponentStatus.Clone)
 		}
 	}
-	if s.Kernel != nil {
-		k := *s.Kernel
-		k.Runs = cloneSliceMap(s.Kernel.Runs)
-		k.Dispatches = cloneSliceMap(s.Kernel.Dispatches)
-		k.Events = cloneSliceMap(s.Kernel.Events)
-		c.Kernel = &k
-	}
+	c.Kernel = s.Kernel.Clone()
 	return c
 }
 
-// cloneSlice copies a slice, keeping nil as nil and empty as empty so JSON
-// output ([] versus null) is unchanged.
+// cloneSlice copies a slice whose elements hold no pointers, slices or maps.
 func cloneSlice[T any](s []T) []T {
 	if s == nil {
 		return nil
@@ -126,13 +118,25 @@ func cloneSlice[T any](s []T) []T {
 	return append(make([]T, 0, len(s)), s...)
 }
 
-func cloneSliceMap[T any](m map[string][]T) map[string][]T {
+// cloneEach copies a slice, deep-copying each element with clone.
+func cloneEach[T any](s []T, clone func(T) T) []T {
+	if s == nil {
+		return nil
+	}
+	c := make([]T, len(s))
+	for i, v := range s {
+		c[i] = clone(v)
+	}
+	return c
+}
+
+func cloneEachMap[T any](m map[string][]T, clone func(T) T) map[string][]T {
 	if m == nil {
 		return nil
 	}
 	c := make(map[string][]T, len(m))
 	for k, v := range m {
-		c[k] = cloneSlice(v)
+		c[k] = cloneEach(v, clone)
 	}
 	return c
 }
@@ -176,6 +180,7 @@ type Aggregator struct {
 	// Colony view items: bead source and the age past which an item is a jam.
 	beads        BeadLister
 	jamThreshold time.Duration
+	itemSeen     map[string][]BeadRecord // last valid bead records per project
 
 	// Lifecycle context: all internal goroutines derive from this.
 	// Cancelled by Shutdown().
@@ -613,7 +618,7 @@ func (a *Aggregator) Refresh(ctx context.Context) error {
 
 	// Colony view items and flow against the previous snapshot (bd I/O outside lock)
 	now := time.Now()
-	items, flow := a.collectItems(ctx, projects, now)
+	itemRes := a.collectItems(ctx, projects, now)
 
 	// Merge kernel events into activity feed with dedup
 	a.mu.RLock()
@@ -647,10 +652,11 @@ func (a *Aggregator) Refresh(ctx context.Context) error {
 		MCP:        mcpStatuses,
 		Activities: mergedActivities,
 		Kernel:     kernelState,
-		Items:      items,
-		Flow:       flow,
+		Items:      itemRes.items,
+		Flow:       itemRes.flow,
 		UpdatedAt:  now,
 	}
+	a.itemSeen = itemRes.seen
 	a.mu.Unlock()
 
 	slog.Info("refresh complete", "projects", len(projects), "agents", len(agents), "sessions", len(sessions))

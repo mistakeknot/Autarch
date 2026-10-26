@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -240,5 +241,90 @@ func TestBDListerPassesReadOnlyUnlimitedArgsAndIgnoresStderr(t *testing.T) {
 	args, _ := os.ReadFile(argsFile)
 	if string(args) != "--readonly list --json --limit 0\n" {
 		t.Fatalf("bd args = %q", args)
+	}
+}
+
+func TestFailedFirstListingDoesNotInventFlow(t *testing.T) {
+	now := time.Date(2026, 10, 26, 12, 0, 0, 0, time.UTC)
+	p := beadProject(t, "alpha", true)
+	lister := &fakeLister{
+		records: map[string][]BeadRecord{p.Path: openBeads(60, now, time.Hour)},
+		errs:    map[string]error{p.Path: errors.New("bd unavailable")},
+	}
+	agg := New(nil, &config.Config{}, nil)
+	agg.SetBeadLister(lister)
+	projects := []discovery.Project{p}
+
+	agg.refreshItems(context.Background(), projects, now) // first listing fails
+	if s := agg.GetState(); len(s.Items) != 0 || len(s.Flow) != 0 {
+		t.Fatalf("failed first listing published items=%d flow=%+v", len(s.Items), s.Flow)
+	}
+
+	delete(lister.errs, p.Path)
+	agg.refreshItems(context.Background(), projects, now.Add(time.Minute)) // first valid observation
+	s := agg.GetState()
+	if len(s.Items) != 60 || len(s.Flow) != 0 {
+		t.Fatalf("first valid observation: items=%d flow=%+v, want 60 items and no flow", len(s.Items), s.Flow)
+	}
+
+	lister.records[p.Path] = openBeads(61, now, time.Hour) // second valid observation: one arrival
+	agg.refreshItems(context.Background(), projects, now.Add(2*time.Minute))
+	if f := findFlow(agg.GetState().Flow, p.Path, "open"); f.Entered != 1 || f.Left != 0 {
+		t.Fatalf("second valid observation flow = %+v, want entered 1 left 0", f)
+	}
+}
+
+func TestCarriedForwardItemsKeepAging(t *testing.T) {
+	now := time.Date(2026, 10, 26, 12, 0, 0, 0, time.UTC)
+	p := beadProject(t, "alpha", true)
+	lister := &fakeLister{records: map[string][]BeadRecord{p.Path: openBeads(1, now, 6*24*time.Hour)}}
+	agg := New(nil, &config.Config{}, nil)
+	agg.SetBeadLister(lister)
+	projects := []discovery.Project{p}
+
+	agg.refreshItems(context.Background(), projects, now)
+	if agg.GetState().Items[0].Jam {
+		t.Fatal("6-day-old item jammed under the 7-day threshold")
+	}
+
+	lister.errs = map[string]error{p.Path: errors.New("bd unavailable")}
+	later := now.Add(2 * 24 * time.Hour)
+	agg.refreshItems(context.Background(), projects, later)
+	it := agg.GetState().Items[0]
+	if it.Age != 8*24*time.Hour || !it.Jam {
+		t.Fatalf("carried-forward item age=%v jam=%v, want 192h and jam", it.Age, it.Jam)
+	}
+}
+
+func stubBD(t *testing.T, body string) {
+	t.Helper()
+	bin := t.TempDir()
+	if err := os.WriteFile(filepath.Join(bin, "bd"), []byte("#!/bin/sh\n"+body+"\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+}
+
+func TestBDListerCapsStdout(t *testing.T) {
+	old := maxBDStdout
+	maxBDStdout = 1024
+	t.Cleanup(func() { maxBDStdout = old })
+	stubBD(t, `yes '{"id":"x"}'`)
+
+	_, err := BDLister{}.ListBeads(context.Background(), t.TempDir())
+	if err == nil || !strings.Contains(err.Error(), "stdout") {
+		t.Fatalf("err = %v, want stdout size error", err)
+	}
+}
+
+func TestBDListerCapsStderr(t *testing.T) {
+	old := maxBDStderr
+	maxBDStderr = 256
+	t.Cleanup(func() { maxBDStderr = old })
+	stubBD(t, `yes 'warning noise' >&2`)
+
+	_, err := BDLister{}.ListBeads(context.Background(), t.TempDir())
+	if err == nil || !strings.Contains(err.Error(), "stderr") {
+		t.Fatalf("err = %v, want stderr size error", err)
 	}
 }

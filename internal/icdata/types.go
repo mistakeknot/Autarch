@@ -87,3 +87,29 @@ type TokenSummary struct {
 	TotalTokens  int64  `json:"total_tokens"`
 	CacheHits    int64  `json:"cache_hits"`
 }
+
+func clonePtr[T any](p *T) *T {
+	if p == nil {
+		return nil
+	}
+	c := *p
+	return &c
+}
+
+// Clone returns a deep copy of the run.
+func (r Run) Clone() Run {
+	if r.Phases != nil {
+		r.Phases = append(make([]string, 0, len(r.Phases)), r.Phases...)
+	}
+	return r
+}
+
+// Clone returns a deep copy of the dispatch, including its optional fields.
+func (d Dispatch) Clone() Dispatch {
+	d.Name = clonePtr(d.Name)
+	d.Model = clonePtr(d.Model)
+	d.StartedAt = clonePtr(d.StartedAt)
+	d.CompletedAt = clonePtr(d.CompletedAt)
+	d.ScopeID = clonePtr(d.ScopeID)
+	return d
+}

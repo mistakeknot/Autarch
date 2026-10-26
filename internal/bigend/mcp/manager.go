@@ -281,3 +281,11 @@ func scanLines(pipe io.ReadCloser, out chan<- string) {
 		out <- scanner.Text()
 	}
 }
+
+// Clone returns a deep copy of the status, including its log tail.
+func (s ComponentStatus) Clone() ComponentStatus {
+	if s.LogTail != nil {
+		s.LogTail = append(make([]string, 0, len(s.LogTail)), s.LogTail...)
+	}
+	return s
+}
