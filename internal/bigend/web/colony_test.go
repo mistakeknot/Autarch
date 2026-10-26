@@ -6,6 +6,8 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -14,6 +16,17 @@ import (
 	"github.com/mistakeknot/autarch/internal/bigend/config"
 	"github.com/mistakeknot/autarch/internal/bigend/discovery"
 )
+
+// recordingAgg records the project path the /projects/ route resolves.
+type recordingAgg struct {
+	fakeAgg
+	got string
+}
+
+func (r *recordingAgg) GetProject(path string) *discovery.Project {
+	r.got = path
+	return nil
+}
 
 // svgNode is a minimal DOM over the rendered scene so the test reads
 // attributes instead of matching strings.
@@ -134,8 +147,8 @@ func TestColonySceneRendersFixture(t *testing.T) {
 	// Click a base: the link goes to the existing project detail page.
 	for p, b := range byProject {
 		links := b.find(func(n svgNode) bool { return n.XMLName.Local == "a" })
-		if len(links) == 0 || links[0].attr("href") != "/projects/"+p {
-			t.Errorf("base %s: want link /projects/%s, got %+v", p, p, links)
+		if len(links) == 0 || links[0].attr("href") != "/projects"+p {
+			t.Errorf("base %s: want link /projects%s, got %+v", p, p, links)
 		}
 	}
 
@@ -224,5 +237,108 @@ func TestColonyEmptyState(t *testing.T) {
 	body := getColony(t, "/colony/scene", aggregator.State{})
 	if !strings.Contains(body, "No projects") {
 		t.Errorf("empty state should say so")
+	}
+}
+
+// Every base link must resolve, through the real router, to the project it was
+// drawn for, whatever characters the path holds.
+func TestColonyBaseLinkRoundTrip(t *testing.T) {
+	paths := []string{
+		"/p/alpha",
+		"/p/a#b?c%25",
+		"/p/with space/and ünï",
+		"/p/100%/x&y=1;z+w",
+	}
+	var projects []discovery.Project
+	for _, p := range paths {
+		projects = append(projects, discovery.Project{Path: p, Name: "n"})
+	}
+	rec := &recordingAgg{fakeAgg: fakeAgg{state: aggregator.State{Projects: projects}}}
+	srv := NewServer(config.ServerConfig{}, rec)
+	scene := httptest.NewRecorder()
+	srv.routes().ServeHTTP(scene, httptest.NewRequest(http.MethodGet, "/colony/scene", nil))
+	root := parseSVG(t, scene.Body.String())
+
+	for _, p := range paths {
+		var href string
+		for _, b := range root.find(func(n svgNode) bool { return hasClass(n, "base") && n.attr("data-project") == p }) {
+			if l := b.find(func(n svgNode) bool { return n.XMLName.Local == "a" }); len(l) > 0 {
+				href = l[0].attr("href")
+			}
+		}
+		if href == "" {
+			t.Fatalf("no link for %q", p)
+		}
+		u, err := url.Parse(href)
+		if err != nil || u.Fragment != "" || u.RawQuery != "" {
+			t.Fatalf("%q: href %q has a fragment or query (err=%v)", p, href, err)
+		}
+		rec.got = ""
+		w := httptest.NewRecorder()
+		srv.routes().ServeHTTP(w, httptest.NewRequest(http.MethodGet, href, nil))
+		if w.Code == http.StatusMovedPermanently || w.Code == http.StatusFound {
+			t.Fatalf("%q: href %q redirects to %q", p, href, w.Header().Get("Location"))
+		}
+		if rec.got != p {
+			t.Errorf("href %q resolved to project %q, want %q", href, rec.got, p)
+		}
+	}
+}
+
+// A project with many agents must keep its units above its belt and inside the
+// SVG, and a belt below units must still have its items inside the SVG.
+func TestColonyCrowdedProjectLayout(t *testing.T) {
+	st := aggregator.State{Projects: []discovery.Project{
+		{Path: "/p/empty", Name: "empty"},
+		{Path: "/p/busy", Name: "busy"},
+	}}
+	for i := 0; i < 57; i++ {
+		st.Agents = append(st.Agents, aggregator.Agent{Name: fmt.Sprintf("u%02d", i), ProjectPath: "/p/empty", SessionName: "s"})
+	}
+	st.Agents = append(st.Agents, aggregator.Agent{Name: "solo", ProjectPath: "/p/busy", SessionName: "s"})
+	for i := 0; i < 30; i++ {
+		st.Items = append(st.Items, aggregator.Item{ID: fmt.Sprintf("b-%d", i), Project: "/p/empty", Status: "open", Age: time.Hour})
+	}
+	root := parseSVG(t, getColony(t, "/colony/scene", st))
+	vb := strings.Fields(root.attr("viewBox"))
+	height, err := strconv.Atoi(vb[3])
+	if err != nil {
+		t.Fatalf("bad viewBox %v", vb)
+	}
+	num := func(n svgNode, a string) int {
+		v, err := strconv.Atoi(n.attr(a))
+		if err != nil {
+			t.Fatalf("%s %s=%q: %v", n.attr("data-id"), a, n.attr(a), err)
+		}
+		return v
+	}
+
+	beltY := map[string]int{}
+	for _, b := range root.find(func(n svgNode) bool { return hasClass(n, "belt") }) {
+		line := b.find(func(n svgNode) bool { return n.XMLName.Local == "line" })[0]
+		beltY[b.attr("data-project")] = num(line, "y1")
+		for _, it := range b.find(func(n svgNode) bool { return hasClass(n, "item") }) {
+			if bottom := num(it, "y") + num(it, "height"); bottom > height {
+				t.Errorf("belt item %s bottom %d past SVG height %d", it.attr("data-id"), bottom, height)
+			}
+		}
+	}
+	units := root.find(func(n svgNode) bool { return hasClass(n, "unit") })
+	if len(units) != 58 {
+		t.Fatalf("want 58 units, got %d", len(units))
+	}
+	for _, u := range units {
+		r := u.find(func(n svgNode) bool { return n.XMLName.Local == "rect" })[0]
+		bottom := num(r, "y") + num(r, "height")
+		project := "/p/empty"
+		if u.attr("data-agent") == "solo" {
+			project = "/p/busy"
+		}
+		if bottom > height {
+			t.Errorf("unit %s bottom %d past SVG height %d", u.attr("data-agent"), bottom, height)
+		}
+		if bottom >= beltY[project] {
+			t.Errorf("unit %s bottom %d overlaps belt at y=%d", u.attr("data-agent"), bottom, beltY[project])
+		}
 	}
 }

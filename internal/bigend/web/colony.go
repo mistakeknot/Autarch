@@ -4,7 +4,9 @@ import (
 	"fmt"
 	"math"
 	"net/http"
+	"net/url"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/mistakeknot/autarch/internal/bigend/aggregator"
@@ -17,9 +19,12 @@ const (
 	colonyPad      = 20
 	colonyItemSize = 14
 	colonyItemGap  = 4
-	colonyPerRow   = 18 // belt items per row before wrapping
-	colonyHeadH    = 150
+	colonyPerRow   = 18  // belt items per row before wrapping
+	colonyHeadH    = 150 // minimum height above the belt: base, label and a few units
 	colonyBeltH    = 26
+	colonyUnitSize = 16
+	colonyUnitStep = 20 // unit grid pitch
+	colonyUnitCols = 8
 )
 
 // Tokyo Night palette used by the scene.
@@ -43,8 +48,9 @@ type colonyScene struct {
 
 type colonyBase struct {
 	Project, Name  string
-	X, Y           int // top-left of this project's cell
-	CX, CY, R      int // base circle
+	Href           string // project detail page, path-escaped
+	X, Y           int    // top-left of this project's cell
+	CX, CY, R      int    // base circle
 	Fill           string
 	Open           int
 	Oldest         string
@@ -105,6 +111,7 @@ func buildColonyScene(state aggregator.State) colonyScene {
 
 		b := colonyBase{
 			Project: p.Path,
+			Href:    (&url.URL{Path: "/projects/" + strings.TrimLeft(p.Path, "/")}).EscapedPath(),
 			Name:    p.Name,
 			X:       col * colonyCellW,
 			Y:       rowTop,
@@ -115,7 +122,6 @@ func buildColonyScene(state aggregator.State) colonyScene {
 		b.R = 18 + int(math.Min(28, 4*math.Sqrt(float64(len(items)))))
 		b.CX, b.CY = b.X+colonyPad+48, b.Y+colonyPad+48
 		b.BeltX1, b.BeltX2 = b.X+colonyPad, b.X+colonyCellW-colonyPad
-		b.BeltY = b.Y + colonyHeadH
 		b.BeltStroke = colonyBelt
 
 		var oldest time.Duration
@@ -143,14 +149,21 @@ func buildColonyScene(state aggregator.State) colonyScene {
 			b.BeltStroke = colonyRed
 		}
 
+		unitTop := b.CY - 12
+		headH := colonyHeadH
 		for k, a := range agentsByProject[p.Path] {
 			b.Units = append(b.Units, colonyUnit{
 				Agent: a.Name,
-				X:     b.CX + b.R + 24 + (k%8)*20,
-				Y:     b.CY - 12 + (k/8)*20,
+				X:     b.CX + b.R + 24 + (k%colonyUnitCols)*colonyUnitStep,
+				Y:     unitTop + (k/colonyUnitCols)*colonyUnitStep,
 				Idle:  a.SessionName == "",
 			})
+			// keep the belt a few units below the last row of units
+			if need := unitTop - b.Y + (k/colonyUnitCols)*colonyUnitStep + colonyUnitSize + 12; need > headH {
+				headH = need
+			}
 		}
+		b.BeltY = b.Y + headH
 
 		for k, it := range items {
 			b.Items = append(b.Items, colonyItem{
@@ -163,7 +176,7 @@ func buildColonyScene(state aggregator.State) colonyScene {
 			})
 		}
 
-		h := colonyHeadH + colonyBeltH + (len(items)+colonyPerRow-1)/colonyPerRow*(colonyItemSize+colonyItemGap)
+		h := headH + colonyBeltH + (len(items)+colonyPerRow-1)/colonyPerRow*(colonyItemSize+colonyItemGap)
 		if h > rowH {
 			rowH = h
 		}

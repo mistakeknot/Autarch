@@ -23,7 +23,7 @@
     <svg viewBox="0 0 {{.Scene.Width}} {{.Scene.Height}}" width="{{.Scene.Width}}" height="{{.Scene.Height}}" role="img" aria-label="Colony map" font-family="ui-monospace, monospace" font-size="12">
         {{range .Scene.Bases}}
         <g class="base" data-project="{{.Project}}">
-            <a href="/projects/{{.Project}}">
+            <a href="{{.Href}}">
                 <title>{{.Name}}: {{.Open}} open, oldest {{.Oldest}}</title>
                 <circle cx="{{.CX}}" cy="{{.CY}}" r="{{.R}}" fill="{{.Fill}}" fill-opacity="0.85" stroke="#1a1b26" stroke-width="2"/>
                 <text x="{{.CX}}" y="{{.CY}}" text-anchor="middle" dominant-baseline="central" fill="#1a1b26" font-weight="bold">{{.Open}}</text>
