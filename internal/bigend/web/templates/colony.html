@@ -1,0 +1,53 @@
+{{define "colony.html"}}
+{{template "layout" .}}
+{{end}}
+
+{{define "Title"}}Colony{{end}}
+
+{{define "content"}}
+<div class="space-y-4">
+    <div class="flex items-center justify-between">
+        <h1 class="text-2xl font-bold">Colony</h1>
+        <p class="text-sm text-gray-400">
+            A base per project, a unit per agent, a belt of open beads. Red belts carry a jam.
+        </p>
+    </div>
+    {{template "colony_scene" .}}
+</div>
+{{end}}
+
+{{define "colony_scene"}}
+<div id="colony-scene" class="bg-gray-800 rounded-lg p-4 overflow-x-auto"
+     hx-get="/colony/scene" hx-trigger="every 5s" hx-swap="outerHTML">
+    {{if .Scene.Bases}}
+    <svg viewBox="0 0 {{.Scene.Width}} {{.Scene.Height}}" width="{{.Scene.Width}}" height="{{.Scene.Height}}" role="img" aria-label="Colony map" font-family="ui-monospace, monospace" font-size="12">
+        {{range .Scene.Bases}}
+        <g class="base" data-project="{{.Project}}">
+            <a href="/projects/{{.Project}}">
+                <title>{{.Name}}: {{.Open}} open, oldest {{.Oldest}}</title>
+                <circle cx="{{.CX}}" cy="{{.CY}}" r="{{.R}}" fill="{{.Fill}}" fill-opacity="0.85" stroke="#1a1b26" stroke-width="2"/>
+                <text x="{{.CX}}" y="{{.CY}}" text-anchor="middle" dominant-baseline="central" fill="#1a1b26" font-weight="bold">{{.Open}}</text>
+                <text x="{{.CX}}" y="{{.CY}}" dy="{{.R}}" text-anchor="middle" fill="#c0caf5" transform="translate(0 16)">{{.Name}}</text>
+            </a>
+        </g>
+        {{range .Units}}
+        <g class="unit{{if .Idle}} idle{{end}}" data-agent="{{.Agent}}" opacity="{{if .Idle}}0.35{{else}}1{{end}}">
+            <title>{{.Agent}}{{if .Idle}} (idle){{end}}</title>
+            <rect x="{{.X}}" y="{{.Y}}" width="16" height="16" rx="3" fill="#7aa2f7"/>
+        </g>
+        {{end}}
+        <g class="belt{{if .Jam}} jam{{end}}" data-project="{{.Project}}" data-jam="{{if .Jam}}true{{else}}false{{end}}">
+            <line x1="{{.BeltX1}}" y1="{{.BeltY}}" x2="{{.BeltX2}}" y2="{{.BeltY}}" stroke="{{.BeltStroke}}" stroke-width="3"/>
+            {{range .Items}}
+            <rect class="item{{if .Jam}} jam{{end}}" data-id="{{.ID}}" data-age="{{.Age}}" x="{{.X}}" y="{{.Y}}" width="14" height="14" rx="2" fill="{{if .Jam}}#f7768e{{else}}#7aa2f7{{end}}">
+                <title>{{.ID}} ({{.Status}}): {{.Age}}</title>
+            </rect>
+            {{end}}
+        </g>
+        {{end}}
+    </svg>
+    {{else}}
+    <p class="text-gray-400">No projects discovered yet.</p>
+    {{end}}
+</div>
+{{end}}
