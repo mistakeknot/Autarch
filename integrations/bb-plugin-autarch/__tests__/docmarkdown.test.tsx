@@ -110,11 +110,36 @@ describe("document reader Markdown", () => {
 });
 
 describe("document reader Markdown: hostile lines", () => {
-  it("a very long whitespace or dash line renders fast", () => {
+  it("a very long whitespace or dash line renders fast, and is parsed, not skipped", () => {
     const t0 = Date.now();
-    html(`a |${" ".repeat(200000)}x\n${" ".repeat(200000)}-`);
-    html(`| a |\n|${"- ".repeat(100000)}`);
+    const a = html(`a |${" ".repeat(30000)}x\n${" ".repeat(30000)}-`);
+    const b = html(`| a |\n|${"- ".repeat(20000)}`);
     expect(Date.now() - t0).toBeLessThan(2000);
+    expect(a).toContain("data-doc-markdown");
+    expect(b).toContain("data-doc-markdown");
+  });
+  it("a wide sparse table cannot create more cells than the text has", () => {
+    const cols = 40;
+    const text = `${"|a".repeat(cols)}|\n${"|-".repeat(cols)}|\n` + "|\n".repeat(5000);
+    const out = html(text);
+    expect(out).toContain("data-doc-markdown");
+    expect((out.match(/<td/g) ?? []).length).toBeLessThanOrEqual(text.length);
+    const wide = html(`${"|a".repeat(200)}|\n${"|-".repeat(200)}|\n|x|`);
+    expect(wide).not.toContain("<table");
+  });
+  it("an indented heading or quote after a list item is not swallowed as continuation", () => {
+    const out = html("- item\n # Heading\n > quote\n ---");
+    expect(out).toContain("<h1 ");
+    expect(out).toContain("<blockquote");
+    expect(out).toContain("<hr ");
+  });
+  it("a longer fence is not closed by a shorter one, and a fence line with text does not close", () => {
+    const out = html("````\n```\ninside\n```\n````\n\nafter");
+    expect(out.match(/<pre/g)?.length).toBe(1);
+    expect(out).toContain("inside");
+    const t = html("```\none\n```not closing\ntwo\n```");
+    expect(t.match(/<pre/g)?.length).toBe(1);
+    expect(t).toContain("two");
   });
 });
 

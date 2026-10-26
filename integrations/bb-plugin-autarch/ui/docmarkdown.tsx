@@ -24,10 +24,13 @@ function cells(line: string): string[] {
 
 // Block patterns run on at most this many characters of a line, so no pattern can be driven quadratic by one long line.
 const MAX_LINE = 2000;
+const MAX_COLS = 50;
+/** Above this size the whole document is shown as plain wrapped text, unparsed. */
+const MAX_DOC_CHARS = MARKDOWN_MAX_CHARS * 5;
 const t = (l: string) => (l.length > MAX_LINE ? "x" : l);
 
 function startsTable(line: string, next: string | undefined): boolean {
-  return line.length <= MAX_LINE && line.includes("|") && next !== undefined && next.length <= MAX_LINE && next.includes("-") && TABLE_SEP.test(next);
+  return line.length <= MAX_LINE && cells(line).length <= MAX_COLS && line.includes("|") && next !== undefined && next.length <= MAX_LINE && next.includes("-") && TABLE_SEP.test(next);
 }
 
 function startsBlock(line: string, next: string | undefined): boolean {
@@ -86,7 +89,7 @@ function readList(lines: string[], start: number): { items: Item[]; next: number
       (stack.length > 0 ? stack[stack.length - 1].kids : roots).push(it);
       stack.push(it);
       i++;
-    } else if (lines[i].trim() !== "" && /^\s+/.test(lines[i]) && stack.length > 0 && !lines[i].startsWith("```")) {
+    } else if (lines[i].trim() !== "" && /^\s+/.test(lines[i]) && stack.length > 0 && !startsBlock(lines[i].trim(), undefined)) {
       stack[stack.length - 1].text += `\n${lines[i].trim()}`;
       i++;
     } else break;
@@ -103,8 +106,10 @@ function blocks(lines: string[], depth: number): ReactNode[] {
     let m: RegExpExecArray | null;
     if (line.startsWith("```")) {
       const body: string[] = [];
+      const ticks = /^`+/.exec(line)![0].length;
       i++;
-      while (i < lines.length && !lines[i].startsWith("```")) body.push(lines[i++]);
+      // A closing fence is a bare line of at least as many backticks as the opening one.
+      while (i < lines.length && !(/^`+[ \t]*$/.test(lines[i]) && lines[i].trim().length >= ticks)) body.push(lines[i++]);
       i++;
       out.push(<pre key={key} className="m-0 overflow-x-auto rounded bg-muted p-2 font-mono text-xs"><code>{body.join("\n")}</code></pre>);
     } else if (line.trim() === "") {
@@ -144,7 +149,7 @@ function blocks(lines: string[], depth: number): ReactNode[] {
             </thead>
             <tbody>
               {rows.map((r, n) => (
-                <tr key={n}>{head.map((_, c) => <td key={c} style={style(c)} className="border border-border px-2 py-1 align-top">{inline(r[c] ?? "", `${key}r${n}c${c}`)}</td>)}</tr>
+                <tr key={n}>{r.slice(0, head.length).map((cell, c) => <td key={c} style={style(c)} className="border border-border px-2 py-1 align-top">{inline(cell, `${key}r${n}c${c}`)}</td>)}</tr>
               ))}
             </tbody>
           </table>
@@ -160,6 +165,6 @@ function blocks(lines: string[], depth: number): ReactNode[] {
 }
 
 export function DocMarkdown({ text }: { text: string }) {
-  if (text.length > MARKDOWN_MAX_CHARS * 10) return <p className="m-0 whitespace-pre-wrap font-sans text-sm" data-markdown-plain>{text}</p>;
+  if (text.length > MAX_DOC_CHARS) return <p className="m-0 whitespace-pre-wrap font-sans text-sm" data-markdown-plain>{text}</p>;
   return <div className="flex min-w-0 flex-col gap-2 font-sans text-sm leading-6 [overflow-wrap:anywhere]" data-doc-markdown>{blocks(text.replace(/\r\n?/g, "\n").split("\n"), 0)}</div>;
 }
