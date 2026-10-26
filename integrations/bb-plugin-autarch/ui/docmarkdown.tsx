@@ -30,7 +30,7 @@ const MAX_DOC_CHARS = MARKDOWN_MAX_CHARS * 5;
 const t = (l: string) => (l.length > MAX_LINE ? "x" : l);
 
 function startsTable(line: string, next: string | undefined): boolean {
-  return line.length <= MAX_LINE && cells(line).length <= MAX_COLS && line.includes("|") && next !== undefined && next.length <= MAX_LINE && next.includes("-") && TABLE_SEP.test(next);
+  return line.length <= MAX_LINE && cells(line).length <= MAX_COLS && line.includes("|") && next !== undefined && next.length <= MAX_LINE && next.includes("-") && TABLE_SEP.test(next) && cells(next).length === cells(line).length;
 }
 
 function startsBlock(line: string, next: string | undefined): boolean {
@@ -89,7 +89,7 @@ function readList(lines: string[], start: number): { items: Item[]; next: number
       (stack.length > 0 ? stack[stack.length - 1].kids : roots).push(it);
       stack.push(it);
       i++;
-    } else if (lines[i].trim() !== "" && /^\s+/.test(lines[i]) && stack.length > 0 && !startsBlock(lines[i].trim(), undefined)) {
+    } else if (lines[i].trim() !== "" && /^\s+/.test(lines[i]) && stack.length > 0 && !startsBlock(lines[i].trim(), lines[i + 1]?.trim())) {
       stack[stack.length - 1].text += `\n${lines[i].trim()}`;
       i++;
     } else break;

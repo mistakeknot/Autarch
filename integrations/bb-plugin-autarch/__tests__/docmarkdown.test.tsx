@@ -167,3 +167,17 @@ describe("document reader Markdown: review fixes", () => {
     expect(out).toMatch(/<ol[^>]*><li>numbered<\/li><\/ol>/);
   });
 });
+
+describe("document reader Markdown: round 3 fixes", () => {
+  it("a separator with a different column count is not a table, and does not eat the rule after it", () => {
+    const out = html("a | b\n---\nafter");
+    expect(out).not.toContain("<table");
+    expect(out).toContain("after");
+  });
+  it("a table indented under a list item is rendered as a table", () => {
+    const out = html("- item\n  | A | B |\n  | --- | --- |\n  | x | y |");
+    expect(out).toContain("<table");
+    expect(out).toContain(">y</td>");
+    expect(out).toContain("<li>item");
+  });
+});
