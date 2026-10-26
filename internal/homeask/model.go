@@ -99,7 +99,9 @@ const (
 )
 
 var (
-	optionIDRe   = regexp.MustCompile(`^[a-z0-9-]{1,32}$`)
+	optionIDRe = regexp.MustCompile(`^[a-z0-9-]{1,32}$`)
+	// ownWordsIDRe is the id family the Other box uses for an own-words answer; a real option may not take it.
+	ownWordsIDRe = regexp.MustCompile(`^mk-own-words(-[0-9]+)?$`)
 	requestIDRe  = regexp.MustCompile(`^[A-Za-z0-9:_.-]{1,128}$`)
 	refIDRe      = regexp.MustCompile(`^[A-Za-z0-9:_.-]{1,128}$`)
 	machineClass = regexp.MustCompile(`^[a-z0-9-]{1,32}$`)
@@ -529,6 +531,9 @@ func normalizeOptions(a *Ask, ps *problemList) {
 			}
 			if len(a.Questions) > 0 && o.ID == "answers" {
 				ps.add(at+".id", `option id "answers" is reserved in a multi-pick ask`)
+			}
+			if ownWordsIDRe.MatchString(o.ID) {
+				ps.add(at+".id", fmt.Sprintf("option id %q is reserved for the Other box's own-words answer", o.ID))
 			}
 			seen[o.ID] = true
 		}
