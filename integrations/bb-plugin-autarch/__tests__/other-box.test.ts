@@ -1,6 +1,7 @@
 // The Other box: "Answer with this" is a virtual pick option `other`; "Ask / note" is a comment plus
 // an owner wake that never rules or closes.
-import { freeOwnWordsId } from "../ownwords.js";
+import { freeOwnWordsId, OWN_WORDS_LABEL } from "../ownwords.js";
+import { commentBody } from "../cardwrites.js";
 import { afterEach, describe, expect, it } from "vitest";
 import { cleanupEnvs, opened, rig } from "./card-rig.js";
 import { hasNoteMarker } from "../service.js";
@@ -119,6 +120,13 @@ describe("note marker and an ask with a real option named other", () => {
     const words = r.svc.pick(g1.id, freeOwnWordsId(opts), rev(r, g1.id), "p-w2", "mk", "home", "Do not run anything");
     expect(words).toMatchObject({ ok: true });
     expect(r.svc.store.pick(g1.id)).toMatchObject({ option_id: "mk-own-words-2", reason: "Do not run anything" });
+  });
+
+  it("the card comment calls a pick own words only for the virtual option, never a real option with a reserved-looking id", () => {
+    const virtual = commentBody("c1", { option_id: "mk-own-words", option_label: OWN_WORDS_LABEL, reason: "my words", by: "mk" });
+    expect(virtual).toContain("mk's answer (plain text):");
+    const real = commentBody("c2", { option_id: "mk-own-words", option_label: "Real", reason: "a reason", by: "vizier" });
+    expect(real).not.toContain("mk's answer (plain text):");
   });
 
   it("picking the real option other still works on such an ask", async () => {

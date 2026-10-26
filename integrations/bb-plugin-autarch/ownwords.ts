@@ -1,5 +1,7 @@
 // The id mk's own words are recorded under when the ask has a real option named "other" (bead mk-1poq7).
 // It is reserved: the Home box picks the first form no real option of the ask uses, so free text can never select a real option.
+/** The label of the virtual own-words option; a real option with a reserved-looking id has its own label. */
+export const OWN_WORDS_LABEL = "Other (mk's own answer)";
 export const OWN_WORDS_BASE = "mk-own-words";
 const OWN_WORDS_RE = /^mk-own-words(-\d+)?$/;
 

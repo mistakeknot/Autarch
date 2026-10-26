@@ -1,7 +1,7 @@
 // The Home decision service: file, pick once, reconcile the ruling file, wake and feed.
 // Every state change goes through one Store transaction; this layer maps outcomes to
 // HTTP-shaped results and never holds state of its own.
-import { isOwnWordsForm } from "./ownwords.js";
+import { isOwnWordsForm, OWN_WORDS_LABEL } from "./ownwords.js";
 import { ImageStore, textSha, validateImages, type ImageIn, type PathsResult } from "./otherimages.js";
 import { createHash, randomUUID } from "node:crypto";
 import { buildFeed, renderFeed, type Feed } from "./feed.js";
@@ -439,7 +439,7 @@ export class Service {
     const option = isAnswers
       ? ({ id: ANSWERS_OPTION_ID, label: "Answers", kind: "ruling-only", reversible: false } as NonNullable<Ask["options"]>[number])
       : isOther
-      ? ({ id: optionId, label: "Other (mk's own answer)", kind: "ruling-only", reversible: false } as NonNullable<Ask["options"]>[number])
+      ? ({ id: optionId, label: OWN_WORDS_LABEL, kind: "ruling-only", reversible: false } as NonNullable<Ask["options"]>[number])
       : ask.options?.find((o) => o.id === optionId);
     if (!option) return { ok: false, status: 400, error: `unknown option ${JSON.stringify(optionId)}` };
     if (rev !== d.revision) return { ok: false, status: 409, error: "revision differs" };
@@ -657,7 +657,7 @@ export class Service {
       if (option?.kind === "instruction" && option.instruction) ruling.instruction = option.instruction;
       if (pick.by === "vizier" && pick.reason) ruling.delegated_reason = pick.reason;
       if (pick.by === "auto" && pick.reason) ruling.auto_evidence = pick.reason;
-      if (isOwnWordsId(pick.option_id) && pick.reason) ruling.ruling = `mk answered in their own words for: ${ask.question} -- ${pick.reason.replace(/\s+/g, " ")}`;
+      if (isOwnWordsId(pick.option_id) && (pick.option_id === OTHER_OPTION_ID || !ask.options?.some((o) => o.id === pick.option_id)) && pick.reason) ruling.ruling = `mk answered in their own words for: ${ask.question} -- ${pick.reason.replace(/\s+/g, " ")}`;
       if (pick.option_id === ANSWERS_OPTION_ID && pick.reason) ruling.ruling = `mk answered each question for: ${ask.question} -- ${pick.reason.replace(/\s+/g, " ")}`;
       if (d.supersedes) ruling.supersedes = d.supersedes;
       if (d.source === "card" && typeof d.task_id === "string") {

@@ -2,7 +2,7 @@
 // pick, and a relabel on an override. Rows live in `card_writes`, never `obligations`, are inserted in
 // the pick's own transaction, and are executed here, outside it, through the TasksClient (never a
 // spawned process). A failed write backs off and retries; it never blocks the wake or the ruling.
-import { isOwnWordsForm } from "./ownwords.js";
+import { isOwnWordsForm, OWN_WORDS_LABEL } from "./ownwords.js";
 import type { CardWriteInput } from "./store.js";
 import type { TasksClient } from "./tasks.js";
 import type Database from "better-sqlite3";
@@ -49,7 +49,7 @@ export function commentBody(id: string, payload: Partial<PickPayload>): string {
   const lines = [`Ruled: ${label} (Home, advisory; ruled by: ${payload.by ?? "mk"})${gen}`];
   if (payload.by === "vizier" && payload.reason) lines.push(`Reason: ${payload.reason}`);
   if (payload.by === "auto" && payload.reason) lines.push(`Closed automatically, not by mk's click. Evidence: ${payload.reason}`);
-  if ((payload.option_id === "other" || isOwnWordsForm(payload.option_id ?? "")) && payload.reason) lines.push("", "mk's answer (plain text):", payload.reason);
+  if ((payload.option_id === "other" || (isOwnWordsForm(payload.option_id ?? "") && payload.option_label === OWN_WORDS_LABEL)) && payload.reason) lines.push("", "mk's answer (plain text):", payload.reason);
   if (payload.option_id === "answers" && payload.reason) lines.push("", "mk's answers (plain text):", payload.reason);
   lines.push("", `${MARKER} ${id}`);
   return lines.join("\n");
