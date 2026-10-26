@@ -3,7 +3,7 @@
 // safety rules hold: every node is a React element built from parsed text, never HTML; only http(s) links become
 // anchors; images are never fetched. Inline spans (code, bold, links) come from the card-text parser.
 // Prose is set in the body font; only code is monospace.
-import { Fragment, type ReactNode } from "react";
+import type { ReactNode } from "react";
 import { inline, MARKDOWN_MAX_CHARS } from "./markdown.js";
 
 const MAX_DEPTH = 6;
@@ -13,23 +13,7 @@ const ITEM = /^(\s*)([-*+]|\d{1,9}[.)])[ \t]+(.*)$/;
 const SEP_CELL = /^:?-+:?$/;
 const HEADING_CLASS = ["text-2xl", "text-xl", "text-lg", "text-base", "text-sm", "text-sm"];
 
-// An item's content in source order: its own text (first part), continuation text, and indented tables.
-type Part = { text: string } | { table: string[] };
-type Item = { indent: number; ordered: boolean; parts: Part[]; kids: Item[] };
-
-function textOf(it: Item): string {
-  return it.parts.map((p) => ("text" in p ? p.text : p.table.join("\n"))).join("\n");
-}
-
-/** The item an indented line belongs to: the deepest open item that starts left of it. */
-function owner(stack: Item[], indent: number): Item {
-  for (let k = stack.length - 1; k >= 0; k--) if (stack[k].indent < indent) return stack[k];
-  return stack[stack.length - 1];
-}
-
-function width(line: string): number {
-  return /^\s*/.exec(line)![0].replace(/\t/g, "    ").length;
-}
+type Item = { indent: number; ordered: boolean; text: string; kids: Item[] };
 
 function cells(line: string): string[] {
   let s = line.trim();
@@ -54,33 +38,23 @@ function startsTable(line: string, next: string | undefined): boolean {
   return line.length <= MAX_LINE && cells(line).length <= MAX_COLS && line.includes("|") && next !== undefined && next.length <= MAX_LINE && next.includes("-") && isSeparator(next) && cells(next).length === cells(line).length;
 }
 
-function startsBlock(line: string, next: string | undefined): boolean {
+/** Tables are not blocks inside a list item: an indented table there stays plain text of the item. */
+function startsBlock(line: string, next: string | undefined, tables = true): boolean {
   return (
     line.startsWith("```") ||
     HEADING.test(t(line)) ||
     RULE.test(t(line)) ||
     /^ {0,3}>/.test(line) ||
     ITEM.test(t(line)) ||
-    startsTable(line, next)
+    (tables && startsTable(line, next))
   );
 }
 
 /** Items past the nesting limit are shown as plain indented lines rather than dropped. */
 function flatten(items: Item[], level: number, out: string[] = []): string[] {
   for (const it of items) {
-    out.push(`${"  ".repeat(level)}${it.ordered ? "" : "- "}${textOf(it)}`);
+    out.push(`${"  ".repeat(level)}${it.ordered ? "" : "- "}${it.text}`);
     flatten(it.kids, level + 1, out);
-  }
-  return out;
-}
-
-/** Runs of continuation text are joined; each table stays where it appeared. */
-function segments(parts: Part[]): Part[] {
-  const out: Part[] = [];
-  for (const p of parts) {
-    const last = out[out.length - 1];
-    if ("text" in p && last && "text" in last) last.text += `\n${p.text}`;
-    else out.push("text" in p ? { text: p.text } : p);
   }
   return out;
 }
@@ -99,7 +73,7 @@ function renderItems(items: Item[], key: string, depth: number): ReactNode[] {
       <Tag key={`${key}-${r}`} className={`m-0 flex flex-col gap-0.5 pl-6 ${run[0].ordered ? "list-decimal" : "list-disc"}`}>
         {run.map((it, n) => (
           <li key={n}>
-            {segments(it.parts).map((sg, k) => ("text" in sg ? k === 0 ? <Fragment key={k}>{inline(sg.text, `${key}-${r}-${n}`)}</Fragment> : <div key={k} className="whitespace-pre-wrap">{inline(sg.text, `${key}-${r}-${n}-${k}`)}</div> : <div key={k} className="my-1">{blocks(sg.table, depth + 1)}</div>))}
+            {inline(it.text, `${key}-${r}-${n}`)}
             {it.kids.length === 0 ? null : depth < MAX_DEPTH ? renderItems(it.kids, `${key}-${r}-${n}k`, depth + 1) : <div className="whitespace-pre-wrap">{inline(flatten(it.kids, 0).join("\n"), `${key}-${r}-${n}f`)}</div>}
           </li>
         ))}
@@ -116,20 +90,13 @@ function readList(lines: string[], start: number): { items: Item[]; next: number
   while (i < lines.length) {
     const m = ITEM.exec(t(lines[i]));
     if (m && !RULE.test(lines[i])) {
-      const it: Item = { indent: m[1].replace(/\t/g, "    ").length, ordered: /\d/.test(m[2]), parts: [{ text: m[3] }], kids: [] };
+      const it: Item = { indent: m[1].replace(/\t/g, "    ").length, ordered: /\d/.test(m[2]), text: m[3], kids: [] };
       while (stack.length > 0 && stack[stack.length - 1].indent >= it.indent) stack.pop();
       (stack.length > 0 ? stack[stack.length - 1].kids : roots).push(it);
       stack.push(it);
       i++;
-    } else if (lines[i].trim() !== "" && /^\s+/.test(lines[i]) && stack.length > 0 && startsTable(lines[i].trim(), lines[i + 1]?.trim())) {
-      // An indented table belongs to the item above it, so the list carries on after it.
-      const start0 = i;
-      const table = [lines[i].trim(), lines[i + 1].trim()];
-      i += 2;
-      while (i < lines.length && /^\s+/.test(lines[i]) && lines[i].includes("|") && lines[i].length <= MAX_LINE && !startsBlock(lines[i].trim(), undefined)) table.push(lines[i++].trim());
-      owner(stack, width(lines[start0])).parts.push({ table });
-    } else if (lines[i].trim() !== "" && /^\s+/.test(lines[i]) && stack.length > 0 && !startsBlock(lines[i].trim(), lines[i + 1]?.trim())) {
-      owner(stack, width(lines[i])).parts.push({ text: lines[i].trim() });
+    } else if (lines[i].trim() !== "" && /^\s+/.test(lines[i]) && stack.length > 0 && !startsBlock(lines[i].trim(), lines[i + 1]?.trim(), false)) {
+      stack[stack.length - 1].text += `\n${lines[i].trim()}`;
       i++;
     } else break;
   }

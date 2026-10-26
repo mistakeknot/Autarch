@@ -174,11 +174,11 @@ describe("document reader Markdown: round 3 fixes", () => {
     expect(out).not.toContain("<table");
     expect(out).toContain("after");
   });
-  it("a table indented under a list item is rendered as a table", () => {
+  it("a table indented under a list item stays plain text of that item", () => {
     const out = html("- item\n  | A | B |\n  | --- | --- |\n  | x | y |");
-    expect(out).toContain("<table");
-    expect(out).toContain(">y</td>");
+    expect(out).not.toContain("<table");
     expect(out).toContain("<li>item");
+    expect(out).toContain("| x | y |");
   });
 });
 
@@ -195,32 +195,10 @@ describe("document reader Markdown: round 4 fixes", () => {
     expect(html("a | b\n--- | -x-\nrest")).not.toContain("<table");
     expect(html("a | b\n:--- | ---:\n1 | 2")).toContain("<table");
   });
-  it("a table inside a list item stays in that item and the numbering carries on", () => {
-    const out = html("1. first\n  | A | B |\n  | --- | --- |\n  | x | y |\n2. second");
+  it("a table indented inside a list item keeps its text and the numbering carries on", () => {
+    const out = html("1. first\n  | A | B |\n  | --- | --- |\n  | x | y |\n2. second\n\n| H | K |\n| --- | --- |\n| a | b |");
     expect(out.match(/<ol/g)).toHaveLength(1);
-    const li = /<li>first[\s\S]*?<\/li>/.exec(out)![0];
-    expect(li).toContain("<table");
-    expect(out).toMatch(/<\/li><li>second<\/li>/);
-  });
-});
-
-describe("document reader Markdown: round 5 fixes", () => {
-  const T = "| A | B |\n  | --- | --- |\n  | x | y |";
-  it("a table past the nesting limit is kept as text", () => {
-    const lines = Array.from({ length: 9 }, (_, n) => `${"  ".repeat(n)}- l${n}`);
-    const out = html(`${lines.join("\n")}\n${"  ".repeat(9)}| A | B |\n${"  ".repeat(9)}| --- | --- |\n${"  ".repeat(9)}| cellx | celly |`);
-    expect(out).toContain("cellx");
-    expect(out).toContain("celly");
-  });
-  it("text after a table stays after it", () => {
-    const out = html(`- item\n  ${T}\n  trailing paragraph`);
-    expect(out.indexOf("<table")).toBeGreaterThan(out.indexOf("item"));
-    expect(out.indexOf("trailing paragraph")).toBeGreaterThan(out.indexOf("</table>"));
-  });
-  it("a table indented to the parent belongs to the parent, not the last child", () => {
-    const out = html(`- parent\n  - child\n  ${T}`);
-    const child = /<li>child[\s\S]*?<\/li>/.exec(out)![0];
-    expect(child).not.toContain("<table");
-    expect(out).toContain("<table");
+    expect(out).toMatch(/<li>first[\s\S]*\| x \| y \|[\s\S]*<\/li><li>second<\/li>/);
+    expect(out.match(/<table/g)).toHaveLength(1);
   });
 });
