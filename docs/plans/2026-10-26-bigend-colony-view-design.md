@@ -14,8 +14,9 @@ plugin idea and the Stellaris teardown in `docs/`.
 - `internal/bigend/colony` already detects "colonies" per discovered project: markers
   (`.colony`, `.agents`), git worktrees, and member processes. The name fits the metaphor.
 - `aggregator.State` is the data feed: `Projects`, `Agents`, `Sessions`, `Colonies`, `MCP`,
-  `Activities`, optional `Kernel`, with `UpdatedAt`. It is served as JSON and over a
-  websocket, and rendered by the TUI and the web server.
+  `Activities`, optional `Kernel`, with `UpdatedAt`. The TUI and the web templates render
+  it. The web server exposes only `/api/agents` as JSON; its websocket (`/ws/terminal/`)
+  streams terminal output, not state.
 - `discovery.Project` carries `TaskStats`, `PollardStats`, `GurgStats` and
   `InterspectStats`: counts of work per project (the "items").
 - Web routes today: `/`, `/projects`, `/agents`, `/sessions`, `/api/agents`, `/api/refresh`,
@@ -23,8 +24,11 @@ plugin idea and the Stellaris teardown in `docs/`.
 
 ## Gaps
 
-- No per-bead or per-card item list in the state: only counts. Belts need item identity
-  and age, so the feed needs a thin item list (id, project, status, age, owner).
+- No per-bead or per-card item list in the state: only counts, and `TaskStats` counts
+  Coldwine tasks, not beads. Belts need item identity and age, so the feed needs a thin
+  item list (id, project, status, age, owner). Proposed bead source: a read-only
+  `bd list --json` per discovered project that has a `.beads` directory, keyed by the
+  project path. Coldwine counts stay a separate signal.
 - No "flow" signal: items entering and leaving a stage per interval. It can be computed
   from consecutive `UpdatedAt` snapshots, so no new store is needed to start.
 - Cards live in the Citadel plugin, not in Bigend. Reading them means a read-only call
@@ -32,7 +36,7 @@ plugin idea and the Stellaris teardown in `docs/`.
 
 ## Proposed first scene (web first)
 
-One page, `/colony`, server-rendered with htmx polling or the existing websocket:
+One page, `/colony`, server-rendered with htmx polling of a fragment route (a state websocket would be new work):
 
 - A base per project, sized by open work, coloured by neglect (age of the oldest
   open item).
@@ -52,6 +56,11 @@ TUI second: same data as a character grid using the shared Tokyo Night styles.
 
 ## Steps after the answers
 
-1. Add an item list and flow counters to the aggregator state, with tests.
-2. Add `/colony` with the SVG scene and a fixture-driven render test.
-3. Run it against live data and review with the agents running.
+1. Add an item list and flow counters to the aggregator state, with tests. Accepted when
+   a fixture of two snapshots yields the expected item ids, ages, per-stage entered and
+   left counts, and a jam flag for an item past the threshold.
+2. Add `/colony` with the SVG scene and a fixture-driven render test. Accepted when the
+   rendered SVG for the fixture has one base per project, a unit per active agent, a belt
+   item per open bead with its age, and a red belt exactly where the fixture has a jam.
+3. Run it against live data and review with the agents running. Accepted when the page
+   loads on live data, bases match the project list, and a known stale bead shows as a jam.
