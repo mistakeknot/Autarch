@@ -181,3 +181,25 @@ describe("document reader Markdown: round 3 fixes", () => {
     expect(out).toContain("<li>item");
   });
 });
+
+describe("document reader Markdown: round 4 fixes", () => {
+  it("hostile separator lines render in well under a second", () => {
+    const text = ("a | b\n" + " ".repeat(990) + "-" + " ".repeat(990) + "x\n").repeat(5);
+    const start = performance.now();
+    const out = html(text);
+    expect(performance.now() - start).toBeLessThan(500);
+    expect(out).toContain("data-doc-markdown");
+    expect(out).not.toContain("<table");
+  });
+  it("a separator row still needs dashes in every cell", () => {
+    expect(html("a | b\n--- | -x-\nrest")).not.toContain("<table");
+    expect(html("a | b\n:--- | ---:\n1 | 2")).toContain("<table");
+  });
+  it("a table inside a list item stays in that item and the numbering carries on", () => {
+    const out = html("1. first\n  | A | B |\n  | --- | --- |\n  | x | y |\n2. second");
+    expect(out.match(/<ol/g)).toHaveLength(1);
+    const li = /<li>first[\s\S]*?<\/li>/.exec(out)![0];
+    expect(li).toContain("<table");
+    expect(out).toMatch(/<\/li><li>second<\/li>/);
+  });
+});

@@ -10,10 +10,10 @@ const MAX_DEPTH = 6;
 const HEADING = /^ {0,3}(#{1,6})[ \t]+(.*?)(?:[ \t]+#+)?[ \t]*$/;
 const RULE = /^ {0,3}([-*_])(?:[ \t]*\1){2,}[ \t]*$/;
 const ITEM = /^(\s*)([-*+]|\d{1,9}[.)])[ \t]+(.*)$/;
-const TABLE_SEP = /^[ \t]*\|?[ \t]*:?-+:?[ \t]*(?:\|[ \t]*:?-+:?[ \t]*)*\|?[ \t]*$/;
+const SEP_CELL = /^:?-+:?$/;
 const HEADING_CLASS = ["text-2xl", "text-xl", "text-lg", "text-base", "text-sm", "text-sm"];
 
-type Item = { indent: number; ordered: boolean; text: string; kids: Item[] };
+type Item = { indent: number; ordered: boolean; text: string; kids: Item[]; tables: string[][] };
 
 function cells(line: string): string[] {
   let s = line.trim();
@@ -29,8 +29,13 @@ const MAX_COLS = 50;
 const MAX_DOC_CHARS = MARKDOWN_MAX_CHARS * 5;
 const t = (l: string) => (l.length > MAX_LINE ? "x" : l);
 
+// Each cell is checked on its own after a linear split, so no pattern scans the same whitespace twice.
+function isSeparator(line: string): boolean {
+  return cells(line).every((c) => SEP_CELL.test(c));
+}
+
 function startsTable(line: string, next: string | undefined): boolean {
-  return line.length <= MAX_LINE && cells(line).length <= MAX_COLS && line.includes("|") && next !== undefined && next.length <= MAX_LINE && next.includes("-") && TABLE_SEP.test(next) && cells(next).length === cells(line).length;
+  return line.length <= MAX_LINE && cells(line).length <= MAX_COLS && line.includes("|") && next !== undefined && next.length <= MAX_LINE && next.includes("-") && isSeparator(next) && cells(next).length === cells(line).length;
 }
 
 function startsBlock(line: string, next: string | undefined): boolean {
@@ -68,6 +73,7 @@ function renderItems(items: Item[], key: string, depth: number): ReactNode[] {
         {run.map((it, n) => (
           <li key={n}>
             {inline(it.text, `${key}-${r}-${n}`)}
+            {it.tables.map((tb, k) => <div key={`t${k}`} className="my-1">{blocks(tb, depth + 1)}</div>)}
             {it.kids.length === 0 ? null : depth < MAX_DEPTH ? renderItems(it.kids, `${key}-${r}-${n}k`, depth + 1) : <div className="whitespace-pre-wrap">{inline(flatten(it.kids, 0).join("\n"), `${key}-${r}-${n}f`)}</div>}
           </li>
         ))}
@@ -84,11 +90,17 @@ function readList(lines: string[], start: number): { items: Item[]; next: number
   while (i < lines.length) {
     const m = ITEM.exec(t(lines[i]));
     if (m && !RULE.test(lines[i])) {
-      const it: Item = { indent: m[1].replace(/\t/g, "    ").length, ordered: /\d/.test(m[2]), text: m[3], kids: [] };
+      const it: Item = { indent: m[1].replace(/\t/g, "    ").length, ordered: /\d/.test(m[2]), text: m[3], kids: [], tables: [] };
       while (stack.length > 0 && stack[stack.length - 1].indent >= it.indent) stack.pop();
       (stack.length > 0 ? stack[stack.length - 1].kids : roots).push(it);
       stack.push(it);
       i++;
+    } else if (lines[i].trim() !== "" && /^\s+/.test(lines[i]) && stack.length > 0 && startsTable(lines[i].trim(), lines[i + 1]?.trim())) {
+      // An indented table belongs to the item above it, so the list carries on after it.
+      const table = [lines[i].trim(), lines[i + 1].trim()];
+      i += 2;
+      while (i < lines.length && /^\s+/.test(lines[i]) && lines[i].includes("|") && lines[i].length <= MAX_LINE && !startsBlock(lines[i].trim(), undefined)) table.push(lines[i++].trim());
+      stack[stack.length - 1].tables.push(table);
     } else if (lines[i].trim() !== "" && /^\s+/.test(lines[i]) && stack.length > 0 && !startsBlock(lines[i].trim(), lines[i + 1]?.trim())) {
       stack[stack.length - 1].text += `\n${lines[i].trim()}`;
       i++;
