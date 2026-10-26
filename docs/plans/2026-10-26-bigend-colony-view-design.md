@@ -27,7 +27,7 @@ plugin idea and the Stellaris teardown in `docs/`.
 - No per-bead or per-card item list in the state: only counts, and `TaskStats` counts
   Coldwine tasks, not beads. Belts need item identity and age, so the feed needs a thin
   item list (id, project, status, age, owner). Proposed bead source: a read-only
-  `bd list --json` per discovered project that has a `.beads` directory, keyed by the
+  `bd list --json --limit 0` (the default limit is 50, which would hide the oldest beads) per discovered project that has a `.beads` directory, keyed by the
   project path. Coldwine counts stay a separate signal.
 - No "flow" signal: items entering and leaving a stage per interval. It can be computed
   from consecutive `UpdatedAt` snapshots, so no new store is needed to start.
@@ -57,7 +57,7 @@ TUI second: same data as a character grid using the shared Tokyo Night styles.
 ## Steps after the answers
 
 1. Add an item list and flow counters to the aggregator state, with tests. Accepted when
-   a fixture of two snapshots yields the expected item ids, ages, per-stage entered and
+   a fixture with more than 50 open beads in one project and two snapshots yields the expected item ids, ages, per-stage entered and
    left counts, and a jam flag for an item past the threshold.
 2. Add `/colony` with the SVG scene and a fixture-driven render test. Accepted when the
    rendered SVG for the fixture has one base per project, a unit per active agent, a belt
