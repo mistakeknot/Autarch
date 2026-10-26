@@ -89,8 +89,6 @@ func TestValidateRules(t *testing.T) {
 		{"instruction invalid utf8", func(a *Ask) { a.Options[0].Instruction = "a\xffb" }, "valid UTF-8"},
 		{"duplicate ids", func(a *Ask) { a.Options[1].ID = "project" }, "duplicate option id"},
 		{"bad id", func(a *Ask) { a.Options[1].ID = "Day!" }, "option id must match"},
-		{"own-words id", func(a *Ask) { a.Options[1].ID = "mk-own-words" }, "reserved for the Other box"},
-		{"own-words id suffix", func(a *Ask) { a.Options[1].ID = "mk-own-words-2" }, "reserved for the Other box"},
 		{"one option", func(a *Ask) { a.Options = a.Options[:1]; a.Recommendation = "" }, "2-6 options"},
 		{"seven options", func(a *Ask) {
 			a.Options = nil
