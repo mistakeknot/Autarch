@@ -24,30 +24,53 @@ function cells(line: string): string[] {
 
 // Block patterns run on at most this many characters of a line, so no pattern can be driven quadratic by one long line.
 const MAX_LINE = 2000;
+const t = (l: string) => (l.length > MAX_LINE ? "x" : l);
+
+function startsTable(line: string, next: string | undefined): boolean {
+  return line.length <= MAX_LINE && line.includes("|") && next !== undefined && next.length <= MAX_LINE && next.includes("-") && TABLE_SEP.test(next);
+}
 
 function startsBlock(line: string, next: string | undefined): boolean {
   return (
     line.startsWith("```") ||
-    HEADING.test(line) ||
-    RULE.test(line) ||
+    HEADING.test(t(line)) ||
+    RULE.test(t(line)) ||
     /^ {0,3}>/.test(line) ||
-    ITEM.test(line) ||
-    (line.includes("|") && next !== undefined && next.includes("-") && TABLE_SEP.test(next))
+    ITEM.test(t(line)) ||
+    startsTable(line, next)
   );
 }
 
-function renderItems(items: Item[], key: string, depth: number): ReactNode {
-  const Tag = items[0].ordered ? "ol" : "ul";
-  return (
-    <Tag key={key} className={`m-0 flex flex-col gap-0.5 pl-6 ${items[0].ordered ? "list-decimal" : "list-disc"}`}>
-      {items.map((it, n) => (
-        <li key={n}>
-          {inline(it.text, `${key}-${n}`)}
-          {it.kids.length > 0 && depth < MAX_DEPTH ? renderItems(it.kids, `${key}-${n}k`, depth + 1) : null}
-        </li>
-      ))}
-    </Tag>
-  );
+/** Items past the nesting limit are shown as plain indented lines rather than dropped. */
+function flatten(items: Item[], level: number, out: string[] = []): string[] {
+  for (const it of items) {
+    out.push(`${"  ".repeat(level)}${it.ordered ? "" : "- "}${it.text}`);
+    flatten(it.kids, level + 1, out);
+  }
+  return out;
+}
+
+/** One list per run of the same marker type, so "- a" followed by "1. b" are two lists. */
+function renderItems(items: Item[], key: string, depth: number): ReactNode[] {
+  const runs: Item[][] = [];
+  for (const it of items) {
+    const last = runs[runs.length - 1];
+    if (last && last[0].ordered === it.ordered) last.push(it);
+    else runs.push([it]);
+  }
+  return runs.map((run, r) => {
+    const Tag = run[0].ordered ? "ol" : "ul";
+    return (
+      <Tag key={`${key}-${r}`} className={`m-0 flex flex-col gap-0.5 pl-6 ${run[0].ordered ? "list-decimal" : "list-disc"}`}>
+        {run.map((it, n) => (
+          <li key={n}>
+            {inline(it.text, `${key}-${r}-${n}`)}
+            {it.kids.length === 0 ? null : depth < MAX_DEPTH ? renderItems(it.kids, `${key}-${r}-${n}k`, depth + 1) : <div className="whitespace-pre-wrap">{inline(flatten(it.kids, 0).join("\n"), `${key}-${r}-${n}f`)}</div>}
+          </li>
+        ))}
+      </Tag>
+    );
+  });
 }
 
 /** Group consecutive item lines into a tree by indent; an indented non-item line continues the previous item. */
@@ -56,7 +79,7 @@ function readList(lines: string[], start: number): { items: Item[]; next: number
   const stack: Item[] = [];
   let i = start;
   while (i < lines.length) {
-    const m = ITEM.exec(lines[i]);
+    const m = ITEM.exec(t(lines[i]));
     if (m && !RULE.test(lines[i])) {
       const it: Item = { indent: m[1].replace(/\t/g, "    ").length, ordered: /\d/.test(m[2]), text: m[3], kids: [] };
       while (stack.length > 0 && stack[stack.length - 1].indent >= it.indent) stack.pop();
@@ -86,12 +109,12 @@ function blocks(lines: string[], depth: number): ReactNode[] {
       out.push(<pre key={key} className="m-0 overflow-x-auto rounded bg-muted p-2 font-mono text-xs"><code>{body.join("\n")}</code></pre>);
     } else if (line.trim() === "") {
       i++;
-    } else if ((m = HEADING.exec(line))) {
+    } else if ((m = HEADING.exec(t(line)))) {
       const level = m[1].length;
       const Tag = `h${level}` as "h1";
       out.push(<Tag key={key} className={`m-0 mt-2 font-semibold ${HEADING_CLASS[level - 1]}${level <= 2 ? " border-b border-border pb-1" : ""}`}>{inline(m[2], String(key))}</Tag>);
       i++;
-    } else if (RULE.test(line)) {
+    } else if (RULE.test(t(line))) {
       out.push(<hr key={key} className="my-2 border-border" />);
       i++;
     } else if (/^ {0,3}>/.test(line)) {
@@ -102,16 +125,16 @@ function blocks(lines: string[], depth: number): ReactNode[] {
           {depth < MAX_DEPTH ? blocks(body, depth + 1) : <p className="m-0 whitespace-pre-wrap">{body.join("\n")}</p>}
         </blockquote>,
       );
-    } else if (ITEM.test(line)) {
+    } else if (ITEM.test(t(line))) {
       const { items, next } = readList(lines, i);
       i = next;
-      out.push(renderItems(items, String(key), 0));
-    } else if (line.includes("|") && lines[i + 1] !== undefined && lines[i + 1].includes("-") && TABLE_SEP.test(lines[i + 1])) {
+      out.push(<div key={key} className="flex flex-col gap-2">{renderItems(items, String(key), 0)}</div>);
+    } else if (startsTable(line, lines[i + 1])) {
       const head = cells(line);
       const align = cells(lines[i + 1]).map((c) => (c.startsWith(":") && c.endsWith(":") ? "center" : c.endsWith(":") ? "right" : "left"));
       i += 2;
       const rows: string[][] = [];
-      while (i < lines.length && lines[i].trim() !== "" && lines[i].includes("|")) rows.push(cells(lines[i++]));
+      while (i < lines.length && lines[i].trim() !== "" && lines[i].includes("|") && lines[i].length <= MAX_LINE && !startsBlock(lines[i], undefined)) rows.push(cells(lines[i++]));
       const style = (c: number) => ({ textAlign: (align[c] ?? "left") as "left" | "right" | "center" });
       out.push(
         <div key={key} className="overflow-x-auto">
@@ -138,5 +161,5 @@ function blocks(lines: string[], depth: number): ReactNode[] {
 
 export function DocMarkdown({ text }: { text: string }) {
   if (text.length > MARKDOWN_MAX_CHARS * 10) return <p className="m-0 whitespace-pre-wrap font-sans text-sm" data-markdown-plain>{text}</p>;
-  return <div className="flex min-w-0 flex-col gap-2 font-sans text-sm leading-6 [overflow-wrap:anywhere]" data-doc-markdown>{blocks(text.replace(/\r\n?/g, "\n").split("\n").map((l) => (l.length > MAX_LINE ? l.slice(0, MAX_LINE) : l)), 0)}</div>;
+  return <div className="flex min-w-0 flex-col gap-2 font-sans text-sm leading-6 [overflow-wrap:anywhere]" data-doc-markdown>{blocks(text.replace(/\r\n?/g, "\n").split("\n"), 0)}</div>;
 }

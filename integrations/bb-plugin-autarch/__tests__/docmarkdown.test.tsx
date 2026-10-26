@@ -117,3 +117,28 @@ describe("document reader Markdown: hostile lines", () => {
     expect(Date.now() - t0).toBeLessThan(2000);
   });
 });
+
+describe("document reader Markdown: review fixes", () => {
+  it("keeps the full text of a very long line", () => {
+    const long = "word ".repeat(1000) + "END";
+    expect(html(long)).toContain("END");
+    expect(html("a | b\n" + "x".repeat(3000) + "END")).toContain("END");
+  });
+  it("shows list items deeper than the nesting limit", () => {
+    const deep = Array.from({ length: 10 }, (_, i) => `${"  ".repeat(i)}- level${i}`).join("\n");
+    const out = html(deep);
+    for (let i = 0; i < 10; i++) expect(out).toContain(`level${i}`);
+  });
+  it("a table ends at the next block, so a heading after rows stays a heading", () => {
+    const out = html("| A |\n| --- |\n| row |\n# Heading | tail\n\n- bullet | pipe");
+    expect(out).toContain("<h1 ");
+    expect(out).toContain("tail");
+    expect(out).toContain("<ul");
+    expect(out).not.toContain(">Heading | tail</td>");
+  });
+  it("splits sibling lists when the marker type changes", () => {
+    const out = html("- bullet\n1. numbered");
+    expect(out).toMatch(/<ul[^>]*><li>bullet<\/li><\/ul>/);
+    expect(out).toMatch(/<ol[^>]*><li>numbered<\/li><\/ol>/);
+  });
+});
