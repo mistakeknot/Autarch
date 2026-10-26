@@ -1,7 +1,7 @@
 // The Home decision service: file, pick once, reconcile the ruling file, wake and feed.
 // Every state change goes through one Store transaction; this layer maps outcomes to
 // HTTP-shaped results and never holds state of its own.
-import { isOwnWordsForm, OWN_WORDS_LABEL } from "./ownwords.js";
+import { isOwnWordsForm } from "./ownwords.js";
 import { ImageStore, textSha, validateImages, type ImageIn, type PathsResult } from "./otherimages.js";
 import { createHash, randomUUID } from "node:crypto";
 import { buildFeed, renderFeed, type Feed } from "./feed.js";
@@ -439,7 +439,7 @@ export class Service {
     const option = isAnswers
       ? ({ id: ANSWERS_OPTION_ID, label: "Answers", kind: "ruling-only", reversible: false } as NonNullable<Ask["options"]>[number])
       : isOther
-      ? ({ id: optionId, label: OWN_WORDS_LABEL, kind: "ruling-only", reversible: false } as NonNullable<Ask["options"]>[number])
+      ? ({ id: optionId, label: "Other (mk's own answer)", kind: "ruling-only", reversible: false } as NonNullable<Ask["options"]>[number])
       : ask.options?.find((o) => o.id === optionId);
     if (!option) return { ok: false, status: 400, error: `unknown option ${JSON.stringify(optionId)}` };
     if (rev !== d.revision) return { ok: false, status: 409, error: "revision differs" };
@@ -483,7 +483,7 @@ export class Service {
     const cardWrites = isCard
       ? pickWrites(
           { id: decisionId, task_id: String(d.task_id) },
-          { option_id: optionId, option_label: option.label, by, generation: Number(d.generation), picked_at: this.now(), reason: multi ? multi.words : isOther ? otherText : (reason ?? null) },
+          { option_id: optionId, option_label: option.label, by, generation: Number(d.generation), picked_at: this.now(), reason: multi ? multi.words : isOther ? otherText : (reason ?? null), own_words: isOther },
         )
       : [];
     // A pick never opens a move: everything mk owes is a decision card (bead mk-1k8pg). A pick on a card whose
