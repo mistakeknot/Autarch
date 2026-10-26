@@ -32,6 +32,32 @@ type KernelMetrics struct {
 	KernelErrors     map[string]string `json:"kernel_errors,omitempty"`
 }
 
+// Clone returns a deep copy of the kernel state, or nil for nil.
+func (k *KernelState) Clone() *KernelState {
+	if k == nil {
+		return nil
+	}
+	c := *k
+	c.Runs = cloneEachMap(k.Runs, icdata.Run.Clone)
+	c.Dispatches = cloneEachMap(k.Dispatches, icdata.Dispatch.Clone)
+	c.Events = cloneEachMap(k.Events, func(e icdata.Event) icdata.Event { return e })
+	c.Metrics = k.Metrics.Clone()
+	c.CostBaseline = k.CostBaseline.Clone()
+	return &c
+}
+
+// Clone returns a deep copy of the metrics.
+func (m KernelMetrics) Clone() KernelMetrics {
+	if m.KernelErrors != nil {
+		errs := make(map[string]string, len(m.KernelErrors))
+		for k, v := range m.KernelErrors {
+			errs[k] = v
+		}
+		m.KernelErrors = errs
+	}
+	return m
+}
+
 // enrichWithKernelState fetches Intercore data for all kernel-aware projects.
 // Returns nil if no projects have Intercore.
 func (a *Aggregator) enrichWithKernelState(ctx context.Context, projects []discovery.Project) *KernelState {

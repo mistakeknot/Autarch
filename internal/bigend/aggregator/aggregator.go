@@ -82,7 +82,63 @@ type State struct {
 	MCP        map[string][]mcp.ComponentStatus `json:"mcp"`
 	Activities []Activity                       `json:"activities"`
 	Kernel     *KernelState                     `json:"kernel,omitempty"`
+	Items      []Item                           `json:"items"`
+	Flow       []FlowCount                      `json:"flow,omitempty"`
 	UpdatedAt  time.Time                        `json:"updated_at"`
+}
+
+// Clone returns a deep copy of the state: it shares no slice, map or pointer
+// with s, so callers may hold or modify it while the aggregator keeps
+// refreshing. nil stays nil and empty stays empty so JSON output ([] versus
+// null) is unchanged.
+func (s State) Clone() State {
+	c := s
+	c.Projects = cloneEach(s.Projects, discovery.Project.Clone)
+	c.Agents = cloneSlice(s.Agents)
+	c.Sessions = cloneSlice(s.Sessions)
+	c.Colonies = cloneEach(s.Colonies, colony.Colony.Clone)
+	c.Activities = cloneSlice(s.Activities)
+	c.Items = cloneSlice(s.Items)
+	c.Flow = cloneSlice(s.Flow)
+	if s.MCP != nil {
+		c.MCP = make(map[string][]mcp.ComponentStatus, len(s.MCP))
+		for k, v := range s.MCP {
+			c.MCP[k] = cloneEach(v, mcp.ComponentStatus.Clone)
+		}
+	}
+	c.Kernel = s.Kernel.Clone()
+	return c
+}
+
+// cloneSlice copies a slice whose elements hold no pointers, slices or maps.
+func cloneSlice[T any](s []T) []T {
+	if s == nil {
+		return nil
+	}
+	return append(make([]T, 0, len(s)), s...)
+}
+
+// cloneEach copies a slice, deep-copying each element with clone.
+func cloneEach[T any](s []T, clone func(T) T) []T {
+	if s == nil {
+		return nil
+	}
+	c := make([]T, len(s))
+	for i, v := range s {
+		c[i] = clone(v)
+	}
+	return c
+}
+
+func cloneEachMap[T any](m map[string][]T, clone func(T) T) map[string][]T {
+	if m == nil {
+		return nil
+	}
+	c := make(map[string][]T, len(m))
+	for k, v := range m {
+		c[k] = cloneEach(v, clone)
+	}
+	return c
 }
 
 type tmuxAPI interface {
@@ -120,6 +176,11 @@ type Aggregator struct {
 	mu              sync.RWMutex
 	state           State
 	refreshing      atomic.Bool
+
+	// Colony view items: bead source and the age past which an item is a jam.
+	beads        BeadLister
+	jamThreshold time.Duration
+	itemSeen     map[string][]BeadRecord // last valid bead records per project
 
 	// Lifecycle context: all internal goroutines derive from this.
 	// Cancelled by Shutdown().
@@ -173,6 +234,8 @@ func New(scanner *discovery.Scanner, cfg *config.Config, store *events.Store) *A
 		lifecycleCancel: cancel,
 		broker:          signals.NewBroker(),
 		eventsStore:     store,
+		beads:           BDLister{},
+		jamThreshold:    DefaultJamThreshold,
 		handlers:        make(map[string][]EventHandler),
 		seenEvents:      make(map[string]struct{}),
 		state: State{
@@ -182,6 +245,7 @@ func New(scanner *discovery.Scanner, cfg *config.Config, store *events.Store) *A
 			Colonies:   []colony.Colony{},
 			MCP:        map[string][]mcp.ComponentStatus{},
 			Activities: []Activity{},
+			Items:      nil, // nil until the first refresh so no flow is computed against nothing
 		},
 	}
 }
@@ -552,6 +616,10 @@ func (a *Aggregator) Refresh(ctx context.Context) error {
 	// Load MCP statuses
 	mcpStatuses := a.loadMCPStatuses(projects)
 
+	// Colony view items and flow against the previous snapshot (bd I/O outside lock)
+	now := time.Now()
+	itemRes := a.collectItems(ctx, projects, now)
+
 	// Merge kernel events into activity feed with dedup
 	a.mu.RLock()
 	existingActivities := make([]Activity, len(a.state.Activities))
@@ -584,8 +652,11 @@ func (a *Aggregator) Refresh(ctx context.Context) error {
 		MCP:        mcpStatuses,
 		Activities: mergedActivities,
 		Kernel:     kernelState,
-		UpdatedAt:  time.Now(),
+		Items:      itemRes.items,
+		Flow:       itemRes.flow,
+		UpdatedAt:  now,
 	}
+	a.itemSeen = itemRes.seen
 	a.mu.Unlock()
 
 	slog.Info("refresh complete", "projects", len(projects), "agents", len(agents), "sessions", len(sessions))
@@ -938,7 +1009,7 @@ func pathIsDir(path string) bool {
 func (a *Aggregator) GetState() State {
 	a.mu.RLock()
 	defer a.mu.RUnlock()
-	return a.state
+	return a.state.Clone()
 }
 
 // GetProject returns a specific project by path

@@ -28,3 +28,25 @@ type CostTokenStats struct {
 	OutputTotal int64 `json:"output_total"`
 	Count       int   `json:"count"`
 }
+
+// Clone returns a deep copy of the baseline, or nil for nil.
+func (c *CostBaseline) Clone() *CostBaseline {
+	if c == nil {
+		return nil
+	}
+	cp := *c
+	cp.ByPhase = cloneStatsMap(c.ByPhase)
+	cp.ByAgent = cloneStatsMap(c.ByAgent)
+	return &cp
+}
+
+func cloneStatsMap(m map[string]CostTokenStats) map[string]CostTokenStats {
+	if m == nil {
+		return nil
+	}
+	cp := make(map[string]CostTokenStats, len(m))
+	for k, v := range m {
+		cp[k] = v
+	}
+	return cp
+}
