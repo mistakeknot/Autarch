@@ -1,0 +1,204 @@
+import { renderToStaticMarkup } from "react-dom/server";
+import { describe, expect, it } from "vitest";
+import { DocContent, type DocResultT } from "../ui/docreader.js";
+import { DocMarkdown } from "../ui/docmarkdown.js";
+import { Markdown } from "../ui/markdown.js";
+
+const html = (text: string) => renderToStaticMarkup(<DocMarkdown text={text} />);
+
+// The shape of a design doc a thread writes: headings, prose, bullets, numbered steps, a table, a quote, a rule, code.
+const DOC = [
+  "# Canvas design",
+  "",
+  "Intro with **bold** and `code` and [a link](https://example.com/x).",
+  "",
+  "## Goals",
+  "",
+  "- first",
+  "  - nested one",
+  "- second",
+  "",
+  "1. step one",
+  "2. step two",
+  "",
+  "### Layout",
+  "",
+  "| Name | Count |",
+  "| :--- | ---: |",
+  "| alpha | 1 |",
+  "| beta | 2 |",
+  "",
+  "> a quoted note",
+  "> over two lines",
+  "",
+  "---",
+  "",
+  "```ts",
+  "const x = '# not a heading';",
+  "```",
+].join("\n");
+
+describe("document reader Markdown", () => {
+  it("renders headings h1 to h6 as heading elements, not raw hashes", () => {
+    const out = html(["# a", "## b", "### c", "#### d", "##### e", "###### f"].join("\n\n"));
+    for (const n of [1, 2, 3, 4, 5, 6]) expect(out).toMatch(new RegExp(`<h${n} `));
+    expect(out).not.toContain("# ");
+  });
+
+  it("renders the whole doc shape: lists, numbered list, table, quote, rule, code", () => {
+    const out = html(DOC);
+    expect(out).toContain("<h1 ");
+    expect(out).toContain("<h2 ");
+    expect(out).toContain("<h3 ");
+    expect(out).toMatch(/<ul[^>]*><li>first<ul[^>]*><li>nested one<\/li><\/ul><\/li><li>second<\/li><\/ul>/);
+    expect(out).toMatch(/<ol[^>]*><li>step one<\/li><li>step two<\/li><\/ol>/);
+    expect(out).toContain("<table");
+    expect(out).toContain(">Name</th>");
+    expect(out).toContain('text-align:right');
+    expect(out).toContain(">beta</td>");
+    expect(out).toMatch(/<blockquote[^>]*>.*a quoted note\nover two lines/s);
+    expect(out).toContain("<hr ");
+    expect(out).toContain("const x = &#x27;# not a heading&#x27;;");
+    expect(out).toContain("<strong>bold</strong>");
+    expect(out).not.toMatch(/(^|>)#{1,6} /);
+  });
+
+  it("sets prose in the body font and only code in mono", () => {
+    const out = html(DOC);
+    expect(out).toMatch(/^<div[^>]*font-sans/);
+    expect(out).not.toMatch(/^<div[^>]*font-mono/);
+    expect(out).toMatch(/<pre[^>]*font-mono/);
+  });
+
+  it("keeps the safety rules: no HTML, no fetched images, http(s) links only", () => {
+    const out = html("<img src=x onerror=alert(1)> <script>x</script>\n\n[bad](javascript:alert(1)) ![pic](https://e.com/p.png) [ok](https://e.com)\n\n| a |\n| - |\n| <b>x</b> |");
+    expect(out).not.toMatch(/<img|<script|<b>/);
+    expect(out).not.toContain('href="javascript');
+    expect(out).toContain('href="https://e.com/p.png"');
+    expect(out).toContain('rel="noopener noreferrer nofollow"');
+    expect(out).not.toMatch(/<img/);
+  });
+
+  it("does not swallow a paragraph into a heading, and a rule is not a bullet", () => {
+    const out = html("para line\n# Heading\n***\n* real bullet");
+    expect(out).toContain("<p");
+    expect(out).toContain("<h1 ");
+    expect(out).toContain("<hr ");
+    expect(out).toContain("<li>real bullet</li>");
+  });
+
+  it("survives hostile nesting and long runs without throwing", () => {
+    expect(() => html(">".repeat(500) + " deep")).not.toThrow();
+    expect(() => html(Array.from({ length: 300 }, (_, i) => `${" ".repeat(i)}- item`).join("\n"))).not.toThrow();
+    expect(() => html("|".repeat(5000))).not.toThrow();
+  });
+
+  it("is what the reader uses for a rendered .md file, and raw view stays mono", () => {
+    const res: DocResultT = { ok: true, path: "/a/canvas-design.md", size: 1, sha256: "a".repeat(64), text: DOC, markdown: true, matches: null };
+    const rendered = renderToStaticMarkup(<DocContent res={res} view="rendered" />);
+    expect(rendered).toContain("data-doc-markdown");
+    expect(rendered).toContain("<h1 ");
+    const raw = renderToStaticMarkup(<DocContent res={res} view="raw" />);
+    expect(raw).toContain("font-mono");
+    expect(raw).toContain("# Canvas design");
+  });
+
+  it("leaves card text on its small subset: a heading stays literal there", () => {
+    const card = renderToStaticMarkup(<Markdown text={"# Not a heading\n\n1. not a list"} />);
+    expect(card).not.toMatch(/<h1|<ol|<table/);
+  });
+});
+
+describe("document reader Markdown: hostile lines", () => {
+  it("a very long whitespace or dash line renders fast, and is parsed, not skipped", () => {
+    const t0 = Date.now();
+    const a = html(`a |${" ".repeat(30000)}x\n${" ".repeat(30000)}-`);
+    const b = html(`| a |\n|${"- ".repeat(20000)}`);
+    expect(Date.now() - t0).toBeLessThan(2000);
+    expect(a).toContain("data-doc-markdown");
+    expect(b).toContain("data-doc-markdown");
+  });
+  it("a wide sparse table cannot create more cells than the text has", () => {
+    const cols = 40;
+    const text = `${"|a".repeat(cols)}|\n${"|-".repeat(cols)}|\n` + "|\n".repeat(5000);
+    const out = html(text);
+    expect(out).toContain("data-doc-markdown");
+    expect((out.match(/<td/g) ?? []).length).toBeLessThanOrEqual(text.length);
+    const wide = html(`${"|a".repeat(200)}|\n${"|-".repeat(200)}|\n|x|`);
+    expect(wide).not.toContain("<table");
+  });
+  it("an indented heading or quote after a list item is not swallowed as continuation", () => {
+    const out = html("- item\n # Heading\n > quote\n ---");
+    expect(out).toContain("<h1 ");
+    expect(out).toContain("<blockquote");
+    expect(out).toContain("<hr ");
+  });
+  it("a longer fence is not closed by a shorter one, and a fence line with text does not close", () => {
+    const out = html("````\n```\ninside\n```\n````\n\nafter");
+    expect(out.match(/<pre/g)?.length).toBe(1);
+    expect(out).toContain("inside");
+    const t = html("```\none\n```not closing\ntwo\n```");
+    expect(t.match(/<pre/g)?.length).toBe(1);
+    expect(t).toContain("two");
+  });
+});
+
+describe("document reader Markdown: review fixes", () => {
+  it("keeps the full text of a very long line", () => {
+    const long = "word ".repeat(1000) + "END";
+    expect(html(long)).toContain("END");
+    expect(html("a | b\n" + "x".repeat(3000) + "END")).toContain("END");
+  });
+  it("shows list items deeper than the nesting limit", () => {
+    const deep = Array.from({ length: 10 }, (_, i) => `${"  ".repeat(i)}- level${i}`).join("\n");
+    const out = html(deep);
+    for (let i = 0; i < 10; i++) expect(out).toContain(`level${i}`);
+  });
+  it("a table ends at the next block, so a heading after rows stays a heading", () => {
+    const out = html("| A |\n| --- |\n| row |\n# Heading | tail\n\n- bullet | pipe");
+    expect(out).toContain("<h1 ");
+    expect(out).toContain("tail");
+    expect(out).toContain("<ul");
+    expect(out).not.toContain(">Heading | tail</td>");
+  });
+  it("splits sibling lists when the marker type changes", () => {
+    const out = html("- bullet\n1. numbered");
+    expect(out).toMatch(/<ul[^>]*><li>bullet<\/li><\/ul>/);
+    expect(out).toMatch(/<ol[^>]*><li>numbered<\/li><\/ol>/);
+  });
+});
+
+describe("document reader Markdown: round 3 fixes", () => {
+  it("a separator with a different column count is not a table, and does not eat the rule after it", () => {
+    const out = html("a | b\n---\nafter");
+    expect(out).not.toContain("<table");
+    expect(out).toContain("after");
+  });
+  it("a table indented under a list item stays plain text of that item", () => {
+    const out = html("- item\n  | A | B |\n  | --- | --- |\n  | x | y |");
+    expect(out).not.toContain("<table");
+    expect(out).toContain("<li>item");
+    expect(out).toContain("| x | y |");
+  });
+});
+
+describe("document reader Markdown: round 4 fixes", () => {
+  it("hostile separator lines render in well under a second", () => {
+    const text = ("a | b\n" + " ".repeat(990) + "-" + " ".repeat(990) + "x\n").repeat(5);
+    const start = performance.now();
+    const out = html(text);
+    expect(performance.now() - start).toBeLessThan(500);
+    expect(out).toContain("data-doc-markdown");
+    expect(out).not.toContain("<table");
+  });
+  it("a separator row still needs dashes in every cell", () => {
+    expect(html("a | b\n--- | -x-\nrest")).not.toContain("<table");
+    expect(html("a | b\n:--- | ---:\n1 | 2")).toContain("<table");
+  });
+  it("a table indented inside a list item keeps its text and the numbering carries on", () => {
+    const out = html("1. first\n  | A | B |\n  | --- | --- |\n  | x | y |\n2. second\n\n| H | K |\n| --- | --- |\n| a | b |");
+    expect(out.match(/<ol/g)).toHaveLength(1);
+    expect(out).toMatch(/<li>first[\s\S]*\| x \| y \|[\s\S]*<\/li><li>second<\/li>/);
+    expect(out.match(/<table/g)).toHaveLength(1);
+  });
+});

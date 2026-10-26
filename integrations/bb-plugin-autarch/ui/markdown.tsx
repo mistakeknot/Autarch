@@ -26,7 +26,7 @@ const LINK = /^(!?)\[([^\]\n]*)\]\(([^)\s]*)\)$/;
 /** Above this size a body is shown as plain wrapped text: no parsing at all. */
 export const MARKDOWN_MAX_CHARS = 20_000;
 
-function inline(text: string, key: string): ReactNode[] {
+export function inline(text: string, key: string): ReactNode[] {
   const out: ReactNode[] = [];
   let pos = 0;
   const re = new RegExp(TOKEN);
