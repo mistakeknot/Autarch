@@ -3,7 +3,7 @@
 // never builds a path, and a refusal is shown as the server's one generic reason.
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
 import type { ReactNode } from "react";
-import { Markdown } from "./markdown.js";
+import { DocMarkdown } from "./docmarkdown.js";
 
 export type DocResultT =
   | { ok: true; path: string; size: number; sha256: string; text: string; markdown: boolean; matches: boolean | null }
@@ -81,7 +81,7 @@ export function DocContent({ res, want, view }: { res: DocResultT | "loading"; w
     <>
       <DigestLine r={res} want={want} />
       <div className="min-h-0 flex-1 overflow-auto p-3" data-doc-body>
-        {res.markdown && view === "rendered" ? <Markdown text={res.text} /> : <pre className="whitespace-pre-wrap font-mono text-xs [overflow-wrap:anywhere]">{res.text}</pre>}
+        {res.markdown && view === "rendered" ? <DocMarkdown text={res.text} /> : <pre className="whitespace-pre-wrap font-mono text-xs [overflow-wrap:anywhere]">{res.text}</pre>}
       </div>
     </>
   );
