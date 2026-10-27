@@ -388,8 +388,8 @@ ALTER TABLE decisions ADD COLUMN root_fsid TEXT;
 /** Backfill decisions.root_fsid; exported so a rehearsal can run it on a copy. Returns the rows it set. */
 export function backfillRootFsid(db: Database.Database): number {
   const rows = db
-    .prepare("SELECT id, project_root, root_ino FROM decisions WHERE root_fsid IS NULL AND project_root IS NOT NULL AND root_ino IS NOT NULL")
-    .all() as { id: string; project_root: string; root_ino: string }[];
+    .prepare("SELECT id, project_root, root_dev, root_ino FROM decisions WHERE root_fsid IS NULL AND project_root IS NOT NULL AND root_ino IS NOT NULL")
+    .all() as { id: string; project_root: string; root_dev: string; root_ino: string }[];
   const set = db.prepare("UPDATE decisions SET root_fsid = ? WHERE id = ? AND root_fsid IS NULL");
   let n = 0;
   for (const r of rows) {
@@ -400,6 +400,8 @@ export function backfillRootFsid(db: Database.Database): number {
       continue;
     }
     if (st.isSymbolicLink() || !st.isDirectory() || String(st.ino) !== r.root_ino) continue;
+    // A changed device cannot show which filesystem the root was filed on; leave it unpinned.
+    if (String(st.dev) !== r.root_dev) continue;
     const uuid = fsUuidOfDev(String(st.dev));
     if (uuid) {
       set.run(uuid, r.id);

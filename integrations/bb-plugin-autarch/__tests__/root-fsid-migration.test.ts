@@ -20,11 +20,11 @@ function v4db() {
   migrate(db, { codeVersion: 4, migrations: MIGRATIONS.filter((m) => m.version <= 4), test: { skipHold: true } });
   return db;
 }
-function row(db: Database.Database, id: string, root: string | null, ino: string | null) {
+function row(db: Database.Database, id: string, root: string | null, ino: string | null, dev = "1") {
   db.prepare(
     `INSERT INTO decisions(id, request_id, identity, revision, semantic_key, subject, kind, project, project_root, root_dev, root_ino, asker, thread, body_json, delegable, filed_at, updated_at)
-     VALUES (?, ?, 'i', 'r', 'k', 's', 'decide', 'p', ?, '1', ?, 'a', 't', '{}', 1, 'x', 'x')`,
-  ).run(id, `req-${id}`, root, ino);
+     VALUES (?, ?, 'i', 'r', 'k', 's', 'decide', 'p', ?, ?, ?, 'a', 't', '{}', 1, 'x', 'x')`,
+  ).run(id, `req-${id}`, root, dev, ino);
 }
 
 describe("v5 backfill of decisions.root_fsid (mk-mpa66)", () => {
@@ -38,7 +38,11 @@ describe("v5 backfill of decisions.root_fsid (mk-mpa66)", () => {
     symlinkSync(real, join(base, "link"));
     const ino = (p: string) => String(lstatSync(p, { bigint: true }).ino);
     const db = v4db();
-    row(db, "good", good, ino(good));
+    const dv = (p: string) => String(lstatSync(p, { bigint: true }).dev);
+    const moved = join(base, "moved");
+    mkdirSync(moved);
+    row(db, "good", good, ino(good), dv(good));
+    row(db, "devchanged", moved, ino(moved), "1");
     row(db, "replaced", replaced, "999999999");
     row(db, "link", join(base, "link"), ino(real));
     row(db, "gone", join(base, "gone"), "5");
@@ -47,6 +51,7 @@ describe("v5 backfill of decisions.root_fsid (mk-mpa66)", () => {
     setFsUuidResolverForTest(() => "U1");
     migrate(db);
     expect(db.prepare("SELECT id, root_fsid FROM decisions ORDER BY id").all()).toEqual([
+      { id: "devchanged", root_fsid: null },
       { id: "gone", root_fsid: null },
       { id: "good", root_fsid: "U1" },
       { id: "link", root_fsid: null },
@@ -60,7 +65,7 @@ describe("v5 backfill of decisions.root_fsid (mk-mpa66)", () => {
     const good = join(base, "good");
     mkdirSync(good);
     const db = v4db();
-    row(db, "good", good, String(lstatSync(good, { bigint: true }).ino));
+    row(db, "good", good, String(lstatSync(good, { bigint: true }).ino), String(lstatSync(good, { bigint: true }).dev));
     setFsUuidResolverForTest(() => null);
     migrate(db);
     expect(db.prepare("SELECT root_fsid FROM decisions").get()).toEqual({ root_fsid: null });
