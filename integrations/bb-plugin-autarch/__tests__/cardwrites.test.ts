@@ -20,6 +20,61 @@ describe("card write-back", () => {
     expect(r.fake.comments.at(-1)!.body).toContain("Ruled: Per project (Home, advisory; ruled by: mk)");
   });
 
+  it("ruling a card closes its task when no thread is working on it", async () => {
+    const r = rig();
+    const { t, g1 } = await opened(r);
+    r.mkPick(g1.id);
+    await r.poll();
+    expect(r.fake.tasks.find((x) => x.id === t.id)!.status).toBe("done");
+    const closes = r.fake.callsOf("updateTask").filter((c) => c.input.status === "done").length;
+    r.db.prepare("UPDATE card_writes SET state = 'pending' WHERE kind = 'unlabel'").run();
+    await r.writer.drain();
+    expect(r.fake.callsOf("updateTask").filter((c) => c.input.status === "done").length).toBe(closes);
+  });
+
+  it("a task with a working thread stays open; a completed thread does not hold it", async () => {
+    const r = rig();
+    const { t, g1 } = await opened(r);
+    r.fake.threads.push({ taskId: t.id, liveStatus: "working" });
+    r.mkPick(g1.id);
+    await r.poll();
+    expect(r.fake.tasks.find((x) => x.id === t.id)!.status).not.toBe("done");
+    expect(labels(r, t)).toEqual([]);
+    const r2 = rig();
+    const o2 = await opened(r2);
+    r2.fake.threads.push({ taskId: o2.t.id, liveStatus: "completed" });
+    r2.mkPick(o2.g1.id);
+    await r2.poll();
+    expect(r2.fake.tasks.find((x) => x.id === o2.t.id)!.status).toBe("done");
+  });
+
+  it("an unreadable thread list leaves the task open and the write retries", async () => {
+    const r = rig();
+    const { t, g1 } = await opened(r);
+    r.fake.failures.push({ method: "listTaskThreads", nth: 1, error: new Error("tasks is down") });
+    r.mkPick(g1.id);
+    await r.poll();
+    expect(r.fake.tasks.find((x) => x.id === t.id)!.status).not.toBe("done");
+    expect(writes(r).find((w: any) => w.kind === "unlabel")).toMatchObject({ state: "pending", attempt: 1 });
+    await pollN(r, 3);
+    expect(r.fake.tasks.find((x) => x.id === t.id)!.status).toBe("done");
+  });
+
+  it("an unlabel queued by a move close leaves the task open; a refused close retries", async () => {
+    const r = rig();
+    const { t, g1 } = await opened(r);
+    r.mkPick(g1.id);
+    r.db.prepare("UPDATE card_writes SET payload = ? WHERE kind = 'unlabel'").run(JSON.stringify({ move_closed_by: "home" }));
+    await r.poll();
+    expect(r.fake.tasks.find((x) => x.id === t.id)!.status).not.toBe("done");
+    const r2 = rig();
+    const o2 = await opened(r2);
+    r2.fake.refuseUpdates = true;
+    r2.mkPick(o2.g1.id);
+    await r2.poll();
+    expect(writes(r2).find((w: any) => w.kind === "unlabel")).toMatchObject({ state: "pending", attempt: 1 });
+  });
+
   it("the comment renders pick.by: a delegated ruling says ruled by: vizier", async () => {
     const r = rig();
     r.enableDelegation();

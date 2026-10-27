@@ -70,6 +70,8 @@ export class FakeTasks implements PluginsLike {
   tasks: FakeTask[] = [];
   comments: FakeComment[] = [];
   calls: RpcCall[] = [];
+  /** Threads attached to tasks, as listTaskThreads reports them. */
+  threads: { taskId: string; liveStatus: string }[] = [];
   /** Fail the nth (1-based) call of a method, counted across the fake's lifetime. */
   failures: { method: string; nth: number; error: Error }[] = [];
   /** Replace a method's raw output, to exercise response validation. */
@@ -155,6 +157,8 @@ export class FakeTasks implements PluginsLike {
         const t = this.addTask(p.id, { title: input.title, description: input.description ?? "", labelIds: [...(input.labelIds ?? [])], createdAt: `2026-10-03T00:00:${String(this.tasks.length % 60).padStart(2, "0")}.000Z` });
         return { ok: true, task: t };
       }
+      case "listTaskThreads":
+        return { taskThreads: this.threads.filter((t) => t.taskId === input.taskId) };
       case "createLabel": {
         if (this.labels.some((l) => l.projectId === input.projectId && l.name.toLowerCase() === String(input.name).toLowerCase())) throw new Error(`label name already in use: ${input.name}`);
         return { label: this.addLabel(input.projectId, input.name) };
