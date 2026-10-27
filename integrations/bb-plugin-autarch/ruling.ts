@@ -32,6 +32,7 @@ import {
   readlinkSync,
   realpathSync,
   renameSync,
+  statSync,
   unlinkSync,
   writeSync,
 } from "node:fs";
@@ -233,11 +234,22 @@ function majorMinor(dev: bigint): string {
   return `${major}:${minor}`;
 }
 
+function isBlockDeviceOf(real: string, dev: bigint): boolean {
+  const st = statSync(real, { bigint: true });
+  return st.isBlockDevice() && st.rdev === dev;
+}
+
 /**
  * The UUID of the block-device filesystem that `dev` names, or null. Only a mount whose source is a /dev block device
  * with an entry in /dev/disk/by-uuid counts: FUSE, overlay, tmpfs and network mounts have none, so they get null.
  */
-export function fsUuidFrom(dev: bigint, mountinfo: string, byUuidDir: string, devPrefix = "/dev/"): string | null {
+export function fsUuidFrom(
+  dev: bigint,
+  mountinfo: string,
+  byUuidDir: string,
+  devPrefix = "/dev/",
+  isBlockOf: (real: string, dev: bigint) => boolean = isBlockDeviceOf,
+): string | null {
   const want = majorMinor(dev);
   for (const line of mountinfo.split("\n")) {
     const [pre, post] = line.split(" - ");
@@ -247,6 +259,9 @@ export function fsUuidFrom(dev: bigint, mountinfo: string, byUuidDir: string, de
     if (!source?.startsWith(devPrefix)) continue;
     try {
       const real = realpathSync(source);
+      // The mount's source is only a label (tmpfs can carry "/dev/sda1"): it counts only when it really is the
+      // block device whose number is this filesystem's st_dev.
+      if (!isBlockOf(real, dev)) continue;
       for (const name of readdirSync(byUuidDir)) {
         if (realpathSync(join(byUuidDir, name)) === real) return name;
       }

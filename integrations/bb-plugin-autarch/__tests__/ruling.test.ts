@@ -300,11 +300,17 @@ describe("fsUuidFrom (mk-mpa66)", () => {
         "26 1 0:52 / /t rw - tmpfs tmpfs rw",
       ].join("\n");
       const dev = (maj: bigint, min: bigint) => ((maj & 0xfffn) << 8n) | (min & 0xffn) | ((min & ~0xffn) << 12n);
-      expect(fsUuidFrom(dev(259n, 6n), mi, join(d, "by-uuid"), d + "/")).toBe("AAAA-1111");
-      expect(fsUuidFrom(dev(259n, 7n), mi, join(d, "by-uuid"), d + "/")).toBeNull();
-      expect(fsUuidFrom(dev(0n, 50n), mi, join(d, "by-uuid"), d + "/")).toBeNull();
-      expect(fsUuidFrom(dev(0n, 51n), mi, join(d, "by-uuid"), d + "/")).toBeNull();
-      expect(fsUuidFrom(dev(9n, 9n), mi, join(d, "by-uuid"), d + "/")).toBeNull();
+      const yes = () => true;
+      expect(fsUuidFrom(dev(259n, 6n), mi, join(d, "by-uuid"), d + "/", yes)).toBe("AAAA-1111");
+      // a mount whose source is only labelled like a block device (a regular file here, tmpfs in life) gets no UUID
+      expect(fsUuidFrom(dev(259n, 6n), mi, join(d, "by-uuid"), d + "/")).toBeNull();
+      expect(fsUuidFrom(dev(259n, 6n), mi, join(d, "by-uuid"), d + "/", () => false)).toBeNull();
+      const labelled = `30 1 0:60 / /x rw - tmpfs ${join(d, "sda1")} rw`;
+      expect(fsUuidFrom(dev(0n, 60n), labelled, join(d, "by-uuid"), d + "/")).toBeNull();
+      expect(fsUuidFrom(dev(259n, 7n), mi, join(d, "by-uuid"), d + "/", yes)).toBeNull();
+      expect(fsUuidFrom(dev(0n, 50n), mi, join(d, "by-uuid"), d + "/", yes)).toBeNull();
+      expect(fsUuidFrom(dev(0n, 51n), mi, join(d, "by-uuid"), d + "/", yes)).toBeNull();
+      expect(fsUuidFrom(dev(9n, 9n), mi, join(d, "by-uuid"), d + "/", yes)).toBeNull();
     } finally {
       rmSync(d, { recursive: true, force: true });
     }
