@@ -258,3 +258,18 @@ describe("install-home-your-move.sh --check accumulates failed preconditions", (
     expect(run(3, `${LIST}\nexit 0`).r.status).toBe(0);
   });
 });
+
+describe("install-home-your-move.sh expected migration version", () => {
+  const src = readFileSync(SCRIPT, "utf8");
+  it("verifies against the build's own CODE_VERSION, not a hard-coded number", () => {
+    expect(src).not.toMatch(/enable_and_verify 4\b/);
+    expect(src).toContain('enable_and_verify "${EXPECT:-4}"');
+  });
+  it("the sed that reads CODE_VERSION yields the number migrations.ts declares", () => {
+    const line = src.split("\n").find((l) => l.startsWith("EXPECT=$(sed"))!;
+    const sedExpr = /sed -n '([^']+)'/.exec(line)![1];
+    const r = spawnSync("sed", ["-n", sedExpr, resolve(__dirname, "../migrations.ts")], { encoding: "utf8" });
+    const declared = /export const CODE_VERSION = (\d+);/.exec(readFileSync(resolve(__dirname, "../migrations.ts"), "utf8"))![1];
+    expect(r.stdout.trim()).toBe(declared);
+  });
+});

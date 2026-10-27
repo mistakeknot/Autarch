@@ -1,5 +1,5 @@
 #!/bin/bash
-# Install the Home "your move" build (PR 17 build: chunks A, B, C; schema V4, expand-only).
+# Install the Home "your move" build (PR 17 build: chunks A, B, C; schema V4, expand-only; later additive builds reuse it, ending at their own CODE_VERSION).
 #   scripts/install-home-your-move.sh --check    [--commit <40-hex sha>] [REPORT_THREAD]
 #   scripts/install-home-your-move.sh --go       --commit <40-hex sha>  [REPORT_THREAD]
 #   scripts/install-home-your-move.sh --rollback [--previous-plugin DIR] [--backup FILE] [REPORT_THREAD]
@@ -20,8 +20,8 @@
 # Commands used are only those the existing Home deploy (scripts/home-upgrade-v3.bash) already uses: bb plugin list|disable|
 # install --yes|enable|logs, plus sqlite3, fuser and git, and `bb home moves --json` (the plugin's own read-only export).
 # --rollback: export, `bb plugin disable autarch` (fatal on failure), then reinstall the previous build with
-# `bb plugin install --yes DIR` when --previous-plugin is given, enable, and verify. V4 is expand-only, so the previous build
-# opens the V4 database as it is; restoring the data.db backup has no safe scripted procedure here (home-restore-v2.sh is for
+# `bb plugin install --yes DIR` when --previous-plugin is given, enable, and verify. An expand-only schema (V4, V5) is opened by the previous build as it is; the previous build
+# restoring the data.db backup has no safe scripted procedure here (home-restore-v2.sh is for
 # the v2 backup only), so that part prints MANUAL: lines.
 set -euo pipefail
 export PATH=/usr/local/bin:/usr/bin:/bin
@@ -224,7 +224,7 @@ if [ "$MODE" = rollback ]; then
   "${AS0[@]}" "$BB" plugin install --yes "$PREV" >>"$LOG" 2>&1 || { say "install of the previous build failed; the plugin stays disabled"; exit 5; }
   enable_and_verify ""
   say "rolled back to the build in $PREV. Export taken before: $EXPORT"
-  manual "the data.db is left as it is: V4 is expand-only and the previous build opens it. To restore a data.db backup instead there is no scripted procedure: with the plugin disabled, as mk, copy ${BKFILE:-the pre-install backup} over $DATA/data.db, check that fuser -v $DATA/data.db* shows no holder, then run bb plugin enable autarch"
+  manual "the data.db is left as it is: an expand-only schema is opened by the previous build. To restore a data.db backup instead there is no scripted procedure: with the plugin disabled, as mk, copy ${BKFILE:-the pre-install backup} over $DATA/data.db, check that fuser -v $DATA/data.db* shows no holder, then run bb plugin enable autarch"
   exit 0
 fi
 
@@ -267,6 +267,10 @@ say "backup: $BACKUP ($(sha256sum "$BACKUP" | cut -d' ' -f1))"
 disable_plugin
 say "+ bb plugin install --yes $PLUGIN"
 "${AS0[@]}" "$BB" plugin install --yes "$PLUGIN" >>"$LOG" 2>&1 || { say "install failed; plugin is disabled; backup $BACKUP; to revert use --rollback"; exit 5; }
-enable_and_verify 4
+# The migration version this build ends at is the build's own CODE_VERSION (4 for the original your-move build, 5 once
+# root_fsid arrived); a hard-coded number would roll back every later additive build.
+EXPECT=$(sed -n 's/^export const CODE_VERSION = \([0-9][0-9]*\);.*/\1/p' "$PLUGIN/migrations.ts" 2>/dev/null | head -1)
+[[ "$EXPECT" =~ ^[0-9]+$ ]] || [ "$TESTHOOK" = 1 ] || { say "cannot read CODE_VERSION from $PLUGIN/migrations.ts; the plugin is disabled; backup $BACKUP; to revert use --rollback"; exit 5; }
+enable_and_verify "${EXPECT:-4}"
 say "installed $HEAD. Rollback data: $BACKUP and $EXPORT"
 manual "open Home and check the Your move panel and one card conversation by eye; this script cannot see the UI"
