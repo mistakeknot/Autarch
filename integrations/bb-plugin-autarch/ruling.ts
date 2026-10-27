@@ -27,6 +27,7 @@ import {
   lstatSync,
   mkdirSync,
   openSync,
+  readdirSync,
   readFileSync,
   readlinkSync,
   realpathSync,
@@ -221,24 +222,85 @@ export interface PinnedRoot {
   /** Decimal strings, as saved at filing. */
   dev: string;
   ino: string;
+  /** Filesystem UUID at filing, or null/absent when the filesystem has none (then a changed dev is never accepted). */
+  fsid?: string | null;
+}
+
+/** Linux dev_t -> "major:minor", as /proc/self/mountinfo prints it. */
+function majorMinor(dev: bigint): string {
+  const major = ((dev >> 8n) & 0xfffn) | ((dev >> 32n) & ~0xfffn);
+  const minor = (dev & 0xffn) | ((dev >> 12n) & ~0xffn);
+  return `${major}:${minor}`;
+}
+
+/**
+ * The UUID of the block-device filesystem that `dev` names, or null. Only a mount whose source is a /dev block device
+ * with an entry in /dev/disk/by-uuid counts: FUSE, overlay, tmpfs and network mounts have none, so they get null.
+ */
+export function fsUuidFrom(dev: bigint, mountinfo: string, byUuidDir: string, devPrefix = "/dev/"): string | null {
+  const want = majorMinor(dev);
+  for (const line of mountinfo.split("\n")) {
+    const [pre, post] = line.split(" - ");
+    if (post === undefined) continue;
+    if (pre!.split(" ")[2] !== want) continue;
+    const source = post.split(" ")[1];
+    if (!source?.startsWith(devPrefix)) continue;
+    try {
+      const real = realpathSync(source);
+      for (const name of readdirSync(byUuidDir)) {
+        if (realpathSync(join(byUuidDir, name)) === real) return name;
+      }
+    } catch {
+      /* try the next mount of this device */
+    }
+  }
+  return null;
+}
+
+const liveResolver = (dev: bigint): string | null => {
+  try {
+    return fsUuidFrom(dev, readFileSync("/proc/self/mountinfo", "utf8"), "/dev/disk/by-uuid");
+  } catch {
+    return null;
+  }
+};
+let uuidResolver: (dev: bigint) => string | null = liveResolver;
+
+/** Test seam: replace how a device number maps to a filesystem UUID; pass null to restore. */
+export function setFsUuidResolverForTest(fn: ((dev: bigint) => string | null) | null): void {
+  uuidResolver = fn ?? liveResolver;
+}
+
+/** The filesystem UUID for a pinned device number (decimal string), or null. */
+export function fsUuidOfDev(dev: string): string | null {
+  try {
+    return uuidResolver(BigInt(dev));
+  } catch {
+    return null;
+  }
 }
 
 /** Record a root's identity at filing. */
 export function pinRoot(path: string): PinnedRoot {
   const st = lstatSync(path, { bigint: true });
   if (!st.isDirectory()) throw new RulingWriteError("not-directory", `${path} is not a directory`);
-  return { path, dev: String(st.dev), ino: String(st.ino) };
+  return { path, dev: String(st.dev), ino: String(st.ino), fsid: uuidResolver(st.dev) };
 }
 
 /**
  * Does `st` (taken from `root.path`) still identify the pinned root? The inode must match. The device number is
  * not stable: it is the kernel's minor number for the partition and can change across a reboot while the
  * directory is the same (one host went 259:5 -> 259:6, st_dev 66309 -> 66310). So a dev-only change is accepted when
- * the path still resolves to itself (no symlink in any component); a replaced directory has a new inode and is refused.
+ * the filesystem UUID pinned at filing is still the path's filesystem and the path resolves to itself (no symlink in
+ * any component); a replaced directory has a new inode and is refused.
  */
 function sameRoot(st: { dev: bigint; ino: bigint }, root: PinnedRoot): boolean {
   if (String(st.ino) !== root.ino) return false;
   if (String(st.dev) === root.dev) return true;
+  // Only a pinned filesystem UUID that the path's filesystem still has makes a dev-only change a renumbering. With
+  // no pinned UUID, or a filesystem without one (FUSE, overlay, tmpfs), another filesystem mounted at the path
+  // whose root inode collides could pass, so there is no relaxation.
+  if (!root.fsid || uuidResolver(st.dev) !== root.fsid) return false;
   try {
     return realpathSync(root.path) === root.path;
   } catch {

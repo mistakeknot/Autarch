@@ -408,6 +408,7 @@ export class Delegation {
       project_root: d.project_root,
       root_dev: d.root_dev,
       root_ino: d.root_ino,
+      root_fsid: d.root_fsid ?? null,
       asker: d.asker as string,
       thread: d.thread,
       owner_thread: null,

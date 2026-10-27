@@ -8,7 +8,9 @@
 // v3 is forward-only (plan 1.3.8): it raises min_reader_version to 3, and it migrates only
 // while this connection is the only one open on the file, after a written and verified
 // backup (backup.ts). Rollback is a restore from that backup, never a v2 reading a v3 file.
+import { lstatSync } from "node:fs";
 import type Database from "better-sqlite3";
+import { fsUuidOfDev } from "./ruling.js";
 import {
   acquireHold,
   backupBeforeMigrate,
@@ -20,13 +22,15 @@ import {
 export { BackupNotVerifiedError, QuiesceRequiredError } from "./backup.js";
 
 /** The schema version this code writes and the highest it can read. */
-export const CODE_VERSION = 4;
+export const CODE_VERSION = 5;
 
 export interface Migration {
   version: number;
   /** Raised only when the new form is unreadable by older code. Expand-only means: rarely. */
   minReaderVersion?: number;
   sql: string;
+  /** Runs inside the migration transaction right after `sql`. */
+  apply?: (db: Database.Database) => void;
 }
 
 export class SchemaTooNewError extends Error {
@@ -373,11 +377,44 @@ CREATE TABLE card_seen (
 );
 `;
 
+// v5 (mk-mpa66): one additive nullable column, the filesystem UUID of the project root at filing. It lets the ruling
+// writer accept a device-number change after a reboot only for the same filesystem. Rows filed before it have
+// no UUID; the backfill below fills it only where the root path still holds the pinned inode as a directory (not a
+// symlink) on a block-device filesystem that has a UUID, and writes no other column.
+const V5 = `
+ALTER TABLE decisions ADD COLUMN root_fsid TEXT;
+`;
+
+/** Backfill decisions.root_fsid; exported so a rehearsal can run it on a copy. Returns the rows it set. */
+export function backfillRootFsid(db: Database.Database): number {
+  const rows = db
+    .prepare("SELECT id, project_root, root_ino FROM decisions WHERE root_fsid IS NULL AND project_root IS NOT NULL AND root_ino IS NOT NULL")
+    .all() as { id: string; project_root: string; root_ino: string }[];
+  const set = db.prepare("UPDATE decisions SET root_fsid = ? WHERE id = ? AND root_fsid IS NULL");
+  let n = 0;
+  for (const r of rows) {
+    let st;
+    try {
+      st = lstatSync(r.project_root, { bigint: true });
+    } catch {
+      continue;
+    }
+    if (st.isSymbolicLink() || !st.isDirectory() || String(st.ino) !== r.root_ino) continue;
+    const uuid = fsUuidOfDev(String(st.dev));
+    if (uuid) {
+      set.run(uuid, r.id);
+      n++;
+    }
+  }
+  return n;
+}
+
 export const MIGRATIONS: readonly Migration[] = [
   { version: 1, sql: V1 },
   { version: 2, sql: V2 },
   { version: 3, minReaderVersion: 3, sql: V3 },
   { version: 4, sql: V4 },
+  { version: 5, sql: V5, apply: backfillRootFsid },
 ];
 
 const META = `CREATE TABLE IF NOT EXISTS schema_meta (key TEXT PRIMARY KEY, value INTEGER NOT NULL)`;
@@ -441,6 +478,7 @@ export function migrate(db: Database.Database, opts: MigrateOptions = {}): Schem
         for (const m of migrations) {
           if (m.version <= schemaVersion || m.version > codeVersion) continue;
           db.exec(m.sql);
+          m.apply?.(db);
           applied.push(m.version);
           schemaVersion = m.version;
           minReaderVersion = Math.max(minReaderVersion, m.minReaderVersion ?? 0);
