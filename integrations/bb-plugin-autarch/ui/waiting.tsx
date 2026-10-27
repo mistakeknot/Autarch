@@ -27,6 +27,15 @@ export function badgeCount(w: { count: number }, o: { blocked: boolean; unowned:
   return w.count > 0 ? String(w.count) : null;
 }
 
+/** What the host draws on the rail icon (`experimental_useBadge`): the same number as `badgeCount`, "!" as a warning, null at zero. */
+export type RailBadge = { count: number; label: string } | { text: string; tone: "warning"; label: string };
+export function railBadge(w: { count: number }, o: { blocked: boolean; unowned: boolean }): RailBadge | null {
+  const n = badgeCount(w, o);
+  if (n === null) return null;
+  if (n === "!") return { text: "!", tone: "warning", label: "Citadel needs attention" };
+  return { count: w.count, label: `${w.count} waiting on you` };
+}
+
 /** The number behind the badge: the server's decision count; an older server without it gets the live (not held) owed asks, then the waiting decide count. */
 export function railCount(decisionCount: number | null, owed: { held?: unknown }[] | undefined, decide: number | undefined): number {
   return decisionCount ?? owed?.filter((o) => !o.held).length ?? decide ?? 0;
