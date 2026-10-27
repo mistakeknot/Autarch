@@ -1,4 +1,4 @@
-import { existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, renameSync, rmSync, symlinkSync } from "node:fs";
+import { existsSync, lstatSync, mkdirSync, writeFileSync, mkdtempSync, readdirSync, readFileSync, renameSync, rmSync, symlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -6,6 +6,8 @@ import {
   estateRoot,
   parseRuling,
   pinRoot,
+  setFsUuidResolverForTest,
+  fsUuidFrom,
   renderRuling,
   rulingPath,
   RulingWriteError,
@@ -21,7 +23,10 @@ beforeEach(() => {
   root = join(base, "project");
   mkdirSync(root);
 });
-afterEach(() => rmSync(base, { recursive: true, force: true }));
+afterEach(() => {
+  setFsUuidResolverForTest(null);
+  rmSync(base, { recursive: true, force: true });
+});
 
 const ruling = (over: Partial<Ruling> = {}): Ruling => ({
   decision_id: "dec-1",
@@ -159,6 +164,68 @@ describe("safe writer", () => {
     expect(existsSync(join(base, "moved", "docs"))).toBe(false);
   });
 
+  it("accepts a dev-only change (the partition's device number moved across a reboot) when the inode is the same", () => {
+    const st = lstatSync(root, { bigint: true });
+    const pinned = { path: root, dev: String(st.dev - 1n), ino: String(st.ino), fsid: "U1" };
+    setFsUuidResolverForTest(() => "U1");
+    const p = path();
+    expect(writeRuling(pinned, p.dirs, p.file, "x").written).toBe(true);
+    expect(existsSync(join(root, ...p.dirs, p.file))).toBe(true);
+  });
+
+  it("refuses a dev-only change when the filesystem UUID is not the pinned one (a colliding-inode replacement)", () => {
+    const st = lstatSync(root, { bigint: true });
+    const pinned = { path: root, dev: String(st.dev - 1n), ino: String(st.ino), fsid: "U1" };
+    setFsUuidResolverForTest(() => "U2");
+    const p = path();
+    expect(() => writeRuling(pinned, p.dirs, p.file, "x")).toThrowError("project root changed since filing");
+    expect(existsSync(join(root, "docs"))).toBe(false);
+  });
+
+  it("refuses a pinned UUID that no longer matches even when the device and inode are unchanged (device number reused after a reboot)", () => {
+    const st = lstatSync(root, { bigint: true });
+    const pinned = { path: root, dev: String(st.dev), ino: String(st.ino), fsid: "U1" };
+    setFsUuidResolverForTest(() => "U2");
+    const p = path();
+    expect(() => writeRuling(pinned, p.dirs, p.file, "x")).toThrowError("project root changed since filing");
+    expect(existsSync(join(root, "docs"))).toBe(false);
+  });
+
+  it("refuses a dev-only change when no filesystem UUID was pinned or the filesystem has none (FUSE, overlay, tmpfs)", () => {
+    const st = lstatSync(root, { bigint: true });
+    const p = path();
+    setFsUuidResolverForTest(() => "U1");
+    expect(() => writeRuling({ path: root, dev: String(st.dev - 1n), ino: String(st.ino) }, p.dirs, p.file, "x")).toThrowError("project root changed since filing");
+    expect(() => writeRuling({ path: root, dev: String(st.dev - 1n), ino: String(st.ino), fsid: null }, p.dirs, p.file, "x")).toThrowError("project root changed since filing");
+    setFsUuidResolverForTest(() => null);
+    expect(() => writeRuling({ path: root, dev: String(st.dev - 1n), ino: String(st.ino), fsid: "U1" }, p.dirs, p.file, "x")).toThrowError("project root changed since filing");
+    expect(existsSync(join(root, "docs"))).toBe(false);
+  });
+
+  it("still refuses a replaced root when only the device number differs", () => {
+    const st = lstatSync(root, { bigint: true });
+    setFsUuidResolverForTest(() => "U1");
+    const pinned = { path: root, dev: String(st.dev - 1n), ino: String(st.ino), fsid: "U1" };
+    renameSync(root, join(base, "moved"));
+    mkdirSync(root);
+    const p = path();
+    expect(() => writeRuling(pinned, p.dirs, p.file, "x")).toThrowError("project root changed since filing");
+    expect(existsSync(join(root, "docs"))).toBe(false);
+  });
+
+  it("refuses a dev-only change when a parent of the root path is a symlink", () => {
+    const real = join(base, "real");
+    mkdirSync(join(real, "proj"), { recursive: true });
+    const via = join(base, "via");
+    symlinkSync(real, via);
+    const st = lstatSync(join(real, "proj"), { bigint: true });
+    setFsUuidResolverForTest(() => "U1");
+    const pinned = { path: join(via, "proj"), dev: String(st.dev - 1n), ino: String(st.ino), fsid: "U1" };
+    const p = path();
+    expect(() => writeRuling(pinned, p.dirs, p.file, "x")).toThrowError("project root changed since filing");
+    expect(readdirSync(join(real, "proj"))).toEqual([]);
+  });
+
   it("refuses when the root path is a symlink retargeted after filing", () => {
     const a = join(base, "a");
     const b = join(base, "b");
@@ -213,6 +280,39 @@ describe25("card rulings (finding r1-2)", () => {
       expect25(() => path25({ scope: "project", decision_id: "card:01J0000000000000000000000A", subject: "S", date: "2026-10-01" })).toThrow(expect25.objectContaining({ code: "bad-name" }));
     } finally {
       rm25(dir, { recursive: true, force: true });
+    }
+  });
+});
+
+describe("fsUuidFrom (mk-mpa66)", () => {
+  it("maps a device number to the UUID of its block-device filesystem and gives null for FUSE, overlay and unknown devices", () => {
+    const d = mkdtempSync(join(tmpdir(), "uuid-"));
+    try {
+      writeFileSync(join(d, "sda1"), "");
+      writeFileSync(join(d, "sdb1"), "");
+      mkdirSync(join(d, "by-uuid"));
+      symlinkSync(join(d, "sda1"), join(d, "by-uuid", "AAAA-1111"));
+      const mi = [
+        `22 1 259:6 / / rw - ext4 ${join(d, "sda1")} rw`,
+        `23 1 259:7 / /data rw - ext4 ${join(d, "sdb1")} rw`,
+        "24 1 0:50 / /mnt rw - fuse.sshfs user@host:/x rw",
+        "25 1 0:51 / /ov rw - overlay overlay rw",
+        "26 1 0:52 / /t rw - tmpfs tmpfs rw",
+      ].join("\n");
+      const dev = (maj: bigint, min: bigint) => ((maj & 0xfffn) << 8n) | (min & 0xffn) | ((min & ~0xffn) << 12n);
+      const yes = () => true;
+      expect(fsUuidFrom(dev(259n, 6n), mi, join(d, "by-uuid"), d + "/", yes)).toBe("AAAA-1111");
+      // a mount whose source is only labelled like a block device (a regular file here, tmpfs in life) gets no UUID
+      expect(fsUuidFrom(dev(259n, 6n), mi, join(d, "by-uuid"), d + "/")).toBeNull();
+      expect(fsUuidFrom(dev(259n, 6n), mi, join(d, "by-uuid"), d + "/", () => false)).toBeNull();
+      const labelled = `30 1 0:60 / /x rw - tmpfs ${join(d, "sda1")} rw`;
+      expect(fsUuidFrom(dev(0n, 60n), labelled, join(d, "by-uuid"), d + "/")).toBeNull();
+      expect(fsUuidFrom(dev(259n, 7n), mi, join(d, "by-uuid"), d + "/", yes)).toBeNull();
+      expect(fsUuidFrom(dev(0n, 50n), mi, join(d, "by-uuid"), d + "/", yes)).toBeNull();
+      expect(fsUuidFrom(dev(0n, 51n), mi, join(d, "by-uuid"), d + "/", yes)).toBeNull();
+      expect(fsUuidFrom(dev(9n, 9n), mi, join(d, "by-uuid"), d + "/", yes)).toBeNull();
+    } finally {
+      rmSync(d, { recursive: true, force: true });
     }
   });
 });

@@ -14,7 +14,7 @@ export type Hold = { reason: string; by: string; at: string; n?: string };
 export type Later = { at: string; by: string };
 import { identity, normalizedJson, parseAsk, revision, semanticKey, type Ask, type Question } from "./model.js";
 import { HOME_UNLABELS_ON_PICK, pickWrites } from "./cardwrites.js";
-import { estateRoot, pinRoot, renderRuling, rulingPath, writeRuling, type PinnedRoot, type Ruling } from "./ruling.js";
+import { estateRoot, fsUuidOfDev, pinRoot, renderRuling, rulingPath, writeRuling, type PinnedRoot, type Ruling } from "./ruling.js";
 import { appendRuling } from "./ledger.js";
 import type { DecisionInput, ObligationInput, ObligationRow, PickInput, PickRow, Store } from "./store.js";
 
@@ -66,6 +66,7 @@ type Row = Record<string, unknown> & {
   revision: string;
   root_dev: string | null;
   root_ino: string | null;
+  root_fsid: string | null;
   project_root: string | null;
   supersedes: string | null;
   owner_thread: string | null;
@@ -283,7 +284,7 @@ export class Service {
         const p = projects.find((x) => x.name === ask.project);
         if (!p) return bad(`unknown project ${JSON.stringify(ask.project)}`);
         if (p.root !== ask.project_root) return bad("project_root does not match the root serve resolves for this project");
-        root = { path: p.root, dev: String(p.dev), ino: String(p.ino) };
+        root = { path: p.root, dev: String(p.dev), ino: String(p.ino), fsid: fsUuidOfDev(String(p.dev)) };
       }
     } catch (e) {
       return bad(message(e));
@@ -302,6 +303,7 @@ export class Service {
       project_root: root.path,
       root_dev: root.dev,
       root_ino: root.ino,
+      root_fsid: root.fsid ?? null,
       asker: ask.asker,
       thread: ask.thread ?? "",
       owner_thread: this.machineOwner(ask),
@@ -685,7 +687,7 @@ export class Service {
         });
       }
       const target = rulingPath({ scope: estate ? "estate" : "project", decision_id: d.id, subject: ruling.subject, date: pick.picked_at.slice(0, 10) });
-      writeRuling({ path: d.project_root ?? "", dev: d.root_dev ?? "", ino: d.root_ino ?? "" }, target.dirs, target.file, renderRuling(ruling));
+      writeRuling({ path: d.project_root ?? "", dev: d.root_dev ?? "", ino: d.root_ino ?? "", fsid: d.root_fsid ?? null }, target.dirs, target.file, renderRuling(ruling));
       this.store.transition(ob.id, "pending", "done", ob.attempt);
     } catch (e) {
       const delay = Math.min(30_000 * 2 ** Math.min(ob.attempt, 20), 3_600_000);
@@ -1205,7 +1207,7 @@ export class Service {
     return `project mismatch: card in ${b.home_project}, ask targets ${project}`;
   }
 
-  private genInput(task: Task, card: Card, thread: string, fp: string, n: number, supersedes: string | null, root: { project_root: string; root_dev: string; root_ino: string }): DecisionInput {
+  private genInput(task: Task, card: Card, thread: string, fp: string, n: number, supersedes: string | null, root: { project_root: string; root_dev: string; root_ino: string; root_fsid: string | null }): DecisionInput {
     const requestId = `card:${task.id}:g${n}`;
     const ask = toV1({ pull: card.pull, ask: { ...card.ask, request_id: requestId, ...(supersedes ? { supersedes } : {}) } }, thread);
     return {
@@ -1221,6 +1223,7 @@ export class Service {
       project_root: root.project_root,
       root_dev: root.root_dev,
       root_ino: root.root_ino,
+      root_fsid: root.root_fsid,
       asker: ask.asker,
       thread: ask.thread ?? "",
       owner_thread: null,
@@ -1411,7 +1414,7 @@ export class Service {
   private replaceGeneration(task: Task, ev: { card: Card; thread: string; fp: string }, latest: Row): void {
     this.store.atomically(() => {
       const n = Number(latest.generation) + 1;
-      const input = this.genInput(task, ev.card, ev.thread, ev.fp, n, latest.id, { project_root: String(latest.project_root), root_dev: String(latest.root_dev), root_ino: String(latest.root_ino) });
+      const input = this.genInput(task, ev.card, ev.thread, ev.fp, n, latest.id, { project_root: String(latest.project_root), root_dev: String(latest.root_dev), root_ino: String(latest.root_ino), root_fsid: latest.root_fsid == null ? null : String(latest.root_fsid) });
       const res = this.store.insertReplacement(input, "replace");
       if (!res.ok) {
         this.invalidate(latest, `replacement refused: ${"reason" in res ? res.reason : "request id in use"}`);
@@ -1427,7 +1430,7 @@ export class Service {
   private reopenGeneration(task: Task, ev: { card: Card; thread: string; fp: string }, latest: Row): void {
     this.store.atomically(() => {
       const n = Number(latest.generation) + 1;
-      const input = this.genInput(task, ev.card, ev.thread, ev.fp, n, null, { project_root: String(latest.project_root), root_dev: String(latest.root_dev), root_ino: String(latest.root_ino) });
+      const input = this.genInput(task, ev.card, ev.thread, ev.fp, n, null, { project_root: String(latest.project_root), root_dev: String(latest.root_dev), root_ino: String(latest.root_ino), root_fsid: latest.root_fsid == null ? null : String(latest.root_fsid) });
       const res = this.store.insertDecision(input);
       if (!res.inserted) throw new Error(`card generation ${input.id} request id is in use`);
       this.snapshotBlocks(input.id, ev.card);
@@ -1504,7 +1507,7 @@ export class Service {
     let input: DecisionInput;
     try {
       fp = cardFingerprint({ title: task.title, card, thread, tasksProject: task.projectId });
-      input = this.genInput(task, card, thread, fp, 1, null, { project_root: p.root, root_dev: String(p.dev), root_ino: String(p.ino) });
+      input = this.genInput(task, card, thread, fp, 1, null, { project_root: p.root, root_dev: String(p.dev), root_ino: String(p.ino), root_fsid: fsUuidOfDev(String(p.dev)) });
     } catch (e) {
       return this.setDisplay(task.id, message(e));
     }

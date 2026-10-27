@@ -20,7 +20,7 @@ import {
 export { BackupNotVerifiedError, QuiesceRequiredError } from "./backup.js";
 
 /** The schema version this code writes and the highest it can read. */
-export const CODE_VERSION = 4;
+export const CODE_VERSION = 5;
 
 export interface Migration {
   version: number;
@@ -373,11 +373,20 @@ CREATE TABLE card_seen (
 );
 `;
 
+// v5 (mk-mpa66): one additive nullable column, the filesystem UUID of the project root at filing. It lets the ruling
+// writer accept a device-number change after a reboot only for the same filesystem. Rows filed before it have
+// no UUID and stay null: nothing independent shows which filesystem a legacy root was filed on, so they get no
+// relaxation and keep the strict device+inode check.
+const V5 = `
+ALTER TABLE decisions ADD COLUMN root_fsid TEXT;
+`;
+
 export const MIGRATIONS: readonly Migration[] = [
   { version: 1, sql: V1 },
   { version: 2, sql: V2 },
   { version: 3, minReaderVersion: 3, sql: V3 },
   { version: 4, sql: V4 },
+  { version: 5, sql: V5 },
 ];
 
 const META = `CREATE TABLE IF NOT EXISTS schema_meta (key TEXT PRIMARY KEY, value INTEGER NOT NULL)`;

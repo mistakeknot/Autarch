@@ -736,7 +736,7 @@ describe("upgrade", () => {
   });
   it("a real migrated log line is a success (exit 0), also when it follows an older refusal", async () => {
     const ok = realLog("migrated");
-    expect(ok.join("\n")).toMatch(/autarch: schema 2 → 4/);
+    expect(ok.join("\n")).toMatch(/autarch: schema 2 → 5/);
     const { i, r } = await upgradeWithLog(["autarch: [home-refused:quiesce-required] earlier attempt", ...ok].join("\n") + "\n");
     expect(r.code, r.out).toBe(0);
     expect(verbs(i).filter((v) => v === "plugin disable").length).toBe(1);
