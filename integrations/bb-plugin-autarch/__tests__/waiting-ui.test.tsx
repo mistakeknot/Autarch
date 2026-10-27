@@ -6,7 +6,7 @@ import { describe, expect, it, vi } from "vitest";
 vi.mock("@get-bb/plugin-sdk/app", () => ({ ThreadChat: () => null }));
 
 import type { Waiting } from "../waiting.js";
-import { badgeCount, waitingSummary } from "../ui/waiting.js";
+import { badgeCount, railBadge, waitingSummary } from "../ui/waiting.js";
 import { QueueTabs } from "../ui/tabs.js";
 import { homeTabs, HomeTabs } from "../ui/tabs.js";
 
@@ -62,6 +62,12 @@ describe("every surface shows the same number", () => {
     expect(badgeCount({ count: 4 }, { blocked: true, unowned: false })).toBe("!");
     expect(badgeCount({ count: 4 }, { blocked: false, unowned: true })).toBe("!");
     expect(badgeCount({ count: 0 }, { blocked: false, unowned: false })).toBeNull();
+  });
+  it("the rail badge (experimental_useBadge) carries the same number, '!' as a warning, null at zero", () => {
+    expect(railBadge({ count: 4 }, { blocked: false, unowned: false })).toEqual({ count: 4, label: "4 waiting on you" });
+    expect(railBadge({ count: 4 }, { blocked: true, unowned: false })).toEqual({ text: "!", tone: "warning", label: "Citadel needs attention" });
+    expect(railBadge({ count: 0 }, { blocked: false, unowned: true })).toEqual({ text: "!", tone: "warning", label: "Citadel needs attention" });
+    expect(railBadge({ count: 0 }, { blocked: false, unowned: false })).toBeNull();
   });
   it("the Queue tab carries the total", () => {
     const html = renderToStaticMarkup(<HomeTabs waiting={W.total} onOpen={noop} onTodos={noop} />);

@@ -32,7 +32,7 @@ import { CatchupPanel, markedRows, markPlan, markResultText, normalizeCatchup, r
 import { NoticeBanner } from "./ui/notices.js";
 import { singleFlight, type Flight } from "./ui/singleflight.js";
 import { buildMoveHandlers, rpcOutcome } from "./movehandlers.js";
-import { badgeCount, railCount } from "./ui/waiting.js";
+import { railBadge, railCount } from "./ui/waiting.js";
 import type { Waiting } from "./waiting.js";
 import type { CatchupEntry } from "./ui/catchup.js";
 import { MapPlaceholder } from "./ui/map-placeholder.js";
@@ -751,16 +751,14 @@ function HomePage({ subPath }: { subPath?: string }) {
   );
 }
 
-/** Sidebar badge: the count of decision cards waiting on mk, or "!" when serve is not ready or a machine blocker has no owner. */
-function HomeBadge() {
+/** Rail badge (`experimental_useBadge`, which replaced the retired `experimental_sidebarAccessory`): the count of decision cards waiting on mk, "!" when serve is not ready or a machine blocker has no owner, nothing at zero. */
+function useHomeBadge() {
   const { asks, waiting, health, decisionCount } = useHomeData();
   const blocked = health !== null && !health.ready;
   const unowned = asks?.asks.some((a) => a.owner === null) ?? false;
   // An older server has no `decisionCount`: fall back to the live (not held) owed asks rather than a different number.
   const count = railCount(decisionCount, asks?.owed, waiting?.decide);
-  const n = badgeCount({ count }, { blocked, unowned });
-  if (n === "!") return <span aria-label="needs attention">!</span>;
-  return n ? <span>{n}</span> : null;
+  return railBadge({ count }, { blocked, unowned });
 }
 
 // The default export must be definePluginApp(...); BB interprets it after
@@ -775,7 +773,7 @@ export default definePluginApp((app) => {
     icon: "Target",
     path: "home",
     component: HomePage,
-    experimental_sidebarAccessory: HomeBadge,
+    experimental_useBadge: useHomeBadge,
   });
   app.slots.threadPanelAction({
     id: "home-blocks",
