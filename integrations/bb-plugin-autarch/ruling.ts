@@ -29,6 +29,7 @@ import {
   openSync,
   readFileSync,
   readlinkSync,
+  realpathSync,
   renameSync,
   unlinkSync,
   writeSync,
@@ -229,6 +230,22 @@ export function pinRoot(path: string): PinnedRoot {
   return { path, dev: String(st.dev), ino: String(st.ino) };
 }
 
+/**
+ * Does `st` (taken from `root.path`) still identify the pinned root? The inode must match. The device number is
+ * not stable: it is the kernel's minor number for the partition and can change across a reboot while the
+ * directory is the same (one host went 259:5 -> 259:6, st_dev 66309 -> 66310). So a dev-only change is accepted when
+ * the path still resolves to itself (no symlink in any component); a replaced directory has a new inode and is refused.
+ */
+function sameRoot(st: { dev: bigint; ino: bigint }, root: PinnedRoot): boolean {
+  if (String(st.ino) !== root.ino) return false;
+  if (String(st.dev) === root.dev) return true;
+  try {
+    return realpathSync(root.path) === root.path;
+  } catch {
+    return false;
+  }
+}
+
 function checkRoot(root: PinnedRoot, when: string): void {
   let st;
   try {
@@ -236,7 +253,7 @@ function checkRoot(root: PinnedRoot, when: string): void {
   } catch {
     throw new RulingWriteError("root-changed", `project root changed ${when}`);
   }
-  if (st.isSymbolicLink() || !st.isDirectory() || String(st.dev) !== root.dev || String(st.ino) !== root.ino) {
+  if (st.isSymbolicLink() || !st.isDirectory() || !sameRoot(st, root)) {
     throw new RulingWriteError("root-changed", `project root changed ${when}`);
   }
 }
@@ -277,7 +294,7 @@ function assertHeld(held: Held[], when: string): void {
 
 function sameIdentity(fd: number, root: PinnedRoot): boolean {
   const st = fstatSync(fd, { bigint: true });
-  return st.isDirectory() && String(st.dev) === root.dev && String(st.ino) === root.ino;
+  return st.isDirectory() && sameRoot(st, root);
 }
 
 function openRoot(root: PinnedRoot, when: string): number {

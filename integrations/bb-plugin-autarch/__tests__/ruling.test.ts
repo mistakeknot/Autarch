@@ -159,6 +159,36 @@ describe("safe writer", () => {
     expect(existsSync(join(base, "moved", "docs"))).toBe(false);
   });
 
+  it("accepts a dev-only change (the partition's device number moved across a reboot) when the inode is the same", () => {
+    const st = lstatSync(root, { bigint: true });
+    const pinned = { path: root, dev: String(st.dev - 1n), ino: String(st.ino) };
+    const p = path();
+    expect(writeRuling(pinned, p.dirs, p.file, "x").written).toBe(true);
+    expect(existsSync(join(root, ...p.dirs, p.file))).toBe(true);
+  });
+
+  it("still refuses a replaced root when only the device number differs", () => {
+    const st = lstatSync(root, { bigint: true });
+    const pinned = { path: root, dev: String(st.dev - 1n), ino: String(st.ino) };
+    renameSync(root, join(base, "moved"));
+    mkdirSync(root);
+    const p = path();
+    expect(() => writeRuling(pinned, p.dirs, p.file, "x")).toThrowError("project root changed since filing");
+    expect(existsSync(join(root, "docs"))).toBe(false);
+  });
+
+  it("refuses a dev-only change when a parent of the root path is a symlink", () => {
+    const real = join(base, "real");
+    mkdirSync(join(real, "proj"), { recursive: true });
+    const via = join(base, "via");
+    symlinkSync(real, via);
+    const st = lstatSync(join(real, "proj"), { bigint: true });
+    const pinned = { path: join(via, "proj"), dev: String(st.dev - 1n), ino: String(st.ino) };
+    const p = path();
+    expect(() => writeRuling(pinned, p.dirs, p.file, "x")).toThrowError("project root changed since filing");
+    expect(readdirSync(join(real, "proj"))).toEqual([]);
+  });
+
   it("refuses when the root path is a symlink retargeted after filing", () => {
     const a = join(base, "a");
     const b = join(base, "b");
