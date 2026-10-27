@@ -60,6 +60,21 @@ describe("card write-back", () => {
     expect(r.fake.tasks.find((x) => x.id === t.id)!.status).toBe("done");
   });
 
+  it("an unlabel queued by a move close leaves the task open; a refused close retries", async () => {
+    const r = rig();
+    const { t, g1 } = await opened(r);
+    r.mkPick(g1.id);
+    r.db.prepare("UPDATE card_writes SET payload = ? WHERE kind = 'unlabel'").run(JSON.stringify({ move_closed_by: "home" }));
+    await r.poll();
+    expect(r.fake.tasks.find((x) => x.id === t.id)!.status).not.toBe("done");
+    const r2 = rig();
+    const o2 = await opened(r2);
+    r2.fake.refuseUpdates = true;
+    r2.mkPick(o2.g1.id);
+    await r2.poll();
+    expect(writes(r2).find((w: any) => w.kind === "unlabel")).toMatchObject({ state: "pending", attempt: 1 });
+  });
+
   it("the comment renders pick.by: a delegated ruling says ruled by: vizier", async () => {
     const r = rig();
     r.enableDelegation();

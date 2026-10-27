@@ -186,8 +186,12 @@ export class CardWriter {
       }
       this.db.prepare("UPDATE cards SET home_unlabelled_at = COALESCE(home_unlabelled_at, ?) WHERE task_id = ?").run(this.now(), r.task_id);
       // A ruled card's task is done, unless a thread is working on it: that thread closes it at its DONE turn.
-      // A failed read or close throws, so the write backs off and retries; a task already closed is left alone.
-      if (st.state !== "deleted" && st.task.status !== "done" && st.task.status !== "canceled" && (await this.tasks.activeThreadCount(r.task_id)) === 0) await this.tasks.closeTask(r.task_id);
+      // Only the unlabel a pick queues counts; one a move retirement or evidence close queues (move_closed_by) is
+      // no completion evidence and leaves the task open. A failed read or a refused close throws, so the write
+      // backs off and retries; a task already closed is left alone. The tasks plugin has no conditional close, so a
+      // thread attached between the read and the close is not protected (a narrow window, accepted).
+      const byPick = !(JSON.parse(r.payload ?? "{}") as { move_closed_by?: unknown }).move_closed_by;
+      if (byPick && st.state !== "deleted" && st.task.status !== "done" && st.task.status !== "canceled" && (await this.tasks.activeThreadCount(r.task_id)) === 0) await this.tasks.setStatus(r.task_id, "done");
       this.settle(r.id, "done", null);
       return;
     }
