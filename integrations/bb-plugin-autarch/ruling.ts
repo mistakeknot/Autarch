@@ -296,6 +296,9 @@ export function pinRoot(path: string): PinnedRoot {
  */
 function sameRoot(st: { dev: bigint; ino: bigint }, root: PinnedRoot): boolean {
   if (String(st.ino) !== root.ino) return false;
+  // A pinned UUID is checked even when the device matches: after a reboot another filesystem can hold the old
+  // device number.
+  if (root.fsid && uuidResolver(st.dev) !== root.fsid) return false;
   if (String(st.dev) === root.dev) return true;
   // Only a pinned filesystem UUID that the path's filesystem still has makes a dev-only change a renumbering. With
   // no pinned UUID, or a filesystem without one (FUSE, overlay, tmpfs), another filesystem mounted at the path

@@ -182,6 +182,15 @@ describe("safe writer", () => {
     expect(existsSync(join(root, "docs"))).toBe(false);
   });
 
+  it("refuses a pinned UUID that no longer matches even when the device and inode are unchanged (device number reused after a reboot)", () => {
+    const st = lstatSync(root, { bigint: true });
+    const pinned = { path: root, dev: String(st.dev), ino: String(st.ino), fsid: "U1" };
+    setFsUuidResolverForTest(() => "U2");
+    const p = path();
+    expect(() => writeRuling(pinned, p.dirs, p.file, "x")).toThrowError("project root changed since filing");
+    expect(existsSync(join(root, "docs"))).toBe(false);
+  });
+
   it("refuses a dev-only change when no filesystem UUID was pinned or the filesystem has none (FUSE, overlay, tmpfs)", () => {
     const st = lstatSync(root, { bigint: true });
     const p = path();
