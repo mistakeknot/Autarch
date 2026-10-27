@@ -175,6 +175,15 @@ export class TasksClient {
   }
 
   /**
+   * How many threads are starting or working on a task (the tasks CLI's agentsWorking). A failed read throws,
+   * so a caller never mistakes "could not tell" for "nobody".
+   */
+  async activeThreadCount(taskId: string, signal?: AbortSignal): Promise<number> {
+    const r = await this.call("listTaskThreads", { taskId }, z.object({ taskThreads: z.array(z.object({ liveStatus: z.string() }).passthrough()) }), signal);
+    return r.taskThreads.filter((t) => t.liveStatus === "starting" || t.liveStatus === "working").length;
+  }
+
+  /**
    * deleted (getTask null), unlabelled, or labelled. "Unlabelled" is decided against a fresh label
    * read, so a renamed or recreated needs-mk label is not mistaken for a removed one. Any failed
    * read throws rather than answering deleted or unlabelled.
