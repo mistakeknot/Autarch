@@ -733,6 +733,7 @@ function HomePage({ subPath }: { subPath?: string }) {
             }}
             onDesktop={() => setFullView(true)}
             onIdea={() => setIdeaOpen((o) => !o)}
+            updateNode={updateLabel(update) ? <UpdateMenu info={update} onRequest={requestUpdate} error={updateError} /> : undefined}
             ideaNode={ideaOpen ? <><IdeaDigest api={ideaApi} refreshKey={ideaTick} /><IdeaDesk api={ideaApi} refreshKey={ideaTick} /></> : null}
           />
         </div>
