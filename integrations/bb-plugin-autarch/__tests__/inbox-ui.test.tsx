@@ -112,4 +112,12 @@ describe("MobileInbox", () => {
   it("a stale open key falls back to the list", () => {
     expect(view(asks([ask()]), null, { open: "ask:gone" })).not.toContain("data-inbox-detail");
   });
+  it("shows the update control on the list, and not on a card's detail (bead mk-nbt6c)", () => {
+    const withUpdate = (initial?: { open?: string }) =>
+      renderToStaticMarkup(<MobileInbox asks={asks([ask()])} moves={null} waiting={1} onPick={noop as never} onOpen={noop} onNote={noop} onLater={noop} handlers={{ onCheck: noop, onClaim: noop, onSkip: noop, onNote: noop } as never} sinceNode={null} sinceCount={0} onDesktop={noop} updateNode={<span>Update available</span>} now={NOW} {...(initial ? { initial } : {})} />);
+    expect(withUpdate()).toContain("data-inbox-update");
+    expect(withUpdate()).toContain("Update available");
+    expect(withUpdate({ open: "ask:d1" })).not.toContain("data-inbox-update");
+    expect(view(asks([ask()]), null)).not.toContain("data-inbox-update");
+  });
 });

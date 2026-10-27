@@ -132,7 +132,7 @@ function DetailBar({ r, onPick, onLater, handlers, onDone }: { r: InboxRow; onPi
   );
 }
 
-export function MobileInbox({ asks, moves, waiting, onPick, onOpen, onNote, onLater, handlers, sinceNode, sinceCount, onDesktop, onIdea, ideaNode, now = Date.now(), initial }: {
+export function MobileInbox({ asks, moves, waiting, onPick, onOpen, onNote, onLater, handlers, sinceNode, sinceCount, onDesktop, onIdea, ideaNode, updateNode, now = Date.now(), initial }: {
   asks: AsksData;
   moves: MoveViewGroups | null;
   waiting: number;
@@ -148,6 +148,8 @@ export function MobileInbox({ asks, moves, waiting, onPick, onOpen, onNote, onLa
   /** The Idea box (bead mk-2zojo): a header button and, when open, its body in place of the list. */
   onIdea?: () => void;
   ideaNode?: ReactNode;
+  /** The Home update control (bead mk-nbt6c): shown under the header on the list, never on a card's detail. */
+  updateNode?: ReactNode;
   now?: number;
   /** Where to start (tests render the detail view this way). */
   initial?: { tab?: InboxTab; open?: string };
@@ -176,6 +178,7 @@ export function MobileInbox({ asks, moves, waiting, onPick, onOpen, onNote, onLa
           </span>
         )}
       </header>
+      {updateNode && !current ? <div className="border-b border-border px-4 py-2" data-inbox-update>{updateNode}</div> : null}
       <div className="min-h-0 flex-1 overflow-y-auto">
         {ideaNode && !current ? (
           ideaNode
