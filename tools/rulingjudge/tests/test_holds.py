@@ -33,9 +33,16 @@ def test_approval_option():
     assert "approval-option" in holds.evaluate(ask(options=opts)).reasons
 
 
-def test_explicit_irreversible_holds_but_absent_does_not():
-    assert "irreversible-option" in holds.evaluate(ask(options=(Option("a", "x", "A", reversible=False), Option("b", "x", "B")))).reasons
-    assert not holds.evaluate(ask(options=(Option("a", "x", "A", reversible=None), Option("b", "x", "B", reversible=True)))).held
+@pytest.mark.parametrize("value", [True, False, None])
+def test_reversible_never_holds_whatever_its_value(value):
+    h = holds.evaluate(ask(options=(Option("a", "x", "A", reversible=value), Option("b", "x", "B", reversible=value))))
+    assert not h.held and "irreversible-option" not in h.reasons
+
+
+def test_one_explicitly_irreversible_option_among_others_does_not_hold():
+    opts = (Option("a", "x", "A", reversible=False), Option("b", "x", "B", reversible=True), Option("c", "x", "C"))
+    h = holds.evaluate(ask(options=opts))
+    assert not h.held and h.reasons == ()
 
 
 def test_root_run_and_move():

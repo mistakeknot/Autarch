@@ -1,8 +1,9 @@
 """Deterministic holds (plan R4). They cost no tokens and never reach the model.
 
 An ask is held, not judged, when any of these is true: it is not delegable, an option
-carries an approval or is explicitly irreversible, it has a root-run or a move block, a
-gate word list matches, or the question or an option is too long to send whole.
+carries an approval, it has a root-run or a move block, a gate word list matches, or the
+question or an option is too long to send whole. The judge never holds on `reversible` and
+never treats `reversible: true` as permission: the field's absence means false or unset.
 The word lists live in this one table; each class has a test. They are provisional until
 the labelled-set audit measures their recall.
 """
@@ -93,8 +94,6 @@ def evaluate(ask: Ask) -> Holds:
         reasons.append("not-delegable")
     if any(o.approval for o in ask.options):
         reasons.append("approval-option")
-    if any(o.reversible is False for o in ask.options):
-        reasons.append("irreversible-option")
     if ask.root_run:
         reasons.append("root-run")
     if ask.move:

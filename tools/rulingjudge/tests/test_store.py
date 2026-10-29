@@ -1,5 +1,6 @@
 import json
 import os
+import pwd
 import stat
 import threading
 from datetime import datetime, timedelta, timezone
@@ -281,10 +282,10 @@ def test_recovered_symlink_to_an_outside_file_is_refused(tmp_path):
     assert outside.read_text() == "keep"
 
 
-def test_a_base_outside_the_permitted_root_is_refused_before_anything_is_made(tmp_path, monkeypatch):
+def test_a_base_outside_the_permitted_root_is_refused_before_anything_is_made(tmp_path, use_root):
     root = tmp_path / "root"
     root.mkdir()
-    monkeypatch.setenv("RULINGJUDGE_STATE_ROOT", str(root))
+    use_root(root)
     elsewhere = tmp_path / "elsewhere" / "judge"
     with pytest.raises(st.UnsafePath):
         st.Store(str(elsewhere))
@@ -293,21 +294,33 @@ def test_a_base_outside_the_permitted_root_is_refused_before_anything_is_made(tm
     st.Store(str(root))  # and so is the root itself
 
 
-def test_a_symlinked_base_is_refused_and_leaves_its_target_alone(tmp_path, monkeypatch):
+def test_a_symlinked_base_is_refused_and_leaves_its_target_alone(tmp_path, use_root):
     root = tmp_path / "root"
     root.mkdir()
     target = tmp_path / "target"
     target.mkdir(mode=0o755)
     os.symlink(target, root / "judge")
-    monkeypatch.setenv("RULINGJUDGE_STATE_ROOT", str(root))
+    use_root(root)
     with pytest.raises(st.UnsafePath):
         st.Store(str(root / "judge"))
     assert mode(str(target)) == 0o755 and os.listdir(target) == []
 
 
-def test_default_root_is_the_state_directory(monkeypatch):
-    monkeypatch.delenv("RULINGJUDGE_STATE_ROOT")
-    assert st.permitted_root() == os.path.realpath(os.path.expanduser(st.DEFAULT_DIR))
+def test_default_root_is_the_state_directory_under_the_real_home(monkeypatch):
+    monkeypatch.undo()  # drop the autouse substitute: this is the production function
+    home = pwd.getpwuid(os.getuid()).pw_dir
+    assert st.permitted_root() == os.path.realpath(os.path.join(home, ".local", "state", "autarch", "judge"))
+
+
+def test_neither_the_state_root_variable_nor_home_moves_the_production_root(tmp_path, monkeypatch):
+    monkeypatch.undo()
+    expected = st.permitted_root()
+    monkeypatch.setenv("RULINGJUDGE_STATE_ROOT", str(tmp_path))
+    monkeypatch.setenv("HOME", str(tmp_path / "fakehome"))
+    assert st.permitted_root() == expected and not expected.startswith(str(tmp_path))
+    with pytest.raises(st.UnsafePath):
+        st.Store(str(tmp_path / "judge"))  # a path under the variable's target is outside the real root
+    assert not (tmp_path / "judge").exists()
 
 
 def test_give_up_row_carries_provenance(s):

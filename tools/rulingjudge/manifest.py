@@ -207,7 +207,10 @@ def _cohort_conflict(store: Store, m: Manifest, config_hash: str) -> str | None:
 
 
 def _record_cohort(store: Store, m: Manifest, config_hash: str, frozen_at: str) -> None:
+    """Idempotent per (manifest, configuration): a retry or a reconcile never adds a second record."""
     freezes = _load_cohort(store)
+    if any(f["manifest_id"] == m.id and f["config_hash"] == config_hash for f in freezes):
+        return
     freezes.append({"manifest_id": m.id, "config_hash": config_hash, "frozen_at": frozen_at, "decisions": sorted(_test_ids(m))})
     path = store.path(COHORT_FILE)
     tmp = store.path(COHORT_FILE + ".tmp")
@@ -220,6 +223,16 @@ def _record_cohort(store: Store, m: Manifest, config_hash: str, frozen_at: str) 
     os.replace(tmp, path)
 
 
+def _reconcile_cohort(store: Store, m: Manifest, config_hash: str, frozen_at: str) -> None:
+    """Every path that finds an existing freeze goes through here. A freeze file with no cohort
+    record (an interrupted write) gets its record; one that conflicts with another freeze or an
+    evaluation is refused first, so a refused configuration is never written into the cohort."""
+    conflict = _cohort_conflict(store, m, config_hash)
+    if conflict:
+        raise FreezeError(conflict)
+    _record_cohort(store, m, config_hash, frozen_at)
+
+
 def freeze_config(store: Store, m: Manifest, config_hash: str, now: datetime | None = None) -> str:
     """Record the tuned configuration before the test split runs. A different configuration after
     test results exist is refused (a failed test is a report, not another tuning round), for this
@@ -229,6 +242,7 @@ def freeze_config(store: Store, m: Manifest, config_hash: str, now: datetime | N
         cur = json.load(open(path))
         if cur["config_hash"] != config_hash:
             raise FreezeError("manifest already frozen with a different configuration")
+        _reconcile_cohort(store, m, config_hash, cur.get("frozen_at") or iso(now or utcnow()))
         return path
     if any(r.get("manifest_id") == m.id and str(r.get("mode", "")).endswith("-test") for r in store.results()):
         raise FreezeError("test results already exist for this manifest")
@@ -236,8 +250,11 @@ def freeze_config(store: Store, m: Manifest, config_hash: str, now: datetime | N
     if conflict:
         raise FreezeError(conflict)
     stamp = iso(now or utcnow())
-    _write_new(path, json.dumps({"manifest_id": m.id, "config_hash": config_hash, "frozen_at": stamp}, sort_keys=True))
+    # The cohort record goes first: if the write is interrupted between the two, the cohort is
+    # already protected and a retry finishes the freeze file. The other order left a freeze with no
+    # cohort record, which a retry returned early on.
     _record_cohort(store, m, config_hash, stamp)
+    _write_new(path, json.dumps({"manifest_id": m.id, "config_hash": config_hash, "frozen_at": stamp}, sort_keys=True))
     return path
 
 
@@ -245,8 +262,7 @@ def require_frozen(store: Store, m: Manifest, config_hash: str) -> None:
     path = store.path(f"frozen-{m.id[:16]}.json")
     if not os.path.exists(path):
         raise FreezeError("the test split needs a frozen configuration; freeze it after tuning on dev")
-    if json.load(open(path))["config_hash"] != config_hash:
+    cur = json.load(open(path))
+    if cur["config_hash"] != config_hash:
         raise FreezeError("configuration differs from the frozen one")
-    conflict = _cohort_conflict(store, m, config_hash)
-    if conflict:
-        raise FreezeError(conflict)
+    _reconcile_cohort(store, m, config_hash, cur.get("frozen_at") or "")

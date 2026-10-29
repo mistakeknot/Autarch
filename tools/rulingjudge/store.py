@@ -10,6 +10,7 @@ from __future__ import annotations
 import fcntl
 import json
 import os
+import pwd
 import stat
 from contextlib import contextmanager
 from dataclasses import dataclass
@@ -36,14 +37,20 @@ class NotLocked(RuntimeError):
     """A write was attempted without holding the run lock."""
 
 
+def _real_home() -> str:
+    """The account's home from the user database, so neither HOME nor a command line moves it."""
+    return pwd.getpwuid(os.getuid()).pw_dir
+
+
 def default_dir() -> str:
-    return os.path.expanduser(DEFAULT_DIR)
+    return os.path.join(_real_home(), DEFAULT_DIR.removeprefix("~/"))
 
 
 def permitted_root() -> str:
-    """The only tree outputs may live under. RULINGJUDGE_STATE_ROOT narrows or moves it for tests;
-    it is not a flag, so a command line cannot widen it."""
-    return os.path.realpath(os.path.expanduser(os.environ.get("RULINGJUDGE_STATE_ROOT") or DEFAULT_DIR))
+    """The only tree outputs may live under: the state directory under the real home. Nothing the
+    process is started with (an environment variable, a flag) changes it. Tests substitute this
+    function with a fixture; there is no production switch."""
+    return os.path.realpath(default_dir())
 
 
 def _same_file(a: str, b: str) -> bool:

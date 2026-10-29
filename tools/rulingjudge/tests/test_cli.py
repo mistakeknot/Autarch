@@ -49,7 +49,6 @@ def specs(n=10):
 def env(tmp_path, monkeypatch):
     monkeypatch.setenv("CLAVAIN_SELECTED_ROOT", ROOT)
     monkeypatch.delenv("RULINGJUDGE_DB", raising=False)
-    monkeypatch.setenv("RULINGJUDGE_STATE_ROOT", str(tmp_path))
     db = make_db(str(tmp_path / "data.db"), specs())
     led = ledger_file(tmp_path / "rulings.jsonl")
     state = str(tmp_path / "state")
@@ -436,6 +435,15 @@ def test_a_state_dir_outside_the_permitted_root_is_refused_and_created_nowhere(e
     out = io.StringIO()
     code = cli.main(["--db", env["db"], "--ledger", env["ledger"], "--state-dir", elsewhere, "report"], out=out)
     assert code == 2 and not os.path.exists(elsewhere)
+
+
+def test_the_state_root_variable_does_not_move_the_permitted_root(env, monkeypatch):
+    monkeypatch.undo()  # the production root, not the fixture's
+    monkeypatch.setenv("CLAVAIN_SELECTED_ROOT", ROOT)
+    monkeypatch.setenv("RULINGJUDGE_STATE_ROOT", str(env["tmp"]))
+    out = io.StringIO()
+    code = cli.main(["--db", env["db"], "--ledger", env["ledger"], "--state-dir", env["state"], "report"], out=out)
+    assert code == 2 and not os.path.exists(env["state"])
 
 
 def test_a_state_dir_symlinked_out_of_the_permitted_root_is_refused(env):

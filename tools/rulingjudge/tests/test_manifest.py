@@ -288,6 +288,74 @@ def test_a_new_manifest_cannot_reuse_evaluated_test_decisions_with_a_new_config(
     mf.freeze_config(s, m2, "cfgA")
 
 
+def interrupt_cohort_once(monkeypatch):
+    real = mf._record_cohort
+    calls = {"n": 0}
+
+    def flaky(*a, **kw):
+        calls["n"] += 1
+        if calls["n"] == 1:
+            raise OSError("interrupted")
+        return real(*a, **kw)
+
+    monkeypatch.setattr(mf, "_record_cohort", flaky)
+
+
+def test_an_interrupted_freeze_still_protects_the_cohort_after_a_retry(db, tmp_path, monkeypatch):
+    m1, m2 = two_manifests(db)
+    s = st.Store(str(tmp_path / "judge"))
+    interrupt_cohort_once(monkeypatch)
+    with pytest.raises(OSError):
+        mf.freeze_config(s, m1, "cfgA")
+    mf.freeze_config(s, m1, "cfgA")  # the retry finishes the freeze
+    with pytest.raises(mf.FreezeError):
+        mf.freeze_config(s, m2, "cfgB")
+    mf.freeze_config(s, m2, "cfgA")
+
+
+def test_a_freeze_file_left_without_its_cohort_record_is_repaired_by_a_retry(db, tmp_path):
+    m1, m2 = two_manifests(db)
+    s = st.Store(str(tmp_path / "judge"))
+    with open(s.path(f"frozen-{m1.id[:16]}.json"), "w") as fh:  # the old order, interrupted before the cohort write
+        json.dump({"manifest_id": m1.id, "config_hash": "cfgA", "frozen_at": "x"}, fh)
+    assert mf._load_cohort(s) == []
+    mf.freeze_config(s, m1, "cfgA")
+    assert [f["manifest_id"] for f in mf._load_cohort(s)] == [m1.id]
+    with pytest.raises(mf.FreezeError):
+        mf.freeze_config(s, m2, "cfgB")
+
+
+def test_require_frozen_repairs_a_missing_cohort_record(db, tmp_path):
+    m1, m2 = two_manifests(db)
+    s = st.Store(str(tmp_path / "judge"))
+    with open(s.path(f"frozen-{m1.id[:16]}.json"), "w") as fh:
+        json.dump({"manifest_id": m1.id, "config_hash": "cfgA", "frozen_at": "x"}, fh)
+    mf.require_frozen(s, m1, "cfgA")
+    assert [f["manifest_id"] for f in mf._load_cohort(s)] == [m1.id]
+    with pytest.raises(mf.FreezeError):
+        mf.freeze_config(s, m2, "cfgB")
+
+
+def test_a_retry_never_duplicates_the_cohort_record(db, tmp_path):
+    m1, _ = two_manifests(db)
+    s = st.Store(str(tmp_path / "judge"))
+    for _ in range(3):
+        mf.freeze_config(s, m1, "cfgA")
+        mf.require_frozen(s, m1, "cfgA")
+    assert len(mf._load_cohort(s)) == 1
+
+
+def test_a_refused_configuration_is_not_written_into_the_cohort(db, tmp_path):
+    m1, m2 = two_manifests(db)
+    s = st.Store(str(tmp_path / "judge"))
+    mf.freeze_config(s, m1, "cfgA")
+    with open(s.path(f"frozen-{m2.id[:16]}.json"), "w") as fh:
+        json.dump({"manifest_id": m2.id, "config_hash": "cfgB", "frozen_at": "x"}, fh)
+    with pytest.raises(mf.FreezeError):
+        mf.require_frozen(s, m2, "cfgB")
+    assert [f["config_hash"] for f in mf._load_cohort(s)] == ["cfgA"]
+
+
 def test_require_frozen_rechecks_the_cohort(db, tmp_path):
     m1, m2 = two_manifests(db)
     s = st.Store(str(tmp_path / "judge"))
