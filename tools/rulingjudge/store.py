@@ -272,6 +272,16 @@ class Store:
     def has_terminal(self, key: Key) -> bool:
         return (key.decision_id, key.mode, key.config_hash) in self.terminal_keys()
 
+    def terminal_rows(self, key: Key) -> list[dict]:
+        return [r for r in self.results() if (r.get("decision_id"), r.get("mode"), r.get("config_hash")) == (key.decision_id, key.mode, key.config_hash)]
+
+    def write_reuse(self, key: Key, row: dict, now: datetime | None = None) -> None:
+        """Append a copy of an earlier terminal row, restamped for another manifest. The key already
+        has its terminal row, so write_terminal would refuse; callers check compatibility first."""
+        out = dict(row)
+        out.update(decision_id=key.decision_id, mode=key.mode, config_hash=key.config_hash, ts=iso(now or utcnow()))
+        self._append(self.results_path, out)
+
     def write_terminal(self, key: Key, row: dict, now: datetime | None = None) -> bool:
         """Append the one terminal row for this key. False (and no write) when one exists."""
         if self.has_terminal(key):

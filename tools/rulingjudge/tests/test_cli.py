@@ -368,6 +368,50 @@ def test_a_later_manifest_cannot_retune_an_already_frozen_test_cohort(env):
     assert code == 0 and "frozen" in out
 
 
+def judged_in_report(env, manifest_id):
+    ns = namespace(env, "report", "--split", "dev", "--manifest", manifest_id)
+    ctx = cli.load_ctx(ns)
+    m = cli.get_manifest(ctx, ns)
+    return rp.evaluate(m, ctx.store.results(), ctx.cfg_hash, "backtest-dev", "dev").n_judged
+
+
+def test_a_new_manifest_reuses_matching_results_and_the_report_counts_them(env):
+    code, _ = run(env, "backtest", "--split", "dev", factory=fake_factory())
+    assert code == 0
+    first = saved_manifest_id(env)
+    before = judged_in_report(env, first)
+    assert before > 0
+    env["db"] = make_db(str(env["tmp"] / "more.db"), specs(11))  # a later pick: another manifest, same earlier asks
+    f = fake_factory()
+    code, out = run(env, "backtest", "--split", "dev", factory=f)
+    assert code == 0 and f"reused_from_other_manifest={before}" in out
+    ns = namespace(env, "report", "--split", "dev")
+    ctx = cli.load_ctx(ns)
+    m2 = cli.get_manifest(ctx, ns)
+    assert m2.id != first
+    mine = [r for r in ctx.store.results() if r.get("manifest_id") == m2.id]
+    reused = [r for r in mine if r.get("reused_from") == first]
+    assert len(reused) == before
+    judged = rp.evaluate(m2, ctx.store.results(), ctx.cfg_hash, "backtest-dev", "dev").n_judged
+    assert judged == len(mine) >= before  # nothing judged earlier is lost from the new report
+    assert len(f.calls) == judged - before  # and only the decisions the old manifest never held were sent
+
+
+def test_a_result_with_other_frozen_inputs_is_reported_not_silently_dropped(env):
+    run(env, "backtest", "--split", "dev", factory=fake_factory())
+    path = os.path.join(env["state"], "results.jsonl")
+    rows = [json.loads(line) for line in open(path)]
+    tampered = rows[0]["decision_id"]
+    rows[0]["body_sha256"] = "0" * 64  # an input the new run would not reproduce
+    with open(path, "w") as fh:
+        fh.write("".join(json.dumps(r, sort_keys=True) + "\n" for r in rows))
+    env["db"] = make_db(str(env["tmp"] / "more.db"), specs(11))
+    f = fake_factory()
+    code, out = run(env, "backtest", "--split", "dev", factory=f)
+    assert code == 7 and "incompatible_other_manifest=1" in out
+    assert [r for r in results(env) if r["decision_id"] == tampered] == [rows[0]]  # no copy, no second judgment
+
+
 class Clock:
     def __init__(self, now):
         self.now = now

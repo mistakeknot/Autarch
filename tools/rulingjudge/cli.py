@@ -138,7 +138,8 @@ def provenance(ask: Ask | None, ret: Retrieval | None, item: Item, manifest_id: 
     the retrieval facts. A hold written before or without a model call carries them too."""
     row: dict = {"manifest_id": manifest_id, "split": item.split}
     if ask is not None:
-        row.update(revision=ask.revision, recommendation=ask.recommendation)
+        row.update(revision=ask.revision, recommendation=ask.recommendation, body_sha256=ask.body_sha256,
+                   delegable=bool(ask.delegable), filed_at=iso(item.cutoff))
     if ret is not None:
         row.update(corpus_hash=ret.corpus_hash, cand_hash=ret.cand_hash,
                    retrieval={"available": ret.available, "leak_excluded": ret.leak_excluded, "truncated": ret.truncated,
@@ -201,7 +202,7 @@ def run_live(ctx: Ctx, items: list[Item], mode: str, manifest_id: str, factory: 
             key = Key(item.decision_id, mode, ctx.cfg_hash)
             due = store.due(key, clock())
             if due.action == "terminal":
-                tally["already_done"] += 1
+                tally[settle_terminal(ctx, store, key, item, manifest_id, clock) if mode.startswith("backtest-") else "already_done"] += 1
                 continue
             if due.action == "wait":
                 tally["waiting_backoff"] += 1
@@ -238,6 +239,30 @@ def run_live(ctx: Ctx, items: list[Item], mode: str, manifest_id: str, factory: 
             store.write_terminal(key, result_row(out, ask, ret, item, manifest_id), clock())
             tally[out.verdict or "none"] += 1
     return tally
+
+
+FROZEN_INPUTS = ("revision", "body_sha256", "delegable", "filed_at", "corpus_hash", "cand_hash")
+
+
+def settle_terminal(ctx: Ctx, store: Store, key: Key, item: Item, manifest_id: str, clock: Callable[[], datetime]) -> str:
+    """A decision already has its terminal row for this configuration. Under the same manifest that
+    ends it. Under another manifest (a later label cutoff) the report only counts rows of its own
+    manifest, so the old row is reused only when every frozen input matches what this run would send
+    (revision, body hash, delegability, filing time, corpus and candidate hashes); then it is copied
+    under the new manifest and counted. Otherwise it is reported as incompatible, never dropped."""
+    rows = store.terminal_rows(key)
+    if any(r.get("manifest_id") == manifest_id for r in rows):
+        return "already_done"
+    ask = ctx.asks.get(item.decision_id)
+    ret = retrieve(ctx, ask, item) if ask is not None else None
+    want = provenance(ask, ret, item, manifest_id)
+    for r in rows:
+        if {k: r.get(k) for k in FROZEN_INPUTS} == {k: want.get(k) for k in FROZEN_INPUTS}:
+            reused = {**r, "manifest_id": manifest_id, "split": item.split, "reused_from": r.get("manifest_id"),
+                      "input_tokens": 0, "output_tokens": 0, "latency_ms": None}
+            store.write_reuse(key, reused, clock())
+            return "reused_from_other_manifest"
+    return "incompatible_other_manifest"
 
 
 def check_replay(ctx: Ctx, m: mf.Manifest, items: list[Item]) -> None:
@@ -314,6 +339,9 @@ def cmd_backtest(a: argparse.Namespace, out: TextIO, factory: Callable) -> int:
         return 0
     tally = run_live(ctx, items, f"backtest-{a.split}", m.id, factory, a.keep_requests)
     emit(out, ["run: " + ", ".join(f"{k}={v}" for k, v in sorted(tally.items()))])
+    if tally.get("incompatible_other_manifest"):
+        raise CliError(f"{tally['incompatible_other_manifest']} decision(s) already have a result under another manifest whose "
+                       "frozen inputs differ from this run's; they are not counted here. Use a new configuration or the original manifest", 7)
     return 0
 
 
