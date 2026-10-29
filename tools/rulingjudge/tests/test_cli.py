@@ -13,7 +13,6 @@ from datetime import datetime, timedelta, timezone
 
 import pytest
 
-from tools.rulingjudge.ask import parse_ask
 from tools.rulingjudge import cli, judge, manifest as mf, report as rp, sel as selmod
 from tools.rulingjudge.store import iso, parse_ts
 from tools.rulingjudge.tests.test_manifest import T0, make_db
@@ -369,108 +368,33 @@ def test_a_later_manifest_cannot_retune_an_already_frozen_test_cohort(env):
     assert code == 0 and "frozen" in out
 
 
-def judged_in_report(env, manifest_id):
-    ns = namespace(env, "report", "--split", "dev", "--manifest", manifest_id)
-    ctx = cli.load_ctx(ns)
-    m = cli.get_manifest(ctx, ns)
-    return rp.evaluate(m, ctx.store.results(), ctx.cfg_hash, "backtest-dev", "dev").n_judged
-
-
-def test_a_new_manifest_reuses_matching_results_and_the_report_counts_them(env):
+def test_a_second_manifest_over_judged_decisions_is_rejected_and_not_counted(env, capsys):
     code, _ = run(env, "backtest", "--split", "dev", factory=fake_factory())
     assert code == 0
     first = saved_manifest_id(env)
-    before = judged_in_report(env, first)
-    assert before > 0
+    old = results(env)
+    judged = {r["decision_id"] for r in old}
+    assert judged
     env["db"] = make_db(str(env["tmp"] / "more.db"), specs(11))  # a later pick: another manifest, same earlier asks
-    f = fake_factory()
-    code, out = run(env, "backtest", "--split", "dev", factory=f)
-    assert code == 0 and f"reused_from_other_manifest={before}" in out
+    code, out = run(env, "backtest", "--split", "dev", factory=fake_factory())
+    assert code == 7 and f"rejected_other_manifest={len(judged)}" in out
+    err = capsys.readouterr().err
+    assert f"{len(judged)} decision(s) already have results under another manifest" in err and "new configuration" in err
+    assert [r for r in results(env) if r["decision_id"] in judged] == old  # nothing copied, nothing judged twice
     ns = namespace(env, "report", "--split", "dev")
     ctx = cli.load_ctx(ns)
     m2 = cli.get_manifest(ctx, ns)
     assert m2.id != first
-    mine = [r for r in ctx.store.results() if r.get("manifest_id") == m2.id]
-    reused = [r for r in mine if r.get("reused_from") == first]
-    assert len(reused) == before
-    judged = rp.evaluate(m2, ctx.store.results(), ctx.cfg_hash, "backtest-dev", "dev").n_judged
-    assert judged == len(mine) >= before  # nothing judged earlier is lost from the new report
-    assert len(f.calls) == judged - before  # and only the decisions the old manifest never held were sent
+    mine = {r["decision_id"] for r in ctx.store.results() if r.get("manifest_id") == m2.id}
+    assert not (mine & judged)  # the new manifest's report does not count them
 
 
-def test_a_result_with_other_frozen_inputs_is_reported_not_silently_dropped(env):
+def test_the_same_manifest_stays_already_done(env):
     run(env, "backtest", "--split", "dev", factory=fake_factory())
-    path = os.path.join(env["state"], "results.jsonl")
-    rows = [json.loads(line) for line in open(path)]
-    tampered = rows[0]["decision_id"]
-    rows[0]["inputs_sha256"] = "0" * 64  # an input the new run would not reproduce
-    with open(path, "w") as fh:
-        fh.write("".join(json.dumps(r, sort_keys=True) + "\n" for r in rows))
-    env["db"] = make_db(str(env["tmp"] / "more.db"), specs(11))
-    f = fake_factory()
-    code, out = run(env, "backtest", "--split", "dev", factory=f)
-    assert code == 7 and "incompatible_other_manifest=1" in out
-    assert [r for r in results(env) if r["decision_id"] == tampered] == [rows[0]]  # no copy, no second judgment
-
-
-def test_a_card_that_gained_a_move_block_is_not_reused_and_the_run_is_rejected(env):
-    run(env, "backtest", "--split", "dev", factory=fake_factory())
-    old = {r["decision_id"]: r for r in results(env)}
-    moved = next(d for d, r in old.items() if r["verdict"] != "held")  # judged before the card gained its block
-    sp = specs(11)
-    next(s for s in sp if s["id"] == moved)["move"] = ("home", "card")  # same revision, body, delegability and filing time
-    env["db"] = make_db(str(env["tmp"] / "more.db"), sp)
-    f = fake_factory()
-    code, out = run(env, "backtest", "--split", "dev", factory=f)
-    assert code == 7 and "incompatible_other_manifest=1" in out
-    assert [r for r in results(env) if r["decision_id"] == moved] == [old[moved]]  # no "decided" copy under the new manifest
-    ns = namespace(env, "report", "--split", "dev")
-    ctx = cli.load_ctx(ns)
-    m2 = cli.get_manifest(ctx, ns)
-    assert moved not in {r["decision_id"] for r in ctx.store.results() if r.get("manifest_id") == m2.id}
-
-
-def test_a_result_with_no_inputs_hash_is_incompatible(env):
-    run(env, "backtest", "--split", "dev", factory=fake_factory())
-    path = os.path.join(env["state"], "results.jsonl")
-    rows = [json.loads(line) for line in open(path)]
-    stripped = rows[0]["decision_id"]
-    del rows[0]["inputs_sha256"]  # a row written before the hash existed
-    with open(path, "w") as fh:
-        fh.write("".join(json.dumps(r, sort_keys=True) + "\n" for r in rows))
-    env["db"] = make_db(str(env["tmp"] / "more.db"), specs(11))
-    code, out = run(env, "backtest", "--split", "dev", factory=fake_factory())
-    assert code == 7 and "incompatible_other_manifest=1" in out
-    assert [r for r in results(env) if r["decision_id"] == stripped] == [rows[0]]
-
-
-def _ask_and_item(**changes):
-    raw = json.loads(body(3))
-    raw.update(changes.pop("body", {}))
-    ask = parse_ask("d3", "1", json.dumps(raw), "2026-01-01T00:00:00Z", changes.pop("delegable", 1), changes.pop("move", False))
-    item = cli.Item("d3", ask.filed_at, frozenset(changes.pop("family", ())), "dev")
-    return ask, item
-
-
-@pytest.mark.parametrize("changes", [
-    {"move": True},
-    {"delegable": 0},
-    {"body": {"root_run": True}},
-    {"body": {"recommendation": "b"}},
-    {"body": {"project": "q"}},
-    {"body": {"kind": "other"}},
-    {"body": {"options": [{"id": "a", "kind": "ruling-only", "label": "Ship small docs fixes", "reversible": True},
-                          {"id": "b", "kind": "ruling-only", "label": "Colour palette change"}]}},
-    {"body": {"options": [{"id": "a", "kind": "ruling-only", "label": "Ship small docs fixes", "approval": {"by": "mk"}},
-                          {"id": "b", "kind": "ruling-only", "label": "Colour palette change"}]}},
-    {"body": {"options": [{"id": "b", "kind": "ruling-only", "label": "Colour palette change"},
-                          {"id": "a", "kind": "ruling-only", "label": "Ship small docs fixes"}]}},
-    {"family": ["ABC-1"]},
-])
-def test_every_input_the_holds_and_the_request_read_changes_the_inputs_hash(changes):
-    base = cli.inputs_sha256(*(lambda a, i: (a, None, i))(*_ask_and_item()))
-    ask, item = _ask_and_item(**changes)
-    assert cli.inputs_sha256(ask, None, item) != base
+    before = results(env)
+    code, out = run(env, "backtest", "--split", "dev", factory=no_factory)
+    assert code == 0 and "already_done=" in out and "rejected_other_manifest" not in out
+    assert results(env) == before
 
 
 class Clock:
