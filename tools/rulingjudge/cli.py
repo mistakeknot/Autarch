@@ -11,6 +11,7 @@ Exit codes: 0 ok, 2 usage / unsafe path / selector unavailable, 3 credential una
 from __future__ import annotations
 
 import argparse
+import hashlib
 import importlib
 import json
 import os
@@ -133,13 +134,28 @@ def retrieve(ctx: Ctx, ask: Ask, item: Item) -> Retrieval:
     return ctx.retriever.search(ask.search_text(), item.cutoff, item.family_cards)
 
 
+def inputs_sha256(ask: Ask, ret: Retrieval | None, item: Item) -> str:
+    """One hash over everything the holds and the request builder read for this decision: every
+    Ask field (the option semantics in order, the structural flags from the moves table and the
+    root-run signal included), the retrieval cutoff and family, and the retrieval hashes. The
+    configuration is not here; it is part of the result key."""
+    payload = {
+        "decision_id": ask.decision_id, "revision": ask.revision, "body_sha256": ask.body_sha256, "kind": ask.kind,
+        "project": ask.project, "subject": ask.subject, "question": ask.question, "recommendation": ask.recommendation,
+        "options": [o.semantics() for o in ask.options], "delegable": bool(ask.delegable), "root_run": bool(ask.root_run),
+        "move": bool(ask.move), "filed_at": iso(item.cutoff), "family_cards": sorted(item.family_cards),
+        "corpus_hash": ret.corpus_hash if ret is not None else None, "cand_hash": ret.cand_hash if ret is not None else None,
+    }
+    return hashlib.sha256(json.dumps(payload, sort_keys=True, ensure_ascii=False, separators=(",", ":")).encode()).hexdigest()
+
+
 def provenance(ask: Ask | None, ret: Retrieval | None, item: Item, manifest_id: str) -> dict:
     """What every terminal row carries so a report can place it: manifest, split, revision and
     the retrieval facts. A hold written before or without a model call carries them too."""
     row: dict = {"manifest_id": manifest_id, "split": item.split}
     if ask is not None:
         row.update(revision=ask.revision, recommendation=ask.recommendation, body_sha256=ask.body_sha256,
-                   delegable=bool(ask.delegable), filed_at=iso(item.cutoff))
+                   delegable=bool(ask.delegable), filed_at=iso(item.cutoff), inputs_sha256=inputs_sha256(ask, ret, item))
     if ret is not None:
         row.update(corpus_hash=ret.corpus_hash, cand_hash=ret.cand_hash,
                    retrieval={"available": ret.available, "leak_excluded": ret.leak_excluded, "truncated": ret.truncated,
@@ -241,23 +257,19 @@ def run_live(ctx: Ctx, items: list[Item], mode: str, manifest_id: str, factory: 
     return tally
 
 
-FROZEN_INPUTS = ("revision", "body_sha256", "delegable", "filed_at", "corpus_hash", "cand_hash")
-
-
 def settle_terminal(ctx: Ctx, store: Store, key: Key, item: Item, manifest_id: str, clock: Callable[[], datetime]) -> str:
     """A decision already has its terminal row for this configuration. Under the same manifest that
     ends it. Under another manifest (a later label cutoff) the report only counts rows of its own
-    manifest, so the old row is reused only when every frozen input matches what this run would send
-    (revision, body hash, delegability, filing time, corpus and candidate hashes); then it is copied
-    under the new manifest and counted. Otherwise it is reported as incompatible, never dropped."""
+    manifest, so the old row is reused only when its `inputs_sha256` equals the one this run would
+    send (see `inputs_sha256`); then it is copied under the new manifest and counted. A row with no
+    hash, or a different one, is reported as incompatible, never dropped and never counted."""
     rows = store.terminal_rows(key)
     if any(r.get("manifest_id") == manifest_id for r in rows):
         return "already_done"
     ask = ctx.asks.get(item.decision_id)
-    ret = retrieve(ctx, ask, item) if ask is not None else None
-    want = provenance(ask, ret, item, manifest_id)
+    want = inputs_sha256(ask, retrieve(ctx, ask, item), item) if ask is not None else None
     for r in rows:
-        if {k: r.get(k) for k in FROZEN_INPUTS} == {k: want.get(k) for k in FROZEN_INPUTS}:
+        if want is not None and r.get("inputs_sha256") == want:
             reused = {**r, "manifest_id": manifest_id, "split": item.split, "reused_from": r.get("manifest_id"),
                       "input_tokens": 0, "output_tokens": 0, "latency_ms": None}
             store.write_reuse(key, reused, clock())
