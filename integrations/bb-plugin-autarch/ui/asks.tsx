@@ -426,7 +426,7 @@ export function DecideQueue({ owed, onPick, onOpen, nowMs, onNote, onLater, onVi
                 aria-current={o.id === current.id ? "true" : undefined}
                 className={`min-h-11 w-full rounded border px-2 py-1.5 text-left ${o.id === current.id ? "border-primary bg-muted" : "border-border"}`}
                 onClick={() => {
-                  clickStarted();
+                  if (o.id !== current.id) clickStarted();
                   setSelected(o.id);
                   reveal();
                 }}
