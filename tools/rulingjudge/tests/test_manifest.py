@@ -3,6 +3,7 @@
 import json
 import os
 import sqlite3
+import threading
 from datetime import datetime, timedelta, timezone
 
 import pytest
@@ -334,6 +335,65 @@ def test_require_frozen_repairs_a_missing_cohort_record(db, tmp_path):
     assert [f["manifest_id"] for f in mf._load_cohort(s)] == [m1.id]
     with pytest.raises(mf.FreezeError):
         mf.freeze_config(s, m2, "cfgB")
+
+
+def test_a_cohort_repair_cannot_interleave_with_another_freeze(db, tmp_path, monkeypatch):
+    """Legacy freeze A (file, no cohort record) is repaired by require_frozen while freeze B, overlapping
+    and under another configuration, runs. B must wait out the repair (the lock is busy), not slip into
+    the gap and leave two overlapping freezes with different configurations."""
+    m1, m2 = two_manifests(db)
+    base = str(tmp_path / "judge")
+    sa, sb = st.Store(base), st.Store(base)
+    with open(sa.path(f"frozen-{m1.id[:16]}.json"), "w") as fh:
+        json.dump({"manifest_id": m1.id, "config_hash": "cfgA", "frozen_at": "x"}, fh)
+    repair_started, b_finished = threading.Event(), threading.Event()
+    real = mf._record_cohort
+
+    def paused(store, *a, **kw):
+        if store is sa:  # the repair has checked for conflicts and is about to write
+            repair_started.set()
+            assert b_finished.wait(10)
+        return real(store, *a, **kw)
+
+    monkeypatch.setattr(mf, "_record_cohort", paused)
+    errors = {}
+
+    def repair():
+        try:
+            mf.require_frozen(sa, m1, "cfgA")
+        except BaseException as exc:  # noqa: BLE001
+            errors["a"] = exc
+
+    t = threading.Thread(target=repair)
+    t.start()
+    try:
+        assert repair_started.wait(10)
+        try:
+            mf.freeze_config(sb, m2, "cfgB")
+            errors["b"] = None
+        except BaseException as exc:  # noqa: BLE001
+            errors["b"] = exc
+    finally:
+        b_finished.set()
+        t.join(10)
+    assert "a" not in errors
+    assert isinstance(errors["b"], (st.LockBusy, mf.FreezeError))
+    assert [(f["manifest_id"], f["config_hash"]) for f in mf._load_cohort(st.Store(base))] == [(m1.id, "cfgA")]
+    assert not os.path.exists(sb.path(f"frozen-{m2.id[:16]}.json"))
+
+
+def test_freeze_and_require_frozen_take_the_run_lock(db, tmp_path):
+    m1, _ = two_manifests(db)
+    base = str(tmp_path / "judge")
+    holder, other = st.Store(base), st.Store(base)
+    mf.freeze_config(holder, m1, "cfgA")
+    with holder.locked():
+        with pytest.raises(st.LockBusy):
+            mf.freeze_config(other, m1, "cfgA")
+        with pytest.raises(st.LockBusy):
+            mf.require_frozen(other, m1, "cfgA")
+        mf.freeze_config(holder, m1, "cfgA")  # the holder itself is not locked out
+        mf.require_frozen(holder, m1, "cfgA")
 
 
 def test_a_retry_never_duplicates_the_cohort_record(db, tmp_path):

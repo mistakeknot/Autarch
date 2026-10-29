@@ -168,6 +168,16 @@ class Store:
             fcntl.flock(fd, fcntl.LOCK_UN)
             os.close(fd)
 
+    @contextmanager
+    def held(self) -> Iterator["Store"]:
+        """The run lock, taken only if this store does not hold it already. For code that writes
+        shared state (the freeze and its cohort record) and may be called with or without it."""
+        if self._lock_fd is not None:
+            yield self
+        else:
+            with self.locked():
+                yield self
+
     def recover(self) -> dict[str, int]:
         """Move a partial last line of each log into <name>.recovered. Returns bytes moved by log."""
         moved: dict[str, int] = {}

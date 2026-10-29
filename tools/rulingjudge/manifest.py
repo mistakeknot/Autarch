@@ -236,7 +236,13 @@ def _reconcile_cohort(store: Store, m: Manifest, config_hash: str, frozen_at: st
 def freeze_config(store: Store, m: Manifest, config_hash: str, now: datetime | None = None) -> str:
     """Record the tuned configuration before the test split runs. A different configuration after
     test results exist is refused (a failed test is a report, not another tuning round), for this
-    manifest and for any later manifest whose test cohort overlaps an earlier freeze or evaluation."""
+    manifest and for any later manifest whose test cohort overlaps an earlier freeze or evaluation.
+    Runs under the run lock: the check, the cohort record and the freeze file are one step."""
+    with store.held():
+        return _freeze_config(store, m, config_hash, now)
+
+
+def _freeze_config(store: Store, m: Manifest, config_hash: str, now: datetime | None) -> str:
     path = store.path(f"frozen-{m.id[:16]}.json")
     if os.path.exists(path):
         cur = json.load(open(path))
@@ -259,6 +265,12 @@ def freeze_config(store: Store, m: Manifest, config_hash: str, now: datetime | N
 
 
 def require_frozen(store: Store, m: Manifest, config_hash: str) -> None:
+    """The test split's gate. It may repair a missing cohort record, so it runs under the run lock."""
+    with store.held():
+        _require_frozen(store, m, config_hash)
+
+
+def _require_frozen(store: Store, m: Manifest, config_hash: str) -> None:
     path = store.path(f"frozen-{m.id[:16]}.json")
     if not os.path.exists(path):
         raise FreezeError("the test split needs a frozen configuration; freeze it after tuning on dev")
