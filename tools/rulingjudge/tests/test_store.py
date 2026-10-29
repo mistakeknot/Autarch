@@ -105,7 +105,7 @@ def test_retry_schedule_15m_1h_4h_then_give_up(s):
         assert s.due(KEY, t3 + timedelta(hours=3)).action == "wait"  # stays at 4h
         d = s.due(KEY, T0 + timedelta(hours=24))
         assert d.action == "give_up" and d.failures == 4
-        assert s.give_up(KEY, T0 + timedelta(hours=24))
+        assert s.give_up(KEY, None, T0 + timedelta(hours=24))
         assert s.due(KEY, T0 + timedelta(hours=30)).action == "terminal"
         assert [r["reason"] for r in s.results()] == ["provider-unavailable"]
 
@@ -217,3 +217,103 @@ def test_existing_loose_dir_is_tightened(tmp_path):
     base.mkdir(mode=0o755)
     st.Store(str(base))
     assert mode(str(base)) == 0o700
+
+
+# ---- review fixes: the recovery file, the permitted root, the give-up row -------------
+
+def partial(base):
+    """Leave a torn last line in attempts.jsonl, as a crash mid-append would."""
+    with open(os.path.join(base, "attempts.jsonl"), "ab") as fh:
+        fh.write(b'{"torn":')
+
+
+def test_recovery_still_works_and_is_private(s):
+    with s.locked():
+        s.log_attempt(KEY, error_class="timeout", operational=True, now=T0)
+    partial(s.base)
+    with s.locked():
+        pass
+    rec = os.path.join(s.base, "attempts.jsonl.recovered")
+    assert open(rec, "rb").read() == b'{"torn":\n' and mode(rec) == 0o600
+    assert len(s.attempts(KEY)) == 1
+
+
+def test_recovered_symlink_to_a_protected_file_is_refused(tmp_path):
+    src = tmp_path / "data.db"
+    src.write_text("original")
+    store = st.Store(str(tmp_path / "judge"), forbidden=[str(src)])
+    with store.locked():
+        store.log_attempt(KEY, error_class="timeout", operational=True, now=T0)
+    partial(store.base)
+    os.symlink(src, os.path.join(store.base, "attempts.jsonl.recovered"))
+    with pytest.raises(st.UnsafePath):
+        with store.locked():
+            pass
+    assert src.read_text() == "original"
+    assert open(store.attempts_path, "rb").read().endswith(b'{"torn":')  # nothing was cut away
+
+
+def test_recovered_hard_link_to_a_protected_file_is_refused(tmp_path):
+    src = tmp_path / "rulings.jsonl"
+    src.write_text("original")
+    store = st.Store(str(tmp_path / "judge"), forbidden=[str(src)])
+    with store.locked():
+        store.log_attempt(KEY, error_class="timeout", operational=True, now=T0)
+    partial(store.base)
+    os.link(src, os.path.join(store.base, "attempts.jsonl.recovered"))
+    with pytest.raises(st.UnsafePath):
+        with store.locked():
+            pass
+    assert src.read_text() == "original"
+
+
+def test_recovered_symlink_to_an_outside_file_is_refused(tmp_path):
+    outside = tmp_path / "outside.txt"
+    outside.write_text("keep")
+    store = st.Store(str(tmp_path / "judge"))
+    with store.locked():
+        store.log_attempt(KEY, error_class="timeout", operational=True, now=T0)
+    partial(store.base)
+    os.symlink(outside, os.path.join(store.base, "attempts.jsonl.recovered"))
+    with pytest.raises(st.UnsafePath):
+        with store.locked():
+            pass
+    assert outside.read_text() == "keep"
+
+
+def test_a_base_outside_the_permitted_root_is_refused_before_anything_is_made(tmp_path, monkeypatch):
+    root = tmp_path / "root"
+    root.mkdir()
+    monkeypatch.setenv("RULINGJUDGE_STATE_ROOT", str(root))
+    elsewhere = tmp_path / "elsewhere" / "judge"
+    with pytest.raises(st.UnsafePath):
+        st.Store(str(elsewhere))
+    assert not (tmp_path / "elsewhere").exists()
+    st.Store(str(root / "judge"))  # inside the root is fine
+    st.Store(str(root))  # and so is the root itself
+
+
+def test_a_symlinked_base_is_refused_and_leaves_its_target_alone(tmp_path, monkeypatch):
+    root = tmp_path / "root"
+    root.mkdir()
+    target = tmp_path / "target"
+    target.mkdir(mode=0o755)
+    os.symlink(target, root / "judge")
+    monkeypatch.setenv("RULINGJUDGE_STATE_ROOT", str(root))
+    with pytest.raises(st.UnsafePath):
+        st.Store(str(root / "judge"))
+    assert mode(str(target)) == 0o755 and os.listdir(target) == []
+
+
+def test_default_root_is_the_state_directory(monkeypatch):
+    monkeypatch.delenv("RULINGJUDGE_STATE_ROOT")
+    assert st.permitted_root() == os.path.realpath(os.path.expanduser(st.DEFAULT_DIR))
+
+
+def test_give_up_row_carries_provenance(s):
+    prov = {"manifest_id": "M1", "split": "dev", "revision": "3", "corpus_hash": "ch", "cand_hash": "kh"}
+    with s.locked():
+        assert s.give_up(KEY, prov, T0)
+    row = s.results()[0]
+    assert row["verdict"] == "held" and row["reason"] == "provider-unavailable"
+    assert all(row[k] == v for k, v in prov.items())

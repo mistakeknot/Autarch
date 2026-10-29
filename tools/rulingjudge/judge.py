@@ -99,6 +99,7 @@ class Outcome:
     request_sha256: str | None = None
     cand_ids: list[str] = field(default_factory=list)
     choice: str | None = None  # the model's argmax: a real option id, send_back or escalate
+    cite_ok: bool | None = None  # a citable ruling backs the model's choice; None when it chose no real option
 
     @property
     def terminal(self) -> bool:
@@ -296,6 +297,11 @@ def execute(sel: Selector, ask: Ask, retrieval: Retrieval, prepared: Prepared, c
         return held("provider-error", error_class="malformed", excerpt=defect, **common, **usage)
     probs = {k: float(p) for k, p in resp.select.probabilities}
     common["choice"] = prepared.id_to_option.get(resp.select.choice, resp.select.choice)
+    chosen = next((o for o in ask.options if o.id == common["choice"]), None)
+    if chosen is not None:
+        # Threshold-independent: whether a citable ruling backs this choice, so the report can
+        # apply the same citation rule at every confidence level.
+        common["cite_ok"] = pick_cite(retrieval, chosen) is not None
     sel_result = jv.apply_floors(resp, jv.Floors(confidence=min(cfg.t, cfg.t_sb), fit=0.0), call.battery)
     conf = float(resp.select.confidence)
     if isinstance(sel_result, jv.Abstention):

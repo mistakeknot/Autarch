@@ -94,3 +94,24 @@ def test_parse_ask_reads_semantics_and_markers():
     assert a.recommendation == "a" and len(a.body_sha256) == 64
     assert parse_ask("d1", "r1", "not json", "2026-01-02T03:04:05Z") is None
     assert parse_ask("d1", "r1", '{"options":[]}', "2026-01-02T03:04:05Z") is None
+
+
+def test_reversible_true_or_absent_neither_holds_nor_permits_in_the_real_go_shape():
+    """`reversible` is a Go bool with omitempty, so a false value never appears in the stored body
+    and an absent one means false or unset. A true value is not permission either."""
+    import json
+    from tools.rulingjudge.ask import parse_ask
+
+    def parsed(opts, question="Pick a colour for the chart"):
+        body = json.dumps({"question": question, "subject": "s", "project": "p", "options": opts})
+        return parse_ask("d1", "1", body, "2026-02-01T00:00:00Z", 1)
+
+    plain = [{"id": "a", "kind": "ruling-only", "label": "A"}, {"id": "b", "kind": "ruling-only", "label": "B"}]
+    marked = [{**plain[0], "reversible": True}, plain[1]]
+    assert not holds.evaluate(parsed(plain)).held and not holds.evaluate(parsed(marked)).held
+    # true does not lift a hold that something else raised
+    risky = parsed(marked, question="Deploy to production after the install")
+    assert holds.evaluate(risky).held
+    # and an approval-carrying option still holds with reversible true
+    approval = [{**marked[0], "approval": {"kind": "merge"}}, plain[1]]
+    assert "approval-option" in holds.evaluate(parsed(approval)).reasons

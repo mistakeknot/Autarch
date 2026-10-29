@@ -19,9 +19,11 @@ def ts(days):
 
 SCHEMA = """
 CREATE TABLE decisions (id TEXT PRIMARY KEY, revision TEXT, body_json TEXT, filed_at TEXT, delegable INT DEFAULT 1,
-  withdrawn_at TEXT, supersedes TEXT UNIQUE, task_id TEXT, identity TEXT, semantic_key TEXT);
+  withdrawn_at TEXT, supersedes TEXT UNIQUE, task_id TEXT, identity TEXT, semantic_key TEXT, generation INT DEFAULT 1);
 CREATE TABLE picks (decision_id TEXT PRIMARY KEY, option_id TEXT, revision TEXT, picked_at TEXT, reason TEXT);
 CREATE TABLE cards (task_id TEXT PRIMARY KEY, card_key TEXT, request_identity TEXT);
+CREATE TABLE moves (task_id TEXT NOT NULL, generation INT NOT NULL, kind TEXT NOT NULL, payload_json TEXT, state TEXT,
+  opened_by TEXT NOT NULL, opened_at TEXT, PRIMARY KEY (task_id, generation));
 """
 
 
@@ -37,6 +39,10 @@ def make_db(path, specs):
         c.execute("INSERT INTO decisions (id,revision,body_json,filed_at,withdrawn_at,supersedes,task_id,identity,semantic_key) VALUES (?,?,?,?,?,?,?,?,?)",
                   (s["id"], s.get("rev", "1"), s.get("body", body(s["day"])), ts(s["day"]), s.get("withdrawn"), s.get("supersedes"),
                    s.get("task", "t-" + s["id"]), s.get("identity", "i-" + s["id"]), s.get("sem", "k-" + s["id"])))
+        if s.get("move"):  # (kind, opened_by), one row per (task_id, generation) as in the real table
+            kind, opened_by = s["move"]
+            c.execute("INSERT INTO moves (task_id,generation,kind,payload_json,state,opened_by,opened_at) VALUES (?,?,?,?,?,?,?)",
+                      (s.get("task", "t-" + s["id"]), 1, kind, "{}", "open", opened_by, ts(s["day"])))
         c.execute("INSERT OR IGNORE INTO cards VALUES (?,?,?)", (s.get("task", "t-" + s["id"]), s.get("card", "ABC-" + s["id"][1:]), s.get("req", "r-" + s["id"])))
         if "pick" in s:
             c.execute("INSERT INTO picks VALUES (?,?,?,?,?)", (s["id"], s["pick"], s.get("pick_rev", s.get("rev", "1")), ts(s["day"] + 1), s.get("reason")))
@@ -195,3 +201,99 @@ def test_no_refreeze_after_test_results_exist(db, tmp_path):
         s.write_terminal(st.Key("d1", "backtest-test", "cfgA"), {"verdict": "held", "manifest_id": m.id})
     with pytest.raises(mf.FreezeError):
         mf.freeze_config(s, m, "cfgA")
+
+
+# ---- structural flags from the real tables ------------------------------------------
+
+def asks_for(db, specs):
+    make_db(db, specs)
+    conn = dbro.open_ro(db)
+    try:
+        return mf.parse_asks(dbro.load_decisions(conn))
+    finally:
+        conn.close()
+
+
+@pytest.mark.parametrize("kind", ["pr", "script", "context"])
+def test_a_card_opened_move_sets_the_move_flag(db, kind):
+    a = asks_for(db, [{"day": 1, "id": "d1", "move": (kind, "card")}, {"day": 2, "id": "d2"}])
+    assert a["d1"].move is True and a["d2"].move is False
+
+
+def test_a_pick_opened_move_is_a_consequence_and_is_not_read(db):
+    a = asks_for(db, [{"day": 1, "id": "d1", "pick": "a", "move": ("pr", "pick")}])
+    assert a["d1"].move is False
+
+
+def test_a_move_for_another_generation_is_not_this_decisions(db):
+    make_db(db, [{"day": 1, "id": "d1", "move": ("pr", "card")}])
+    c = sqlite3.connect(db)
+    c.execute("UPDATE moves SET generation = 2")
+    c.commit()
+    c.close()
+    conn = dbro.open_ro(db)
+    assert dbro.load_decisions(conn)[0].card_move is False
+
+
+def test_a_missing_moves_table_fails_closed(db):
+    make_db(db, [{"day": 1, "id": "d1"}])
+    c = sqlite3.connect(db)
+    c.execute("DROP TABLE moves")
+    c.commit()
+    c.close()
+    with pytest.raises(dbro.SchemaError):
+        dbro.load_decisions(dbro.open_ro(db))
+
+
+def test_a_missing_generation_column_fails_closed(db):
+    c = sqlite3.connect(db)
+    c.executescript(SCHEMA.replace(", generation INT DEFAULT 1", ""))
+    c.close()
+    with pytest.raises(dbro.SchemaError):
+        dbro.load_decisions(dbro.open_ro(db))
+
+
+# ---- the test cohort belongs to the experiment ------------------------------------------
+
+def two_manifests(db):
+    """Two manifests with overlapping test cohorts: the second one adds a pick after the first cutoff."""
+    base = [{"day": d, "id": f"d{d}", "pick": "a"} for d in (1, 3, 5, 7)]
+    m1 = build(db, base, cutoff=T0 + timedelta(days=20))
+    m2 = build(db + ".second", base + [{"day": 9, "id": "d9", "pick": "a"}], cutoff=T0 + timedelta(days=30))
+    return m1, m2
+
+
+def test_the_two_manifests_really_overlap_on_test(db):
+    m1, m2 = two_manifests(db)
+    assert m1.id != m2.id and mf._test_ids(m1) & mf._test_ids(m2)
+
+
+def test_a_new_manifest_cannot_reuse_frozen_test_decisions_with_a_new_config(db, tmp_path):
+    m1, m2 = two_manifests(db)
+    s = st.Store(str(tmp_path / "judge"))
+    mf.freeze_config(s, m1, "cfgA")
+    with pytest.raises(mf.FreezeError):
+        mf.freeze_config(s, m2, "cfgB")
+    mf.freeze_config(s, m2, "cfgA")  # the same configuration is a retry, not another tuning round
+
+
+def test_a_new_manifest_cannot_reuse_evaluated_test_decisions_with_a_new_config(db, tmp_path):
+    m1, m2 = two_manifests(db)
+    s = st.Store(str(tmp_path / "judge"))
+    ids = sorted(mf._test_ids(m1) & mf._test_ids(m2))
+    with s.locked():
+        s.write_terminal(st.Key(ids[0], "backtest-test", "cfgA"), {"verdict": "held", "manifest_id": m1.id})
+    with pytest.raises(mf.FreezeError):
+        mf.freeze_config(s, m2, "cfgB")
+    mf.freeze_config(s, m2, "cfgA")
+
+
+def test_require_frozen_rechecks_the_cohort(db, tmp_path):
+    m1, m2 = two_manifests(db)
+    s = st.Store(str(tmp_path / "judge"))
+    mf.freeze_config(s, m1, "cfgA")
+    # a frozen file for m2 under another config, left by an earlier state, is still refused at run time
+    with open(s.path(f"frozen-{m2.id[:16]}.json"), "w") as fh:
+        json.dump({"manifest_id": m2.id, "config_hash": "cfgB", "frozen_at": "x"}, fh)
+    with pytest.raises(mf.FreezeError):
+        mf.require_frozen(s, m2, "cfgB")

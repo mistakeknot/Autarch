@@ -10,6 +10,7 @@ from __future__ import annotations
 import fcntl
 import json
 import os
+import stat
 from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
@@ -37,6 +38,12 @@ class NotLocked(RuntimeError):
 
 def default_dir() -> str:
     return os.path.expanduser(DEFAULT_DIR)
+
+
+def permitted_root() -> str:
+    """The only tree outputs may live under. RULINGJUDGE_STATE_ROOT narrows or moves it for tests;
+    it is not a flag, so a command line cannot widen it."""
+    return os.path.realpath(os.path.expanduser(os.environ.get("RULINGJUDGE_STATE_ROOT") or DEFAULT_DIR))
 
 
 def _same_file(a: str, b: str) -> bool:
@@ -109,8 +116,15 @@ class Due:
 
 class Store:
     def __init__(self, base: str | None = None, forbidden: Iterable[str] = ()) -> None:
-        self.base = os.path.realpath(base or default_dir())
+        root = permitted_root()
+        self.base = os.path.realpath(os.path.expanduser(base)) if base else root
         self.forbidden = tuple(forbidden)
+        # Validate before anything is created or chmodded: the base is inside the permitted root
+        # and neither it nor a parent aliases a protected source file.
+        check_path(self.base, root, self.forbidden)
+        for f in self.forbidden:
+            if f and os.path.exists(f) and os.path.isdir(self.base) and _same_file(self.base, f):
+                raise UnsafePath("state directory aliases a protected source file")
         self._lock_fd: int | None = None
         os.makedirs(self.base, mode=0o700, exist_ok=True)
         os.chmod(self.base, 0o700)
@@ -159,7 +173,7 @@ class Store:
                     continue
                 cut = data.rfind(b"\n") + 1
                 tail = data[cut:]
-                rec = os.open(log + ".recovered", os.O_WRONLY | os.O_CREAT | os.O_APPEND, 0o600)
+                rec = self._open_recovered(log)
                 try:
                     os.write(rec, tail + b"\n")
                     os.fsync(rec)
@@ -170,6 +184,31 @@ class Store:
                 os.fsync(fh.fileno())
                 moved[os.path.basename(log)] = len(tail)
         return moved
+
+    def _open_recovered(self, log: str) -> int:
+        """Open <log>.recovered for append. The destination is checked for containment and forbidden
+        identity, a symlink is refused at open, and a file with other links or a looser mode is
+        refused before a byte is written."""
+        dest = os.path.join(self.base, os.path.basename(log) + ".recovered")
+        check_path(dest, self.base, self.forbidden)
+        if os.path.islink(dest):
+            raise UnsafePath("recovery file is a symlink")
+        try:
+            fd = os.open(dest, os.O_WRONLY | os.O_CREAT | os.O_APPEND | os.O_NOFOLLOW, 0o600)
+        except OSError as exc:
+            raise UnsafePath(f"recovery file cannot be opened safely: {type(exc).__name__}") from exc
+        try:
+            st = os.fstat(fd)
+            if not stat.S_ISREG(st.st_mode) or st.st_nlink != 1:
+                raise UnsafePath("recovery file is not a plain single-link file")
+            for f in self.forbidden:
+                if f and os.path.exists(f) and os.path.samestat(st, os.stat(f)):
+                    raise UnsafePath("recovery file aliases a protected source file")
+            os.fchmod(fd, 0o600)
+        except BaseException:
+            os.close(fd)
+            raise
+        return fd
 
     def _append(self, path: str, row: dict) -> None:
         if self._lock_fd is None:
@@ -248,8 +287,12 @@ class Store:
             return Due("wait", not_before=not_before, failures=len(ops))
         return Due("try", failures=len(ops))
 
-    def give_up(self, key: Key, now: datetime | None = None) -> bool:
-        return self.write_terminal(key, {"verdict": "held", "reason": "provider-unavailable"}, now)
+    def give_up(self, key: Key, provenance: dict | None = None, now: datetime | None = None) -> bool:
+        """The terminal row for a decision whose provider never answered. It carries the same
+        manifest, split, revision and retrieval provenance as any other row, so a report counts it."""
+        row = dict(provenance or {})
+        row.update(verdict="held", reason="provider-unavailable")
+        return self.write_terminal(key, row, now)
 
     def pending(self, eligible: Iterable[str], mode: str, config_hash: str) -> list[str]:
         """Eligible decision ids with no terminal row, in the order given."""

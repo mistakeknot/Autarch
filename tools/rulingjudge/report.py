@@ -78,6 +78,27 @@ def baseline_correct(row: dict, e: Entry) -> bool:
     return e.pick_kind == "option" and bool(row.get("recommendation")) and row.get("recommendation") == e.pick_option
 
 
+def structure_coverage(asks: Iterable) -> dict:
+    """How much structural evidence the asks carry, so a reader can see what the holds rest on.
+
+    `reversible` is a Go bool with omitempty: an absent value means false or never set, so it is
+    reported but is neither a hold nor a permission. A home-move block is read from the moves
+    table. A root-run block leaves no structured trace in data.db, so it is reported as
+    unestablished: only the text signal and the production-root gate stand in for it."""
+    asks = [a for a in asks if a is not None]
+    opts = [o for a in asks for o in a.options if o.kind != "instruction"]
+    return {
+        "asks": len(asks),
+        "options": len(opts),
+        "reversible_true": sum(1 for o in opts if o.reversible is True),
+        "reversible_false": sum(1 for o in opts if o.reversible is False),
+        "reversible_absent": sum(1 for o in opts if o.reversible is None),
+        "card_move": sum(1 for a in asks if a.move),
+        "root_run_text_signal": sum(1 for a in asks if a.root_run),
+        "root_run_structured": "unestablished",
+    }
+
+
 @dataclass
 class Evaluation:
     split: str
@@ -92,6 +113,7 @@ class Evaluation:
     other: dict
     repeats: dict
     baseline_on_decided: Ratio
+    structure: dict | None = None
 
     def as_dict(self) -> dict:
         return {
@@ -100,6 +122,7 @@ class Evaluation:
             "precision_ci": list(self.precision.interval), "meets_0_95": self.precision.meets(),
             "holds": dict(self.holds), "paired": self.paired, "curve": self.curve, "other": self.other,
             "repeats": self.repeats, "baseline_on_decided": [self.baseline_on_decided.k, self.baseline_on_decided.n],
+            "structure": self.structure,
         }
 
     def text(self) -> str:
@@ -108,12 +131,18 @@ class Evaluation:
             f"coverage (decided / judged): {self.decided.text()}",
             f"precision on decided:       {self.precision.text()}   meets 0.95 (CI lower >= 0.90): {self.precision.meets()}",
             f"baseline recommendation on the same decided subset: {self.baseline_on_decided.text()}",
-            "paired (entries with a recommendation): " + ", ".join(f"{k}={v}" for k, v in self.paired.items()),
+            "paired (decided entries with a recommendation): " + ", ".join(f"{k}={v}" for k, v in self.paired.items()),
             "holds by class: " + (", ".join(f"{k}={v}" for k, v in sorted(self.holds.items())) or "none"),
             "other-picks: " + ", ".join(f"{k}={v}" for k, v in self.other.items()),
             "already settled (repeats, excluded from the headline): " + ", ".join(f"{k}={v}" for k, v in self.repeats.items()),
-            "coverage-precision curve (confidence >= t):",
         ]
+        if self.structure:
+            c = self.structure
+            lines.append(
+                f"structural evidence over {c['asks']} asks / {c['options']} non-instruction options: reversible true={c['reversible_true']} "
+                f"false={c['reversible_false']} absent={c['reversible_absent']} (not a hold, not a permission); card move blocks={c['card_move']}; "
+                f"root-run blocks: {c['root_run_structured']} in data.db (text signal on {c['root_run_text_signal']})")
+        lines.append("coverage-precision curve (confidence >= t, citation-backed):")
         for p in self.curve:
             lines.append(f"  t={p['t']:.2f}  coverage={p['decided']}/{p['judged']}  precision={Ratio(p['correct'], p['decided']).text()}")
         return "\n".join(lines)
@@ -124,9 +153,11 @@ CURVE_T = (0.5, 0.6, 0.7, 0.8, 0.85, 0.9, 0.95, 0.99)
 
 def curve(pairs: list[tuple[dict, Entry]], ts: Iterable[float] = CURVE_T) -> list[dict]:
     """Coverage and precision as the confidence floor rises, from the model's own choice.
-    Only rows that reached the model (they carry a choice and a confidence) can be on the curve."""
+    Only rows that reached the model (they carry a choice and a confidence) and that a citable
+    ruling backs (`cite_ok`) can be on the curve: a no-cite row is never a decision at any threshold.
+    A row without the field (written before it existed) is left off rather than assumed eligible."""
     out = []
-    scored = [(r, e) for r, e in pairs if r.get("confidence") is not None and r.get("choice")]
+    scored = [(r, e) for r, e in pairs if r.get("confidence") is not None and r.get("choice") and r.get("cite_ok") is True]
     for t in ts:
         picked = [(r, e) for r, e in scored if r["confidence"] >= t and r["choice"] not in ("send_back", "escalate")]
         ok = sum(1 for r, e in picked if e.pick_kind == "option" and r["choice"] == e.pick_option)
@@ -134,7 +165,8 @@ def curve(pairs: list[tuple[dict, Entry]], ts: Iterable[float] = CURVE_T) -> lis
     return out
 
 
-def evaluate(manifest: Manifest, results: Iterable[dict], config_hash: str, mode: str, split: str, sub: str | None = None) -> Evaluation:
+def evaluate(manifest: Manifest, results: Iterable[dict], config_hash: str, mode: str, split: str, sub: str | None = None,
+             structure: dict | None = None) -> Evaluation:
     rows = rows_for(results, manifest, config_hash, mode)
     firsts = manifest.firsts(split, sub)
     pairs = [(rows[e.decision_id], e) for e in firsts if e.decision_id in rows]
@@ -142,7 +174,7 @@ def evaluate(manifest: Manifest, results: Iterable[dict], config_hash: str, mode
     ok = [(r, e) for r, e in decided if correct(r, e)]
     holds = Counter(hold_class(r.get("reason")) for r, _ in pairs if r.get("verdict") == "held")
 
-    withrec = [(r, e) for r, e in pairs if r.get("recommendation")]
+    withrec = [(r, e) for r, e in decided if r.get("recommendation")]
     paired = Counter()
     for r, e in withrec:
         j, b = correct(r, e), baseline_correct(r, e)
@@ -164,7 +196,7 @@ def evaluate(manifest: Manifest, results: Iterable[dict], config_hash: str, mode
     return Evaluation(
         split=split, sub=sub, n_firsts=len(firsts), n_judged=len(pairs), decided=Ratio(len(decided), len(pairs)),
         precision=Ratio(len(ok), len(decided)), holds=holds, paired=dict(paired), curve=curve(pairs), other=other,
-        repeats=repeats, baseline_on_decided=Ratio(base_k, base_n),
+        repeats=repeats, baseline_on_decided=Ratio(base_k, base_n), structure=structure,
     )
 
 

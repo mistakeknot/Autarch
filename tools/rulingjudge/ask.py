@@ -2,7 +2,7 @@
 
 The body is a home-ask object. Options always carry id, kind and label; `instruction`,
 `reversible` and `approval` appear only when set (the Go struct omits empty values), so
-an absent `reversible` means unknown, not false.
+an absent `reversible` carries no evidence either way: it neither holds nor permits.
 """
 
 from __future__ import annotations
@@ -14,10 +14,10 @@ from typing import Any
 
 from .ledger import UTC, extract_card_keys, parse_instant
 
-# The same fenced blocks the card parser recognises; data.db does not keep the card
-# description, so a block is detected from body keys or fence markers left in the question.
+# The card description is not kept in data.db. A home-move block shows up there as a `moves` row
+# opened by the card, which the loader reads (dbro). A root-run block leaves no structured trace, so
+# `root_run` below is only a text signal and is reported as unestablished, never as proven absent.
 ROOT_RUN_MARKERS = ("```root-run", "root-run:")
-MOVE_MARKERS = ("```home-move",)
 
 
 @dataclass(frozen=True)
@@ -85,7 +85,7 @@ def parse_option(raw: Any) -> Option | None:
     )
 
 
-def parse_ask(decision_id: str, revision: str, body_json: str, filed_at: str, delegable: int = 1) -> Ask | None:
+def parse_ask(decision_id: str, revision: str, body_json: str, filed_at: str, delegable: int = 1, card_move: bool = False) -> Ask | None:
     """None when the body is not a usable decide ask."""
     import hashlib
 
@@ -112,7 +112,7 @@ def parse_ask(decision_id: str, revision: str, body_json: str, filed_at: str, de
         recommendation=rec if isinstance(rec, str) and rec else None,
         delegable=bool(delegable),
         root_run=bool(body.get("root_run")) or any(m in low for m in ROOT_RUN_MARKERS),
-        move=bool(body.get("move")) or any(m in low for m in MOVE_MARKERS),
+        move=bool(card_move),
         filed_at=filed.astimezone(UTC),
         kind=_str(body.get("kind")) or "decide",
         body_sha256=hashlib.sha256(body_json.encode()).hexdigest(),

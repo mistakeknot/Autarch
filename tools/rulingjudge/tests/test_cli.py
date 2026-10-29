@@ -3,15 +3,18 @@
 Every fixture here is synthetic. No credential is loaded and nothing leaves the process.
 """
 
+import glob
 import io
 import json
 import os
+import sqlite3
 import stat
 from datetime import datetime, timedelta, timezone
 
 import pytest
 
-from tools.rulingjudge import cli, judge, sel as selmod
+from tools.rulingjudge import cli, judge, manifest as mf, report as rp, sel as selmod
+from tools.rulingjudge.store import iso, parse_ts
 from tools.rulingjudge.tests.test_manifest import T0, make_db
 
 ROOT = os.environ.get("CLAVAIN_SELECTED_ROOT") or os.path.expanduser("~/.claude/plugins/cache/interagency-marketplace/clavain/0.6.331")
@@ -46,6 +49,7 @@ def specs(n=10):
 def env(tmp_path, monkeypatch):
     monkeypatch.setenv("CLAVAIN_SELECTED_ROOT", ROOT)
     monkeypatch.delenv("RULINGJUDGE_DB", raising=False)
+    monkeypatch.setenv("RULINGJUDGE_STATE_ROOT", str(tmp_path))
     db = make_db(str(tmp_path / "data.db"), specs())
     led = ledger_file(tmp_path / "rulings.jsonl")
     state = str(tmp_path / "state")
@@ -76,6 +80,10 @@ def ok_response(call, winner="a", p=0.95):
         model=JV.PINNED_MODEL,
         select=JV.ChoiceAnswer(choice=winner, confidence=p, probabilities=tuple(probs.items())),
         fits=(), usage=JV.Usage(input_tokens=100, output_tokens=5)), attempts=1, http_status=200, latency_ms=12)
+
+
+def http_failure(status):
+    return JV.JevFailure(reason=SEL.contract.FallbackReason.HTTP_ERROR, detail=JV.FailureDetail.STATUS, attempts=1, http_status=status, latency_ms=3)
 
 
 class FakeFactory:
@@ -172,7 +180,7 @@ def test_credential_unavailable_stops_with_code_3(env):
 
 def test_operational_failure_logs_an_attempt_and_the_rerun_waits(env):
     def down(call):
-        return JV.JevFailure(reason="http", detail="boom", attempts=1, http_status=503, latency_ms=3)
+        return http_failure(503)
 
     f = fake_factory(down)
     code, out = run(env, "backtest", "--split", "dev", "--limit", "3", factory=f)
@@ -305,3 +313,191 @@ def test_missing_database_is_a_usage_error(env):
 def test_default_factory_is_never_used_by_the_tests():
     assert cli.default_transport_factory.__module__.endswith("cli")
     assert judge.CITE_METHOD == "bm25-post"
+
+
+# ---- review fixes: replay drift, cohort, backdating, moves, state dir, provenance, attempts ----
+
+def namespace(env, *args):
+    return cli.parser().parse_args(["--db", env["db"], "--ledger", env["ledger"], "--state-dir", env["state"], *args])
+
+
+def saved_manifest_id(env):
+    (path,) = glob.glob(os.path.join(env["state"], "manifest-*.json"))
+    return json.load(open(path))["id"]
+
+
+def edit_db(env, sql, *params):
+    c = sqlite3.connect(env["db"])
+    c.execute(sql, params)
+    c.commit()
+    c.close()
+
+
+@pytest.mark.parametrize("column,value", [
+    ("body_json", body(77)),
+    ("revision", "2"),
+    ("filed_at", "2026-01-01T00:00:00.000Z"),
+    ("delegable", 0),
+])
+def test_replaying_a_saved_manifest_refuses_a_drifted_ask_before_any_send(env, column, value):
+    run(env, "backtest", "--split", "dev", "--dry-run", factory=no_factory)
+    mid = saved_manifest_id(env)
+    edit_db(env, f"UPDATE decisions SET {column}=? WHERE id='d0'", value)
+    f = fake_factory()
+    code, _ = run(env, "backtest", "--split", "dev", "--manifest", mid, factory=f)
+    assert code == 6 and f.calls == [] and results(env) == []
+    code, _ = run(env, "backtest", "--split", "dev", "--manifest", mid, "--dry-run", factory=no_factory)
+    assert code == 6
+
+
+def test_replaying_an_unchanged_manifest_is_allowed(env):
+    run(env, "backtest", "--split", "dev", "--dry-run", factory=no_factory)
+    mid = saved_manifest_id(env)
+    f = fake_factory()
+    code, _ = run(env, "backtest", "--split", "dev", "--manifest", mid, factory=f)
+    assert code == 0 and f.calls
+
+
+def test_a_later_manifest_cannot_retune_an_already_frozen_test_cohort(env):
+    assert run(env, "freeze")[0] == 0
+    env["db"] = make_db(str(env["tmp"] / "more.db"), specs(11))  # a later pick moves the cutoff: another manifest, same test decisions
+    code, _ = run(env, "freeze", "--t", "0.8")
+    assert code == 5
+    code, _ = run(env, "backtest", "--split", "test", "--t", "0.8", "--dry-run", factory=no_factory)
+    assert code == 5
+    code, out = run(env, "freeze")  # the same configuration is a retry, not a retune
+    assert code == 0 and "frozen" in out
+
+
+class Clock:
+    def __init__(self, now):
+        self.now = now
+
+    def __call__(self):
+        return self.now
+
+
+def test_a_row_written_after_the_pick_is_stamped_after_the_pick(env):
+    ns = namespace(env, "report")
+    ctx = cli.load_ctx(ns)
+    m = cli.get_manifest(ctx, ns)
+    entry = m.by_id("d1")
+    picked = parse_ts(entry.picked_at)
+    clock = Clock(picked - timedelta(hours=1))
+
+    def slow(_sel):
+        def transport(call):
+            clock.now = picked + timedelta(hours=1)  # the pick lands while the provider is thinking
+            return ok_response(call)
+        return transport
+
+    item = cli.Item("d1", parse_ts(entry.filed_at), frozenset(entry.family_cards), None)
+    cli.run_live(ctx, [item], "shadow", m.id, slow, False, clock=clock)
+    (row,) = results(env)
+    assert parse_ts(row["ts"]) > picked
+    live = rp.live_report(m, ctx.store.results(), ctx.cfg_hash)
+    assert live["retrospective"] == 1 and live["prospective"] == 0
+
+
+def test_a_card_move_decision_is_held_and_costs_no_call(env):
+    sp = specs(6)
+    sp[2]["move"] = ("home", "card")
+    env["db"] = make_db(str(env["tmp"] / "move.db"), sp)
+    code, out = run(env, "backtest", "--split", "dev", "--dry-run", factory=no_factory)
+    assert code == 0 and "move-block" in out
+    f = fake_factory()
+    run(env, "backtest", "--split", "dev", factory=f)
+    assert all(c is not None for c in f.calls)
+    moved = [r for r in results(env) if r["decision_id"] == "d2"]
+    assert all(r["verdict"] == "held" and "move-block" in r["reason"] for r in moved)
+
+
+def test_a_pick_opened_move_does_not_hold(env):
+    sp = specs(6)
+    sp[2]["move"] = ("home", "pick")
+    env["db"] = make_db(str(env["tmp"] / "pickmove.db"), sp)
+    code, out = run(env, "backtest", "--split", "dev", "--dry-run", factory=no_factory)
+    assert code == 0 and "move-block" not in out
+
+
+def test_a_database_without_the_moves_table_stops_with_code_2(env):
+    c = sqlite3.connect(env["db"])
+    c.execute("DROP TABLE moves")
+    c.commit()
+    c.close()
+    for args in (("backtest", "--split", "dev", "--dry-run"), ("report",), ("freeze",)):
+        code, _ = run(env, *args, factory=no_factory)
+        assert code == 2
+    assert results(env) == []
+
+
+def test_a_state_dir_outside_the_permitted_root_is_refused_and_created_nowhere(env):
+    elsewhere = str(env["tmp"].parent / "elsewhere-judge")
+    out = io.StringIO()
+    code = cli.main(["--db", env["db"], "--ledger", env["ledger"], "--state-dir", elsewhere, "report"], out=out)
+    assert code == 2 and not os.path.exists(elsewhere)
+
+
+def test_a_state_dir_symlinked_out_of_the_permitted_root_is_refused(env):
+    outside = env["tmp"].parent / f"{env['tmp'].name}-outside"
+    outside.mkdir()
+    try:
+        link = env["tmp"] / "linked"
+        os.symlink(outside, link)
+        out = io.StringIO()
+        code = cli.main(["--db", env["db"], "--ledger", env["ledger"], "--state-dir", str(link), "report"], out=out)
+        assert code == 2 and os.listdir(outside) == []
+    finally:
+        os.rmdir(outside)
+
+
+def test_result_rows_say_whether_a_ruling_backs_the_choice(env):
+    run(env, "backtest", "--split", "dev", factory=fake_factory())
+    sent = [r for r in results(env) if r.get("choice")]
+    assert sent and all("cite_ok" in r for r in sent)
+    assert all(r["cite_ok"] is True for r in sent if r["verdict"] == "decided")
+
+
+def test_provider_exhaustion_is_a_terminal_held_row_with_provenance_and_counts_in_the_report(env):
+    ns = namespace(env, "backtest", "--split", "dev")
+    ctx = cli.load_ctx(ns)
+    m = cli.get_manifest(ctx, ns)
+    (item,) = cli.split_items(m, "dev", 1)
+    clock = Clock(datetime(2027, 1, 1, tzinfo=timezone.utc))
+    down = fake_factory(lambda call: http_failure(503))
+    t1 = cli.run_live(ctx, [item], "backtest-dev", m.id, down, False, clock=clock)
+    assert t1["operational_error"] == 1 and results(env) == []
+    clock.now += timedelta(hours=25)
+    t2 = cli.run_live(ctx, [item], "backtest-dev", m.id, down, False, clock=clock)
+    assert t2["gave_up"] == 1 and len(down.calls) == 1
+    (row,) = results(env)
+    assert row["verdict"] == "held" and row["reason"].startswith("provider-unavailable")
+    assert row["manifest_id"] == m.id and row["split"] == "dev" and row["revision"] == "1"
+    ev = rp.evaluate(m, ctx.store.results(), ctx.cfg_hash, "backtest-dev", "dev")
+    assert ev.n_judged == 1 and ev.holds["provider-unavailable"] == 1
+
+
+def test_a_completed_call_logs_one_attempt_before_its_terminal_row(env):
+    f = fake_factory()
+    run(env, "backtest", "--split", "dev", "--limit", "3", factory=f)
+    attempts = [json.loads(line) for line in open(os.path.join(env["state"], "attempts.jsonl"))]
+    rows = {r["decision_id"]: r for r in results(env)}
+    assert len(attempts) == len(f.calls) >= 1
+    for a in attempts:
+        assert a["operational"] is False and a["error_class"] is None
+        assert parse_ts(a["ts"]) <= parse_ts(rows[a["decision_id"]]["ts"])
+
+
+def test_a_non_operational_provider_error_logs_one_attempt_and_one_held_row(env):
+    bad = fake_factory(lambda call: http_failure(400))
+    run(env, "backtest", "--split", "dev", "--limit", "3", factory=bad)
+    attempts = [json.loads(line) for line in open(os.path.join(env["state"], "attempts.jsonl"))]
+    sent = [r for r in results(env) if r.get("error_class") == "http_4xx"]
+    assert len(attempts) == len(bad.calls) == len(sent) >= 1
+    assert all(r["verdict"] == "held" and r["reason"] == "provider-error" for r in sent)
+    assert all(a["operational"] is False and a["error_class"] == "http_4xx" for a in attempts)
+
+
+def test_report_prints_the_structural_evidence_line(env):
+    code, out = run(env, "report", "--split", "dev")
+    assert code == 0 and "structural evidence" in out and "reversible true=" in out and "root-run blocks: unestablished" in out

@@ -5,7 +5,7 @@ written. `--dry-run` builds every request and prints what would be sent, calling
 loading no credential. The data.db is opened read-only and the ledger O_RDONLY.
 
 Exit codes: 0 ok, 2 usage / unsafe path / selector unavailable, 3 credential unavailable,
-4 another run holds the lock, 5 freeze rule.
+4 another run holds the lock, 5 freeze rule, 6 the saved manifest no longer matches the database.
 """
 
 from __future__ import annotations
@@ -26,7 +26,7 @@ from .ask import Ask
 from .families import Families, build_families
 from .ledger import UTC, load_ledger
 from .retrieve import Params, Retrieval, Retriever
-from .store import Key, LockBusy, Store, UnsafePath, utcnow
+from .store import Key, LockBusy, Store, UnsafePath, iso, utcnow
 
 DEFAULT_LEDGER = "~/.local/state/vizier/rulings.jsonl"
 SAFE_NAME = re.compile(r"[^A-Za-z0-9_.-]")
@@ -78,6 +78,8 @@ def load_ctx(a: argparse.Namespace) -> Ctx:
     conn = dbro.open_ro(db)
     try:
         decisions = dbro.load_decisions(conn)
+    except dbro.SchemaError as exc:
+        raise CliError(f"structural flags unavailable, nothing sent: {exc}") from exc
     finally:
         conn.close()
     cfg = make_cfg(a)
@@ -131,17 +133,27 @@ def retrieve(ctx: Ctx, ask: Ask, item: Item) -> Retrieval:
     return ctx.retriever.search(ask.search_text(), item.cutoff, item.family_cards)
 
 
+def provenance(ask: Ask | None, ret: Retrieval | None, item: Item, manifest_id: str) -> dict:
+    """What every terminal row carries so a report can place it: manifest, split, revision and
+    the retrieval facts. A hold written before or without a model call carries them too."""
+    row: dict = {"manifest_id": manifest_id, "split": item.split}
+    if ask is not None:
+        row.update(revision=ask.revision, recommendation=ask.recommendation)
+    if ret is not None:
+        row.update(corpus_hash=ret.corpus_hash, cand_hash=ret.cand_hash,
+                   retrieval={"available": ret.available, "leak_excluded": ret.leak_excluded, "truncated": ret.truncated,
+                              "citable": len(ret.citable), "context": len(ret.context)})
+    return row
+
+
 def result_row(out: judge.Outcome, ask: Ask, ret: Retrieval, item: Item, manifest_id: str) -> dict:
     return {
+        **provenance(ask, ret, item, manifest_id),
         "verdict": out.verdict, "option": out.option, "reason": out.reason, "confidence": out.confidence, "choice": out.choice,
-        "recommendation": ask.recommendation, "cite_ref": out.cite_ref, "cite_method": out.cite_method, "probabilities": out.probabilities,
+        "cite_ref": out.cite_ref, "cite_ok": out.cite_ok, "cite_method": out.cite_method, "probabilities": out.probabilities,
         "error_class": out.error_class, "excerpt": out.excerpt, "http_status": out.http_status,
         "input_tokens": out.input_tokens, "output_tokens": out.output_tokens, "latency_ms": out.latency_ms,
         "request_sha256": out.request_sha256, "cand_ids": out.cand_ids,
-        "manifest_id": manifest_id, "corpus_hash": ret.corpus_hash, "cand_hash": ret.cand_hash, "revision": ask.revision,
-        "retrieval": {"available": ret.available, "leak_excluded": ret.leak_excluded, "truncated": ret.truncated,
-                      "citable": len(ret.citable), "context": len(ret.context)},
-        "split": item.split,
     }
 
 
@@ -178,30 +190,35 @@ def dry_run(ctx: Ctx, items: list[Item], keep: bool) -> Counter:
 
 
 def run_live(ctx: Ctx, items: list[Item], mode: str, manifest_id: str, factory: Callable[[selmod.Selector], Callable[[Any], Any]],
-             keep: bool, now: datetime | None = None) -> Counter:
+             keep: bool, clock: Callable[[], datetime] = utcnow) -> Counter:
+    """Judge each item once. Every row is stamped when it is appended (`clock()`), never with the
+    scan-start time, so a pick made during a slow call is seen to precede the verdict. Retrieval
+    cutoffs belong to the item and are not touched here."""
     tally: Counter = Counter()
     transport = None
     with ctx.store.locked() as store:
         for item in items:
             key = Key(item.decision_id, mode, ctx.cfg_hash)
-            due = store.due(key, now)
+            due = store.due(key, clock())
             if due.action == "terminal":
                 tally["already_done"] += 1
                 continue
             if due.action == "wait":
                 tally["waiting_backoff"] += 1
                 continue
+            ask = ctx.asks.get(item.decision_id)
             if due.action == "give_up":
-                store.give_up(key, now)
+                ret = retrieve(ctx, ask, item) if ask is not None else None
+                store.give_up(key, provenance(ask, ret, item, manifest_id), clock())
                 tally["gave_up"] += 1
                 continue
-            ask = ctx.asks.get(item.decision_id)
             if ask is None:
-                store.write_terminal(key, {"verdict": "held", "reason": "unparseable", "manifest_id": manifest_id, "split": item.split}, now)
+                store.write_terminal(key, {"verdict": "held", "reason": "unparseable", **provenance(None, None, item, manifest_id)}, clock())
                 tally["held:unparseable"] += 1
                 continue
             ret = retrieve(ctx, ask, item)
             prepared = judge.prepare(ctx.sel, ask, ret, ctx.cfg)
+            called = False
             if isinstance(prepared, judge.Outcome):
                 out = prepared
             else:
@@ -210,14 +227,40 @@ def run_live(ctx: Ctx, items: list[Item], mode: str, manifest_id: str, factory: 
                 if transport is None:
                     transport = factory(ctx.sel)
                 out = judge.execute(ctx.sel, ask, ret, prepared, ctx.cfg, transport)
+                called = True
+            if called:
+                # One event per completed provider attempt, written before any terminal row.
+                store.log_attempt(key, error_class=out.error_class, operational=out.operational, http_status=out.http_status,
+                                  text=out.excerpt, now=clock(), request_sha256=out.request_sha256, verdict=out.verdict)
             if out.operational:
-                store.log_attempt(key, error_class=out.error_class, operational=True, http_status=out.http_status, text=out.excerpt,
-                                  now=now, request_sha256=out.request_sha256)
                 tally["operational_error"] += 1
                 continue
-            store.write_terminal(key, result_row(out, ask, ret, item, manifest_id), now)
+            store.write_terminal(key, result_row(out, ask, ret, item, manifest_id), clock())
             tally[out.verdict or "none"] += 1
     return tally
+
+
+def check_replay(ctx: Ctx, m: mf.Manifest, items: list[Item]) -> None:
+    """A manifest freezes what was evaluated. Before any request is built, every item has to match
+    the database's current ask on revision, body hash, delegability and filing time; otherwise an
+    edited ask would be judged against its old label and cutoff."""
+    drifted: list[str] = []
+    for it in items:
+        e = m.by_id(it.decision_id)
+        d = ctx.by_id.get(it.decision_id)
+        ask = ctx.asks.get(it.decision_id)
+        if e is None or d is None or ask is None:
+            drifted.append(f"{it.decision_id}: missing")
+        elif ask.revision != e.revision:
+            drifted.append(f"{it.decision_id}: revision")
+        elif ask.body_sha256 != e.body_sha256:
+            drifted.append(f"{it.decision_id}: body")
+        elif bool(ask.delegable) != bool(e.delegable):
+            drifted.append(f"{it.decision_id}: delegable")
+        elif d.filed_at is None or iso(d.filed_at) != e.filed_at:
+            drifted.append(f"{it.decision_id}: filed_at")
+    if drifted:
+        raise CliError(f"manifest {m.id[:16]} no longer matches the database ({len(drifted)} changed, first {drifted[0]}); nothing sent", 6)
 
 
 # ---- commands -----------------------------------------------------------------------
@@ -259,6 +302,7 @@ def cmd_backtest(a: argparse.Namespace, out: TextIO, factory: Callable) -> int:
         except mf.FreezeError as exc:
             raise CliError(str(exc), 5) from exc
     items = split_items(m, a.split, a.limit)
+    check_replay(ctx, m, items)
     emit(out, manifest_lines(m))
     emit(out, [f"config {ctx.cfg_hash[:16]} split={a.split} items={len(items)} dry_run={a.dry_run}"])
     if a.dry_run:
@@ -310,7 +354,7 @@ def cmd_shadow(a: argparse.Namespace, out: TextIO, factory: Callable) -> int:
         tally = dry_run(ctx, items, a.keep_requests)
         emit(out, ["would send: %d requests" % tally.pop("would_send", 0)] + [f"  {k}: {v}" for k, v in sorted(tally.items()) if k != "wire_bytes"])
         return 0
-    tally = run_live(ctx, items, "shadow", m.id, factory, a.keep_requests, now)
+    tally = run_live(ctx, items, "shadow", m.id, factory, a.keep_requests)
     emit(out, ["run: " + ", ".join(f"{k}={v}" for k, v in sorted(tally.items()))])
     return 0
 
@@ -340,7 +384,8 @@ def cmd_report(a: argparse.Namespace, out: TextIO, _factory: Callable) -> int:
         res = rp.ablation(m, results, results, h0, h1)
         chunks.append(json.dumps(res, sort_keys=True, indent=1, default=str))
     else:
-        ev = rp.evaluate(m, results, ctx.cfg_hash, f"backtest-{a.split}", a.split, a.sub)
+        scope = [ctx.asks.get(e.decision_id) for e in m.entries if e.split == a.split]
+        ev = rp.evaluate(m, results, ctx.cfg_hash, f"backtest-{a.split}", a.split, a.sub, structure=rp.structure_coverage(scope))
         chunks.append(json.dumps(ev.as_dict(), sort_keys=True, indent=1) if a.json else ev.text())
     if a.audit_sample:
         chunks.append("`other` audit sample (raw words, mark each as equivalent to an option or not):")

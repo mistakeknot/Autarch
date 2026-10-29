@@ -99,7 +99,7 @@ def build_refs(decisions: list[DecisionRec], asks: dict) -> list[DecisionRef]:
 
 
 def parse_asks(decisions: list[DecisionRec]) -> dict:
-    return {d.id: parse_ask(d.id, d.revision, d.body_json, d.filed_at_raw, d.delegable) for d in decisions}
+    return {d.id: parse_ask(d.id, d.revision, d.body_json, d.filed_at_raw, d.delegable, d.card_move) for d in decisions}
 
 
 def build_manifest(decisions: list[DecisionRec], label_cutoff: datetime, now: datetime | None = None) -> Manifest:
@@ -177,10 +177,53 @@ def load_manifest(store: Store, manifest_id: str) -> Manifest:
     return Manifest.from_json(open(store.path(f"manifest-{manifest_id[:16]}.json")).read())
 
 
+COHORT_FILE = "test-cohort.json"
+
+
+def _test_ids(m: Manifest) -> set[str]:
+    return {e.decision_id for e in m.entries if e.split == "test"}
+
+
+def _load_cohort(store: Store) -> list[dict]:
+    path = store.path(COHORT_FILE)
+    if not os.path.exists(path):
+        return []
+    return json.load(open(path)).get("freezes", [])
+
+
+def _cohort_conflict(store: Store, m: Manifest, config_hash: str) -> str | None:
+    """The test cohort belongs to the experiment, not to one manifest. A new label cutoff or a
+    newly picked decision gives another manifest, but its test decisions that were already frozen
+    or evaluated under a different configuration cannot be reused with changed settings. Same
+    configuration (a retry or a replay) is always allowed."""
+    ids = _test_ids(m)
+    for f in _load_cohort(store):
+        if f["config_hash"] != config_hash and ids & set(f["decisions"]):
+            return "test decisions were already frozen with a different configuration"
+    for r in store.results():
+        if str(r.get("mode", "")).endswith("-test") and r.get("decision_id") in ids and r.get("config_hash") != config_hash:
+            return "test decisions were already evaluated with a different configuration"
+    return None
+
+
+def _record_cohort(store: Store, m: Manifest, config_hash: str, frozen_at: str) -> None:
+    freezes = _load_cohort(store)
+    freezes.append({"manifest_id": m.id, "config_hash": config_hash, "frozen_at": frozen_at, "decisions": sorted(_test_ids(m))})
+    path = store.path(COHORT_FILE)
+    tmp = store.path(COHORT_FILE + ".tmp")
+    fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC | os.O_NOFOLLOW, 0o600)
+    try:
+        os.write(fd, json.dumps({"freezes": freezes}, sort_keys=True).encode())
+        os.fsync(fd)
+    finally:
+        os.close(fd)
+    os.replace(tmp, path)
+
+
 def freeze_config(store: Store, m: Manifest, config_hash: str, now: datetime | None = None) -> str:
-    """Record the tuned configuration before the test split runs. One freeze per manifest; a
-    different configuration after test results exist is refused (a failed test is a report, not
-    another tuning round)."""
+    """Record the tuned configuration before the test split runs. A different configuration after
+    test results exist is refused (a failed test is a report, not another tuning round), for this
+    manifest and for any later manifest whose test cohort overlaps an earlier freeze or evaluation."""
     path = store.path(f"frozen-{m.id[:16]}.json")
     if os.path.exists(path):
         cur = json.load(open(path))
@@ -189,7 +232,12 @@ def freeze_config(store: Store, m: Manifest, config_hash: str, now: datetime | N
         return path
     if any(r.get("manifest_id") == m.id and str(r.get("mode", "")).endswith("-test") for r in store.results()):
         raise FreezeError("test results already exist for this manifest")
-    _write_new(path, json.dumps({"manifest_id": m.id, "config_hash": config_hash, "frozen_at": iso(now or utcnow())}, sort_keys=True))
+    conflict = _cohort_conflict(store, m, config_hash)
+    if conflict:
+        raise FreezeError(conflict)
+    stamp = iso(now or utcnow())
+    _write_new(path, json.dumps({"manifest_id": m.id, "config_hash": config_hash, "frozen_at": stamp}, sort_keys=True))
+    _record_cohort(store, m, config_hash, stamp)
     return path
 
 
@@ -199,3 +247,6 @@ def require_frozen(store: Store, m: Manifest, config_hash: str) -> None:
         raise FreezeError("the test split needs a frozen configuration; freeze it after tuning on dev")
     if json.load(open(path))["config_hash"] != config_hash:
         raise FreezeError("configuration differs from the frozen one")
+    conflict = _cohort_conflict(store, m, config_hash)
+    if conflict:
+        raise FreezeError(conflict)

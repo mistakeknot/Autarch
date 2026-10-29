@@ -14,8 +14,8 @@ def entry(i, pick="a", kind="option", first=True, split="dev", sub="tune", picke
                  family_cards=(), delegable=1, split=split, sub=sub)
 
 
-def row(i, verdict="decided", option="a", conf=0.95, rec=None, reason=None, choice=None, mode="m", cfg="c", ts="2026-02-15T00:00:00Z"):
-    return {"decision_id": f"d{i}", "manifest_id": "M", "config_hash": cfg, "mode": mode, "verdict": verdict, "option": option,
+def row(i, verdict="decided", option="a", conf=0.95, rec=None, reason=None, choice=None, mode="m", cfg="c", ts="2026-02-15T00:00:00Z", cite_ok=True):
+    return {"cite_ok": cite_ok, "decision_id": f"d{i}", "manifest_id": "M", "config_hash": cfg, "mode": mode, "verdict": verdict, "option": option,
             "confidence": conf, "recommendation": rec, "reason": reason or verdict, "choice": choice or option, "ts": ts}
 
 
@@ -77,8 +77,42 @@ def test_paired_comparison_and_baseline_on_decided():
         row(5, "decided", "a", rec=None),  # no recommendation: out of the pairing
     ]
     r = ev(es, rows)
-    assert r.paired == {"both": 1, "judge_only": 1, "baseline_only": 1, "neither": 1}
+    # A hold or a send-back is not the judge being wrong, so it adds nothing to either side of the pairing.
+    assert r.paired == {"both": 1, "judge_only": 1, "neither": 1}
     assert (r.baseline_on_decided.k, r.baseline_on_decided.n) == (1, 3)  # decided with rec: d1 ok, d2 wrong, d4 wrong
+
+
+def test_held_and_sent_back_rows_do_not_enter_the_paired_comparison():
+    es = [entry(i, "a") for i in range(1, 4)]
+    rows = [row(1, "held", None, rec="a", reason="gate:merge"), row(2, "sent_back", None, rec="a"), row(3, "held", None, rec="b", reason="no-cite")]
+    r = ev(es, rows)
+    assert r.paired == {} and (r.baseline_on_decided.k, r.baseline_on_decided.n) == (0, 0)
+
+
+def test_curve_leaves_off_rows_without_a_citable_ruling():
+    es = [entry(i, "a") for i in range(3)]
+    rows = [row(0, "held", None, conf=0.97, choice="a", reason="no-cite", cite_ok=False),
+            row(1, "decided", "a", conf=0.96),
+            {k: v for k, v in row(2, "decided", "a", conf=0.96).items() if k != "cite_ok"}]  # older row, no field
+    c = rp.curve(list(zip(rows, es)))
+    assert all(p["decided"] == 1 and p["correct"] == 1 for p in c if p["t"] <= 0.95)
+    assert c[0]["judged"] == 3
+
+
+def test_structure_coverage_counts_reversible_values_move_and_root_run():
+    from tools.rulingjudge.ask import parse_ask
+    import json
+    opts = [{"id": "a", "kind": "ruling-only", "label": "A", "reversible": True},
+            {"id": "b", "kind": "ruling-only", "label": "B"},
+            {"id": "c", "kind": "instruction", "label": "C"}]
+    body = json.dumps({"question": "q", "subject": "s", "project": "p", "options": opts})
+    asks = [parse_ask("d1", "1", body, "2026-02-01T00:00:00Z", 1, True), None]
+    c = rp.structure_coverage(asks)
+    assert c["asks"] == 1 and c["options"] == 2
+    assert (c["reversible_true"], c["reversible_false"], c["reversible_absent"]) == (1, 0, 1)
+    assert c["card_move"] == 1 and c["root_run_structured"] == "unestablished"
+    r = ev([entry(1, "a")], [row(1)], structure=c)
+    assert r.as_dict()["structure"] == c and "reversible true=1" in r.text() and "unestablished" in r.text()
 
 
 def test_other_picks_held_vs_sent_back_reported_separately():

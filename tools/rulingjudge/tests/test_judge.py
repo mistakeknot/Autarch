@@ -184,6 +184,18 @@ def test_decided_with_cite():
     assert out.input_tokens == 100 and out.output_tokens == 5
 
 
+def test_cite_ok_is_true_when_a_ruling_backs_the_choice():
+    out, *_ = run(with_probs("alpha"))
+    assert out.cite_ok is True
+
+
+def test_cite_ok_is_false_on_a_no_cite_hold_at_any_confidence():
+    ask = make_ask(options=[{"id": "zeta", "kind": "ruling-only", "label": "Quantum zebra"},
+                            {"id": "eta", "kind": "ruling-only", "label": "Plasma yak"}])
+    out, *_ = run(with_probs("zeta", p=0.99), ask=ask)
+    assert out.reason == "no-cite" and out.cite_ok is False and out.choice == "zeta"
+
+
 def test_cite_is_never_a_non_mk_row():
     out, *_ = run(with_probs("alpha"))
     assert out.cite_ref["id"] != "r2"  # r2 is a vizier row: context only
