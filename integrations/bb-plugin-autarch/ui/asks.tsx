@@ -4,6 +4,7 @@ import { Fragment, useEffect, useRef, useState, type ReactNode } from "react";
 import { ActionButton, RecommendedMark } from "./buttons.js";
 import { CONFIRM_LABEL, ConfirmTap } from "./confirmtap.js";
 import { CardConversation } from "./conversation.js";
+import { clickStarted, paintDone } from "./clicktiming.js";
 import { splitCommands, type CommandRole } from "./commandtext.js";
 import { CommandBlock } from "./copy.js";
 import { glance, GlanceBlock, type GlanceAnswer } from "./glance.js";
@@ -398,6 +399,7 @@ export function DecideQueue({ owed, onPick, onOpen, nowMs, onNote, onLater, onVi
   // Tell the plugin which ask is on screen, so `bb home viewing` can answer "which card is mk looking at".
   useEffect(() => {
     onView?.(viewingId);
+    paintDone();
   }, [viewingId]); // eslint-disable-line react-hooks/exhaustive-deps
   const cardRef = useRef<HTMLDivElement>(null);
   const listRef = useRef<HTMLOListElement>(null);
@@ -424,6 +426,7 @@ export function DecideQueue({ owed, onPick, onOpen, nowMs, onNote, onLater, onVi
                 aria-current={o.id === current.id ? "true" : undefined}
                 className={`min-h-11 w-full rounded border px-2 py-1.5 text-left ${o.id === current.id ? "border-primary bg-muted" : "border-border"}`}
                 onClick={() => {
+                  if (o.id !== current.id) clickStarted();
                   setSelected(o.id);
                   reveal();
                 }}
