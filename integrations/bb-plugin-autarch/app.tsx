@@ -21,6 +21,7 @@ import { cn } from "@/lib/utils";
 import { AsksPanel, PickController, imagesSig, pickOutcome, laterOutcome } from "./ui/asks.js";
 import { DocReaderHost, type DocReaderApi, type DocResultT } from "./ui/docreader.js";
 import type { OtherImage } from "./ui/other.js";
+import { setTimingSink, timed } from "./ui/clicktiming.js";
 import { ConversationProvider, type ConversationApi, type ConversationData } from "./ui/conversation.js";
 import type { MoveHandlers } from "./ui/yourmove.js";
 import type { MoveViewGroups } from "./moveview.js";
@@ -281,10 +282,14 @@ function useConversationApi(rpc: ReturnType<typeof useRpc<typeof rpcContract>>):
     const t = setInterval(refetch, POLL_MS);
     return () => clearInterval(t);
   }, [refetch]);
+  useEffect(() => {
+    setTimingSink((t) => void rpc.call("clickTiming", t).catch(() => {}));
+    return () => setTimingSink(null);
+  }, [rpc]);
   return useMemo(
     () => ({
       unread,
-      load: (task_id) => rpc.call("conversation", { task_id }).then((d) => d as unknown as ConversationData),
+      load: (task_id) => timed("conversation", rpc.call("conversation", { task_id })).then((d) => d as unknown as ConversationData),
       markSeen: (task_id, through) => void rpc.call("markConversationSeen", { task_id, through }).then(refetch, () => {}),
     }),
     [rpc, unread, refetch],
@@ -593,7 +598,7 @@ function HomePage({ subPath }: { subPath?: string }) {
             onDismiss={(decision_id, obligation_id) => void rpc.call("dismiss", { decision_id, obligation_id }).then(refetch, () => {})}
             onOpen={(thread) => push({ id: `thread:${thread}`, kind: "thread", title: thread, ref: thread })}
             onRevoke={(approval_id) => void rpc.call("revokeApproval", { approval_id }).then(refetch, () => {})}
-            onView={(decision_id) => void rpc.call("setViewing", { decision_id }).catch(() => {})}
+            onView={(decision_id) => void timed("setViewing", rpc.call("setViewing", { decision_id })).catch(() => {})}
             onPick={(decision_id, option_id, revision, reason, images, answers) => {
               return pickOutcome(picks.send((req) => rpc.call("pick", req) as never, { decision_id, option_id, revision, ...(reason !== undefined ? { reason } : {}), ...(images && images.length > 0 ? { images } : {}), ...(answers ? { answers } : {}) }, refetchAll)).finally(refetchAll);
             }}
@@ -693,7 +698,7 @@ function HomePage({ subPath }: { subPath?: string }) {
             onNote={(decision_id, text, images) => yourMove.note({ decision_id }, text, images)}
             onLater={(ref, on) => laterOutcome(rpc.call(on ? "later" : "unlater", { ref })).then((o) => { refetchAll(); return o; })}
             onOpen={openBeside}
-            onView={(decision_id) => void rpc.call("setViewing", { decision_id }).catch(() => {})}
+            onView={(decision_id) => void timed("setViewing", rpc.call("setViewing", { decision_id })).catch(() => {})}
             onPick={(decision_id, option_id, revision, reason, images, answers) => {
               return pickOutcome(picks.send((req) => rpc.call("pick", req) as never, { decision_id, option_id, revision, ...(reason !== undefined ? { reason } : {}), ...(images && images.length > 0 ? { images } : {}), ...(answers ? { answers } : {}) }, refetchAll)).finally(refetchAll);
             }}

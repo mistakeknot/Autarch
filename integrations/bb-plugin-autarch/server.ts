@@ -492,15 +492,25 @@ export function wireHome(bb: BbPluginApi, handle: StoreHandle, cfg: HomeConfig, 
 
   // ---- RPC ------------------------------------------------------------------------
   const learnDir = join(dirname(fileURLToPath(import.meta.url)), "learn");
-  // Thread titles are a read-only peek; when the thread list cannot be read the card shows the thread id.
+  // Thread titles are a read-only peek, so they never block a read: the last known titles answer at once and one
+  // background refresh (never two at a time) updates them for the next read. Before the first refresh lands the card
+  // shows the thread id (bead mk-yaq27: listing every thread took 1.2-1.4 s and held the whole inbox read).
+  let titleMap = new Map<string, string>();
+  let titleAt = 0;
+  let titleRefresh: Promise<void> | null = null;
   const threadTitles = async (): Promise<Map<string, string>> => {
-    try {
-      // Bounded: a slow thread list must not hold the inbox, so the ids show after 1.5 s.
-      const rows = await Promise.race([listThreadRows({ cached: true }), new Promise<ThreadRow[]>((_, no) => setTimeout(() => no(new Error("thread list slow")), 1500).unref?.())]);
-      return new Map(rows.filter((t) => t.title).map((t) => [t.id, t.title as string]));
-    } catch {
-      return new Map(); // show ids
+    if (!titleRefresh && Date.now() - titleAt >= 3000) {
+      titleRefresh = listThreadRows({ cached: true })
+        .then((rows) => {
+          titleMap = new Map(rows.filter((t) => t.title).map((t) => [t.id, t.title as string]));
+          titleAt = Date.now();
+        })
+        .catch(() => {}) // show the last known titles, or ids
+        .finally(() => {
+          titleRefresh = null;
+        });
     }
+    return titleMap;
   };
   const handlers = {
     async listAsks(_: null) {
@@ -727,6 +737,11 @@ export function wireHome(bb: BbPluginApi, handle: StoreHandle, cfg: HomeConfig, 
       }
       if (!p.svc.owed().some((d) => d.id === i.decision_id)) return { ok: false, error: "not an open ask" };
       p.store.setSetting("viewing", JSON.stringify({ decision_id: i.decision_id, at: p.svc.time() }));
+      return { ok: true };
+    },
+    /** The panel's own timing of a card click, written to the plugin log so it can be read after mk's click (bead mk-yaq27). */
+    async clickTiming(i: { kind: string; ms: number; width: number }) {
+      bb.log.info(`click-timing ${i.kind} ${i.ms}ms width=${i.width}`);
       return { ok: true };
     },
     /** The state of the card with this key, for the link /plugins/autarch/home/<KEY>; reads one row. */

@@ -41,7 +41,7 @@ describe("wireHome", () => {
     expect(f.services.sort()).toEqual(["home-card-comments", "home-delegation-check", "home-feed-refresh", "home-move-poll", "home-move-reports", "home-queue", "home-wakes"]);
     expect(f.configure()).toBeTypeOf("function");
     expect(f.cli()).toBeDefined();
-    expect(Object.keys(home.handlers).sort()).toEqual(["actIdea", "cardState", "catchup", "checkMove", "claimMove", "clearIdeaDigest", "conversation", "conversationUnread",
+    expect(Object.keys(home.handlers).sort()).toEqual(["actIdea", "cardState", "catchup", "checkMove", "claimMove", "clearIdeaDigest", "clickTiming", "conversation", "conversationUnread",
       "decisionCount", "dismiss", "fileIdea", "health", "ideaProjects", "ideas", "later", "learn", "learnSet", "listAsks", "listRecent", "markAllSeen", "markConversationSeen", "markSeen", "moves", "note", "openTarget", "override", "pick", "queue", "readDoc", "requestUpdate", "resend", "revokeApproval", "rootRun", "setBinding", "setDelegation", "setViewing", "skipMove", "stats", "unlater", "updateInfo", "waiting"]);
     f.disposers.forEach((d) => d());
   });
@@ -173,6 +173,32 @@ describe("wireHome", () => {
       expect(r.status).toBe(201);
       await vi.waitFor(() => expect(sdk.sent.length).toBe(1));
       expect(sdk.sent[0]!.threadId).toBe("thr-a");
+      f.disposers.forEach((d) => d());
+    } finally {
+      env.cleanup();
+    }
+  });
+
+  it("listAsks does not wait on the thread list for titles: it answers at once and the next read has them (bead mk-yaq27)", async () => {
+    const env = makeEnv();
+    try {
+      let release: (rows: object[]) => void = () => {};
+      const gate = new Promise<object[]>((r) => (release = r));
+      let calls = 0;
+      const threads = { list: vi.fn(async () => (calls++ === 0 ? gate : [])), get: vi.fn(async () => null) };
+      const handle = createStoreHandle(() => new Database(env.file), {});
+      const f = fakeBb(threads);
+      const own = { projects: async () => env.projects, health: async () => ({}), healthy: async () => true } as unknown as ServeClient;
+      const home = wireHome(f.bb, handle, cfg, { serve: own });
+      await new Promise((r) => setTimeout(r, 20));
+      const filed = await env.open().file(ask(env), { threadId: "thr-a" });
+      if (!filed.ok) throw new Error(filed.error);
+      const t0 = Date.now();
+      const first = await home.handlers.listAsks(null);
+      expect(Date.now() - t0).toBeLessThan(400);
+      expect(first.owed[0]!.thread_title).toBeNull();
+      release([{ id: "thr-a", title: "Autarch | coordinator" }]);
+      await vi.waitFor(async () => expect((await home.handlers.listAsks(null)).owed[0]!.thread_title).toBe("Autarch | coordinator"));
       f.disposers.forEach((d) => d());
     } finally {
       env.cleanup();
