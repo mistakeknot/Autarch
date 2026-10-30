@@ -170,15 +170,13 @@ function selfContained(text: string): boolean {
  * and the fence stays as it is. */
 function fencedCommands(fence: { info: string; inner: string[] }): string[] | null {
   if (!SHELL_FENCE.has(fence.info)) return null;
-  const body = fence.inner.map((l) => l.replace(/\r$/, ""));
-  while (body.length > 0 && body[0]!.trim() === "") body.shift();
-  while (body.length > 0 && body[body.length - 1]!.trim() === "") body.pop();
-  if (body.length === 0) return null;
+  const body = fence.inner;
+  if (body.every((l) => l.trim() === "")) return null;
   const each: string[] = [];
-  let split = true;
+  // Split into one block per line only when no character between the fence lines would be left out: a blank line or a carriage return keeps the fence whole.
+  let split = body.every((l) => l.trim() !== "" && !l.includes("\r"));
   for (let k = 0; k < body.length && split; k++) {
     const line = body[k]!;
-    if (line.trim() === "") continue;
     const typed = line.startsWith("$ ") ? line.slice(2) : line;
     const joined = [typed];
     while (CONTINUES.test(joined[joined.length - 1]!) && k + 1 < body.length) joined.push(body[++k]!);
@@ -188,12 +186,13 @@ function fencedCommands(fence: { info: string; inner: string[] }): string[] | nu
     if (split) each.push(text);
   }
   if (split) return each;
-  if (body.some((l) => /^\s*\$ /.test(l)) || commandOf(body[0]!) === null) return null;
+  const first = body.find((l) => l.trim() !== "")!;
+  if (body.some((l) => /^\s*\$ /.test(l)) || commandOf(first.replace(/\r$/, "")) === null) return null;
   return [fence.inner.join("\n")]; // every character between the fence lines, blank edge lines included
 }
 
-/** Text between two backticked commands on one line that only joins them ("`a` and `b`", "`a`, `b`"): the second shares the first's lead. */
-const JOINER = /^[\s,;]*(?:and|or|&)?[\s,;]*$/i;
+/** Text between two backticked commands on one line that only joins them ("`a` and `b`", "`a`, `b`", "`a` && `b`"): the second shares the first's lead. */
+const JOINER = /^[\s,;]*(?:and|or|&&|\|\||&|;)?[\s,;]*$/i;
 
 /** A command written inside a sentence after a colon ("paste one line: scp host:/p /tmp/x && bash /tmp/x (sha256 ...). It builds"). */
 function inlineOf(line: string): { before: string; commands: string[]; after: string } | null {

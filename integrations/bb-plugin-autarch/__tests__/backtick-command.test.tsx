@@ -127,6 +127,24 @@ describe("what the review found (round 3)", () => {
   });
 });
 
+describe("what the review found (round 4)", () => {
+  it("commands joined by && or || after an undo lead are all undo", () => {
+    for (const join of ["&&", "||", ";", "or"]) {
+      const c = cmds(`Run \`${RUN}\`.\nUndo: \`bash /y.sh down\` ${join} \`bash /z.sh down\``);
+      expect(c.map((p) => p.role)).toEqual(["final", "undo", "undo"]);
+    }
+  });
+  it("a plain fenced command with blank lines around it is copied with every character between the fence lines", () => {
+    const parts = cmds("```bash\n\n" + CHECK + "\n\n\n```");
+    expect(parts.map((p) => p.text)).toEqual(["\n" + CHECK + "\n\n"]);
+  });
+  it("blank, whitespace-only or carriage-return lines inside a fence keep the fence whole and as written", () => {
+    for (const inner of [CHECK + "\n\n" + RUN, CHECK + "\n   \n" + RUN, CHECK + "\r\n" + RUN]) {
+      expect(cmds("```bash\n" + inner + "\n```").map((p) => p.text)).toEqual([inner]);
+    }
+  });
+});
+
 describe("backticked words that are not commands", () => {
   it("stay prose, backticks and all", () => {
     for (const s of ["Pass `--check` first.", "It writes `m10-deploy.sh` and `/tmp/out.json`.", "Use `bash` here.", "Note: `bash scripts` need review.", "The `bb` CLI is on PATH.", "A ``bash /x.sh`` double span is left alone."]) {
