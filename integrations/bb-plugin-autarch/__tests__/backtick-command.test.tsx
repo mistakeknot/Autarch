@@ -186,10 +186,31 @@ describe("what the review found (round 7)", () => {
       expect(cmds("Run `" + chain + "`.\n" + UNDO).map((p) => [p.text, p.role])).toEqual([[chain, "final"], ["bash /srv/work/m10/m10-deploy.sh --rollback", "undo"]]);
     }
   });
-  it("a check with its output redirected or filtered is still a check", () => {
-    for (const check of [`${CHECK} 2>&1`, `${CHECK} &> /tmp/check.log`, `${CHECK} 2>&1 | tail -n 20`, `${CHECK} | tee /tmp/check.log`]) {
+  it("a check with its output redirected is still a check", () => {
+    for (const check of [`${CHECK} 2>&1`, `${CHECK} &> /tmp/check.log`, `${CHECK} >> /tmp/check.log 2>&1`]) {
       expect(cmds("First: `" + check + "`\nThen: `" + RUN + "`").map((p) => [p.text, p.role])).toEqual([[check, "check"], [RUN, "final"]]);
     }
+  });
+});
+
+describe("what the review found (round 8)", () => {
+  it("a pipe, a substitution, a quoted flag or a commented flag never makes a check or an undo", () => {
+    for (const block of [
+      `${CHECK} | tee >(${RUN})`,
+      `bash /srv/work/m10/m10-deploy.sh --rollback | tee >(${RUN})`,
+      `${CHECK} | tail -n 20`,
+      `${CHECK} && tee /srv/live/config`,
+      `${RUN} --message "please --check now"`,
+      `${RUN} --message 'roll back with --rollback'`,
+      `${RUN} # --check`,
+      `${CHECK} $(${RUN})`,
+    ]) {
+      expect(cmds("First: `" + block + "`\nThen: `bash /srv/work/m10/after.sh`").map((p) => p.role)).toEqual(["step", "final"]);
+    }
+  });
+  it("a separator inside quotes does not split a check", () => {
+    const check = `${CHECK} --note "a;b && c"`;
+    expect(cmds("First: `" + check + "`\nThen: `" + RUN + "`").map((p) => p.role)).toEqual(["check", "final"]);
   });
 });
 

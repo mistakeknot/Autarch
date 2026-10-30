@@ -191,9 +191,6 @@ function fencedCommands(fence: { info: string; inner: string[] }): string[] | nu
   return [fence.inner.join("\n")]; // every character between the fence lines, blank edge lines included
 }
 
-/** A command that only reads or filters what it is given, so joining it to a check or an undo does not make a run. */
-const OUTPUT_FILTER = /^(?:tail|head|grep|egrep|tee|less|more|cat|jq|sort|uniq|wc|cut|tr|column)(?:\s|$)/;
-
 /** Text between two backticked commands on one line that only joins them ("`a` and `b`", "`a`, `b`", "`a` && `b`"): the second shares the first's lead. */
 const JOINER = /^[\s,;]*(?:and|or|&&|\|\||&|;)?[\s,;]*$/i;
 
@@ -305,19 +302,17 @@ export function splitCommands(text: string): TextPart[] {
   const cmds = parts.filter((p): p is Extract<TextPart, { type: "command" }> => p.type === "command");
   // Roles follow what a command does, not where it stands: the last command that is neither a check nor an undo is the one to run.
   // A lone command is always the final one, whatever it is.
-  // A block of several commands (a fence kept whole, or commands joined by &&, ||, ;, a pipe or a background &) is a check or an undo by its text only when every command in it is: one real run among them makes it a run.
-  // The split ignores quotes on purpose: a split too many can only turn a check or an undo into a run, never a run into a check. A redirection ("2>&1", "&>log") is not a split.
-  // A command that only reads or filters output ("| tail -n 20") runs nothing, so it does not count.
-  const each = (text: string, test: (command: string) => boolean): boolean => {
-    const commands = text
-      .replace(/\\\r?\n/g, " ")
-      .split(/\n|&&|\|\||;|\||(?<![<>])&(?!>)/)
-      .map((l) => l.trim())
-      .filter((l) => l !== "" && !OUTPUT_FILTER.test(l));
-    return commands.length > 0 && commands.every(test);
+  // A check or an undo by its text is made only of simple commands that each are one: commands joined by a line break, &&, || or ; are judged one by one,
+  // and a pipe, a background &, a substitution or a comment makes the block a run, since it may hold one. Quoted text is blanked first, so a flag or a
+  // separator inside quotes counts for nothing. An output redirection ("2>&1", "&> log") is kept, since it runs nothing.
+  const every = (text: string, test: (command: string) => boolean): boolean => {
+    const bare = text.replace(/\\\r?\n/g, " ").replace(/"(?:\\.|[^"\\])*"|'[^']*'/g, '""');
+    if (/["'\\]/.test(bare.replace(/""/g, ""))) return false;
+    const commands = bare.replace(/\d*>&\d+|&>>?/g, " ").split(/\n|&&|\|\||;/).map((l) => l.trim()).filter((l) => l !== "");
+    return commands.length > 0 && commands.every((l) => !/[|&`#]|\$\(|[<>]\(/.test(l) && test(l));
   };
   const kind = (c: Extract<TextPart, { type: "command" }>): CommandRole =>
-    UNDO_LEAD.test(leads.get(c) ?? "") || each(c.text, isUndoCommand) ? "undo" : each(c.text, (l) => DRY_RUN.test(l)) ? "check" : "step";
+    UNDO_LEAD.test(leads.get(c) ?? "") || every(c.text, isUndoCommand) ? "undo" : every(c.text, (l) => DRY_RUN.test(l)) ? "check" : "step";
   cmds.forEach((c) => { c.role = cmds.length === 1 ? "final" : kind(c); });
   const run = cmds.filter((c) => c.role === "step").pop();
   if (run) run.role = "final";
