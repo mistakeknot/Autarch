@@ -113,6 +113,64 @@ function inlineEnd(rest: string, atParen = true): number {
 /** "scp host:/p /tmp/ then bash /tmp/x.sh": "then" between two commands reads as two steps, so the copied blocks are one command each. */
 const THEN_COMMAND = new RegExp(`\\s+then\\s+(?=(?:${COMMAND_WORDS.join("|")})\\s)`);
 
+/** A command has something that only a command has (a path, flag, operator or variable); "bash scripts" alone is a phrase.
+ * A flag, operator, "=", variable or host path anywhere counts; a plain file or path counts only as the first argument ("bash x.sh"), so "ssh keys in /srv/k.pub" stays prose. */
+function hasCommandPart(piece: string): boolean {
+  const args = piece.slice(piece.indexOf(" ") + 1);
+  return /[=|&;$]|\w:\/|(?:^|\s)-/.test(args) || /^(?:\S*\/\S*|\S*\w\.\w\S*)(?:\s|$)/.test(args);
+}
+
+/** One pair of single backticks ("`bash /x.sh --check`"); a ``double`` span is left alone. */
+const BACKTICK_SPAN = /(?<!`)`([^`\n]+)`(?!`)/g;
+/** What may stand before a backticked command on its own line: a list number or bullet, which is not part of the command. */
+const MARKER_ONLY = /^\s*(?:\(\d{1,3}\)|\d{1,3}[.)]|[-*•])?\s*$/;
+
+/** A command wrapped in one pair of backticks, alone on a line or inside a sentence ("check first: `bash /x.sh --check`").
+ * The backticks go and the command inside comes back exactly as written; a backticked word that is not a command ("`--check`", "`x.sh`") stays prose. */
+function backtickedOf(line: string): { before: string; command: string; after: string } | null {
+  for (const m of line.matchAll(BACKTICK_SPAN)) {
+    const inner = m[1]!;
+    const command = commandOf(inner);
+    if (command === null || (!/^\s*\$ /.test(inner) && !hasCommandPart(command))) continue;
+    const before = line.slice(0, m.index!).replace(/\s+$/, "");
+    return { before: MARKER_ONLY.test(before) ? "" : before, command, after: line.slice(m.index! + m[0].length).replace(/^\s+/, "") };
+  }
+  return null;
+}
+
+/** A fence line ("```", "```bash", "~~~"). */
+const FENCE = /^\s*(`{3,}|~{3,})[\w+-]*\s*$/;
+
+/** A fenced block that holds a command loses its fence lines, so each command inside is a bare copy block, as written.
+ * A fence with no command in it (a log, a JSON sample) and a fence that is never closed are left as they are. */
+function unfence(lines: string[]): string[] {
+  const out: string[] = [];
+  for (let i = 0; i < lines.length; i++) {
+    const open = FENCE.exec(lines[i]!);
+    if (open === null) {
+      out.push(lines[i]!);
+      continue;
+    }
+    const mark = open[1]!;
+    let close = -1;
+    for (let j = i + 1; j < lines.length; j++) {
+      const t = lines[j]!.trim();
+      if (t.length >= mark.length && t === mark[0]!.repeat(t.length)) {
+        close = j;
+        break;
+      }
+    }
+    const inner = close === -1 ? [] : lines.slice(i + 1, close);
+    if (close === -1 || !inner.some((l) => listedCommandOf(l) !== null)) {
+      out.push(lines[i]!);
+      continue;
+    }
+    out.push(...inner);
+    i = close;
+  }
+  return out;
+}
+
 /** A command written inside a sentence after a colon ("paste one line: scp host:/p /tmp/x && bash /tmp/x (sha256 ...). It builds"). */
 function inlineOf(line: string): { before: string; commands: string[]; after: string } | null {
   for (const m of line.matchAll(/:\s+(?=(\S+)\s+\S)/g)) {
@@ -125,12 +183,6 @@ function inlineOf(line: string): { before: string; commands: string[]; after: st
     const pieces = /["'\\]|(?:^|\s)#/.test(whole) ? [whole] : whole.split(THEN_COMMAND);
     if (pieces.some((piece) => commandOf(piece) !== piece)) continue;
     const command = pieces[0]!;
-    // A command has something that only a command has (a path, flag, operator or variable); "bash scripts" alone is a phrase.
-    // A flag, operator, "=", variable or host path anywhere counts; a plain file or path counts only as the first argument ("bash x.sh"), so "ssh keys in /srv/k.pub" stays prose.
-    const hasCommandPart = (piece: string) => {
-      const args = piece.slice(piece.indexOf(" ") + 1);
-      return /[=|&;$]|\w:\/|(?:^|\s)-/.test(args) || /^(?:\S*\/\S*|\S*\w\.\w\S*)(?:\s|$)/.test(args);
-    };
     if (!pieces.every(hasCommandPart)) continue;
     // The whole sentence must not read as prose either ("Note: bash scripts (including this one) need review."): a note in parentheses is not part of the command but is part of that judgement.
     // A digest note ("(sha256 must be <hex>)") is not part of the command and not judged as a sentence, though its words ("must be") are prose.
@@ -157,11 +209,23 @@ export function splitCommands(text: string): TextPart[] {
   };
   const leads = new Map<TextPart, string>(); // the last prose line before each command
   const leadLine = () => [...prose].reverse().find((l) => l.trim() !== "") ?? "";
-  const lines = text.split("\n");
+  const lines = unfence(text.split("\n"));
   for (let i = 0; i < lines.length; i++) {
     const listed = listedCommandOf(lines[i]!);
     const c = listed === null ? null : listed.command;
     if (c === null) {
+      const ticked = backtickedOf(lines[i]!);
+      if (ticked !== null) {
+        if (ticked.before !== "") prose.push(ticked.before);
+        const lead = leadLine();
+        flush();
+        const part: TextPart = { type: "command", text: ticked.command, role: "step" };
+        leads.set(part, lead);
+        parts.push(part);
+        // The rest of the line is read again: it may hold another backticked command.
+        if (ticked.after !== "") lines[i--] = ticked.after;
+        continue;
+      }
       const inline = inlineOf(lines[i]!);
       if (inline === null) {
         prose.push(lines[i]!);
