@@ -302,8 +302,11 @@ export function splitCommands(text: string): TextPart[] {
   const cmds = parts.filter((p): p is Extract<TextPart, { type: "command" }> => p.type === "command");
   // Roles follow what a command does, not where it stands: the last command that is neither a check nor an undo is the one to run.
   // A lone command is always the final one, whatever it is.
+  // A block of several commands (a fence kept whole) is a check or an undo by its text only when every command in it is: one real run among them makes it a run.
+  const each = (text: string, test: (line: string) => boolean): boolean =>
+    text.replace(/\\\r?\n/g, " ").split("\n").filter((l) => l.trim() !== "").every(test);
   const kind = (c: Extract<TextPart, { type: "command" }>): CommandRole =>
-    isUndoCommand(c.text) || UNDO_LEAD.test(leads.get(c) ?? "") ? "undo" : DRY_RUN.test(c.text) ? "check" : "step";
+    UNDO_LEAD.test(leads.get(c) ?? "") || each(c.text, isUndoCommand) ? "undo" : each(c.text, (l) => DRY_RUN.test(l)) ? "check" : "step";
   cmds.forEach((c) => { c.role = cmds.length === 1 ? "final" : kind(c); });
   const run = cmds.filter((c) => c.role === "step").pop();
   if (run) run.role = "final";

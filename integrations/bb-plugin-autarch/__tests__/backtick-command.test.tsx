@@ -145,6 +145,17 @@ describe("what the review found (round 4)", () => {
   });
 });
 
+describe("what the review found (round 5)", () => {
+  it("a fence kept whole that holds a check and a real run is the run, not a check", () => {
+    const c = cmds("```bash\n" + CHECK + "\n\n" + RUN + "\n```\nUndo: `bash /srv/work/m10/m10-deploy.sh --rollback`");
+    expect(c.map((p) => [p.text, p.role])).toEqual([[CHECK + "\n\n" + RUN, "final"], ["bash /srv/work/m10/m10-deploy.sh --rollback", "undo"]]);
+  });
+  it("a fence kept whole whose every command is a check is still a check", () => {
+    const c = cmds("```bash\n" + CHECK + "\n\nbash /srv/work/m10/other.sh --check\n```\nThen: `" + RUN + "`");
+    expect(c.map((p) => p.role)).toEqual(["check", "final"]);
+  });
+});
+
 describe("backticked words that are not commands", () => {
   it("stay prose, backticks and all", () => {
     for (const s of ["Pass `--check` first.", "It writes `m10-deploy.sh` and `/tmp/out.json`.", "Use `bash` here.", "Note: `bash scripts` need review.", "The `bb` CLI is on PATH.", "A ``bash /x.sh`` double span is left alone."]) {
