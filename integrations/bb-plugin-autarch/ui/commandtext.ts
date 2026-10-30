@@ -158,10 +158,30 @@ function fenceAt(lines: string[], i: number): { close: number; info: string; inn
   return null;
 }
 
-/** The commands in a shell fence, each whole: one per line, a backslash continuation joined, a "$ " prompt dropped.
- * When any line is not a complete command on its own (a quote or an "&&" that runs onto the next line, a comment, a note),
- * the fence's text is one command exactly as written, if it opens with a command and carries no prompt. Otherwise null:
- * the fence stays as it is. */
+/** True when a command closes on its own: every quote, "(", "{" and backtick it opens is closed, no heredoc ("<<") feeds it
+ * the lines after it, and it does not end in an operator. Shell grouping it cannot see stays with the fence. */
+function selfContained(text: string): boolean {
+  let quote = "";
+  let depth = 0;
+  for (let i = 0; i < text.length; i++) {
+    const c = text[i]!;
+    if (quote !== "") {
+      if (c === "\\" && quote !== "'") i++;
+      else if (c === quote) quote = "";
+    } else if (c === "'" || c === '"' || c === "`") quote = c;
+    else if (c === "\\") i++;
+    else if (c === "(" || c === "{") depth++;
+    else if (c === ")" || c === "}") depth--;
+    else if (c === "<" && text[i + 1] === "<") return false;
+    if (depth < 0) return false;
+  }
+  return quote === "" && depth === 0 && !ENDS_IN_OPERATOR.test(text);
+}
+
+/** The commands in a shell fence. When every line is a command that closes on its own and is written with nothing to trim
+ * (a "$ " prompt is dropped; a backslash continuation joins the next lines as they are), each is its own block. Otherwise
+ * the fence's text is one command exactly as written, if it opens with a command and carries no prompt; failing that, null,
+ * and the fence stays as it is. */
 function fencedCommands(fence: { info: string; inner: string[] }): string[] | null {
   if (!SHELL_FENCE.has(fence.info)) return null;
   const body = fence.inner.map((l) => l.replace(/\r$/, ""));
@@ -169,21 +189,19 @@ function fencedCommands(fence: { info: string; inner: string[] }): string[] | nu
   while (body.length > 0 && body[body.length - 1]!.trim() === "") body.pop();
   if (body.length === 0) return null;
   const each: string[] = [];
-  let whole = true;
-  for (let k = 0; k < body.length && whole; k++) {
-    if (body[k]!.trim() === "") continue;
-    const c = commandOf(body[k]!);
-    if (c === null) {
-      whole = false;
-      break;
-    }
-    const joined = [c];
-    while (CONTINUES.test(joined[joined.length - 1]!) && k + 1 < body.length) joined.push(trimLine(body[++k]!, true));
+  let split = true;
+  for (let k = 0; k < body.length && split; k++) {
+    const line = body[k]!;
+    if (line.trim() === "") continue;
+    const typed = line.startsWith("$ ") ? line.slice(2) : line;
+    const joined = [typed];
+    while (CONTINUES.test(joined[joined.length - 1]!) && k + 1 < body.length) joined.push(body[++k]!);
     const text = joined.join("\n");
-    if (CONTINUES.test(text) || !quotesClosed(text) || ENDS_IN_OPERATOR.test(text)) whole = false;
-    else each.push(text);
+    // Nothing trimmed: the line reader must return the first line as written, and the joined text must close on its own.
+    split = commandOf(line) === typed && typed === typed.trim() && /\S$/.test(text) && !CONTINUES.test(text) && selfContained(text);
+    if (split) each.push(text);
   }
-  if (whole) return each;
+  if (split) return each;
   if (body.some((l) => /^\s*\$ /.test(l)) || commandOf(body[0]!) === null) return null;
   return [body.join("\n")];
 }

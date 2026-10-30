@@ -96,6 +96,24 @@ describe("what the review found (round 1)", () => {
   });
 });
 
+describe("what the review found (round 2)", () => {
+  it("a fence line with space around it is not trimmed: the fence is one command exactly as written", () => {
+    for (const body of [`  ${CHECK}  `, `\t${CHECK}`, `${CHECK}  \n${RUN}`]) expect(texts("```bash\n" + body + "\n```")).toEqual([body]);
+  });
+  it("a continuation keeps its lines' space exactly", () => {
+    const body = `bash ${SCRIPT} \\\n    --apply`;
+    expect(texts("```\n" + body + "\n```")).toEqual([body]);
+  });
+  it("a substitution, group or heredoc that runs onto the next line keeps the fence one command", () => {
+    for (const body of ["bash /x.sh $(\nbash /y.sh --check)", "bash /x.sh && {\n  bash /y.sh\n}", "bash /x.sh <<'EOF'\nhello\nEOF", "bash /x.sh `\nbash /y.sh`"]) {
+      expect(cmds("```bash\n" + body + "\n```").map((p) => [p.text, p.role])).toEqual([[body, "final"]]);
+    }
+  });
+  it("closed groups on one line still split one command per line", () => {
+    expect(texts("```\nbash /x.sh $(date) --check\nbash /y.sh \"(a)\"\n```")).toEqual(["bash /x.sh $(date) --check", 'bash /y.sh "(a)"']);
+  });
+});
+
 describe("backticked words that are not commands", () => {
   it("stay prose, backticks and all", () => {
     for (const s of ["Pass `--check` first.", "It writes `m10-deploy.sh` and `/tmp/out.json`.", "Use `bash` here.", "Note: `bash scripts` need review.", "The `bb` CLI is on PATH.", "A ``bash /x.sh`` double span is left alone."]) {
