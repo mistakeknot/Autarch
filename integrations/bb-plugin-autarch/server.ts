@@ -737,7 +737,7 @@ export function wireHome(bb: BbPluginApi, handle: StoreHandle, cfg: HomeConfig, 
       }
       const o0 = performance.now();
       const open = p.svc.owed().some((d) => d.id === i.decision_id);
-      bb.log.info(`rpc-timing setViewing owed=${Math.round(performance.now() - o0)}ms`);
+      timingLog(`rpc-timing setViewing owed=${Math.round(performance.now() - o0)}ms`);
       if (!open) return { ok: false, error: "not an open ask" };
       p.store.setSetting("viewing", JSON.stringify({ decision_id: i.decision_id, at: p.svc.time() }));
       return { ok: true };
@@ -821,7 +821,19 @@ export function wireHome(bb: BbPluginApi, handle: StoreHandle, cfg: HomeConfig, 
     while (lagWindow.length > 0 && t - lagWindow[0]!.at > 10_000) lagWindow.shift();
   }, 100);
   lagTimer.unref?.();
-  const loopStall = (): number => lagWindow.reduce((m, x) => Math.max(m, x.ms), 0);
+  bb.onDispose(() => clearInterval(lagTimer));
+  const loopStall = (): number => {
+    const now = performance.now();
+    return lagWindow.reduce((m, x) => (now - x.at > 10_000 ? m : Math.max(m, x.ms)), 0);
+  };
+  // A failing diagnostic log must never change an RPC's outcome.
+  const timingLog = (msg: string): void => {
+    try {
+      bb.log.info(msg);
+    } catch {
+      /* display-only */
+    }
+  };
   const jsonSafe = <F extends (i: never) => Promise<unknown>>(name: string, f: F): F =>
     (async (i: never) => {
       const t0 = performance.now();
@@ -830,7 +842,7 @@ export function wireHome(bb: BbPluginApi, handle: StoreHandle, cfg: HomeConfig, 
       const out = r === undefined ? null : JSON.parse(JSON.stringify(r));
       const t2 = performance.now();
       if (name !== "clickTiming") {
-        bb.log.info(`rpc-timing ${name} handler=${Math.round(t1 - t0)}ms json=${Math.round(t2 - t1)}ms stall10s=${loopStall()}ms`);
+        timingLog(`rpc-timing ${name} handler=${Math.round(t1 - t0)}ms json=${Math.round(t2 - t1)}ms stall10s=${loopStall()}ms`);
       }
       return out;
     }) as F;

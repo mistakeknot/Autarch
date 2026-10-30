@@ -299,3 +299,56 @@ describe("update request", () => {
     f.disposers.forEach((d) => d());
   });
 });
+
+describe("rpc-timing (bead mk-0zih8)", () => {
+  const timing = (f: ReturnType<typeof fakeBb>) => (f.bb as unknown as { log: { info: ReturnType<typeof vi.fn> } }).log.info.mock.calls.map((c) => String(c[0])).filter((m) => m.startsWith("rpc-timing"));
+
+  it("logs handler and json time per call, and skips clickTiming", async () => {
+    const f = fakeBb();
+    const home = wireHome(f.bb, createStoreHandle(() => new Database(":memory:"), {}), cfg, { serve });
+    await home.handlers.health({} as never);
+    await home.handlers.clickTiming({ kind: "paint", ms: 5, width: 80 } as never);
+    const lines = timing(f);
+    expect(lines.some((m) => /^rpc-timing health handler=\d+ms json=\d+ms stall10s=\d+ms$/.test(m))).toBe(true);
+    expect(lines.some((m) => m.includes("clickTiming"))).toBe(false);
+    f.disposers.forEach((d) => d());
+  });
+
+  it("a throwing logger leaves results unchanged, and null-id setViewing keeps its answer", async () => {
+    const f = fakeBb();
+    (f.bb as unknown as { log: { info: ReturnType<typeof vi.fn> } }).log.info.mockImplementation(() => {
+      throw new Error("log down");
+    });
+    const home = wireHome(f.bb, createStoreHandle(() => new Database(":memory:"), {}), cfg, { serve });
+    expect(await home.handlers.setViewing({ decision_id: null })).toEqual({ ok: true });
+    expect(await home.handlers.setViewing({ decision_id: "nope" })).toEqual({ ok: false, error: "not an open ask" });
+    f.disposers.forEach((d) => d());
+  });
+
+  it("clears the sampler on dispose and ignores samples older than 10 s", async () => {
+    vi.useFakeTimers();
+    try {
+      const clear = vi.spyOn(globalThis, "clearInterval");
+      const f = fakeBb();
+      const home = wireHome(f.bb, createStoreHandle(() => new Database(":memory:"), {}), cfg, { serve });
+      // a 400 ms stall, observed by the sampler
+      vi.setSystemTime(Date.now());
+      const t = performance.now();
+      const spy = vi.spyOn(performance, "now");
+      spy.mockReturnValue(t + 100);
+      vi.advanceTimersByTime(100);
+      spy.mockReturnValue(t + 100 + 500);
+      vi.advanceTimersByTime(100);
+      await home.handlers.health({} as never);
+      expect(timing(f).at(-1)).toMatch(/stall10s=4\d\dms$/);
+      spy.mockReturnValue(t + 100 + 500 + 10_001);
+      await home.handlers.health({} as never);
+      expect(timing(f).at(-1)).toMatch(/stall10s=0ms$/);
+      f.disposers.forEach((d) => d());
+      expect(clear).toHaveBeenCalled();
+      spy.mockRestore();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});
