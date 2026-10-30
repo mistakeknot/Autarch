@@ -109,8 +109,21 @@ describe("what the review found (round 2)", () => {
       expect(cmds("```bash\n" + body + "\n```").map((p) => [p.text, p.role])).toEqual([[body, "final"]]);
     }
   });
-  it("closed groups on one line still split one command per line", () => {
-    expect(texts("```\nbash /x.sh $(date) --check\nbash /y.sh \"(a)\"\n```")).toEqual(["bash /x.sh $(date) --check", 'bash /y.sh "(a)"']);
+  it("plain lines split one per line; any grouping or substitution keeps the fence one command", () => {
+    expect(texts(`\`\`\`\n${CHECK}\nbash /y.sh "a b" 'c'\n\`\`\``)).toEqual([CHECK, `bash /y.sh "a b" 'c'`]);
+    const grouped = "bash /x.sh $(date) --check\nbash /y.sh \"(a)\"";
+    expect(texts("```\n" + grouped + "\n```")).toEqual([grouped]);
+  });
+});
+
+describe("what the review found (round 3)", () => {
+  it("a substitution with nested quotes across lines keeps the fence one command", () => {
+    const body = 'bash /x.sh "$(printf "x\nbash /y.sh")"\nbash /z.sh --check';
+    expect(texts("```\n" + body + "\n```")).toEqual([body]);
+  });
+  it("blank and space-only edge lines stay in a one-command fence", () => {
+    const body = "\n  bash /x.sh --check  \n\n";
+    expect(texts("```bash\n" + body + "\n```")).toEqual([body]);
   });
 });
 

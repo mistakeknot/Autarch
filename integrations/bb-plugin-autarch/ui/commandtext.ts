@@ -158,29 +158,15 @@ function fenceAt(lines: string[], i: number): { close: number; info: string; inn
   return null;
 }
 
-/** True when a command closes on its own: every quote, "(", "{" and backtick it opens is closed, no heredoc ("<<") feeds it
- * the lines after it, and it does not end in an operator. Shell grouping it cannot see stays with the fence. */
+/** True when a command plainly closes on its own line: its quotes close, it holds no grouping or substitution ("(", "{",
+ * a backtick) and no heredoc ("<<"), and it does not end in an operator. Anything subtler keeps the fence one command. */
 function selfContained(text: string): boolean {
-  let quote = "";
-  let depth = 0;
-  for (let i = 0; i < text.length; i++) {
-    const c = text[i]!;
-    if (quote !== "") {
-      if (c === "\\" && quote !== "'") i++;
-      else if (c === quote) quote = "";
-    } else if (c === "'" || c === '"' || c === "`") quote = c;
-    else if (c === "\\") i++;
-    else if (c === "(" || c === "{") depth++;
-    else if (c === ")" || c === "}") depth--;
-    else if (c === "<" && text[i + 1] === "<") return false;
-    if (depth < 0) return false;
-  }
-  return quote === "" && depth === 0 && !ENDS_IN_OPERATOR.test(text);
+  return !/[(){}`]|<</.test(text) && quotesClosed(text) && !ENDS_IN_OPERATOR.test(text);
 }
 
 /** The commands in a shell fence. When every line is a command that closes on its own and is written with nothing to trim
  * (a "$ " prompt is dropped; a backslash continuation joins the next lines as they are), each is its own block. Otherwise
- * the fence's text is one command exactly as written, if it opens with a command and carries no prompt; failing that, null,
+ * everything between the fence lines is one command exactly as written, if it opens with a command and carries no prompt; failing that, null,
  * and the fence stays as it is. */
 function fencedCommands(fence: { info: string; inner: string[] }): string[] | null {
   if (!SHELL_FENCE.has(fence.info)) return null;
@@ -203,7 +189,7 @@ function fencedCommands(fence: { info: string; inner: string[] }): string[] | nu
   }
   if (split) return each;
   if (body.some((l) => /^\s*\$ /.test(l)) || commandOf(body[0]!) === null) return null;
-  return [body.join("\n")];
+  return [fence.inner.join("\n")]; // every character between the fence lines, blank edge lines included
 }
 
 /** Text between two backticked commands on one line that only joins them ("`a` and `b`", "`a`, `b`"): the second shares the first's lead. */
