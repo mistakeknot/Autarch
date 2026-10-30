@@ -335,6 +335,30 @@ describe("what the review found (round 12)", () => {
   });
 });
 
+describe("what the review found (round 13)", () => {
+  it("a redirection operand with a quoted part is dropped whole, and whitespace the shell keeps in an argument makes a step", () => {
+    for (const block of [
+      `bash /srv/live.sh > ""--check`,
+      `bash /srv/live.sh > ''--rollback`,
+      `bash /srv/live.sh 2> "log"--dry-run`,
+      `bash /srv/live.sh --check\u00a0--apply`,
+      `bash /srv/live.sh --rollback\u000b --apply`,
+      `bash /srv/live.sh\u2003--check`,
+    ]) {
+      const c = cmds("Run `" + block + "` and then `bash /srv/work/m10/after.sh`.");
+      expect(c.map((p) => [p.text, p.role])).toEqual([[block, "step"], ["bash /srv/work/m10/after.sh", "final"]]);
+    }
+    // A form feed at the end would be trimmed from the copied text, so the span stays prose instead.
+    expect(cmds("Run `bash /srv/live.sh --check\f` and then `bash /srv/work/m10/after.sh`.").map((p) => p.text)).toEqual(["bash /srv/work/m10/after.sh"]);
+    const fence = "```bash\nbash /srv/live.sh --check\r\n\nbash /srv/other.sh --check\n```\nThen: `bash /srv/work/m10/after.sh`";
+    expect(cmds(fence).map((p) => p.role)).toEqual(["step", "final"]);
+  });
+  it("a backticked command whose words are split by a tab is a command, with its tab kept", () => {
+    const c = cmds("Run `bash\t/srv/live.sh` now.");
+    expect(c.map((p) => p.text)).toEqual(["bash\t/srv/live.sh"]);
+  });
+});
+
 describe("backticked words that are not commands", () => {
   it("stay prose, backticks and all", () => {
     for (const s of ["Pass `--check` first.", "It writes `m10-deploy.sh` and `/tmp/out.json`.", "Use `bash` here.", "Note: `bash scripts` need review.", "The `bb` CLI is on PATH.", "A ``bash /x.sh`` double span is left alone."]) {

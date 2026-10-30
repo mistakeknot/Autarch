@@ -21,7 +21,7 @@ const SCRIPT_PATH = /^[\w.~-]*\/[\w./~-]*\.(?:sh|bash|py)$/;
  * as its own argument after the script or after an argument that is not a flag (a flag before it may take it as its value), with no "--" before it.
  */
 function roleOf(command: string): "check" | "undo" | null {
-  const t = command.split(/\s+/);
+  const t = command.split(/[ \t]+/);
   let i = 0;
   for (;;) {
     if (t[i] === "sudo") {
@@ -156,7 +156,7 @@ const THEN_COMMAND = new RegExp(`\\s+then\\s+(?=(?:${COMMAND_WORDS.join("|")})\\
 /** A command has something that only a command has (a path, flag, operator or variable); "bash scripts" alone is a phrase.
  * A flag, operator, "=", variable or host path anywhere counts; a plain file or path counts only as the first argument ("bash x.sh"), so "ssh keys in /srv/k.pub" stays prose. */
 function hasCommandPart(piece: string): boolean {
-  const args = piece.slice(piece.indexOf(" ") + 1);
+  const args = piece.replace(/^\S+\s+/, "");
   return /[=|&;$]|\w:\/|(?:^|\s)-/.test(args) || /^(?:\S*\/\S*|\S*\w\.\w\S*)(?:\s|$)/.test(args);
 }
 
@@ -346,14 +346,15 @@ export function splitCommands(text: string): TextPart[] {
   // A lone command is always the final one, whatever it is.
   // A check or an undo by its text is made only of simple commands that each are one (roleOf): commands joined by a line break, &&, || or ; are judged
   // one by one. Anything else may run a command the flag does not reach, so it makes the block a run: a substitution anywhere (even in quotes), a pipe,
-  // a background &, a comment, a backslash, an unclosed quote, or a "$", glob or brace that the shell would expand. Quoted text is blanked, so a flag
+  // a background &, a comment, a backslash, an unclosed quote, a "$", glob or brace that the shell would expand, or whitespace other than a space,
+  // a tab or a line break (the shell keeps a no-break space or a carriage return inside the argument). Quoted text is blanked, so a flag
   // inside quotes counts for nothing, and a redirection that stands as its own word, with its file name ("2>&1", "> /tmp/log", but also "> --check"),
-  // is dropped before judging; one glued to an argument ("--check2>/tmp/log") is left, so the command is a run.
+  // is dropped whole, quoted parts and all, before judging; one glued to an argument ("--check2>/tmp/log") is left, so the command is a run.
   const every = (text: string, role: "check" | "undo"): boolean => {
-    if (/[$`]|[<>]\(/.test(text)) return false;
+    if (/[$`]|[<>]\(|[^\S \t\n]/.test(text)) return false;
     const bare = text.replace(/\\\r?\n/g, " ").replace(/"(?:\\.|[^"\\])*"|'[^']*'/g, '""');
     if (/["'\\*?[\]{}]/.test(bare.replace(/""/g, ""))) return false;
-    const unredirected = bare.replace(/(?<=^|\s)\d*>&\d+(?=\s|$)/gm, " ").replace(/(?<=^|\s)(?:&>>?|\d*>>?|\d*<)\s*(?:""|[^\s;&|<>]+)/gm, " ");
+    const unredirected = bare.replace(/(?<=^|\s)\d*>&\d+(?=\s|$)/gm, " ").replace(/(?<=^|\s)(?:&>>?|\d*>>?|\d*<)\s*[^\s;&|<>]+/gm, " ");
     const commands = unredirected.split(/\n|&&|\|\||;/).map((l) => l.trim()).filter((l) => l !== "");
     return commands.length > 0 && commands.every((l) => !/[|&#<>]/.test(l) && roleOf(l) === role);
   };
