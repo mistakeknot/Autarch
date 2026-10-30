@@ -126,50 +126,70 @@ const BACKTICK_SPAN = /(?<!`)`([^`\n]+)`(?!`)/g;
 const MARKER_ONLY = /^\s*(?:\(\d{1,3}\)|\d{1,3}[.)]|[-*•])?\s*$/;
 
 /** A command wrapped in one pair of backticks, alone on a line or inside a sentence ("check first: `bash /x.sh --check`").
- * The backticks go and the command inside comes back exactly as written; a backticked word that is not a command ("`--check`", "`x.sh`") stays prose. */
+ * The backticks go and the text inside is the command, character for character (a leading "$ " prompt is dropped); a span
+ * with space just inside a backtick, or one the line reader would trim or cut, is left alone. A backticked word that is not
+ * a command ("`--check`", "`x.sh`") stays prose. */
 function backtickedOf(line: string): { before: string; command: string; after: string } | null {
   for (const m of line.matchAll(BACKTICK_SPAN)) {
     const inner = m[1]!;
-    const command = commandOf(inner);
-    if (command === null || (!/^\s*\$ /.test(inner) && !hasCommandPart(command))) continue;
+    const typed = inner.startsWith("$ ") ? inner.slice(2) : inner;
+    if (typed !== typed.trim() || commandOf(inner) !== typed) continue;
+    if (inner === typed && !hasCommandPart(typed)) continue;
     const before = line.slice(0, m.index!).replace(/\s+$/, "");
-    return { before: MARKER_ONLY.test(before) ? "" : before, command, after: line.slice(m.index! + m[0].length).replace(/^\s+/, "") };
+    return { before: MARKER_ONLY.test(before) ? "" : before, command: typed, after: line.slice(m.index! + m[0].length).replace(/^\s+/, "") };
   }
   return null;
 }
 
-/** A fence line ("```", "```bash", "~~~"). */
-const FENCE = /^\s*(`{3,}|~{3,})[\w+-]*\s*$/;
+/** A fence line ("```", "```bash", "~~~"), with its marker and the language named after it. */
+const FENCE = /^\s*(`{3,}|~{3,})\s*([\w+-]*)\s*$/;
+/** Fences named for something other than a shell ("```text", "```json") hold samples, not commands to run. */
+const SHELL_FENCE = new Set(["", "bash", "sh", "shell", "zsh", "console", "terminal"]);
 
-/** A fenced block that holds a command loses its fence lines, so each command inside is a bare copy block, as written.
- * A fence with no command in it (a log, a JSON sample) and a fence that is never closed are left as they are. */
-function unfence(lines: string[]): string[] {
-  const out: string[] = [];
-  for (let i = 0; i < lines.length; i++) {
-    const open = FENCE.exec(lines[i]!);
-    if (open === null) {
-      out.push(lines[i]!);
-      continue;
-    }
-    const mark = open[1]!;
-    let close = -1;
-    for (let j = i + 1; j < lines.length; j++) {
-      const t = lines[j]!.trim();
-      if (t.length >= mark.length && t === mark[0]!.repeat(t.length)) {
-        close = j;
-        break;
-      }
-    }
-    const inner = close === -1 ? [] : lines.slice(i + 1, close);
-    if (close === -1 || !inner.some((l) => listedCommandOf(l) !== null)) {
-      out.push(lines[i]!);
-      continue;
-    }
-    out.push(...inner);
-    i = close;
+/** The fence that opens at line i and where it closes, or null when line i opens none or the fence never closes. */
+function fenceAt(lines: string[], i: number): { close: number; info: string; inner: string[] } | null {
+  const open = FENCE.exec(lines[i]!);
+  if (open === null) return null;
+  const mark = open[1]!;
+  for (let j = i + 1; j < lines.length; j++) {
+    const t = lines[j]!.trim();
+    if (t.length >= mark.length && t === mark[0]!.repeat(t.length)) return { close: j, info: open[2]!.toLowerCase(), inner: lines.slice(i + 1, j) };
   }
-  return out;
+  return null;
 }
+
+/** The commands in a shell fence, each whole: one per line, a backslash continuation joined, a "$ " prompt dropped.
+ * When any line is not a complete command on its own (a quote or an "&&" that runs onto the next line, a comment, a note),
+ * the fence's text is one command exactly as written, if it opens with a command and carries no prompt. Otherwise null:
+ * the fence stays as it is. */
+function fencedCommands(fence: { info: string; inner: string[] }): string[] | null {
+  if (!SHELL_FENCE.has(fence.info)) return null;
+  const body = fence.inner.map((l) => l.replace(/\r$/, ""));
+  while (body.length > 0 && body[0]!.trim() === "") body.shift();
+  while (body.length > 0 && body[body.length - 1]!.trim() === "") body.pop();
+  if (body.length === 0) return null;
+  const each: string[] = [];
+  let whole = true;
+  for (let k = 0; k < body.length && whole; k++) {
+    if (body[k]!.trim() === "") continue;
+    const c = commandOf(body[k]!);
+    if (c === null) {
+      whole = false;
+      break;
+    }
+    const joined = [c];
+    while (CONTINUES.test(joined[joined.length - 1]!) && k + 1 < body.length) joined.push(trimLine(body[++k]!, true));
+    const text = joined.join("\n");
+    if (CONTINUES.test(text) || !quotesClosed(text) || ENDS_IN_OPERATOR.test(text)) whole = false;
+    else each.push(text);
+  }
+  if (whole) return each;
+  if (body.some((l) => /^\s*\$ /.test(l)) || commandOf(body[0]!) === null) return null;
+  return [body.join("\n")];
+}
+
+/** Text between two backticked commands on one line that only joins them ("`a` and `b`", "`a`, `b`"): the second shares the first's lead. */
+const JOINER = /^[\s,;]*(?:and|or|&)?[\s,;]*$/i;
 
 /** A command written inside a sentence after a colon ("paste one line: scp host:/p /tmp/x && bash /tmp/x (sha256 ...). It builds"). */
 function inlineOf(line: string): { before: string; commands: string[]; after: string } | null {
@@ -209,21 +229,45 @@ export function splitCommands(text: string): TextPart[] {
   };
   const leads = new Map<TextPart, string>(); // the last prose line before each command
   const leadLine = () => [...prose].reverse().find((l) => l.trim() !== "") ?? "";
-  const lines = unfence(text.split("\n"));
+  const lines = text.split("\n");
+  let carried: string | null = null; // the lead of a backticked command whose line is being read again
   for (let i = 0; i < lines.length; i++) {
+    const lineLead: string | null = carried;
+    carried = null;
+    const fence = fenceAt(lines, i);
+    if (fence !== null) {
+      const fenced = fencedCommands(fence);
+      if (fenced === null) {
+        prose.push(...lines.slice(i, fence.close + 1)); // the whole fence, both delimiters and all, stays prose
+      } else {
+        const lead = leadLine();
+        flush();
+        for (const text of fenced) {
+          const part: TextPart = { type: "command", text, role: "step" };
+          leads.set(part, lead);
+          parts.push(part);
+        }
+      }
+      i = fence.close;
+      continue;
+    }
     const listed = listedCommandOf(lines[i]!);
     const c = listed === null ? null : listed.command;
     if (c === null) {
       const ticked = backtickedOf(lines[i]!);
       if (ticked !== null) {
+        const joined: boolean = lineLead !== null && JOINER.test(ticked.before);
         if (ticked.before !== "") prose.push(ticked.before);
-        const lead = leadLine();
+        const lead: string = joined && lineLead !== null ? lineLead : leadLine();
         flush();
         const part: TextPart = { type: "command", text: ticked.command, role: "step" };
         leads.set(part, lead);
         parts.push(part);
         // The rest of the line is read again: it may hold another backticked command.
-        if (ticked.after !== "") lines[i--] = ticked.after;
+        if (ticked.after !== "") {
+          lines[i--] = ticked.after;
+          carried = lead;
+        }
         continue;
       }
       const inline = inlineOf(lines[i]!);

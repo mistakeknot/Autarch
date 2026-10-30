@@ -66,6 +66,36 @@ describe("a fenced block", () => {
   });
 });
 
+describe("what the review found (round 1)", () => {
+  it("a command-free fence stays whole, and the fence after it is still read", () => {
+    const text = "```\nerror: disk full\n```\nRun:\n```bash\n" + RUN + "\n```";
+    expect(splitCommands(text).map((p) => p.text)).toEqual(["```\nerror: disk full\n```\nRun:", RUN]);
+  });
+  it("a backticked span with space just inside the backticks is left alone, so no character is trimmed", () => {
+    for (const s of [`Run \`  ${RUN}  \` now.`, `Run \` ${RUN}\` now.`]) expect(splitCommands(s)).toEqual([{ type: "prose", text: s }]);
+  });
+  it("a bracketed argument inside a fence stays in the command", () => {
+    expect(texts("```\nbash /x.sh [read-only: one GET]\n```")).toEqual(["bash /x.sh [read-only: one GET]"]);
+  });
+  it("a quote or an && that runs onto the next line keeps the fence one command, exactly as written", () => {
+    const quoted = `bash /x.sh "hello\nworld" --dry-run`;
+    const chained = "bash /x.sh &&\n  bash /y.sh --check";
+    expect(cmds("```\n" + quoted + "\n```").map((p) => [p.text, p.role])).toEqual([[quoted, "final"]]);
+    expect(texts("```sh\n" + chained + "\n```")).toEqual([chained]);
+  });
+  it("a fence named for something other than a shell, or one with a comment and a prompt, stays prose", () => {
+    for (const f of ["```text\n" + RUN + "\n```", "```json\n" + RUN + "\n```", "```\n# first\n$ " + RUN + "\n```"]) expect(cmds(f)).toEqual([]);
+  });
+  it("commands joined by \"and\" after an undo lead are all undo", () => {
+    const c = cmds(`Run \`${RUN}\`.\nUndo: \`bash /x.sh down\` and \`bash /y.sh down\``);
+    expect(c.map((p) => p.role)).toEqual(["final", "undo", "undo"]);
+  });
+  it("commands in one fence after an undo lead are all undo", () => {
+    const c = cmds(`Run \`${RUN}\`.\nUndo:\n\`\`\`\nbash /x.sh down\nbash /y.sh down\n\`\`\``);
+    expect(c.map((p) => p.role)).toEqual(["final", "undo", "undo"]);
+  });
+});
+
 describe("backticked words that are not commands", () => {
   it("stay prose, backticks and all", () => {
     for (const s of ["Pass `--check` first.", "It writes `m10-deploy.sh` and `/tmp/out.json`.", "Use `bash` here.", "Note: `bash scripts` need review.", "The `bb` CLI is on PATH.", "A ``bash /x.sh`` double span is left alone."]) {
