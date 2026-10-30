@@ -191,6 +191,9 @@ function fencedCommands(fence: { info: string; inner: string[] }): string[] | nu
   return [fence.inner.join("\n")]; // every character between the fence lines, blank edge lines included
 }
 
+/** A command that only reads or filters what it is given, so joining it to a check or an undo does not make a run. */
+const OUTPUT_FILTER = /^(?:tail|head|grep|egrep|tee|less|more|cat|jq|sort|uniq|wc|cut|tr|column)(?:\s|$)/;
+
 /** Text between two backticked commands on one line that only joins them ("`a` and `b`", "`a`, `b`", "`a` && `b`"): the second shares the first's lead. */
 const JOINER = /^[\s,;]*(?:and|or|&&|\|\||&|;)?[\s,;]*$/i;
 
@@ -302,10 +305,17 @@ export function splitCommands(text: string): TextPart[] {
   const cmds = parts.filter((p): p is Extract<TextPart, { type: "command" }> => p.type === "command");
   // Roles follow what a command does, not where it stands: the last command that is neither a check nor an undo is the one to run.
   // A lone command is always the final one, whatever it is.
-  // A block of several commands (a fence kept whole, or a chain joined by &&, || or ;) is a check or an undo by its text only when every command in it is: one real run among them makes it a run.
-  // The split ignores quotes on purpose: a split too many can only turn a check or an undo into a run, never a run into a check.
-  const each = (text: string, test: (command: string) => boolean): boolean =>
-    text.replace(/\\\r?\n/g, " ").split(/\n|&&|\|\||;/).map((l) => l.trim()).filter((l) => l !== "").every(test);
+  // A block of several commands (a fence kept whole, or commands joined by &&, ||, ;, a pipe or a background &) is a check or an undo by its text only when every command in it is: one real run among them makes it a run.
+  // The split ignores quotes on purpose: a split too many can only turn a check or an undo into a run, never a run into a check. A redirection ("2>&1", "&>log") is not a split.
+  // A command that only reads or filters output ("| tail -n 20") runs nothing, so it does not count.
+  const each = (text: string, test: (command: string) => boolean): boolean => {
+    const commands = text
+      .replace(/\\\r?\n/g, " ")
+      .split(/\n|&&|\|\||;|\||(?<![<>])&(?!>)/)
+      .map((l) => l.trim())
+      .filter((l) => l !== "" && !OUTPUT_FILTER.test(l));
+    return commands.length > 0 && commands.every(test);
+  };
   const kind = (c: Extract<TextPart, { type: "command" }>): CommandRole =>
     UNDO_LEAD.test(leads.get(c) ?? "") || each(c.text, isUndoCommand) ? "undo" : each(c.text, (l) => DRY_RUN.test(l)) ? "check" : "step";
   cmds.forEach((c) => { c.role = cmds.length === 1 ? "final" : kind(c); });

@@ -178,6 +178,21 @@ describe("what the review found (round 6)", () => {
   });
 });
 
+describe("what the review found (round 7)", () => {
+  const UNDO = "Undo: `bash /srv/work/m10/m10-deploy.sh --rollback`";
+  it("a check piped into or backgrounded with the real run is the run", () => {
+    for (const join of ["|", "&"]) {
+      const chain = `${CHECK} ${join} ${RUN}`;
+      expect(cmds("Run `" + chain + "`.\n" + UNDO).map((p) => [p.text, p.role])).toEqual([[chain, "final"], ["bash /srv/work/m10/m10-deploy.sh --rollback", "undo"]]);
+    }
+  });
+  it("a check with its output redirected or filtered is still a check", () => {
+    for (const check of [`${CHECK} 2>&1`, `${CHECK} &> /tmp/check.log`, `${CHECK} 2>&1 | tail -n 20`, `${CHECK} | tee /tmp/check.log`]) {
+      expect(cmds("First: `" + check + "`\nThen: `" + RUN + "`").map((p) => [p.text, p.role])).toEqual([[check, "check"], [RUN, "final"]]);
+    }
+  });
+});
+
 describe("backticked words that are not commands", () => {
   it("stay prose, backticks and all", () => {
     for (const s of ["Pass `--check` first.", "It writes `m10-deploy.sh` and `/tmp/out.json`.", "Use `bash` here.", "Note: `bash scripts` need review.", "The `bb` CLI is on PATH.", "A ``bash /x.sh`` double span is left alone."]) {
