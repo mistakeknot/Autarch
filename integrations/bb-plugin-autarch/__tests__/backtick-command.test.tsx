@@ -359,6 +359,20 @@ describe("what the review found (round 13)", () => {
   });
 });
 
+describe("what the review found (round 14)", () => {
+  it("a backslash-newline joins the two halves of a word, as the shell does", () => {
+    for (const flag of ["--check", "--dry-run", "--rollback", "--undo", "--revert"]) {
+      const block = `bash /srv/live.sh ${flag}\\\n=false`;
+      const c = cmds("```bash\n" + block + "\n```\nThen: `bash /srv/work/m10/after.sh`");
+      expect(c.map((p) => [p.text, p.role])).toEqual([[block, "step"], ["bash /srv/work/m10/after.sh", "final"]]);
+    }
+    const glued = `bash /srv/live.sh --check2\\\n>/tmp/log`;
+    expect(cmds("```bash\n" + glued + "\n```\nThen: `bash /srv/work/m10/after.sh`").map((p) => p.role)).toEqual(["step", "final"]);
+    const spaced = `bash /srv/live.sh \\\n  --check`;
+    expect(cmds("```bash\n" + spaced + "\n```\nThen: `bash /srv/work/m10/after.sh`").map((p) => p.role)).toEqual(["check", "final"]);
+  });
+});
+
 describe("backticked words that are not commands", () => {
   it("stay prose, backticks and all", () => {
     for (const s of ["Pass `--check` first.", "It writes `m10-deploy.sh` and `/tmp/out.json`.", "Use `bash` here.", "Note: `bash scripts` need review.", "The `bb` CLI is on PATH.", "A ``bash /x.sh`` double span is left alone."]) {
