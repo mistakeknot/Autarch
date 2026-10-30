@@ -264,6 +264,33 @@ describe("what the review found (round 10)", () => {
   });
 });
 
+describe("what the review found (round 11)", () => {
+  it("only a .sh, .bash or .py script path is the script of a check or an undo, and a role flag with a value voids the role", () => {
+    for (const block of [
+      `sudo /usr/bin/python3.12 -c "print(123)" --check`,
+      `sudo docker run alpine sh -c "touch /tmp/live" --check`,
+      `sudo /srv/bin/deploy --check`,
+      `bash /srv/live.sh --check --check=false`,
+      `bash /srv/live.sh --dry-run --dry-run=false`,
+      `bash /srv/live.sh --rollback --rollback=false`,
+      `bash /srv/live.sh rollback --undo=no`,
+    ]) {
+      const c = cmds("```bash\n" + block + "\n```\nThen: `bash /srv/work/m10/after.sh`");
+      expect(c.map((p) => [p.text, p.role])).toEqual([[block, "step"], ["bash /srv/work/m10/after.sh", "final"]]);
+    }
+  });
+  it("relative and home script paths keep their roles", () => {
+    for (const [block, role] of [
+      [`bash ./live.sh --check`, "check"],
+      [`bash ~/live.bash --dry-run`, "check"],
+      [`sudo bash ./live.sh --undo`, "undo"],
+    ] as const) {
+      const c = cmds("```bash\n" + block + "\n```\nThen: `bash /srv/work/m10/after.sh`");
+      expect(c.map((p) => [p.text, p.role])).toEqual([[block, role], ["bash /srv/work/m10/after.sh", "final"]]);
+    }
+  });
+});
+
 describe("backticked words that are not commands", () => {
   it("stay prose, backticks and all", () => {
     for (const s of ["Pass `--check` first.", "It writes `m10-deploy.sh` and `/tmp/out.json`.", "Use `bash` here.", "Note: `bash scripts` need review.", "The `bb` CLI is on PATH.", "A ``bash /x.sh`` double span is left alone."]) {

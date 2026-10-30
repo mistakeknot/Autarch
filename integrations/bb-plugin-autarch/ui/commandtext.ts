@@ -10,14 +10,14 @@ const CHECK_FLAG = /^--(?:check|dry-run)$/;
 const UNDO_FLAG = /^--(?:rollback|undo|revert)$/;
 /** An undo word as the first argument after the script ("bash /x.sh rollback"). */
 const UNDO_WORD = /^(?:rollback|undo|revert)$/;
-/** A program that may run another command from its arguments, so a flag after it need not reach what runs. Never the script of a check or an undo. */
-const RUNS_ITS_ARGUMENTS = new Set(
-  "eval exec xargs env find source . command builtin nohup timeout watch parallel ssh nice ionice time su sudo doas runuser setsid stdbuf chroot flock script unbuffer strace systemd-run busybox bash sh zsh dash ksh fish csh tcsh python python2 python3 node deno bun perl ruby php lua tclsh awk gawk sed make npx uvx".split(" "),
-);
+/** A role flag given a value ("--check=false"), which may override the exact flag, so the command's role cannot be told. */
+const VALUED_ROLE_FLAG = /^--(?:check|dry-run|rollback|undo|revert)=/;
+/** The script of a check or an undo: a path to a shell or Python script file. Any other program (an interpreter, a launcher) may run its arguments. */
+const SCRIPT_PATH = /^[\w.~-]*\/[\w./~-]*\.(?:sh|bash|py)$/;
 /**
  * The role one simple command has by its own text, or null when it is a run or cannot be told. An allowlist: "sudo" (with only -u USER, -g GROUP,
  * -E, -H, -n or -k) or "runuser -u USER --",
- * then a plain "bash", "sh" or "python3", then the script (not a program that runs its arguments, by any path), then its arguments. The flag must stand
+ * then a plain "bash", "sh" or "python3", then the script (a path ending in .sh, .bash or .py), then its arguments. The flag must stand
  * as its own argument after the script or after an argument that is not a flag (a flag before it may take it as its value), with no "--" before it.
  */
 function roleOf(command: string): "check" | "undo" | null {
@@ -36,8 +36,9 @@ function roleOf(command: string): "check" | "undo" | null {
   }
   if (t[i] === "bash" || t[i] === "sh" || t[i] === "python3") i += 1;
   const script = t[i];
-  if (script === undefined || !/^[\w./~-]+$/.test(script) || script.startsWith("-") || RUNS_ITS_ARGUMENTS.has(script.split("/").pop()!)) return null;
+  if (script === undefined || !SCRIPT_PATH.test(script) || script.startsWith("-")) return null;
   const args = t.slice(i + 1);
+  if (args.some((a) => VALUED_ROLE_FLAG.test(a))) return null;
   if (args[0] !== undefined && UNDO_WORD.test(args[0])) return "undo";
   let role: "check" | "undo" | null = null;
   for (let k = 0; k < args.length; k++) {
