@@ -156,6 +156,28 @@ describe("what the review found (round 5)", () => {
   });
 });
 
+describe("what the review found (round 6)", () => {
+  const UNDO = "Undo: `bash /srv/work/m10/m10-deploy.sh --rollback`";
+  it("a check chained to the real run by && is the run, in a fence or in backticks", () => {
+    for (const join of ["&&", "||", ";"]) {
+      const chain = `${CHECK} ${join} ${RUN}`;
+      for (const text of ["```bash\n" + chain + "\n```\n\n" + UNDO, "Run `" + chain + "`.\n" + UNDO]) {
+        expect(cmds(text).map((p) => [p.text, p.role])).toEqual([[chain, "final"], ["bash /srv/work/m10/m10-deploy.sh --rollback", "undo"]]);
+      }
+    }
+  });
+  it("a chain of checks is a check and a chain of rollbacks is an undo", () => {
+    const checks = `${CHECK} && bash /srv/work/m10/other.sh --check`;
+    const undos = "bash /srv/work/m10/m10-deploy.sh --rollback && bash /srv/work/m10/other.sh --rollback";
+    expect(cmds("Check: `" + checks + "`\nRun: `" + RUN + "`\nUndo: `" + undos + "`").map((p) => p.role)).toEqual(["check", "final", "undo"]);
+    expect(cmds("Run `" + RUN + "`, and `" + undos + "` if it fails.").map((p) => p.role)).toEqual(["final", "undo"]);
+  });
+  it("a rollback chained to a real run is the run, not an undo", () => {
+    const chain = `bash /srv/work/m10/m10-deploy.sh --rollback && ${RUN}`;
+    expect(cmds("Check: `" + CHECK + "`\nThen `" + chain + "`").map((p) => p.role)).toEqual(["check", "final"]);
+  });
+});
+
 describe("backticked words that are not commands", () => {
   it("stay prose, backticks and all", () => {
     for (const s of ["Pass `--check` first.", "It writes `m10-deploy.sh` and `/tmp/out.json`.", "Use `bash` here.", "Note: `bash scripts` need review.", "The `bb` CLI is on PATH.", "A ``bash /x.sh`` double span is left alone."]) {
