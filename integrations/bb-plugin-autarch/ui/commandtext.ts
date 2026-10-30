@@ -181,21 +181,23 @@ function backtickedOf(line: string): { before: string; command: string; after: s
   return null;
 }
 
-/** A fence line ("```", "```bash", "~~~"), with its marker and the language named after it. */
-const FENCE = /^\s*(`{3,}|~{3,})\s*([\w+-]*)\s*$/;
-/** Fences named for something other than a shell ("```text", "```json") hold samples, not commands to run. */
+/** A fence line ("```", "```bash", "~~~", "```text title=x"), with its marker and its whole info string. A backtick fence's info string holds no backtick. */
+const FENCE = /^\s*(?:(`{3,})([^`]*)|(~{3,})(.*))$/;
+/** Fences whose info string is anything but a plain shell name ("```text", "```json", "```bash title=x") hold samples, not commands to run. */
 const SHELL_FENCE = new Set(["", "bash", "sh", "shell", "zsh", "console", "terminal"]);
 
-/** The fence that opens at line i and where it closes, or null when line i opens none or the fence never closes. */
+/** The fence that opens at line i and where it closes (the last line, when it never closes), or null when line i opens none. */
 function fenceAt(lines: string[], i: number): { close: number; info: string; inner: string[] } | null {
   const open = FENCE.exec(lines[i]!);
   if (open === null) return null;
-  const mark = open[1]!;
+  const mark = open[1] ?? open[3]!;
+  const info = (open[2] ?? open[4]!).trim().toLowerCase();
   for (let j = i + 1; j < lines.length; j++) {
     const t = lines[j]!.trim();
-    if (t.length >= mark.length && t === mark[0]!.repeat(t.length)) return { close: j, info: open[2]!.toLowerCase(), inner: lines.slice(i + 1, j) };
+    if (t.length >= mark.length && t === mark[0]!.repeat(t.length)) return { close: j, info, inner: lines.slice(i + 1, j) };
   }
-  return null;
+  // A fence that never closes runs to the end of the text, as in Markdown; it is read as a sample, never as commands.
+  return { close: lines.length - 1, info: "unclosed", inner: lines.slice(i + 1) };
 }
 
 /** True when a command plainly closes on its own line: its quotes close, it holds no grouping or substitution ("(", "{",
@@ -344,13 +346,14 @@ export function splitCommands(text: string): TextPart[] {
   // A lone command is always the final one, whatever it is.
   // A check or an undo by its text is made only of simple commands that each are one (roleOf): commands joined by a line break, &&, || or ; are judged
   // one by one. Anything else may run a command the flag does not reach, so it makes the block a run: a substitution anywhere (even in quotes), a pipe,
-  // a background &, a comment, a backslash or an unclosed quote. Quoted text is blanked, so a flag inside quotes counts for nothing, and a redirection
-  // with its file name ("2>&1", "> /tmp/log", but also "> --check") is dropped before judging.
+  // a background &, a comment, a backslash, an unclosed quote, or a "$", glob or brace that the shell would expand. Quoted text is blanked, so a flag
+  // inside quotes counts for nothing, and a redirection that stands as its own word, with its file name ("2>&1", "> /tmp/log", but also "> --check"),
+  // is dropped before judging; one glued to an argument ("--check2>/tmp/log") is left, so the command is a run.
   const every = (text: string, role: "check" | "undo"): boolean => {
-    if (/\$\(|`|[<>]\(/.test(text)) return false;
+    if (/[$`]|[<>]\(/.test(text)) return false;
     const bare = text.replace(/\\\r?\n/g, " ").replace(/"(?:\\.|[^"\\])*"|'[^']*'/g, '""');
-    if (/["'\\]/.test(bare.replace(/""/g, ""))) return false;
-    const unredirected = bare.replace(/\d*>&\d+/g, " ").replace(/(?:&>>?|\d*>>?|\d*<)\s*(?:""|[^\s;&|<>]+)/g, " ");
+    if (/["'\\*?[\]{}]/.test(bare.replace(/""/g, ""))) return false;
+    const unredirected = bare.replace(/(?<=^|\s)\d*>&\d+(?=\s|$)/gm, " ").replace(/(?<=^|\s)(?:&>>?|\d*>>?|\d*<)\s*(?:""|[^\s;&|<>]+)/gm, " ");
     const commands = unredirected.split(/\n|&&|\|\||;/).map((l) => l.trim()).filter((l) => l !== "");
     return commands.length > 0 && commands.every((l) => !/[|&#<>]/.test(l) && roleOf(l) === role);
   };

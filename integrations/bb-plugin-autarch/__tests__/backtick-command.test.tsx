@@ -291,6 +291,50 @@ describe("what the review found (round 11)", () => {
   });
 });
 
+describe("what the review found (round 12)", () => {
+  it("a redirection glued to an argument, an expansion, a glob or a brace makes the command a step", () => {
+    for (const block of [
+      `bash /srv/live.sh --check2>/tmp/log`,
+      `bash /srv/live.sh --dry-run3>/tmp/log`,
+      `bash /srv/live.sh --rollback2>/tmp/log`,
+      `bash /srv/live.sh --check2>&1`,
+      `bash /srv/live.sh --undo1>>/tmp/log`,
+      `bash /srv/live.sh $OPTIONS --check`,
+      `bash /srv/live.sh --check $OPTIONS`,
+      `bash /srv/live.sh --check "$OPTIONS"`,
+      `bash /srv/live.sh \${OPTIONS} --rollback`,
+      `bash /srv/live.sh * --check`,
+      `bash /srv/live.sh --check /tmp/o?`,
+      `bash /srv/live.sh --check /tmp/[ab]`,
+      `bash /srv/live.sh {--check,--apply}`,
+    ]) {
+      const c = cmds("```bash\n" + block + "\n```\nThen: `bash /srv/work/m10/after.sh`");
+      expect(c.map((p) => [p.text, p.role])).toEqual([[block, "step"], ["bash /srv/work/m10/after.sh", "final"]]);
+    }
+  });
+  it("a redirection that stands as its own word still leaves a check a check", () => {
+    for (const [block, role] of [
+      [`bash /srv/live.sh --check 2>/tmp/log`, "check"],
+      [`bash /srv/live.sh --check 2>&1`, "check"],
+      [`bash /srv/live.sh --rollback >> /tmp/log 2>&1`, "undo"],
+    ] as const) {
+      const c = cmds("```bash\n" + block + "\n```\nThen: `bash /srv/work/m10/after.sh`");
+      expect(c.map((p) => [p.text, p.role])).toEqual([[block, role], ["bash /srv/work/m10/after.sh", "final"]]);
+    }
+  });
+  it("a fence whose info string carries more than a shell name, or that never closes, stays a prose sample", () => {
+    for (const open of ["```text title=\"example\"", "```bash title=\"example\"", "```c++", "```{.bash}", "~~~ text"]) {
+      const close = open.startsWith("~") ? "~~~" : "```";
+      const text = open + "\n`bash /srv/live.sh --check`\n" + close;
+      expect(splitCommands(text)).toEqual([{ type: "prose", text }]);
+    }
+    const unclosed = "Example:\n```text\n`bash /srv/live.sh --check`\nbash /srv/live.sh";
+    expect(splitCommands(unclosed)).toEqual([{ type: "prose", text: unclosed }]);
+    const unclosedShell = "```bash\nbash /srv/live.sh --check";
+    expect(cmds(unclosedShell)).toEqual([]);
+  });
+});
+
 describe("backticked words that are not commands", () => {
   it("stay prose, backticks and all", () => {
     for (const s of ["Pass `--check` first.", "It writes `m10-deploy.sh` and `/tmp/out.json`.", "Use `bash` here.", "Note: `bash scripts` need review.", "The `bb` CLI is on PATH.", "A ``bash /x.sh`` double span is left alone."]) {
