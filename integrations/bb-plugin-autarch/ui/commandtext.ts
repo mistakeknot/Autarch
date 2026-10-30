@@ -353,6 +353,9 @@ export function splitCommands(text: string): TextPart[] {
   // is dropped whole, quoted parts and all, before judging; one glued to an argument ("--check2>/tmp/log") is left, so the command is a run.
   const every = (text: string, role: "check" | "undo"): boolean => {
     if (/[$`\uE000]|[<>]\(|[^\S \t\n]/.test(text)) return false;
+    // A quote right before a redirection, with only digits between ("''>log", "2">log, ''2>log), leaves a word the shell passes that the
+    // redirection strip below cannot see, so the command is a run.
+    if (/["']\d*&?[<>]/.test(text)) return false;
     // Quotes go as the shell removes them, so a quoted flag ("--check=false", --dry"-run") is the word the script gets; any character in quotes that
     // could not be part of a flag becomes "_", which no flag holds and nothing below reads as an operator.
     // One pass from the left, so a backslash-newline is removed only outside quotes. An empty quote that stands as its own word is an argument ("_").

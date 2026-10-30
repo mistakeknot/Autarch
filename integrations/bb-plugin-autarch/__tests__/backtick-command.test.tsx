@@ -447,6 +447,35 @@ describe("what the review found (round 17)", () => {
   });
 });
 
+describe("what the review found (round 18)", () => {
+  it("a quote right before a redirection keeps the word it makes, so the command is a run", () => {
+    for (const block of [
+      `bash /srv/live.sh ''>/tmp/log rollback`,
+      `bash /srv/live.sh "">/tmp/log undo`,
+      `bash /srv/live.sh "2">/tmp/log rollback`,
+      `bash /srv/live.sh '2'>>/tmp/log revert`,
+      `bash /srv/live.sh ''2>/tmp/log undo`,
+      `bash /srv/live.sh ""2>/tmp/log revert`,
+      `bash /srv/live.sh ''< /tmp/input revert`,
+      `bash /srv/live.sh "1"</tmp/input rollback`,
+      `bash /srv/live.sh ''&>/tmp/log undo`,
+      `bash /srv/live.sh ''>/tmp/log --check`,
+    ]) {
+      const c = cmds("```bash\n" + block + "\n```\nThen: `bash /srv/work/m10/after.sh`");
+      expect(c.map((p) => [p.text, p.role])).toEqual([[block, "step"], ["bash /srv/work/m10/after.sh", "final"]]);
+    }
+  });
+  it("a redirection standing apart from a quoted word still drops", () => {
+    for (const [block, role] of [
+      [`bash /srv/live.sh rollback "x" >/tmp/log`, "undo"],
+      [`bash /srv/live.sh --check > '/tmp/log'`, "check"],
+    ] as const) {
+      const c = cmds("```bash\n" + block + "\n```\nThen: `bash /srv/work/m10/after.sh`");
+      expect(c.map((p) => [p.text, p.role])).toEqual([[block, role], ["bash /srv/work/m10/after.sh", "final"]]);
+    }
+  });
+});
+
 describe("backticked words that are not commands", () => {
   it("stay prose, backticks and all", () => {
     for (const s of ["Pass `--check` first.", "It writes `m10-deploy.sh` and `/tmp/out.json`.", "Use `bash` here.", "Note: `bash scripts` need review.", "The `bb` CLI is on PATH.", "A ``bash /x.sh`` double span is left alone."]) {
