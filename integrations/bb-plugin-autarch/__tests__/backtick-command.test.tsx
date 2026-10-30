@@ -373,6 +373,19 @@ describe("what the review found (round 14)", () => {
   });
 });
 
+describe("what the review found (round 15)", () => {
+  it("an undo word with a check flag after it is a step, and with an undo flag after it stays an undo", () => {
+    for (const word of ["rollback", "undo", "revert"]) {
+      for (const flag of ["--check", "--dry-run"]) {
+        const c = cmds("Run `bash /srv/live.sh " + word + " " + flag + "` then `bash /srv/work/m10/after.sh`.");
+        expect(c.map((p) => p.role)).toEqual(["step", "final"]);
+      }
+      const c = cmds("Run `bash /srv/live.sh " + word + " --undo` then `bash /srv/work/m10/after.sh`.");
+      expect(c.map((p) => p.role)).toEqual(["undo", "final"]);
+    }
+  });
+});
+
 describe("backticked words that are not commands", () => {
   it("stay prose, backticks and all", () => {
     for (const s of ["Pass `--check` first.", "It writes `m10-deploy.sh` and `/tmp/out.json`.", "Use `bash` here.", "Note: `bash scripts` need review.", "The `bb` CLI is on PATH.", "A ``bash /x.sh`` double span is left alone."]) {

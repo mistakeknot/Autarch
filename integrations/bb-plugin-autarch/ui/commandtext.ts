@@ -39,9 +39,10 @@ function roleOf(command: string): "check" | "undo" | null {
   if (script === undefined || !SCRIPT_PATH.test(script) || script.startsWith("-")) return null;
   const args = t.slice(i + 1);
   if (args.some((a) => VALUED_ROLE_FLAG.test(a))) return null;
-  if (args[0] !== undefined && UNDO_WORD.test(args[0])) return "undo";
-  let role: "check" | "undo" | null = null;
-  for (let k = 0; k < args.length; k++) {
+  // An undo word as the first argument makes the command an undo, but a flag after it can still conflict with it.
+  const undoWord = args[0] !== undefined && UNDO_WORD.test(args[0]);
+  let role: "check" | "undo" | null = undoWord ? "undo" : null;
+  for (let k = undoWord ? 1 : 0; k < args.length; k++) {
     const a = args[k]!;
     if (a === "--") return null;
     const r = CHECK_FLAG.test(a) ? "check" : UNDO_FLAG.test(a) ? "undo" : null;
