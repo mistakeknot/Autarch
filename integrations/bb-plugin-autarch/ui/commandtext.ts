@@ -191,6 +191,10 @@ function fencedCommands(fence: { info: string; inner: string[] }): string[] | nu
   return [fence.inner.join("\n")]; // every character between the fence lines, blank edge lines included
 }
 
+/** A command whose own arguments may be run as another command, so a flag after them need not reach it: a wrapper ("eval", "xargs", "env"), or an interpreter given flags of its own ("bash -c", "python3 -m"). */
+const RUNS_ITS_ARGUMENTS =
+  /^(?:sudo(?:\s+-\S+)*\s+|runuser\s+-u\s+\S+\s+--\s+)*(?:(?:eval|exec|xargs|env|find|source|\.|command|builtin|nohup|timeout|watch|parallel|ssh|nice|ionice|time|su)(?:\s|$)|(?:bash|sh|zsh|dash|ksh|python3?|node|perl|ruby)\s+-)/;
+
 /** Text between two backticked commands on one line that only joins them ("`a` and `b`", "`a`, `b`", "`a` && `b`"): the second shares the first's lead. */
 const JOINER = /^[\s,;]*(?:and|or|&&|\|\||&|;)?[\s,;]*$/i;
 
@@ -302,14 +306,17 @@ export function splitCommands(text: string): TextPart[] {
   const cmds = parts.filter((p): p is Extract<TextPart, { type: "command" }> => p.type === "command");
   // Roles follow what a command does, not where it stands: the last command that is neither a check nor an undo is the one to run.
   // A lone command is always the final one, whatever it is.
-  // A check or an undo by its text is made only of simple commands that each are one: commands joined by a line break, &&, || or ; are judged one by one,
-  // and a pipe, a background &, a substitution or a comment makes the block a run, since it may hold one. Quoted text is blanked first, so a flag or a
-  // separator inside quotes counts for nothing. An output redirection ("2>&1", "&> log") is kept, since it runs nothing.
+  // A check or an undo by its text is made only of simple commands that each are one: commands joined by a line break, &&, || or ; are judged one by one.
+  // Anything that may run a command the flag does not reach makes the block a run: a substitution anywhere (even in quotes), a pipe, a background &,
+  // a comment, an interpreter given its own flags ("bash -c ..."), or a program that runs its arguments (eval, xargs, env and the like).
+  // Quoted text is blanked, so a flag inside quotes counts for nothing, and a redirection's file name ("> --check") is not a flag.
   const every = (text: string, test: (command: string) => boolean): boolean => {
+    if (/\$\(|`|[<>]\(/.test(text)) return false;
     const bare = text.replace(/\\\r?\n/g, " ").replace(/"(?:\\.|[^"\\])*"|'[^']*'/g, '""');
     if (/["'\\]/.test(bare.replace(/""/g, ""))) return false;
-    const commands = bare.replace(/\d*>&\d+|&>>?/g, " ").split(/\n|&&|\|\||;/).map((l) => l.trim()).filter((l) => l !== "");
-    return commands.length > 0 && commands.every((l) => !/[|&`#]|\$\(|[<>]\(/.test(l) && test(l));
+    const unredirected = bare.replace(/\d*>&\d+/g, " ").replace(/(?:&>>?|\d*>>?|\d*<)\s*(?:""|[^\s;&|<>]+)/g, " ");
+    const commands = unredirected.split(/\n|&&|\|\||;/).map((l) => l.trim()).filter((l) => l !== "");
+    return commands.length > 0 && commands.every((l) => !/[|&#<>]/.test(l) && !RUNS_ITS_ARGUMENTS.test(l) && test(l));
   };
   const kind = (c: Extract<TextPart, { type: "command" }>): CommandRole =>
     UNDO_LEAD.test(leads.get(c) ?? "") || every(c.text, isUndoCommand) ? "undo" : every(c.text, (l) => DRY_RUN.test(l)) ? "check" : "step";

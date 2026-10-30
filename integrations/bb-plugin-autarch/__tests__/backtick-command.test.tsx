@@ -214,6 +214,24 @@ describe("what the review found (round 8)", () => {
   });
 });
 
+describe("what the review found (round 9)", () => {
+  it("a substitution in double quotes, an interpreter payload or a redirection to a flag-shaped name never makes a check or an undo", () => {
+    for (const block of [
+      `${CHECK} "$(bash /srv/live.sh)"`,
+      "bash /srv/work/m10/m10-deploy.sh --rollback \"`bash /srv/live.sh`\"",
+      `bash -c "bash /srv/live.sh" --check`,
+      `sh -c 'bash /srv/live.sh' --rollback`,
+      `python3 -c "import os; os.system('bash /srv/live.sh')" --check`,
+      `bash /srv/live.sh > --check`,
+      `bash /srv/live.sh >> --rollback`,
+      `sudo bash -c "bash /srv/live.sh" --check`,
+    ]) {
+      const c = cmds("```bash\n" + block + "\n```\nThen: `bash /srv/work/m10/after.sh`");
+      expect(c.map((p) => [p.text, p.role])).toEqual([[block, "step"], ["bash /srv/work/m10/after.sh", "final"]]);
+    }
+  });
+});
+
 describe("backticked words that are not commands", () => {
   it("stay prose, backticks and all", () => {
     for (const s of ["Pass `--check` first.", "It writes `m10-deploy.sh` and `/tmp/out.json`.", "Use `bash` here.", "Note: `bash scripts` need review.", "The `bb` CLI is on PATH.", "A ``bash /x.sh`` double span is left alone."]) {
