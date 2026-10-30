@@ -735,7 +735,10 @@ export function wireHome(bb: BbPluginApi, handle: StoreHandle, cfg: HomeConfig, 
         p.store.setSetting("viewing", "null");
         return { ok: true };
       }
-      if (!p.svc.owed().some((d) => d.id === i.decision_id)) return { ok: false, error: "not an open ask" };
+      const o0 = performance.now();
+      const open = p.svc.owed().some((d) => d.id === i.decision_id);
+      timingLog(`rpc-timing setViewing owed=${Math.round(performance.now() - o0)}ms`);
+      if (!open) return { ok: false, error: "not an open ask" };
       p.store.setSetting("viewing", JSON.stringify({ decision_id: i.decision_id, at: p.svc.time() }));
       return { ok: true };
     },
@@ -805,12 +808,45 @@ export function wireHome(bb: BbPluginApi, handle: StoreHandle, cfg: HomeConfig, 
   // bb validates an RPC result as a JSON value, and an `undefined` member fails the whole call
   // (found by the real-bb run: listAsks failed on an ask with no machine block). Round-trip
   // every result through JSON so absent members are dropped, as they would be on the wire.
-  const jsonSafe = <F extends (i: never) => Promise<unknown>>(f: F): F =>
+  // Server-side time of each RPC (bead mk-0zih8): the handler's own wall time and the JSON round trip, next to the longest event-loop
+  // stall seen in the last 10 s. With the panel's round trip (click-timing) this separates handler time from waiting in the
+  // single bb process from the transport. Display-only: written to the plugin log, nothing reads it back.
+  const lagWindow: { at: number; ms: number }[] = [];
+  let lastTick = performance.now();
+  const lagTimer = setInterval(() => {
+    const t = performance.now();
+    const late = t - lastTick - 100;
+    lastTick = t;
+    if (late > 5) lagWindow.push({ at: t, ms: Math.round(late) });
+    while (lagWindow.length > 0 && t - lagWindow[0]!.at > 10_000) lagWindow.shift();
+  }, 100);
+  lagTimer.unref?.();
+  bb.onDispose(() => clearInterval(lagTimer));
+  const loopStall = (): number => {
+    const now = performance.now();
+    return lagWindow.reduce((m, x) => (now - x.at > 10_000 ? m : Math.max(m, x.ms)), 0);
+  };
+  // A failing diagnostic log must never change an RPC's outcome.
+  const timingLog = (msg: string): void => {
+    try {
+      bb.log.info(msg);
+    } catch {
+      /* display-only */
+    }
+  };
+  const jsonSafe = <F extends (i: never) => Promise<unknown>>(name: string, f: F): F =>
     (async (i: never) => {
+      const t0 = performance.now();
       const r = await f(i);
-      return r === undefined ? null : JSON.parse(JSON.stringify(r));
+      const t1 = performance.now();
+      const out = r === undefined ? null : JSON.parse(JSON.stringify(r));
+      const t2 = performance.now();
+      if (name !== "clickTiming") {
+        timingLog(`rpc-timing ${name} handler=${Math.round(t1 - t0)}ms json=${Math.round(t2 - t1)}ms stall10s=${loopStall()}ms`);
+      }
+      return out;
     }) as F;
-  const safe = Object.fromEntries(Object.entries(handlers).map(([k, f]) => [k, jsonSafe(f as never)])) as unknown as typeof handlers;
+  const safe = Object.fromEntries(Object.entries(handlers).map(([k, f]) => [k, jsonSafe(k, f as never)])) as unknown as typeof handlers;
   return { handlers: safe };
 }
 
