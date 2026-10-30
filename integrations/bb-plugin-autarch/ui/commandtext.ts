@@ -347,15 +347,20 @@ export function splitCommands(text: string): TextPart[] {
   // A lone command is always the final one, whatever it is.
   // A check or an undo by its text is made only of simple commands that each are one (roleOf): commands joined by a line break, &&, || or ; are judged
   // one by one. Anything else may run a command the flag does not reach, so it makes the block a run: a substitution anywhere (even in quotes), a pipe,
-  // a background &, a comment, a backslash (a backslash-newline is removed, as the shell removes it, so "--check\\" then "=false" reads "--check=false"), an unclosed quote, a "$", glob or brace that the shell would expand, or whitespace other than a space,
+  // a background &, a comment, a backslash (a backslash-newline outside quotes is removed, as the shell removes it, so "--check\\" then "=false" reads "--check=false"), an unclosed quote, a "$", glob or brace that the shell would expand, or whitespace other than a space,
   // a tab or a line break (the shell keeps a no-break space or a carriage return inside the argument). A flag in quotes is read as the shell passes
   // it, so it counts for its conflicts, and a redirection that stands as its own word, with its file name ("2>&1", "> /tmp/log", but also "> --check"),
   // is dropped whole, quoted parts and all, before judging; one glued to an argument ("--check2>/tmp/log") is left, so the command is a run.
   const every = (text: string, role: "check" | "undo"): boolean => {
-    if (/[$`]|[<>]\(|[^\S \t\n]/.test(text)) return false;
+    if (/[$`\uE000]|[<>]\(|[^\S \t\n]/.test(text)) return false;
     // Quotes go as the shell removes them, so a quoted flag ("--check=false", --dry"-run") is the word the script gets; any character in quotes that
     // could not be part of a flag becomes "_", which no flag holds and nothing below reads as an operator.
-    const bare = text.replace(/\\\n/g, "").replace(/"((?:\\.|[^"\\])*)"|'([^']*)'/g, (_m, d?: string, q?: string) => (d ?? q ?? "").replace(/[^\w=.,/:@%+~-]/g, "_"));
+    // One pass from the left, so a backslash-newline is removed only outside quotes. An empty quote that stands as its own word is an argument ("_").
+    const bare = text
+      .replace(/"((?:\\.|[^"\\])*)"|'([^']*)'|\\\n/g, (m, d?: string, q?: string) =>
+        m === "\\\n" ? "" : (d ?? q ?? "") === "" ? "\uE000" : (d ?? q ?? "").replace(/[^\w=.,/:@%+~-]/g, "_"))
+      .replace(/(?<=^|\s)\uE000+(?=\s|$)/gm, "_")
+      .replace(/\uE000/g, "");
     if (/["'\\*?[\]{}]/.test(bare)) return false;
     const unredirected = bare.replace(/(?<=^|\s)\d*>&\d+(?=\s|$)/gm, " ").replace(/(?<=^|\s)(?:&>>?|\d*>>?|\d*<)\s*[^\s;&|<>]+/gm, " ");
     const commands = unredirected.split(/\n|&&|\|\||;/).map((l) => l.trim()).filter((l) => l !== "");

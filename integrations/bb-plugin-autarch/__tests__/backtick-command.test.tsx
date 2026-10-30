@@ -420,6 +420,33 @@ describe("what the review found (round 16)", () => {
   });
 });
 
+describe("what the review found (round 17)", () => {
+  it("an empty quoted argument keeps its place, and a backslash-newline inside single quotes is kept", () => {
+    for (const block of [
+      `bash /srv/live.sh '' rollback`,
+      `bash /srv/live.sh "" undo`,
+      `bash /srv/live.sh "" '' revert`,
+      `bash /srv/live.sh '--che\\\nck'`,
+      `bash /srv/live.sh '--roll\\\nback'`,
+      `bash /srv/live.sh 'roll\\\nback'`,
+      `bash /srv/live.sh "--dry\\\n-run"`,
+    ]) {
+      const c = cmds("```bash\n" + block + "\n```\nThen: `bash /srv/work/m10/after.sh`");
+      expect(c.map((p) => [p.text, p.role])).toEqual([[block, "step"], ["bash /srv/work/m10/after.sh", "final"]]);
+    }
+  });
+  it("an empty quote glued to a word adds nothing to it, and a continuation outside quotes still joins", () => {
+    for (const [block, role] of [
+      [`bash /srv/live.sh --""check`, "check"],
+      [`bash /srv/live.sh ''rollback`, "undo"],
+      [`bash /srv/live.sh \\\n  rollback`, "undo"],
+    ] as const) {
+      const c = cmds("```bash\n" + block + "\n```\nThen: `bash /srv/work/m10/after.sh`");
+      expect(c.map((p) => [p.text, p.role])).toEqual([[block, role], ["bash /srv/work/m10/after.sh", "final"]]);
+    }
+  });
+});
+
 describe("backticked words that are not commands", () => {
   it("stay prose, backticks and all", () => {
     for (const s of ["Pass `--check` first.", "It writes `m10-deploy.sh` and `/tmp/out.json`.", "Use `bash` here.", "Note: `bash scripts` need review.", "The `bb` CLI is on PATH.", "A ``bash /x.sh`` double span is left alone."]) {
