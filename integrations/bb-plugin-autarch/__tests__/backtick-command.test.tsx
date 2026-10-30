@@ -476,6 +476,21 @@ describe("what the review found (round 18)", () => {
   });
 });
 
+describe("what the review found (round 19)", () => {
+  it("a backslash-newline between a quote and a redirection still makes the command a run", () => {
+    for (const block of [
+      `bash /srv/live.sh ''\\\n>/tmp/log rollback`,
+      `bash /srv/live.sh '2'\\\n>/tmp/log rollback`,
+      `bash /srv/live.sh ''2\\\n>/tmp/log undo`,
+      `bash /srv/live.sh ""\\\n</tmp/input revert`,
+      `bash /srv/live.sh "1"\\\n\\\n>>/tmp/log undo`,
+    ]) {
+      const c = cmds("```bash\n" + block + "\n```\nThen: `bash /srv/work/m10/after.sh`");
+      expect(c.map((p) => [p.text, p.role])).toEqual([[block, "step"], ["bash /srv/work/m10/after.sh", "final"]]);
+    }
+  });
+});
+
 describe("backticked words that are not commands", () => {
   it("stay prose, backticks and all", () => {
     for (const s of ["Pass `--check` first.", "It writes `m10-deploy.sh` and `/tmp/out.json`.", "Use `bash` here.", "Note: `bash scripts` need review.", "The `bb` CLI is on PATH.", "A ``bash /x.sh`` double span is left alone."]) {

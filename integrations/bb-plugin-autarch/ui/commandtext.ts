@@ -352,18 +352,18 @@ export function splitCommands(text: string): TextPart[] {
   // it, so it counts for its conflicts, and a redirection that stands as its own word, with its file name ("2>&1", "> /tmp/log", but also "> --check"),
   // is dropped whole, quoted parts and all, before judging; one glued to an argument ("--check2>/tmp/log") is left, so the command is a run.
   const every = (text: string, role: "check" | "undo"): boolean => {
-    if (/[$`\uE000]|[<>]\(|[^\S \t\n]/.test(text)) return false;
-    // A quote right before a redirection, with only digits between ("''>log", "2">log, ''2>log), leaves a word the shell passes that the
-    // redirection strip below cannot see, so the command is a run.
-    if (/["']\d*&?[<>]/.test(text)) return false;
+    if (/[$`\uE000\uE001]|[<>]\(|[^\S \t\n]/.test(text)) return false;
     // Quotes go as the shell removes them, so a quoted flag ("--check=false", --dry"-run") is the word the script gets; any character in quotes that
     // could not be part of a flag becomes "_", which no flag holds and nothing below reads as an operator.
     // One pass from the left, so a backslash-newline is removed only outside quotes. An empty quote that stands as its own word is an argument ("_").
-    const bare = text
-      .replace(/"((?:\\.|[^"\\])*)"|'([^']*)'|\\\n/g, (m, d?: string, q?: string) =>
-        m === "\\\n" ? "" : (d ?? q ?? "") === "" ? "\uE000" : (d ?? q ?? "").replace(/[^\w=.,/:@%+~-]/g, "_"))
-      .replace(/(?<=^|\s)\uE000+(?=\s|$)/gm, "_")
-      .replace(/\uE000/g, "");
+    // Each quote's end is marked, so a quote right before a redirection, with only digits between ("''>log", "2">log, ''2>log, also across a
+    // backslash-newline), which leaves a word the shell passes that the redirection strip below cannot see, makes the command a run.
+    const marked = text.replace(/"((?:\\.|[^"\\])*)"|'([^']*)'|\\\n/g, (m, d?: string, q?: string) =>
+      m === "\\\n" ? "" : ((d ?? q ?? "") === "" ? "\uE000" : (d ?? q ?? "").replace(/[^\w=.,/:@%+~-]/g, "_")) + "\uE001");
+    if (/\uE001\d*&?[<>]/.test(marked)) return false;
+    const bare = marked
+      .replace(/(?<=^|\s)(?:\uE000\uE001)+(?=\s|$)/gm, "_")
+      .replace(/[\uE000\uE001]/g, "");
     if (/["'\\*?[\]{}]/.test(bare)) return false;
     const unredirected = bare.replace(/(?<=^|\s)\d*>&\d+(?=\s|$)/gm, " ").replace(/(?<=^|\s)(?:&>>?|\d*>>?|\d*<)\s*[^\s;&|<>]+/gm, " ");
     const commands = unredirected.split(/\n|&&|\|\||;/).map((l) => l.trim()).filter((l) => l !== "");
