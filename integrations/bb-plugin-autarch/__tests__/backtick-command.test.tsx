@@ -386,6 +386,40 @@ describe("what the review found (round 15)", () => {
   });
 });
 
+describe("what the review found (round 16)", () => {
+  it("a flag in quotes is read as the shell passes it, so it can void or conflict with the role", () => {
+    const blocks = [
+      `bash /srv/live.sh --check "--check=false"`,
+      `bash /srv/live.sh --check '--check=false'`,
+      `bash /srv/live.sh --dry-run --dry"-run=false"`,
+      `bash /srv/live.sh --rollback "--rollback=false"`,
+      `bash /srv/live.sh --undo '--undo=no'`,
+      `bash /srv/live.sh --revert "--revert=0"`,
+      `bash /srv/live.sh rollback "--check"`,
+      `bash /srv/live.sh undo '--dry-run'`,
+      `bash /srv/live.sh --check "--rollback"`,
+      `bash /srv/live.sh --check""=false --check`,
+      `bash /srv/live.sh --check ''--dry-run=false`,
+    ];
+    for (const block of blocks) {
+      const inline = cmds("Run `" + block + "` then `bash /srv/work/m10/after.sh`.");
+      expect(inline.map((p) => [p.text, p.role])).toEqual([[block, "step"], ["bash /srv/work/m10/after.sh", "final"]]);
+      const fenced = cmds("```bash\n" + block + "\n```\nThen: `bash /srv/work/m10/after.sh`");
+      expect(fenced.map((p) => [p.text, p.role])).toEqual([[block, "step"], ["bash /srv/work/m10/after.sh", "final"]]);
+    }
+  });
+  it("a quoted flag that agrees, or quoted words that are no flag, keep the role", () => {
+    for (const [block, role] of [
+      [`bash /srv/live.sh "--check"`, "check"],
+      [`bash /srv/live.sh --label "a | b; c" --check`, "check"],
+      [`bash /srv/live.sh rollback '/tmp/backup dir'`, "undo"],
+    ] as const) {
+      const c = cmds("```bash\n" + block + "\n```\nThen: `bash /srv/work/m10/after.sh`");
+      expect(c.map((p) => [p.text, p.role])).toEqual([[block, role], ["bash /srv/work/m10/after.sh", "final"]]);
+    }
+  });
+});
+
 describe("backticked words that are not commands", () => {
   it("stay prose, backticks and all", () => {
     for (const s of ["Pass `--check` first.", "It writes `m10-deploy.sh` and `/tmp/out.json`.", "Use `bash` here.", "Note: `bash scripts` need review.", "The `bb` CLI is on PATH.", "A ``bash /x.sh`` double span is left alone."]) {

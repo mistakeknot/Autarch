@@ -348,13 +348,15 @@ export function splitCommands(text: string): TextPart[] {
   // A check or an undo by its text is made only of simple commands that each are one (roleOf): commands joined by a line break, &&, || or ; are judged
   // one by one. Anything else may run a command the flag does not reach, so it makes the block a run: a substitution anywhere (even in quotes), a pipe,
   // a background &, a comment, a backslash (a backslash-newline is removed, as the shell removes it, so "--check\\" then "=false" reads "--check=false"), an unclosed quote, a "$", glob or brace that the shell would expand, or whitespace other than a space,
-  // a tab or a line break (the shell keeps a no-break space or a carriage return inside the argument). Quoted text is blanked, so a flag
-  // inside quotes counts for nothing, and a redirection that stands as its own word, with its file name ("2>&1", "> /tmp/log", but also "> --check"),
+  // a tab or a line break (the shell keeps a no-break space or a carriage return inside the argument). A flag in quotes is read as the shell passes
+  // it, so it counts for its conflicts, and a redirection that stands as its own word, with its file name ("2>&1", "> /tmp/log", but also "> --check"),
   // is dropped whole, quoted parts and all, before judging; one glued to an argument ("--check2>/tmp/log") is left, so the command is a run.
   const every = (text: string, role: "check" | "undo"): boolean => {
     if (/[$`]|[<>]\(|[^\S \t\n]/.test(text)) return false;
-    const bare = text.replace(/\\\n/g, "").replace(/"(?:\\.|[^"\\])*"|'[^']*'/g, '""');
-    if (/["'\\*?[\]{}]/.test(bare.replace(/""/g, ""))) return false;
+    // Quotes go as the shell removes them, so a quoted flag ("--check=false", --dry"-run") is the word the script gets; any character in quotes that
+    // could not be part of a flag becomes "_", which no flag holds and nothing below reads as an operator.
+    const bare = text.replace(/\\\n/g, "").replace(/"((?:\\.|[^"\\])*)"|'([^']*)'/g, (_m, d?: string, q?: string) => (d ?? q ?? "").replace(/[^\w=.,/:@%+~-]/g, "_"));
+    if (/["'\\*?[\]{}]/.test(bare)) return false;
     const unredirected = bare.replace(/(?<=^|\s)\d*>&\d+(?=\s|$)/gm, " ").replace(/(?<=^|\s)(?:&>>?|\d*>>?|\d*<)\s*[^\s;&|<>]+/gm, " ");
     const commands = unredirected.split(/\n|&&|\|\||;/).map((l) => l.trim()).filter((l) => l !== "");
     return commands.length > 0 && commands.every((l) => !/[|&#<>]/.test(l) && roleOf(l) === role);
