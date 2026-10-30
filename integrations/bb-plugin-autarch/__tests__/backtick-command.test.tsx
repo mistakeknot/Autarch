@@ -232,6 +232,38 @@ describe("what the review found (round 9)", () => {
   });
 });
 
+describe("what the review found (round 10)", () => {
+  it("only a known command shape with the exact flag as its own argument is a check or an undo", () => {
+    for (const block of [
+      `sudo -u root bash -c "bash /srv/live.sh" --check`,
+      `sudo /bin/bash -c "bash /srv/live.sh" --rollback`,
+      `sudo -s bash /srv/live.sh --check`,
+      `bash /usr/bin/env bash /srv/live.sh --check`,
+      `bash /srv/live.sh -- --check`,
+      `bash /srv/live.sh --label --check`,
+      `bash /srv/live.sh --check=false`,
+      `bash /srv/live.sh --check --rollback`,
+    ]) {
+      const c = cmds("```bash\n" + block + "\n```\nThen: `bash /srv/work/m10/after.sh`");
+      expect(c.map((p) => [p.text, p.role])).toEqual([[block, "step"], ["bash /srv/work/m10/after.sh", "final"]]);
+    }
+  });
+  it("the plain shapes keep their roles", () => {
+    for (const [block, role] of [
+      [CHECK, "check"],
+      [`sudo -u root bash /srv/live.sh --check`, "check"],
+      [`runuser -u mk -- bash /srv/live.sh --dry-run`, "check"],
+      [`bash /srv/live.sh --label x --check`, "check"],
+      [`bash /srv/live.sh --check > /tmp/check.log 2>&1`, "check"],
+      [`sudo bash /srv/live.sh rollback /tmp/backup`, "undo"],
+      [`python3 /srv/live.py --rollback`, "undo"],
+    ] as const) {
+      const c = cmds("```bash\n" + block + "\n```\nThen: `bash /srv/work/m10/after.sh`");
+      expect(c.map((p) => [p.text, p.role])).toEqual([[block, role], ["bash /srv/work/m10/after.sh", "final"]]);
+    }
+  });
+});
+
 describe("backticked words that are not commands", () => {
   it("stay prose, backticks and all", () => {
     for (const s of ["Pass `--check` first.", "It writes `m10-deploy.sh` and `/tmp/out.json`.", "Use `bash` here.", "Note: `bash scripts` need review.", "The `bb` CLI is on PATH.", "A ``bash /x.sh`` double span is left alone."]) {

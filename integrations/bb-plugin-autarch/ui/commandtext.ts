@@ -5,14 +5,53 @@ export type CommandRole = "check" | "step" | "final" | "undo";
 export type TextPart = { type: "prose"; text: string } | { type: "command"; text: string; role: CommandRole };
 
 const COMMAND_WORDS = ["bash", "sudo", "runuser", "scp", "ssh", "sh", "python3", "gh", "bb", "bd", "autarch", "sonnerie"];
-const DRY_RUN = /(^|\s)--(check|dry-run)(\s|=|$)/;
-/** An undo flag anywhere, or a rollback/undo word as the first argument after the program or script. Quoted text and other flags' values do not count. */
-const UNDO_FLAG = /(^|\s)--(rollback|undo|revert)(\s|=|$)/;
-const UNDO_SUBCOMMAND = /^(?:sudo(?:\s+-\S+(?:\s+[^\s-]\S*)?)*\s+|runuser\s+-u\s+\S+\s+--\s+)*(?:(?:bash|sh|python3)\s+)?\S+\s+(?:rollback|undo|revert)(\s|$)/;
-const isUndoCommand = (text: string): boolean => {
-  const bare = text.replace(/"(?:\\.|[^"\\])*"|'[^']*'/g, '""');
-  return UNDO_FLAG.test(bare) || UNDO_SUBCOMMAND.test(bare);
-};
+/** The exact flags that make one simple command a check or an undo. A flag with a value ("--check=false") is neither. */
+const CHECK_FLAG = /^--(?:check|dry-run)$/;
+const UNDO_FLAG = /^--(?:rollback|undo|revert)$/;
+/** An undo word as the first argument after the script ("bash /x.sh rollback"). */
+const UNDO_WORD = /^(?:rollback|undo|revert)$/;
+/** A program that may run another command from its arguments, so a flag after it need not reach what runs. Never the script of a check or an undo. */
+const RUNS_ITS_ARGUMENTS = new Set(
+  "eval exec xargs env find source . command builtin nohup timeout watch parallel ssh nice ionice time su sudo doas runuser setsid stdbuf chroot flock script unbuffer strace systemd-run busybox bash sh zsh dash ksh fish csh tcsh python python2 python3 node deno bun perl ruby php lua tclsh awk gawk sed make npx uvx".split(" "),
+);
+/**
+ * The role one simple command has by its own text, or null when it is a run or cannot be told. An allowlist: "sudo" (with only -u USER, -g GROUP,
+ * -E, -H, -n or -k) or "runuser -u USER --",
+ * then a plain "bash", "sh" or "python3", then the script (not a program that runs its arguments, by any path), then its arguments. The flag must stand
+ * as its own argument after the script or after an argument that is not a flag (a flag before it may take it as its value), with no "--" before it.
+ */
+function roleOf(command: string): "check" | "undo" | null {
+  const t = command.split(/\s+/);
+  let i = 0;
+  for (;;) {
+    if (t[i] === "sudo") {
+      i += 1;
+      for (;;) {
+        if ((t[i] === "-u" || t[i] === "-g") && /^[a-z_][\w-]*$/.test(t[i + 1] ?? "")) i += 2;
+        else if (/^-[EHnk]$/.test(t[i] ?? "")) i += 1;
+        else break;
+      }
+    } else if (t[i] === "runuser" && t[i + 1] === "-u" && /^[a-z_][\w-]*$/.test(t[i + 2] ?? "") && t[i + 3] === "--") i += 4;
+    else break;
+  }
+  if (t[i] === "bash" || t[i] === "sh" || t[i] === "python3") i += 1;
+  const script = t[i];
+  if (script === undefined || !/^[\w./~-]+$/.test(script) || script.startsWith("-") || RUNS_ITS_ARGUMENTS.has(script.split("/").pop()!)) return null;
+  const args = t.slice(i + 1);
+  if (args[0] !== undefined && UNDO_WORD.test(args[0])) return "undo";
+  let role: "check" | "undo" | null = null;
+  for (let k = 0; k < args.length; k++) {
+    const a = args[k]!;
+    if (a === "--") return null;
+    const r = CHECK_FLAG.test(a) ? "check" : UNDO_FLAG.test(a) ? "undo" : null;
+    if (r === null) continue;
+    const before = k === 0 ? script : args[k - 1]!;
+    if (k > 0 && before.startsWith("-") && !before.includes("=")) return null;
+    if (role !== null && role !== r) return null;
+    role = r;
+  }
+  return role;
+}
 /** The prose line right before a command opens by naming it the undo ("Undo:", "Rollback, only if needed:", "Roll back if it goes wrong:"). */
 const UNDO_LEAD = /^\W*(undo|roll ?back|revert)\b[^\n]*:\s*$/i;
 
@@ -191,10 +230,6 @@ function fencedCommands(fence: { info: string; inner: string[] }): string[] | nu
   return [fence.inner.join("\n")]; // every character between the fence lines, blank edge lines included
 }
 
-/** A command whose own arguments may be run as another command, so a flag after them need not reach it: a wrapper ("eval", "xargs", "env"), or an interpreter given flags of its own ("bash -c", "python3 -m"). */
-const RUNS_ITS_ARGUMENTS =
-  /^(?:sudo(?:\s+-\S+)*\s+|runuser\s+-u\s+\S+\s+--\s+)*(?:(?:eval|exec|xargs|env|find|source|\.|command|builtin|nohup|timeout|watch|parallel|ssh|nice|ionice|time|su)(?:\s|$)|(?:bash|sh|zsh|dash|ksh|python3?|node|perl|ruby)\s+-)/;
-
 /** Text between two backticked commands on one line that only joins them ("`a` and `b`", "`a`, `b`", "`a` && `b`"): the second shares the first's lead. */
 const JOINER = /^[\s,;]*(?:and|or|&&|\|\||&|;)?[\s,;]*$/i;
 
@@ -306,20 +341,20 @@ export function splitCommands(text: string): TextPart[] {
   const cmds = parts.filter((p): p is Extract<TextPart, { type: "command" }> => p.type === "command");
   // Roles follow what a command does, not where it stands: the last command that is neither a check nor an undo is the one to run.
   // A lone command is always the final one, whatever it is.
-  // A check or an undo by its text is made only of simple commands that each are one: commands joined by a line break, &&, || or ; are judged one by one.
-  // Anything that may run a command the flag does not reach makes the block a run: a substitution anywhere (even in quotes), a pipe, a background &,
-  // a comment, an interpreter given its own flags ("bash -c ..."), or a program that runs its arguments (eval, xargs, env and the like).
-  // Quoted text is blanked, so a flag inside quotes counts for nothing, and a redirection's file name ("> --check") is not a flag.
-  const every = (text: string, test: (command: string) => boolean): boolean => {
+  // A check or an undo by its text is made only of simple commands that each are one (roleOf): commands joined by a line break, &&, || or ; are judged
+  // one by one. Anything else may run a command the flag does not reach, so it makes the block a run: a substitution anywhere (even in quotes), a pipe,
+  // a background &, a comment, a backslash or an unclosed quote. Quoted text is blanked, so a flag inside quotes counts for nothing, and a redirection
+  // with its file name ("2>&1", "> /tmp/log", but also "> --check") is dropped before judging.
+  const every = (text: string, role: "check" | "undo"): boolean => {
     if (/\$\(|`|[<>]\(/.test(text)) return false;
     const bare = text.replace(/\\\r?\n/g, " ").replace(/"(?:\\.|[^"\\])*"|'[^']*'/g, '""');
     if (/["'\\]/.test(bare.replace(/""/g, ""))) return false;
     const unredirected = bare.replace(/\d*>&\d+/g, " ").replace(/(?:&>>?|\d*>>?|\d*<)\s*(?:""|[^\s;&|<>]+)/g, " ");
     const commands = unredirected.split(/\n|&&|\|\||;/).map((l) => l.trim()).filter((l) => l !== "");
-    return commands.length > 0 && commands.every((l) => !/[|&#<>]/.test(l) && !RUNS_ITS_ARGUMENTS.test(l) && test(l));
+    return commands.length > 0 && commands.every((l) => !/[|&#<>]/.test(l) && roleOf(l) === role);
   };
   const kind = (c: Extract<TextPart, { type: "command" }>): CommandRole =>
-    UNDO_LEAD.test(leads.get(c) ?? "") || every(c.text, isUndoCommand) ? "undo" : every(c.text, (l) => DRY_RUN.test(l)) ? "check" : "step";
+    UNDO_LEAD.test(leads.get(c) ?? "") || every(c.text, "undo") ? "undo" : every(c.text, "check") ? "check" : "step";
   cmds.forEach((c) => { c.role = cmds.length === 1 ? "final" : kind(c); });
   const run = cmds.filter((c) => c.role === "step").pop();
   if (run) run.role = "final";
