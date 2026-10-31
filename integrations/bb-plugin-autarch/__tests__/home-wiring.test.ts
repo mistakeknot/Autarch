@@ -352,3 +352,29 @@ describe("rpc-timing (bead mk-0zih8)", () => {
     }
   });
 });
+
+describe("health reads (bead mk-0zih8)", () => {
+  it("reuses the serve reads for a short while, and asks again after the TTL", async () => {
+    vi.useFakeTimers();
+    try {
+      const calls = { projects: 0, health: 0 };
+      const counting = { projects: async () => (calls.projects++, []), health: async () => (calls.health++, { build: { commit: "abc" } }), healthy: async () => true } as unknown as ServeClient;
+      const f = fakeBb();
+      const home = wireHome(f.bb, createStoreHandle(() => new Database(":memory:"), {}), cfg, { serve: counting });
+      const spy = vi.spyOn(performance, "now");
+      spy.mockReturnValue(1000);
+      await home.handlers.health(null as never);
+      spy.mockReturnValue(5000);
+      const again = (await home.handlers.health(null as never)) as { build: unknown };
+      expect(calls).toEqual({ projects: 1, health: 1 });
+      expect(again.build).toEqual({ commit: "abc" });
+      spy.mockReturnValue(30_000);
+      await home.handlers.health(null as never);
+      expect(calls).toEqual({ projects: 2, health: 2 });
+      spy.mockRestore();
+      f.disposers.forEach((d) => d());
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});

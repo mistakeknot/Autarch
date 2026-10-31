@@ -512,6 +512,8 @@ export function wireHome(bb: BbPluginApi, handle: StoreHandle, cfg: HomeConfig, 
     }
     return titleMap;
   };
+  const SERVE_READ_TTL_MS = 20_000;
+  let serveRead: { at: number; projects: unknown; projectsError: string | undefined; build: unknown } | undefined;
   const handlers = {
     async listAsks(_: null) {
       const p = need();
@@ -789,19 +791,25 @@ export function wireHome(bb: BbPluginApi, handle: StoreHandle, cfg: HomeConfig, 
       return p.svc.stats(new Date(Date.parse(p.svc.time()) - i.days * 86_400_000).toISOString());
     },
     async health(_: null) {
-      let projects: unknown;
-      let projectsError: string | undefined;
-      try {
-        projects = await serve.projects();
-      } catch (e) {
-        projectsError = e instanceof Error ? e.message : String(e);
+      // The serve reads change rarely and cost a round trip each, so a poll reuses them for a short while (bead mk-0zih8).
+      const now = performance.now();
+      if (!serveRead || now - serveRead.at > SERVE_READ_TTL_MS) {
+        let projects: unknown;
+        let projectsError: string | undefined;
+        try {
+          projects = await serve.projects();
+        } catch (e) {
+          projectsError = e instanceof Error ? e.message : String(e);
+        }
+        let build: unknown = null;
+        try {
+          build = (await serve.health()).build ?? null;
+        } catch {
+          /* serve down: build stays null */
+        }
+        serveRead = { at: now, projects, projectsError, build };
       }
-      let build: unknown = null;
-      try {
-        build = (await serve.health()).build ?? null;
-      } catch {
-        /* serve down: build stays null */
-      }
+      const { projects, projectsError, build } = serveRead;
       return { ready: handle.ready(), error: handle.error(), source_sha256: pluginSource(), build, projects: projects ?? null, projects_error: projectsError ?? null };
     },
   };

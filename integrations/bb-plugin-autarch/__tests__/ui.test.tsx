@@ -805,3 +805,31 @@ describe("recorded approvals", () => {
     expect(html).toMatch(/class="[^"]*min-h-11[^"]*sm:min-h-0[^"]*"[^>]*>Revoke</);
   });
 });
+
+describe("poll pauses while hidden (bead mk-0zih8)", () => {
+  beforeEach(() => vi.useFakeTimers());
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.unstubAllGlobals();
+  });
+  it("skips ticks while the page is hidden and reads once when it turns visible", async () => {
+    const { startPoll } = await import("../ui/poll.js");
+    let state = "visible";
+    const listeners: (() => void)[] = [];
+    vi.stubGlobal("document", { get visibilityState() { return state; }, addEventListener: (_: string, f: () => void) => listeners.push(f), removeEventListener: () => listeners.pop() });
+    const fn = vi.fn();
+    const stop = startPoll(fn, 1000);
+    vi.advanceTimersByTime(2000);
+    expect(fn).toHaveBeenCalledTimes(2);
+    state = "hidden";
+    vi.advanceTimersByTime(5000);
+    expect(fn).toHaveBeenCalledTimes(2);
+    state = "visible";
+    listeners.forEach((f) => f());
+    expect(fn).toHaveBeenCalledTimes(3);
+    stop();
+    vi.advanceTimersByTime(5000);
+    expect(fn).toHaveBeenCalledTimes(3);
+    expect(listeners.length).toBe(0);
+  });
+});

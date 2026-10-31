@@ -48,6 +48,7 @@ import { keyAction, layoutStack, ROOT_PANEL, stackReducer, StackView } from "./u
 import { forgetClassicTabs, HomeTabs, QueueTabs, type QueueTab } from "./ui/tabs.js";
 import type { Panel, StackState } from "./ui/stack.js";
 import { HOME_SOURCE } from "./ui/identity.js";
+import { POLL_MS, startPoll } from "./ui/poll.js";
 import { LearnPanel, LearnSwitch, latestOnly, type LearnCardView } from "./ui/learn.js";
 import { TellVizier, ThreadPanel } from "./ui/vizier.js";
 
@@ -211,7 +212,6 @@ function TodosPage() {
   );
 }
 
-const POLL_MS = 10_000;
 
 /** The queue refetches on the server's "home-queue-changed" signal and, as a fallback, every POLL_MS. */
 function useQueue(thread?: string) {
@@ -279,8 +279,7 @@ function useConversationApi(rpc: ReturnType<typeof useRpc<typeof rpcContract>>):
   }, [rpc]);
   useEffect(() => {
     refetch();
-    const t = setInterval(refetch, POLL_MS);
-    return () => clearInterval(t);
+    return startPoll(refetch, POLL_MS);
   }, [refetch]);
   useEffect(() => {
     setTimingSink((t) => void rpc.call("clickTiming", t).catch(() => {}));
@@ -331,9 +330,9 @@ function usePolledRead(run: (live: () => boolean) => Promise<unknown>, deps: rea
     const f = singleFlight(run);
     flight.current = f;
     f.go();
-    const t = setInterval(f.go, POLL_MS);
+    const stopPoll = startPoll(f.go, POLL_MS);
     return () => {
-      clearInterval(t);
+      stopPoll();
       f.stop();
       if (flight.current === f) flight.current = null;
     };
