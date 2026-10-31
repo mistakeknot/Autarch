@@ -386,3 +386,10 @@ describe("clickTiming kinds", () => {
     expect(ok.success).toBe(true);
   });
 });
+
+describe("clickTiming later", () => {
+  it("accepts later, so Later and Move back round trips are logged", async () => {
+    const { homeMethods } = await import("../contract.js");
+    expect(homeMethods.clickTiming.input.safeParse({ kind: "later", ms: 5, width: 80 }).success).toBe(true);
+  });
+});

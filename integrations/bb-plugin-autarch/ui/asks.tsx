@@ -35,6 +35,11 @@ export function withoutPicked(a: AsksData | null, decisionId: string): AsksData 
   return a ? { ...a, owed: a.owed.filter((o) => o.id !== decisionId) } : a;
 }
 
+/** The asks with one card set aside for later (on) or moved back (off), as the screen shows it before the refetch confirms. */
+export function withLater(a: AsksData | null, taskId: string, on: boolean, at: string = new Date().toISOString()): AsksData | null {
+  return a ? { ...a, owed: a.owed.map((o) => (o.task_id === taskId ? { ...o, later: on ? { at, by: "mk" } : null } : o)) } : a;
+}
+
 /** Turns a Later / Move back send into an outcome: a thrown error or a not-ok result is a failure. */
 export async function laterOutcome(send: Promise<unknown>): Promise<PickOutcome> {
   try {

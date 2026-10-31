@@ -2,7 +2,7 @@
 // click starts. Display-only: the numbers go to the plugin log through one RPC and nothing reads them back into the UI.
 
 export interface ClickTiming {
-  kind: "paint" | "setViewing" | "conversation" | "pick";
+  kind: "paint" | "setViewing" | "conversation" | "pick" | "later";
   ms: number;
   width: number;
 }
