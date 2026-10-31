@@ -1,6 +1,7 @@
 // The blocks panel (plan 1.4): open card generations across all tasks projects, then the legacy group.
 // The server sorts and pins (queueview.ts); this file only renders, and owns the refresh policy.
 import { AskCard, type OnNote, type OnPick, type OwedAsk, type RunbookGroup } from "./asks.js";
+import { startPoll } from "./poll.js";
 import { RootRunSection, type RootRunPanelView } from "./rootrun.js";
 
 export type QueueRowView = {
@@ -274,14 +275,9 @@ export function BlocksPanel({ data, nowMs, thread, onPick, onOpen, rootRun, onBi
  * costs at most one interval. `start` returns the stop function.
  */
 export class QueueRefresher {
-  private timer: ReturnType<typeof setInterval> | null = null;
   constructor(private refetch: () => void, private intervalMs: number) {}
   start(): () => void {
-    this.timer = setInterval(this.refetch, this.intervalMs);
-    return () => {
-      if (this.timer) clearInterval(this.timer);
-      this.timer = null;
-    };
+    return startPoll(this.refetch, this.intervalMs);
   }
   onEvent = (): void => this.refetch();
 }
