@@ -833,3 +833,12 @@ describe("poll pauses while hidden (bead mk-0zih8)", () => {
     expect(listeners.length).toBe(0);
   });
 });
+
+describe("withoutPicked", () => {
+  it("drops only the picked card and leaves null alone", async () => {
+    const { withoutPicked } = await import("../ui/asks.js");
+    const a = { owed: [{ id: "d1" }, { id: "d2" }], runbook: [] } as never;
+    expect((withoutPicked(a, "d1") as never as { owed: { id: string }[] }).owed.map((o) => o.id)).toEqual(["d2"]);
+    expect(withoutPicked(null, "d1")).toBeNull();
+  });
+});

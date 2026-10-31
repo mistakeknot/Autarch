@@ -97,7 +97,7 @@ export const homeMethods = {
   updateInfo: { input: z.null(), output: readModel },
   requestUpdate: { input: z.object({ sha: z.string().regex(/^[0-9a-f]{40}$/) }).strict(), output: result },
   setViewing: { input: z.object({ decision_id: z.string().min(1).nullable() }), output: result },
-  clickTiming: { input: z.object({ kind: z.enum(["paint", "setViewing", "conversation"]), ms: z.number().int().min(0).max(3_600_000), width: z.number().int().min(0).max(100_000) }).strict(), output: result },
+  clickTiming: { input: z.object({ kind: z.enum(["paint", "setViewing", "conversation", "pick"]), ms: z.number().int().min(0).max(3_600_000), width: z.number().int().min(0).max(100_000) }).strict(), output: result },
   cardState: { input: z.object({ key: z.string().regex(/^[A-Z][A-Z0-9]{1,11}-\d{1,7}$/) }), output: readModel },
   resend: { input: z.object({ id: z.string().min(1), attempt: z.number().int().min(0), click_id: z.string().min(1) }), output: result },
   markSeen: { input: z.object({ item: z.string().min(1) }), output: result },

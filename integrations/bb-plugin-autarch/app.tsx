@@ -18,7 +18,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Icon } from "@/components/ui/icon";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
-import { AsksPanel, PickController, imagesSig, pickOutcome, laterOutcome } from "./ui/asks.js";
+import { AsksPanel, PickController, imagesSig, pickOutcome, laterOutcome, withoutPicked } from "./ui/asks.js";
 import { DocReaderHost, type DocReaderApi, type DocResultT } from "./ui/docreader.js";
 import type { OtherImage } from "./ui/other.js";
 import { setTimingSink, timed } from "./ui/clicktiming.js";
@@ -377,7 +377,8 @@ function useHomeData() {
   );
   // The totals move when a card is answered, a move is claimed or a hold changes, not only on the poll.
   useRealtime("home-queue-changed", refetch);
-  return { rpc, asks, catchup, catchupError, waiting, health, decisionCount, error, refetch };
+  const dropOwed = useCallback((id: string) => setAsks((a) => withoutPicked(a, id)), []);
+  return { rpc, asks, catchup, catchupError, waiting, health, decisionCount, error, refetch, dropOwed };
 }
 
 /** Your move: the grouped read model, refetched on the queue signal and on the poll. */
@@ -414,7 +415,7 @@ function useMoves(rpc: ReturnType<typeof useRpc<typeof rpcContract>>, onChanged:
 }
 
 function HomePage({ subPath }: { subPath?: string }) {
-  const { rpc, asks, catchup, catchupError, waiting, error, refetch } = useHomeData();
+  const { rpc, asks, catchup, catchupError, waiting, error, refetch, dropOwed } = useHomeData();
   const nav = useBbNavigate();
   const blocks = useQueue();
   const rootRuns = useRootRuns(rpc);
@@ -490,6 +491,12 @@ function HomePage({ subPath }: { subPath?: string }) {
     refetch();
     blocks.refetch();
   };
+  /** A pick that went through takes its card off the screen at once; the refetch then confirms it in the background. */
+  const sendPick = (decision_id: string, option_id: string, revision: string, reason?: string, images?: OtherImage[], answers?: Record<string, string>) =>
+    pickOutcome(picks.send((req) => timed("pick", rpc.call("pick", req)) as never, { decision_id, option_id, revision, ...(reason !== undefined ? { reason } : {}), ...(images && images.length > 0 ? { images } : {}), ...(answers ? { answers } : {}) }, refetchAll)).then((o) => {
+      if (o.ok) dropOwed(decision_id);
+      return o;
+    }).finally(refetchAll);
   /** Open a thread and this plugin's blocks panel beside it; the host declines (false) where there is no side panel. */
   const openBeside = (thread: string) => {
     nav.toThread(thread);
@@ -599,7 +606,7 @@ function HomePage({ subPath }: { subPath?: string }) {
             onRevoke={(approval_id) => void rpc.call("revokeApproval", { approval_id }).then(refetch, () => {})}
             onView={(decision_id) => void timed("setViewing", rpc.call("setViewing", { decision_id })).catch(() => {})}
             onPick={(decision_id, option_id, revision, reason, images, answers) => {
-              return pickOutcome(picks.send((req) => rpc.call("pick", req) as never, { decision_id, option_id, revision, ...(reason !== undefined ? { reason } : {}), ...(images && images.length > 0 ? { images } : {}), ...(answers ? { answers } : {}) }, refetchAll)).finally(refetchAll);
+              return sendPick(decision_id, option_id, revision, reason, images, answers);
             }}
           />
           </>
@@ -616,7 +623,7 @@ function HomePage({ subPath }: { subPath?: string }) {
             onNote={(decision_id, text, images) => yourMove.note({ decision_id }, text, images)}
             onOpen={openBeside}
             onPick={(decision_id, option_id, revision, reason, images, answers) => {
-              return pickOutcome(picks.send((req) => rpc.call("pick", req) as never, { decision_id, option_id, revision, ...(reason !== undefined ? { reason } : {}), ...(images && images.length > 0 ? { images } : {}), ...(answers ? { answers } : {}) }, refetchAll)).finally(refetchAll);
+              return sendPick(decision_id, option_id, revision, reason, images, answers);
             }}
           />
         );
@@ -699,7 +706,7 @@ function HomePage({ subPath }: { subPath?: string }) {
             onOpen={openBeside}
             onView={(decision_id) => void timed("setViewing", rpc.call("setViewing", { decision_id })).catch(() => {})}
             onPick={(decision_id, option_id, revision, reason, images, answers) => {
-              return pickOutcome(picks.send((req) => rpc.call("pick", req) as never, { decision_id, option_id, revision, ...(reason !== undefined ? { reason } : {}), ...(images && images.length > 0 ? { images } : {}), ...(answers ? { answers } : {}) }, refetchAll)).finally(refetchAll);
+              return sendPick(decision_id, option_id, revision, reason, images, answers);
             }}
           />
         </div>
@@ -733,7 +740,7 @@ function HomePage({ subPath }: { subPath?: string }) {
             onNote={(decision_id, text, images) => yourMove.note({ decision_id }, text, images)}
             onLater={(ref, on) => laterOutcome(rpc.call(on ? "later" : "unlater", { ref })).then((o) => { refetchAll(); return o; })}
             onPick={(decision_id, option_id, revision, reason, images, answers) => {
-              return pickOutcome(picks.send((req) => rpc.call("pick", req) as never, { decision_id, option_id, revision, ...(reason !== undefined ? { reason } : {}), ...(images && images.length > 0 ? { images } : {}), ...(answers ? { answers } : {}) }, refetchAll)).finally(refetchAll);
+              return sendPick(decision_id, option_id, revision, reason, images, answers);
             }}
             onDesktop={() => setFullView(true)}
             onIdea={() => setIdeaOpen((o) => !o)}
