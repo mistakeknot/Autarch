@@ -18,7 +18,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Icon } from "@/components/ui/icon";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
-import { AsksPanel, PickController, imagesSig, pickOutcome, laterOutcome, withoutPicked } from "./ui/asks.js";
+import { AsksPanel, PickController, imagesSig, pickOutcome, laterOutcome, withoutPicked, withLater } from "./ui/asks.js";
 import { DocReaderHost, type DocReaderApi, type DocResultT } from "./ui/docreader.js";
 import type { OtherImage } from "./ui/other.js";
 import { setTimingSink, timed } from "./ui/clicktiming.js";
@@ -378,7 +378,8 @@ function useHomeData() {
   // The totals move when a card is answered, a move is claimed or a hold changes, not only on the poll.
   useRealtime("home-queue-changed", refetch);
   const dropOwed = useCallback((id: string) => setAsks((a) => withoutPicked(a, id)), []);
-  return { rpc, asks, catchup, catchupError, waiting, health, decisionCount, error, refetch, dropOwed };
+  const setLater = useCallback((taskId: string, on: boolean) => setAsks((a) => withLater(a, taskId, on)), []);
+  return { rpc, asks, catchup, catchupError, waiting, health, decisionCount, error, refetch, dropOwed, setLater };
 }
 
 /** Your move: the grouped read model, refetched on the queue signal and on the poll. */
@@ -415,7 +416,7 @@ function useMoves(rpc: ReturnType<typeof useRpc<typeof rpcContract>>, onChanged:
 }
 
 function HomePage({ subPath }: { subPath?: string }) {
-  const { rpc, asks, catchup, catchupError, waiting, error, refetch, dropOwed } = useHomeData();
+  const { rpc, asks, catchup, catchupError, waiting, error, refetch, dropOwed, setLater } = useHomeData();
   const nav = useBbNavigate();
   const blocks = useQueue();
   const rootRuns = useRootRuns(rpc);
@@ -491,6 +492,13 @@ function HomePage({ subPath }: { subPath?: string }) {
     refetch();
     blocks.refetch();
   };
+  /** Later and Move back: the card changes section the moment the call returns ok; the refetch confirms in the background. */
+  const sendLater = (ref: string, on: boolean) =>
+    laterOutcome(timed("later", rpc.call(on ? "later" : "unlater", { ref }))).then((o) => {
+      if (o.ok) setLater(ref, on);
+      refetchAll();
+      return o;
+    });
   /** A pick that went through takes its card off the screen at once; the refetch then confirms it in the background. */
   const sendPick = (decision_id: string, option_id: string, revision: string, reason?: string, images?: OtherImage[], answers?: Record<string, string>) =>
     pickOutcome(picks.send((req) => timed("pick", rpc.call("pick", req)) as never, { decision_id, option_id, revision, ...(reason !== undefined ? { reason } : {}), ...(images && images.length > 0 ? { images } : {}), ...(answers ? { answers } : {}) }, refetchAll)).then((o) => {
@@ -600,7 +608,7 @@ function HomePage({ subPath }: { subPath?: string }) {
             hideHeld
             {...(panel.part ? { part: panel.part } : {})}
             onNote={(decision_id, text, images) => yourMove.note({ decision_id }, text, images)}
-            onLater={(ref, on) => laterOutcome(rpc.call(on ? "later" : "unlater", { ref })).then((o) => { refetchAll(); return o; })}
+            onLater={sendLater}
             onDismiss={(decision_id, obligation_id) => void rpc.call("dismiss", { decision_id, obligation_id }).then(refetch, () => {})}
             onOpen={(thread) => push({ id: `thread:${thread}`, kind: "thread", title: thread, ref: thread })}
             onRevoke={(approval_id) => void rpc.call("revokeApproval", { approval_id }).then(refetch, () => {})}
@@ -702,7 +710,7 @@ function HomePage({ subPath }: { subPath?: string }) {
           <AsksPanel
             data={focusedAsks(asks, linked)}
             onNote={(decision_id, text, images) => yourMove.note({ decision_id }, text, images)}
-            onLater={(ref, on) => laterOutcome(rpc.call(on ? "later" : "unlater", { ref })).then((o) => { refetchAll(); return o; })}
+            onLater={sendLater}
             onOpen={openBeside}
             onView={(decision_id) => void timed("setViewing", rpc.call("setViewing", { decision_id })).catch(() => {})}
             onPick={(decision_id, option_id, revision, reason, images, answers) => {
@@ -738,7 +746,7 @@ function HomePage({ subPath }: { subPath?: string }) {
             handlers={yourMove.handlers}
             onOpen={openBeside}
             onNote={(decision_id, text, images) => yourMove.note({ decision_id }, text, images)}
-            onLater={(ref, on) => laterOutcome(rpc.call(on ? "later" : "unlater", { ref })).then((o) => { refetchAll(); return o; })}
+            onLater={sendLater}
             onPick={(decision_id, option_id, revision, reason, images, answers) => {
               return sendPick(decision_id, option_id, revision, reason, images, answers);
             }}

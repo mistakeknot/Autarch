@@ -842,3 +842,16 @@ describe("withoutPicked", () => {
     expect(withoutPicked(null, "d1")).toBeNull();
   });
 });
+
+describe("withLater", () => {
+  it("sets and clears later on the card with that task only", async () => {
+    const { withLater } = await import("../ui/asks.js");
+    const a = { owed: [{ id: "d1", task_id: "t1", later: null }, { id: "d2", task_id: "t2", later: { at: "x", by: "mk" } }] } as never;
+    const on = withLater(a, "t1", true, "T") as never as { owed: { later: unknown }[] };
+    expect(on.owed[0]!.later).toEqual({ at: "T", by: "mk" });
+    expect(on.owed[1]!.later).toEqual({ at: "x", by: "mk" });
+    const off = withLater(on as never, "t2", false) as never as { owed: { later: unknown }[] };
+    expect(off.owed[1]!.later).toBeNull();
+    expect(withLater(null, "t1", true)).toBeNull();
+  });
+});
