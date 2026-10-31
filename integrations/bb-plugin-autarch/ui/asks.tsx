@@ -30,6 +30,11 @@ export async function pickOutcome(send: Promise<{ ok?: boolean; status?: number;
   }
 }
 
+/** The asks without one card: what the screen shows the moment its pick went through, before the refetch confirms it. */
+export function withoutPicked(a: AsksData | null, decisionId: string): AsksData | null {
+  return a ? { ...a, owed: a.owed.filter((o) => o.id !== decisionId) } : a;
+}
+
 /** Turns a Later / Move back send into an outcome: a thrown error or a not-ok result is a failure. */
 export async function laterOutcome(send: Promise<unknown>): Promise<PickOutcome> {
   try {

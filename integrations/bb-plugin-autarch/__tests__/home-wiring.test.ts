@@ -378,3 +378,11 @@ describe("health reads (bead mk-0zih8)", () => {
     }
   });
 });
+
+describe("clickTiming kinds", () => {
+  it("accepts pick, so a pick's round trip is logged", async () => {
+    const { homeMethods: rpcContract } = await import("../contract.js");
+    const ok = rpcContract.clickTiming.input.safeParse({ kind: "pick", ms: 5, width: 80 });
+    expect(ok.success).toBe(true);
+  });
+});
