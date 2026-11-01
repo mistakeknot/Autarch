@@ -534,7 +534,7 @@ export class Store {
    * thread and project. Mode "override" (Task 1.6): the predecessor instead has a
    * `by: vizier` pick.
    */
-  insertReplacement(d: DecisionInput, mode: "replace" | "override" = "replace"): ReplacementResult {
+  insertReplacement(d: DecisionInput, mode: "replace" | "override" | "bringback" = "replace"): ReplacementResult {
     return this.tx(() => {
       const at = d.at ?? this.now();
       const prevId = d.supersedes;
@@ -550,7 +550,9 @@ export class Store {
       const pickCond =
         mode === "replace"
           ? "NOT EXISTS (SELECT 1 FROM picks k WHERE k.decision_id = p.id)"
-          : `EXISTS (SELECT 1 FROM picks k WHERE k.decision_id = p.id AND k."by" = 'vizier')`;
+          : mode === "bringback"
+            ? "EXISTS (SELECT 1 FROM picks k WHERE k.decision_id = p.id)"
+            : `EXISTS (SELECT 1 FROM picks k WHERE k.decision_id = p.id AND k."by" = 'vizier')`;
       const gate = `
         FROM decisions p
         WHERE p.id = @prev AND p.kind = 'decide' AND @kind = 'decide'
@@ -593,7 +595,7 @@ export class Store {
              SELECT ?, thread, request_id, at FROM mentions WHERE decision_id = ?`,
           )
           .run(d.id, prevId);
-        this.event(mode === "replace" ? "replaced" : "overridden", d.id, { supersedes: prevId });
+        this.event(mode === "replace" ? "replaced" : mode === "bringback" ? "brought-back" : "overridden", d.id, { supersedes: prevId });
         return { ok: true, decision_id: d.id } as const;
       }
       // Refused: undo the registry row, then say why, in this same transaction.

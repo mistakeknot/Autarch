@@ -164,7 +164,7 @@ export class TasksClient {
   }
 
   /** Set a task's status (updateTask semantics), attributed to Home. */
-  async setStatus(taskId: string, status: "canceled" | "done", signal?: AbortSignal): Promise<void> {
+  async setStatus(taskId: string, status: "canceled" | "done" | "todo", signal?: AbortSignal): Promise<void> {
     const r = await this.call("updateTask", { taskId, status, authorName: HOME_AUTHOR }, z.object({ ok: z.boolean().optional() }).passthrough(), signal);
     if (r.ok === false) throw new TasksError("tasks.updateTask refused");
   }

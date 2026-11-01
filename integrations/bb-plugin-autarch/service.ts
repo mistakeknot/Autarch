@@ -58,6 +58,7 @@ export type PickResult =
 
 type Row = Record<string, unknown> & {
   id: string;
+  request_id: string;
   kind: string;
   project: string;
   thread: string;
@@ -1089,7 +1090,8 @@ export class Service {
   }
   private overrideOpen(latest: Row): boolean {
     if (!latest.supersedes || latest.withdrawn_at || latest.resolved_at || this.store.pick(latest.id)) return false;
-    return this.store.pick(latest.supersedes)?.by === "vizier";
+    // An override of a vizier pick, or a bring-back (request_id bringback:*) of any pick, is mk's open question.
+    return this.store.pick(latest.supersedes)?.by === "vizier" || (latest.request_id.startsWith("bringback:") && !!this.store.pick(latest.supersedes));
   }
   private sig(taskId: string): string {
     const c = this.cardRow(taskId);

@@ -7,7 +7,7 @@
 // unseen by mk. Settings are written only by setDelegation (panel RPC); no CLI verb
 // reaches it.
 import { identity, normalizedJson, parseAsk, revision, semanticKey } from "./model.js";
-import { overrideWrites } from "./cardwrites.js";
+import { bringBackWrites, overrideWrites } from "./cardwrites.js";
 import type { DecisionInput } from "./store.js";
 import type { PickResult, Service } from "./service.js";
 
@@ -440,6 +440,90 @@ export class Delegation {
           payload: [
             `mk overrode the vizier's ruling on ${decisionId}. mk is answering afresh in the replacement decision ${res.decision_id}.`,
             `Wait for that answer before acting on the vizier's ruling. If you have already received mk's answer for ${res.decision_id}, that answer stands.`,
+          ].join("\n"),
+        },
+      ]);
+      return { ok: true, decision_id: res.decision_id, replay: false };
+    });
+    const out = run.immediate();
+    if (out.ok && !out.replay) this.svc.nudge();
+    return out;
+  }
+
+  // ---- bring back (bead mk-gc2xm) --------------------------------------------------
+
+  /**
+   * Reopen a decided card as a new generation of the SAME card; the earlier pick and comments stay visible.
+   * Panel (and the vizier's sweep) only: a thread cannot reopen a card. `recipient` is the live thread that
+   * gets the notice: the asking thread, or the vizier when that thread is archived or gone; the caller
+   * resolves it, since the thread list is not the store's to read.
+   */
+  bringBack(taskId: string, decisionId: string, recipient: string | null, ctx: Ctx): OverrideResult {
+    if (ctx.threadId !== undefined) return refuse(403, "bring back comes from the panel");
+    // The request is bound to the decision the caller saw, so a delayed retry or a stale tab cannot reopen a newer answer.
+    const requestId = `bringback:${decisionId}`;
+    const known = this.store.registry(requestId);
+    if (known) return { ok: true, decision_id: known.decision_id, replay: true };
+    const d = this.svc.currentGeneration(taskId) as
+      | (Record<string, string | null> & { id: string; body_json: string; thread: string; project: string })
+      | undefined;
+    if (!d) return refuse(404, "no decision for this card");
+    if (d.id !== decisionId) return refuse(409, "this card has moved on since you looked; reload the Archive");
+    const pick = this.store.pick(decisionId);
+    if (!pick) return refuse(409, "this card has no recorded decision to bring back");
+    if (d.source !== "card" || typeof d.task_id !== "string") return refuse(409, "only a card can be brought back");
+
+    const ask = parseAsk({ ...JSON.parse(d.body_json), request_id: requestId, supersedes: decisionId });
+    const n = Number(d.generation) + 1;
+    const input: DecisionInput = {
+      id: `card-${d.task_id}-g${n}`,
+      request_id: requestId,
+      identity: identity(ask),
+      revision: revision(ask),
+      semantic_key: semanticKey(ask),
+      subject: d.subject ?? "",
+      kind: "decide",
+      ask_key: d.ask_key ?? null,
+      project: d.project,
+      project_root: d.project_root,
+      root_dev: d.root_dev,
+      root_ino: d.root_ino,
+      root_fsid: d.root_fsid ?? null,
+      asker: d.asker as string,
+      thread: d.thread,
+      owner_thread: null,
+      body_json: normalizedJson(ask),
+      supersedes: decisionId,
+      delegable: false,
+      source: "card" as const,
+      task_id: d.task_id,
+      generation: n,
+      tasks_project_id: d.tasks_project_id,
+      card_fp: d.card_fp,
+    };
+    const run = this.db.transaction((): OverrideResult => {
+      const res = this.store.insertReplacement(input, "bringback");
+      if (!res.ok) {
+        if ("existing" in res) return { ok: true, decision_id: res.existing.decision_id, replay: true };
+        return refuse(409, res.reason === "already-superseded" ? "already brought back" : "this card cannot be brought back");
+      }
+      const w = this.store.obligationsFor(decisionId).find((o) => o.op === `wake:${decisionId}:${pick.pick_id}`);
+      if (w) this.store.voidObligation(w.id);
+      // The reopened card blocks the same threads the earlier one did.
+      this.db.prepare("INSERT OR IGNORE INTO decision_blocks(decision_id, ref) SELECT ?, ref FROM decision_blocks WHERE decision_id = ?").run(res.decision_id, decisionId);
+      this.store.insertCardWrites(res.decision_id, bringBackWrites({ id: res.decision_id, task_id: String(d.task_id) }, decisionId));
+      this.svc.reopenForOverride(String(d.task_id));
+      // A close that the earlier ruling queued must not shut the reopened card again.
+      this.db.prepare("UPDATE move_closes SET state = 'skipped', last_error = 'card brought back', updated_at = ? WHERE task_id = ? AND state = 'pending'").run(this.svc.time(), String(d.task_id));
+      this.store.insertObligations(decisionId, !recipient ? [] : [
+        {
+          id: `ob:${decisionId}:bringback`,
+          kind: "void-notice",
+          recipient,
+          op: `bringback:${decisionId}`,
+          payload: [
+            `mk brought the decision ${decisionId} back. It is open again as ${res.decision_id}, and mk is answering afresh.`,
+            `Wait for that answer before acting on the earlier one. If you have already received mk's answer for ${res.decision_id}, that answer stands.`,
           ].join("\n"),
         },
       ]);

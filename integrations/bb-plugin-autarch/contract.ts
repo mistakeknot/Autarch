@@ -88,6 +88,7 @@ export const homeMethods = {
   clearIdeaDigest: { input: z.null(), output: result },
   dismiss: { input: z.object({ decision_id: z.string().min(1), obligation_id: z.string().min(1) }), output: result },
   override: { input: z.object({ decision_id: z.string().min(1) }), output: result },
+  bringBack: { input: z.object({ task_id: z.string().min(1).max(64), decision_id: z.string().min(1).max(200) }).strict(), output: result },
   setDelegation: {
     input: z.object({
       vizierThreadId: z.string().min(1),
@@ -147,6 +148,7 @@ export const homeCliMap = {
   clearIdeaDigest: { rpcOnly: "the Idea box" },
   dismiss: { rpcOnly: "mk's own choice" },
   override: { rpcOnly: "delegation settings are never reachable from the CLI" },
+  bringBack: { rpcOnly: "the Archive tab; the vizier's sweep calls the same RPC" },
   setDelegation: { rpcOnly: "delegation settings are never reachable from the CLI" },
   revokeApproval: { rpcOnly: "mk's own choice" },
   setViewing: { rpcOnly: "the panel reports what it shows; the CLI reads it with `viewing`" },
