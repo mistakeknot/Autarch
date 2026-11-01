@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
 import { createElement } from "react";
 import { ArchiveRowView } from "../ui/archive.js";
+import { HOME_MOVE_LABEL } from "../cardwrites.js";
 import { cleanupEnvs, opened, pollN, rig } from "./card-rig.js";
 
 afterEach(cleanupEnvs);
@@ -74,6 +75,21 @@ describe("bring back", () => {
     expect(r.dele.bringBack(t.id, "thr_a", { threadId: "thr_a" })).toMatchObject({ ok: false, status: 403 });
     expect(r.dele.bringBack("nope", "thr_a", {})).toMatchObject({ ok: false, status: 404 });
     expect(r.gens(t.id)).toHaveLength(1);
+  });
+
+  it("a move close queued by the earlier ruling cannot shut the reopened card, queued before or after", async () => {
+    const { r, t } = await ruled();
+    const l = r.fake.addLabel(r.tp.id, HOME_MOVE_LABEL);
+    r.fake.tasks.find((x: any) => x.id === t.id)!.labelIds.push(l.id);
+    const seed = () => r.db.prepare("INSERT OR IGNORE INTO move_closes(task_id, generation, next_try_at, updated_at) VALUES (?, 1, '2000-01-01T00:00:00Z', '2000-01-01T00:00:00Z')").run(t.id);
+    seed();
+    expect(r.dele.bringBack(t.id, "thr_a", {})).toMatchObject({ ok: true });
+    seed(); // a late queue entry for generation 1 is dropped by the drain
+    r.db.prepare("UPDATE move_closes SET state = 'pending'").run();
+    await pollN(r, 10);
+    expect(r.fake.tasks.find((x: any) => x.id === t.id)?.status).toBe("todo");
+    expect(r.cardRow(t.id).state).toBe("open");
+    expect(r.db.prepare("SELECT state FROM move_closes WHERE task_id = ?").get(t.id)).toEqual({ state: "skipped" });
   });
 
   it("a picked card is not touched by a later edit before it is brought back (T8 unchanged)", async () => {

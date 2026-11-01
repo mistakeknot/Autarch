@@ -146,6 +146,11 @@ export class CardWriter {
       this.db.prepare("UPDATE move_closes SET state = ?, last_error = ?, updated_at = ? WHERE task_id = ? AND generation = ?").run(state, note, this.now(), r.task_id, r.generation);
     for (const r of rows) {
       try {
+        // A later generation (a bring-back or an override) means mk is answering afresh: the old close is stale.
+        if (this.db.prepare("SELECT 1 FROM decisions WHERE task_id = ? AND generation > ?").get(r.task_id, r.generation)) {
+          settle(r, "skipped", "card was reopened by a later generation");
+          continue;
+        }
         // A newer live move on the card means the card is still owed.
         if (this.db.prepare("SELECT 1 FROM moves WHERE task_id = ? AND state <> 'closed'").get(r.task_id)) {
           settle(r, "skipped", "card has another live move");
