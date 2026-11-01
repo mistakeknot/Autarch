@@ -42,6 +42,11 @@ export function overrideWrites(d: { id: string; task_id: string }, supersedes: s
   return HOME_RELABELS_ON_OVERRIDE ? [{ id: `cw-${d.id}-relabel`, task_id: d.task_id, kind: "relabel", payload: JSON.stringify({ supersedes }) }] : [];
 }
 
+/** The row a bring-back generation inserts: relabel, and reopen the task if it was closed. */
+export function bringBackWrites(d: { id: string; task_id: string }, supersedes: string): CardWriteInput[] {
+  return [{ id: `cw-${d.id}-bringback`, task_id: d.task_id, kind: "relabel", payload: JSON.stringify({ supersedes, bringback: true }) }];
+}
+
 /** The comment body. The marker line makes the post idempotent across a lost response. */
 export function commentBody(id: string, payload: Partial<PickPayload>): string {
   const label = payload.option_label ?? payload.option_id ?? "?";
@@ -205,6 +210,8 @@ export class CardWriter {
       if (ids.length === 0) throw new Error("the tasks project has no needs-mk label");
       await this.tasks.setLabels(r.task_id, [...st.task.labelIds, ids[0]!]);
     }
+    // A brought-back card's task was closed when it was ruled; it is open work for mk again.
+    if (r.id.endsWith("-bringback") && (st.task.status === "done" || st.task.status === "canceled")) await this.tasks.setStatus(r.task_id, "todo");
     this.db.prepare("UPDATE cards SET home_unlabelled_at = NULL WHERE task_id = ?").run(r.task_id);
     this.settle(r.id, "done", null);
   }
