@@ -58,8 +58,16 @@ export function archiveView(db: Database.Database, q: ArchiveQuery): ArchiveView
     args.from = q.from;
   }
   if (q.to) {
-    where.push("COALESCE(p.picked_at, c.updated_at) <= @to");
-    args.to = q.to;
+    // A bare date (what the date input gives) means the whole day, so the bound is the next midnight, exclusive.
+    if (/^\d{4}-\d{2}-\d{2}$/.test(q.to)) {
+      const next = new Date(`${q.to}T00:00:00.000Z`);
+      next.setUTCDate(next.getUTCDate() + 1);
+      where.push("COALESCE(p.picked_at, c.updated_at) < @to");
+      args.to = next.toISOString();
+    } else {
+      where.push("COALESCE(p.picked_at, c.updated_at) <= @to");
+      args.to = q.to;
+    }
   }
   if (q.pick) {
     where.push("(p.option_id = @pickExact OR EXISTS (SELECT 1 FROM json_each(d.body_json, '$.options') o WHERE json_extract(o.value, '$.id') = p.option_id AND json_extract(o.value, '$.label') LIKE @pickLike ESCAPE '\\'))");

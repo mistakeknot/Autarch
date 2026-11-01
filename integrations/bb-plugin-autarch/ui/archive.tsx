@@ -36,28 +36,35 @@ export function ArchivePanel({ api }: { api: ArchiveApi }) {
   const [f, setF] = useState<ArchiveFilters>(emptyFilters);
   const [q, setQ] = useState<ArchiveFilters>(emptyFilters);
   const [page, setPage] = useState<ArchivePage>({ rows: [], total: 0, projects: [] });
-  const [limit, setLimit] = useState(PAGE);
+  const [more, setMore] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   useEffect(() => {
     let live = true;
-    api.load(q, 0, limit).then(
+    api.load(q, 0, PAGE).then(
       (p) => { if (live) { setPage(p); setErr(null); } },
       (e) => { if (live) setErr(e instanceof Error ? e.message : String(e)); },
     );
     return () => { live = false; };
-  }, [api, q, limit]);
+  }, [api, q]);
+  const showMore = () => {
+    setMore(true);
+    api.load(q, page.rows.length, PAGE).then(
+      (p) => setPage((o) => ({ ...p, rows: [...o.rows, ...p.rows.filter((r) => !o.rows.some((x) => x.task_id === r.task_id))] })),
+      (e) => setErr(e instanceof Error ? e.message : String(e)),
+    ).finally(() => setMore(false));
+  };
   const set = (k: keyof ArchiveFilters) => (v: string) => setF((o) => ({ ...o, [k]: v }));
   const input = "min-h-11 rounded-md border border-border bg-background px-2 text-sm sm:min-h-0";
   return (
     <section className="flex flex-col gap-3 p-4" aria-label="Archive" data-archive-panel>
-      <form className="flex flex-wrap gap-2" onSubmit={(e) => { e.preventDefault(); setLimit(PAGE); setQ(f); }}>
+      <form className="flex flex-wrap gap-2" onSubmit={(e) => { e.preventDefault(); setQ(f); }}>
         <input className={`${input} grow`} type="search" placeholder="Search key, title, pick, comment" value={f.search} onChange={(e) => set("search")(e.target.value)} aria-label="Search" data-archive-search />
         <select className={input} value={f.project} onChange={(e) => set("project")(e.target.value)} aria-label="Project" data-archive-project>
           <option value="">All projects</option>
           {page.projects.map((p) => <option key={p} value={p}>{p}</option>)}
         </select>
         <input className={input} type="date" value={f.from} onChange={(e) => set("from")(e.target.value)} aria-label="From date" data-archive-from />
-        <input className={input} type="date" value={f.to} onChange={(e) => set("to")(e.target.value ? `${e.target.value}T23:59:59` : "")} aria-label="To date" data-archive-to />
+        <input className={input} type="date" value={f.to} onChange={(e) => set("to")(e.target.value)} aria-label="To date" data-archive-to />
         <input className={input} type="text" placeholder="Pick contains" value={f.pick} onChange={(e) => set("pick")(e.target.value)} aria-label="Pick" data-archive-pickfilter />
         <ActionButton tone="recommended" type="submit" data-archive-apply>Apply</ActionButton>
       </form>
@@ -66,7 +73,7 @@ export function ArchivePanel({ api }: { api: ArchiveApi }) {
       <ul className="m-0 flex list-none flex-col gap-2 p-0">
         {page.rows.map((r) => <ArchiveRowView key={r.task_id} row={r} />)}
       </ul>
-      {page.rows.length < page.total ? <ActionButton onClick={() => setLimit((n) => n + PAGE)} data-archive-more>Show more</ActionButton> : null}
+      {page.rows.length < page.total ? <ActionButton disabled={more} onClick={showMore} data-archive-more>Show more</ActionButton> : null}
     </section>
   );
 }
