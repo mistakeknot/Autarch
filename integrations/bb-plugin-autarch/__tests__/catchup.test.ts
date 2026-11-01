@@ -218,3 +218,17 @@ describe("catch-up read is reused while nothing changed (bead mk-0zih8)", () => 
     expect(cu.items().length).toBe(a.length + 1);
   });
 });
+
+describe("routine lines are built for the kept members only (bead mk-o2ur7)", () => {
+  it("each kept member has the line its kind and title give", async () => {
+    const a = await file("thr-a", { subject: "alpha ask" });
+    pick(a);
+    const b = await file("thr-b", { subject: "beta ask" });
+    pick(b);
+    const g = cu.items().find((i) => i.kind === "routine")!;
+    expect(g.members).toHaveLength(g.lines!.length);
+    const byMember = Object.fromEntries(g.members!.map((m, i) => [m, g.lines![i]]));
+    expect(byMember[`ruling:${a}`]).toBe("You ruled on alpha ask.");
+    expect(byMember[`ruling:${b}`]).toBe("You ruled on beta ask.");
+  });
+});

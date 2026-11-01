@@ -137,7 +137,10 @@ export class Catchup {
   private memo: { changes: number; at: number; items: CatchupItem[] } | null = null;
 
   private compute(all: boolean): CatchupItem[] {
-    const seen = (item: string) => this.store.hasSeen(MK, item);
+    // One read of the seen rows instead of one query per candidate item, and each routine line's title is looked up only for the
+    // members the cap keeps: the page has about 6000 rulings and closures, of which it shows a few dozen (bead mk-o2ur7).
+    const seenSet = new Set((this.db.prepare("SELECT item_id FROM seen WHERE account = ?").all(MK) as { item_id: string }[]).map((r) => r.item_id));
+    const seen = (item: string) => seenSet.has(item);
     const failures: CatchupItem[] = [];
     for (const e of this.db.prepare("SELECT seq, at, detail_json FROM events WHERE type = 'turn-failed' ORDER BY seq DESC").all() as { seq: number; at: string; detail_json: string }[]) {
       const item = `failed:${e.seq}`;
@@ -176,21 +179,21 @@ export class Catchup {
 
     const groups = new Map<string, CatchupItem>();
     const ats = new Map<string, string[]>(); // each group's member times, parallel to members and lines
-    const add = (project: string, member: string, at: string, line: string) => {
+    const add = (project: string, member: string, at: string) => {
       const g = groups.get(project) ?? { item: `routine:${project}`, kind: "routine" as const, project, at, text: "", members: [] as string[], lines: [] as string[] };
       g.members!.push(member);
-      g.lines!.push(line);
+      g.lines!.push(""); // filled in below, for the kept members only
       (ats.get(project) ?? ats.set(project, []).get(project)!).push(at);
       if (at > g.at) g.at = at;
       groups.set(project, g);
     };
     for (const p of this.db.prepare(`SELECT k.decision_id, k.picked_at, d.project FROM picks k JOIN decisions d ON d.id = k.decision_id WHERE k."by" = 'mk' ORDER BY k.picked_at, k.rowid`).all() as { decision_id: string; picked_at: string; project: string }[]) {
       const item = `ruling:${p.decision_id}`;
-      if (!seen(item)) add(p.project, item, p.picked_at, `You ruled on ${this.title(p.decision_id)}.`);
+      if (!seen(item)) add(p.project, item, p.picked_at);
     }
     for (const e of this.db.prepare("SELECT e.decision_id, e.at, d.project FROM events e JOIN decisions d ON d.id = e.decision_id WHERE e.type IN ('resolved','withdrawn') ORDER BY e.seq").all() as { decision_id: string; at: string; project: string }[]) {
       const item = `closed:${e.decision_id}`;
-      if (!seen(item)) add(e.project, item, e.at, `Closed: ${this.title(e.decision_id)}.`);
+      if (!seen(item)) add(e.project, item, e.at);
     }
     const routine = [...groups.values()].sort((a, b) => (a.at < b.at ? 1 : a.at > b.at ? -1 : 0));
     for (const g of routine) g.text = `${g.members!.length} routine update${g.members!.length === 1 ? "" : "s"} in ${g.project}`;
@@ -202,6 +205,12 @@ export class Catchup {
       g.lines = order.map((i) => g.lines![i]!);
     }
     if (!all) capRoutine(routine);
+    for (const g of routine) {
+      g.lines = (g.members ?? []).map((m) => {
+        const id = m.slice(m.indexOf(":") + 1);
+        return m.startsWith("ruling:") ? `You ruled on ${this.title(id)}.` : `Closed: ${this.title(id)}.`;
+      });
+    }
 
     const notes: CatchupItem[] = [];
     for (const n of this.db.prepare("SELECT id, at, text, cites_json FROM notes ORDER BY at, rowid").all() as { id: string; at: string; text: string; cites_json: string }[]) {
