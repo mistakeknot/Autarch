@@ -63,7 +63,7 @@ export function ArchivePanel({ api }: { api: ArchiveApi }) {
   const input = "min-h-11 rounded-md border border-border bg-background px-2 text-sm sm:min-h-0";
   return (
     <section className="flex flex-col gap-3 p-4" aria-label="Archive" data-archive-panel>
-      <form className="flex flex-wrap gap-2" onSubmit={(e) => { e.preventDefault(); setQ(f); }}>
+      <form className="flex flex-wrap gap-2" onSubmit={(e) => { e.preventDefault(); setQ({ ...f }); }}>
         <input className={`${input} grow`} type="search" placeholder="Search key, title, pick, comment" value={f.search} onChange={(e) => set("search")(e.target.value)} aria-label="Search" data-archive-search />
         <select className={input} value={f.project} onChange={(e) => set("project")(e.target.value)} aria-label="Project" data-archive-project>
           <option value="">All projects</option>
