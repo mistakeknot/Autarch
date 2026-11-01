@@ -723,11 +723,11 @@ export function wireHome(bb: BbPluginApi, handle: StoreHandle, cfg: HomeConfig, 
       return r;
     },
     /** Archive tab: reopen a decided card as a new generation. The notice goes to the asking thread, or the vizier when it is gone. */
-    async bringBack(i: { task_id: string }) {
+    async bringBack(i: { task_id: string; decision_id: string }) {
       const p = need();
       const cur = p.svc.currentGeneration(i.task_id);
       const recipient = cur && cur.thread ? await resolveWakeTarget(i.task_id, String(cur.thread), true) : cur ? await resolveWakeTarget(i.task_id, null, true) : null;
-      const r = p.dele.bringBack(i.task_id, recipient, {});
+      const r = p.dele.bringBack(i.task_id, i.decision_id, recipient, {});
       if (r.ok) p.caches.invalidate();
       return r;
     },

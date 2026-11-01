@@ -442,8 +442,8 @@ function HomePage({ subPath }: { subPath?: string }) {
       const r = (await rpc.call("archive", { ...(f.search ? { search: f.search } : {}), ...(f.project ? { project: f.project } : {}), ...(f.from ? { from: f.from } : {}), ...(f.to ? { to: f.to } : {}), ...(f.pick ? { pick: f.pick } : {}), offset, limit })) as { ok: boolean; rows?: never[]; total?: number; projects?: string[] };
       return { rows: r.rows ?? [], total: r.total ?? 0, projects: r.projects ?? [] };
     },
-    bringBack: async (taskId) => {
-      const r = (await rpc.call("bringBack", { task_id: taskId })) as { ok: boolean; error?: string };
+    bringBack: async (taskId, decisionId) => {
+      const r = (await rpc.call("bringBack", { task_id: taskId, decision_id: decisionId })) as { ok: boolean; error?: string };
       if (r.ok) { refetch(); return null; }
       return r.error ?? "refused";
     },

@@ -9,13 +9,13 @@ export type ArchivePage = { rows: ArchiveRow[]; total: number; projects: string[
 export type ArchiveApi = {
   load: (f: ArchiveFilters, offset: number, limit: number) => Promise<ArchivePage>;
   /** Resolves with an error text when the card could not be brought back, null on success. */
-  bringBack: (taskId: string) => Promise<string | null>;
+  bringBack: (taskId: string, decisionId: string) => Promise<string | null>;
 };
 
 const PAGE = 50;
 export const emptyFilters: ArchiveFilters = { search: "", project: "", from: "", to: "", pick: "" };
 
-export function ArchiveRowView({ row, onBringBack, busy, error }: { row: ArchiveRow; onBringBack?: (taskId: string) => void; busy?: boolean; error?: string | null }) {
+export function ArchiveRowView({ row, onBringBack, busy, error }: { row: ArchiveRow; onBringBack?: (row: ArchiveRow) => void; busy?: boolean; error?: string | null }) {
   return (
     <li className="flex flex-col gap-1 rounded-md border border-border p-3" data-archive-row={row.card_key}>
       <div className="flex flex-wrap items-baseline gap-2">
@@ -33,9 +33,9 @@ export function ArchiveRowView({ row, onBringBack, busy, error }: { row: Archive
         </p>
       )}
       {error ? <p className="m-0 text-xs text-destructive" role="alert" data-archive-error>Could not bring it back: {error}</p> : null}
-      {onBringBack && !row.no_pick ? (
+      {onBringBack && !row.no_pick && row.decision_id ? (
         <div>
-          <ActionButton disabled={busy} onClick={() => onBringBack(row.task_id)} data-archive-bringback={row.card_key}>Bring back</ActionButton>
+          <ActionButton disabled={busy} onClick={() => onBringBack(row)} data-archive-bringback={row.card_key}>Bring back</ActionButton>
         </div>
       ) : null}
     </li>
@@ -72,9 +72,9 @@ export function ArchivePanel({ api }: { api: ArchiveApi }) {
   };
   const [working, setWorking] = useState<string | null>(null);
   const [rowErr, setRowErr] = useState<Record<string, string>>({});
-  const bringBack = (taskId: string) => {
+  const bringBack = ({ task_id: taskId, decision_id }: ArchiveRow) => {
     setWorking(taskId);
-    api.bringBack(taskId).then(
+    api.bringBack(taskId, decision_id ?? "").then(
       (e) => {
         if (e) setRowErr((o) => ({ ...o, [taskId]: e }));
         else {

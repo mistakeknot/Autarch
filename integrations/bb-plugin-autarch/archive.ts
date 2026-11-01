@@ -26,6 +26,8 @@ export type ArchiveRow = {
   by: string | null;
   reason: string | null;
   generation: number | null;
+  /** The decision shown; Bring back is bound to it. */
+  decision_id: string | null;
   /** Closed cards that Home never recorded a pick for. */
   no_pick: boolean;
 };
@@ -88,7 +90,7 @@ export function archiveView(db: Database.Database, q: ArchiveQuery): ArchiveView
   const raw = db
     .prepare(
       `SELECT c.task_id, c.card_key, c.title, c.state, COALESCE(p.picked_at, c.updated_at) AS decided_at,
-              p.option_id, p."by" AS by, p.reason, d.generation, d.body_json
+              p.option_id, p."by" AS by, p.reason, d.generation, d.id AS decision_id, d.body_json
        ${from} ORDER BY decided_at DESC, c.card_key DESC LIMIT @limit OFFSET @offset`,
     )
     .all({ ...args, limit, offset }) as Array<Record<string, string | number | null>>;
@@ -104,6 +106,7 @@ export function archiveView(db: Database.Database, q: ArchiveQuery): ArchiveView
     by: (r.by as string | null) ?? null,
     reason: (r.reason as string | null) ?? null,
     generation: (r.generation as number | null) ?? null,
+    decision_id: (r.decision_id as string | null) ?? null,
     no_pick: r.option_id == null,
   }));
   const projects = (

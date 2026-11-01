@@ -88,7 +88,7 @@ export const homeMethods = {
   clearIdeaDigest: { input: z.null(), output: result },
   dismiss: { input: z.object({ decision_id: z.string().min(1), obligation_id: z.string().min(1) }), output: result },
   override: { input: z.object({ decision_id: z.string().min(1) }), output: result },
-  bringBack: { input: z.object({ task_id: z.string().min(1).max(64) }).strict(), output: result },
+  bringBack: { input: z.object({ task_id: z.string().min(1).max(64), decision_id: z.string().min(1).max(200) }).strict(), output: result },
   setDelegation: {
     input: z.object({
       vizierThreadId: z.string().min(1),

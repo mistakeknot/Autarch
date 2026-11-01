@@ -458,18 +458,17 @@ export class Delegation {
    * gets the notice: the asking thread, or the vizier when that thread is archived or gone; the caller
    * resolves it, since the thread list is not the store's to read.
    */
-  bringBack(taskId: string, recipient: string | null, ctx: Ctx): OverrideResult {
+  bringBack(taskId: string, decisionId: string, recipient: string | null, ctx: Ctx): OverrideResult {
     if (ctx.threadId !== undefined) return refuse(403, "bring back comes from the panel");
+    // The request is bound to the decision the caller saw, so a delayed retry or a stale tab cannot reopen a newer answer.
+    const requestId = `bringback:${decisionId}`;
+    const known = this.store.registry(requestId);
+    if (known) return { ok: true, decision_id: known.decision_id, replay: true };
     const d = this.svc.currentGeneration(taskId) as
       | (Record<string, string | null> & { id: string; body_json: string; thread: string; project: string })
       | undefined;
     if (!d) return refuse(404, "no decision for this card");
-    // Already brought back and still waiting for mk (a double click, or the sweep after the button): same answer.
-    if (String(d.request_id).startsWith("bringback:") && !this.store.pick(d.id) && !d.withdrawn_at) return { ok: true, decision_id: d.id, replay: true };
-    const decisionId = d.id;
-    const requestId = `bringback:${decisionId}`;
-    const known = this.store.registry(requestId);
-    if (known) return { ok: true, decision_id: known.decision_id, replay: true };
+    if (d.id !== decisionId) return refuse(409, "this card has moved on since you looked; reload the Archive");
     const pick = this.store.pick(decisionId);
     if (!pick) return refuse(409, "this card has no recorded decision to bring back");
     if (d.source !== "card" || typeof d.task_id !== "string") return refuse(409, "only a card can be brought back");

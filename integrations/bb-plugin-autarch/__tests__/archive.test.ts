@@ -61,7 +61,7 @@ describe("archive view", () => {
   });
 
   it("renders a row with the pick, and the no-pick note for a card Home never ruled", () => {
-    const base = { task_id: "t", card_key: "AUTA-1", title: "T", project: "AUTA", state: "ruled", decided_at: "2026-10-01T10:00:00Z", pick_label: "Per day", option_id: "b", by: "mk", reason: null, generation: 1, no_pick: false };
+    const base = { task_id: "t", card_key: "AUTA-1", title: "T", project: "AUTA", state: "ruled", decided_at: "2026-10-01T10:00:00Z", pick_label: "Per day", option_id: "b", by: "mk", reason: null, generation: 1, decision_id: "card-t1-g1", no_pick: false };
     const a = renderToStaticMarkup(createElement(ArchiveRowView, { row: base }));
     expect(a).toContain("You picked");
     expect(a).toContain("Per day");
