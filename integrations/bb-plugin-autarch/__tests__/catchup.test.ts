@@ -204,3 +204,17 @@ describe("mark-seen is not limited to the page last sent (bead mk-ykk6r review)"
     expect(cu.markAllSeen(shown)).toHaveLength(ROUTINE_GROUP_MAX);
   });
 });
+
+describe("catch-up read is reused while nothing changed (bead mk-0zih8)", () => {
+  it("returns equal, independent copies, and sees a write at once", async () => {
+    await file("thr-a");
+    const a = cu.items();
+    const b = cu.items();
+    expect(b).toEqual(a);
+    expect(b).not.toBe(a);
+    b.length = 0; // a caller's edit does not reach the next read
+    expect(cu.items()).toEqual(a);
+    await file("thr-b"); // a write: the next read must show it, not the reused one
+    expect(cu.items().length).toBe(a.length + 1);
+  });
+});
