@@ -314,6 +314,21 @@ describe("rpc-timing (bead mk-0zih8)", () => {
     f.disposers.forEach((d) => d());
   });
 
+  it("writes one loop-lag line per 10 s, with or without RPCs (bead mk-o2ur7.1)", async () => {
+    vi.useFakeTimers();
+    try {
+      const f = fakeBb();
+      wireHome(f.bb, createStoreHandle(() => new Database(":memory:"), {}), cfg, { serve });
+      await vi.advanceTimersByTimeAsync(10_500);
+      const lines = (f.bb as unknown as { log: { info: ReturnType<typeof vi.fn> } }).log.info.mock.calls.map((c) => String(c[0])).filter((m) => m.startsWith("loop-lag10s"));
+      expect(lines.length).toBeGreaterThanOrEqual(1);
+      expect(lines[0]).toMatch(/^loop-lag10s max=\d+ms over50=\d+ autarch_busy=\d+ms$/);
+      f.disposers.forEach((d) => d());
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("a throwing logger leaves results unchanged, and null-id setViewing keeps its answer", async () => {
     const f = fakeBb();
     (f.bb as unknown as { log: { info: ReturnType<typeof vi.fn> } }).log.info.mockImplementation(() => {

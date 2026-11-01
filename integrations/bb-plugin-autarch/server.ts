@@ -821,12 +821,28 @@ export function wireHome(bb: BbPluginApi, handle: StoreHandle, cfg: HomeConfig, 
   // single bb process from the transport. Display-only: written to the plugin log, nothing reads it back.
   const lagWindow: { at: number; ms: number }[] = [];
   let lastTick = performance.now();
+  // Time this plugin's own RPC handlers took in the current 10 s report window (bead mk-o2ur7.1).
+  let busyMs = 0;
+  let reportAt = performance.now();
+  let reportOver50 = 0;
+  let reportMax = 0;
   const lagTimer = setInterval(() => {
     const t = performance.now();
     const late = t - lastTick - 100;
     lastTick = t;
     if (late > 5) lagWindow.push({ at: t, ms: Math.round(late) });
     while (lagWindow.length > 0 && t - lagWindow[0]!.at > 10_000) lagWindow.shift();
+    if (late > 50) reportOver50 += 1;
+    if (late > reportMax) reportMax = Math.round(late);
+    // One line per 10 s, with or without RPCs: the stall next to this plugin's own handler time. A stall in a window where
+    // the plugin did no work comes from the bb process or another plugin. Display-only, like rpc-timing.
+    if (t - reportAt >= 10_000) {
+      timingLog(`loop-lag10s max=${reportMax}ms over50=${reportOver50} autarch_busy=${Math.round(busyMs)}ms`);
+      reportAt = t;
+      busyMs = 0;
+      reportOver50 = 0;
+      reportMax = 0;
+    }
   }, 100);
   lagTimer.unref?.();
   bb.onDispose(() => clearInterval(lagTimer));
@@ -849,6 +865,7 @@ export function wireHome(bb: BbPluginApi, handle: StoreHandle, cfg: HomeConfig, 
       const t1 = performance.now();
       const out = r === undefined ? null : JSON.parse(JSON.stringify(r));
       const t2 = performance.now();
+      busyMs += t2 - t0;
       if (name !== "clickTiming") {
         timingLog(`rpc-timing ${name} handler=${Math.round(t1 - t0)}ms json=${Math.round(t2 - t1)}ms stall10s=${loopStall()}ms`);
       }
