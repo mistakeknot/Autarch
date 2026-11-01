@@ -14,7 +14,7 @@ export function forgetClassicTabs(storage: () => Pick<Storage, "removeItem"> | n
   }
 }
 
-export type TabId = "queue" | "ideas" | "learn" | "vizier" | "map" | "settings";
+export type TabId = "queue" | "ideas" | "learn" | "archive" | "vizier" | "map" | "settings";
 
 /** The Queue holds asks, Later, blocked cards and catch-up as its own tabs; the row has no separate Asks, Blocking or Catch-up tab. */
 export function homeTabs(learn = false): ReadonlyArray<readonly [TabId, Panel["kind"], string]> {
@@ -22,6 +22,7 @@ export function homeTabs(learn = false): ReadonlyArray<readonly [TabId, Panel["k
     ["queue", "decision", "Queue"],
     ["ideas", "ideas", "Ideas"],
     ...(learn ? ([["learn", "learn", "Learn"]] as const) : []),
+    ["archive", "archive", "Archive"],
     ["vizier", "vizier", "Vizier"],
     ["map", "map", "Map"],
     ["settings", "settings", "Settings"],

@@ -39,6 +39,7 @@ import { rootRun } from "./rootrun.js";
 import { buildQueue, removeBinding, setBinding } from "./queueview.js";
 import { hasNoteMarker, isoWeek, Service } from "./service.js";
 import { Ideas } from "./ideas.js";
+import { archiveView, type ArchiveQuery } from "./archive.js";
 import { learnSet, learnView, type LearnSet } from "./learn.js";
 import { OPEN_STATUSES, TasksClient, type PluginsLike } from "./tasks.js";
 import { listAllThreads, traceability, type ThreadLike } from "./traceability.js";
@@ -680,6 +681,9 @@ export function wireHome(bb: BbPluginApi, handle: StoreHandle, cfg: HomeConfig, 
       } catch (e) {
         return { ok: false as const, status: 502, error: `tasks unavailable: ${e instanceof Error ? e.message : String(e)}` };
       }
+    },
+    async archive(i: ArchiveQuery) {
+      return { ok: true as const, ...archiveView(need().svc.store.db, i) };
     },
     async learn(_: null) {
       return { ok: true as const, ...learnView(need().svc.store, learnDir) };

@@ -143,8 +143,8 @@ describe("reading Learn state", () => {
 describe("the tab and the panel", () => {
   const noop = () => {};
   it("the Learn tab is absent by default and present when on", () => {
-    expect(homeTabs().map((t) => t[2])).toEqual(["Queue", "Ideas", "Vizier", "Map", "Settings"]);
-    expect(homeTabs(true).map((t) => t[2])).toEqual(["Queue", "Ideas", "Learn", "Vizier", "Map", "Settings"]);
+    expect(homeTabs().map((t) => t[2])).toEqual(["Queue", "Ideas", "Archive", "Vizier", "Map", "Settings"]);
+    expect(homeTabs(true).map((t) => t[2])).toEqual(["Queue", "Ideas", "Learn", "Archive", "Vizier", "Map", "Settings"]);
     expect(renderToStaticMarkup(<HomeTabs onOpen={noop} onTodos={noop} />)).not.toContain("Learn");
     expect(renderToStaticMarkup(<HomeTabs learn onOpen={noop} onTodos={noop} />)).toContain("Learn");
   });

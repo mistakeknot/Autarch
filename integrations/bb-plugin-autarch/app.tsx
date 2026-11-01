@@ -49,6 +49,7 @@ import { forgetClassicTabs, HomeTabs, QueueTabs, type QueueTab } from "./ui/tabs
 import type { Panel, StackState } from "./ui/stack.js";
 import { HOME_SOURCE } from "./ui/identity.js";
 import { POLL_MS, startPoll } from "./ui/poll.js";
+import { ArchivePanel, type ArchiveApi } from "./ui/archive.js";
 import { LearnPanel, LearnSwitch, latestOnly, type LearnCardView } from "./ui/learn.js";
 import { TellVizier, ThreadPanel } from "./ui/vizier.js";
 
@@ -436,6 +437,12 @@ function HomePage({ subPath }: { subPath?: string }) {
   // The Learn deck (bead mk-uoiwp): off by default; the tab shows only when Settings turns it on.
   const [learn, setLearn] = useState<{ enabled: boolean; cards: LearnCardView[] }>({ enabled: false, cards: [] });
   const [learnBusy, setLearnBusy] = useState(false);
+  const archiveApi = useMemo<ArchiveApi>(() => ({
+    load: async (f, offset, limit) => {
+      const r = (await rpc.call("archive", { ...(f.search ? { search: f.search } : {}), ...(f.project ? { project: f.project } : {}), ...(f.from ? { from: f.from } : {}), ...(f.to ? { to: f.to } : {}), ...(f.pick ? { pick: f.pick } : {}), offset, limit })) as { ok: boolean; rows?: never[]; total?: number; projects?: string[] };
+      return { rows: r.rows ?? [], total: r.total ?? 0, projects: r.projects ?? [] };
+    },
+  }), [rpc]);
   const loadLearn = useMemo(() => latestOnly(
     () => rpc.call("learn") as Promise<{ ok: boolean; enabled?: boolean; cards?: LearnCardView[] }>,
     (r) => { if (r.ok) setLearn({ enabled: r.enabled ?? false, cards: r.cards ?? [] }); },
@@ -663,6 +670,8 @@ function HomePage({ subPath }: { subPath?: string }) {
             <IdeaDesk api={ideaApi} refreshKey={ideaTick} heading={false} onChanged={() => setIdeaTick((n) => n + 1)} />
           </>
         );
+      case "archive":
+        return <ArchivePanel api={archiveApi} />;
       case "learn":
         return <LearnPanel cards={learn.cards} busy={learnBusy} onMark={(card, mark) => setLearnState({ card, mark })} />;
       case "vizier":

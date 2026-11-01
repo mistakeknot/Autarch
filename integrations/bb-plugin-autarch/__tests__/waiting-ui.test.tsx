@@ -74,8 +74,8 @@ describe("every surface shows the same number", () => {
     expect(html).toContain("Queue (7)");
     expect(homeTabs()[0]![2]).toBe("Queue");
   });
-  it("the Ideas tab sits between Queue and Vizier and carries the open-idea count", () => {
-    expect(homeTabs().map((t) => t[2])).toEqual(["Queue", "Ideas", "Vizier", "Map", "Settings"]);
+  it("the Ideas tab sits before Archive and Vizier and carries the open-idea count", () => {
+    expect(homeTabs().map((t) => t[2])).toEqual(["Queue", "Ideas", "Archive", "Vizier", "Map", "Settings"]);
     const html = renderToStaticMarkup(<HomeTabs waiting={W.total} ideas={3} onOpen={noop} onTodos={noop} />);
     expect(html).toContain("Ideas (3)");
     expect(renderToStaticMarkup(<HomeTabs onOpen={noop} onTodos={noop} />)).not.toContain("Ideas (");
