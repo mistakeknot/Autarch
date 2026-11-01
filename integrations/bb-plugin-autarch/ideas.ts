@@ -79,6 +79,8 @@ export interface IdeasDeps {
 
 const message = (e: unknown) => (e instanceof Error ? e.message : String(e));
 
+const LIST_TTL_MS = 30_000;
+
 export class Ideas {
   constructor(private readonly d: IdeasDeps) {}
 
@@ -142,7 +144,7 @@ export class Ideas {
 
   /** File one idea. `ideaId` is the box's own id for this submission, so a double tap or a retry files it once. */
   file(i: { project_id: string; text: string; idea_id: string }): Promise<FileResult> {
-    return this.once(`file:${i.idea_id}`, () => this.fileOnce(i));
+    return this.once(`file:${i.idea_id}`, () => this.fileOnce(i)).finally(() => this.dropListed());
   }
 
   private async fileOnce(i: { project_id: string; text: string; idea_id: string }): Promise<FileResult> {
@@ -205,7 +207,7 @@ export class Ideas {
 
   /** Pursue, Park or Drop one idea. Each posts a Home comment; Pursue also tells the recipient so it can be picked up as work. */
   act(i: { task_id: string; action: IdeaAction }): Promise<ActResult> {
-    return this.once(`act:${i.task_id}`, () => this.actOnce(i));
+    return this.once(`act:${i.task_id}`, () => this.actOnce(i)).finally(() => this.dropListed());
   }
 
   private async actOnce(i: { task_id: string; action: IdeaAction }): Promise<ActResult> {
@@ -259,9 +261,27 @@ export class Ideas {
     }
   }
 
+  /**
+   * list() makes one tasks call per project and label set, and the tab count asks for it on every mount and change. Share one
+   * read among callers that arrive together, and reuse it for LIST_TTL_MS; filing or acting on an idea drops it (bead mk-0zih8).
+   */
+  private listed: { at: number; p: Promise<IdeaView[]> } | null = null;
+  private listShared(): Promise<IdeaView[]> {
+    const now = Date.now();
+    if (this.listed && now - this.listed.at < LIST_TTL_MS) return this.listed.p;
+    const p = this.list();
+    const entry = { at: now, p };
+    this.listed = entry;
+    p.catch(() => { if (this.listed === entry) this.listed = null; });
+    return p;
+  }
+  dropListed(): void {
+    this.listed = null;
+  }
+
   /** The digest: the open ideas and whether this week's digest is still showing. */
   async digest(week: string): Promise<{ week: string; cleared: boolean; ideas: IdeaView[]; show: boolean }> {
-    const ideas = await this.list();
+    const ideas = await this.listShared();
     const cleared = this.d.store.setting(DIGEST_KEY) === week;
     return { week, cleared, ideas, show: ideas.length > 0 && !cleared };
   }

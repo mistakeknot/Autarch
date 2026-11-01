@@ -58,6 +58,8 @@ interface Dec {
   filed_at: string;
 }
 
+const MEMO_MS = 3000;
+
 export class Catchup {
   constructor(
     private readonly svc: Service,
@@ -121,6 +123,20 @@ export class Catchup {
 
   /** What the panel gets. `all` skips the routine cap: mark-seen validates against every eligible fact, not only the page last sent. */
   items(all = false): CatchupItem[] {
+    if (all) return this.compute(true);
+    // waiting and catchup are polled together and each ran this whole read (about 0.3 s, synchronous, in the one bb process).
+    // Reuse the result while nothing in this plugin's database has changed (total_changes counts this connection's writes) and for
+    // at most MEMO_MS, since an item can also age in or out with the clock (bead mk-0zih8).
+    const changes = (this.db.prepare("SELECT total_changes() AS n").get() as { n: number }).n;
+    const now = Date.now();
+    if (this.memo && this.memo.changes === changes && now - this.memo.at < MEMO_MS) return structuredClone(this.memo.items);
+    const items = this.compute(false);
+    this.memo = { changes, at: now, items };
+    return structuredClone(items);
+  }
+  private memo: { changes: number; at: number; items: CatchupItem[] } | null = null;
+
+  private compute(all: boolean): CatchupItem[] {
     const seen = (item: string) => this.store.hasSeen(MK, item);
     const failures: CatchupItem[] = [];
     for (const e of this.db.prepare("SELECT seq, at, detail_json FROM events WHERE type = 'turn-failed' ORDER BY seq DESC").all() as { seq: number; at: string; detail_json: string }[]) {

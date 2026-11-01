@@ -1,6 +1,6 @@
 // The Idea box and weekly digest (bead mk-2zojo): an idea is a tracker card with mk's words verbatim; filing is
 // idempotent and tells one recipient; Pursue / Park / Drop never close work the coordinator owns. No schema change.
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { Ideas, IDEA_MAX, cleanIdea, hasIdeaMarker, ideaDescription, ideaTitle, ideaWords } from "../ideas.js";
 import { TasksClient } from "../tasks.js";
 import { cleanupEnvs, rig, type Rig } from "./card-rig.js";
@@ -272,5 +272,20 @@ describe("digest", () => {
     ideas.clearDigest("2026-W41");
     expect(await ideas.digest("2026-W41")).toMatchObject({ show: false, cleared: true });
     expect(await ideas.digest("2026-W42")).toMatchObject({ show: true });
+  });
+});
+
+describe("shared idea read (bead mk-0zih8)", () => {
+  it("reads the projects once for callers together, and again after filing", async () => {
+    const r = rig();
+    const ideas = desk(r);
+    const spy = vi.spyOn(ideas, "list");
+    await Promise.all([ideas.digest("2026-W44"), ideas.digest("2026-W44")]);
+    await ideas.digest("2026-W44");
+    expect(spy).toHaveBeenCalledTimes(1);
+    await ideas.file({ project_id: r.tp.id, text: "fresh", idea_id: "i-share" });
+    const d = await ideas.digest("2026-W44");
+    expect(spy).toHaveBeenCalledTimes(2);
+    expect(d.ideas.map((x) => x.words)).toContain("fresh");
   });
 });
