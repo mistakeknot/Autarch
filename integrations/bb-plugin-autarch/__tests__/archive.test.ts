@@ -1,5 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { archiveView } from "../archive.js";
+import { renderToStaticMarkup } from "react-dom/server";
+import { createElement } from "react";
+import { ArchiveRowView } from "../ui/archive.js";
 import { homeTabs } from "../ui/tabs.js";
 import type { Service } from "../service.js";
 import { ask, makeEnv, type Env } from "./service-helpers.js";
@@ -54,5 +57,14 @@ describe("archive view", () => {
 
   it("adds the Archive tab to the tab row", () => {
     expect(homeTabs().map((t) => t[0])).toContain("archive");
+  });
+
+  it("renders a row with the pick, and the no-pick note for a card Home never ruled", () => {
+    const base = { task_id: "t", card_key: "AUTA-1", title: "T", project: "AUTA", state: "ruled", decided_at: "2026-10-01T10:00:00Z", pick_label: "Per day", option_id: "b", by: "mk", reason: null, generation: 1, no_pick: false };
+    const a = renderToStaticMarkup(createElement(ArchiveRowView, { row: base }));
+    expect(a).toContain("You picked");
+    expect(a).toContain("Per day");
+    const b = renderToStaticMarkup(createElement(ArchiveRowView, { row: { ...base, pick_label: null, option_id: null, by: null, no_pick: true } }));
+    expect(b).toContain("without a pick");
   });
 });

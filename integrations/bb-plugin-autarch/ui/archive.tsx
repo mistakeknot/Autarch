@@ -1,6 +1,6 @@
 // The Archive tab (bead mk-gc2xm): decided cards, newest first, with search and project / date / pick filters.
 // Read-only in this slice; the Bring back button arrives with the reopen path.
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { ArchiveRow } from "../archive.js";
 import { ActionButton } from "./buttons.js";
 
@@ -37,21 +37,27 @@ export function ArchivePanel({ api }: { api: ArchiveApi }) {
   const [q, setQ] = useState<ArchiveFilters>(emptyFilters);
   const [page, setPage] = useState<ArchivePage>({ rows: [], total: 0, projects: [] });
   const [more, setMore] = useState(false);
+  const [ready, setReady] = useState(false);
+  const gen = useRef(0);
   const [err, setErr] = useState<string | null>(null);
   useEffect(() => {
     let live = true;
+    gen.current += 1;
+    setReady(false);
+    setMore(false);
     api.load(q, 0, PAGE).then(
-      (p) => { if (live) { setPage(p); setErr(null); } },
+      (p) => { if (live) { setPage(p); setErr(null); setReady(true); } },
       (e) => { if (live) setErr(e instanceof Error ? e.message : String(e)); },
     );
     return () => { live = false; };
   }, [api, q]);
   const showMore = () => {
+    const mine = gen.current;
     setMore(true);
     api.load(q, page.rows.length, PAGE).then(
-      (p) => setPage((o) => ({ ...p, rows: [...o.rows, ...p.rows.filter((r) => !o.rows.some((x) => x.task_id === r.task_id))] })),
-      (e) => setErr(e instanceof Error ? e.message : String(e)),
-    ).finally(() => setMore(false));
+      (p) => { if (mine === gen.current) setPage((o) => ({ ...p, rows: [...o.rows, ...p.rows.filter((r) => !o.rows.some((x) => x.task_id === r.task_id))] })); },
+      (e) => { if (mine === gen.current) setErr(e instanceof Error ? e.message : String(e)); },
+    ).finally(() => { if (mine === gen.current) setMore(false); });
   };
   const set = (k: keyof ArchiveFilters) => (v: string) => setF((o) => ({ ...o, [k]: v }));
   const input = "min-h-11 rounded-md border border-border bg-background px-2 text-sm sm:min-h-0";
@@ -73,7 +79,7 @@ export function ArchivePanel({ api }: { api: ArchiveApi }) {
       <ul className="m-0 flex list-none flex-col gap-2 p-0">
         {page.rows.map((r) => <ArchiveRowView key={r.task_id} row={r} />)}
       </ul>
-      {page.rows.length < page.total ? <ActionButton disabled={more} onClick={showMore} data-archive-more>Show more</ActionButton> : null}
+      {page.rows.length < page.total ? <ActionButton disabled={more || !ready} onClick={showMore} data-archive-more>Show more</ActionButton> : null}
     </section>
   );
 }
