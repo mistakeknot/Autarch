@@ -44,6 +44,7 @@ export function ArchivePanel({ api }: { api: ArchiveApi }) {
     let live = true;
     gen.current += 1;
     setReady(false);
+    setPage((o) => ({ ...o, rows: [], total: 0 }));
     setMore(false);
     api.load(q, 0, PAGE).then(
       (p) => { if (live) { setPage(p); setErr(null); setReady(true); } },
@@ -55,7 +56,7 @@ export function ArchivePanel({ api }: { api: ArchiveApi }) {
     const mine = gen.current;
     setMore(true);
     api.load(q, page.rows.length, PAGE).then(
-      (p) => { if (mine === gen.current) setPage((o) => ({ ...p, rows: [...o.rows, ...p.rows.filter((r) => !o.rows.some((x) => x.task_id === r.task_id))] })); },
+      (p) => { if (mine === gen.current) { setErr(null); setPage((o) => ({ ...p, rows: [...o.rows, ...p.rows.filter((r) => !o.rows.some((x) => x.task_id === r.task_id))] })); } },
       (e) => { if (mine === gen.current) setErr(e instanceof Error ? e.message : String(e)); },
     ).finally(() => { if (mine === gen.current) setMore(false); });
   };
