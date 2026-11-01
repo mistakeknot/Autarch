@@ -43,6 +43,7 @@ describe("archive view", () => {
     const day = all.rows[0]!.decided_at.slice(0, 10);
     expect(v({ to: day }).total).toBe(2); // the whole of the named day counts
     expect(v({ to: "2000-01-01" }).total).toBe(0);
+    expect(() => v({ to: "2026-99-99" })).not.toThrow();
     expect(v({ search: "100%" }).total).toBe(0);
   });
 

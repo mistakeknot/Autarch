@@ -59,8 +59,9 @@ export function archiveView(db: Database.Database, q: ArchiveQuery): ArchiveView
   }
   if (q.to) {
     // A bare date (what the date input gives) means the whole day, so the bound is the next midnight, exclusive.
-    if (/^\d{4}-\d{2}-\d{2}$/.test(q.to)) {
-      const next = new Date(`${q.to}T00:00:00.000Z`);
+    const day = /^\d{4}-\d{2}-\d{2}$/.test(q.to) ? new Date(`${q.to}T00:00:00.000Z`) : null;
+    if (day && !Number.isNaN(day.getTime())) {
+      const next = day;
       next.setUTCDate(next.getUTCDate() + 1);
       where.push("COALESCE(p.picked_at, c.updated_at) < @to");
       args.to = next.toISOString();
