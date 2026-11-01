@@ -2,6 +2,7 @@
 // so `pick` records `by: mk` as advisory attribution [P-10] [G-15]. Inputs are strict; outputs
 // are checked loosely (see `result`) and pass through as JSON.
 import { z } from "zod";
+import { ArchiveQuery } from "./archive.js";
 
 // Outputs are checked only for the shape every caller relies on, and every object passes extra fields
 // through, so a service that adds a field never breaks a panel. Most write methods answer with the
@@ -79,6 +80,8 @@ export const homeMethods = {
   ideas: { input: z.null(), output: result },
   // The Learn deck (bead mk-uoiwp): off by default; the marks live in the settings table. Neither rules or starts anything.
   learn: { input: z.null(), output: result },
+  // The Archive tab (bead mk-gc2xm): decided cards, read-only.
+  archive: { input: ArchiveQuery.strict(), output: result },
   learnSet: { input: z.object({ enabled: z.boolean().optional(), card: z.string().regex(/^\d{2}-[a-z0-9-]{1,60}$/).optional(), mark: z.enum(["got", "later", "clear"]).optional() }).strict(), output: result },
   fileIdea: { input: z.object({ project_id: z.string().min(1).max(64), text: z.string().max(4000), idea_id: z.string().min(1).max(64) }).strict(), output: result },
   actIdea: { input: z.object({ task_id: z.string().min(1).max(64), action: z.enum(["pursue", "park", "drop"]) }).strict(), output: result },
@@ -136,6 +139,7 @@ export const homeCliMap = {
   markConversationSeen: { rpcOnly: "the panel's own state" },
   ideaProjects: { rpcOnly: "the Idea box" },
   ideas: { rpcOnly: "the Idea box" },
+  archive: { rpcOnly: "the Archive tab" },
   learn: { rpcOnly: "the Learn tab" },
   learnSet: { rpcOnly: "the Learn tab" },
   fileIdea: { rpcOnly: "the Idea box" },
