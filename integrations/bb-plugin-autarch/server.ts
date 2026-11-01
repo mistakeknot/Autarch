@@ -835,9 +835,9 @@ export function wireHome(bb: BbPluginApi, handle: StoreHandle, cfg: HomeConfig, 
     if (late > 50) reportOver50 += 1;
     if (late > reportMax) reportMax = Math.round(late);
     // One line per 10 s, with or without RPCs: the stall next to this plugin's own handler time. A stall in a window where
-    // the plugin did no work comes from the bb process or another plugin. Display-only, like rpc-timing.
+    // the plugin did no work comes from the bb process or another plugin. Display-only, like rpc-timing. Off unless AUTARCH_LOOP_LAG_LOG=1 (about 8,600 lines a day).
     if (t - reportAt >= 10_000) {
-      timingLog(`loop-lag10s max=${reportMax}ms over50=${reportOver50} autarch_busy=${Math.round(busyMs)}ms`);
+      if (process.env.AUTARCH_LOOP_LAG_LOG === "1") timingLog(`loop-lag10s max=${reportMax}ms over50=${reportOver50} autarch_busy=${Math.round(busyMs)}ms`);
       reportAt = t;
       busyMs = 0;
       reportOver50 = 0;
