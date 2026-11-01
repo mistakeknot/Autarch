@@ -39,6 +39,18 @@ describe("bring back", () => {
     expect(r.mkPick(out.decision_id, "p2")).toMatchObject({ ok: true });
   });
 
+  it("carries the earlier card's Blocks threads to the new generation", async () => {
+    const { r, t, g1 } = await ruled();
+    const db = (r.svc as any).db;
+    db.prepare("INSERT OR IGNORE INTO decision_blocks(decision_id, ref) VALUES (?, ?)").run(g1.id, "thread:thr_b");
+    const out = r.dele.bringBack(t.id, g1.id, "thr_a", {});
+    if (!out.ok) throw new Error(out.error);
+    const refs = db.prepare("SELECT ref FROM decision_blocks WHERE decision_id = ?").all(out.decision_id).map((x: any) => x.ref);
+    const before = db.prepare("SELECT ref FROM decision_blocks WHERE decision_id = ? ORDER BY ref").all(g1.id).map((x: any) => x.ref);
+    expect(refs.sort()).toEqual(before);
+    expect(refs).toContain("thread:thr_b");
+  });
+
   it("is idempotent: a second call replays and adds no generation", async () => {
     const { r, t, g1 } = await ruled();
     const a = r.dele.bringBack(t.id, g1.id, "thr_a", {});

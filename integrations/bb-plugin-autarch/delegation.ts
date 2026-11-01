@@ -509,6 +509,8 @@ export class Delegation {
       }
       const w = this.store.obligationsFor(decisionId).find((o) => o.op === `wake:${decisionId}:${pick.pick_id}`);
       if (w) this.store.voidObligation(w.id);
+      // The reopened card blocks the same threads the earlier one did.
+      this.db.prepare("INSERT OR IGNORE INTO decision_blocks(decision_id, ref) SELECT ?, ref FROM decision_blocks WHERE decision_id = ?").run(res.decision_id, decisionId);
       this.store.insertCardWrites(res.decision_id, bringBackWrites({ id: res.decision_id, task_id: String(d.task_id) }, decisionId));
       this.svc.reopenForOverride(String(d.task_id));
       // A close that the earlier ruling queued must not shut the reopened card again.
