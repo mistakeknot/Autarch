@@ -787,11 +787,11 @@ function HomePage({ subPath }: { subPath?: string }) {
 
 /** Rail badge (`experimental_useBadge`, which replaced the retired `experimental_sidebarAccessory`): the count of decision cards waiting on mk, "!" when serve is not ready or a machine blocker has no owner, nothing at zero. */
 function useHomeBadge() {
-  const { asks, waiting, health, decisionCount } = useHomeData();
+  const { asks, waiting, health } = useHomeData();
   const blocked = health !== null && !health.ready;
   const unowned = asks?.asks.some((a) => a.owner === null) ?? false;
-  // An older server has no `decisionCount`: fall back to the live (not held) owed asks rather than a different number.
-  const count = railCount(decisionCount, asks?.owed, waiting?.decide);
+  // The badge is the Needs you now count, the same number as that tab.
+  const count = railCount(waiting?.decide, asks?.owed);
   return railBadge({ count }, { blocked, unowned });
 }
 
