@@ -124,18 +124,34 @@ describe("decisionCount excludes what is not waiting", () => {
   });
 });
 
-describe("railCount (the badge number)", () => {
-  it("prefers the server count, then live owed asks, then the waiting decide count", async () => {
+describe("the rail badge is the Needs you now count (bead mk-oykwh)", () => {
+  it("held and Later cards do not raise it, and it equals the tab's number", async () => {
     const { railCount } = await import("../ui/waiting.js");
-    expect(railCount(0, [{}, {}], 5)).toBe(0);
-    expect(railCount(null, [{}, { held: true }, {}], 5)).toBe(2);
-    expect(railCount(null, undefined, 5)).toBe(5);
-    expect(railCount(null, undefined, undefined)).toBe(0);
+    const r = rig({ legacyMoves: true });
+    r.enableDelegation();
+    const cards = Array.from({ length: 5 }, () => card(r));
+    await r.poll();
+    expect(r.svc.hold(cards[3]!.id, "waiting on the vendor", "mk")).toMatchObject({ ok: true });
+    expect(r.svc.later(cards[4]!.id, "mk")).toMatchObject({ ok: true });
+    const w = count(r);
+    expect(w).toMatchObject({ decide: 3, held: 1, later: 1 });
+    expect(railCount(w.decide, undefined)).toBe(3);
+    expect(r.svc.decisionCount()).toBe(5); // the old badge number, which counted all five
+  });
+});
+
+describe("railCount (the badge number)", () => {
+  it("is the Needs you now count, then live owed asks that are not held or Later, then zero", async () => {
+    const { railCount } = await import("../ui/waiting.js");
+    expect(railCount(0, [{}, {}])).toBe(0);
+    expect(railCount(5, undefined)).toBe(5);
+    expect(railCount(undefined, [{}, { held: true }, { later: true }, {}])).toBe(2);
+    expect(railCount(undefined, undefined)).toBe(0);
   });
 });
 
 describe("one number everywhere", () => {
-  it("the strip, the tab and the stats output show the same total; the badge shows the decision count", async () => {
+  it("the strip, the tab and the stats output show the same total; the badge shows the Needs you now count", async () => {
     const { badgeCount, waitingSummary } = await import("../ui/waiting.js");
     const r = rig({ legacyMoves: true });
     r.enableDelegation();
@@ -145,7 +161,7 @@ describe("one number everywhere", () => {
     r.svc.store.recordEvent("vizier-adopted", null, { from: null, to: "thr_viz3", reason: "unset" });
     const w = count(r);
     expect(w.total).toBe(3);
-    expect(badgeCount({ count: r.svc.decisionCount() }, { blocked: false, unowned: false })).toBe("2");
+    expect(badgeCount({ count: w.decide }, { blocked: false, unowned: false })).toBe("2");
     expect(waitingSummary(w).headline).toBe("Waiting on you: 3");
   });
 });

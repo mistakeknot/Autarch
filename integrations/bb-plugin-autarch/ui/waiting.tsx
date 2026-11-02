@@ -36,9 +36,9 @@ export function railBadge(w: { count: number }, o: { blocked: boolean; unowned: 
   return { count: w.count, label: `${w.count} waiting on you` };
 }
 
-/** The number behind the badge: the server's decision count; an older server without it gets the live (not held) owed asks, then the waiting decide count. */
-export function railCount(decisionCount: number | null, owed: { held?: unknown }[] | undefined, decide: number | undefined): number {
-  return decisionCount ?? owed?.filter((o) => !o.held).length ?? decide ?? 0;
+/** The number behind the badge: the Needs you now count (`waiting.decide`), the same number the tab shows, so held, Later and blocked-on-others cards never raise it. Before `waiting` loads, the live owed asks that are not held or in Later. */
+export function railCount(decide: number | undefined, owed: { held?: unknown; later?: unknown }[] | undefined): number {
+  return decide ?? owed?.filter((o) => !o.held && !o.later).length ?? 0;
 }
 
 export type WaitingJump = "decide" | "moves" | "updates" | "held" | "later";
