@@ -31,6 +31,7 @@ import { CardWriter } from "./cardwrites.js";
 import { Queue } from "./queue.js";
 import { checkRequest, updateInfo } from "./updates.js";
 import { ghViewReal, PrPoller } from "./movepoll.js";
+import { MergeRecheck } from "./mergerecheck.js";
 import { ReportWatcher } from "./movereport.js";
 import { moveViews } from "./moveview.js";
 import { CommentPoller, conversationView, openTaskIds, unreadCounts } from "./conversation.js";
@@ -390,6 +391,34 @@ export function wireHome(bb: BbPluginApi, handle: StoreHandle, cfg: HomeConfig, 
       if (!parts || signal.aborted) return;
       const poller = new PrPoller({ svc: parts.svc, ghView: ghViewReal, log: (m) => console.error(`home-move-poll: ${m}`) });
       await poller.run(signal, sleep);
+    },
+  });
+  // Merge recheck (bead mk-g1t73): a merge pick whose PR is still open five minutes later brings the card back.
+  // Read-only `gh pr view`, no model; the bring-back is the Archive's own.
+  bb.background.service("home-merge-recheck", {
+    async start(signal) {
+      while (!signal.aborted && !parts) await sleep(1000, signal);
+      if (!parts || signal.aborted) return;
+      const p = parts;
+      const recheck = new MergeRecheck({
+        db: p.store.db,
+        ghView: ghViewReal,
+        log: (m) => console.error(`home-merge-recheck: ${m}`),
+        bringBack: async (taskId, decisionId, pr) => {
+          const cur = p.svc.currentGeneration(taskId);
+          const recipient = cur && cur.thread ? await resolveWakeTarget(taskId, String(cur.thread), true) : null;
+          const r = p.dele.bringBack(taskId, decisionId, recipient, {}, [
+            `Citadel brought the decision ${decisionId} back on its own: mk picked a merge, and ${pr.url} was still not merged five minutes later.`,
+            `The card is open again, so mk will be asked afresh. If the PR merges first, tell mk on the card. If you have already received mk's answer on the new card, that answer stands.`,
+          ]);
+          if (r.ok && !r.replay) {
+            p.caches.invalidate();
+            bb.realtime.publish("home-queue-changed", {});
+          }
+          return r.ok && !r.replay;
+        },
+      });
+      await recheck.run(signal, sleep);
     },
   });
   // Conversation mirror: the selected card every 15 s, open cards every 60 s. Failures only mark "may be stale".

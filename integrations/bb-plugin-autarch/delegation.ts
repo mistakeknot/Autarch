@@ -458,7 +458,7 @@ export class Delegation {
    * gets the notice: the asking thread, or the vizier when that thread is archived or gone; the caller
    * resolves it, since the thread list is not the store's to read.
    */
-  bringBack(taskId: string, decisionId: string, recipient: string | null, ctx: Ctx): OverrideResult {
+  bringBack(taskId: string, decisionId: string, recipient: string | null, ctx: Ctx, notice?: string[]): OverrideResult {
     if (ctx.threadId !== undefined) return refuse(403, "bring back comes from the panel");
     // The request is bound to the decision the caller saw, so a delayed retry or a stale tab cannot reopen a newer answer.
     const requestId = `bringback:${decisionId}`;
@@ -521,10 +521,12 @@ export class Delegation {
           kind: "void-notice",
           recipient,
           op: `bringback:${decisionId}`,
-          payload: [
-            `mk brought the decision ${decisionId} back. It is open again as ${res.decision_id}, and mk is answering afresh.`,
-            `Wait for that answer before acting on the earlier one. If you have already received mk's answer for ${res.decision_id}, that answer stands.`,
-          ].join("\n"),
+          payload: (
+            notice ?? [
+              `mk brought the decision ${decisionId} back. It is open again as ${res.decision_id}, and mk is answering afresh.`,
+              `Wait for that answer before acting on the earlier one. If you have already received mk's answer for ${res.decision_id}, that answer stands.`,
+            ]
+          ).join("\n"),
         },
       ]);
       return { ok: true, decision_id: res.decision_id, replay: false };
