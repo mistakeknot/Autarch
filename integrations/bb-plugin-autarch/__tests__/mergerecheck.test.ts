@@ -14,6 +14,11 @@ describe("which PR a pick is about", () => {
   it("finds the card's one PR URL for a merge option", () => {
     expect(mergePrOf(body({ options: [MERGE_A, HOLD_B] }), "a", null)).toEqual({ repo: "mistakeknot/Undersketch", number: 130, url: URL130 });
   });
+  it("ignores negated, auto-merge-prohibiting and deferred options", () => {
+    for (const [label, instruction] of [["Do not auto-merge", "Leave it."], ["Wait for CI before merge", "Hold."], ["Hold", "Don't merge yet."], ["No merge", "Close it."]]) {
+      expect(mergePrOf(body({ options: [{ id: "a", label, kind: "instruction", instruction }] }), "a", null)).toBeNull();
+    }
+  });
   it("ignores a hold, a do-not-merge option and a pick that names no option", () => {
     expect(mergePrOf(body({ options: [MERGE_A, HOLD_B] }), "b", null)).toBeNull();
     expect(mergePrOf(body({ options: [MERGE_A] }), "z", null)).toBeNull();
@@ -85,6 +90,19 @@ describe("merge recheck", () => {
     await m.pass();
     expect(calls).toHaveLength(1); // not asked again
     expect(r.gens(t.id)).toHaveLength(2);
+  });
+
+  it("never rechecks a pick the vizier made", async () => {
+    const r = rig();
+    r.enableDelegation();
+    const { t, g1 } = await opened(r, { ask: mergeAsk() });
+    expect(r.vizierPick(g1.id)).toMatchObject({ ok: true });
+    await pollN(r, 3);
+    r.advance(RECHECK_AFTER_MS + 1000);
+    const calls: string[] = [];
+    await recheck(r, () => "OPEN", calls).pass();
+    expect(calls).toEqual([]);
+    expect(r.gens(t.id)).toHaveLength(1);
   });
 
   it("leaves the card alone when the PR merged or was closed", async () => {

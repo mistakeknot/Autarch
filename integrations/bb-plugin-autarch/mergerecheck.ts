@@ -18,7 +18,8 @@ export const MAX_GENERATIONS = 4;
 const PR_IN_TEXT = /https:\/\/github\.com\/([A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+)\/pull\/([1-9][0-9]{0,8})/g;
 const APPROVAL_TARGET = /^([A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+)#([1-9][0-9]{0,8})$/;
 const MERGE = /\bmerges?\b/i;
-const NOT_MERGE = /\b(do not|don't|dont|not|never|won't)\s+merge/i;
+const NOT_MERGE = /\b(do not|don't|dont|not|never|won't|no)\b[^.\n]{0,20}\bmerg/i;
+const DEFER = /\b(wait|hold|defer|postpone|delay|until)\b|\bnot yet\b|\bbefore\s+(?:you\s+)?(?:auto-?)?merg/i;
 
 export interface PrRef {
   repo: string;
@@ -50,8 +51,8 @@ export function mergePrOf(bodyJson: string, optionId: string, approvalTarget: st
   if (!opt) return null;
   const text = `${typeof opt.label === "string" ? opt.label : ""}\n${typeof opt.instruction === "string" ? opt.instruction : ""}`;
   const approval = approvalTarget ? APPROVAL_TARGET.exec(approvalTarget) : null;
-  const isMerge = (MERGE.test(text) && !NOT_MERGE.test(text)) || approval !== null;
-  if (!isMerge || NOT_MERGE.test(text)) return null;
+  if (NOT_MERGE.test(text) || DEFER.test(text)) return null;
+  if (!MERGE.test(text) && approval === null) return null;
   const own = urlsIn(text);
   if (own.length === 1) return own[0]!;
   if (own.length > 1) return null;
@@ -79,7 +80,7 @@ export function duePicks(db: Database.Database, nowMs: number): DuePick[] {
       `SELECT d.id AS decision_id, d.task_id, d.generation, p.option_id, d.body_json, p.picked_at,
               (SELECT a.target FROM approvals a WHERE a.decision_id = d.id AND a.kind = 'merge' AND a.revoked_at IS NULL) AS approval_target
          FROM picks p JOIN decisions d ON d.id = p.decision_id
-        WHERE d.source = 'card' AND d.task_id IS NOT NULL AND d.withdrawn_at IS NULL
+        WHERE d.source = 'card' AND d.task_id IS NOT NULL AND d.withdrawn_at IS NULL AND p."by" = 'mk'
           AND p.picked_at <= ? AND p.picked_at >= ?
           AND NOT EXISTS (SELECT 1 FROM decisions r WHERE r.supersedes = d.id)
         ORDER BY p.picked_at`,
