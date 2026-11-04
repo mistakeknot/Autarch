@@ -133,7 +133,11 @@ type CardRequest struct {
 	Move   map[string]any
 	Key    string // the Request key (idempotency key)
 	Thread string // the asking thread; the filer posts the routing comment from it
-	Pull   bool   // threadless Mycroft filing (mk question 4): writes "pull":"mycroft", posts no comment
+	// Owner, when set, is the thread that answers the card: the routing comment is posted as Owner, so the
+	// card's first agent comment (and so routed_thread) names it from the moment the card exists. It must be a
+	// live, unarchived thread. Empty means the asking thread routes the card.
+	Owner string
+	Pull  bool // threadless Mycroft filing (mk question 4): writes "pull":"mycroft", posts no comment
 }
 
 // CardResult is what a successful filing returns.
@@ -713,6 +717,42 @@ func (f *CardFiler) ensureLabelNamed(ctx context.Context, project, name string) 
 	return nil
 }
 
+// routeThread is the thread the card is routed to: the owner when one is named, else the asking thread.
+func (r CardRequest) routeThread() string {
+	if r.Owner != "" {
+		return r.Owner
+	}
+	return r.Thread
+}
+
+// checkOwnerLive refuses an owner that is not a live, unarchived thread.
+func (f *CardFiler) checkOwnerLive(ctx context.Context, owner string) error {
+	r := f.exec(ctx, cardEnv(""), "thread", "show", owner, "--json")
+	if r.failed() {
+		if r.Err == nil && !r.TimedOut && (notFoundRe.MatchString(r.text()) || strings.Contains(strings.ToLower(r.text()), "thread_not_found")) {
+			return fmt.Errorf("%w: --owner-thread %s is not a thread", ErrInvalid, owner)
+		}
+		return fmt.Errorf("%w: bb thread show %s: %s", ErrHomeDown, owner, r.text())
+	}
+	var v struct {
+		Thread struct {
+			ID         string `json:"id"`
+			ArchivedAt any    `json:"archivedAt"`
+			DeletedAt  any    `json:"deletedAt"`
+		} `json:"thread"`
+	}
+	if err := json.Unmarshal(r.Stdout, &v); err != nil {
+		return fmt.Errorf("%w: bb thread show %s: unreadable answer: %v", ErrHomeDown, owner, err)
+	}
+	if v.Thread.ID != owner {
+		return fmt.Errorf("%w: bb thread show %s: the answer does not describe that thread", ErrHomeDown, owner)
+	}
+	if v.Thread.ArchivedAt != nil || v.Thread.DeletedAt != nil {
+		return fmt.Errorf("%w: --owner-thread %s is archived or deleted; name a live thread", ErrInvalid, owner)
+	}
+	return nil
+}
+
 func (f *CardFiler) comment(ctx context.Context, thread, id, key string) error {
 	var res struct {
 		Comment Comment `json:"comment"`
@@ -743,10 +783,15 @@ func (f *CardFiler) replay(ctx context.Context, req CardRequest, c *found) (Card
 	asking := AskingThread(c.Comments)
 	switch {
 	case !agent:
-		return res, f.comment(ctx, req.Thread, c.ID, req.Key)
+		if req.Owner != "" {
+			if err := f.checkOwnerLive(ctx, req.Owner); err != nil {
+				return CardResult{}, err
+			}
+		}
+		return res, f.comment(ctx, req.routeThread(), c.ID, req.Key)
 	case asking == "":
 		return CardResult{}, fmt.Errorf("%w: Request %s is on card %s, whose first agent comment carries no thread", ErrInvalid, req.Key, c.ID)
-	case asking != req.Thread:
+	case asking != req.routeThread():
 		return CardResult{}, fmt.Errorf("%w: Request %s filed from thread %s", ErrInvalid, req.Key, asking)
 	}
 	return res, nil
@@ -820,6 +865,9 @@ func (f *CardFiler) fileCard(ctx context.Context, req CardRequest) (CardResult, 
 	if !req.Pull && req.Thread == "" {
 		return CardResult{}, fmt.Errorf("%w: BB_THREAD_ID is required: the asking thread routes the card", ErrInvalid)
 	}
+	if req.Pull && req.Owner != "" {
+		return CardResult{}, fmt.Errorf("%w: a pull filing has no owner thread", ErrInvalid)
+	}
 	if req.Pull && req.Thread != "" {
 		return CardResult{}, fmt.Errorf("%w: a pull filing has no thread", ErrInvalid)
 	}
@@ -858,6 +906,11 @@ func (f *CardFiler) fileCard(ctx context.Context, req CardRequest) (CardResult, 
 		return res, err
 	}
 
+	if req.Owner != "" {
+		if err := f.checkOwnerLive(ctx, req.Owner); err != nil {
+			return CardResult{}, err
+		}
+	}
 	dir, err := os.MkdirTemp("", "autarch-needsmk-")
 	if err != nil {
 		return CardResult{}, fmt.Errorf("%w: %v", ErrHomeDown, err)
@@ -894,7 +947,7 @@ func (f *CardFiler) fileCard(ctx context.Context, req CardRequest) (CardResult, 
 	if req.Pull {
 		return res, nil
 	}
-	return res, f.comment(ctx, req.Thread, created.Task.ID, req.Key)
+	return res, f.comment(ctx, req.routeThread(), created.Task.ID, req.Key)
 }
 
 // ---- Filer, Lister and the threadless pull ---------------------------------------------

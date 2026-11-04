@@ -256,7 +256,7 @@ func commandWarning(question string) string {
 }
 
 func needsMkFileCmd() *cobra.Command {
-	var project, title, askFile, rootRun, request, moveFile string
+	var project, title, askFile, rootRun, request, moveFile, ownerThread string
 	var blocks []string
 	cmd := &cobra.Command{
 		Use:   "file",
@@ -267,6 +267,10 @@ question, options and optionally subject, recommendation, ask_key, project and p
 --move is a home-move/v1 JSON file (script, pr, read or context): the card carries it as a home-move block
 and gets the mk-move label. With --move, --ask-file may be left out and the card carries a Done / Not now
 ask whose question says what the move asks of mk. Nothing in the move is executed; Home derives commands from its validated fields.
+
+--owner-thread names the thread that answers the card: the routing comment is posted as that thread, so
+Home routes mk's pick to it, not to the filer. It must be a live, unarchived thread, else the filing is
+refused (exit 2) and nothing is created. A later claim comment never re-routes a card.
 
 Exit codes: 2 usage or refused, 3 Home or tasks unavailable (nothing created), 4 card created
 but the routing comment failed (re-run the same command), 5 already ruled (mk picked an option for this request).`,
@@ -345,7 +349,7 @@ but the routing comment failed (re-run the same command), 5 already ruled (mk pi
 			if err := checkFilingPreconditions(bound, fmt.Sprint(ask["project_root"])); err != nil {
 				return err
 			}
-			req := homeask.CardRequest{Project: project, Title: title, Blocks: blocks, Ask: ask, Move: move, Key: request, Thread: thread}
+			req := homeask.CardRequest{Project: project, Title: title, Blocks: blocks, Ask: ask, Move: move, Key: request, Thread: thread, Owner: ownerThread}
 			if rootRun != "" {
 				if req.RootRun, err = parseRootRunFlag(rootRun); err != nil {
 					return err
@@ -377,5 +381,6 @@ but the routing comment failed (re-run the same command), 5 already ruled (mk pi
 	cmd.Flags().StringVar(&moveFile, "move", "", "home-move/v1 JSON file: what mk owes (script, pr, read or context); adds the mk-move label")
 	cmd.Flags().StringVar(&rootRun, "root-run", "", "script=<abs path>,timeout=<seconds>,set=<name>")
 	cmd.Flags().StringVar(&request, "request", "", "Request key (default: derived from thread and ask); when given it must be non-empty and match the Request line key pattern")
+	cmd.Flags().StringVar(&ownerThread, "owner-thread", "", "Route the card's answer to this live thread instead of the filing thread (the routing comment is posted as it)")
 	return cmd
 }
