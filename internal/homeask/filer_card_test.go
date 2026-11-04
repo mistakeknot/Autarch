@@ -32,6 +32,8 @@ type memBB struct {
 	seq              int
 	lockDir          string
 	lockHeld         func() bool
+	// threads is the bb thread table: id to "live" or "archived". An id not in it is not found.
+	threads map[string]string
 }
 
 type fakeTask struct {
@@ -93,6 +95,14 @@ func (f *memBB) run(ctx context.Context, env []string, args ...string) BBResult 
 	}
 	cmd := strings.Join(args[:min(len(args), 3)], " ")
 	switch {
+	case cmd == "thread show "+args[2]:
+		switch f.threads[args[2]] {
+		case "live":
+			return okRes(map[string]any{"thread": map[string]any{"id": args[2], "archivedAt": nil, "deletedAt": nil}})
+		case "archived":
+			return okRes(map[string]any{"thread": map[string]any{"id": args[2], "archivedAt": 1793829351063, "deletedAt": nil}})
+		}
+		return *badRes(1, "Error: HTTP 404: Thread not found")
 	case cmd == "home get --request":
 		key := args[3]
 		if a, hit := f.registry[key]; hit {
@@ -981,5 +991,92 @@ func TestDescriptionRefusesAMissingRequestLine(t *testing.T) {
 		if !errors.Is(err, ErrInvalid) || !strings.Contains(err.Error(), "Request line") {
 			t.Errorf("key %q: err=%v", key, err)
 		}
+	}
+}
+
+// A card filed with an owner routes to the owner: the first agent comment, which Home reads as
+// askingThread, is posted as the owner, not the filer.
+func TestCardFilerOwnerThreadRoutesThePickToTheOwnerNotTheFiler(t *testing.T) {
+	f := newFake(t)
+	f.threads = map[string]string{"thr_owner": "live"}
+	r := testReq()
+	r.Owner = "thr_owner"
+	res, err := f.filer().FileCard(context.Background(), r)
+	if err != nil || res.Replay {
+		t.Fatalf("res=%+v err=%v", res, err)
+	}
+	cm := f.tasks[0].Comments
+	if len(cm) != 1 || cm[0].Kind != "agent" || cm[0].ThreadID != "thr_owner" {
+		t.Fatalf("comments %+v", cm)
+	}
+	if got := AskingThread(cm); got != "thr_owner" {
+		t.Fatalf("pick is delivered to %q, want thr_owner (not the filer thr_a)", got)
+	}
+}
+
+func TestCardFilerNoOwnerStillRoutesToTheFilerAndNeverChecksThreads(t *testing.T) {
+	f := newFake(t)
+	if _, err := f.filer().FileCard(context.Background(), testReq()); err != nil {
+		t.Fatal(err)
+	}
+	if got := AskingThread(f.tasks[0].Comments); got != "thr_a" || f.count("thread", "show") != 0 {
+		t.Fatalf("asking=%q thread calls=%d", got, f.count("thread", "show"))
+	}
+}
+
+func TestCardFilerOwnerThatIsNotALiveThreadIsRefusedAndCreatesNothing(t *testing.T) {
+	for name, state := range map[string]string{"missing": "", "archived": "archived"} {
+		t.Run(name, func(t *testing.T) {
+			f := newFake(t)
+			f.threads = map[string]string{"thr_gone": state}
+			r := testReq()
+			r.Owner = "thr_gone"
+			_, err := f.filer().FileCard(context.Background(), r)
+			wantErrIs(t, err, ErrInvalid)
+			if f.cards() != 0 {
+				t.Fatalf("a refused owner created %d card(s)", f.cards())
+			}
+		})
+	}
+}
+
+func TestCardFilerOwnerLookupFailureIsHomeDownAndCreatesNothing(t *testing.T) {
+	f := newFake(t)
+	f.fail = func(a []string) *BBResult {
+		if len(a) > 1 && a[0] == "thread" {
+			return badRes(1, "connection refused")
+		}
+		return nil
+	}
+	r := testReq()
+	r.Owner = "thr_owner"
+	_, err := f.filer().FileCard(context.Background(), r)
+	wantErrIs(t, err, ErrHomeDown)
+	if f.cards() != 0 {
+		t.Fatal("created a card without knowing the owner is live")
+	}
+}
+
+func TestCardFilerOwnerReplayIsIdempotentAndAnotherOwnerIsRefused(t *testing.T) {
+	f := newFake(t)
+	f.threads = map[string]string{"thr_owner": "live", "thr_other": "live"}
+	fl := f.filer()
+	r := testReq()
+	r.Owner = "thr_owner"
+	if _, err := fl.FileCard(context.Background(), r); err != nil {
+		t.Fatal(err)
+	}
+	res, err := fl.FileCard(context.Background(), r)
+	if err != nil || !res.Replay || len(f.tasks[0].Comments) != 1 {
+		t.Fatalf("res=%+v err=%v comments=%d", res, err, len(f.tasks[0].Comments))
+	}
+	r.Owner = "thr_other"
+	_, err = fl.FileCard(context.Background(), r)
+	wantErrIs(t, err, ErrInvalid)
+	r.Owner = ""
+	_, err = fl.FileCard(context.Background(), r)
+	wantErrIs(t, err, ErrInvalid)
+	if len(f.tasks[0].Comments) != 1 {
+		t.Fatalf("a refused replay posted a comment: %+v", f.tasks[0].Comments)
 	}
 }
