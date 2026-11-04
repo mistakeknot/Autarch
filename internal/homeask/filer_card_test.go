@@ -1080,3 +1080,54 @@ func TestCardFilerOwnerReplayIsIdempotentAndAnotherOwnerIsRefused(t *testing.T) 
 		t.Fatalf("a refused replay posted a comment: %+v", f.tasks[0].Comments)
 	}
 }
+
+func TestCardFilerOwnerEqualToFilerIsStillValidated(t *testing.T) {
+	f := newFake(t)
+	r := testReq()
+	r.Owner = r.Thread // not in the thread table: not found
+	_, err := f.filer().FileCard(context.Background(), r)
+	wantErrIs(t, err, ErrInvalid)
+	if f.cards() != 0 {
+		t.Fatal("created a card for an unvalidated owner")
+	}
+}
+
+func TestCardFilerOwnerReplayThatMustRepostTheCommentValidatesTheOwner(t *testing.T) {
+	f := newFake(t)
+	f.threads = map[string]string{"thr_owner": "live"}
+	fail := true
+	f.fail = func(a []string) *BBResult {
+		if fail && len(a) > 1 && a[0] == "tasks" && a[1] == "comment" {
+			return badRes(1, "comment down")
+		}
+		return nil
+	}
+	r := testReq()
+	r.Owner = "thr_owner"
+	_, err := f.filer().FileCard(context.Background(), r)
+	wantErrIs(t, err, ErrOutcomeUnknown) // card exists, no routing comment
+	fail = false
+	f.threads["thr_owner"] = "archived"
+	_, err = f.filer().FileCard(context.Background(), r)
+	wantErrIs(t, err, ErrInvalid)
+	if len(f.tasks[0].Comments) != 0 {
+		t.Fatalf("routed to an archived owner: %+v", f.tasks[0].Comments)
+	}
+}
+
+func TestCardFilerOwnerAnswerForAnotherThreadIsNotLive(t *testing.T) {
+	f := newFake(t)
+	f.fail = func(a []string) *BBResult {
+		if len(a) > 1 && a[0] == "thread" {
+			return &BBResult{Stdout: []byte(`{"thread":null}`)}
+		}
+		return nil
+	}
+	r := testReq()
+	r.Owner = "thr_owner"
+	_, err := f.filer().FileCard(context.Background(), r)
+	wantErrIs(t, err, ErrHomeDown)
+	if f.cards() != 0 {
+		t.Fatal("created a card on an answer that names no thread")
+	}
+}

@@ -736,12 +736,16 @@ func (f *CardFiler) checkOwnerLive(ctx context.Context, owner string) error {
 	}
 	var v struct {
 		Thread struct {
-			ArchivedAt any `json:"archivedAt"`
-			DeletedAt  any `json:"deletedAt"`
+			ID         string `json:"id"`
+			ArchivedAt any    `json:"archivedAt"`
+			DeletedAt  any    `json:"deletedAt"`
 		} `json:"thread"`
 	}
 	if err := json.Unmarshal(r.Stdout, &v); err != nil {
 		return fmt.Errorf("%w: bb thread show %s: unreadable answer: %v", ErrHomeDown, owner, err)
+	}
+	if v.Thread.ID != owner {
+		return fmt.Errorf("%w: bb thread show %s: the answer does not describe that thread", ErrHomeDown, owner)
 	}
 	if v.Thread.ArchivedAt != nil || v.Thread.DeletedAt != nil {
 		return fmt.Errorf("%w: --owner-thread %s is archived or deleted; name a live thread", ErrInvalid, owner)
@@ -779,6 +783,11 @@ func (f *CardFiler) replay(ctx context.Context, req CardRequest, c *found) (Card
 	asking := AskingThread(c.Comments)
 	switch {
 	case !agent:
+		if req.Owner != "" {
+			if err := f.checkOwnerLive(ctx, req.Owner); err != nil {
+				return CardResult{}, err
+			}
+		}
 		return res, f.comment(ctx, req.routeThread(), c.ID, req.Key)
 	case asking == "":
 		return CardResult{}, fmt.Errorf("%w: Request %s is on card %s, whose first agent comment carries no thread", ErrInvalid, req.Key, c.ID)
@@ -897,7 +906,7 @@ func (f *CardFiler) fileCard(ctx context.Context, req CardRequest) (CardResult, 
 		return res, err
 	}
 
-	if req.Owner != "" && req.Owner != req.Thread {
+	if req.Owner != "" {
 		if err := f.checkOwnerLive(ctx, req.Owner); err != nil {
 			return CardResult{}, err
 		}
