@@ -729,7 +729,7 @@ func (r CardRequest) routeThread() string {
 func (f *CardFiler) checkOwnerLive(ctx context.Context, owner string) error {
 	r := f.exec(ctx, cardEnv(""), "thread", "show", owner, "--json")
 	if r.failed() {
-		if notFoundRe.MatchString(r.text()) || strings.Contains(strings.ToLower(r.text()), "thread_not_found") {
+		if r.Err == nil && !r.TimedOut && (notFoundRe.MatchString(r.text()) || strings.Contains(strings.ToLower(r.text()), "thread_not_found")) {
 			return fmt.Errorf("%w: --owner-thread %s is not a thread", ErrInvalid, owner)
 		}
 		return fmt.Errorf("%w: bb thread show %s: %s", ErrHomeDown, owner, r.text())

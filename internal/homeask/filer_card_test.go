@@ -1131,3 +1131,20 @@ func TestCardFilerOwnerAnswerForAnotherThreadIsNotLive(t *testing.T) {
 		t.Fatal("created a card on an answer that names no thread")
 	}
 }
+
+func TestCardFilerOwnerLookupThatCannotStartIsHomeDownNotInvalid(t *testing.T) {
+	f := newFake(t)
+	f.fail = func(a []string) *BBResult {
+		if len(a) > 1 && a[0] == "thread" {
+			return &BBResult{Err: errors.New("exec: \"bb\": executable file not found in $PATH (thread not found)")}
+		}
+		return nil
+	}
+	r := testReq()
+	r.Owner = "thr_owner"
+	_, err := f.filer().FileCard(context.Background(), r)
+	wantErrIs(t, err, ErrHomeDown)
+	if errors.Is(err, ErrInvalid) || f.cards() != 0 {
+		t.Fatalf("err=%v cards=%d", err, f.cards())
+	}
+}
