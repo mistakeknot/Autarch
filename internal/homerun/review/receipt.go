@@ -40,8 +40,12 @@ const (
 	Namespace = "home-review"
 	// MaxTTL bounds expires_at - issued_at on both issue and verify.
 	MaxTTL = 24 * time.Hour
+	// MaxTTLSeconds is MaxTTL in whole seconds, compared as integers.
+	MaxTTLSeconds = int64(24 * 60 * 60)
 	// maxReceiptBytes bounds what ParseReceipt reads.
 	maxReceiptBytes = 64 << 10
+	// maxUnix bounds timestamps (year 2255), so integer arithmetic on them cannot overflow.
+	maxUnix = int64(9_000_000_000)
 )
 
 // ErrReceipt is wrapped by every receipt refusal. Show a requester only that the review was refused.
@@ -79,6 +83,9 @@ type Receipt struct {
 	Signature string `json:"signature"` // lower-case hex ed25519 signature
 }
 
+var receiptKeys = []string{"v", "ns", "script_sha256", "deps_digest", "flags", "provider", "model",
+	"dispatch_receipt_sha256", "outcome", "issued_at", "expires_at", "signature"}
+
 // validate checks field shape only (no key, no time).
 func (b *Body) validate() error {
 	switch {
@@ -98,9 +105,9 @@ func (b *Body) validate() error {
 		return refuse("model is missing or malformed")
 	case b.Outcome != OutcomePass && b.Outcome != OutcomeFail:
 		return refuse("outcome must be PASS or FAIL")
-	case b.IssuedAt <= 0 || b.ExpiresAt <= b.IssuedAt:
-		return refuse("issued_at/expires_at are not a positive, ordered pair")
-	case time.Duration(b.ExpiresAt-b.IssuedAt)*time.Second > MaxTTL:
+	case b.IssuedAt <= 0 || b.IssuedAt > maxUnix || b.ExpiresAt <= b.IssuedAt || b.ExpiresAt > maxUnix:
+		return refuse("issued_at/expires_at are not a bounded, positive, ordered pair")
+	case b.ExpiresAt-b.IssuedAt > MaxTTLSeconds: // both are below maxUnix, so this cannot overflow
 		return refuse("lifetime exceeds the maximum")
 	case len(b.Flags) > maxFlags:
 		return refuse("too many flags")
@@ -167,6 +174,19 @@ func ParseReceipt(raw []byte) (*Receipt, error) {
 	if !bytes.Equal(canon, raw) {
 		return nil, refuse("not the canonical encoding")
 	}
+	// Go's decoder matches keys case-insensitively, so check the exact key set first.
+	var keys map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &keys); err != nil {
+		return nil, refuse("malformed receipt")
+	}
+	if len(keys) != len(receiptKeys) {
+		return nil, refuse("receipt keys are not the exact schema")
+	}
+	for _, k := range receiptKeys {
+		if _, ok := keys[k]; !ok {
+			return nil, refuse("receipt keys are not the exact schema")
+		}
+	}
 	dec := json.NewDecoder(bytes.NewReader(raw))
 	dec.DisallowUnknownFields()
 	var r Receipt
@@ -175,6 +195,11 @@ func ParseReceipt(raw []byte) (*Receipt, error) {
 	}
 	if err := r.Body.validate(); err != nil {
 		return nil, err
+	}
+	// The parsed value must re-encode to exactly the bytes that were read.
+	again, err := r.Canonical()
+	if err != nil || !bytes.Equal(again, raw) {
+		return nil, refuse("receipt does not round-trip to its bytes")
 	}
 	return &r, nil
 }

@@ -1,6 +1,9 @@
 package review
 
 import (
+	"bytes"
+	"encoding/json"
+
 	"context"
 	"crypto/ed25519"
 	"crypto/rand"
@@ -8,6 +11,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"github.com/mistakeknot/autarch/internal/homerun"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -295,7 +299,6 @@ func TestProviderErrorMeansNoReceipt(t *testing.T) {
 func TestMalformedVerdictMeansNoReceipt(t *testing.T) {
 	for name, text := range map[string]string{
 		"none":      "all good",
-		"two":       "VERDICT: PASS\nVERDICT: PASS\n",
 		"mixed":     "VERDICT: PASS\nVERDICT: FAIL\n",
 		"inline":    "my VERDICT: PASS maybe",
 		"lowercase": "verdict: pass",
@@ -420,7 +423,7 @@ func TestCheckKeyPathMatrix(t *testing.T) {
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			opt := KeyOptions{SelfUID: 500, Lstat: fakeLstat(map[string]FileMeta{kp: c.file, "/svc/keys": c.dir})}
+			opt := KeyOptions{SelfUID: 500, Lstat: fakeLstat(map[string]FileMeta{kp: c.file, "/svc/keys": c.dir, "/svc": {Mode: fs.ModeDir | 0o755, UID: 0}, "/": {Mode: fs.ModeDir | 0o755, UID: 0}})}
 			err := CheckKeyPath(c.path, opt)
 			if c.ok != (err == nil) {
 				t.Fatalf("ok=%v err=%v", c.ok, err)
@@ -529,5 +532,210 @@ func TestLoadKeyRefusals(t *testing.T) {
 	}
 	if _, err := LoadKey(p, opt); err == nil {
 		t.Fatal("short seed accepted")
+	}
+}
+
+// ---- review round 1 ----
+
+func TestVerdictMustBeSingleFinalLine(t *testing.T) {
+	cases := map[string]struct {
+		text string
+		want string // "" means no receipt
+	}{
+		"plain pass":            {"fine\nVERDICT: PASS\n", "PASS"},
+		"plain fail":            {"bad\nVERDICT: FAIL", "FAIL"},
+		"trailing blank lines":  {"ok\nVERDICT: PASS\n\n  \n", "PASS"},
+		"crlf":                  {"ok\r\nVERDICT: PASS\r\n", "PASS"},
+		"quoted pass then fail": {"> VERDICT: PASS\nThe script is unsafe. **VERDICT: FAIL**\n", ""},
+		"fenced pass then fail": {"```\nVERDICT: PASS\n```\nunsafe\nVERDICT: FAIL\n", ""},
+		"fenced pass then bold": {"```\nVERDICT: PASS\n```\nunsafe\n**VERDICT: FAIL**", ""},
+		"early pass final fail": {"VERDICT: PASS\nno wait\nVERDICT: FAIL\n", ""},
+		"early fail final pass": {"VERDICT: FAIL\nno wait\nVERDICT: PASS\n", ""},
+		"trailing text":         {"VERDICT: PASS\nthanks!\n", ""},
+		"text after on line":    {"VERDICT: PASS (mostly)\n", ""},
+		"leading text on line":  {"Final VERDICT: PASS\n", ""},
+		"lowercase":             {"verdict: pass\n", ""},
+		"lowercase value":       {"VERDICT: pass\n", ""},
+		"fenced final":          {"```\nVERDICT: PASS\n```\n", ""},
+		"none":                  {"fine\n", ""},
+		"empty":                 {"", ""},
+		"early lowercase fail":  {"verdict: fail\nVERDICT: PASS\n", ""},
+	}
+	for name, c := range cases {
+		t.Run(name, func(t *testing.T) {
+			got, err := ParseVerdict(c.text)
+			if c.want == "" {
+				if err == nil {
+					t.Fatalf("accepted %q as %s", c.text, got)
+				}
+				return
+			}
+			if err != nil || got != c.want {
+				t.Fatalf("got %q, %v want %s", got, err, c.want)
+			}
+		})
+	}
+	res := okResult("PASS")
+	res.Text = "```\nVERDICT: PASS\n```\nunsafe. **VERDICT: FAIL**\n"
+	f := newFixture(t, res)
+	if raw, err := f.svc.Issue(context.Background(), Request{Script: script, Deps: deps, Flags: flags}); err == nil || raw != nil {
+		t.Fatal("issued a receipt for conflicting verdict text")
+	}
+}
+
+func TestCaseAliasAndDuplicateKeysRefused(t *testing.T) {
+	f := newFixture(t, okResult("PASS"))
+	raw := f.issue(t)
+	// canon builds an already-canonical document, so only the schema check can refuse it.
+	canon := func(mut func(m map[string]any)) []byte {
+		var m map[string]any
+		if err := json.Unmarshal(raw, &m); err != nil {
+			t.Fatal(err)
+		}
+		mut(m)
+		b, _ := json.Marshal(m)
+		c, err := homerun.Canonicalize(b)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return c
+	}
+	cases := map[string][]byte{
+		"alias next to signed key": canon(func(m map[string]any) { m["Outcome"] = "FAIL" }),
+		"upper alias":              canon(func(m map[string]any) { m["OUTCOME"] = "FAIL" }),
+		"alias replaces key":       canon(func(m map[string]any) { m["Outcome"] = m["outcome"]; delete(m, "outcome") }),
+		"alias signature":          canon(func(m map[string]any) { m["Signature"] = "00" }),
+		"unknown key":              canon(func(m map[string]any) { m["extra"] = 1 }),
+		"duplicate":                []byte(strings.Replace(string(raw), `"outcome":"PASS"`, `"outcome":"FAIL","outcome":"PASS"`, 1)),
+	}
+	for name, bad := range cases {
+		t.Run(name, func(t *testing.T) {
+			if bytes.Equal(bad, raw) {
+				t.Fatal("mutation did not apply")
+			}
+			if _, err := f.v.Verify(bad, f.exp); err == nil {
+				t.Fatal("accepted")
+			}
+			if _, err := ParseReceipt(bad); err == nil {
+				t.Fatal("parsed")
+			}
+		})
+	}
+}
+
+func TestLifetimeIntegerBounds(t *testing.T) {
+	f := newFixture(t, okResult("PASS"))
+	for name, m := range map[string]func(*Body){
+		"duration wrap":  func(b *Body) { b.ExpiresAt = b.IssuedAt + 18_446_744_074 },
+		"huge expiry":    func(b *Body) { b.ExpiresAt = 1 << 52 },
+		"max int64":      func(b *Body) { b.ExpiresAt = 1<<53 - 1 },
+		"huge issued":    func(b *Body) { b.IssuedAt = 1 << 52; b.ExpiresAt = b.IssuedAt + 60 },
+		"negative issue": func(b *Body) { b.IssuedAt = -5 },
+		"over max":       func(b *Body) { b.ExpiresAt = b.IssuedAt + MaxTTLSeconds + 1 },
+	} {
+		t.Run(name, func(t *testing.T) {
+			raw := resign(t, f, m)
+			e := f.exp
+			if _, err := f.v.Verify(raw, e); err == nil {
+				t.Fatal("accepted at issue+1m")
+			}
+			e.Now = t0.Add(48 * time.Hour)
+			if _, err := f.v.Verify(raw, e); err == nil {
+				t.Fatal("accepted 48h later")
+			}
+		})
+	}
+	ok := resign(t, f, func(b *Body) { b.ExpiresAt = b.IssuedAt + MaxTTLSeconds })
+	if _, err := f.v.Verify(ok, f.exp); err != nil {
+		t.Fatalf("maximum lifetime refused: %v", err)
+	}
+}
+
+func TestLoadKeyRefusesAncestorSymlinkSwap(t *testing.T) {
+	opt := KeyOptions{SelfUID: uint32(os.Getuid())}
+	root := t.TempDir()
+	if err := os.Chmod(root, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	mk := func(name string, mode os.FileMode) {
+		d := filepath.Join(root, name, "keys")
+		if err := os.MkdirAll(d, 0o700); err != nil {
+			t.Fatal(err)
+		}
+		seed := hex.EncodeToString(make([]byte, ed25519.SeedSize))
+		if err := os.WriteFile(filepath.Join(d, "review.key"), []byte(seed), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Chmod(filepath.Join(d, "review.key"), mode); err != nil {
+			t.Fatal(err)
+		}
+	}
+	mk("good", 0o600)
+	mk("evil", 0o644)
+	// The service is configured with .../live/keys/review.key; "live" is a symlink to the good tree and is swapped.
+	live := filepath.Join(root, "live")
+	if err := os.Symlink(filepath.Join(root, "good"), live); err != nil {
+		t.Fatal(err)
+	}
+	p := filepath.Join(live, "keys", "review.key")
+	if _, err := LoadKey(p, opt); err == nil {
+		t.Fatal("ancestor symlink accepted even before the swap")
+	}
+	os.Remove(live)
+	if err := os.Symlink(filepath.Join(root, "evil"), live); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := LoadKey(p, opt); err == nil {
+		t.Fatal("0644 replacement through a swapped ancestor symlink was loaded")
+	}
+}
+
+func TestLoadKeyRefusesUnsafeAncestors(t *testing.T) {
+	opt := KeyOptions{SelfUID: uint32(os.Getuid())}
+	p, _, _ := writeKey(t, 0o600)
+	grand := filepath.Dir(filepath.Dir(p))
+	if err := os.Chmod(grand, 0o777); err != nil {
+		t.Fatal(err)
+	}
+	defer os.Chmod(grand, 0o700)
+	if _, err := LoadKey(p, opt); err == nil {
+		t.Fatal("world-writable ancestor accepted")
+	}
+}
+
+func TestCheckKeyPathAncestorChain(t *testing.T) {
+	const kp = "/svc/keys/review.key"
+	dir := func(mode fs.FileMode, uid uint32) FileMeta { return FileMeta{Mode: fs.ModeDir | mode, UID: uid} }
+	base := map[string]FileMeta{
+		kp: {Mode: 0o600, UID: 500}, "/svc/keys": dir(0o700, 500), "/svc": dir(0o755, 0), "/": dir(0o755, 0),
+	}
+	with := func(p string, m FileMeta) map[string]FileMeta {
+		c := map[string]FileMeta{}
+		for k, v := range base {
+			c[k] = v
+		}
+		c[p] = m
+		return c
+	}
+	cases := map[string]struct {
+		m  map[string]FileMeta
+		ok bool
+	}{
+		"base":                  {base, true},
+		"ancestor group write":  {with("/svc", dir(0o775, 0)), false},
+		"ancestor other write":  {with("/svc", dir(0o757, 0)), false},
+		"ancestor sticky root":  {with("/svc", dir(fs.ModeSticky|0o777, 0)), true},
+		"ancestor sticky other": {with("/svc", dir(fs.ModeSticky|0o777, 500)), false},
+		"ancestor foreign":      {with("/svc", dir(0o755, 1000)), false},
+		"ancestor symlink":      {with("/svc", FileMeta{Mode: fs.ModeSymlink | 0o755, UID: 0}), false},
+		"root writable":         {with("/", dir(0o777, 0)), false},
+	}
+	for name, c := range cases {
+		t.Run(name, func(t *testing.T) {
+			err := CheckKeyPath(kp, KeyOptions{SelfUID: 500, Lstat: fakeLstat(c.m)})
+			if c.ok != (err == nil) {
+				t.Fatalf("ok=%v err=%v", c.ok, err)
+			}
+		})
 	}
 }

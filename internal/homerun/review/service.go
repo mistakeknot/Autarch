@@ -61,17 +61,42 @@ type Service struct {
 	MaxDepBytes    int
 }
 
-var reVerdict = regexp.MustCompile(`(?m)^VERDICT: (PASS|FAIL)[ \t]*\r?$`)
+var reVerdictLike = regexp.MustCompile(`(?i)verdict\W{0,8}(pass|fail)`)
 
-// ParseVerdict extracts the verdict from reviewer text. Exactly one "VERDICT: PASS" or
-// "VERDICT: FAIL" line must be present; none, two, or a mix of the two is an error, so a script that
-// echoes a verdict line into the reviewer's output cannot choose the outcome by ambiguity.
+// ParseVerdict extracts the verdict from reviewer text. The last non-empty line must be exactly
+// "VERDICT: PASS" or "VERDICT: FAIL" and nothing else. Any earlier verdict-like text that names the
+// other outcome (quoted, fenced, emphasised or lower-case) is a conflict and yields no verdict, so
+// text the reviewer quoted from the script cannot decide the outcome.
 func ParseVerdict(text string) (string, error) {
-	m := reVerdict.FindAllStringSubmatch(text, -1)
-	if len(m) != 1 {
-		return "", fmt.Errorf("reviewer output holds %d verdict lines, want exactly 1", len(m))
+	lines := strings.Split(text, "\n")
+	last := -1
+	for i := len(lines) - 1; i >= 0; i-- {
+		if strings.TrimSpace(lines[i]) != "" {
+			last = i
+			break
+		}
 	}
-	return m[0][1], nil
+	if last < 0 {
+		return "", errors.New("reviewer output is empty")
+	}
+	final := strings.TrimSuffix(lines[last], "\r")
+	var outcome string
+	switch final {
+	case "VERDICT: PASS":
+		outcome = OutcomePass
+	case "VERDICT: FAIL":
+		outcome = OutcomeFail
+	default:
+		return "", errors.New("the last non-empty line of reviewer output is not exactly a verdict line")
+	}
+	for _, ln := range lines[:last] {
+		for _, m := range reVerdictLike.FindAllStringSubmatch(ln, -1) {
+			if !strings.EqualFold(m[1], outcome) {
+				return "", errors.New("reviewer output holds verdict text that conflicts with its final verdict")
+			}
+		}
+	}
+	return outcome, nil
 }
 
 // DepsDigestOf computes the deps digest for request deps, refusing unsorted or duplicate paths.
