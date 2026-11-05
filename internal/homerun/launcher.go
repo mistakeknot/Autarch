@@ -6,7 +6,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io/fs"
 	"os"
+	"os/user"
 	"path"
 	"path/filepath"
 	"regexp"
@@ -191,7 +193,7 @@ func BuildRunArgs(cfg LaunchConfig, lim Limits, att *Attempt, env *Envelope, wri
 		prop("KillMode", "control-group"),
 		// A finished unit stays (RemainAfterExit) so recovery can read how it ended, but it is only
 		// finished once its whole cgroup is empty (ExitType=cgroup, and TasksAccounting so the
-		// process count can be read). See UnitProps.ended.
+		// process count can be read). See UnitProps.settled and UnitLookupFor.
 		prop("TasksAccounting", "yes"),
 		prop("ExitType", "cgroup"),
 		prop("RemainAfterExit", "yes"),
@@ -315,6 +317,114 @@ func (ws WriteSet) Verify() error {
 	return nil
 }
 
+// checkTrustedChain requires root and every parent up to "/" to be a real directory (no symlink) owned
+// by an allowed uid and writable by neither group nor other, sticky bit or not. Such a tree cannot be
+// renamed or swapped by an unprivileged agent, which is what closes the window between Verify and
+// systemd resolving ReadWritePaths for it. lstat returns uid, mode.
+//
+// UNVERIFIED-live: nothing here is exercised against a real tree in tests (they use a fake lstat); it
+// also does not cover an agent that already runs as root or as an allowed owner, nor ACLs, capabilities,
+// or a writable bind mount over a parent.
+func checkTrustedChain(root string, lstat func(string) (uint32, fs.FileMode, error), allowed func(uint32) bool) error {
+	for p := root; ; p = path.Dir(p) {
+		uid, mode, err := lstat(p)
+		if err != nil {
+			return fmt.Errorf("trust check %s: %w", p, err)
+		}
+		if mode&fs.ModeSymlink != 0 || !mode.IsDir() {
+			return fmt.Errorf("%s is not a real directory", p)
+		}
+		if !allowed(uid) {
+			return fmt.Errorf("%s is owned by uid %d, which is not trusted", p, uid)
+		}
+		if mode.Perm()&0o022 != 0 {
+			return fmt.Errorf("%s is writable by group or other (mode %04o)", p, mode.Perm())
+		}
+		if p == "/" {
+			return nil
+		}
+	}
+}
+
+// TrustedRoot is the production trust check: owner root or the service user.
+func TrustedRoot(serviceUID uint32) func(string) error {
+	return func(root string) error {
+		return checkTrustedChain(root, func(p string) (uint32, fs.FileMode, error) {
+			fi, err := os.Lstat(p)
+			if err != nil {
+				return 0, 0, err
+			}
+			st, ok := fi.Sys().(*syscall.Stat_t)
+			if !ok {
+				return 0, 0, fmt.Errorf("no owner for %s", p)
+			}
+			return st.Uid, fi.Mode(), nil
+		}, func(uid uint32) bool { return uid == 0 || uid == serviceUID })
+	}
+}
+
+// LogFiles creates and removes the unit's log file.
+type LogFiles interface {
+	// Create makes the log exclusively (it must not exist), owned root:<log group>, mode 0640.
+	Create(path string) error
+	Remove(path string) error
+}
+
+// RootLogs is the production LogFiles. The launcher process must be root for the chown.
+//
+// UNVERIFIED-live: that systemd, which opens StandardOutput=file: before it drops to User=, appends to
+// an existing file of this owner and mode without changing them, and that the service user can still
+// write it. Systemd's documentation says "file:" opens (truncates=no) and does not chown; not observed.
+type RootLogs struct {
+	Group     string
+	LookupGID func(group string) (int, error)      // default os/user
+	Fchown    func(f *os.File, uid, gid int) error // default f.Chown
+}
+
+// Create implements LogFiles.
+func (r RootLogs) Create(p string) error {
+	if r.Group == "" {
+		return errors.New("no log group configured")
+	}
+	lookup := r.LookupGID
+	if lookup == nil {
+		lookup = func(g string) (int, error) {
+			gr, err := user.LookupGroup(g)
+			if err != nil {
+				return 0, err
+			}
+			return strconv.Atoi(gr.Gid)
+		}
+	}
+	gid, err := lookup(r.Group)
+	if err != nil {
+		return fmt.Errorf("log group %q: %w", r.Group, err)
+	}
+	chown := r.Fchown
+	if chown == nil {
+		chown = func(f *os.File, uid, gid int) error { return f.Chown(uid, gid) }
+	}
+	f, err := os.OpenFile(p, os.O_WRONLY|os.O_CREATE|os.O_EXCL|syscall.O_NOFOLLOW, 0o640)
+	if err != nil {
+		return err
+	}
+	fail := func(err error) error {
+		f.Close()
+		_ = os.Remove(p) // never leave a log with the wrong owner or mode
+		return err
+	}
+	if err := chown(f, 0, gid); err != nil {
+		return fail(fmt.Errorf("chown log: %w", err))
+	}
+	if err := f.Chmod(0o640); err != nil { // the process umask may have narrowed it
+		return fail(err)
+	}
+	return f.Close()
+}
+
+// Remove implements LogFiles.
+func (RootLogs) Remove(p string) error { return os.Remove(p) }
+
 // Ledger is the part of Store the launcher drives. *Store implements it.
 type Ledger interface {
 	RecordLaunchIntent(ctx context.Context, attempt string, at time.Time) (string, error)
@@ -331,6 +441,35 @@ type Launcher struct {
 	// AfterIntent, when set, runs between the launch intent and systemd-run. It is a seam for tests of the
 	// swap-after-check window; production leaves it nil.
 	AfterIntent func()
+	// Trust checks that WritesRoot and its parents cannot be swapped by an unprivileged agent. Nil means
+	// TrustedRoot for the account named in Config.User (looked up with LookupUID), which fails closed.
+	Trust     func(writesRoot string) error
+	LookupUID func(user string) (uint32, error) // default os/user
+	// Logs precreates the log. Nil refuses every launch: a launcher with no way to make the log
+	// root-owned would let systemd create it as the wrong group.
+	Logs LogFiles
+}
+
+func (l *Launcher) trust(root string) error {
+	if l.Trust != nil {
+		return l.Trust(root)
+	}
+	lookup := l.LookupUID
+	if lookup == nil {
+		lookup = func(n string) (uint32, error) {
+			u, err := user.Lookup(n)
+			if err != nil {
+				return 0, err
+			}
+			id, err := strconv.ParseUint(u.Uid, 10, 32)
+			return uint32(id), err
+		}
+	}
+	uid, err := lookup(l.Config.User)
+	if err != nil {
+		return fmt.Errorf("service user %q: %w", l.Config.User, err)
+	}
+	return TrustedRoot(uid)(root)
 }
 
 func (l *Launcher) now() time.Time {
@@ -362,9 +501,22 @@ func (l *Launcher) Launch(ctx context.Context, att *Attempt, env *Envelope, writ
 	if err != nil {
 		return StartInfo{}, err
 	}
+	if len(ws.Paths) > 0 {
+		if err := l.trust(ws.Root); err != nil {
+			return StartInfo{}, fmt.Errorf("%w: %v", ErrLaunchRefused, err)
+		}
+	}
+	if l.Logs == nil {
+		return StartInfo{}, fmt.Errorf("%w: no log creator configured", ErrLaunchRefused)
+	}
+	logPath := cfg.LogPath(att.ID)
+	if err := l.Logs.Create(logPath); err != nil {
+		return StartInfo{}, fmt.Errorf("%w: create log: %v", ErrLaunchRefused, err)
+	}
 	unit, err := l.Ledger.RecordLaunchIntent(ctx, att.ID, l.now())
 	if err != nil {
-		// No intent was recorded, so nothing was launched.
+		// No intent was recorded, so nothing was launched; take the log back so a retry can create it.
+		_ = l.Logs.Remove(logPath)
 		return StartInfo{}, fmt.Errorf("%w: %w", ErrLaunchRefused, err)
 	}
 	if unit != UnitName(att.ID) {

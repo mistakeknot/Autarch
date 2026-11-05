@@ -6,10 +6,12 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"reflect"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 )
@@ -58,10 +60,14 @@ type loggingLedger struct {
 	s          *Store
 	log        *[]string
 	startedErr error
+	intentErr  error
 }
 
 func (l loggingLedger) RecordLaunchIntent(ctx context.Context, a string, at time.Time) (string, error) {
 	*l.log = append(*l.log, "intent")
+	if l.intentErr != nil {
+		return "", l.intentErr
+	}
 	return l.s.RecordLaunchIntent(ctx, a, at)
 }
 
@@ -91,6 +97,7 @@ type rig struct {
 	att *Attempt
 	env *Envelope
 	now time.Time
+	cg  *fakeCg
 }
 
 func newRig(t *testing.T, op string) *rig {
@@ -107,8 +114,9 @@ func newRig(t *testing.T, op string) *rig {
 	log := &[]string{}
 	sys := &fakeSystemd{log: log, invFor: goodInv}
 	led := loggingLedger{s: s, log: log}
-	return &rig{s: s, sys: sys, led: led, log: log, att: att, env: env, now: now,
-		l: &Launcher{Config: testCfg(), Limits: DefaultLimits(), Ledger: &led, System: sys, Now: func() time.Time { return now }}}
+	cg := &fakeCg{}
+	return &rig{s: s, sys: sys, cg: cg, led: led, log: log, att: att, env: env, now: now,
+		l: &Launcher{Config: testCfg(), Limits: DefaultLimits(), Ledger: &led, System: sys, Now: func() time.Time { return now }, Trust: func(string) error { return nil }, Logs: &fakeLogs{}}}
 }
 
 func TestBuildRunArgsGolden(t *testing.T) {
@@ -353,7 +361,7 @@ func TestIntentFailureMeansNoSystemdCall(t *testing.T) {
 // recoverWith runs RecoverUnits the way the service will: no by-invocation lookup, the unit lookup over systemd.
 func recoverWith(t *testing.T, r *rig, out OutputSummary) []Record {
 	t.Helper()
-	recs, err := r.s.RecoverUnits(context.Background(), nil, UnitLookupFor(r.sys, out), r.now.Add(time.Minute))
+	recs, err := r.s.RecoverUnits(context.Background(), nil, UnitLookupFor(r.sys, out, r.cg), r.now.Add(time.Minute))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -473,9 +481,10 @@ func TestCrashBetweenIntentAndLaunchNeverRetriesAndHoldsCapacity(t *testing.T) {
 func TestUnitLookupMapping(t *testing.T) {
 	id := "01HZZZZZZZZZZZZZZZZZZZZZZZ"
 	unit := UnitName(id)
+	cg := &fakeCg{m: map[string]cgAnswer{cgPopulated: {pop: true}, cgBroken: {err: errors.New("EACCES")}}}
 	mk := func(p UnitProps) (UnitState, error) {
 		f := &fakeSystemd{log: &[]string{}, units: map[string]UnitProps{unit: p}}
-		return UnitLookupFor(f, fixedOut{sha: sha2Hex, n: 3})(context.Background(), unit)
+		return UnitLookupFor(f, fixedOut{sha: sha2Hex, n: 3}, cg)(context.Background(), unit)
 	}
 	exited := UnitProps{LoadState: "loaded", ActiveState: "inactive", SubState: "dead", InvocationID: goodInv, ExitStatus: 0}
 	cases := []struct {
@@ -498,12 +507,20 @@ func TestUnitLookupMapping(t *testing.T) {
 		{"signal", with(unitFailed(exited), "signal", 9), true, true, ResultSignal, 9, false, false},
 		{"core-dump", with(unitFailed(exited), "core-dump", 11), true, true, ResultSignal, 11, false, false},
 		{"resources unmapped", with(unitFailed(exited), "resources", 0), true, true, "", 0, true, false},
-		// fix 1: a finished main process with a live cgroup is running, never ended
-		{"active/exited, cgroup empty", retained(0, true), true, true, ResultSuccess, 0, false, false},
-		{"active/exited, cgroup populated", retained(3, true), true, false, "", 0, false, false},
-		{"active/exited, cgroup unknown", retained(0, false), true, false, "", 0, false, false},
-		{"inactive with a populated cgroup", populated(with(exited, "success", 0)), true, false, "", 0, false, false},
-		{"failed with a populated cgroup", populated(with(unitFailed(exited), "exit-code", 1)), true, false, "", 0, false, false},
+		// fix 1/3: emptiness comes from cgroup evidence, never from TasksCurrent being absent
+		{"active/exited, no cgroup path", retained(""), true, true, ResultSuccess, 0, false, false},
+		{"active/exited, cgroup pruned", retained(cgPath), true, true, ResultSuccess, 0, false, false},
+		{"active/exited, cgroup populated", retained(cgPopulated), true, false, "", 0, false, false},
+		{"active/exited, cgroup unreadable", retained(cgBroken), true, true, "", 0, true, false},
+		{"inactive, cgroup populated", inCg(with(exited, "success", 0), cgPopulated), true, false, "", 0, false, false},
+		{"failed, cgroup populated", inCg(with(unitFailed(exited), "timeout", 0), cgPopulated), true, false, "", 0, false, false},
+		{"failed, tasks unknown, cgroup removed", inCg(with(unitFailed(exited), "timeout", 0), cgPath), true, true, ResultTimeout, 0, false, false},
+		{"failed, tasks unknown, cgroup unreadable", inCg(with(unitFailed(exited), "timeout", 0), cgBroken), true, true, "", 0, true, false},
+		{"failed, accounting says tasks", func() UnitProps {
+			p := with(unitFailed(exited), "timeout", 0)
+			p.TasksKnown, p.Tasks = true, 1
+			return p
+		}(), true, false, "", 0, false, false},
 		{"unknown state", UnitProps{LoadState: "loaded", ActiveState: "maintenance", InvocationID: goodInv}, false, false, "", 0, false, true},
 	}
 	for _, c := range cases {
@@ -525,12 +542,12 @@ func TestUnitLookupMapping(t *testing.T) {
 			}
 		}
 	}
-	if _, err := UnitLookupFor(&fakeSystemd{log: &[]string{}}, nil)(context.Background(), "ssh.service"); err == nil {
+	if _, err := UnitLookupFor(&fakeSystemd{log: &[]string{}}, nil, nil)(context.Background(), "ssh.service"); err == nil {
 		t.Error("looked up a unit that is not a run unit")
 	}
 	// no output summary: the unit is known to have ended, but the outcome is not recordable as ENDED
 	f := &fakeSystemd{log: &[]string{}, units: map[string]UnitProps{unit: with(exited, "success", 0)}}
-	st, _ := UnitLookupFor(f, nil)(context.Background(), unit)
+	st, _ := UnitLookupFor(f, nil, nil)(context.Background(), unit)
 	if st.Ended == nil || st.Ended.validate() == nil {
 		t.Errorf("ended unit without an output digest must not validate: %+v", st.Ended)
 	}
@@ -542,13 +559,50 @@ func with(p UnitProps, result string, status int) UnitProps {
 }
 func unitFailed(p UnitProps) UnitProps { p.ActiveState, p.SubState = "failed", "failed"; return p }
 
-// populated: processes are still in the unit's cgroup (a background child outlived the main process).
-func populated(p UnitProps) UnitProps { p.TasksKnown, p.Tasks = true, 2; return p }
+const (
+	cgPath      = "/system.slice/homerun-pruned.service"
+	cgPopulated = "/system.slice/homerun-populated.service"
+	cgBroken    = "/system.slice/homerun-broken.service"
+)
 
-// retained is what RemainAfterExit=yes leaves behind once the cgroup is empty: active (exited).
-func retained(tasks uint64, known bool) UnitProps {
-	return UnitProps{LoadState: "loaded", ActiveState: "active", SubState: "exited", Result: "success", InvocationID: goodInv, TasksKnown: known, Tasks: tasks}
+type cgAnswer struct {
+	pop bool
+	err error
 }
+
+// fakeCg answers from a map; a path it does not know is an absent cgroup (empty).
+type fakeCg struct{ m map[string]cgAnswer }
+
+func (f *fakeCg) Populated(cg string) (bool, error) {
+	a := f.m[cg]
+	return a.pop, a.err
+}
+
+func inCg(p UnitProps, cg string) UnitProps { p.ControlGroup = cg; return p }
+
+// retained is what RemainAfterExit=yes leaves behind: active (exited), with whatever cgroup path systemd reports.
+func retained(cg string) UnitProps {
+	return UnitProps{LoadState: "loaded", ActiveState: "active", SubState: "exited", Result: "success", InvocationID: goodInv, ControlGroup: cg}
+}
+
+type fakeLogs struct {
+	log     *[]string
+	created []string
+	removed []string
+	err     error
+}
+
+func (f *fakeLogs) Create(p string) error {
+	if f.log != nil {
+		*f.log = append(*f.log, "log")
+	}
+	if f.err != nil {
+		return f.err
+	}
+	f.created = append(f.created, p)
+	return nil
+}
+func (f *fakeLogs) Remove(p string) error { f.removed = append(f.removed, p); return nil }
 
 func TestRecoveryEndedWithUnreadableLogIsUncertain(t *testing.T) {
 	r := newRig(t, OpApply)
@@ -597,7 +651,7 @@ func TestCLISystemdCommandLines(t *testing.T) {
 	}
 	want := [][]string{
 		{"systemd-run", "--unit=x.service", "--", "/bin/bash"},
-		{"systemctl", "show", "--timestamp=unix", "--property=LoadState,ActiveState,SubState,Result,InvocationID,ExecMainStatus,ExecMainStartTimestamp,ExecMainExitTimestamp,TasksCurrent", "--", "x.service"},
+		{"systemctl", "show", "--timestamp=unix", "--property=LoadState,ActiveState,SubState,Result,InvocationID,ExecMainStatus,ExecMainStartTimestamp,ExecMainExitTimestamp,TasksCurrent,ControlGroup", "--", "x.service"},
 	}
 	if !reflect.DeepEqual(fr.calls, want) {
 		t.Fatalf("commands %q", fr.calls)
@@ -665,20 +719,23 @@ var (
 	_ Ledger  = (*Store)(nil)
 )
 
-func TestFix1BackgroundChildNeverRecordsEnded(t *testing.T) {
-	for name, p := range map[string]UnitProps{
-		"active/exited, cgroup populated": retained(2, true),
-		"active/exited, cgroup unknown":   retained(0, false),
-		"inactive, cgroup populated":      populated(UnitProps{LoadState: "loaded", ActiveState: "inactive", SubState: "dead", Result: "success", InvocationID: goodInv}),
+func TestFix1CgroupEvidenceDecidesEnd(t *testing.T) {
+	for name, c := range map[string]struct {
+		p    UnitProps
+		want func(Kind) bool
+	}{
+		"populated stays running": {retained(cgPopulated), func(k Kind) bool { return k != KindEnded && k != KindUncertain }},
+		"pruned cgroup ends":      {retained(cgPath), func(k Kind) bool { return k == KindEnded }},
+		"unreadable is uncertain": {retained(cgBroken), func(k Kind) bool { return k == KindUncertain }},
 	} {
 		r := newRig(t, OpApply)
+		r.cg.m = map[string]cgAnswer{cgPopulated: {pop: true}, cgBroken: {err: errors.New("EACCES")}}
 		if _, err := r.l.Launch(context.Background(), r.att, r.env, nil); err != nil {
 			t.Fatal(err)
 		}
-		r.sys.units[UnitName(r.att.ID)] = p
-		k := launchLastKind(recoverWith(t, r, fixedOut{sha: sha2Hex, n: 1}), r.att.ID)
-		if k == KindEnded || k == KindUncertain {
-			t.Fatalf("%s: recorded %s; a populated cgroup is still running", name, k)
+		r.sys.units[UnitName(r.att.ID)] = c.p
+		if k := launchLastKind(recoverWith(t, r, fixedOut{sha: sha2Hex, n: 1}), r.att.ID); !c.want(k) {
+			t.Fatalf("%s: recorded %q", name, k)
 		}
 	}
 }
@@ -851,5 +908,197 @@ func TestParseShowTasksCurrent(t *testing.T) {
 		if err != nil || p.TasksKnown != want.known || (want.known && p.Tasks != want.n) {
 			t.Errorf("%q: %+v %v", in, p, err)
 		}
+	}
+}
+
+func TestParseShowControlGroup(t *testing.T) {
+	p, err := ParseShow([]byte("LoadState=loaded\nControlGroup=/system.slice/x.service\n"))
+	if err != nil || p.ControlGroup != "/system.slice/x.service" {
+		t.Fatalf("%+v %v", p, err)
+	}
+}
+
+func TestFSCgroupPopulated(t *testing.T) {
+	root := t.TempDir()
+	fs := FSCgroup{Root: root}
+	if pop, err := fs.Populated("/system.slice/gone.service"); pop || err != nil {
+		t.Fatalf("absent cgroup: %v %v", pop, err)
+	}
+	dir := filepath.Join(root, "system.slice", "a.service")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	procs := filepath.Join(dir, "cgroup.procs")
+	if err := os.WriteFile(procs, nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if pop, err := fs.Populated("/system.slice/a.service"); pop || err != nil {
+		t.Fatalf("empty procs: %v %v", pop, err)
+	}
+	if err := os.WriteFile(procs, []byte("123\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if pop, err := fs.Populated("/system.slice/a.service"); !pop || err != nil {
+		t.Fatalf("populated: %v %v", pop, err)
+	}
+	// a directory without cgroup.procs is not a cgroup we can read: unreadable, never empty
+	if err := os.Remove(procs); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := fs.Populated("/system.slice/a.service"); err == nil {
+		t.Fatal("cgroup dir without cgroup.procs read as empty")
+	}
+	for _, bad := range []string{"system.slice/a", "/a/../b", "/a/./b", "", "/a//b"} {
+		if pop, err := fs.Populated(bad); err == nil || pop {
+			t.Errorf("%q accepted", bad)
+		}
+	}
+}
+
+func TestFix2TrustedChain(t *testing.T) {
+	type ent struct {
+		uid  uint32
+		mode fs.FileMode
+	}
+	tree := map[string]ent{
+		"/": {0, fs.ModeDir | 0o755}, "/home": {0, fs.ModeDir | 0o755}, "/home/runner": {1001, fs.ModeDir | 0o755},
+	}
+	lstat := func(m map[string]ent) func(string) (uint32, fs.FileMode, error) {
+		return func(p string) (uint32, fs.FileMode, error) {
+			e, ok := m[p]
+			if !ok {
+				return 0, 0, os.ErrNotExist
+			}
+			return e.uid, e.mode, nil
+		}
+	}
+	allowed := func(uid uint32) bool { return uid == 0 || uid == 1001 }
+	if err := checkTrustedChain("/home/runner", lstat(tree), allowed); err != nil {
+		t.Fatalf("trusted chain refused: %v", err)
+	}
+	mut := func(f func(map[string]ent)) map[string]ent {
+		m := map[string]ent{}
+		for k, v := range tree {
+			m[k] = v
+		}
+		f(m)
+		return m
+	}
+	for name, m := range map[string]map[string]ent{
+		"root group-writable":   mut(func(m map[string]ent) { m["/home/runner"] = ent{1001, fs.ModeDir | 0o775} }),
+		"root other-writable":   mut(func(m map[string]ent) { m["/home/runner"] = ent{1001, fs.ModeDir | 0o757} }),
+		"parent other-writable": mut(func(m map[string]ent) { m["/home"] = ent{0, fs.ModeDir | 0o777} }),
+		"sticky is not enough":  mut(func(m map[string]ent) { m["/home"] = ent{0, fs.ModeDir | fs.ModeSticky | 0o777} }),
+		"parent owned by other": mut(func(m map[string]ent) { m["/home"] = ent{1002, fs.ModeDir | 0o755} }),
+		"slash owned by other":  mut(func(m map[string]ent) { m["/"] = ent{65534, fs.ModeDir | 0o755} }),
+		"missing parent":        mut(func(m map[string]ent) { delete(m, "/home") }),
+		"parent is a symlink":   mut(func(m map[string]ent) { m["/home"] = ent{0, fs.ModeSymlink | 0o777} }),
+	} {
+		if err := checkTrustedChain("/home/runner", lstat(m), allowed); err == nil {
+			t.Errorf("%s: accepted", name)
+		}
+	}
+}
+
+func TestFix2LaunchRefusesUntrustedRootBeforeIntent(t *testing.T) {
+	root, _ := filepath.EvalSymlinks(t.TempDir())
+	if err := os.Mkdir(filepath.Join(root, "w"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	r := newRig(t, OpApply)
+	r.l.Config.WritesRoot = root
+	r.l.Trust = func(p string) error { return fmt.Errorf("%s is writable by others", p) }
+	if _, err := r.l.Launch(context.Background(), r.att, r.env, []string{filepath.Join(root, "w")}); !errors.Is(err, ErrLaunchRefused) || len(*r.log) != 0 {
+		t.Fatalf("%v %v", err, *r.log)
+	}
+	// no writes: nothing to protect, no trust check needed
+	r2 := newRig(t, OpApply)
+	r2.l.Trust = func(string) error { return errors.New("must not be called") }
+	if _, err := r2.l.Launch(context.Background(), r2.att, r2.env, nil); err != nil {
+		t.Fatal(err)
+	}
+	// the default (nil) check fails closed on a real tree whose parents are not root-owned
+	r3 := newRig(t, OpApply)
+	r3.l.Config.WritesRoot = root
+	r3.l.Trust = nil
+	r3.l.LookupUID = func(string) (uint32, error) { return 4242, nil }
+	if _, err := r3.l.Launch(context.Background(), r3.att, r3.env, []string{filepath.Join(root, "w")}); !errors.Is(err, ErrLaunchRefused) {
+		t.Fatalf("default trust check let an untrusted tree through: %v", err)
+	}
+}
+
+func TestFix4LogPrecreatedBeforeIntentAndRefusedWhenItFails(t *testing.T) {
+	r := newRig(t, OpApply)
+	logs := &fakeLogs{log: r.log}
+	r.l.Logs = logs
+	if _, err := r.l.Launch(context.Background(), r.att, r.env, nil); err != nil {
+		t.Fatal(err)
+	}
+	if got := strings.Join(*r.log, ","); got != "log,intent,systemd-run,show,started" {
+		t.Fatalf("order %s", got)
+	}
+	if len(logs.created) != 1 || logs.created[0] != r.l.Config.LogPath(r.att.ID) {
+		t.Fatalf("created %v", logs.created)
+	}
+	r2 := newRig(t, OpApply)
+	r2.l.Logs = &fakeLogs{log: r2.log, err: os.ErrExist}
+	if _, err := r2.l.Launch(context.Background(), r2.att, r2.env, nil); !errors.Is(err, ErrLaunchRefused) || strings.Contains(strings.Join(*r2.log, ","), "intent") {
+		t.Fatalf("%v %v", err, *r2.log)
+	}
+	// a log created for a launch whose intent could not be recorded is removed again
+	r3 := newRig(t, OpApply)
+	l3 := &fakeLogs{log: r3.log}
+	r3.l.Logs = l3
+	r3.l.Ledger = &loggingLedger{s: r3.s, log: r3.log, intentErr: errors.New("db locked")}
+	if _, err := r3.l.Launch(context.Background(), r3.att, r3.env, nil); !errors.Is(err, ErrLaunchRefused) || len(l3.removed) != 1 {
+		t.Fatalf("%v removed=%v", err, l3.removed)
+	}
+	// no log creator configured: fail closed
+	r4 := newRig(t, OpApply)
+	r4.l.Logs = nil
+	if _, err := r4.l.Launch(context.Background(), r4.att, r4.env, nil); !errors.Is(err, ErrLaunchRefused) {
+		t.Fatalf("%v", err)
+	}
+}
+
+func TestFix4RootLogsCreate(t *testing.T) {
+	dir := t.TempDir()
+	var gotUID, gotGID = -1, -1
+	rl := RootLogs{Group: "mk", LookupGID: func(g string) (int, error) {
+		if g != "mk" {
+			t.Fatalf("group %q", g)
+		}
+		return 4321, nil
+	}, Fchown: func(f *os.File, uid, gid int) error { gotUID, gotGID = uid, gid; return nil }}
+	old := syscall.Umask(0o077)
+	defer syscall.Umask(old)
+	p := filepath.Join(dir, "a.log")
+	if err := rl.Create(p); err != nil {
+		t.Fatal(err)
+	}
+	fi, _ := os.Lstat(p)
+	if fi.Mode().Perm() != 0o640 || gotUID != 0 || gotGID != 4321 {
+		t.Fatalf("mode %v uid %d gid %d", fi.Mode().Perm(), gotUID, gotGID)
+	}
+	if err := rl.Create(p); err == nil {
+		t.Fatal("existing log reused")
+	}
+	if err := os.Symlink("/etc/passwd", filepath.Join(dir, "b.log")); err != nil {
+		t.Fatal(err)
+	}
+	if err := rl.Create(filepath.Join(dir, "b.log")); err == nil {
+		t.Fatal("followed a symlink")
+	}
+	// a failed chown leaves no half-owned log behind
+	rl.Fchown = func(*os.File, int, int) error { return errors.New("EPERM") }
+	c := filepath.Join(dir, "c.log")
+	if err := rl.Create(c); err == nil {
+		t.Fatal("chown failure ignored")
+	}
+	if _, err := os.Lstat(c); !os.IsNotExist(err) {
+		t.Fatal("left a log with the wrong owner")
+	}
+	if err := (RootLogs{}).Create(filepath.Join(dir, "d.log")); err == nil {
+		t.Fatal("no group configured, yet created")
 	}
 }

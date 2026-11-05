@@ -13,6 +13,8 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"path"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -32,6 +34,8 @@ type UnitProps struct {
 	// reports it as "[not set]" (or not at all), which must never be read as an empty cgroup.
 	Tasks      uint64
 	TasksKnown bool
+	// ControlGroup is the unit's cgroup path (e.g. "/system.slice/x.service"), empty when systemd reports none.
+	ControlGroup string
 }
 
 // Systemd is everything the launcher needs from the system manager. The real implementation shells out
@@ -67,7 +71,7 @@ func (ExecRunner) Run(ctx context.Context, name string, args ...string) ([]byte,
 }
 
 // showProps is the property list passed to "systemctl show".
-var showProps = []string{"LoadState", "ActiveState", "SubState", "Result", "InvocationID", "ExecMainStatus", "ExecMainStartTimestamp", "ExecMainExitTimestamp", "TasksCurrent"}
+var showProps = []string{"LoadState", "ActiveState", "SubState", "Result", "InvocationID", "ExecMainStatus", "ExecMainStartTimestamp", "ExecMainExitTimestamp", "TasksCurrent", "ControlGroup"}
 
 // CLISystemd drives the system manager (not --user: the unit needs User= and the sandbox properties,
 // which only the system manager grants) through systemd-run and systemctl.
@@ -128,6 +132,7 @@ func ParseShow(out []byte) (UnitProps, error) {
 		}
 		p.ExitStatus = n
 	}
+	p.ControlGroup = kv["ControlGroup"]
 	if t := kv["TasksCurrent"]; t != "" && t != "[not set]" {
 		n, err := strconv.ParseUint(t, 10, 64)
 		if err != nil {
@@ -190,27 +195,58 @@ func AttemptFromUnit(unit string) (string, error) {
 	return id, nil
 }
 
-// ended reports whether EVERY process of the unit is finished. A state the launcher does not know is an
-// error, never a guess.
+// CgroupProbe is how the launcher learns whether a unit's cgroup still holds processes. It is an interface
+// so tests never read the host's cgroup tree.
+type CgroupProbe interface {
+	// Populated reports whether the cgroup at controlGroup (a path like "/system.slice/x.service") has any
+	// process. A cgroup that no longer exists is empty (false, nil). Anything that cannot be read is an error.
+	Populated(controlGroup string) (bool, error)
+}
+
+// FSCgroup reads cgroup.procs from a cgroup v2 hierarchy mounted at Root (default /sys/fs/cgroup).
 //
-// Why this is about the cgroup and not the main process: the unit runs with RemainAfterExit=yes (so a
-// finished unit stays readable for recovery) and ExitType=cgroup, so systemd treats the unit as running
-// for as long as any process is left in its cgroup. A background child that outlives the script would
-// otherwise keep running after the audit trail said ENDED, past RuntimeMaxSec's reach. So:
+// UNVERIFIED-live: that the unit's cgroup is at Root+ControlGroup on a deployed host (cgroup v2 unified
+// hierarchy, no namespacing of the reader), and that systemd removes the directory once the unit's
+// processes are gone. Both are taken from systemd's documentation and source, not from a launched unit.
+type FSCgroup struct{ Root string }
+
+// Populated implements CgroupProbe.
+func (f FSCgroup) Populated(cg string) (bool, error) {
+	if cg == "" || cg[0] != '/' || path.Clean(cg) != cg || cg == "/" {
+		return false, fmt.Errorf("control group %q is not a clean absolute cgroup path", cg)
+	}
+	root := f.Root
+	if root == "" {
+		root = "/sys/fs/cgroup"
+	}
+	dir := filepath.Join(root, cg)
+	if _, err := os.Lstat(dir); errors.Is(err, os.ErrNotExist) {
+		return false, nil // the cgroup is gone: that is the evidence of removal
+	} else if err != nil {
+		return false, err
+	}
+	b, err := os.ReadFile(filepath.Join(dir, "cgroup.procs"))
+	if err != nil {
+		return false, err // a directory we cannot read is not an empty cgroup
+	}
+	return len(strings.TrimSpace(string(b))) > 0, nil
+}
+
+// settled says what the unit's own state allows. candidate means the unit looks finished and the
+// cgroup decides; a state the launcher does not know is an error, never a guess.
 //
-//   - activating, deactivating: not ended.
-//   - active/running (or anything else active but not "exited"): not ended.
-//   - active/exited: ended only when TasksCurrent is known and zero. Unknown is "still running".
-//   - inactive, failed: systemd only gets here after the cgroup is gone, but a populated or unreadable
-//     cgroup that contradicts that is not ended either (defensive: it is never recorded as ENDED).
-func (p UnitProps) ended() (bool, error) {
+// Why the cgroup decides: the unit runs with RemainAfterExit=yes (a finished unit stays readable for
+// recovery) and ExitType=cgroup, so it is only "active (exited)" once its cgroup is empty, and a unit
+// that failed (timeout) can still hold a process systemd could not kill. TasksCurrent cannot be the
+// evidence: systemd prunes an empty cgroup, after which it reports nothing, which is not zero.
+func (p UnitProps) settled() (candidate bool, err error) {
 	switch p.ActiveState {
 	case "activating", "deactivating":
 		return false, nil
 	case "active":
-		return p.SubState == "exited" && p.TasksKnown && p.Tasks == 0, nil
+		return p.SubState == "exited", nil
 	case "failed", "inactive":
-		return !(p.TasksKnown && p.Tasks > 0), nil
+		return true, nil
 	}
 	return false, fmt.Errorf("unit state %q/%q is not one the launcher knows", p.ActiveState, p.SubState)
 }
@@ -248,7 +284,13 @@ func endInfo(p UnitProps, out OutputSummary, attempt string) EndInfo {
 // answer. out may be nil (every ended unit is then UNCERTAIN, for want of an output digest). Pass nil as
 // the by-InvocationID lookup of RecoverUnits: systemd cannot be asked by invocation once a unit is gone,
 // and the by-unit answer is checked against the recorded invocation anyway.
-func UnitLookupFor(sys Systemd, out OutputSummary) UnitLookup {
+//
+// A finished-looking unit is ENDED only on cgroup evidence: no ControlGroup, an accounting count of
+// zero is NOT enough, an absent cgroup directory or an empty cgroup.procs is. A populated cgroup is
+// still running (the unit's RuntimeMaxSec bounds it; UNVERIFIED-live). A cgroup that cannot be read
+// yields an EndInfo with no Result, which RecoverUnits records as UNCERTAIN: never ENDED, and not
+// left "running" without a bound. cg nil means no evidence: every finished-looking unit is UNCERTAIN.
+func UnitLookupFor(sys Systemd, out OutputSummary, cg CgroupProbe) UnitLookup {
 	return func(ctx context.Context, unit string) (UnitState, error) {
 		attempt, err := AttemptFromUnit(unit)
 		if err != nil {
@@ -262,11 +304,32 @@ func UnitLookupFor(sys Systemd, out OutputSummary) UnitLookup {
 			return UnitState{}, nil
 		}
 		st := UnitState{Found: true, InvocationID: p.InvocationID}
-		done, err := p.ended()
+		cand, err := p.settled()
 		if err != nil {
 			return UnitState{}, err
 		}
-		if done {
+		if !cand {
+			return st, nil
+		}
+		pop, perr := false, error(nil)
+		switch {
+		case p.TasksKnown && p.Tasks > 0:
+			pop = true // accounting alone can prove "populated", never "empty"
+		case p.ControlGroup == "":
+			// systemd reports no cgroup: nothing can be left in it
+		case cg == nil:
+			perr = errors.New("no cgroup probe")
+		default:
+			pop, perr = cg.Populated(p.ControlGroup)
+		}
+		switch {
+		case perr != nil:
+			info := endInfo(p, out, attempt)
+			info.Result, info.OutputSHA256, info.OutputBytes = "", "", 0 // unmappable => UNCERTAIN
+			st.Ended = &info
+		case pop:
+			// still running
+		default:
 			info := endInfo(p, out, attempt)
 			st.Ended = &info
 		}
