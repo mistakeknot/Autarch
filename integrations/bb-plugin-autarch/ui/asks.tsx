@@ -384,21 +384,18 @@ function HowThisWorks({ later, note }: { later: boolean; note: string | null }) 
 
 /** One plain sentence on a card under an option: what picking it does. Empty when there is nothing to add. */
 export function optionEffect(o: { kind: string; instruction?: string; reversible?: boolean }, thread: string, full = false): string {
-  // The schema cannot tell "unset" from "false", so only an option that acts says it cannot be undone; a ruling-only pick has no instruction to undo.
-  const acts = o.kind === "instruction" || o.kind === "needs-context";
-  const undo = o.reversible === true || !acts ? "" : " Cannot be undone.";
   const text = (o.instruction ?? "").replace(/\s+/g, " ").trim();
   // The default kind says nothing mk needs to know before picking, so it gets no line.
   if (o.kind === "needs-context") return "";
   if (o.kind === "instruction" && text !== "") {
     const first = text.match(/^.*?[.!?](?=\s|$)/)?.[0] ?? text;
-    if (full) return `Tells ${thread}: ${text}${undo}`;
+    if (full) return `Tells ${thread}: ${text}`;
     const summary = first.length > 140 ? `${first.slice(0, 139).trimEnd()}…` : first;
-    return `Tells ${thread}: ${summary}${undo}`;
+    return `Tells ${thread}: ${summary}`;
   }
-  // A ruling-only pick still wakes the asking thread with the ruling, so no line claims it sends nothing. An acting
-  // option with no instruction text has nothing to preview, but still says it cannot be undone.
-  return undo.trim();
+  // A ruling-only pick still wakes the asking thread with the ruling, so no line claims it sends nothing. An option
+  // with no instruction text has nothing to preview.
+  return "";
 }
 
 /** The Decide queue: a short row per ask on the left, the selected ask in full on the right (below when narrow). */
