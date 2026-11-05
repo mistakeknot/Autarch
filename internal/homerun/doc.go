@@ -30,6 +30,9 @@
 // against agents running as the same user; closing this needs root/svc-review isolation. Nothing in
 // this package claims more.
 //
+// Review receipts (internal/homerun/review, slice 5): the signed-receipt format, the verifier-side check,
+// and a review-service core with injected provider and signer. No real provider or key is wired.
+//
 // It starts no process other than ssh-keygen, launches no unit, and reads no credential. The service
 // that wires it to a socket, a unit launcher and a review service is a later slice. The package is
 // parameterised on every path (allowed signers, revocation list, state database, CAS root, audit
