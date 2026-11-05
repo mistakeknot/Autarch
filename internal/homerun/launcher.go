@@ -6,10 +6,13 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
 	"path"
+	"path/filepath"
 	"regexp"
 	"strconv"
 	"strings"
+	"syscall"
 	"time"
 )
 
@@ -186,8 +189,14 @@ func BuildRunArgs(cfg LaunchConfig, lim Limits, att *Attempt, env *Envelope, wri
 	args = append(args,
 		prop("RuntimeMaxSec", strconv.FormatInt(int64(att.RuntimeMax/time.Second), 10)),
 		prop("KillMode", "control-group"),
-		// The unit stays after the script exits, so recovery can read how it ended.
+		// A finished unit stays (RemainAfterExit) so recovery can read how it ended, but it is only
+		// finished once its whole cgroup is empty (ExitType=cgroup, and TasksAccounting so the
+		// process count can be read). See UnitProps.ended.
+		prop("TasksAccounting", "yes"),
+		prop("ExitType", "cgroup"),
 		prop("RemainAfterExit", "yes"),
+		// The log is created by systemd as the unit's user; this umask makes it 0640 instead of 0644.
+		prop("UMask", "0027"),
 		prop("StandardOutput", "file:"+cfg.LogPath(att.ID)),
 		prop("StandardError", "inherit"),
 		"--setenv=PATH="+UnitPATH,
@@ -195,6 +204,115 @@ func BuildRunArgs(cfg LaunchConfig, lim Limits, att *Attempt, env *Envelope, wri
 		"--",
 	)
 	return append(args, LaunchArgv(cfg.bash(), casPath, env)...), nil
+}
+
+// WriteSet is a set of writable directories resolved to real paths, with the identity of every path
+// component, so that a later Verify can notice a swap.
+type WriteSet struct {
+	Root  string   // the real path of WritesRoot
+	Paths []string // real paths, in the order given
+	ids   []map[string]fileID
+}
+
+type fileID struct{ dev, ino uint64 }
+
+func lstatID(p string) (fileID, os.FileInfo, error) {
+	fi, err := os.Lstat(p)
+	if err != nil {
+		return fileID{}, nil, err
+	}
+	st, ok := fi.Sys().(*syscall.Stat_t)
+	if !ok {
+		return fileID{}, nil, fmt.Errorf("no file identity for %s", p)
+	}
+	return fileID{uint64(st.Dev), uint64(st.Ino)}, fi, nil //nolint:unconvert
+}
+
+// ResolveWrites turns the requested writable paths into real directories under WritesRoot. Every
+// component below the root is lstat'ed: a symlink anywhere in it is refused, so the path cannot lead
+// outside the root. WritesRoot itself may be reached through a symlink; its real path is what is used.
+// The resolved paths, not the requested ones, are what the unit is given.
+//
+// Residual risk, not closed here: this checks the tree at one moment. systemd re-resolves ReadWritePaths
+// when it builds the unit's mount namespace, after systemd-run is called, so a path an attacker who can
+// write inside WritesRoot swaps for a symlink in that window is followed by systemd. Launch narrows the
+// window (Verify runs immediately before systemd-run, after the launch intent) but cannot close it;
+// closing it needs WritesRoot to be writable only by trusted accounts, or a directory the unit's own
+// user cannot rename within.
+func ResolveWrites(cfg LaunchConfig, writes []string) (WriteSet, error) {
+	ws, err := resolveWrites(cfg, writes)
+	if err != nil {
+		return WriteSet{}, fmt.Errorf("%w: %v", ErrLaunchRefused, err)
+	}
+	return ws, nil
+}
+
+func resolveWrites(cfg LaunchConfig, writes []string) (WriteSet, error) {
+	if len(writes) == 0 {
+		return WriteSet{}, nil
+	}
+	if err := cfg.CheckWrites(writes); err != nil {
+		return WriteSet{}, err
+	}
+	realRoot, err := filepath.EvalSymlinks(cfg.WritesRoot)
+	if err != nil {
+		return WriteSet{}, fmt.Errorf("writes root %s: %w", cfg.WritesRoot, err)
+	}
+	if err := checkUnitPath("writes root", realRoot); err != nil {
+		return WriteSet{}, err
+	}
+	ws := WriteSet{Root: realRoot}
+	seen := map[string]bool{}
+	for _, w := range writes {
+		rel, ok := strings.CutPrefix(w, cfg.WritesRoot+"/")
+		if !ok {
+			if rel, ok = strings.CutPrefix(w, realRoot+"/"); !ok {
+				return WriteSet{}, fmt.Errorf("writes entry %q is not under %s", w, cfg.WritesRoot)
+			}
+		}
+		cur, ids := realRoot, map[string]fileID{}
+		for _, comp := range strings.Split(rel, "/") {
+			cur = path.Join(cur, comp)
+			id, fi, err := lstatID(cur)
+			if err != nil {
+				return WriteSet{}, fmt.Errorf("writes entry %q: %w", w, err)
+			}
+			if fi.Mode()&os.ModeSymlink != 0 {
+				return WriteSet{}, fmt.Errorf("writes entry %q passes through a symlink at %s", w, cur)
+			}
+			if !fi.IsDir() {
+				return WriteSet{}, fmt.Errorf("writes entry %q: %s is not a directory", w, cur)
+			}
+			ids[cur] = id
+		}
+		if seen[cur] {
+			return WriteSet{}, fmt.Errorf("writes entry %q is repeated", w)
+		}
+		seen[cur] = true
+		ws.Paths = append(ws.Paths, cur)
+		ws.ids = append(ws.ids, ids)
+	}
+	return ws, nil
+}
+
+// Verify re-checks every resolved component: still no symlink, still the same file, and WritesRoot
+// still resolves to the same place.
+func (ws WriteSet) Verify() error {
+	if len(ws.Paths) == 0 {
+		return nil
+	}
+	if cur, err := filepath.EvalSymlinks(ws.Root); err != nil || cur != ws.Root {
+		return fmt.Errorf("writes root %s changed", ws.Root)
+	}
+	for _, ids := range ws.ids {
+		for p, want := range ids {
+			id, fi, err := lstatID(p)
+			if err != nil || fi.Mode()&os.ModeSymlink != 0 || id != want {
+				return fmt.Errorf("writes path %s changed after it was checked", p)
+			}
+		}
+	}
+	return nil
 }
 
 // Ledger is the part of Store the launcher drives. *Store implements it.
@@ -210,6 +328,9 @@ type Launcher struct {
 	Ledger Ledger
 	System Systemd
 	Now    func() time.Time // default time.Now
+	// AfterIntent, when set, runs between the launch intent and systemd-run. It is a seam for tests of the
+	// swap-after-check window; production leaves it nil.
+	AfterIntent func()
 }
 
 func (l *Launcher) now() time.Time {
@@ -229,7 +350,15 @@ func (l *Launcher) now() time.Time {
 // RecordStarted returns ErrLaunchUnknown, the attempt keeps its intent, and RecoverUnits decides from
 // what systemd says. The launcher never calls RecordAborted and never retries.
 func (l *Launcher) Launch(ctx context.Context, att *Attempt, env *Envelope, writes []string) (StartInfo, error) {
-	args, err := BuildRunArgs(l.Config, l.Limits, att, env, writes)
+	ws, err := ResolveWrites(l.Config, writes)
+	if err != nil {
+		return StartInfo{}, err
+	}
+	cfg := l.Config
+	if len(ws.Paths) > 0 {
+		cfg.WritesRoot = ws.Root // the unit is given real paths only
+	}
+	args, err := BuildRunArgs(cfg, l.Limits, att, env, ws.Paths)
 	if err != nil {
 		return StartInfo{}, err
 	}
@@ -240,6 +369,13 @@ func (l *Launcher) Launch(ctx context.Context, att *Attempt, env *Envelope, writ
 	}
 	if unit != UnitName(att.ID) {
 		return StartInfo{}, fmt.Errorf("%w: ledger named unit %q, expected %q", ErrLaunchUnknown, unit, UnitName(att.ID))
+	}
+	if l.AfterIntent != nil {
+		l.AfterIntent()
+	}
+	// Last look before systemd resolves the paths itself (see ResolveWrites for the residual window).
+	if err := ws.Verify(); err != nil {
+		return StartInfo{}, fmt.Errorf("%w: %v", ErrLaunchUnknown, err)
 	}
 	if err := l.System.Start(ctx, args); err != nil {
 		return StartInfo{}, fmt.Errorf("%w: start: %w", ErrLaunchUnknown, err)

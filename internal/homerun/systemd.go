@@ -28,6 +28,10 @@ type UnitProps struct {
 	ExitStatus   int       // ExecMainStatus
 	StartedAt    time.Time // ExecMainStartTimestamp; zero when unknown
 	ExitedAt     time.Time // ExecMainExitTimestamp; zero when unknown
+	// Tasks is TasksCurrent: the processes now in the unit's cgroup. TasksKnown is false when systemd
+	// reports it as "[not set]" (or not at all), which must never be read as an empty cgroup.
+	Tasks      uint64
+	TasksKnown bool
 }
 
 // Systemd is everything the launcher needs from the system manager. The real implementation shells out
@@ -63,7 +67,7 @@ func (ExecRunner) Run(ctx context.Context, name string, args ...string) ([]byte,
 }
 
 // showProps is the property list passed to "systemctl show".
-var showProps = []string{"LoadState", "ActiveState", "SubState", "Result", "InvocationID", "ExecMainStatus", "ExecMainStartTimestamp", "ExecMainExitTimestamp"}
+var showProps = []string{"LoadState", "ActiveState", "SubState", "Result", "InvocationID", "ExecMainStatus", "ExecMainStartTimestamp", "ExecMainExitTimestamp", "TasksCurrent"}
 
 // CLISystemd drives the system manager (not --user: the unit needs User= and the sandbox properties,
 // which only the system manager grants) through systemd-run and systemctl.
@@ -124,6 +128,14 @@ func ParseShow(out []byte) (UnitProps, error) {
 		}
 		p.ExitStatus = n
 	}
+	if t := kv["TasksCurrent"]; t != "" && t != "[not set]" {
+		n, err := strconv.ParseUint(t, 10, 64)
+		if err != nil {
+			return UnitProps{}, fmt.Errorf("TasksCurrent %q: %w", t, err)
+		}
+		// systemd reports "unset" as 2^64-1 on some versions.
+		p.Tasks, p.TasksKnown = n, n != ^uint64(0)
+	}
 	var err error
 	if p.StartedAt, err = parseUnixTS(kv["ExecMainStartTimestamp"]); err != nil {
 		return UnitProps{}, err
@@ -178,17 +190,27 @@ func AttemptFromUnit(unit string) (string, error) {
 	return id, nil
 }
 
-// ended reports whether the unit's main process is finished. A state the launcher does not know is an
+// ended reports whether EVERY process of the unit is finished. A state the launcher does not know is an
 // error, never a guess.
+//
+// Why this is about the cgroup and not the main process: the unit runs with RemainAfterExit=yes (so a
+// finished unit stays readable for recovery) and ExitType=cgroup, so systemd treats the unit as running
+// for as long as any process is left in its cgroup. A background child that outlives the script would
+// otherwise keep running after the audit trail said ENDED, past RuntimeMaxSec's reach. So:
+//
+//   - activating, deactivating: not ended.
+//   - active/running (or anything else active but not "exited"): not ended.
+//   - active/exited: ended only when TasksCurrent is known and zero. Unknown is "still running".
+//   - inactive, failed: systemd only gets here after the cgroup is gone, but a populated or unreadable
+//     cgroup that contradicts that is not ended either (defensive: it is never recorded as ENDED).
 func (p UnitProps) ended() (bool, error) {
 	switch p.ActiveState {
 	case "activating", "deactivating":
 		return false, nil
-	case "failed", "inactive":
-		return true, nil
 	case "active":
-		// RemainAfterExit=yes keeps a finished service "active (exited)".
-		return p.SubState == "exited", nil
+		return p.SubState == "exited" && p.TasksKnown && p.Tasks == 0, nil
+	case "failed", "inactive":
+		return !(p.TasksKnown && p.Tasks > 0), nil
 	}
 	return false, fmt.Errorf("unit state %q/%q is not one the launcher knows", p.ActiveState, p.SubState)
 }

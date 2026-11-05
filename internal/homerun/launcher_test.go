@@ -136,7 +136,10 @@ func TestBuildRunArgsGolden(t *testing.T) {
 		"--property=ReadWritePaths=/home/runner/work /home/runner/logs",
 		"--property=RuntimeMaxSec=600",
 		"--property=KillMode=control-group",
+		"--property=TasksAccounting=yes",
+		"--property=ExitType=cgroup",
 		"--property=RemainAfterExit=yes",
+		"--property=UMask=0027",
 		"--property=StandardOutput=file:/srv/log/" + r.att.ID + ".log",
 		"--property=StandardError=inherit",
 		"--setenv=PATH=/usr/sbin:/usr/bin:/sbin:/bin",
@@ -437,7 +440,7 @@ func TestCrashRecordStartedFailsThenUnitFinished(t *testing.T) {
 	}
 	// the script ran to completion before the verifier came back
 	unit := UnitName(r.att.ID)
-	r.sys.units[unit] = UnitProps{LoadState: "loaded", ActiveState: "active", SubState: "exited", Result: "success", InvocationID: goodInv,
+	r.sys.units[unit] = UnitProps{LoadState: "loaded", ActiveState: "inactive", SubState: "dead", Result: "success", InvocationID: goodInv,
 		StartedAt: time.Unix(r.now.Unix()+3, 0).UTC(), ExitedAt: time.Unix(r.now.Unix()+45, 0).UTC()}
 	out := fixedOut{sha: sha2Hex, n: 7}
 	recs := recoverWith(t, r, out)
@@ -474,7 +477,7 @@ func TestUnitLookupMapping(t *testing.T) {
 		f := &fakeSystemd{log: &[]string{}, units: map[string]UnitProps{unit: p}}
 		return UnitLookupFor(f, fixedOut{sha: sha2Hex, n: 3})(context.Background(), unit)
 	}
-	exited := UnitProps{LoadState: "loaded", ActiveState: "active", SubState: "exited", InvocationID: goodInv, ExitStatus: 0}
+	exited := UnitProps{LoadState: "loaded", ActiveState: "inactive", SubState: "dead", InvocationID: goodInv, ExitStatus: 0}
 	cases := []struct {
 		name    string
 		p       UnitProps
@@ -495,6 +498,12 @@ func TestUnitLookupMapping(t *testing.T) {
 		{"signal", with(unitFailed(exited), "signal", 9), true, true, ResultSignal, 9, false, false},
 		{"core-dump", with(unitFailed(exited), "core-dump", 11), true, true, ResultSignal, 11, false, false},
 		{"resources unmapped", with(unitFailed(exited), "resources", 0), true, true, "", 0, true, false},
+		// fix 1: a finished main process with a live cgroup is running, never ended
+		{"active/exited, cgroup empty", retained(0, true), true, true, ResultSuccess, 0, false, false},
+		{"active/exited, cgroup populated", retained(3, true), true, false, "", 0, false, false},
+		{"active/exited, cgroup unknown", retained(0, false), true, false, "", 0, false, false},
+		{"inactive with a populated cgroup", populated(with(exited, "success", 0)), true, false, "", 0, false, false},
+		{"failed with a populated cgroup", populated(with(unitFailed(exited), "exit-code", 1)), true, false, "", 0, false, false},
 		{"unknown state", UnitProps{LoadState: "loaded", ActiveState: "maintenance", InvocationID: goodInv}, false, false, "", 0, false, true},
 	}
 	for _, c := range cases {
@@ -533,12 +542,20 @@ func with(p UnitProps, result string, status int) UnitProps {
 }
 func unitFailed(p UnitProps) UnitProps { p.ActiveState, p.SubState = "failed", "failed"; return p }
 
+// populated: processes are still in the unit's cgroup (a background child outlived the main process).
+func populated(p UnitProps) UnitProps { p.TasksKnown, p.Tasks = true, 2; return p }
+
+// retained is what RemainAfterExit=yes leaves behind once the cgroup is empty: active (exited).
+func retained(tasks uint64, known bool) UnitProps {
+	return UnitProps{LoadState: "loaded", ActiveState: "active", SubState: "exited", Result: "success", InvocationID: goodInv, TasksKnown: known, Tasks: tasks}
+}
+
 func TestRecoveryEndedWithUnreadableLogIsUncertain(t *testing.T) {
 	r := newRig(t, OpApply)
 	if _, err := r.l.Launch(context.Background(), r.att, r.env, nil); err != nil {
 		t.Fatal(err)
 	}
-	r.sys.units[UnitName(r.att.ID)] = with(UnitProps{LoadState: "loaded", ActiveState: "active", SubState: "exited", InvocationID: goodInv}, "success", 0)
+	r.sys.units[UnitName(r.att.ID)] = with(UnitProps{LoadState: "loaded", ActiveState: "inactive", SubState: "dead", InvocationID: goodInv}, "success", 0)
 	if k := launchLastKind(recoverWith(t, r, fixedOut{err: os.ErrNotExist}), r.att.ID); k != KindUncertain {
 		t.Fatalf("got %s", k)
 	}
@@ -568,7 +585,7 @@ func (f *fakeRunner) Run(_ context.Context, name string, args ...string) ([]byte
 }
 
 func TestCLISystemdCommandLines(t *testing.T) {
-	fr := &fakeRunner{out: []byte("LoadState=loaded\nActiveState=active\nSubState=exited\nResult=exit-code\nInvocationID=" + goodInv +
+	fr := &fakeRunner{out: []byte("LoadState=loaded\nActiveState=inactive\nSubState=dead\nControlGroup=\nResult=exit-code\nInvocationID=" + goodInv +
 		"\nExecMainStatus=3\nExecMainStartTimestamp=@1000\nExecMainExitTimestamp=@1005\n")}
 	c := CLISystemd{Runner: fr}
 	if err := c.Start(context.Background(), []string{"--unit=x.service", "--", "/bin/bash"}); err != nil {
@@ -580,7 +597,7 @@ func TestCLISystemdCommandLines(t *testing.T) {
 	}
 	want := [][]string{
 		{"systemd-run", "--unit=x.service", "--", "/bin/bash"},
-		{"systemctl", "show", "--timestamp=unix", "--property=LoadState,ActiveState,SubState,Result,InvocationID,ExecMainStatus,ExecMainStartTimestamp,ExecMainExitTimestamp", "--", "x.service"},
+		{"systemctl", "show", "--timestamp=unix", "--property=LoadState,ActiveState,SubState,Result,InvocationID,ExecMainStatus,ExecMainStartTimestamp,ExecMainExitTimestamp,TasksCurrent", "--", "x.service"},
 	}
 	if !reflect.DeepEqual(fr.calls, want) {
 		t.Fatalf("commands %q", fr.calls)
@@ -647,3 +664,192 @@ var (
 	_ Systemd = CLISystemd{}
 	_ Ledger  = (*Store)(nil)
 )
+
+func TestFix1BackgroundChildNeverRecordsEnded(t *testing.T) {
+	for name, p := range map[string]UnitProps{
+		"active/exited, cgroup populated": retained(2, true),
+		"active/exited, cgroup unknown":   retained(0, false),
+		"inactive, cgroup populated":      populated(UnitProps{LoadState: "loaded", ActiveState: "inactive", SubState: "dead", Result: "success", InvocationID: goodInv}),
+	} {
+		r := newRig(t, OpApply)
+		if _, err := r.l.Launch(context.Background(), r.att, r.env, nil); err != nil {
+			t.Fatal(err)
+		}
+		r.sys.units[UnitName(r.att.ID)] = p
+		k := launchLastKind(recoverWith(t, r, fixedOut{sha: sha2Hex, n: 1}), r.att.ID)
+		if k == KindEnded || k == KindUncertain {
+			t.Fatalf("%s: recorded %s; a populated cgroup is still running", name, k)
+		}
+	}
+}
+
+func TestFix1UnitStaysRunningUntilEveryProcessExits(t *testing.T) {
+	r := newRig(t, OpApply)
+	args, err := BuildRunArgs(testCfg(), DefaultLimits(), r.att, r.env, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"--property=ExitType=cgroup", "--property=TasksAccounting=yes", "--property=RemainAfterExit=yes", "--property=KillMode=control-group"} {
+		if !contains(args, want) {
+			t.Errorf("missing %s", want)
+		}
+	}
+}
+
+func TestFix3LogIsCreatedPrivate(t *testing.T) {
+	// No log exists before the run: the file systemd creates gets 0666 &^ UMask, so UMask must be 0027.
+	dir := t.TempDir()
+	cfg := testCfg()
+	cfg.LogDir = dir
+	r := newRig(t, OpCheck)
+	args, err := BuildRunArgs(cfg, DefaultLimits(), r.att, r.env, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !contains(args, "--property=UMask=0027") {
+		t.Fatalf("no restrictive umask: %q", args)
+	}
+	if _, err := os.Stat(filepath.Join(dir, r.att.ID+".log")); !os.IsNotExist(err) {
+		t.Fatal("the launcher must not rely on a pre-created log")
+	}
+}
+
+func TestFix2ResolveWrites(t *testing.T) {
+	root := t.TempDir()
+	root, _ = filepath.EvalSymlinks(root)
+	mkdir := func(p ...string) string {
+		d := filepath.Join(append([]string{root}, p...)...)
+		if err := os.MkdirAll(d, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		return d
+	}
+	cfg := LaunchConfig{User: "runner", CASRoot: "/srv/cas", LogDir: "/srv/log", WritesRoot: root}
+	work := mkdir("work")
+	mkdir("other")
+	sym := func(target, name string) string {
+		l := filepath.Join(root, name)
+		if err := os.Symlink(target, l); err != nil {
+			t.Fatal(err)
+		}
+		return l
+	}
+	toRoot := sym(root, "alias-root")      // points at the whole writes root
+	toOther := sym("other", "alias-other") // relative link, stays inside
+	deep := mkdir("work", "sub")
+	sym(root, "work/up")
+	if got, err := ResolveWrites(cfg, []string{work, deep}); err != nil || got.Paths[0] != work || got.Paths[1] != deep {
+		t.Fatalf("plain paths: %v %v", got, err)
+	}
+	for name, w := range map[string][]string{
+		"symlink to the root":     {toRoot},
+		"symlink inside the root": {toOther},
+		"symlink component":       {filepath.Join(toOther, "x")},
+		"nested symlink":          {filepath.Join(work, "up")},
+		"missing path":            {filepath.Join(root, "nope")},
+		"outside the root":        {"/etc"},
+	} {
+		if _, err := ResolveWrites(cfg, w); !errors.Is(err, ErrLaunchRefused) {
+			t.Errorf("%s: got %v", name, err)
+		}
+	}
+	// the root itself may be reached through a symlink; the resolved real path is what is passed on
+	alias := filepath.Join(t.TempDir(), "home")
+	if err := os.Symlink(root, alias); err != nil {
+		t.Fatal(err)
+	}
+	cfg2 := cfg
+	cfg2.WritesRoot = alias
+	got, err := ResolveWrites(cfg2, []string{filepath.Join(alias, "work")})
+	if err != nil || got.Paths[0] != work {
+		t.Fatalf("root alias: %v %v", got, err)
+	}
+	// swap after approval: the directory is replaced by a symlink before the unit starts
+	ws, err := ResolveWrites(cfg, []string{work})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := ws.Verify(); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(deep); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(filepath.Join(work, "up")); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(work); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(root, work); err != nil {
+		t.Fatal(err)
+	}
+	if err := ws.Verify(); err == nil {
+		t.Fatal("swapped path still verifies")
+	}
+}
+
+func TestFix2LaunchPassesResolvedPathsAndRechecksBeforeStart(t *testing.T) {
+	root, _ := filepath.EvalSymlinks(t.TempDir())
+	work := filepath.Join(root, "work")
+	if err := os.Mkdir(work, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(root, "ln")
+	if err := os.Symlink(work, link); err != nil {
+		t.Fatal(err)
+	}
+	r := newRig(t, OpApply)
+	r.l.Config.WritesRoot = root
+	ctx := context.Background()
+	if _, err := r.l.Launch(ctx, r.att, r.env, []string{link}); !errors.Is(err, ErrLaunchRefused) || len(*r.log) != 0 {
+		t.Fatalf("symlinked write path launched: %v %v", err, *r.log)
+	}
+	// swap between the intent and systemd-run
+	r.sys.onStart = nil
+	r.l.AfterIntent = func() {
+		_ = os.Remove(work)
+		_ = os.Symlink(root, work)
+	}
+	_, err := r.l.Launch(ctx, r.att, r.env, []string{work})
+	if !errors.Is(err, ErrLaunchUnknown) || len(r.sys.startArgs) != 0 {
+		t.Fatalf("swap not caught before systemd-run: %v %v", err, r.sys.startArgs)
+	}
+}
+
+func TestFix2ResolvedPathIsWhatSystemdGets(t *testing.T) {
+	real, _ := filepath.EvalSymlinks(t.TempDir())
+	if err := os.Mkdir(filepath.Join(real, "w"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	alias := filepath.Join(t.TempDir(), "h")
+	if err := os.Symlink(real, alias); err != nil {
+		t.Fatal(err)
+	}
+	r := newRig(t, OpApply)
+	r.l.Config.WritesRoot = alias
+	if _, err := r.l.Launch(context.Background(), r.att, r.env, []string{filepath.Join(alias, "w")}); err != nil {
+		t.Fatal(err)
+	}
+	if !contains(r.sys.startArgs[0], "--property=ReadWritePaths="+filepath.Join(real, "w")) {
+		t.Fatalf("args %q", r.sys.startArgs[0])
+	}
+}
+
+func TestParseShowTasksCurrent(t *testing.T) {
+	for in, want := range map[string]struct {
+		known bool
+		n     uint64
+	}{
+		"LoadState=loaded\nTasksCurrent=0\n":                    {true, 0},
+		"LoadState=loaded\nTasksCurrent=4\n":                    {true, 4},
+		"LoadState=loaded\nTasksCurrent=[not set]\n":            {false, 0},
+		"LoadState=loaded\nTasksCurrent=18446744073709551615\n": {false, 0},
+		"LoadState=loaded\n":                                    {false, 0},
+	} {
+		p, err := ParseShow([]byte(in))
+		if err != nil || p.TasksKnown != want.known || (want.known && p.Tasks != want.n) {
+			t.Errorf("%q: %+v %v", in, p, err)
+		}
+	}
+}
