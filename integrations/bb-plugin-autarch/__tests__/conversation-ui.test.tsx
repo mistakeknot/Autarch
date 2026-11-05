@@ -60,7 +60,7 @@ describe("conversation view", () => {
     expect(renderToStaticMarkup(<ConversationProvider value={api()}><CardConversation taskId={null} /></ConversationProvider>)).toBe("");
   });
 
-  it("the card itself no longer shows the instruction text: it is only behind the conversation", () => {
+  it("the card shows the whole instruction under each answer, and the conversation sits below it", () => {
     const ask = {
       id: "d1", project: "p", thread: "thr-a", subject: "s", asker: "card", filed_at: "2026-10-01T00:00:00.000Z", revision: "r", task_id: "T1",
       ask: { question: "q?", options: [{ id: "a", label: "Per project", kind: "instruction", instruction: "SECRET-FULL-TEXT. More." }] },
@@ -68,7 +68,7 @@ describe("conversation view", () => {
     const closed = renderToStaticMarkup(<ConversationProvider value={api()}><AskCard ask={ask} onPick={() => {}} onOpen={() => {}} /></ConversationProvider>);
     expect(closed).toContain("data-card-conversation");
     expect(closed).not.toContain("Full instruction");
-    expect(closed).not.toContain("More.");
+    expect(closed).toContain("SECRET-FULL-TEXT. More.");
     const move = renderToStaticMarkup(
       <ConversationProvider value={api()}>
         <MoveCard m={{ task_id: "T1", generation: 1, kind: "read", state: "open", title: "t", owner: null, opened_at: "2026-10-01T00:00:00.000Z", claimed_at: null, skipped_at: null, checked_at: null, report_deadline_at: null, url: null, need: null, script: null, commands: [], report: null, closed_at: null, closed_by: null, evidence: null } as never} h={{ onCheck() {}, onClaim() {}, onSkip() {}, onNote() {} }} section="yourMove" />

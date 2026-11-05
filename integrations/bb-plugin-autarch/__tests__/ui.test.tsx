@@ -101,7 +101,7 @@ describe("Asks ordering", () => {
     expect(html).toContain("Tells thr-a: Ship on the day &lt;b&gt;exactly&lt;/b&gt; &amp; tell mk");
     expect(html).not.toContain("Asks you for the missing context");
     expect(html.match(/data-effect/g)?.length).toBe(1);
-    expect(html).toContain("the full instruction is sent");
+    expect(html).toContain("shows the whole instruction that is sent");
     expect(html).not.toContain("under its own permissions");
     expect(html).toContain("recommended");
   });
@@ -112,6 +112,7 @@ describe("Asks ordering", () => {
     expect(optionEffect({ kind: "ruling-only", reversible: true }, "t")).toBe("");
     expect(optionEffect({ kind: "instruction", instruction: "   " }, "t")).toBe("Cannot be undone.");
     expect(optionEffect({ kind: "instruction", instruction: "First. Second." }, "t")).toBe("Tells t: First. Cannot be undone.");
+    expect(optionEffect({ kind: "instruction", instruction: "x".repeat(300) }, "t", true)).toContain("x".repeat(300));
     expect(optionEffect({ kind: "instruction", instruction: "x".repeat(300) }, "t").length).toBeLessThan(170);
     const html = renderToStaticMarkup(
       <AsksPanel data={data({ owed: [ask({ ask: { question: "Q?", options: [{ id: "a", label: "Not now", kind: "ruling-only" }, { id: "b", label: "Later", kind: "ruling-only" }] } })] })} onPick={() => {}} onOpen={() => {}} />,
@@ -157,7 +158,7 @@ describe("Asks ordering", () => {
   it("names the asking thread by its title and says the instruction note once per card", () => {
     const two = ask({ ask: { question: "q", options: [{ id: "a", label: "A", kind: "instruction", instruction: "do a" }, { id: "b", label: "B", kind: "instruction", instruction: "do b" }] } });
     const html = renderToStaticMarkup(<AsksPanel data={data({ owed: [two] })} onPick={() => {}} onOpen={() => {}} />);
-    expect(html.match(/the full instruction is sent/g)?.length).toBe(1);
+    expect(html.match(/shows the whole instruction that is sent/g)?.length).toBe(1);
     const titled = renderToStaticMarkup(<AsksPanel data={data({ owed: [ask({ thread_title: "Release coordinator" })] })} onPick={() => {}} onOpen={() => {}} />);
     expect(titled).toContain("Release coordinator");
     expect(titled).toContain("Tells Release coordinator:");
