@@ -205,9 +205,9 @@ type CgroupProbe interface {
 
 // FSCgroup reads cgroup.procs from a cgroup v2 hierarchy mounted at Root (default /sys/fs/cgroup).
 //
-// UNVERIFIED-live: that the unit's cgroup is at Root+ControlGroup on a deployed host (cgroup v2 unified
+// Observed live (cgroup v2, systemd 255): the unit's cgroup is at Root+ControlGroup on a deployed host (cgroup v2 unified
 // hierarchy, no namespacing of the reader), and that systemd removes the directory once the unit's
-// processes are gone. Both are taken from systemd's documentation and source, not from a launched unit.
+// processes are gone. Both held on a launched unit (TestLiveCgroupPathAndRemoval).
 type FSCgroup struct{ Root string }
 
 // Populated implements CgroupProbe.
@@ -287,7 +287,7 @@ func endInfo(p UnitProps, out OutputSummary, attempt string) EndInfo {
 //
 // A finished-looking unit is ENDED only on cgroup evidence: no ControlGroup, an accounting count of
 // zero is NOT enough, an absent cgroup directory or an empty cgroup.procs is. A populated cgroup is
-// still running (the unit's RuntimeMaxSec bounds it; UNVERIFIED-live). A cgroup that cannot be read
+// still running (the unit's RuntimeMaxSec bounds it; observed live). A cgroup that cannot be read
 // yields an EndInfo with no Result, which RecoverUnits records as UNCERTAIN: never ENDED, and not
 // left "running" without a bound. cg nil means no evidence: every finished-looking unit is UNCERTAIN.
 func UnitLookupFor(sys Systemd, out OutputSummary, cg CgroupProbe) UnitLookup {

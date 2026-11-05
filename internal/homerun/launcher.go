@@ -30,8 +30,10 @@ var (
 	// execPathsSystem are the trees a run may execute from, besides the CAS root. Before launch the
 	// verifier scans them for mk-writable files (a later slice).
 	execPathsSystem = []string{"/usr", "/bin", "/sbin", "/lib", "/lib64"}
-	// inaccessiblePaths are the container-runtime sockets a run must not reach.
-	inaccessiblePaths = []string{"/run/docker.sock", "/var/run/docker.sock", "/run/containerd"}
+	// inaccessiblePaths are the container-runtime sockets a run must not reach. The "-" prefix makes systemd
+	// ignore a path that does not exist: without it a host with no container runtime fails every start with
+	// 226/NAMESPACE ("Failed to set up mount namespacing"), observed live on systemd 255.
+	inaccessiblePaths = []string{"-/run/docker.sock", "-/var/run/docker.sock", "-/run/containerd"}
 )
 
 // UnitPATH is the PATH of every run (design 4.3).
@@ -184,7 +186,11 @@ func BuildRunArgs(cfg LaunchConfig, lim Limits, att *Attempt, env *Envelope, wri
 		prop("InaccessiblePaths", strings.Join(inaccessiblePaths, " ")),
 		prop("PrivateTmp", "yes"),
 		prop("ProtectSystem", "strict"),
-		prop("NoExecPaths", "/"),
+		// strict alone leaves /home writable (observed live on systemd 255), so make it read-only.
+		prop("ProtectHome", "read-only"),
+		// "/" alone leaves the private /tmp and every ReadWritePaths bind mount executable (observed live),
+		// so the agent could write a binary there and run it: name them too.
+		prop("NoExecPaths", strings.Join(append([]string{"/", "/tmp", "/var/tmp"}, writes...), " ")),
 		prop("ExecPaths", strings.Join(append(append([]string{}, execPathsSystem...), cfg.CASRoot), " ")),
 	}
 	if len(writes) > 0 {
@@ -397,8 +403,10 @@ const unix_O_PATH = 0x200000
 // renamed or swapped by an unprivileged agent, which is what closes the window between Verify and
 // systemd resolving ReadWritePaths for it. lstat returns uid, mode.
 //
-// UNVERIFIED-live: nothing here is exercised against a real tree in tests (they use a fake lstat); it
-// also does not cover an agent that already runs as root or as an allowed owner, nor ACLs, capabilities,
+// Exercised against a real tree by TestLiveTrustedChainOnRealTree and TestLiveSwapWindow (live tag). Residual:
+// a path inside the root that the service user owns can be swapped for a symlink between Verify and
+// systemd resolving ReadWritePaths; the unit then gains write access to a service-owned target. A
+// root-owned target stays protected by file permissions. The check also does not cover an agent that already runs as root or as an allowed owner, nor ACLs, capabilities,
 // or a writable bind mount over a parent.
 func checkTrustedChain(root string, lstat func(string) (uint32, fs.FileMode, error), allowed func(uint32) bool) error {
 	for p := root; ; p = path.Dir(p) {
@@ -447,9 +455,10 @@ type LogFiles interface {
 
 // RootLogs is the production LogFiles. The launcher process must be root for the chown.
 //
-// UNVERIFIED-live: that systemd, which opens StandardOutput=file: before it drops to User=, appends to
-// an existing file of this owner and mode without changing them, and that the service user can still
-// write it. Systemd's documentation says "file:" opens (truncates=no) and does not chown; not observed.
+// Observed live (systemd 255, TestLiveLogOwnerModeAndNoTruncation): systemd opens StandardOutput=file: as
+// root before dropping to User=, TRUNCATES an existing file but keeps its owner and mode, and the service
+// user's output lands in it. Without this precreation systemd makes the file root:root 0640, which the log
+// group could not read, so the precreation is what sets the owner and group.
 type RootLogs struct {
 	Group     string
 	LookupGID func(group string) (int, error)      // default os/user
