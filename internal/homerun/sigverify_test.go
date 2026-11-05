@@ -74,7 +74,7 @@ func TestSignatureCoversEveryField(t *testing.T) {
 		{"issued_at", func(e *Envelope) { e.IssuedAt-- }, false},
 		{"expires_at", func(e *Envelope) { e.ExpiresAt++ }, false},
 	}
-	if got := envelopeFieldCount(); got != len(muts) {
+	if got := len(envelopeKeys()); got != len(muts) {
 		// every envelope field has a mutation (op also covers check_*; the table has one row per field)
 		t.Fatalf("envelope has %d fields, mutation table has %d", got, len(muts))
 	}

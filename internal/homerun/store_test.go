@@ -250,7 +250,7 @@ func runHelper(mode string) {
 		os.Exit(3)
 	}
 	if mode == "started" {
-		if err := s.RecordStarted(ctx, a.ID, StartInfo{Unit: "run-test.service", InvocationID: strings.Repeat("e", 32), CASSHA: e.ScriptSHA256}, now); err != nil {
+		if err := recStarted(s, ctx, a.ID, StartInfo{Unit: "run-test.service", InvocationID: strings.Repeat("e", 32), CASSHA: e.ScriptSHA256}, now); err != nil {
 			os.Stderr.WriteString("started: " + err.Error())
 			os.Exit(4)
 		}

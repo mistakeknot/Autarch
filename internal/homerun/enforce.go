@@ -37,6 +37,13 @@ func (e *RateLimitError) Error() string {
 func (e *RateLimitError) Unwrap() error { return ErrRateLimited }
 
 const schemaLimits = `
+CREATE TABLE IF NOT EXISTS attempt_launch(
+  attempt     TEXT PRIMARY KEY REFERENCES attempts(attempt),
+  unit        TEXT NOT NULL UNIQUE,
+  intended_at INTEGER NOT NULL
+) WITHOUT ROWID;
+CREATE TRIGGER IF NOT EXISTS launch_no_update BEFORE UPDATE ON attempt_launch BEGIN SELECT RAISE(ABORT,'launch intent is immutable'); END;
+CREATE TRIGGER IF NOT EXISTS launch_no_delete BEFORE DELETE ON attempt_launch BEGIN SELECT RAISE(ABORT,'launch intent is kept'); END;
 CREATE TABLE IF NOT EXISTS attempt_bind(
   attempt     TEXT PRIMARY KEY REFERENCES attempts(attempt),
   card_rev    TEXT NOT NULL,

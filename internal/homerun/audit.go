@@ -151,7 +151,7 @@ func (m *mirror) sync(fetch func(after int64) ([]Record, error)) error {
 		return err
 	}
 	defer syscall.Flock(int(f.Fd()), syscall.LOCK_UN) //nolint:errcheck
-	last, torn, err := lastMirroredSeq(f)
+	last, cut, needNL, err := scanMirrorTail(f)
 	if err != nil {
 		return err
 	}
@@ -159,13 +159,17 @@ func (m *mirror) sync(fetch func(after int64) ([]Record, error)) error {
 	if err != nil {
 		return err
 	}
-	var buf bytes.Buffer
-	if torn {
+	if cut >= 0 {
 		// A crash left a partial line, which was never a complete record: cut it off so the next record
-		// starts clean. Only the unterminated tail is removed.
-		if err := truncateTornTail(f); err != nil {
+		// starts clean. Only the unterminated tail is removed; `last` was read from the part kept.
+		if err := f.Truncate(cut); err != nil {
 			return err
 		}
+	}
+	var buf bytes.Buffer
+	if needNL {
+		// The last record is complete and only its newline was lost: keep it, and terminate it.
+		buf.WriteByte('\n')
 	}
 	for _, r := range recs {
 		b, err := json.Marshal(r)
@@ -184,59 +188,60 @@ func (m *mirror) sync(fetch func(after int64) ([]Record, error)) error {
 	return f.Sync()
 }
 
-func truncateTornTail(f *os.File) error {
-	st, err := f.Stat()
-	if err != nil {
-		return err
-	}
-	n := st.Size()
-	if n > mirrorTail {
-		n = mirrorTail
-	}
-	buf := make([]byte, n)
-	if _, err := f.ReadAt(buf, st.Size()-n); err != nil {
-		return err
-	}
-	i := bytes.LastIndexByte(buf, '\n')
-	if i < 0 {
-		if st.Size() > mirrorTail {
-			return errors.New("audit mirror tail has no line break")
-		}
-		return f.Truncate(0)
-	}
-	return f.Truncate(st.Size() - n + int64(i) + 1)
-}
-
-// lastMirroredSeq returns the highest seq in the file's last parseable line and whether the file ends in
-// a partial line.
-func lastMirroredSeq(f *os.File) (seq int64, torn bool, err error) {
-	st, err := f.Stat()
-	if err != nil {
-		return 0, false, err
-	}
-	if st.Size() == 0 {
-		return 0, false, nil
-	}
-	n := st.Size()
-	if n > mirrorTail {
-		n = mirrorTail
-	}
-	buf := make([]byte, n)
-	if _, err := f.ReadAt(buf, st.Size()-n); err != nil {
-		return 0, false, err
-	}
-	torn = buf[len(buf)-1] != '\n'
-	lines := bytes.Split(buf, []byte("\n"))
+// lastSeqIn returns the seq of the last line in b that parses as a record.
+func lastSeqIn(b []byte) int64 {
+	lines := bytes.Split(b, []byte("\n"))
 	for i := len(lines) - 1; i >= 0; i-- {
 		var r Record
 		if json.Unmarshal(lines[i], &r) == nil && r.Seq > 0 {
-			return r.Seq, torn, nil
+			return r.Seq
 		}
 	}
-	if st.Size() > mirrorTail {
-		return 0, false, errors.New("audit mirror tail holds no readable record")
+	return 0
+}
+
+// scanMirrorTail reads the end of the mirror and reports: the highest seq it holds as complete records;
+// cut, the length to truncate the file to when it ends in a partial line (-1 when it does not); and
+// needNL when the last record is complete but lacks its newline. The seq is always taken from what is
+// kept, so a record is never counted and then cut.
+func scanMirrorTail(f *os.File) (seq, cut int64, needNL bool, err error) {
+	st, err := f.Stat()
+	if err != nil {
+		return 0, -1, false, err
 	}
-	return 0, torn, nil
+	if st.Size() == 0 {
+		return 0, -1, false, nil
+	}
+	n := st.Size()
+	if n > mirrorTail {
+		n = mirrorTail
+	}
+	base := st.Size() - n
+	buf := make([]byte, n)
+	if _, err := f.ReadAt(buf, base); err != nil {
+		return 0, -1, false, err
+	}
+	if buf[len(buf)-1] != '\n' {
+		i := bytes.LastIndexByte(buf, '\n')
+		tail := buf[i+1:]
+		var r Record
+		if json.Unmarshal(tail, &r) == nil && r.Seq > 0 {
+			return r.Seq, -1, true, nil
+		}
+		if i < 0 && base > 0 {
+			return 0, -1, false, errors.New("audit mirror tail has no line break")
+		}
+		cut = base + int64(i) + 1 // i = -1 cuts to 0 when the whole file is one partial line
+		buf = buf[:i+1]
+		if seq = lastSeqIn(buf); seq == 0 && base > 0 {
+			return 0, -1, false, errors.New("audit mirror tail holds no readable record")
+		}
+		return seq, cut, false, nil
+	}
+	if seq = lastSeqIn(buf); seq == 0 && base > 0 {
+		return 0, -1, false, errors.New("audit mirror tail holds no readable record")
+	}
+	return seq, -1, false, nil
 }
 
 // ReadMirror parses a mirror file. A line that does not parse is reported as an error, never skipped.

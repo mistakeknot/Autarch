@@ -41,19 +41,19 @@ func TestAuditSequences(t *testing.T) {
 		want string
 	}{
 		{"success", func(s *Store, a *Attempt) error {
-			if err := s.RecordStarted(ctx, a.ID, startInfo(sha1Hex), now); err != nil {
+			if err := recStarted(s, ctx, a.ID, startInfo(sha1Hex), now); err != nil {
 				return err
 			}
 			return s.RecordEnded(ctx, a.ID, EndInfo{Result: ResultSuccess, OutputSHA256: sha2Hex, OutputBytes: 5, Duration: time.Second}, now)
 		}, "AUTHORIZED STARTED ENDED"},
 		{"failure", func(s *Store, a *Attempt) error {
-			if err := s.RecordStarted(ctx, a.ID, startInfo(sha1Hex), now); err != nil {
+			if err := recStarted(s, ctx, a.ID, startInfo(sha1Hex), now); err != nil {
 				return err
 			}
 			return s.RecordEnded(ctx, a.ID, EndInfo{Result: ResultFailed, ExitStatus: 2, OutputSHA256: sha2Hex, OutputBytes: 5, Duration: time.Second}, now)
 		}, "AUTHORIZED STARTED ENDED"},
 		{"timeout", func(s *Store, a *Attempt) error {
-			if err := s.RecordStarted(ctx, a.ID, startInfo(sha1Hex), now); err != nil {
+			if err := recStarted(s, ctx, a.ID, startInfo(sha1Hex), now); err != nil {
 				return err
 			}
 			return s.RecordEnded(ctx, a.ID, EndInfo{Result: ResultTimeout, ExitStatus: 143, OutputSHA256: sha2Hex, OutputBytes: 0, Duration: 10 * time.Minute}, now)
@@ -110,16 +110,16 @@ func TestBadTransitions(t *testing.T) {
 	if err := s.RecordEnded(ctx, a.ID, end, now); !errors.Is(err, ErrBadTransition) {
 		t.Errorf("ENDED without STARTED: %v", err)
 	}
-	if err := s.RecordStarted(ctx, a.ID, startInfo(sha2Hex), now); err == nil {
+	if err := recStarted(s, ctx, a.ID, startInfo(sha2Hex), now); err == nil {
 		t.Error("STARTED with a CAS sha that differs from the signed script_sha256")
 	}
-	if err := s.RecordStarted(ctx, a.ID, StartInfo{Unit: "u", InvocationID: "short", CASSHA: sha1Hex}, now); err == nil {
+	if err := recStarted(s, ctx, a.ID, StartInfo{Unit: "u", InvocationID: "short", CASSHA: sha1Hex}, now); err == nil {
 		t.Error("STARTED with a malformed InvocationID")
 	}
-	if err := s.RecordStarted(ctx, a.ID, startInfo(sha1Hex), now); err != nil {
+	if err := recStarted(s, ctx, a.ID, startInfo(sha1Hex), now); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.RecordStarted(ctx, a.ID, startInfo(sha1Hex), now); !errors.Is(err, ErrBadTransition) {
+	if err := recStarted(s, ctx, a.ID, startInfo(sha1Hex), now); !errors.Is(err, ErrBadTransition) {
 		t.Errorf("STARTED twice: %v", err)
 	}
 	if err := s.RecordAborted(ctx, a.ID, "late", now); !errors.Is(err, ErrBadTransition) {
@@ -134,7 +134,7 @@ func TestBadTransitions(t *testing.T) {
 	if err := s.RecordEnded(ctx, a.ID, end, now); !errors.Is(err, ErrBadTransition) {
 		t.Errorf("ENDED twice: %v", err)
 	}
-	if err := s.RecordStarted(ctx, "01ARZ3NDEKTSV4RRFFQ69G5FAV", startInfo(sha1Hex), now); !errors.Is(err, ErrBadTransition) {
+	if err := recStarted(s, ctx, "01ARZ3NDEKTSV4RRFFQ69G5FAV", startInfo(sha1Hex), now); !errors.Is(err, ErrBadTransition) {
 		t.Errorf("unknown attempt: %v", err)
 	}
 }

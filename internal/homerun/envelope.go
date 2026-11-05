@@ -178,13 +178,21 @@ func ParseEnvelope(b []byte) (*Envelope, error) {
 	if err := dec.Decode(&e); err != nil {
 		return nil, fmt.Errorf("%w: %v", ErrEnvelope, err)
 	}
-	// Every field must be present: decode again into a map and compare key sets.
+	// The key set must be exactly the schema's. encoding/json matches names case-insensitively and folds
+	// look-alike Unicode (U+017F is "s"), so a count of keys is not enough: an alias member would be taken
+	// for a schema member.
 	var m map[string]json.RawMessage
 	if err := json.Unmarshal(b, &m); err != nil {
 		return nil, fmt.Errorf("%w: %v", ErrEnvelope, err)
 	}
-	if want := envelopeFieldCount(); len(m) != want {
-		return nil, bad("*", "has %d fields, want exactly %d", len(m), want)
+	want := envelopeKeys()
+	if len(m) != len(want) {
+		return nil, bad("*", "has %d fields, want exactly %d", len(m), len(want))
+	}
+	for k := range m {
+		if !want[k] {
+			return nil, bad("*", "field %q is not part of the schema", k)
+		}
 	}
 	canon, err := Canonicalize(b)
 	if err != nil {
@@ -196,14 +204,24 @@ func ParseEnvelope(b []byte) (*Envelope, error) {
 	if e.Deps == nil || e.Flags == nil {
 		return nil, bad("*", "deps and flags must be arrays")
 	}
+	// What was parsed must encode back to exactly the input, so the struct the policy runs on is the
+	// document that was signed.
+	if re, err := e.Canonical(); err != nil || !bytes.Equal(re, b) {
+		return nil, bad("*", "parsed envelope does not re-encode to the signed bytes")
+	}
 	return &e, nil
 }
 
-func envelopeFieldCount() int {
+// envelopeKeys is the exact set of member names, taken from the struct's json tags.
+func envelopeKeys() map[string]bool {
 	raw, _ := json.Marshal(Envelope{})
 	var m map[string]json.RawMessage
 	_ = json.Unmarshal(raw, &m)
-	return len(m)
+	out := make(map[string]bool, len(m))
+	for k := range m {
+		out[k] = true
+	}
+	return out
 }
 
 // Validate applies the field rules and the policy in lim. It checks form only; time and host binding are
@@ -315,8 +333,9 @@ func (e *Envelope) Validate(lim Limits) error {
 	if e.IssuedAt <= 0 || e.ExpiresAt <= e.IssuedAt {
 		return bad("expires_at", "must be after issued_at, both positive Unix seconds")
 	}
-	if ttl := time.Duration(e.ExpiresAt-e.IssuedAt) * time.Second; ttl > lim.ApprovalTTL {
-		return bad("expires_at", "approval lifetime %s exceeds %s", ttl, lim.ApprovalTTL)
+	// Compare whole seconds: converting an attacker-chosen span to a Duration first can overflow.
+	if span, max := e.ExpiresAt-e.IssuedAt, int64(lim.ApprovalTTL/time.Second); span > max {
+		return bad("expires_at", "approval lifetime %d s exceeds %d s", span, max)
 	}
 	return nil
 }

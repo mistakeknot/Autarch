@@ -157,3 +157,14 @@ func consumeFor(t *testing.T, s *Store, now time.Time, card, op string) (*Attemp
 		Signer: Signer{Principal: principal, KeyType: "ED25519-CERT", Fingerprint: "SHA256:test"}, Host: testHost, Now: now})
 	return a, e, err
 }
+
+// recStarted is what a launcher does: record the launch intent, start the unit under the intended name,
+// record STARTED.
+func recStarted(s *Store, ctx context.Context, attempt string, info StartInfo, at time.Time) error {
+	unit, err := s.RecordLaunchIntent(ctx, attempt, at)
+	if err != nil {
+		return err
+	}
+	info.Unit = unit
+	return s.RecordStarted(ctx, attempt, info, at)
+}

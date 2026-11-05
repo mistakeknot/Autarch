@@ -50,7 +50,7 @@ func submit(t *testing.T, s *Store, now time.Time, card, op, cite string, mutate
 
 func finish(t *testing.T, s *Store, a *Attempt, at time.Time, info EndInfo) {
 	t.Helper()
-	if err := s.RecordStarted(bg, a.ID, StartInfo{Unit: "run-test.service", InvocationID: strings.Repeat("e", 32), CASSHA: a.ScriptSHA256}, at); err != nil {
+	if err := recStarted(s, bg, a.ID, StartInfo{Unit: "run-test.service", InvocationID: strings.Repeat("e", 32), CASSHA: a.ScriptSHA256}, at); err != nil {
 		t.Fatal(err)
 	}
 	if err := s.RecordEnded(bg, a.ID, info, at); err != nil {
@@ -354,7 +354,7 @@ func TestRecoverEndedCheckGetsReceipt(t *testing.T) {
 	s, _ := newStore(t)
 	t0 := time.Unix(1_800_000_000, 0)
 	a, _, _, _ := submit(t, s, t0, "AUT-1", OpCheck, "", nil)
-	if err := s.RecordStarted(bg, a.ID, StartInfo{Unit: "run-test.service", InvocationID: strings.Repeat("e", 32), CASSHA: a.ScriptSHA256}, t0); err != nil {
+	if err := recStarted(s, bg, a.ID, StartInfo{Unit: "run-test.service", InvocationID: strings.Repeat("e", 32), CASSHA: a.ScriptSHA256}, t0); err != nil {
 		t.Fatal(err)
 	}
 	look := func(context.Context, string) (EndInfo, bool, error) { return okEnd(), true, nil }

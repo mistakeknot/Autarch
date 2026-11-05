@@ -339,11 +339,75 @@ func (s *Store) transition(ctx context.Context, attempt string, to Kind, at time
 	return s.syncMirror(ctx)
 }
 
-// RecordStarted records STARTED after the unit has been launched.
+// UnitName is the deterministic systemd unit name for an attempt. The launcher must start the attempt's
+// unit under exactly this name, so that recovery can find it without having seen STARTED.
+func UnitName(attempt string) string { return "homerun-" + strings.ToLower(attempt) + ".service" }
+
+// ErrLaunchIntent: the attempt has a recorded launch intent, so it cannot be called "never launched".
+var ErrLaunchIntent = errors.New("launch was intended; reconcile with RecoverUnits")
+
+// ErrUnreconciled is returned by RecoverUnits when an attempt with a recorded launch intent could not be
+// matched to a unit (no lookup, lookup error, malformed answer). The attempt stays active and holds its
+// card and its cap until a later run settles it; nothing is guessed.
+var ErrUnreconciled = errors.New("attempt with a launch intent left unreconciled")
+
+// RecordLaunchIntent durably records, before the unit is launched, that the launcher is about to start the
+// attempt's unit, and returns its name (UnitName). It must have returned before the launcher starts the
+// unit. It is idempotent for an attempt still AUTHORIZED and refused once the attempt has moved on.
+func (s *Store) RecordLaunchIntent(ctx context.Context, attempt string, at time.Time) (string, error) {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return "", err
+	}
+	defer tx.Rollback() //nolint:errcheck
+	var state string
+	if err := tx.QueryRowContext(ctx, `SELECT state FROM attempts WHERE attempt=?`, attempt).Scan(&state); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return "", fmt.Errorf("%w: unknown attempt", ErrBadTransition)
+		}
+		return "", err
+	}
+	if Kind(state) != KindAuthorized {
+		return "", fmt.Errorf("%w: launch intent after %s", ErrBadTransition, state)
+	}
+	unit := UnitName(attempt)
+	if _, err := tx.ExecContext(ctx, `INSERT OR IGNORE INTO attempt_launch(attempt,unit,intended_at) VALUES(?,?,?)`, attempt, unit, at.Unix()); err != nil {
+		return "", err
+	}
+	return unit, tx.Commit()
+}
+
+// launchUnit returns the attempt's intended unit, if an intent was recorded.
+func launchUnit(ctx context.Context, q interface {
+	QueryRowContext(context.Context, string, ...any) *sql.Row
+}, attempt string) (string, bool, error) {
+	var u string
+	err := q.QueryRowContext(ctx, `SELECT unit FROM attempt_launch WHERE attempt=?`, attempt).Scan(&u)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", false, nil
+	}
+	return u, err == nil, err
+}
+
+// RecordStarted records STARTED after the unit has been launched. The launch intent must have been
+// recorded first, and the unit must be the intended one.
 func (s *Store) RecordStarted(ctx context.Context, attempt string, info StartInfo, at time.Time) error {
 	return s.transition(ctx, attempt, KindStarted, at,
 		func(sha string) error { return info.validate(sha) },
-		func(r *Record) { r.Unit, r.InvocationID, r.CASSHA = info.Unit, info.InvocationID, info.CASSHA }, nil)
+		func(r *Record) { r.Unit, r.InvocationID, r.CASSHA = info.Unit, info.InvocationID, info.CASSHA },
+		func(ctx context.Context, tx *sql.Tx) error {
+			u, ok, err := launchUnit(ctx, tx, attempt)
+			if err != nil {
+				return err
+			}
+			if !ok {
+				return fmt.Errorf("%w: STARTED without a recorded launch intent", ErrBadTransition)
+			}
+			if u != info.Unit {
+				return fmt.Errorf("%w: STARTED names unit %q, the intended unit is %q", ErrBadTransition, info.Unit, u)
+			}
+			return nil
+		})
 }
 
 // RecordEnded records ENDED with the outcome of a unit that ran to its end (success, failure, timeout or
@@ -360,29 +424,62 @@ func applyEnd(r *Record, info EndInfo) {
 	r.Result, r.ExitStatus, r.OutputSHA256, r.OutputBytes, r.DurationMS = info.Result, &st, info.OutputSHA256, &ob, &ms
 }
 
-// RecordAborted records ABORTED_BEFORE_START for an attempt whose unit never launched.
+// RecordAborted records ABORTED_BEFORE_START for an attempt whose unit never launched. It is refused once
+// a launch intent exists: whether the unit ran is then for RecoverUnits to find out.
 func (s *Store) RecordAborted(ctx context.Context, attempt, reason string, at time.Time) error {
-	return s.transition(ctx, attempt, KindAborted, at, nil, func(r *Record) { r.Note = reason }, nil)
+	return s.transition(ctx, attempt, KindAborted, at, nil, func(r *Record) { r.Note = reason },
+		func(ctx context.Context, tx *sql.Tx) error {
+			if _, ok, err := launchUnit(ctx, tx, attempt); err != nil {
+				return err
+			} else if ok {
+				return fmt.Errorf("%w: %w", ErrBadTransition, ErrLaunchIntent)
+			}
+			return nil
+		})
 }
 
 // Lookup reports how a launched unit ended, found by systemd InvocationID. found=false means systemd has no
 // answer.
 type Lookup func(ctx context.Context, invocationID string) (info EndInfo, found bool, err error)
 
-// Recover settles attempts a crash left open. It must run at start-up, before any new attempt, and never
-// retries anything: an AUTHORIZED attempt with no STARTED becomes ABORTED_BEFORE_START; a STARTED attempt
-// becomes ENDED when lookup knows how the unit ended, else UNCERTAIN ("outcome unknown, check by hand").
-// A new run always needs a new envelope and nonce.
+// UnitState is what systemd says about an attempt's intended unit.
+type UnitState struct {
+	Found        bool     // systemd knows a unit of that name (running or ended)
+	InvocationID string   // its InvocationID when Found
+	Ended        *EndInfo // how it ended; nil while it is still running
+}
+
+// UnitLookup finds a unit by name. found=false with no error means systemd has no such unit.
+type UnitLookup func(ctx context.Context, unit string) (UnitState, error)
+
+// Recover is RecoverUnits without a unit lookup: an AUTHORIZED attempt that has a launch intent cannot be
+// reconciled and is reported with ErrUnreconciled.
 func (s *Store) Recover(ctx context.Context, lookup Lookup, now time.Time) ([]Record, error) {
-	rows, err := s.db.QueryContext(ctx, `SELECT attempt, state FROM attempts WHERE state IN('AUTHORIZED','STARTED') ORDER BY attempt`)
+	return s.RecoverUnits(ctx, lookup, nil, now)
+}
+
+// RecoverUnits settles attempts a crash left open. It must run at start-up, before any new attempt, and
+// never retries anything.
+//
+//   - AUTHORIZED, no launch intent: the unit was never started, so ABORTED_BEFORE_START (no lookup).
+//   - AUTHORIZED with a launch intent: byUnit is asked about the intended unit. Absent: ABORTED_BEFORE_START.
+//     Present: STARTED is recorded from its InvocationID, then ENDED if it has ended; a unit still running
+//     stays STARTED and holds its card. No answer: the attempt stays AUTHORIZED (ErrUnreconciled).
+//     Residual: "absent" is only as good as byUnit; a launch call still in flight inside systemd cannot be
+//     seen from here, which is why launching is a single call made after the intent is durable.
+//   - STARTED: ENDED when byInv knows how the unit ended, else UNCERTAIN ("outcome unknown, check by hand").
+//
+// A new run always needs a new envelope and nonce.
+func (s *Store) RecoverUnits(ctx context.Context, byInv Lookup, byUnit UnitLookup, now time.Time) ([]Record, error) {
+	rows, err := s.db.QueryContext(ctx, `SELECT attempt, state, script_sha256 FROM attempts WHERE state IN('AUTHORIZED','STARTED') ORDER BY attempt`)
 	if err != nil {
 		return nil, err
 	}
-	type open struct{ id, state string }
+	type open struct{ id, state, sha string }
 	var todo []open
 	for rows.Next() {
 		var o open
-		if err := rows.Scan(&o.id, &o.state); err != nil {
+		if err := rows.Scan(&o.id, &o.state, &o.sha); err != nil {
 			rows.Close()
 			return nil, err
 		}
@@ -392,9 +489,37 @@ func (s *Store) Recover(ctx context.Context, lookup Lookup, now time.Time) ([]Re
 	if err := rows.Err(); err != nil {
 		return nil, err
 	}
+	var unreconciled []string
 	for _, o := range todo {
 		if Kind(o.state) == KindAuthorized {
-			if err := s.RecordAborted(ctx, o.id, "verifier stopped before the unit was launched", now); err != nil {
+			unit, intended, err := launchUnit(ctx, s.db, o.id)
+			if err != nil {
+				return nil, err
+			}
+			if !intended {
+				if err := s.RecordAborted(ctx, o.id, "verifier stopped before the unit was launched", now); err != nil {
+					return nil, err
+				}
+				continue
+			}
+			st, lerr := UnitState{}, errors.New("no unit lookup")
+			if byUnit != nil {
+				st, lerr = byUnit(ctx, unit)
+			}
+			switch {
+			case lerr != nil || (st.Found && !reHex32.MatchString(st.InvocationID)):
+				unreconciled = append(unreconciled, o.id)
+			case !st.Found:
+				err = s.transition(ctx, o.id, KindAborted, now, nil, func(r *Record) { r.Note = "launch intended; systemd has no such unit" }, nil)
+			default:
+				err = s.RecordStarted(ctx, o.id, StartInfo{Unit: unit, InvocationID: st.InvocationID, CASSHA: o.sha}, now)
+				if err == nil && st.Ended != nil && st.Ended.validate() == nil {
+					err = s.transition(ctx, o.id, KindEnded, now, nil, func(r *Record) { applyEnd(r, *st.Ended) }, endReceipt(o.id, *st.Ended, now))
+				} else if err == nil && st.Ended != nil {
+					err = s.transition(ctx, o.id, KindUncertain, now, nil, func(r *Record) { r.Note = "outcome unknown, check by hand" }, nil)
+				}
+			}
+			if err != nil {
 				return nil, err
 			}
 			continue
@@ -405,8 +530,8 @@ func (s *Store) Recover(ctx context.Context, lookup Lookup, now time.Time) ([]Re
 		}
 		var info EndInfo
 		var found bool
-		if lookup != nil {
-			if info, found, err = lookup(ctx, inv); err != nil {
+		if byInv != nil {
+			if info, found, err = byInv(ctx, inv); err != nil {
 				found = false
 			}
 		}
@@ -419,7 +544,14 @@ func (s *Store) Recover(ctx context.Context, lookup Lookup, now time.Time) ([]Re
 			return nil, err
 		}
 	}
-	return s.Records(ctx)
+	recs, err := s.Records(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if len(unreconciled) > 0 {
+		return recs, fmt.Errorf("%w: %s", ErrUnreconciled, strings.Join(unreconciled, ", "))
+	}
+	return recs, nil
 }
 
 // Records returns the whole audit table in sequence order.
@@ -484,6 +616,14 @@ func (s *Store) CheckAuditChain(ctx context.Context, requireSettled bool) error 
 			}
 			if !ok {
 				return fmt.Errorf("attempt %s: %s after %s", id, rs[i].Kind, rs[i-1].Kind)
+			}
+		}
+		for _, r := range rs {
+			if r.Kind != KindStarted {
+				continue
+			}
+			if u, ok, err := launchUnit(ctx, s.db, id); err != nil || !ok || u != r.Unit {
+				return fmt.Errorf("attempt %s: STARTED without a matching launch intent", id)
 			}
 		}
 		if last := rs[len(rs)-1].Kind; string(last) != state {

@@ -5,6 +5,8 @@ package homerun
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"os"
@@ -170,9 +172,7 @@ func VerifyApproval(ctx context.Context, v *SigVerifier, lim Limits, machineID s
 	if err != nil {
 		return nil, "", nil, err
 	}
-	digest, err := env.Digest()
-	if err != nil {
-		return nil, "", nil, err
-	}
-	return env, digest, signer, nil
+	// ParseEnvelope proved the bytes are the canonical encoding of env; the digest is of those signed bytes.
+	sum := sha256.Sum256(envBytes)
+	return env, hex.EncodeToString(sum[:]), signer, nil
 }
