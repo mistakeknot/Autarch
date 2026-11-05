@@ -413,6 +413,65 @@ describe("dismiss", () => {
   });
 });
 
+describe("undeliverable wakes that are settled leave the stalled list (bead mk-j6eqk)", () => {
+  // A wake that could not be delivered, then a later obligation on the same decision.
+  const strandedWake = async () => {
+    const a = await fileOk();
+    pickOk(a.decision_id, "project");
+    const wake = svc.store.obligationsFor(a.decision_id).find((o) => o.kind === "wake")!;
+    expect(svc.store.transition(wake.id, "pending", "undeliverable", 0, { last_error: "thread archived" })).toEqual({ ok: true });
+    return { decision: a.decision_id, wake };
+  };
+  const later = (decision: string, id: string, kind: string, finalState: "done" | "pending" | "undeliverable") => {
+    expect(svc.store.insertObligations(decision, [{ id, kind, recipient: "thr-vizier", op: `op:${id}`, payload: "x" }])).toBe(1);
+    if (finalState === "pending") return;
+    const c = svc.store.claim(id, 0);
+    if (!c.ok) throw new Error("claim");
+    expect(svc.store.transition(id, "sending", finalState, c.attempt)).toEqual({ ok: true });
+  };
+
+  it("a voided undeliverable wake with a later done bringback notice is not listed", async () => {
+    const { decision, wake } = await strandedWake();
+    expect(svc.store.voidObligation(wake.id)).toBe(true);
+    later(decision, `ob:${decision}:bringback`, "void-notice", "done");
+    expect(svc.undeliverable()).toEqual([]);
+  });
+
+  it("an undeliverable wake with a later done re-delivered wake is not listed", async () => {
+    const { decision } = await strandedWake();
+    later(decision, `ob:${decision}:rewake`, "wake", "done");
+    expect(svc.undeliverable()).toEqual([]);
+  });
+
+  it("a voided undeliverable wake is not listed even with nothing after it", async () => {
+    const { wake } = await strandedWake();
+    expect(svc.store.voidObligation(wake.id)).toBe(true);
+    expect(svc.undeliverable()).toEqual([]);
+  });
+
+  it("an undeliverable wake that nothing settled stays listed", async () => {
+    const { decision, wake } = await strandedWake();
+    expect(ids(svc.undeliverable())).toEqual([wake.id]);
+    // a later row that has not been delivered does not settle it
+    later(decision, `ob:${decision}:pending`, "wake", "pending");
+    later(decision, `ob:${decision}:failed`, "wake", "undeliverable");
+    expect(ids(svc.undeliverable())).toContain(wake.id);
+    // nor does a done row on another decision
+    const b = await fileOk({ thread: "thr-other" });
+    later(b.decision_id, `ob:${b.decision_id}:bringback`, "void-notice", "done");
+    expect(ids(svc.undeliverable())).toContain(wake.id);
+  });
+
+  it("only a later done row settles it: one that finished before the failure does not", async () => {
+    const a = await fileOk();
+    later(a.decision_id, `ob:${a.decision_id}:early`, "notice", "done");
+    pickOk(a.decision_id, "project");
+    const wake = svc.store.obligationsFor(a.decision_id).find((o) => o.kind === "wake")!;
+    expect(svc.store.transition(wake.id, "pending", "undeliverable", 0)).toEqual({ ok: true });
+    expect(ids(svc.undeliverable())).toEqual([wake.id]);
+  });
+});
+
 describe("effective rulings [D-4]", () => {
   it("an override voids the old line and the replacement's pick supersedes it at once", async () => {
     const a = await fileOk();

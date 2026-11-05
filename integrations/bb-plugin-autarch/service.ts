@@ -721,8 +721,24 @@ export class Service {
     return this.store.dueMessages(this.now());
   }
 
+  /**
+   * Messages that could not be delivered and still need a person. A row is settled, and left out, once it is voided
+   * (a bring-back or an override cancelled it), or a later message on the same decision (the bring-back notice or a
+   * re-delivered wake) was delivered. The row itself stays as it is: this is a read, not a state change (bead mk-j6eqk).
+   */
   undeliverable(): ObligationRow[] {
-    return this.db.prepare("SELECT * FROM obligations WHERE state = 'undeliverable' ORDER BY rowid").all() as ObligationRow[];
+    return this.db
+      .prepare(
+        `SELECT o.* FROM obligations o
+         WHERE o.state = 'undeliverable'
+           AND o.voided_at IS NULL
+           AND NOT EXISTS (
+             SELECT 1 FROM obligations l
+             WHERE l.decision_id = o.decision_id AND l.rowid > o.rowid AND l.state = 'done'
+               AND l.kind IN ('wake','notice','notice-digest','void-notice'))
+         ORDER BY o.rowid`,
+      )
+      .all() as ObligationRow[];
   }
 
   failures(): ObligationRow[] {
