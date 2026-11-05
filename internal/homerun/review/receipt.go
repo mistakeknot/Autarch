@@ -224,38 +224,44 @@ type Verifier struct {
 // Verify accepts a receipt only if every condition holds; the first failure refuses. rawReceipt must be
 // the canonical bytes. It returns the receipt digest (the envelope's review_sha256) on success.
 func (v *Verifier) Verify(rawReceipt []byte, want Expect) (string, error) {
+	dg, _, err := v.verify(rawReceipt, want)
+	return dg, err
+}
+
+// verify is Verify that also returns the receipt's expiry (unix seconds).
+func (v *Verifier) verify(rawReceipt []byte, want Expect) (string, int64, error) {
 	if len(v.PublicKey) != ed25519.PublicKeySize {
-		return "", errors.New("review verifier is not configured (public key)")
+		return "", 0, errors.New("review verifier is not configured (public key)")
 	}
 	if len(rawReceipt) == 0 {
-		return "", refuse("no review receipt")
+		return "", 0, refuse("no review receipt")
 	}
 	r, err := ParseReceipt(rawReceipt)
 	if err != nil {
-		return "", err
+		return "", 0, err
 	}
 	sig, err := hex.DecodeString(r.Signature)
 	if err != nil || len(sig) != ed25519.SignatureSize || !reHex128.MatchString(r.Signature) {
-		return "", refuse("signature is malformed")
+		return "", 0, refuse("signature is malformed")
 	}
 	msg, err := r.Body.SigningBytes()
 	if err != nil {
-		return "", refuse("cannot encode receipt")
+		return "", 0, refuse("cannot encode receipt")
 	}
 	if !ed25519.Verify(v.PublicKey, msg, sig) {
-		return "", refuse("signature does not verify under the review key")
+		return "", 0, refuse("signature does not verify under the review key")
 	}
 	if r.Outcome != OutcomePass {
-		return "", refuse("review outcome is not PASS")
+		return "", 0, refuse("review outcome is not PASS")
 	}
 	if !reHex64.MatchString(want.ScriptSHA256) || !reHex64.MatchString(want.DepsDigest) {
-		return "", errors.New("expected script or deps digest is malformed")
+		return "", 0, errors.New("expected script or deps digest is malformed")
 	}
 	if r.ScriptSHA256 != want.ScriptSHA256 {
-		return "", refuse("receipt is for a different script")
+		return "", 0, refuse("receipt is for a different script")
 	}
 	if r.DepsDigest != want.DepsDigest {
-		return "", refuse("receipt is for different dependencies")
+		return "", 0, refuse("receipt is for different dependencies")
 	}
 	wf := want.Flags
 	if wf == nil {
@@ -266,14 +272,29 @@ func (v *Verifier) Verify(rawReceipt []byte, want Expect) (string, error) {
 		gf = []string{}
 	}
 	if !slices.Equal(gf, wf) {
-		return "", refuse("receipt is for different flags")
+		return "", 0, refuse("receipt is for different flags")
 	}
 	now := want.Now.Unix()
 	if now < r.IssuedAt {
-		return "", refuse("receipt is not yet valid")
+		return "", 0, refuse("receipt is not yet valid")
 	}
 	if now >= r.ExpiresAt {
-		return "", refuse("receipt has expired")
+		return "", 0, refuse("receipt has expired")
 	}
-	return r.Digest()
+	dg, err := r.Digest()
+	if err != nil {
+		return "", 0, err
+	}
+	return dg, r.ExpiresAt, nil
+}
+
+// Gate adapts the verifier for the run verifier's review gate: receipts are read from src (a
+// content-addressed store keyed by the receipt digest) and verified under v's public key.
+func (v *Verifier) Gate(src homerun.ReceiptSource) *homerun.ReviewGate {
+	return &homerun.ReviewGate{
+		Receipts: src,
+		Verify: func(raw []byte, scriptSHA, depsDigest string, flags []string, now time.Time) (string, int64, error) {
+			return v.verify(raw, Expect{ScriptSHA256: scriptSHA, DepsDigest: depsDigest, Flags: flags, Now: now})
+		},
+	}
 }

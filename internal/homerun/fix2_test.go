@@ -105,7 +105,7 @@ func TestStartedPathConsultsUnitNameLookup(t *testing.T) {
 func TestUncertainHoldsCardAndPrivilegeUntilResolved(t *testing.T) {
 	lim := DefaultLimits()
 	lim.MaxActiveAsMk = 1
-	s, err := Open(filepath.Join(t.TempDir(), "state.db"), lim)
+	s, err := openStub(filepath.Join(t.TempDir(), "state.db"), lim)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -347,7 +347,7 @@ func TestAbsentUnitAfterIntentIsUncertainAndStillCounted(t *testing.T) {
 func TestAbsentUnitAfterIntentCountsTowardDailyCap(t *testing.T) {
 	lim := DefaultLimits()
 	lim.MaxExecutionsPerDay = 1
-	s, err := Open(filepath.Join(t.TempDir(), "state.db"), lim)
+	s, err := openStub(filepath.Join(t.TempDir(), "state.db"), lim)
 	if err != nil {
 		t.Fatal(err)
 	}

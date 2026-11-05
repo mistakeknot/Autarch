@@ -30,3 +30,17 @@ Residual risk: see `checkTrustedChain` (service-owned path inside the writes roo
 
 One run of `TestLiveMainProcessTimeout` recovered UNCERTAIN ("finished after it was recorded"); it did not
 recur in three further runs, and is unexplained (guest clock suspected).
+
+## Key loader run (`internal/homerun/review/key_live_test.go`)
+
+Build with `go test -c -tags homerunlive -o live.test ./internal/homerun/review`, seed with run pattern
+`TestLiveKey`, boot as above (user-mode networking off is enough). The tests run as root in the guest and
+generate their keys there; nothing leaves the guest.
+
+Recorded run (Ubuntu 24.04.5, kernel 6.8.0-147, systemd 255.4-1ubuntu8.18, same image sha256 as above): all
+12 `TestLiveKey*` pass. `LoadKey` accepts a root-owned 0600/0400 key under root-owned directories (and a
+root-owned sticky 1777 ancestor), and refuses: a key owned by another user, any mode with group or other
+bits, an ancestor owned by another user (sticky or not), group- or world-writable non-sticky ancestors, a
+symlink as the final component or as an ancestor, a FIFO at the key path or as an ancestor (no hang), a
+character device and non-hex content. A 15 s race that swaps an ancestor for a symlink to a decoy tree loaded
+the decoy key zero times (about 10,000 good loads, 17,000 refusals). No defect was found in `key.go`.

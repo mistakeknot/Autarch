@@ -186,7 +186,7 @@ func TestLimitsStayOnStoreLimits(t *testing.T) {
 	p := t.TempDir() + "/s.db"
 	lim := DefaultLimits()
 	lim.MaxExecutionsPerDay = 1
-	s, err := Open(p, lim)
+	s, err := openStub(p, lim)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -329,14 +329,14 @@ func TestCheckFreshness(t *testing.T) {
 
 func TestReceiptSurvivesRestart(t *testing.T) {
 	p := t.TempDir() + "/s.db"
-	s, err := Open(p, DefaultLimits())
+	s, err := openStub(p, DefaultLimits())
 	if err != nil {
 		t.Fatal(err)
 	}
 	t0 := time.Unix(1_800_000_000, 0)
 	chk := goodCheck(t, s, t0, "AUT-1")
 	s.Close()
-	s, err = Open(p, DefaultLimits())
+	s, err = openStub(p, DefaultLimits())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -460,13 +460,13 @@ func TestFailuresBeforeUnlockDoNotCountAgain(t *testing.T) {
 
 func TestLockSurvivesRestart(t *testing.T) {
 	p := t.TempDir() + "/s.db"
-	s, _ := Open(p, DefaultLimits())
+	s, _ := openStub(p, DefaultLimits())
 	t0 := time.Unix(1_800_000_000, 0)
 	for i := 0; i < 3; i++ {
 		s.RecordSigFailure(bg, "bad", t0)
 	}
 	s.Close()
-	s, err := Open(p, DefaultLimits())
+	s, err := openStub(p, DefaultLimits())
 	if err != nil {
 		t.Fatal(err)
 	}

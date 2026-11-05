@@ -58,7 +58,7 @@ func TestConsumeOnceAndReplayRefused(t *testing.T) {
 
 func TestConsumeConcurrentExactlyOneWinner(t *testing.T) {
 	s, p := newStore(t)
-	s2, err := Open(p, DefaultLimits()) // a second handle on the same file, as a second process would hold
+	s2, err := openStub(p, DefaultLimits()) // a second handle on the same file, as a second process would hold
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -229,7 +229,7 @@ func TestMain(m *testing.M) {
 // records STARTED, prints the attempt ID, then kills itself without any cleanup.
 func runHelper(mode string) {
 	ctx := context.Background()
-	s, err := Open(os.Getenv("HOMERUN_DB"), DefaultLimits())
+	s, err := openStub(os.Getenv("HOMERUN_DB"), DefaultLimits())
 	if err != nil {
 		os.Stderr.WriteString("open: " + err.Error())
 		os.Exit(2)
@@ -266,7 +266,7 @@ func runHelper(mode string) {
 // attempt ID and envelope after the helper died of SIGKILL.
 func crashRun(t *testing.T, dbPath, mode string, now time.Time) (string, *Envelope) {
 	t.Helper()
-	s, err := Open(dbPath, DefaultLimits())
+	s, err := openStub(dbPath, DefaultLimits())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -299,7 +299,7 @@ func TestCrashAfterConsumeRecoversAsAbortedAndNeverRetries(t *testing.T) {
 	now := time.Now()
 	id, e := crashRun(t, dbPath, "consumed", now)
 
-	s, err := Open(dbPath, DefaultLimits())
+	s, err := openStub(dbPath, DefaultLimits())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -358,7 +358,7 @@ func TestCrashAfterStartedRecoversAsUncertainOrEnded(t *testing.T) {
 			dbPath := filepath.Join(t.TempDir(), "state.db")
 			now := time.Now()
 			id, e := crashRun(t, dbPath, "started", now)
-			s, err := Open(dbPath, DefaultLimits())
+			s, err := openStub(dbPath, DefaultLimits())
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -388,14 +388,14 @@ func TestCrashAfterStartedRecoversAsUncertainOrEnded(t *testing.T) {
 func TestExpiredNonceStaysDeadAcrossRestart(t *testing.T) {
 	dbPath := filepath.Join(t.TempDir(), "state.db")
 	now := time.Now()
-	s, err := Open(dbPath, DefaultLimits())
+	s, err := openStub(dbPath, DefaultLimits())
 	if err != nil {
 		t.Fatal(err)
 	}
 	ctx := context.Background()
 	n, _ := s.IssueNonce(ctx, testHost, time.Minute, now)
 	s.Close()
-	s, err = Open(dbPath, DefaultLimits())
+	s, err = openStub(dbPath, DefaultLimits())
 	if err != nil {
 		t.Fatal(err)
 	}
