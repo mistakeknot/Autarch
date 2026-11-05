@@ -90,7 +90,7 @@ func Open(path string, lim Limits) (*Store, error) {
 	if err != nil {
 		return nil, fmt.Errorf("homerun: %w", err)
 	}
-	if _, err := db.Exec(schema); err != nil {
+	if _, err := db.Exec(schema + schemaLimits); err != nil {
 		db.Close()
 		return nil, fmt.Errorf("homerun: schema: %w", err)
 	}
@@ -153,6 +153,9 @@ type Attempt struct {
 	EnvelopeDigest string
 	Signer         Signer
 	State          Kind
+	// RuntimeMax is the signed runtime_max_s, already checked against the policy cap. The launcher sets
+	// the unit's RuntimeMaxSec from it and from nothing else.
+	RuntimeMax time.Duration
 }
 
 // ConsumeRequest is a verified approval ready to be spent. The envelope must already have passed
@@ -191,6 +194,9 @@ func (s *Store) Consume(ctx context.Context, req ConsumeRequest) (*Attempt, erro
 		return nil, err
 	}
 	if err := e.CheckFresh(req.Now); err != nil {
+		return nil, err
+	}
+	if err := s.requireUnlocked(ctx); err != nil {
 		return nil, err
 	}
 	id, err := newULID(req.Now)
@@ -234,12 +240,24 @@ func (s *Store) Consume(ctx context.Context, req ConsumeRequest) (*Attempt, erro
 	if onCard > 0 || onPriv >= capacity {
 		return nil, ErrBusy
 	}
+	// Each refusal below rolls the transaction back, so the nonce stays unspent.
+	if e.Op != OpCheck {
+		if err := checkCitedReceipt(ctx, tx, s.lim, e, req.Now); err != nil {
+			return nil, err
+		}
+	}
+	if err := enforceRateLimits(ctx, tx, s.lim, e, req.Now); err != nil {
+		return nil, err
+	}
 	if _, err := tx.ExecContext(ctx,
 		`INSERT INTO attempts(attempt,card_id,op,privilege,script_sha256,nonce,identity,state,created_at) VALUES(?,?,?,?,?,?,?,?,?)`,
 		id, e.CardID, e.Op, e.Privilege, e.ScriptSHA256, e.Nonce, string(idJSON), string(KindAuthorized), now); err != nil {
 		if strings.Contains(err.Error(), "UNIQUE") {
 			return nil, ErrBusy
 		}
+		return nil, err
+	}
+	if _, err := tx.ExecContext(ctx, `INSERT INTO attempt_bind(attempt,card_rev,deps_digest) VALUES(?,?,?)`, id, e.CardRev, e.DepsDigest); err != nil {
 		return nil, err
 	}
 	if err := insertAudit(ctx, tx, id, KindAuthorized, req.Now, string(idJSON), nil); err != nil {
@@ -249,7 +267,8 @@ func (s *Store) Consume(ctx context.Context, req ConsumeRequest) (*Attempt, erro
 		return nil, err
 	}
 	a := &Attempt{ID: id, CardID: e.CardID, Op: e.Op, Privilege: e.Privilege, ScriptSHA256: e.ScriptSHA256, Nonce: e.Nonce,
-		EnvelopeDigest: req.EnvelopeDigest, Signer: req.Signer, State: KindAuthorized}
+		EnvelopeDigest: req.EnvelopeDigest, Signer: req.Signer, State: KindAuthorized,
+		RuntimeMax: time.Duration(e.RuntimeMaxS) * time.Second}
 	if err := s.syncMirror(ctx); err != nil {
 		return nil, err
 	}
@@ -276,7 +295,7 @@ func insertAudit(ctx context.Context, tx *sql.Tx, attempt string, kind Kind, at 
 }
 
 // transition moves an attempt along its audit sequence in one transaction.
-func (s *Store) transition(ctx context.Context, attempt string, to Kind, at time.Time, check func(scriptSHA string) error, mutate func(*Record)) error {
+func (s *Store) transition(ctx context.Context, attempt string, to Kind, at time.Time, check func(scriptSHA string) error, mutate func(*Record), after func(ctx context.Context, tx *sql.Tx) error) error {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return err
@@ -309,6 +328,11 @@ func (s *Store) transition(ctx context.Context, attempt string, to Kind, at time
 	if err := insertAudit(ctx, tx, attempt, to, at, ident, mutate); err != nil {
 		return err
 	}
+	if after != nil {
+		if err := after(ctx, tx); err != nil {
+			return err
+		}
+	}
 	if err := tx.Commit(); err != nil {
 		return err
 	}
@@ -319,7 +343,7 @@ func (s *Store) transition(ctx context.Context, attempt string, to Kind, at time
 func (s *Store) RecordStarted(ctx context.Context, attempt string, info StartInfo, at time.Time) error {
 	return s.transition(ctx, attempt, KindStarted, at,
 		func(sha string) error { return info.validate(sha) },
-		func(r *Record) { r.Unit, r.InvocationID, r.CASSHA = info.Unit, info.InvocationID, info.CASSHA })
+		func(r *Record) { r.Unit, r.InvocationID, r.CASSHA = info.Unit, info.InvocationID, info.CASSHA }, nil)
 }
 
 // RecordEnded records ENDED with the outcome of a unit that ran to its end (success, failure, timeout or
@@ -328,7 +352,7 @@ func (s *Store) RecordEnded(ctx context.Context, attempt string, info EndInfo, a
 	if err := info.validate(); err != nil {
 		return err
 	}
-	return s.transition(ctx, attempt, KindEnded, at, nil, func(r *Record) { applyEnd(r, info) })
+	return s.transition(ctx, attempt, KindEnded, at, nil, func(r *Record) { applyEnd(r, info) }, endReceipt(attempt, info, at))
 }
 
 func applyEnd(r *Record, info EndInfo) {
@@ -338,7 +362,7 @@ func applyEnd(r *Record, info EndInfo) {
 
 // RecordAborted records ABORTED_BEFORE_START for an attempt whose unit never launched.
 func (s *Store) RecordAborted(ctx context.Context, attempt, reason string, at time.Time) error {
-	return s.transition(ctx, attempt, KindAborted, at, nil, func(r *Record) { r.Note = reason })
+	return s.transition(ctx, attempt, KindAborted, at, nil, func(r *Record) { r.Note = reason }, nil)
 }
 
 // Lookup reports how a launched unit ended, found by systemd InvocationID. found=false means systemd has no
@@ -387,9 +411,9 @@ func (s *Store) Recover(ctx context.Context, lookup Lookup, now time.Time) ([]Re
 			}
 		}
 		if found && info.validate() == nil {
-			err = s.transition(ctx, o.id, KindEnded, now, nil, func(r *Record) { applyEnd(r, info) })
+			err = s.transition(ctx, o.id, KindEnded, now, nil, func(r *Record) { applyEnd(r, info) }, endReceipt(o.id, info, now))
 		} else {
-			err = s.transition(ctx, o.id, KindUncertain, now, nil, func(r *Record) { r.Note = "outcome unknown, check by hand" })
+			err = s.transition(ctx, o.id, KindUncertain, now, nil, func(r *Record) { r.Note = "outcome unknown, check by hand" }, nil)
 		}
 		if err != nil {
 			return nil, err

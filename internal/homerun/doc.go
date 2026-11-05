@@ -7,7 +7,16 @@
 //   - a durable, single-use nonce store with the attempt table in the same transaction (store.go);
 //   - the audit record sequence, mirrored append-only to a JSON-lines file (audit.go);
 //   - a content-addressed store for the bytes that run (cas.go);
-//   - the limits as one config struct (limits.go).
+//   - the limits as one config struct (limits.go);
+//   - enforcement of those limits (enforce.go, slice 2): the per-card apply interval, the rolling daily
+//     cap, the check-receipt store that gates apply and recover, the bad-signature lockout, and the
+//     runtime caps as values (Limits.RuntimeCap, Attempt.RuntimeMax) for the launcher to read.
+//
+// Not built, by design ambiguity: the "# writes:" script header. The design says ReadWritePaths comes from
+// it and that it is "part of the envelope's flags/header digest", but it fixes neither the header syntax
+// (separator, quoting, glob use), nor the required path prefix as a configuration value, nor which
+// envelope field carries its digest (the envelope has no writes field). Parsing it now would invent a
+// signed format, so it waits for a ruling; ParseFlagsHeader is the model once the syntax is fixed.
 //
 // It starts no process other than ssh-keygen, launches no unit, and reads no credential. The service
 // that wires it to a socket, a unit launcher and a review service is a later slice. The package is
