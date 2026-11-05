@@ -36,6 +36,7 @@ type Store struct {
 	lim  Limits
 	mir  *mirror
 	gate *ReviewGate
+	now  func() time.Time
 }
 
 const schema = `
@@ -96,7 +97,7 @@ func Open(path string, lim Limits) (*Store, error) {
 		db.Close()
 		return nil, fmt.Errorf("homerun: schema: %w", err)
 	}
-	return &Store{db: db, lim: lim}, nil
+	return &Store{db: db, lim: lim, now: time.Now}, nil
 }
 
 // Close closes the database.
@@ -206,7 +207,8 @@ func (s *Store) Consume(ctx context.Context, req ConsumeRequest) (*Attempt, erro
 	if err := s.requireUnlocked(ctx); err != nil {
 		return nil, err
 	}
-	if err := s.gateReview(ctx, req); err != nil {
+	receiptExp, err := s.gateReview(ctx, req)
+	if err != nil {
 		return nil, err
 	}
 	id, err := newULID(req.Now)
@@ -233,6 +235,14 @@ func (s *Store) Consume(ctx context.Context, req ConsumeRequest) (*Attempt, erro
 	}
 	if n, _ := res.RowsAffected(); n != 1 {
 		return nil, ErrNonceUnavailable
+	}
+
+	// The UPDATE above took the write lock, which may have been awaited for seconds, so the receipt that
+	// passed the gate is rechecked against the store's clock now. Nothing is committed yet: a refusal rolls
+	// the transaction back and the nonce stays unspent.
+	if s.now().Unix() >= receiptExp {
+		tx.Rollback() //nolint:errcheck
+		return nil, s.recordRefusal(ctx, req, &ReviewError{Reason: ReviewRefused, Detail: "review receipt expired before the nonce was spent"})
 	}
 
 	var onCard int

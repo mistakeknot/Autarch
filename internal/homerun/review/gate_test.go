@@ -5,10 +5,13 @@ package review
 import (
 	"bytes"
 	"context"
+	"database/sql"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -95,7 +98,7 @@ func (g *gateRig) refuseKeepsNonce(e *homerun.Envelope, dg, reason string) {
 	if !errors.Is(err, homerun.ErrReview) || !errors.As(err, &re) || re.Reason != reason {
 		g.t.Fatalf("got %v, want review refusal %s", err, reason)
 	}
-	rs, err := g.store.ReviewRefusals(context.Background())
+	rs, err := g.store.ReviewRefusals(context.Background(), 0, 100)
 	if err != nil || len(rs) == 0 || rs[len(rs)-1].Reason != reason || rs[len(rs)-1].Nonce != e.Nonce || rs[len(rs)-1].CardID != "AUT-1" {
 		g.t.Fatalf("refusal not recorded: %v %+v", err, rs)
 	}
@@ -119,7 +122,7 @@ func TestGateHappyPath(t *testing.T) {
 	if err := g.consume(e, dg); err != nil {
 		t.Fatal(err)
 	}
-	if rs, _ := g.store.ReviewRefusals(context.Background()); len(rs) != 0 {
+	if rs, _ := g.store.ReviewRefusals(context.Background(), 0, 100); len(rs) != 0 {
 		t.Fatalf("unexpected refusals %+v", rs)
 	}
 }
@@ -136,6 +139,10 @@ func TestGateNoGateRefusesEverything(t *testing.T) {
 	e, dg := g.envelope(g.put(g.f.issue(t)))
 	if err := g.consume(e, dg); !errors.Is(err, homerun.ErrNoReviewGate) {
 		t.Fatalf("got %v", err)
+	}
+	rs, err := g.store.ReviewRefusals(context.Background(), 0, 100)
+	if err != nil || len(rs) != 1 || rs[0].Reason != homerun.ReviewNoGate || rs[0].Nonce != e.Nonce || rs[0].Count != 1 {
+		t.Fatalf("no-gate refusal not recorded: %v %+v", err, rs)
 	}
 }
 
@@ -240,5 +247,106 @@ func TestGateCoversApply(t *testing.T) {
 	err := g.consume(e, dg)
 	if !errors.Is(err, homerun.ErrReview) {
 		t.Fatalf("got %v", err)
+	}
+}
+
+// The receipt can expire while the write lock is awaited: it is rechecked against the store's clock once
+// the lock is held, and a late receipt leaves the nonce unspent and is recorded.
+func TestGateReceiptExpiresWhileWaitingForLock(t *testing.T) {
+	g := newGateRig(t, okResult("PASS"))
+	var off atomic.Int64
+	g.store.SetClock(func() time.Time { return g.now.Add(time.Duration(off.Load())) })
+	raw := g.f.issue(t) // valid t0 .. t0+10min
+	e, dg := g.envelope(g.put(raw))
+	dbPath := filepath.Join(filepath.Dir(g.cas.Root), "state.db")
+	other, err := sql.Open("sqlite", "file:"+dbPath+"?_txlock=immediate&_pragma=busy_timeout(10000)")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer other.Close()
+	tx, err := other.BeginTx(context.Background(), nil) // immediate: holds the write lock
+	if err != nil {
+		t.Fatal(err)
+	}
+	done := make(chan error, 1)
+	go func() { done <- g.consume(e, dg) }()
+	select {
+	case err := <-done:
+		t.Fatalf("consume did not wait for the lock: %v", err)
+	case <-time.After(300 * time.Millisecond):
+	}
+	off.Store(int64(11 * time.Minute)) // the receipt has now expired
+	if err := tx.Rollback(); err != nil {
+		t.Fatal(err)
+	}
+	err = <-done
+	var re *homerun.ReviewError
+	if !errors.Is(err, homerun.ErrReview) || !errors.As(err, &re) || re.Reason != homerun.ReviewRefused {
+		t.Fatalf("got %v, want a review refusal", err)
+	}
+	rs, _ := g.store.ReviewRefusals(context.Background(), 0, 100)
+	if len(rs) != 1 || rs[0].Nonce != e.Nonce {
+		t.Fatalf("refusal not recorded: %+v", rs)
+	}
+	// the nonce is unspent: with the clock back, the same envelope succeeds
+	off.Store(0)
+	if err := g.consume(e, dg); err != nil {
+		t.Fatalf("nonce was spent: %v", err)
+	}
+}
+
+// Replaying one refused envelope keeps one row and counts it.
+func TestGateReplayAggregates(t *testing.T) {
+	g := newGateRig(t, okResult("PASS"))
+	e, dg := g.envelope(strings.Repeat("a", 64))
+	for i := 0; i < 1000; i++ {
+		g.now = g.now.Add(time.Millisecond * 0) // same time; count only
+		if err := g.consume(e, dg); !errors.Is(err, homerun.ErrReview) {
+			t.Fatal(err)
+		}
+	}
+	rs, err := g.store.ReviewRefusals(context.Background(), 0, 100)
+	if err != nil || len(rs) != 1 || rs[0].Count != 1000 {
+		t.Fatalf("want one row with count 1000: %v %+v", err, rs)
+	}
+	if rs[0].FirstAt.IsZero() || rs[0].LastAt.Before(rs[0].FirstAt) {
+		t.Fatalf("bad timestamps %+v", rs[0])
+	}
+}
+
+// Pages come back in order and the cursor resumes after the last row seen.
+func TestGateRefusalsPagination(t *testing.T) {
+	g := newGateRig(t, okResult("PASS"))
+	for i := 0; i < 5; i++ {
+		e, dg := g.envelope(fmt.Sprintf("%064x", i+1))
+		if err := g.consume(e, dg); !errors.Is(err, homerun.ErrReview) {
+			t.Fatal(err)
+		}
+	}
+	var got []int64
+	var after int64
+	for {
+		page, err := g.store.ReviewRefusals(context.Background(), after, 2)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(page) > 2 {
+			t.Fatalf("page too large: %d", len(page))
+		}
+		if len(page) == 0 {
+			break
+		}
+		for _, r := range page {
+			got = append(got, r.Seq)
+		}
+		after = page[len(page)-1].Seq
+	}
+	if len(got) != 5 {
+		t.Fatalf("got %v", got)
+	}
+	for i := 1; i < len(got); i++ {
+		if got[i] <= got[i-1] {
+			t.Fatalf("not in order: %v", got)
+		}
 	}
 }

@@ -29,8 +29,9 @@ var (
 
 // Reasons recorded for a review refusal.
 const (
-	ReviewMissing  = "receipt-missing"  // nothing in the receipt store under review_sha256
-	ReviewRefused  = "receipt-refused"  // present but failed verification (parse, signature, outcome, binding, expiry)
+	ReviewMissing  = "receipt-missing" // nothing in the receipt store under review_sha256
+	ReviewRefused  = "receipt-refused" // present but failed verification (parse, signature, outcome, binding, expiry)
+	ReviewNoGate   = "no-review-gate"
 	ReviewMismatch = "receipt-mismatch" // verified, but its digest is not the envelope's review_sha256
 )
 
@@ -40,8 +41,9 @@ type ReceiptSource interface {
 }
 
 // ReviewVerifyFunc verifies raw receipt bytes against what the operation requires and returns the
-// receipt digest. review.Verifier supplies one; this package cannot import it.
-type ReviewVerifyFunc func(raw []byte, scriptSHA, depsDigest string, flags []string, now time.Time) (string, error)
+// receipt digest and the receipt's expiry (unix seconds). review.Verifier supplies one; this package
+// cannot import it.
+type ReviewVerifyFunc func(raw []byte, scriptSHA, depsDigest string, flags []string, now time.Time) (digest string, expiresAt int64, err error)
 
 // ReviewGate is the configured review evidence check.
 type ReviewGate struct {
@@ -58,59 +60,90 @@ type ReviewError struct {
 func (e *ReviewError) Error() string { return "review evidence refused: " + e.Reason }
 func (e *ReviewError) Unwrap() error { return ErrReview }
 
-func (g *ReviewGate) check(e *Envelope, now time.Time) *ReviewError {
+// Is makes the no-gate refusal match ErrNoReviewGate as well as ErrReview.
+func (e *ReviewError) Is(target error) bool {
+	return target == ErrNoReviewGate && e.Reason == ReviewNoGate
+}
+
+func (g *ReviewGate) check(e *Envelope, now time.Time) (int64, *ReviewError) {
 	if g == nil || g.Receipts == nil || g.Verify == nil {
-		return &ReviewError{Reason: ReviewRefused, Detail: "review gate is not fully configured"}
+		return 0, &ReviewError{Reason: ReviewRefused, Detail: "review gate is not fully configured"}
 	}
 	raw, err := g.Receipts.Read(e.ReviewSHA256)
 	if err != nil {
-		return &ReviewError{Reason: ReviewMissing, Detail: err.Error()}
+		return 0, &ReviewError{Reason: ReviewMissing, Detail: err.Error()}
 	}
-	dg, err := g.Verify(raw, e.ScriptSHA256, e.DepsDigest, e.Flags, now)
+	dg, exp, err := g.Verify(raw, e.ScriptSHA256, e.DepsDigest, e.Flags, now)
 	if err != nil {
-		return &ReviewError{Reason: ReviewRefused, Detail: err.Error()}
+		return 0, &ReviewError{Reason: ReviewRefused, Detail: err.Error()}
 	}
 	if dg != e.ReviewSHA256 {
-		return &ReviewError{Reason: ReviewMismatch, Detail: "receipt digest differs from review_sha256"}
+		return 0, &ReviewError{Reason: ReviewMismatch, Detail: "receipt digest differs from review_sha256"}
 	}
-	return nil
+	return exp, nil
 }
 
+// One row per (envelope digest, reason): a replay of the same refused envelope increments count and moves
+// last_at instead of adding a row, so the table grows with distinct signed envelopes, not with attempts.
+// Rows are never deleted, and an update may only count one more refusal of the same row.
 const reviewSchema = `
 CREATE TABLE IF NOT EXISTS review_refusals(
   seq             INTEGER PRIMARY KEY AUTOINCREMENT,
-  at              INTEGER NOT NULL,
+  first_at        INTEGER NOT NULL,
+  last_at         INTEGER NOT NULL,
+  count           INTEGER NOT NULL,
   reason          TEXT NOT NULL,
   detail          TEXT NOT NULL,
   envelope_digest TEXT NOT NULL,
   card_id         TEXT NOT NULL,
   op              TEXT NOT NULL,
   nonce           TEXT NOT NULL,
-  review_sha256   TEXT NOT NULL
+  review_sha256   TEXT NOT NULL,
+  UNIQUE(envelope_digest, reason)
 );
-CREATE TRIGGER IF NOT EXISTS review_refusals_no_update BEFORE UPDATE ON review_refusals BEGIN SELECT RAISE(ABORT,'refusals are append-only'); END;
+CREATE TRIGGER IF NOT EXISTS review_refusals_count_only BEFORE UPDATE ON review_refusals
+WHEN NEW.seq<>OLD.seq OR NEW.first_at<>OLD.first_at OR NEW.reason<>OLD.reason OR NEW.envelope_digest<>OLD.envelope_digest
+  OR NEW.card_id<>OLD.card_id OR NEW.op<>OLD.op OR NEW.nonce<>OLD.nonce OR NEW.review_sha256<>OLD.review_sha256
+  OR NEW.count<>OLD.count+1 OR NEW.last_at<OLD.last_at
+BEGIN SELECT RAISE(ABORT,'refusals are append-only'); END;
 CREATE TRIGGER IF NOT EXISTS review_refusals_no_delete BEFORE DELETE ON review_refusals BEGIN SELECT RAISE(ABORT,'refusals are append-only'); END;
 `
 
 // ReviewRefusal is one recorded review refusal.
 type ReviewRefusal struct {
-	Seq            int64
-	At             time.Time
-	Reason         string
-	Detail         string
-	EnvelopeDigest string
-	CardID         string
-	Op             string
-	Nonce          string
-	ReviewSHA256   string
+	Seq             int64
+	At              time.Time
+	Reason          string
+	Detail          string
+	EnvelopeDigest  string
+	CardID          string
+	Op              string
+	Nonce           string
+	ReviewSHA256    string
+	Count           int64
+	FirstAt, LastAt time.Time
 }
+
+// SetClock sets the clock the store trusts for the recheck made after the write lock is taken (the default
+// is the system clock). Tests control it; production leaves it alone.
+func (s *Store) SetClock(now func() time.Time) { s.now = now }
 
 // SetReviewGate installs the gate. Consume refuses until one is installed.
 func (s *Store) SetReviewGate(g *ReviewGate) { s.gate = g }
 
-// ReviewRefusals lists recorded review refusals in order.
-func (s *Store) ReviewRefusals(ctx context.Context) ([]ReviewRefusal, error) {
-	rows, err := s.db.QueryContext(ctx, `SELECT seq,at,reason,detail,envelope_digest,card_id,op,nonce,review_sha256 FROM review_refusals ORDER BY seq`)
+// maxRefusalPage bounds one page of ReviewRefusals.
+const maxRefusalPage = 1000
+
+// ReviewRefusals returns up to limit refusals with Seq greater than after, in order (limit is clamped to
+// 1..1000, default 100 when not positive). To page, pass the last Seq returned as after.
+func (s *Store) ReviewRefusals(ctx context.Context, after int64, limit int) ([]ReviewRefusal, error) {
+	if limit <= 0 {
+		limit = 100
+	}
+	if limit > maxRefusalPage {
+		limit = maxRefusalPage
+	}
+	rows, err := s.db.QueryContext(ctx, `SELECT seq,first_at,last_at,count,reason,detail,envelope_digest,card_id,op,nonce,review_sha256 FROM review_refusals WHERE seq>? ORDER BY seq LIMIT ?`, after, limit)
 	if err != nil {
 		return nil, err
 	}
@@ -118,34 +151,42 @@ func (s *Store) ReviewRefusals(ctx context.Context) ([]ReviewRefusal, error) {
 	var out []ReviewRefusal
 	for rows.Next() {
 		var r ReviewRefusal
-		var at int64
-		if err := rows.Scan(&r.Seq, &at, &r.Reason, &r.Detail, &r.EnvelopeDigest, &r.CardID, &r.Op, &r.Nonce, &r.ReviewSHA256); err != nil {
+		var first, last int64
+		if err := rows.Scan(&r.Seq, &first, &last, &r.Count, &r.Reason, &r.Detail, &r.EnvelopeDigest, &r.CardID, &r.Op, &r.Nonce, &r.ReviewSHA256); err != nil {
 			return nil, err
 		}
-		r.At = time.Unix(at, 0).UTC()
+		r.FirstAt, r.LastAt = time.Unix(first, 0).UTC(), time.Unix(last, 0).UTC()
 		out = append(out, r)
 	}
 	return out, rows.Err()
 }
 
-// gateReview runs the gate for one consume request and records a refusal.
-func (s *Store) gateReview(ctx context.Context, req ConsumeRequest) error {
-	if s.gate == nil {
-		return ErrNoReviewGate
-	}
-	re := s.gate.check(req.Env, req.Now)
-	if re == nil {
-		return nil
-	}
+// recordRefusal counts a refusal against its (envelope, reason) row.
+func (s *Store) recordRefusal(ctx context.Context, req ConsumeRequest, re *ReviewError) error {
 	detail := re.Detail
 	if len(detail) > 256 {
 		detail = detail[:256]
 	}
+	at := req.Now.Unix()
 	_, err := s.db.ExecContext(ctx,
-		`INSERT INTO review_refusals(at,reason,detail,envelope_digest,card_id,op,nonce,review_sha256) VALUES(?,?,?,?,?,?,?,?)`,
-		req.Now.Unix(), re.Reason, detail, req.EnvelopeDigest, req.Env.CardID, req.Env.Op, req.Env.Nonce, req.Env.ReviewSHA256)
+		`INSERT INTO review_refusals(first_at,last_at,count,reason,detail,envelope_digest,card_id,op,nonce,review_sha256) VALUES(?,?,1,?,?,?,?,?,?,?)
+		 ON CONFLICT(envelope_digest,reason) DO UPDATE SET count=count+1, last_at=MAX(last_at,excluded.last_at), detail=excluded.detail`,
+		at, at, re.Reason, detail, req.EnvelopeDigest, req.Env.CardID, req.Env.Op, req.Env.Nonce, req.Env.ReviewSHA256)
 	if err != nil {
 		return fmt.Errorf("%w (and the refusal could not be recorded: %v)", re, err)
 	}
 	return re
+}
+
+// gateReview runs the gate for one consume request, records a refusal, and returns the verified receipt's
+// expiry so Consume can recheck it once it holds the write lock.
+func (s *Store) gateReview(ctx context.Context, req ConsumeRequest) (int64, error) {
+	if s.gate == nil {
+		return 0, s.recordRefusal(ctx, req, &ReviewError{Reason: ReviewNoGate, Detail: ErrNoReviewGate.Error()})
+	}
+	exp, re := s.gate.check(req.Env, req.Now)
+	if re != nil {
+		return 0, s.recordRefusal(ctx, req, re)
+	}
+	return exp, nil
 }

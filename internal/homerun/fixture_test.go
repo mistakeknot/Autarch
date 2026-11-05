@@ -178,7 +178,9 @@ func openStub(path string, lim Limits) (*Store, error) {
 	}
 	s.SetReviewGate(&ReviewGate{
 		Receipts: stubReceipts{},
-		Verify:   func(raw []byte, _, _ string, _ []string, _ time.Time) (string, error) { return string(raw), nil },
+		Verify: func(raw []byte, _, _ string, _ []string, _ time.Time) (string, int64, error) {
+			return string(raw), 1 << 62, nil
+		},
 	})
 	return s, nil
 }
