@@ -124,7 +124,9 @@ func openChain(path string, o KeyOptions) (*os.File, error) {
 		return nil, errors.New("key path must be absolute and clean")
 	}
 	parts := strings.Split(strings.TrimPrefix(path, "/"), "/")
-	const base = syscall.O_RDONLY | syscall.O_NOFOLLOW | syscall.O_CLOEXEC
+	// O_NONBLOCK keeps the open of a FIFO or device from blocking; the final fstat then refuses
+	// anything that is not a regular file.
+	const base = syscall.O_RDONLY | syscall.O_NOFOLLOW | syscall.O_CLOEXEC | syscall.O_NONBLOCK
 	fd, err := syscall.Open("/", base|syscall.O_DIRECTORY, 0)
 	if err != nil {
 		return nil, errors.New("key path cannot be opened")
@@ -183,7 +185,11 @@ func LoadKey(path string, o KeyOptions) (Signer, error) {
 	if err != nil {
 		return nil, errors.New("key file cannot be read")
 	}
-	seed, err := hex.DecodeString(strings.TrimSpace(string(raw)))
+	txt := strings.TrimSpace(string(raw))
+	seed, err := hex.DecodeString(txt)
+	if !reHex64.MatchString(txt) {
+		err = errors.New("not lower-case hex")
+	}
 	for i := range raw {
 		raw[i] = 0
 	}

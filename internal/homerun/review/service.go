@@ -61,11 +61,13 @@ type Service struct {
 	MaxDepBytes    int
 }
 
-var reVerdictLike = regexp.MustCompile(`(?i)verdict\W{0,8}(pass|fail)`)
+// reVerdictLike matches the word "verdict", then any run (unbounded) of whitespace, Unicode space,
+// punctuation, symbols or invisible format characters, then PASS or FAIL.
+var reVerdictLike = regexp.MustCompile(`(?i)verdict[\s\p{Z}\p{P}\p{S}\p{Cf}]*(pass|fail)`)
 
 // ParseVerdict extracts the verdict from reviewer text. The last non-empty line must be exactly
-// "VERDICT: PASS" or "VERDICT: FAIL" and nothing else. Any earlier verdict-like text that names the
-// other outcome (quoted, fenced, emphasised or lower-case) is a conflict and yields no verdict, so
+// "VERDICT: PASS" or "VERDICT: FAIL" and nothing else. Any earlier verdict-like text (quoted, fenced,
+// emphasised, lower-case or oddly spaced) yields no verdict, so
 // text the reviewer quoted from the script cannot decide the outcome.
 func ParseVerdict(text string) (string, error) {
 	lines := strings.Split(text, "\n")
@@ -90,10 +92,8 @@ func ParseVerdict(text string) (string, error) {
 		return "", errors.New("the last non-empty line of reviewer output is not exactly a verdict line")
 	}
 	for _, ln := range lines[:last] {
-		for _, m := range reVerdictLike.FindAllStringSubmatch(ln, -1) {
-			if !strings.EqualFold(m[1], outcome) {
-				return "", errors.New("reviewer output holds verdict text that conflicts with its final verdict")
-			}
+		if reVerdictLike.MatchString(ln) {
+			return "", errors.New("reviewer output holds an earlier verdict-like line")
 		}
 	}
 	return outcome, nil

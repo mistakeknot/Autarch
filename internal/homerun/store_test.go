@@ -7,6 +7,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -429,3 +430,29 @@ func TestNonceIssueBounds(t *testing.T) {
 
 // keep the encoding/json import honest for table dumps in failures
 var _ = json.Marshal
+
+func TestConsumeRefusesRuntimeOutsideCapBeforeSpendingNonce(t *testing.T) {
+	now := time.Now()
+	for i, v := range []int64{9223372037, 1 << 62, 601, 0, -1} {
+		s, _ := newStore(t) // fresh store: an earlier success would hold the privilege cap
+		n, err := s.IssueNonce(context.Background(), testHost, 4*time.Minute, now)
+		if err != nil {
+			t.Fatal(err)
+		}
+		e := testEnvelope(t, now)
+		e.Nonce, e.RuntimeMaxS = n.Value, v
+		e.CardID = fmt.Sprintf("card-%d", i) // one active attempt per card
+		dg, _ := e.Digest()
+		req := ConsumeRequest{Env: e, EnvelopeDigest: dg, Host: testHost, Now: now,
+			Signer: Signer{Principal: principal, KeyType: "ED25519-CERT", Fingerprint: "SHA256:test"}}
+		if a, err := s.Consume(context.Background(), req); err == nil {
+			t.Fatalf("runtime_max_s %d accepted (RuntimeMax %v)", v, a.RuntimeMax)
+		}
+		e.RuntimeMaxS = 600
+		req.Env = e
+		req.EnvelopeDigest, _ = e.Digest()
+		if a, err := s.Consume(context.Background(), req); err != nil || a.RuntimeMax != 600*time.Second {
+			t.Fatalf("value %d: nonce spent by the refusal: %v", v, err)
+		}
+	}
+}

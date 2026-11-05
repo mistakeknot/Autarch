@@ -16,6 +16,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 )
@@ -737,5 +738,82 @@ func TestCheckKeyPathAncestorChain(t *testing.T) {
 				t.Fatalf("ok=%v err=%v", c.ok, err)
 			}
 		})
+	}
+}
+
+// ---- review round 2 ----
+
+func TestConflictingVerdictWithAnySeparatorRefused(t *testing.T) {
+	for name, early := range map[string]string{
+		"nine spaces": "VERDICT:" + strings.Repeat(" ", 9) + "FAIL",
+		"long run":    "VERDICT:" + strings.Repeat(" ", 500) + "FAIL",
+		"tab":         "VERDICT:\t\t\t\t\t\t\t\t\t\tFAIL",
+		"nbsp":        "VERDICT:" + strings.Repeat(" ", 12) + "FAIL",
+		"ideographic": "VERDICT:" + strings.Repeat("　", 12) + "FAIL",
+		"punctuation": "VERDICT -- >>> ... FAIL",
+		"lower":       "verdict:        fail",
+		"zero width":  "VERDICT:​​​​​​​​​​FAIL",
+	} {
+		t.Run(name, func(t *testing.T) {
+			if v, err := ParseVerdict(early + "\nVERDICT: PASS\n"); err == nil {
+				t.Fatalf("accepted as %s", v)
+			}
+		})
+	}
+	// An earlier verdict-like line of any kind refuses, even when it agrees.
+	if v, err := ParseVerdict("> VERDICT: PASS\nVERDICT: PASS\n"); err == nil {
+		t.Fatalf("quoted agreeing verdict accepted as %s", v)
+	}
+	// The word alone, without an outcome, is ordinary prose.
+	if v, err := ParseVerdict("My verdict is below.\nVERDICT: PASS\n"); err != nil || v != "PASS" {
+		t.Fatalf("%q %v", v, err)
+	}
+}
+
+func TestUppercaseOrOddHexRefused(t *testing.T) {
+	f := newFixture(t, okResult("PASS"))
+	r, _ := ParseReceipt(f.issue(t))
+	for name, mut := range map[string]func(*Receipt){
+		"upper signature": func(r *Receipt) { r.Signature = strings.ToUpper(r.Signature) },
+		"short signature": func(r *Receipt) { r.Signature = r.Signature[:126] },
+		"long signature":  func(r *Receipt) { r.Signature += "00" },
+		"non-hex":         func(r *Receipt) { r.Signature = strings.Repeat("g", 128) },
+	} {
+		t.Run(name, func(t *testing.T) {
+			cp := *r
+			mut(&cp)
+			raw, _ := cp.Canonical()
+			if _, err := f.v.Verify(raw, f.exp); err == nil {
+				t.Fatal("accepted")
+			}
+			if _, err := ParseReceipt(raw); err == nil {
+				t.Fatal("parsed")
+			}
+		})
+	}
+}
+
+func TestLoadKeyRefusesFIFOWithoutBlocking(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.Chmod(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	p := filepath.Join(dir, "review.key")
+	if err := syscall.Mkfifo(p, 0o600); err != nil {
+		t.Skipf("no fifo: %v", err)
+	}
+	done := make(chan error, 1)
+	go func() { _, err := LoadKey(p, KeyOptions{SelfUID: uint32(os.Getuid())}); done <- err }()
+	select {
+	case err := <-done:
+		if err == nil {
+			t.Fatal("FIFO accepted as a key")
+		}
+	case <-time.After(3 * time.Second):
+		// Unblock the stuck open so the goroutine ends, then fail.
+		if f, err := os.OpenFile(p, os.O_WRONLY|syscall.O_NONBLOCK, 0); err == nil {
+			f.Close()
+		}
+		t.Fatal("LoadKey blocked on a FIFO")
 	}
 }

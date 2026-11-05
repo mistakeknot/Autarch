@@ -57,6 +57,7 @@ func refuse(format string, a ...any) error {
 
 var (
 	reHex64  = regexp.MustCompile(`^[0-9a-f]{64}$`)
+	reHex128 = regexp.MustCompile(`^[0-9a-f]{128}$`)
 	reToken  = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._:/+-]{0,127}$`)
 	reFlag   = regexp.MustCompile(`^--[a-z][a-z0-9-]{0,31}$`)
 	maxFlags = 32
@@ -196,6 +197,9 @@ func ParseReceipt(raw []byte) (*Receipt, error) {
 	if err := r.Body.validate(); err != nil {
 		return nil, err
 	}
+	if !reHex128.MatchString(r.Signature) {
+		return nil, refuse("signature is malformed (need 128 lower-case hex characters)")
+	}
 	// The parsed value must re-encode to exactly the bytes that were read.
 	again, err := r.Canonical()
 	if err != nil || !bytes.Equal(again, raw) {
@@ -231,7 +235,7 @@ func (v *Verifier) Verify(rawReceipt []byte, want Expect) (string, error) {
 		return "", err
 	}
 	sig, err := hex.DecodeString(r.Signature)
-	if err != nil || len(sig) != ed25519.SignatureSize {
+	if err != nil || len(sig) != ed25519.SignatureSize || !reHex128.MatchString(r.Signature) {
 		return "", refuse("signature is malformed")
 	}
 	msg, err := r.Body.SigningBytes()
