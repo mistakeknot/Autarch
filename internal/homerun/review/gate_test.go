@@ -26,6 +26,7 @@ type gateRig struct {
 	store *homerun.Store
 	cas   *homerun.CAS
 	now   time.Time
+	off   atomic.Int64 // added to now for the store's trusted clock
 }
 
 func newGateRig(t *testing.T, res ProviderResult) *gateRig {
@@ -43,7 +44,10 @@ func newGateRig(t *testing.T, res ProviderResult) *gateRig {
 	}
 	t.Cleanup(func() { s.Close() })
 	s.SetReviewGate(f.v.Gate(cas))
-	return &gateRig{t: t, f: f, store: s, cas: cas, now: f.exp.Now}
+	g := &gateRig{t: t, f: f, store: s, cas: cas, now: f.exp.Now}
+	// Every test runs on the fixture's clock, never the wall clock.
+	s.SetClock(func() time.Time { return g.now.Add(time.Duration(g.off.Load())) })
+	return g
 }
 
 // put stores raw receipt bytes under their own digest and returns it.
@@ -254,8 +258,6 @@ func TestGateCoversApply(t *testing.T) {
 // the lock is held, and a late receipt leaves the nonce unspent and is recorded.
 func TestGateReceiptExpiresWhileWaitingForLock(t *testing.T) {
 	g := newGateRig(t, okResult("PASS"))
-	var off atomic.Int64
-	g.store.SetClock(func() time.Time { return g.now.Add(time.Duration(off.Load())) })
 	raw := g.f.issue(t) // valid t0 .. t0+10min
 	e, dg := g.envelope(g.put(raw))
 	dbPath := filepath.Join(filepath.Dir(g.cas.Root), "state.db")
@@ -275,7 +277,7 @@ func TestGateReceiptExpiresWhileWaitingForLock(t *testing.T) {
 		t.Fatalf("consume did not wait for the lock: %v", err)
 	case <-time.After(300 * time.Millisecond):
 	}
-	off.Store(int64(11 * time.Minute)) // the receipt has now expired
+	g.off.Store(int64(11 * time.Minute)) // the receipt has now expired
 	if err := tx.Rollback(); err != nil {
 		t.Fatal(err)
 	}
@@ -289,7 +291,7 @@ func TestGateReceiptExpiresWhileWaitingForLock(t *testing.T) {
 		t.Fatalf("refusal not recorded: %+v", rs)
 	}
 	// the nonce is unspent: with the clock back, the same envelope succeeds
-	off.Store(0)
+	g.off.Store(0)
 	if err := g.consume(e, dg); err != nil {
 		t.Fatalf("nonce was spent: %v", err)
 	}
@@ -348,5 +350,18 @@ func TestGateRefusalsPagination(t *testing.T) {
 		if got[i] <= got[i-1] {
 			t.Fatalf("not in order: %v", got)
 		}
+	}
+}
+
+// The store's clock is the fixture's, so a receipt that is valid at the request time but expired by the
+// store's clock (a year later) is refused, whatever the wall clock says.
+func TestGateStoreClockIsTheFixtureClock(t *testing.T) {
+	g := newGateRig(t, okResult("PASS"))
+	g.off.Store(int64(366 * 24 * time.Hour))
+	e, dg := g.envelope(g.put(g.f.issue(t)))
+	err := g.consume(e, dg)
+	var re *homerun.ReviewError
+	if !errors.As(err, &re) || re.Reason != homerun.ReviewRefused || !strings.Contains(re.Detail, "expired") {
+		t.Fatalf("got %v", err)
 	}
 }

@@ -93,6 +93,10 @@ func Open(path string, lim Limits) (*Store, error) {
 	if err != nil {
 		return nil, fmt.Errorf("homerun: %w", err)
 	}
+	if err := migrateReviewRefusals(db); err != nil {
+		db.Close()
+		return nil, fmt.Errorf("homerun: migrate review refusals: %w", err)
+	}
 	if _, err := db.Exec(schema + schemaLimits + reviewSchema); err != nil {
 		db.Close()
 		return nil, fmt.Errorf("homerun: schema: %w", err)

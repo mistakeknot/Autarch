@@ -4,8 +4,10 @@ package homerun
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"fmt"
+	"slices"
 	"time"
 )
 
@@ -189,4 +191,60 @@ func (s *Store) gateReview(ctx context.Context, req ConsumeRequest) (int64, erro
 		return 0, s.recordRefusal(ctx, req, re)
 	}
 	return exp, nil
+}
+
+// migrateReviewRefusals rebuilds a review_refusals table of the first shape (one row per refusal, no
+// count) into the aggregated shape, in one transaction: rows are grouped by (envelope digest, reason),
+// count is the number of old rows, first_at and last_at the earliest and latest, and detail the latest.
+// A table already in the new shape, or no table, is left alone.
+func migrateReviewRefusals(db *sql.DB) error {
+	rows, err := db.Query(`SELECT name FROM pragma_table_info('review_refusals')`)
+	if err != nil {
+		return err
+	}
+	var cols []string
+	for rows.Next() {
+		var n string
+		if err := rows.Scan(&n); err != nil {
+			rows.Close()
+			return err
+		}
+		cols = append(cols, n)
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return err
+	}
+	rows.Close()
+	if len(cols) == 0 || slices.Contains(cols, "count") {
+		return nil
+	}
+	tx, err := db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback() //nolint:errcheck
+	for _, q := range []string{
+		`DROP TRIGGER IF EXISTS review_refusals_no_update`,
+		`DROP TRIGGER IF EXISTS review_refusals_no_delete`,
+		`ALTER TABLE review_refusals RENAME TO review_refusals_v1`,
+	} {
+		if _, err := tx.Exec(q); err != nil {
+			return err
+		}
+	}
+	if _, err := tx.Exec(reviewSchema); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(`INSERT INTO review_refusals(first_at,last_at,count,reason,detail,envelope_digest,card_id,op,nonce,review_sha256)
+		SELECT MIN(o.at), MAX(o.at), COUNT(*), o.reason,
+		       (SELECT d.detail FROM review_refusals_v1 d WHERE d.envelope_digest=o.envelope_digest AND d.reason=o.reason ORDER BY d.seq DESC LIMIT 1),
+		       o.envelope_digest, o.card_id, o.op, o.nonce, o.review_sha256
+		FROM review_refusals_v1 o GROUP BY o.envelope_digest, o.reason ORDER BY MIN(o.seq)`); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(`DROP TABLE review_refusals_v1`); err != nil {
+		return err
+	}
+	return tx.Commit()
 }
