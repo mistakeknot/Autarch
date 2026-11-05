@@ -7,12 +7,13 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
-	"regexp"
 	"slices"
 	"strings"
 	"time"
+	"unicode"
 
 	"github.com/mistakeknot/autarch/internal/homerun"
+	"golang.org/x/text/unicode/norm"
 )
 
 // DepInput is one dependency as the service sees it: the path is informational, the bytes are reviewed.
@@ -61,13 +62,9 @@ type Service struct {
 	MaxDepBytes    int
 }
 
-// reVerdictLike matches the word "verdict", then any run (unbounded) of whitespace, Unicode space,
-// punctuation, symbols or invisible format characters, then PASS or FAIL.
-var reVerdictLike = regexp.MustCompile(`(?i)verdict[\s\p{Z}\p{P}\p{S}\p{Cf}]*(pass|fail)`)
-
 // ParseVerdict extracts the verdict from reviewer text. The last non-empty line must be exactly
-// "VERDICT: PASS" or "VERDICT: FAIL" and nothing else. Any earlier verdict-like text (quoted, fenced,
-// emphasised, lower-case or oddly spaced) yields no verdict, so
+// "VERDICT: PASS" or "VERDICT: FAIL" and nothing else. Earlier text is normalised as one string (see verdictLike); any
+// "verdict pass" or "verdict fail" in it, agreeing or not, yields no verdict, so
 // text the reviewer quoted from the script cannot decide the outcome.
 func ParseVerdict(text string) (string, error) {
 	lines := strings.Split(text, "\n")
@@ -91,12 +88,31 @@ func ParseVerdict(text string) (string, error) {
 	default:
 		return "", errors.New("the last non-empty line of reviewer output is not exactly a verdict line")
 	}
-	for _, ln := range lines[:last] {
-		if reVerdictLike.MatchString(ln) {
-			return "", errors.New("reviewer output holds an earlier verdict-like line")
-		}
+	if verdictLike(strings.Join(lines[:last], "\n")) {
+		return "", errors.New("reviewer output holds earlier verdict-like text")
 	}
 	return outcome, nil
+}
+
+// verdictLike reports whether text, taken as one string, contains the words "verdict" and then
+// "pass" or "fail" separated by nothing but non-alphanumeric characters. The text is NFKC-normalised
+// and lower-cased first, and every run of characters that are not letters or digits (any Unicode
+// space, line break, punctuation, symbol or invisible format character) becomes one space.
+func verdictLike(text string) bool {
+	text = strings.ToLower(norm.NFKC.String(text))
+	var b strings.Builder
+	sep := true
+	for _, r := range text {
+		if unicode.IsLetter(r) || unicode.IsDigit(r) {
+			b.WriteRune(r)
+			sep = false
+		} else if !sep {
+			b.WriteByte(' ')
+			sep = true
+		}
+	}
+	n := " " + b.String() + " "
+	return strings.Contains(n, " verdict pass ") || strings.Contains(n, " verdict fail ")
 }
 
 // DepsDigestOf computes the deps digest for request deps, refusing unsorted or duplicate paths.

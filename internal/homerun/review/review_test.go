@@ -817,3 +817,38 @@ func TestLoadKeyRefusesFIFOWithoutBlocking(t *testing.T) {
 		t.Fatal("LoadKey blocked on a FIFO")
 	}
 }
+
+func TestVerdictPrefixNormalisedAsOneString(t *testing.T) {
+	for name, prefix := range map[string]string{
+		"split lines":    "VERDICT:\nFAIL",
+		"crlf":           "VERDICT:\r\nFAIL\r",
+		"vertical tab":   "VERDICT:\vFAIL",
+		"nel":            "VERDICT:\u0085FAIL",
+		"line sep":       "VERDICT: FAIL",
+		"fullwidth":      "ＶＥＲＤＩＣＴ: ＦＡＩＬ",
+		"fullwidth pass": "ＶＥＲＤＩＣＴ： ＰＡＳＳ",
+		"bold":           "**VERDICT:** **FAIL**",
+		"quoted":         "> verdict: fail",
+		"fenced":         "```\nVERDICT: FAIL\n```",
+		"long run":       "VERDICT:" + strings.Repeat(" ", 500) + "FAIL",
+		"blank between":  "VERDICT\n\n\n\nFAIL",
+		"zero width":     "VERDICT​‍\ufeffFAIL",
+		"agreeing":       "verdict pass",
+	} {
+		t.Run(name, func(t *testing.T) {
+			if v, err := ParseVerdict(prefix + "\nVERDICT: PASS\n"); err == nil {
+				t.Fatalf("accepted as %s", v)
+			}
+		})
+	}
+	for _, ok := range []string{
+		"My verdict is below.\nVERDICT: PASS\n",
+		"The verdict\nwill follow; passing tests noted, nothing failed.\nVERDICT: PASS\n",
+		"verdicts pass through here\nVERDICT: PASS\n", // not word-bounded
+		"VERDICT: PASS\n",
+	} {
+		if v, err := ParseVerdict(ok); err != nil || v != "PASS" {
+			t.Fatalf("%q: %q %v", ok, v, err)
+		}
+	}
+}
