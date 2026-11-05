@@ -127,7 +127,7 @@ func canon(t *testing.T, e *Envelope) []byte {
 func newStore(t *testing.T) (*Store, string) {
 	t.Helper()
 	p := filepath.Join(t.TempDir(), "state.db")
-	s, err := Open(p, DefaultLimits())
+	s, err := openStub(p, DefaultLimits())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -168,3 +168,21 @@ func recStarted(s *Store, ctx context.Context, attempt string, info StartInfo, a
 	info.Unit = unit
 	return s.RecordStarted(ctx, attempt, info, at)
 }
+
+// openStub opens a store whose review gate accepts any receipt named by the envelope. The tests that use
+// it exercise other rules; reviewgate_test.go covers the real gate.
+func openStub(path string, lim Limits) (*Store, error) {
+	s, err := Open(path, lim)
+	if err != nil {
+		return nil, err
+	}
+	s.SetReviewGate(&ReviewGate{
+		Receipts: stubReceipts{},
+		Verify:   func(raw []byte, _, _ string, _ []string, _ time.Time) (string, error) { return string(raw), nil },
+	})
+	return s, nil
+}
+
+type stubReceipts struct{}
+
+func (stubReceipts) Read(sha string) ([]byte, error) { return []byte(sha), nil }

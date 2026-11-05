@@ -92,7 +92,7 @@ func newLive(t *testing.T) *live {
 	}
 	lim := DefaultLimits()
 	lim.MaxExecutionsPerDay, lim.MaxActiveAsMk, lim.ApplyInterval = 10000, 1000, time.Second
-	store, err := Open(filepath.Join(t.TempDir(), "state.db"), lim)
+	store, err := openStub(filepath.Join(t.TempDir(), "state.db"), lim)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -277,3 +277,14 @@ func (v *Verifier) Verify(rawReceipt []byte, want Expect) (string, error) {
 	}
 	return r.Digest()
 }
+
+// Gate adapts the verifier for the run verifier's review gate: receipts are read from src (a
+// content-addressed store keyed by the receipt digest) and verified under v's public key.
+func (v *Verifier) Gate(src homerun.ReceiptSource) *homerun.ReviewGate {
+	return &homerun.ReviewGate{
+		Receipts: src,
+		Verify: func(raw []byte, scriptSHA, depsDigest string, flags []string, now time.Time) (string, error) {
+			return v.Verify(raw, Expect{ScriptSHA256: scriptSHA, DepsDigest: depsDigest, Flags: flags, Now: now})
+		},
+	}
+}

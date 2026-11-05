@@ -32,9 +32,10 @@ var (
 // Store is the verifier's durable state: single-use nonces, attempts and the audit table, in one SQLite
 // database (WAL, synchronous=FULL). The database file belongs to the verifier alone.
 type Store struct {
-	db  *sql.DB
-	lim Limits
-	mir *mirror
+	db   *sql.DB
+	lim  Limits
+	mir  *mirror
+	gate *ReviewGate
 }
 
 const schema = `
@@ -91,7 +92,7 @@ func Open(path string, lim Limits) (*Store, error) {
 	if err != nil {
 		return nil, fmt.Errorf("homerun: %w", err)
 	}
-	if _, err := db.Exec(schema + schemaLimits); err != nil {
+	if _, err := db.Exec(schema + schemaLimits + reviewSchema); err != nil {
 		db.Close()
 		return nil, fmt.Errorf("homerun: schema: %w", err)
 	}
@@ -203,6 +204,9 @@ func (s *Store) Consume(ctx context.Context, req ConsumeRequest) (*Attempt, erro
 		return nil, errors.New("homerun: runtime_max_s is outside the allowed range")
 	}
 	if err := s.requireUnlocked(ctx); err != nil {
+		return nil, err
+	}
+	if err := s.gateReview(ctx, req); err != nil {
 		return nil, err
 	}
 	id, err := newULID(req.Now)
