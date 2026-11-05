@@ -741,6 +741,81 @@ func TestLivePinHeldAcrossStart(t *testing.T) {
 	}
 }
 
+// ---- runtime sockets created after launch -------------------------------------------------------------
+
+// TestLiveRuntimeSocketsCreatedAfterLaunch starts a run while the socket paths are absent, then creates
+// listening unix sockets (as root, outside the unit) while it runs. The unit must not reach any of them
+// through /run or through /var/run, and must still run normally with /run replaced.
+func TestLiveRuntimeSocketsCreatedAfterLaunch(t *testing.T) {
+	lv := newLive(t)
+	paths := []string{"/run/docker.sock", "/var/run/docker.sock", "/run/containerd/containerd.sock", "/run/podman/podman.sock", "/run/dbus/system_bus_socket"}
+	for _, p := range paths {
+		_ = os.Remove(p)
+	}
+	_ = os.RemoveAll("/run/containerd")
+	_ = os.RemoveAll("/run/podman")
+	ready := liveBase + "/sock-ready"
+	_ = os.Remove(ready)
+	var probes strings.Builder
+	for i, p := range paths {
+		fmt.Fprintf(&probes, "if python3 -c 'import socket;s=socket.socket(socket.AF_UNIX);s.connect(\"%s\")' 2>/dev/null; then echo \"PROBE sock%d=REACHED\"; else echo \"PROBE sock%d=denied\"; fi\n", p, i, i)
+	}
+	// The script waits until the host side has created the sockets, so they provably did not exist at launch.
+	script := "while [ ! -e " + ready + " ]; do sleep 0.2; done\nsleep 1\n" + probes.String() +
+		"ls -A /run | wc -l | sed 's/^/PROBE run_entries=/'\ntouch /run/x 2>/dev/null && echo PROBE run_write=allowed || echo PROBE run_write=denied\n"
+	a, info, err := lv.launch(script, 90*time.Second)
+	if err != nil {
+		t.Fatalf("a run must still start with /run replaced: %v", err)
+	}
+	p := sctl(t, info.Unit, "TemporaryFileSystem")
+	obs(t, "systemctl show TemporaryFileSystem", strings.TrimSpace(p))
+	if !strings.Contains(p, "/run:") {
+		t.Errorf("TemporaryFileSystem not applied: %q", p)
+	}
+	var lns []net.Listener
+	for _, sp := range paths {
+		if err := os.MkdirAll(filepath.Dir(sp), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		_ = os.Remove(sp)
+		ln, err := net.Listen("unix", sp)
+		if err != nil {
+			// /var/run/docker.sock is the same file as /run/docker.sock on the host.
+			obs(t, "listen "+sp, err)
+			continue
+		}
+		_ = os.Chmod(sp, 0o666)
+		lns = append(lns, ln)
+		defer os.Remove(sp)
+	}
+	defer func() {
+		for _, ln := range lns {
+			ln.Close()
+		}
+	}()
+	// Control: a non-unit process reaches a socket just made.
+	if out, err := asRunner(t, lv, "python3", "-c", `import socket;s=socket.socket(socket.AF_UNIX);s.connect("/run/docker.sock")`); err != nil {
+		t.Errorf("control: connect outside the unit failed (%v %s): the test proves nothing", err, out)
+	}
+	if err := os.WriteFile(ready, nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	r, _ := lv.waitEnded(a, 60*time.Second)
+	log := readLog(t, lv, a)
+	obs(t, "log", strings.ReplaceAll(log, "\n", " | "))
+	if r.Kind != KindEnded || r.Result != ResultSuccess {
+		t.Fatalf("run: %+v", r)
+	}
+	for i := range paths {
+		if !strings.Contains(log, fmt.Sprintf("PROBE sock%d=denied", i)) {
+			t.Errorf("socket %s was reachable from the unit", paths[i])
+		}
+	}
+	if !strings.Contains(log, "PROBE run_write=denied") {
+		t.Errorf("/run is writable inside the unit")
+	}
+}
+
 // ---- A4 (cgroup path) and cgroup removal after the unit is stopped ---------------------------------------
 
 func TestLiveCgroupPathAndRemoval(t *testing.T) {

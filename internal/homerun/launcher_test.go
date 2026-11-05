@@ -141,6 +141,7 @@ func TestBuildRunArgsGolden(t *testing.T) {
 		"--property=PrivateTmp=yes",
 		"--property=ProtectSystem=strict",
 		"--property=ProtectHome=read-only",
+		"--property=TemporaryFileSystem=/run:ro,mode=0755,nosuid,nodev,noexec",
 		"--property=NoExecPaths=/ /tmp /var/tmp /home/runner/work /home/runner/logs",
 		"--property=ExecPaths=/usr /bin /sbin /lib /lib64 /srv/cas",
 		"--property=ReadWritePaths=/home/runner/work /home/runner/logs",
@@ -178,6 +179,7 @@ func TestHardeningPropertiesAreAlwaysPresentAndNothingElseRunsTheScript(t *testi
 			"--property=CapabilityBoundingSet=", "--property=PrivateTmp=yes", "--property=ProtectSystem=strict",
 			"--property=ProtectHome=read-only", "--property=NoExecPaths=/ /tmp /var/tmp", "--property=KillMode=control-group",
 			"--property=InaccessiblePaths=-/run/docker.sock -/var/run/docker.sock -/run/containerd",
+			"--property=TemporaryFileSystem=/run:ro,mode=0755,nosuid,nodev,noexec",
 		} {
 			if !have[must] {
 				t.Errorf("%s: missing %s", op, must)

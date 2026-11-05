@@ -36,6 +36,9 @@ var (
 	inaccessiblePaths = []string{"-/run/docker.sock", "-/var/run/docker.sock", "-/run/containerd"}
 )
 
+// runtimeDirMask is the TemporaryFileSystem value that hides the host's /run from a run.
+const runtimeDirMask = "/run:ro,mode=0755,nosuid,nodev,noexec"
+
 // UnitPATH is the PATH of every run (design 4.3).
 const UnitPATH = "/usr/sbin:/usr/bin:/sbin:/bin"
 
@@ -188,6 +191,11 @@ func BuildRunArgs(cfg LaunchConfig, lim Limits, att *Attempt, env *Envelope, wri
 		prop("ProtectSystem", "strict"),
 		// strict alone leaves /home writable (observed live on systemd 255), so make it read-only.
 		prop("ProtectHome", "read-only"),
+		// A "-" InaccessiblePaths entry skips a socket that is absent at launch, so a runtime started
+		// mid-run (docker, containerd, podman, the system bus) would be reachable. Replace the whole runtime
+		// directory with an empty read-only tmpfs: nothing created on the host's /run later shows up in the
+		// unit's namespace, and /var/run (a symlink to /run) lands on the same empty tmpfs.
+		prop("TemporaryFileSystem", runtimeDirMask),
 		// "/" alone leaves the private /tmp and every ReadWritePaths bind mount executable (observed live),
 		// so the agent could write a binary there and run it: name them too.
 		prop("NoExecPaths", strings.Join(append([]string{"/", "/tmp", "/var/tmp"}, writes...), " ")),
