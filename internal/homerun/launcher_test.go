@@ -136,10 +136,11 @@ func TestBuildRunArgsGolden(t *testing.T) {
 		"--property=NoNewPrivileges=yes",
 		"--property=RestrictSUIDSGID=yes",
 		"--property=CapabilityBoundingSet=",
-		"--property=InaccessiblePaths=/run/docker.sock /var/run/docker.sock /run/containerd",
+		"--property=InaccessiblePaths=-/run/docker.sock -/var/run/docker.sock -/run/containerd",
 		"--property=PrivateTmp=yes",
 		"--property=ProtectSystem=strict",
-		"--property=NoExecPaths=/",
+		"--property=ProtectHome=read-only",
+		"--property=NoExecPaths=/ /tmp /var/tmp /home/runner/work /home/runner/logs",
 		"--property=ExecPaths=/usr /bin /sbin /lib /lib64 /srv/cas",
 		"--property=ReadWritePaths=/home/runner/work /home/runner/logs",
 		"--property=RuntimeMaxSec=600",
@@ -174,8 +175,8 @@ func TestHardeningPropertiesAreAlwaysPresentAndNothingElseRunsTheScript(t *testi
 		for _, must := range []string{
 			"--property=User=runner", "--property=NoNewPrivileges=yes", "--property=RestrictSUIDSGID=yes",
 			"--property=CapabilityBoundingSet=", "--property=PrivateTmp=yes", "--property=ProtectSystem=strict",
-			"--property=NoExecPaths=/", "--property=KillMode=control-group",
-			"--property=InaccessiblePaths=/run/docker.sock /var/run/docker.sock /run/containerd",
+			"--property=ProtectHome=read-only", "--property=NoExecPaths=/ /tmp /var/tmp", "--property=KillMode=control-group",
+			"--property=InaccessiblePaths=-/run/docker.sock -/var/run/docker.sock -/run/containerd",
 		} {
 			if !have[must] {
 				t.Errorf("%s: missing %s", op, must)
