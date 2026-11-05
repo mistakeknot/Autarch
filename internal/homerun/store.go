@@ -22,7 +22,7 @@ var (
 	// ErrNonceUnavailable: the nonce was never issued, is for another host, has expired or was already
 	// consumed. The cases are not told apart to a requester; none of them can be retried.
 	ErrNonceUnavailable = errors.New("nonce unavailable")
-	// ErrBusy: another attempt is active on the card, or the global cap for the privilege is reached.
+	// ErrBusy: another attempt holds the card (authorized, started or uncertain), or the global cap for the privilege is reached.
 	// The request is not queued and the nonce is not consumed.
 	ErrBusy = errors.New("busy")
 	// ErrBadTransition: an audit step that the attempt's sequence does not allow.
@@ -54,11 +54,12 @@ CREATE TABLE IF NOT EXISTS attempts(
   script_sha256  TEXT NOT NULL,
   nonce          TEXT NOT NULL UNIQUE REFERENCES nonces(nonce),
   identity       TEXT NOT NULL,
-  state          TEXT NOT NULL CHECK(state IN('AUTHORIZED','STARTED','ENDED','UNCERTAIN','ABORTED_BEFORE_START')),
+  state          TEXT NOT NULL CHECK(state IN('AUTHORIZED','STARTED','ENDED','UNCERTAIN','RESOLVED','ABORTED_BEFORE_START')),
   created_at     INTEGER NOT NULL
 ) WITHOUT ROWID;
-CREATE UNIQUE INDEX IF NOT EXISTS attempts_one_active_per_card ON attempts(card_id)
-  WHERE state IN('AUTHORIZED','STARTED');
+DROP INDEX IF EXISTS attempts_one_active_per_card;
+CREATE UNIQUE INDEX IF NOT EXISTS attempts_one_held_per_card ON attempts(card_id)
+  WHERE state IN('AUTHORIZED','STARTED','UNCERTAIN');
 CREATE TABLE IF NOT EXISTS audit(
   seq     INTEGER PRIMARY KEY AUTOINCREMENT,
   attempt TEXT NOT NULL REFERENCES attempts(attempt),
@@ -226,11 +227,11 @@ func (s *Store) Consume(ctx context.Context, req ConsumeRequest) (*Attempt, erro
 	}
 
 	var onCard int
-	if err := tx.QueryRowContext(ctx, `SELECT count(*) FROM attempts WHERE card_id=? AND state IN('AUTHORIZED','STARTED')`, e.CardID).Scan(&onCard); err != nil {
+	if err := tx.QueryRowContext(ctx, `SELECT count(*) FROM attempts WHERE card_id=? AND state IN('AUTHORIZED','STARTED','UNCERTAIN')`, e.CardID).Scan(&onCard); err != nil {
 		return nil, err
 	}
 	var onPriv int
-	if err := tx.QueryRowContext(ctx, `SELECT count(*) FROM attempts WHERE privilege=? AND state IN('AUTHORIZED','STARTED')`, e.Privilege).Scan(&onPriv); err != nil {
+	if err := tx.QueryRowContext(ctx, `SELECT count(*) FROM attempts WHERE privilege=? AND state IN('AUTHORIZED','STARTED','UNCERTAIN')`, e.Privilege).Scan(&onPriv); err != nil {
 		return nil, err
 	}
 	capacity := s.lim.MaxActiveAsMk
@@ -422,6 +423,9 @@ func (s *Store) RecordEnded(ctx context.Context, attempt string, info EndInfo, a
 func applyEnd(r *Record, info EndInfo) {
 	st, ob, ms := info.ExitStatus, info.OutputBytes, info.Duration.Milliseconds()
 	r.Result, r.ExitStatus, r.OutputSHA256, r.OutputBytes, r.DurationMS = info.Result, &st, info.OutputSHA256, &ob, &ms
+	if !info.EndedAt.IsZero() {
+		r.EndedAt = info.EndedAt.UTC().Format(time.RFC3339Nano)
+	}
 }
 
 // RecordAborted records ABORTED_BEFORE_START for an attempt whose unit never launched. It is refused once
@@ -446,7 +450,7 @@ type Lookup func(ctx context.Context, invocationID string) (info EndInfo, found 
 type UnitState struct {
 	Found        bool     // systemd knows a unit of that name (running or ended)
 	InvocationID string   // its InvocationID when Found
-	Ended        *EndInfo // how it ended; nil while it is still running
+	Ended        *EndInfo // how it ended (with EndInfo.EndedAt, when known); nil while it is still running
 }
 
 // UnitLookup finds a unit by name. found=false with no error means systemd has no such unit.
@@ -459,15 +463,24 @@ func (s *Store) Recover(ctx context.Context, lookup Lookup, now time.Time) ([]Re
 }
 
 // RecoverUnits settles attempts a crash left open. It must run at start-up, before any new attempt, and
-// never retries anything.
+// never retries anything. It only ever moves an attempt toward a known end; an unknown outcome keeps the
+// card and the privilege's cap (UNCERTAIN holds both until an operator resolves it, ResolveUncertain).
 //
 //   - AUTHORIZED, no launch intent: the unit was never started, so ABORTED_BEFORE_START (no lookup).
-//   - AUTHORIZED with a launch intent: byUnit is asked about the intended unit. Absent: ABORTED_BEFORE_START.
-//     Present: STARTED is recorded from its InvocationID, then ENDED if it has ended; a unit still running
-//     stays STARTED and holds its card. No answer: the attempt stays AUTHORIZED (ErrUnreconciled).
+//   - AUTHORIZED with a launch intent: byUnit is asked about the intended unit. Absent: UNCERTAIN, not
+//     ABORTED_BEFORE_START, because the unit may have run and been collected, or been lost in a reboot; the
+//     attempt keeps counting toward the interval and daily limits. Present: STARTED is recorded from its
+//     InvocationID, then ENDED if it has ended; a unit still running stays STARTED and holds its card. No
+//     answer: the attempt stays AUTHORIZED (ErrUnreconciled).
 //     Residual: "absent" is only as good as byUnit; a launch call still in flight inside systemd cannot be
 //     seen from here, which is why launching is a single call made after the intent is durable.
-//   - STARTED: ENDED when byInv knows how the unit ended, else UNCERTAIN ("outcome unknown, check by hand").
+//   - STARTED: ENDED when byInv (by InvocationID) or else byUnit (by unit name, for the recorded
+//     InvocationID) knows how the unit ended; still STARTED when byUnit reports that very invocation running;
+//     otherwise UNCERTAIN ("outcome unknown, check by hand").
+//
+// An ENDED outcome carries the completion time the lookup reports. Recovery never substitutes its own
+// clock: an unknown time leaves a check without a usable receipt, and a time that cannot be right (before
+// the attempt, or after now) makes the outcome UNCERTAIN.
 //
 // A new run always needs a new envelope and nonce.
 func (s *Store) RecoverUnits(ctx context.Context, byInv Lookup, byUnit UnitLookup, now time.Time) ([]Record, error) {
@@ -489,34 +502,48 @@ func (s *Store) RecoverUnits(ctx context.Context, byInv Lookup, byUnit UnitLooku
 	if err := rows.Err(); err != nil {
 		return nil, err
 	}
+	uncertain := func(id, note string) error {
+		return s.transition(ctx, id, KindUncertain, now, nil, func(r *Record) { r.Note = note }, nil)
+	}
+	// ended records ENDED for a validated outcome, or UNCERTAIN when its completion time cannot be right.
+	ended := func(id string, info EndInfo) error {
+		err := s.transition(ctx, id, KindEnded, now, nil, func(r *Record) { applyEnd(r, info) }, endReceipt(id, info, now))
+		if errors.Is(err, ErrEndTime) {
+			return uncertain(id, "outcome unknown, check by hand: "+err.Error())
+		}
+		return err
+	}
 	var unreconciled []string
 	for _, o := range todo {
+		unit, intended, err := launchUnit(ctx, s.db, o.id)
+		if err != nil {
+			return nil, err
+		}
+		var st UnitState
+		var lerr error = errors.New("no unit lookup")
+		if byUnit != nil && intended {
+			st, lerr = byUnit(ctx, unit)
+		}
 		if Kind(o.state) == KindAuthorized {
-			unit, intended, err := launchUnit(ctx, s.db, o.id)
-			if err != nil {
-				return nil, err
-			}
 			if !intended {
 				if err := s.RecordAborted(ctx, o.id, "verifier stopped before the unit was launched", now); err != nil {
 					return nil, err
 				}
 				continue
 			}
-			st, lerr := UnitState{}, errors.New("no unit lookup")
-			if byUnit != nil {
-				st, lerr = byUnit(ctx, unit)
-			}
 			switch {
 			case lerr != nil || (st.Found && !reHex32.MatchString(st.InvocationID)):
 				unreconciled = append(unreconciled, o.id)
 			case !st.Found:
-				err = s.transition(ctx, o.id, KindAborted, now, nil, func(r *Record) { r.Note = "launch intended; systemd has no such unit" }, nil)
+				err = uncertain(o.id, "launch intended; systemd has no such unit; it may have run, check by hand")
 			default:
 				err = s.RecordStarted(ctx, o.id, StartInfo{Unit: unit, InvocationID: st.InvocationID, CASSHA: o.sha}, now)
-				if err == nil && st.Ended != nil && st.Ended.validate() == nil {
-					err = s.transition(ctx, o.id, KindEnded, now, nil, func(r *Record) { applyEnd(r, *st.Ended) }, endReceipt(o.id, *st.Ended, now))
-				} else if err == nil && st.Ended != nil {
-					err = s.transition(ctx, o.id, KindUncertain, now, nil, func(r *Record) { r.Note = "outcome unknown, check by hand" }, nil)
+				if err == nil && st.Ended != nil {
+					if st.Ended.validate() == nil {
+						err = ended(o.id, *st.Ended)
+					} else {
+						err = uncertain(o.id, "outcome unknown, check by hand")
+					}
 				}
 			}
 			if err != nil {
@@ -524,6 +551,7 @@ func (s *Store) RecoverUnits(ctx context.Context, byInv Lookup, byUnit UnitLooku
 			}
 			continue
 		}
+		// STARTED
 		var inv string
 		if err := s.db.QueryRowContext(ctx, `SELECT json_extract(body,'$.invocation_id') FROM audit WHERE attempt=? AND kind='STARTED'`, o.id).Scan(&inv); err != nil {
 			return nil, err
@@ -536,9 +564,13 @@ func (s *Store) RecoverUnits(ctx context.Context, byInv Lookup, byUnit UnitLooku
 			}
 		}
 		if found && info.validate() == nil {
-			err = s.transition(ctx, o.id, KindEnded, now, nil, func(r *Record) { applyEnd(r, info) }, endReceipt(o.id, info, now))
+			err = ended(o.id, info)
+		} else if lerr == nil && st.Found && st.InvocationID == inv && st.Ended == nil {
+			continue // the recorded invocation is still running: it keeps its card
+		} else if lerr == nil && st.Found && st.InvocationID == inv && st.Ended.validate() == nil {
+			err = ended(o.id, *st.Ended)
 		} else {
-			err = s.transition(ctx, o.id, KindUncertain, now, nil, func(r *Record) { r.Note = "outcome unknown, check by hand" }, nil)
+			err = uncertain(o.id, "outcome unknown, check by hand")
 		}
 		if err != nil {
 			return nil, err
@@ -552,6 +584,56 @@ func (s *Store) RecoverUnits(ctx context.Context, byInv Lookup, byUnit UnitLooku
 		return recs, fmt.Errorf("%w: %s", ErrUnreconciled, strings.Join(unreconciled, ", "))
 	}
 	return recs, nil
+}
+
+// Resolution is an operator's ruling on an UNCERTAIN attempt.
+type Resolution struct {
+	Operator string // who looked: a short name, required, no control characters
+	Outcome  string // ResolutionTerminated or ResolutionNeverRan
+	Reason   string // what was checked, required
+}
+
+// Outcomes an operator may record. Both free the card and the privilege's cap; neither erases the attempt
+// from the interval and daily limits, which count every attempt that may have executed.
+const (
+	ResolutionTerminated = "terminated" // the unit ran (or may have) and is certainly not running now
+	ResolutionNeverRan   = "never_ran"  // the unit demonstrably never executed the script
+)
+
+func (r Resolution) validate() error {
+	clean := func(name, v string, max int) error {
+		if v == "" || len(v) > max {
+			return fmt.Errorf("resolution needs %s (1-%d bytes)", name, max)
+		}
+		for _, c := range v {
+			if c < 0x20 || c == 0x7f {
+				return fmt.Errorf("resolution %s holds a control character", name)
+			}
+		}
+		return nil
+	}
+	if err := clean("an operator", r.Operator, 64); err != nil {
+		return err
+	}
+	if err := clean("a reason", r.Reason, 1024); err != nil {
+		return err
+	}
+	if r.Outcome != ResolutionTerminated && r.Outcome != ResolutionNeverRan {
+		return fmt.Errorf("resolution outcome %q is not %q or %q", r.Outcome, ResolutionTerminated, ResolutionNeverRan)
+	}
+	return nil
+}
+
+// ResolveUncertain records an operator's explicit decision that an UNCERTAIN attempt is over (RESOLVED),
+// which frees its card and its privilege's cap. It is the only way out of UNCERTAIN: recovery never does
+// it. The record names the operator, the outcome and the reason; the attempt must be UNCERTAIN.
+func (s *Store) ResolveUncertain(ctx context.Context, attempt string, res Resolution, at time.Time) error {
+	if err := res.validate(); err != nil {
+		return err
+	}
+	return s.transition(ctx, attempt, KindResolved, at, nil, func(r *Record) {
+		r.Operator, r.Resolution, r.Note = res.Operator, res.Outcome, res.Reason
+	}, nil)
 }
 
 // Records returns the whole audit table in sequence order.
@@ -583,7 +665,8 @@ func (s *Store) recordsAfter(ctx context.Context, after int64) ([]Record, error)
 // CheckAuditChain verifies the whole audit table: every attempt's records follow a legal sequence from
 // AUTHORIZED, the attempt's state is its last record's kind, each record carries the attempt's identity,
 // and a nonce is spent iff an attempt exists for it. With requireSettled it also refuses an attempt that is
-// still active (the state after Recover has run).
+// still AUTHORIZED or STARTED (the state after Recover has run). UNCERTAIN counts as settled here: it is a
+// recorded state, though it still holds its card until resolved.
 func (s *Store) CheckAuditChain(ctx context.Context, requireSettled bool) error {
 	recs, err := s.Records(ctx)
 	if err != nil {

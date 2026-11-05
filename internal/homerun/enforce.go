@@ -126,29 +126,43 @@ func enforceRateLimits(ctx context.Context, tx *sql.Tx, lim Limits, e *Envelope,
 
 // ---- check receipts ------------------------------------------------------------------------------
 
-// endReceipt returns the in-transaction step that records a check receipt when a check attempt ends with
-// result success and exit status 0. Any other attempt, or any other outcome, records nothing. The receipt
-// is taken from what the verifier itself stored when it consumed the nonce (card, card revision, script
-// and deps digest), never from the caller; the output digest comes from the unit's end report.
+// ErrEndTime: the completion time a unit reports is not plausible (before its attempt existed, or after
+// the moment it is being recorded).
+var ErrEndTime = errors.New("implausible completion time")
+
+// endReceipt returns the in-transaction step that finishes an ENDED record: it checks the completion time
+// the unit reported, and records a check receipt when a check attempt ends with result success and exit
+// status 0. Any other attempt, or any other outcome, records no receipt. The receipt is taken from what the
+// verifier itself stored when it consumed the nonce (card, card revision, script and deps digest), never
+// from the caller; the output digest and the completion time come from the unit's end report. The time is
+// never the moment of recording: a receipt whose completion time is unknown carries 0 and is never fresh.
 func endReceipt(attempt string, info EndInfo, at time.Time) func(context.Context, *sql.Tx) error {
 	return func(ctx context.Context, tx *sql.Tx) error {
-		if info.Result != ResultSuccess || info.ExitStatus != 0 {
-			return nil
-		}
 		var op, card, sha, priv, rev, deps string
+		var created int64
 		err := tx.QueryRowContext(ctx,
-			`SELECT a.op, a.card_id, a.script_sha256, a.privilege, b.card_rev, b.deps_digest
+			`SELECT a.op, a.card_id, a.script_sha256, a.privilege, b.card_rev, b.deps_digest, a.created_at
 			   FROM attempts a JOIN attempt_bind b ON b.attempt=a.attempt WHERE a.attempt=?`, attempt).
-			Scan(&op, &card, &sha, &priv, &rev, &deps)
+			Scan(&op, &card, &sha, &priv, &rev, &deps, &created)
 		if err != nil {
 			return err
 		}
-		if op != OpCheck {
+		var ended int64 // 0: the completion time is unknown
+		if !info.EndedAt.IsZero() {
+			ended = info.EndedAt.Unix()
+			if ended <= 0 || ended < created {
+				return fmt.Errorf("%w: finished before the attempt was authorized", ErrEndTime)
+			}
+			if ended > at.Unix() {
+				return fmt.Errorf("%w: finished after it was recorded", ErrEndTime)
+			}
+		}
+		if info.Result != ResultSuccess || info.ExitStatus != 0 || op != OpCheck {
 			return nil
 		}
 		_, err = tx.ExecContext(ctx,
 			`INSERT INTO check_receipts(attempt,card_id,card_rev,script_sha256,deps_digest,privilege,output_sha256,ended_at) VALUES(?,?,?,?,?,?,?,?)`,
-			attempt, card, rev, sha, deps, priv, info.OutputSHA256, at.Unix())
+			attempt, card, rev, sha, deps, priv, info.OutputSHA256, ended)
 		return err
 	}
 }
@@ -189,6 +203,9 @@ func checkCitedReceipt(ctx context.Context, tx *sql.Tx, lim Limits, e *Envelope,
 		return receiptErr("check ran under another privilege")
 	case out != *e.CheckOutputSHA:
 		return receiptErr("check output digest differs from the one cited")
+	}
+	if ended <= 0 {
+		return receiptErr("the completion time of the check is unknown; run a new check")
 	}
 	age := now.Unix() - ended
 	if age < 0 {

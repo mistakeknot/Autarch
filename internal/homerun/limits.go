@@ -27,7 +27,8 @@ type Limits struct {
 	// by hand.
 	SigFailureThreshold int
 	SigFailureWindow    time.Duration
-	// MaxActiveAsMk and MaxActiveRoot cap attempts that are authorised or started and not yet ended.
+	// MaxActiveAsMk and MaxActiveRoot cap attempts that hold capacity: authorised, started, or UNCERTAIN (an unknown outcome may still be
+	// running) and not yet ended, aborted before launch, or resolved by an operator.
 	MaxActiveAsMk int
 	MaxActiveRoot int
 	// MaxScriptBytes caps the script (and each dependency) the CAS will take.

@@ -16,10 +16,14 @@ import (
 // Kind is one step in an attempt's audit sequence. The legal sequences are:
 //
 //	AUTHORIZED, STARTED, ENDED
-//	AUTHORIZED, STARTED, UNCERTAIN
-//	AUTHORIZED, ABORTED_BEFORE_START
+//	AUTHORIZED, STARTED, UNCERTAIN [, RESOLVED]
+//	AUTHORIZED, UNCERTAIN [, RESOLVED]    (launch intended, unit gone: it may have run)
+//	AUTHORIZED, ABORTED_BEFORE_START      (no launch intent only)
 //
-// An attempt is "active" from AUTHORIZED until it reaches ENDED, UNCERTAIN or ABORTED_BEFORE_START.
+// An attempt is "active" from AUTHORIZED until it reaches ENDED, UNCERTAIN or ABORTED_BEFORE_START, and it
+// holds its card and its privilege's cap from AUTHORIZED until it reaches ENDED, RESOLVED or
+// ABORTED_BEFORE_START: an UNCERTAIN attempt may still be running, so only an operator's RESOLVED record
+// (ResolveUncertain) frees them. Recovery never resolves one.
 type Kind string
 
 const (
@@ -28,6 +32,7 @@ const (
 	KindEnded      Kind = "ENDED"
 	KindUncertain  Kind = "UNCERTAIN"
 	KindAborted    Kind = "ABORTED_BEFORE_START"
+	KindResolved   Kind = "RESOLVED"
 )
 
 // Results an ENDED record may carry.
@@ -63,6 +68,10 @@ type Record struct {
 	OutputSHA256 string `json:"output_sha256,omitempty"`
 	OutputBytes  *int64 `json:"output_bytes,omitempty"`
 	DurationMS   *int64 `json:"duration_ms,omitempty"`
+	EndedAt      string `json:"ended_at,omitempty"`
+	// RESOLVED
+	Operator   string `json:"operator,omitempty"`
+	Resolution string `json:"resolution,omitempty"`
 	// UNCERTAIN, ABORTED_BEFORE_START
 	Note string `json:"note,omitempty"`
 }
@@ -81,12 +90,14 @@ type EndInfo struct {
 	OutputSHA256 string
 	OutputBytes  int64
 	Duration     time.Duration
+	EndedAt      time.Time
 }
 
 var legalPrev = map[Kind][]Kind{
 	KindStarted:   {KindAuthorized},
 	KindEnded:     {KindStarted},
-	KindUncertain: {KindStarted},
+	KindUncertain: {KindStarted, KindAuthorized},
+	KindResolved:  {KindUncertain},
 	KindAborted:   {KindAuthorized},
 }
 

@@ -53,6 +53,9 @@ func finish(t *testing.T, s *Store, a *Attempt, at time.Time, info EndInfo) {
 	if err := recStarted(s, bg, a.ID, StartInfo{Unit: "run-test.service", InvocationID: strings.Repeat("e", 32), CASSHA: a.ScriptSHA256}, at); err != nil {
 		t.Fatal(err)
 	}
+	if info.EndedAt.IsZero() {
+		info.EndedAt = at
+	}
 	if err := s.RecordEnded(bg, a.ID, info, at); err != nil {
 		t.Fatal(err)
 	}
@@ -357,7 +360,9 @@ func TestRecoverEndedCheckGetsReceipt(t *testing.T) {
 	if err := recStarted(s, bg, a.ID, StartInfo{Unit: "run-test.service", InvocationID: strings.Repeat("e", 32), CASSHA: a.ScriptSHA256}, t0); err != nil {
 		t.Fatal(err)
 	}
-	look := func(context.Context, string) (EndInfo, bool, error) { return okEnd(), true, nil }
+	end := okEnd()
+	end.EndedAt = t0.Add(30 * time.Second)
+	look := func(context.Context, string) (EndInfo, bool, error) { return end, true, nil }
 	if _, err := s.Recover(bg, look, t0.Add(time.Minute)); err != nil {
 		t.Fatal(err)
 	}

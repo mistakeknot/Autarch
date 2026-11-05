@@ -16,7 +16,7 @@ import (
 
 // T2.6 — the audit sequence for success, failure, timeout and crash, and its append-only mirror.
 
-var reGrammar = regexp.MustCompile(`^AUTHORIZED( STARTED (ENDED|UNCERTAIN)| ABORTED_BEFORE_START)?$`)
+var reGrammar = regexp.MustCompile(`^AUTHORIZED( STARTED (ENDED|UNCERTAIN( RESOLVED)?)| UNCERTAIN( RESOLVED)?| ABORTED_BEFORE_START)?$`)
 
 func kindsOf(recs []Record, attempt string) string {
 	var ks []string

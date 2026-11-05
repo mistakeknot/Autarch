@@ -145,11 +145,11 @@ func TestRecoverReconcilesLaunchIntent(t *testing.T) {
 		want   Kind
 		wantEr bool
 	}
-	endInfo := &EndInfo{Result: ResultSuccess, OutputSHA256: sha3Hex, OutputBytes: 3, Duration: time.Second}
+	endInfo := &EndInfo{Result: ResultSuccess, OutputSHA256: sha3Hex, OutputBytes: 3, Duration: time.Second, EndedAt: now}
 	for _, c := range []tc{
 		{name: "unit running", state: UnitState{Found: true, InvocationID: inv}, want: KindStarted},
 		{name: "unit already ended", state: UnitState{Found: true, InvocationID: inv, Ended: endInfo}, want: KindEnded},
-		{name: "systemd has no such unit", state: UnitState{}, want: KindAborted},
+		{name: "systemd has no such unit", state: UnitState{}, want: KindUncertain},
 		{name: "lookup fails", err: context.DeadlineExceeded, want: KindAuthorized, wantEr: true},
 		{name: "no unit lookup supplied", noByU: true, want: KindAuthorized, wantEr: true},
 		{name: "unit with a malformed invocation id", state: UnitState{Found: true, InvocationID: "x"}, want: KindAuthorized, wantEr: true},
@@ -185,8 +185,8 @@ func TestRecoverReconcilesLaunchIntent(t *testing.T) {
 			if got := recs[len(recs)-1].Kind; got != c.want {
 				t.Fatalf("attempt is %s, want %s", got, c.want)
 			}
-			if c.want == KindAuthorized || c.want == KindStarted {
-				// still active: the card stays held and a second attempt is refused
+			if c.want == KindAuthorized || c.want == KindStarted || c.want == KindUncertain {
+				// still held: the card stays held and a second attempt is refused
 				if _, _, err := consumeFor(t, s, now, "AUT-1", OpCheck); !errors.Is(err, ErrBusy) {
 					t.Fatalf("card released while the unit may be running: %v", err)
 				}
