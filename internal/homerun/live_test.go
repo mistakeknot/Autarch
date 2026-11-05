@@ -684,6 +684,63 @@ func TestLiveSwapWindow(t *testing.T) {
 	}
 }
 
+// ---- fix3: the uid-0 alias refusal and the descriptor pin, against the real account database -----------
+
+type probeSystemd struct {
+	Systemd
+	probe func()
+}
+
+func (s probeSystemd) Start(ctx context.Context, args []string) error {
+	s.probe()
+	return s.Systemd.Start(ctx, args)
+}
+
+func TestLiveUID0AliasRefused(t *testing.T) {
+	lv := newLive(t)
+	lv.l.Config.User = "rootalias" // a second account with uid 0 (made by guest.sh)
+	a, e := lv.consume("true", 10*time.Second, nil)
+	_, err := lv.l.Launch(bg, a, e, nil)
+	obs(t, "launch as uid-0 alias", err)
+	if err == nil {
+		t.Fatal("a uid-0 alias of root was accepted as the service user")
+	}
+	if out, _ := (ExecRunner{}).Run(bg, "id", "-u", "rootalias"); strings.TrimSpace(string(out)) != "0" {
+		t.Errorf("control: rootalias is not uid 0 (%q), the refusal proves nothing", out)
+	}
+}
+
+func TestLivePinHeldAcrossStart(t *testing.T) {
+	lv := newLive(t)
+	w := liveBase + "/w/pinned"
+	_ = os.RemoveAll(w)
+	if err := os.MkdirAll(w, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	_ = os.Chown(w, int(lv.uid), int(lv.gid))
+	held := -1
+	lv.l.System = probeSystemd{lv.sys, func() {
+		held = 0
+		ents, _ := os.ReadDir("/proc/self/fd")
+		for _, e := range ents {
+			if dst, err := os.Readlink("/proc/self/fd/" + e.Name()); err == nil && dst == w {
+				held++
+			}
+		}
+	}}
+	a, _, err := lv.launch("true", 30*time.Second, w)
+	if err != nil {
+		t.Fatal(err)
+	}
+	obs(t, "descriptors on the write dir during Start", held)
+	if held < 1 {
+		t.Errorf("no descriptor pinned %s while systemd-run started", w)
+	}
+	if r, _ := lv.waitEnded(a, 30*time.Second); r.Kind != KindEnded || r.Result != ResultSuccess {
+		t.Errorf("run: %+v", r)
+	}
+}
+
 // ---- A4 (cgroup path) and cgroup removal after the unit is stopped ---------------------------------------
 
 func TestLiveCgroupPathAndRemoval(t *testing.T) {

