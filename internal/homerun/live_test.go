@@ -773,29 +773,49 @@ func TestLiveRuntimeSocketsCreatedAfterLaunch(t *testing.T) {
 		t.Errorf("TemporaryFileSystem not applied: %q", p)
 	}
 	var lns []net.Listener
-	for _, sp := range paths {
-		if err := os.MkdirAll(filepath.Dir(sp), 0o755); err != nil {
-			t.Fatal(err)
-		}
-		_ = os.Remove(sp)
-		ln, err := net.Listen("unix", sp)
-		if err != nil {
-			// /var/run/docker.sock is the same file as /run/docker.sock on the host.
-			obs(t, "listen "+sp, err)
-			continue
-		}
-		_ = os.Chmod(sp, 0o666)
-		lns = append(lns, ln)
-		defer os.Remove(sp)
-	}
 	defer func() {
 		for _, ln := range lns {
 			ln.Close()
 		}
 	}()
-	// Control: a non-unit process reaches a socket just made.
-	if out, err := asRunner(t, lv, "python3", "-c", `import socket;s=socket.socket(socket.AF_UNIX);s.connect("/run/docker.sock")`); err != nil {
-		t.Errorf("control: connect outside the unit failed (%v %s): the test proves nothing", err, out)
+	// /var/run is a symlink to /run on the host, so /var/run/X is the same socket as /run/X. Listen once per
+	// distinct socket, and fail the test on any listener error: a path that was never created would otherwise
+	// read as "denied" inside the unit.
+	made := map[string]bool{}
+	for _, sp := range paths {
+		real := sp
+		if strings.HasPrefix(sp, "/var/run/") {
+			real = "/run/" + strings.TrimPrefix(sp, "/var/run/")
+		}
+		if !made[real] {
+			if err := os.MkdirAll(filepath.Dir(real), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			_ = os.Remove(real)
+			ln, err := net.Listen("unix", real)
+			if err != nil {
+				t.Fatalf("listen %s: %v (a socket that was never created would read as denied)", real, err)
+			}
+			if err := os.Chmod(real, 0o666); err != nil {
+				t.Fatal(err)
+			}
+			lns = append(lns, ln)
+			defer os.Remove(real)
+			made[real] = true
+			go func(ln net.Listener) {
+				for {
+					c, err := ln.Accept()
+					if err != nil {
+						return
+					}
+					c.Close()
+				}
+			}(ln)
+		}
+		// Control, for every path the unit will probe: a process outside the unit connects to it.
+		if out, err := asRunner(t, lv, "python3", "-c", `import socket,sys;s=socket.socket(socket.AF_UNIX);s.connect(sys.argv[1])`, sp); err != nil {
+			t.Fatalf("control: connect to %s from outside the unit failed (%v %s): the test proves nothing", sp, err, out)
+		}
 	}
 	if err := os.WriteFile(ready, nil, 0o644); err != nil {
 		t.Fatal(err)

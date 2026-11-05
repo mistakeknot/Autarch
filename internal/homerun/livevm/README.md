@@ -22,6 +22,7 @@ Contradictions found and fixed in the launcher (each failed live first):
 
 - `InaccessiblePaths` entries that do not exist made every unit fail with 226/NAMESPACE; they now carry the `-` prefix.
 - `ProtectSystem=strict` left `/home` writable: added `ProtectHome=read-only`.
+- `InaccessiblePaths=-/run/docker.sock` (and the like) skips a path that is absent at launch, so a socket created mid-run was reachable. `TemporaryFileSystem=/run:ro,...` now masks the whole runtime directory (`/var/run` is a symlink to it); `systemctl show` confirms it. `TestLiveRuntimeSocketsCreatedAfterLaunch` creates five socket paths (docker, containerd, podman, dbus; `/var/run/docker.sock` is the same socket as `/run/docker.sock`) from outside while the unit runs, checks each accepts a connection from outside the unit (control), then requires every probe inside to be denied. It failed first without the property (all REACHED, 40 `/run` entries) and passes with it (1 entry, `/run` unwritable).
 - `NoExecPaths=/` left the private `/tmp` and the `ReadWritePaths` directories executable: they are now listed.
 
 Corrected assumptions: `StandardOutput=file:` truncates a precreated log (owner and mode are kept).
