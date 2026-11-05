@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"sort"
 	"strings"
 	"syscall"
 	"testing"
@@ -116,7 +117,7 @@ func newRig(t *testing.T, op string) *rig {
 	led := loggingLedger{s: s, log: log}
 	cg := &fakeCg{}
 	return &rig{s: s, sys: sys, cg: cg, led: led, log: log, att: att, env: env, now: now,
-		l: &Launcher{Config: testCfg(), Limits: DefaultLimits(), Ledger: &led, System: sys, Now: func() time.Time { return now }, Trust: func(string) error { return nil }, Logs: &fakeLogs{}}}
+		l: &Launcher{Config: testCfg(), Limits: DefaultLimits(), Ledger: &led, System: sys, Now: func() time.Time { return now }, Trust: func(string) error { return nil }, LookupUID: func(string) (uint32, error) { return 1001, nil }, Logs: &fakeLogs{}}}
 }
 
 func TestBuildRunArgsGolden(t *testing.T) {
@@ -1100,5 +1101,126 @@ func TestFix4RootLogsCreate(t *testing.T) {
 	}
 	if err := (RootLogs{}).Create(filepath.Join(dir, "d.log")); err == nil {
 		t.Fatal("no group configured, yet created")
+	}
+}
+
+func TestFix3ServiceUIDResolvedEveryLaunchAndRootRefused(t *testing.T) {
+	for name, lookup := range map[string]func(string) (uint32, error){
+		"uid 0 alias":  func(string) (uint32, error) { return 0, nil },
+		"lookup fails": func(string) (uint32, error) { return 0, errors.New("no such user") },
+	} {
+		r := newRig(t, OpApply)
+		r.l.LookupUID = lookup
+		// no writes, and an injected Trust: the account is still resolved and refused
+		if _, err := r.l.Launch(context.Background(), r.att, r.env, nil); !errors.Is(err, ErrLaunchRefused) || len(*r.log) != 0 {
+			t.Errorf("%s: %v %v", name, err, *r.log)
+		}
+	}
+	calls := 0
+	r := newRig(t, OpApply)
+	r.l.LookupUID = func(string) (uint32, error) { calls++; return 1001, nil }
+	if _, err := r.l.Launch(context.Background(), r.att, r.env, nil); err != nil || calls != 1 {
+		t.Fatalf("%v calls=%d", err, calls)
+	}
+}
+
+func TestFix3TrustCheckedOnEveryComponentOfEveryPath(t *testing.T) {
+	root, _ := filepath.EvalSymlinks(t.TempDir())
+	for _, d := range []string{"a/b", "c"} {
+		if err := os.MkdirAll(filepath.Join(root, d), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	writes := []string{filepath.Join(root, "a/b"), filepath.Join(root, "c")}
+	r := newRig(t, OpApply)
+	r.l.Config.WritesRoot = root
+	var seen []string
+	r.l.Trust = func(p string) error { seen = append(seen, p); return nil }
+	if _, err := r.l.Launch(context.Background(), r.att, r.env, writes); err != nil {
+		t.Fatal(err)
+	}
+	sort.Strings(seen)
+	want := []string{root, root + "/a", root + "/a/b", root + "/c"}
+	if strings.Join(seen, ",") != strings.Join(want, ",") {
+		t.Fatalf("checked %v want %v", seen, want)
+	}
+	// a bad component below the root refuses the launch before the intent
+	r2 := newRig(t, OpApply)
+	r2.l.Config.WritesRoot = root
+	r2.l.Trust = func(p string) error {
+		if p == root+"/a" {
+			return errors.New("writable by others")
+		}
+		return nil
+	}
+	if _, err := r2.l.Launch(context.Background(), r2.att, r2.env, writes); !errors.Is(err, ErrLaunchRefused) || len(*r2.log) != 0 {
+		t.Fatalf("%v %v", err, *r2.log)
+	}
+}
+
+func TestFix3PinnedIdentityHeldUntilStartAndSwapRefused(t *testing.T) {
+	root, _ := filepath.EvalSymlinks(t.TempDir())
+	if err := os.MkdirAll(filepath.Join(root, "a/b"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	cfg := LaunchConfig{User: "runner", CASRoot: testCAS, LogDir: "/srv/log", WritesRoot: root}
+	ws, err := ResolveWrites(cfg, []string{filepath.Join(root, "a/b")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	fds := func() int {
+		es, _ := os.ReadDir("/proc/self/fd")
+		return len(es)
+	}
+	before := fds()
+	release, err := ws.Pin()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if held := fds(); held < before+2 {
+		t.Fatalf("pin holds %d fds, before %d", held, before)
+	}
+	release()
+	release() // idempotent
+	if fds() != before {
+		t.Fatalf("fds leaked: %d != %d", fds(), before)
+	}
+	// swap a middle component after resolve: Pin refuses
+	if err := os.Rename(filepath.Join(root, "a"), filepath.Join(root, "a.old")); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(root, "a/b"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if rel, err := ws.Pin(); err == nil {
+		rel()
+		t.Fatal("swapped directory pinned")
+	}
+	if fds() != before {
+		t.Fatalf("failed pin leaked fds")
+	}
+}
+
+func TestFix3LaunchHoldsPinAcrossStart(t *testing.T) {
+	root, _ := filepath.EvalSymlinks(t.TempDir())
+	if err := os.Mkdir(filepath.Join(root, "w"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	r := newRig(t, OpApply)
+	r.l.Config.WritesRoot = root
+	base := 0
+	es, _ := os.ReadDir("/proc/self/fd")
+	base = len(es)
+	var during int
+	r.sys.onStart = func([]string) { es, _ := os.ReadDir("/proc/self/fd"); during = len(es) }
+	if _, err := r.l.Launch(context.Background(), r.att, r.env, []string{filepath.Join(root, "w")}); err != nil {
+		t.Fatal(err)
+	}
+	if during < base+2 {
+		t.Fatalf("no pinned fds during Start: %d vs %d", during, base)
+	}
+	es, _ = os.ReadDir("/proc/self/fd")
+	if len(es) != base {
+		t.Fatalf("fds leaked after Launch: %d vs %d", len(es), base)
 	}
 }

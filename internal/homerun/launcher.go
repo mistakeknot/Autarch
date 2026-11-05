@@ -12,8 +12,10 @@ import (
 	"path"
 	"path/filepath"
 	"regexp"
+	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 )
@@ -317,6 +319,79 @@ func (ws WriteSet) Verify() error {
 	return nil
 }
 
+// components lists every directory the write paths pass through below the root, deduplicated and
+// sorted, plus the root itself first.
+func (ws WriteSet) components() []string {
+	if len(ws.Paths) == 0 {
+		return nil
+	}
+	set := map[string]bool{}
+	for _, ids := range ws.ids {
+		for p := range ids {
+			set[p] = true
+		}
+	}
+	out := make([]string, 0, len(set))
+	for p := range set {
+		out = append(out, p)
+	}
+	sort.Strings(out)
+	return append([]string{ws.Root}, out...)
+}
+
+// Pin opens every component (and the root) with O_PATH|O_DIRECTORY|O_NOFOLLOW, compares fstat of the
+// open descriptor with the identity recorded by ResolveWrites, then runs Verify once more. The
+// descriptors stay open until the returned release is called (it is idempotent), so a pinned
+// directory's inode cannot be freed and reused during that time. A failed Pin holds nothing.
+//
+// Residual, not closed: an open descriptor does not stop a rename. An agent running as the service
+// user can still replace a component between this check and the moment systemd builds the unit's mount
+// namespace. See the Launch comment and the package documentation.
+func (ws WriteSet) Pin() (release func(), err error) {
+	if len(ws.Paths) == 0 {
+		return func() {}, nil
+	}
+	var fds []int
+	closeAll := func() {
+		for _, fd := range fds {
+			_ = syscall.Close(fd)
+		}
+		fds = nil
+	}
+	want := map[string]fileID{}
+	for _, ids := range ws.ids {
+		for p, id := range ids {
+			want[p] = id
+		}
+	}
+	for _, p := range ws.components() {
+		fd, err := syscall.Open(p, unix_O_PATH|syscall.O_DIRECTORY|syscall.O_NOFOLLOW|syscall.O_CLOEXEC, 0)
+		if err != nil {
+			closeAll()
+			return nil, fmt.Errorf("pin %s: %w", p, err)
+		}
+		fds = append(fds, fd)
+		var st syscall.Stat_t
+		if err := syscall.Fstat(fd, &st); err != nil {
+			closeAll()
+			return nil, fmt.Errorf("pin %s: %w", p, err)
+		}
+		if w, ok := want[p]; ok && (fileID{uint64(st.Dev), uint64(st.Ino)}) != w { //nolint:unconvert
+			closeAll()
+			return nil, fmt.Errorf("writes path %s changed after it was checked", p)
+		}
+	}
+	if err := ws.Verify(); err != nil {
+		closeAll()
+		return nil, err
+	}
+	var once sync.Once
+	return func() { once.Do(closeAll) }, nil
+}
+
+// unix_O_PATH is Linux O_PATH (syscall does not export it on every GOARCH).
+const unix_O_PATH = 0x200000
+
 // checkTrustedChain requires root and every parent up to "/" to be a real directory (no symlink) owned
 // by an allowed uid and writable by neither group nor other, sticky bit or not. Such a tree cannot be
 // renamed or swapped by an unprivileged agent, which is what closes the window between Verify and
@@ -441,8 +516,9 @@ type Launcher struct {
 	// AfterIntent, when set, runs between the launch intent and systemd-run. It is a seam for tests of the
 	// swap-after-check window; production leaves it nil.
 	AfterIntent func()
-	// Trust checks that WritesRoot and its parents cannot be swapped by an unprivileged agent. Nil means
-	// TrustedRoot for the account named in Config.User (looked up with LookupUID), which fails closed.
+	// Trust checks that a directory and its parents cannot be swapped by an unprivileged agent; Launch
+	// runs it on WritesRoot and on every component of every write path. Nil means TrustedRoot for the
+	// account named in Config.User (looked up with LookupUID), which fails closed.
 	Trust     func(writesRoot string) error
 	LookupUID func(user string) (uint32, error) // default os/user
 	// Logs precreates the log. Nil refuses every launch: a launcher with no way to make the log
@@ -450,10 +526,9 @@ type Launcher struct {
 	Logs LogFiles
 }
 
-func (l *Launcher) trust(root string) error {
-	if l.Trust != nil {
-		return l.Trust(root)
-	}
+// serviceUID resolves Config.User at every launch and refuses uid 0, so an alias of root (a second
+// account with uid 0) cannot pass the name check in Validate.
+func (l *Launcher) serviceUID() (uint32, error) {
 	lookup := l.LookupUID
 	if lookup == nil {
 		lookup = func(n string) (uint32, error) {
@@ -467,9 +542,20 @@ func (l *Launcher) trust(root string) error {
 	}
 	uid, err := lookup(l.Config.User)
 	if err != nil {
-		return fmt.Errorf("service user %q: %w", l.Config.User, err)
+		return 0, fmt.Errorf("service user %q: %w", l.Config.User, err)
 	}
-	return TrustedRoot(uid)(root)
+	if uid == 0 {
+		return 0, fmt.Errorf("service user %q has uid 0", l.Config.User)
+	}
+	return uid, nil
+}
+
+// trust checks one directory and its parents with Trust, or TrustedRoot(uid) when Trust is nil.
+func (l *Launcher) trust(uid uint32, dir string) error {
+	if l.Trust != nil {
+		return l.Trust(dir)
+	}
+	return TrustedRoot(uid)(dir)
 }
 
 func (l *Launcher) now() time.Time {
@@ -488,7 +574,18 @@ func (l *Launcher) now() time.Time {
 // After step 2 no failure is reported as "did not run": a failed start, a failed read-back or a failed
 // RecordStarted returns ErrLaunchUnknown, the attempt keeps its intent, and RecoverUnits decides from
 // what systemd says. The launcher never calls RecordAborted and never retries.
+//
+// Write-path residual (accepted, design D9): every component of every write path is checked as a real
+// directory, not a symlink, with no parent writable by a uid other than root and the service user, and
+// its identity is pinned with descriptors held until systemd-run returns. An agent that runs as the
+// service user can still swap a component after the last check and before systemd builds the unit's
+// mount namespace; ownership cannot stop that, and nothing here claims to. The launch signature is an
+// intent record, not a boundary against agents running as the same user, until root/svc-review isolation.
 func (l *Launcher) Launch(ctx context.Context, att *Attempt, env *Envelope, writes []string) (StartInfo, error) {
+	uid, err := l.serviceUID()
+	if err != nil {
+		return StartInfo{}, fmt.Errorf("%w: %v", ErrLaunchRefused, err)
+	}
 	ws, err := ResolveWrites(l.Config, writes)
 	if err != nil {
 		return StartInfo{}, err
@@ -501,8 +598,8 @@ func (l *Launcher) Launch(ctx context.Context, att *Attempt, env *Envelope, writ
 	if err != nil {
 		return StartInfo{}, err
 	}
-	if len(ws.Paths) > 0 {
-		if err := l.trust(ws.Root); err != nil {
+	for _, dir := range ws.components() {
+		if err := l.trust(uid, dir); err != nil {
 			return StartInfo{}, fmt.Errorf("%w: %v", ErrLaunchRefused, err)
 		}
 	}
@@ -525,10 +622,13 @@ func (l *Launcher) Launch(ctx context.Context, att *Attempt, env *Envelope, writ
 	if l.AfterIntent != nil {
 		l.AfterIntent()
 	}
-	// Last look before systemd resolves the paths itself (see ResolveWrites for the residual window).
-	if err := ws.Verify(); err != nil {
+	// Last look before systemd resolves the paths itself: pin and re-verify, and keep the descriptors
+	// until systemd-run returns (see the residual window above).
+	release, err := ws.Pin()
+	if err != nil {
 		return StartInfo{}, fmt.Errorf("%w: %v", ErrLaunchUnknown, err)
 	}
+	defer release()
 	if err := l.System.Start(ctx, args); err != nil {
 		return StartInfo{}, fmt.Errorf("%w: start: %w", ErrLaunchUnknown, err)
 	}
