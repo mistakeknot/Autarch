@@ -197,6 +197,11 @@ func (s *Store) Consume(ctx context.Context, req ConsumeRequest) (*Attempt, erro
 	if err := e.CheckFresh(req.Now); err != nil {
 		return nil, err
 	}
+	// Defensive: a verified envelope is already in range, but Consume must not convert an
+	// out-of-range integer to a Duration (it would wrap) or spend a nonce for it.
+	if e.RuntimeMaxS < 1 || e.RuntimeMaxS > s.lim.runtimeCap(e.Op) {
+		return nil, errors.New("homerun: runtime_max_s is outside the allowed range")
+	}
 	if err := s.requireUnlocked(ctx); err != nil {
 		return nil, err
 	}
