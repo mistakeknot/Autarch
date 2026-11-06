@@ -87,6 +87,8 @@ const RECONCILE_MS = 30_000;
 /** Failed blocker pushes retried per ask before giving up, and the first backoff (doubling, capped at an hour). */
 const MAX_PUSH_ATTEMPTS = 6;
 const PUSH_RETRY_BASE_MS = 30_000;
+/** Pushes one reconcile pass starts at most. */
+const MAX_PUSHES_PER_PASS = 50;
 export const ROUTING_PREFIX = "routing: ";
 const OBSERVED_BACKOFF_MS = 5_000;
 const CLOSED_BACKOFF_MS = 30_000;
@@ -1603,7 +1605,7 @@ export class Service {
       if (!d || d.urgency !== "blocker") return;
       const rows = askRows(this.db, decisionId);
       group = rows[0]?.id ?? decisionId;
-      if (this.pushing.has(group) || rows.some((r) => r.push_sent_at !== null)) return;
+      if (this.pushing.has(group) || !this.pushEligible(rows)) return;
       const taskId = d.task_id ? String(d.task_id) : null;
       const key = this.cardKey(taskId) ?? taskId ?? decisionId;
       const title = (this.cardTitle(taskId) || d.subject || String(this.askOf(d).question)).slice(0, 120);
@@ -1652,36 +1654,50 @@ export class Service {
   reconcilePushes(): void {
     if (!this.deps.notifier) return;
     try {
+      // No LIMIT here: asks that are exhausted or inside their backoff must not hide older eligible ones. The work per
+      // pass is bounded by the number of pushes started instead.
       const ids = this.db
         .prepare(
           `SELECT d.id FROM decisions d
            WHERE d.urgency = 'blocker' AND d.push_sent_at IS NULL AND d.withdrawn_at IS NULL AND d.resolved_at IS NULL
              AND NOT EXISTS (SELECT 1 FROM picks p WHERE p.decision_id = d.id)
-           ORDER BY d.filed_at DESC, d.id DESC LIMIT 200`,
+           ORDER BY d.filed_at ASC, d.id ASC`,
         )
         .all() as { id: string }[];
       const seen = new Set<string>();
-      const nowMs = Date.parse(this.now());
+      let started = 0;
       for (const { id } of ids) {
+        if (started >= MAX_PUSHES_PER_PASS) break;
         const rows = askRows(this.db, id);
         const head = rows[0]?.id;
         if (!head || seen.has(head)) continue;
         seen.add(head);
         if (rows[rows.length - 1]!.id !== id) continue; // only the latest generation speaks for the ask
-        if (rows.some((r) => r.push_sent_at !== null)) continue;
-        const tries = this.db
-          .prepare(`SELECT COALESCE(SUM(push_attempts), 0) AS n, MAX(push_last_attempt_at) AS last FROM decisions WHERE id IN (${rows.map(() => "?").join(",")})`)
-          .get(...rows.map((r) => r.id)) as { n: number; last: string | null };
-        if (tries.n >= MAX_PUSH_ATTEMPTS) continue;
-        if (tries.last) {
-          const wait = Math.min(PUSH_RETRY_BASE_MS * 2 ** Math.max(0, tries.n - 1), 3_600_000);
-          if (nowMs < Date.parse(tries.last) + wait) continue;
-        }
+        if (!this.pushEligible(rows)) continue;
         this.pushFor(id);
+        started++;
       }
     } catch (e) {
       this.logPush(`push reconciliation failed: ${message(e)}`);
     }
+  }
+
+  /**
+   * The one eligibility rule for a push, used by the filing and edit path (pushFor) and by the reconcile pass: no row
+   * of the ask has recorded a push, fewer than MAX_PUSH_ATTEMPTS tries have failed across the ask, and the backoff
+   * since the last failed try has elapsed.
+   */
+  private pushEligible(rows: { id: string; push_sent_at: string | null }[]): boolean {
+    if (rows.length === 0 || rows.some((r) => r.push_sent_at !== null)) return false;
+    const tries = this.db
+      .prepare(`SELECT COALESCE(SUM(push_attempts), 0) AS n, MAX(push_last_attempt_at) AS last FROM decisions WHERE id IN (${rows.map(() => "?").join(",")})`)
+      .get(...rows.map((r) => r.id)) as { n: number; last: string | null };
+    if (tries.n >= MAX_PUSH_ATTEMPTS) return false;
+    if (tries.last) {
+      const wait = Math.min(PUSH_RETRY_BASE_MS * 2 ** Math.max(0, tries.n - 1), 3_600_000);
+      if (Date.parse(this.now()) < Date.parse(tries.last) + wait) return false;
+    }
+    return true;
   }
 
   private logPush(msg: string): void {

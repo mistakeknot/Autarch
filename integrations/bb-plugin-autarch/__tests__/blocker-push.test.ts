@@ -126,6 +126,10 @@ describe("the push on a legacy ask", () => {
     expect(row(svc, id).push_sent_at).toBeNull();
     expect(logs.join("\n")).toContain("not installed");
     n.mode = "ok";
+    await file(svc, { urgency: "blocker", request_id: "req-1" }); // inside the backoff: no second try
+    await svc.drainPushes();
+    expect(n.calls).toHaveLength(1);
+    env.clock.t += 60_000;
     await file(svc, { urgency: "blocker", request_id: "req-1" });
     await svc.drainPushes();
     expect(n.calls).toHaveLength(2);
@@ -221,6 +225,7 @@ describe("the push on a card", () => {
     await r.svc.drainPushes();
     expect(n.calls).toHaveLength(1);
     n.mode = "ok";
+    r.advance(60_000); // past the backoff after the first failure
     r.edit(t, { description: r.desc({ key: String(r.cardRow(t.id).request_key), question: "A rewritten question?", ask: { urgency: "blocker" } }) });
     await r.poll();
     await r.svc.drainPushes();
@@ -312,6 +317,58 @@ describe("retrying a lost push", () => {
     r.svc.reconcileAll();
     await r.svc.drainPushes();
     expect(n.calls).toHaveLength(2);
+  });
+
+  it("direct edits of a card are bounded by the same backoff and attempt limit as reconcile", async () => {
+    const { r, n } = setup();
+    n.mode = "throw";
+    const { t } = await opened(r, { ask: { urgency: "blocker" } });
+    await r.svc.drainPushes();
+    const key = String(r.cardRow(t.id).request_key);
+    const editOnce = async (i: number) => {
+      r.edit(t, { description: r.desc({ key, question: `Rewrite number ${i}?`, ask: { urgency: "blocker" } }) });
+      await r.poll();
+      await r.svc.drainPushes();
+    };
+    // many edits with no time passing: only the first failed try ever ran
+    for (let i = 0; i < 10; i++) await editOnce(i);
+    expect(n.calls).toHaveLength(1);
+    // edits spread over time: each one that lands after the backoff may try, never more than the limit in all
+    for (let i = 10; i < 40; i++) {
+      r.advance(2 * 3_600_000);
+      await editOnce(i);
+    }
+    expect(n.calls).toHaveLength(6);
+    // after the limit nothing retries it, by edit or by reconcile, however much time passes
+    r.advance(24 * 3_600_000);
+    await editOnce(99);
+    r.svc.reconcileAll();
+    await r.svc.drainPushes();
+    expect(n.calls).toHaveLength(6);
+  });
+
+  it("an older eligible ask is retried even when more than 200 newer asks are exhausted", async () => {
+    const { r, n } = setup();
+    n.mode = "throw";
+    const { g1: oldest } = await opened(r, { ask: { urgency: "blocker" } });
+    await r.svc.drainPushes();
+    expect(state(r, oldest.id)).toMatchObject({ push_sent_at: null, push_attempts: 1 });
+    // 210 newer blocker asks, all spent (attempt limit reached), filed straight into the table
+    const proto = r.db.prepare("SELECT * FROM decisions WHERE id = ?").get(oldest.id) as Record<string, unknown>;
+    const cols = Object.keys(proto);
+    const ins = r.db.prepare(`INSERT INTO decisions (${cols.join(",")}) VALUES (${cols.map(() => "?").join(",")})`);
+    const base = Date.parse(String(proto.filed_at));
+    for (let i = 0; i < 210; i++) {
+      const v = { ...proto, id: `spent-${i}`, request_id: `spent-req-${i}`, identity: `spent-ident-${i}`, semantic_key: `spent-key-${i}`, task_id: null, supersedes: null, filed_at: new Date(base + 1000 + i).toISOString(), push_attempts: 6, push_last_attempt_at: new Date(base).toISOString() };
+      ins.run(...cols.map((c) => (v as Record<string, unknown>)[c]));
+    }
+    n.mode = "ok";
+    n.calls.length = 0;
+    r.advance(10 * 3_600_000);
+    r.svc.reconcilePushes();
+    await r.svc.drainPushes();
+    expect(n.calls.map((c) => c.dedupeKey)).toEqual([r.svc.cardKey(String(proto.task_id))]);
+    expect(state(r, oldest.id)).toMatchObject({ push_id: "push-1" });
   });
 
   it("a push lost with the process (no attempt recorded) is retried by a fresh service on the same database", async () => {
