@@ -106,12 +106,13 @@ describe("Asks ordering", () => {
     expect(html).toContain("recommended");
   });
 
-  it("optionEffect is empty for the default and ruling-only kinds, only an irreversible option line says so, and a ruling-only option has no instruction footer", () => {
+  it("optionEffect is empty for the default and ruling-only kinds, no option line claims it cannot be undone, and a ruling-only option has no instruction footer", () => {
     expect(optionEffect({ kind: "needs-context" }, "t")).toBe("");
     expect(optionEffect({ kind: "ruling-only" }, "t")).toBe("");
     expect(optionEffect({ kind: "ruling-only", reversible: true }, "t")).toBe("");
-    expect(optionEffect({ kind: "instruction", instruction: "   " }, "t")).toBe("Cannot be undone.");
-    expect(optionEffect({ kind: "instruction", instruction: "First. Second." }, "t")).toBe("Tells t: First. Cannot be undone.");
+    expect(optionEffect({ kind: "instruction", instruction: "   " }, "t")).toBe("");
+    expect(optionEffect({ kind: "instruction", instruction: "First. Second." }, "t")).toBe("Tells t: First.")
+    expect(optionEffect({ kind: "instruction", instruction: "First.", reversible: false }, "t")).not.toContain("undone");
     expect(optionEffect({ kind: "instruction", instruction: "x".repeat(300) }, "t", true)).toContain("x".repeat(300));
     expect(optionEffect({ kind: "instruction", instruction: "x".repeat(300) }, "t").length).toBeLessThan(170);
     const html = renderToStaticMarkup(
