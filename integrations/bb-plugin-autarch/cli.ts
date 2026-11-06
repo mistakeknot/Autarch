@@ -72,7 +72,9 @@ export function homeCli(p: HomeCliParts) {
     const c = svc.store.db.prepare("SELECT task_id, project_id, card_key, title, state, asking_thread, routing_mode FROM cards WHERE task_id = ?").get(taskId) as Record<string, unknown> | undefined;
     if (!c) return undefined;
     const g = svc.store.db.prepare("SELECT id, generation FROM decisions WHERE task_id = ? ORDER BY generation DESC LIMIT 1").get(taskId) as { id: string; generation: number } | undefined;
-    return { ...c, decision_id: g?.id ?? null, generation: g?.generation ?? null, decision_state: g ? state(g.id) ?? null : null };
+    // time_to_answer is additive: null for a card whose ask never carried urgency "blocker" and so never pushed.
+    const urgent = g ? (svc.store.db.prepare("SELECT 1 AS x FROM decisions WHERE task_id = ? AND urgency = 'blocker' LIMIT 1").get(taskId) as { x: number } | undefined) : undefined;
+    return { ...c, decision_id: g?.id ?? null, generation: g?.generation ?? null, decision_state: g ? state(g.id) ?? null : null, time_to_answer: g && urgent ? svc.timeToAnswer(g.id) ?? null : null };
   };
 
   return defineCli({
@@ -145,6 +147,19 @@ export function homeCli(p: HomeCliParts) {
                 .rows.filter((r) => r.display_only && (options.asker ? options.asker === "thread" : true) && (options.project ? r.project === options.project : true))
                 .map((r) => ({ id: r.id, subject: r.title, project: r.project, thread: r.thread ?? "", asker: "thread", filed_at: r.created_at, task_id: r.task_id, key: r.card_key, display_only: true, display_reason: r.display_reason, card_key: r.card_key, held: r.held }));
           return { exitCode: 0, stdout: JSON.stringify([...rows, ...flagged]) };
+        },
+      }),
+
+      pushes: cliCommand({
+        summary: "List blocker asks (urgency blocker) with push time and time to answer; read-only",
+        options: {
+          limit: { type: "string", description: "Most recent N blocker asks (default 100, at most 1000)." },
+          json: { type: "boolean", description: "Print JSON (the only format)." },
+        },
+        run({ options }) {
+          const n = options.limit === undefined ? undefined : Number(options.limit);
+          if (n !== undefined && (!Number.isInteger(n) || n < 1)) return err(2, "limit must be a positive integer");
+          return out({ pushes: svc.pushes(n) });
         },
       }),
 

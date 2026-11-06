@@ -56,7 +56,7 @@ const MAX_ROOT_SCRIPT = 4096;
 const MAX_ROOT_TIMEOUT = 3600;
 const PLACEHOLDER_THREAD = "thr_placeholder";
 
-const V2_ALLOWED = new Set(["schema", "project", "project_root", "question", "options", "questions", "ask_key", "subject", "recommendation", "pull", "auto_close"]);
+const V2_ALLOWED = new Set(["schema", "project", "project_root", "question", "options", "questions", "ask_key", "subject", "recommendation", "pull", "auto_close", "urgency"]);
 const V1_ONLY = new Set(["v", "kind", "thread", "asker", "request_id", "supersedes", "mention_of", "steps", "machine"]);
 /** Block-ref kinds that count toward the Blocks count; others are shown but not counted. */
 export const COUNTED = new Set(["bead", "thread", "project"]);
@@ -169,6 +169,7 @@ function parseWireAsk(body: string): { ask: Record<string, unknown>; pull: "" | 
     if (m.pull !== "mycroft") fail("pull must be mycroft");
     pull = "mycroft";
   }
+  if (Object.prototype.hasOwnProperty.call(m, "urgency") && m.urgency !== "blocker") fail('urgency must be "blocker" when set');
   if (Object.prototype.hasOwnProperty.call(m, "auto_close")) parseAutoClose(m.auto_close, m.options);
   return { ask: m, pull };
 }
@@ -307,6 +308,9 @@ export function cardFingerprint(i: { title: string; card: Card; thread: string; 
   const ask = JSON.parse(normalizedJson(v1)) as Record<string, unknown>;
   delete ask.request_id;
   delete ask.supersedes;
+  // normalizedJson leaves urgency out (it is not part of what the ask says), but an urgency-only edit must still be a
+  // new generation so it is stored and pushes once. Only when set, so every existing fingerprint is unchanged.
+  if (v1.urgency === "blocker") ask.urgency = "blocker";
   const refs = [...new Set(i.card.blocks.map((b) => b.ref))].sort();
   const text = canonicalJson({
     title: i.title,

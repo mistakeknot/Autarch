@@ -75,7 +75,7 @@ const (
 
 var (
 	v2Allowed = map[string]bool{"schema": true, "project": true, "project_root": true, "question": true,
-		"options": true, "questions": true, "ask_key": true, "subject": true, "recommendation": true, "pull": true, "auto_close": true}
+		"options": true, "questions": true, "ask_key": true, "subject": true, "recommendation": true, "pull": true, "auto_close": true, "urgency": true}
 	v1Only = map[string]bool{"v": true, "kind": true, "thread": true, "asker": true, "request_id": true,
 		"supersedes": true, "mention_of": true, "steps": true, "machine": true}
 	countedKinds = map[string]bool{"bead": true, "thread": true, "project": true}
@@ -266,6 +266,11 @@ func parseWireAsk(body string, c *Card) error {
 			return errors.New("pull must be mycroft")
 		}
 		c.Pull = "mycroft"
+	}
+	if u, present := m["urgency"]; present {
+		if s, _ := u.(string); s != "blocker" {
+			return errors.New(`urgency must be "blocker" when set`)
+		}
 	}
 	if ac, present := m["auto_close"]; present {
 		if err := parseAutoClose(ac, m["options"]); err != nil {

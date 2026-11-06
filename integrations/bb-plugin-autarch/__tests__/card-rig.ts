@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { parseCard } from "../cards.js";
 import { CardWriter } from "../cardwrites.js";
 import { Queue } from "../queue.js";
-import { Service } from "../service.js";
+import { Service, type ServiceDeps } from "../service.js";
 import { TasksClient } from "../tasks.js";
 import { FakeTasks, type FakeTask } from "./tasks-fake.js";
 import { makeEnv, type Env, verifiedDelegation } from "./service-helpers.js";
@@ -70,7 +70,7 @@ function openLegacyMoves(svc: Service, fake: FakeTasks) {
   }
 }
 
-export function rig(opts: { projectName?: string; projects?: string[]; legacyMoves?: boolean } = {}) {
+export function rig(opts: { projectName?: string; projects?: string[]; legacyMoves?: boolean; svc?: Partial<ServiceDeps> } = {}) {
   const env = makeEnv(opts.projects ?? ["Autarch"]);
   envs.push(env);
   const fake = new FakeTasks();
@@ -79,7 +79,7 @@ export function rig(opts: { projectName?: string; projects?: string[]; legacyMov
   const tasks = new TasksClient(fake, { now: () => env.clock.t });
   const published = { n: 0 };
   const build = () => {
-    const svc: Service = env.open();
+    const svc: Service = env.open(opts.svc);
     const writer = new CardWriter(svc.store.db, tasks, env.now);
     const q = new Queue({ service: svc, tasks, writer, publish: () => void published.n++ });
     return { svc, writer, q, dele: verifiedDelegation(svc) };
