@@ -67,6 +67,8 @@ export interface Ask {
   questions?: Question[];
   steps?: string[];
   machine?: Machine;
+  /** Optional delivery attribute: only "blocker" is accepted. Not part of the identity, revision, semantic key or normalized JSON. */
+  urgency?: "blocker";
 }
 
 const MAX_INSTRUCTION = 8000;
@@ -131,7 +133,7 @@ function slug(label: string): string {
   return firstChars(out, 32).replace(/-+$/, "");
 }
 
-const TOP_FIELDS = ["v", "kind", "request_id", "ask_key", "subject", "project", "project_root", "asker", "thread", "question", "recommendation", "supersedes", "mention_of", "options", "questions", "steps", "machine"];
+const TOP_FIELDS = ["v", "kind", "request_id", "ask_key", "subject", "project", "project_root", "asker", "thread", "question", "recommendation", "supersedes", "mention_of", "options", "questions", "steps", "machine", "urgency"];
 const OPTION_FIELDS = ["id", "label", "kind", "reversible", "instruction", "approval"];
 const QUESTION_FIELDS = ["id", "prompt", "options", "recommendation"];
 const QUESTION_OPTION_FIELDS = ["id", "label", "detail"];
@@ -205,6 +207,11 @@ export function parseAsk(input: unknown): Ask {
       };
     });
   }
+  if (o.urgency !== undefined && o.urgency !== null) {
+    const u = str(o, "urgency");
+    if (u !== "blocker") fail('invalid ask: urgency must be "blocker" when set');
+    a.urgency = u;
+  }
   if (o.steps !== undefined && o.steps !== null) {
     if (!Array.isArray(o.steps) || (o.steps as unknown[]).some((s) => typeof s !== "string")) fail("invalid ask: steps must be an array of strings");
     a.steps = [...(o.steps as string[])];
@@ -235,6 +242,7 @@ interface Work {
   questions: Question[];
   steps: string[];
   machine: Machine | undefined;
+  urgency: string;
 }
 
 /** One thing wrong with an ask: the field it is about and why. */
@@ -321,8 +329,10 @@ function normalize(input: Ask): { ask?: Ask; problems: Problem[] } {
           owner_thread: clean("owner_thread", input.machine.owner_thread ?? ""),
         }
       : undefined,
+    urgency: input.urgency === undefined ? "" : (input.urgency as string),
   };
 
+  if (a.urgency !== "" && a.urgency !== "blocker") add("urgency", 'urgency must be "blocker" when set');
   if (a.v !== 1) add("v", "v must be 1");
   if (!["decide", "steps", "machine"].includes(a.kind)) add("kind", "kind must be decide, steps or machine");
   if (a.asker === "thread") {
@@ -395,6 +405,7 @@ function normalize(input: Ask): { ask?: Ask; problems: Problem[] } {
     machine: a.machine,
   };
   if (a.questions.length > 0) out.questions = a.questions;
+  if (a.urgency === "blocker") out.urgency = "blocker";
   if (out.request_id === "") out.request_id = identityOf(out);
   return { ask: out, problems: ps };
 }

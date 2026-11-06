@@ -451,3 +451,55 @@ func TestNeedsMkFileAlwaysWritesARequestLine(t *testing.T) {
 		t.Fatalf("card=%+v err=%v desc=%q", c, err, s.desc)
 	}
 }
+
+// bead mk-tv70n.7: --urgency blocker rides in the card's ask; any other value is refused before anything is created.
+func TestNeedsMkFileUrgencyBlocker(t *testing.T) {
+	t.Setenv("BB_THREAD_ID", "thread-x")
+	s := &stubBB{}
+	if _, err := runNeedsMk(t, s, "file", "--project", "P1", "--title", "Ship?", "--urgency", "blocker", "--ask-file", writeAsk(t)); err != nil {
+		t.Fatal(err)
+	}
+	c, err := homeask.ParseCard(s.desc)
+	if err != nil || c.Ask["urgency"] != "blocker" {
+		t.Fatalf("urgency not carried: %v %v", c.Ask, err)
+	}
+	// without the flag the field is absent
+	s2 := &stubBB{}
+	if _, err := runNeedsMk(t, s2, "file", "--project", "P1", "--title", "Ship?", "--ask-file", writeAsk(t)); err != nil {
+		t.Fatal(err)
+	}
+	if c2, _ := homeask.ParseCard(s2.desc); c2.Ask["urgency"] != nil {
+		t.Fatalf("urgency set without the flag: %v", c2.Ask)
+	}
+}
+
+func TestNeedsMkFileUrgencyFromAskJSON(t *testing.T) {
+	t.Setenv("BB_THREAD_ID", "thread-x")
+	p := filepath.Join(t.TempDir(), "ask.json")
+	os.WriteFile(p, []byte(`{"project":"autarch","project_root":"/srv/autarch","question":"Ship it?","urgency":"blocker","options":[{"id":"a","label":"A","kind":"ruling-only"},{"id":"b","label":"B","kind":"ruling-only"}]}`), 0o644)
+	s := &stubBB{}
+	if _, err := runNeedsMk(t, s, "file", "--project", "P1", "--title", "Ship?", "--ask-file", p); err != nil {
+		t.Fatal(err)
+	}
+	if c, _ := homeask.ParseCard(s.desc); c.Ask["urgency"] != "blocker" {
+		t.Fatalf("ask JSON urgency lost: %v", c.Ask)
+	}
+}
+
+func TestNeedsMkFileRefusesOtherUrgency(t *testing.T) {
+	t.Setenv("BB_THREAD_ID", "thread-x")
+	s := &stubBB{}
+	_, err := runNeedsMk(t, s, "file", "--project", "P1", "--title", "x", "--urgency", "high", "--ask-file", writeAsk(t))
+	if exitCode(err) != 2 {
+		t.Fatalf("flag: want exit 2, got %v", err)
+	}
+	p := filepath.Join(t.TempDir(), "ask.json")
+	os.WriteFile(p, []byte(`{"project":"autarch","project_root":"/srv/autarch","question":"Q?","urgency":"soon","options":[{"id":"a","label":"A","kind":"ruling-only"},{"id":"b","label":"B","kind":"ruling-only"}]}`), 0o644)
+	_, err = runNeedsMk(t, s, "file", "--project", "P1", "--title", "x", "--ask-file", p)
+	if exitCode(err) != 2 {
+		t.Fatalf("json: want exit 2, got %v", err)
+	}
+	if len(s.envs) != 0 {
+		t.Fatalf("a refused urgency created something: %v", s.envs)
+	}
+}

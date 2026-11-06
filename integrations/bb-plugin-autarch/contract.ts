@@ -168,7 +168,7 @@ export const homeCliMap = {
 /** CLI verbs with no RPC twin: lookups, machine-blocker lifecycle, and the vizier-only writes. */
 export const cliOnlyVerbs = [
   "ask", "get", "viewing", "progress", "resolve", "withdraw", "binding", "bind", "hold", "unhold",
-  "unbind", "rule", "handoff", "approval check", "report", "note",
+  "unbind", "rule", "handoff", "approval check", "report", "note", "pushes",
 ] as const;
 
 /** The summary of a verb that mirrors an RPC method. */

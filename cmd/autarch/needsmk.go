@@ -256,7 +256,7 @@ func commandWarning(question string) string {
 }
 
 func needsMkFileCmd() *cobra.Command {
-	var project, title, askFile, rootRun, request, moveFile, ownerThread string
+	var project, title, askFile, rootRun, request, moveFile, ownerThread, urgency string
 	var blocks []string
 	cmd := &cobra.Command{
 		Use:   "file",
@@ -273,7 +273,11 @@ Home routes mk's pick to it, not to the filer. It must be a live, unarchived thr
 refused (exit 2) and nothing is created. A later claim comment never re-routes a card.
 
 Exit codes: 2 usage or refused, 3 Home or tasks unavailable (nothing created), 4 card created
-but the routing comment failed (re-run the same command), 5 already ruled (mk picked an option for this request).`,
+but the routing comment failed (re-run the same command), 5 already ruled (mk picked an option for this request).
+
+--urgency blocker (or "urgency": "blocker" in the ask JSON) asks Home to send mk a phone push once, when the
+card is first filed. Use it only when work is stopped until mk answers. It is optional, any other value is
+refused, and it works on every kind of card; a machine blocker alone never pushes.`,
 		Args:         cobra.NoArgs,
 		SilenceUsage: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -318,6 +322,14 @@ but the routing comment failed (re-run the same command), 5 already ruled (mk pi
 				if ask == nil {
 					return &usageError{"--ask-file is not a JSON object: got null"}
 				}
+			}
+			if cmd.Flags().Changed("urgency") {
+				if urgency != "blocker" {
+					return &usageError{`--urgency: the only value is "blocker"`}
+				}
+				ask["urgency"] = urgency
+			} else if u, ok := ask["urgency"]; ok && u != "blocker" {
+				return &usageError{`"urgency" in the ask must be "blocker" when set`}
 			}
 			if _, ok := ask["project_root"]; !ok {
 				ask["project_root"] = gitRoot()
@@ -381,6 +393,7 @@ but the routing comment failed (re-run the same command), 5 already ruled (mk pi
 	cmd.Flags().StringVar(&moveFile, "move", "", "home-move/v1 JSON file: what mk owes (script, pr, read or context); adds the mk-move label")
 	cmd.Flags().StringVar(&rootRun, "root-run", "", "script=<abs path>,timeout=<seconds>,set=<name>")
 	cmd.Flags().StringVar(&request, "request", "", "Request key (default: derived from thread and ask); when given it must be non-empty and match the Request line key pattern")
+	cmd.Flags().StringVar(&urgency, "urgency", "", `Optional: "blocker" asks Home to push mk's phone once when the card is first filed`)
 	cmd.Flags().StringVar(&ownerThread, "owner-thread", "", "Route the card's answer to this live thread instead of the filing thread (the routing comment is posted as it)")
 	return cmd
 }

@@ -6,6 +6,8 @@ import { ImageStore, textSha, validateImages, type ImageIn, type PathsResult } f
 import { createHash, randomUUID } from "node:crypto";
 import { buildFeed, renderFeed, type Feed } from "./feed.js";
 import { cardFingerprint, askingThread, parseCard, toV1, type Card } from "./cards.js";
+import { PUSH_TIMEOUT_MS, type Notifier, type PushRequest } from "./notifier.js";
+import { askRows, listPushes, timeToAnswer, type PushListing, type TimeToAnswer } from "./pushtiming.js";
 import { OPEN_STATUSES, type Task, type TaskCommentRow } from "./tasks.js";
 
 /** A vizier hold on a card; n tells one hold from a replacement made in the same millisecond. */
@@ -39,6 +41,12 @@ export interface ServiceDeps {
   rulingsLedger?: string | null;
   /** Where the Other box's images are kept. Omitted, a request that carries images is refused. */
   images?: ImageStore;
+  /** Sends the phone push for a blocker ask (bead mk-tv70n.7). Omitted, no push is made. */
+  notifier?: Notifier;
+  /** How long a push may take before it is given up on (default 10 s). The filing never waits for it. */
+  pushTimeoutMs?: number;
+  /** Where a failed push is logged (default console.error). */
+  log?: (msg: string) => void;
 }
 
 export const DEFAULT_REPORT_DEADLINE_MS = 2 * 3_600_000;
@@ -172,6 +180,9 @@ export class Service {
   readonly store: Store;
   private readonly deps: ServiceDeps;
   private timer: ReturnType<typeof setInterval> | null = null;
+  /** Asks with a push in flight (by oldest row id), so two filings of one ask never push twice at once. */
+  private pushing = new Set<string>();
+  private pushPending = new Set<Promise<void>>();
 
   constructor(deps: ServiceDeps) {
     this.deps = deps;
@@ -311,9 +322,14 @@ export class Service {
       body_json: normalizedJson(ask),
       supersedes: ask.supersedes || null,
       delegable: true,
+      urgency: ask.urgency ?? null,
     };
 
-    if (ask.supersedes) return this.replace(base, ask, id);
+    if (ask.supersedes) {
+      const r = this.replace(base, ask, id);
+      if (r.ok && r.status === 201) this.pushFor(base.id);
+      return r;
+    }
     if (ask.mention_of) return this.mentionOf(ask, id, ask.mention_of, requestId);
 
     if (ask.asker === "thread" && base.semantic_key !== "") {
@@ -332,6 +348,7 @@ export class Service {
 
     const res = this.store.insertDecision({ ...base, obligations: this.ownerNotice(base.id, ask, base.owner_thread ?? null) });
     if (!res.inserted) return this.replay(res.existing, id);
+    this.pushFor(base.id);
     const related = this.db
       .prepare(
         `SELECT d.id FROM decisions d WHERE d.ask_key = ? AND d.project = ? AND d.id <> ?
@@ -349,6 +366,8 @@ export class Service {
 
   private replay(known: { identity: string; result: string; decision_id: string }, id: string): FileResult {
     if (known.identity !== id) return fail(409, "request id reused for a different decision");
+    // A refile of an ask whose first push failed tries the push again; pushFor is silent once any push is recorded.
+    if (known.result !== "mention") this.pushFor(known.decision_id);
     return known.result === "mention"
       ? { ok: true, status: 200, decision_id: known.decision_id, mentioned: true }
       : { ok: true, status: 200, decision_id: known.decision_id };
@@ -1259,6 +1278,7 @@ export class Service {
       generation: n,
       tasks_project_id: task.projectId,
       card_fp: fp,
+      urgency: ask.urgency ?? null,
     };
   }
 
@@ -1436,6 +1456,7 @@ export class Service {
 
   /** T3: a valid edit with a new H5 fingerprint before any pick. A refused replacement falls back to T4 in the same transaction. */
   private replaceGeneration(task: Task, ev: { card: Card; thread: string; fp: string }, latest: Row): void {
+    let filed: string | null = null;
     this.store.atomically(() => {
       const n = Number(latest.generation) + 1;
       const input = this.genInput(task, ev.card, ev.thread, ev.fp, n, latest.id, { project_root: String(latest.project_root), root_dev: String(latest.root_dev), root_ino: String(latest.root_ino), root_fsid: latest.root_fsid == null ? null : String(latest.root_fsid) });
@@ -1447,11 +1468,15 @@ export class Service {
       this.snapshotBlocks(input.id, ev.card);
       this.syncMove(task.id, n);
       this.markOpen(task.id);
+      filed = input.id;
     });
+    // A later generation pushes only when no earlier one did (the first push failed, or there was none).
+    if (filed) this.pushFor(filed);
   }
 
   /** T5: a closed card with no pick that is valid again opens g n+1 with no predecessor. */
   private reopenGeneration(task: Task, ev: { card: Card; thread: string; fp: string }, latest: Row): void {
+    let filed: string | null = null;
     this.store.atomically(() => {
       const n = Number(latest.generation) + 1;
       const input = this.genInput(task, ev.card, ev.thread, ev.fp, n, null, { project_root: String(latest.project_root), root_dev: String(latest.root_dev), root_ino: String(latest.root_ino), root_fsid: latest.root_fsid == null ? null : String(latest.root_fsid) });
@@ -1460,7 +1485,9 @@ export class Service {
       this.snapshotBlocks(input.id, ev.card);
       this.syncMove(task.id, n);
       this.markOpen(task.id);
+      filed = input.id;
     });
+    if (filed) this.pushFor(filed);
   }
 
   private setDisplay(taskId: string, reason: string): void {
@@ -1552,6 +1579,80 @@ export class Service {
       });
       this.markOpen(task.id);
     });
+    this.pushFor(input.id);
+  }
+
+  /**
+   * The blocker phone push (bead mk-tv70n.7). Called once a decision row is committed. It pushes only for a row with
+   * urgency "blocker", and only when no row of the same ask (every generation of a card, or a supersedes chain) has
+   * recorded a push: so a re-file, an edit or a supersede of a pushed ask is silent, and one whose first push failed
+   * tries again. It starts the push and returns: the filing never waits for it, and nothing here throws.
+   */
+  private pushFor(decisionId: string): void {
+    const notifier = this.deps.notifier;
+    if (!notifier) return;
+    let group = "";
+    let req: PushRequest;
+    try {
+      const d = this.store.decision(decisionId) as Row | undefined;
+      if (!d || d.urgency !== "blocker") return;
+      const rows = askRows(this.db, decisionId);
+      group = rows[0]?.id ?? decisionId;
+      if (this.pushing.has(group) || rows.some((r) => r.push_sent_at !== null)) return;
+      const taskId = d.task_id ? String(d.task_id) : null;
+      const key = this.cardKey(taskId) ?? taskId ?? decisionId;
+      const title = (this.cardTitle(taskId) || d.subject || String(this.askOf(d).question)).slice(0, 120);
+      const body = String(this.askOf(d).question).replace(/\s+/g, " ").trim().slice(0, 300);
+      req = { kind: "blocker", title, body, ...(d.thread ? { thread: d.thread } : {}), dedupeKey: key };
+      this.pushing.add(group);
+    } catch (e) {
+      this.logPush(`push not started for ${decisionId}: ${message(e)}`);
+      return;
+    }
+    const timeoutMs = this.deps.pushTimeoutMs ?? PUSH_TIMEOUT_MS;
+    const run = (async () => {
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      try {
+        const res = await Promise.race([
+          Promise.resolve().then(() => notifier.notify(req)),
+          new Promise<never>((_, rej) => {
+            timer = setTimeout(() => rej(new Error(`push timed out after ${timeoutMs} ms`)), timeoutMs);
+          }),
+        ]);
+        if (!res || typeof res.id !== "string" || typeof res.at !== "string") throw new Error("push result has no id or at");
+        this.db.prepare("UPDATE decisions SET push_sent_at = ?, push_id = ?, push_capped = ? WHERE id = ?").run(res.at, res.id, res.capped ? 1 : 0, decisionId);
+      } catch (e) {
+        this.logPush(`push for ${req.dedupeKey} failed: ${message(e)}`);
+      } finally {
+        if (timer) clearTimeout(timer);
+        this.pushing.delete(group);
+      }
+    })();
+    this.pushPending.add(run);
+    void run.finally(() => this.pushPending.delete(run));
+  }
+
+  private logPush(msg: string): void {
+    try {
+      (this.deps.log ?? ((m: string) => console.error(`autarch: ${m}`)))(msg);
+    } catch {
+      /* a failing logger must not fail a filing */
+    }
+  }
+
+  /** Resolves when every push started so far has finished. For tests and a clean shutdown. */
+  async drainPushes(): Promise<void> {
+    while (this.pushPending.size > 0) await Promise.allSettled([...this.pushPending]);
+  }
+
+  /** Time to answer for the ask a decision belongs to (see pushtiming.ts), or undefined for an unknown decision. */
+  timeToAnswer(decisionId: string): TimeToAnswer | undefined {
+    return timeToAnswer(this.db, decisionId);
+  }
+
+  /** The blocker asks, newest first, each with its push and time to answer. */
+  pushes(limit?: number): PushListing[] {
+    return listPushes(this.db, limit);
   }
 
   /** T6/T7/T11: the card was closed, unlabelled or deleted in tasks. */

@@ -20,7 +20,7 @@ import {
 export { BackupNotVerifiedError, QuiesceRequiredError } from "./backup.js";
 
 /** The schema version this code writes and the highest it can read. */
-export const CODE_VERSION = 5;
+export const CODE_VERSION = 6;
 
 export interface Migration {
   version: number;
@@ -381,12 +381,23 @@ const V5 = `
 ALTER TABLE decisions ADD COLUMN root_fsid TEXT;
 `;
 
+// v6 (mk-tv70n.7): the optional blocker urgency of an ask and the result of its phone push. Four additive nullable
+// columns. urgency is "blocker" or null. push_sent_at/push_id/push_capped record the one push made for the card
+// (push_capped is 0 or 1). Rows filed before it read as unset: no urgency, no push.
+const V6 = `
+ALTER TABLE decisions ADD COLUMN urgency TEXT;
+ALTER TABLE decisions ADD COLUMN push_sent_at TEXT;
+ALTER TABLE decisions ADD COLUMN push_id TEXT;
+ALTER TABLE decisions ADD COLUMN push_capped INTEGER;
+`;
+
 export const MIGRATIONS: readonly Migration[] = [
   { version: 1, sql: V1 },
   { version: 2, sql: V2 },
   { version: 3, minReaderVersion: 3, sql: V3 },
   { version: 4, sql: V4 },
   { version: 5, sql: V5 },
+  { version: 6, sql: V6 },
 ];
 
 const META = `CREATE TABLE IF NOT EXISTS schema_meta (key TEXT PRIMARY KEY, value INTEGER NOT NULL)`;

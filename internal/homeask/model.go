@@ -84,6 +84,9 @@ type Ask struct {
 	Questions      []Question `json:"questions,omitempty"`
 	Steps          []string   `json:"steps,omitempty"`
 	Machine        *Machine   `json:"machine,omitempty"`
+	// Urgency is an optional delivery attribute: only "blocker" is accepted. It is not part of the
+	// identity, revision, semantic key or normalized JSON, so every hash filed before it existed is unchanged.
+	Urgency string `json:"urgency,omitempty"`
 }
 
 const (
@@ -331,6 +334,9 @@ func normalize(in Ask) (Ask, []Problem) {
 
 	if a.V != 1 {
 		ps.add("v", "v must be 1")
+	}
+	if a.Urgency != "" && a.Urgency != "blocker" {
+		ps.add("urgency", `urgency must be "blocker" when set`)
 	}
 	switch a.Kind {
 	case "decide", "steps", "machine":

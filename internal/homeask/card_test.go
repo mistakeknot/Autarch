@@ -168,3 +168,21 @@ func TestAskingThreadVectors(t *testing.T) {
 		t.Fatalf("only %d askingThread vectors", n)
 	}
 }
+
+func TestUrgencyOnlyBlocker(t *testing.T) {
+	a := Ask{V: 1, Kind: "decide", Project: "p", ProjectRoot: "/r", Asker: "thread", Thread: "thr_x", Question: "Q?", Urgency: "blocker", Options: []Option{{ID: "a", Label: "A", Kind: "ruling-only"}, {ID: "b", Label: "B", Kind: "ruling-only"}}}
+	n, err := Normalize(a)
+	if err != nil || n.Urgency != "blocker" {
+		t.Fatalf("blocker refused: %v", err)
+	}
+	// urgency never moves a hash: the same ask without it has the same identity, revision and normalized JSON
+	b := a
+	b.Urgency = ""
+	if Identity(a) != Identity(b) || Revision(a) != Revision(b) || NormalizedJSON(a) != NormalizedJSON(b) {
+		t.Fatal("urgency changed a hash")
+	}
+	a.Urgency = "soon"
+	if _, err := Normalize(a); err == nil {
+		t.Fatal("urgency soon accepted")
+	}
+}

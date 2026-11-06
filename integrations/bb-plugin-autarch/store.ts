@@ -43,6 +43,8 @@ export interface DecisionInput {
   generation?: number | null;
   tasks_project_id?: string | null;
   card_fp?: string | null;
+  /** "blocker" asks for a phone push at filing; null is unset. */
+  urgency?: "blocker" | null;
   at?: string;
 }
 
@@ -481,10 +483,10 @@ export class Store {
       .prepare(
         `INSERT INTO decisions(id, request_id, identity, revision, semantic_key, subject, kind, ask_key,
            project, project_root, root_dev, root_ino, root_fsid, asker, thread, owner_thread, body_json, supersedes,
-           delegable, filed_at, updated_at, source, task_id, generation, tasks_project_id, card_fp)
+           delegable, filed_at, updated_at, source, task_id, generation, tasks_project_id, card_fp, urgency)
          VALUES (@id, @request_id, @identity, @revision, @semantic_key, @subject, @kind, @ask_key,
            @project, @project_root, @root_dev, @root_ino, @root_fsid, @asker, @thread, @owner_thread, @body_json,
-           @supersedes, @delegable, @at, @at, @source, @task_id, @generation, @tasks_project_id, @card_fp)`,
+           @supersedes, @delegable, @at, @at, @source, @task_id, @generation, @tasks_project_id, @card_fp, @urgency)`,
       )
       .run({
         ask_key: null,
@@ -499,6 +501,7 @@ export class Store {
         generation: null,
         tasks_project_id: null,
         card_fp: null,
+        urgency: null,
         ...d,
         obligations: undefined,
         delegable: d.delegable === false ? 0 : 1,
@@ -564,10 +567,10 @@ export class Store {
         .prepare(
           `INSERT INTO decisions(id, request_id, identity, revision, semantic_key, subject, kind, ask_key,
              project, project_root, root_dev, root_ino, root_fsid, asker, thread, owner_thread, body_json, supersedes,
-             delegable, filed_at, updated_at, source, task_id, generation, tasks_project_id, card_fp)
+             delegable, filed_at, updated_at, source, task_id, generation, tasks_project_id, card_fp, urgency)
            SELECT @id, @request_id, @identity, @revision, @semantic_key, @subject, @kind, @ask_key,
              @project, @project_root, @root_dev, @root_ino, @root_fsid, @asker, @thread, @owner_thread, @body_json,
-             p.id, MIN(@delegable, p.delegable), @at, @at, @source, @task_id, @generation, @tasks_project_id, @card_fp
+             p.id, MIN(@delegable, p.delegable), @at, @at, @source, @task_id, @generation, @tasks_project_id, @card_fp, @urgency
            ${gate}`,
         )
         .run({
@@ -575,13 +578,14 @@ export class Store {
           project_root: null,
           root_dev: null,
           root_ino: null,
-        root_fsid: null,
+          root_fsid: null,
           owner_thread: null,
           source: "home",
           task_id: null,
           generation: null,
           tasks_project_id: null,
           card_fp: null,
+          urgency: null,
           ...d,
           obligations: undefined,
           prev: prevId,

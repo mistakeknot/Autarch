@@ -38,6 +38,7 @@ import { CommentPoller, conversationView, openTaskIds, unreadCounts } from "./co
 import { readDoc, resolveOpenTarget } from "./docread.js";
 import { rootRun } from "./rootrun.js";
 import { buildQueue, removeBinding, setBinding } from "./queueview.js";
+import { RpcNotifier } from "./notifier.js";
 import { hasNoteMarker, isoWeek, Service } from "./service.js";
 import { Ideas } from "./ideas.js";
 import { archiveView, type ArchiveQuery } from "./archive.js";
@@ -224,7 +225,10 @@ export function wireHome(bb: BbPluginApi, handle: StoreHandle, cfg: HomeConfig, 
     } catch (e) {
       bb.log.warn(`image sweep failed: ${e instanceof Error ? e.message : String(e)}`);
     }
-    const svc = new Service({ store, images, projects: () => serve.projects(), nudge, rulingsLedger: cfg.rulingsLedger !== undefined ? cfg.rulingsLedger : ledgerPath() });
+    // The blocker phone push goes over plugins.callRpc to the push-notifications plugin; a host without
+    // bb.sdk.plugins simply makes no push.
+    const sdkPlugins = (bb.sdk as { plugins?: PluginsLike }).plugins;
+    const svc = new Service({ store, images, projects: () => serve.projects(), nudge, ...(sdkPlugins ? { notifier: new RpcNotifier(sdkPlugins) } : {}), log: (m) => bb.log.warn(m), rulingsLedger: cfg.rulingsLedger !== undefined ? cfg.rulingsLedger : ledgerPath() });
     const dele = new Delegation(svc, listThreadRows, getThreadRow);
     const asks = new Asks(svc);
     const catchup = new Catchup(svc, dele);
