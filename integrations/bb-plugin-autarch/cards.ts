@@ -308,6 +308,9 @@ export function cardFingerprint(i: { title: string; card: Card; thread: string; 
   const ask = JSON.parse(normalizedJson(v1)) as Record<string, unknown>;
   delete ask.request_id;
   delete ask.supersedes;
+  // normalizedJson leaves urgency out (it is not part of what the ask says), but an urgency-only edit must still be a
+  // new generation so it is stored and pushes once. Only when set, so every existing fingerprint is unchanged.
+  if (v1.urgency === "blocker") ask.urgency = "blocker";
   const refs = [...new Set(i.card.blocks.map((b) => b.ref))].sort();
   const text = canonicalJson({
     title: i.title,

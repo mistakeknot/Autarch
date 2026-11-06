@@ -389,6 +389,8 @@ ALTER TABLE decisions ADD COLUMN urgency TEXT;
 ALTER TABLE decisions ADD COLUMN push_sent_at TEXT;
 ALTER TABLE decisions ADD COLUMN push_id TEXT;
 ALTER TABLE decisions ADD COLUMN push_capped INTEGER;
+ALTER TABLE decisions ADD COLUMN push_attempts INTEGER;
+ALTER TABLE decisions ADD COLUMN push_last_attempt_at TEXT;
 `;
 
 export const MIGRATIONS: readonly Migration[] = [

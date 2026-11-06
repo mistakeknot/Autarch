@@ -228,6 +228,40 @@ describe("the push on a card", () => {
     expect(r.gens(t.id).some((g) => g.push_id === "push-2")).toBe(true);
   });
 
+  it("an edit that only adds urgency is a new generation, is stored, and pushes once", async () => {
+    const { r, n } = setup();
+    const { t } = await opened(r, {});
+    await r.svc.drainPushes();
+    expect(n.calls).toEqual([]);
+    const key = String(r.cardRow(t.id).request_key);
+    r.edit(t, { description: r.desc({ key, ask: { urgency: "blocker" } }) });
+    await r.poll();
+    await r.svc.drainPushes();
+    const gens = r.gens(t.id);
+    expect(gens).toHaveLength(2);
+    expect(r.db.prepare("SELECT urgency FROM decisions WHERE id = ?").get(gens[1]!.id)).toEqual({ urgency: "blocker" });
+    expect(n.calls).toHaveLength(1);
+    expect(n.calls[0]).toMatchObject({ dedupeKey: r.svc.cardKey(t.id) });
+    await r.poll();
+    await r.svc.drainPushes();
+    expect(n.calls).toHaveLength(1);
+    // taking urgency off again is a new generation too, and sends nothing
+    r.edit(t, { description: r.desc({ key }) });
+    await r.poll();
+    await r.svc.drainPushes();
+    expect(r.gens(t.id)).toHaveLength(3);
+    expect(n.calls).toHaveLength(1);
+  });
+
+  it("a card with urgency has the same fingerprint as before when urgency is unset", async () => {
+    const { r } = setup();
+    const { t, g1 } = await opened(r, {});
+    const before = String(g1.card_fp);
+    await r.poll();
+    expect(r.gens(t.id)).toHaveLength(1);
+    expect(String(r.gens(t.id)[0]!.card_fp)).toBe(before);
+  });
+
   it("a notifier failure never fails the card's materialization", async () => {
     const { r, n, logs } = setup();
     n.mode = "throw";
@@ -244,6 +278,110 @@ describe("the push on a card", () => {
     await r.svc.drainPushes();
     expect(r.gens(t.id)).toHaveLength(0);
     expect(n.calls).toEqual([]);
+  });
+});
+
+describe("retrying a lost push", () => {
+  afterEach(cleanupEnvs);
+  const setup = () => {
+    const n = new FakeNotifier();
+    const logs: string[] = [];
+    const r = rig({ svc: { notifier: n, log: (m: string) => void logs.push(m), pushTimeoutMs: 40 } });
+    return { r, n, logs };
+  };
+  const state = (r: ReturnType<typeof rig>, id: string) => r.db.prepare("SELECT push_sent_at, push_id, push_attempts FROM decisions WHERE id = ?").get(id) as Record<string, unknown>;
+
+  it("a failed push is retried by the reconcile pass on an unchanged card, with the same dedupe key", async () => {
+    const { r, n } = setup();
+    n.mode = "throw";
+    const { t, g1 } = await opened(r, { ask: { urgency: "blocker" } });
+    await r.svc.drainPushes();
+    expect(state(r, g1.id)).toMatchObject({ push_sent_at: null, push_attempts: 1 });
+    n.mode = "ok";
+    r.svc.reconcilePushes(); // inside the backoff: nothing
+    await r.svc.drainPushes();
+    expect(n.calls).toHaveLength(1);
+    r.advance(60_000);
+    r.svc.reconcileAll();
+    await r.svc.drainPushes();
+    expect(n.calls).toHaveLength(2);
+    expect(n.calls[1]!.dedupeKey).toBe(n.calls[0]!.dedupeKey);
+    expect(n.calls[1]!.dedupeKey).toBe(r.svc.cardKey(t.id));
+    expect(state(r, g1.id)).toMatchObject({ push_id: "push-2" });
+    r.advance(10 * 3_600_000);
+    r.svc.reconcileAll();
+    await r.svc.drainPushes();
+    expect(n.calls).toHaveLength(2);
+  });
+
+  it("a push lost with the process (no attempt recorded) is retried by a fresh service on the same database", async () => {
+    const { r, n } = setup();
+    n.mode = "hang";
+    const { g1 } = await opened(r, { ask: { urgency: "blocker" } });
+    // the process dies before the push answers: the row has urgency and no push
+    r.db.prepare("UPDATE decisions SET push_attempts = NULL, push_last_attempt_at = NULL WHERE id = ?").run(g1.id);
+    const n2 = new FakeNotifier();
+    const svc2 = new (r.svc.constructor as new (d: any) => Service)({ ...(r.svc as any).deps, notifier: n2 });
+    svc2.start();
+    await svc2.drainPushes();
+    svc2.stop();
+    expect(n2.calls).toHaveLength(1);
+    expect(state(r, g1.id)).toMatchObject({ push_id: "push-1" });
+  });
+
+  it("gives up after the attempt bound, and a capped or deduped result counts as sent", async () => {
+    const { r, n } = setup();
+    n.mode = "throw";
+    const { g1 } = await opened(r, { ask: { urgency: "blocker" } });
+    await r.svc.drainPushes();
+    for (let i = 0; i < 12; i++) {
+      r.advance(2 * 3_600_000);
+      r.svc.reconcilePushes();
+      await r.svc.drainPushes();
+    }
+    expect(n.calls).toHaveLength(6);
+    expect(state(r, g1.id)).toMatchObject({ push_sent_at: null, push_attempts: 6 });
+
+    const b = setup();
+    b.n.mode = "throw";
+    const { g1: h1 } = await opened(b.r, { ask: { urgency: "blocker" } });
+    await b.r.svc.drainPushes();
+    b.n.mode = "capped";
+    b.r.advance(60_000);
+    b.r.svc.reconcilePushes();
+    await b.r.svc.drainPushes();
+    expect(b.r.db.prepare("SELECT push_capped, push_sent_at IS NOT NULL AS sent FROM decisions WHERE id = ?").get(h1.id)).toEqual({ push_capped: 1, sent: 1 });
+    b.r.advance(10 * 3_600_000);
+    b.r.svc.reconcilePushes();
+    await b.r.svc.drainPushes();
+    expect(b.n.calls).toHaveLength(2);
+  });
+
+  it("does not retry an ask that is already answered or withdrawn, nor one without urgency", async () => {
+    const { r, n } = setup();
+    n.mode = "throw";
+    const { g1 } = await opened(r, { ask: { urgency: "blocker" } });
+    await opened(r, {});
+    await r.svc.drainPushes();
+    expect(n.calls).toHaveLength(1);
+    n.mode = "ok";
+    r.db.prepare("UPDATE decisions SET withdrawn_at = ? WHERE id = ?").run("2026-09-26T14:00:00.000Z", g1.id);
+    r.advance(10 * 3_600_000);
+    r.svc.reconcilePushes();
+    await r.svc.drainPushes();
+    expect(n.calls).toHaveLength(1);
+  });
+
+  it("a reconcile pass with a throwing notifier or no notifier never throws", async () => {
+    const { r, n } = setup();
+    n.mode = "throw";
+    await opened(r, { ask: { urgency: "blocker" } });
+    await r.svc.drainPushes();
+    r.advance(3_600_000);
+    expect(() => r.svc.reconcilePushes()).not.toThrow();
+    await r.svc.drainPushes();
+    const bare = rig({});
+    expect(() => bare.svc.reconcilePushes()).not.toThrow();
   });
 });
 
@@ -305,26 +443,33 @@ describe("the migration of an old database", () => {
   beforeEach(() => void (dir = tmpDir()));
   afterEach(() => dir.cleanup());
 
-  it("v5 to v6 adds four nullable columns; an old decision row reads as unset", () => {
+  it("v5 to v6 adds the push columns; an old decision row reads as unset", () => {
     const file = join(dir.dir, "data.db");
     const old = new Database(file);
     migrate(old, { codeVersion: 5, migrations: MIGRATIONS.filter((m) => m.version <= 5) });
-    expect(old.prepare("SELECT COUNT(*) AS n FROM pragma_table_info('decisions') WHERE name IN ('urgency','push_sent_at','push_id','push_capped')").get()).toEqual({ n: 0 });
-    const st = new Store(old, { now: () => "2026-09-26T14:03:00.000Z" });
-    st.insertDecision(decision({ id: "old-1" }));
+    const PUSH_COLS = "('urgency','push_sent_at','push_id','push_capped','push_attempts','push_last_attempt_at')";
+    expect(old.prepare(`SELECT COUNT(*) AS n FROM pragma_table_info('decisions') WHERE name IN ${PUSH_COLS}`).get()).toEqual({ n: 0 });
+    expect(old.prepare("SELECT value FROM schema_meta WHERE key = 'schema_version'").get()).toEqual({ value: 5 });
+    // A v5 row, written with raw SQL: the Store of this version would migrate the file on open, and its insert names the new columns.
+    old
+      .prepare(
+        `INSERT INTO decisions(id, request_id, identity, revision, semantic_key, subject, kind, project, asker, thread, body_json, filed_at, updated_at)
+         VALUES ('old-1', 'req-old-1', 'idn', 'rev', 'sem', 'An old subject', 'decide', 'Autarch', 'thread', 'thr_old', '{}', '2026-09-26T14:03:00.000Z', '2026-09-26T14:03:00.000Z')`,
+      )
+      .run();
+    expect(old.prepare("SELECT COUNT(*) AS n FROM decisions").get()).toEqual({ n: 1 });
     old.close();
 
     const db = new Database(file);
     expect(CODE_VERSION).toBe(6);
     expect(migrate(db)).toMatchObject({ schemaVersion: 6 });
-    const cols = db.prepare("SELECT name, \"notnull\" AS nn FROM pragma_table_info('decisions') WHERE name IN ('urgency','push_sent_at','push_id','push_capped') ORDER BY name").all();
-    expect(cols).toEqual([
-      { name: "push_capped", nn: 0 },
-      { name: "push_id", nn: 0 },
-      { name: "push_sent_at", nn: 0 },
-      { name: "urgency", nn: 0 },
-    ]);
-    expect(db.prepare("SELECT urgency, push_sent_at, push_id, push_capped FROM decisions WHERE id = 'old-1'").get()).toEqual({ urgency: null, push_sent_at: null, push_id: null, push_capped: null });
+    const got = db.prepare(`SELECT name, "notnull" AS nn FROM pragma_table_info('decisions') WHERE name IN ${PUSH_COLS} ORDER BY name`).all();
+    expect(got).toEqual(
+      ["push_attempts", "push_capped", "push_id", "push_last_attempt_at", "push_sent_at", "urgency"].map((name) => ({ name, nn: 0 })),
+    );
+    expect(db.prepare("SELECT urgency, push_sent_at, push_id, push_capped, push_attempts, push_last_attempt_at FROM decisions WHERE id = 'old-1'").get()).toEqual({
+      urgency: null, push_sent_at: null, push_id: null, push_capped: null, push_attempts: null, push_last_attempt_at: null,
+    });
     // The old row has no push and no answer: its time to answer reads without error.
     expect(timeToAnswer(db, "old-1")).toMatchObject({ push_sent_at: null, push_capped: null, answered_at: null });
     db.close();

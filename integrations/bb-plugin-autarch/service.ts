@@ -84,6 +84,9 @@ type Row = Record<string, unknown> & {
 };
 
 const RECONCILE_MS = 30_000;
+/** Failed blocker pushes retried per ask before giving up, and the first backoff (doubling, capped at an hour). */
+const MAX_PUSH_ATTEMPTS = 6;
+const PUSH_RETRY_BASE_MS = 30_000;
 export const ROUTING_PREFIX = "routing: ";
 const OBSERVED_BACKOFF_MS = 5_000;
 const CLOSED_BACKOFF_MS = 30_000;
@@ -717,12 +720,14 @@ export class Service {
 
   reconcileAll(): void {
     for (const o of this.store.dueRulingFiles(this.now())) this.reconcile(o.decision_id);
+    this.reconcilePushes();
   }
 
   start(): void {
     if (this.timer) return;
     this.timer = setInterval(() => this.reconcileAll(), RECONCILE_MS);
     this.timer.unref();
+    this.reconcilePushes(); // a push lost to a restart is retried now, not after the first interval
   }
 
   stop(): void {
@@ -1623,6 +1628,11 @@ export class Service {
         this.db.prepare("UPDATE decisions SET push_sent_at = ?, push_id = ?, push_capped = ? WHERE id = ?").run(res.at, res.id, res.capped ? 1 : 0, decisionId);
       } catch (e) {
         this.logPush(`push for ${req.dedupeKey} failed: ${message(e)}`);
+        try {
+          this.db.prepare("UPDATE decisions SET push_attempts = COALESCE(push_attempts, 0) + 1, push_last_attempt_at = ? WHERE id = ?").run(this.now(), decisionId);
+        } catch {
+          /* the retry bookkeeping must not fail a filing */
+        }
       } finally {
         if (timer) clearTimeout(timer);
         this.pushing.delete(group);
@@ -1630,6 +1640,48 @@ export class Service {
     })();
     this.pushPending.add(run);
     void run.finally(() => this.pushPending.delete(run));
+  }
+
+  /**
+   * Retries the pushes that failed or were lost (the plugin was missing, the call timed out, or the process died after
+   * filing): every blocker ask whose latest generation is still open and whose group never recorded a push. It uses the
+   * same stable dedupe key as the first try, so the notifier drops a duplicate. Bounded: at most MAX_PUSH_ATTEMPTS failed
+   * tries per ask, spaced by an exponential backoff from the last failure. It starts pushes and returns; nothing here
+   * blocks or fails a filing. Runs at start and on every reconcile pass.
+   */
+  reconcilePushes(): void {
+    if (!this.deps.notifier) return;
+    try {
+      const ids = this.db
+        .prepare(
+          `SELECT d.id FROM decisions d
+           WHERE d.urgency = 'blocker' AND d.push_sent_at IS NULL AND d.withdrawn_at IS NULL AND d.resolved_at IS NULL
+             AND NOT EXISTS (SELECT 1 FROM picks p WHERE p.decision_id = d.id)
+           ORDER BY d.filed_at DESC, d.id DESC LIMIT 200`,
+        )
+        .all() as { id: string }[];
+      const seen = new Set<string>();
+      const nowMs = Date.parse(this.now());
+      for (const { id } of ids) {
+        const rows = askRows(this.db, id);
+        const head = rows[0]?.id;
+        if (!head || seen.has(head)) continue;
+        seen.add(head);
+        if (rows[rows.length - 1]!.id !== id) continue; // only the latest generation speaks for the ask
+        if (rows.some((r) => r.push_sent_at !== null)) continue;
+        const tries = this.db
+          .prepare(`SELECT COALESCE(SUM(push_attempts), 0) AS n, MAX(push_last_attempt_at) AS last FROM decisions WHERE id IN (${rows.map(() => "?").join(",")})`)
+          .get(...rows.map((r) => r.id)) as { n: number; last: string | null };
+        if (tries.n >= MAX_PUSH_ATTEMPTS) continue;
+        if (tries.last) {
+          const wait = Math.min(PUSH_RETRY_BASE_MS * 2 ** Math.max(0, tries.n - 1), 3_600_000);
+          if (nowMs < Date.parse(tries.last) + wait) continue;
+        }
+        this.pushFor(id);
+      }
+    } catch (e) {
+      this.logPush(`push reconciliation failed: ${message(e)}`);
+    }
   }
 
   private logPush(msg: string): void {
