@@ -278,22 +278,25 @@ describe("wireHome", () => {
 });
 
 describe("update request", () => {
-  it("stores one request row for the latest offered sha and never executes anything", async () => {
-    const { writeFileSync, mkdtempSync } = await import("node:fs");
+  it("stores one request row for the latest offered sha, touches the trigger file and never executes anything", async () => {
+    const { existsSync, writeFileSync, mkdtempSync } = await import("node:fs");
     const { tmpdir } = await import("node:os");
     const { join } = await import("node:path");
     const updateDir = mkdtempSync(join(tmpdir(), "upd-"));
     const A = "a".repeat(40);
     const B = "b".repeat(40);
     writeFileSync(join(updateDir, "status.json"), JSON.stringify({ installed: A, latest: B, count: 1, subjects: ["s"], checked_at: "2026-10-07T05:00:00Z" }));
-    
+
     const db = new Database(":memory:");
     const handle = createStoreHandle(() => db, {});
     const f = fakeBb();
     const home = wireHome(f.bb, handle, { ...cfg, updateDir }, { serve });
     expect(((await home.handlers.updateInfo()) as { available: boolean }).available).toBe(true);
+    expect(existsSync(join(updateDir, "trigger"))).toBe(false);
     expect(await home.handlers.requestUpdate({ sha: A })).toMatchObject({ ok: false });
+    expect(existsSync(join(updateDir, "trigger"))).toBe(false);
     expect(await home.handlers.requestUpdate({ sha: B })).toMatchObject({ ok: true });
+    expect(existsSync(join(updateDir, "trigger"))).toBe(true);
     expect(((await home.handlers.updateInfo()) as { pending: boolean }).pending).toBe(true);
     expect(await home.handlers.requestUpdate({ sha: B })).toMatchObject({ ok: false });
     f.disposers.forEach((d) => d());

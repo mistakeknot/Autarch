@@ -9,6 +9,10 @@ import { join } from "node:path";
 /** The systemd user units that run the update runner; the panel names them when a request looks stuck. */
 export const UPDATE_UNIT = "autarch-home-update.service";
 export const UPDATE_TIMER = "autarch-home-update.timer";
+/** Watches TRIGGER_FILE and starts UPDATE_UNIT right away; the timer above is only the slow fallback. */
+export const UPDATE_PATH_UNIT = "autarch-home-update.path";
+/** File this plugin touches on a request; the .path unit's PathChanged= fires off that touch. */
+export const TRIGGER_FILE = "trigger";
 /** The timer's OnUnitActiveSec is read when the timer file is there; this is the interval it was installed with. */
 export const DEFAULT_CHECK_INTERVAL_MS = 5 * 60_000;
 export const defaultTimerFile = () => join(homedir(), ".config", "systemd", "user", UPDATE_TIMER);

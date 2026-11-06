@@ -18,6 +18,10 @@ export type UpdateInfoView = {
 /** A request this many check intervals old with no result for it looks stuck. */
 export const STUCK_AFTER_INTERVALS = 2;
 
+/** How long the on-demand trigger should take to start the runner; past this with no result yet,
+ * the periodic check (the slow fallback) is the one still covering the request. */
+export const TRIGGER_GRACE_MS = 60_000;
+
 /** How often the panel re-reads the update state: slowly at rest, quickly while a request is out so Installing and the age show. */
 export const UPDATE_POLL_IDLE_MS = 300_000;
 export const UPDATE_POLL_PENDING_MS = 15_000;
@@ -38,17 +42,24 @@ const utc = (ms: number) => `${new Date(ms).toISOString().slice(11, 16)} UTC`;
 
 export type PendingNote = { kind: "installing" | "waiting" | "stuck"; text: string };
 
-/** What to say about a request the runner has not finished: installing now, due by a time, or stuck. */
+/** What to say about a request the runner has not finished: installing now, just triggered, due by
+ * a fallback time, or stuck. The trigger starts the runner right away; the periodic check only
+ * matters as a backstop if that trigger did not fire. */
 export function pendingNote(info: UpdateInfoView): PendingNote {
   if (info.busy) return { kind: "installing", text: "Installing… the runner is working on this now. This page updates when it finishes." };
   const at = info.request ? Date.parse(info.request.clicked_at) : NaN;
   const now = Date.parse(info.now);
-  if (Number.isNaN(at) || Number.isNaN(now)) return { kind: "waiting", text: `Requested. The runner checks every ${span(info.interval_ms)}.` };
+  if (Number.isNaN(at) || Number.isNaN(now)) {
+    return { kind: "waiting", text: `Requested. It should start within moments; otherwise the periodic check every ${span(info.interval_ms)} will catch it.` };
+  }
   const old = now - at;
   if (old > STUCK_AFTER_INTERVALS * info.interval_ms) {
     return { kind: "stuck", text: `Requested ${age(old)} and the runner has not reported a result. It looks stuck. Look in ${info.log_path} and run: systemctl --user status ${info.unit}` };
   }
-  return { kind: "waiting", text: `Requested ${age(old)}. The runner checks every ${span(info.interval_ms)}, so it should start by ${utc(at + info.interval_ms)}.` };
+  if (old < TRIGGER_GRACE_MS) {
+    return { kind: "waiting", text: `Requested ${age(old)}. It should start within moments.` };
+  }
+  return { kind: "waiting", text: `Requested ${age(old)}. It has not started yet; the periodic check every ${span(info.interval_ms)} will still catch it, so it should start by ${utc(at + info.interval_ms)}.` };
 }
 
 const short = (sha: string) => sha.slice(0, 7);
