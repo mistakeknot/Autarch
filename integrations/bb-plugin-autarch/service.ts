@@ -722,9 +722,12 @@ export class Service {
   }
 
   /**
-   * Messages that could not be delivered and still need a person. A row is settled, and left out, once it is voided
-   * (a bring-back or an override cancelled it), or a later message on the same decision (the bring-back notice or a
-   * re-delivered wake) was delivered. The row itself stays as it is: this is a read, not a state change (bead mk-j6eqk).
+   * Messages that could not be delivered and still need a person. A row is settled, and left out, when it was cancelled
+   * (voided: a bring-back or an override), or the answer was delivered again: a later wake or bring-back notice to the
+   * SAME recipient on the same decision reached `done`. Later means it finished at or after the failure and was inserted
+   * after the failed row; insertion order alone is not completion order. A message to another thread, an information
+   * notice, and a batched digest are not evidence: a notice is `done` the moment it is merged into a digest, before the
+   * digest is delivered. The row itself stays as it is: this is a read, not a state change (bead mk-j6eqk).
    */
   undeliverable(): ObligationRow[] {
     return this.db
@@ -734,8 +737,11 @@ export class Service {
            AND o.voided_at IS NULL
            AND NOT EXISTS (
              SELECT 1 FROM obligations l
-             WHERE l.decision_id = o.decision_id AND l.rowid > o.rowid AND l.state = 'done'
-               AND l.kind IN ('wake','notice','notice-digest','void-notice'))
+             WHERE l.decision_id = o.decision_id AND l.id <> o.id
+               AND l.recipient IS NOT NULL AND l.recipient = o.recipient
+               AND l.state = 'done'
+               AND l.updated_at >= o.updated_at AND l.rowid > o.rowid
+               AND (l.kind = o.kind OR (o.kind IN ('wake','void-notice') AND l.kind IN ('wake','void-notice'))))
          ORDER BY o.rowid`,
       )
       .all() as ObligationRow[];

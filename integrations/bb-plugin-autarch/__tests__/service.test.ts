@@ -414,7 +414,7 @@ describe("dismiss", () => {
 });
 
 describe("undeliverable wakes that are settled leave the stalled list (bead mk-j6eqk)", () => {
-  // A wake that could not be delivered, then a later obligation on the same decision.
+  // The asking thread's wake could not be delivered (its thread is archived).
   const strandedWake = async () => {
     const a = await fileOk();
     pickOk(a.decision_id, "project");
@@ -422,8 +422,9 @@ describe("undeliverable wakes that are settled leave the stalled list (bead mk-j
     expect(svc.store.transition(wake.id, "pending", "undeliverable", 0, { last_error: "thread archived" })).toEqual({ ok: true });
     return { decision: a.decision_id, wake };
   };
-  const later = (decision: string, id: string, kind: string, finalState: "done" | "pending" | "undeliverable") => {
-    expect(svc.store.insertObligations(decision, [{ id, kind, recipient: "thr-vizier", op: `op:${id}`, payload: "x" }])).toBe(1);
+  // A further message on the decision, inserted now and taken to `finalState` at the clock's current time.
+  const later = (decision: string, id: string, kind: string, recipient: string, finalState: "done" | "pending" | "undeliverable") => {
+    expect(svc.store.insertObligations(decision, [{ id, kind, recipient, op: `op:${id}`, payload: "x" }])).toBe(1);
     if (finalState === "pending") return;
     const c = svc.store.claim(id, 0);
     if (!c.ok) throw new Error("claim");
@@ -433,13 +434,7 @@ describe("undeliverable wakes that are settled leave the stalled list (bead mk-j
   it("a voided undeliverable wake with a later done bringback notice is not listed", async () => {
     const { decision, wake } = await strandedWake();
     expect(svc.store.voidObligation(wake.id)).toBe(true);
-    later(decision, `ob:${decision}:bringback`, "void-notice", "done");
-    expect(svc.undeliverable()).toEqual([]);
-  });
-
-  it("an undeliverable wake with a later done re-delivered wake is not listed", async () => {
-    const { decision } = await strandedWake();
-    later(decision, `ob:${decision}:rewake`, "wake", "done");
+    later(decision, `ob:${decision}:bringback`, "void-notice", "thr-vizier", "done");
     expect(svc.undeliverable()).toEqual([]);
   });
 
@@ -449,25 +444,70 @@ describe("undeliverable wakes that are settled leave the stalled list (bead mk-j
     expect(svc.undeliverable()).toEqual([]);
   });
 
-  it("an undeliverable wake that nothing settled stays listed", async () => {
+  it("an undeliverable wake with a later done re-delivered wake to the same thread is not listed", async () => {
+    const { decision } = await strandedWake();
+    env.clock.t += 1000;
+    later(decision, `ob:${decision}:rewake`, "wake", "thr-a", "done");
+    expect(svc.undeliverable()).toEqual([]);
+  });
+
+  it("a done bringback notice to the same thread settles an unvoided wake too", async () => {
+    const { decision } = await strandedWake();
+    env.clock.t += 1000;
+    later(decision, `ob:${decision}:bringback`, "void-notice", "thr-a", "done");
+    expect(svc.undeliverable()).toEqual([]);
+  });
+
+  it("a message delivered to ANOTHER thread does not hide the asking thread's stranded wake", async () => {
     const { decision, wake } = await strandedWake();
+    env.clock.t += 1000;
+    later(decision, `ob:${decision}:other-notice`, "notice", "thr-b", "done");
+    later(decision, `ob:${decision}:other-wake`, "wake", "thr-b", "done");
     expect(ids(svc.undeliverable())).toEqual([wake.id]);
-    // a later row that has not been delivered does not settle it
-    later(decision, `ob:${decision}:pending`, "wake", "pending");
-    later(decision, `ob:${decision}:failed`, "wake", "undeliverable");
-    expect(ids(svc.undeliverable())).toContain(wake.id);
-    // nor does a done row on another decision
-    const b = await fileOk({ thread: "thr-other" });
-    later(b.decision_id, `ob:${b.decision_id}:bringback`, "void-notice", "done");
+  });
+
+  it("an information notice to the same thread is not a re-delivery of the answer", async () => {
+    const { decision, wake } = await strandedWake();
+    env.clock.t += 1000;
+    later(decision, `ob:${decision}:fyi`, "notice", "thr-a", "done");
+    expect(ids(svc.undeliverable())).toEqual([wake.id]);
+  });
+
+  it("a batched notice digest does not settle it, pending or delivered", async () => {
+    env.batch.noticeWindowMs = 3_600_000; // a store that batches notices per hour
+    svc = env.open();
+    const { decision, wake } = await strandedWake();
+    env.clock.t += 1000;
+    // batchDueNotices marks the member notices done as soon as it makes the digest
+    later(decision, `ob:${decision}:n1`, "notice", "thr-a", "pending");
+    later(decision, `ob:${decision}:n2`, "notice", "thr-a", "pending");
+    env.clock.t += 3_600_001; // the window is over: both notices are due
+    const digests = svc.store.batchDueNotices();
+    expect(digests).toHaveLength(1);
+    expect(svc.store.obligation(`ob:${decision}:n1`)!.state).toBe("done");
+    expect(ids(svc.undeliverable())).toEqual([wake.id]);
+    const c = svc.store.claim(digests[0]!.id, 0);
+    if (!c.ok) throw new Error("claim");
+    expect(svc.store.transition(digests[0]!.id, "sending", "undeliverable", c.attempt)).toEqual({ ok: true });
     expect(ids(svc.undeliverable())).toContain(wake.id);
   });
 
-  it("only a later done row settles it: one that finished before the failure does not", async () => {
+  it("a later row that is pending or undeliverable does not settle it", async () => {
+    const { decision, wake } = await strandedWake();
+    env.clock.t += 1000;
+    later(decision, `ob:${decision}:p`, "wake", "thr-a", "pending");
+    later(decision, `ob:${decision}:u`, "wake", "thr-a", "undeliverable");
+    expect(ids(svc.undeliverable())).toContain(wake.id);
+  });
+
+  it("a row inserted later but finished BEFORE the wake failed does not hide the failure", async () => {
     const a = await fileOk();
-    later(a.decision_id, `ob:${a.decision_id}:early`, "notice", "done");
     pickOk(a.decision_id, "project");
     const wake = svc.store.obligationsFor(a.decision_id).find((o) => o.kind === "wake")!;
-    expect(svc.store.transition(wake.id, "pending", "undeliverable", 0)).toEqual({ ok: true });
+    // inserted after the wake, delivered at once; the wake only fails a minute later
+    later(a.decision_id, `ob:${a.decision_id}:quick`, "wake", "thr-a", "done");
+    env.clock.t += 60_000;
+    expect(svc.store.transition(wake.id, "pending", "undeliverable", 0, { last_error: "thread archived" })).toEqual({ ok: true });
     expect(ids(svc.undeliverable())).toEqual([wake.id]);
   });
 });
