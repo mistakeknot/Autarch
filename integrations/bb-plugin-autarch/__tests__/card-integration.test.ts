@@ -125,4 +125,61 @@ describe("T9/T10/T11 end to end", () => {
     expect(r.mkPick(o.decision_id)).toMatchObject({ ok: true });
     expect(rulings(r.env.roots.Autarch!)).toHaveLength(2);
   });
+
+  // mk-cggjk: a card whose override is never picked, on a task that goes away for good, must stop
+  // showing as open -- nothing ever polls it again once its cached status leaves the open set, so
+  // "open" forever is a permanent stuck state, not a transient one.
+  it("mk-cggjk: an unpicked override on a task canceled for good moves the card off open, and a later mk pick still rules it", async () => {
+    const r = rig();
+    r.enableDelegation();
+    const { t, g1 } = await opened(r);
+    expect(r.vizierPick(g1.id)).toMatchObject({ ok: true });
+    await r.poll();
+    const o = r.dele.override(g1.id, {});
+    if (!o.ok) throw new Error(o.error);
+    await pollN(r, 3);
+    expect(r.cardRow(t.id).state).toBe("open"); // T10: the override is mk's pending decision
+
+    r.edit(t, { status: "canceled" });
+    await pollN(r, 5); // several polls: the task is gone, re-checking it changes nothing further
+
+    expect(r.cardRow(t.id)).toMatchObject({ state: "closed", status: "canceled" });
+    expect(r.db.prepare("SELECT withdrawn_at FROM decisions WHERE id = ?").get(o.decision_id)).toEqual({ withdrawn_at: null });
+
+    // the override decision is still live: mk can pick it later and the card still rules correctly.
+    expect(r.mkPick(o.decision_id)).toMatchObject({ ok: true });
+    expect(r.cardRow(t.id)).toMatchObject({ state: "ruled" });
+  });
+
+  // mk-cggjk sweep: the existing production rows were already written stuck at state 'open' by the
+  // old bug, before this fix shipped. Force a card back into that exact pre-fix shape (cardGone
+  // itself is fixed now, so it won't produce one) and confirm sweepAbandonedOverrides() -- run once
+  // on every start() -- heals it the same way, and is a no-op on an already-healthy card.
+  it("mk-cggjk sweep: start() heals a card left stuck open by the old bug, and leaves a healthy one alone", async () => {
+    const r = rig();
+    r.enableDelegation();
+    const { t, g1 } = await opened(r);
+    expect(r.vizierPick(g1.id)).toMatchObject({ ok: true });
+    await r.poll();
+    const o = r.dele.override(g1.id, {});
+    if (!o.ok) throw new Error(o.error);
+    await pollN(r, 3);
+    r.edit(t, { status: "canceled" });
+    await pollN(r, 2);
+    expect(r.cardRow(t.id).state).toBe("closed"); // the fixed cardGone already got this right
+
+    r.db.prepare("UPDATE cards SET state = 'open' WHERE task_id = ?").run(t.id); // simulate a pre-fix stuck row
+    expect(r.svc.sweepAbandonedOverrides()).toEqual({ swept: [t.id] });
+    expect(r.cardRow(t.id).state).toBe("closed");
+    expect(r.db.prepare("SELECT withdrawn_at FROM decisions WHERE id = ?").get(o.decision_id)).toEqual({ withdrawn_at: null });
+
+    expect(r.svc.sweepAbandonedOverrides()).toEqual({ swept: [] }); // already closed: no-op
+
+    const { t: t2, g1: g2 } = await opened(r);
+    expect(r.vizierPick(g2.id)).toMatchObject({ ok: true });
+    await r.poll();
+    expect(r.cardRow(t2.id).state).toBe("ruled");
+    expect(r.svc.sweepAbandonedOverrides()).toEqual({ swept: [] }); // a normal ruled card is untouched
+    expect(r.cardRow(t2.id).state).toBe("ruled");
+  });
 });

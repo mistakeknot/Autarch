@@ -731,6 +731,7 @@ export class Service {
 
   start(): void {
     if (this.timer) return;
+    this.sweepAbandonedOverrides();
     this.timer = setInterval(() => this.reconcileAll(), RECONCILE_MS);
     this.timer.unref();
     this.reconcilePushes(); // a push lost to a restart is retried now, not after the first interval
@@ -1123,6 +1124,31 @@ export class Service {
     return this.db
       .prepare(`SELECT task_id, project_id FROM cards WHERE labelled = 1 AND deleted_at IS NULL AND status IN ('backlog','todo','in_progress','in_review')`)
       .all() as { task_id: string; project_id: string }[];
+  }
+
+  /**
+   * mk-cggjk: heals cards an older cardGone left stuck at state 'open' -- an unpicked, still-live
+   * override on a task whose cached status already left the open set. Once status leaves that set,
+   * knownOpenCards() (and the poller's own listing) never surface the task again, so nothing would
+   * otherwise revisit these rows. Idempotent: run on every start(), a safe no-op once healed.
+   */
+  sweepAbandonedOverrides(): { swept: string[] } {
+    const swept: string[] = [];
+    this.store.atomically(() => {
+      const stuck = this.db
+        .prepare(
+          `SELECT task_id FROM cards WHERE state = 'open' AND labelled = 1 AND deleted_at IS NULL AND status NOT IN ('backlog','todo','in_progress','in_review')`,
+        )
+        .all() as { task_id: string }[];
+      for (const { task_id } of stuck) {
+        const latest = this.currentGeneration(task_id);
+        if (latest && this.hasPick(task_id) && this.overrideOpen(latest)) {
+          this.patchCard(task_id, { state: "closed", display_reason: "card closed in tasks" });
+          swept.push(task_id);
+        }
+      }
+    });
+    return { swept };
   }
 
   private cardRow(taskId: string): Record<string, any> | undefined {
@@ -1823,8 +1849,15 @@ export class Service {
         return;
       }
       if (this.hasPick(taskId)) {
-        if (!this.overrideOpen(latest)) this.patchCard(taskId, { state: "ruled", display_reason: reason });
-        return; // T7, or T11 (nothing at all)
+        if (!this.overrideOpen(latest)) {
+          this.patchCard(taskId, { state: "ruled", display_reason: reason });
+        } else if (closedInTasks) {
+          // T11, task gone for good: close the card so it stops showing as open forever (mk-cggjk --
+          // nothing polls it again once its status leaves the open set). The override decision itself
+          // stays un-withdrawn and pickable: a later pick still rules it (T9).
+          this.patchCard(taskId, { state: "closed", display_reason: reason });
+        } // else T11, task still open (merely unlabelled): the override stays mk's open question (T10)
+        return;
       }
       if (!latest.withdrawn_at) this.store.withdrawDecision(latest.id, reason);
       this.patchCard(taskId, { state: "closed", display_reason: reason, next_check_at: null });
