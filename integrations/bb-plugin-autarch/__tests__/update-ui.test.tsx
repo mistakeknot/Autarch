@@ -58,15 +58,20 @@ describe("UpdateMenu pending label", () => {
 });
 
 describe("UpdateMenu pending states", () => {
-  it("waiting: says when the request was made and when the runner should start", () => {
+  it("waiting: says when the request was made and when the fallback check should catch it", () => {
     const h = html(pend);
-    expect(h).toContain("Requested 2 min ago. The runner checks every 5 minutes, so it should start by 18:35 UTC.");
+    expect(h).toContain("Requested 2 min ago. It has not started yet; the periodic check every 5 minutes will still catch it, so it should start by 18:35 UTC.");
     expect(h).toContain('data-update-pending-kind="waiting"');
     expect(h).not.toContain("on its own schedule");
     expect(h).not.toContain("Installing");
   });
   it("waiting: uses the interval it is given", () => {
-    expect(html({ ...pend, interval_ms: 600_000 })).toContain("checks every 10 minutes, so it should start by 18:40 UTC");
+    expect(html({ ...pend, interval_ms: 600_000 })).toContain("periodic check every 10 minutes will still catch it, so it should start by 18:40 UTC");
+  });
+  it("waiting: a fresh request says it should start within moments, not a fallback time", () => {
+    const h = html({ ...pend, now: "2026-10-23T18:30:30Z" });
+    expect(h).toContain("Requested just now. It should start within moments.");
+    expect(h).not.toContain("periodic check");
   });
   it("installing: shows Installing instead of Waiting while the runner holds its lock", () => {
     const h = html({ ...pend, busy: true });
@@ -89,7 +94,7 @@ describe("UpdateMenu pending states", () => {
     expect(html({ ...pend, now: "2026-10-23T19:40:00Z", busy: true })).toContain('data-update-pending-kind="installing"');
   });
   it("an unreadable request time still says something plain", () => {
-    expect(html({ ...pend, request: { sha: B, clicked_at: "soon" } })).toContain("The runner checks every 5 minutes.");
+    expect(html({ ...pend, request: { sha: B, clicked_at: "soon" } })).toContain("the periodic check every 5 minutes will catch it.");
   });
 });
 

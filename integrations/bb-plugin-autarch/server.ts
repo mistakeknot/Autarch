@@ -29,6 +29,7 @@ import { parseAsk } from "./model.js";
 import { ServeClient, tokenReader } from "./serve.js";
 import { CardWriter } from "./cardwrites.js";
 import { Queue } from "./queue.js";
+import { touchTrigger } from "./trigger.js";
 import { checkRequest, updateInfo } from "./updates.js";
 import { ghViewReal, PrPoller } from "./movepoll.js";
 import { MergeRecheck } from "./mergerecheck.js";
@@ -810,6 +811,7 @@ export function wireHome(bb: BbPluginApi, handle: StoreHandle, cfg: HomeConfig, 
       const r = checkRequest(updateInfo(updateDir, p.store.setting("update_request"), updateEnv(p.svc.time())), i.sha, p.svc.time());
       if (!r.ok) return r;
       p.store.setSetting("update_request", JSON.stringify(r.request));
+      touchTrigger(updateDir);
       return { ok: true, request: r.request };
     },
     async markSeen(i: { item: string }) {
