@@ -301,6 +301,30 @@ describe("update request", () => {
     expect(await home.handlers.requestUpdate({ sha: B })).toMatchObject({ ok: false });
     f.disposers.forEach((d) => d());
   });
+
+  it("still accepts the request when the trigger touch itself fails, so a click is never blocked by it", async () => {
+    const { chmodSync, existsSync, writeFileSync, mkdtempSync } = await import("node:fs");
+    const { tmpdir } = await import("node:os");
+    const { join } = await import("node:path");
+    const updateDir = mkdtempSync(join(tmpdir(), "upd-"));
+    const A = "a".repeat(40);
+    const B = "b".repeat(40);
+    writeFileSync(join(updateDir, "status.json"), JSON.stringify({ installed: A, latest: B, count: 1, subjects: ["s"], checked_at: "2026-10-07T05:00:00Z" }));
+    // Read-only directory: status.json still reads fine, but creating the trigger file inside it fails --
+    // exactly the touchTrigger failure path, with the directory otherwise present and the request valid.
+    chmodSync(updateDir, 0o555);
+    try {
+      const db = new Database(":memory:");
+      const handle = createStoreHandle(() => db, {});
+      const f = fakeBb();
+      const home = wireHome(f.bb, handle, { ...cfg, updateDir }, { serve });
+      expect(await home.handlers.requestUpdate({ sha: B })).toMatchObject({ ok: true });
+      expect(existsSync(join(updateDir, "trigger"))).toBe(false);
+      f.disposers.forEach((d) => d());
+    } finally {
+      chmodSync(updateDir, 0o755);
+    }
+  });
 });
 
 describe("rpc-timing (bead mk-0zih8)", () => {
