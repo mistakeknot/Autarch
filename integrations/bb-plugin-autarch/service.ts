@@ -87,6 +87,8 @@ const RECONCILE_MS = 30_000;
 /** Failed blocker pushes retried per ask before giving up, and the first backoff (doubling, capped at an hour). */
 const MAX_PUSH_ATTEMPTS = 6;
 const PUSH_RETRY_BASE_MS = 30_000;
+/** Thrown inside the push when the ask closed before the notifier was called; not a failure. */
+class PushSkipped extends Error {}
 /** Pushes one reconcile pass starts at most. */
 const MAX_PUSHES_PER_PASS = 50;
 /** Rows the retry query hands to JS in one pass (all already eligible by the database's reckoning). */
@@ -1609,7 +1611,8 @@ export class Service {
       group = rows[0]?.id ?? decisionId;
       if (this.pushing.has(group) || !this.pushLive(d, rows) || !this.pushEligible(rows)) return;
       const taskId = d.task_id ? String(d.task_id) : null;
-      const key = this.cardKey(taskId) ?? taskId ?? decisionId;
+      // A legacy ask has no card: its key is the first generation of its supersedes chain, so every generation shares it.
+      const key = this.cardKey(taskId) ?? taskId ?? group;
       const title = (this.cardTitle(taskId) || d.subject || String(this.askOf(d).question)).slice(0, 120);
       const body = String(this.askOf(d).question).replace(/\s+/g, " ").trim().slice(0, 300);
       req = { kind: "blocker", title, body, ...(d.thread ? { thread: d.thread } : {}), dedupeKey: key };
@@ -1623,7 +1626,11 @@ export class Service {
       let timer: ReturnType<typeof setTimeout> | undefined;
       try {
         const res = await Promise.race([
-          Promise.resolve().then(() => notifier.notify(req)),
+          Promise.resolve().then(() => {
+            // The ask may have been answered, withdrawn, resolved or superseded since the eligibility check above.
+            if (!this.stillOpen(decisionId)) throw new PushSkipped();
+            return notifier.notify(req);
+          }),
           new Promise<never>((_, rej) => {
             timer = setTimeout(() => rej(new Error(`push timed out after ${timeoutMs} ms`)), timeoutMs);
           }),
@@ -1632,6 +1639,7 @@ export class Service {
         this.db.prepare("UPDATE decisions SET push_sent_at = ?, push_id = ?, push_capped = ? WHERE id = ?").run(res.at, res.id, res.capped ? 1 : 0, decisionId);
         this.settle(askRows(this.db, decisionId));
       } catch (e) {
+        if (e instanceof PushSkipped) return; // closed before the call started: nothing was sent and no try is spent
         this.logPush(`push for ${req.dedupeKey} failed: ${message(e)}`);
         try {
           this.db.prepare("UPDATE decisions SET push_attempts = COALESCE(push_attempts, 0) + 1, push_last_attempt_at = ? WHERE id = ?").run(this.now(), decisionId);
@@ -1684,6 +1692,12 @@ export class Service {
     if (rows[rows.length - 1]?.id !== d.id) return false;
     if (d.withdrawn_at || d.resolved_at) return false;
     return !this.db.prepare("SELECT 1 FROM picks WHERE decision_id = ?").get(d.id);
+  }
+
+  /** Re-reads the row and applies pushLive, for the moment just before the notifier is called. */
+  private stillOpen(decisionId: string): boolean {
+    const d = this.store.decision(decisionId) as Row | undefined;
+    return !!d && this.pushLive(d, askRows(this.db, decisionId));
   }
 
   /** The retry candidates query (exposed to tests, which read its plan). */

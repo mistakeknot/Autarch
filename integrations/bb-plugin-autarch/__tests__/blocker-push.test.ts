@@ -135,6 +135,37 @@ describe("the push on a legacy ask", () => {
     expect(n.calls).toHaveLength(2);
   });
 
+  it("a legacy supersedes chain keeps one dedupe key: the first generation's id", async () => {
+    const svc = open();
+    n.mode = "throw";
+    const a = await file(svc, { urgency: "blocker" });
+    await svc.drainPushes();
+    n.mode = "ok";
+    env.clock.t += 60_000;
+    const b = await file(svc, { urgency: "blocker", supersedes: a, question: "Collapse per project or per day, revised?" });
+    await svc.drainPushes();
+    expect(b).not.toBe(a);
+    expect(n.calls).toHaveLength(2);
+    expect(n.calls[0]!.dedupeKey).toBe(a);
+    expect(n.calls[1]!.dedupeKey).toBe(a);
+  });
+
+  it("an ask withdrawn between the eligibility check and the call is not pushed and spends no try", async () => {
+    const svc = open();
+    n.mode = "throw";
+    const id = await file(svc, { urgency: "blocker" });
+    await svc.drainPushes();
+    expect(n.calls).toHaveLength(1);
+    n.mode = "ok";
+    env.clock.t += 60_000;
+    (svc as any).pushFor(id); // passes the eligibility check; the call itself is a microtask later
+    expect(svc.store.withdrawDecision(id, "no longer needed")).toBe(true);
+    await svc.drainPushes();
+    expect(n.calls).toHaveLength(1);
+    expect(svc.store.db.prepare("SELECT push_attempts FROM decisions WHERE id = ?").get(id)).toEqual({ push_attempts: 1 });
+    expect(row(svc, id).push_sent_at).toBeNull();
+  });
+
   it("a notifier that hangs times out without delaying the filing", async () => {
     const svc = open();
     n.mode = "hang";
