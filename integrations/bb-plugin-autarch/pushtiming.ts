@@ -26,11 +26,16 @@ interface Row {
 
 const COLS = "id, kind, task_id, supersedes, filed_at, resolved_at, urgency, push_sent_at, push_id, push_capped";
 
-/** Every row of the same ask as decisionId, oldest filing first. Empty when the decision is unknown. */
+/**
+ * Every row of the same ask as decisionId, original first. Empty when the decision is unknown. The order is the ask's own
+ * lineage, never the filing clock: a card's generations by generation number, a legacy chain by its depth from the root
+ * through supersedes. Two generations can share a filed_at (and a clock can step back), and then a timestamp sort, with
+ * the id as tie-break, can put a later generation first (card-x-g10 sorts before card-x-g2).
+ */
 export function askRows(db: Database.Database, decisionId: string): Row[] {
   const me = db.prepare(`SELECT ${COLS} FROM decisions WHERE id = ?`).get(decisionId) as Row | undefined;
   if (!me) return [];
-  if (me.task_id) return db.prepare(`SELECT ${COLS} FROM decisions WHERE task_id = ? ORDER BY filed_at, id`).all(me.task_id) as Row[];
+  if (me.task_id) return db.prepare(`SELECT ${COLS} FROM decisions WHERE task_id = ? ORDER BY generation, id`).all(me.task_id) as Row[];
   // A chain: up to the root through supersedes, then down through the rows that supersede it.
   return db
     .prepare(
@@ -38,11 +43,11 @@ export function askRows(db: Database.Database, decisionId: string): Row[] {
          SELECT id, supersedes FROM decisions WHERE id = ?
          UNION ALL SELECT d.id, d.supersedes FROM decisions d JOIN up ON d.id = up.supersedes
        ), root(id) AS (SELECT id FROM up WHERE supersedes IS NULL),
-       down(id) AS (
-         SELECT id FROM root
-         UNION ALL SELECT d.id FROM decisions d JOIN down ON d.supersedes = down.id
+       down(id, depth) AS (
+         SELECT id, 0 FROM root
+         UNION ALL SELECT d.id, down.depth + 1 FROM decisions d JOIN down ON d.supersedes = down.id
        )
-       SELECT ${COLS.split(", ").map((c) => `d.${c}`).join(", ")} FROM decisions d JOIN down ON d.id = down.id ORDER BY d.filed_at, d.id`,
+       SELECT ${COLS.split(", ").map((c) => `d.${c}`).join(", ")} FROM decisions d JOIN down ON d.id = down.id ORDER BY down.depth, d.id`,
     )
     .all(decisionId) as Row[];
 }
@@ -117,7 +122,7 @@ export function listPushes(db: Database.Database, limit = 100): PushListing[] {
     .prepare(
       `SELECT d.id, d.project, d.kind, c.card_key FROM decisions d LEFT JOIN cards c ON c.task_id = d.task_id
        WHERE d.urgency = 'blocker'
-         AND d.id = (SELECT x.id FROM decisions x WHERE x.urgency = 'blocker' AND COALESCE(x.task_id, x.id) = COALESCE(d.task_id, d.id) ORDER BY x.filed_at, x.id LIMIT 1)
+         AND d.id = (SELECT x.id FROM decisions x WHERE x.urgency = 'blocker' AND COALESCE(x.task_id, x.id) = COALESCE(d.task_id, d.id) ORDER BY x.generation, x.filed_at, x.id LIMIT 1)
        ORDER BY d.filed_at DESC, d.id DESC LIMIT ?`,
     )
     .all(Math.max(1, Math.min(limit, 1000))) as { id: string; project: string; kind: string; card_key: string | null }[];

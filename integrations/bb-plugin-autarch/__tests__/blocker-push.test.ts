@@ -10,7 +10,7 @@ import { CODE_VERSION, MIGRATIONS, migrate } from "../migrations.js";
 import { identity, normalizedJson, parseAsk, revision } from "../model.js";
 import { PUSH_METHOD, PUSH_PLUGIN_ID, RpcNotifier, type Notifier, type PushRequest, type PushResult } from "../notifier.js";
 import type { Service } from "../service.js";
-import { timeToAnswer } from "../pushtiming.js";
+import { askRows, timeToAnswer } from "../pushtiming.js";
 import { Store } from "../store.js";
 import { decision, tmpDir } from "./helpers.js";
 import { cleanupEnvs, opened, rig } from "./card-rig.js";
@@ -150,6 +150,34 @@ describe("the push on a legacy ask", () => {
     expect(n.calls[1]!.dedupeKey).toBe(a);
   });
 
+  it("a legacy chain whose generations share a filing time resolves to the true root, not the smaller id", async () => {
+    const svc = open();
+    n.mode = "throw";
+    const seed = await file(svc, { urgency: "blocker" });
+    await svc.drainPushes();
+    const db = svc.store.db;
+    const proto = db.prepare("SELECT * FROM decisions WHERE id = ?").get(seed) as Record<string, unknown>;
+    db.prepare("DELETE FROM decisions WHERE id = ?").run(seed);
+    const cols = Object.keys(proto);
+    const ins = db.prepare(`INSERT INTO decisions (${cols.join(",")}) VALUES (${cols.map(() => "?").join(",")})`);
+    // The later generation has the smaller id and the very same filed_at: a timestamp sort puts it first.
+    for (const [id, supersedes] of [["zz-root", null], ["aa-child", "zz-root"]] as const) {
+      const v: Record<string, unknown> = { ...proto, id, supersedes, request_id: `req-${id}`, identity: `ident-${id}`, semantic_key: `key-${id}`, push_attempts: 0, push_last_attempt_at: null };
+      ins.run(...cols.map((c) => v[c]));
+    }
+    expect(askRows(db, "aa-child").map((r) => r.id)).toEqual(["zz-root", "aa-child"]);
+    expect(askRows(db, "zz-root").map((r) => r.id)).toEqual(["zz-root", "aa-child"]);
+    n.mode = "ok";
+    n.calls.length = 0;
+    svc.reconcilePushes();
+    await svc.drainPushes();
+    expect(n.calls).toHaveLength(1);
+    expect(n.calls[0]!.dedupeKey).toBe("zz-root");
+    svc.reconcilePushes();
+    await svc.drainPushes();
+    expect(n.calls).toHaveLength(1);
+  });
+
   it("an ask withdrawn between the eligibility check and the call is not pushed and spends no try", async () => {
     const svc = open();
     n.mode = "throw";
@@ -227,6 +255,30 @@ describe("the push on a card", () => {
     expect(n.calls[0]).toMatchObject({ kind: "blocker", dedupeKey: r.svc.cardKey(t.id) });
     expect(r.db.prepare("SELECT urgency, push_id, push_capped FROM decisions WHERE id = ?").get(g1.id)).toEqual({ urgency: "blocker", push_id: "push-1", push_capped: 0 });
     await r.poll();
+    await r.svc.drainPushes();
+    expect(n.calls).toHaveLength(1);
+  });
+
+  it("two generations of a card with the same filing time resolve to the true original: one push, one dedupe key", async () => {
+    const { r, n } = setup();
+    n.mode = "throw";
+    const { t, g1 } = await opened(r, { ask: { urgency: "blocker" } });
+    await r.svc.drainPushes();
+    const proto = r.db.prepare("SELECT * FROM decisions WHERE id = ?").get(g1.id) as Record<string, unknown>;
+    const cols = Object.keys(proto);
+    // Generation 2 has the smaller id and the same filed_at as generation 1: a timestamp sort puts it first.
+    const v: Record<string, unknown> = { ...proto, id: "aaa-later", request_id: "req-aaa-later", identity: "ident-aaa-later", semantic_key: "key-aaa-later", generation: 2, supersedes: g1.id, push_attempts: 0, push_last_attempt_at: null };
+    r.db.prepare(`INSERT INTO decisions (${cols.join(",")}) VALUES (${cols.map(() => "?").join(",")})`).run(...cols.map((c) => v[c]));
+    expect(askRows(r.db, "aaa-later").map((x) => x.id)).toEqual([g1.id, "aaa-later"]);
+    expect(timeToAnswer(r.db, "aaa-later")?.filed_at).toBe(String(proto.filed_at));
+    n.mode = "ok";
+    n.calls.length = 0;
+    r.advance(10 * 3_600_000);
+    r.svc.reconcilePushes();
+    await r.svc.drainPushes();
+    expect(n.calls).toHaveLength(1);
+    expect(n.calls[0]!.dedupeKey).toBe(r.svc.cardKey(t.id));
+    r.svc.reconcilePushes();
     await r.svc.drainPushes();
     expect(n.calls).toHaveLength(1);
   });
