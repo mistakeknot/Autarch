@@ -347,28 +347,165 @@ describe("retrying a lost push", () => {
     expect(n.calls).toHaveLength(6);
   });
 
-  it("an older eligible ask is retried even when more than 200 newer asks are exhausted", async () => {
+  it("an eligible ask is retried even behind more than 200 older spent asks and more than 200 older asks still in backoff", async () => {
     const { r, n } = setup();
     n.mode = "throw";
-    const { g1: oldest } = await opened(r, { ask: { urgency: "blocker" } });
+    const { g1: newest } = await opened(r, { ask: { urgency: "blocker" } });
     await r.svc.drainPushes();
-    expect(state(r, oldest.id)).toMatchObject({ push_sent_at: null, push_attempts: 1 });
-    // 210 newer blocker asks, all spent (attempt limit reached), filed straight into the table
-    const proto = r.db.prepare("SELECT * FROM decisions WHERE id = ?").get(oldest.id) as Record<string, unknown>;
+    expect(state(r, newest.id)).toMatchObject({ push_sent_at: null, push_attempts: 1 });
+    r.advance(10 * 3_600_000);
+    const nowIso = (r.svc as any).now() as string;
+    const proto = r.db.prepare("SELECT * FROM decisions WHERE id = ?").get(newest.id) as Record<string, unknown>;
     const cols = Object.keys(proto);
     const ins = r.db.prepare(`INSERT INTO decisions (${cols.join(",")}) VALUES (${cols.map(() => "?").join(",")})`);
     const base = Date.parse(String(proto.filed_at));
-    for (let i = 0; i < 210; i++) {
-      const v = { ...proto, id: `spent-${i}`, request_id: `spent-req-${i}`, identity: `spent-ident-${i}`, semantic_key: `spent-key-${i}`, task_id: null, supersedes: null, filed_at: new Date(base + 1000 + i).toISOString(), push_attempts: 6, push_last_attempt_at: new Date(base).toISOString() };
+    // 210 older asks that spent all six tries, and 210 older asks that failed just now (inside their backoff)
+    for (let i = 0; i < 420; i++) {
+      const spent = i < 210;
+      const v = {
+        ...proto,
+        id: `old-${i}`, request_id: `old-req-${i}`, identity: `old-ident-${i}`, semantic_key: `old-key-${i}`, task_id: null, supersedes: null,
+        filed_at: new Date(base - 10_000_000 + i).toISOString(),
+        push_attempts: spent ? 6 : 1,
+        push_last_attempt_at: spent ? new Date(base).toISOString() : nowIso,
+      };
       ins.run(...cols.map((c) => (v as Record<string, unknown>)[c]));
     }
     n.mode = "ok";
     n.calls.length = 0;
-    r.advance(10 * 3_600_000);
     r.svc.reconcilePushes();
     await r.svc.drainPushes();
     expect(n.calls.map((c) => c.dedupeKey)).toEqual([r.svc.cardKey(String(proto.task_id))]);
-    expect(state(r, oldest.id)).toMatchObject({ push_id: "push-1" });
+    expect(state(r, newest.id)).toMatchObject({ push_id: "push-1" });
+  });
+
+  it("a reconcile pass over 20,000 spent asks reads the live index only and finishes fast", async () => {
+    const { r, n } = setup();
+    n.mode = "throw";
+    const { g1: live } = await opened(r, { ask: { urgency: "blocker" } });
+    await r.svc.drainPushes();
+    const proto = r.db.prepare("SELECT * FROM decisions WHERE id = ?").get(live.id) as Record<string, unknown>;
+    const cols = Object.keys(proto);
+    const ins = r.db.prepare(`INSERT INTO decisions (${cols.join(",")}) VALUES (${cols.map(() => "?").join(",")})`);
+    const base = Date.parse(String(proto.filed_at));
+    const TOTAL = 20_000;
+    r.db.transaction(() => {
+      for (let i = 0; i < TOTAL; i++) {
+        // three kinds of history: spent after six failed tries, pushed, and withdrawn
+        const kind = i % 3;
+        const v = {
+          ...proto,
+          id: `old-${i}`, request_id: `old-req-${i}`, identity: `old-ident-${i}`, semantic_key: `old-key-${i}`, task_id: null, supersedes: null,
+          filed_at: new Date(base - 10_000_000 + i).toISOString(),
+          push_attempts: kind === 0 ? 6 : null,
+          push_last_attempt_at: kind === 0 ? new Date(base).toISOString() : null,
+          push_sent_at: kind === 1 ? new Date(base).toISOString() : null,
+          push_id: kind === 1 ? `p-${i}` : null,
+          withdrawn_at: kind === 2 ? new Date(base).toISOString() : null,
+        };
+        ins.run(...cols.map((c) => (v as Record<string, unknown>)[c]));
+      }
+    })();
+    r.db.exec("ANALYZE");
+    n.mode = "ok";
+    n.calls.length = 0;
+    r.advance(10 * 3_600_000);
+    // the query reads the partial index, not the table
+    const q = (r.svc as any).retryQuery() as { sql: string; params: Record<string, string> };
+    const plan = (r.db.prepare(`EXPLAIN QUERY PLAN ${q.sql}`).all(q.params) as { detail: string }[]).map((x) => x.detail).join("\n");
+    expect(plan).toContain("decisions_blocker_pending");
+    expect(plan).not.toMatch(/SCAN d(?! USING)/);
+    // and a pass over the 20k old asks starts the one live retry, quickly
+    const t0 = performance.now();
+    r.svc.reconcilePushes();
+    const took = performance.now() - t0;
+    await r.svc.drainPushes();
+    expect(n.calls).toHaveLength(1);
+    expect(took).toBeLessThan(250);
+    // the rows the query hands to JS are the live ones only
+    expect((r.db.prepare(q.sql).all(q.params) as unknown[]).length).toBeLessThanOrEqual(1);
+  });
+
+  it("an ask that spends its last try, or whose card already pushed, leaves the retry index", async () => {
+    const { r, n } = setup();
+    n.mode = "throw";
+    const { t, g1 } = await opened(r, { ask: { urgency: "blocker" } });
+    await r.svc.drainPushes();
+    const inIndex = (id: string) => (r.db.prepare("SELECT COUNT(*) AS c FROM decisions INDEXED BY decisions_blocker_pending WHERE id = ? AND urgency = 'blocker' AND push_sent_at IS NULL AND COALESCE(push_attempts, 0) < 6 AND withdrawn_at IS NULL AND resolved_at IS NULL").get(id) as { c: number }).c;
+    expect(inIndex(g1.id)).toBe(1);
+    for (let i = 0; i < 5; i++) {
+      r.advance(2 * 3_600_000);
+      r.svc.reconcilePushes();
+      await r.svc.drainPushes();
+    }
+    expect(n.calls).toHaveLength(6);
+    expect(inIndex(g1.id)).toBe(0);
+  });
+
+  it("a later generation of a card that already pushed leaves the retry index", async () => {
+    const { r, n } = setup();
+    const { t } = await opened(r, { ask: { urgency: "blocker" } });
+    await r.svc.drainPushes();
+    expect(n.calls).toHaveLength(1);
+    r.edit(t, { description: r.desc({ key: String(r.cardRow(t.id).request_key), question: "A rewritten question?", ask: { urgency: "blocker" } }) });
+    await r.poll();
+    await r.svc.drainPushes();
+    const gens = r.gens(t.id);
+    expect(gens.length).toBeGreaterThan(1);
+    const q = (r.svc as any).retryQuery() as { sql: string; params: Record<string, string> };
+    r.advance(10 * 3_600_000);
+    expect(r.db.prepare(q.sql).all((r.svc as any).retryQuery().params)).toEqual([]);
+    const open = r.db.prepare("SELECT COUNT(*) AS c FROM decisions WHERE urgency = 'blocker' AND push_sent_at IS NULL AND COALESCE(push_attempts, 0) < 6 AND withdrawn_at IS NULL AND resolved_at IS NULL").get() as { c: number };
+    expect(open.c).toBe(0);
+    expect(n.calls).toHaveLength(1);
+  });
+
+  it("an edit during the backoff does not strand the ask: reconcile retries the new generation after the backoff", async () => {
+    const { r, n } = setup();
+    n.mode = "throw";
+    const { t, g1 } = await opened(r, { ask: { urgency: "blocker" } });
+    await r.svc.drainPushes();
+    expect(n.calls).toHaveLength(1);
+    r.edit(t, { description: r.desc({ key: String(r.cardRow(t.id).request_key), question: "Rewritten during the backoff?", ask: { urgency: "blocker" } }) });
+    await r.poll();
+    await r.svc.drainPushes();
+    expect(n.calls).toHaveLength(1); // inside the backoff the edit declines
+    const gens = r.gens(t.id);
+    expect(gens.length).toBe(2);
+    n.mode = "ok";
+    r.advance(60_000);
+    r.svc.reconcileAll();
+    await r.svc.drainPushes();
+    expect(n.calls).toHaveLength(2);
+    expect(n.calls[1]!.body).toContain("Rewritten during the backoff");
+    expect(state(r, gens[1]!.id)).toMatchObject({ push_id: "push-2" });
+    // the stale first generation never speaks for the ask
+    (r.svc as any).pushFor(g1.id);
+    await r.svc.drainPushes();
+    expect(n.calls).toHaveLength(2);
+  });
+
+  it("a retry never pushes for an ask mk already answered, withdrew or resolved, or for a superseded generation", async () => {
+    const closers: [string, (r: ReturnType<typeof rig>, id: string) => void][] = [
+      ["answered", (r, id) => void expect(r.mkPick(id)).toMatchObject({ ok: true })],
+      ["withdrawn", (r, id) => void expect(r.svc.store.withdrawDecision(id, "no longer needed")).toBe(true)],
+      ["resolved", (r, id) => void r.db.prepare("UPDATE decisions SET resolved_at = ? WHERE id = ?").run((r.svc as any).now(), id)],
+    ];
+    for (const [label, close] of closers) {
+      const { r, n } = setup();
+      n.mode = "throw";
+      const { g1 } = await opened(r, { ask: { urgency: "blocker" } });
+      await r.svc.drainPushes();
+      expect(n.calls, label).toHaveLength(1);
+      close(r, g1.id);
+      n.mode = "ok";
+      r.advance(10 * 3_600_000);
+      (r.svc as any).pushFor(g1.id); // the direct path (a replayed filing request)
+      r.svc.reconcileAll();
+      await r.svc.drainPushes();
+      expect(n.calls, label).toHaveLength(1);
+      cleanupEnvs();
+    }
   });
 
   it("a push lost with the process (no attempt recorded) is retried by a fresh service on the same database", async () => {

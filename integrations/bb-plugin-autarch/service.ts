@@ -89,6 +89,8 @@ const MAX_PUSH_ATTEMPTS = 6;
 const PUSH_RETRY_BASE_MS = 30_000;
 /** Pushes one reconcile pass starts at most. */
 const MAX_PUSHES_PER_PASS = 50;
+/** Rows the retry query hands to JS in one pass (all already eligible by the database's reckoning). */
+const PUSH_SCAN_ROWS = 200;
 export const ROUTING_PREFIX = "routing: ";
 const OBSERVED_BACKOFF_MS = 5_000;
 const CLOSED_BACKOFF_MS = 30_000;
@@ -1605,7 +1607,7 @@ export class Service {
       if (!d || d.urgency !== "blocker") return;
       const rows = askRows(this.db, decisionId);
       group = rows[0]?.id ?? decisionId;
-      if (this.pushing.has(group) || !this.pushEligible(rows)) return;
+      if (this.pushing.has(group) || !this.pushLive(d, rows) || !this.pushEligible(rows)) return;
       const taskId = d.task_id ? String(d.task_id) : null;
       const key = this.cardKey(taskId) ?? taskId ?? decisionId;
       const title = (this.cardTitle(taskId) || d.subject || String(this.askOf(d).question)).slice(0, 120);
@@ -1628,10 +1630,12 @@ export class Service {
         ]);
         if (!res || typeof res.id !== "string" || typeof res.at !== "string") throw new Error("push result has no id or at");
         this.db.prepare("UPDATE decisions SET push_sent_at = ?, push_id = ?, push_capped = ? WHERE id = ?").run(res.at, res.id, res.capped ? 1 : 0, decisionId);
+        this.settle(askRows(this.db, decisionId));
       } catch (e) {
         this.logPush(`push for ${req.dedupeKey} failed: ${message(e)}`);
         try {
           this.db.prepare("UPDATE decisions SET push_attempts = COALESCE(push_attempts, 0) + 1, push_last_attempt_at = ? WHERE id = ?").run(this.now(), decisionId);
+          this.pushEligible(askRows(this.db, decisionId)); // settles the ask when this was its last try
         } catch {
           /* the retry bookkeeping must not fail a filing */
         }
@@ -1654,25 +1658,14 @@ export class Service {
   reconcilePushes(): void {
     if (!this.deps.notifier) return;
     try {
-      // No LIMIT here: asks that are exhausted or inside their backoff must not hide older eligible ones. The work per
-      // pass is bounded by the number of pushes started instead.
-      const ids = this.db
-        .prepare(
-          `SELECT d.id FROM decisions d
-           WHERE d.urgency = 'blocker' AND d.push_sent_at IS NULL AND d.withdrawn_at IS NULL AND d.resolved_at IS NULL
-             AND NOT EXISTS (SELECT 1 FROM picks p WHERE p.decision_id = d.id)
-           ORDER BY d.filed_at ASC, d.id ASC`,
-        )
-        .all() as { id: string }[];
-      const seen = new Set<string>();
+      this.settlePicked();
+      const q = this.retryQuery();
+      const ids = this.db.prepare(q.sql).all(q.params) as { id: string }[];
       let started = 0;
       for (const { id } of ids) {
         if (started >= MAX_PUSHES_PER_PASS) break;
         const rows = askRows(this.db, id);
-        const head = rows[0]?.id;
-        if (!head || seen.has(head)) continue;
-        seen.add(head);
-        if (rows[rows.length - 1]!.id !== id) continue; // only the latest generation speaks for the ask
+        if (rows.length === 0 || rows[rows.length - 1]!.id !== id) continue; // only the latest generation speaks for the ask
         if (!this.pushEligible(rows)) continue;
         this.pushFor(id);
         started++;
@@ -1683,16 +1676,86 @@ export class Service {
   }
 
   /**
+   * Whether this row still speaks for an open ask: it is the latest generation of its ask (not superseded), is not
+   * withdrawn or resolved, and has no pick. A stale replay or a retry after mk answered or withdrew must not send a
+   * phone push for work already handled. Same conditions as the reconcile query.
+   */
+  private pushLive(d: Row, rows: { id: string }[]): boolean {
+    if (rows[rows.length - 1]?.id !== d.id) return false;
+    if (d.withdrawn_at || d.resolved_at) return false;
+    return !this.db.prepare("SELECT 1 FROM picks WHERE decision_id = ?").get(d.id);
+  }
+
+  /** The retry candidates query (exposed to tests, which read its plan). */
+  private retryQuery(): { sql: string; params: Record<string, string> } {
+      // The database does the filtering: only asks that are eligible right now cross into JS, read through the partial
+      // index decisions_blocker_pending (live, unsent, unspent blocker asks), so the pass costs in the live asks and
+      // never in the historical or exhausted ones. The group rules are exact for cards (task_id) and row-level for
+      // an ask filed before cards; pushEligible below is the exact check for both.
+      const attempts = (alias: string) => `(SELECT COALESCE(SUM(g.push_attempts), 0) FROM decisions g WHERE g.task_id = ${alias}.task_id)`;
+      const last = (alias: string) => `(SELECT MAX(g.push_last_attempt_at) FROM decisions g WHERE g.task_id = ${alias}.task_id)`;
+      const now = Date.parse(this.now());
+      const cutoff = (k: number) => new Date(now - Math.min(PUSH_RETRY_BASE_MS * 2 ** (k - 1), 3_600_000)).toISOString();
+      const waits = Array.from({ length: MAX_PUSH_ATTEMPTS - 1 }, (_, i) => `(t.n = ${i + 1} AND t.last <= @c${i + 1})`).join(" OR ");
+      const cutoffs = Object.fromEntries(Array.from({ length: MAX_PUSH_ATTEMPTS - 1 }, (_, i) => [`c${i + 1}`, cutoff(i + 1)]));
+      const sql = `SELECT t.id FROM (
+             SELECT d.id, d.filed_at,
+                    CASE WHEN d.task_id IS NULL THEN COALESCE(d.push_attempts, 0) ELSE ${attempts("d")} END AS n,
+                    CASE WHEN d.task_id IS NULL THEN d.push_last_attempt_at ELSE ${last("d")} END AS last
+             FROM decisions d
+             WHERE d.urgency = 'blocker' AND d.push_sent_at IS NULL AND COALESCE(d.push_attempts, 0) < ${MAX_PUSH_ATTEMPTS}
+               AND d.withdrawn_at IS NULL AND d.resolved_at IS NULL
+               AND NOT EXISTS (SELECT 1 FROM picks p WHERE p.decision_id = d.id)
+               AND CASE WHEN d.task_id IS NULL
+                        THEN NOT EXISTS (SELECT 1 FROM decisions s WHERE s.supersedes = d.id)
+                        ELSE d.generation = (SELECT MAX(g.generation) FROM decisions g WHERE g.task_id = d.task_id)
+                             AND NOT EXISTS (SELECT 1 FROM decisions s WHERE s.task_id = d.task_id AND s.push_sent_at IS NOT NULL) END
+           ) t
+           WHERE t.n < ${MAX_PUSH_ATTEMPTS} AND (t.n = 0 OR t.last IS NULL OR ${waits})
+           ORDER BY t.filed_at, t.id LIMIT ${PUSH_SCAN_ROWS}`;
+      return { sql, params: cutoffs };
+  }
+
+  /** Takes an ask that mk already answered (a pick) out of the retry index; it needs no push. */
+  private settlePicked(): void {
+    this.db
+      .prepare(
+        `UPDATE decisions SET push_attempts = ${MAX_PUSH_ATTEMPTS}
+         WHERE urgency = 'blocker' AND push_sent_at IS NULL AND COALESCE(push_attempts, 0) < ${MAX_PUSH_ATTEMPTS} AND withdrawn_at IS NULL AND resolved_at IS NULL
+           AND EXISTS (SELECT 1 FROM picks p WHERE p.decision_id = decisions.id)`,
+      )
+      .run();
+  }
+
+  /**
+   * Settles the unpushed rows of an ask that will never be retried (spent, or another generation already pushed):
+   * push_attempts goes to the limit, which takes them out of the retry index. The count is a bookkeeping value after this.
+   */
+  private settle(rows: { id: string }[]): void {
+    if (rows.length === 0) return;
+    this.db
+      .prepare(`UPDATE decisions SET push_attempts = ${MAX_PUSH_ATTEMPTS} WHERE id IN (${rows.map(() => "?").join(",")}) AND push_sent_at IS NULL AND COALESCE(push_attempts, 0) < ${MAX_PUSH_ATTEMPTS}`)
+      .run(...rows.map((r) => r.id));
+  }
+
+  /**
    * The one eligibility rule for a push, used by the filing and edit path (pushFor) and by the reconcile pass: no row
    * of the ask has recorded a push, fewer than MAX_PUSH_ATTEMPTS tries have failed across the ask, and the backoff
-   * since the last failed try has elapsed.
+   * since the last failed try has elapsed. An ask that fails the first two tests for good is settled.
    */
   private pushEligible(rows: { id: string; push_sent_at: string | null }[]): boolean {
-    if (rows.length === 0 || rows.some((r) => r.push_sent_at !== null)) return false;
+    if (rows.length === 0) return false;
+    if (rows.some((r) => r.push_sent_at !== null)) {
+      this.settle(rows);
+      return false;
+    }
     const tries = this.db
       .prepare(`SELECT COALESCE(SUM(push_attempts), 0) AS n, MAX(push_last_attempt_at) AS last FROM decisions WHERE id IN (${rows.map(() => "?").join(",")})`)
       .get(...rows.map((r) => r.id)) as { n: number; last: string | null };
-    if (tries.n >= MAX_PUSH_ATTEMPTS) return false;
+    if (tries.n >= MAX_PUSH_ATTEMPTS) {
+      this.settle(rows);
+      return false;
+    }
     if (tries.last) {
       const wait = Math.min(PUSH_RETRY_BASE_MS * 2 ** Math.max(0, tries.n - 1), 3_600_000);
       if (Date.parse(this.now()) < Date.parse(tries.last) + wait) return false;

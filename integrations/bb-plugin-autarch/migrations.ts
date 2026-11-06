@@ -391,6 +391,11 @@ ALTER TABLE decisions ADD COLUMN push_id TEXT;
 ALTER TABLE decisions ADD COLUMN push_capped INTEGER;
 ALTER TABLE decisions ADD COLUMN push_attempts INTEGER;
 ALTER TABLE decisions ADD COLUMN push_last_attempt_at TEXT;
+-- The push retry pass reads only this index: a row leaves it when it pushes, is withdrawn or resolved, or is settled
+-- (push_attempts raised to 6, the attempt limit, for a spent ask or a generation of an ask that already pushed). The 6
+-- is the service's MAX_PUSH_ATTEMPTS; the retry query repeats the same terms so the planner can use the index.
+CREATE INDEX decisions_blocker_pending ON decisions(filed_at, id)
+  WHERE urgency = 'blocker' AND push_sent_at IS NULL AND COALESCE(push_attempts, 0) < 6 AND withdrawn_at IS NULL AND resolved_at IS NULL;
 `;
 
 export const MIGRATIONS: readonly Migration[] = [
