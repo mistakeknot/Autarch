@@ -215,8 +215,9 @@ export class CardWriter {
       if (ids.length === 0) throw new Error("the tasks project has no needs-mk label");
       await this.tasks.setLabels(r.task_id, [...st.task.labelIds, ids[0]!]);
     }
-    // A brought-back card's task was closed when it was ruled; it is open work for mk again.
-    if (r.id.endsWith("-bringback") && (st.task.status === "done" || st.task.status === "canceled")) await this.tasks.setStatus(r.task_id, "todo");
+    // A brought-back or overridden card's task was closed when it was ruled (including the pick's own
+    // auto-complete, cardwrites.ts's "unlabel" branch above); it is open work for mk again.
+    if (st.task.status === "done" || st.task.status === "canceled") await this.tasks.setStatus(r.task_id, "todo");
     this.db.prepare("UPDATE cards SET home_unlabelled_at = NULL WHERE task_id = ?").run(r.task_id);
     this.settle(r.id, "done", null);
   }

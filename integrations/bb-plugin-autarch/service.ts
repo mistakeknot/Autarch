@@ -1171,6 +1171,10 @@ export class Service {
     // An override of a vizier pick, or a bring-back (request_id bringback:*) of any pick, is mk's open question.
     return this.store.pick(latest.supersedes)?.by === "vizier" || (latest.request_id.startsWith("bringback:") && !!this.store.pick(latest.supersedes));
   }
+  /** A generation's own relabel (or bring-back) write has not yet run: it is still due to reopen the task. */
+  private pendingRelabel(decisionId: string): boolean {
+    return !!this.db.prepare("SELECT 1 FROM card_writes WHERE decision_id = ? AND kind = 'relabel' AND state = 'pending'").get(decisionId);
+  }
   private sig(taskId: string): string {
     const c = this.cardRow(taskId);
     const g = this.currentGeneration(taskId);
@@ -1851,12 +1855,15 @@ export class Service {
       if (this.hasPick(taskId)) {
         if (!this.overrideOpen(latest)) {
           this.patchCard(taskId, { state: "ruled", display_reason: reason });
-        } else if (closedInTasks) {
+        } else if (closedInTasks && !this.pendingRelabel(latest.id)) {
           // T11, task gone for good: close the card so it stops showing as open forever (mk-cggjk --
           // nothing polls it again once its status leaves the open set). The override decision itself
-          // stays un-withdrawn and pickable: a later pick still rules it (T9).
+          // stays un-withdrawn and pickable: a later pick still rules it (T9). A pending relabel write is
+          // the override's own reopen-the-task action, not yet drained; its "unlabelled"/status-left-open
+          // snapshot is the pick's own auto-complete echo, not a genuine external close, so it is left for
+          // the relabel to resolve before this is judged again.
           this.patchCard(taskId, { state: "closed", display_reason: reason });
-        } // else T11, task still open (merely unlabelled): the override stays mk's open question (T10)
+        } // else T11, task still open (merely unlabelled, or a relabel write is still pending): the override stays mk's open question (T10)
         return;
       }
       if (!latest.withdrawn_at) this.store.withdrawDecision(latest.id, reason);
