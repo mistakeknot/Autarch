@@ -50,7 +50,11 @@ export function CardKeyNotice({ cardKey, lookup }: { cardKey: string; lookup: Ca
   );
 }
 
-/** The asks model for the focused view: the one card, with nothing else of Home's (runbooks, stalled rows, approvals) beside it. */
+/**
+ * The asks model for the focused view: the one card, with nothing else of Home's (runbooks, stalled rows, other
+ * decisions' approvals) beside it. The recorded approvals of this card's own decision stay, so Revoke is reachable here.
+ */
 export function focusedAsks(asks: AsksData, card: OwedAsk): AsksData {
-  return { owed: [card], runbook: [], lane: [], asks: [], undeliverable: [], failures: [], uncertain: [], delegation: asks.delegation, machineOwners: asks.machineOwners };
+  const approvals = (asks.approvals ?? []).filter((a) => a.decision_id === card.id);
+  return { owed: [card], runbook: [], lane: [], asks: [], undeliverable: [], failures: [], uncertain: [], ...(approvals.length > 0 ? { approvals } : {}), delegation: asks.delegation, machineOwners: asks.machineOwners };
 }

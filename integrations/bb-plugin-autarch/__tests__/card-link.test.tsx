@@ -82,6 +82,8 @@ describe("focusedAsks", () => {
     expect(f.owed).toEqual([card]);
     for (const k of ["runbook", "lane", "asks", "undeliverable", "failures", "uncertain"] as const) expect(f[k]).toEqual([]);
     expect(f.approvals).toBeUndefined();
+    const own = { approval_id: "a2", decision_id: "d1", kind: "k", target: "t", identity: "i", minted_at: "x", expires_at: "y" };
+    expect(focusedAsks({ ...asks, approvals: [...asks.approvals!, own] } as AsksData, card).approvals).toEqual([own]);
     expect(f.delegation).toBe(asks.delegation);
   });
 });

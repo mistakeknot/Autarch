@@ -7,6 +7,7 @@ import { join } from "node:path";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
 import { ActionError, actionErrorText, runAction } from "../ui/actionerror.js";
+import { focusedAsks } from "../ui/cardlink.js";
 import { ApprovalsList, AsksPanel, type ApprovalRecord, type AsksData } from "../ui/asks.js";
 import { BlocksRow, type QueueRowView } from "../ui/blocks.js";
 import type { RootRunPanelView } from "../ui/rootrun.js";
@@ -47,6 +48,14 @@ describe("Revoke is never a button that does nothing", () => {
     expect(renderToStaticMarkup(<ApprovalsList approvals={[approval]} onRevoke={() => {}} nowMs={NOW} />)).toContain(">Revoke</button>");
     expect(renderToStaticMarkup(<AsksPanel data={asksWithApproval()} onPick={async () => ({ ok: true })} onOpen={() => {}} onRevoke={() => {}} nowMs={NOW} />)).toContain(">Revoke</button>");
     expect(renderToStaticMarkup(<AsksPanel data={asksWithApproval()} onPick={async () => ({ ok: true })} onOpen={() => {}} nowMs={NOW} />)).not.toContain(">Revoke</button>");
+  });
+  it("is reachable in the card-link view: the linked card's own approval survives focusedAsks", () => {
+    const card = { id: "d1", project: "p", thread: "t", subject: "s", key: "DEMO-1", asker: "card", filed_at: "2026-10-21T00:00:00Z", revision: "r", ask: { question: "q", options: [] } } as never;
+    const data = focusedAsks({ ...asksWithApproval(), approvals: [approval, { ...approval, approval_id: "a9", decision_id: "other" }] }, card);
+    const html = renderToStaticMarkup(<AsksPanel data={data} onPick={async () => ({ ok: true })} onOpen={() => {}} onRevoke={() => {}} nowMs={NOW} />);
+    expect(html).toContain('data-approval-id="a1"');
+    expect(html).toContain(">Revoke</button>");
+    expect(html).not.toContain('data-approval-id="a9"');
   });
   it("is wired in every AsksPanel the page renders, the card-link view included", () => {
     const src = readFileSync(join(__dirname, "..", "app.tsx"), "utf8");
