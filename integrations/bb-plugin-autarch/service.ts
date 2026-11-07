@@ -1127,6 +1127,21 @@ export class Service {
   }
 
   /**
+   * mk-cggjk: open cards whose override is still mk's question and whose relabel is not pending, whatever their
+   * cached label or status. knownOpenCards() skips a card cached unlabelled (cardGone keeps an override open
+   * through a plain unlabel), so a later cancel or delete of that task was never read and the card stayed open
+   * until a restart's sweep, which cannot see a task still cached as open. The poller re-reads these on a fresh
+   * read; once cardGone closes the card it leaves this set, so the set stays bounded to live override questions.
+   */
+  openOverrideCards(): string[] {
+    const rows = this.db.prepare("SELECT task_id FROM cards WHERE state = 'open' AND deleted_at IS NULL").all() as { task_id: string }[];
+    return rows.map((r) => r.task_id).filter((id) => {
+      const latest = this.currentGeneration(id);
+      return !!latest && this.hasPick(id) && this.overrideOpen(latest) && !this.pendingRelabel(latest.id);
+    });
+  }
+
+  /**
    * mk-cggjk: heals cards an older cardGone left stuck at state 'open' -- an unpicked, still-live
    * override on a task that is gone for good: deleted, or cached with a status outside the open set. The
    * cached label is not consulted: a pick's own unlabel+complete is cached unlabelled/done, and the override's

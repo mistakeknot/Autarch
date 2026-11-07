@@ -114,13 +114,16 @@ export class Queue {
       // A card with a live move is re-read too, whatever its label or cached status, so a card that left before its
       // moves closed (or was unlabelled first) still has them closed on a fresh read (bead mk-t7656).
       const moveOnly = new Set(service.liveMoveCards().filter((id) => !known.has(id)));
-      for (const id of [...known, ...moveOnly]) {
+      // So is an open override card (mk-cggjk): cached unlabelled and still open, a later cancel or delete is only
+      // seen on a fresh read.
+      const overrideOnly = new Set(service.openOverrideCards().filter((id) => !known.has(id) && !moveOnly.has(id)));
+      for (const id of [...known, ...moveOnly, ...overrideOnly]) {
         if (listed.has(id)) continue;
         const st = await tasks.taskState(id);
         const open = st.state !== "deleted" && (OPEN_STATUSES as readonly string[]).includes(st.task.status);
         if (st.state === "deleted") gone.push({ id, why: "deleted" });
         else if (st.state === "unlabelled") {
-          if (!(moveOnly.has(id) && open)) gone.push({ id, why: "unlabelled", status: st.task.status }); // a move-only re-read: already handled
+          if (!((moveOnly.has(id) || overrideOnly.has(id)) && open)) gone.push({ id, why: "unlabelled", status: st.task.status }); // a move-only or override-only re-read: already handled
         } else if (open) listed.set(st.task.id, st.task);
         else gone.push({ id, why: "closed", status: st.task.status });
       }

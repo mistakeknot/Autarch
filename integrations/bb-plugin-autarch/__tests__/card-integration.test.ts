@@ -308,4 +308,30 @@ describe("T9/T10/T11 end to end", () => {
     expect(r.db.prepare("SELECT withdrawn_at FROM decisions WHERE id = ?").get(o.decision_id)).toEqual({ withdrawn_at: null });
     expect(r.mkPick(o.decision_id)).toMatchObject({ ok: true });
   });
+
+  // Round 3 finding: an override card whose task is unlabelled (cached labelled=0, still open) and then canceled
+  // or deleted. knownOpenCards() skips labelled=0 rows and the sweep runs only at start, so nothing read the
+  // terminal state: the card stayed open. Open override cards are now re-read whatever their cached label.
+  for (const how of ["canceled", "deleted"] as const) {
+    it(`mk-cggjk: an override card unlabelled, then ${how}, closes without a restart`, async () => {
+      const r = rig();
+      r.enableDelegation();
+      const { t, g1 } = await opened(r);
+      expect(r.vizierPick(g1.id)).toMatchObject({ ok: true });
+      await pollN(r, 2);
+      const o = r.dele.override(g1.id, {});
+      if (!o.ok) throw new Error(o.error);
+      await pollN(r, 3); // the relabel drains and reopens the task
+      expect(r.fake.tasks.find((x) => x.id === t.id)!.status).toBe("todo");
+      r.edit(t, { labelIds: [] }); // a person removes needs-mk; the task stays open
+      await pollN(r, 2);
+      expect(r.cardRow(t.id)).toMatchObject({ state: "open", labelled: 0 });
+      if (how === "canceled") r.edit(t, { status: "canceled" });
+      else r.fake.tasks.splice(r.fake.tasks.findIndex((x) => x.id === t.id), 1);
+      await pollN(r, 6);
+      expect(r.cardRow(t.id)).toMatchObject({ state: "closed" });
+      expect(r.db.prepare("SELECT withdrawn_at FROM decisions WHERE id = ?").get(o.decision_id)).toEqual({ withdrawn_at: null });
+      expect(r.mkPick(o.decision_id)).toMatchObject({ ok: true });
+    });
+  }
 });
