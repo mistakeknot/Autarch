@@ -254,9 +254,10 @@ func TestOwnerThread(t *testing.T) {
 func TestFilingPreconditions(t *testing.T) {
 	t.Run("serve not running", func(t *testing.T) {
 		e := newEnv(t)
-		e.vars["AUTARCH_SERVE_URL"] = "http://127.0.0.1:1"
+		addr := closedLoopbackAddr(t)
+		e.vars["AUTARCH_SERVE_URL"] = "http://" + addr
 		r := e.autarch(fileArgs(e.writeFile("a.json", askJSON(nil)))...)
-		wantCode(t, r, 3, "home is down, nothing filed: autarch serve is not running (127.0.0.1:1)", "start `autarch serve` (see AGENTS.md): nothing was filed")
+		wantCode(t, r, 3, "home is down, nothing filed: autarch serve is not running ("+addr+")", "start `autarch serve` (see AGENTS.md): nothing was filed")
 		nothingFiled(t, e)
 	})
 	t.Run("token file missing", func(t *testing.T) {

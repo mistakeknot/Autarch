@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"net"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -132,6 +133,36 @@ func startServeAt(dir, home string, args ...string) (*exec.Cmd, string, error) {
 		cmd.Wait()
 		return nil, "", fmt.Errorf("serve did not report a listen address")
 	}
+}
+
+func helpOutput(t *testing.T, args ...string) string {
+	t.Helper()
+	home, err := os.MkdirTemp("", "orchcompat-help-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { os.RemoveAll(home) })
+	cmd := exec.Command(autarchBin, args...)
+	cmd.Dir = home
+	cmd.Env = baseEnv(home)
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("autarch %v: %v\n%s", args, err, out)
+	}
+	return string(out)
+}
+
+func closedLoopbackAddr(t *testing.T) string {
+	t.Helper()
+	l, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	addr := l.Addr().String()
+	if err := l.Close(); err != nil {
+		t.Fatal(err)
+	}
+	return addr
 }
 
 type result struct {

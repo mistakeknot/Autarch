@@ -3,8 +3,13 @@
 Characterization tests that pin today's behavior of `autarch needs-mk`, home-ask/v2, the Citadel plugin's
 answer routing and `autarch serve`. They pass at Autarch baseline `b17577fd4062dc57c6839833e759767b8329ca57`
 and at main `d9213f8`. They test through the real `autarch` binary, a fake `bb` on PATH, temp HOME and data
-directories and an ephemeral loopback port. Nothing touches a live bb server, Citadel database, GitHub or
-thread storage.
+directories and an ephemeral loopback port. Every `autarch` subprocess the suite starts, help probes
+included, runs with an explicit environment: a temporary HOME, a fixed PATH (the fake `bb` first where a test
+files cards), and only the variables the test sets itself. No ambient `AUTARCH_*`, `BB_*` or `XDG_*` variable
+reaches it. The one process that sees the runner's environment is the `go build` of `autarch` at suite start
+(skipped when `ORCHCOMPAT_AUTARCH` names a prebuilt binary), which runs no `autarch` code. The "serve not
+running" case uses a loopback port the test opened and closed itself. Nothing touches a live bb server, Citadel
+database, GitHub or thread storage.
 
 Go suite: `tests/orchcompat/`. TypeScript suite: `integrations/bb-plugin-autarch/__tests__/orchcompat/`.
 

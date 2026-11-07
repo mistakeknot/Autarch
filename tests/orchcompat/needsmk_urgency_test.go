@@ -1,18 +1,13 @@
 package orchcompat
 
 import (
-	"os/exec"
 	"strings"
 	"testing"
 )
 
 func urgencySupported(t *testing.T) bool {
 	t.Helper()
-	out, err := exec.Command(autarchBin, "needs-mk", "file", "--help").CombinedOutput()
-	if err != nil {
-		t.Fatalf("needs-mk file --help: %v\n%s", err, out)
-	}
-	return strings.Contains(string(out), "--urgency")
+	return strings.Contains(helpOutput(t, "needs-mk", "file", "--help"), "--urgency")
 }
 
 func TestUrgencyBlockerWhereTheBuildHasIt(t *testing.T) {

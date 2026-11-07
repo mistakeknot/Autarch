@@ -587,12 +587,9 @@ func TestServeDefaultTokenFileIsUnderHome(t *testing.T) {
 }
 
 func TestServeDefaultAddressIsLoopback8110(t *testing.T) {
-	out, err := exec.Command(autarchBin, "serve", "--help").CombinedOutput()
-	if err != nil {
-		t.Fatal(err)
-	}
+	out := helpOutput(t, "serve", "--help")
 	for _, w := range []string{`--addr string`, `(default "127.0.0.1:8110")`, `--token-file string`, `--allow-origin stringArray`, `--project-dir stringArray`} {
-		if !strings.Contains(string(out), w) {
+		if !strings.Contains(out, w) {
 			t.Errorf("serve --help lacks %q:\n%s", w, out)
 		}
 	}
