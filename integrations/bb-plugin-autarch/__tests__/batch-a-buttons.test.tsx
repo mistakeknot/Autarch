@@ -12,6 +12,8 @@ import { ApprovalsList, AsksPanel, type ApprovalRecord, type AsksData } from "..
 import { BlocksRow, type QueueRowView } from "../ui/blocks.js";
 import type { RootRunPanelView } from "../ui/rootrun.js";
 import { rpcOutcome } from "../movehandlers.js";
+import { RootRunSection } from "../ui/rootrun.js";
+import type { ReactElement, ReactNode } from "react";
 
 const NOW = Date.parse("2026-10-01T00:00:00.000Z");
 
@@ -27,7 +29,26 @@ const rootView: RootRunPanelView = {
   status_command: "root-run-status t1",
 };
 
+// RootRunSection has no hooks, so calling it returns its element tree and a button's onClick can be run directly.
+function buttonsOf(node: ReactNode, out: { text: string; onClick?: () => void }[] = []): { text: string; onClick?: () => void }[] {
+  if (Array.isArray(node)) { for (const n of node) buttonsOf(n, out); return out; }
+  if (node === null || typeof node !== "object") return out;
+  const el = node as ReactElement<{ children?: ReactNode; onClick?: () => void }>;
+  if (el.type === "button") out.push({ text: String(([] as ReactNode[]).concat(el.props.children ?? "").join("")), ...(el.props.onClick ? { onClick: el.props.onClick } : {}) });
+  return buttonsOf(el.props?.children, out);
+}
+
 describe("root-run Copy buttons on a Blocked row", () => {
+  it("clicking each button hands the exact command to the copy handler, and the row's handler copies it", () => {
+    const copied: string[] = [];
+    const tree = RootRunSection({ view: rootView, onCopy: (t) => copied.push(t) });
+    const buttons = buttonsOf(tree);
+    buttons.find((b) => b.text === "Copy command")!.onClick!();
+    buttons.find((b) => b.text === "Copy status command")!.onClick!();
+    expect(copied).toEqual([rootView.command, rootView.status_command]);
+    const src = readFileSync(join(__dirname, "..", "ui", "blocks.tsx"), "utf8");
+    expect(src).toMatch(/onCopy=\{\(text\) => void copyText\(text\)\.then\(/);
+  });
   it("draws Copy command and Copy status command once the row's root-run view has loaded", () => {
     const html = renderToStaticMarkup(<BlocksRow row={blockedRow()} nowMs={NOW} onPick={() => {}} onOpen={() => {}} rootRun={{ views: { t1: rootView }, load: () => {} }} />);
     expect(html).toContain(">Copy command</button>");
