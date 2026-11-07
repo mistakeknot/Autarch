@@ -209,14 +209,28 @@ export class CardWriter {
     const open = this.db
       .prepare("SELECT 1 FROM decisions d WHERE d.id = ? AND d.withdrawn_at IS NULL AND d.resolved_at IS NULL AND NOT EXISTS (SELECT 1 FROM picks k WHERE k.decision_id = d.id)")
       .get(r.decision_id);
-    if (!open || st.state === "deleted") return this.settle(r.id, "skipped", open ? "task deleted" : "override no longer open");
+    if (!open || st.state === "deleted") {
+      // cardGone kept the card open while this relabel was pending; a deleted task is gone for good and nothing
+      // polls it, so close the card here (the override stays pickable; startup's sweep is the backstop).
+      if (open) this.db.prepare("UPDATE cards SET state = 'closed', display_reason = 'card closed in tasks' WHERE task_id = ? AND state = 'open'").run(r.task_id);
+      return this.settle(r.id, "skipped", open ? "task deleted" : "override no longer open");
+    }
     if (st.state === "unlabelled") {
       const ids = await this.tasks.needsMkLabelIds(st.task.projectId, { fresh: true });
       if (ids.length === 0) throw new Error("the tasks project has no needs-mk label");
       await this.tasks.setLabels(r.task_id, [...st.task.labelIds, ids[0]!]);
     }
-    // A brought-back card's task was closed when it was ruled; it is open work for mk again.
-    if (r.id.endsWith("-bringback") && (st.task.status === "done" || st.task.status === "canceled")) await this.tasks.setStatus(r.task_id, "todo");
+    // A brought-back or overridden card's task was closed when it was ruled (including the pick's own
+    // auto-complete, the "unlabel" branch above, which sets it done); it is open work for mk again. A task a
+    // person canceled after that is a deliberate close and stays closed, whatever delayed this write; only a
+    // bring-back (which may follow a canceled ruling) also reopens a canceled task. A person who marks the task
+    // done in the same window cannot be told from the pick's own completion (accepted, narrow).
+    const reopen = st.task.status === "done" || (r.id.endsWith("-bringback") && st.task.status === "canceled");
+    if (reopen) await this.tasks.setStatus(r.task_id, "todo");
+    // A task left closed leaves nothing to answer: the card stops showing as open (the override stays pickable,
+    // and the card reopens if a person reopens the task, ingestInner). Nothing polls a closed task again.
+    else if (st.task.status === "canceled")
+      this.db.prepare("UPDATE cards SET state = 'closed', display_reason = 'card closed in tasks', status = ? WHERE task_id = ? AND state = 'open'").run(st.task.status, r.task_id);
     this.db.prepare("UPDATE cards SET home_unlabelled_at = NULL WHERE task_id = ?").run(r.task_id);
     this.settle(r.id, "done", null);
   }

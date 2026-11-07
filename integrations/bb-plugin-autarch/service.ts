@@ -731,6 +731,7 @@ export class Service {
 
   start(): void {
     if (this.timer) return;
+    this.sweepAbandonedOverrides();
     this.timer = setInterval(() => this.reconcileAll(), RECONCILE_MS);
     this.timer.unref();
     this.reconcilePushes(); // a push lost to a restart is retried now, not after the first interval
@@ -1125,6 +1126,48 @@ export class Service {
       .all() as { task_id: string; project_id: string }[];
   }
 
+  /**
+   * mk-cggjk: open cards whose override is still mk's question and whose relabel is not pending, whatever their
+   * cached label or status. knownOpenCards() skips a card cached unlabelled (cardGone keeps an override open
+   * through a plain unlabel), so a later cancel or delete of that task was never read and the card stayed open
+   * until a restart's sweep, which cannot see a task still cached as open. The poller re-reads these on a fresh
+   * read; once cardGone closes the card it leaves this set, so the set stays bounded to live override questions.
+   */
+  openOverrideCards(): string[] {
+    const rows = this.db.prepare("SELECT task_id FROM cards WHERE state = 'open' AND deleted_at IS NULL").all() as { task_id: string }[];
+    return rows.map((r) => r.task_id).filter((id) => {
+      const latest = this.currentGeneration(id);
+      return !!latest && this.hasPick(id) && this.overrideOpen(latest) && !this.pendingRelabel(latest.id);
+    });
+  }
+
+  /**
+   * mk-cggjk: heals cards an older cardGone left stuck at state 'open' -- an unpicked, still-live
+   * override on a task that is gone for good: deleted, or cached with a status outside the open set. The
+   * cached label is not consulted: a pick's own unlabel+complete is cached unlabelled/done, and the override's
+   * relabel (before it also reopened the task) left that cache as it was. Once status leaves the open set,
+   * knownOpenCards() (and the poller's own listing) never surface the task again, so nothing would otherwise
+   * revisit these rows. An override whose relabel write is still pending is skipped, exactly as cardGone does:
+   * that write is about to reopen the task. Idempotent: run on every start(), a safe no-op once healed.
+   */
+  sweepAbandonedOverrides(): { swept: string[] } {
+    const swept: string[] = [];
+    const open = OPEN_STATUSES.map((s) => `'${s}'`).join(",");
+    this.store.atomically(() => {
+      const stuck = this.db
+        .prepare(`SELECT task_id FROM cards WHERE state = 'open' AND (deleted_at IS NOT NULL OR status NOT IN (${open}))`)
+        .all() as { task_id: string }[];
+      for (const { task_id } of stuck) {
+        const latest = this.currentGeneration(task_id);
+        if (latest && this.hasPick(task_id) && this.overrideOpen(latest) && !this.pendingRelabel(latest.id)) {
+          this.patchCard(task_id, { state: "closed", display_reason: "card closed in tasks" });
+          swept.push(task_id);
+        }
+      }
+    });
+    return { swept };
+  }
+
   private cardRow(taskId: string): Record<string, any> | undefined {
     return this.db.prepare("SELECT * FROM cards WHERE task_id = ?").get(taskId) as Record<string, any> | undefined;
   }
@@ -1144,6 +1187,10 @@ export class Service {
     if (!latest.supersedes || latest.withdrawn_at || latest.resolved_at || this.store.pick(latest.id)) return false;
     // An override of a vizier pick, or a bring-back (request_id bringback:*) of any pick, is mk's open question.
     return this.store.pick(latest.supersedes)?.by === "vizier" || (latest.request_id.startsWith("bringback:") && !!this.store.pick(latest.supersedes));
+  }
+  /** A generation's own relabel (or bring-back) write has not yet run: it is still due to reopen the task. */
+  private pendingRelabel(decisionId: string): boolean {
+    return !!this.db.prepare("SELECT 1 FROM card_writes WHERE decision_id = ? AND kind = 'relabel' AND state = 'pending'").get(decisionId);
   }
   private sig(taskId: string): string {
     const c = this.cardRow(taskId);
@@ -1184,7 +1231,12 @@ export class Service {
     if (!latest) return this.materializeNew(task, card, parseErr, ctx, row);
 
     if (this.hasPick(task.id)) {
-      if (this.overrideOpen(latest)) return; // T11
+      if (this.overrideOpen(latest)) {
+        // T11. A card closed because its task went away for good (cardGone, sweepAbandonedOverrides) shows again
+        // when a person reopens the task: it is listed open and labelled, and the override is still mk's question.
+        if (row.state === "closed") this.patchCard(task.id, { state: "open", display_reason: null });
+        return;
+      }
       // T8: never a new generation after a pick.
       let changed = card === null;
       if (card) {
@@ -1823,8 +1875,18 @@ export class Service {
         return;
       }
       if (this.hasPick(taskId)) {
-        if (!this.overrideOpen(latest)) this.patchCard(taskId, { state: "ruled", display_reason: reason });
-        return; // T7, or T11 (nothing at all)
+        if (!this.overrideOpen(latest)) {
+          this.patchCard(taskId, { state: "ruled", display_reason: reason });
+        } else if (closedInTasks && !this.pendingRelabel(latest.id)) {
+          // T11, task gone for good: close the card so it stops showing as open forever (mk-cggjk --
+          // nothing polls it again once its status leaves the open set). The override decision itself
+          // stays un-withdrawn and pickable: a later pick still rules it (T9). A pending relabel write is
+          // the override's own reopen-the-task action, not yet drained; its "unlabelled"/status-left-open
+          // snapshot is the pick's own auto-complete echo, not a genuine external close, so it is left for
+          // the relabel to resolve before this is judged again.
+          this.patchCard(taskId, { state: "closed", display_reason: reason });
+        } // else T11, task still open (merely unlabelled, or a relabel write is still pending): the override stays mk's open question (T10)
+        return;
       }
       if (!latest.withdrawn_at) this.store.withdrawDecision(latest.id, reason);
       this.patchCard(taskId, { state: "closed", display_reason: reason, next_check_at: null });
