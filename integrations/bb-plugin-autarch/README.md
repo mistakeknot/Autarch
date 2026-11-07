@@ -1,13 +1,13 @@
 # bb-plugin-autarch
 
 A BB plugin that puts Autarch's Citadel in BB: the asks waiting for mk, a catch-up feed,
-the vizier thread, delegation settings, and a small example todo page.
+the vizier thread, and delegation settings.
 
 - `server.ts` — the backend: the Citadel store in `data.db`, RPC methods for the page,
   the `bb home` look-up CLI (`cli.ts`), settings, and a realtime signal that keeps every
-  open page current. It also keeps the example todo list in `bb.storage.kv`.
+  open page current.
 - `app.tsx` — the frontend: the **Citadel** page (asks, catch-up, vizier, map, settings)
-  and the **Example todos** page, both in the left sidebar.
+  in the left sidebar.
 - `skills/home/SKILL.md` — a skill that tells agents to file asks as `needs-mk` cards with
   `autarch needs-mk file` and to read them with `bb home`. The lifecycle commands
   (`progress`, `resolve`, `withdraw`) are for asks filed before cards. BB imports the skill
@@ -17,7 +17,7 @@ the vizier thread, delegation settings, and a small example todo page.
   [Store listing](#store-listing).
 
 Try it: install the plugin, open **Citadel** in the sidebar, then run
-`bb home list` in a terminal. The example todos are managed on their page only.
+`bb home list` in a terminal.
 
 ## UI components
 

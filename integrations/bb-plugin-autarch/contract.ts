@@ -19,8 +19,6 @@ const moveGroups = z.object({ yourMove: list, reported: list, later: list, hidde
 
 export const homeMethods = {
   listAsks: { input: z.null(), output: readModel },
-  // The rail badge: the count of cards waiting on mk (open or display, labelled, not deleted). Read only.
-  decisionCount: { input: z.null(), output: readModel },
   // The blocks panel's read model (plan 1.4). `thread` pins the cards that involve that thread.
   queue: { input: z.object({ thread: z.string().min(1).max(128).optional() }), output: readModel },
   // A card's root-run display (plan 1.5, Task 2.8): the paste command and read-only status. Reads the card
@@ -52,15 +50,9 @@ export const homeMethods = {
     }),
     output: result,
   },
-  // Your move (plan Revision 2, 6). `claimMove` records mk's "I did it" as reported, not verified: it never closes
-  // a move. `skipMove` is "Later / skip". Neither carries a caller identity, so both are advisory (unattested).
+  // Your move was retired (bead mk-1k8pg): the page no longer shows or acts on moves. `moves` stays as the read behind
+  // the CLI `moves` rollback export.
   moves: { input: z.null(), output: moveGroups },
-  claimMove: {
-    input: z.object({ task_id: z.string().min(1).max(64), generation: z.number().int().min(1).max(1_000_000), note: z.string().max(500).optional() }).strict(),
-    output: result,
-  },
-  checkMove: { input: z.object({ task_id: z.string().min(1).max(64), generation: z.number().int().min(1).max(1_000_000) }).strict(), output: result },
-  skipMove: { input: z.object({ task_id: z.string().min(1).max(64), generation: z.number().int().min(1).max(1_000_000) }).strict(), output: result },
   // Later (bead mk-8741): set an open card aside, below the active ones and outside the Waiting count; undo moves it back.
   // `ref` is a task id or a tasks key. Neither rules, closes or refuses a pick.
   later: { input: z.object({ ref: z.string().min(1).max(128) }).strict(), output: result },
@@ -127,9 +119,6 @@ export const homeCliMap = {
   rootRun: { rpcOnly: "a card's paste command display" },
   setBinding: { rpcOnly: "mk's confirmation of a binding; the CLI can only read (`binding`) or, as the vizier, bind" },
   pick: { rpcOnly: "mk's ruling, advisory attribution from the browser" },
-  claimMove: { rpcOnly: "mk's own report" },
-  checkMove: { rpcOnly: "mk's own check" },
-  skipMove: { rpcOnly: "mk's own choice" },
   later: { rpcOnly: "mk's own choice" },
   unlater: { rpcOnly: "mk's own choice" },
   note: { rpcOnly: "the Other box; the CLI `note` is a different, vizier-only note" },
@@ -159,7 +148,6 @@ export const homeCliMap = {
   markAllSeen: { rpcOnly: "the panel's own state" },
   catchup: { rpcOnly: "the panel's read model" },
   waiting: { rpcOnly: "the panel's read model" },
-  decisionCount: { rpcOnly: "the rail badge number" },
   updateInfo: { rpcOnly: "the panel's read model" },
   requestUpdate: { rpcOnly: "mk's own choice; the runner outside the plugin installs" },
   health: { rpcOnly: "the panel's read model" },

@@ -4,17 +4,14 @@
 // the tiny defineRpcContract runtime helper; the API type remains type-only.
 //
 // The Home store serves the Home page (app.tsx, over RPC), the `bb home` CLI command
-// (cli.ts) and the skill in skills/home/SKILL.md that tells agents how to use it. The
-// example todo list in bb.storage.kv serves the Example todos page only. A write
+// (cli.ts) and the skill in skills/home/SKILL.md that tells agents how to use it. A write
 // publishes a realtime signal so every open page refetches.
 import { postNoteOnce } from "./notepost.js";
-import { randomUUID } from "node:crypto";
 import { existsSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { defineRpcContract, type BbPluginApi } from "@get-bb/plugin-sdk";
-import { z } from "zod";
 import { homeMethods } from "./contract.js";
 import { sourceSha256 } from "./scripts/source-hash.mjs";
 import { Asks } from "./asks.js";
@@ -51,38 +48,11 @@ import { createStoreHandle, type Store, type StoreHandle } from "./store.js";
 import { defaultImagesRoot, ImageStore } from "./otherimages.js";
 import { sdkAdapter, WakeLoop, type ThreadsLike, type WakeSdk } from "./wakes.js";
 
-const todoSchema = z.object({
-  id: z.string(),
-  title: z.string(),
-  done: z.boolean(),
-  createdAt: z.string(),
-});
-export type Todo = z.infer<typeof todoSchema>;
-
 // Both schemas run at the wire boundary. Handler input/output are inferred
 // from the shared contract; app.tsx imports only its type.
 export const rpcContract = defineRpcContract({
   ...homeMethods,
-  todos_list: {
-    input: z.null(),
-    output: z.object({ todos: z.array(todoSchema) }),
-  },
-  todos_add: {
-    input: z.object({ title: z.string().trim().min(1).max(200) }),
-    output: todoSchema,
-  },
-  todos_set_done: {
-    input: z.object({ id: z.string(), done: z.boolean() }),
-    output: todoSchema,
-  },
-  todos_remove: {
-    input: z.object({ id: z.string() }),
-    output: z.object({ removed: z.boolean() }),
-  },
 });
-
-/** Realtime channel app.tsx listens on; the payload is the todo count. */
-const TODOS_CHANGED = "todos-changed";
 
 /** Nightly export cadence. */
 const EXPORT_EVERY_MS = 24 * 60 * 60 * 1000;
@@ -653,21 +623,6 @@ export function wireHome(bb: BbPluginApi, handle: StoreHandle, cfg: HomeConfig, 
       need().svc.store.markConversationSeen(i.task_id, i.through);
       return { ok: true as const };
     },
-    async claimMove(i: { task_id: string; generation: number; note?: string }) {
-      const r = need().svc.claimMove(i.task_id, i.generation, i.note);
-      if (r.ok && !r.replay) bb.realtime.publish("home-queue-changed", {});
-      return r;
-    },
-    async checkMove(i: { task_id: string; generation: number }) {
-      const r = need().svc.checkMove(i.task_id, i.generation);
-      if (r.ok && !r.replay) bb.realtime.publish("home-queue-changed", {});
-      return r;
-    },
-    async skipMove(i: { task_id: string; generation: number }) {
-      const r = need().svc.skipMove(i.task_id, i.generation);
-      if (r.ok && !r.replay) bb.realtime.publish("home-queue-changed", {});
-      return r;
-    },
     async later(i: { ref: string }) {
       const r = need().svc.later(i.ref, MK);
       if (r.ok && !r.was) bb.realtime.publish("home-queue-changed", {});
@@ -827,9 +782,6 @@ export function wireHome(bb: BbPluginApi, handle: StoreHandle, cfg: HomeConfig, 
     async catchup(_: null) {
       return { items: need().catchup.items() };
     },
-    async decisionCount(_: null) {
-      return { count: need().svc.decisionCount() };
-    },
     async waiting(_: null) {
       const p = need();
       return waitingNow(p.svc, p.dele, p.catchup);
@@ -930,15 +882,6 @@ export default async function plugin(bb: BbPluginApi) {
   // Declarative settings — rendered in BB's settings UI and editable with
   // `bb plugin config autarch`. Add `secret: true` for values like API keys.
   // Settings are read once per load: reload the plugin after changing one.
-  const settings = bb.settings.define({
-    showDone: {
-      type: "boolean",
-      label: "Show completed todos",
-      default: true,
-    },
-  });
-  const { showDone } = await settings.get();
-
   // The Home surfaces: RPC handlers, the `bb home` CLI, wakes, feed injection, serve link.
   const homeSettings = bb.settings.define({
     serveAddr: { type: "string", label: "autarch serve address", default: "127.0.0.1:8110" },
@@ -954,57 +897,8 @@ export default async function plugin(bb: BbPluginApi) {
     autarchBin: hs.autarchBin || process.env.AUTARCH_BIN || "autarch",
   });
 
-  // Namespaced key-value storage in bb.db (JSON values, up to 256KB each).
-  // For bigger or relational data use bb.storage.database().
-  async function readTodos(): Promise<Todo[]> {
-    return (await bb.storage.kv.get<Todo[]>("todos")) ?? [];
-  }
-  async function writeTodos(todos: Todo[]): Promise<void> {
-    await bb.storage.kv.set("todos", todos);
-    // Ephemeral broadcast to every connected client; nothing is persisted.
-    bb.realtime.publish(TODOS_CHANGED, { count: todos.length });
-  }
-
-  async function listTodos(): Promise<Todo[]> {
-    const todos = await readTodos();
-    return showDone ? todos : todos.filter((todo) => !todo.done);
-  }
-  async function addTodo(title: string): Promise<Todo> {
-    const todo: Todo = {
-      id: randomUUID().slice(0, 8),
-      title,
-      done: false,
-      createdAt: new Date().toISOString(),
-    };
-    await writeTodos([...(await readTodos()), todo]);
-    return todo;
-  }
-  async function setTodoDone(id: string, done: boolean): Promise<Todo | null> {
-    const todos = await readTodos();
-    const todo = todos.find((candidate) => candidate.id === id);
-    if (todo === undefined) return null;
-    todo.done = done;
-    await writeTodos(todos);
-    return todo;
-  }
-  async function removeTodo(id: string): Promise<boolean> {
-    const todos = await readTodos();
-    const remaining = todos.filter((todo) => todo.id !== id);
-    if (remaining.length === todos.length) return false;
-    await writeTodos(remaining);
-    return true;
-  }
-
   bb.rpc.register(rpcContract, {
     ...home.handlers,
-    todos_list: async () => ({ todos: await listTodos() }),
-    todos_add: ({ title }) => addTodo(title),
-    todos_set_done: async ({ id, done }) => {
-      const todo = await setTodoDone(id, done);
-      if (todo === null) throw new Error(`No todo with id ${id}`);
-      return todo;
-    },
-    todos_remove: async ({ id }) => ({ removed: await removeTodo(id) }),
   });
 
   // Cleanup on reload/disable/shutdown; hooks run LIFO. The sanctioned place
@@ -1012,23 +906,4 @@ export default async function plugin(bb: BbPluginApi) {
   bb.onDispose(() => {
     bb.log.info("disposed");
   });
-
-  // Long-lived background work: starts after load, gets an AbortSignal on
-  // reload/disable/shutdown, and restarts with backoff if it crashes. Sleeps
-  // must wake on abort — a plain setTimeout sleeps through the stop window
-  // and the plugin reports "degraded (service did not stop)" on reload.
-  // bb.background.service("worker", {
-  //   async start(signal) {
-  //     while (!signal.aborted) {
-  //       await new Promise((resolve) => {
-  //         const timer = setTimeout(resolve, 60_000);
-  //         signal.addEventListener(
-  //           "abort",
-  //           () => { clearTimeout(timer); resolve(undefined); },
-  //           { once: true },
-  //         );
-  //       });
-  //     }
-  //   },
-  // });
 }

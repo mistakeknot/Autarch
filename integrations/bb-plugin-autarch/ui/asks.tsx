@@ -1,6 +1,6 @@
 // The Asks view: what is stalled, what mk must decide, the runbook, and what is merely waiting.
 
-import { Fragment, useEffect, useRef, useState, type ReactNode } from "react";
+import { Fragment, useEffect, useRef, useState } from "react";
 import { ActionButton, RecommendedMark } from "./buttons.js";
 import { CONFIRM_LABEL, ConfirmTap } from "./confirmtap.js";
 import { CardConversation } from "./conversation.js";
@@ -468,7 +468,8 @@ export function expiryText(expiresAt: string, nowMs: number): string {
   return `expires in ${ageText(new Date(nowMs - ms).toISOString(), nowMs)}`;
 }
 
-export function ApprovalsList({ approvals, onRevoke, nowMs = Date.now() }: { approvals: ApprovalRecord[]; onRevoke: (approvalId: string) => void; nowMs?: number }) {
+/** Without `onRevoke` the list is read-only: no Revoke button is drawn, so none can do nothing. */
+export function ApprovalsList({ approvals, onRevoke, nowMs = Date.now() }: { approvals: ApprovalRecord[]; onRevoke?: (approvalId: string) => void; nowMs?: number }) {
   return (
     <section data-section="approvals">
       <h2 className="mb-2 text-xs font-semibold uppercase text-muted-foreground">Recorded approvals</h2>
@@ -477,11 +478,11 @@ export function ApprovalsList({ approvals, onRevoke, nowMs = Date.now() }: { app
         {approvals.map((a) => (
           <li key={a.approval_id} className="flex flex-wrap items-center gap-x-2 rounded border border-border p-2 text-sm" data-approval-id={a.approval_id}>
             <span className="min-w-0 [overflow-wrap:anywhere]" title={a.expires_at}>{`${a.kind} ${a.target} at ${a.identity}, ${expiryText(a.expires_at, nowMs)}`}</span>
-            <ConfirmTap needsConfirm onConfirmed={() => onRevoke(a.approval_id)} resetKey={a.approval_id}>
+            {onRevoke ? <ConfirmTap needsConfirm onConfirmed={() => onRevoke(a.approval_id)} resetKey={a.approval_id}>
               {({ armed, onClick, onBlur }) => (
                 <button type="button" className={`min-h-11 text-xs underline sm:min-h-0${armed ? " font-medium text-destructive" : ""}`} onClick={onClick} onBlur={onBlur} {...(armed ? { "data-confirming": "true" } : {})}>{armed ? CONFIRM_LABEL : "Revoke"}</button>
               )}
-            </ConfirmTap>
+            </ConfirmTap> : null}
           </li>
         ))}
       </ul>
@@ -490,7 +491,7 @@ export function ApprovalsList({ approvals, onRevoke, nowMs = Date.now() }: { app
 }
 
 /** One card in the Later section. It owns the error from a Move back that did not go through. */
-function LaterEntry({ o, onPick, onOpen, nowMs, onNote, onLater, renderMoves }: { o: OwedAsk; onPick: OnPick; onOpen: (thread: string) => void; nowMs: number; onNote?: OnNote; onLater?: OnLater; renderMoves?: (taskId: string) => ReactNode }) {
+function LaterEntry({ o, onPick, onOpen, nowMs, onNote, onLater }: { o: OwedAsk; onPick: OnPick; onOpen: (thread: string) => void; nowMs: number; onNote?: OnNote; onLater?: OnLater }) {
   const [error, setError] = useState<string | null>(null);
   return (
     <li className="flex min-w-0 flex-wrap items-center gap-x-2 rounded border border-border px-2 py-0.5 text-sm" data-later={o.id}>
@@ -504,7 +505,6 @@ function LaterEntry({ o, onPick, onOpen, nowMs, onNote, onLater, renderMoves }: 
         <div className="mt-1">
           <AskCard ask={o} onPick={onPick} onOpen={onOpen} nowMs={nowMs} {...(onNote ? { onNote } : {})} />
         </div>
-        {renderMoves && o.task_id ? <div className="mt-2 space-y-3">{renderMoves(o.task_id)}</div> : null}
       </details>
       <LaterFailure error={error} />
     </li>
@@ -516,7 +516,7 @@ export function owedTasks(data: AsksData): Set<string> {
   return new Set(data.owed.map((o) => o.task_id).filter((t): t is string => typeof t === "string"));
 }
 
-export function AsksPanel({ part, data, onPick, onOpen, onRevoke, onDismiss, onNote, onLater, onView, renderMoves, hideHeld, nowMs = Date.now() }: { /** Which part of the panel shows: the decide list alone, or Later alone. Unset shows both, as a card-key link does. */ part?: "decide" | "later"; hideHeld?: boolean; renderMoves?: (taskId: string) => ReactNode; data: AsksData; onPick: OnPick; onOpen: (thread: string) => void; onRevoke?: (approvalId: string) => void; onDismiss?: (decisionId: string, obligationId: string) => void; onNote?: OnNote; onLater?: OnLater; onView?: (decisionId: string | null) => void; nowMs?: number }) {
+export function AsksPanel({ part, data, onPick, onOpen, onRevoke, onDismiss, onNote, onLater, onView, hideHeld, nowMs = Date.now() }: { /** Which part of the panel shows: the decide list alone, or Later alone. Unset shows both, as a card-key link does. */ part?: "decide" | "later"; hideHeld?: boolean; data: AsksData; onPick: OnPick; onOpen: (thread: string) => void; onRevoke?: (approvalId: string) => void; onDismiss?: (decisionId: string, obligationId: string) => void; onNote?: OnNote; onLater?: OnLater; onView?: (decisionId: string | null) => void; nowMs?: number }) {
   // In the Queue the held cards show under "Blocked on others"; shown here only on a card-key link.
   const held = hideHeld ? [] : data.owed.filter((o) => o.held);
   // Later cards leave the Decide list for their own group below it; a held card stays held even if it was also set aside.
@@ -559,7 +559,7 @@ export function AsksPanel({ part, data, onPick, onOpen, onRevoke, onDismiss, onN
           </p>
           <ul className="m-0 list-none space-y-1 p-0">
             {later.map((o) => (
-              <LaterEntry key={o.id} o={o} onPick={onPick} onOpen={onOpen} nowMs={nowMs} {...(onNote ? { onNote } : {})} {...(onLater ? { onLater } : {})} {...(renderMoves ? { renderMoves } : {})} />
+              <LaterEntry key={o.id} o={o} onPick={onPick} onOpen={onOpen} nowMs={nowMs} {...(onNote ? { onNote } : {})} {...(onLater ? { onLater } : {})} />
             ))}
           </ul>
         </section>
@@ -580,7 +580,7 @@ export function AsksPanel({ part, data, onPick, onOpen, onRevoke, onDismiss, onN
           </ul>
         </section>
       ) : null}
-      {approvals.length > 0 ? <ApprovalsList approvals={approvals} onRevoke={onRevoke ?? (() => {})} nowMs={nowMs} /> : null}
+      {approvals.length > 0 ? <ApprovalsList approvals={approvals} {...(onRevoke ? { onRevoke } : {})} nowMs={nowMs} /> : null}
     </div>
   );
 }

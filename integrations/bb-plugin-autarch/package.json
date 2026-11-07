@@ -8,7 +8,7 @@
   },
   "bb": {
     "name": "Autarch",
-    "description": "Citadel: the asks waiting for mk, a catch-up feed, and an example todo list.",
+    "description": "Citadel: the asks waiting for mk and a catch-up feed.",
     "branding": {
       "icon": "./assets/citadel.svg"
     },

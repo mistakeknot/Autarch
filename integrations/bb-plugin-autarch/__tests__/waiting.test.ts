@@ -151,8 +151,8 @@ describe("railCount (the badge number)", () => {
 });
 
 describe("one number everywhere", () => {
-  it("the strip, the tab and the stats output show the same total; the badge shows the Needs you now count", async () => {
-    const { badgeCount, waitingSummary } = await import("../ui/waiting.js");
+  it("the tab and the stats output show the same total; the badge shows the Needs you now count", async () => {
+    const { badgeCount } = await import("../ui/waiting.js");
     const r = rig({ legacyMoves: true });
     r.enableDelegation();
     card(r);
@@ -162,6 +162,5 @@ describe("one number everywhere", () => {
     const w = count(r);
     expect(w.total).toBe(3);
     expect(badgeCount({ count: w.decide }, { blocked: false, unowned: false })).toBe("2");
-    expect(waitingSummary(w).headline).toBe("Waiting on you: 3");
   });
 });

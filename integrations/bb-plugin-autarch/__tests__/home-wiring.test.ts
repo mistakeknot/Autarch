@@ -41,8 +41,8 @@ describe("wireHome", () => {
     expect(f.services.sort()).toEqual(["home-card-comments", "home-delegation-check", "home-feed-refresh", "home-merge-recheck", "home-move-poll", "home-move-reports", "home-queue", "home-wakes"]);
     expect(f.configure()).toBeTypeOf("function");
     expect(f.cli()).toBeDefined();
-    expect(Object.keys(home.handlers).sort()).toEqual(["actIdea", "archive", "bringBack", "cardState", "catchup", "checkMove", "claimMove", "clearIdeaDigest", "clickTiming", "conversation", "conversationUnread",
-      "decisionCount", "dismiss", "fileIdea", "health", "ideaProjects", "ideas", "later", "learn", "learnSet", "listAsks", "listRecent", "markAllSeen", "markConversationSeen", "markSeen", "moves", "note", "openTarget", "override", "pick", "queue", "readDoc", "requestUpdate", "resend", "revokeApproval", "rootRun", "setBinding", "setDelegation", "setViewing", "skipMove", "stats", "unlater", "updateInfo", "waiting"]);
+    expect(Object.keys(home.handlers).sort()).toEqual(["actIdea", "archive", "bringBack", "cardState", "catchup", "clearIdeaDigest", "clickTiming", "conversation", "conversationUnread",
+      "dismiss", "fileIdea", "health", "ideaProjects", "ideas", "later", "learn", "learnSet", "listAsks", "listRecent", "markAllSeen", "markConversationSeen", "markSeen", "moves", "note", "openTarget", "override", "pick", "queue", "readDoc", "requestUpdate", "resend", "revokeApproval", "rootRun", "setBinding", "setDelegation", "setViewing", "stats", "unlater", "updateInfo", "waiting"]);
     f.disposers.forEach((d) => d());
   });
 

@@ -2,7 +2,6 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 import { AskCard } from "../ui/asks.js";
 import { CardConversation, ConversationBody, ConversationProvider, HOME_POSTED_LABEL, type ConversationApi, type ConversationData } from "../ui/conversation.js";
-import { MoveCard } from "../ui/yourmove.js";
 
 const data = (over: Partial<ConversationData> = {}): ConversationData => ({
   task_id: "T1",
@@ -69,11 +68,5 @@ describe("conversation view", () => {
     expect(closed).toContain("data-card-conversation");
     expect(closed).not.toContain("Full instruction");
     expect(closed).toContain("SECRET-FULL-TEXT. More.");
-    const move = renderToStaticMarkup(
-      <ConversationProvider value={api()}>
-        <MoveCard m={{ task_id: "T1", generation: 1, kind: "read", state: "open", title: "t", owner: null, opened_at: "2026-10-01T00:00:00.000Z", claimed_at: null, skipped_at: null, checked_at: null, report_deadline_at: null, url: null, need: null, script: null, commands: [], report: null, closed_at: null, closed_by: null, evidence: null } as never} h={{ onCheck() {}, onClaim() {}, onSkip() {}, onNote() {} }} section="yourMove" />
-      </ConversationProvider>,
-    );
-    expect(move).toContain('data-card-conversation="T1"');
   });
 });
