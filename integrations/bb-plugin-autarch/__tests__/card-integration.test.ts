@@ -334,4 +334,31 @@ describe("T9/T10/T11 end to end", () => {
       expect(r.mkPick(o.decision_id)).toMatchObject({ ok: true });
     });
   }
+
+  // Finding 7 (bead mk-oss7o), a designed behavior pinned in place. Citadel's queue contract is "a tasks card
+  // labelled needs-mk" (docs/plans/2026-09-30-home-on-bb-tasks-plan.md:31). A task that was unlabelled and is
+  // then only reopened is outside the queue, so its closed card stays closed until the label is put back.
+  it("mk-oss7o: a closed override card whose task is unlabelled stays closed on a status-only reopen, and reopens once relabelled", async () => {
+    const r = rig();
+    r.enableDelegation();
+    const { t, g1 } = await opened(r);
+    const labelIds = [...r.fake.tasks.find((x) => x.id === t.id)!.labelIds];
+    expect(r.vizierPick(g1.id)).toMatchObject({ ok: true });
+    await pollN(r, 2);
+    const o = r.dele.override(g1.id, {});
+    if (!o.ok) throw new Error(o.error);
+    await pollN(r, 3); // the relabel drains and reopens the task
+    r.edit(t, { labelIds: [] });
+    await pollN(r, 2);
+    r.edit(t, { status: "canceled" });
+    await pollN(r, 4);
+    expect(r.cardRow(t.id)).toMatchObject({ state: "closed" });
+    r.edit(t, { status: "todo" }); // reopened, but still without needs-mk: outside the queue
+    await pollN(r, 6);
+    expect(r.cardRow(t.id)).toMatchObject({ state: "closed" });
+    r.edit(t, { labelIds }); // the label is the queue contract: put it back and the card is back
+    await pollN(r, 4);
+    expect(r.cardRow(t.id)).toMatchObject({ state: "open" });
+    expect(r.mkPick(o.decision_id)).toMatchObject({ ok: true });
+  });
 });

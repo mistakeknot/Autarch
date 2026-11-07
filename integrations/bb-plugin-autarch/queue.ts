@@ -116,6 +116,9 @@ export class Queue {
       const moveOnly = new Set(service.liveMoveCards().filter((id) => !known.has(id)));
       // So is an open override card (mk-cggjk): cached unlabelled and still open, a later cancel or delete is only
       // seen on a fresh read.
+      // Only OPEN cards are re-read. A card closed here whose task is then unlabelled and only status-reopened
+      // stays closed, by design: the queue is "a tasks card labelled needs-mk" (docs/plans/2026-09-30-home-on-bb-tasks-plan.md:31),
+      // so an unlabelled task is outside it until the label is put back (bead mk-oss7o).
       const overrideOnly = new Set(service.openOverrideCards().filter((id) => !known.has(id) && !moveOnly.has(id)));
       for (const id of [...known, ...moveOnly, ...overrideOnly]) {
         if (listed.has(id)) continue;
