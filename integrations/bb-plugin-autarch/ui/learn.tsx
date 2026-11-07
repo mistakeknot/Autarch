@@ -4,11 +4,6 @@ import { ActionButton } from "./buttons.js";
 import { Markdown } from "./markdown.js";
 
 export type LearnCardView = { id: string; title: string; body: string; mark: "got" | "later" | null };
-export type LearnApi = {
-  load: () => Promise<{ enabled: boolean; cards: LearnCardView[] }>;
-  setEnabled: (enabled: boolean) => Promise<void>;
-  mark: (card: string, mark: "got" | "later" | "clear") => Promise<void>;
-};
 
 /** Cards still to read come first (no mark, then "Later"); "Got it" cards sink to the end, in deck order within each group. */
 export function orderDeck(cards: readonly LearnCardView[]): LearnCardView[] {

@@ -6,11 +6,7 @@ import { describe, expect, it, vi } from "vitest";
 vi.mock("@get-bb/plugin-sdk/app", () => ({ ThreadChat: () => null }));
 
 import { AsksPanel, AskCard, owedTasks, laterOutcome, runLater, LaterFailure, type AsksData, type OwedAsk } from "../ui/asks.js";
-import { MoveCard, moveButtons, omitDecisionPrMoves, omitLaterTasks, YourMovePanel } from "../ui/yourmove.js";
-import type { MoveView } from "../moveview.js";
 import { forgetClassicTabs, nextQueueTab, QueueTabs, RETIRED_CLASSIC_KEY } from "../ui/tabs.js";
-import { waitingSummary } from "../ui/waiting.js";
-import type { Waiting } from "../waiting.js";
 
 const ask = (over: Partial<OwedAsk> = {}): OwedAsk => ({
   id: "dec1",
@@ -93,13 +89,6 @@ describe("Later group", () => {
     expect(html).not.toContain('data-section="later"');
   });
 
-  it("a Later card that also has a move keeps the move inside its card (plan link, read action)", () => {
-    const html = panel([ask({ later: LATER })], { renderMoves: (t) => (t === "task-1" ? <p data-move-slot>I read it</p> : null) });
-    const later = html.slice(html.indexOf('data-section="later"'));
-    expect(later).toContain("data-move-slot");
-    expect(later.match(/data-later-clear=/g)).toHaveLength(1);
-  });
-
   it("without a handler (the overlay) the group lists the cards and has no Move back button", () => {
     const html = renderToStaticMarkup(<AsksPanel data={data([ask({ later: LATER })])} onPick={noop as never} onOpen={noop} />);
     expect(html).toContain("Later (1)");
@@ -107,106 +96,10 @@ describe("Later group", () => {
   });
 });
 
-describe("Later beside the count", () => {
-  const W: Waiting = { total: 3, decide: 3, moves: 0, notices: 0, noticeItems: [], updates: 0, held: 0, later: 2, suspended: false, definition: "Counts open decisions." };
-  it("reads '2 for later' beside the total, never in it", () => {
-    expect(waitingSummary(W)).toEqual({ headline: "Waiting on you: 3", parts: "3 to decide", beside: ["2 for later"] });
-  });
-  it("is absent at zero", () => {
-    expect(waitingSummary({ ...W, later: 0 }).beside).toEqual([]);
-  });
-  it("sits after updates and holds", () => {
-    expect(waitingSummary({ ...W, updates: 1, held: 1 }).beside).toEqual(["1 update to read", "1 on hold", "2 for later"]);
-  });
-});
-
-describe("a move on a Later card", () => {
-  const mv: MoveView = {
-    task_id: "t1", generation: 1, kind: "read", state: "open", title: "Read the plan", owner: "thr-a", opened_at: "2026-10-06T10:00:00.000Z",
-    claimed_at: null, skipped_at: null, card_later: true, checked_at: null, report_deadline_at: null, url: "https://x.test/doc", need: null, pr: null,
-    script: null, commands: [], report: null, closed_at: null, closed_by: null, evidence: null,
-  };
-  const h = { onCheck: noop, onClaim: noop, onSkip: noop, onNote: noop };
-  it("offers Move back at tap height (not a second Later / skip), and says the card is set aside", () => {
-    const html = renderToStaticMarkup(<MoveCard m={mv} h={{ ...h, onUnlater: noop }} section="later" />);
-    const btn = html.match(/<button[^>]*data-later-clear="t1"[^>]*>/)![0];
-    expect(btn).toContain("min-h-11");
-    expect(btn).toContain("sm:!min-h-11");
-    expect(html).toContain("Move back");
-    expect(html).not.toContain("Later / skip");
-    expect(html).toContain("data-card-later");
-    expect(moveButtons(mv).map((b) => b.label)).toEqual(["I read it"]);
-  });
-  it("without the handler there is no Move back", () => {
-    expect(renderToStaticMarkup(<MoveCard m={mv} h={h} section="later" />)).not.toContain("data-later-clear");
-  });
-  it("a skipped move (no card-level Later) also gets Move back, so every move in Later can return", () => {
-    const skipped = { ...mv, card_later: false, skipped_at: "2026-10-07T10:00:00.000Z" };
-    const html = renderToStaticMarkup(<MoveCard m={skipped} h={{ ...h, onUnlater: noop }} section="later" />);
-    expect(html).toContain('data-later-clear="t1"');
-    expect(html).not.toContain("Later / skip");
-  });
-  it("a skipped context move, which has no other button, still has Move back", () => {
-    const ctx = { ...mv, kind: "context" as const, url: null, need: "pick a date", card_later: false, skipped_at: "2026-10-07T10:00:00.000Z" };
-    expect(moveButtons(ctx)).toEqual([]);
-    expect(renderToStaticMarkup(<MoveCard m={ctx} h={{ ...h, onUnlater: noop }} section="later" />)).toContain('data-later-clear="t1"');
-  });
-});
-
-describe("Your move panel split (the move Later group sits below Decide)", () => {
-  const groups = (over: object) => ({ yourMove: [], reported: [], later: [], hidden: [], audit: [], ...over }) as never;
-  const mv: MoveView = {
-    task_id: "t1", generation: 1, kind: "read", state: "open", title: "Read the plan", owner: "thr-a", opened_at: "2026-10-06T10:00:00.000Z",
-    claimed_at: null, skipped_at: null, card_later: true, checked_at: null, report_deadline_at: null, url: "https://x.test/doc", need: null, pr: null,
-    script: null, commands: [], report: null, closed_at: null, closed_by: null, evidence: null,
-  };
-  const h = { onCheck: noop, onClaim: noop, onSkip: noop, onNote: noop, onUnlater: noop };
-  it("part=active leaves the Later group out, part=later renders only it", () => {
-    const d = groups({ yourMove: [{ ...mv, task_id: "a", card_later: false }], later: [mv] });
-    const active = renderToStaticMarkup(<YourMovePanel data={d} handlers={h} part="active" />);
-    const later = renderToStaticMarkup(<YourMovePanel data={d} handlers={h} part="later" />);
-    expect(active).toContain('data-section="move-yourMove"');
-    expect(active).not.toContain('data-section="move-later"');
-    expect(later).toContain('data-section="move-later"');
-    expect(later).not.toContain('data-section="move-yourMove"');
-  });
-  it("renders nothing for a part with nothing in it", () => {
-    expect(renderToStaticMarkup(<YourMovePanel data={groups({ later: [mv] })} handlers={h} part="active" />)).toBe("");
-    expect(renderToStaticMarkup(<YourMovePanel data={groups({ yourMove: [mv] })} handlers={h} part="later" />)).toBe("");
-  });
-  it("omitLaterTasks drops a task already shown in the Decide Later group, so a card is not listed twice", () => {
-    const d = groups({ later: [mv, { ...mv, task_id: "t2" }], yourMove: [mv] });
-    const out = omitLaterTasks(d, new Set(["t1"]));
-    expect(out.later.map((m: MoveView) => m.task_id)).toEqual(["t2"]);
-    expect(out.yourMove).toHaveLength(1); // only the Later group is deduplicated
-  });
-  it("omitDecisionPrMoves drops PR moves on cards with a decision from every group, and keeps other moves", () => {
-    const pr = { ...mv, kind: "pr" as const };
-    const script = { ...mv, kind: "script" as const, task_id: "t1", generation: 2 };
-    const d = groups({ yourMove: [pr, script, { ...pr, task_id: "t2" }], reported: [pr], later: [pr], hidden: [pr] });
-    const out = omitDecisionPrMoves(d, new Set(["t1"]));
-    expect(out.yourMove.map((m: MoveView) => `${m.kind}:${m.task_id}`)).toEqual(["script:t1", "pr:t2"]);
-    expect(out.reported).toHaveLength(0);
-    expect(out.later).toHaveLength(0);
-    expect(out.hidden).toHaveLength(1); // what mk hid stays in Hidden
-    expect(renderToStaticMarkup(<YourMovePanel data={omitDecisionPrMoves(groups({ yourMove: [pr] }), new Set(["t1"]))} handlers={h} part="active" />)).toBe("");
-  });
-  it("omitDecisionPrMoves drops closed PR moves on cards with a decision from the Closed rows too", () => {
-    const row = (kind: string, task_id: string) => ({ task_id, generation: 1, kind, closed_at: "2026-10-08T00:00:00.000Z", closed_by: "superseded", evidence: null });
-    const d = groups({ audit: [row("pr", "t1"), row("script", "t1"), row("pr", "t2")] });
-    const out = omitDecisionPrMoves(d, new Set(["t1"]));
-    expect(out.audit.map((r: { kind: string; task_id: string }) => `${r.kind}:${r.task_id}`)).toEqual(["script:t1", "pr:t2"]);
-  });
+describe("owedTasks", () => {
   it("owedTasks lists every task with an owed decision: Decide, Later and on hold", () => {
     const owed = [ask({ id: "a", task_id: "t1" }), ask({ id: "b", task_id: "t2", later: LATER }), ask({ id: "c", task_id: "t3", held: { reason: "r", by: "v", at: "x" } }), ask({ id: "d", task_id: null })];
     expect([...owedTasks(data(owed))].sort()).toEqual(["t1", "t2", "t3"]);
-  });
-  it("a held move shows its hold reason and no skip note", () => {
-    const m = { ...mv, card_later: false, skipped_at: "2026-10-07T10:00:00.000Z", held: { reason: "script superseded", by: "thr_viz", at: "2026-10-08T00:00:00.000Z" } };
-    const html = renderToStaticMarkup(<MoveCard m={m} h={h} section="yourMove" />);
-    expect(html).toContain("data-held");
-    expect(html).toContain("script superseded");
-    expect(html).not.toContain("data-skipped");
   });
 });
 
@@ -233,16 +126,6 @@ describe("a Later card is one row", () => {
     expect(html).toMatch(/<details[^>]*class="[^"]*open:basis-full/);
     // DOM order is visual order (title, Move back, Open card), so focus order matches what is seen, closed or open.
     expect(html.indexOf("data-later-clear")).toBeLessThan(html.indexOf("Open card"));
-  });
-});
-
-describe("every Your move action keeps 44px at sm and wider", () => {
-  it("check, claim and Later / skip are tap height, not only Move back", () => {
-    const mv = { task_id: "t1", generation: 1, kind: "script", subject: "s", key: null, need: null, pr: null, script: null, commands: [], report: null, url: null, held: null, claimed_at: null, skipped_at: null, card_later: false, checked_at: null, report_deadline_at: null, closed_at: null, closed_by: null, evidence: null } as unknown as Parameters<typeof MoveCard>[0]["m"];
-    const html = renderToStaticMarkup(<MoveCard m={mv} h={{ onCheck: noop, onClaim: noop, onSkip: noop, onNote: noop }} section="yourMove" />);
-    const actions = html.match(/<button[^>]*data-move-action="[a-z]+"[^>]*>/g) ?? [];
-    expect(actions.length).toBeGreaterThanOrEqual(3);
-    for (const b of actions) expect(b).toContain("sm:!min-h-11");
   });
 });
 

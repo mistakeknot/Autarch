@@ -1,19 +1,17 @@
 // The phone layout of Home (bead mk-yah6): an inbox with full-screen cards, three bottom tabs (Waiting, Later,
-// Since you left) and one sticky bar with the card's main action. It reuses AskCard and MoveCard unchanged, so every
-// pick, note, command block and safety line behaves as on the desktop; this file only arranges them and picks which
+// Since you left) and one sticky bar with the card's main action. It reuses AskCard unchanged, so every
+// pick, note and safety line behaves as on the desktop; this file only arranges them and picks which
 // ones are shown. UI only: the lists come from the same data the desktop queue reads.
 import { useEffect, useState, type ReactNode } from "react";
-import type { MoveView, MoveViewGroups } from "../moveview.js";
 import { ActionButton } from "./buttons.js";
 import { glance } from "./glance.js";
 import { ageText, AskCard, isDestructiveOption, type AsksData, type OnLater, type OnNote, type OnPick, type OwedAsk } from "./asks.js";
-import { MoveCard, moveButtons, type MoveHandlers } from "./yourmove.js";
 
 export type InboxTab = "waiting" | "later" | "since";
 
 export interface InboxRow {
   key: string;
-  /** What the chip says: Decide, Run a script, Merge a PR, Read, Needs context. */
+  /** What the chip says: Decide. */
   chip: string;
   project: string;
   age: string;
@@ -21,35 +19,19 @@ export interface InboxRow {
   /** How long a play or walk card says it takes ("About 2 min"); unset for every other row. */
   time?: string;
   ask?: OwedAsk;
-  move?: MoveView;
 }
-
-const MOVE_CHIP: Record<MoveView["kind"], string> = { script: "Run a script", pr: "Merge a PR", read: "Read", context: "Needs context" };
 
 const askRow = (o: OwedAsk, nowMs: number): InboxRow => {
   const time = glance(o)?.time ?? undefined;
   return { key: `ask:${o.id}`, chip: "Decide", project: o.project, age: ageText(o.filed_at, nowMs), title: o.subject, ...(time ? { time } : {}), ask: o };
 };
-const moveRow = (m: MoveView, nowMs: number): InboxRow => ({ key: `move:${m.task_id}:${m.generation}`, chip: MOVE_CHIP[m.kind], project: "", age: ageText(m.opened_at, nowMs), title: m.title, move: m });
 
-/**
- * The two lists. Waiting is the owed decisions that are neither held nor set aside, then the open moves on other
- * cards; Later is the cards mk set aside. A move on a card that already has a decision rides inside that decision's
- * row, as on the desktop, so no card shows twice.
- */
-export function inboxRows(asks: AsksData, moves: MoveViewGroups | null, nowMs: number): { waiting: InboxRow[]; later: InboxRow[] } {
+/** The two lists. Waiting is the owed decisions that are neither held nor set aside; Later is the cards mk set aside. */
+export function inboxRows(asks: AsksData, nowMs: number): { waiting: InboxRow[]; later: InboxRow[] } {
   const live = asks.owed.filter((o) => !o.held);
-  const askTasks = new Set(live.map((o) => o.task_id).filter((t): t is string => typeof t === "string"));
-  const waiting = [...live.filter((o) => !o.later).map((o) => askRow(o, nowMs)), ...(moves?.yourMove ?? []).filter((m) => !m.held && !askTasks.has(m.task_id)).map((m) => moveRow(m, nowMs))];
-  const later = [...live.filter((o) => o.later).map((o) => askRow(o, nowMs)), ...(moves?.later ?? []).filter((m) => !m.held && !askTasks.has(m.task_id)).map((m) => moveRow(m, nowMs))];
+  const waiting = live.filter((o) => !o.later).map((o) => askRow(o, nowMs));
+  const later = live.filter((o) => o.later).map((o) => askRow(o, nowMs));
   return { waiting, later };
-}
-
-/** The moves that ride on a decision's card (same task), shown under it in the detail view; held ones stay out. */
-export function attached(r: InboxRow, moves: MoveViewGroups | null): MoveView[] {
-  const task = r.ask?.task_id;
-  if (!task || !moves) return [];
-  return [...moves.yourMove, ...moves.later].filter((m) => m.task_id === task && !m.held);
 }
 
 /** True while the screen is phone-sized (below Tailwind's sm breakpoint). */
@@ -90,7 +72,7 @@ function Row({ r, onOpen }: { r: InboxRow; onOpen: () => void }) {
 }
 
 /** The sticky bar: Later on the left, the card's main action on the right. Nothing is picked without the card above showing what it does. */
-function DetailBar({ r, onPick, onLater, handlers, onDone }: { r: InboxRow; onPick: OnPick; onLater: OnLater; handlers: MoveHandlers; onDone: () => void }) {
+function DetailBar({ r, onPick, onLater, onDone }: { r: InboxRow; onPick: OnPick; onLater: OnLater; onDone: () => void }) {
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const run = async (f: () => unknown) => {
@@ -113,13 +95,6 @@ function DetailBar({ r, onPick, onLater, handlers, onDone }: { r: InboxRow; onPi
     const rec = a.ask.options.find((o) => o.id === a.ask.recommendation);
     if (a.task_id) later = { label: a.later ? "Move back" : "Later", go: () => void run(() => onLater(a.task_id!, !a.later)) };
     if (rec && !isDestructiveOption(rec)) main = { label: rec.label, go: () => void run(() => onPick(a.id, rec.id, a.revision)) };
-  } else if (r.move) {
-    const m = r.move;
-    const btns = moveButtons(m);
-    const claim = btns.find((b) => b.key === "claim");
-    if (m.card_later && handlers.onUnlater) later = { label: "Move back", go: () => void run(() => handlers.onUnlater!(m)) };
-    else if (btns.some((b) => b.key === "skip")) later = { label: "Later", go: () => void run(() => handlers.onSkip(m)) };
-    if (claim) main = { label: claim.label, go: () => void run(() => handlers.onClaim(m)) };
   }
   return (
     <div className="sticky bottom-0 border-t border-border bg-background px-3 py-2" data-detail-bar>
@@ -132,15 +107,13 @@ function DetailBar({ r, onPick, onLater, handlers, onDone }: { r: InboxRow; onPi
   );
 }
 
-export function MobileInbox({ asks, moves, waiting, onPick, onOpen, onNote, onLater, handlers, sinceNode, sinceCount, onDesktop, onIdea, ideaNode, updateNode, now = Date.now(), initial }: {
+export function MobileInbox({ asks, waiting, onPick, onOpen, onNote, onLater, sinceNode, sinceCount, onDesktop, onIdea, ideaNode, updateNode, now = Date.now(), initial }: {
   asks: AsksData;
-  moves: MoveViewGroups | null;
   waiting: number;
   onPick: OnPick;
   onOpen: (thread: string) => void;
   onNote: OnNote;
   onLater: OnLater;
-  handlers: MoveHandlers;
   /** The Since you left tab body: notices and the catch-up list, built by the page so it keeps its mark-seen rules. */
   sinceNode: ReactNode;
   sinceCount: number;
@@ -156,7 +129,7 @@ export function MobileInbox({ asks, moves, waiting, onPick, onOpen, onNote, onLa
 }) {
   const [tab, setTab] = useState<InboxTab>(initial?.tab ?? "waiting");
   const [open, setOpen] = useState<string | null>(initial?.open ?? null);
-  const rows = inboxRows(asks, moves, now);
+  const rows = inboxRows(asks, now);
   const list = tab === "later" ? rows.later : rows.waiting;
   const current = open === null ? null : [...rows.waiting, ...rows.later].find((r) => r.key === open) ?? null;
   const title = tab === "waiting" ? `Waiting on you · ${waiting}` : tab === "later" ? `Later · ${rows.later.length}` : "Since you left";
@@ -185,8 +158,6 @@ export function MobileInbox({ asks, moves, waiting, onPick, onOpen, onNote, onLa
         ) : current ? (
           <div className="p-3" data-inbox-detail={current.key}>
             {current.ask ? <AskCard ask={current.ask} onPick={onPick} onOpen={onOpen} nowMs={now} onNote={onNote} onLater={onLater} /> : null}
-            {attached(current, moves).map((m) => <div key={`${m.task_id}:${m.generation}`} className="mt-3"><MoveCard m={m} h={handlers} section="yourMove" /></div>)}
-            {current.move ? <MoveCard m={current.move} h={handlers} section={tab === "later" ? "later" : "yourMove"} /> : null}
           </div>
         ) : tab === "since" ? (
           sinceNode
@@ -197,7 +168,7 @@ export function MobileInbox({ asks, moves, waiting, onPick, onOpen, onNote, onLa
         )}
       </div>
       {current ? (
-        <DetailBar r={current} onPick={onPick} onLater={onLater} handlers={handlers} onDone={() => setOpen(null)} />
+        <DetailBar r={current} onPick={onPick} onLater={onLater} onDone={() => setOpen(null)} />
       ) : (
         <nav className="flex border-t border-border bg-background" data-inbox-tabs>
           {tabs.map(([id, label]) => (

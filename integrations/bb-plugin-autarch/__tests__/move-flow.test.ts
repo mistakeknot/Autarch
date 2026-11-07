@@ -628,13 +628,8 @@ describe("a card gone from tasks closes its moves", () => {
 describe("rpc contract and CLI", () => {
   const parse = (k: keyof typeof homeMethods, v: unknown) => (homeMethods[k].input as z.ZodTypeAny).safeParse(v).success;
 
-  it("validates claimMove and skipMove input strictly", () => {
-    expect(parse("claimMove", { task_id: "T1", generation: 1 })).toBe(true);
-    expect(parse("claimMove", { task_id: "T1", generation: 1, note: "did it" })).toBe(true);
-    for (const bad of [{}, { task_id: "", generation: 1 }, { task_id: "T1", generation: 0 }, { task_id: "T1", generation: 1.5 }, { task_id: "T1", generation: "1" }, { task_id: "T1", generation: 1, note: "x".repeat(501) }, { task_id: "T1", generation: 1, by: "vizier" }, { task_id: "x".repeat(65), generation: 1 }]) expect(parse("claimMove", bad)).toBe(false);
-    expect(parse("skipMove", { task_id: "T1", generation: 2 })).toBe(true);
-    expect(parse("skipMove", { task_id: "T1" })).toBe(false);
-    expect(parse("skipMove", { task_id: "T1", generation: 1, extra: 1 })).toBe(false);
+  it("validates the moves input strictly, and the retired move actions are gone from the contract", () => {
+    for (const gone of ["claimMove", "checkMove", "skipMove"]) expect(gone in homeMethods).toBe(false);
     expect(parse("moves", null)).toBe(true);
     expect(parse("moves", {})).toBe(false);
   });

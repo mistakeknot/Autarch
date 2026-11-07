@@ -230,7 +230,7 @@ describe("the At a glance block on a card", () => {
 describe("the phone inbox row", () => {
   it("carries the time of a check card, so the list says how long each one takes", () => {
     const data = { owed: [PHONE, PLAIN], runbook: [], lane: [], asks: [], undeliverable: [], failures: [], uncertain: [], delegation: { settings: {}, suspended: false }, machineOwners: {} };
-    const rows = inboxRows(data, null, Date.parse("2026-10-09T08:00:00Z")).waiting;
+    const rows = inboxRows(data, Date.parse("2026-10-09T08:00:00Z")).waiting;
     expect(rows.find((r) => r.ask?.id === PHONE.id)!.time).toBe("About 2 min");
     expect(rows.find((r) => r.ask?.id === PLAIN.id)!.time).toBeUndefined();
   });

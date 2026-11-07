@@ -29,7 +29,7 @@ export function homeTabs(learn = false): ReadonlyArray<readonly [TabId, Panel["k
   ];
 }
 
-export function HomeTabs({ learn = false, waiting, ideas, onOpen, onTodos, extra }: { extra?: ReactNode; learn?: boolean | undefined; waiting?: number | undefined; ideas?: number | undefined; onOpen: (p: { id: string; kind: Panel["kind"]; title: string }) => void; onTodos: () => void }) {
+export function HomeTabs({ learn = false, waiting, ideas, onOpen, extra }: { extra?: ReactNode; learn?: boolean | undefined; waiting?: number | undefined; ideas?: number | undefined; onOpen: (p: { id: string; kind: Panel["kind"]; title: string }) => void }) {
   return (
     <>
     <nav className="flex gap-3 overflow-x-auto whitespace-nowrap border-b border-border px-4 py-1 text-sm sm:py-2" data-home-tabs>
@@ -38,9 +38,6 @@ export function HomeTabs({ learn = false, waiting, ideas, onOpen, onTodos, extra
           {id === "queue" && waiting !== undefined ? `${title} (${waiting})` : id === "ideas" && ideas !== undefined ? `${title} (${ideas})` : title}
         </button>
       ))}
-      <button type="button" className="ml-auto min-h-11 shrink-0 text-muted-foreground sm:min-h-0" onClick={onTodos}>
-        Todos
-      </button>
     </nav>
     {extra ? <div className="border-b border-border px-4 py-1 sm:py-2" data-home-extra>{extra}</div> : null}
     </>

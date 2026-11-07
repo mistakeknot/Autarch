@@ -2,6 +2,8 @@
 // The server sorts and pins (queueview.ts); this file only renders, and owns the refresh policy.
 import { AskCard, type OnNote, type OnPick, type OwedAsk, type RunbookGroup } from "./asks.js";
 import { startPoll } from "./poll.js";
+import { useState } from "react";
+import { copyText } from "./copy.js";
 import { RootRunSection, type RootRunPanelView } from "./rootrun.js";
 
 export type QueueRowView = {
@@ -123,7 +125,20 @@ function RootRunControl({ taskId, hooks }: { taskId: string; hooks: RootRunHooks
   const v = hooks.views[taskId];
   if (v === undefined) return <button type="button" className="mt-1 text-xs underline" data-rootrun-load="true" onClick={() => hooks.load(taskId)}>Check root run</button>;
   if ("error" in v) return <p className="mt-1 text-xs" data-rootrun="error">{`Root run unavailable: ${v.error}`}</p>;
-  return <RootRunSection view={v} />;
+  return <RootRunCopy view={v} />;
+}
+
+/** The root-run section with its Copy buttons wired: they were drawn only when a handler was passed, and none was. */
+function RootRunCopy({ view }: { view: RootRunPanelView }) {
+  const [copied, setCopied] = useState<"ok" | "failed" | null>(null);
+  return (
+    <>
+      <RootRunSection view={view} onCopy={(text) => void copyText(text).then((ok) => setCopied(ok ? "ok" : "failed"))} />
+      {copied === null ? null : copied === "ok"
+        ? <p role="status" className="mt-1 text-xs text-muted-foreground" data-rootrun-copied>Copied.</p>
+        : <p role="alert" className="mt-1 text-xs font-medium text-destructive" data-rootrun-copied="failed">Copy failed: select the command above and copy it.</p>}
+    </>
+  );
 }
 
 export function BlocksRow({ row, nowMs, onPick, onOpen, rootRun, onBind, onNote }: { row: QueueRowView; nowMs: number; onPick: Pick; onOpen: (thread: string) => void; rootRun?: RootRunHooks; onBind?: OnBind; onNote?: OnNote }) {

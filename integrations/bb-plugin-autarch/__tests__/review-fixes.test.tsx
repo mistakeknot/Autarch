@@ -1,9 +1,8 @@
 // Fixes for the cross-lab review of the Home UX pass (bead mk-yjp7): legacy notices, fully-displayed marking,
-// continued commands, prose false positives, and a waiting count that follows move actions.
+// continued commands, prose false positives.
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
 import { displayedTracker, isNoticeItem, markedRows, markPlan, normalizeCatchup, SeenTracker, type CatchupEntry } from "../ui/catchup.js";
-import { buildMoveHandlers } from "../movehandlers.js";
 import { splitCommands, flagsOf } from "../ui/commandtext.js";
 import { QueueTabs } from "../ui/tabs.js";
 
@@ -108,30 +107,6 @@ describe("prose is not promoted to a command", () => {
     expect(c!.text).toBe("echo ready");
     const [d] = splitCommands("$ systemctl --user restart foo.").filter((p) => p.type === "command");
     expect(d!.text).toBe("systemctl --user restart foo.");
-  });
-});
-
-describe("the waiting count follows move actions", () => {
-  const move = { task_id: "t1", generation: 2 } as never;
-  const rpcFor = (calls: string[]) => ({ call: (m: string) => (calls.push(m), Promise.resolve({ ok: true })) }) as never;
-  it("claim, skip and check refresh the moves and the totals", async () => {
-    for (const [name, key] of [["claimMove", "onClaim"], ["skipMove", "onSkip"], ["checkMove", "onCheck"]] as const) {
-      const calls: string[] = [];
-      const moves = vi.fn();
-      const totals = vi.fn();
-      const h = buildMoveHandlers(rpcFor(calls), moves, totals, async () => ({ ok: true }));
-      await h[key](move);
-      expect(calls).toEqual([name]);
-      expect(moves).toHaveBeenCalledTimes(1);
-      expect(totals).toHaveBeenCalledTimes(1);
-    }
-  });
-  it("still refreshes when the call fails", async () => {
-    const moves = vi.fn();
-    const totals = vi.fn();
-    const h = buildMoveHandlers({ call: () => Promise.reject(new Error("down")) } as never, moves, totals, async () => ({ ok: true }));
-    expect(await h.onClaim(move)).toMatchObject({ ok: false });
-    expect(totals).toHaveBeenCalledTimes(1);
   });
 });
 

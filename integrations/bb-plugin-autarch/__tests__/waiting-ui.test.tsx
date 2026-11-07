@@ -6,7 +6,7 @@ import { describe, expect, it, vi } from "vitest";
 vi.mock("@get-bb/plugin-sdk/app", () => ({ ThreadChat: () => null }));
 
 import type { Waiting } from "../waiting.js";
-import { badgeCount, railBadge, waitingSummary } from "../ui/waiting.js";
+import { badgeCount, railBadge } from "../ui/waiting.js";
 import { QueueTabs } from "../ui/tabs.js";
 import { homeTabs, HomeTabs } from "../ui/tabs.js";
 
@@ -25,14 +25,6 @@ const W: Waiting = {
 const noop = () => {};
 
 describe("waiting strip", () => {
-  it("leads with the total and splits it into its parts, then names what is beside it", () => {
-    expect(waitingSummary(W)).toEqual({
-      headline: "Waiting on you: 7",
-      parts: "5 to decide, 1 move, 1 notice",
-      beside: ["3 updates to read", "2 on hold"],
-    });
-  });
-
   it("there is no ribbon repeating the tab row", () => {
     const html = renderToStaticMarkup(<QueueTabs tab="decide" onTab={noop} counts={{ decide: 5, later: 0, blocks: 2, catchup: 3 }} definition={W.definition} />);
     expect(html).not.toContain("data-waiting-strip");
@@ -43,14 +35,6 @@ describe("waiting strip", () => {
     const html = renderToStaticMarkup(<QueueTabs tab="decide" onTab={noop} counts={null} definition={W.definition} />);
     expect(html).toContain("What this counts");
     expect(html).toContain("not on hold");
-  });
-
-  it("singular and zero read correctly", () => {
-    expect(waitingSummary({ ...W, total: 1, decide: 1, moves: 0, notices: 0, updates: 1, held: 0 })).toEqual({ headline: "Waiting on you: 1", parts: "1 to decide", beside: ["1 update to read"] });
-    const s = waitingSummary({ ...W, total: 0, decide: 0, moves: 0, notices: 0, updates: 0, held: 0 });
-    expect(s.headline).toBe("Waiting on you: 0");
-    expect(s.parts).toBe("nothing");
-    expect(s.beside).toEqual([]);
   });
 });
 
@@ -70,18 +54,18 @@ describe("every surface shows the same number", () => {
     expect(railBadge({ count: 0 }, { blocked: false, unowned: false })).toBeNull();
   });
   it("the Queue tab carries the total", () => {
-    const html = renderToStaticMarkup(<HomeTabs waiting={W.total} onOpen={noop} onTodos={noop} />);
+    const html = renderToStaticMarkup(<HomeTabs waiting={W.total} onOpen={noop} />);
     expect(html).toContain("Queue (7)");
     expect(homeTabs()[0]![2]).toBe("Queue");
   });
   it("the Ideas tab sits before Archive and Vizier and carries the open-idea count", () => {
     expect(homeTabs().map((t) => t[2])).toEqual(["Queue", "Ideas", "Archive", "Vizier", "Map", "Settings"]);
-    const html = renderToStaticMarkup(<HomeTabs waiting={W.total} ideas={3} onOpen={noop} onTodos={noop} />);
+    const html = renderToStaticMarkup(<HomeTabs waiting={W.total} ideas={3} onOpen={noop} />);
     expect(html).toContain("Ideas (3)");
-    expect(renderToStaticMarkup(<HomeTabs onOpen={noop} onTodos={noop} />)).not.toContain("Ideas (");
+    expect(renderToStaticMarkup(<HomeTabs onOpen={noop} />)).not.toContain("Ideas (");
   });
   it("the tab row has no Classic tabs switch and no separate Asks, Blocking or Catch-up tab: the Queue holds them", () => {
-    const html = renderToStaticMarkup(<HomeTabs learn onOpen={noop} onTodos={noop} />);
+    const html = renderToStaticMarkup(<HomeTabs learn onOpen={noop} />);
     expect(html).not.toContain("Classic tabs");
     expect(html).not.toContain("aria-pressed");
     for (const id of ["asks", "blocks", "catchup"]) expect(homeTabs(true).some((t) => t[0] === id)).toBe(false);
