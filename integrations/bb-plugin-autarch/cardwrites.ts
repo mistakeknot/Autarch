@@ -216,8 +216,16 @@ export class CardWriter {
       await this.tasks.setLabels(r.task_id, [...st.task.labelIds, ids[0]!]);
     }
     // A brought-back or overridden card's task was closed when it was ruled (including the pick's own
-    // auto-complete, cardwrites.ts's "unlabel" branch above); it is open work for mk again.
-    if (st.task.status === "done" || st.task.status === "canceled") await this.tasks.setStatus(r.task_id, "todo");
+    // auto-complete, the "unlabel" branch above, which sets it done); it is open work for mk again. A task a
+    // person canceled after that is a deliberate close and stays closed, whatever delayed this write; only a
+    // bring-back (which may follow a canceled ruling) also reopens a canceled task. A person who marks the task
+    // done in the same window cannot be told from the pick's own completion (accepted, narrow).
+    const reopen = st.task.status === "done" || (r.id.endsWith("-bringback") && st.task.status === "canceled");
+    if (reopen) await this.tasks.setStatus(r.task_id, "todo");
+    // A task left closed leaves nothing to answer: the card stops showing as open (the override stays pickable,
+    // and the card reopens if a person reopens the task, ingestInner). Nothing polls a closed task again.
+    else if (st.task.status === "canceled")
+      this.db.prepare("UPDATE cards SET state = 'closed', display_reason = 'card closed in tasks', status = ? WHERE task_id = ? AND state = 'open'").run(st.task.status, r.task_id);
     this.db.prepare("UPDATE cards SET home_unlabelled_at = NULL WHERE task_id = ?").run(r.task_id);
     this.settle(r.id, "done", null);
   }

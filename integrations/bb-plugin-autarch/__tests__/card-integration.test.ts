@@ -182,4 +182,112 @@ describe("T9/T10/T11 end to end", () => {
     expect(r.svc.sweepAbandonedOverrides()).toEqual({ swept: [] }); // a normal ruled card is untouched
     expect(r.cardRow(t2.id).state).toBe("ruled");
   });
+
+  // Cross-lab review of PR #159, finding 1: a card closed here must come back if a person reopens its task,
+  // or a genuinely reopened override question is hidden from mk for good.
+  it("mk-cggjk: a closed override card opens again when a person reopens its canceled task", async () => {
+    const r = rig();
+    r.enableDelegation();
+    const { t, g1 } = await opened(r);
+    expect(r.vizierPick(g1.id)).toMatchObject({ ok: true });
+    await r.poll();
+    const o = r.dele.override(g1.id, {});
+    if (!o.ok) throw new Error(o.error);
+    await pollN(r, 3);
+    r.edit(t, { status: "canceled" });
+    await pollN(r, 3);
+    expect(r.cardRow(t.id).state).toBe("closed");
+
+    r.edit(t, { status: "todo" }); // a person reopens it
+    await pollN(r, 3);
+    expect(r.cardRow(t.id)).toMatchObject({ state: "open", display_reason: null });
+    expect(r.db.prepare("SELECT withdrawn_at FROM decisions WHERE id = ?").get(o.decision_id)).toEqual({ withdrawn_at: null });
+    expect(r.mkPick(o.decision_id)).toMatchObject({ ok: true });
+    expect(r.cardRow(t.id)).toMatchObject({ state: "ruled" });
+  });
+
+  // Finding 2: the real pre-fix stuck shapes. The vizier pick unlabels and completes the task, a poll caches it
+  // unlabelled+done, and the override's relabel restored the label but (before this fix) did not reopen the task;
+  // so the cache stays labelled=0 with a terminal status and nothing polls the card. A deleted task is the same
+  // shape with deleted_at set and whatever status it had.
+  it("mk-cggjk sweep: heals pre-fix rows cached unlabelled with a terminal status, and deleted ones", async () => {
+    const r = rig();
+    r.enableDelegation();
+    const mk = async () => {
+      const { t, g1 } = await opened(r);
+      expect(r.vizierPick(g1.id)).toMatchObject({ ok: true });
+      await pollN(r, 2); // unlabel+done lands, the next poll caches it unlabelled/done
+      expect(r.cardRow(t.id)).toMatchObject({ labelled: 0, status: "done" });
+      const o = r.dele.override(g1.id, {});
+      if (!o.ok) throw new Error(o.error);
+      await r.poll(); // drain the relabel
+      return { t, o };
+    };
+    const a = await mk();
+    const b = await mk();
+    // The pre-fix relabel left the task done; the cache stayed labelled=0 / done, state open.
+    for (const x of [a, b]) {
+      r.edit(x.t, { status: "done" });
+      r.db.prepare("UPDATE cards SET state = 'open', labelled = 0, status = 'done', display_reason = NULL WHERE task_id = ?").run(x.t.id);
+    }
+    r.db.prepare("UPDATE cards SET status = 'todo', deleted_at = ? WHERE task_id = ?").run(r.env.now(), b.t.id); // b: deleted, status never left the open set
+    expect(r.svc.sweepAbandonedOverrides().swept.sort()).toEqual([a.t.id, b.t.id].sort());
+    expect(r.cardRow(a.t.id).state).toBe("closed");
+    expect(r.cardRow(b.t.id).state).toBe("closed");
+    for (const x of [a, b]) expect(r.db.prepare("SELECT withdrawn_at FROM decisions WHERE id = ?").get(x.o.decision_id)).toEqual({ withdrawn_at: null });
+  });
+
+  // Finding 3: the startup sweep must honour the same pending-relabel guard as cardGone: an override whose
+  // relabel has not run yet is still about to reopen its task, so a restart in that window must not close it.
+  it("mk-cggjk sweep: start() leaves an override alone while its relabel is still pending", async () => {
+    const r = rig();
+    r.enableDelegation();
+    const { t, g1 } = await opened(r);
+    expect(r.vizierPick(g1.id)).toMatchObject({ ok: true });
+    await pollN(r, 2);
+    expect(r.cardRow(t.id)).toMatchObject({ labelled: 0, status: "done" });
+    const o = r.dele.override(g1.id, {});
+    if (!o.ok) throw new Error(o.error);
+    expect(r.db.prepare("SELECT state FROM card_writes WHERE kind = 'relabel'").get()).toEqual({ state: "pending" });
+    // Both cached shapes the sweep sees in this window: unlabelled+done (as polled) and labelled+done.
+    for (const labelled of [0, 1]) {
+      r.db.prepare("UPDATE cards SET labelled = ? WHERE task_id = ?").run(labelled, t.id);
+      r.restart();
+      r.svc.start();
+      try {
+        expect(r.cardRow(t.id).state, `labelled=${labelled}`).toBe("open");
+      } finally {
+        r.svc.stop();
+      }
+    }
+    r.restart();
+    r.svc.start();
+    try {
+      expect(r.cardRow(t.id).state).toBe("open");
+    } finally {
+      r.svc.stop();
+    }
+    await pollN(r, 3); // the relabel drains and reopens the task
+    expect(r.fake.tasks.find((x) => x.id === t.id)!.status).toBe("todo");
+    expect(r.cardRow(t.id).state).toBe("open");
+    expect(r.mkPick(o.decision_id)).toMatchObject({ ok: true });
+  });
+
+  // Finding 4: a relabel that backs off must not undo a person's deliberate cancel when it finally runs. The
+  // task stays canceled, the override is not withdrawn, and the card leaves the open list (nothing polls it).
+  it("mk-cggjk: a delayed override relabel does not reopen a task a person canceled meanwhile", async () => {
+    const r = rig();
+    r.enableDelegation();
+    const { t, g1 } = await opened(r);
+    expect(r.vizierPick(g1.id)).toMatchObject({ ok: true });
+    await pollN(r, 2);
+    const o = r.dele.override(g1.id, {});
+    if (!o.ok) throw new Error(o.error);
+    r.edit(t, { status: "canceled" }); // before the relabel has run
+    await pollN(r, 4);
+    expect(r.fake.tasks.find((x) => x.id === t.id)!.status).toBe("canceled");
+    expect(r.cardRow(t.id)).toMatchObject({ state: "closed" });
+    expect(r.db.prepare("SELECT withdrawn_at FROM decisions WHERE id = ?").get(o.decision_id)).toEqual({ withdrawn_at: null });
+    expect(r.mkPick(o.decision_id)).toMatchObject({ ok: true });
+  });
 });

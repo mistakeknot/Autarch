@@ -1128,21 +1128,23 @@ export class Service {
 
   /**
    * mk-cggjk: heals cards an older cardGone left stuck at state 'open' -- an unpicked, still-live
-   * override on a task whose cached status already left the open set. Once status leaves that set,
-   * knownOpenCards() (and the poller's own listing) never surface the task again, so nothing would
-   * otherwise revisit these rows. Idempotent: run on every start(), a safe no-op once healed.
+   * override on a task that is gone for good: deleted, or cached with a status outside the open set. The
+   * cached label is not consulted: a pick's own unlabel+complete is cached unlabelled/done, and the override's
+   * relabel (before it also reopened the task) left that cache as it was. Once status leaves the open set,
+   * knownOpenCards() (and the poller's own listing) never surface the task again, so nothing would otherwise
+   * revisit these rows. An override whose relabel write is still pending is skipped, exactly as cardGone does:
+   * that write is about to reopen the task. Idempotent: run on every start(), a safe no-op once healed.
    */
   sweepAbandonedOverrides(): { swept: string[] } {
     const swept: string[] = [];
+    const open = OPEN_STATUSES.map((s) => `'${s}'`).join(",");
     this.store.atomically(() => {
       const stuck = this.db
-        .prepare(
-          `SELECT task_id FROM cards WHERE state = 'open' AND labelled = 1 AND deleted_at IS NULL AND status NOT IN ('backlog','todo','in_progress','in_review')`,
-        )
+        .prepare(`SELECT task_id FROM cards WHERE state = 'open' AND (deleted_at IS NOT NULL OR status NOT IN (${open}))`)
         .all() as { task_id: string }[];
       for (const { task_id } of stuck) {
         const latest = this.currentGeneration(task_id);
-        if (latest && this.hasPick(task_id) && this.overrideOpen(latest)) {
+        if (latest && this.hasPick(task_id) && this.overrideOpen(latest) && !this.pendingRelabel(latest.id)) {
           this.patchCard(task_id, { state: "closed", display_reason: "card closed in tasks" });
           swept.push(task_id);
         }
@@ -1214,7 +1216,12 @@ export class Service {
     if (!latest) return this.materializeNew(task, card, parseErr, ctx, row);
 
     if (this.hasPick(task.id)) {
-      if (this.overrideOpen(latest)) return; // T11
+      if (this.overrideOpen(latest)) {
+        // T11. A card closed because its task went away for good (cardGone, sweepAbandonedOverrides) shows again
+        // when a person reopens the task: it is listed open and labelled, and the override is still mk's question.
+        if (row.state === "closed") this.patchCard(task.id, { state: "open", display_reason: null });
+        return;
+      }
       // T8: never a new generation after a pick.
       let changed = card === null;
       if (card) {
