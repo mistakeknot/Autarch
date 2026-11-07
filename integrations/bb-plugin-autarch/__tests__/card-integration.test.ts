@@ -290,4 +290,22 @@ describe("T9/T10/T11 end to end", () => {
     expect(r.db.prepare("SELECT withdrawn_at FROM decisions WHERE id = ?").get(o.decision_id)).toEqual({ withdrawn_at: null });
     expect(r.mkPick(o.decision_id)).toMatchObject({ ok: true });
   });
+
+  // Round 2 finding: a task deleted while its override relabel is pending. cardGone leaves the card open
+  // (relabel pending), the writer then skips the write as "task deleted", and nothing polls a deleted task or
+  // sweeps until the next restart -- so the card must be closed by the writer, without a restart.
+  it("mk-cggjk: a task deleted while its override relabel is pending closes the card without a restart", async () => {
+    const r = rig();
+    r.enableDelegation();
+    const { t, g1 } = await opened(r);
+    expect(r.vizierPick(g1.id)).toMatchObject({ ok: true });
+    await pollN(r, 2);
+    const o = r.dele.override(g1.id, {});
+    if (!o.ok) throw new Error(o.error);
+    r.fake.tasks.splice(r.fake.tasks.findIndex((x) => x.id === t.id), 1); // deleted before the relabel has run
+    await pollN(r, 6);
+    expect(r.cardRow(t.id)).toMatchObject({ state: "closed" });
+    expect(r.db.prepare("SELECT withdrawn_at FROM decisions WHERE id = ?").get(o.decision_id)).toEqual({ withdrawn_at: null });
+    expect(r.mkPick(o.decision_id)).toMatchObject({ ok: true });
+  });
 });

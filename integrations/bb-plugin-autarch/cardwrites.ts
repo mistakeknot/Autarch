@@ -209,7 +209,12 @@ export class CardWriter {
     const open = this.db
       .prepare("SELECT 1 FROM decisions d WHERE d.id = ? AND d.withdrawn_at IS NULL AND d.resolved_at IS NULL AND NOT EXISTS (SELECT 1 FROM picks k WHERE k.decision_id = d.id)")
       .get(r.decision_id);
-    if (!open || st.state === "deleted") return this.settle(r.id, "skipped", open ? "task deleted" : "override no longer open");
+    if (!open || st.state === "deleted") {
+      // cardGone kept the card open while this relabel was pending; a deleted task is gone for good and nothing
+      // polls it, so close the card here (the override stays pickable; startup's sweep is the backstop).
+      if (open) this.db.prepare("UPDATE cards SET state = 'closed', display_reason = 'card closed in tasks' WHERE task_id = ? AND state = 'open'").run(r.task_id);
+      return this.settle(r.id, "skipped", open ? "task deleted" : "override no longer open");
+    }
     if (st.state === "unlabelled") {
       const ids = await this.tasks.needsMkLabelIds(st.task.projectId, { fresh: true });
       if (ids.length === 0) throw new Error("the tasks project has no needs-mk label");
