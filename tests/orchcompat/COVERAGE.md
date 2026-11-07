@@ -11,6 +11,12 @@ reaches it. The one process that sees the runner's environment is the `go build`
 running" case uses a loopback port the test opened and closed itself. Nothing touches a live bb server, Citadel
 database, GitHub or thread storage.
 
+The fake `bb` is the test binary re-run through a PATH wrapper. Under `go test -race` that binary is race-built,
+and the race runtime sleeps one second at every process exit by default, which made each fake `bb` call cost a
+second (about 11 minutes for the package on two CPUs). The wrapper sets `GORACE=atexit_sleep_ms=0` for the fake
+`bb` only; it still runs race-instrumented and no test is skipped under `-race`. Every subprocess wait has a
+local deadline (60 s) and the HTTP client a 20 s timeout, so a hung child fails its own test.
+
 Go suite: `tests/orchcompat/`. TypeScript suite: `integrations/bb-plugin-autarch/__tests__/orchcompat/`.
 
 | area | behavior pinned | status | test file | notes |

@@ -3,9 +3,11 @@ package orchcompat
 import (
 	"bufio"
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"net"
+	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -135,6 +137,10 @@ func startServeAt(dir, home string, args ...string) (*exec.Cmd, string, error) {
 	}
 }
 
+const subprocessDeadline = 60 * time.Second
+
+var httpClient = &http.Client{Timeout: 20 * time.Second}
+
 func helpOutput(t *testing.T, args ...string) string {
 	t.Helper()
 	home, err := os.MkdirTemp("", "orchcompat-help-")
@@ -142,7 +148,10 @@ func helpOutput(t *testing.T, args ...string) string {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { os.RemoveAll(home) })
-	cmd := exec.Command(autarchBin, args...)
+	ctx, cancel := context.WithTimeout(context.Background(), subprocessDeadline)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, autarchBin, args...)
+	cmd.WaitDelay = 5 * time.Second
 	cmd.Dir = home
 	cmd.Env = baseEnv(home)
 	out, err := cmd.CombinedOutput()
@@ -198,7 +207,7 @@ func newEnv(t *testing.T) *env {
 			t.Fatal(err)
 		}
 	}
-	wrapper := fmt.Sprintf("#!/bin/sh\nORCHCOMPAT_FAKEBB=1 exec %q \"$@\"\n", testBin)
+	wrapper := fmt.Sprintf("#!/bin/sh\nORCHCOMPAT_FAKEBB=1 GORACE=atexit_sleep_ms=0 exec %q \"$@\"\n", testBin)
 	if err := os.WriteFile(filepath.Join(e.bin, "bb"), []byte(wrapper), 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -287,7 +296,10 @@ func (e *env) environ() []string {
 
 func (e *env) autarch(args ...string) result {
 	e.t.Helper()
-	cmd := exec.Command(autarchBin, args...)
+	ctx, cancel := context.WithTimeout(context.Background(), subprocessDeadline)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, autarchBin, args...)
+	cmd.WaitDelay = 5 * time.Second
 	cmd.Dir = e.root
 	if e.cwd != "" {
 		cmd.Dir = e.cwd
@@ -299,8 +311,8 @@ func (e *env) autarch(args ...string) result {
 	r := result{Stdout: so.String(), Stderr: se.String()}
 	if err != nil {
 		ee, ok := err.(*exec.ExitError)
-		if !ok {
-			e.t.Fatalf("autarch %v: %v", args, err)
+		if !ok || ctx.Err() != nil {
+			e.t.Fatalf("autarch %v: %v (deadline %v)", args, err, subprocessDeadline)
 		}
 		r.Code = ee.ExitCode()
 	}

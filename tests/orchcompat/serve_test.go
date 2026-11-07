@@ -61,7 +61,7 @@ func (s *liveServe) get(t *testing.T, method, path string, hdr map[string]string
 		}
 		req.Header.Set(k, v)
 	}
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := httpClient.Do(req)
 	if err != nil {
 		t.Fatal(err)
 	}
