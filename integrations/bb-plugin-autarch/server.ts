@@ -358,6 +358,7 @@ export function wireHome(bb: BbPluginApi, handle: StoreHandle, cfg: HomeConfig, 
               limit: String(a.limit),
               order: a.order,
               ...(a.afterSeq !== undefined ? { afterSeq: String(a.afterSeq) } : {}),
+              ...(a.beforeSeq !== undefined ? { beforeSeq: String(a.beforeSeq) } : {}),
             });
             return Array.isArray(rows) ? (rows as MessageEvent[]) : [];
           },
@@ -366,8 +367,10 @@ export function wireHome(bb: BbPluginApi, handle: StoreHandle, cfg: HomeConfig, 
         log: { info: (m) => bb.log.info(m), warn: (m) => bb.log.warn(m) },
       });
       while (!signal.aborted) {
-        if (cfg.vizierMessageCards === true) await watcher.tick();
-        await sleep(VIZIER_MESSAGE_POLL_MS, signal);
+        // Always ticked: a pass with the setting off only records that it was off (one write, no other call), so a
+        // later turn-on starts a new watch instead of resuming the old cursor.
+        await watcher.tick();
+        await sleep(watcher.pollDelayMs(VIZIER_MESSAGE_POLL_MS), signal);
       }
     },
   });
