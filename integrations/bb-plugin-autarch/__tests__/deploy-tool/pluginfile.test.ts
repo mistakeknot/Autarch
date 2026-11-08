@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from "vitest";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { spawnSync } from "node:child_process";
@@ -23,6 +23,14 @@ const writePlugin = (obj: unknown): string => {
 describe("plugin file validation", () => {
   it("the fixture plugin file is valid", () => {
     expect(validatePluginObject(good())).toEqual([]);
+  });
+
+  it("the plugin's own deploy.json is accepted as-is by the loader and the CLI", () => {
+    const file = join(__dirname, "..", "..", "deploy.json");
+    expect(validatePluginObject(JSON.parse(readFileSync(file, "utf8")))).toEqual([]);
+    expect(() => loadPluginFile(file)).not.toThrow();
+    const r = spawnSync(process.execPath, [join(TOOL_SRC, "cli.mjs"), "validate-plugin-file", "--plugin-file", file, "--json"], { encoding: "utf8" });
+    expect(r.status, r.stdout + r.stderr).toBe(0);
   });
 
   it("an unknown top-level key fails closed", () => {
