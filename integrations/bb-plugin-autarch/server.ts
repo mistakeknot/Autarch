@@ -344,9 +344,13 @@ export function wireHome(bb: BbPluginApi, handle: StoreHandle, cfg: HomeConfig, 
   // A card for every plain operator message in the vizier thread (off unless the setting is on).
   bb.background.service("home-vizier-messages", {
     async start(signal) {
+      // The activation time is taken here, before the wait for the store and the tasks client: a message the operator
+      // sends while those are still coming up is after the activation and gets its card.
+      const observedAt = cfg.vizierMessageCards === true ? Date.now() : undefined;
       while (!signal.aborted && !(parts && tasksRef)) await sleep(1000, signal);
       if (!parts || !tasksRef || signal.aborted) return;
       const watcher = new VizierMessages({
+        ...(observedAt !== undefined ? { observedAt } : {}),
         tasks: tasksRef,
         store: parts.svc.store,
         threads: {

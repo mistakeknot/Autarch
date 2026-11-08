@@ -4,6 +4,7 @@ import type { ThreadRow } from "../delegation.js";
 import { TasksClient } from "../tasks.js";
 import {
   classify,
+  errCode,
   hasMessageMarker,
   messageDescription,
   messageTitle,
@@ -321,7 +322,15 @@ describe("the setting", () => {
   });
 });
 
-const state = (r: Rig) => JSON.parse(r.svc.store.setting("vizierMessageState")!) as { active: boolean; seq: number | null; threadId: string | null; retry?: { id: string; tries: number; next: number } };
+type TestWatch = { seq: number | null; boundary?: number; scan?: number; retry?: { id: string; tries: number; next: number }; closedAt?: number };
+type TestState = { active: boolean; since: number; threadId: string | null; threads: Record<string, TestWatch> };
+const rawState = (r: Rig) => JSON.parse(r.svc.store.setting("vizierMessageState")!) as TestState;
+/** The state with the selected thread's cursor and retry lifted to the top, for the plain assertions. */
+const state = (r: Rig) => {
+  const s = rawState(r);
+  const w: TestWatch = (s.threadId ? s.threads[s.threadId] : undefined) ?? { seq: null };
+  return { ...s, seq: w.seq, retry: w.retry };
+};
 const SECRET = "SECRET-OPERATOR-WORDS";
 /** Make the next n calls of a method fail with an error that echoes the operator's words. */
 const failN = (r: Rig, method: string, n: number) => {
@@ -504,5 +513,149 @@ describe("retried turns", () => {
     w.events.push(evt(2, "once", { requestId: "req_9" }));
     await vm.tick();
     expect(cards(r)).toHaveLength(1);
+  });
+});
+
+describe("finding where to start in a long thread", () => {
+  // PAGE is 500 and a pass reads 20 pages, so 10,000 events newer than the boundary is exactly the scan limit.
+  const LIMIT = 10_000;
+  async function run(newer: number) {
+    const r = rig();
+    // seq 1 is history (before the activation); seqs 2..newer+1 are newer. Only the oldest and newest are messages.
+    const events: TestEvent[] = [evt(1, "history", {}, 500)];
+    for (let s = 2; s <= newer + 1; s++) {
+      const first = s === 2;
+      const last = s === newer + 1;
+      events.push(first || last ? evt(s, first ? "oldest of the backlog" : "newest of the backlog", {}, 2000 + s) : evt(s, "agent turn", { initiator: "agent" }, 2000 + s));
+    }
+    const w = world(r, { events });
+    const vm = build(r, w).make();
+    await vm.tick();
+    const afterFirst = rawState(r).threads[VIZ];
+    const passes = [afterFirst];
+    for (let i = 0; i < 6; i++) {
+      w.now += 60_000;
+      await vm.tick();
+    }
+    return { r, afterFirst, passes, titles: cards(r).map((t) => t.title) };
+  }
+
+  it("finds the boundary within one pass when the boundary is the very last event the pass reads", async () => {
+    const { afterFirst, titles } = await run(LIMIT - 1);
+    expect(afterFirst!.scan).toBeUndefined();
+    expect(titles).toEqual(["Vizier message: oldest of the backlog", "Vizier message: newest of the backlog"]);
+  });
+  it("does not skip the backlog when it is exactly the scan limit", async () => {
+    const { r, afterFirst, titles } = await run(LIMIT);
+    // the first pass ran out of pages: nothing is claimed, only the progress is kept
+    expect(afterFirst!.seq).toBeNull();
+    expect(afterFirst!.scan).toBe(2);
+    expect(titles).toEqual(["Vizier message: oldest of the backlog", "Vizier message: newest of the backlog"]);
+    expect(state(r).seq).toBe(LIMIT + 1);
+    expect(rawState(r).threads[VIZ]!.scan).toBeUndefined();
+  });
+  it("does not skip the backlog when it is past the scan limit, and keeps its progress across a restart", async () => {
+    const r = rig();
+    const events: TestEvent[] = [evt(1, "history", {}, 500)];
+    for (let s = 2; s <= LIMIT + 6; s++) events.push(s === 2 ? evt(s, "oldest of the backlog", {}, 2002) : s === LIMIT + 6 ? evt(s, "newest of the backlog", {}, 9000) : evt(s, "agent turn", { initiator: "agent" }, 2000 + s));
+    const w = world(r, { events });
+    await build(r, w).make().tick();
+    const first = rawState(r).threads[VIZ]!;
+    expect(first.seq).toBeNull();
+    expect(first.scan).toBeGreaterThan(5);
+    expect(cards(r)).toHaveLength(0);
+    // a restart picks up the scan where it stopped, with the same boundary
+    for (let i = 0; i < 6; i++) {
+      w.now += 60_000;
+      await build(r, w).make().tick();
+    }
+    expect(rawState(r).threads[VIZ]!.boundary).toBe(first.boundary);
+    expect(cards(r).map((t) => t.title)).toEqual(["Vizier message: oldest of the backlog", "Vizier message: newest of the backlog"]);
+  });
+});
+
+describe("a failed message survives a change of vizier thread", () => {
+  const NEW = "thr_new";
+  const rotate = (w: World) => {
+    w.rows = [row(VIZ, `${PREFIX} (old)`, { archivedAt: 3000 }), row(NEW, `${PREFIX} (new)`, { pinnedAt: 3500 })];
+  };
+
+  it("retries it after the rotation and after a restart, and files nothing the old thread gets later", async () => {
+    const r = rig();
+    const w = world(r);
+    const { vm } = await started(r, w);
+    w.events.push(evt(1, "the one that failed", {}, 2000), evt(2, "behind it, same thread", {}, 2100));
+    failN(r, "createTask", 1);
+    await vm.tick();
+    expect(cards(r)).toHaveLength(0);
+    expect(rawState(r).threads[VIZ]!.retry).toMatchObject({ id: "evt_1", tries: 1 });
+    // the vizier thread changes while the message is waiting out its backoff
+    rotate(w);
+    w.now = 4000;
+    w.events.push(evt(1, "typed in the new thread", {}, 4100, NEW));
+    await vm.tick();
+    expect(rawState(r).threadId).toBe(NEW);
+    expect(rawState(r).threads[VIZ]!.retry).toMatchObject({ id: "evt_1" }); // still owed, not dropped
+    expect(rawState(r).threads[VIZ]!.closedAt).toBe(4000);
+    // the process restarts, the backoff ends: the old message is filed, then the one behind it, and the new thread's own
+    w.events.push(evt(3, "typed in the old thread after the change", {}, 4200));
+    w.now = 4000 + 60_000;
+    await build(r, w).make().tick();
+    expect(cards(r).map((t) => t.title).sort()).toEqual(["Vizier message: behind it, same thread", "Vizier message: the one that failed", "Vizier message: typed in the new thread"]);
+    const old = cards(r).find((t) => t.title.endsWith("the one that failed"))!;
+    expect(old.description).toContain(`@thread:${VIZ}#msg=1`);
+    // the old thread is finished with and forgotten
+    expect(Object.keys(rawState(r).threads)).toEqual([NEW]);
+    // and nothing is filed twice
+    await build(r, w).make().tick();
+    expect(cards(r)).toHaveLength(3);
+  });
+
+  it("still files it when the process restarts before it ever sees the rotation, and across an off and on", async () => {
+    const r = rig();
+    const w = world(r);
+    const { vm } = await started(r, w);
+    w.events.push(evt(1, "the one that failed", {}, 2000));
+    failN(r, "createTask", 1);
+    await vm.tick();
+    rotate(w);
+    w.now = 4000;
+    await build(r, w).make().tick(); // restart; sees the rotation inside its backoff
+    // switched off and on again: the new watch is fresh, but the owed message is carried over
+    w.enabled = false;
+    w.now = 5000;
+    await build(r, w).make().tick();
+    w.enabled = true;
+    w.now = 5000 + 60_000;
+    await build(r, w).make().tick();
+    expect(cards(r).map((t) => t.title)).toEqual(["Vizier message: the one that failed"]);
+    expect(cards(r)[0]!.description).toContain(`@thread:${VIZ}#msg=1`);
+  });
+
+  it("does not let a message that cannot be filed in the old thread hold up the new one", async () => {
+    const r = rig();
+    const w = world(r);
+    const { vm } = await started(r, w);
+    w.events.push(evt(1, "stuck", {}, 2000));
+    failN(r, "createTask", 1);
+    await vm.tick();
+    rotate(w);
+    w.now = 4000;
+    w.events.push(evt(1, "fresh in the new thread", {}, 4100, NEW));
+    await vm.tick();
+    expect(cards(r).map((t) => t.title)).toEqual(["Vizier message: fresh in the new thread"]);
+  });
+});
+
+describe("what a log line says about an error", () => {
+  it("names a known class and nothing else", () => {
+    class Hostile extends Error {
+      override name = `Hostile ${SECRET}`;
+    }
+    expect(errCode(new Hostile("x"))).toBe("Error");
+    expect(errCode(Object.assign(new Hostile("x"), { code: "E_BUSY" }))).toBe("Error E_BUSY");
+    expect(errCode(new TypeError(SECRET))).toBe("TypeError");
+    expect(errCode(Object.assign(new Error(SECRET), { name: "TasksError" }))).toBe("TasksError");
+    expect(errCode(`${SECRET}`)).toBe("string");
   });
 });

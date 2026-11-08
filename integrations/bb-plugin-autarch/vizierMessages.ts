@@ -13,6 +13,10 @@
 // capped backoff are persisted, so a restart keeps waiting and then retries.
 // Each off->on transition and each change of vizier thread sets a fresh boundary (a time, taken when the change is
 // observed and persisted); only messages created after it get a card. Ordinary enabled restarts resume the cursor.
+// The boundary of an activation is the moment the enabled setting was first observed, before the service waits for the
+// store. Finding the boundary in a long thread is resumable: the scan's progress is persisted and the cursor does not
+// move until the boundary is found. Each thread keeps its own cursor and pending retry, so a change of vizier thread
+// never drops a message that failed in the old one: the old thread is drained up to the moment of the change.
 // No schema change: the filed map and the state are JSON values in `settings_kv`.
 import type { Store } from "./store.js";
 import type { Task, TaskLabel, TasksClient } from "./tasks.js";
@@ -67,6 +71,11 @@ export interface VizierMessagesDeps {
   config: () => { enabled: boolean; titlePrefix: string; project: string };
   /** Milliseconds since the epoch; a test passes its own clock. */
   now?: () => number;
+  /**
+   * When the enabled setting was first observed, if that is earlier than the first pass (the service waits for the
+   * store and the tasks client before it can tick). An off->on transition in the first pass starts its watch here.
+   */
+  observedAt?: number;
   log: { info(m: string): void; warn(m: string): void };
 }
 
@@ -127,13 +136,16 @@ const sameName = (a: string, b: string) => a.toLowerCase() === b.toLowerCase();
  * What goes in a log line about a failure: the operation and the error's class or code, never its text. A refused or
  * failed call can echo what was submitted, and that is the operator's message.
  */
+const KNOWN_ERROR_NAMES = new Set(["Error", "TypeError", "RangeError", "SyntaxError", "ReferenceError", "EvalError", "URIError", "AbortError", "TimeoutError", "TasksError"]);
 export function errCode(e: unknown): string {
   if (e instanceof Error) {
     const op = /^(tasks\.[A-Za-z]+) (failed|refused)/.exec(e.message);
     if (op) return `${op[1]} ${op[2]}`;
+    // Only a fixed set of class names is logged: a name is whatever the thrower set, and it can carry submitted text.
+    const name = KNOWN_ERROR_NAMES.has(e.name) ? e.name : "Error";
     const code = (e as { code?: unknown }).code;
-    if (typeof code === "string" && /^[A-Za-z0-9_.-]{1,40}$/.test(code)) return `${e.name} ${code}`;
-    return e.name;
+    if (typeof code === "string" && /^[A-Za-z0-9_.-]{1,40}$/.test(code)) return `${name} ${code}`;
+    return name;
   }
   return typeof e;
 }
@@ -144,15 +156,28 @@ interface Retry {
   /** Do not try this message again before this time. */
   next: number;
 }
+/** One watched thread. */
+interface Watch {
+  /** The last message seq dealt with; null until the baseline for this thread is fixed. */
+  seq: number | null;
+  /** Fixed when the baseline scan starts: messages created at or before it get no card. */
+  boundary?: number;
+  /** Baseline scan progress: the oldest seq read so far; the next page is the events before it. */
+  scan?: number;
+  retry?: Retry;
+  /** Set once the thread is no longer the vizier thread: only messages created before it are still filed. */
+  closedAt?: number;
+}
 interface State {
   /** True while the setting is on. Each false->true change starts a new watch. */
   active: boolean;
   /** Only messages created after this time get a card; taken when the activation was first observed. */
   since: number;
+  /** When the setting was last seen off. */
+  offAt?: number;
+  /** The currently selected vizier thread. */
   threadId: string | null;
-  /** The last message seq dealt with in `threadId`; null until the baseline for that thread is fixed. */
-  seq: number | null;
-  retry?: Retry;
+  threads: Record<string, Watch>;
 }
 
 /** A pass's memory of the cards that already carry a marker, read once per pass instead of once per message. */
@@ -161,15 +186,32 @@ interface PassCache {
   priors?: Map<string, Task>;
 }
 
+const num = (v: unknown): v is number => typeof v === "number" && Number.isFinite(v);
+
+function readWatch(v: unknown): Watch | null {
+  if (!v || typeof v !== "object") return null;
+  const w = v as Partial<Watch>;
+  const retry = w.retry && typeof w.retry.id === "string" && num(w.retry.tries) && num(w.retry.next) ? w.retry : undefined;
+  return {
+    seq: num(w.seq) ? w.seq : null,
+    ...(num(w.boundary) ? { boundary: w.boundary } : {}),
+    ...(num(w.scan) ? { scan: w.scan } : {}),
+    ...(retry ? { retry } : {}),
+    ...(num(w.closedAt) ? { closedAt: w.closedAt } : {}),
+  };
+}
+
 export class VizierMessages {
   private lastWhy = "";
   private running: Promise<void> | null = null;
   private passErrors = 0;
   private stage = "";
+  private observedAt: number | undefined;
   private readonly clock: () => number;
 
   constructor(private readonly d: VizierMessagesDeps) {
     this.clock = d.now ?? Date.now;
+    this.observedAt = d.observedAt;
   }
 
   /** How long the caller should wait before the next pass: the base while healthy, doubling to a cap after failed passes. */
@@ -194,10 +236,21 @@ export class VizierMessages {
   }
   private readState(): State | null {
     try {
-      const v = JSON.parse(this.d.store.setting(STATE_KEY) ?? "null") as Partial<State> | null;
-      if (!v || typeof v !== "object" || typeof v.since !== "number") return null;
-      const retry = v.retry && typeof v.retry.id === "string" && typeof v.retry.tries === "number" && typeof v.retry.next === "number" ? v.retry : undefined;
-      return { active: v.active === true, since: v.since, threadId: typeof v.threadId === "string" ? v.threadId : null, seq: typeof v.seq === "number" ? v.seq : null, ...(retry ? { retry } : {}) };
+      const v = JSON.parse(this.d.store.setting(STATE_KEY) ?? "null") as (Partial<State> & { seq?: unknown; retry?: unknown }) | null;
+      if (!v || typeof v !== "object" || !num(v.since)) return null;
+      const threadId = typeof v.threadId === "string" ? v.threadId : null;
+      const threads: Record<string, Watch> = {};
+      if (v.threads && typeof v.threads === "object") {
+        for (const [id, w] of Object.entries(v.threads)) {
+          const r = readWatch(w);
+          if (r) threads[id] = r;
+        }
+      } else if (threadId) {
+        // The first shape kept one thread's cursor and retry at the top level.
+        const r = readWatch({ seq: v.seq, retry: v.retry });
+        if (r) threads[threadId] = r;
+      }
+      return { active: v.active === true, since: v.since, ...(num(v.offAt) ? { offAt: v.offAt } : {}), threadId, threads };
     } catch {
       return null;
     }
@@ -235,27 +288,26 @@ export class VizierMessages {
   }
 
   /**
-   * The seq to watch from: the newest message created at or before the boundary, so everything created after it
+   * Find the seq to watch from: the newest message created at or before the boundary, so everything created after it
    * (including what arrived during discovery and startup) still gets its card. 0 when every message is newer.
+   * The scan reads at most MAX_PAGES_PER_TICK pages and then returns its progress: a baseline is only ever the real
+   * boundary, never a guess, so a long backlog costs more passes and loses nothing.
    */
-  private async baseline(threadId: string, boundary: number): Promise<number> {
+  private async baseline(threadId: string, boundary: number, from: number | undefined): Promise<{ seq: number } | { scan: number }> {
     this.stage = "read the baseline";
-    let beforeSeq: number | undefined;
-    let newest = 0;
+    let beforeSeq = from;
     for (let page = 0; page < MAX_PAGES_PER_TICK; page++) {
       const rows = (await this.d.threads.events({ threadId, ...(beforeSeq !== undefined ? { beforeSeq } : {}), limit: PAGE, order: "desc" }))
         .filter((e) => beforeSeq === undefined || e.seq < beforeSeq)
         .sort((a, b) => b.seq - a.seq);
-      if (rows.length === 0) return 0;
-      if (page === 0) newest = rows[0]!.seq;
+      if (rows.length === 0) return { seq: 0 };
       // A message with no timestamp is treated as old: when in doubt, no card for history.
       const old = rows.find((e) => typeof e.createdAt !== "number" || e.createdAt <= boundary);
-      if (old) return old.seq;
+      if (old) return { seq: old.seq };
       beforeSeq = rows[rows.length - 1]!.seq;
-      if (rows.length < PAGE) return 0;
+      if (rows.length < PAGE) return { seq: 0 };
     }
-    this.d.log.warn(`vizier-messages: more than ${MAX_PAGES_PER_TICK * PAGE} messages are newer than the boundary; watching from the newest`);
-    return newest;
+    return { scan: beforeSeq! };
   }
 
   private async label(projectId: string, pass: PassCache): Promise<string> {
@@ -304,10 +356,18 @@ export class VizierMessages {
     return made;
   }
 
-  /** Move the cursor past a message, and (for a filed one) record it, in one write. A pending retry for it is cleared. */
-  private advance(st: State, e: MessageEvent, taskId: string | null): State {
-    const next: State = { ...st, seq: e.seq };
-    delete next.retry;
+  private put(st: State, threadId: string, w: Watch | null): State {
+    const threads = { ...st.threads };
+    if (w) threads[threadId] = w;
+    else delete threads[threadId];
+    return { ...st, threads };
+  }
+
+  /** Move a thread's cursor past a message, and (for a filed one) record it, in one write. A pending retry for it is cleared. */
+  private advance(st: State, threadId: string, e: MessageEvent, taskId: string | null): State {
+    const w: Watch = { ...(st.threads[threadId] ?? { seq: null }), seq: e.seq };
+    delete w.retry;
+    const next = this.put(st, threadId, w);
     this.d.store.atomically(() => {
       if (taskId !== null) {
         const f = this.readFiled();
@@ -336,12 +396,23 @@ export class VizierMessages {
     let st = this.readState();
     if (!cfg.enabled) {
       // Remember that the setting was off, so turning it on again starts a new watch instead of resuming this one.
-      if (st?.active) this.writeState({ ...st, active: false });
+      if (st?.active) this.writeState({ ...st, active: false, offAt: this.clock() });
       return;
     }
+    // The activation time is the earlier of now and the moment the service first saw the setting on; it is consumed
+    // by the first pass, which may be a long wait after that moment (the service waits for the store first).
+    const observed = this.observedAt;
+    this.observedAt = undefined;
     if (!st || !st.active) {
       // Taken before anything is awaited: whatever arrives after this moment gets its card.
-      st = { active: true, since: this.clock(), threadId: null, seq: null };
+      const since = Math.min(this.clock(), observed ?? Infinity);
+      // A message that failed under an earlier activation is still owed a card: carry its thread over, closed at the
+      // time the setting went off, so only what was typed before then is filed.
+      const threads: Record<string, Watch> = {};
+      for (const [id, w] of Object.entries(st?.threads ?? {})) {
+        if (w.retry && w.seq !== null) threads[id] = { ...w, closedAt: w.closedAt ?? st?.offAt ?? since };
+      }
+      st = { active: true, since, threadId: null, threads };
       this.writeState(st);
     }
     try {
@@ -362,53 +433,100 @@ export class VizierMessages {
     const row = await this.resolveRow(cfg.titlePrefix);
     if (row === null) return;
     const threadId = row.id;
-    if (st.threadId !== threadId || st.seq === null) {
-      // First watch, or a different vizier thread: the boundary is the later of the activation and the pin, so
-      // nothing older gets a card but nothing created since then is skipped either.
-      const seq = await this.baseline(threadId, Math.max(st.since, row.pinnedAt ?? 0));
-      st = { active: true, since: st.since, threadId, seq };
+    if (st.threadId !== threadId) {
+      // A different vizier thread. The old one is kept, closed at this moment, and drained below: a message that
+      // failed (or was not reached) there is still filed, but nothing typed after the change is.
+      const at = this.clock();
+      const threads = { ...st.threads };
+      if (st.threadId && threads[st.threadId]) threads[st.threadId] = { ...threads[st.threadId]!, closedAt: threads[st.threadId]!.closedAt ?? at };
+      const w = threads[threadId];
+      if (w) {
+        const { closedAt: _closed, ...open } = w; // chosen again before it drained: it is the vizier thread once more
+        threads[threadId] = open;
+      }
+      st = { ...st, threadId, threads };
       this.writeState(st);
-      this.d.log.info(`vizier-messages: watching ${threadId} from message ${seq}; earlier messages get no card`);
+    }
+    // First watch of this thread: the boundary is the later of the activation and the pin, so nothing older gets a
+    // card but nothing created since then is skipped either.
+    if (!st.threads[threadId]) {
+      st = this.put(st, threadId, { seq: null, boundary: Math.max(st.since, row.pinnedAt ?? 0) });
+      this.writeState(st);
     }
     this.stage = "list projects";
     const projects = await this.d.tasks.listProjects();
     const want = cfg.project.trim().toLowerCase();
     const project = projects.find((p) => p.id === cfg.project.trim() || p.prefix.toLowerCase() === want || p.name.toLowerCase() === want);
     const pass: PassCache = {};
+    // Old threads first (they only drain), then the selected one. One thread's stuck message never holds up another.
+    const order = [...Object.keys(st.threads).filter((id) => id !== threadId).sort(), threadId];
+    for (const id of order) st = await this.watch(st, id, project?.id ?? null, cfg.project, pass);
+  }
+
+  /** Work one thread's events from its cursor: baseline first, then message by message. Returns the new state. */
+  private async watch(start: State, threadId: string, projectId: string | null, projectName: string, pass: PassCache): Promise<State> {
+    let st = start;
+    let w = st.threads[threadId];
+    if (!w) return st;
+    if (w.seq === null) {
+      const found = await this.baseline(threadId, w.boundary ?? st.since, w.scan);
+      if ("scan" in found) {
+        st = this.put(st, threadId, { ...w, scan: found.scan });
+        this.writeState(st);
+        this.d.log.info(`vizier-messages: still looking for where to start in ${threadId} (read down to message ${found.scan}); it continues on the next pass`);
+        return st;
+      }
+      const { scan: _scan, ...rest } = w;
+      w = { ...rest, seq: found.seq };
+      st = this.put(st, threadId, w);
+      this.writeState(st);
+      this.d.log.info(`vizier-messages: watching ${threadId} from message ${found.seq}; earlier messages get no card`);
+    }
     for (let page = 0; page < MAX_PAGES_PER_TICK; page++) {
       this.stage = "read messages";
-      const cursor = st.seq!;
+      const cursor = st.threads[threadId]!.seq!;
       const rows = (await this.d.threads.events({ threadId, afterSeq: cursor, limit: PAGE, order: "asc" })).filter((e) => e.seq > cursor).sort((a, b) => a.seq - b.seq);
-      if (rows.length === 0) return;
       for (const e of rows) {
+        const cur = st.threads[threadId]!;
+        // A closed thread files only what was typed before it stopped being the vizier thread.
+        if (cur.closedAt !== undefined && num(e.createdAt) && e.createdAt > cur.closedAt) return this.done(st, threadId);
         const c = classify(e);
         const filed = this.readFiled();
         const rid = e.data?.requestId;
         if (c.kind === "skip" || filed[e.id] || (rid && filed[`req:${rid}`])) {
-          st = this.advance(st, e, null); // not an operator message, or a replay of one already filed
+          st = this.advance(st, threadId, e, null); // not an operator message, or a replay of one already filed
           continue;
         }
-        if (!project) {
-          this.why(`no tasks project matches "${cfg.project}"; nothing is filed`);
-          return;
+        if (!projectId) {
+          this.why(`no tasks project matches "${projectName}"; nothing is filed`);
+          return st;
         }
-        if (st.retry?.id === e.id && this.clock() < st.retry.next) return; // still backing off
+        if (cur.retry?.id === e.id && this.clock() < cur.retry.next) return st; // still backing off
         try {
-          const task = await this.fileOne(project.id, threadId, e, c.text, pass);
-          st = this.advance(st, e, task.id);
+          const task = await this.fileOne(projectId, threadId, e, c.text, pass);
+          st = this.advance(st, threadId, e, task.id);
           this.d.log.info(`vizier-messages: filed ${task.key} for message ${e.seq}`);
         } catch (err) {
           // The cursor stays on the message before this one: it is retried until it has a card, never skipped.
-          const tries = (st.retry?.id === e.id ? st.retry.tries : 0) + 1;
+          const tries = (cur.retry?.id === e.id ? cur.retry.tries : 0) + 1;
           const wait = Math.min(BACKOFF_BASE_MS * 2 ** (tries - 1), BACKOFF_CAP_MS);
-          st = { ...st, retry: { id: e.id, tries, next: this.clock() + wait } };
+          st = this.put(st, threadId, { ...cur, retry: { id: e.id, tries, next: this.clock() + wait } });
           this.writeState(st);
           this.d.log.warn(`vizier-messages: message ${e.seq} not filed at "${this.stage}" (try ${tries}, next in ${Math.round(wait / 1000)}s): ${errCode(err)}`);
-          if (tries >= STUCK_AFTER && tries % STUCK_LOG_EVERY === STUCK_AFTER % STUCK_LOG_EVERY) this.d.log.warn(`vizier-messages: STUCK on message ${e.seq}: no later message gets a card until this one is filed`);
-          return;
+          if (tries >= STUCK_AFTER && tries % STUCK_LOG_EVERY === STUCK_AFTER % STUCK_LOG_EVERY) this.d.log.warn(`vizier-messages: STUCK on message ${e.seq}: no later message in this thread gets a card until this one is filed`);
+          return st;
         }
       }
-      if (rows.length < PAGE) return;
+      if (rows.length < PAGE) return this.done(st, threadId);
     }
+    return st;
+  }
+
+  /** Reached the end of a thread's events: a closed thread is finished and forgotten, the selected one keeps its cursor. */
+  private done(st: State, threadId: string): State {
+    if (st.threads[threadId]?.closedAt === undefined) return st;
+    const next = this.put(st, threadId, null);
+    this.writeState(next);
+    return next;
   }
 }
