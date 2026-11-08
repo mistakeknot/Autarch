@@ -201,7 +201,7 @@ describe("lock inheritance in the block", () => {
     const { block, W } = deployedBlock();
     const holder = spawn("bash", ["-c", 'exec 9>>"$1"; flock -n 9 && echo held; sleep 120', "holder", lockPath()], { stdio: ["ignore", "pipe", "ignore"] });
     procs.push(holder);
-    expect(waitFor(() => existsSync(lockPath()) && spawnSync("flock", ["-n", lockPath(), "true"]).status !== 0, 5000)).toBe(true);
+    expect(waitFor(() => existsSync(lockPath()) && spawnSync("flock", ["-n", lockPath(), "true"]).status !== 0, 20_000)).toBe(true);
     rig.clearCalls();
     const r = spawnSync("bash", ["-c", `export BPD_LOCK_FD=17\n${block}`], { encoding: "utf8", env: bashEnv({ BPD_LOCK_WAIT_SEC: "1" }) });
     expect(r.status, r.stderr + r.stdout).toBe(75);
@@ -214,7 +214,7 @@ describe("lock inheritance in the block", () => {
     const { block } = deployedBlock();
     const holder = spawn("bash", ["-c", 'exec 9>>"$1"; flock -n 9 && echo held; sleep 120', "holder", lockPath()], { stdio: ["ignore", "pipe", "ignore"] });
     procs.push(holder);
-    expect(waitFor(() => existsSync(lockPath()) && spawnSync("flock", ["-n", lockPath(), "true"]).status !== 0, 5000)).toBe(true);
+    expect(waitFor(() => existsSync(lockPath()) && spawnSync("flock", ["-n", lockPath(), "true"]).status !== 0, 20_000)).toBe(true);
     rig.clearCalls();
     const other = join(rig.root, "not-the-lock");
     const r = spawnSync("bash", ["-c", `exec 9>"${other}"\n${block}`], { encoding: "utf8", env: bashEnv({ BPD_LOCK_WAIT_SEC: "1" }) });

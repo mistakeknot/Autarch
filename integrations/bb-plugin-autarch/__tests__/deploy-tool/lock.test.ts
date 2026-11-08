@@ -29,7 +29,7 @@ function holding(): ChildProcess {
   const p = holder();
   // the event loop is blocked by waitFor, so probe the lock itself: held once a non-blocking flock on it fails
   const heldNow = () => existsSync(lockPath()) && spawnSync("flock", ["-n", lockPath(), "true"]).status !== 0;
-  expect(waitFor(heldNow, 5000)).toBe(true);
+  expect(waitFor(heldNow, 20_000)).toBe(true);
   return p;
 }
 
