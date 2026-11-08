@@ -88,6 +88,7 @@ take_lock() {   # $1 = the subcommand
     echo "home-ui: waiting for the destination lock (held by pid $(lock_holder "$l")); giving up after ${w}s" >&2
     flock -w "$w" "$f" || die "another deploy holds the lock (pid $(lock_holder "$l"))" 75
   fi
+  export BPD_LOCK_FD="$f"   # children reuse this descriptor (2.1: a holder exports it and keeps it open)
 }
 case $SUB in deploy|preview|rollback) take_lock "$SUB" ;; esac
 # shared destination lock: end

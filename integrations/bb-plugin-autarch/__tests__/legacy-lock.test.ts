@@ -93,6 +93,14 @@ function underHolder(r: Rig, how: "runner" | "fd17", script: string, inner: stri
       : 'exec 17>>"$ST/lock"; flock -n 17 || exit 0; export BPD_LOCK_FD=17';
   return spawnSync("bash", ["-c", `${pre}\n${inner}`], { env: r.env({ S: script, ST: r.st, BK: r.backup, PREV: r.prev, ...extra }), encoding: "utf8" });
 }
+/** Make the stub bb report whether the descriptor named by BPD_LOCK_FD is the lock's own, re-lockable one (what a lock-aware child needs). */
+function nestedProbe(r: Rig) {
+  const bb = readFileSync(join(r.root, "bb"), "utf8").replace(
+    'echo "$@" >>',
+    `if [ "$1 $2" = "plugin install" ]; then if [ -n "$BPD_LOCK_FD" ] && [ "$(stat -L -c %d:%i /proc/self/fd/$BPD_LOCK_FD 2>/dev/null)" = "$(stat -c %d:%i ${r.lock})" ] && flock -n "$BPD_LOCK_FD"; then echo NESTED-OK >> ${r.calls}; else echo NESTED-NO >> ${r.calls}; fi; fi\necho "$@" >>`,
+  );
+  writeFileSync(join(r.root, "bb"), bb);
+}
 const NOWAIT = { HOME_UI_LOCK_WAIT: "1" };
 const HOLDS = /another deploy holds the lock/;
 const isMk = userInfo().username === "mk";
@@ -245,6 +253,18 @@ describe("home-ui.sh: lock, rollback record", () => {
     expect(r.log()).toBe("");
   });
 
+  it("exports the descriptor it holds, so a lock-aware child reuses it instead of waiting on its parent", () => {
+    const standalone = rig();
+    nestedProbe(standalone);
+    expect(hui(standalone, ["rollback", standalone.backup], NOWAIT).status).toBe(0);
+    expect(standalone.log()).toContain("NESTED-OK");
+    const runner = rig();
+    nestedProbe(runner);
+    const out = underHolder(runner, "runner", HUI, 'bash "$S" rollback "$BK"', NOWAIT);
+    expect(out.status).toBe(0);
+    expect(runner.log()).toContain("NESTED-OK");
+  });
+
   it("a non-numeric BPD_LOCK_FD falls back to fd 9", () => {
     const r = rig();
     const out = underHolder(r, "runner", HUI, 'bash "$S" rollback "$BK"', { ...NOWAIT, BPD_LOCK_FD: "../x" });
@@ -306,6 +326,24 @@ describe("install-home-your-move.sh: lock", () => {
   });
 
   // Past the lock, --go and --rollback insist on running as the service user (or root); these need that account.
+  it("the installer's lock block exports the descriptor it holds, standalone and under the runner", () => {
+    // Run the block's own text (the real script's children sit behind `env -i`, which would hide the variable).
+    const lines = readFileSync(INST, "utf8").split("\n");
+    const from = lines.findIndex((l) => l.startsWith("# shared destination lock: begin"));
+    const to = lines.findIndex((l) => l.startsWith("# shared destination lock: end"));
+    const probe = 'bash -c \'if [ -n "$BPD_LOCK_FD" ] && [ "$(stat -L -c %d:%i /proc/self/fd/$BPD_LOCK_FD 2>/dev/null)" = "$(stat -c %d:%i "$HOME_UI_STATE_DIR/lock")" ] && flock -n "$BPD_LOCK_FD"; then echo NESTED-OK; else echo NESTED-NO; fi\'';
+    const run = (r: Rig, pre: string) => {
+      const h = join(r.root, "harness.sh");
+      writeFileSync(h, ["set -e", "MKHOME=/nonexistent", "MODE=rollback", ...lines.slice(from, to + 1), probe, ""].join("\n"));
+      return spawnSync("bash", ["-c", `${pre}\nbash "$H"`], { env: r.env({ H: h, ST: r.st, ...NOWAIT }), encoding: "utf8" });
+    };
+    const alone = run(rig(), "true");
+    expect(alone.stdout).toContain("NESTED-OK");
+    const under = run(rig(), 'exec 9>"$ST/lock"; flock -n 9 || exit 0');
+    expect(under.stdout).toContain("NESTED-OK");
+    expect(under.stderr).not.toContain("waiting for the destination lock");
+  });
+
   describe.skipIf(!isMk)("past the lock (as the service user)", () => {
     const rollback = (r: Rig) => ["--rollback", "--previous-plugin", r.prev];
 

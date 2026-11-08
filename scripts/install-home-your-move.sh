@@ -127,6 +127,7 @@ take_lock() {   # $1 = mode
     echo "waiting for the destination lock (held by pid $(lock_holder "$l")); giving up after ${w}s" >&2
     flock -w "$w" "$f" || { echo "another deploy holds the lock (pid $(lock_holder "$l"))" >&2; exit 75; }
   fi
+  export BPD_LOCK_FD="$f"   # children reuse this descriptor (2.1: a holder exports it and keeps it open)
 }
 case $MODE in go|rollback) take_lock "$MODE" ;; esac
 # shared destination lock: end
