@@ -63,7 +63,12 @@ function main() {
     return 0;
   }
   if (!f["plugin-file"]) throw new ToolError("--plugin-file is required", EXIT.USAGE);
-  const pluginFile = realpathSync(resolve(f["plugin-file"]));
+  let pluginFile;
+  try {
+    pluginFile = realpathSync(resolve(f["plugin-file"]));
+  } catch {
+    throw new ToolError(`cannot read the plugin file ${f["plugin-file"]}`, EXIT.ERROR);
+  }
   if (command === "validate-plugin-file") {
     const p = loadPluginFile(pluginFile);
     emit(f, { ok: true, exit: 0, message: `plugin file for ${p.pluginId} is valid` });

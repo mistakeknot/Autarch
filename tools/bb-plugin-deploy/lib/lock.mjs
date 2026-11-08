@@ -13,8 +13,10 @@ export const LOCK_WAIT_CAP_SEC = 35 * 60;
 
 /** The cap in seconds. BPD_LOCK_WAIT_SEC may lower it (used by tests); it can never raise it above 35 minutes. */
 export function lockWaitSec(env = process.env) {
-  const n = Number(env.BPD_LOCK_WAIT_SEC);
-  return Number.isFinite(n) && n >= 0 && n < LOCK_WAIT_CAP_SEC ? Math.floor(n) : LOCK_WAIT_CAP_SEC;
+  const raw = env.BPD_LOCK_WAIT_SEC;
+  if (raw === undefined || !/^[0-9]{1,7}$/.test(raw)) return LOCK_WAIT_CAP_SEC;
+  const n = Number(raw);
+  return n < LOCK_WAIT_CAP_SEC ? n : LOCK_WAIT_CAP_SEC;
 }
 
 const devIno = (st) => `${st.dev}:${st.ino}`;
