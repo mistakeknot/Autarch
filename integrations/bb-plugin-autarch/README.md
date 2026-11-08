@@ -177,3 +177,34 @@ absent (macOS), the writer falls back to path-based steps and a same-user proces
 swap a path between them. That is the same-user risk accepted in the plan's `[D21]`; the
 writer defends against a different-origin symlink or a replaced root, and on Linux against
 a same-user race, but on other platforms not against a hostile process running as mk.
+
+## Vizier message cards (off by default)
+
+With the setting `vizierMessageCards` on, the plugin files one plain tracker card for each message an operator types in the vizier thread. The card quotes the words, links the thread message, and says to close it once read; it carries the `vizier-message` label and lands in the project named by `vizierCardProject` (id, prefix or name; empty files nothing). The plugin does not judge whether a message needs a decision.
+
+The check is stateless. Every 15 seconds, in the plugin process (the `home-vizier-messages` background service; no separate unit), one run does this:
+
+1. Finds the vizier thread: the one pinned, unarchived thread whose title starts with `vizierTitlePrefix` (default `Masaq' | vizier`). With none or several, nothing is filed and the reason is logged.
+2. Reads that thread's last 24 hours of messages, newest first.
+3. For each plain operator-typed message, files a card unless a card carrying that message's marker line (`home-vizier-message: <event id>`) already exists. The search covers every status, so a card the operator has closed still counts. The marker is the only dedupe: nothing records which messages were filed, so a crash, a restart or a lost response between runs cannot make a second card.
+
+Only plain operator messages count. Agent messages, system messages, card wakes, retried turns and scripted sends that start with a known prefix (`ESCALATION`, `[vizier]`, `[home-msg `, `[bb message from thread:`, `[bb system]`) are skipped.
+
+Two runs that overlap in one process (for example after a plugin reload) are queued one behind the other, so a run's marker search and its card creation are never interleaved with another run's. Two plugin processes against one tasks project are not covered; a deployment runs one.
+
+### What is kept
+
+One small value in the plugin's settings table, with two times: when the setting was switched on, and when the last complete run began. Neither is a position in a thread or a list of filed messages. The first decides which messages are ever eligible; the second only lets the check notice an outage longer than the 24-hour window. A run that fails or reads incompletely does not advance the second.
+
+### Three limits
+
+- **Old threads.** Only the current vizier thread is read. A message typed into an old vizier thread after it is replaced gets no card.
+- **Outages longer than 24 hours.** Older messages are not filed. Instead one gap card says that messages between two stated times (shown in Pacific time, with UTC after) may have been missed. It carries its own marker (`home-vizier-gap: <start>`), keyed on the end of the last complete run, so there is one per outage, not one per run. It is filed after every message in the window has its card.
+- **Off until switched on.** The setting defaults to off; with it off a run files nothing and reads nothing. The time it was switched on is recorded, and a message created at or before that time never gets a card, including anything typed while the setting was off. For a first start with the setting on, that time is the moment the service first saw the setting on, taken before it waits for the store and the tasks client, so a message typed during start-up is not mistaken for history. Settings are read once per load, so reload the plugin after changing one. A setting turned off and on again with no run in between is not seen as a new switch-on.
+
+### Known costs and edges
+
+- While the last 24 hours hold an operator message, each run lists the `vizier-message` cards of the project (every page, every status) to look for markers. The list grows by one card per message.
+- A card whose `vizier-message` label the operator removes is no longer found by the marker search, so its message is filed again while it is still inside the 24-hour window.
+- If the 24 hours hold more than 5000 events, a run reads what fits, logs that, and does not advance the heartbeat.
+- Logs name the failed step and the error class or code, never the error text.
