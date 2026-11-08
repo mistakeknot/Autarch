@@ -87,14 +87,20 @@ plugin_code_only() {   # $1 = installed build, $2 = target; dependencies and the
   done
   # Defence in depth, not proof: lines added to plugin code outside ui/ and __tests__/ must not contain schema statements. The
   # deploy's real guarantee on code behaviour is the cross-lab review of the merged head that the deploy approval requires.
-  local f rel old rc added=
+  local f rel old rc list added=''
+  # The file list goes through a temp file so a failed traversal (an unreadable subdirectory) is seen and refuses, instead of
+  # silently dropping the files it could not list. This is stricter than home-ui.sh, which discards find's exit status.
+  list=$(mktemp) || die "cannot create a temp file"
+  find "$2" -path "$2/node_modules" -prune -o -type f -print0 >"$list" 2>/dev/null \
+    || { rm -f "$list"; die "NOT plugin-code-only: could not list every file under the target (an unreadable directory?); refusing" 3; }
   while IFS= read -r -d '' f; do
     rel=${f#"$2"/}
     case $rel in ui/*|__tests__/*|node_modules/*) continue ;; esac
     old=$1/$rel; [ -f "$old" ] || old=/dev/null
     rc=0; added+=$(diff -a --unchanged-line-format= --old-line-format= --new-line-format='%L ' -- "$old" "$f") || rc=$?
-    [ "$rc" -le 1 ] || die "NOT plugin-code-only: could not diff $rel against the installed build (diff exit $rc)" 3
-  done < <(find "$2" -path "$2/node_modules" -prune -o -type f -print0)
+    [ "$rc" -le 1 ] || { rm -f "$list"; die "NOT plugin-code-only: could not diff $rel against the installed build (diff exit $rc)" 3; }
+  done <"$list"
+  rm -f "$list"
   if printf '%s' "$added" | tr '\n\0' '  ' | grep -Eiq '(create|alter|drop)[[:space:]]+(virtual[[:space:]]+)?(table|index|trigger|view)|pragma[[:space:]]+(user_version|writable_schema)|schema_meta'; then
     die "NOT plugin-code-only: changed plugin code adds a schema statement (CREATE/ALTER/DROP, schema_meta). A schema change goes to mk as a script." 3
   fi
