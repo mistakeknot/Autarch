@@ -1,0 +1,107 @@
+{
+  "format": "bb-plugin-deploy/plugin@1",
+  "pluginId": "autarch",
+  "repo": "https://github.com/mistakeknot/Autarch.git",
+  "branch": "main",
+  "pluginDir": "integrations/bb-plugin-autarch",
+  "build": [
+    [
+      "npm",
+      "ci"
+    ]
+  ],
+  "data": [
+    {
+      "name": "data.db",
+      "kind": "sqlite",
+      "path": "{bbData}/plugins/autarch/data.db",
+      "integrity": true
+    }
+  ],
+  "export": [
+    {
+      "name": "moves",
+      "run": [
+        "bb",
+        "home",
+        "moves",
+        "--json"
+      ],
+      "required": true
+    }
+  ],
+  "configAfterEnable": [],
+  "health": [
+    {
+      "kind": "running",
+      "timeoutSec": 60
+    },
+    {
+      "kind": "check",
+      "name": "migration-level",
+      "run": [
+        "bash",
+        "{installedRoot}/scripts/home-gates.sh",
+        "post-install",
+        "--data",
+        "{bbData}"
+      ]
+    }
+  ],
+  "preInstall": [
+    {
+      "name": "schema-gate",
+      "run": [
+        "bash",
+        "{installedRoot}/scripts/home-gates.sh",
+        "gate",
+        "--class",
+        "{class}",
+        "--installed",
+        "{installedPluginDir}",
+        "--target",
+        "{targetPluginDir}",
+        "--data",
+        "{bbData}"
+      ]
+    }
+  ],
+  "classes": [
+    "plugin-deploy"
+  ],
+  "dataRestore": "manual",
+  "previewGate": [
+    {
+      "name": "schema-gate",
+      "run": [
+        "bash",
+        "{installedRoot}/scripts/home-gates.sh",
+        "gate",
+        "--class",
+        "plugin-deploy",
+        "--installed",
+        "{installedPluginDir}",
+        "--target",
+        "{targetPluginDir}",
+        "--data",
+        "{bbData}"
+      ]
+    }
+  ],
+  "controlPaths": [
+    "tools/bb-plugin-deploy/**",
+    "scripts/home-gates.sh",
+    "scripts/home-ui.sh",
+    "scripts/install-home-your-move.sh",
+    "integrations/bb-plugin-autarch/deploy.json",
+    "scripts/host/**",
+    "**/AGENTS.md",
+    "**/CLAUDE.md",
+    "**/.claude/**",
+    "**/.clavain/**",
+    "**/.codex/**"
+  ],
+  "retention": {
+    "builds": 5
+  }
+}
