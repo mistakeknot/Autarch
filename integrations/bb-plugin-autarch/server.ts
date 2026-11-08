@@ -116,6 +116,14 @@ export interface HomeConfig {
   vizierCardProject?: string;
 }
 
+/** The three settings the vizier message watcher follows. */
+export type VizierSettings = Pick<HomeConfig, "vizierMessageCards" | "vizierTitlePrefix" | "vizierCardProject">;
+/**
+ * Where those three settings are read, once per watcher tick. A rejection makes the tick treat the watcher as off.
+ * Without a source the watcher follows the values in `HomeConfig` for the life of the process.
+ */
+export type VizierSettingsSource = () => Promise<VizierSettings>;
+
 let sourceHash: string | null = null;
 /** sha256 over the plugin root's sources (excluding identity.json, dist and node_modules), computed once at first use. */
 function pluginSource(): string | null {
@@ -157,7 +165,7 @@ interface Parts {
  * until then RPC handlers refuse with "not ready" and the feed injects nothing. Returns the
  * RPC handlers so the caller registers them together with the other contract methods.
  */
-export function wireHome(bb: BbPluginApi, handle: StoreHandle, cfg: HomeConfig, deps: { serve?: ServeClient; sdk?: WakeSdk } = {}) {
+export function wireHome(bb: BbPluginApi, handle: StoreHandle, cfg: HomeConfig, deps: { serve?: ServeClient; sdk?: WakeSdk; vizierSettings?: VizierSettingsSource } = {}) {
   const updateDir = cfg.updateDir ?? join(homedir(), ".local", "state", "autarch-home-update");
   const updateEnv = (now: string) => ({ now, ...(cfg.updateTimerFile ? { timerFile: cfg.updateTimerFile } : {}) });
   const serve = deps.serve ?? new ServeClient({ addr: cfg.serveAddr, readToken: tokenReader(cfg.serveTokenFile) });
@@ -342,12 +350,15 @@ export function wireHome(bb: BbPluginApi, handle: StoreHandle, cfg: HomeConfig, 
     return ideaDeskRef.desk;
   };
   // A card for every plain operator message in the vizier thread: a stateless check every 15 s over the last 24 hours
-  // (off unless the setting is on; see vizierMessages.ts).
+  // (off unless the setting is on; see vizierMessages.ts). Its three settings are read afresh on every tick, so turning
+  // it on or off, or changing the project or the title prefix, needs no plugin reload.
+  const vizierNow = async (): Promise<VizierSettings> => (deps.vizierSettings ? deps.vizierSettings() : cfg);
   bb.background.service("home-vizier-messages", {
     async start(signal) {
       // The activation time is taken here, before the wait for the store and the tasks client: a message the operator
       // sends while those are still coming up is after the activation and gets its card.
-      const observedAt = cfg.vizierMessageCards === true ? Date.now() : undefined;
+      // A failed read counts as off (the first tick reads again and dates the switch-on itself).
+      const observedAt = await vizierNow().then((v) => (v.vizierMessageCards === true ? Date.now() : undefined), () => undefined);
       while (!signal.aborted && !(parts && tasksRef)) await sleep(1000, signal);
       if (!parts || !tasksRef || signal.aborted) return;
       const watcher = new VizierMessages({
@@ -367,7 +378,10 @@ export function wireHome(bb: BbPluginApi, handle: StoreHandle, cfg: HomeConfig, 
             return Array.isArray(rows) ? (rows as MessageEvent[]) : [];
           },
         },
-        config: () => ({ enabled: cfg.vizierMessageCards === true, titlePrefix: cfg.vizierTitlePrefix || DEFAULT_TITLE_PREFIX, project: cfg.vizierCardProject || "" }),
+        config: async () => {
+          const v = await vizierNow();
+          return { enabled: v.vizierMessageCards === true, titlePrefix: v.vizierTitlePrefix || DEFAULT_TITLE_PREFIX, project: v.vizierCardProject || "" };
+        },
         log: { info: (m) => bb.log.info(m), warn: (m) => bb.log.warn(m) },
       });
       while (!signal.aborted) {
@@ -926,7 +940,7 @@ export default async function plugin(bb: BbPluginApi) {
 
   // Declarative settings — rendered in BB's settings UI and editable with
   // `bb plugin config autarch`. Add `secret: true` for values like API keys.
-  // Settings are read once per load: reload the plugin after changing one.
+  // Settings are read once per load, except the three vizier message settings, which the watcher reads on every tick.
   // The Home surfaces: RPC handlers, the `bb home` CLI, wakes, feed injection, serve link.
   const homeSettings = bb.settings.define({
     serveAddr: { type: "string", label: "autarch serve address", default: "127.0.0.1:8110" },
@@ -938,6 +952,14 @@ export default async function plugin(bb: BbPluginApi) {
     vizierCardProject: { type: "string", label: "Tasks project (id, prefix or name) that receives vizier message cards", default: "" },
   });
   const hs = await homeSettings.get();
+  const vizierSettings: VizierSettingsSource = async () => {
+    const v = await homeSettings.get();
+    return {
+      vizierMessageCards: v.vizierMessageCards === true,
+      vizierTitlePrefix: typeof v.vizierTitlePrefix === "string" ? v.vizierTitlePrefix : "",
+      vizierCardProject: typeof v.vizierCardProject === "string" ? v.vizierCardProject : "",
+    };
+  };
   const home = wireHome(bb, handle, {
     serveAddr: hs.serveAddr || "127.0.0.1:8110",
     serveTokenFile: hs.serveTokenFile || join(homedir(), ".autarch", "serve.token"),
@@ -946,7 +968,7 @@ export default async function plugin(bb: BbPluginApi) {
     vizierMessageCards: hs.vizierMessageCards === true,
     vizierTitlePrefix: hs.vizierTitlePrefix || "",
     vizierCardProject: hs.vizierCardProject || "",
-  });
+  }, { vizierSettings });
 
   bb.rpc.register(rpcContract, {
     ...home.handlers,

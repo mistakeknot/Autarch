@@ -67,12 +67,21 @@ export interface VizierThreads {
   events(a: { threadId: string; beforeSeq?: number; limit: number; order: "desc" }): Promise<MessageEvent[]>;
 }
 
+export interface VizierConfig {
+  enabled: boolean;
+  titlePrefix: string;
+  project: string;
+}
+
 export interface VizierMessagesDeps {
   tasks: TasksClient;
   store: Store;
   threads: VizierThreads;
-  /** Read each run, so a settings change that reloads the plugin needs nothing more. */
-  config: () => { enabled: boolean; titlePrefix: string; project: string };
+  /**
+   * Read afresh on every run, so a settings change takes effect on the next run without a reload. A rejection makes
+   * that run treat the watcher as off (see `run`).
+   */
+  config: () => VizierConfig | Promise<VizierConfig>;
   /** Milliseconds since the epoch; a test passes its own clock. */
   now?: () => number;
   /**
@@ -210,6 +219,7 @@ export class VizierMessages {
   private lastWhy = "";
   private passErrors = 0;
   private stage = "";
+  private configFailing = false;
   private observedAt: number | undefined;
   private readonly clock: () => number;
 
@@ -364,7 +374,21 @@ export class VizierMessages {
 
   /** Returns false when the run was incomplete (so the loop backs off and the heartbeat is not advanced). A quiet no-op returns true. */
   private async run(): Promise<boolean> {
-    const cfg = this.d.config();
+    let cfg: VizierConfig;
+    try {
+      cfg = await this.d.config();
+      this.configFailing = false;
+    } catch (err) {
+      // Fail closed: a run that cannot read its settings is an off run (nothing filed, the switch-on time forgotten),
+      // and it counts as incomplete so the loop backs off. Logged once until a read succeeds again.
+      if (!this.configFailing) {
+        this.configFailing = true;
+        this.d.log.warn(`vizier-messages: could not read the settings: ${errCode(err)}; treated as off until a read succeeds`);
+      }
+      this.observedAt = undefined;
+      if (this.readSwitch()) this.writeSwitch(null);
+      return false;
+    }
     let sw = this.readSwitch();
     if (!cfg.enabled) {
       // Off: file nothing, and forget the switch-on time so the next switch-on is dated afresh.
