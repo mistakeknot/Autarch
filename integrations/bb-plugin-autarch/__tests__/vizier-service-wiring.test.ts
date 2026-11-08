@@ -263,6 +263,52 @@ describe("the vizier message service follows its settings on every tick, with no
     await f.stop();
   });
 
+  it("a failed startup read clears a saved activation, so settings that recover before the first tick file nothing from the gap", async () => {
+    vi.setSystemTime(1_000_000);
+    const live = liveSettings({ ...OFF, vizierMessageCards: true });
+    live.state.failing = true; // the one startup read
+    const f = fixture({ vizierMessageCards: true }, live.source);
+    live.state.failing = false; // recovered before the first tick
+    const store = f.late.open();
+    // an activation saved by an earlier run, older than the message below
+    store.setSetting("vizierMessagePoll", JSON.stringify({ onAt: 900_000, lastRunAt: 990_000 }));
+    f.events.push(ev(1, "typed during the failed startup read", 995_000));
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(f.cards()).toHaveLength(0);
+    expect(f.tasks.callsOf("createTask")).toHaveLength(0);
+    const warns = (f.bb.log.warn as ReturnType<typeof vi.fn>).mock.calls.map((c) => String(c[0])).filter((m) => m.includes("could not read the settings"));
+    expect(warns).toEqual(["vizier-messages: could not read the settings: Error; treated as off until a read succeeds"]);
+    expect(savedOnAt(store)).toBeGreaterThan(1_000_000); // dated afresh once the reads succeed
+    vi.setSystemTime(Date.now() + 1);
+    f.events.push(ev(2, "typed after recovery", Date.now()));
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(titles(f)).toEqual(["Vizier message: typed after recovery"]);
+    await f.stop();
+  });
+
+  it("the settings warning names only a class from the fixed set, never a code, an operation or any text", async () => {
+    vi.setSystemTime(1_000_000);
+    const cases: [unknown, string][] = [
+      [Object.assign(new Error("tasks.createTask failed: the operator said hello"), { code: "SECRET_CODE" }), "Error"],
+      [new TypeError("tasks.listTasks refused: a message-like prefix"), "TypeError"],
+      [Object.assign(new Error("x"), { name: "OperatorSecretName" }), "Error"],
+      ["a thrown string with text", "Error"],
+    ];
+    for (const [thrown, want] of cases) {
+      const warn = vi.fn();
+      const source: VizierSettingsSource = async () => {
+        throw thrown;
+      };
+      const f = fixture({ vizierMessageCards: true }, source);
+      (f.bb.log as { warn: unknown }).warn = warn;
+      f.late.open();
+      await vi.advanceTimersByTimeAsync(5_000);
+      const msgs = warn.mock.calls.map((c) => String(c[0])).filter((m) => m.includes("could not read the settings"));
+      expect(msgs).toEqual([`vizier-messages: could not read the settings: ${want}; treated as off until a read succeeds`]);
+      await f.stop();
+    }
+  });
+
   it("a settings read that fails from the start files nothing", async () => {
     vi.setSystemTime(1_000_000);
     const live = liveSettings({ ...OFF, vizierMessageCards: true });

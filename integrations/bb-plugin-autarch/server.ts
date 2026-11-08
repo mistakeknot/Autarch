@@ -357,8 +357,17 @@ export function wireHome(bb: BbPluginApi, handle: StoreHandle, cfg: HomeConfig, 
     async start(signal) {
       // The activation time is taken here, before the wait for the store and the tasks client: a message the operator
       // sends while those are still coming up is after the activation and gets its card.
-      // A failed read counts as off (the first tick reads again and dates the switch-on itself).
-      const observedAt = await vizierNow().then((v) => (v.vizierMessageCards === true ? Date.now() : undefined), () => undefined);
+      // A failed read here is carried into the watcher: its first tick takes it as that tick's failed read (nothing filed,
+      // the saved switch-on time reset, one warning, the usual backoff), so settings that recover before the first tick
+      // cannot reuse an activation saved before the failure.
+      let startupFailure: { err: unknown } | null = null;
+      const observedAt = await vizierNow().then(
+        (v) => (v.vizierMessageCards === true ? Date.now() : undefined),
+        (err: unknown) => {
+          startupFailure = { err };
+          return undefined;
+        },
+      );
       while (!signal.aborted && !(parts && tasksRef)) await sleep(1000, signal);
       if (!parts || !tasksRef || signal.aborted) return;
       const watcher = new VizierMessages({
@@ -379,6 +388,11 @@ export function wireHome(bb: BbPluginApi, handle: StoreHandle, cfg: HomeConfig, 
           },
         },
         config: async () => {
+          if (startupFailure) {
+            const { err } = startupFailure;
+            startupFailure = null;
+            throw err;
+          }
           const v = await vizierNow();
           return { enabled: v.vizierMessageCards === true, titlePrefix: v.vizierTitlePrefix || DEFAULT_TITLE_PREFIX, project: v.vizierCardProject || "" };
         },

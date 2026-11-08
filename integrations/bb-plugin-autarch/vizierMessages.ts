@@ -187,6 +187,14 @@ export function errCode(e: unknown): string {
 }
 
 /**
+ * The class name alone, from the fixed set above and nothing else: no code, no operation name, no text. For a failure
+ * whose error can come from anywhere (the settings source), where even `errCode` says more than is wanted.
+ */
+export function errClass(e: unknown): string {
+  return e instanceof Error && KNOWN_ERROR_NAMES.has(e.name) ? e.name : "Error";
+}
+
+/**
  * The one piece of kept state. `onAt` is when the setting was switched on; `lastRunAt` is when the last complete run
  * began. Neither is a position in a thread or a record of a filed message.
  */
@@ -383,7 +391,7 @@ export class VizierMessages {
       // and it counts as incomplete so the loop backs off. Logged once until a read succeeds again.
       if (!this.configFailing) {
         this.configFailing = true;
-        this.d.log.warn(`vizier-messages: could not read the settings: ${errCode(err)}; treated as off until a read succeeds`);
+        this.d.log.warn(`vizier-messages: could not read the settings: ${errClass(err)}; treated as off until a read succeeds`);
       }
       this.observedAt = undefined;
       if (this.readSwitch()) this.writeSwitch(null);
