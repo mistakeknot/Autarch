@@ -30,14 +30,14 @@ cli.mjs <command> --plugin-file PATH [--bb-data DIR] [--state-dir DIR] [--host-f
 | --- | --- |
 | `version` | Prints the protocol, node version and the tool's own commit. Needs no plugin file. |
 | `validate-plugin-file` | Checks the plugin file against the `bb-plugin-deploy/plugin@1` schema. |
-| `record [--reconcile] [--verify-closure]` | Shows the live install (stamped, plain git checkout, or unknown). `--reconcile` writes what it observed into `record.json`. `--verify-closure` checks the control-path closure of the live build. |
+| `record [--reconcile] [--verify-closure]` | Shows the live install (stamped, plain git checkout, or unknown). `--reconcile` writes what it observed into `record.json`, repairs a stale `installed.sha`, and republishes `status.json` (a failure to repair `installed.sha` exits 1). `--verify-closure` checks the control-path closure of the live build. |
 | `status [--write]` | Shows the live install and the last result; `--write` publishes `status.json`. |
 | `check --commit SHA --class C` | Runs every check that `deploy` would run before it changes anything. |
 | `prepare --commit SHA --class C` | Clones, verifies and builds into a build directory. Installs nothing. |
 | `deploy --commit SHA --class C --mode agent\|runner\|mk-script` | The full transaction (below). |
 | `rollback [--to previous\|--build DIR]` | Reinstalls the previous (or a named) verified build. |
 | `restore-data --backup DIR [--check]` | Restores a plugin's sqlite data from a deploy backup and reinstalls the build that was live then. Without `--check` it needs `--mode mk-script`. |
-| `preview --commit SHA \| --path DIR` | Installs a commit (or an already built directory) for a dev session, then restores the anchored build. Runs the plugin's `previewGate` first. |
+| `preview --commit SHA \| --path DIR` | Installs a commit (or an already built directory) for a dev session, then restores the anchored build. Follows the same trust rule as `deploy` (`--mode`, `--confirmed-first-run`), runs the plugin's `previewGate` first, takes a data backup, and records a `preview` transaction in `record.json` while it runs. It adds no history event and leaves `installed` and `installed.sha` as they were. |
 | `update-tick` | Reads the plugin's update request (a click in the plugin's settings), and deploys it in runner mode if it is new and has review evidence. Always publishes status. |
 | `gc [--apply]` | Lists, or with `--apply` removes, old builds beyond the plugin's retention. The installed and previous builds are never removed. |
 
@@ -76,10 +76,16 @@ crash can be understood afterwards:
    checks (kinds: `running`, `log-line`, `process-count`, `check`,
    `setting-equals`). A health baseline (`log-line` with `since` of `install`,
    `enable` or `config`) is taken immediately before the command it belongs
-   to, so a line that command itself writes is seen.
+   to, so a line that command itself writes is seen. For `config` that command
+   is the last `configAfterEnable` key's `config set` (or the end of
+   `postEnablePreConfig` when there are no keys), so a line written while an
+   earlier key was set does not count.
 7. On success write `installed.sha`, `record.json`, then `status.json` last.
    If any of those writes fails the deploy counts as failed and is rolled
-   back. On failure reinstall the anchored previous build, verify it is
+   back. A rollback (the command) that has already changed what is live tries
+   each bookkeeping write on its own; if one fails it exits 1, says bb is
+   running the target, and names the `record --reconcile` command that
+   repairs the files. On failure reinstall the anchored previous build, verify it is
    healthy, and report 30 or 31.
 
 While the live plugin is being changed, `record.json` carries a `transaction`
@@ -176,5 +182,13 @@ install or the live updater state.
   sqlite file. A backup that reuses an earlier backup of the same commit is
   followed only if that earlier backup sits in the same directory and has its
   own valid manifest.
+- An existing build directory is never written to or removed: a name collision
+  (the stamp has one-second resolution) refuses the deploy and leaves it alone.
+- Review evidence (`review-evidence/<sha>.json`, format
+  `bb-plugin-deploy/review-evidence@1`, verdict `approve`) is the runner-mode
+  condition from the plan (section 2.2 and the open question on how strong it
+  must be). The tool checks its form, not who wrote it; an agent-mode deploy
+  needs none because the agent is not unattended. Strengthening the evidence
+  (for example a signed receipt) is left to the runner wiring in a later slice.
 - The ancestry check is skipped for `mk-script` mode, with a warning.
 - `node_modules` is excluded from the control-closure walk.

@@ -47,7 +47,7 @@ export function publishAll(s, result) {
   return { ...out, warning };
 }
 
-function tryPublish(s, result) {
+export function tryPublish(s, result) {
   try {
     return publishAll(s, result);
   } catch (e) {
@@ -119,12 +119,14 @@ export function prepareTarget(s, o, { scratch = false } = {}) {
       throw needsMk(msg, { paused: true, control, target: { root, commit } });
     }
   };
+  // A directory that already existed is somebody else's build (maybe the installed or rollback one): never remove it.
+  const destExisted = existsSync(dest);
   let target;
   try {
     target = buildCommit({ plugin: s.plugin, commit, expectTree: o.expectTree, dest, toolCommit: trust.toolCommit, vars: vars0, lockFd: s.lockFd, log: s.log, beforeBuild });
   } catch (e) {
-    // A paused or failed prepare leaves no build directory behind (scratch dirs always; real ones only if refused before the build).
-    rmSync(dest, { recursive: true, force: true });
+    // A paused or failed prepare leaves no build directory behind that this call created.
+    if (!destExisted) rmSync(dest, { recursive: true, force: true });
     throw e;
   }
   return { trust, target, control, firstRun: trust.firstRun ?? null, scratch, warnings };
@@ -252,11 +254,14 @@ export function deploy(s, o) {
     s.bb.enable();
     runPhase("postEnablePreConfig", s.plugin.postEnablePreConfig, vars);
     mark("configAfterEnable");
-    snapshotBaselines(s.plugin.health, vars, "config", baselines);
-    for (const c of s.plugin.configAfterEnable) {
+    const cfg = s.plugin.configAfterEnable;
+    // `since: config` means after the last config key is set: lines an earlier key's write causes must not count.
+    if (cfg.length === 0) snapshotBaselines(s.plugin.health, vars, "config", baselines);
+    cfg.forEach((c, i) => {
       if (c.requiresMarker && !hasMarker(s.stateDir, c.requiresMarker)) throw new ToolError(`config ${c.key} requires marker ${c.requiresMarker}, which no passing check wrote`);
+      if (i === cfg.length - 1) snapshotBaselines(s.plugin.health, vars, "config", baselines);
       s.bb.setConfig(c.key, template(c.value, vars));
-    }
+    });
     phase("health");
     const h = runHealth({ health: s.plugin.health, vars, bb: s.bb, stateDir: s.stateDir, serverUrl: s.serverUrl, lockFd: s.lockFd, baselines, env: s.env, log: s.log });
     report.health = h.results;
@@ -414,43 +419,79 @@ export function rollback(s, o) {
     tryPublish(s, null);
     return report;
   }
-  s.rec.previous = from ?? null;
-  s.rec.installed = { commit: tgt.commit, tree: tgt.tree, buildRoot: tgt.buildRoot, pluginDir: tgt.pluginDir, installedAt: new Date().toISOString(), by: { mode: o.mode ?? "agent", actor: s.env.BPD_ACTOR || "unknown" }, backup: null, toolCommit: null };
-  addHistory(s.rec, "rollback", tgt.commit, `from ${from?.commit?.slice(0, 12) ?? "unknown"}`);
-  writeRecord(s.stateDir, s.rec);
-  writeInstalledSha(s.stateDir, tgt.commit);
+  // The live rollback has happened. A record or compatibility-file failure after it is reported precisely, with the
+  // command that repairs both from what is live; each write is tried on its own.
+  const failures = [];
+  try {
+    s.rec.previous = from ?? null;
+    s.rec.installed = { commit: tgt.commit, tree: tgt.tree, buildRoot: tgt.buildRoot, pluginDir: tgt.pluginDir, installedAt: new Date().toISOString(), by: { mode: o.mode ?? "agent", actor: s.env.BPD_ACTOR || "unknown" }, backup: null, toolCommit: null };
+    addHistory(s.rec, "rollback", tgt.commit, `from ${from?.commit?.slice(0, 12) ?? "unknown"}`);
+    writeRecord(s.stateDir, s.rec);
+  } catch (e) {
+    failures.push(`record: ${e.message}`);
+  }
+  try {
+    writeInstalledSha(s.stateDir, tgt.commit);
+  } catch (e) {
+    failures.push(`installed.sha: ${e.message}`);
+  }
   const pub = tryPublish(s, null);
   if (pub.warning) report.warnings.push(pub.warning);
+  report.installed = s.rec.installed;
+  if (failures.length > 0) {
+    report.exit = EXIT.ERROR;
+    report.message = `rolled back to ${tgt.commit.slice(0, 12)}, but the bookkeeping write failed (${failures.join("; ")}). bb is running ${tgt.commit.slice(0, 12)}. Repair the record with:\n${mkScriptCommand(s, ["record", "--reconcile"])}`;
+    return report;
+  }
   report.ok = true;
   report.exit = EXIT.OK;
-  report.installed = s.rec.installed;
   report.message = `rolled back to ${tgt.commit.slice(0, 12)}`;
   return report;
 }
 
-/** `preview`: previewGate checks, install the preview build, run `bb plugin dev`, always restore the previous build. */
+/** `preview`: previewGate checks, backup, install the preview build, run `bb plugin dev`, always restore the previous build. */
 export function preview(s, o) {
-  const report = { command: "preview", ok: false, exit: EXIT.ERROR, gates: [], warnings: [], message: "" };
+  const mode = o.mode ?? "agent";
+  const report = { command: "preview", ok: false, exit: EXIT.ERROR, mode, gates: [], warnings: [], message: "" };
   let dir = o.path ? resolve(o.path) : null;
-  let anchored;
+  let anchored = null;
+  let mutated = false;
+  let backup = null;
   try {
+    if (!MODES.includes(mode)) throw refuse(`--mode must be one of ${MODES.join(", ")}`);
+    let st;
+    let trust;
     if (dir) {
-      verifyStamp(dir, s.plugin);
+      st = verifyStamp(dir, s.plugin);
+      trust = engineTrust(s, { mode, commit: st.commit, expectTree: o.expectTree, confirmedFirstRun: o.confirmedFirstRun });
     } else {
-      validateArgs(s, { commit: o.commit, cls: "preview", mode: "mk-script" });
-      const trust = engineTrust(s, { mode: "mk-script", commit: o.commit, expectTree: o.expectTree });
+      if (!SHA40.test(o.commit ?? "")) throw refuse("--commit must be a full 40-hex sha");
+      trust = engineTrust(s, { mode, commit: o.commit, expectTree: o.expectTree, confirmedFirstRun: o.confirmedFirstRun });
       dir = newBuildDir(s.dirs.buildsRoot, s.plugin.pluginId, o.commit, s.env);
-      buildCommit({ plugin: s.plugin, commit: o.commit, expectTree: o.expectTree, dest: dir, toolCommit: trust.toolCommit, vars: baseVars(s, { class: "preview" }), lockFd: s.lockFd, log: s.log });
+      const existed = existsSync(dir);
+      try {
+        buildCommit({ plugin: s.plugin, commit: o.commit, expectTree: o.expectTree, dest: dir, toolCommit: trust.toolCommit, vars: baseVars(s, { class: "preview" }), lockFd: s.lockFd, log: s.log });
+      } catch (e) {
+        if (!existed) rmSync(dir, { recursive: true, force: true });
+        throw e;
+      }
+      st = verifyStamp(dir, s.plugin);
     }
-    const st = verifyStamp(dir, s.plugin);
     const vars = baseVars(s, { class: "preview", targetRoot: dir, targetPluginDir: join(dir, s.plugin.pluginDir), targetCommit: st.commit, buildDir: dir });
     clearMarkers(s.stateDir);
     const results = runChecks(s.plugin.previewGate, checkCtx(s, vars));
     for (const r of results) for (const g of r.gates) report.gates.push({ check: r.name, ...g });
     const f = failureOf(results, "previewGate");
     if (f) throw f;
-    anchored = anchorPrevious({ plugin: s.plugin, live: s.live, buildsRoot: s.dirs.buildsRoot, vars, toolCommit: null, lockFd: s.lockFd, log: s.log });
+    anchored = anchorPrevious({ plugin: s.plugin, live: s.live, buildsRoot: s.dirs.buildsRoot, vars, toolCommit: trust.toolCommit, lockFd: s.lockFd, log: s.log });
     report.rollbackHint = `bb plugin install --yes ${anchored.pluginDir}`;
+    backup = makeBackup({ plugin: s.plugin, vars, backupsRoot: s.dirs.backupsRoot, stateDir: s.stateDir, commit: st.commit, previousPluginDir: anchored.pluginDir, serverUrl: s.serverUrl, lockFd: s.lockFd, env: s.env, log: s.log });
+    report.backup = backup.dir;
+    // The anchor and an in-progress marker reach disk before the first mutating call (a killed preview is then recoverable).
+    s.rec.previous = anchored;
+    s.rec.transaction = { state: "mutating", kind: "preview", commit: st.commit, startedAt: new Date().toISOString(), phase: "preview", previous: anchored, backup: backup.dir };
+    writeRecord(s.stateDir, s.rec);
+    mutated = true;
     s.bb.disable();
     s.bb.install(join(dir, s.plugin.pluginDir));
     s.bb.enable();
@@ -463,13 +504,22 @@ export function preview(s, o) {
     report.exit = err.code === EXIT.REFUSED || err.code === EXIT.NEEDS_MK ? err.code : EXIT.ERROR;
     report.message = err.message;
   } finally {
-    if (anchored) {
+    if (anchored && mutated) {
       const r = recoverTo(s, anchored);
       report.restored = r;
       if (!r.ok) {
         report.ok = false;
         report.exit = EXIT.ROLLBACK_UNHEALTHY;
         report.message += ` — restoring ${anchored.commit.slice(0, 12)} FAILED: ${r.detail}`;
+      }
+      try {
+        s.rec.installed = { ...anchored, installedAt: new Date().toISOString(), by: { mode: "recovery", actor: s.env.BPD_ACTOR || "unknown" }, backup: null, toolCommit: null };
+        if (r.ok) delete s.rec.transaction;
+        else s.rec.transaction = { ...(s.rec.transaction ?? {}), state: "rollback-unhealthy" };
+        writeRecord(s.stateDir, s.rec);
+        if (r.ok) writeInstalledSha(s.stateDir, anchored.commit);
+      } catch (e) {
+        report.warnings.push(`record write failed: ${e.message}`);
       }
     }
   }

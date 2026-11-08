@@ -8,7 +8,7 @@ import { bindInstance, resolveDirs } from "./context.mjs";
 import { git, gitTry, verifyClosure, verifyClosureAgainstHead } from "./gitops.mjs";
 import { acquireLock } from "./lock.mjs";
 import { loadPluginFile, template } from "./pluginfile.mjs";
-import { readRecord, reconcile, resolveLive, writeInstalledSha, writeRecord } from "./record.mjs";
+import { readInstalledSha, readRecord, reconcile, resolveLive, writeInstalledSha, writeRecord } from "./record.mjs";
 import { SHA40, ToolError, isObj, refuse, run } from "./util.mjs";
 
 export const REVIEW_FORMAT = "bb-plugin-deploy/review-evidence@1";
@@ -43,9 +43,15 @@ export function refreshLive(s, { write = true } = {}) {
   const r = reconcile(rec, s.live);
   s.rec = r.record;
   s.reconciled = r;
-  if (write && r.changed) {
-    writeRecord(s.stateDir, s.rec);
-    writeInstalledSha(s.stateDir, s.live.commit);
+  if (write && r.changed) writeRecord(s.stateDir, s.rec);
+  // The compatibility file follows what is live even when the record already agrees (an external recovery can leave it stale).
+  s.shaRepairError = null;
+  if (write && s.live.state !== "unknown" && readInstalledSha(s.stateDir) !== s.live.commit) {
+    try {
+      writeInstalledSha(s.stateDir, s.live.commit);
+    } catch (e) {
+      s.shaRepairError = e.message;
+    }
   }
   return s.live;
 }
@@ -144,7 +150,9 @@ export function engineTrust(s, { mode, commit, expectTree, confirmedFirstRun }) 
     if (!pf || !pf.startsWith(`${eng}/`)) throw refuse("the plugin file is not part of the installed build; the installed plugin file must be used");
     requireTrackedClean(eng, pf, "installed build");
     s.trustedRoot = s.live.buildRoot;
-    return { kind: "installed", toolCommit: s.live.stamp?.toolCommit ?? s.live.commit };
+    // A confirmed first run lifts the control-path pause whichever engine runs the deploy.
+    const firstRun = confirmedFirstRun ? verifyFirstRun(s, confirmedFirstRun, commit) : null;
+    return { kind: "installed", toolCommit: s.live.stamp?.toolCommit ?? s.live.commit, firstRun };
   }
   let firstRun = null;
   if (confirmedFirstRun) firstRun = verifyFirstRun(s, confirmedFirstRun, commit);

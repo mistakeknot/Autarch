@@ -76,7 +76,7 @@ if (a1 === "source") {
   appendOn("dev");
 } else if (a1 === "config") {
   if (a3 === "--json") console.log(JSON.stringify({ values: S.config }));
-  else if (a3 === "set") { S.config[a4] = args[5]; save(); appendOn("config"); pause(); }
+  else if (a3 === "set") { S.config[a4] = args[5]; save(); appendOn("config"); appendOn("config:" + a4); pause(); }
   else fail("fake bb: unsupported config action");
 } else fail("fake bb: unsupported plugin command " + a1);
 `;

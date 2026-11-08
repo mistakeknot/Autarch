@@ -4,7 +4,7 @@
 import { realpathSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { check, deploy, preview, prepare, publishAll, restoreCommand, rollback } from "./lib/deploy.mjs";
+import { check, deploy, preview, prepare, publishAll, restoreCommand, rollback, tryPublish } from "./lib/deploy.mjs";
 import { gcBuilds } from "./lib/gc.mjs";
 import { gitTry, verifyClosure, verifyClosureAgainstHead } from "./lib/gitops.mjs";
 import { loadPluginFile } from "./lib/pluginfile.mjs";
@@ -89,6 +89,17 @@ function main() {
           else if (s.live.state === "git") verifyClosureAgainstHead({ root: s.live.buildRoot, controlPaths: s.plugin.controlPaths });
           else throw new ToolError(`cannot verify the closure: ${s.live.reason}`, EXIT.REFUSED);
           report.closureVerified = true;
+        }
+        if (f.reconcile) {
+          // Reconcile also brings the published status in line: an older result must not keep a stale update button alive.
+          const pub = tryPublish(s, null);
+          report.status = pub;
+          report.warnings = [pub.warning, s.shaRepairError ? `installed.sha could not be repaired: ${s.shaRepairError}` : null].filter(Boolean);
+          if (s.shaRepairError) {
+            report.ok = false;
+            report.exit = 1;
+            report.message = `reconcile could not repair installed.sha: ${s.shaRepairError}`;
+          }
         }
         break;
       }

@@ -15,10 +15,10 @@ export function childEnv({ serverUrl, lockFd, extra = {}, binDir = testBinDir() 
   return env;
 }
 
-/** Directory of the BB_PLUGIN_DEPLOY_BB test binary, put on the children's PATH so a bare `bb` in a plugin command finds it. */
+/** Directory of the resolved bb binary (when absolute), put on every child's PATH so a bare `bb` in a plugin command or export finds the same bb the tool uses. */
 function testBinDir() {
-  const b = process.env.BB_PLUGIN_DEPLOY_BB;
-  return b && b.startsWith("/") ? dirname(b) : undefined;
+  const b = bbBinary();
+  return b.startsWith("/") ? dirname(b) : undefined;
 }
 
 const isExec = (f) => {
