@@ -57,6 +57,8 @@ function lateHandle() {
 function fixture(cfg: Partial<HomeConfig>, vizierSettings?: VizierSettingsSource) {
   const starts = new Map<string, (signal: AbortSignal) => Promise<void>>();
   const events: Ev[] = [];
+  /** The `limit` of every events call the plugin made. */
+  const asked: number[] = [];
   const tasks = new FakeTasks();
   const project = tasks.addProject("Vizier");
   const bb = {
@@ -75,6 +77,10 @@ function fixture(cfg: Partial<HomeConfig>, vizierSettings?: VizierSettingsSource
           list: async (a: { threadId: string; afterSeq?: string; beforeSeq?: string; limit: string; order: "asc" | "desc" }) => {
             const after = a.afterSeq === undefined ? -Infinity : Number(a.afterSeq);
             const before = a.beforeSeq === undefined ? Infinity : Number(a.beforeSeq);
+            // The bb host rejects a thread-event page above its cap whole (server-contract threads.ts: "Thread event limit
+            // cannot exceed 100"); the cap is written out here, not imported, so a change to the plugin's constant cannot move it.
+            if (Number(a.limit) > 100) throw new Error("invalid_request: Thread event limit cannot exceed 100");
+            asked.push(Number(a.limit));
             const rows = events.filter((e) => a.threadId === VIZ && e.seq > after && e.seq < before).sort((x, y) => (a.order === "asc" ? x.seq - y.seq : y.seq - x.seq));
             return rows.slice(0, Number(a.limit));
           },
@@ -88,7 +94,7 @@ function fixture(cfg: Partial<HomeConfig>, vizierSettings?: VizierSettingsSource
   const ac = new AbortController();
   const run = [starts.get("home-queue")!(ac.signal), starts.get("home-vizier-messages")!(ac.signal)];
   const cards = () => tasks.tasks.filter((t) => t.projectId === project.id && t.description.includes("home-vizier-message:"));
-  return { events, late, cards, tasks, project, bb, stop: async () => (ac.abort(), void (await Promise.all(run))) };
+  return { events, asked, late, cards, tasks, project, bb, stop: async () => (ac.abort(), void (await Promise.all(run))) };
 }
 
 beforeEach(() => {
@@ -111,6 +117,22 @@ describe("the vizier message service, started before its store and tasks client 
     f.late.open(); // readiness, several seconds after the setting was first seen on
     await vi.advanceTimersByTimeAsync(40_000);
     expect(f.cards().map((t) => t.title)).toEqual(["Vizier message: typed while the plugin was coming up"]);
+    await f.stop();
+  });
+
+  it("reads the thread through the host's 100-event page cap, and pages past it", async () => {
+    vi.setSystemTime(1_000_000);
+    const f = fixture({});
+    f.late.open();
+    await vi.advanceTimersByTimeAsync(3_000);
+    // 130 messages typed after the setting was seen on: more than one host page
+    for (let i = 1; i <= 130; i++) f.events.push(ev(i, `message ${i}`, Date.now() + i));
+    vi.setSystemTime(Date.now() + 1_000);
+    await vi.advanceTimersByTimeAsync(40_000);
+    expect(f.cards()).toHaveLength(130);
+    expect(f.asked.length).toBeGreaterThan(1);
+    expect(Math.max(...f.asked)).toBe(100);
+    expect(f.bb.log.warn).not.toHaveBeenCalledWith(expect.stringContaining("invalid_request"));
     await f.stop();
   });
 

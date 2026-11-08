@@ -583,6 +583,44 @@ describe("sdkAdapter against the real threads.send contract", () => {
   });
 });
 
+describe("sdkAdapter.acceptedEvents against the host's thread-event page cap", () => {
+  const HOST_CAP = 100; // written out, not imported: the host's THREAD_EVENT_LIST_PAGE_SIZE
+  const turn = (seq: number) => ({ id: `evt_${seq}`, seq, data: { input: [{ type: "text", text: `turn ${seq}` }] } });
+  const host = (total: number) => {
+    const asked: number[] = [];
+    const threads = {
+      send: async () => ({ delivery: "sent" }),
+      queuedMessages: { list: async () => [], delete: async () => undefined },
+      events: {
+        list: async (a: { limit?: string; beforeSeq?: string; order?: string }) => {
+          const n = Number(a.limit);
+          if (n > HOST_CAP) throw new Error("invalid_request: Thread event limit cannot exceed 100");
+          asked.push(n);
+          const before = a.beforeSeq === undefined ? Infinity : Number(a.beforeSeq);
+          const rows = Array.from({ length: total }, (_, i) => turn(total - i)).filter((e) => e.seq < before);
+          return rows.slice(0, n);
+        },
+      },
+    };
+    return { threads, asked };
+  };
+
+  it("asks for no more than the cap and still reaches an accepted turn 450 events back", async () => {
+    const h = host(450);
+    const got = await sdkAdapter(h.threads as never).acceptedEvents("thr_x");
+    expect(got).toHaveLength(450);
+    expect(got.at(-1)).toEqual({ id: "evt_1", text: "turn 1" });
+    expect(Math.max(...h.asked)).toBe(100);
+  });
+
+  it("stops after the 500 newest, as before", async () => {
+    const h = host(900);
+    const got = await sdkAdapter(h.threads as never).acceptedEvents("thr_x");
+    expect(got).toHaveLength(500);
+    expect(got[0]!.id).toBe("evt_900");
+  });
+});
+
 describe("archived recipient routing (Stalled addendum)", () => {
   it("a 409 to an archived owner retries to the routed successor", async () => {
     loop = new WakeLoop(svc, sdk, async (gone) => (gone === "thr-a" ? "thr-succ" : null));

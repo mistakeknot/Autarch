@@ -6,6 +6,7 @@
 // left `uncertain` until mk picks Resend.
 import type { AttemptRow, ObligationRow, ObligationState } from "./store.js";
 import type { Service } from "./service.js";
+import { THREAD_EVENT_PAGE_CAP, threadEventLimit } from "./hostLimits.js";
 
 export type SendResult = { delivery: "sent"; messageId?: string } | { delivery: "queued"; queuedMessageId: string };
 export interface QueuedRow {
@@ -463,6 +464,9 @@ export class WakeLoop {
   }
 }
 
+/** How many of a thread's newest accepted turns `acceptedEvents` looks through. */
+const ACCEPTED_EVENTS_REACH = 500;
+
 // ---- the real SDK --------------------------------------------------------------------
 
 type Part = { type?: string; text?: string };
@@ -476,7 +480,7 @@ export interface ThreadsLike {
     list(a: { threadId: string }): Promise<unknown>;
     delete(a: { threadId: string; queuedMessageId: string }): Promise<unknown>;
   };
-  events: { list(a: { threadId: string; types?: readonly string[]; limit?: string; order?: "asc" | "desc" }): Promise<unknown> };
+  events: { list(a: { threadId: string; types?: readonly string[]; limit?: string; order?: "asc" | "desc"; beforeSeq?: string }): Promise<unknown> };
 }
 
 /**
@@ -507,11 +511,24 @@ export function sdkAdapter(threads: ThreadsLike): WakeSdk {
       await threads.queuedMessages.delete({ threadId, queuedMessageId: id });
     },
     async acceptedEvents(threadId) {
-      const rows = (await threads.events.list({ threadId, types: ["client/turn/requested"], limit: "500", order: "desc" })) as {
-        id: string;
-        data?: { input?: unknown };
-      }[];
-      return rows.map((r) => ({ id: r.id, text: textOf(r.data?.input) }));
+      // The newest ACCEPTED_EVENTS_REACH accepted turns, newest first, in pages of the host's cap: one call may not ask
+      // for more than THREAD_EVENT_PAGE_CAP (the host rejects it), so a larger look-back is several calls.
+      const out: AcceptedEvent[] = [];
+      let beforeSeq: number | undefined;
+      for (let page = 0; page < ACCEPTED_EVENTS_REACH / THREAD_EVENT_PAGE_CAP; page++) {
+        const rows = (await threads.events.list({
+          threadId,
+          types: ["client/turn/requested"],
+          limit: threadEventLimit(THREAD_EVENT_PAGE_CAP),
+          order: "desc",
+          ...(beforeSeq !== undefined ? { beforeSeq: String(beforeSeq) } : {}),
+        })) as { id: string; seq?: number; data?: { input?: unknown } }[];
+        for (const r of rows) out.push({ id: r.id, text: textOf(r.data?.input) });
+        const last = rows[rows.length - 1];
+        if (rows.length < THREAD_EVENT_PAGE_CAP || typeof last?.seq !== "number") break;
+        beforeSeq = last.seq;
+      }
+      return out;
     },
   };
 }

@@ -31,6 +31,8 @@ const OLD = "thr_old";
 const HOUR = 3_600_000;
 const T0 = 400 * 24 * HOUR; // the host clock when the setting is first seen on
 const SECRET = "SECRET-OPERATOR-WORDS";
+/** The host's own page cap for thread events, written out here so a change to the plugin's constant cannot move it. */
+const HOST_EVENT_LIMIT = 100;
 
 const text = (t: string) => [{ type: "text", text: t }];
 /** A test event knows which thread it is in (default: the vizier thread); `at` is when the host stamped it. */
@@ -78,6 +80,8 @@ function build(r: Rig, w: World) {
           hook?.();
           if (w.failReads) throw new Error(`thread ${a.threadId} cannot be read ${SECRET}`);
           const all = w.events.filter((e) => (e.threadId ?? VIZ) === a.threadId && (a.beforeSeq === undefined || e.seq < a.beforeSeq));
+          // The host rejects a page above its cap whole (threads.ts: "Thread event limit cannot exceed 100").
+          if (a.limit > HOST_EVENT_LIMIT) throw new Error(`invalid_request: Thread event limit cannot exceed ${HOST_EVENT_LIMIT}`);
           return [...all].sort((x, y) => y.seq - x.seq).slice(0, a.limit);
         },
       },
@@ -188,6 +192,29 @@ describe("filing", () => {
     await vm.tick();
     expect(cards(r).map((t) => t.title)).toEqual(["Vizier message: first", "Vizier message: last"]);
     expect(w.readLog.length).toBeGreaterThan(1); // the window was paged
+  });
+
+  it("never asks the host for a page above its cap of 100 events", async () => {
+    const r = rig();
+    const w = world(r);
+    const { vm, logs } = await started(r, w);
+    w.events.push(evt(1, "needs a card"));
+    w.readLog = [];
+    await vm.tick();
+    expect(cards(r).map((t) => t.title)).toEqual(["Vizier message: needs a card"]);
+    expect(logs.join("\n")).not.toContain("invalid_request");
+  });
+
+  it("reaches a message 4900 events back, so 100-event pages cover as much of the window as 200-event pages did", async () => {
+    const r = rig();
+    const w = world(r);
+    const { vm, logs } = await started(r, w);
+    w.events.push(evt(1, "the oldest"));
+    for (let i = 2; i <= 4900; i++) w.events.push(evt(i, "[bb system] noise", { initiator: "system" }, T0 + 20_000));
+    w.now = T0 + 30_000;
+    await vm.tick();
+    expect(cards(r).map((t) => t.title)).toEqual(["Vizier message: the oldest"]);
+    expect(logs.join("\n")).not.toContain("more than");
   });
 
   it("files nothing for a message without a timestamp (when in doubt, no card)", async () => {
