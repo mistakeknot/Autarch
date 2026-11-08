@@ -12,7 +12,7 @@ const CLICK = "2026-01-02T00:00:00.000Z";
 const deployArgs = (sha: string, mode = "agent") => ["deploy", "--commit", sha, "--class", "plugin-deploy", "--mode", mode];
 const msg = (r: CliResult) => String(r.json?.message ?? r.stderr);
 interface Rec { installed: { commit: string; buildRoot: string } | null; previous: { commit: string; buildRoot: string } | null; history: { event: string; detail: string; commit: string }[] }
-const rec = (): Rec => rig.record() as Rec;
+const rec = (): Rec => JSON.parse(JSON.stringify(rig.record()));
 const info = () => updateInfo(rig.stateDir, rig.requestRaw(), { now: new Date().toISOString(), timerFile: join(rig.root, "no-timer"), procLocks: "/dev/null" });
 
 describe("record --reconcile observes what is live", () => {

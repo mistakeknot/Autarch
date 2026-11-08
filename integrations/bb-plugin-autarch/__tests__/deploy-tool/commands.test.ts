@@ -54,7 +54,7 @@ describe("preview", () => {
     expect(rig.calls().filter((c) => c.args[1] === "dev")).toHaveLength(1);
     expect(rig.mutations()).toEqual(["disable", "install", "enable", "disable", "install", "enable"]);
     expect(rig.source()).toBe(wSource);
-    expect((r.json?.gates as unknown[]).length).toBeGreaterThan(0);
+    expect(((r.json?.gates ?? []) as unknown[]).length).toBeGreaterThan(0);
   });
 
   it("a refusing preview gate installs nothing", () => {

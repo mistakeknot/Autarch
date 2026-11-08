@@ -31,7 +31,7 @@ describe("deploy: happy path", () => {
     // the report carries the rollback and restore-data commands and the last-resort recovery block
     expect(String(r.json?.rollbackCommand)).toContain("rollback");
     expect(String(r.json?.restoreDataCommand)).toContain("restore-data");
-    expect((r.json?.recovery as { lastResort: string }).lastResort).toContain("flock");
+    expect((r.json?.recovery as { lastResort: string } | undefined)?.lastResort).toContain("flock");
   });
 
   it("anchors a legacy (unstamped git) live install by rebuilding it immutably", () => {
@@ -96,7 +96,7 @@ describe("deploy: no bb mutation before the transaction starts", () => {
     expect(r.status).toBe(10);
     expect(r.json?.nothingInstalled).toBe(true);
     expect(rig.mutations()).toEqual([]);
-    expect((r.json?.gates as { ok: boolean; reason: string }[]).some((g) => !g.ok && g.reason === "refused by test")).toBe(true);
+    expect(((r.json?.gates ?? []) as { ok: boolean; reason: string }[]).some((g) => !g.ok && g.reason === "refused by test")).toBe(true);
   });
 
   it("a preInstall check that needs mk exits 20 and installs nothing", () => {
@@ -188,7 +188,7 @@ describe("deploy: failure after mutation recovers to the anchored previous", () 
     expect(rig.mutations().slice(0, 2)).toEqual(["disable", "install"]);
     expect(rig.mutations()).not.toContain("config");
     recovered(r);
-    expect((r.json?.recoveryBlock as { lastResort: string }).lastResort).toContain("flock");
+    expect((r.json?.recoveryBlock as { lastResort: string } | undefined)?.lastResort).toContain("flock");
     expect((rig.record() as { installed: { commit: string } }).installed.commit).toBe(rig.W);
   });
 
