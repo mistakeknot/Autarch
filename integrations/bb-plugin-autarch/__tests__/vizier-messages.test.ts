@@ -41,6 +41,10 @@ interface World {
   now: number;
   /** Runs inside the thread lookup, to put a message in the gap between activation and the first read. */
   onList?: () => void;
+  /** Threads whose events cannot be read (deleted, or refusing reads). */
+  failReads?: Set<string>;
+  /** Every event read, when a test wants to see what was fetched. */
+  readLog?: { threadId: string; afterSeq?: number }[];
 }
 
 function build(r: Rig, w: World) {
@@ -58,6 +62,8 @@ function build(r: Rig, w: World) {
           return rows;
         },
         events: async (a) => {
+          w.readLog?.push({ threadId: a.threadId, ...(a.afterSeq !== undefined ? { afterSeq: a.afterSeq } : {}) });
+          if (w.failReads?.has(a.threadId)) throw new Error(`thread ${a.threadId} cannot be read ${SECRET}`);
           const all = w.events.filter((e) => (e.threadId ?? VIZ) === a.threadId && (a.afterSeq === undefined || e.seq > a.afterSeq) && (a.beforeSeq === undefined || e.seq < a.beforeSeq));
           const sorted = [...all].sort((x, y) => (a.order === "asc" ? x.seq - y.seq : y.seq - x.seq));
           return sorted.slice(0, a.limit);
@@ -184,8 +190,13 @@ describe("idempotency", () => {
     w.events.push(evt(1, "once"));
     await vm.tick();
     // the same event comes back, as from a replay, with a stale cursor
-    r.svc.store.setSetting("vizierMessageState", JSON.stringify({ ...JSON.parse(r.svc.store.setting("vizierMessageState")!), seq: 0 }));
+    const stale = JSON.parse(r.svc.store.setting("vizierMessageState")!) as { threads: Record<string, { seq: number }> };
+    expect(stale.threads[VIZ]!.seq).toBe(1);
+    stale.threads[VIZ]!.seq = 0;
+    r.svc.store.setSetting("vizierMessageState", JSON.stringify(stale));
+    w.readLog = [];
     await vm.tick();
+    expect(w.readLog).toContainEqual({ threadId: VIZ, afterSeq: 0 }); // the event was fetched again, and still got no second card
     // and the same id again under a new seq
     w.events.push({ ...evt(2, "once"), id: "evt_1" });
     await vm.tick();
@@ -322,7 +333,7 @@ describe("the setting", () => {
   });
 });
 
-type TestWatch = { seq: number | null; boundary?: number; scan?: number; retry?: { id: string; tries: number; next: number }; closedAt?: number };
+type TestWatch = { seq: number | null; boundary?: number; scan?: number; retry?: { id: string; tries: number; next: number }; closedAt?: number; fail?: { tries: number; next: number } };
 type TestState = { active: boolean; since: number; threadId: string | null; threads: Record<string, TestWatch> };
 const rawState = (r: Rig) => JSON.parse(r.svc.store.setting("vizierMessageState")!) as TestState;
 /** The state with the selected thread's cursor and retry lifted to the top, for the plain assertions. */
@@ -644,6 +655,142 @@ describe("a failed message survives a change of vizier thread", () => {
     w.events.push(evt(1, "fresh in the new thread", {}, 4100, NEW));
     await vm.tick();
     expect(cards(r).map((t) => t.title)).toEqual(["Vizier message: fresh in the new thread"]);
+  });
+});
+
+describe("a pending message and the setting turned off and on, in the same thread", () => {
+  it("files what was typed before the setting went off, and nothing typed while it was off", async () => {
+    const r = rig();
+    const w = world(r);
+    const { vm } = await started(r, w);
+    w.events.push(evt(1, "the one that failed", {}, 2000), evt(2, "behind it, before the switch-off", {}, 2500));
+    failN(r, "createTask", 1);
+    await vm.tick();
+    expect(cards(r)).toHaveLength(0);
+    w.enabled = false;
+    w.now = 3000;
+    await vm.tick();
+    w.events.push(evt(3, "typed while it was off", {}, 3500));
+    w.enabled = true;
+    w.now = 3000 + 60_000; // after the backoff
+    w.events.push(evt(4, "typed after it came back", {}, 63_500));
+    await build(r, w).make().tick();
+    expect(cards(r).map((t) => t.title).sort()).toEqual(["Vizier message: behind it, before the switch-off", "Vizier message: the one that failed", "Vizier message: typed after it came back"]);
+    // the drained watch is gone and the thread has one open watch
+    expect(Object.keys(rawState(r).threads)).toEqual([VIZ]);
+    expect(rawState(r).threads[VIZ]!.closedAt).toBeUndefined();
+    await build(r, w).make().tick();
+    expect(cards(r)).toHaveLength(3);
+  });
+
+  it("files nothing from the disabled period when the thread is chosen again after a rotation away", async () => {
+    const r = rig();
+    const w = world(r);
+    const { vm } = await started(r, w);
+    w.events.push(evt(1, "the one that failed", {}, 2000));
+    failN(r, "createTask", 1);
+    await vm.tick();
+    w.rows = [row(VIZ, `${PREFIX} (old)`, { archivedAt: 3000 }), row("thr_other", `${PREFIX} (other)`, { pinnedAt: 3500 })];
+    w.now = 4000;
+    await vm.tick(); // rotated away, backing off
+    w.events.push(evt(2, "typed while it was not the vizier thread", {}, 4500));
+    w.rows = [row(VIZ, `${PREFIX} (main)`, { pinnedAt: 5000 }), row("thr_other", "something else", { pinnedAt: 3500 })];
+    w.now = 5000 + 60_000;
+    await vm.tick();
+    expect(cards(r).map((t) => t.title)).toEqual(["Vizier message: the one that failed"]);
+    // and the thread goes on being watched from its new boundary
+    w.events.push(evt(3, "typed once it was the vizier thread again", {}, w.now + 500));
+    await vm.tick();
+    expect(cards(r).map((t) => t.title)).toEqual(["Vizier message: the one that failed", "Vizier message: typed once it was the vizier thread again"]);
+  });
+});
+
+describe("an earlier vizier thread that cannot be read", () => {
+  const NEW = "thr_new";
+  const rotate = (w: World) => {
+    w.rows = [row(VIZ, `${PREFIX} (old)`, { archivedAt: 3000 }), row(NEW, `${PREFIX} (new)`, { pinnedAt: 3500 })];
+  };
+
+  it("does not hold up the current thread, keeps its owed message, and files it once it can be read", async () => {
+    const r = rig();
+    const w = world(r);
+    const { vm, logs } = await started(r, w);
+    w.events.push(evt(1, "owed", {}, 2000));
+    failN(r, "createTask", 1);
+    await vm.tick();
+    rotate(w);
+    w.now = 4000;
+    w.failReads = new Set([VIZ]); // the old thread cannot be read
+    w.events.push(evt(1, "fresh in the new thread", {}, 4100, NEW));
+    await vm.tick();
+    expect(cards(r).map((t) => t.title)).toEqual(["Vizier message: fresh in the new thread"]);
+    expect(rawState(r).threads[VIZ]).toMatchObject({ retry: { id: "evt_1" }, closedAt: 4000, fail: { tries: 1 } });
+    expect(logs.some((l) => l.includes("could not read an earlier vizier thread"))).toBe(true);
+    expect(logs.join("\n")).not.toContain(SECRET);
+    // the current thread keeps filing on later passes, and the old one is left alone inside its wait
+    w.events.push(evt(2, "another in the new thread", {}, 4200, NEW));
+    w.now = 4000 + 1000;
+    const reads: NonNullable<World["readLog"]> = [];
+    w.readLog = reads;
+    await vm.tick();
+    expect(reads.filter((x) => x.threadId === VIZ)).toHaveLength(0);
+    expect(cards(r)).toHaveLength(2);
+    expect(rawState(r).threads[VIZ]!.fail!.tries).toBe(1);
+    // it becomes readable again (also after a restart): the owed message is filed, and the thread is forgotten
+    w.failReads = undefined;
+    w.now = 4000 + 10 * 60_000;
+    await build(r, w).make().tick();
+    expect(cards(r).map((t) => t.title).sort()).toEqual(["Vizier message: another in the new thread", "Vizier message: fresh in the new thread", "Vizier message: owed"]);
+    expect(Object.keys(rawState(r).threads)).toEqual([NEW]);
+  });
+
+  it("keeps a thread that stays unreadable, as a deleted one does, while the current thread keeps filing", async () => {
+    const r = rig();
+    const w = world(r);
+    const { vm } = await started(r, w);
+    w.events.push(evt(1, "owed", {}, 2000));
+    failN(r, "createTask", 1);
+    await vm.tick();
+    rotate(w);
+    w.failReads = new Set([VIZ]);
+    for (let i = 1; i <= 4; i++) {
+      w.now = 4000 + i * 11 * 60_000;
+      w.events.push(evt(i, `new ${i}`, {}, w.now + 1, NEW));
+      await vm.tick();
+    }
+    expect(cards(r).map((t) => t.title)).toEqual(["Vizier message: new 1", "Vizier message: new 2", "Vizier message: new 3", "Vizier message: new 4"]);
+    expect(rawState(r).threads[VIZ]).toMatchObject({ retry: { id: "evt_1" }, fail: { tries: 4 } });
+  });
+
+  it("keeps at most eight earlier threads and says which it let go", async () => {
+    const r = rig();
+    const w = world(r);
+    const { vm, logs } = await started(r, w);
+    w.failReads = new Set();
+    for (let i = 0; i < 12; i++) {
+      const id = `thr_v${i}`;
+      w.rows = [row(id, `${PREFIX} (${i})`, { pinnedAt: 1000 + i })];
+      w.now = 2000 + i * 1000;
+      await vm.tick(); // watches it from its start
+      w.failReads.add(id); // then it stops being readable
+    }
+    const keys = Object.keys(rawState(r).threads);
+    expect(keys).toHaveLength(9); // eight earlier threads and the current one
+    expect(keys).toContain("thr_v11");
+    expect(keys).not.toContain("thr_viz");
+    expect(logs.filter((l) => l.includes("dropped the oldest"))).not.toHaveLength(0);
+  });
+});
+
+describe("state written by the first version", () => {
+  it("is read as the selected thread's watch, with its cursor and pending retry", async () => {
+    const r = rig();
+    const w = world(r, { events: [evt(1, "already dealt with", {}, 2000), evt(2, "owed from before", {}, 2100), evt(3, "newer", {}, 2200)] });
+    r.svc.store.setSetting("vizierMessageState", JSON.stringify({ active: true, since: 1000, threadId: VIZ, seq: 1, retry: { id: "evt_2", tries: 1, next: 0 } }));
+    await build(r, w).make().tick();
+    expect(cards(r).map((t) => t.title)).toEqual(["Vizier message: owed from before", "Vizier message: newer"]);
+    expect(rawState(r).threads[VIZ]).toMatchObject({ seq: 3 });
+    expect(rawState(r).threads[VIZ]!.retry).toBeUndefined();
   });
 });
 

@@ -34,6 +34,8 @@ const STUCK_AFTER = 5;
 const STUCK_LOG_EVERY = 10;
 const PAGE = 500;
 const MAX_PAGES_PER_TICK = 20;
+/** Closed watches kept at once (each is an earlier vizier thread with work left); past this the oldest is let go, loudly. */
+const MAX_OLD_WATCHES = 8;
 const TEXT_MAX = 6000;
 const TITLE_MAX = 80;
 const LABEL_COLOR = "#0ea5e9";
@@ -167,6 +169,10 @@ interface Watch {
   retry?: Retry;
   /** Set once the thread is no longer the vizier thread: only messages created before it are still filed. */
   closedAt?: number;
+  /** The thread this watch reads, when it is parked under a key of its own (a closed watch of a thread chosen again). */
+  of?: string;
+  /** Reading this (closed) thread's events failed: leave it alone until `next`. Its work is kept. */
+  fail?: { tries: number; next: number };
 }
 interface State {
   /** True while the setting is on. Each false->true change starts a new watch. */
@@ -198,6 +204,8 @@ function readWatch(v: unknown): Watch | null {
     ...(num(w.scan) ? { scan: w.scan } : {}),
     ...(retry ? { retry } : {}),
     ...(num(w.closedAt) ? { closedAt: w.closedAt } : {}),
+    ...(typeof w.of === "string" && w.of !== "" ? { of: w.of } : {}),
+    ...(w.fail && num(w.fail.tries) && num(w.fail.next) ? { fail: { tries: w.fail.tries, next: w.fail.next } } : {}),
   };
 }
 
@@ -439,20 +447,28 @@ export class VizierMessages {
       const at = this.clock();
       const threads = { ...st.threads };
       if (st.threadId && threads[st.threadId]) threads[st.threadId] = { ...threads[st.threadId]!, closedAt: threads[st.threadId]!.closedAt ?? at };
-      const w = threads[threadId];
-      if (w) {
-        const { closedAt: _closed, ...open } = w; // chosen again before it drained: it is the vizier thread once more
-        threads[threadId] = open;
-      }
       st = { ...st, threadId, threads };
       this.writeState(st);
     }
-    // First watch of this thread: the boundary is the later of the activation and the pin, so nothing older gets a
-    // card but nothing created since then is skipped either.
-    if (!st.threads[threadId]) {
-      st = this.put(st, threadId, { seq: null, boundary: Math.max(st.since, row.pinnedAt ?? 0) });
-      this.writeState(st);
+    // A closed watch of this thread (it stopped being the vizier thread, or the setting went off with a message
+    // pending) is parked under a key of its own and keeps draining to its cutoff. The thread starts a new watch
+    // after that cutoff, so what was typed while it was not the vizier thread is never filed.
+    let floor = 0;
+    const closed = st.threads[threadId];
+    if (closed?.closedAt !== undefined) {
+      let key = `${threadId}#${closed.closedAt}`;
+      while (st.threads[key]) key += "+";
+      const threads = { ...st.threads };
+      delete threads[threadId];
+      threads[key] = { ...closed, of: threadId };
+      st = { ...st, threads };
+      floor = closed.closedAt;
     }
+    // First watch of this thread: the boundary is the latest of the activation, the pin and any earlier cutoff, so
+    // nothing older gets a card but nothing created since then is skipped either.
+    if (!st.threads[threadId]) st = this.put(st, threadId, { seq: null, boundary: Math.max(st.since, row.pinnedAt ?? 0, floor) });
+    st = this.trim(st, threadId);
+    this.writeState(st);
     this.stage = "list projects";
     const projects = await this.d.tasks.listProjects();
     const want = cfg.project.trim().toLowerCase();
@@ -460,41 +476,79 @@ export class VizierMessages {
     const pass: PassCache = {};
     // Old threads first (they only drain), then the selected one. One thread's stuck message never holds up another.
     const order = [...Object.keys(st.threads).filter((id) => id !== threadId).sort(), threadId];
-    for (const id of order) st = await this.watch(st, id, project?.id ?? null, cfg.project, pass);
+    for (const id of order) {
+      const old = id !== threadId;
+      const f = st.threads[id]?.fail;
+      if (old && f && this.clock() < f.next) continue; // still waiting out a failed read
+      try {
+        st = await this.watch(st, id, project?.id ?? null, cfg.project, pass);
+        if (st.threads[id]?.fail) {
+          const { fail: _ok, ...rest } = st.threads[id]!;
+          st = this.put(st, id, rest);
+          this.writeState(st);
+        }
+      } catch (err) {
+        if (!old) throw err; // the selected thread's failure is the pass's failure, with the pass backoff
+        // An old thread that cannot be read (deleted, refusing reads) keeps its work and waits; the others go on.
+        st = this.readState() ?? st;
+        const cur = st.threads[id];
+        if (cur) {
+          const tries = (cur.fail?.tries ?? 0) + 1;
+          const wait = Math.min(BACKOFF_BASE_MS * 2 ** (tries - 1), BACKOFF_CAP_MS);
+          st = this.put(st, id, { ...cur, fail: { tries, next: this.clock() + wait } });
+          this.writeState(st);
+          this.d.log.warn(`vizier-messages: could not read an earlier vizier thread at "${this.stage}" (try ${tries}, next in ${Math.round(wait / 1000)}s): ${errCode(err)}; its pending messages are kept`);
+        }
+      }
+    }
+  }
+
+  /** Keep at most MAX_OLD_WATCHES closed watches: past that, the one closed longest ago is let go, and the log says so. */
+  private trim(st: State, selected: string): State {
+    const olds = Object.entries(st.threads).filter(([k]) => k !== selected);
+    if (olds.length <= MAX_OLD_WATCHES) return st;
+    olds.sort((a, b) => (a[1].closedAt ?? 0) - (b[1].closedAt ?? 0) || a[0].localeCompare(b[0]));
+    let next = st;
+    for (const [k, w] of olds.slice(0, olds.length - MAX_OLD_WATCHES)) {
+      next = this.put(next, k, null);
+      this.d.log.warn(`vizier-messages: more than ${MAX_OLD_WATCHES} earlier vizier threads are still being worked; dropped the oldest (${w.of ?? k}${w.retry ? ", with a message still waiting" : ""})`);
+    }
+    return next;
   }
 
   /** Work one thread's events from its cursor: baseline first, then message by message. Returns the new state. */
-  private async watch(start: State, threadId: string, projectId: string | null, projectName: string, pass: PassCache): Promise<State> {
+  private async watch(start: State, key: string, projectId: string | null, projectName: string, pass: PassCache): Promise<State> {
     let st = start;
-    let w = st.threads[threadId];
+    let w = st.threads[key];
     if (!w) return st;
+    const threadId = w.of ?? key; // the thread whose events are read; a parked watch has a key of its own
     if (w.seq === null) {
       const found = await this.baseline(threadId, w.boundary ?? st.since, w.scan);
       if ("scan" in found) {
-        st = this.put(st, threadId, { ...w, scan: found.scan });
+        st = this.put(st, key, { ...w, scan: found.scan });
         this.writeState(st);
         this.d.log.info(`vizier-messages: still looking for where to start in ${threadId} (read down to message ${found.scan}); it continues on the next pass`);
         return st;
       }
       const { scan: _scan, ...rest } = w;
       w = { ...rest, seq: found.seq };
-      st = this.put(st, threadId, w);
+      st = this.put(st, key, w);
       this.writeState(st);
       this.d.log.info(`vizier-messages: watching ${threadId} from message ${found.seq}; earlier messages get no card`);
     }
     for (let page = 0; page < MAX_PAGES_PER_TICK; page++) {
       this.stage = "read messages";
-      const cursor = st.threads[threadId]!.seq!;
+      const cursor = st.threads[key]!.seq!;
       const rows = (await this.d.threads.events({ threadId, afterSeq: cursor, limit: PAGE, order: "asc" })).filter((e) => e.seq > cursor).sort((a, b) => a.seq - b.seq);
       for (const e of rows) {
-        const cur = st.threads[threadId]!;
-        // A closed thread files only what was typed before it stopped being the vizier thread.
-        if (cur.closedAt !== undefined && num(e.createdAt) && e.createdAt > cur.closedAt) return this.done(st, threadId);
+        const cur = st.threads[key]!;
+        // A closed thread files only what was typed before it stopped being the vizier thread; with no timestamp, when in doubt, no card.
+        if (cur.closedAt !== undefined && (!num(e.createdAt) || e.createdAt > cur.closedAt)) return this.done(st, key);
         const c = classify(e);
         const filed = this.readFiled();
         const rid = e.data?.requestId;
         if (c.kind === "skip" || filed[e.id] || (rid && filed[`req:${rid}`])) {
-          st = this.advance(st, threadId, e, null); // not an operator message, or a replay of one already filed
+          st = this.advance(st, key, e, null); // not an operator message, or a replay of one already filed
           continue;
         }
         if (!projectId) {
@@ -504,28 +558,30 @@ export class VizierMessages {
         if (cur.retry?.id === e.id && this.clock() < cur.retry.next) return st; // still backing off
         try {
           const task = await this.fileOne(projectId, threadId, e, c.text, pass);
-          st = this.advance(st, threadId, e, task.id);
+          st = this.advance(st, key, e, task.id);
           this.d.log.info(`vizier-messages: filed ${task.key} for message ${e.seq}`);
         } catch (err) {
           // The cursor stays on the message before this one: it is retried until it has a card, never skipped.
           const tries = (cur.retry?.id === e.id ? cur.retry.tries : 0) + 1;
           const wait = Math.min(BACKOFF_BASE_MS * 2 ** (tries - 1), BACKOFF_CAP_MS);
-          st = this.put(st, threadId, { ...cur, retry: { id: e.id, tries, next: this.clock() + wait } });
+          st = this.put(st, key, { ...cur, retry: { id: e.id, tries, next: this.clock() + wait } });
           this.writeState(st);
           this.d.log.warn(`vizier-messages: message ${e.seq} not filed at "${this.stage}" (try ${tries}, next in ${Math.round(wait / 1000)}s): ${errCode(err)}`);
           if (tries >= STUCK_AFTER && tries % STUCK_LOG_EVERY === STUCK_AFTER % STUCK_LOG_EVERY) this.d.log.warn(`vizier-messages: STUCK on message ${e.seq}: no later message in this thread gets a card until this one is filed`);
           return st;
         }
       }
-      if (rows.length < PAGE) return this.done(st, threadId);
+      if (rows.length < PAGE) return this.done(st, key);
     }
     return st;
   }
 
   /** Reached the end of a thread's events: a closed thread is finished and forgotten, the selected one keeps its cursor. */
-  private done(st: State, threadId: string): State {
-    if (st.threads[threadId]?.closedAt === undefined) return st;
-    const next = this.put(st, threadId, null);
+  private done(st: State, key: string): State {
+    const w = st.threads[key];
+    if (w?.closedAt === undefined) return st;
+    if (w.retry) this.d.log.warn(`vizier-messages: an earlier vizier thread ended with a message still waiting for a card, and no more of it can be read`);
+    const next = this.put(st, key, null);
     this.writeState(next);
     return next;
   }
