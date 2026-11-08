@@ -6,7 +6,7 @@
 // same instance or in a second instance built by a plugin reload. Across processes and restarts the only guard is the
 // marker line on the card itself, searched across every status (closed cards included) before a card is made. The
 // "overlapping runs" tests below drive both.
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import type { ThreadRow } from "../delegation.js";
 import { TasksClient } from "../tasks.js";
 import {
@@ -58,6 +58,8 @@ interface World {
   readLog?: { threadId: string; beforeSeq?: number }[];
   /** Passed to the watcher as the time the service first saw the setting on. */
   observedAt?: number;
+  /** Runs inside the first event read, before it returns: a thread that changes while the read is pending. */
+  duringRead?: () => void;
 }
 
 function build(r: Rig, w: World) {
@@ -70,6 +72,10 @@ function build(r: Rig, w: World) {
         listRows: async () => w.rows,
         events: async (a) => {
           w.readLog?.push({ threadId: a.threadId, ...(a.beforeSeq !== undefined ? { beforeSeq: a.beforeSeq } : {}) });
+          const hook = w.duringRead;
+          w.duringRead = undefined;
+          await Promise.resolve();
+          hook?.();
           if (w.failReads) throw new Error(`thread ${a.threadId} cannot be read ${SECRET}`);
           const all = w.events.filter((e) => (e.threadId ?? VIZ) === a.threadId && (a.beforeSeq === undefined || e.seq < a.beforeSeq));
           return [...all].sort((x, y) => y.seq - x.seq).slice(0, a.limit);
@@ -323,6 +329,31 @@ describe("limit (c): off until switched on, and the switch-on time", () => {
     expect(w.readLog).toBeUndefined();
   });
 
+  it("when turned off after an enabled run, reads only its own settings key, resets it, and touches no thread or task", async () => {
+    const r = rig();
+    const w = world(r, { rows: [row(OLD, `${PREFIX} (v1)`)] });
+    const { vm } = await started(r, w);
+    expect(saved(r)).toEqual({ onAt: T0, lastRunAt: T0 });
+    w.enabled = false;
+    w.readLog = [];
+    const calls = r.fake.calls.length;
+    const reads = vi.spyOn(r.svc.store, "setting");
+    const writes = vi.spyOn(r.svc.store, "setSetting");
+    await vm.tick();
+    expect(reads.mock.calls).toEqual([["vizierMessagePoll"]]);
+    expect(writes.mock.calls).toEqual([["vizierMessagePoll", "null"]]);
+    expect(saved(r)).toBeNull();
+    expect(w.readLog).toHaveLength(0);
+    expect(r.fake.calls).toHaveLength(calls);
+    expect(cards(r)).toHaveLength(0);
+    // and a further disabled run writes nothing at all
+    reads.mockClear();
+    writes.mockClear();
+    await vm.tick();
+    expect(reads.mock.calls).toEqual([["vizierMessagePoll"]]);
+    expect(writes.mock.calls).toEqual([]);
+  });
+
   it("records the switch-on time, and never files a message at or before it", async () => {
     const r = rig();
     const w = world(r, { events: [evt(1, "typed an hour before", {}, T0 - HOUR), evt(2, "typed exactly at switch-on", {}, T0)] });
@@ -387,6 +418,78 @@ describe("limit (a): an old vizier thread after it is replaced", () => {
     const made = cards(r).map((t) => t.title);
     expect(made).toEqual(["Vizier message: typed in the old thread while it was current", "Vizier message: typed in the new thread"]);
     expect(w.readLog.every((x) => x.threadId === VIZ)).toBe(true); // the old thread is never read again
+  });
+});
+
+describe("limit (a), mid-run: the thread changes while its messages are being read", () => {
+  it("files nothing and keeps the heartbeat when the thread is replaced during the read", async () => {
+    const r = rig();
+    const w = world(r, { rows: [row(OLD, `${PREFIX} (v1)`)] });
+    const { vm, logs } = await started(r, w);
+    const before = saved(r);
+    w.events.push(evt(1, "typed in the old thread, after the replacement", {}, T0 + 12_000, OLD));
+    w.now = T0 + 15_000;
+    w.duringRead = () => {
+      w.rows = [row(OLD, `${PREFIX} (v1)`, { archivedAt: 9 }), row(VIZ, `${PREFIX} (v2)`)];
+    };
+    await vm.tick();
+    expect(cards(r)).toHaveLength(0);
+    expect(saved(r)).toEqual(before);
+    expect(logs.join("\n")).toContain("the vizier thread changed while the messages were being read");
+    // the next run reads the new thread only
+    w.events.push(evt(1, "typed in the new thread", {}, T0 + 21_000));
+    w.now = T0 + 30_000;
+    w.readLog = [];
+    await vm.tick();
+    expect(cards(r).map((t) => t.title)).toEqual(["Vizier message: typed in the new thread"]);
+    expect(w.readLog.every((x) => x.threadId === VIZ)).toBe(true);
+    expect(saved(r)!.lastRunAt).toBe(T0 + 30_000);
+  });
+
+  it("files nothing and keeps the heartbeat when the thread is archived during the read and none replaces it", async () => {
+    const r = rig();
+    const w = world(r);
+    const { vm, logs } = await started(r, w);
+    const before = saved(r);
+    w.events.push(evt(1, "typed just before it was archived", {}, T0 + 12_000));
+    w.now = T0 + 15_000;
+    w.duringRead = () => {
+      w.rows = [row(VIZ, `${PREFIX} (main)`, { archivedAt: 9 })];
+    };
+    await vm.tick();
+    expect(cards(r)).toHaveLength(0);
+    expect(saved(r)).toEqual(before);
+    expect(logs.join("\n")).toContain("the vizier thread changed");
+  });
+
+  it("files nothing and keeps the heartbeat when a second match appears during the read", async () => {
+    const r = rig();
+    const w = world(r);
+    const { vm, logs } = await started(r, w);
+    const before = saved(r);
+    w.events.push(evt(1, "typed while the selection turned ambiguous", {}, T0 + 12_000));
+    w.now = T0 + 15_000;
+    w.duringRead = () => {
+      w.rows = [row(VIZ, `${PREFIX} (main)`), row("thr_b", `${PREFIX} (second)`)];
+    };
+    await vm.tick();
+    expect(cards(r)).toHaveLength(0);
+    expect(saved(r)).toEqual(before);
+    expect(logs.join("\n")).toContain("2 pinned, unarchived threads match");
+    expect(logs.join("\n")).toContain("the vizier thread changed");
+  });
+
+  it("files normally when the selection does not change during the read", async () => {
+    const r = rig();
+    const w = world(r);
+    const { vm } = await started(r, w);
+    w.events.push(evt(1, "an ordinary message", {}, T0 + 12_000));
+    w.now = T0 + 15_000;
+    w.duringRead = () => {
+      w.rows = [row(VIZ, `${PREFIX} (main)`), row("thr_x", "Something else")];
+    };
+    await vm.tick();
+    expect(cards(r)).toHaveLength(1);
   });
 });
 

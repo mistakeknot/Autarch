@@ -404,6 +404,21 @@ export class VizierMessages {
         this.why(`no tasks project matches "${cfg.project}"; nothing is filed`);
         return true;
       }
+      // The thread can be unpinned, archived, replaced or made ambiguous while the reads above were pending. Warm the
+      // label and the marker search first (they are the last slow steps), then resolve the selection again, and file
+      // nothing unless it is still the same unique thread. An abandoned run does not advance the heartbeat.
+      try {
+        const labelId = await this.label(project.id, run);
+        await this.priors(project.id, labelId, run);
+      } catch (err) {
+        this.d.log.warn(`vizier-messages: run stopped at "${this.stage}": ${errCode(err)}; it is tried again next run`);
+        return false;
+      }
+      const again = await this.resolve(cfg.titlePrefix);
+      if (again !== threadId) {
+        this.d.log.info(`vizier-messages: the vizier thread changed while the messages were being read (${threadId} is no longer the one pinned, unarchived match); nothing is filed this run`);
+        return true; // not a complete run: the heartbeat stays where it was
+      }
       for (const { e, text } of messages) {
         try {
           const r = await this.fileOne(project.id, threadId, e, text, run);
