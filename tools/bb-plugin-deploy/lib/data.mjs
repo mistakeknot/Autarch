@@ -63,6 +63,7 @@ export function makeBackup({ plugin, vars, backupsRoot, stateDir, commit, previo
   mkdirSync(dir, { mode: 0o700 });
   chmodSync(dir, 0o700);
   const manifest = { format: BACKUP_FORMAT, pluginId: plugin.pluginId, createdAt: nowIso(), commit, previousSource: previousPluginDir, data: [], exports: [], warnings: [] };
+  const pointers = [];
   for (const e of plugin.data) {
     const src = template(e.path, vars);
     if (e.backup === "once-per-commit") {
@@ -70,7 +71,8 @@ export function makeBackup({ plugin, vars, backupsRoot, stateDir, commit, previo
       if (existsSync(f)) {
         try {
           const ref = JSON.parse(readFileSync(f, "utf8"));
-          if (ref.dir && existsSync(join(ref.dir, e.name))) {
+          // Reuse only a backup that finished: its manifest is valid for this plugin and it holds the entry.
+          if (ref.dir && existsSync(join(ref.dir, e.name)) && backupComplete(ref.dir, plugin.pluginId)) {
             manifest.data.push({ name: e.name, kind: e.kind, src, skipped: "once-per-commit", ref: ref.dir });
             continue;
           }
@@ -100,7 +102,7 @@ export function makeBackup({ plugin, vars, backupsRoot, stateDir, commit, previo
       rec.files = manifestOfDir(dst);
     }
     manifest.data.push(rec);
-    if (e.backup === "once-per-commit") writeFileAtomic(onceFile(stateDir, e.name, commit), JSON.stringify({ dir, at: nowIso() }) + "\n");
+    if (e.backup === "once-per-commit") pointers.push(onceFile(stateDir, e.name, commit));
   }
   for (const x of plugin.export) {
     const argv = templateArgv(x.run, vars);
@@ -117,7 +119,19 @@ export function makeBackup({ plugin, vars, backupsRoot, stateDir, commit, previo
   }
   writeFileAtomic(join(dir, "previous-source.txt"), `${previousPluginDir}\n`);
   writeFileAtomic(join(dir, "manifest.json"), JSON.stringify(manifest, null, 2) + "\n");
+  // A once-per-commit pointer is published only now that the exports and manifest.json are complete.
+  for (const f of pointers) writeFileAtomic(f, JSON.stringify({ dir, at: nowIso() }) + "\n");
   return { dir, manifest };
+}
+
+/** True when `dir` holds a finished backup of this plugin (a readable manifest of the right format). */
+function backupComplete(dir, pluginId) {
+  try {
+    loadManifest(dir, pluginId);
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 /** Reads and validates a backup directory's manifest (format, plugin id). */

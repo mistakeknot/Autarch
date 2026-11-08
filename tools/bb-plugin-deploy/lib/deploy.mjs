@@ -146,6 +146,9 @@ function targetVars(s, o, target) {
   return baseVars(s, { class: o.cls ?? "none", targetRoot: target.root, targetPluginDir: target.pluginDir, targetCommit: target.commit, buildDir: target.root });
 }
 
+/** What recovery leaves the plugin as: the policy, except that a plugin that was disabled before is never forced on. */
+const leavesAfterRecovery = (s) => (s.plugin.rollbackLeaves === "enabled" && s.wasEnabled === false ? "disabled" : s.plugin.rollbackLeaves);
+
 function recoverTo(s, anchored) {
   const out = { ran: true, ok: false, detail: "" };
   try {
@@ -156,7 +159,7 @@ function recoverTo(s, anchored) {
     }
     s.bb.install(anchored.pluginDir);
     let healthy = true;
-    if (s.plugin.rollbackLeaves === "enabled") {
+    if (leavesAfterRecovery(s) === "enabled") {
       s.bb.enable();
       healthy = !!pollUntil(() => s.bb.isRunning(), 60, s.env);
       if (!healthy) out.detail = "the previous version did not come up running";
@@ -174,7 +177,7 @@ function recoverTo(s, anchored) {
 }
 
 function recoveryText(s, anchored) {
-  const args = { serverUrl: s.serverUrl, pluginId: s.plugin.pluginId, anchoredBuild: anchored.buildRoot, pluginDirRel: s.plugin.pluginDir, rollbackLeaves: s.plugin.rollbackLeaves };
+  const args = { serverUrl: s.serverUrl, pluginId: s.plugin.pluginId, anchoredBuild: anchored.buildRoot, pluginDirRel: s.plugin.pluginDir, rollbackLeaves: leavesAfterRecovery(s) };
   return { lastResort: recoveryBlock({ ...args, stateDir: s.stateDir }), bare: bareRecovery(args) };
 }
 
@@ -224,6 +227,7 @@ export function deploy(s, o) {
     runPhase("preInstall", s.plugin.preInstall, vars);
     phase("anchor-previous");
     anchored = anchorPrevious({ plugin: s.plugin, live: s.live, buildsRoot: s.dirs.buildsRoot, vars, toolCommit: trust.toolCommit, lockFd: s.lockFd, log: s.log });
+    s.wasEnabled = s.bb.isEnabled();
     report.previous = anchored;
     phase("backup");
     backup = makeBackup({ plugin: s.plugin, vars, backupsRoot: s.dirs.backupsRoot, stateDir: s.stateDir, commit: target.commit, previousPluginDir: anchored.pluginDir, serverUrl: s.serverUrl, lockFd: s.lockFd, env: s.env, log: s.log });
@@ -522,6 +526,7 @@ export async function preview(s, o) {
     const f = failureOf(results, "previewGate");
     if (f) throw f;
     anchored = anchorPrevious({ plugin: s.plugin, live: s.live, buildsRoot: s.dirs.buildsRoot, vars, toolCommit: trust.toolCommit, lockFd: s.lockFd, log: s.log });
+    s.wasEnabled = s.bb.isEnabled();
     report.rollbackHint = `bb plugin install --yes ${anchored.pluginDir}`;
     backup = makeBackup({ plugin: s.plugin, vars, backupsRoot: s.dirs.backupsRoot, stateDir: s.stateDir, commit: st.commit, previousPluginDir: anchored.pluginDir, serverUrl: s.serverUrl, lockFd: s.lockFd, env: s.env, log: s.log });
     report.backup = backup.dir;
