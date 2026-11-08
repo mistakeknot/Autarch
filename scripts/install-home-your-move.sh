@@ -93,6 +93,43 @@ PLUGIN=$REPO/integrations/bb-plugin-autarch
 # the service user's home that holds a bb-app-runtime.json, and an ambiguous or missing one is fatal).
 MKHOME=$(getent passwd mk 2>/dev/null | cut -d: -f6 || true)
 DATA= BB=
+# shared destination lock: begin (mk-zq345.5)
+# --go and --rollback take <state dir>/lock, the file the update runner already locks, before they resolve bb or read anything about
+# the installed build, and hold it to the end of the process (--check changes nothing and takes none). A caller that already holds
+# it (the runner's fd 9, or BPD_LOCK_FD) is recognised by descriptor, never by environment alone: the fd must be open, name the same
+# device:inode as the lock file, and pass flock -n. Otherwise this opens its own descriptor and waits, at most HOME_UI_LOCK_WAIT
+# seconds (default 2100, 35 minutes). HOME_UI_LOCK=skip lets --rollback run without the lock (mk only, emergency).
+lock_holder() {   # $1 = lock file; prints the pid /proc/locks names, or nothing
+  local ino; ino=$(stat -c %i "$1" 2>/dev/null) || return 0
+  awk -v i="$ino" '$2 != "->" { n = split($6, a, ":"); if (a[n] == i) { print $5; exit } }' /proc/locks 2>/dev/null || true
+}
+take_lock() {   # $1 = mode
+  local st=${HOME_UI_STATE_DIR:-$MKHOME/.local/state/autarch-home-update} l f a b w=${HOME_UI_LOCK_WAIT:-2100}
+  l=$st/lock
+  if [ "${HOME_UI_LOCK:-}" = skip ]; then
+    if [ "$1" = rollback ]; then
+      echo "HOME_UI_LOCK=skip: running WITHOUT the destination lock. RACE RISK: the update runner or a tool deploy can install a build between this command's steps. Emergency use only." >&2
+      return 0
+    fi
+    echo "HOME_UI_LOCK=skip applies to --rollback only; taking the lock" >&2
+  fi
+  [ -d "$st" ] || { echo "WARNING: no state dir $st; running without the destination lock" >&2; return 0; }
+  f=${BPD_LOCK_FD:-9}; case $f in ''|*[!0-9]*) f=9 ;; esac
+  a=$(stat -L -c %d:%i "/proc/self/fd/$f" 2>/dev/null || true); b=$(stat -c %d:%i "$l" 2>/dev/null || true)
+  if [ -z "$a" ] || [ "$a" != "$b" ]; then
+    if [ ! -e "$l" ]; then
+      : >>"$l" || { echo "cannot create the destination lock $l" >&2; exit 64; }
+      [ "$(id -u)" -ne 0 ] || chown --reference="$st" "$l"   # as root, the file stays the service user's, as the runner needs it
+    fi
+    exec {f}>>"$l" || { echo "cannot open the destination lock $l" >&2; exit 64; }
+  fi
+  if ! flock -n "$f"; then
+    echo "waiting for the destination lock (held by pid $(lock_holder "$l")); giving up after ${w}s" >&2
+    flock -w "$w" "$f" || { echo "another deploy holds the lock (pid $(lock_holder "$l"))" >&2; exit 75; }
+  fi
+}
+case $MODE in go|rollback) take_lock "$MODE" ;; esac
+# shared destination lock: end
 # Test hook, honoured ONLY with --check: HOME_YOUR_MOVE_TEST_DATA_DIR (a dir holding data.db) and HOME_YOUR_MOVE_TEST_BB (a stub
 # bb). Under it the script runs as the current user and skips the git checks. --go and --rollback ignore and refuse it.
 TESTHOOK=0
