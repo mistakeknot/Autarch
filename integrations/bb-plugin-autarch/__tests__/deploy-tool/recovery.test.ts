@@ -7,6 +7,7 @@ import { PLUGIN_DIR, PLUGIN_ID, Rig, waitFor, type CliResult } from "./rig";
 
 let rig: Rig;
 const procs: ChildProcess[] = [];
+const holderState = (): string => (existsSync(`${lockPath()}.state`) ? readFileSync(`${lockPath()}.state`, "utf8").trim() : "no marker");
 afterEach(() => {
   for (const p of procs.splice(0)) p.kill("SIGKILL");
   rig?.cleanup();
@@ -199,9 +200,9 @@ describe("lock inheritance in the block", () => {
   it("a BPD_LOCK_FD with nothing behind it opens its own descriptor and gives up when another process holds the lock", async () => {
     rig = new Rig({ installedKind: "stamped" });
     const { block, W } = deployedBlock();
-    const holder = spawn("bash", ["-c", 'exec 9>>"$1"; flock -n 9 && echo held; sleep 120', "holder", lockPath()], { stdio: ["ignore", "pipe", "ignore"] });
+    const holder = spawn("bash", ["-c", 'exec 9>>"$1"; if flock -n 9; then echo held > "$1.state"; else echo busy > "$1.state"; fi; exec sleep 120', "holder", lockPath()], { stdio: ["ignore", "pipe", "ignore"] });
     procs.push(holder);
-    expect(waitFor(() => existsSync(lockPath()) && spawnSync("flock", ["-n", lockPath(), "true"]).status !== 0, 20_000)).toBe(true);
+    expect(waitFor(() => existsSync(lockPath()) && spawnSync("flock", ["-n", lockPath(), "true"]).status !== 0, 20_000), `holder state: ${holderState()}`).toBe(true);
     rig.clearCalls();
     const r = spawnSync("bash", ["-c", `export BPD_LOCK_FD=17\n${block}`], { encoding: "utf8", env: bashEnv({ BPD_LOCK_WAIT_SEC: "1" }) });
     expect(r.status, r.stderr + r.stdout).toBe(75);
@@ -212,9 +213,9 @@ describe("lock inheritance in the block", () => {
   it("a descriptor open on some other file is not the lock: the block opens its own and waits", () => {
     rig = new Rig({ installedKind: "stamped" });
     const { block } = deployedBlock();
-    const holder = spawn("bash", ["-c", 'exec 9>>"$1"; flock -n 9 && echo held; sleep 120', "holder", lockPath()], { stdio: ["ignore", "pipe", "ignore"] });
+    const holder = spawn("bash", ["-c", 'exec 9>>"$1"; if flock -n 9; then echo held > "$1.state"; else echo busy > "$1.state"; fi; exec sleep 120', "holder", lockPath()], { stdio: ["ignore", "pipe", "ignore"] });
     procs.push(holder);
-    expect(waitFor(() => existsSync(lockPath()) && spawnSync("flock", ["-n", lockPath(), "true"]).status !== 0, 20_000)).toBe(true);
+    expect(waitFor(() => existsSync(lockPath()) && spawnSync("flock", ["-n", lockPath(), "true"]).status !== 0, 20_000), `holder state: ${holderState()}`).toBe(true);
     rig.clearCalls();
     const other = join(rig.root, "not-the-lock");
     const r = spawnSync("bash", ["-c", `exec 9>"${other}"\n${block}`], { encoding: "utf8", env: bashEnv({ BPD_LOCK_WAIT_SEC: "1" }) });

@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from "vitest";
-import { closeSync, existsSync, openSync, writeFileSync } from "node:fs";
+import { closeSync, existsSync, openSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { spawn, spawnSync, type ChildProcess } from "node:child_process";
 import { LOCK_WAIT_CAP_SEC, candidateFd, fdIsLockFile, lockWaitSec } from "../../../../tools/bb-plugin-deploy/lib/lock.mjs";
@@ -7,6 +7,7 @@ import { Rig, waitFor, type CliResult, type Json } from "./rig";
 
 let rig: Rig;
 const procs: ChildProcess[] = [];
+const holderState = (): string => (existsSync(`${lockPath()}.state`) ? readFileSync(`${lockPath()}.state`, "utf8").trim() : "no marker");
 afterEach(() => {
   for (const p of procs.splice(0)) p.kill("SIGKILL");
   rig?.cleanup();
@@ -21,7 +22,7 @@ const exited = (p: ChildProcess): Promise<number | null> => new Promise((res) =>
 
 /** A separate process that holds the lock on fd 9 (the runner's way) until killed. */
 function holder(): ChildProcess {
-  const p = spawn("bash", ["-c", 'exec 9>"$1"; flock -n 9 && echo held; sleep 120', "holder", lockPath()], { stdio: ["ignore", "pipe", "ignore"] });
+  const p = spawn("bash", ["-c", 'exec 9>"$1"; if flock -n 9; then echo held > "$1.state"; else echo busy > "$1.state"; fi; exec sleep 120', "holder", lockPath()], { stdio: ["ignore", "pipe", "ignore"] });
   procs.push(p);
   return p;
 }
@@ -29,7 +30,7 @@ function holding(): ChildProcess {
   const p = holder();
   // the event loop is blocked by waitFor, so probe the lock itself: held once a non-blocking flock on it fails
   const heldNow = () => existsSync(lockPath()) && spawnSync("flock", ["-n", lockPath(), "true"]).status !== 0;
-  expect(waitFor(heldNow, 20_000)).toBe(true);
+  expect(waitFor(heldNow, 20_000), `holder state: ${holderState()}`).toBe(true);
   return p;
 }
 
