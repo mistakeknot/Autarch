@@ -1,5 +1,6 @@
 // The one module that talks to the bb CLI (plan 2.4). Every call runs with BB_SERVER_URL taken from the bound
 // instance's runtime file, BB_HOST_DAEMON_PORT cleared, a fixed PATH and no shell.
+import { spawn } from "node:child_process";
 import { accessSync, constants, statSync } from "node:fs";
 import { dirname } from "node:path";
 import { ToolError, fixedPath, run } from "./util.mjs";
@@ -108,7 +109,46 @@ export function makeBb(cfg) {
     disable: () => call(["plugin", "disable", pluginId]),
     enable: () => call(["plugin", "enable", pluginId]),
     install: (dir) => call(["plugin", "install", "--yes", dir]),
-    dev: (dir) => call(["plugin", "dev", dir], { timeoutMs: 600_000 }),
+    /**
+     * `bb plugin dev` as an asynchronous child, so the caller's event loop (and its signal handlers) keeps running while
+     * it does. Returns {done: Promise<{code, signal, stdout, stderr, error?}>, stop()}. stop() asks it to end, and kills
+     * it if it has not within 5 s.
+     */
+    dev(dir, { timeoutMs = 600_000 } = {}) {
+      log(`bb plugin dev ${dir}`);
+      const stdio = ["ignore", "pipe", "pipe"];
+      for (const n of fds()) {
+        for (let i = 3; i < n; i++) stdio[i] ??= "ignore";
+        stdio[n] = n;
+      }
+      const child = spawn(bin, ["plugin", "dev", dir], { env: env(), stdio });
+      let stdout = "";
+      let stderr = "";
+      const keep = (cur, chunk) => (cur + chunk).slice(-64 * 1024);
+      child.stdout.on("data", (c) => (stdout = keep(stdout, c)));
+      child.stderr.on("data", (c) => (stderr = keep(stderr, c)));
+      const timer = setTimeout(() => child.kill("SIGKILL"), timeoutMs);
+      let hard = null;
+      const done = new Promise((resolveDone) => {
+        let error;
+        child.once("error", (e) => {
+          error = e.code === "ENOENT" ? new ToolError("bb CLI not found on PATH") : e;
+        });
+        child.once("close", (code, signal) => {
+          clearTimeout(timer);
+          if (hard) clearTimeout(hard);
+          resolveDone({ code, signal, stdout, stderr, error });
+        });
+      });
+      return {
+        done,
+        stop() {
+          if (child.exitCode !== null || child.signalCode !== null) return;
+          child.kill("SIGTERM");
+          hard ??= setTimeout(() => child.kill("SIGKILL"), 5_000);
+        },
+      };
+    },
     configValues() {
       return json(["plugin", "config", pluginId, "--json"]).values ?? {};
     },

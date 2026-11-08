@@ -81,6 +81,26 @@ function validateArgs(s, { commit, cls, mode }) {
 }
 
 /**
+ * The control-path diff and the pause decision (plan 2.2). Shared by deploy, check, prepare and preview, so no command
+ * runs or installs a target that changes deploy tooling without mk's reviewed install or a confirmed first run.
+ * @returns {string[]|null} the changed control paths (null when the diff cannot be computed)
+ */
+function enforceControlPause(s, { root, commit, mode, trust, installedCommit, mkArgs, record }) {
+  const control = controlDiff({ repoDir: root, from: installedCommit, to: commit, controlPaths: s.plugin.controlPaths });
+  const needsPause = control === null || control.length > 0;
+  if (needsPause && mode !== "mk-script" && !trust.firstRun) {
+    const a = (installedCommit ?? "unknown").slice(0, 12);
+    const msg = `deploy tooling changed between ${a} and ${commit.slice(0, 12)}: needs mk's reviewed install or a confirmed first run. To install by mk script:\n${mkScriptCommand(s, mkArgs)}`;
+    if (record) {
+      addHistory(s.rec, "pause", commit, msg.split("\n")[0]);
+      writeRecord(s.stateDir, s.rec);
+    }
+    throw needsMk(msg, { paused: true, control, target: { root, commit } });
+  }
+  return control;
+}
+
+/**
  * Trust, ancestry, build and control-path diff, shared by check, prepare, deploy and preview.
  * @returns {{trust:object, target:object, control:string[]|null, firstRun:object|null, scratch:boolean}}
  */
@@ -107,17 +127,7 @@ export function prepareTarget(s, o, { scratch = false } = {}) {
   let control = null;
   // The control-path diff and the pause decision happen before any build command runs.
   const beforeBuild = ({ root }) => {
-    control = controlDiff({ repoDir: root, from: installedCommit, to: commit, controlPaths: s.plugin.controlPaths });
-    const needsPause = control === null || control.length > 0;
-    if (needsPause && mode !== "mk-script" && !trust.firstRun) {
-      const a = (installedCommit ?? "unknown").slice(0, 12);
-      const msg = `deploy tooling changed between ${a} and ${commit.slice(0, 12)}: needs mk's reviewed install or a confirmed first run. To install by mk script:\n${mkScriptCommand(s, ["deploy", "--commit", commit, "--class", cls, "--mode", "mk-script"])}`;
-      if (!scratch) {
-        addHistory(s.rec, "pause", commit, msg.split("\n")[0]);
-        writeRecord(s.stateDir, s.rec);
-      }
-      throw needsMk(msg, { paused: true, control, target: { root, commit } });
-    }
+    control = enforceControlPause(s, { root, commit, mode, trust, installedCommit, mkArgs: ["deploy", "--commit", commit, "--class", cls, "--mode", "mk-script"], record: !scratch });
   };
   // A directory that already existed is somebody else's build (maybe the installed or rollback one): never remove it.
   const destExisted = existsSync(dest);
@@ -230,6 +240,7 @@ export function deploy(s, o) {
 
   // ---- mutation begins here: the first mutating bb call is the disable --------------------------------------
   const baselines = {};
+  let pub = null;
   try {
     mutated = true;
     const vars = targetVars(s, o, target);
@@ -276,13 +287,15 @@ export function deploy(s, o) {
     writeRecord(s.stateDir, next);
     s.rec = next;
     writeInstalledSha(s.stateDir, target.commit);
+    // status.json is the last of the success writes. A computation problem (no mirror, no latest) withholds it and is a
+    // warning; a failure to WRITE it (or result.json) is a failed deploy and is rolled back like the other writes.
+    pub = publishAll(s, wantResult ? { sha: target.commit, ok: true, message: `deployed ${target.commit.slice(0, 12)} (${o.mode})` } : null);
   } catch (e) {
     return failAfter(s, report, asToolError(e), o, wantResult, anchored, target);
   }
 
   // ---- success ------------------------------------------------------------------------------------------------
   const rec = s.rec;
-  const pub = tryPublish(s, wantResult ? { sha: target.commit, ok: true, message: `deployed ${target.commit.slice(0, 12)} (${o.mode})` } : null);
   report.status = pub;
   if (pub.warning) report.warnings.push(pub.warning);
   try {
@@ -401,9 +414,14 @@ function rollbackTarget(s, o) {
 export function rollback(s, o) {
   const report = { command: "rollback", ok: false, exit: EXIT.ERROR, gates: [], warnings: [], message: "" };
   let tgt;
+  const mode = o.mode ?? "agent";
   try {
-    tgt = rollbackTarget(s, o);
+    if (!MODES.includes(mode)) throw refuse(`--mode must be one of ${MODES.join(", ")}`);
     if (s.live.state === "unknown") throw refuse(`cannot roll back: ${s.live.reason}`);
+    tgt = rollbackTarget(s, o);
+    // The same engine trust as a deploy, before anything mutates: the installed, verified engine, or a verified clone
+    // only for mk's script or a confirmed first run naming the build being installed.
+    engineTrust(s, { mode, commit: tgt.commit, expectTree: o.expectTree, confirmedFirstRun: o.confirmedFirstRun });
   } catch (e) {
     const err = asToolError(e);
     report.exit = err.code === EXIT.REFUSED ? err.code : EXIT.ERROR;
@@ -424,7 +442,7 @@ export function rollback(s, o) {
   const failures = [];
   try {
     s.rec.previous = from ?? null;
-    s.rec.installed = { commit: tgt.commit, tree: tgt.tree, buildRoot: tgt.buildRoot, pluginDir: tgt.pluginDir, installedAt: new Date().toISOString(), by: { mode: o.mode ?? "agent", actor: s.env.BPD_ACTOR || "unknown" }, backup: null, toolCommit: null };
+    s.rec.installed = { commit: tgt.commit, tree: tgt.tree, buildRoot: tgt.buildRoot, pluginDir: tgt.pluginDir, installedAt: new Date().toISOString(), by: { mode, actor: s.env.BPD_ACTOR || "unknown" }, backup: null, toolCommit: null };
     addHistory(s.rec, "rollback", tgt.commit, `from ${from?.commit?.slice(0, 12) ?? "unknown"}`);
     writeRecord(s.stateDir, s.rec);
   } catch (e) {
@@ -449,28 +467,48 @@ export function rollback(s, o) {
   return report;
 }
 
-/** `preview`: previewGate checks, backup, install the preview build, run `bb plugin dev`, always restore the previous build. */
-export function preview(s, o) {
+const PREVIEW_SIGNALS = ["SIGINT", "SIGTERM", "SIGHUP"];
+
+/**
+ * `preview`: previewGate checks, backup, install the preview build, run `bb plugin dev`, always restore the previous build.
+ * Async because the dev session must not block signal delivery: SIGINT, SIGTERM and SIGHUP stop the dev session and the
+ * previous build is restored before the process exits. (SIGKILL cannot be caught; the `preview` transaction in the
+ * record then names the anchored build and the backup.)
+ */
+export async function preview(s, o) {
   const mode = o.mode ?? "agent";
   const report = { command: "preview", ok: false, exit: EXIT.ERROR, mode, gates: [], warnings: [], message: "" };
   let dir = o.path ? resolve(o.path) : null;
   let anchored = null;
   let mutated = false;
   let backup = null;
+  let priorPrevious = null;
+  let interrupted = null;
+  let session = null;
+  const onSignal = (sig) => {
+    interrupted ??= sig;
+    session?.stop();
+  };
+  const hold = () => PREVIEW_SIGNALS.forEach((sig) => process.on(sig, onSignal));
+  const release = () => PREVIEW_SIGNALS.forEach((sig) => process.off(sig, onSignal));
   try {
     if (!MODES.includes(mode)) throw refuse(`--mode must be one of ${MODES.join(", ")}`);
     let st;
     let trust;
+    const installedCommit = s.live?.state === "unknown" ? null : s.live?.commit;
+    const control = (root, commit) => enforceControlPause(s, { root, commit, mode, trust, installedCommit, mkArgs: o.path ? ["preview", "--path", root, "--mode", "mk-script"] : ["preview", "--commit", commit, "--mode", "mk-script"], record: true });
     if (dir) {
       st = verifyStamp(dir, s.plugin);
       trust = engineTrust(s, { mode, commit: st.commit, expectTree: o.expectTree, confirmedFirstRun: o.confirmedFirstRun });
+      control(dir, st.commit);
     } else {
       if (!SHA40.test(o.commit ?? "")) throw refuse("--commit must be a full 40-hex sha");
       trust = engineTrust(s, { mode, commit: o.commit, expectTree: o.expectTree, confirmedFirstRun: o.confirmedFirstRun });
       dir = newBuildDir(s.dirs.buildsRoot, s.plugin.pluginId, o.commit, s.env);
       const existed = existsSync(dir);
       try {
-        buildCommit({ plugin: s.plugin, commit: o.commit, expectTree: o.expectTree, dest: dir, toolCommit: trust.toolCommit, vars: baseVars(s, { class: "preview" }), lockFd: s.lockFd, log: s.log });
+        // The pause is decided before any build command runs, as for a deploy.
+        buildCommit({ plugin: s.plugin, commit: o.commit, expectTree: o.expectTree, dest: dir, toolCommit: trust.toolCommit, vars: baseVars(s, { class: "preview" }), lockFd: s.lockFd, log: s.log, beforeBuild: ({ root }) => control(root, o.commit) });
       } catch (e) {
         if (!existed) rmSync(dir, { recursive: true, force: true });
         throw e;
@@ -487,18 +525,28 @@ export function preview(s, o) {
     report.rollbackHint = `bb plugin install --yes ${anchored.pluginDir}`;
     backup = makeBackup({ plugin: s.plugin, vars, backupsRoot: s.dirs.backupsRoot, stateDir: s.stateDir, commit: st.commit, previousPluginDir: anchored.pluginDir, serverUrl: s.serverUrl, lockFd: s.lockFd, env: s.env, log: s.log });
     report.backup = backup.dir;
+    // Signals are held from before the first mutation until the previous build is back. A signal that arrives during a
+    // synchronous bb call is acted on as soon as that call returns.
+    hold();
     // The anchor and an in-progress marker reach disk before the first mutating call (a killed preview is then recoverable).
-    s.rec.previous = anchored;
+    // `previous` (the rollback target) is the record's, not the preview's: it is kept and put back afterwards.
+    priorPrevious = s.rec.previous ?? null;
     s.rec.transaction = { state: "mutating", kind: "preview", commit: st.commit, startedAt: new Date().toISOString(), phase: "preview", previous: anchored, backup: backup.dir };
     writeRecord(s.stateDir, s.rec);
     mutated = true;
     s.bb.disable();
     s.bb.install(join(dir, s.plugin.pluginDir));
     s.bb.enable();
-    s.bb.dev(join(dir, s.plugin.pluginDir));
+    if (!interrupted) {
+      session = s.bb.dev(join(dir, s.plugin.pluginDir));
+      if (interrupted) session.stop();
+      const r = await session.done;
+      session = null;
+      if (!interrupted && (r.error || r.code !== 0)) throw new ToolError(`bb plugin dev failed (${r.error ? r.error.message : `exit ${r.code}${r.signal ? `, ${r.signal}` : ""}`}): ${(r.stderr || r.stdout).trim().slice(0, 400)}`);
+    }
     report.ok = true;
     report.exit = EXIT.OK;
-    report.message = "preview ended";
+    report.message = interrupted ? `preview ended by ${interrupted}` : "preview ended";
   } catch (e) {
     const err = asToolError(e);
     report.exit = err.code === EXIT.REFUSED || err.code === EXIT.NEEDS_MK ? err.code : EXIT.ERROR;
@@ -514,6 +562,7 @@ export function preview(s, o) {
       }
       try {
         s.rec.installed = { ...anchored, installedAt: new Date().toISOString(), by: { mode: "recovery", actor: s.env.BPD_ACTOR || "unknown" }, backup: null, toolCommit: null };
+        s.rec.previous = priorPrevious;
         if (r.ok) delete s.rec.transaction;
         else s.rec.transaction = { ...(s.rec.transaction ?? {}), state: "rollback-unhealthy" };
         writeRecord(s.stateDir, s.rec);
@@ -522,6 +571,7 @@ export function preview(s, o) {
         report.warnings.push(`record write failed: ${e.message}`);
       }
     }
+    release();
   }
   return report;
 }

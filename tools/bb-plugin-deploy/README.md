@@ -35,11 +35,11 @@ cli.mjs <command> --plugin-file PATH [--bb-data DIR] [--state-dir DIR] [--host-f
 | `check --commit SHA --class C` | Runs every check that `deploy` would run before it changes anything. |
 | `prepare --commit SHA --class C` | Clones, verifies and builds into a build directory. Installs nothing. |
 | `deploy --commit SHA --class C --mode agent\|runner\|mk-script` | The full transaction (below). |
-| `rollback [--to previous\|--build DIR]` | Reinstalls the previous (or a named) verified build. |
+| `rollback [--to previous\|--build DIR]` | Reinstalls the previous (or a named) verified build. It follows the same engine trust rule as `deploy` (`--mode`, `--confirmed-first-run`): outside `mk-script` mode only the installed build's tool, with an unmodified control closure, may roll back. |
 | `restore-data --backup DIR [--check]` | Restores a plugin's sqlite data from a deploy backup and reinstalls the build that was live then. Without `--check` it needs `--mode mk-script`. |
-| `preview --commit SHA \| --path DIR` | Installs a commit (or an already built directory) for a dev session, then restores the anchored build. Follows the same trust rule as `deploy` (`--mode`, `--confirmed-first-run`), runs the plugin's `previewGate` first, takes a data backup, and records a `preview` transaction in `record.json` while it runs. It adds no history event and leaves `installed` and `installed.sha` as they were. |
+| `preview --commit SHA \| --path DIR` | Installs a commit (or an already built directory) for a dev session, then restores the anchored build. Follows the same trust rule as `deploy` (`--mode`, `--confirmed-first-run`), runs the plugin's `previewGate` first, takes a data backup, and records a `preview` transaction in `record.json` while it runs. It adds no history event and leaves `installed`, `previous` and `installed.sha` as they were (the anchor lives only in the transaction). A target that changes the control paths is paused (exit 20) exactly as for `deploy`, for `--commit` and `--path` alike, unless `--mode mk-script` or a confirmed first run. SIGINT, SIGTERM and SIGHUP are held from before the first mutation: the dev session is stopped and the anchored build restored before exit (a signal that arrives during a synchronous bb call is acted on when that call returns; SIGKILL cannot be caught, and the open transaction tells the next command to recover). |
 | `update-tick` | Reads the plugin's update request (a click in the plugin's settings), and deploys it in runner mode if it is new and has review evidence. Always publishes status. |
-| `gc [--apply]` | Lists, or with `--apply` removes, old builds beyond the plugin's retention. The installed and previous builds are never removed. |
+| `gc [--apply]` | Lists, or with `--apply` removes, old builds beyond the plugin's retention. The installed and previous builds are never removed, and "newest" is decided by the UTC stamp in the build name, not by the commit prefix. |
 
 ### Exit codes
 
@@ -80,7 +80,7 @@ crash can be understood afterwards:
    is the last `configAfterEnable` key's `config set` (or the end of
    `postEnablePreConfig` when there are no keys), so a line written while an
    earlier key was set does not count.
-7. On success write `installed.sha`, `record.json`, then `status.json` last.
+7. On success write `installed.sha`, `record.json`, then `status.json` last. A failure to write `status.json` or `result.json` counts as a failed deploy and rolls back; a failure to compute the status, or to mirror it, only warns (or withholds the status, as above).
    If any of those writes fails the deploy counts as failed and is rolled
    back. A rollback (the command) that has already changed what is live tries
    each bookkeeping write on its own; if one fails it exits 1, says bb is
@@ -192,3 +192,7 @@ install or the live updater state.
   (for example a signed receipt) is left to the runner wiring in a later slice.
 - The ancestry check is skipped for `mk-script` mode, with a warning.
 - `node_modules` is excluded from the control-closure walk.
+
+## Recovery commands
+
+The rollback, restore-data and reconcile commands the tool prints carry the resolved `--plugin-file`, `--bb-data`, `--state-dir` and `--host-file`, and every word is shell-quoted, so pasting one opens the same destination that produced it.

@@ -95,11 +95,17 @@ export function bindInstance({ bbData, pluginId, env = process.env }) {
   return { serverUrl: rt.serverUrl, runtime: rt, pluginRoot };
 }
 
-/** The build directories under buildsRoot/<pluginId>, newest name last. */
+const byStamp = (a, b) => {
+  const ta = a.slice(13);
+  const tb = b.slice(13);
+  return ta < tb ? -1 : ta > tb ? 1 : a < b ? -1 : a > b ? 1 : 0;
+};
+
+/** The build directories under buildsRoot/<pluginId>, oldest first by the UTC stamp in the name (not by the commit prefix). */
 export function listBuildDirs(buildsRoot, pluginId) {
   const dir = join(buildsRoot, pluginId);
   try {
-    return readdirSync(dir, { withFileTypes: true }).filter((d) => d.isDirectory() && !d.isSymbolicLink() && /^[0-9a-f]{12}-\d{8}T\d{6}Z$/.test(d.name)).map((d) => join(dir, d.name)).sort();
+    return readdirSync(dir, { withFileTypes: true }).filter((d) => d.isDirectory() && !d.isSymbolicLink() && /^[0-9a-f]{12}-\d{8}T\d{6}Z$/.test(d.name)).map((d) => d.name).sort(byStamp).map((n) => join(dir, n));
   } catch {
     return [];
   }

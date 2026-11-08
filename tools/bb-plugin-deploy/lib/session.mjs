@@ -78,8 +78,12 @@ export function baseVars(s, extra = {}) {
   };
 }
 
+/** Quote one word for a POSIX shell so a path with spaces or metacharacters survives being pasted. */
+export const shellQuote = (w) => (/^[A-Za-z0-9_@%+=:,./-]+$/.test(w) ? w : `'${String(w).replace(/'/g, `'\\''`)}'`);
+
+/** A command mk can paste: it carries the resolved destination (bb data, state dir, host file), not the defaults. */
 export function mkScriptCommand(s, args) {
-  return ["node", s.cliPath, ...args, "--plugin-file", s.pluginFile, "--bb-data", s.bbData].join(" ");
+  return ["node", s.cliPath, ...args, "--plugin-file", s.pluginFile, "--bb-data", s.bbData, "--state-dir", s.stateDir, "--host-file", s.dirs.hostFile].map(shellQuote).join(" ");
 }
 
 /** The first sqlite data entry is Home's own database; confirmed-first-run evidence lives there. */

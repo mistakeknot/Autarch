@@ -73,7 +73,7 @@ if (a1 === "source") {
   if (inj.failInstallMatch && dir.includes(inj.failInstallMatch)) fail("injected install failure for " + dir);
   S.source = dir; save(); appendOn("install"); pause();
 } else if (a1 === "dev") {
-  appendOn("dev");
+  appendOn("dev"); pause();
 } else if (a1 === "config") {
   if (a3 === "--json") console.log(JSON.stringify({ values: S.config }));
   else if (a3 === "set") { S.config[a4] = args[5]; save(); appendOn("config"); appendOn("config:" + a4); pause(); }

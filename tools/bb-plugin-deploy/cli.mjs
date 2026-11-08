@@ -56,7 +56,7 @@ function emit(f, report) {
 
 const gitHead = (root) => gitTry(root, ["rev-parse", "HEAD"]);
 
-function main() {
+async function main() {
   const { command, f } = parseArgs(process.argv.slice(2));
   if (!command || !COMMANDS.includes(command)) throw new ToolError(`usage: cli.mjs <${COMMANDS.join("|")}> --plugin-file PATH [options]`, EXIT.USAGE);
   if (command === "version") {
@@ -124,7 +124,7 @@ function main() {
         report = restoreCommand(s, o);
         break;
       case "preview":
-        report = preview(s, o);
+        report = await preview(s, o);
         break;
       case "update-tick":
         report = updateTick(s, o, readResultFile);
@@ -145,7 +145,7 @@ function main() {
 }
 
 try {
-  process.exitCode = main();
+  process.exitCode = await main();
 } catch (e) {
   const err = e instanceof ToolError ? e : new ToolError(String(e?.stack ?? e));
   const wantJson = process.argv.includes("--json");
