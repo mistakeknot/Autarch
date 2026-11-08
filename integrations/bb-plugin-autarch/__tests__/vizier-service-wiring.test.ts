@@ -309,6 +309,94 @@ describe("the vizier message service follows its settings on every tick, with no
     }
   });
 
+  it("a settings error whose name getter throws still clears the activation, logs once naming only Error, and the service keeps ticking", async () => {
+    vi.setSystemTime(1_000_000);
+    const hostile = new Error("PRIVATE_TEXT");
+    Object.defineProperty(hostile, "name", {
+      get() {
+        throw new Error("PRIVATE_TEXT from the getter");
+      },
+    });
+    let failing = false;
+    const source: VizierSettingsSource = async () => {
+      if (failing) throw hostile;
+      return { vizierMessageCards: true, vizierTitlePrefix: PREFIX, vizierCardProject: "Vizier" };
+    };
+    const f = fixture({ vizierMessageCards: true }, source);
+    const store = f.late.open();
+    await vi.advanceTimersByTimeAsync(1_000);
+    expect(savedOnAt(store)).not.toBeNull(); // activated
+    failing = true;
+    await vi.advanceTimersByTimeAsync(15_000); // the tick that fails
+    expect(savedOnAt(store)).toBeNull(); // cleared before any diagnostic was formatted
+    vi.setSystemTime(Date.now() + 1);
+    f.events.push(ev(1, "typed while the read fails", Date.now()));
+    await vi.advanceTimersByTimeAsync(5 * 60_000);
+    expect(f.cards()).toHaveLength(0);
+    expect(f.tasks.callsOf("createTask")).toHaveLength(0);
+    const warns = (f.bb.log.warn as ReturnType<typeof vi.fn>).mock.calls.map((c) => String(c[0]));
+    expect(warns.filter((m) => m.includes("could not read the settings"))).toEqual(["vizier-messages: could not read the settings: Error; treated as off until a read succeeds"]);
+    expect(warns.filter((m) => m.includes("run failed"))).toEqual([]); // tick() did not reject into its own failure path
+    expect(warns.join("\n")).not.toContain("PRIVATE_TEXT");
+    failing = false; // the loop is still alive: it recovers and files
+    await vi.advanceTimersByTimeAsync(5 * 60_000);
+    vi.setSystemTime(Date.now() + 1);
+    f.events.push(ev(2, "typed after recovery", Date.now()));
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(titles(f)).toEqual(["Vizier message: typed after recovery"]);
+    await f.stop();
+  });
+
+  it("a changing name accessor and a Proxy error name only an allowlisted class, never the text they return", async () => {
+    vi.setSystemTime(1_000_000);
+    const changing = () => {
+      const e = new Error("x");
+      let reads = 0;
+      Object.defineProperty(e, "name", { get: () => (++reads === 1 ? "TypeError" : "PRIVATE_TEXT") });
+      return e;
+    };
+    const cases: [string, () => unknown, string][] = [
+      ["a name that changes after the first read", changing, "TypeError"],
+      ["a Proxy whose get trap throws", () => new Proxy(new Error("x"), { get: () => { throw new Error("PRIVATE_TEXT"); } }), "Error"],
+      ["a Proxy whose prototype lookup throws", () => new Proxy(new Error("x"), { getPrototypeOf: () => { throw new Error("PRIVATE_TEXT"); } }), "Error"],
+      ["a Proxy that returns private text for every property", () => new Proxy(new Error("x"), { get: () => "PRIVATE_TEXT" }), "Error"],
+    ];
+    for (const [label, make, want] of cases) {
+      const warn = vi.fn();
+      const thrown = make();
+      const source: VizierSettingsSource = async () => {
+        throw thrown;
+      };
+      const f = fixture({ vizierMessageCards: true }, source);
+      (f.bb.log as { warn: unknown }).warn = warn;
+      f.late.open();
+      await vi.advanceTimersByTimeAsync(5_000);
+      const msgs = warn.mock.calls.map((c) => String(c[0]));
+      expect(msgs, label).toEqual([`vizier-messages: could not read the settings: ${want}; treated as off until a read succeeds`]);
+      await f.stop();
+    }
+  });
+
+  it("the activation is cleared before the settings warning is written, so a failing logger cannot leave it saved", async () => {
+    vi.setSystemTime(1_000_000);
+    let failing = false;
+    const source: VizierSettingsSource = async () => {
+      if (failing) throw new Error("settings store unavailable");
+      return { vizierMessageCards: true, vizierTitlePrefix: PREFIX, vizierCardProject: "Vizier" };
+    };
+    const f = fixture({ vizierMessageCards: true }, source);
+    const store = f.late.open();
+    await vi.advanceTimersByTimeAsync(1_000);
+    expect(savedOnAt(store)).not.toBeNull();
+    (f.bb.log as { warn: unknown }).warn = (m: string) => {
+      if (m.includes("could not read the settings")) throw new Error("the logger failed");
+    };
+    failing = true;
+    await vi.advanceTimersByTimeAsync(15_000);
+    expect(savedOnAt(store)).toBeNull();
+    await f.stop();
+  });
+
   it("a settings read that fails from the start files nothing", async () => {
     vi.setSystemTime(1_000_000);
     const live = liveSettings({ ...OFF, vizierMessageCards: true });

@@ -173,25 +173,45 @@ const sameName = (a: string, b: string) => a.toLowerCase() === b.toLowerCase();
  * failed call can echo what was submitted, and that is the operator's message.
  */
 const KNOWN_ERROR_NAMES = new Set(["Error", "TypeError", "RangeError", "SyntaxError", "ReferenceError", "EvalError", "URIError", "AbortError", "TimeoutError", "TasksError"]);
+/** The allowlisted constant matching a captured name, or "Error". Returns the set's own string, never the input. */
+function knownName(n: unknown): string {
+  if (typeof n === "string") for (const k of KNOWN_ERROR_NAMES) if (k === n) return k;
+  return "Error";
+}
+
+/**
+ * Never throws, whatever the error is (a throwing getter, a changing accessor, a Proxy): every read of the value is
+ * guarded and happens once.
+ */
 export function errCode(e: unknown): string {
-  if (e instanceof Error) {
-    const op = /^(tasks\.[A-Za-z]+) (failed|refused)/.exec(e.message);
-    if (op) return `${op[1]} ${op[2]}`;
-    // Only a fixed set of class names is logged: a name is whatever the thrower set, and it can carry submitted text.
-    const name = KNOWN_ERROR_NAMES.has(e.name) ? e.name : "Error";
-    const code = (e as { code?: unknown }).code;
-    if (typeof code === "string" && /^[A-Za-z0-9_.-]{1,40}$/.test(code)) return `${name} ${code}`;
-    return name;
+  try {
+    if (e instanceof Error) {
+      const message = e.message;
+      const op = typeof message === "string" ? /^(tasks\.[A-Za-z]+) (failed|refused)/.exec(message) : null;
+      if (op) return `${op[1]} ${op[2]}`;
+      // Only a fixed set of class names is logged: a name is whatever the thrower set, and it can carry submitted text.
+      const name = knownName(e.name);
+      const code = (e as { code?: unknown }).code;
+      if (typeof code === "string" && /^[A-Za-z0-9_.-]{1,40}$/.test(code)) return `${name} ${code}`;
+      return name;
+    }
+    return typeof e;
+  } catch {
+    return "Error";
   }
-  return typeof e;
 }
 
 /**
  * The class name alone, from the fixed set above and nothing else: no code, no operation name, no text. For a failure
- * whose error can come from anywhere (the settings source), where even `errCode` says more than is wanted.
+ * whose error can come from anywhere (the settings source), where even `errCode` says more than is wanted. Never
+ * throws: the name is read once, inside a guard, and the allowlisted constant is returned, not the input.
  */
 export function errClass(e: unknown): string {
-  return e instanceof Error && KNOWN_ERROR_NAMES.has(e.name) ? e.name : "Error";
+  try {
+    return e instanceof Error ? knownName(e.name) : "Error";
+  } catch {
+    return "Error";
+  }
 }
 
 /**
@@ -389,12 +409,13 @@ export class VizierMessages {
     } catch (err) {
       // Fail closed: a run that cannot read its settings is an off run (nothing filed, the switch-on time forgotten),
       // and it counts as incomplete so the loop backs off. Logged once until a read succeeds again.
+      // The reset comes before any diagnostic: nothing about the error is touched until the activation is gone.
+      this.observedAt = undefined;
+      if (this.readSwitch()) this.writeSwitch(null);
       if (!this.configFailing) {
         this.configFailing = true;
         this.d.log.warn(`vizier-messages: could not read the settings: ${errClass(err)}; treated as off until a read succeeds`);
       }
-      this.observedAt = undefined;
-      if (this.readSwitch()) this.writeSwitch(null);
       return false;
     }
     let sw = this.readSwitch();
