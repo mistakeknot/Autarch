@@ -21,6 +21,7 @@
 //     per outage, not one per run.
 //  c. The check does nothing until the setting is on. The time it was switched on is recorded; messages created at or
 //     before it are never filed.
+import { THREAD_EVENT_PAGE_CAP } from "./hostLimits.js";
 import type { Store } from "./store.js";
 import type { Task, TaskLabel, TasksClient } from "./tasks.js";
 import type { ThreadRow } from "./delegation.js";
@@ -32,8 +33,10 @@ const STATE_KEY = "vizierMessagePoll";
 const MARKER_PREFIX = "home-vizier-message: ";
 const REQUEST_PREFIX = "home-vizier-request: ";
 const GAP_PREFIX = "home-vizier-gap: ";
-const PAGE = 200;
-const MAX_PAGES = 25;
+const PAGE = THREAD_EVENT_PAGE_CAP;
+// 50 pages of 100 reach the same 5000 events the earlier 25 pages of 200 did, so the cap on the host's page size does not
+// shorten the reachable part of the 24-hour window.
+const MAX_PAGES = 50;
 const TEXT_MAX = 6000;
 const TITLE_MAX = 80;
 const LABEL_COLOR = "#0ea5e9";

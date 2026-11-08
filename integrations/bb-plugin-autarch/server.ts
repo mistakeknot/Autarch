@@ -7,6 +7,7 @@
 // (cli.ts) and the skill in skills/home/SKILL.md that tells agents how to use it. A write
 // publishes a realtime signal so every open page refetches.
 import { postNoteOnce } from "./notepost.js";
+import { threadEventLimit } from "./hostLimits.js";
 import { existsSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
@@ -380,7 +381,7 @@ export function wireHome(bb: BbPluginApi, handle: StoreHandle, cfg: HomeConfig, 
             const rows: unknown = await bb.sdk.threads.events.list({
               threadId: a.threadId,
               types: ["client/turn/requested"],
-              limit: String(a.limit),
+              limit: threadEventLimit(a.limit),
               order: a.order,
               ...(a.beforeSeq !== undefined ? { beforeSeq: String(a.beforeSeq) } : {}),
             });
