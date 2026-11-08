@@ -49,7 +49,8 @@ function emit(f, report) {
   for (const g of report.gates ?? []) out.push(`  ${g.ok ? "ok  " : "FAIL"} ${g.check}/${g.gate}${g.reason ? `: ${g.reason}` : ""}`);
   for (const w of report.warnings ?? []) out.push(`warning: ${w}`);
   if (report.ok && report.rollbackCommand) out.push("", "To roll back:", report.rollbackCommand, "", "To restore data from this deploy's backup (mk only):", report.restoreDataCommand);
-  if (report.recoveryBlock) out.push("", "Last-resort recovery (if this tool cannot run):", report.recoveryBlock.lastResort);
+  const block = report.recoveryBlock ?? (report.recovery && report.recovery.lastResort ? report.recovery : null);
+  if (block) out.push("", "Last-resort recovery (if this tool cannot run):", block.lastResort);
   process.stdout.write(`${out.join("\n")}\n`);
 }
 

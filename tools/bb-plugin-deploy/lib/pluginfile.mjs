@@ -61,6 +61,8 @@ export function validatePluginObject(p) {
     list(p.data, "data", (e, path) => {
       allow(e, ["name", "kind", "path", "integrity", "schemaQuery", "backup"], path);
       str(e.name, `${path}.name`, { re: /^[A-Za-z0-9_.-]{1,64}$/ });
+      // These names would collide with files the backup writes itself (manifest, previous source, exports).
+      if (typeof e.name === "string" && (e.name === "." || e.name === ".." || e.name === "manifest.json" || e.name === "previous-source.txt" || /^export-.*\.json$/.test(e.name))) bad(`${path}.name`, `${e.name} is reserved`);
       if (!["sqlite", "file", "dir"].includes(e.kind)) bad(`${path}.kind`, "must be sqlite, file or dir");
       tmpl(e.path, `${path}.path`);
       if (e.integrity !== undefined && typeof e.integrity !== "boolean") bad(`${path}.integrity`, "must be a boolean");
@@ -82,6 +84,7 @@ export function validatePluginObject(p) {
     list(p.export, "export", (e, path) => {
       allow(e, ["name", "run", "required"], path);
       str(e.name, `${path}.name`, { re: /^[A-Za-z0-9_.-]{1,64}$/ });
+      if (typeof e.name === "string" && (e.name === "." || e.name === "..")) bad(`${path}.name`, `${e.name} is reserved`);
       argv(e.run, `${path}.run`);
       if (typeof e.required !== "boolean") bad(`${path}.required`, "must be a boolean");
     });

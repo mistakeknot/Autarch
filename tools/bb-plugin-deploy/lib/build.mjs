@@ -55,10 +55,13 @@ export function verifyStamp(buildRoot, plugin) {
  * @param {object} a
  * @returns {{root:string, pluginDir:string, commit:string, tree:string, stamp:object}}
  */
-export function buildCommit({ plugin, commit, expectTree, dest, toolCommit, vars, lockFd, log = () => {} }) {
+export function buildCommit({ plugin, commit, expectTree, dest, toolCommit, vars, lockFd, log = () => {}, beforeBuild = null }) {
   const v = cloneVerify({ repo: plugin.repo, commit, expectTree, dest, lockFd });
   const pluginDir = join(dest, plugin.pluginDir);
   if (!existsSync(pluginDir)) throw refuse(`plugin directory ${plugin.pluginDir} does not exist in ${commit.slice(0, 12)}`);
+  // Runs after the clone is verified and before any build command (npm ci and the like), so a refusal or pause
+  // never executes the commit's own code (plan 2.4).
+  if (beforeBuild) beforeBuild({ root: dest, pluginDir, commit: v.commit, tree: v.tree });
   const bv = { ...vars, targetRoot: dest, targetPluginDir: pluginDir, buildDir: dest, targetCommit: commit };
   const cmds = plugin.build.map((a) => templateArgv(a, bv));
   const stamp = { format: STAMP_FORMAT, pluginId: plugin.pluginId, commit: v.commit, tree: v.tree, builtAt: nowIso(), toolCommit: toolCommit ?? null, buildCommands: cmds, lockSha256: lockfileSha(dest, plugin.pluginDir) };

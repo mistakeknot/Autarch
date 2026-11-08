@@ -64,7 +64,9 @@ crash can be understood afterwards:
    control-path closure).
 3. Trust rule: a change under a control path pauses for mk (exit 20); a first
    run needs a recorded decision; runner mode needs review evidence for the
-   commit.
+   commit. The control diff and the pause happen right after the clone and
+   before any build command runs, and a paused deploy leaves no build
+   directory behind.
 4. Plugin-defined checks and `preflight` gates; build; stamp the build
    directory with its commit and file digests.
 5. Back up the plugin's declared data (sqlite `.backup` plus an integrity
@@ -72,10 +74,21 @@ crash can be understood afterwards:
 6. `preInstall` gates, `bb plugin disable`, `install --yes`, `preEnable`
    gates, `enable`, `postEnablePreConfig` gates, configuration, then health
    checks (kinds: `running`, `log-line`, `process-count`, `check`,
-   `setting-equals`).
+   `setting-equals`). A health baseline (`log-line` with `since` of `install`,
+   `enable` or `config`) is taken immediately before the command it belongs
+   to, so a line that command itself writes is seen.
 7. On success write `installed.sha`, `record.json`, then `status.json` last.
-   On failure reinstall the anchored previous build, verify it is healthy, and
-   report 30 or 31.
+   If any of those writes fails the deploy counts as failed and is rolled
+   back. On failure reinstall the anchored previous build, verify it is
+   healthy, and report 30 or 31.
+
+While the live plugin is being changed, `record.json` carries a `transaction`
+with its state (`mutating`), the current phase, the anchored `previous` build
+and the backup directory. A successful deploy and a successful rollback clear
+it; a rollback whose restore also fails leaves it as `rollback-unhealthy`. If
+the tool is killed mid-deploy, the next `record --reconcile` keeps the
+anchored build as `previous` (unless it is what is live now) and notes the
+interrupted phase in the history.
 
 Gate commands are the plugin's own scripts. They receive `BPD_PHASE_CHECK` (the gate's name) and one `BPD_MARKER_<NAME>` variable per marker, and may create or require named markers (`requiresMarker` must
 name a declared marker; a failing check clears its marker).
@@ -98,7 +111,8 @@ the end.
 
 ## Last-resort recovery
 
-Every successful or rolled-back deploy prints a self-contained `bash -s`
+Every successful or rolled-back deploy prints (in text mode under
+"Last-resort recovery") a self-contained `bash -s`
 block that restores the anchored build using only `bb` and `flock`. It takes
 the same lock first (same inheritance rules), runs disable, `install --yes`,
 and enable (enable only if the plugin file's `rollbackLeaves` says enabled),
@@ -119,6 +133,12 @@ closed. Keys: `format`, `pluginId`, `repo`, `branch`, `pluginDir`, `build`,
 
 `updateRequest` is optional. Without it `update-tick` refuses.
 
+Names under `data` and `export` may not be `.` or `..`. A `data` name may not
+be `manifest.json`, `previous-source.txt` or `export-*.json`, which the backup
+directory uses for its own files. The plugin file itself must be a tracked,
+unmodified file of the installed engine build; an edited or untracked copy is
+refused.
+
 ## Environment hooks
 
 | Variable | Use |
@@ -127,6 +147,10 @@ closed. Keys: `format`, `pluginId`, `repo`, `branch`, `pluginDir`, `build`,
 | `BPD_POLL_MS` | Health polling interval in milliseconds (tests set it small). |
 | `BPD_UTC_STAMP` | Fixed timestamp for reproducible tests. |
 | `BB_PLUGIN_DEPLOY_BB` | Path to the `bb` binary to use (tests point it at a stub). Its directory is also put on the children's `PATH`. |
+
+Which `bb` is used: `BB_PLUGIN_DEPLOY_BB`, else `BB_CLI` (an absolute path to
+an executable), else `$HOME/.local/bin/bb`, else the first executable `bb` on
+the caller's `PATH`, else the bare name on the tool's fixed `PATH`.
 
 ## Tests
 
@@ -147,6 +171,10 @@ install or the live updater state.
 - An unknown live install (for example a dirty checkout) changes nothing and
   does not write `installed.sha`.
 - `restore-data` restores sqlite data only, and replacing live data needs
-  `--mode mk-script`.
+  `--mode mk-script`. Before restoring it checks the backup's manifest: the
+  plugin id, the recorded previous source, and a sha256 digest for every
+  sqlite file. A backup that reuses an earlier backup of the same commit is
+  followed only if that earlier backup sits in the same directory and has its
+  own valid manifest.
 - The ancestry check is skipped for `mk-script` mode, with a warning.
 - `node_modules` is excluded from the control-closure walk.

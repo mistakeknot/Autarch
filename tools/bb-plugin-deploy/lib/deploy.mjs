@@ -102,26 +102,30 @@ export function prepareTarget(s, o, { scratch = false } = {}) {
   if (mode === "runner") requireReviewEvidence(s, commit);
   const vars0 = baseVars(s, { class: cls });
   const dest = scratch ? join(s.stateDir, "scratch", `${commit.slice(0, 12)}-${process.pid}`) : newBuildDir(s.dirs.buildsRoot, s.plugin.pluginId, commit, s.env);
+  const installedCommit = s.live?.state === "unknown" ? null : s.live?.commit;
+  /** @type {string[]|null} */
+  let control = null;
+  // The control-path diff and the pause decision happen before any build command runs.
+  const beforeBuild = ({ root }) => {
+    control = controlDiff({ repoDir: root, from: installedCommit, to: commit, controlPaths: s.plugin.controlPaths });
+    const needsPause = control === null || control.length > 0;
+    if (needsPause && mode !== "mk-script" && !trust.firstRun) {
+      const a = (installedCommit ?? "unknown").slice(0, 12);
+      const msg = `deploy tooling changed between ${a} and ${commit.slice(0, 12)}: needs mk's reviewed install or a confirmed first run. To install by mk script:\n${mkScriptCommand(s, ["deploy", "--commit", commit, "--class", cls, "--mode", "mk-script"])}`;
+      if (!scratch) {
+        addHistory(s.rec, "pause", commit, msg.split("\n")[0]);
+        writeRecord(s.stateDir, s.rec);
+      }
+      throw needsMk(msg, { paused: true, control, target: { root, commit } });
+    }
+  };
   let target;
   try {
-    target = buildCommit({ plugin: s.plugin, commit, expectTree: o.expectTree, dest, toolCommit: trust.toolCommit, vars: vars0, lockFd: s.lockFd, log: s.log });
+    target = buildCommit({ plugin: s.plugin, commit, expectTree: o.expectTree, dest, toolCommit: trust.toolCommit, vars: vars0, lockFd: s.lockFd, log: s.log, beforeBuild });
   } catch (e) {
-    if (scratch) rmSync(dest, { recursive: true, force: true });
+    // A paused or failed prepare leaves no build directory behind (scratch dirs always; real ones only if refused before the build).
+    rmSync(dest, { recursive: true, force: true });
     throw e;
-  }
-  const installedCommit = s.live?.state === "unknown" ? null : s.live?.commit;
-  const control = controlDiff({ repoDir: target.root, from: installedCommit, to: commit, controlPaths: s.plugin.controlPaths });
-  const needsPause = control === null || control.length > 0;
-  if (needsPause && mode !== "mk-script" && !trust.firstRun) {
-    const a = (installedCommit ?? "unknown").slice(0, 12);
-    const msg = `deploy tooling changed between ${a} and ${commit.slice(0, 12)}: needs mk's reviewed install or a confirmed first run. To install by mk script:\n${mkScriptCommand(s, ["deploy", "--commit", commit, "--class", cls, "--mode", "mk-script"])}`;
-    if (!scratch) {
-      addHistory(s.rec, "pause", commit, msg.split("\n")[0]);
-      writeRecord(s.stateDir, s.rec);
-    }
-    const err = needsMk(msg, { paused: true, control, target });
-    if (scratch) rmSync(dest, { recursive: true, force: true });
-    throw err;
   }
   return { trust, target, control, firstRun: trust.firstRun ?? null, scratch, warnings };
 }
@@ -213,6 +217,11 @@ export function deploy(s, o) {
     backup = makeBackup({ plugin: s.plugin, vars, backupsRoot: s.dirs.backupsRoot, stateDir: s.stateDir, commit: target.commit, previousPluginDir: anchored.pluginDir, serverUrl: s.serverUrl, lockFd: s.lockFd, env: s.env, log: s.log });
     report.backup = backup.dir;
     verifyStamp(target.root, s.plugin);
+    // The anchor and an in-progress marker reach disk before the first mutating call, so a crash can be understood
+    // and the immutable anchor is not lost (plan 2.3, 2.5).
+    s.rec.previous = anchored;
+    s.rec.transaction = { state: "mutating", commit: target.commit, startedAt: new Date().toISOString(), phase: "disable", previous: anchored, backup: backup.dir };
+    writeRecord(s.stateDir, s.rec);
   } catch (e) {
     return failBefore(s, report, asToolError(e), o, wantResult, target);
   }
@@ -221,38 +230,53 @@ export function deploy(s, o) {
   const baselines = {};
   try {
     mutated = true;
-    phase("disable");
-    s.bb.disable();
-    phase("install");
-    s.bb.install(target.pluginDir);
-    snapshotBaselines(s.plugin.health, targetVars(s, o, target), "install", baselines);
     const vars = targetVars(s, o, target);
+    const mark = (name) => {
+      phase(name);
+      try {
+        s.rec.transaction.phase = name;
+        writeRecord(s.stateDir, s.rec);
+      } catch {
+        /* best effort once bb has been touched */
+      }
+    };
+    mark("disable");
+    s.bb.disable();
+    mark("install");
+    // A baseline is taken before the command it belongs to, so output the command itself causes is inside it.
+    snapshotBaselines(s.plugin.health, vars, "install", baselines);
+    s.bb.install(target.pluginDir);
     runPhase("preEnable", s.plugin.preEnable, vars);
-    phase("enable");
-    s.bb.enable();
+    mark("enable");
     snapshotBaselines(s.plugin.health, vars, "enable", baselines);
+    s.bb.enable();
     runPhase("postEnablePreConfig", s.plugin.postEnablePreConfig, vars);
-    phase("configAfterEnable");
+    mark("configAfterEnable");
+    snapshotBaselines(s.plugin.health, vars, "config", baselines);
     for (const c of s.plugin.configAfterEnable) {
       if (c.requiresMarker && !hasMarker(s.stateDir, c.requiresMarker)) throw new ToolError(`config ${c.key} requires marker ${c.requiresMarker}, which no passing check wrote`);
       s.bb.setConfig(c.key, template(c.value, vars));
     }
-    snapshotBaselines(s.plugin.health, vars, "config", baselines);
     phase("health");
     const h = runHealth({ health: s.plugin.health, vars, bb: s.bb, stateDir: s.stateDir, serverUrl: s.serverUrl, lockFd: s.lockFd, baselines, env: s.env, log: s.log });
     report.health = h.results;
     if (!h.ok) throw new ToolError(`health failed: ${h.results.filter((r) => !r.ok).map((r) => `${r.name}: ${r.detail}`).join("; ")}`);
+    // The records are part of the protected block: if they cannot be written, the deploy is rolled back (exit 30/31).
+    // Built on a copy so a failed write leaves no "install" entry in the record that the rollback then rewrites.
+    const next = structuredClone(s.rec);
+    next.previous = anchored;
+    next.installed = entryFor(target, o, backup, trust.toolCommit, s.env);
+    delete next.transaction;
+    addHistory(next, "install", target.commit, `${o.mode}${o.cls ? ` ${o.cls}` : ""}${prepFirstRunNote(report)}`);
+    writeRecord(s.stateDir, next);
+    s.rec = next;
+    writeInstalledSha(s.stateDir, target.commit);
   } catch (e) {
     return failAfter(s, report, asToolError(e), o, wantResult, anchored, target);
   }
 
   // ---- success ------------------------------------------------------------------------------------------------
   const rec = s.rec;
-  rec.previous = anchored;
-  rec.installed = entryFor(target, o, backup, trust.toolCommit, s.env);
-  addHistory(rec, "install", target.commit, `${o.mode}${o.cls ? ` ${o.cls}` : ""}${prepFirstRunNote(report)}`);
-  writeRecord(s.stateDir, rec);
-  writeInstalledSha(s.stateDir, target.commit);
   const pub = tryPublish(s, wantResult ? { sha: target.commit, ok: true, message: `deployed ${target.commit.slice(0, 12)} (${o.mode})` } : null);
   report.status = pub;
   if (pub.warning) report.warnings.push(pub.warning);
@@ -302,6 +326,8 @@ function failAfter(s, report, err, o, wantResult, anchored, target) {
   if (err.extra?.results) report.checks = err.extra.results;
   try {
     s.rec.installed = { ...anchored, installedAt: new Date().toISOString(), by: { mode: "recovery", actor: s.env.BPD_ACTOR || "unknown" }, backup: null, toolCommit: null };
+    if (rec.ok) delete s.rec.transaction;
+    else s.rec.transaction = { ...(s.rec.transaction ?? {}), state: "rollback-unhealthy" };
     addHistory(s.rec, "fail", target.commit, `after install: ${err.message.split("\n")[0]}; recovery ${rec.ok ? "ok" : "unhealthy"}`);
     writeRecord(s.stateDir, s.rec);
     if (rec.ok) writeInstalledSha(s.stateDir, anchored.commit);

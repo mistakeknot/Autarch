@@ -120,6 +120,15 @@ export function requireReviewEvidence(s, sha) {
   return v;
 }
 
+/** The plugin file must be a tracked, unmodified file of the build it is read from (not an untracked or edited stand-in). */
+function requireTrackedClean(root, file, what) {
+  const rel = file.slice(root.length + 1);
+  const tracked = git(root, ["ls-files", "--error-unmatch", "--", rel], { allowFail: true });
+  if (tracked.code !== 0) throw refuse(`the plugin file ${rel} is not tracked in the ${what}`);
+  const same = git(root, ["diff", "--quiet", "HEAD", "--", rel], { allowFail: true });
+  if (same.code !== 0) throw refuse(`the plugin file ${rel} differs from the ${what}'s commit`);
+}
+
 /**
  * The trust rule (plan 2.2). Outside mk-script mode the installed engine, plugin file and checks run, never the
  * target's. Returns {kind: "installed"|"bootstrap", toolCommit, firstRun?}.
@@ -133,6 +142,7 @@ export function engineTrust(s, { mode, commit, expectTree, confirmedFirstRun }) 
     if (s.live.state === "stamped") verifyClosure({ root: eng, commit: s.live.commit, controlPaths: paths });
     else verifyClosureAgainstHead({ root: eng, controlPaths: paths });
     if (!pf || !pf.startsWith(`${eng}/`)) throw refuse("the plugin file is not part of the installed build; the installed plugin file must be used");
+    requireTrackedClean(eng, pf, "installed build");
     s.trustedRoot = s.live.buildRoot;
     return { kind: "installed", toolCommit: s.live.stamp?.toolCommit ?? s.live.commit };
   }
@@ -151,6 +161,7 @@ export function engineTrust(s, { mode, commit, expectTree, confirmedFirstRun }) 
   const status = gitTry(eng, ["status", "--porcelain", "--untracked-files=all"]);
   if (status !== "") throw refuse("the clone engine is not clean");
   if (!pf || !pf.startsWith(`${eng}/`)) throw refuse("the plugin file must come from the verified clone engine");
+  requireTrackedClean(eng, pf, "clone engine");
   s.trustedRoot = eng;
   return { kind: "bootstrap", toolCommit: head, firstRun };
 }

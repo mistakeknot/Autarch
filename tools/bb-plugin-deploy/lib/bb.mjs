@@ -1,5 +1,6 @@
 // The one module that talks to the bb CLI (plan 2.4). Every call runs with BB_SERVER_URL taken from the bound
 // instance's runtime file, BB_HOST_DAEMON_PORT cleared, a fixed PATH and no shell.
+import { accessSync, constants, statSync } from "node:fs";
 import { dirname } from "node:path";
 import { ToolError, fixedPath, run } from "./util.mjs";
 
@@ -20,9 +21,29 @@ function testBinDir() {
   return b && b.startsWith("/") ? dirname(b) : undefined;
 }
 
-/** The bb binary: BB_PLUGIN_DEPLOY_BB (an absolute path, used by tests) or `bb` on the fixed PATH. */
+const isExec = (f) => {
+  try {
+    accessSync(f, constants.X_OK);
+    return statSync(f).isFile();
+  } catch {
+    return false;
+  }
+};
+
+/**
+ * The bb binary, in order: BB_PLUGIN_DEPLOY_BB (absolute; tests), BB_CLI (absolute), ~/.local/bin/bb, `bb` on the
+ * caller's PATH, then bare `bb` on the fixed PATH. The children still get the fixed PATH; only the lookup of bb
+ * itself uses the caller's.
+ */
 export function bbBinary(env = process.env) {
-  return env.BB_PLUGIN_DEPLOY_BB && env.BB_PLUGIN_DEPLOY_BB.startsWith("/") ? env.BB_PLUGIN_DEPLOY_BB : "bb";
+  const abs = (v) => (typeof v === "string" && v.startsWith("/") ? v : null);
+  if (abs(env.BB_PLUGIN_DEPLOY_BB)) return env.BB_PLUGIN_DEPLOY_BB;
+  if (abs(env.BB_CLI) && isExec(env.BB_CLI)) return env.BB_CLI;
+  if (abs(env.HOME) && isExec(`${env.HOME}/.local/bin/bb`)) return `${env.HOME}/.local/bin/bb`;
+  for (const d of (env.PATH ?? "").split(":")) {
+    if (d.startsWith("/") && isExec(`${d}/bb`)) return `${d}/bb`;
+  }
+  return "bb";
 }
 
 /**

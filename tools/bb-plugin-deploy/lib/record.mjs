@@ -105,9 +105,11 @@ export function reconcile(rec, live) {
     addHistory(rec, "observed-external-install", live.commit, "same commit, different build");
     return { record: rec, changed: true, external: true, unknown: false };
   }
-  rec.previous = cur;
+  const interrupted = rec.transaction?.previous ?? null;
+  rec.previous = interrupted && interrupted.commit !== live.commit ? interrupted : cur;
   rec.installed = entry();
-  addHistory(rec, "observed-external-install", live.commit, `was ${cur.commit.slice(0, 12)}`);
+  addHistory(rec, "observed-external-install", live.commit, `was ${cur.commit.slice(0, 12)}${rec.transaction ? `; interrupted deploy of ${String(rec.transaction.commit).slice(0, 12)} at ${rec.transaction.phase}` : ""}`);
+  delete rec.transaction;
   return { record: rec, changed: true, external: true, unknown: false };
 }
 

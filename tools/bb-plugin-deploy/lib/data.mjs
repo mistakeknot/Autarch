@@ -1,7 +1,7 @@
 // Backups, exports and restore-data (plan 2.3, 2.7). The backup format is the legacy one: a 0700 directory holding
 // each data file, previous-source.txt (the previous PLUGIN directory) and a manifest.
 import { chmodSync, copyFileSync, cpSync, existsSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, statSync } from "node:fs";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { childEnv } from "./bb.mjs";
 import { sleepSync, pollUntil } from "./health.mjs";
 import { template, templateArgv } from "./pluginfile.mjs";
@@ -120,6 +120,22 @@ export function makeBackup({ plugin, vars, backupsRoot, stateDir, commit, previo
   return { dir, manifest };
 }
 
+/** Reads and validates a backup directory's manifest (format, plugin id). */
+function loadManifest(dir, pluginId) {
+  const f = join(dir, "manifest.json");
+  if (!existsSync(f)) throw refuse(`${f} is missing: this is not a deploy backup`);
+  let m;
+  try {
+    m = JSON.parse(readFileSync(f, "utf8"));
+  } catch {
+    throw refuse(`${f} is not valid JSON`);
+  }
+  if (!m || typeof m !== "object" || m.format !== BACKUP_FORMAT) throw refuse(`${f} is not a ${BACKUP_FORMAT} manifest`);
+  if (m.pluginId !== pluginId) throw refuse(`backup belongs to plugin ${String(m.pluginId)}, not ${pluginId}`);
+  if (!Array.isArray(m.data) || typeof m.previousSource !== "string") throw refuse(`${f} is malformed`);
+  return m;
+}
+
 /**
  * Port of home-ui.sh `rollback --restore-data`: backup integrity, require fuser, disable, wait, no holder on the
  * database or its -wal, restore from the backup, drop -wal/-shm, reinstall the previous source. `check` verifies only.
@@ -128,14 +144,29 @@ export function restoreData({ plugin, vars, backupDir, check, bb, log = () => {}
   if (!existsSync(backupDir) || !statSync(backupDir).isDirectory()) throw refuse(`backup directory ${backupDir} does not exist`);
   const sqliteEntries = plugin.data.filter((e) => e.kind === "sqlite");
   if (sqliteEntries.length === 0) throw refuse("the plugin file declares no sqlite data to restore");
+  const manifest = loadManifest(backupDir, plugin.pluginId);
   const prevFile = join(backupDir, "previous-source.txt");
   if (!existsSync(prevFile)) throw refuse(`${prevFile} is missing: cannot reinstall the previous version`);
   const prev = readFileSync(prevFile, "utf8").trim();
+  if (prev !== manifest.previousSource) throw refuse(`previous-source.txt disagrees with the backup manifest; refusing`);
   if (!prev.startsWith("/") || !existsSync(prev)) throw refuse(`previous source ${prev} does not exist`);
   const plan = [];
   for (const e of sqliteEntries) {
-    const bk = join(backupDir, e.name);
+    const m = manifest.data.find((d) => d && d.name === e.name);
+    if (!m) throw refuse(`backup manifest has no entry for ${e.name}`);
+    // A once-per-commit skip points at the earlier backup that holds the file; that backup must itself be valid.
+    let holderDir = backupDir;
+    let holder = m;
+    if (m.skipped) {
+      if (typeof m.ref !== "string" || dirname(m.ref) !== dirname(backupDir)) throw refuse(`${e.name}: the referenced earlier backup is not beside this one`);
+      const refManifest = loadManifest(m.ref, plugin.pluginId);
+      holder = refManifest.data.find((d) => d && d.name === e.name && !d.skipped);
+      if (!holder) throw refuse(`${e.name}: the referenced earlier backup has no copy`);
+      holderDir = m.ref;
+    }
+    const bk = join(holderDir, e.name);
     if (!existsSync(bk)) throw refuse(`backup has no ${e.name}`);
+    if (typeof holder.sha256 !== "string" || sha256(readFileSync(bk)) !== holder.sha256) throw refuse(`backup ${bk} does not match its manifest digest; nothing was changed`);
     if (!integrityOk(bk)) throw refuse(`backup ${bk} fails its integrity check; nothing was changed`);
     plan.push({ name: e.name, backup: bk, db: template(e.path, vars) });
   }
