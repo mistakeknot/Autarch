@@ -177,3 +177,9 @@ absent (macOS), the writer falls back to path-based steps and a same-user proces
 swap a path between them. That is the same-user risk accepted in the plan's `[D21]`; the
 writer defends against a different-origin symlink or a replaced root, and on Linux against
 a same-user race, but on other platforms not against a hostile process running as mk.
+
+## Vizier message cards (off by default)
+
+With the setting `vizierMessageCards` on, the plugin files one plain tracker card for each message an operator types in the vizier thread. The thread is the one pinned, unarchived thread whose title starts with `vizierTitlePrefix` (default `Masaq' | vizier`); with none or several, nothing is filed and the reason is logged. The card quotes the words, links the thread message, and says to close it once read; it carries the `vizier-message` label and lands in the project named by `vizierCardProject` (id, prefix or name; empty files nothing).
+
+Only plain operator messages count. Agent messages, system messages, card wakes and scripted sends that start with a known prefix (`ESCALATION`, `[vizier]`, `[home-msg `) are skipped. A message is filed once: its event id is recorded after the card exists, and the project is searched for the id's marker line before a card is made. Turning the setting on files nothing for earlier messages. Settings are read once per load, so reload the plugin after changing one.

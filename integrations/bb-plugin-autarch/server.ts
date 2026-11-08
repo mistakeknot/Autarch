@@ -39,6 +39,7 @@ import { buildQueue, removeBinding, setBinding } from "./queueview.js";
 import { RpcNotifier } from "./notifier.js";
 import { hasNoteMarker, isoWeek, Service } from "./service.js";
 import { Ideas } from "./ideas.js";
+import { DEFAULT_TITLE_PREFIX, VizierMessages, type MessageEvent } from "./vizierMessages.js";
 import { archiveView, type ArchiveQuery } from "./archive.js";
 import { learnSet, learnView, type LearnSet } from "./learn.js";
 import { OPEN_STATUSES, TasksClient, type PluginsLike } from "./tasks.js";
@@ -107,6 +108,12 @@ export interface HomeConfig {
   updateTimerFile?: string;
   /** The rulings ledger file; null turns it off. Unset means the default path (see ledger.ts). */
   rulingsLedger?: string | null;
+  /** Ship dark: a card for each plain operator message in the vizier thread is off unless this is true. */
+  vizierMessageCards?: boolean;
+  /** Title prefix of the vizier thread; empty means the default. */
+  vizierTitlePrefix?: string;
+  /** Tasks project (id, prefix or name) that receives those cards; empty files nothing. */
+  vizierCardProject?: string;
 }
 
 let sourceHash: string | null = null;
@@ -123,6 +130,7 @@ function pluginSource(): string | null {
 }
 
 const FEED_REFRESH_MS = 30_000;
+const VIZIER_MESSAGE_POLL_MS = 15_000;
 const SERVE_CHECK_MS = 15_000;
 const MK = "mk";
 const MOVE_REPORT_SWEEP_MS = 60_000;
@@ -333,6 +341,36 @@ export function wireHome(bb: BbPluginApi, handle: StoreHandle, cfg: HomeConfig, 
     if (!ideaDeskRef || ideaDeskRef.tasks !== tasksRef) ideaDeskRef = { tasks: tasksRef, desk: new Ideas({ tasks: tasksRef, store: parts.svc.store, now: () => new Date().toISOString(), nudge: () => void parts?.loop.nudge() }) };
     return ideaDeskRef.desk;
   };
+  // A card for every plain operator message in the vizier thread (off unless the setting is on).
+  bb.background.service("home-vizier-messages", {
+    async start(signal) {
+      while (!signal.aborted && !(parts && tasksRef)) await sleep(1000, signal);
+      if (!parts || !tasksRef || signal.aborted) return;
+      const watcher = new VizierMessages({
+        tasks: tasksRef,
+        store: parts.svc.store,
+        threads: {
+          listRows: () => listThreadRows({ cached: false }),
+          events: async (a) => {
+            const rows: unknown = await bb.sdk.threads.events.list({
+              threadId: a.threadId,
+              types: ["client/turn/requested"],
+              limit: String(a.limit),
+              order: a.order,
+              ...(a.afterSeq !== undefined ? { afterSeq: String(a.afterSeq) } : {}),
+            });
+            return Array.isArray(rows) ? (rows as MessageEvent[]) : [];
+          },
+        },
+        config: () => ({ enabled: cfg.vizierMessageCards === true, titlePrefix: cfg.vizierTitlePrefix || DEFAULT_TITLE_PREFIX, project: cfg.vizierCardProject || "" }),
+        log: { info: (m) => bb.log.info(m), warn: (m) => bb.log.warn(m) },
+      });
+      while (!signal.aborted) {
+        if (cfg.vizierMessageCards === true) await watcher.tick();
+        await sleep(VIZIER_MESSAGE_POLL_MS, signal);
+      }
+    },
+  });
   // Card poller (Task 2.4). Read-only toward tasks, over plugins.callRpc; never spawns the bb CLI.
   bb.background.service("home-queue", {
     async start(signal) {
@@ -888,6 +926,9 @@ export default async function plugin(bb: BbPluginApi) {
     serveTokenFile: { type: "string", label: "autarch serve token file", default: "" },
     serveProjectDirs: { type: "string", label: "Project scan roots (comma separated; empty uses Bigend's)", default: "" },
     autarchBin: { type: "string", label: "autarch binary", default: "" },
+    vizierMessageCards: { type: "boolean", label: "File a card for each message the operator types in the vizier thread", default: false },
+    vizierTitlePrefix: { type: "string", label: "Vizier thread title prefix (the one pinned, unarchived thread that starts with it)", default: "Masaq' | vizier" },
+    vizierCardProject: { type: "string", label: "Tasks project (id, prefix or name) that receives vizier message cards", default: "" },
   });
   const hs = await homeSettings.get();
   const home = wireHome(bb, handle, {
@@ -895,6 +936,9 @@ export default async function plugin(bb: BbPluginApi) {
     serveTokenFile: hs.serveTokenFile || join(homedir(), ".autarch", "serve.token"),
     serveProjectDirs: (hs.serveProjectDirs || "").split(",").map((d: string) => d.trim()).filter(Boolean),
     autarchBin: hs.autarchBin || process.env.AUTARCH_BIN || "autarch",
+    vizierMessageCards: hs.vizierMessageCards === true,
+    vizierTitlePrefix: hs.vizierTitlePrefix || "",
+    vizierCardProject: hs.vizierCardProject || "",
   });
 
   bb.rpc.register(rpcContract, {
