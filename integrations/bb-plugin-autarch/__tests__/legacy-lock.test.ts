@@ -180,6 +180,9 @@ describe("home-ui.sh: lock, rollback record", () => {
     const out = hui(r, ["check", "--path", r.cur], NOWAIT);
     expect(out.status).toBe(0);
     expect(out.stderr).not.toMatch(HOLDS);
+    const mig = hui(r, ["migrate-check", "--path", r.cur], NOWAIT);
+    expect(mig.stderr).not.toMatch(HOLDS);
+    expect(mig.stderr).not.toContain("waiting for the destination lock");
   });
 
   it("as a child of the old runner (fd 9), rollback runs inherited with no wait and no deadlock", () => {
@@ -197,12 +200,34 @@ describe("home-ui.sh: lock, rollback record", () => {
     expect(out.stderr).not.toContain("waiting for the destination lock");
   });
 
-  it("an independently opened lock stays excluded while the runner's child works", () => {
+  it("an independently opened lock stays excluded while the runner's child works, and after it exits", () => {
     const r = rig();
-    // The runner holds fd 9; while its child runs, a separate process that opens the file itself must wait.
-    const out = underHolder(r, "runner", HUI, 'bash "$S" rollback "$BK" & sleep 0.1; (exec 8>>"$ST/lock"; flock -n 8) && echo INDEPENDENT-GOT-IT || echo independent-excluded; wait');
-    expect(out.stdout).toContain("independent-excluded");
-    expect(out.stdout).not.toContain("INDEPENDENT-GOT-IT");
+    // Slow the reinstall so the independent attempt lands while the child is mid-rollback.
+    const bb = readFileSync(join(r.root, "bb"), "utf8").replace("echo \"$@\" >>", "[ \"$1 $2\" = \"plugin install\" ] && sleep 1\necho \"$@\" >>");
+    writeFileSync(join(r.root, "bb"), bb);
+    const inner = [
+      'bash "$S" rollback "$BK" & c=$!',
+      "sleep 0.4",
+      '(exec 8>>"$ST/lock"; flock -n 8) && echo INDEPENDENT-DURING || echo excluded-during',
+      "wait $c; echo CHILD=$?",
+      '(exec 8>>"$ST/lock"; flock -n 8) && echo INDEPENDENT-AFTER || echo excluded-after',
+    ].join("\n");
+    const out = underHolder(r, "runner", HUI, inner);
+    expect(out.stdout).toContain("excluded-during");
+    expect(out.stdout).toContain("CHILD=0");
+    expect(out.stdout).toContain("excluded-after");
+    expect(out.stdout).not.toMatch(/INDEPENDENT/);
+    expect(r.log()).toContain("plugin install --yes " + r.prev);
+    expect(r.sha()).toBe(r.wsha);
+  });
+
+  it("an inherited descriptor on the lock's inode that does not hold it: waits on that same descriptor, then proceeds", async () => {
+    const r = rig();
+    await holder(r.lock, 2);
+    const out = spawnSync("bash", ["-c", 'exec 17>>"$ST/lock"; bash "$S" rollback "$BK"'], { env: r.env({ S: HUI, ST: r.st, BK: r.backup, BPD_LOCK_FD: "17", HOME_UI_LOCK_WAIT: "30" }), encoding: "utf8" });
+    expect(out.status).toBe(0);
+    expect(out.stderr).toContain("waiting for the destination lock");
+    expect(r.sha()).toBe(r.wsha);
   });
 
   it("does not trust the environment alone", async () => {
