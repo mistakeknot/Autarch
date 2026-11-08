@@ -2,7 +2,7 @@
 // the tool, a fake bb (a stub script with per-instance state), a fake bb data directory with a live "instance" process and
 // an installed build the tool runs from. Nothing here touches a live bb, a live updater or an installed plugin.
 import { spawn, spawnSync, type ChildProcess } from "node:child_process";
-import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync, chmodSync, appendFileSync } from "node:fs";
+import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync, chmodSync, appendFileSync, renameSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import Database from "better-sqlite3";
@@ -333,6 +333,20 @@ export class Rig {
     const db = new Database(this.dataDb);
     db.prepare("INSERT OR REPLACE INTO settings_kv VALUES ('update_request', ?)").run(JSON.stringify({ sha, clicked_at: clickedAt }));
     db.close();
+  }
+  /** The raw pending click row, as the plugin stores it (undefined when none). */
+  requestRaw(): string | undefined {
+    const db = new Database(this.dataDb, { readonly: true });
+    try {
+      const row = db.prepare("SELECT value FROM settings_kv WHERE key='update_request'").get() as { value: string } | undefined;
+      return row?.value;
+    } finally {
+      db.close();
+    }
+  }
+  /** Make the upstream repository unreachable (renamed away). */
+  breakUpstream(): void {
+    renameSync(this.upstream, `${this.upstream}-gone`);
   }
   addDecision(id: string, body: string, option: string, by: string): void {
     const db = new Database(this.dataDb);
