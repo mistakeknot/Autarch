@@ -61,7 +61,7 @@ esac
 `);
   chmodSync(bb, 0o755);
   const env = (extra: Record<string, string> = {}): Record<string, string> => ({
-    PATH: process.env.PATH!, HOME: root, HOME_BB_BIN: bb, HOME_BB_DATA: data, HOME_UI_WAIT: "2", HOME_UI_STATE_DIR: st,
+    PATH: process.env.PATH!, HOME: root, HOME_BB_BIN: bb, HOME_BB_DATA: data, HOME_UI_WAIT: "2", HOME_UI_RECHECK_WAIT: "1", HOME_UI_RECHECK_INTERVAL: "1", HOME_UI_STATE_DIR: st,
     HOME_YOUR_MOVE_OUT_DIR: root, ...extra,
   });
   const log = () => (existsSync(calls) ? readFileSync(calls, "utf8") : "");
@@ -395,7 +395,7 @@ describe("the legacy scripts differ from the b05ebaf baseline only by the lock w
   };
   const count = (text: string, tag: string) => text.split("\n").filter((l) => l.trimStart().startsWith(`# ${tag}: begin`)).length;
 
-  for (const [file, shaWrites, engineBlocks, exportBlocks, recheckBlocks, skipBlocks] of [["home-ui.sh", 1, 6, 0, 0, 0], ["install-home-your-move.sh", 0, 0, 3, 3, 2]] as const) {
+  for (const [file, shaWrites, engineBlocks, exportBlocks, recheckBlocks, skipBlocks] of [["home-ui.sh", 1, 6, 0, 5, 2], ["install-home-your-move.sh", 0, 0, 3, 3, 2]] as const) {
     it(`${file}: removing the marked blocks gives the baseline byte for byte`, () => {
       const now = readFileSync(resolve(__dirname, "../../../scripts", file), "utf8");
       expect(count(now, "shared destination lock")).toBe(1);
