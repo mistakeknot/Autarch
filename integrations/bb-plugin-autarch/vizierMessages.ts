@@ -58,9 +58,10 @@ export interface MessageEvent {
     senderThreadId?: string | null;
     input?: unknown;
     requestId?: string;
-    retryOfRequestId?: string;
-    retryAttempt?: number;
-    systemMessageKind?: string;
+    retryOfRequestId?: string | null;
+    retryAttempt?: number | null;
+    systemMessageKind?: string | null;
+    systemMessageSubject?: unknown;
   };
 }
 
@@ -105,24 +106,80 @@ export const textOf = (parts: unknown): string =>
  */
 const NOT_OPERATOR_PREFIXES = ["[bb message from thread:", "[bb system]", "[home-msg ", "[vizier]", "ESCALATION"];
 
-export type Classified = { kind: "operator"; text: string } | { kind: "skip"; why: string };
+/**
+ * The system-message kinds the host stamps on a turn request (the Family-B taxonomy in the host's
+ * `packages/domain/src/system-message.ts`: `systemMessageKindValues`). Each is a notice the host or another thread
+ * produced, never the operator typing, so a turn carrying one is skipped.
+ *
+ * `unlabeled` is deliberately not here. It is the host's explicit "no system kind" value: the database stores null for
+ * a plain user turn, but the stored-event schema fills `systemMessageKind` with `unlabeled` on the way out (the default
+ * in `stored-thread-event.ts`), so `bb.sdk.threads.events.list` returns `unlabeled` for every ordinary message, the
+ * operator's included. Who sent it is told by `initiator` and `senderThreadId`, which are checked separately.
+ */
+export const SYSTEM_MESSAGE_KINDS: ReadonlySet<string> = new Set([
+  "ownership-assigned",
+  "ownership-removed",
+  "child-needs-attention",
+  "child-completed",
+  "child-failed",
+  "child-interrupted",
+  "child-outcome-batch",
+  "tool-result-delivered",
+]);
+
+/** The values that mean "no system kind": the host's `unlabeled`, and the null, absent or empty a stored row can carry. */
+const isUnlabeled = (k: unknown): boolean => k == null || k === "" || k === "unlabeled";
+
+/** Why a message was not filed, as a stable code the per-run counts group by. */
+export type SkipReason = "not-message" | "no-data" | "initiator" | "retry" | "system-kind" | "unknown-kind" | "sender-thread" | "empty" | "prefix" | "no-timestamp";
+
+export type Classified = { kind: "operator"; text: string } | { kind: "skip"; why: string; reason: SkipReason };
 
 /** Only a plain operator-typed message is `operator`; agent, system, card-wake and scripted sends are skipped. */
 export function classify(e: MessageEvent): Classified {
-  if (e.type !== undefined && e.type !== TURN_REQUESTED) return { kind: "skip", why: "not a message" };
+  if (e.type !== undefined && e.type !== TURN_REQUESTED) return { kind: "skip", why: "not a message", reason: "not-message" };
   const d = e.data;
-  if (!d) return { kind: "skip", why: "no data" };
-  if (d.initiator !== "user") return { kind: "skip", why: `initiator ${String(d.initiator)}` };
+  if (!d) return { kind: "skip", why: "no data", reason: "no-data" };
+  if (d.initiator !== "user") return { kind: "skip", why: `initiator ${String(d.initiator)}`, reason: "initiator" };
   // A retried turn re-dispatches the original operator input under a new request; the original already had its card.
-  if ((d.retryOfRequestId != null && d.retryOfRequestId !== "") || (typeof d.retryAttempt === "number" && d.retryAttempt > 0)) return { kind: "skip", why: "retry of an earlier request" };
-  if (d.systemMessageKind != null && d.systemMessageKind !== "") return { kind: "skip", why: "system message" };
-  if (d.senderThreadId != null && d.senderThreadId !== "") return { kind: "skip", why: "sent by a thread" };
+  if ((d.retryOfRequestId != null && d.retryOfRequestId !== "") || (typeof d.retryAttempt === "number" && d.retryAttempt > 0)) return { kind: "skip", why: "retry of an earlier request", reason: "retry" };
+  if (!isUnlabeled(d.systemMessageKind)) {
+    // A kind the host lists is a system message. A kind this plugin has never heard of is skipped too (when in doubt, no
+    // card), but counted apart so a new host kind shows up in the per-run counts instead of hiding among the known ones.
+    return SYSTEM_MESSAGE_KINDS.has(String(d.systemMessageKind))
+      ? { kind: "skip", why: "system message", reason: "system-kind" }
+      : { kind: "skip", why: "unrecognised system message kind", reason: "unknown-kind" };
+  }
+  if (d.senderThreadId != null && d.senderThreadId !== "") return { kind: "skip", why: "sent by a thread", reason: "sender-thread" };
   const text = textOf(d.input);
-  if (text.trim() === "") return { kind: "skip", why: "empty" };
+  if (text.trim() === "") return { kind: "skip", why: "empty", reason: "empty" };
   const head = text.trimStart();
   const hit = NOT_OPERATOR_PREFIXES.find((p) => head.startsWith(p));
-  if (hit) return { kind: "skip", why: `prefix ${hit.trim()}` };
+  if (hit) return { kind: "skip", why: `prefix ${hit.trim()}`, reason: "prefix" };
   return { kind: "operator", text };
+}
+
+/** What one run saw, for the counts line. */
+export interface Tally {
+  /** Events newer than the floor that the run examined. */
+  read: number;
+  operator: number;
+  filed: number;
+  alreadyFiled: number;
+  failed: number;
+  /** Operator messages after the first failure, left for the next run. */
+  notAttempted: number;
+  skipped: Partial<Record<SkipReason, number>>;
+}
+const newTally = (): Tally => ({ read: 0, operator: 0, filed: 0, alreadyFiled: 0, failed: 0, notAttempted: 0, skipped: {} });
+const bump = (t: Tally, r: SkipReason) => void (t.skipped[r] = (t.skipped[r] ?? 0) + 1);
+
+/** `read 40 events: 1 operator (1 filed, 0 already had a card, 0 failed, 0 not attempted); skipped 39 (initiator 30, sender-thread 9)`. */
+export function countsLine(t: Tally): string {
+  const skips = Object.entries(t.skipped).filter(([, n]) => (n ?? 0) > 0).sort(([a], [b]) => a.localeCompare(b));
+  const total = skips.reduce((n, [, c]) => n + (c ?? 0), 0);
+  const by = skips.length ? ` (${skips.map(([r, c]) => `${r} ${c}`).join(", ")})` : "";
+  return `vizier-messages: read ${t.read} events: ${t.operator} operator (${t.filed} filed, ${t.alreadyFiled} already had a card, ${t.failed} failed, ${t.notAttempted} not attempted); skipped ${total}${by}`;
 }
 
 export const messageMarker = (eventId: string) => `${MARKER_PREFIX}${eventId}`;
@@ -248,6 +305,7 @@ interface RunCache {
 
 export class VizierMessages {
   private lastWhy = "";
+  private lastCounts = "";
   private passErrors = 0;
   private stage = "";
   private configFailing = false;
@@ -311,7 +369,7 @@ export class VizierMessages {
    * newest first and stops at the first message at or before the floor. A message with no timestamp is left out: when
    * in doubt, no card.
    */
-  private async window(threadId: string, floor: number): Promise<{ messages: { e: MessageEvent; text: string }[]; complete: boolean }> {
+  private async window(threadId: string, floor: number, tally: Tally): Promise<{ messages: { e: MessageEvent; text: string }[]; complete: boolean }> {
     this.stage = "read messages";
     const found: { e: MessageEvent; text: string }[] = [];
     let beforeSeq: number | undefined;
@@ -320,10 +378,18 @@ export class VizierMessages {
         .filter((e) => beforeSeq === undefined || e.seq < beforeSeq)
         .sort((a, b) => b.seq - a.seq);
       for (const e of rows) {
-        if (!num(e.createdAt)) continue;
+        if (!num(e.createdAt)) {
+          tally.read++;
+          bump(tally, "no-timestamp");
+          continue;
+        }
         if (e.createdAt <= floor) return { messages: found.reverse(), complete: true };
+        tally.read++;
         const c = classify(e);
-        if (c.kind === "operator") found.push({ e, text: c.text });
+        if (c.kind === "operator") {
+          tally.operator++;
+          found.push({ e, text: c.text });
+        } else bump(tally, c.reason);
       }
       if (rows.length < PAGE) return { messages: found.reverse(), complete: true };
       beforeSeq = rows[rows.length - 1]!.seq;
@@ -396,8 +462,11 @@ export class VizierMessages {
       try {
         const ok = await this.run();
         this.passErrors = ok ? 0 : this.passErrors + 1;
+        // After an incomplete run, the next counts line is logged even if it equals the last one.
+        if (!ok) this.lastCounts = "";
       } catch (err) {
         this.passErrors++;
+        this.lastCounts = "";
         this.d.log.warn(`vizier-messages: run failed at "${this.stage}": ${errCode(err)}`);
       }
     });
@@ -443,9 +512,30 @@ export class VizierMessages {
     const threadId = await this.resolve(cfg.titlePrefix);
     if (threadId === null) return true; // not a complete run: the heartbeat stays where it was
     const start = this.clock();
+    const floor = Math.max(start - WINDOW_MS, sw.onAt);
+    const tally = newTally();
+    // A run that throws logs its failure (see `tick`) and no counts: counts from half a read would mislead.
+    const ok = await this.readAndFile(cfg, sw, threadId, start, floor, tally);
+    this.reportCounts(tally);
+    return ok;
+  }
+
+  /**
+   * One info line per run with what the run saw, so a run that skips everything shows in the plugin log. A line
+   * identical to the previous run's is not repeated: the check runs every 15 seconds, and an unchanged thread would
+   * otherwise add the same line 5,760 times a day. Any change in the counts, or a run that follows a failure, logs.
+   */
+  private reportCounts(t: Tally): void {
+    if (t.read === 0 && this.lastCounts === "") return; // nothing read and nothing said before: stay quiet
+    const line = countsLine(t);
+    if (line === this.lastCounts) return;
+    this.lastCounts = line;
+    this.d.log.info(line);
+  }
+
+  private async readAndFile(cfg: VizierConfig, sw: Switch, threadId: string, start: number, floor: number, tally: Tally): Promise<boolean> {
     const windowStart = start - WINDOW_MS;
-    const floor = Math.max(windowStart, sw.onAt);
-    const { messages, complete } = await this.window(threadId, floor);
+    const { messages, complete } = await this.window(threadId, floor, tally);
     let ok = complete;
     if (!complete) this.d.log.warn(`vizier-messages: the last 24 hours hold more than ${MAX_PAGES * PAGE} messages; read what fits, and will say nothing about the rest`);
     const lastRun = sw.lastRunAt ?? sw.onAt;
@@ -475,12 +565,17 @@ export class VizierMessages {
         this.d.log.info(`vizier-messages: the vizier thread changed while the messages were being read (${threadId} is no longer the one pinned, unarchived match); nothing is filed this run`);
         return true; // not a complete run: the heartbeat stays where it was
       }
-      for (const { e, text } of messages) {
+      for (const [i, { e, text }] of messages.entries()) {
         try {
           const r = await this.fileOne(project.id, threadId, e, text, run);
-          if (r.created) this.d.log.info(`vizier-messages: filed ${r.task.key} for message ${e.seq}`);
+          if (r.created) {
+            tally.filed++;
+            this.d.log.info(`vizier-messages: filed ${r.task.key} for message ${e.seq}`);
+          } else tally.alreadyFiled++;
         } catch (err) {
           ok = false;
+          tally.failed++;
+          tally.notAttempted = messages.length - i - 1;
           this.d.log.warn(`vizier-messages: message ${e.seq} not filed at "${this.stage}": ${errCode(err)}; it is tried again next run`);
           break; // the tasks plugin is probably down: do not hammer it with the rest
         }

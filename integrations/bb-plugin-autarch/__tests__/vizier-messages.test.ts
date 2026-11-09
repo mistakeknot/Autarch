@@ -124,8 +124,47 @@ describe("classify", () => {
     expect(classify(evt(8, "   ")).kind).toBe("skip");
     expect(classify(evt(9, "hi", { senderThreadId: "thr_other" })).kind).toBe("skip");
     expect(classify(evt(10, "retry", { retryOfRequestId: "req_1" })).kind).toBe("skip");
-    expect(classify(evt(11, "system note", { systemMessageKind: "interrupt" })).kind).toBe("skip");
+    expect(classify(evt(11, "system note", { systemMessageKind: "child-completed" })).kind).toBe("skip");
     expect(classify({ id: "evt_x", seq: 12, type: "turn/started", data: { initiator: "user", input: text("hi") } }).kind).toBe("skip");
+  });
+});
+
+describe("classify: the system message kind", () => {
+  // The raw shape `bb.sdk.threads.events.list` returned for a plain operator message in the live vizier thread:
+  // initiator user, no sender thread, systemMessageKind "unlabeled" (the host's default; the database holds null).
+  const live = (t: string): MessageEvent => ({
+    id: "evt_live",
+    seq: 29359,
+    createdAt: T0 + 2000,
+    type: "client/turn/requested",
+    data: { initiator: "user", senderThreadId: null, systemMessageKind: "unlabeled", systemMessageSubject: null, requestId: "creq_x", retryOfRequestId: null, retryAttempt: null, input: text(t) },
+  });
+  it("keeps the live event shape: an operator message whose kind is unlabeled", () => {
+    expect(classify(live("please look at this"))).toEqual({ kind: "operator", text: "please look at this" });
+  });
+  it("treats unlabeled, null, absent and empty kinds alike: not a system message", () => {
+    for (const k of ["unlabeled", null, undefined, ""]) {
+      const e = live("hello");
+      (e.data as Record<string, unknown>).systemMessageKind = k;
+      expect(classify(e).kind, `kind ${String(k)}`).toBe("operator");
+    }
+  });
+  it("still skips every real system kind the host defines", () => {
+    for (const k of ["ownership-assigned", "ownership-removed", "child-needs-attention", "child-completed", "child-failed", "child-interrupted", "child-outcome-batch", "tool-result-delivered"]) {
+      const e = live("[bb system] something happened");
+      (e.data as Record<string, unknown>).systemMessageKind = k;
+      expect(classify(e), `kind ${k}`).toMatchObject({ kind: "skip", reason: "system-kind" });
+    }
+  });
+  it("skips a kind it has never heard of, and says so apart from the known ones", () => {
+    const e = live("hello");
+    (e.data as Record<string, unknown>).systemMessageKind = "some-future-kind";
+    expect(classify(e)).toMatchObject({ kind: "skip", reason: "unknown-kind" });
+  });
+  it("still skips a message another thread sent, even though its kind is unlabeled", () => {
+    const e = live("hello");
+    (e.data as Record<string, unknown>).senderThreadId = "thr_other";
+    expect(classify(e)).toMatchObject({ kind: "skip", reason: "sender-thread" });
   });
 });
 
@@ -165,6 +204,80 @@ describe("filing", () => {
     expect(r.fake.labels.filter((l) => t.labelIds.includes(l.id)).map((l) => l.name)).toEqual([VIZIER_MESSAGE_LABEL]);
     expect(t.description).not.toContain("home-ask");
     expect(t.description).not.toMatch(/^Request:/m);
+  });
+
+  it("files a card for an operator message whose kind is unlabeled, as the host returns it", async () => {
+    const r = rig();
+    const w = world(r);
+    const { vm } = await started(r, w);
+    w.events.push(evt(1, "an ordinary message from the operator", { systemMessageKind: "unlabeled", systemMessageSubject: null }));
+    await vm.tick();
+    expect(cards(r)).toHaveLength(1);
+    expect(cards(r)[0]!.description).toContain("> an ordinary message from the operator");
+  });
+
+  it("logs one line of counts per run, so a run that skips everything shows in the log", async () => {
+    const r = rig();
+    const w = world(r);
+    const { vm, logs } = await started(r, w);
+    w.events.push(
+      evt(1, "[bb message from thread:thr_x] done", { initiator: "agent", senderThreadId: "thr_x" }),
+      evt(2, "a system notice", { systemMessageKind: "child-completed" }),
+      evt(3, "a real message", { systemMessageKind: "unlabeled" }),
+      evt(4, "another real message"),
+    );
+    await vm.tick();
+    const lines = logs.filter((l) => l.startsWith("vizier-messages: read "));
+    expect(lines).toEqual(["vizier-messages: read 4 events: 2 operator (2 filed, 0 already had a card, 0 failed, 0 not attempted); skipped 2 (initiator 1, system-kind 1)"]);
+    // The same counts on the next run are not logged again; a changed count is.
+    w.now += 15_000;
+    await vm.tick();
+    expect(logs.filter((l) => l.startsWith("vizier-messages: read "))).toHaveLength(2);
+    expect(logs.filter((l) => l.startsWith("vizier-messages: read "))[1]).toContain("2 operator (0 filed, 2 already had a card");
+    await vm.tick();
+    expect(logs.filter((l) => l.startsWith("vizier-messages: read "))).toHaveLength(2);
+  });
+
+  const countLines = (logs: string[]) => logs.filter((l) => l.startsWith("vizier-messages: read "));
+
+  it("counts the messages left unfiled after the first failure as not attempted, so the line adds up", async () => {
+    const r = rig();
+    const w = world(r);
+    const { vm, logs } = await started(r, w);
+    w.events.push(evt(1, "one"), evt(2, "two"), evt(3, "three"), evt(4, "[vizier] not the operator"));
+    r.fake.failures.push({ method: "createTask", nth: 1, error: new Error("tasks is down") });
+    await vm.tick();
+    expect(countLines(logs)).toEqual(["vizier-messages: read 4 events: 3 operator (0 filed, 0 already had a card, 1 failed, 2 not attempted); skipped 1 (prefix 1)"]);
+  });
+
+  it("logs the counts again on a run that follows a thrown failure, even when they equal the last logged ones", async () => {
+    const r = rig();
+    const w = world(r);
+    const { vm, logs } = await started(r, w);
+    w.events.push(evt(1, "an agent note", { initiator: "agent" }));
+    await vm.tick();
+    expect(countLines(logs)).toHaveLength(1);
+    w.failReads = true;
+    await vm.tick();
+    w.failReads = false;
+    await vm.tick();
+    const lines = countLines(logs);
+    expect(lines).toHaveLength(2);
+    expect(lines[1]).toBe(lines[0]);
+  });
+
+  it("logs the counts again on a run that follows an incomplete one (a failed filing), even when they are identical", async () => {
+    const r = rig();
+    const w = world(r);
+    const { vm, logs } = await started(r, w);
+    w.events.push(evt(1, "needs a card"));
+    r.fake.failures.push({ method: "createTask", nth: 1, error: new Error("tasks is down") });
+    r.fake.failures.push({ method: "createTask", nth: 2, error: new Error("tasks is down") });
+    await vm.tick();
+    await vm.tick();
+    const lines = countLines(logs);
+    expect(lines).toHaveLength(2);
+    expect(lines[1]).toBe(lines[0]);
   });
 
   it("files nothing for agent, system and card-wake messages, then files the operator's next one", async () => {
