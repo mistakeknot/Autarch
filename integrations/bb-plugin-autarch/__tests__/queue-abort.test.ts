@@ -318,4 +318,52 @@ describe("mk-laqhx: a poll that outlives the stop changes nothing", () => {
     expect(r.fake.tasks.find((x: any) => x.id === t.id)!.labelIds).toContain(r.label.id);
     expect(r.db.prepare("SELECT state FROM card_writes WHERE kind = 'relabel'").get()).toEqual({ state: "done" });
   });
+  it("an accepted write from an expired claim that lands while the new writer's relabel holds a stale read does not let that relabel settle", async () => {
+    const r = cardRig();
+    r.enableDelegation();
+    const { t, g1 } = await opened(r);
+    expect(r.vizierPick(g1.id)).toMatchObject({ ok: true });
+    const p = pause(r.fake, "updateTask", () => true);
+    const ac = new AbortController();
+    const old = r.writer.drain(ac.signal);
+    await p.hit;
+    ac.abort();
+    r.restart();
+    const o = r.dele.override(g1.id, {});
+    if (!o.ok) throw new Error(o.error);
+    // The new writer's read of the task is answered (label still on), then held before the relabel goes on.
+    const orig = r.fake.callRpc.bind(r.fake);
+    let release!: () => void;
+    const gate = new Promise<void>((res) => (release = res));
+    let reached!: () => void;
+    const hit = new Promise<void>((res) => (reached = res));
+    let armed = true;
+    r.fake.callRpc = (async (a: any) => {
+      const v = await orig(a);
+      if (armed && a.method === "getTask") {
+        armed = false;
+        const snapshot = structuredClone(v); // the fake hands out its live task object: a held read must be a copy
+        reached();
+        await gate;
+        return snapshot;
+      }
+      return v;
+    }) as typeof r.fake.callRpc;
+    const now = vi.spyOn(Date, "now").mockReturnValue(Date.now() + 121_000);
+    let nd: Promise<unknown>;
+    try {
+      nd = r.writer.drain();
+      await hit;
+    } finally {
+      now.mockRestore();
+    }
+    p.release(); // the old write lands (the label comes off) while the new relabel holds its stale read
+    await old;
+    release();
+    await nd;
+    await r.writer.drain();
+    await r.writer.drain();
+    expect(r.fake.tasks.find((x: any) => x.id === t.id)!.labelIds).toContain(r.label.id);
+    expect(r.db.prepare("SELECT state FROM card_writes WHERE kind = 'relabel'").get()).toEqual({ state: "done" });
+  });
 });

@@ -83,10 +83,14 @@ class Stopped extends Error {}
  */
 const claims = new Map<string, { token: symbol; since: number }>();
 const CLAIM_TTL_MS = 120_000;
+/** Per task: how many writes landed after their claim had been taken over. A relabel that began before one must not settle. */
+const lateLandings = new Map<string, number>();
+type Claim = { release: () => void; lost: () => boolean; key: string; epoch: number };
 
 export class CardWriter {
   private running = false;
   /** The stop signal of the drain in progress (drains never overlap). Reads carry it; a write in flight is never cut. */
+  private cur?: Claim;
   private signal: AbortSignal | undefined;
 
   constructor(
@@ -153,16 +157,36 @@ export class CardWriter {
     });
   }
 
-  /** Take the task, or return null when another writer in this process holds it. The returned function gives it back. */
-  private claim(taskId: string): (() => void) | null {
+  /** Take the task, or return null when another writer in this process holds it. The claim gives it back with `release`. */
+  private claim(taskId: string): Claim | null {
     const key = `${this.db.name}\0${taskId}`;
     const held = claims.get(key);
     if (held && Date.now() - held.since < CLAIM_TTL_MS) return null;
     const mine = { token: Symbol(key), since: Date.now() };
     claims.set(key, mine);
-    return () => {
-      if (claims.get(key)?.token === mine.token) claims.delete(key);
+    return {
+      key,
+      epoch: lateLandings.get(key) ?? 0,
+      lost: () => claims.get(key)?.token !== mine.token,
+      release: () => {
+        if (claims.get(key)?.token === mine.token) claims.delete(key);
+      },
     };
+  }
+
+  /**
+   * Called when a write the tasks plugin accepted has landed. If this writer's claim was taken over meanwhile (the TTL ran out on
+   * a hung write), the other writer may have judged the task by what it looked like before this write and settled; so the write
+   * is recorded as late, a relabel in progress will not settle, and relabels already done are put back to be re-verified (a
+   * relabel reads the task afresh and checks its override is still open, so a re-run is safe).
+   */
+  private landed(taskId: string): void {
+    const c = this.cur;
+    if (!c || !c.lost()) return;
+    lateLandings.set(c.key, (lateLandings.get(c.key) ?? 0) + 1);
+    this.db
+      .prepare("UPDATE card_writes SET state = 'pending', attempt = 0, next_try_at = ?, last_error = 'to re-verify after a late write', updated_at = ? WHERE task_id = ? AND kind = 'relabel' AND state = 'done'")
+      .run(this.now(), this.now(), taskId);
   }
 
   /**
@@ -183,6 +207,7 @@ export class CardWriter {
         if (r.kind === "relabel" && this.blockedByUnlabel(r)) continue;
         const claim = this.claim(r.task_id);
         if (!claim) continue; // another writer's write for this task has not landed yet
+        this.cur = claim;
         try {
           await this.run(r);
           out.done++;
@@ -191,7 +216,8 @@ export class CardWriter {
           this.fail(r, e);
           out.failed++;
         } finally {
-          claim();
+          this.cur = undefined;
+          claim.release();
         }
       }
       await this.drainMoveCloses(out);
@@ -216,6 +242,7 @@ export class CardWriter {
       this.gate();
       const claim = this.claim(r.task_id);
       if (!claim) continue; // another writer's write for this task has not landed yet
+      this.cur = claim;
       try {
         // A later generation (a bring-back or an override) means mk is answering afresh: the old close is stale.
         if (this.db.prepare("SELECT 1 FROM decisions WHERE task_id = ? AND generation > ?").get(r.task_id, r.generation)) {
@@ -238,7 +265,10 @@ export class CardWriter {
         const filed = labels.some((l) => l.name === HOME_MOVE_LABEL && st.task.labelIds.includes(l.id));
         if (!filed) settle(r, "skipped", "not filed by Home (no mk-move label)");
         else {
-          if (st.task.status !== "done" && st.task.status !== "canceled") await this.tasks.closeTask(r.task_id); // a write: no signal
+          if (st.task.status !== "done" && st.task.status !== "canceled") {
+            await this.tasks.closeTask(r.task_id); // a write: no signal
+            this.landed(r.task_id);
+          }
           settle(r, "done", null);
         }
         out.done++;
@@ -250,7 +280,8 @@ export class CardWriter {
           .run(message(e), new Date(Date.parse(this.now()) + delay).toISOString(), this.now(), r.task_id, r.generation);
         out.failed++;
       } finally {
-        claim();
+        this.cur = undefined;
+        claim.release();
       }
     }
   }
@@ -272,6 +303,7 @@ export class CardWriter {
         const ids = await this.read(this.tasks.needsMkLabelIds(st.task.projectId, { fresh: true, signal: this.signal }));
         this.gate();
         await this.tasks.setLabels(r.task_id, st.task.labelIds.filter((l) => !ids.includes(l)));
+        this.landed(r.task_id);
         this.gate();
       }
       this.db.prepare("UPDATE cards SET home_unlabelled_at = COALESCE(home_unlabelled_at, ?) WHERE task_id = ?").run(this.now(), r.task_id);
@@ -284,7 +316,10 @@ export class CardWriter {
       if (byPick && st.state !== "deleted" && st.task.status !== "done" && st.task.status !== "canceled") {
         const active = await this.read(this.tasks.activeThreadCount(r.task_id, this.signal));
         this.gate();
-        if (active === 0) await this.tasks.setStatus(r.task_id, "done");
+        if (active === 0) {
+          await this.tasks.setStatus(r.task_id, "done");
+          this.landed(r.task_id);
+        }
       }
       this.settle(r.id, "done", null);
       return;
@@ -304,6 +339,7 @@ export class CardWriter {
       this.gate();
       if (ids.length === 0) throw new Error("the tasks project has no needs-mk label");
       await this.tasks.setLabels(r.task_id, [...st.task.labelIds, ids[0]!]);
+      this.landed(r.task_id);
       this.gate(); // the label landed; the reopen that follows is a second write and must not start after a stop
     }
     // A brought-back or overridden card's task was closed when it was ruled (including the pick's own
@@ -312,11 +348,17 @@ export class CardWriter {
     // bring-back (which may follow a canceled ruling) also reopens a canceled task. A person who marks the task
     // done in the same window cannot be told from the pick's own completion (accepted, narrow).
     const reopen = st.task.status === "done" || (r.id.endsWith("-bringback") && st.task.status === "canceled");
-    if (reopen) await this.tasks.setStatus(r.task_id, "todo");
+    if (reopen) {
+      await this.tasks.setStatus(r.task_id, "todo");
+      this.landed(r.task_id);
+    }
     // A task left closed leaves nothing to answer: the card stops showing as open (the override stays pickable,
     // and the card reopens if a person reopens the task, ingestInner). Nothing polls a closed task again.
     else if (st.task.status === "canceled")
       this.db.prepare("UPDATE cards SET state = 'closed', display_reason = 'card closed in tasks', status = ? WHERE task_id = ? AND state = 'open'").run(st.task.status, r.task_id);
+    // A write of another writer that held this task before its claim ran out landed after this relabel began: what was read
+    // above may be stale, so the row stays pending and the next drain reads the task afresh.
+    if (this.cur && (lateLandings.get(this.cur.key) ?? 0) !== this.cur.epoch) return;
     this.db.prepare("UPDATE cards SET home_unlabelled_at = NULL WHERE task_id = ?").run(r.task_id);
     this.settle(r.id, "done", null);
   }
