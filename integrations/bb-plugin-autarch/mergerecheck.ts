@@ -24,7 +24,7 @@ const NOT_MERGE = /\b(do not|don't|dont|not|never|won't|no)\b[^.\n]{0,20}\bmerg/
 // a merge when its label or its instruction opens with the merge as the action and is not rework (fix, round, review, another, ...)
 // ("Merge PR 130", "mk merges ...", "Merge the PR ...", never the noun in "Merge readiness ..."; rework words rule it out), or when the pick minted a merge approval.
 const REWORK = /\b(fix(?:es|ed|ing)?|rounds?|(?:re-?)?reviews?|rework|revis(?:e|ed|ion)|another|one more|extra|again|retry)\b/i;
-const MERGE_LEAD = /^\W*(?:(?:yes|ok|okay|approve)\W+(?:and\s+)?)?(?:please\s+)?(?:(?:squash|rebase)(?:\s+and)?\s+)?(?:(?:mk|the vizier|vizier|the registrar|registrar|you|we)\s+)?(?:will\s+)?merges?(?=\s+(?:(?:it|this|that|them|the|pr|pull|at|in|now|with|using|via)\b|#|\d|https?:|--|[\w.-]+\/[\w.-]+)|\s*[.,;:]|\s*$)/i;
+const MERGE_LEAD = /^\W*(?:(?:yes|ok|okay|approve)\W+(?:and\s+)?)?(?:please\s+)?(?:(?:squash|rebase)(?:\s+and)?\s+)?(?:(?:mk|the vizier|vizier|the registrar|registrar|you|we)\s+)?(?:will\s+)?merges?(?=\s+(?:(?:it|this|that|them|the|pr|pull|at|in|now|with|using|via)\b|#|\d|https?:|--|[\w.-]+\/[\w.-]+)|\s*[.,;:!]|\s*$)/i;
 const firstSentence = (t: string): string => t.trim().split(/(?<=[.!?])\s|\n/)[0] ?? "";
 const DEFER = /\b(wait|hold|defer|postpone|delay|until)\b|\bnot yet\b|\bbefore\s+(?:you\s+)?(?:auto-?)?merg/i;
 
