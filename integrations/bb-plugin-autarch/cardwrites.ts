@@ -71,8 +71,13 @@ interface WriteRow {
 
 const message = (e: unknown) => (e instanceof Error ? e.message : String(e));
 
+/** Thrown inside a drain when the service was told to stop; the write it interrupted stays owed, not failed. */
+class Stopped extends Error {}
+
 export class CardWriter {
   private running = false;
+  /** The stop signal of the drain in progress (drains never overlap). Reads carry it; a write in flight is never cut. */
+  private signal: AbortSignal | undefined;
 
   constructor(
     private readonly db: Database.Database,
@@ -112,25 +117,41 @@ export class CardWriter {
     return !!this.db.prepare("SELECT 1 FROM card_writes WHERE task_id = ? AND kind = 'unlabel' AND state = 'pending'").get(r.task_id);
   }
 
-  /** Run every due write once, serially. Never throws; a failure is recorded on its row. */
-  async drain(): Promise<{ done: number; failed: number }> {
+  /** Throws Stopped once the drain's signal has aborted: checked after every await and before every write, so none starts late. */
+  private gate(): void {
+    if (this.signal?.aborted) throw new Stopped("stopped");
+  }
+
+  /**
+   * Run every due write once, serially. Never throws; a failure is recorded on its row. With a signal, the drain reads with
+   * it and starts no further read or write once it aborts (a write already sent is left to land). A stop is not a failure:
+   * the row it interrupted stays pending, with its attempt count and backoff untouched, for the next run.
+   */
+  async drain(signal?: AbortSignal): Promise<{ done: number; failed: number }> {
     const out = { done: 0, failed: 0 };
     if (this.running) return out;
     this.running = true;
+    this.signal = signal;
     try {
+      this.gate();
       this.skipSuperseded();
       for (const r of this.due()) {
+        this.gate();
         if (r.kind === "relabel" && this.blockedByUnlabel(r)) continue;
         try {
           await this.run(r);
           out.done++;
         } catch (e) {
+          if (e instanceof Stopped || signal?.aborted) throw new Stopped("stopped");
           this.fail(r, e);
           out.failed++;
         }
       }
       await this.drainMoveCloses(out);
+    } catch (e) {
+      if (!(e instanceof Stopped)) throw e;
     } finally {
+      this.signal = undefined;
       this.running = false;
     }
     return out;
@@ -145,6 +166,7 @@ export class CardWriter {
     const settle = (r: { task_id: string; generation: number }, state: "done" | "skipped", note: string | null) =>
       this.db.prepare("UPDATE move_closes SET state = ?, last_error = ?, updated_at = ? WHERE task_id = ? AND generation = ?").run(state, note, this.now(), r.task_id, r.generation);
     for (const r of rows) {
+      this.gate();
       try {
         // A later generation (a bring-back or an override) means mk is answering afresh: the old close is stale.
         if (this.db.prepare("SELECT 1 FROM decisions WHERE task_id = ? AND generation > ?").get(r.task_id, r.generation)) {
@@ -156,20 +178,23 @@ export class CardWriter {
           settle(r, "skipped", "card has another live move");
           continue;
         }
-        const st = await this.tasks.taskState(r.task_id);
+        const st = await this.tasks.taskState(r.task_id, this.signal);
+        this.gate();
         if (st.state === "deleted") {
           settle(r, "skipped", "task deleted");
           continue;
         }
-        const labels = await this.tasks.listLabels(st.task.projectId, { fresh: true });
+        const labels = await this.tasks.listLabels(st.task.projectId, { fresh: true, signal: this.signal });
+        this.gate();
         const filed = labels.some((l) => l.name === HOME_MOVE_LABEL && st.task.labelIds.includes(l.id));
         if (!filed) settle(r, "skipped", "not filed by Home (no mk-move label)");
         else {
-          if (st.task.status !== "done" && st.task.status !== "canceled") await this.tasks.closeTask(r.task_id);
+          if (st.task.status !== "done" && st.task.status !== "canceled") await this.tasks.closeTask(r.task_id); // a write: no signal
           settle(r, "done", null);
         }
         out.done++;
       } catch (e) {
+        if (e instanceof Stopped || this.signal?.aborted) throw new Stopped("stopped");
         const delay = Math.min(BACKOFF_MS * 2 ** Math.min(r.attempt, 20), MAX_BACKOFF_MS);
         this.db
           .prepare("UPDATE move_closes SET attempt = attempt + 1, last_error = ?, next_try_at = ?, updated_at = ? WHERE task_id = ? AND generation = ? AND state = 'pending'")
@@ -183,15 +208,18 @@ export class CardWriter {
     const payload = JSON.parse(r.payload ?? "{}") as Partial<PickPayload>;
     if (r.kind === "comment") {
       const marker = `${MARKER} ${r.id}`;
-      const existing = await this.tasks.listComments(r.task_id);
+      const existing = await this.tasks.listComments(r.task_id, this.signal);
+      this.gate();
       if (!existing.some((c) => c.body.includes(marker))) await this.tasks.createComment(r.task_id, commentBody(r.id, payload));
       this.settle(r.id, "done", null);
       return;
     }
-    const st = await this.tasks.taskState(r.task_id);
+    const st = await this.tasks.taskState(r.task_id, this.signal);
+    this.gate();
     if (r.kind === "unlabel") {
       if (st.state === "labelled") {
-        const ids = await this.tasks.needsMkLabelIds(st.task.projectId, { fresh: true });
+        const ids = await this.tasks.needsMkLabelIds(st.task.projectId, { fresh: true, signal: this.signal });
+        this.gate();
         await this.tasks.setLabels(r.task_id, st.task.labelIds.filter((l) => !ids.includes(l)));
       }
       this.db.prepare("UPDATE cards SET home_unlabelled_at = COALESCE(home_unlabelled_at, ?) WHERE task_id = ?").run(this.now(), r.task_id);
@@ -201,7 +229,11 @@ export class CardWriter {
       // backs off and retries; a task already closed is left alone. The tasks plugin has no conditional close, so a
       // thread attached between the read and the close is not protected (a narrow window, accepted).
       const byPick = !(JSON.parse(r.payload ?? "{}") as { move_closed_by?: unknown }).move_closed_by;
-      if (byPick && st.state !== "deleted" && st.task.status !== "done" && st.task.status !== "canceled" && (await this.tasks.activeThreadCount(r.task_id)) === 0) await this.tasks.setStatus(r.task_id, "done");
+      if (byPick && st.state !== "deleted" && st.task.status !== "done" && st.task.status !== "canceled") {
+        const active = await this.tasks.activeThreadCount(r.task_id, this.signal);
+        this.gate();
+        if (active === 0) await this.tasks.setStatus(r.task_id, "done");
+      }
       this.settle(r.id, "done", null);
       return;
     }
@@ -216,7 +248,8 @@ export class CardWriter {
       return this.settle(r.id, "skipped", open ? "task deleted" : "override no longer open");
     }
     if (st.state === "unlabelled") {
-      const ids = await this.tasks.needsMkLabelIds(st.task.projectId, { fresh: true });
+      const ids = await this.tasks.needsMkLabelIds(st.task.projectId, { fresh: true, signal: this.signal });
+      this.gate();
       if (ids.length === 0) throw new Error("the tasks project has no needs-mk label");
       await this.tasks.setLabels(r.task_id, [...st.task.labelIds, ids[0]!]);
     }

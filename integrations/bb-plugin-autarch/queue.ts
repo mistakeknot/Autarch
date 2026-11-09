@@ -89,7 +89,7 @@ export class Queue {
       return { changed: false, ok: false };
     } finally {
       try {
-        if (!signal?.aborted) await this.deps.writer?.drain();
+        if (!signal?.aborted) await this.deps.writer?.drain(signal);
       } catch {
         /* drain records its own failures */
       }
@@ -171,6 +171,7 @@ export class Queue {
     service.observeCards(all);
     try {
       const serve = await service.serveProjects();
+      if (stoppedNow()) return { changed, ok: this.health === "ok" }; // answered after the stop: suggest no binding
       for (const t of all) {
         const name = names.get(t.projectId);
         if (name !== undefined) service.suggestBinding(t.projectId, name, serve);
@@ -179,13 +180,20 @@ export class Queue {
       /* serve down: no binding is suggested, and materialization waits as root unverified */
     }
 
-    const comments = (id: string) => () => tasks.listComments(id, signal);
+    // A comment read that is answered after the stop is dropped: the ingest that asked for it must not act on it (the
+    // poll can outlive the stop, and a restarted service shares the database).
+    const comments = (id: string) => async () => {
+      const rows = await tasks.listComments(id, signal);
+      if (stopped()) throw new Error("stopped");
+      return rows;
+    };
+    const ctxOf = (id: string) => ({ comments: comments(id), stopped });
     const seen = new Set<string>();
     const ingest = async (t: Task, commit: boolean) => {
       if (seen.has(t.id)) return;
       seen.add(t.id);
       const epoch = this.rebindEpoch;
-      const r = await service.ingestCard(t, { comments: comments(t.id) });
+      const r = await service.ingestCard(t, ctxOf(t.id));
       note(r);
       if (commit && !r.unavailable && epoch === this.rebindEpoch) this.digest.set(t.id, digestOf(t));
     };
@@ -216,9 +224,11 @@ export class Queue {
       const t = listed.get(id);
       if (!t || seen.has(id)) continue;
       seen.add(id);
-      note(await service.ingestCard(t, { comments: comments(id) }));
+      note(await service.ingestCard(t, ctxOf(id)));
+      if (stoppedNow()) return { changed, ok: this.health === "ok" }; // the ingest was cut short: the retry is not spent
       service.bumpClosedRetry(id);
     }
+    if (stoppedNow()) return { changed, ok: this.health === "ok" }; // a poll cut short records neither health nor a finished poll
     // Forget cards that left the list so a later return is ingested again.
     for (const id of [...this.digest.keys()]) if (!listed.has(id)) this.digest.delete(id);
 

@@ -185,6 +185,18 @@ function shownParseError(err: string): string {
   return err === "missing Request line" ? "Request line missing: re-file the ask or restore the Request line" : err;
 }
 
+/**
+ * What the poller hands an ingest: a comment read, and whether the service has been told to stop. A stopped ingest changes
+ * nothing: the poll that began it may outlive the stop, and a restarted service shares its database (bead mk-laqhx).
+ */
+/** What an ingest returns when the service was told to stop in the middle of it: nothing was written. */
+const STOPPED = "stopped";
+
+export interface IngestCtx {
+  comments: () => Promise<TaskCommentRow[]>;
+  stopped?: () => boolean;
+}
+
 export class Service {
   readonly store: Store;
   private readonly deps: ServiceDeps;
@@ -1209,7 +1221,7 @@ export class Service {
   }
 
   /** Ingest one observed card (T1-T5, T8, T11). Never throws for a tasks read failure: `unavailable` says so (T12). */
-  async ingestCard(task: Task, ctx: { comments: () => Promise<TaskCommentRow[]> }): Promise<{ changed: boolean; unavailable?: string }> {
+  async ingestCard(task: Task, ctx: IngestCtx): Promise<{ changed: boolean; unavailable?: string }> {
     if (!this.cardRow(task.id)) this.observeCards([task]);
     const before = this.sig(task.id);
     const unavailable = await this.ingestInner(task, ctx);
@@ -1218,7 +1230,7 @@ export class Service {
     return unavailable ? { changed, unavailable } : { changed };
   }
 
-  private async ingestInner(task: Task, ctx: { comments: () => Promise<TaskCommentRow[]> }): Promise<string | void> {
+  private async ingestInner(task: Task, ctx: IngestCtx): Promise<string | void> {
     let card: Card | null = null;
     let parseErr = "";
     try {
@@ -1266,7 +1278,7 @@ export class Service {
     task: Task,
     card: Card | null,
     parseErr: string,
-    ctx: { comments: () => Promise<TaskCommentRow[]> },
+    ctx: IngestCtx,
     row: Record<string, any>,
     latest: Row,
   ): Promise<{ ok: true; card: Card; thread: string; fp: string } | { ok: false; reason: string; routing?: boolean } | { unavailable: string }> {
@@ -1564,7 +1576,7 @@ export class Service {
     this.patchCard(row.task_id, { state: "observed", display_reason: reason, check_attempts: attempts + 1, next_check_at: this.isoPlus(delay) });
   }
 
-  private async materializeNew(task: Task, card: Card | null, parseErr: string, ctx: { comments: () => Promise<TaskCommentRow[]> }, row: Record<string, any>): Promise<string | void> {
+  private async materializeNew(task: Task, card: Card | null, parseErr: string, ctx: IngestCtx, row: Record<string, any>): Promise<string | void> {
     if (!card) return this.setDisplay(task.id, shownParseError(parseErr));
     const key = card.request.key;
     const reg = this.db.prepare("SELECT task_id FROM card_requests WHERE request_key = ?").get(key) as { task_id: string } | undefined;
@@ -1586,8 +1598,10 @@ export class Service {
         try {
           await this.deps.projects();
         } catch (e) {
+          if (ctx.stopped?.()) return STOPPED;
           return this.setObserved(row, `root unverified: ${message(e)}`);
         }
+        if (ctx.stopped?.()) return STOPPED;
       }
       return this.setDisplay(task.id, mismatch);
     }
@@ -1611,8 +1625,10 @@ export class Service {
     try {
       projects = await this.deps.projects();
     } catch (e) {
+      if (ctx.stopped?.()) return STOPPED;
       return this.setObserved(row, `root unverified: ${message(e)}`);
     }
+    if (ctx.stopped?.()) return STOPPED;
     const p = projects.find((x) => x.name === project);
     if (!p) return this.setObserved(row, `root unverified: unknown project ${JSON.stringify(project)}`);
     if (p.root !== card.ask.project_root) return this.setDisplay(task.id, "project_root does not match the root serve resolves for this project");
