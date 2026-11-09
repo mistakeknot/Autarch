@@ -2,7 +2,7 @@
 // home-queue did not stop"). The poller's run loop must therefore return soon after the abort signal fires, even when
 // a poll is in flight and an RPC never answers, and it must not start new work after the abort. Time is scaled down:
 // the hung RPC below stands for a handler that runs for tens of seconds.
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { Queue } from "../queue.js";
 import { TasksClient, type PluginsLike } from "../tasks.js";
 import { FakeTasks } from "./tasks-fake.js";
@@ -285,6 +285,33 @@ describe("mk-laqhx: a poll that outlives the stop changes nothing", () => {
     if (!o.ok) throw new Error(o.error);
     await r.writer.drain(); // the relabel must not run past the write still in flight
     p.release(); // the old label write lands
+    await old;
+    await r.writer.drain();
+    await r.writer.drain();
+    expect(r.fake.tasks.find((x: any) => x.id === t.id)!.labelIds).toContain(r.label.id);
+    expect(r.db.prepare("SELECT state FROM card_writes WHERE kind = 'relabel'").get()).toEqual({ state: "done" });
+  });
+  it("an accepted write from an expired claim that lands after the new writer settled the relabel does not leave the label off", async () => {
+    const r = cardRig();
+    r.enableDelegation();
+    const { t, g1 } = await opened(r);
+    expect(r.vizierPick(g1.id)).toMatchObject({ ok: true });
+    const p = pause(r.fake, "updateTask", () => true); // the unlabel's label write is accepted and then waits
+    const ac = new AbortController();
+    const old = r.writer.drain(ac.signal);
+    await p.hit;
+    ac.abort();
+    r.restart();
+    const o = r.dele.override(g1.id, {});
+    if (!o.ok) throw new Error(o.error);
+    const real = Date.now();
+    const now = vi.spyOn(Date, "now").mockReturnValue(real + 121_000); // past the claim's TTL: the new writer may take the task
+    try {
+      await r.writer.drain(); // the task still shows the label (the old write has not landed): the relabel has nothing to write and settles
+    } finally {
+      now.mockRestore();
+    }
+    p.release(); // now the old write lands and removes the label
     await old;
     await r.writer.drain();
     await r.writer.drain();
