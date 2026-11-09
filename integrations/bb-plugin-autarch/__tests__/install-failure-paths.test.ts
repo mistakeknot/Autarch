@@ -154,6 +154,7 @@ describe.skipIf(!isMk)("mk-hd2ks: --rollback and --go when the plugin is not run
     const r = rig({ plugin: "disabled", moves: false });
     const o = r.inst(["--rollback", "--previous-plugin", r.prev]);
     expect(o.status).toBe(3);
+    expect(o.stdout).toContain("the moves columns could not be listed");
     expect(o.stdout).toContain("ABORT");
     expect(changedAnything(r.calledList())).toBe(false);
   });
@@ -162,6 +163,7 @@ describe.skipIf(!isMk)("mk-hd2ks: --rollback and --go when the plugin is not run
     const r = rig({ plugin: "disabled", schema: null, moves: false });
     const o = r.inst(["--rollback", "--previous-plugin", r.prev]);
     expect(o.status).toBe(3);
+    expect(o.stdout).toContain("is not a number of 4 or more");
     expect(changedAnything(r.calledList())).toBe(false);
   });
 
@@ -207,5 +209,16 @@ describe.skipIf(!isMk)("mk-hd2ks: --rollback and --go when the plugin is not run
     const o = r.inst(["--rollback", "--previous-plugin", r.prev]);
     expect(o.status, o.stdout + o.stderr).toBe(0);
     expect(r.exportJson().moves).toEqual(r.dbMoves());
+  });
+  it("--rollback with the plugin disabled and a NUL byte inside a moves value refuses the direct read (sqlite3 -json would cut the value)", { timeout: 90_000 }, () => {
+    const r = rig({ plugin: "disabled" });
+    const d = new Database(join(r.root, "bbdata", "plugins", "autarch", "data.db"));
+    d.prepare("UPDATE moves SET evidence = ? WHERE task_id = 'TASK-2' AND generation = 1").run("A\u0000B");
+    expect(d.prepare("SELECT hex(evidence) AS h FROM moves WHERE task_id = 'TASK-2' AND generation = 1").get()).toEqual({ h: "410042" });
+    d.close();
+    const o = r.inst(["--rollback", "--previous-plugin", r.prev]);
+    expect(o.status).toBe(3);
+    expect(o.stdout).toContain("NUL byte or a BLOB");
+    expect(changedAnything(r.calledList())).toBe(false);
   });
 });

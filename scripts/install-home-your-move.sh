@@ -215,13 +215,20 @@ gitmk() { "${AS[@]}" git -C "$REPO" "$@"; }   # via mk, never safe.directory
 # Returns 0 with $EXPORT written, or 1 (having said why) so the caller falls through to `bb home moves`, which then fails fatally as
 # before. Read only: sqlite3 -readonly, mode=ro, and fuser; nothing is disabled, enabled or installed.
 export_from_db() {
-  local pstate sv held rows n
+  local pstate sv held rows n nulq nulw nulc
   pstate=$(printf '%s' "${LIST:-}" | jq -r 'if (.plugins | type) != "array" then "unknown" elif any(.plugins[]; .id == "autarch" and .enabled == true and .status == "running") then "running" else "not-running" end' 2>/dev/null || true)
   [ "$pstate" = not-running ] || return 1   # running: bb answers; unknown: do not guess
   held=$(fuser -v "$DATA"/data.db* 2>&1 || true)
   [ -z "$held" ] || { say "export: the plugin is not running but something holds data.db ($held); not reading it directly"; return 1; }
   sv=$("${AS0[@]}" sqlite3 -readonly "file:$DATA/data.db?mode=ro" "select value from schema_meta where key = 'schema_version'" 2>/dev/null || true)
   { [[ "$sv" =~ ^[0-9]+$ ]] && [ "$sv" -ge 4 ]; } || { say "export: the plugin is not running and schema_version '${sv:-unreadable}' is not a number of 4 or more; no direct read"; return 1; }
+  # sqlite3 -json cuts a TEXT value at an embedded NUL (the plugin's own export keeps it), which would write a parseable but
+  # incomplete record: refuse, for any column, a NUL byte or a BLOB.
+  nulq="select group_concat('instr(CAST(\"' || name || '\" AS BLOB), x''00'') > 0 OR typeof(\"' || name || '\") = ''blob''', ' OR ') from pragma_table_info('moves')"
+  nulw=$("${AS0[@]}" sqlite3 -readonly "file:$DATA/data.db?mode=ro" "$nulq" 2>/dev/null || true)
+  [ -n "$nulw" ] || { say "export: the moves columns could not be listed; no direct read"; return 1; }
+  nulc=$("${AS0[@]}" sqlite3 -readonly "file:$DATA/data.db?mode=ro" "select count(*) from moves where $nulw" 2>/dev/null || true)
+  [ "$nulc" = 0 ] || { say "export: the moves table holds a NUL byte or a BLOB in ${nulc:-an unreadable} row(s), which sqlite3 -json cannot export faithfully; no direct read"; return 1; }
   rows=$OUT/moves-rows.json
   "${AS0[@]}" sqlite3 -readonly -json "file:$DATA/data.db?mode=ro" "SELECT * FROM moves ORDER BY opened_at DESC, task_id, generation" >"$rows" 2>>"$LOG" \
     || { say "export: the plugin is not running and the moves table cannot be read from data.db"; return 1; }
