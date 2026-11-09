@@ -74,6 +74,13 @@ const message = (e: unknown) => (e instanceof Error ? e.message : String(e));
 /** Thrown inside a drain when the service was told to stop; the write it interrupted stays owed, not failed. */
 class Stopped extends Error {}
 
+/**
+ * Rows whose write is in flight in this process, keyed by database file and row. A drain that was told to stop leaves its
+ * one sent write to land; a writer built by a restarted service (its own `running` flag is fresh) must not start the same
+ * row meanwhile, or a comment still on its way is posted twice (its marker is not there to find yet).
+ */
+const inFlight = new Set<string>();
+
 export class CardWriter {
   private running = false;
   /** The stop signal of the drain in progress (drains never overlap). Reads carry it; a write in flight is never cut. */
@@ -138,6 +145,9 @@ export class CardWriter {
       for (const r of this.due()) {
         this.gate();
         if (r.kind === "relabel" && this.blockedByUnlabel(r)) continue;
+        const key = `${this.db.name}\0${r.id}`;
+        if (inFlight.has(key)) continue; // another writer's write of this row has not landed yet
+        inFlight.add(key);
         try {
           await this.run(r);
           out.done++;
@@ -145,6 +155,8 @@ export class CardWriter {
           if (e instanceof Stopped || signal?.aborted) throw new Stopped("stopped");
           this.fail(r, e);
           out.failed++;
+        } finally {
+          inFlight.delete(key);
         }
       }
       await this.drainMoveCloses(out);
@@ -221,6 +233,7 @@ export class CardWriter {
         const ids = await this.tasks.needsMkLabelIds(st.task.projectId, { fresh: true, signal: this.signal });
         this.gate();
         await this.tasks.setLabels(r.task_id, st.task.labelIds.filter((l) => !ids.includes(l)));
+        this.gate();
       }
       this.db.prepare("UPDATE cards SET home_unlabelled_at = COALESCE(home_unlabelled_at, ?) WHERE task_id = ?").run(this.now(), r.task_id);
       // A ruled card's task is done, unless a thread is working on it: that thread closes it at its DONE turn.
@@ -252,6 +265,7 @@ export class CardWriter {
       this.gate();
       if (ids.length === 0) throw new Error("the tasks project has no needs-mk label");
       await this.tasks.setLabels(r.task_id, [...st.task.labelIds, ids[0]!]);
+      this.gate(); // the label landed; the reopen that follows is a second write and must not start after a stop
     }
     // A brought-back or overridden card's task was closed when it was ruled (including the pick's own
     // auto-complete, the "unlabel" branch above, which sets it done); it is open work for mk again. A task a
