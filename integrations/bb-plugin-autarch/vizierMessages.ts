@@ -167,17 +167,19 @@ export interface Tally {
   filed: number;
   alreadyFiled: number;
   failed: number;
+  /** Operator messages after the first failure, left for the next run. */
+  notAttempted: number;
   skipped: Partial<Record<SkipReason, number>>;
 }
-const newTally = (): Tally => ({ read: 0, operator: 0, filed: 0, alreadyFiled: 0, failed: 0, skipped: {} });
+const newTally = (): Tally => ({ read: 0, operator: 0, filed: 0, alreadyFiled: 0, failed: 0, notAttempted: 0, skipped: {} });
 const bump = (t: Tally, r: SkipReason) => void (t.skipped[r] = (t.skipped[r] ?? 0) + 1);
 
-/** `read 40 events: 1 operator (1 filed, 0 already had a card, 0 failed); skipped 39 (initiator 30, sender-thread 9)`. */
+/** `read 40 events: 1 operator (1 filed, 0 already had a card, 0 failed, 0 not attempted); skipped 39 (initiator 30, sender-thread 9)`. */
 export function countsLine(t: Tally): string {
   const skips = Object.entries(t.skipped).filter(([, n]) => (n ?? 0) > 0).sort(([a], [b]) => a.localeCompare(b));
   const total = skips.reduce((n, [, c]) => n + (c ?? 0), 0);
   const by = skips.length ? ` (${skips.map(([r, c]) => `${r} ${c}`).join(", ")})` : "";
-  return `vizier-messages: read ${t.read} events: ${t.operator} operator (${t.filed} filed, ${t.alreadyFiled} already had a card, ${t.failed} failed); skipped ${total}${by}`;
+  return `vizier-messages: read ${t.read} events: ${t.operator} operator (${t.filed} filed, ${t.alreadyFiled} already had a card, ${t.failed} failed, ${t.notAttempted} not attempted); skipped ${total}${by}`;
 }
 
 export const messageMarker = (eventId: string) => `${MARKER_PREFIX}${eventId}`;
@@ -460,8 +462,11 @@ export class VizierMessages {
       try {
         const ok = await this.run();
         this.passErrors = ok ? 0 : this.passErrors + 1;
+        // After an incomplete run, the next counts line is logged even if it equals the last one.
+        if (!ok) this.lastCounts = "";
       } catch (err) {
         this.passErrors++;
+        this.lastCounts = "";
         this.d.log.warn(`vizier-messages: run failed at "${this.stage}": ${errCode(err)}`);
       }
     });
@@ -560,7 +565,7 @@ export class VizierMessages {
         this.d.log.info(`vizier-messages: the vizier thread changed while the messages were being read (${threadId} is no longer the one pinned, unarchived match); nothing is filed this run`);
         return true; // not a complete run: the heartbeat stays where it was
       }
-      for (const { e, text } of messages) {
+      for (const [i, { e, text }] of messages.entries()) {
         try {
           const r = await this.fileOne(project.id, threadId, e, text, run);
           if (r.created) {
@@ -570,6 +575,7 @@ export class VizierMessages {
         } catch (err) {
           ok = false;
           tally.failed++;
+          tally.notAttempted = messages.length - i - 1;
           this.d.log.warn(`vizier-messages: message ${e.seq} not filed at "${this.stage}": ${errCode(err)}; it is tried again next run`);
           break; // the tasks plugin is probably down: do not hammer it with the rest
         }

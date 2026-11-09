@@ -228,7 +228,7 @@ describe("filing", () => {
     );
     await vm.tick();
     const lines = logs.filter((l) => l.startsWith("vizier-messages: read "));
-    expect(lines).toEqual(["vizier-messages: read 4 events: 2 operator (2 filed, 0 already had a card, 0 failed); skipped 2 (initiator 1, system-kind 1)"]);
+    expect(lines).toEqual(["vizier-messages: read 4 events: 2 operator (2 filed, 0 already had a card, 0 failed, 0 not attempted); skipped 2 (initiator 1, system-kind 1)"]);
     // The same counts on the next run are not logged again; a changed count is.
     w.now += 15_000;
     await vm.tick();
@@ -236,6 +236,48 @@ describe("filing", () => {
     expect(logs.filter((l) => l.startsWith("vizier-messages: read "))[1]).toContain("2 operator (0 filed, 2 already had a card");
     await vm.tick();
     expect(logs.filter((l) => l.startsWith("vizier-messages: read "))).toHaveLength(2);
+  });
+
+  const countLines = (logs: string[]) => logs.filter((l) => l.startsWith("vizier-messages: read "));
+
+  it("counts the messages left unfiled after the first failure as not attempted, so the line adds up", async () => {
+    const r = rig();
+    const w = world(r);
+    const { vm, logs } = await started(r, w);
+    w.events.push(evt(1, "one"), evt(2, "two"), evt(3, "three"), evt(4, "[vizier] not the operator"));
+    r.fake.failures.push({ method: "createTask", nth: 1, error: new Error("tasks is down") });
+    await vm.tick();
+    expect(countLines(logs)).toEqual(["vizier-messages: read 4 events: 3 operator (0 filed, 0 already had a card, 1 failed, 2 not attempted); skipped 1 (prefix 1)"]);
+  });
+
+  it("logs the counts again on a run that follows a thrown failure, even when they equal the last logged ones", async () => {
+    const r = rig();
+    const w = world(r);
+    const { vm, logs } = await started(r, w);
+    w.events.push(evt(1, "an agent note", { initiator: "agent" }));
+    await vm.tick();
+    expect(countLines(logs)).toHaveLength(1);
+    w.failReads = true;
+    await vm.tick();
+    w.failReads = false;
+    await vm.tick();
+    const lines = countLines(logs);
+    expect(lines).toHaveLength(2);
+    expect(lines[1]).toBe(lines[0]);
+  });
+
+  it("logs the counts again on a run that follows an incomplete one (a failed filing), even when they are identical", async () => {
+    const r = rig();
+    const w = world(r);
+    const { vm, logs } = await started(r, w);
+    w.events.push(evt(1, "needs a card"));
+    r.fake.failures.push({ method: "createTask", nth: 1, error: new Error("tasks is down") });
+    r.fake.failures.push({ method: "createTask", nth: 2, error: new Error("tasks is down") });
+    await vm.tick();
+    await vm.tick();
+    const lines = countLines(logs);
+    expect(lines).toHaveLength(2);
+    expect(lines[1]).toBe(lines[0]);
   });
 
   it("files nothing for agent, system and card-wake messages, then files the operator's next one", async () => {
