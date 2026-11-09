@@ -1,6 +1,7 @@
 // Merge recheck (bead mk-g1t73): a merge pick whose PR is still open five minutes later brings the card back.
 import { afterEach, describe, expect, it } from "vitest";
 import { MergeRecheck, mergePrOf, RECHECK_AFTER_MS } from "../mergerecheck.js";
+import { TasksClient } from "../tasks.js";
 import { cleanupEnvs, opened, pollN, rig } from "./card-rig.js";
 
 afterEach(cleanupEnvs);
@@ -123,12 +124,14 @@ async function pickedMerge(option = "a") {
 }
 
 function recheck(r: any, state: () => string, calls: string[]) {
+  const tasks = new TasksClient(r.fake, { now: () => r.env.clock.t });
   return new MergeRecheck({
     db: r.svc.store.db,
     ghView: async (u) => {
       calls.push(u);
       return { state: state(), mergedAt: null };
     },
+    taskState: (id: string) => tasks.taskState(id),
     clock: () => Date.parse(r.svc.time()),
     bringBack: async (taskId, decisionId) => {
       const out = r.dele.bringBack(taskId, decisionId, "thr_a", {});
@@ -213,6 +216,7 @@ describe("merge recheck", () => {
         if (fail) throw new Error("gh down");
         return { state: "OPEN", mergedAt: null };
       },
+      taskState: (id) => new TasksClient(r.fake, { now: () => r.env.clock.t }).taskState(id),
       clock: () => Date.parse(r.svc.time()),
       bringBack: async (taskId, decisionId) => r.dele.bringBack(taskId, decisionId, null, {}).ok,
     });
@@ -221,6 +225,77 @@ describe("merge recheck", () => {
     expect(r.gens(t.id)).toHaveLength(1);
     fail = false;
     await m.pass();
+    expect(r.gens(t.id)).toHaveLength(2);
+  });
+});
+
+// Bead mk-6k39i. When the recheck fires, the pick's own write-back has already made the task done (or, with a thread
+// attached, left it todo). It never cancels a task, so a canceled or deleted task was closed by a person or a thread
+// after mk picked: the card is finished and the recheck must not reopen it. A done task stays a true positive, since
+// that is how every picked card looks five minutes later.
+describe("merge recheck leaves a card whose task is finished (bead mk-6k39i)", () => {
+  it("brings a card back whose task the pick itself completed, and one a thread is still working", async () => {
+    for (const threads of [[], [{ liveStatus: "working" }]]) {
+      const r = rig();
+      const { t, g1 } = await opened(r, { ask: mergeAsk() });
+      r.fake.threads = threads.map((x) => ({ taskId: t.id, ...x }));
+      expect(r.mkPick(g1.id, "p1", "a")).toMatchObject({ ok: true });
+      await pollN(r, 3);
+      expect(t.status).toBe(threads.length === 0 ? "done" : "todo");
+      r.advance(RECHECK_AFTER_MS + 1000);
+      await recheck(r, () => "OPEN", []).pass();
+      expect(r.gens(t.id)).toHaveLength(2);
+    }
+  });
+
+  it("leaves a card alone whose task was canceled after the pick (a duplicate, say)", async () => {
+    const { r, t } = await pickedMerge();
+    r.edit(t, { status: "canceled" });
+    r.advance(RECHECK_AFTER_MS + 1000);
+    const m = recheck(r, () => "OPEN", []);
+    await m.pass();
+    expect(r.gens(t.id)).toHaveLength(1);
+    expect(t.status).toBe("canceled"); // not reopened
+    await m.pass();
+    expect(r.gens(t.id)).toHaveLength(1);
+  });
+
+  it("leaves a card alone whose task was deleted after the pick", async () => {
+    const { r, t } = await pickedMerge();
+    r.fake.tasks.splice(r.fake.tasks.findIndex((x) => x.id === t.id), 1);
+    r.advance(RECHECK_AFTER_MS + 1000);
+    await recheck(r, () => "OPEN", []).pass();
+    expect(r.gens(t.id)).toHaveLength(1);
+  });
+
+  it("keeps the pick for the next pass when the task cannot be read", async () => {
+    const { r, t } = await pickedMerge();
+    r.advance(RECHECK_AFTER_MS + 1000);
+    let fail = true;
+    const m = new MergeRecheck({
+      db: r.svc.store.db,
+      ghView: async () => ({ state: "OPEN", mergedAt: null }),
+      taskState: async (id: string) => {
+        if (fail) throw new Error("tasks down");
+        return new TasksClient(r.fake, { now: () => r.env.clock.t }).taskState(id);
+      },
+      clock: () => Date.parse(r.svc.time()),
+      bringBack: async (taskId, decisionId) => r.dele.bringBack(taskId, decisionId, null, {}).ok,
+    });
+    await m.pass();
+    expect(m.stats.errors).toBe(1);
+    expect(r.gens(t.id)).toHaveLength(1);
+    fail = false;
+    await m.pass();
+    expect(r.gens(t.id)).toHaveLength(2);
+  });
+
+  it("the manual Bring back still reopens a canceled task (the Archive tab's deliberate rule)", async () => {
+    const { r, t, g1 } = await pickedMerge();
+    r.edit(t, { status: "canceled" });
+    expect(r.dele.bringBack(t.id, g1.id, "thr_a", {})).toMatchObject({ ok: true });
+    await pollN(r, 3);
+    expect(t.status).toBe("todo");
     expect(r.gens(t.id)).toHaveLength(2);
   });
 });

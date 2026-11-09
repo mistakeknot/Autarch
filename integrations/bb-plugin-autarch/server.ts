@@ -453,6 +453,8 @@ export function wireHome(bb: BbPluginApi, handle: StoreHandle, cfg: HomeConfig, 
         db: p.store.db,
         ghView: ghViewReal,
         log: (m) => console.error(`home-merge-recheck: ${m}`),
+        // The tasks client is set a moment after the stores; until then the read throws and the pick is retried next pass.
+        taskState: (taskId) => (tasksRef ? tasksRef.taskState(taskId) : Promise.reject(new Error("tasks unavailable"))),
         bringBack: async (taskId, decisionId, pr) => {
           const cur = p.svc.currentGeneration(taskId);
           const recipient = cur && cur.thread ? await resolveWakeTarget(taskId, String(cur.thread), true) : null;
