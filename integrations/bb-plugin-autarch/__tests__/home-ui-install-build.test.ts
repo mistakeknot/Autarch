@@ -173,7 +173,7 @@ describe("home-ui.sh install_build: the install exits non-zero on the client", (
     expect(out.status).toBe(5);
     expect(out.stderr).toContain("failed; Home is disabled");
     expect(r.mode()).toBe("disabled");
-  });
+  }, 30_000); // the smallest octal-invalid wait is 8 s: the bounded poll really runs that long
 
   it("a half-written frontend (app.js rebuilt, the rest old) is not a finished install", () => {
     const r = rig();

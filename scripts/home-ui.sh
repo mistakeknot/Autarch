@@ -262,6 +262,8 @@ install_rechecked() {   # $1 = plugin dir, $2 = marker file touched just before 
   local rc=0 wait=${HOME_UI_RECHECK_WAIT:-60} step=${HOME_UI_RECHECK_INTERVAL:-3} row end rem grace=2 before
   case $wait in ''|*[!0-9]*) wait=60 ;; esac     # a bad value falls back to the default: the poll must end
   case $step in ''|*[!0-9]*|0) step=3 ;; esac
+  wait=$((10#$wait)) step=$((10#$step))        # decimal, whatever the padding (08 and 09 are not octal)
+  [ "$step" -ge 1 ] || step=3
   before=$(dist_id "$1")   # what the frontend artifacts are now; a finished install must have replaced every one of them
   "$BB" plugin install --yes "$1" || rc=$?
   [ "$rc" -ne 0 ] || return 0
