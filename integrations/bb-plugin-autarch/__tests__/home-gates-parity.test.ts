@@ -297,7 +297,7 @@ describe("home-gates.sh gate", () => {
     const shim = join(b.root, "shim.sh");
     writeFileSync(shim, `find() {\n  case "$*" in\n    *"/node_modules -prune -o -type f -print0"*)\n      local n=0; [ ! -f "${counter}" ] || n=$(cat "${counter}"); n=$((n+1)); echo $n >"${counter}"\n      [ "$n" -le 1 ] || return 1 ;;\n  esac\n  command find "$@"\n}\n`);
     const r = sh(UI_SCRIPT, ["check", "--path", t, "--plugin-code"], { HOME: b.root, HOME_BB_BIN: stubBb(b.root, b.installed), HOME_BB_DATA: data, HOME_UI_WAIT: "2", BASH_ENV: shim });
-    expect(Number(readFileSync(counter, "utf8")), "the target was walked more than once, so the stand-in was exercised").toBeGreaterThan(1);
+    expect(Number(readFileSync(counter, "utf8")), "the stand-in was reached").toBeGreaterThanOrEqual(1);   // the checked walk finds the statement and refuses, so no second walk need happen
     expect(r.status).toBe(3);
     expect(r.stderr).not.toContain("could not list every file");   // the failure must come from the schema statement, found in the first (checked) walk
     expect(r.stderr).toContain("adds a schema statement");

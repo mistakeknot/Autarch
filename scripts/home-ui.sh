@@ -211,7 +211,7 @@ plugin_code_only() {   # $1 = installed build, $2 = target; dependencies and the
   # The baseline loop below reads its file list through process substitution, which discards find's exit status, so an unreadable
   # subdirectory would silently drop its files from the scan. This block lists the tree into a temp file, refuses when find fails,
   # and scans exactly that checked list, the way scripts/home-gates.sh does (mk-zq345.4). The baseline loop is kept byte for byte
-  # (legacy-lock.test.ts) and runs after it: it walks the tree again and can only add to $added, never hide what was found here.
+  # (legacy-lock.test.ts) and runs after it: it walks the tree again and is judged separately, so it can only add a refusal, never hide what was found here.
   local list
   list=$(mktemp) || die "cannot create a temp file"
   find "$2" -path "$2/node_modules" -prune -o -type f -print0 >"$list" 2>/dev/null \
@@ -224,6 +224,12 @@ plugin_code_only() {   # $1 = installed build, $2 = target; dependencies and the
     [ "$rc" -le 1 ] || { rm -f "$list"; die "NOT plugin-code-only: could not diff $rel against the installed build (diff exit $rc)" 3; }
   done <"$list"
   rm -f "$list"
+  # The checked scan is judged on its own, then $added starts over for the baseline loop: appending the second scan's lines to the
+  # first's could join them into a statement that neither contains (home-gates.sh scans once, so the two must agree).
+  if printf '%s' "$added" | tr '\n\0' '  ' | grep -Eiq '(create|alter|drop)[[:space:]]+(virtual[[:space:]]+)?(table|index|trigger|view)|pragma[[:space:]]+(user_version|writable_schema)|schema_meta'; then
+    die "NOT plugin-code-only: changed plugin code adds a schema statement (CREATE/ALTER/DROP, schema_meta). A schema change goes to mk as a script." 3
+  fi
+  added=
   # find status: end
   while IFS= read -r -d '' f; do
     rel=${f#"$2"/}
