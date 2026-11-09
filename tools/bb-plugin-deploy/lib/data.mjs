@@ -1,6 +1,6 @@
 // Backups, exports and restore-data (plan 2.3, 2.7). The backup format is the legacy one: a 0700 directory holding
 // each data file, previous-source.txt (the previous PLUGIN directory) and a manifest.
-import { chmodSync, copyFileSync, cpSync, existsSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, statSync } from "node:fs";
+import { chmodSync, copyFileSync, cpSync, existsSync, mkdirSync, readFileSync, readdirSync, readlinkSync, renameSync, rmSync, statSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { childEnv } from "./bb.mjs";
 import { sleepSync, pollUntil } from "./health.mjs";
@@ -37,26 +37,41 @@ export function integrityOk(db) {
 }
 
 /**
- * Walks a data directory and calls `onFile(rel)` for each regular file. A filename is bytes, not text: decoding it as UTF-8 maps
+ * Walks a data directory and calls `onFile(rel)` for each regular file and `onLink(rel)` for each symlink (never followed: cpSync copies
+ * a symlink verbatim, so a link's target is part of what a backup holds, and a linked directory's contents are not). A filename is bytes, not text: decoding it as UTF-8 maps
  * every invalid byte to U+FFFD, so the raw name "x\xff" and the valid name "x\uFFFD" would both read as "x\uFFFD", be opened through
  * the same path and be hashed as one file. Any entry whose decoded name holds U+FFFD is refused before it is used (the same rule
  * the closure walk applies).
  */
-function walkDataDir(root, onFile) {
+function walkDataDir(root, onFile, onLink = () => {}) {
   const walk = (rel) => {
     for (const d of readdirSync(join(root, rel), { withFileTypes: true })) {
       const r = rel ? `${rel}/${d.name}` : d.name;
       if (d.name.includes("\uFFFD")) throw refuse(`data path ${JSON.stringify(r)} under ${root} is not valid UTF-8 (or holds U+FFFD); a name that cannot be read back unambiguously is not backed up`);
       if (d.isDirectory()) walk(r);
       else if (d.isFile()) onFile(r);
+      else if (d.isSymbolicLink()) onLink(r);
     }
   };
   walk("");
 }
 
+/** A symlink's target, read without following it. Like a file name, a target is bytes: one that does not read back as the same UTF-8 text is refused. */
+function linkTarget(path) {
+  const raw = readlinkSync(path, { encoding: "buffer" });
+  const text = raw.toString("utf8");
+  if (text.includes("\uFFFD") || !Buffer.from(text, "utf8").equals(raw)) throw refuse(`symlink ${JSON.stringify(path)} has a target that is not valid UTF-8 (or holds U+FFFD); a target that cannot be read back unambiguously is not backed up`);
+  return text;
+}
+
+/** The manifest of a data directory: each regular file with its digest, each symlink with its target. */
 function manifestOfDir(root) {
   const files = [];
-  walkDataDir(root, (r) => files.push({ path: r, sha256: sha256(readFileSync(join(root, r))) }));
+  walkDataDir(
+    root,
+    (r) => files.push({ path: r, sha256: sha256(readFileSync(join(root, r))) }),
+    (r) => files.push({ path: r, symlink: linkTarget(join(root, r)) }),
+  );
   return files.sort((a, b) => (a.path < b.path ? -1 : 1));
 }
 
@@ -109,7 +124,7 @@ export function makeBackup({ plugin, vars, backupsRoot, stateDir, commit, previo
       rec.sha256 = sha256(readFileSync(dst));
       if (rec.sha256 !== sha256(readFileSync(src))) throw new ToolError(`data ${e.name}: copy differs from source; nothing was changed`);
     } else {
-      walkDataDir(src, () => {});
+      walkDataDir(src, () => {}, (r) => linkTarget(join(src, r)));   // refuse a link target that is not valid UTF-8 before copying
       cpSync(src, dst, { recursive: true, errorOnExist: true, verbatimSymlinks: true });
       rec.files = manifestOfDir(dst);
     }
@@ -150,7 +165,7 @@ function backupHolds(dir, pluginId, e) {
     if (e.kind === "sqlite" || e.kind === "file") return typeof rec.sha256 === "string" && sha256(readFileSync(copy)) === rec.sha256;
     if (!Array.isArray(rec.files)) return false;
     const now = manifestOfDir(copy);
-    return now.length === rec.files.length && rec.files.every((f) => now.some((n) => n.path === f.path && n.sha256 === f.sha256));
+    return now.length === rec.files.length && rec.files.every((f) => now.some((n) => n.path === f.path && n.sha256 === f.sha256 && n.symlink === f.symlink));
   } catch {
     return false;
   }
