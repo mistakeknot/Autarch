@@ -309,6 +309,8 @@ verify_closure() {   # $1 = build root; sets CLOSURE_REASON and returns 1 on any
   if [ "${out%%$'\n'*}" != OK ]; then CLOSURE_REASON=${out#FAIL }; CLOSURE_REASON=${CLOSURE_REASON%%$'\n'*}; rm -rf "$T"; return 1; fi
   printf '%s\n' "${out#OK}" | sed '1d' >"$T/want.txt"
   cut -f1 "$T/want.txt" >"$T/want.sha"; cut -f2- "$T/want.txt" >"$T/want.paths"
+  # hash-object --stdin-paths strips a trailing carriage return, so x and x<CR> would hash the same file: refuse such a closure path
+  if grep -q $'\r' "$T/want.paths"; then CLOSURE_REASON="a closure path contains a carriage return"; rm -rf "$T"; return 1; fi
   # absolute paths: hash-object --stdin-paths reads a leading double quote as git quoting, so a relative name starting with one would hash another file
   while IFS= read -r bad; do printf '%s/%s\n' "$root" "$bad"; done <"$T/want.paths" >"$T/want.abs"
   ( cd "$root" && env GIT_NO_REPLACE_OBJECTS=1 git hash-object --no-filters --stdin-paths <"$T/want.abs" ) >"$T/got.sha" 2>"$T/hash.err" || { CLOSURE_REASON="git hash-object failed: $(head -c 200 "$T/hash.err")"; rm -rf "$T"; return 1; }
@@ -347,6 +349,8 @@ tool_engine() {   # check, deploy or preview through the installed build's tool;
   [[ $src == */"$PLUGIN_REL" ]] || tdie "the installed source $src does not end in $PLUGIN_REL"
   root=${src%/"$PLUGIN_REL"}
   [ -n "$root" ] && [ -d "$root" ] || tdie "cannot find the installed build root"
+  # node decodes its executable path as UTF-8 (invalid bytes become U+FFFD), bash keeps the raw bytes: a root that is not valid UTF-8 could run another directory
+  printf '%s' "$root" | iconv -f UTF-8 -t UTF-8 >/dev/null 2>&1 || tdie "the installed build root is not valid UTF-8"
   cli=$root/tools/bb-plugin-deploy/cli.mjs
   { [ -f "$cli" ] && [ ! -L "$cli" ]; } || tdie "the installed build has no deploy tool ($cli)"
   pf=$root/$PLUGIN_REL/deploy.json

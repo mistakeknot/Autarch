@@ -438,6 +438,33 @@ describe("home-ui.sh --engine tool: refusals", () => {
     refused(r, /not valid UTF-8/);
   });
 
+  it("refuses a closure path ending in a carriage return (hash-object --stdin-paths would strip it and hash the other file)", () => {
+    const r = rig();
+    const dir = join(r.inst, "tools/bb-plugin-deploy/lib");
+    writeFileSync(join(dir, "x.mjs"), "same\n");
+    writeFileSync(join(dir, "x.mjs\r"), "same\n");
+    git(r.inst, "add", "-A");
+    git(r.inst, "commit", "-q", "-m", "cr names");
+    const head = git(r.inst, "rev-parse", "HEAD").stdout.trim();
+    const tree = git(r.inst, "rev-parse", "HEAD^{tree}").stdout.trim();
+    mkdirSync(join(r.inst, ".bb-plugin-deploy"));
+    writeFileSync(join(r.inst, ".bb-plugin-deploy", "stamp.json"), JSON.stringify({ format: "bb-plugin-deploy/stamp@1", pluginId: "autarch", commit: head, tree }));
+    writeFileSync(join(dir, "x.mjs\r"), "tampered\n");
+    refused(r, /carriage return/);
+  });
+
+  it("refuses an installed build root that is not valid UTF-8 (node would decode it to another directory)", () => {
+    const r = rig();
+    const lookalike = join(r.root, "inst\ufffd");   // what node makes of the raw-FF name below
+    cpSync(r.inst, lookalike, { recursive: true });
+    writeFileSync(join(lookalike, "tools/bb-plugin-deploy/cli.mjs"), "// unverified lookalike\n");
+    const rawInst = Buffer.concat([Buffer.from(join(r.root, "inst")), Buffer.from([0xff])]);
+    renameSync(r.inst, rawInst);
+    const [before, after] = readFileSync(r.bb, "utf8").split(r.inst);
+    writeFileSync(r.bb, Buffer.concat([Buffer.from(before), rawInst, Buffer.from(after)]));
+    refused(r, /not valid UTF-8/);
+  });
+
   it("does not take an inherited BPD_LOCK_FD for a held lock: no state dir is refused, and so is a descriptor on another file", () => {
     const r = rig({ noState: true });
     const out = r.run(["deploy", "--commit", SHA, "--engine", "tool"], { BPD_LOCK_FD: "2" });
