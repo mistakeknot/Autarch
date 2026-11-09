@@ -138,6 +138,9 @@ export function verifyClosure({ root, commit, controlPaths }) {
   const onDisk = new Set();
   walkDisk(root, (rel, d) => {
     if (match(rel) || ancestors.has(rel)) noControl(rel);
+    // A directory that does not match the closure is still traversed by its decoded name; one that holds a byte which is
+    // not valid UTF-8 would be read as its U+FFFD twin, hiding what it holds. Refuse it instead of descending.
+    if (d.isDirectory() && rel.includes("\uFFFD")) noControl(rel);
     const isLink = d.isSymbolicLink();
     if (isLink && (match(rel) || ancestors.has(rel) || match(`${rel}/x`))) throw fail(`${rel} is a symlink`);
     if (!d.isDirectory() && match(rel)) onDisk.add(rel);
