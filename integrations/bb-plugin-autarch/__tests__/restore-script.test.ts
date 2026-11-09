@@ -243,7 +243,7 @@ describe("launchers", () => {
   // (quoting habits, `A && B || C`, unfollowed dynamic `source`) do not. This repo has no other shellcheck convention.
   // home-common.bash is a library sourced by the two bodies, never run alone, and four warnings remain in it: SC2034 twice
   // (variables set for the sourcing script, which shellcheck cannot see through the dynamic source path) and SC2206 twice
-  // (the intentional word-split of a fixed command prefix). They are tolerated by count, so a new warning or a repeat of one still fails.
+  // (the intentional word-split of a fixed command prefix). They are tolerated by exact count: a new warning or a repeat of one fails, and fixing one fails until the count below is lowered.
   const SHELLCHECK = ["-x", "-S", "warning"];
   const LIBRARY_WARNINGS: Record<string, number> = { SC2034: 2, SC2206: 2 };
   it.skipIf(!hasShellcheck)("shellcheck passes on the launchers (sh) and the bodies (bash)", () => {
@@ -252,7 +252,8 @@ describe("launchers", () => {
     const lib = spawnSync("shellcheck", [...SHELLCHECK, "-s", "bash", "-f", "json1", join(SCRIPTS, "home-common.bash")], { encoding: "utf8" });
     const seen: Record<string, number> = {};
     for (const c of JSON.parse(lib.stdout).comments as { code: number }[]) seen[`SC${c.code}`] = (seen[`SC${c.code}`] ?? 0) + 1;
-    for (const [code, n] of Object.entries(seen)) expect(n, `home-common.bash: ${code}`).toBeLessThanOrEqual(LIBRARY_WARNINGS[code] ?? 0);
+    // Exact, not a ceiling: fixing a warning must lower this table in the same change, so the budget only ever shrinks.
+    expect(seen, "home-common.bash warnings: a fixed one must be removed from LIBRARY_WARNINGS, a new one must not appear").toEqual(LIBRARY_WARNINGS);
   });
   it("test-mode flags are refused without --test-as-current-user", async () => {
     const i = await install();

@@ -151,21 +151,30 @@ describe("main while oxlint reports errors", () => {
     expect(errorText()).toContain("oxlint reports 1 error(s)");
     expect(errorText()).not.toContain("->");
   });
-  it("--write still refuses to raise a count, and still lowers one", () => {
+  it("--write still refuses to raise a count, and still lowers one (failing while an error is present)", () => {
     put("a.ts", "const x = 1;\n");
     stubOxlint([E, W]);
     writeFileSync(join(dir, "lint-lock.json"), "{}\n");
     expect(main(["--write"], liveEnv())).toBe(1);
     expect(JSON.parse(readFileSync(join(dir, "lint-lock.json"), "utf8"))).toEqual({});
     writeFileSync(join(dir, "lint-lock.json"), JSON.stringify({ "a.ts": { oxlint_warning: 3 } }));
-    expect(main(["--write"], liveEnv())).toBe(0);
+    // the ledger is lowered, but the status is still a failure: an error is present
+    expect(main(["--write"], liveEnv())).toBe(1);
     expect(JSON.parse(readFileSync(join(dir, "lint-lock.json"), "utf8"))).toEqual({ "a.ts": { oxlint_warning: 1 } });
+    expect(errorText()).toContain("oxlint reports 1 error(s)");
   });
-  it("--list prints the live counts", () => {
+  it("--list prints the live counts (failing while an error is present)", () => {
     put("a.ts", "const x = 1;\n");
     stubOxlint([E, W]);
-    expect(main(["--list"], liveEnv())).toBe(0);
+    expect(main(["--list"], liveEnv())).toBe(1);
     expect(JSON.parse(String(vi.mocked(console.log).mock.calls[0]?.[0]))).toEqual({ "a.ts": { oxlint_warning: 1 } });
+    expect(errorText()).toContain("oxlint reports 1 error(s)");
+  });
+  it("--list and --write succeed when there is no error", () => {
+    put("a.ts", "const x = 1;\n");
+    stubOxlint([W]);
+    expect(main(["--list"], liveEnv())).toBe(0);
+    expect(main(["--write"], liveEnv())).toBe(0);
   });
   it("passes once there is no error and the counts match", () => {
     put("a.ts", "const x = 1;\n");

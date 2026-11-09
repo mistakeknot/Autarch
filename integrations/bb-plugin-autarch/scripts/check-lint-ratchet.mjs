@@ -118,9 +118,13 @@ export function main(argv = process.argv.slice(2), env = process.env) {
     live = mergeWarnings(live, per);
   }
   live = normalize(live);
+  // --list and --write still do their work while errors remain (the ledger has to be able to shrink), but their status
+  // stays a failure, so a script that trusts the exit code never accepts a tree that has an error.
+  const errorNote = () => console.error(`oxlint reports ${errorCount} error(s); run: npx oxlint -c .oxlintrc.json .`);
   if (argv.includes("--list")) {
     console.log(JSON.stringify(live, null, 2));
-    return 0;
+    if (errorCount) errorNote();
+    return errorCount ? 1 : 0;
   }
   const base = existsSync(lock) ? JSON.parse(readFileSync(lock, "utf8")) : {};
   const { rose, fell } = diff(base, live);
@@ -131,7 +135,8 @@ export function main(argv = process.argv.slice(2), env = process.env) {
     }
     writeFileSync(lock, JSON.stringify(live, null, 2) + "\n");
     console.log(`wrote ${lock}`);
-    return 0;
+    if (errorCount) errorNote();
+    return errorCount ? 1 : 0;
   }
   let failed = false;
   if (rose.length) {
@@ -143,7 +148,7 @@ export function main(argv = process.argv.slice(2), env = process.env) {
     failed = true;
   }
   if (errorCount) {
-    console.error(`oxlint reports ${errorCount} error(s); run: npx oxlint -c .oxlintrc.json .`);
+    errorNote();
     failed = true;
   }
   if (failed) return 1;
