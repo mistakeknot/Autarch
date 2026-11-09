@@ -2,6 +2,7 @@
 // five minutes later, the card comes back as a new generation. No model is involved: a timer, one read-only
 // `gh pr view` per due pick, and the existing bring-back. mk's pick stays visible on the earlier generation.
 //
+// Only a pick whose option is itself a merge instruction is rechecked (see REWORK and MERGE_LEAD below).
 // Which PR: the picked option's own text if it names a PR URL, else the card's one PR URL, else the merge
 // approval's target (owner/repo#N). A card that names several different PRs is left alone rather than guessed at.
 // Once per generation: the new generation has no pick, so it is checked only if mk picks merge on it again, and
@@ -19,6 +20,13 @@ const PR_IN_TEXT = /https:\/\/github\.com\/([A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+)\/p
 const APPROVAL_TARGET = /^([A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+)#([1-9][0-9]{0,8})$/;
 const MERGE = /\bmerges?\b/i;
 const NOT_MERGE = /\b(do not|don't|dont|not|never|won't|no)\b[^.\n]{0,20}\bmerg/i;
+// A merge pick is one whose own instruction is to merge (bead mk-q9m7q). Mentioning a merge is not enough: a fix-round
+// option says "a pass goes to the registrar to merge" and must not be rechecked as a merge. The picked option counts as
+// a merge when its label names the merge (and is not rework), when its instruction opens with the merge as the action
+// ("mk merges ...", "Merge the PR ..."), or when the pick minted a merge approval.
+const REWORK = /\b(fix(?:es|ed|ing)?|rounds?|re-?reviews?|rework|revis(?:e|ed|ion)|another|one more|extra|again|retry)\b/i;
+const MERGE_LEAD = /^\W*(?:(?:yes|ok|okay|approve)\W+)?(?:(?:mk|the vizier|vizier|the registrar|registrar|you|we)\s+)?(?:will\s+)?merges?\b/i;
+const firstSentence = (t: string): string => t.trim().split(/(?<=[.!?])\s|\n/)[0] ?? "";
 const DEFER = /\b(wait|hold|defer|postpone|delay|until)\b|\bnot yet\b|\bbefore\s+(?:you\s+)?(?:auto-?)?merg/i;
 
 export interface PrRef {
@@ -49,10 +57,13 @@ export function mergePrOf(bodyJson: string, optionId: string, approvalTarget: st
   const opts = Array.isArray(body.options) ? (body.options as Record<string, unknown>[]) : [];
   const opt = opts.find((o) => o && o.id === optionId);
   if (!opt) return null;
-  const text = `${typeof opt.label === "string" ? opt.label : ""}\n${typeof opt.instruction === "string" ? opt.instruction : ""}`;
+  const label = typeof opt.label === "string" ? opt.label : "";
+  const instruction = typeof opt.instruction === "string" ? opt.instruction : "";
+  const text = `${label}\n${instruction}`;
   const approval = approvalTarget ? APPROVAL_TARGET.exec(approvalTarget) : null;
   if (NOT_MERGE.test(text) || DEFER.test(text)) return null;
-  if (!MERGE.test(text) && approval === null) return null;
+  const isMerge = MERGE_LEAD.test(label) || (MERGE.test(label) && !REWORK.test(label)) || MERGE_LEAD.test(firstSentence(instruction));
+  if (!isMerge && approval === null) return null;
   const own = urlsIn(text);
   if (own.length === 1) return own[0]!;
   if (own.length > 1) return null;

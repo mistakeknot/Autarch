@@ -63,6 +63,11 @@ describe("only a merge instruction counts as a merge pick (bead mk-q9m7q)", () =
       expect(mergePrOf(body({ options: [{ id: "a", label, kind: "instruction", instruction }] }), "a", null)?.url, label).toBe(URL130);
     }
   });
+  it("keeps a merge label that names rounds, and a merge approval on a plain label", () => {
+    const o = (label: string) => body({ options: [{ id: "a", label, kind: "instruction", instruction: "Go." }] });
+    expect(mergePrOf(o("Merge it after 11 review rounds"), "a", null)?.url).toBe(URL130);
+    expect(mergePrOf(o("Ship it"), "a", "mistakeknot/Undersketch#130")?.url).toBe(URL130);
+  });
   it("brings nothing back for a fix-round pick on a card that names a PR", async () => {
     const r = rig();
     const ask = {
@@ -136,6 +141,17 @@ describe("merge recheck", () => {
     await m.pass();
     expect(calls).toHaveLength(1); // not asked again
     expect(r.gens(t.id)).toHaveLength(2);
+  });
+
+  it("is right to come back when a merge pick's PR is still open at the check, and not when it merged first", async () => {
+    // Observed 2026-11-09: pick 01:42:20, check 01:47:40 (PR open), merge 01:48:05. A merge that lands after the
+    // check is a genuine "still not merged" for this rule; one that landed before it must not bring the card back.
+    for (const [state, cards] of [["OPEN", 2], ["MERGED", 1]] as const) {
+      const { r, t } = await pickedMerge();
+      r.advance(5 * 60_000 + 20_000);
+      await recheck(r, () => state, []).pass();
+      expect(r.gens(t.id)).toHaveLength(cards);
+    }
   });
 
   it("never rechecks a pick the vizier made", async () => {
