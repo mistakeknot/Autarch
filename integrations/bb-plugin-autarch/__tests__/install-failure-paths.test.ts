@@ -221,4 +221,34 @@ describe.skipIf(!isMk)("mk-hd2ks: --rollback and --go when the plugin is not run
     expect(o.stdout).toContain("NUL byte or a BLOB");
     expect(changedAnything(r.calledList())).toBe(false);
   });
+  it("--rollback refuses when a NUL byte is written after the pre-checks but before the read (the guard and the rows share one snapshot)", { timeout: 90_000 }, () => {
+    const r = rig({ plugin: "disabled" });
+    const db = join(r.root, "bbdata", "plugins", "autarch", "data.db");
+    const real = spawnSync("bash", ["-c", "command -v sqlite3"], { encoding: "utf8" }).stdout.trim();
+    const wrapDir = join(r.root, "wrap");
+    mkdirSync(wrapDir);
+    const wrap = join(wrapDir, "sqlite3");
+    // The first sqlite3 call that reads the rows (one that opens a transaction, or asks for -json) is the read; just before it, a writer commits a NUL inside a moves value.
+    writeFileSync(wrap, `#!/bin/bash
+for a in "$@"; do
+  if { [ "$a" = BEGIN ] || [ "$a" = -json ]; } && [ ! -e "${wrapDir}/fired" ]; then
+    : > "${wrapDir}/fired"
+    ${real} "${db}" "UPDATE moves SET evidence = 'A' || char(0) || 'B' WHERE task_id = 'TASK-2' AND generation = 1"
+  fi
+done
+exec ${real} "$@"
+`);
+    chmodSync(wrap, 0o755);
+    // The installer pins its own PATH for sqlite3, so the test's copy of the script gets the wrapper directory in front of it.
+    const copy = join(r.repo, "scripts", "install-home-your-move.sh");
+    const src = readFileSync(copy, "utf8");
+    const patched = src.replace("LOGNAME=mk PATH=/usr/bin:/bin", `LOGNAME=mk PATH=${wrapDir}:/usr/bin:/bin`).replace("AS0=(env -i HOME=\"${HOME:-/}\" PATH=/usr/bin:/bin)", `AS0=(env -i HOME="\${HOME:-/}" PATH=${wrapDir}:/usr/bin:/bin)`);
+    expect(patched).not.toBe(src);
+    writeFileSync(copy, patched);
+    const o = r.inst(["--rollback", "--previous-plugin", r.prev]);
+    expect(existsSync(join(wrapDir, "fired"))).toBe(true);
+    expect(o.status).toBe(3);
+    expect(o.stdout).toContain("NUL byte or a BLOB");
+    expect(changedAnything(r.calledList())).toBe(false);
+  });
 });
