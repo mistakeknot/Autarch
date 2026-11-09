@@ -59,6 +59,9 @@ func TestDefaultProjectPrefersTheBindingThenTheFolderName(t *testing.T) {
 	if got := DefaultProject(ctx, nil, "/w/Folder"); got != "Folder" {
 		t.Fatalf("nil filer: %q", got)
 	}
+	if got := DefaultProject(ctx, (*CardFiler)(nil), "/w/Folder"); got != "Folder" {
+		t.Fatalf("typed nil filer: %q", got)
+	}
 	none := bindingFiler(confirmed)
 	if got := DefaultProject(ctx, none, "/w/Folder"); got != "Folder" {
 		t.Fatalf("no board configured: %q", got)

@@ -33,6 +33,9 @@ func (f *CardFiler) PrepareAsk(ctx context.Context, tasksProject, askProject, as
 // BoundProject is the Home project tasksProject is confirmed bound to, or "" when it is unbound, only
 // suggested or rejected, or cannot be read.
 func (f *CardFiler) BoundProject(ctx context.Context, tasksProject string) string {
+	if f == nil {
+		return ""
+	}
 	if b, ok := f.binding(ctx, tasksProject); ok {
 		return b.home
 	}
@@ -42,7 +45,7 @@ func (f *CardFiler) BoundProject(ctx context.Context, tasksProject string) strin
 // DefaultAskProject is BoundProject for the filer's own default tasks board: TasksProject, else the
 // only board in TasksProjects. It is "" when the filer has no single board to ask about.
 func (f *CardFiler) DefaultAskProject(ctx context.Context) string {
-	if f.ConfigErr != nil {
+	if f == nil || f.ConfigErr != nil {
 		return ""
 	}
 	board := strings.TrimSpace(f.TasksProject)
