@@ -42,7 +42,7 @@ case "$1 $2" in
 esac
 `);
   chmodSync(bb, 0o755);
-  const run = (args: string[]) => spawnSync("bash", [SCRIPT, ...args], { env: { PATH: process.env.PATH!, HUI_FAIL_AFTER: failAfter, HOME: root, HOME_BB_BIN: bb, HOME_BB_DATA: data, HOME_UI_WAIT: "2" }, encoding: "utf8" });
+  const run = (args: string[]) => spawnSync("bash", [SCRIPT, ...args], { env: { PATH: process.env.PATH!, HUI_FAIL_AFTER: failAfter, HOME: root, HOME_BB_BIN: bb, HOME_BB_DATA: data, HOME_UI_WAIT: "2", HOME_UI_RECHECK_WAIT: "1", HOME_UI_RECHECK_INTERVAL: "1" }, encoding: "utf8" });
   const log = () => (existsSync(calls) ? readFileSync(calls, "utf8") : "");
   const backups = () => { try { return readdirSync(join(data, "home-backups")); } catch { return []; } };
   return { root, data, cur, run, log, backups };

@@ -84,7 +84,7 @@ esac
 `);
   chmodSync(bb, 0o755);
   const env = (extra: Record<string, string> = {}): Record<string, string> => ({
-    PATH: process.env.PATH!, HOME: root, HOME_BB_BIN: bb, HOME_BB_DATA: data, HOME_UI_WAIT: "2", HOME_UI_STATE_DIR: st, FAKE_OUT: out, ...extra,
+    PATH: process.env.PATH!, HOME: root, HOME_BB_BIN: bb, HOME_BB_DATA: data, HOME_UI_WAIT: "2", HOME_UI_RECHECK_WAIT: "1", HOME_UI_RECHECK_INTERVAL: "1", HOME_UI_STATE_DIR: st, FAKE_OUT: out, ...extra,
   });
   const log = () => (existsSync(calls) ? readFileSync(calls, "utf8") : "");
   const seen = (): any[] => (existsSync(out) ? readFileSync(out, "utf8").trim().split("\n").filter(Boolean).map((l) => JSON.parse(l)) : []);

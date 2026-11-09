@@ -231,12 +231,71 @@ plugin_running() {
 wait_running() {
   local i; for i in $(seq 1 "${HOME_UI_WAIT:-30}"); do plugin_running && return 0; sleep 1; done; return 1
 }
+# install-error recheck: begin (mk-4i8rd)
+# A path-plugin `bb plugin install` builds only the frontend (app.js, app.css, app.meta.json, each written by renaming a staged file);
+# the server bundle runs from bb's own runtime cache, so dist/server.js is not rebuilt and not checked. A finished install leaves all three
+# frontend artifacts newer than $2 and app.meta.json naming the plugin; a half-written dist (some rebuilt, the rest old) does not pass.
+dist_rebuilt() {   # $1 = plugin dir, $2 = marker file touched just before the install began
+  local d="$1/dist" f
+  [ -e "$2" ] || return 1   # no marker (mktemp failed): `-nt` against a missing file is true, so refuse rather than guess
+  for f in app.js app.css app.meta.json; do
+    if [ -s "$d/$f" ] && [ "$d/$f" -nt "$2" ]; then :; else return 1; fi
+  done
+  jq -e '.pluginId == "autarch"' "$d/app.meta.json" >/dev/null 2>&1 || return 1
+}
+# `bb plugin install` can exit non-zero on the client (a reset connection while it waits) after the server has finished the install.
+# Runs the install; returns 0 when it succeeded, or failed on the client but autarch is installed from $1 (running, or disabled and
+# waiting for the enable step) with dist fully rebuilt after $2 was touched. Returns 1 on a real mismatch, after a bounded poll.
+install_rechecked() {   # $1 = plugin dir, $2 = marker file touched just before the install began
+  local rc=0 wait=${HOME_UI_RECHECK_WAIT:-60} step=${HOME_UI_RECHECK_INTERVAL:-3} row end rem grace=2
+  case $wait in ''|*[!0-9]*) wait=60 ;; esac     # a bad value falls back to the default: the poll must end
+  case $step in ''|*[!0-9]*|0) step=3 ;; esac
+  "$BB" plugin install --yes "$1" || rc=$?
+  [ "$rc" -ne 0 ] || return 0
+  echo "home-ui: 'bb plugin install' exited $rc; checking for up to ${wait}s whether the server completed it" >&2
+  end=$((SECONDS+wait))   # wall-clock deadline: each status request below is held to the time left, then killed after the grace
+  while :; do
+    rem=$((end-SECONDS)); [ "$rem" -ge 1 ] || rem=1
+    row=$(timeout -k "$grace" "$rem" "$BB" plugin list --json 2>/dev/null | jq -r --arg p "$1" '[.plugins[]? | select(.id == "autarch")] | if length == 1 and ((.[0].source // "") | sub("/+$"; "")) == ("path:" + ($p | sub("/+$"; ""))) and ((.[0].enabled == true and .[0].status == "running") or .[0].enabled == false) then "match" else "no" end' 2>/dev/null || true)
+    if [ "$row" = match ] && dist_rebuilt "$1" "$2"; then
+      echo "home-ui: WARNING: 'bb plugin install' exited $rc, but the server completed the install: autarch is installed from $1 and its frontend build (dist/app.js, app.css, app.meta.json) was rebuilt after the install began; going on" >&2
+      return 0
+    fi
+    rem=$((end-SECONDS)); [ "$rem" -gt 0 ] || return 1
+    [ "$step" -le "$rem" ] || step=$rem
+    sleep "$step"
+  done
+}
+# install-error recheck: end
 install_build() {   # $1 = plugin dir
   "$BB" plugin disable autarch || die "bb plugin disable failed; nothing else was changed"
+  # install-error recheck: begin (mk-4i8rd)
+  # The install runs (and is rechecked) here; the unchanged line below then runs against a stand-in bb that answers for the outcome, so
+  # it neither installs twice nor changes its failure message. BB is local: every return below puts the real one back.
+  local BB_REAL=$BB BB=$BB mark
+  mark=$(mktemp 2>/dev/null) || mark=/nonexistent/home-ui-install-mark
+  if install_rechecked "$1" "$mark"; then BB=/bin/true; else BB=/bin/false; fi
+  rm -f "$mark"
+  # install-error recheck: end
   if ! "$BB" plugin install --yes "$1"; then
     echo "home-ui: install of $1 failed; Home is disabled. Restore with the rollback command." >&2; return 5
   fi
+  # install-error recheck: begin (mk-4i8rd)
+  BB=$BB_REAL
+  # install-error recheck: end
+  # redundant-enable skip: begin (mk-4i8rd)
+  # `bb plugin install` leaves the plugin enabled and running. `bb plugin enable` on a running plugin reloads it: bb stops every service
+  # within 5 s each and marks the plugin degraded ("service home-queue did not stop") when one is mid-handler, and it stays degraded until
+  # the next reload. So when the plugin is already enabled and running, the unchanged enable line below runs against a stand-in bb.
+  if plugin_running; then
+    echo "home-ui: autarch is already enabled and running after the install; skipping the redundant 'bb plugin enable' (it would reload the plugin)" >&2
+    BB=/bin/true
+  fi
+  # redundant-enable skip: end
   "$BB" plugin enable autarch || return 5
+  # redundant-enable skip: begin (mk-4i8rd)
+  BB=$BB_REAL
+  # redundant-enable skip: end
   wait_running || { echo "home-ui: Home did not come back running" >&2; return 6; }
 }
 rollback_cmd() { printf 'rollback: bash %q rollback %q\n' "$REPO/scripts/home-ui.sh" "$1"; }
