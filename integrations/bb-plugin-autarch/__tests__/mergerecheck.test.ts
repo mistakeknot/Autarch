@@ -1,6 +1,6 @@
 // Merge recheck (bead mk-g1t73): a merge pick whose PR is still open five minutes later brings the card back.
 import { afterEach, describe, expect, it } from "vitest";
-import { MergeRecheck, mergePrOf, RECHECK_AFTER_MS } from "../mergerecheck.js";
+import { MergeRecheck, mergePrOf, RECHECK_AFTER_MS, RECHECK_SECOND_LOOK_MS } from "../mergerecheck.js";
 import { TasksClient } from "../tasks.js";
 import { cleanupEnvs, opened, pollN, rig } from "./card-rig.js";
 
@@ -297,5 +297,110 @@ describe("merge recheck leaves a card whose task is finished (bead mk-6k39i)", (
     await pollN(r, 3);
     expect(t.status).toBe("todo");
     expect(r.gens(t.id)).toHaveLength(2);
+  });
+});
+
+// Bead mk-qepye. A registrar merge can land a few minutes after the five-minute check (observed: pick 01:42:20, first
+// check 01:47:40 with the PR still open, merge 01:48:05), and GitHub shows nothing in flight before it lands. So the first
+// look only records that the PR was still open; a second look at about ten minutes brings the card back.
+describe("merge recheck looks twice before it brings a card back (bead mk-qepye)", () => {
+  it("does not bring the card back at the first look while the PR is still open", async () => {
+    const { r, t } = await pickedMerge();
+    r.advance(RECHECK_AFTER_MS + 1000);
+    const calls: string[] = [];
+    const m = recheck(r, () => "OPEN", calls);
+    await m.pass();
+    expect(calls).toEqual([URL130]);
+    expect(r.gens(t.id)).toHaveLength(1);
+    expect(m.stats.resurfaced).toBe(0);
+  });
+
+  it("brings the card back at the second look, once, when the PR is open both times", async () => {
+    const { r, t, g1 } = await pickedMerge();
+    r.advance(RECHECK_AFTER_MS + 1000);
+    const calls: string[] = [];
+    const m = recheck(r, () => "OPEN", calls);
+    await m.pass();
+    r.advance(RECHECK_SECOND_LOOK_MS - RECHECK_AFTER_MS);
+    await m.pass();
+    expect(r.gens(t.id)).toHaveLength(2);
+    expect(r.gens(t.id)[1]?.supersedes).toBe(g1.id);
+    await m.pass();
+    expect(calls).toHaveLength(2); // not asked a third time
+    expect(r.gens(t.id)).toHaveLength(2);
+  });
+
+  it("does not look again before the ten-minute mark", async () => {
+    const { r, t } = await pickedMerge();
+    r.advance(RECHECK_AFTER_MS + 1000);
+    const calls: string[] = [];
+    const m = recheck(r, () => "OPEN", calls);
+    await m.pass();
+    r.advance(2 * 60_000);
+    await m.pass();
+    expect(calls).toHaveLength(1);
+    expect(r.gens(t.id)).toHaveLength(1);
+  });
+
+  it("settles the pick when the PR merged or closed between the looks (the observed race)", async () => {
+    for (const later of ["MERGED", "CLOSED"]) {
+      const { r, t } = await pickedMerge();
+      r.advance(RECHECK_AFTER_MS + 1000);
+      let state = "OPEN";
+      const calls: string[] = [];
+      const m = recheck(r, () => state, calls);
+      await m.pass();
+      state = later;
+      r.advance(RECHECK_SECOND_LOOK_MS - RECHECK_AFTER_MS);
+      await m.pass();
+      await m.pass();
+      expect(calls).toHaveLength(2);
+      expect(r.gens(t.id)).toHaveLength(1);
+    }
+  });
+
+  it("does not bring the card back when the first look found the PR already merged", async () => {
+    const { r, t } = await pickedMerge();
+    r.advance(RECHECK_SECOND_LOOK_MS + 1000);
+    const m = recheck(r, () => "MERGED", []);
+    await m.pass();
+    await m.pass();
+    expect(r.gens(t.id)).toHaveLength(1);
+  });
+
+  it("a restart between the looks neither loses the pick nor brings the card back early", async () => {
+    const { r, t } = await pickedMerge();
+    r.advance(RECHECK_AFTER_MS + 1000);
+    await recheck(r, () => "OPEN", []).pass(); // first look, then the service restarts: a fresh MergeRecheck
+    r.advance(60_000);
+    const calls: string[] = [];
+    const m2 = recheck(r, () => "OPEN", calls);
+    await m2.pass(); // its own first look, six minutes in
+    expect(r.gens(t.id)).toHaveLength(1);
+    r.advance(RECHECK_SECOND_LOOK_MS - RECHECK_AFTER_MS - 60_000);
+    await m2.pass(); // ten minutes in: second look
+    expect(calls).toHaveLength(2);
+    expect(r.gens(t.id)).toHaveLength(2);
+  });
+
+  it("a restart after the ten-minute mark still takes two looks, and does not lose the pick", async () => {
+    const { r, t } = await pickedMerge();
+    r.advance(RECHECK_SECOND_LOOK_MS + 30_000);
+    const calls: string[] = [];
+    const m = recheck(r, () => "OPEN", calls);
+    await m.pass();
+    expect(r.gens(t.id)).toHaveLength(1); // nothing was seen open before this run: record it, do not bring back
+    r.advance(60_000);
+    await m.pass();
+    expect(r.gens(t.id)).toHaveLength(2);
+  });
+
+  it("keeps the two-hour bound: a pick older than two hours is never looked at", async () => {
+    const { r, t } = await pickedMerge();
+    r.advance(2 * 60 * 60_000 + 60_000);
+    const calls: string[] = [];
+    await recheck(r, () => "OPEN", calls).pass();
+    expect(calls).toEqual([]);
+    expect(r.gens(t.id)).toHaveLength(1);
   });
 });

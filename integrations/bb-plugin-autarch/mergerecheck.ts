@@ -16,6 +16,8 @@ import type { GhView } from "./movepoll.js";
 import type { TaskState } from "./tasks.js";
 
 export const RECHECK_AFTER_MS = 5 * 60_000;
+/** A merge pick is brought back only if the PR is still open at a second look this long after the pick (bead mk-qepye). */
+export const RECHECK_SECOND_LOOK_MS = 10 * 60_000;
 /** Picks older than this are not rechecked (a Citadel outage longer than this skips the check). */
 export const RECHECK_WINDOW_MS = 2 * 60 * 60_000;
 export const RECHECK_POLL_MS = 60_000;
