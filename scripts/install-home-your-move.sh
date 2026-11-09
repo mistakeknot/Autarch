@@ -308,21 +308,27 @@ enable_and_verify() {   # $1 = expected max migration_log version
 # (running, or disabled and waiting for the enable step), with dist rebuilt after $1 was touched; returns 1 on a real mismatch,
 # after a bounded poll. The enable step that follows still checks the running plugin and the migration version.
 install_rechecked() {   # $1 = marker file touched just before the install began
-  local rc=0 waited=0 wait=${HOME_YOUR_MOVE_RECHECK_WAIT:-60} step=${HOME_YOUR_MOVE_RECHECK_INTERVAL:-3} row newer
+  local rc=0 wait=${HOME_YOUR_MOVE_RECHECK_WAIT:-60} step=${HOME_YOUR_MOVE_RECHECK_INTERVAL:-3} row newer end rem
+  case $wait in ''|*[!0-9]*) wait=60 ;; esac     # a bad value falls back to the default: the poll must end
+  case $step in ''|*[!0-9]*|0) step=3 ;; esac
   "${AS0[@]}" "$BB" plugin install --yes "$PLUGIN" >>"$LOG" 2>&1 || rc=$?
   [ "$rc" -ne 0 ] || return 0
   say "install: 'bb plugin install' exited $rc ($(tail -n 1 "$LOG" | head -c 160)); checking for up to ${wait}s whether the server completed it"
+  end=$((SECONDS+wait))   # wall-clock deadline: each status request below is also held to the time left
   while :; do
-    row=$("${AS0[@]}" "$BB" plugin list --json 2>/dev/null | jq -r --arg p "$PLUGIN" '[.plugins[]? | select(.id == "autarch")] | if length == 1 and ((.[0].source // "") | sub("/+$"; "")) == ("path:" + ($p | sub("/+$"; ""))) and ((.[0].enabled == true and .[0].status == "running") or .[0].enabled == false) then "match" else "no" end' 2>/dev/null || true)
+    rem=$((end-SECONDS)); [ "$rem" -ge 1 ] || rem=1
+    row=$("${AS0[@]}" timeout "$rem" "$BB" plugin list --json 2>/dev/null | jq -r --arg p "$PLUGIN" '[.plugins[]? | select(.id == "autarch")] | if length == 1 and ((.[0].source // "") | sub("/+$"; "")) == ("path:" + ($p | sub("/+$"; ""))) and ((.[0].enabled == true and .[0].status == "running") or .[0].enabled == false) then "match" else "no" end' 2>/dev/null || true)
     if [ "$row" = match ]; then
-      newer=$(find "$PLUGIN/dist" -type f -newer "$1" -print -quit 2>/dev/null || true)
+      # a published file only: hidden entries and temp/staging names do not show that a build finished
+      newer=$(cd "$PLUGIN/dist" 2>/dev/null && find . -type f -newer "$1" ! -path '*/.*' ! -name '*.tmp' ! -name '*.part' ! -name '*.swp' ! -name '*.lock' ! -name '*~' -print -quit 2>/dev/null || true)
       if [ -n "$newer" ]; then
-        say "WARNING: 'bb plugin install' exited $rc, but the server completed the install: autarch is installed from $PLUGIN and $newer was rebuilt after the install began; going on to enable and verify"
+        say "WARNING: 'bb plugin install' exited $rc, but the server completed the install: autarch is installed from $PLUGIN and dist/${newer#./} was rebuilt after the install began; going on to enable and verify"
         return 0
       fi
     fi
-    [ "$waited" -lt "$wait" ] || return 1
-    sleep "$step"; waited=$((waited+step))
+    rem=$((end-SECONDS)); [ "$rem" -gt 0 ] || return 1
+    [ "$step" -le "$rem" ] || step=$rem
+    sleep "$step"
   done
 }
 # install-error recheck: end

@@ -31,7 +31,7 @@ CREATE TABLE moves (
 );
 CREATE INDEX moves_state ON moves(state, opened_at);`;
 
-type InstallMode = "ok" | "reset-rebuilt-disabled" | "reset-after-enable" | "reset-nothing" | "reset-stale-dist" | "reset-other-source";
+type InstallMode = "ok" | "reset-rebuilt-disabled" | "reset-after-enable" | "reset-nothing" | "reset-stale-dist" | "reset-other-source" | "reset-unrelated-files";
 
 interface RigOpts { schema?: number | null; moves?: boolean; plugin?: "running" | "disabled"; install?: InstallMode }
 
@@ -94,6 +94,8 @@ echo "$@" >> ${calls}
 read EN STATUS < $C/state
 case "$1 $2" in
   "plugin list")
+    # a hung status request: only after the install began, so the earlier list calls are not slowed
+    if [ -f $C/installed ] && [ -f $C/list-delay ]; then exec sleep "$(cat $C/list-delay)"; fi
     printf '{"plugins":[{"id":"autarch","enabled":%s,"status":"%s","source":"path:%s","rootDir":"%s"}]}\\n' "$EN" "$STATUS" "$(cat $C/source)" "$(cat $C/source)" ;;
   "home moves")
     if [ "$EN $STATUS" = "true running" ]; then echo '{"moves":[{"task_id":"FROM-BB"}],"groups":{}}'
@@ -101,6 +103,7 @@ case "$1 $2" in
   "plugin disable") echo "false disabled" > $C/state ;;
   "plugin enable") echo "true running" > $C/state ;;
   "plugin install")
+    touch $C/installed
     echo "Installing bb-plugin-autarch@0.1.0"
     case "$(cat $C/install-mode)" in
       ok) touch ${join(plugin, "dist", "app.js")} ;;
@@ -108,6 +111,7 @@ case "$1 $2" in
       reset-rebuilt-disabled) sleep 0.2; touch ${join(plugin, "dist", "app.js")}; echo "Error: fetch failed: read ECONNRESET" >&2; exit 1 ;;
       reset-nothing) echo "Error: fetch failed: read ECONNRESET" >&2; exit 1 ;;
       reset-stale-dist) echo "true running" > $C/state; echo "Error: fetch failed: read ECONNRESET" >&2; exit 1 ;;
+      reset-unrelated-files) sleep 0.2; mkdir -p ${join(plugin, "dist", ".staging")}; touch ${join(plugin, "dist", ".staging", "chunk.js")} ${join(plugin, "dist", "app.js.tmp")}; echo "true running" > $C/state; echo "Error: fetch failed: read ECONNRESET" >&2; exit 1 ;;
       reset-other-source) sleep 0.2; touch ${join(plugin, "dist", "app.js")}; echo "true running" > $C/state; echo "/elsewhere/plugin" > $C/source; echo "Error: fetch failed: read ECONNRESET" >&2; exit 1 ;;
     esac ;;
   *) exit 0 ;;
@@ -271,7 +275,36 @@ describe.skipIf(!isMk)("mk-fg2io: a client-side bb plugin install error after th
     const o = r.inst(["--go", "--commit", r.head]);
     expect(o.status).toBe(5);
     expect(o.stdout).toContain("install failed");
-    expect(Date.now() - t0).toBeLessThan(30_000);
+    const took = Date.now() - t0;
+    expect(took).toBeLessThan(30_000);
+    expect(took).toBeGreaterThanOrEqual(2_500); // the poll really waited out HOME_YOUR_MOVE_RECHECK_WAIT=3, not an immediate failure
+  });
+
+  it("only hidden or temp files under dist changed (no published artifact): still a failure", () => {
+    const r = rig({ install: "reset-unrelated-files" });
+    const o = r.inst(["--go", "--commit", r.head]);
+    expect(o.status).toBe(5);
+    expect(o.stdout).toContain("install failed");
+    expect(o.stdout).not.toContain("WARNING");
+  });
+
+  it("a status request that hangs is cut off at the deadline: the wait is wall-clock, not a count of sleeps", { timeout: 60_000 }, () => {
+    const r = rig({ install: "reset-nothing" });
+    writeFileSync(join(r.ctl, "list-delay"), "20\n");
+    const t0 = Date.now();
+    const o = r.inst(["--go", "--commit", r.head], { HOME_YOUR_MOVE_RECHECK_WAIT: "2", HOME_YOUR_MOVE_RECHECK_INTERVAL: "1" });
+    expect(o.status).toBe(5);
+    expect(Date.now() - t0).toBeLessThan(15_000); // unbounded, each of the polls would sit out the full 20 s
+  });
+
+  it("an interval of 0 or a non-numeric wait cannot make the poll endless", { timeout: 90_000 }, () => {
+    const a = rig({ install: "reset-nothing" });
+    const oa = a.inst(["--go", "--commit", a.head], { HOME_YOUR_MOVE_RECHECK_WAIT: "2", HOME_YOUR_MOVE_RECHECK_INTERVAL: "0" });
+    expect(oa.status).toBe(5);
+    const b = rig({ install: "reset-nothing" });
+    const ob = b.inst(["--go", "--commit", b.head], { HOME_YOUR_MOVE_RECHECK_WAIT: "0" });
+    expect(ob.status).toBe(5);
+    expect(ob.stdout).toContain("install failed");
   });
 
   it("enabled and running from the right source but dist NOT rebuilt since the install began: still a failure", () => {
