@@ -7,10 +7,12 @@ import { Queue } from "../queue.js";
 import { TasksClient, type PluginsLike } from "../tasks.js";
 import { FakeTasks } from "./tasks-fake.js";
 import { makeEnv, type Env } from "./service-helpers.js";
+import { cleanupEnvs as cleanupCardEnvs, opened, rig as cardRig } from "./card-rig.js";
 
 const envs: Env[] = [];
 afterEach(() => {
   while (envs.length) envs.pop()!.cleanup();
+  cleanupCardEnvs();
 });
 
 const realSleep = (ms: number, signal: AbortSignal) =>
@@ -104,5 +106,110 @@ describe("mk-laqhx: the card poller stops inside bb's stop window", () => {
     expect(queue.status().last_error).toBeNull();
     expect(drains).toBe(0);
     expect(rpcs).toBe(1);
+  });
+});
+
+// Returning from run must also leave nothing running that mutates the store: a read answered after the abort changes
+// nothing, and a write-back drain in progress starts no further write.
+describe("mk-laqhx: a poll that outlives the stop changes nothing", () => {
+  /** Make `method` wait on a gate while `when()` holds; resolves `reached` the first time a call waits. */
+  function pause(fake: import("./tasks-fake.js").FakeTasks, method: string, when: () => boolean) {
+    const orig = fake.callRpc.bind(fake);
+    let release!: () => void;
+    const gate = new Promise<void>((r) => (release = r));
+    let reached!: () => void;
+    const hit = new Promise<void>((r) => (reached = r));
+    fake.callRpc = (async (a: any) => {
+      if (a.method === method && when()) {
+        reached();
+        await gate;
+      }
+      return orig(a);
+    }) as typeof fake.callRpc;
+    return { release, hit };
+  }
+
+  it("a comment read answered after the abort materializes no card, even over a restarted service", async () => {
+    const r = cardRig();
+    const t = r.card();
+    const p = pause(r.fake, "listComments", () => true);
+    const ac = new AbortController();
+    const run = r.q.run(ac.signal, realSleep);
+    await p.hit; // the first poll is inside the comment read of the new card
+    ac.abort();
+    expect(await within(run, 1_000)).not.toBe("timeout");
+    r.restart(); // bb starts the plugin again over the same database
+    p.release(); // the old read now answers
+    await new Promise((res) => setTimeout(res, 200));
+    expect(r.gens(t.id)).toEqual([]);
+    expect(r.db.prepare("SELECT COUNT(*) AS n FROM card_requests").get()).toEqual({ n: 0 });
+  });
+
+  /** A service whose nth root lookup (1-based) waits on a gate. */
+  function heldLookup(nth: number) {
+    let release!: () => void;
+    const gate = new Promise<void>((r) => (release = r));
+    let asked!: () => void;
+    const hit = new Promise<void>((r) => (asked = r));
+    let n = 0;
+    const r: ReturnType<typeof cardRig> = cardRig({ svc: { projects: async () => (++n === nth && (asked(), await gate), r.env.projects) } });
+    return { r, release, hit };
+  }
+
+  it("the second root lookup of a poll (the one inside a card's materialization) answered after the abort writes no card", async () => {
+    const h = heldLookup(2);
+    const t = h.r.card();
+    const ac = new AbortController();
+    const run = h.r.q.run(ac.signal, realSleep);
+    await h.hit; // the poll is inside the lookup that precedes the write of g1
+    ac.abort();
+    expect(await within(run, 1_000)).not.toBe("timeout");
+    h.release();
+    await new Promise((res) => setTimeout(res, 200));
+    expect(h.r.gens(t.id)).toEqual([]);
+    expect(h.r.db.prepare("SELECT COUNT(*) AS n FROM card_requests").get()).toEqual({ n: 0 });
+  });
+
+  it("the serve project list answered after the abort suggests no binding", async () => {
+    const h = heldLookup(1);
+    h.r.card();
+    const ac = new AbortController();
+    const run = h.r.q.run(ac.signal, realSleep);
+    await h.hit;
+    ac.abort();
+    expect(await within(run, 1_000)).not.toBe("timeout");
+    h.release();
+    await new Promise((res) => setTimeout(res, 200));
+    expect(h.r.db.prepare("SELECT COUNT(*) AS n FROM project_bindings").get()).toEqual({ n: 0 });
+  });
+
+  it("a write-back drain in progress at the stop starts no further write and records no failure", async () => {
+    const r = cardRig();
+    const { g1 } = await opened(r);
+    r.mkPick(g1.id);
+    let inDrain = false;
+    const drain = r.writer.drain.bind(r.writer);
+    r.writer.drain = (async (s?: AbortSignal) => {
+      inDrain = true;
+      try {
+        return await (drain as any)(s);
+      } finally {
+        inDrain = false;
+      }
+    }) as typeof r.writer.drain;
+    const p = pause(r.fake, "listComments", () => inDrain);
+    const ac = new AbortController();
+    const run = r.q.run(ac.signal, realSleep);
+    await p.hit; // the drain is inside the read that precedes the mirror comment
+    ac.abort();
+    expect(await within(run, 1_000)).not.toBe("timeout");
+    p.release();
+    await new Promise((res) => setTimeout(res, 200));
+    expect(r.fake.callsOf("createComment")).toEqual([]);
+    expect(r.fake.callsOf("updateTask")).toEqual([]);
+    expect(r.db.prepare("SELECT kind, state, attempt, last_error FROM card_writes ORDER BY kind").all()).toEqual([
+      { kind: "comment", state: "pending", attempt: 0, last_error: null },
+      { kind: "unlabel", state: "pending", attempt: 0, last_error: null },
+    ]);
   });
 });
