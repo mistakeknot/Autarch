@@ -37,6 +37,52 @@ describe("which PR a pick is about", () => {
   });
 });
 
+describe("only a merge instruction counts as a merge pick (bead mk-q9m7q)", () => {
+  // Fix-round options whose instruction mentions a later merge, as the coordinators write them.
+  const NOT_MERGES: [string, string][] = [
+    ["One more narrow fix", "Fix only the named finding, then a packaged re-review at the new head. A pass goes to the registrar to merge; any fail comes to mk."],
+    ["Fix it, review round 6", "The executor fixes the findings and a cross-lab review runs. When it passes, mk merges PR 154."],
+    ["Allow a 6th round", "One more fix round, then re-review. A pass goes to the registrar to merge."],
+    ["Allow extra round 2", "Reuse a backup only when its manifest holds the entry. A pass goes to the registrar to merge; any fail stops and comes to mk."],
+    ["One more round, then stop", "Run one more fix round; if it passes the vizier merges, otherwise the PR is held."],
+    ["Fix it and merge", "Fix the finding."],
+  ];
+  it("does not treat a fix-round option that mentions a later merge as a merge pick", () => {
+    for (const [label, instruction] of NOT_MERGES) {
+      expect(mergePrOf(body({ options: [{ id: "a", label, kind: "instruction", instruction }] }), "a", null), label).toBeNull();
+    }
+  });
+  it("still takes a merge pick whose label or opening sentence is the merge", () => {
+    const cases: [string, string][] = [
+      ["Merge it", "The vizier merges at e4e53a0b and runs custody part 2."],
+      ["Merge PR 130", "mk merges PR 130 in GitHub. The coordinator confirms."],
+      ["Yes", "mk merges PR 130 at head 5de17cbf in GitHub."],
+      ["Approve", "Merge the PR with --match-head-commit, then report."],
+    ];
+    for (const [label, instruction] of cases) {
+      expect(mergePrOf(body({ options: [{ id: "a", label, kind: "instruction", instruction }] }), "a", null)?.url, label).toBe(URL130);
+    }
+  });
+  it("brings nothing back for a fix-round pick on a card that names a PR", async () => {
+    const r = rig();
+    const ask = {
+      question: `PR: ${URL130}\nAllow another fix round?`,
+      options: [
+        { id: "a", label: "Allow a 6th round", kind: "instruction", instruction: "One more fix round and re-review. A pass goes to the registrar to merge.", reversible: true },
+        { id: "b", label: "Hold the PR", kind: "instruction", instruction: "Nothing merges.", reversible: true },
+      ],
+    };
+    const { t, g1 } = await opened(r, { ask });
+    expect(r.mkPick(g1.id, "p1", "a")).toMatchObject({ ok: true });
+    await pollN(r, 3);
+    r.advance(RECHECK_AFTER_MS + 1000);
+    const calls: string[] = [];
+    await recheck(r, () => "OPEN", calls).pass();
+    expect(calls).toEqual([]);
+    expect(r.gens(t.id)).toHaveLength(1);
+  });
+});
+
 const mergeAsk = (url = URL130) => ({
   question: `PR: ${url}\nWill you merge it?`,
   options: [
