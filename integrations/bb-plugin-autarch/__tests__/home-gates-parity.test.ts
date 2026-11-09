@@ -265,6 +265,25 @@ describe("home-gates.sh gate", () => {
     }
   });
 
+  it.skipIf(process.getuid?.() === 0)("home-ui.sh check --plugin-code also fails closed when a target subdirectory cannot be listed, with the same text as home-gates.sh", () => {
+    const b = buildFixtures();
+    const t = b.target("plugin-code");
+    const sub = join(t, "hidden");
+    mkdirSync(sub);
+    writeFileSync(join(sub, "evil.ts"), 'db.exec("CREATE TABLE sneaky (id INTEGER)");\n');
+    chmodSync(sub, 0o000);
+    try {
+      const data = dataDir(b.root, 3);
+      const l = legacy(b, data, t, ["--plugin-code"]);
+      expect(l.stderr).toContain("could not list every file");
+      expect(l.status).toBe(3);
+      const g = gatesCheck(b, data, t, ["--plugin-code"]);
+      expect(normalise(g.stderr)).toBe(normalise(l.stderr));
+    } finally {
+      chmodSync(sub, 0o755);
+    }
+  });
+
   it("changes nothing: the database and both build trees are byte-identical afterwards", () => {
     const b = buildFixtures();
     const data = dataDir(b.root, 3);
