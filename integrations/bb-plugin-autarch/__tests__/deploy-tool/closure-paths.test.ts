@@ -28,17 +28,20 @@ describe("a control-closure path with a control character is refused", () => {
       appendFileSync(join(rig.liveRoot() ?? "", LIB, "x.mjs\r"), "export const evil = true;\n");
       const r = verify();
       expect(r.status, msg(r)).toBe(10);
-      expect(msg(r)).toMatch(/control character/);
+      // An unstamped build also reports the dirty file first; either way the closure is refused.
+      expect(msg(r)).toMatch(kind === "git" ? /uncommitted|control character/ : /control character/);
       expect(rig.mutations()).toEqual([]);
     });
   }
 
-  it("an untouched closure with a CR twin is refused too, not just a tampered one", () => {
-    twinRig("x.mjs\r", "stamped");
-    const r = verify();
-    expect(r.status, msg(r)).toBe(10);
-    expect(msg(r)).toMatch(/control character/);
-  });
+  for (const kind of ["stamped", "git"] as const) {
+    it(`${kind}: an untouched closure with a CR twin is refused too, not just a tampered one`, () => {
+      twinRig("x.mjs\r", kind);
+      const r = verify();
+      expect(r.status, msg(r)).toBe(10);
+      expect(msg(r)).toMatch(/control character/);
+    });
+  }
 
   it("a deploy over such an installed build is refused and changes nothing", () => {
     twinRig("x.mjs\r", "stamped");

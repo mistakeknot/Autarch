@@ -47,7 +47,13 @@ export function cloneVerify({ repo, commit, expectTree, dest, lockFd }) {
 
 // ---- control closure ------------------------------------------------------------------------------------------
 
-/** Translate a glob (`**`, `*`, literal) to an anchored regex over '/'-separated repo paths. */
+/** C0 controls (CR and LF included) and DEL. No legitimate closure path holds one. */
+const CONTROL_CHAR = /[\u0000-\u001f\u007f]/;
+
+/**
+ * Translate a glob (`**`, `*`, literal) to an anchored regex over '/'-separated repo paths. The `s` flag lets `.`
+ * match CR, LF and U+2028/9: without it a name such as "x.mjs\r" would fall outside `dir/**`, i.e. outside the closure.
+ */
 export function globToRegex(glob) {
   let re = "";
   for (let i = 0; i < glob.length; i++) {
@@ -64,7 +70,7 @@ export function globToRegex(glob) {
     else if (c === "?") re += "[^/]";
     else re += c.replace(/[.+^${}()|[\]\\]/g, "\\$&");
   }
-  return new RegExp(`^${re}$`);
+  return new RegExp(`^${re}$`, "s");
 }
 export const globMatcher = (globs) => {
   const res = globs.map(globToRegex);
@@ -107,11 +113,18 @@ export function verifyClosure({ root, commit, controlPaths }) {
   const match = globMatcher(controlPaths);
   const fail = (why) =>
     refuse(`installed deploy tooling does not match commit ${commit.slice(0, 12)} (${why}); use --engine legacy or mk's reviewed install`, { why });
+  // `git hash-object --stdin-paths` reads one path per line and drops a trailing CR, so "x.mjs" and "x.mjs\r" would hash
+  // as the same file. No closure path may hold a control character; refuse instead of trying to quote it.
+  const noControl = (p) => {
+    if (CONTROL_CHAR.test(p)) throw fail(`${JSON.stringify(p)} contains a control character`);
+  };
+  noControl(root);
   const tree = lsTree(root, commit);
   const want = new Map();
   const ancestors = new Set();
   for (const [p, e] of tree) {
     if (!match(p)) continue;
+    noControl(p);
     if (e.mode === "120000") throw fail(`${p} is a symlink in the commit`);
     want.set(p, e.sha);
     const parts = p.split("/");
@@ -120,6 +133,7 @@ export function verifyClosure({ root, commit, controlPaths }) {
   if (want.size === 0) throw fail("the closure is empty");
   const onDisk = new Set();
   walkDisk(root, (rel, d) => {
+    if (match(rel) || ancestors.has(rel)) noControl(rel);
     const isLink = d.isSymbolicLink();
     if (isLink && (match(rel) || ancestors.has(rel) || match(`${rel}/x`))) throw fail(`${rel} is a symlink`);
     if (!d.isDirectory() && match(rel)) onDisk.add(rel);
@@ -156,8 +170,10 @@ export function verifyClosureAgainstHead({ root, controlPaths }) {
   const head = gitTry(root, ["rev-parse", "HEAD"]);
   if (head === null || !SHA40.test(head)) throw refuse("installed build is not a git checkout; cannot verify deploy tooling");
   const match = globMatcher(controlPaths);
-  const st = git(root, ["status", "--porcelain", "--untracked-files=all", "-z"]);
-  const dirty = st.split("\0").filter(Boolean).map((l) => l.slice(3)).filter((p) => match(p));
+  // Raw stdout: git() trims it, which would eat the leading space of the first " M path" record.
+  const stat = git(root, ["status", "--porcelain", "--untracked-files=all", "--no-renames", "-z"], { allowFail: true });
+  if (stat.code !== 0) throw refuse("git status failed in the installed build; cannot verify deploy tooling");
+  const dirty = stat.stdout.split("\0").filter(Boolean).map((l) => l.slice(3)).filter((p) => match(p));
   if (dirty.length) throw refuse(`installed deploy tooling does not match commit ${head.slice(0, 12)} (uncommitted: ${dirty[0]}); use --engine legacy or mk's reviewed install`);
   verifyClosure({ root, commit: head, controlPaths });
   return head;
@@ -180,7 +196,7 @@ export function lockdownClosure(root, controlPaths) {
 /** Paths in the control closure that differ between two commits, from a clone that has both. null when unknown. */
 export function controlDiff({ repoDir, from, to, controlPaths }) {
   if (!from || !SHA40.test(from)) return null;
-  const r = git(repoDir, ["diff", "--name-only", "-z", from, to], { allowFail: true });
+  const r = git(repoDir, ["diff", "--name-only", "--no-renames", "-z", from, to], { allowFail: true });
   if (r.code !== 0) return null;
   const match = globMatcher(controlPaths);
   return r.stdout.split("\0").filter((p) => p && match(p));
