@@ -1,6 +1,6 @@
 // The lint ratchet counts escapes per file and moves in one direction only: down.
 import { spawnSync } from "node:child_process";
-import { copyFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, copyFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -111,5 +111,67 @@ describe("main", () => {
     writeFileSync(join(root, "a.ts"), `const x = y ${ANY};\n`);
     const e = { ...process.env, LINT_RATCHET_ROOT: root, LINT_RATCHET_NO_OXLINT: "1" };
     expect(spawnSync("node", [script], { env: e }).status).toBe(1);
+  });
+});
+
+// oxlint exits non-zero when it reports errors, and the ratchet used to stop right there: with even one error left in the tree the
+// counts were never compared, so the shrink-only ledger checked nothing.
+describe("main while oxlint reports errors", () => {
+  const liveEnv = () => ({ LINT_RATCHET_ROOT: dir });
+  // A stand-in oxlint that prints the given diagnostics as JSON and exits 1, as the real one does when it finds an error.
+  const stubOxlint = (diagnostics: { severity: "error" | "warning"; filename: string }[]) => {
+    mkdirSync(join(dir, "node_modules", ".bin"), { recursive: true });
+    const bin = join(dir, "node_modules", ".bin", "oxlint");
+    writeFileSync(bin, `#!/usr/bin/env node\nprocess.stdout.write(${JSON.stringify(JSON.stringify({ diagnostics }))});\nprocess.exit(1);\n`);
+    chmodSync(bin, 0o755);
+  };
+  const errorText = () => vi.mocked(console.error).mock.calls.map((c) => String(c[0])).join("\n");
+  const E = { severity: "error", filename: "e.ts" } as const;
+  const W = { severity: "warning", filename: "a.ts" } as const;
+
+  it("still compares the counts: a warning that rose is named, not hidden behind the error", () => {
+    put("a.ts", "const x = 1;\n");
+    stubOxlint([E, W]);
+    writeFileSync(join(dir, "lint-lock.json"), "{}\n");
+    expect(main([], liveEnv())).toBe(1);
+    expect(errorText()).toContain("a.ts: oxlint_warning 0 -> 1");
+  });
+  it("a count that fell is reported too", () => {
+    put("a.ts", "const x = 1;\n");
+    stubOxlint([E]);
+    writeFileSync(join(dir, "lint-lock.json"), JSON.stringify({ "a.ts": { oxlint_warning: 2 } }));
+    expect(main([], liveEnv())).toBe(1);
+    expect(errorText()).toContain("a.ts: oxlint_warning 2 -> 0");
+  });
+  it("fails on the error itself even when every count holds", () => {
+    put("a.ts", "const x = 1;\n");
+    stubOxlint([E, W]);
+    writeFileSync(join(dir, "lint-lock.json"), JSON.stringify({ "a.ts": { oxlint_warning: 1 } }));
+    expect(main([], liveEnv())).toBe(1);
+    expect(errorText()).toContain("oxlint reports 1 error(s)");
+    expect(errorText()).not.toContain("->");
+  });
+  it("--write still refuses to raise a count, and still lowers one", () => {
+    put("a.ts", "const x = 1;\n");
+    stubOxlint([E, W]);
+    writeFileSync(join(dir, "lint-lock.json"), "{}\n");
+    expect(main(["--write"], liveEnv())).toBe(1);
+    expect(JSON.parse(readFileSync(join(dir, "lint-lock.json"), "utf8"))).toEqual({});
+    writeFileSync(join(dir, "lint-lock.json"), JSON.stringify({ "a.ts": { oxlint_warning: 3 } }));
+    expect(main(["--write"], liveEnv())).toBe(0);
+    expect(JSON.parse(readFileSync(join(dir, "lint-lock.json"), "utf8"))).toEqual({ "a.ts": { oxlint_warning: 1 } });
+  });
+  it("--list prints the live counts", () => {
+    put("a.ts", "const x = 1;\n");
+    stubOxlint([E, W]);
+    expect(main(["--list"], liveEnv())).toBe(0);
+    expect(JSON.parse(String(vi.mocked(console.log).mock.calls[0]?.[0]))).toEqual({ "a.ts": { oxlint_warning: 1 } });
+  });
+  it("passes once there is no error and the counts match", () => {
+    put("a.ts", "const x = 1;\n");
+    stubOxlint([W]);
+    writeFileSync(join(dir, "lint-lock.json"), JSON.stringify({ "a.ts": { oxlint_warning: 1 } }));
+    // the stand-in exits 1 even with no error (a warning-only run), which the ratchet must tolerate as the real one does
+    expect(main([], liveEnv())).toBe(0);
   });
 });
