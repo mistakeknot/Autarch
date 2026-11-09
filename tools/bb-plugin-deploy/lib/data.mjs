@@ -71,8 +71,8 @@ export function makeBackup({ plugin, vars, backupsRoot, stateDir, commit, previo
       if (existsSync(f)) {
         try {
           const ref = JSON.parse(readFileSync(f, "utf8"));
-          // Reuse only a backup that finished: its manifest is valid for this plugin and it holds the entry.
-          if (ref.dir && existsSync(join(ref.dir, e.name)) && backupComplete(ref.dir, plugin.pluginId)) {
+          // Reuse only a backup that finished and holds this entry: a valid manifest with the matching non-skipped entry and its digest.
+          if (ref.dir && backupHolds(ref.dir, plugin.pluginId, e)) {
             manifest.data.push({ name: e.name, kind: e.kind, src, skipped: "once-per-commit", ref: ref.dir });
             continue;
           }
@@ -124,11 +124,21 @@ export function makeBackup({ plugin, vars, backupsRoot, stateDir, commit, previo
   return { dir, manifest };
 }
 
-/** True when `dir` holds a finished backup of this plugin (a readable manifest of the right format). */
-function backupComplete(dir, pluginId) {
+/**
+ * True when `dir` is a finished backup of this plugin whose manifest holds the matching, non-skipped entry for `e`
+ * and the copy on disk still matches the recorded digest (a directory entry is checked by its recorded file list).
+ */
+function backupHolds(dir, pluginId, e) {
   try {
-    loadManifest(dir, pluginId);
-    return true;
+    const m = loadManifest(dir, pluginId);
+    const rec = m.data.find((d) => d && d.name === e.name && !d.skipped);
+    if (!rec || rec.kind !== e.kind) return false;
+    const copy = join(dir, e.name);
+    if (!existsSync(copy)) return false;
+    if (e.kind === "sqlite" || e.kind === "file") return typeof rec.sha256 === "string" && sha256(readFileSync(copy)) === rec.sha256;
+    if (!Array.isArray(rec.files)) return false;
+    const now = manifestOfDir(copy);
+    return now.length === rec.files.length && rec.files.every((f) => now.some((n) => n.path === f.path && n.sha256 === f.sha256));
   } catch {
     return false;
   }

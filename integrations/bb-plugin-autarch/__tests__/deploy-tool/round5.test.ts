@@ -55,6 +55,26 @@ describe("a once-per-commit backup is cached only when it is complete", () => {
     expect(m.data[0].skipped).toBeUndefined();
     expect(rig.cli(["restore-data", "--backup", backup, "--check"]).status).toBe(0);
   });
+
+  it("a pointer to a backup whose manifest parses but holds no entry for the data is not reused", () => {
+    rig = new Rig({ installedKind: "stamped", plugin });
+    const Y = rig.commit({ "plug/app.txt": "v2\n" });
+    rig.inject({ failInstallMatch: Y.slice(0, 12) });
+    const first = rig.cli(deployArgs(Y));
+    expect(first.status, msg(first)).toBe(30);
+    const cached = join(String(first.json?.backup), "manifest.json");
+    const m0 = JSON.parse(readFileSync(cached, "utf8")) as { data: unknown[] };
+    expect(m0.data).toHaveLength(1);
+    writeFileSync(cached, JSON.stringify({ ...m0, data: [] }));
+    rig.inject({ failInstallMatch: "" });
+    Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 1100);
+    const second = rig.cli(deployArgs(Y));
+    expect(second.status, msg(second)).toBe(0);
+    const backup = (rig.record() as { installed: { backup: string } }).installed.backup;
+    const m = JSON.parse(readFileSync(join(backup, "manifest.json"), "utf8")) as { data: { skipped?: string }[] };
+    expect(m.data[0].skipped).toBeUndefined();
+    expect(rig.cli(["restore-data", "--backup", backup, "--check"]).status).toBe(0);
+  });
 });
 
 describe("recovery restores the plugin's enabled state instead of forcing it on", () => {
