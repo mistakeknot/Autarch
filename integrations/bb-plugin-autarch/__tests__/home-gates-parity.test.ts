@@ -247,7 +247,7 @@ describe("home-gates.sh gate", () => {
     expect(gatesGate(b, data, t).status).toBe(10);
   });
 
-  it.skipIf(process.getuid?.() === 0)("fails closed when a target subdirectory cannot be listed (home-ui.sh discards find's status here)", () => {
+  it.skipIf(process.getuid?.() === 0)("fails closed when a target subdirectory cannot be listed (same as home-ui.sh)", () => {
     const b = buildFixtures();
     const t = b.target("plugin-code");
     const sub = join(t, "hidden");
@@ -263,6 +263,59 @@ describe("home-gates.sh gate", () => {
     } finally {
       chmodSync(sub, 0o755);
     }
+  });
+
+  it.skipIf(process.getuid?.() === 0)("home-ui.sh check --plugin-code also fails closed when a target subdirectory cannot be listed, with the same text as home-gates.sh", () => {
+    const b = buildFixtures();
+    const t = b.target("plugin-code");
+    const sub = join(t, "hidden");
+    mkdirSync(sub);
+    writeFileSync(join(sub, "evil.ts"), 'db.exec("CREATE TABLE sneaky (id INTEGER)");\n');
+    chmodSync(sub, 0o000);
+    try {
+      const data = dataDir(b.root, 3);
+      const l = legacy(b, data, t, ["--plugin-code"]);
+      expect(l.stderr).toContain("could not list every file");
+      expect(l.status).toBe(3);
+      const g = gatesCheck(b, data, t, ["--plugin-code"]);
+      expect(normalise(g.stderr)).toBe(normalise(l.stderr));
+    } finally {
+      chmodSync(sub, 0o755);
+    }
+  });
+
+  it("home-ui.sh check --plugin-code does not trust a second walk of the target: a later failing walk cannot hide a schema statement", () => {
+    const b = buildFixtures();
+    const t = b.target("plugin-code");
+    mkdirSync(join(t, "hidden"));
+    writeFileSync(join(t, "hidden", "evil.ts"), 'db.exec("CREATE TABLE sneaky (id INTEGER)");\n');
+    const data = dataDir(b.root, 3);
+    // A stand-in find, injected as a shell function through BASH_ENV (home-ui.sh resets PATH, so a PATH shim would never run): the
+    // first walk of the target is real; every later one prints nothing and fails, as if a directory had become unreadable in between.
+    // The only walk whose output may be trusted is one whose status was checked.
+    const counter = join(b.root, "walks");
+    const shim = join(b.root, "shim.sh");
+    writeFileSync(shim, `find() {\n  case "$*" in\n    *"/node_modules -prune -o -type f -print0"*)\n      local n=0; [ ! -f "${counter}" ] || n=$(cat "${counter}"); n=$((n+1)); echo $n >"${counter}"\n      [ "$n" -le 1 ] || return 1 ;;\n  esac\n  command find "$@"\n}\n`);
+    const r = sh(UI_SCRIPT, ["check", "--path", t, "--plugin-code"], { HOME: b.root, HOME_BB_BIN: stubBb(b.root, b.installed), HOME_BB_DATA: data, HOME_UI_WAIT: "2", BASH_ENV: shim });
+    expect(Number(readFileSync(counter, "utf8")), "the stand-in was reached").toBeGreaterThanOrEqual(1);   // the checked walk finds the statement and refuses, so no second walk need happen
+    expect(r.status).toBe(3);
+    expect(r.stderr).not.toContain("could not list every file");   // the failure must come from the schema statement, found in the first (checked) walk
+    expect(r.stderr).toContain("adds a schema statement");
+  });
+
+  it("home-ui.sh check --plugin-code scans each walk on its own: a change split across the join of two scans is not a schema statement", () => {
+    const b = buildFixtures();
+    const t = b.target("no-change");   // nothing else differs, so this file's lines are the only added text and meet their own copy at the join
+    mkdirSync(join(t, "lib"), { recursive: true });
+    // Added lines are joined with a space. Scanned twice into one buffer, this text would read "...; CREATE  TABLE example; CREATE" and
+    // match across the boundary, refusing a harmless change that home-gates.sh (one scan) lets through.
+    writeFileSync(join(t, "lib", "notes.txt"), "TABLE example; CREATE\n");
+    const data = dataDir(b.root, 3);
+    const g = gatesCheck(b, data, t, ["--plugin-code"]);
+    expect(g.status, g.stderr).toBe(0);
+    const l = legacy(b, data, t, ["--plugin-code"]);
+    expect(l.stderr).not.toContain("adds a schema statement");
+    expect(l.status, l.stderr).toBe(0);
   });
 
   it("changes nothing: the database and both build trees are byte-identical afterwards", () => {

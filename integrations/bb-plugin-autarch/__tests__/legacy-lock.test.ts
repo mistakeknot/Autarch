@@ -380,7 +380,7 @@ describe("install-home-your-move.sh: lock", () => {
   });
 });
 
-describe("the legacy scripts differ from the b05ebaf baseline only by the lock wrapper, the one installed.sha write, the --engine tool opt-in, the disabled-plugin export, the install-error recheck and the redundant-enable skip", () => {
+describe("the legacy scripts differ from the b05ebaf baseline only by the lock wrapper, the one installed.sha write, the --engine tool opt-in, the disabled-plugin export, the install-error recheck, the redundant-enable skip and the find-status walk", () => {
   const strip = (text: string, tag: string) => {
     const out: string[] = [];
     let inside = false;
@@ -395,7 +395,7 @@ describe("the legacy scripts differ from the b05ebaf baseline only by the lock w
   };
   const count = (text: string, tag: string) => text.split("\n").filter((l) => l.trimStart().startsWith(`# ${tag}: begin`)).length;
 
-  for (const [file, shaWrites, engineBlocks, exportBlocks, recheckBlocks, skipBlocks] of [["home-ui.sh", 1, 6, 0, 5, 2], ["install-home-your-move.sh", 0, 0, 3, 3, 2]] as const) {
+  for (const [file, shaWrites, engineBlocks, exportBlocks, recheckBlocks, skipBlocks, findBlocks] of [["home-ui.sh", 1, 6, 0, 5, 2, 1], ["install-home-your-move.sh", 0, 0, 3, 3, 2, 0]] as const) {
     it(`${file}: removing the marked blocks gives the baseline byte for byte`, () => {
       const now = readFileSync(resolve(__dirname, "../../../scripts", file), "utf8");
       expect(count(now, "shared destination lock")).toBe(1);
@@ -404,7 +404,8 @@ describe("the legacy scripts differ from the b05ebaf baseline only by the lock w
       expect(count(now, "disabled-plugin export")).toBe(exportBlocks);   // additive too: a fallback tried before the unchanged `bb home moves` step
       expect(count(now, "install-error recheck")).toBe(recheckBlocks);   // additive: the install runs in a marked block, the unchanged line follows
       expect(count(now, "redundant-enable skip")).toBe(skipBlocks);   // additive: a stand-in bb answers the unchanged enable line when the plugin already runs
-      const rest = strip(strip(strip(strip(strip(strip(now, "shared destination lock"), "installed.sha write"), "--engine tool"), "disabled-plugin export"), "install-error recheck"), "redundant-enable skip");
+      expect(count(now, "find status")).toBe(findBlocks);   // additive: a walk of the target before the unchanged scan loop refuses when find fails
+      const rest = strip(strip(strip(strip(strip(strip(strip(now, "shared destination lock"), "installed.sha write"), "--engine tool"), "disabled-plugin export"), "install-error recheck"), "redundant-enable skip"), "find status");
       expect(rest).toBe(readFileSync(join(FIXTURES, file), "utf8"));
     });
 
