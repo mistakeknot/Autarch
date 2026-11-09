@@ -47,8 +47,12 @@ export function cloneVerify({ repo, commit, expectTree, dest, lockFd }) {
 
 // ---- control closure ------------------------------------------------------------------------------------------
 
-/** C0 controls (CR and LF included) and DEL. No legitimate closure path holds one. */
-const CONTROL_CHAR = /[\u0000-\u001f\u007f]/;
+/**
+ * C0 controls (CR and LF included), DEL and U+FFFD. No legitimate closure path holds one. U+FFFD is what git and the
+ * filesystem output turn into for every byte that is not valid UTF-8, so two distinct raw names ("x\xff.mjs" and
+ * "x\uFFFD.mjs") would otherwise decode to one Map key; any path that decodes to contain it is refused.
+ */
+const CONTROL_CHAR = /[\u0000-\u001f\u007f\uFFFD]/;
 
 /**
  * Translate a glob (`**`, `*`, literal) to an anchored regex over '/'-separated repo paths. The `s` flag lets `.`
@@ -116,7 +120,7 @@ export function verifyClosure({ root, commit, controlPaths }) {
   // `git hash-object --stdin-paths` reads one path per line and drops a trailing CR, so "x.mjs" and "x.mjs\r" would hash
   // as the same file. No closure path may hold a control character; refuse instead of trying to quote it.
   const noControl = (p) => {
-    if (CONTROL_CHAR.test(p)) throw fail(`${JSON.stringify(p)} contains a control character`);
+    if (CONTROL_CHAR.test(p)) throw fail(`${JSON.stringify(p)} contains a control character or a byte that is not valid UTF-8`);
   };
   noControl(root);
   const tree = lsTree(root, commit);
