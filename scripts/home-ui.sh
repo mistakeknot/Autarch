@@ -10,6 +10,12 @@
 #   scripts/home-ui.sh rollback BACKUP_DIR [--restore-data]   reinstall the build the backup recorded (data restore only if asked)
 #   scripts/home-ui.sh migrate-check [--path DIR]             run DIR's migrations on a COPY of a fresh backup; never touches live
 # Run as mk (refused as root). Not for schema changes: those still go to mk as scripts (install-home-your-move.sh).
+# --engine tool: begin (mk-zq345.7)
+# --engine legacy|tool (check, deploy and preview only; default legacy, which is everything below). --engine tool hands the work to the
+# deploy tool of the INSTALLED build (tools/bb-plugin-deploy), after verifying that build's control closure, and fails closed with
+# "use --engine legacy" otherwise. It needs --commit (deploy and check; preview takes --commit or --path) and takes --expect-tree TREE.
+# It refuses --plugin-code (the tool gates by class) and --restore-data. rollback and migrate-check never call the tool.
+# --engine tool: end
 #
 # Why this is safe to run by an agent:
 #   * Gate 1 (UI-only): the target's CODE_VERSION must equal the live schema_version, and its migrations.ts must be byte-identical
@@ -42,6 +48,9 @@ STAMP=$(date -u +%Y%m%dT%H%M%SZ)
 
 SUB=${1:-}; [ $# -gt 0 ] && shift || true
 COMMIT=; PATH_ARG=; RESTORE_DATA=0; BACKUP_ARG=; PLUGIN_CODE=0
+# --engine tool: begin (mk-zq345.7)
+ENGINE=legacy; ENGINE_SET=; EXPECT_TREE=
+# --engine tool: end
 case $SUB in
   rollback) BACKUP_ARG=${1:?rollback needs the backup directory}; shift ;;
   check|deploy|preview|migrate-check) ;;
@@ -53,12 +62,32 @@ while [ $# -gt 0 ]; do
     --path) PATH_ARG=${2:?--path needs a directory}; shift 2 ;;
     --restore-data) RESTORE_DATA=1; shift ;;
     --plugin-code) PLUGIN_CODE=1; shift ;;
+    # --engine tool: begin (mk-zq345.7)
+    --engine) ENGINE=${2:?--engine needs tool or legacy}; ENGINE_SET=1; shift 2 ;;
+    --expect-tree) EXPECT_TREE=${2:?--expect-tree needs a tree sha}; shift 2 ;;
+    # --engine tool: end
     *) die "unknown argument: $1" 64 ;;
   esac
 done
 [[ -z $COMMIT || $COMMIT =~ ^[0-9a-f]{40}$ ]] || die "--commit must be a full 40-hex sha" 64
 [ "$PLUGIN_CODE" = 0 ] || [ "$SUB" = deploy ] || [ "$SUB" = check ] || die "--plugin-code applies to check and deploy only" 64
 [ "$SUB" != deploy ] || [ -n "$COMMIT" ] || die "deploy needs --commit <40-hex sha>" 64
+# --engine tool: begin (mk-zq345.7)
+# --engine: validated before anything is read or locked. Without the flag none of this changes the legacy path.
+case $ENGINE in tool|legacy) ;; *) die "--engine must be tool or legacy, not '$ENGINE'" 64 ;; esac
+[ -z "$ENGINE_SET" ] || case $SUB in check|deploy|preview) ;; *) die "--engine applies to check, deploy and preview only; $SUB never calls the tool" 64 ;; esac
+[ -z "$EXPECT_TREE" ] || [ "$ENGINE" = tool ] || die "--expect-tree applies to --engine tool only" 64
+if [ "$ENGINE" = tool ]; then
+  [ "$PLUGIN_CODE" = 0 ] || die "--plugin-code is a legacy gate option; --engine tool gates by class (use --engine legacy for it)" 64
+  [ "$RESTORE_DATA" = 0 ] || die "--restore-data belongs to rollback, which never calls the tool" 64
+  [[ -z $EXPECT_TREE || $EXPECT_TREE =~ ^[0-9a-f]{40}$ ]] || die "--expect-tree must be a full 40-hex tree sha" 64
+  case $SUB in
+    check|deploy) [ -n "$COMMIT" ] || die "$SUB --engine tool needs --commit <40-hex sha>" 64
+                  [ -z "$PATH_ARG" ] || die "$SUB --engine tool takes --commit, not --path" 64 ;;
+    preview)      { [ -n "$COMMIT" ] || [ -n "$PATH_ARG" ]; } && { [ -z "$COMMIT" ] || [ -z "$PATH_ARG" ]; } || die "preview --engine tool needs exactly one of --commit and --path" 64 ;;
+  esac
+fi
+# --engine tool: end
 
 # shared destination lock: begin (mk-zq345.5)
 # deploy, preview and rollback take <state dir>/lock, the file the update runner already locks, before they read anything about the
@@ -92,6 +121,9 @@ take_lock() {   # $1 = the subcommand
 }
 case $SUB in deploy|preview|rollback) take_lock "$SUB" ;; esac
 # shared destination lock: end
+# --engine tool: begin (mk-zq345.7)
+[ "$ENGINE" != tool ] || [ "$SUB" != check ] || take_lock "$SUB"   # check takes the lock on the tool path only; the legacy check takes none
+# --engine tool: end
 live_schema() {
   [ -r "$DB" ] || die "cannot read the Home database at $DB"
   local v
@@ -209,6 +241,115 @@ install_build() {   # $1 = plugin dir
 }
 rollback_cmd() { printf 'rollback: bash %q rollback %q\n' "$REPO/scripts/home-ui.sh" "$1"; }
 
+# --engine tool: begin (mk-zq345.7)
+# The INSTALLED build's own deploy tool does the work, never the target's. Before it runs, this verifies the installed build's control
+# closure the way the tool does (plan 2.2): every tracked file under the plugin file's controlPaths (plus the tool and the plugin file
+# themselves) must exist on disk byte-for-byte as in the build's commit, with no symlink and no extra file. The commit is the stamp's
+# (cross-checked against HEAD and its tree) or, for an unstamped build, HEAD with a clean status over the closure. The control paths come
+# from the plugin file as COMMITTED, never from the disk copy. Any failure is a refusal (exit 10) that says to use --engine legacy.
+tdie() { die "--engine tool refused: $*; use --engine legacy (or the reviewed install script)" 10; }
+GLOBRE_JQ='def globre:
+  gsub("(?<c>[.+^${}()|\\[\\]\\\\])"; "\\" + .c) | gsub("\\*\\*/"; "\u0001") | gsub("\\*\\*"; "\u0002") | gsub("\\*"; "[^/]*") | gsub("\\?"; "[^/]")
+  | gsub("\u0001"; "(?:.*/)?") | gsub("\u0002"; ".*") | "^" + . + "$";'
+CLOSURE_JQ="$GLOBRE_JQ"'
+($ctrl | map(globre)) as $res
+| def m($p): any($res[]; . as $r | $p | test($r));
+($tree | split("\n") | map(select(length > 0) | capture("^(?<mode>[0-7]+) (?<type>[a-z]+) (?<sha>[0-9a-f]+)\t(?<path>.*)$"))) as $T
+| ($disk | split("\n") | map(select(length > 0) | capture("^(?<t>.)\t(?<path>.*)$"))) as $D
+| [$T[] | select(m(.path))] as $want
+| (($want | map(select(.mode == "120000")) | first) // null) as $wl
+| if $wl != null then "FAIL \($wl.path) is a symlink in the commit"
+  elif ($want | length) == 0 then "FAIL the closure is empty"
+  else
+    ([$want[].path | . as $p | split("/") | range(1; length) as $i | .[:$i] | join("/")] | unique) as $anc
+    | ($anc | map({key: ., value: true}) | from_entries) as $ancset
+    | ($D | map({key: .path, value: .t}) | from_entries) as $dt
+    | (($D | map(select(.t == "l" and (m(.path) or ($ancset[.path] // false) or m(.path + "/x")))) | first) // null) as $sl
+    | (($anc | map(select(($dt[.] // "") != "d")) | first) // null) as $am
+    | (($D | map(select(.t != "d" and .t != "l" and m(.path)) | .path) - ($want | map(.path))) | first // null) as $ex
+    | (($want | map(select(($dt[.path] // "") != "f") | .path) | first) // null) as $mi
+    | if $sl != null then "FAIL \($sl.path) is a symlink"
+      elif $am != null then "FAIL \($am) is missing or not a directory"
+      elif $ex != null then "FAIL extra file \($ex)"
+      elif $mi != null then "FAIL \($mi) is missing or not a regular file"
+      else ("OK", ($want[] | "\(.sha)\t\(.path)")) end
+  end'
+CLOSURE_REASON=
+verify_closure() {   # $1 = build root; sets CLOSURE_REASON and returns 1 on any failure; prints nothing
+  local root=$1 T ref head tree sc st n out bad
+  T=$(mktemp -d) || { CLOSURE_REASON="cannot make a temp dir"; return 1; }
+  local g=(env GIT_OPTIONAL_LOCKS=0 GIT_TERMINAL_PROMPT=0 git -C "$root")
+  head=$("${g[@]}" rev-parse HEAD 2>/dev/null) && [[ $head =~ ^[0-9a-f]{40}$ ]] || { CLOSURE_REASON="the installed build is not a git checkout"; rm -rf "$T"; return 1; }
+  tree=$("${g[@]}" rev-parse 'HEAD^{tree}' 2>/dev/null) || tree=
+  sc=$root/.bb-plugin-deploy/stamp.json
+  if [ -e "$sc" ] || [ -L "$sc" ]; then
+    if [ -L "$sc" ] || [ ! -f "$sc" ]; then CLOSURE_REASON="the build stamp is not a regular file"; rm -rf "$T"; return 1; fi
+    st=$(jq -r 'select(type == "object") | "\(.commit // "") \(.tree // "")"' "$sc" 2>/dev/null) || st=
+    if [ "${st%% *}" != "$head" ] || [ "${st#* }" != "$tree" ] || [ -z "$tree" ]; then CLOSURE_REASON="the build stamp disagrees with the build's HEAD or tree"; rm -rf "$T"; return 1; fi
+  fi
+  ref=$head
+  "${g[@]}" cat-file blob "$ref:$PLUGIN_REL/deploy.json" >"$T/pf.json" 2>/dev/null || { CLOSURE_REASON="the plugin file is not tracked at commit ${ref:0:12}"; rm -rf "$T"; return 1; }
+  if ! jq -e --arg pf "$PLUGIN_REL/deploy.json" '(.controlPaths | type == "array" and length > 0 and all(type == "string" and length > 0 and (startswith("/") | not) and (contains("..") | not))) and ((.controlPaths + ["tools/bb-plugin-deploy/**", $pf]) | unique | length > 0)' "$T/pf.json" >/dev/null 2>&1; then
+    CLOSURE_REASON="the committed plugin file has no valid controlPaths"; rm -rf "$T"; return 1
+  fi
+  jq -c --arg pf "$PLUGIN_REL/deploy.json" '(.controlPaths + ["tools/bb-plugin-deploy/**", $pf]) | unique' "$T/pf.json" >"$T/ctrl.json"
+  "${g[@]}" ls-tree -r -z --full-tree "$ref" >"$T/tree.z" 2>/dev/null || { CLOSURE_REASON="cannot list commit ${ref:0:12}"; rm -rf "$T"; return 1; }
+  n=$(tr -cd '\0' <"$T/tree.z" | wc -c); tr '\0' '\n' <"$T/tree.z" >"$T/tree.txt"
+  [ "$(wc -l <"$T/tree.txt")" -eq "$n" ] || { CLOSURE_REASON="a tracked path contains a newline"; rm -rf "$T"; return 1; }
+  ( cd "$root" && find . -mindepth 1 \( -path ./.git -o -path ./.bb-plugin-deploy -o -name node_modules \) -prune -o -printf '%y\t%P\0' ) >"$T/disk.z" 2>/dev/null || { CLOSURE_REASON="cannot walk the installed build"; rm -rf "$T"; return 1; }
+  n=$(tr -cd '\0' <"$T/disk.z" | wc -c); tr '\0' '\n' <"$T/disk.z" >"$T/disk.txt"
+  [ "$(wc -l <"$T/disk.txt")" -eq "$n" ] || { CLOSURE_REASON="a path in the installed build contains a newline"; rm -rf "$T"; return 1; }
+  out=$(jq -rn --slurpfile ctrl "$T/ctrl.json" --rawfile tree "$T/tree.txt" --rawfile disk "$T/disk.txt" '$ctrl[0] as $ctrl | '"$CLOSURE_JQ" 2>"$T/jq.err") || { CLOSURE_REASON="closure check failed to run: $(head -c 200 "$T/jq.err")"; rm -rf "$T"; return 1; }
+  if [ "${out%%$'\n'*}" != OK ]; then CLOSURE_REASON=${out#FAIL }; CLOSURE_REASON=${CLOSURE_REASON%%$'\n'*}; rm -rf "$T"; return 1; fi
+  printf '%s\n' "${out#OK}" | sed '1d' >"$T/want.txt"
+  cut -f1 "$T/want.txt" >"$T/want.sha"; cut -f2- "$T/want.txt" >"$T/want.paths"
+  ( cd "$root" && git hash-object --no-filters --stdin-paths <"$T/want.paths" ) >"$T/got.sha" 2>"$T/hash.err" || { CLOSURE_REASON="git hash-object failed: $(head -c 200 "$T/hash.err")"; rm -rf "$T"; return 1; }
+  if ! cmp -s "$T/want.sha" "$T/got.sha"; then
+    bad=$(paste -d' ' "$T/want.sha" "$T/got.sha" "$T/want.paths" | awk '$1 != $2 { sub(/^[^ ]+ [^ ]+ /, ""); print; exit }')
+    CLOSURE_REASON="${bad:-a closure file} differs from commit ${ref:0:12}"; rm -rf "$T"; return 1
+  fi
+  if [ ! -e "$sc" ]; then   # unstamped: the closure paths must also be clean in git's own status (catches mode and index changes)
+    "${g[@]}" status --porcelain --untracked-files=all -z >"$T/status.z" 2>/dev/null || { CLOSURE_REASON="git status failed in the installed build"; rm -rf "$T"; return 1; }
+    tr '\0' '\n' <"$T/status.z" | sed -n 's/^...//p' >"$T/dirty.all"
+    if [ -s "$T/dirty.all" ]; then
+      bad=$(jq -Rrn --slurpfile ctrl "$T/ctrl.json" --rawfile p "$T/dirty.all" '$ctrl[0] as $ctrl | '"$GLOBRE_JQ"' ($ctrl | map(globre)) as $res | $p | split("\n") | map(select(length > 0) | . as $q | select(any($res[]; . as $r | $q | test($r)))) | first // empty')
+      if [ -n "$bad" ]; then CLOSURE_REASON="uncommitted change in the closure: $bad"; rm -rf "$T"; return 1; fi
+    fi
+  fi
+  rm -rf "$T"
+}
+
+tool_engine() {   # check, deploy or preview through the installed build's tool; never returns on success (exec)
+  local src root cli pf st args=() bbenv=()
+  src=$("$BB" plugin source autarch 2>/dev/null | sed -n 's/^ *resolved: path://p' | head -n1) || src=
+  [ -n "$src" ] && [ -d "$src" ] || tdie "cannot tell the installed Home build (bb plugin source autarch)"
+  src=$(cd "$src" && pwd -P)
+  [[ $src == */"$PLUGIN_REL" ]] || tdie "the installed source $src does not end in $PLUGIN_REL"
+  root=${src%/"$PLUGIN_REL"}
+  [ -n "$root" ] && [ -d "$root" ] || tdie "cannot find the installed build root"
+  cli=$root/tools/bb-plugin-deploy/cli.mjs
+  { [ -f "$cli" ] && [ ! -L "$cli" ]; } || tdie "the installed build has no deploy tool ($cli)"
+  pf=$root/$PLUGIN_REL/deploy.json
+  { [ -f "$pf" ] && [ ! -L "$pf" ]; } || tdie "the installed build's plugin file is missing ($pf)"
+  jq -e '.format == "bb-plugin-deploy/plugin@1" and (.pluginId | type == "string" and length > 0) and (.controlPaths | type == "array" and length > 0)' "$pf" >/dev/null 2>&1 || tdie "the installed build's plugin file is invalid ($pf)"
+  command -v node >/dev/null 2>&1 || tdie "node is not on the PATH"
+  command -v git >/dev/null 2>&1 && command -v jq >/dev/null 2>&1 || tdie "git and jq are needed to verify the installed tool"
+  verify_closure "$root" || tdie "installed deploy tooling does not match its commit ($CLOSURE_REASON)"
+  [ -n "${BPD_LOCK_FD:-}" ] || tdie "the destination lock was not taken (no state dir ${HOME_UI_STATE_DIR:-$MKHOME/.local/state/autarch-home-update})"
+  st=${HOME_UI_STATE_DIR:-$MKHOME/.local/state/autarch-home-update}
+  args=("$cli" "$SUB" --plugin-file "$pf" --bb-data "$BBDATA" --state-dir "$st")
+  case $SUB in
+    check)   args+=(--commit "$COMMIT" --class plugin-deploy) ;;
+    deploy)  args+=(--commit "$COMMIT" --class plugin-deploy --mode agent) ;;
+    preview) if [ -n "$COMMIT" ]; then args+=(--commit "$COMMIT"); else args+=(--path "$PATH_ARG"); fi; args+=(--mode agent) ;;
+  esac
+  [ -z "$EXPECT_TREE" ] || args+=(--expect-tree "$EXPECT_TREE")
+  case $BB in /*) bbenv=(BB_PLUGIN_DEPLOY_BB="$BB") ;; esac   # the tool talks to the same bb that told us which build is installed
+  echo "home-ui: --engine tool: $SUB via the installed tool $cli (closure verified, lock held)" >&2
+  exec env "${bbenv[@]}" node "${args[@]}"
+}
+[ "$ENGINE" != tool ] || tool_engine
+# --engine tool: end
 case $SUB in
 check)
   if [ -n "$COMMIT" ]; then
