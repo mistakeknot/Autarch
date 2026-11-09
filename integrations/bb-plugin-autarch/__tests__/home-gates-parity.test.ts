@@ -247,7 +247,7 @@ describe("home-gates.sh gate", () => {
     expect(gatesGate(b, data, t).status).toBe(10);
   });
 
-  it.skipIf(process.getuid?.() === 0)("fails closed when a target subdirectory cannot be listed (home-ui.sh discards find's status here)", () => {
+  it.skipIf(process.getuid?.() === 0)("fails closed when a target subdirectory cannot be listed (same as home-ui.sh)", () => {
     const b = buildFixtures();
     const t = b.target("plugin-code");
     const sub = join(t, "hidden");

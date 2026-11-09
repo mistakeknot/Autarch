@@ -207,6 +207,13 @@ plugin_code_only() {   # $1 = installed build, $2 = target; dependencies and the
   # Defence in depth, not proof: lines added to plugin code outside ui/ and __tests__/ must not contain schema statements. The
   # deploy's real guarantee on code behaviour is the cross-lab review of the merged head that the deploy approval requires.
   local f rel old rc added=
+  # find status: begin (mk-zq345.6)
+  # The loop below reads its file list through process substitution, which discards find's exit status, so an unreadable
+  # subdirectory would silently drop its files from the scan. Walk the tree once first and refuse when the walk fails.
+  # Same refusal as scripts/home-gates.sh (mk-zq345.4).
+  find "$2" -path "$2/node_modules" -prune -o -type f -print0 >/dev/null 2>&1 \
+    || die "NOT plugin-code-only: could not list every file under the target (an unreadable directory?); refusing" 3
+  # find status: end
   while IFS= read -r -d '' f; do
     rel=${f#"$2"/}
     case $rel in ui/*|__tests__/*|node_modules/*) continue ;; esac
