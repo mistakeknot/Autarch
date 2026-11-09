@@ -303,6 +303,21 @@ describe("home-gates.sh gate", () => {
     expect(r.stderr).toContain("adds a schema statement");
   });
 
+  it("home-ui.sh check --plugin-code scans each walk on its own: a change split across the join of two scans is not a schema statement", () => {
+    const b = buildFixtures();
+    const t = b.target("no-change");   // nothing else differs, so this file's lines are the only added text and meet their own copy at the join
+    mkdirSync(join(t, "lib"), { recursive: true });
+    // Added lines are joined with a space. Scanned twice into one buffer, this text would read "...; CREATE  TABLE example; CREATE" and
+    // match across the boundary, refusing a harmless change that home-gates.sh (one scan) lets through.
+    writeFileSync(join(t, "lib", "notes.txt"), "TABLE example; CREATE\n");
+    const data = dataDir(b.root, 3);
+    const g = gatesCheck(b, data, t, ["--plugin-code"]);
+    expect(g.status, g.stderr).toBe(0);
+    const l = legacy(b, data, t, ["--plugin-code"]);
+    expect(l.stderr).not.toContain("adds a schema statement");
+    expect(l.status, l.stderr).toBe(0);
+  });
+
   it("changes nothing: the database and both build trees are byte-identical afterwards", () => {
     const b = buildFixtures();
     const data = dataDir(b.root, 3);
