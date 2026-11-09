@@ -137,7 +137,7 @@ function recheck(r: any, state: () => string, calls: string[]) {
       const out = r.dele.bringBack(taskId, decisionId, "thr_a", {});
       return out.ok && !out.replay;
     },
-  } as ConstructorParameters<typeof MergeRecheck>[0]);
+  });
 }
 
 describe("merge recheck", () => {
@@ -216,6 +216,7 @@ describe("merge recheck", () => {
         if (fail) throw new Error("gh down");
         return { state: "OPEN", mergedAt: null };
       },
+      taskState: (id) => new TasksClient(r.fake, { now: () => r.env.clock.t }).taskState(id),
       clock: () => Date.parse(r.svc.time()),
       bringBack: async (taskId, decisionId) => r.dele.bringBack(taskId, decisionId, null, {}).ok,
     });
@@ -280,7 +281,7 @@ describe("merge recheck leaves a card whose task is finished (bead mk-6k39i)", (
       },
       clock: () => Date.parse(r.svc.time()),
       bringBack: async (taskId, decisionId) => r.dele.bringBack(taskId, decisionId, null, {}).ok,
-    } as ConstructorParameters<typeof MergeRecheck>[0]);
+    });
     await m.pass();
     expect(m.stats.errors).toBe(1);
     expect(r.gens(t.id)).toHaveLength(1);

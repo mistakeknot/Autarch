@@ -7,8 +7,13 @@
 // approval's target (owner/repo#N). A card that names several different PRs is left alone rather than guessed at.
 // Once per generation: the new generation has no pick, so it is checked only if mk picks merge on it again, and
 // a card that has already been resurfaced MAX_GENERATIONS times is left alone.
+// A card whose task has since been canceled or deleted is finished (bead mk-6k39i): the pick's own write-back only ever
+// completes a task (done), so a canceled one was closed on purpose by a person or a thread, and the recheck leaves it.
+// A done task is the normal state five minutes after a pick and still gets the check. The manual Bring back on the
+// Archive tab is a separate path and keeps reopening a canceled task.
 import type Database from "better-sqlite3";
 import type { GhView } from "./movepoll.js";
+import type { TaskState } from "./tasks.js";
 
 export const RECHECK_AFTER_MS = 5 * 60_000;
 /** Picks older than this are not rechecked (a Citadel outage longer than this skips the check). */
@@ -104,6 +109,8 @@ export interface RecheckOptions {
   ghView: GhView;
   /** Reopens the card as the next generation (Delegation.bringBack through the panel path). */
   bringBack: (taskId: string, decisionId: string, pr: PrRef) => Promise<boolean>;
+  /** The card task's current state (TasksClient.taskState). A failed read throws, and the pick is retried next pass. */
+  taskState: (taskId: string) => Promise<TaskState>;
   clock?: () => number;
   log?: (msg: string) => void;
 }
@@ -130,6 +137,11 @@ export class MergeRecheck {
         const v = await this.o.ghView(pr.url);
         this.stats.checked++;
         if (v.state === "OPEN") {
+          const st = await this.o.taskState(p.task_id);
+          if (st.state === "deleted" || st.task.status === "canceled") {
+            this.done.add(p.decision_id); // finished on purpose after the pick; nothing is owed
+            continue;
+          }
           if (await this.o.bringBack(p.task_id, p.decision_id, pr)) this.stats.resurfaced++;
           this.done.add(p.decision_id);
         } else if (v.state === "MERGED" || v.state === "CLOSED") {
