@@ -165,6 +165,24 @@ describe("Ask / note", () => {
     expect(q<HTMLTextAreaElement>("[data-other-text]")!.value).toBe(TEXT);
   });
 
+  it("a late send success does not clear the box while an image read begun after the send is still pending", async () => {
+    vi.useFakeTimers();
+    let land!: (r: { ok: boolean }) => void;
+    const { onNote } = mount(ask(OWN_OTHER), { onNote: () => new Promise((res) => { land = res; }) });
+    type(TEXT);
+    await click(noteBtn());
+    await advance(SEND_TIMEOUT_MS + 1); // the send timed out, so the box is usable again
+    const file = new File(["x"], "shot.png", { type: "image/png" });
+    Object.defineProperty(file, "arrayBuffer", { value: () => new Promise(() => {}) });
+    const paste = new Event("paste", { bubbles: true, cancelable: true });
+    Object.defineProperty(paste, "clipboardData", { value: { files: [file] } });
+    await act(async () => { q("[data-other-text]")!.dispatchEvent(paste); });
+    await act(async () => { land({ ok: true }); });
+    expect(onNote).toHaveBeenCalledTimes(1);
+    expect(q<HTMLTextAreaElement>("[data-other-text]")!.value).toBe(TEXT);
+    expect(q("[data-other-result='ok']")!.textContent).toContain("Your newer draft was kept.");
+  });
+
   it("does not stay disabled behind an image read that never settles", async () => {
     vi.useFakeTimers();
     const { onNote } = mount(ask(OWN_OTHER));
