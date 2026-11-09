@@ -60,6 +60,38 @@ done
 [ "$PLUGIN_CODE" = 0 ] || [ "$SUB" = deploy ] || [ "$SUB" = check ] || die "--plugin-code applies to check and deploy only" 64
 [ "$SUB" != deploy ] || [ -n "$COMMIT" ] || die "deploy needs --commit <40-hex sha>" 64
 
+# shared destination lock: begin (mk-zq345.5)
+# deploy, preview and rollback take <state dir>/lock, the file the update runner already locks, before they read anything about the
+# installed build, and hold it to the end of the process. A caller that already holds it (the runner's fd 9, or BPD_LOCK_FD) is
+# recognised by descriptor, never by environment alone: the fd must be open, name the same device:inode as the lock file, and pass
+# flock -n. Otherwise this opens its own descriptor and waits, at most HOME_UI_LOCK_WAIT seconds (default 2100, 35 minutes).
+# HOME_UI_LOCK=skip lets rollback run without the lock (mk only, emergency).
+lock_holder() {   # $1 = lock file; prints the pid /proc/locks names, or nothing
+  local ino; ino=$(stat -c %i "$1" 2>/dev/null) || return 0
+  awk -v i="$ino" '$2 != "->" { n = split($6, a, ":"); if (a[n] == i) { print $5; exit } }' /proc/locks 2>/dev/null || true
+}
+take_lock() {   # $1 = the subcommand
+  local st=${HOME_UI_STATE_DIR:-$MKHOME/.local/state/autarch-home-update} l f a b w=${HOME_UI_LOCK_WAIT:-2100}
+  l=$st/lock
+  if [ "${HOME_UI_LOCK:-}" = skip ]; then
+    if [ "$1" = rollback ]; then
+      echo "home-ui: HOME_UI_LOCK=skip: running WITHOUT the destination lock. RACE RISK: the update runner or a tool deploy can install a build between this command's steps. Emergency use only." >&2
+      return 0
+    fi
+    echo "home-ui: HOME_UI_LOCK=skip applies to rollback only; taking the lock" >&2
+  fi
+  [ -d "$st" ] || { echo "home-ui: WARNING: no state dir $st; running without the destination lock" >&2; return 0; }
+  f=${BPD_LOCK_FD:-9}; case $f in ''|*[!0-9]*) f=9 ;; esac
+  a=$(stat -L -c %d:%i "/proc/self/fd/$f" 2>/dev/null || true); b=$(stat -c %d:%i "$l" 2>/dev/null || true)
+  if [ -z "$a" ] || [ "$a" != "$b" ]; then exec {f}>>"$l" || die "cannot open the destination lock $l"; fi
+  if ! flock -n "$f"; then
+    echo "home-ui: waiting for the destination lock (held by pid $(lock_holder "$l")); giving up after ${w}s" >&2
+    flock -w "$w" "$f" || die "another deploy holds the lock (pid $(lock_holder "$l"))" 75
+  fi
+  export BPD_LOCK_FD="$f"   # children reuse this descriptor (2.1: a holder exports it and keeps it open)
+}
+case $SUB in deploy|preview|rollback) take_lock "$SUB" ;; esac
+# shared destination lock: end
 live_schema() {
   [ -r "$DB" ] || die "cannot read the Home database at $DB"
   local v
@@ -240,6 +272,23 @@ rollback)
     echo "data restored from $BACKUP_ARG (everything written after it is lost)"
   fi
   install_build "$PREV" || exit 5
+  # installed.sha write: begin (mk-zq345.5)
+  # Record the build now installed where the update runner reads it, atomically, only when the state dir exists and the previous
+  # build is a checkout of this plugin; anything else only warns, and the rollback still succeeds. Reads nothing from the tool.
+  ST=${HOME_UI_STATE_DIR:-$MKHOME/.local/state/autarch-home-update}
+  if [ -d "$ST" ]; then
+    TOP=$(git -C "$PREV" rev-parse --show-toplevel 2>/dev/null || true)
+    SHA=$(git -C "$PREV" rev-parse HEAD 2>/dev/null || true)
+    if [ -n "$TOP" ] && [ "$(cd "$PREV" && pwd -P)" = "$TOP/$PLUGIN_REL" ] && [[ $SHA =~ ^[0-9a-f]{40}$ ]] && printf '%s\n' "$SHA" >"$ST/installed.sha.tmp.$$"; then
+      mv -f "$ST/installed.sha.tmp.$$" "$ST/installed.sha" || echo "home-ui: WARNING: could not write $ST/installed.sha" >&2
+    else
+      rm -f "$ST/installed.sha.tmp.$$"
+      echo "home-ui: WARNING: $PREV is not a checkout of the plugin; installed.sha was not updated" >&2
+    fi
+  else
+    echo "home-ui: WARNING: no state dir $ST; installed.sha was not updated" >&2
+  fi
+  # installed.sha write: end
   echo "rolled back to $PREV" ;;
 
 migrate-check)
