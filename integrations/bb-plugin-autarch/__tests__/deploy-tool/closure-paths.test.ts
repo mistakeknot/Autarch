@@ -1,9 +1,10 @@
 import { afterEach, describe, expect, it } from "vitest";
 import { spawnSync } from "node:child_process";
-import { appendFileSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
+import { appendFileSync, mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Rig, type CliResult } from "./rig";
-import { globMatcher } from "../../../../tools/bb-plugin-deploy/lib/gitops.mjs";
+import { globMatcher, verifyClosure, verifyClosureAgainstHead } from "../../../../tools/bb-plugin-deploy/lib/gitops.mjs";
 
 // mk-5wc43: `git hash-object --stdin-paths` reads one path per line and drops a trailing carriage return, so the
 // closure paths "x.mjs" and "x.mjs\r" were hashed as the same file. The closure check must refuse such a path.
@@ -112,5 +113,70 @@ describe("other closure-path decoding", () => {
     const Y = rig.commit({ [`${LIB}/x.mjs`]: null, "plug/x.mjs": "export const x = 1;\n" });
     const r = rig.cli(deployArgs(Y));
     expect(r.status, msg(r)).toBe(20);
+  });
+});
+
+// A filename is bytes, not text. Decoding it as UTF-8 maps every invalid byte to U+FFFD, so the raw name "x\xff.mjs" and the
+// valid name "x\uFFFD.mjs" became one Map/Set key and only one of them was hashed (reviewer round 1).
+describe("closure paths that are not valid UTF-8", () => {
+  const CONTROL = ["tools/bb-plugin-deploy/**"];
+  const dirs: string[] = [];
+  afterEach(() => {
+    for (const d of dirs.splice(0)) rmSync(d, { recursive: true, force: true });
+  });
+  const sh = (cwd: string, args: string[]) => {
+    const r = spawnSync("git", args, { cwd, encoding: "utf8" });
+    if (r.status !== 0) throw new Error(`git ${args.join(" ")}: ${r.stderr}`);
+    return r.stdout.trim();
+  };
+  /** A repo whose commit holds the valid name "x\uFFFD.mjs" and the raw-byte name "x\xff.mjs", identical contents. */
+  const bytesRepo = () => {
+    const root = mkdtempSync(join(tmpdir(), "closure-bytes-"));
+    dirs.push(root);
+    sh(root, ["init", "-q", "-b", "main"]);
+    sh(root, ["config", "user.email", "t@example.invalid"]);
+    sh(root, ["config", "user.name", "t"]);
+    const lib = Buffer.from(join(root, LIB));
+    mkdirSync(lib.toString(), { recursive: true });
+    const body = "export const x = 1;\n";
+    writeFileSync(Buffer.concat([lib, Buffer.from("/x\uFFFD.mjs")]), body);
+    writeFileSync(Buffer.concat([lib, Buffer.from([0x2f, 0x78, 0xff, 0x2e, 0x6d, 0x6a, 0x73])]), body);
+    return { root, lib, body, rawFile: Buffer.concat([lib, Buffer.from([0x2f, 0x78, 0xff, 0x2e, 0x6d, 0x6a, 0x73])]) };
+  };
+
+  it("a committed raw-byte name beside its U+FFFD twin is refused, even when only the raw-byte file changed", () => {
+    const { root, rawFile } = bytesRepo();
+    sh(root, ["add", "-A"]);
+    sh(root, ["commit", "-q", "-m", "c"]);
+    const commit = sh(root, ["rev-parse", "HEAD"]);
+    appendFileSync(rawFile, "export const evil = true;\n");
+    expect(() => verifyClosure({ root, commit, controlPaths: CONTROL })).toThrow(/not valid UTF-8|control character/);
+  });
+
+  it("an ignored raw-byte file beside a committed U+FFFD name is refused by both verifiers", () => {
+    const { root, rawFile } = bytesRepo();
+    rmSync(rawFile);
+    sh(root, ["add", "-A"]);
+    sh(root, ["commit", "-q", "-m", "c"]);
+    const commit = sh(root, ["rev-parse", "HEAD"]);
+    mkdirSync(join(root, ".git", "info"), { recursive: true });
+    appendFileSync(join(root, ".git", "info", "exclude"), "x*.mjs\n");
+    // Ignore only the raw file: the committed twin is tracked, so the ignore rule does not hide it.
+    writeFileSync(rawFile, "export const evil = true;\n");
+    expect(() => verifyClosure({ root, commit, controlPaths: CONTROL })).toThrow(/not valid UTF-8|control character/);
+    expect(() => verifyClosureAgainstHead({ root, controlPaths: CONTROL })).toThrow(/not valid UTF-8|control character/);
+  });
+
+  it("a plain UTF-8 name outside the replacement character still verifies", () => {
+    const root = mkdtempSync(join(tmpdir(), "closure-bytes-"));
+    dirs.push(root);
+    sh(root, ["init", "-q", "-b", "main"]);
+    sh(root, ["config", "user.email", "t@example.invalid"]);
+    sh(root, ["config", "user.name", "t"]);
+    mkdirSync(join(root, LIB), { recursive: true });
+    writeFileSync(join(root, LIB, "café-ü.mjs"), "export const x = 1;\n");
+    sh(root, ["add", "-A"]);
+    sh(root, ["commit", "-q", "-m", "c"]);
+    expect(verifyClosure({ root, commit: sh(root, ["rev-parse", "HEAD"]), controlPaths: CONTROL }).files).toBe(1);
   });
 });
