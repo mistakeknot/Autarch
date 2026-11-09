@@ -63,10 +63,10 @@ case "$1 $2" in
     [ "$HUI_FAIL_FOR" = "$dir" ] && exit 1
     case "$HUI_INSTALL" in
       nothing) exit 1 ;;
-      half) echo built > "$dir/dist/app.js"; exit 1 ;;
+      half) echo built > "$dir/dist/.app.js.tmp" && mv "$dir/dist/.app.js.tmp" "$dir/dist/app.js"; exit 1 ;;
     esac
-    for f in app.js app.css; do echo built > "$dir/dist/$f"; done
-    echo '{"pluginId":"autarch"}' > "$dir/dist/app.meta.json"
+    for f in app.js app.css; do echo built > "$dir/dist/.$f.tmp" && mv "$dir/dist/.$f.tmp" "$dir/dist/$f"; done
+    echo '{"pluginId":"autarch"}' > "$dir/dist/.app.meta.json.tmp" && mv "$dir/dist/.app.meta.json.tmp" "$dir/dist/app.meta.json"
     echo "path:$dir" > $S/source
     echo "\${HUI_LEFT:-running}" > $S/mode
     [ "$HUI_INSTALL" = client-error ] && exit 1
@@ -183,5 +183,70 @@ describe("home-ui.sh install_build: the stand-in bb never outlives the install",
     const installs = r.log().filter((c) => c.startsWith("plugin install"));
     expect(installs).toEqual([`plugin install --yes ${n}`, `plugin install --yes ${r.cur}`]);
     expect(r.mode()).toBe("running");
+  });
+});
+
+// A signal that arrives while install_build is answering for the install with a stand-in bb must not leave the stand-in in charge of
+// the exit-trap restore: the restore has to reinstall the previous build with the real bb. The signal is sent by a DEBUG trap loaded
+// through BASH_ENV, exactly when the unchanged install-result line (window 1) or the unchanged enable line (window 2) is about to run
+// against /bin/true or /bin/false.
+describe("home-ui.sh install_build: a signal while the stand-in bb is in place", () => {
+  function hook(root: string, pattern: string) {
+    const f = join(root, "inject.sh");
+    writeFileSync(
+      f,
+      `set -T
+trap 'if [ "$BASHPID" = "$$" ] && { [ "\${BB:-}" = /bin/true ] || [ "\${BB:-}" = /bin/false ]; } && [[ "$BASH_COMMAND" == ${pattern} ]]; then trap - DEBUG; kill -TERM $$; fi' DEBUG
+`,
+    );
+    return f;
+  }
+  for (const [name, pattern] of [
+    ["the install-result line", '*\\"\\$BB\\"\\ plugin\\ install*'],
+    ["the enable line", '*\\"\\$BB\\"\\ plugin\\ enable*'],
+  ] as const) {
+    it(`reinstalls the previous build with the real bb when interrupted at ${name}`, () => {
+      const r = rig();
+      const n = plugin(r.root, "new");
+      const out = r.run(["preview", "--path", n], { BASH_ENV: hook(r.root, pattern) } as never);
+      expect(out.status).toBe(130);
+      const installs = r.log().filter((c) => c.startsWith("plugin install"));
+      expect(installs).toEqual([`plugin install --yes ${n}`, `plugin install --yes ${r.cur}`]);
+      expect(r.mode()).toBe("running");
+    });
+  }
+});
+
+// The server writes each frontend artifact by renaming a staged file over it, so a finished install leaves a different file at each
+// path. A file that is merely dated in the future (a clock that stepped back, a restored backup) is "newer than the marker" without any
+// install having run; it must not turn a failed install into a success.
+describe("home-ui.sh install_build: a future-dated artifact is not evidence of an install", () => {
+  const FUTURE = new Date(Date.now() + 3600_000);
+  const dateAll = (cur: string, names: string[], when: Date) => names.forEach((f) => utimesSync(join(cur, "dist", f), when, when));
+
+  it("a failed install that changed nothing, over future-dated artifacts, is still exit 5", () => {
+    const r = rig();
+    dateAll(r.cur, DIST, FUTURE);
+    const out = r.run(["rollback", r.backup], { HUI_INSTALL: "nothing" });
+    expect(out.status).toBe(5);
+    expect(out.stderr).not.toContain("completed the install");
+    expect(r.count(/^plugin enable /)).toBe(0);
+    expect(r.mode()).toBe("disabled");
+  });
+
+  it("a partial install (app.js replaced; app.css and app.meta.json future-dated and unchanged) is still exit 5", () => {
+    const r = rig();
+    dateAll(r.cur, ["app.css", "app.meta.json"], FUTURE);
+    const out = r.run(["rollback", r.backup], { HUI_INSTALL: "half" });
+    expect(out.status).toBe(5);
+    expect(r.count(/^plugin enable /)).toBe(0);
+  });
+
+  it("a finished install over future-dated artifacts is still recognised (every file was replaced)", () => {
+    const r = rig();
+    dateAll(r.cur, DIST, FUTURE);
+    const out = r.run(["rollback", r.backup], { HUI_INSTALL: "client-error" });
+    expect(out.status).toBe(0);
+    expect(out.stderr).toContain("completed the install");
   });
 });
