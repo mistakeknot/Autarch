@@ -284,6 +284,26 @@ describe("home-gates.sh gate", () => {
     }
   });
 
+  it("home-ui.sh check --plugin-code does not trust a second walk of the target: a later failing walk cannot hide a schema statement", () => {
+    const b = buildFixtures();
+    const t = b.target("plugin-code");
+    mkdirSync(join(t, "hidden"));
+    writeFileSync(join(t, "hidden", "evil.ts"), 'db.exec("CREATE TABLE sneaky (id INTEGER)");\n');
+    const data = dataDir(b.root, 3);
+    // A stand-in find: the first walk of the target is real; every later one prints nothing and fails, as if a directory had become
+    // unreadable in between. The only place a walk's output may be trusted is the one whose status was checked.
+    const shim = join(b.root, "shim");
+    mkdirSync(shim);
+    const realFind = spawnSync("sh", ["-c", "command -v find"], { encoding: "utf8" }).stdout.trim();
+    writeFileSync(join(shim, "find"), `#!/bin/sh\ncase "$*" in\n  *"/node_modules -prune -o -type f -print0"*)\n    n=0; [ ! -f "${shim}/n" ] || n=$(cat "${shim}/n"); n=$((n+1)); echo $n >"${shim}/n"\n    [ "$n" -le 1 ] || exit 1 ;;\nesac\nexec ${realFind} "$@"\n`);
+    chmodSync(join(shim, "find"), 0o755);
+    const r = sh(UI_SCRIPT, ["check", "--path", t, "--plugin-code"], { HOME: b.root, HOME_BB_BIN: stubBb(b.root, b.installed), HOME_BB_DATA: data, HOME_UI_WAIT: "2", PATH: `${shim}:${process.env.PATH!}` });
+    expect(readFileSync(join(shim, "n"), "utf8").trim(), "the scan walked the target again").not.toBe("0");
+    expect(r.status).toBe(3);
+    expect(r.stderr).not.toContain("could not list every file");   // the failure must come from the schema statement, found in the first (checked) walk
+    expect(r.stderr).toContain("adds a schema statement");
+  });
+
   it("changes nothing: the database and both build trees are byte-identical afterwards", () => {
     const b = buildFixtures();
     const data = dataDir(b.root, 3);
