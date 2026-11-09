@@ -307,7 +307,9 @@ verify_closure() {   # $1 = build root; sets CLOSURE_REASON and returns 1 on any
   if [ "${out%%$'\n'*}" != OK ]; then CLOSURE_REASON=${out#FAIL }; CLOSURE_REASON=${CLOSURE_REASON%%$'\n'*}; rm -rf "$T"; return 1; fi
   printf '%s\n' "${out#OK}" | sed '1d' >"$T/want.txt"
   cut -f1 "$T/want.txt" >"$T/want.sha"; cut -f2- "$T/want.txt" >"$T/want.paths"
-  ( cd "$root" && env GIT_NO_REPLACE_OBJECTS=1 git hash-object --no-filters --stdin-paths <"$T/want.paths" ) >"$T/got.sha" 2>"$T/hash.err" || { CLOSURE_REASON="git hash-object failed: $(head -c 200 "$T/hash.err")"; rm -rf "$T"; return 1; }
+  # absolute paths: hash-object --stdin-paths reads a leading double quote as git quoting, so a relative name starting with one would hash another file
+  while IFS= read -r bad; do printf '%s/%s\n' "$root" "$bad"; done <"$T/want.paths" >"$T/want.abs"
+  ( cd "$root" && env GIT_NO_REPLACE_OBJECTS=1 git hash-object --no-filters --stdin-paths <"$T/want.abs" ) >"$T/got.sha" 2>"$T/hash.err" || { CLOSURE_REASON="git hash-object failed: $(head -c 200 "$T/hash.err")"; rm -rf "$T"; return 1; }
   if ! cmp -s "$T/want.sha" "$T/got.sha"; then
     bad=$(paste -d' ' "$T/want.sha" "$T/got.sha" "$T/want.paths" | awk '$1 != $2 { sub(/^[^ ]+ [^ ]+ /, ""); print; exit }')
     CLOSURE_REASON="${bad:-a closure file} differs from commit ${ref:0:12}"; rm -rf "$T"; return 1

@@ -409,6 +409,19 @@ describe("home-ui.sh --engine tool: refusals", () => {
     refused(r2, /does not match its commit/);
   });
 
+  it("hashes the file it names when a tracked path starts with a double quote (git would read it as quoting)", () => {
+    const r = rig();
+    r.put(`${PLUGIN_REL}/deploy.json`, JSON.stringify({ ...PLUGIN_FILE, controlPaths: [...PLUGIN_FILE.controlPaths, "qq/**", '"qq/**'] }, null, 2) + "\n");
+    r.put("qq/x", "same\n");
+    r.put('"qq/x"', "same\n");   // the directory is named "qq and the file x": git's quoted form of this path is "qq/x", read as qq/x
+    git(r.inst, "add", "-A");
+    git(r.inst, "commit", "-q", "-m", "quoted names");
+    expect(r.run(["check", "--commit", SHA, "--engine", "tool"]).status).toBe(0);   // intact, so the quoted name is not a refusal by itself
+    rmSync(r.out);   // forget the intact run
+    r.put('"qq/x"', "tampered\n");
+    refused(r, /differs from commit/, "check");
+  });
+
   it("does not take an inherited BPD_LOCK_FD for a held lock: no state dir is refused, and so is a descriptor on another file", () => {
     const r = rig({ noState: true });
     const out = r.run(["deploy", "--commit", SHA, "--engine", "tool"], { BPD_LOCK_FD: "2" });
