@@ -366,4 +366,107 @@ describe("mk-laqhx: a poll that outlives the stop changes nothing", () => {
     expect(r.fake.tasks.find((x: any) => x.id === t.id)!.labelIds).toContain(r.label.id);
     expect(r.db.prepare("SELECT state FROM card_writes WHERE kind = 'relabel'").get()).toEqual({ state: "done" });
   });
+
+  // Round 5: a write the tasks plugin accepted can still land, or be answered with a lost response, after its writer's claim was
+  // taken over and the new writer settled. The repair is level-triggered: the latest decision's end state is derived again.
+
+  /** The first call of `method` for which `when()` holds waits on a gate; once released it commits and then fails (a lost response). */
+  function commitThenFail(fake: import("./tasks-fake.js").FakeTasks, method: string, when: () => boolean) {
+    const orig = fake.callRpc.bind(fake);
+    let release!: () => void;
+    const gate = new Promise<void>((res) => (release = res));
+    let reached!: () => void;
+    const hit = new Promise<void>((res) => (reached = res));
+    let armed = true;
+    fake.callRpc = (async (a: any) => {
+      if (armed && a.method === method && when()) {
+        armed = false;
+        reached();
+        await gate;
+        await orig(a);
+        throw new Error("response lost");
+      }
+      return orig(a);
+    }) as typeof fake.callRpc;
+    return { release, hit };
+  }
+
+  /** Run `f` with Date.now() past the claim TTL, so a writer may take over a task another writer still holds. */
+  async function pastTtl<T>(f: () => Promise<T>): Promise<T> {
+    const now = vi.spyOn(Date, "now").mockReturnValue(Date.now() + 121_000);
+    try {
+      return await f();
+    } finally {
+      now.mockRestore();
+    }
+  }
+
+  it("r5-1: a write that commits and then fails after the claim expired and the new writer settled the relabel does not leave the label off", async () => {
+    const r = cardRig();
+    r.enableDelegation();
+    const { t, g1 } = await opened(r);
+    expect(r.vizierPick(g1.id)).toMatchObject({ ok: true });
+    const p = commitThenFail(r.fake, "updateTask", () => true); // the unlabel's label write: accepted late, response lost
+    const old = r.writer.drain();
+    await p.hit;
+    r.restart(); // a new writer (bb restarted the plugin) over the same database
+    const o = r.dele.override(g1.id, {});
+    if (!o.ok) throw new Error(o.error);
+    await pastTtl(() => r.writer.drain()); // the label is still on: the relabel has nothing to write and settles
+    p.release(); // the old write now commits (the label comes off) and its caller is told it failed
+    await old;
+    await r.writer.drain();
+    await r.writer.drain();
+    expect(r.fake.tasks.find((x: any) => x.id === t.id)!.labelIds).toContain(r.label.id);
+    expect(r.db.prepare("SELECT state FROM card_writes WHERE kind = 'relabel'").get()).toEqual({ state: "done" });
+  });
+
+  it("r5-2: a stopped relabel's reopen that lands after the override was picked and the new writer completed the task does not leave it open", async () => {
+    const r = cardRig();
+    r.enableDelegation();
+    const { t, g1 } = await opened(r);
+    expect(r.vizierPick(g1.id)).toMatchObject({ ok: true });
+    await pollN(r, 2); // the unlabel lands and completes the task
+    const o = r.dele.override(g1.id, {});
+    if (!o.ok) throw new Error(o.error);
+    let writes = 0;
+    const p = pause(r.fake, "updateTask", () => ++writes === 2); // the relabel's label write lands; its reopen waits
+    const ac = new AbortController();
+    const old = r.writer.drain(ac.signal);
+    await p.hit;
+    ac.abort();
+    r.restart();
+    expect(r.mkPick(o.decision_id)).toMatchObject({ ok: true }); // mk picks the override: its unlabel completes the task again
+    await pastTtl(() => r.writer.drain());
+    expect(r.fake.tasks.find((x: any) => x.id === t.id)!.status).toBe("done");
+    p.release(); // the old reopen now lands
+    await old;
+    await r.writer.drain();
+    await r.writer.drain();
+    const task = r.fake.tasks.find((x: any) => x.id === t.id)!;
+    expect(task.status).toBe("done");
+    expect(task.labelIds).not.toContain(r.label.id);
+    expect(r.db.prepare("SELECT kind, state FROM card_writes WHERE decision_id = ? ORDER BY kind").all(o.decision_id)).toEqual(
+      expect.arrayContaining([{ kind: "unlabel", state: "done" }]),
+    );
+  });
+
+  it("r5-3 (known limitation): a mirror comment still in flight past the claim TTL may be posted twice, and the repair never posts a third", async () => {
+    const r = cardRig();
+    const { g1 } = await opened(r);
+    r.mkPick(g1.id);
+    let posts = 0;
+    const p = pause(r.fake, "createComment", () => ++posts === 1); // only the first post waits
+    const old = r.writer.drain();
+    await p.hit;
+    r.restart();
+    await pastTtl(() => r.writer.drain()); // the comment is not there yet: the new writer posts its own
+    p.release(); // the old one lands as well
+    await old;
+    await r.writer.drain();
+    await r.writer.drain();
+    const id = (r.db.prepare("SELECT id FROM card_writes WHERE kind = 'comment'").get() as { id: string }).id;
+    expect(r.fake.comments.filter((c: any) => c.body.includes(id))).toHaveLength(2);
+    expect(r.db.prepare("SELECT state FROM card_writes WHERE kind = 'comment'").get()).toEqual({ state: "done" });
+  });
 });
