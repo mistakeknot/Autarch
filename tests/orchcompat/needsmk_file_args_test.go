@@ -291,7 +291,7 @@ func TestFilingPreconditions(t *testing.T) {
 	t.Run("a binding to a name that differs from the project the root belongs to", func(t *testing.T) {
 		e := newEnv(t)
 		e.update(func(s *fbState) { s.Bindings["P1"] = fbBinding{Home: "ghost", State: "confirmed"} })
-		r := e.autarch(fileArgs(e.writeFile("a.json", askJSON(map[string]any{"project": nil})))...)
+		r := e.autarch(fileArgs(e.writeFile("a.json", askJSON(map[string]any{"project": "alpha"})))...)
 		wantCode(t, r, 2, `ask project "alpha" is not the Home project bound to tasks project "P1"; expected project "ghost"`)
 		nothingFiled(t, e)
 	})
@@ -460,10 +460,15 @@ func TestMoveFiling(t *testing.T) {
 		}
 	})
 
-	t.Run("a move alone takes the project from the working directory", func(t *testing.T) {
+	// With no project in the ask, the card takes the Home project its board is bound to, not the working
+	// directory's folder name; the working directory is then refused by the root check, as it is not a root serve lists.
+	t.Run("a move alone takes the project from the board binding", func(t *testing.T) {
 		e := newEnv(t)
 		r := e.autarch("needs-mk", "file", "--project", "P1", "--title", "T", "--move", moveFile(e, `{"schema":"home-move/v1","kind":"context","context":{"need":"x"}}`))
-		wantCode(t, r, 2, `is not the Home project bound to tasks project "P1"; expected project "alpha"`)
+		wantCode(t, r, 2, `is not a project root serve resolves`)
+		if strings.Contains(r.Stderr, "is not the Home project bound") {
+			t.Errorf("the project was not taken from the binding: %q", r.Stderr)
+		}
 		nothingFiled(t, e)
 	})
 

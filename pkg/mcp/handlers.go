@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/mistakeknot/autarch/internal/homeask"
+	"github.com/mistakeknot/autarch/internal/serve"
 	"github.com/mistakeknot/autarch/pkg/yamlsafe"
 	"gopkg.in/yaml.v3"
 )
@@ -608,8 +609,13 @@ func (s *Server) handleFileDecision(ctx context.Context, params map[string]inter
 	if _, ok := m["project_root"]; !ok {
 		m["project_root"] = s.projectPath
 	}
+	f := s.filer
+	if f == nil {
+		f = newDefaultFiler()
+	}
 	if _, ok := m["project"]; !ok {
-		m["project"] = filepath.Base(m["project_root"].(string))
+		// The task board's binding names the project; the folder name is wrong in a bb worktree.
+		m["project"] = homeask.DefaultProject(ctx, f, m["project_root"].(string))
 	}
 	raw, err := json.Marshal(m)
 	if err != nil {
@@ -618,10 +624,6 @@ func (s *Server) handleFileDecision(ctx context.Context, params map[string]inter
 	ask, err := homeask.Parse(raw)
 	if err != nil {
 		return nil, err
-	}
-	f := s.filer
-	if f == nil {
-		f = newDefaultFiler()
 	}
 	id, err := f.File(ctx, ask)
 	if err != nil {
@@ -632,4 +634,9 @@ func (s *Server) handleFileDecision(ctx context.Context, params map[string]inter
 
 // newDefaultFiler is the card filer used when no filer was injected. The tasks project it
 // files into comes from the environment (homeask.EnvTasksProject / EnvTasksProjects).
-var newDefaultFiler = func() homeask.Filer { return homeask.CardFilerFromEnv(0) }
+var newDefaultFiler = func() homeask.Filer {
+	f := homeask.CardFilerFromEnv(0)
+	// The same project and root check needs-mk file runs: Home hides a card that fails it.
+	f.Check = serve.CheckFiling
+	return f
+}

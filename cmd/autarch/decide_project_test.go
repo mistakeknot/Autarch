@@ -67,7 +67,7 @@ func TestDecideFileDefaultsTheProjectToTheBoardBindingInAWorktree(t *testing.T) 
 	if err != nil || out != "T1" {
 		t.Fatalf("out=%q err=%v calls=%v", out, err, s.calls)
 	}
-	if !strings.Contains(s.desc, `"project":"shadow-work"`) || strings.Contains(s.desc, "Autarch-project-visit") {
+	if !strings.Contains(s.desc, `"project":"shadow-work"`) || strings.Contains(s.desc, `"project":"Autarch-project-visit"`) {
 		t.Fatalf("filed with the wrong project: %s", s.desc)
 	}
 }
@@ -80,5 +80,23 @@ func TestDecideFileFallsBackToTheFolderNameWithoutABinding(t *testing.T) {
 	out, err := runDecide(t, askWithProject(t, "", ""), "file", "--project-root", "/srv/Folder-Name")
 	if err != nil || out != "T1" || !strings.Contains(s.desc, `"project":"Folder-Name"`) {
 		t.Fatalf("out=%q err=%v desc=%s", out, err, s.desc)
+	}
+}
+
+// B4: the same root check needs-mk file runs (serve must list the root for the project) runs
+// for decide file, against the bound project name.
+func TestDecideFileRunsTheServeRootCheckAgainstTheBoundProject(t *testing.T) {
+	t.Setenv("BB_THREAD_ID", "")
+	s := &stubBB{}
+	old := newFiler
+	t.Cleanup(func() { newFiler = old })
+	var gotProject, gotRoot string
+	newFiler = func() *homeask.CardFiler {
+		return &homeask.CardFiler{Run: bindingStub(s), LockDir: t.TempDir(), TasksProject: "P1",
+			Check: func(project, root string) error { gotProject, gotRoot = project, root; return homeask.ErrInvalid }}
+	}
+	_, err := runDecide(t, askWithProject(t, "SHWK", "/srv/shadow"), "file")
+	if exitCode(err) != 2 || gotProject != "shadow-work" || gotRoot != "/srv/shadow" || s.creates != 0 {
+		t.Fatalf("exit=%d err=%v checked (%q, %q) creates %d", exitCode(err), err, gotProject, gotRoot, s.creates)
 	}
 }
