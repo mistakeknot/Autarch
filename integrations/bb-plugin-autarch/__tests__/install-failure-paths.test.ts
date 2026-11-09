@@ -33,7 +33,7 @@ CREATE INDEX moves_state ON moves(state, opened_at);`;
 
 type InstallMode = "ok" | "reset-rebuilt-disabled" | "reset-after-enable" | "reset-nothing" | "reset-stale-dist" | "reset-other-source" | "reset-unrelated-files" | "reset-partial-build" | "reset-server-only" | "reset-bad-meta";
 
-interface RigOpts { schema?: number | null; moves?: boolean; plugin?: "running" | "disabled"; install?: InstallMode }
+interface RigOpts { schema?: number | null; moves?: boolean; plugin?: "running" | "disabled"; install?: InstallMode; runsOnInstall?: boolean; leavesDegraded?: boolean; reloadHangs?: boolean }
 
 function rig(opts: RigOpts = {}) {
   const root = mkdtempSync(join(tmpdir(), "ihfp-"));
@@ -86,6 +86,9 @@ function rig(opts: RigOpts = {}) {
   writeFileSync(join(ctl, "state"), opts.plugin === "disabled" ? "false disabled\n" : "true running\n");
   writeFileSync(join(ctl, "source"), plugin + "\n");
   writeFileSync(join(ctl, "install-mode"), (opts.install ?? "ok") + "\n");
+  if (opts.runsOnInstall) writeFileSync(join(ctl, "install-runs"), "1\n");   // bb's real install leaves the plugin enabled and running
+  if (opts.leavesDegraded) writeFileSync(join(ctl, "install-degraded"), "1\n");
+  if (opts.reloadHangs) writeFileSync(join(ctl, "reload-hangs"), "1\n");   // an enable on a running plugin reloads it, and a service misses bb's 5 s stop window
   const calls = join(root, "calls");
   const bb = join(root, "bb");
   writeFileSync(
@@ -105,12 +108,18 @@ case "$1 $2" in
     if [ "$EN $STATUS" = "true running" ]; then echo '{"moves":[{"task_id":"FROM-BB"}],"groups":{}}'
     else echo "error: unknown command 'home'" >&2; exit 1; fi ;;
   "plugin disable") echo "false disabled" > $C/state ;;
-  "plugin enable") echo "true running" > $C/state ;;
+  "plugin enable")
+    if [ "$EN $STATUS" = "true running" ] && [ -f $C/reload-hangs ]; then
+      echo "true degraded" > $C/state
+      echo "autarch@0.1.0  degraded  (service home-queue did not stop)"
+    else
+      echo "true running" > $C/state
+    fi ;;
   "plugin install")
     touch $C/installed
     echo "Installing bb-plugin-autarch@0.1.0"
     case "$(cat $C/install-mode)" in
-      ok) rebuild ;;
+      ok) rebuild; if [ -f $C/install-runs ]; then echo "true running" > $C/state; fi; if [ -f $C/install-degraded ]; then echo "true degraded" > $C/state; fi ;;
       reset-after-enable) sleep 0.2; rebuild; echo "true running" > $C/state; echo "Error: fetch failed: read ECONNRESET" >&2; exit 1 ;;
       reset-rebuilt-disabled) sleep 0.2; rebuild; echo "Error: fetch failed: read ECONNRESET" >&2; exit 1 ;;
       reset-nothing) echo "Error: fetch failed: read ECONNRESET" >&2; exit 1 ;;
@@ -375,5 +384,41 @@ describe.skipIf(!isMk)("mk-fg2io: a client-side bb plugin install error after th
     const o = r.inst(["--go", "--commit", r.head]);
     expect(o.status, o.stdout + o.stderr).toBe(0);
     expect(o.stdout).not.toContain("WARNING");
+  });
+});
+
+describe.skipIf(!isMk)("mk-ed4z9: an install that leaves the plugin running is not enabled a second time", () => {
+  it("the redundant enable is what degrades the plugin: with a service that misses the stop window, --go must still finish and not call enable", { timeout: 120_000 }, () => {
+    const r = rig({ install: "ok", runsOnInstall: true, reloadHangs: true });
+    const o = r.inst(["--go", "--commit", r.head]);
+    expect(o.status, o.stdout + o.stderr).toBe(0);
+    expect(r.calledList().filter((c) => c === "plugin enable autarch")).toHaveLength(0);
+    expect(o.stdout).toContain("skipping the redundant");
+    expect(o.stdout).toContain(`installed ${r.head}`);
+    expect(r.state()).toBe("true running");
+  });
+
+  it("--rollback behaves the same: the previous build is installed running, no second enable", { timeout: 120_000 }, () => {
+    const r = rig({ plugin: "disabled", install: "ok", runsOnInstall: true, reloadHangs: true });
+    const o = r.inst(["--rollback", "--previous-plugin", r.prev]);
+    expect(o.status, o.stdout + o.stderr).toBe(0);
+    expect(r.calledList().filter((c) => c === "plugin enable autarch")).toHaveLength(0);
+    expect(r.state()).toBe("true running");
+  });
+
+  it("an install that leaves the plugin disabled still gets the one enable (unchanged)", { timeout: 90_000 }, () => {
+    const r = rig({ install: "ok", reloadHangs: true });
+    const o = r.inst(["--go", "--commit", r.head]);
+    expect(o.status, o.stdout + o.stderr).toBe(0);
+    expect(r.calledList().filter((c) => c === "plugin enable autarch")).toHaveLength(1);
+    expect(o.stdout).not.toContain("skipping the redundant");
+  });
+
+  it("an install that leaves the plugin degraded (not running) still gets the one enable", { timeout: 90_000 }, () => {
+    const r = rig({ install: "ok", leavesDegraded: true });
+    const o = r.inst(["--go", "--commit", r.head]);
+    expect(o.status, o.stdout + o.stderr).toBe(0);
+    expect(r.calledList().filter((c) => c === "plugin enable autarch")).toHaveLength(1);
+    expect(o.stdout).not.toContain("skipping the redundant");
   });
 });

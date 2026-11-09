@@ -291,7 +291,21 @@ disable_plugin() {   # fatal: a plugin that is still running must not be install
 }
 
 enable_and_verify() {   # $1 = expected max migration_log version
+  # redundant-enable skip: begin
+  # `bb plugin install` leaves the plugin enabled and running. `bb plugin enable` on a running plugin reloads it: bb stops every service
+  # within 5 s each and marks the plugin degraded ("service home-queue did not stop") when one is mid-handler, and it stays degraded until
+  # the next reload. So when the plugin is already enabled and running, the unchanged enable line below runs against a stand-in bb that
+  # answers for it, and the verification loop that follows still checks the running state and the migration version.
+  local BB_KEEP=$BB
+  if "${AS0[@]}" timeout -k 2 30 "$BB" plugin list --json 2>/dev/null | jq -e '[.plugins[]? | select(.id == "autarch")] | length == 1 and (.[0].enabled == true) and (.[0].status == "running")' >/dev/null 2>&1; then
+    say "autarch is already enabled and running after the install; skipping the redundant 'bb plugin enable' (it would reload the plugin and stop every service again)"
+    BB=/bin/true
+  fi
+  # redundant-enable skip: end
   "${AS0[@]}" "$BB" plugin enable autarch >>"$LOG" 2>&1 || { say "enable failed; see 'bb plugin logs autarch'"; exit 5; }
+  # redundant-enable skip: begin
+  BB=$BB_KEEP
+  # redundant-enable skip: end
   OK=0 S= M=
   for _ in $(seq 12); do
     sleep 5
