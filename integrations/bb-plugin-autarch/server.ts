@@ -38,7 +38,7 @@ import { readDoc, resolveOpenTarget } from "./docread.js";
 import { rootRun } from "./rootrun.js";
 import { buildQueue, removeBinding, setBinding } from "./queueview.js";
 import { RpcNotifier } from "./notifier.js";
-import { hasNoteMarker, isoWeek, Service } from "./service.js";
+import { isoWeek, Service } from "./service.js";
 import { Ideas } from "./ideas.js";
 import { DEFAULT_TITLE_PREFIX, VizierMessages, type MessageEvent } from "./vizierMessages.js";
 import { archiveView, type ArchiveQuery } from "./archive.js";

@@ -115,7 +115,7 @@ describe("bring back", () => {
   });
 
   it("a picked card is not touched by a later edit before it is brought back (T8 unchanged)", async () => {
-    const { r, t, g1 } = await ruled();
+    const { r, t } = await ruled();
     await pollN(r, 3);
     expect(r.gens(t.id)).toHaveLength(1);
   });
