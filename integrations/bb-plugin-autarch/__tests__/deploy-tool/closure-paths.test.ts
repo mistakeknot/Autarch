@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from "vitest";
 import { spawnSync } from "node:child_process";
-import { appendFileSync, mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import { appendFileSync, mkdirSync, symlinkSync, mkdtempSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Rig, type CliResult } from "./rig";
@@ -202,5 +202,55 @@ describe("closure paths that are not valid UTF-8", () => {
     sh(root, ["add", "-A"]);
     sh(root, ["commit", "-q", "-m", "c"]);
     expect(verifyClosure({ root, commit: sh(root, ["rev-parse", "HEAD"]), controlPaths: CONTROL }).files).toBe(1);
+  });
+});
+
+// Reviewer round 3 (pre-existing, not a decoding gap): the walk does not descend into a symlink, so a directory symlink that
+// matches no closure glob could point at a directory holding a closure-named file.
+describe("a directory symlink cannot hide a closure file from the walk", () => {
+  const dirs: string[] = [];
+  afterEach(() => {
+    for (const d of dirs.splice(0)) rmSync(d, { recursive: true, force: true });
+  });
+  const sh = (cwd: string, args: string[]) => {
+    const r = spawnSync("git", args, { cwd, encoding: "utf8" });
+    if (r.status !== 0) throw new Error(`git ${args.join(" ")}: ${r.stderr}`);
+    return r.stdout.trim();
+  };
+  it("an ignored symlink to a directory holding AGENTS.md is refused by both verifiers", () => {
+    const root = mkdtempSync(join(tmpdir(), "closure-link-"));
+    const outside = mkdtempSync(join(tmpdir(), "closure-link-target-"));
+    dirs.push(root, outside);
+    sh(root, ["init", "-q", "-b", "main"]);
+    sh(root, ["config", "user.email", "t@example.invalid"]);
+    sh(root, ["config", "user.name", "t"]);
+    mkdirSync(join(root, LIB), { recursive: true });
+    writeFileSync(join(root, LIB, "good.mjs"), "export const x = 1;\n");
+    sh(root, ["add", "-A"]);
+    sh(root, ["commit", "-q", "-m", "c"]);
+    const commit = sh(root, ["rev-parse", "HEAD"]);
+    writeFileSync(join(outside, "AGENTS.md"), "extra closure file\n");
+    symlinkSync(outside, join(root, "hidden"));
+    mkdirSync(join(root, ".git", "info"), { recursive: true });
+    appendFileSync(join(root, ".git", "info", "exclude"), "hidden\n");
+    expect(sh(root, ["status", "--porcelain", "--untracked-files=all"])).toBe("");
+    const controlPaths = ["tools/bb-plugin-deploy/**", "**/AGENTS.md"];
+    expect(() => verifyClosure({ root, commit, controlPaths })).toThrow(/symlink/);
+    expect(() => verifyClosureAgainstHead({ root, controlPaths })).toThrow(/symlink/);
+  });
+
+  it("a symlink to a plain file outside every closure glob is still allowed", () => {
+    const root = mkdtempSync(join(tmpdir(), "closure-link-"));
+    dirs.push(root);
+    sh(root, ["init", "-q", "-b", "main"]);
+    sh(root, ["config", "user.email", "t@example.invalid"]);
+    sh(root, ["config", "user.name", "t"]);
+    mkdirSync(join(root, LIB), { recursive: true });
+    writeFileSync(join(root, LIB, "good.mjs"), "export const x = 1;\n");
+    writeFileSync(join(root, "notes.txt"), "n\n");
+    symlinkSync("notes.txt", join(root, "notes-link"));
+    sh(root, ["add", "-A"]);
+    sh(root, ["commit", "-q", "-m", "c"]);
+    expect(verifyClosure({ root, commit: sh(root, ["rev-parse", "HEAD"]), controlPaths: ["tools/bb-plugin-deploy/**", "**/AGENTS.md"] }).files).toBe(1);
   });
 });
