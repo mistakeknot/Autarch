@@ -1,0 +1,424 @@
+// scripts/install-home-your-move.sh --go and --rollback when the plugin is not running (mk-hd2ks) or when `bb plugin install` fails on
+// the client after the server did the work (mk-fg2io). A copy of the script runs inside a throwaway git repo against a stub bb whose
+// state lives in files. Never live: no real bb, data directory, state directory or plugin is touched.
+import { spawnSync } from "node:child_process";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, utimesSync, writeFileSync, copyFileSync } from "node:fs";
+import { tmpdir, userInfo } from "node:os";
+import { join, resolve } from "node:path";
+import { afterEach, describe, expect, it } from "vitest";
+import Database from "better-sqlite3";
+
+const SCRIPT = resolve(__dirname, "../../../scripts/install-home-your-move.sh");
+const isMk = userInfo().username === "mk";
+const dirs: string[] = [];
+afterEach(() => dirs.splice(0).forEach((d) => rmSync(d, { recursive: true, force: true })));
+
+const git = (cwd: string, ...args: string[]) =>
+  spawnSync("git", ["-c", "commit.gpgsign=false", "-c", "user.name=t", "-c", "user.email=t@example.invalid", ...args], { cwd, encoding: "utf8" });
+
+// The real moves DDL (migrations.ts), so the read-only export is tested against the real column set.
+const MOVES_DDL = `
+CREATE TABLE moves (
+  task_id TEXT NOT NULL, generation INTEGER NOT NULL,
+  kind TEXT NOT NULL CHECK (kind IN ('script','pr','read','context')),
+  payload_json TEXT NOT NULL,
+  state TEXT NOT NULL DEFAULT 'open' CHECK (state IN ('open','claimed','closed')),
+  opened_by TEXT NOT NULL CHECK (opened_by IN ('card','pick')),
+  opened_at TEXT NOT NULL, claimed_at TEXT, claimed_by TEXT, closed_at TEXT, closed_by TEXT, evidence TEXT,
+  report_state TEXT CHECK (report_state IS NULL OR report_state IN ('succeeded','failed','no-report')),
+  report_json TEXT, report_at TEXT, report_deadline_at TEXT, skipped_at TEXT, hidden_by TEXT, hidden_at TEXT, last_checked_at TEXT, last_error TEXT,
+  PRIMARY KEY (task_id, generation)
+);
+CREATE INDEX moves_state ON moves(state, opened_at);`;
+
+type InstallMode = "ok" | "reset-rebuilt-disabled" | "reset-after-enable" | "reset-nothing" | "reset-stale-dist" | "reset-other-source" | "reset-unrelated-files" | "reset-partial-build" | "reset-server-only" | "reset-bad-meta";
+
+interface RigOpts { schema?: number | null; moves?: boolean; plugin?: "running" | "disabled"; install?: InstallMode; runsOnInstall?: boolean; leavesDegraded?: boolean; reloadHangs?: boolean }
+
+function rig(opts: RigOpts = {}) {
+  const root = mkdtempSync(join(tmpdir(), "ihfp-"));
+  dirs.push(root);
+  // A throwaway checkout holding a copy of the script: REPO is derived from the script's own location.
+  const repo = join(root, "repo");
+  const plugin = join(repo, "integrations", "bb-plugin-autarch");
+  mkdirSync(join(repo, "scripts"), { recursive: true });
+  mkdirSync(join(plugin, "dist"), { recursive: true });
+  mkdirSync(join(plugin, "node_modules"));
+  copyFileSync(SCRIPT, join(repo, "scripts", "install-home-your-move.sh"));
+  writeFileSync(join(plugin, "migrations.ts"), "export const CODE_VERSION = 4;\n");
+  const hourAgo = new Date(Date.now() - 3_600_000);
+  for (const f of ["server.js", "server.meta.json", "app.js", "app.meta.json", "app.css"]) {
+    writeFileSync(join(plugin, "dist", f), f.endsWith(".meta.json") ? '{"pluginId":"autarch"}\n' : "old build\n");
+    utimesSync(join(plugin, "dist", f), hourAgo, hourAgo);
+  }
+  writeFileSync(join(repo, ".gitignore"), "dist/\nnode_modules/\n");
+  git(repo, "init", "-q");
+  git(repo, "add", "-A");
+  git(repo, "commit", "-q", "-m", "x");
+  const head = git(repo, "rev-parse", "HEAD").stdout.trim();
+  // bb's data directory and the plugin's data.db.
+  const data = join(root, "bbdata");
+  const pdata = join(data, "plugins", "autarch");
+  mkdirSync(pdata, { recursive: true });
+  const schema = opts.schema === undefined ? 4 : opts.schema;
+  const db = new Database(join(pdata, "data.db"));
+  db.exec("CREATE TABLE migration_log (version INTEGER)");
+  if (schema !== null) {
+    db.exec("CREATE TABLE schema_meta (key TEXT PRIMARY KEY, value TEXT)");
+    db.prepare("INSERT INTO schema_meta VALUES ('schema_version', ?)").run(String(schema));
+    db.prepare("INSERT INTO migration_log VALUES (?)").run(schema);
+  }
+  if (opts.moves !== false) {
+    db.exec(MOVES_DDL);
+    const ins = db.prepare(
+      "INSERT INTO moves (task_id, generation, kind, payload_json, state, opened_by, opened_at, claimed_at, claimed_by, evidence) VALUES (?,?,?,?,?,?,?,?,?,?)",
+    );
+    ins.run("TASK-1", 1, "script", JSON.stringify({ path: "/x/y.sh", note: 'quote " and unicode é' }), "open", "card", "2026-11-01T00:00:00Z", null, null, null);
+    ins.run("TASK-2", 1, "pr", JSON.stringify({ url: "https://example.invalid/pr/2" }), "claimed", "pick", "2026-11-02T00:00:00Z", "2026-11-02T01:00:00Z", "mk", "said so");
+    ins.run("TASK-2", 2, "read", "{}", "closed", "card", "2026-11-03T00:00:00Z", null, null, null);
+  }
+  db.close();
+  const st = join(root, "state");
+  mkdirSync(st);
+  // The stub bb: its whole state is in files, so each call sees what the previous one did.
+  const ctl = join(root, "ctl");
+  mkdirSync(ctl);
+  writeFileSync(join(ctl, "state"), opts.plugin === "disabled" ? "false disabled\n" : "true running\n");
+  writeFileSync(join(ctl, "source"), plugin + "\n");
+  writeFileSync(join(ctl, "install-mode"), (opts.install ?? "ok") + "\n");
+  if (opts.runsOnInstall) writeFileSync(join(ctl, "install-runs"), "1\n");   // bb's real install leaves the plugin enabled and running
+  if (opts.leavesDegraded) writeFileSync(join(ctl, "install-degraded"), "1\n");
+  if (opts.reloadHangs) writeFileSync(join(ctl, "reload-hangs"), "1\n");   // an enable on a running plugin reloads it, and a service misses bb's 5 s stop window
+  const calls = join(root, "calls");
+  const bb = join(root, "bb");
+  writeFileSync(
+    bb,
+    `#!/bin/sh
+C=${ctl}
+D=${join(plugin, "dist")}
+rebuild() { for f in app.js app.meta.json app.css; do touch $D/$f; done; }  # a path install builds only the frontend
+echo "$@" >> ${calls}
+read EN STATUS < $C/state
+case "$1 $2" in
+  "plugin list")
+    # a hung status request: only after the install began, so the earlier list calls are not slowed
+    if [ -f $C/installed ] && [ -f $C/list-delay ]; then if [ -f $C/list-ignore-term ]; then trap "" TERM; fi; exec sleep "$(cat $C/list-delay)"; fi
+    printf '{"plugins":[{"id":"autarch","enabled":%s,"status":"%s","source":"path:%s","rootDir":"%s"}]}\\n' "$EN" "$STATUS" "$(cat $C/source)" "$(cat $C/source)" ;;
+  "home moves")
+    if [ "$EN $STATUS" = "true running" ]; then echo '{"moves":[{"task_id":"FROM-BB"}],"groups":{}}'
+    else echo "error: unknown command 'home'" >&2; exit 1; fi ;;
+  "plugin disable") echo "false disabled" > $C/state ;;
+  "plugin enable")
+    if [ "$EN $STATUS" = "true running" ] && [ -f $C/reload-hangs ]; then
+      echo "true degraded" > $C/state
+      echo "autarch@0.1.0  degraded  (service home-queue did not stop)"
+    else
+      echo "true running" > $C/state
+    fi ;;
+  "plugin install")
+    touch $C/installed
+    echo "Installing bb-plugin-autarch@0.1.0"
+    case "$(cat $C/install-mode)" in
+      ok) rebuild; if [ -f $C/install-runs ]; then echo "true running" > $C/state; fi; if [ -f $C/install-degraded ]; then echo "true degraded" > $C/state; fi ;;
+      reset-after-enable) sleep 0.2; rebuild; echo "true running" > $C/state; echo "Error: fetch failed: read ECONNRESET" >&2; exit 1 ;;
+      reset-rebuilt-disabled) sleep 0.2; rebuild; echo "Error: fetch failed: read ECONNRESET" >&2; exit 1 ;;
+      reset-nothing) echo "Error: fetch failed: read ECONNRESET" >&2; exit 1 ;;
+      reset-stale-dist) echo "true running" > $C/state; echo "Error: fetch failed: read ECONNRESET" >&2; exit 1 ;;
+      reset-unrelated-files) sleep 0.2; mkdir -p ${join(plugin, "dist", ".staging")}; touch ${join(plugin, "dist", ".staging", "chunk.js")} ${join(plugin, "dist", "app.js.tmp")}; echo "true running" > $C/state; echo "Error: fetch failed: read ECONNRESET" >&2; exit 1 ;;
+      reset-partial-build) sleep 0.2; touch $D/app.css; echo "true running" > $C/state; echo "Error: fetch failed: read ECONNRESET" >&2; exit 1 ;;
+      reset-server-only) sleep 0.2; touch $D/server.js $D/server.meta.json; echo "true running" > $C/state; echo "Error: fetch failed: read ECONNRESET" >&2; exit 1 ;;
+      reset-bad-meta) sleep 0.2; rebuild; echo '{"pluginId":"other"}' > $D/app.meta.json; echo "true running" > $C/state; echo "Error: fetch failed: read ECONNRESET" >&2; exit 1 ;;
+      reset-other-source) sleep 0.2; rebuild; echo "true running" > $C/state; echo "/elsewhere/plugin" > $C/source; echo "Error: fetch failed: read ECONNRESET" >&2; exit 1 ;;
+    esac ;;
+  *) exit 0 ;;
+esac
+`,
+  );
+  chmodSync(bb, 0o755);
+  const out = join(root, "out");
+  mkdirSync(out);
+  const prev = join(root, "prev-plugin");
+  mkdirSync(prev);
+  const env = (extra: Record<string, string> = {}): Record<string, string> => ({
+    PATH: process.env.PATH!, HOME: root, HOME_BB_BIN: bb, HOME_BB_DATA: data, HOME_UI_STATE_DIR: st, HOME_YOUR_MOVE_OUT_DIR: out,
+    HOME_UI_LOCK_WAIT: "1", HOME_YOUR_MOVE_RECHECK_WAIT: "3", HOME_YOUR_MOVE_RECHECK_INTERVAL: "1", ...extra,
+  });
+  const inst = (args: string[], extra: Record<string, string> = {}) =>
+    spawnSync("bash", [join(repo, "scripts", "install-home-your-move.sh"), ...args], { env: env(extra), encoding: "utf8" });
+  const calledList = () => (existsSync(calls) ? readFileSync(calls, "utf8").split("\n").filter(Boolean) : []);
+  const outDir = () => { const s = readdirSync(out)[0]; return s ? join(out, s) : ""; };
+  const exportJson = () => { try { return JSON.parse(readFileSync(join(outDir(), "moves-before.json"), "utf8")); } catch { return null; } };
+  const dbMoves = () => {
+    const d = new Database(join(pdata, "data.db"), { readonly: true });
+    try { return d.prepare("SELECT * FROM moves ORDER BY opened_at DESC, task_id, generation").all(); } finally { d.close(); }
+  };
+  return { root, repo, head, plugin, prev, ctl, inst, calledList, outDir, exportJson, dbMoves, state: () => readFileSync(join(ctl, "state"), "utf8").trim() };
+}
+
+const changedAnything = (calls: string[]) => calls.some((c) => /^plugin (disable|install|enable)\b/.test(c));
+
+describe.skipIf(!isMk)("mk-hd2ks: --rollback and --go when the plugin is not running", () => {
+  it("--rollback with the plugin disabled reads the moves from data.db (read only) and then restores the previous build", { timeout: 90_000 }, () => {
+    const r = rig({ plugin: "disabled" });
+    const o = r.inst(["--rollback", "--previous-plugin", r.prev]);
+    expect(o.status, o.stdout + o.stderr).toBe(0);
+    const exp = r.exportJson();
+    expect(exp.moves).toEqual(r.dbMoves());
+    expect(exp.moves).toHaveLength(3);
+    expect(o.stdout).toContain("from data.db read only");
+    const calls = r.calledList();
+    expect(calls).toContain("plugin install --yes " + r.prev);
+    expect(r.state()).toBe("true running");
+  });
+
+  it("--rollback with the plugin disabled and no readable moves table stays fatal and changes nothing", () => {
+    const r = rig({ plugin: "disabled", moves: false });
+    const o = r.inst(["--rollback", "--previous-plugin", r.prev]);
+    expect(o.status).toBe(3);
+    expect(o.stdout).toContain("the moves columns could not be listed");
+    expect(o.stdout).toContain("ABORT");
+    expect(changedAnything(r.calledList())).toBe(false);
+  });
+
+  it("--rollback with an unreadable schema (no schema_meta) and the plugin disabled stays fatal", () => {
+    const r = rig({ plugin: "disabled", schema: null, moves: false });
+    const o = r.inst(["--rollback", "--previous-plugin", r.prev]);
+    expect(o.status).toBe(3);
+    expect(o.stdout).toContain("is not a number of 4 or more");
+    expect(changedAnything(r.calledList())).toBe(false);
+  });
+
+  it("--rollback with a RUNNING plugin whose export fails stays fatal: the data.db fallback is only for a plugin that is not running", () => {
+    const r = rig({ plugin: "running" });
+    writeFileSync(join(r.ctl, "state"), "true running\n");
+    // make `bb home moves` fail while the plugin reads as running
+    const bb = join(r.root, "bb");
+    writeFileSync(bb, readFileSync(bb, "utf8").replace(`if [ "$EN $STATUS" = "true running" ]; then echo`, `if false; then echo`));
+    const o = r.inst(["--rollback", "--previous-plugin", r.prev]);
+    expect(o.status).toBe(3);
+    expect(changedAnything(r.calledList())).toBe(false);
+  });
+
+  it("--rollback with a running plugin still takes the export through bb (unchanged)", { timeout: 90_000 }, () => {
+    const r = rig({ plugin: "running" });
+    const o = r.inst(["--rollback", "--previous-plugin", r.prev]);
+    expect(o.status, o.stdout + o.stderr).toBe(0);
+    expect(r.exportJson().moves).toEqual([{ task_id: "FROM-BB" }]);
+    expect(r.calledList()).toContain("home moves --json");
+  });
+
+  it("--go with the plugin disabled (left so by an earlier failure) exports from data.db and installs", { timeout: 90_000 }, () => {
+    const r = rig({ plugin: "disabled" });
+    const o = r.inst(["--go", "--commit", r.head]);
+    expect(o.status, o.stdout + o.stderr).toBe(0);
+    expect(r.exportJson().moves).toEqual(r.dbMoves());
+    expect(r.state()).toBe("true running");
+  });
+  it("--rollback with the plugin disabled and an EMPTY moves table writes an empty moves array (a counted zero, not a read failure)", { timeout: 90_000 }, () => {
+    const r = rig({ plugin: "disabled" });
+    const d = new Database(join(r.root, "bbdata", "plugins", "autarch", "data.db"));
+    d.exec("DELETE FROM moves");
+    d.close();
+    const o = r.inst(["--rollback", "--previous-plugin", r.prev]);
+    expect(o.status, o.stdout + o.stderr).toBe(0);
+    expect(r.exportJson().moves).toEqual([]);
+  });
+
+  it("--rollback with the plugin enabled but not running (half-installed) also reads data.db", { timeout: 90_000 }, () => {
+    const r = rig({ plugin: "disabled" });
+    writeFileSync(join(r.ctl, "state"), "true error\n");
+    const o = r.inst(["--rollback", "--previous-plugin", r.prev]);
+    expect(o.status, o.stdout + o.stderr).toBe(0);
+    expect(r.exportJson().moves).toEqual(r.dbMoves());
+  });
+  it("--rollback with the plugin disabled and a NUL byte inside a moves value refuses the direct read (sqlite3 -json would cut the value)", { timeout: 90_000 }, () => {
+    const r = rig({ plugin: "disabled" });
+    const d = new Database(join(r.root, "bbdata", "plugins", "autarch", "data.db"));
+    d.prepare("UPDATE moves SET evidence = ? WHERE task_id = 'TASK-2' AND generation = 1").run("A\u0000B");
+    expect(d.prepare("SELECT hex(evidence) AS h FROM moves WHERE task_id = 'TASK-2' AND generation = 1").get()).toEqual({ h: "410042" });
+    d.close();
+    const o = r.inst(["--rollback", "--previous-plugin", r.prev]);
+    expect(o.status).toBe(3);
+    expect(o.stdout).toContain("NUL byte or a BLOB");
+    expect(changedAnything(r.calledList())).toBe(false);
+  });
+  it("--rollback refuses when a NUL byte is written after the pre-checks but before the read (the guard and the rows share one snapshot)", { timeout: 90_000 }, () => {
+    const r = rig({ plugin: "disabled" });
+    const db = join(r.root, "bbdata", "plugins", "autarch", "data.db");
+    const real = spawnSync("bash", ["-c", "command -v sqlite3"], { encoding: "utf8" }).stdout.trim();
+    const wrapDir = join(r.root, "wrap");
+    mkdirSync(wrapDir);
+    const wrap = join(wrapDir, "sqlite3");
+    // The first sqlite3 call that reads the rows (one that opens a transaction, or asks for -json) is the read; just before it, a writer commits a NUL inside a moves value.
+    writeFileSync(wrap, `#!/bin/bash
+for a in "$@"; do
+  if { [ "$a" = BEGIN ] || [ "$a" = -json ]; } && [ ! -e "${wrapDir}/fired" ]; then
+    : > "${wrapDir}/fired"
+    ${real} "${db}" "UPDATE moves SET evidence = 'A' || char(0) || 'B' WHERE task_id = 'TASK-2' AND generation = 1"
+  fi
+done
+exec ${real} "$@"
+`);
+    chmodSync(wrap, 0o755);
+    // The installer pins its own PATH for sqlite3, so the test's copy of the script gets the wrapper directory in front of it.
+    const copy = join(r.repo, "scripts", "install-home-your-move.sh");
+    const src = readFileSync(copy, "utf8");
+    const patched = src.replace("LOGNAME=mk PATH=/usr/bin:/bin", `LOGNAME=mk PATH=${wrapDir}:/usr/bin:/bin`).replace("AS0=(env -i HOME=\"${HOME:-/}\" PATH=/usr/bin:/bin)", `AS0=(env -i HOME="\${HOME:-/}" PATH=${wrapDir}:/usr/bin:/bin)`);
+    expect(patched).not.toBe(src);
+    writeFileSync(copy, patched);
+    const o = r.inst(["--rollback", "--previous-plugin", r.prev]);
+    expect(existsSync(join(wrapDir, "fired"))).toBe(true);
+    expect(o.status).toBe(3);
+    expect(o.stdout).toContain("NUL byte or a BLOB");
+    expect(changedAnything(r.calledList())).toBe(false);
+  });
+});
+
+describe.skipIf(!isMk)("mk-fg2io: a client-side bb plugin install error after the server did the work", () => {
+  it("install exits nonzero after the server rebuilt dist and enabled the plugin: success with a warning, no failure, no rollback hint", { timeout: 90_000 }, () => {
+    const r = rig({ install: "reset-after-enable" });
+    const o = r.inst(["--go", "--commit", r.head]);
+    expect(o.status, o.stdout + o.stderr).toBe(0);
+    expect(o.stdout).toContain("WARNING");
+    expect(o.stdout).toContain("the server completed the install");
+    expect(o.stdout).not.toContain("install failed");
+    expect(o.stdout).toContain(`installed ${r.head}`);
+  });
+
+  it("install exits nonzero and the server did nothing: failure is reported after a bounded poll", { timeout: 90_000 }, () => {
+    const r = rig({ install: "reset-nothing" });
+    const t0 = Date.now();
+    const o = r.inst(["--go", "--commit", r.head]);
+    expect(o.status).toBe(5);
+    expect(o.stdout).toContain("install failed");
+    const took = Date.now() - t0;
+    expect(took).toBeLessThan(30_000);
+    expect(took).toBeGreaterThanOrEqual(1_800); // the poll really waited out HOME_YOUR_MOVE_RECHECK_WAIT=3 (bash SECONDS counts whole seconds, so it can end up to a second early), not an immediate failure
+  });
+
+  it("a partial build (only app.css rebuilt), only the checkout server artifacts touched, or a wrong meta stamp: still a failure", { timeout: 60_000 }, () => {
+    for (const install of ["reset-partial-build", "reset-server-only", "reset-bad-meta"] as const) {
+      const r = rig({ install });
+      const o = r.inst(["--go", "--commit", r.head]);
+      expect(o.status, install).toBe(5);
+      expect(o.stdout, install).toContain("install failed");
+      expect(o.stdout, install).not.toContain("WARNING");
+    }
+  });
+
+  it("only hidden or temp files under dist changed (no published artifact): still a failure", () => {
+    const r = rig({ install: "reset-unrelated-files" });
+    const o = r.inst(["--go", "--commit", r.head]);
+    expect(o.status).toBe(5);
+    expect(o.stdout).toContain("install failed");
+    expect(o.stdout).not.toContain("WARNING");
+  });
+
+  // The poll was really reached: the install ran, and a status request followed it.
+  const reachedPoll = (calls: string[]) => {
+    const i = calls.findIndex((c) => c.startsWith("plugin install --yes"));
+    return i >= 0 && calls.slice(i + 1).some((c) => c === "plugin list --json");
+  };
+
+  it("a status request that hangs is cut off at the deadline: the wait is wall-clock, not a count of sleeps", { timeout: 60_000 }, () => {
+    const r = rig({ install: "reset-nothing" });
+    writeFileSync(join(r.ctl, "list-delay"), "20\n");
+    const t0 = Date.now();
+    const o = r.inst(["--go", "--commit", r.head], { HOME_YOUR_MOVE_RECHECK_WAIT: "2", HOME_YOUR_MOVE_RECHECK_INTERVAL: "1" });
+    expect(o.status, o.stdout).toBe(5);
+    expect(o.stdout).toContain("install failed");
+    expect(reachedPoll(r.calledList())).toBe(true);
+    expect(Date.now() - t0).toBeLessThan(15_000); // unbounded, each poll would sit out the full 20 s
+  });
+
+  it("a status request that ignores SIGTERM is killed after the grace period", { timeout: 60_000 }, () => {
+    const r = rig({ install: "reset-nothing" });
+    writeFileSync(join(r.ctl, "list-delay"), "40\n");
+    writeFileSync(join(r.ctl, "list-ignore-term"), "1\n");
+    const t0 = Date.now();
+    const o = r.inst(["--go", "--commit", r.head], { HOME_YOUR_MOVE_RECHECK_WAIT: "2", HOME_YOUR_MOVE_RECHECK_INTERVAL: "1" });
+    expect(o.status, o.stdout).toBe(5);
+    expect(o.stdout).toContain("install failed");
+    expect(reachedPoll(r.calledList())).toBe(true);
+    expect(Date.now() - t0).toBeLessThan(20_000); // wait 2 s + 2 s grace; a bare SIGTERM would leave it blocked for 40 s
+  });
+
+  it("an interval of 0 or a wait of 0 cannot make the poll endless", { timeout: 90_000 }, () => {
+    const a = rig({ install: "reset-nothing" });
+    const oa = a.inst(["--go", "--commit", a.head], { HOME_YOUR_MOVE_RECHECK_WAIT: "2", HOME_YOUR_MOVE_RECHECK_INTERVAL: "0" });
+    expect(oa.status, oa.stdout).toBe(5);
+    expect(oa.stdout).toContain("install failed");
+    expect(reachedPoll(a.calledList())).toBe(true);
+    const b = rig({ install: "reset-nothing" });
+    const ob = b.inst(["--go", "--commit", b.head], { HOME_YOUR_MOVE_RECHECK_WAIT: "0" });
+    expect(ob.status, ob.stdout).toBe(5);
+    expect(ob.stdout).toContain("install failed");
+    expect(reachedPoll(b.calledList())).toBe(true);
+  });
+
+  it("enabled and running from the right source but dist NOT rebuilt since the install began: still a failure", () => {
+    const r = rig({ install: "reset-stale-dist" });
+    const o = r.inst(["--go", "--commit", r.head]);
+    expect(o.status).toBe(5);
+    expect(o.stdout).toContain("install failed");
+  });
+
+  it("running and rebuilt but from a different source: still a failure", () => {
+    const r = rig({ install: "reset-other-source" });
+    const o = r.inst(["--go", "--commit", r.head]);
+    expect(o.status).toBe(5);
+    expect(o.stdout).toContain("install failed");
+  });
+
+  it("install exits nonzero after the server rebuilt dist but left the plugin disabled (install does not enable): success with a warning, then the normal enable", { timeout: 90_000 }, () => {
+    const r = rig({ install: "reset-rebuilt-disabled" });
+    const o = r.inst(["--go", "--commit", r.head]);
+    expect(o.status, o.stdout + o.stderr).toBe(0);
+    expect(o.stdout).toContain("WARNING");
+    expect(r.calledList().filter((c) => c === "plugin enable autarch")).toHaveLength(1);
+    expect(o.stdout).toContain(`installed ${r.head}`);
+  });
+
+  it("a clean install is unchanged (no warning)", { timeout: 90_000 }, () => {
+    const r = rig({ install: "ok" });
+    const o = r.inst(["--go", "--commit", r.head]);
+    expect(o.status, o.stdout + o.stderr).toBe(0);
+    expect(o.stdout).not.toContain("WARNING");
+  });
+});
+
+describe.skipIf(!isMk)("mk-ed4z9: an install that leaves the plugin running is not enabled a second time", () => {
+  it("the redundant enable is what degrades the plugin: with a service that misses the stop window, --go must still finish and not call enable", { timeout: 120_000 }, () => {
+    const r = rig({ install: "ok", runsOnInstall: true, reloadHangs: true });
+    const o = r.inst(["--go", "--commit", r.head]);
+    expect(o.status, o.stdout + o.stderr).toBe(0);
+    expect(r.calledList().filter((c) => c === "plugin enable autarch")).toHaveLength(0);
+    expect(o.stdout).toContain("skipping the redundant");
+    expect(o.stdout).toContain(`installed ${r.head}`);
+    expect(r.state()).toBe("true running");
+  });
+
+  it("--rollback behaves the same: the previous build is installed running, no second enable", { timeout: 120_000 }, () => {
+    const r = rig({ plugin: "disabled", install: "ok", runsOnInstall: true, reloadHangs: true });
+    const o = r.inst(["--rollback", "--previous-plugin", r.prev]);
+    expect(o.status, o.stdout + o.stderr).toBe(0);
+    expect(r.calledList().filter((c) => c === "plugin enable autarch")).toHaveLength(0);
+    expect(r.state()).toBe("true running");
+  });
+
+  it("an install that leaves the plugin disabled still gets the one enable (unchanged)", { timeout: 90_000 }, () => {
+    const r = rig({ install: "ok", reloadHangs: true });
+    const o = r.inst(["--go", "--commit", r.head]);
+    expect(o.status, o.stdout + o.stderr).toBe(0);
+    expect(r.calledList().filter((c) => c === "plugin enable autarch")).toHaveLength(1);
+    expect(o.stdout).not.toContain("skipping the redundant");
+  });
+
+  it("an install that leaves the plugin degraded (not running) still gets the one enable", { timeout: 90_000 }, () => {
+    const r = rig({ install: "ok", leavesDegraded: true });
+    const o = r.inst(["--go", "--commit", r.head]);
+    expect(o.status, o.stdout + o.stderr).toBe(0);
+    expect(r.calledList().filter((c) => c === "plugin enable autarch")).toHaveLength(1);
+    expect(o.stdout).not.toContain("skipping the redundant");
+  });
+});

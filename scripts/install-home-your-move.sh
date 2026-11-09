@@ -16,6 +16,15 @@
 # or unknown keeps the export fatal. --rollback always keeps it fatal.
 # --go and --rollback both take that export FIRST, and abort hard (before disabling or changing anything) if it fails or is
 # empty or is not JSON with a "moves" array.
+# disabled-plugin export: begin
+# One narrow exception (mk-hd2ks): `bb home moves` is a command the plugin itself provides, so it exists only while the plugin is
+# enabled and running. When `bb plugin list` shows the plugin as NOT enabled-and-running (a failed or interrupted earlier run left
+# it disabled, the case that aborted a rollback), no process writes the moves table, and the export is taken from the same table
+# with sqlite3 mode=ro instead: same rows, same order, the same {"moves":[...]} shape (without the derived "groups"). It is
+# refused, and the export stays fatal as above, when the plugin list is unreadable, when something holds data.db, when schema_meta
+# schema_version is not a number of 4 or more, when the moves table cannot be read, or when the result is not a JSON array. A
+# plugin that is enabled and running always goes through `bb home moves`, with no fallback.
+# disabled-plugin export: end
 #
 # Commands used are only those the existing Home deploy (scripts/home-upgrade-v3.bash) already uses: bb plugin list|disable|
 # install --yes|enable|logs, plus sqlite3, fuser and git, and `bb home moves --json` (the plugin's own read-only export).
@@ -202,6 +211,48 @@ bad() {   # $1 = message, $2 = exit code
 run() { say "+ $*"; "$@" >>"$LOG" 2>&1; }
 gitmk() { "${AS[@]}" git -C "$REPO" "$@"; }   # via mk, never safe.directory
 
+# disabled-plugin export: begin
+# Returns 0 with $EXPORT written, or 1 (having said why) so the caller falls through to `bb home moves`, which then fails fatally as
+# before. Read only: sqlite3 -readonly, mode=ro, and fuser; nothing is disabled, enabled or installed.
+export_from_db() {
+  local pstate sv held rows snap n nulq nulw nulc pcols
+  pstate=$(printf '%s' "${LIST:-}" | jq -r 'if (.plugins | type) != "array" then "unknown" elif any(.plugins[]; .id == "autarch" and .enabled == true and .status == "running") then "running" else "not-running" end' 2>/dev/null || true)
+  [ "$pstate" = not-running ] || return 1   # running: bb answers; unknown: do not guess
+  held=$(fuser -v "$DATA"/data.db* 2>&1 || true)
+  [ -z "$held" ] || { say "export: the plugin is not running but something holds data.db ($held); not reading it directly"; return 1; }
+  sv=$("${AS0[@]}" sqlite3 -readonly "file:$DATA/data.db?mode=ro" "select value from schema_meta where key = 'schema_version'" 2>/dev/null || true)
+  { [[ "$sv" =~ ^[0-9]+$ ]] && [ "$sv" -ge 4 ]; } || { say "export: the plugin is not running and schema_version '${sv:-unreadable}' is not a number of 4 or more; no direct read"; return 1; }
+  # sqlite3 -json cuts a TEXT value at an embedded NUL (the plugin's own export keeps it), which would write a parseable but
+  # incomplete record: refuse, for any column, a NUL byte or a BLOB.
+  pcols=$("${AS0[@]}" sqlite3 -readonly "file:$DATA/data.db?mode=ro" "select group_concat(name, ',') from pragma_table_info('moves')" 2>/dev/null || true)   # listed before the guard, and compared with the list inside the transaction below
+  nulq="select group_concat('instr(CAST(\"' || name || '\" AS BLOB), x''00'') > 0 OR typeof(\"' || name || '\") = ''blob''', ' OR ') from pragma_table_info('moves')"
+  nulw=$("${AS0[@]}" sqlite3 -readonly "file:$DATA/data.db?mode=ro" "$nulq" 2>/dev/null || true)
+  [ -n "$nulw" ] || { say "export: the moves columns could not be listed; no direct read"; return 1; }
+  # One connection and one read transaction: the guard counts, the column list, the schema version and the rows all come from one
+  # snapshot, so a writer that starts after the checks above cannot slip a NUL in between a check and the read.
+  rows=$OUT/moves-rows.json snap=$OUT/moves-snapshot.txt
+  "${AS0[@]}" sqlite3 -bail -readonly "file:$DATA/data.db?mode=ro" "BEGIN" "select count(*) from moves where $nulw" "select count(*) from moves" \
+    "select group_concat(name, ',') from pragma_table_info('moves')" "select value from schema_meta where key = 'schema_version'" \
+    ".mode json" "SELECT * FROM moves ORDER BY opened_at DESC, task_id, generation" "COMMIT" >"$snap" 2>>"$LOG" \
+    || { say "export: the plugin is not running and the moves table cannot be read from data.db"; return 1; }
+  nulc=$(sed -n 1p "$snap") n=$(sed -n 2p "$snap")
+  [ "$nulc" = 0 ] || { say "export: the moves table holds a NUL byte or a BLOB in ${nulc:-an unreadable} row(s), which sqlite3 -json cannot export faithfully; no direct read"; return 1; }
+  { [ "$(sed -n 3p "$snap")" = "$pcols" ] && [ "$(sed -n 4p "$snap")" = "$sv" ]; } || { say "export: the moves table changed while it was being read; no direct read"; return 1; }
+  [[ "$n" =~ ^[0-9]+$ ]] || { say "export: the moves rows could not be counted in data.db"; return 1; }
+  tail -n +5 "$snap" >"$rows"
+  if [ "$n" = 0 ]; then   # sqlite3 -json prints nothing for zero rows: only a counted zero is an empty table
+    [ ! -s "$rows" ] || { say "export: the moves rows could not be read from data.db"; return 1; }
+    echo '[]' >"$rows"
+  fi
+  [ "$(jq 'length' "$rows" 2>/dev/null || true)" = "$n" ] || { say "export: the moves read from data.db do not match the $n counted rows"; return 1; }
+  rm -f "$snap"
+  jq -e 'type == "array"' "$rows" >/dev/null 2>&1 || { say "export: the moves read from data.db are not a JSON array"; return 1; }
+  jq -c --argjson schema "$sv" '{moves: ., schema: $schema, source: "data.db, read only (the plugin was not running)"}' "$rows" >"$EXPORT" || return 1
+  rm -f "$rows"
+  say "export: the plugin is not running, so 'bb home moves' is unavailable; read the moves table from data.db read only"
+  say "export: $EXPORT ($(wc -c <"$EXPORT") bytes, $(jq '.moves | length' "$EXPORT") moves)"
+}
+# disabled-plugin export: end
 export_moves() {   # fatal where moves can exist: a rollback record must exist, non-empty and parseable, before any change
   EXPORT=$OUT/moves-before.json
   # Schema below 4 has no moves table, so there is nothing to lose; a version that is unreadable or unknown is NOT that case.
@@ -211,6 +262,9 @@ export_moves() {   # fatal where moves can exist: a rollback record must exist, 
     say "export: schema $SV has no moves table, nothing to lose; wrote $EXPORT"
     return 0
   fi
+  # disabled-plugin export: begin
+  if export_from_db; then return 0; fi
+  # disabled-plugin export: end
   say "+ bb home moves --json > $EXPORT"
   if ! "${AS0[@]}" "$BB" home moves --json >"$EXPORT" 2>>"$LOG"; then
     bad "ABORT: 'bb home moves --json' failed; no rollback export, so nothing was changed (a plugin build before chunk A has no such command)" 3
@@ -237,7 +291,21 @@ disable_plugin() {   # fatal: a plugin that is still running must not be install
 }
 
 enable_and_verify() {   # $1 = expected max migration_log version
+  # redundant-enable skip: begin
+  # `bb plugin install` leaves the plugin enabled and running. `bb plugin enable` on a running plugin reloads it: bb stops every service
+  # within 5 s each and marks the plugin degraded ("service home-queue did not stop") when one is mid-handler, and it stays degraded until
+  # the next reload. So when the plugin is already enabled and running, the unchanged enable line below runs against a stand-in bb that
+  # answers for it, and the verification loop that follows still checks the running state and the migration version.
+  local BB_KEEP=$BB
+  if "${AS0[@]}" timeout -k 2 30 "$BB" plugin list --json 2>/dev/null | jq -e '[.plugins[]? | select(.id == "autarch")] | length == 1 and (.[0].enabled == true) and (.[0].status == "running")' >/dev/null 2>&1; then
+    say "autarch is already enabled and running after the install; skipping the redundant 'bb plugin enable' (it would reload the plugin and stop every service again)"
+    BB=/bin/true
+  fi
+  # redundant-enable skip: end
   "${AS0[@]}" "$BB" plugin enable autarch >>"$LOG" 2>&1 || { say "enable failed; see 'bb plugin logs autarch'"; exit 5; }
+  # redundant-enable skip: begin
+  BB=$BB_KEEP
+  # redundant-enable skip: end
   OK=0 S= M=
   for _ in $(seq 12); do
     sleep 5
@@ -248,6 +316,46 @@ enable_and_verify() {   # $1 = expected max migration_log version
   say "status running: ${S:-unknown}; migration_log max version: ${M:-unknown}"
   [ "$OK" = 1 ] || { say "no evidence of a running plugin; see 'bb plugin logs autarch'"; exit 6; }
 }
+# install-error recheck: begin
+# A path-plugin `bb plugin install` builds only the frontend (app.js, app.css, app.meta.json, each written by renaming a staged
+# file); the server bundle runs from bb's own runtime cache, so dist/server.js and dist/server.meta.json are not rebuilt and are
+# not checked. A finished install leaves all three frontend artifacts newer than $1 and app.meta.json naming the plugin; a
+# half-written dist (some artifacts rebuilt, the rest old) does not pass.
+dist_rebuilt() {   # $1 = marker file touched just before the install began
+  local d="$PLUGIN/dist" f
+  for f in app.js app.css app.meta.json; do
+    if [ -s "$d/$f" ] && [ "$d/$f" -nt "$1" ]; then :; else return 1; fi
+  done
+  jq -e '.pluginId == "autarch"' "$d/app.meta.json" >/dev/null 2>&1 || return 1
+}
+# `bb plugin install` can exit non-zero on the client (a reset connection while it waits) after the server has finished the install.
+# Returns 0 when the install succeeded, or failed on the client but autarch is installed from $PLUGIN, in a state install leaves
+# (running, or disabled and waiting for the enable step), with dist fully rebuilt after $1 was touched; returns 1 on a real mismatch,
+# after a bounded poll. The enable step that follows still checks the running plugin and the migration version.
+install_rechecked() {   # $1 = marker file touched just before the install began
+  local rc=0 wait=${HOME_YOUR_MOVE_RECHECK_WAIT:-60} step=${HOME_YOUR_MOVE_RECHECK_INTERVAL:-3} row newer end rem grace=2
+  case $wait in ''|*[!0-9]*) wait=60 ;; esac     # a bad value falls back to the default: the poll must end
+  case $step in ''|*[!0-9]*|0) step=3 ;; esac
+  "${AS0[@]}" "$BB" plugin install --yes "$PLUGIN" >>"$LOG" 2>&1 || rc=$?
+  [ "$rc" -ne 0 ] || return 0
+  say "install: 'bb plugin install' exited $rc ($(tail -n 1 "$LOG" | head -c 160)); checking for up to ${wait}s (plus a ${grace}s kill grace on a stuck request) whether the server completed it"
+  end=$((SECONDS+wait))   # wall-clock deadline: each status request below is held to the time left, then killed after the grace
+  while :; do
+    rem=$((end-SECONDS)); [ "$rem" -ge 1 ] || rem=1
+    row=$("${AS0[@]}" timeout -k "$grace" "$rem" "$BB" plugin list --json 2>/dev/null | jq -r --arg p "$PLUGIN" '[.plugins[]? | select(.id == "autarch")] | if length == 1 and ((.[0].source // "") | sub("/+$"; "")) == ("path:" + ($p | sub("/+$"; ""))) and ((.[0].enabled == true and .[0].status == "running") or .[0].enabled == false) then "match" else "no" end' 2>/dev/null || true)
+    if [ "$row" = match ]; then
+      newer=; dist_rebuilt "$1" && newer=yes
+      if [ -n "$newer" ]; then
+        say "WARNING: 'bb plugin install' exited $rc, but the server completed the install: autarch is installed from $PLUGIN and its frontend build (dist/app.js, app.css, app.meta.json) was rebuilt after the install began; going on to enable and verify"
+        return 0
+      fi
+    fi
+    rem=$((end-SECONDS)); [ "$rem" -gt 0 ] || return 1
+    [ "$step" -le "$rem" ] || step=$rem
+    sleep "$step"
+  done
+}
+# install-error recheck: end
 
 if [ "$MODE" = rollback ]; then
   read_state
@@ -304,7 +412,17 @@ say "backup: $BACKUP ($(sha256sum "$BACKUP" | cut -d' ' -f1))"
 # 4. Install and enable, as scripts/home-upgrade-v3.bash does.
 disable_plugin
 say "+ bb plugin install --yes $PLUGIN"
+# install-error recheck: begin
+# The install runs (and is rechecked) here; the unchanged line below then runs against a stand-in bb that answers for the outcome, so
+# it neither installs twice nor changes its failure message.
+INSTALL_MARK=$OUT/install-started BB_REAL=$BB
+: >"$INSTALL_MARK"
+if install_rechecked "$INSTALL_MARK"; then BB=/bin/true; else BB=/bin/false; fi
+# install-error recheck: end
 "${AS0[@]}" "$BB" plugin install --yes "$PLUGIN" >>"$LOG" 2>&1 || { say "install failed; plugin is disabled; backup $BACKUP; to revert use --rollback"; exit 5; }
+# install-error recheck: begin
+BB=$BB_REAL
+# install-error recheck: end
 # The migration version this build ends at is the build's own CODE_VERSION (4 for the original your-move build, 5 once
 # root_fsid arrived); a hard-coded number would roll back every later additive build.
 EXPECT=$(sed -n 's/^export const CODE_VERSION = \([0-9][0-9]*\);.*/\1/p' "$PLUGIN/migrations.ts" 2>/dev/null | head -1)
