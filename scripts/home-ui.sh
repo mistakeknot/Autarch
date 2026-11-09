@@ -208,11 +208,22 @@ plugin_code_only() {   # $1 = installed build, $2 = target; dependencies and the
   # deploy's real guarantee on code behaviour is the cross-lab review of the merged head that the deploy approval requires.
   local f rel old rc added=
   # find status: begin (mk-zq345.6)
-  # The loop below reads its file list through process substitution, which discards find's exit status, so an unreadable
-  # subdirectory would silently drop its files from the scan. Walk the tree once first and refuse when the walk fails.
-  # Same refusal as scripts/home-gates.sh (mk-zq345.4).
-  find "$2" -path "$2/node_modules" -prune -o -type f -print0 >/dev/null 2>&1 \
-    || die "NOT plugin-code-only: could not list every file under the target (an unreadable directory?); refusing" 3
+  # The baseline loop below reads its file list through process substitution, which discards find's exit status, so an unreadable
+  # subdirectory would silently drop its files from the scan. This block lists the tree into a temp file, refuses when find fails,
+  # and scans exactly that checked list, the way scripts/home-gates.sh does (mk-zq345.4). The baseline loop is kept byte for byte
+  # (legacy-lock.test.ts) and runs after it: it walks the tree again and can only add to $added, never hide what was found here.
+  local list
+  list=$(mktemp) || die "cannot create a temp file"
+  find "$2" -path "$2/node_modules" -prune -o -type f -print0 >"$list" 2>/dev/null \
+    || { rm -f "$list"; die "NOT plugin-code-only: could not list every file under the target (an unreadable directory?); refusing" 3; }
+  while IFS= read -r -d '' f; do
+    rel=${f#"$2"/}
+    case $rel in ui/*|__tests__/*|node_modules/*) continue ;; esac
+    old=$1/$rel; [ -f "$old" ] || old=/dev/null
+    rc=0; added+=$(diff -a --unchanged-line-format= --old-line-format= --new-line-format='%L ' -- "$old" "$f") || rc=$?
+    [ "$rc" -le 1 ] || { rm -f "$list"; die "NOT plugin-code-only: could not diff $rel against the installed build (diff exit $rc)" 3; }
+  done <"$list"
+  rm -f "$list"
   # find status: end
   while IFS= read -r -d '' f; do
     rel=${f#"$2"/}

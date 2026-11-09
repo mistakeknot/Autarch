@@ -290,15 +290,14 @@ describe("home-gates.sh gate", () => {
     mkdirSync(join(t, "hidden"));
     writeFileSync(join(t, "hidden", "evil.ts"), 'db.exec("CREATE TABLE sneaky (id INTEGER)");\n');
     const data = dataDir(b.root, 3);
-    // A stand-in find: the first walk of the target is real; every later one prints nothing and fails, as if a directory had become
-    // unreadable in between. The only place a walk's output may be trusted is the one whose status was checked.
-    const shim = join(b.root, "shim");
-    mkdirSync(shim);
-    const realFind = spawnSync("sh", ["-c", "command -v find"], { encoding: "utf8" }).stdout.trim();
-    writeFileSync(join(shim, "find"), `#!/bin/sh\ncase "$*" in\n  *"/node_modules -prune -o -type f -print0"*)\n    n=0; [ ! -f "${shim}/n" ] || n=$(cat "${shim}/n"); n=$((n+1)); echo $n >"${shim}/n"\n    [ "$n" -le 1 ] || exit 1 ;;\nesac\nexec ${realFind} "$@"\n`);
-    chmodSync(join(shim, "find"), 0o755);
-    const r = sh(UI_SCRIPT, ["check", "--path", t, "--plugin-code"], { HOME: b.root, HOME_BB_BIN: stubBb(b.root, b.installed), HOME_BB_DATA: data, HOME_UI_WAIT: "2", PATH: `${shim}:${process.env.PATH!}` });
-    expect(readFileSync(join(shim, "n"), "utf8").trim(), "the scan walked the target again").not.toBe("0");
+    // A stand-in find, injected as a shell function through BASH_ENV (home-ui.sh resets PATH, so a PATH shim would never run): the
+    // first walk of the target is real; every later one prints nothing and fails, as if a directory had become unreadable in between.
+    // The only walk whose output may be trusted is one whose status was checked.
+    const counter = join(b.root, "walks");
+    const shim = join(b.root, "shim.sh");
+    writeFileSync(shim, `find() {\n  case "$*" in\n    *"/node_modules -prune -o -type f -print0"*)\n      local n=0; [ ! -f "${counter}" ] || n=$(cat "${counter}"); n=$((n+1)); echo $n >"${counter}"\n      [ "$n" -le 1 ] || return 1 ;;\n  esac\n  command find "$@"\n}\n`);
+    const r = sh(UI_SCRIPT, ["check", "--path", t, "--plugin-code"], { HOME: b.root, HOME_BB_BIN: stubBb(b.root, b.installed), HOME_BB_DATA: data, HOME_UI_WAIT: "2", BASH_ENV: shim });
+    expect(Number(readFileSync(counter, "utf8")), "the target was walked more than once, so the stand-in was exercised").toBeGreaterThan(1);
     expect(r.status).toBe(3);
     expect(r.stderr).not.toContain("could not list every file");   // the failure must come from the schema statement, found in the first (checked) walk
     expect(r.stderr).toContain("adds a schema statement");
