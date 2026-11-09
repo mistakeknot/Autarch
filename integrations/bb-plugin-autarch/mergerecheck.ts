@@ -18,14 +18,13 @@ export const MAX_GENERATIONS = 4;
 
 const PR_IN_TEXT = /https:\/\/github\.com\/([A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+)\/pull\/([1-9][0-9]{0,8})/g;
 const APPROVAL_TARGET = /^([A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+)#([1-9][0-9]{0,8})$/;
-const MERGE = /\bmerges?\b/i;
 const NOT_MERGE = /\b(do not|don't|dont|not|never|won't|no)\b[^.\n]{0,20}\bmerg/i;
 // A merge pick is one whose own instruction is to merge (bead mk-q9m7q). Mentioning a merge is not enough: a fix-round
 // option says "a pass goes to the registrar to merge" and must not be rechecked as a merge. The picked option counts as
-// a merge when its label names the merge and is not rework (fix, round, review, another, ...), when its instruction opens with the merge as the action
-// ("mk merges ...", "Merge the PR ...", never the noun in "Merge readiness ..."; rework words rule it out), or when the pick minted a merge approval.
+// a merge when its label or its instruction opens with the merge as the action and is not rework (fix, round, review, another, ...)
+// ("Merge PR 130", "mk merges ...", "Merge the PR ...", never the noun in "Merge readiness ..."; rework words rule it out), or when the pick minted a merge approval.
 const REWORK = /\b(fix(?:es|ed|ing)?|rounds?|(?:re-?)?reviews?|rework|revis(?:e|ed|ion)|another|one more|extra|again|retry)\b/i;
-const MERGE_LEAD = /^\W*(?:(?:yes|ok|okay|approve)\W+)?(?:please\s+)?(?:(?:squash|rebase)(?:\s+and)?\s+)?(?:(?:mk|the vizier|vizier|the registrar|registrar|you|we)\s+)?(?:will\s+)?merges?(?=\s+(?:(?:it|this|that|them|the|pr|pull|at|in|now|with|using|via)\b|#|\d|https?:|--|[\w.-]+\/[\w.-]+)|\s*[.,;:]|\s*$)/i;
+const MERGE_LEAD = /^\W*(?:(?:yes|ok|okay|approve)\W+(?:and\s+)?)?(?:please\s+)?(?:(?:squash|rebase)(?:\s+and)?\s+)?(?:(?:mk|the vizier|vizier|the registrar|registrar|you|we)\s+)?(?:will\s+)?merges?(?=\s+(?:(?:it|this|that|them|the|pr|pull|at|in|now|with|using|via)\b|#|\d|https?:|--|[\w.-]+\/[\w.-]+)|\s*[.,;:]|\s*$)/i;
 const firstSentence = (t: string): string => t.trim().split(/(?<=[.!?])\s|\n/)[0] ?? "";
 const DEFER = /\b(wait|hold|defer|postpone|delay|until)\b|\bnot yet\b|\bbefore\s+(?:you\s+)?(?:auto-?)?merg/i;
 
@@ -62,7 +61,8 @@ export function mergePrOf(bodyJson: string, optionId: string, approvalTarget: st
   const text = `${label}\n${instruction}`;
   const approval = approvalTarget ? APPROVAL_TARGET.exec(approvalTarget) : null;
   if (NOT_MERGE.test(text) || DEFER.test(text)) return null;
-  const isMerge = (MERGE.test(label) && !REWORK.test(label)) || (MERGE_LEAD.test(firstSentence(instruction)) && !REWORK.test(firstSentence(instruction)));
+  const leads = (t: string): boolean => MERGE_LEAD.test(firstSentence(t)) && !REWORK.test(firstSentence(t));
+  const isMerge = leads(label) || leads(instruction);
   if (!isMerge && approval === null) return null;
   const own = urlsIn(text);
   if (own.length === 1) return own[0]!;

@@ -50,6 +50,8 @@ describe("only a merge instruction counts as a merge pick (bead mk-q9m7q)", () =
     ["Merge after one more fix round", "Fix the finding and re-review."],
     ["Review it", "Merge readiness needs a review."],
     ["Check it", "Merge readiness is checked first."],
+    ["Check merge readiness", "Inspect the PR and report findings."],
+    ["Check merge conflicts", "Inspect the PR and report findings."],
   ];
   it("does not treat a fix-round option that mentions a later merge as a merge pick", () => {
     for (const [label, instruction] of NOT_MERGES) {
@@ -65,6 +67,7 @@ describe("only a merge instruction counts as a merge pick (bead mk-q9m7q)", () =
       ["Yes", "Please merge PR 130."],
       ["Yes", "Squash merge PR 130."],
       ["Approve", "Squash and merge PR 130."],
+      ["Approve and merge", "Go."],
     ];
     for (const [label, instruction] of cases) {
       expect(mergePrOf(body({ options: [{ id: "a", label, kind: "instruction", instruction }] }), "a", null)?.url, label).toBe(URL130);
