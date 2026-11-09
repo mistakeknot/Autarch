@@ -284,7 +284,7 @@ describe.skipIf(!isMk)("mk-fg2io: a client-side bb plugin install error after th
     expect(o.stdout).toContain("install failed");
     const took = Date.now() - t0;
     expect(took).toBeLessThan(30_000);
-    expect(took).toBeGreaterThanOrEqual(2_500); // the poll really waited out HOME_YOUR_MOVE_RECHECK_WAIT=3, not an immediate failure
+    expect(took).toBeGreaterThanOrEqual(1_800); // the poll really waited out HOME_YOUR_MOVE_RECHECK_WAIT=3 (bash SECONDS counts whole seconds, so it can end up to a second early), not an immediate failure
   });
 
   it("a partial build (only app.css rebuilt), only the checkout server artifacts touched, or a wrong meta stamp: still a failure", { timeout: 60_000 }, () => {
