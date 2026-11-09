@@ -16,6 +16,15 @@
 # or unknown keeps the export fatal. --rollback always keeps it fatal.
 # --go and --rollback both take that export FIRST, and abort hard (before disabling or changing anything) if it fails or is
 # empty or is not JSON with a "moves" array.
+# disabled-plugin export: begin
+# One narrow exception (mk-hd2ks): `bb home moves` is a command the plugin itself provides, so it exists only while the plugin is
+# enabled and running. When `bb plugin list` shows the plugin as NOT enabled-and-running (a failed or interrupted earlier run left
+# it disabled, the case that aborted a rollback), no process writes the moves table, and the export is taken from the same table
+# with sqlite3 mode=ro instead: same rows, same order, the same {"moves":[...]} shape (without the derived "groups"). It is
+# refused, and the export stays fatal as above, when the plugin list is unreadable, when something holds data.db, when schema_meta
+# schema_version is not a number of 4 or more, when the moves table cannot be read, or when the result is not a JSON array. A
+# plugin that is enabled and running always goes through `bb home moves`, with no fallback.
+# disabled-plugin export: end
 #
 # Commands used are only those the existing Home deploy (scripts/home-upgrade-v3.bash) already uses: bb plugin list|disable|
 # install --yes|enable|logs, plus sqlite3, fuser and git, and `bb home moves --json` (the plugin's own read-only export).
@@ -202,6 +211,32 @@ bad() {   # $1 = message, $2 = exit code
 run() { say "+ $*"; "$@" >>"$LOG" 2>&1; }
 gitmk() { "${AS[@]}" git -C "$REPO" "$@"; }   # via mk, never safe.directory
 
+# disabled-plugin export: begin
+# Returns 0 with $EXPORT written, or 1 (having said why) so the caller falls through to `bb home moves`, which then fails fatally as
+# before. Read only: sqlite3 -readonly, mode=ro, and fuser; nothing is disabled, enabled or installed.
+export_from_db() {
+  local pstate sv held rows n
+  pstate=$(printf '%s' "${LIST:-}" | jq -r 'if (.plugins | type) != "array" then "unknown" elif any(.plugins[]; .id == "autarch" and .enabled == true and .status == "running") then "running" else "not-running" end' 2>/dev/null || true)
+  [ "$pstate" = not-running ] || return 1   # running: bb answers; unknown: do not guess
+  held=$(fuser -v "$DATA"/data.db* 2>&1 || true)
+  [ -z "$held" ] || { say "export: the plugin is not running but something holds data.db ($held); not reading it directly"; return 1; }
+  sv=$("${AS0[@]}" sqlite3 -readonly "file:$DATA/data.db?mode=ro" "select value from schema_meta where key = 'schema_version'" 2>/dev/null || true)
+  { [[ "$sv" =~ ^[0-9]+$ ]] && [ "$sv" -ge 4 ]; } || { say "export: the plugin is not running and schema_version '${sv:-unreadable}' is not a number of 4 or more; no direct read"; return 1; }
+  rows=$OUT/moves-rows.json
+  "${AS0[@]}" sqlite3 -readonly -json "file:$DATA/data.db?mode=ro" "SELECT * FROM moves ORDER BY opened_at DESC, task_id, generation" >"$rows" 2>>"$LOG" \
+    || { say "export: the plugin is not running and the moves table cannot be read from data.db"; return 1; }
+  if [ ! -s "$rows" ]; then   # sqlite3 -json prints nothing for zero rows: only a counted zero is an empty table
+    n=$("${AS0[@]}" sqlite3 -readonly "file:$DATA/data.db?mode=ro" "select count(*) from moves" 2>/dev/null || true)
+    [ "$n" = 0 ] || { say "export: the moves rows could not be read from data.db"; return 1; }
+    echo '[]' >"$rows"
+  fi
+  jq -e 'type == "array"' "$rows" >/dev/null 2>&1 || { say "export: the moves read from data.db are not a JSON array"; return 1; }
+  jq -c --argjson schema "$sv" '{moves: ., schema: $schema, source: "data.db, read only (the plugin was not running)"}' "$rows" >"$EXPORT" || return 1
+  rm -f "$rows"
+  say "export: the plugin is not running, so 'bb home moves' is unavailable; read the moves table from data.db read only"
+  say "export: $EXPORT ($(wc -c <"$EXPORT") bytes, $(jq '.moves | length' "$EXPORT") moves)"
+}
+# disabled-plugin export: end
 export_moves() {   # fatal where moves can exist: a rollback record must exist, non-empty and parseable, before any change
   EXPORT=$OUT/moves-before.json
   # Schema below 4 has no moves table, so there is nothing to lose; a version that is unreadable or unknown is NOT that case.
@@ -211,6 +246,9 @@ export_moves() {   # fatal where moves can exist: a rollback record must exist, 
     say "export: schema $SV has no moves table, nothing to lose; wrote $EXPORT"
     return 0
   fi
+  # disabled-plugin export: begin
+  if export_from_db; then return 0; fi
+  # disabled-plugin export: end
   say "+ bb home moves --json > $EXPORT"
   if ! "${AS0[@]}" "$BB" home moves --json >"$EXPORT" 2>>"$LOG"; then
     bad "ABORT: 'bb home moves --json' failed; no rollback export, so nothing was changed (a plugin build before chunk A has no such command)" 3

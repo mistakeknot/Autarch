@@ -144,7 +144,7 @@ describe.skipIf(!isMk)("mk-hd2ks: --rollback and --go when the plugin is not run
     const exp = r.exportJson();
     expect(exp.moves).toEqual(r.dbMoves());
     expect(exp.moves).toHaveLength(3);
-    expect(o.stdout).toContain("read-only");
+    expect(o.stdout).toContain("from data.db read only");
     const calls = r.calledList();
     expect(calls).toContain("plugin install --yes " + r.prev);
     expect(r.state()).toBe("true running");
@@ -190,5 +190,22 @@ describe.skipIf(!isMk)("mk-hd2ks: --rollback and --go when the plugin is not run
     expect(o.status, o.stdout + o.stderr).toBe(0);
     expect(r.exportJson().moves).toEqual(r.dbMoves());
     expect(r.state()).toBe("true running");
+  });
+  it("--rollback with the plugin disabled and an EMPTY moves table writes an empty moves array (a counted zero, not a read failure)", { timeout: 90_000 }, () => {
+    const r = rig({ plugin: "disabled" });
+    const d = new Database(join(r.root, "bbdata", "plugins", "autarch", "data.db"));
+    d.exec("DELETE FROM moves");
+    d.close();
+    const o = r.inst(["--rollback", "--previous-plugin", r.prev]);
+    expect(o.status, o.stdout + o.stderr).toBe(0);
+    expect(r.exportJson().moves).toEqual([]);
+  });
+
+  it("--rollback with the plugin enabled but not running (half-installed) also reads data.db", { timeout: 90_000 }, () => {
+    const r = rig({ plugin: "disabled" });
+    writeFileSync(join(r.ctl, "state"), "true error\n");
+    const o = r.inst(["--rollback", "--previous-plugin", r.prev]);
+    expect(o.status, o.stdout + o.stderr).toBe(0);
+    expect(r.exportJson().moves).toEqual(r.dbMoves());
   });
 });
