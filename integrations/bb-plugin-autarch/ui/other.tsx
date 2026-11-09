@@ -76,7 +76,8 @@ export function OtherBox({
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
   const [imgs, setImgsState] = useState<Staged[]>([]);
-  const imgsRef = useRef<Staged[]>([]);
+  // Starts as the very array in state: "the images are still what was sent" is an identity check, so a text-only send must match.
+  const imgsRef = useRef<Staged[]>(imgs);
   const setImgs = (v: Staged[]) => {
     imgsRef.current = v;
     setImgsState(v);
