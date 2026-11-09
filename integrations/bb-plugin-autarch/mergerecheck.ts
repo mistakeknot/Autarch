@@ -5,6 +5,9 @@
 // Only a pick whose option is itself a merge instruction is rechecked (see REWORK and MERGE_LEAD below).
 // Which PR: the picked option's own text if it names a PR URL, else the card's one PR URL, else the merge
 // approval's target (owner/repo#N). A card that names several different PRs is left alone rather than guessed at.
+// Two looks (bead mk-qepye): the registrar's merge can land a few minutes after the five-minute check, and GitHub shows
+// nothing in flight before it does. So the five-minute look only records that the PR was still open; the card comes back
+// only if the PR is still open at a second look ten minutes after the pick. Merged or closed at either look settles it.
 // Once per generation: the new generation has no pick, so it is checked only if mk picks merge on it again, and
 // a card that has already been resurfaced MAX_GENERATIONS times is left alone.
 // A card whose task has since been canceled or deleted is finished (bead mk-6k39i): the pick's own write-back only ever
@@ -121,10 +124,21 @@ export class MergeRecheck {
   readonly stats = { checked: 0, resurfaced: 0, errors: 0 };
   /** Decisions already settled this run (merged, closed, skipped or resurfaced), so gh is not asked twice. */
   private readonly done = new Set<string>();
+  /**
+   * Picks whose PR was still open at a first look this run, with the time of that look (bead mk-qepye). Kept in memory
+   * on purpose: after a restart the pick is still found by its age, takes a fresh first look, and is never brought back
+   * on a look from before the restart. The cost is one extra poll after a restart past the ten-minute mark.
+   */
+  private readonly firstOpen = new Map<string, number>();
   private readonly clock: () => number;
 
   constructor(private readonly o: RecheckOptions) {
     this.clock = o.clock ?? Date.now;
+  }
+
+  private settle(decisionId: string): void {
+    this.done.add(decisionId);
+    this.firstOpen.delete(decisionId);
   }
 
   async pass(): Promise<void> {
@@ -135,19 +149,28 @@ export class MergeRecheck {
         this.done.add(p.decision_id);
         continue;
       }
+      const now = this.clock();
+      const first = this.firstOpen.get(p.decision_id);
+      // The second look is due ten minutes after the pick and at least one poll after the first look.
+      if (first !== undefined && now < Math.max(Date.parse(p.picked_at) + RECHECK_SECOND_LOOK_MS, first + RECHECK_POLL_MS)) continue;
       try {
         const v = await this.o.ghView(pr.url);
         this.stats.checked++;
         if (v.state === "OPEN") {
+          if (first === undefined) {
+            // A registrar merge can land just after this look, and GitHub shows nothing in flight: record it, look again later.
+            this.firstOpen.set(p.decision_id, now);
+            continue;
+          }
           const st = await this.o.taskState(p.task_id);
           if (st.state === "deleted" || st.task.status === "canceled") {
-            this.done.add(p.decision_id); // finished on purpose after the pick; nothing is owed
+            this.settle(p.decision_id); // finished on purpose after the pick; nothing is owed
             continue;
           }
           if (await this.o.bringBack(p.task_id, p.decision_id, pr)) this.stats.resurfaced++;
-          this.done.add(p.decision_id);
+          this.settle(p.decision_id);
         } else if (v.state === "MERGED" || v.state === "CLOSED") {
-          this.done.add(p.decision_id); // merged is the goal; closed unmerged is mk's own call
+          this.settle(p.decision_id); // merged is the goal; closed unmerged is mk's own call
         } else {
           throw new Error(`unknown PR state ${JSON.stringify(String(v.state).slice(0, 40))}`);
         }
