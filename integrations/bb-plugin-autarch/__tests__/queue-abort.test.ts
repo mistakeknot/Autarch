@@ -252,11 +252,13 @@ describe("mk-laqhx: a poll that outlives the stop changes nothing", () => {
     const r = cardRig();
     const { t, g1 } = await opened(r);
     r.mkPick(g1.id);
-    pause(r.fake, "listComments", () => true); // never released: the host ignores the abort
+    let reads = 0;
+    pause(r.fake, "listComments", () => ++reads === 1); // the first read never answers: the host ignores the abort
     const ac = new AbortController();
     const old = r.writer.drain(ac.signal);
     await new Promise((res) => setTimeout(res, 50));
     ac.abort();
+    await new Promise((res) => setTimeout(res, 0)); // the stopped drain lets go of its row
     r.restart();
     expect(await within(r.writer.drain(), 1_000)).not.toBe("timeout");
     expect(r.fake.comments.filter((c: any) => c.body.includes("home-write:"))).toHaveLength(1);
