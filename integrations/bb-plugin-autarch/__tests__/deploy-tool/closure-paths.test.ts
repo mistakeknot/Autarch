@@ -167,6 +167,30 @@ describe("closure paths that are not valid UTF-8", () => {
     expect(() => verifyClosureAgainstHead({ root, controlPaths: CONTROL })).toThrow(/not valid UTF-8|control character/);
   });
 
+  it("an ignored raw-byte directory holding a closure file, beside an empty U+FFFD directory, is refused by both verifiers", () => {
+    // Both directory names decode to "x\uFFFD"; traversal would read the empty twin twice and never see AGENTS.md.
+    const root = mkdtempSync(join(tmpdir(), "closure-bytes-"));
+    dirs.push(root);
+    sh(root, ["init", "-q", "-b", "main"]);
+    sh(root, ["config", "user.email", "t@example.invalid"]);
+    sh(root, ["config", "user.name", "t"]);
+    mkdirSync(join(root, LIB), { recursive: true });
+    writeFileSync(join(root, LIB, "good.mjs"), "export const x = 1;\n");
+    sh(root, ["add", "-A"]);
+    sh(root, ["commit", "-q", "-m", "c"]);
+    const commit = sh(root, ["rev-parse", "HEAD"]);
+    mkdirSync(join(root, "x\uFFFD"));
+    const rawDir = Buffer.concat([Buffer.from(root), Buffer.from([0x2f, 0x78, 0xff])]);
+    mkdirSync(rawDir);
+    writeFileSync(Buffer.concat([rawDir, Buffer.from("/AGENTS.md")]), "extra closure file\n");
+    mkdirSync(join(root, ".git", "info"), { recursive: true });
+    appendFileSync(join(root, ".git", "info", "exclude"), "x*/\n");
+    expect(sh(root, ["status", "--porcelain", "--untracked-files=all"])).toBe("");
+    const controlPaths = [...CONTROL, "**/AGENTS.md"];
+    expect(() => verifyClosure({ root, commit, controlPaths })).toThrow(/not valid UTF-8/);
+    expect(() => verifyClosureAgainstHead({ root, controlPaths })).toThrow(/not valid UTF-8/);
+  });
+
   it("a plain UTF-8 name outside the replacement character still verifies", () => {
     const root = mkdtempSync(join(tmpdir(), "closure-bytes-"));
     dirs.push(root);
