@@ -303,26 +303,37 @@ enable_and_verify() {   # $1 = expected max migration_log version
   [ "$OK" = 1 ] || { say "no evidence of a running plugin; see 'bb plugin logs autarch'"; exit 6; }
 }
 # install-error recheck: begin
+# A finished build leaves the declared artifacts (`bb plugin build`: server.js, server.meta.json, app.js, app.css, app.meta.json)
+# all newer than $1 and the two meta files naming the plugin; a half-written dist (some artifacts rebuilt, the rest old) does not pass.
+dist_rebuilt() {   # $1 = marker file touched just before the install began
+  local d="$PLUGIN/dist" f
+  for f in server.js server.meta.json app.js app.meta.json; do
+    if [ -s "$d/$f" ] && [ "$d/$f" -nt "$1" ]; then :; else return 1; fi
+  done
+  if [ -e "$d/app.css" ] && [ ! "$d/app.css" -nt "$1" ]; then return 1; fi
+  for f in server.meta.json app.meta.json; do
+    jq -e '.pluginId == "autarch"' "$d/$f" >/dev/null 2>&1 || return 1
+  done
+}
 # `bb plugin install` can exit non-zero on the client (a reset connection while it waits) after the server has finished the install.
 # Returns 0 when the install succeeded, or failed on the client but autarch is installed from $PLUGIN, in a state install leaves
-# (running, or disabled and waiting for the enable step), with dist rebuilt after $1 was touched; returns 1 on a real mismatch,
+# (running, or disabled and waiting for the enable step), with dist fully rebuilt after $1 was touched; returns 1 on a real mismatch,
 # after a bounded poll. The enable step that follows still checks the running plugin and the migration version.
 install_rechecked() {   # $1 = marker file touched just before the install began
-  local rc=0 wait=${HOME_YOUR_MOVE_RECHECK_WAIT:-60} step=${HOME_YOUR_MOVE_RECHECK_INTERVAL:-3} row newer end rem
+  local rc=0 wait=${HOME_YOUR_MOVE_RECHECK_WAIT:-60} step=${HOME_YOUR_MOVE_RECHECK_INTERVAL:-3} row newer end rem grace=2
   case $wait in ''|*[!0-9]*) wait=60 ;; esac     # a bad value falls back to the default: the poll must end
   case $step in ''|*[!0-9]*|0) step=3 ;; esac
   "${AS0[@]}" "$BB" plugin install --yes "$PLUGIN" >>"$LOG" 2>&1 || rc=$?
   [ "$rc" -ne 0 ] || return 0
-  say "install: 'bb plugin install' exited $rc ($(tail -n 1 "$LOG" | head -c 160)); checking for up to ${wait}s whether the server completed it"
-  end=$((SECONDS+wait))   # wall-clock deadline: each status request below is also held to the time left
+  say "install: 'bb plugin install' exited $rc ($(tail -n 1 "$LOG" | head -c 160)); checking for up to ${wait}s (plus a ${grace}s kill grace on a stuck request) whether the server completed it"
+  end=$((SECONDS+wait))   # wall-clock deadline: each status request below is held to the time left, then killed after the grace
   while :; do
     rem=$((end-SECONDS)); [ "$rem" -ge 1 ] || rem=1
-    row=$("${AS0[@]}" timeout "$rem" "$BB" plugin list --json 2>/dev/null | jq -r --arg p "$PLUGIN" '[.plugins[]? | select(.id == "autarch")] | if length == 1 and ((.[0].source // "") | sub("/+$"; "")) == ("path:" + ($p | sub("/+$"; ""))) and ((.[0].enabled == true and .[0].status == "running") or .[0].enabled == false) then "match" else "no" end' 2>/dev/null || true)
+    row=$("${AS0[@]}" timeout -k "$grace" "$rem" "$BB" plugin list --json 2>/dev/null | jq -r --arg p "$PLUGIN" '[.plugins[]? | select(.id == "autarch")] | if length == 1 and ((.[0].source // "") | sub("/+$"; "")) == ("path:" + ($p | sub("/+$"; ""))) and ((.[0].enabled == true and .[0].status == "running") or .[0].enabled == false) then "match" else "no" end' 2>/dev/null || true)
     if [ "$row" = match ]; then
-      # a published file only: hidden entries and temp/staging names do not show that a build finished
-      newer=$(cd "$PLUGIN/dist" 2>/dev/null && find . -type f -newer "$1" ! -path '*/.*' ! -name '*.tmp' ! -name '*.part' ! -name '*.swp' ! -name '*.lock' ! -name '*~' -print -quit 2>/dev/null || true)
+      newer=; dist_rebuilt "$1" && newer=yes
       if [ -n "$newer" ]; then
-        say "WARNING: 'bb plugin install' exited $rc, but the server completed the install: autarch is installed from $PLUGIN and dist/${newer#./} was rebuilt after the install began; going on to enable and verify"
+        say "WARNING: 'bb plugin install' exited $rc, but the server completed the install: autarch is installed from $PLUGIN and its dist/ artifacts were rebuilt after the install began; going on to enable and verify"
         return 0
       fi
     fi
