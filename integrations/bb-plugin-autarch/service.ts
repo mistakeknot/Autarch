@@ -803,11 +803,12 @@ export class Service {
 
   // ---- holds: the vizier greys a card out while its script or question is superseded. Kept in one settings_kv value
   // (no schema change). A hold hides the card from "needs you now"; it never closes, rules or edits the card.
-  // The parsed list is kept while the store's settings stamp is the same, so a poll that asks about every card parses
+  // The parsed list is kept (outside a transaction) while the store's settings stamp is the same, so a poll that asks about every card parses
   // the stored value once, not once per card. Readers get copies: nothing outside can change what the next one sees.
   private holdCache: { stamp: string; holds: Record<string, Hold> } | undefined;
   private readHolds(): Record<string, Hold> {
     const stamp = this.store.settingsStamp();
+    if (stamp === null) return this.parseHolds();
     if (this.holdCache?.stamp === stamp) return this.holdCache.holds;
     const holds = this.parseHolds();
     this.holdCache = { stamp, holds };
@@ -867,6 +868,7 @@ export class Service {
   private laterCache: { stamp: string; laters: Record<string, Later> } | undefined;
   private readLaters(): Record<string, Later> {
     const stamp = this.store.settingsStamp();
+    if (stamp === null) return this.parseLaters();
     if (this.laterCache?.stamp === stamp) return this.laterCache.laters;
     const laters = this.parseLaters();
     this.laterCache = { stamp, laters };

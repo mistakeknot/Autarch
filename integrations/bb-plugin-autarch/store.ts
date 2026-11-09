@@ -330,7 +330,6 @@ export class Store {
   }
 
   setSetting(key: string, value: string): void {
-    this.settingsWrites++;
     this.db
       .prepare(
         "INSERT INTO settings_kv(key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value",
@@ -338,25 +337,25 @@ export class Store {
       .run(key, value);
   }
 
-  private settingsWrites = 0;
+  private stampQuery: ReturnType<Database["prepare"]> | undefined;
 
   /**
-   * A token that differs whenever a setting may have changed since it was last read: a write or a rollback through
-   * this store bumps the counter, and a commit by another connection to the file changes `data_version`. A parsed
-   * copy of a setting stays good while the token is the same, so a reader need not fetch the value to check.
+   * A token for a parsed copy of a setting, or null when no copy may be kept. While it is the same string, nothing
+   * has written to the file since: `total_changes()` moves with every row this connection inserts, updates or deletes
+   * (a write that is later rolled back still counts, so it is never mistaken for no change), and `data_version` moves
+   * with every commit by another connection. Inside a transaction a read can see writes that may yet roll back, so
+   * there is no token and the caller reads the value afresh.
    */
-  settingsStamp(): string {
-    return `${this.settingsWrites}:${this.db.pragma("data_version", { simple: true })}`;
+  settingsStamp(): string | null {
+    if (this.db.inTransaction) return null;
+    this.stampQuery ??= this.db.prepare("SELECT total_changes() AS c, (SELECT data_version FROM pragma_data_version) AS v");
+    const r = this.stampQuery.get() as { c: number; v: number };
+    return `${r.c}:${r.v}`;
   }
 
   /** Run fn in a BEGIN IMMEDIATE transaction: the write lock is taken up front. */
   private tx<T>(fn: () => T): T {
-    try {
-      return this.db.transaction(fn).immediate();
-    } finally {
-      // A rolled-back write leaves nothing in the file, so anything parsed from it inside the transaction is stale.
-      this.settingsWrites++;
-    }
+    return this.db.transaction(fn).immediate();
   }
 
   /** Run fn as one BEGIN IMMEDIATE transaction (a savepoint when already inside one). */

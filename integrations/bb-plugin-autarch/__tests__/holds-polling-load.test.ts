@@ -130,6 +130,29 @@ describe("the cache never serves a stale list", () => {
     expect(r.svc.holdOf(ids[1])).toBeNull();
   });
 
+  it("sees a value changed with plain SQL on the same connection", async () => {
+    const { r, ids } = await fixture();
+    expect(r.svc.laterOf(ids[3])).not.toBeNull();
+    expect(r.svc.holdOf(ids[0])).not.toBeNull();
+    r.svc.store.db.prepare("UPDATE settings_kv SET value = '{}' WHERE key = 'later'").run();
+    r.svc.store.db.prepare("DELETE FROM settings_kv WHERE key = 'holds'").run();
+    expect(r.svc.laterOf(ids[3])).toBeNull();
+    expect(r.svc.holdOf(ids[0])).toBeNull();
+  });
+
+  it("forgets a write that a plain transaction on the connection rolled back", async () => {
+    const { r, ids } = await fixture();
+    expect(r.svc.holdOf(ids[1])).toBeNull();
+    const t = r.svc.store.db.transaction(() => {
+      r.svc.store.setSetting("holds", JSON.stringify({ [ids[1]]: { reason: "r", by: "v", at: "2026-10-07T00:00:00.000Z" } }));
+      expect(r.svc.holdOf(ids[1])).not.toBeNull();
+      throw new Error("abort");
+    });
+    expect(() => t()).toThrow("abort");
+    expect(r.svc.holdOf(ids[1])).toBeNull();
+    expect(r.svc.holdOf(ids[0])).not.toBeNull();
+  });
+
   it("hands out copies, so a caller that edits a result does not change later reads", async () => {
     const { r, ids } = await fixture();
     const h = r.svc.holdOf(ids[0])!;
@@ -174,11 +197,21 @@ describe("isOwed", () => {
     const [a, b, c] = [mk(0), mk(1), mk(2)];
     await r.poll();
     const dec = (t: { id: string }) => (r.gens(t.id)[0] as { id: string }).id;
+    const d = mk(3);
     r.mkPick(dec(b));
     r.svc.store.withdrawDecision(dec(c), "test");
-    const open = new Set(r.svc.owed().map((d) => d.id));
+    await r.poll();
+    // A replacement row (as a legacy ask's replace leaves it) takes the first generation out of owed() and is owed itself.
+    const g1 = dec(d);
+    const proto = r.db.prepare("SELECT * FROM decisions WHERE id = ?").get(g1) as Record<string, unknown>;
+    const cols = Object.keys(proto);
+    const v: Record<string, unknown> = { ...proto, id: "io-replacement", request_id: "req-io-r", identity: "ident-io-r", semantic_key: "key-io-r", generation: 2, supersedes: g1 };
+    r.db.prepare(`INSERT INTO decisions (${cols.join(",")}) VALUES (${cols.map(() => "?").join(",")})`).run(...cols.map((c) => v[c]));
+    const g2 = "io-replacement";
+    const open = new Set(r.svc.owed().map((x) => x.id));
     expect(open.has(dec(a))).toBe(true);
-    for (const id of [dec(a), dec(b), dec(c), "no-such-decision"]) expect(r.svc.isOwed(id)).toBe(open.has(id));
-    expect([dec(a), dec(b), dec(c)].map((id) => r.svc.isOwed(id))).toEqual([true, false, false]);
+    const all = [dec(a), dec(b), dec(c), g1, g2, "no-such-decision"];
+    for (const id of all) expect(r.svc.isOwed(id)).toBe(open.has(id));
+    expect(all.map((id) => r.svc.isOwed(id))).toEqual([true, false, false, false, true, false]);
   });
 });
