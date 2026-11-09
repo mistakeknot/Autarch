@@ -31,7 +31,7 @@ CREATE TABLE moves (
 );
 CREATE INDEX moves_state ON moves(state, opened_at);`;
 
-type InstallMode = "ok" | "reset-after-enable" | "reset-nothing" | "reset-stale-dist" | "reset-other-source";
+type InstallMode = "ok" | "reset-rebuilt-disabled" | "reset-after-enable" | "reset-nothing" | "reset-stale-dist" | "reset-other-source";
 
 interface RigOpts { schema?: number | null; moves?: boolean; plugin?: "running" | "disabled"; install?: InstallMode }
 
@@ -105,6 +105,7 @@ case "$1 $2" in
     case "$(cat $C/install-mode)" in
       ok) touch ${join(plugin, "dist", "app.js")} ;;
       reset-after-enable) sleep 0.2; touch ${join(plugin, "dist", "app.js")}; echo "true running" > $C/state; echo "Error: fetch failed: read ECONNRESET" >&2; exit 1 ;;
+      reset-rebuilt-disabled) sleep 0.2; touch ${join(plugin, "dist", "app.js")}; echo "Error: fetch failed: read ECONNRESET" >&2; exit 1 ;;
       reset-nothing) echo "Error: fetch failed: read ECONNRESET" >&2; exit 1 ;;
       reset-stale-dist) echo "true running" > $C/state; echo "Error: fetch failed: read ECONNRESET" >&2; exit 1 ;;
       reset-other-source) sleep 0.2; touch ${join(plugin, "dist", "app.js")}; echo "true running" > $C/state; echo "/elsewhere/plugin" > $C/source; echo "Error: fetch failed: read ECONNRESET" >&2; exit 1 ;;
@@ -250,5 +251,56 @@ exec ${real} "$@"
     expect(o.status).toBe(3);
     expect(o.stdout).toContain("NUL byte or a BLOB");
     expect(changedAnything(r.calledList())).toBe(false);
+  });
+});
+
+describe.skipIf(!isMk)("mk-fg2io: a client-side bb plugin install error after the server did the work", () => {
+  it("install exits nonzero after the server rebuilt dist and enabled the plugin: success with a warning, no failure, no rollback hint", { timeout: 90_000 }, () => {
+    const r = rig({ install: "reset-after-enable" });
+    const o = r.inst(["--go", "--commit", r.head]);
+    expect(o.status, o.stdout + o.stderr).toBe(0);
+    expect(o.stdout).toContain("WARNING");
+    expect(o.stdout).toContain("the server completed the install");
+    expect(o.stdout).not.toContain("install failed");
+    expect(o.stdout).toContain(`installed ${r.head}`);
+  });
+
+  it("install exits nonzero and the server did nothing: failure is reported after a bounded poll", { timeout: 90_000 }, () => {
+    const r = rig({ install: "reset-nothing" });
+    const t0 = Date.now();
+    const o = r.inst(["--go", "--commit", r.head]);
+    expect(o.status).toBe(5);
+    expect(o.stdout).toContain("install failed");
+    expect(Date.now() - t0).toBeLessThan(30_000);
+  });
+
+  it("enabled and running from the right source but dist NOT rebuilt since the install began: still a failure", () => {
+    const r = rig({ install: "reset-stale-dist" });
+    const o = r.inst(["--go", "--commit", r.head]);
+    expect(o.status).toBe(5);
+    expect(o.stdout).toContain("install failed");
+  });
+
+  it("running and rebuilt but from a different source: still a failure", () => {
+    const r = rig({ install: "reset-other-source" });
+    const o = r.inst(["--go", "--commit", r.head]);
+    expect(o.status).toBe(5);
+    expect(o.stdout).toContain("install failed");
+  });
+
+  it("install exits nonzero after the server rebuilt dist but left the plugin disabled (install does not enable): success with a warning, then the normal enable", { timeout: 90_000 }, () => {
+    const r = rig({ install: "reset-rebuilt-disabled" });
+    const o = r.inst(["--go", "--commit", r.head]);
+    expect(o.status, o.stdout + o.stderr).toBe(0);
+    expect(o.stdout).toContain("WARNING");
+    expect(r.calledList().filter((c) => c === "plugin enable autarch")).toHaveLength(1);
+    expect(o.stdout).toContain(`installed ${r.head}`);
+  });
+
+  it("a clean install is unchanged (no warning)", { timeout: 90_000 }, () => {
+    const r = rig({ install: "ok" });
+    const o = r.inst(["--go", "--commit", r.head]);
+    expect(o.status, o.stdout + o.stderr).toBe(0);
+    expect(o.stdout).not.toContain("WARNING");
   });
 });
