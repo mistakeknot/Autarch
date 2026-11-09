@@ -142,7 +142,11 @@ export class MergeRecheck {
   }
 
   async pass(): Promise<void> {
-    for (const p of duePicks(this.o.db, this.clock())) {
+    const due = duePicks(this.o.db, this.clock());
+    // A pick that left the window, was withdrawn or was superseded between the looks is not due any more: forget its record.
+    const dueIds = new Set(due.map((p) => p.decision_id));
+    for (const id of this.firstOpen.keys()) if (!dueIds.has(id)) this.firstOpen.delete(id);
+    for (const p of due) {
       if (this.done.has(p.decision_id)) continue;
       const pr = mergePrOf(p.body_json, p.option_id, p.approval_target);
       if (!pr || Number(p.generation) >= MAX_GENERATIONS) {

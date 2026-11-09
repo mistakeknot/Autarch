@@ -1,6 +1,6 @@
 // Merge recheck (bead mk-g1t73): a merge pick whose PR is still open five minutes later brings the card back.
 import { afterEach, describe, expect, it } from "vitest";
-import { MergeRecheck, mergePrOf, RECHECK_AFTER_MS, RECHECK_SECOND_LOOK_MS } from "../mergerecheck.js";
+import { MergeRecheck, mergePrOf, RECHECK_AFTER_MS, RECHECK_SECOND_LOOK_MS, RECHECK_WINDOW_MS } from "../mergerecheck.js";
 import { TasksClient } from "../tasks.js";
 import { cleanupEnvs, opened, pollN, rig } from "./card-rig.js";
 
@@ -397,6 +397,46 @@ describe("merge recheck looks twice before it brings a card back (bead mk-qepye)
     r.advance(60_000);
     await m.pass();
     expect(r.gens(t.id)).toHaveLength(2);
+  });
+
+  it("keeps the pick through a gh failure between the looks, and does not bring it back early", async () => {
+    const { r, t } = await pickedMerge();
+    let mode: "ok" | "down" | "weird" = "ok";
+    const m = new MergeRecheck({
+      db: r.svc.store.db,
+      ghView: async () => {
+        if (mode === "down") throw new Error("gh down");
+        return { state: mode === "weird" ? "ODD" : "OPEN", mergedAt: null };
+      },
+      taskState: (id: string) => new TasksClient(r.fake, { now: () => r.env.clock.t }).taskState(id),
+      clock: () => Date.parse(r.svc.time()),
+      bringBack: async (taskId, decisionId) => r.dele.bringBack(taskId, decisionId, null, {}).ok,
+    });
+    toAge(r, RECHECK_AFTER_MS + 1000);
+    await m.pass(); // first look: open
+    mode = "down";
+    toAge(r, RECHECK_SECOND_LOOK_MS + 1000);
+    await m.pass(); // second look fails
+    mode = "weird";
+    await m.pass(); // an unknown state is an error too
+    expect(m.stats.errors).toBe(2);
+    expect(r.gens(t.id)).toHaveLength(1);
+    mode = "ok";
+    await m.pass(); // recovered: the first look is still on record
+    expect(r.gens(t.id)).toHaveLength(2);
+  });
+
+  it("forgets a first look whose pick left the two-hour window before the second look", async () => {
+    const { r, t } = await pickedMerge();
+    const calls: string[] = [];
+    const m = recheck(r, () => "OPEN", calls);
+    toAge(r, RECHECK_WINDOW_MS - 30_000);
+    await m.pass(); // first look just inside the window
+    toAge(r, RECHECK_WINDOW_MS + 30_000);
+    await m.pass(); // gone from the window: no second look, nothing brought back
+    expect(calls).toHaveLength(1);
+    expect(r.gens(t.id)).toHaveLength(1);
+    expect((m as any).firstOpen.size).toBe(0);
   });
 
   it("keeps the two-hour bound: a pick older than two hours is never looked at", async () => {
