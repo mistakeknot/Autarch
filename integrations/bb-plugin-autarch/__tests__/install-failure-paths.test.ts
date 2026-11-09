@@ -31,7 +31,7 @@ CREATE TABLE moves (
 );
 CREATE INDEX moves_state ON moves(state, opened_at);`;
 
-type InstallMode = "ok" | "reset-rebuilt-disabled" | "reset-after-enable" | "reset-nothing" | "reset-stale-dist" | "reset-other-source" | "reset-unrelated-files" | "reset-partial-build" | "reset-bad-meta";
+type InstallMode = "ok" | "reset-rebuilt-disabled" | "reset-after-enable" | "reset-nothing" | "reset-stale-dist" | "reset-other-source" | "reset-unrelated-files" | "reset-partial-build" | "reset-server-only" | "reset-bad-meta";
 
 interface RigOpts { schema?: number | null; moves?: boolean; plugin?: "running" | "disabled"; install?: InstallMode }
 
@@ -93,7 +93,7 @@ function rig(opts: RigOpts = {}) {
     `#!/bin/sh
 C=${ctl}
 D=${join(plugin, "dist")}
-rebuild() { for f in server.js server.meta.json app.js app.meta.json app.css; do touch $D/$f; done; }
+rebuild() { for f in app.js app.meta.json app.css; do touch $D/$f; done; }  # a path install builds only the frontend
 echo "$@" >> ${calls}
 read EN STATUS < $C/state
 case "$1 $2" in
@@ -117,6 +117,7 @@ case "$1 $2" in
       reset-stale-dist) echo "true running" > $C/state; echo "Error: fetch failed: read ECONNRESET" >&2; exit 1 ;;
       reset-unrelated-files) sleep 0.2; mkdir -p ${join(plugin, "dist", ".staging")}; touch ${join(plugin, "dist", ".staging", "chunk.js")} ${join(plugin, "dist", "app.js.tmp")}; echo "true running" > $C/state; echo "Error: fetch failed: read ECONNRESET" >&2; exit 1 ;;
       reset-partial-build) sleep 0.2; touch $D/app.css; echo "true running" > $C/state; echo "Error: fetch failed: read ECONNRESET" >&2; exit 1 ;;
+      reset-server-only) sleep 0.2; touch $D/server.js $D/server.meta.json; echo "true running" > $C/state; echo "Error: fetch failed: read ECONNRESET" >&2; exit 1 ;;
       reset-bad-meta) sleep 0.2; rebuild; echo '{"pluginId":"other"}' > $D/app.meta.json; echo "true running" > $C/state; echo "Error: fetch failed: read ECONNRESET" >&2; exit 1 ;;
       reset-other-source) sleep 0.2; rebuild; echo "true running" > $C/state; echo "/elsewhere/plugin" > $C/source; echo "Error: fetch failed: read ECONNRESET" >&2; exit 1 ;;
     esac ;;
@@ -286,8 +287,8 @@ describe.skipIf(!isMk)("mk-fg2io: a client-side bb plugin install error after th
     expect(took).toBeGreaterThanOrEqual(2_500); // the poll really waited out HOME_YOUR_MOVE_RECHECK_WAIT=3, not an immediate failure
   });
 
-  it("a partial build (only app.css rebuilt, the server artifacts old) or a wrong meta stamp: still a failure", { timeout: 60_000 }, () => {
-    for (const install of ["reset-partial-build", "reset-bad-meta"] as const) {
+  it("a partial build (only app.css rebuilt), only the checkout server artifacts touched, or a wrong meta stamp: still a failure", { timeout: 60_000 }, () => {
+    for (const install of ["reset-partial-build", "reset-server-only", "reset-bad-meta"] as const) {
       const r = rig({ install });
       const o = r.inst(["--go", "--commit", r.head]);
       expect(o.status, install).toBe(5);

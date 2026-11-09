@@ -303,17 +303,16 @@ enable_and_verify() {   # $1 = expected max migration_log version
   [ "$OK" = 1 ] || { say "no evidence of a running plugin; see 'bb plugin logs autarch'"; exit 6; }
 }
 # install-error recheck: begin
-# A finished build leaves the declared artifacts (`bb plugin build`: server.js, server.meta.json, app.js, app.css, app.meta.json)
-# all newer than $1 and the two meta files naming the plugin; a half-written dist (some artifacts rebuilt, the rest old) does not pass.
+# A path-plugin `bb plugin install` builds only the frontend (app.js, app.css, app.meta.json, each written by renaming a staged
+# file); the server bundle runs from bb's own runtime cache, so dist/server.js and dist/server.meta.json are not rebuilt and are
+# not checked. A finished install leaves all three frontend artifacts newer than $1 and app.meta.json naming the plugin; a
+# half-written dist (some artifacts rebuilt, the rest old) does not pass.
 dist_rebuilt() {   # $1 = marker file touched just before the install began
   local d="$PLUGIN/dist" f
-  for f in server.js server.meta.json app.js app.meta.json; do
+  for f in app.js app.css app.meta.json; do
     if [ -s "$d/$f" ] && [ "$d/$f" -nt "$1" ]; then :; else return 1; fi
   done
-  if [ -e "$d/app.css" ] && [ ! "$d/app.css" -nt "$1" ]; then return 1; fi
-  for f in server.meta.json app.meta.json; do
-    jq -e '.pluginId == "autarch"' "$d/$f" >/dev/null 2>&1 || return 1
-  done
+  jq -e '.pluginId == "autarch"' "$d/app.meta.json" >/dev/null 2>&1 || return 1
 }
 # `bb plugin install` can exit non-zero on the client (a reset connection while it waits) after the server has finished the install.
 # Returns 0 when the install succeeded, or failed on the client but autarch is installed from $PLUGIN, in a state install leaves
@@ -333,7 +332,7 @@ install_rechecked() {   # $1 = marker file touched just before the install began
     if [ "$row" = match ]; then
       newer=; dist_rebuilt "$1" && newer=yes
       if [ -n "$newer" ]; then
-        say "WARNING: 'bb plugin install' exited $rc, but the server completed the install: autarch is installed from $PLUGIN and its dist/ artifacts were rebuilt after the install began; going on to enable and verify"
+        say "WARNING: 'bb plugin install' exited $rc, but the server completed the install: autarch is installed from $PLUGIN and its frontend build (dist/app.js, app.css, app.meta.json) was rebuilt after the install began; going on to enable and verify"
         return 0
       fi
     fi
