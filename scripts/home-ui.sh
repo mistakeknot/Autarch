@@ -247,6 +247,10 @@ rollback_cmd() { printf 'rollback: bash %q rollback %q\n' "$REPO/scripts/home-ui
 # themselves) must exist on disk byte-for-byte as in the build's commit, with no symlink and no extra file. The commit is the stamp's
 # (cross-checked against HEAD and its tree) or, for an unstamped build, HEAD with a clean status over the closure. The control paths come
 # from the plugin file as COMMITTED, never from the disk copy. Any failure is a refusal (exit 10) that says to use --engine legacy.
+# Git reads here ignore replace refs (GIT_NO_REPLACE_OBJECTS), so the baseline is the real commit. The destination lock must be held on a
+# descriptor that names <state dir>/lock; an inherited BPD_LOCK_FD alone is not proof. Boundary: the installed build is not copied; the
+# tool is exec'd from it right after this check, and re-verifies the same closure in-process (plan 2.2). A same-user writer that swaps and
+# restores a closure file in that gap is outside this check; the lock stops the update runner and every other deploy, not a hostile editor.
 tdie() { die "--engine tool refused: $*; use --engine legacy (or the reviewed install script)" 10; }
 GLOBRE_JQ='def globre:
   gsub("(?<c>[.+^${}()|\\[\\]\\\\])"; "\\" + .c) | gsub("\\*\\*/"; "\u0001") | gsub("\\*\\*"; "\u0002") | gsub("\\*"; "[^/]*") | gsub("\\?"; "[^/]")
@@ -278,7 +282,7 @@ CLOSURE_REASON=
 verify_closure() {   # $1 = build root; sets CLOSURE_REASON and returns 1 on any failure; prints nothing
   local root=$1 T ref head tree sc st n out bad
   T=$(mktemp -d) || { CLOSURE_REASON="cannot make a temp dir"; return 1; }
-  local g=(env GIT_OPTIONAL_LOCKS=0 GIT_TERMINAL_PROMPT=0 git -C "$root")
+  local g=(env GIT_NO_REPLACE_OBJECTS=1 GIT_OPTIONAL_LOCKS=0 GIT_TERMINAL_PROMPT=0 git -C "$root")
   head=$("${g[@]}" rev-parse HEAD 2>/dev/null) && [[ $head =~ ^[0-9a-f]{40}$ ]] || { CLOSURE_REASON="the installed build is not a git checkout"; rm -rf "$T"; return 1; }
   tree=$("${g[@]}" rev-parse 'HEAD^{tree}' 2>/dev/null) || tree=
   sc=$root/.bb-plugin-deploy/stamp.json
@@ -303,7 +307,7 @@ verify_closure() {   # $1 = build root; sets CLOSURE_REASON and returns 1 on any
   if [ "${out%%$'\n'*}" != OK ]; then CLOSURE_REASON=${out#FAIL }; CLOSURE_REASON=${CLOSURE_REASON%%$'\n'*}; rm -rf "$T"; return 1; fi
   printf '%s\n' "${out#OK}" | sed '1d' >"$T/want.txt"
   cut -f1 "$T/want.txt" >"$T/want.sha"; cut -f2- "$T/want.txt" >"$T/want.paths"
-  ( cd "$root" && git hash-object --no-filters --stdin-paths <"$T/want.paths" ) >"$T/got.sha" 2>"$T/hash.err" || { CLOSURE_REASON="git hash-object failed: $(head -c 200 "$T/hash.err")"; rm -rf "$T"; return 1; }
+  ( cd "$root" && env GIT_NO_REPLACE_OBJECTS=1 git hash-object --no-filters --stdin-paths <"$T/want.paths" ) >"$T/got.sha" 2>"$T/hash.err" || { CLOSURE_REASON="git hash-object failed: $(head -c 200 "$T/hash.err")"; rm -rf "$T"; return 1; }
   if ! cmp -s "$T/want.sha" "$T/got.sha"; then
     bad=$(paste -d' ' "$T/want.sha" "$T/got.sha" "$T/want.paths" | awk '$1 != $2 { sub(/^[^ ]+ [^ ]+ /, ""); print; exit }')
     CLOSURE_REASON="${bad:-a closure file} differs from commit ${ref:0:12}"; rm -rf "$T"; return 1
@@ -319,8 +323,20 @@ verify_closure() {   # $1 = build root; sets CLOSURE_REASON and returns 1 on any
   rm -rf "$T"
 }
 
+lock_proved() {   # $1 = lock file, $2 = descriptor: the descriptor names that file and the lock is held (a fresh open cannot take it)
+  local a b
+  a=$(stat -L -c %d:%i "/proc/self/fd/$2" 2>/dev/null || true); b=$(stat -c %d:%i "$1" 2>/dev/null || true)
+  [ -n "$a" ] && [ "$a" = "$b" ] || return 1
+  ( flock -n 8 ) 8>>"$1" 2>/dev/null && return 1
+  return 0
+}
+
 tool_engine() {   # check, deploy or preview through the installed build's tool; never returns on success (exec)
-  local src root cli pf st args=() bbenv=()
+  local src root cli pf st args=() bbenv=() lf
+  st=${HOME_UI_STATE_DIR:-$MKHOME/.local/state/autarch-home-update}
+  [ -d "$st" ] || tdie "no state dir $st, so no destination lock could be taken"
+  lf=${BPD_LOCK_FD:-}; case $lf in ''|*[!0-9]*) tdie "the destination lock was not taken (BPD_LOCK_FD is not a descriptor)" ;; esac
+  lock_proved "$st/lock" "$lf" || tdie "the destination lock is not held on descriptor $lf"
   src=$("$BB" plugin source autarch 2>/dev/null | sed -n 's/^ *resolved: path://p' | head -n1) || src=
   [ -n "$src" ] && [ -d "$src" ] || tdie "cannot tell the installed Home build (bb plugin source autarch)"
   src=$(cd "$src" && pwd -P)
@@ -335,8 +351,6 @@ tool_engine() {   # check, deploy or preview through the installed build's tool;
   command -v node >/dev/null 2>&1 || tdie "node is not on the PATH"
   command -v git >/dev/null 2>&1 && command -v jq >/dev/null 2>&1 || tdie "git and jq are needed to verify the installed tool"
   verify_closure "$root" || tdie "installed deploy tooling does not match its commit ($CLOSURE_REASON)"
-  [ -n "${BPD_LOCK_FD:-}" ] || tdie "the destination lock was not taken (no state dir ${HOME_UI_STATE_DIR:-$MKHOME/.local/state/autarch-home-update})"
-  st=${HOME_UI_STATE_DIR:-$MKHOME/.local/state/autarch-home-update}
   args=("$cli" "$SUB" --plugin-file "$pf" --bb-data "$BBDATA" --state-dir "$st")
   case $SUB in
     check)   args+=(--commit "$COMMIT" --class plugin-deploy) ;;

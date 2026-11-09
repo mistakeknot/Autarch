@@ -247,7 +247,7 @@ describe("home-ui.sh --engine tool: delegation", () => {
     const out = r.run(["deploy", "--commit", SHA, "--engine", "tool"]);
     expect(out.status).toBe(TOOL_REFUSED);
     expect(out.stderr).toMatch(legacyHint);
-    expect(out.stderr).toContain("destination lock was not taken");
+    expect(out.stderr).toContain("no state dir");
     expect(r.seen()).toEqual([]);
   });
 });
@@ -389,6 +389,37 @@ describe("home-ui.sh --engine tool: refusals", () => {
     chmodSync(join(r.inst, "scripts/home-gates.sh"), 0o755);   // same bytes, different mode: only git status sees it
     git(r.inst, "config", "core.fileMode", "true");
     refused(r, /uncommitted change in the closure: scripts\/home-gates\.sh/);
+  });
+
+  it("is not fooled by a git replace ref that swaps the baseline commit for a tampered one", () => {
+    const r = rig();
+    r.put("tools/bb-plugin-deploy/cli.mjs", "console.log('tampered');\n");
+    git(r.inst, "add", "-A");
+    const tree = git(r.inst, "write-tree").stdout.trim();
+    const fake = git(r.inst, "commit-tree", tree, "-p", r.head, "-m", "tampered").stdout.trim();
+    expect(git(r.inst, "replace", r.head, fake).status).toBe(0);   // HEAD still names the old sha; reads of it see the tampered tree
+    refused(r, /does not match its commit/);
+    // The same attack on a stamped build: the stamp still equals HEAD and HEAD^{tree}, which a replace ref also rewrites.
+    const r2 = rig({ stamped: true });
+    r2.put("tools/bb-plugin-deploy/cli.mjs", "console.log('tampered');\n");
+    git(r2.inst, "add", "-A");
+    const tree2 = git(r2.inst, "write-tree").stdout.trim();
+    const fake2 = git(r2.inst, "commit-tree", tree2, "-p", r2.head, "-m", "tampered").stdout.trim();
+    git(r2.inst, "replace", r2.head, fake2);
+    refused(r2, /does not match its commit/);
+  });
+
+  it("does not take an inherited BPD_LOCK_FD for a held lock: no state dir is refused, and so is a descriptor on another file", () => {
+    const r = rig({ noState: true });
+    const out = r.run(["deploy", "--commit", SHA, "--engine", "tool"], { BPD_LOCK_FD: "2" });
+    expect(out.status).toBe(TOOL_REFUSED);
+    expect(out.stderr).toContain("no state dir");
+    expect(r.seen()).toEqual([]);
+    const r2 = rig();
+    const out2 = r2.run(["deploy", "--commit", SHA, "--engine", "tool"], { BPD_LOCK_FD: "2" });   // fd 2 is not the lock; the script opens its own
+    expect(out2.status).toBe(0);
+    expect(r2.seen()[0].held).toBe(true);
+    expect(r2.seen()[0].lockFd).not.toBe("2");
   });
 });
 
