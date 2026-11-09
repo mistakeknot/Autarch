@@ -76,13 +76,16 @@ export function OtherBox({
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
   const [imgs, setImgsState] = useState<Staged[]>([]);
-  const imgsRef = useRef<Staged[]>([]);
+  // Starts as the very array in state: "the images are still what was sent" is an identity check, so a text-only send must match.
+  const imgsRef = useRef<Staged[]>(imgs);
   const setImgs = (v: Staged[]) => {
     imgsRef.current = v;
     setImgsState(v);
   };
   const [imgErr, setImgErr] = useState<string | null>(null);
   const [loading, setLoading] = useState(0);
+  // Reads in flight, readable from a late send callback: a read begun after a send went out is a newer draft.
+  const loadingRef = useRef(0);
   const nextId = useRef(1);
   const chain = useRef<Promise<void>>(Promise.resolve());
   // A read that timed out, or outlives the box, is stale: it must not attach its image later.
@@ -122,6 +125,7 @@ export function OtherBox({
   };
   const addFiles = (files: File[]) => {
     if (busy) return; // a send in flight owns the staged images; anything added now would be cleared unsent
+    loadingRef.current++;
     setLoading((n) => n + 1);
     chain.current = chain.current
       .then(() => {
@@ -132,7 +136,7 @@ export function OtherBox({
         });
       })
       .catch(() => {})
-      .finally(() => setLoading((n) => n - 1));
+      .finally(() => { loadingRef.current--; setLoading((n) => n - 1); });
   };
   const dropImg = (id: number) => {
     const gone = imgsRef.current.find((x) => x.id === id);
@@ -152,7 +156,7 @@ export function OtherBox({
       const done = (r: OtherOutcome | void) => {
         if (r && r.ok === false) { setMsg({ ok: false, text: r.error ?? "not sent" }); return; }
         // A late success must not wipe a newer draft: clear only while the text and the staged images are still what was sent.
-        const unchanged = otherText(rawRef.current) === t && imgsRef.current === sentImgs;
+        const unchanged = otherText(rawRef.current) === t && imgsRef.current === sentImgs && loadingRef.current === 0;
         if (clear && !unchanged) { setMsg({ ok: true, text: `${okText} Your newer draft was kept.` }); return; }
         setMsg({ ok: true, text: okText });
         if (clear) {
