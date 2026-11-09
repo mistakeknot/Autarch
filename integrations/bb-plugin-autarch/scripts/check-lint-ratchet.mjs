@@ -5,7 +5,8 @@
 // that lowers one must regenerate the baseline with --write so the win shows in
 // the diff. --write refuses to raise a count.
 //
-//   node scripts/check-lint-ratchet.mjs           check live counts against lint-lock.json (exact)
+//   node scripts/check-lint-ratchet.mjs           check live counts against lint-lock.json (exact); also fails while oxlint reports an error,
+//                                                 but only after the counts have been compared and reported
 //   node scripts/check-lint-ratchet.mjs --write   regenerate the baseline (refuses to raise; creates it when absent)
 //   node scripts/check-lint-ratchet.mjs --list    print the live counts
 //
@@ -108,12 +109,12 @@ export function main(argv = process.argv.slice(2), env = process.env) {
   const lock = join(root, "lint-lock.json");
   const noOxlint = env.LINT_RATCHET_NO_OXLINT === "1";
   let live = scanTree(root);
+  // Errors do not stop the comparison: the ledger must keep shrinking while a few errors are still being cleared. They fail
+  // the check on their own, after the counts have been compared and reported.
+  let errorCount = 0;
   if (!noOxlint) {
     const { per, errors } = oxlintWarnings(root);
-    if (errors.length) {
-      console.error(`oxlint reports ${errors.length} error(s); run: npx oxlint -c .oxlintrc.json .`);
-      return 1;
-    }
+    errorCount = errors.length;
     live = mergeWarnings(live, per);
   }
   live = normalize(live);
@@ -132,14 +133,20 @@ export function main(argv = process.argv.slice(2), env = process.env) {
     console.log(`wrote ${lock}`);
     return 0;
   }
+  let failed = false;
   if (rose.length) {
     console.error("lint escapes rose (remove them, do not raise the ledger):\n  " + rose.join("\n  "));
-    return 1;
+    failed = true;
   }
   if (fell.length) {
     console.error("lint escapes fell; regenerate the ledger with `node scripts/check-lint-ratchet.mjs --write`:\n  " + fell.join("\n  "));
-    return 1;
+    failed = true;
   }
+  if (errorCount) {
+    console.error(`oxlint reports ${errorCount} error(s); run: npx oxlint -c .oxlintrc.json .`);
+    failed = true;
+  }
+  if (failed) return 1;
   console.log("lint ratchet: ok");
   return 0;
 }

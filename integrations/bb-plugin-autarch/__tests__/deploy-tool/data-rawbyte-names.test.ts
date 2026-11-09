@@ -4,6 +4,10 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { makeBackup } from "../../../../tools/bb-plugin-deploy/lib/data.mjs";
 
+// makeBackup is plain JavaScript: tsc infers `data: never[]` from its empty-array literal, so a manifest entry is read through this shape.
+type DataEntry = { skipped?: string; files?: unknown };
+const entry0 = (r: { manifest: { data: unknown[] } }): DataEntry => r.manifest.data[0] as DataEntry;
+
 // A filename is bytes, not text. Decoding it as UTF-8 maps every invalid byte to U+FFFD, so the raw name "x\xff" and the
 // valid name "x�" became one manifest path and one digest (the UTF-8 twin's), and a backup holding both could be
 // tampered with in the raw file and still be accepted as the once-per-commit backup.
@@ -61,7 +65,7 @@ describe("data directory backups with names that are not valid UTF-8", () => {
     // Whatever happened the first time, the same commit must never be answered with a skipped, reused backup.
     expect(() => {
       const second = call();
-      expect(second.manifest.data[0].skipped).toBeUndefined();
+      expect(entry0(second).skipped).toBeUndefined();
     }).toThrow(/not valid UTF-8/);
     expect(existsSync(join(root, "state", "once-per-commit"))).toBe(false);
   });
@@ -85,10 +89,10 @@ describe("data directory backups with names that are not valid UTF-8", () => {
     const { src, call } = setup();
     writeFileSync(join(src, "plain.txt"), "a\n");
     const first = call();
-    expect(first.manifest.data[0].skipped).toBeUndefined();
+    expect(entry0(first).skipped).toBeUndefined();
     writeFileSync(bytePath(join(first.dir, "dir"), RAW), "raw\n");
     const second = call();
-    expect(second.manifest.data[0].skipped).toBeUndefined();
+    expect(entry0(second).skipped).toBeUndefined();
     expect(second.dir).not.toBe(first.dir);
   });
 
@@ -108,10 +112,10 @@ describe("data directory backups with names that are not valid UTF-8", () => {
     mkdirSync(join(src, "sub"));
     writeFileSync(join(src, "sub", "c.txt"), "c\n");
     const first = call();
-    expect(first.manifest.data[0].skipped).toBeUndefined();
-    expect((first.manifest.data[0].files as { path: string }[]).map((f) => f.path)).toEqual(["café.txt", "plain.txt", "sub/c.txt"]);
+    expect(entry0(first).skipped).toBeUndefined();
+    expect((entry0(first).files as { path: string }[]).map((f) => f.path)).toEqual(["café.txt", "plain.txt", "sub/c.txt"]);
     expect(readFileSync(join(first.dir, "dir", "plain.txt"), "utf8")).toBe("a\n");
     const second = call();
-    expect(second.manifest.data[0].skipped).toBe("once-per-commit");
+    expect(entry0(second).skipped).toBe("once-per-commit");
   });
 });
