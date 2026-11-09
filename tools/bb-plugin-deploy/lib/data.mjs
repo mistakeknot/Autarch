@@ -36,16 +36,27 @@ export function integrityOk(db) {
   return r.code === 0 && r.stdout.trim() === "ok";
 }
 
-function manifestOfDir(root) {
-  const files = [];
+/**
+ * Walks a data directory and calls `onFile(rel)` for each regular file. A filename is bytes, not text: decoding it as UTF-8 maps
+ * every invalid byte to U+FFFD, so the raw name "x\xff" and the valid name "x\uFFFD" would both read as "x\uFFFD", be opened through
+ * the same path and be hashed as one file. Any entry whose decoded name holds U+FFFD is refused before it is used (the same rule
+ * the closure walk applies).
+ */
+function walkDataDir(root, onFile) {
   const walk = (rel) => {
     for (const d of readdirSync(join(root, rel), { withFileTypes: true })) {
       const r = rel ? `${rel}/${d.name}` : d.name;
+      if (d.name.includes("\uFFFD")) throw refuse(`data path ${JSON.stringify(r)} under ${root} is not valid UTF-8 (or holds U+FFFD); a name that cannot be read back unambiguously is not backed up`);
       if (d.isDirectory()) walk(r);
-      else if (d.isFile()) files.push({ path: r, sha256: sha256(readFileSync(join(root, r))) });
+      else if (d.isFile()) onFile(r);
     }
   };
   walk("");
+}
+
+function manifestOfDir(root) {
+  const files = [];
+  walkDataDir(root, (r) => files.push({ path: r, sha256: sha256(readFileSync(join(root, r))) }));
   return files.sort((a, b) => (a.path < b.path ? -1 : 1));
 }
 
@@ -98,6 +109,7 @@ export function makeBackup({ plugin, vars, backupsRoot, stateDir, commit, previo
       rec.sha256 = sha256(readFileSync(dst));
       if (rec.sha256 !== sha256(readFileSync(src))) throw new ToolError(`data ${e.name}: copy differs from source; nothing was changed`);
     } else {
+      walkDataDir(src, () => {});
       cpSync(src, dst, { recursive: true, errorOnExist: true, verbatimSymlinks: true });
       rec.files = manifestOfDir(dst);
     }

@@ -141,7 +141,9 @@ closed. Keys: `format`, `pluginId`, `repo`, `branch`, `pluginDir`, `build`,
 
 Names under `data` and `export` may not be `.` or `..`. A `data` name may not
 be `manifest.json`, `previous-source.txt` or `export-*.json`, which the backup
-directory uses for its own files. The plugin file itself must be a tracked,
+directory uses for its own files. A `dir` data entry is refused if any file or
+directory name inside it is not valid UTF-8 (or holds U+FFFD): a raw-byte name
+and its U+FFFD twin would otherwise be hashed as one file. The plugin file itself must be a tracked,
 unmodified file of the installed engine build; an edited or untracked copy is
 refused.
 
