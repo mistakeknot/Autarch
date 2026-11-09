@@ -193,6 +193,7 @@ install or the live updater state.
 - The ancestry check is skipped for `mk-script` mode, with a warning.
 - `node_modules` is excluded from the control-closure walk.
 - A closure path (in the commit or on disk) that contains a control character (CR, LF, tab, DEL, any C0 byte) or a byte that is not valid UTF-8 is refused, in a directory name anywhere in the build too (the decoded names "x\xff.mjs" and "x\uFFFD.mjs" would collide in the tool's path maps): `git hash-object --stdin-paths` reads one path per line and drops a trailing CR, so two such names could hash as one file. Closure globs match those names too (`**` and `*` do not stop at CR or LF).
+- A symlink anywhere in the build (outside `node_modules` and `.git`) that resolves to a directory is refused: the walk does not follow links, so such a link could hold a closure-named file out of sight.
 
 ## Recovery commands
 

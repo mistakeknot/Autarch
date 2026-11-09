@@ -1,5 +1,5 @@
 // Git operations, build-tree verification and the control-closure check (plan 2.2 and 2.6).
-import { appendFileSync, chmodSync, existsSync, lstatSync, mkdirSync, readFileSync, readdirSync } from "node:fs";
+import { appendFileSync, chmodSync, existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, statSync } from "node:fs";
 import { join, relative, sep } from "node:path";
 import { childEnv } from "./bb.mjs";
 import { SHA40, ToolError, refuse, run } from "./util.mjs";
@@ -94,6 +94,15 @@ export function lsTree(cwd, commit) {
   return m;
 }
 
+/** True when `abs` (a symlink) resolves to a directory. A dangling or unreadable link is not one. */
+function isDirTarget(abs) {
+  try {
+    return statSync(abs).isDirectory();
+  } catch {
+    return false;
+  }
+}
+
 function walkDisk(root, onEntry) {
   const stack = [""];
   while (stack.length) {
@@ -143,6 +152,8 @@ export function verifyClosure({ root, commit, controlPaths }) {
     if (d.isDirectory() && rel.includes("\uFFFD")) noControl(rel);
     const isLink = d.isSymbolicLink();
     if (isLink && (match(rel) || ancestors.has(rel) || match(`${rel}/x`))) throw fail(`${rel} is a symlink`);
+    // The walk never follows a symlink, so one that resolves to a directory could hold a closure-named file out of sight.
+    if (isLink && isDirTarget(join(root, rel))) throw fail(`${rel} is a symlink to a directory`);
     if (!d.isDirectory() && match(rel)) onDisk.add(rel);
   });
   for (const a of ancestors) {
