@@ -248,4 +248,45 @@ describe("mk-laqhx: a poll that outlives the stop changes nothing", () => {
     expect(r.fake.comments.filter((c: any) => c.body.includes(id))).toHaveLength(1);
     expect(r.db.prepare("SELECT state FROM card_writes WHERE kind = 'comment'").get()).toEqual({ state: "done" });
   });
+  it("a read that never answers does not hold its row after a stop: a restarted writer completes the card's writes", async () => {
+    const r = cardRig();
+    const { t, g1 } = await opened(r);
+    r.mkPick(g1.id);
+    pause(r.fake, "listComments", () => true); // never released: the host ignores the abort
+    const ac = new AbortController();
+    const old = r.writer.drain(ac.signal);
+    await new Promise((res) => setTimeout(res, 50));
+    ac.abort();
+    r.restart();
+    expect(await within(r.writer.drain(), 1_000)).not.toBe("timeout");
+    expect(r.fake.comments.filter((c: any) => c.body.includes("home-write:"))).toHaveLength(1);
+    expect(r.db.prepare("SELECT kind, state FROM card_writes ORDER BY kind").all()).toEqual([
+      { kind: "comment", state: "done" },
+      { kind: "unlabel", state: "done" },
+    ]);
+    expect(r.fake.tasks.find((x: any) => x.id === t.id)!.labelIds).not.toContain(r.label.id);
+    void old;
+  });
+
+  it("an override made while a stopped unlabel's label write is in flight still ends with the label on the task", async () => {
+    const r = cardRig();
+    r.enableDelegation();
+    const { t, g1 } = await opened(r);
+    expect(r.vizierPick(g1.id)).toMatchObject({ ok: true });
+    const p = pause(r.fake, "updateTask", () => true); // the unlabel's label write waits
+    const ac = new AbortController();
+    const old = r.writer.drain(ac.signal);
+    await p.hit;
+    ac.abort();
+    r.restart(); // bb starts the plugin again over the same database
+    const o = r.dele.override(g1.id, {});
+    if (!o.ok) throw new Error(o.error);
+    await r.writer.drain(); // the relabel must not run past the write still in flight
+    p.release(); // the old label write lands
+    await old;
+    await r.writer.drain();
+    await r.writer.drain();
+    expect(r.fake.tasks.find((x: any) => x.id === t.id)!.labelIds).toContain(r.label.id);
+    expect(r.db.prepare("SELECT state FROM card_writes WHERE kind = 'relabel'").get()).toEqual({ state: "done" });
+  });
 });
