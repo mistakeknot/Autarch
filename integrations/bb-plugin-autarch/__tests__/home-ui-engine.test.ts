@@ -422,6 +422,22 @@ describe("home-ui.sh --engine tool: refusals", () => {
     refused(r, /differs from commit/, "check");
   });
 
+  it("refuses a closure path that is not valid UTF-8 (jq would fold it into the replacement character)", () => {
+    const r = rig({ stamped: false });
+    const dir = Buffer.from(join(r.inst, "tools/bb-plugin-deploy/lib"));
+    const rawFf = Buffer.concat([dir, Buffer.from("/x"), Buffer.from([0xff]), Buffer.from(".mjs")]);   // a raw FF byte, which is not UTF-8
+    writeFileSync(rawFf, "same\n");
+    writeFileSync(join(r.inst, "tools/bb-plugin-deploy/lib/x\ufffd.mjs"), "same\n");
+    git(r.inst, "add", "-A");
+    git(r.inst, "commit", "-q", "-m", "odd names");
+    const head = git(r.inst, "rev-parse", "HEAD").stdout.trim();
+    const tree = git(r.inst, "rev-parse", "HEAD^{tree}").stdout.trim();
+    mkdirSync(join(r.inst, ".bb-plugin-deploy"));
+    writeFileSync(join(r.inst, ".bb-plugin-deploy", "stamp.json"), JSON.stringify({ format: "bb-plugin-deploy/stamp@1", pluginId: "autarch", commit: head, tree }));
+    writeFileSync(rawFf, "tampered\n");
+    refused(r, /not valid UTF-8/);
+  });
+
   it("does not take an inherited BPD_LOCK_FD for a held lock: no state dir is refused, and so is a descriptor on another file", () => {
     const r = rig({ noState: true });
     const out = r.run(["deploy", "--commit", SHA, "--engine", "tool"], { BPD_LOCK_FD: "2" });

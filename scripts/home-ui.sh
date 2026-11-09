@@ -303,6 +303,8 @@ verify_closure() {   # $1 = build root; sets CLOSURE_REASON and returns 1 on any
   ( cd "$root" && find . -mindepth 1 \( -path ./.git -o -path ./.bb-plugin-deploy -o -name node_modules \) -prune -o -printf '%y\t%P\0' ) >"$T/disk.z" 2>/dev/null || { CLOSURE_REASON="cannot walk the installed build"; rm -rf "$T"; return 1; }
   n=$(tr -cd '\0' <"$T/disk.z" | wc -c); tr '\0' '\n' <"$T/disk.z" >"$T/disk.txt"
   [ "$(wc -l <"$T/disk.txt")" -eq "$n" ] || { CLOSURE_REASON="a path in the installed build contains a newline"; rm -rf "$T"; return 1; }
+  # jq --rawfile turns invalid UTF-8 into U+FFFD, which would make two distinct names one: refuse such names outright
+  iconv -f UTF-8 -t UTF-8 "$T/tree.txt" >/dev/null 2>&1 && iconv -f UTF-8 -t UTF-8 "$T/disk.txt" >/dev/null 2>&1 || { CLOSURE_REASON="a path is not valid UTF-8"; rm -rf "$T"; return 1; }
   out=$(jq -rn --slurpfile ctrl "$T/ctrl.json" --rawfile tree "$T/tree.txt" --rawfile disk "$T/disk.txt" '$ctrl[0] as $ctrl | '"$CLOSURE_JQ" 2>"$T/jq.err") || { CLOSURE_REASON="closure check failed to run: $(head -c 200 "$T/jq.err")"; rm -rf "$T"; return 1; }
   if [ "${out%%$'\n'*}" != OK ]; then CLOSURE_REASON=${out#FAIL }; CLOSURE_REASON=${CLOSURE_REASON%%$'\n'*}; rm -rf "$T"; return 1; fi
   printf '%s\n' "${out#OK}" | sed '1d' >"$T/want.txt"
