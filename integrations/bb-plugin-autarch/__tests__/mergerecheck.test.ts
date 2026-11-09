@@ -73,6 +73,15 @@ describe("only a merge instruction counts as a merge pick (bead mk-q9m7q)", () =
       expect(mergePrOf(body({ options: [{ id: "a", label, kind: "instruction", instruction }] }), "a", null)?.url, label).toBe(URL130);
     }
   });
+  it("takes a merge pick written with an exclamation mark", () => {
+    const o = (label: string) => body({ options: [{ id: "a", label, kind: "instruction", instruction: "Go." }] });
+    expect(mergePrOf(o("Merge!"), "a", null)?.url).toBe(URL130);
+  });
+  it("does not take a non-merge label that ends in an exclamation mark", () => {
+    for (const label of ["Fix it!", "Check merge readiness!", "Review it!", "Merge readiness!"]) {
+      expect(mergePrOf(body({ options: [{ id: "a", label, kind: "instruction", instruction: "Go." }] }), "a", null), label).toBeNull();
+    }
+  });
   it("keeps a merge approval on a plain label", () => {
     const o = (label: string) => body({ options: [{ id: "a", label, kind: "instruction", instruction: "Go." }] });
     expect(mergePrOf(o("Ship it"), "a", "mistakeknot/Undersketch#130")?.url).toBe(URL130);
