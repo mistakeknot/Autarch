@@ -302,6 +302,30 @@ enable_and_verify() {   # $1 = expected max migration_log version
   say "status running: ${S:-unknown}; migration_log max version: ${M:-unknown}"
   [ "$OK" = 1 ] || { say "no evidence of a running plugin; see 'bb plugin logs autarch'"; exit 6; }
 }
+# install-error recheck: begin
+# `bb plugin install` can exit non-zero on the client (a reset connection while it waits) after the server has finished the install.
+# Returns 0 when the install succeeded, or failed on the client but autarch is installed from $PLUGIN, in a state install leaves
+# (running, or disabled and waiting for the enable step), with dist rebuilt after $1 was touched; returns 1 on a real mismatch,
+# after a bounded poll. The enable step that follows still checks the running plugin and the migration version.
+install_rechecked() {   # $1 = marker file touched just before the install began
+  local rc=0 waited=0 wait=${HOME_YOUR_MOVE_RECHECK_WAIT:-60} step=${HOME_YOUR_MOVE_RECHECK_INTERVAL:-3} row newer
+  "${AS0[@]}" "$BB" plugin install --yes "$PLUGIN" >>"$LOG" 2>&1 || rc=$?
+  [ "$rc" -ne 0 ] || return 0
+  say "install: 'bb plugin install' exited $rc ($(tail -n 1 "$LOG" | head -c 160)); checking for up to ${wait}s whether the server completed it"
+  while :; do
+    row=$("${AS0[@]}" "$BB" plugin list --json 2>/dev/null | jq -r --arg p "$PLUGIN" '[.plugins[]? | select(.id == "autarch")] | if length == 1 and ((.[0].source // "") | sub("/+$"; "")) == ("path:" + ($p | sub("/+$"; ""))) and ((.[0].enabled == true and .[0].status == "running") or .[0].enabled == false) then "match" else "no" end' 2>/dev/null || true)
+    if [ "$row" = match ]; then
+      newer=$(find "$PLUGIN/dist" -type f -newer "$1" -print -quit 2>/dev/null || true)
+      if [ -n "$newer" ]; then
+        say "WARNING: 'bb plugin install' exited $rc, but the server completed the install: autarch is installed from $PLUGIN and $newer was rebuilt after the install began; going on to enable and verify"
+        return 0
+      fi
+    fi
+    [ "$waited" -lt "$wait" ] || return 1
+    sleep "$step"; waited=$((waited+step))
+  done
+}
+# install-error recheck: end
 
 if [ "$MODE" = rollback ]; then
   read_state
@@ -358,7 +382,17 @@ say "backup: $BACKUP ($(sha256sum "$BACKUP" | cut -d' ' -f1))"
 # 4. Install and enable, as scripts/home-upgrade-v3.bash does.
 disable_plugin
 say "+ bb plugin install --yes $PLUGIN"
+# install-error recheck: begin
+# The install runs (and is rechecked) here; the unchanged line below then runs against a stand-in bb that answers for the outcome, so
+# it neither installs twice nor changes its failure message.
+INSTALL_MARK=$OUT/install-started BB_REAL=$BB
+: >"$INSTALL_MARK"
+if install_rechecked "$INSTALL_MARK"; then BB=/bin/true; else BB=/bin/false; fi
+# install-error recheck: end
 "${AS0[@]}" "$BB" plugin install --yes "$PLUGIN" >>"$LOG" 2>&1 || { say "install failed; plugin is disabled; backup $BACKUP; to revert use --rollback"; exit 5; }
+# install-error recheck: begin
+BB=$BB_REAL
+# install-error recheck: end
 # The migration version this build ends at is the build's own CODE_VERSION (4 for the original your-move build, 5 once
 # root_fsid arrived); a hard-coded number would roll back every later additive build.
 EXPECT=$(sed -n 's/^export const CODE_VERSION = \([0-9][0-9]*\);.*/\1/p' "$PLUGIN/migrations.ts" 2>/dev/null | head -1)
