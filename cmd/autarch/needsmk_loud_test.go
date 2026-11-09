@@ -144,3 +144,20 @@ func TestNeedsMkFilePrintsCardKeyFromReadback(t *testing.T) {
 		t.Fatalf("err=%v stderr=%q", err, stderr)
 	}
 }
+
+// B5: with no project in the ask, needs-mk file takes the project from the task board's binding, not
+// from the folder name, which is wrong in a bb worktree.
+func TestNeedsMkFileDefaultsTheProjectToTheBoardBindingInAWorktree(t *testing.T) {
+	t.Setenv("BB_THREAD_ID", "thread-x")
+	s := &stubBB{}
+	var gotProject string
+	oldF, oldC := newCardFiler, checkFilingPreconditions
+	newCardFiler = func() *homeask.CardFiler { return &homeask.CardFiler{Run: bindingStub(s), LockDir: t.TempDir()} }
+	checkFilingPreconditions = func(project, _ string) error { gotProject = project; return nil }
+	t.Cleanup(func() { newCardFiler, checkFilingPreconditions = oldF, oldC })
+	ask := writeAskBody(t, `{"project_root":"`+worktreeRoot+`","question":"Ship it?","options":[{"id":"a","label":"A","kind":"ruling-only"},{"id":"b","label":"B","kind":"ruling-only"}]}`)
+	_, err := execNeedsMkFile("--project", "SHWK", "--title", "Ship?", "--ask-file", ask)
+	if err != nil || gotProject != "shadow-work" {
+		t.Fatalf("err=%v checked project=%q", err, gotProject)
+	}
+}
