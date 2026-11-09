@@ -7,7 +7,7 @@ import { Queue } from "../queue.js";
 import { TasksClient, type PluginsLike } from "../tasks.js";
 import { FakeTasks } from "./tasks-fake.js";
 import { makeEnv, type Env } from "./service-helpers.js";
-import { cleanupEnvs as cleanupCardEnvs, opened, rig as cardRig } from "./card-rig.js";
+import { cleanupEnvs as cleanupCardEnvs, opened, pollN, rig as cardRig } from "./card-rig.js";
 
 const envs: Env[] = [];
 afterEach(() => {
@@ -211,5 +211,41 @@ describe("mk-laqhx: a poll that outlives the stop changes nothing", () => {
       { kind: "comment", state: "pending", attempt: 0, last_error: null },
       { kind: "unlabel", state: "pending", attempt: 0, last_error: null },
     ]);
+  });
+  it("a relabel stopped while its label write is in flight does not go on to reopen the task", async () => {
+    const r = cardRig();
+    r.enableDelegation();
+    const { t, g1 } = await opened(r);
+    expect(r.vizierPick(g1.id)).toMatchObject({ ok: true });
+    await pollN(r, 2); // the unlabel lands and completes the task; the next poll caches it unlabelled and done
+    const o = r.dele.override(g1.id, {});
+    if (!o.ok) throw new Error(o.error);
+    const p = pause(r.fake, "updateTask", () => true); // the relabel's label write waits
+    const ac = new AbortController();
+    const run = r.q.run(ac.signal, realSleep);
+    await p.hit;
+    ac.abort();
+    expect(await within(run, 1_000)).not.toBe("timeout");
+    p.release(); // the label write lands; the reopen that would follow must not be sent
+    await new Promise((res) => setTimeout(res, 200));
+    expect(r.fake.callsOf("updateTask").filter((c) => c.input.status === "todo")).toEqual([]);
+    expect(r.db.prepare("SELECT state, attempt FROM card_writes WHERE kind = 'relabel'").get()).toEqual({ state: "pending", attempt: 0 });
+    expect(r.fake.tasks.find((x: any) => x.id === t.id)!.status).toBe("done");
+  });
+
+  it("a restarted service's writer does not post a comment whose write is still in flight", async () => {
+    const r = cardRig();
+    const { g1 } = await opened(r);
+    r.mkPick(g1.id);
+    const p = pause(r.fake, "createComment", () => true);
+    const old = r.writer.drain(); // sends the mirror comment; it has not landed
+    await p.hit;
+    r.restart(); // bb starts the plugin again over the same database, with a fresh writer
+    await r.writer.drain();
+    p.release();
+    await old;
+    const id = (r.db.prepare("SELECT id FROM card_writes WHERE kind = 'comment'").get() as { id: string }).id;
+    expect(r.fake.comments.filter((c: any) => c.body.includes(id))).toHaveLength(1);
+    expect(r.db.prepare("SELECT state FROM card_writes WHERE kind = 'comment'").get()).toEqual({ state: "done" });
   });
 });
