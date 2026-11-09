@@ -85,6 +85,14 @@ describe("closure glob matching", () => {
 });
 
 describe("other closure-path decoding", () => {
+  it("the first dirty path of an unstamped build is named whole (the status output is not trimmed)", () => {
+    rig = new Rig({ installedKind: "git" });
+    appendFileSync(join(rig.liveRoot() ?? "", "scripts", "home-gates.sh"), "\necho tampered\n");
+    const r = verify();
+    expect(r.status, msg(r)).toBe(10);
+    expect(msg(r)).toMatch(/uncommitted: scripts\/home-gates\.sh\)/);
+  });
+
   it("a closure file renamed out of the closure in the index is refused (status runs without rename detection)", () => {
     rig = new Rig({ installedKind: "git", files: { [`${LIB}/x.mjs`]: "export const x = 1;\n" } });
     const root = rig.liveRoot() ?? "";
