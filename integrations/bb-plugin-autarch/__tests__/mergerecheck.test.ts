@@ -46,6 +46,8 @@ describe("only a merge instruction counts as a merge pick (bead mk-q9m7q)", () =
     ["Allow extra round 2", "Reuse a backup only when its manifest holds the entry. A pass goes to the registrar to merge; any fail stops and comes to mk."],
     ["One more round, then stop", "Run one more fix round; if it passes the vizier merges, otherwise the PR is held."],
     ["Fix it and merge", "Fix the finding."],
+    ["Merge readiness review", "Review the PR and report findings."],
+    ["Merge after one more fix round", "Fix the finding and re-review."],
   ];
   it("does not treat a fix-round option that mentions a later merge as a merge pick", () => {
     for (const [label, instruction] of NOT_MERGES) {
@@ -58,14 +60,16 @@ describe("only a merge instruction counts as a merge pick (bead mk-q9m7q)", () =
       ["Merge PR 130", "mk merges PR 130 in GitHub. The coordinator confirms."],
       ["Yes", "mk merges PR 130 at head 5de17cbf in GitHub."],
       ["Approve", "Merge the PR with --match-head-commit, then report."],
+      ["Yes", "Please merge PR 130."],
+      ["Yes", "Squash merge PR 130."],
+      ["Approve", "Squash and merge PR 130."],
     ];
     for (const [label, instruction] of cases) {
       expect(mergePrOf(body({ options: [{ id: "a", label, kind: "instruction", instruction }] }), "a", null)?.url, label).toBe(URL130);
     }
   });
-  it("keeps a merge label that names rounds, and a merge approval on a plain label", () => {
+  it("keeps a merge approval on a plain label", () => {
     const o = (label: string) => body({ options: [{ id: "a", label, kind: "instruction", instruction: "Go." }] });
-    expect(mergePrOf(o("Merge it after 11 review rounds"), "a", null)?.url).toBe(URL130);
     expect(mergePrOf(o("Ship it"), "a", "mistakeknot/Undersketch#130")?.url).toBe(URL130);
   });
   it("brings nothing back for a fix-round pick on a card that names a PR", async () => {
