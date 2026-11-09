@@ -88,4 +88,21 @@ describe("mk-laqhx: the card poller stops inside bb's stop window", () => {
     await new Promise((res) => setTimeout(res, 400)); // let any straggling poll show itself
     expect(calls.filter((c) => c.at > abortedAt + 5)).toEqual([]);
   });
+
+  it("a stop is not a tasks failure: health stays ok and no write-back drain starts after the abort", async () => {
+    let rpcs = 0;
+    const r = rig(() => ({ callRpc: () => (rpcs++, never) }));
+    let drains = 0;
+    const queue = new Queue({ service: r.svc, tasks: r.tasks, pollMs: 20, writer: { drain: async () => void drains++ } as never });
+    const ac = new AbortController();
+    const run = queue.run(ac.signal, realSleep);
+    await new Promise((res) => setTimeout(res, 100));
+    ac.abort();
+    expect(await within(run, 1_000)).not.toBe("timeout");
+    await new Promise((res) => setTimeout(res, 100));
+    expect(queue.status().health).toBe("ok");
+    expect(queue.status().last_error).toBeNull();
+    expect(drains).toBe(0);
+    expect(rpcs).toBe(1);
+  });
 });

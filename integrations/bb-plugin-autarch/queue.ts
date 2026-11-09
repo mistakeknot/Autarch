@@ -74,18 +74,22 @@ export class Queue {
     this.lastError = e instanceof Error ? e.message : String(e);
   }
 
-  /** One poll. Returns whether anything changed. Never throws. */
-  async pollOnce(): Promise<{ changed: boolean; ok: boolean }> {
+  /**
+   * One poll. Returns whether anything changed. Never throws. With a signal, the poll hands it to every tasks read, starts
+   * no further step once it is aborted, and skips the writer drain (owed write-backs stay owed for the next run).
+   */
+  async pollOnce(signal?: AbortSignal): Promise<{ changed: boolean; ok: boolean }> {
     if (this.running) return { changed: false, ok: this.health === "ok" };
     this.running = true;
     try {
-      return await this.poll();
+      return await this.poll(signal);
     } catch (e) {
+      if (signal?.aborted) return { changed: false, ok: this.health === "ok" }; // stopped, not failed: health is left as it was
       this.degrade(e);
       return { changed: false, ok: false };
     } finally {
       try {
-        await this.deps.writer?.drain();
+        if (!signal?.aborted) await this.deps.writer?.drain();
       } catch {
         /* drain records its own failures */
       }
@@ -93,20 +97,23 @@ export class Queue {
     }
   }
 
-  private async poll(): Promise<{ changed: boolean; ok: boolean }> {
+  private async poll(signal?: AbortSignal): Promise<{ changed: boolean; ok: boolean }> {
     const { service, tasks } = this.deps;
+    /** Checked between steps: once the service is told to stop, no new read or write begins. */
+    const stopped = () => signal?.aborted === true;
 
     // ---- reads: all of them before the first write, so a failure changes nothing (T12) ----
     const listed = new Map<string, Task>();
     const names = new Map<string, string>();
     const goneCards: { id: string; why: "closed" | "unlabelled" | "deleted"; status?: string }[] = [];
     try {
-      const projects = await tasks.listProjects();
+      const projects = await tasks.listProjects(signal);
       for (const p of projects) {
+        if (stopped()) return { changed: false, ok: this.health === "ok" };
         names.set(p.id, p.name);
-        const ids = await tasks.needsMkLabelIds(p.id);
+        const ids = await tasks.needsMkLabelIds(p.id, { signal });
         if (ids.length === 0) continue;
-        for (const t of await tasks.listTasks({ projectId: p.id, statuses: OPEN_STATUSES, labelIds: ids })) listed.set(t.id, t);
+        for (const t of await tasks.listTasks({ projectId: p.id, statuses: OPEN_STATUSES, labelIds: ids, signal })) listed.set(t.id, t);
       }
       // Known cards missing from the list: a fresh read decides deleted, unlabelled, closed or still there.
       const gone = goneCards;
@@ -122,7 +129,8 @@ export class Queue {
       const overrideOnly = new Set(service.openOverrideCards().filter((id) => !known.has(id) && !moveOnly.has(id)));
       for (const id of [...known, ...moveOnly, ...overrideOnly]) {
         if (listed.has(id)) continue;
-        const st = await tasks.taskState(id);
+        if (stopped()) return { changed: false, ok: this.health === "ok" };
+        const st = await tasks.taskState(id, signal);
         const open = st.state !== "deleted" && (OPEN_STATUSES as readonly string[]).includes(st.task.status);
         if (st.state === "deleted") gone.push({ id, why: "deleted" });
         else if (st.state === "unlabelled") {
@@ -131,9 +139,11 @@ export class Queue {
         else gone.push({ id, why: "closed", status: st.task.status });
       }
     } catch (e) {
+      if (stopped()) return { changed: false, ok: this.health === "ok" }; // an aborted read is a stop, not a tasks failure
       this.degrade(e);
       return { changed: false, ok: false };
     }
+    if (stopped()) return { changed: false, ok: this.health === "ok" };
 
     // ---- writes ----
     let changed = false;
@@ -143,12 +153,21 @@ export class Queue {
       if (r.unavailable) unavailable = r.unavailable;
     };
 
+    /** Once stopped, the writes already made stand (the poll is not one transaction); nothing more starts. */
+    const stoppedNow = () => {
+      if (!stopped()) return false;
+      if (changed) this.deps.publish?.();
+      return true;
+    };
+
     for (const g of goneCards) {
+      if (stoppedNow()) return { changed, ok: this.health === "ok" };
       if (service.cardGone(g.id, g.why, g.status).changed) changed = true;
       this.digest.delete(g.id);
     }
 
     const all = [...listed.values()];
+    if (stoppedNow()) return { changed, ok: this.health === "ok" };
     service.observeCards(all);
     try {
       const serve = await service.serveProjects();
@@ -160,7 +179,7 @@ export class Queue {
       /* serve down: no binding is suggested, and materialization waits as root unverified */
     }
 
-    const comments = (id: string) => () => tasks.listComments(id);
+    const comments = (id: string) => () => tasks.listComments(id, signal);
     const seen = new Set<string>();
     const ingest = async (t: Task, commit: boolean) => {
       if (seen.has(t.id)) return;
@@ -170,23 +189,30 @@ export class Queue {
       note(r);
       if (commit && !r.unavailable && epoch === this.rebindEpoch) this.digest.set(t.id, digestOf(t));
     };
-    for (const t of all) if (this.digest.get(t.id) !== digestOf(t)) await ingest(t, true);
+    for (const t of all) {
+      if (stoppedNow()) return { changed, ok: this.health === "ok" };
+      if (this.digest.get(t.id) !== digestOf(t)) await ingest(t, true);
+    }
     // Unresolved-retry set, independent of the digest.
     for (const id of service.dueObserved(RETRY_BATCH)) {
+      if (stoppedNow()) return { changed, ok: this.health === "ok" };
       const t = listed.get(id);
       if (t) await ingest(t, false);
     }
     // Routing revalidation of open cards, then the closed ones, so open cards keep their bound.
     for (const id of service.routingDue(REVALIDATE_BATCH)) {
+      if (stoppedNow()) return { changed, ok: this.health === "ok" };
       if (seen.has(id)) continue;
       note(await service.revalidateRouting(id, comments(id)));
     }
     // A held card whose task did not change this poll can still have a new comment with a script digest.
     for (const id of Object.keys(service.holds())) {
+      if (stoppedNow()) return { changed, ok: this.health === "ok" };
       if (seen.has(id) || !listed.has(id)) continue;
       if (await service.releaseHoldOnSha(id, comments(id))) note({ changed: true });
     }
     for (const id of service.dueRoutingClosed(CLOSED_BATCH)) {
+      if (stoppedNow()) return { changed, ok: this.health === "ok" };
       const t = listed.get(id);
       if (!t || seen.has(id)) continue;
       seen.add(id);
@@ -206,10 +232,19 @@ export class Queue {
     return { changed, ok: unavailable === null };
   }
 
-  /** Poll until the signal aborts. */
+  /**
+   * Poll until the signal aborts. bb gives a stopping service 5 s before it marks the plugin degraded, and a poll can
+   * be inside an RPC that is slow or never answers, so the loop returns as soon as the signal fires; an in-flight
+   * poll is told to stop (the signal reaches its reads, it starts no new step) and its tail is left to finish alone.
+   */
   async run(signal: AbortSignal, sleep: (ms: number, signal: AbortSignal) => Promise<void>): Promise<void> {
+    const aborted = new Promise<void>((resolve) => {
+      if (signal.aborted) resolve();
+      else signal.addEventListener("abort", () => resolve(), { once: true });
+    });
     while (!signal.aborted) {
-      await this.pollOnce();
+      await Promise.race([this.pollOnce(signal), aborted]);
+      if (signal.aborted) return;
       await sleep(this.pollMs, signal);
     }
   }

@@ -79,6 +79,8 @@ export class TasksClient {
   }
 
   private async call<T>(method: string, input: unknown, schema: z.ZodType<T>, signal?: AbortSignal): Promise<T> {
+    // A call made after its signal aborted is not sent (a poller being stopped must not start new reads).
+    if (signal?.aborted) throw new TasksError(`tasks.${method} not sent: aborted`);
     try {
       const raw = await this.plugins.callRpc<unknown>({ pluginId: TASKS_PLUGIN_ID, method, input, signal, outputSchema: z.unknown() });
       return schema.parse(raw);
