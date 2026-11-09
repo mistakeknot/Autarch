@@ -31,7 +31,7 @@ CREATE TABLE moves (
 );
 CREATE INDEX moves_state ON moves(state, opened_at);`;
 
-type InstallMode = "ok" | "reset-after-enable" | "reset-nothing" | "reset-stale-dist" | "reset-other-source";
+type InstallMode = "ok" | "reset-rebuilt-disabled" | "reset-after-enable" | "reset-nothing" | "reset-stale-dist" | "reset-other-source" | "reset-unrelated-files" | "reset-partial-build" | "reset-server-only" | "reset-bad-meta";
 
 interface RigOpts { schema?: number | null; moves?: boolean; plugin?: "running" | "disabled"; install?: InstallMode }
 
@@ -46,9 +46,11 @@ function rig(opts: RigOpts = {}) {
   mkdirSync(join(plugin, "node_modules"));
   copyFileSync(SCRIPT, join(repo, "scripts", "install-home-your-move.sh"));
   writeFileSync(join(plugin, "migrations.ts"), "export const CODE_VERSION = 4;\n");
-  writeFileSync(join(plugin, "dist", "app.js"), "old build\n");
   const hourAgo = new Date(Date.now() - 3_600_000);
-  utimesSync(join(plugin, "dist", "app.js"), hourAgo, hourAgo);
+  for (const f of ["server.js", "server.meta.json", "app.js", "app.meta.json", "app.css"]) {
+    writeFileSync(join(plugin, "dist", f), f.endsWith(".meta.json") ? '{"pluginId":"autarch"}\n' : "old build\n");
+    utimesSync(join(plugin, "dist", f), hourAgo, hourAgo);
+  }
   writeFileSync(join(repo, ".gitignore"), "dist/\nnode_modules/\n");
   git(repo, "init", "-q");
   git(repo, "add", "-A");
@@ -90,10 +92,14 @@ function rig(opts: RigOpts = {}) {
     bb,
     `#!/bin/sh
 C=${ctl}
+D=${join(plugin, "dist")}
+rebuild() { for f in app.js app.meta.json app.css; do touch $D/$f; done; }  # a path install builds only the frontend
 echo "$@" >> ${calls}
 read EN STATUS < $C/state
 case "$1 $2" in
   "plugin list")
+    # a hung status request: only after the install began, so the earlier list calls are not slowed
+    if [ -f $C/installed ] && [ -f $C/list-delay ]; then if [ -f $C/list-ignore-term ]; then trap "" TERM; fi; exec sleep "$(cat $C/list-delay)"; fi
     printf '{"plugins":[{"id":"autarch","enabled":%s,"status":"%s","source":"path:%s","rootDir":"%s"}]}\\n' "$EN" "$STATUS" "$(cat $C/source)" "$(cat $C/source)" ;;
   "home moves")
     if [ "$EN $STATUS" = "true running" ]; then echo '{"moves":[{"task_id":"FROM-BB"}],"groups":{}}'
@@ -101,13 +107,19 @@ case "$1 $2" in
   "plugin disable") echo "false disabled" > $C/state ;;
   "plugin enable") echo "true running" > $C/state ;;
   "plugin install")
+    touch $C/installed
     echo "Installing bb-plugin-autarch@0.1.0"
     case "$(cat $C/install-mode)" in
-      ok) touch ${join(plugin, "dist", "app.js")} ;;
-      reset-after-enable) sleep 0.2; touch ${join(plugin, "dist", "app.js")}; echo "true running" > $C/state; echo "Error: fetch failed: read ECONNRESET" >&2; exit 1 ;;
+      ok) rebuild ;;
+      reset-after-enable) sleep 0.2; rebuild; echo "true running" > $C/state; echo "Error: fetch failed: read ECONNRESET" >&2; exit 1 ;;
+      reset-rebuilt-disabled) sleep 0.2; rebuild; echo "Error: fetch failed: read ECONNRESET" >&2; exit 1 ;;
       reset-nothing) echo "Error: fetch failed: read ECONNRESET" >&2; exit 1 ;;
       reset-stale-dist) echo "true running" > $C/state; echo "Error: fetch failed: read ECONNRESET" >&2; exit 1 ;;
-      reset-other-source) sleep 0.2; touch ${join(plugin, "dist", "app.js")}; echo "true running" > $C/state; echo "/elsewhere/plugin" > $C/source; echo "Error: fetch failed: read ECONNRESET" >&2; exit 1 ;;
+      reset-unrelated-files) sleep 0.2; mkdir -p ${join(plugin, "dist", ".staging")}; touch ${join(plugin, "dist", ".staging", "chunk.js")} ${join(plugin, "dist", "app.js.tmp")}; echo "true running" > $C/state; echo "Error: fetch failed: read ECONNRESET" >&2; exit 1 ;;
+      reset-partial-build) sleep 0.2; touch $D/app.css; echo "true running" > $C/state; echo "Error: fetch failed: read ECONNRESET" >&2; exit 1 ;;
+      reset-server-only) sleep 0.2; touch $D/server.js $D/server.meta.json; echo "true running" > $C/state; echo "Error: fetch failed: read ECONNRESET" >&2; exit 1 ;;
+      reset-bad-meta) sleep 0.2; rebuild; echo '{"pluginId":"other"}' > $D/app.meta.json; echo "true running" > $C/state; echo "Error: fetch failed: read ECONNRESET" >&2; exit 1 ;;
+      reset-other-source) sleep 0.2; rebuild; echo "true running" > $C/state; echo "/elsewhere/plugin" > $C/source; echo "Error: fetch failed: read ECONNRESET" >&2; exit 1 ;;
     esac ;;
   *) exit 0 ;;
 esac
@@ -250,5 +262,118 @@ exec ${real} "$@"
     expect(o.status).toBe(3);
     expect(o.stdout).toContain("NUL byte or a BLOB");
     expect(changedAnything(r.calledList())).toBe(false);
+  });
+});
+
+describe.skipIf(!isMk)("mk-fg2io: a client-side bb plugin install error after the server did the work", () => {
+  it("install exits nonzero after the server rebuilt dist and enabled the plugin: success with a warning, no failure, no rollback hint", { timeout: 90_000 }, () => {
+    const r = rig({ install: "reset-after-enable" });
+    const o = r.inst(["--go", "--commit", r.head]);
+    expect(o.status, o.stdout + o.stderr).toBe(0);
+    expect(o.stdout).toContain("WARNING");
+    expect(o.stdout).toContain("the server completed the install");
+    expect(o.stdout).not.toContain("install failed");
+    expect(o.stdout).toContain(`installed ${r.head}`);
+  });
+
+  it("install exits nonzero and the server did nothing: failure is reported after a bounded poll", { timeout: 90_000 }, () => {
+    const r = rig({ install: "reset-nothing" });
+    const t0 = Date.now();
+    const o = r.inst(["--go", "--commit", r.head]);
+    expect(o.status).toBe(5);
+    expect(o.stdout).toContain("install failed");
+    const took = Date.now() - t0;
+    expect(took).toBeLessThan(30_000);
+    expect(took).toBeGreaterThanOrEqual(1_800); // the poll really waited out HOME_YOUR_MOVE_RECHECK_WAIT=3 (bash SECONDS counts whole seconds, so it can end up to a second early), not an immediate failure
+  });
+
+  it("a partial build (only app.css rebuilt), only the checkout server artifacts touched, or a wrong meta stamp: still a failure", { timeout: 60_000 }, () => {
+    for (const install of ["reset-partial-build", "reset-server-only", "reset-bad-meta"] as const) {
+      const r = rig({ install });
+      const o = r.inst(["--go", "--commit", r.head]);
+      expect(o.status, install).toBe(5);
+      expect(o.stdout, install).toContain("install failed");
+      expect(o.stdout, install).not.toContain("WARNING");
+    }
+  });
+
+  it("only hidden or temp files under dist changed (no published artifact): still a failure", () => {
+    const r = rig({ install: "reset-unrelated-files" });
+    const o = r.inst(["--go", "--commit", r.head]);
+    expect(o.status).toBe(5);
+    expect(o.stdout).toContain("install failed");
+    expect(o.stdout).not.toContain("WARNING");
+  });
+
+  // The poll was really reached: the install ran, and a status request followed it.
+  const reachedPoll = (calls: string[]) => {
+    const i = calls.findIndex((c) => c.startsWith("plugin install --yes"));
+    return i >= 0 && calls.slice(i + 1).some((c) => c === "plugin list --json");
+  };
+
+  it("a status request that hangs is cut off at the deadline: the wait is wall-clock, not a count of sleeps", { timeout: 60_000 }, () => {
+    const r = rig({ install: "reset-nothing" });
+    writeFileSync(join(r.ctl, "list-delay"), "20\n");
+    const t0 = Date.now();
+    const o = r.inst(["--go", "--commit", r.head], { HOME_YOUR_MOVE_RECHECK_WAIT: "2", HOME_YOUR_MOVE_RECHECK_INTERVAL: "1" });
+    expect(o.status, o.stdout).toBe(5);
+    expect(o.stdout).toContain("install failed");
+    expect(reachedPoll(r.calledList())).toBe(true);
+    expect(Date.now() - t0).toBeLessThan(15_000); // unbounded, each poll would sit out the full 20 s
+  });
+
+  it("a status request that ignores SIGTERM is killed after the grace period", { timeout: 60_000 }, () => {
+    const r = rig({ install: "reset-nothing" });
+    writeFileSync(join(r.ctl, "list-delay"), "40\n");
+    writeFileSync(join(r.ctl, "list-ignore-term"), "1\n");
+    const t0 = Date.now();
+    const o = r.inst(["--go", "--commit", r.head], { HOME_YOUR_MOVE_RECHECK_WAIT: "2", HOME_YOUR_MOVE_RECHECK_INTERVAL: "1" });
+    expect(o.status, o.stdout).toBe(5);
+    expect(o.stdout).toContain("install failed");
+    expect(reachedPoll(r.calledList())).toBe(true);
+    expect(Date.now() - t0).toBeLessThan(20_000); // wait 2 s + 2 s grace; a bare SIGTERM would leave it blocked for 40 s
+  });
+
+  it("an interval of 0 or a wait of 0 cannot make the poll endless", { timeout: 90_000 }, () => {
+    const a = rig({ install: "reset-nothing" });
+    const oa = a.inst(["--go", "--commit", a.head], { HOME_YOUR_MOVE_RECHECK_WAIT: "2", HOME_YOUR_MOVE_RECHECK_INTERVAL: "0" });
+    expect(oa.status, oa.stdout).toBe(5);
+    expect(oa.stdout).toContain("install failed");
+    expect(reachedPoll(a.calledList())).toBe(true);
+    const b = rig({ install: "reset-nothing" });
+    const ob = b.inst(["--go", "--commit", b.head], { HOME_YOUR_MOVE_RECHECK_WAIT: "0" });
+    expect(ob.status, ob.stdout).toBe(5);
+    expect(ob.stdout).toContain("install failed");
+    expect(reachedPoll(b.calledList())).toBe(true);
+  });
+
+  it("enabled and running from the right source but dist NOT rebuilt since the install began: still a failure", () => {
+    const r = rig({ install: "reset-stale-dist" });
+    const o = r.inst(["--go", "--commit", r.head]);
+    expect(o.status).toBe(5);
+    expect(o.stdout).toContain("install failed");
+  });
+
+  it("running and rebuilt but from a different source: still a failure", () => {
+    const r = rig({ install: "reset-other-source" });
+    const o = r.inst(["--go", "--commit", r.head]);
+    expect(o.status).toBe(5);
+    expect(o.stdout).toContain("install failed");
+  });
+
+  it("install exits nonzero after the server rebuilt dist but left the plugin disabled (install does not enable): success with a warning, then the normal enable", { timeout: 90_000 }, () => {
+    const r = rig({ install: "reset-rebuilt-disabled" });
+    const o = r.inst(["--go", "--commit", r.head]);
+    expect(o.status, o.stdout + o.stderr).toBe(0);
+    expect(o.stdout).toContain("WARNING");
+    expect(r.calledList().filter((c) => c === "plugin enable autarch")).toHaveLength(1);
+    expect(o.stdout).toContain(`installed ${r.head}`);
+  });
+
+  it("a clean install is unchanged (no warning)", { timeout: 90_000 }, () => {
+    const r = rig({ install: "ok" });
+    const o = r.inst(["--go", "--commit", r.head]);
+    expect(o.status, o.stdout + o.stderr).toBe(0);
+    expect(o.stdout).not.toContain("WARNING");
   });
 });
