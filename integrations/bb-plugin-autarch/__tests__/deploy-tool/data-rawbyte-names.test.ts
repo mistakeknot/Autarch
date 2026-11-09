@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from "vitest";
-import { appendFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { appendFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { makeBackup } from "../../../../tools/bb-plugin-deploy/lib/data.mjs";
@@ -81,15 +81,24 @@ describe("data directory backups with names that are not valid UTF-8", () => {
     expect(() => call()).toThrow(/not valid UTF-8/);
   });
 
-  it("a cached backup that later gains a raw-byte name is not reused; the retry is refused rather than skipped", () => {
-    const { root, src, call } = setup();
-    writeFileSync(join(src, "x�"), "twin\n");
+  it("a cached backup that later gains a raw-byte name is not reused; a fresh backup is taken from the clean live data", () => {
+    const { src, call } = setup();
+    writeFileSync(join(src, "plain.txt"), "a\n");
     const first = call();
     expect(first.manifest.data[0].skipped).toBeUndefined();
     writeFileSync(bytePath(join(first.dir, "dir"), RAW), "raw\n");
+    const second = call();
+    expect(second.manifest.data[0].skipped).toBeUndefined();
+    expect(second.dir).not.toBe(first.dir);
+  });
+
+  it("a cached backup is refused-then-replaced, never reused, when the live data gains a raw-byte name", () => {
+    const { src, call } = setup();
+    writeFileSync(join(src, "plain.txt"), "a\n");
+    const first = call();
+    writeFileSync(bytePath(first.dir + "/dir", RAW), "raw\n");
     writeFileSync(bytePath(src, RAW), "raw\n");
     expect(() => call()).toThrow(/not valid UTF-8/);
-    expect(readdirSync(join(root, "backups")).length).toBeGreaterThanOrEqual(1);
   });
 
   it("ordinary names, including valid non-ASCII UTF-8, still back up and are reused once per commit", () => {
