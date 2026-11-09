@@ -83,7 +83,7 @@ class Stopped extends Error {}
  */
 const claims = new Map<string, { token: symbol; since: number }>();
 const CLAIM_TTL_MS = 120_000;
-/** Per task: how many writes landed after their claim had been taken over. A relabel that began before one must not settle. */
+/** Per task: how many times a writer whose claim was taken over ended a step (see `suspect`). A row run before one must not settle. */
 const lateLandings = new Map<string, number>();
 type Claim = { release: () => void; lost: () => boolean; key: string; epoch: number };
 
@@ -99,7 +99,18 @@ export class CardWriter {
     private readonly now: () => string,
   ) {}
 
+  /**
+   * True when what the row in progress read may be stale: its claim was taken over by another writer, or a writer whose claim
+   * was taken over ended a step meanwhile (its write may have landed after this row read the task). Such a row stays pending
+   * and the next drain reads the task afresh.
+   */
+  private fenced(): boolean {
+    const c = this.cur;
+    return !!c && (c.lost() || (lateLandings.get(c.key) ?? 0) !== c.epoch);
+  }
+
   private settle(id: string, state: "done" | "skipped", note: string | null): void {
+    if (this.fenced()) return;
     this.db.prepare("UPDATE card_writes SET state = ?, last_error = ?, updated_at = ? WHERE id = ? AND state = 'pending'").run(state, note, this.now(), id);
   }
 
@@ -134,6 +145,8 @@ export class CardWriter {
   /** Throws Stopped once the drain's signal has aborted: checked after every await and before every write, so none starts late. */
   private gate(): void {
     if (this.signal?.aborted) throw new Stopped("stopped");
+    // A writer whose claim another writer took over starts nothing more: at most the write it already sent is still in flight.
+    if (this.cur?.lost()) throw new Stopped("claim taken over");
   }
 
   /**
@@ -175,18 +188,22 @@ export class CardWriter {
   }
 
   /**
-   * Called when a write the tasks plugin accepted has landed. If this writer's claim was taken over meanwhile (the TTL ran out on
-   * a hung write), the other writer may have judged the task by what it looked like before this write and settled; so the write
-   * is recorded as late, a relabel in progress will not settle, and relabels already done are put back to be re-verified (a
-   * relabel reads the task afresh and checks its override is still open, so a re-run is safe).
+   * Called when a writer's step for a task ends with its claim taken over. A write it sent may have landed, or committed and been
+   * answered with an error, after the other writer read the task and settled its rows, so those settlements cannot be trusted.
+   * Level-triggered repair: the task's epoch moves (rows that began earlier will not settle) and the settled unlabel and
+   * relabel rows of the LATEST decision go back to pending. Running them again derives the end state from fresh reads: a relabel
+   * of an open override puts needs-mk back and reopens a done task, an unlabel of a picked decision takes it off and completes
+   * the task, a relabel whose override has been picked meanwhile is skipped. Each step reads before it writes, so it is safe.
    */
-  private landed(taskId: string): void {
-    const c = this.cur;
-    if (!c || !c.lost()) return;
+  private suspect(taskId: string, c: Claim): void {
     lateLandings.set(c.key, (lateLandings.get(c.key) ?? 0) + 1);
     this.db
-      .prepare("UPDATE card_writes SET state = 'pending', attempt = 0, next_try_at = ?, last_error = 'to re-verify after a late write', updated_at = ? WHERE task_id = ? AND kind = 'relabel' AND state = 'done'")
-      .run(this.now(), this.now(), taskId);
+      .prepare(
+        `UPDATE card_writes SET state = 'pending', attempt = 0, next_try_at = @now, last_error = 'to re-verify after a write from an expired claim', updated_at = @now
+         WHERE task_id = @task AND kind IN ('unlabel', 'relabel') AND state = 'done'
+           AND decision_id = (SELECT id FROM decisions WHERE task_id = @task ORDER BY generation DESC LIMIT 1)`,
+      )
+      .run({ now: this.now(), task: taskId });
   }
 
   /**
@@ -216,6 +233,7 @@ export class CardWriter {
           this.fail(r, e);
           out.failed++;
         } finally {
+          if (claim.lost()) this.suspect(r.task_id, claim);
           this.cur = undefined;
           claim.release();
         }
@@ -237,6 +255,7 @@ export class CardWriter {
   private async drainMoveCloses(out: { done: number; failed: number }): Promise<void> {
     const rows = this.db.prepare("SELECT task_id, generation, attempt FROM move_closes WHERE state = 'pending' AND next_try_at <= ? ORDER BY rowid").all(this.now()) as { task_id: string; generation: number; attempt: number }[];
     const settle = (r: { task_id: string; generation: number }, state: "done" | "skipped", note: string | null) =>
+      !this.fenced() &&
       this.db.prepare("UPDATE move_closes SET state = ?, last_error = ?, updated_at = ? WHERE task_id = ? AND generation = ?").run(state, note, this.now(), r.task_id, r.generation);
     for (const r of rows) {
       this.gate();
@@ -267,7 +286,6 @@ export class CardWriter {
         else {
           if (st.task.status !== "done" && st.task.status !== "canceled") {
             await this.tasks.closeTask(r.task_id); // a write: no signal
-            this.landed(r.task_id);
           }
           settle(r, "done", null);
         }
@@ -280,6 +298,7 @@ export class CardWriter {
           .run(message(e), new Date(Date.parse(this.now()) + delay).toISOString(), this.now(), r.task_id, r.generation);
         out.failed++;
       } finally {
+        if (claim.lost()) this.suspect(r.task_id, claim);
         this.cur = undefined;
         claim.release();
       }
@@ -303,7 +322,6 @@ export class CardWriter {
         const ids = await this.read(this.tasks.needsMkLabelIds(st.task.projectId, { fresh: true, signal: this.signal }));
         this.gate();
         await this.tasks.setLabels(r.task_id, st.task.labelIds.filter((l) => !ids.includes(l)));
-        this.landed(r.task_id);
         this.gate();
       }
       this.db.prepare("UPDATE cards SET home_unlabelled_at = COALESCE(home_unlabelled_at, ?) WHERE task_id = ?").run(this.now(), r.task_id);
@@ -318,7 +336,6 @@ export class CardWriter {
         this.gate();
         if (active === 0) {
           await this.tasks.setStatus(r.task_id, "done");
-          this.landed(r.task_id);
         }
       }
       this.settle(r.id, "done", null);
@@ -339,7 +356,6 @@ export class CardWriter {
       this.gate();
       if (ids.length === 0) throw new Error("the tasks project has no needs-mk label");
       await this.tasks.setLabels(r.task_id, [...st.task.labelIds, ids[0]!]);
-      this.landed(r.task_id);
       this.gate(); // the label landed; the reopen that follows is a second write and must not start after a stop
     }
     // A brought-back or overridden card's task was closed when it was ruled (including the pick's own
@@ -350,15 +366,14 @@ export class CardWriter {
     const reopen = st.task.status === "done" || (r.id.endsWith("-bringback") && st.task.status === "canceled");
     if (reopen) {
       await this.tasks.setStatus(r.task_id, "todo");
-      this.landed(r.task_id);
     }
     // A task left closed leaves nothing to answer: the card stops showing as open (the override stays pickable,
     // and the card reopens if a person reopens the task, ingestInner). Nothing polls a closed task again.
     else if (st.task.status === "canceled")
       this.db.prepare("UPDATE cards SET state = 'closed', display_reason = 'card closed in tasks', status = ? WHERE task_id = ? AND state = 'open'").run(st.task.status, r.task_id);
-    // A write of another writer that held this task before its claim ran out landed after this relabel began: what was read
-    // above may be stale, so the row stays pending and the next drain reads the task afresh.
-    if (this.cur && (lateLandings.get(this.cur.key) ?? 0) !== this.cur.epoch) return;
+    // What was read above may be stale (a write of an abandoned writer landed meanwhile, or this claim was taken over): the row
+    // stays pending and the next drain reads the task afresh.
+    if (this.fenced()) return;
     this.db.prepare("UPDATE cards SET home_unlabelled_at = NULL WHERE task_id = ?").run(r.task_id);
     this.settle(r.id, "done", null);
   }
