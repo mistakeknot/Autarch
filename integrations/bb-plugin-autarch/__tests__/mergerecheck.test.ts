@@ -48,6 +48,8 @@ describe("only a merge instruction counts as a merge pick (bead mk-q9m7q)", () =
     ["Fix it and merge", "Fix the finding."],
     ["Merge readiness review", "Review the PR and report findings."],
     ["Merge after one more fix round", "Fix the finding and re-review."],
+    ["Review it", "Merge readiness needs a review."],
+    ["Check it", "Merge readiness is checked first."],
   ];
   it("does not treat a fix-round option that mentions a later merge as a merge pick", () => {
     for (const [label, instruction] of NOT_MERGES) {
