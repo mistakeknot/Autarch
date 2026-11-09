@@ -330,6 +330,7 @@ export class Store {
   }
 
   setSetting(key: string, value: string): void {
+    this.settingsWrites++;
     this.db
       .prepare(
         "INSERT INTO settings_kv(key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value",
@@ -337,9 +338,25 @@ export class Store {
       .run(key, value);
   }
 
+  private settingsWrites = 0;
+
+  /**
+   * A token that differs whenever a setting may have changed since it was last read: a write or a rollback through
+   * this store bumps the counter, and a commit by another connection to the file changes `data_version`. A parsed
+   * copy of a setting stays good while the token is the same, so a reader need not fetch the value to check.
+   */
+  settingsStamp(): string {
+    return `${this.settingsWrites}:${this.db.pragma("data_version", { simple: true })}`;
+  }
+
   /** Run fn in a BEGIN IMMEDIATE transaction: the write lock is taken up front. */
   private tx<T>(fn: () => T): T {
-    return this.db.transaction(fn).immediate();
+    try {
+      return this.db.transaction(fn).immediate();
+    } finally {
+      // A rolled-back write leaves nothing in the file, so anything parsed from it inside the transaction is stale.
+      this.settingsWrites++;
+    }
   }
 
   /** Run fn as one BEGIN IMMEDIATE transaction (a savepoint when already inside one). */

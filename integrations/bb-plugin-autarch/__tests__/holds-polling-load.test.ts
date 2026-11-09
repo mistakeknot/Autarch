@@ -166,3 +166,19 @@ describe("output is unchanged", () => {
     expect(waitingNow(r.svc, r.dele, new Catchup(r.svc, r.dele))).toEqual(w);
   });
 });
+
+describe("isOwed", () => {
+  it("agrees with owed() for an open ask, a picked one, a withdrawn one, a replaced one and an unknown id", async () => {
+    const r = rig();
+    const mk = (i: number) => r.card({ key: `io-${i}`, ident: (i + 1).toString(16).padStart(16, "0") });
+    const [a, b, c] = [mk(0), mk(1), mk(2)];
+    await r.poll();
+    const dec = (t: { id: string }) => (r.gens(t.id)[0] as { id: string }).id;
+    r.mkPick(dec(b));
+    r.svc.store.withdrawDecision(dec(c), "test");
+    const open = new Set(r.svc.owed().map((d) => d.id));
+    expect(open.has(dec(a))).toBe(true);
+    for (const id of [dec(a), dec(b), dec(c), "no-such-decision"]) expect(r.svc.isOwed(id)).toBe(open.has(id));
+    expect([dec(a), dec(b), dec(c)].map((id) => r.svc.isOwed(id))).toEqual([true, false, false]);
+  });
+});
