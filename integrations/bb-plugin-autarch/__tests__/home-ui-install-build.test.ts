@@ -166,6 +166,15 @@ describe("home-ui.sh install_build: the install exits non-zero on the client", (
     expect(r.mode()).toBe("disabled");
   });
 
+  it("zero-padded recheck knobs (08, 09) are read as decimal: the failure is still exit 5, not a bash octal abort", () => {
+    const r = rig();
+    const out = r.run(["rollback", r.backup], { HUI_INSTALL: "nothing", HOME_UI_RECHECK_WAIT: "08", HOME_UI_RECHECK_INTERVAL: "09" });
+    expect(out.stderr).not.toContain("value too great for base");
+    expect(out.status).toBe(5);
+    expect(out.stderr).toContain("failed; Home is disabled");
+    expect(r.mode()).toBe("disabled");
+  });
+
   it("a half-written frontend (app.js rebuilt, the rest old) is not a finished install", () => {
     const r = rig();
     const out = r.run(["rollback", r.backup], { HUI_INSTALL: "half" });
