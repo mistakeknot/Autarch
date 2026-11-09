@@ -34,6 +34,9 @@ die() { echo "home-ui: $*" >&2; exit "${2:-1}"; }
 
 MKHOME=${HOME:?}
 BB=${HOME_BB_BIN:-$MKHOME/.local/bin/bb}
+# install-error recheck: begin (mk-4i8rd)
+HOME_UI_BB_REAL=$BB   # install_build answers for one bb call with a stand-in; the exit-trap restore must still reach the real one
+# install-error recheck: end
 if [ -z "${HOME_BB_DATA:-}" ]; then   # discover the one BB data directory that holds the Home database
   mapfile -t found < <(find "$MKHOME" -maxdepth 6 -path '*/plugins/autarch/data.db' -type f 2>/dev/null)
   [ ${#found[@]} -eq 1 ] || die "cannot pick one Home database (found ${#found[@]}); set HOME_BB_DATA to the BB data directory" 64
@@ -233,12 +236,21 @@ wait_running() {
 }
 # install-error recheck: begin (mk-4i8rd)
 # A path-plugin `bb plugin install` builds only the frontend (app.js, app.css, app.meta.json, each written by renaming a staged file);
-# the server bundle runs from bb's own runtime cache, so dist/server.js is not rebuilt and not checked. A finished install leaves all three
-# frontend artifacts newer than $2 and app.meta.json naming the plugin; a half-written dist (some rebuilt, the rest old) does not pass.
-dist_rebuilt() {   # $1 = plugin dir, $2 = marker file touched just before the install began
-  local d="$1/dist" f
+# the server bundle runs from bb's own runtime cache, so dist/server.js is not rebuilt and not checked. A finished install leaves a different
+# file at each of the three paths (a new inode, which a staged rename always gives), each newer than the marker, with app.meta.json naming the
+# plugin. A date alone proves nothing (a clock that stepped back, a restored backup), so an untouched file does not count however new it looks.
+dist_id() {   # $1 = plugin dir: one identity line per frontend artifact (device:inode:size:mtime), "missing" when the file is absent
+  local f
+  for f in app.js app.css app.meta.json; do stat -c '%d:%i:%s:%y' "$1/dist/$f" 2>/dev/null || echo missing; done
+}
+dist_rebuilt() {   # $1 = plugin dir, $2 = marker file touched just before the install began, $3 = dist_id output taken at the same moment
+  local d="$1/dist" f now line i=0
   [ -e "$2" ] || return 1   # no marker (mktemp failed): `-nt` against a missing file is true, so refuse rather than guess
+  now=$(dist_id "$1")
   for f in app.js app.css app.meta.json; do
+    i=$((i+1))
+    line=$(printf '%s\n' "$now" | sed -n "${i}p")
+    [ "$line" != missing ] && [ "$line" != "$(printf '%s\n' "$3" | sed -n "${i}p")" ] || return 1   # replaced since the install began
     if [ -s "$d/$f" ] && [ "$d/$f" -nt "$2" ]; then :; else return 1; fi
   done
   jq -e '.pluginId == "autarch"' "$d/app.meta.json" >/dev/null 2>&1 || return 1
@@ -247,9 +259,10 @@ dist_rebuilt() {   # $1 = plugin dir, $2 = marker file touched just before the i
 # Runs the install; returns 0 when it succeeded, or failed on the client but autarch is installed from $1 (running, or disabled and
 # waiting for the enable step) with dist fully rebuilt after $2 was touched. Returns 1 on a real mismatch, after a bounded poll.
 install_rechecked() {   # $1 = plugin dir, $2 = marker file touched just before the install began
-  local rc=0 wait=${HOME_UI_RECHECK_WAIT:-60} step=${HOME_UI_RECHECK_INTERVAL:-3} row end rem grace=2
+  local rc=0 wait=${HOME_UI_RECHECK_WAIT:-60} step=${HOME_UI_RECHECK_INTERVAL:-3} row end rem grace=2 before
   case $wait in ''|*[!0-9]*) wait=60 ;; esac     # a bad value falls back to the default: the poll must end
   case $step in ''|*[!0-9]*|0) step=3 ;; esac
+  before=$(dist_id "$1")   # what the frontend artifacts are now; a finished install must have replaced every one of them
   "$BB" plugin install --yes "$1" || rc=$?
   [ "$rc" -ne 0 ] || return 0
   echo "home-ui: 'bb plugin install' exited $rc; checking for up to ${wait}s whether the server completed it" >&2
@@ -257,7 +270,7 @@ install_rechecked() {   # $1 = plugin dir, $2 = marker file touched just before 
   while :; do
     rem=$((end-SECONDS)); [ "$rem" -ge 1 ] || rem=1
     row=$(timeout -k "$grace" "$rem" "$BB" plugin list --json 2>/dev/null | jq -r --arg p "$1" '[.plugins[]? | select(.id == "autarch")] | if length == 1 and ((.[0].source // "") | sub("/+$"; "")) == ("path:" + ($p | sub("/+$"; ""))) and ((.[0].enabled == true and .[0].status == "running") or .[0].enabled == false) then "match" else "no" end' 2>/dev/null || true)
-    if [ "$row" = match ] && dist_rebuilt "$1" "$2"; then
+    if [ "$row" = match ] && dist_rebuilt "$1" "$2" "$before"; then
       echo "home-ui: WARNING: 'bb plugin install' exited $rc, but the server completed the install: autarch is installed from $1 and its frontend build (dist/app.js, app.css, app.meta.json) was rebuilt after the install began; going on" >&2
       return 0
     fi
@@ -468,6 +481,9 @@ preview)
   RC=0
   restore() {
     local rc=$?; trap - EXIT INT TERM
+    # install-error recheck: begin (mk-4i8rd)
+    local BB=$HOME_UI_BB_REAL   # a signal can land while install_build has its stand-in bb in place; the restore must not inherit it
+    # install-error recheck: end
     echo "home-ui: restoring the previous Home build $PREV"
     if ! install_build "$PREV"; then echo "home-ui: restore failed; run: $(rollback_cmd "$BK")" >&2; rc=7; fi
     if ! ui_files_only "$PREV" "$D" 2>/dev/null; then echo "home-ui: WARNING: the preview build now differs from the installed build outside ui/ and __tests__/; review before merging" >&2; fi

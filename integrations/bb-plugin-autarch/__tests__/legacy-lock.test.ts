@@ -395,7 +395,7 @@ describe("the legacy scripts differ from the b05ebaf baseline only by the lock w
   };
   const count = (text: string, tag: string) => text.split("\n").filter((l) => l.trimStart().startsWith(`# ${tag}: begin`)).length;
 
-  for (const [file, shaWrites, engineBlocks, recheckBlocks, skipBlocks] of [["home-ui.sh", 1, 6, 3, 2], ["install-home-your-move.sh", 0, 0, 0, 0]] as const) {
+  for (const [file, shaWrites, engineBlocks, recheckBlocks, skipBlocks] of [["home-ui.sh", 1, 6, 5, 2], ["install-home-your-move.sh", 0, 0, 0, 0]] as const) {
     it(`${file}: removing the marked blocks gives the baseline byte for byte`, () => {
       const now = readFileSync(resolve(__dirname, "../../../scripts", file), "utf8");
       expect(count(now, "shared destination lock")).toBe(1);
