@@ -115,7 +115,7 @@ export type AsksData = {
   machineOwners: Record<string, string>;
 };
 
-export type ViewItem = { id: string; title: string; detail?: string; thread?: string; /** Set on an undeliverable wake: the Dismiss button's target. */ dismiss?: { decision_id: string; obligation_id: string } };
+export type ViewItem = { id: string; title: string; detail?: string; thread?: string; /** Read-only item: a file path in its text stays plain text, with no read or open button. */ readOnly?: boolean; /** Set on an undeliverable wake: the Dismiss button's target. */ dismiss?: { decision_id: string; obligation_id: string } };
 // operator-action items come first and stay first: Decide, Runbook, then Stalled, then Waiting.
 export type Section = { key: "stalled" | "decide" | "runbook" | "waiting"; title: string; items: ViewItem[] };
 
@@ -131,7 +131,7 @@ export function buildAsksView(d: AsksData): Section[] {
     ...d.failures.map((o) => ({ id: `failure:${o.id}`, title: `Ruling file failed for ${o.decision_id ?? o.id}`, detail: o.last_error ?? undefined })),
     ...d.asks.map((a) => ({ id: a.id, title: `${a.label ?? "stalled"}: ${a.subject}`, detail: a.detail, thread: a.thread })),
     // Read-only: no dismiss and no action. The card moves to Decide by itself once it is delivered.
-    ...(d.notDelivered ?? []).map((n) => ({ id: n.id, title: `Not delivered yet: ${n.subject}`, detail: n.reason, ...(n.thread ? { thread: n.thread } : {}) })),
+    ...(d.notDelivered ?? []).map((n) => ({ id: n.id, title: `Not delivered yet: ${n.subject}`, detail: n.reason, readOnly: true, ...(n.thread ? { thread: n.thread } : {}) })),
   ];
   const sections: Section[] = [
     { key: "decide", title: "Decide", items: d.owed.map((o) => ({ id: o.id, title: o.subject, thread: o.thread })) },
@@ -562,8 +562,8 @@ export function AsksPanel({ part, data, onPick, onOpen, onRevoke, onDismiss, onN
             <div className="space-y-3">
               {s.items.map((i) => (
                 <div key={i.id} className="rounded border border-border p-3 text-sm [overflow-wrap:anywhere]">
-                  <div><RefText text={i.title} /></div>
-                  {i.detail ? <div className="text-xs text-muted-foreground"><RefText text={i.detail} /></div> : null}
+                  <div><RefText text={i.title} docLinks={i.readOnly !== true} /></div>
+                  {i.detail ? <div className="text-xs text-muted-foreground"><RefText text={i.detail} docLinks={i.readOnly !== true} /></div> : null}
                   {s.key === "stalled" && i.dismiss && onDismiss ? (
                     <div className="mt-2">
                       <ActionButton onClick={() => onDismiss(i.dismiss!.decision_id, i.dismiss!.obligation_id)} data-dismiss={i.dismiss.obligation_id}>Dismiss</ActionButton>
