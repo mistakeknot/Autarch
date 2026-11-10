@@ -1465,10 +1465,37 @@ export class Service {
   }
 
   /** T2: stay observed, back off 5 s doubling to 5 min, and say why. */
-  private setObserved(row: Record<string, any>, reason: string): void {
+  private setObserved(row: Record<string, any>, reason: string, thread = ""): void {
     const attempts = Number(row.check_attempts ?? 0);
     const delay = Math.min(OBSERVED_BACKOFF_MS * 2 ** Math.min(attempts, 20), MAX_BACKOFF_MS);
-    this.patchCard(row.task_id, { state: "observed", display_reason: reason, check_attempts: attempts + 1, next_check_at: this.isoPlus(delay) });
+    this.patchCard(row.task_id, { state: "observed", display_reason: reason, check_attempts: attempts + 1, next_check_at: this.isoPlus(delay), ...(thread !== "" ? { asking_thread: thread } : {}) });
+    if (attempts + 1 >= 2) this.tellNotDelivered(row, reason, thread || String(row.asking_thread ?? ""));
+  }
+
+  /**
+   * After the second failed try the asking thread is told once that its card is not delivered (bead mk-j5ipa.15). It rides the
+   * plugin's existing notice obligation and wake engine, so no new transport exists. The row's `op` is unique, so a later try, a restart
+   * or a card that stalls again inserts nothing more. A card with no known asking thread has no one to tell.
+   */
+  private tellNotDelivered(row: Record<string, any>, reason: string, thread: string): void {
+    if (thread === "") return;
+    const taskId = String(row.task_id);
+    const op = `undelivered:${taskId}`;
+    const title = String(this.cardTitle(taskId) ?? "").slice(0, 120);
+    const payload = `Home card ${taskId}${title ? ` (${title})` : ""} is not delivered: Home has tried twice and could not put it in front of mk (${reason}). mk cannot see it yet. Home keeps trying, and tells you nothing more about this card. Nothing needs to be re-filed unless the card is edited or deleted.`;
+    if (this.store.insertObligations(`card:${taskId}`, [{ id: `ob:${op}`, kind: "notice", recipient: thread, op, payload }]) > 0) this.deps.nudge?.();
+  }
+
+  /** The cards held in observed, oldest first: filed but not yet delivered to Decide. Read-only; none is a decision owed. */
+  notDelivered(): { id: string; subject: string; reason: string; thread: string }[] {
+    const rows = this.db
+      .prepare(
+        `SELECT task_id, title, display_reason, asking_thread FROM cards
+         WHERE state = 'observed' AND labelled = 1 AND deleted_at IS NULL AND status IN ('backlog','todo','in_progress','in_review')
+         ORDER BY first_seen_at, task_id`,
+      )
+      .all() as { task_id: string; title: string | null; display_reason: string | null; asking_thread: string | null }[];
+    return rows.map((r) => ({ id: `undelivered:${r.task_id}`, subject: r.title || r.task_id, reason: r.display_reason ?? "", thread: r.asking_thread ?? "" }));
   }
 
   private async materializeNew(task: Task, card: Card | null, parseErr: string, ctx: { comments: () => Promise<TaskCommentRow[]> }, row: Record<string, any>): Promise<string | void> {
@@ -1518,10 +1545,10 @@ export class Service {
     try {
       projects = await this.deps.projects();
     } catch (e) {
-      return this.setObserved(row, `root unverified: ${message(e)}`);
+      return this.setObserved(row, `root unverified: ${message(e)}`, thread);
     }
     const p = projects.find((x) => x.name === project);
-    if (!p) return this.setObserved(row, `root unverified: unknown project ${JSON.stringify(project)}`);
+    if (!p) return this.setObserved(row, `root unverified: unknown project ${JSON.stringify(project)}`, thread);
     if (p.root !== card.ask.project_root) return this.setDisplay(task.id, "project_root does not match the root serve resolves for this project");
 
     let fp: string;

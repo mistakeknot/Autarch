@@ -105,6 +105,8 @@ export type AsksData = {
   runbook: RunbookGroup[];
   lane: Lane[];
   asks: Lane[];
+  /** Cards filed but not yet delivered to Decide: listed read-only under Stalled as "Not delivered yet: <subject>". */
+  notDelivered?: { id: string; subject: string; reason: string; thread: string }[];
   undeliverable: Obl[];
   failures: Obl[];
   uncertain: Obl[];
@@ -128,6 +130,8 @@ export function buildAsksView(d: AsksData): Section[] {
     ...d.uncertain.map((o) => ({ id: `uncertain:${o.id}`, title: `Uncertain ${o.kind ?? "wake"} to ${o.recipient ?? "?"}` })),
     ...d.failures.map((o) => ({ id: `failure:${o.id}`, title: `Ruling file failed for ${o.decision_id ?? o.id}`, detail: o.last_error ?? undefined })),
     ...d.asks.map((a) => ({ id: a.id, title: `${a.label ?? "stalled"}: ${a.subject}`, detail: a.detail, thread: a.thread })),
+    // Read-only: no dismiss and no action. The card moves to Decide by itself once it is delivered.
+    ...(d.notDelivered ?? []).map((n) => ({ id: n.id, title: `Not delivered yet: ${n.subject}`, detail: n.reason, ...(n.thread ? { thread: n.thread } : {}) })),
   ];
   const sections: Section[] = [
     { key: "decide", title: "Decide", items: d.owed.map((o) => ({ id: o.id, title: o.subject, thread: o.thread })) },

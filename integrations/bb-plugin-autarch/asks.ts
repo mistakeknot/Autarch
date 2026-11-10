@@ -103,7 +103,7 @@ export class Asks {
   }
 
   /** The machine lane (owned, fresh) and the machine asks that need mk (unowned, or stalled past 24 h). */
-  lists(): { lane: LaneEntry[]; asks: LaneEntry[] } {
+  lists(): { lane: LaneEntry[]; asks: LaneEntry[]; notDelivered: { id: string; subject: string; reason: string; thread: string }[] } {
     const lane: LaneEntry[] = [];
     const asks: LaneEntry[] = [];
     const now = this.msNow();
@@ -114,7 +114,8 @@ export class Asks {
       else if (now - Date.parse(d.updated_at) > STALL_MS) asks.push({ ...e, label: "stalled" });
       else lane.push(e);
     }
-    return { lane, asks };
+    // Cards held before delivery (bead mk-j5ipa.15): shown read-only under Stalled; they are not asks and never count as owed.
+    return { lane, asks, notDelivered: this.svc.notDelivered() };
   }
 
   // ---- lifecycle --------------------------------------------------------------

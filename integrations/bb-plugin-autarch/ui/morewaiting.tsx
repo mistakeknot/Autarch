@@ -14,9 +14,9 @@ export type MoreGroup = { key: MoreKey; title: string; count: number; items: Vie
  */
 export function moreWaiting(d: AsksData): { total: number; groups: MoreGroup[] } {
   // A list the data lacks counts as empty: the phone must not fail to draw because one list is missing.
-  const sections = buildAsksView({ ...d, owed: [], runbook: d.runbook ?? [], lane: d.lane ?? [], asks: d.asks ?? [], undeliverable: d.undeliverable ?? [], failures: d.failures ?? [], uncertain: d.uncertain ?? [] });
+  const sections = buildAsksView({ ...d, owed: [], runbook: d.runbook ?? [], lane: d.lane ?? [], asks: d.asks ?? [], undeliverable: d.undeliverable ?? [], failures: d.failures ?? [], uncertain: d.uncertain ?? [], notDelivered: d.notDelivered ?? [] });
   const items = (key: "stalled" | "runbook" | "waiting"): ViewItem[] => sections.find((s) => s.key === key)?.items ?? [];
-  // The one place the Stalled list is put together for the phone: a later change adds its "Not delivered yet: <subject>" items here.
+  // The Stalled list is put together by buildAsksView, so the desktop's "Not delivered yet: <subject>" items (read-only) come through here too.
   const stalled = items("stalled");
   const approvals = d.approvals ?? [];
   const all: MoreGroup[] = [

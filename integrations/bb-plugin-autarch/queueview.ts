@@ -101,7 +101,7 @@ export interface QueueData {
     count: number;
     owed: { id: string; project: string; thread: string; subject: string; filed_at: string; revision: string; mentions: number; ask: unknown }[];
     runbook: ReturnType<Asks["runbook"]>;
-    machine: ReturnType<Asks["lists"]>;
+    machine: Omit<ReturnType<Asks["lists"]>, "notDelivered">;
   };
   bindings: { tasks_project_id: string; home_project: string; state: BindingState; suggested_at: string | null; confirmed_at: string | null }[];
   /** Tasks projects with open cards and no binding row (no name match), for mk to bind by hand. */
@@ -217,7 +217,9 @@ export function buildQueue(svc: Service, asks: Asks, opts: { thread?: string } =
 
   const legacyOwed = owed.filter((x) => x.source !== "card");
   const runbook = asks.runbook();
-  const machine = asks.lists();
+  // The not-delivered list is for the Asks panel only: the queue payload and its count stay as they were.
+  const { lane, asks: machineAsks } = asks.lists();
+  const machine = { lane, asks: machineAsks };
   const unbound = (
     db
       .prepare(
