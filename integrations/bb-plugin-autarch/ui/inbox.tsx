@@ -8,6 +8,7 @@ import { glance } from "./glance.js";
 import { HoldEndLine } from "./holdendline.js";
 import { neighborAfterRemoval } from "./nextcard.js";
 import { PickHoldBar, usePickHold } from "./pickhold.js";
+import { unreadableLabel } from "./unreadable.js";
 import { extrasText, owedCounts } from "../waitingcount.js";
 import { MoreWaitingRow, moreWaiting } from "./morewaiting.js";
 import { ageText, AskCard, isDestructiveOption, type AsksData, type OnLater, type OnNote, type OnPick, type OwedAsk } from "./asks.js";
@@ -27,8 +28,8 @@ export interface InboxRow {
 }
 
 const askRow = (o: OwedAsk, nowMs: number): InboxRow => {
-  const time = glance(o)?.time ?? undefined;
-  return { key: `ask:${o.id}`, chip: "Decide", project: o.project, age: ageText(o.filed_at, nowMs), title: o.subject, ...(time ? { time } : {}), ask: o };
+  const time = o.unreadable ? undefined : glance(o)?.time ?? undefined;
+  return { key: `ask:${o.id}`, chip: "Decide", project: o.project, age: ageText(o.filed_at, nowMs), title: o.unreadable ? unreadableLabel(o.key) : o.subject, ...(time ? { time } : {}), ask: o };
 };
 
 /** The three lists. Waiting is the owed decisions that are neither held nor set aside; Later is the cards mk set aside; held is the cards on hold, shown read-only under the On hold row. */
@@ -126,14 +127,15 @@ function DetailBar({ r, onPick, onLater, onDone }: { r: InboxRow; onPick: OnPick
   if (r.ask) {
     const a = r.ask;
     const rec = a.ask.options.find((o) => o.id === a.ask.recommendation);
-    if (a.task_id) later = { label: a.later ? "Move back" : "Later", go: () => void run(() => onLater(a.task_id!, !a.later)) };
+    // An unreadable card stays in Waiting: it offers no Later (a card already set aside can still move back).
+    if (a.task_id && !(a.unreadable && !a.later)) later = { label: a.later ? "Move back" : "Later", go: () => void run(() => onLater(a.task_id!, !a.later)) };
     if (rec && !isDestructiveOption(rec)) main = { label: rec.label, go: () => void run(() => onPick(a.id, rec.id, a.revision)) };
   }
   return (
     <div className="sticky bottom-0 border-t border-border bg-background px-3 py-2" data-detail-bar>
       <div className="flex gap-2">
         {later ? <ActionButton tone="quiet" className="min-h-12 flex-1" disabled={busy} onClick={later.go} data-bar-later>{later.label}</ActionButton> : null}
-        {main ? <ActionButton tone="recommended" className="min-h-12 flex-[2]" disabled={busy} onClick={main.go} data-bar-main>{main.label}</ActionButton> : <span className="flex-[2] self-center text-xs text-muted-foreground" data-bar-hint>Choose an option above.</span>}
+        {main ? <ActionButton tone="recommended" className="min-h-12 flex-[2]" disabled={busy} onClick={main.go} data-bar-main>{main.label}</ActionButton> : r.ask?.unreadable ? null : <span className="flex-[2] self-center text-xs text-muted-foreground" data-bar-hint>Choose an option above.</span>}
       </div>
       {error !== null ? <p role="alert" className="mt-1 text-xs font-medium text-destructive" data-bar-failure>{`That did not go through: ${error}`}</p> : null}
     </div>

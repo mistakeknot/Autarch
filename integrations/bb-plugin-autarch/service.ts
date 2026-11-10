@@ -19,6 +19,7 @@ const NEEDS_END = "a hold needs its end: pass --until DATE (for example 2026-11-
 export type Hold = { reason: string; by: string; at: string; n?: string; end?: HoldEnd };
 /** mk set the card aside to do after the fast ones (bead mk-8741). The card stays open and unruled. */
 export type Later = { at: string; by: string };
+import { readAsk, UNREADABLE_REFUSAL as UNREADABLE_PICK } from "./askbody.js";
 import { identity, normalizedJson, parseAsk, revision, semanticKey, type Ask, type Question } from "./model.js";
 import { pickWrites } from "./cardwrites.js";
 import { estateRoot, fsUuidOfDev, pinRoot, renderRuling, rulingPath, writeRuling, type PinnedRoot, type Ruling } from "./ruling.js";
@@ -211,7 +212,7 @@ export class Service {
     return parseAsk(JSON.parse(d.body_json));
   }
   private labelOf(d: Row, optionId: string): string {
-    return this.askOf(d).options?.find((o) => o.id === optionId)?.label ?? optionId;
+    return readAsk(d.body_json)?.options?.find((o) => o.id === optionId)?.label ?? optionId;
   }
   private replacementOf(id: string): string | undefined {
     return (this.db.prepare("SELECT id FROM decisions WHERE supersedes = ?").get(id) as { id: string } | undefined)?.id;
@@ -422,12 +423,8 @@ export class Service {
     if (!d) return { ok: false, status: 404, error: "unknown decision" };
     if (d.kind === "steps") return this.pickSteps(d, optionId, rev, pickId, by, surface);
     if (d.kind !== "decide") return { ok: false, status: 400, error: "only decide and steps asks take a pick" };
-    let ask: Ask;
-    try {
-      ask = this.askOf(d);
-    } catch (e) {
-      return { ok: false, status: 500, error: `stored decision is unreadable: ${message(e)}` };
-    }
+    const ask = readAsk(d.body_json);
+    if (!ask) return UNREADABLE_PICK;
     if (revision(ask) !== d.revision) return { ok: false, status: 500, error: "stored revision does not match the stored decision" };
     if (d.source === "card") {
       // Revision 3: an ask on a project with no verified root cannot be ruled, by anyone, until the root is bound.
@@ -561,6 +558,33 @@ export class Service {
     return { ok: true, status: 201, pick: this.store.pick(decisionId)! };
   }
 
+  /**
+   * An open ask whose stored body cannot be read is shown to mk marked "could not be read" (bead mk-j5ipa.14), and its asking
+   * thread is told once to file it again. The obligation id carries the decision id, which is per card generation, so a refresh
+   * or a later poll inserts nothing new (insertObligations ignores a known id) and a re-filed generation is told once more.
+   */
+  tellUnreadable(): number {
+    let told = 0;
+    for (const d of this.owed()) {
+      if (readAsk(d.body_json)) continue;
+      const taskId = d.task_id ? String(d.task_id) : null;
+      const asker = (taskId ? (this.db.prepare("SELECT asking_thread FROM cards WHERE task_id = ?").get(taskId) as { asking_thread: string | null } | undefined)?.asking_thread : null) || d.thread;
+      if (!asker) continue;
+      const key = this.cardKey(taskId) ?? d.id;
+      told += this.store.insertObligations(d.id, [
+        {
+          id: `ob:${d.id}:unreadable`,
+          kind: "notice",
+          recipient: asker,
+          op: `unreadable:${d.id}`,
+          payload: `Home could not read the card ${key} (${d.id}), so mk sees "${key} could not be read" and cannot answer it. Nothing was ruled. Please file it again, with a new request id, so mk can answer it. This is not merge, deploy, release or publish authorization.`,
+        },
+      ]);
+    }
+    if (told > 0) this.deps.nudge?.();
+    return told;
+  }
+
   /** One notice per distinct thread in the generation's Blocks snapshot, except the asking thread. */
   private noticesFor(d: Row, label: string, by: string, words = ""): ObligationInput[] {
     const refs = this.db.prepare("SELECT ref FROM decision_blocks WHERE decision_id = ? ORDER BY ref").all(d.id) as { ref: string }[];
@@ -601,7 +625,8 @@ export class Service {
     const prior = settled(this.store.pick(d.id));
     if (prior) return prior;
     if (this.store.pickByPickId(pickId)) return { ok: false, status: 409, error: "pick id reused" };
-    const ask = this.askOf(d);
+    const ask = readAsk(d.body_json);
+    if (!ask) return UNREADABLE_PICK;
     const threads = [...new Set([d.thread, ...this.store.mentions(d.id).map((m) => m.thread)].filter((t) => t !== ""))];
     const obligations: ObligationInput[] = threads.map((t) => ({
       id: `ob:${d.id}:steps-done:${t}`,
@@ -1684,8 +1709,8 @@ export class Service {
       const taskId = d.task_id ? String(d.task_id) : null;
       // A legacy ask has no card: its key is the first generation of its supersedes chain, so every generation shares it.
       const key = this.cardKey(taskId) ?? taskId ?? group;
-      const title = (this.cardTitle(taskId) || d.subject || String(this.askOf(d).question)).slice(0, 120);
-      const body = String(this.askOf(d).question).replace(/\s+/g, " ").trim().slice(0, 300);
+      const title = (this.cardTitle(taskId) || d.subject || String(readAsk(d.body_json)?.question ?? "")).slice(0, 120);
+      const body = String(readAsk(d.body_json)?.question ?? "").replace(/\s+/g, " ").trim().slice(0, 300);
       req = { kind: "blocker", title, body, ...(d.thread ? { thread: d.thread } : {}), dedupeKey: key };
       this.pushing.add(group);
     } catch (e) {

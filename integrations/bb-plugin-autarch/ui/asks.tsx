@@ -15,6 +15,7 @@ import type { HoldEnd } from "../holdend.js";
 import type { Question } from "../model.js";
 import { freeOwnWordsId } from "../ownwords.js";
 import { MultiPick } from "./multipick.js";
+import { UnreadableCard, unreadableLabel } from "./unreadable.js";
 import { neighborAfterRemoval } from "./nextcard.js";
 import { OtherBox, otherHelpText, type OtherImage, type OtherOutcome } from "./other.js";
 
@@ -97,6 +98,8 @@ export type OwedAsk = {
   /** Set while mk has set the card aside for later: it stays open and unruled, in the Later group, outside the Waiting count. */
   later?: { at: string; by: string } | null;
   ask: { question: string; recommendation?: string; options: Option[]; questions?: Question[] };
+  /** The stored ask could not be read: `ask` is then empty, and the card is shown marked with nothing to answer. */
+  unreadable?: boolean;
 };
 export type Lane = { id: string; subject: string; thread: string; owner: string | null; detail: string; updated_at: string; label?: string };
 export type RunbookGroup = { thread: string; items: { id: string; subject: string; question: string; steps: string[]; filed_at: string }[] };
@@ -268,7 +271,11 @@ export type OnLater = (taskId: string, on: boolean) => void | Promise<unknown>;
 /** What a card calls its asking thread: the title when there is one, else the id. */
 export const threadName = (a: { thread: string; thread_title?: string | null }): string => a.thread_title?.trim() || a.thread;
 
-export function AskCard({ ask, onPick, onOpen, nowMs, onNote, onLater, unbound = false }: { ask: OwedAsk; onPick: OnPick; onOpen: (thread: string) => void; nowMs?: number; onNote?: OnNote; onLater?: OnLater; unbound?: boolean }) {
+export function AskCard(props: { ask: OwedAsk; onPick: OnPick; onOpen: (thread: string) => void; nowMs?: number; onNote?: OnNote; onLater?: OnLater; unbound?: boolean }) {
+  return props.ask.unreadable ? <UnreadableCard id={props.ask.id} cardKey={props.ask.key} /> : <ReadableAskCard {...props} />;
+}
+
+function ReadableAskCard({ ask, onPick, onOpen, nowMs, onNote, onLater, unbound = false }: { ask: OwedAsk; onPick: OnPick; onOpen: (thread: string) => void; nowMs?: number; onNote?: OnNote; onLater?: OnLater; unbound?: boolean }) {
   const [failure, setFailure] = useState<string | null>(null);
   const [laterError, setLaterError] = useState<string | null>(null);
   const [pending, setPending] = useState<string | null>(null);
@@ -461,8 +468,8 @@ export function DecideQueue({ owed, onPick, onOpen, nowMs, onNote, onLater, onVi
                 }}
               >
                 <span className="flex min-w-0 items-baseline gap-1.5 text-sm">
-                  {o.key ? <span className="shrink-0 select-all font-mono text-xs font-semibold" data-task-key>{o.key}</span> : null}
-                  <span className="min-w-0 [overflow-wrap:anywhere] max-sm:line-clamp-3 sm:truncate">{o.subject}</span>
+                  {o.key && !o.unreadable ? <span className="shrink-0 select-all font-mono text-xs font-semibold" data-task-key>{o.key}</span> : null}
+                  <span className="min-w-0 [overflow-wrap:anywhere] max-sm:line-clamp-3 sm:truncate">{o.unreadable ? unreadableLabel(o.key) : o.subject}</span>
                 </span>
                 {showProject && o.project ? <span className="block truncate text-xs text-muted-foreground" data-ask-project>{o.project}</span> : null}
                 <span data-ask-meta className="block text-xs text-muted-foreground [overflow-wrap:anywhere]">
