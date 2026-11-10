@@ -21,7 +21,7 @@ import { ConversationProvider, type ConversationApi, type ConversationData } fro
 import type { AsksData } from "./ui/asks.js";
 import { MobileInbox, useIsPhone } from "./ui/inbox.js";
 import { ProjectFilterBar, useProjectFilter } from "./ui/projectfilter.js";
-import { filterAsks, filterQueue, hiddenIn, projectChoices, shownCount } from "./ui/projectfilterstore.js";
+import { COUNTS_FOLLOW_FILTER, filterAsks, filterQueue, hiddenIn, projectChoices, shownCount } from "./ui/projectfilterstore.js";
 import { IdeaDesk, IdeaDigest, type IdeaApi } from "./ui/ideas.js";
 import type { IdeaProject, IdeaView } from "./ideas.js";
 import { CatchupPanel, markedRows, markPlan, markResultText, normalizeCatchup, readableCatchup, SeenTracker, settleCatchup } from "./ui/catchup.js";
@@ -610,7 +610,7 @@ function HomePage({ subPath }: { subPath?: string }) {
           <MobileInbox
             asks={filterAsks(asks, excluded)}
             waiting={shownCount(waiting?.total ?? 0, hiddenBy.decide)}
-            filter={{ node: filterBar, hidden: { waiting: hiddenBy.decide + hiddenBy.heldOnPhone, later: hiddenBy.later }, laterCount: shownCount(asks.owed.filter((o) => o.later && !o.held).length, hiddenBy.later) }}
+            filter={{ node: filterBar, hidden: { waiting: hiddenBy.decide, later: hiddenBy.later }, heldHidden: hiddenBy.heldOnPhone, summaryOwed: COUNTS_FOLLOW_FILTER ? filterAsks(asks, excluded).owed : asks.owed, laterCount: shownCount(asks.owed.filter((o) => o.later && !o.held).length, hiddenBy.later) }}
             sinceCount={waiting ? waiting.updates + waiting.notices : readable.length + notices.length}
             sinceNode={
               <>

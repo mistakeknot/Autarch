@@ -339,6 +339,37 @@ describe("where the result shows", () => {
     expect(html).toContain("Everything here is hidden by the project filter.");
     expect(html).not.toContain("Nothing is waiting on you.");
   });
+  it("the phone header's held and Later summary counts every project, even with a project excluded", () => {
+    const all = data([heldAsk("h1", "A"), heldAsk("h2", "B"), owed("l1", "A", { later: { until: null, at: "2026-11-01T00:00:00Z" } } as never), owed("w1", "B")]);
+    const kept = filterAsks(all, new Set(["A"]));
+    const html = renderToStaticMarkup(
+      <MobileInbox asks={kept} waiting={1} onPick={noop as never} onOpen={noop} onNote={noop} onLater={noop} sinceNode={null} sinceCount={0} onDesktop={noop}
+        filter={{ node: () => null, hidden: { waiting: 0, later: 1 }, heldHidden: 1, laterCount: 1, summaryOwed: all.owed }} />,
+    );
+    expect(html).toContain("2 on hold");
+    expect(html).toContain("1 later");
+  });
+  it("the phone header's summary follows the filter only when it is given the filtered cards", () => {
+    const all = data([heldAsk("h1", "A"), heldAsk("h2", "B")]);
+    const kept = filterAsks(all, new Set(["A"]));
+    const html = renderToStaticMarkup(
+      <MobileInbox asks={kept} waiting={0} onPick={noop as never} onOpen={noop} onNote={noop} onLater={noop} sinceNode={null} sinceCount={0} onDesktop={noop}
+        filter={{ node: () => null, hidden: { waiting: 0, later: 0 }, heldHidden: 1, laterCount: 0, summaryOwed: kept.owed }} />,
+    );
+    expect(html).toContain("1 on hold");
+    expect(html).not.toContain("2 on hold");
+  });
+  it("hidden held cards do not make an empty list say everything is hidden, and the note still counts them", () => {
+    const all = data([heldAsk("h1", "A"), heldAsk("h2", "B")]);
+    const html = renderToStaticMarkup(
+      <MobileInbox asks={filterAsks(all, new Set(["A"]))} waiting={0} onPick={noop as never} onOpen={noop} onNote={noop} onLater={noop} sinceNode={null} sinceCount={0} onDesktop={noop}
+        filter={{ node: (hidden) => <p>{`note ${hidden}`}</p>, hidden: { waiting: 0, later: 0 }, heldHidden: 1, laterCount: 0, summaryOwed: all.owed }} />,
+    );
+    expect(html).not.toContain("Everything here is hidden");
+    expect(html).toContain("Nothing is waiting on you.");
+    expect(html).toContain("note 1");
+    expect(html).toContain("On hold · 1");
+  });
   it("the phone inbox keeps its own words when the filter hides nothing", () => {
     const html = renderToStaticMarkup(
       <MobileInbox asks={data([])} waiting={0} onPick={noop as never} onOpen={noop} onNote={noop} onLater={noop} sinceNode={null} sinceCount={0} onDesktop={noop}
