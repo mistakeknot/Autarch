@@ -68,7 +68,18 @@ export class Delegation {
     readonly svc: Service,
     private readonly threads?: ThreadLister,
     private readonly getThread?: ThreadGetter,
-  ) {}
+  ) {
+    // The same thread list and the same vizier answer tell an undelivered card's project coordinator or the vizier (bead mk-mn7yz).
+    if (threads) {
+      svc.useThreadSource({
+        list: () => threads(),
+        vizier: async () => {
+          const v = await this.resolveVizier({ adopt: false });
+          return v.ok ? v.id : null;
+        },
+      });
+    }
+  }
 
   /**
    * Plan 1.3.6: delegation settings name Home projects, and each name is re-checked against serve's

@@ -14,11 +14,12 @@ const row = (id: string, title: string | null, over: Partial<ThreadRow> = {}): T
 
 /** A rig whose notice recipients come from a mutable thread list and a fixed vizier. */
 function threadRig(threads: ThreadRow[], vizier: string | null = "thr_viz") {
-  const state = { threads, vizier, listFails: false };
+  const state = { threads, vizier, listFails: false, lists: 0 };
   const r = rig({
     svc: {
       threadSource: {
         list: async () => {
+          state.lists++;
           if (state.listFails) throw new Error("threads unavailable");
           return state.threads;
         },
@@ -29,7 +30,7 @@ function threadRig(threads: ThreadRow[], vizier: string | null = "thr_viz") {
   return { r, state };
 }
 
-const noticesFor = (r: Rig, taskId: string) => r.db.prepare("SELECT * FROM obligations WHERE kind = 'notice' AND op = ?").all(`undelivered:${taskId}`) as any[];
+const noticesFor = (r: Rig, taskId: string) => r.db.prepare("SELECT * FROM obligations WHERE kind = 'notice' AND op LIKE ?").all(`undelivered:${taskId}%`) as any[];
 
 /** A card with no asking thread, polled twice so the second failed try has happened. */
 async function unknownAsker(r: Rig, over: Parameters<Rig["card"]>[0] = {}) {
@@ -86,11 +87,17 @@ describe("an undelivered card whose asker is unknown", () => {
   });
 
   it("never tells an archived coordinator: a project with only an archived one goes to the vizier", async () => {
-    const { r } = threadRig([row("thr_old", "Autarch | coordinator", { archivedAt: 1 }), row("thr_gone", "Autarch | coordinator", { deletedAt: 1 })]);
+    const { r } = threadRig([row("thr_old", "Autarch | coordinator", { archivedAt: 1 })]);
     const t = await unknownAsker(r);
     const n = noticesFor(r, t.id);
     expect(n).toHaveLength(1);
     expect(n[0].recipient).toBe("thr_viz");
+  });
+
+  it("never tells a deleted coordinator either", async () => {
+    const { r } = threadRig([row("thr_gone", "Autarch | coordinator", { deletedAt: 1 })]);
+    const t = await unknownAsker(r);
+    expect(noticesFor(r, t.id).map((o) => o.recipient)).toEqual(["thr_viz"]);
   });
 
   it("ignores an archived coordinator beside one live one", async () => {
@@ -129,6 +136,19 @@ describe("an undelivered card whose asker is unknown", () => {
     r.advance(300_000);
     await r.poll();
     expect(noticesFor(r, t.id)).toHaveLength(1);
+  });
+
+  it("does not list every thread again on later polls once the notice is queued", async () => {
+    const { r, state } = threadRig([row("thr_coord", "Autarch | coordinator")]);
+    const t = await unknownAsker(r);
+    const after = state.lists;
+    expect(after).toBeGreaterThan(0);
+    for (let i = 0; i < 3; i++) {
+      r.advance(300_000);
+      await r.poll();
+    }
+    expect(r.cardRow(t.id).check_attempts).toBeGreaterThan(3);
+    expect(state.lists).toBe(after);
   });
 
   it("tells a re-filed card again: a new card is a new generation with its own notice", async () => {
