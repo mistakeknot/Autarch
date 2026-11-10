@@ -181,6 +181,8 @@ export class Queue {
       if (seen.has(id)) continue;
       note(await service.revalidateRouting(id, comments(id)));
     }
+    // A hold whose date has passed is released and its holder told once (readers already treat it as gone).
+    if (service.sweepExpiredHolds() > 0) note({ changed: true });
     // A held card whose task did not change this poll can still have a new comment with a script digest.
     for (const id of Object.keys(service.holds())) {
       if (seen.has(id) || !listed.has(id)) continue;

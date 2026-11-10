@@ -10,6 +10,8 @@ import { CommandBlock } from "./copy.js";
 import { glance, GlanceBlock, type GlanceAnswer } from "./glance.js";
 import { GH_REF_SRC, refNodes, URL_SRC } from "./links.js";
 import { DocLink } from "./docreader.js";
+import { HoldEndLine } from "./holdendline.js";
+import type { HoldEnd } from "../holdend.js";
 import type { Question } from "../model.js";
 import { freeOwnWordsId } from "../ownwords.js";
 import { MultiPick } from "./multipick.js";
@@ -91,7 +93,7 @@ export type OwedAsk = {
   /** The tasks card behind this ask, when it is a card: the conversation reads its comments. */
   task_id?: string | null;
   /** Set while the vizier holds the card: shown greyed under "On hold", with no pick buttons. */
-  held?: { reason: string; by: string; at: string } | null;
+  held?: { reason: string; by: string; at: string; end?: HoldEnd | null } | null;
   /** Set while mk has set the card aside for later: it stays open and unruled, in the Later group, outside the Waiting count. */
   later?: { at: string; by: string } | null;
   ask: { question: string; recommendation?: string; options: Option[]; questions?: Question[] };
@@ -594,6 +596,7 @@ export function AsksPanel({ part, data, onPick, onOpen, onRevoke, onDismiss, onN
                   <span className="min-w-0 truncate">{o.subject}</span>
                 </span>
                 <span className="block text-xs [overflow-wrap:anywhere]" data-hold-reason>{`On hold: ${o.held!.reason}`}</span>
+                <HoldEndLine held={o.held!} />
               </li>
             ))}
           </ul>

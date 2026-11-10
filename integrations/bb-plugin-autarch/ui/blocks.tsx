@@ -2,6 +2,8 @@
 // The server sorts and pins (queueview.ts); this file only renders, and owns the refresh policy.
 import { AskCard, type OnNote, type OnPick, type OwedAsk, type RunbookGroup } from "./asks.js";
 import { startPoll } from "./poll.js";
+import { HoldEndLine } from "./holdendline.js";
+import type { HoldEnd } from "../holdend.js";
 import { useState } from "react";
 import { copyText } from "./copy.js";
 import { RootRunSection, type RootRunPanelView } from "./rootrun.js";
@@ -29,7 +31,7 @@ export type QueueRowView = {
   overrides_generation: number | null;
   changed_after_ruling: boolean;
   root: { state: string | null; reason: string | null };
-  held?: { reason: string; by: string; at: string } | null;
+  held?: { reason: string; by: string; at: string; end?: HoldEnd | null } | null;
 };
 export type LegacyView = {
   count: number;
@@ -206,11 +208,13 @@ export function BlocksRow({ row, nowMs, onPick, onOpen, rootRun, onBind, onNote 
             {row.thread ? <button type="button" className="underline" onClick={() => onOpen(row.thread!)}>{row.thread_title || row.thread}</button> : null}
           </p>
           {row.held ? <p className="text-xs" data-hold-reason>{`On hold: ${row.held.reason}`}</p> : null}
+          {row.held ? <HoldEndLine held={row.held} as="p" className="text-xs [overflow-wrap:anywhere]" /> : null}
         </div>
       ) : row.held ? (
         <div data-held="true">
           <h3 className="text-sm font-medium">{row.title}</h3>
           <p className="text-xs" data-hold-reason>{`On hold: ${row.held.reason}`}</p>
+          <HoldEndLine held={row.held} as="p" className="text-xs [overflow-wrap:anywhere]" />
         </div>
       ) : null}
       {root}

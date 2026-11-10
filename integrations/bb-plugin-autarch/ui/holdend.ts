@@ -1,4 +1,4 @@
-import type { Hold } from "../service.js";
+import { holdEndPhrase, type HoldEnd } from "../holdend.js";
 
-/** Placeholder so the red tests load (replaced in the next commit). */
-export const holdEndText = (_h: Hold, _nowMs: number): string => "";
+/** The end of a hold as text for a card: "until Nov 14", "until <event label>", or "no end set" for an old hold. */
+export const holdEndText = (h: { end?: HoldEnd | null }, nowMs: number): string => holdEndPhrase(h.end, nowMs);
