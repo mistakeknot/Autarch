@@ -1361,6 +1361,8 @@ export class Service {
   }
 
   private markOpen(taskId: string): void {
+    // A "not delivered" notice still waiting in the batching window would now be false: void it. The row stays, so the card is still told at most once.
+    this.store.voidObligation(`ob:undelivered:${taskId}`);
     this.patchCard(taskId, { state: "open", display_reason: null, next_check_at: null, check_attempts: 0, routing_check_at: this.now() });
   }
 
