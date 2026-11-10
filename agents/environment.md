@@ -1,9 +1,9 @@
 # Environment Variables
 
+Bigend reads no environment variables for its port or scan roots: use `--port` (default 8099) and `--scan-root`.
+
 | Variable | Tool | Purpose |
 |----------|------|---------|
-| `VAUXHALL_PORT` | Bigend | Web port (default: 8099) |
-| `VAUXHALL_SCAN_ROOTS` | Bigend | Project scan paths |
 | `INTERMUTE_URL` | All | Intermute server URL |
 | `INTERMUTE_API_KEY` | All | Intermute authentication |
 | `INTERMUTE_PROJECT` | All | Project scope |

@@ -20,8 +20,8 @@ L1: Intercore (core)   — Kernel, state machine, runs, coordination locks
 
 ```
 Autarch/
-├── cmd/                        # Entry points: autarch, autarch-mcp, bigend, coldwine, gurgeh, pollard, signals
-├── internal/                   # Tool-specific code (bigend/, coldwine/, gurgeh/, pollard/, tui/)
+├── cmd/                        # Entry points (see `ls cmd/`): autarch, autarch-mcp, bigend, coldwine, gurgeh, mycroft, pollard, signals, and helper tools
+├── internal/                   # Tool-specific code (see `ls internal/`: bigend/, coldwine/, gurgeh/, mycroft/, pollard/, tui/, and more)
 ├── pkg/                        # Shared packages (see `ls pkg/` — key ones below)
 ├── docs/                       # Per-tool docs at docs/{bigend,gurgeh,coldwine,pollard}/AGENTS.md
 └── dev                         # Build/run script
@@ -31,13 +31,13 @@ Autarch/
 - `autarch` — unified client (HTTP→Intermute), `clavain` — L2 CLI wrapper, `intercore` — L1 CLI wrapper
 - `tui` — shared TUI (styles, Shell/Split layouts, ChatPanel, CommandPicker, Composer)
 - `db` — SQLite helpers (WAL, `MaxOpenConns(1)`, 5s busy timeout), `contract` — cross-tool entity types
-- Full listing: `ls pkg/` (23 packages)
+- Full listing: `ls pkg/`
 
 ## Key Architectural Facts
 
 - **Single TUI implementation**: `UnifiedApp` is the only app shell. All views render inside it.
 - **Onboarding lives in GurgehView**: `GurgehOnboardingView` + `gurgeh_helpers.go` in `views/`. `GurgehView` delegates to onboarding or spec browser.
-- **4 dashboard tabs**: Bigend(0), Gurgeh(1), Coldwine(2), Pollard(3). Signals is an overlay (`/sig`), not a tab.
+- **5 dashboard tabs**: Bigend(0), Gurgeh(1), Coldwine(2), Pollard(3), Mycroft(4). Signals is an overlay (`/sig`), not a tab.
 - **Overlay render order**: palette → chat settings → signals → help. Each intercepts keys when visible.
 - **Log pane**: Always created. Ctrl+L toggles. Auto-shows during scan, auto-hides after 3s.
-- **Slash command aliases**: `/b`=back, `/p`=palette, `/g`=group, `/m`=model, `/r`=refresh, `/big`=bigend, `/gur`=gurgeh, `/cold`=coldwine, `/pol`=pollard, `/sig`=signals, `/logs`(`/log`,`/l`)=toggle log pane — check `GlobalCommands()` in `pkg/tui/command_picker.go` before adding new ones.
+- **Slash commands**: the command and alias list lives in [tui-keybindings.md](tui-keybindings.md); the code is `GlobalCommands()` in `pkg/tui/command_picker.go`.
