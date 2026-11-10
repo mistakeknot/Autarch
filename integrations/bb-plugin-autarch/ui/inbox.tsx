@@ -5,6 +5,7 @@
 import { useEffect, useState, type ReactNode } from "react";
 import { ActionButton } from "./buttons.js";
 import { glance } from "./glance.js";
+import { extrasText, owedCounts } from "../waitingcount.js";
 import { ageText, AskCard, isDestructiveOption, type AsksData, type OnLater, type OnNote, type OnPick, type OwedAsk } from "./asks.js";
 
 export type InboxTab = "waiting" | "later" | "since";
@@ -26,12 +27,13 @@ const askRow = (o: OwedAsk, nowMs: number): InboxRow => {
   return { key: `ask:${o.id}`, chip: "Decide", project: o.project, age: ageText(o.filed_at, nowMs), title: o.subject, ...(time ? { time } : {}), ask: o };
 };
 
-/** The two lists. Waiting is the owed decisions that are neither held nor set aside; Later is the cards mk set aside. */
-export function inboxRows(asks: AsksData, nowMs: number): { waiting: InboxRow[]; later: InboxRow[] } {
+/** The three lists. Waiting is the owed decisions that are neither held nor set aside; Later is the cards mk set aside; held is the cards on hold, shown read-only under the On hold row. */
+export function inboxRows(asks: AsksData, nowMs: number): { waiting: InboxRow[]; later: InboxRow[]; held: InboxRow[] } {
   const live = asks.owed.filter((o) => !o.held);
   const waiting = live.filter((o) => !o.later).map((o) => askRow(o, nowMs));
   const later = live.filter((o) => o.later).map((o) => askRow(o, nowMs));
-  return { waiting, later };
+  const held = asks.owed.filter((o) => o.held).map((o) => askRow(o, nowMs));
+  return { waiting, later, held };
 }
 
 /** True while the screen is phone-sized (below Tailwind's sm breakpoint). */
@@ -68,6 +70,32 @@ function Row({ r, onOpen }: { r: InboxRow; onOpen: () => void }) {
         {rec ? <span className="line-clamp-1 text-xs text-muted-foreground" data-row-rec>{`Rec: ${rec.label}`}</span> : null}
       </button>
     </li>
+  );
+}
+
+/** The On hold row (read-only): closed by default with the count; opened, each held card with its title and the reason it is held. Holds are the vizier's to set and release, so nothing here acts on one. */
+function HoldRow({ rows, open, onToggle }: { rows: InboxRow[]; open: boolean; onToggle: () => void }) {
+  return (
+    <section className="border-b border-border" data-inbox-hold>
+      <button type="button" className="flex min-h-11 w-full items-center justify-between gap-2 px-4 py-2 text-left text-sm text-muted-foreground" aria-expanded={open} aria-controls="inbox-hold-list" onClick={onToggle} data-inbox-hold-toggle>
+        <span>{`On hold · ${rows.length}`}</span>
+        <span aria-hidden="true">{open ? "Hide" : "Show"}</span>
+      </button>
+      {open ? (
+        <ul id="inbox-hold-list" className="m-0 p-0" data-inbox-hold-list>
+          {rows.map((r) => (
+            <li key={r.key} className="m-0 list-none border-t border-border px-4 py-3 text-muted-foreground" data-held-row={r.key}>
+              <span className="flex items-center gap-2 text-xs">
+                {r.ask?.key ? <span className="font-mono">{r.ask.key}</span> : null}
+                {r.project ? <span>{r.project}</span> : null}
+              </span>
+              <span className="mt-1 block text-sm font-medium [overflow-wrap:anywhere]">{r.title}</span>
+              <span className="mt-1 block text-xs [overflow-wrap:anywhere]" data-hold-reason>{`On hold: ${r.ask?.held?.reason ?? ""}`}</span>
+            </li>
+          ))}
+        </ul>
+      ) : null}
+    </section>
   );
 }
 
@@ -125,11 +153,13 @@ export function MobileInbox({ asks, waiting, onPick, onOpen, onNote, onLater, si
   updateNode?: ReactNode;
   now?: number;
   /** Where to start (tests render the detail view this way). */
-  initial?: { tab?: InboxTab; open?: string };
+  initial?: { tab?: InboxTab; open?: string; holdOpen?: boolean };
 }) {
   const [tab, setTab] = useState<InboxTab>(initial?.tab ?? "waiting");
   const [open, setOpen] = useState<string | null>(initial?.open ?? null);
+  const [holdOpen, setHoldOpen] = useState(initial?.holdOpen ?? false);
   const rows = inboxRows(asks, now);
+  const extras = extrasText(owedCounts(asks.owed));
   const list = tab === "later" ? rows.later : rows.waiting;
   const current = open === null ? null : [...rows.waiting, ...rows.later].find((r) => r.key === open) ?? null;
   const title = tab === "waiting" ? `Waiting on you · ${waiting}` : tab === "later" ? `Later · ${rows.later.length}` : "Since you left";
@@ -142,7 +172,10 @@ export function MobileInbox({ asks, waiting, onPick, onOpen, onNote, onLater, si
         {current ? (
           <ActionButton tone="quiet" className="min-h-11" onClick={() => setOpen(null)} data-inbox-back>‹ Back</ActionButton>
         ) : (
-          <h1 className="m-0 text-base font-semibold" data-inbox-title>{title}</h1>
+          <div className="min-w-0">
+            <h1 className="m-0 text-base font-semibold" data-inbox-title>{title}</h1>
+            {tab === "waiting" && extras ? <p className="m-0 text-xs text-muted-foreground" data-inbox-extras>{extras}</p> : null}
+          </div>
         )}
         {current ? null : (
           <span className="flex items-center gap-1">
@@ -161,10 +194,15 @@ export function MobileInbox({ asks, waiting, onPick, onOpen, onNote, onLater, si
           </div>
         ) : tab === "since" ? (
           sinceNode
-        ) : list.length === 0 ? (
-          <p className="p-4 text-sm text-muted-foreground" data-inbox-empty>{tab === "later" ? "Nothing set aside." : "Nothing is waiting on you."}</p>
         ) : (
-          <ul className="m-0 p-0">{list.map((r) => <Row key={r.key} r={r} onOpen={() => setOpen(r.key)} />)}</ul>
+          <>
+            {list.length === 0 ? (
+              <p className="p-4 text-sm text-muted-foreground" data-inbox-empty>{tab === "later" ? "Nothing set aside." : "Nothing is waiting on you."}</p>
+            ) : (
+              <ul className="m-0 p-0">{list.map((r) => <Row key={r.key} r={r} onOpen={() => setOpen(r.key)} />)}</ul>
+            )}
+            {tab === "waiting" && rows.held.length > 0 ? <HoldRow rows={rows.held} open={holdOpen} onToggle={() => setHoldOpen((v) => !v)} /> : null}
+          </>
         )}
       </div>
       {current ? (
