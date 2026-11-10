@@ -86,4 +86,13 @@ describe("desktop", () => {
     expect(html).toContain(`href="/plugins/autarch/home/${KEY}"`);
     expect(html).not.toContain("data-option");
   });
+  it("a held card that cannot be read still shows its hold reason and when the hold ends", () => {
+    const row = { id: "dbad", decision_id: "dbad", task_id: "t-dbad", card_key: KEY, binding_state: "confirmed", project: "Clavain", title: "Bad one", refs: [], blocks_count: 0, created_at: "2026-10-09T07:00:00Z", thread: "thr-a", pinned: false, ask: { question: "", options: [] }, revision: "r1", mentions: 0, display_reason: null, display_only: false, overrides_generation: null, changed_after_ruling: false, root: { state: "verified", reason: null }, unreadable: true, held: { reason: "wait for the vendor", by: "mk", at: "2026-10-09T08:00:00Z", end: { until: "2026-11-14" } } };
+    const html = renderToStaticMarkup(<BlocksRow row={row as never} nowMs={NOW} onPick={noop as never} onOpen={noop} />);
+    expect(html).toContain(`${KEY} could not be read`);
+    expect(html).toContain("On hold: wait for the vendor");
+    expect(html).toContain("data-hold-end");
+    expect(html).toContain("Nov 14");
+    expect(html).not.toContain("data-option");
+  });
 });

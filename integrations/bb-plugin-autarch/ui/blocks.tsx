@@ -171,7 +171,16 @@ export function BlocksRow({ row, nowMs, onPick, onOpen, rootRun, onBind, onNote 
     </>
   );
   const className = `rounded-lg border border-border bg-card p-3${row.held ? " opacity-60" : ""}`;
-  if (row.unreadable && row.decision_id !== null) return <UnreadableCard id={row.decision_id} cardKey={row.card_key} />;
+  if (row.unreadable && row.decision_id !== null) {
+    // A held card whose body cannot be read still says why it is on hold and when the hold ends.
+    return (
+      <div className={row.held ? "space-y-1 opacity-60" : undefined} data-row={row.id}>
+        <UnreadableCard id={row.decision_id} cardKey={row.card_key} />
+        {row.held ? <p className="px-1 text-xs [overflow-wrap:anywhere]" data-hold-reason>{`On hold: ${row.held.reason}`}</p> : null}
+        {row.held ? <HoldEndLine held={row.held} as="p" className="px-1 text-xs [overflow-wrap:anywhere]" /> : null}
+      </div>
+    );
+  }
   if (!row.display_only && !row.held && row.ask !== null && row.decision_id !== null && row.revision !== null) {
     // One line until opened: mk scans these cards and rarely answers one. The line carries the key, the title and short
     // flags for what needs a look (not bound, overrides, changed); everything else sits behind "Open card".
