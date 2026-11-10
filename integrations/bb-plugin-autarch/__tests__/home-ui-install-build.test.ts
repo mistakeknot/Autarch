@@ -34,7 +34,7 @@ function plugin(root: string, name: string) {
   return d;
 }
 
-type Env = { HUI_INSTALL?: string; HUI_LEFT?: string; HUI_RELOAD?: string; HUI_FAIL_FOR?: string };   // HUI_RELOAD: degrade = an enable on a running plugin degrades it; stuck = every enable leaves it degraded
+type Env = { HUI_INSTALL?: string; HUI_LEFT?: string; HUI_RELOAD?: string; HUI_FAIL_FOR?: string; HOME_UI_RECHECK_WAIT?: string; HOME_UI_RECHECK_INTERVAL?: string };   // HUI_RELOAD: degrade = an enable on a running plugin degrades it; stuck = every enable leaves it degraded
 
 function rig() {
   const root = mkdtempSync(join(tmpdir(), "hui-ib-"));

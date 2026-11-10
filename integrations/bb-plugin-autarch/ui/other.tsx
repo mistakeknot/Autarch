@@ -2,7 +2,7 @@
 // "Answer with this" records the words as a custom pick. The text is plain text, trimmed, capped at 20000 characters.
 // The server enforces the same cap; the counter here is a courtesy. Images (paste or attach) travel with the text;
 // the server checks type, size and count again, and an image alone (no text) is not sent.
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { ActionButton } from "./buttons.js";
 
 export const OTHER_MAX = 20000;
@@ -72,7 +72,10 @@ export function OtherBox({
 }) {
   const [raw, setRaw] = useState("");
   const rawRef = useRef("");
-  rawRef.current = raw;
+  // Written in a layout effect, not in render: it lands in the same commit, before any event handler or timer can read it.
+  useLayoutEffect(() => {
+    rawRef.current = raw;
+  }, [raw]);
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
   const [imgs, setImgsState] = useState<Staged[]>([]);
