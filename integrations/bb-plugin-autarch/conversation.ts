@@ -195,9 +195,8 @@ export class CommentPoller {
   }
 }
 
-/** Task ids with an open ask or a live move. */
+/** Task ids with an open ask. */
 export function openTaskIds(svc: Service): string[] {
   const asks = svc.store.db.prepare("SELECT task_id FROM cards WHERE state = 'open'").all() as { task_id: string }[];
-  const moves = svc.store.moves().filter((m) => m.state !== "closed").map((m) => ({ task_id: m.task_id }));
-  return [...asks, ...moves].map((r) => r.task_id);
+  return asks.map((r) => r.task_id);
 }

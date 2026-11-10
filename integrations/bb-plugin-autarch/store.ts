@@ -83,17 +83,6 @@ export interface PickInput {
    * depend on other rows (a daily cap) belong here, not before the transaction.
    */
   guard?: () => { status: number; error: string } | null;
-  /** Opens this move in the pick's own transaction (a pick on an option that leaves mk something to do). */
-  move?: MoveInput;
-}
-
-/** A thing mk owes on a card generation (plan mk-okek.24). `payload` is the validated home-move/v1 object. */
-export interface MoveInput {
-  task_id: string;
-  generation: number;
-  kind: "script" | "pr" | "read" | "context";
-  payload: unknown;
-  opened_by: "card" | "pick";
 }
 
 export type MoveState = "open" | "claimed" | "closed";
@@ -651,7 +640,7 @@ export class Store {
 
   /** Insert the pick and its obligations and one event in one transaction [C-3] [C-5]. */
   recordPick(p: PickInput, obligations: ObligationInput[] = [], cardWrites: CardWriteInput[] = []): PickResult {
-    const { approval, guard, move, ...pickParams } = p;
+    const { approval, guard, ...pickParams } = p;
     return this.tx((): PickResult => {
       const at = p.picked_at ?? this.now();
       if (guard && !this.pick(p.decision_id)) {
@@ -676,7 +665,6 @@ export class Store {
         this.hook("obligations-inserted");
         this.insertCardWriteRows(p.decision_id, cardWrites);
         this.hook("card-writes-inserted");
-        if (move) this.insertMoveRow(move, at);
         // T9: a picked card generation moves its card to ruled in the same transaction.
         this.db
           .prepare("UPDATE cards SET state = 'ruled', display_reason = NULL, updated_at = @at WHERE task_id = (SELECT task_id FROM decisions WHERE id = @id AND source = 'card')")
@@ -697,88 +685,11 @@ export class Store {
     });
   }
 
-  // ---- moves (what mk owes; plan mk-okek.24) -----------------------------------
+  // ---- moves: retired; the stored rows are only read back (bead mk-j5ipa.10) ----------------
 
-  private insertMoveRow(m: MoveInput, at: string): boolean {
-    return (
-      this.db
-        .prepare(
-          `INSERT OR IGNORE INTO moves(task_id, generation, kind, payload_json, state, opened_by, opened_at)
-           VALUES (?, ?, ?, ?, 'open', ?, ?)`,
-        )
-        .run(m.task_id, m.generation, m.kind, JSON.stringify(m.payload), m.opened_by, at).changes === 1
-    );
-  }
-
-  /** Opens a move; false when (task, generation) already has one. Joins an open transaction. */
-  openMove(m: MoveInput): boolean {
-    return this.tx(() => this.insertMoveRow(m, this.now()));
-  }
-
-  move(taskId: string, generation: number): MoveRow | undefined {
-    return this.db.prepare("SELECT * FROM moves WHERE task_id = ? AND generation = ?").get(taskId, generation) as MoveRow | undefined;
-  }
-
-  /** Every move, newest first; the Your move view and `bb home moves --json` read this. */
+  /** Every stored move, newest first; `bb home moves --json` reads this. */
   moves(): MoveRow[] {
     return this.db.prepare("SELECT * FROM moves ORDER BY opened_at DESC, task_id, generation").all() as MoveRow[];
-  }
-
-  /** The move that is still owed (open or claimed) for a card, if any. */
-  liveMove(taskId: string): MoveRow | undefined {
-    return this.db
-      .prepare("SELECT * FROM moves WHERE task_id = ? AND state IN ('open','claimed') ORDER BY generation DESC LIMIT 1")
-      .get(taskId) as MoveRow | undefined;
-  }
-
-  /**
-   * mk says he did it. This is a claim and never closes the move (only independent state does).
-   * Idempotent: a repeat keeps the first claim.
-   */
-  claimMove(taskId: string, generation: number, by: string, reportDeadlineAt: string | null = null): boolean {
-    return (
-      this.db
-        .prepare(
-          `UPDATE moves SET state = 'claimed', claimed_at = ?, claimed_by = ?, report_deadline_at = ?
-           WHERE task_id = ? AND generation = ? AND state = 'open'`,
-        )
-        .run(this.now(), by, reportDeadlineAt, taskId, generation).changes === 1
-    );
-  }
-
-  /** Records a poll of the move's external state: the time, and the error when it failed. Never changes `state`. */
-  markMoveChecked(taskId: string, generation: number, error: string | null): void {
-    this.db.prepare("UPDATE moves SET last_checked_at = ?, last_error = ? WHERE task_id = ? AND generation = ?").run(this.now(), error, taskId, generation);
-  }
-
-  /** "Later / skip": a display preference, never closes anything. */
-  /** Undo "Later / skip" on every open move of a card; returns how many were skipped. */
-  unskipMoves(taskId: string): number {
-    return this.db.prepare("UPDATE moves SET skipped_at = NULL WHERE task_id = ? AND skipped_at IS NOT NULL AND state <> 'closed'").run(taskId).changes;
-  }
-  skipMove(taskId: string, generation: number): boolean {
-    return this.db.prepare("UPDATE moves SET skipped_at = COALESCE(skipped_at, ?) WHERE task_id = ? AND generation = ? AND state <> 'closed'").run(this.now(), taskId, generation).changes === 1;
-  }
-
-  /** Closes a move from independent evidence (or supersession). Returns true only on the transition. */
-  closeMove(taskId: string, generation: number, by: string, evidence: string): boolean {
-    return (
-      this.db
-        .prepare(
-          `UPDATE moves SET state = 'closed', closed_at = ?, closed_by = ?, evidence = ?
-           WHERE task_id = ? AND generation = ? AND state <> 'closed'`,
-        )
-        .run(this.now(), by, evidence, taskId, generation).changes === 1
-    );
-  }
-
-  /** Records what a script reported. Never changes `state`: a report is reported, not verified. */
-  setMoveReport(taskId: string, generation: number, state: "succeeded" | "failed" | "no-report", report: unknown): boolean {
-    return (
-      this.db
-        .prepare("UPDATE moves SET report_state = ?, report_json = ?, report_at = ? WHERE task_id = ? AND generation = ? AND state <> 'closed'")
-        .run(state, JSON.stringify(report), this.now(), taskId, generation).changes === 1
-    );
   }
 
   // ---- card conversation mirror: display only, never an input to a decision ----------------

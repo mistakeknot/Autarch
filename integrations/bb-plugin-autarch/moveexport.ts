@@ -1,13 +1,14 @@
-// The Your move grouping (plan Revision 2 and 6): a pure function over `moves` rows. Nothing here
-// reads the clock, the network or the database, and nothing is closed or changed.
+// The rollback export of the retired Your move rows (`bb home moves`): the stored rows, grouped as the old view grouped
+// them. Home opens, shows and closes no move any more (beads mk-1k8pg and mk-j5ipa.10); this only reads what is stored.
+// A pure function over `moves` rows: nothing here reads the clock, the network or the database.
 import type { MoveRow } from "./store.js";
 
 export interface MoveGroups {
-  /** Open, unclaimed, not skipped, not hidden: what mk owes. */
+  /** Open, unclaimed, not skipped, not hidden. */
   yourMove: MoveRow[];
-  /** Claimed, or a report is present, but still open: reported done, not verified. */
+  /** Claimed, or a report is present, but still open. */
   reported: MoveRow[];
-  /** Skipped with "Later / skip": visible, never closed. */
+  /** Skipped with "Later / skip". */
   later: MoveRow[];
   /** Hidden by mk's own attention preference. */
   hidden: MoveRow[];
@@ -18,17 +19,14 @@ export interface MoveGroups {
 const byOpened = (a: MoveRow, b: MoveRow) => (a.opened_at < b.opened_at ? -1 : a.opened_at > b.opened_at ? 1 : a.task_id < b.task_id ? -1 : a.task_id > b.task_id ? 1 : a.generation - b.generation);
 
 /**
- * Precedence for a live (not closed) move: hidden, then skipped (Later), then reported (claimed or a
- * report is present), else Your move. A hidden or skipped row is still counted by its own group.
- * A move whose card mk set aside for later (`laterTasks`, task ids) is in the Later group like a skipped one.
- * A skip on a card in `skipIgnored` (held, or still owing a decision that is counted as waiting) does not make it Later.
+ * Precedence for a live (not closed) move: hidden, then skipped (Later), then reported (claimed or a report is present), else Your move.
  */
-export function groupMoves(rows: readonly MoveRow[], laterTasks: ReadonlySet<string> = new Set(), skipIgnored: ReadonlySet<string> = new Set()): MoveGroups {
+export function groupMoves(rows: readonly MoveRow[]): MoveGroups {
   const g: MoveGroups = { yourMove: [], reported: [], later: [], hidden: [], audit: [] };
   for (const m of rows) {
     if (m.state === "closed") continue;
     if (m.hidden_at !== null || m.hidden_by !== null) g.hidden.push(m);
-    else if ((m.skipped_at !== null && !skipIgnored.has(m.task_id)) || laterTasks.has(m.task_id)) g.later.push(m);
+    else if (m.skipped_at !== null) g.later.push(m);
     else if (m.state === "claimed" || m.report_state !== null) g.reported.push(m);
     else g.yourMove.push(m);
   }

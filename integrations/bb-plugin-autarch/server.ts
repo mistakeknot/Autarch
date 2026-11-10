@@ -8,7 +8,6 @@
 // publishes a realtime signal so every open page refetches.
 import { postNoteOnce } from "./notepost.js";
 import { threadEventLimit } from "./hostLimits.js";
-import { existsSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -29,16 +28,14 @@ import { CardWriter } from "./cardwrites.js";
 import { Queue } from "./queue.js";
 import { touchTrigger } from "./trigger.js";
 import { checkRequest, updateInfo } from "./updates.js";
-import { ghViewReal, PrPoller } from "./movepoll.js";
+import { ghViewReal } from "./ghview.js";
 import { MergeRecheck } from "./mergerecheck.js";
-import { ReportWatcher } from "./movereport.js";
-import { moveViews } from "./moveview.js";
 import { CommentPoller, conversationView, openTaskIds, unreadCounts } from "./conversation.js";
 import { readDoc, resolveOpenTarget } from "./docread.js";
 import { rootRun } from "./rootrun.js";
 import { buildQueue, removeBinding, setBinding } from "./queueview.js";
 import { RpcNotifier } from "./notifier.js";
-import { hasNoteMarker, isoWeek, Service } from "./service.js";
+import { isoWeek, Service } from "./service.js";
 import { Ideas } from "./ideas.js";
 import { DEFAULT_TITLE_PREFIX, VizierMessages, type MessageEvent } from "./vizierMessages.js";
 import { archiveView, type ArchiveQuery } from "./archive.js";
@@ -142,7 +139,6 @@ const FEED_REFRESH_MS = 30_000;
 const VIZIER_MESSAGE_POLL_MS = 15_000;
 const SERVE_CHECK_MS = 15_000;
 const MK = "mk";
-const MOVE_REPORT_SWEEP_MS = 60_000;
 
 const sleep = (ms: number, signal: AbortSignal) =>
   new Promise<void>((resolve) => {
@@ -223,13 +219,6 @@ export function wireHome(bb: BbPluginApi, handle: StoreHandle, cfg: HomeConfig, 
     const loop = new WakeLoop(svc, deps.sdk ?? sdkAdapter(bb.sdk.threads as unknown as ThreadsLike), (gone) => resolveWakeTarget("", gone, true));
     const caches = new FeedCaches(() => store.db, () => Date.now());
     parts = { store, svc, asks, dele, catchup, loop, caches };
-    // Moves are retired (bead mk-1k8pg): close any left open as soon as the store is ready, before any reader or
-    // poller sees them and whether or not the tasks client exists. A picked card's held unlabel waits for the writer.
-    try {
-      svc.retireMoves();
-    } catch (e) {
-      bb.log.warn(`retire moves: ${e instanceof Error ? e.message : String(e)}`);
-    }
     svc.start();
   });
   bb.onDispose(() => parts?.svc.stop());
@@ -432,16 +421,6 @@ export function wireHome(bb: BbPluginApi, handle: StoreHandle, cfg: HomeConfig, 
       await queue.run(signal, sleep);
     },
   });
-  // PR poller (plan D2): the only automatic closer of a move. Read-only `gh pr view`; a failure leaves the move open.
-  // Home opens no moves since mk-1k8pg, so after the retirement at store ready it finds nothing to poll.
-  bb.background.service("home-move-poll", {
-    async start(signal) {
-      while (!signal.aborted && !parts) await sleep(1000, signal);
-      if (!parts || signal.aborted) return;
-      const poller = new PrPoller({ svc: parts.svc, ghView: ghViewReal, log: (m) => console.error(`home-move-poll: ${m}`) });
-      await poller.run(signal, sleep);
-    },
-  });
   // Merge recheck (bead mk-g1t73): a merge pick whose PR is still open five minutes later brings the card back.
   // Read-only `gh pr view`, no model; the bring-back is the Archive's own.
   bb.background.service("home-merge-recheck", {
@@ -488,45 +467,6 @@ export function wireHome(bb: BbPluginApi, handle: StoreHandle, cfg: HomeConfig, 
         log: (m) => console.error(`home-card-comments: ${m}`),
       }));
       await poller.run(signal, sleep);
-    },
-  });
-  // Script reports and the report deadline. Wakes the owner once on a failed report or no report.
-  bb.background.service("home-move-reports", {
-    async start(signal) {
-      while (!signal.aborted && !(parts && tasksRef)) await sleep(1000, signal);
-      if (!parts || !tasksRef || signal.aborted) return;
-      const p = parts;
-      const tasks = tasksRef;
-      const watcher = new ReportWatcher({
-        svc: p.svc,
-        listComments: (id) => tasks.listComments(id),
-        resolveTarget: async (m) => resolveWakeTarget(m.task_id, m.owner),
-        isReporter: async (m, thread) => {
-          if (m.owner === null) return false;
-          if (thread === m.owner) return true;
-          try {
-            const rows = await listThreadRows({ cached: false }); // never a stale cache: a just-archived successor must not report
-            const mine = rows.find((r) => r.id === m.owner);
-            if (!mine?.title) return false;
-            const succ = rows.filter((r) => r.archivedAt == null && r.deletedAt == null && r.title === mine.title);
-            return succ.length === 1 && succ[0]!.id === thread;
-          } catch {
-            return false;
-          }
-        },
-        reportRoots: [join(homedir(), ".bb-machines")].filter((d) => existsSync(d)),
-        log: (m) => console.error(`home-move-reports: ${m}`),
-      });
-      while (!signal.aborted) {
-        try {
-          const st = await watcher.sweep();
-          if (st.wakes > 0) void p.loop.nudge();
-          if (st.reports > 0 || st.wakes > 0) bb.realtime.publish("home-queue-changed", {});
-        } catch (e) {
-          console.error(`home-move-reports: ${e instanceof Error ? e.message : String(e)}`);
-        }
-        await sleep(MOVE_REPORT_SWEEP_MS, signal);
-      }
     },
   });
   // Owner thread, else the one live thread with the owner's title (its successor), else the vizier, else nobody.
@@ -672,9 +612,6 @@ export function wireHome(bb: BbPluginApi, handle: StoreHandle, cfg: HomeConfig, 
     },
     async listRecent(i: { project: string; limit: number }) {
       return { recent: need().svc.recent(i.project, i.limit) };
-    },
-    async moves(_: null) {
-      return moveViews(need().svc);
     },
     async conversation(i: { task_id: string }) {
       commentPoller?.select(i.task_id);

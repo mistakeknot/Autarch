@@ -1,6 +1,5 @@
 // Shared fixture for the Task 2.5 card tests: a fake tasks plugin, a poller and a card writer over one temp store.
 import assert from "node:assert/strict";
-import { parseCard } from "../cards.js";
 import { CardWriter } from "../cardwrites.js";
 import { Queue } from "../queue.js";
 import { Service, type ServiceDeps } from "../service.js";
@@ -54,23 +53,7 @@ function desc(env: Env, o: CardOpts = {}): string {
   return lines.join("\n") + "\n";
 }
 
-/**
- * Home opens no moves since bead mk-1k8pg. With legacyMoves, each poll then opens the move a card's home-move block
- * opened before that, at the card's newest generation, so the tests of the move rows a live database still holds
- * (a pick held by a live move, the poller, the report watcher, the views) keep a way to make one.
- */
-function openLegacyMoves(svc: Service, fake: FakeTasks) {
-  for (const t of fake.tasks) {
-    let card;
-    try { card = parseCard(t.description); } catch { continue; }
-    if (!card.move) continue;
-    const g = svc.store.db.prepare("SELECT MAX(generation) AS g FROM decisions WHERE task_id = ?").get(t.id) as { g: number | null };
-    if (g.g === null || svc.store.move(t.id, g.g)) continue;
-    svc.store.openMove({ task_id: t.id, generation: g.g, kind: card.move.kind, payload: card.move, opened_by: "card" });
-  }
-}
-
-export function rig(opts: { projectName?: string; projects?: string[]; legacyMoves?: boolean; svc?: Partial<ServiceDeps> } = {}) {
+export function rig(opts: { projectName?: string; projects?: string[]; svc?: Partial<ServiceDeps> } = {}) {
   const env = makeEnv(opts.projects ?? ["Autarch"]);
   envs.push(env);
   const fake = new FakeTasks();
@@ -119,7 +102,6 @@ export function rig(opts: { projectName?: string; projects?: string[]; legacyMov
     },
     poll: async () => {
       const res = await cur.q.pollOnce();
-      if (opts.legacyMoves) openLegacyMoves(cur.svc, fake);
       return res;
     },
     advance: (ms: number) => void (env.clock.t += ms),

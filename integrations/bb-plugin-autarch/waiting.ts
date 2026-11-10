@@ -17,20 +17,18 @@ export interface WaitingNotice {
   text: string;
 }
 export interface Waiting {
-  /** Decisions that need a pick now: the same number as `decide`, kept under its old name for readers of `bb home stats`. Notices and moves are named below, never added in. */
+  /** Decisions that need a pick now: the same number as `decide`, kept under its old name for readers of `bb home stats`. Notices are named below, never added in. */
   total: number;
   /** Owed decisions that are not on hold. */
   decide: number;
-  /** Open, unclaimed, unskipped, unhidden moves on cards with no owed decision of their own. */
-  moves: number;
   /** Unseen items that change what Home does. */
   notices: number;
   noticeItems: WaitingNotice[];
   /** Unseen catch-up rows that are reading only (shown beside the count). */
   updates: number;
-  /** Owed decisions and open moves on hold (shown beside the count). */
+  /** Owed decisions on hold (shown beside the count). */
   held: number;
-  /** Open cards mk set aside for later (shown beside the count, never in it). A card with a decision and a move is one. */
+  /** Open cards mk set aside for later (shown beside the count, never in it). */
   later: number;
   suspended: boolean;
   definition: string;
@@ -53,9 +51,7 @@ export function waitingNow(svc: Service, dele: Delegation, catchup: Catchup): Wa
   });
 
   // Held and Later are counted over the owed decision cards only, the same population the phone and the Later tab list, so the
-  // named counts agree on every screen. A move-only card is counted nowhere (moves are being retired), so `moves` stays 0.
-  const moves = new Set<string>();
-
+  // named counts agree on every screen.
   const all: CatchupItem[] = catchup.items();
   const noticeItems = all.filter((i) => i.kind === "notice").map((i) => ({ item: i.item, at: i.at, text: i.text }));
   const updates = all.filter((i) => i.kind !== "owed" && i.kind !== "notice").length;
@@ -63,7 +59,6 @@ export function waitingNow(svc: Service, dele: Delegation, catchup: Catchup): Wa
   return {
     total: decide,
     decide,
-    moves: moves.size,
     notices: noticeItems.length,
     noticeItems,
     updates,
