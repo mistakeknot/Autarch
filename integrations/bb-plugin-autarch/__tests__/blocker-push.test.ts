@@ -195,11 +195,16 @@ describe("the push on a legacy ask", () => {
   });
 
   it("a notifier that hangs times out without delaying the filing", async () => {
-    const svc = open();
+    // The push timeout is long enough that a loaded host cannot reach it while the ask is being filed (a 35 ms bound against a
+    // 40 ms timeout measured 132 ms for the filing alone under load). The invariant is that the filing returns BEFORE the
+    // timeout fires and takes less than the timeout: if it waited on the hanging notifier it would return after it.
+    const timeoutMs = 2_000;
+    const svc = open({ pushTimeoutMs: timeoutMs });
     n.mode = "hang";
     const t0 = Date.now();
     const id = await file(svc, { urgency: "blocker" });
-    expect(Date.now() - t0).toBeLessThan(35);
+    expect(Date.now() - t0, "filing waited on the hanging notifier").toBeLessThan(timeoutMs);
+    expect(logs.join("\n"), "the timeout had already fired when filing returned").not.toContain("timed out");
     await svc.drainPushes();
     expect(logs.join("\n")).toContain("timed out");
     expect(row(svc, id).push_sent_at).toBeNull();
