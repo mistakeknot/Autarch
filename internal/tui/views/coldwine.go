@@ -221,11 +221,9 @@ type sprintCreatedMsg struct {
 	err    error
 }
 
-type taskDispatchedMsg struct {
-	taskID     string
-	dispatchID string
-	err        error
-}
+// dispatchUnavailableMsg explains why the TUI cannot start an agent dispatch.
+const dispatchUnavailableMsg = "Starting an agent from the TUI is not available. " +
+	"Run `ic dispatch spawn --prompt-file=<file> --run-id=<run> --project=<dir>` instead."
 
 // epicRunsLoadedMsg carries cached sprint data for all epics.
 type epicRunsLoadedMsg struct {
@@ -557,38 +555,6 @@ func (v *ColdwineView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
 			}
 		} else {
 			v.chatPanel.AddMessage("system", fmt.Sprintf("Sync completed: %d items pushed to Intermute", msg.pushed))
-		}
-		return v, nil
-
-	case taskDispatchedMsg:
-		if msg.err != nil {
-			v.chatPanel.AddMessage("system", fmt.Sprintf("Dispatch failed: %v", msg.err))
-			return v, nil
-		}
-		v.chatPanel.AddMessage("system", fmt.Sprintf("Dispatched task %s → dispatch %s", msg.taskID, msg.dispatchID))
-		// Update local task status to running
-		for i := range v.tasks {
-			if v.tasks[i].ID == msg.taskID {
-				v.tasks[i].Status = autarch.TaskStatusRunning
-				break
-			}
-		}
-		// Update local dispatch map so the watcher can match completions.
-		if v.taskDispatches == nil {
-			v.taskDispatches = make(map[string]string)
-		}
-		v.taskDispatches[msg.taskID] = msg.dispatchID
-		// Store task→dispatch mapping in Intercore state
-		if v.iclient != nil {
-			ic := v.iclient
-			taskID := msg.taskID
-			dispatchID := msg.dispatchID
-			return v, func() tea.Msg {
-				ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-				defer cancel()
-				_ = ic.StateSet(ctx, "task.dispatch_id", taskID, fmt.Sprintf("%q", dispatchID))
-				return nil
-			}
 		}
 		return v, nil
 
@@ -1012,7 +978,9 @@ func (v *ColdwineView) persistDispatchResult(task autarch.Task, d intercore.Disp
 	}
 }
 
-// dispatchSelectedTask creates a dispatch for the currently selected task.
+// dispatchSelectedTask reports that agent dispatch is not available from the
+// TUI. `ic dispatch spawn` needs a prompt file, which a selected task does not
+// supply, and starting an agent spends model quota, so the TUI starts none.
 func (v *ColdwineView) dispatchSelectedTask() tea.Cmd {
 	if v.iclient == nil {
 		return nil
@@ -1026,37 +994,8 @@ func (v *ColdwineView) dispatchSelectedTask() tea.Cmd {
 		v.chatPanel.AddMessage("system", fmt.Sprintf("Task %q is already %s", task.Title, task.Status))
 		return nil
 	}
-
-	// Find run ID for this epic
-	var epicID string
-	if v.selected >= 0 && v.selected < len(v.epics) {
-		epicID = v.epics[v.selected].ID
-	}
-	runID := v.getEpicRunID(epicID)
-	if runID == "" {
-		v.chatPanel.AddMessage("system", "No sprint run for this epic — create one first")
-		return nil
-	}
-
-	ic := v.iclient
-	cc := v.cclient
-	taskID := task.ID
-	taskTitle := task.Title
-	return func() tea.Msg {
-		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-		defer cancel()
-		dispatchID, err := ic.DispatchSpawn(ctx, runID,
-			intercore.WithDispatchType("task"),
-			intercore.WithDispatchName(taskTitle),
-		)
-		// Track agent in OS layer (non-blocking, best-effort).
-		if cc != nil && err == nil {
-			tctx, tcancel := context.WithTimeout(context.Background(), 5*time.Second)
-			defer tcancel()
-			_ = cc.TrackAgent(tctx, epicID, taskTitle, "task", dispatchID)
-		}
-		return taskDispatchedMsg{taskID: taskID, dispatchID: dispatchID, err: err}
-	}
+	v.chatPanel.AddMessage("system", dispatchUnavailableMsg)
+	return nil
 }
 
 // syncToIntermute pushes all loaded epics, stories, and tasks to the Intermute server.
