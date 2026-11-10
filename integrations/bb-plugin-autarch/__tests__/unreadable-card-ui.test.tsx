@@ -47,10 +47,20 @@ describe("phone", () => {
     expect(html).toContain(`${KEY} could not be read`);
     expect(html).toMatch(new RegExp(`<a[^>]*href="/plugins/autarch/home/${KEY}"[^>]*min-h-11[^>]*>Open card</a>|<a[^>]*min-h-11[^>]*href="/plugins/autarch/home/${KEY}"[^>]*>Open card</a>`));
     expect(html).not.toContain("data-bar-main");
+    expect(html).not.toContain("data-bar-later");
     expect(html).not.toContain("data-option");
     expect(html).not.toContain("<textarea");
     expect(html).not.toContain("Choose an option above");
     expect(html).toContain("overflow-wrap:anywhere");
+  });
+  it("keeps the bad card in Waiting: no Later button, the waiting list and count are unchanged, a good card still has Later", () => {
+    expect(inboxRows(asks(owed), NOW).waiting).toHaveLength(3);
+    expect(view()).toContain("Waiting 3");
+    expect(view("ask:d1")).toContain("data-bar-later");
+    // A card already set aside can still move back.
+    const later = { ...bad(), later: { at: "2026-10-09T08:00:00Z", by: "mk" } };
+    const html = renderToStaticMarkup(<MobileInbox asks={asks([good("d1", "AUTA-1"), later])} waiting={1} onPick={noop as never} onOpen={noop} onNote={noop} onLater={noop} sinceNode={null} sinceCount={0} onDesktop={noop} now={NOW} initial={{ open: "ask:dbad", tab: "later" } as never} />);
+    expect(html).toContain("Move back");
   });
 });
 

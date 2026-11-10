@@ -124,7 +124,8 @@ function DetailBar({ r, onPick, onLater, onDone }: { r: InboxRow; onPick: OnPick
   if (r.ask) {
     const a = r.ask;
     const rec = a.ask.options.find((o) => o.id === a.ask.recommendation);
-    if (a.task_id) later = { label: a.later ? "Move back" : "Later", go: () => void run(() => onLater(a.task_id!, !a.later)) };
+    // An unreadable card stays in Waiting: it offers no Later (a card already set aside can still move back).
+    if (a.task_id && !(a.unreadable && !a.later)) later = { label: a.later ? "Move back" : "Later", go: () => void run(() => onLater(a.task_id!, !a.later)) };
     if (rec && !isDestructiveOption(rec)) main = { label: rec.label, go: () => void run(() => onPick(a.id, rec.id, a.revision)) };
   }
   return (
