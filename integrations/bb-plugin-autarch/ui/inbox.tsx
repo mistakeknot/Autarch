@@ -140,11 +140,18 @@ export function MobileInbox({ asks, waiting, onPick, onOpen, onNote, onLater, si
   // card in it gives the position, so cards that came or went since do not move it.
   const keys = list.map((r) => r.key);
   const painted = useRef<string[]>(keys);
-  const below = (key: string, now: string[]) => neighborAfterRemoval(keys, key, now);
   const scroller = useRef<HTMLDivElement>(null);
-  // A card that vanished (picked, or moved by another surface) opens its neighbour instead of showing a stale one.
-  useEffect(() => { if (open !== null && current === null) setOpen(neighborAfterRemoval(painted.current, open, keys)); }, [open, current]); // eslint-disable-line react-hooks/exhaustive-deps
-  useEffect(() => { if (current !== null) painted.current = keys; });
+  // A card that left the list it was opened from (picked, set aside on the card itself, or moved by another surface) opens its
+  // neighbour instead of showing a stale one. `painted` is the last list that still held the open card.
+  useEffect(() => {
+    if (open === null || keys.includes(open)) return;
+    if (painted.current.includes(open)) setOpen(neighborAfterRemoval(painted.current, open, keys));
+    else if (current === null) setOpen(null);
+  }, [open, current, list]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { if (open !== null && keys.includes(open)) painted.current = keys; });
+  // The sticky bar's answer resolves after a round trip: choose from the latest list that held the card, and only if the card is
+  // still the one on screen (a refresh may already have moved on).
+  const advanceFrom = (key: string) => setOpen((now) => (now === key ? neighborAfterRemoval(painted.current, key, painted.current.filter((k) => k !== key)) : now));
   // A card opens at its top, not at the scroll position of the one before it. Back to the list keeps the list where it was.
   useEffect(() => { if (open !== null && scroller.current) scroller.current.scrollTop = 0; }, [open]);
   return (
@@ -179,7 +186,7 @@ export function MobileInbox({ asks, waiting, onPick, onOpen, onNote, onLater, si
         )}
       </div>
       {current ? (
-        <DetailBar r={current} onPick={onPick} onLater={onLater} onDone={() => setOpen(below(current.key, keys.filter((k) => k !== current.key)))} />
+        <DetailBar r={current} onPick={onPick} onLater={onLater} onDone={() => advanceFrom(current.key)} />
       ) : (
         <nav className="flex border-t border-border bg-background" data-inbox-tabs>
           {tabs.map(([id, label]) => (

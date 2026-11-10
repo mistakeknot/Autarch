@@ -199,6 +199,27 @@ describe("phone inbox", () => {
     expect(scroller.scrollTop).toBe(0);
   });
 
+  it("Later pressed on the card itself moves it to Later and opens the card below", async () => {
+    render([A, B, C], { open: "ask:b" });
+    click(q("[data-inbox-detail] [data-later-set=b]"));
+    await settle();
+    render([A, ask("b", { later: LATER }), C]); // B is now in Later, the Waiting list is A, C
+    expect(detail()).toBe("ask:c");
+  });
+
+  it("the card below is chosen from the list as it is when the answer lands, not as it was at the press", async () => {
+    let finish: (v: { ok: boolean }) => void = () => {};
+    const slow = vi.fn(() => new Promise<{ ok: boolean }>((r) => { finish = r; })) as never;
+    const D = ask("d");
+    const renderSlow = (owed: OwedAsk[]) =>
+      act(() => root.render(<MobileInbox asks={asks(owed)} waiting={owed.length} onPick={slow} onOpen={() => {}} onNote={() => {}} onLater={onLater} sinceNode={null} sinceCount={0} onDesktop={() => {}} now={NOW} initial={{ open: "ask:b" }} />));
+    renderSlow([A, B, C]);
+    click(q("[data-bar-main]")); // the answer is in flight
+    renderSlow([A, B, D, C]); // a card arrives under B meanwhile
+    await act(async () => { finish({ ok: true }); await Promise.resolve(); });
+    expect(detail()).toBe("ask:d");
+  });
+
   it("Back still returns to the list", () => {
     render([A, B, C], { open: "ask:b" });
     click(q("[data-inbox-back]"));
