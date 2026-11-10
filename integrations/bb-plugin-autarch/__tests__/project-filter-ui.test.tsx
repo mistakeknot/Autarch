@@ -166,9 +166,63 @@ describe("the keyboard", () => {
     key(input, "Enter");
     expect([...onChange.mock.calls[0]![0]]).toEqual(["Autarch"]);
   });
+  it("keeps the active row on the same project when the list of projects changes under it", () => {
+    const onChange = vi.fn();
+    const draw = (choices: typeof CHOICES) => act(() => root.render(<ProjectFilterBar choices={choices} excluded={new Set()} hidden={0} onChange={onChange} />));
+    draw(CHOICES);
+    opened();
+    const input = q<HTMLInputElement>("input[role=combobox]")!;
+    key(input, "ArrowDown");
+    key(input, "ArrowDown"); // Clavain
+    draw(CHOICES.filter((c) => c.name !== "Autarch")); // the project above it loses its last card
+    key(input, "Enter");
+    expect([...onChange.mock.calls[0]![0]]).toEqual(["Clavain"]);
+  });
+  it("ticks nothing when the active project itself leaves the list", () => {
+    const onChange = vi.fn();
+    const draw = (choices: typeof CHOICES) => act(() => root.render(<ProjectFilterBar choices={choices} excluded={new Set()} hidden={0} onChange={onChange} />));
+    draw(CHOICES);
+    opened();
+    const input = q<HTMLInputElement>("input[role=combobox]")!;
+    key(input, "End"); // Yaoivers
+    draw(CHOICES.filter((c) => c.name !== "Yaoivers"));
+    key(input, "Enter");
+    expect(onChange).not.toHaveBeenCalled();
+    expect(input.getAttribute("aria-activedescendant")).toBeNull();
+  });
 });
 
 describe("the reset and the hidden note", () => {
+  it("keeps focus in the popup when the keyboard resets from inside it, and Escape still closes from there", () => {
+    const onChange = vi.fn();
+    let ex = ["Clavain"];
+    const draw = () => act(() => root.render(<ProjectFilterBar choices={CHOICES} excluded={new Set(ex)} hidden={0} onChange={(n) => { onChange(n); ex = [...n]; draw(); }} />));
+    draw();
+    opened();
+    const reset = q<HTMLButtonElement>("[data-project-filter-all]")!;
+    act(() => reset.focus());
+    click(reset);
+    expect(q("[data-project-filter-all]")).toBeNull();
+    expect(document.activeElement).toBe(q("input[role=combobox]"));
+    ex = ["Clavain"];
+    draw();
+    const again = q<HTMLButtonElement>("[data-project-filter-all]")!;
+    act(() => again.focus());
+    key(again, "Escape");
+    expect(q("[data-project-filter-popup]")).toBeNull();
+    expect(document.activeElement).toBe(trigger());
+  });
+  it("gives focus back to the filter button when the reset beside the note removes the note", () => {
+    let ex = ["Autarch"];
+    const draw = () => act(() => root.render(<ProjectFilterBar choices={CHOICES} excluded={new Set(ex)} hidden={ex.length ? 3 : 0} onChange={(n) => { ex = [...n]; draw(); }} />));
+    draw();
+    const reset = q<HTMLButtonElement>("[data-project-filter-hidden] button")!;
+    act(() => reset.focus());
+    click(reset);
+    expect(q("[data-project-filter-hidden]")).toBeNull();
+    expect(document.activeElement).toBe(trigger());
+  });
+
   it("offers All projects in the list only while something is excluded, and it clears the set", () => {
     const { onChange } = mount();
     opened();
