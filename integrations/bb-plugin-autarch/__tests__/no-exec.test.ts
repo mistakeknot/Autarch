@@ -4,7 +4,7 @@ import { describe, expect, it } from "vitest";
 import { execViolations, parse, parseFile, rel, serverSources } from "./static-scan.js";
 
 const ROOT = join(import.meta.dirname, "..");
-const EXEMPT_IMPORT = /movepoll\.ts:\d+ import of node:child_process$/;
+const EXEMPT_IMPORT = /ghview\.ts:\d+ import of node:child_process$/;
 
 describe("no process execution in server code (plan Task 2.7)", () => {
   it("scans a real set of server sources, and none of them spawns or forks", () => {
@@ -12,13 +12,13 @@ describe("no process execution in server code (plan Task 2.7)", () => {
     expect(files.map(rel)).toEqual(expect.arrayContaining(["server.ts", "serve.ts", "service.ts", "store.ts", "cli.ts"]));
     expect(files.map(rel).filter((f) => /^(ui|__tests__|e2e|scripts)\//.test(f))).toEqual([]);
     const bad = files.flatMap((f) => execViolations(parseFile(f)));
-    // One audited exception (Your move, plan D2): the PR poller runs read-only `gh pr view` through execFile with
+    // One audited exception (plan D2): the PR merge recheck runs read-only `gh pr view` through execFile with
     // an argv array (never a shell). Only that file, only that import; any other hit in it still fails.
     expect(bad.filter((b) => !EXEMPT_IMPORT.test(b))).toEqual([]);
   });
 
   it("the one exempt file imports only execFile, and uses no shell, spawn or exec", () => {
-    const text = readFileSync(join(ROOT, "movepoll.ts"), "utf8");
+    const text = readFileSync(join(ROOT, "ghview.ts"), "utf8");
     expect(text.match(/import \{([^}]*)\} from "node:child_process"/)![1]!.trim()).toBe("execFile");
     expect(text).not.toMatch(/\bspawn(Sync)?\b|\bexec(Sync)?\(|shell\s*:/);
   });

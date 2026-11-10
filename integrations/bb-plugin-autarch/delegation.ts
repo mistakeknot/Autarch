@@ -513,8 +513,6 @@ export class Delegation {
       this.db.prepare("INSERT OR IGNORE INTO decision_blocks(decision_id, ref) SELECT ?, ref FROM decision_blocks WHERE decision_id = ?").run(res.decision_id, decisionId);
       this.store.insertCardWrites(res.decision_id, bringBackWrites({ id: res.decision_id, task_id: String(d.task_id) }, decisionId));
       this.svc.reopenForOverride(String(d.task_id));
-      // A close that the earlier ruling queued must not shut the reopened card again.
-      this.db.prepare("UPDATE move_closes SET state = 'skipped', last_error = 'card brought back', updated_at = ? WHERE task_id = ? AND state = 'pending'").run(this.svc.time(), String(d.task_id));
       this.store.insertObligations(decisionId, !recipient ? [] : [
         {
           id: `ob:${decisionId}:bringback`,

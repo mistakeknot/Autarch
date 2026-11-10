@@ -3,7 +3,7 @@
 // are shown beside the count and are not part of it.
 import type { Catchup, CatchupItem } from "./catchup.js";
 import type { Delegation } from "./delegation.js";
-import { groupMoves } from "./moveselect.js";
+import { groupMoves } from "./moveexport.js";
 import type { Service } from "./service.js";
 
 /** Shown on screen beside the number so a mismatch with another list can be explained. */

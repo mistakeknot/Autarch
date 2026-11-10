@@ -1,13 +1,14 @@
-// The Your move grouping (plan Revision 2 and 6): a pure function over `moves` rows. Nothing here
-// reads the clock, the network or the database, and nothing is closed or changed.
+// The rollback export of the retired Your move rows (`bb home moves`): the stored rows, grouped as the old view grouped
+// them. Home opens, shows and closes no move any more (beads mk-1k8pg and mk-j5ipa.10); this only reads what is stored.
+// A pure function over `moves` rows: nothing here reads the clock, the network or the database.
 import type { MoveRow } from "./store.js";
 
 export interface MoveGroups {
-  /** Open, unclaimed, not skipped, not hidden: what mk owes. */
+  /** Open, unclaimed, not skipped, not hidden. */
   yourMove: MoveRow[];
-  /** Claimed, or a report is present, but still open: reported done, not verified. */
+  /** Claimed, or a report is present, but still open. */
   reported: MoveRow[];
-  /** Skipped with "Later / skip": visible, never closed. */
+  /** Skipped with "Later / skip". */
   later: MoveRow[];
   /** Hidden by mk's own attention preference. */
   hidden: MoveRow[];
@@ -18,10 +19,9 @@ export interface MoveGroups {
 const byOpened = (a: MoveRow, b: MoveRow) => (a.opened_at < b.opened_at ? -1 : a.opened_at > b.opened_at ? 1 : a.task_id < b.task_id ? -1 : a.task_id > b.task_id ? 1 : a.generation - b.generation);
 
 /**
- * Precedence for a live (not closed) move: hidden, then skipped (Later), then reported (claimed or a
- * report is present), else Your move. A hidden or skipped row is still counted by its own group.
- * A move whose card mk set aside for later (`laterTasks`, task ids) is in the Later group like a skipped one.
- * A skip on a card in `skipIgnored` (held, or still owing a decision that is counted as waiting) does not make it Later.
+ * Precedence for a live (not closed) move: hidden, then skipped (Later), then reported (claimed or a report is present), else Your move.
+ * A move whose card is in `laterTasks` is Later like a skipped one; a skip on a card in `skipIgnored` does not make it Later.
+ * The optional sets are read by waiting.ts only until the counting there drops moves.
  */
 export function groupMoves(rows: readonly MoveRow[], laterTasks: ReadonlySet<string> = new Set(), skipIgnored: ReadonlySet<string> = new Set()): MoveGroups {
   const g: MoveGroups = { yourMove: [], reported: [], later: [], hidden: [], audit: [] };

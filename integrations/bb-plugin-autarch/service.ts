@@ -15,7 +15,7 @@ export type Hold = { reason: string; by: string; at: string; n?: string };
 /** mk set the card aside to do after the fast ones (bead mk-8741). The card stays open and unruled. */
 export type Later = { at: string; by: string };
 import { identity, normalizedJson, parseAsk, revision, semanticKey, type Ask, type Question } from "./model.js";
-import { HOME_UNLABELS_ON_PICK, pickWrites } from "./cardwrites.js";
+import { pickWrites } from "./cardwrites.js";
 import { estateRoot, fsUuidOfDev, pinRoot, renderRuling, rulingPath, writeRuling, type PinnedRoot, type Ruling } from "./ruling.js";
 import { appendRuling } from "./ledger.js";
 import type { DecisionInput, ObligationInput, ObligationRow, PickInput, PickRow, Store } from "./store.js";
@@ -35,8 +35,6 @@ export interface ServiceDeps {
   env?: Record<string, string | undefined>;
   /** Called after a pick commits, so a delivery loop can run without waiting for its timer. */
   nudge?: () => void;
-  /** How long after "I ran it" a script's report may take before "No report received" (default 2 h). */
-  reportDeadlineMs?: number;
   /** The vizier's rulings.jsonl. Each ruled pick appends one line there (idempotent on the pick id); omitted, none is written. */
   rulingsLedger?: string | null;
   /** Where the Other box's images are kept. Omitted, a request that carries images is refused. */
@@ -49,12 +47,6 @@ export interface ServiceDeps {
   log?: (msg: string) => void;
 }
 
-export const DEFAULT_REPORT_DEADLINE_MS = 2 * 3_600_000;
-const MAX_NOTE = 500;
-
-export type MoveActionResult =
-  | { ok: true; replay: boolean; state: "claimed" | "open" | "closed"; claim?: "reported, not verified"; report_deadline_at?: string | null }
-  | { ok: false; status: 400 | 404 | 409; error: string };
 
 export type FileResult =
   | { ok: true; status: 200 | 201; decision_id: string; mentioned?: true; related?: string }
@@ -517,14 +509,6 @@ export class Service {
           { option_id: optionId, option_label: option.label, by, generation: Number(d.generation), picked_at: this.now(), reason: multi ? multi.words : isOther ? otherText : (reason ?? null) },
         )
       : [];
-    // A pick never opens a move: everything mk owes is a decision card (bead mk-1k8pg). A pick on a card whose
-    // move is still live (one opened before moves were retired) keeps needs-mk until that move closes.
-    let keepsCard = false;
-    if (isCard && by === "mk") {
-      const mine = this.store.move(String(d.task_id), Number(d.generation));
-      if (mine && mine.state !== "closed") keepsCard = true;
-    }
-    const heldWrites = keepsCard ? cardWrites.filter((w) => w.kind !== "unlabel") : cardWrites;
     // Only mk's own pick mints, and it does so in the pick's transaction. A record is not an authorization.
     let approval: PickInput["approval"];
     if (by === "mk" && option.approval) {
@@ -542,7 +526,7 @@ export class Service {
       res = this.store.recordPick(
         { decision_id: decisionId, pick_id: pickId, option_id: optionId, revision: rev, by, surface, reason: multi ? multi.words : isOther ? otherText : (reason ?? null), params_hash: hash, approval, guard },
         obligations,
-        heldWrites,
+        cardWrites,
       );
     } catch (e) {
       if (/UNIQUE/.test(message(e))) return { ok: false, status: 409, error: "pick id reused" };
@@ -904,13 +888,11 @@ export class Service {
     if (!id) return { ok: false, error: "no such card" };
     return this.store.atomically(() => {
       const l = this.readLaters();
-      let was = id in l;
+      const was = id in l;
       if (was) {
         delete l[id];
         this.store.setSetting("later", JSON.stringify(l));
       }
-      // A move set aside with "Later / skip" is the same Later to mk, so Move back undoes it too.
-      if (this.store.unskipMoves(id) > 0) was = true;
       return { ok: true as const, task_id: id, was };
     });
   }
@@ -1355,81 +1337,6 @@ export class Service {
   }
 
   /**
-   * A new card generation supersedes the move of the one before it. A home-move block on the card opens
-   * nothing: what mk owes is the card's decision (bead mk-1k8pg).
-   */
-  private syncMove(taskId: string, generation: number): void {
-    for (const g of this.db.prepare("SELECT generation FROM moves WHERE task_id = ? AND generation < ? AND state <> 'closed'").all(taskId, generation) as { generation: number }[]) {
-      this.store.closeMove(taskId, g.generation, "home", "superseded");
-    }
-  }
-
-  /**
-   * Closes every live move left from before moves were retired (bead mk-1k8pg). A card mk already ruled gets the
-   * needs-mk unlabel its pick held back; no tasks card is closed, since retiring a move is not evidence it was done.
-   * Idempotent: returns how many it closed.
-   */
-  retireMoves(): number {
-    let n = 0;
-    for (const m of this.db.prepare("SELECT task_id, generation FROM moves WHERE state <> 'closed' ORDER BY task_id, generation").all() as { task_id: string; generation: number }[]) {
-      this.store.atomically(() => {
-        if (!this.store.closeMove(m.task_id, m.generation, "home", "moves retired")) return;
-        n++;
-        // A pending close of an older move was held back by this live one, so the card is still owed: the writer
-        // must not close it now that nothing live is left to hold it back.
-        this.db
-          .prepare("UPDATE move_closes SET state = 'skipped', last_error = 'card had a live move when moves were retired', updated_at = ? WHERE task_id = ? AND state = 'pending'")
-          .run(this.now(), m.task_id);
-        const d = this.db.prepare("SELECT id FROM decisions WHERE task_id = ? AND generation = ?").get(m.task_id, m.generation) as { id: string } | undefined;
-        if (d && this.store.pick(d.id) && HOME_UNLABELS_ON_PICK) {
-          this.store.insertCardWrites(d.id, [{ id: `cw-${d.id}-unlabel`, task_id: m.task_id, kind: "unlabel", payload: JSON.stringify({ move_closed_by: "home" }) }]);
-        }
-      });
-    }
-    return n;
-  }
-
-  /**
-   * Closes a move on independent evidence. If mk had already ruled the card, the needs-mk unlabel that the
-   * pick held back is queued now (the same write, idempotent per generation), so a move closing never
-   * leaves a ruled card behind.
-   */
-  closeMoveOn(taskId: string, generation: number, by: string, evidence: string): boolean {
-    return this.store.atomically(() => {
-      if (!this.store.closeMove(taskId, generation, by, evidence)) return false;
-      const d = this.db.prepare("SELECT id FROM decisions WHERE task_id = ? AND generation = ?").get(taskId, generation) as { id: string } | undefined;
-      if (d && this.store.pick(d.id) && HOME_UNLABELS_ON_PICK) {
-        this.store.insertCardWrites(d.id, [{ id: `cw-${d.id}-unlabel`, task_id: taskId, kind: "unlabel", payload: JSON.stringify({ move_closed_by: by }) }]);
-      }
-      // The tasks card is closed only if Home filed it (label mk-move); the writer checks that when it runs.
-      const at = this.now();
-      this.db
-        .prepare("INSERT OR IGNORE INTO move_closes(task_id, generation, next_try_at, updated_at) VALUES (?, ?, ?, ?)")
-        .run(taskId, generation, at, at);
-      return true;
-    });
-  }
-
-  /**
-   * mk says "I ran it", "I merged it" or "I read it". A claim, never a verification: the move moves to
-   * claimed and stays open. A script move gets the report deadline. The handler has no caller identity, so
-   * `by` is advisory ("mk (unattested)"). A repeat keeps the first claim.
-   */
-  claimMove(taskId: string, generation: number, note?: string): MoveActionResult {
-    const m = this.store.move(taskId, generation);
-    if (!m) return { ok: false, status: 404, error: "no such move" };
-    if (m.state === "closed") return { ok: false, status: 409, error: "move already closed" };
-    if (m.state === "claimed") return { ok: true, replay: true, state: "claimed", claim: "reported, not verified", report_deadline_at: m.report_deadline_at };
-    const deadline = m.kind === "script" ? new Date(Date.parse(this.now()) + (this.deps.reportDeadlineMs ?? DEFAULT_REPORT_DEADLINE_MS)).toISOString() : null;
-    const done = this.store.atomically(() => {
-      if (!this.store.claimMove(taskId, generation, "mk (unattested)", deadline)) return false;
-      if (note) this.store.recordEvent("move-claimed", null, { task_id: taskId, generation, note: note.slice(0, MAX_NOTE) });
-      return true;
-    });
-    return { ok: true, replay: !done, state: "claimed", claim: "reported, not verified", report_deadline_at: deadline };
-  }
-
-  /**
    * "Ask / note" from the Other box: a message to the card's owner. It never rules, claims or closes anything.
    * The text is mk's, untrusted plain text, 1..OTHER_MAX characters. Idempotent per note_id.
    */
@@ -1478,32 +1385,6 @@ export class Service {
     return st ? st.paths(op) : { state: "none" };
   }
 
-  /** "I ran --check": mk says he ran the check. Recorded once as an event; it claims nothing and starts no deadline. */
-  checkMove(taskId: string, generation: number): MoveActionResult {
-    const m = this.store.move(taskId, generation);
-    if (!m) return { ok: false, status: 404, error: "no such move" };
-    if (m.state === "closed") return { ok: false, status: 409, error: "move already closed" };
-    if (m.kind !== "script") return { ok: false, status: 400, error: "only a script move has a --check" };
-    if (this.checkedAt(taskId, generation) !== null) return { ok: true, replay: true, state: m.state };
-    this.store.recordEvent("move-checked", null, { task_id: taskId, generation, by: "mk (unattested)" });
-    return { ok: true, replay: false, state: m.state };
-  }
-
-  /** When mk said he ran --check, or null. */
-  checkedAt(taskId: string, generation: number): string | null {
-    const r = this.db.prepare("SELECT at FROM events WHERE type = 'move-checked' AND json_extract(detail_json, '$.task_id') = ? AND json_extract(detail_json, '$.generation') = ? ORDER BY seq LIMIT 1").get(taskId, generation) as { at: string } | undefined;
-    return r?.at ?? null;
-  }
-
-  /** "Later / skip": a display preference. It never closes or claims anything and is reversible by claiming. */
-  skipMove(taskId: string, generation: number): MoveActionResult {
-    const m = this.store.move(taskId, generation);
-    if (!m) return { ok: false, status: 404, error: "no such move" };
-    if (m.state === "closed") return { ok: false, status: 409, error: "move already closed" };
-    this.store.skipMove(taskId, generation);
-    return { ok: true, replay: m.skipped_at !== null, state: m.state };
-  }
-
   /** T4: withdraw the latest generation, state closed. A routing cause enters the closed-card retry set. */
   private invalidate(latest: Row, reason: string, routing = false): void {
     this.store.atomically(() => {
@@ -1529,7 +1410,6 @@ export class Service {
         return;
       }
       this.snapshotBlocks(input.id, ev.card);
-      this.syncMove(task.id, n);
       this.markOpen(task.id);
       filed = input.id;
     });
@@ -1546,7 +1426,6 @@ export class Service {
       const res = this.store.insertDecision(input);
       if (!res.inserted) throw new Error(`card generation ${input.id} request id is in use`);
       this.snapshotBlocks(input.id, ev.card);
-      this.syncMove(task.id, n);
       this.markOpen(task.id);
       filed = input.id;
     });
@@ -1632,7 +1511,6 @@ export class Service {
         .prepare("INSERT INTO card_requests(request_key, task_id, identity, registered_at) VALUES (?, ?, ?, ?)")
         .run(key, task.id, card.request.identity, this.now());
       this.snapshotBlocks(input.id, card);
-      this.syncMove(task.id, 1);
       this.patchCard(task.id, {
         routing_mode: card.pull === "mycroft" ? "pull" : "thread",
         routed_thread: card.pull === "mycroft" ? null : thread,
@@ -1855,7 +1733,6 @@ export class Service {
   /** T6/T7/T11: the card was closed, unlabelled or deleted in tasks. */
   cardGone(taskId: string, why: "closed" | "unlabelled" | "deleted", status?: string): { changed: boolean } {
     const before = this.sig(taskId);
-    let movesClosed = 0;
     this.store.atomically(() => {
       const row = this.cardRow(taskId);
       if (!row) return;
@@ -1865,10 +1742,7 @@ export class Service {
         ...(why === "deleted" ? { deleted_at: this.now() } : {}),
       });
       const reason = why === "closed" ? "card closed in tasks" : why === "unlabelled" ? "unlabelled" : "card deleted in tasks";
-      // A card closed or deleted in tasks leaves nothing to merge, run or read, so its live moves close with it
-      // (bead mk-t7656). A card only unlabelled is still open in tasks, and its move may still be owed.
       const closedInTasks = why !== "unlabelled" || (status !== undefined && !(OPEN_STATUSES as readonly string[]).includes(status));
-      if (closedInTasks) movesClosed = this.closeLiveMoves(taskId, why === "deleted" ? reason : `card ${status ?? "closed"} in tasks`);
       const latest = this.currentGeneration(taskId);
       if (!latest) {
         this.patchCard(taskId, { state: "closed", display_reason: reason });
@@ -1891,24 +1765,7 @@ export class Service {
       if (!latest.withdrawn_at) this.store.withdrawDecision(latest.id, reason);
       this.patchCard(taskId, { state: "closed", display_reason: reason, next_check_at: null });
     });
-    return { changed: before !== this.sig(taskId) || movesClosed > 0 };
-  }
-
-  private closeLiveMoves(taskId: string, evidence: string): number {
-    let n = 0;
-    for (const g of this.db.prepare("SELECT generation FROM moves WHERE task_id = ? AND state <> 'closed'").all(taskId) as { generation: number }[]) {
-      if (this.store.closeMove(taskId, g.generation, "home", evidence)) n++;
-    }
-    return n;
-  }
-
-  /**
-   * Cards with a live move, whatever their label or cached status. The sweep re-reads each one not listed open, so a
-   * fresh read, never the cache, decides whether its moves close; once they are closed the card leaves this set.
-   * Whatever its project or binding, a card's moves close only on that card's own fresh read.
-   */
-  liveMoveCards(): string[] {
-    return (this.db.prepare("SELECT DISTINCT task_id FROM moves WHERE state <> 'closed' ORDER BY task_id").all() as { task_id: string }[]).map((r) => r.task_id);
+    return { changed: before !== this.sig(taskId) };
   }
 
   /** Observed cards whose retry time has come (the unresolved-retry set). */
