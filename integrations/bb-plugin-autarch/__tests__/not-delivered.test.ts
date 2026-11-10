@@ -99,20 +99,28 @@ describe("delivery after a notice was queued", () => {
   it("words every notice as a past event, so a batched digest sent after delivery is still true", async () => {
     const r = rig();
     r.env.batch.noticeWindowMs = 3_600_000; // production batching: notices to one thread leave as one digest
+    r.restart(); // the Store reads the window when it is built
     const a = await stuck(r, { title: "First question" });
     const b = r.card({ title: "Second question" });
     await r.poll();
     r.advance(6_000);
     await r.poll();
+    // Notices wait out the window, then two due for one thread become a digest holding the text while the cards are still undelivered.
+    r.advance(3_600_000 + 1_000);
+    const made = r.svc.store.batchDueNotices();
+    expect(made).toHaveLength(1);
+    const digestId = made[0]!.id;
+    expect(String(made[0]!.payload)).toContain(a.id);
+    expect(String(made[0]!.payload)).toContain(b.id);
     r.env.down.value = false;
     r.advance(300_000);
     await r.poll();
     expect(r.cardRow(a.id).state).toBe("open");
     expect(r.cardRow(b.id).state).toBe("open");
-    r.advance(2 * 3_600_000);
-    const digest = r.svc.store.dueMessagesBatched().find((o) => o.kind !== "notice" || String(o.op).startsWith("notice-digest"));
-    const text = String(digest?.payload ?? notices(r).map((n) => n.payload).join("\n"));
-    expect(text).toContain(a.id);
+    // The digest survives delivery (it is a separate row) and is sent later with its original text, which must still be true.
+    const row = r.svc.store.obligation(digestId)!;
+    expect(row.state).toBe("pending");
+    const text = String(row.payload);
     expect(text).not.toMatch(/cannot see it yet|is not delivered/);
     expect(text).toMatch(/was not delivered/);
     expect(text).toMatch(/\d{4}-\d{2}-\d{2}T/); // when it was true
