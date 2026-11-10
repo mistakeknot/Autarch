@@ -15,7 +15,6 @@ const docResult = z.union([
   z.object({ ok: z.literal(false), error: z.string() }),
 ]);
 const conversationView = z.object({ task_id: z.string(), comments: list, unread: z.number(), stale: z.boolean(), last_ok_at: z.string().nullable(), options: list });
-const moveGroups = z.object({ yourMove: list, reported: list, later: list, hidden: list, audit: z.unknown() });
 
 export const homeMethods = {
   listAsks: { input: z.null(), output: readModel },
@@ -50,9 +49,6 @@ export const homeMethods = {
     }),
     output: result,
   },
-  // Your move was retired (bead mk-1k8pg): the page no longer shows or acts on moves. `moves` stays as the read behind
-  // the CLI `moves` rollback export.
-  moves: { input: z.null(), output: moveGroups },
   // Later (bead mk-8741): set an open card aside, below the active ones and outside the Waiting count; undo moves it back.
   // `ref` is a task id or a tasks key. Neither rules, closes or refuses a pick.
   later: { input: z.object({ ref: z.string().min(1).max(128) }).strict(), output: result },
@@ -112,7 +108,6 @@ export type CliMapping = { verb: string; summary: string } | { rpcOnly: string }
 
 export const homeCliMap = {
   listAsks: { verb: "list", summary: "List the asks waiting for a ruling" },
-  moves: { verb: "moves", summary: "Every Your move row with its claim, report and closing evidence (rollback export)" },
   stats: { verb: "stats", summary: "Picks, delegation and filing counts over a window" },
   listRecent: { verb: "feed", summary: "The recent-rulings feed a thread sees" },
   queue: { rpcOnly: "the panel's read model" },
@@ -156,7 +151,7 @@ export const homeCliMap = {
 /** CLI verbs with no RPC twin: lookups, machine-blocker lifecycle, and the vizier-only writes. */
 export const cliOnlyVerbs = [
   "ask", "get", "viewing", "progress", "resolve", "withdraw", "binding", "bind", "hold", "unhold",
-  "unbind", "rule", "handoff", "approval check", "report", "note", "pushes",
+  "unbind", "rule", "handoff", "approval check", "report", "note", "pushes", "moves",
 ] as const;
 
 /** The summary of a verb that mirrors an RPC method. */

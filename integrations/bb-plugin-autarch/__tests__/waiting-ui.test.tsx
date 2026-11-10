@@ -14,7 +14,6 @@ const W: Waiting = {
   total: 5,
   line: "5 · 2 on hold",
   decide: 5,
-  moves: 1,
   notices: 1,
   noticeItems: [{ item: "vizier-adopted:3", at: "2026-10-07T12:00:00Z", text: "Citadel adopted thr_viz as the vizier thread; delegated rulings stay suspended until you see this." }],
   updates: 3,
