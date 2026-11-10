@@ -77,6 +77,36 @@ describe("the one waiting count: the server", () => {
   });
 });
 
+describe("a card with a picked decision and an open move, put in Later", () => {
+  const withMove = (t: { description: string }, move: object) => void (t.description += "```home-move\n" + JSON.stringify(move) + "\n```\n");
+  it("owes no decision, so desktop, stats and phone all agree: no Later count from it", async () => {
+    const r = rig({ legacyMoves: true });
+    r.enableDelegation();
+    const moveCard = card(r);
+    withMove(moveCard, { schema: "home-move/v1", kind: "pr", pr: { url: "https://github.com/o/r/pull/7" } });
+    const plain = card(r);
+    await r.poll();
+    expect(r.mkPick(r.gens(moveCard.id)[0].id)).toMatchObject({ ok: true }); // its decision is picked; only the move remains
+    expect(r.svc.later(moveCard.id, "mk")).toMatchObject({ ok: true });
+    const cu = new Catchup(r.svc, r.dele);
+    // desktop
+    const w = waitingNow(r.svc, r.dele, cu);
+    expect(w).toMatchObject({ total: 1, decide: 1, later: 0, held: 0, moves: 0, line: "1" });
+    // stats
+    const cli = homeCli({ svc: r.svc, asks: new Asks(r.svc), catchup: cu, waiting: () => waitingNow(r.svc, r.dele, cu), rule: (id, o, why, ctx) => r.dele.rule(id, o, why, ctx), isVizier: () => false });
+    const s = JSON.parse((await cli.run(["stats", "--json"], {})).stdout!);
+    expect(s.waiting).toMatchObject({ total: 1, decide: 1, later: 0, held: 0, moves: 0, line: "1" });
+    // phone: the rows are the owed decisions, so the Later card is not among them and there is no extras line
+    const rows = r.svc.owed().map((d) => ask({ id: String(d.id), task_id: String(d.task_id), subject: "plain", held: r.svc.holdOf(String(d.task_id)), later: r.svc.laterOf(String(d.task_id)) }));
+    expect(rows.map((x) => x.task_id)).toEqual([plain.id]);
+    expect(owedCounts(rows)).toEqual({ pick: 1, held: 0, later: 0 });
+    const html = phone(asks(rows), w.total);
+    expect(html).toContain("Waiting on you · 1");
+    expect(html).not.toContain("data-inbox-extras");
+    expect(inboxRows(asks(rows), NOW).later).toEqual([]);
+  });
+});
+
 describe("every surface shows that number", () => {
   it("the rail badge, the Queue tab, the Decide tab and the phone header all say 3 for the fixture", async () => {
     const { r, cu } = await fixture();

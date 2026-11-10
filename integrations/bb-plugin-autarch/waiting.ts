@@ -4,7 +4,6 @@
 // part of it.
 import type { Catchup, CatchupItem } from "./catchup.js";
 import type { Delegation } from "./delegation.js";
-import { groupMoves } from "./moveselect.js";
 import type { Service } from "./service.js";
 import { waitingLine } from "./waitingcount.js";
 
@@ -52,28 +51,10 @@ export function waitingNow(svc: Service, dele: Delegation, catchup: Catchup): Wa
     laterTasks.add(d.task_id as string);
     return false;
   });
-  const decideTasks = new Set(active.map((d) => d.task_id as string | null).filter((t): t is string => !!t));
 
+  // Held and Later are counted over the owed decision cards only, the same population the phone and the Later tab list, so the
+  // named counts agree on every screen. A move-only card is counted nowhere (moves are being retired), so `moves` stays 0.
   const moves = new Set<string>();
-  const g = groupMoves(svc.store.moves(), svc.laterTasks(), svc.skipIgnored());
-  // A move set aside (skipped, or its card put in Later) is counted beside the number; a hold still beats it, and a
-  // skipped move on a card that still owes a decision stays with that decision.
-  for (const m of g.reported) if (svc.holdOf(m.task_id)) heldTasks.add(m.task_id);
-  for (const m of g.later) {
-    if (svc.holdOf(m.task_id)) heldTasks.add(m.task_id);
-    else if (!decideTasks.has(m.task_id)) laterTasks.add(m.task_id); // a decision still owed is counted as one, not twice
-  }
-  for (const m of g.yourMove) {
-    if (svc.holdOf(m.task_id)) {
-      heldTasks.add(m.task_id);
-      continue;
-    }
-    if (isLater(m.task_id)) {
-      laterTasks.add(m.task_id);
-      continue;
-    }
-    if (!decideTasks.has(m.task_id)) moves.add(m.task_id);
-  }
 
   const all: CatchupItem[] = catchup.items();
   const noticeItems = all.filter((i) => i.kind === "notice").map((i) => ({ item: i.item, at: i.at, text: i.text }));

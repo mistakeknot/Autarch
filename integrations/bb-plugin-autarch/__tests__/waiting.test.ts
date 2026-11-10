@@ -40,7 +40,7 @@ describe("waiting on mk", () => {
     const gb = r.gens(b.id)[0];
     expect(r.mkPick(gb.id)).toMatchObject({ ok: true });
     const w = count(r);
-    expect(w).toMatchObject({ decide: 1, moves: 1, total: 1 }); // the count is the decisions that need a pick; moves are named, not added
+    expect(w).toMatchObject({ decide: 1, moves: 0, total: 1 }); // the count is the decisions that need a pick; a move-only card is counted nowhere
   });
 
   it("a claimed, skipped or held move is not waiting", async () => {
@@ -50,11 +50,11 @@ describe("waiting on mk", () => {
     t.forEach((x, i) => withMove(x, prMove(i + 10)));
     await r.poll();
     for (const x of t) r.mkPick(r.gens(x.id)[0].id); // only the moves are owed now
-    expect(count(r).moves).toBe(4);
+    expect(count(r)).toMatchObject({ moves: 0, held: 0, later: 0, total: 0 }); // moves are no longer counted
     r.svc.store.claimMove(t[0]!.id, 1, "mk");
     r.svc.store.skipMove(t[1]!.id, 1);
     r.svc.hold(t[2]!.id, "later", "mk");
-    expect(count(r)).toMatchObject({ moves: 1, held: 1 });
+    expect(count(r)).toMatchObject({ moves: 0, held: 0, later: 0, total: 0 }); // a held move-only card owes no decision, so it is not held-counted either
   });
 
   it("an unseen vizier adoption is one notice; acknowledging it lifts the suspension and the count", async () => {
