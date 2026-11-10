@@ -29,7 +29,7 @@ func WithDispatchName(name string) DispatchOption {
 }
 
 // TrackAgent registers an agent dispatch with the OS layer for tracking.
-// Call this after ic.DispatchSpawn() to keep the OS layer informed.
+// Call this after `ic dispatch spawn` to keep the OS layer informed.
 func (c *Client) TrackAgent(ctx context.Context, beadID, agentName string, agentType, dispatchID string) error {
 	args := []string{"sprint-track-agent", beadID, agentName}
 	if agentType != "" {
