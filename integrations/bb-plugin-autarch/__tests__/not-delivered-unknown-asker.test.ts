@@ -209,4 +209,20 @@ describe("wired through Delegation", () => {
     const b = await unknownAsker(r, { title: "Now there is one" });
     expect(noticesFor(r, b.id)[0].recipient).toBe("thr_coord9");
   });
+
+  it("never tells an archived or an ambiguous vizier: with no coordinator and no single live pinned vizier, no one is told", async () => {
+    const threads: ThreadRow[] = [row("thr_v_old", "Masaq' | vizier", { pinnedAt: 1, archivedAt: 1 })];
+    const r = rig();
+    new Delegation(r.svc, async () => threads);
+    const a = await unknownAsker(r, { title: "Only an archived vizier" });
+    expect(noticesFor(r, a.id)).toHaveLength(0);
+    threads.push(row("thr_v1", "Masaq' | vizier", { pinnedAt: 1 }), row("thr_v2", "Masaq' | vizier two", { pinnedAt: 2 }));
+    r.advance(300_000);
+    await r.poll();
+    expect(noticesFor(r, a.id)).toHaveLength(0);
+    threads.pop();
+    r.advance(300_000);
+    await r.poll();
+    expect(noticesFor(r, a.id).map((o) => o.recipient)).toEqual(["thr_v1"]);
+  });
 });
