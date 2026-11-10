@@ -11,16 +11,16 @@ import { QueueTabs } from "../ui/tabs.js";
 import { homeTabs, HomeTabs } from "../ui/tabs.js";
 
 const W: Waiting = {
-  total: 7,
+  total: 5,
+  line: "5 · 2 on hold",
   decide: 5,
-  moves: 1,
   notices: 1,
   noticeItems: [{ item: "vizier-adopted:3", at: "2026-10-07T12:00:00Z", text: "Citadel adopted thr_viz as the vizier thread; delegated rulings stay suspended until you see this." }],
   updates: 3,
   held: 2,
   later: 0,
   suspended: true,
-  definition: "Counts open decisions (not on hold) and notices you must acknowledge.",
+  definition: "Counts open decisions that need your pick now. Does not count cards on hold or set aside for later, notices to acknowledge, or updates to read; those are named beside it.",
 };
 const noop = () => {};
 
@@ -34,7 +34,7 @@ describe("waiting strip", () => {
   it("prints the definition so a mismatch with another list is explainable", () => {
     const html = renderToStaticMarkup(<QueueTabs tab="decide" onTab={noop} counts={null} definition={W.definition} />);
     expect(html).toContain("What this counts");
-    expect(html).toContain("not on hold");
+    expect(html).toContain("Does not count cards on hold or set aside for later");
   });
 });
 
@@ -55,7 +55,7 @@ describe("every surface shows the same number", () => {
   });
   it("the Queue tab carries the total", () => {
     const html = renderToStaticMarkup(<HomeTabs waiting={W.total} onOpen={noop} />);
-    expect(html).toContain("Queue (7)");
+    expect(html).toContain("Queue (5)"); // the decisions that need a pick; the notice is not added
     expect(homeTabs()[0]![2]).toBe("Queue");
   });
   it("the Ideas tab sits before Archive and Vizier and carries the open-idea count", () => {

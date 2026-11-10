@@ -1,5 +1,5 @@
-// One count of what is waiting on mk (bead mk-yjp7). Home's own state decides it: owed decisions that are not on hold,
-// and notices that change what Home does. Catch-up reading and held cards are shown beside it, never in it.
+// One count of what is waiting on mk (bead mk-yjp7). Home's own state decides it: the owed decisions that are not on hold
+// or set aside for later. Notices, catch-up reading, held cards and Later cards are shown beside it, never in it.
 import { afterEach, describe, expect, it } from "vitest";
 import { Catchup } from "../catchup.js";
 import { waitingNow, WAITING_DEFINITION } from "../waiting.js";
@@ -34,7 +34,7 @@ describe("waiting on mk", () => {
     r.svc.store.recordEvent("vizier-adopted", null, { from: null, to: "thr_viz2", reason: "unset" });
     expect(r.dele.suspendedNow()).toBe(true);
     const w = count(r);
-    expect(w).toMatchObject({ decide: 1, notices: 1, total: 2 });
+    expect(w).toMatchObject({ decide: 1, notices: 1, total: 1 }); // the notice is named beside the count, not inside it
     expect(w.noticeItems).toHaveLength(1);
     expect(w.noticeItems[0]!.text).toContain("thr_viz2");
     r.dele.markSeen("mk", w.noticeItems[0]!.item);
@@ -129,7 +129,8 @@ describe("one number everywhere", () => {
     await r.poll();
     r.svc.store.recordEvent("vizier-adopted", null, { from: null, to: "thr_viz3", reason: "unset" });
     const w = count(r);
-    expect(w.total).toBe(3);
+    expect(w.total).toBe(2); // the notice is not part of the count
+    expect(w.notices).toBe(1);
     expect(badgeCount({ count: w.decide }, { blocked: false, unowned: false })).toBe("2");
   });
 });
