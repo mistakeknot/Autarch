@@ -10,6 +10,7 @@ import { AsksPanel, buildAsksView, type AsksData } from "../ui/asks.js";
 import { DocReaderHost } from "../ui/docreader.js";
 import { MoreWaitingRow, moreWaiting } from "../ui/morewaiting.js";
 import { owedCounts } from "../waitingcount.js";
+import { MobileInbox } from "../ui/inbox.js";
 
 const base = (over: Partial<AsksData> = {}): AsksData => ({ owed: [], runbook: [], lane: [], asks: [], undeliverable: [], failures: [], uncertain: [], delegation: { settings: {}, suspended: false }, machineOwners: {}, ...over });
 const nd = (n: number, over: Record<string, string> = {}) => ({ id: `undelivered:t${n}`, subject: `Card ${n}`, reason: "root unverified: serve is down", thread: "thr_a", ...over });
@@ -61,5 +62,26 @@ describe("phone More waiting", () => {
     expect(html).toContain("r".repeat(600));
     expect(html).toContain("[overflow-wrap:anywhere]");
     expect(html.match(/<button/g)).toHaveLength(1); // only the row's own toggle
+  });
+});
+
+// An unreadable card (bead mk-j5ipa.14, an open decision) and a not-delivered card (this bead, still in observed) are different states.
+// Both stay visible, each under its own wording, and neither takes the other's place.
+describe("an unreadable card and a not-delivered card together", () => {
+  const KEY = "AUTA-9999999999999999999999999999";
+  const bad = { id: "dbad", project: "Clavain", thread: "thr-a", subject: "Bad one", key: KEY, asker: "card", filed_at: "2026-10-09T07:00:00Z", revision: "r1", task_id: "t-dbad", unreadable: true, ask: { question: "", options: [] } };
+  const both = base({ owed: [bad as never], notDelivered: [nd(1)] });
+  it("desktop: the unreadable card is in Decide, marked, and the not-delivered one is read-only under Stalled", () => {
+    const view = buildAsksView(both);
+    expect(view.find((s) => s.key === "stalled")!.items.map((i) => i.title)).toEqual(["Not delivered yet: Card 1"]);
+    const html = renderToStaticMarkup(<AsksPanel data={both} onPick={() => {}} onOpen={() => {}} />);
+    expect(html).toContain(`${KEY} could not be read`);
+    expect(html).toContain("Not delivered yet: Card 1");
+    expect(html).not.toContain(`Not delivered yet: ${KEY}`);
+  });
+  it("phone: the unreadable card keeps its row and the not-delivered one is counted in More waiting, not in the decisions", () => {
+    expect(moreWaiting(both).total).toBe(1);
+    const html = renderToStaticMarkup(<MobileInbox asks={both} waiting={1} onPick={(() => {}) as never} onOpen={() => {}} onNote={() => {}} onLater={() => {}} sinceNode={null} sinceCount={0} onDesktop={() => {}} now={Date.parse("2026-10-09T12:00:00Z")} />);
+    expect(html).toContain(`${KEY} could not be read`);
   });
 });
