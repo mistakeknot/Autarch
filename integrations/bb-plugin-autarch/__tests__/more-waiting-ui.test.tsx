@@ -72,6 +72,11 @@ describe("moreWaiting (the groups)", () => {
   it("decisions owed are not counted: they are the Waiting and Later lists", () => {
     expect(moreWaiting(base({ owed: [ask("a"), ask("b"), ask("c")] })).total).toBe(0);
   });
+  it("a list the data lacks counts as none, and the phone still draws", () => {
+    const partial = { owed: [], settled: [], delegation: null, machineOwners: [] } as unknown as AsksData;
+    expect(moreWaiting(partial)).toEqual({ total: 0, groups: [] });
+    expect(phone(partial)).not.toContain("data-inbox-more");
+  });
   it("a missing approvals list counts as none", () => {
     const a = base({ lane: full().lane });
     delete (a as { approvals?: unknown }).approvals;
