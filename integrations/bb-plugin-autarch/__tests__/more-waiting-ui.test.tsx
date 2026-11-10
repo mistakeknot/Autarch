@@ -10,6 +10,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 vi.mock("@get-bb/plugin-sdk/app", () => ({ ThreadChat: () => null }));
 
 import { MobileInbox } from "../ui/inbox.js";
+import { moreWaiting } from "../ui/morewaiting.js";
+import { filterAsks } from "../ui/projectfilterstore.js";
 import type { AsksData, OwedAsk } from "../ui/asks.js";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -49,3 +51,143 @@ describe("the phone can reach the four lists", () => {
   });
 });
 
+describe("moreWaiting (the groups)", () => {
+  it("builds Stalled, Steps for you, Waiting on others and Recorded approvals, in that order, with counts", () => {
+    const g = moreWaiting(full());
+    expect(g.total).toBe(5);
+    expect(g.groups.map((x) => [x.key, x.title, x.count])).toEqual([
+      ["stalled", "Stalled", 2],
+      ["steps", "Steps for you", 1],
+      ["waiting", "Waiting on others", 1],
+      ["approvals", "Recorded approvals", 1],
+    ]);
+  });
+  it("omits groups with nothing in them, and has a total of 0 when all are empty", () => {
+    const g = moreWaiting(base({ lane: full().lane }));
+    expect(g.groups.map((x) => x.key)).toEqual(["waiting"]);
+    expect(g.total).toBe(1);
+    expect(moreWaiting(base()).total).toBe(0);
+    expect(moreWaiting(base()).groups).toEqual([]);
+  });
+  it("decisions owed are not counted: they are the Waiting and Later lists", () => {
+    expect(moreWaiting(base({ owed: [ask("a"), ask("b"), ask("c")] })).total).toBe(0);
+  });
+  it("a missing approvals list counts as none", () => {
+    const a = base({ lane: full().lane });
+    delete (a as { approvals?: unknown }).approvals;
+    expect(moreWaiting(a).total).toBe(1);
+  });
+});
+
+describe("the row, closed", () => {
+  it("is closed by default: the count shows, the items do not", () => {
+    const html = phone(full());
+    expect(html).toContain("data-inbox-more");
+    expect(html.match(/<button[^>]*data-inbox-more-toggle[^>]*>/)![0]).toContain('aria-expanded="false"');
+    for (const hidden of ["Deploy stuck", "Run the install script", "Review of PR 12", "org/repo#12", "Undeliverable wake", "data-inbox-more-list"]) expect(html).not.toContain(hidden);
+  });
+  it("is a 44px-tall tap target", () => {
+    expect(phone(full()).match(/<button[^>]*data-inbox-more-toggle[^>]*>/)![0]).toContain("min-h-11");
+  });
+  it("is left out when the four lists are empty, and the empty Waiting list still says so", () => {
+    const html = phone(base({ owed: [] }));
+    expect(html).not.toContain("data-inbox-more");
+    expect(html).toContain("Nothing is waiting on you.");
+  });
+  it("shows on its own under the empty Waiting list", () => {
+    const html = phone(base({ owed: [], lane: full().lane }));
+    expect(html).toContain("Nothing is waiting on you.");
+    expect(html).toMatch(/More waiting · 1/);
+  });
+  it("shows on the Waiting tab only, not on Later, Since you left or an open card", () => {
+    expect(phone(full(), { tab: "later" })).not.toContain("data-inbox-more");
+    expect(phone(full(), { tab: "since" })).not.toContain("data-inbox-more");
+    expect(phone(full(), { open: "ask:d1" })).not.toContain("data-inbox-more");
+  });
+  it("sits below the On hold row", () => {
+    const held = ask("h1", "Clavain", { held: { reason: "vendor", by: "v", at: "z" } });
+    const html = phone(base({ owed: [ask("d1"), held], lane: full().lane }));
+    expect(html.indexOf("data-inbox-hold")).toBeGreaterThan(-1);
+    expect(html.indexOf("data-inbox-more")).toBeGreaterThan(html.indexOf("data-inbox-hold"));
+  });
+});
+
+describe("the row, open", () => {
+  const open = () => phone(full(), { moreOpen: true });
+  it("lists the four groups with their counts and every item", () => {
+    const html = open();
+    expect(html.match(/<button[^>]*data-inbox-more-toggle[^>]*>/)![0]).toContain('aria-expanded="true"');
+    for (const t of ["Stalled · 2", "Steps for you · 1", "Waiting on others · 1", "Recorded approvals · 1"]) expect(html).toContain(t);
+    for (const t of ["Undeliverable wake to thr-x", "thread archived", "stalled: Deploy stuck", "Run the install script", "Run it as root.", "Review of PR 12", "review running", "merge org/repo#12 at abc1234"]) expect(html).toContain(t);
+  });
+  it("leaves out a group with nothing in it", () => {
+    const html = phone(base({ lane: full().lane }), { moreOpen: true });
+    expect(html).toContain("Waiting on others · 1");
+    for (const t of ["Stalled", "Steps for you", "Recorded approvals"]) expect(html).not.toContain(t);
+  });
+  it("is read-only: no Dismiss, Revoke, pick, Later or other buttons inside the list", () => {
+    const html = open();
+    const from = html.indexOf("data-inbox-more-list");
+    const list = html.slice(from, html.indexOf("data-inbox-tabs", from));
+    expect(list).not.toContain("<button");
+    expect(list).not.toMatch(/data-dismiss|data-confirming|Revoke|Dismiss|data-option|data-bar-|data-later|data-inbox-row/);
+  });
+  it("gives each group a heading and the approvals their no-authorisation note", () => {
+    const html = open();
+    expect(html.match(/<h2[^>]*>[^<]*(Stalled|Steps for you|Waiting on others|Recorded approvals)/g)).toHaveLength(4);
+    expect(html).toContain("They do not authorize a merge, deploy or release.");
+  });
+  it("keeps Stalled items in one list a later change can add to (a single place builds them)", () => {
+    expect(moreWaiting(full()).groups[0]!.items.map((i) => i.id)).toEqual(["undeliverable:u1", "s1"]);
+  });
+  it("one item, many items and a very long subject all render without clipping", () => {
+    const many = Array.from({ length: 60 }, (_, i) => ({ id: `l${i}`, subject: `Lane ${i}`, thread: "t", owner: "o", detail: "d", updated_at: "2026-10-09T10:00:00Z" }));
+    const html = phone(base({ lane: many }), { moreOpen: true });
+    expect(html).toMatch(/More waiting · 60/);
+    expect(html.match(/data-more-item=/g)).toHaveLength(60);
+    const long = "a very long subject ".repeat(30) + "https://example.test/" + "x".repeat(200);
+    const lh = phone(base({ lane: [{ id: "l1", subject: long, thread: "t", owner: "o", detail: "d", updated_at: "2026-10-09T10:00:00Z" }] }), { moreOpen: true });
+    expect(lh).toContain("a very long subject");
+    expect(lh).toMatch(/\[overflow-wrap:anywhere\]/);
+  });
+});
+
+describe("the project filter", () => {
+  const filtered = (excluded: string[]) => filterAsks(full(), new Set(excluded));
+  it("the four lists carry no project, so a filter never hides them: the same row and items as with no filter", () => {
+    const a = filtered(["Clavain"]);
+    expect(a.owed).toHaveLength(0); // the filter did take the card off the list
+    expect(moreWaiting(a)).toEqual(moreWaiting(full()));
+    expect(phone(a, { moreOpen: true })).toContain("Deploy stuck");
+  });
+  it("the count follows the existing rule: it counts across all projects even while the filter hides cards", async () => {
+    const store = await import("../ui/projectfilterstore.js");
+    expect(store.COUNTS_FOLLOW_FILTER).toBe(false);
+    expect(phone(filtered(["Clavain"]), undefined, { filter: { node: () => null, hidden: { waiting: 1, later: 0 }, laterCount: 0 } })).toMatch(/More waiting · 5/);
+  });
+});
+
+describe("opening it (driven as a tap)", () => {
+  let host: HTMLDivElement;
+  let root: Root;
+  beforeEach(() => {
+    host = document.createElement("div");
+    document.body.appendChild(host);
+    root = createRoot(host);
+  });
+  afterEach(() => {
+    act(() => root.unmount());
+    host.remove();
+  });
+  it("a tap opens it, a second tap closes it, and the Waiting list stays where it is", () => {
+    act(() => root.render(<MobileInbox asks={full()} waiting={1} onPick={noop as never} onOpen={noop} onNote={noop} onLater={noop} sinceNode={null} sinceCount={0} onDesktop={noop} now={NOW} />));
+    const toggle = () => host.querySelector<HTMLButtonElement>("[data-inbox-more-toggle]")!;
+    expect(host.querySelector("[data-inbox-more-list]")).toBeNull();
+    act(() => toggle().click());
+    expect(toggle().getAttribute("aria-expanded")).toBe("true");
+    expect(host.querySelector("[data-inbox-more-list]")!.textContent).toContain("Deploy stuck");
+    expect(host.querySelector('[data-inbox-row="ask:d1"]')).not.toBeNull();
+    act(() => toggle().click());
+    expect(host.querySelector("[data-inbox-more-list]")).toBeNull();
+  });
+});

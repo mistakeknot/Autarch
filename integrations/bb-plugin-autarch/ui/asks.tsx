@@ -488,10 +488,10 @@ export function expiryText(expiresAt: string, nowMs: number): string {
 }
 
 /** Without `onRevoke` the list is read-only: no Revoke button is drawn, so none can do nothing. */
-export function ApprovalsList({ approvals, onRevoke, nowMs = Date.now() }: { approvals: ApprovalRecord[]; onRevoke?: (approvalId: string) => void; nowMs?: number }) {
+export function ApprovalsList({ approvals, onRevoke, nowMs = Date.now(), bare = false }: { approvals: ApprovalRecord[]; onRevoke?: (approvalId: string) => void; nowMs?: number; /** Leave out the heading, for a caller that draws its own (the phone's More waiting row). */ bare?: boolean }) {
   return (
     <section data-section="approvals">
-      <h2 className="mb-2 text-xs font-semibold uppercase text-muted-foreground">Recorded approvals</h2>
+      {bare ? null : <h2 className="mb-2 text-xs font-semibold uppercase text-muted-foreground">Recorded approvals</h2>}
       <p className="mb-2 text-xs text-muted-foreground">Records of what you approved. They do not authorize a merge, deploy or release.</p>
       <ul className="space-y-2">
         {approvals.map((a) => (
