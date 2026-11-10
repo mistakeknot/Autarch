@@ -1484,7 +1484,8 @@ export class Service {
     const taskId = String(row.task_id);
     const op = `undelivered:${taskId}`;
     const title = String(this.cardTitle(taskId) ?? "").slice(0, 120);
-    const payload = `Home card ${taskId}${title ? ` (${title})` : ""} is not delivered: Home has tried twice and could not put it in front of mk (${reason}). mk cannot see it yet. Home keeps trying, and tells you nothing more about this card. Nothing needs to be re-filed unless the card is edited or deleted.`;
+    // Worded as a past event with its time: a batched digest can leave up to an hour later, after the card was delivered, and must still be true.
+    const payload = `At ${this.now()}, Home card ${taskId}${title ? ` (${title})` : ""} was not delivered: Home had tried twice and could not put it in front of mk (${reason}). That may have changed since: Home keeps trying, the card moves to Decide by itself once delivered, and Home tells you nothing more about it. Nothing needs to be re-filed unless the card is edited or deleted.`;
     if (this.store.insertObligations(`card:${taskId}`, [{ id: `ob:${op}`, kind: "notice", recipient: thread, op, payload }]) > 0) this.deps.nudge?.();
   }
 
