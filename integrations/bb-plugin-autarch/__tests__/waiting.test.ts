@@ -1,5 +1,5 @@
-// One count of what is waiting on mk (bead mk-yjp7). Home's own state decides it: owed decisions that are not on hold,
-// open moves, and notices that change what Home does. Catch-up reading and held cards are shown beside it, never in it.
+// One count of what is waiting on mk (bead mk-yjp7). Home's own state decides it: the owed decisions that are not on hold
+// or set aside for later. Notices, catch-up reading, held cards and Later cards are shown beside it, never in it.
 import { afterEach, describe, expect, it } from "vitest";
 import { Catchup } from "../catchup.js";
 import { waitingNow, WAITING_DEFINITION } from "../waiting.js";
@@ -13,52 +13,21 @@ const card = (r: Rig, o: Parameters<Rig["card"]>[0] = {}) => {
   n += 1;
   return r.card({ key: `w-${n}`, ident: n.toString(16).padStart(16, "0"), ...o });
 };
-const withMove = (t: { description: string }, move: object) => void (t.description += "```home-move\n" + JSON.stringify(move) + "\n```\n");
-const prMove = (k: number) => ({ schema: "home-move/v1", kind: "pr", pr: { url: `https://github.com/o/r/pull/${k}` } });
 const count = (r: Rig) => waitingNow(r.svc, r.dele, new Catchup(r.svc, r.dele));
 
 describe("waiting on mk", () => {
   it("counts owed decisions, not held ones, and shows the held count beside it", async () => {
-    const r = rig({ legacyMoves: true });
+    const r = rig();
     r.enableDelegation();
     const cards = Array.from({ length: 6 }, () => card(r));
     await r.poll();
     expect(r.svc.hold(cards[5]!.id, "waiting on the vendor", "mk", { until: "2099-01-05" })).toMatchObject({ ok: true });
     const w = count(r);
-    expect(w).toMatchObject({ total: 5, decide: 5, moves: 0, notices: 0, held: 1 });
-  });
-
-  it("a move on a card that also has an owed decision counts once", async () => {
-    const r = rig({ legacyMoves: true });
-    r.enableDelegation();
-    const a = card(r);
-    const b = card(r);
-    withMove(a, prMove(1));
-    withMove(b, prMove(2));
-    await r.poll();
-    // a keeps its owed decision AND a move; b's decision is picked, so only its move remains
-    const gb = r.gens(b.id)[0];
-    expect(r.mkPick(gb.id)).toMatchObject({ ok: true });
-    const w = count(r);
-    expect(w).toMatchObject({ decide: 1, moves: 0, total: 1 }); // the count is the decisions that need a pick; a move-only card is counted nowhere
-  });
-
-  it("a claimed, skipped or held move is not waiting", async () => {
-    const r = rig({ legacyMoves: true });
-    r.enableDelegation();
-    const t = [card(r), card(r), card(r), card(r)];
-    t.forEach((x, i) => withMove(x, prMove(i + 10)));
-    await r.poll();
-    for (const x of t) r.mkPick(r.gens(x.id)[0].id); // only the moves are owed now
-    expect(count(r)).toMatchObject({ moves: 0, held: 0, later: 0, total: 0 }); // moves are no longer counted
-    r.svc.store.claimMove(t[0]!.id, 1, "mk");
-    r.svc.store.skipMove(t[1]!.id, 1);
-    r.svc.hold(t[2]!.id, "later", "mk", { until: "2099-01-05" });
-    expect(count(r)).toMatchObject({ moves: 0, held: 0, later: 0, total: 0 }); // a held move-only card owes no decision, so it is not held-counted either
+    expect(w).toMatchObject({ total: 5, decide: 5, notices: 0, held: 1 });
   });
 
   it("an unseen vizier adoption is one notice; acknowledging it lifts the suspension and the count", async () => {
-    const r = rig({ legacyMoves: true });
+    const r = rig();
     r.enableDelegation();
     card(r);
     await r.poll();
@@ -74,7 +43,7 @@ describe("waiting on mk", () => {
   });
 
   it("unseen catch-up reading is shown beside the count, never in it", async () => {
-    const r = rig({ legacyMoves: true });
+    const r = rig();
     r.enableDelegation();
     card(r);
     await r.poll();
@@ -95,7 +64,7 @@ describe("waiting on mk", () => {
 
 describe("decisionCount (the rail badge)", () => {
   it("counts open cards, held ones included, and is zero with none", async () => {
-    const r = rig({ legacyMoves: true });
+    const r = rig();
     r.enableDelegation();
     expect(r.svc.decisionCount()).toBe(0);
     const cards = Array.from({ length: 3 }, () => card(r));
@@ -108,7 +77,7 @@ describe("decisionCount (the rail badge)", () => {
 
 describe("decisionCount excludes what is not waiting", () => {
   it("counts display cards, not deleted, unlabelled or other states", async () => {
-    const r = rig({ legacyMoves: true });
+    const r = rig();
     r.enableDelegation();
     const cards = Array.from({ length: 6 }, () => card(r));
     await r.poll();
@@ -127,7 +96,7 @@ describe("decisionCount excludes what is not waiting", () => {
 describe("the rail badge is the Needs you now count (bead mk-oykwh)", () => {
   it("held and Later cards do not raise it, and it equals the tab's number", async () => {
     const { railCount } = await import("../ui/waiting.js");
-    const r = rig({ legacyMoves: true });
+    const r = rig();
     r.enableDelegation();
     const cards = Array.from({ length: 5 }, () => card(r));
     await r.poll();
@@ -153,7 +122,7 @@ describe("railCount (the badge number)", () => {
 describe("one number everywhere", () => {
   it("the tab and the stats output show the same total; the badge shows the Needs you now count", async () => {
     const { badgeCount } = await import("../ui/waiting.js");
-    const r = rig({ legacyMoves: true });
+    const r = rig();
     r.enableDelegation();
     card(r);
     card(r);

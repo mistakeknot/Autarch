@@ -15,7 +15,7 @@
 // A done task is the normal state five minutes after a pick and still gets the check. The manual Bring back on the
 // Archive tab is a separate path and keeps reopening a canceled task.
 import type Database from "better-sqlite3";
-import type { GhView } from "./movepoll.js";
+import type { GhView } from "./ghview.js";
 import type { TaskState } from "./tasks.js";
 
 export const RECHECK_AFTER_MS = 5 * 60_000;

@@ -4,7 +4,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { Asks } from "../asks.js";
 import { Catchup } from "../catchup.js";
-import { moveViews } from "../moveview.js";
 import { buildQueue } from "../queueview.js";
 import { waitingNow } from "../waiting.js";
 import { cleanupEnvs, rig, type Rig } from "./card-rig.js";
@@ -72,12 +71,11 @@ describe("holds and laters are not re-read per card", () => {
     expect(seen.parses).toBe(0);
   });
 
-  it("the queue, the waiting count and the move views each read the lists at most once per call", async () => {
+  it("the queue and the waiting count each read the lists at most once per call", async () => {
     const { r } = await fixture();
     const seen = spyReads(r);
     buildQueue(r.svc, new Asks(r.svc));
     waitingNow(r.svc, r.dele, new Catchup(r.svc, r.dele));
-    moveViews(r.svc);
     expect(seen.parses).toBeLessThanOrEqual(1);
     expect(seen.reads).toBeLessThanOrEqual(2);
   });

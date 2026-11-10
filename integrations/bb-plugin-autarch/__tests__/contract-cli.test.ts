@@ -4,7 +4,6 @@ import { Catchup } from "../catchup.js";
 import { homeCli } from "../cli.js";
 import { cliOnlyVerbs, homeCliMap, homeMethods } from "../contract.js";
 import { conversationView } from "../conversation.js";
-import { moveViews } from "../moveview.js";
 import { makeEnv, type Env, verifiedDelegation } from "./service-helpers.js";
 
 let env: Env;
@@ -77,9 +76,6 @@ describe("RPC outputs", () => {
     const conv = conversationView(svc, "no-such-task", null);
     expect(homeMethods.conversation.output.parse(conv)).toEqual(conv);
     expect(Object.keys(conv)).toEqual(expect.arrayContaining(["comments", "unread", "stale", "last_ok_at", "options"]));
-    const mv = moveViews(svc);
-    expect(homeMethods.moves.output.parse(mv)).toEqual(mv);
-    expect(Object.keys(mv)).toEqual(expect.arrayContaining(["yourMove", "reported", "later", "hidden", "audit"]));
     const health = { ready: true, error: null, source_sha256: "x", build: {}, projects: null, projects_error: null };
     expect(homeMethods.health.output.parse(health)).toEqual(health);
     expect(homeMethods.health.output.safeParse({ ready: "yes" }).success).toBe(false);

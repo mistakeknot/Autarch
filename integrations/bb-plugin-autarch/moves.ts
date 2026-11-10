@@ -1,10 +1,8 @@
-// The home-move/v1 block: what mk owes on a card (run a script, merge a PR, read, supply context).
+// The home-move/v1 block parser. Moves are retired and Home opens none, but a card that still carries a home-move
+// block keeps its fingerprint (cards.ts hashes the parsed block), so this parser stays until those cards are edited.
 //
-// A move is untrusted card text, so nothing here ever executes and no command is taken from the text.
-// Commands are derived from the validated structured fields (path, sha256, args) only. Parsing is strict:
-// any malformed part throws, and the message is the reason shown.
-
-import { shQuote } from "./rootrun.js";
+// A move is untrusted card text, so nothing here ever executes. Parsing is strict: any malformed part throws,
+// and the message is the reason shown.
 
 export type MoveKind = "script" | "pr" | "read" | "context";
 
@@ -36,14 +34,6 @@ export type Move =
   | { kind: "pr"; url: string; summary?: string; verdict?: PrVerdict; review_url?: string; why?: PrWhy; door?: PrDoor; door_why?: PrDoorWhy; blast?: string }
   | { kind: "read"; url: string }
   | { kind: "context"; need: string };
-
-export interface MoveCommand {
-  label: "sha256sum" | "check" | "run" | "recover";
-  /** Exactly one line: no prompt, no newline, no leading or trailing space. */
-  command: string;
-  /** The sha the user should see beside the command (the sha256sum and recovery rows). */
-  expectedSha?: string;
-}
 
 const SCHEMA = "home-move/v1";
 const KINDS = new Set<string>(["script", "pr", "read", "context"]);
@@ -189,26 +179,4 @@ export function parseMove(body: string): Move {
       return { kind, need: m.need };
     }
   }
-}
-
-/**
- * The commands for a script move, in run order. Each is one line derived from the validated fields;
- * the card text never contributes a character.
- */
-export function scriptCommands(s: ScriptMove): MoveCommand[] {
-  const out: MoveCommand[] = [
-    { label: "sha256sum", command: `sha256sum ${shQuote(s.path)}`, expectedSha: s.sha256 },
-    { label: "check", command: `bash ${shQuote(s.path)} --check` },
-    { label: "run", command: ["bash", shQuote(s.path), ...s.args.map(shQuote)].join(" ") },
-  ];
-  if (s.recover) out.push({ label: "recover", command: `bash ${shQuote(s.recover.path)}`, expectedSha: s.recover.sha256 });
-  return out;
-}
-
-/**
- * A git step as one pasteable line. Home runs as root on the host, so every git step runs as mk:
- * `runuser -u mk -- git -C <repo> ...`. The repo and every argument are quoted by the same safe builder.
- */
-export function gitCommand(repo: string, args: readonly string[]): string {
-  return ["runuser", "-u", "mk", "--", "git", "-C", shQuote(repo), ...args.map(shQuote)].join(" ");
 }

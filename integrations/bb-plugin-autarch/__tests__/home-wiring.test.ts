@@ -38,11 +38,11 @@ describe("wireHome", () => {
     const f = fakeBb();
     const home = wireHome(f.bb, handle, cfg, { serve });
     expect([...f.events.keys()].sort()).toEqual(["message.cancelled", "message.dispatched", "thread.archived", "thread.deleted", "turn.failed"]);
-    expect(f.services.sort()).toEqual(["home-card-comments", "home-delegation-check", "home-feed-refresh", "home-merge-recheck", "home-move-poll", "home-move-reports", "home-queue", "home-vizier-messages", "home-wakes"]);
+    expect(f.services.sort()).toEqual(["home-card-comments", "home-delegation-check", "home-feed-refresh", "home-merge-recheck", "home-queue", "home-vizier-messages", "home-wakes"]);
     expect(f.configure()).toBeTypeOf("function");
     expect(f.cli()).toBeDefined();
     expect(Object.keys(home.handlers).sort()).toEqual(["actIdea", "archive", "bringBack", "cardState", "catchup", "clearIdeaDigest", "clickTiming", "conversation", "conversationUnread",
-      "dismiss", "fileIdea", "health", "ideaProjects", "ideas", "later", "learn", "learnSet", "listAsks", "listRecent", "markAllSeen", "markConversationSeen", "markSeen", "moves", "note", "openTarget", "override", "pick", "queue", "readDoc", "requestUpdate", "resend", "revokeApproval", "rootRun", "setBinding", "setDelegation", "setViewing", "stats", "unlater", "updateInfo", "waiting"]);
+      "dismiss", "fileIdea", "health", "ideaProjects", "ideas", "later", "learn", "learnSet", "listAsks", "listRecent", "markAllSeen", "markConversationSeen", "markSeen", "note", "openTarget", "override", "pick", "queue", "readDoc", "requestUpdate", "resend", "revokeApproval", "rootRun", "setBinding", "setDelegation", "setViewing", "stats", "unlater", "updateInfo", "waiting"]);
     f.disposers.forEach((d) => d());
   });
 
@@ -53,16 +53,6 @@ describe("wireHome", () => {
     const open = home.handlers.openTarget;
     expect(await open({ path: "/etc/hostname.md" })).toMatchObject({ ok: false });
     expect(await open({ path: "relative.md" })).toMatchObject({ ok: false });
-    f.disposers.forEach((d) => d());
-  });
-
-  it("closes a move left open when the store is ready, even with no tasks client (bead mk-1k8pg)", () => {
-    const db = new Database(":memory:");
-    const handle = createStoreHandle(() => db, {});
-    handle.store().openMove({ task_id: "01J0000000000000000000000A", generation: 1, kind: "pr", payload: { kind: "pr", url: "https://github.com/o/r/pull/1" }, opened_by: "card" });
-    const f = fakeBb(); // its sdk has no plugins, so the card poller never starts
-    wireHome(f.bb, handle, cfg, { serve });
-    expect(db.prepare("SELECT state, closed_by, evidence FROM moves").all()).toEqual([{ state: "closed", closed_by: "home", evidence: "moves retired" }]);
     f.disposers.forEach((d) => d());
   });
 

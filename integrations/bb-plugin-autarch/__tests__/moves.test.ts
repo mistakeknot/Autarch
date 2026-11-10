@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { parseCard } from "../cards";
-import { parseMove, scriptCommands } from "../moves";
+import { parseMove } from "../moves";
 
 const SHA = "a".repeat(64);
 const SHA2 = "b".repeat(64);
@@ -47,27 +47,6 @@ describe("parseMove", () => {
     ["context too long", mv({ kind: "context", context: { need: "x".repeat(8001) } })],
   ])("refuses %s", (_n, body) => {
     expect(() => parseMove(body)).toThrow();
-  });
-});
-
-describe("scriptCommands", () => {
-  it("derives sha256sum, check, run and recover in order, one line each", () => {
-    const m = parseMove(script({ args: ["--set", "a=1"], recover: { path: "/tmp/x/undo.sh", sha256: SHA2 } }));
-    if (m.kind !== "script") throw new Error("kind");
-    const cmds = scriptCommands(m.script);
-    expect(cmds.map((c) => c.label)).toEqual(["sha256sum", "check", "run", "recover"]);
-    expect(cmds.map((c) => c.command)).toEqual([
-      "sha256sum '/tmp/x/run.sh'",
-      "bash '/tmp/x/run.sh' --check",
-      "bash '/tmp/x/run.sh' '--set' 'a=1'",
-      "bash '/tmp/x/undo.sh'",
-    ]);
-    expect(cmds[0]!.expectedSha).toBe(SHA);
-    expect(cmds[3]!.expectedSha).toBe(SHA2);
-    for (const c of cmds) {
-      expect(c.command).toBe(c.command.trim());
-      expect(c.command).not.toMatch(/[\n\r`]/);
-    }
   });
 });
 
