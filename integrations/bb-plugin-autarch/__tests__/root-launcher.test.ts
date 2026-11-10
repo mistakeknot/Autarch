@@ -5,7 +5,7 @@
 import { spawnSync } from "node:child_process";
 import { chmodSync, copyFileSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
-import { join, resolve } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { afterAll, describe, expect, it } from "vitest";
 
 const SCRIPTS = resolve(__dirname, "../../../scripts");
@@ -46,19 +46,30 @@ describe("launcher refuses user-owned scripts as root", () => {
 
 const hasFakeroot = spawnSync("sh", ["-c", "command -v fakeroot && fakeroot id -u"]).stdout?.toString().trim().endsWith("0");
 describe.skipIf(!hasFakeroot)("under fakeroot (id -u is 0)", () => {
-  // Runs `setup` then the launcher inside ONE fakeroot session; all ancestors of the copy are chowned to root there.
+  // Runs `setup` then the launcher inside ONE fakeroot session. The launcher wants every directory from the copy up to / to be
+  // root-owned and not group/other-writable, wherever HOME is. Ownership is only faked, so each ancestor is chowned to root in
+  // the session. Mode is not: fakeroot applies chmod to the real directory too, so an ancestor that is group/other-writable
+  // (a HOME created under umask 002, as a scratch HOME is) is tightened for the run and put back as it was afterwards.
   function run(l: string, setup: string) {
     const d = base();
     const dir = join(d, "scripts");
     copyTo(dir);
+    const ancestors: string[] = [];
+    for (let p = dir; p !== "/"; p = dirname(p)) ancestors.push(p);
+    const loose = ancestors.filter((p) => p !== dir && p !== d && (statSync(p).mode & 0o022) !== 0);
+    const mode = (p: string, m: number) => `chmod ${(m & 0o7777).toString(8)} "${p}"`;
     const script = `
       set -e
-      for p in "${dir}" "${d}" "${homedir()}"; do [ "$(stat -c %u "$p")" = 0 ] || chown 0:0 "$p"; done
+      for p in ${ancestors.map((p) => `"${p}"`).join(" ")}; do [ "$(stat -c '%u %g' "$p")" = "0 0" ] || chown 0:0 "$p"; done
+      ${loose.map((p) => mode(p, statSync(p).mode & ~0o022)).join("\n      ")}
       chmod 755 "${dir}" "${d}"
       chown 0:0 ${FILES.map((f) => `"${dir}/${f}"`).join(" ")}
       ${setup.replace(/@DIR@/g, dir).replace(/@D@/g, d)}
       set +e
       "${dir}/${l}" --thread thread-x
+      rc=$?
+      ${loose.map((p) => mode(p, statSync(p).mode)).join("\n      ")}
+      exit $rc
     `;
     return spawnSync("fakeroot", ["sh", "-c", script], { env: { PATH: process.env.PATH }, encoding: "utf8" });
   }
