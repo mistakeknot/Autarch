@@ -816,7 +816,7 @@ export function wireHome(bb: BbPluginApi, handle: StoreHandle, cfg: HomeConfig, 
         return { ok: true };
       }
       const o0 = performance.now();
-      const open = p.svc.owed().some((d) => d.id === i.decision_id);
+      const open = p.svc.isOwed(i.decision_id);
       timingLog(`rpc-timing setViewing owed=${Math.round(performance.now() - o0)}ms`);
       if (!open) return { ok: false, error: "not an open ask" };
       p.store.setSetting("viewing", JSON.stringify({ decision_id: i.decision_id, at: p.svc.time() }));

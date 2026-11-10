@@ -803,7 +803,18 @@ export class Service {
 
   // ---- holds: the vizier greys a card out while its script or question is superseded. Kept in one settings_kv value
   // (no schema change). A hold hides the card from "needs you now"; it never closes, rules or edits the card.
+  // The parsed list is kept (outside a transaction) while the store's settings stamp is the same, so a poll that asks about every card parses
+  // the stored value once, not once per card. Readers get copies: nothing outside can change what the next one sees.
+  private holdCache: { stamp: string; holds: Record<string, Hold> } | undefined;
   private readHolds(): Record<string, Hold> {
+    const stamp = this.store.settingsStamp();
+    if (stamp === null) return this.parseHolds();
+    if (this.holdCache?.stamp === stamp) return this.holdCache.holds;
+    const holds = this.parseHolds();
+    this.holdCache = { stamp, holds };
+    return holds;
+  }
+  private parseHolds(): Record<string, Hold> {
     try {
       const v = JSON.parse(this.store.setting("holds") ?? "{}");
       if (!v || typeof v !== "object" || Array.isArray(v)) return {};
@@ -819,10 +830,11 @@ export class Service {
     }
   }
   holds(): Record<string, Hold> {
-    return this.readHolds();
+    return Object.fromEntries(Object.entries(this.readHolds()).map(([id, h]) => [id, { ...h }]));
   }
   holdOf(taskId: string | null | undefined): Hold | null {
-    return taskId ? (this.readHolds()[taskId] ?? null) : null;
+    const h = taskId ? this.readHolds()[taskId] : undefined;
+    return h ? { ...h } : null;
   }
   /** The task id of a card named by its task id or its tasks key (PROJ-24). */
   cardTaskId(ref: string): string | null {
@@ -835,7 +847,7 @@ export class Service {
     if (why.length > 500 || /[\r\n]/.test(why)) return { ok: false, error: "the reason is one line of at most 500 characters" };
     const id = this.cardTaskId(ref);
     if (!id) return { ok: false, error: "no such card" };
-    const h = this.readHolds();
+    const h = this.holds();
     h[id] = { reason: why, by, at: this.now(), n: randomUUID() };
     this.store.setSetting("holds", JSON.stringify(h));
     return { ok: true, task_id: id };
@@ -843,7 +855,7 @@ export class Service {
   unhold(ref: string): { ok: true; task_id: string; was: boolean } | { ok: false; error: string } {
     const id = this.cardTaskId(ref);
     if (!id) return { ok: false, error: "no such card" };
-    const h = this.readHolds();
+    const h = this.holds();
     const was = id in h;
     if (was) {
       delete h[id];
@@ -853,7 +865,16 @@ export class Service {
   }
   // ---- later: mk sets an open card aside to do after the fast ones. Kept in one settings_kv value keyed by task id
   // (no schema change). Unlike a hold it never refuses a pick and it is mk's own choice; ruling the card clears it.
+  private laterCache: { stamp: string; laters: Record<string, Later> } | undefined;
   private readLaters(): Record<string, Later> {
+    const stamp = this.store.settingsStamp();
+    if (stamp === null) return this.parseLaters();
+    if (this.laterCache?.stamp === stamp) return this.laterCache.laters;
+    const laters = this.parseLaters();
+    this.laterCache = { stamp, laters };
+    return laters;
+  }
+  private parseLaters(): Record<string, Later> {
     try {
       const v = JSON.parse(this.store.setting("later") ?? "{}");
       if (!v || typeof v !== "object" || Array.isArray(v)) return {};
@@ -869,10 +890,11 @@ export class Service {
     }
   }
   laters(): Record<string, Later> {
-    return this.readLaters();
+    return Object.fromEntries(Object.entries(this.readLaters()).map(([id, l]) => [id, { ...l }]));
   }
   laterOf(taskId: string | null | undefined): Later | null {
-    return taskId ? (this.readLaters()[taskId] ?? null) : null;
+    const l = taskId ? this.readLaters()[taskId] : undefined;
+    return l ? { ...l } : null;
   }
   /** Cards whose skipped moves do not make them Later: on hold (a hold wins), or still owing a decision that counts as waiting. */
   skipIgnored(): Set<string> {
@@ -883,14 +905,15 @@ export class Service {
   }
   /** Task ids set aside as whole cards and not on hold: a hold beats Later everywhere it is shown or counted. */
   laterTasks(): Set<string> {
-    return new Set(Object.keys(this.readLaters()).filter((t) => !this.holdOf(t)));
+    const holds = this.readHolds();
+    return new Set(Object.keys(this.readLaters()).filter((t) => !holds[t]));
   }
   later(ref: string, by: string): { ok: true; task_id: string; was: boolean } | { ok: false; error: string } {
     const id = this.cardTaskId(ref);
     if (!id) return { ok: false, error: "no such card" };
     // One transaction per read-modify-write, so two connections adding different cards cannot drop each other's.
     return this.store.atomically(() => {
-      const l = this.readLaters();
+      const l = this.laters();
       const was = id in l;
       if (!was) {
         l[id] = { at: this.now(), by };
@@ -903,7 +926,7 @@ export class Service {
     const id = this.cardTaskId(ref);
     if (!id) return { ok: false, error: "no such card" };
     return this.store.atomically(() => {
-      const l = this.readLaters();
+      const l = this.laters();
       let was = id in l;
       if (was) {
         delete l[id];
@@ -944,6 +967,18 @@ export class Service {
     if (!taskId) return null;
     const r = this.db.prepare("SELECT title FROM cards WHERE task_id = ?").get(taskId) as { title: string | null } | undefined;
     return r?.title ?? null;
+  }
+
+  /** Whether this one decision is in `owed()`: the same conditions, one row read, nothing else loaded. */
+  isOwed(decisionId: string): boolean {
+    return !!this.db
+      .prepare(
+        `SELECT 1 FROM decisions d
+         WHERE d.id = ? AND d.kind = 'decide' AND d.withdrawn_at IS NULL AND d.resolved_at IS NULL
+           AND NOT EXISTS (SELECT 1 FROM picks k WHERE k.decision_id = d.id)
+           AND NOT EXISTS (SELECT 1 FROM decisions r WHERE r.supersedes = d.id)`,
+      )
+      .get(decisionId);
   }
 
   /** Open decide asks with no pick, not withdrawn, resolved or replaced. */

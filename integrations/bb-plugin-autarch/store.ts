@@ -337,6 +337,22 @@ export class Store {
       .run(key, value);
   }
 
+  private stampQuery: Database.Statement | undefined;
+
+  /**
+   * A token for a parsed copy of a setting, or null when no copy may be kept. While it is the same string, nothing
+   * has written to the file since: `total_changes()` moves with every row this connection inserts, updates or deletes
+   * (a write that is later rolled back still counts, so it is never mistaken for no change), and `data_version` moves
+   * with every commit by another connection. Inside a transaction a read can see writes that may yet roll back, so
+   * there is no token and the caller reads the value afresh.
+   */
+  settingsStamp(): string | null {
+    if (this.db.inTransaction) return null;
+    this.stampQuery ??= this.db.prepare("SELECT total_changes() AS c, (SELECT data_version FROM pragma_data_version) AS v");
+    const r = this.stampQuery.get() as { c: number; v: number };
+    return `${r.c}:${r.v}`;
+  }
+
   /** Run fn in a BEGIN IMMEDIATE transaction: the write lock is taken up front. */
   private tx<T>(fn: () => T): T {
     return this.db.transaction(fn).immediate();
