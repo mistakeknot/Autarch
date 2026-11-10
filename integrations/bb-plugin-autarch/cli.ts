@@ -283,13 +283,16 @@ export function homeCli(p: HomeCliParts) {
       }),
 
       "hold-ended": cliCommand({
-        summary: "Vizier only: report that the event a hold was waiting for has happened (name it with --event-ref). The card is back at mk's pick and the thread that held it is told once. Repeating it does nothing",
+        summary: "Vizier only: report that the event a hold was waiting for has happened (name it with --event-kind and --event-ref). The card is back at mk's pick and the thread that held it is told once. Repeating it does nothing",
         positionals: [{ name: "card", description: "Task id or tasks key (PROJ-24).", required: true }],
-        options: { "event-ref": { type: "string", description: "The ref of the event that happened, as given to the hold (--event-ref). Required: a report for any other event does nothing." } },
+        options: {
+          "event-kind": { type: "string", description: "The kind of the event that happened, as given to the hold (--event-kind). Required." },
+          "event-ref": { type: "string", description: "The ref of the event that happened, as given to the hold (--event-ref). Required: a report for any other event does nothing." },
+        },
         async run({ positionals, options }, ctx) {
           if (!(await p.isVizier(ctx.threadId)) || (p.stillVizier && !p.stillVizier(ctx.threadId))) return err(1, "only the vizier thread may report a hold's end");
-          if (typeof options["event-ref"] !== "string" || options["event-ref"].trim() === "") return err(1, "name the event that happened with --event-ref (the ref the hold was set with)");
-          const r = svc.endHold(positionals.card, ctx.threadId!, options["event-ref"].trim());
+          if (typeof options["event-kind"] !== "string" || options["event-kind"].trim() === "" || typeof options["event-ref"] !== "string" || options["event-ref"].trim() === "") return err(1, "name the event that happened with --event-kind and --event-ref (the kind and ref the hold was set with)");
+          const r = svc.endHold(positionals.card, ctx.threadId!, options["event-kind"].trim(), options["event-ref"].trim());
           return r.ok ? out({ ok: true, task_id: r.task_id, ended: r.ended, ...(r.held_for !== undefined ? { held_for: r.held_for } : {}) }) : err(1, r.error);
         },
       }),

@@ -11,6 +11,8 @@ import { askRows, listPushes, timeToAnswer, type PushListing, type TimeToAnswer 
 import { checkHoldEnd, endMs, holdEndPhrase, parseStoredEnd, type HoldEnd } from "./holdend.js";
 import { OPEN_STATUSES, type Task, type TaskCommentRow } from "./tasks.js";
 
+/** A hold copied all the way down, so a caller that edits what it got cannot change the cached record. */
+const copyHold = (h: Hold): Hold => ({ ...h, ...(h.end ? { end: "event" in h.end ? { event: { ...h.end.event } } : { ...h.end } } : {}) });
 const NEEDS_END = "a hold needs its end: pass --until DATE (for example 2026-11-14), or an event with --event-kind, --event-ref and --event-label";
 /** A vizier hold on a card; n tells one hold from a replacement made in the same millisecond. A new hold names its end
  *  (bead mk-j5ipa.11); an old one has none and is never released by time. */
@@ -855,11 +857,11 @@ export class Service {
     return live;
   }
   holds(): Record<string, Hold> {
-    return Object.fromEntries(Object.entries(this.readHolds()).map(([id, h]) => [id, { ...h }]));
+    return Object.fromEntries(Object.entries(this.readHolds()).map(([id, h]) => [id, copyHold(h)]));
   }
   holdOf(taskId: string | null | undefined): Hold | null {
     const h = taskId ? this.rawHolds()[taskId] : undefined;
-    return h && !this.holdExpired(h, Date.parse(this.now())) ? { ...h } : null;
+    return h && !this.holdExpired(h, Date.parse(this.now())) ? copyHold(h) : null;
   }
   /** The task id of a card named by its task id or its tasks key (PROJ-24). */
   cardTaskId(ref: string): string | null {
@@ -908,11 +910,11 @@ export class Service {
     return this.store.insertObligations(`hold:${taskId}`, [{ id: `ob:${op}`, kind: "hold-ended", recipient: h.by, op, payload }]);
   }
   /**
-   * A hold with an event end is over: the thread that watches the event says so, naming the event (its ref). A report
-   * for an event the card is not held for does nothing, so a retried report cannot release a later hold on another event.
+   * A hold with an event end is over: the thread that watches the event says so, naming the event (its kind and ref). A
+   * report for an event the card is not held for does nothing, so a retried report cannot release a later hold on another event.
    * Date holds end by their date, old ones by unhold.
    */
-  endHold(ref: string, by: string, eventRef: string): { ok: true; task_id: string; ended: boolean; held_for?: string } | { ok: false; error: string } {
+  endHold(ref: string, by: string, eventKind: string, eventRef: string): { ok: true; task_id: string; ended: boolean; held_for?: string } | { ok: false; error: string } {
     const id = this.cardTaskId(ref);
     if (!id) return { ok: false, error: "no such card" };
     const out = this.store.atomically(() => {
@@ -920,7 +922,7 @@ export class Service {
       const h = raw[id];
       if (!h) return { ok: true as const, task_id: id, ended: false, woke: 0 };
       if (!h.end || !("event" in h.end)) return { ok: false as const, error: h.end ? "this hold ends on its date; wait for it, or use unhold" : "this hold has no end set; only unhold releases it" };
-      if (h.end.event.ref !== eventRef) return { ok: true as const, task_id: id, ended: false, woke: 0, held_for: h.end.event.ref };
+      if (h.end.event.kind !== eventKind || h.end.event.ref !== eventRef) return { ok: true as const, task_id: id, ended: false, woke: 0, held_for: h.end.event.ref };
       const woke = this.tellHolder(id, h, `${h.end.event.label} (reported by ${by})`);
       delete raw[id];
       this.store.setSetting("holds", JSON.stringify(raw));
