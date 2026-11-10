@@ -436,6 +436,8 @@ function HomePage({ subPath }: { subPath?: string }) {
     decide: asks ? hiddenIn(asks.owed.filter((o) => !o.held && !o.later), excluded) : 0,
     later: asks ? hiddenIn(asks.owed.filter((o) => !o.held && o.later), excluded) : 0,
     blocks: allBlocks ? hiddenIn(allBlocks.rows, excluded) + hiddenIn(allBlocks.legacy.owed, excluded) : 0,
+    // On the phone the held cards sit under the On hold row of the waiting tab, so the filter's note counts them there too.
+    heldOnPhone: asks ? hiddenIn(asks.owed.filter((o) => o.held), excluded) : 0,
   };
   const filterBar = (hidden: number) => <ProjectFilterBar choices={filterChoices} excluded={excluded} hidden={hidden} onChange={setExcluded} />;
   const HIDDEN_ALL = "Everything here is hidden by the project filter.";
@@ -608,7 +610,7 @@ function HomePage({ subPath }: { subPath?: string }) {
           <MobileInbox
             asks={filterAsks(asks, excluded)}
             waiting={shownCount(waiting?.total ?? 0, hiddenBy.decide)}
-            filter={{ node: filterBar, hidden: { waiting: hiddenBy.decide, later: hiddenBy.later }, laterCount: shownCount(asks.owed.filter((o) => o.later && !o.held).length, hiddenBy.later) }}
+            filter={{ node: filterBar, hidden: { waiting: hiddenBy.decide + hiddenBy.heldOnPhone, later: hiddenBy.later }, laterCount: shownCount(asks.owed.filter((o) => o.later && !o.held).length, hiddenBy.later) }}
             sinceCount={waiting ? waiting.updates + waiting.notices : readable.length + notices.length}
             sinceNode={
               <>

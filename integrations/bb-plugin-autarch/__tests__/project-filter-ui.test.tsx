@@ -9,7 +9,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 vi.mock("@get-bb/plugin-sdk/app", () => ({ ThreadChat: () => null }));
 
 import { ProjectFilterBar, useProjectFilter } from "../ui/projectfilter.js";
-import { PROJECT_FILTER_KEY } from "../ui/projectfilterstore.js";
+import { filterAsks, hiddenIn, PROJECT_FILTER_KEY } from "../ui/projectfilterstore.js";
 import { MobileInbox } from "../ui/inbox.js";
 import { AsksPanel, type AsksData, type OwedAsk } from "../ui/asks.js";
 
@@ -309,6 +309,19 @@ const data = (o: OwedAsk[]): AsksData => ({ owed: o, runbook: [], lane: [], asks
 const noop = () => {};
 
 describe("where the result shows", () => {
+  const heldAsk = (id: string, project: string) => owed(id, project, { held: { reason: "waiting on a release", by: "vizier", at: "2026-11-01T00:00:00Z" } });
+  it("the phone's On hold row drops the held cards of an excluded project and counts the rest", () => {
+    const all = data([heldAsk("h1", "A"), heldAsk("h2", "A"), heldAsk("h3", "B")]);
+    const html = renderToStaticMarkup(
+      <MobileInbox asks={filterAsks(all, new Set(["A"]))} waiting={0} onPick={noop as never} onOpen={noop} onNote={noop} onLater={noop} sinceNode={null} sinceCount={0} onDesktop={noop} />,
+    );
+    expect(html).toContain("On hold · 1");
+  });
+  it("the cards the filter takes off the On hold row are counted as hidden, so the note on the phone is true", () => {
+    const all = data([heldAsk("h1", "A"), heldAsk("h2", "A"), heldAsk("h3", "B"), owed("w1", "A")]);
+    expect(hiddenIn(all.owed.filter((o) => o.held), new Set(["A"]))).toBe(2);
+    expect(hiddenIn(all.owed.filter((o) => !o.held && !o.later), new Set(["A"]))).toBe(1);
+  });
   it("the phone inbox draws the filter under the header, on the list only, with counts it was given", () => {
     const html = renderToStaticMarkup(
       <MobileInbox asks={data([owed("1", "A")])} waiting={5} onPick={noop as never} onOpen={noop} onNote={noop} onLater={noop} sinceNode={null} sinceCount={0} onDesktop={noop}
