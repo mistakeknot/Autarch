@@ -337,7 +337,7 @@ export class Store {
       .run(key, value);
   }
 
-  private stampQuery: ReturnType<Database["prepare"]> | undefined;
+  private stampQuery: Database.Statement | undefined;
 
   /**
    * A token for a parsed copy of a setting, or null when no copy may be kept. While it is the same string, nothing
