@@ -80,6 +80,40 @@ describe("telling the asking thread", () => {
   });
 });
 
+describe("delivery after a notice was queued", () => {
+  it("never sends the queued notice once the card is delivered, even after the batching window", async () => {
+    const r = rig();
+    const t = await stuck(r);
+    r.advance(6_000);
+    await r.poll();
+    expect(notices(r)).toHaveLength(1);
+    r.env.down.value = false;
+    r.advance(300_000);
+    await r.poll();
+    expect(r.cardRow(t.id).state).toBe("open");
+    r.advance(2 * 3_600_000); // well past the notice batching window
+    const due = r.svc.store.dueMessagesBatched().filter((o) => o.op === `undelivered:${t.id}`);
+    expect(due).toEqual([]);
+    expect(notices(r)[0].voided_at).not.toBeNull();
+  });
+  it("still tells once, and not again, when a card stalls a second time after delivery", async () => {
+    const r = rig();
+    const t = await stuck(r);
+    r.advance(6_000);
+    await r.poll();
+    r.env.down.value = false;
+    r.advance(300_000);
+    await r.poll();
+    r.env.down.value = true;
+    r.card({ title: "other" });
+    for (let i = 0; i < 4; i++) {
+      r.advance(300_000);
+      await r.poll();
+    }
+    expect(notices(r).filter((n) => n.op === `undelivered:${t.id}`)).toHaveLength(1);
+  });
+});
+
 describe("delivery", () => {
   it("moves the card to Decide by itself, and out of the Not delivered list", async () => {
     const r = rig();
