@@ -21,7 +21,7 @@ import type { QueueView, QueueRowView } from "../ui/blocks.js";
 const card = (id: string, project: string | null) => ({ id, project });
 const memory = (initial?: string) => {
   const m = new Map<string, string>(initial === undefined ? [] : [[PROJECT_FILTER_KEY, initial]]);
-  return { m, getItem: (k: string) => m.get(k) ?? null, setItem: (k: string, v: string) => void m.set(k, v) };
+  return { m, getItem: (k: string) => m.get(k) ?? null, setItem: (k: string, v: string) => void m.set(k, v), removeItem: (k: string) => void m.delete(k) };
 };
 
 describe("shownIn and hiddenIn", () => {
@@ -89,7 +89,7 @@ describe("persistence", () => {
     expect(loadExcluded(() => null).size).toBe(0);
     expect(loadExcluded(() => { throw new Error("blocked"); }).size).toBe(0);
     expect(() => saveExcluded(() => { throw new Error("blocked"); }, new Set(["A"]))).not.toThrow();
-    expect(() => saveExcluded(() => ({ getItem: () => null, setItem: () => { throw new Error("full"); } }), new Set(["A"]))).not.toThrow();
+    expect(() => saveExcluded(() => ({ getItem: () => null, setItem: () => { throw new Error("full"); }, removeItem: () => {} }), new Set(["A"]))).not.toThrow();
   });
 });
 

@@ -516,7 +516,7 @@ export function owedTasks(data: AsksData): Set<string> {
   return new Set(data.owed.map((o) => o.task_id).filter((t): t is string => typeof t === "string"));
 }
 
-export function AsksPanel({ part, data, onPick, onOpen, onRevoke, onDismiss, onNote, onLater, onView, hideHeld, nowMs = Date.now() }: { /** Which part of the panel shows: the decide list alone, or Later alone. Unset shows both, as a card-key link does. */ part?: "decide" | "later"; hideHeld?: boolean; data: AsksData; onPick: OnPick; onOpen: (thread: string) => void; onRevoke?: (approvalId: string) => void; onDismiss?: (decisionId: string, obligationId: string) => void; onNote?: OnNote; onLater?: OnLater; onView?: (decisionId: string | null) => void; nowMs?: number }) {
+export function AsksPanel({ part, data, onPick, onOpen, onRevoke, onDismiss, onNote, onLater, onView, hideHeld, emptyText, nowMs = Date.now() }: { /** Which part of the panel shows: the decide list alone, or Later alone. Unset shows both, as a card-key link does. */ part?: "decide" | "later"; hideHeld?: boolean; /** What an empty list says, in place of its own words: the project filter uses it when it emptied the list. */ emptyText?: string; data: AsksData; onPick: OnPick; onOpen: (thread: string) => void; onRevoke?: (approvalId: string) => void; onDismiss?: (decisionId: string, obligationId: string) => void; onNote?: OnNote; onLater?: OnLater; onView?: (decisionId: string | null) => void; nowMs?: number }) {
   // In the Queue the held cards show under "Blocked on others"; shown here only on a card-key link.
   const held = hideHeld ? [] : data.owed.filter((o) => o.held);
   // Later cards leave the Decide list for their own group below it; a held card stays held even if it was also set aside.
@@ -525,8 +525,8 @@ export function AsksPanel({ part, data, onPick, onOpen, onRevoke, onDismiss, onN
   const onlyLater = part === "later";
   const view = onlyLater ? [] : buildAsksView(live);
   const approvals = onlyLater ? [] : data.approvals ?? [];
-  if (onlyLater && later.length === 0) return <p className="p-4 text-sm text-muted-foreground">Nothing is set aside.</p>;
-  if (view.length === 0 && approvals.length === 0 && held.length === 0 && (part === "decide" || later.length === 0)) return <p className="p-4 text-sm text-muted-foreground">Nothing needs you.</p>;
+  if (onlyLater && later.length === 0) return <p className="p-4 text-sm text-muted-foreground">{emptyText ?? "Nothing is set aside."}</p>;
+  if (view.length === 0 && approvals.length === 0 && held.length === 0 && (part === "decide" || later.length === 0)) return <p className="p-4 text-sm text-muted-foreground">{emptyText ?? "Nothing needs you."}</p>;
   return (
     <div className="space-y-3 p-2 sm:space-y-4 sm:p-3">
       {view.map((s) => (
