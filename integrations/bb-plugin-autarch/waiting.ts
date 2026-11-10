@@ -1,14 +1,15 @@
-// One count of what is waiting on mk (bead mk-yjp7). It is computed from Home's own state, never from BB Tasks
-// status (a task stays in backlog after mk picks, which made other lists overcount). Reading catch-up and held cards
-// are shown beside the count and are not part of it.
+// One count of what is waiting on mk (beads mk-yjp7, mk-j5ipa.9). It is computed from Home's own state, never from BB Tasks
+// status (a task stays in backlog after mk picks, which made other lists overcount). It is the open decision cards that
+// need a pick now (waitingcount.ts). Notices, reading catch-up, held cards and Later cards are named beside it and are not
+// part of it.
 import type { Catchup, CatchupItem } from "./catchup.js";
 import type { Delegation } from "./delegation.js";
-import { groupMoves } from "./moveselect.js";
 import type { Service } from "./service.js";
+import { waitingLine } from "./waitingcount.js";
 
 /** Shown on screen beside the number so a mismatch with another list can be explained. */
 export const WAITING_DEFINITION =
-  "Counts open decisions (not on hold) and notices you must acknowledge. Does not count updates to read, held cards, or cards you set aside for later.";
+  "Counts open decisions that need your pick now. Does not count cards on hold or set aside for later, notices to acknowledge, or updates to read; those are named beside it.";
 
 export interface WaitingNotice {
   item: string;
@@ -16,6 +17,7 @@ export interface WaitingNotice {
   text: string;
 }
 export interface Waiting {
+  /** Decisions that need a pick now: the same number as `decide`, kept under its old name for readers of `bb home stats`. Notices and moves are named below, never added in. */
   total: number;
   /** Owed decisions that are not on hold. */
   decide: number;
@@ -32,6 +34,8 @@ export interface Waiting {
   later: number;
   suspended: boolean;
   definition: string;
+  /** The count with held and Later by name, a zero part left out: "10 · 12 on hold · 8 later". */
+  line: string;
 }
 
 export function waitingNow(svc: Service, dele: Delegation, catchup: Catchup): Waiting {
@@ -47,35 +51,17 @@ export function waitingNow(svc: Service, dele: Delegation, catchup: Catchup): Wa
     laterTasks.add(d.task_id as string);
     return false;
   });
-  const decideTasks = new Set(active.map((d) => d.task_id as string | null).filter((t): t is string => !!t));
 
+  // Held and Later are counted over the owed decision cards only, the same population the phone and the Later tab list, so the
+  // named counts agree on every screen. A move-only card is counted nowhere (moves are being retired), so `moves` stays 0.
   const moves = new Set<string>();
-  const g = groupMoves(svc.store.moves(), svc.laterTasks(), svc.skipIgnored());
-  // A move set aside (skipped, or its card put in Later) is counted beside the number; a hold still beats it, and a
-  // skipped move on a card that still owes a decision stays with that decision.
-  for (const m of g.reported) if (svc.holdOf(m.task_id)) heldTasks.add(m.task_id);
-  for (const m of g.later) {
-    if (svc.holdOf(m.task_id)) heldTasks.add(m.task_id);
-    else if (!decideTasks.has(m.task_id)) laterTasks.add(m.task_id); // a decision still owed is counted as one, not twice
-  }
-  for (const m of g.yourMove) {
-    if (svc.holdOf(m.task_id)) {
-      heldTasks.add(m.task_id);
-      continue;
-    }
-    if (isLater(m.task_id)) {
-      laterTasks.add(m.task_id);
-      continue;
-    }
-    if (!decideTasks.has(m.task_id)) moves.add(m.task_id);
-  }
 
   const all: CatchupItem[] = catchup.items();
   const noticeItems = all.filter((i) => i.kind === "notice").map((i) => ({ item: i.item, at: i.at, text: i.text }));
   const updates = all.filter((i) => i.kind !== "owed" && i.kind !== "notice").length;
   const decide = active.length;
   return {
-    total: decide + moves.size + noticeItems.length,
+    total: decide,
     decide,
     moves: moves.size,
     notices: noticeItems.length,
@@ -85,5 +71,6 @@ export function waitingNow(svc: Service, dele: Delegation, catchup: Catchup): Wa
     later: laterTasks.size,
     suspended: dele.suspendedNow(),
     definition: WAITING_DEFINITION,
+    line: waitingLine({ pick: decide, held: heldTasks.size, later: laterTasks.size }),
   };
 }

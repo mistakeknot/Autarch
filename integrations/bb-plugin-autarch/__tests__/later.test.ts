@@ -166,9 +166,10 @@ describe("later and the Waiting-on-you count", () => {
     await r.poll();
     r.mkPick(r.gens(a.id)[0].id);
     r.mkPick(r.gens(b.id)[0].id);
-    expect(count(r)).toMatchObject({ decide: 0, moves: 2, total: 2, later: 0 });
+    // Counts are over owed decision cards only: a card whose decision is picked owes nothing, so a move on it adds nothing.
+    expect(count(r)).toMatchObject({ decide: 0, moves: 0, total: 0, later: 0 });
     r.svc.later(a.id, "mk");
-    expect(count(r)).toMatchObject({ moves: 1, total: 1, later: 1 });
+    expect(count(r)).toMatchObject({ moves: 0, total: 0, later: 0 });
   });
 
   it("a card with both an owed decision and a move is one Later", async () => {
@@ -192,9 +193,9 @@ describe("later and the Waiting-on-you count", () => {
     r.mkPick(r.gens(a.id)[0].id);
     r.mkPick(r.gens(b.id)[0].id);
     r.svc.skipMove(a.id, 1);
-    expect(count(r)).toMatchObject({ moves: 1, total: 1, later: 1 });
-    r.svc.later(a.id, "mk"); // skipped and set aside: still one
-    expect(count(r)).toMatchObject({ moves: 1, total: 1, later: 1 });
+    expect(count(r)).toMatchObject({ moves: 0, total: 0, later: 0 }); // a skipped move is not an owed decision, so it is not counted
+    r.svc.later(a.id, "mk"); // skipped and set aside: still nothing counted
+    expect(count(r)).toMatchObject({ moves: 0, total: 0, later: 0 });
   });
 
   it("a move on a Later card shows in the Your move Later group, with the card flag, and leaves it on Move back", async () => {
@@ -260,7 +261,7 @@ describe("later and moves (one reversible state per card)", () => {
     const v = moveViews(r.svc);
     expect(v.later).toEqual([]);
     expect(v.yourMove.map((m) => m.task_id)).toEqual([a.id]);
-    expect(count(r)).toMatchObject({ moves: 1, total: 1, later: 0 });
+    expect(count(r)).toMatchObject({ moves: 0, total: 0, later: 0 });
     expect(r.svc.unlater(a.id)).toEqual({ ok: true, task_id: a.id, was: false });
   });
 
@@ -278,7 +279,7 @@ describe("later and moves (one reversible state per card)", () => {
     expect(v.yourMove.map((m) => m.task_id)).toEqual([a.id]);
   });
 
-  it("a skipped move on a held card is shown and counted as held, never under Later", async () => {
+  it("a skipped move on a held card is shown as held, never under Later, and counted nowhere", async () => {
     const r = rig({ legacyMoves: true });
     r.enableDelegation();
     const a = await pickedMove(r, 64);
@@ -287,7 +288,8 @@ describe("later and moves (one reversible state per card)", () => {
     r.svc.hold(a.id, "superseded", "thr_viz");
     const v = moveViews(r.svc);
     expect(v.later).toEqual([]);
-    expect(count(r)).toMatchObject({ held: 1, later: 0, moves: 0, total: 0 });
+    // a move-only card owes no decision, so it is in none of the counts, held included
+    expect(count(r)).toMatchObject({ held: 0, later: 0, moves: 0, total: 0 });
   });
 
   it("a held move is not shown in the Your move Later group, even if its card was set aside first", async () => {
@@ -299,17 +301,17 @@ describe("later and moves (one reversible state per card)", () => {
     const v = moveViews(r.svc);
     expect(v.later).toEqual([]);
     expect(v.yourMove.map((m) => [m.task_id, m.card_later])).toEqual([[a.id, false]]);
-    expect(count(r)).toMatchObject({ held: 1, later: 0, moves: 0, total: 0 });
+    expect(count(r)).toMatchObject({ held: 0, later: 0, moves: 0, total: 0 });
   });
 
-  it("a held card's claimed move still counts as held", async () => {
+  it("a held card's claimed move is counted nowhere", async () => {
     const r = rig({ legacyMoves: true });
     r.enableDelegation();
     const a = await pickedMove(r, 65);
     r.svc.skipMove(a.id, 1);
     r.svc.claimMove(a.id, 1);
     r.svc.hold(a.id, "superseded", "thr_viz");
-    expect(count(r)).toMatchObject({ held: 1, later: 0, moves: 0, total: 0 });
+    expect(count(r)).toMatchObject({ held: 0, later: 0, moves: 0, total: 0 });
   });
 
   it("a held move says it is on hold, with the reason, and a skip note is not shown for it", async () => {
