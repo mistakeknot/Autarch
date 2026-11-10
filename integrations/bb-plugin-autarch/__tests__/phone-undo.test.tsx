@@ -211,6 +211,44 @@ describe("picks that keep their existing flow", () => {
     expect(bar()).toBeNull();
   });
 
+  it("a confirmed destructive answer on a card with a held pick replaces the held pick: only the later choice is sent", async () => {
+    const D = ask("d", { ask: { question: "Q", recommendation: "a", options: [{ id: "a", label: "Answer A", kind: "ruling-only", reversible: true }, { id: "x", label: "Reject it", kind: "ruling-only" }] } });
+    render([D], { open: "ask:d" });
+    await click(q("[data-option=a]")); // held
+    await click(q("[data-option=x]"));
+    await click(q("[data-option=x]")); // confirmed: sent at once
+    await tick(10000);
+    expect(onPick).toHaveBeenCalledTimes(1);
+    expect(onPick).toHaveBeenCalledWith("d", "x", "rev-d");
+    expect(bar()).toBeNull();
+  });
+
+  it("typed words sent on a card with a held pick replace the held pick", async () => {
+    render([A], { open: "ask:a" });
+    await click(q("[data-option=b]")); // held
+    const box = q("[data-inbox-detail] [data-other-text]") as HTMLTextAreaElement;
+    act(() => {
+      Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")!.set!.call(box, "my own words");
+      box.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    await click(q("[data-inbox-detail] [data-other-answer]"));
+    await tick(10000);
+    expect(onPick).toHaveBeenCalledTimes(1);
+    expect(onPick.mock.calls[0]?.[1]).toBe("other");
+  });
+
+  it("an immediate answer on another card leaves the held pick alone", async () => {
+    const D = ask("d", { ask: { question: "Q", recommendation: "a", options: [{ id: "a", label: "Answer A", kind: "ruling-only", reversible: true }, { id: "x", label: "Reject it", kind: "ruling-only" }] } });
+    render([A, D], { open: "ask:a" });
+    await click(q("[data-bar-main]")); // a held, d opens
+    await click(q("[data-option=x]"));
+    await click(q("[data-option=x]"));
+    expect(onPick).toHaveBeenCalledTimes(1);
+    await tick(5000);
+    expect(onPick).toHaveBeenCalledTimes(2);
+    expect(onPick).toHaveBeenLastCalledWith("a", "a", "rev-a");
+  });
+
   it("typed words sent as the answer go at once, with no bar", async () => {
     render([A], { open: "ask:a" });
     const box = q("[data-inbox-detail] [data-other-text]") as HTMLTextAreaElement;
