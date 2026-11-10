@@ -13,6 +13,7 @@ import { cleanupEnvs, opened, rig } from "./card-rig.js";
 vi.mock("@get-bb/plugin-sdk/app", () => ({ ThreadChat: () => null }));
 
 import { holdEndText } from "../ui/holdend.js";
+import { parseStoredEnd, untilMs } from "../holdend.js";
 import { AsksPanel, type AsksData, type OwedAsk } from "../ui/asks.js";
 
 const HOUR = 3_600_000;
@@ -174,9 +175,9 @@ describe("when a hold's end passes", () => {
     r.advance(30 * 24 * HOUR);
     await r.poll();
     expect(r.svc.holdOf(t.id)).toMatchObject({ end: { event: EVENT } });
-    expect(r.svc.endHold(t.id, "thr_other")).toMatchObject({ ok: true, ended: true });
+    expect(r.svc.endHold(t.id, "thr_other", EVENT.ref)).toMatchObject({ ok: true, ended: true });
     expect(r.svc.holdOf(t.id)).toBeNull();
-    expect(r.svc.endHold(t.id, "thr_other")).toMatchObject({ ok: true, ended: false });
+    expect(r.svc.endHold(t.id, "thr_other", EVENT.ref)).toMatchObject({ ok: true, ended: false });
     const told = r.svc.store.obligationsFor(`hold:${t.id}`);
     expect(told).toHaveLength(1);
     expect(told[0]).toMatchObject({ recipient: "thr_viz" });
@@ -188,11 +189,73 @@ describe("when a hold's end passes", () => {
     const r = rig();
     const { t } = await opened(r);
     r.svc.store.setSetting("holds", JSON.stringify({ [t.id]: { reason: "old", by: "thr_viz", at: iso(r.env.clock.t - HOUR), n: "n0" } }));
-    expect(r.svc.endHold(t.id, "thr_viz")).toMatchObject({ ok: false });
+    expect(r.svc.endHold(t.id, "thr_viz", EVENT.ref)).toMatchObject({ ok: false });
     expect(r.svc.holdOf(t.id)).not.toBeNull();
     // and a date hold is released by its date only
     r.svc.hold(t.id, "d", "thr_viz", { until: "2099-01-05" });
-    expect(r.svc.endHold(t.id, "thr_viz")).toMatchObject({ ok: false });
+    expect(r.svc.endHold(t.id, "thr_viz", EVENT.ref)).toMatchObject({ ok: false });
+  });
+
+  it("review 1: unhold over a date that passed but is not swept yet still tells the holder, once", async () => {
+    const r = rig();
+    const { t } = await opened(r);
+    r.svc.hold(t.id, "short", "thr_viz", { until: iso(r.env.clock.t + HOUR) });
+    r.advance(2 * HOUR);
+    expect(r.svc.unhold(t.id)).toMatchObject({ ok: true, was: false });
+    const told = r.svc.store.obligationsFor(`hold:${t.id}`);
+    expect(told).toHaveLength(1);
+    expect(told[0]).toMatchObject({ recipient: "thr_viz" });
+    expect(r.svc.sweepExpiredHolds()).toBe(0);
+    expect(r.svc.store.obligationsFor(`hold:${t.id}`)).toHaveLength(1);
+  });
+
+  it("review 1: unhold of a live hold tells nobody (the vizier released it itself)", async () => {
+    const r = rig();
+    const { t } = await opened(r);
+    r.svc.hold(t.id, "live", "thr_viz", { until: "2099-01-05" });
+    expect(r.svc.unhold(t.id)).toMatchObject({ ok: true, was: true });
+    expect(r.svc.store.obligationsFor(`hold:${t.id}`)).toHaveLength(0);
+  });
+
+  it("review 2: a retried event report cannot release a replacement hold awaiting a different event", async () => {
+    const r = rig();
+    const { t } = await opened(r);
+    const other = { kind: "pr-merge", ref: "mistakeknot/Autarch#115", label: "PR 115 merges" };
+    r.svc.hold(t.id, "114", "thr_viz", { event: EVENT });
+    expect(r.svc.endHold(t.id, "thr_viz", EVENT.ref)).toMatchObject({ ok: true, ended: true });
+    r.svc.hold(t.id, "115", "thr_viz", { event: other });
+    expect(r.svc.endHold(t.id, "thr_viz", EVENT.ref)).toMatchObject({ ok: true, ended: false });
+    expect(r.svc.holdOf(t.id)).toMatchObject({ end: { event: other } });
+    expect(r.svc.store.obligationsFor(`hold:${t.id}`)).toHaveLength(1);
+    expect(r.svc.endHold(t.id, "thr_viz", other.ref)).toMatchObject({ ok: true, ended: true });
+    expect(r.svc.holdOf(t.id)).toBeNull();
+  });
+
+  it("review 2: hold-ended names the event it reports; without --event-ref it is refused", async () => {
+    const r = rig();
+    const { t } = await opened(r);
+    r.enableDelegation();
+    const cli = homeCli({ svc: r.svc, asks: new Asks(r.svc), catchup: new Catchup(r.svc, r.dele), rule: (id, o, why, ctx) => r.dele.rule(id, o, why, ctx), isVizier: (th) => th === "thr_viz" });
+    const go = (argv: string[]) => Promise.resolve(cli.run(argv, { threadId: "thr_viz" }));
+    r.svc.hold(t.id, "x", "thr_viz", { event: EVENT });
+    const bare = await go(["hold-ended", t.id]);
+    expect(bare.exitCode).not.toBe(0);
+    expect(bare.stderr).toMatch(/--event-ref/);
+    expect(r.svc.holdOf(t.id)).not.toBeNull();
+    const wrong = await go(["hold-ended", t.id, "--event-ref", "mistakeknot/Autarch#999"]);
+    expect(JSON.parse(wrong.stdout!)).toMatchObject({ ok: true, ended: false });
+    expect(r.svc.holdOf(t.id)).not.toBeNull();
+  });
+
+  it("review 3: a calendar date that does not exist is refused, and a stored one is no end", async () => {
+    const r = rig();
+    const { t } = await opened(r);
+    for (const bad of ["2099-02-30", "2099-11-31", "2099-13-01", "2099-00-10", "2099-01-05T25:00:00Z", "2099-02-30T10:00:00Z", "2099-01-05T10:61:00Z"]) {
+      expect(r.svc.hold(t.id, "x", "thr_viz", { until: bad }), bad).toMatchObject({ ok: false });
+    }
+    expect(untilMs("2100-02-29")).toBeNaN();
+    expect(untilMs("2096-02-29")).not.toBeNaN();
+    expect(parseStoredEnd({ until: "2099-11-31" })).toBeUndefined();
   });
 
   it("bb home hold needs --until or an event, hold-ended reports one, and both are vizier only", async () => {
@@ -214,9 +277,9 @@ describe("when a hold's end passes", () => {
     const ev = await go(["hold", t.id, "--reason", "x", "--event-kind", EVENT.kind, "--event-ref", EVENT.ref, "--event-label", EVENT.label], "thr_viz");
     expect(ev.exitCode).toBe(0);
     expect(r.svc.holdOf(t.id)).toMatchObject({ end: { event: EVENT } });
-    expect((await go(["hold-ended", t.id], "thr_a")).exitCode).not.toBe(0);
+    expect((await go(["hold-ended", t.id, "--event-ref", EVENT.ref], "thr_a")).exitCode).not.toBe(0);
     expect(r.svc.holdOf(t.id)).not.toBeNull();
-    const done = await go(["hold-ended", t.id], "thr_viz");
+    const done = await go(["hold-ended", t.id, "--event-ref", EVENT.ref], "thr_viz");
     expect(JSON.parse(done.stdout!)).toMatchObject({ ok: true, ended: true });
     expect(r.svc.holdOf(t.id)).toBeNull();
     const list = JSON.parse((await go(["list", "--json"])).stdout!) as { task_id: string; held: unknown }[];

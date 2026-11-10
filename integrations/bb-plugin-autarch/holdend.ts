@@ -6,11 +6,21 @@ export type HoldEnd = { until: string } | { event: { kind: string; ref: string; 
 
 const DAY_MS = 86_400_000;
 const DATE_ONLY = /^\d{4}-\d{2}-\d{2}$/;
-const ISO_TIME = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2}(\.\d+)?)?(Z|[+-]\d{2}:\d{2})$/;
+const ISO_TIME = /^(\d{4}-\d{2}-\d{2})T(\d{2}):(\d{2})(?::(\d{2})(?:\.\d+)?)?(Z|[+-]\d{2}:\d{2})$/;
+
+/** True when the YYYY-MM-DD names a day that exists: Date.parse would roll 2027-02-29 over to March 2. */
+function realDay(day: string): boolean {
+  const [y, m, d] = day.split("-").map(Number) as [number, number, number];
+  const t = new Date(Date.UTC(y, m - 1, d));
+  return t.getUTCFullYear() === y && t.getUTCMonth() === m - 1 && t.getUTCDate() === d;
+}
 
 /** The moment an `until` value stops holding: a date alone holds through that whole UTC day; a full time is exact. NaN when unreadable. */
 export function untilMs(until: string): number {
-  if (!DATE_ONLY.test(until) && !ISO_TIME.test(until)) return NaN;
+  const t = ISO_TIME.exec(until);
+  if (!DATE_ONLY.test(until) && !t) return NaN;
+  if (!realDay(t ? t[1]! : until)) return NaN;
+  if (t && (Number(t[2]) > 23 || Number(t[3]) > 59 || Number(t[4] ?? 0) > 59)) return NaN;
   const ms = Date.parse(until);
   if (Number.isNaN(ms)) return NaN;
   return DATE_ONLY.test(until) ? ms + DAY_MS : ms;

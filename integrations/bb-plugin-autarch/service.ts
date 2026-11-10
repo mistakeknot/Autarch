@@ -907,8 +907,12 @@ export class Service {
     const payload = `Home card ${key}: your hold ended (${how}). The card is back at mk's pick; nothing was ruled or closed. Your reason was (plain text): ${h.reason}`;
     return this.store.insertObligations(`hold:${taskId}`, [{ id: `ob:${op}`, kind: "hold-ended", recipient: h.by, op, payload }]);
   }
-  /** A hold with an event end is over: the thread that watches the event says so. Date holds end by their date, old ones by unhold. */
-  endHold(ref: string, by: string): { ok: true; task_id: string; ended: boolean } | { ok: false; error: string } {
+  /**
+   * A hold with an event end is over: the thread that watches the event says so, naming the event (its ref). A report
+   * for an event the card is not held for does nothing, so a retried report cannot release a later hold on another event.
+   * Date holds end by their date, old ones by unhold.
+   */
+  endHold(ref: string, by: string, eventRef: string): { ok: true; task_id: string; ended: boolean; held_for?: string } | { ok: false; error: string } {
     const id = this.cardTaskId(ref);
     if (!id) return { ok: false, error: "no such card" };
     const out = this.store.atomically(() => {
@@ -916,6 +920,7 @@ export class Service {
       const h = raw[id];
       if (!h) return { ok: true as const, task_id: id, ended: false, woke: 0 };
       if (!h.end || !("event" in h.end)) return { ok: false as const, error: h.end ? "this hold ends on its date; wait for it, or use unhold" : "this hold has no end set; only unhold releases it" };
+      if (h.end.event.ref !== eventRef) return { ok: true as const, task_id: id, ended: false, woke: 0, held_for: h.end.event.ref };
       const woke = this.tellHolder(id, h, `${h.end.event.label} (reported by ${by})`);
       delete raw[id];
       this.store.setSetting("holds", JSON.stringify(raw));
@@ -923,7 +928,7 @@ export class Service {
     });
     if (!out.ok) return out;
     if (out.woke > 0) this.deps.nudge?.();
-    return { ok: true, task_id: out.task_id, ended: out.ended };
+    return { ok: true, task_id: out.task_id, ended: out.ended, ...("held_for" in out ? { held_for: out.held_for } : {}) };
   }
   /** Release every hold whose date has passed and tell each holder once. The record goes in the same transaction as the notice. */
   sweepExpiredHolds(): number {
@@ -952,15 +957,22 @@ export class Service {
     const id = this.cardTaskId(ref);
     if (!id) return { ok: false, error: "no such card" };
     // Read the stored list, not the live one: writing the live list back would drop another card's expired hold before its holder was told.
-    return this.store.atomically(() => {
+    const res = this.store.atomically(() => {
       const h = { ...this.rawHolds() };
-      const was = id in h && !this.holdExpired(h[id]!, Date.parse(this.now()));
-      if (id in h) {
+      const nowMs = Date.parse(this.now());
+      const prev = h[id];
+      const was = prev !== undefined && !this.holdExpired(prev, nowMs);
+      let woke = 0;
+      if (prev) {
+        // A date that already passed but was not swept yet: the holder still hears it ended, once, in this transaction.
+        if (!was) woke = this.tellHolder(id, prev, `its date passed (${holdEndPhrase(prev.end, nowMs)})`);
         delete h[id];
         this.store.setSetting("holds", JSON.stringify(h));
       }
-      return { ok: true as const, task_id: id, was };
+      return { ok: true as const, task_id: id, was, woke };
     });
+    if (res.woke > 0) this.deps.nudge?.();
+    return { ok: true, task_id: res.task_id, was: res.was };
   }
   // ---- later: mk sets an open card aside to do after the fast ones. Kept in one settings_kv value keyed by task id
   // (no schema change). Unlike a hold it never refuses a pick and it is mk's own choice; ruling the card clears it.
