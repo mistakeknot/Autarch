@@ -124,7 +124,7 @@ describe("later and picking", () => {
     const r = rig({ legacyMoves: true });
     const { t, g1 } = await opened(r);
     r.svc.later(t.id, "mk");
-    r.svc.hold(t.id, "script superseded", "thr_viz");
+    r.svc.hold(t.id, "script superseded", "thr_viz", { until: "2099-01-05" });
     expect(r.mkPick(g1.id)).toMatchObject({ ok: false, status: 409 });
     expect(r.svc.holdOf(t.id)).not.toBeNull();
     expect(r.svc.laterOf(t.id)).not.toBeNull();
@@ -151,8 +151,8 @@ describe("later and the Waiting-on-you count", () => {
     const cards = [card(r), card(r), card(r)];
     await r.poll();
     r.svc.later(cards[0]!.id, "mk");
-    r.svc.hold(cards[0]!.id, "superseded", "thr_viz");
-    r.svc.hold(cards[1]!.id, "superseded", "thr_viz");
+    r.svc.hold(cards[0]!.id, "superseded", "thr_viz", { until: "2099-01-05" });
+    r.svc.hold(cards[1]!.id, "superseded", "thr_viz", { until: "2099-01-05" });
     expect(count(r)).toMatchObject({ decide: 1, held: 2, later: 0, total: 1 });
   });
 
@@ -285,7 +285,7 @@ describe("later and moves (one reversible state per card)", () => {
     const a = await pickedMove(r, 64);
     r.svc.skipMove(a.id, 1);
     expect(moveViews(r.svc).later.map((m) => m.task_id)).toEqual([a.id]);
-    r.svc.hold(a.id, "superseded", "thr_viz");
+    r.svc.hold(a.id, "superseded", "thr_viz", { until: "2099-01-05" });
     const v = moveViews(r.svc);
     expect(v.later).toEqual([]);
     // a move-only card owes no decision, so it is in none of the counts, held included
@@ -297,7 +297,7 @@ describe("later and moves (one reversible state per card)", () => {
     r.enableDelegation();
     const a = await pickedMove(r, 63);
     r.svc.later(a.id, "mk");
-    r.svc.hold(a.id, "superseded", "thr_viz");
+    r.svc.hold(a.id, "superseded", "thr_viz", { until: "2099-01-05" });
     const v = moveViews(r.svc);
     expect(v.later).toEqual([]);
     expect(v.yourMove.map((m) => [m.task_id, m.card_later])).toEqual([[a.id, false]]);
@@ -310,7 +310,7 @@ describe("later and moves (one reversible state per card)", () => {
     const a = await pickedMove(r, 65);
     r.svc.skipMove(a.id, 1);
     r.svc.claimMove(a.id, 1);
-    r.svc.hold(a.id, "superseded", "thr_viz");
+    r.svc.hold(a.id, "superseded", "thr_viz", { until: "2099-01-05" });
     expect(count(r)).toMatchObject({ held: 0, later: 0, moves: 0, total: 0 });
   });
 
@@ -319,7 +319,7 @@ describe("later and moves (one reversible state per card)", () => {
     r.enableDelegation();
     const a = await pickedMove(r, 66);
     expect(moveViews(r.svc).yourMove[0]!.held).toBeNull();
-    r.svc.hold(a.id, "superseded", "thr_viz");
+    r.svc.hold(a.id, "superseded", "thr_viz", { until: "2099-01-05" });
     expect(moveViews(r.svc).yourMove[0]!.held).toMatchObject({ reason: "superseded" });
   });
 });

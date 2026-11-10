@@ -23,7 +23,7 @@ describe("waiting on mk", () => {
     r.enableDelegation();
     const cards = Array.from({ length: 6 }, () => card(r));
     await r.poll();
-    expect(r.svc.hold(cards[5]!.id, "waiting on the vendor", "mk")).toMatchObject({ ok: true });
+    expect(r.svc.hold(cards[5]!.id, "waiting on the vendor", "mk", { until: "2099-01-05" })).toMatchObject({ ok: true });
     const w = count(r);
     expect(w).toMatchObject({ total: 5, decide: 5, moves: 0, notices: 0, held: 1 });
   });
@@ -53,7 +53,7 @@ describe("waiting on mk", () => {
     expect(count(r)).toMatchObject({ moves: 0, held: 0, later: 0, total: 0 }); // moves are no longer counted
     r.svc.store.claimMove(t[0]!.id, 1, "mk");
     r.svc.store.skipMove(t[1]!.id, 1);
-    r.svc.hold(t[2]!.id, "later", "mk");
+    r.svc.hold(t[2]!.id, "later", "mk", { until: "2099-01-05" });
     expect(count(r)).toMatchObject({ moves: 0, held: 0, later: 0, total: 0 }); // a held move-only card owes no decision, so it is not held-counted either
   });
 
@@ -101,7 +101,7 @@ describe("decisionCount (the rail badge)", () => {
     const cards = Array.from({ length: 3 }, () => card(r));
     await r.poll();
     expect(r.svc.decisionCount()).toBe(3);
-    expect(r.svc.hold(cards[2]!.id, "waiting on the vendor", "mk")).toMatchObject({ ok: true });
+    expect(r.svc.hold(cards[2]!.id, "waiting on the vendor", "mk", { until: "2099-01-05" })).toMatchObject({ ok: true });
     expect(r.svc.decisionCount()).toBe(3);
   });
 });
@@ -131,7 +131,7 @@ describe("the rail badge is the Needs you now count (bead mk-oykwh)", () => {
     r.enableDelegation();
     const cards = Array.from({ length: 5 }, () => card(r));
     await r.poll();
-    expect(r.svc.hold(cards[3]!.id, "waiting on the vendor", "mk")).toMatchObject({ ok: true });
+    expect(r.svc.hold(cards[3]!.id, "waiting on the vendor", "mk", { until: "2099-01-05" })).toMatchObject({ ok: true });
     expect(r.svc.later(cards[4]!.id, "mk")).toMatchObject({ ok: true });
     const w = count(r);
     expect(w).toMatchObject({ decide: 3, held: 1, later: 1 });

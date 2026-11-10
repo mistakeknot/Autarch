@@ -88,7 +88,7 @@ describe("the cache never serves a stale list", () => {
     const { r, ids } = await fixture();
     const odd = ids[1];
     expect(r.svc.holdOf(odd)).toBeNull();
-    r.svc.hold(odd, "new reason", "thr_viz");
+    r.svc.hold(odd, "new reason", "thr_viz", { until: "2099-01-05" });
     expect(r.svc.holdOf(odd)).toMatchObject({ reason: "new reason" });
     r.svc.unhold(odd);
     expect(r.svc.holdOf(odd)).toBeNull();
@@ -111,7 +111,7 @@ describe("the cache never serves a stale list", () => {
     const { r, ids } = await fixture();
     const other = r.env.open();
     expect(r.svc.holdOf(ids[1])).toBeNull(); // warm the cache
-    other.hold(ids[1], "from the other process", "thr_viz");
+    other.hold(ids[1], "from the other process", "thr_viz", { until: "2099-01-05" });
     expect(r.svc.holdOf(ids[1])).toMatchObject({ reason: "from the other process" });
     other.later(ids[1], "mk");
     expect(r.svc.laterOf(ids[1])).toMatchObject({ by: "mk" });

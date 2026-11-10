@@ -33,7 +33,7 @@ async function fixture() {
   const held = [card(r), card(r)];
   const later = [card(r), card(r)];
   await r.poll();
-  for (const [i, t] of held.entries()) expect(r.svc.hold(t.id, `waiting on the vendor ${i}`, "mk")).toMatchObject({ ok: true });
+  for (const [i, t] of held.entries()) expect(r.svc.hold(t.id, `waiting on the vendor ${i}`, "mk", { until: "2099-01-05" })).toMatchObject({ ok: true });
   for (const t of later) expect(r.svc.later(t.id, "mk")).toMatchObject({ ok: true });
   r.svc.store.recordEvent("vizier-adopted", null, { from: null, to: "thr_viz2", reason: "unset" });
   const cu = new Catchup(r.svc, r.dele);
