@@ -8,6 +8,7 @@ import { glance } from "./glance.js";
 import { neighborAfterRemoval } from "./nextcard.js";
 import { PickHoldBar, usePickHold } from "./pickhold.js";
 import { extrasText, owedCounts } from "../waitingcount.js";
+import { MoreWaitingRow, moreWaiting } from "./morewaiting.js";
 import { ageText, AskCard, isDestructiveOption, type AsksData, type OnLater, type OnNote, type OnPick, type OwedAsk } from "./asks.js";
 
 export type InboxTab = "waiting" | "later" | "since";
@@ -162,11 +163,13 @@ export function MobileInbox({ asks, waiting, onPick, onOpen, onNote, onLater, si
   filter?: { node: (hidden: number) => ReactNode; hidden: { waiting: number; later: number }; heldHidden?: number; laterCount: number; summaryOwed?: readonly OwedAsk[] };
   now?: number;
   /** Where to start (tests render the detail view this way). */
-  initial?: { tab?: InboxTab; open?: string; holdOpen?: boolean };
+  initial?: { tab?: InboxTab; open?: string; holdOpen?: boolean; moreOpen?: boolean };
 }) {
   const [tab, setTab] = useState<InboxTab>(initial?.tab ?? "waiting");
   const [open, setOpen] = useState<string | null>(initial?.open ?? null);
   const [holdOpen, setHoldOpen] = useState(initial?.holdOpen ?? false);
+  const [moreOpen, setMoreOpen] = useState(initial?.moreOpen ?? false);
+  const more = moreWaiting(asks);
   const rows = inboxRows(asks, now);
   // A one-tap pick is held for 5 s under the Undo bar before it is sent (bead mk-j5ipa.13). Typed words, images, multi-question
   // answers and options that ask for a second tap are not one-tap picks and go straight through.
@@ -237,6 +240,7 @@ export function MobileInbox({ asks, waiting, onPick, onOpen, onNote, onLater, si
               <ul className="m-0 p-0">{list.map((r) => <Row key={r.key} r={r} sending={r.ask?.id === hold.heldId} onOpen={() => setOpen(r.key)} />)}</ul>
             )}
             {tab === "waiting" && rows.held.length > 0 ? <HoldRow rows={rows.held} open={holdOpen} onToggle={() => setHoldOpen((v) => !v)} /> : null}
+            {tab === "waiting" && more.total > 0 ? <MoreWaitingRow groups={more.groups} total={more.total} open={moreOpen} onToggle={() => setMoreOpen((v) => !v)} /> : null}
           </>
         )}
       </div>
