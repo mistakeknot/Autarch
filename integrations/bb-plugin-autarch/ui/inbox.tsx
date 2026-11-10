@@ -138,7 +138,7 @@ function DetailBar({ r, onPick, onLater, onDone }: { r: InboxRow; onPick: OnPick
   );
 }
 
-export function MobileInbox({ asks, waiting, onPick, onOpen, onNote, onLater, sinceNode, sinceCount, onDesktop, onIdea, ideaNode, updateNode, now = Date.now(), initial }: {
+export function MobileInbox({ asks, waiting, onPick, onOpen, onNote, onLater, sinceNode, sinceCount, onDesktop, onIdea, ideaNode, updateNode, filter, now = Date.now(), initial }: {
   asks: AsksData;
   waiting: number;
   onPick: OnPick;
@@ -154,6 +154,13 @@ export function MobileInbox({ asks, waiting, onPick, onOpen, onNote, onLater, si
   ideaNode?: ReactNode;
   /** The Home update control (bead mk-nbt6c): shown under the header on the list, never on a card's detail. */
   updateNode?: ReactNode;
+  /**
+   * The project filter (bead mk-sufr9). `asks` arrives already filtered; this carries what the filter adds: its control (given
+   * how many cards it hides on the tab shown), how many actionable cards it hides per tab, how many held cards it takes off the
+   * On hold row (the control's note counts them; the list's own "everything is hidden" text does not), the Later count across all
+   * projects, and the cards the held and Later summary under the title counts (all projects unless the count switch is on).
+   */
+  filter?: { node: (hidden: number) => ReactNode; hidden: { waiting: number; later: number }; heldHidden?: number; laterCount: number; summaryOwed?: readonly OwedAsk[] };
   now?: number;
   /** Where to start (tests render the detail view this way). */
   initial?: { tab?: InboxTab; open?: string; holdOpen?: boolean };
@@ -162,11 +169,13 @@ export function MobileInbox({ asks, waiting, onPick, onOpen, onNote, onLater, si
   const [open, setOpen] = useState<string | null>(initial?.open ?? null);
   const [holdOpen, setHoldOpen] = useState(initial?.holdOpen ?? false);
   const rows = inboxRows(asks, now);
-  const extras = extrasText(owedCounts(asks.owed));
+  const extras = extrasText(owedCounts(filter?.summaryOwed ?? asks.owed));
   const list = tab === "later" ? rows.later : rows.waiting;
   const current = open === null ? null : [...rows.waiting, ...rows.later].find((r) => r.key === open) ?? null;
-  const title = tab === "waiting" ? `Waiting on you · ${waiting}` : tab === "later" ? `Later · ${rows.later.length}` : "Since you left";
-  const tabs: [InboxTab, string][] = [["waiting", `Waiting ${waiting}`], ["later", `Later ${rows.later.length}`], ["since", sinceCount > 0 ? `Since you left ${sinceCount}` : "Since you left"]];
+  const laterCount = filter?.laterCount ?? rows.later.length;
+  const hiddenHere = filter ? (tab === "later" ? filter.hidden.later : filter.hidden.waiting) : 0;
+  const title = tab === "waiting" ? `Waiting on you · ${waiting}` : tab === "later" ? `Later · ${laterCount}` : "Since you left";
+  const tabs: [InboxTab, string][] = [["waiting", `Waiting ${waiting}`], ["later", `Later ${laterCount}`], ["since", sinceCount > 0 ? `Since you left ${sinceCount}` : "Since you left"]];
   // After an answer, Later or Move back, the next card on screen is the one below it in the list it was opened from, else the
   // one above; with none left, the list shows its empty state (bead mk-c0mka). The list as it was at the last paint with the
   // card in it gives the position, so cards that came or went since do not move it.
@@ -205,6 +214,7 @@ export function MobileInbox({ asks, waiting, onPick, onOpen, onNote, onLater, si
         )}
       </header>
       {updateNode && !current ? <div className="border-b border-border px-4 py-2" data-inbox-update>{updateNode}</div> : null}
+      {filter && !current && !ideaNode && tab !== "since" ? <div className="border-b border-border py-1" data-inbox-filter>{filter.node(hiddenHere + (tab === "waiting" ? filter.heldHidden ?? 0 : 0))}</div> : null}
       <div ref={scroller} className="min-h-0 flex-1 overflow-y-auto">
         {ideaNode && !current ? (
           ideaNode
@@ -217,7 +227,7 @@ export function MobileInbox({ asks, waiting, onPick, onOpen, onNote, onLater, si
         ) : (
           <>
             {list.length === 0 ? (
-              <p className="p-4 text-sm text-muted-foreground" data-inbox-empty>{tab === "later" ? "Nothing set aside." : "Nothing is waiting on you."}</p>
+              <p className="p-4 text-sm text-muted-foreground" data-inbox-empty>{hiddenHere > 0 ? "Everything here is hidden by the project filter." : tab === "later" ? "Nothing set aside." : "Nothing is waiting on you."}</p>
             ) : (
               <ul className="m-0 p-0">{list.map((r) => <Row key={r.key} r={r} onOpen={() => setOpen(r.key)} />)}</ul>
             )}

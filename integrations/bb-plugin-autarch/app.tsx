@@ -20,6 +20,8 @@ import { setTimingSink, timed } from "./ui/clicktiming.js";
 import { ConversationProvider, type ConversationApi, type ConversationData } from "./ui/conversation.js";
 import type { AsksData } from "./ui/asks.js";
 import { MobileInbox, useIsPhone } from "./ui/inbox.js";
+import { ProjectFilterBar, useProjectFilter } from "./ui/projectfilter.js";
+import { COUNTS_FOLLOW_FILTER, filterAsks, filterQueue, hiddenIn, projectChoices, shownCount } from "./ui/projectfilterstore.js";
 import { IdeaDesk, IdeaDigest, type IdeaApi } from "./ui/ideas.js";
 import type { IdeaProject, IdeaView } from "./ideas.js";
 import { CatchupPanel, markedRows, markPlan, markResultText, normalizeCatchup, readableCatchup, SeenTracker, settleCatchup } from "./ui/catchup.js";
@@ -251,6 +253,7 @@ function HomePage({ subPath }: { subPath?: string }) {
   const { rpc, asks, catchup, catchupError, waiting, error, refetch, dropOwed, setLater } = useHomeData();
   const nav = useBbNavigate();
   const blocks = useQueue();
+  const { excluded, setExcluded } = useProjectFilter();
   const rootRuns = useRootRuns(rpc);
   const note = useNote(rpc, refetch);
   const { error: actionError, act } = useActionError();
@@ -425,6 +428,20 @@ function HomePage({ subPath }: { subPath?: string }) {
     });
   };
 
+  // The project filter (bead mk-sufr9) narrows the card lists only. Its lists are built here, before they reach the panels, and
+  // the counts below stay on the unfiltered data unless COUNTS_FOLLOW_FILTER (projectfilterstore.ts) is turned on.
+  const allBlocks = blocks.queue ? (asks ? withoutOwed(blocks.queue, asks) : blocks.queue) : null;
+  const filterChoices = projectChoices([...(asks ? asks.owed.filter((o) => !o.held) : []), ...(allBlocks ? [...allBlocks.rows, ...allBlocks.legacy.owed] : [])]);
+  const hiddenBy = {
+    decide: asks ? hiddenIn(asks.owed.filter((o) => !o.held && !o.later), excluded) : 0,
+    later: asks ? hiddenIn(asks.owed.filter((o) => !o.held && o.later), excluded) : 0,
+    blocks: allBlocks ? hiddenIn(allBlocks.rows, excluded) + hiddenIn(allBlocks.legacy.owed, excluded) : 0,
+    // On the phone the held cards sit under the On hold row of the waiting tab, so the filter's note counts them there too.
+    heldOnPhone: asks ? hiddenIn(asks.owed.filter((o) => o.held), excluded) : 0,
+  };
+  const filterBar = (hidden: number) => <ProjectFilterBar choices={filterChoices} excluded={excluded} hidden={hidden} onChange={setExcluded} />;
+  const HIDDEN_ALL = "Everything here is hidden by the project filter.";
+
   const render = (panel: Panel): ReactNode => {
     switch (panel.id) {
       case "queue":
@@ -435,7 +452,8 @@ function HomePage({ subPath }: { subPath?: string }) {
                 <NoticeBanner notices={notices} suspended={waiting?.suspended ?? true} onAcknowledge={(item) => act("Marking the notice seen", rpc.call("markSeen", { item }), refetch)} />
               </div>
             ) : null}
-            <QueueTabs tab={queueTab} onTab={setQueueTab} definition={waiting?.definition ?? null} line={waiting?.line ?? null} counts={waiting ? { decide: waiting.decide, later: asks ? asks.owed.filter((o) => o.later && !o.held).length : waiting.later, blocks: blocks.queue ? blocksCount(asks ? withoutOwed(blocks.queue, asks) : blocks.queue) : waiting.held, catchup: waiting.updates } : null} />
+            <QueueTabs tab={queueTab} onTab={setQueueTab} definition={waiting?.definition ?? null} line={waiting?.line ?? null} counts={waiting ? { decide: shownCount(waiting.decide, hiddenBy.decide), later: shownCount(asks ? asks.owed.filter((o) => o.later && !o.held).length : waiting.later, hiddenBy.later), blocks: shownCount(allBlocks ? blocksCount(allBlocks) : waiting.held, hiddenBy.blocks), catchup: waiting.updates } : null} />
+            {queueTab !== "catchup" ? <div className="border-b border-border py-1" data-queue-filter>{filterBar(hiddenBy[queueTab === "blocks" ? "blocks" : queueTab])}</div> : null}
             <section role="tabpanel" id="queue-tabpanel" aria-labelledby={`queue-tab-${queueTab}`} data-queue-section={queueTab === "decide" ? "asks" : queueTab} className="border-b border-border">
               {queueTab === "decide"
                 ? render({ id: "asks", kind: "decision", title: "Asks", part: "decide" })
@@ -453,9 +471,10 @@ function HomePage({ subPath }: { subPath?: string }) {
         ) : (
           <>
           <AsksPanel
-            data={asks}
+            data={filterAsks(asks, excluded)}
             hideHeld
             {...(panel.part ? { part: panel.part } : {})}
+            {...((panel.part === "later" ? hiddenBy.later : hiddenBy.decide) > 0 ? { emptyText: HIDDEN_ALL } : {})}
             onNote={(decision_id, text, images) => note({ decision_id }, text, images)}
             onLater={sendLater}
             onDismiss={(decision_id, obligation_id) => act("Dismissing it", rpc.call("dismiss", { decision_id, obligation_id }), refetch)}
@@ -468,14 +487,17 @@ function HomePage({ subPath }: { subPath?: string }) {
           />
           </>
         );
-      case "blocks":
-        return blocks.queue === null ? (
+      case "blocks": {
+        const blockView = allBlocks ? filterQueue(allBlocks, excluded) : null;
+        return blockView === null ? (
           <EmptyState>{blocks.error ?? "Loading blocking cards…"}</EmptyState>
+        ) : blockView.rows.length === 0 && blockView.legacy.count === 0 && hiddenBy.blocks > 0 ? (
+          <p className="p-4 text-sm text-muted-foreground">{HIDDEN_ALL}</p>
         ) : (
           <BlocksPanel
             rootRun={rootRuns}
             onBind={(b) => act("Binding the project", rpc.call("setBinding", b), refetchAll)}
-            data={asks ? withoutOwed(blocks.queue, asks) : blocks.queue}
+            data={blockView}
             nowMs={Date.now()}
             onNote={(decision_id, text, images) => note({ decision_id }, text, images)}
             onOpen={openBeside}
@@ -484,6 +506,7 @@ function HomePage({ subPath }: { subPath?: string }) {
             }}
           />
         );
+      }
       case "catchup":
         return (
           <CatchupPanel
@@ -585,8 +608,9 @@ function HomePage({ subPath }: { subPath?: string }) {
           {keyNotice}
           {actionLine}
           <MobileInbox
-            asks={asks}
-            waiting={waiting?.total ?? 0}
+            asks={filterAsks(asks, excluded)}
+            waiting={shownCount(waiting?.total ?? 0, hiddenBy.decide)}
+            filter={{ node: filterBar, hidden: { waiting: hiddenBy.decide, later: hiddenBy.later }, heldHidden: hiddenBy.heldOnPhone, summaryOwed: COUNTS_FOLLOW_FILTER ? filterAsks(asks, excluded).owed : asks.owed, laterCount: shownCount(asks.owed.filter((o) => o.later && !o.held).length, hiddenBy.later) }}
             sinceCount={waiting ? waiting.updates + waiting.notices : readable.length + notices.length}
             sinceNode={
               <>
