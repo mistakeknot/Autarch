@@ -2,9 +2,12 @@
 // The server sorts and pins (queueview.ts); this file only renders, and owns the refresh policy.
 import { AskCard, type OnNote, type OnPick, type OwedAsk, type RunbookGroup } from "./asks.js";
 import { startPoll } from "./poll.js";
+import { HoldEndLine } from "./holdendline.js";
+import type { HoldEnd } from "../holdend.js";
 import { useState } from "react";
 import { copyText } from "./copy.js";
 import { RootRunSection, type RootRunPanelView } from "./rootrun.js";
+import { UnreadableCard } from "./unreadable.js";
 
 export type QueueRowView = {
   id: string;
@@ -29,7 +32,9 @@ export type QueueRowView = {
   overrides_generation: number | null;
   changed_after_ruling: boolean;
   root: { state: string | null; reason: string | null };
-  held?: { reason: string; by: string; at: string } | null;
+  held?: { reason: string; by: string; at: string; end?: HoldEnd | null } | null;
+  /** The stored ask could not be read: the row is shown marked, with nothing to answer. */
+  unreadable?: boolean;
 };
 export type LegacyView = {
   count: number;
@@ -166,6 +171,16 @@ export function BlocksRow({ row, nowMs, onPick, onOpen, rootRun, onBind, onNote 
     </>
   );
   const className = `rounded-lg border border-border bg-card p-3${row.held ? " opacity-60" : ""}`;
+  if (row.unreadable && row.decision_id !== null) {
+    // A held card whose body cannot be read still says why it is on hold and when the hold ends.
+    return (
+      <div className={row.held ? "space-y-1 opacity-60" : undefined} data-row={row.id}>
+        <UnreadableCard id={row.decision_id} cardKey={row.card_key} />
+        {row.held ? <p className="px-1 text-xs [overflow-wrap:anywhere]" data-hold-reason>{`On hold: ${row.held.reason}`}</p> : null}
+        {row.held ? <HoldEndLine held={row.held} as="p" className="px-1 text-xs [overflow-wrap:anywhere]" /> : null}
+      </div>
+    );
+  }
   if (!row.display_only && !row.held && row.ask !== null && row.decision_id !== null && row.revision !== null) {
     // One line until opened: mk scans these cards and rarely answers one. The line carries the key, the title and short
     // flags for what needs a look (not bound, overrides, changed); everything else sits behind "Open card".
@@ -206,11 +221,13 @@ export function BlocksRow({ row, nowMs, onPick, onOpen, rootRun, onBind, onNote 
             {row.thread ? <button type="button" className="underline" onClick={() => onOpen(row.thread!)}>{row.thread_title || row.thread}</button> : null}
           </p>
           {row.held ? <p className="text-xs" data-hold-reason>{`On hold: ${row.held.reason}`}</p> : null}
+          {row.held ? <HoldEndLine held={row.held} as="p" className="text-xs [overflow-wrap:anywhere]" /> : null}
         </div>
       ) : row.held ? (
         <div data-held="true">
           <h3 className="text-sm font-medium">{row.title}</h3>
           <p className="text-xs" data-hold-reason>{`On hold: ${row.held.reason}`}</p>
+          <HoldEndLine held={row.held} as="p" className="text-xs [overflow-wrap:anywhere]" />
         </div>
       ) : null}
       {root}

@@ -21,7 +21,7 @@ describe("waiting on mk", () => {
     r.enableDelegation();
     const cards = Array.from({ length: 6 }, () => card(r));
     await r.poll();
-    expect(r.svc.hold(cards[5]!.id, "waiting on the vendor", "mk")).toMatchObject({ ok: true });
+    expect(r.svc.hold(cards[5]!.id, "waiting on the vendor", "mk", { until: "2099-01-05" })).toMatchObject({ ok: true });
     const w = count(r);
     expect(w).toMatchObject({ total: 5, decide: 5, notices: 0, held: 1 });
   });
@@ -70,7 +70,7 @@ describe("decisionCount (the rail badge)", () => {
     const cards = Array.from({ length: 3 }, () => card(r));
     await r.poll();
     expect(r.svc.decisionCount()).toBe(3);
-    expect(r.svc.hold(cards[2]!.id, "waiting on the vendor", "mk")).toMatchObject({ ok: true });
+    expect(r.svc.hold(cards[2]!.id, "waiting on the vendor", "mk", { until: "2099-01-05" })).toMatchObject({ ok: true });
     expect(r.svc.decisionCount()).toBe(3);
   });
 });
@@ -100,7 +100,7 @@ describe("the rail badge is the Needs you now count (bead mk-oykwh)", () => {
     r.enableDelegation();
     const cards = Array.from({ length: 5 }, () => card(r));
     await r.poll();
-    expect(r.svc.hold(cards[3]!.id, "waiting on the vendor", "mk")).toMatchObject({ ok: true });
+    expect(r.svc.hold(cards[3]!.id, "waiting on the vendor", "mk", { until: "2099-01-05" })).toMatchObject({ ok: true });
     expect(r.svc.later(cards[4]!.id, "mk")).toMatchObject({ ok: true });
     const w = count(r);
     expect(w).toMatchObject({ decide: 3, held: 1, later: 1 });

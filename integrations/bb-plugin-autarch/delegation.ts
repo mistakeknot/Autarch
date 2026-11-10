@@ -6,7 +6,8 @@
 // project, under the daily cap, with no approval spec, while no settings change is
 // unseen by mk. Settings are written only by setDelegation (panel RPC); no CLI verb
 // reaches it.
-import { identity, normalizedJson, parseAsk, revision, semanticKey } from "./model.js";
+import { readAsk, UNREADABLE_REFUSAL } from "./askbody.js";
+import { identity, normalizedJson, revision, semanticKey } from "./model.js";
 import { bringBackWrites, overrideWrites } from "./cardwrites.js";
 import type { DecisionInput } from "./store.js";
 import type { PickResult, Service } from "./service.js";
@@ -352,7 +353,9 @@ export class Delegation {
     if (prior && prior.pick_id === pickId && prior.by === "vizier") return this.svc.pick(decisionId, optionId, d.revision, pickId, "vizier", "cli", reason);
     if (d.kind !== "decide" || d.asker !== "thread") return refuse(403, "only a decision asked by a thread can be delegated");
     if (!d.delegable || d.request_id.startsWith("override:")) return refuse(403, "this decision is not delegable");
-    const option = parseAsk(JSON.parse(d.body_json)).options?.find((o) => o.id === optionId);
+    const stored = readAsk(d.body_json);
+    if (!stored) return refuse(UNREADABLE_REFUSAL.status, UNREADABLE_REFUSAL.error);
+    const option = stored.options?.find((o) => o.id === optionId);
     if (!option) return refuse(400, `unknown option ${JSON.stringify(optionId)}`);
     if (option.approval) return refuse(403, "an option with an approval spec cannot be delegated");
     if (!option.reversible) return refuse(403, "only a reversible option can be delegated");
@@ -392,7 +395,8 @@ export class Delegation {
     const pick = this.store.pick(decisionId);
     if (!pick || pick.by !== "vizier") return refuse(409, "only a delegated ruling can be overridden");
 
-    const ask = parseAsk({ ...JSON.parse(d.body_json), request_id: requestId, supersedes: decisionId });
+    const ask = readAsk(d.body_json, { request_id: requestId, supersedes: decisionId });
+    if (!ask) return refuse(UNREADABLE_REFUSAL.status, UNREADABLE_REFUSAL.error);
     const card = d.source === "card" && typeof d.task_id === "string";
     const n = card ? Number(d.generation) + 1 : 0;
     const input: DecisionInput = {
@@ -473,7 +477,8 @@ export class Delegation {
     if (!pick) return refuse(409, "this card has no recorded decision to bring back");
     if (d.source !== "card" || typeof d.task_id !== "string") return refuse(409, "only a card can be brought back");
 
-    const ask = parseAsk({ ...JSON.parse(d.body_json), request_id: requestId, supersedes: decisionId });
+    const ask = readAsk(d.body_json, { request_id: requestId, supersedes: decisionId });
+    if (!ask) return refuse(UNREADABLE_REFUSAL.status, UNREADABLE_REFUSAL.error);
     const n = Number(d.generation) + 1;
     const input: DecisionInput = {
       id: `card-${d.task_id}-g${n}`,
