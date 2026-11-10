@@ -234,7 +234,7 @@ describe("picks that keep their existing flow", () => {
     await click(q("[data-inbox-detail] [data-other-answer]"));
     await tick(10000);
     expect(onPick).toHaveBeenCalledTimes(1);
-    expect(onPick.mock.calls[0]?.[1]).toBe("other");
+    expect((onPick.mock.calls[0] as unknown[] | undefined)?.[1]).toBe("other");
   });
 
   it("an immediate answer on another card leaves the held pick alone", async () => {

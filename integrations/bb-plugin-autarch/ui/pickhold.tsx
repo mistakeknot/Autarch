@@ -75,8 +75,17 @@ export function usePickHold(onPick: OnPick, eligible: (decisionId: string, optio
   const pick: OnPick = useCallback((...args) => {
     const [decisionId, optionId, revision, reason, images, answers] = args;
     const oneTap = reason === undefined && (images === undefined || images.length === 0) && answers === undefined && eligibleRef.current(decisionId, optionId);
-    if (!oneTap) return onPickRef.current(...args);
     const cur = heldRef.current;
+    if (!oneTap) {
+      // A later explicit answer (confirmed destructive pick, typed words, images) on the card that is held supersedes the held
+      // pick: drop it so the two never both reach the agent, and the earlier one cannot land after a failed later one.
+      if (cur !== null && cur.decisionId === decisionId) {
+        heldRef.current = null;
+        clearTimer();
+        setHeld(null);
+      }
+      return onPickRef.current(...args);
+    }
     // A second tap on the card already held does not replace it; it resolves first.
     if (cur !== null && cur.decisionId === decisionId) return;
     flush();
