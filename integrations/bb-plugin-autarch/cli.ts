@@ -260,13 +260,38 @@ export function homeCli(p: HomeCliParts) {
       }),
 
       hold: cliCommand({
-        summary: "Vizier only: put a card on hold (greyed out with a reason, out of needs-you-now). A later comment carrying a sha256, or `unhold`, makes it live",
+        summary: "Vizier only: put a card on hold (greyed out with a reason, out of needs-you-now). A new hold names its end: --until DATE, or an event. When the date passes the card is back at mk's pick and you are told once; an event end is reported with `hold-ended`. A later comment carrying a sha256, or `unhold`, also makes it live",
         positionals: [{ name: "card", description: "Task id or tasks key (PROJ-24).", required: true }],
-        options: { reason: { type: "string", required: true, description: "Why it is on hold (one line)." } },
+        options: {
+          reason: { type: "string", required: true, description: "Why it is on hold (one line)." },
+          until: { type: "string", description: "The date the hold ends: 2026-11-14 (holds through that UTC day) or a full time such as 2026-11-14T18:00:00Z." },
+          "event-kind": { type: "string", description: "With --event-ref and --event-label: the kind of event that ends the hold, lowercase with hyphens (pr-merge)." },
+          "event-ref": { type: "string", description: "The thing to watch (mistakeknot/Autarch#114)." },
+          "event-label": { type: "string", description: "What mk reads on the card: the words after 'until' (PR 114 merges). One line." },
+        },
         async run({ positionals, options }, ctx) {
           if (!(await p.isVizier(ctx.threadId)) || (p.stillVizier && !p.stillVizier(ctx.threadId))) return err(1, "only the vizier thread may hold a card");
-          const r = svc.hold(positionals.card, options.reason, ctx.threadId!);
+          const named = [options["event-kind"], options["event-ref"], options["event-label"]].filter((v) => v !== undefined).length;
+          if (named > 0 && named < 3) return err(1, "an event end needs --event-kind, --event-ref and --event-label together");
+          if (options.until !== undefined && named > 0) return err(1, "name one end: --until, or an event, not both");
+          const end = options.until !== undefined ? { until: String(options.until) } : named === 3 ? { event: { kind: String(options["event-kind"]), ref: String(options["event-ref"]), label: String(options["event-label"]) } } : undefined;
+          const r = svc.hold(positionals.card, options.reason, ctx.threadId!, end);
           return r.ok ? out({ ok: true, task_id: r.task_id, held: true }) : err(1, r.error);
+        },
+      }),
+
+      "hold-ended": cliCommand({
+        summary: "Vizier only: report that the event a hold was waiting for has happened (name it with --event-kind and --event-ref). The card is back at mk's pick and the thread that held it is told once. Repeating it does nothing",
+        positionals: [{ name: "card", description: "Task id or tasks key (PROJ-24).", required: true }],
+        options: {
+          "event-kind": { type: "string", description: "The kind of the event that happened, as given to the hold (--event-kind). Required." },
+          "event-ref": { type: "string", description: "The ref of the event that happened, as given to the hold (--event-ref). Required: a report for any other event does nothing." },
+        },
+        async run({ positionals, options }, ctx) {
+          if (!(await p.isVizier(ctx.threadId)) || (p.stillVizier && !p.stillVizier(ctx.threadId))) return err(1, "only the vizier thread may report a hold's end");
+          if (typeof options["event-kind"] !== "string" || options["event-kind"].trim() === "" || typeof options["event-ref"] !== "string" || options["event-ref"].trim() === "") return err(1, "name the event that happened with --event-kind and --event-ref (the kind and ref the hold was set with)");
+          const r = svc.endHold(positionals.card, ctx.threadId!, options["event-kind"].trim(), options["event-ref"].trim());
+          return r.ok ? out({ ok: true, task_id: r.task_id, ended: r.ended, ...(r.held_for !== undefined ? { held_for: r.held_for } : {}) }) : err(1, r.error);
         },
       }),
 

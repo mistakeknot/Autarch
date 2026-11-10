@@ -8,10 +8,15 @@ import { buildFeed, renderFeed, type Feed } from "./feed.js";
 import { cardFingerprint, askingThread, parseCard, toV1, type Card } from "./cards.js";
 import { PUSH_TIMEOUT_MS, type Notifier, type PushRequest } from "./notifier.js";
 import { askRows, listPushes, timeToAnswer, type PushListing, type TimeToAnswer } from "./pushtiming.js";
+import { checkHoldEnd, endMs, holdEndPhrase, parseStoredEnd, type HoldEnd } from "./holdend.js";
 import { OPEN_STATUSES, type Task, type TaskCommentRow } from "./tasks.js";
 
-/** A vizier hold on a card; n tells one hold from a replacement made in the same millisecond. */
-export type Hold = { reason: string; by: string; at: string; n?: string };
+/** A hold copied all the way down, so a caller that edits what it got cannot change the cached record. */
+const copyHold = (h: Hold): Hold => ({ ...h, ...(h.end ? { end: "event" in h.end ? { event: { ...h.end.event } } : { ...h.end } } : {}) });
+const NEEDS_END = "a hold needs its end: pass --until DATE (for example 2026-11-14), or an event with --event-kind, --event-ref and --event-label";
+/** A vizier hold on a card; n tells one hold from a replacement made in the same millisecond. A new hold names its end
+ *  (bead mk-j5ipa.11); an old one has none and is never released by time. */
+export type Hold = { reason: string; by: string; at: string; n?: string; end?: HoldEnd };
 /** mk set the card aside to do after the fast ones (bead mk-8741). The card stays open and unruled. */
 export type Later = { at: string; by: string };
 import { identity, normalizedJson, parseAsk, revision, semanticKey, type Ask, type Question } from "./model.js";
@@ -790,7 +795,8 @@ export class Service {
   // The parsed list is kept (outside a transaction) while the store's settings stamp is the same, so a poll that asks about every card parses
   // the stored value once, not once per card. Readers get copies: nothing outside can change what the next one sees.
   private holdCache: { stamp: string; holds: Record<string, Hold> } | undefined;
-  private readHolds(): Record<string, Hold> {
+  /** Every stored hold, expired or not (the sweep needs the expired ones to tell their holders). */
+  private rawHolds(): Record<string, Hold> {
     const stamp = this.store.settingsStamp();
     if (stamp === null) return this.parseHolds();
     if (this.holdCache?.stamp === stamp) return this.holdCache.holds;
@@ -802,50 +808,157 @@ export class Service {
     try {
       const v = JSON.parse(this.store.setting("holds") ?? "{}");
       if (!v || typeof v !== "object" || Array.isArray(v)) return {};
-      // Fail open: an entry without a reason, a writer and a readable time is not a hold.
+      // Fail open: an entry without a reason, a writer and a readable time is not a hold. An end that is not exactly
+      // one readable date or event is dropped, leaving a hold with no end.
       const ok: Record<string, Hold> = {};
       for (const [id, h] of Object.entries(v as Record<string, unknown>)) {
-        const e = h as { reason?: unknown; by?: unknown; at?: unknown } | null;
-        if (e && typeof e.reason === "string" && e.reason.trim() !== "" && typeof e.by === "string" && typeof e.at === "string" && !Number.isNaN(Date.parse(e.at))) ok[id] = { reason: e.reason, by: e.by, at: e.at, ...(typeof (e as { n?: unknown }).n === "string" ? { n: (e as { n: string }).n } : {}) };
+        const e = h as { reason?: unknown; by?: unknown; at?: unknown; n?: unknown; end?: unknown } | null;
+        if (e && typeof e.reason === "string" && e.reason.trim() !== "" && typeof e.by === "string" && typeof e.at === "string" && !Number.isNaN(Date.parse(e.at))) {
+          const end = parseStoredEnd(e.end);
+          ok[id] = { reason: e.reason, by: e.by, at: e.at, ...(typeof e.n === "string" ? { n: e.n } : {}), ...(end ? { end } : {}) };
+        }
       }
       return ok;
     } catch {
       return {};
     }
   }
+  /** True once a dated end has passed. An event end, or no end, never passes by time. */
+  private holdExpired(h: Hold, nowMs: number): boolean {
+    const at = endMs(h.end);
+    return at !== null && at <= nowMs;
+  }
+  /** The holds that are in force now: a hold whose date has passed is gone for every reader, before any sweep runs. */
+  private readHolds(): Record<string, Hold> {
+    const raw = this.rawHolds();
+    const nowMs = Date.parse(this.now());
+    let live = raw;
+    for (const [id, h] of Object.entries(raw)) {
+      if (!this.holdExpired(h, nowMs)) continue;
+      if (live === raw) live = { ...raw };
+      delete live[id];
+    }
+    return live;
+  }
   holds(): Record<string, Hold> {
-    return Object.fromEntries(Object.entries(this.readHolds()).map(([id, h]) => [id, { ...h }]));
+    return Object.fromEntries(Object.entries(this.readHolds()).map(([id, h]) => [id, copyHold(h)]));
   }
   holdOf(taskId: string | null | undefined): Hold | null {
-    const h = taskId ? this.readHolds()[taskId] : undefined;
-    return h ? { ...h } : null;
+    const h = taskId ? this.rawHolds()[taskId] : undefined;
+    return h && !this.holdExpired(h, Date.parse(this.now())) ? copyHold(h) : null;
   }
   /** The task id of a card named by its task id or its tasks key (PROJ-24). */
   cardTaskId(ref: string): string | null {
     const r = this.db.prepare("SELECT task_id FROM cards WHERE (task_id = ? OR card_key = ?) AND deleted_at IS NULL ORDER BY created_at DESC LIMIT 1").get(ref, ref) as { task_id: string } | undefined;
     return r?.task_id ?? null;
   }
-  hold(ref: string, reason: string, by: string): { ok: true; task_id: string } | { ok: false; error: string } {
+  /**
+   * Hold a card. A new hold names its end: `end` is `{ until }` (a date or a full time) or `{ event: { kind, ref, label } }`.
+   * Changing a hold that is still in force needs none: it keeps the end it has, or takes the one given. A hold whose date
+   * passed is not in force, so a replacement over it must name an end, and its holder is told about the first one.
+   */
+  hold(ref: string, reason: string, by: string, end?: HoldEnd): { ok: true; task_id: string } | { ok: false; error: string } {
     const why = reason.trim();
     if (!why) return { ok: false, error: "a hold needs a reason" };
     if (why.length > 500 || /[\r\n]/.test(why)) return { ok: false, error: "the reason is one line of at most 500 characters" };
     const id = this.cardTaskId(ref);
     if (!id) return { ok: false, error: "no such card" };
-    const h = this.holds();
-    h[id] = { reason: why, by, at: this.now(), n: randomUUID() };
-    this.store.setSetting("holds", JSON.stringify(h));
+    const at = this.now();
+    const nowMs = Date.parse(at);
+    let named: HoldEnd | undefined;
+    if (end !== undefined) {
+      const c = checkHoldEnd(end, nowMs);
+      if (!c.ok) return { ok: false, error: c.error };
+      named = c.end;
+    }
+    const told = this.store.atomically((): { error: string } | { woke: number } => {
+      const h = { ...this.rawHolds() };
+      const prev = h[id];
+      const live = prev && !this.holdExpired(prev, nowMs) ? prev : undefined;
+      const keep = named ?? live?.end;
+      if (!keep && !live) return { error: NEEDS_END };
+      const woke = prev && !live ? this.tellHolder(id, prev, `its date passed (${holdEndPhrase(prev.end, nowMs)})`) : 0;
+      h[id] = { reason: why, by, at, n: randomUUID(), ...(keep ? { end: keep } : {}) };
+      this.store.setSetting("holds", JSON.stringify(h));
+      return { woke };
+    });
+    if ("error" in told) return { ok: false, error: told.error };
+    if (told.woke > 0) this.deps.nudge?.();
     return { ok: true, task_id: id };
+  }
+  /** Tell the thread that set a hold that it ended, once: the op names the hold, so a repeat inserts nothing. Returns rows inserted. */
+  private tellHolder(taskId: string, h: Hold, how: string): number {
+    const key = this.cardKey(taskId) ?? taskId;
+    const op = `hold-end:${taskId}:${h.n ?? h.at}`;
+    const payload = `Home card ${key}: your hold ended (${how}). The card is back at mk's pick; nothing was ruled or closed. Your reason was (plain text): ${h.reason}`;
+    return this.store.insertObligations(`hold:${taskId}`, [{ id: `ob:${op}`, kind: "hold-ended", recipient: h.by, op, payload }]);
+  }
+  /**
+   * A hold with an event end is over: the thread that watches the event says so, naming the event (its kind and ref). A
+   * report for an event the card is not held for does nothing, so a retried report cannot release a later hold on another event.
+   * Date holds end by their date, old ones by unhold.
+   */
+  endHold(ref: string, by: string, eventKind: string, eventRef: string): { ok: true; task_id: string; ended: boolean; held_for?: string } | { ok: false; error: string } {
+    const id = this.cardTaskId(ref);
+    if (!id) return { ok: false, error: "no such card" };
+    const out = this.store.atomically(() => {
+      const raw = { ...this.rawHolds() };
+      const h = raw[id];
+      if (!h) return { ok: true as const, task_id: id, ended: false, woke: 0 };
+      if (!h.end || !("event" in h.end)) return { ok: false as const, error: h.end ? "this hold ends on its date; wait for it, or use unhold" : "this hold has no end set; only unhold releases it" };
+      if (h.end.event.kind !== eventKind || h.end.event.ref !== eventRef) return { ok: true as const, task_id: id, ended: false, woke: 0, held_for: h.end.event.ref };
+      const woke = this.tellHolder(id, h, `${h.end.event.label} (reported by ${by})`);
+      delete raw[id];
+      this.store.setSetting("holds", JSON.stringify(raw));
+      return { ok: true as const, task_id: id, ended: true, woke };
+    });
+    if (!out.ok) return out;
+    if (out.woke > 0) this.deps.nudge?.();
+    return { ok: true, task_id: out.task_id, ended: out.ended, ...("held_for" in out ? { held_for: out.held_for } : {}) };
+  }
+  /** Release every hold whose date has passed and tell each holder once. The record goes in the same transaction as the notice. */
+  sweepExpiredHolds(): number {
+    const nowMs = Date.parse(this.now());
+    const due = Object.entries(this.rawHolds()).filter(([, h]) => this.holdExpired(h, nowMs));
+    if (due.length === 0) return 0;
+    let swept = 0;
+    let woke = 0;
+    for (const [id, seen] of due) {
+      woke += this.store.atomically(() => {
+        const raw = { ...this.rawHolds() };
+        const h = raw[id];
+        // Another writer may have replaced or removed it since the read: release only the hold that was seen.
+        if (!h || h.n !== seen.n || h.at !== seen.at || !this.holdExpired(h, nowMs)) return 0;
+        const n = this.tellHolder(id, h, `its date passed (${holdEndPhrase(h.end, nowMs)})`);
+        delete raw[id];
+        this.store.setSetting("holds", JSON.stringify(raw));
+        swept++;
+        return n;
+      });
+    }
+    if (woke > 0) this.deps.nudge?.();
+    return swept;
   }
   unhold(ref: string): { ok: true; task_id: string; was: boolean } | { ok: false; error: string } {
     const id = this.cardTaskId(ref);
     if (!id) return { ok: false, error: "no such card" };
-    const h = this.holds();
-    const was = id in h;
-    if (was) {
-      delete h[id];
-      this.store.setSetting("holds", JSON.stringify(h));
-    }
-    return { ok: true, task_id: id, was };
+    // Read the stored list, not the live one: writing the live list back would drop another card's expired hold before its holder was told.
+    const res = this.store.atomically(() => {
+      const h = { ...this.rawHolds() };
+      const nowMs = Date.parse(this.now());
+      const prev = h[id];
+      const was = prev !== undefined && !this.holdExpired(prev, nowMs);
+      let woke = 0;
+      if (prev) {
+        // A date that already passed but was not swept yet: the holder still hears it ended, once, in this transaction.
+        if (!was) woke = this.tellHolder(id, prev, `its date passed (${holdEndPhrase(prev.end, nowMs)})`);
+        delete h[id];
+        this.store.setSetting("holds", JSON.stringify(h));
+      }
+      return { ok: true as const, task_id: id, was, woke };
+    });
+    if (res.woke > 0) this.deps.nudge?.();
+    return { ok: true, task_id: res.task_id, was: res.was };
   }
   // ---- later: mk sets an open card aside to do after the fast ones. Kept in one settings_kv value keyed by task id
   // (no schema change). Unlike a hold it never refuses a pick and it is mk's own choice; ruling the card clears it.

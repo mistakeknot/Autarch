@@ -16,7 +16,7 @@ describe("holds (vizier greys a card out)", () => {
     expect(r.svc.hold(t.id, "  ", "thr_viz")).toMatchObject({ ok: false });
     expect(r.svc.hold(t.id, "two\nlines", "thr_viz")).toMatchObject({ ok: false });
     expect(r.svc.hold("no-such", "why", "thr_viz")).toMatchObject({ ok: false, error: "no such card" });
-    expect(r.svc.hold(t.id, "script superseded", "thr_viz")).toEqual({ ok: true, task_id: t.id });
+    expect(r.svc.hold(t.id, "script superseded", "thr_viz", { until: "2099-01-05" })).toEqual({ ok: true, task_id: t.id });
     const key = r.svc.cardKey(t.id)!;
     expect(r.svc.cardTaskId(key)).toBe(t.id);
     const row = buildQueue(r.svc, new Asks(r.svc)).rows.find((x) => x.task_id === t.id)!;
@@ -29,7 +29,7 @@ describe("holds (vizier greys a card out)", () => {
   it("a held card cannot be picked, even from a page opened before the hold", async () => {
     const r = rig();
     const { t, g1 } = await opened(r);
-    r.svc.hold(t.id, "superseded", "thr_viz");
+    r.svc.hold(t.id, "superseded", "thr_viz", { until: "2099-01-05" });
     expect(r.mkPick(g1.id)).toMatchObject({ ok: false, status: 409 });
     expect(r.gens(t.id)).toHaveLength(1);
     r.svc.unhold(t.id);
@@ -40,11 +40,11 @@ describe("holds (vizier greys a card out)", () => {
     const r = rig();
     const { t } = await opened(r);
     r.env.clock.t = Date.parse("2026-10-02T00:00:00.000Z");
-    r.svc.hold(t.id, "first", "thr_viz");
+    r.svc.hold(t.id, "first", "thr_viz", { until: "2099-01-05" });
     const later = new Date(Date.parse(r.svc.holdOf(t.id)!.at) + 60_000).toISOString();
     const released = await r.svc.releaseHoldOnSha(t.id, async () => {
       r.env.clock.t += 120_000;
-      r.svc.hold(t.id, "second", "thr_viz");
+      r.svc.hold(t.id, "second", "thr_viz", { until: "2099-01-05" });
       return [{ id: "c1", taskId: t.id, kind: "agent" as const, authorName: "a", threadId: "thr_a", body: `bash /x ${SHA}`, createdAt: later }];
     });
     expect(released).toBe(false);
@@ -52,7 +52,7 @@ describe("holds (vizier greys a card out)", () => {
     // replaced within the same millisecond: the timestamp alone cannot tell the two holds apart
     const first = r.svc.holdOf(t.id)!;
     const again = await r.svc.releaseHoldOnSha(t.id, async () => {
-      r.svc.hold(t.id, "third", "thr_viz");
+      r.svc.hold(t.id, "third", "thr_viz", { until: "2099-01-05" });
       return [{ id: "c2", taskId: t.id, kind: "agent" as const, authorName: "a", threadId: "thr_a", body: `bash /x ${SHA}`, createdAt: new Date(Date.parse(first.at) + 60_000).toISOString() }];
     });
     expect(again).toBe(false);
@@ -79,7 +79,7 @@ describe("holds (vizier greys a card out)", () => {
     const { t } = await opened(r);
     r.fake.addComment(t.id, { kind: "agent", threadId: "thr_a", body: `old script ${SHA}`, createdAt: "2026-10-01T00:00:02.000Z" });
     r.env.clock.t = Date.parse("2026-10-02T00:00:00.000Z");
-    r.svc.hold(t.id, "script superseded", "thr_viz");
+    r.svc.hold(t.id, "script superseded", "thr_viz", { until: "2099-01-05" });
     const at = r.svc.holdOf(t.id)!.at;
     const later = new Date(Date.parse(at) + 60_000).toISOString();
     r.fake.addComment(t.id, { kind: "system", threadId: null, body: `sys ${SHA}`, createdAt: later });
@@ -106,7 +106,7 @@ describe("holds (vizier greys a card out)", () => {
     expect(denied.stderr).toMatch(/only the vizier/);
     expect(r.svc.holdOf(t.id)).toBeNull();
     expect((await go(["hold", t.id], "thr_viz")).exitCode).not.toBe(0);
-    const ok = await go(["hold", r.svc.cardKey(t.id)!, "--reason", "superseded"], "thr_viz");
+    const ok = await go(["hold", r.svc.cardKey(t.id)!, "--reason", "superseded", "--until", "2099-01-05"], "thr_viz");
     expect(ok.exitCode).toBe(0);
     expect(r.svc.holdOf(t.id)).toMatchObject({ reason: "superseded", by: "thr_viz" });
     const list = JSON.parse((await go(["list", "--json"])).stdout!) as { task_id: string; held: { reason: string } | null }[];

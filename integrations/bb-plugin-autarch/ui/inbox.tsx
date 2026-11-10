@@ -5,6 +5,7 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { ActionButton } from "./buttons.js";
 import { glance } from "./glance.js";
+import { HoldEndLine } from "./holdendline.js";
 import { neighborAfterRemoval } from "./nextcard.js";
 import { PickHoldBar, usePickHold } from "./pickhold.js";
 import { extrasText, owedCounts } from "../waitingcount.js";
@@ -94,6 +95,7 @@ function HoldRow({ rows, open, onToggle }: { rows: InboxRow[]; open: boolean; on
               </span>
               <span className="mt-1 block text-sm font-medium [overflow-wrap:anywhere]">{r.title}</span>
               <span className="mt-1 block text-xs [overflow-wrap:anywhere]" data-hold-reason>{`On hold: ${r.ask?.held?.reason ?? ""}`}</span>
+              {r.ask?.held ? <HoldEndLine held={r.ask.held} className="mt-0.5 block text-xs [overflow-wrap:anywhere]" /> : null}
             </li>
           ))}
         </ul>

@@ -121,7 +121,7 @@ describe("later and picking", () => {
     const r = rig();
     const { t, g1 } = await opened(r);
     r.svc.later(t.id, "mk");
-    r.svc.hold(t.id, "script superseded", "thr_viz");
+    r.svc.hold(t.id, "script superseded", "thr_viz", { until: "2099-01-05" });
     expect(r.mkPick(g1.id)).toMatchObject({ ok: false, status: 409 });
     expect(r.svc.holdOf(t.id)).not.toBeNull();
     expect(r.svc.laterOf(t.id)).not.toBeNull();
@@ -148,8 +148,8 @@ describe("later and the Waiting-on-you count", () => {
     const cards = [card(r), card(r), card(r)];
     await r.poll();
     r.svc.later(cards[0]!.id, "mk");
-    r.svc.hold(cards[0]!.id, "superseded", "thr_viz");
-    r.svc.hold(cards[1]!.id, "superseded", "thr_viz");
+    r.svc.hold(cards[0]!.id, "superseded", "thr_viz", { until: "2099-01-05" });
+    r.svc.hold(cards[1]!.id, "superseded", "thr_viz", { until: "2099-01-05" });
     expect(count(r)).toMatchObject({ decide: 1, held: 2, later: 0, total: 1 });
   });
 
