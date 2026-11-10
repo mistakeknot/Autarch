@@ -22,7 +22,7 @@ import { ledgerPath } from "./ledger.js";
 import { Delegation, type ThreadRow } from "./delegation.js";
 import { exportEvents } from "./export.js";
 import { FeedCaches } from "./feed.js";
-import { parseAsk } from "./model.js";
+import { owedAsk } from "./askbody.js";
 import { ServeClient, tokenReader } from "./serve.js";
 import { CardWriter } from "./cardwrites.js";
 import { Queue } from "./queue.js";
@@ -553,7 +553,7 @@ export function wireHome(bb: BbPluginApi, handle: StoreHandle, cfg: HomeConfig, 
         filed_at: d.filed_at,
         revision: d.revision,
         task_id: d.task_id ?? null,
-        ask: parseAsk(JSON.parse(d.body_json)),
+        ...owedAsk(d.body_json),
         mentions: p.store.mentions(d.id).length,
       }));
       let machineOwners: unknown = {};

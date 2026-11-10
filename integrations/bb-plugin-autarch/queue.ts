@@ -194,6 +194,11 @@ export class Queue {
     for (const id of [...this.digest.keys()]) if (!listed.has(id)) this.digest.delete(id);
 
     this.lastPollAt = service.time();
+    try {
+      service.tellUnreadable();
+    } catch {
+      /* the notice is retried on the next poll; it never degrades the poll */
+    }
     if (unavailable) this.degrade(unavailable);
     else {
       this.health = "ok";

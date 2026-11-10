@@ -5,6 +5,7 @@ import { startPoll } from "./poll.js";
 import { useState } from "react";
 import { copyText } from "./copy.js";
 import { RootRunSection, type RootRunPanelView } from "./rootrun.js";
+import { UnreadableCard } from "./unreadable.js";
 
 export type QueueRowView = {
   id: string;
@@ -30,6 +31,8 @@ export type QueueRowView = {
   changed_after_ruling: boolean;
   root: { state: string | null; reason: string | null };
   held?: { reason: string; by: string; at: string } | null;
+  /** The stored ask could not be read: the row is shown marked, with nothing to answer. */
+  unreadable?: boolean;
 };
 export type LegacyView = {
   count: number;
@@ -166,6 +169,7 @@ export function BlocksRow({ row, nowMs, onPick, onOpen, rootRun, onBind, onNote 
     </>
   );
   const className = `rounded-lg border border-border bg-card p-3${row.held ? " opacity-60" : ""}`;
+  if (row.unreadable && row.decision_id !== null) return <UnreadableCard id={row.decision_id} cardKey={row.card_key} />;
   if (!row.display_only && !row.held && row.ask !== null && row.decision_id !== null && row.revision !== null) {
     // One line until opened: mk scans these cards and rarely answers one. The line carries the key, the title and short
     // flags for what needs a look (not bound, overrides, changed); everything else sits behind "Open card".
