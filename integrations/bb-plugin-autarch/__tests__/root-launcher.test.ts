@@ -76,11 +76,17 @@ describe.skipIf(!hasFakeroot)("under fakeroot (id -u is 0)", () => {
       exit $rc
     `;
     // The original modes were captured above, before anything was changed, and are put back here whatever happened in the
-    // session (a failed chmod, a failed setup, a launcher that exited non-zero). Tests in this file run one after another.
+    // session (a failed chmod, a failed setup, a launcher that exited non-zero). Tests in this file run one after another. Two suite processes sharing one group-writable scratch HOME at the same moment could still
+    // see each other's tightened modes; that needs root-owned ancestors to avoid, which a test cannot create, so it is left as a known limit.
     try {
       return spawnSync("fakeroot", ["sh", "-c", script], { env: { PATH: process.env.PATH }, encoding: "utf8" });
     } finally {
-      for (const [p, m] of original) chmodSync(p, m);
+      // Every directory gets its restore attempted even if one fails; the failure is then thrown rather than swallowed.
+      const failed: string[] = [];
+      for (const [p, m] of original) {
+        try { chmodSync(p, m); } catch (e) { failed.push(`${p}: ${(e as Error).message}`); }
+      }
+      if (failed.length) throw new Error(`could not restore the original mode of ${failed.join("; ")}`);
     }
   }
   for (const l of LAUNCHERS) {
