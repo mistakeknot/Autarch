@@ -96,6 +96,28 @@ describe("delivery after a notice was queued", () => {
     expect(due).toEqual([]);
     expect(notices(r)[0].voided_at).not.toBeNull();
   });
+  it("words every notice as a past event, so a batched digest sent after delivery is still true", async () => {
+    const r = rig();
+    r.env.batch.noticeWindowMs = 3_600_000; // production batching: notices to one thread leave as one digest
+    const a = await stuck(r, { title: "First question" });
+    const b = r.card({ title: "Second question" });
+    await r.poll();
+    r.advance(6_000);
+    await r.poll();
+    r.env.down.value = false;
+    r.advance(300_000);
+    await r.poll();
+    expect(r.cardRow(a.id).state).toBe("open");
+    expect(r.cardRow(b.id).state).toBe("open");
+    r.advance(2 * 3_600_000);
+    const digest = r.svc.store.dueMessagesBatched().find((o) => o.kind !== "notice" || String(o.op).startsWith("notice-digest"));
+    const text = String(digest?.payload ?? notices(r).map((n) => n.payload).join("\n"));
+    expect(text).toContain(a.id);
+    expect(text).not.toMatch(/cannot see it yet|is not delivered/);
+    expect(text).toMatch(/was not delivered/);
+    expect(text).toMatch(/\d{4}-\d{2}-\d{2}T/); // when it was true
+    expect(text).toMatch(/may have changed since/);
+  });
   it("still tells once, and not again, when a card stalls a second time after delivery", async () => {
     const r = rig();
     const t = await stuck(r);
