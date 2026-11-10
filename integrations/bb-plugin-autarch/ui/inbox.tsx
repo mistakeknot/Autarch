@@ -175,7 +175,7 @@ export function MobileInbox({ asks, waiting, onPick, onOpen, onNote, onLater, si
           ideaNode
         ) : current ? (
           <div className="p-3" data-inbox-detail={current.key}>
-            {current.ask ? <AskCard ask={current.ask} onPick={onPick} onOpen={onOpen} nowMs={now} onNote={onNote} onLater={onLater} /> : null}
+            {current.ask ? <AskCard key={current.key} ask={current.ask} onPick={onPick} onOpen={onOpen} nowMs={now} onNote={onNote} onLater={onLater} /> : null}
           </div>
         ) : tab === "since" ? (
           sinceNode
@@ -186,7 +186,7 @@ export function MobileInbox({ asks, waiting, onPick, onOpen, onNote, onLater, si
         )}
       </div>
       {current ? (
-        <DetailBar r={current} onPick={onPick} onLater={onLater} onDone={() => advanceFrom(current.key)} />
+        <DetailBar key={current.key} r={current} onPick={onPick} onLater={onLater} onDone={() => advanceFrom(current.key)} />
       ) : (
         <nav className="flex border-t border-border bg-background" data-inbox-tabs>
           {tabs.map(([id, label]) => (

@@ -220,6 +220,20 @@ describe("phone inbox", () => {
     expect(detail()).toBe("ask:d");
   });
 
+  it("the card below opens with its own form: words typed on the card before it do not carry over", async () => {
+    render([A, B, C], { open: "ask:a" });
+    const box = q("[data-inbox-detail] [data-other] textarea") as HTMLTextAreaElement;
+    act(() => {
+      Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")!.set!.call(box, "words meant for card a");
+      box.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    expect((q("[data-inbox-detail] [data-other] textarea") as HTMLTextAreaElement).value).toBe("words meant for card a");
+    click(q("[data-bar-main]"));
+    await settle();
+    expect(detail()).toBe("ask:b");
+    expect((q("[data-inbox-detail] [data-other] textarea") as HTMLTextAreaElement).value).toBe("");
+  });
+
   it("Back still returns to the list", () => {
     render([A, B, C], { open: "ask:b" });
     click(q("[data-inbox-back]"));
