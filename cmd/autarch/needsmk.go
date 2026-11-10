@@ -5,7 +5,6 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -31,43 +30,7 @@ const readbackTimeout = 5 * time.Second
 
 // checkFilingPreconditions runs before anything is created: serve must be up and the ask's
 // project_root must be the root it resolves for the ask's project. Tests replace it.
-var checkFilingPreconditions = func(project, root string) error {
-	ps, err := serve.FetchProjects(serveURL(), serveTokenPath(), serveProbeTimeout)
-	if err != nil {
-		hint := ""
-		if errors.Is(err, serve.ErrNotRunning) {
-			hint = "; start `autarch serve` (see AGENTS.md)"
-		}
-		return fmt.Errorf("%w: %v%s: nothing was filed", homeask.ErrHomeDown, err, hint)
-	}
-	if err := serve.CheckAsk(ps, project, root); err != nil {
-		return fmt.Errorf("%w: %v", homeask.ErrInvalid, err)
-	}
-	return nil
-}
-
-// serveProbeTimeout bounds the serve probe so a dead serve costs seconds, not a minute.
-const serveProbeTimeout = 3 * time.Second
-
-// serveURL is where `autarch serve` listens (AUTARCH_SERVE_URL, default the serve address).
-func serveURL() string {
-	if u := os.Getenv("AUTARCH_SERVE_URL"); u != "" {
-		return u
-	}
-	return "http://" + serve.DefaultAddr
-}
-
-// serveTokenPath is serve's bearer token (AUTARCH_SERVE_TOKEN_FILE, default ~/.autarch/serve.token).
-func serveTokenPath() string {
-	if p := os.Getenv("AUTARCH_SERVE_TOKEN_FILE"); p != "" {
-		return p
-	}
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return ""
-	}
-	return filepath.Join(home, ".autarch", "serve.token")
-}
+var checkFilingPreconditions = serve.CheckFiling
 
 func needsMkCmd() *cobra.Command {
 	cmd := &cobra.Command{
@@ -334,9 +297,6 @@ refused, and it works on every kind of card; a machine blocker alone never pushe
 			if _, ok := ask["project_root"]; !ok {
 				ask["project_root"] = gitRoot()
 			}
-			if _, ok := ask["project"]; !ok {
-				ask["project"] = filepath.Base(fmt.Sprint(ask["project_root"]))
-			}
 			if err := homeask.CheckOptionIDs(ask); err != nil {
 				return err
 			}
@@ -348,19 +308,21 @@ refused, and it works on every kind of card; a machine blocker alone never pushe
 				ctx = context.Background()
 			}
 			filer := newCardFiler()
-			// Resolve the bound Home project first: serve lists projects by that name, so the root check
-			// below must see it, not the tasks-key alias the ask may carry.
-			bound, warn, err := filer.ResolveAskProject(ctx, project, fmt.Sprint(ask["project"]))
-			if err != nil {
-				return err
+			if _, ok := ask["project"]; !ok {
+				// The board's binding names the project; the folder name is wrong in a bb worktree.
+				ask["project"] = filer.FolderOrBound(ctx, project, fmt.Sprint(ask["project_root"]))
 			}
+			// Resolve the bound Home project first: serve lists projects by that name, so the root check
+			// must see it, not the tasks-key alias the ask may carry.
+			filer.Check = checkFilingPreconditions
+			bound, warn, err := filer.PrepareAsk(ctx, project, fmt.Sprint(ask["project"]), fmt.Sprint(ask["project_root"]))
 			if warn != "" {
 				fmt.Fprintln(cmd.ErrOrStderr(), "warning:", warn)
 			}
-			ask["project"] = bound
-			if err := checkFilingPreconditions(bound, fmt.Sprint(ask["project_root"])); err != nil {
+			if err != nil {
 				return err
 			}
+			ask["project"] = bound
 			req := homeask.CardRequest{Project: project, Title: title, Blocks: blocks, Ask: ask, Move: move, Key: request, Thread: thread, Owner: ownerThread}
 			if rootRun != "" {
 				if req.RootRun, err = parseRootRunFlag(rootRun); err != nil {
