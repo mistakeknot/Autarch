@@ -1,4 +1,4 @@
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawnSync } from "node:child_process";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { createServer, type Server } from "node:http";
 import { join } from "node:path";
@@ -47,6 +47,12 @@ function readers(over: Partial<Readers> & { health: Readers["health"] }): Reader
 }
 
 beforeAll(async () => {
+  // The build compiles the real autarch binary, so `go` must be on this process's PATH. State that plainly instead of
+  // letting the build script die with a bare "Command failed" (a minimal PATH such as /usr/local/bin:/usr/bin:/bin has no go).
+  const goProbe = spawnSync("go", ["version"], { encoding: "utf8" });
+  if (goProbe.error || goProbe.status !== 0) {
+    throw new Error(`build-identity needs the \`go\` toolchain on PATH to build autarch, and it is not runnable here (PATH=${process.env.PATH ?? ""}): ${goProbe.error?.message ?? goProbe.stderr}`);
+  }
   const out = join(t.dir, "build.json");
   execFileSync("node", [join(PLUGIN_ROOT, "scripts", "build-identity.mjs"), "--out", out, "--repo", PLUGIN_ROOT, "--scratch", join(t.dir, "build"), "--skip-npm-ci"], { stdio: ["ignore", "ignore", "inherit"] });
   build = JSON.parse(readFileSync(out, "utf8"));
