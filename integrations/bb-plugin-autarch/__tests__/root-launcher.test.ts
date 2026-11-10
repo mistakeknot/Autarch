@@ -49,7 +49,7 @@ describe.skipIf(!hasFakeroot)("under fakeroot (id -u is 0)", () => {
   // Runs `setup` then the launcher inside ONE fakeroot session. The launcher wants every directory from the copy up to / to be
   // root-owned and not group/other-writable, wherever HOME is. Ownership is only faked, so each ancestor is chowned to root in
   // the session. Mode is not: fakeroot applies chmod to the real directory too, so an ancestor that is group/other-writable
-  // (a HOME created under umask 002, as a scratch HOME is) is tightened for the run and put back as it was afterwards.
+  // (a HOME created under umask 002, as a scratch HOME is) is tightened for the run and put back as it was afterwards (in a finally, so a failed session still restores it).
   function run(l: string, setup: string) {
     const d = base();
     const dir = join(d, "scripts");
@@ -57,6 +57,11 @@ describe.skipIf(!hasFakeroot)("under fakeroot (id -u is 0)", () => {
     const ancestors: string[] = [];
     for (let p = dir; p !== "/"; p = dirname(p)) ancestors.push(p);
     const loose = ancestors.filter((p) => p !== dir && p !== d && (statSync(p).mode & 0o022) !== 0);
+    // Only a directory this user owns can be tightened for the run. A loose one it does not own (a sticky /tmp, say) cannot be
+    // made acceptable to the launcher, so say so instead of letting the launcher's refusal read as a launcher bug.
+    const notOurs = loose.filter((p) => statSync(p).uid !== process.getuid!());
+    if (notOurs.length) throw new Error(`root-launcher needs every directory above its fixture to be root-owned or tightenable by this user; ${notOurs.join(", ")} is group/other-writable and not owned by uid ${process.getuid!()}. Run with HOME under a tighter path.`);
+    const original = new Map(loose.map((p) => [p, statSync(p).mode & 0o7777]));
     const mode = (p: string, m: number) => `chmod ${(m & 0o7777).toString(8)} "${p}"`;
     const script = `
       set -e
@@ -68,10 +73,15 @@ describe.skipIf(!hasFakeroot)("under fakeroot (id -u is 0)", () => {
       set +e
       "${dir}/${l}" --thread thread-x
       rc=$?
-      ${loose.map((p) => mode(p, statSync(p).mode)).join("\n      ")}
       exit $rc
     `;
-    return spawnSync("fakeroot", ["sh", "-c", script], { env: { PATH: process.env.PATH }, encoding: "utf8" });
+    // The original modes were captured above, before anything was changed, and are put back here whatever happened in the
+    // session (a failed chmod, a failed setup, a launcher that exited non-zero). Tests in this file run one after another.
+    try {
+      return spawnSync("fakeroot", ["sh", "-c", script], { env: { PATH: process.env.PATH }, encoding: "utf8" });
+    } finally {
+      for (const [p, m] of original) chmodSync(p, m);
+    }
   }
   for (const l of LAUNCHERS) {
     const body = l.replace(/\.sh$/, ".bash");
