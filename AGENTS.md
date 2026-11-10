@@ -1,21 +1,22 @@
 # Autarch - Development Guide
 
 ## Canonical References
-1. [`PHILOSOPHY.md`](../../PHILOSOPHY.md) — direction for ideation and planning decisions.
-2. `CLAUDE.md` — implementation details, architecture, testing, and release workflow.
+1. [`PHILOSOPHY.md`](PHILOSOPHY.md) — direction for ideation and planning decisions.
+2. `CLAUDE.md` — Claude Code session rules (workflow discipline, bug-reproduction rule, design decisions); it points back here for the development guide.
 3. `CODING_STANDARDS.md` — reviewer-only judgement rules (Bubble Tea message handling, `Clone()` snapshots, chrome dimensions). The review sub-agent reads it; the implementing agent does not. Pilot: measured after two weeks, reverted if nothing changes.
 
-Unified monorepo for AI agent development tools: Bigend, Gurgeh, Coldwine, and Pollard.
+Unified monorepo for AI agent development tools: Bigend, Gurgeh, Coldwine, Pollard, and Mycroft.
 
 ## Quick Reference
 
 | Tool | Purpose | CLI | Docs |
 |------|---------|-----|------|
 | **Autarch** | Unified TUI (all tools in tabs) | `./dev autarch tui` | This file |
-| **Bigend** | Multi-project agent mission control | `./dev bigend` (web) | [docs/bigend/](docs/bigend/AGENTS.md) |
-| **Gurgeh** | PRD generation and validation | `./dev gurgeh list` (CLI) | [docs/gurgeh/](docs/gurgeh/AGENTS.md) |
-| **Coldwine** | Task orchestration | `./dev coldwine status` (CLI) | [docs/coldwine/](docs/coldwine/AGENTS.md) |
-| **Pollard** | Research intelligence (hunters + reports) | `./dev pollard scan` (CLI) | [docs/pollard/](docs/pollard/AGENTS.md) |
+| **Bigend** | Multi-project agent mission control (web + TUI) | `./dev bigend` (web) | [docs/bigend/](docs/bigend/AGENTS.md) |
+| **Gurgeh** | TUI-first PRD generation and validation | `./dev gurgeh list` (CLI) | [docs/gurgeh/](docs/gurgeh/AGENTS.md) |
+| **Coldwine** | Task orchestration + sprint runs (Epics/Runs mode toggle, inline/split layouts) | `./dev coldwine status` (CLI) | [docs/coldwine/](docs/coldwine/AGENTS.md) |
+| **Pollard** | General-purpose research intelligence (tech, medicine, law, economics, etc.; hunters + reports) | `./dev pollard scan` (CLI) | [docs/pollard/](docs/pollard/AGENTS.md) |
+| **Mycroft** | Fleet orchestrator — escalating autonomy (T0 observe → T1 suggest → T2/T3 auto-dispatch) | `./dev autarch tui --tool=mycroft` (tab) | [docs/mycroft-bb-spawner.md](docs/mycroft-bb-spawner.md) |
 
 **Recommended:** Use `./dev autarch tui` for all TUI access. Standalone TUI modes are deprecated.
 
@@ -50,7 +51,7 @@ Unified monorepo for AI agent development tools: Bigend, Gurgeh, Coldwine, and P
 | [docs/QUICK_REFERENCE.md](docs/QUICK_REFERENCE.md) | Command cheat sheet |
 | [docs/tui/SHORTCUTS.md](docs/tui/SHORTCUTS.md) | TUI keyboard shortcut conventions |
 | [docs/plans/INDEX.md](docs/plans/INDEX.md) | Planning documents index |
-| [docs/VISION.md](docs/VISION.md) | Strategic vision and coordination infrastructure |
+| [docs/vision.md](docs/vision.md) | Strategic vision and coordination infrastructure |
 | [docs/solutions/](docs/solutions/) | Solved problems by category -- **check before debugging!** |
 
 ### Topic References
