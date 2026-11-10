@@ -9,7 +9,7 @@ import { describe, expect, it, vi } from "vitest";
 vi.mock("@get-bb/plugin-sdk/app", () => ({ ThreadChat: () => null }));
 
 import { learnEnabled, learnSet, learnView, loadDeck, type LearnSettings } from "../learn.js";
-import { homeTabs, HomeTabs } from "../ui/tabs.js";
+import { homeTabs, HomeTabs, QUEUE_TABS } from "../ui/tabs.js";
 import { LearnPanel, LearnSwitch, latestOnly, orderDeck } from "../ui/learn.js";
 import { MIGRATIONS } from "../migrations.js";
 import { openStore, tmpDir } from "./helpers.js";
@@ -42,7 +42,12 @@ describe("the shipped deck", () => {
     expect(d[1]!.body).not.toContain("latest agent comment");
     expect(d[2]!.body).toContain("updates that are only for reading");
     expect(d[2]!.body).toContain("put on hold");
-
+  });
+  it("describes the count as the code does now: no open moves, no notices, tabs named as the UI names them", () => {
+    const body = loadDeck(shipped)[2]!.body;
+    expect(body).not.toMatch(/open moves/i);
+    expect(body).not.toMatch(/notices you must acknowledge/i);
+    for (const [, label] of QUEUE_TABS) expect(body).toContain(`"${label}"`);
   });
   it("skips files that are not cards and reads nothing from a missing directory", () => {
     const dir = mkdtempSync(join(tmpdir(), "learn-"));

@@ -228,7 +228,8 @@ export function pairDigests(parts: readonly string[]): Map<number, string> {
   return out;
 }
 
-export function RefText({ text }: { text: string }) {
+/** `docLinks` false leaves a path as plain text: no read or open button beside it (the phone's read-only lists). */
+export function RefText({ text, docLinks = true }: { text: string; docLinks?: boolean }) {
   const parts = text.split(REF);
   const digests = pairDigests(parts);
   return (
@@ -242,7 +243,7 @@ export function RefText({ text }: { text: string }) {
             <code className={`select-all rounded bg-muted px-1 font-mono text-xs ${SHA_ONLY.test(part) ? "inline-block max-w-full overflow-x-auto whitespace-nowrap align-bottom" : "[overflow-wrap:anywhere]"}`} data-ref>
               {part}
             </code>
-            {part.startsWith("/") ? <DocLink path={part} sha256={digests.get(i)} /> : null}
+            {docLinks && part.startsWith("/") ? <DocLink path={part} sha256={digests.get(i)} /> : null}
           </Fragment>
         );
       })}
@@ -490,10 +491,10 @@ export function expiryText(expiresAt: string, nowMs: number): string {
 }
 
 /** Without `onRevoke` the list is read-only: no Revoke button is drawn, so none can do nothing. */
-export function ApprovalsList({ approvals, onRevoke, nowMs = Date.now() }: { approvals: ApprovalRecord[]; onRevoke?: (approvalId: string) => void; nowMs?: number }) {
+export function ApprovalsList({ approvals, onRevoke, nowMs = Date.now(), bare = false }: { approvals: ApprovalRecord[]; onRevoke?: (approvalId: string) => void; nowMs?: number; /** Leave out the heading, for a caller that draws its own (the phone's More waiting row). */ bare?: boolean }) {
   return (
     <section data-section="approvals">
-      <h2 className="mb-2 text-xs font-semibold uppercase text-muted-foreground">Recorded approvals</h2>
+      {bare ? null : <h2 className="mb-2 text-xs font-semibold uppercase text-muted-foreground">Recorded approvals</h2>}
       <p className="mb-2 text-xs text-muted-foreground">Records of what you approved. They do not authorize a merge, deploy or release.</p>
       <ul className="space-y-2">
         {approvals.map((a) => (
