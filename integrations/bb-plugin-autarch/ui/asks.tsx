@@ -13,6 +13,7 @@ import { DocLink } from "./docreader.js";
 import type { Question } from "../model.js";
 import { freeOwnWordsId } from "../ownwords.js";
 import { MultiPick } from "./multipick.js";
+import { neighborAfterRemoval } from "./nextcard.js";
 import { OtherBox, otherHelpText, type OtherImage, type OtherOutcome } from "./other.js";
 
 /** What a pick hands back to the card: not ok means the card stays open and shows the error. */
@@ -401,18 +402,19 @@ export function optionEffect(o: { kind: string; instruction?: string; reversible
 /** The Decide queue: a short row per ask on the left, the selected ask in full on the right (below when narrow). */
 export function DecideQueue({ owed, onPick, onOpen, nowMs, onNote, onLater, onView }: { owed: OwedAsk[]; onPick: OnPick; onOpen: (thread: string) => void; nowMs: number; onNote?: OnNote; onLater?: OnLater; onView?: (decisionId: string | null) => void }) {
   const [selected, setSelected] = useState<string | null>(null);
-  const current = currentAsk(owed, selected);
+  // When the card on screen leaves the list (answered, set aside), show the one that was below it, else the one above
+  // (bead mk-c0mka). `seen` is the list and card as of the last render, so the position is that of the list as it was; cards
+  // that came or went since do not move it. Adjusted during render, so the new card paints in the same frame as the old one goes.
+  const ids = owed.map((o) => o.id);
+  const [seen, setSeen] = useState<{ ids: string[]; shown: string | null }>({ ids, shown: null });
+  const left = seen.shown !== null && !ids.includes(seen.shown);
+  const heir = left ? neighborAfterRemoval(seen.ids, seen.shown!, ids) : selected;
+  const current = currentAsk(owed, heir);
   const viewingId = current?.id ?? null;
-  // Tell the plugin which ask is on screen, so `bb home viewing` can answer "which card is mk looking at".
-  useEffect(() => {
-    onView?.(viewingId);
-    paintDone();
-  }, [viewingId]); // eslint-disable-line react-hooks/exhaustive-deps
+  if (heir !== selected) setSelected(heir);
+  if (seen.shown !== viewingId || seen.ids.length !== ids.length || seen.ids.some((x, i) => x !== ids[i])) setSeen({ ids, shown: viewingId });
   const cardRef = useRef<HTMLDivElement>(null);
   const listRef = useRef<HTMLOListElement>(null);
-  if (current === undefined) return null;
-  // The project line says nothing when every ask is from the same project.
-  const showProject = new Set(owed.map((o) => o.project ?? "")).size > 1;
   // When the layout wraps (narrow window or narrow panel) the card sits below the whole list; bring it into view on selection.
   const reveal = () => {
     const list = listRef.current;
@@ -420,6 +422,23 @@ export function DecideQueue({ owed, onPick, onOpen, nowMs, onNote, onLater, onVi
     // Stacked means the card starts below the list's end; side by side it does not (any window width).
     if (list && card && card.getBoundingClientRect().top >= list.getBoundingClientRect().bottom - 1) card.scrollIntoView({ block: "start" });
   };
+  // Tell the plugin which ask is on screen, so `bb home viewing` can answer "which card is mk looking at".
+  const lastShown = useRef<string | null>(null);
+  useEffect(() => {
+    onView?.(viewingId);
+    paintDone();
+    const before = lastShown.current;
+    lastShown.current = viewingId;
+    // The card on screen left and another took its place: bring the new row (and a stacked card) into view at once, with
+    // no animation, since this happens every time mk answers.
+    if (before !== null && viewingId !== null && before !== viewingId && !ids.includes(before)) {
+      listRef.current?.querySelector('[aria-current="true"]')?.scrollIntoView({ block: "nearest" });
+      reveal();
+    }
+  }, [viewingId]); // eslint-disable-line react-hooks/exhaustive-deps
+  if (current === undefined) return null;
+  // The project line says nothing when every ask is from the same project.
+  const showProject = new Set(owed.map((o) => o.project ?? "")).size > 1;
   return (
     <div className="flex flex-wrap items-start gap-2 sm:gap-4">
       <ol ref={listRef} className="m-0 min-w-0 shrink-0 grow basis-64 list-none space-y-1 p-0 max-sm:[font-family:ui-sans-serif,system-ui,sans-serif]" data-decide-list>
