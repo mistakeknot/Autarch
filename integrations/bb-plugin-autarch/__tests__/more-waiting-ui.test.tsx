@@ -9,6 +9,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("@get-bb/plugin-sdk/app", () => ({ ThreadChat: () => null }));
 
+import { DocReaderHost } from "../ui/docreader.js";
 import { MobileInbox } from "../ui/inbox.js";
 import { moreWaiting } from "../ui/morewaiting.js";
 import { filterAsks } from "../ui/projectfilterstore.js";
@@ -144,6 +145,21 @@ describe("the row, open", () => {
   });
   it("keeps Stalled items in one list a later change can add to (a single place builds them)", () => {
     expect(moreWaiting(full()).groups[0]!.items.map((i) => i.id)).toEqual(["undeliverable:u1", "s1"]);
+  });
+  it("a file path in an item's text shows as text only, with no read or open button, inside the app's document reader", () => {
+    const withPath = base({
+      lane: [{ id: "l1", subject: "Check /tmp/install.sh first", thread: "t", owner: "o", detail: "log at /tmp/run.log", updated_at: "2026-10-09T10:00:00Z" }],
+      runbook: [{ thread: "thr-r", items: [{ id: "r1", subject: "Run /tmp/steps.md", question: "See /tmp/steps.md", steps: ["bash /x"], filed_at: "2026-10-09T01:00:00Z" }] }],
+    });
+    const api = { read: async () => ({ ok: false as const, error: "x" }), openFile: async () => ({ ok: true as const }) };
+    const html = renderToStaticMarkup(
+      <DocReaderHost api={api}>
+        <MobileInbox asks={withPath} waiting={1} onPick={noop as never} onOpen={noop} onNote={noop} onLater={noop} sinceNode={null} sinceCount={0} onDesktop={noop} now={NOW} initial={{ moreOpen: true }} />
+      </DocReaderHost>,
+    );
+    const list = html.slice(html.indexOf("data-inbox-more-list"), html.indexOf("data-inbox-tabs"));
+    expect(list).toContain("/tmp/install.sh");
+    expect(list).not.toMatch(/data-doc-open|data-file-open|<button/);
   });
   it("one item, many items and a very long subject all render without clipping", () => {
     const many = Array.from({ length: 60 }, (_, i) => ({ id: `l${i}`, subject: `Lane ${i}`, thread: "t", owner: "o", detail: "d", updated_at: "2026-10-09T10:00:00Z" }));
