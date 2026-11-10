@@ -24,6 +24,7 @@ import { identity, normalizedJson, parseAsk, revision, semanticKey, type Ask, ty
 import { pickWrites } from "./cardwrites.js";
 import { estateRoot, fsUuidOfDev, pinRoot, renderRuling, rulingPath, writeRuling, type PinnedRoot, type Ruling } from "./ruling.js";
 import { appendRuling } from "./ledger.js";
+import type { ThreadRow } from "./delegation.js";
 import type { DecisionInput, ObligationInput, ObligationRow, PickInput, PickRow, Store } from "./store.js";
 
 export interface ProjectInfo {
@@ -51,6 +52,16 @@ export interface ServiceDeps {
   pushTimeoutMs?: number;
   /** Where a failed push is logged (default console.error). */
   log?: (msg: string) => void;
+  /** Who is told about an undelivered card whose asker is unknown (bead mk-mn7yz). Omitted, no one is. Delegation sets it when it is given a thread lister. */
+  threadSource?: NoticeThreads;
+}
+
+/** The threads a notice about an undelivered card with no known asker can go to. */
+export interface NoticeThreads {
+  /** Every thread, fresh, archived and deleted ones included. May reject. */
+  list: () => Promise<ThreadRow[]>;
+  /** The live vizier thread, or null when none can be confirmed. */
+  vizier: () => Promise<string | null>;
 }
 
 
@@ -190,10 +201,17 @@ export class Service {
   /** Asks with a push in flight (by oldest row id), so two filings of one ask never push twice at once. */
   private pushing = new Set<string>();
   private pushPending = new Set<Promise<void>>();
+  private threadSource: NoticeThreads | undefined;
 
   constructor(deps: ServiceDeps) {
     this.deps = deps;
     this.store = deps.store;
+    this.threadSource = deps.threadSource;
+  }
+
+  /** Where a notice about an undelivered card with no known asker is sent (bead mk-mn7yz). Delegation sets this from the host's thread list. */
+  useThreadSource(src: NoticeThreads): void {
+    this.threadSource = src;
   }
 
   private now(): string {
@@ -1604,27 +1622,58 @@ export class Service {
     this.patchCard(taskId, { state: "display", display_reason: reason, next_check_at: null, check_attempts: 0 });
   }
 
-  /** T2: stay observed, back off 5 s doubling to 5 min, and say why. */
-  private setObserved(row: Record<string, any>, reason: string, thread = ""): void {
+  /** T2: stay observed, back off 5 s doubling to 5 min, and say why. Returns the notice still being queued, when the second try just failed. */
+  private setObserved(row: Record<string, any>, reason: string, thread = "", project = ""): Promise<void> | void {
     const attempts = Number(row.check_attempts ?? 0);
     const delay = Math.min(OBSERVED_BACKOFF_MS * 2 ** Math.min(attempts, 20), MAX_BACKOFF_MS);
     this.patchCard(row.task_id, { state: "observed", display_reason: reason, check_attempts: attempts + 1, next_check_at: this.isoPlus(delay), ...(thread !== "" ? { asking_thread: thread } : {}) });
-    if (attempts + 1 >= 2) this.tellNotDelivered(row, reason, thread || String(row.asking_thread ?? ""));
+    if (attempts + 1 >= 2) return this.tellNotDelivered(row, reason, thread || String(row.asking_thread ?? ""), project);
   }
 
   /**
    * After the second failed try the asking thread is told once that its card is not delivered (bead mk-j5ipa.15). It rides the
    * plugin's existing notice obligation and wake engine, so no new transport exists. The row's `op` is unique, so a later try, a restart
-   * or a card that stalls again inserts nothing more. A card with no known asking thread has no one to tell.
+   * or a card that stalls again inserts nothing more. A card with no known asking thread tells the project's coordinator instead, or
+   * the vizier when the project has none or several (bead mk-mn7yz); the same op keeps that to once per card too. A card is
+   * undelivered only before its first generation exists, so the notice always speaks of generation 1 and a re-filed card is a new card.
    */
-  private tellNotDelivered(row: Record<string, any>, reason: string, thread: string): void {
-    if (thread === "") return;
+  private async tellNotDelivered(row: Record<string, any>, reason: string, thread: string, project: string): Promise<void> {
     const taskId = String(row.task_id);
     const op = `undelivered:${taskId}`;
+    // Already told (or already queued): skip the thread lookup, which lists every thread and would run on each poll.
+    if (this.store.obligation(`ob:${op}`)) return;
     const title = String(this.cardTitle(taskId) ?? "").slice(0, 120);
-    // Worded as a past event with its time: a batched digest can leave up to an hour later, after the card was delivered, and must still be true.
-    const payload = `At ${this.now()}, Home card ${taskId}${title ? ` (${title})` : ""} was not delivered: Home had tried twice and could not put it in front of mk (${reason}). That may have changed since: Home keeps trying, the card moves to Decide by itself once delivered, and Home tells you nothing more about it. Nothing needs to be re-filed unless the card is edited or deleted.`;
-    if (this.store.insertObligations(`card:${taskId}`, [{ id: `ob:${op}`, kind: "notice", recipient: thread, op, payload }]) > 0) this.deps.nudge?.();
+    let recipient = thread;
+    let payload: string;
+    if (thread !== "") {
+      // Worded as a past event with its time: a batched digest can leave up to an hour later, after the card was delivered, and must still be true.
+      payload = `At ${this.now()}, Home card ${taskId}${title ? ` (${title})` : ""} was not delivered: Home had tried twice and could not put it in front of mk (${reason}). That may have changed since: Home keeps trying, the card moves to Decide by itself once delivered, and Home tells you nothing more about it. Nothing needs to be re-filed unless the card is edited or deleted.`;
+    } else {
+      const to = await this.unknownAskerReceiver(project);
+      if (!to) return; // none can be named now: the next poll tries again
+      recipient = to.id;
+      const key = this.cardKey(taskId) ?? taskId;
+      const gen = Number((this.db.prepare("SELECT MAX(generation) AS g FROM decisions WHERE task_id = ?").get(taskId) as { g: number | null }).g ?? 0) + 1;
+      payload = `At ${this.now()}, Home card ${key}${title ? ` (${title})` : ""}, generation ${gen}${project ? `, project ${project}` : ""}, was not delivered: Home had tried twice and could not put it in front of mk (${reason}). Home does not know which thread asked it, so you are told as ${to.role}. That may have changed since: Home keeps trying, the card moves to Decide by itself once delivered, and Home tells you nothing more about it. If it stays stuck you can claim it (comment on the card from the thread that should own it, so Home learns the asking thread), rebind its project (when the reason is a project-binding mismatch), or re-file it (edit or replace the card).`;
+    }
+    if (this.store.insertObligations(`card:${taskId}`, [{ id: `ob:${op}`, kind: "notice", recipient, op, payload }]) > 0) this.deps.nudge?.();
+  }
+
+  /** The one live "<Project> | coordinator" thread, else the vizier. Null when neither can be named now (including an unreadable thread list). */
+  private async unknownAskerReceiver(project: string): Promise<{ id: string; role: string } | null> {
+    const src = this.threadSource;
+    if (!src) return null;
+    try {
+      if (project !== "") {
+        const title = `${project} | coordinator`;
+        const live = (await src.list()).filter((t) => t.archivedAt == null && t.deletedAt == null && (t.title ?? "").trim() === title);
+        if (live.length === 1) return { id: live[0]!.id, role: `the ${project} coordinator` };
+      }
+      const v = await src.vizier();
+      return v ? { id: v, role: "the vizier, because the project has no single live coordinator" } : null;
+    } catch {
+      return null;
+    }
   }
 
   /** The cards held in observed, oldest first: filed but not yet delivered to Decide. Read-only; none is a decision owed. */
@@ -1661,7 +1710,7 @@ export class Service {
         try {
           await this.deps.projects();
         } catch (e) {
-          return this.setObserved(row, `root unverified: ${message(e)}`);
+          return this.setObserved(row, `root unverified: ${message(e)}`, "", project);
         }
       }
       return this.setDisplay(task.id, mismatch);
@@ -1678,7 +1727,7 @@ export class Service {
       thread = askingThread(comments);
       if (thread === "") {
         const waited = Date.parse(this.now()) - Date.parse(String(row.first_seen_at));
-        return this.setObserved(row, waited >= UNROUTABLE_AFTER_MS ? "unroutable" : "waiting for asking thread");
+        return this.setObserved(row, waited >= UNROUTABLE_AFTER_MS ? "unroutable" : "waiting for asking thread", "", project);
       }
     }
     if (project === "estate") return this.setDisplay(task.id, "estate is not allowed on a card");
@@ -1686,10 +1735,10 @@ export class Service {
     try {
       projects = await this.deps.projects();
     } catch (e) {
-      return this.setObserved(row, `root unverified: ${message(e)}`, thread);
+      return this.setObserved(row, `root unverified: ${message(e)}`, thread, project);
     }
     const p = projects.find((x) => x.name === project);
-    if (!p) return this.setObserved(row, `root unverified: unknown project ${JSON.stringify(project)}`, thread);
+    if (!p) return this.setObserved(row, `root unverified: unknown project ${JSON.stringify(project)}`, thread, project);
     if (p.root !== card.ask.project_root) return this.setDisplay(task.id, "project_root does not match the root serve resolves for this project");
 
     let fp: string;
