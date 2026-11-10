@@ -166,9 +166,9 @@ describe("later and the Waiting-on-you count", () => {
     await r.poll();
     r.mkPick(r.gens(a.id)[0].id);
     r.mkPick(r.gens(b.id)[0].id);
-    expect(count(r)).toMatchObject({ decide: 0, moves: 2, total: 2, later: 0 });
+    expect(count(r)).toMatchObject({ decide: 0, moves: 2, total: 0, later: 0 });
     r.svc.later(a.id, "mk");
-    expect(count(r)).toMatchObject({ moves: 1, total: 1, later: 1 });
+    expect(count(r)).toMatchObject({ moves: 1, total: 0, later: 1 });
   });
 
   it("a card with both an owed decision and a move is one Later", async () => {
@@ -192,9 +192,9 @@ describe("later and the Waiting-on-you count", () => {
     r.mkPick(r.gens(a.id)[0].id);
     r.mkPick(r.gens(b.id)[0].id);
     r.svc.skipMove(a.id, 1);
-    expect(count(r)).toMatchObject({ moves: 1, total: 1, later: 1 });
+    expect(count(r)).toMatchObject({ moves: 1, total: 0, later: 1 });
     r.svc.later(a.id, "mk"); // skipped and set aside: still one
-    expect(count(r)).toMatchObject({ moves: 1, total: 1, later: 1 });
+    expect(count(r)).toMatchObject({ moves: 1, total: 0, later: 1 });
   });
 
   it("a move on a Later card shows in the Your move Later group, with the card flag, and leaves it on Move back", async () => {
@@ -260,7 +260,7 @@ describe("later and moves (one reversible state per card)", () => {
     const v = moveViews(r.svc);
     expect(v.later).toEqual([]);
     expect(v.yourMove.map((m) => m.task_id)).toEqual([a.id]);
-    expect(count(r)).toMatchObject({ moves: 1, total: 1, later: 0 });
+    expect(count(r)).toMatchObject({ moves: 1, total: 0, later: 0 });
     expect(r.svc.unlater(a.id)).toEqual({ ok: true, task_id: a.id, was: false });
   });
 

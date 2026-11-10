@@ -40,7 +40,7 @@ describe("waiting on mk", () => {
     const gb = r.gens(b.id)[0];
     expect(r.mkPick(gb.id)).toMatchObject({ ok: true });
     const w = count(r);
-    expect(w).toMatchObject({ decide: 1, moves: 1, total: 2 });
+    expect(w).toMatchObject({ decide: 1, moves: 1, total: 1 }); // the count is the decisions that need a pick; moves are named, not added
   });
 
   it("a claimed, skipped or held move is not waiting", async () => {
@@ -65,7 +65,7 @@ describe("waiting on mk", () => {
     r.svc.store.recordEvent("vizier-adopted", null, { from: null, to: "thr_viz2", reason: "unset" });
     expect(r.dele.suspendedNow()).toBe(true);
     const w = count(r);
-    expect(w).toMatchObject({ decide: 1, notices: 1, total: 2 });
+    expect(w).toMatchObject({ decide: 1, notices: 1, total: 1 }); // the notice is named beside the count, not inside it
     expect(w.noticeItems).toHaveLength(1);
     expect(w.noticeItems[0]!.text).toContain("thr_viz2");
     r.dele.markSeen("mk", w.noticeItems[0]!.item);
@@ -160,7 +160,8 @@ describe("one number everywhere", () => {
     await r.poll();
     r.svc.store.recordEvent("vizier-adopted", null, { from: null, to: "thr_viz3", reason: "unset" });
     const w = count(r);
-    expect(w.total).toBe(3);
+    expect(w.total).toBe(2); // the notice is not part of the count
+    expect(w.notices).toBe(1);
     expect(badgeCount({ count: w.decide }, { blocked: false, unowned: false })).toBe("2");
   });
 });

@@ -60,7 +60,7 @@ export function nextQueueTab(tab: QueueTab, key: string): QueueTab | null {
 
 /** The Queue's own tabs: each paradigm gets a tab with its count, so no view makes mk scroll past one to reach another. */
 // Below sm the tabs wrap to a second line rather than scroll, so no tab sits off-screen with no cue; a label never splits.
-export function QueueTabs({ tab, counts, onTab, definition = null }: { tab: QueueTab; counts: Record<QueueTab, number> | null; onTab: (t: QueueTab) => void; definition?: string | null }) {
+export function QueueTabs({ tab, counts, onTab, definition = null, line = null }: { tab: QueueTab; counts: Record<QueueTab, number> | null; onTab: (t: QueueTab) => void; definition?: string | null; line?: string | null }) {
   return (
     <div className="border-b border-border px-2 sm:px-4">
     <div className="flex flex-wrap items-center gap-x-3">
@@ -89,6 +89,7 @@ export function QueueTabs({ tab, counts, onTab, definition = null }: { tab: Queu
         </button>
       ))}
     </div>
+    {line && line.includes(" · ") ? <p className="m-0 shrink-0 text-xs text-muted-foreground [overflow-wrap:anywhere]" data-waiting-line>{`Waiting on you: ${line}`}</p> : null}
     {definition ? (
       <details className="shrink-0 text-xs text-muted-foreground open:basis-full" data-waiting-definition>
         <summary className="flex min-h-11 cursor-pointer items-center">What this counts</summary>

@@ -135,7 +135,8 @@ describe("phone: the On hold row", () => {
     expect(html).toContain("K-h1");
     expect(html).toContain("Held h2");
     // read-only: no pick, Later, hold or open controls on a held row
-    const list = html.slice(html.indexOf("data-inbox-hold-list"));
+    const from = html.indexOf("data-inbox-hold-list");
+    const list = html.slice(from, html.indexOf("</ul>", from));
     expect(list).not.toMatch(/data-option|data-bar-|data-later|data-inbox-row|data-confirm/);
     expect(list).not.toContain("<button");
   });
