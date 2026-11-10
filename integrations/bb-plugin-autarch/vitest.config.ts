@@ -6,5 +6,7 @@ export default defineConfig({
     exclude: ["__tests__/e2e/**"],
     // A test that builds the server must never append to the real rulings ledger.
     env: { AUTARCH_RULINGS_LEDGER: "off" },
+    // Turns the worker's event loop after each test, so a run of synchronous tests cannot starve the runner's replies (mk-jb5ul).
+    setupFiles: ["__tests__/setup/turn-event-loop.ts"],
   },
 });

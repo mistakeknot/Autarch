@@ -5,7 +5,9 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { ActionButton } from "./buttons.js";
 import { glance } from "./glance.js";
+import { HoldEndLine } from "./holdendline.js";
 import { neighborAfterRemoval } from "./nextcard.js";
+import { PickHoldBar, usePickHold } from "./pickhold.js";
 import { unreadableLabel } from "./unreadable.js";
 import { extrasText, owedCounts } from "../waitingcount.js";
 import { MoreWaitingRow, moreWaiting } from "./morewaiting.js";
@@ -56,14 +58,14 @@ export function useIsPhone(): boolean {
 
 const CHIP = "rounded-full bg-muted px-2 py-0.5 text-xs text-muted-foreground";
 
-function Row({ r, onOpen }: { r: InboxRow; onOpen: () => void }) {
+function Row({ r, onOpen, sending = false }: { r: InboxRow; onOpen: () => void; sending?: boolean }) {
   const rec = r.ask?.ask.options.find((o) => o.id === r.ask?.ask.recommendation);
   return (
     <li className="m-0 list-none border-b border-border">
       <button type="button" className="flex min-h-16 w-full flex-col items-stretch gap-1 px-4 py-3 text-left" onClick={onOpen} data-inbox-row={r.key}>
         <span className="flex items-center justify-between gap-2">
           <span className="flex min-w-0 items-center gap-2">
-            <span className={CHIP}>{r.chip}</span>
+            <span className={CHIP}>{sending ? "Sending" : r.chip}</span>
             {r.ask?.key ? <span className="font-mono text-xs text-muted-foreground" data-row-key>{r.ask.key}</span> : null}
           </span>
           <span className="text-xs text-muted-foreground">{r.age}</span>
@@ -94,6 +96,7 @@ function HoldRow({ rows, open, onToggle }: { rows: InboxRow[]; open: boolean; on
               </span>
               <span className="mt-1 block text-sm font-medium [overflow-wrap:anywhere]">{r.title}</span>
               <span className="mt-1 block text-xs [overflow-wrap:anywhere]" data-hold-reason>{`On hold: ${r.ask?.held?.reason ?? ""}`}</span>
+              {r.ask?.held ? <HoldEndLine held={r.ask.held} className="mt-0.5 block text-xs [overflow-wrap:anywhere]" /> : null}
             </li>
           ))}
         </ul>
@@ -172,6 +175,12 @@ export function MobileInbox({ asks, waiting, onPick, onOpen, onNote, onLater, si
   const [moreOpen, setMoreOpen] = useState(initial?.moreOpen ?? false);
   const more = moreWaiting(asks);
   const rows = inboxRows(asks, now);
+  // A one-tap pick is held for 5 s under the Undo bar before it is sent (bead mk-j5ipa.13). Typed words, images, multi-question
+  // answers and options that ask for a second tap are not one-tap picks and go straight through.
+  const hold = usePickHold(onPick, (decisionId, optionId) => {
+    const opt = asks.owed.find((o) => o.id === decisionId)?.ask.options.find((o) => o.id === optionId);
+    return opt !== undefined && !isDestructiveOption(opt);
+  });
   const extras = extrasText(owedCounts(filter?.summaryOwed ?? asks.owed));
   const list = tab === "later" ? rows.later : rows.waiting;
   const current = open === null ? null : [...rows.waiting, ...rows.later].find((r) => r.key === open) ?? null;
@@ -223,7 +232,7 @@ export function MobileInbox({ asks, waiting, onPick, onOpen, onNote, onLater, si
           ideaNode
         ) : current ? (
           <div className="p-3" data-inbox-detail={current.key}>
-            {current.ask ? <AskCard key={current.key} ask={current.ask} onPick={onPick} onOpen={onOpen} nowMs={now} onNote={onNote} onLater={onLater} /> : null}
+            {current.ask ? <AskCard key={current.key} ask={current.ask} onPick={hold.pick} onOpen={onOpen} nowMs={now} onNote={onNote} onLater={onLater} /> : null}
           </div>
         ) : tab === "since" ? (
           sinceNode
@@ -232,15 +241,16 @@ export function MobileInbox({ asks, waiting, onPick, onOpen, onNote, onLater, si
             {list.length === 0 ? (
               <p className="p-4 text-sm text-muted-foreground" data-inbox-empty>{hiddenHere > 0 ? "Everything here is hidden by the project filter." : tab === "later" ? "Nothing set aside." : "Nothing is waiting on you."}</p>
             ) : (
-              <ul className="m-0 p-0">{list.map((r) => <Row key={r.key} r={r} onOpen={() => setOpen(r.key)} />)}</ul>
+              <ul className="m-0 p-0">{list.map((r) => <Row key={r.key} r={r} sending={r.ask?.id === hold.heldId} onOpen={() => setOpen(r.key)} />)}</ul>
             )}
             {tab === "waiting" && rows.held.length > 0 ? <HoldRow rows={rows.held} open={holdOpen} onToggle={() => setHoldOpen((v) => !v)} /> : null}
             {tab === "waiting" && more.total > 0 ? <MoreWaitingRow groups={more.groups} total={more.total} open={moreOpen} onToggle={() => setMoreOpen((v) => !v)} /> : null}
           </>
         )}
       </div>
+      <PickHoldBar hold={hold} />
       {current ? (
-        <DetailBar key={current.key} r={current} onPick={onPick} onLater={onLater} onDone={() => advanceFrom(current.key)} />
+        <DetailBar key={current.key} r={current} onPick={hold.pick} onLater={onLater} onDone={() => advanceFrom(current.key)} />
       ) : (
         <nav className="flex border-t border-border bg-background" data-inbox-tabs>
           {tabs.map(([id, label]) => (
