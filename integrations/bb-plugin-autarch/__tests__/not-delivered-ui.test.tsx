@@ -6,7 +6,8 @@ import { describe, expect, it, vi } from "vitest";
 
 vi.mock("@get-bb/plugin-sdk/app", () => ({ ThreadChat: () => null }));
 
-import { buildAsksView, type AsksData } from "../ui/asks.js";
+import { AsksPanel, buildAsksView, type AsksData } from "../ui/asks.js";
+import { DocReaderHost } from "../ui/docreader.js";
 import { MoreWaitingRow, moreWaiting } from "../ui/morewaiting.js";
 import { owedCounts } from "../waitingcount.js";
 
@@ -16,7 +17,7 @@ const nd = (n: number, over: Record<string, string> = {}) => ({ id: `undelivered
 describe("desktop Stalled", () => {
   it("shows one Not delivered yet item with its reason and no action", () => {
     const stalled = buildAsksView(base({ notDelivered: [nd(1)] })).find((s) => s.key === "stalled")!;
-    expect(stalled.items).toEqual([{ id: "undelivered:t1", title: "Not delivered yet: Card 1", detail: "root unverified: serve is down", thread: "thr_a" }]);
+    expect(stalled.items).toEqual([{ id: "undelivered:t1", title: "Not delivered yet: Card 1", detail: "root unverified: serve is down", thread: "thr_a", readOnly: true }]);
     expect(stalled.items[0]).not.toHaveProperty("dismiss");
   });
   it("shows nothing for zero, and every one of many, after the other stalled items", () => {
@@ -26,6 +27,17 @@ describe("desktop Stalled", () => {
     const s = buildAsksView(base({ uncertain: [{ id: "u1", kind: "wake", recipient: "x" }], notDelivered: many })).find((x) => x.key === "stalled")!;
     expect(s.items).toHaveLength(41);
     expect(s.items[0]!.id).toBe("uncertain:u1");
+  });
+  it("draws a file path in a subject or reason as plain text: no read or open button, even inside a reader host", () => {
+    const item = nd(1, { subject: "Review /srv/example/m/docs/thr_a/plan.md", reason: "see /srv/example/m/docs/thr_a/why.md" });
+    const html = renderToStaticMarkup(
+      <DocReaderHost api={{ read: async () => ({ ok: false, error: "x" }), openFile: async () => ({ ok: true }) }}>
+        <AsksPanel data={base({ notDelivered: [item] })} onPick={() => {}} onOpen={() => {}} />
+      </DocReaderHost>,
+    );
+    expect(html).toContain("Not delivered yet: Review ");
+    expect(html).toContain("/srv/example/m/docs/thr_a/plan.md");
+    expect(html).not.toMatch(/data-doc-open|data-file-open|<button/);
   });
   it("does not count toward Waiting on you", () => {
     expect(owedCounts([])).toEqual({ pick: 0, held: 0, later: 0 });
