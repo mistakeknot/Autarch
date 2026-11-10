@@ -191,3 +191,60 @@ func TestMCPDefaultFilerIsACardFiler(t *testing.T) {
 		t.Fatalf("seq %v env %v", seq, env)
 	}
 }
+
+// boundBB answers only the binding reads for tasks board P1 bound to the Home project
+// "shadow-work" and records every call, so a test can tell whether filing went any further.
+type boundBB struct{ calls []string }
+
+func (b *boundBB) run(_ context.Context, _ []string, args ...string) homeask.BBResult {
+	b.calls = append(b.calls, strings.Join(args, " "))
+	switch strings.Join(args[:min(len(args), 3)], " ") {
+	case "tasks project list":
+		return homeask.BBResult{Stdout: []byte(`{"projects":[{"id":"P1","name":"Shadow","prefix":"SHWK"}]}`)}
+	case "home binding P1":
+		return homeask.BBResult{Stdout: []byte(`{"home_project":"shadow-work","state":"confirmed"}`)}
+	}
+	return homeask.BBResult{Code: 1, Stderr: []byte("unexpected: " + strings.Join(args, " "))}
+}
+
+// B4: a project that is not the one bound to the card's task board is hidden by Home, so the
+// tool must refuse it with the expected project and reach no filing call.
+func TestMCPFileDecisionRefusesAProjectHomeWouldHide(t *testing.T) {
+	t.Setenv("BB_THREAD_ID", "")
+	bb := &boundBB{}
+	s := NewServer(t.TempDir()).WithFiler(&homeask.CardFiler{Run: bb.run, LockDir: t.TempDir(), TasksProject: "P1"})
+	ctx := WithCaller(context.Background(), CallerInfo{AgentID: "w", Scopes: []string{"write"}})
+	args := decisionArgs()
+	args["project"], args["project_root"] = "shadow-workipedia", "/srv/shadow"
+	resp := callTool(t, s, ctx, "autarch_file_decision", args)
+	result, _ := resp.Result.(map[string]any)
+	if resp.Error == nil && result["isError"] != true {
+		t.Fatalf("filed a card Home would hide: %+v", resp)
+	}
+	if !strings.Contains(marshal(resp), `expected project \"shadow-work\"`) {
+		t.Fatalf("refusal does not name the bound project: %s", marshal(resp))
+	}
+	for _, c := range bb.calls {
+		if !strings.HasPrefix(c, "tasks project list") && !strings.HasPrefix(c, "home binding") {
+			t.Fatalf("filing went on after the check: %v", bb.calls)
+		}
+	}
+}
+
+// boundDefaultFiler is a filer that knows the Home project its task board is bound to.
+type boundDefaultFiler struct{ fakeFiler }
+
+func (*boundDefaultFiler) DefaultAskProject(context.Context) string { return "shadow-work" }
+
+// B5: with no project, the tool takes the board's bound project, not the folder name.
+func TestMCPFileDecisionDefaultsTheProjectToTheBoardBinding(t *testing.T) {
+	t.Setenv("BB_THREAD_ID", "")
+	root := t.TempDir() + "/Autarch-project-visit"
+	f := &boundDefaultFiler{}
+	s := NewServer(root).WithFiler(f)
+	ctx := WithCaller(context.Background(), CallerInfo{AgentID: "w", Scopes: []string{"write"}})
+	resp := callTool(t, s, ctx, "autarch_file_decision", decisionArgs())
+	if resp.Error != nil || f.got.Project != "shadow-work" {
+		t.Fatalf("resp=%+v project=%q", resp, f.got.Project)
+	}
+}

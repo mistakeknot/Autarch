@@ -215,6 +215,9 @@ func (f *memBB) run(ctx context.Context, env []string, args ...string) BBResult 
 		}
 		return *badRes(1, "task not found")
 	}
+	if strings.HasPrefix(cmd, "home binding") {
+		return *badRes(1, "unknown command") // a Home that cannot answer: the project check fails open
+	}
 	f.t.Errorf("memBB: unexpected call %v", args)
 	return *badRes(1, "unexpected")
 }
