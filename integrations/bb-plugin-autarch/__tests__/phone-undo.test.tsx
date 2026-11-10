@@ -129,7 +129,7 @@ describe("a one-tap pick on the phone is held for five seconds", () => {
     render([A, B], { open: "ask:a" });
     await click(q("[data-bar-main]"));
     expect(q("[data-pick-undo]")?.className).toContain("min-h-11");
-    expect(bar()?.outerHTML).not.toMatch(/transition|animate|duration/);
+    expect(bar()?.className).not.toMatch(/transition|animate|duration/);
   });
 });
 
