@@ -4,6 +4,10 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { makeBackup } from "../../../../tools/bb-plugin-deploy/lib/data.mjs";
 
+// makeBackup is plain JavaScript: tsc infers `data: never[]` from its empty-array literal, so a manifest entry is read through this shape.
+type DataEntry = { skipped?: string; files?: unknown };
+const entry0 = (r: { manifest: { data: unknown[] } }): DataEntry => r.manifest.data[0] as DataEntry;
+
 // A data directory is copied with cpSync (verbatimSymlinks), so a symlink in it is copied as a symlink. The manifest used to list
 // only regular files, so a changed or added symlink in a finished backup left the manifest unchanged, and the once-per-commit
 // reuse check (backupHolds) accepted that stale backup. Each symlink is now recorded with its target, read without following it.
@@ -43,7 +47,7 @@ describe("data directory backups with symlinks (mk-pgjnm)", () => {
     const { src, call } = setup();
     symlinkSync("a.txt", join(src, "link"));
     call();
-    expect(call().manifest.data[0].skipped).toBe("once-per-commit");
+    expect(entry0(call()).skipped).toBe("once-per-commit");
   });
 
   it("records each symlink with its target, without following it", () => {
@@ -54,7 +58,7 @@ describe("data directory backups with symlinks (mk-pgjnm)", () => {
     symlinkSync("a.txt", join(src, "link"));
     symlinkSync(outside, join(src, "dirlink"));
     symlinkSync("missing-target", join(src, "dangling"));
-    const files = call().manifest.data[0].files as { path: string; sha256?: string; symlink?: string }[];
+    const files = entry0(call()).files as { path: string; sha256?: string; symlink?: string }[];
     expect(files.map((f) => f.path)).toEqual(["a.txt", "dangling", "dirlink", "link"]);
     expect(files.find((f) => f.path === "link")).toEqual({ path: "link", symlink: "a.txt" });
     expect(files.find((f) => f.path === "dirlink")).toEqual({ path: "dirlink", symlink: outside });
@@ -71,16 +75,16 @@ describe("data directory backups with symlinks (mk-pgjnm)", () => {
     unlinkSync(copy);
     symlinkSync("/etc/passwd", copy);
     const second = call();
-    expect(second.manifest.data[0].skipped).toBeUndefined();
+    expect(entry0(second).skipped).toBeUndefined();
     expect(second.dir).not.toBe(first.dir);
     expect(readlinkSync(join(second.dir, "dir", "link"))).toBe("a.txt");
   });
 
   it("a symlink added to the backup copy cannot be reused as the once-per-commit backup", () => {
-    const { src, call } = setup();
+    const { call } = setup();
     const first = call();
     symlinkSync("/etc/passwd", join(first.dir, "dir", "extra"));
-    expect(call().manifest.data[0].skipped).toBeUndefined();
+    expect(entry0(call()).skipped).toBeUndefined();
   });
 
   it("a symlink removed from the backup copy cannot be reused as the once-per-commit backup", () => {
@@ -88,7 +92,7 @@ describe("data directory backups with symlinks (mk-pgjnm)", () => {
     symlinkSync("a.txt", join(src, "link"));
     const first = call();
     unlinkSync(join(first.dir, "dir", "link"));
-    expect(call().manifest.data[0].skipped).toBeUndefined();
+    expect(entry0(call()).skipped).toBeUndefined();
   });
 
   it("a regular file swapped for a symlink of the same name cannot be reused either", () => {
@@ -97,14 +101,14 @@ describe("data directory backups with symlinks (mk-pgjnm)", () => {
     unlinkSync(join(first.dir, "dir", "a.txt"));
     symlinkSync(join(src, "a.txt"), join(first.dir, "dir", "a.txt"));
     expect(lstatSync(join(first.dir, "dir", "a.txt")).isSymbolicLink()).toBe(true);
-    expect(call().manifest.data[0].skipped).toBeUndefined();
+    expect(entry0(call()).skipped).toBeUndefined();
   });
 
   it("a symlink target that is not valid UTF-8 is refused, as a file name is, so two targets cannot read back as one", () => {
     const { root, src, call } = setup();
     const raw = Buffer.concat([Buffer.from(root + "/x"), Buffer.from([0xff])]);
     // symlinkSync takes a Buffer target
-    (symlinkSync as unknown as (t: Buffer, p: string) => void)(raw, join(src, "bad"));
+    symlinkSync(raw, join(src, "bad"));
     expect(() => call()).toThrow(/not valid UTF-8/);
     expect(existsSync(join(root, "state", "once-per-commit"))).toBe(false);
   });

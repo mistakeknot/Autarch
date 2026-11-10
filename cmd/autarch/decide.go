@@ -21,7 +21,12 @@ var filerTimeout = 10 * time.Second
 
 // newFiler builds the card filer `decide file` and the MCP tool use. Its tasks project binding
 // comes from AUTARCH_TASKS_PROJECTS / AUTARCH_TASKS_PROJECT; tests replace it.
-var newFiler = func() *homeask.CardFiler { return homeask.CardFilerFromEnv(filerTimeout) }
+var newFiler = func() *homeask.CardFiler {
+	f := homeask.CardFilerFromEnv(filerTimeout)
+	// The same project and root check needs-mk file runs: Home hides a card that fails it.
+	f.Check = func(project, root string) error { return checkFilingPreconditions(project, root) }
+	return f
+}
 
 func gitRoot() string {
 	cwd, err := os.Getwd()
@@ -49,8 +54,9 @@ func resolveThread(flag string) (string, error) {
 }
 
 // buildAsk fills what the caller's context knows (thread, asker, project root) into
-// the JSON on stdin, then validates it as any other filing.
-func buildAsk(raw []byte, thread, asker, projectRoot, project string) (homeask.Ask, error) {
+// the JSON on stdin, then validates it as any other filing. defaultProject names the project when
+// neither the JSON nor project does (nil: the root's folder name).
+func buildAsk(raw []byte, thread, asker, projectRoot, project string, defaultProject func(root string) string) (homeask.Ask, error) {
 	var m map[string]any
 	if err := json.Unmarshal(raw, &m); err != nil {
 		return homeask.Ask{}, &usageError{"stdin is not a JSON object: " + err.Error()}
@@ -95,7 +101,12 @@ func buildAsk(raw []byte, thread, asker, projectRoot, project string) (homeask.A
 	}
 	if _, ok := m["project"]; !ok {
 		if project == "" {
-			project = filepath.Base(m["project_root"].(string))
+			root := m["project_root"].(string)
+			if defaultProject != nil {
+				project = defaultProject(root)
+			} else {
+				project = filepath.Base(root)
+			}
 		}
 		m["project"] = project
 	}
@@ -146,10 +157,6 @@ Exit codes: 2 validation, 3 Home down or not filed, 4 outcome unknown
 			if err != nil {
 				return err
 			}
-			a, err := buildAsk(raw, t, asker, projectRoot, project)
-			if err != nil {
-				return err
-			}
 			ctx := cmd.Context()
 			if ctx == nil {
 				ctx = context.Background()
@@ -158,6 +165,13 @@ Exit codes: 2 validation, 3 Home down or not filed, 4 outcome unknown
 			if tasksProject != "" {
 				f.TasksProject = tasksProject
 				f.TasksProjects, f.ConfigErr = nil, nil
+			}
+			f.Warn = func(w string) { fmt.Fprintln(cmd.ErrOrStderr(), "warning:", w) }
+			a, err := buildAsk(raw, t, asker, projectRoot, project, func(root string) string {
+				return homeask.DefaultProject(ctx, f, root)
+			})
+			if err != nil {
+				return err
 			}
 			id, err := f.File(ctx, a)
 			if err != nil {
@@ -171,7 +185,7 @@ Exit codes: 2 validation, 3 Home down or not filed, 4 outcome unknown
 	cmd.Flags().StringVar(&asker, "asker", "", "thread (default); mycroft is refused, Mycroft files its own")
 	cmd.Flags().StringVar(&tasksProject, "tasks-project", "", "Tasks project to file into (default: the configured binding)")
 	cmd.Flags().StringVar(&projectRoot, "project-root", "", "Project root (default: the git root)")
-	cmd.Flags().StringVar(&project, "project", "", "Project name (default: the root's directory name)")
+	cmd.Flags().StringVar(&project, "project", "", "Project name (default: the Home project the tasks board is bound to, else the root's directory name)")
 	return cmd
 }
 

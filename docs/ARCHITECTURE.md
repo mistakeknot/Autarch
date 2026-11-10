@@ -415,7 +415,7 @@ stories:
 ### Direct Go Commands
 
 ```bash
-go build ./cmd/...     # Build all binaries
+go build ./cmd/...     # Compile-check every program (writes no executables)
 go test ./...          # Run all tests
 go run ./cmd/pollard   # Run Pollard CLI
 ```

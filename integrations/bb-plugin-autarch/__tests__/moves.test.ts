@@ -97,4 +97,22 @@ describe("pr move merge-card facts", () => {
   ])("rejects %s", (_n, o) => {
     expect(() => parseMove(pr(o))).toThrow();
   });
+
+  // The blast check was rewritten from an explicit control-character range to the Unicode control category. Every code point
+  // in the Basic Multilingual Plane, set between two letters, is accepted or refused exactly as the explicit definition says:
+  // the C0 controls, DEL and the C1 controls, the line and paragraph separators, the replacement character, and a lone surrogate (not well formed).
+  it("blast refuses exactly the control characters, separators, U+FFFD and lone surrogates, and nothing else in the BMP", () => {
+    const wrong: string[] = [];
+    for (let cp = 0; cp <= 0xffff; cp++) {
+      const refuse = cp <= 0x1f || (cp >= 0x7f && cp <= 0x9f) || cp === 0x2028 || cp === 0x2029 || cp === 0xfffd || (cp >= 0xd800 && cp <= 0xdfff);
+      let accepted = true;
+      try {
+        parseMove(pr({ blast: "a" + String.fromCharCode(cp) + "b" }));
+      } catch {
+        accepted = false;
+      }
+      if (accepted === refuse) wrong.push(cp.toString(16));
+    }
+    expect(wrong).toEqual([]);
+  });
 });

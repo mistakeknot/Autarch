@@ -127,3 +127,24 @@ func TestLogHandler_CloseIdempotent(t *testing.T) {
 	h.Close()
 	// If we got here without panic, the test passes
 }
+
+// A handler derived with WithAttrs or WithGroup shares the batch loop of the
+// handler it came from. Closing both must stop that loop once, not close the
+// shared channel twice.
+func TestLogHandler_CloseDerivedAndOriginal(t *testing.T) {
+	h := NewLogHandler(slog.LevelDebug)
+
+	withAttrs, ok := h.WithAttrs([]slog.Attr{slog.String("key", "value")}).(*LogHandler)
+	if !ok {
+		t.Fatal("WithAttrs should return *LogHandler")
+	}
+	withGroup, ok := h.WithGroup("mygroup").(*LogHandler)
+	if !ok {
+		t.Fatal("WithGroup should return *LogHandler")
+	}
+
+	withAttrs.Close()
+	withGroup.Close()
+	h.Close()
+	// If we got here without panic, the test passes
+}

@@ -2,9 +2,10 @@
 // Since you left) and one sticky bar with the card's main action. It reuses AskCard unchanged, so every
 // pick, note and safety line behaves as on the desktop; this file only arranges them and picks which
 // ones are shown. UI only: the lists come from the same data the desktop queue reads.
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { ActionButton } from "./buttons.js";
 import { glance } from "./glance.js";
+import { neighborAfterRemoval } from "./nextcard.js";
 import { extrasText, owedCounts } from "../waitingcount.js";
 import { ageText, AskCard, isDestructiveOption, type AsksData, type OnLater, type OnNote, type OnPick, type OwedAsk } from "./asks.js";
 
@@ -164,8 +165,25 @@ export function MobileInbox({ asks, waiting, onPick, onOpen, onNote, onLater, si
   const current = open === null ? null : [...rows.waiting, ...rows.later].find((r) => r.key === open) ?? null;
   const title = tab === "waiting" ? `Waiting on you · ${waiting}` : tab === "later" ? `Later · ${rows.later.length}` : "Since you left";
   const tabs: [InboxTab, string][] = [["waiting", `Waiting ${waiting}`], ["later", `Later ${rows.later.length}`], ["since", sinceCount > 0 ? `Since you left ${sinceCount}` : "Since you left"]];
-  // A card that vanished (picked, or moved by another surface) closes its own detail instead of showing a stale one.
-  useEffect(() => { if (open !== null && current === null) setOpen(null); }, [open, current]);
+  // After an answer, Later or Move back, the next card on screen is the one below it in the list it was opened from, else the
+  // one above; with none left, the list shows its empty state (bead mk-c0mka). The list as it was at the last paint with the
+  // card in it gives the position, so cards that came or went since do not move it.
+  const keys = list.map((r) => r.key);
+  const painted = useRef<string[]>(keys);
+  const scroller = useRef<HTMLDivElement>(null);
+  // A card that left the list it was opened from (picked, set aside on the card itself, or moved by another surface) opens its
+  // neighbour instead of showing a stale one. `painted` is the last list that still held the open card.
+  useEffect(() => {
+    if (open === null || keys.includes(open)) return;
+    if (painted.current.includes(open)) setOpen(neighborAfterRemoval(painted.current, open, keys));
+    else if (current === null) setOpen(null);
+  }, [open, current, list]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { if (open !== null && keys.includes(open)) painted.current = keys; });
+  // The sticky bar's answer resolves after a round trip: choose from the latest list that held the card, and only if the card is
+  // still the one on screen (a refresh may already have moved on).
+  const advanceFrom = (key: string) => setOpen((now) => (now === key ? neighborAfterRemoval(painted.current, key, painted.current.filter((k) => k !== key)) : now));
+  // A card opens at its top, not at the scroll position of the one before it. Back to the list keeps the list where it was.
+  useEffect(() => { if (open !== null && scroller.current) scroller.current.scrollTop = 0; }, [open]);
   return (
     <div className="flex h-full min-h-0 flex-1 flex-col" data-mobile-inbox>
       <header className="flex items-center justify-between gap-2 border-b border-border px-4 py-2">
@@ -185,12 +203,12 @@ export function MobileInbox({ asks, waiting, onPick, onOpen, onNote, onLater, si
         )}
       </header>
       {updateNode && !current ? <div className="border-b border-border px-4 py-2" data-inbox-update>{updateNode}</div> : null}
-      <div className="min-h-0 flex-1 overflow-y-auto">
+      <div ref={scroller} className="min-h-0 flex-1 overflow-y-auto">
         {ideaNode && !current ? (
           ideaNode
         ) : current ? (
           <div className="p-3" data-inbox-detail={current.key}>
-            {current.ask ? <AskCard ask={current.ask} onPick={onPick} onOpen={onOpen} nowMs={now} onNote={onNote} onLater={onLater} /> : null}
+            {current.ask ? <AskCard key={current.key} ask={current.ask} onPick={onPick} onOpen={onOpen} nowMs={now} onNote={onNote} onLater={onLater} /> : null}
           </div>
         ) : tab === "since" ? (
           sinceNode
@@ -206,7 +224,7 @@ export function MobileInbox({ asks, waiting, onPick, onOpen, onNote, onLater, si
         )}
       </div>
       {current ? (
-        <DetailBar r={current} onPick={onPick} onLater={onLater} onDone={() => setOpen(null)} />
+        <DetailBar key={current.key} r={current} onPick={onPick} onLater={onLater} onDone={() => advanceFrom(current.key)} />
       ) : (
         <nav className="flex border-t border-border bg-background" data-inbox-tabs>
           {tabs.map(([id, label]) => (
