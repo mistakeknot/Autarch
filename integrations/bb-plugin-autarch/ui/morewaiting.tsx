@@ -1,6 +1,6 @@
 // The phone's "More waiting" row (bead mk-j5ipa.12): the lists the desktop shows besides the cards to decide on, shown read-only
 // on the phone under one row that is closed until tapped. It reads the data the phone already has (the same `AsksData` the
-// desktop panel draws from) and the same item rendering, so no server route is added. Nothing here acts: no Dismiss, no Revoke.
+// desktop panel draws from) and the same item rendering, so no server route is added. Nothing here acts: no Dismiss, no Revoke, and a file path stays plain text (no read or open button).
 import { ApprovalsList, buildAsksView, RefText, type ApprovalRecord, type AsksData, type ViewItem } from "./asks.js";
 
 export type MoreKey = "stalled" | "steps" | "waiting" | "approvals";
@@ -48,8 +48,8 @@ export function MoreWaitingRow({ groups, total, open, onToggle }: { groups: More
                 <ul className="m-0 list-none space-y-2 p-0">
                   {g.items.map((i) => (
                     <li key={i.id} className="rounded border border-border p-3 text-sm [overflow-wrap:anywhere]" data-more-item={i.id}>
-                      <div><RefText text={i.title} /></div>
-                      {i.detail ? <div className="text-xs text-muted-foreground"><RefText text={i.detail} /></div> : null}
+                      <div><RefText text={i.title} docLinks={false} /></div>
+                      {i.detail ? <div className="text-xs text-muted-foreground"><RefText text={i.detail} docLinks={false} /></div> : null}
                     </li>
                   ))}
                 </ul>
