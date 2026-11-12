@@ -350,3 +350,14 @@ func TestNeedsMkOtherSpellingsOfAnotherPRAreRefused(t *testing.T) {
 		}
 	}
 }
+
+func TestNeedsMkDotSegmentOwnerOrRepoIsRefused(t *testing.T) {
+	for _, u := range []string{"https://github.com/../r/pull/211", "https://github.com/o/../pull/211", "https://github.com/./r/pull/211"} {
+		g := &ghStub{base: "main", def: "main"}
+		useGH(t, g)
+		s := &stubBB{}
+		if _, err := fileMerge(t, s, askWithQuestion(t, "Merge "+u+" ?")); exitCode(err) != 2 || s.creates != 0 || len(g.calls) != 0 {
+			t.Errorf("%s: err=%v creates=%d gh=%v", u, err, s.creates, g.calls)
+		}
+	}
+}

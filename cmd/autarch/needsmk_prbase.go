@@ -23,36 +23,54 @@ const ghTimeout = 20 * time.Second
 const mergePhrase = "Manually merge it at"
 
 var (
-	prURLRe      = regexp.MustCompile(`https://github\.com/([A-Za-z0-9_.-]{1,100})/([A-Za-z0-9_.-]{1,100})/pull/([1-9][0-9]{0,8})\b`)
-	prURLExactRe = regexp.MustCompile(`^` + prURLRe.String() + `$`)
+	// prURLExactRe is the one accepted spelling of a PR link (a PR tab, a query or a fragment may follow).
+	prURLExactRe = regexp.MustCompile(`^https://github\.com/([A-Za-z0-9_.-]{1,100})/([A-Za-z0-9_.-]{1,100})/pull/([1-9][0-9]{0,8})$`)
+	prLinkRe     = regexp.MustCompile(`^(https://github\.com/([A-Za-z0-9_.-]{1,100})/([A-Za-z0-9_.-]{1,100})/pull/([1-9][0-9]{0,8}))(?:/(?:files|commits|checks|changes))?(?:[?#][A-Za-z0-9_=&.%-]*)?$`)
+	// githubTokenRe finds any word that mentions the host in any spelling (scheme, case, port, api. prefix).
+	githubTokenRe = regexp.MustCompile(`(?i)[^\s"'<>(\[]*github\.com[^\s"'<>]*`)
+	// shortRefRe finds #N, owner/repo#N and "PR N" style references.
+	shortRefRe = regexp.MustCompile(`(?i)(?:([A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+)#([0-9]+)|#([0-9]+)|\b(?:prs?|pull(?: request)?s?)\s+([0-9]+))`)
 )
 
-// prTailRe matches what may follow a PR URL's number without changing which PR it names: the end, a fragment or
-// query, sentence punctuation, or one of GitHub's PR tabs.
-var prTailRe = regexp.MustCompile(`^[.,;:)]*(?:$|[^A-Za-z0-9_.%/-]|/(?:files|commits|checks|changes)(?:$|[.,;:)]|[^A-Za-z0-9_.%/-]))`)
+// prRefs are the PR references found in an ask's text.
+type prRefs struct {
+	urls   map[string][]string // canonical URL -> [url, owner, repo, number]
+	shorts [][2]string         // [owner/repo or "", number]
+}
 
-// scanPRURLs returns the distinct PR URLs in the texts keyed by their canonical form. A URL whose tail could
-// name another PR (/pull/211/../212, /pull/211/%2e%2e/212) is an error, because GitHub may resolve it elsewhere.
-func scanPRURLs(texts []string) (map[string][]string, error) {
-	seen := map[string][]string{}
+// scanPRRefs collects every PR reference in the texts. Any word that mentions github.com must be exactly a plain
+// PR link; another spelling (http, other case, a port, api., dot segments, backslashes, commas) could resolve to a
+// PR whose base was not checked, so it is an error. #N, owner/repo#N and "PR N" are collected as short references.
+func scanPRRefs(texts []string) (prRefs, error) {
+	refs := prRefs{urls: map[string][]string{}}
+	bad := ""
 	for _, t := range texts {
-		for _, ix := range prURLRe.FindAllStringSubmatchIndex(t, -1) {
-			tail := t[ix[1]:]
-			if !prTailRe.MatchString(tail) {
-				end := strings.IndexAny(tail, " \t\r\n\"'<>)")
-				if end < 0 {
-					end = len(tail)
-				}
-				return nil, &usageError{"the ask links " + t[ix[0]:ix[1]] + tail[:end] + ", whose path is ambiguous; use the plain PR URL; nothing was filed"}
+		rest := githubTokenRe.ReplaceAllStringFunc(t, func(tok string) string {
+			word := strings.TrimRight(tok, ".,;:)]")
+			if m := prLinkRe.FindStringSubmatch(word); m != nil && m[2] != "." && m[2] != ".." && m[3] != "." && m[3] != ".." {
+				refs.urls[m[1]] = []string{m[1], m[2], m[3], m[4]}
+				return " "
 			}
-			f := make([]string, 4)
-			for i := range f {
-				f[i] = t[ix[2*i]:ix[2*i+1]]
+			if bad == "" {
+				bad = word
 			}
-			seen[f[0]] = f
+			return " "
+		})
+		for _, m := range shortRefRe.FindAllStringSubmatch(rest, -1) {
+			switch {
+			case m[2] != "":
+				refs.shorts = append(refs.shorts, [2]string{m[1], m[2]})
+			case m[3] != "":
+				refs.shorts = append(refs.shorts, [2]string{"", m[3]})
+			default:
+				refs.shorts = append(refs.shorts, [2]string{"", m[4]})
+			}
 		}
 	}
-	return seen, nil
+	if bad != "" {
+		return refs, &usageError{"the ask mentions " + bad + ", which is not a plain https://github.com/<owner>/<repo>/pull/<n> link; a merge ask may link only the PR it merges, spelled that way; nothing was filed"}
+	}
+	return refs, nil
 }
 
 // walkAsk visits every string in the ask at any depth (options sit at the top level and inside questions), and
@@ -135,12 +153,12 @@ func guardMergeBase(ctx context.Context, ask map[string]any, prFlag string, prSe
 	if len(mergeOpts) == 0 && !prSet {
 		return nil
 	}
-	seen, err := scanPRURLs(texts)
+	refs, err := scanPRRefs(texts)
 	if err != nil {
 		return err
 	}
-	urls := make([]string, 0, len(seen))
-	for u := range seen {
+	urls := make([]string, 0, len(refs.urls))
+	for u := range refs.urls {
 		urls = append(urls, u)
 	}
 	sort.Strings(urls)
@@ -159,9 +177,18 @@ func guardMergeBase(ctx context.Context, ask map[string]any, prFlag string, prSe
 		case 0:
 			return &usageError{"a merge ask (\"Manually merge it at ...\") must name its PR so the base branch can be checked: put the PR URL in the question or pass --pr; nothing was filed"}
 		case 1:
-			m = seen[urls[0]]
+			m = refs.urls[urls[0]]
 		default:
 			return &usageError{"the merge ask names more than one PR (" + strings.Join(urls, ", ") + "): pass --pr for the one it merges; nothing was filed"}
+		}
+	}
+	for _, sr := range refs.shorts {
+		if (sr[0] != "" && !strings.EqualFold(sr[0], m[1]+"/"+m[2])) || sr[1] != m[3] {
+			ref := "#" + sr[1]
+			if sr[0] != "" {
+				ref = sr[0] + ref
+			}
+			return &usageError{"the ask mentions " + ref + " but the PR whose base is checked is " + m[1] + "/" + m[2] + "#" + m[3] + ": a merge ask may name only that PR; nothing was filed"}
 		}
 	}
 	repo, num := m[1]+"/"+m[2], m[3]
