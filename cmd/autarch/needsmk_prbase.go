@@ -32,14 +32,14 @@ var (
 	githubTokenRe = regexp.MustCompile(`(?i)[^\s"'<>(\[]*github\.com[^\s"'<>]*`)
 	// shortRefRe finds #N, owner/repo#N and "PR N" style references.
 	// mergeNumRe finds a number after a merge-like verb or a gh pr subcommand ("merge 212", "gh pr merge 212").
-	mergeNumRe = regexp.MustCompile(`(?i)\b(?:merg(?:e|es|ed|ing)|land(?:s|ed|ing)?|closes?|closed|gh\s+pr\s+[a-z-]+)\s+(?:(?:prs?|pull(?: requests?)?)\s*)?#?([0-9]+)\b`)
+	mergeNumRe = regexp.MustCompile(`(?i)\b(?:merg(?:e|es|ed|ing)|land(?:s|ed|ing)?|closes?|closed|gh\s+pr\s+[a-z-]+)(?:\s+--?[a-z][a-z-]*)*\s+(?:(?:prs?|pull(?: requests?)?)\s*)?#?([0-9]+)\b`)
 	// ghCommandRe finds the gh tool by name (however its subcommand is spelled, quoted or ordered after flags) or
 	// a --repo/-R flag (also attached, -Rowner/repo): a merge ask may not carry a command, because which PR it
 	// targets cannot be read reliably.
 	ghCommandRe = regexp.MustCompile(`(?i)\bgh\b|(?:^|[\s'"` + "`" + `])(?:-R|--repo)|['"` + "`" + `][0-9]+['"` + "`" + `]`)
 	// shellishWordRe finds a word built with shell quoting, escaping or expansion (g''h, g\h, $'\x67h', ${X}, $(..)):
 	// three or more quote characters, a backslash before a letter or digit, or an expansion opener.
-	shellishWordRe = regexp.MustCompile(`\S*(?:['"][^'"\s]*['"][^'"\s]*['"]|\\[A-Za-z0-9]|\$['"{(])\S*`)
+	shellishWordRe = regexp.MustCompile(`\S*(?:['"][^'"\s]*['"][^'"\s]*['"]|['"]{2}|[A-Za-z0-9]['"][^'"\s]+['"]|\\[A-Za-z0-9]|\$['"{(])\S*`)
 	shortRefRe     = regexp.MustCompile(`(?i)(?:([A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+)#([0-9]+)|#([0-9]+)|\b(?:prs?|pull(?: request)?s?)\s+([0-9]+))`)
 )
 
