@@ -28,8 +28,9 @@ var (
 )
 
 // walkAsk visits every string in the ask at any depth (options sit at the top level and inside questions), and
-// every map that has a string "label" (an option).
-func walkAsk(v any, str func(string), option func(map[string]any)) {
+// each (map, key) whose key is "label" in any letter case with a string value: the ask parser reads keys without
+// regard to case, so detection must too.
+func walkAsk(v any, str func(string), option func(m map[string]any, key string)) {
 	switch x := v.(type) {
 	case string:
 		str(x)
@@ -38,10 +39,10 @@ func walkAsk(v any, str func(string), option func(map[string]any)) {
 			walkAsk(e, str, option)
 		}
 	case map[string]any:
-		if _, ok := x["label"].(string); ok {
-			option(x)
-		}
-		for _, e := range x {
+		for k, e := range x {
+			if _, ok := e.(string); ok && strings.EqualFold(k, "label") {
+				option(x, k)
+			}
 			walkAsk(e, str, option)
 		}
 	}
@@ -93,10 +94,14 @@ func guardMergeBase(ctx context.Context, ask map[string]any, prFlag string, prSe
 		ctx = context.Background()
 	}
 	var texts []string
-	var mergeOpts []map[string]any
-	walkAsk(ask, func(t string) { texts = append(texts, t) }, func(o map[string]any) {
-		if strings.Contains(o["label"].(string), mergePhrase+" ") {
-			mergeOpts = append(mergeOpts, o)
+	type labelRef struct {
+		m   map[string]any
+		key string
+	}
+	var mergeOpts []labelRef
+	walkAsk(ask, func(t string) { texts = append(texts, t) }, func(m map[string]any, key string) {
+		if strings.Contains(m[key].(string), mergePhrase+" ") {
+			mergeOpts = append(mergeOpts, labelRef{m, key})
 		}
 	})
 	if len(mergeOpts) == 0 && !prSet {
@@ -152,7 +157,7 @@ func guardMergeBase(ctx context.Context, ask map[string]any, prFlag string, prSe
 			pr, base.BaseRefName, def.DefaultBranchRef.Name, base.BaseRefName, def.DefaultBranchRef.Name, def.DefaultBranchRef.Name)}
 	}
 	for _, o := range mergeOpts {
-		o["label"] = withBranch(o["label"].(string), def.DefaultBranchRef.Name)
+		o.m[o.key] = withBranch(o.m[o.key].(string), def.DefaultBranchRef.Name)
 	}
 	if len(mergeOpts) == 0 {
 		q, _ := ask["question"].(string)
