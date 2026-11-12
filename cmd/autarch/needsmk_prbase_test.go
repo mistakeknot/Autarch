@@ -279,7 +279,7 @@ func TestNeedsMkPRFlagMustMatchThePRTheAskNames(t *testing.T) {
 }
 
 func TestNeedsMkPRURLWithDotSegmentsIsRefused(t *testing.T) {
-	for _, u := range []string{"https://github.com/o/r/pull/211/../212", "https://github.com/o/r/pull/211/%2e%2e/212", "https://github.com/o/r/pull/211/./files/../../212"} {
+	for _, u := range []string{"https://github.com/o/r/pull/211/../212", "https://github.com/o/r/pull/211/%2e%2e/212", "https://github.com/o/r/pull/211/./files/../../212", "https://github.com/o/r/pull/211.5", "https://github.com/o/r/pull/211/other"} {
 		g := &ghStub{base: "main", def: "main"}
 		useGH(t, g)
 		s := &stubBB{}

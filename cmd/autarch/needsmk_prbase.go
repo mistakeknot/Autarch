@@ -27,6 +27,34 @@ var (
 	prURLExactRe = regexp.MustCompile(`^` + prURLRe.String() + `$`)
 )
 
+// prTailRe matches what may follow a PR URL's number without changing which PR it names: the end, a fragment or
+// query, sentence punctuation, or one of GitHub's PR tabs.
+var prTailRe = regexp.MustCompile(`^[.,;:)]*(?:$|[^A-Za-z0-9_.%/-]|/(?:files|commits|checks|changes)(?:$|[.,;:)]|[^A-Za-z0-9_.%/-]))`)
+
+// scanPRURLs returns the distinct PR URLs in the texts keyed by their canonical form. A URL whose tail could
+// name another PR (/pull/211/../212, /pull/211/%2e%2e/212) is an error, because GitHub may resolve it elsewhere.
+func scanPRURLs(texts []string) (map[string][]string, error) {
+	seen := map[string][]string{}
+	for _, t := range texts {
+		for _, ix := range prURLRe.FindAllStringSubmatchIndex(t, -1) {
+			tail := t[ix[1]:]
+			if !prTailRe.MatchString(tail) {
+				end := strings.IndexAny(tail, " \t\r\n\"'<>)")
+				if end < 0 {
+					end = len(tail)
+				}
+				return nil, &usageError{"the ask links " + t[ix[0]:ix[1]] + tail[:end] + ", whose path is ambiguous; use the plain PR URL; nothing was filed"}
+			}
+			f := make([]string, 4)
+			for i := range f {
+				f[i] = t[ix[2*i]:ix[2*i+1]]
+			}
+			seen[f[0]] = f
+		}
+	}
+	return seen, nil
+}
+
 // walkAsk visits every string in the ask at any depth (options sit at the top level and inside questions), and
 // each (map, key) whose key is "label" in any letter case with a string value: the ask parser reads keys without
 // regard to case, so detection must too.
@@ -107,23 +135,26 @@ func guardMergeBase(ctx context.Context, ask map[string]any, prFlag string, prSe
 	if len(mergeOpts) == 0 && !prSet {
 		return nil
 	}
+	seen, err := scanPRURLs(texts)
+	if err != nil {
+		return err
+	}
+	urls := make([]string, 0, len(seen))
+	for u := range seen {
+		urls = append(urls, u)
+	}
+	sort.Strings(urls)
 	var m []string
 	if prSet {
 		if m = prURLExactRe.FindStringSubmatch(prFlag); m == nil {
 			return &usageError{"--pr must be https://github.com/<owner>/<repo>/pull/<n>"}
 		}
-	} else {
-		seen := map[string][]string{}
-		for _, t := range texts {
-			for _, f := range prURLRe.FindAllStringSubmatch(t, -1) {
-				seen[f[0]] = f
+		for _, u := range urls {
+			if u != m[0] {
+				return &usageError{"--pr " + m[0] + " conflicts with the ask text, which names " + u + ": the card must merge the PR whose base was checked; nothing was filed"}
 			}
 		}
-		urls := make([]string, 0, len(seen))
-		for u := range seen {
-			urls = append(urls, u)
-		}
-		sort.Strings(urls)
+	} else {
 		switch len(urls) {
 		case 0:
 			return &usageError{"a merge ask (\"Manually merge it at ...\") must name its PR so the base branch can be checked: put the PR URL in the question or pass --pr; nothing was filed"}
