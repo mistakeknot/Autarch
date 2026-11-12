@@ -455,6 +455,40 @@ func TestNeedsMkSchemeRelativeAndUnicodeHostsAreRefused(t *testing.T) {
 	}
 }
 
+func TestNeedsMkCommandsAndEscapedLinksNameAnUncheckedPR(t *testing.T) {
+	for _, u := range []string{
+		"`gh pr merge 212 --repo o/r`",
+		"gh pr view 212",
+		"gh pr merge 212",
+		"merge 212",
+		"merge PR 212",
+		"merge #212",
+		"gh pr merge 211 --repo other/repo",
+		"gh pr merge 211 -R other/repo",
+		"[this PR](https:&#x2f;&#x2f;github&#x2e;com/o/r/pull/212)",
+		"[this PR](https:&sol;&sol;github.com/o/r/pull/212)",
+		"[this PR](https://github&period;com/o/r/pull/212)",
+		"[this PR](https://github\\.com/o/r/pull/212)",
+		"[this PR](https://github&amp;#46;com/o/r/pull/212)",
+	} {
+		g := &ghStub{base: "main", def: "main"}
+		useGH(t, g)
+		s := &stubBB{}
+		q := "Checked https://github.com/o/r/pull/211; " + u + " ?"
+		if _, err := fileMerge(t, s, askWithQuestion(t, q), "--pr", "https://github.com/o/r/pull/211"); exitCode(err) != 2 || s.creates != 0 {
+			t.Errorf("%s: err=%v creates=%d", u, err, s.creates)
+		}
+	}
+	// the verified PR itself, and a sha after the merge phrase, stay fine
+	g := &ghStub{base: "main", def: "main"}
+	useGH(t, g)
+	s := &stubBB{}
+	q := "Merge 211 now: gh pr merge 211 --repo o/r (head abc1234 at https://github.com/o/r/pull/211)"
+	if _, err := fileMerge(t, s, askWithQuestion(t, q), "--pr", "https://github.com/o/r/pull/211"); err != nil || s.creates != 1 {
+		t.Fatalf("verified PR: err=%v creates=%d", err, s.creates)
+	}
+}
+
 func TestNeedsMkObfuscatedGitHubHostIsRefused(t *testing.T) {
 	for _, u := range []string{
 		"https://%67ithub.com/o/r/pull/212",
