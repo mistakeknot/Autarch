@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"os"
 	"path/filepath"
@@ -295,5 +296,57 @@ func TestNeedsMkPRURLWithDotSegmentsIsRefused(t *testing.T) {
 	body := strings.Replace(mergeAskJSON, "pull/211 ?", "pull/211/files ?", 1)
 	if _, err := fileMerge(t, s, body); err != nil || s.creates != 1 {
 		t.Fatalf("files link: err=%v creates=%d", err, s.creates)
+	}
+}
+
+// askWithQuestion is mergeAskJSON with its question replaced by q.
+func askWithQuestion(t *testing.T, q string) string {
+	t.Helper()
+	enc, err := json.Marshal(q)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return strings.Replace(mergeAskJSON, `"Merge https://github.com/o/r/pull/211 ?"`, string(enc), 1)
+}
+
+// Only the plain https://github.com/<o>/<r>/pull/<n> link (plus a PR tab, fragment or query) may name the PR; any
+// other spelling could resolve to a PR whose base was not checked.
+func TestNeedsMkOtherSpellingsOfAnotherPRAreRefused(t *testing.T) {
+	cases := []string{
+		"Merge https://github.com/o/r/pull/211 and https://github.com/o/r/pull/211/files./../../212 ?",
+		"Merge https://github.com/o/r/pull/211 and https://github.com/o/r/pull/211,/../212 ?",
+		`Merge https://github.com/o/r/pull/211 and https://github.com/o/r/pull/211\..\212 ?`,
+		"Merge https://github.com/o/r/pull/211 and http://github.com/o/r/pull/212 ?",
+		"Merge https://github.com/o/r/pull/211 and https://GitHub.com/o/r/pull/212 ?",
+		"Merge https://github.com/o/r/pull/211 and https://github.com:443/o/r/pull/212 ?",
+		"Merge https://github.com/o/r/pull/211 and https://api.github.com/repos/o/r/pulls/212 ?",
+		"Merge https://github.com/o/r/pull/211 and github.com/o/r/pull/212 ?",
+		"Merge https://github.com/o/r/pull/211 and #212 ?",
+		"Merge https://github.com/o/r/pull/211 and o/r#212 ?",
+		"Merge https://github.com/o/r/pull/211 and other/repo#211 ?",
+		"Merge https://github.com/o/r/pull/211 and PR 212 ?",
+	}
+	for _, q := range cases {
+		for _, withFlag := range []bool{false, true} {
+			g := &ghStub{base: "main", def: "main"}
+			useGH(t, g)
+			s := &stubBB{}
+			var extra []string
+			if withFlag {
+				extra = []string{"--pr", "https://github.com/o/r/pull/211"}
+			}
+			if _, err := fileMerge(t, s, askWithQuestion(t, q), extra...); exitCode(err) != 2 || s.creates != 0 {
+				t.Errorf("%q flag=%v: err=%v creates=%d", q, withFlag, err, s.creates)
+			}
+		}
+	}
+	// --pr with only a short reference to the same PR is fine, and so are other mentions of the PR itself.
+	for _, q := range []string{"Merge #211 ?", "Merge o/r#211 ?", "Merge PR 211 (https://github.com/o/r/pull/211/files#diff-1)."} {
+		g := &ghStub{base: "main", def: "main"}
+		useGH(t, g)
+		s := &stubBB{}
+		if _, err := fileMerge(t, s, askWithQuestion(t, q), "--pr", "https://github.com/o/r/pull/211"); err != nil || s.creates != 1 {
+			t.Errorf("%q: err=%v creates=%d", q, err, s.creates)
+		}
 	}
 }
