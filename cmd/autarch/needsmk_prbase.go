@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"html"
 	"net/url"
 	"os/exec"
 	"regexp"
@@ -30,8 +31,15 @@ var (
 	// githubTokenRe finds any word that mentions the host in any spelling (scheme, case, port, api. prefix).
 	githubTokenRe = regexp.MustCompile(`(?i)[^\s"'<>(\[]*github\.com[^\s"'<>]*`)
 	// shortRefRe finds #N, owner/repo#N and "PR N" style references.
+	// mergeNumRe finds a number after a merge-like verb or a gh pr subcommand ("merge 212", "gh pr merge 212").
+	mergeNumRe = regexp.MustCompile(`(?i)\b(?:merg(?:e|es|ed|ing)|land(?:s|ed|ing)?|closes?|closed|gh\s+pr\s+[a-z-]+)\s+(?:(?:prs?|pull(?: requests?)?)\s*)?#?([0-9]+)\b`)
+	// repoFlagRe finds the repository a gh command is pointed at.
+	repoFlagRe = regexp.MustCompile(`(?i)(?:^|\s)(?:-R|--repo)(?:\s+|=)([A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+)`)
 	shortRefRe = regexp.MustCompile(`(?i)(?:([A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+)#([0-9]+)|#([0-9]+)|\b(?:prs?|pull(?: request)?s?)\s+([0-9]+))`)
 )
+
+// mdEscapeRe is a Markdown backslash escape of an ASCII punctuation character.
+var mdEscapeRe = regexp.MustCompile("\\\\([!-/:-@\\[-`{-~])")
 
 var wordRe = regexp.MustCompile(`[^\s"'<>]+`)
 
@@ -40,9 +48,15 @@ var wordRe = regexp.MustCompile(`[^\s"'<>]+`)
 // authority with a port, user info or any character beyond letters, digits, dot and hyphen.
 func disguisedHost(w string) bool {
 	norm := w
-	for i := 0; i < 3 && strings.Contains(norm, "%"); i++ {
-		d, err := url.PathUnescape(norm)
-		if err != nil || d == norm {
+	for i := 0; i < 3; i++ {
+		d := html.UnescapeString(norm)           // &#x2f; &sol; &period; ...
+		d = mdEscapeRe.ReplaceAllString(d, "$1") // github\.com in a Markdown destination
+		if strings.Contains(d, "%") {
+			if u, err := url.PathUnescape(d); err == nil {
+				d = u
+			}
+		}
+		if d == norm {
 			break
 		}
 		norm = d
@@ -111,6 +125,12 @@ func scanPRRefs(texts []string) (prRefs, error) {
 			}
 			return " "
 		})
+		for _, m := range mergeNumRe.FindAllStringSubmatch(rest, -1) {
+			refs.shorts = append(refs.shorts, [2]string{"", m[1]})
+		}
+		for _, m := range repoFlagRe.FindAllStringSubmatch(rest, -1) {
+			refs.shorts = append(refs.shorts, [2]string{m[1], ""})
+		}
 		for _, m := range shortRefRe.FindAllStringSubmatch(rest, -1) {
 			switch {
 			case m[2] != "":
@@ -241,7 +261,7 @@ func guardMergeBase(ctx context.Context, ask, move map[string]any, extra []strin
 		}
 	}
 	for _, sr := range refs.shorts {
-		if (sr[0] != "" && !strings.EqualFold(sr[0], m[1]+"/"+m[2])) || sr[1] != m[3] {
+		if (sr[0] != "" && !strings.EqualFold(sr[0], m[1]+"/"+m[2])) || (sr[1] != "" && sr[1] != m[3]) {
 			ref := "#" + sr[1]
 			if sr[0] != "" {
 				ref = sr[0] + ref
