@@ -219,7 +219,7 @@ func commandWarning(question string) string {
 }
 
 func needsMkFileCmd() *cobra.Command {
-	var project, title, askFile, rootRun, request, moveFile, ownerThread, urgency string
+	var project, title, askFile, rootRun, request, moveFile, ownerThread, urgency, prFlag string
 	var blocks []string
 	cmd := &cobra.Command{
 		Use:   "file",
@@ -323,6 +323,10 @@ refused, and it works on every kind of card; a machine blocker alone never pushe
 				return err
 			}
 			ask["project"] = bound
+			// After project resolution, so the guard reads the card as it will be filed.
+			if err := guardMergeBase(cmd.Context(), ask, move, append([]string{title, rootRun, ownerThread, request}, blocks...), prFlag, cmd.Flags().Changed("pr")); err != nil {
+				return err
+			}
 			req := homeask.CardRequest{Project: project, Title: title, Blocks: blocks, Ask: ask, Move: move, Key: request, Thread: thread, Owner: ownerThread}
 			if rootRun != "" {
 				if req.RootRun, err = parseRootRunFlag(rootRun); err != nil {
@@ -356,6 +360,7 @@ refused, and it works on every kind of card; a machine blocker alone never pushe
 	cmd.Flags().StringVar(&rootRun, "root-run", "", "script=<abs path>,timeout=<seconds>,set=<name>")
 	cmd.Flags().StringVar(&request, "request", "", "Request key (default: derived from thread and ask); when given it must be non-empty and match the Request line key pattern")
 	cmd.Flags().StringVar(&urgency, "urgency", "", `Optional: "blocker" asks Home to push mk's phone once when the card is first filed`)
+	cmd.Flags().StringVar(&prFlag, "pr", "", "PR URL this ask merges: refused (exit 2) unless the PR's base is the repo's default branch; a \"Manually merge it at ...\" option implies it")
 	cmd.Flags().StringVar(&ownerThread, "owner-thread", "", "Route the card's answer to this live thread instead of the filing thread (the routing comment is posted as it)")
 	return cmd
 }

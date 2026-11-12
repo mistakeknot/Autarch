@@ -35,6 +35,7 @@ type stubBB struct {
 	commented        bool
 	thread           string
 	updated          [][]string
+	bound            string // when set, the tasks board is confirmed bound to this Home project
 }
 
 func (s *stubBB) run(_ context.Context, env []string, args ...string) homeask.BBResult {
@@ -63,6 +64,11 @@ func (s *stubBB) run(_ context.Context, env []string, args ...string) homeask.BB
 		}
 		s.updated = append(s.updated, args)
 		return j(`{"task":{"id":"T1"}}`)
+	case "home binding P1":
+		if s.bound == "" {
+			return homeask.BBResult{Code: 1, Stderr: []byte("unexpected")}
+		}
+		return j(`{"home_project":` + strconv.Quote(s.bound) + `,"state":"confirmed"}`)
 	case "tasks project list":
 		return j(`{"projects":[{"id":"P1","name":"P1"}]}`)
 	case "tasks list --status":
