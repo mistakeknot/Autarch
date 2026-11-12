@@ -247,3 +247,18 @@ func TestNeedsMkStaleIntoTextWithoutAShaIsReplaced(t *testing.T) {
 		t.Fatalf("card:\n%s", s.desc)
 	}
 }
+
+// The ask parser reads keys without regard to case, so detection must too.
+func TestNeedsMkMergeLabelKeyCaseDoesNotEscapeTheCheck(t *testing.T) {
+	for name, body := range map[string]string{
+		"top level": strings.Replace(mergeAskJSON, `"label":"A) Manually`, `"Label":"A) Manually`, 1),
+		"nested":    strings.Replace(nestedMergeAskJSON, `"label":"A) Manually`, `"LABEL":"A) Manually`, 1),
+	} {
+		g := &ghStub{base: "sync/x", def: "main"}
+		useGH(t, g)
+		s := &stubBB{}
+		if _, err := fileMerge(t, s, body); exitCode(err) != 2 || s.creates != 0 {
+			t.Errorf("%s: err=%v creates=%d gh=%v", name, err, s.creates, g.calls)
+		}
+	}
+}
