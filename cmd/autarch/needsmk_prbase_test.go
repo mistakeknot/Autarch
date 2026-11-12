@@ -262,3 +262,38 @@ func TestNeedsMkMergeLabelKeyCaseDoesNotEscapeTheCheck(t *testing.T) {
 		}
 	}
 }
+
+func TestNeedsMkPRFlagMustMatchThePRTheAskNames(t *testing.T) {
+	g := &ghStub{base: "main", def: "main"}
+	useGH(t, g)
+	s := &stubBB{}
+	body := strings.Replace(mergeAskJSON, "pull/211", "pull/212", 1)
+	if _, err := fileMerge(t, s, body, "--pr", "https://github.com/o/r/pull/211"); exitCode(err) != 2 || s.creates != 0 {
+		t.Fatalf("err=%v creates=%d gh=%v", err, s.creates, g.calls)
+	}
+	// the same PR named both ways is fine
+	s = &stubBB{}
+	if _, err := fileMerge(t, s, mergeAskJSON, "--pr", "https://github.com/o/r/pull/211"); err != nil || s.creates != 1 {
+		t.Fatalf("err=%v creates=%d", err, s.creates)
+	}
+}
+
+func TestNeedsMkPRURLWithDotSegmentsIsRefused(t *testing.T) {
+	for _, u := range []string{"https://github.com/o/r/pull/211/../212", "https://github.com/o/r/pull/211/%2e%2e/212", "https://github.com/o/r/pull/211/./files/../../212"} {
+		g := &ghStub{base: "main", def: "main"}
+		useGH(t, g)
+		s := &stubBB{}
+		body := strings.Replace(mergeAskJSON, "https://github.com/o/r/pull/211", u, 1)
+		if _, err := fileMerge(t, s, body); exitCode(err) != 2 || s.creates != 0 {
+			t.Errorf("%s: err=%v creates=%d", u, err, s.creates)
+		}
+	}
+	// a plain /files link to the same PR is fine
+	g := &ghStub{base: "main", def: "main"}
+	useGH(t, g)
+	s := &stubBB{}
+	body := strings.Replace(mergeAskJSON, "pull/211 ?", "pull/211/files ?", 1)
+	if _, err := fileMerge(t, s, body); err != nil || s.creates != 1 {
+		t.Fatalf("files link: err=%v creates=%d", err, s.creates)
+	}
+}
