@@ -214,3 +214,36 @@ func TestNeedsMkMergeAskRefusedOnBadGitHubMetadata(t *testing.T) {
 		}
 	}
 }
+
+const nestedMergeAskJSON = `{"project":"autarch","project_root":"/srv/autarch","question":"Merge https://github.com/o/r/pull/211 ?","questions":[{"id":"q1","question":"Merge it?","options":[{"id":"a","label":"A) Manually merge it at 58814293","kind":"ruling-only"},{"id":"b","label":"B) Not now","kind":"ruling-only"}]}]}`
+
+func TestNeedsMkMergeOptionInsideQuestionsIsChecked(t *testing.T) {
+	g := &ghStub{base: "sync/x", def: "main"}
+	useGH(t, g)
+	s := &stubBB{}
+	if _, err := fileMerge(t, s, nestedMergeAskJSON); exitCode(err) != 2 || s.creates != 0 {
+		t.Fatalf("err=%v creates=%d gh=%v", err, s.creates, g.calls)
+	}
+	g = &ghStub{base: "main", def: "main"}
+	useGH(t, g)
+	s = &stubBB{}
+	if _, err := fileMerge(t, s, nestedMergeAskJSON); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(s.desc, "Manually merge it at 58814293 into main") {
+		t.Fatalf("card:\n%s", s.desc)
+	}
+}
+
+func TestNeedsMkStaleIntoTextWithoutAShaIsReplaced(t *testing.T) {
+	g := &ghStub{base: "main", def: "main"}
+	useGH(t, g)
+	s := &stubBB{}
+	body := strings.Replace(mergeAskJSON, "at 58814293", "at into sync/x", 1)
+	if _, err := fileMerge(t, s, body); err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(s.desc, "sync/x") || !strings.Contains(s.desc, `"A) Manually merge it at into main"`) {
+		t.Fatalf("card:\n%s", s.desc)
+	}
+}
