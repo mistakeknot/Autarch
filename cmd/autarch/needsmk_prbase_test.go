@@ -501,6 +501,37 @@ func TestNeedsMkCommandsAndEscapedLinksNameAnUncheckedPR(t *testing.T) {
 	}
 }
 
+func TestNeedsMkShellQuotingAndEscapingIsRefused(t *testing.T) {
+	for _, u := range []string{
+		"'g''h' pr merge '212' '--repo' 'other/repo'",
+		"\"g\"\"h\" pr merge 212",
+		"g\\h pr merge 212",
+		"$'\\x67h' pr merge 212",
+		"${X}h pr merge 212",
+		"$(echo gh) pr merge 212",
+		"merge '212'",
+		"merge \"212\"",
+		"x '--repo' other/repo",
+		"x \"-R\"other/repo",
+	} {
+		g := &ghStub{base: "main", def: "main"}
+		useGH(t, g)
+		s := &stubBB{}
+		q := "Checked https://github.com/o/r/pull/211; " + u + " ?"
+		if _, err := fileMerge(t, s, askWithQuestion(t, q), "--pr", "https://github.com/o/r/pull/211"); exitCode(err) != 2 || s.creates != 0 {
+			t.Errorf("%s: err=%v creates=%d", u, err, s.creates)
+		}
+	}
+	// ordinary prose with an apostrophe or a quoted word is fine
+	g := &ghStub{base: "main", def: "main"}
+	useGH(t, g)
+	s := &stubBB{}
+	q := "It's ready: merge https://github.com/o/r/pull/211 (the \"safe\" option)"
+	if _, err := fileMerge(t, s, askWithQuestion(t, q), "--pr", "https://github.com/o/r/pull/211"); err != nil || s.creates != 1 {
+		t.Fatalf("prose: err=%v creates=%d", err, s.creates)
+	}
+}
+
 func TestNeedsMkObfuscatedGitHubHostIsRefused(t *testing.T) {
 	for _, u := range []string{
 		"https://%67ithub.com/o/r/pull/212",
