@@ -33,9 +33,10 @@ var (
 	// shortRefRe finds #N, owner/repo#N and "PR N" style references.
 	// mergeNumRe finds a number after a merge-like verb or a gh pr subcommand ("merge 212", "gh pr merge 212").
 	mergeNumRe = regexp.MustCompile(`(?i)\b(?:merg(?:e|es|ed|ing)|land(?:s|ed|ing)?|closes?|closed|gh\s+pr\s+[a-z-]+)\s+(?:(?:prs?|pull(?: requests?)?)\s*)?#?([0-9]+)\b`)
-	// ghCommandRe finds a gh command or a --repo/-R flag: too many spellings (flags before the number, quoting,
-	// -Rowner/repo) to tell which PR it targets, so a merge ask may not carry one.
-	ghCommandRe = regexp.MustCompile(`(?i)\bgh\s+(?:pr|api|repo|issue|workflow|run)\b|(?:^|\s)(?:-R|--repo)\b`)
+	// ghCommandRe finds the gh tool by name (however its subcommand is spelled, quoted or ordered after flags) or
+	// a --repo/-R flag (also attached, -Rowner/repo): a merge ask may not carry a command, because which PR it
+	// targets cannot be read reliably.
+	ghCommandRe = regexp.MustCompile(`(?i)\bgh\b|(?:^|\s)(?:-R|--repo)`)
 	shortRefRe  = regexp.MustCompile(`(?i)(?:([A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+)#([0-9]+)|#([0-9]+)|\b(?:prs?|pull(?: request)?s?)\s+([0-9]+))`)
 )
 
