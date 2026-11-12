@@ -300,9 +300,6 @@ refused, and it works on every kind of card; a machine blocker alone never pushe
 			if err := homeask.CheckOptionIDs(ask); err != nil {
 				return err
 			}
-			if err := guardMergeBase(cmd.Context(), ask, move, append([]string{title, rootRun, ownerThread, request}, blocks...), prFlag, cmd.Flags().Changed("pr")); err != nil {
-				return err
-			}
 			if w := commandWarning(fmt.Sprint(ask["question"])); w != "" {
 				fmt.Fprintln(cmd.ErrOrStderr(), "warning:", w)
 			}
@@ -326,6 +323,10 @@ refused, and it works on every kind of card; a machine blocker alone never pushe
 				return err
 			}
 			ask["project"] = bound
+			// After project resolution, so the guard reads the card as it will be filed.
+			if err := guardMergeBase(cmd.Context(), ask, move, append([]string{title, rootRun, ownerThread, request}, blocks...), prFlag, cmd.Flags().Changed("pr")); err != nil {
+				return err
+			}
 			req := homeask.CardRequest{Project: project, Title: title, Blocks: blocks, Ask: ask, Move: move, Key: request, Thread: thread, Owner: ownerThread}
 			if rootRun != "" {
 				if req.RootRun, err = parseRootRunFlag(rootRun); err != nil {

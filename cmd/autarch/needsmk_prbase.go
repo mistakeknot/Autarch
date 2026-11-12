@@ -199,7 +199,7 @@ func guardMergeBase(ctx context.Context, ask, move map[string]any, extra []strin
 	var base struct {
 		BaseRefName string `json:"baseRefName"`
 	}
-	if err := ghJSON(ctx, &base, "pr", "view", num, "--repo", repo, "--json", "baseRefName"); err != nil {
+	if err := ghJSON(ctx, &base, "pr", "view", num, "--repo", "github.com/"+repo, "--json", "baseRefName"); err != nil {
 		return &usageError{"cannot check the base of PR " + pr + ": " + err.Error() + "; nothing was filed"}
 	}
 	var def struct {
@@ -207,7 +207,7 @@ func guardMergeBase(ctx context.Context, ask, move map[string]any, extra []strin
 			Name string `json:"name"`
 		} `json:"defaultBranchRef"`
 	}
-	if err := ghJSON(ctx, &def, "repo", "view", repo, "--json", "defaultBranchRef"); err != nil {
+	if err := ghJSON(ctx, &def, "repo", "view", "github.com/"+repo, "--json", "defaultBranchRef"); err != nil {
 		return &usageError{"cannot read the default branch of " + repo + ": " + err.Error() + "; nothing was filed"}
 	}
 	if base.BaseRefName == "" || def.DefaultBranchRef.Name == "" {

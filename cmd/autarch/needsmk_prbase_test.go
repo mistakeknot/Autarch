@@ -82,7 +82,7 @@ func TestNeedsMkMergeAskOnNonDefaultBaseIsRefused(t *testing.T) {
 			t.Errorf("message %q lacks %q", err, want)
 		}
 	}
-	if s.creates != 0 || len(s.calls) != 0 {
+	if s.creates != 0 || len(writeCalls(s)) != 0 {
 		t.Fatalf("something was filed: creates=%d calls=%v", s.creates, s.calls)
 	}
 }
@@ -135,7 +135,7 @@ func TestNeedsMkMergeAskRefusedWhenGHFailsOrPRUnknown(t *testing.T) {
 	useGH(t, g)
 	s := &stubBB{}
 	_, err := fileMerge(t, s, mergeAskJSON)
-	if exitCode(err) != 2 || s.creates != 0 || len(s.calls) != 0 {
+	if exitCode(err) != 2 || s.creates != 0 || len(writeCalls(s)) != 0 {
 		t.Fatalf("gh failure: err=%v creates=%d", err, s.creates)
 	}
 	// a merge option with no PR URL anywhere and no --pr cannot be checked, so it is not filed
