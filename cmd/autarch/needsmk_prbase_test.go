@@ -30,12 +30,12 @@ func (g *ghStub) run(_ context.Context, args ...string) ([]byte, error) {
 	}
 	joined := strings.Join(args, " ")
 	switch {
-	case strings.HasPrefix(joined, "pr view 211 --repo o/r --json baseRefName"):
+	case strings.HasPrefix(joined, "pr view 211 --repo github.com/o/r --json baseRefName"):
 		if g.rawBase != "" {
 			return []byte(g.rawBase), nil
 		}
 		return []byte(`{"baseRefName":"` + g.base + `"}`), nil
-	case strings.HasPrefix(joined, "repo view o/r --json defaultBranchRef"):
+	case strings.HasPrefix(joined, "repo view github.com/o/r --json defaultBranchRef"):
 		if g.defErr {
 			return nil, errors.New("gh: repo not found")
 		}
@@ -391,6 +391,43 @@ func TestNeedsMkPRNamedOutsideTheAskIsChecked(t *testing.T) {
 	} {
 		if s, err := run(args...); err != nil || s.creates != 1 {
 			t.Errorf("%v: err=%v creates=%d", args, err, s.creates)
+		}
+	}
+}
+
+// The project is resolved (bound board, folder name) after the ask is read; the guard must see the resolved card.
+func TestNeedsMkResolvedProjectNameIsChecked(t *testing.T) {
+	body := strings.Replace(mergeAskJSON, `"project":"autarch",`, "", 1)
+	for _, bound := range []string{"Merge PR 212", "Merge https://github.com/o/r/pull/212"} {
+		g := &ghStub{base: "main", def: "main"}
+		useGH(t, g)
+		s := &stubBB{bound: bound}
+		if _, err := fileMerge(t, s, body); exitCode(err) != 2 || s.creates != 0 {
+			t.Errorf("bound %q: err=%v creates=%d", bound, err, s.creates)
+		}
+	}
+	g := &ghStub{base: "main", def: "main"}
+	useGH(t, g)
+	s := &stubBB{bound: "Autarch"}
+	if _, err := fileMerge(t, s, body); err != nil || s.creates != 1 {
+		t.Fatalf("plain bound project: err=%v creates=%d", err, s.creates)
+	}
+}
+
+// gh must be pinned to github.com: a GH_HOST for another server would answer for a different repository.
+func TestNeedsMkGHLookupsAreQualifiedWithGitHubCom(t *testing.T) {
+	g := &ghStub{base: "main", def: "main"}
+	useGH(t, g)
+	s := &stubBB{}
+	if _, err := fileMerge(t, s, mergeAskJSON); err != nil {
+		t.Fatal(err)
+	}
+	if len(g.calls) != 2 {
+		t.Fatalf("calls=%v", g.calls)
+	}
+	for _, c := range g.calls {
+		if !strings.Contains(strings.Join(c, " "), " github.com/o/r") {
+			t.Errorf("gh call not pinned to github.com: %v", c)
 		}
 	}
 }
