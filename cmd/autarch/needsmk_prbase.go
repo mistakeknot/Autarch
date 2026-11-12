@@ -134,8 +134,9 @@ func ghJSON(ctx context.Context, into any, args ...string) error {
 // guardMergeBase refuses (exit 2) a PR merge ask unless the PR's base branch is the repo's default branch, so a
 // stacked PR cannot be merged into its parent's branch from a card. A PR merge ask is one with an option
 // "Manually merge it at <sha>" or an explicit --pr. On success the ask names the branch: "into <branch>".
-// Asks that are not PR merges are untouched and make no gh call.
-func guardMergeBase(ctx context.Context, ask map[string]any, prFlag string, prSet bool) error {
+// Asks that are not PR merges are untouched and make no gh call. The PR references checked are those in the whole
+// card: the ask, the --move file and the text flags (extra).
+func guardMergeBase(ctx context.Context, ask, move map[string]any, extra []string, prFlag string, prSet bool) error {
 	if ctx == nil {
 		ctx = context.Background()
 	}
@@ -144,6 +145,8 @@ func guardMergeBase(ctx context.Context, ask map[string]any, prFlag string, prSe
 		m   map[string]any
 		key string
 	}
+	texts = append(texts, extra...)
+	walkAsk(move, func(t string) { texts = append(texts, t) }, func(map[string]any, string) {})
 	var mergeOpts []labelRef
 	walkAsk(ask, func(t string) { texts = append(texts, t) }, func(m map[string]any, key string) {
 		if strings.Contains(m[key].(string), mergePhrase+" ") {
