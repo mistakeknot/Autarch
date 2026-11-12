@@ -36,8 +36,11 @@ var (
 	// ghCommandRe finds the gh tool by name (however its subcommand is spelled, quoted or ordered after flags) or
 	// a --repo/-R flag (also attached, -Rowner/repo): a merge ask may not carry a command, because which PR it
 	// targets cannot be read reliably.
-	ghCommandRe = regexp.MustCompile(`(?i)\bgh\b|(?:^|\s)(?:-R|--repo)`)
-	shortRefRe  = regexp.MustCompile(`(?i)(?:([A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+)#([0-9]+)|#([0-9]+)|\b(?:prs?|pull(?: request)?s?)\s+([0-9]+))`)
+	ghCommandRe = regexp.MustCompile(`(?i)\bgh\b|(?:^|[\s'"` + "`" + `])(?:-R|--repo)|['"` + "`" + `][0-9]+['"` + "`" + `]`)
+	// shellishWordRe finds a word built with shell quoting, escaping or expansion (g''h, g\h, $'\x67h', ${X}, $(..)):
+	// three or more quote characters, a backslash before a letter or digit, or an expansion opener.
+	shellishWordRe = regexp.MustCompile(`\S*(?:['"][^'"\s]*['"][^'"\s]*['"]|\\[A-Za-z0-9]|\$['"{(])\S*`)
+	shortRefRe     = regexp.MustCompile(`(?i)(?:([A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+)#([0-9]+)|#([0-9]+)|\b(?:prs?|pull(?: request)?s?)\s+([0-9]+))`)
 )
 
 // mdEscapeRe is a Markdown backslash escape of an ASCII punctuation character.
@@ -131,7 +134,9 @@ func scanPRRefs(texts []string) (prRefs, error) {
 			refs.shorts = append(refs.shorts, [2]string{"", m[1]})
 		}
 		if bad == "" {
-			if m := ghCommandRe.FindString(rest); m != "" {
+			if m := shellishWordRe.FindString(rest); m != "" {
+				bad = "shell quoting or escaping (" + m + ")"
+			} else if m := ghCommandRe.FindString(rest); m != "" {
 				bad = "a gh command (" + strings.TrimSpace(m) + " ...)"
 			}
 		}
