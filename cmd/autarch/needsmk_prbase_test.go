@@ -361,3 +361,36 @@ func TestNeedsMkDotSegmentOwnerOrRepoIsRefused(t *testing.T) {
 		}
 	}
 }
+
+// The card is more than the ask JSON: its title, --move and the other text flags reach Citadel too, so a PR
+// named there must be the PR whose base was checked.
+func TestNeedsMkPRNamedOutsideTheAskIsChecked(t *testing.T) {
+	other := `{"schema":"home-move/v1","kind":"pr","pr":{"url":"https://github.com/o/r/pull/212"}}`
+	same := `{"schema":"home-move/v1","kind":"pr","pr":{"url":"https://github.com/o/r/pull/211"}}`
+	run := func(args ...string) (*stubBB, error) {
+		g := &ghStub{base: "main", def: "main"}
+		useGH(t, g)
+		s := &stubBB{}
+		t.Setenv("BB_THREAD_ID", "thread-x")
+		a := append([]string{"file", "--project", "P1", "--ask-file", writeMergeAsk(t, mergeAskJSON)}, args...)
+		_, err := runNeedsMk(t, s, a...)
+		return s, err
+	}
+	for _, args := range [][]string{
+		{"--title", "Merge https://github.com/o/r/pull/212 ?"},
+		{"--title", "Merge #212 ?"},
+		{"--title", "Merge ?", "--move", writeMove(t, other)},
+	} {
+		if s, err := run(args...); exitCode(err) != 2 || s.creates != 0 {
+			t.Errorf("%v: err=%v creates=%d", args, err, s.creates)
+		}
+	}
+	for _, args := range [][]string{
+		{"--title", "Merge https://github.com/o/r/pull/211 ?"},
+		{"--title", "Merge ?", "--move", writeMove(t, same)},
+	} {
+		if s, err := run(args...); err != nil || s.creates != 1 {
+			t.Errorf("%v: err=%v creates=%d", args, err, s.creates)
+		}
+	}
+}
