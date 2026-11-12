@@ -18,6 +18,8 @@ type ghStub struct {
 	def     string
 	fail    bool
 	baseErr bool
+	defErr  bool   // the repo lookup fails
+	rawBase string // when set, the pr view answer verbatim
 }
 
 func (g *ghStub) run(_ context.Context, args ...string) ([]byte, error) {
@@ -28,8 +30,14 @@ func (g *ghStub) run(_ context.Context, args ...string) ([]byte, error) {
 	joined := strings.Join(args, " ")
 	switch {
 	case strings.HasPrefix(joined, "pr view 211 --repo o/r --json baseRefName"):
+		if g.rawBase != "" {
+			return []byte(g.rawBase), nil
+		}
 		return []byte(`{"baseRefName":"` + g.base + `"}`), nil
 	case strings.HasPrefix(joined, "repo view o/r --json defaultBranchRef"):
+		if g.defErr {
+			return nil, errors.New("gh: repo not found")
+		}
 		return []byte(`{"defaultBranchRef":{"name":"` + g.def + `"}}`), nil
 	}
 	return nil, errors.New("unexpected gh call: " + joined)
@@ -156,5 +164,52 @@ func TestNeedsMkNonMergeAskMakesNoGHCall(t *testing.T) {
 	}
 	if len(g.calls) != 0 || s.creates != 1 || strings.Contains(s.desc, "into ") {
 		t.Fatalf("gh=%v creates=%d desc=%s", g.calls, s.creates, s.desc)
+	}
+}
+
+func TestNeedsMkMergeLabelWithoutAShaStillTriggersTheCheck(t *testing.T) {
+	g := &ghStub{base: "sync/x", def: "main"}
+	useGH(t, g)
+	s := &stubBB{}
+	body := strings.Replace(mergeAskJSON, "58814293", "HEAD", 1)
+	if _, err := fileMerge(t, s, body); exitCode(err) != 2 || s.creates != 0 {
+		t.Fatalf("err=%v creates=%d", err, s.creates)
+	}
+}
+
+func TestNeedsMkEmptyPRFlagIsRefused(t *testing.T) {
+	g := &ghStub{base: "sync/x", def: "main"}
+	useGH(t, g)
+	s := &stubBB{}
+	if _, err := fileMerge(t, s, plainAskJSON, "--pr="); exitCode(err) != 2 || s.creates != 0 {
+		t.Fatalf("err=%v creates=%d", err, s.creates)
+	}
+}
+
+func TestNeedsMkStaleIntoTextIsReplacedByTheVerifiedBranch(t *testing.T) {
+	g := &ghStub{base: "main", def: "main"}
+	useGH(t, g)
+	s := &stubBB{}
+	body := strings.Replace(mergeAskJSON, "58814293", "58814293 into sync/x", 1)
+	if _, err := fileMerge(t, s, body); err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(s.desc, "sync/x") || !strings.Contains(s.desc, "Manually merge it at 58814293 into main") {
+		t.Fatalf("card:\n%s", s.desc)
+	}
+}
+
+func TestNeedsMkMergeAskRefusedOnBadGitHubMetadata(t *testing.T) {
+	for name, g := range map[string]*ghStub{
+		"repo lookup fails": {base: "main", def: "main", defErr: true},
+		"empty base":        {base: "", def: "main", rawBase: `{"baseRefName":""}`},
+		"not json":          {base: "main", def: "main", rawBase: `oops`},
+		"empty default":     {base: "main", def: ""},
+	} {
+		useGH(t, g)
+		s := &stubBB{}
+		if _, err := fileMerge(t, s, mergeAskJSON); exitCode(err) != 2 || s.creates != 0 {
+			t.Errorf("%s: err=%v creates=%d", name, err, s.creates)
+		}
 	}
 }
