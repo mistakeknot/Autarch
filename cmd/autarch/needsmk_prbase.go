@@ -20,8 +20,9 @@ var ghRun = func(ctx context.Context, args ...string) ([]byte, error) {
 const ghTimeout = 20 * time.Second
 
 var (
-	// A merge option reads "Manually merge it at <head sha>".
-	mergeOptionRe = regexp.MustCompile(`Manually merge it at ([0-9a-fA-F]{7,40})`)
+	// The phrase alone triggers the check; the word after it (the head sha) and an existing " into <branch>" are
+	// matched only so the annotation can be rewritten.
+	mergeOptionRe = regexp.MustCompile(`Manually merge it at(?: (\S+)(?: into \S+)?)?`)
 	prURLRe       = regexp.MustCompile(`https://github\.com/([A-Za-z0-9_.-]{1,100})/([A-Za-z0-9_.-]{1,100})/pull/([1-9][0-9]{0,8})\b`)
 	prURLExactRe  = regexp.MustCompile(`^` + prURLRe.String() + `$`)
 )
@@ -71,7 +72,7 @@ func ghJSON(ctx context.Context, into any, args ...string) error {
 // stacked PR cannot be merged into its parent's branch from a card. A PR merge ask is one with an option
 // "Manually merge it at <sha>" or an explicit --pr. On success the ask names the branch: "into <branch>".
 // Asks that are not PR merges are untouched and make no gh call.
-func guardMergeBase(ctx context.Context, ask map[string]any, prFlag string) error {
+func guardMergeBase(ctx context.Context, ask map[string]any, prFlag string, prSet bool) error {
 	if ctx == nil {
 		ctx = context.Background()
 	}
@@ -82,11 +83,11 @@ func guardMergeBase(ctx context.Context, ask map[string]any, prFlag string) erro
 			mergeOpts = append(mergeOpts, o)
 		}
 	}
-	if len(mergeOpts) == 0 && prFlag == "" {
+	if len(mergeOpts) == 0 && !prSet {
 		return nil
 	}
 	var m []string
-	if prFlag != "" {
+	if prSet {
 		if m = prURLExactRe.FindStringSubmatch(prFlag); m == nil {
 			return &usageError{"--pr must be https://github.com/<owner>/<repo>/pull/<n>"}
 		}
@@ -137,11 +138,13 @@ func guardMergeBase(ctx context.Context, ask map[string]any, prFlag string) erro
 	into := " into " + def.DefaultBranchRef.Name
 	for _, o := range mergeOpts {
 		l := o["label"].(string)
-		o["label"] = mergeOptionRe.ReplaceAllStringFunc(l, func(s string) string {
-			if strings.HasPrefix(l[strings.Index(l, s)+len(s):], " into ") {
-				return s
+		o["label"] = mergeOptionRe.ReplaceAllStringFunc(l, func(m string) string {
+			// Keep the head sha, drop any branch the label already named: only the verified one may stand.
+			out := "Manually merge it at"
+			if sha := mergeOptionRe.FindStringSubmatch(m)[1]; sha != "" {
+				out += " " + sha
 			}
-			return s + into
+			return out + into
 		})
 	}
 	if len(mergeOpts) == 0 {

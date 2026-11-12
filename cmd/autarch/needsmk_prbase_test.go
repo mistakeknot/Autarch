@@ -205,6 +205,7 @@ func TestNeedsMkMergeAskRefusedOnBadGitHubMetadata(t *testing.T) {
 		"empty base":        {base: "", def: "main", rawBase: `{"baseRefName":""}`},
 		"not json":          {base: "main", def: "main", rawBase: `oops`},
 		"empty default":     {base: "main", def: ""},
+		"both empty":        {base: "", def: "", rawBase: `{"baseRefName":""}`},
 	} {
 		useGH(t, g)
 		s := &stubBB{}

@@ -300,7 +300,7 @@ refused, and it works on every kind of card; a machine blocker alone never pushe
 			if err := homeask.CheckOptionIDs(ask); err != nil {
 				return err
 			}
-			if err := guardMergeBase(cmd.Context(), ask, prFlag); err != nil {
+			if err := guardMergeBase(cmd.Context(), ask, prFlag, cmd.Flags().Changed("pr")); err != nil {
 				return err
 			}
 			if w := commandWarning(fmt.Sprint(ask["question"])); w != "" {
