@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net/url"
 	"os/exec"
 	"regexp"
 	"sort"
@@ -32,6 +33,46 @@ var (
 	shortRefRe = regexp.MustCompile(`(?i)(?:([A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+)#([0-9]+)|#([0-9]+)|\b(?:prs?|pull(?: request)?s?)\s+([0-9]+))`)
 )
 
+var wordRe = regexp.MustCompile(`[^\s"'<>]+`)
+
+// disguisedHost reports a word that could reach github.com, or another host, through a spelling a literal
+// match misses: percent escapes (%67ithub.com, even doubled), full-width or ideographic look-alikes, or a URL
+// authority with a port, user info or any character beyond letters, digits, dot and hyphen.
+func disguisedHost(w string) bool {
+	norm := w
+	for i := 0; i < 3 && strings.Contains(norm, "%"); i++ {
+		d, err := url.PathUnescape(norm)
+		if err != nil || d == norm {
+			break
+		}
+		norm = d
+	}
+	norm = strings.Map(func(r rune) rune {
+		switch {
+		case r >= 0xFF01 && r <= 0xFF5E:
+			r -= 0xFEE0
+		case r == 0x3002 || r == 0xFF61:
+			r = '.'
+		}
+		return r
+	}, strings.ToLower(norm))
+	if strings.Contains(norm, "github.com") && !strings.Contains(strings.ToLower(w), "github.com") {
+		return true
+	}
+	if i := strings.Index(w, "://"); i >= 0 {
+		auth := w[i+3:]
+		if j := strings.IndexAny(auth, "/?#\\"); j >= 0 {
+			auth = auth[:j]
+		}
+		for _, r := range auth {
+			if !(r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z' || r >= '0' && r <= '9' || r == '.' || r == '-') {
+				return true
+			}
+		}
+	}
+	return false
+}
+
 // prRefs are the PR references found in an ask's text.
 type prRefs struct {
 	urls   map[string][]string // canonical URL -> [url, owner, repo, number]
@@ -45,6 +86,11 @@ func scanPRRefs(texts []string) (prRefs, error) {
 	refs := prRefs{urls: map[string][]string{}}
 	bad := ""
 	for _, t := range texts {
+		for _, w := range wordRe.FindAllString(t, -1) {
+			if bad == "" && disguisedHost(w) {
+				bad = w
+			}
+		}
 		rest := githubTokenRe.ReplaceAllStringFunc(t, func(tok string) string {
 			word := strings.TrimRight(tok, ".,;:)]")
 			if m := prLinkRe.FindStringSubmatch(word); m != nil && m[2] != "." && m[2] != ".." && m[3] != "." && m[3] != ".." {
