@@ -433,6 +433,27 @@ func TestNeedsMkGHLookupsAreQualifiedWithGitHubCom(t *testing.T) {
 }
 
 // A host spelled with percent escapes or look-alike characters normalizes to github.com in a browser.
+func TestNeedsMkSchemeRelativeAndUnicodeHostsAreRefused(t *testing.T) {
+	for _, u := range []string{
+		"[this PR](//\u24d6ithub.com/o/r/pull/212)",
+		"//\u24d6ithub.com/o/r/pull/212",
+		"\\\\\u24d6ithub.com/o/r/pull/212",
+		"/\\\u24d6ithub.com/o/r/pull/212",
+		"https:\u24d6ithub.com/o/r/pull/212",
+		"//example.com:8080/o/r/pull/212",
+		"//user@example.com/x",
+		"\u1d4dithub.com/o/r/pull/212",
+	} {
+		g := &ghStub{base: "main", def: "main"}
+		useGH(t, g)
+		s := &stubBB{}
+		q := "Checked https://github.com/o/r/pull/211; merge " + u + " ?"
+		if _, err := fileMerge(t, s, askWithQuestion(t, q), "--pr", "https://github.com/o/r/pull/211"); exitCode(err) != 2 || s.creates != 0 {
+			t.Errorf("%s: err=%v creates=%d", u, err, s.creates)
+		}
+	}
+}
+
 func TestNeedsMkObfuscatedGitHubHostIsRefused(t *testing.T) {
 	for _, u := range []string{
 		"https://%67ithub.com/o/r/pull/212",
