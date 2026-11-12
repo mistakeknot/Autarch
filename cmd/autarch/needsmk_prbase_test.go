@@ -465,6 +465,12 @@ func TestNeedsMkCommandsAndEscapedLinksNameAnUncheckedPR(t *testing.T) {
 		"merge #212",
 		"gh pr merge 211 --repo other/repo",
 		"gh pr merge 211 -R other/repo",
+		"gh pr merge --squash 212 --repo o/r",
+		"gh pr merge '212' --repo o/r",
+		"gh pr merge 211 --repo 'other/repo'",
+		"gh pr merge 211 -Rother/repo",
+		"gh api repos/o/r/pulls/212/merge -X PUT",
+		"gh pr merge 211",
 		"[this PR](https:&#x2f;&#x2f;github&#x2e;com/o/r/pull/212)",
 		"[this PR](https:&sol;&sol;github.com/o/r/pull/212)",
 		"[this PR](https://github&period;com/o/r/pull/212)",
@@ -479,11 +485,11 @@ func TestNeedsMkCommandsAndEscapedLinksNameAnUncheckedPR(t *testing.T) {
 			t.Errorf("%s: err=%v creates=%d", u, err, s.creates)
 		}
 	}
-	// the verified PR itself, and a sha after the merge phrase, stay fine
+	// the verified PR itself, and a sha after the merge phrase, stay fine; a gh command never does
 	g := &ghStub{base: "main", def: "main"}
 	useGH(t, g)
 	s := &stubBB{}
-	q := "Merge 211 now: gh pr merge 211 --repo o/r (head abc1234 at https://github.com/o/r/pull/211)"
+	q := "Merge 211 now (head abc1234, closes #211, at https://github.com/o/r/pull/211)"
 	if _, err := fileMerge(t, s, askWithQuestion(t, q), "--pr", "https://github.com/o/r/pull/211"); err != nil || s.creates != 1 {
 		t.Fatalf("verified PR: err=%v creates=%d", err, s.creates)
 	}
