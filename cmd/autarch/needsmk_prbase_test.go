@@ -441,6 +441,7 @@ func TestNeedsMkSchemeRelativeAndUnicodeHostsAreRefused(t *testing.T) {
 		"/\\\u24d6ithub.com/o/r/pull/212",
 		"https:\u24d6ithub.com/o/r/pull/212",
 		"//example.com:8080/o/r/pull/212",
+		"\\\\example.com:8080/o/r/pull/212",
 		"//user@example.com/x",
 		"\u1d4dithub.com/o/r/pull/212",
 	} {

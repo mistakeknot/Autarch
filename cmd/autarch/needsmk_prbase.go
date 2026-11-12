@@ -59,9 +59,18 @@ func disguisedHost(w string) bool {
 	if strings.Contains(norm, "github.com") && !strings.Contains(strings.ToLower(w), "github.com") {
 		return true
 	}
-	if i := strings.Index(w, "://"); i >= 0 {
-		auth := w[i+3:]
-		if j := strings.IndexAny(auth, "/?#\\"); j >= 0 {
+	// Browsers read a backslash like a slash, and a leading // (or scheme:host) as an authority too.
+	slashed := strings.ReplaceAll(w, "\\", "/")
+	if strings.ContainsAny(slashed, "/") {
+		for _, r := range slashed {
+			if r > 0x7e {
+				return true // a non-ASCII character in anything that looks like a link
+			}
+		}
+	}
+	if i := strings.Index(slashed, "//"); i >= 0 {
+		auth := slashed[i+2:]
+		if j := strings.IndexAny(auth, "/?#"); j >= 0 {
 			auth = auth[:j]
 		}
 		for _, r := range auth {
