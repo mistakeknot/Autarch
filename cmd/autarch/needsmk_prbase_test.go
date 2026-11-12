@@ -431,3 +431,33 @@ func TestNeedsMkGHLookupsAreQualifiedWithGitHubCom(t *testing.T) {
 		}
 	}
 }
+
+// A host spelled with percent escapes or look-alike characters normalizes to github.com in a browser.
+func TestNeedsMkObfuscatedGitHubHostIsRefused(t *testing.T) {
+	for _, u := range []string{
+		"https://%67ithub.com/o/r/pull/212",
+		"https://github%2ecom/o/r/pull/212",
+		"https://%2567ithub.com/o/r/pull/212",
+		"//%67ithub.com/o/r/pull/212",
+		"https://ｇｉｔｈｕｂ.com/o/r/pull/212",
+		"https://github。com/o/r/pull/212",
+		"https://example.com:8080/o/r/pull/212",
+		"https://user@example.com/x",
+	} {
+		g := &ghStub{base: "main", def: "main"}
+		useGH(t, g)
+		s := &stubBB{}
+		q := "Check https://github.com/o/r/pull/211 but merge " + u + " ?"
+		if _, err := fileMerge(t, s, askWithQuestion(t, q), "--pr", "https://github.com/o/r/pull/211"); exitCode(err) != 2 || s.creates != 0 {
+			t.Errorf("%s: err=%v creates=%d", u, err, s.creates)
+		}
+	}
+	// an ordinary link to another site is not a PR reference
+	g := &ghStub{base: "main", def: "main"}
+	useGH(t, g)
+	s := &stubBB{}
+	q := "Merge https://github.com/o/r/pull/211 (notes: https://example.com/doc?a=1#top)"
+	if _, err := fileMerge(t, s, askWithQuestion(t, q)); err != nil || s.creates != 1 {
+		t.Fatalf("plain other-site link: err=%v creates=%d", err, s.creates)
+	}
+}
