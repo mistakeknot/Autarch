@@ -19,36 +19,52 @@ var ghRun = func(ctx context.Context, args ...string) ([]byte, error) {
 // ghTimeout bounds each gh read the base guard makes.
 const ghTimeout = 20 * time.Second
 
+// mergePhrase marks a merge option: "Manually merge it at <head sha>".
+const mergePhrase = "Manually merge it at"
+
 var (
-	// The phrase alone triggers the check; the word after it (the head sha) and an existing " into <branch>" are
-	// matched only so the annotation can be rewritten.
-	mergeOptionRe = regexp.MustCompile(`Manually merge it at(?: (\S+)(?: into \S+)?)?`)
-	prURLRe       = regexp.MustCompile(`https://github\.com/([A-Za-z0-9_.-]{1,100})/([A-Za-z0-9_.-]{1,100})/pull/([1-9][0-9]{0,8})\b`)
-	prURLExactRe  = regexp.MustCompile(`^` + prURLRe.String() + `$`)
+	prURLRe      = regexp.MustCompile(`https://github\.com/([A-Za-z0-9_.-]{1,100})/([A-Za-z0-9_.-]{1,100})/pull/([1-9][0-9]{0,8})\b`)
+	prURLExactRe = regexp.MustCompile(`^` + prURLRe.String() + `$`)
 )
 
-// askStrings returns the free text of an ask that can name a PR, and the options as maps.
-func askStrings(ask map[string]any) ([]string, []map[string]any) {
-	var out []string
-	for _, k := range []string{"question", "subject", "recommendation"} {
-		if s, ok := ask[k].(string); ok {
-			out = append(out, s)
+// walkAsk visits every string in the ask at any depth (options sit at the top level and inside questions), and
+// every map that has a string "label" (an option).
+func walkAsk(v any, str func(string), option func(map[string]any)) {
+	switch x := v.(type) {
+	case string:
+		str(x)
+	case []any:
+		for _, e := range x {
+			walkAsk(e, str, option)
+		}
+	case map[string]any:
+		if _, ok := x["label"].(string); ok {
+			option(x)
+		}
+		for _, e := range x {
+			walkAsk(e, str, option)
 		}
 	}
-	var opts []map[string]any
-	if raw, ok := ask["options"].([]any); ok {
-		for _, o := range raw {
-			if m, ok := o.(map[string]any); ok {
-				opts = append(opts, m)
-				for _, v := range m {
-					if s, ok := v.(string); ok {
-						out = append(out, s)
-					}
-				}
-			}
-		}
+}
+
+// withBranch rewrites a merge label so it names the verified branch: the head sha stays, a branch the label
+// already named is dropped, and " into <branch>" follows the sha.
+func withBranch(label, branch string) string {
+	i := strings.Index(label, mergePhrase)
+	out := label[:i+len(mergePhrase)]
+	f := strings.Fields(label[i+len(mergePhrase):])
+	if len(f) > 0 && f[0] != "into" {
+		out += " " + f[0]
+		f = f[1:]
 	}
-	return out, opts
+	if len(f) > 0 && f[0] == "into" {
+		f = f[min(2, len(f)):]
+	}
+	out += " into " + branch
+	if len(f) > 0 {
+		out += " " + strings.Join(f, " ")
+	}
+	return out
 }
 
 func ghJSON(ctx context.Context, into any, args ...string) error {
@@ -76,13 +92,13 @@ func guardMergeBase(ctx context.Context, ask map[string]any, prFlag string, prSe
 	if ctx == nil {
 		ctx = context.Background()
 	}
-	texts, opts := askStrings(ask)
+	var texts []string
 	var mergeOpts []map[string]any
-	for _, o := range opts {
-		if l, ok := o["label"].(string); ok && mergeOptionRe.MatchString(l) {
+	walkAsk(ask, func(t string) { texts = append(texts, t) }, func(o map[string]any) {
+		if strings.Contains(o["label"].(string), mergePhrase+" ") {
 			mergeOpts = append(mergeOpts, o)
 		}
-	}
+	})
 	if len(mergeOpts) == 0 && !prSet {
 		return nil
 	}
@@ -135,21 +151,12 @@ func guardMergeBase(ctx context.Context, ask map[string]any, prFlag string, prSe
 		return &usageError{fmt.Sprintf("PR %s is based on %q, not the default branch %q: merging it from a card would land it on %s, not %s. Retarget the PR to %s (or merge its parent first) and file again; nothing was filed",
 			pr, base.BaseRefName, def.DefaultBranchRef.Name, base.BaseRefName, def.DefaultBranchRef.Name, def.DefaultBranchRef.Name)}
 	}
-	into := " into " + def.DefaultBranchRef.Name
 	for _, o := range mergeOpts {
-		l := o["label"].(string)
-		o["label"] = mergeOptionRe.ReplaceAllStringFunc(l, func(m string) string {
-			// Keep the head sha, drop any branch the label already named: only the verified one may stand.
-			out := "Manually merge it at"
-			if sha := mergeOptionRe.FindStringSubmatch(m)[1]; sha != "" {
-				out += " " + sha
-			}
-			return out + into
-		})
+		o["label"] = withBranch(o["label"].(string), def.DefaultBranchRef.Name)
 	}
 	if len(mergeOpts) == 0 {
 		q, _ := ask["question"].(string)
-		ask["question"] = strings.TrimRight(q, "\n") + "\n\nMerging PR " + pr + " goes" + into + "."
+		ask["question"] = strings.TrimRight(q, "\n") + "\n\nMerging PR " + pr + " goes into " + def.DefaultBranchRef.Name + "."
 	}
 	return nil
 }

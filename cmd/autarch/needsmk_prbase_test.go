@@ -215,7 +215,7 @@ func TestNeedsMkMergeAskRefusedOnBadGitHubMetadata(t *testing.T) {
 	}
 }
 
-const nestedMergeAskJSON = `{"project":"autarch","project_root":"/srv/autarch","question":"Merge https://github.com/o/r/pull/211 ?","questions":[{"id":"q1","question":"Merge it?","options":[{"id":"a","label":"A) Manually merge it at 58814293","kind":"ruling-only"},{"id":"b","label":"B) Not now","kind":"ruling-only"}]}]}`
+const nestedMergeAskJSON = `{"project":"autarch","project_root":"/srv/autarch","question":"Merge https://github.com/o/r/pull/211 ?","questions":[{"id":"q1","prompt":"Merge it?","options":[{"id":"a","label":"A) Manually merge it at 58814293"},{"id":"b","label":"B) Not now"}]}]}`
 
 func TestNeedsMkMergeOptionInsideQuestionsIsChecked(t *testing.T) {
 	g := &ghStub{base: "sync/x", def: "main"}
