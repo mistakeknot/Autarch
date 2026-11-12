@@ -33,9 +33,10 @@ var (
 	// shortRefRe finds #N, owner/repo#N and "PR N" style references.
 	// mergeNumRe finds a number after a merge-like verb or a gh pr subcommand ("merge 212", "gh pr merge 212").
 	mergeNumRe = regexp.MustCompile(`(?i)\b(?:merg(?:e|es|ed|ing)|land(?:s|ed|ing)?|closes?|closed|gh\s+pr\s+[a-z-]+)\s+(?:(?:prs?|pull(?: requests?)?)\s*)?#?([0-9]+)\b`)
-	// repoFlagRe finds the repository a gh command is pointed at.
-	repoFlagRe = regexp.MustCompile(`(?i)(?:^|\s)(?:-R|--repo)(?:\s+|=)([A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+)`)
-	shortRefRe = regexp.MustCompile(`(?i)(?:([A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+)#([0-9]+)|#([0-9]+)|\b(?:prs?|pull(?: request)?s?)\s+([0-9]+))`)
+	// ghCommandRe finds a gh command or a --repo/-R flag: too many spellings (flags before the number, quoting,
+	// -Rowner/repo) to tell which PR it targets, so a merge ask may not carry one.
+	ghCommandRe = regexp.MustCompile(`(?i)\bgh\s+(?:pr|api|repo|issue|workflow|run)\b|(?:^|\s)(?:-R|--repo)\b`)
+	shortRefRe  = regexp.MustCompile(`(?i)(?:([A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+)#([0-9]+)|#([0-9]+)|\b(?:prs?|pull(?: request)?s?)\s+([0-9]+))`)
 )
 
 // mdEscapeRe is a Markdown backslash escape of an ASCII punctuation character.
@@ -128,8 +129,10 @@ func scanPRRefs(texts []string) (prRefs, error) {
 		for _, m := range mergeNumRe.FindAllStringSubmatch(rest, -1) {
 			refs.shorts = append(refs.shorts, [2]string{"", m[1]})
 		}
-		for _, m := range repoFlagRe.FindAllStringSubmatch(rest, -1) {
-			refs.shorts = append(refs.shorts, [2]string{m[1], ""})
+		if bad == "" {
+			if m := ghCommandRe.FindString(rest); m != "" {
+				bad = "a gh command (" + strings.TrimSpace(m) + " ...)"
+			}
 		}
 		for _, m := range shortRefRe.FindAllStringSubmatch(rest, -1) {
 			switch {
@@ -261,7 +264,7 @@ func guardMergeBase(ctx context.Context, ask, move map[string]any, extra []strin
 		}
 	}
 	for _, sr := range refs.shorts {
-		if (sr[0] != "" && !strings.EqualFold(sr[0], m[1]+"/"+m[2])) || (sr[1] != "" && sr[1] != m[3]) {
+		if (sr[0] != "" && !strings.EqualFold(sr[0], m[1]+"/"+m[2])) || sr[1] != m[3] {
 			ref := "#" + sr[1]
 			if sr[0] != "" {
 				ref = sr[0] + ref
