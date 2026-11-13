@@ -43,6 +43,34 @@ Evidence is delivery content excluded from identity, revision, semantic key, req
 and normalized JSON. Existing hashes remain unchanged. An evidence-only filing or update is a no-op:
 include evidence in the initial filing, or alongside a substantive change to the question or options.
 
+## Pick export
+
+`autarch needs-mk export --db ./data.db --days 7` reads Home's stored card picks
+as JSON Lines. The default window is seven days (1–365 allowed), inclusive through
+the start of the command. It includes every recorded card pick by the owner in that
+window, including earlier generations, ordered by pick time then pick ID. It opens
+SQLite read-only and moves no cursor. Database discovery matches `needs-mk footer`.
+
+Each line starts with `id`, `time`, `state`, `pick`, `title`, matching the five
+columns of the earlier research export. `id` is the card key, falling back to task ID;
+state and title describe the current stored card. Added `decision_id` and `pick_id`
+distinguish repeated picks. Recommendation data comes from that pick's decision
+snapshot, rather than the card's latest generation.
+
+| Added field | Meaning |
+| --- | --- |
+| `recommendation_id` | Stored recommended option ID; null if absent. |
+| `matched_recommendation` | Exact option-ID comparison, or null without a recommendation. An own-words pick differs from a recommended option. |
+| `question_recommendations` | Per-question IDs and recommendations for multi-pick cards. Their `pick` and `matched_recommendation` are null: storage retains readable answer labels rather than structured option IDs. Null for cards without questions. |
+| `kind` | Stored ask kind (`decide`, `steps`, or `machine`); cards use `decide`. This is not an inferred merge/question classification. |
+| `pr_head` | The selected option's structured merge-approval identity when it is a full lowercase 40-character commit SHA; otherwise null. Prose is never mined for a head. |
+| `round` | Null: no structured round is retained. |
+| `auto_close` | Null: conversion to the stored v1 ask drops these terms; original v2 ask JSON is not retained. Conditions in prose are not interpreted. |
+| `revisions` | Null: generation includes overrides and bring-backs, so it is not a revision count. An edit history between observations is unavailable. |
+
+Missing historical values are never reconstructed. This export records data only;
+it applies no rules and takes no action on picks.
+
 ## Options
 
 An ask option has one of <!-- figure:option-kinds=3 -->3 kinds: `instruction`, `needs-context` or `ruling-only`. A `ruling-only` option records the answer and nothing else.
