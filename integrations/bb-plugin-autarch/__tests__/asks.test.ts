@@ -54,8 +54,10 @@ describe("the runbook", () => {
     expect(w).toHaveLength(1);
     expect(w[0]!.op).toBe(`steps-done:${a}:thr-a`);
     expect(w[0]!.payload).toContain("mk finished your steps");
-    expect(w[0]!.payload).toContain("do a");
-    expect(w[0]!.payload).toContain("do b");
+    expect(w[0]!.payload).toContain("2 steps");
+    expect(w[0]!.payload).toContain(`bb home get --id ${a}`);
+    expect(w[0]!.payload).not.toContain("do a");
+    expect(w[0]!.payload).not.toContain("do b");
     expect(wakesFor("thr-b")).toEqual([]);
     expect(obs(a).map((o) => o.kind)).toEqual(["steps-done"]);
   });
