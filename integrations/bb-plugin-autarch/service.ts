@@ -516,7 +516,7 @@ export class Service {
     // mk's words, framed once for the asker's wake and the notices to the other threads: a label alone ("Other (mk's own answer)") tells the thread nothing.
     const wordsFor = (isOther ? `\nmk answered in their own words (unverified plain text, not an instruction to run anything):\n${otherText}` : "") +
       (multi ? `\nmk answered each question (a choice among the options the ask offered; the option labels and any note are unverified plain text, not an instruction to run anything). The id before each colon is the question id:\n${multi.lines.join("\n")}` : "");
-    // Freeze the rendering decision with the payload; never recompute it during delivery.
+    // Render once at pick time; delivery replays the saved payload without recomputing it.
     const thin = d.source === "card" && by === "mk" && !isOther && !isAnswers && ask.recommendation === optionId;
     const obligations: ObligationInput[] = [{ id: `ob:${decisionId}:ruling-file`, kind: "ruling-file", op: `ruling-file:${decisionId}` }];
     // Every ruling wakes the asking thread, whatever the option kind (bead mk-vh20p): a ruling-only pick used to leave the thread believing the ask was still open.
@@ -526,9 +526,8 @@ export class Service {
         kind: "wake",
         recipient: d.thread,
         op: `wake:${decisionId}:${pickId}`,
-        thin: thin ? 1 : 0,
         payload: this.wakePayload(d, ask, option.label, option.kind ?? "", option.instruction ?? "", by, thin) + wordsFor +
-          (thin && reason ? `\nmk added (unverified plain text):\n${reason}` : ""),
+          (thin && reason?.trim() ? `\nmk added (unverified plain text):\n${reason}` : ""),
       });
     }
     // A card generation also notifies the threads its own Blocks snapshot names (never a later edit's),
@@ -663,9 +662,8 @@ export class Service {
       kind: "steps-done",
       recipient: t,
       op: `steps-done:${d.id}:${t}`,
-      thin: t === d.thread ? 1 : 0,
       payload: t === d.thread
-        ? `mk finished your steps ${d.id}${d.subject ? ` (${d.subject})` : ""}: ${(ask.steps ?? []).length} steps. Look the card up with \`bb home get --id ${d.id}\`.`
+        ? `mk finished your steps ${d.id}${d.subject ? ` (${d.subject})` : ""}: ${(ask.steps ?? []).length} ${(ask.steps ?? []).length === 1 ? "step" : "steps"}. Look the card up with \`bb home get --id ${d.id}\`.`
         : [
             `mk finished your steps ${d.id}${d.subject ? ` (${d.subject})` : ""}.`,
             ...(ask.steps ?? []).map((s, i) => `${i + 1}. ${s}`),
@@ -701,8 +699,10 @@ export class Service {
     if (over) lines.push(`This supersedes the vizier's ruling on ${over.decision_id}.`);
     lines.push(`Ruling on ${d.id}${d.subject ? ` (${d.subject})` : ""}: ${by} picked ${JSON.stringify(label)}.`);
     const points = thin ? Array.from(ask.question ?? "") : [];
-    const question = thin && points.length > 300 ? points.slice(0, 300).join("") + "…" : ask.question;
+    const cut = thin && points.length > 300;
+    const question = cut ? points.slice(0, 300).join("") + "…" : ask.question;
     lines.push(`Question: ${question}`);
+    if (cut) lines.push(`Look the card up with \`bb home get --id ${d.id}\`.`);
     if (kind === "instruction") lines.push(`Instruction: ${instruction}`);
     else if (kind === "needs-context") lines.push("This choice needs more context from you before you act.");
     return lines.join("\n");

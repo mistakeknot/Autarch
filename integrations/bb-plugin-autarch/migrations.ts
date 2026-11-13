@@ -20,7 +20,7 @@ import {
 export { BackupNotVerifiedError, QuiesceRequiredError } from "./backup.js";
 
 /** The schema version this code writes and the highest it can read. */
-export const CODE_VERSION = 7;
+export const CODE_VERSION = 6;
 
 export interface Migration {
   version: number;
@@ -405,8 +405,6 @@ export const MIGRATIONS: readonly Migration[] = [
   { version: 4, sql: V4 },
   { version: 5, sql: V5 },
   { version: 6, sql: V6 },
-  // Nullable metadata only: old readers replay the already-rendered payload unchanged.
-  { version: 7, sql: "ALTER TABLE obligations ADD COLUMN thin INTEGER CHECK (thin IN (0, 1));" },
 ];
 
 const META = `CREATE TABLE IF NOT EXISTS schema_meta (key TEXT PRIMARY KEY, value INTEGER NOT NULL)`;
