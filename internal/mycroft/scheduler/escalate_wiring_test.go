@@ -23,7 +23,7 @@ func TestT1SuggestFilesOnceAcrossCycles(t *testing.T) {
 	q.SetHome(f, nil, "/srv/estate")
 	o.SetQueue(q)
 	view := mycroft.FleetView{
-		Agents: []mycroft.AgentView{{Name: "grey-area", Status: "active"}},
+		Agents: []mycroft.AgentView{{Name: "grey-area", Status: "idle"}},
 		Work:   []mycroft.BeadView{{ID: "b1", Title: "Fix", Type: "bug", Priority: 2, DepsResolved: true}},
 	}
 	o.OnCycle(view)
@@ -40,7 +40,7 @@ func TestT2OutsideAllowlistFilesAsk(t *testing.T) {
 	q.SetHome(f, nil, "/srv/estate")
 	o.SetQueue(q)
 	o.OnCycle(mycroft.FleetView{
-		Agents: []mycroft.AgentView{{Name: "grey-area", Status: "active"}},
+		Agents: []mycroft.AgentView{{Name: "grey-area", Status: "idle"}},
 		Work:   []mycroft.BeadView{{ID: "b9", Title: "Big", Type: "epic", Priority: 0, DepsResolved: true}},
 	})
 	if len(f.asks) != 1 {

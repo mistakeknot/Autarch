@@ -10,7 +10,7 @@ func TestHomeDecisionBeadsAreNeverSuggestedOrDispatched(t *testing.T) {
 	for _, tier := range []mycroft.Tier{mycroft.T0, mycroft.T1, mycroft.T2, mycroft.T3} {
 		o := newTestOrchestrator(t, tier)
 		view := mycroft.FleetView{
-			Agents: []mycroft.AgentView{{Name: "grey-area", Status: "active"}},
+			Agents: []mycroft.AgentView{{Name: "grey-area", Status: "idle"}},
 			Work: []mycroft.BeadView{
 				{ID: "d1", Title: "rule", Type: "decision", Priority: 0, DepsResolved: true},
 				{ID: "d2", Title: "rule", Type: "task", Priority: 0, DepsResolved: true, Labels: []string{"home:decision"}},

@@ -84,19 +84,12 @@ func complexityRank(c string) int {
 }
 
 // SelectForAgent picks the top-N beads from the ranked list that an agent
-// can handle, checking for interlock conflicts.
-func SelectForAgent(ranked []mycroft.BeadView, agent mycroft.AgentView, conflicts []mycroft.ConflictView, maxSuggestions int) []mycroft.BeadView {
+// can handle, recording each selection in the cycle-owned taken set.
+// BeadView has no touched-file data, so file reservations cannot be checked here.
+// A nil taken set permits standalone selection without cycle bookkeeping.
+func SelectForAgent(ranked []mycroft.BeadView, agent mycroft.AgentView, taken map[string]bool, maxSuggestions int) []mycroft.BeadView {
 	if maxSuggestions <= 0 {
 		maxSuggestions = 3
-	}
-
-	conflictFiles := make(map[string]bool)
-	for _, c := range conflicts {
-		for _, holder := range c.Holders {
-			if holder == agent.Name {
-				conflictFiles[c.File] = true
-			}
-		}
 	}
 
 	var selected []mycroft.BeadView
@@ -105,12 +98,19 @@ func SelectForAgent(ranked []mycroft.BeadView, agent mycroft.AgentView, conflict
 			break
 		}
 
+		if taken[b.ID] {
+			continue
+		}
+
 		// Skip beads already claimed by another agent.
 		if b.ClaimedBy != "" && b.ClaimedBy != agent.Name {
 			continue
 		}
 
 		selected = append(selected, b)
+		if taken != nil {
+			taken[b.ID] = true
+		}
 	}
 
 	return selected
