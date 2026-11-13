@@ -75,7 +75,7 @@ const (
 
 var (
 	v2Allowed = map[string]bool{"schema": true, "project": true, "project_root": true, "question": true,
-		"options": true, "questions": true, "ask_key": true, "subject": true, "recommendation": true, "pull": true, "auto_close": true, "urgency": true}
+		"options": true, "questions": true, "ask_key": true, "subject": true, "recommendation": true, "pull": true, "auto_close": true, "urgency": true, "evidence": true}
 	v1Only = map[string]bool{"v": true, "kind": true, "thread": true, "asker": true, "request_id": true,
 		"supersedes": true, "mention_of": true, "steps": true, "machine": true}
 	countedKinds = map[string]bool{"bead": true, "thread": true, "project": true}
@@ -277,7 +277,17 @@ func parseWireAsk(body string, c *Card) error {
 			return err
 		}
 	}
+	if err := exactCardNestedKeys(m); err != nil {
+		return err
+	}
 	c.Ask = m
+	if raw, ok := m["evidence"]; ok {
+		evidence, err := evidenceFromWire(raw)
+		if err != nil {
+			return err
+		}
+		c.Ask["evidence"] = evidence
+	}
 	return nil
 }
 

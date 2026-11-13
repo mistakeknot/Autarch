@@ -9,6 +9,7 @@
 
 import { createHash } from "node:crypto";
 
+import { validateEvidence, type Evidence } from "./evidence.js";
 export type AskKind = "decide" | "steps" | "machine";
 export type OptionKind = "instruction" | "needs-context" | "ruling-only";
 
@@ -69,6 +70,9 @@ export interface Ask {
   machine?: Machine;
   /** Optional delivery attribute: only "blocker" is accepted. Not part of the identity, revision, semantic key or normalized JSON. */
   urgency?: "blocker";
+  // Delivery-only: excluded from identity, revision, semantic key and normalized JSON.
+  // A filing or update changing only evidence is a no-op, like Urgency.
+  evidence?: Evidence[];
 }
 
 const MAX_INSTRUCTION = 8000;
@@ -133,7 +137,7 @@ function slug(label: string): string {
   return firstChars(out, 32).replace(/-+$/, "");
 }
 
-const TOP_FIELDS = ["v", "kind", "request_id", "ask_key", "subject", "project", "project_root", "asker", "thread", "question", "recommendation", "supersedes", "mention_of", "options", "questions", "steps", "machine", "urgency"];
+const TOP_FIELDS = ["v", "kind", "request_id", "ask_key", "subject", "project", "project_root", "asker", "thread", "question", "recommendation", "supersedes", "mention_of", "options", "questions", "steps", "machine", "urgency", "evidence"];
 const OPTION_FIELDS = ["id", "label", "kind", "reversible", "instruction", "approval"];
 const QUESTION_FIELDS = ["id", "prompt", "options", "recommendation"];
 const QUESTION_OPTION_FIELDS = ["id", "label", "detail"];
@@ -161,6 +165,7 @@ export function parseAsk(input: unknown): Ask {
   const o = obj(input, "ask");
   known(o, TOP_FIELDS, "ask");
   const a: Record<string, unknown> = {};
+  if (o.evidence !== undefined) a.evidence = validateEvidence(o.evidence);
   if (o.v !== undefined && o.v !== null) {
     if (typeof o.v !== "number") fail("invalid ask: v must be a number");
     a.v = o.v;
@@ -406,6 +411,7 @@ function normalize(input: Ask): { ask?: Ask; problems: Problem[] } {
   };
   if (a.questions.length > 0) out.questions = a.questions;
   if (a.urgency === "blocker") out.urgency = "blocker";
+  if (input.evidence !== undefined) out.evidence = validateEvidence(input.evidence);
   if (out.request_id === "") out.request_id = identityOf(out);
   return { ask: out, problems: ps };
 }

@@ -18,6 +18,8 @@ import { MultiPick } from "./multipick.js";
 import { UnreadableCard, unreadableLabel } from "./unreadable.js";
 import { neighborAfterRemoval } from "./nextcard.js";
 import { OtherBox, otherHelpText, type OtherImage, type OtherOutcome } from "./other.js";
+import { EvidenceBlock } from "./evidence.js";
+import type { Evidence } from "../evidence.js";
 
 /** What a pick hands back to the card: not ok means the card stays open and shows the error. */
 export type PickOutcome = { ok: boolean; error?: string };
@@ -97,7 +99,7 @@ export type OwedAsk = {
   held?: { reason: string; by: string; at: string; end?: HoldEnd | null } | null;
   /** Set while mk has set the card aside for later: it stays open and unruled, in the Later group, outside the Waiting count. */
   later?: { at: string; by: string } | null;
-  ask: { question: string; recommendation?: string; options: Option[]; questions?: Question[] };
+  ask: { question: string; recommendation?: string; options: Option[]; questions?: Question[]; evidence?: Evidence[] };
   /** The stored ask could not be read: `ask` is then empty, and the card is shown marked with nothing to answer. */
   unreadable?: boolean;
 };
@@ -316,6 +318,7 @@ function ReadableAskCard({ ask, onPick, onOpen, nowMs, onNote, onLater, unbound 
       </p>
       {glanceOf ? <GlanceBlock g={glanceOf} answers={glanceAnswers} /> : null}
       <QuestionText text={ask.ask.question} />
+      <EvidenceBlock items={ask.ask.evidence} />
       {ask.ask.questions && ask.ask.questions.length > 0 ? (
         <MultiPick
           questions={ask.ask.questions}

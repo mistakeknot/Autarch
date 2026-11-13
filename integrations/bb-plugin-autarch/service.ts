@@ -22,6 +22,14 @@ export type Later = { at: string; by: string };
 import { readAsk, UNREADABLE_REFUSAL as UNREADABLE_PICK } from "./askbody.js";
 import { identity, normalizedJson, parseAsk, revision, semanticKey, type Ask, type Question } from "./model.js";
 import { pickWrites } from "./cardwrites.js";
+
+// Canonical JSON stays unchanged; delivery JSON also carries non-identity evidence.
+function deliveryJson(ask: Ask): string {
+  if (!ask.evidence?.length) return normalizedJson(ask);
+  const body = JSON.parse(normalizedJson(ask));
+  if (ask.evidence?.length) body.evidence = ask.evidence;
+  return JSON.stringify(body);
+}
 import { estateRoot, fsUuidOfDev, pinRoot, renderRuling, rulingPath, writeRuling, type PinnedRoot, type Ruling } from "./ruling.js";
 import { appendRuling } from "./ledger.js";
 import type { ThreadRow } from "./delegation.js";
@@ -344,7 +352,7 @@ export class Service {
       asker: ask.asker,
       thread: ask.thread ?? "",
       owner_thread: this.machineOwner(ask),
-      body_json: normalizedJson(ask),
+      body_json: deliveryJson(ask),
       supersedes: ask.supersedes || null,
       delegable: true,
       urgency: ask.urgency ?? null,
@@ -1499,7 +1507,7 @@ export class Service {
       asker: ask.asker,
       thread: ask.thread ?? "",
       owner_thread: null,
-      body_json: normalizedJson(ask),
+      body_json: deliveryJson(ask),
       supersedes,
       delegable: true,
       source: "card",

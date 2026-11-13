@@ -182,7 +182,7 @@ func (f *CardFiler) FileOrUpdateCard(ctx context.Context, req CardRequest, super
 			return CardResult{}, fmt.Errorf("%w: updated card does not parse: %v", ErrInvalid, e)
 		}
 		res := CardResult{ID: s.Task.ID, Key: c.Request.Key, Project: project, Replay: true}
-		if desc == s.Task.Description && req.Title == s.Task.Title {
+		if descriptionWithoutEvidence(desc) == descriptionWithoutEvidence(s.Task.Description) && req.Title == s.Task.Title {
 			if f.ReadbackTimeout > 0 {
 				res.CardKey = f.awaitCardKey(ctx, res.ID)
 			}
