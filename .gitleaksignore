@@ -29,13 +29,3 @@ d9c339c036d1b83c892495b142648688f2fdd4c8:schema/home-ask/v1/vectors.json:generic
 d9c339c036d1b83c892495b142648688f2fdd4c8:schema/home-ask/v1/vectors.json:generic-api-key:115
 d9c339c036d1b83c892495b142648688f2fdd4c8:schema/home-ask/v1/vectors.json:generic-api-key:137
 d9c339c036d1b83c892495b142648688f2fdd4c8:schema/home-ask/v1/vectors.json:generic-api-key:195
-
-# Synthetic test hashes from the original baseline scan, not credentials.
-ff287fb68d367f8d857d7ebe8b1e7f7d083adafe:testdata/hash-golden.json:generic-api-key:640
-ff287fb68d367f8d857d7ebe8b1e7f7d083adafe:testdata/hash-golden.json:generic-api-key:655
-ff287fb68d367f8d857d7ebe8b1e7f7d083adafe:testdata/hash-golden.json:generic-api-key:670
-ff287fb68d367f8d857d7ebe8b1e7f7d083adafe:testdata/hash-golden.json:generic-api-key:1015
-ff287fb68d367f8d857d7ebe8b1e7f7d083adafe:testdata/hash-golden.json:generic-api-key:1046
-ff287fb68d367f8d857d7ebe8b1e7f7d083adafe:testdata/hash-golden.json:generic-api-key:1071
-ff287fb68d367f8d857d7ebe8b1e7f7d083adafe:testdata/hash-golden.json:generic-api-key:1097
-ff287fb68d367f8d857d7ebe8b1e7f7d083adafe:testdata/hash-golden.json:generic-api-key:1163

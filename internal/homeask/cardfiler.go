@@ -243,6 +243,11 @@ func (r CardRequest) wireAsk() (map[string]any, error) {
 	if r.Ask == nil {
 		return nil, fmt.Errorf("%w: no ask", ErrInvalid)
 	}
+	for _, key := range []string{"subject_key", "signals"} {
+		if _, ok := r.Ask[key]; ok {
+			return nil, fmt.Errorf("%w: %s is not writable yet", ErrInvalid, key)
+		}
+	}
 	m := make(map[string]any, len(r.Ask)+2)
 	for k, v := range r.Ask {
 		m[k] = v
