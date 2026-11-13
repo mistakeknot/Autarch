@@ -10,7 +10,7 @@ import (
 
 // Home indexes a card after the filer exits; the filer polls briefly so the caller sees card_key.
 func TestFileCardPollsUntilHomeHasTheCardKey(t *testing.T) {
-	f := newFake(t)
+	f := newFake(t, registryOnCreate)
 	polls := 0
 	f.fail = func(args []string) *BBResult {
 		if strings.Join(args[:min(len(args), 3)], " ") != "home get --card" {
@@ -33,7 +33,7 @@ func TestFileCardPollsUntilHomeHasTheCardKey(t *testing.T) {
 
 // The poll is bounded: a Home that never indexes the card returns an ambiguous outcome with the retry request key.
 func TestFileCardReadbackIsBounded(t *testing.T) {
-	f := newFake(t)
+	f := newFake(t, registryOnCreate)
 	f.fail = func(args []string) *BBResult {
 		if strings.Join(args[:min(len(args), 3)], " ") == "home get --card" {
 			return badRes(1, "unknown card")
@@ -54,7 +54,7 @@ func TestFileCardReadbackIsBounded(t *testing.T) {
 
 // A read that stalls is cut off at ReadbackTimeout, not left to the per-call timeout.
 func TestFileCardReadbackBoundsAStalledRead(t *testing.T) {
-	f := newFake(t)
+	f := newFake(t, registryOnCreate)
 	base := f.run
 	fl := f.filer()
 	fl.Run = func(ctx context.Context, env []string, args ...string) BBResult {
@@ -81,7 +81,7 @@ func TestFileCardReadbackBoundsAStalledRead(t *testing.T) {
 
 // With no ReadbackTimeout the filer reads nothing back.
 func TestFileCardWithoutReadbackTimeoutDoesNotPoll(t *testing.T) {
-	f := newFake(t)
+	f := newFake(t, registryOnCreate)
 	if _, err := f.filer().FileCard(context.Background(), testReq()); err != nil {
 		t.Fatal(err)
 	}
