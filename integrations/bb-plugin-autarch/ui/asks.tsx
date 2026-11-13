@@ -466,9 +466,9 @@ export function DecideQueue({ owed, onPick, onOpen, nowMs, onNote, onLater, onVi
           const old = isOldAsk(o.filed_at, nowMs);
           const rec = o.ask.options.find((x) => x.id === o.ask.recommendation);
           return (
-            <li key={o.id} data-queue-id={o.id} data-merge-group={o.ask.group?.key} data-group-order={o.ask.group?.order}>
-              {o.ask.group ? <span className="block text-xs text-muted-foreground">{`Linked merges · ${o.ask.group.key} · step ${o.ask.group.order}`}</span> : null}
+            <li key={o.id}>
               <button
+                data-queue-id={o.id} data-merge-group={o.ask.group?.key} data-group-order={o.ask.group?.order}
                 type="button"
                 aria-current={o.id === current.id ? "true" : undefined}
                 className={`min-h-11 w-full rounded border px-2 py-1.5 text-left ${o.id === current.id ? "border-primary bg-muted" : "border-border"}`}
@@ -478,6 +478,7 @@ export function DecideQueue({ owed, onPick, onOpen, nowMs, onNote, onLater, onVi
                   reveal();
                 }}
               >
+                {o.ask.group ? <span className="block text-xs text-muted-foreground">{`Linked merges · ${o.ask.group.key} · step ${o.ask.group.order}`}</span> : null}
                 <span className="flex min-w-0 items-baseline gap-1.5 text-sm">
                   {o.key && !o.unreadable ? <span className="shrink-0 select-all font-mono text-xs font-semibold" data-task-key>{o.key}</span> : null}
                   <span className="min-w-0 [overflow-wrap:anywhere] max-sm:line-clamp-3 sm:truncate">{o.unreadable ? unreadableLabel(o.key) : o.subject}</span>
