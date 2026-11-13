@@ -11,6 +11,8 @@ requests one phone push when the card is filed. The ask JSON equivalent is
 what work is stopped until the answer. It is allowed only with blocker urgency.
 A missing or invalid field exits 2 before filing. Add the field or omit blocker urgency
 (no phone push). The filer checks the field, without interpreting the question.
+Like urgency, `stopped` participates in the filer request identity (H1). It stays
+out of normalized JSON, revision, semantic key, and the Citadel card fingerprint.
 
 `bb home pushes --by-thread --days 7` returns JSON rows `{thread, blocker_cards}`,
 ordered by descending count and then thread. The default window is seven days
