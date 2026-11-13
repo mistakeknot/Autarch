@@ -243,6 +243,7 @@ any other thread, are refused with exit 2 before filing. Other threads need neit
 Re-filing the same ask_key updates its open, unanswered card in this project, preserving its key and routing.
 --supersedes CARD also updates in place when ask_key changed; a closed, foreign-project or foreign-owner
 card is refused (exit 2). An answered card remains already ruled (exit 5).
+A picked closed card with the same ask_key exits 5 too; a new ask needs a new ask_key.
 
 Exit codes: 2 usage or refused, 3 Home or tasks unavailable (nothing created), 4 card created
 but the routing comment failed (re-run the same command), 5 already ruled (mk picked an option for this request).

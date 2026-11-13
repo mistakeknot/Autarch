@@ -9,8 +9,6 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-
-	"github.com/google/uuid"
 )
 
 // FileOrUpdateCard is the CLI's ask-key editing lane. Request lines and routing
@@ -26,7 +24,7 @@ func (f *CardFiler) FileOrUpdateCard(ctx context.Context, req CardRequest, super
 			return CardResult{}, err
 		}
 	}
-	desc, _, err := req.Description()
+	desc, ident, err := req.Description()
 	if err != nil {
 		return CardResult{}, err
 	}
@@ -112,7 +110,7 @@ func (f *CardFiler) FileOrUpdateCard(ctx context.Context, req CardRequest, super
 			seen[cursor] = true
 		}
 	}
-	closed := false
+	var closed *taskRow
 	for _, s := range candidates {
 		c, e := ParseCard(s.Task.Description)
 		if e != nil || c.Pull != "" || s.Task.ProjectID != project {
@@ -120,7 +118,8 @@ func (f *CardFiler) FileOrUpdateCard(ctx context.Context, req CardRequest, super
 		}
 		// An exit-4 filing may not be indexed by Home until its first routing
 		// comment exists. Repair via replay, using the candidate's persisted key
-		// (automatic refiles have a random key), before asking Home for its state.
+		// before asking Home for its state. A matching ask_key alone never
+		// authorizes a caller to claim an unrouted card.
 		agent := false
 		for _, cm := range s.Comments {
 			if cm.Kind == "agent" {
@@ -128,19 +127,33 @@ func (f *CardFiler) FileOrUpdateCard(ctx context.Context, req CardRequest, super
 				break
 			}
 		}
+		repaired := false
 		if !agent && supersedes == "" && s.Task.Status != "done" && s.Task.Status != "canceled" {
+			matches := c.Request.Key == req.Key && c.Request.Identity == ident
+			matches = matches || c.Request.Key == DerivedKey(req.Thread, c.Request.Identity)
+			for _, previous := range candidates {
+				matches = matches || c.Request.Key == refileRequestKey(req.Thread, c.Request.Identity, previous.Task.ID)
+			}
+			if !matches {
+				return CardResult{}, fmt.Errorf("%w: card %s has an unrouted Request from another filing; re-run its original command", ErrInvalid, s.Task.ID)
+			}
 			repair := req
 			repair.Key = c.Request.Key
-			res, err := f.replay(ctx, repair, &found{ID: s.Task.ID, ProjectID: s.Task.ProjectID, Req: c.Request, Comments: s.Comments})
-			res.Project = s.Task.ProjectID
-			if err == nil && f.ReadbackTimeout > 0 {
-				res.CardKey = f.awaitCardKey(ctx, res.ID)
+			if _, err := f.replay(ctx, repair, &found{ID: s.Task.ID, ProjectID: s.Task.ProjectID, Req: c.Request, Comments: s.Comments}); err != nil {
+				return CardResult{}, err
 			}
-			return res, err
+			repaired = true
+			s.Comments = append(s.Comments, Comment{Kind: "agent", ThreadID: req.routeThread()})
 		}
-		v, e := f.Card(ctx, s.Task.ID)
-		if e != nil {
-			return CardResult{}, e
+		// A just-repaired card may not yet have a Home generation. Its original
+		// missing routing comment prevented a pick; apply the edits now and
+		// retain the normal post-write pick check instead of requiring a third run.
+		v := CardView{State: "open"}
+		if !repaired {
+			v, e = f.Card(ctx, s.Task.ID)
+			if e != nil {
+				return CardResult{}, e
+			}
 		}
 		if v.State == "ruled" || v.DecisionState == "ruled" || v.DecisionState == "picked" {
 			return CardResult{}, fmt.Errorf("%w: card %s", ErrAlreadyRuled, s.Task.ID)
@@ -149,7 +162,10 @@ func (f *CardFiler) FileOrUpdateCard(ctx context.Context, req CardRequest, super
 			if supersedes != "" {
 				return CardResult{}, fmt.Errorf("%w: --supersedes requires an open card", ErrInvalid)
 			}
-			closed = true
+			if closed == nil || s.Task.CreatedAt > closed.CreatedAt || (s.Task.CreatedAt == closed.CreatedAt && s.Task.ID > closed.ID) {
+				snapshot := s.Task
+				closed = &snapshot
+			}
 			continue
 		}
 		owner := AskingThread(s.Comments)
@@ -210,8 +226,15 @@ func (f *CardFiler) FileOrUpdateCard(ctx context.Context, req CardRequest, super
 		}
 		return res, nil
 	}
-	if closed {
-		req.Key = uuid.NewString()
+	if closed != nil {
+		req.Key = refileRequestKey(req.Thread, ident, closed.ID)
 	}
 	return f.FileCard(ctx, req)
+}
+
+// refileRequestKey binds the new generation to its filing thread and the closed
+// predecessor. Unlike a random key it proves who may repair missing routing,
+// even when that caller's next attempt changes the content.
+func refileRequestKey(thread, ident, predecessor string) string {
+	return DerivedKey(thread, ident+"\x00closed:"+predecessor)
 }
