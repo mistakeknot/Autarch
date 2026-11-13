@@ -90,6 +90,7 @@ type Ask struct {
 	// Evidence is delivery content, excluded from all hashes and normalized JSON.
 	// A filing or update that changes only evidence is a no-op, like Urgency.
 	Evidence EvidenceList `json:"evidence,omitempty"`
+	Group    *Group       `json:"group,omitempty"` // display only, excluded from canonical hashes
 }
 
 const (
@@ -115,6 +116,22 @@ var (
 // Parse decodes a request strictly (unknown fields are refused) and returns it
 // normalized and validated.
 func Parse(data []byte) (Ask, error) {
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(data, &fields); err == nil {
+		for k, raw := range fields {
+			if strings.EqualFold(k, "group") {
+				if k != "group" {
+					return Ask{}, fmt.Errorf("invalid ask field %q", k)
+				}
+				var g Group
+				if err := json.Unmarshal(raw, &g); err != nil {
+					return Ask{}, err
+				}
+				// Collapse duplicate members before struct decoding, matching JSON.parse.
+				data, _ = json.Marshal(fields)
+			}
+		}
+	}
 	dec := json.NewDecoder(bytes.NewReader(data))
 	dec.DisallowUnknownFields()
 	var a Ask
@@ -247,6 +264,9 @@ func Normalize(in Ask) (Ask, error) {
 
 func normalize(in Ask) (Ask, []Problem) {
 	var ps problemList
+	if err := validateGroup(in.Group); err != nil {
+		ps.add("group", err.Error())
+	}
 	if err := ValidateEvidence(in.Evidence); err != nil {
 		ps.add("evidence", err.Error())
 	}

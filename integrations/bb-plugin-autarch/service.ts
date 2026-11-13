@@ -23,11 +23,12 @@ import { readAsk, UNREADABLE_REFUSAL as UNREADABLE_PICK } from "./askbody.js";
 import { identity, normalizedJson, parseAsk, revision, semanticKey, type Ask, type Question } from "./model.js";
 import { pickWrites } from "./cardwrites.js";
 
-// Canonical JSON stays unchanged; delivery JSON also carries non-identity evidence.
+// Canonical JSON stays unchanged; delivery JSON also carries evidence and grouping.
 function deliveryJson(ask: Ask): string {
-  if (!ask.evidence?.length) return normalizedJson(ask);
+  if (!ask.evidence?.length && !ask.group) return normalizedJson(ask);
   const body = JSON.parse(normalizedJson(ask));
   if (ask.evidence?.length) body.evidence = ask.evidence;
+  if (ask.group) body.group = ask.group;
   return JSON.stringify(body);
 }
 import { estateRoot, fsUuidOfDev, pinRoot, renderRuling, rulingPath, writeRuling, type PinnedRoot, type Ruling } from "./ruling.js";

@@ -10,6 +10,7 @@ import { createHash } from "node:crypto";
 import { canonicalJson, normalizedJson, parseAsk, type Ask } from "./model.js";
 import { parseMove, type Move } from "./moves.js";
 import { validateEvidence } from "./evidence.js";
+import { validateGroup } from "./group.js";
 
 export interface BlockRef {
   ref: string;
@@ -57,7 +58,7 @@ const MAX_ROOT_SCRIPT = 4096;
 const MAX_ROOT_TIMEOUT = 3600;
 const PLACEHOLDER_THREAD = "thr_placeholder";
 
-const V2_ALLOWED = new Set(["schema", "project", "project_root", "question", "options", "questions", "ask_key", "subject", "recommendation", "pull", "auto_close", "urgency", "evidence"]);
+const V2_ALLOWED = new Set(["schema", "project", "project_root", "question", "options", "questions", "ask_key", "subject", "recommendation", "pull", "auto_close", "urgency", "evidence", "group"]);
 const V1_ONLY = new Set(["v", "kind", "thread", "asker", "request_id", "supersedes", "mention_of", "steps", "machine"]);
 /** Block-ref kinds that count toward the Blocks count; others are shown but not counted. */
 export const COUNTED = new Set(["bead", "thread", "project"]);
@@ -172,6 +173,7 @@ function parseWireAsk(body: string): { ask: Record<string, unknown>; pull: "" | 
   }
   if (Object.prototype.hasOwnProperty.call(m, "urgency") && m.urgency !== "blocker") fail('urgency must be "blocker" when set');
   if (Object.prototype.hasOwnProperty.call(m, "evidence")) validateEvidence(m.evidence);
+  if (Object.prototype.hasOwnProperty.call(m, "group")) m.group = validateGroup(m.group);
   if (Object.prototype.hasOwnProperty.call(m, "auto_close")) parseAutoClose(m.auto_close, m.options);
   return { ask: m, pull };
 }
