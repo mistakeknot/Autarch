@@ -58,7 +58,7 @@ func (s *stubBB) run(_ context.Context, env []string, args ...string) homeask.BB
 		}
 		return j(`[]`)
 	case "home get --card":
-		return j(`{"task_id":"T1","state":"open","decision_state":"open","card_key":"P1-1"}`)
+		return j(`{"task_id":"T1","project_id":"P1","state":"open","decision_state":"open","card_key":"P1-1"}`)
 	case "home get --request":
 		return j(`{"status":"absent"}`)
 	case "tasks label list":

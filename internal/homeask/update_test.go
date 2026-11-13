@@ -5,6 +5,7 @@ import (
 	"errors"
 	"strings"
 	"testing"
+	"time"
 )
 
 func updateRig(t *testing.T) (*memBB, *CardFiler, *string) {
@@ -13,7 +14,10 @@ func updateRig(t *testing.T) (*memBB, *CardFiler, *string) {
 	state := "open"
 	f.fail = func(args []string) *BBResult {
 		if strings.Join(args[:min(3, len(args))], " ") == "home get --card" {
-			r := okRes(CardView{TaskID: args[3], State: state, DecisionState: state, CardKey: "P1-1"})
+			if argFlag(args, "--project") != "" {
+				return badRes(2, "unknown option --project")
+			}
+			r := okRes(CardView{TaskID: args[3], ProjectID: "P1", State: state, DecisionState: state, CardKey: "P1-1"})
 			return &r
 		}
 		return nil
@@ -138,7 +142,7 @@ func TestAskKeyClosedPickedCardStillAlreadyRuled(t *testing.T) {
 	}
 	f.fail = func(args []string) *BBResult {
 		if strings.Join(args[:min(3, len(args))], " ") == "home get --card" {
-			v := okRes(CardView{TaskID: args[3], State: "closed", DecisionState: "picked"})
+			v := okRes(CardView{TaskID: args[3], ProjectID: "P1", State: "closed", DecisionState: "picked"})
 			return &v
 		}
 		return nil
@@ -167,5 +171,23 @@ func TestStoppedSameKeyRefileUpdatesOneLegacyCard(t *testing.T) {
 	card, err := ParseCard(f.tasks[0].Desc)
 	if err != nil || card.Ask["stopped"] != "Release waits" {
 		t.Fatalf("stopped not updated: %+v %v", card, err)
+	}
+}
+
+func TestAskKeyUpdateWithLegacyPlugin(t *testing.T) {
+	f, fl, _ := updateRig(t)
+	fl.ReadbackTimeout = 20 * time.Millisecond
+	fl.ReadbackInterval = time.Millisecond
+	r := testReq()
+	r.Ask["ask_key"] = "legacy-update"
+	for _, phase := range []string{"create", "noop", "edit"} {
+		if phase == "edit" {
+			r.Title = "Updated question"
+			r.Ask["question"] = "Updated question?"
+		}
+		res, err := fl.FileOrUpdateCard(context.Background(), r, "")
+		if err != nil || res.CardKey != "P1-1" || f.count("tasks", "create") != 1 {
+			t.Fatalf("phase=%s res=%+v err=%v creates=%d", phase, res, err, f.count("tasks", "create"))
+		}
 	}
 }
