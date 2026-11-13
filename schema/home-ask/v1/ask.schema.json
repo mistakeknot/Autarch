@@ -10,6 +10,7 @@
     "v": { "const": 1 },
     "kind": { "enum": ["decide", "steps", "machine"] },
     "urgency": { "const": "blocker", "description": "Optional. Asks for a phone push when the card is filed. Any other value is refused. Not part of the identity or revision." },
+    "stopped": { "type": "string", "minLength": 1, "maxLength": 200, "description": "Required only with blocker urgency: trimmed single line describing work stopped until the answer. Excluded from normalized ask hashes; included in the filer request identity." },
     "request_id": { "type": "string", "pattern": "^[A-Za-z0-9:_.-]{1,128}$", "description": "Defaults to the filing identity, so a blind retry is idempotent." },
     "ask_key": { "type": "string", "description": "Lowercased, whitespace-collapsed, 1-120 characters; defaults to the question's first 120 characters. Never decides a mention alone." },
     "subject": { "type": "string", "description": "Optional, 1-120 characters, normalized like ask_key. Automatic mentions need it." },

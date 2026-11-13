@@ -2,6 +2,36 @@
 
 A Home card is a BB Tasks card whose description carries a `Request: <key> sha256:<identity>` line and a fenced `home-ask` block. `autarch needs-mk file` files it and is idempotent on the request key: the same key with the same content replays, and the same key with changed content is refused.
 
+## Blocker urgency
+
+`autarch needs-mk file --urgency blocker --stopped "Release waits for this answer"`
+requests one phone push when the card is filed. The ask JSON equivalent is
+`"urgency": "blocker", "stopped": "Release waits for this answer"`; flags override JSON.
+`stopped` must be a trimmed, non-blank single line of at most 200 characters describing
+what work is stopped until the answer. It is allowed only with blocker urgency.
+A missing or invalid field exits 2 before filing. Add the field or omit blocker urgency
+(no phone push). The filer checks the field, without interpreting the question.
+Existing cards may omit `stopped`; readers still validate its shape and blocker urgency
+when the field is present. The required-field rule applies to new filing input.
+Like urgency, `stopped` participates in the filer request identity (H1). It stays
+out of normalized JSON, revision, semantic key, and the Citadel card fingerprint.
+
+`bb home pushes --by-thread --days 7` returns JSON rows `{thread, blocker_cards}`,
+ordered by descending count and then thread. The default window is seven days
+(1–365 allowed). This read-only audit counts each distinct card carrying blocker
+urgency once, including legacy cards without `stopped`, whether or not its phone
+push succeeded. The window uses the first generation’s filing time, so an old card
+edited this week stays outside this week’s report. It uses the recorded filing thread
+and excludes older asks that have no task/card ID.
+
+### Deployment and rollback
+
+Deploy the Citadel plugin with this reader support before (or together with) the filer
+that writes `stopped`. Rolling the plugin back below this change hides cards carrying
+`stopped`, because the older plugin rejects that field. Keep the compatible plugin
+while rolling back the filer; do not roll the plugin back without accounting for
+cards and stored bodies that already carry the field.
+
 ## Evidence
 
 The optional `evidence` array in a `home-ask/v2` block (also accepted by the Go and TypeScript ask parsers)

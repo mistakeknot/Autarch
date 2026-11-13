@@ -472,7 +472,7 @@ func TestNeedsMkFileAlwaysWritesARequestLine(t *testing.T) {
 func TestNeedsMkFileUrgencyBlocker(t *testing.T) {
 	t.Setenv("BB_THREAD_ID", "thread-x")
 	s := &stubBB{}
-	if _, err := runNeedsMk(t, s, "file", "--project", "P1", "--title", "Ship?", "--urgency", "blocker", "--ask-file", writeAsk(t)); err != nil {
+	if _, err := runNeedsMk(t, s, "file", "--project", "P1", "--title", "Ship?", "--urgency", "blocker", "--stopped", "Release waits", "--ask-file", writeAsk(t)); err != nil {
 		t.Fatal(err)
 	}
 	c, err := homeask.ParseCard(s.desc)
@@ -492,7 +492,7 @@ func TestNeedsMkFileUrgencyBlocker(t *testing.T) {
 func TestNeedsMkFileUrgencyFromAskJSON(t *testing.T) {
 	t.Setenv("BB_THREAD_ID", "thread-x")
 	p := filepath.Join(t.TempDir(), "ask.json")
-	os.WriteFile(p, []byte(`{"project":"autarch","project_root":"/srv/autarch","question":"Ship it?","urgency":"blocker","options":[{"id":"a","label":"A","kind":"ruling-only"},{"id":"b","label":"B","kind":"ruling-only"}]}`), 0o644)
+	os.WriteFile(p, []byte(`{"project":"autarch","project_root":"/srv/autarch","question":"Ship it?","urgency":"blocker","stopped":"Release waits","options":[{"id":"a","label":"A","kind":"ruling-only"},{"id":"b","label":"B","kind":"ruling-only"}]}`), 0o644)
 	s := &stubBB{}
 	if _, err := runNeedsMk(t, s, "file", "--project", "P1", "--title", "Ship?", "--ask-file", p); err != nil {
 		t.Fatal(err)
@@ -517,5 +517,88 @@ func TestNeedsMkFileRefusesOtherUrgency(t *testing.T) {
 	}
 	if len(s.envs) != 0 {
 		t.Fatalf("a refused urgency created something: %v", s.envs)
+	}
+}
+
+func TestNeedsMkFileRequiresStopped(t *testing.T) {
+	t.Setenv("BB_THREAD_ID", "thread-x")
+	s := &stubBB{}
+	_, err := runNeedsMk(t, s, "file", "--project", "P1", "--title", "Ship?", "--urgency", "blocker", "--ask-file", writeAsk(t))
+	if exitCode(err) != 2 {
+		t.Fatalf("want usage refusal, got %v", err)
+	}
+	for _, word := range []string{"stopped", "without blocker urgency", "no phone push"} {
+		if !strings.Contains(err.Error(), word) {
+			t.Errorf("missing %q: %v", word, err)
+		}
+	}
+	if len(s.envs) != 0 {
+		t.Fatalf("refusal contacted Home: %v", s.envs)
+	}
+}
+
+func TestNeedsMkStoppedOverride(t *testing.T) {
+	t.Setenv("BB_THREAD_ID", "thread-x")
+	p := writeAsk(t)
+	raw, _ := os.ReadFile(p)
+	var ask map[string]any
+	json.Unmarshal(raw, &ask)
+	ask["urgency"] = "invalid"
+	ask["stopped"] = "JSON text"
+	raw, _ = json.Marshal(ask)
+	os.WriteFile(p, raw, 0600)
+	s := &stubBB{}
+	_, err := runNeedsMk(t, s, "file", "--project", "P1", "--title", "Ship?", "--ask-file", p, "--urgency", "blocker", "--stopped", "  Release waits  ")
+	if err != nil {
+		t.Fatal(err)
+	}
+	c, err := homeask.ParseCard(s.desc)
+	if err != nil || c.Ask["stopped"] != "Release waits" {
+		t.Fatalf("override not trimmed and carried: %v %v", c, err)
+	}
+}
+
+func TestNeedsMkLegacyBlockerReaders(t *testing.T) {
+	t.Setenv("BB_THREAD_ID", "thr_x")
+	for _, operation := range []string{"same request", "supersedes", "adopt"} {
+		t.Run(operation, func(t *testing.T) {
+			p := writeAsk(t)
+			raw, _ := os.ReadFile(p)
+			var ask map[string]any
+			json.Unmarshal(raw, &ask)
+			ask["urgency"] = "blocker"
+			ask["ask_key"] = "legacy-release"
+			ask["schema"] = "home-ask/v2"
+			req := homeask.CardRequest{Project: "P1", Title: "Ship?", Key: "legacy-request", Thread: "thr_x", Ask: ask}
+			ident, err := homeask.RequestIdentity(req)
+			if err != nil {
+				t.Fatal(err)
+			}
+			raw, _ = json.Marshal(ask)
+			desc := fmt.Sprintf("Ship it?\n\nBlocks: bead:example\nRequest: legacy-request sha256:%s\n\n```home-ask\n%s\n```\n", ident, raw)
+			s := &stubBB{desc: desc, card: true, commented: true, thread: "thr_x"}
+			if _, err := homeask.ParseCard(desc); err != nil {
+				t.Fatalf("legacy read: %v", err)
+			}
+			if operation == "adopt" {
+				_, err = runNeedsMk(t, s, "adopt-move", "--card", "T1", "--move", writeMove(t, prMoveJSON))
+			} else {
+				delete(ask, "schema")
+				ask["stopped"] = "Release waits"
+				raw, _ = json.Marshal(ask)
+				os.WriteFile(p, raw, 0600)
+				args := []string{"file", "--project", "P1", "--title", "Ship?", "--ask-file", p, "--request", "legacy-request"}
+				if operation == "supersedes" {
+					args = append(args, "--supersedes", "T1")
+				}
+				_, err = runNeedsMk(t, s, args...)
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !s.card || s.creates != 0 || len(s.updated) != 1 {
+				t.Fatalf("created=%d updates=%d", s.creates, len(s.updated))
+			}
+		})
 	}
 }

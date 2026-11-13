@@ -1,7 +1,9 @@
 package homeask
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -170,7 +172,7 @@ func TestAskingThreadVectors(t *testing.T) {
 }
 
 func TestUrgencyOnlyBlocker(t *testing.T) {
-	a := Ask{V: 1, Kind: "decide", Project: "p", ProjectRoot: "/r", Asker: "thread", Thread: "thr_x", Question: "Q?", Urgency: "blocker", Options: []Option{{ID: "a", Label: "A", Kind: "ruling-only"}, {ID: "b", Label: "B", Kind: "ruling-only"}}}
+	a := Ask{V: 1, Kind: "decide", Project: "p", ProjectRoot: "/r", Asker: "thread", Thread: "thr_x", Question: "Q?", Urgency: "blocker", Stopped: "Release waits", Options: []Option{{ID: "a", Label: "A", Kind: "ruling-only"}, {ID: "b", Label: "B", Kind: "ruling-only"}}}
 	n, err := Normalize(a)
 	if err != nil || n.Urgency != "blocker" {
 		t.Fatalf("blocker refused: %v", err)
@@ -178,11 +180,112 @@ func TestUrgencyOnlyBlocker(t *testing.T) {
 	// urgency never moves a hash: the same ask without it has the same identity, revision and normalized JSON
 	b := a
 	b.Urgency = ""
+	b.Stopped = ""
 	if Identity(a) != Identity(b) || Revision(a) != Revision(b) || NormalizedJSON(a) != NormalizedJSON(b) {
 		t.Fatal("urgency changed a hash")
 	}
 	a.Urgency = "soon"
 	if _, err := Normalize(a); err == nil {
 		t.Fatal("urgency soon accepted")
+	}
+}
+
+func TestStoppedVectors(t *testing.T) {
+	raw, err := os.ReadFile("../../testdata/blocker-stopped.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var cases []struct {
+		Name        string
+		Fields      map[string]any
+		Valid       bool
+		ReaderValid bool `json:"reader_valid"`
+	}
+	if err := json.Unmarshal(raw, &cases); err != nil {
+		t.Fatal(err)
+	}
+	for _, c := range cases {
+		t.Run(c.Name, func(t *testing.T) {
+			m := map[string]any{"schema": "home-ask/v2", "project": "p", "project_root": "/r", "question": "Q?", "options": []any{map[string]any{"id": "a", "label": "A", "kind": "ruling-only"}, map[string]any{"id": "b", "label": "B", "kind": "ruling-only"}}}
+			for k, v := range c.Fields {
+				m[k] = v
+			}
+			b, _ := json.Marshal(m)
+			_, err := ParseCard("Blocks: bead:example\nRequest: example sha256:0123456789abcdef\n\n```home-ask\n" + string(b) + "\n```\n")
+			if (err == nil) != c.ReaderValid {
+				t.Fatalf("reader valid=%v err=%v", c.ReaderValid, err)
+			}
+			delete(m, "schema")
+			m["v"] = 1
+			m["kind"] = "decide"
+			m["asker"] = "thread"
+			m["thread"] = "t"
+			b, _ = json.Marshal(m)
+			_, err = Parse(b)
+			if (err == nil) != c.Valid {
+				t.Fatalf("v1 valid=%v err=%v", c.Valid, err)
+			}
+
+		})
+	}
+}
+
+// Design choice in bead mk-ddtv5.7.9: stopped participates in filer H1, as urgency does.
+// The normalized ask hashes remain independent of this delivery metadata.
+func TestStoppedRequestIdentity(t *testing.T) {
+	legacy := testReq()
+	h, err := RequestIdentity(legacy)
+	if err != nil || h != "d978b44d835e92ce" {
+		t.Fatalf("legacy H1 changed: %q %v", h, err)
+	}
+	a, b := testReq(), testReq()
+	a.Ask["urgency"] = "blocker"
+	a.Ask["stopped"] = "Release waits"
+	b.Ask["urgency"] = "blocker"
+	b.Ask["stopped"] = "Tests wait"
+	x, err := RequestIdentity(a)
+	if err != nil {
+		t.Fatal(err)
+	}
+	y, err := RequestIdentity(b)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if x == y {
+		t.Fatal("stopped must affect H1")
+	}
+	av, err := (Card{Ask: a.Ask}).ToV1("thr_a")
+	if err != nil {
+		t.Fatal(err)
+	}
+	bv, err := (Card{Ask: b.Ask}).ToV1("thr_a")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if Revision(av) != Revision(bv) || SemanticKey(av) != SemanticKey(bv) || NormalizedJSON(av) != NormalizedJSON(bv) {
+		t.Fatal("stopped affected normalized hashes")
+	}
+}
+
+func TestNewCardFilerRequiresStopped(t *testing.T) {
+	for _, lane := range []string{"exact", "update"} {
+		t.Run(lane, func(t *testing.T) {
+			f := newFake(t)
+			req := testReq()
+			req.Ask["urgency"] = "blocker"
+			var err error
+			if lane == "exact" {
+				_, err = f.filer().FileCard(context.Background(), req)
+			} else {
+				req.Ask["ask_key"] = "release"
+				_, err = f.filer().FileOrUpdateCard(context.Background(), req, "")
+			}
+			if !errors.Is(err, ErrInvalid) || !strings.Contains(err.Error(), "stopped") {
+				t.Fatalf("want named missing field: %v", err)
+			}
+			if len(f.calls) != 0 {
+				t.Fatalf("contacted Home: %v", f.calls)
+			}
+		})
 	}
 }

@@ -1,7 +1,7 @@
-// One guarded read of a stored ask body (bead mk-j5ipa.14). A body that no longer parses (bad JSON, or a shape parseAsk
+// One guarded read of a stored ask body (bead mk-j5ipa.14). A body that no longer parses (bad JSON, or a shape parseExistingAsk
 // refuses) must cost one card its answer buttons, not blank the whole inbox: every reader goes through readAsk and
 // shows the card marked "could not be read". The stored row is never changed.
-import { parseAsk, type Ask } from "./model.js";
+import { parseExistingAsk, type Ask } from "./model.js";
 
 /** What a screen shows in place of the ask text and options of an unreadable card. */
 export const UNREADABLE_ASK = { question: "", options: [] as never[] };
@@ -12,7 +12,7 @@ export const UNREADABLE_REFUSAL = { ok: false, status: 409, error: "this card co
 /** The decoded ask, or null when the stored body cannot be read. */
 export function readAsk(bodyJson: string, overrides: Record<string, unknown> = {}): Ask | null {
   try {
-    return parseAsk({ ...JSON.parse(bodyJson), ...overrides });
+    return parseExistingAsk({ ...JSON.parse(bodyJson), ...overrides });
   } catch {
     return null;
   }

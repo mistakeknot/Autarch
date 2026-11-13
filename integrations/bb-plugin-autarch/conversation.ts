@@ -5,7 +5,7 @@
 import type { Service } from "./service.js";
 import type { CommentRow, Store } from "./store.js";
 import { HOME_NOTE_TRAILER, type TaskCommentRow } from "./tasks.js";
-import { parseAsk } from "./model.js";
+import { parseExistingAsk } from "./model.js";
 
 export const SELECTED_POLL_MS = 15_000;
 export const OPEN_POLL_MS = 60_000;
@@ -92,7 +92,7 @@ export function conversationView(svc: Service, taskId: string, vizier: string | 
   let options: ConversationView["options"] = [];
   if (dec) {
     try {
-      options = (parseAsk(JSON.parse(dec.body_json)).options ?? []).map((o) => ({ id: o.id ?? "", label: o.label, kind: o.kind ?? "ruling-only", instruction: typeof o.instruction === "string" && o.instruction.trim() !== "" ? o.instruction : null }));
+      options = (parseExistingAsk(JSON.parse(dec.body_json)).options ?? []).map((o) => ({ id: o.id ?? "", label: o.label, kind: o.kind ?? "ruling-only", instruction: typeof o.instruction === "string" && o.instruction.trim() !== "" ? o.instruction : null }));
     } catch {
       options = [];
     }
