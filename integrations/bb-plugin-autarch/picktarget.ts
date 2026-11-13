@@ -45,12 +45,9 @@ export interface GenerationSnapshot {
   askerProjectId?: string;
   blocks: readonly string[];
   bindingConfirmed: boolean;
-  linkedBbProjectId?: string | null;
-  boundBbProjectId?: string | null;
 }
 export function validatePickTarget(g: GenerationSnapshot, t: TargetEvidence): { ok: boolean; reason?: string } {
   if (!g.asker || !g.bindingConfirmed) return { ok: false, reason: "asking thread and confirmed binding required" };
-  if (g.linkedBbProjectId && g.linkedBbProjectId !== g.boundBbProjectId) return { ok: false, reason: "card project binding conflicts" };
   if (t.archived || t.deleted || (t.thread_id !== g.asker && !g.blocks.includes(`thread:${t.thread_id}`))) return { ok: false, reason: "target outside live generation scope" };
   return { ok: true };
 }

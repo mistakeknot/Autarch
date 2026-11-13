@@ -80,7 +80,18 @@ export function LaterFailure({ error }: { error: string | null }) {
 }
 
 export type ApprovalSpec = { kind: string; target: string; identity: string; ttl?: number };
-export type Option = { id: string; label: string; kind: string; reversible?: boolean; instruction?: string; approval?: ApprovalSpec };
+export type Option = { id: string; label: string; kind: string; reversible?: boolean; instruction?: string; approval?: ApprovalSpec; on_pick?: import("../onpick").OnPick };
+type PickPresentation = { target: import("../picktarget").TargetEvidence; cross_project: boolean };
+export function PickTargetPresentation({ option, evidence }: { option: Option; evidence?: PickPresentation }) {
+  if (!option.on_pick) return null;
+  const subject = option.on_pick.subject;
+  return <div data-pick-target className="mt-2 text-xs">
+    <p>{evidence ? `${evidence.cross_project ? "Cross-project: " : ""}${evidence.target.title} — ${evidence.target.project_name} (${evidence.target.thread_id})` : "Target evidence unavailable"}</p>
+    <p>{subject.kind === "none" ? "No artifact. The fourth check means we verify the filed revision when this choice acts on a versioned artifact. If the choice acts on no artifact, there is no revision to compare, so we record ‘not applicable’. That is different from not knowing the revision. An unknown or unreadable revision still stops automatic handling." : `${subject.repo}#${subject.number} at ${subject.head}`}</p>
+    <p>Filed relay text (declaration only; automatic handling is not active):</p>
+    <pre className="whitespace-pre-wrap [overflow-wrap:anywhere]">{option.kind === "instruction" ? option.instruction : option.on_pick.notification}</pre>
+  </div>;
+}
 export type ApprovalRecord = { approval_id: string; decision_id: string; kind: string; target: string; identity: string; minted_at: string; expires_at: string };
 export type OwedAsk = {
   id: string;
@@ -102,6 +113,7 @@ export type OwedAsk = {
   /** Set while mk has set the card aside for later: it stays open and unruled, in the Later group, outside the Waiting count. */
   later?: { at: string; by: string } | null;
   ask: { question: string; recommendation?: string; options: Option[]; questions?: Question[]; evidence?: Evidence[]; group?: MergeGroup };
+  pick_targets?: Record<string, PickPresentation>;
   /** The stored ask could not be read: `ask` is then empty, and the card is shown marked with nothing to answer. */
   unreadable?: boolean;
 };
@@ -354,6 +366,7 @@ function ReadableAskCard({ ask, onPick, onOpen, nowMs, onNote, onLater, unbound 
                 {recommended ? <RecommendedMark /> : null}
               </div>
               {optionEffect(o, threadName(ask), true) !== "" ? <p className="mt-1 text-xs text-muted-foreground [overflow-wrap:anywhere]" data-effect>{optionEffect(o, threadName(ask), true)}</p> : null}
+              <PickTargetPresentation option={o} evidence={ask.pick_targets?.[o.id]} />
             </li>
           );
         })}

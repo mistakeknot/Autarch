@@ -24,11 +24,12 @@ it.each([null, { ...project, id: "wrong" }, { id: project.id }])("refuses missin
 });
 it("direct Tasks unlisted target is refused", async () => {
   const target = await readTargetEvidence(sdk(), "thr_target");
-  expect(validatePickTarget({ asker: "thr_asker", blocks: [], bindingConfirmed: true, linkedBbProjectId: "card-project", boundBbProjectId: "card-project" }, target).ok).toBe(false);
+  expect(validatePickTarget({ asker: "thr_asker", blocks: [], bindingConfirmed: true }, target).ok).toBe(false);
 });
-it("N2 different asker project remains eligible with consistent card binding", async () => {
+it("N2 different asker project remains eligible", async () => {
   const target = await readTargetEvidence(sdk(), "thr_target");
-  expect(validatePickTarget({ asker: "thr_asker", askerProjectId: "vizier-project", blocks: ["thread:thr_target"], bindingConfirmed: true, linkedBbProjectId: "card-project", boundBbProjectId: "card-project" }, target).ok).toBe(true);
+  const generation = { asker: "thr_asker", askerProjectId: "vizier-project", blocks: ["thread:thr_target"], bindingConfirmed: true, linkedBbProjectId: "card-project" };
+  expect(validatePickTarget(generation, target).ok).toBe(true);
 });
 it("N1 first generation has no owner comment cutoff", () => {
   expect(ownerCommentCutoff(1, null)).toBeNull();
@@ -36,4 +37,12 @@ it("N1 first generation has no owner comment cutoff", () => {
 it("N1 later generation uses previous Home observation time", () => {
   expect(ownerCommentCutoff(2, "2026-01-02T00:00:00.000Z")).toBe("2026-01-02T00:00:00.000Z");
   expect(() => ownerCommentCutoff(2, null)).toThrow();
+});
+
+it.each([undefined, null, "arbitrary-project", "project-target"])("N2 linkedBbProjectId %j leaves eligibility and target unchanged", async linkedBbProjectId => {
+  const target = await readTargetEvidence(sdk(), "thr_target");
+  const before = structuredClone(target);
+  const generation = { asker: "thr_asker", askerProjectId: "vizier-project", blocks: ["thread:thr_target"], bindingConfirmed: true, linkedBbProjectId };
+  expect(validatePickTarget(generation, target)).toEqual({ ok: true });
+  expect(target).toEqual(before);
 });

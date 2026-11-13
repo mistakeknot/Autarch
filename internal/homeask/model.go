@@ -921,7 +921,27 @@ func utf16Less(a, b string) bool {
 	return len(ua) < len(ub)
 }
 
-func writeCanon(b *strings.Builder, v any) {
+func writeCanon(b *strings.Builder, v any) { writeCanonExact(b, v, false) }
+
+// CanonicalOnPick preserves the complete validated declaration, including opaque
+// decoded strings and required false, null and empty members.
+func CanonicalOnPick(raw json.RawMessage) (string, error) {
+	dec := json.NewDecoder(bytes.NewReader(raw))
+	dec.UseNumber()
+	var v any
+	if err := dec.Decode(&v); err != nil {
+		return "", err
+	}
+	node, err := fromDecoded(v)
+	if err != nil {
+		return "", err
+	}
+	var b strings.Builder
+	writeCanonExact(&b, node, true)
+	return b.String(), nil
+}
+
+func writeCanonExact(b *strings.Builder, v any, exact bool) {
 	switch x := v.(type) {
 	case nil:
 		b.WriteString("null")
@@ -934,14 +954,18 @@ func writeCanon(b *strings.Builder, v any) {
 	case int:
 		b.WriteString(strconv.Itoa(x))
 	case string:
-		writeString(b, norm.NFC.String(x))
+		if exact {
+			writeString(b, x)
+		} else {
+			writeString(b, norm.NFC.String(x))
+		}
 	case []any:
 		b.WriteByte('[')
 		for i, e := range x {
 			if i > 0 {
 				b.WriteByte(',')
 			}
-			writeCanon(b, e)
+			writeCanonExact(b, e, exact)
 		}
 		b.WriteByte(']')
 	case map[string]any:
@@ -960,7 +984,7 @@ func writeCanon(b *strings.Builder, v any) {
 			}
 			writeString(b, k)
 			b.WriteByte(':')
-			writeCanon(b, nx[k])
+			writeCanonExact(b, nx[k], exact || k == "on_pick")
 		}
 		b.WriteByte('}')
 	}

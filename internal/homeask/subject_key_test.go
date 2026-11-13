@@ -67,7 +67,34 @@ func TestMetadataFrozenHashes(t *testing.T) {
 		if row.Description == "" {
 			continue
 		}
+		original, err := ParseCard(row.Description)
+		if err != nil {
+			t.Fatal(err)
+		}
+		ask, err := original.ToV1(row.Thread)
+		if err != nil {
+			t.Fatal(err)
+		}
+		explicitNone := false
+		for _, option := range ask.Options {
+			if len(option.OnPick) == 0 {
+				continue
+			}
+			var declaration struct{ Subject struct{ Kind string } }
+			if err := json.Unmarshal(option.OnPick, &declaration); err != nil {
+				t.Fatal(err)
+			}
+			explicitNone = explicitNone || declaration.Subject.Kind == "none"
+		}
 		row.Description = goldenMetadata(t, row.Description, meta)
+		// A participating explicit-none declaration contradicts newly attached
+		// artifact metadata. It must refuse rather than acquire unchanged hashes.
+		if explicitNone {
+			if _, err := ParseCard(row.Description); err == nil {
+				t.Errorf("accepted contradictory artifact: %s", row.Name)
+			}
+			continue
+		}
 		got := goldenHashes(t, row)
 		if !reflect.DeepEqual(got, row.Expected) {
 			t.Errorf("metadata changed hashes: %s", row.Name)

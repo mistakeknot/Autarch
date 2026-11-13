@@ -545,17 +545,22 @@ function prune(v: Node): Node {
   return v;
 }
 
-function write(v: Node): string {
+function write(v: Node, exact = false): string {
   if (v === null || v === undefined) return "null";
   if (typeof v === "boolean") return v ? "true" : "false";
   if (typeof v === "number") return String(v);
-  if (typeof v === "string") return JSON.stringify(nfc(v));
-  if (Array.isArray(v)) return `[${v.map(write).join(",")}]`;
+  if (typeof v === "string") return JSON.stringify(exact ? v : nfc(v));
+  if (Array.isArray(v)) return `[${v.map(e => write(e, exact)).join(",")}]`;
   // Default string sort compares UTF-16 code units, which is the required key order.
   const keys = Object.keys(v).map(nfc).sort();
   const src = v as { [k: string]: Node };
   const lookup = new Map(Object.keys(src).map((k) => [nfc(k), src[k]]));
-  return `{${keys.map((k) => `${JSON.stringify(k)}:${write(lookup.get(k) as Node)}`).join(",")}}`;
+  return `{${keys.map((k) => `${JSON.stringify(k)}:${write(lookup.get(k) as Node, exact || k === "on_pick")}`).join(",")}}`;
+}
+
+/** Complete validated declaration: sorted keys, exact decoded strings, no pruning. */
+export function canonicalOnPick(value: NonNullable<AskOption["on_pick"]>): string {
+  return write(value as unknown as Node, true);
 }
 
 function canon(v: Node): string {

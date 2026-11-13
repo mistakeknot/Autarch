@@ -1,0 +1,152 @@
+[
+  {
+    "name": "on-pick instruction",
+    "description": "Colour?\nBlocks: thread:thr_target\nRequest: sample sha256:0123456789abcdef\n```home-ask\n{\"schema\": \"home-ask/v2\", \"project\": \"sample\", \"project_root\": \"/sample\", \"question\": \"Colour?\", \"options\": [{\"id\": \"a\", \"label\": \"Blue\", \"kind\": \"instruction\", \"instruction\": \"  Use blue.\\nExactly.  \", \"on_pick\": {\"schema\": 1, \"target_thread\": \"thr_target\", \"reversible\": true, \"subject\": {\"kind\": \"none\"}, \"ruling\": {\"bead\": null, \"under\": []}}}, {\"id\": \"b\", \"label\": \"Wait\", \"kind\": \"ruling-only\"}]}\n```",
+    "thread": "thr_asker",
+    "expected": {
+      "h1": "0b213f60e95a2b53",
+      "identity": "7f4373b06ab4b0810812ff4b6398f3ce98f52ccfde11d45b0bc9e524ae680de0",
+      "revision": "5a58a71fdd00fde1e8379fc296a35b262ef703c441c8926a5ecbb051c44ea36a",
+      "semantic_digest": "",
+      "normalized": "{\"ask_key\":\"colour?\",\"asker\":\"thread\",\"kind\":\"decide\",\"options\":[{\"id\":\"a\",\"instruction\":\"  Use blue.\\nExactly.  \",\"kind\":\"instruction\",\"label\":\"Blue\",\"on_pick\":{\"reversible\":true,\"ruling\":{\"bead\":null,\"under\":[]},\"schema\":1,\"subject\":{\"kind\":\"none\"},\"target_thread\":\"thr_target\"}},{\"id\":\"b\",\"kind\":\"ruling-only\",\"label\":\"Wait\"}],\"project\":\"sample\",\"project_root\":\"/sample\",\"question\":\"Colour?\",\"request_id\":\"7f4373b06ab4b0810812ff4b6398f3ce98f52ccfde11d45b0bc9e524ae680de0\",\"thread\":\"thr_asker\",\"v\":1}",
+      "h5": "c21479896d25c88b0f99a83589672f729fae613ac4faf4140ff06119e7425830"
+    },
+    "declaration_canonical": "{\"reversible\":true,\"ruling\":{\"bead\":null,\"under\":[]},\"schema\":1,\"subject\":{\"kind\":\"none\"},\"target_thread\":\"thr_target\"}",
+    "declaration_sha256": "9faaf98191b4cf6e88ee25a22bdf77e045223852345cc38b95c55938d3262a44"
+  },
+  {
+    "name": "on-pick false",
+    "description": "Colour?\nBlocks: thread:thr_target\nRequest: sample sha256:0123456789abcdef\n```home-ask\n{\"schema\": \"home-ask/v2\", \"project\": \"sample\", \"project_root\": \"/sample\", \"question\": \"Colour?\", \"options\": [{\"id\": \"a\", \"label\": \"Blue\", \"kind\": \"instruction\", \"instruction\": \"  Use blue.\\nExactly.  \", \"on_pick\": {\"schema\": 1, \"target_thread\": \"thr_target\", \"reversible\": false, \"subject\": {\"kind\": \"none\"}, \"ruling\": {\"bead\": null, \"under\": []}}}, {\"id\": \"b\", \"label\": \"Wait\", \"kind\": \"ruling-only\"}]}\n```",
+    "thread": "thr_asker",
+    "expected": {
+      "h1": "283238e47f6eab9c",
+      "identity": "6b87bb9957c38f9ba4a7a96c143f603e6edd0734643c918c7948d0d30fb44b1a",
+      "revision": "1886375b58c76cec35361d2b19ff057bfba19735ee83c9f76d8c3e3f2172224e",
+      "semantic_digest": "",
+      "normalized": "{\"ask_key\":\"colour?\",\"asker\":\"thread\",\"kind\":\"decide\",\"options\":[{\"id\":\"a\",\"instruction\":\"  Use blue.\\nExactly.  \",\"kind\":\"instruction\",\"label\":\"Blue\",\"on_pick\":{\"reversible\":false,\"ruling\":{\"bead\":null,\"under\":[]},\"schema\":1,\"subject\":{\"kind\":\"none\"},\"target_thread\":\"thr_target\"}},{\"id\":\"b\",\"kind\":\"ruling-only\",\"label\":\"Wait\"}],\"project\":\"sample\",\"project_root\":\"/sample\",\"question\":\"Colour?\",\"request_id\":\"6b87bb9957c38f9ba4a7a96c143f603e6edd0734643c918c7948d0d30fb44b1a\",\"thread\":\"thr_asker\",\"v\":1}",
+      "h5": "30132829eb348470b6d9aac9751fda3ae99868105444f9158f11f2cbd974701b"
+    },
+    "declaration_canonical": "{\"reversible\":false,\"ruling\":{\"bead\":null,\"under\":[]},\"schema\":1,\"subject\":{\"kind\":\"none\"},\"target_thread\":\"thr_target\"}",
+    "declaration_sha256": "10db81c55d236ca97aed0a7b6b3d7ceebee32808923238b83e87f934d576d15f"
+  },
+  {
+    "name": "on-pick target",
+    "description": "Colour?\nBlocks: thread:thr_target\nRequest: sample sha256:0123456789abcdef\n```home-ask\n{\"schema\": \"home-ask/v2\", \"project\": \"sample\", \"project_root\": \"/sample\", \"question\": \"Colour?\", \"options\": [{\"id\": \"a\", \"label\": \"Blue\", \"kind\": \"instruction\", \"instruction\": \"  Use blue.\\nExactly.  \", \"on_pick\": {\"schema\": 1, \"target_thread\": \"thr_other\", \"reversible\": true, \"subject\": {\"kind\": \"none\"}, \"ruling\": {\"bead\": null, \"under\": []}}}, {\"id\": \"b\", \"label\": \"Wait\", \"kind\": \"ruling-only\"}]}\n```",
+    "thread": "thr_asker",
+    "expected": {
+      "h1": "c147838066f1b420",
+      "identity": "1055ce591607b58702649f29668ef3465191768bd21921da82cde141e10b4737",
+      "revision": "dfc97b29bfe1f4d046fba2f071232fd4e61f22ca6dfb64752bb2eedbae03bde9",
+      "semantic_digest": "",
+      "normalized": "{\"ask_key\":\"colour?\",\"asker\":\"thread\",\"kind\":\"decide\",\"options\":[{\"id\":\"a\",\"instruction\":\"  Use blue.\\nExactly.  \",\"kind\":\"instruction\",\"label\":\"Blue\",\"on_pick\":{\"reversible\":true,\"ruling\":{\"bead\":null,\"under\":[]},\"schema\":1,\"subject\":{\"kind\":\"none\"},\"target_thread\":\"thr_other\"}},{\"id\":\"b\",\"kind\":\"ruling-only\",\"label\":\"Wait\"}],\"project\":\"sample\",\"project_root\":\"/sample\",\"question\":\"Colour?\",\"request_id\":\"1055ce591607b58702649f29668ef3465191768bd21921da82cde141e10b4737\",\"thread\":\"thr_asker\",\"v\":1}",
+      "h5": "94ca00464d9d967644d1b0bafbd9ff5e456cfdbce789d3d9b10705f18a34fb7e"
+    },
+    "declaration_canonical": "{\"reversible\":true,\"ruling\":{\"bead\":null,\"under\":[]},\"schema\":1,\"subject\":{\"kind\":\"none\"},\"target_thread\":\"thr_other\"}",
+    "declaration_sha256": "ba6789f39f073a92fbae73066ad15318efe9925aad310b8cd5e45e611f4899e2"
+  },
+  {
+    "name": "on-pick ruling",
+    "description": "Colour?\nBlocks: thread:thr_target\nRequest: sample sha256:0123456789abcdef\n```home-ask\n{\"schema\": \"home-ask/v2\", \"project\": \"sample\", \"project_root\": \"/sample\", \"question\": \"Colour?\", \"options\": [{\"id\": \"a\", \"label\": \"Blue\", \"kind\": \"ruling-only\", \"on_pick\": {\"schema\": 1, \"target_thread\": \"thr_target\", \"reversible\": true, \"subject\": {\"kind\": \"none\"}, \"ruling\": {\"bead\": null, \"under\": []}, \"notification\": \"  The choice is blue.\\n\"}}, {\"id\": \"b\", \"label\": \"Wait\", \"kind\": \"ruling-only\"}]}\n```",
+    "thread": "thr_asker",
+    "expected": {
+      "h1": "7e18400187fb08d6",
+      "identity": "722760c68c031e80430d25fba54196a8b5a8f778acf53dc29db2e64743e2e93a",
+      "revision": "6eda23b2d09f110f7f0ee9e6754ac5c7c772be5137afc412a91e9f0cf9ac0ab8",
+      "semantic_digest": "",
+      "normalized": "{\"ask_key\":\"colour?\",\"asker\":\"thread\",\"kind\":\"decide\",\"options\":[{\"id\":\"a\",\"kind\":\"ruling-only\",\"label\":\"Blue\",\"on_pick\":{\"notification\":\"  The choice is blue.\\n\",\"reversible\":true,\"ruling\":{\"bead\":null,\"under\":[]},\"schema\":1,\"subject\":{\"kind\":\"none\"},\"target_thread\":\"thr_target\"}},{\"id\":\"b\",\"kind\":\"ruling-only\",\"label\":\"Wait\"}],\"project\":\"sample\",\"project_root\":\"/sample\",\"question\":\"Colour?\",\"request_id\":\"722760c68c031e80430d25fba54196a8b5a8f778acf53dc29db2e64743e2e93a\",\"thread\":\"thr_asker\",\"v\":1}",
+      "h5": "0bab6a0af16e5f0f6940760c5bd8f54bb20287f05e816d4fd057c9067f075695"
+    },
+    "declaration_canonical": "{\"notification\":\"  The choice is blue.\\n\",\"reversible\":true,\"ruling\":{\"bead\":null,\"under\":[]},\"schema\":1,\"subject\":{\"kind\":\"none\"},\"target_thread\":\"thr_target\"}",
+    "declaration_sha256": "65c9e19baee60556f6ebbeb6a7d1f34e1c8a01e63572dde30d2b4c1398f18031"
+  },
+  {
+    "name": "on-pick pr",
+    "description": "Colour?\nBlocks: thread:thr_target\nRequest: sample sha256:0123456789abcdef\n```home-ask\n{\"schema\": \"home-ask/v2\", \"project\": \"sample\", \"project_root\": \"/sample\", \"question\": \"Colour?\", \"options\": [{\"id\": \"a\", \"label\": \"Blue\", \"kind\": \"instruction\", \"instruction\": \"  Use blue.\\nExactly.  \", \"on_pick\": {\"schema\": 1, \"target_thread\": \"thr_target\", \"reversible\": true, \"subject\": {\"kind\": \"github-pr\", \"repo\": \"sample/repo\", \"number\": 7, \"head\": \"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"}, \"ruling\": {\"bead\": null, \"under\": []}}}, {\"id\": \"b\", \"label\": \"Wait\", \"kind\": \"ruling-only\"}]}\n```",
+    "thread": "thr_asker",
+    "expected": {
+      "h1": "e2a34488e7afeb2b",
+      "identity": "da42c7d88a13674d43460bb68b5eba9815e87858cfdcaa410bde0a171e6128fc",
+      "revision": "1460b11763f579b14c80b15df416b965dda715e7455d5cae4d002508f1f0c24c",
+      "semantic_digest": "",
+      "normalized": "{\"ask_key\":\"colour?\",\"asker\":\"thread\",\"kind\":\"decide\",\"options\":[{\"id\":\"a\",\"instruction\":\"  Use blue.\\nExactly.  \",\"kind\":\"instruction\",\"label\":\"Blue\",\"on_pick\":{\"reversible\":true,\"ruling\":{\"bead\":null,\"under\":[]},\"schema\":1,\"subject\":{\"head\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"kind\":\"github-pr\",\"number\":7,\"repo\":\"sample/repo\"},\"target_thread\":\"thr_target\"}},{\"id\":\"b\",\"kind\":\"ruling-only\",\"label\":\"Wait\"}],\"project\":\"sample\",\"project_root\":\"/sample\",\"question\":\"Colour?\",\"request_id\":\"da42c7d88a13674d43460bb68b5eba9815e87858cfdcaa410bde0a171e6128fc\",\"thread\":\"thr_asker\",\"v\":1}",
+      "h5": "ff36eb86c81e45bfb8d19047d977952c5393f1888b7af5499d0f855fe7a2a81d"
+    },
+    "declaration_canonical": "{\"reversible\":true,\"ruling\":{\"bead\":null,\"under\":[]},\"schema\":1,\"subject\":{\"head\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"kind\":\"github-pr\",\"number\":7,\"repo\":\"sample/repo\"},\"target_thread\":\"thr_target\"}",
+    "declaration_sha256": "7b61797b592090841af3944781862307a67d64e02cefb5c5ead4e61190316278"
+  },
+  {
+    "name": "approval-null",
+    "description": "Colour?\nBlocks: thread:thr_target\nRequest: sample sha256:0123456789abcdef\n```home-ask\n{\"schema\": \"home-ask/v2\", \"project\": \"sample\", \"project_root\": \"/sample\", \"question\": \"Colour?\", \"options\": [{\"id\": \"a\", \"label\": \"Blue\", \"kind\": \"instruction\", \"instruction\": \"  Use blue.\\nExactly.  \", \"on_pick\": {\"schema\": 1, \"target_thread\": \"thr_target\", \"reversible\": true, \"subject\": {\"kind\": \"none\"}, \"ruling\": {\"bead\": null, \"under\": []}}, \"approval\": null}, {\"id\": \"b\", \"label\": \"Wait\", \"kind\": \"ruling-only\"}]}\n```",
+    "error": true
+  },
+  {
+    "name": "unknown-field",
+    "description": "Colour?\nBlocks: thread:thr_target\nRequest: sample sha256:0123456789abcdef\n```home-ask\n{\"schema\": \"home-ask/v2\", \"project\": \"sample\", \"project_root\": \"/sample\", \"question\": \"Colour?\", \"options\": [{\"id\": \"a\", \"label\": \"Blue\", \"kind\": \"instruction\", \"instruction\": \"  Use blue.\\nExactly.  \", \"on_pick\": {\"schema\": 1, \"target_thread\": \"thr_target\", \"reversible\": true, \"subject\": {\"kind\": \"none\"}, \"ruling\": {\"bead\": null, \"under\": []}, \"extra\": true}}, {\"id\": \"b\", \"label\": \"Wait\", \"kind\": \"ruling-only\"}]}\n```",
+    "error": true
+  },
+  {
+    "name": "missing-reversible",
+    "description": "Colour?\nBlocks: thread:thr_target\nRequest: sample sha256:0123456789abcdef\n```home-ask\n{\"schema\": \"home-ask/v2\", \"project\": \"sample\", \"project_root\": \"/sample\", \"question\": \"Colour?\", \"options\": [{\"id\": \"a\", \"label\": \"Blue\", \"kind\": \"instruction\", \"instruction\": \"  Use blue.\\nExactly.  \", \"on_pick\": {\"schema\": 1, \"target_thread\": \"thr_target\", \"subject\": {\"kind\": \"none\"}, \"ruling\": {\"bead\": null, \"under\": []}}}, {\"id\": \"b\", \"label\": \"Wait\", \"kind\": \"ruling-only\"}]}\n```",
+    "error": true
+  },
+  {
+    "name": "unsupported-subject",
+    "description": "Colour?\nBlocks: thread:thr_target\nRequest: sample sha256:0123456789abcdef\n```home-ask\n{\"schema\": \"home-ask/v2\", \"project\": \"sample\", \"project_root\": \"/sample\", \"question\": \"Colour?\", \"options\": [{\"id\": \"a\", \"label\": \"Blue\", \"kind\": \"instruction\", \"instruction\": \"  Use blue.\\nExactly.  \", \"on_pick\": {\"schema\": 1, \"target_thread\": \"thr_target\", \"reversible\": true, \"subject\": {\"kind\": \"project-head\"}, \"ruling\": {\"bead\": null, \"under\": []}}}, {\"id\": \"b\", \"label\": \"Wait\", \"kind\": \"ruling-only\"}]}\n```",
+    "error": true
+  },
+  {
+    "name": "surrogate",
+    "description": "Colour?\nBlocks: thread:thr_target\nRequest: sample sha256:0123456789abcdef\n```home-ask\n{\"schema\": \"home-ask/v2\", \"project\": \"sample\", \"project_root\": \"/sample\", \"question\": \"Colour?\", \"options\": [{\"id\": \"a\", \"label\": \"Blue\", \"kind\": \"instruction\", \"instruction\": \"Use \\ud800.\", \"on_pick\": {\"schema\": 1, \"target_thread\": \"thr_target\", \"reversible\": true, \"subject\": {\"kind\": \"none\"}, \"ruling\": {\"bead\": null, \"under\": []}}}, {\"id\": \"b\", \"label\": \"Wait\", \"kind\": \"ruling-only\"}]}\n```",
+    "error": true
+  },
+  {
+    "name": "force-line-separator",
+    "description": "Colour?\nBlocks: thread:thr_target\nRequest: sample sha256:0123456789abcdef\n```home-ask\n{\"schema\": \"home-ask/v2\", \"project\": \"sample\", \"project_root\": \"/sample\", \"question\": \"Colour?\", \"options\": [{\"id\": \"a\", \"label\": \"Blue\", \"kind\": \"instruction\", \"instruction\": \"force\\u2028push\", \"on_pick\": {\"schema\": 1, \"target_thread\": \"thr_target\", \"reversible\": true, \"subject\": {\"kind\": \"none\"}, \"ruling\": {\"bead\": null, \"under\": []}}}, {\"id\": \"b\", \"label\": \"Wait\", \"kind\": \"ruling-only\"}]}\n```",
+    "error": true
+  },
+  {
+    "name": "force-paragraph-separator",
+    "description": "Colour?\nBlocks: thread:thr_target\nRequest: sample sha256:0123456789abcdef\n```home-ask\n{\"schema\": \"home-ask/v2\", \"project\": \"sample\", \"project_root\": \"/sample\", \"question\": \"Colour?\", \"options\": [{\"id\": \"a\", \"label\": \"Blue\", \"kind\": \"instruction\", \"instruction\": \"force\\u2029push\", \"on_pick\": {\"schema\": 1, \"target_thread\": \"thr_target\", \"reversible\": true, \"subject\": {\"kind\": \"none\"}, \"ruling\": {\"bead\": null, \"under\": []}}}, {\"id\": \"b\", \"label\": \"Wait\", \"kind\": \"ruling-only\"}]}\n```",
+    "error": true
+  },
+  {
+    "name": "move excluded at parse",
+    "description": "Colour?\nBlocks: thread:thr_target\nRequest: sample sha256:0123456789abcdef\n```home-ask\n{\"schema\": \"home-ask/v2\", \"project\": \"sample\", \"project_root\": \"/sample\", \"question\": \"Colour?\", \"options\": [{\"id\": \"a\", \"label\": \"Blue\", \"kind\": \"instruction\", \"instruction\": \"  Use blue.\\nExactly.  \", \"on_pick\": {\"schema\": 1, \"target_thread\": \"thr_target\", \"reversible\": true, \"subject\": {\"kind\": \"none\"}, \"ruling\": {\"bead\": null, \"under\": []}}}, {\"id\": \"b\", \"label\": \"Wait\", \"kind\": \"ruling-only\"}]}\n```\n```home-move\n{\"schema\":\"home-move/v1\",\"kind\":\"script\",\"script\":{\"path\":\"/srv/x/run.sh\",\"sha256\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"args\":[\"--check\",\"--dir=/tmp/x\"],\"recover\":{\"path\":\"/srv/x/undo.sh\",\"sha256\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"}}}\n```",
+    "error": true
+  },
+  {
+    "name": "none contradicts structured PR",
+    "description": "Colour?\nBlocks: thread:thr_target\nRequest: sample sha256:0123456789abcdef\n```home-ask\n{\"schema\": \"home-ask/v2\", \"project\": \"sample\", \"project_root\": \"/sample\", \"question\": \"Colour?\", \"options\": [{\"id\": \"a\", \"label\": \"Blue\", \"kind\": \"instruction\", \"instruction\": \"  Use blue.\\nExactly.  \", \"on_pick\": {\"schema\": 1, \"target_thread\": \"thr_target\", \"reversible\": true, \"subject\": {\"kind\": \"none\"}, \"ruling\": {\"bead\": null, \"under\": []}}}, {\"id\": \"b\", \"label\": \"Wait\", \"kind\": \"ruling-only\"}], \"subject_key\": {\"type\": \"pr\", \"repo\": \"sample/repo\", \"number\": 7, \"head\": \"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"}}\n```",
+    "error": true
+  },
+  {
+    "name": "opaque decomposed",
+    "description": "Colour?\nBlocks: thread:thr_target\nRequest: sample sha256:0123456789abcdef\n```home-ask\n{\"schema\": \"home-ask/v2\", \"project\": \"sample\", \"project_root\": \"/sample\", \"question\": \"Colour?\", \"options\": [{\"id\": \"a\", \"label\": \"Blue\", \"kind\": \"instruction\", \"instruction\": \"  Use blue.\\nExactly.  \", \"on_pick\": {\"schema\": 1, \"target_thread\": \"thr_target\", \"reversible\": false, \"subject\": {\"kind\": \"none\"}, \"ruling\": {\"bead\": \"bead-é\", \"under\": [\"basis-é\"]}}}, {\"id\": \"b\", \"label\": \"Wait\", \"kind\": \"ruling-only\"}], \"subject\": \"colour\"}\n```",
+    "thread": "thr_asker",
+    "expected": {
+      "h1": "db4f19a0147e6771",
+      "identity": "da7492940511a03c998dba5bc7ee884f4d7518c158abe91a2872fcd3ba6d9d14",
+      "revision": "23bce7e1a17624339a09117b4ae217714d5c4a46031b46f4a3d9074a63237846",
+      "semantic_digest": "4dd93fcc7ab91fee6be3ff0fd576c2e8d1f0d5ff3f7871efa1e775fe845794d7",
+      "normalized": "{\"ask_key\":\"colour?\",\"asker\":\"thread\",\"kind\":\"decide\",\"options\":[{\"id\":\"a\",\"instruction\":\"  Use blue.\\nExactly.  \",\"kind\":\"instruction\",\"label\":\"Blue\",\"on_pick\":{\"reversible\":false,\"ruling\":{\"bead\":\"bead-é\",\"under\":[\"basis-é\"]},\"schema\":1,\"subject\":{\"kind\":\"none\"},\"target_thread\":\"thr_target\"}},{\"id\":\"b\",\"kind\":\"ruling-only\",\"label\":\"Wait\"}],\"project\":\"sample\",\"project_root\":\"/sample\",\"question\":\"Colour?\",\"request_id\":\"da7492940511a03c998dba5bc7ee884f4d7518c158abe91a2872fcd3ba6d9d14\",\"subject\":\"colour\",\"thread\":\"thr_asker\",\"v\":1}",
+      "h5": "66a994ff33e75f4971ba1ee94c7ff611ead41b2ef52a3e10eccd538ec7c836be"
+    },
+    "declaration_canonical": "{\"reversible\":false,\"ruling\":{\"bead\":\"bead-é\",\"under\":[\"basis-é\"]},\"schema\":1,\"subject\":{\"kind\":\"none\"},\"target_thread\":\"thr_target\"}",
+    "declaration_sha256": "d6731a159c53350c456a0235caa7d4e27f40a7bf65e88ffd226457f52bd9f49b"
+  },
+  {
+    "name": "opaque composed",
+    "description": "Colour?\nBlocks: thread:thr_target\nRequest: sample sha256:0123456789abcdef\n```home-ask\n{\"schema\": \"home-ask/v2\", \"project\": \"sample\", \"project_root\": \"/sample\", \"question\": \"Colour?\", \"options\": [{\"id\": \"a\", \"label\": \"Blue\", \"kind\": \"instruction\", \"instruction\": \"  Use blue.\\nExactly.  \", \"on_pick\": {\"schema\": 1, \"target_thread\": \"thr_target\", \"reversible\": false, \"subject\": {\"kind\": \"none\"}, \"ruling\": {\"bead\": \"bead-é\", \"under\": [\"basis-é\"]}}}, {\"id\": \"b\", \"label\": \"Wait\", \"kind\": \"ruling-only\"}], \"subject\": \"colour\"}\n```",
+    "thread": "thr_asker",
+    "expected": {
+      "h1": "f2449af68b5774d8",
+      "identity": "1a768c1444adba5788e359bb3496ae4e8ba20598b612502d5c5341f20491dd05",
+      "revision": "751b52174a539d00cc4de6c2612edd020ba2e79cc34cde662825610af7d98967",
+      "semantic_digest": "b034b9cab10f149086d988b3f4d6bb5ef4236ea0bc6de7e22e97be25b4a3f6f6",
+      "normalized": "{\"ask_key\":\"colour?\",\"asker\":\"thread\",\"kind\":\"decide\",\"options\":[{\"id\":\"a\",\"instruction\":\"  Use blue.\\nExactly.  \",\"kind\":\"instruction\",\"label\":\"Blue\",\"on_pick\":{\"reversible\":false,\"ruling\":{\"bead\":\"bead-é\",\"under\":[\"basis-é\"]},\"schema\":1,\"subject\":{\"kind\":\"none\"},\"target_thread\":\"thr_target\"}},{\"id\":\"b\",\"kind\":\"ruling-only\",\"label\":\"Wait\"}],\"project\":\"sample\",\"project_root\":\"/sample\",\"question\":\"Colour?\",\"request_id\":\"1a768c1444adba5788e359bb3496ae4e8ba20598b612502d5c5341f20491dd05\",\"subject\":\"colour\",\"thread\":\"thr_asker\",\"v\":1}",
+      "h5": "3e2df89a14ddc345d5a5c2e056fe2729496ee4a88316d8bf95ca91fad9f5cd74"
+    },
+    "declaration_canonical": "{\"reversible\":false,\"ruling\":{\"bead\":\"bead-é\",\"under\":[\"basis-é\"]},\"schema\":1,\"subject\":{\"kind\":\"none\"},\"target_thread\":\"thr_target\"}",
+    "declaration_sha256": "d27969b409780d6c62c1d5bad3099bc232fac2934c5d936af01fb2f28bd87c6e"
+  }
+]

@@ -1051,5 +1051,70 @@
     },
     "ask_fixture": "long question truncated ask_key",
     "normalized_fixture": "long question truncated ask_key"
+  },
+  {
+    "name": "on-pick instruction",
+    "description": "Colour?\nBlocks: thread:thr_target\nRequest: sample sha256:0123456789abcdef\n```home-ask\n{\"schema\": \"home-ask/v2\", \"project\": \"sample\", \"project_root\": \"/sample\", \"question\": \"Colour?\", \"options\": [{\"id\": \"a\", \"label\": \"Blue\", \"kind\": \"instruction\", \"instruction\": \"  Use blue.\\nExactly.  \", \"on_pick\": {\"schema\": 1, \"target_thread\": \"thr_target\", \"reversible\": true, \"subject\": {\"kind\": \"none\"}, \"ruling\": {\"bead\": null, \"under\": []}}}, {\"id\": \"b\", \"label\": \"Wait\", \"kind\": \"ruling-only\"}]}\n```",
+    "thread": "thr_asker",
+    "expected": {
+      "h1": "0b213f60e95a2b53",
+      "identity": "7f4373b06ab4b0810812ff4b6398f3ce98f52ccfde11d45b0bc9e524ae680de0",
+      "revision": "5a58a71fdd00fde1e8379fc296a35b262ef703c441c8926a5ecbb051c44ea36a",
+      "semantic_digest": "",
+      "normalized": "{\"ask_key\":\"colour?\",\"asker\":\"thread\",\"kind\":\"decide\",\"options\":[{\"id\":\"a\",\"instruction\":\"  Use blue.\\nExactly.  \",\"kind\":\"instruction\",\"label\":\"Blue\",\"on_pick\":{\"reversible\":true,\"ruling\":{\"bead\":null,\"under\":[]},\"schema\":1,\"subject\":{\"kind\":\"none\"},\"target_thread\":\"thr_target\"}},{\"id\":\"b\",\"kind\":\"ruling-only\",\"label\":\"Wait\"}],\"project\":\"sample\",\"project_root\":\"/sample\",\"question\":\"Colour?\",\"request_id\":\"7f4373b06ab4b0810812ff4b6398f3ce98f52ccfde11d45b0bc9e524ae680de0\",\"thread\":\"thr_asker\",\"v\":1}",
+      "h5": "c21479896d25c88b0f99a83589672f729fae613ac4faf4140ff06119e7425830"
+    }
+  },
+  {
+    "name": "on-pick false",
+    "description": "Colour?\nBlocks: thread:thr_target\nRequest: sample sha256:0123456789abcdef\n```home-ask\n{\"schema\": \"home-ask/v2\", \"project\": \"sample\", \"project_root\": \"/sample\", \"question\": \"Colour?\", \"options\": [{\"id\": \"a\", \"label\": \"Blue\", \"kind\": \"instruction\", \"instruction\": \"  Use blue.\\nExactly.  \", \"on_pick\": {\"schema\": 1, \"target_thread\": \"thr_target\", \"reversible\": false, \"subject\": {\"kind\": \"none\"}, \"ruling\": {\"bead\": null, \"under\": []}}}, {\"id\": \"b\", \"label\": \"Wait\", \"kind\": \"ruling-only\"}]}\n```",
+    "thread": "thr_asker",
+    "expected": {
+      "h1": "283238e47f6eab9c",
+      "identity": "6b87bb9957c38f9ba4a7a96c143f603e6edd0734643c918c7948d0d30fb44b1a",
+      "revision": "1886375b58c76cec35361d2b19ff057bfba19735ee83c9f76d8c3e3f2172224e",
+      "semantic_digest": "",
+      "normalized": "{\"ask_key\":\"colour?\",\"asker\":\"thread\",\"kind\":\"decide\",\"options\":[{\"id\":\"a\",\"instruction\":\"  Use blue.\\nExactly.  \",\"kind\":\"instruction\",\"label\":\"Blue\",\"on_pick\":{\"reversible\":false,\"ruling\":{\"bead\":null,\"under\":[]},\"schema\":1,\"subject\":{\"kind\":\"none\"},\"target_thread\":\"thr_target\"}},{\"id\":\"b\",\"kind\":\"ruling-only\",\"label\":\"Wait\"}],\"project\":\"sample\",\"project_root\":\"/sample\",\"question\":\"Colour?\",\"request_id\":\"6b87bb9957c38f9ba4a7a96c143f603e6edd0734643c918c7948d0d30fb44b1a\",\"thread\":\"thr_asker\",\"v\":1}",
+      "h5": "30132829eb348470b6d9aac9751fda3ae99868105444f9158f11f2cbd974701b"
+    }
+  },
+  {
+    "name": "on-pick target",
+    "description": "Colour?\nBlocks: thread:thr_target\nRequest: sample sha256:0123456789abcdef\n```home-ask\n{\"schema\": \"home-ask/v2\", \"project\": \"sample\", \"project_root\": \"/sample\", \"question\": \"Colour?\", \"options\": [{\"id\": \"a\", \"label\": \"Blue\", \"kind\": \"instruction\", \"instruction\": \"  Use blue.\\nExactly.  \", \"on_pick\": {\"schema\": 1, \"target_thread\": \"thr_other\", \"reversible\": true, \"subject\": {\"kind\": \"none\"}, \"ruling\": {\"bead\": null, \"under\": []}}}, {\"id\": \"b\", \"label\": \"Wait\", \"kind\": \"ruling-only\"}]}\n```",
+    "thread": "thr_asker",
+    "expected": {
+      "h1": "c147838066f1b420",
+      "identity": "1055ce591607b58702649f29668ef3465191768bd21921da82cde141e10b4737",
+      "revision": "dfc97b29bfe1f4d046fba2f071232fd4e61f22ca6dfb64752bb2eedbae03bde9",
+      "semantic_digest": "",
+      "normalized": "{\"ask_key\":\"colour?\",\"asker\":\"thread\",\"kind\":\"decide\",\"options\":[{\"id\":\"a\",\"instruction\":\"  Use blue.\\nExactly.  \",\"kind\":\"instruction\",\"label\":\"Blue\",\"on_pick\":{\"reversible\":true,\"ruling\":{\"bead\":null,\"under\":[]},\"schema\":1,\"subject\":{\"kind\":\"none\"},\"target_thread\":\"thr_other\"}},{\"id\":\"b\",\"kind\":\"ruling-only\",\"label\":\"Wait\"}],\"project\":\"sample\",\"project_root\":\"/sample\",\"question\":\"Colour?\",\"request_id\":\"1055ce591607b58702649f29668ef3465191768bd21921da82cde141e10b4737\",\"thread\":\"thr_asker\",\"v\":1}",
+      "h5": "94ca00464d9d967644d1b0bafbd9ff5e456cfdbce789d3d9b10705f18a34fb7e"
+    }
+  },
+  {
+    "name": "on-pick ruling",
+    "description": "Colour?\nBlocks: thread:thr_target\nRequest: sample sha256:0123456789abcdef\n```home-ask\n{\"schema\": \"home-ask/v2\", \"project\": \"sample\", \"project_root\": \"/sample\", \"question\": \"Colour?\", \"options\": [{\"id\": \"a\", \"label\": \"Blue\", \"kind\": \"ruling-only\", \"on_pick\": {\"schema\": 1, \"target_thread\": \"thr_target\", \"reversible\": true, \"subject\": {\"kind\": \"none\"}, \"ruling\": {\"bead\": null, \"under\": []}, \"notification\": \"  The choice is blue.\\n\"}}, {\"id\": \"b\", \"label\": \"Wait\", \"kind\": \"ruling-only\"}]}\n```",
+    "thread": "thr_asker",
+    "expected": {
+      "h1": "7e18400187fb08d6",
+      "identity": "722760c68c031e80430d25fba54196a8b5a8f778acf53dc29db2e64743e2e93a",
+      "revision": "6eda23b2d09f110f7f0ee9e6754ac5c7c772be5137afc412a91e9f0cf9ac0ab8",
+      "semantic_digest": "",
+      "normalized": "{\"ask_key\":\"colour?\",\"asker\":\"thread\",\"kind\":\"decide\",\"options\":[{\"id\":\"a\",\"kind\":\"ruling-only\",\"label\":\"Blue\",\"on_pick\":{\"notification\":\"  The choice is blue.\\n\",\"reversible\":true,\"ruling\":{\"bead\":null,\"under\":[]},\"schema\":1,\"subject\":{\"kind\":\"none\"},\"target_thread\":\"thr_target\"}},{\"id\":\"b\",\"kind\":\"ruling-only\",\"label\":\"Wait\"}],\"project\":\"sample\",\"project_root\":\"/sample\",\"question\":\"Colour?\",\"request_id\":\"722760c68c031e80430d25fba54196a8b5a8f778acf53dc29db2e64743e2e93a\",\"thread\":\"thr_asker\",\"v\":1}",
+      "h5": "0bab6a0af16e5f0f6940760c5bd8f54bb20287f05e816d4fd057c9067f075695"
+    }
+  },
+  {
+    "name": "on-pick pr",
+    "description": "Colour?\nBlocks: thread:thr_target\nRequest: sample sha256:0123456789abcdef\n```home-ask\n{\"schema\": \"home-ask/v2\", \"project\": \"sample\", \"project_root\": \"/sample\", \"question\": \"Colour?\", \"options\": [{\"id\": \"a\", \"label\": \"Blue\", \"kind\": \"instruction\", \"instruction\": \"  Use blue.\\nExactly.  \", \"on_pick\": {\"schema\": 1, \"target_thread\": \"thr_target\", \"reversible\": true, \"subject\": {\"kind\": \"github-pr\", \"repo\": \"sample/repo\", \"number\": 7, \"head\": \"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"}, \"ruling\": {\"bead\": null, \"under\": []}}}, {\"id\": \"b\", \"label\": \"Wait\", \"kind\": \"ruling-only\"}]}\n```",
+    "thread": "thr_asker",
+    "expected": {
+      "h1": "e2a34488e7afeb2b",
+      "identity": "da42c7d88a13674d43460bb68b5eba9815e87858cfdcaa410bde0a171e6128fc",
+      "revision": "1460b11763f579b14c80b15df416b965dda715e7455d5cae4d002508f1f0c24c",
+      "semantic_digest": "",
+      "normalized": "{\"ask_key\":\"colour?\",\"asker\":\"thread\",\"kind\":\"decide\",\"options\":[{\"id\":\"a\",\"instruction\":\"  Use blue.\\nExactly.  \",\"kind\":\"instruction\",\"label\":\"Blue\",\"on_pick\":{\"reversible\":true,\"ruling\":{\"bead\":null,\"under\":[]},\"schema\":1,\"subject\":{\"head\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"kind\":\"github-pr\",\"number\":7,\"repo\":\"sample/repo\"},\"target_thread\":\"thr_target\"}},{\"id\":\"b\",\"kind\":\"ruling-only\",\"label\":\"Wait\"}],\"project\":\"sample\",\"project_root\":\"/sample\",\"question\":\"Colour?\",\"request_id\":\"da42c7d88a13674d43460bb68b5eba9815e87858cfdcaa410bde0a171e6128fc\",\"thread\":\"thr_asker\",\"v\":1}",
+      "h5": "ff36eb86c81e45bfb8d19047d977952c5393f1888b7af5499d0f855fe7a2a81d"
+    }
   }
 ]

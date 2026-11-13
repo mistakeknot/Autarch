@@ -85,9 +85,7 @@ export function homeCli(p: HomeCliParts) {
       capabilities: cliCommand({
         summary: "Read supported card declaration and target lookup versions",
         options: { json: { type: "boolean", description: "Print JSON." } },
-        // Parsing alone is not support: enable only after ingest enforcement,
-        // immutable presentation and filing preflight are implemented together.
-        run: () => out({ schema: 1, on_pick: [], target_lookup: p.readTargetEvidence ? [1] : [] }),
+        run: () => out({ schema: 1, on_pick: p.readTargetEvidence && svc.supportsOnPick() ? [1] : [], target_lookup: p.readTargetEvidence ? [1] : [] }),
       }),
       target: cliCommand({
         summary: "Read host thread title and project evidence",

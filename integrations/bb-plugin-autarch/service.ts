@@ -9,7 +9,7 @@ import { cardFingerprint, askingThread, parseCard, toV1, type Card } from "./car
 import { PUSH_TIMEOUT_MS, type Notifier, type PushRequest } from "./notifier.js";
 import { blockersByThread, askRows, listPushes, timeToAnswer, type PushListing, type TimeToAnswer } from "./pushtiming.js";
 import { checkHoldEnd, endMs, holdEndPhrase, parseStoredEnd, type HoldEnd } from "./holdend.js";
-import { OPEN_STATUSES, type Task, type TaskCommentRow } from "./tasks.js";
+import { OPEN_STATUSES, type Task, type TaskCommentRow, type TasksClient } from "./tasks.js";
 
 /** A hold copied all the way down, so a caller that edits what it got cannot change the cached record. */
 const copyHold = (h: Hold): Hold => ({ ...h, ...(h.end ? { end: "event" in h.end ? { event: { ...h.end.event } } : { ...h.end } } : {}) });
@@ -37,6 +37,8 @@ function deliveryJson(ask: Ask): string {
 }
 import { estateRoot, fsUuidOfDev, pinRoot, renderRuling, rulingPath, writeRuling, type PinnedRoot, type Ruling } from "./ruling.js";
 import { appendRuling } from "./ledger.js";
+import { canonicalOnPick } from "./model.js";
+import { TargetEvidenceError, validatePickTarget, type TargetEvidence } from "./picktarget.js";
 import type { ThreadRow } from "./delegation.js";
 import type { DecisionInput, ObligationInput, ObligationRow, PickInput, PickRow, Store } from "./store.js";
 
@@ -48,6 +50,7 @@ export interface ProjectInfo {
 }
 
 export interface ServiceDeps {
+  readTargetEvidence?: (thread: string) => Promise<TargetEvidence>;
   store: Store;
   projects: () => Promise<ProjectInfo[]>;
   now?: () => string;
@@ -459,6 +462,44 @@ export class Service {
 
   // ---- picking --------------------------------------------------------------
 
+  /** Async owner-entry guard. Frozen presentation is never silently refreshed. */
+  async refreshOwnerPick(decisionId: string, tasks: () => TasksClient): Promise<string | null> {
+    const d = this.row(decisionId);
+    const ask = d && readAsk(d.body_json, {}, d.source);
+    if (!d || d.source !== "card" || !ask?.options?.some(o => o.on_pick) || this.store.pick(decisionId)) return null;
+    const observed: Record<string, TargetEvidence> = {};
+    try {
+      const client = tasks();
+      const state = await client.taskState(String(d.task_id));
+      if (state.state !== "labelled") throw new Error("card is no longer open and labelled");
+      const card = parseCard(state.task.description);
+      const thread = askingThread(await client.listComments(String(d.task_id)));
+      if (thread !== d.thread || cardFingerprint({ title: state.task.title, card, thread, tasksProject: state.task.projectId }) !== d.card_fp) throw new Error("card changed; refresh the card");
+      const binding = this.db.prepare("SELECT home_project, state FROM project_bindings WHERE tasks_project_id = ?").get(state.task.projectId) as { home_project: string; state: string } | undefined;
+      if (binding?.state !== "confirmed" || binding.home_project !== d.project) throw new Error("confirmed binding unavailable");
+      const row = this.db.prepare("SELECT detail_json FROM events WHERE decision_id = ? AND type = 'on-pick-targets' ORDER BY seq LIMIT 1").get(decisionId) as { detail_json: string } | undefined;
+      if (!row || !this.deps.readTargetEvidence) throw new Error("target snapshot or host evidence unavailable");
+      const frozen = JSON.parse(row.detail_json) as { asker: TargetEvidence; targets: Record<string, TargetEvidence> };
+      const blocks = (this.db.prepare("SELECT ref FROM decision_blocks WHERE decision_id = ?").all(decisionId) as { ref: string }[]).map(b => b.ref);
+      const expected = [frozen.asker, ...Object.values(frozen.targets)];
+      for (const previous of expected) {
+        const id = previous.thread_id;
+        const current = observed[id] ?? await this.deps.readTargetEvidence(id);
+        observed[id] = current;
+        if (id !== thread && !blocks.includes(`thread:${id}`)) throw new Error("target outside frozen generation scope");
+        if (current.thread_id !== id || current.archived || current.deleted) throw new Error("target inaccessible or no longer live");
+        if (current.project_id !== previous.project_id) throw new Error("target project changed; refile the declaration");
+        if (current.title !== previous.title || current.project_name !== previous.project_name) throw new Error("target presentation changed; refresh by refiling the card");
+      }
+      for (const option of ask.options ?? []) if (option.on_pick && frozen.targets[option.id!]?.thread_id !== option.on_pick.target_thread) throw new Error("target declaration snapshot mismatch");
+      return null;
+    } catch (e) {
+      const error = `on_pick: ${message(e)}`;
+      this.store.recordEvent("on-pick-target-refresh", decisionId, { observed, error });
+      return error;
+    }
+  }
+
   pick(decisionId: string, optionId: string, rev: string, pickId: string, by: string, surface: "home" | "overlay" | "cli", reason?: string, guard?: PickInput["guard"], images?: readonly ImageIn[], answers?: Readonly<Record<string, string>>): PickResult {
     const d = this.row(decisionId);
     if (!d) return { ok: false, status: 404, error: "unknown decision" };
@@ -778,6 +819,14 @@ export class Service {
           option_id: pick.option_id,
           option_label: option?.label ?? pick.option_id,
           reason: pick.reason,
+          ...(option?.on_pick ? { declaration: {
+            decision_id: d.id, pick_id: pick.pick_id, generation: Number(d.generation), revision: String(d.revision),
+            on_pick_sha256: createHash("sha256").update(canonicalOnPick(option.on_pick)).digest("hex"),
+            kind: option.kind ?? "ruling-only",
+            pr: option.on_pick.subject.kind === "github-pr" ? `${option.on_pick.subject.repo}#${option.on_pick.subject.number}` : null,
+            head: option.on_pick.subject.kind === "github-pr" ? option.on_pick.subject.head : null,
+            bead: option.on_pick.ruling.bead, under: option.on_pick.ruling.under,
+          } } : {}),
         });
       }
       const target = rulingPath({ scope: estate ? "estate" : "project", decision_id: d.id, subject: ruling.subject, date: pick.picked_at.slice(0, 10) });
@@ -1491,9 +1540,11 @@ export class Service {
       if (thread !== row.routed_thread) return { ok: false, reason: "the asking thread changed", routing: true };
     }
     try {
-      return { ok: true, card, thread, fp: cardFingerprint({ title: task.title, card, thread, tasksProject: task.projectId }) };
+      const fp = cardFingerprint({ title: task.title, card, thread, tasksProject: task.projectId });
+      if (fp !== latest.card_fp || latest.withdrawn_at) await this.validateTargets(task, card, thread);
+      return { ok: true, card, thread, fp };
     } catch (e) {
-      return { ok: false, reason: message(e) };
+      return { ok: false, reason: message(e), ...(e instanceof TargetEvidenceError ? { routing: true } : {}) };
     }
   }
 
@@ -1547,6 +1598,43 @@ export class Service {
   private snapshotBlocks(decisionId: string, card: Card): void {
     const ins = this.db.prepare("INSERT OR IGNORE INTO decision_blocks(decision_id, ref) VALUES (?, ?)");
     for (const b of card.blocks) ins.run(decisionId, b.ref);
+    const evidence = this.pickEvidence.get(card);
+    if (evidence) this.store.recordEvent("on-pick-targets", decisionId, evidence);
+  }
+
+  private pickEvidence = new WeakMap<Card, { asker: TargetEvidence; targets: Record<string, TargetEvidence>; blocks: string[] }>();
+  supportsOnPick(): boolean { return this.deps.readTargetEvidence !== undefined; }
+
+  pickTargetPresentation(decisionId: string): Record<string, { target: TargetEvidence; cross_project: boolean }> {
+    const row = this.db.prepare("SELECT detail_json FROM events WHERE decision_id = ? AND type = 'on-pick-targets' ORDER BY seq LIMIT 1").get(decisionId) as { detail_json: string } | undefined;
+    if (!row) return {};
+    const snapshot = JSON.parse(row.detail_json) as { asker: TargetEvidence; targets: Record<string, TargetEvidence> };
+    return Object.fromEntries(Object.entries(snapshot.targets).map(([id, target]) => [id, { target, cross_project: target.project_id !== snapshot.asker.project_id }]));
+  }
+
+  private async validateTargets(task: Task, card: Card, thread: string): Promise<void> {
+    const options = (toV1(card, thread).options ?? []).filter(o => o.on_pick);
+    if (!options.length) return;
+    const binding = this.db.prepare("SELECT home_project, state FROM project_bindings WHERE tasks_project_id = ?").get(task.projectId) as { home_project: string; state: string } | undefined;
+    const confirmed = binding?.state === "confirmed" && binding.home_project === card.ask.project;
+    const blocks = card.blocks.map(b => b.ref);
+    if (!thread || !confirmed) throw new Error("on_pick: asking thread and confirmed binding required");
+    for (const o of options) {
+      const target = o.on_pick!.target_thread;
+      if (target !== thread && !blocks.includes(`thread:${target}`)) throw new Error("on_pick: target outside generation scope");
+    }
+    if (!this.deps.readTargetEvidence) throw new TargetEvidenceError("unavailable", "on_pick host target evidence");
+    const asker = await this.deps.readTargetEvidence(thread);
+    if (asker.thread_id !== thread || asker.archived || asker.deleted) throw new Error("on_pick: asker evidence unavailable");
+    const targets: Record<string, TargetEvidence> = {};
+    for (const o of options) {
+      const id = o.on_pick!.target_thread;
+      const target = id === thread ? asker : await this.deps.readTargetEvidence(id);
+      const result = validatePickTarget({ asker: thread, askerProjectId: asker.project_id, blocks, bindingConfirmed: confirmed }, target);
+      if (target.thread_id !== id || !result.ok) throw new Error(`on_pick: ${result.reason ?? "mismatched target"}`);
+      targets[o.id!] = target;
+    }
+    this.pickEvidence.set(card, { asker, targets, blocks });
   }
 
   private markOpen(taskId: string): void {
@@ -1812,9 +1900,11 @@ export class Service {
     let fp: string;
     let input: DecisionInput;
     try {
+      await this.validateTargets(task, card, thread);
       fp = cardFingerprint({ title: task.title, card, thread, tasksProject: task.projectId });
       input = this.genInput(task, card, thread, fp, 1, null, { project_root: p.root, root_dev: String(p.dev), root_ino: String(p.ino), root_fsid: fsUuidOfDev(String(p.dev)) });
     } catch (e) {
+      if (e instanceof TargetEvidenceError) return this.setObserved(row, `on_pick: ${message(e)}`, thread, project);
       return this.setDisplay(task.id, message(e));
     }
     this.store.atomically(() => {

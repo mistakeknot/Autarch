@@ -922,6 +922,9 @@ func (f *CardFiler) fileCard(ctx context.Context, req CardRequest) (CardResult, 
 	if err != nil {
 		return CardResult{}, err
 	}
+	if err := f.PreflightOnPick(ctx, req); err != nil {
+		return CardResult{}, err
+	}
 	path, err := f.lockPath(req.Key)
 	if err != nil {
 		return CardResult{}, fmt.Errorf("%w: lock: %v", ErrHomeDown, err)

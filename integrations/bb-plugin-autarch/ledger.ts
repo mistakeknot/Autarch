@@ -8,6 +8,7 @@ import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 
 export interface LedgerPick {
+  declaration?: { decision_id: string; pick_id: string; generation: number; revision: string; on_pick_sha256: string; kind: string; pr: string | null; head: string | null; bead: string | null; under: string[] };
   pick_id: string;
   picked_at: string;
   by: string;
@@ -45,6 +46,7 @@ function entryOf(p: LedgerPick) {
     subject: p.subject,
     option: p.option_id,
     words,
+    ...(p.declaration ?? {}),
   };
 }
 
