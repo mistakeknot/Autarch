@@ -1,8 +1,14 @@
 package scheduler
 
 import (
+	"context"
 	"database/sql"
+	"errors"
+	"fmt"
 	"log/slog"
+	"os"
+	"os/exec"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -193,6 +199,45 @@ func (o *Orchestrator) autoDispatchAll(ranked []mycroft.BeadView, agents []mycro
 
 // dispatchToAgent spawns an agent session for the bead.
 func (o *Orchestrator) dispatchToAgent(agent mycroft.AgentView, bead mycroft.BeadView) {
+	if check := o.cfg.PreDispatchCheck; len(check.Command) > 0 {
+		timeout := time.Duration(check.Timeout)
+		if timeout <= 0 {
+			timeout = 30 * time.Second
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), timeout)
+		// The orchestrator has a project label, not a directory; inherit cwd.
+		cmd := exec.CommandContext(ctx, check.Command[0], check.Command[1:]...)
+		cmd.Env = append(os.Environ(), "MYCROFT_BEAD_ID="+bead.ID, "MYCROFT_AGENT="+agent.Name)
+		err := cmd.Run()
+		timedOut := ctx.Err() != nil
+		cancel()
+		if err != nil {
+			name := filepath.Base(check.Command[0])
+			if r := []rune(name); len(r) > 60 {
+				name = string(r[:57]) + "..."
+			}
+			detail := err.Error()
+			var pathErr *os.PathError
+			var execErr *exec.Error
+			if errors.As(err, &pathErr) {
+				detail = "start error: " + pathErr.Err.Error()
+			}
+			if errors.As(err, &execErr) {
+				detail = "start error: " + execErr.Err.Error()
+			}
+			reason := fmt.Sprintf("pre_dispatch_check %s: %s", name, detail)
+			if timedOut {
+				reason = fmt.Sprintf("pre_dispatch_check %s: timeout after %s", name, timeout)
+			}
+			if r := []rune(reason); len(r) > 240 {
+				reason = string(r[:237]) + "..."
+			}
+			slog.Info("pre-dispatch check skipped bead", "agent", agent.Name, "bead", bead.ID, "reason", reason)
+			// Empty outcome is neither a dispatch failure nor an operator rejection.
+			o.logDispatch(agent.Name, bead.ID, mycroft.DispatchAction("pre_dispatch_skip"), "", reason)
+			return
+		}
+	}
 	if o.spawner == nil {
 		slog.Warn("no spawner configured — logging dispatch only",
 			"agent", agent.Name, "bead", bead.ID)

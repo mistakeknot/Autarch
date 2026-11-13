@@ -45,3 +45,21 @@ before depending on those two. That is enough to read headroom per account. Miss
 - Utilization is observed, not live (`observedAt` can be minutes old); a freshness bound is needed.
 - The quota budget for a backlog run needs a stated policy (what fraction of the weekly window the runner may spend),
   which is a decision for mk and the vizier, not core.
+
+## Optional automatic dispatch check
+
+In `.autarch/mycroft/config.yaml`, `pre_dispatch_check` can gate the scheduler's
+T2/T3 dispatch path before a session starts (the bb spawner's T1 restriction still applies):
+
+```yaml
+pre_dispatch_check:
+  command: [./check-work, --ready]
+  timeout: 30s
+```
+
+The argv runs directly, without a shell, in the process working directory;
+`MYCROFT_BEAD_ID` and `MYCROFT_AGENT` identify the proposed assignment. Timeout
+defaults to 30s. Exit 0 permits dispatch; any other exit, timeout or start error
+skips it and logs a short reason as `pre_dispatch_skip` with no outcome. Skips
+are neither dispatch failures nor operator rejections. An absent key or empty
+command preserves normal dispatch; shadow and T1 suggestions are unchanged.
