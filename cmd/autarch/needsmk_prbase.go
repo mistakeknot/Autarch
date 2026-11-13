@@ -11,6 +11,8 @@ import (
 	"sort"
 	"strings"
 	"time"
+
+	"github.com/spf13/cobra"
 )
 
 // ghRun runs gh and returns its stdout; tests replace it.
@@ -215,12 +217,15 @@ func ghJSON(ctx context.Context, into any, args ...string) error {
 	return nil
 }
 
-// guardMergeBase refuses (exit 2) a PR merge ask unless the PR's base branch is the repo's default branch, so a
-// stacked PR cannot be merged into its parent's branch from a card. A PR merge ask is one with an option
-// "Manually merge it at <sha>" or an explicit --pr. On success the ask names the branch: "into <branch>".
+// guardMergeBase refuses (exit 2) a PR merge ask on a non-default base unless --into explicitly names that
+// base. This keeps stacked PRs from landing on their parent branch without an explicit opt-in.
+// A PR merge ask is one with an option "Manually merge it at <sha>" or an explicit --pr. On success the ask names the branch: "into <branch>".
 // Asks that are not PR merges are untouched and make no gh call. The PR references checked are those in the whole
 // card: the ask, the --move file and the text flags (extra).
-func guardMergeBase(ctx context.Context, ask, move map[string]any, extra []string, prFlag string, prSet bool) error {
+func guardMergeBase(cmd *cobra.Command, ask, move map[string]any, extra []string, prFlag string, prSet bool) error {
+	ctx := cmd.Context()
+	into, _ := cmd.Flags().GetString("into")
+	intoSet := cmd.Flags().Changed("into")
 	if ctx == nil {
 		ctx = context.Background()
 	}
@@ -297,16 +302,23 @@ func guardMergeBase(ctx context.Context, ask, move map[string]any, extra []strin
 	if base.BaseRefName == "" || def.DefaultBranchRef.Name == "" {
 		return &usageError{"gh returned no base or default branch for PR " + pr + "; nothing was filed"}
 	}
-	if base.BaseRefName != def.DefaultBranchRef.Name {
-		return &usageError{fmt.Sprintf("PR %s is based on %q, not the default branch %q: merging it from a card would land it on %s, not %s. Retarget the PR to %s (or merge its parent first) and file again; nothing was filed",
-			pr, base.BaseRefName, def.DefaultBranchRef.Name, base.BaseRefName, def.DefaultBranchRef.Name, def.DefaultBranchRef.Name)}
+	if intoSet && into != base.BaseRefName {
+		return &usageError{fmt.Sprintf("--into %q does not match PR %s base branch %q; nothing was filed", into, pr, base.BaseRefName)}
+	}
+	nonDefault := base.BaseRefName != def.DefaultBranchRef.Name
+	if nonDefault && !intoSet {
+		return &usageError{fmt.Sprintf("PR %s is based on %q, not the default branch %q: merging it from a card would land it on %s, not %s. Retarget the PR to %s (or merge its parent first) and file again, or explicitly accept this base with --into %q; nothing was filed",
+			pr, base.BaseRefName, def.DefaultBranchRef.Name, base.BaseRefName, def.DefaultBranchRef.Name, def.DefaultBranchRef.Name, base.BaseRefName)}
 	}
 	for _, o := range mergeOpts {
-		o.m[o.key] = withBranch(o.m[o.key].(string), def.DefaultBranchRef.Name)
+		o.m[o.key] = withBranch(o.m[o.key].(string), base.BaseRefName)
 	}
-	if len(mergeOpts) == 0 {
+	if len(mergeOpts) == 0 || nonDefault {
 		q, _ := ask["question"].(string)
-		ask["question"] = strings.TrimRight(q, "\n") + "\n\nMerging PR " + pr + " goes into " + def.DefaultBranchRef.Name + "."
+		ask["question"] = strings.TrimRight(q, "\n") + "\n\nMerging PR " + pr + " goes into " + base.BaseRefName + "."
+		if nonDefault {
+			ask["question"] = ask["question"].(string) + " This base is not the default branch " + def.DefaultBranchRef.Name + "."
+		}
 	}
 	return nil
 }
