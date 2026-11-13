@@ -201,7 +201,7 @@ func TestNeedsMkCardKeyGuarantee(t *testing.T) {
 			cmd.SetArgs(args)
 			err := cmd.Execute()
 			if mode == "timeout" {
-				if exitCode(err) != 4 || out.Len() != 0 || !strings.Contains(fmt.Sprint(err), "key-index-test") || !strings.Contains(fmt.Sprint(err), "may have been filed") {
+				if exitCode(err) != 4 || out.Len() != 0 || !strings.Contains(errs.String(), "key-index-test") || !strings.Contains(errs.String(), "may have been filed") {
 					t.Fatalf("exit=%d err=%v stdout=%q", exitCode(err), err, out.String())
 				}
 				return
