@@ -75,7 +75,7 @@ const (
 
 var (
 	v2Allowed = map[string]bool{"schema": true, "project": true, "project_root": true, "question": true,
-		"options": true, "questions": true, "ask_key": true, "subject": true, "recommendation": true, "pull": true, "auto_close": true, "urgency": true}
+		"options": true, "questions": true, "ask_key": true, "subject": true, "recommendation": true, "pull": true, "auto_close": true, "urgency": true, "evidence": true}
 	v1Only = map[string]bool{"v": true, "kind": true, "thread": true, "asker": true, "request_id": true,
 		"supersedes": true, "mention_of": true, "steps": true, "machine": true}
 	countedKinds = map[string]bool{"bead": true, "thread": true, "project": true}
@@ -278,6 +278,18 @@ func parseWireAsk(body string, c *Card) error {
 		}
 	}
 	c.Ask = m
+	if raw, ok := m["evidence"]; ok {
+		b, _ := json.Marshal(raw)
+		var evidence EvidenceList
+		d := json.NewDecoder(strings.NewReader(string(b)))
+		d.DisallowUnknownFields()
+		if err := d.Decode(&evidence); err != nil {
+			return err
+		}
+		if err := ValidateEvidence(evidence); err != nil {
+			return err
+		}
+	}
 	return nil
 }
 

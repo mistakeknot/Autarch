@@ -46,6 +46,10 @@ import { cardStateOf } from "./cardstate.js";
 import { createStoreHandle, type Store, type StoreHandle } from "./store.js";
 import { defaultImagesRoot, ImageStore } from "./otherimages.js";
 import { sdkAdapter, WakeLoop, type ThreadsLike, type WakeSdk } from "./wakes.js";
+// Evidence has a separate store and a read-only RPC; it never uses Other-box attachments.
+// Keep this import beside that store's existing wiring.
+
+import { readEvidence } from "./evidencestore.js";
 
 // Both schemas run at the wire boundary. Handler input/output are inferred
 // from the shared contract; app.tsx imports only its type.
@@ -536,6 +540,9 @@ export function wireHome(bb: BbPluginApi, handle: StoreHandle, cfg: HomeConfig, 
   const SERVE_READ_TTL_MS = 20_000;
   let serveRead: { at: number; projects: unknown; projectsError: string | undefined; build: unknown } | undefined;
   const handlers = {
+    async evidenceImage(i: { sha256: string }) {
+      return readEvidence(i.sha256);
+    },
     async listAsks(_: null) {
       const p = need();
       const titles = await threadTitles();

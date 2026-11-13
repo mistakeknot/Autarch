@@ -87,6 +87,9 @@ type Ask struct {
 	// Urgency is an optional delivery attribute: only "blocker" is accepted. It is not part of the
 	// identity, revision, semantic key or normalized JSON, so every hash filed before it existed is unchanged.
 	Urgency string `json:"urgency,omitempty"`
+	// Evidence is delivery content, excluded from all hashes and normalized JSON.
+	// A filing or update that changes only evidence is a no-op, like Urgency.
+	Evidence EvidenceList `json:"evidence,omitempty"`
 }
 
 const (
@@ -244,6 +247,9 @@ func Normalize(in Ask) (Ask, error) {
 
 func normalize(in Ask) (Ask, []Problem) {
 	var ps problemList
+	if err := ValidateEvidence(in.Evidence); err != nil {
+		ps.add("evidence", err.Error())
+	}
 	a := in
 	a.Options = append([]Option(nil), in.Options...)
 	a.Steps = append([]string(nil), in.Steps...)

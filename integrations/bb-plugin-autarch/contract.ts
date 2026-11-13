@@ -17,6 +17,7 @@ const docResult = z.union([
 const conversationView = z.object({ task_id: z.string(), comments: list, unread: z.number(), stale: z.boolean(), last_ok_at: z.string().nullable(), options: list });
 
 export const homeMethods = {
+  evidenceImage: { input: z.object({ sha256: z.string().regex(/^[0-9a-f]{64}$/) }).strict(), output: result },
   listAsks: { input: z.null(), output: readModel },
   // The blocks panel's read model (plan 1.4). `thread` pins the cards that involve that thread.
   queue: { input: z.object({ thread: z.string().min(1).max(128).optional() }), output: readModel },
@@ -107,6 +108,7 @@ export const homeMethods = {
 export type CliMapping = { verb: string; summary: string } | { rpcOnly: string };
 
 export const homeCliMap = {
+  evidenceImage: { rpcOnly: "read-only local evidence image by content hash" },
   listAsks: { verb: "list", summary: "List the asks waiting for a ruling" },
   stats: { verb: "stats", summary: "Picks, delegation and filing counts over a window" },
   listRecent: { verb: "feed", summary: "The recent-rulings feed a thread sees" },

@@ -42,7 +42,7 @@ describe("wireHome", () => {
     expect(f.configure()).toBeTypeOf("function");
     expect(f.cli()).toBeDefined();
     expect(Object.keys(home.handlers).sort()).toEqual(["actIdea", "archive", "bringBack", "cardState", "catchup", "clearIdeaDigest", "clickTiming", "conversation", "conversationUnread",
-      "dismiss", "fileIdea", "health", "ideaProjects", "ideas", "later", "learn", "learnSet", "listAsks", "listRecent", "markAllSeen", "markConversationSeen", "markSeen", "note", "openTarget", "override", "pick", "queue", "readDoc", "requestUpdate", "resend", "revokeApproval", "rootRun", "setBinding", "setDelegation", "setViewing", "stats", "unlater", "updateInfo", "waiting"]);
+      "dismiss", "evidenceImage", "fileIdea", "health", "ideaProjects", "ideas", "later", "learn", "learnSet", "listAsks", "listRecent", "markAllSeen", "markConversationSeen", "markSeen", "note", "openTarget", "override", "pick", "queue", "readDoc", "requestUpdate", "resend", "revokeApproval", "rootRun", "setBinding", "setDelegation", "setViewing", "stats", "unlater", "updateInfo", "waiting"]);
     f.disposers.forEach((d) => d());
   });
 
