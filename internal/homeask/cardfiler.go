@@ -70,7 +70,7 @@ type CardFiler struct {
 	// unreadable, so nothing may be filed against a guess.
 	ConfigErr error
 	// ReadbackTimeout bounds how long FileCard polls `bb home get --card` for the card's card_key after
-	// filing it (Home indexes a card shortly after it exists). Zero reads nothing back.
+	// filing it (Home indexes a card shortly after it exists). Zero reads nothing back. A missing key after a configured wait returns ErrOutcomeUnknown.
 	ReadbackTimeout time.Duration
 	// ReadbackInterval is the pause between polls, default 200 ms.
 	ReadbackInterval time.Duration
@@ -153,8 +153,7 @@ type CardResult struct {
 	// Replay is true when the card already existed (a routing comment may still have been repaired).
 	Replay  bool `json:"replay"`
 	Updated bool `json:"updated,omitempty"`
-	// CardKey is Home's card_key for the card, read back after filing. Empty when readback is off or Home had
-	// not indexed the card within ReadbackTimeout.
+	// CardKey is Home's card_key for the card, read back after filing. Empty on success only when readback is off.
 	CardKey string `json:"card_key,omitempty"`
 }
 
@@ -797,7 +796,7 @@ func (f *CardFiler) comment(ctx context.Context, thread, id, key string) error {
 // replay finishes a filing whose card already exists: it never succeeds before the routing
 // comment exists, and it refuses a card routed to another thread.
 func (f *CardFiler) replay(ctx context.Context, req CardRequest, c *found) (CardResult, error) {
-	res := CardResult{ID: c.ID, Key: req.Key, Replay: true}
+	res := CardResult{ID: c.ID, Key: req.Key, Project: c.ProjectID, Replay: true}
 	if req.Pull {
 		return res, nil
 	}
@@ -828,15 +827,23 @@ func (f *CardFiler) replay(ctx context.Context, req CardRequest, c *found) (Card
 func (f *CardFiler) FileCard(ctx context.Context, req CardRequest) (CardResult, error) {
 	res, err := f.fileCard(ctx, req)
 	if err == nil && !req.Pull && res.ID != "" && f.ReadbackTimeout > 0 {
-		res.CardKey = f.awaitCardKey(ctx, res.ID)
+		return f.withCardKey(ctx, res)
 	}
 	return res, err
+}
+
+func (f *CardFiler) withCardKey(ctx context.Context, res CardResult) (CardResult, error) {
+	res.CardKey = f.awaitCardKey(ctx, res.ID, res.Project)
+	if res.CardKey == "" {
+		return res, fmt.Errorf("%w: card %s may have been filed but card_key was not indexed within %s; re-run with --request %s and unchanged input to replay without duplicating it", ErrOutcomeUnknown, res.ID, f.ReadbackTimeout, res.Key)
+	}
+	return res, nil
 }
 
 // awaitCardKey polls `bb home get --card` until Home reports the card's card_key or ReadbackTimeout passes
 // (one read is always made). Home indexes a card shortly after it exists, so a caller that reads the key
 // right after filing would otherwise miss it. It returns "" when Home has not indexed the card in time.
-func (f *CardFiler) awaitCardKey(ctx context.Context, id string) string {
+func (f *CardFiler) awaitCardKey(ctx context.Context, id, project string) string {
 	interval := f.ReadbackInterval
 	if interval <= 0 {
 		interval = 200 * time.Millisecond
@@ -846,8 +853,8 @@ func (f *CardFiler) awaitCardKey(ctx context.Context, id string) string {
 	defer cancel()
 	deadline, _ := ctx.Deadline()
 	for {
-		if v, err := f.Card(ctx, id); err == nil && v.CardKey != "" {
-			return v.CardKey
+		if v, err := f.cardInProject(ctx, id, project); err == nil && strings.TrimSpace(v.CardKey) != "" {
+			return strings.TrimSpace(v.CardKey)
 		}
 		if !time.Now().Add(interval).Before(deadline) {
 			return ""
@@ -1153,6 +1160,14 @@ func (f *CardFiler) ListPull(ctx context.Context) ([]ListRow, error) {
 func (f *CardFiler) Card(ctx context.Context, taskID string) (CardView, error) {
 	var v CardView
 	err := f.call(ctx, "", &v, "home", "get", "--card", taskID, "--json")
+	return v, err
+}
+
+// cardInProject pins filing readback to the Tasks project returned by Tasks, rather
+// than an ambient CLI project. Card retains its unscoped interface for fleet readers.
+func (f *CardFiler) cardInProject(ctx context.Context, taskID, project string) (CardView, error) {
+	var v CardView
+	err := f.callEnv(ctx, unscopedEnv(""), &v, "home", "get", "--card", taskID, "--project", project, "--json")
 	return v, err
 }
 

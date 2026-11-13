@@ -153,7 +153,7 @@ func (f *CardFiler) FileOrUpdateCard(ctx context.Context, req CardRequest, super
 		// retain the normal post-write pick check instead of requiring a third run.
 		v := CardView{State: "open"}
 		if !repaired {
-			v, e = f.Card(ctx, s.Task.ID)
+			v, e = f.cardInProject(ctx, s.Task.ID, project)
 			if e != nil {
 				return CardResult{}, e
 			}
@@ -187,7 +187,7 @@ func (f *CardFiler) FileOrUpdateCard(ctx context.Context, req CardRequest, super
 		res := CardResult{ID: s.Task.ID, Key: c.Request.Key, Project: project, Replay: true}
 		if descriptionWithoutEvidence(desc) == descriptionWithoutEvidence(s.Task.Description) && req.Title == s.Task.Title {
 			if f.ReadbackTimeout > 0 {
-				res.CardKey = f.awaitCardKey(ctx, res.ID)
+				return f.withCardKey(ctx, res)
 			}
 			return res, nil
 		}
@@ -217,7 +217,7 @@ func (f *CardFiler) FileOrUpdateCard(ctx context.Context, req CardRequest, super
 		res.Updated = true
 		// Tasks has no conditional update tied to Home's pick. Detect a pick
 		// observed after the write and report it; never roll back over that pick.
-		after, readErr := f.Card(ctx, s.Task.ID)
+		after, readErr := f.cardInProject(ctx, s.Task.ID, project)
 		if readErr != nil {
 			return CardResult{}, fmt.Errorf("%w: card %s updated but Home could not confirm its ruling state: %v", ErrOutcomeUnknown, s.Task.ID, readErr)
 		}
@@ -225,7 +225,7 @@ func (f *CardFiler) FileOrUpdateCard(ctx context.Context, req CardRequest, super
 			return CardResult{}, fmt.Errorf("%w: card %s was updated while a pick was recorded; inspect the card before further edits", ErrAlreadyRuled, s.Task.ID)
 		}
 		if f.ReadbackTimeout > 0 {
-			res.CardKey = f.awaitCardKey(ctx, res.ID)
+			return f.withCardKey(ctx, res)
 		}
 		return res, nil
 	}
