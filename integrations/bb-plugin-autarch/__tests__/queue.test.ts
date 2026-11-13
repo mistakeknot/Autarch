@@ -167,7 +167,7 @@ describe("T1 first materialization", () => {
   }
 
   for (const conflict of ["registered duplicate", "canonical duplicate", "edited key"]) {
-    it(`keeps a ${conflict} display-only while serve is down without an undelivered notice`, async () => {
+    it(`keeps the ${conflict} display-only while serve is down without an undelivered notice`, async () => {
       const r = rig();
       const original = r.card({ key: "serve-down-a", thread: conflict === "registered duplicate" ? "thr_a" : null });
       if (conflict === "canonical duplicate") r.svc.observeCards([original as any]);

@@ -1721,6 +1721,27 @@ export class Service {
 
   private async materializeNew(task: Task, card: Card | null, parseErr: string, ctx: { comments: () => Promise<TaskCommentRow[]> }, row: Record<string, any>): Promise<string | void> {
     if (!card) return this.setDisplay(task.id, shownParseError(parseErr));
+    // Read-only conflicts must win over a temporary root-resolution failure:
+    // these cards cannot become deliverable and must not queue an undelivered notice.
+    const checkRequest = () => {
+      const key = card.request.key;
+      const reserved = this.db.prepare("SELECT request_key, identity FROM card_requests WHERE task_id = ?").get(task.id) as { request_key: string; identity: string } | undefined;
+      if (reserved && (reserved.request_key !== key || reserved.identity !== card.request.identity)) return { reason: "the Request line changed", registered: false };
+      const reg = this.db.prepare("SELECT task_id, identity FROM card_requests WHERE request_key = ?").get(key) as { task_id: string; identity: string } | undefined;
+      if (reg && reg.task_id !== task.id) return { reason: `duplicate Request of ${key}`, registered: false };
+      if (reg && reg.identity !== card.request.identity) return { reason: "the Request line changed", registered: false };
+      if (!reg) {
+        const canon = this.db
+          .prepare(
+            `SELECT task_id FROM cards WHERE request_key = ? AND labelled = 1 AND deleted_at IS NULL
+               AND status IN ('backlog','todo','in_progress','in_review') ORDER BY created_at, task_id LIMIT 1`,
+          )
+          .get(key) as { task_id: string } | undefined;
+        if (canon && canon.task_id !== task.id) return { reason: `duplicate Request of ${key}`, registered: false };
+      }
+
+      return { reason: null, registered: !!reg };
+    };
     const project = String(card.ask.project ?? "");
     const mismatch = this.bindingMismatch(task, project);
     if (mismatch) {
@@ -1745,6 +1766,8 @@ export class Service {
       return this.setObserved(row, reason, recipient, project);
     };
     if (project === "estate") return this.setDisplay(task.id, "estate is not allowed on a card");
+    const initial = checkRequest();
+    if (initial.reason) return this.setDisplay(task.id, initial.reason);
     let projects: ProjectInfo[];
     try {
       projects = await this.deps.projects();
@@ -1755,29 +1778,18 @@ export class Service {
     if (!p) return rootUnavailable(`root unverified: unknown project ${JSON.stringify(project)}`);
     if (p.root !== card.ask.project_root) return this.setDisplay(task.id, "project_root does not match the root serve resolves for this project");
 
-    const key = card.request.key;
-    const reserved = this.db.prepare("SELECT request_key, identity FROM card_requests WHERE task_id = ?").get(task.id) as { request_key: string; identity: string } | undefined;
-    if (reserved && (reserved.request_key !== key || reserved.identity !== card.request.identity)) return this.setDisplay(task.id, "the Request line changed");
-    const reg = this.db.prepare("SELECT task_id, identity FROM card_requests WHERE request_key = ?").get(key) as { task_id: string; identity: string } | undefined;
-    if (reg && reg.task_id !== task.id) return this.setDisplay(task.id, `duplicate Request of ${key}`);
-    if (reg && reg.identity !== card.request.identity) return this.setDisplay(task.id, "the Request line changed");
-    if (!reg) {
-      const canon = this.db
-        .prepare(
-          `SELECT task_id FROM cards WHERE request_key = ? AND labelled = 1 AND deleted_at IS NULL
-             AND status IN ('backlog','todo','in_progress','in_review') ORDER BY created_at, task_id LIMIT 1`,
-        )
-        .get(key) as { task_id: string } | undefined;
-      if (canon && canon.task_id !== task.id) return this.setDisplay(task.id, `duplicate Request of ${key}`);
-    }
+    // Recheck after project resolution: another ingest may have reserved the key
+    // during that await. No await separates this check from the insert.
+    const current = checkRequest();
+    if (current.reason) return this.setDisplay(task.id, current.reason);
 
     // Reserve the canonical Request before any routing read can fail or wait. A retry
     // can then find this card even when Tasks search is stale; registration does not
     // make a generation actionable. The insert survives partial routing failures.
-    if (!reg) {
+    if (!current.registered) {
       this.db
         .prepare("INSERT INTO card_requests(request_key, task_id, identity, registered_at) VALUES (?, ?, ?, ?)")
-        .run(key, task.id, card.request.identity, this.now());
+        .run(card.request.key, task.id, card.request.identity, this.now());
     }
 
     let thread = "";
