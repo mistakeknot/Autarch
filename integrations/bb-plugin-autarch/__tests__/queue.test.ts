@@ -113,6 +113,39 @@ describe("T1 first materialization", () => {
     expect(r.published.n).toBeGreaterThan(0);
   });
 
+  for (const failure of ["missing comment", "comment read failed"]) {
+    it(`registers before routing (${failure}), so a stale-search re-file replays`, async () => {
+      const r = rig();
+      const t = r.card({ key: "route-failed", thread: null });
+      const comments = async () => {
+        if (failure === "comment read failed") throw new Error("comments unavailable");
+        return [];
+      };
+      await r.svc.ingestCard(t as any, { comments });
+      expect(r.gens(t.id)).toHaveLength(0); // registration alone must not deliver a decision
+
+      // The Go contract vectors exercise the real filer for these two registry answers.
+      // Model its lookup here with Tasks search explicitly stale (no hits).
+      const refile = () => {
+        const known = r.db.prepare("SELECT task_id FROM card_requests WHERE request_key = ?").get("route-failed") as { task_id: string } | undefined;
+        const searchHits: FakeTask[] = [];
+        if (known) return { id: known.task_id, replay: true };
+        if (searchHits.length) return { id: searchHits[0]!.id, replay: true };
+        return { id: r.card({ key: "route-failed", thread: null }).id, replay: false };
+      };
+      expect(refile()).toEqual({ id: t.id, replay: true });
+      expect(r.fake.tasks).toHaveLength(1);
+      expect(r.db.prepare("SELECT identity FROM card_requests WHERE request_key = ?").get("route-failed")).toEqual({ identity: IDENTS[0] });
+
+      // Repair routing after registration: g1 must still materialize exactly once.
+      r.fake.addComment(t.id, { threadId: "thr_a", createdAt: T1 });
+      await r.poll();
+      await r.poll();
+      expect(r.gens(t.id)).toHaveLength(1);
+      expect(r.cardRow(t.id)).toMatchObject({ state: "open", routed_thread: "thr_a" });
+    });
+  }
+
   it("a pull:mycroft card routes to mycroft with no thread and needs no comment", async () => {
     const r = rig();
     const { t, g1 } = await opened(r, { pull: true, thread: null });

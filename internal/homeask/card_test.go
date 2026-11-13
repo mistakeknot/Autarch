@@ -270,7 +270,7 @@ func TestStoppedRequestIdentity(t *testing.T) {
 func TestNewCardFilerRequiresStopped(t *testing.T) {
 	for _, lane := range []string{"exact", "update"} {
 		t.Run(lane, func(t *testing.T) {
-			f := newFake(t)
+			f := newFake(t, registryOnCreate)
 			req := testReq()
 			req.Ask["urgency"] = "blocker"
 			var err error

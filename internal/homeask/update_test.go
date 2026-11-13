@@ -8,7 +8,7 @@ import (
 )
 
 func updateRig(t *testing.T) (*memBB, *CardFiler, *string) {
-	f := newFake(t)
+	f := newFake(t, registryOnCreate)
 	f.threads = map[string]string{"thr_a": "live"}
 	state := "open"
 	f.fail = func(args []string) *BBResult {
