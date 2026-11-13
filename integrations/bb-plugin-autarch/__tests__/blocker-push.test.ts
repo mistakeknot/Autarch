@@ -11,10 +11,9 @@ import { identity, normalizedJson, parseAsk, revision } from "../model.js";
 import { PUSH_METHOD, PUSH_PLUGIN_ID, RpcNotifier, type Notifier, type PushRequest, type PushResult } from "../notifier.js";
 import type { Service } from "../service.js";
 import { askRows, timeToAnswer } from "../pushtiming.js";
-import { Store } from "../store.js";
-import { decision, tmpDir } from "./helpers.js";
+import { tmpDir } from "./helpers.js";
 import { cleanupEnvs, opened, rig } from "./card-rig.js";
-import { ask, makeEnv, T0, type Env } from "./service-helpers.js";
+import { ask, makeEnv, type Env } from "./service-helpers.js";
 
 class FakeNotifier implements Notifier {
   calls: PushRequest[] = [];
@@ -517,7 +516,7 @@ describe("retrying a lost push", () => {
   it("an ask that spends its last try, or whose card already pushed, leaves the retry index", async () => {
     const { r, n } = setup();
     n.mode = "throw";
-    const { t, g1 } = await opened(r, { ask: { urgency: "blocker" } });
+    const { g1 } = await opened(r, { ask: { urgency: "blocker" } });
     await r.svc.drainPushes();
     const inIndex = (id: string) => (r.db.prepare("SELECT COUNT(*) AS c FROM decisions INDEXED BY decisions_blocker_pending WHERE id = ? AND urgency = 'blocker' AND push_sent_at IS NULL AND COALESCE(push_attempts, 0) < 6 AND withdrawn_at IS NULL AND resolved_at IS NULL").get(id) as { c: number }).c;
     expect(inIndex(g1.id)).toBe(1);
