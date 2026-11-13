@@ -104,3 +104,40 @@ func TestPickExportMissingDataAndWindow(t *testing.T) {
 		t.Fatal("created missing store")
 	}
 }
+
+func TestPickExportUpperWindowAndSoftDeletedCard(t *testing.T) {
+	path := fixture(t, `CREATE TABLE decisions (id TEXT, task_id TEXT, source TEXT, body_json TEXT, kind TEXT);
+ INSERT INTO cards VALUES ('deleted','CARD-1','Deleted','closed','2026-11-12T00:00:00Z');
+ INSERT INTO decisions VALUES ('before','deleted','card','{}','decide'),('edge','deleted','card','{}','decide'),('future','deleted','card','{}','decide');
+ INSERT INTO picks(decision_id,pick_id,option_id,picked_at) VALUES
+ ('before','p1','a','2026-11-12T23:59:59Z'),('edge','p2','a','2026-11-13T00:00:00Z'),('future','p3','a','2026-11-13T00:00:01Z');`)
+	var out bytes.Buffer
+	err := ExportPicks(&out, ExportOptions{DB: path, Days: 7, Now: func() time.Time { return time.Date(2026, 11, 13, 0, 0, 0, 0, time.UTC) }})
+	if err != nil {
+		t.Fatal(err)
+	}
+	dec := json.NewDecoder(&out)
+	var got []string
+	for dec.More() {
+		var row pickExport
+		if err := dec.Decode(&row); err != nil {
+			t.Fatal(err)
+		}
+		got = append(got, row.DecisionID)
+	}
+	if strings.Join(got, ",") != "before,edge" {
+		t.Fatalf("upper edge or deleted-card inclusion: %v", got)
+	}
+}
+
+func TestPickExportNonHexMergeIdentity(t *testing.T) {
+	var row pickExport
+	row.Pick = "a"
+	raw := `{"options":[{"id":"a","approval":{"kind":"merge","identity":"` + strings.Repeat("1", 39) + `z"}}]}`
+	if err := row.enrich(raw); err != nil {
+		t.Fatal(err)
+	}
+	if row.PRHead != nil {
+		t.Fatalf("non-hex identity exported as head: %q", *row.PRHead)
+	}
+}

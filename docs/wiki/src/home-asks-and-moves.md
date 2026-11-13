@@ -32,6 +32,18 @@ that writes `stopped`. Rolling the plugin back below this change hides cards car
 while rolling back the filer; do not roll the plugin back without accounting for
 cards and stored bodies that already carry the field.
 
+## Grouping cards
+
+The optional ask `group` object, for example `{"key":"release-pair-42","order":1}`,
+links cards for display. Supply it at first filing: a re-file that changes only
+`group` is a no-op in the filer and in Home. Home keeps the group's first-filed
+value for that generation. A substantive ask edit
+can create a new generation carrying a different group.
+
+Request keys are global, not scoped to a project or thread; choose specific request keys.
+Group keys are also global across the visible cards, so use specific group keys to avoid
+linking unrelated cards from different projects.
+
 ## Evidence
 
 The optional `evidence` array in a `home-ask/v2` block (also accepted by the Go and TypeScript ask parsers)
@@ -79,7 +91,13 @@ include evidence in the initial filing, or alongside a substantive change to the
 as JSON Lines. The default window is seven days (1–365 allowed), inclusive through
 the start of the command. It includes every recorded card pick by the owner in that
 window, including earlier generations, ordered by pick time then pick ID. It opens
-SQLite read-only and moves no cursor. Database discovery matches `needs-mk footer`.
+SQLite read-only and moves no cursor. Soft-deleted cards are included when their stored
+picks meet the window and author filters. Database discovery matches `needs-mk footer`.
+
+For a WAL-mode store, the reader can create `-wal` and `-shm` side files even though
+it does not change database rows. The `-wal` file can be empty; the shared-memory
+`-shm` file need not be. Run export as the same OS user as Home so those files have
+compatible ownership.
 
 Each line starts with `id`, `time`, `state`, `pick`, `title`, matching the five
 columns of the earlier research export. `id` is the card key, falling back to task ID;

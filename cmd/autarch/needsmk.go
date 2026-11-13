@@ -259,6 +259,11 @@ A picked closed card with the same ask_key exits 5 too; a new ask needs a new as
 Exit codes: 2 usage or refused, 3 Home or tasks unavailable (nothing created), 4 card created
 but the routing comment failed (re-run the same command), 5 already ruled (mk picked an option for this request).
 
+The optional ask JSON group {key, order} links cards for display. Set it at first filing:
+a group-only re-file does not change Home's stored group. A substantive edit can create a new
+generation carrying a different group. Request keys and group keys are global, not project-scoped;
+use specific keys.
+
 Cards whose options are all notice acknowledgments (read, ok, close and similar labels) are
 refused with exit 2: notices belong in the vizier inbox or digest. --move and --root-run are exempt.
 
