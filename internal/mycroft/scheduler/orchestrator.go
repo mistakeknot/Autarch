@@ -98,21 +98,28 @@ func (o *Orchestrator) OnCycle(view mycroft.FleetView) {
 		return
 	}
 
-	// Find available agents (status = active or idle, not already dispatched).
+	// Find idle agents with no current work.
 	available := availableAgents(view.Agents)
 	if len(available) == 0 {
 		return
 	}
 
+	// Design choice: one cycle owns one taken set, and the tier switch runs
+	// exactly one path. Suggestions consume a bead just like dispatch attempts,
+	// including skips/failures, so it is offered to at most one agent per cycle.
+	// T0/T1 never run before a dispatch path; T2 only suggests beads outside its
+	// allowlist, which no later T2 dispatch is entitled to. Nothing is reserved
+	// across cycles.
+	taken := make(map[string]bool)
 	switch tier {
 	case mycroft.T0:
-		o.shadowSuggest(ranked, available, view.Conflicts)
+		o.shadowSuggest(ranked, available, taken)
 	case mycroft.T1:
-		o.suggest(ranked, available, view.Conflicts)
+		o.suggest(ranked, available, taken)
 	case mycroft.T2:
-		o.autoDispatchFiltered(ranked, available, view.Conflicts)
+		o.autoDispatchFiltered(ranked, available, taken)
 	case mycroft.T3:
-		o.autoDispatchAll(ranked, available, view.Conflicts)
+		o.autoDispatchAll(ranked, available, taken)
 	}
 }
 
@@ -126,9 +133,9 @@ func (o *Orchestrator) Resume() { o.paused = false }
 func (o *Orchestrator) IsPaused() bool { return o.paused }
 
 // shadowSuggest logs what Mycroft would suggest without taking action (T0).
-func (o *Orchestrator) shadowSuggest(ranked []mycroft.BeadView, agents []mycroft.AgentView, conflicts []mycroft.ConflictView) {
+func (o *Orchestrator) shadowSuggest(ranked []mycroft.BeadView, agents []mycroft.AgentView, taken map[string]bool) {
 	for _, agent := range agents {
-		selected := SelectForAgent(ranked, agent, conflicts, 1)
+		selected := SelectForAgent(ranked, agent, taken, 1)
 		if len(selected) == 0 {
 			continue
 		}
@@ -144,9 +151,9 @@ func (o *Orchestrator) shadowSuggest(ranked []mycroft.BeadView, agents []mycroft
 }
 
 // suggest proposes assignments for user approval (T1).
-func (o *Orchestrator) suggest(ranked []mycroft.BeadView, agents []mycroft.AgentView, conflicts []mycroft.ConflictView) {
+func (o *Orchestrator) suggest(ranked []mycroft.BeadView, agents []mycroft.AgentView, taken map[string]bool) {
 	for _, agent := range agents {
-		selected := SelectForAgent(ranked, agent, conflicts, 1)
+		selected := SelectForAgent(ranked, agent, taken, 1)
 		if len(selected) == 0 {
 			continue
 		}
@@ -163,9 +170,9 @@ func (o *Orchestrator) suggest(ranked []mycroft.BeadView, agents []mycroft.Agent
 }
 
 // autoDispatchFiltered dispatches only beads that pass the T2 allowlist (T2).
-func (o *Orchestrator) autoDispatchFiltered(ranked []mycroft.BeadView, agents []mycroft.AgentView, conflicts []mycroft.ConflictView) {
+func (o *Orchestrator) autoDispatchFiltered(ranked []mycroft.BeadView, agents []mycroft.AgentView, taken map[string]bool) {
 	for _, agent := range agents {
-		selected := SelectForAgent(ranked, agent, conflicts, 1)
+		selected := SelectForAgent(ranked, agent, taken, 1)
 		if len(selected) == 0 {
 			continue
 		}
@@ -187,9 +194,9 @@ func (o *Orchestrator) autoDispatchFiltered(ranked []mycroft.BeadView, agents []
 }
 
 // autoDispatchAll dispatches any eligible bead (T3).
-func (o *Orchestrator) autoDispatchAll(ranked []mycroft.BeadView, agents []mycroft.AgentView, conflicts []mycroft.ConflictView) {
+func (o *Orchestrator) autoDispatchAll(ranked []mycroft.BeadView, agents []mycroft.AgentView, taken map[string]bool) {
 	for _, agent := range agents {
-		selected := SelectForAgent(ranked, agent, conflicts, 1)
+		selected := SelectForAgent(ranked, agent, taken, 1)
 		if len(selected) == 0 {
 			continue
 		}
@@ -283,11 +290,14 @@ func (o *Orchestrator) logDispatch(agent, beadID string, action mycroft.Dispatch
 	}
 }
 
-// availableAgents returns agents that are active or idle (not offline).
+// availableAgents accepts unassigned idle agents or healthy active agents.
+// CurrentBead is unpopulated by production sources today, so this preserves
+// base availability apart from the claim and active-health guards. Resolving
+// activity versus health semantics belongs to mk-ucfww.
 func availableAgents(agents []mycroft.AgentView) []mycroft.AgentView {
 	var available []mycroft.AgentView
 	for _, a := range agents {
-		if a.Status == "active" || a.Status == "idle" {
+		if a.CurrentBead == "" && (a.Status == "idle" || (a.Status == "active" && a.Health.IsHealthy)) {
 			available = append(available, a)
 		}
 	}

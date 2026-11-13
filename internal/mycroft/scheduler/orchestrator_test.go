@@ -30,7 +30,7 @@ func TestOrchestratorT0ShadowSuggest(t *testing.T) {
 
 	view := mycroft.FleetView{
 		Agents: []mycroft.AgentView{
-			{Name: "grey-area", Status: "active"},
+			{Name: "grey-area", Status: "idle"},
 		},
 		Work: []mycroft.BeadView{
 			{ID: "b1", Title: "Fix bug", Type: "bug", Priority: 2, DepsResolved: true},
@@ -58,7 +58,7 @@ func TestOrchestratorT1Suggest(t *testing.T) {
 
 	view := mycroft.FleetView{
 		Agents: []mycroft.AgentView{
-			{Name: "mistake-not", Status: "active"},
+			{Name: "mistake-not", Status: "idle"},
 		},
 		Work: []mycroft.BeadView{
 			{ID: "b2", Title: "Add feature", Type: "feature", Priority: 1, DepsResolved: true},
@@ -85,7 +85,7 @@ func TestOrchestratorT2AllowlistGate(t *testing.T) {
 
 	view := mycroft.FleetView{
 		Agents: []mycroft.AgentView{
-			{Name: "grey-area", Status: "active"},
+			{Name: "grey-area", Status: "idle"},
 		},
 		Work: []mycroft.BeadView{
 			// P1 feature — should be escalated (not in allowlist).
@@ -114,7 +114,7 @@ func TestOrchestratorT2AllowlistPass(t *testing.T) {
 
 	view := mycroft.FleetView{
 		Agents: []mycroft.AgentView{
-			{Name: "grey-area", Status: "active"},
+			{Name: "grey-area", Status: "idle"},
 		},
 		Work: []mycroft.BeadView{
 			// P3 task, simple — should pass allowlist.
@@ -142,7 +142,7 @@ func TestOrchestratorT3DispatchAll(t *testing.T) {
 
 	view := mycroft.FleetView{
 		Agents: []mycroft.AgentView{
-			{Name: "grey-area", Status: "active"},
+			{Name: "grey-area", Status: "idle"},
 		},
 		Work: []mycroft.BeadView{
 			// P1 feature complex — T3 dispatches everything.
@@ -174,7 +174,7 @@ func TestOrchestratorPauseResume(t *testing.T) {
 	}
 
 	view := mycroft.FleetView{
-		Agents: []mycroft.AgentView{{Name: "a1", Status: "active"}},
+		Agents: []mycroft.AgentView{{Name: "a1", Status: "idle"}},
 		Work:   []mycroft.BeadView{{ID: "b1", DepsResolved: true}},
 	}
 
@@ -200,7 +200,7 @@ func TestOrchestratorNoWork(t *testing.T) {
 	o := newTestOrchestrator(t, mycroft.T3)
 
 	view := mycroft.FleetView{
-		Agents: []mycroft.AgentView{{Name: "a1", Status: "active"}},
+		Agents: []mycroft.AgentView{{Name: "a1", Status: "idle"}},
 		Work:   nil,
 	}
 
@@ -248,7 +248,7 @@ func TestAvailableAgents(t *testing.T) {
 	}
 
 	available := availableAgents(agents)
-	if len(available) != 2 {
-		t.Errorf("expected 2 available, got %d", len(available))
+	if len(available) != 1 {
+		t.Errorf("expected 1 available, got %d", len(available))
 	}
 }
