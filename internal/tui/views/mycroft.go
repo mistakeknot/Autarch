@@ -520,7 +520,14 @@ func (v *MycroftsView) renderAgentDetail(width int) string {
 
 	// Health.
 	lines = append(lines, pkgtui.SubtitleStyle.Render("Health"))
-	if agent.Health.IsHealthy {
+	if agent.Status == "idle" {
+		lines = append(lines, pkgtui.StatusIdle.Render("  ○ Idle"))
+	} else if agent.Status == "unknown" {
+		lines = append(lines, pkgtui.StatusIdle.Render("  ? Unknown"))
+		if agent.Health.Details != "" {
+			lines = append(lines, fmt.Sprintf("  %s", agent.Health.Details))
+		}
+	} else if agent.Health.IsHealthy {
 		lines = append(lines, pkgtui.StatusRunning.Render("  ✓ Healthy"))
 	} else {
 		lines = append(lines, pkgtui.StatusError.Render("  ✗ Unhealthy"))

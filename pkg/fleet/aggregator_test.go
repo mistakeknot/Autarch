@@ -1,9 +1,54 @@
 package fleet
 
 import (
+	"os"
+	"path/filepath"
+	"strconv"
 	"testing"
 	"time"
 )
+
+func TestParseSessionActivity(t *testing.T) {
+	now := time.Date(2026, 11, 13, 9, 0, 0, 0, time.UTC)
+	for _, age := range []time.Duration{0, time.Second, 5*time.Minute - time.Second, 5 * time.Minute, 24 * time.Hour} {
+		ts := now.Add(-age)
+		for _, raw := range []string{strconv.FormatInt(ts.Unix(), 10), ts.Format("2006-01-02T15:04:05")} {
+			health, status := parseSessionActivity(raw, now)
+			wantStatus := "idle"
+			if age < 5*time.Minute {
+				wantStatus = "active"
+			}
+			if !health.LastSeen.Equal(ts) || health.IsHealthy != (wantStatus == "active") || status != wantStatus || health.Details != "" {
+				t.Errorf("parseSessionActivity(%q) = %+v, %s; want %s at %s", raw, health, status, wantStatus, ts)
+			}
+		}
+	}
+	for _, raw := range []string{"", "garbage", "0", "-1", "9999999999999999999999", "9223372036854775807", "1.5", "2026-99-99T00:00:00", strconv.FormatInt(now.Unix()+1, 10), "2027-01-01T00:00:00"} {
+		health, status := parseSessionActivity(raw, now)
+		if status != "unknown" || health.IsHealthy || !health.LastSeen.IsZero() || health.Details == "" {
+			t.Errorf("invalid %q = %+v, %s", raw, health, status)
+		}
+	}
+}
+
+func TestDetectAgentsFromTmuxEpoch(t *testing.T) {
+	dir := t.TempDir()
+	fixture := "#!/bin/sh\nprintf '%s\\n' 'test-agent-session:1700000000' 'bad-agent-session:garbage'\n"
+	if err := os.WriteFile(filepath.Join(dir, "tmux"), []byte(fixture), 0700); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", dir)
+	agents, err := detectAgentsFromTmux()
+	if err != nil || len(agents) != 2 {
+		t.Fatalf("agents = %v, err = %v", agents, err)
+	}
+	if agents[0].Status != "idle" || agents[0].Health.IsHealthy || agents[0].Health.LastSeen.Unix() != 1700000000 {
+		t.Errorf("epoch activity was lost: %+v", agents[0])
+	}
+	if agents[1].Status != "unknown" || agents[1].Health.IsHealthy || !agents[1].Health.LastSeen.IsZero() || agents[1].Health.Details == "" {
+		t.Errorf("invalid activity must remain unknown: %+v", agents[1])
+	}
+}
 
 func TestNewAggregatorSource(t *testing.T) {
 	a := NewAggregatorSource("/nonexistent/registry.yaml")
