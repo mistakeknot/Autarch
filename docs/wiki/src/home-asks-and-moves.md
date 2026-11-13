@@ -6,17 +6,23 @@ A Home card is a BB Tasks card whose description carries a `Request: <key> sha25
 
 `autarch needs-mk file` always prints JSON on success; `--json` explicitly selects
 this same format. Exit 0 guarantees a non-empty `card_key` alongside the existing
-`card`, `request`, `project`, and `replay` fields (`updated` appears for edits).
+`card`, `request`, and `replay` fields (`project` appears when supplied by Tasks;
+`updated` appears for edits).
 After filing, it waits up to 30 seconds for Home to index the card. If the key is
 still missing, it exits 4, prints no success JSON, and reports that the card may
 have been filed. The error includes the request key: re-run with that same
 `--request` and unchanged input to replay without duplicating the card.
 
-Filing readbacks pass the card's Tasks project id explicitly to
-`bb home get --card ID --project PROJECT_ID --json`. This lookup uses Home's
-global card index and the explicit selector, without a binding inferred from the
-working directory. Install the compatible Home plugin before using the new filer;
-older plugins reject the new `--project` selector.
+Filing readbacks call the existing `bb home get --card ID --json` with ambient
+`BB_PROJECT_ID` removed, then compare the returned `project_id` with the card's
+Tasks project id in Go. A mismatch is rejected. If Tasks returns no project id,
+readback does not filter by project. The lookup uses Home's global card index,
+without a binding inferred from the working directory, and the new binary works
+with older Home plugins; there is no plugin installation-order dependency.
+
+The plugin's optional `bb home get --card ID --project PROJECT_ID --json` selector
+remains available for other callers. An empty `--project` value means no filter,
+and an unknown card without a project selector still reports `unknown card`.
 
 ## Blocker urgency
 

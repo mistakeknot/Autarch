@@ -232,7 +232,9 @@ routing comment from it. Success prints JSON with a non-empty card_key (--json i
 After filing, waits up to 30 seconds for Home's index. If the key remains missing, exits 4
 with no success JSON: the card may have been filed. The error gives the request key;
 re-run with that same --request and unchanged input to replay without duplicating it.
-Readback explicitly selects the card's Tasks project, independent of the working directory.
+Readback clears ambient project context and checks the card's Tasks project in Go,
+independent of the working directory; it also works with older Home plugins.
+If Tasks returns no project id, readback does not filter by project.
 --project is the tasks project. --ask-file is a JSON object with
 question, options and optionally subject, recommendation, ask_key, project and project_root.
 Optional evidence: at most 6 items, each with caption (1-200 characters) and one HTTPS url,

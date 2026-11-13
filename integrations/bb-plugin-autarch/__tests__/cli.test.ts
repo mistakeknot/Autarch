@@ -299,7 +299,7 @@ describe("cards in the CLI (Task 2.7)", () => {
     for (const flags of [[], ["--project", ""]]) {
       const missing = await go(["get", "--card", "missing", ...flags]);
       expect(missing.exitCode).toBe(1);
-      expect(missing.stderr).toBe("unknown card");
+      expect(missing.stderr).toBe("unknown card\n");
     }
   });
 

@@ -92,7 +92,7 @@ export function homeCli(p: HomeCliParts) {
         summary: "Look up a card, a filed ask by request key, or a legacy decision id",
         options: {
           card: { type: "string", description: "A tasks card (task) id." },
-          project: { type: "string", description: "Tasks project id for --card; explicit scope, independent of the working directory." },
+          project: { type: "string", description: "Tasks project id for --card; empty means no filter, independent of the working directory." },
           request: { type: "string", description: "The request key: a card's, or a pre-card ask's request id." },
           "request-id": { type: "string", description: "Alias of --request." },
           id: { type: "string", description: "A decision id." },
@@ -102,7 +102,7 @@ export function homeCli(p: HomeCliParts) {
         run({ options }) {
           if (options.card !== undefined) {
             const c = cardView(options.card);
-            return c && (options.project === undefined || c.project_id === options.project) ? out(c) : err(1, "unknown card in the requested project");
+            return c && (!options.project || c.project_id === options.project) ? out(c) : err(1, options.project ? "unknown card in the requested project" : "unknown card");
           }
           const key = options.request ?? options["request-id"];
           if (key !== undefined) {

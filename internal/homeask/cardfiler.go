@@ -1163,11 +1163,15 @@ func (f *CardFiler) Card(ctx context.Context, taskID string) (CardView, error) {
 	return v, err
 }
 
-// cardInProject pins filing readback to the Tasks project returned by Tasks, rather
-// than an ambient CLI project. Card retains its unscoped interface for fleet readers.
+// cardInProject checks filing readback against the Tasks project returned by Tasks,
+// without requiring a plugin project flag. An empty filed project disables the check.
+// Card retains its unscoped interface for fleet readers.
 func (f *CardFiler) cardInProject(ctx context.Context, taskID, project string) (CardView, error) {
 	var v CardView
-	err := f.callEnv(ctx, unscopedEnv(""), &v, "home", "get", "--card", taskID, "--project", project, "--json")
+	err := f.callEnv(ctx, unscopedEnv(""), &v, "home", "get", "--card", taskID, "--json")
+	if err == nil && project != "" && v.ProjectID != project {
+		return v, fmt.Errorf("%w: card %s belongs to Tasks project %q, expected %q", ErrHomeDown, taskID, v.ProjectID, project)
+	}
 	return v, err
 }
 
