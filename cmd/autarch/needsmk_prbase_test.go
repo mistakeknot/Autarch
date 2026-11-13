@@ -569,3 +569,108 @@ func TestNeedsMkObfuscatedGitHubHostIsRefused(t *testing.T) {
 		t.Fatalf("plain other-site link: err=%v creates=%d", err, s.creates)
 	}
 }
+
+func TestNeedsMkIntoMatchingBase(t *testing.T) {
+	g := &ghStub{base: "integration/v1", def: "main"}
+	useGH(t, g)
+	s := &stubBB{}
+	_, err := fileMerge(t, s, mergeAskJSON, "--pr", "https://github.com/o/r/pull/211", "--into", g.base)
+	if err != nil {
+		t.Fatalf("matching opt-in: %v (creates=%d)", err, s.creates)
+	}
+	if s.creates != 1 || len(g.calls) != 2 {
+		t.Fatalf("creates=%d gh=%v", s.creates, g.calls)
+	}
+	for _, want := range []string{"Manually merge it at 58814293 into integration/v1", "Merging PR o/r#211 goes into integration/v1. This base is not the default branch main."} {
+		if !strings.Contains(s.desc, want) {
+			t.Errorf("card lacks %q:\n%s", want, s.desc)
+		}
+	}
+}
+
+func TestNeedsMkIntoRefusedWithoutOptIn(t *testing.T) {
+	g := &ghStub{base: "integration/v1", def: "main"}
+	useGH(t, g)
+	s := &stubBB{}
+	// A label claiming the default branch cannot bypass the real PR base.
+	body := strings.Replace(mergeAskJSON, "58814293", "58814293 into main", 1)
+	_, err := fileMerge(t, s, body, "--pr", "https://github.com/o/r/pull/211")
+	if exitCode(err) != 2 || len(writeCalls(s)) != 0 || len(g.calls) != 2 {
+		t.Fatalf("err=%v writes=%v gh=%v", err, writeCalls(s), g.calls)
+	}
+	for _, want := range []string{"--into", g.base, g.def, "nothing was filed"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("error %q lacks %q", err, want)
+		}
+	}
+}
+
+func TestNeedsMkIntoMismatch(t *testing.T) {
+	for _, base := range []string{"integration/v1", "main"} {
+		for _, into := range []string{"other", strings.ToUpper(base), " " + base, base + " ", ""} {
+			t.Run(base+"/"+into, func(t *testing.T) {
+				g := &ghStub{base: base, def: "main"}
+				useGH(t, g)
+				s := &stubBB{}
+				_, err := fileMerge(t, s, mergeAskJSON, "--pr", "https://github.com/o/r/pull/211", "--into", into)
+				if exitCode(err) != 2 || len(writeCalls(s)) != 0 || len(g.calls) != 2 {
+					t.Fatalf("err=%v writes=%v gh=%v", err, writeCalls(s), g.calls)
+				}
+				for _, want := range []string{"--into", `"` + into + `"`, `"` + base + `"`, "nothing was filed"} {
+					if !strings.Contains(err.Error(), want) {
+						t.Errorf("error %q lacks %q", err, want)
+					}
+				}
+			})
+		}
+	}
+}
+
+func TestNeedsMkIntoDefaultBehavior(t *testing.T) {
+	for _, base := range []string{"main", "master"} {
+		for _, body := range []string{mergeAskJSON, plainAskJSON} {
+			var without string
+			for _, explicit := range []bool{false, true} {
+				g := &ghStub{base: base, def: base}
+				useGH(t, g)
+				s := &stubBB{}
+				args := []string{"--pr", "https://github.com/o/r/pull/211"}
+				if explicit {
+					args = append(args, "--into", base)
+				}
+				if _, err := fileMerge(t, s, body, args...); err != nil {
+					t.Fatal(err)
+				}
+				if s.creates != 1 || !strings.Contains(s.desc, "into "+base) || strings.Contains(s.desc, "not the default branch") {
+					t.Fatalf("default behavior changed: creates=%d card=%s", s.creates, s.desc)
+				}
+				if body == mergeAskJSON && strings.Contains(s.desc, "Merging PR") {
+					t.Fatalf("default merge option gained a question line: %s", s.desc)
+				}
+				if !explicit {
+					without = s.desc
+				} else if s.desc != without {
+					t.Fatalf("explicit default changed card:\n%s\n%s", without, s.desc)
+				}
+			}
+		}
+	}
+}
+
+func TestNeedsMkIntoWithRewordedOrAbsentMergeLabel(t *testing.T) {
+	for _, body := range []string{plainAskJSON, strings.Replace(mergeAskJSON, "Manually merge it at", "Land it at", 1)} {
+		g := &ghStub{base: "integration/v1", def: "main"}
+		useGH(t, g)
+		s := &stubBB{}
+		if _, err := fileMerge(t, s, body, "--pr", "https://github.com/o/r/pull/211"); exitCode(err) != 2 || len(writeCalls(s)) != 0 {
+			t.Fatalf("reworded label bypassed base check: %v", err)
+		}
+		s = &stubBB{}
+		if _, err := fileMerge(t, s, body, "--pr", "https://github.com/o/r/pull/211", "--into", g.base); err != nil {
+			t.Fatal(err)
+		}
+		if s.creates != 1 || !strings.Contains(s.desc, "Merging PR o/r#211 goes into integration/v1. This base is not the default branch main.") {
+			t.Fatalf("card=%s creates=%d", s.desc, s.creates)
+		}
+	}
+}
