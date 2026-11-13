@@ -9,6 +9,19 @@ import (
 	"testing"
 )
 
+func TestNeedsMkOnPickOriginalScalarBytes(t *testing.T) {
+	t.Setenv("BB_THREAD_ID", "thr_x")
+	p := writeAsk(t)
+	raw := `{"schema":"home-ask/v2","project":"Autarch","project_root":"/sample","question":"Colour?","options":[{"id":"blue","label":"Blue","instruction":"Use \ud800.","on_\u0070ick":{"schema":1,"target_thread":"thr_x","reversible":true,"subject":{"kind":"none"},"ruling":{"bead":null,"under":[]}}},{"id":"wait","label":"Wait"}]}`
+	if err := os.WriteFile(p, []byte(raw), 0600); err != nil {
+		t.Fatal(err)
+	}
+	_, err := runNeedsMk(t, &stubBB{}, "file", "--project", "P1", "--title", "Colour?", "--ask-file", p)
+	if err == nil || !strings.Contains(err.Error(), "Unicode scalar") {
+		t.Fatalf("expected original-byte scalar refusal, got %v", err)
+	}
+}
+
 func TestNeedsMkVizierOwnership(t *testing.T) {
 	t.Setenv("BB_THREAD_ID", "thr_x")
 	for _, tc := range []struct {

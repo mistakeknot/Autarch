@@ -126,6 +126,9 @@ func parseAsk(data []byte, requireStopped bool) (Ask, error) {
 }
 
 func parseAskSource(data []byte, requireStopped, cardSource bool) (Ask, error) {
+	if err := ValidateOnPickJSON(data); err != nil {
+		return Ask{}, err
+	}
 	var fields map[string]json.RawMessage
 	if err := json.Unmarshal(data, &fields); err == nil {
 		var m map[string]any

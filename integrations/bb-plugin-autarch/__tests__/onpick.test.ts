@@ -8,6 +8,18 @@ const wire = () => ({ schema: "home-ask/v2", project: "sample", project_root: "/
 const card = (ask: unknown) => parseCard(`Which colour?\nBlocks: thread:thr_target\nRequest: sample sha256:0123456789abcdef\n\n\`\`\`home-ask\n${JSON.stringify(ask)}\n\`\`\``);
 
 describe("on_pick card declaration", () => {
+  it("rejects participation with a root-run block at card parse", () => {
+    const body = `Colour?\nRequest: sample sha256:0123456789abcdef\n\`\`\`home-ask\n${JSON.stringify(wire())}\n\`\`\`\n\`\`\`root-run\nscript: /sample/check\nsha256: ${"a".repeat(64)}\ntimeout: 30\nset: check\n\`\`\``;
+    expect(() => parseCard(body)).toThrow(/on_pick/);
+  });
+  it("rejects approval member even when null", () => {
+    const ask = wire(); Object.assign(ask.options[0], { approval: null });
+    expect(() => card(ask)).toThrow();
+  });
+  it.each(["\t", "\n", "\r", "\v", "\f", " ", "\u00a0", "\u1680", "\u2000", "\u2028", "\u2029", "\u202f", "\u205f", "\u3000", "\ufeff"])("screens force push separator %j", sep => {
+    const ask = wire(); ask.options[0].instruction = `force${sep}push`;
+    expect(() => card(ask)).toThrow();
+  });
   it("reads persisted declarations only with trusted card source", () => {
     const body = JSON.stringify(toV1(card(wire()), "thr_asker"));
     expect(readAsk(body)).toBeNull();

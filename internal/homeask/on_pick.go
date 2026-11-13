@@ -13,6 +13,29 @@ import (
 // OnPick is immutable decoded card metadata, not an authorization to execute.
 type OnPick map[string]any
 
+// ValidateOnPickJSON checks original bytes before encoding/json can replace
+// invalid scalars. Escaped member names have the same semantics as literal ones.
+func ValidateOnPickJSON(raw []byte) error {
+	var m map[string]any
+	if json.Unmarshal(raw, &m) != nil {
+		return nil
+	} // The ordinary parser reports syntax errors.
+	options, _ := m["options"].([]any)
+	for _, v := range options {
+		if option, ok := v.(map[string]any); ok {
+			if _, present := option["on_pick"]; present {
+				if !scalarJSON(raw) {
+					return fmt.Errorf("on_pick: invalid Unicode scalar text")
+				}
+				if _, approval := option["approval"]; approval {
+					return fmt.Errorf("on_pick: approval member excluded")
+				}
+			}
+		}
+	}
+	return nil
+}
+
 type CardValidationContext struct {
 	Source                  string
 	RootRun, Move, Artifact bool
@@ -87,6 +110,10 @@ func ValidateOnPick(raw json.RawMessage, option Option, context CardValidationCo
 	}
 	screened := norm.NFKC.String(option.Label + "\n" + option.Instruction + "\n" + notification)
 	screened = strings.Map(func(r rune) rune {
+		// ECMAScript WhiteSpace/LineTerminator set, matching JS regexp \\s.
+		if r == 0x0b || r == 0xa0 || r == 0x1680 || (r >= 0x2000 && r <= 0x200a) || r == 0x2028 || r == 0x2029 || r == 0x202f || r == 0x205f || r == 0x3000 || r == 0xfeff {
+			return ' '
+		}
 		if (r >= 0x2010 && r <= 0x2015) || r == 0x2212 || r == 0xfe58 || r == 0xfe63 || r == 0xff0d {
 			return '-'
 		}

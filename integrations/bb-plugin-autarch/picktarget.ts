@@ -13,23 +13,30 @@ export interface TargetSdk {
   threads: { get(input: { threadId: string }): Promise<unknown> };
   projects: { get(input: { projectId: string }): Promise<unknown> };
 }
+export class TargetEvidenceError extends Error {
+  constructor(readonly code: "not-found" | "unavailable" | "unsupported", detail: string) {
+    super(`${code}: ${detail}`);
+  }
+}
 function record(v: unknown): Record<string, unknown> {
-  if (!v || typeof v !== "object" || Array.isArray(v)) throw new Error("not-found: target metadata");
+  if (v === null || v === undefined) throw new TargetEvidenceError("not-found", "target metadata");
+  if (typeof v !== "object" || Array.isArray(v)) throw new TargetEvidenceError("unsupported", "target metadata contract");
   return v as Record<string, unknown>;
 }
 function text(v: unknown): v is string { return typeof v === "string" && v.trim() !== "" && v.isWellFormed(); }
-function timestamp(v: unknown): boolean { return v === null || (typeof v === "string" && Number.isFinite(Date.parse(v))); }
+function timestamp(v: unknown): boolean { return v === null || (typeof v === "number" && Number.isFinite(v)); }
 export async function readTargetEvidence(sdk: TargetSdk, threadId: string): Promise<TargetEvidence> {
-  if (!/^thr_[A-Za-z0-9_.:-]+$/.test(threadId) || threadId.length > 128) throw new Error("unsupported: concrete thread required");
+  if (!/^thr_[A-Za-z0-9_.:-]+$/.test(threadId) || threadId.length > 128) throw new TargetEvidenceError("unsupported", "concrete thread required");
   let t: Record<string, unknown>;
   let p: Record<string, unknown>;
   try {
     t = record(await sdk.threads.get({ threadId }));
-    if (t.id !== threadId || !text(t.title) || !text(t.projectId) || !timestamp(t.archivedAt) || !timestamp(t.deletedAt)) throw new Error("unsupported: thread metadata contract");
+    if (t.id !== threadId || !text(t.title) || !text(t.projectId) || !timestamp(t.archivedAt) || !timestamp(t.deletedAt)) throw new TargetEvidenceError("unsupported", "thread metadata contract");
     p = record(await sdk.projects.get({ projectId: t.projectId }));
-    if (p.id !== t.projectId || !text(p.name)) throw new Error("unsupported: project metadata contract");
+    if (p.id !== t.projectId || !text(p.name)) throw new TargetEvidenceError("unsupported", "project metadata contract");
   } catch (e) {
-    throw new Error(`unavailable: ${e instanceof Error ? e.message : "target metadata"}`);
+    if (e instanceof TargetEvidenceError) throw e;
+    throw new TargetEvidenceError("unavailable", e instanceof Error ? e.message : "target metadata");
   }
   return { schema: 1, thread_id: threadId, title: t.title as string, project_id: t.projectId as string, project_name: p.name as string, archived: t.archivedAt !== null, deleted: t.deletedAt !== null, observed_at: new Date().toISOString() };
 }

@@ -13,6 +13,7 @@ import { canonicalJson, normalizedJson, parseStoredCardAsk, type Ask } from "./m
 import { parseMove, type Move } from "./moves.js";
 import { validateEvidence } from "./evidence.js";
 import { validateGroup } from "./group.js";
+import { parseOnPick } from "./onpick.js";
 
 export interface BlockRef {
   ref: string;
@@ -137,7 +138,10 @@ export function parseCard(description: string): Card {
   // The ask must survive the unchanged rev-4 parser, so every v1 rule (approval tokens,
   // option bounds, ...) applies to a card. The thread is a stand-in: routing comes from
   // the card's comments, never from its text.
-  toV1(card, pull === "" ? PLACEHOLDER_THREAD : "");
+  const parsed = toV1(card, pull === "" ? PLACEHOLDER_THREAD : "");
+  for (const option of parsed.options ?? []) {
+    if (option.on_pick) parseOnPick(option.on_pick, option, { source: "card", rootRun: !!root_run, move: !!move, artifact: !!subject_key || !!ask.auto_close });
+  }
   return card;
 }
 

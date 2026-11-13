@@ -4,6 +4,15 @@ import { readTargetEvidence, validatePickTarget, ownerCommentCutoff } from "../p
 const thread = { id: "thr_target", title: "Palette work", projectId: "project-target", archivedAt: null, deletedAt: null };
 const project = { id: "project-target", name: "Palette" };
 const sdk = (t: unknown = thread, p: unknown = project) => ({ threads: { get: async () => t }, projects: { get: async () => p } });
+it.each(["archivedAt", "deletedAt"])("accepts numeric %s evidence and refuses liveness", async field => {
+  const target = await readTargetEvidence(sdk({ ...thread, [field]: 1700000000000 }), "thr_target");
+  expect(validatePickTarget({ asker: "thr_target", blocks: [], bindingConfirmed: true }, target).ok).toBe(false);
+});
+it("distinguishes missing, unsupported and unavailable evidence structurally", async () => {
+  await expect(readTargetEvidence(sdk(null), "thr_target")).rejects.toMatchObject({ code: "not-found" });
+  await expect(readTargetEvidence(sdk({ ...thread, archivedAt: "2026-01-01" }), "thr_target")).rejects.toMatchObject({ code: "unsupported" });
+  await expect(readTargetEvidence({ ...sdk(), threads: { get: async () => { throw new Error("offline"); } } }, "thr_target")).rejects.toMatchObject({ code: "unavailable" });
+});
 it("resolves host thread project relation without inference", async () => {
   expect(await readTargetEvidence(sdk(), "thr_target")).toMatchObject({ schema: 1, thread_id: "thr_target", title: "Palette work", project_id: "project-target", project_name: "Palette", archived: false, deleted: false });
 });
