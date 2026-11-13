@@ -1735,15 +1735,24 @@ export class Service {
       return this.setDisplay(task.id, mismatch);
     }
 
+    // If root verification is unavailable, keep the existing undelivered notice
+    // recipient without reserving an unverified request or materializing a card.
+    const rootUnavailable = async (reason: string) => {
+      let recipient = "";
+      if (card.pull !== "mycroft") {
+        try { recipient = askingThread(await ctx.comments()); } catch { /* still observed */ }
+      }
+      return this.setObserved(row, reason, recipient, project);
+    };
     if (project === "estate") return this.setDisplay(task.id, "estate is not allowed on a card");
     let projects: ProjectInfo[];
     try {
       projects = await this.deps.projects();
     } catch (e) {
-      return this.setObserved(row, `root unverified: ${message(e)}`, "", project);
+      return rootUnavailable(`root unverified: ${message(e)}`);
     }
     const p = projects.find((x) => x.name === project);
-    if (!p) return this.setObserved(row, `root unverified: unknown project ${JSON.stringify(project)}`, "", project);
+    if (!p) return rootUnavailable(`root unverified: unknown project ${JSON.stringify(project)}`);
     if (p.root !== card.ask.project_root) return this.setDisplay(task.id, "project_root does not match the root serve resolves for this project");
 
     const key = card.request.key;
