@@ -20,6 +20,8 @@ import { neighborAfterRemoval } from "./nextcard.js";
 import { OtherBox, otherHelpText, type OtherImage, type OtherOutcome } from "./other.js";
 import { EvidenceBlock } from "./evidence.js";
 import type { Evidence } from "../evidence.js";
+import type { MergeGroup } from "../group.js";
+import { orderedGroups } from "./mergegroups.js";
 
 /** What a pick hands back to the card: not ok means the card stays open and shows the error. */
 export type PickOutcome = { ok: boolean; error?: string };
@@ -99,7 +101,7 @@ export type OwedAsk = {
   held?: { reason: string; by: string; at: string; end?: HoldEnd | null } | null;
   /** Set while mk has set the card aside for later: it stays open and unruled, in the Later group, outside the Waiting count. */
   later?: { at: string; by: string } | null;
-  ask: { question: string; recommendation?: string; options: Option[]; questions?: Question[]; evidence?: Evidence[] };
+  ask: { question: string; recommendation?: string; options: Option[]; questions?: Question[]; evidence?: Evidence[]; group?: MergeGroup };
   /** The stored ask could not be read: `ask` is then empty, and the card is shown marked with nothing to answer. */
   unreadable?: boolean;
 };
@@ -418,6 +420,7 @@ export function optionEffect(o: { kind: string; instruction?: string; reversible
 
 /** The Decide queue: a short row per ask on the left, the selected ask in full on the right (below when narrow). */
 export function DecideQueue({ owed, onPick, onOpen, nowMs, onNote, onLater, onView }: { owed: OwedAsk[]; onPick: OnPick; onOpen: (thread: string) => void; nowMs: number; onNote?: OnNote; onLater?: OnLater; onView?: (decisionId: string | null) => void }) {
+  owed = orderedGroups(owed);
   const [selected, setSelected] = useState<string | null>(null);
   // When the card on screen leaves the list (answered, set aside), show the one that was below it, else the one above
   // (bead mk-c0mka). `seen` is the list and card as of the last render, so the position is that of the list as it was; cards
@@ -463,7 +466,8 @@ export function DecideQueue({ owed, onPick, onOpen, nowMs, onNote, onLater, onVi
           const old = isOldAsk(o.filed_at, nowMs);
           const rec = o.ask.options.find((x) => x.id === o.ask.recommendation);
           return (
-            <li key={o.id}>
+            <li key={o.id} data-queue-id={o.id} data-merge-group={o.ask.group?.key} data-group-order={o.ask.group?.order}>
+              {o.ask.group ? <span className="block text-xs text-muted-foreground">{`Linked merges · ${o.ask.group.key} · step ${o.ask.group.order}`}</span> : null}
               <button
                 type="button"
                 aria-current={o.id === current.id ? "true" : undefined}

@@ -212,7 +212,7 @@ func EvidenceRoot() string {
 	return filepath.Join(home, ".autarch", "home-evidence")
 }
 
-// Compare delivery text while treating an evidence-only re-filing as a no-op.
+// Compare delivery text while treating evidence/group-only re-filing as a no-op.
 func descriptionWithoutEvidence(desc string) string {
 	const fence = "```home-ask\n"
 	start := strings.Index(desc, fence)
@@ -230,6 +230,7 @@ func descriptionWithoutEvidence(desc string) string {
 		return desc
 	}
 	delete(m, "evidence")
+	delete(m, "group")
 	b, _ := json.Marshal(m)
 	return desc[:start] + string(b) + desc[end:]
 }

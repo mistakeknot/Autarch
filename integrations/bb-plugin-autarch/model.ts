@@ -10,6 +10,7 @@
 import { createHash } from "node:crypto";
 
 import { validateEvidence, type Evidence } from "./evidence.js";
+import { validateGroup, type MergeGroup } from "./group.js";
 export type AskKind = "decide" | "steps" | "machine";
 export type OptionKind = "instruction" | "needs-context" | "ruling-only";
 
@@ -73,6 +74,7 @@ export interface Ask {
   // Delivery-only: excluded from identity, revision, semantic key and normalized JSON.
   // A filing or update changing only evidence is a no-op, like Urgency.
   evidence?: Evidence[];
+  group?: MergeGroup;
 }
 
 const MAX_INSTRUCTION = 8000;
@@ -137,7 +139,7 @@ function slug(label: string): string {
   return firstChars(out, 32).replace(/-+$/, "");
 }
 
-const TOP_FIELDS = ["v", "kind", "request_id", "ask_key", "subject", "project", "project_root", "asker", "thread", "question", "recommendation", "supersedes", "mention_of", "options", "questions", "steps", "machine", "urgency", "evidence"];
+const TOP_FIELDS = ["v", "kind", "request_id", "ask_key", "subject", "project", "project_root", "asker", "thread", "question", "recommendation", "supersedes", "mention_of", "options", "questions", "steps", "machine", "urgency", "evidence", "group"];
 const OPTION_FIELDS = ["id", "label", "kind", "reversible", "instruction", "approval"];
 const QUESTION_FIELDS = ["id", "prompt", "options", "recommendation"];
 const QUESTION_OPTION_FIELDS = ["id", "label", "detail"];
@@ -166,6 +168,7 @@ export function parseAsk(input: unknown): Ask {
   known(o, TOP_FIELDS, "ask");
   const a: Record<string, unknown> = {};
   if (o.evidence !== undefined) a.evidence = validateEvidence(o.evidence);
+  if (o.group !== undefined) a.group = validateGroup(o.group);
   if (o.v !== undefined && o.v !== null) {
     if (typeof o.v !== "number") fail("invalid ask: v must be a number");
     a.v = o.v;
@@ -412,6 +415,7 @@ function normalize(input: Ask): { ask?: Ask; problems: Problem[] } {
   if (a.questions.length > 0) out.questions = a.questions;
   if (a.urgency === "blocker") out.urgency = "blocker";
   if (input.evidence !== undefined) out.evidence = validateEvidence(input.evidence);
+  if (input.group !== undefined) out.group = validateGroup(input.group);
   if (out.request_id === "") out.request_id = identityOf(out);
   return { ask: out, problems: ps };
 }

@@ -196,6 +196,7 @@ func RequestIdentity(r CardRequest) (string, error) {
 	blocks := dedupe(r.Blocks)
 	// Delivery evidence never changes the Request identity or an evidence-only update.
 	delete(ask, "evidence")
+	delete(ask, "group")
 	sort.Strings(blocks)
 	node := map[string]any{"project": ask["project"], "title": r.Title, "blocks": toAny(blocks), "ask": ask}
 	if r.RootRun != nil {
@@ -249,6 +250,13 @@ func (r CardRequest) wireAsk() (map[string]any, error) {
 		return nil, fmt.Errorf("%w: ask schema must be home-ask/v2", ErrInvalid)
 	}
 	m["schema"] = "home-ask/v2"
+	if raw, ok := m["group"]; ok {
+		group, err := groupFromWire(raw)
+		if err != nil {
+			return nil, fmt.Errorf("%w: %v", ErrInvalid, err)
+		}
+		m["group"] = group
+	}
 	if raw, ok := m["evidence"]; ok {
 		evidence, err := evidenceFromWire(raw)
 		if err != nil {

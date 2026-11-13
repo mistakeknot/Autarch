@@ -4,6 +4,7 @@
 // ones are shown. UI only: the lists come from the same data the desktop queue reads.
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { ActionButton } from "./buttons.js";
+import { orderedGroups } from "./mergegroups.js";
 import { glance } from "./glance.js";
 import { HoldEndLine } from "./holdendline.js";
 import { neighborAfterRemoval } from "./nextcard.js";
@@ -34,7 +35,7 @@ const askRow = (o: OwedAsk, nowMs: number): InboxRow => {
 
 /** The three lists. Waiting is the owed decisions that are neither held nor set aside; Later is the cards mk set aside; held is the cards on hold, shown read-only under the On hold row. */
 export function inboxRows(asks: AsksData, nowMs: number): { waiting: InboxRow[]; later: InboxRow[]; held: InboxRow[] } {
-  const live = asks.owed.filter((o) => !o.held);
+  const live = orderedGroups(asks.owed.filter((o) => !o.held));
   const waiting = live.filter((o) => !o.later).map((o) => askRow(o, nowMs));
   const later = live.filter((o) => o.later).map((o) => askRow(o, nowMs));
   const held = asks.owed.filter((o) => o.held).map((o) => askRow(o, nowMs));
@@ -73,6 +74,7 @@ function Row({ r, onOpen, sending = false }: { r: InboxRow; onOpen: () => void; 
         <span className="line-clamp-2 text-sm font-medium [overflow-wrap:anywhere]">{r.title}</span>
         {r.project || r.time ? <span className="text-xs text-muted-foreground">{[r.project, r.time].filter(Boolean).join(" · ")}</span> : null}
         {rec ? <span className="line-clamp-1 text-xs text-muted-foreground" data-row-rec>{`Rec: ${rec.label}`}</span> : null}
+        {r.ask?.ask.group ? <span className="text-xs text-muted-foreground" data-merge-group={r.ask.ask.group.key} data-group-order={r.ask.ask.group.order}>{`Linked merges · ${r.ask.ask.group.key} · step ${r.ask.ask.group.order}`}</span> : null}
       </button>
     </li>
   );
