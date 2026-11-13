@@ -12,7 +12,7 @@ for (const v of vectors) it(v.name, () => {
  if(v.valid) { expect(parse()).toBeTruthy(); expect(legacy()).toBeTruthy(); }
  else { expect(parse).toThrow(); expect(legacy).toThrow(); }
 });
-it("stopped changes no identity or fingerprint", () => {
+it("stopped stays out of normalized hashes and the card fingerprint", () => {
  const a=parseCard(desc({urgency:"blocker",stopped:"Release waits"}));
  const b=parseCard(desc({urgency:"blocker",stopped:"Tests wait"}));
  const x=toV1(a,"t"), y=toV1(b,"t");

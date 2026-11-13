@@ -226,3 +226,40 @@ func TestStoppedVectors(t *testing.T) {
 		})
 	}
 }
+
+// Design choice in bead mk-ddtv5.7.9: stopped participates in filer H1, as urgency does.
+// The normalized ask hashes remain independent of this delivery metadata.
+func TestStoppedRequestIdentity(t *testing.T) {
+	legacy := testReq()
+	h, err := RequestIdentity(legacy)
+	if err != nil || h != "d978b44d835e92ce" {
+		t.Fatalf("legacy H1 changed: %q %v", h, err)
+	}
+	a, b := testReq(), testReq()
+	a.Ask["urgency"] = "blocker"
+	a.Ask["stopped"] = "Release waits"
+	b.Ask["urgency"] = "blocker"
+	b.Ask["stopped"] = "Tests wait"
+	x, err := RequestIdentity(a)
+	if err != nil {
+		t.Fatal(err)
+	}
+	y, err := RequestIdentity(b)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if x == y {
+		t.Fatal("stopped must affect H1")
+	}
+	av, err := (Card{Ask: a.Ask}).ToV1("thr_a")
+	if err != nil {
+		t.Fatal(err)
+	}
+	bv, err := (Card{Ask: b.Ask}).ToV1("thr_a")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if Revision(av) != Revision(bv) || SemanticKey(av) != SemanticKey(bv) || NormalizedJSON(av) != NormalizedJSON(bv) {
+		t.Fatal("stopped affected normalized hashes")
+	}
+}
