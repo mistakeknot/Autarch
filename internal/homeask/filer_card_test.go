@@ -37,10 +37,10 @@ type memBB struct {
 }
 
 type fakeTask struct {
-	ID, Project, Created, Desc string
-	Comments                   []Comment
-	Labels                     []string
-	Deleted                    bool
+	ID, Project, Created, Desc, Status string
+	Comments                           []Comment
+	Labels                             []string
+	Deleted                            bool
 }
 
 func newFake(t *testing.T) *memBB {
@@ -163,7 +163,7 @@ func (f *memBB) run(ctx context.Context, env []string, args ...string) BBResult 
 	case cmd == "tasks show "+args[2]:
 		for _, tk := range f.tasks {
 			if tk.ID == args[2] && !tk.Deleted {
-				return okRes(map[string]any{"task": map[string]string{"id": tk.ID, "projectId": tk.Project, "createdAt": tk.Created, "description": tk.Desc}, "comments": tk.Comments})
+				return okRes(map[string]any{"task": map[string]string{"id": tk.ID, "projectId": tk.Project, "createdAt": tk.Created, "description": tk.Desc, "status": tk.Status}, "comments": tk.Comments})
 			}
 		}
 		return *badRes(1, "task not found")

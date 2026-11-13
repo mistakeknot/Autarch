@@ -219,7 +219,7 @@ func commandWarning(question string) string {
 }
 
 func needsMkFileCmd() *cobra.Command {
-	var project, title, askFile, rootRun, request, moveFile, ownerThread, urgency, prFlag string
+	var project, title, askFile, rootRun, request, moveFile, ownerThread, urgency, prFlag, supersedes string
 	var blocks []string
 	var vizierOwned bool
 	cmd := &cobra.Command{
@@ -238,6 +238,10 @@ refused (exit 2) and nothing is created. A later claim comment never re-routes a
 The vizier must give exactly one of --owner-thread (another thread owns follow-through) or
 --vizier-owned (its own ruling, root run or scope). Both flags together, or --vizier-owned from
 any other thread, are refused with exit 2 before filing. Other threads need neither flag.
+
+Re-filing the same ask_key updates its open, unanswered card in this project, preserving its key and routing.
+--supersedes CARD also updates in place when ask_key changed; a closed, foreign-project or foreign-owner
+card is refused (exit 2). An answered card remains already ruled (exit 5).
 
 Exit codes: 2 usage or refused, 3 Home or tasks unavailable (nothing created), 4 card created
 but the routing comment failed (re-run the same command), 5 already ruled (mk picked an option for this request).
@@ -350,7 +354,7 @@ refused, and it works on every kind of card; a machine blocker alone never pushe
 				}
 				req.Key = homeask.DerivedKey(thread, ident)
 			}
-			res, err := filer.FileCard(ctx, req)
+			res, err := filer.FileOrUpdateCard(ctx, req, supersedes)
 			if err != nil {
 				return err
 			}
@@ -371,6 +375,7 @@ refused, and it works on every kind of card; a machine blocker alone never pushe
 	cmd.Flags().StringVar(&request, "request", "", "Request key (default: derived from thread and ask); when given it must be non-empty and match the Request line key pattern")
 	cmd.Flags().StringVar(&urgency, "urgency", "", `Optional: "blocker" asks Home to push mk's phone once when the card is first filed`)
 	cmd.Flags().StringVar(&prFlag, "pr", "", "PR URL this ask merges: refused (exit 2) unless the PR's base is the repo's default branch; a \"Manually merge it at ...\" option implies it")
+	cmd.Flags().StringVar(&supersedes, "supersedes", "", "Update this open, unanswered card in the same project; it must belong to this thread or --owner-thread")
 	cmd.Flags().BoolVar(&vizierOwned, "vizier-owned", false, "Vizier only: this is its own ruling, root run or scope card; mutually exclusive with --owner-thread")
 	cmd.Flags().StringVar(&ownerThread, "owner-thread", "", "Route the card's answer to this live thread instead of the filing thread (the routing comment is posted as it)")
 	return cmd
