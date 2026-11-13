@@ -51,9 +51,9 @@ func TestSubjectKeyVectors(t *testing.T) {
 				t.Fatalf("valid=%v err=%v", v.Valid, err)
 			}
 			if err == nil {
-				for _, field := range []string{"SubjectKey", "Signals"} {
-					if !reflect.ValueOf(c).FieldByName(field).IsValid() {
-						t.Errorf("Card lacks %s", field)
+				for key, missing := range map[string]bool{"subject_key": c.SubjectKey == nil, "signals": c.Signals == nil} {
+					if _, present := v.Metadata[key]; present && missing {
+						t.Errorf("Card lacks %s", key)
 					}
 				}
 			}

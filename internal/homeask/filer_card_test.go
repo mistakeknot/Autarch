@@ -257,6 +257,23 @@ func wantErrIs(t *testing.T, err error, target error) {
 	}
 }
 
+func TestCardRequestMetadataNotWritableYet(t *testing.T) {
+	metadata := subjectVectors(t)[1].Metadata
+	for _, key := range []string{"subject_key", "signals"} {
+		for _, value := range []any{metadata[key], nil} {
+			t.Run(fmt.Sprintf("%s/null=%v", key, value == nil), func(t *testing.T) {
+				req := testReq()
+				req.Ask[key] = value
+				_, _, err := req.Description()
+				wantErrIs(t, err, ErrInvalid)
+				if !strings.Contains(err.Error(), key+" is not writable yet") {
+					t.Fatalf("err = %v, want explicit not-writable-yet error for %s", err, key)
+				}
+			})
+		}
+	}
+}
+
 func TestCardFilerFilesLabelsCreatesAndComments(t *testing.T) {
 	f := newFake(t, registryOnCreate)
 	res, err := f.filer().FileCard(context.Background(), testReq())
