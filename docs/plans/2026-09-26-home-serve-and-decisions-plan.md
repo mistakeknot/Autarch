@@ -1648,7 +1648,7 @@ Depends on Tasks 1.1 and 1.7.
 - Modify: `[removed Mycroft orchestration code]:55-120`,
   `[removed Mycroft orchestration code]` (`suggest()` at `:97-110`, the T2
   out-of-allowlist branch at `:123-130`, and the ready-bead filter),
-  `cmd/mycroft/main.go:98`, `internal/tui/views/mycroft.go`.
+  `cmd/mycroft/main.go:98`, the removed Mycroft TUI view.
 - Test: `internal/homeask/filer_test.go`, `cmd/autarch/decide_test.go`,
   `[removed Mycroft orchestration code]`,
   `[removed Mycroft orchestration code]`,
