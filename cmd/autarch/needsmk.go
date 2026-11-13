@@ -221,6 +221,7 @@ func commandWarning(question string) string {
 func needsMkFileCmd() *cobra.Command {
 	var project, title, askFile, rootRun, request, moveFile, ownerThread, urgency, prFlag string
 	var blocks []string
+	var vizierOwned bool
 	cmd := &cobra.Command{
 		Use:   "file",
 		Short: "File a needs-mk card from the asking thread; prints the card as one JSON line",
@@ -234,6 +235,9 @@ ask whose question says what the move asks of mk. Nothing in the move is execute
 --owner-thread names the thread that answers the card: the routing comment is posted as that thread, so
 Home routes mk's pick to it, not to the filer. It must be a live, unarchived thread, else the filing is
 refused (exit 2) and nothing is created. A later claim comment never re-routes a card.
+The vizier must give exactly one of --owner-thread (another thread owns follow-through) or
+--vizier-owned (its own ruling, root run or scope). Both flags together, or --vizier-owned from
+any other thread, are refused with exit 2 before filing. Other threads need neither flag.
 
 Exit codes: 2 usage or refused, 3 Home or tasks unavailable (nothing created), 4 card created
 but the routing comment failed (re-run the same command), 5 already ruled (mk picked an option for this request).
@@ -327,6 +331,12 @@ refused, and it works on every kind of card; a machine blocker alone never pushe
 			if err := guardMergeBase(cmd.Context(), ask, move, append([]string{title, rootRun, ownerThread, request}, blocks...), prFlag, cmd.Flags().Changed("pr")); err != nil {
 				return err
 			}
+			if vizierOwned && cmd.Flags().Changed("owner-thread") {
+				return &usageError{"give exactly one of --owner-thread for another thread or --vizier-owned for the vizier itself"}
+			}
+			if err := filer.CheckVizierOwnership(ctx, thread, ownerThread, vizierOwned); err != nil {
+				return err
+			}
 			req := homeask.CardRequest{Project: project, Title: title, Blocks: blocks, Ask: ask, Move: move, Key: request, Thread: thread, Owner: ownerThread}
 			if rootRun != "" {
 				if req.RootRun, err = parseRootRunFlag(rootRun); err != nil {
@@ -361,6 +371,7 @@ refused, and it works on every kind of card; a machine blocker alone never pushe
 	cmd.Flags().StringVar(&request, "request", "", "Request key (default: derived from thread and ask); when given it must be non-empty and match the Request line key pattern")
 	cmd.Flags().StringVar(&urgency, "urgency", "", `Optional: "blocker" asks Home to push mk's phone once when the card is first filed`)
 	cmd.Flags().StringVar(&prFlag, "pr", "", "PR URL this ask merges: refused (exit 2) unless the PR's base is the repo's default branch; a \"Manually merge it at ...\" option implies it")
+	cmd.Flags().BoolVar(&vizierOwned, "vizier-owned", false, "Vizier only: this is its own ruling, root run or scope card; mutually exclusive with --owner-thread")
 	cmd.Flags().StringVar(&ownerThread, "owner-thread", "", "Route the card's answer to this live thread instead of the filing thread (the routing comment is posted as it)")
 	return cmd
 }

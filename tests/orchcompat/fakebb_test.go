@@ -323,6 +323,8 @@ func fbDispatch(s *fbState, args []string, call *fbCall) (int, string, string) {
 		}
 		s.Labels[n] = true
 		return 0, fbJSON(map[string]any{"label": map[string]string{"name": n}}), ""
+	case head == "thread list --json":
+		return 0, "[]", ""
 	case head == "tasks project list":
 		if s.NoProjectList {
 			return 1, "", "projects unavailable\n"

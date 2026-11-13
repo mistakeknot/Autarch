@@ -35,6 +35,7 @@ type stubBB struct {
 	commented        bool
 	thread           string
 	updated          [][]string
+	vizier           bool
 	bound            string // when set, the tasks board is confirmed bound to this Home project
 }
 
@@ -49,6 +50,13 @@ func (s *stubBB) run(_ context.Context, env []string, args ...string) homeask.BB
 	}
 	j := func(v string) homeask.BBResult { return homeask.BBResult{Stdout: []byte(v)} }
 	switch strings.Join(args[:min(len(args), 3)], " ") {
+	case "thread show thr_owner":
+		return j(`{"thread":{"id":"thr_owner","archivedAt":null,"deletedAt":null}}`)
+	case "thread list --json":
+		if s.vizier {
+			return j(`[{"id":"thr_x","title":"Masaq' | vizier","pinnedAt":1,"archivedAt":null}]`)
+		}
+		return j(`[]`)
 	case "home get --request":
 		return j(`{"status":"absent"}`)
 	case "tasks label list":
