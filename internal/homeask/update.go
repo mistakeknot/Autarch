@@ -3,6 +3,8 @@ package homeask
 import (
 	"context"
 	"crypto/sha256"
+	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -58,17 +60,22 @@ func (f *CardFiler) FileOrUpdateCard(ctx context.Context, req CardRequest, super
 	if supersedes != "" {
 		s, e := f.show(ctx, supersedes)
 		if e != nil {
-			return CardResult{}, fmt.Errorf("%w: --supersedes card unavailable: %v", ErrInvalid, e)
+			if errors.Is(e, errTaskGone) {
+				return CardResult{}, fmt.Errorf("%w: --supersedes card unavailable: %v", ErrInvalid, e)
+			}
+			return CardResult{}, e
 		}
 		candidates = append(candidates, s)
 	} else {
+		encodedKey, _ := json.Marshal(key)
+		searchText := string(encodedKey[1 : len(encodedKey)-1])
 		cursor := ""
 		seen := map[string]bool{}
 		for page := 0; ; page++ {
 			if page >= maxPages {
 				return CardResult{}, fmt.Errorf("%w: tasks search did not finish", ErrHomeDown)
 			}
-			args := []string{"tasks", "list", "--status", searchStatuses, "--project", project, "--limit", pageLimit, "--json"}
+			args := []string{"tasks", "list", "--status", searchStatuses, "--project", project, "--search", searchText, "--limit", pageLimit, "--json"}
 			if cursor != "" {
 				args = append(args, "--cursor", cursor)
 			}
@@ -81,6 +88,9 @@ func (f *CardFiler) FileOrUpdateCard(ctx context.Context, req CardRequest, super
 			}
 			for _, r := range rows.Tasks {
 				s, e := f.show(ctx, r.ID)
+				if errors.Is(e, errTaskGone) {
+					continue
+				}
 				if e != nil {
 					return CardResult{}, e
 				}
@@ -108,9 +118,25 @@ func (f *CardFiler) FileOrUpdateCard(ctx context.Context, req CardRequest, super
 		if e != nil || c.Pull != "" || s.Task.ProjectID != project {
 			return CardResult{}, fmt.Errorf("%w: --supersedes must name a Home card in the same project", ErrInvalid)
 		}
-		owner := AskingThread(s.Comments)
-		if owner == "" || (owner != req.Thread && owner != req.Owner) {
-			return CardResult{}, fmt.Errorf("%w: card must belong to the filing thread or --owner-thread", ErrInvalid)
+		// An exit-4 filing may not be indexed by Home until its first routing
+		// comment exists. Repair via replay, using the candidate's persisted key
+		// (automatic refiles have a random key), before asking Home for its state.
+		agent := false
+		for _, cm := range s.Comments {
+			if cm.Kind == "agent" {
+				agent = true
+				break
+			}
+		}
+		if !agent && supersedes == "" && s.Task.Status != "done" && s.Task.Status != "canceled" {
+			repair := req
+			repair.Key = c.Request.Key
+			res, err := f.replay(ctx, repair, &found{ID: s.Task.ID, ProjectID: s.Task.ProjectID, Req: c.Request, Comments: s.Comments})
+			res.Project = s.Task.ProjectID
+			if err == nil && f.ReadbackTimeout > 0 {
+				res.CardKey = f.awaitCardKey(ctx, res.ID)
+			}
+			return res, err
 		}
 		v, e := f.Card(ctx, s.Task.ID)
 		if e != nil {
@@ -126,6 +152,10 @@ func (f *CardFiler) FileOrUpdateCard(ctx context.Context, req CardRequest, super
 			closed = true
 			continue
 		}
+		owner := AskingThread(s.Comments)
+		if owner == "" || (owner != req.Thread && owner != req.Owner) {
+			return CardResult{}, fmt.Errorf("%w: card must belong to the filing thread or --owner-thread", ErrInvalid)
+		}
 		if v.State != "open" {
 			return CardResult{}, fmt.Errorf("%w: card state unavailable", ErrHomeDown)
 		}
@@ -134,6 +164,13 @@ func (f *CardFiler) FileOrUpdateCard(ctx context.Context, req CardRequest, super
 		desc = strings.Replace(desc, fmt.Sprintf("Request: %s sha256:%s", fresh.Request.Key, fresh.Request.Identity), fmt.Sprintf("Request: %s sha256:%s", c.Request.Key, c.Request.Identity), 1)
 		if _, e = ParseCard(desc); e != nil {
 			return CardResult{}, fmt.Errorf("%w: updated card does not parse: %v", ErrInvalid, e)
+		}
+		res := CardResult{ID: s.Task.ID, Key: c.Request.Key, Project: project, Replay: true}
+		if desc == s.Task.Description && req.Title == s.Task.Title {
+			if f.ReadbackTimeout > 0 {
+				res.CardKey = f.awaitCardKey(ctx, res.ID)
+			}
+			return res, nil
 		}
 		if req.Move != nil {
 			if e = f.ensureLabelNamed(ctx, project, MoveLabel); e != nil {
@@ -158,7 +195,16 @@ func (f *CardFiler) FileOrUpdateCard(ctx context.Context, req CardRequest, super
 		if e = f.call(ctx, req.Thread, nil, args...); e != nil {
 			return CardResult{}, e
 		}
-		res := CardResult{ID: s.Task.ID, Key: c.Request.Key, Project: project, Updated: true, Replay: true}
+		res.Updated = true
+		// Tasks has no conditional update tied to Home's pick. Detect a pick
+		// observed after the write and report it; never roll back over that pick.
+		after, readErr := f.Card(ctx, s.Task.ID)
+		if readErr != nil {
+			return CardResult{}, fmt.Errorf("%w: card %s updated but Home could not confirm its ruling state: %v", ErrOutcomeUnknown, s.Task.ID, readErr)
+		}
+		if after.State == "ruled" || after.DecisionState == "ruled" || after.DecisionState == "picked" {
+			return CardResult{}, fmt.Errorf("%w: card %s was updated while a pick was recorded; inspect the card before further edits", ErrAlreadyRuled, s.Task.ID)
+		}
 		if f.ReadbackTimeout > 0 {
 			res.CardKey = f.awaitCardKey(ctx, res.ID)
 		}

@@ -538,6 +538,7 @@ func (f *CardFiler) registry(ctx context.Context, key string) (registryAnswer, e
 // ---- tasks reads ---------------------------------------------------------------------
 
 type taskRow struct {
+	Title       string `json:"title"`
 	ID          string `json:"id"`
 	ProjectID   string `json:"projectId"`
 	CreatedAt   string `json:"createdAt"`
