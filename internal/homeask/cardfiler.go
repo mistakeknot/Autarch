@@ -153,7 +153,7 @@ type CardResult struct {
 	// Replay is true when the card already existed (a routing comment may still have been repaired).
 	Replay  bool `json:"replay"`
 	Updated bool `json:"updated,omitempty"`
-	// CardKey is Home's card_key for the card, read back after filing. Empty on success only when readback is off.
+	// CardKey is Home's card_key for the card, read back after filing. Empty on success when readback is off or skipped for a pull.
 	CardKey string `json:"card_key,omitempty"`
 }
 
