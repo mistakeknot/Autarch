@@ -1,0 +1,1055 @@
+[
+  {
+    "name": "auto-close.json/valid auto_close/thr_abc123/g1",
+    "thread": "thr_abc123",
+    "generation": 1,
+    "expected": {
+      "h1": "157d7633e386c02d",
+      "identity": "5921e1a1ecf1c7f2a9f55bf5856d149a5b687dc0cb66aa284d1a79bf843d974e",
+      "revision": "6df19dd3c1c3c7d584c40f83b222ff66ead91743d37b54a7a86903812b64e22c",
+      "normalized": "{\"ask_key\":\"merge-it\",\"asker\":\"thread\",\"kind\":\"decide\",\"options\":[{\"id\":\"merged\",\"kind\":\"ruling-only\",\"label\":\"PR owner/name#7 is merged\"},{\"id\":\"other\",\"kind\":\"ruling-only\",\"label\":\"Something else\"}],\"project\":\"autarch\",\"project_root\":\"/abs/root\",\"question\":\"Merge it?\",\"request_id\":\"5921e1a1ecf1c7f2a9f55bf5856d149a5b687dc0cb66aa284d1a79bf843d974e\",\"thread\":\"thr_abc123\",\"v\":1}",
+      "h5": "1409e7f4f79cd28cee6e0854c21809d5e95328e46982b89307592b72d39ec824",
+      "semantic_digest": ""
+    },
+    "fixture_file": "auto-close.json",
+    "fixture_name": "valid auto_close"
+  },
+  {
+    "name": "auto-close.json/valid auto_close/thr_abc123/g2",
+    "thread": "thr_abc123",
+    "generation": 2,
+    "expected": {
+      "h1": "157d7633e386c02d",
+      "identity": "d2d6bc05effa5868c5a20dbcc0a18ad01e40e47a370cc1e8bce6f8e6ea2266f1",
+      "revision": "d1b1bda535b3d0254867d60f3c79324039ee1644ac5270aa91247e39f92c0ee5",
+      "normalized": "{\"ask_key\":\"merge-it\",\"asker\":\"thread\",\"kind\":\"decide\",\"options\":[{\"id\":\"merged\",\"kind\":\"ruling-only\",\"label\":\"PR owner/name#7 is merged\"},{\"id\":\"other\",\"kind\":\"ruling-only\",\"label\":\"Something else\"}],\"project\":\"autarch\",\"project_root\":\"/abs/root\",\"question\":\"Merge it?\",\"request_id\":\"card:fixture:g2\",\"supersedes\":\"card-fixture-g1\",\"thread\":\"thr_abc123\",\"v\":1}",
+      "h5": "1409e7f4f79cd28cee6e0854c21809d5e95328e46982b89307592b72d39ec824",
+      "semantic_digest": ""
+    },
+    "fixture_file": "auto-close.json",
+    "fixture_name": "valid auto_close"
+  },
+  {
+    "name": "auto-close.json/valid auto_close/thr_abc123/g3",
+    "thread": "thr_abc123",
+    "generation": 3,
+    "expected": {
+      "h1": "157d7633e386c02d",
+      "identity": "9d052efbb0231421a545044e333fb396ff93e119d92bedd1d254d9d43d864c0f",
+      "revision": "322c37277c7bbc2728199140a2d36fef8b1d2c17e20c4840535ec845d8f5bcd1",
+      "normalized": "{\"ask_key\":\"merge-it\",\"asker\":\"thread\",\"kind\":\"decide\",\"options\":[{\"id\":\"merged\",\"kind\":\"ruling-only\",\"label\":\"PR owner/name#7 is merged\"},{\"id\":\"other\",\"kind\":\"ruling-only\",\"label\":\"Something else\"}],\"project\":\"autarch\",\"project_root\":\"/abs/root\",\"question\":\"Merge it?\",\"request_id\":\"card:fixture:g3\",\"supersedes\":\"card-fixture-g2\",\"thread\":\"thr_abc123\",\"v\":1}",
+      "h5": "1409e7f4f79cd28cee6e0854c21809d5e95328e46982b89307592b72d39ec824",
+      "semantic_digest": ""
+    },
+    "fixture_file": "auto-close.json",
+    "fixture_name": "valid auto_close"
+  },
+  {
+    "name": "auto-close.json/valid auto_close with head/thr_abc123/g1",
+    "thread": "thr_abc123",
+    "generation": 1,
+    "expected": {
+      "h1": "d4ee0ed6dd304e87",
+      "identity": "5921e1a1ecf1c7f2a9f55bf5856d149a5b687dc0cb66aa284d1a79bf843d974e",
+      "revision": "6df19dd3c1c3c7d584c40f83b222ff66ead91743d37b54a7a86903812b64e22c",
+      "normalized": "{\"ask_key\":\"merge-it\",\"asker\":\"thread\",\"kind\":\"decide\",\"options\":[{\"id\":\"merged\",\"kind\":\"ruling-only\",\"label\":\"PR owner/name#7 is merged\"},{\"id\":\"other\",\"kind\":\"ruling-only\",\"label\":\"Something else\"}],\"project\":\"autarch\",\"project_root\":\"/abs/root\",\"question\":\"Merge it?\",\"request_id\":\"5921e1a1ecf1c7f2a9f55bf5856d149a5b687dc0cb66aa284d1a79bf843d974e\",\"thread\":\"thr_abc123\",\"v\":1}",
+      "h5": "1409e7f4f79cd28cee6e0854c21809d5e95328e46982b89307592b72d39ec824",
+      "semantic_digest": ""
+    },
+    "fixture_file": "auto-close.json",
+    "fixture_name": "valid auto_close with head"
+  },
+  {
+    "name": "auto-close.json/valid auto_close with head/thr_abc123/g2",
+    "thread": "thr_abc123",
+    "generation": 2,
+    "expected": {
+      "h1": "d4ee0ed6dd304e87",
+      "identity": "d2d6bc05effa5868c5a20dbcc0a18ad01e40e47a370cc1e8bce6f8e6ea2266f1",
+      "revision": "d1b1bda535b3d0254867d60f3c79324039ee1644ac5270aa91247e39f92c0ee5",
+      "normalized": "{\"ask_key\":\"merge-it\",\"asker\":\"thread\",\"kind\":\"decide\",\"options\":[{\"id\":\"merged\",\"kind\":\"ruling-only\",\"label\":\"PR owner/name#7 is merged\"},{\"id\":\"other\",\"kind\":\"ruling-only\",\"label\":\"Something else\"}],\"project\":\"autarch\",\"project_root\":\"/abs/root\",\"question\":\"Merge it?\",\"request_id\":\"card:fixture:g2\",\"supersedes\":\"card-fixture-g1\",\"thread\":\"thr_abc123\",\"v\":1}",
+      "h5": "1409e7f4f79cd28cee6e0854c21809d5e95328e46982b89307592b72d39ec824",
+      "semantic_digest": ""
+    },
+    "fixture_file": "auto-close.json",
+    "fixture_name": "valid auto_close with head"
+  },
+  {
+    "name": "auto-close.json/valid auto_close with head/thr_abc123/g3",
+    "thread": "thr_abc123",
+    "generation": 3,
+    "expected": {
+      "h1": "d4ee0ed6dd304e87",
+      "identity": "9d052efbb0231421a545044e333fb396ff93e119d92bedd1d254d9d43d864c0f",
+      "revision": "322c37277c7bbc2728199140a2d36fef8b1d2c17e20c4840535ec845d8f5bcd1",
+      "normalized": "{\"ask_key\":\"merge-it\",\"asker\":\"thread\",\"kind\":\"decide\",\"options\":[{\"id\":\"merged\",\"kind\":\"ruling-only\",\"label\":\"PR owner/name#7 is merged\"},{\"id\":\"other\",\"kind\":\"ruling-only\",\"label\":\"Something else\"}],\"project\":\"autarch\",\"project_root\":\"/abs/root\",\"question\":\"Merge it?\",\"request_id\":\"card:fixture:g3\",\"supersedes\":\"card-fixture-g2\",\"thread\":\"thr_abc123\",\"v\":1}",
+      "h5": "1409e7f4f79cd28cee6e0854c21809d5e95328e46982b89307592b72d39ec824",
+      "semantic_digest": ""
+    },
+    "fixture_file": "auto-close.json",
+    "fixture_name": "valid auto_close with head"
+  },
+  {
+    "name": "auto-close.json/auto_close is not part of the ask identity/thr_abc123/g1",
+    "thread": "thr_abc123",
+    "generation": 1,
+    "expected": {
+      "h1": "ef1bc793ba5c150f",
+      "identity": "5921e1a1ecf1c7f2a9f55bf5856d149a5b687dc0cb66aa284d1a79bf843d974e",
+      "revision": "6df19dd3c1c3c7d584c40f83b222ff66ead91743d37b54a7a86903812b64e22c",
+      "normalized": "{\"ask_key\":\"merge-it\",\"asker\":\"thread\",\"kind\":\"decide\",\"options\":[{\"id\":\"merged\",\"kind\":\"ruling-only\",\"label\":\"PR owner/name#7 is merged\"},{\"id\":\"other\",\"kind\":\"ruling-only\",\"label\":\"Something else\"}],\"project\":\"autarch\",\"project_root\":\"/abs/root\",\"question\":\"Merge it?\",\"request_id\":\"5921e1a1ecf1c7f2a9f55bf5856d149a5b687dc0cb66aa284d1a79bf843d974e\",\"thread\":\"thr_abc123\",\"v\":1}",
+      "h5": "1409e7f4f79cd28cee6e0854c21809d5e95328e46982b89307592b72d39ec824",
+      "semantic_digest": ""
+    },
+    "fixture_file": "auto-close.json",
+    "fixture_name": "auto_close is not part of the ask identity"
+  },
+  {
+    "name": "auto-close.json/auto_close is not part of the ask identity/thr_abc123/g2",
+    "thread": "thr_abc123",
+    "generation": 2,
+    "expected": {
+      "h1": "ef1bc793ba5c150f",
+      "identity": "d2d6bc05effa5868c5a20dbcc0a18ad01e40e47a370cc1e8bce6f8e6ea2266f1",
+      "revision": "d1b1bda535b3d0254867d60f3c79324039ee1644ac5270aa91247e39f92c0ee5",
+      "normalized": "{\"ask_key\":\"merge-it\",\"asker\":\"thread\",\"kind\":\"decide\",\"options\":[{\"id\":\"merged\",\"kind\":\"ruling-only\",\"label\":\"PR owner/name#7 is merged\"},{\"id\":\"other\",\"kind\":\"ruling-only\",\"label\":\"Something else\"}],\"project\":\"autarch\",\"project_root\":\"/abs/root\",\"question\":\"Merge it?\",\"request_id\":\"card:fixture:g2\",\"supersedes\":\"card-fixture-g1\",\"thread\":\"thr_abc123\",\"v\":1}",
+      "h5": "1409e7f4f79cd28cee6e0854c21809d5e95328e46982b89307592b72d39ec824",
+      "semantic_digest": ""
+    },
+    "fixture_file": "auto-close.json",
+    "fixture_name": "auto_close is not part of the ask identity"
+  },
+  {
+    "name": "auto-close.json/auto_close is not part of the ask identity/thr_abc123/g3",
+    "thread": "thr_abc123",
+    "generation": 3,
+    "expected": {
+      "h1": "ef1bc793ba5c150f",
+      "identity": "9d052efbb0231421a545044e333fb396ff93e119d92bedd1d254d9d43d864c0f",
+      "revision": "322c37277c7bbc2728199140a2d36fef8b1d2c17e20c4840535ec845d8f5bcd1",
+      "normalized": "{\"ask_key\":\"merge-it\",\"asker\":\"thread\",\"kind\":\"decide\",\"options\":[{\"id\":\"merged\",\"kind\":\"ruling-only\",\"label\":\"PR owner/name#7 is merged\"},{\"id\":\"other\",\"kind\":\"ruling-only\",\"label\":\"Something else\"}],\"project\":\"autarch\",\"project_root\":\"/abs/root\",\"question\":\"Merge it?\",\"request_id\":\"card:fixture:g3\",\"supersedes\":\"card-fixture-g2\",\"thread\":\"thr_abc123\",\"v\":1}",
+      "h5": "1409e7f4f79cd28cee6e0854c21809d5e95328e46982b89307592b72d39ec824",
+      "semantic_digest": ""
+    },
+    "fixture_file": "auto-close.json",
+    "fixture_name": "auto_close is not part of the ask identity"
+  },
+  {
+    "name": "auto-close.json/a whole number written 7.0 reads as 7/thr_abc123/g1",
+    "thread": "thr_abc123",
+    "generation": 1,
+    "expected": {
+      "h1": "157d7633e386c02d",
+      "identity": "5921e1a1ecf1c7f2a9f55bf5856d149a5b687dc0cb66aa284d1a79bf843d974e",
+      "revision": "6df19dd3c1c3c7d584c40f83b222ff66ead91743d37b54a7a86903812b64e22c",
+      "normalized": "{\"ask_key\":\"merge-it\",\"asker\":\"thread\",\"kind\":\"decide\",\"options\":[{\"id\":\"merged\",\"kind\":\"ruling-only\",\"label\":\"PR owner/name#7 is merged\"},{\"id\":\"other\",\"kind\":\"ruling-only\",\"label\":\"Something else\"}],\"project\":\"autarch\",\"project_root\":\"/abs/root\",\"question\":\"Merge it?\",\"request_id\":\"5921e1a1ecf1c7f2a9f55bf5856d149a5b687dc0cb66aa284d1a79bf843d974e\",\"thread\":\"thr_abc123\",\"v\":1}",
+      "h5": "1409e7f4f79cd28cee6e0854c21809d5e95328e46982b89307592b72d39ec824",
+      "semantic_digest": ""
+    },
+    "fixture_file": "auto-close.json",
+    "fixture_name": "a whole number written 7.0 reads as 7"
+  },
+  {
+    "name": "auto-close.json/a whole number written 7.0 reads as 7/thr_abc123/g2",
+    "thread": "thr_abc123",
+    "generation": 2,
+    "expected": {
+      "h1": "157d7633e386c02d",
+      "identity": "d2d6bc05effa5868c5a20dbcc0a18ad01e40e47a370cc1e8bce6f8e6ea2266f1",
+      "revision": "d1b1bda535b3d0254867d60f3c79324039ee1644ac5270aa91247e39f92c0ee5",
+      "normalized": "{\"ask_key\":\"merge-it\",\"asker\":\"thread\",\"kind\":\"decide\",\"options\":[{\"id\":\"merged\",\"kind\":\"ruling-only\",\"label\":\"PR owner/name#7 is merged\"},{\"id\":\"other\",\"kind\":\"ruling-only\",\"label\":\"Something else\"}],\"project\":\"autarch\",\"project_root\":\"/abs/root\",\"question\":\"Merge it?\",\"request_id\":\"card:fixture:g2\",\"supersedes\":\"card-fixture-g1\",\"thread\":\"thr_abc123\",\"v\":1}",
+      "h5": "1409e7f4f79cd28cee6e0854c21809d5e95328e46982b89307592b72d39ec824",
+      "semantic_digest": ""
+    },
+    "fixture_file": "auto-close.json",
+    "fixture_name": "a whole number written 7.0 reads as 7"
+  },
+  {
+    "name": "auto-close.json/a whole number written 7.0 reads as 7/thr_abc123/g3",
+    "thread": "thr_abc123",
+    "generation": 3,
+    "expected": {
+      "h1": "157d7633e386c02d",
+      "identity": "9d052efbb0231421a545044e333fb396ff93e119d92bedd1d254d9d43d864c0f",
+      "revision": "322c37277c7bbc2728199140a2d36fef8b1d2c17e20c4840535ec845d8f5bcd1",
+      "normalized": "{\"ask_key\":\"merge-it\",\"asker\":\"thread\",\"kind\":\"decide\",\"options\":[{\"id\":\"merged\",\"kind\":\"ruling-only\",\"label\":\"PR owner/name#7 is merged\"},{\"id\":\"other\",\"kind\":\"ruling-only\",\"label\":\"Something else\"}],\"project\":\"autarch\",\"project_root\":\"/abs/root\",\"question\":\"Merge it?\",\"request_id\":\"card:fixture:g3\",\"supersedes\":\"card-fixture-g2\",\"thread\":\"thr_abc123\",\"v\":1}",
+      "h5": "1409e7f4f79cd28cee6e0854c21809d5e95328e46982b89307592b72d39ec824",
+      "semantic_digest": ""
+    },
+    "fixture_file": "auto-close.json",
+    "fixture_name": "a whole number written 7.0 reads as 7"
+  },
+  {
+    "name": "auto-close.json/a whole number written 7e0 reads as 7/thr_abc123/g1",
+    "thread": "thr_abc123",
+    "generation": 1,
+    "expected": {
+      "h1": "157d7633e386c02d",
+      "identity": "5921e1a1ecf1c7f2a9f55bf5856d149a5b687dc0cb66aa284d1a79bf843d974e",
+      "revision": "6df19dd3c1c3c7d584c40f83b222ff66ead91743d37b54a7a86903812b64e22c",
+      "normalized": "{\"ask_key\":\"merge-it\",\"asker\":\"thread\",\"kind\":\"decide\",\"options\":[{\"id\":\"merged\",\"kind\":\"ruling-only\",\"label\":\"PR owner/name#7 is merged\"},{\"id\":\"other\",\"kind\":\"ruling-only\",\"label\":\"Something else\"}],\"project\":\"autarch\",\"project_root\":\"/abs/root\",\"question\":\"Merge it?\",\"request_id\":\"5921e1a1ecf1c7f2a9f55bf5856d149a5b687dc0cb66aa284d1a79bf843d974e\",\"thread\":\"thr_abc123\",\"v\":1}",
+      "h5": "1409e7f4f79cd28cee6e0854c21809d5e95328e46982b89307592b72d39ec824",
+      "semantic_digest": ""
+    },
+    "fixture_file": "auto-close.json",
+    "fixture_name": "a whole number written 7e0 reads as 7"
+  },
+  {
+    "name": "auto-close.json/a whole number written 7e0 reads as 7/thr_abc123/g2",
+    "thread": "thr_abc123",
+    "generation": 2,
+    "expected": {
+      "h1": "157d7633e386c02d",
+      "identity": "d2d6bc05effa5868c5a20dbcc0a18ad01e40e47a370cc1e8bce6f8e6ea2266f1",
+      "revision": "d1b1bda535b3d0254867d60f3c79324039ee1644ac5270aa91247e39f92c0ee5",
+      "normalized": "{\"ask_key\":\"merge-it\",\"asker\":\"thread\",\"kind\":\"decide\",\"options\":[{\"id\":\"merged\",\"kind\":\"ruling-only\",\"label\":\"PR owner/name#7 is merged\"},{\"id\":\"other\",\"kind\":\"ruling-only\",\"label\":\"Something else\"}],\"project\":\"autarch\",\"project_root\":\"/abs/root\",\"question\":\"Merge it?\",\"request_id\":\"card:fixture:g2\",\"supersedes\":\"card-fixture-g1\",\"thread\":\"thr_abc123\",\"v\":1}",
+      "h5": "1409e7f4f79cd28cee6e0854c21809d5e95328e46982b89307592b72d39ec824",
+      "semantic_digest": ""
+    },
+    "fixture_file": "auto-close.json",
+    "fixture_name": "a whole number written 7e0 reads as 7"
+  },
+  {
+    "name": "auto-close.json/a whole number written 7e0 reads as 7/thr_abc123/g3",
+    "thread": "thr_abc123",
+    "generation": 3,
+    "expected": {
+      "h1": "157d7633e386c02d",
+      "identity": "9d052efbb0231421a545044e333fb396ff93e119d92bedd1d254d9d43d864c0f",
+      "revision": "322c37277c7bbc2728199140a2d36fef8b1d2c17e20c4840535ec845d8f5bcd1",
+      "normalized": "{\"ask_key\":\"merge-it\",\"asker\":\"thread\",\"kind\":\"decide\",\"options\":[{\"id\":\"merged\",\"kind\":\"ruling-only\",\"label\":\"PR owner/name#7 is merged\"},{\"id\":\"other\",\"kind\":\"ruling-only\",\"label\":\"Something else\"}],\"project\":\"autarch\",\"project_root\":\"/abs/root\",\"question\":\"Merge it?\",\"request_id\":\"card:fixture:g3\",\"supersedes\":\"card-fixture-g2\",\"thread\":\"thr_abc123\",\"v\":1}",
+      "h5": "1409e7f4f79cd28cee6e0854c21809d5e95328e46982b89307592b72d39ec824",
+      "semantic_digest": ""
+    },
+    "fixture_file": "auto-close.json",
+    "fixture_name": "a whole number written 7e0 reads as 7"
+  },
+  {
+    "name": "blocks.json/one line, three refs/thr_fixture/g1",
+    "thread": "thr_fixture",
+    "generation": 1,
+    "expected": {
+      "h1": "1f6ec54a2c1e712f",
+      "identity": "ea634c1a4a8c47deebb28d415392c7835b547d5924ebe7a04f9bff8bc6c639e2",
+      "revision": "2924d05665bc0b34c433bae02d1f43e4d63a5d4379cca7192ee14ecda07a5375",
+      "normalized": "{\"ask_key\":\"collapse-order\",\"asker\":\"thread\",\"kind\":\"decide\",\"options\":[{\"id\":\"a\",\"instruction\":\"Group per project, run tests, report.\",\"kind\":\"instruction\",\"label\":\"Per project\",\"reversible\":true},{\"id\":\"b\",\"instruction\":\"Group per day, run tests, report.\",\"kind\":\"instruction\",\"label\":\"Per day\",\"reversible\":true}],\"project\":\"autarch\",\"project_root\":\"/abs/root\",\"question\":\"Collapse per project or per day?\",\"request_id\":\"ea634c1a4a8c47deebb28d415392c7835b547d5924ebe7a04f9bff8bc6c639e2\",\"thread\":\"thr_fixture\",\"v\":1}",
+      "h5": "2f5898d022bd45d2b5f80fab1404fbc863f4148750af6070ceba87a6a94c9fbd",
+      "semantic_digest": ""
+    },
+    "fixture_file": "blocks.json",
+    "fixture_name": "one line, three refs"
+  },
+  {
+    "name": "blocks.json/one line, three refs/thr_fixture/g2",
+    "thread": "thr_fixture",
+    "generation": 2,
+    "expected": {
+      "h1": "1f6ec54a2c1e712f",
+      "identity": "9fa293267a0d3150f705e3c965f117433cb857482eefe6a9232078d255201775",
+      "revision": "b9d632e297f4aca756007037f5588e09d0b22be86126f32d25ba96fd33ec38a9",
+      "normalized": "{\"ask_key\":\"collapse-order\",\"asker\":\"thread\",\"kind\":\"decide\",\"options\":[{\"id\":\"a\",\"instruction\":\"Group per project, run tests, report.\",\"kind\":\"instruction\",\"label\":\"Per project\",\"reversible\":true},{\"id\":\"b\",\"instruction\":\"Group per day, run tests, report.\",\"kind\":\"instruction\",\"label\":\"Per day\",\"reversible\":true}],\"project\":\"autarch\",\"project_root\":\"/abs/root\",\"question\":\"Collapse per project or per day?\",\"request_id\":\"card:fixture:g2\",\"supersedes\":\"card-fixture-g1\",\"thread\":\"thr_fixture\",\"v\":1}",
+      "h5": "2f5898d022bd45d2b5f80fab1404fbc863f4148750af6070ceba87a6a94c9fbd",
+      "semantic_digest": ""
+    },
+    "fixture_file": "blocks.json",
+    "fixture_name": "one line, three refs"
+  },
+  {
+    "name": "blocks.json/one line, three refs/thr_fixture/g3",
+    "thread": "thr_fixture",
+    "generation": 3,
+    "expected": {
+      "h1": "1f6ec54a2c1e712f",
+      "identity": "7dcdbcbe881de66f5c4b762f287a5be6908b3c103fc52e10186942a55583b598",
+      "revision": "ad4a42b3bccac828832ef4a879a0ce99bf06fd45fe9619ce720b155afd1e3673",
+      "normalized": "{\"ask_key\":\"collapse-order\",\"asker\":\"thread\",\"kind\":\"decide\",\"options\":[{\"id\":\"a\",\"instruction\":\"Group per project, run tests, report.\",\"kind\":\"instruction\",\"label\":\"Per project\",\"reversible\":true},{\"id\":\"b\",\"instruction\":\"Group per day, run tests, report.\",\"kind\":\"instruction\",\"label\":\"Per day\",\"reversible\":true}],\"project\":\"autarch\",\"project_root\":\"/abs/root\",\"question\":\"Collapse per project or per day?\",\"request_id\":\"card:fixture:g3\",\"supersedes\":\"card-fixture-g2\",\"thread\":\"thr_fixture\",\"v\":1}",
+      "h5": "2f5898d022bd45d2b5f80fab1404fbc863f4148750af6070ceba87a6a94c9fbd",
+      "semantic_digest": ""
+    },
+    "fixture_file": "blocks.json",
+    "fixture_name": "one line, three refs"
+  },
+  {
+    "name": "blocks.json/several lines merge in order/thr_fixture/g1",
+    "thread": "thr_fixture",
+    "generation": 1,
+    "expected": {
+      "h1": "2e4089677aac290c",
+      "identity": "ea634c1a4a8c47deebb28d415392c7835b547d5924ebe7a04f9bff8bc6c639e2",
+      "revision": "2924d05665bc0b34c433bae02d1f43e4d63a5d4379cca7192ee14ecda07a5375",
+      "normalized": "{\"ask_key\":\"collapse-order\",\"asker\":\"thread\",\"kind\":\"decide\",\"options\":[{\"id\":\"a\",\"instruction\":\"Group per project, run tests, report.\",\"kind\":\"instruction\",\"label\":\"Per project\",\"reversible\":true},{\"id\":\"b\",\"instruction\":\"Group per day, run tests, report.\",\"kind\":\"instruction\",\"label\":\"Per day\",\"reversible\":true}],\"project\":\"autarch\",\"project_root\":\"/abs/root\",\"question\":\"Collapse per project or per day?\",\"request_id\":\"ea634c1a4a8c47deebb28d415392c7835b547d5924ebe7a04f9bff8bc6c639e2\",\"thread\":\"thr_fixture\",\"v\":1}",
+      "h5": "5e469ab52cee175efa5c59e0bb5e5eb1966cea4f19f6bed87020951d580b3182",
+      "semantic_digest": ""
+    },
+    "fixture_file": "blocks.json",
+    "fixture_name": "several lines merge in order"
+  },
+  {
+    "name": "blocks.json/several lines merge in order/thr_fixture/g2",
+    "thread": "thr_fixture",
+    "generation": 2,
+    "expected": {
+      "h1": "2e4089677aac290c",
+      "identity": "9fa293267a0d3150f705e3c965f117433cb857482eefe6a9232078d255201775",
+      "revision": "b9d632e297f4aca756007037f5588e09d0b22be86126f32d25ba96fd33ec38a9",
+      "normalized": "{\"ask_key\":\"collapse-order\",\"asker\":\"thread\",\"kind\":\"decide\",\"options\":[{\"id\":\"a\",\"instruction\":\"Group per project, run tests, report.\",\"kind\":\"instruction\",\"label\":\"Per project\",\"reversible\":true},{\"id\":\"b\",\"instruction\":\"Group per day, run tests, report.\",\"kind\":\"instruction\",\"label\":\"Per day\",\"reversible\":true}],\"project\":\"autarch\",\"project_root\":\"/abs/root\",\"question\":\"Collapse per project or per day?\",\"request_id\":\"card:fixture:g2\",\"supersedes\":\"card-fixture-g1\",\"thread\":\"thr_fixture\",\"v\":1}",
+      "h5": "5e469ab52cee175efa5c59e0bb5e5eb1966cea4f19f6bed87020951d580b3182",
+      "semantic_digest": ""
+    },
+    "fixture_file": "blocks.json",
+    "fixture_name": "several lines merge in order"
+  },
+  {
+    "name": "blocks.json/several lines merge in order/thr_fixture/g3",
+    "thread": "thr_fixture",
+    "generation": 3,
+    "expected": {
+      "h1": "2e4089677aac290c",
+      "identity": "7dcdbcbe881de66f5c4b762f287a5be6908b3c103fc52e10186942a55583b598",
+      "revision": "ad4a42b3bccac828832ef4a879a0ce99bf06fd45fe9619ce720b155afd1e3673",
+      "normalized": "{\"ask_key\":\"collapse-order\",\"asker\":\"thread\",\"kind\":\"decide\",\"options\":[{\"id\":\"a\",\"instruction\":\"Group per project, run tests, report.\",\"kind\":\"instruction\",\"label\":\"Per project\",\"reversible\":true},{\"id\":\"b\",\"instruction\":\"Group per day, run tests, report.\",\"kind\":\"instruction\",\"label\":\"Per day\",\"reversible\":true}],\"project\":\"autarch\",\"project_root\":\"/abs/root\",\"question\":\"Collapse per project or per day?\",\"request_id\":\"card:fixture:g3\",\"supersedes\":\"card-fixture-g2\",\"thread\":\"thr_fixture\",\"v\":1}",
+      "h5": "5e469ab52cee175efa5c59e0bb5e5eb1966cea4f19f6bed87020951d580b3182",
+      "semantic_digest": ""
+    },
+    "fixture_file": "blocks.json",
+    "fixture_name": "several lines merge in order"
+  },
+  {
+    "name": "blocks.json/duplicates removed/thr_fixture/g1",
+    "thread": "thr_fixture",
+    "generation": 1,
+    "expected": {
+      "h1": "9a1b2c6cf6a18870",
+      "identity": "ea634c1a4a8c47deebb28d415392c7835b547d5924ebe7a04f9bff8bc6c639e2",
+      "revision": "2924d05665bc0b34c433bae02d1f43e4d63a5d4379cca7192ee14ecda07a5375",
+      "normalized": "{\"ask_key\":\"collapse-order\",\"asker\":\"thread\",\"kind\":\"decide\",\"options\":[{\"id\":\"a\",\"instruction\":\"Group per project, run tests, report.\",\"kind\":\"instruction\",\"label\":\"Per project\",\"reversible\":true},{\"id\":\"b\",\"instruction\":\"Group per day, run tests, report.\",\"kind\":\"instruction\",\"label\":\"Per day\",\"reversible\":true}],\"project\":\"autarch\",\"project_root\":\"/abs/root\",\"question\":\"Collapse per project or per day?\",\"request_id\":\"ea634c1a4a8c47deebb28d415392c7835b547d5924ebe7a04f9bff8bc6c639e2\",\"thread\":\"thr_fixture\",\"v\":1}",
+      "h5": "17fa7616e1d6f17c24054b122fec5ba28771073a7ead869eb46afc1fe6e30b79",
+      "semantic_digest": ""
+    },
+    "fixture_file": "blocks.json",
+    "fixture_name": "duplicates removed"
+  },
+  {
+    "name": "blocks.json/duplicates removed/thr_fixture/g2",
+    "thread": "thr_fixture",
+    "generation": 2,
+    "expected": {
+      "h1": "9a1b2c6cf6a18870",
+      "identity": "9fa293267a0d3150f705e3c965f117433cb857482eefe6a9232078d255201775",
+      "revision": "b9d632e297f4aca756007037f5588e09d0b22be86126f32d25ba96fd33ec38a9",
+      "normalized": "{\"ask_key\":\"collapse-order\",\"asker\":\"thread\",\"kind\":\"decide\",\"options\":[{\"id\":\"a\",\"instruction\":\"Group per project, run tests, report.\",\"kind\":\"instruction\",\"label\":\"Per project\",\"reversible\":true},{\"id\":\"b\",\"instruction\":\"Group per day, run tests, report.\",\"kind\":\"instruction\",\"label\":\"Per day\",\"reversible\":true}],\"project\":\"autarch\",\"project_root\":\"/abs/root\",\"question\":\"Collapse per project or per day?\",\"request_id\":\"card:fixture:g2\",\"supersedes\":\"card-fixture-g1\",\"thread\":\"thr_fixture\",\"v\":1}",
+      "h5": "17fa7616e1d6f17c24054b122fec5ba28771073a7ead869eb46afc1fe6e30b79",
+      "semantic_digest": ""
+    },
+    "fixture_file": "blocks.json",
+    "fixture_name": "duplicates removed"
+  },
+  {
+    "name": "blocks.json/duplicates removed/thr_fixture/g3",
+    "thread": "thr_fixture",
+    "generation": 3,
+    "expected": {
+      "h1": "9a1b2c6cf6a18870",
+      "identity": "7dcdbcbe881de66f5c4b762f287a5be6908b3c103fc52e10186942a55583b598",
+      "revision": "ad4a42b3bccac828832ef4a879a0ce99bf06fd45fe9619ce720b155afd1e3673",
+      "normalized": "{\"ask_key\":\"collapse-order\",\"asker\":\"thread\",\"kind\":\"decide\",\"options\":[{\"id\":\"a\",\"instruction\":\"Group per project, run tests, report.\",\"kind\":\"instruction\",\"label\":\"Per project\",\"reversible\":true},{\"id\":\"b\",\"instruction\":\"Group per day, run tests, report.\",\"kind\":\"instruction\",\"label\":\"Per day\",\"reversible\":true}],\"project\":\"autarch\",\"project_root\":\"/abs/root\",\"question\":\"Collapse per project or per day?\",\"request_id\":\"card:fixture:g3\",\"supersedes\":\"card-fixture-g2\",\"thread\":\"thr_fixture\",\"v\":1}",
+      "h5": "17fa7616e1d6f17c24054b122fec5ba28771073a7ead869eb46afc1fe6e30b79",
+      "semantic_digest": ""
+    },
+    "fixture_file": "blocks.json",
+    "fixture_name": "duplicates removed"
+  },
+  {
+    "name": "blocks.json/unknown prefix shown not counted/thr_fixture/g1",
+    "thread": "thr_fixture",
+    "generation": 1,
+    "expected": {
+      "h1": "0d3b53d2323e30b5",
+      "identity": "ea634c1a4a8c47deebb28d415392c7835b547d5924ebe7a04f9bff8bc6c639e2",
+      "revision": "2924d05665bc0b34c433bae02d1f43e4d63a5d4379cca7192ee14ecda07a5375",
+      "normalized": "{\"ask_key\":\"collapse-order\",\"asker\":\"thread\",\"kind\":\"decide\",\"options\":[{\"id\":\"a\",\"instruction\":\"Group per project, run tests, report.\",\"kind\":\"instruction\",\"label\":\"Per project\",\"reversible\":true},{\"id\":\"b\",\"instruction\":\"Group per day, run tests, report.\",\"kind\":\"instruction\",\"label\":\"Per day\",\"reversible\":true}],\"project\":\"autarch\",\"project_root\":\"/abs/root\",\"question\":\"Collapse per project or per day?\",\"request_id\":\"ea634c1a4a8c47deebb28d415392c7835b547d5924ebe7a04f9bff8bc6c639e2\",\"thread\":\"thr_fixture\",\"v\":1}",
+      "h5": "e998d0a99d9ae4272f88ec9217e39fa36dfee99d963ba0c2a5ff6f7792a92698",
+      "semantic_digest": ""
+    },
+    "fixture_file": "blocks.json",
+    "fixture_name": "unknown prefix shown not counted"
+  },
+  {
+    "name": "blocks.json/unknown prefix shown not counted/thr_fixture/g2",
+    "thread": "thr_fixture",
+    "generation": 2,
+    "expected": {
+      "h1": "0d3b53d2323e30b5",
+      "identity": "9fa293267a0d3150f705e3c965f117433cb857482eefe6a9232078d255201775",
+      "revision": "b9d632e297f4aca756007037f5588e09d0b22be86126f32d25ba96fd33ec38a9",
+      "normalized": "{\"ask_key\":\"collapse-order\",\"asker\":\"thread\",\"kind\":\"decide\",\"options\":[{\"id\":\"a\",\"instruction\":\"Group per project, run tests, report.\",\"kind\":\"instruction\",\"label\":\"Per project\",\"reversible\":true},{\"id\":\"b\",\"instruction\":\"Group per day, run tests, report.\",\"kind\":\"instruction\",\"label\":\"Per day\",\"reversible\":true}],\"project\":\"autarch\",\"project_root\":\"/abs/root\",\"question\":\"Collapse per project or per day?\",\"request_id\":\"card:fixture:g2\",\"supersedes\":\"card-fixture-g1\",\"thread\":\"thr_fixture\",\"v\":1}",
+      "h5": "e998d0a99d9ae4272f88ec9217e39fa36dfee99d963ba0c2a5ff6f7792a92698",
+      "semantic_digest": ""
+    },
+    "fixture_file": "blocks.json",
+    "fixture_name": "unknown prefix shown not counted"
+  },
+  {
+    "name": "blocks.json/unknown prefix shown not counted/thr_fixture/g3",
+    "thread": "thr_fixture",
+    "generation": 3,
+    "expected": {
+      "h1": "0d3b53d2323e30b5",
+      "identity": "7dcdbcbe881de66f5c4b762f287a5be6908b3c103fc52e10186942a55583b598",
+      "revision": "ad4a42b3bccac828832ef4a879a0ce99bf06fd45fe9619ce720b155afd1e3673",
+      "normalized": "{\"ask_key\":\"collapse-order\",\"asker\":\"thread\",\"kind\":\"decide\",\"options\":[{\"id\":\"a\",\"instruction\":\"Group per project, run tests, report.\",\"kind\":\"instruction\",\"label\":\"Per project\",\"reversible\":true},{\"id\":\"b\",\"instruction\":\"Group per day, run tests, report.\",\"kind\":\"instruction\",\"label\":\"Per day\",\"reversible\":true}],\"project\":\"autarch\",\"project_root\":\"/abs/root\",\"question\":\"Collapse per project or per day?\",\"request_id\":\"card:fixture:g3\",\"supersedes\":\"card-fixture-g2\",\"thread\":\"thr_fixture\",\"v\":1}",
+      "h5": "e998d0a99d9ae4272f88ec9217e39fa36dfee99d963ba0c2a5ff6f7792a92698",
+      "semantic_digest": ""
+    },
+    "fixture_file": "blocks.json",
+    "fixture_name": "unknown prefix shown not counted"
+  },
+  {
+    "name": "blocks.json/id grammar allows colon dot dash underscore/thr_fixture/g1",
+    "thread": "thr_fixture",
+    "generation": 1,
+    "expected": {
+      "h1": "fd262033adedce23",
+      "identity": "ea634c1a4a8c47deebb28d415392c7835b547d5924ebe7a04f9bff8bc6c639e2",
+      "revision": "2924d05665bc0b34c433bae02d1f43e4d63a5d4379cca7192ee14ecda07a5375",
+      "normalized": "{\"ask_key\":\"collapse-order\",\"asker\":\"thread\",\"kind\":\"decide\",\"options\":[{\"id\":\"a\",\"instruction\":\"Group per project, run tests, report.\",\"kind\":\"instruction\",\"label\":\"Per project\",\"reversible\":true},{\"id\":\"b\",\"instruction\":\"Group per day, run tests, report.\",\"kind\":\"instruction\",\"label\":\"Per day\",\"reversible\":true}],\"project\":\"autarch\",\"project_root\":\"/abs/root\",\"question\":\"Collapse per project or per day?\",\"request_id\":\"ea634c1a4a8c47deebb28d415392c7835b547d5924ebe7a04f9bff8bc6c639e2\",\"thread\":\"thr_fixture\",\"v\":1}",
+      "h5": "35209b67835125774caa2b2954e18df22f17ce5187e8287a134b2da1419d383b",
+      "semantic_digest": ""
+    },
+    "fixture_file": "blocks.json",
+    "fixture_name": "id grammar allows colon dot dash underscore"
+  },
+  {
+    "name": "blocks.json/id grammar allows colon dot dash underscore/thr_fixture/g2",
+    "thread": "thr_fixture",
+    "generation": 2,
+    "expected": {
+      "h1": "fd262033adedce23",
+      "identity": "9fa293267a0d3150f705e3c965f117433cb857482eefe6a9232078d255201775",
+      "revision": "b9d632e297f4aca756007037f5588e09d0b22be86126f32d25ba96fd33ec38a9",
+      "normalized": "{\"ask_key\":\"collapse-order\",\"asker\":\"thread\",\"kind\":\"decide\",\"options\":[{\"id\":\"a\",\"instruction\":\"Group per project, run tests, report.\",\"kind\":\"instruction\",\"label\":\"Per project\",\"reversible\":true},{\"id\":\"b\",\"instruction\":\"Group per day, run tests, report.\",\"kind\":\"instruction\",\"label\":\"Per day\",\"reversible\":true}],\"project\":\"autarch\",\"project_root\":\"/abs/root\",\"question\":\"Collapse per project or per day?\",\"request_id\":\"card:fixture:g2\",\"supersedes\":\"card-fixture-g1\",\"thread\":\"thr_fixture\",\"v\":1}",
+      "h5": "35209b67835125774caa2b2954e18df22f17ce5187e8287a134b2da1419d383b",
+      "semantic_digest": ""
+    },
+    "fixture_file": "blocks.json",
+    "fixture_name": "id grammar allows colon dot dash underscore"
+  },
+  {
+    "name": "blocks.json/id grammar allows colon dot dash underscore/thr_fixture/g3",
+    "thread": "thr_fixture",
+    "generation": 3,
+    "expected": {
+      "h1": "fd262033adedce23",
+      "identity": "7dcdbcbe881de66f5c4b762f287a5be6908b3c103fc52e10186942a55583b598",
+      "revision": "ad4a42b3bccac828832ef4a879a0ce99bf06fd45fe9619ce720b155afd1e3673",
+      "normalized": "{\"ask_key\":\"collapse-order\",\"asker\":\"thread\",\"kind\":\"decide\",\"options\":[{\"id\":\"a\",\"instruction\":\"Group per project, run tests, report.\",\"kind\":\"instruction\",\"label\":\"Per project\",\"reversible\":true},{\"id\":\"b\",\"instruction\":\"Group per day, run tests, report.\",\"kind\":\"instruction\",\"label\":\"Per day\",\"reversible\":true}],\"project\":\"autarch\",\"project_root\":\"/abs/root\",\"question\":\"Collapse per project or per day?\",\"request_id\":\"card:fixture:g3\",\"supersedes\":\"card-fixture-g2\",\"thread\":\"thr_fixture\",\"v\":1}",
+      "h5": "35209b67835125774caa2b2954e18df22f17ce5187e8287a134b2da1419d383b",
+      "semantic_digest": ""
+    },
+    "fixture_file": "blocks.json",
+    "fixture_name": "id grammar allows colon dot dash underscore"
+  },
+  {
+    "name": "blocks.json/no Blocks line means no refs/thr_fixture/g1",
+    "thread": "thr_fixture",
+    "generation": 1,
+    "expected": {
+      "h1": "d90ec22be8903311",
+      "identity": "ea634c1a4a8c47deebb28d415392c7835b547d5924ebe7a04f9bff8bc6c639e2",
+      "revision": "2924d05665bc0b34c433bae02d1f43e4d63a5d4379cca7192ee14ecda07a5375",
+      "normalized": "{\"ask_key\":\"collapse-order\",\"asker\":\"thread\",\"kind\":\"decide\",\"options\":[{\"id\":\"a\",\"instruction\":\"Group per project, run tests, report.\",\"kind\":\"instruction\",\"label\":\"Per project\",\"reversible\":true},{\"id\":\"b\",\"instruction\":\"Group per day, run tests, report.\",\"kind\":\"instruction\",\"label\":\"Per day\",\"reversible\":true}],\"project\":\"autarch\",\"project_root\":\"/abs/root\",\"question\":\"Collapse per project or per day?\",\"request_id\":\"ea634c1a4a8c47deebb28d415392c7835b547d5924ebe7a04f9bff8bc6c639e2\",\"thread\":\"thr_fixture\",\"v\":1}",
+      "h5": "9c9e12ad7d3cfcb8ce857ee019069448270977e3b9f8374f73eed6318ba4927c",
+      "semantic_digest": ""
+    },
+    "fixture_file": "blocks.json",
+    "fixture_name": "no Blocks line means no refs"
+  },
+  {
+    "name": "blocks.json/no Blocks line means no refs/thr_fixture/g2",
+    "thread": "thr_fixture",
+    "generation": 2,
+    "expected": {
+      "h1": "d90ec22be8903311",
+      "identity": "9fa293267a0d3150f705e3c965f117433cb857482eefe6a9232078d255201775",
+      "revision": "b9d632e297f4aca756007037f5588e09d0b22be86126f32d25ba96fd33ec38a9",
+      "normalized": "{\"ask_key\":\"collapse-order\",\"asker\":\"thread\",\"kind\":\"decide\",\"options\":[{\"id\":\"a\",\"instruction\":\"Group per project, run tests, report.\",\"kind\":\"instruction\",\"label\":\"Per project\",\"reversible\":true},{\"id\":\"b\",\"instruction\":\"Group per day, run tests, report.\",\"kind\":\"instruction\",\"label\":\"Per day\",\"reversible\":true}],\"project\":\"autarch\",\"project_root\":\"/abs/root\",\"question\":\"Collapse per project or per day?\",\"request_id\":\"card:fixture:g2\",\"supersedes\":\"card-fixture-g1\",\"thread\":\"thr_fixture\",\"v\":1}",
+      "h5": "9c9e12ad7d3cfcb8ce857ee019069448270977e3b9f8374f73eed6318ba4927c",
+      "semantic_digest": ""
+    },
+    "fixture_file": "blocks.json",
+    "fixture_name": "no Blocks line means no refs"
+  },
+  {
+    "name": "blocks.json/no Blocks line means no refs/thr_fixture/g3",
+    "thread": "thr_fixture",
+    "generation": 3,
+    "expected": {
+      "h1": "d90ec22be8903311",
+      "identity": "7dcdbcbe881de66f5c4b762f287a5be6908b3c103fc52e10186942a55583b598",
+      "revision": "ad4a42b3bccac828832ef4a879a0ce99bf06fd45fe9619ce720b155afd1e3673",
+      "normalized": "{\"ask_key\":\"collapse-order\",\"asker\":\"thread\",\"kind\":\"decide\",\"options\":[{\"id\":\"a\",\"instruction\":\"Group per project, run tests, report.\",\"kind\":\"instruction\",\"label\":\"Per project\",\"reversible\":true},{\"id\":\"b\",\"instruction\":\"Group per day, run tests, report.\",\"kind\":\"instruction\",\"label\":\"Per day\",\"reversible\":true}],\"project\":\"autarch\",\"project_root\":\"/abs/root\",\"question\":\"Collapse per project or per day?\",\"request_id\":\"card:fixture:g3\",\"supersedes\":\"card-fixture-g2\",\"thread\":\"thr_fixture\",\"v\":1}",
+      "h5": "9c9e12ad7d3cfcb8ce857ee019069448270977e3b9f8374f73eed6318ba4927c",
+      "semantic_digest": ""
+    },
+    "fixture_file": "blocks.json",
+    "fixture_name": "no Blocks line means no refs"
+  },
+  {
+    "name": "blocks.json/Blocks inside an ordinary code fence is prose/thr_fixture/g1",
+    "thread": "thr_fixture",
+    "generation": 1,
+    "expected": {
+      "h1": "c0d07b534ebf6a6b",
+      "identity": "ea634c1a4a8c47deebb28d415392c7835b547d5924ebe7a04f9bff8bc6c639e2",
+      "revision": "2924d05665bc0b34c433bae02d1f43e4d63a5d4379cca7192ee14ecda07a5375",
+      "normalized": "{\"ask_key\":\"collapse-order\",\"asker\":\"thread\",\"kind\":\"decide\",\"options\":[{\"id\":\"a\",\"instruction\":\"Group per project, run tests, report.\",\"kind\":\"instruction\",\"label\":\"Per project\",\"reversible\":true},{\"id\":\"b\",\"instruction\":\"Group per day, run tests, report.\",\"kind\":\"instruction\",\"label\":\"Per day\",\"reversible\":true}],\"project\":\"autarch\",\"project_root\":\"/abs/root\",\"question\":\"Collapse per project or per day?\",\"request_id\":\"ea634c1a4a8c47deebb28d415392c7835b547d5924ebe7a04f9bff8bc6c639e2\",\"thread\":\"thr_fixture\",\"v\":1}",
+      "h5": "c3959acd45a097f7b749f8b003f3226a2039a1af20d45bb4eabf63c9c639d4a9",
+      "semantic_digest": ""
+    },
+    "fixture_file": "blocks.json",
+    "fixture_name": "Blocks inside an ordinary code fence is prose"
+  },
+  {
+    "name": "blocks.json/Blocks inside an ordinary code fence is prose/thr_fixture/g2",
+    "thread": "thr_fixture",
+    "generation": 2,
+    "expected": {
+      "h1": "c0d07b534ebf6a6b",
+      "identity": "9fa293267a0d3150f705e3c965f117433cb857482eefe6a9232078d255201775",
+      "revision": "b9d632e297f4aca756007037f5588e09d0b22be86126f32d25ba96fd33ec38a9",
+      "normalized": "{\"ask_key\":\"collapse-order\",\"asker\":\"thread\",\"kind\":\"decide\",\"options\":[{\"id\":\"a\",\"instruction\":\"Group per project, run tests, report.\",\"kind\":\"instruction\",\"label\":\"Per project\",\"reversible\":true},{\"id\":\"b\",\"instruction\":\"Group per day, run tests, report.\",\"kind\":\"instruction\",\"label\":\"Per day\",\"reversible\":true}],\"project\":\"autarch\",\"project_root\":\"/abs/root\",\"question\":\"Collapse per project or per day?\",\"request_id\":\"card:fixture:g2\",\"supersedes\":\"card-fixture-g1\",\"thread\":\"thr_fixture\",\"v\":1}",
+      "h5": "c3959acd45a097f7b749f8b003f3226a2039a1af20d45bb4eabf63c9c639d4a9",
+      "semantic_digest": ""
+    },
+    "fixture_file": "blocks.json",
+    "fixture_name": "Blocks inside an ordinary code fence is prose"
+  },
+  {
+    "name": "blocks.json/Blocks inside an ordinary code fence is prose/thr_fixture/g3",
+    "thread": "thr_fixture",
+    "generation": 3,
+    "expected": {
+      "h1": "c0d07b534ebf6a6b",
+      "identity": "7dcdbcbe881de66f5c4b762f287a5be6908b3c103fc52e10186942a55583b598",
+      "revision": "ad4a42b3bccac828832ef4a879a0ce99bf06fd45fe9619ce720b155afd1e3673",
+      "normalized": "{\"ask_key\":\"collapse-order\",\"asker\":\"thread\",\"kind\":\"decide\",\"options\":[{\"id\":\"a\",\"instruction\":\"Group per project, run tests, report.\",\"kind\":\"instruction\",\"label\":\"Per project\",\"reversible\":true},{\"id\":\"b\",\"instruction\":\"Group per day, run tests, report.\",\"kind\":\"instruction\",\"label\":\"Per day\",\"reversible\":true}],\"project\":\"autarch\",\"project_root\":\"/abs/root\",\"question\":\"Collapse per project or per day?\",\"request_id\":\"card:fixture:g3\",\"supersedes\":\"card-fixture-g2\",\"thread\":\"thr_fixture\",\"v\":1}",
+      "h5": "c3959acd45a097f7b749f8b003f3226a2039a1af20d45bb4eabf63c9c639d4a9",
+      "semantic_digest": ""
+    },
+    "fixture_file": "blocks.json",
+    "fixture_name": "Blocks inside an ordinary code fence is prose"
+  },
+  {
+    "name": "home-ask.json/valid v2 maps to a thread ask/thr_abc123/g1",
+    "thread": "thr_abc123",
+    "generation": 1,
+    "expected": {
+      "h1": "1f6ec54a2c1e712f",
+      "identity": "cd8fb733e5c10bf5186992047e7728cfa485eb7f62ccf68155995e07575c946f",
+      "revision": "ccea5e541e3f2723c6db975ef08162d2103a5d3de1fa8b808a093620dab7a7da",
+      "normalized": "{\"ask_key\":\"collapse-order\",\"asker\":\"thread\",\"kind\":\"decide\",\"options\":[{\"id\":\"a\",\"instruction\":\"Group per project, run tests, report.\",\"kind\":\"instruction\",\"label\":\"Per project\",\"reversible\":true},{\"id\":\"b\",\"instruction\":\"Group per day, run tests, report.\",\"kind\":\"instruction\",\"label\":\"Per day\",\"reversible\":true}],\"project\":\"autarch\",\"project_root\":\"/abs/root\",\"question\":\"Collapse per project or per day?\",\"request_id\":\"cd8fb733e5c10bf5186992047e7728cfa485eb7f62ccf68155995e07575c946f\",\"thread\":\"thr_abc123\",\"v\":1}",
+      "h5": "1f1fb59b97117d45167a370ab40dca677a55ed92a757405895409c2236870a46",
+      "semantic_digest": ""
+    },
+    "fixture_file": "home-ask.json",
+    "fixture_name": "valid v2 maps to a thread ask"
+  },
+  {
+    "name": "home-ask.json/valid v2 maps to a thread ask/thr_abc123/g2",
+    "thread": "thr_abc123",
+    "generation": 2,
+    "expected": {
+      "h1": "1f6ec54a2c1e712f",
+      "identity": "12de641804a2f23eb886b4b36db90bf1ed382144c8f2e3ddf64761e9d1cfd393",
+      "revision": "685a0af8c68acd0fcc263fd29428ca87eb97dd861a5615dbc0c16b5214e333ca",
+      "normalized": "{\"ask_key\":\"collapse-order\",\"asker\":\"thread\",\"kind\":\"decide\",\"options\":[{\"id\":\"a\",\"instruction\":\"Group per project, run tests, report.\",\"kind\":\"instruction\",\"label\":\"Per project\",\"reversible\":true},{\"id\":\"b\",\"instruction\":\"Group per day, run tests, report.\",\"kind\":\"instruction\",\"label\":\"Per day\",\"reversible\":true}],\"project\":\"autarch\",\"project_root\":\"/abs/root\",\"question\":\"Collapse per project or per day?\",\"request_id\":\"card:fixture:g2\",\"supersedes\":\"card-fixture-g1\",\"thread\":\"thr_abc123\",\"v\":1}",
+      "h5": "1f1fb59b97117d45167a370ab40dca677a55ed92a757405895409c2236870a46",
+      "semantic_digest": ""
+    },
+    "fixture_file": "home-ask.json",
+    "fixture_name": "valid v2 maps to a thread ask"
+  },
+  {
+    "name": "home-ask.json/valid v2 maps to a thread ask/thr_abc123/g3",
+    "thread": "thr_abc123",
+    "generation": 3,
+    "expected": {
+      "h1": "1f6ec54a2c1e712f",
+      "identity": "608b9b00423305876886aa91da66fc6d08d8e6ccd113eb2150caaebd07ef1608",
+      "revision": "988aff66ebd87d26a8a1fc7e4e5bf62546856d28b0f0c1c76a32852df0a5ca55",
+      "normalized": "{\"ask_key\":\"collapse-order\",\"asker\":\"thread\",\"kind\":\"decide\",\"options\":[{\"id\":\"a\",\"instruction\":\"Group per project, run tests, report.\",\"kind\":\"instruction\",\"label\":\"Per project\",\"reversible\":true},{\"id\":\"b\",\"instruction\":\"Group per day, run tests, report.\",\"kind\":\"instruction\",\"label\":\"Per day\",\"reversible\":true}],\"project\":\"autarch\",\"project_root\":\"/abs/root\",\"question\":\"Collapse per project or per day?\",\"request_id\":\"card:fixture:g3\",\"supersedes\":\"card-fixture-g2\",\"thread\":\"thr_abc123\",\"v\":1}",
+      "h5": "1f1fb59b97117d45167a370ab40dca677a55ed92a757405895409c2236870a46",
+      "semantic_digest": ""
+    },
+    "fixture_file": "home-ask.json",
+    "fixture_name": "valid v2 maps to a thread ask"
+  },
+  {
+    "name": "home-ask.json/pull mycroft maps to a mycroft ask//g1",
+    "thread": "",
+    "generation": 1,
+    "expected": {
+      "h1": "c4fccb3cd04974cf",
+      "identity": "1db274c6e9aef3df9c986b4c23c1abf3369c7b76cd4fa001ca9a57efdb57f2fe",
+      "revision": "2fd9f1864cd62c3871f34625739790ad48b5b044ba9ff39441ee5b8d3298dd30",
+      "normalized": "{\"ask_key\":\"collapse-order\",\"asker\":\"mycroft\",\"kind\":\"decide\",\"options\":[{\"id\":\"a\",\"kind\":\"ruling-only\",\"label\":\"A\"},{\"id\":\"b\",\"kind\":\"ruling-only\",\"label\":\"B\"}],\"project\":\"autarch\",\"project_root\":\"/abs/root\",\"question\":\"Collapse per project or per day?\",\"request_id\":\"1db274c6e9aef3df9c986b4c23c1abf3369c7b76cd4fa001ca9a57efdb57f2fe\",\"v\":1}",
+      "h5": "f5ace8669383c2f8c7e4cf738ed65bc2cf9cd9bfdeeb61b5657b4cabc0c6087e",
+      "semantic_digest": ""
+    },
+    "fixture_file": "home-ask.json",
+    "fixture_name": "pull mycroft maps to a mycroft ask"
+  },
+  {
+    "name": "home-ask.json/pull mycroft maps to a mycroft ask//g2",
+    "thread": "",
+    "generation": 2,
+    "expected": {
+      "h1": "c4fccb3cd04974cf",
+      "identity": "98fd52cdcaba6cbd807133e2d3e5ee1a0762d341283257b48d480e0709a45f0f",
+      "revision": "b5c46b665e45612fbcdbc112a28c497cc96e7171514de97e83be652f6c684f7e",
+      "normalized": "{\"ask_key\":\"collapse-order\",\"asker\":\"mycroft\",\"kind\":\"decide\",\"options\":[{\"id\":\"a\",\"kind\":\"ruling-only\",\"label\":\"A\"},{\"id\":\"b\",\"kind\":\"ruling-only\",\"label\":\"B\"}],\"project\":\"autarch\",\"project_root\":\"/abs/root\",\"question\":\"Collapse per project or per day?\",\"request_id\":\"card:fixture:g2\",\"supersedes\":\"card-fixture-g1\",\"v\":1}",
+      "h5": "f5ace8669383c2f8c7e4cf738ed65bc2cf9cd9bfdeeb61b5657b4cabc0c6087e",
+      "semantic_digest": ""
+    },
+    "fixture_file": "home-ask.json",
+    "fixture_name": "pull mycroft maps to a mycroft ask"
+  },
+  {
+    "name": "home-ask.json/pull mycroft maps to a mycroft ask//g3",
+    "thread": "",
+    "generation": 3,
+    "expected": {
+      "h1": "c4fccb3cd04974cf",
+      "identity": "8de42fb65e402c9513b0cb55fa56059ac5d1ce9fd5ac0864845b574716fd6689",
+      "revision": "7214379ce893e50461c4e755ad1e527c0db5e3ec980acac4765ed6c455b9610a",
+      "normalized": "{\"ask_key\":\"collapse-order\",\"asker\":\"mycroft\",\"kind\":\"decide\",\"options\":[{\"id\":\"a\",\"kind\":\"ruling-only\",\"label\":\"A\"},{\"id\":\"b\",\"kind\":\"ruling-only\",\"label\":\"B\"}],\"project\":\"autarch\",\"project_root\":\"/abs/root\",\"question\":\"Collapse per project or per day?\",\"request_id\":\"card:fixture:g3\",\"supersedes\":\"card-fixture-g2\",\"v\":1}",
+      "h5": "f5ace8669383c2f8c7e4cf738ed65bc2cf9cd9bfdeeb61b5657b4cabc0c6087e",
+      "semantic_digest": ""
+    },
+    "fixture_file": "home-ask.json",
+    "fixture_name": "pull mycroft maps to a mycroft ask"
+  },
+  {
+    "name": "home-ask.json/optional subject and recommendation/thr_abc123/g1",
+    "thread": "thr_abc123",
+    "generation": 1,
+    "expected": {
+      "h1": "0c114a8745017143",
+      "identity": "fba3ea2bf0458f18e34e82863dda70fbd6cde65528b52a5b0d99496c43f115e5",
+      "revision": "9af57ca07d4903a82bc30b5bdf89a499c3867540291408d235e296fcd19c7884",
+      "normalized": "{\"ask_key\":\"collapse-order\",\"asker\":\"thread\",\"kind\":\"decide\",\"options\":[{\"id\":\"a\",\"instruction\":\"Group per project, run tests, report.\",\"kind\":\"instruction\",\"label\":\"Per project\",\"reversible\":true},{\"id\":\"b\",\"instruction\":\"Group per day, run tests, report.\",\"kind\":\"instruction\",\"label\":\"Per day\",\"reversible\":true}],\"project\":\"autarch\",\"project_root\":\"/abs/root\",\"question\":\"Collapse per project or per day?\",\"recommendation\":\"a\",\"request_id\":\"fba3ea2bf0458f18e34e82863dda70fbd6cde65528b52a5b0d99496c43f115e5\",\"subject\":\"autarch: collapse order\",\"thread\":\"thr_abc123\",\"v\":1}",
+      "h5": "8d3e2d78af22e7f909eba82aa1b61527b3b5611242e92cea5307b84b7462ff1c",
+      "semantic_digest": "f20b67fd82d9e493f7b0d86a80d97038c7626d77a392c1adfba109c844f9ce5b"
+    },
+    "fixture_file": "home-ask.json",
+    "fixture_name": "optional subject and recommendation"
+  },
+  {
+    "name": "home-ask.json/optional subject and recommendation/thr_abc123/g2",
+    "thread": "thr_abc123",
+    "generation": 2,
+    "expected": {
+      "h1": "0c114a8745017143",
+      "identity": "6e76b6107f19e54c68e35d0c5ade9951dadb787fb2bb3b21c16e31a7085e70e8",
+      "revision": "672cd54b7097ab865fab82b997b1656c808a0a555c7f17a36e026b60a999034e",
+      "normalized": "{\"ask_key\":\"collapse-order\",\"asker\":\"thread\",\"kind\":\"decide\",\"options\":[{\"id\":\"a\",\"instruction\":\"Group per project, run tests, report.\",\"kind\":\"instruction\",\"label\":\"Per project\",\"reversible\":true},{\"id\":\"b\",\"instruction\":\"Group per day, run tests, report.\",\"kind\":\"instruction\",\"label\":\"Per day\",\"reversible\":true}],\"project\":\"autarch\",\"project_root\":\"/abs/root\",\"question\":\"Collapse per project or per day?\",\"recommendation\":\"a\",\"request_id\":\"card:fixture:g2\",\"subject\":\"autarch: collapse order\",\"supersedes\":\"card-fixture-g1\",\"thread\":\"thr_abc123\",\"v\":1}",
+      "h5": "8d3e2d78af22e7f909eba82aa1b61527b3b5611242e92cea5307b84b7462ff1c",
+      "semantic_digest": "f20b67fd82d9e493f7b0d86a80d97038c7626d77a392c1adfba109c844f9ce5b"
+    },
+    "fixture_file": "home-ask.json",
+    "fixture_name": "optional subject and recommendation"
+  },
+  {
+    "name": "home-ask.json/optional subject and recommendation/thr_abc123/g3",
+    "thread": "thr_abc123",
+    "generation": 3,
+    "expected": {
+      "h1": "0c114a8745017143",
+      "identity": "41da32c1521bb25160c7114176316adfbe1196bd62df86f2edad8079a442f6ca",
+      "revision": "1c3a0d8284a0dbe26649e8753fc81ecc73d14c1a3d6b36c4b51d735e59dd7b8b",
+      "normalized": "{\"ask_key\":\"collapse-order\",\"asker\":\"thread\",\"kind\":\"decide\",\"options\":[{\"id\":\"a\",\"instruction\":\"Group per project, run tests, report.\",\"kind\":\"instruction\",\"label\":\"Per project\",\"reversible\":true},{\"id\":\"b\",\"instruction\":\"Group per day, run tests, report.\",\"kind\":\"instruction\",\"label\":\"Per day\",\"reversible\":true}],\"project\":\"autarch\",\"project_root\":\"/abs/root\",\"question\":\"Collapse per project or per day?\",\"recommendation\":\"a\",\"request_id\":\"card:fixture:g3\",\"subject\":\"autarch: collapse order\",\"supersedes\":\"card-fixture-g2\",\"thread\":\"thr_abc123\",\"v\":1}",
+      "h5": "8d3e2d78af22e7f909eba82aa1b61527b3b5611242e92cea5307b84b7462ff1c",
+      "semantic_digest": "f20b67fd82d9e493f7b0d86a80d97038c7626d77a392c1adfba109c844f9ce5b"
+    },
+    "fixture_file": "home-ask.json",
+    "fixture_name": "optional subject and recommendation"
+  },
+  {
+    "name": "request.json/key and identity parse/thr_fixture/g1",
+    "thread": "thr_fixture",
+    "generation": 1,
+    "expected": {
+      "h1": "1f6ec54a2c1e712f",
+      "identity": "ea634c1a4a8c47deebb28d415392c7835b547d5924ebe7a04f9bff8bc6c639e2",
+      "revision": "2924d05665bc0b34c433bae02d1f43e4d63a5d4379cca7192ee14ecda07a5375",
+      "normalized": "{\"ask_key\":\"collapse-order\",\"asker\":\"thread\",\"kind\":\"decide\",\"options\":[{\"id\":\"a\",\"instruction\":\"Group per project, run tests, report.\",\"kind\":\"instruction\",\"label\":\"Per project\",\"reversible\":true},{\"id\":\"b\",\"instruction\":\"Group per day, run tests, report.\",\"kind\":\"instruction\",\"label\":\"Per day\",\"reversible\":true}],\"project\":\"autarch\",\"project_root\":\"/abs/root\",\"question\":\"Collapse per project or per day?\",\"request_id\":\"ea634c1a4a8c47deebb28d415392c7835b547d5924ebe7a04f9bff8bc6c639e2\",\"thread\":\"thr_fixture\",\"v\":1}",
+      "h5": "2f5898d022bd45d2b5f80fab1404fbc863f4148750af6070ceba87a6a94c9fbd",
+      "semantic_digest": ""
+    },
+    "fixture_file": "request.json",
+    "fixture_name": "key and identity parse"
+  },
+  {
+    "name": "request.json/key and identity parse/thr_fixture/g2",
+    "thread": "thr_fixture",
+    "generation": 2,
+    "expected": {
+      "h1": "1f6ec54a2c1e712f",
+      "identity": "9fa293267a0d3150f705e3c965f117433cb857482eefe6a9232078d255201775",
+      "revision": "b9d632e297f4aca756007037f5588e09d0b22be86126f32d25ba96fd33ec38a9",
+      "normalized": "{\"ask_key\":\"collapse-order\",\"asker\":\"thread\",\"kind\":\"decide\",\"options\":[{\"id\":\"a\",\"instruction\":\"Group per project, run tests, report.\",\"kind\":\"instruction\",\"label\":\"Per project\",\"reversible\":true},{\"id\":\"b\",\"instruction\":\"Group per day, run tests, report.\",\"kind\":\"instruction\",\"label\":\"Per day\",\"reversible\":true}],\"project\":\"autarch\",\"project_root\":\"/abs/root\",\"question\":\"Collapse per project or per day?\",\"request_id\":\"card:fixture:g2\",\"supersedes\":\"card-fixture-g1\",\"thread\":\"thr_fixture\",\"v\":1}",
+      "h5": "2f5898d022bd45d2b5f80fab1404fbc863f4148750af6070ceba87a6a94c9fbd",
+      "semantic_digest": ""
+    },
+    "fixture_file": "request.json",
+    "fixture_name": "key and identity parse"
+  },
+  {
+    "name": "request.json/key and identity parse/thr_fixture/g3",
+    "thread": "thr_fixture",
+    "generation": 3,
+    "expected": {
+      "h1": "1f6ec54a2c1e712f",
+      "identity": "7dcdbcbe881de66f5c4b762f287a5be6908b3c103fc52e10186942a55583b598",
+      "revision": "ad4a42b3bccac828832ef4a879a0ce99bf06fd45fe9619ce720b155afd1e3673",
+      "normalized": "{\"ask_key\":\"collapse-order\",\"asker\":\"thread\",\"kind\":\"decide\",\"options\":[{\"id\":\"a\",\"instruction\":\"Group per project, run tests, report.\",\"kind\":\"instruction\",\"label\":\"Per project\",\"reversible\":true},{\"id\":\"b\",\"instruction\":\"Group per day, run tests, report.\",\"kind\":\"instruction\",\"label\":\"Per day\",\"reversible\":true}],\"project\":\"autarch\",\"project_root\":\"/abs/root\",\"question\":\"Collapse per project or per day?\",\"request_id\":\"card:fixture:g3\",\"supersedes\":\"card-fixture-g2\",\"thread\":\"thr_fixture\",\"v\":1}",
+      "h5": "2f5898d022bd45d2b5f80fab1404fbc863f4148750af6070ceba87a6a94c9fbd",
+      "semantic_digest": ""
+    },
+    "fixture_file": "request.json",
+    "fixture_name": "key and identity parse"
+  },
+  {
+    "name": "request.json/edited identity token is read as written (ingest compares with the registry)/thr_fixture/g1",
+    "thread": "thr_fixture",
+    "generation": 1,
+    "expected": {
+      "h1": "1f6ec54a2c1e712f",
+      "identity": "ea634c1a4a8c47deebb28d415392c7835b547d5924ebe7a04f9bff8bc6c639e2",
+      "revision": "2924d05665bc0b34c433bae02d1f43e4d63a5d4379cca7192ee14ecda07a5375",
+      "normalized": "{\"ask_key\":\"collapse-order\",\"asker\":\"thread\",\"kind\":\"decide\",\"options\":[{\"id\":\"a\",\"instruction\":\"Group per project, run tests, report.\",\"kind\":\"instruction\",\"label\":\"Per project\",\"reversible\":true},{\"id\":\"b\",\"instruction\":\"Group per day, run tests, report.\",\"kind\":\"instruction\",\"label\":\"Per day\",\"reversible\":true}],\"project\":\"autarch\",\"project_root\":\"/abs/root\",\"question\":\"Collapse per project or per day?\",\"request_id\":\"ea634c1a4a8c47deebb28d415392c7835b547d5924ebe7a04f9bff8bc6c639e2\",\"thread\":\"thr_fixture\",\"v\":1}",
+      "h5": "b4afa394cf3ca4931bdccd77c5b0285d5b83b685bcb2b131ee462188d613317f",
+      "semantic_digest": ""
+    },
+    "fixture_file": "request.json",
+    "fixture_name": "edited identity token is read as written (ingest compares with the registry)"
+  },
+  {
+    "name": "request.json/edited identity token is read as written (ingest compares with the registry)/thr_fixture/g2",
+    "thread": "thr_fixture",
+    "generation": 2,
+    "expected": {
+      "h1": "1f6ec54a2c1e712f",
+      "identity": "9fa293267a0d3150f705e3c965f117433cb857482eefe6a9232078d255201775",
+      "revision": "b9d632e297f4aca756007037f5588e09d0b22be86126f32d25ba96fd33ec38a9",
+      "normalized": "{\"ask_key\":\"collapse-order\",\"asker\":\"thread\",\"kind\":\"decide\",\"options\":[{\"id\":\"a\",\"instruction\":\"Group per project, run tests, report.\",\"kind\":\"instruction\",\"label\":\"Per project\",\"reversible\":true},{\"id\":\"b\",\"instruction\":\"Group per day, run tests, report.\",\"kind\":\"instruction\",\"label\":\"Per day\",\"reversible\":true}],\"project\":\"autarch\",\"project_root\":\"/abs/root\",\"question\":\"Collapse per project or per day?\",\"request_id\":\"card:fixture:g2\",\"supersedes\":\"card-fixture-g1\",\"thread\":\"thr_fixture\",\"v\":1}",
+      "h5": "b4afa394cf3ca4931bdccd77c5b0285d5b83b685bcb2b131ee462188d613317f",
+      "semantic_digest": ""
+    },
+    "fixture_file": "request.json",
+    "fixture_name": "edited identity token is read as written (ingest compares with the registry)"
+  },
+  {
+    "name": "request.json/edited identity token is read as written (ingest compares with the registry)/thr_fixture/g3",
+    "thread": "thr_fixture",
+    "generation": 3,
+    "expected": {
+      "h1": "1f6ec54a2c1e712f",
+      "identity": "7dcdbcbe881de66f5c4b762f287a5be6908b3c103fc52e10186942a55583b598",
+      "revision": "ad4a42b3bccac828832ef4a879a0ce99bf06fd45fe9619ce720b155afd1e3673",
+      "normalized": "{\"ask_key\":\"collapse-order\",\"asker\":\"thread\",\"kind\":\"decide\",\"options\":[{\"id\":\"a\",\"instruction\":\"Group per project, run tests, report.\",\"kind\":\"instruction\",\"label\":\"Per project\",\"reversible\":true},{\"id\":\"b\",\"instruction\":\"Group per day, run tests, report.\",\"kind\":\"instruction\",\"label\":\"Per day\",\"reversible\":true}],\"project\":\"autarch\",\"project_root\":\"/abs/root\",\"question\":\"Collapse per project or per day?\",\"request_id\":\"card:fixture:g3\",\"supersedes\":\"card-fixture-g2\",\"thread\":\"thr_fixture\",\"v\":1}",
+      "h5": "b4afa394cf3ca4931bdccd77c5b0285d5b83b685bcb2b131ee462188d613317f",
+      "semantic_digest": ""
+    },
+    "fixture_file": "request.json",
+    "fixture_name": "edited identity token is read as written (ingest compares with the registry)"
+  },
+  {
+    "name": "request.json/edited key is read as written/thr_fixture/g1",
+    "thread": "thr_fixture",
+    "generation": 1,
+    "expected": {
+      "h1": "1f6ec54a2c1e712f",
+      "identity": "ea634c1a4a8c47deebb28d415392c7835b547d5924ebe7a04f9bff8bc6c639e2",
+      "revision": "2924d05665bc0b34c433bae02d1f43e4d63a5d4379cca7192ee14ecda07a5375",
+      "normalized": "{\"ask_key\":\"collapse-order\",\"asker\":\"thread\",\"kind\":\"decide\",\"options\":[{\"id\":\"a\",\"instruction\":\"Group per project, run tests, report.\",\"kind\":\"instruction\",\"label\":\"Per project\",\"reversible\":true},{\"id\":\"b\",\"instruction\":\"Group per day, run tests, report.\",\"kind\":\"instruction\",\"label\":\"Per day\",\"reversible\":true}],\"project\":\"autarch\",\"project_root\":\"/abs/root\",\"question\":\"Collapse per project or per day?\",\"request_id\":\"ea634c1a4a8c47deebb28d415392c7835b547d5924ebe7a04f9bff8bc6c639e2\",\"thread\":\"thr_fixture\",\"v\":1}",
+      "h5": "e20891bb3204924b84a5c2497f04e095284341e2933760ca35fc9d681e9a4dc0",
+      "semantic_digest": ""
+    },
+    "fixture_file": "request.json",
+    "fixture_name": "edited key is read as written"
+  },
+  {
+    "name": "request.json/edited key is read as written/thr_fixture/g2",
+    "thread": "thr_fixture",
+    "generation": 2,
+    "expected": {
+      "h1": "1f6ec54a2c1e712f",
+      "identity": "9fa293267a0d3150f705e3c965f117433cb857482eefe6a9232078d255201775",
+      "revision": "b9d632e297f4aca756007037f5588e09d0b22be86126f32d25ba96fd33ec38a9",
+      "normalized": "{\"ask_key\":\"collapse-order\",\"asker\":\"thread\",\"kind\":\"decide\",\"options\":[{\"id\":\"a\",\"instruction\":\"Group per project, run tests, report.\",\"kind\":\"instruction\",\"label\":\"Per project\",\"reversible\":true},{\"id\":\"b\",\"instruction\":\"Group per day, run tests, report.\",\"kind\":\"instruction\",\"label\":\"Per day\",\"reversible\":true}],\"project\":\"autarch\",\"project_root\":\"/abs/root\",\"question\":\"Collapse per project or per day?\",\"request_id\":\"card:fixture:g2\",\"supersedes\":\"card-fixture-g1\",\"thread\":\"thr_fixture\",\"v\":1}",
+      "h5": "e20891bb3204924b84a5c2497f04e095284341e2933760ca35fc9d681e9a4dc0",
+      "semantic_digest": ""
+    },
+    "fixture_file": "request.json",
+    "fixture_name": "edited key is read as written"
+  },
+  {
+    "name": "request.json/edited key is read as written/thr_fixture/g3",
+    "thread": "thr_fixture",
+    "generation": 3,
+    "expected": {
+      "h1": "1f6ec54a2c1e712f",
+      "identity": "7dcdbcbe881de66f5c4b762f287a5be6908b3c103fc52e10186942a55583b598",
+      "revision": "ad4a42b3bccac828832ef4a879a0ce99bf06fd45fe9619ce720b155afd1e3673",
+      "normalized": "{\"ask_key\":\"collapse-order\",\"asker\":\"thread\",\"kind\":\"decide\",\"options\":[{\"id\":\"a\",\"instruction\":\"Group per project, run tests, report.\",\"kind\":\"instruction\",\"label\":\"Per project\",\"reversible\":true},{\"id\":\"b\",\"instruction\":\"Group per day, run tests, report.\",\"kind\":\"instruction\",\"label\":\"Per day\",\"reversible\":true}],\"project\":\"autarch\",\"project_root\":\"/abs/root\",\"question\":\"Collapse per project or per day?\",\"request_id\":\"card:fixture:g3\",\"supersedes\":\"card-fixture-g2\",\"thread\":\"thr_fixture\",\"v\":1}",
+      "h5": "e20891bb3204924b84a5c2497f04e095284341e2933760ca35fc9d681e9a4dc0",
+      "semantic_digest": ""
+    },
+    "fixture_file": "request.json",
+    "fixture_name": "edited key is read as written"
+  },
+  {
+    "name": "root-run.json/valid root-run/thr_abc123/g1",
+    "thread": "thr_abc123",
+    "generation": 1,
+    "expected": {
+      "h1": "6f9d5e599ddf517e",
+      "identity": "cd8fb733e5c10bf5186992047e7728cfa485eb7f62ccf68155995e07575c946f",
+      "revision": "ccea5e541e3f2723c6db975ef08162d2103a5d3de1fa8b808a093620dab7a7da",
+      "normalized": "{\"ask_key\":\"collapse-order\",\"asker\":\"thread\",\"kind\":\"decide\",\"options\":[{\"id\":\"a\",\"instruction\":\"Group per project, run tests, report.\",\"kind\":\"instruction\",\"label\":\"Per project\",\"reversible\":true},{\"id\":\"b\",\"instruction\":\"Group per day, run tests, report.\",\"kind\":\"instruction\",\"label\":\"Per day\",\"reversible\":true}],\"project\":\"autarch\",\"project_root\":\"/abs/root\",\"question\":\"Collapse per project or per day?\",\"request_id\":\"cd8fb733e5c10bf5186992047e7728cfa485eb7f62ccf68155995e07575c946f\",\"thread\":\"thr_abc123\",\"v\":1}",
+      "h5": "0a9b560772548cb8e700c6e0e04fba1f44702421a23836196e4a49e98c5572ed",
+      "semantic_digest": ""
+    },
+    "fixture_file": "root-run.json",
+    "fixture_name": "valid root-run"
+  },
+  {
+    "name": "root-run.json/valid root-run/thr_abc123/g2",
+    "thread": "thr_abc123",
+    "generation": 2,
+    "expected": {
+      "h1": "6f9d5e599ddf517e",
+      "identity": "12de641804a2f23eb886b4b36db90bf1ed382144c8f2e3ddf64761e9d1cfd393",
+      "revision": "685a0af8c68acd0fcc263fd29428ca87eb97dd861a5615dbc0c16b5214e333ca",
+      "normalized": "{\"ask_key\":\"collapse-order\",\"asker\":\"thread\",\"kind\":\"decide\",\"options\":[{\"id\":\"a\",\"instruction\":\"Group per project, run tests, report.\",\"kind\":\"instruction\",\"label\":\"Per project\",\"reversible\":true},{\"id\":\"b\",\"instruction\":\"Group per day, run tests, report.\",\"kind\":\"instruction\",\"label\":\"Per day\",\"reversible\":true}],\"project\":\"autarch\",\"project_root\":\"/abs/root\",\"question\":\"Collapse per project or per day?\",\"request_id\":\"card:fixture:g2\",\"supersedes\":\"card-fixture-g1\",\"thread\":\"thr_abc123\",\"v\":1}",
+      "h5": "0a9b560772548cb8e700c6e0e04fba1f44702421a23836196e4a49e98c5572ed",
+      "semantic_digest": ""
+    },
+    "fixture_file": "root-run.json",
+    "fixture_name": "valid root-run"
+  },
+  {
+    "name": "root-run.json/valid root-run/thr_abc123/g3",
+    "thread": "thr_abc123",
+    "generation": 3,
+    "expected": {
+      "h1": "6f9d5e599ddf517e",
+      "identity": "608b9b00423305876886aa91da66fc6d08d8e6ccd113eb2150caaebd07ef1608",
+      "revision": "988aff66ebd87d26a8a1fc7e4e5bf62546856d28b0f0c1c76a32852df0a5ca55",
+      "normalized": "{\"ask_key\":\"collapse-order\",\"asker\":\"thread\",\"kind\":\"decide\",\"options\":[{\"id\":\"a\",\"instruction\":\"Group per project, run tests, report.\",\"kind\":\"instruction\",\"label\":\"Per project\",\"reversible\":true},{\"id\":\"b\",\"instruction\":\"Group per day, run tests, report.\",\"kind\":\"instruction\",\"label\":\"Per day\",\"reversible\":true}],\"project\":\"autarch\",\"project_root\":\"/abs/root\",\"question\":\"Collapse per project or per day?\",\"request_id\":\"card:fixture:g3\",\"supersedes\":\"card-fixture-g2\",\"thread\":\"thr_abc123\",\"v\":1}",
+      "h5": "0a9b560772548cb8e700c6e0e04fba1f44702421a23836196e4a49e98c5572ed",
+      "semantic_digest": ""
+    },
+    "fixture_file": "root-run.json",
+    "fixture_name": "valid root-run"
+  },
+  {
+    "name": "root-run.json/timeout bounds 1 and 3600/thr_abc123/g1",
+    "thread": "thr_abc123",
+    "generation": 1,
+    "expected": {
+      "h1": "3089b2f00a9932e9",
+      "identity": "cd8fb733e5c10bf5186992047e7728cfa485eb7f62ccf68155995e07575c946f",
+      "revision": "ccea5e541e3f2723c6db975ef08162d2103a5d3de1fa8b808a093620dab7a7da",
+      "normalized": "{\"ask_key\":\"collapse-order\",\"asker\":\"thread\",\"kind\":\"decide\",\"options\":[{\"id\":\"a\",\"instruction\":\"Group per project, run tests, report.\",\"kind\":\"instruction\",\"label\":\"Per project\",\"reversible\":true},{\"id\":\"b\",\"instruction\":\"Group per day, run tests, report.\",\"kind\":\"instruction\",\"label\":\"Per day\",\"reversible\":true}],\"project\":\"autarch\",\"project_root\":\"/abs/root\",\"question\":\"Collapse per project or per day?\",\"request_id\":\"cd8fb733e5c10bf5186992047e7728cfa485eb7f62ccf68155995e07575c946f\",\"thread\":\"thr_abc123\",\"v\":1}",
+      "h5": "a8ee8d931296686492fe2109c4e569954cd59ca33f4ca28a159f7ccd4682fe3d",
+      "semantic_digest": ""
+    },
+    "fixture_file": "root-run.json",
+    "fixture_name": "timeout bounds 1 and 3600"
+  },
+  {
+    "name": "root-run.json/timeout bounds 1 and 3600/thr_abc123/g2",
+    "thread": "thr_abc123",
+    "generation": 2,
+    "expected": {
+      "h1": "3089b2f00a9932e9",
+      "identity": "12de641804a2f23eb886b4b36db90bf1ed382144c8f2e3ddf64761e9d1cfd393",
+      "revision": "685a0af8c68acd0fcc263fd29428ca87eb97dd861a5615dbc0c16b5214e333ca",
+      "normalized": "{\"ask_key\":\"collapse-order\",\"asker\":\"thread\",\"kind\":\"decide\",\"options\":[{\"id\":\"a\",\"instruction\":\"Group per project, run tests, report.\",\"kind\":\"instruction\",\"label\":\"Per project\",\"reversible\":true},{\"id\":\"b\",\"instruction\":\"Group per day, run tests, report.\",\"kind\":\"instruction\",\"label\":\"Per day\",\"reversible\":true}],\"project\":\"autarch\",\"project_root\":\"/abs/root\",\"question\":\"Collapse per project or per day?\",\"request_id\":\"card:fixture:g2\",\"supersedes\":\"card-fixture-g1\",\"thread\":\"thr_abc123\",\"v\":1}",
+      "h5": "a8ee8d931296686492fe2109c4e569954cd59ca33f4ca28a159f7ccd4682fe3d",
+      "semantic_digest": ""
+    },
+    "fixture_file": "root-run.json",
+    "fixture_name": "timeout bounds 1 and 3600"
+  },
+  {
+    "name": "root-run.json/timeout bounds 1 and 3600/thr_abc123/g3",
+    "thread": "thr_abc123",
+    "generation": 3,
+    "expected": {
+      "h1": "3089b2f00a9932e9",
+      "identity": "608b9b00423305876886aa91da66fc6d08d8e6ccd113eb2150caaebd07ef1608",
+      "revision": "988aff66ebd87d26a8a1fc7e4e5bf62546856d28b0f0c1c76a32852df0a5ca55",
+      "normalized": "{\"ask_key\":\"collapse-order\",\"asker\":\"thread\",\"kind\":\"decide\",\"options\":[{\"id\":\"a\",\"instruction\":\"Group per project, run tests, report.\",\"kind\":\"instruction\",\"label\":\"Per project\",\"reversible\":true},{\"id\":\"b\",\"instruction\":\"Group per day, run tests, report.\",\"kind\":\"instruction\",\"label\":\"Per day\",\"reversible\":true}],\"project\":\"autarch\",\"project_root\":\"/abs/root\",\"question\":\"Collapse per project or per day?\",\"request_id\":\"card:fixture:g3\",\"supersedes\":\"card-fixture-g2\",\"thread\":\"thr_abc123\",\"v\":1}",
+      "h5": "a8ee8d931296686492fe2109c4e569954cd59ca33f4ca28a159f7ccd4682fe3d",
+      "semantic_digest": ""
+    },
+    "fixture_file": "root-run.json",
+    "fixture_name": "timeout bounds 1 and 3600"
+  },
+  {
+    "name": "root-run.json/set with dot dash underscore, 64 chars/thr_abc123/g1",
+    "thread": "thr_abc123",
+    "generation": 1,
+    "expected": {
+      "h1": "1eec6bbf00dd7741",
+      "identity": "cd8fb733e5c10bf5186992047e7728cfa485eb7f62ccf68155995e07575c946f",
+      "revision": "ccea5e541e3f2723c6db975ef08162d2103a5d3de1fa8b808a093620dab7a7da",
+      "normalized": "{\"ask_key\":\"collapse-order\",\"asker\":\"thread\",\"kind\":\"decide\",\"options\":[{\"id\":\"a\",\"instruction\":\"Group per project, run tests, report.\",\"kind\":\"instruction\",\"label\":\"Per project\",\"reversible\":true},{\"id\":\"b\",\"instruction\":\"Group per day, run tests, report.\",\"kind\":\"instruction\",\"label\":\"Per day\",\"reversible\":true}],\"project\":\"autarch\",\"project_root\":\"/abs/root\",\"question\":\"Collapse per project or per day?\",\"request_id\":\"cd8fb733e5c10bf5186992047e7728cfa485eb7f62ccf68155995e07575c946f\",\"thread\":\"thr_abc123\",\"v\":1}",
+      "h5": "6f553215579d0d7e228e8bfa354c67981f21bff420b494cf208edb67dba80672",
+      "semantic_digest": ""
+    },
+    "fixture_file": "root-run.json",
+    "fixture_name": "set with dot dash underscore, 64 chars"
+  },
+  {
+    "name": "root-run.json/set with dot dash underscore, 64 chars/thr_abc123/g2",
+    "thread": "thr_abc123",
+    "generation": 2,
+    "expected": {
+      "h1": "1eec6bbf00dd7741",
+      "identity": "12de641804a2f23eb886b4b36db90bf1ed382144c8f2e3ddf64761e9d1cfd393",
+      "revision": "685a0af8c68acd0fcc263fd29428ca87eb97dd861a5615dbc0c16b5214e333ca",
+      "normalized": "{\"ask_key\":\"collapse-order\",\"asker\":\"thread\",\"kind\":\"decide\",\"options\":[{\"id\":\"a\",\"instruction\":\"Group per project, run tests, report.\",\"kind\":\"instruction\",\"label\":\"Per project\",\"reversible\":true},{\"id\":\"b\",\"instruction\":\"Group per day, run tests, report.\",\"kind\":\"instruction\",\"label\":\"Per day\",\"reversible\":true}],\"project\":\"autarch\",\"project_root\":\"/abs/root\",\"question\":\"Collapse per project or per day?\",\"request_id\":\"card:fixture:g2\",\"supersedes\":\"card-fixture-g1\",\"thread\":\"thr_abc123\",\"v\":1}",
+      "h5": "6f553215579d0d7e228e8bfa354c67981f21bff420b494cf208edb67dba80672",
+      "semantic_digest": ""
+    },
+    "fixture_file": "root-run.json",
+    "fixture_name": "set with dot dash underscore, 64 chars"
+  },
+  {
+    "name": "root-run.json/set with dot dash underscore, 64 chars/thr_abc123/g3",
+    "thread": "thr_abc123",
+    "generation": 3,
+    "expected": {
+      "h1": "1eec6bbf00dd7741",
+      "identity": "608b9b00423305876886aa91da66fc6d08d8e6ccd113eb2150caaebd07ef1608",
+      "revision": "988aff66ebd87d26a8a1fc7e4e5bf62546856d28b0f0c1c76a32852df0a5ca55",
+      "normalized": "{\"ask_key\":\"collapse-order\",\"asker\":\"thread\",\"kind\":\"decide\",\"options\":[{\"id\":\"a\",\"instruction\":\"Group per project, run tests, report.\",\"kind\":\"instruction\",\"label\":\"Per project\",\"reversible\":true},{\"id\":\"b\",\"instruction\":\"Group per day, run tests, report.\",\"kind\":\"instruction\",\"label\":\"Per day\",\"reversible\":true}],\"project\":\"autarch\",\"project_root\":\"/abs/root\",\"question\":\"Collapse per project or per day?\",\"request_id\":\"card:fixture:g3\",\"supersedes\":\"card-fixture-g2\",\"thread\":\"thr_abc123\",\"v\":1}",
+      "h5": "6f553215579d0d7e228e8bfa354c67981f21bff420b494cf208edb67dba80672",
+      "semantic_digest": ""
+    },
+    "fixture_file": "root-run.json",
+    "fixture_name": "set with dot dash underscore, 64 chars"
+  },
+  {
+    "name": "ask/minimal decide",
+    "expected": {
+      "h1": "9ac8bc28b75ef24e",
+      "identity": "21b3174ac85ed53cbb92d7f94e57cfa3e740ca954e8605d87ce469a888bf99a6",
+      "revision": "36a93a6d11c834c4f1f23ae5c8cbd63e507b3076c79bd6cb37938a7c27b952b8",
+      "h5": null,
+      "semantic_digest": ""
+    },
+    "ask_fixture": "minimal decide",
+    "normalized_fixture": "minimal decide"
+  },
+  {
+    "name": "ask/full decide with instructions",
+    "expected": {
+      "h1": "e46fd708de90076e",
+      "identity": "1267a5da0de5ac19251b4185ede7e11a7517a6f287475c02c52de73ffc897579",
+      "revision": "ed9b55418e71074d216ac8f502a4cfa4348db229d36dffa4968be85409eee229",
+      "h5": null,
+      "semantic_digest": "32dd70ba3d024b79825c5f1d7dcaf68312cc06ce7b3a03bae66f800fad07737f"
+    },
+    "ask_fixture": "full decide with instructions",
+    "normalized_fixture": "full decide with instructions"
+  },
+  {
+    "name": "ask/NFC and non-BMP text",
+    "expected": {
+      "h1": "ee917c31b9fd04ec",
+      "identity": "0687b0e0a15fa0e9929b866dbffd05ec108c64a041f501d8ffc77de0f856475f",
+      "revision": "ddc361be20d201ec511adc9dd570f3ce6ee902e17941a5e309c51a771fa796db",
+      "h5": null,
+      "semantic_digest": "63402bf87d54c3a1b25e7ecee0aa52273a3765fa56e6995d5d3bcbe41e339a98"
+    },
+    "ask_fixture": "NFC and non-BMP text",
+    "normalized_fixture": "NFC and non-BMP text"
+  },
+  {
+    "name": "ask/steps ask",
+    "expected": {
+      "h1": "226ee56ad4627879",
+      "identity": "2b4cd60e1893bae520fe829e3009667b07586ed5214b5efa743f3e5581740d36",
+      "revision": "c56399fb43668821706023477e8a1334ea85ab1f7a153f96ed5e8d12c683cf16",
+      "h5": null,
+      "semantic_digest": "cadbe5217a38d79b8296f8f8ba9c9aaa1f3faa4bdf209672f0483f1c0e797d44"
+    },
+    "ask_fixture": "steps ask",
+    "normalized_fixture": "steps ask"
+  },
+  {
+    "name": "ask/machine blocker",
+    "expected": {
+      "h1": "34649cdc9d74022d",
+      "identity": "a0a8efb7a641589787a70658fed0f88ff76280cf2a44c7a93ae373aa9ebf5866",
+      "revision": "fbc4b8bc617b04aa85ef3bbb5ef9c8a217db1e891130274603987028e4407f37",
+      "h5": null,
+      "semantic_digest": "7ec374066fc62ac5dd394859c9703efc8a9342cbfe5203031ae46537cbc3c797"
+    },
+    "ask_fixture": "machine blocker",
+    "normalized_fixture": "machine blocker"
+  },
+  {
+    "name": "ask/mycroft ruling-only",
+    "expected": {
+      "h1": "5d80260fe5163be6",
+      "identity": "50b8eb1157cff62b719507919de9b6e32fb6000adf0f984867f5a57c3656e4da",
+      "revision": "85a05aff3f0c9f63557f4ccc5ee42bf427636de10576dade9d9fa5e833d52cc6",
+      "h5": null,
+      "semantic_digest": ""
+    },
+    "ask_fixture": "mycroft ruling-only",
+    "normalized_fixture": "mycroft ruling-only"
+  },
+  {
+    "name": "ask/approval option",
+    "expected": {
+      "h1": "6069c4d3e054d738",
+      "identity": "9fa8a4ffa64e4245d99dbd00ac7f7e4eff510789f02b864fdd600fb31747f596",
+      "revision": "59e9d797f1c23b0bc78883c1c2a9c1843486b1393146de04d5fbef3db7486647",
+      "h5": null,
+      "semantic_digest": "668b796fe59bc27641aec8e4649c305ee3798fe1cba196fe21d4092bcb5a11ea"
+    },
+    "ask_fixture": "approval option",
+    "normalized_fixture": "approval option"
+  },
+  {
+    "name": "ask/superseding decision",
+    "expected": {
+      "h1": "b22a327d9b7a89c2",
+      "identity": "74546be88705739a02d6551965e4ba1576f9f159dfd59c4637b8697dc9c8956f",
+      "revision": "0f76b88fd446197165b64bf0a7ccd544e1a3147695ac30702e9b2b501fc6a100",
+      "h5": null,
+      "semantic_digest": ""
+    },
+    "ask_fixture": "superseding decision",
+    "normalized_fixture": "superseding decision"
+  },
+  {
+    "name": "ask/long question truncated ask_key",
+    "expected": {
+      "h1": "ae5f4c341d5096b1",
+      "identity": "2b7cac2ddee106b5c2d8a19f78718413e3a3a12c1b34fb099916588c3e4c26ac",
+      "revision": "a7a863a59f2ccfa0639f2def2a19283ef6d5c4c91a3bbf27454dac5e8d7ad6c7",
+      "h5": null,
+      "semantic_digest": ""
+    },
+    "ask_fixture": "long question truncated ask_key",
+    "normalized_fixture": "long question truncated ask_key"
+  }
+]
