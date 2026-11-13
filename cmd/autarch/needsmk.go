@@ -13,6 +13,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode"
 
 	"github.com/spf13/cobra"
 
@@ -246,6 +247,9 @@ card is refused (exit 2). An answered card remains already ruled (exit 5).
 Exit codes: 2 usage or refused, 3 Home or tasks unavailable (nothing created), 4 card created
 but the routing comment failed (re-run the same command), 5 already ruled (mk picked an option for this request).
 
+Cards whose options are all notice acknowledgments (read, ok, close and similar labels) are
+refused with exit 2: notices belong in the vizier inbox or digest. --move and --root-run are exempt.
+
 --urgency blocker (or "urgency": "blocker" in the ask JSON) asks Home to send mk a phone push once, when the
 card is first filed. Use it only when work is stopped until mk answers. It is optional, any other value is
 refused, and it works on every kind of card; a machine blocker alone never pushes.`,
@@ -307,6 +311,9 @@ refused, and it works on every kind of card; a machine blocker alone never pushe
 			}
 			if err := homeask.CheckOptionIDs(ask); err != nil {
 				return err
+			}
+			if move == nil && rootRun == "" && noticeOnlyOptions(ask) {
+				return &usageError{"card has no decision: a notice belongs in the vizier's inbox or digest"}
 			}
 			if w := commandWarning(fmt.Sprint(ask["question"])); w != "" {
 				fmt.Fprintln(cmd.ErrOrStderr(), "warning:", w)
@@ -379,4 +386,31 @@ refused, and it works on every kind of card; a machine blocker alone never pushe
 	cmd.Flags().BoolVar(&vizierOwned, "vizier-owned", false, "Vizier only: this is its own ruling, root run or scope card; mutually exclusive with --owner-thread")
 	cmd.Flags().StringVar(&ownerThread, "owner-thread", "", "Route the card's answer to this live thread instead of the filing thread (the routing comment is posted as it)")
 	return cmd
+}
+
+// noticeOnlyOptions checks labels rather than ids; punctuation and case do not
+// turn an acknowledgment into a decision. Malformed or empty options are left
+// to the existing schema validator.
+func noticeOnlyOptions(ask map[string]any) bool {
+	opts, _ := ask["options"].([]any)
+	if len(opts) == 0 {
+		return false
+	}
+	for _, o := range opts {
+		m, _ := o.(map[string]any)
+		label, _ := m["label"].(string)
+		label = regexp.MustCompile(`^\s*[A-Za-z]\)\s*`).ReplaceAllString(label, "")
+		label = strings.Map(func(r rune) rune {
+			if unicode.IsPunct(r) || unicode.IsSpace(r) {
+				return -1
+			}
+			return unicode.ToLower(r)
+		}, label)
+		switch label {
+		case "read", "ok", "okay", "close", "closed", "gotit", "noted", "acknowledge", "acknowledged", "seen", "dismiss":
+		default:
+			return false
+		}
+	}
+	return true
 }
