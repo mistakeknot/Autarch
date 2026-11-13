@@ -10,7 +10,7 @@ func needsMkExportCmd() *cobra.Command {
 	var days int
 	cmd := &cobra.Command{
 		Use: "export", Short: "Export stored card picks by mk as read-only JSON Lines",
-		Long: "Export historical card picks by mk, oldest first, over the last --days days (default 7). Reads Home read-only without moving a cursor. Unavailable round, auto_close and revision counts are null; kind is the stored ask kind.",
+		Long: "Export historical card picks by mk, oldest first, over the last --days days (default 7). Reads Home read-only without moving a cursor, including soft-deleted cards. In WAL mode, SQLite may create -wal/-shm side files (the -wal can be empty); run export as the same OS user as Home. Unavailable round, auto_close and revision counts are null; kind is the stored ask kind.",
 		Args: cobra.NoArgs, SilenceUsage: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if days < 1 || days > 365 {
