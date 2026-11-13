@@ -1,0 +1,820 @@
+[
+  {
+    "name": "https bare host",
+    "evidence": [
+      {
+        "caption": "Run",
+        "url": "https://example.test"
+      }
+    ],
+    "valid": true
+  },
+  {
+    "name": "all allowed tail characters",
+    "evidence": [
+      {
+        "caption": "Run",
+        "url": "https://example.test/Az09._~!$&'()*+,;=:@/%20?q=/?:@&x=%2f#frag/?"
+      }
+    ],
+    "valid": true
+  },
+  {
+    "name": "ipv4 octet boundaries",
+    "evidence": [
+      {
+        "caption": "Run",
+        "url": "https://0.1.254.255:65535/"
+      }
+    ],
+    "valid": true
+  },
+  {
+    "name": "minimum port",
+    "evidence": [
+      {
+        "caption": "Run",
+        "url": "https://example.test:1/"
+      }
+    ],
+    "valid": true
+  },
+  {
+    "name": "maximum port",
+    "evidence": [
+      {
+        "caption": "Run",
+        "url": "https://example.test:65535/"
+      }
+    ],
+    "valid": true
+  },
+  {
+    "name": "empty query and fragment",
+    "evidence": [
+      {
+        "caption": "Run",
+        "url": "https://example.test?#"
+      }
+    ],
+    "valid": true
+  },
+  {
+    "name": "review less than host",
+    "evidence": [
+      {
+        "caption": "Run",
+        "url": "https://a<b.test/"
+      }
+    ],
+    "valid": false
+  },
+  {
+    "name": "review excessive port",
+    "evidence": [
+      {
+        "caption": "Run",
+        "url": "https://example.test:99999/"
+      }
+    ],
+    "valid": false
+  },
+  {
+    "name": "review trailing BOM",
+    "evidence": [
+      {
+        "caption": "Run",
+        "url": "https://example.test/﻿"
+      }
+    ],
+    "valid": false
+  },
+  {
+    "name": "review invalid IPv4",
+    "evidence": [
+      {
+        "caption": "Run",
+        "url": "https://1.2.3.256/"
+      }
+    ],
+    "valid": false
+  },
+  {
+    "name": "review invalid ACE label",
+    "evidence": [
+      {
+        "caption": "Run",
+        "url": "https://xn--a.test/"
+      }
+    ],
+    "valid": false
+  },
+  {
+    "name": "review bad percent",
+    "evidence": [
+      {
+        "caption": "Run",
+        "url": "https://example.test/%zz"
+      }
+    ],
+    "valid": false
+  },
+  {
+    "name": "review bare percent",
+    "evidence": [
+      {
+        "caption": "Run",
+        "url": "https://example.test/%"
+      }
+    ],
+    "valid": false
+  },
+  {
+    "name": "http scheme",
+    "evidence": [
+      {
+        "caption": "Run",
+        "url": "http://example.test/"
+      }
+    ],
+    "valid": false
+  },
+  {
+    "name": "uppercase scheme",
+    "evidence": [
+      {
+        "caption": "Run",
+        "url": "HTTPS://example.test/"
+      }
+    ],
+    "valid": false
+  },
+  {
+    "name": "uppercase host",
+    "evidence": [
+      {
+        "caption": "Run",
+        "url": "https://Example.test/"
+      }
+    ],
+    "valid": false
+  },
+  {
+    "name": "userinfo",
+    "evidence": [
+      {
+        "caption": "Run",
+        "url": "https://user:pass@example.test/"
+      }
+    ],
+    "valid": false
+  },
+  {
+    "name": "empty userinfo",
+    "evidence": [
+      {
+        "caption": "Run",
+        "url": "https://@example.test/"
+      }
+    ],
+    "valid": false
+  },
+  {
+    "name": "ipv6 literal",
+    "evidence": [
+      {
+        "caption": "Run",
+        "url": "https://[::1]/"
+      }
+    ],
+    "valid": false
+  },
+  {
+    "name": "unicode host",
+    "evidence": [
+      {
+        "caption": "Run",
+        "url": "https://café.test/"
+      }
+    ],
+    "valid": false
+  },
+  {
+    "name": "unicode path",
+    "evidence": [
+      {
+        "caption": "Run",
+        "url": "https://example.test/café"
+      }
+    ],
+    "valid": false
+  },
+  {
+    "name": "space",
+    "evidence": [
+      {
+        "caption": "Run",
+        "url": "https://example.test/a b"
+      }
+    ],
+    "valid": false
+  },
+  {
+    "name": "backslash",
+    "evidence": [
+      {
+        "caption": "Run",
+        "url": "https://example.test/a\\b"
+      }
+    ],
+    "valid": false
+  },
+  {
+    "name": "raw control",
+    "evidence": [
+      {
+        "caption": "Run",
+        "url": "https://example.test/\n"
+      }
+    ],
+    "valid": false
+  },
+  {
+    "name": "zero port",
+    "evidence": [
+      {
+        "caption": "Run",
+        "url": "https://example.test:0/"
+      }
+    ],
+    "valid": false
+  },
+  {
+    "name": "one over maximum port",
+    "evidence": [
+      {
+        "caption": "Run",
+        "url": "https://example.test:65536/"
+      }
+    ],
+    "valid": false
+  },
+  {
+    "name": "leading zero port",
+    "evidence": [
+      {
+        "caption": "Run",
+        "url": "https://example.test:080/"
+      }
+    ],
+    "valid": false
+  },
+  {
+    "name": "empty port",
+    "evidence": [
+      {
+        "caption": "Run",
+        "url": "https://example.test:/"
+      }
+    ],
+    "valid": false
+  },
+  {
+    "name": "leading zero IPv4",
+    "evidence": [
+      {
+        "caption": "Run",
+        "url": "https://01.2.3.4/"
+      }
+    ],
+    "valid": false
+  },
+  {
+    "name": "short numeric host",
+    "evidence": [
+      {
+        "caption": "Run",
+        "url": "https://127.1/"
+      }
+    ],
+    "valid": false
+  },
+  {
+    "name": "numeric final label",
+    "evidence": [
+      {
+        "caption": "Run",
+        "url": "https://example.123/"
+      }
+    ],
+    "valid": false
+  },
+  {
+    "name": "hex numeric host",
+    "evidence": [
+      {
+        "caption": "Run",
+        "url": "https://0x7f000001/"
+      }
+    ],
+    "valid": false
+  },
+  {
+    "name": "empty label",
+    "evidence": [
+      {
+        "caption": "Run",
+        "url": "https://a..test/"
+      }
+    ],
+    "valid": false
+  },
+  {
+    "name": "leading hyphen",
+    "evidence": [
+      {
+        "caption": "Run",
+        "url": "https://-a.test/"
+      }
+    ],
+    "valid": false
+  },
+  {
+    "name": "trailing hyphen",
+    "evidence": [
+      {
+        "caption": "Run",
+        "url": "https://a-.test/"
+      }
+    ],
+    "valid": false
+  },
+  {
+    "name": "underscore label",
+    "evidence": [
+      {
+        "caption": "Run",
+        "url": "https://a_b.test/"
+      }
+    ],
+    "valid": false
+  },
+  {
+    "name": "trailing dot",
+    "evidence": [
+      {
+        "caption": "Run",
+        "url": "https://example.test./"
+      }
+    ],
+    "valid": false
+  },
+  {
+    "name": "escaped host",
+    "evidence": [
+      {
+        "caption": "Run",
+        "url": "https://%65xample.test/"
+      }
+    ],
+    "valid": false
+  },
+  {
+    "name": "valid ACE prefix also refused",
+    "evidence": [
+      {
+        "caption": "Run",
+        "url": "https://xn--bcher-kva.test/"
+      }
+    ],
+    "valid": false
+  },
+  {
+    "name": "second fragment marker",
+    "evidence": [
+      {
+        "caption": "Run",
+        "url": "https://example.test/#a#b"
+      }
+    ],
+    "valid": false
+  },
+  {
+    "name": "brackets in path",
+    "evidence": [
+      {
+        "caption": "Run",
+        "url": "https://example.test/[x]"
+      }
+    ],
+    "valid": false
+  },
+  {
+    "name": "short escape",
+    "evidence": [
+      {
+        "caption": "Run",
+        "url": "https://example.test/%a"
+      }
+    ],
+    "valid": false
+  },
+  {
+    "name": "label length 63",
+    "evidence": [
+      {
+        "caption": "Run",
+        "url": "https://aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.test/"
+      }
+    ],
+    "valid": true
+  },
+  {
+    "name": "label length 64",
+    "evidence": [
+      {
+        "caption": "Run",
+        "url": "https://aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.test/"
+      }
+    ],
+    "valid": false
+  },
+  {
+    "name": "host length 253",
+    "evidence": [
+      {
+        "caption": "Run",
+        "url": "https://aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb.ccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc.ddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd/"
+      }
+    ],
+    "valid": true
+  },
+  {
+    "name": "host length 254",
+    "evidence": [
+      {
+        "caption": "Run",
+        "url": "https://aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb.ccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc.dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd/"
+      }
+    ],
+    "valid": false
+  },
+  {
+    "name": "URL length 2048",
+    "evidence": [
+      {
+        "caption": "Run",
+        "url": "https://example.test/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      }
+    ],
+    "valid": true
+  },
+  {
+    "name": "URL length 2049",
+    "evidence": [
+      {
+        "caption": "Run",
+        "url": "https://example.test/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      }
+    ],
+    "valid": false
+  },
+  {
+    "name": "review BOM only caption",
+    "evidence": [
+      {
+        "caption": "﻿",
+        "url": "https://example.test/"
+      }
+    ],
+    "valid": false
+  },
+  {
+    "name": "empty caption",
+    "evidence": [
+      {
+        "caption": "",
+        "url": "https://example.test/"
+      }
+    ],
+    "valid": false
+  },
+  {
+    "name": "ASCII spaces only",
+    "evidence": [
+      {
+        "caption": "   ",
+        "url": "https://example.test/"
+      }
+    ],
+    "valid": false
+  },
+  {
+    "name": "NBSP only",
+    "evidence": [
+      {
+        "caption": " ",
+        "url": "https://example.test/"
+      }
+    ],
+    "valid": false
+  },
+  {
+    "name": "ideographic space only",
+    "evidence": [
+      {
+        "caption": "　",
+        "url": "https://example.test/"
+      }
+    ],
+    "valid": false
+  },
+  {
+    "name": "explicit trim whitespace with text",
+    "evidence": [
+      {
+        "caption": "﻿ Run　﻿",
+        "url": "https://example.test/"
+      }
+    ],
+    "valid": true
+  },
+  {
+    "name": "caption limit 200",
+    "evidence": [
+      {
+        "caption": "éééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééé",
+        "url": "https://example.test/"
+      }
+    ],
+    "valid": true
+  },
+  {
+    "name": "caption limit 201",
+    "evidence": [
+      {
+        "caption": "ééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééé",
+        "url": "https://example.test/"
+      }
+    ],
+    "valid": false
+  },
+  {
+    "name": "astral caption limit",
+    "evidence": [
+      {
+        "caption": "😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀",
+        "url": "https://example.test/"
+      }
+    ],
+    "valid": true
+  },
+  {
+    "name": "caption control",
+    "evidence": [
+      {
+        "caption": "Run",
+        "url": "https://example.test/"
+      }
+    ],
+    "valid": false
+  },
+  {
+    "name": "empty evidence",
+    "evidence": [],
+    "valid": true
+  },
+  {
+    "name": "null evidence",
+    "evidence": null,
+    "valid": false
+  },
+  {
+    "name": "six items",
+    "evidence": [
+      {
+        "caption": "Run",
+        "url": "https://example.test/"
+      },
+      {
+        "caption": "Run",
+        "url": "https://example.test/"
+      },
+      {
+        "caption": "Run",
+        "url": "https://example.test/"
+      },
+      {
+        "caption": "Run",
+        "url": "https://example.test/"
+      },
+      {
+        "caption": "Run",
+        "url": "https://example.test/"
+      },
+      {
+        "caption": "Run",
+        "url": "https://example.test/"
+      }
+    ],
+    "valid": true
+  },
+  {
+    "name": "seven items",
+    "evidence": [
+      {
+        "caption": "Run",
+        "url": "https://example.test/"
+      },
+      {
+        "caption": "Run",
+        "url": "https://example.test/"
+      },
+      {
+        "caption": "Run",
+        "url": "https://example.test/"
+      },
+      {
+        "caption": "Run",
+        "url": "https://example.test/"
+      },
+      {
+        "caption": "Run",
+        "url": "https://example.test/"
+      },
+      {
+        "caption": "Run",
+        "url": "https://example.test/"
+      },
+      {
+        "caption": "Run",
+        "url": "https://example.test/"
+      }
+    ],
+    "valid": false
+  },
+  {
+    "name": "before after pair",
+    "evidence": [
+      {
+        "caption": "Pair",
+        "before": {
+          "url": "https://example.test/"
+        },
+        "after": {
+          "image": {
+            "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "mime": "image/png"
+          }
+        }
+      }
+    ],
+    "valid": true
+  },
+  {
+    "name": "six pairs",
+    "evidence": [
+      {
+        "caption": "Pair",
+        "before": {
+          "url": "https://example.test/"
+        },
+        "after": {
+          "url": "https://example.test/"
+        }
+      },
+      {
+        "caption": "Pair",
+        "before": {
+          "url": "https://example.test/"
+        },
+        "after": {
+          "url": "https://example.test/"
+        }
+      },
+      {
+        "caption": "Pair",
+        "before": {
+          "url": "https://example.test/"
+        },
+        "after": {
+          "url": "https://example.test/"
+        }
+      },
+      {
+        "caption": "Pair",
+        "before": {
+          "url": "https://example.test/"
+        },
+        "after": {
+          "url": "https://example.test/"
+        }
+      },
+      {
+        "caption": "Pair",
+        "before": {
+          "url": "https://example.test/"
+        },
+        "after": {
+          "url": "https://example.test/"
+        }
+      },
+      {
+        "caption": "Pair",
+        "before": {
+          "url": "https://example.test/"
+        },
+        "after": {
+          "url": "https://example.test/"
+        }
+      }
+    ],
+    "valid": true
+  },
+  {
+    "name": "missing after",
+    "evidence": [
+      {
+        "caption": "Pair",
+        "before": {
+          "url": "https://example.test/"
+        }
+      }
+    ],
+    "valid": false
+  },
+  {
+    "name": "pair bad URL",
+    "evidence": [
+      {
+        "caption": "Pair",
+        "before": {
+          "url": "https://example.test/"
+        },
+        "after": {
+          "url": "https://a<b.test/"
+        }
+      }
+    ],
+    "valid": false
+  },
+  {
+    "name": "pair with top URL",
+    "evidence": [
+      {
+        "caption": "Pair",
+        "before": {
+          "url": "https://example.test/"
+        },
+        "after": {
+          "url": "https://example.test/"
+        },
+        "url": "https://example.test/"
+      }
+    ],
+    "valid": false
+  },
+  {
+    "name": "both source forms",
+    "evidence": [
+      {
+        "caption": "Run",
+        "url": "https://example.test/",
+        "image": {
+          "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "mime": "image/png"
+        }
+      }
+    ],
+    "valid": false
+  },
+  {
+    "name": "stored path rejected",
+    "evidence": [
+      {
+        "caption": "Run",
+        "image_path": "./image.png"
+      }
+    ],
+    "valid": false
+  },
+  {
+    "name": "nested path rejected",
+    "evidence": [
+      {
+        "caption": "Run",
+        "before": {
+          "url": "https://example.test/"
+        },
+        "after": {
+          "image": {
+            "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "mime": "image/png"
+          },
+          "path": "./image.png"
+        }
+      }
+    ],
+    "valid": false
+  }
+]

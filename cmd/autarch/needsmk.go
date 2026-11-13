@@ -231,8 +231,12 @@ routing comment from it. --project is the tasks project. --ask-file is a JSON ob
 question, options and optionally subject, recommendation, ask_key, project and project_root.
 Optional evidence: at most 6 items, each with caption (1-200 characters) and one HTTPS url,
 image reference {sha256,mime}, or before/after pair of those sources. URLs are at most 2048
-characters, without credentials or controls. Use image_path instead of image at filing time
-to copy a local PNG/JPEG/GIF/WebP (magic checked, 2 MB each, 8 MB per card) into the private
+characters, without credentials or controls.
+URLs use lowercase ASCII LDH hosts or canonical dotted IPv4 and optional decimal port 1-65535;
+userinfo, IPv6, xn-- labels and non-ASCII are refused. Paths/query/fragments use ASCII URI
+characters and checked %HH escapes. Empty or relative AUTARCH_HOME_EVIDENCE selects the default.
+At filing time, use image_path instead of image to copy a regular local PNG/JPEG/GIF/WebP
+(not symbolic links, devices or FIFOs; magic checked, 2 MB each, 8 MB per card) into the private
 store (AUTARCH_HOME_EVIDENCE, default ~/.autarch/home-evidence). Only hash and MIME are stored.
 Evidence is excluded from hashes; changing only evidence is a no-op.
 --move is a home-move/v1 JSON file (script, pr, read or context): the card carries it as a home-move block

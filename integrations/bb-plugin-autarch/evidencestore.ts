@@ -1,11 +1,12 @@
 import { createHash } from "node:crypto";
 import { closeSync, constants, fstatSync, lstatSync, openSync, readSync } from "node:fs";
 import { homedir } from "node:os";
-import { join } from "node:path";
+import { isAbsolute, join } from "node:path";
 import { detectKind } from "./otherimages.js";
 
 export function defaultEvidenceRoot(env: Record<string, string | undefined> = process.env): string {
- return env.AUTARCH_HOME_EVIDENCE ?? join(homedir(), ".autarch", "home-evidence");
+ const override = env.AUTARCH_HOME_EVIDENCE;
+ return override && isAbsolute(override) ? override : join(homedir(), ".autarch", "home-evidence");
 }
 /** Reads a hash, never a supplied path. All failures look like a missing image. */
 export function readEvidence(sha256: string, root = defaultEvidenceRoot()): { ok: true; mime: string; data_base64: string } | { ok: false } {

@@ -7,12 +7,10 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"net/url"
 	"os"
 	"path/filepath"
 	"regexp"
 	"strings"
-	"unicode"
 	"unicode/utf8"
 )
 
@@ -101,7 +99,7 @@ var evidenceHash = regexp.MustCompile(`^[0-9a-f]{64}$`)
 
 func evidenceText(s string) bool {
 	for _, r := range s {
-		if unicode.IsControl(r) {
+		if r <= 0x1f || (r >= 0x7f && r <= 0x9f) {
 			return false
 		}
 	}
@@ -116,8 +114,7 @@ func validateSide(s EvidenceSide) error {
 			return fmt.Errorf("invalid evidence image reference")
 		}
 	} else {
-		u, err := url.Parse(s.URL)
-		if err != nil || len([]rune(s.URL)) > 2048 || !evidenceText(s.URL) || !strings.HasPrefix(s.URL, "https://") || u.Scheme != "https" || u.Hostname() == "" || u.User != nil || strings.ContainsAny(s.URL, "\\ \t\r\n") || strings.IndexFunc(s.URL, unicode.IsSpace) >= 0 {
+		if !evidenceURL(s.URL) {
 			return fmt.Errorf("evidence url must be absolute HTTPS without credentials or controls")
 		}
 	}
@@ -128,7 +125,7 @@ func ValidateEvidence(list []Evidence) error {
 		return fmt.Errorf("evidence takes at most 6 items")
 	}
 	for _, e := range list {
-		if strings.TrimSpace(e.Caption) == "" || utf8.RuneCountInString(e.Caption) > 200 || !evidenceText(e.Caption) {
+		if strings.TrimFunc(e.Caption, evidenceWhitespace) == "" || utf8.RuneCountInString(e.Caption) > 200 || !evidenceText(e.Caption) {
 			return fmt.Errorf("evidence caption must be 1-200 plain text characters")
 		}
 		if e.Before != nil || e.After != nil {
@@ -149,7 +146,7 @@ func ValidateEvidence(list []Evidence) error {
 }
 
 func EvidenceRoot() string {
-	if p := os.Getenv("AUTARCH_HOME_EVIDENCE"); p != "" {
+	if p := os.Getenv("AUTARCH_HOME_EVIDENCE"); p != "" && filepath.IsAbs(p) {
 		return p
 	}
 	home, _ := os.UserHomeDir()
@@ -191,7 +188,11 @@ func evidenceMIME(b []byte) string {
 	return ""
 }
 func evidenceRead(path string) ([]byte, error) {
-	f, err := os.Open(path)
+	before, err := os.Lstat(path)
+	if err != nil || !before.Mode().IsRegular() {
+		return nil, fmt.Errorf("evidence image must be a regular file")
+	}
+	f, err := openEvidenceFile(path)
 	if err != nil {
 		return nil, fmt.Errorf("evidence image unavailable")
 	}
