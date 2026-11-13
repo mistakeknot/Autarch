@@ -3,11 +3,13 @@ package main
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/spf13/cobra"
 
@@ -122,7 +124,7 @@ func TestNeedsMkFileRealServeProbeFailsLoudlyWhenServeIsDown(t *testing.T) {
 	}
 }
 
-// The filer prints card_key once Home has indexed the card, and warns when it had not.
+// An index timeout is an ambiguous outcome, never a successful filing without a key.
 func TestNeedsMkFilePrintsCardKeyFromReadback(t *testing.T) {
 	t.Setenv("BB_THREAD_ID", "thread-x")
 	s := &stubBB{}
@@ -140,7 +142,7 @@ func TestNeedsMkFilePrintsCardKeyFromReadback(t *testing.T) {
 	checkFilingPreconditions = func(string, string) error { return nil }
 	t.Cleanup(func() { checkFilingPreconditions = oldC })
 	stderr, err := execNeedsMkFile("--project", "P1", "--title", "x", "--ask-file", writeAsk(t))
-	if err != nil || !strings.Contains(stderr, "not indexed") {
+	if exitCode(err) != 4 || !strings.Contains(fmt.Sprint(err), "may have been filed") || !strings.Contains(fmt.Sprint(err), "--request") {
 		t.Fatalf("err=%v stderr=%q", err, stderr)
 	}
 }
@@ -159,5 +161,93 @@ func TestNeedsMkFileDefaultsTheProjectToTheBoardBindingInAWorktree(t *testing.T)
 	_, err := execNeedsMkFile("--project", "SHWK", "--title", "Ship?", "--ask-file", ask)
 	if err != nil || gotProject != "shadow-work" {
 		t.Fatalf("err=%v checked project=%q", err, gotProject)
+	}
+}
+
+func TestNeedsMkCardKeyGuarantee(t *testing.T) {
+	for _, mode := range []string{"late", "timeout", "outside", "json", "legacy"} {
+		t.Run(mode, func(t *testing.T) {
+			t.Setenv("BB_THREAD_ID", "thread-x")
+			if mode == "outside" {
+				t.Chdir(t.TempDir())
+				t.Setenv("BB_PROJECT_ID", "other")
+			}
+			s := &stubBB{}
+			oldF, oldC := newCardFiler, checkFilingPreconditions
+			polls := 0
+			indexReady := false
+			newCardFiler = func() *homeask.CardFiler {
+				return &homeask.CardFiler{LockDir: t.TempDir(), ReadbackTimeout: 40 * time.Millisecond, ReadbackInterval: time.Millisecond, Run: func(ctx context.Context, env []string, args ...string) homeask.BBResult {
+					if strings.Join(args[:min(len(args), 3)], " ") == "home get --card" {
+						polls++
+						if (mode == "timeout" && !indexReady) || (mode == "late" && polls < 4) {
+							return homeask.BBResult{Stdout: []byte(`{"card_key":""}`)}
+						}
+						if mode == "outside" {
+							for _, kv := range env {
+								if strings.HasPrefix(kv, "BB_PROJECT_ID=") {
+									t.Fatalf("ambient project leaked: %s", kv)
+								}
+							}
+						}
+						if mode == "legacy" {
+							for _, arg := range args {
+								if arg == "--project" {
+									return homeask.BBResult{Code: 2, Stderr: []byte("unknown option --project")}
+								}
+							}
+						}
+					}
+					return s.run(ctx, env, args...)
+				}}
+			}
+			checkFilingPreconditions = func(string, string) error { return nil }
+			t.Cleanup(func() { newCardFiler, checkFilingPreconditions = oldF, oldC })
+			cmd := needsMkCmd()
+			var out, errs bytes.Buffer
+			cmd.SetOut(&out)
+			cmd.SetErr(&errs)
+			args := []string{"file", "--project", "P1", "--title", "Choice?", "--ask-file", writeAsk(t), "--request", "key-index-test"}
+			if mode == "json" {
+				args = append(args, "--json")
+			}
+			cmd.SetArgs(args)
+			err := cmd.Execute()
+			if mode == "timeout" {
+				if exitCode(err) != 4 || out.Len() != 0 || !strings.Contains(errs.String(), "key-index-test") || !strings.Contains(errs.String(), "may have been filed") {
+					t.Fatalf("exit=%d err=%v stdout=%q", exitCode(err), err, out.String())
+				}
+				// Retry using exactly the key the first invocation printed.
+				_, after, ok := strings.Cut(errs.String(), "--request ")
+				if !ok {
+					t.Fatalf("missing retry key: %s", errs.String())
+				}
+				key := strings.Fields(after)[0]
+				args[len(args)-1] = key
+				indexReady = true
+				out.Reset()
+				errs.Reset()
+				retry := needsMkCmd()
+				retry.SetOut(&out)
+				retry.SetErr(&errs)
+				retry.SetArgs(args)
+				err = retry.Execute()
+				var replay homeask.CardResult
+				if err != nil || json.Unmarshal(out.Bytes(), &replay) != nil || !replay.Replay || replay.CardKey == "" || replay.Key != key || s.creates != 1 {
+					t.Fatalf("retry err=%v result=%+v creates=%d stdout=%q", err, replay, s.creates, out.String())
+				}
+				return
+			}
+			var res homeask.CardResult
+			if err != nil || json.Unmarshal(out.Bytes(), &res) != nil || res.CardKey == "" {
+				t.Fatalf("err=%v stdout=%q polls=%d", err, out.String(), polls)
+			}
+		})
+	}
+}
+
+func TestNeedsMkReadbackAllowsSlowIndex(t *testing.T) {
+	if readbackTimeout != 30*time.Second {
+		t.Fatalf("readback timeout=%s, want 30s", readbackTimeout)
 	}
 }

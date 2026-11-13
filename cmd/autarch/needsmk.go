@@ -27,7 +27,7 @@ var newCardFiler = func() *homeask.CardFiler {
 }
 
 // readbackTimeout bounds how long a filing waits for Home to index the new card and report its card_key.
-const readbackTimeout = 5 * time.Second
+const readbackTimeout = 30 * time.Second
 
 // checkFilingPreconditions runs before anything is created: serve must be up and the ask's
 // project_root must be the root it resolves for the ask's project. Tests replace it.
@@ -228,7 +228,14 @@ func needsMkFileCmd() *cobra.Command {
 		Use:   "file",
 		Short: "File a needs-mk card from the asking thread; prints the card as one JSON line",
 		Long: `Run inside the asking thread ($BB_THREAD_ID is required): the filer posts the
-routing comment from it. --project is the tasks project. --ask-file is a JSON object with
+routing comment from it. Success prints JSON with a non-empty card_key (--json is also accepted).
+After filing, waits up to 30 seconds for Home's index. If the key remains missing, exits 4
+with no success JSON: the card may have been filed. The error gives the request key;
+re-run with that same --request and unchanged input to replay without duplicating it.
+Readback clears ambient project context and checks the card's Tasks project in Go,
+independent of the working directory; it also works with older Home plugins.
+If Tasks returns no project id, readback does not filter by project.
+--project is the tasks project. --ask-file is a JSON object with
 question, options and optionally subject, recommendation, ask_key, project and project_root.
 Optional evidence: at most 6 items, each with caption (1-200 characters) and one HTTPS url,
 image reference {sha256,mime}, or before/after pair of those sources. URLs are at most 2048
@@ -388,18 +395,28 @@ Any other urgency is refused. It works on every kind of card; a machine blocker 
 				}
 				req.Key = homeask.DerivedKey(thread, ident)
 			}
+			if filer.ReadbackTimeout <= 0 {
+				filer.ReadbackTimeout = readbackTimeout
+			}
 			res, err := filer.FileOrUpdateCard(ctx, req, supersedes)
 			if err != nil {
+				// needs-mk silences Cobra errors, so print recovery details explicitly.
+				if res.ID != "" && res.CardKey == "" {
+					fmt.Fprintln(cmd.ErrOrStderr(), err)
+				}
 				return err
 			}
-			if filer.ReadbackTimeout > 0 && res.CardKey == "" {
-				fmt.Fprintf(cmd.ErrOrStderr(), "warning: card %s is filed but Home has not indexed it yet (card_key not indexed within %s); read it with `bb home get --card %s --json`\n", res.ID, filer.ReadbackTimeout, res.ID)
+			if strings.TrimSpace(res.CardKey) == "" {
+				err := fmt.Errorf("%w: card may have been filed; card_key is missing; re-run with --request %s", homeask.ErrOutcomeUnknown, res.Key)
+				fmt.Fprintln(cmd.ErrOrStderr(), err)
+				return err
 			}
 			out, _ := json.Marshal(res)
 			fmt.Fprintln(cmd.OutOrStdout(), string(out))
 			return nil
 		},
 	}
+	cmd.Flags().Bool("json", false, "Print JSON (the default and only format); success always includes a non-empty card_key")
 	cmd.Flags().StringVar(&project, "project", "", "Tasks project (id, key or name)")
 	cmd.Flags().StringVar(&title, "title", "", "Card title")
 	cmd.Flags().StringArrayVar(&blocks, "blocks", nil, "Blocks ref (bead:ID, thread:thr_ID, project:ID); repeatable")

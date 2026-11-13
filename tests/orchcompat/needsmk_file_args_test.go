@@ -347,21 +347,53 @@ func TestWarnings(t *testing.T) {
 		wantCode(t, r, 0)
 		t.Logf("stderr = %q", r.Stderr)
 	})
-	t.Run("the card key is not indexed within five seconds", func(t *testing.T) {
+	t.Run("an unindexed card exits with recovery details and replays once ready", func(t *testing.T) {
 		e := newEnv(t)
 		e.update(func(s *fbState) { s.CardKeyAfter = -1 })
-		r := e.autarch(fileArgs(e.writeFile("a.json", askJSON(nil)))...)
-		wantCode(t, r, 0)
-		want := "warning: card T1 is filed but Home has not indexed it yet (card_key not indexed within 5s); read it with `bb home get --card T1 --json`\n"
-		if r.Stderr != want {
-			t.Errorf("stderr = %q, want %q", r.Stderr, want)
+		ask := e.writeFile("a.json", askJSON(nil))
+		r := e.autarch(fileArgs(ask)...)
+		// Diagnose the readback contract independently of the command's result.
+		// Both Tasks creation and Home readback must carry the canonical Tasks id.
+		st := e.st()
+		if len(st.Tasks) != 1 || st.Tasks[0].Project != "P1" {
+			t.Fatalf("created tasks = %+v, want one in P1", st.Tasks)
 		}
-		got := parseFiled(t, r)
-		if got.CardKey != "" || got.Card != "T1" {
-			t.Errorf("filed = %+v, want card T1 without a card_key", got)
+		code, raw, stderr := fbDispatch(st, []string{"home", "get", "--card", st.Tasks[0].ID, "--json"}, &fbCall{})
+		var view struct {
+			Project string `json:"project_id"`
+			Key     string `json:"card_key"`
 		}
-		if strings.Contains(r.Stdout, "card_key") {
-			t.Errorf("stdout %q carries card_key, want it omitted", r.Stdout)
+		if code != 0 || json.Unmarshal([]byte(raw), &view) != nil || view.Project != st.Tasks[0].Project || view.Key != "" {
+			t.Fatalf("readback exit=%d stdout=%q stderr=%q; want matching project and deliberately missing key", code, raw, stderr)
+		}
+		t.Logf("created project=%q readback project=%q key=%q CardKeyAfter=%d", st.Tasks[0].Project, view.Project, view.Key, st.CardKeyAfter)
+		wantCode(t, r, 4, "card T1 may have been filed", "card_key was not indexed within 30s", "unchanged input to replay without duplicating it")
+		if r.Stdout != "" {
+			t.Fatalf("stdout = %q, want no success JSON after a timeout", r.Stdout)
+		}
+		_, after, ok := strings.Cut(r.Stderr, "--request ")
+		if !ok || len(strings.Fields(after)) == 0 {
+			t.Fatalf("stderr %q lacks the retry request key", r.Stderr)
+		}
+		key := strings.Fields(after)[0]
+		original := st.Tasks[0]
+		request := requestLineRe.FindStringSubmatch(original.Desc)
+		if len(request) != 3 || key != request[1] {
+			t.Fatalf("printed retry key %q does not match the filed Request: %v", key, request)
+		}
+		e.update(func(s *fbState) { s.CardKeyAfter = 0 })
+		retry := e.autarch(fileArgs(ask, "--request", key)...)
+		wantCode(t, retry, 0)
+		want := filed{Card: original.ID, Request: key, Project: original.Project, Replay: true, CardKey: "CK-" + original.ID}
+		if got := parseFiled(t, retry); got != want {
+			t.Errorf("retry = %+v, want %+v", got, want)
+		}
+		afterRetry := e.st()
+		if len(afterRetry.Tasks) != 1 || afterRetry.Tasks[0].ID != original.ID || afterRetry.Tasks[0].Desc != original.Desc || len(afterRetry.Tasks[0].Comments) != 1 {
+			t.Errorf("retry changed the card or duplicated its routing: %+v", afterRetry.Tasks)
+		}
+		if creates, comments := len(e.callsWith("tasks", "create")), len(e.callsWith("tasks", "comment")); creates != 1 || comments != 1 {
+			t.Errorf("two invocations made %d creates and %d comments, want one of each", creates, comments)
 		}
 	})
 }

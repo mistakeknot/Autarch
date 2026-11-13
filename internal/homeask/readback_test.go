@@ -2,6 +2,7 @@ package homeask
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"testing"
 	"time"
@@ -19,7 +20,7 @@ func TestFileCardPollsUntilHomeHasTheCardKey(t *testing.T) {
 		if polls < 3 {
 			return badRes(1, "unknown card")
 		}
-		r := okRes(map[string]any{"task_id": args[3], "card_key": "ck-1"})
+		r := okRes(map[string]any{"task_id": args[3], "project_id": "P1", "card_key": "ck-1"})
 		return &r
 	}
 	fl := f.filer()
@@ -30,7 +31,7 @@ func TestFileCardPollsUntilHomeHasTheCardKey(t *testing.T) {
 	}
 }
 
-// The poll is bounded: a Home that never indexes the card leaves card_key empty and does not fail the filing.
+// The poll is bounded: a Home that never indexes the card returns an ambiguous outcome with the retry request key.
 func TestFileCardReadbackIsBounded(t *testing.T) {
 	f := newFake(t, registryOnCreate)
 	f.fail = func(args []string) *BBResult {
@@ -43,7 +44,7 @@ func TestFileCardReadbackIsBounded(t *testing.T) {
 	fl.ReadbackTimeout, fl.ReadbackInterval = 30*time.Millisecond, 5*time.Millisecond
 	start := time.Now()
 	res, err := fl.FileCard(context.Background(), testReq())
-	if err != nil || res.ID != "T1" || res.CardKey != "" {
+	if !errors.Is(err, ErrOutcomeUnknown) || res.ID != "T1" || !strings.Contains(err.Error(), res.Key) {
 		t.Fatalf("res=%+v err=%v", res, err)
 	}
 	if time.Since(start) > 2*time.Second {
@@ -70,7 +71,7 @@ func TestFileCardReadbackBoundsAStalledRead(t *testing.T) {
 	fl.ReadbackTimeout, fl.ReadbackInterval = 100*time.Millisecond, 10*time.Millisecond
 	start := time.Now()
 	res, err := fl.FileCard(context.Background(), testReq())
-	if err != nil || res.ID != "T1" || res.CardKey != "" {
+	if !errors.Is(err, ErrOutcomeUnknown) || res.ID != "T1" || !strings.Contains(err.Error(), res.Key) {
 		t.Fatalf("res=%+v err=%v", res, err)
 	}
 	if d := time.Since(start); d > 2*time.Second {
@@ -86,5 +87,46 @@ func TestFileCardWithoutReadbackTimeoutDoesNotPoll(t *testing.T) {
 	}
 	if n := f.count("home", "get", "--card"); n != 0 {
 		t.Fatalf("%d card reads", n)
+	}
+}
+
+func TestCardReadbackWithLegacyPlugin(t *testing.T) {
+	f := newFake(t, registryOnCreate)
+	f.fail = func(args []string) *BBResult {
+		if strings.Join(args[:min(len(args), 3)], " ") != "home get --card" {
+			return nil
+		}
+		for _, arg := range args {
+			if arg == "--project" {
+				return badRes(2, "unknown option --project")
+			}
+		}
+		r := okRes(CardView{TaskID: args[3], ProjectID: "P1", CardKey: "P1-1"})
+		return &r
+	}
+	fl := f.filer()
+	fl.ReadbackTimeout = 20 * time.Millisecond
+	fl.ReadbackInterval = time.Millisecond
+	res, err := fl.FileCard(context.Background(), testReq())
+	if err != nil || res.CardKey != "P1-1" {
+		t.Fatalf("res=%+v err=%v", res, err)
+	}
+}
+
+func TestCardReadbackProjectCheck(t *testing.T) {
+	for _, project := range []string{"P1", "other", ""} {
+		t.Run("project="+project, func(t *testing.T) {
+			fl := CardFiler{Run: func(context.Context, []string, ...string) BBResult {
+				return okRes(CardView{TaskID: "T1", ProjectID: "P1", CardKey: "P1-1"})
+			}}
+			view, err := fl.cardInProject(context.Background(), "T1", project)
+			if project == "other" {
+				if err == nil {
+					t.Fatalf("accepted a card from project %q", view.ProjectID)
+				}
+			} else if err != nil || view.CardKey != "P1-1" {
+				t.Fatalf("view=%+v err=%v", view, err)
+			}
+		})
 	}
 }

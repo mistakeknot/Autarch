@@ -67,7 +67,7 @@ export function homeCli(p: HomeCliParts) {
   };
 
   const cardView = (taskId: string) => {
-    const c = svc.store.db.prepare("SELECT task_id, project_id, card_key, title, state, asking_thread, routing_mode FROM cards WHERE task_id = ?").get(taskId) as Record<string, unknown> | undefined;
+    const c = svc.store.db.prepare("SELECT task_id, project_id, card_key, title, state, asking_thread, routing_mode FROM cards WHERE task_id = ?").get(taskId) as (Record<string, unknown> & { project_id: string }) | undefined;
     if (!c) return undefined;
     const g = svc.store.db.prepare("SELECT id, generation FROM decisions WHERE task_id = ? ORDER BY generation DESC LIMIT 1").get(taskId) as { id: string; generation: number } | undefined;
     // time_to_answer is additive: null for a card whose ask never carried urgency "blocker" and so never pushed.
@@ -92,6 +92,7 @@ export function homeCli(p: HomeCliParts) {
         summary: "Look up a card, a filed ask by request key, or a legacy decision id",
         options: {
           card: { type: "string", description: "A tasks card (task) id." },
+          project: { type: "string", description: "Tasks project id for --card; empty means no filter, independent of the working directory." },
           request: { type: "string", description: "The request key: a card's, or a pre-card ask's request id." },
           "request-id": { type: "string", description: "Alias of --request." },
           id: { type: "string", description: "A decision id." },
@@ -101,7 +102,7 @@ export function homeCli(p: HomeCliParts) {
         run({ options }) {
           if (options.card !== undefined) {
             const c = cardView(options.card);
-            return c ? out(c) : err(1, "unknown card");
+            return c && (!options.project || c.project_id === options.project) ? out(c) : err(1, options.project ? "unknown card in the requested project" : "unknown card");
           }
           const key = options.request ?? options["request-id"];
           if (key !== undefined) {

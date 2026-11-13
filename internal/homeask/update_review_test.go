@@ -137,7 +137,7 @@ func TestAskKeyReportsPickDuringUpdate(t *testing.T) {
 			updated = true
 		}
 		if updated && strings.Join(args[:min(3, len(args))], " ") == "home get --card" {
-			v := okRes(CardView{TaskID: args[3], State: "ruled", DecisionState: "picked"})
+			v := okRes(CardView{TaskID: args[3], ProjectID: "P1", State: "ruled", DecisionState: "picked"})
 			return &v
 		}
 		return old(args)
