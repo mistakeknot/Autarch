@@ -13,6 +13,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { defineRpcContract, type BbPluginApi } from "@get-bb/plugin-sdk";
 import { homeMethods } from "./contract.js";
+import { readTargetEvidence } from "./picktarget.js";
 import { sourceSha256 } from "./scripts/source-hash.mjs";
 import { Asks } from "./asks.js";
 import { Catchup } from "./catchup.js";
@@ -264,6 +265,7 @@ export function wireHome(bb: BbPluginApi, handle: StoreHandle, cfg: HomeConfig, 
     new Proxy({} as T, { get: (_t, k) => (pick(need()) as Record<string | symbol, unknown>)[k] });
   bb.cli.register(
     homeCli({
+      readTargetEvidence: (threadId) => readTargetEvidence(bb.sdk, threadId),
       svc: lazy((p) => p.svc),
       asks: lazy((p) => p.asks),
       catchup: lazy((p) => p.catchup),
@@ -560,7 +562,7 @@ export function wireHome(bb: BbPluginApi, handle: StoreHandle, cfg: HomeConfig, 
         filed_at: d.filed_at,
         revision: d.revision,
         task_id: d.task_id ?? null,
-        ...owedAsk(d.body_json),
+        ...owedAsk(d.body_json, d.source),
         mentions: p.store.mentions(d.id).length,
       }));
       let machineOwners: unknown = {};

@@ -9,7 +9,7 @@ import { parseSubjectKey, parseSignals, type SubjectKey, type Signals } from "./
 
 import { validateStopped } from "./stopped.js";
 import { createHash } from "node:crypto";
-import { canonicalJson, normalizedJson, parseExistingAsk, type Ask } from "./model.js";
+import { canonicalJson, normalizedJson, parseStoredCardAsk, type Ask } from "./model.js";
 import { parseMove, type Move } from "./moves.js";
 import { validateEvidence } from "./evidence.js";
 import { validateGroup } from "./group.js";
@@ -253,7 +253,7 @@ export function toV1(card: Pick<Card, "ask" | "pull">, thread: string): Ask {
     v1.thread = thread;
   }
   try {
-    return parseExistingAsk(v1);
+    return parseStoredCardAsk(v1);
   } catch (e) {
     return fail(`home-ask: ${(e as Error).message}`);
   }

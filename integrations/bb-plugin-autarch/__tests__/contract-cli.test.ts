@@ -24,6 +24,16 @@ const mirrored = Object.entries(homeCliMap).flatMap(([method, m]) => ("verb" in 
 const rpcOnly = Object.entries(homeCliMap).flatMap(([method, m]) => ("rpcOnly" in m ? [{ method, why: m.rpcOnly }] : []));
 
 describe("the CLI and the RPC contract", () => {
+  it("advertises only declaration and target lookup capabilities", async () => {
+    const result = await cli.run(["capabilities", "--json"], {});
+    expect(result.exitCode).toBe(0);
+    expect(JSON.parse(result.stdout!)).toEqual({ schema: 1, on_pick: [1], target_lookup: [1] });
+  });
+  it("target lookup refuses unavailable host evidence", async () => {
+    const result = await cli.run(["target", "--thread", "thr_target", "--json"], {});
+    expect(result.exitCode).toBe(1);
+    expect(result.stderr).toContain("unavailable");
+  });
   it("map every RPC method exactly once, and nothing else", () => {
     expect(Object.keys(homeCliMap).sort()).toEqual(Object.keys(homeMethods).sort());
   });

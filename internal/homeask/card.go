@@ -242,6 +242,9 @@ func parseBlocks(texts []string) ([]BlockRef, error) {
 }
 
 func parseWireAsk(body string, c *Card) error {
+	if strings.Contains(body, `"on_pick"`) && !scalarJSON([]byte(body)) {
+		return errors.New("on_pick: invalid Unicode scalar text")
+	}
 	dec := json.NewDecoder(strings.NewReader(body))
 	dec.UseNumber()
 	var v any
@@ -444,7 +447,7 @@ func (c Card) ToV1(thread string) (Ask, error) {
 	if err != nil {
 		return Ask{}, err
 	}
-	a, err := parseExistingAsk(raw)
+	a, err := parseAskSource(raw, false, true)
 	if err != nil {
 		return Ask{}, fmt.Errorf("home-ask: %w", err)
 	}

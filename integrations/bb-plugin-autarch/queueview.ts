@@ -145,7 +145,7 @@ export function buildQueue(svc: Service, asks: Asks, opts: { thread?: string } =
     const refs = refsOf(d.id);
     const over = svc.store.overriddenRuling(d.id);
     const prior = over ? (svc.store.decision(over.decision_id) as { generation: number | null } | undefined) : undefined;
-    const ask = readAsk(d.body_json);
+    const ask = readAsk(d.body_json, {}, d.source);
     const rootOk = c?.root_state === "verified";
     rows.push({
       id: d.id,
@@ -247,7 +247,7 @@ export function buildQueue(svc: Service, asks: Asks, opts: { thread?: string } =
     rows: sortRows(rows),
     legacy: {
       count: legacyOwed.length + runbook.reduce((n, g) => n + g.items.length, 0) + machine.lane.length + machine.asks.length,
-      owed: legacyOwed.map((d) => ({ id: d.id, project: d.project, thread: d.thread, subject: d.subject, filed_at: String(d.filed_at), revision: d.revision, mentions: svc.store.mentions(d.id).length, ...owedAsk(d.body_json) })),
+      owed: legacyOwed.map((d) => ({ id: d.id, project: d.project, thread: d.thread, subject: d.subject, filed_at: String(d.filed_at), revision: d.revision, mentions: svc.store.mentions(d.id).length, ...owedAsk(d.body_json, d.source) })),
       runbook,
       machine,
     },

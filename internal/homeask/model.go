@@ -26,12 +26,13 @@ import (
 
 // Option is one answer mk can pick.
 type Option struct {
-	ID          string    `json:"id,omitempty"`
-	Label       string    `json:"label"`
-	Kind        string    `json:"kind,omitempty"`
-	Reversible  bool      `json:"reversible,omitempty"`
-	Instruction string    `json:"instruction,omitempty"`
-	Approval    *Approval `json:"approval,omitempty"`
+	OnPick      json.RawMessage `json:"on_pick,omitempty"`
+	ID          string          `json:"id,omitempty"`
+	Label       string          `json:"label"`
+	Kind        string          `json:"kind,omitempty"`
+	Reversible  bool            `json:"reversible,omitempty"`
+	Instruction string          `json:"instruction,omitempty"`
+	Approval    *Approval       `json:"approval,omitempty"`
 }
 
 // Approval is the spec an option may carry (P-12). It makes the option
@@ -121,6 +122,10 @@ func Parse(data []byte) (Ask, error) { return parseAsk(data, true) }
 func parseExistingAsk(data []byte) (Ask, error) { return parseAsk(data, false) }
 
 func parseAsk(data []byte, requireStopped bool) (Ask, error) {
+	return parseAskSource(data, requireStopped, false)
+}
+
+func parseAskSource(data []byte, requireStopped, cardSource bool) (Ask, error) {
 	var fields map[string]json.RawMessage
 	if err := json.Unmarshal(data, &fields); err == nil {
 		var m map[string]any
@@ -155,6 +160,16 @@ func parseAsk(data []byte, requireStopped bool) (Ask, error) {
 	}
 	if _, err := dec.Token(); err != io.EOF {
 		return Ask{}, errors.New("invalid ask: trailing data after the JSON value")
+	}
+	for _, o := range a.Options {
+		if len(o.OnPick) > 0 {
+			if !cardSource || a.Kind != "decide" || a.Asker != "thread" || len(a.Questions) > 0 {
+				return Ask{}, errors.New("on_pick requires card source")
+			}
+			if _, err := ValidateOnPick(o.OnPick, o, CardValidationContext{Source: "card"}); err != nil {
+				return Ask{}, err
+			}
+		}
 	}
 	return Normalize(a)
 }
@@ -342,6 +357,12 @@ func normalize(in Ask) (Ask, []Problem) {
 	}
 	for i := range a.Options {
 		o := &a.Options[i]
+		if len(o.OnPick) > 0 {
+			if _, err := ValidateOnPick(o.OnPick, *o, CardValidationContext{Source: "card"}); err != nil {
+				ps.add("on_pick", err.Error())
+			}
+			o.OnPick = append(json.RawMessage(nil), o.OnPick...)
+		}
 		for _, s := range []struct {
 			field string
 			p     *string
@@ -656,6 +677,14 @@ func optionNode(o Option) map[string]any {
 		m["approval"] = map[string]any{"kind": o.Approval.Kind, "target": o.Approval.Target,
 			"identity": o.Approval.Identity, "ttl": o.Approval.TTL}
 	}
+	if len(o.OnPick) > 0 {
+		var v any
+		d := json.NewDecoder(bytes.NewReader(o.OnPick))
+		d.UseNumber()
+		_ = d.Decode(&v)
+		v, _ = fromDecoded(v)
+		m["on_pick"] = v
+	}
 	return m
 }
 
@@ -853,6 +882,10 @@ func prune(v any) any {
 	case map[string]any:
 		out := map[string]any{}
 		for k, e := range x {
+			if k == "on_pick" {
+				out[k] = e
+				continue
+			}
 			p := prune(e)
 			if !empty(p) {
 				out[k] = p

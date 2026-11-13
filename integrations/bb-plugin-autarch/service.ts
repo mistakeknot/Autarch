@@ -240,10 +240,12 @@ export class Service {
     return this.store.decision(id) as Row | undefined;
   }
   private askOf(d: Row): Ask {
-    return parseExistingAsk(JSON.parse(d.body_json));
+    const ask = readAsk(d.body_json, {}, d.source);
+    if (!ask) throw new Error("unreadable stored ask");
+    return ask;
   }
   private labelOf(d: Row, optionId: string): string {
-    return readAsk(d.body_json)?.options?.find((o) => o.id === optionId)?.label ?? optionId;
+    return readAsk(d.body_json, {}, d.source)?.options?.find((o) => o.id === optionId)?.label ?? optionId;
   }
   private replacementOf(id: string): string | undefined {
     return (this.db.prepare("SELECT id FROM decisions WHERE supersedes = ?").get(id) as { id: string } | undefined)?.id;
@@ -462,7 +464,7 @@ export class Service {
     if (!d) return { ok: false, status: 404, error: "unknown decision" };
     if (d.kind === "steps") return this.pickSteps(d, optionId, rev, pickId, by, surface);
     if (d.kind !== "decide") return { ok: false, status: 400, error: "only decide and steps asks take a pick" };
-    const ask = readAsk(d.body_json);
+    const ask = readAsk(d.body_json, {}, d.source);
     if (!ask) return UNREADABLE_PICK;
     if (revision(ask) !== d.revision) return { ok: false, status: 500, error: "stored revision does not match the stored decision" };
     if (d.source === "card") {
@@ -609,7 +611,7 @@ export class Service {
   tellUnreadable(): number {
     let told = 0;
     for (const d of this.owed()) {
-      if (readAsk(d.body_json)) continue;
+      if (readAsk(d.body_json, {}, d.source)) continue;
       const taskId = d.task_id ? String(d.task_id) : null;
       const asker = (taskId ? (this.db.prepare("SELECT asking_thread FROM cards WHERE task_id = ?").get(taskId) as { asking_thread: string | null } | undefined)?.asking_thread : null) || d.thread;
       if (!asker) continue;
@@ -668,7 +670,7 @@ export class Service {
     const prior = settled(this.store.pick(d.id));
     if (prior) return prior;
     if (this.store.pickByPickId(pickId)) return { ok: false, status: 409, error: "pick id reused" };
-    const ask = readAsk(d.body_json);
+    const ask = readAsk(d.body_json, {}, d.source);
     if (!ask) return UNREADABLE_PICK;
     const threads = [...new Set([d.thread, ...this.store.mentions(d.id).map((m) => m.thread)].filter((t) => t !== ""))];
     const obligations: ObligationInput[] = threads.map((t) => ({
@@ -1851,8 +1853,8 @@ export class Service {
       const taskId = d.task_id ? String(d.task_id) : null;
       // A legacy ask has no card: its key is the first generation of its supersedes chain, so every generation shares it.
       const key = this.cardKey(taskId) ?? taskId ?? group;
-      const title = (this.cardTitle(taskId) || d.subject || String(readAsk(d.body_json)?.question ?? "")).slice(0, 120);
-      const ask = readAsk(d.body_json);
+      const title = (this.cardTitle(taskId) || d.subject || String(readAsk(d.body_json, {}, d.source)?.question ?? "")).slice(0, 120);
+      const ask = readAsk(d.body_json, {}, d.source);
       const clean = (text: string) => text.replace(/\p{Cc}/gu, " ").replace(/\s+/gu, " ").trim();
       const clip = (text: string, limit: number) => [...clean(text)].slice(0, limit).join("");
       // Reserve room for both pieces; code-point slicing never splits an astral character.

@@ -1,3 +1,4 @@
+import { parseOnPick, type OnPick } from "./onpick.js";
 import { validateStopped } from "./stopped.js";
 // The TypeScript side of the Home ask protocol: the shared filing request
 // (schema/home-ask/v1), its validation and defaults, and the three hashes
@@ -29,6 +30,7 @@ export interface AskOption {
   reversible?: boolean;
   instruction?: string;
   approval?: Approval;
+  on_pick?: OnPick;
 }
 
 /** One option of a sub-question: a label and an optional one-line detail shown under it. */
@@ -170,7 +172,9 @@ export function parseAsk(input: unknown): Ask { return parseAskValue(input, true
 /** Read an existing ask; legacy blockers can omit stopped. Present values remain validated. */
 export function parseExistingAsk(input: unknown): Ask { return parseAskValue(input, false); }
 
-function parseAskValue(input: unknown, requireStopped: boolean): Ask {
+export function parseStoredCardAsk(input: unknown): Ask { return parseAskValue(input, false, true); }
+
+function parseAskValue(input: unknown, requireStopped: boolean, cardSource = false): Ask {
   const o = obj(input, "ask");
   known(o, TOP_FIELDS, "ask");
   const a: Record<string, unknown> = {};
@@ -185,7 +189,7 @@ function parseAskValue(input: unknown, requireStopped: boolean): Ask {
     if (!Array.isArray(o.options)) fail("invalid ask: options must be an array");
     a.options = (o.options as unknown[]).map((raw) => {
       const p = obj(raw, "option");
-      known(p, OPTION_FIELDS, "option");
+      known(p, cardSource ? [...OPTION_FIELDS, "on_pick"] : OPTION_FIELDS, "option");
       const opt: Record<string, unknown> = { id: str(p, "id"), label: str(p, "label"), kind: str(p, "kind"), instruction: str(p, "instruction") };
       if (p.reversible !== undefined && p.reversible !== null) {
         if (typeof p.reversible !== "boolean") fail("invalid ask: reversible must be a boolean");
@@ -200,6 +204,10 @@ function parseAskValue(input: unknown, requireStopped: boolean): Ask {
           ap.ttl = q.ttl;
         }
         opt.approval = ap;
+      }
+      if (Object.hasOwn(p, "on_pick")) {
+        if (o.kind !== "decide" || o.asker !== "thread" || o.questions) fail("on_pick requires a thread card decision");
+        opt.on_pick = parseOnPick(p.on_pick, p as unknown as AskOption, { source: "card" });
       }
       return opt;
     });
@@ -321,6 +329,7 @@ function normalize(input: Ask): { ask?: Ask; problems: Problem[] } {
         kind: (o.kind ?? "") as OptionKind,
         instruction: clean("instruction", o.instruction ?? ""),
       };
+      if (o.on_pick !== undefined) opt.on_pick = parseOnPick(o.on_pick, o, { source: "card" });
       if (o.reversible) opt.reversible = true;
       if (o.approval) {
         opt.approval = {
@@ -527,6 +536,7 @@ function prune(v: Node): Node {
   if (v !== null && typeof v === "object") {
     const out: { [k: string]: Node } = {};
     for (const [k, e] of Object.entries(v)) {
+      if (k === "on_pick") { out[k] = e; continue; }
       const p = prune(e);
       if (!isEmpty(p)) out[k] = p;
     }
@@ -568,6 +578,7 @@ const sha = (v: Node) => createHash("sha256").update(canon(v)).digest("hex");
 function optionNode(o: AskOption): Node {
   const n: { [k: string]: Node } = { id: o.id, label: o.label, kind: o.kind, instruction: o.instruction, reversible: o.reversible ?? false };
   if (o.approval) n.approval = { kind: o.approval.kind, target: o.approval.target, identity: o.approval.identity, ttl: o.approval.ttl ?? 0 };
+  if (o.on_pick) n.on_pick = JSON.parse(JSON.stringify(o.on_pick));
   return n;
 }
 const optionsNode = (os?: AskOption[]): Node => (os ?? []).map(optionNode);
