@@ -351,6 +351,21 @@ func TestWarnings(t *testing.T) {
 		e := newEnv(t)
 		e.update(func(s *fbState) { s.CardKeyAfter = -1 })
 		r := e.autarch(fileArgs(e.writeFile("a.json", askJSON(nil)))...)
+		// Diagnose the readback contract independently of the command's result.
+		// Both Tasks creation and Home readback must carry the canonical Tasks id.
+		st := e.st()
+		if len(st.Tasks) != 1 || st.Tasks[0].Project != "P1" {
+			t.Fatalf("created tasks = %+v, want one in P1", st.Tasks)
+		}
+		code, raw, stderr := fbDispatch(st, []string{"home", "get", "--card", st.Tasks[0].ID, "--json"}, &fbCall{})
+		var view struct {
+			Project string `json:"project_id"`
+			Key     string `json:"card_key"`
+		}
+		if code != 0 || json.Unmarshal([]byte(raw), &view) != nil || view.Project != st.Tasks[0].Project || view.Key != "" {
+			t.Fatalf("readback exit=%d stdout=%q stderr=%q; want matching project and deliberately missing key", code, raw, stderr)
+		}
+		t.Logf("created project=%q readback project=%q key=%q CardKeyAfter=%d", st.Tasks[0].Project, view.Project, view.Key, st.CardKeyAfter)
 		wantCode(t, r, 0)
 		want := "warning: card T1 is filed but Home has not indexed it yet (card_key not indexed within 5s); read it with `bb home get --card T1 --json`\n"
 		if r.Stderr != want {
