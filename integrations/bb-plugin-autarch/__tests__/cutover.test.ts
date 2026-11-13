@@ -60,8 +60,8 @@ const rulingFiles = () => {
 };
 
 describe("cutover: a populated v2 database drains in place under v3", () => {
-  it("the fixture really is v2 data: schema 6 now, with a backup, and legacy rows (no card)", () => {
-    expect(svc.store.db.prepare("SELECT value FROM schema_meta WHERE key='schema_version'").get()).toEqual({ value: 6 });
+  it("the fixture really is v2 data: schema 7 now, with a backup, and legacy rows (no card)", () => {
+    expect(svc.store.db.prepare("SELECT value FROM schema_meta WHERE key='schema_version'").get()).toEqual({ value: 7 });
     const log = svc.store.db.prepare("SELECT backup_path FROM migration_log").all() as { backup_path: string }[];
     expect(log).toHaveLength(4);
     expect(existsSync(log[0]!.backup_path)).toBe(true);

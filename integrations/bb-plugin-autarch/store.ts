@@ -172,6 +172,8 @@ export interface ObligationInput {
   kind: string;
   recipient?: string | null;
   payload?: string | null;
+  /** Pick-time rendering choice; null on legacy and unrelated obligations. */
+  thin?: 0 | 1 | null;
   op?: string | null;
   after_id?: string | null;
   next_try_at?: string;
@@ -185,6 +187,7 @@ export interface ObligationRow {
   attempt: number;
   recipient: string | null;
   payload: string | null;
+  thin: 0 | 1 | null;
   op: string | null;
   after_id: string | null;
   voided_at: string | null;
@@ -819,14 +822,15 @@ export class Store {
   private insertObligationRows(decisionId: string, rows: ObligationInput[], ignoreDup: boolean): number {
     const now = this.now();
     const stmt = this.db.prepare(
-      `INSERT ${ignoreDup ? "OR IGNORE " : ""}INTO obligations(id, decision_id, kind, recipient, payload, op, after_id, next_try_at, updated_at)
-       VALUES (@id, @decision_id, @kind, @recipient, @payload, @op, @after_id, @next_try_at, @now)`,
+      `INSERT ${ignoreDup ? "OR IGNORE " : ""}INTO obligations(id, decision_id, kind, recipient, payload, thin, op, after_id, next_try_at, updated_at)
+       VALUES (@id, @decision_id, @kind, @recipient, @payload, @thin, @op, @after_id, @next_try_at, @now)`,
     );
     let n = 0;
     for (const o of rows) {
       n += stmt.run({
         recipient: null,
         payload: null,
+        thin: null,
         op: null,
         after_id: null,
         ...o,

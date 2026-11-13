@@ -264,19 +264,19 @@ describe("v4 migration (moves)", () => {
 
     const logs: string[] = [];
     const db = new Database(file);
-    expect(migrate(db, { log: { info: (m) => logs.push(m) } })).toEqual({ schemaVersion: 6, minReaderVersion: 3 });
-    expect(logs.some((l) => l.startsWith("autarch: schema 3 → 6; backup ") && l.includes("verified"))).toBe(true);
+    expect(migrate(db, { log: { info: (m) => logs.push(m) } })).toEqual({ schemaVersion: 7, minReaderVersion: 3 });
+    expect(logs.some((l) => l.startsWith("autarch: schema 3 → 7; backup ") && l.includes("verified"))).toBe(true);
     expect(db.prepare("SELECT COUNT(*) c FROM cards").get()).toEqual({ c: 1 });
     expect(db.prepare("SELECT COUNT(*) c FROM moves").get()).toEqual({ c: 0 });
-    expect(db.prepare("SELECT version FROM migration_log ORDER BY version").all()).toEqual([{ version: 3 }, { version: 4 }, { version: 5 }, { version: 6 }]);
+    expect(db.prepare("SELECT version FROM migration_log ORDER BY version").all()).toEqual([{ version: 3 }, { version: 4 }, { version: 5 }, { version: 6 }, { version: 7 }]);
     db.close();
   });
 
-  it("a v3 reader still opens a v4 database, and a database that demands reader 7 is refused", () => {
+  it("a v3 reader still opens a v4 database, and a database that demands reader 8 is refused", () => {
     const db = new Database(file);
     migrate(db);
     expect(() => migrate(db, { codeVersion: 3, migrations: v3Only })).not.toThrow();
-    db.prepare("UPDATE schema_meta SET value = 7 WHERE key = 'min_reader_version'").run();
+    db.prepare("UPDATE schema_meta SET value = 8 WHERE key = 'min_reader_version'").run();
     expect(() => migrate(db)).toThrow(SchemaTooNewError);
     db.close();
   });
