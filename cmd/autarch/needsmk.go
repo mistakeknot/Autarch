@@ -43,6 +43,7 @@ func needsMkCmd() *cobra.Command {
 	cmd.AddCommand(needsMkFileCmd())
 	cmd.AddCommand(needsMkAdoptMoveCmd())
 	cmd.AddCommand(needsMkFooterCmd())
+	cmd.AddCommand(needsMkExportCmd())
 	return cmd
 }
 
