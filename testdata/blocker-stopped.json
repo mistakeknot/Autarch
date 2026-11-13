@@ -5,14 +5,16 @@
       "urgency": "blocker",
       "stopped": " Release waits "
     },
-    "valid": true
+    "valid": true,
+    "reader_valid": true
   },
   {
     "name": "missing",
     "fields": {
       "urgency": "blocker"
     },
-    "valid": false
+    "valid": false,
+    "reader_valid": true
   },
   {
     "name": "blank",
@@ -20,7 +22,8 @@
       "urgency": "blocker",
       "stopped": ""
     },
-    "valid": false
+    "valid": false,
+    "reader_valid": false
   },
   {
     "name": "whitespace-only",
@@ -28,7 +31,8 @@
       "urgency": "blocker",
       "stopped": " \t "
     },
-    "valid": false
+    "valid": false,
+    "reader_valid": false
   },
   {
     "name": "too-long",
@@ -36,7 +40,8 @@
       "urgency": "blocker",
       "stopped": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
     },
-    "valid": false
+    "valid": false,
+    "reader_valid": false
   },
   {
     "name": "multi-line",
@@ -44,14 +49,16 @@
       "urgency": "blocker",
       "stopped": "one\ntwo"
     },
-    "valid": false
+    "valid": false,
+    "reader_valid": false
   },
   {
     "name": "stopped-without-blocker",
     "fields": {
       "stopped": "Release waits"
     },
-    "valid": false
+    "valid": false,
+    "reader_valid": false
   },
   {
     "name": "wrong-type",
@@ -59,7 +66,8 @@
       "urgency": "blocker",
       "stopped": 2
     },
-    "valid": false
+    "valid": false,
+    "reader_valid": false
   },
   {
     "name": "null",
@@ -67,7 +75,8 @@
       "urgency": "blocker",
       "stopped": null
     },
-    "valid": false
+    "valid": false,
+    "reader_valid": false
   },
   {
     "name": "unicode-boundary",
@@ -75,7 +84,8 @@
       "urgency": "blocker",
       "stopped": "😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀"
     },
-    "valid": true
+    "valid": true,
+    "reader_valid": true
   },
   {
     "name": "carriage-return",
@@ -83,11 +93,13 @@
       "urgency": "blocker",
       "stopped": "one\rtwo"
     },
-    "valid": false
+    "valid": false,
+    "reader_valid": false
   },
   {
     "name": "unset",
     "fields": {},
-    "valid": true
+    "valid": true,
+    "reader_valid": true
   }
 ]

@@ -1,5 +1,6 @@
 /** Delivery metadata only: never infer blocked work from the question. */
-export function validateStopped(m: { urgency?: unknown; stopped?: unknown }): string | undefined {
+export function validateStopped(m: { urgency?: unknown; stopped?: unknown }, required = true): string | undefined {
+  if (!required && !Object.prototype.hasOwnProperty.call(m, "stopped")) return undefined;
   if (m.urgency !== "blocker") {
     if (Object.prototype.hasOwnProperty.call(m, "stopped")) throw new Error("stopped is allowed only with blocker urgency");
     return undefined;

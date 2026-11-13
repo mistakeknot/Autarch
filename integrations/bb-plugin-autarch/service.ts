@@ -20,7 +20,7 @@ export type Hold = { reason: string; by: string; at: string; n?: string; end?: H
 /** mk set the card aside to do after the fast ones (bead mk-8741). The card stays open and unruled. */
 export type Later = { at: string; by: string };
 import { readAsk, UNREADABLE_REFUSAL as UNREADABLE_PICK } from "./askbody.js";
-import { identity, normalizedJson, parseAsk, revision, semanticKey, type Ask, type Question } from "./model.js";
+import { identity, normalizedJson, parseAsk, parseExistingAsk, revision, semanticKey, type Ask, type Question } from "./model.js";
 import { pickWrites } from "./cardwrites.js";
 
 // Canonical JSON stays unchanged; delivery JSON also carries delivery and display attributes.
@@ -240,7 +240,7 @@ export class Service {
     return this.store.decision(id) as Row | undefined;
   }
   private askOf(d: Row): Ask {
-    return parseAsk(JSON.parse(d.body_json));
+    return parseExistingAsk(JSON.parse(d.body_json));
   }
   private labelOf(d: Row, optionId: string): string {
     return readAsk(d.body_json)?.options?.find((o) => o.id === optionId)?.label ?? optionId;
@@ -1812,8 +1812,12 @@ export class Service {
       const key = this.cardKey(taskId) ?? taskId ?? group;
       const title = (this.cardTitle(taskId) || d.subject || String(readAsk(d.body_json)?.question ?? "")).slice(0, 120);
       const ask = readAsk(d.body_json);
-      const question = String(ask?.question ?? "").replace(/\s+/g, " ").trim();
-      const body = (ask?.stopped ? `Stopped: ${ask.stopped}\n${question}` : question).slice(0, 300);
+      const clean = (text: string) => text.replace(/\p{Cc}/gu, " ").replace(/\s+/gu, " ").trim();
+      const clip = (text: string, limit: number) => [...clean(text)].slice(0, limit).join("");
+      // Reserve room for both pieces; code-point slicing never splits an astral character.
+      const body = ask?.stopped
+        ? `${clip(ask.question, 90)} Stopped: ${clip(ask.stopped, 200)}`
+        : clip(String(ask?.question ?? ""), 300);
       req = { kind: "blocker", title, body, ...(d.thread ? { thread: d.thread } : {}), dedupeKey: key };
       this.pushing.add(group);
     } catch (e) {

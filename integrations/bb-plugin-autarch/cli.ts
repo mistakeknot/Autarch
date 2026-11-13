@@ -151,7 +151,7 @@ export function homeCli(p: HomeCliParts) {
       pushes: cliCommand({
         summary: "List blocker asks (urgency blocker) with push time and time to answer; read-only",
         options: {
-          "by-thread": { type: "boolean", description: "Count blocker cards by filing thread; read-only." },
+          "by-thread": { type: "boolean", description: "Count blocker cards by filing thread and first-generation filing time; task-less older asks are excluded. Read-only." },
           days: { type: "string", description: "Audit window in days (default 7, at most 365). Requires --by-thread." },
           limit: { type: "string", description: "Most recent N blocker asks (default 100, at most 1000)." },
           json: { type: "boolean", description: "Print JSON (the only format)." },

@@ -272,7 +272,7 @@ func parseWireAsk(body string, c *Card) error {
 			return errors.New(`urgency must be "blocker" when set`)
 		}
 	}
-	if err := CheckStopped(m); err != nil {
+	if err := checkStopped(m, false); err != nil {
 		return err
 	}
 	if ac, present := m["auto_close"]; present {
@@ -418,7 +418,7 @@ func (c Card) ToV1(thread string) (Ask, error) {
 	if err != nil {
 		return Ask{}, err
 	}
-	a, err := Parse(raw)
+	a, err := parseExistingAsk(raw)
 	if err != nil {
 		return Ask{}, fmt.Errorf("home-ask: %w", err)
 	}

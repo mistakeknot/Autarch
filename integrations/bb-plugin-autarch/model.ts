@@ -165,7 +165,12 @@ function str(o: Record<string, unknown>, k: string): string {
 }
 
 /** Strictly decodes a parsed JSON request (unknown fields are refused) and returns it normalized. */
-export function parseAsk(input: unknown): Ask {
+export function parseAsk(input: unknown): Ask { return parseAskValue(input, true); }
+
+/** Read an existing ask; legacy blockers can omit stopped. Present values remain validated. */
+export function parseExistingAsk(input: unknown): Ask { return parseAskValue(input, false); }
+
+function parseAskValue(input: unknown, requireStopped: boolean): Ask {
   const o = obj(input, "ask");
   known(o, TOP_FIELDS, "ask");
   const a: Record<string, unknown> = {};
@@ -222,7 +227,7 @@ export function parseAsk(input: unknown): Ask {
     if (u !== "blocker") fail('invalid ask: urgency must be "blocker" when set');
     a.urgency = u;
   }
-  const stopped = validateStopped(o);
+  const stopped = validateStopped(o, requireStopped);
   if (stopped !== undefined) a.stopped = stopped;
   if (o.steps !== undefined && o.steps !== null) {
     if (!Array.isArray(o.steps) || (o.steps as unknown[]).some((s) => typeof s !== "string")) fail("invalid ask: steps must be an array of strings");
@@ -419,7 +424,7 @@ function normalize(input: Ask): { ask?: Ask; problems: Problem[] } {
   if (a.questions.length > 0) out.questions = a.questions;
   if (a.urgency === "blocker") out.urgency = "blocker";
   try {
-    const stopped = validateStopped(input);
+    const stopped = validateStopped(input, false);
     if (stopped !== undefined) out.stopped = stopped;
   } catch (e) {
     add("stopped", (e as Error).message);

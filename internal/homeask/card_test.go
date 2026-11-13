@@ -1,7 +1,9 @@
 package homeask
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -194,9 +196,10 @@ func TestStoppedVectors(t *testing.T) {
 		t.Fatal(err)
 	}
 	var cases []struct {
-		Name   string
-		Fields map[string]any
-		Valid  bool
+		Name        string
+		Fields      map[string]any
+		Valid       bool
+		ReaderValid bool `json:"reader_valid"`
 	}
 	if err := json.Unmarshal(raw, &cases); err != nil {
 		t.Fatal(err)
@@ -209,8 +212,8 @@ func TestStoppedVectors(t *testing.T) {
 			}
 			b, _ := json.Marshal(m)
 			_, err := ParseCard("Blocks: bead:example\nRequest: example sha256:0123456789abcdef\n\n```home-ask\n" + string(b) + "\n```\n")
-			if (err == nil) != c.Valid {
-				t.Fatalf("valid=%v err=%v", c.Valid, err)
+			if (err == nil) != c.ReaderValid {
+				t.Fatalf("reader valid=%v err=%v", c.ReaderValid, err)
 			}
 			delete(m, "schema")
 			m["v"] = 1
@@ -261,5 +264,28 @@ func TestStoppedRequestIdentity(t *testing.T) {
 	}
 	if Revision(av) != Revision(bv) || SemanticKey(av) != SemanticKey(bv) || NormalizedJSON(av) != NormalizedJSON(bv) {
 		t.Fatal("stopped affected normalized hashes")
+	}
+}
+
+func TestNewCardFilerRequiresStopped(t *testing.T) {
+	for _, lane := range []string{"exact", "update"} {
+		t.Run(lane, func(t *testing.T) {
+			f := newFake(t)
+			req := testReq()
+			req.Ask["urgency"] = "blocker"
+			var err error
+			if lane == "exact" {
+				_, err = f.filer().FileCard(context.Background(), req)
+			} else {
+				req.Ask["ask_key"] = "release"
+				_, err = f.filer().FileOrUpdateCard(context.Background(), req, "")
+			}
+			if !errors.Is(err, ErrInvalid) || !strings.Contains(err.Error(), "stopped") {
+				t.Fatalf("want named missing field: %v", err)
+			}
+			if len(f.calls) != 0 {
+				t.Fatalf("contacted Home: %v", f.calls)
+			}
+		})
 	}
 }

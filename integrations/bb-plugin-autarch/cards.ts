@@ -8,7 +8,7 @@
 
 import { validateStopped } from "./stopped.js";
 import { createHash } from "node:crypto";
-import { canonicalJson, normalizedJson, parseAsk, type Ask } from "./model.js";
+import { canonicalJson, normalizedJson, parseExistingAsk, type Ask } from "./model.js";
 import { parseMove, type Move } from "./moves.js";
 import { validateEvidence } from "./evidence.js";
 import { validateGroup } from "./group.js";
@@ -173,7 +173,7 @@ function parseWireAsk(body: string): { ask: Record<string, unknown>; pull: "" | 
     pull = "mycroft";
   }
   if (Object.prototype.hasOwnProperty.call(m, "urgency") && m.urgency !== "blocker") fail('urgency must be "blocker" when set');
-  const stopped = validateStopped(m);
+  const stopped = validateStopped(m, false);
   if (stopped !== undefined) m.stopped = stopped;
   if (Object.prototype.hasOwnProperty.call(m, "evidence")) validateEvidence(m.evidence);
   if (Object.prototype.hasOwnProperty.call(m, "group")) m.group = validateGroup(m.group);
@@ -243,7 +243,7 @@ export function toV1(card: Pick<Card, "ask" | "pull">, thread: string): Ask {
     v1.thread = thread;
   }
   try {
-    return parseAsk(v1);
+    return parseExistingAsk(v1);
   } catch (e) {
     return fail(`home-ask: ${(e as Error).message}`);
   }

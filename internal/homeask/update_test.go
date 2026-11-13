@@ -148,3 +148,24 @@ func TestAskKeyClosedPickedCardStillAlreadyRuled(t *testing.T) {
 		t.Fatalf("err=%v cards=%d", err, f.cards())
 	}
 }
+
+func TestStoppedSameKeyRefileUpdatesOneLegacyCard(t *testing.T) {
+	f, fl, _ := updateRig(t)
+	req := testReq()
+	req.Ask["urgency"] = "blocker"
+	req.Ask["ask_key"] = "release"
+	desc, _, err := req.Description()
+	if err != nil {
+		t.Fatal(err)
+	}
+	f.tasks = append(f.tasks, &fakeTask{ID: "T1", Project: "P1", Title: req.Title, Desc: desc, Status: "todo", Created: "2026-09-01T00:00:00Z", Comments: []Comment{{Kind: "agent", ThreadID: "thr_a", CreatedAt: "2026-09-01T00:00:01Z"}}})
+	req.Ask["stopped"] = "Release waits"
+	result, err := fl.FileOrUpdateCard(context.Background(), req, "")
+	if err != nil || !result.Updated || result.ID != "T1" || f.cards() != 1 || f.count("tasks", "create") != 0 {
+		t.Fatalf("result=%+v err=%v cards=%d creates=%d", result, err, f.cards(), f.count("tasks", "create"))
+	}
+	card, err := ParseCard(f.tasks[0].Desc)
+	if err != nil || card.Ask["stopped"] != "Release waits" {
+		t.Fatalf("stopped not updated: %+v %v", card, err)
+	}
+}

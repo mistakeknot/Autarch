@@ -134,13 +134,14 @@ export function listPushes(db: Database.Database, limit = 100): PushListing[] {
   return out;
 }
 
-/** Count distinct cards by their recorded filing thread; no push or answer is required. */
+/** Count blocker cards in their first-generation filing window; task-less asks are excluded. */
 export function blockersByThread(db: Database.Database, now: string, days = 7): {thread: string; blocker_cards: number}[] {
   const since = new Date(Date.parse(now) - days * 86400000).toISOString();
-  return db.prepare(`SELECT thread, COUNT(*) AS blocker_cards FROM (
-    SELECT d.task_id, COALESCE(NULLIF(c.asking_thread, ''), d.thread, '') AS thread
+  return db.prepare(`SELECT COALESCE(NULLIF(c.asking_thread, ''), d.thread, '') AS thread,
+      COUNT(*) AS blocker_cards
     FROM decisions d LEFT JOIN cards c ON c.task_id = d.task_id
-    WHERE d.urgency = 'blocker' AND d.task_id IS NOT NULL AND d.filed_at >= ? AND d.filed_at <= ?
-    GROUP BY d.task_id
-  ) GROUP BY thread ORDER BY blocker_cards DESC, thread ASC`).all(since, now) as {thread: string; blocker_cards: number}[];
+    WHERE d.task_id IS NOT NULL AND d.filed_at >= ? AND d.filed_at <= ?
+      AND d.generation = (SELECT MIN(first.generation) FROM decisions first WHERE first.task_id = d.task_id)
+      AND EXISTS (SELECT 1 FROM decisions urgent WHERE urgent.task_id = d.task_id AND urgent.urgency = 'blocker')
+    GROUP BY thread ORDER BY blocker_cards DESC, thread ASC`).all(since, now) as {thread: string; blocker_cards: number}[];
 }

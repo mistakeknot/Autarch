@@ -88,6 +88,29 @@ describe("the push on a legacy ask", () => {
     expect(row(svc, id)).toEqual({ urgency: "blocker", push_sent_at: "2026-09-26T14:03:05.000Z", push_id: "push-1", push_capped: 0 });
   });
 
+  it("refuses a new blocker without stopped before inserting or pushing", async () => {
+    const svc = open();
+    const result = await svc.file(ask(env, { urgency: "blocker" }), {});
+    expect(result).toMatchObject({ ok: false, status: 400 });
+    if (!result.ok) expect(result.error).toContain("stopped");
+    expect(svc.store.db.prepare("SELECT COUNT(*) AS n FROM decisions").get()).toEqual({ n: 0 });
+    expect(n.calls).toHaveLength(0);
+  });
+
+  it("keeps both question and stopped text in a code-point bounded, control-free push", async () => {
+    const svc = open();
+    const question = "Which release? " + "😀".repeat(290);
+    await file(svc, { urgency: "blocker", stopped: "🚧".repeat(195) + "\u0000\u001b\u0080", question });
+    await svc.drainPushes();
+    const body = n.calls[0]!.body;
+    expect(body).toContain("Which release?");
+    expect(body).toContain("Stopped: ");
+    expect(body).toContain("🚧");
+    expect([...body].length).toBeLessThanOrEqual(300);
+    expect(body.isWellFormed()).toBe(true);
+    expect(/\p{Cc}/u.test(body)).toBe(false);
+  });
+
   it("does not push without urgency, on any kind", async () => {
     const svc = open();
     await file(svc, {});
@@ -256,13 +279,28 @@ describe("the push on a card", () => {
 
   it("pushes once when a card with urgency blocker is filed, with the card key as the dedupe key", async () => {
     const { r, n } = setup();
-    const { t, g1 } = await opened(r, { ask: { urgency: "blocker", stopped: "Release waits" } });
+    const { t, g1 } = await opened(r, { ask: { urgency: "blocker" } });
     await r.svc.drainPushes();
     expect(n.calls).toHaveLength(1);
     expect(n.calls[0]).toMatchObject({ kind: "blocker", dedupeKey: r.svc.cardKey(t.id) });
     expect(r.db.prepare("SELECT urgency, push_id, push_capped FROM decisions WHERE id = ?").get(g1.id)).toEqual({ urgency: "blocker", push_id: "push-1", push_capped: 0 });
     await r.poll();
     await r.svc.drainPushes();
+    expect(n.calls).toHaveLength(1);
+  });
+
+  it("keeps an already-open and pushed legacy blocker open across a title edit", async () => {
+    const { r, n } = setup();
+    const { t } = await opened(r, { ask: { urgency: "blocker" } });
+    await r.svc.drainPushes();
+    r.edit(t, { title: "Updated title" });
+    await r.poll(); await r.svc.drainPushes();
+    expect(r.cardRow(t.id).state).toBe("open");
+    expect(r.gens(t.id)).toHaveLength(2);
+    expect(r.gens(t.id)[0].withdrawn_at).toBeNull();
+    expect(n.calls).toHaveLength(1);
+    await r.poll(); await r.svc.drainPushes();
+    expect(r.cardRow(t.id).state).toBe("open");
     expect(n.calls).toHaveLength(1);
   });
 

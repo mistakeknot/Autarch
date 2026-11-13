@@ -8,8 +8,14 @@ import (
 
 // CheckStopped validates delivery metadata without interpreting the question.
 // The trim set matches JavaScript String.trim, including its treatment of FEFF.
-func CheckStopped(m map[string]any) error {
+func CheckStopped(m map[string]any) error { return checkStopped(m, true) }
+
+// Existing cards predate stopped; a present value still has the same meaning and shape.
+func checkStopped(m map[string]any, required bool) error {
 	v, present := m["stopped"]
+	if !present && !required {
+		return nil
+	}
 	if m["urgency"] != "blocker" {
 		if present {
 			return errors.New("stopped is allowed only with blocker urgency")

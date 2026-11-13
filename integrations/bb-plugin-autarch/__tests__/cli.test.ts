@@ -552,6 +552,12 @@ describe("blocker audit by filing thread", () => {
  await r.poll(); expect(r.gens(a.t.id)).toHaveLength(2);
  const old=await opened(r,{thread:"thread-b"});
  r.db.prepare("UPDATE decisions SET urgency='blocker', filed_at='2000-01-01T00:00:00.000Z' WHERE id=?").run(old.g1.id);
+ // Editing an old card in this window must not move its first-filing time.
+ r.edit(old.t,{description:r.desc({key:String(r.cardRow(old.t.id).request_key),question:"Edited this week?",ask:{urgency:"blocker",stopped:"Release waits"}})});
+ await r.poll(); expect(r.gens(old.t.id)).toHaveLength(2);
+ // Task-less legacy asks remain outside this card report.
+ const legacy=await r.svc.file(ask(r.env,{urgency:"blocker",stopped:"Release waits",thread:"thread-c"}),{});
+ expect(legacy.ok).toBe(true);
  const before=r.db.prepare("SELECT total_changes() AS n").get();
  const res=await cli.run(["pushes","--by-thread","--days","7"],{});
  expect(res.exitCode).toBe(0); expect(JSON.parse(res.stdout!)).toEqual([{thread:"thread-a",blocker_cards:2},{thread:"thread-b",blocker_cards:1}]);

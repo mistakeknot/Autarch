@@ -887,6 +887,9 @@ func CheckOptionIDs(ask map[string]any) error {
 }
 
 func (f *CardFiler) fileCard(ctx context.Context, req CardRequest) (CardResult, error) {
+	if err := CheckStopped(req.Ask); err != nil {
+		return CardResult{}, fmt.Errorf("%w: %v", ErrInvalid, err)
+	}
 	if !req.Pull && req.Thread == "" {
 		return CardResult{}, fmt.Errorf("%w: BB_THREAD_ID is required: the asking thread routes the card", ErrInvalid)
 	}

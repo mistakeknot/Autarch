@@ -116,18 +116,22 @@ var (
 
 // Parse decodes a request strictly (unknown fields are refused) and returns it
 // normalized and validated.
-func Parse(data []byte) (Ask, error) {
+func Parse(data []byte) (Ask, error) { return parseAsk(data, true) }
+
+func parseExistingAsk(data []byte) (Ask, error) { return parseAsk(data, false) }
+
+func parseAsk(data []byte, requireStopped bool) (Ask, error) {
 	var fields map[string]json.RawMessage
 	if err := json.Unmarshal(data, &fields); err == nil {
+		var m map[string]any
+		_ = json.Unmarshal(data, &m)
+		if err := checkStopped(m, requireStopped); err != nil {
+			return Ask{}, err
+		}
 		for k, raw := range fields {
 			if strings.EqualFold(k, "stopped") {
 				if k != "stopped" {
 					return Ask{}, fmt.Errorf("invalid ask field %q", k)
-				}
-				var m map[string]any
-				_ = json.Unmarshal(data, &m)
-				if err := CheckStopped(m); err != nil {
-					return Ask{}, err
 				}
 			}
 			if strings.EqualFold(k, "group") {
@@ -379,7 +383,7 @@ func normalize(in Ask) (Ask, []Problem) {
 	if a.Stopped != "" {
 		m["stopped"] = a.Stopped
 	}
-	if err := CheckStopped(m); err != nil {
+	if err := checkStopped(m, false); err != nil {
 		ps.add("stopped", err.Error())
 	} else if s, ok := m["stopped"].(string); ok {
 		a.Stopped = s
