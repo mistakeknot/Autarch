@@ -266,7 +266,7 @@ what the goal exists to measure.
   PreToolUse gate the PRD sections never had. Worth a ruling with a reason before phase 3.
 - **f-024**: `guard-plan-needs-card.sh` never reads `strength.score` — it branches on exit
   code alone, so a richly-sourced card and an all-declined one both permit silently.
-- **f-043**: `cmd/mycroft` (T2/T3 auto-dispatch, shipped in this repo) appears nowhere in the
+- **f-043**: `cmd/mycroft` (historically an autonomous dispatcher; now a coordinator-invoked spawner) appears nowhere in the
   brainstorm. Autonomous multi-repo dispatch can trigger several first-touch confirms at once.
 - **f-013 / f-038**: the validator never reads the prose body — the part the funding page
   renders as sales copy. 30 tests, none touching prose.

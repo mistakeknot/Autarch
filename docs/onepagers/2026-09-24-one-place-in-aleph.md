@@ -3,6 +3,10 @@ artifact_type: onepager
 distills: docs/brainstorms/2026-09-24-one-place-in-aleph-brainstorm.md
 ---
 
+> Historical Mycroft references below are superseded by bead mk-ddtv5.7.13.1.
+> Mycroft now provides only `mycroft spawn` and `mycroft pre-dispatch`; coordinators select work.
+> The former orchestration code and TUI tab have been removed. See [the current spawner guide](../mycroft-bb-spawner.md).
+
 # One place in Aleph
 
 **Thesis.** mk directs about 98 projects through agents, but attention leaks

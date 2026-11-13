@@ -23,6 +23,10 @@ runtime: claude
 date: 2026-08-13
 ---
 
+> Historical Mycroft references below are superseded by bead mk-ddtv5.7.13.1.
+> Mycroft now provides only `mycroft spawn` and `mycroft pre-dispatch`; coordinators select work.
+> The former orchestration code and TUI tab have been removed. See [the current spawner guide](../../../mycroft-bb-spawner.md).
+
 # The eye of distance: card loop phase 2
 
 Four rounds, 47 findings, 33 clusters, one fused lens, halted DRY at round 3 (yield 0).

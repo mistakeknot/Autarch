@@ -34,7 +34,7 @@ Type `/` to open fuzzy command picker. Global commands and aliases:
 | `/refresh` | `/r` | Refresh current view |
 | `/back` | `/b` | Go back / cancel |
 | `/new` | `/clear` | New conversation |
-| `/bigend` `/gurgeh` `/coldwine` `/pollard` `/mycroft` | `/big` `/gur` `/cold` `/pol` `/myc` | Switch tool tab (`/mycroft` is handled in `internal/tui/unified_app.go`, not listed in `GlobalCommands()`) |
+| `/bigend` `/gurgeh` `/coldwine` `/pollard` | `/big` `/gur` `/cold` `/pol` | Switch tool tab`) |
 | `/signals` | `/sig` | Toggle Signals overlay |
 | `/logs` | `/log`, `/l` | Toggle log pane |
 

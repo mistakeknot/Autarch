@@ -16,7 +16,7 @@ Unified monorepo for AI agent development tools: Bigend, Gurgeh, Coldwine, Polla
 | **Gurgeh** | TUI-first PRD generation and validation | `./dev gurgeh list` (CLI) | [docs/gurgeh/](docs/gurgeh/AGENTS.md) |
 | **Coldwine** | Task orchestration + sprint runs (Epics/Runs mode toggle, inline/split layouts) | `./dev coldwine status` (CLI) | [docs/coldwine/](docs/coldwine/AGENTS.md) |
 | **Pollard** | General-purpose research intelligence (tech, medicine, law, economics, etc.; hunters + reports) | `./dev pollard scan` (CLI) | [docs/pollard/](docs/pollard/AGENTS.md) |
-| **Mycroft** | Fleet orchestrator — escalating autonomy (T0 observe → T1 suggest → T2/T3 auto-dispatch) | `./dev autarch tui --tool=mycroft` (tab) | [docs/mycroft-bb-spawner.md](docs/mycroft-bb-spawner.md) |
+| **Mycroft** | Routed bb worker spawner and standalone pre-dispatch check | `go run ./cmd/mycroft spawn --help` | [docs/mycroft-bb-spawner.md](docs/mycroft-bb-spawner.md) |
 
 **Recommended:** Use `./dev autarch tui` for all TUI access. Standalone TUI modes are deprecated.
 
@@ -97,9 +97,6 @@ print a deprecation notice.
 - **No decisions:** `serve` holds no decisions code and no `/api/decisions` route.
 - **Pollard:** Pollard's watcher still publishes to the standalone Signals server on 8092
   (`internal/signals/cli/serve.go`, not deprecated); it does not reach the `serve` broker yet.
-- **Mycroft:** needs `autarch serve` running (loopback, token in `~/.autarch/serve.token`;
-  override with `AUTARCH_SERVE_URL` / `AUTARCH_SERVE_TOKEN_FILE`) to file asks into Home. It asks
-  serve for project roots and files nothing (fails closed) when serve is down.
 - **MCP:** `autarch mcp --project <dir>` runs the MCP server; `autarch-mcp` is an alias.
 
 ## Home asks

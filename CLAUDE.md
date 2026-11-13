@@ -4,7 +4,7 @@
 
 ## Overview
 
-Unified monorepo for AI agent development tools: Bigend, Gurgeh, Coldwine, Pollard, Mycroft. What each tool does, its CLI and its docs: the Quick Reference table in `AGENTS.md`.
+Unified monorepo for AI agent development tools: Bigend, Gurgeh, Coldwine, Pollard, and the Mycroft bb worker spawner. What each tool does, its CLI and its docs: the Quick Reference table in `AGENTS.md`.
 
 ## Quick Commands
 

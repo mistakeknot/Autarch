@@ -37,7 +37,7 @@ Autarch/
 
 - **Single TUI implementation**: `UnifiedApp` is the only app shell. All views render inside it.
 - **Onboarding lives in GurgehView**: `GurgehOnboardingView` + `gurgeh_helpers.go` in `views/`. `GurgehView` delegates to onboarding or spec browser.
-- **5 dashboard tabs**: Bigend(0), Gurgeh(1), Coldwine(2), Pollard(3), Mycroft(4). Signals is an overlay (`/sig`), not a tab.
+- **4 dashboard tabs**: Bigend(0), Gurgeh(1), Coldwine(2), Pollard(3). Signals is an overlay (`/sig`), not a tab.
 - **Overlay render order**: palette → chat settings → signals → help. Each intercepts keys when visible.
 - **Log pane**: Always created. Ctrl+L toggles. Auto-shows during scan, auto-hides after 3s.
 - **Slash commands**: the command and alias list lives in [tui-keybindings.md](tui-keybindings.md); the code is `GlobalCommands()` in `pkg/tui/command_picker.go`.

@@ -11,7 +11,7 @@ The repository builds <!-- figure:cmd-count=12 -->12 commands from `cmd/`:
 | Gurgeh | PRD generation and validation (TUI) |
 | Coldwine | Task orchestration and sprint runs |
 | Pollard | General-purpose research intelligence |
-| Mycroft | Fleet orchestrator with escalating autonomy |
+| Mycroft | Routed bb worker spawner (`mycroft spawn`) and standalone assignment check (`mycroft pre-dispatch`) |
 
 The unified `autarch` command hosts the TUI, `serve`, the Home asks (`needs-mk`, `decide`) and the maintenance commands.
 

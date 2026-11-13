@@ -102,7 +102,7 @@ stages:
     tasks:
       - id: task-15
         title: "1.9 Go filers: homeask, autarch decide, MCP, Mycroft"
-        files: [internal/homeask/, cmd/autarch/decide.go, cmd/autarch/exit.go, cmd/autarch/version.go, cmd/autarch/main.go, pkg/mcp/server.go, internal/mycroft/escalate/escalate.go, internal/mycroft/scheduler/orchestrator.go, cmd/mycroft/main.go, internal/tui/views/mycroft.go]
+        files: [internal/homeask/, cmd/autarch/decide.go, cmd/autarch/exit.go, cmd/autarch/version.go, cmd/autarch/main.go, pkg/mcp/server.go, cmd/mycroft/main.go]
         depends: [task-7, task-13, task-6]
   - name: "Wave 16 - scenario harness"
     tasks:

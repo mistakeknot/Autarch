@@ -7,7 +7,6 @@ import (
 	"testing"
 
 	"github.com/mistakeknot/autarch/internal/mycroft"
-	"github.com/mistakeknot/autarch/internal/mycroft/scheduler"
 	"github.com/mistakeknot/autarch/internal/mycroft/spawn"
 )
 
@@ -48,7 +47,7 @@ func TestApproveSpawnLogsTheDispatch(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	disp := scheduler.NewDispatcher(db, nil, "demarch")
+	disp := mycroft.NewApprovalLog(db, "demarch")
 	bead := mycroft.BeadView{ID: "mk-1", Card: "AUTA-1"}
 	if err := approveSpawn(disp, fakeWorker{detail: "thread thr_w bead=mk-1 card=AUTA-1 role=routine-execution"}, bead); err != nil {
 		t.Fatal(err)
@@ -66,7 +65,7 @@ func TestApproveSpawnLogsAFailedStart(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	disp := scheduler.NewDispatcher(db, nil, "demarch")
+	disp := mycroft.NewApprovalLog(db, "demarch")
 	err = approveSpawn(disp, fakeWorker{err: errors.New("attach failed (thread thr_w stopped)")}, mycroft.BeadView{ID: "mk-2", Card: "AUTA-2"})
 	if err == nil {
 		t.Fatal("a failed start must return its error")
@@ -83,7 +82,7 @@ func TestApproveSpawnReportsALogWriteFailureAfterStart(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	disp := scheduler.NewDispatcher(db, nil, "demarch")
+	disp := mycroft.NewApprovalLog(db, "demarch")
 	db.Close() // writes now fail
 	err = approveSpawn(disp, fakeWorker{}, mycroft.BeadView{ID: "mk-3", Card: "AUTA-3"})
 	if err == nil || !strings.Contains(err.Error(), "thr_w is running") {
@@ -97,7 +96,7 @@ func TestApproveSpawnLogsAnUnresolvableSeat(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	disp := scheduler.NewDispatcher(db, nil, "demarch")
+	disp := mycroft.NewApprovalLog(db, "demarch")
 	err = approveSpawn(disp, fakeWorker{planErr: errors.New("seat unresolved")}, mycroft.BeadView{ID: "mk-4", Card: "AUTA-4"})
 	if err == nil || !strings.Contains(err.Error(), "no dispatch") {
 		t.Fatalf("want a no-dispatch error, got %v", err)

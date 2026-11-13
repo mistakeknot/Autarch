@@ -1,55 +1,53 @@
-# Mycroft card workers as bb threads (bead mk-omogp.1)
+# Mycroft worker spawner
 
-## What changed
+Mycroft starts workers selected by a coordinator. It has no patrol loop,
+work selector, autonomy tiers, suggestion cards or TUI tab.
 
-- `internal/mycroft/spawn` no longer opens tmux sessions. The tmux path is **removed**, not kept behind a flag:
-  nothing else used it, and a second spawn path would be a second place for a seat to be chosen.
-- `BBSpawner` implements the existing `scheduler.AgentSpawner` interface, so tests still stub it. `Spawn`:
-  1. resolves the seat from Clavain routing (`ic --json route dispatch --policy=<routing.yaml> --role=routine-execution`);
-  2. runs `bb thread create --project --environment --provider --model --reasoning-level --title --prompt-file`;
-  3. runs `bb tasks attach <card> --thread <id>` (the card is required and is read first, its description goes into the brief; if the attach or the receipt write fails the thread is stopped and the error says whether the stop worked);
-  4. appends a receipt line (role, profile, model, effort, policy hash, thread, bead, card) to `spawn-receipts.jsonl`
-     and `mycroft spawn --approve` writes a `dispatch_log` row (action `suggest`, outcome `accepted`) whose reason is the
-     spawner's detail line: seat, thread, bead and card. A plan that routing cannot resolve and a failed start are logged with outcome `failure` and the
-     error. The decisions database is opened before routing and before anything starts, so if it cannot be opened nothing is
-     started; if only the later log write fails, the command exits with an error that names the running thread.
-- Mycroft holds **no seat table**. The only map is backend name to bb provider id (`claude` to `claude-code`,
-  `codex` to `codex`), which is transport naming. Role defaults to `routine-execution`; routing returns Sonnet 5.5 at high
-  today. Elevated work would use `deep-execution`; a frontier-required answer is refused here.
-- **Fail closed**: an unset policy, an `ic` error, an unreadable or incomplete answer, a wrong role, a frontier-required
-  answer or an unknown backend returns an error before any `bb` call. The caller logs the failure; nothing starts.
-- **T1 only**: the patrol loop refuses tier T2/T3 with this spawner. At T1 Mycroft only suggests. `mycroft spawn <bead>
-  --card KEY --title T` prints the thread title and routed seat and starts nothing; `--approve` starts it.
-- Configuration: `AUTARCH_BB_PROJECT`, `AUTARCH_BB_ENVIRONMENT`, and `CLAVAIN_ROUTING_POLICY` or `CLAVAIN_SELECTED_ROOT`.
-- `fleet.BeadView` gains an optional `Card` field (the task-board key).
+## Spawn a worker
 
-`bb tasks dispatch --preset` was considered and not used: a preset stores a model and effort inside bb, which is a second seat table.
+Build with `go build -o mycroft ./cmd/mycroft`, then use:
 
-## What Aleph core would need to provide for T2 (not built here)
+```sh
+mycroft spawn BEAD --card CARD --title 'Work title'
+mycroft spawn BEAD --card CARD --title 'Work title' --approve
+```
 
-**Atomic card claim.** `bb tasks update` has `--status` and no compare-and-set, no assignee and no claim; `bb tasks attach`
-adds a thread without checking that none is attached. Two Mycroft instances, or Mycroft and a human, can both start a worker
-on one card. Needed: `bb tasks claim <key> --thread <id>` that succeeds for exactly one caller (conditional on status and no
-current claimant), or an `--expect-status` guard on `update`. Until then Mycroft can only check `bb tasks threads <key>` and
-race.
+The first command prints the thread title and routed seat without starting a
+worker. The second starts a bb thread and attaches the existing card. Set
+`AUTARCH_BB_PROJECT` and `AUTARCH_BB_ENVIRONMENT` to the existing bb project and
+environment. Set `CLAVAIN_ROUTING_POLICY`, or `CLAVAIN_SELECTED_ROOT`, for routing.
 
-**Quota headroom.** `bb pool status --json` (and `account list`) already carry, per account: provider, enabled, priority,
-`limitWindows` (slot, window length, utilization, reset time, observation time and source; filled in for Codex accounts
-too), the Claude five-hour and seven-day utilization and reset fields, per-family weekly figures (only `fable` was filled
-in at the time of writing), and pool-level `inFlight` and `accepting`. The status output seen on the host when this was
-written also showed `activeAccountIds` and a per-account `usageRestriction`; the schema is the host's, so check it
-before depending on those two. That is enough to read headroom per account. Missing:
-- The Sonnet, Opus and Haiku family figures were null; the seat Mycroft needs (Sonnet) has no family number of its own.
-- No pool-level answer ("headroom for provider P, family F, over the next N hours") and no reservation, so two dispatchers
-  read the same headroom and both spend it. Needed: a headroom endpoint with a reserve/release call.
-- Utilization is observed, not live (`observedAt` can be minutes old); a freshness bound is needed.
-- The quota budget for a backlog run needs a stated policy (what fraction of the weekly window the runner may spend),
-  which is a decision for mk and the vizier, not core.
+`internal/mycroft/spawn` resolves the `routine-execution` role through Clavain
+routing at dispatch time. Mycroft holds no model or effort table. Unknown
+backends, unresolved seats, incomplete routing answers and frontier-required
+answers fail before any bb call.
 
-## Optional automatic dispatch check
+The spawner reads the card description into the worker brief, calls
+`bb thread create`, attaches the card with `bb tasks attach`, and appends the
+seat and worker facts to `spawn-receipts.jsonl`. A failed attachment or receipt
+write stops the thread; the error reports whether stopping succeeded. An
+uncertain create result requires reconciliation before retrying.
 
-In `.autarch/mycroft/config.yaml`, `pre_dispatch_check` can gate the scheduler's
-T2/T3 dispatch path before a session starts (the bb spawner's T1 restriction still applies):
+`mycroft spawn --approve` opens `decisions.db` before routing or starting
+anything. It records the approval in `dispatch_log` with action `suggest`
+(the existing stored value), outcome `accepted`, and the seat, thread, bead
+and card details. Unresolved plans and failed starts are logged with outcome
+`failure`. A later log-write error names the running thread.
+
+Data files default to `.autarch/mycroft/`; `MYCROFT_DATA_DIR` overrides that
+directory. The SQLite schema is unchanged, including unused legacy tables.
+Coordinators remain responsible for work selection, concurrency and approval.
+
+## Run a pre-dispatch check
+
+`internal/mycroft/predispatch.Run` exposes the former scheduler check independently.
+A coordinator can run it through the CLI before choosing whether to spawn:
+
+```sh
+mycroft pre-dispatch --bead BEAD --agent AGENT
+```
+
+Configure `.autarch/mycroft/config.yaml` (or the overridden data directory):
 
 ```yaml
 pre_dispatch_check:
@@ -57,9 +55,15 @@ pre_dispatch_check:
   timeout: 30s
 ```
 
-The argv runs directly, without a shell, in the process working directory;
-`MYCROFT_BEAD_ID` and `MYCROFT_AGENT` identify the proposed assignment. Timeout
-defaults to 30s. Exit 0 permits dispatch; any other exit, timeout or start error
-skips it and logs a short reason as `pre_dispatch_skip` with no outcome. Skips
-are neither dispatch failures nor operator rejections. An absent key or empty
-command preserves normal dispatch; shadow and T1 suggestions are unchanged.
+The command executes directly as argv, without a shell, inheriting the caller's
+working directory and environment. `MYCROFT_BEAD_ID` and `MYCROFT_AGENT` are
+replaced with the proposed assignment. A missing config or empty command
+succeeds. The timeout defaults to 30 seconds, including nonpositive configured
+values. Exit zero succeeds; nonzero exit, timeout or start failure returns a
+nonzero CLI exit and a reason bounded to 240 runes. The check starts no worker,
+files no cards, and writes no dispatch outcome. It is an explicit separate
+call; `spawn --approve` retains its existing behavior.
+
+Timeout cancellation uses Go's command context to kill the check process.
+The extracted implementation has no process-group kill; callers should use
+checks that do not leave background descendants.
