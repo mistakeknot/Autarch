@@ -42,13 +42,13 @@ describe("urgency on the ask", () => {
   };
 
   it("accepts blocker, treats absence as unset, rejects any other value", () => {
-    expect(ok({ urgency: "blocker" })?.urgency).toBe("blocker");
+    expect(ok({ urgency: "blocker", stopped: "Release waits" })?.urgency).toBe("blocker");
     expect(ok({})?.urgency).toBeUndefined();
     for (const bad of ["high", "Blocker", "", 1, true]) expect(ok({ urgency: bad })).toBeUndefined();
   });
 
   it("is not part of the identity, revision or normalized body", () => {
-    const a = ok({ urgency: "blocker" })!;
+    const a = ok({ urgency: "blocker", stopped: "Release waits" })!;
     const b = ok({})!;
     expect(identity(a)).toBe(identity(b));
     expect(revision(a)).toBe(revision(b));
@@ -78,11 +78,13 @@ describe("the push on a legacy ask", () => {
 
   it("pushes once for a decide ask with urgency blocker and records the result", async () => {
     const svc = open();
-    const id = await file(svc, { urgency: "blocker" });
+    const id = await file(svc, { urgency: "blocker", stopped: "Release waits" });
     await svc.drainPushes();
     expect(n.calls).toHaveLength(1);
     expect(n.calls[0]).toMatchObject({ kind: "blocker", dedupeKey: id });
     expect(n.calls[0]!.body).toContain("Collapse routine catch-up");
+    expect(n.calls[0]!.body).toContain("Stopped: Release waits");
+    expect(JSON.parse((svc.store.decision(id) as {body_json:string}).body_json).stopped).toBe("Release waits");
     expect(row(svc, id)).toEqual({ urgency: "blocker", push_sent_at: "2026-09-26T14:03:05.000Z", push_id: "push-1", push_capped: 0 });
   });
 
@@ -98,8 +100,8 @@ describe("the push on a legacy ask", () => {
   it("a machine ask without urgency never pushes, with urgency blocker it does", async () => {
     const svc = open();
     const a = await file(svc, machine());
-    const b = await file(svc, machine({ thread: "thr-b", subject: "ci: other", question: "the other CI runner is down" , urgency: "blocker" }));
-    const c = await file(svc, steps({ urgency: "blocker" }));
+    const b = await file(svc, machine({ thread: "thr-b", subject: "ci: other", question: "the other CI runner is down" , urgency: "blocker", stopped: "Release waits" }));
+    const c = await file(svc, steps({ urgency: "blocker", stopped: "Release waits" }));
     await svc.drainPushes();
     expect(n.calls).toHaveLength(2);
     expect(row(svc, a).push_sent_at).toBeNull();
@@ -109,7 +111,7 @@ describe("the push on a legacy ask", () => {
 
   it("an ask refiled with the same request does not push again", async () => {
     const svc = open();
-    const req = { urgency: "blocker", request_id: "req-1" };
+    const req = { urgency: "blocker", stopped: "Release waits", request_id: "req-1" };
     const a = await file(svc, req);
     await svc.drainPushes();
     const b = await file(svc, req);
@@ -121,16 +123,16 @@ describe("the push on a legacy ask", () => {
   it("a notifier that throws is swallowed and logged; the ask is filed and a later refile retries", async () => {
     const svc = open();
     n.mode = "throw";
-    const id = await file(svc, { urgency: "blocker", request_id: "req-1" });
+    const id = await file(svc, { urgency: "blocker", stopped: "Release waits", request_id: "req-1" });
     await svc.drainPushes();
     expect(row(svc, id).push_sent_at).toBeNull();
     expect(logs.join("\n")).toContain("not installed");
     n.mode = "ok";
-    await file(svc, { urgency: "blocker", request_id: "req-1" }); // inside the backoff: no second try
+    await file(svc, { urgency: "blocker", stopped: "Release waits", request_id: "req-1" }); // inside the backoff: no second try
     await svc.drainPushes();
     expect(n.calls).toHaveLength(1);
     env.clock.t += 60_000;
-    await file(svc, { urgency: "blocker", request_id: "req-1" });
+    await file(svc, { urgency: "blocker", stopped: "Release waits", request_id: "req-1" });
     await svc.drainPushes();
     expect(n.calls).toHaveLength(2);
   });
@@ -138,11 +140,11 @@ describe("the push on a legacy ask", () => {
   it("a legacy supersedes chain keeps one dedupe key: the first generation's id", async () => {
     const svc = open();
     n.mode = "throw";
-    const a = await file(svc, { urgency: "blocker" });
+    const a = await file(svc, { urgency: "blocker", stopped: "Release waits" });
     await svc.drainPushes();
     n.mode = "ok";
     env.clock.t += 60_000;
-    const b = await file(svc, { urgency: "blocker", supersedes: a, question: "Collapse per project or per day, revised?" });
+    const b = await file(svc, { urgency: "blocker", stopped: "Release waits", supersedes: a, question: "Collapse per project or per day, revised?" });
     await svc.drainPushes();
     expect(b).not.toBe(a);
     expect(n.calls).toHaveLength(2);
@@ -153,7 +155,7 @@ describe("the push on a legacy ask", () => {
   it("a legacy chain whose generations share a filing time resolves to the true root, not the smaller id", async () => {
     const svc = open();
     n.mode = "throw";
-    const seed = await file(svc, { urgency: "blocker" });
+    const seed = await file(svc, { urgency: "blocker", stopped: "Release waits" });
     await svc.drainPushes();
     const db = svc.store.db;
     const proto = db.prepare("SELECT * FROM decisions WHERE id = ?").get(seed) as Record<string, unknown>;
@@ -181,7 +183,7 @@ describe("the push on a legacy ask", () => {
   it("an ask withdrawn between the eligibility check and the call is not pushed and spends no try", async () => {
     const svc = open();
     n.mode = "throw";
-    const id = await file(svc, { urgency: "blocker" });
+    const id = await file(svc, { urgency: "blocker", stopped: "Release waits" });
     await svc.drainPushes();
     expect(n.calls).toHaveLength(1);
     n.mode = "ok";
@@ -202,7 +204,7 @@ describe("the push on a legacy ask", () => {
     const svc = open({ pushTimeoutMs: timeoutMs });
     n.mode = "hang";
     const t0 = Date.now();
-    const id = await file(svc, { urgency: "blocker" });
+    const id = await file(svc, { urgency: "blocker", stopped: "Release waits" });
     expect(Date.now() - t0, "filing waited on the hanging notifier").toBeLessThan(timeoutMs);
     expect(logs.join("\n"), "the timeout had already fired when filing returned").not.toContain("timed out");
     await svc.drainPushes();
@@ -213,15 +215,15 @@ describe("the push on a legacy ask", () => {
   it("a result with no id is a failure; a capped result is a success that records push_capped", async () => {
     const svc = open();
     n.mode = "garbage";
-    const g = await file(svc, { urgency: "blocker" });
+    const g = await file(svc, { urgency: "blocker", stopped: "Release waits" });
     await svc.drainPushes();
     expect(row(svc, g).push_sent_at).toBeNull();
     n.mode = "capped";
-    const c = await file(svc, { urgency: "blocker", subject: "other", question: "Another question?" });
+    const c = await file(svc, { urgency: "blocker", stopped: "Release waits", subject: "other", question: "Another question?" });
     await svc.drainPushes();
     expect(row(svc, c)).toMatchObject({ push_id: "push-2", push_capped: 1 });
     n.mode = "deduped";
-    const d = await file(svc, { urgency: "blocker", subject: "third", question: "A third question?" });
+    const d = await file(svc, { urgency: "blocker", stopped: "Release waits", subject: "third", question: "A third question?" });
     await svc.drainPushes();
     expect(row(svc, d)).toMatchObject({ push_capped: 0 });
     expect(row(svc, d).push_id).toBe("push-3");
@@ -229,7 +231,7 @@ describe("the push on a legacy ask", () => {
 
   it("a notifier that throws synchronously cannot fail the filing", async () => {
     const svc = open({ notifier: { notify: () => { throw new Error("sync boom"); } } });
-    const id = await file(svc, { urgency: "blocker" });
+    const id = await file(svc, { urgency: "blocker", stopped: "Release waits" });
     await svc.drainPushes();
     expect(row(svc, id).push_sent_at).toBeNull();
     expect(logs.join("\n")).toContain("sync boom");
@@ -237,7 +239,7 @@ describe("the push on a legacy ask", () => {
 
   it("with no notifier configured a blocker ask files and nothing happens", async () => {
     const svc = env.open();
-    const id = await file(svc, { urgency: "blocker" });
+    const id = await file(svc, { urgency: "blocker", stopped: "Release waits" });
     expect(row(svc, id).urgency).toBe("blocker");
     expect(row(svc, id).push_sent_at).toBeNull();
   });
@@ -254,7 +256,7 @@ describe("the push on a card", () => {
 
   it("pushes once when a card with urgency blocker is filed, with the card key as the dedupe key", async () => {
     const { r, n } = setup();
-    const { t, g1 } = await opened(r, { ask: { urgency: "blocker" } });
+    const { t, g1 } = await opened(r, { ask: { urgency: "blocker", stopped: "Release waits" } });
     await r.svc.drainPushes();
     expect(n.calls).toHaveLength(1);
     expect(n.calls[0]).toMatchObject({ kind: "blocker", dedupeKey: r.svc.cardKey(t.id) });
@@ -267,7 +269,7 @@ describe("the push on a card", () => {
   it("two generations of a card with the same filing time resolve to the true original: one push, one dedupe key", async () => {
     const { r, n } = setup();
     n.mode = "throw";
-    const { t, g1 } = await opened(r, { ask: { urgency: "blocker" } });
+    const { t, g1 } = await opened(r, { ask: { urgency: "blocker", stopped: "Release waits" } });
     await r.svc.drainPushes();
     const proto = r.db.prepare("SELECT * FROM decisions WHERE id = ?").get(g1.id) as Record<string, unknown>;
     const cols = Object.keys(proto);
@@ -297,9 +299,9 @@ describe("the push on a card", () => {
 
   it("an edit of a pushed card (new generation) does not push again", async () => {
     const { r, n } = setup();
-    const { t } = await opened(r, { ask: { urgency: "blocker" } });
+    const { t } = await opened(r, { ask: { urgency: "blocker", stopped: "Release waits" } });
     await r.svc.drainPushes();
-    r.edit(t, { description: r.desc({ key: String(r.cardRow(t.id).request_key), question: "A rewritten question?", ask: { urgency: "blocker" } }) });
+    r.edit(t, { description: r.desc({ key: String(r.cardRow(t.id).request_key), question: "A rewritten question?", ask: { urgency: "blocker", stopped: "Release waits" } }) });
     await r.poll();
     await r.svc.drainPushes();
     expect(r.gens(t.id).length).toBeGreaterThan(1);
@@ -309,12 +311,12 @@ describe("the push on a card", () => {
   it("an edit after a failed first push tries again", async () => {
     const { r, n } = setup();
     n.mode = "throw";
-    const { t } = await opened(r, { ask: { urgency: "blocker" } });
+    const { t } = await opened(r, { ask: { urgency: "blocker", stopped: "Release waits" } });
     await r.svc.drainPushes();
     expect(n.calls).toHaveLength(1);
     n.mode = "ok";
     r.advance(60_000); // past the backoff after the first failure
-    r.edit(t, { description: r.desc({ key: String(r.cardRow(t.id).request_key), question: "A rewritten question?", ask: { urgency: "blocker" } }) });
+    r.edit(t, { description: r.desc({ key: String(r.cardRow(t.id).request_key), question: "A rewritten question?", ask: { urgency: "blocker", stopped: "Release waits" } }) });
     await r.poll();
     await r.svc.drainPushes();
     expect(n.calls).toHaveLength(2);
@@ -327,7 +329,7 @@ describe("the push on a card", () => {
     await r.svc.drainPushes();
     expect(n.calls).toEqual([]);
     const key = String(r.cardRow(t.id).request_key);
-    r.edit(t, { description: r.desc({ key, ask: { urgency: "blocker" } }) });
+    r.edit(t, { description: r.desc({ key, ask: { urgency: "blocker", stopped: "Release waits" } }) });
     await r.poll();
     await r.svc.drainPushes();
     const gens = r.gens(t.id);
@@ -358,7 +360,7 @@ describe("the push on a card", () => {
   it("a notifier failure never fails the card's materialization", async () => {
     const { r, n, logs } = setup();
     n.mode = "throw";
-    const { t } = await opened(r, { ask: { urgency: "blocker" } });
+    const { t } = await opened(r, { ask: { urgency: "blocker", stopped: "Release waits" } });
     await r.svc.drainPushes();
     expect(r.cardRow(t.id).state).toBe("open");
     expect(logs.join("\n")).toContain("not installed");
@@ -387,7 +389,7 @@ describe("retrying a lost push", () => {
   it("a failed push is retried by the reconcile pass on an unchanged card, with the same dedupe key", async () => {
     const { r, n } = setup();
     n.mode = "throw";
-    const { t, g1 } = await opened(r, { ask: { urgency: "blocker" } });
+    const { t, g1 } = await opened(r, { ask: { urgency: "blocker", stopped: "Release waits" } });
     await r.svc.drainPushes();
     expect(state(r, g1.id)).toMatchObject({ push_sent_at: null, push_attempts: 1 });
     n.mode = "ok";
@@ -410,11 +412,11 @@ describe("retrying a lost push", () => {
   it("direct edits of a card are bounded by the same backoff and attempt limit as reconcile", async () => {
     const { r, n } = setup();
     n.mode = "throw";
-    const { t } = await opened(r, { ask: { urgency: "blocker" } });
+    const { t } = await opened(r, { ask: { urgency: "blocker", stopped: "Release waits" } });
     await r.svc.drainPushes();
     const key = String(r.cardRow(t.id).request_key);
     const editOnce = async (i: number) => {
-      r.edit(t, { description: r.desc({ key, question: `Rewrite number ${i}?`, ask: { urgency: "blocker" } }) });
+      r.edit(t, { description: r.desc({ key, question: `Rewrite number ${i}?`, ask: { urgency: "blocker", stopped: "Release waits" } }) });
       await r.poll();
       await r.svc.drainPushes();
     };
@@ -438,7 +440,7 @@ describe("retrying a lost push", () => {
   it("an eligible ask is retried even behind more than 200 older spent asks and more than 200 older asks still in backoff", async () => {
     const { r, n } = setup();
     n.mode = "throw";
-    const { g1: newest } = await opened(r, { ask: { urgency: "blocker" } });
+    const { g1: newest } = await opened(r, { ask: { urgency: "blocker", stopped: "Release waits" } });
     await r.svc.drainPushes();
     expect(state(r, newest.id)).toMatchObject({ push_sent_at: null, push_attempts: 1 });
     r.advance(10 * 3_600_000);
@@ -470,7 +472,7 @@ describe("retrying a lost push", () => {
   it("a reconcile pass over 20,000 spent asks reads the live index only and finishes fast", async () => {
     const { r, n } = setup();
     n.mode = "throw";
-    const { g1: live } = await opened(r, { ask: { urgency: "blocker" } });
+    const { g1: live } = await opened(r, { ask: { urgency: "blocker", stopped: "Release waits" } });
     await r.svc.drainPushes();
     const proto = r.db.prepare("SELECT * FROM decisions WHERE id = ?").get(live.id) as Record<string, unknown>;
     const cols = Object.keys(proto);
@@ -517,7 +519,7 @@ describe("retrying a lost push", () => {
   it("an ask that spends its last try, or whose card already pushed, leaves the retry index", async () => {
     const { r, n } = setup();
     n.mode = "throw";
-    const { t, g1 } = await opened(r, { ask: { urgency: "blocker" } });
+    const { t, g1 } = await opened(r, { ask: { urgency: "blocker", stopped: "Release waits" } });
     await r.svc.drainPushes();
     const inIndex = (id: string) => (r.db.prepare("SELECT COUNT(*) AS c FROM decisions INDEXED BY decisions_blocker_pending WHERE id = ? AND urgency = 'blocker' AND push_sent_at IS NULL AND COALESCE(push_attempts, 0) < 6 AND withdrawn_at IS NULL AND resolved_at IS NULL").get(id) as { c: number }).c;
     expect(inIndex(g1.id)).toBe(1);
@@ -532,10 +534,10 @@ describe("retrying a lost push", () => {
 
   it("a later generation of a card that already pushed leaves the retry index", async () => {
     const { r, n } = setup();
-    const { t } = await opened(r, { ask: { urgency: "blocker" } });
+    const { t } = await opened(r, { ask: { urgency: "blocker", stopped: "Release waits" } });
     await r.svc.drainPushes();
     expect(n.calls).toHaveLength(1);
-    r.edit(t, { description: r.desc({ key: String(r.cardRow(t.id).request_key), question: "A rewritten question?", ask: { urgency: "blocker" } }) });
+    r.edit(t, { description: r.desc({ key: String(r.cardRow(t.id).request_key), question: "A rewritten question?", ask: { urgency: "blocker", stopped: "Release waits" } }) });
     await r.poll();
     await r.svc.drainPushes();
     const gens = r.gens(t.id);
@@ -551,10 +553,10 @@ describe("retrying a lost push", () => {
   it("an edit during the backoff does not strand the ask: reconcile retries the new generation after the backoff", async () => {
     const { r, n } = setup();
     n.mode = "throw";
-    const { t, g1 } = await opened(r, { ask: { urgency: "blocker" } });
+    const { t, g1 } = await opened(r, { ask: { urgency: "blocker", stopped: "Release waits" } });
     await r.svc.drainPushes();
     expect(n.calls).toHaveLength(1);
-    r.edit(t, { description: r.desc({ key: String(r.cardRow(t.id).request_key), question: "Rewritten during the backoff?", ask: { urgency: "blocker" } }) });
+    r.edit(t, { description: r.desc({ key: String(r.cardRow(t.id).request_key), question: "Rewritten during the backoff?", ask: { urgency: "blocker", stopped: "Release waits" } }) });
     await r.poll();
     await r.svc.drainPushes();
     expect(n.calls).toHaveLength(1); // inside the backoff the edit declines
@@ -582,7 +584,7 @@ describe("retrying a lost push", () => {
     for (const [label, close] of closers) {
       const { r, n } = setup();
       n.mode = "throw";
-      const { g1 } = await opened(r, { ask: { urgency: "blocker" } });
+      const { g1 } = await opened(r, { ask: { urgency: "blocker", stopped: "Release waits" } });
       await r.svc.drainPushes();
       expect(n.calls, label).toHaveLength(1);
       close(r, g1.id);
@@ -599,7 +601,7 @@ describe("retrying a lost push", () => {
   it("a push lost with the process (no attempt recorded) is retried by a fresh service on the same database", async () => {
     const { r, n } = setup();
     n.mode = "hang";
-    const { g1 } = await opened(r, { ask: { urgency: "blocker" } });
+    const { g1 } = await opened(r, { ask: { urgency: "blocker", stopped: "Release waits" } });
     // the process dies before the push answers: the row has urgency and no push
     r.db.prepare("UPDATE decisions SET push_attempts = NULL, push_last_attempt_at = NULL WHERE id = ?").run(g1.id);
     const n2 = new FakeNotifier();
@@ -614,7 +616,7 @@ describe("retrying a lost push", () => {
   it("gives up after the attempt bound, and a capped or deduped result counts as sent", async () => {
     const { r, n } = setup();
     n.mode = "throw";
-    const { g1 } = await opened(r, { ask: { urgency: "blocker" } });
+    const { g1 } = await opened(r, { ask: { urgency: "blocker", stopped: "Release waits" } });
     await r.svc.drainPushes();
     for (let i = 0; i < 12; i++) {
       r.advance(2 * 3_600_000);
@@ -626,7 +628,7 @@ describe("retrying a lost push", () => {
 
     const b = setup();
     b.n.mode = "throw";
-    const { g1: h1 } = await opened(b.r, { ask: { urgency: "blocker" } });
+    const { g1: h1 } = await opened(b.r, { ask: { urgency: "blocker", stopped: "Release waits" } });
     await b.r.svc.drainPushes();
     b.n.mode = "capped";
     b.r.advance(60_000);
@@ -642,7 +644,7 @@ describe("retrying a lost push", () => {
   it("does not retry an ask that is already answered or withdrawn, nor one without urgency", async () => {
     const { r, n } = setup();
     n.mode = "throw";
-    const { g1 } = await opened(r, { ask: { urgency: "blocker" } });
+    const { g1 } = await opened(r, { ask: { urgency: "blocker", stopped: "Release waits" } });
     await opened(r, {});
     await r.svc.drainPushes();
     expect(n.calls).toHaveLength(1);
@@ -657,7 +659,7 @@ describe("retrying a lost push", () => {
   it("a reconcile pass with a throwing notifier or no notifier never throws", async () => {
     const { r, n } = setup();
     n.mode = "throw";
-    await opened(r, { ask: { urgency: "blocker" } });
+    await opened(r, { ask: { urgency: "blocker", stopped: "Release waits" } });
     await r.svc.drainPushes();
     r.advance(3_600_000);
     expect(() => r.svc.reconcilePushes()).not.toThrow();
@@ -673,7 +675,7 @@ describe("time to answer", () => {
   it("a decide card: filed, pushed, first pick, and the differences", async () => {
     const n = new FakeNotifier();
     const r = rig({ svc: { notifier: n } });
-    const { t, g1 } = await opened(r, { ask: { urgency: "blocker" } });
+    const { t, g1 } = await opened(r, { ask: { urgency: "blocker", stopped: "Release waits" } });
     await r.svc.drainPushes();
     r.advance(90_000);
     expect(r.mkPick(g1.id)).toMatchObject({ ok: true });
@@ -688,7 +690,7 @@ describe("time to answer", () => {
 
   it("an unanswered ask has no answer time", async () => {
     const r = rig({ svc: { notifier: new FakeNotifier() } });
-    const { g1 } = await opened(r, { ask: { urgency: "blocker" } });
+    const { g1 } = await opened(r, { ask: { urgency: "blocker", stopped: "Release waits" } });
     expect(r.svc.timeToAnswer(g1.id)).toMatchObject({ answered_at: null, answered_by: null, filed_to_answer_ms: null, push_to_answer_ms: null });
   });
 
@@ -698,7 +700,7 @@ describe("time to answer", () => {
       const n = new FakeNotifier();
       const svc = env.open({ notifier: n });
       const asks = new Asks(svc);
-      const f = await svc.file(ask(env, { kind: "machine", options: undefined, machine: { class: "ci", detail: "down", owner_thread: "thr-own" }, subject: "ci", question: "CI down", urgency: "blocker" }), {});
+      const f = await svc.file(ask(env, { kind: "machine", options: undefined, machine: { class: "ci", detail: "down", owner_thread: "thr-own" }, subject: "ci", question: "CI down", urgency: "blocker", stopped: "Release waits" }), {});
       if (!f.ok) throw new Error(f.error);
       await svc.drainPushes();
       env.clock.t += 120_000;
@@ -816,7 +818,7 @@ describe("bb home pushes and get --card", () => {
     const r = rig({ svc: { notifier: new FakeNotifier() } });
     const run = cliFor(r);
     const { t: plain } = await opened(r, {});
-    const { t, g1 } = await opened(r, { ask: { urgency: "blocker" }, key: "key-blocker" });
+    const { t, g1 } = await opened(r, { ask: { urgency: "blocker", stopped: "Release waits" }, key: "key-blocker" });
     await r.svc.drainPushes();
     r.advance(30_000);
     expect(r.mkPick(g1.id)).toMatchObject({ ok: true });

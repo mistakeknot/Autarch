@@ -1,3 +1,4 @@
+import { validateStopped } from "./stopped.js";
 // The TypeScript side of the Home ask protocol: the shared filing request
 // (schema/home-ask/v1), its validation and defaults, and the three hashes
 // derived from it (identity, revision, semanticKey).
@@ -71,6 +72,7 @@ export interface Ask {
   machine?: Machine;
   /** Optional delivery attribute: only "blocker" is accepted. Not part of the identity, revision, semantic key or normalized JSON. */
   urgency?: "blocker";
+  stopped?: string;
   // Delivery-only: excluded from identity, revision, semantic key and normalized JSON.
   // A filing or update changing only evidence is a no-op, like Urgency.
   evidence?: Evidence[];
@@ -139,7 +141,7 @@ function slug(label: string): string {
   return firstChars(out, 32).replace(/-+$/, "");
 }
 
-const TOP_FIELDS = ["v", "kind", "request_id", "ask_key", "subject", "project", "project_root", "asker", "thread", "question", "recommendation", "supersedes", "mention_of", "options", "questions", "steps", "machine", "urgency", "evidence", "group"];
+const TOP_FIELDS = ["v", "kind", "request_id", "ask_key", "subject", "project", "project_root", "asker", "thread", "question", "recommendation", "supersedes", "mention_of", "options", "questions", "steps", "machine", "urgency", "stopped", "evidence", "group"];
 const OPTION_FIELDS = ["id", "label", "kind", "reversible", "instruction", "approval"];
 const QUESTION_FIELDS = ["id", "prompt", "options", "recommendation"];
 const QUESTION_OPTION_FIELDS = ["id", "label", "detail"];
@@ -220,6 +222,8 @@ export function parseAsk(input: unknown): Ask {
     if (u !== "blocker") fail('invalid ask: urgency must be "blocker" when set');
     a.urgency = u;
   }
+  const stopped = validateStopped(o);
+  if (stopped !== undefined) a.stopped = stopped;
   if (o.steps !== undefined && o.steps !== null) {
     if (!Array.isArray(o.steps) || (o.steps as unknown[]).some((s) => typeof s !== "string")) fail("invalid ask: steps must be an array of strings");
     a.steps = [...(o.steps as string[])];
@@ -414,6 +418,12 @@ function normalize(input: Ask): { ask?: Ask; problems: Problem[] } {
   };
   if (a.questions.length > 0) out.questions = a.questions;
   if (a.urgency === "blocker") out.urgency = "blocker";
+  try {
+    const stopped = validateStopped(input);
+    if (stopped !== undefined) out.stopped = stopped;
+  } catch (e) {
+    add("stopped", (e as Error).message);
+  }
   if (input.evidence !== undefined) out.evidence = validateEvidence(input.evidence);
   if (input.group !== undefined) out.group = validateGroup(input.group);
   if (out.request_id === "") out.request_id = identityOf(out);

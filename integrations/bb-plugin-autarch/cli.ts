@@ -151,10 +151,19 @@ export function homeCli(p: HomeCliParts) {
       pushes: cliCommand({
         summary: "List blocker asks (urgency blocker) with push time and time to answer; read-only",
         options: {
+          "by-thread": { type: "boolean", description: "Count blocker cards by filing thread; read-only." },
+          days: { type: "string", description: "Audit window in days (default 7, at most 365). Requires --by-thread." },
           limit: { type: "string", description: "Most recent N blocker asks (default 100, at most 1000)." },
           json: { type: "boolean", description: "Print JSON (the only format)." },
         },
         run({ options }) {
+          if (options["by-thread"]) {
+            const days = options.days === undefined ? 7 : Number(options.days);
+            if (!Number.isInteger(days) || days < 1 || days > 365) return err(2, "days must be an integer from 1 to 365");
+            if (options.limit !== undefined) return err(2, "limit cannot be used with --by-thread");
+            return out(svc.blockersByThread(days));
+          }
+          if (options.days !== undefined) return err(2, "days requires --by-thread");
           const n = options.limit === undefined ? undefined : Number(options.limit);
           if (n !== undefined && (!Number.isInteger(n) || n < 1)) return err(2, "limit must be a positive integer");
           return out({ pushes: svc.pushes(n) });

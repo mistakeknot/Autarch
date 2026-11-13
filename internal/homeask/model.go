@@ -87,6 +87,7 @@ type Ask struct {
 	// Urgency is an optional delivery attribute: only "blocker" is accepted. It is not part of the
 	// identity, revision, semantic key or normalized JSON, so every hash filed before it existed is unchanged.
 	Urgency string `json:"urgency,omitempty"`
+	Stopped string `json:"stopped,omitempty"`
 	// Evidence is delivery content, excluded from all hashes and normalized JSON.
 	// A filing or update that changes only evidence is a no-op, like Urgency.
 	Evidence EvidenceList `json:"evidence,omitempty"`
@@ -119,6 +120,16 @@ func Parse(data []byte) (Ask, error) {
 	var fields map[string]json.RawMessage
 	if err := json.Unmarshal(data, &fields); err == nil {
 		for k, raw := range fields {
+			if strings.EqualFold(k, "stopped") {
+				if k != "stopped" {
+					return Ask{}, fmt.Errorf("invalid ask field %q", k)
+				}
+				var m map[string]any
+				_ = json.Unmarshal(data, &m)
+				if err := CheckStopped(m); err != nil {
+					return Ask{}, err
+				}
+			}
 			if strings.EqualFold(k, "group") {
 				if k != "group" {
 					return Ask{}, fmt.Errorf("invalid ask field %q", k)
@@ -363,6 +374,15 @@ func normalize(in Ask) (Ask, []Problem) {
 	}
 	if a.Urgency != "" && a.Urgency != "blocker" {
 		ps.add("urgency", `urgency must be "blocker" when set`)
+	}
+	m := map[string]any{"urgency": a.Urgency}
+	if a.Stopped != "" {
+		m["stopped"] = a.Stopped
+	}
+	if err := CheckStopped(m); err != nil {
+		ps.add("stopped", err.Error())
+	} else if s, ok := m["stopped"].(string); ok {
+		a.Stopped = s
 	}
 	switch a.Kind {
 	case "decide", "steps", "machine":

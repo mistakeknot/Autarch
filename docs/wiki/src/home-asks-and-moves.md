@@ -2,6 +2,22 @@
 
 A Home card is a BB Tasks card whose description carries a `Request: <key> sha256:<identity>` line and a fenced `home-ask` block. `autarch needs-mk file` files it and is idempotent on the request key: the same key with the same content replays, and the same key with changed content is refused.
 
+## Blocker urgency
+
+`autarch needs-mk file --urgency blocker --stopped "Release waits for this answer"`
+requests one phone push when the card is filed. The ask JSON equivalent is
+`"urgency": "blocker", "stopped": "Release waits for this answer"`; flags override JSON.
+`stopped` must be a trimmed, non-blank single line of at most 200 characters describing
+what work is stopped until the answer. It is allowed only with blocker urgency.
+A missing or invalid field exits 2 before filing. Add the field or omit blocker urgency
+(no phone push). The filer checks the field, without interpreting the question.
+
+`bb home pushes --by-thread --days 7` returns JSON rows `{thread, blocker_cards}`,
+ordered by descending count and then thread. The default window is seven days
+(1–365 allowed). This read-only audit counts each distinct card carrying blocker
+urgency in the window once, including old cards without `stopped`, whether or not
+its phone push succeeded. It uses the recorded filing thread.
+
 ## Evidence
 
 The optional `evidence` array in a `home-ask/v2` block (also accepted by the Go and TypeScript ask parsers)

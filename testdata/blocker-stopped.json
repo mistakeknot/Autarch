@@ -1,0 +1,93 @@
+[
+  {
+    "name": "valid",
+    "fields": {
+      "urgency": "blocker",
+      "stopped": " Release waits "
+    },
+    "valid": true
+  },
+  {
+    "name": "missing",
+    "fields": {
+      "urgency": "blocker"
+    },
+    "valid": false
+  },
+  {
+    "name": "blank",
+    "fields": {
+      "urgency": "blocker",
+      "stopped": ""
+    },
+    "valid": false
+  },
+  {
+    "name": "whitespace-only",
+    "fields": {
+      "urgency": "blocker",
+      "stopped": " \t "
+    },
+    "valid": false
+  },
+  {
+    "name": "too-long",
+    "fields": {
+      "urgency": "blocker",
+      "stopped": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+    },
+    "valid": false
+  },
+  {
+    "name": "multi-line",
+    "fields": {
+      "urgency": "blocker",
+      "stopped": "one\ntwo"
+    },
+    "valid": false
+  },
+  {
+    "name": "stopped-without-blocker",
+    "fields": {
+      "stopped": "Release waits"
+    },
+    "valid": false
+  },
+  {
+    "name": "wrong-type",
+    "fields": {
+      "urgency": "blocker",
+      "stopped": 2
+    },
+    "valid": false
+  },
+  {
+    "name": "null",
+    "fields": {
+      "urgency": "blocker",
+      "stopped": null
+    },
+    "valid": false
+  },
+  {
+    "name": "unicode-boundary",
+    "fields": {
+      "urgency": "blocker",
+      "stopped": "😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀"
+    },
+    "valid": true
+  },
+  {
+    "name": "carriage-return",
+    "fields": {
+      "urgency": "blocker",
+      "stopped": "one\rtwo"
+    },
+    "valid": false
+  },
+  {
+    "name": "unset",
+    "fields": {},
+    "valid": true
+  }
+]

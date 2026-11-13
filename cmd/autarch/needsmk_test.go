@@ -472,7 +472,7 @@ func TestNeedsMkFileAlwaysWritesARequestLine(t *testing.T) {
 func TestNeedsMkFileUrgencyBlocker(t *testing.T) {
 	t.Setenv("BB_THREAD_ID", "thread-x")
 	s := &stubBB{}
-	if _, err := runNeedsMk(t, s, "file", "--project", "P1", "--title", "Ship?", "--urgency", "blocker", "--ask-file", writeAsk(t)); err != nil {
+	if _, err := runNeedsMk(t, s, "file", "--project", "P1", "--title", "Ship?", "--urgency", "blocker", "--stopped", "Release waits", "--ask-file", writeAsk(t)); err != nil {
 		t.Fatal(err)
 	}
 	c, err := homeask.ParseCard(s.desc)
@@ -492,7 +492,7 @@ func TestNeedsMkFileUrgencyBlocker(t *testing.T) {
 func TestNeedsMkFileUrgencyFromAskJSON(t *testing.T) {
 	t.Setenv("BB_THREAD_ID", "thread-x")
 	p := filepath.Join(t.TempDir(), "ask.json")
-	os.WriteFile(p, []byte(`{"project":"autarch","project_root":"/srv/autarch","question":"Ship it?","urgency":"blocker","options":[{"id":"a","label":"A","kind":"ruling-only"},{"id":"b","label":"B","kind":"ruling-only"}]}`), 0o644)
+	os.WriteFile(p, []byte(`{"project":"autarch","project_root":"/srv/autarch","question":"Ship it?","urgency":"blocker","stopped":"Release waits","options":[{"id":"a","label":"A","kind":"ruling-only"},{"id":"b","label":"B","kind":"ruling-only"}]}`), 0o644)
 	s := &stubBB{}
 	if _, err := runNeedsMk(t, s, "file", "--project", "P1", "--title", "Ship?", "--ask-file", p); err != nil {
 		t.Fatal(err)
@@ -517,5 +517,43 @@ func TestNeedsMkFileRefusesOtherUrgency(t *testing.T) {
 	}
 	if len(s.envs) != 0 {
 		t.Fatalf("a refused urgency created something: %v", s.envs)
+	}
+}
+
+func TestNeedsMkFileRequiresStopped(t *testing.T) {
+	t.Setenv("BB_THREAD_ID", "thread-x")
+	s := &stubBB{}
+	_, err := runNeedsMk(t, s, "file", "--project", "P1", "--title", "Ship?", "--urgency", "blocker", "--ask-file", writeAsk(t))
+	if exitCode(err) != 2 {
+		t.Fatalf("want usage refusal, got %v", err)
+	}
+	for _, word := range []string{"stopped", "without blocker urgency", "no phone push"} {
+		if !strings.Contains(err.Error(), word) {
+			t.Errorf("missing %q: %v", word, err)
+		}
+	}
+	if len(s.envs) != 0 {
+		t.Fatalf("refusal contacted Home: %v", s.envs)
+	}
+}
+
+func TestNeedsMkStoppedOverride(t *testing.T) {
+	t.Setenv("BB_THREAD_ID", "thread-x")
+	p := writeAsk(t)
+	raw, _ := os.ReadFile(p)
+	var ask map[string]any
+	json.Unmarshal(raw, &ask)
+	ask["urgency"] = "invalid"
+	ask["stopped"] = "JSON text"
+	raw, _ = json.Marshal(ask)
+	os.WriteFile(p, raw, 0600)
+	s := &stubBB{}
+	_, err := runNeedsMk(t, s, "file", "--project", "P1", "--title", "Ship?", "--ask-file", p, "--urgency", "blocker", "--stopped", "  Release waits  ")
+	if err != nil {
+		t.Fatal(err)
+	}
+	c, err := homeask.ParseCard(s.desc)
+	if err != nil || c.Ask["stopped"] != "Release waits" {
+		t.Fatalf("override not trimmed and carried: %v %v", c, err)
 	}
 }

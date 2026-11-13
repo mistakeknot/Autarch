@@ -7,7 +7,7 @@ import { createHash, randomUUID } from "node:crypto";
 import { buildFeed, renderFeed, type Feed } from "./feed.js";
 import { cardFingerprint, askingThread, parseCard, toV1, type Card } from "./cards.js";
 import { PUSH_TIMEOUT_MS, type Notifier, type PushRequest } from "./notifier.js";
-import { askRows, listPushes, timeToAnswer, type PushListing, type TimeToAnswer } from "./pushtiming.js";
+import { blockersByThread, askRows, listPushes, timeToAnswer, type PushListing, type TimeToAnswer } from "./pushtiming.js";
 import { checkHoldEnd, endMs, holdEndPhrase, parseStoredEnd, type HoldEnd } from "./holdend.js";
 import { OPEN_STATUSES, type Task, type TaskCommentRow } from "./tasks.js";
 
@@ -23,10 +23,14 @@ import { readAsk, UNREADABLE_REFUSAL as UNREADABLE_PICK } from "./askbody.js";
 import { identity, normalizedJson, parseAsk, revision, semanticKey, type Ask, type Question } from "./model.js";
 import { pickWrites } from "./cardwrites.js";
 
-// Canonical JSON stays unchanged; delivery JSON also carries evidence and grouping.
+// Canonical JSON stays unchanged; delivery JSON also carries delivery and display attributes.
 function deliveryJson(ask: Ask): string {
-  if (!ask.evidence?.length && !ask.group) return normalizedJson(ask);
+  if (!ask.evidence?.length && !ask.group && !ask.stopped) return normalizedJson(ask);
   const body = JSON.parse(normalizedJson(ask));
+  if (ask.stopped) {
+    body.urgency = ask.urgency;
+    body.stopped = ask.stopped;
+  }
   if (ask.evidence?.length) body.evidence = ask.evidence;
   if (ask.group) body.group = ask.group;
   return JSON.stringify(body);
@@ -1807,7 +1811,9 @@ export class Service {
       // A legacy ask has no card: its key is the first generation of its supersedes chain, so every generation shares it.
       const key = this.cardKey(taskId) ?? taskId ?? group;
       const title = (this.cardTitle(taskId) || d.subject || String(readAsk(d.body_json)?.question ?? "")).slice(0, 120);
-      const body = String(readAsk(d.body_json)?.question ?? "").replace(/\s+/g, " ").trim().slice(0, 300);
+      const ask = readAsk(d.body_json);
+      const question = String(ask?.question ?? "").replace(/\s+/g, " ").trim();
+      const body = (ask?.stopped ? `Stopped: ${ask.stopped}\n${question}` : question).slice(0, 300);
       req = { kind: "blocker", title, body, ...(d.thread ? { thread: d.thread } : {}), dedupeKey: key };
       this.pushing.add(group);
     } catch (e) {
@@ -1989,6 +1995,10 @@ export class Service {
   }
 
   /** The blocker asks, newest first, each with its push and time to answer. */
+  blockersByThread(days = 7): {thread: string; blocker_cards: number}[] {
+    return blockersByThread(this.db, this.now(), days);
+  }
+
   pushes(limit?: number): PushListing[] {
     return listPushes(this.db, limit);
   }

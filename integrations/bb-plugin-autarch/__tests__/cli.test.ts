@@ -536,3 +536,26 @@ describe("home report (retired verb, kept so a host script that still calls it d
     expect(JSON.parse(r.stdout!)).toEqual({ ok: true, matched: 0 });
   });
 });
+
+describe("blocker audit by filing thread", () => {
+ afterEach(cleanupEnvs);
+ it("counts cards once by filing thread, includes old blockers, excludes cards outside the window, and writes nothing", async () => {
+ const r=rig();
+ const cli=homeCli({svc:r.svc,asks:new Asks(r.svc),catchup:new Catchup(r.svc, verifiedDelegation(r.svc)),rule:()=>{throw new Error("read only");},isVizier:()=>false});
+ const a=await opened(r,{thread:"thread-a"});
+ const b=await opened(r,{thread:"thread-a"});
+ const c=await opened(r,{thread:"thread-b"});
+ await opened(r,{thread:"thread-b"});
+ for(const {g1} of [a,b,c]) r.db.prepare("UPDATE decisions SET urgency='blocker' WHERE id=?").run(g1.id);
+ // Generations of one card must count once, including after an edit.
+ r.edit(a.t,{description:r.desc({key:String(r.cardRow(a.t.id).request_key),question:"Revised?",ask:{urgency:"blocker",stopped:"Release waits"}})});
+ await r.poll(); expect(r.gens(a.t.id)).toHaveLength(2);
+ const old=await opened(r,{thread:"thread-b"});
+ r.db.prepare("UPDATE decisions SET urgency='blocker', filed_at='2000-01-01T00:00:00.000Z' WHERE id=?").run(old.g1.id);
+ const before=r.db.prepare("SELECT total_changes() AS n").get();
+ const res=await cli.run(["pushes","--by-thread","--days","7"],{});
+ expect(res.exitCode).toBe(0); expect(JSON.parse(res.stdout!)).toEqual([{thread:"thread-a",blocker_cards:2},{thread:"thread-b",blocker_cards:1}]);
+ expect(r.db.prepare("SELECT total_changes() AS n").get()).toEqual(before);
+ expect((await cli.run(["pushes","--by-thread","--days","0"],{})).exitCode).toBe(2);
+ });
+});

@@ -221,7 +221,7 @@ func commandWarning(question string) string {
 }
 
 func needsMkFileCmd() *cobra.Command {
-	var project, title, askFile, rootRun, request, moveFile, ownerThread, urgency, prFlag, supersedes string
+	var project, title, askFile, rootRun, request, moveFile, ownerThread, urgency, stopped, prFlag, supersedes string
 	var blocks []string
 	var vizierOwned bool
 	cmd := &cobra.Command{
@@ -263,8 +263,9 @@ Cards whose options are all notice acknowledgments (read, ok, close and similar 
 refused with exit 2: notices belong in the vizier inbox or digest. --move and --root-run are exempt.
 
 --urgency blocker (or "urgency": "blocker" in the ask JSON) asks Home to send mk a phone push once, when the
-card is first filed. Use it only when work is stopped until mk answers. It is optional, any other value is
-refused, and it works on every kind of card; a machine blocker alone never pushes.`,
+card is first filed. It requires --stopped (or "stopped" in JSON): a non-blank single line of at most
+200 characters saying what work is stopped until mk answers. Omit blocker urgency for no phone push.
+Any other urgency is refused. It works on every kind of card; a machine blocker alone never pushes.`,
 		Args:         cobra.NoArgs,
 		SilenceUsage: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -320,6 +321,12 @@ refused, and it works on every kind of card; a machine blocker alone never pushe
 				ask["urgency"] = urgency
 			} else if u, ok := ask["urgency"]; ok && u != "blocker" {
 				return &usageError{`"urgency" in the ask must be "blocker" when set`}
+			}
+			if cmd.Flags().Changed("stopped") {
+				ask["stopped"] = stopped
+			}
+			if err := homeask.CheckStopped(ask); err != nil {
+				return &usageError{err.Error()}
 			}
 			if _, ok := ask["project_root"]; !ok {
 				ask["project_root"] = gitRoot()
@@ -395,7 +402,8 @@ refused, and it works on every kind of card; a machine blocker alone never pushe
 	cmd.Flags().StringVar(&moveFile, "move", "", "home-move/v1 JSON file: what mk owes (script, pr, read or context); adds the mk-move label")
 	cmd.Flags().StringVar(&rootRun, "root-run", "", "script=<abs path>,timeout=<seconds>,set=<name>")
 	cmd.Flags().StringVar(&request, "request", "", "Request key (default: derived from thread and ask); when given it must be non-empty and match the Request line key pattern")
-	cmd.Flags().StringVar(&urgency, "urgency", "", `Optional: "blocker" asks Home to push mk's phone once when the card is first filed`)
+	cmd.Flags().StringVar(&stopped, "stopped", "", "Work stopped until the answer (required with blocker urgency, single line, at most 200 characters)")
+	cmd.Flags().StringVar(&urgency, "urgency", "", `Optional: "blocker" requires --stopped and asks Home to push once; omit urgency for no phone push`)
 	cmd.Flags().StringVar(&prFlag, "pr", "", "PR URL this ask merges: refused (exit 2) unless the PR's base is the repo's default branch or --into explicitly opts in to its non-default base; a \"Manually merge it at ...\" option implies it")
 	cmd.Flags().StringVar(&supersedes, "supersedes", "", "Update this open, unanswered card in the same project; it must belong to this thread or --owner-thread")
 	cmd.Flags().BoolVar(&vizierOwned, "vizier-owned", false, "Vizier only: this is its own ruling, root run or scope card; mutually exclusive with --owner-thread")

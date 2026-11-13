@@ -170,7 +170,7 @@ func TestAskingThreadVectors(t *testing.T) {
 }
 
 func TestUrgencyOnlyBlocker(t *testing.T) {
-	a := Ask{V: 1, Kind: "decide", Project: "p", ProjectRoot: "/r", Asker: "thread", Thread: "thr_x", Question: "Q?", Urgency: "blocker", Options: []Option{{ID: "a", Label: "A", Kind: "ruling-only"}, {ID: "b", Label: "B", Kind: "ruling-only"}}}
+	a := Ask{V: 1, Kind: "decide", Project: "p", ProjectRoot: "/r", Asker: "thread", Thread: "thr_x", Question: "Q?", Urgency: "blocker", Stopped: "Release waits", Options: []Option{{ID: "a", Label: "A", Kind: "ruling-only"}, {ID: "b", Label: "B", Kind: "ruling-only"}}}
 	n, err := Normalize(a)
 	if err != nil || n.Urgency != "blocker" {
 		t.Fatalf("blocker refused: %v", err)
@@ -178,11 +178,51 @@ func TestUrgencyOnlyBlocker(t *testing.T) {
 	// urgency never moves a hash: the same ask without it has the same identity, revision and normalized JSON
 	b := a
 	b.Urgency = ""
+	b.Stopped = ""
 	if Identity(a) != Identity(b) || Revision(a) != Revision(b) || NormalizedJSON(a) != NormalizedJSON(b) {
 		t.Fatal("urgency changed a hash")
 	}
 	a.Urgency = "soon"
 	if _, err := Normalize(a); err == nil {
 		t.Fatal("urgency soon accepted")
+	}
+}
+
+func TestStoppedVectors(t *testing.T) {
+	raw, err := os.ReadFile("../../testdata/blocker-stopped.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var cases []struct {
+		Name   string
+		Fields map[string]any
+		Valid  bool
+	}
+	if err := json.Unmarshal(raw, &cases); err != nil {
+		t.Fatal(err)
+	}
+	for _, c := range cases {
+		t.Run(c.Name, func(t *testing.T) {
+			m := map[string]any{"schema": "home-ask/v2", "project": "p", "project_root": "/r", "question": "Q?", "options": []any{map[string]any{"id": "a", "label": "A", "kind": "ruling-only"}, map[string]any{"id": "b", "label": "B", "kind": "ruling-only"}}}
+			for k, v := range c.Fields {
+				m[k] = v
+			}
+			b, _ := json.Marshal(m)
+			_, err := ParseCard("Blocks: bead:example\nRequest: example sha256:0123456789abcdef\n\n```home-ask\n" + string(b) + "\n```\n")
+			if (err == nil) != c.Valid {
+				t.Fatalf("valid=%v err=%v", c.Valid, err)
+			}
+			delete(m, "schema")
+			m["v"] = 1
+			m["kind"] = "decide"
+			m["asker"] = "thread"
+			m["thread"] = "t"
+			b, _ = json.Marshal(m)
+			_, err = Parse(b)
+			if (err == nil) != c.Valid {
+				t.Fatalf("v1 valid=%v err=%v", c.Valid, err)
+			}
+
+		})
 	}
 }
