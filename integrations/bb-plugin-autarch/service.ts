@@ -1721,19 +1721,6 @@ export class Service {
 
   private async materializeNew(task: Task, card: Card | null, parseErr: string, ctx: { comments: () => Promise<TaskCommentRow[]> }, row: Record<string, any>): Promise<string | void> {
     if (!card) return this.setDisplay(task.id, shownParseError(parseErr));
-    const key = card.request.key;
-    const reg = this.db.prepare("SELECT task_id, identity FROM card_requests WHERE request_key = ?").get(key) as { task_id: string; identity: string } | undefined;
-    if (reg && reg.task_id !== task.id) return this.setDisplay(task.id, `duplicate Request of ${key}`);
-    if (reg && reg.identity !== card.request.identity) return this.setDisplay(task.id, "the Request line changed");
-    if (!reg) {
-      const canon = this.db
-        .prepare(
-          `SELECT task_id FROM cards WHERE request_key = ? AND labelled = 1 AND deleted_at IS NULL
-             AND status IN ('backlog','todo','in_progress','in_review') ORDER BY created_at, task_id LIMIT 1`,
-        )
-        .get(key) as { task_id: string } | undefined;
-      if (canon && canon.task_id !== task.id) return this.setDisplay(task.id, `duplicate Request of ${key}`);
-    }
     const project = String(card.ask.project ?? "");
     const mismatch = this.bindingMismatch(task, project);
     if (mismatch) {
@@ -1746,6 +1733,33 @@ export class Service {
         }
       }
       return this.setDisplay(task.id, mismatch);
+    }
+
+    if (project === "estate") return this.setDisplay(task.id, "estate is not allowed on a card");
+    let projects: ProjectInfo[];
+    try {
+      projects = await this.deps.projects();
+    } catch (e) {
+      return this.setObserved(row, `root unverified: ${message(e)}`, "", project);
+    }
+    const p = projects.find((x) => x.name === project);
+    if (!p) return this.setObserved(row, `root unverified: unknown project ${JSON.stringify(project)}`, "", project);
+    if (p.root !== card.ask.project_root) return this.setDisplay(task.id, "project_root does not match the root serve resolves for this project");
+
+    const key = card.request.key;
+    const reserved = this.db.prepare("SELECT request_key, identity FROM card_requests WHERE task_id = ?").get(task.id) as { request_key: string; identity: string } | undefined;
+    if (reserved && (reserved.request_key !== key || reserved.identity !== card.request.identity)) return this.setDisplay(task.id, "the Request line changed");
+    const reg = this.db.prepare("SELECT task_id, identity FROM card_requests WHERE request_key = ?").get(key) as { task_id: string; identity: string } | undefined;
+    if (reg && reg.task_id !== task.id) return this.setDisplay(task.id, `duplicate Request of ${key}`);
+    if (reg && reg.identity !== card.request.identity) return this.setDisplay(task.id, "the Request line changed");
+    if (!reg) {
+      const canon = this.db
+        .prepare(
+          `SELECT task_id FROM cards WHERE request_key = ? AND labelled = 1 AND deleted_at IS NULL
+             AND status IN ('backlog','todo','in_progress','in_review') ORDER BY created_at, task_id LIMIT 1`,
+        )
+        .get(key) as { task_id: string } | undefined;
+      if (canon && canon.task_id !== task.id) return this.setDisplay(task.id, `duplicate Request of ${key}`);
     }
 
     // Reserve the canonical Request before any routing read can fail or wait. A retry
@@ -1771,16 +1785,6 @@ export class Service {
         return this.setObserved(row, waited >= UNROUTABLE_AFTER_MS ? "unroutable" : "waiting for asking thread", "", project);
       }
     }
-    if (project === "estate") return this.setDisplay(task.id, "estate is not allowed on a card");
-    let projects: ProjectInfo[];
-    try {
-      projects = await this.deps.projects();
-    } catch (e) {
-      return this.setObserved(row, `root unverified: ${message(e)}`, thread, project);
-    }
-    const p = projects.find((x) => x.name === project);
-    if (!p) return this.setObserved(row, `root unverified: unknown project ${JSON.stringify(project)}`, thread, project);
-    if (p.root !== card.ask.project_root) return this.setDisplay(task.id, "project_root does not match the root serve resolves for this project");
 
     let fp: string;
     let input: DecisionInput;
