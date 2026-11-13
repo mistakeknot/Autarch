@@ -1079,7 +1079,7 @@ func PullKey(legacyKey string) string {
 
 // FileForPull is mk question 4's default, and the only threadless way to file: Mycroft's pull
 // asks. It writes "pull":"mycroft" and posts no comment; the card is forgeable and carries no
-// routing authority. It is called only from cmd/mycroft, and the autarch CLI has no flag for it.
+// routing authority. It supports legacy pull-card compatibility; the autarch CLI has no flag for it.
 //
 // The rev-4 key mycroft:<project>:<bead>:<agent> (a.RequestID) is looked up first, in Home's
 // registry: while the legacy ask is open nothing is filed. It returns the card's task id, or the

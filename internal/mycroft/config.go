@@ -10,56 +10,13 @@ import (
 
 // Config maps .autarch/mycroft/config.yaml.
 type Config struct {
-	PreDispatchCheck    PreDispatchCheck         `yaml:"pre_dispatch_check,omitempty"`
-	Tier                Tier                     `yaml:"tier"`
-	DispatchPreferences DispatchPreferences      `yaml:"dispatch_preferences"`
-	T2DispatchAllowlist []AllowlistEntry         `yaml:"tier2_dispatch_allowlist"`
-	DemotionTriggers    DemotionTriggers         `yaml:"demotion_triggers"`
-	AgentOverrides      map[string]AgentOverride `yaml:"agent_overrides"`
-	PriorityBoosts      []PriorityBoost          `yaml:"priority_boosts"`
+	PreDispatchCheck PreDispatchCheck `yaml:"pre_dispatch_check,omitempty"`
 }
 
-// PreDispatchCheck optionally gates automatic dispatch with a direct argv command.
+// PreDispatchCheck optionally checks a proposed assignment with a direct argv command.
 type PreDispatchCheck struct {
 	Command []string `yaml:"command"`
 	Timeout Duration `yaml:"timeout"`
-}
-
-// PriorityBoost adjusts a bead's effective priority during ranking.
-// Boost is subtracted from priority (lower = more urgent), so a positive
-// boost makes matching beads more urgent. Priority is clamped to [0, 4].
-type PriorityBoost struct {
-	Type  string `yaml:"type"`  // match bead type (bug, task, docs, feature)
-	Boost int    `yaml:"boost"` // amount to subtract from priority (1 = one level more urgent)
-}
-
-// DispatchPreferences controls dispatch limits.
-type DispatchPreferences struct {
-	MaxConcurrentAgents int     `yaml:"max_concurrent_agents"`
-	DailyBudget         float64 `yaml:"daily_budget"` // USD
-}
-
-// AllowlistEntry defines what work T2 can auto-dispatch.
-type AllowlistEntry struct {
-	Type          string `yaml:"type"`           // task, bug, docs
-	MaxPriority   int    `yaml:"max_priority"`   // 0-4
-	MaxComplexity string `yaml:"max_complexity"` // simple, medium, any
-}
-
-// DemotionTriggers controls when Mycroft loses autonomy.
-type DemotionTriggers struct {
-	FailureRateWindow        Duration `yaml:"failure_rate_window"`
-	T3FailureRateThreshold   float64  `yaml:"t3_failure_rate_threshold"`
-	T2FailureRateThreshold   float64  `yaml:"t2_failure_rate_threshold"`
-	ConsecutiveFailureLimit  int      `yaml:"consecutive_failure_limit"`
-	BudgetOvershootThreshold float64  `yaml:"budget_overshoot_threshold"`
-	MinSampleSize            int      `yaml:"min_sample_size"`
-}
-
-// AgentOverride allows per-agent dispatch tuning.
-type AgentOverride struct {
-	MaxConcurrent int      `yaml:"max_concurrent"`
-	PriorityBias  []string `yaml:"priority_bias"`
 }
 
 // Duration wraps time.Duration for YAML serialization (e.g., "24h").
@@ -84,22 +41,7 @@ func (d Duration) MarshalYAML() (interface{}, error) {
 
 // DefaultConfig returns a config with sensible defaults.
 func DefaultConfig() Config {
-	return Config{
-		Tier:             T0,
-		PreDispatchCheck: PreDispatchCheck{Timeout: Duration(30 * time.Second)},
-		DispatchPreferences: DispatchPreferences{
-			MaxConcurrentAgents: 5,
-			DailyBudget:         50.0,
-		},
-		DemotionTriggers: DemotionTriggers{
-			FailureRateWindow:        Duration(24 * time.Hour),
-			T3FailureRateThreshold:   0.25,
-			T2FailureRateThreshold:   0.15,
-			ConsecutiveFailureLimit:  3,
-			BudgetOvershootThreshold: 1.2,
-			MinSampleSize:            20,
-		},
-	}
+	return Config{PreDispatchCheck: PreDispatchCheck{Timeout: Duration(30 * time.Second)}}
 }
 
 // LoadConfig reads a config file, falling back to defaults for missing fields.

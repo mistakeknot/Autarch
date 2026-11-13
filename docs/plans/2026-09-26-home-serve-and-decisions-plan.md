@@ -8,6 +8,11 @@ requirements:
   - S1: decisions owed, picked and ruled, in the Home plugin (build step 1)
   - S1v: the vizier in Home (catch-up, delegated rulings, the vizier's conversation)
 ---
+
+> Historical Mycroft references below are superseded by bead mk-ddtv5.7.13.1.
+> Mycroft now provides only `mycroft spawn` and `mycroft pre-dispatch`; coordinators select work.
+> The former orchestration code and TUI tab have been removed. See [the current spawner guide](../mycroft-bb-spawner.md).
+
 # Home, steps 0 and 1: `autarch serve`, decisions and the vizier
 
 > **For Claude:** REQUIRED SUB-SKILL: Use clavain:executing-plans to implement this plan task-by-task.
@@ -530,7 +535,7 @@ costly and hard to see from the author's seat.
   vectors, shared by Go and TS).
 - `internal/homeask/`: `model.go` (`Ask`, `Option`, `Kind`, `Validate`, `Identity`,
   `Revision`), `filer.go` (`Filer`, `ExecFiler`, `ErrHomeDown`, `ErrOutcomeUnknown`).
-- `internal/mycroft/escalate/escalate.go`: `DecisionQueue` backed by `homeask.Filer`.
+- `[removed Mycroft orchestration code]`: `DecisionQueue` backed by `homeask.Filer`.
 - `integrations/bb-plugin-autarch/`: `package.json`, `server.ts`, `contract.ts`, `model.ts`,
   `store.ts`, `migrations.ts`, `ruling.ts`, `service.ts`, `asks.ts`, `delegation.ts`,
   `wakes.ts`, `feed.ts`, `catchup.ts`, `cli.ts`, `export.ts`, `app.tsx`, `ui/`, `e2e/`,
@@ -1640,14 +1645,14 @@ Depends on Tasks 1.1 and 1.7.
 - Modify: `cmd/autarch/main.go` (`root.AddCommand(decideCmd())`; the `os.Exit(1)` at `:91`
   becomes `os.Exit(exitCode(err))`) `[B-14]`.
 - Modify: `pkg/mcp/server.go` (add `autarch_file_decision`, write scope checked as at `:317`).
-- Modify: `internal/mycroft/escalate/escalate.go:55-120`,
-  `internal/mycroft/scheduler/orchestrator.go` (`suggest()` at `:97-110`, the T2
+- Modify: `[removed Mycroft orchestration code]:55-120`,
+  `[removed Mycroft orchestration code]` (`suggest()` at `:97-110`, the T2
   out-of-allowlist branch at `:123-130`, and the ready-bead filter),
   `cmd/mycroft/main.go:98`, `internal/tui/views/mycroft.go`.
 - Test: `internal/homeask/filer_test.go`, `cmd/autarch/decide_test.go`,
-  `internal/mycroft/escalate/escalate_test.go`,
-  `internal/mycroft/scheduler/escalate_wiring_test.go`,
-  `internal/mycroft/scheduler/exclude_test.go`, `cmd/mycroft/wiring_test.go`.
+  `[removed Mycroft orchestration code]`,
+  `[removed Mycroft orchestration code]`,
+  `[removed Mycroft orchestration code]`, `cmd/mycroft/wiring_test.go`.
 - The manifest (`.exec.yaml`) must list every file above for this task `[C-10]`.
 
 **`ExecFiler`:**
@@ -2195,7 +2200,7 @@ These are **not agent-completable**. Each is a checklist item for mk; none is a 
     suggestion through the production constructor, Mycroft never schedules a decision bead,
     and `DecisionQueue` keeps no private list.
     ```check
-    go test -race ./internal/mycroft/... ./cmd/mycroft/ && ! grep -nE '^[[:space:]]+decisions[[:space:]]+\[\]PendingDecision' internal/mycroft/escalate/escalate.go
+    go test -race ./internal/mycroft/... ./cmd/mycroft/ && ! grep -nE '^[[:space:]]+decisions[[:space:]]+\[\]PendingDecision' [removed Mycroft orchestration code]
     ```
 12. The bb plugin typechecks, all its fake-SDK tests pass, and it builds.
     ```check

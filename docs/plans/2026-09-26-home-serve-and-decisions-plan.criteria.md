@@ -1,3 +1,7 @@
+> Historical Mycroft references below are superseded by bead mk-ddtv5.7.13.1.
+> Mycroft now provides only `mycroft spawn` and `mycroft pre-dispatch`; coordinators select work.
+> The former orchestration code and TUI tab have been removed. See [the current spawner guide](../mycroft-bb-spawner.md).
+
 ## Acceptance Criteria
 
 1. The whole Go tree builds and every test passes with the race detector.
@@ -92,7 +96,7 @@
     suggestion through the production constructor, Mycroft never schedules a decision bead,
     and `DecisionQueue` keeps no private list.
     ```check
-    go test -race ./internal/mycroft/... ./cmd/mycroft/ && ! grep -nE '^[[:space:]]+decisions[[:space:]]+\[\]PendingDecision' internal/mycroft/escalate/escalate.go
+    go test -race ./internal/mycroft/... ./cmd/mycroft/ && ! grep -nE '^[[:space:]]+decisions[[:space:]]+\[\]PendingDecision' [removed Mycroft orchestration code]
     ```
 12. The bb plugin typechecks, all its fake-SDK tests pass, and it builds.
     ```check
