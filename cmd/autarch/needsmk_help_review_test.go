@@ -13,3 +13,12 @@ func TestNeedsMkHelpExplainsPickedClosedAskKey(t *testing.T) {
 		}
 	}
 }
+
+func TestNeedsMkPRHelpNamesIntoOptIn(t *testing.T) {
+	help := needsMkFileCmd().Flags().Lookup("pr").Usage
+	for _, text := range []string{"--into", "non-default", "explicit"} {
+		if !strings.Contains(help, text) {
+			t.Errorf("--pr help lacks %q: %s", text, help)
+		}
+	}
+}

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -672,5 +673,50 @@ func TestNeedsMkIntoWithRewordedOrAbsentMergeLabel(t *testing.T) {
 		if s.creates != 1 || !strings.Contains(s.desc, "Merging PR o/r#211 goes into integration/v1. This base is not the default branch main.") {
 			t.Fatalf("card=%s creates=%d", s.desc, s.creates)
 		}
+	}
+}
+
+func TestNeedsMkIntoOnNonMergeWarnsAndStillFiles(t *testing.T) {
+	t.Setenv("BB_THREAD_ID", "thread-x")
+	g := &ghStub{}
+	useGH(t, g)
+	var baseline string
+	for _, into := range []bool{false, true} {
+		s := &stubBB{}
+		oldFiler, oldCheck := newCardFiler, checkFilingPreconditions
+		t.Cleanup(func() { newCardFiler, checkFilingPreconditions = oldFiler, oldCheck })
+		newCardFiler = func() *homeask.CardFiler { return &homeask.CardFiler{Run: s.run, LockDir: t.TempDir()} }
+		checkFilingPreconditions = func(string, string) error { return nil }
+		cmd := needsMkFileCmd()
+		var stderr, stdout bytes.Buffer
+		cmd.SetErr(&stderr)
+		cmd.SetOut(&stdout)
+		args := []string{"--project", "P1", "--title", "Review?", "--ask-file", writeMergeAsk(t, plainAskJSON)}
+		if into {
+			args = append(args, "--into", "sync/x")
+		}
+		cmd.SetArgs(args)
+		err := cmd.Execute()
+		if exitCode(err) != 0 || s.creates != 1 {
+			t.Fatalf("into=%v: err=%v creates=%d", into, err, s.creates)
+		}
+		if into {
+			if s.desc != baseline {
+				t.Errorf("--into changed card: %s", s.desc)
+			}
+			for _, want := range []string{"warning", "--into", "ignored"} {
+				if !strings.Contains(stderr.String(), want) {
+					t.Errorf("stderr lacks %q: %q", want, stderr.String())
+				}
+			}
+		} else {
+			baseline = s.desc
+			if stderr.Len() != 0 {
+				t.Errorf("unexpected warning: %s", &stderr)
+			}
+		}
+	}
+	if len(g.calls) != 0 {
+		t.Fatalf("unexpected gh calls: %v", g.calls)
 	}
 }
