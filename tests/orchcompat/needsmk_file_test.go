@@ -46,7 +46,7 @@ func TestFileHappyPath(t *testing.T) {
 		t.Errorf("stdout is not exactly one JSON line: %q", r.Stdout)
 	}
 	seq := heads(e.calls(), 3)
-	wantSeq := []string{"tasks project list", "home binding P1", "tasks label list", "tasks label create", "home get --request",
+	wantSeq := []string{"tasks project list", "home binding P1", "thread list --json", "tasks label list", "tasks label create", "home get --request",
 		"tasks list --status", "tasks create --project", "tasks comment T1", "home get --card"}
 	if !reflect.DeepEqual(seq, wantSeq) {
 		t.Fatalf("bb calls:\n got %q\nwant %q", seq, wantSeq)
@@ -202,7 +202,7 @@ func TestFileReplaySameThread(t *testing.T) {
 		t.Fatalf("replay changed state: %d tasks, comments %+v", len(st.Tasks), st.Tasks[0].Comments)
 	}
 	seq := heads(e.calls()[n:], 3)
-	wantSeq := []string{"tasks project list", "home binding P1", "tasks label list", "home get --request", "tasks show T1", "home get --card"}
+	wantSeq := []string{"tasks project list", "home binding P1", "thread list --json", "tasks label list", "home get --request", "tasks show T1", "home get --card"}
 	if !reflect.DeepEqual(seq, wantSeq) {
 		t.Fatalf("replay bb calls:\n got %q\nwant %q", seq, wantSeq)
 	}

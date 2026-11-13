@@ -37,10 +37,10 @@ type memBB struct {
 }
 
 type fakeTask struct {
-	ID, Project, Created, Desc string
-	Comments                   []Comment
-	Labels                     []string
-	Deleted                    bool
+	ID, Project, Created, Desc, Status, Title string
+	Comments                                  []Comment
+	Labels                                    []string
+	Deleted                                   bool
 }
 
 func newFake(t *testing.T) *memBB {
@@ -163,7 +163,7 @@ func (f *memBB) run(ctx context.Context, env []string, args ...string) BBResult 
 	case cmd == "tasks show "+args[2]:
 		for _, tk := range f.tasks {
 			if tk.ID == args[2] && !tk.Deleted {
-				return okRes(map[string]any{"task": map[string]string{"id": tk.ID, "projectId": tk.Project, "createdAt": tk.Created, "description": tk.Desc}, "comments": tk.Comments})
+				return okRes(map[string]any{"task": map[string]string{"id": tk.ID, "projectId": tk.Project, "createdAt": tk.Created, "description": tk.Desc, "status": tk.Status, "title": tk.Title}, "comments": tk.Comments})
 			}
 		}
 		return *badRes(1, "task not found")
@@ -177,7 +177,7 @@ func (f *memBB) run(ctx context.Context, env []string, args ...string) BBResult 
 			f.t.Errorf("create without the needs-mk label: %v", args)
 		}
 		f.seq++
-		tk := &fakeTask{Labels: labelFlags(args), ID: fmt.Sprintf("T%d", f.seq), Project: argFlag(args, "--project"), Created: fmt.Sprintf("2026-10-01T00:00:%02d", f.seq), Desc: string(raw)}
+		tk := &fakeTask{Title: argFlag(args, "--title"), Labels: labelFlags(args), ID: fmt.Sprintf("T%d", f.seq), Project: argFlag(args, "--project"), Created: fmt.Sprintf("2026-10-01T00:00:%02d", f.seq), Desc: string(raw)}
 		f.tasks = append(f.tasks, tk)
 		if f.registerOnCreate {
 			if rl, hit := requestOf(tk.Desc); hit {
@@ -196,6 +196,9 @@ func (f *memBB) run(ctx context.Context, env []string, args ...string) BBResult 
 					return *badRes(1, err.Error())
 				}
 				tk.Desc = string(raw)
+				if title := argFlag(args, "--title"); title != "" {
+					tk.Title = title
+				}
 				tk.Labels = append(tk.Labels, argFlag(args, "--add-label"))
 				return okRes(map[string]any{"task": map[string]string{"id": tk.ID}})
 			}

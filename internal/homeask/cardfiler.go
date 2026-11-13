@@ -151,7 +151,8 @@ type CardResult struct {
 	Key     string `json:"request"`
 	Project string `json:"project,omitempty"`
 	// Replay is true when the card already existed (a routing comment may still have been repaired).
-	Replay bool `json:"replay"`
+	Replay  bool `json:"replay"`
+	Updated bool `json:"updated,omitempty"`
 	// CardKey is Home's card_key for the card, read back after filing. Empty when readback is off or Home had
 	// not indexed the card within ReadbackTimeout.
 	CardKey string `json:"card_key,omitempty"`
@@ -537,10 +538,12 @@ func (f *CardFiler) registry(ctx context.Context, key string) (registryAnswer, e
 // ---- tasks reads ---------------------------------------------------------------------
 
 type taskRow struct {
+	Title       string `json:"title"`
 	ID          string `json:"id"`
 	ProjectID   string `json:"projectId"`
 	CreatedAt   string `json:"createdAt"`
 	Description string `json:"description"`
+	Status      string `json:"status"`
 }
 
 type shown struct {
