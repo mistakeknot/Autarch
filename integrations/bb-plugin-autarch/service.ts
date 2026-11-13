@@ -1722,8 +1722,9 @@ export class Service {
   private async materializeNew(task: Task, card: Card | null, parseErr: string, ctx: { comments: () => Promise<TaskCommentRow[]> }, row: Record<string, any>): Promise<string | void> {
     if (!card) return this.setDisplay(task.id, shownParseError(parseErr));
     const key = card.request.key;
-    const reg = this.db.prepare("SELECT task_id FROM card_requests WHERE request_key = ?").get(key) as { task_id: string } | undefined;
+    const reg = this.db.prepare("SELECT task_id, identity FROM card_requests WHERE request_key = ?").get(key) as { task_id: string; identity: string } | undefined;
     if (reg && reg.task_id !== task.id) return this.setDisplay(task.id, `duplicate Request of ${key}`);
+    if (reg && reg.identity !== card.request.identity) return this.setDisplay(task.id, "the Request line changed");
     if (!reg) {
       const canon = this.db
         .prepare(
@@ -1745,6 +1746,15 @@ export class Service {
         }
       }
       return this.setDisplay(task.id, mismatch);
+    }
+
+    // Reserve the canonical Request before any routing read can fail or wait. A retry
+    // can then find this card even when Tasks search is stale; registration does not
+    // make a generation actionable. The insert survives partial routing failures.
+    if (!reg) {
+      this.db
+        .prepare("INSERT INTO card_requests(request_key, task_id, identity, registered_at) VALUES (?, ?, ?, ?)")
+        .run(key, task.id, card.request.identity, this.now());
     }
 
     let thread = "";
@@ -1783,9 +1793,6 @@ export class Service {
     this.store.atomically(() => {
       const res = this.store.insertDecision(input);
       if (!res.inserted) throw new Error(`card generation ${input.id} request id is in use`);
-      this.db
-        .prepare("INSERT INTO card_requests(request_key, task_id, identity, registered_at) VALUES (?, ?, ?, ?)")
-        .run(key, task.id, card.request.identity, this.now());
       this.snapshotBlocks(input.id, card);
       this.patchCard(task.id, {
         routing_mode: card.pull === "mycroft" ? "pull" : "thread",
