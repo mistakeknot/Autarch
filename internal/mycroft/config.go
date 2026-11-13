@@ -10,12 +10,19 @@ import (
 
 // Config maps .autarch/mycroft/config.yaml.
 type Config struct {
+	PreDispatchCheck    PreDispatchCheck         `yaml:"pre_dispatch_check,omitempty"`
 	Tier                Tier                     `yaml:"tier"`
 	DispatchPreferences DispatchPreferences      `yaml:"dispatch_preferences"`
 	T2DispatchAllowlist []AllowlistEntry         `yaml:"tier2_dispatch_allowlist"`
 	DemotionTriggers    DemotionTriggers         `yaml:"demotion_triggers"`
 	AgentOverrides      map[string]AgentOverride `yaml:"agent_overrides"`
 	PriorityBoosts      []PriorityBoost          `yaml:"priority_boosts"`
+}
+
+// PreDispatchCheck optionally gates automatic dispatch with a direct argv command.
+type PreDispatchCheck struct {
+	Command []string `yaml:"command"`
+	Timeout Duration `yaml:"timeout"`
 }
 
 // PriorityBoost adjusts a bead's effective priority during ranking.
@@ -78,7 +85,8 @@ func (d Duration) MarshalYAML() (interface{}, error) {
 // DefaultConfig returns a config with sensible defaults.
 func DefaultConfig() Config {
 	return Config{
-		Tier: T0,
+		Tier:             T0,
+		PreDispatchCheck: PreDispatchCheck{Timeout: Duration(30 * time.Second)},
 		DispatchPreferences: DispatchPreferences{
 			MaxConcurrentAgents: 5,
 			DailyBudget:         50.0,
