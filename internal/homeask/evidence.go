@@ -345,13 +345,7 @@ func PrepareEvidence(ask map[string]any) error {
 	}
 	if len(imports) > 0 {
 		root := EvidenceRoot()
-		if err := os.MkdirAll(root, 0700); err != nil {
-			return fmt.Errorf("cannot create evidence store")
-		}
-		if st, err := os.Lstat(root); err != nil || !st.IsDir() || st.Mode()&os.ModeSymlink != 0 {
-			return fmt.Errorf("invalid evidence store")
-		}
-		if err := os.Chmod(root, 0700); err != nil {
+		if err := prepareEvidenceRoot(root); err != nil {
 			return err
 		}
 		for h, b := range imports {
