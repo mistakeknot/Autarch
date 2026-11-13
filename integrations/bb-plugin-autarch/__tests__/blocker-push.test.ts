@@ -783,8 +783,8 @@ describe("the migration of an old database", () => {
     old.close();
 
     const db = new Database(file);
-    expect(CODE_VERSION).toBe(6);
-    expect(migrate(db)).toMatchObject({ schemaVersion: 6 });
+    expect(CODE_VERSION).toBe(7);
+    expect(migrate(db)).toMatchObject({ schemaVersion: 7 });
     const got = db.prepare(`SELECT name, "notnull" AS nn FROM pragma_table_info('decisions') WHERE name IN ${PUSH_COLS} ORDER BY name`).all();
     expect(got).toEqual(
       ["push_attempts", "push_capped", "push_id", "push_last_attempt_at", "push_sent_at", "urgency"].map((name) => ({ name, nn: 0 })),
