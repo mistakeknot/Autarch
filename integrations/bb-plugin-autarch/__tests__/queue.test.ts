@@ -166,6 +166,31 @@ describe("T1 first materialization", () => {
     });
   }
 
+  for (const conflict of ["registered duplicate", "canonical duplicate", "edited key"]) {
+    it(`keeps a ${conflict} display-only while serve is down without an undelivered notice`, async () => {
+      const r = rig();
+      const original = r.card({ key: "serve-down-a", thread: conflict === "registered duplicate" ? "thr_a" : null });
+      if (conflict === "canonical duplicate") r.svc.observeCards([original as any]);
+      else await r.poll();
+      let rejected = original;
+      if (conflict === "edited key") {
+        r.edit(original, { description: r.desc({ key: "serve-down-b" }) });
+        r.fake.addComment(original.id, { threadId: "thr_a", createdAt: T1 });
+      } else {
+        rejected = r.card({ key: "serve-down-a" });
+      }
+      r.env.down.value = true;
+      for (let i = 0; i < 3; i++) {
+        await r.poll();
+        r.advance(300_000);
+      }
+      expect(r.cardRow(rejected.id)).toMatchObject({ state: "display", display_reason: conflict === "edited key" ? "the Request line changed" : "duplicate Request of serve-down-a" });
+      expect(r.gens(rejected.id)).toHaveLength(0);
+      expect(r.svc.store.obligation(`ob:undelivered:${rejected.id}`)).toBeUndefined();
+      expect(r.svc.notDelivered().some((x) => x.id === `undelivered:${rejected.id}`)).toBe(false);
+    });
+  }
+
   for (const invalid of ["estate", "root"]) {
     it(`does not register a display-only ${invalid} card before routing`, async () => {
       const r = rig();
