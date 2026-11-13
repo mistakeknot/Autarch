@@ -4,15 +4,50 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"testing"
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/x/ansi"
 	"github.com/mistakeknot/autarch/internal/homeask"
 	"github.com/mistakeknot/autarch/internal/mycroft"
 	"github.com/mistakeknot/autarch/internal/mycroft/escalate"
 	pkgtui "github.com/mistakeknot/autarch/pkg/tui"
 )
+
+func TestMycroftIdleHealthSnapshot(t *testing.T) {
+	v := NewMycroftsView()
+	v.selectedAgent = "test-agent-session"
+	v.fleet.Agents = []mycroft.AgentView{{Name: v.selectedAgent, Status: "idle", Runtime: "claude-code"}}
+	got := ansi.Strip(v.renderAgentDetail(80))
+	want := "Agent: test-agent-session\n\nStatus:    idle\nRuntime:   claude-code\n\nHealth\n  ○ Idle\n"
+	if got != want {
+		t.Errorf("idle detail snapshot: %q; want %q", got, want)
+	}
+	t.Logf("rendered idle detail:\n%s", got)
+}
+
+func TestMycroftUnhealthyStillShown(t *testing.T) {
+	for _, status := range []string{"active", "error", "crashed"} {
+		v := NewMycroftsView()
+		v.selectedAgent = "test-agent-session"
+		v.fleet.Agents = []mycroft.AgentView{{Name: v.selectedAgent, Status: status}}
+		if got := ansi.Strip(v.renderAgentDetail(80)); !strings.Contains(got, "✗ Unhealthy") {
+			t.Errorf("%s lost unhealthy label: %s", status, got)
+		}
+	}
+}
+
+func TestMycroftUnknownHealth(t *testing.T) {
+	v := NewMycroftsView()
+	v.selectedAgent = "test-agent-session"
+	v.fleet.Agents = []mycroft.AgentView{{Name: v.selectedAgent, Status: "unknown", Health: mycroft.HealthReport{Details: "Session activity unavailable or invalid"}}}
+	got := ansi.Strip(v.renderAgentDetail(80))
+	if !strings.Contains(got, "? Unknown") || !strings.Contains(got, "Session activity unavailable or invalid") || strings.Contains(got, "Unhealthy") || strings.Contains(got, "Last seen:") {
+		t.Errorf("unknown health rendered incorrectly: %s", got)
+	}
+}
 
 func TestMycroftsViewName(t *testing.T) {
 	v := NewMycroftsView()

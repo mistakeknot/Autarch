@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -220,28 +221,40 @@ func detectAgentsFromTmux() ([]AgentView, error) {
 			Status:  "unknown",
 		}
 
-		// Parse activity timestamp if available.
+		// Missing or invalid activity stays unknown rather than inventing freshness.
+		activity := ""
 		if len(parts) > 1 {
-			if ts, err := time.Parse("2006-01-02T15:04:05", parts[1]); err == nil {
-				agent.Health.LastSeen = ts
-				agent.Health.IsHealthy = time.Since(ts) < 5*time.Minute
-				if agent.Health.IsHealthy {
-					agent.Status = "active"
-				} else {
-					agent.Status = "idle"
-				}
-			} else {
-				// Activity is epoch seconds from tmux.
-				agent.Health.LastSeen = now
-				agent.Health.IsHealthy = true
-				agent.Status = "active"
-			}
+			activity = parts[1]
 		}
+		agent.Health, agent.Status = parseSessionActivity(activity, now)
 
 		agents = append(agents, agent)
 	}
 
 	return agents, nil
+}
+
+// parseSessionActivity interprets tmux epoch seconds, accepting the legacy UTC
+// layout too. Idle means no recent activity, not a detected agent failure.
+// Unusable timestamps have unknown health and never acquire a fabricated LastSeen.
+func parseSessionActivity(raw string, now time.Time) (HealthReport, string) {
+	var ts time.Time
+	if seconds, err := strconv.ParseInt(raw, 10, 64); err == nil {
+		// Reject nonpositive and out-of-calendar-range epochs before conversion.
+		if seconds > 0 && seconds <= 253402300799 {
+			ts = time.Unix(seconds, 0).UTC()
+		}
+	} else {
+		ts, _ = time.Parse("2006-01-02T15:04:05", raw)
+	}
+	if ts.IsZero() || ts.After(now) {
+		return HealthReport{Details: "Session activity unavailable or invalid"}, "unknown"
+	}
+	health := HealthReport{LastSeen: ts, IsHealthy: now.Sub(ts) < 5*time.Minute}
+	if health.IsHealthy {
+		return health, "active"
+	}
+	return health, "idle"
 }
 
 // beadJSON matches the JSON output from bd ready --json.
