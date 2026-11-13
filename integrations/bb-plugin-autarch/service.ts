@@ -304,7 +304,7 @@ export class Service {
   private async fileInner(req: unknown, ctx: { threadId?: string } = {}): Promise<FileResult> {
     let ask: Ask;
     try {
-      ask = parseAsk(req);
+      ask = parseExistingAsk(req);
     } catch (e) {
       return bad(message(e));
     }
@@ -316,6 +316,14 @@ export class Service {
 
     const known = this.store.registry(requestId);
     if (known) return this.replay(known, id);
+
+    // A registered legacy request can replay, but every new filing needs current delivery metadata.
+    try {
+      ask = parseAsk(req);
+    } catch (e) {
+      return bad(message(e));
+    }
+
 
     // Scope: the estate Uqbar (G-1), or a project that serve resolves.
     let root: PinnedRoot;

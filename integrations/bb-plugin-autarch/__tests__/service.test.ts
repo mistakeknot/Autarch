@@ -1,10 +1,10 @@
 import { chmodSync, existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { parseAsk, identity, revision, semanticKey, normalizedJson } from "../model.js";
+import { parseAsk, parseExistingAsk, identity, revision, semanticKey, normalizedJson } from "../model.js";
 import { parseRuling } from "../ruling.js";
 import type { Service } from "../service.js";
-import { pickOf } from "./helpers.js";
+import { decision, pickOf } from "./helpers.js";
 import { ask, makeEnv, OPTIONS, T0, type Env } from "./service-helpers.js";
 
 let env: Env;
@@ -33,6 +33,27 @@ const rulingFiles = (project = "Autarch") => {
 const ids = (rows: { id: string }[]) => rows.map((r) => r.id);
 
 describe("file", () => {
+  it("replays a registered legacy blocker without stopped but never files a new one", async () => {
+    const legacy = ask(env, {request_id: "legacy-blocker", urgency: "blocker"});
+    const parsed = parseExistingAsk(legacy);
+    const original = svc.store.insertDecision(decision({
+      id: "legacy-decision", request_id: parsed.request_id!, identity: identity(parsed),
+      project: parsed.project, thread: parsed.thread!, asker: parsed.asker,
+      body_json: normalizedJson(parsed), urgency: "blocker",
+    }));
+    expect(original).toEqual({inserted: true, decision_id: "legacy-decision"});
+    const before = svc.store.db.prepare("SELECT total_changes() AS n").get();
+    expect(await svc.file(legacy, {threadId: parsed.thread})).toMatchObject({ok: true, status: 200, decision_id: "legacy-decision"});
+    expect(await svc.file({...legacy, question: "Different decision?"}, {})).toMatchObject({ok: false, status: 409});
+    expect(await svc.file(legacy, {threadId: "other-thread"})).toMatchObject({ok: false, status: 400});
+    const fresh = await svc.file({...legacy, request_id: "new-blocker"}, {});
+    expect(fresh).toMatchObject({ok: false, status: 400});
+    if (!fresh.ok) expect(fresh.error).toContain("stopped");
+    expect(svc.store.registry("new-blocker")).toBeUndefined();
+    expect(svc.store.db.prepare("SELECT total_changes() AS n").get()).toEqual(before);
+    expect(svc.store.db.prepare("SELECT COUNT(*) AS n FROM decisions").get()).toEqual({n: 1});
+  });
+
   it("files twice with one request_id: one row, one event, and the recorded result", async () => {
     const a = await fileOk({ request_id: "req-1" });
     const b = await svc.file(ask(env, { request_id: "req-1" }), {});
