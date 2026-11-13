@@ -8,6 +8,15 @@ const wire = () => ({ schema: "home-ask/v2", project: "sample", project_root: "/
 const card = (ask: unknown) => parseCard(`Which colour?\nBlocks: thread:thr_target\nRequest: sample sha256:0123456789abcdef\n\n\`\`\`home-ask\n${JSON.stringify(ask)}\n\`\`\``);
 
 describe("on_pick card declaration", () => {
+  for (const legacy of [false, true]) {
+    it.each(["omitted", "null", "empty"])(`questions presence legacy=${legacy} / %s`, questions => {
+      const ask = wire();
+      if (legacy) delete ask.options[0].on_pick;
+      if (questions !== "omitted") Object.assign(ask, { questions: questions === "null" ? null : [] });
+      if (!legacy && questions === "empty") expect(() => card(ask)).toThrow(/on_pick/);
+      else expect(() => card(ask)).not.toThrow();
+    });
+  }
   it("rejects participation with a root-run block at card parse", () => {
     const body = `Colour?\nRequest: sample sha256:0123456789abcdef\n\`\`\`home-ask\n${JSON.stringify(wire())}\n\`\`\`\n\`\`\`root-run\nscript: /sample/check\nsha256: ${"a".repeat(64)}\ntimeout: 30\nset: check\n\`\`\``;
     expect(() => parseCard(body)).toThrow(/on_pick/);

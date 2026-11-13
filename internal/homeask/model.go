@@ -166,7 +166,9 @@ func parseAskSource(data []byte, requireStopped, cardSource bool) (Ask, error) {
 	}
 	for _, o := range a.Options {
 		if len(o.OnPick) > 0 {
-			if !cardSource || a.Kind != "decide" || a.Asker != "thread" || len(a.Questions) > 0 {
+			// Before normalization, a non-nil slice distinguishes an explicit
+			// questions array (even empty) from omitted or null questions.
+			if !cardSource || a.Kind != "decide" || a.Asker != "thread" || a.Questions != nil {
 				return Ask{}, errors.New("on_pick requires card source")
 			}
 			if _, err := ValidateOnPick(o.OnPick, o, CardValidationContext{Source: "card"}); err != nil {

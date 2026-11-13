@@ -1,5 +1,10 @@
 [
   {
+    "name": "on-pick explicit empty questions",
+    "description": "Colour?\nBlocks: thread:thr_target\nRequest: sample sha256:0123456789abcdef\n```home-ask\n{\"schema\":\"home-ask/v2\",\"project\":\"sample\",\"project_root\":\"/sample\",\"question\":\"Colour?\",\"questions\":[],\"options\":[{\"id\":\"a\",\"label\":\"Blue\",\"kind\":\"instruction\",\"instruction\":\"Use blue.\",\"on_pick\":{\"schema\":1,\"target_thread\":\"thr_target\",\"reversible\":true,\"subject\":{\"kind\":\"none\"},\"ruling\":{\"bead\":null,\"under\":[]}}},{\"id\":\"b\",\"label\":\"Wait\",\"kind\":\"ruling-only\"}]}\n```",
+    "error": true
+  },
+  {
     "name": "on-pick instruction",
     "description": "Colour?\nBlocks: thread:thr_target\nRequest: sample sha256:0123456789abcdef\n```home-ask\n{\"schema\": \"home-ask/v2\", \"project\": \"sample\", \"project_root\": \"/sample\", \"question\": \"Colour?\", \"options\": [{\"id\": \"a\", \"label\": \"Blue\", \"kind\": \"instruction\", \"instruction\": \"  Use blue.\\nExactly.  \", \"on_pick\": {\"schema\": 1, \"target_thread\": \"thr_target\", \"reversible\": true, \"subject\": {\"kind\": \"none\"}, \"ruling\": {\"bead\": null, \"under\": []}}}, {\"id\": \"b\", \"label\": \"Wait\", \"kind\": \"ruling-only\"}]}\n```",
     "thread": "thr_asker",

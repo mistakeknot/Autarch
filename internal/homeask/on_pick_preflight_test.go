@@ -3,6 +3,7 @@ package homeask
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -79,6 +80,66 @@ func pickRequest() CardRequest {
 	r := testReq()
 	r.Ask["options"] = []any{map[string]any{"id": "yes", "label": "Blue", "kind": "instruction", "instruction": "Use blue.", "on_pick": map[string]any{"schema": 1, "target_thread": "thr_a", "reversible": true, "subject": map[string]any{"kind": "none"}, "ruling": map[string]any{"bead": nil, "under": []any{}}}}, map[string]any{"id": "no", "label": "Wait", "kind": "ruling-only"}}
 	return r
+}
+
+func TestOnPickQuestionsPresence(t *testing.T) {
+	for _, legacy := range []bool{false, true} {
+		for _, questions := range []string{"omitted", "null", "empty"} {
+			t.Run(fmt.Sprintf("legacy=%t/%s", legacy, questions), func(t *testing.T) {
+				r := pickRequest()
+				if legacy {
+					delete(r.Ask["options"].([]any)[0].(map[string]any), "on_pick")
+				}
+				desc, _, err := r.Description()
+				if err != nil {
+					t.Fatal(err)
+				}
+				switch questions {
+				case "null":
+					desc = strings.Replace(desc, `"options":`, `"questions":null,"options":`, 1)
+				case "empty":
+					desc = strings.Replace(desc, `"options":`, `"questions":[],"options":`, 1)
+				}
+				_, err = ParseCard(desc)
+				if !legacy && questions == "empty" {
+					if err == nil || !strings.Contains(err.Error(), "on_pick") {
+						t.Fatalf("expected on_pick refusal for explicit empty questions: %v", err)
+					}
+				} else if err != nil {
+					t.Fatalf("compatible questions form rejected: %v", err)
+				}
+			})
+		}
+	}
+}
+
+func TestOnPickEmptyQuestionsRefusesBeforeMutation(t *testing.T) {
+	for _, update := range []bool{false, true} {
+		t.Run(map[bool]string{false: "file", true: "update"}[update], func(t *testing.T) {
+			r := pickRequest()
+			r.Ask["questions"] = []any{}
+			if update {
+				r.Ask["ask_key"] = "palette"
+			}
+			calls := 0
+			filer := &CardFiler{Run: func(_ context.Context, _ []string, args ...string) BBResult {
+				calls++
+				return BBResult{Code: 1, Stderr: []byte("unexpected external call")}
+			}}
+			var err error
+			if update {
+				_, err = filer.FileOrUpdateCard(context.Background(), r, "")
+			} else {
+				_, err = filer.FileCard(context.Background(), r)
+			}
+			if err == nil || !strings.Contains(err.Error(), "on_pick") {
+				t.Errorf("expected on_pick refusal: %v", err)
+			}
+			if calls != 0 {
+				t.Fatalf("invalid questions reached external calls (including possible mutations): %d", calls)
+			}
+		})
+	}
 }
 
 func TestOnPickPreflightRefusesBeforeTasksMutation(t *testing.T) {
