@@ -165,24 +165,37 @@ func TestNeedsMkFileDefaultsTheProjectToTheBoardBindingInAWorktree(t *testing.T)
 }
 
 func TestNeedsMkCardKeyGuarantee(t *testing.T) {
-	for _, mode := range []string{"late", "timeout", "outside", "json"} {
+	for _, mode := range []string{"late", "timeout", "outside", "json", "legacy"} {
 		t.Run(mode, func(t *testing.T) {
 			t.Setenv("BB_THREAD_ID", "thread-x")
 			if mode == "outside" {
 				t.Chdir(t.TempDir())
+				t.Setenv("BB_PROJECT_ID", "other")
 			}
 			s := &stubBB{}
 			oldF, oldC := newCardFiler, checkFilingPreconditions
 			polls := 0
+			indexReady := false
 			newCardFiler = func() *homeask.CardFiler {
 				return &homeask.CardFiler{LockDir: t.TempDir(), ReadbackTimeout: 40 * time.Millisecond, ReadbackInterval: time.Millisecond, Run: func(ctx context.Context, env []string, args ...string) homeask.BBResult {
 					if strings.Join(args[:min(len(args), 3)], " ") == "home get --card" {
 						polls++
-						if mode == "timeout" || (mode == "late" && polls < 4) {
+						if (mode == "timeout" && !indexReady) || (mode == "late" && polls < 4) {
 							return homeask.BBResult{Stdout: []byte(`{"card_key":""}`)}
 						}
-						if mode == "outside" && !strings.Contains(strings.Join(args, " "), "--project P1") {
-							return homeask.BBResult{Code: 1, Stderr: []byte("project context missing")}
+						if mode == "outside" {
+							for _, kv := range env {
+								if strings.HasPrefix(kv, "BB_PROJECT_ID=") {
+									t.Fatalf("ambient project leaked: %s", kv)
+								}
+							}
+						}
+						if mode == "legacy" {
+							for _, arg := range args {
+								if arg == "--project" {
+									return homeask.BBResult{Code: 2, Stderr: []byte("unknown option --project")}
+								}
+							}
 						}
 					}
 					return s.run(ctx, env, args...)
@@ -203,6 +216,25 @@ func TestNeedsMkCardKeyGuarantee(t *testing.T) {
 			if mode == "timeout" {
 				if exitCode(err) != 4 || out.Len() != 0 || !strings.Contains(errs.String(), "key-index-test") || !strings.Contains(errs.String(), "may have been filed") {
 					t.Fatalf("exit=%d err=%v stdout=%q", exitCode(err), err, out.String())
+				}
+				// Retry using exactly the key the first invocation printed.
+				_, after, ok := strings.Cut(errs.String(), "--request ")
+				if !ok {
+					t.Fatalf("missing retry key: %s", errs.String())
+				}
+				key := strings.Fields(after)[0]
+				args[len(args)-1] = key
+				indexReady = true
+				out.Reset()
+				errs.Reset()
+				retry := needsMkCmd()
+				retry.SetOut(&out)
+				retry.SetErr(&errs)
+				retry.SetArgs(args)
+				err = retry.Execute()
+				var replay homeask.CardResult
+				if err != nil || json.Unmarshal(out.Bytes(), &replay) != nil || !replay.Replay || replay.CardKey == "" || replay.Key != key || s.creates != 1 {
+					t.Fatalf("retry err=%v result=%+v creates=%d stdout=%q", err, replay, s.creates, out.String())
 				}
 				return
 			}

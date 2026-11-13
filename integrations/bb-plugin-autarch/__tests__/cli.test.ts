@@ -291,6 +291,18 @@ describe("cards in the CLI (Task 2.7)", () => {
     expect(other.exitCode).toBe(1);
   });
 
+  it("get --card treats empty project as unset and preserves the unscoped error", async () => {
+    const { c, run: go } = await cardCli({});
+    const empty = await go(["get", "--card", c.t.id, "--project", ""]);
+    expect(empty.exitCode).toBe(0);
+    expect(JSON.parse(empty.stdout!).card_key).toBeTruthy();
+    for (const flags of [[], ["--project", ""]]) {
+      const missing = await go(["get", "--card", "missing", ...flags]);
+      expect(missing.exitCode).toBe(1);
+      expect(missing.stderr).toBe("unknown card");
+    }
+  });
+
   it("get --request resolves a card key through card_requests, and a legacy key through the registry", async () => {
     const { c, run: go } = await cardCli({ key: "key-card-1" });
     const x = await go(["get", "--request", "key-card-1"]);
