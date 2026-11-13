@@ -5,6 +5,7 @@ import type { Service } from "../service.js";
 import { framed, WakeLoop } from "../wakes.js";
 import { ask, makeEnv, OPTIONS, type Env } from "./service-helpers.js";
 import { FakeSdk } from "./wakes-helpers.js";
+import { homeMethods } from "../contract.js";
 
 let env: Env;
 let svc: Service;
@@ -56,7 +57,7 @@ it("exactly 300 code points needs no ellipsis", async () => {
 it("matched pick retains mk's added free text in full", async () => {
   const words = "Keep this instruction. ".repeat(300);
   const id = await file();
-  expect(pick(id, "project", words).payload).toContain(words);
+  expect(pick(id, "project", words).payload).toContain(`\nmk added (unverified plain text):\n${words}`);
 });
 it("a cut question tells the asker how to fetch the complete card", async () => {
   const id = await file();
@@ -68,9 +69,13 @@ it("one finished step uses singular wording", async () => {
   expect(payload).toContain("1 step.");
   expect(payload).not.toContain("1 steps");
 });
-it("a whitespace-only note adds no mk added block", async () => {
+it.each(["project", "day"])("a blank note adds nothing to a %s pick", async (option) => {
   const id = await file();
-  expect(pick(id, "project", " \t\n ").payload).not.toContain("mk added");
+  expect(pick(id, option, "").payload).not.toContain("mk added");
+});
+it.each(["project", "day"])("a whitespace-only note adds nothing to a %s pick", async (option) => {
+  const id = await file();
+  expect(pick(id, option, " \t\n ").payload).not.toContain("mk added");
 });
 it("own-words answers stay full", async () => {
   const words = "My answer. ".repeat(300).trim();
@@ -82,6 +87,24 @@ it("own-words answers stay full", async () => {
 it("mismatched pick keeps the full original payload", async () => {
   const id = await file();
   expect(pick(id, "day").payload).toBe(`Ruling on ${id} (autarch/catch-up: collapse order): mk picked "Collapse per day".\nQuestion: ${question}`);
+});
+it("mismatched pick forwards mk's note to the asking thread as unverified plain text", async () => {
+  const id = await file();
+  const words = "Per day, because the project grouping hides the urgent work.";
+  const w = pick(id, "day", words);
+  expect(w.recipient).toBe("thr-a");
+  expect(w.payload).toBe(`Ruling on ${id} (autarch/catch-up: collapse order): mk picked "Collapse per day".\nQuestion: ${question}\nmk added (unverified plain text):\n${words}`);
+  const sdk = new FakeSdk();
+  await new WakeLoop(svc, sdk).drain();
+  expect(sdk.sent.find(m => m.threadId === "thr-a")!.input).toBe(framed(w.op!, 1, w.payload!));
+});
+it.each(["project", "day"])("a %s pick retains a maximum-length note with control characters byte for byte", async (option) => {
+  const id = await file();
+  const words = " \tline\r\n\u0000\u001b[31m".padEnd(20000, "x");
+  const input = { decision_id: id, option_id: option, revision: String(svc.store.decision(id)!.revision), pick_id: `pick-${id}`, reason: words };
+  expect(homeMethods.pick.input.safeParse(input).success).toBe(true);
+  expect(homeMethods.pick.input.safeParse({ ...input, reason: words + "x" }).success).toBe(false);
+  expect(pick(id, option, words).payload).toContain(`\nmk added (unverified plain text):\n${words}`);
 });
 it("non-card picks keep their full question even when recommended", async () => {
   const id = await file({}, false);
