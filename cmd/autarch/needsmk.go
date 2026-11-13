@@ -382,7 +382,7 @@ refused, and it works on every kind of card; a machine blocker alone never pushe
 	cmd.Flags().StringVar(&rootRun, "root-run", "", "script=<abs path>,timeout=<seconds>,set=<name>")
 	cmd.Flags().StringVar(&request, "request", "", "Request key (default: derived from thread and ask); when given it must be non-empty and match the Request line key pattern")
 	cmd.Flags().StringVar(&urgency, "urgency", "", `Optional: "blocker" asks Home to push mk's phone once when the card is first filed`)
-	cmd.Flags().StringVar(&prFlag, "pr", "", "PR URL this ask merges: refused (exit 2) unless the PR's base is the repo's default branch; a \"Manually merge it at ...\" option implies it")
+	cmd.Flags().StringVar(&prFlag, "pr", "", "PR URL this ask merges: refused (exit 2) unless the PR's base is the repo's default branch or --into explicitly opts in to its non-default base; a \"Manually merge it at ...\" option implies it")
 	cmd.Flags().StringVar(&supersedes, "supersedes", "", "Update this open, unanswered card in the same project; it must belong to this thread or --owner-thread")
 	cmd.Flags().BoolVar(&vizierOwned, "vizier-owned", false, "Vizier only: this is its own ruling, root run or scope card; mutually exclusive with --owner-thread")
 	cmd.Flags().String("into", "", "Explicitly accept the PR's base branch: must match exactly; required for a non-default base")

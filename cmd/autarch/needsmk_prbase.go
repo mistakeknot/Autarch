@@ -243,6 +243,9 @@ func guardMergeBase(cmd *cobra.Command, ask, move map[string]any, extra []string
 		}
 	})
 	if len(mergeOpts) == 0 && !prSet {
+		if intoSet {
+			fmt.Fprintln(cmd.ErrOrStderr(), "warning: --into ignored because this ask is not a PR merge ask")
+		}
 		return nil
 	}
 	refs, err := scanPRRefs(texts)
