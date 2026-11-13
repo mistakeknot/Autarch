@@ -45,9 +45,11 @@ type RootRun struct {
 
 // Card is a parsed card description.
 type Card struct {
-	Question string      `json:"question"`
-	Blocks   []BlockRef  `json:"blocks"`
-	Request  RequestLine `json:"request"`
+	SubjectKey *SubjectKey `json:"subject_key,omitempty"`
+	Signals    *Signals    `json:"signals,omitempty"`
+	Question   string      `json:"question"`
+	Blocks     []BlockRef  `json:"blocks"`
+	Request    RequestLine `json:"request"`
 	// Pull is "mycroft" for a threadless card, otherwise "".
 	Pull    string         `json:"pull"`
 	RootRun *RootRun       `json:"root_run"`
@@ -75,7 +77,7 @@ const (
 
 var (
 	v2Allowed = map[string]bool{"schema": true, "project": true, "project_root": true, "question": true,
-		"options": true, "questions": true, "ask_key": true, "subject": true, "recommendation": true, "pull": true, "auto_close": true, "urgency": true, "stopped": true, "evidence": true, "group": true}
+		"options": true, "questions": true, "ask_key": true, "subject": true, "recommendation": true, "pull": true, "auto_close": true, "urgency": true, "stopped": true, "evidence": true, "group": true, "subject_key": true, "signals": true}
 	v1Only = map[string]bool{"v": true, "kind": true, "thread": true, "asker": true, "request_id": true,
 		"supersedes": true, "mention_of": true, "steps": true, "machine": true}
 	countedKinds = map[string]bool{"bead": true, "thread": true, "project": true}
@@ -195,6 +197,14 @@ func ParseCard(description string) (Card, error) {
 		return Card{}, errors.New("more than one home-move block")
 	}
 
+	if c.SubjectKey != nil && c.SubjectKey.Type == "script" {
+		if c.RootRun == nil || c.SubjectKey.ScriptSHA != c.RootRun.SHA256 {
+			return Card{}, errors.New("subject_key script_sha must equal root-run digest")
+		}
+		if key, _ := c.Ask["ask_key"].(string); key == "" {
+			return Card{}, errors.New("script subject_key requires ask_key")
+		}
+	}
 	// The ask must survive the unchanged rev-4 parser, so every v1 rule (approval
 	// tokens, option bounds, ...) applies to a card. The thread is a stand-in:
 	// routing comes from the card's comments, never from its text.
@@ -282,6 +292,22 @@ func parseWireAsk(body string, c *Card) error {
 	}
 	if err := exactCardNestedKeys(m); err != nil {
 		return err
+	}
+	if raw, ok := m["subject_key"]; ok {
+		var err error
+		c.SubjectKey, err = parseSubjectKey(raw)
+		if err != nil {
+			return err
+		}
+		delete(m, "subject_key")
+	}
+	if raw, ok := m["signals"]; ok {
+		var err error
+		c.Signals, err = parseSignals(raw)
+		if err != nil {
+			return err
+		}
+		delete(m, "signals")
 	}
 	c.Ask = m
 	if raw, ok := m["group"]; ok {
@@ -402,7 +428,7 @@ func parseAutoClose(raw any, options any) error {
 func (c Card) ToV1(thread string) (Ask, error) {
 	v1 := make(map[string]any, len(c.Ask)+4)
 	for k, v := range c.Ask {
-		if k != "schema" && k != "pull" && k != "auto_close" {
+		if k != "schema" && k != "pull" && k != "auto_close" && k != "subject_key" && k != "signals" {
 			v1[k] = v
 		}
 	}

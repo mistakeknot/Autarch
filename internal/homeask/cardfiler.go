@@ -197,6 +197,8 @@ func RequestIdentity(r CardRequest) (string, error) {
 	// Delivery evidence never changes the Request identity or an evidence-only update.
 	delete(ask, "evidence")
 	delete(ask, "group")
+	delete(ask, "subject_key")
+	delete(ask, "signals")
 	sort.Strings(blocks)
 	node := map[string]any{"project": ask["project"], "title": r.Title, "blocks": toAny(blocks), "ask": ask}
 	if r.RootRun != nil {

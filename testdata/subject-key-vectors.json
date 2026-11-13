@@ -1,0 +1,6559 @@
+[
+  {
+    "name": "PR merge",
+    "metadata": {
+      "subject_key": {
+        "type": "pr",
+        "repo": "owner/name",
+        "number": 7,
+        "head": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "round": null
+      }
+    },
+    "valid": true
+  },
+  {
+    "name": "legacy subject beside key",
+    "metadata": {
+      "subject": "legacy choice",
+      "subject_key": {
+        "type": "pr",
+        "repo": "owner/name",
+        "number": 7,
+        "head": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "round": null
+      },
+      "signals": {
+        "schema": 1,
+        "kind": "merge",
+        "approval": "wide-merges",
+        "evidence": {
+          "base": {
+            "known": true,
+            "value": null
+          },
+          "default_branch": {
+            "known": true,
+            "value": null
+          },
+          "head_start": {
+            "known": true,
+            "value": null
+          },
+          "head_end": {
+            "known": true,
+            "value": null
+          },
+          "visibility": {
+            "known": true,
+            "value": null
+          },
+          "checks": {
+            "known": true,
+            "value": null
+          },
+          "files": {
+            "known": true,
+            "value": null
+          },
+          "receipt": {
+            "known": true,
+            "value": null
+          },
+          "review_text": {
+            "known": true,
+            "value": null
+          },
+          "coverage": {
+            "known": true,
+            "value": null
+          },
+          "open_cards": {
+            "known": true,
+            "value": null
+          },
+          "rule_history": {
+            "known": true,
+            "value": null
+          }
+        },
+        "conditions": {
+          "base.default": "pass",
+          "head.stable": "pass",
+          "repo.private": "pass",
+          "review.provenance": "pass",
+          "review.head": "pass",
+          "review.bound": "pass",
+          "review.verdict": "pass",
+          "review.tests": "pass",
+          "checks.green": "pass",
+          "coverage.entry": "pass",
+          "ask.recommendation": "pass",
+          "keep.paths": "pass",
+          "keep.complete": "pass",
+          "subject.single": "pass",
+          "subject.unvoided": "pass"
+        },
+        "failed": [],
+        "checked_at": "2026-11-13T00:00:00Z"
+      }
+    },
+    "valid": true
+  },
+  {
+    "name": "bad subject type other",
+    "metadata": {
+      "subject_key": {
+        "type": "other",
+        "repo": "owner/name",
+        "number": 7,
+        "head": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "round": null
+      }
+    },
+    "valid": false
+  },
+  {
+    "name": "bad subject type None",
+    "metadata": {
+      "subject_key": {
+        "type": null,
+        "repo": "owner/name",
+        "number": 7,
+        "head": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "round": null
+      }
+    },
+    "valid": false
+  },
+  {
+    "name": "bad subject repo bad",
+    "metadata": {
+      "subject_key": {
+        "type": "pr",
+        "repo": "bad",
+        "number": 7,
+        "head": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "round": null
+      }
+    },
+    "valid": false
+  },
+  {
+    "name": "bad subject repo o/r/x",
+    "metadata": {
+      "subject_key": {
+        "type": "pr",
+        "repo": "o/r/x",
+        "number": 7,
+        "head": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "round": null
+      }
+    },
+    "valid": false
+  },
+  {
+    "name": "bad subject repo ",
+    "metadata": {
+      "subject_key": {
+        "type": "pr",
+        "repo": "",
+        "number": 7,
+        "head": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "round": null
+      }
+    },
+    "valid": false
+  },
+  {
+    "name": "bad subject repo 3",
+    "metadata": {
+      "subject_key": {
+        "type": "pr",
+        "repo": 3,
+        "number": 7,
+        "head": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "round": null
+      }
+    },
+    "valid": false
+  },
+  {
+    "name": "bad subject repo aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/r",
+    "metadata": {
+      "subject_key": {
+        "type": "pr",
+        "repo": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/r",
+        "number": 7,
+        "head": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "round": null
+      }
+    },
+    "valid": false
+  },
+  {
+    "name": "bad subject number 0",
+    "metadata": {
+      "subject_key": {
+        "type": "pr",
+        "repo": "owner/name",
+        "number": 0,
+        "head": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "round": null
+      }
+    },
+    "valid": false
+  },
+  {
+    "name": "bad subject number -1",
+    "metadata": {
+      "subject_key": {
+        "type": "pr",
+        "repo": "owner/name",
+        "number": -1,
+        "head": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "round": null
+      }
+    },
+    "valid": false
+  },
+  {
+    "name": "bad subject number 1.2",
+    "metadata": {
+      "subject_key": {
+        "type": "pr",
+        "repo": "owner/name",
+        "number": 1.2,
+        "head": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "round": null
+      }
+    },
+    "valid": false
+  },
+  {
+    "name": "bad subject number 1000000000.0",
+    "metadata": {
+      "subject_key": {
+        "type": "pr",
+        "repo": "owner/name",
+        "number": 1000000000.0,
+        "head": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "round": null
+      }
+    },
+    "valid": false
+  },
+  {
+    "name": "bad subject number 7",
+    "metadata": {
+      "subject_key": {
+        "type": "pr",
+        "repo": "owner/name",
+        "number": "7",
+        "head": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "round": null
+      }
+    },
+    "valid": false
+  },
+  {
+    "name": "bad subject number None",
+    "metadata": {
+      "subject_key": {
+        "type": "pr",
+        "repo": "owner/name",
+        "number": null,
+        "head": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "round": null
+      }
+    },
+    "valid": false
+  },
+  {
+    "name": "bad subject head AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+    "metadata": {
+      "subject_key": {
+        "type": "pr",
+        "repo": "owner/name",
+        "number": 7,
+        "head": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+        "round": null
+      }
+    },
+    "valid": false
+  },
+  {
+    "name": "bad subject head aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "metadata": {
+      "subject_key": {
+        "type": "pr",
+        "repo": "owner/name",
+        "number": 7,
+        "head": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "round": null
+      }
+    },
+    "valid": false
+  },
+  {
+    "name": "bad subject head aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "metadata": {
+      "subject_key": {
+        "type": "pr",
+        "repo": "owner/name",
+        "number": 7,
+        "head": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "round": null
+      }
+    },
+    "valid": false
+  },
+  {
+    "name": "bad subject head 7",
+    "metadata": {
+      "subject_key": {
+        "type": "pr",
+        "repo": "owner/name",
+        "number": 7,
+        "head": 7,
+        "round": null
+      }
+    },
+    "valid": false
+  },
+  {
+    "name": "bad subject round 0",
+    "metadata": {
+      "subject_key": {
+        "type": "pr",
+        "repo": "owner/name",
+        "number": 7,
+        "head": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "round": 0
+      }
+    },
+    "valid": false
+  },
+  {
+    "name": "bad subject round -1",
+    "metadata": {
+      "subject_key": {
+        "type": "pr",
+        "repo": "owner/name",
+        "number": 7,
+        "head": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "round": -1
+      }
+    },
+    "valid": false
+  },
+  {
+    "name": "bad subject round 1.5",
+    "metadata": {
+      "subject_key": {
+        "type": "pr",
+        "repo": "owner/name",
+        "number": 7,
+        "head": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "round": 1.5
+      }
+    },
+    "valid": false
+  },
+  {
+    "name": "bad subject round 9007199254740992",
+    "metadata": {
+      "subject_key": {
+        "type": "pr",
+        "repo": "owner/name",
+        "number": 7,
+        "head": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "round": 9007199254740992
+      }
+    },
+    "valid": false
+  },
+  {
+    "name": "bad subject round 1",
+    "metadata": {
+      "subject_key": {
+        "type": "pr",
+        "repo": "owner/name",
+        "number": 7,
+        "head": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "round": "1"
+      }
+    },
+    "valid": false
+  },
+  {
+    "name": "missing subject type",
+    "metadata": {
+      "subject_key": {
+        "repo": "owner/name",
+        "number": 7,
+        "head": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "round": null
+      }
+    },
+    "valid": false
+  },
+  {
+    "name": "missing subject repo",
+    "metadata": {
+      "subject_key": {
+        "type": "pr",
+        "number": 7,
+        "head": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "round": null
+      }
+    },
+    "valid": false
+  },
+  {
+    "name": "missing subject number",
+    "metadata": {
+      "subject_key": {
+        "type": "pr",
+        "repo": "owner/name",
+        "head": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "round": null
+      }
+    },
+    "valid": false
+  },
+  {
+    "name": "missing subject head",
+    "metadata": {
+      "subject_key": {
+        "type": "pr",
+        "repo": "owner/name",
+        "number": 7,
+        "round": null
+      }
+    },
+    "valid": false
+  },
+  {
+    "name": "missing subject round",
+    "metadata": {
+      "subject_key": {
+        "type": "pr",
+        "repo": "owner/name",
+        "number": 7,
+        "head": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      }
+    },
+    "valid": false
+  },
+  {
+    "name": "subject type None",
+    "metadata": {
+      "subject_key": null
+    },
+    "valid": false
+  },
+  {
+    "name": "subject type []",
+    "metadata": {
+      "subject_key": []
+    },
+    "valid": false
+  },
+  {
+    "name": "subject type True",
+    "metadata": {
+      "subject_key": true
+    },
+    "valid": false
+  },
+  {
+    "name": "subject type pr",
+    "metadata": {
+      "subject_key": "pr"
+    },
+    "valid": false
+  },
+  {
+    "name": "extra subject key",
+    "metadata": {
+      "subject_key": {
+        "type": "pr",
+        "repo": "owner/name",
+        "number": 7,
+        "head": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "round": null,
+        "extra": 1
+      }
+    },
+    "valid": false
+  },
+  {
+    "name": "valid head None round None",
+    "metadata": {
+      "subject_key": {
+        "type": "pr",
+        "repo": "owner/name",
+        "number": 7,
+        "head": null,
+        "round": null
+      }
+    },
+    "valid": true
+  },
+  {
+    "name": "valid head None round 1",
+    "metadata": {
+      "subject_key": {
+        "type": "pr",
+        "repo": "owner/name",
+        "number": 7,
+        "head": null,
+        "round": 1
+      }
+    },
+    "valid": true
+  },
+  {
+    "name": "valid head None round 9007199254740991",
+    "metadata": {
+      "subject_key": {
+        "type": "pr",
+        "repo": "owner/name",
+        "number": 7,
+        "head": null,
+        "round": 9007199254740991
+      }
+    },
+    "valid": true
+  },
+  {
+    "name": "valid head bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb round None",
+    "metadata": {
+      "subject_key": {
+        "type": "pr",
+        "repo": "owner/name",
+        "number": 7,
+        "head": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "round": null
+      }
+    },
+    "valid": true
+  },
+  {
+    "name": "valid head bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb round 1",
+    "metadata": {
+      "subject_key": {
+        "type": "pr",
+        "repo": "owner/name",
+        "number": 7,
+        "head": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "round": 1
+      }
+    },
+    "valid": true
+  },
+  {
+    "name": "valid head bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb round 9007199254740991",
+    "metadata": {
+      "subject_key": {
+        "type": "pr",
+        "repo": "owner/name",
+        "number": 7,
+        "head": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "round": 9007199254740991
+      }
+    },
+    "valid": true
+  },
+  {
+    "name": "script root digest",
+    "metadata": {
+      "subject_key": {
+        "type": "script",
+        "script_sha": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+      },
+      "ask_key": "script"
+    },
+    "valid": true,
+    "root_run": {
+      "script": "/fixture/run.sh",
+      "sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "timeout": 60,
+      "set": "fixture"
+    }
+  },
+  {
+    "name": "bad script {'type': 'script', 'script_sha': 'BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB'}",
+    "metadata": {
+      "subject_key": {
+        "type": "script",
+        "script_sha": "BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB"
+      },
+      "ask_key": "script"
+    },
+    "valid": false,
+    "root_run": {
+      "script": "/fixture/run.sh",
+      "sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "timeout": 60,
+      "set": "fixture"
+    }
+  },
+  {
+    "name": "bad script {'type': 'script', 'script_sha': 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb'}",
+    "metadata": {
+      "subject_key": {
+        "type": "script",
+        "script_sha": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+      },
+      "ask_key": "script"
+    },
+    "valid": false,
+    "root_run": {
+      "script": "/fixture/run.sh",
+      "sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "timeout": 60,
+      "set": "fixture"
+    }
+  },
+  {
+    "name": "bad script {'type': 'script', 'script_sha': 'cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc'}",
+    "metadata": {
+      "subject_key": {
+        "type": "script",
+        "script_sha": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+      },
+      "ask_key": "script"
+    },
+    "valid": false,
+    "root_run": {
+      "script": "/fixture/run.sh",
+      "sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "timeout": 60,
+      "set": "fixture"
+    }
+  },
+  {
+    "name": "bad script {'type': 'script', 'script_sha': 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb', 'extra': 1}",
+    "metadata": {
+      "subject_key": {
+        "type": "script",
+        "script_sha": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "extra": 1
+      },
+      "ask_key": "script"
+    },
+    "valid": false,
+    "root_run": {
+      "script": "/fixture/run.sh",
+      "sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "timeout": 60,
+      "set": "fixture"
+    }
+  },
+  {
+    "name": "bad script {'type': 'script'}",
+    "metadata": {
+      "subject_key": {
+        "type": "script"
+      },
+      "ask_key": "script"
+    },
+    "valid": false,
+    "root_run": {
+      "script": "/fixture/run.sh",
+      "sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "timeout": 60,
+      "set": "fixture"
+    }
+  },
+  {
+    "name": "script missing ask key",
+    "metadata": {
+      "subject_key": {
+        "type": "script",
+        "script_sha": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+      }
+    },
+    "valid": false,
+    "root_run": {
+      "script": "/fixture/run.sh",
+      "sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "timeout": 60,
+      "set": "fixture"
+    }
+  },
+  {
+    "name": "script missing root run",
+    "metadata": {
+      "subject_key": {
+        "type": "script",
+        "script_sha": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+      },
+      "ask_key": "script"
+    },
+    "valid": false
+  },
+  {
+    "name": "all signals pass",
+    "metadata": {
+      "signals": {
+        "schema": 1,
+        "kind": "merge",
+        "approval": "wide-merges",
+        "evidence": {
+          "base": {
+            "known": true,
+            "value": null
+          },
+          "default_branch": {
+            "known": true,
+            "value": null
+          },
+          "head_start": {
+            "known": true,
+            "value": null
+          },
+          "head_end": {
+            "known": true,
+            "value": null
+          },
+          "visibility": {
+            "known": true,
+            "value": null
+          },
+          "checks": {
+            "known": true,
+            "value": null
+          },
+          "files": {
+            "known": true,
+            "value": null
+          },
+          "receipt": {
+            "known": true,
+            "value": null
+          },
+          "review_text": {
+            "known": true,
+            "value": null
+          },
+          "coverage": {
+            "known": true,
+            "value": null
+          },
+          "open_cards": {
+            "known": true,
+            "value": null
+          },
+          "rule_history": {
+            "known": true,
+            "value": null
+          }
+        },
+        "conditions": {
+          "base.default": "pass",
+          "head.stable": "pass",
+          "repo.private": "pass",
+          "review.provenance": "pass",
+          "review.head": "pass",
+          "review.bound": "pass",
+          "review.verdict": "pass",
+          "review.tests": "pass",
+          "checks.green": "pass",
+          "coverage.entry": "pass",
+          "ask.recommendation": "pass",
+          "keep.paths": "pass",
+          "keep.complete": "pass",
+          "subject.single": "pass",
+          "subject.unvoided": "pass"
+        },
+        "failed": [],
+        "checked_at": "2026-11-13T00:00:00Z"
+      }
+    },
+    "valid": true
+  },
+  {
+    "name": "unknown base",
+    "metadata": {
+      "signals": {
+        "schema": 1,
+        "kind": "merge",
+        "approval": "wide-merges",
+        "evidence": {
+          "base": {
+            "known": false,
+            "reason": "missing"
+          },
+          "default_branch": {
+            "known": true,
+            "value": null
+          },
+          "head_start": {
+            "known": true,
+            "value": null
+          },
+          "head_end": {
+            "known": true,
+            "value": null
+          },
+          "visibility": {
+            "known": true,
+            "value": null
+          },
+          "checks": {
+            "known": true,
+            "value": null
+          },
+          "files": {
+            "known": true,
+            "value": null
+          },
+          "receipt": {
+            "known": true,
+            "value": null
+          },
+          "review_text": {
+            "known": true,
+            "value": null
+          },
+          "coverage": {
+            "known": true,
+            "value": null
+          },
+          "open_cards": {
+            "known": true,
+            "value": null
+          },
+          "rule_history": {
+            "known": true,
+            "value": null
+          }
+        },
+        "conditions": {
+          "base.default": "unknown",
+          "head.stable": "pass",
+          "repo.private": "pass",
+          "review.provenance": "pass",
+          "review.head": "pass",
+          "review.bound": "pass",
+          "review.verdict": "pass",
+          "review.tests": "pass",
+          "checks.green": "pass",
+          "coverage.entry": "pass",
+          "ask.recommendation": "pass",
+          "keep.paths": "pass",
+          "keep.complete": "pass",
+          "subject.single": "pass",
+          "subject.unvoided": "pass"
+        },
+        "failed": [
+          "base.default"
+        ],
+        "checked_at": "2026-11-13T00:00:00Z"
+      }
+    },
+    "valid": true
+  },
+  {
+    "name": "pass reads unknown base",
+    "metadata": {
+      "signals": {
+        "schema": 1,
+        "kind": "merge",
+        "approval": "wide-merges",
+        "evidence": {
+          "base": {
+            "known": false,
+            "reason": "missing"
+          },
+          "default_branch": {
+            "known": true,
+            "value": null
+          },
+          "head_start": {
+            "known": true,
+            "value": null
+          },
+          "head_end": {
+            "known": true,
+            "value": null
+          },
+          "visibility": {
+            "known": true,
+            "value": null
+          },
+          "checks": {
+            "known": true,
+            "value": null
+          },
+          "files": {
+            "known": true,
+            "value": null
+          },
+          "receipt": {
+            "known": true,
+            "value": null
+          },
+          "review_text": {
+            "known": true,
+            "value": null
+          },
+          "coverage": {
+            "known": true,
+            "value": null
+          },
+          "open_cards": {
+            "known": true,
+            "value": null
+          },
+          "rule_history": {
+            "known": true,
+            "value": null
+          }
+        },
+        "conditions": {
+          "base.default": "pass",
+          "head.stable": "pass",
+          "repo.private": "pass",
+          "review.provenance": "pass",
+          "review.head": "pass",
+          "review.bound": "pass",
+          "review.verdict": "pass",
+          "review.tests": "pass",
+          "checks.green": "pass",
+          "coverage.entry": "pass",
+          "ask.recommendation": "pass",
+          "keep.paths": "pass",
+          "keep.complete": "pass",
+          "subject.single": "pass",
+          "subject.unvoided": "pass"
+        },
+        "failed": [],
+        "checked_at": "2026-11-13T00:00:00Z"
+      }
+    },
+    "valid": false
+  },
+  {
+    "name": "unknown default_branch",
+    "metadata": {
+      "signals": {
+        "schema": 1,
+        "kind": "merge",
+        "approval": "wide-merges",
+        "evidence": {
+          "base": {
+            "known": true,
+            "value": null
+          },
+          "default_branch": {
+            "known": false,
+            "reason": "missing"
+          },
+          "head_start": {
+            "known": true,
+            "value": null
+          },
+          "head_end": {
+            "known": true,
+            "value": null
+          },
+          "visibility": {
+            "known": true,
+            "value": null
+          },
+          "checks": {
+            "known": true,
+            "value": null
+          },
+          "files": {
+            "known": true,
+            "value": null
+          },
+          "receipt": {
+            "known": true,
+            "value": null
+          },
+          "review_text": {
+            "known": true,
+            "value": null
+          },
+          "coverage": {
+            "known": true,
+            "value": null
+          },
+          "open_cards": {
+            "known": true,
+            "value": null
+          },
+          "rule_history": {
+            "known": true,
+            "value": null
+          }
+        },
+        "conditions": {
+          "base.default": "unknown",
+          "head.stable": "pass",
+          "repo.private": "pass",
+          "review.provenance": "pass",
+          "review.head": "pass",
+          "review.bound": "pass",
+          "review.verdict": "pass",
+          "review.tests": "pass",
+          "checks.green": "pass",
+          "coverage.entry": "pass",
+          "ask.recommendation": "pass",
+          "keep.paths": "pass",
+          "keep.complete": "pass",
+          "subject.single": "pass",
+          "subject.unvoided": "pass"
+        },
+        "failed": [
+          "base.default"
+        ],
+        "checked_at": "2026-11-13T00:00:00Z"
+      }
+    },
+    "valid": true
+  },
+  {
+    "name": "pass reads unknown default_branch",
+    "metadata": {
+      "signals": {
+        "schema": 1,
+        "kind": "merge",
+        "approval": "wide-merges",
+        "evidence": {
+          "base": {
+            "known": true,
+            "value": null
+          },
+          "default_branch": {
+            "known": false,
+            "reason": "missing"
+          },
+          "head_start": {
+            "known": true,
+            "value": null
+          },
+          "head_end": {
+            "known": true,
+            "value": null
+          },
+          "visibility": {
+            "known": true,
+            "value": null
+          },
+          "checks": {
+            "known": true,
+            "value": null
+          },
+          "files": {
+            "known": true,
+            "value": null
+          },
+          "receipt": {
+            "known": true,
+            "value": null
+          },
+          "review_text": {
+            "known": true,
+            "value": null
+          },
+          "coverage": {
+            "known": true,
+            "value": null
+          },
+          "open_cards": {
+            "known": true,
+            "value": null
+          },
+          "rule_history": {
+            "known": true,
+            "value": null
+          }
+        },
+        "conditions": {
+          "base.default": "pass",
+          "head.stable": "pass",
+          "repo.private": "pass",
+          "review.provenance": "pass",
+          "review.head": "pass",
+          "review.bound": "pass",
+          "review.verdict": "pass",
+          "review.tests": "pass",
+          "checks.green": "pass",
+          "coverage.entry": "pass",
+          "ask.recommendation": "pass",
+          "keep.paths": "pass",
+          "keep.complete": "pass",
+          "subject.single": "pass",
+          "subject.unvoided": "pass"
+        },
+        "failed": [],
+        "checked_at": "2026-11-13T00:00:00Z"
+      }
+    },
+    "valid": false
+  },
+  {
+    "name": "unknown head_start",
+    "metadata": {
+      "signals": {
+        "schema": 1,
+        "kind": "merge",
+        "approval": "wide-merges",
+        "evidence": {
+          "base": {
+            "known": true,
+            "value": null
+          },
+          "default_branch": {
+            "known": true,
+            "value": null
+          },
+          "head_start": {
+            "known": false,
+            "reason": "missing"
+          },
+          "head_end": {
+            "known": true,
+            "value": null
+          },
+          "visibility": {
+            "known": true,
+            "value": null
+          },
+          "checks": {
+            "known": true,
+            "value": null
+          },
+          "files": {
+            "known": true,
+            "value": null
+          },
+          "receipt": {
+            "known": true,
+            "value": null
+          },
+          "review_text": {
+            "known": true,
+            "value": null
+          },
+          "coverage": {
+            "known": true,
+            "value": null
+          },
+          "open_cards": {
+            "known": true,
+            "value": null
+          },
+          "rule_history": {
+            "known": true,
+            "value": null
+          }
+        },
+        "conditions": {
+          "base.default": "pass",
+          "head.stable": "unknown",
+          "repo.private": "pass",
+          "review.provenance": "pass",
+          "review.head": "pass",
+          "review.bound": "pass",
+          "review.verdict": "pass",
+          "review.tests": "pass",
+          "checks.green": "pass",
+          "coverage.entry": "pass",
+          "ask.recommendation": "pass",
+          "keep.paths": "pass",
+          "keep.complete": "pass",
+          "subject.single": "pass",
+          "subject.unvoided": "pass"
+        },
+        "failed": [
+          "head.stable"
+        ],
+        "checked_at": "2026-11-13T00:00:00Z"
+      }
+    },
+    "valid": true
+  },
+  {
+    "name": "pass reads unknown head_start",
+    "metadata": {
+      "signals": {
+        "schema": 1,
+        "kind": "merge",
+        "approval": "wide-merges",
+        "evidence": {
+          "base": {
+            "known": true,
+            "value": null
+          },
+          "default_branch": {
+            "known": true,
+            "value": null
+          },
+          "head_start": {
+            "known": false,
+            "reason": "missing"
+          },
+          "head_end": {
+            "known": true,
+            "value": null
+          },
+          "visibility": {
+            "known": true,
+            "value": null
+          },
+          "checks": {
+            "known": true,
+            "value": null
+          },
+          "files": {
+            "known": true,
+            "value": null
+          },
+          "receipt": {
+            "known": true,
+            "value": null
+          },
+          "review_text": {
+            "known": true,
+            "value": null
+          },
+          "coverage": {
+            "known": true,
+            "value": null
+          },
+          "open_cards": {
+            "known": true,
+            "value": null
+          },
+          "rule_history": {
+            "known": true,
+            "value": null
+          }
+        },
+        "conditions": {
+          "base.default": "pass",
+          "head.stable": "pass",
+          "repo.private": "pass",
+          "review.provenance": "pass",
+          "review.head": "pass",
+          "review.bound": "pass",
+          "review.verdict": "pass",
+          "review.tests": "pass",
+          "checks.green": "pass",
+          "coverage.entry": "pass",
+          "ask.recommendation": "pass",
+          "keep.paths": "pass",
+          "keep.complete": "pass",
+          "subject.single": "pass",
+          "subject.unvoided": "pass"
+        },
+        "failed": [],
+        "checked_at": "2026-11-13T00:00:00Z"
+      }
+    },
+    "valid": false
+  },
+  {
+    "name": "unknown head_end",
+    "metadata": {
+      "signals": {
+        "schema": 1,
+        "kind": "merge",
+        "approval": "wide-merges",
+        "evidence": {
+          "base": {
+            "known": true,
+            "value": null
+          },
+          "default_branch": {
+            "known": true,
+            "value": null
+          },
+          "head_start": {
+            "known": true,
+            "value": null
+          },
+          "head_end": {
+            "known": false,
+            "reason": "missing"
+          },
+          "visibility": {
+            "known": true,
+            "value": null
+          },
+          "checks": {
+            "known": true,
+            "value": null
+          },
+          "files": {
+            "known": true,
+            "value": null
+          },
+          "receipt": {
+            "known": true,
+            "value": null
+          },
+          "review_text": {
+            "known": true,
+            "value": null
+          },
+          "coverage": {
+            "known": true,
+            "value": null
+          },
+          "open_cards": {
+            "known": true,
+            "value": null
+          },
+          "rule_history": {
+            "known": true,
+            "value": null
+          }
+        },
+        "conditions": {
+          "base.default": "pass",
+          "head.stable": "unknown",
+          "repo.private": "pass",
+          "review.provenance": "pass",
+          "review.head": "unknown",
+          "review.bound": "pass",
+          "review.verdict": "pass",
+          "review.tests": "pass",
+          "checks.green": "pass",
+          "coverage.entry": "pass",
+          "ask.recommendation": "pass",
+          "keep.paths": "pass",
+          "keep.complete": "pass",
+          "subject.single": "pass",
+          "subject.unvoided": "pass"
+        },
+        "failed": [
+          "head.stable",
+          "review.head"
+        ],
+        "checked_at": "2026-11-13T00:00:00Z"
+      }
+    },
+    "valid": true
+  },
+  {
+    "name": "pass reads unknown head_end",
+    "metadata": {
+      "signals": {
+        "schema": 1,
+        "kind": "merge",
+        "approval": "wide-merges",
+        "evidence": {
+          "base": {
+            "known": true,
+            "value": null
+          },
+          "default_branch": {
+            "known": true,
+            "value": null
+          },
+          "head_start": {
+            "known": true,
+            "value": null
+          },
+          "head_end": {
+            "known": false,
+            "reason": "missing"
+          },
+          "visibility": {
+            "known": true,
+            "value": null
+          },
+          "checks": {
+            "known": true,
+            "value": null
+          },
+          "files": {
+            "known": true,
+            "value": null
+          },
+          "receipt": {
+            "known": true,
+            "value": null
+          },
+          "review_text": {
+            "known": true,
+            "value": null
+          },
+          "coverage": {
+            "known": true,
+            "value": null
+          },
+          "open_cards": {
+            "known": true,
+            "value": null
+          },
+          "rule_history": {
+            "known": true,
+            "value": null
+          }
+        },
+        "conditions": {
+          "base.default": "pass",
+          "head.stable": "pass",
+          "repo.private": "pass",
+          "review.provenance": "pass",
+          "review.head": "unknown",
+          "review.bound": "pass",
+          "review.verdict": "pass",
+          "review.tests": "pass",
+          "checks.green": "pass",
+          "coverage.entry": "pass",
+          "ask.recommendation": "pass",
+          "keep.paths": "pass",
+          "keep.complete": "pass",
+          "subject.single": "pass",
+          "subject.unvoided": "pass"
+        },
+        "failed": [
+          "review.head"
+        ],
+        "checked_at": "2026-11-13T00:00:00Z"
+      }
+    },
+    "valid": false
+  },
+  {
+    "name": "unknown visibility",
+    "metadata": {
+      "signals": {
+        "schema": 1,
+        "kind": "merge",
+        "approval": "wide-merges",
+        "evidence": {
+          "base": {
+            "known": true,
+            "value": null
+          },
+          "default_branch": {
+            "known": true,
+            "value": null
+          },
+          "head_start": {
+            "known": true,
+            "value": null
+          },
+          "head_end": {
+            "known": true,
+            "value": null
+          },
+          "visibility": {
+            "known": false,
+            "reason": "missing"
+          },
+          "checks": {
+            "known": true,
+            "value": null
+          },
+          "files": {
+            "known": true,
+            "value": null
+          },
+          "receipt": {
+            "known": true,
+            "value": null
+          },
+          "review_text": {
+            "known": true,
+            "value": null
+          },
+          "coverage": {
+            "known": true,
+            "value": null
+          },
+          "open_cards": {
+            "known": true,
+            "value": null
+          },
+          "rule_history": {
+            "known": true,
+            "value": null
+          }
+        },
+        "conditions": {
+          "base.default": "pass",
+          "head.stable": "pass",
+          "repo.private": "unknown",
+          "review.provenance": "pass",
+          "review.head": "pass",
+          "review.bound": "pass",
+          "review.verdict": "pass",
+          "review.tests": "pass",
+          "checks.green": "pass",
+          "coverage.entry": "pass",
+          "ask.recommendation": "pass",
+          "keep.paths": "pass",
+          "keep.complete": "pass",
+          "subject.single": "pass",
+          "subject.unvoided": "pass"
+        },
+        "failed": [
+          "repo.private"
+        ],
+        "checked_at": "2026-11-13T00:00:00Z"
+      }
+    },
+    "valid": true
+  },
+  {
+    "name": "pass reads unknown visibility",
+    "metadata": {
+      "signals": {
+        "schema": 1,
+        "kind": "merge",
+        "approval": "wide-merges",
+        "evidence": {
+          "base": {
+            "known": true,
+            "value": null
+          },
+          "default_branch": {
+            "known": true,
+            "value": null
+          },
+          "head_start": {
+            "known": true,
+            "value": null
+          },
+          "head_end": {
+            "known": true,
+            "value": null
+          },
+          "visibility": {
+            "known": false,
+            "reason": "missing"
+          },
+          "checks": {
+            "known": true,
+            "value": null
+          },
+          "files": {
+            "known": true,
+            "value": null
+          },
+          "receipt": {
+            "known": true,
+            "value": null
+          },
+          "review_text": {
+            "known": true,
+            "value": null
+          },
+          "coverage": {
+            "known": true,
+            "value": null
+          },
+          "open_cards": {
+            "known": true,
+            "value": null
+          },
+          "rule_history": {
+            "known": true,
+            "value": null
+          }
+        },
+        "conditions": {
+          "base.default": "pass",
+          "head.stable": "pass",
+          "repo.private": "pass",
+          "review.provenance": "pass",
+          "review.head": "pass",
+          "review.bound": "pass",
+          "review.verdict": "pass",
+          "review.tests": "pass",
+          "checks.green": "pass",
+          "coverage.entry": "pass",
+          "ask.recommendation": "pass",
+          "keep.paths": "pass",
+          "keep.complete": "pass",
+          "subject.single": "pass",
+          "subject.unvoided": "pass"
+        },
+        "failed": [],
+        "checked_at": "2026-11-13T00:00:00Z"
+      }
+    },
+    "valid": false
+  },
+  {
+    "name": "unknown checks",
+    "metadata": {
+      "signals": {
+        "schema": 1,
+        "kind": "merge",
+        "approval": "wide-merges",
+        "evidence": {
+          "base": {
+            "known": true,
+            "value": null
+          },
+          "default_branch": {
+            "known": true,
+            "value": null
+          },
+          "head_start": {
+            "known": true,
+            "value": null
+          },
+          "head_end": {
+            "known": true,
+            "value": null
+          },
+          "visibility": {
+            "known": true,
+            "value": null
+          },
+          "checks": {
+            "known": false,
+            "reason": "missing"
+          },
+          "files": {
+            "known": true,
+            "value": null
+          },
+          "receipt": {
+            "known": true,
+            "value": null
+          },
+          "review_text": {
+            "known": true,
+            "value": null
+          },
+          "coverage": {
+            "known": true,
+            "value": null
+          },
+          "open_cards": {
+            "known": true,
+            "value": null
+          },
+          "rule_history": {
+            "known": true,
+            "value": null
+          }
+        },
+        "conditions": {
+          "base.default": "pass",
+          "head.stable": "pass",
+          "repo.private": "pass",
+          "review.provenance": "pass",
+          "review.head": "pass",
+          "review.bound": "pass",
+          "review.verdict": "pass",
+          "review.tests": "pass",
+          "checks.green": "unknown",
+          "coverage.entry": "pass",
+          "ask.recommendation": "pass",
+          "keep.paths": "pass",
+          "keep.complete": "pass",
+          "subject.single": "pass",
+          "subject.unvoided": "pass"
+        },
+        "failed": [
+          "checks.green"
+        ],
+        "checked_at": "2026-11-13T00:00:00Z"
+      }
+    },
+    "valid": true
+  },
+  {
+    "name": "pass reads unknown checks",
+    "metadata": {
+      "signals": {
+        "schema": 1,
+        "kind": "merge",
+        "approval": "wide-merges",
+        "evidence": {
+          "base": {
+            "known": true,
+            "value": null
+          },
+          "default_branch": {
+            "known": true,
+            "value": null
+          },
+          "head_start": {
+            "known": true,
+            "value": null
+          },
+          "head_end": {
+            "known": true,
+            "value": null
+          },
+          "visibility": {
+            "known": true,
+            "value": null
+          },
+          "checks": {
+            "known": false,
+            "reason": "missing"
+          },
+          "files": {
+            "known": true,
+            "value": null
+          },
+          "receipt": {
+            "known": true,
+            "value": null
+          },
+          "review_text": {
+            "known": true,
+            "value": null
+          },
+          "coverage": {
+            "known": true,
+            "value": null
+          },
+          "open_cards": {
+            "known": true,
+            "value": null
+          },
+          "rule_history": {
+            "known": true,
+            "value": null
+          }
+        },
+        "conditions": {
+          "base.default": "pass",
+          "head.stable": "pass",
+          "repo.private": "pass",
+          "review.provenance": "pass",
+          "review.head": "pass",
+          "review.bound": "pass",
+          "review.verdict": "pass",
+          "review.tests": "pass",
+          "checks.green": "pass",
+          "coverage.entry": "pass",
+          "ask.recommendation": "pass",
+          "keep.paths": "pass",
+          "keep.complete": "pass",
+          "subject.single": "pass",
+          "subject.unvoided": "pass"
+        },
+        "failed": [],
+        "checked_at": "2026-11-13T00:00:00Z"
+      }
+    },
+    "valid": false
+  },
+  {
+    "name": "unknown files",
+    "metadata": {
+      "signals": {
+        "schema": 1,
+        "kind": "merge",
+        "approval": "wide-merges",
+        "evidence": {
+          "base": {
+            "known": true,
+            "value": null
+          },
+          "default_branch": {
+            "known": true,
+            "value": null
+          },
+          "head_start": {
+            "known": true,
+            "value": null
+          },
+          "head_end": {
+            "known": true,
+            "value": null
+          },
+          "visibility": {
+            "known": true,
+            "value": null
+          },
+          "checks": {
+            "known": true,
+            "value": null
+          },
+          "files": {
+            "known": false,
+            "reason": "missing"
+          },
+          "receipt": {
+            "known": true,
+            "value": null
+          },
+          "review_text": {
+            "known": true,
+            "value": null
+          },
+          "coverage": {
+            "known": true,
+            "value": null
+          },
+          "open_cards": {
+            "known": true,
+            "value": null
+          },
+          "rule_history": {
+            "known": true,
+            "value": null
+          }
+        },
+        "conditions": {
+          "base.default": "pass",
+          "head.stable": "pass",
+          "repo.private": "pass",
+          "review.provenance": "pass",
+          "review.head": "pass",
+          "review.bound": "pass",
+          "review.verdict": "pass",
+          "review.tests": "pass",
+          "checks.green": "pass",
+          "coverage.entry": "pass",
+          "ask.recommendation": "pass",
+          "keep.paths": "unknown",
+          "keep.complete": "unknown",
+          "subject.single": "pass",
+          "subject.unvoided": "pass"
+        },
+        "failed": [
+          "keep.paths",
+          "keep.complete"
+        ],
+        "checked_at": "2026-11-13T00:00:00Z"
+      }
+    },
+    "valid": true
+  },
+  {
+    "name": "pass reads unknown files",
+    "metadata": {
+      "signals": {
+        "schema": 1,
+        "kind": "merge",
+        "approval": "wide-merges",
+        "evidence": {
+          "base": {
+            "known": true,
+            "value": null
+          },
+          "default_branch": {
+            "known": true,
+            "value": null
+          },
+          "head_start": {
+            "known": true,
+            "value": null
+          },
+          "head_end": {
+            "known": true,
+            "value": null
+          },
+          "visibility": {
+            "known": true,
+            "value": null
+          },
+          "checks": {
+            "known": true,
+            "value": null
+          },
+          "files": {
+            "known": false,
+            "reason": "missing"
+          },
+          "receipt": {
+            "known": true,
+            "value": null
+          },
+          "review_text": {
+            "known": true,
+            "value": null
+          },
+          "coverage": {
+            "known": true,
+            "value": null
+          },
+          "open_cards": {
+            "known": true,
+            "value": null
+          },
+          "rule_history": {
+            "known": true,
+            "value": null
+          }
+        },
+        "conditions": {
+          "base.default": "pass",
+          "head.stable": "pass",
+          "repo.private": "pass",
+          "review.provenance": "pass",
+          "review.head": "pass",
+          "review.bound": "pass",
+          "review.verdict": "pass",
+          "review.tests": "pass",
+          "checks.green": "pass",
+          "coverage.entry": "pass",
+          "ask.recommendation": "pass",
+          "keep.paths": "pass",
+          "keep.complete": "unknown",
+          "subject.single": "pass",
+          "subject.unvoided": "pass"
+        },
+        "failed": [
+          "keep.complete"
+        ],
+        "checked_at": "2026-11-13T00:00:00Z"
+      }
+    },
+    "valid": false
+  },
+  {
+    "name": "unknown receipt",
+    "metadata": {
+      "signals": {
+        "schema": 1,
+        "kind": "merge",
+        "approval": "wide-merges",
+        "evidence": {
+          "base": {
+            "known": true,
+            "value": null
+          },
+          "default_branch": {
+            "known": true,
+            "value": null
+          },
+          "head_start": {
+            "known": true,
+            "value": null
+          },
+          "head_end": {
+            "known": true,
+            "value": null
+          },
+          "visibility": {
+            "known": true,
+            "value": null
+          },
+          "checks": {
+            "known": true,
+            "value": null
+          },
+          "files": {
+            "known": true,
+            "value": null
+          },
+          "receipt": {
+            "known": false,
+            "reason": "missing"
+          },
+          "review_text": {
+            "known": true,
+            "value": null
+          },
+          "coverage": {
+            "known": true,
+            "value": null
+          },
+          "open_cards": {
+            "known": true,
+            "value": null
+          },
+          "rule_history": {
+            "known": true,
+            "value": null
+          }
+        },
+        "conditions": {
+          "base.default": "pass",
+          "head.stable": "pass",
+          "repo.private": "pass",
+          "review.provenance": "unknown",
+          "review.head": "unknown",
+          "review.bound": "unknown",
+          "review.verdict": "unknown",
+          "review.tests": "unknown",
+          "checks.green": "pass",
+          "coverage.entry": "pass",
+          "ask.recommendation": "pass",
+          "keep.paths": "pass",
+          "keep.complete": "pass",
+          "subject.single": "pass",
+          "subject.unvoided": "pass"
+        },
+        "failed": [
+          "review.provenance",
+          "review.head",
+          "review.bound",
+          "review.verdict",
+          "review.tests"
+        ],
+        "checked_at": "2026-11-13T00:00:00Z"
+      }
+    },
+    "valid": true
+  },
+  {
+    "name": "pass reads unknown receipt",
+    "metadata": {
+      "signals": {
+        "schema": 1,
+        "kind": "merge",
+        "approval": "wide-merges",
+        "evidence": {
+          "base": {
+            "known": true,
+            "value": null
+          },
+          "default_branch": {
+            "known": true,
+            "value": null
+          },
+          "head_start": {
+            "known": true,
+            "value": null
+          },
+          "head_end": {
+            "known": true,
+            "value": null
+          },
+          "visibility": {
+            "known": true,
+            "value": null
+          },
+          "checks": {
+            "known": true,
+            "value": null
+          },
+          "files": {
+            "known": true,
+            "value": null
+          },
+          "receipt": {
+            "known": false,
+            "reason": "missing"
+          },
+          "review_text": {
+            "known": true,
+            "value": null
+          },
+          "coverage": {
+            "known": true,
+            "value": null
+          },
+          "open_cards": {
+            "known": true,
+            "value": null
+          },
+          "rule_history": {
+            "known": true,
+            "value": null
+          }
+        },
+        "conditions": {
+          "base.default": "pass",
+          "head.stable": "pass",
+          "repo.private": "pass",
+          "review.provenance": "pass",
+          "review.head": "unknown",
+          "review.bound": "unknown",
+          "review.verdict": "unknown",
+          "review.tests": "unknown",
+          "checks.green": "pass",
+          "coverage.entry": "pass",
+          "ask.recommendation": "pass",
+          "keep.paths": "pass",
+          "keep.complete": "pass",
+          "subject.single": "pass",
+          "subject.unvoided": "pass"
+        },
+        "failed": [
+          "review.head",
+          "review.bound",
+          "review.verdict",
+          "review.tests"
+        ],
+        "checked_at": "2026-11-13T00:00:00Z"
+      }
+    },
+    "valid": false
+  },
+  {
+    "name": "unknown review_text",
+    "metadata": {
+      "signals": {
+        "schema": 1,
+        "kind": "merge",
+        "approval": "wide-merges",
+        "evidence": {
+          "base": {
+            "known": true,
+            "value": null
+          },
+          "default_branch": {
+            "known": true,
+            "value": null
+          },
+          "head_start": {
+            "known": true,
+            "value": null
+          },
+          "head_end": {
+            "known": true,
+            "value": null
+          },
+          "visibility": {
+            "known": true,
+            "value": null
+          },
+          "checks": {
+            "known": true,
+            "value": null
+          },
+          "files": {
+            "known": true,
+            "value": null
+          },
+          "receipt": {
+            "known": true,
+            "value": null
+          },
+          "review_text": {
+            "known": false,
+            "reason": "missing"
+          },
+          "coverage": {
+            "known": true,
+            "value": null
+          },
+          "open_cards": {
+            "known": true,
+            "value": null
+          },
+          "rule_history": {
+            "known": true,
+            "value": null
+          }
+        },
+        "conditions": {
+          "base.default": "pass",
+          "head.stable": "pass",
+          "repo.private": "pass",
+          "review.provenance": "pass",
+          "review.head": "pass",
+          "review.bound": "unknown",
+          "review.verdict": "pass",
+          "review.tests": "pass",
+          "checks.green": "pass",
+          "coverage.entry": "pass",
+          "ask.recommendation": "pass",
+          "keep.paths": "pass",
+          "keep.complete": "pass",
+          "subject.single": "pass",
+          "subject.unvoided": "pass"
+        },
+        "failed": [
+          "review.bound"
+        ],
+        "checked_at": "2026-11-13T00:00:00Z"
+      }
+    },
+    "valid": true
+  },
+  {
+    "name": "pass reads unknown review_text",
+    "metadata": {
+      "signals": {
+        "schema": 1,
+        "kind": "merge",
+        "approval": "wide-merges",
+        "evidence": {
+          "base": {
+            "known": true,
+            "value": null
+          },
+          "default_branch": {
+            "known": true,
+            "value": null
+          },
+          "head_start": {
+            "known": true,
+            "value": null
+          },
+          "head_end": {
+            "known": true,
+            "value": null
+          },
+          "visibility": {
+            "known": true,
+            "value": null
+          },
+          "checks": {
+            "known": true,
+            "value": null
+          },
+          "files": {
+            "known": true,
+            "value": null
+          },
+          "receipt": {
+            "known": true,
+            "value": null
+          },
+          "review_text": {
+            "known": false,
+            "reason": "missing"
+          },
+          "coverage": {
+            "known": true,
+            "value": null
+          },
+          "open_cards": {
+            "known": true,
+            "value": null
+          },
+          "rule_history": {
+            "known": true,
+            "value": null
+          }
+        },
+        "conditions": {
+          "base.default": "pass",
+          "head.stable": "pass",
+          "repo.private": "pass",
+          "review.provenance": "pass",
+          "review.head": "pass",
+          "review.bound": "pass",
+          "review.verdict": "pass",
+          "review.tests": "pass",
+          "checks.green": "pass",
+          "coverage.entry": "pass",
+          "ask.recommendation": "pass",
+          "keep.paths": "pass",
+          "keep.complete": "pass",
+          "subject.single": "pass",
+          "subject.unvoided": "pass"
+        },
+        "failed": [],
+        "checked_at": "2026-11-13T00:00:00Z"
+      }
+    },
+    "valid": false
+  },
+  {
+    "name": "unknown coverage",
+    "metadata": {
+      "signals": {
+        "schema": 1,
+        "kind": "merge",
+        "approval": "wide-merges",
+        "evidence": {
+          "base": {
+            "known": true,
+            "value": null
+          },
+          "default_branch": {
+            "known": true,
+            "value": null
+          },
+          "head_start": {
+            "known": true,
+            "value": null
+          },
+          "head_end": {
+            "known": true,
+            "value": null
+          },
+          "visibility": {
+            "known": true,
+            "value": null
+          },
+          "checks": {
+            "known": true,
+            "value": null
+          },
+          "files": {
+            "known": true,
+            "value": null
+          },
+          "receipt": {
+            "known": true,
+            "value": null
+          },
+          "review_text": {
+            "known": true,
+            "value": null
+          },
+          "coverage": {
+            "known": false,
+            "reason": "missing"
+          },
+          "open_cards": {
+            "known": true,
+            "value": null
+          },
+          "rule_history": {
+            "known": true,
+            "value": null
+          }
+        },
+        "conditions": {
+          "base.default": "pass",
+          "head.stable": "pass",
+          "repo.private": "pass",
+          "review.provenance": "pass",
+          "review.head": "pass",
+          "review.bound": "pass",
+          "review.verdict": "pass",
+          "review.tests": "pass",
+          "checks.green": "pass",
+          "coverage.entry": "unknown",
+          "ask.recommendation": "pass",
+          "keep.paths": "pass",
+          "keep.complete": "pass",
+          "subject.single": "pass",
+          "subject.unvoided": "pass"
+        },
+        "failed": [
+          "coverage.entry"
+        ],
+        "checked_at": "2026-11-13T00:00:00Z"
+      }
+    },
+    "valid": true
+  },
+  {
+    "name": "pass reads unknown coverage",
+    "metadata": {
+      "signals": {
+        "schema": 1,
+        "kind": "merge",
+        "approval": "wide-merges",
+        "evidence": {
+          "base": {
+            "known": true,
+            "value": null
+          },
+          "default_branch": {
+            "known": true,
+            "value": null
+          },
+          "head_start": {
+            "known": true,
+            "value": null
+          },
+          "head_end": {
+            "known": true,
+            "value": null
+          },
+          "visibility": {
+            "known": true,
+            "value": null
+          },
+          "checks": {
+            "known": true,
+            "value": null
+          },
+          "files": {
+            "known": true,
+            "value": null
+          },
+          "receipt": {
+            "known": true,
+            "value": null
+          },
+          "review_text": {
+            "known": true,
+            "value": null
+          },
+          "coverage": {
+            "known": false,
+            "reason": "missing"
+          },
+          "open_cards": {
+            "known": true,
+            "value": null
+          },
+          "rule_history": {
+            "known": true,
+            "value": null
+          }
+        },
+        "conditions": {
+          "base.default": "pass",
+          "head.stable": "pass",
+          "repo.private": "pass",
+          "review.provenance": "pass",
+          "review.head": "pass",
+          "review.bound": "pass",
+          "review.verdict": "pass",
+          "review.tests": "pass",
+          "checks.green": "pass",
+          "coverage.entry": "pass",
+          "ask.recommendation": "pass",
+          "keep.paths": "pass",
+          "keep.complete": "pass",
+          "subject.single": "pass",
+          "subject.unvoided": "pass"
+        },
+        "failed": [],
+        "checked_at": "2026-11-13T00:00:00Z"
+      }
+    },
+    "valid": false
+  },
+  {
+    "name": "unknown open_cards",
+    "metadata": {
+      "signals": {
+        "schema": 1,
+        "kind": "merge",
+        "approval": "wide-merges",
+        "evidence": {
+          "base": {
+            "known": true,
+            "value": null
+          },
+          "default_branch": {
+            "known": true,
+            "value": null
+          },
+          "head_start": {
+            "known": true,
+            "value": null
+          },
+          "head_end": {
+            "known": true,
+            "value": null
+          },
+          "visibility": {
+            "known": true,
+            "value": null
+          },
+          "checks": {
+            "known": true,
+            "value": null
+          },
+          "files": {
+            "known": true,
+            "value": null
+          },
+          "receipt": {
+            "known": true,
+            "value": null
+          },
+          "review_text": {
+            "known": true,
+            "value": null
+          },
+          "coverage": {
+            "known": true,
+            "value": null
+          },
+          "open_cards": {
+            "known": false,
+            "reason": "missing"
+          },
+          "rule_history": {
+            "known": true,
+            "value": null
+          }
+        },
+        "conditions": {
+          "base.default": "pass",
+          "head.stable": "pass",
+          "repo.private": "pass",
+          "review.provenance": "pass",
+          "review.head": "pass",
+          "review.bound": "pass",
+          "review.verdict": "pass",
+          "review.tests": "pass",
+          "checks.green": "pass",
+          "coverage.entry": "pass",
+          "ask.recommendation": "pass",
+          "keep.paths": "pass",
+          "keep.complete": "pass",
+          "subject.single": "unknown",
+          "subject.unvoided": "pass"
+        },
+        "failed": [
+          "subject.single"
+        ],
+        "checked_at": "2026-11-13T00:00:00Z"
+      }
+    },
+    "valid": true
+  },
+  {
+    "name": "pass reads unknown open_cards",
+    "metadata": {
+      "signals": {
+        "schema": 1,
+        "kind": "merge",
+        "approval": "wide-merges",
+        "evidence": {
+          "base": {
+            "known": true,
+            "value": null
+          },
+          "default_branch": {
+            "known": true,
+            "value": null
+          },
+          "head_start": {
+            "known": true,
+            "value": null
+          },
+          "head_end": {
+            "known": true,
+            "value": null
+          },
+          "visibility": {
+            "known": true,
+            "value": null
+          },
+          "checks": {
+            "known": true,
+            "value": null
+          },
+          "files": {
+            "known": true,
+            "value": null
+          },
+          "receipt": {
+            "known": true,
+            "value": null
+          },
+          "review_text": {
+            "known": true,
+            "value": null
+          },
+          "coverage": {
+            "known": true,
+            "value": null
+          },
+          "open_cards": {
+            "known": false,
+            "reason": "missing"
+          },
+          "rule_history": {
+            "known": true,
+            "value": null
+          }
+        },
+        "conditions": {
+          "base.default": "pass",
+          "head.stable": "pass",
+          "repo.private": "pass",
+          "review.provenance": "pass",
+          "review.head": "pass",
+          "review.bound": "pass",
+          "review.verdict": "pass",
+          "review.tests": "pass",
+          "checks.green": "pass",
+          "coverage.entry": "pass",
+          "ask.recommendation": "pass",
+          "keep.paths": "pass",
+          "keep.complete": "pass",
+          "subject.single": "pass",
+          "subject.unvoided": "pass"
+        },
+        "failed": [],
+        "checked_at": "2026-11-13T00:00:00Z"
+      }
+    },
+    "valid": false
+  },
+  {
+    "name": "unknown rule_history",
+    "metadata": {
+      "signals": {
+        "schema": 1,
+        "kind": "merge",
+        "approval": "wide-merges",
+        "evidence": {
+          "base": {
+            "known": true,
+            "value": null
+          },
+          "default_branch": {
+            "known": true,
+            "value": null
+          },
+          "head_start": {
+            "known": true,
+            "value": null
+          },
+          "head_end": {
+            "known": true,
+            "value": null
+          },
+          "visibility": {
+            "known": true,
+            "value": null
+          },
+          "checks": {
+            "known": true,
+            "value": null
+          },
+          "files": {
+            "known": true,
+            "value": null
+          },
+          "receipt": {
+            "known": true,
+            "value": null
+          },
+          "review_text": {
+            "known": true,
+            "value": null
+          },
+          "coverage": {
+            "known": true,
+            "value": null
+          },
+          "open_cards": {
+            "known": true,
+            "value": null
+          },
+          "rule_history": {
+            "known": false,
+            "reason": "missing"
+          }
+        },
+        "conditions": {
+          "base.default": "pass",
+          "head.stable": "pass",
+          "repo.private": "pass",
+          "review.provenance": "pass",
+          "review.head": "pass",
+          "review.bound": "pass",
+          "review.verdict": "pass",
+          "review.tests": "pass",
+          "checks.green": "pass",
+          "coverage.entry": "pass",
+          "ask.recommendation": "pass",
+          "keep.paths": "pass",
+          "keep.complete": "pass",
+          "subject.single": "pass",
+          "subject.unvoided": "unknown"
+        },
+        "failed": [
+          "subject.unvoided"
+        ],
+        "checked_at": "2026-11-13T00:00:00Z"
+      }
+    },
+    "valid": true
+  },
+  {
+    "name": "pass reads unknown rule_history",
+    "metadata": {
+      "signals": {
+        "schema": 1,
+        "kind": "merge",
+        "approval": "wide-merges",
+        "evidence": {
+          "base": {
+            "known": true,
+            "value": null
+          },
+          "default_branch": {
+            "known": true,
+            "value": null
+          },
+          "head_start": {
+            "known": true,
+            "value": null
+          },
+          "head_end": {
+            "known": true,
+            "value": null
+          },
+          "visibility": {
+            "known": true,
+            "value": null
+          },
+          "checks": {
+            "known": true,
+            "value": null
+          },
+          "files": {
+            "known": true,
+            "value": null
+          },
+          "receipt": {
+            "known": true,
+            "value": null
+          },
+          "review_text": {
+            "known": true,
+            "value": null
+          },
+          "coverage": {
+            "known": true,
+            "value": null
+          },
+          "open_cards": {
+            "known": true,
+            "value": null
+          },
+          "rule_history": {
+            "known": false,
+            "reason": "missing"
+          }
+        },
+        "conditions": {
+          "base.default": "pass",
+          "head.stable": "pass",
+          "repo.private": "pass",
+          "review.provenance": "pass",
+          "review.head": "pass",
+          "review.bound": "pass",
+          "review.verdict": "pass",
+          "review.tests": "pass",
+          "checks.green": "pass",
+          "coverage.entry": "pass",
+          "ask.recommendation": "pass",
+          "keep.paths": "pass",
+          "keep.complete": "pass",
+          "subject.single": "pass",
+          "subject.unvoided": "pass"
+        },
+        "failed": [],
+        "checked_at": "2026-11-13T00:00:00Z"
+      }
+    },
+    "valid": false
+  },
+  {
+    "name": "all unknown",
+    "metadata": {
+      "signals": {
+        "schema": 1,
+        "kind": "merge",
+        "approval": "wide-merges",
+        "evidence": {
+          "base": {
+            "known": false,
+            "reason": "missing"
+          },
+          "default_branch": {
+            "known": false,
+            "reason": "missing"
+          },
+          "head_start": {
+            "known": false,
+            "reason": "missing"
+          },
+          "head_end": {
+            "known": false,
+            "reason": "missing"
+          },
+          "visibility": {
+            "known": false,
+            "reason": "missing"
+          },
+          "checks": {
+            "known": false,
+            "reason": "missing"
+          },
+          "files": {
+            "known": false,
+            "reason": "missing"
+          },
+          "receipt": {
+            "known": false,
+            "reason": "missing"
+          },
+          "review_text": {
+            "known": false,
+            "reason": "missing"
+          },
+          "coverage": {
+            "known": false,
+            "reason": "missing"
+          },
+          "open_cards": {
+            "known": false,
+            "reason": "missing"
+          },
+          "rule_history": {
+            "known": false,
+            "reason": "missing"
+          }
+        },
+        "conditions": {
+          "base.default": "unknown",
+          "head.stable": "unknown",
+          "repo.private": "unknown",
+          "review.provenance": "unknown",
+          "review.head": "unknown",
+          "review.bound": "unknown",
+          "review.verdict": "unknown",
+          "review.tests": "unknown",
+          "checks.green": "unknown",
+          "coverage.entry": "unknown",
+          "ask.recommendation": "pass",
+          "keep.paths": "unknown",
+          "keep.complete": "unknown",
+          "subject.single": "unknown",
+          "subject.unvoided": "unknown"
+        },
+        "failed": [
+          "base.default",
+          "head.stable",
+          "repo.private",
+          "review.provenance",
+          "review.head",
+          "review.bound",
+          "review.verdict",
+          "review.tests",
+          "checks.green",
+          "coverage.entry",
+          "keep.paths",
+          "keep.complete",
+          "subject.single",
+          "subject.unvoided"
+        ],
+        "checked_at": "2026-11-13T00:00:00Z"
+      }
+    },
+    "valid": true
+  },
+  {
+    "name": "reason characters 300",
+    "metadata": {
+      "signals": {
+        "schema": 1,
+        "kind": "merge",
+        "approval": "wide-merges",
+        "evidence": {
+          "base": {
+            "known": false,
+            "reason": "\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00"
+          },
+          "default_branch": {
+            "known": false,
+            "reason": "missing"
+          },
+          "head_start": {
+            "known": false,
+            "reason": "missing"
+          },
+          "head_end": {
+            "known": false,
+            "reason": "missing"
+          },
+          "visibility": {
+            "known": false,
+            "reason": "missing"
+          },
+          "checks": {
+            "known": false,
+            "reason": "missing"
+          },
+          "files": {
+            "known": false,
+            "reason": "missing"
+          },
+          "receipt": {
+            "known": false,
+            "reason": "missing"
+          },
+          "review_text": {
+            "known": false,
+            "reason": "missing"
+          },
+          "coverage": {
+            "known": false,
+            "reason": "missing"
+          },
+          "open_cards": {
+            "known": false,
+            "reason": "missing"
+          },
+          "rule_history": {
+            "known": false,
+            "reason": "missing"
+          }
+        },
+        "conditions": {
+          "base.default": "unknown",
+          "head.stable": "unknown",
+          "repo.private": "unknown",
+          "review.provenance": "unknown",
+          "review.head": "unknown",
+          "review.bound": "unknown",
+          "review.verdict": "unknown",
+          "review.tests": "unknown",
+          "checks.green": "unknown",
+          "coverage.entry": "unknown",
+          "ask.recommendation": "pass",
+          "keep.paths": "unknown",
+          "keep.complete": "unknown",
+          "subject.single": "unknown",
+          "subject.unvoided": "unknown"
+        },
+        "failed": [
+          "base.default",
+          "head.stable",
+          "repo.private",
+          "review.provenance",
+          "review.head",
+          "review.bound",
+          "review.verdict",
+          "review.tests",
+          "checks.green",
+          "coverage.entry",
+          "keep.paths",
+          "keep.complete",
+          "subject.single",
+          "subject.unvoided"
+        ],
+        "checked_at": "2026-11-13T00:00:00Z"
+      }
+    },
+    "valid": true
+  },
+  {
+    "name": "reason characters 301",
+    "metadata": {
+      "signals": {
+        "schema": 1,
+        "kind": "merge",
+        "approval": "wide-merges",
+        "evidence": {
+          "base": {
+            "known": false,
+            "reason": "\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00"
+          },
+          "default_branch": {
+            "known": false,
+            "reason": "missing"
+          },
+          "head_start": {
+            "known": false,
+            "reason": "missing"
+          },
+          "head_end": {
+            "known": false,
+            "reason": "missing"
+          },
+          "visibility": {
+            "known": false,
+            "reason": "missing"
+          },
+          "checks": {
+            "known": false,
+            "reason": "missing"
+          },
+          "files": {
+            "known": false,
+            "reason": "missing"
+          },
+          "receipt": {
+            "known": false,
+            "reason": "missing"
+          },
+          "review_text": {
+            "known": false,
+            "reason": "missing"
+          },
+          "coverage": {
+            "known": false,
+            "reason": "missing"
+          },
+          "open_cards": {
+            "known": false,
+            "reason": "missing"
+          },
+          "rule_history": {
+            "known": false,
+            "reason": "missing"
+          }
+        },
+        "conditions": {
+          "base.default": "unknown",
+          "head.stable": "unknown",
+          "repo.private": "unknown",
+          "review.provenance": "unknown",
+          "review.head": "unknown",
+          "review.bound": "unknown",
+          "review.verdict": "unknown",
+          "review.tests": "unknown",
+          "checks.green": "unknown",
+          "coverage.entry": "unknown",
+          "ask.recommendation": "pass",
+          "keep.paths": "unknown",
+          "keep.complete": "unknown",
+          "subject.single": "unknown",
+          "subject.unvoided": "unknown"
+        },
+        "failed": [
+          "base.default",
+          "head.stable",
+          "repo.private",
+          "review.provenance",
+          "review.head",
+          "review.bound",
+          "review.verdict",
+          "review.tests",
+          "checks.green",
+          "coverage.entry",
+          "keep.paths",
+          "keep.complete",
+          "subject.single",
+          "subject.unvoided"
+        ],
+        "checked_at": "2026-11-13T00:00:00Z"
+      }
+    },
+    "valid": false
+  },
+  {
+    "name": "missing signals schema",
+    "metadata": {
+      "signals": {
+        "kind": "merge",
+        "approval": "wide-merges",
+        "evidence": {
+          "base": {
+            "known": true,
+            "value": null
+          },
+          "default_branch": {
+            "known": true,
+            "value": null
+          },
+          "head_start": {
+            "known": true,
+            "value": null
+          },
+          "head_end": {
+            "known": true,
+            "value": null
+          },
+          "visibility": {
+            "known": true,
+            "value": null
+          },
+          "checks": {
+            "known": true,
+            "value": null
+          },
+          "files": {
+            "known": true,
+            "value": null
+          },
+          "receipt": {
+            "known": true,
+            "value": null
+          },
+          "review_text": {
+            "known": true,
+            "value": null
+          },
+          "coverage": {
+            "known": true,
+            "value": null
+          },
+          "open_cards": {
+            "known": true,
+            "value": null
+          },
+          "rule_history": {
+            "known": true,
+            "value": null
+          }
+        },
+        "conditions": {
+          "base.default": "pass",
+          "head.stable": "pass",
+          "repo.private": "pass",
+          "review.provenance": "pass",
+          "review.head": "pass",
+          "review.bound": "pass",
+          "review.verdict": "pass",
+          "review.tests": "pass",
+          "checks.green": "pass",
+          "coverage.entry": "pass",
+          "ask.recommendation": "pass",
+          "keep.paths": "pass",
+          "keep.complete": "pass",
+          "subject.single": "pass",
+          "subject.unvoided": "pass"
+        },
+        "failed": [],
+        "checked_at": "2026-11-13T00:00:00Z"
+      }
+    },
+    "valid": false
+  },
+  {
+    "name": "missing signals kind",
+    "metadata": {
+      "signals": {
+        "schema": 1,
+        "approval": "wide-merges",
+        "evidence": {
+          "base": {
+            "known": true,
+            "value": null
+          },
+          "default_branch": {
+            "known": true,
+            "value": null
+          },
+          "head_start": {
+            "known": true,
+            "value": null
+          },
+          "head_end": {
+            "known": true,
+            "value": null
+          },
+          "visibility": {
+            "known": true,
+            "value": null
+          },
+          "checks": {
+            "known": true,
+            "value": null
+          },
+          "files": {
+            "known": true,
+            "value": null
+          },
+          "receipt": {
+            "known": true,
+            "value": null
+          },
+          "review_text": {
+            "known": true,
+            "value": null
+          },
+          "coverage": {
+            "known": true,
+            "value": null
+          },
+          "open_cards": {
+            "known": true,
+            "value": null
+          },
+          "rule_history": {
+            "known": true,
+            "value": null
+          }
+        },
+        "conditions": {
+          "base.default": "pass",
+          "head.stable": "pass",
+          "repo.private": "pass",
+          "review.provenance": "pass",
+          "review.head": "pass",
+          "review.bound": "pass",
+          "review.verdict": "pass",
+          "review.tests": "pass",
+          "checks.green": "pass",
+          "coverage.entry": "pass",
+          "ask.recommendation": "pass",
+          "keep.paths": "pass",
+          "keep.complete": "pass",
+          "subject.single": "pass",
+          "subject.unvoided": "pass"
+        },
+        "failed": [],
+        "checked_at": "2026-11-13T00:00:00Z"
+      }
+    },
+    "valid": false
+  },
+  {
+    "name": "missing signals approval",
+    "metadata": {
+      "signals": {
+        "schema": 1,
+        "kind": "merge",
+        "evidence": {
+          "base": {
+            "known": true,
+            "value": null
+          },
+          "default_branch": {
+            "known": true,
+            "value": null
+          },
+          "head_start": {
+            "known": true,
+            "value": null
+          },
+          "head_end": {
+            "known": true,
+            "value": null
+          },
+          "visibility": {
+            "known": true,
+            "value": null
+          },
+          "checks": {
+            "known": true,
+            "value": null
+          },
+          "files": {
+            "known": true,
+            "value": null
+          },
+          "receipt": {
+            "known": true,
+            "value": null
+          },
+          "review_text": {
+            "known": true,
+            "value": null
+          },
+          "coverage": {
+            "known": true,
+            "value": null
+          },
+          "open_cards": {
+            "known": true,
+            "value": null
+          },
+          "rule_history": {
+            "known": true,
+            "value": null
+          }
+        },
+        "conditions": {
+          "base.default": "pass",
+          "head.stable": "pass",
+          "repo.private": "pass",
+          "review.provenance": "pass",
+          "review.head": "pass",
+          "review.bound": "pass",
+          "review.verdict": "pass",
+          "review.tests": "pass",
+          "checks.green": "pass",
+          "coverage.entry": "pass",
+          "ask.recommendation": "pass",
+          "keep.paths": "pass",
+          "keep.complete": "pass",
+          "subject.single": "pass",
+          "subject.unvoided": "pass"
+        },
+        "failed": [],
+        "checked_at": "2026-11-13T00:00:00Z"
+      }
+    },
+    "valid": false
+  },
+  {
+    "name": "missing signals evidence",
+    "metadata": {
+      "signals": {
+        "schema": 1,
+        "kind": "merge",
+        "approval": "wide-merges",
+        "conditions": {
+          "base.default": "pass",
+          "head.stable": "pass",
+          "repo.private": "pass",
+          "review.provenance": "pass",
+          "review.head": "pass",
+          "review.bound": "pass",
+          "review.verdict": "pass",
+          "review.tests": "pass",
+          "checks.green": "pass",
+          "coverage.entry": "pass",
+          "ask.recommendation": "pass",
+          "keep.paths": "pass",
+          "keep.complete": "pass",
+          "subject.single": "pass",
+          "subject.unvoided": "pass"
+        },
+        "failed": [],
+        "checked_at": "2026-11-13T00:00:00Z"
+      }
+    },
+    "valid": false
+  },
+  {
+    "name": "missing signals conditions",
+    "metadata": {
+      "signals": {
+        "schema": 1,
+        "kind": "merge",
+        "approval": "wide-merges",
+        "evidence": {
+          "base": {
+            "known": true,
+            "value": null
+          },
+          "default_branch": {
+            "known": true,
+            "value": null
+          },
+          "head_start": {
+            "known": true,
+            "value": null
+          },
+          "head_end": {
+            "known": true,
+            "value": null
+          },
+          "visibility": {
+            "known": true,
+            "value": null
+          },
+          "checks": {
+            "known": true,
+            "value": null
+          },
+          "files": {
+            "known": true,
+            "value": null
+          },
+          "receipt": {
+            "known": true,
+            "value": null
+          },
+          "review_text": {
+            "known": true,
+            "value": null
+          },
+          "coverage": {
+            "known": true,
+            "value": null
+          },
+          "open_cards": {
+            "known": true,
+            "value": null
+          },
+          "rule_history": {
+            "known": true,
+            "value": null
+          }
+        },
+        "failed": [],
+        "checked_at": "2026-11-13T00:00:00Z"
+      }
+    },
+    "valid": false
+  },
+  {
+    "name": "missing signals failed",
+    "metadata": {
+      "signals": {
+        "schema": 1,
+        "kind": "merge",
+        "approval": "wide-merges",
+        "evidence": {
+          "base": {
+            "known": true,
+            "value": null
+          },
+          "default_branch": {
+            "known": true,
+            "value": null
+          },
+          "head_start": {
+            "known": true,
+            "value": null
+          },
+          "head_end": {
+            "known": true,
+            "value": null
+          },
+          "visibility": {
+            "known": true,
+            "value": null
+          },
+          "checks": {
+            "known": true,
+            "value": null
+          },
+          "files": {
+            "known": true,
+            "value": null
+          },
+          "receipt": {
+            "known": true,
+            "value": null
+          },
+          "review_text": {
+            "known": true,
+            "value": null
+          },
+          "coverage": {
+            "known": true,
+            "value": null
+          },
+          "open_cards": {
+            "known": true,
+            "value": null
+          },
+          "rule_history": {
+            "known": true,
+            "value": null
+          }
+        },
+        "conditions": {
+          "base.default": "pass",
+          "head.stable": "pass",
+          "repo.private": "pass",
+          "review.provenance": "pass",
+          "review.head": "pass",
+          "review.bound": "pass",
+          "review.verdict": "pass",
+          "review.tests": "pass",
+          "checks.green": "pass",
+          "coverage.entry": "pass",
+          "ask.recommendation": "pass",
+          "keep.paths": "pass",
+          "keep.complete": "pass",
+          "subject.single": "pass",
+          "subject.unvoided": "pass"
+        },
+        "checked_at": "2026-11-13T00:00:00Z"
+      }
+    },
+    "valid": false
+  },
+  {
+    "name": "missing signals checked_at",
+    "metadata": {
+      "signals": {
+        "schema": 1,
+        "kind": "merge",
+        "approval": "wide-merges",
+        "evidence": {
+          "base": {
+            "known": true,
+            "value": null
+          },
+          "default_branch": {
+            "known": true,
+            "value": null
+          },
+          "head_start": {
+            "known": true,
+            "value": null
+          },
+          "head_end": {
+            "known": true,
+            "value": null
+          },
+          "visibility": {
+            "known": true,
+            "value": null
+          },
+          "checks": {
+            "known": true,
+            "value": null
+          },
+          "files": {
+            "known": true,
+            "value": null
+          },
+          "receipt": {
+            "known": true,
+            "value": null
+          },
+          "review_text": {
+            "known": true,
+            "value": null
+          },
+          "coverage": {
+            "known": true,
+            "value": null
+          },
+          "open_cards": {
+            "known": true,
+            "value": null
+          },
+          "rule_history": {
+            "known": true,
+            "value": null
+          }
+        },
+        "conditions": {
+          "base.default": "pass",
+          "head.stable": "pass",
+          "repo.private": "pass",
+          "review.provenance": "pass",
+          "review.head": "pass",
+          "review.bound": "pass",
+          "review.verdict": "pass",
+          "review.tests": "pass",
+          "checks.green": "pass",
+          "coverage.entry": "pass",
+          "ask.recommendation": "pass",
+          "keep.paths": "pass",
+          "keep.complete": "pass",
+          "subject.single": "pass",
+          "subject.unvoided": "pass"
+        },
+        "failed": []
+      }
+    },
+    "valid": false
+  },
+  {
+    "name": "bad signals schema",
+    "metadata": {
+      "signals": {
+        "schema": 2,
+        "kind": "merge",
+        "approval": "wide-merges",
+        "evidence": {
+          "base": {
+            "known": true,
+            "value": null
+          },
+          "default_branch": {
+            "known": true,
+            "value": null
+          },
+          "head_start": {
+            "known": true,
+            "value": null
+          },
+          "head_end": {
+            "known": true,
+            "value": null
+          },
+          "visibility": {
+            "known": true,
+            "value": null
+          },
+          "checks": {
+            "known": true,
+            "value": null
+          },
+          "files": {
+            "known": true,
+            "value": null
+          },
+          "receipt": {
+            "known": true,
+            "value": null
+          },
+          "review_text": {
+            "known": true,
+            "value": null
+          },
+          "coverage": {
+            "known": true,
+            "value": null
+          },
+          "open_cards": {
+            "known": true,
+            "value": null
+          },
+          "rule_history": {
+            "known": true,
+            "value": null
+          }
+        },
+        "conditions": {
+          "base.default": "pass",
+          "head.stable": "pass",
+          "repo.private": "pass",
+          "review.provenance": "pass",
+          "review.head": "pass",
+          "review.bound": "pass",
+          "review.verdict": "pass",
+          "review.tests": "pass",
+          "checks.green": "pass",
+          "coverage.entry": "pass",
+          "ask.recommendation": "pass",
+          "keep.paths": "pass",
+          "keep.complete": "pass",
+          "subject.single": "pass",
+          "subject.unvoided": "pass"
+        },
+        "failed": [],
+        "checked_at": "2026-11-13T00:00:00Z"
+      }
+    },
+    "valid": false
+  },
+  {
+    "name": "bad signals schema",
+    "metadata": {
+      "signals": {
+        "schema": "1",
+        "kind": "merge",
+        "approval": "wide-merges",
+        "evidence": {
+          "base": {
+            "known": true,
+            "value": null
+          },
+          "default_branch": {
+            "known": true,
+            "value": null
+          },
+          "head_start": {
+            "known": true,
+            "value": null
+          },
+          "head_end": {
+            "known": true,
+            "value": null
+          },
+          "visibility": {
+            "known": true,
+            "value": null
+          },
+          "checks": {
+            "known": true,
+            "value": null
+          },
+          "files": {
+            "known": true,
+            "value": null
+          },
+          "receipt": {
+            "known": true,
+            "value": null
+          },
+          "review_text": {
+            "known": true,
+            "value": null
+          },
+          "coverage": {
+            "known": true,
+            "value": null
+          },
+          "open_cards": {
+            "known": true,
+            "value": null
+          },
+          "rule_history": {
+            "known": true,
+            "value": null
+          }
+        },
+        "conditions": {
+          "base.default": "pass",
+          "head.stable": "pass",
+          "repo.private": "pass",
+          "review.provenance": "pass",
+          "review.head": "pass",
+          "review.bound": "pass",
+          "review.verdict": "pass",
+          "review.tests": "pass",
+          "checks.green": "pass",
+          "coverage.entry": "pass",
+          "ask.recommendation": "pass",
+          "keep.paths": "pass",
+          "keep.complete": "pass",
+          "subject.single": "pass",
+          "subject.unvoided": "pass"
+        },
+        "failed": [],
+        "checked_at": "2026-11-13T00:00:00Z"
+      }
+    },
+    "valid": false
+  },
+  {
+    "name": "bad signals kind",
+    "metadata": {
+      "signals": {
+        "schema": 1,
+        "kind": "other",
+        "approval": "wide-merges",
+        "evidence": {
+          "base": {
+            "known": true,
+            "value": null
+          },
+          "default_branch": {
+            "known": true,
+            "value": null
+          },
+          "head_start": {
+            "known": true,
+            "value": null
+          },
+          "head_end": {
+            "known": true,
+            "value": null
+          },
+          "visibility": {
+            "known": true,
+            "value": null
+          },
+          "checks": {
+            "known": true,
+            "value": null
+          },
+          "files": {
+            "known": true,
+            "value": null
+          },
+          "receipt": {
+            "known": true,
+            "value": null
+          },
+          "review_text": {
+            "known": true,
+            "value": null
+          },
+          "coverage": {
+            "known": true,
+            "value": null
+          },
+          "open_cards": {
+            "known": true,
+            "value": null
+          },
+          "rule_history": {
+            "known": true,
+            "value": null
+          }
+        },
+        "conditions": {
+          "base.default": "pass",
+          "head.stable": "pass",
+          "repo.private": "pass",
+          "review.provenance": "pass",
+          "review.head": "pass",
+          "review.bound": "pass",
+          "review.verdict": "pass",
+          "review.tests": "pass",
+          "checks.green": "pass",
+          "coverage.entry": "pass",
+          "ask.recommendation": "pass",
+          "keep.paths": "pass",
+          "keep.complete": "pass",
+          "subject.single": "pass",
+          "subject.unvoided": "pass"
+        },
+        "failed": [],
+        "checked_at": "2026-11-13T00:00:00Z"
+      }
+    },
+    "valid": false
+  },
+  {
+    "name": "bad signals approval",
+    "metadata": {
+      "signals": {
+        "schema": 1,
+        "kind": "merge",
+        "approval": "",
+        "evidence": {
+          "base": {
+            "known": true,
+            "value": null
+          },
+          "default_branch": {
+            "known": true,
+            "value": null
+          },
+          "head_start": {
+            "known": true,
+            "value": null
+          },
+          "head_end": {
+            "known": true,
+            "value": null
+          },
+          "visibility": {
+            "known": true,
+            "value": null
+          },
+          "checks": {
+            "known": true,
+            "value": null
+          },
+          "files": {
+            "known": true,
+            "value": null
+          },
+          "receipt": {
+            "known": true,
+            "value": null
+          },
+          "review_text": {
+            "known": true,
+            "value": null
+          },
+          "coverage": {
+            "known": true,
+            "value": null
+          },
+          "open_cards": {
+            "known": true,
+            "value": null
+          },
+          "rule_history": {
+            "known": true,
+            "value": null
+          }
+        },
+        "conditions": {
+          "base.default": "pass",
+          "head.stable": "pass",
+          "repo.private": "pass",
+          "review.provenance": "pass",
+          "review.head": "pass",
+          "review.bound": "pass",
+          "review.verdict": "pass",
+          "review.tests": "pass",
+          "checks.green": "pass",
+          "coverage.entry": "pass",
+          "ask.recommendation": "pass",
+          "keep.paths": "pass",
+          "keep.complete": "pass",
+          "subject.single": "pass",
+          "subject.unvoided": "pass"
+        },
+        "failed": [],
+        "checked_at": "2026-11-13T00:00:00Z"
+      }
+    },
+    "valid": false
+  },
+  {
+    "name": "bad signals evidence",
+    "metadata": {
+      "signals": {
+        "schema": 1,
+        "kind": "merge",
+        "approval": "wide-merges",
+        "evidence": [],
+        "conditions": {
+          "base.default": "pass",
+          "head.stable": "pass",
+          "repo.private": "pass",
+          "review.provenance": "pass",
+          "review.head": "pass",
+          "review.bound": "pass",
+          "review.verdict": "pass",
+          "review.tests": "pass",
+          "checks.green": "pass",
+          "coverage.entry": "pass",
+          "ask.recommendation": "pass",
+          "keep.paths": "pass",
+          "keep.complete": "pass",
+          "subject.single": "pass",
+          "subject.unvoided": "pass"
+        },
+        "failed": [],
+        "checked_at": "2026-11-13T00:00:00Z"
+      }
+    },
+    "valid": false
+  },
+  {
+    "name": "bad signals conditions",
+    "metadata": {
+      "signals": {
+        "schema": 1,
+        "kind": "merge",
+        "approval": "wide-merges",
+        "evidence": {
+          "base": {
+            "known": true,
+            "value": null
+          },
+          "default_branch": {
+            "known": true,
+            "value": null
+          },
+          "head_start": {
+            "known": true,
+            "value": null
+          },
+          "head_end": {
+            "known": true,
+            "value": null
+          },
+          "visibility": {
+            "known": true,
+            "value": null
+          },
+          "checks": {
+            "known": true,
+            "value": null
+          },
+          "files": {
+            "known": true,
+            "value": null
+          },
+          "receipt": {
+            "known": true,
+            "value": null
+          },
+          "review_text": {
+            "known": true,
+            "value": null
+          },
+          "coverage": {
+            "known": true,
+            "value": null
+          },
+          "open_cards": {
+            "known": true,
+            "value": null
+          },
+          "rule_history": {
+            "known": true,
+            "value": null
+          }
+        },
+        "conditions": [],
+        "failed": [],
+        "checked_at": "2026-11-13T00:00:00Z"
+      }
+    },
+    "valid": false
+  },
+  {
+    "name": "bad signals failed",
+    "metadata": {
+      "signals": {
+        "schema": 1,
+        "kind": "merge",
+        "approval": "wide-merges",
+        "evidence": {
+          "base": {
+            "known": true,
+            "value": null
+          },
+          "default_branch": {
+            "known": true,
+            "value": null
+          },
+          "head_start": {
+            "known": true,
+            "value": null
+          },
+          "head_end": {
+            "known": true,
+            "value": null
+          },
+          "visibility": {
+            "known": true,
+            "value": null
+          },
+          "checks": {
+            "known": true,
+            "value": null
+          },
+          "files": {
+            "known": true,
+            "value": null
+          },
+          "receipt": {
+            "known": true,
+            "value": null
+          },
+          "review_text": {
+            "known": true,
+            "value": null
+          },
+          "coverage": {
+            "known": true,
+            "value": null
+          },
+          "open_cards": {
+            "known": true,
+            "value": null
+          },
+          "rule_history": {
+            "known": true,
+            "value": null
+          }
+        },
+        "conditions": {
+          "base.default": "pass",
+          "head.stable": "pass",
+          "repo.private": "pass",
+          "review.provenance": "pass",
+          "review.head": "pass",
+          "review.bound": "pass",
+          "review.verdict": "pass",
+          "review.tests": "pass",
+          "checks.green": "pass",
+          "coverage.entry": "pass",
+          "ask.recommendation": "pass",
+          "keep.paths": "pass",
+          "keep.complete": "pass",
+          "subject.single": "pass",
+          "subject.unvoided": "pass"
+        },
+        "failed": [
+          "base.default"
+        ],
+        "checked_at": "2026-11-13T00:00:00Z"
+      }
+    },
+    "valid": false
+  },
+  {
+    "name": "bad signals checked_at",
+    "metadata": {
+      "signals": {
+        "schema": 1,
+        "kind": "merge",
+        "approval": "wide-merges",
+        "evidence": {
+          "base": {
+            "known": true,
+            "value": null
+          },
+          "default_branch": {
+            "known": true,
+            "value": null
+          },
+          "head_start": {
+            "known": true,
+            "value": null
+          },
+          "head_end": {
+            "known": true,
+            "value": null
+          },
+          "visibility": {
+            "known": true,
+            "value": null
+          },
+          "checks": {
+            "known": true,
+            "value": null
+          },
+          "files": {
+            "known": true,
+            "value": null
+          },
+          "receipt": {
+            "known": true,
+            "value": null
+          },
+          "review_text": {
+            "known": true,
+            "value": null
+          },
+          "coverage": {
+            "known": true,
+            "value": null
+          },
+          "open_cards": {
+            "known": true,
+            "value": null
+          },
+          "rule_history": {
+            "known": true,
+            "value": null
+          }
+        },
+        "conditions": {
+          "base.default": "pass",
+          "head.stable": "pass",
+          "repo.private": "pass",
+          "review.provenance": "pass",
+          "review.head": "pass",
+          "review.bound": "pass",
+          "review.verdict": "pass",
+          "review.tests": "pass",
+          "checks.green": "pass",
+          "coverage.entry": "pass",
+          "ask.recommendation": "pass",
+          "keep.paths": "pass",
+          "keep.complete": "pass",
+          "subject.single": "pass",
+          "subject.unvoided": "pass"
+        },
+        "failed": [],
+        "checked_at": 7
+      }
+    },
+    "valid": false
+  },
+  {
+    "name": "bad signals extra",
+    "metadata": {
+      "signals": {
+        "schema": 1,
+        "kind": "merge",
+        "approval": "wide-merges",
+        "evidence": {
+          "base": {
+            "known": true,
+            "value": null
+          },
+          "default_branch": {
+            "known": true,
+            "value": null
+          },
+          "head_start": {
+            "known": true,
+            "value": null
+          },
+          "head_end": {
+            "known": true,
+            "value": null
+          },
+          "visibility": {
+            "known": true,
+            "value": null
+          },
+          "checks": {
+            "known": true,
+            "value": null
+          },
+          "files": {
+            "known": true,
+            "value": null
+          },
+          "receipt": {
+            "known": true,
+            "value": null
+          },
+          "review_text": {
+            "known": true,
+            "value": null
+          },
+          "coverage": {
+            "known": true,
+            "value": null
+          },
+          "open_cards": {
+            "known": true,
+            "value": null
+          },
+          "rule_history": {
+            "known": true,
+            "value": null
+          }
+        },
+        "conditions": {
+          "base.default": "pass",
+          "head.stable": "pass",
+          "repo.private": "pass",
+          "review.provenance": "pass",
+          "review.head": "pass",
+          "review.bound": "pass",
+          "review.verdict": "pass",
+          "review.tests": "pass",
+          "checks.green": "pass",
+          "coverage.entry": "pass",
+          "ask.recommendation": "pass",
+          "keep.paths": "pass",
+          "keep.complete": "pass",
+          "subject.single": "pass",
+          "subject.unvoided": "pass"
+        },
+        "failed": [],
+        "checked_at": "2026-11-13T00:00:00Z",
+        "extra": 1
+      }
+    },
+    "valid": false
+  },
+  {
+    "name": "bad evidence known",
+    "metadata": {
+      "signals": {
+        "schema": 1,
+        "kind": "merge",
+        "approval": "wide-merges",
+        "evidence": {
+          "base": {
+            "known": "true",
+            "value": null
+          },
+          "default_branch": {
+            "known": true,
+            "value": null
+          },
+          "head_start": {
+            "known": true,
+            "value": null
+          },
+          "head_end": {
+            "known": true,
+            "value": null
+          },
+          "visibility": {
+            "known": true,
+            "value": null
+          },
+          "checks": {
+            "known": true,
+            "value": null
+          },
+          "files": {
+            "known": true,
+            "value": null
+          },
+          "receipt": {
+            "known": true,
+            "value": null
+          },
+          "review_text": {
+            "known": true,
+            "value": null
+          },
+          "coverage": {
+            "known": true,
+            "value": null
+          },
+          "open_cards": {
+            "known": true,
+            "value": null
+          },
+          "rule_history": {
+            "known": true,
+            "value": null
+          }
+        },
+        "conditions": {
+          "base.default": "pass",
+          "head.stable": "pass",
+          "repo.private": "pass",
+          "review.provenance": "pass",
+          "review.head": "pass",
+          "review.bound": "pass",
+          "review.verdict": "pass",
+          "review.tests": "pass",
+          "checks.green": "pass",
+          "coverage.entry": "pass",
+          "ask.recommendation": "pass",
+          "keep.paths": "pass",
+          "keep.complete": "pass",
+          "subject.single": "pass",
+          "subject.unvoided": "pass"
+        },
+        "failed": [],
+        "checked_at": "2026-11-13T00:00:00Z"
+      }
+    },
+    "valid": false
+  },
+  {
+    "name": "bad evidence reason",
+    "metadata": {
+      "signals": {
+        "schema": 1,
+        "kind": "merge",
+        "approval": "wide-merges",
+        "evidence": {
+          "base": {
+            "known": true,
+            "value": null,
+            "reason": "unexpected"
+          },
+          "default_branch": {
+            "known": true,
+            "value": null
+          },
+          "head_start": {
+            "known": true,
+            "value": null
+          },
+          "head_end": {
+            "known": true,
+            "value": null
+          },
+          "visibility": {
+            "known": true,
+            "value": null
+          },
+          "checks": {
+            "known": true,
+            "value": null
+          },
+          "files": {
+            "known": true,
+            "value": null
+          },
+          "receipt": {
+            "known": true,
+            "value": null
+          },
+          "review_text": {
+            "known": true,
+            "value": null
+          },
+          "coverage": {
+            "known": true,
+            "value": null
+          },
+          "open_cards": {
+            "known": true,
+            "value": null
+          },
+          "rule_history": {
+            "known": true,
+            "value": null
+          }
+        },
+        "conditions": {
+          "base.default": "pass",
+          "head.stable": "pass",
+          "repo.private": "pass",
+          "review.provenance": "pass",
+          "review.head": "pass",
+          "review.bound": "pass",
+          "review.verdict": "pass",
+          "review.tests": "pass",
+          "checks.green": "pass",
+          "coverage.entry": "pass",
+          "ask.recommendation": "pass",
+          "keep.paths": "pass",
+          "keep.complete": "pass",
+          "subject.single": "pass",
+          "subject.unvoided": "pass"
+        },
+        "failed": [],
+        "checked_at": "2026-11-13T00:00:00Z"
+      }
+    },
+    "valid": false
+  },
+  {
+    "name": "bad evidence extra",
+    "metadata": {
+      "signals": {
+        "schema": 1,
+        "kind": "merge",
+        "approval": "wide-merges",
+        "evidence": {
+          "base": {
+            "known": true,
+            "value": null,
+            "extra": 1
+          },
+          "default_branch": {
+            "known": true,
+            "value": null
+          },
+          "head_start": {
+            "known": true,
+            "value": null
+          },
+          "head_end": {
+            "known": true,
+            "value": null
+          },
+          "visibility": {
+            "known": true,
+            "value": null
+          },
+          "checks": {
+            "known": true,
+            "value": null
+          },
+          "files": {
+            "known": true,
+            "value": null
+          },
+          "receipt": {
+            "known": true,
+            "value": null
+          },
+          "review_text": {
+            "known": true,
+            "value": null
+          },
+          "coverage": {
+            "known": true,
+            "value": null
+          },
+          "open_cards": {
+            "known": true,
+            "value": null
+          },
+          "rule_history": {
+            "known": true,
+            "value": null
+          }
+        },
+        "conditions": {
+          "base.default": "pass",
+          "head.stable": "pass",
+          "repo.private": "pass",
+          "review.provenance": "pass",
+          "review.head": "pass",
+          "review.bound": "pass",
+          "review.verdict": "pass",
+          "review.tests": "pass",
+          "checks.green": "pass",
+          "coverage.entry": "pass",
+          "ask.recommendation": "pass",
+          "keep.paths": "pass",
+          "keep.complete": "pass",
+          "subject.single": "pass",
+          "subject.unvoided": "pass"
+        },
+        "failed": [],
+        "checked_at": "2026-11-13T00:00:00Z"
+      }
+    },
+    "valid": false
+  },
+  {
+    "name": "evidence keys base",
+    "metadata": {
+      "signals": {
+        "schema": 1,
+        "kind": "merge",
+        "approval": "wide-merges",
+        "evidence": {
+          "default_branch": {
+            "known": true,
+            "value": null
+          },
+          "head_start": {
+            "known": true,
+            "value": null
+          },
+          "head_end": {
+            "known": true,
+            "value": null
+          },
+          "visibility": {
+            "known": true,
+            "value": null
+          },
+          "checks": {
+            "known": true,
+            "value": null
+          },
+          "files": {
+            "known": true,
+            "value": null
+          },
+          "receipt": {
+            "known": true,
+            "value": null
+          },
+          "review_text": {
+            "known": true,
+            "value": null
+          },
+          "coverage": {
+            "known": true,
+            "value": null
+          },
+          "open_cards": {
+            "known": true,
+            "value": null
+          },
+          "rule_history": {
+            "known": true,
+            "value": null
+          }
+        },
+        "conditions": {
+          "base.default": "pass",
+          "head.stable": "pass",
+          "repo.private": "pass",
+          "review.provenance": "pass",
+          "review.head": "pass",
+          "review.bound": "pass",
+          "review.verdict": "pass",
+          "review.tests": "pass",
+          "checks.green": "pass",
+          "coverage.entry": "pass",
+          "ask.recommendation": "pass",
+          "keep.paths": "pass",
+          "keep.complete": "pass",
+          "subject.single": "pass",
+          "subject.unvoided": "pass"
+        },
+        "failed": [],
+        "checked_at": "2026-11-13T00:00:00Z"
+      }
+    },
+    "valid": false
+  },
+  {
+    "name": "evidence keys invented",
+    "metadata": {
+      "signals": {
+        "schema": 1,
+        "kind": "merge",
+        "approval": "wide-merges",
+        "evidence": {
+          "base": {
+            "known": true,
+            "value": null
+          },
+          "default_branch": {
+            "known": true,
+            "value": null
+          },
+          "head_start": {
+            "known": true,
+            "value": null
+          },
+          "head_end": {
+            "known": true,
+            "value": null
+          },
+          "visibility": {
+            "known": true,
+            "value": null
+          },
+          "checks": {
+            "known": true,
+            "value": null
+          },
+          "files": {
+            "known": true,
+            "value": null
+          },
+          "receipt": {
+            "known": true,
+            "value": null
+          },
+          "review_text": {
+            "known": true,
+            "value": null
+          },
+          "coverage": {
+            "known": true,
+            "value": null
+          },
+          "open_cards": {
+            "known": true,
+            "value": null
+          },
+          "rule_history": {
+            "known": true,
+            "value": null
+          },
+          "invented": {
+            "known": true,
+            "value": 1
+          }
+        },
+        "conditions": {
+          "base.default": "pass",
+          "head.stable": "pass",
+          "repo.private": "pass",
+          "review.provenance": "pass",
+          "review.head": "pass",
+          "review.bound": "pass",
+          "review.verdict": "pass",
+          "review.tests": "pass",
+          "checks.green": "pass",
+          "coverage.entry": "pass",
+          "ask.recommendation": "pass",
+          "keep.paths": "pass",
+          "keep.complete": "pass",
+          "subject.single": "pass",
+          "subject.unvoided": "pass"
+        },
+        "failed": [],
+        "checked_at": "2026-11-13T00:00:00Z"
+      }
+    },
+    "valid": false
+  },
+  {
+    "name": "nonpass fail",
+    "metadata": {
+      "signals": {
+        "schema": 1,
+        "kind": "merge",
+        "approval": "wide-merges",
+        "evidence": {
+          "base": {
+            "known": true,
+            "value": null
+          },
+          "default_branch": {
+            "known": true,
+            "value": null
+          },
+          "head_start": {
+            "known": true,
+            "value": null
+          },
+          "head_end": {
+            "known": true,
+            "value": null
+          },
+          "visibility": {
+            "known": true,
+            "value": null
+          },
+          "checks": {
+            "known": true,
+            "value": null
+          },
+          "files": {
+            "known": true,
+            "value": null
+          },
+          "receipt": {
+            "known": true,
+            "value": null
+          },
+          "review_text": {
+            "known": true,
+            "value": null
+          },
+          "coverage": {
+            "known": true,
+            "value": null
+          },
+          "open_cards": {
+            "known": true,
+            "value": null
+          },
+          "rule_history": {
+            "known": true,
+            "value": null
+          }
+        },
+        "conditions": {
+          "base.default": "fail",
+          "head.stable": "pass",
+          "repo.private": "pass",
+          "review.provenance": "pass",
+          "review.head": "pass",
+          "review.bound": "pass",
+          "review.verdict": "pass",
+          "review.tests": "pass",
+          "checks.green": "pass",
+          "coverage.entry": "pass",
+          "ask.recommendation": "pass",
+          "keep.paths": "pass",
+          "keep.complete": "pass",
+          "subject.single": "pass",
+          "subject.unvoided": "pass"
+        },
+        "failed": [
+          "base.default"
+        ],
+        "checked_at": "2026-11-13T00:00:00Z"
+      }
+    },
+    "valid": true
+  },
+  {
+    "name": "nonpass unknown",
+    "metadata": {
+      "signals": {
+        "schema": 1,
+        "kind": "merge",
+        "approval": "wide-merges",
+        "evidence": {
+          "base": {
+            "known": true,
+            "value": null
+          },
+          "default_branch": {
+            "known": true,
+            "value": null
+          },
+          "head_start": {
+            "known": true,
+            "value": null
+          },
+          "head_end": {
+            "known": true,
+            "value": null
+          },
+          "visibility": {
+            "known": true,
+            "value": null
+          },
+          "checks": {
+            "known": true,
+            "value": null
+          },
+          "files": {
+            "known": true,
+            "value": null
+          },
+          "receipt": {
+            "known": true,
+            "value": null
+          },
+          "review_text": {
+            "known": true,
+            "value": null
+          },
+          "coverage": {
+            "known": true,
+            "value": null
+          },
+          "open_cards": {
+            "known": true,
+            "value": null
+          },
+          "rule_history": {
+            "known": true,
+            "value": null
+          }
+        },
+        "conditions": {
+          "base.default": "unknown",
+          "head.stable": "pass",
+          "repo.private": "pass",
+          "review.provenance": "pass",
+          "review.head": "pass",
+          "review.bound": "pass",
+          "review.verdict": "pass",
+          "review.tests": "pass",
+          "checks.green": "pass",
+          "coverage.entry": "pass",
+          "ask.recommendation": "pass",
+          "keep.paths": "pass",
+          "keep.complete": "pass",
+          "subject.single": "pass",
+          "subject.unvoided": "pass"
+        },
+        "failed": [
+          "base.default"
+        ],
+        "checked_at": "2026-11-13T00:00:00Z"
+      }
+    },
+    "valid": true
+  },
+  {
+    "name": "failed wrong order",
+    "metadata": {
+      "signals": {
+        "schema": 1,
+        "kind": "merge",
+        "approval": "wide-merges",
+        "evidence": {
+          "base": {
+            "known": false,
+            "reason": "missing"
+          },
+          "default_branch": {
+            "known": false,
+            "reason": "missing"
+          },
+          "head_start": {
+            "known": false,
+            "reason": "missing"
+          },
+          "head_end": {
+            "known": false,
+            "reason": "missing"
+          },
+          "visibility": {
+            "known": false,
+            "reason": "missing"
+          },
+          "checks": {
+            "known": false,
+            "reason": "missing"
+          },
+          "files": {
+            "known": false,
+            "reason": "missing"
+          },
+          "receipt": {
+            "known": false,
+            "reason": "missing"
+          },
+          "review_text": {
+            "known": false,
+            "reason": "missing"
+          },
+          "coverage": {
+            "known": false,
+            "reason": "missing"
+          },
+          "open_cards": {
+            "known": false,
+            "reason": "missing"
+          },
+          "rule_history": {
+            "known": false,
+            "reason": "missing"
+          }
+        },
+        "conditions": {
+          "base.default": "unknown",
+          "head.stable": "unknown",
+          "repo.private": "unknown",
+          "review.provenance": "unknown",
+          "review.head": "unknown",
+          "review.bound": "unknown",
+          "review.verdict": "unknown",
+          "review.tests": "unknown",
+          "checks.green": "unknown",
+          "coverage.entry": "unknown",
+          "ask.recommendation": "pass",
+          "keep.paths": "unknown",
+          "keep.complete": "unknown",
+          "subject.single": "unknown",
+          "subject.unvoided": "unknown"
+        },
+        "failed": [
+          "subject.unvoided",
+          "subject.single",
+          "keep.complete",
+          "keep.paths",
+          "coverage.entry",
+          "checks.green",
+          "review.tests",
+          "review.verdict",
+          "review.bound",
+          "review.head",
+          "review.provenance",
+          "repo.private",
+          "head.stable",
+          "base.default"
+        ],
+        "checked_at": "2026-11-13T00:00:00Z"
+      }
+    },
+    "valid": false
+  },
+  {
+    "name": "unknown condition",
+    "metadata": {
+      "signals": {
+        "schema": 1,
+        "kind": "merge",
+        "approval": "wide-merges",
+        "evidence": {
+          "base": {
+            "known": true,
+            "value": null
+          },
+          "default_branch": {
+            "known": true,
+            "value": null
+          },
+          "head_start": {
+            "known": true,
+            "value": null
+          },
+          "head_end": {
+            "known": true,
+            "value": null
+          },
+          "visibility": {
+            "known": true,
+            "value": null
+          },
+          "checks": {
+            "known": true,
+            "value": null
+          },
+          "files": {
+            "known": true,
+            "value": null
+          },
+          "receipt": {
+            "known": true,
+            "value": null
+          },
+          "review_text": {
+            "known": true,
+            "value": null
+          },
+          "coverage": {
+            "known": true,
+            "value": null
+          },
+          "open_cards": {
+            "known": true,
+            "value": null
+          },
+          "rule_history": {
+            "known": true,
+            "value": null
+          }
+        },
+        "conditions": {
+          "base.default": "pass",
+          "head.stable": "pass",
+          "repo.private": "pass",
+          "review.provenance": "pass",
+          "review.head": "pass",
+          "review.bound": "pass",
+          "review.verdict": "pass",
+          "review.tests": "pass",
+          "checks.green": "pass",
+          "coverage.entry": "pass",
+          "ask.recommendation": "pass",
+          "keep.paths": "pass",
+          "keep.complete": "pass",
+          "subject.single": "pass",
+          "subject.unvoided": "pass",
+          "invented": "pass"
+        },
+        "failed": [],
+        "checked_at": "2026-11-13T00:00:00Z"
+      }
+    },
+    "valid": false
+  },
+  {
+    "name": "missing condition",
+    "metadata": {
+      "signals": {
+        "schema": 1,
+        "kind": "merge",
+        "approval": "wide-merges",
+        "evidence": {
+          "base": {
+            "known": true,
+            "value": null
+          },
+          "default_branch": {
+            "known": true,
+            "value": null
+          },
+          "head_start": {
+            "known": true,
+            "value": null
+          },
+          "head_end": {
+            "known": true,
+            "value": null
+          },
+          "visibility": {
+            "known": true,
+            "value": null
+          },
+          "checks": {
+            "known": true,
+            "value": null
+          },
+          "files": {
+            "known": true,
+            "value": null
+          },
+          "receipt": {
+            "known": true,
+            "value": null
+          },
+          "review_text": {
+            "known": true,
+            "value": null
+          },
+          "coverage": {
+            "known": true,
+            "value": null
+          },
+          "open_cards": {
+            "known": true,
+            "value": null
+          },
+          "rule_history": {
+            "known": true,
+            "value": null
+          }
+        },
+        "conditions": {
+          "head.stable": "pass",
+          "repo.private": "pass",
+          "review.provenance": "pass",
+          "review.head": "pass",
+          "review.bound": "pass",
+          "review.verdict": "pass",
+          "review.tests": "pass",
+          "checks.green": "pass",
+          "coverage.entry": "pass",
+          "ask.recommendation": "pass",
+          "keep.paths": "pass",
+          "keep.complete": "pass",
+          "subject.single": "pass",
+          "subject.unvoided": "pass"
+        },
+        "failed": [],
+        "checked_at": "2026-11-13T00:00:00Z"
+      }
+    },
+    "valid": false
+  },
+  {
+    "name": "bad outcome",
+    "metadata": {
+      "signals": {
+        "schema": 1,
+        "kind": "merge",
+        "approval": "wide-merges",
+        "evidence": {
+          "base": {
+            "known": true,
+            "value": null
+          },
+          "default_branch": {
+            "known": true,
+            "value": null
+          },
+          "head_start": {
+            "known": true,
+            "value": null
+          },
+          "head_end": {
+            "known": true,
+            "value": null
+          },
+          "visibility": {
+            "known": true,
+            "value": null
+          },
+          "checks": {
+            "known": true,
+            "value": null
+          },
+          "files": {
+            "known": true,
+            "value": null
+          },
+          "receipt": {
+            "known": true,
+            "value": null
+          },
+          "review_text": {
+            "known": true,
+            "value": null
+          },
+          "coverage": {
+            "known": true,
+            "value": null
+          },
+          "open_cards": {
+            "known": true,
+            "value": null
+          },
+          "rule_history": {
+            "known": true,
+            "value": null
+          }
+        },
+        "conditions": {
+          "base.default": "pending",
+          "head.stable": "pass",
+          "repo.private": "pass",
+          "review.provenance": "pass",
+          "review.head": "pass",
+          "review.bound": "pass",
+          "review.verdict": "pass",
+          "review.tests": "pass",
+          "checks.green": "pass",
+          "coverage.entry": "pass",
+          "ask.recommendation": "pass",
+          "keep.paths": "pass",
+          "keep.complete": "pass",
+          "subject.single": "pass",
+          "subject.unvoided": "pass"
+        },
+        "failed": [],
+        "checked_at": "2026-11-13T00:00:00Z"
+      }
+    },
+    "valid": false
+  },
+  {
+    "name": "round all pass",
+    "metadata": {
+      "signals": {
+        "schema": 1,
+        "kind": "round",
+        "approval": "review-rounds",
+        "evidence": {
+          "base": {
+            "known": true,
+            "value": null
+          },
+          "default_branch": {
+            "known": true,
+            "value": null
+          },
+          "head_start": {
+            "known": true,
+            "value": null
+          },
+          "head_end": {
+            "known": true,
+            "value": null
+          },
+          "visibility": {
+            "known": true,
+            "value": null
+          },
+          "checks": {
+            "known": true,
+            "value": null
+          },
+          "files": {
+            "known": true,
+            "value": null
+          },
+          "receipt": {
+            "known": true,
+            "value": null
+          },
+          "review_text": {
+            "known": true,
+            "value": null
+          },
+          "coverage": {
+            "known": true,
+            "value": null
+          },
+          "open_cards": {
+            "known": true,
+            "value": null
+          },
+          "rule_history": {
+            "known": true,
+            "value": null
+          }
+        },
+        "conditions": {
+          "head.stable": "pass",
+          "repo.private": "pass",
+          "review.provenance": "pass",
+          "review.head": "pass",
+          "review.bound": "pass",
+          "keep.paths": "pass",
+          "keep.complete": "pass",
+          "subject.single": "pass",
+          "subject.unvoided": "pass",
+          "round.trigger": "pass",
+          "round.history": "pass",
+          "round.new": "pass",
+          "round.fewer": "pass",
+          "round.scope": "pass",
+          "ask.recommendation": "pass",
+          "coverage.entry": "pass"
+        },
+        "failed": [],
+        "checked_at": "2026-11-13T00:00:00Z"
+      }
+    },
+    "valid": true
+  },
+  {
+    "name": "round fail head.stable",
+    "metadata": {
+      "signals": {
+        "schema": 1,
+        "kind": "round",
+        "approval": "review-rounds",
+        "evidence": {
+          "base": {
+            "known": true,
+            "value": null
+          },
+          "default_branch": {
+            "known": true,
+            "value": null
+          },
+          "head_start": {
+            "known": true,
+            "value": null
+          },
+          "head_end": {
+            "known": true,
+            "value": null
+          },
+          "visibility": {
+            "known": true,
+            "value": null
+          },
+          "checks": {
+            "known": true,
+            "value": null
+          },
+          "files": {
+            "known": true,
+            "value": null
+          },
+          "receipt": {
+            "known": true,
+            "value": null
+          },
+          "review_text": {
+            "known": true,
+            "value": null
+          },
+          "coverage": {
+            "known": true,
+            "value": null
+          },
+          "open_cards": {
+            "known": true,
+            "value": null
+          },
+          "rule_history": {
+            "known": true,
+            "value": null
+          }
+        },
+        "conditions": {
+          "head.stable": "fail",
+          "repo.private": "pass",
+          "review.provenance": "pass",
+          "review.head": "pass",
+          "review.bound": "pass",
+          "keep.paths": "pass",
+          "keep.complete": "pass",
+          "subject.single": "pass",
+          "subject.unvoided": "pass",
+          "round.trigger": "pass",
+          "round.history": "pass",
+          "round.new": "pass",
+          "round.fewer": "pass",
+          "round.scope": "pass",
+          "ask.recommendation": "pass",
+          "coverage.entry": "pass"
+        },
+        "failed": [
+          "head.stable"
+        ],
+        "checked_at": "2026-11-13T00:00:00Z"
+      }
+    },
+    "valid": true
+  },
+  {
+    "name": "round fail repo.private",
+    "metadata": {
+      "signals": {
+        "schema": 1,
+        "kind": "round",
+        "approval": "review-rounds",
+        "evidence": {
+          "base": {
+            "known": true,
+            "value": null
+          },
+          "default_branch": {
+            "known": true,
+            "value": null
+          },
+          "head_start": {
+            "known": true,
+            "value": null
+          },
+          "head_end": {
+            "known": true,
+            "value": null
+          },
+          "visibility": {
+            "known": true,
+            "value": null
+          },
+          "checks": {
+            "known": true,
+            "value": null
+          },
+          "files": {
+            "known": true,
+            "value": null
+          },
+          "receipt": {
+            "known": true,
+            "value": null
+          },
+          "review_text": {
+            "known": true,
+            "value": null
+          },
+          "coverage": {
+            "known": true,
+            "value": null
+          },
+          "open_cards": {
+            "known": true,
+            "value": null
+          },
+          "rule_history": {
+            "known": true,
+            "value": null
+          }
+        },
+        "conditions": {
+          "head.stable": "pass",
+          "repo.private": "fail",
+          "review.provenance": "pass",
+          "review.head": "pass",
+          "review.bound": "pass",
+          "keep.paths": "pass",
+          "keep.complete": "pass",
+          "subject.single": "pass",
+          "subject.unvoided": "pass",
+          "round.trigger": "pass",
+          "round.history": "pass",
+          "round.new": "pass",
+          "round.fewer": "pass",
+          "round.scope": "pass",
+          "ask.recommendation": "pass",
+          "coverage.entry": "pass"
+        },
+        "failed": [
+          "repo.private"
+        ],
+        "checked_at": "2026-11-13T00:00:00Z"
+      }
+    },
+    "valid": true
+  },
+  {
+    "name": "round fail review.provenance",
+    "metadata": {
+      "signals": {
+        "schema": 1,
+        "kind": "round",
+        "approval": "review-rounds",
+        "evidence": {
+          "base": {
+            "known": true,
+            "value": null
+          },
+          "default_branch": {
+            "known": true,
+            "value": null
+          },
+          "head_start": {
+            "known": true,
+            "value": null
+          },
+          "head_end": {
+            "known": true,
+            "value": null
+          },
+          "visibility": {
+            "known": true,
+            "value": null
+          },
+          "checks": {
+            "known": true,
+            "value": null
+          },
+          "files": {
+            "known": true,
+            "value": null
+          },
+          "receipt": {
+            "known": true,
+            "value": null
+          },
+          "review_text": {
+            "known": true,
+            "value": null
+          },
+          "coverage": {
+            "known": true,
+            "value": null
+          },
+          "open_cards": {
+            "known": true,
+            "value": null
+          },
+          "rule_history": {
+            "known": true,
+            "value": null
+          }
+        },
+        "conditions": {
+          "head.stable": "pass",
+          "repo.private": "pass",
+          "review.provenance": "fail",
+          "review.head": "pass",
+          "review.bound": "pass",
+          "keep.paths": "pass",
+          "keep.complete": "pass",
+          "subject.single": "pass",
+          "subject.unvoided": "pass",
+          "round.trigger": "pass",
+          "round.history": "pass",
+          "round.new": "pass",
+          "round.fewer": "pass",
+          "round.scope": "pass",
+          "ask.recommendation": "pass",
+          "coverage.entry": "pass"
+        },
+        "failed": [
+          "review.provenance"
+        ],
+        "checked_at": "2026-11-13T00:00:00Z"
+      }
+    },
+    "valid": true
+  },
+  {
+    "name": "round fail review.head",
+    "metadata": {
+      "signals": {
+        "schema": 1,
+        "kind": "round",
+        "approval": "review-rounds",
+        "evidence": {
+          "base": {
+            "known": true,
+            "value": null
+          },
+          "default_branch": {
+            "known": true,
+            "value": null
+          },
+          "head_start": {
+            "known": true,
+            "value": null
+          },
+          "head_end": {
+            "known": true,
+            "value": null
+          },
+          "visibility": {
+            "known": true,
+            "value": null
+          },
+          "checks": {
+            "known": true,
+            "value": null
+          },
+          "files": {
+            "known": true,
+            "value": null
+          },
+          "receipt": {
+            "known": true,
+            "value": null
+          },
+          "review_text": {
+            "known": true,
+            "value": null
+          },
+          "coverage": {
+            "known": true,
+            "value": null
+          },
+          "open_cards": {
+            "known": true,
+            "value": null
+          },
+          "rule_history": {
+            "known": true,
+            "value": null
+          }
+        },
+        "conditions": {
+          "head.stable": "pass",
+          "repo.private": "pass",
+          "review.provenance": "pass",
+          "review.head": "fail",
+          "review.bound": "pass",
+          "keep.paths": "pass",
+          "keep.complete": "pass",
+          "subject.single": "pass",
+          "subject.unvoided": "pass",
+          "round.trigger": "pass",
+          "round.history": "pass",
+          "round.new": "pass",
+          "round.fewer": "pass",
+          "round.scope": "pass",
+          "ask.recommendation": "pass",
+          "coverage.entry": "pass"
+        },
+        "failed": [
+          "review.head"
+        ],
+        "checked_at": "2026-11-13T00:00:00Z"
+      }
+    },
+    "valid": true
+  },
+  {
+    "name": "round fail review.bound",
+    "metadata": {
+      "signals": {
+        "schema": 1,
+        "kind": "round",
+        "approval": "review-rounds",
+        "evidence": {
+          "base": {
+            "known": true,
+            "value": null
+          },
+          "default_branch": {
+            "known": true,
+            "value": null
+          },
+          "head_start": {
+            "known": true,
+            "value": null
+          },
+          "head_end": {
+            "known": true,
+            "value": null
+          },
+          "visibility": {
+            "known": true,
+            "value": null
+          },
+          "checks": {
+            "known": true,
+            "value": null
+          },
+          "files": {
+            "known": true,
+            "value": null
+          },
+          "receipt": {
+            "known": true,
+            "value": null
+          },
+          "review_text": {
+            "known": true,
+            "value": null
+          },
+          "coverage": {
+            "known": true,
+            "value": null
+          },
+          "open_cards": {
+            "known": true,
+            "value": null
+          },
+          "rule_history": {
+            "known": true,
+            "value": null
+          }
+        },
+        "conditions": {
+          "head.stable": "pass",
+          "repo.private": "pass",
+          "review.provenance": "pass",
+          "review.head": "pass",
+          "review.bound": "fail",
+          "keep.paths": "pass",
+          "keep.complete": "pass",
+          "subject.single": "pass",
+          "subject.unvoided": "pass",
+          "round.trigger": "pass",
+          "round.history": "pass",
+          "round.new": "pass",
+          "round.fewer": "pass",
+          "round.scope": "pass",
+          "ask.recommendation": "pass",
+          "coverage.entry": "pass"
+        },
+        "failed": [
+          "review.bound"
+        ],
+        "checked_at": "2026-11-13T00:00:00Z"
+      }
+    },
+    "valid": true
+  },
+  {
+    "name": "round fail keep.paths",
+    "metadata": {
+      "signals": {
+        "schema": 1,
+        "kind": "round",
+        "approval": "review-rounds",
+        "evidence": {
+          "base": {
+            "known": true,
+            "value": null
+          },
+          "default_branch": {
+            "known": true,
+            "value": null
+          },
+          "head_start": {
+            "known": true,
+            "value": null
+          },
+          "head_end": {
+            "known": true,
+            "value": null
+          },
+          "visibility": {
+            "known": true,
+            "value": null
+          },
+          "checks": {
+            "known": true,
+            "value": null
+          },
+          "files": {
+            "known": true,
+            "value": null
+          },
+          "receipt": {
+            "known": true,
+            "value": null
+          },
+          "review_text": {
+            "known": true,
+            "value": null
+          },
+          "coverage": {
+            "known": true,
+            "value": null
+          },
+          "open_cards": {
+            "known": true,
+            "value": null
+          },
+          "rule_history": {
+            "known": true,
+            "value": null
+          }
+        },
+        "conditions": {
+          "head.stable": "pass",
+          "repo.private": "pass",
+          "review.provenance": "pass",
+          "review.head": "pass",
+          "review.bound": "pass",
+          "keep.paths": "fail",
+          "keep.complete": "pass",
+          "subject.single": "pass",
+          "subject.unvoided": "pass",
+          "round.trigger": "pass",
+          "round.history": "pass",
+          "round.new": "pass",
+          "round.fewer": "pass",
+          "round.scope": "pass",
+          "ask.recommendation": "pass",
+          "coverage.entry": "pass"
+        },
+        "failed": [
+          "keep.paths"
+        ],
+        "checked_at": "2026-11-13T00:00:00Z"
+      }
+    },
+    "valid": true
+  },
+  {
+    "name": "round fail keep.complete",
+    "metadata": {
+      "signals": {
+        "schema": 1,
+        "kind": "round",
+        "approval": "review-rounds",
+        "evidence": {
+          "base": {
+            "known": true,
+            "value": null
+          },
+          "default_branch": {
+            "known": true,
+            "value": null
+          },
+          "head_start": {
+            "known": true,
+            "value": null
+          },
+          "head_end": {
+            "known": true,
+            "value": null
+          },
+          "visibility": {
+            "known": true,
+            "value": null
+          },
+          "checks": {
+            "known": true,
+            "value": null
+          },
+          "files": {
+            "known": true,
+            "value": null
+          },
+          "receipt": {
+            "known": true,
+            "value": null
+          },
+          "review_text": {
+            "known": true,
+            "value": null
+          },
+          "coverage": {
+            "known": true,
+            "value": null
+          },
+          "open_cards": {
+            "known": true,
+            "value": null
+          },
+          "rule_history": {
+            "known": true,
+            "value": null
+          }
+        },
+        "conditions": {
+          "head.stable": "pass",
+          "repo.private": "pass",
+          "review.provenance": "pass",
+          "review.head": "pass",
+          "review.bound": "pass",
+          "keep.paths": "pass",
+          "keep.complete": "fail",
+          "subject.single": "pass",
+          "subject.unvoided": "pass",
+          "round.trigger": "pass",
+          "round.history": "pass",
+          "round.new": "pass",
+          "round.fewer": "pass",
+          "round.scope": "pass",
+          "ask.recommendation": "pass",
+          "coverage.entry": "pass"
+        },
+        "failed": [
+          "keep.complete"
+        ],
+        "checked_at": "2026-11-13T00:00:00Z"
+      }
+    },
+    "valid": true
+  },
+  {
+    "name": "round fail subject.single",
+    "metadata": {
+      "signals": {
+        "schema": 1,
+        "kind": "round",
+        "approval": "review-rounds",
+        "evidence": {
+          "base": {
+            "known": true,
+            "value": null
+          },
+          "default_branch": {
+            "known": true,
+            "value": null
+          },
+          "head_start": {
+            "known": true,
+            "value": null
+          },
+          "head_end": {
+            "known": true,
+            "value": null
+          },
+          "visibility": {
+            "known": true,
+            "value": null
+          },
+          "checks": {
+            "known": true,
+            "value": null
+          },
+          "files": {
+            "known": true,
+            "value": null
+          },
+          "receipt": {
+            "known": true,
+            "value": null
+          },
+          "review_text": {
+            "known": true,
+            "value": null
+          },
+          "coverage": {
+            "known": true,
+            "value": null
+          },
+          "open_cards": {
+            "known": true,
+            "value": null
+          },
+          "rule_history": {
+            "known": true,
+            "value": null
+          }
+        },
+        "conditions": {
+          "head.stable": "pass",
+          "repo.private": "pass",
+          "review.provenance": "pass",
+          "review.head": "pass",
+          "review.bound": "pass",
+          "keep.paths": "pass",
+          "keep.complete": "pass",
+          "subject.single": "fail",
+          "subject.unvoided": "pass",
+          "round.trigger": "pass",
+          "round.history": "pass",
+          "round.new": "pass",
+          "round.fewer": "pass",
+          "round.scope": "pass",
+          "ask.recommendation": "pass",
+          "coverage.entry": "pass"
+        },
+        "failed": [
+          "subject.single"
+        ],
+        "checked_at": "2026-11-13T00:00:00Z"
+      }
+    },
+    "valid": true
+  },
+  {
+    "name": "round fail subject.unvoided",
+    "metadata": {
+      "signals": {
+        "schema": 1,
+        "kind": "round",
+        "approval": "review-rounds",
+        "evidence": {
+          "base": {
+            "known": true,
+            "value": null
+          },
+          "default_branch": {
+            "known": true,
+            "value": null
+          },
+          "head_start": {
+            "known": true,
+            "value": null
+          },
+          "head_end": {
+            "known": true,
+            "value": null
+          },
+          "visibility": {
+            "known": true,
+            "value": null
+          },
+          "checks": {
+            "known": true,
+            "value": null
+          },
+          "files": {
+            "known": true,
+            "value": null
+          },
+          "receipt": {
+            "known": true,
+            "value": null
+          },
+          "review_text": {
+            "known": true,
+            "value": null
+          },
+          "coverage": {
+            "known": true,
+            "value": null
+          },
+          "open_cards": {
+            "known": true,
+            "value": null
+          },
+          "rule_history": {
+            "known": true,
+            "value": null
+          }
+        },
+        "conditions": {
+          "head.stable": "pass",
+          "repo.private": "pass",
+          "review.provenance": "pass",
+          "review.head": "pass",
+          "review.bound": "pass",
+          "keep.paths": "pass",
+          "keep.complete": "pass",
+          "subject.single": "pass",
+          "subject.unvoided": "fail",
+          "round.trigger": "pass",
+          "round.history": "pass",
+          "round.new": "pass",
+          "round.fewer": "pass",
+          "round.scope": "pass",
+          "ask.recommendation": "pass",
+          "coverage.entry": "pass"
+        },
+        "failed": [
+          "subject.unvoided"
+        ],
+        "checked_at": "2026-11-13T00:00:00Z"
+      }
+    },
+    "valid": true
+  },
+  {
+    "name": "round fail round.trigger",
+    "metadata": {
+      "signals": {
+        "schema": 1,
+        "kind": "round",
+        "approval": "review-rounds",
+        "evidence": {
+          "base": {
+            "known": true,
+            "value": null
+          },
+          "default_branch": {
+            "known": true,
+            "value": null
+          },
+          "head_start": {
+            "known": true,
+            "value": null
+          },
+          "head_end": {
+            "known": true,
+            "value": null
+          },
+          "visibility": {
+            "known": true,
+            "value": null
+          },
+          "checks": {
+            "known": true,
+            "value": null
+          },
+          "files": {
+            "known": true,
+            "value": null
+          },
+          "receipt": {
+            "known": true,
+            "value": null
+          },
+          "review_text": {
+            "known": true,
+            "value": null
+          },
+          "coverage": {
+            "known": true,
+            "value": null
+          },
+          "open_cards": {
+            "known": true,
+            "value": null
+          },
+          "rule_history": {
+            "known": true,
+            "value": null
+          }
+        },
+        "conditions": {
+          "head.stable": "pass",
+          "repo.private": "pass",
+          "review.provenance": "pass",
+          "review.head": "pass",
+          "review.bound": "pass",
+          "keep.paths": "pass",
+          "keep.complete": "pass",
+          "subject.single": "pass",
+          "subject.unvoided": "pass",
+          "round.trigger": "fail",
+          "round.history": "pass",
+          "round.new": "pass",
+          "round.fewer": "pass",
+          "round.scope": "pass",
+          "ask.recommendation": "pass",
+          "coverage.entry": "pass"
+        },
+        "failed": [
+          "round.trigger"
+        ],
+        "checked_at": "2026-11-13T00:00:00Z"
+      }
+    },
+    "valid": true
+  },
+  {
+    "name": "round fail round.history",
+    "metadata": {
+      "signals": {
+        "schema": 1,
+        "kind": "round",
+        "approval": "review-rounds",
+        "evidence": {
+          "base": {
+            "known": true,
+            "value": null
+          },
+          "default_branch": {
+            "known": true,
+            "value": null
+          },
+          "head_start": {
+            "known": true,
+            "value": null
+          },
+          "head_end": {
+            "known": true,
+            "value": null
+          },
+          "visibility": {
+            "known": true,
+            "value": null
+          },
+          "checks": {
+            "known": true,
+            "value": null
+          },
+          "files": {
+            "known": true,
+            "value": null
+          },
+          "receipt": {
+            "known": true,
+            "value": null
+          },
+          "review_text": {
+            "known": true,
+            "value": null
+          },
+          "coverage": {
+            "known": true,
+            "value": null
+          },
+          "open_cards": {
+            "known": true,
+            "value": null
+          },
+          "rule_history": {
+            "known": true,
+            "value": null
+          }
+        },
+        "conditions": {
+          "head.stable": "pass",
+          "repo.private": "pass",
+          "review.provenance": "pass",
+          "review.head": "pass",
+          "review.bound": "pass",
+          "keep.paths": "pass",
+          "keep.complete": "pass",
+          "subject.single": "pass",
+          "subject.unvoided": "pass",
+          "round.trigger": "pass",
+          "round.history": "fail",
+          "round.new": "pass",
+          "round.fewer": "pass",
+          "round.scope": "pass",
+          "ask.recommendation": "pass",
+          "coverage.entry": "pass"
+        },
+        "failed": [
+          "round.history"
+        ],
+        "checked_at": "2026-11-13T00:00:00Z"
+      }
+    },
+    "valid": true
+  },
+  {
+    "name": "round fail round.new",
+    "metadata": {
+      "signals": {
+        "schema": 1,
+        "kind": "round",
+        "approval": "review-rounds",
+        "evidence": {
+          "base": {
+            "known": true,
+            "value": null
+          },
+          "default_branch": {
+            "known": true,
+            "value": null
+          },
+          "head_start": {
+            "known": true,
+            "value": null
+          },
+          "head_end": {
+            "known": true,
+            "value": null
+          },
+          "visibility": {
+            "known": true,
+            "value": null
+          },
+          "checks": {
+            "known": true,
+            "value": null
+          },
+          "files": {
+            "known": true,
+            "value": null
+          },
+          "receipt": {
+            "known": true,
+            "value": null
+          },
+          "review_text": {
+            "known": true,
+            "value": null
+          },
+          "coverage": {
+            "known": true,
+            "value": null
+          },
+          "open_cards": {
+            "known": true,
+            "value": null
+          },
+          "rule_history": {
+            "known": true,
+            "value": null
+          }
+        },
+        "conditions": {
+          "head.stable": "pass",
+          "repo.private": "pass",
+          "review.provenance": "pass",
+          "review.head": "pass",
+          "review.bound": "pass",
+          "keep.paths": "pass",
+          "keep.complete": "pass",
+          "subject.single": "pass",
+          "subject.unvoided": "pass",
+          "round.trigger": "pass",
+          "round.history": "pass",
+          "round.new": "fail",
+          "round.fewer": "pass",
+          "round.scope": "pass",
+          "ask.recommendation": "pass",
+          "coverage.entry": "pass"
+        },
+        "failed": [
+          "round.new"
+        ],
+        "checked_at": "2026-11-13T00:00:00Z"
+      }
+    },
+    "valid": true
+  },
+  {
+    "name": "round fail round.fewer",
+    "metadata": {
+      "signals": {
+        "schema": 1,
+        "kind": "round",
+        "approval": "review-rounds",
+        "evidence": {
+          "base": {
+            "known": true,
+            "value": null
+          },
+          "default_branch": {
+            "known": true,
+            "value": null
+          },
+          "head_start": {
+            "known": true,
+            "value": null
+          },
+          "head_end": {
+            "known": true,
+            "value": null
+          },
+          "visibility": {
+            "known": true,
+            "value": null
+          },
+          "checks": {
+            "known": true,
+            "value": null
+          },
+          "files": {
+            "known": true,
+            "value": null
+          },
+          "receipt": {
+            "known": true,
+            "value": null
+          },
+          "review_text": {
+            "known": true,
+            "value": null
+          },
+          "coverage": {
+            "known": true,
+            "value": null
+          },
+          "open_cards": {
+            "known": true,
+            "value": null
+          },
+          "rule_history": {
+            "known": true,
+            "value": null
+          }
+        },
+        "conditions": {
+          "head.stable": "pass",
+          "repo.private": "pass",
+          "review.provenance": "pass",
+          "review.head": "pass",
+          "review.bound": "pass",
+          "keep.paths": "pass",
+          "keep.complete": "pass",
+          "subject.single": "pass",
+          "subject.unvoided": "pass",
+          "round.trigger": "pass",
+          "round.history": "pass",
+          "round.new": "pass",
+          "round.fewer": "fail",
+          "round.scope": "pass",
+          "ask.recommendation": "pass",
+          "coverage.entry": "pass"
+        },
+        "failed": [
+          "round.fewer"
+        ],
+        "checked_at": "2026-11-13T00:00:00Z"
+      }
+    },
+    "valid": true
+  },
+  {
+    "name": "round fail round.scope",
+    "metadata": {
+      "signals": {
+        "schema": 1,
+        "kind": "round",
+        "approval": "review-rounds",
+        "evidence": {
+          "base": {
+            "known": true,
+            "value": null
+          },
+          "default_branch": {
+            "known": true,
+            "value": null
+          },
+          "head_start": {
+            "known": true,
+            "value": null
+          },
+          "head_end": {
+            "known": true,
+            "value": null
+          },
+          "visibility": {
+            "known": true,
+            "value": null
+          },
+          "checks": {
+            "known": true,
+            "value": null
+          },
+          "files": {
+            "known": true,
+            "value": null
+          },
+          "receipt": {
+            "known": true,
+            "value": null
+          },
+          "review_text": {
+            "known": true,
+            "value": null
+          },
+          "coverage": {
+            "known": true,
+            "value": null
+          },
+          "open_cards": {
+            "known": true,
+            "value": null
+          },
+          "rule_history": {
+            "known": true,
+            "value": null
+          }
+        },
+        "conditions": {
+          "head.stable": "pass",
+          "repo.private": "pass",
+          "review.provenance": "pass",
+          "review.head": "pass",
+          "review.bound": "pass",
+          "keep.paths": "pass",
+          "keep.complete": "pass",
+          "subject.single": "pass",
+          "subject.unvoided": "pass",
+          "round.trigger": "pass",
+          "round.history": "pass",
+          "round.new": "pass",
+          "round.fewer": "pass",
+          "round.scope": "fail",
+          "ask.recommendation": "pass",
+          "coverage.entry": "pass"
+        },
+        "failed": [
+          "round.scope"
+        ],
+        "checked_at": "2026-11-13T00:00:00Z"
+      }
+    },
+    "valid": true
+  },
+  {
+    "name": "round fail ask.recommendation",
+    "metadata": {
+      "signals": {
+        "schema": 1,
+        "kind": "round",
+        "approval": "review-rounds",
+        "evidence": {
+          "base": {
+            "known": true,
+            "value": null
+          },
+          "default_branch": {
+            "known": true,
+            "value": null
+          },
+          "head_start": {
+            "known": true,
+            "value": null
+          },
+          "head_end": {
+            "known": true,
+            "value": null
+          },
+          "visibility": {
+            "known": true,
+            "value": null
+          },
+          "checks": {
+            "known": true,
+            "value": null
+          },
+          "files": {
+            "known": true,
+            "value": null
+          },
+          "receipt": {
+            "known": true,
+            "value": null
+          },
+          "review_text": {
+            "known": true,
+            "value": null
+          },
+          "coverage": {
+            "known": true,
+            "value": null
+          },
+          "open_cards": {
+            "known": true,
+            "value": null
+          },
+          "rule_history": {
+            "known": true,
+            "value": null
+          }
+        },
+        "conditions": {
+          "head.stable": "pass",
+          "repo.private": "pass",
+          "review.provenance": "pass",
+          "review.head": "pass",
+          "review.bound": "pass",
+          "keep.paths": "pass",
+          "keep.complete": "pass",
+          "subject.single": "pass",
+          "subject.unvoided": "pass",
+          "round.trigger": "pass",
+          "round.history": "pass",
+          "round.new": "pass",
+          "round.fewer": "pass",
+          "round.scope": "pass",
+          "ask.recommendation": "fail",
+          "coverage.entry": "pass"
+        },
+        "failed": [
+          "ask.recommendation"
+        ],
+        "checked_at": "2026-11-13T00:00:00Z"
+      }
+    },
+    "valid": true
+  },
+  {
+    "name": "round fail coverage.entry",
+    "metadata": {
+      "signals": {
+        "schema": 1,
+        "kind": "round",
+        "approval": "review-rounds",
+        "evidence": {
+          "base": {
+            "known": true,
+            "value": null
+          },
+          "default_branch": {
+            "known": true,
+            "value": null
+          },
+          "head_start": {
+            "known": true,
+            "value": null
+          },
+          "head_end": {
+            "known": true,
+            "value": null
+          },
+          "visibility": {
+            "known": true,
+            "value": null
+          },
+          "checks": {
+            "known": true,
+            "value": null
+          },
+          "files": {
+            "known": true,
+            "value": null
+          },
+          "receipt": {
+            "known": true,
+            "value": null
+          },
+          "review_text": {
+            "known": true,
+            "value": null
+          },
+          "coverage": {
+            "known": true,
+            "value": null
+          },
+          "open_cards": {
+            "known": true,
+            "value": null
+          },
+          "rule_history": {
+            "known": true,
+            "value": null
+          }
+        },
+        "conditions": {
+          "head.stable": "pass",
+          "repo.private": "pass",
+          "review.provenance": "pass",
+          "review.head": "pass",
+          "review.bound": "pass",
+          "keep.paths": "pass",
+          "keep.complete": "pass",
+          "subject.single": "pass",
+          "subject.unvoided": "pass",
+          "round.trigger": "pass",
+          "round.history": "pass",
+          "round.new": "pass",
+          "round.fewer": "pass",
+          "round.scope": "pass",
+          "ask.recommendation": "pass",
+          "coverage.entry": "fail"
+        },
+        "failed": [
+          "coverage.entry"
+        ],
+        "checked_at": "2026-11-13T00:00:00Z"
+      }
+    },
+    "valid": true
+  },
+  {
+    "name": "round pass unknown receipt",
+    "metadata": {
+      "signals": {
+        "schema": 1,
+        "kind": "round",
+        "approval": "review-rounds",
+        "evidence": {
+          "base": {
+            "known": true,
+            "value": null
+          },
+          "default_branch": {
+            "known": true,
+            "value": null
+          },
+          "head_start": {
+            "known": true,
+            "value": null
+          },
+          "head_end": {
+            "known": true,
+            "value": null
+          },
+          "visibility": {
+            "known": true,
+            "value": null
+          },
+          "checks": {
+            "known": true,
+            "value": null
+          },
+          "files": {
+            "known": true,
+            "value": null
+          },
+          "receipt": {
+            "known": false,
+            "reason": "missing"
+          },
+          "review_text": {
+            "known": true,
+            "value": null
+          },
+          "coverage": {
+            "known": true,
+            "value": null
+          },
+          "open_cards": {
+            "known": true,
+            "value": null
+          },
+          "rule_history": {
+            "known": true,
+            "value": null
+          }
+        },
+        "conditions": {
+          "head.stable": "pass",
+          "repo.private": "pass",
+          "review.provenance": "pass",
+          "review.head": "pass",
+          "review.bound": "pass",
+          "keep.paths": "pass",
+          "keep.complete": "pass",
+          "subject.single": "pass",
+          "subject.unvoided": "pass",
+          "round.trigger": "pass",
+          "round.history": "pass",
+          "round.new": "pass",
+          "round.fewer": "pass",
+          "round.scope": "pass",
+          "ask.recommendation": "pass",
+          "coverage.entry": "pass"
+        },
+        "failed": [],
+        "checked_at": "2026-11-13T00:00:00Z"
+      }
+    },
+    "valid": false
+  }
+]
