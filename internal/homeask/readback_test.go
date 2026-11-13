@@ -91,7 +91,7 @@ func TestFileCardWithoutReadbackTimeoutDoesNotPoll(t *testing.T) {
 }
 
 func TestCardReadbackWithLegacyPlugin(t *testing.T) {
-	f := newFake(t)
+	f := newFake(t, registryOnCreate)
 	f.fail = func(args []string) *BBResult {
 		if strings.Join(args[:min(len(args), 3)], " ") != "home get --card" {
 			return nil
