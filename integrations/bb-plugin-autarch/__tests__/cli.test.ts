@@ -264,7 +264,7 @@ describe("cards in the CLI (Task 2.7)", () => {
   afterEach(() => cleanupEnvs());
 
   it("progress, resolve and withdraw refuse a card row with exit 2 and change nothing", async () => {
-    const { r, c, run: go } = await cardCli();
+    const { r, c, run: go } = await cardCli({});
     const before = JSON.stringify(r.svc.store.decision(c.g1.id));
     for (const verb of ["progress", "resolve", "withdraw"]) {
       const x = await go([verb, c.g1.id], { threadId: "thr_a" });
@@ -275,11 +275,20 @@ describe("cards in the CLI (Task 2.7)", () => {
   });
 
   it("get --card reads the card and its current generation; an unknown card exits 1", async () => {
-    const { c, run: go } = await cardCli();
+    const { c, run: go } = await cardCli({});
     const x = await go(["get", "--card", c.t.id]);
     expect(x.exitCode).toBe(0);
     expect(JSON.parse(x.stdout!)).toMatchObject({ task_id: c.t.id, state: "open", decision_id: c.g1.id, generation: 1, decision_state: "open" });
     expect((await go(["get", "--card", "nope"])).exitCode).toBe(1);
+  });
+
+  it("get --card uses an explicit tasks project without caller context", async () => {
+    const { c, run: go } = await cardCli({});
+    const x = await go(["get", "--card", c.t.id, "--project", c.t.projectId]);
+    expect(x.exitCode).toBe(0);
+    expect(JSON.parse(x.stdout!).card_key).toBeTruthy();
+    const other = await go(["get", "--card", c.t.id, "--project", "other-project"]);
+    expect(other.exitCode).toBe(1);
   });
 
   it("get --request resolves a card key through card_requests, and a legacy key through the registry", async () => {

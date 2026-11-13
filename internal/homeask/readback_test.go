@@ -2,6 +2,7 @@ package homeask
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"testing"
 	"time"
@@ -30,7 +31,7 @@ func TestFileCardPollsUntilHomeHasTheCardKey(t *testing.T) {
 	}
 }
 
-// The poll is bounded: a Home that never indexes the card leaves card_key empty and does not fail the filing.
+// The poll is bounded: a Home that never indexes the card returns an ambiguous outcome with the retry request key.
 func TestFileCardReadbackIsBounded(t *testing.T) {
 	f := newFake(t)
 	f.fail = func(args []string) *BBResult {
@@ -43,7 +44,7 @@ func TestFileCardReadbackIsBounded(t *testing.T) {
 	fl.ReadbackTimeout, fl.ReadbackInterval = 30*time.Millisecond, 5*time.Millisecond
 	start := time.Now()
 	res, err := fl.FileCard(context.Background(), testReq())
-	if err != nil || res.ID != "T1" || res.CardKey != "" {
+	if !errors.Is(err, ErrOutcomeUnknown) || res.ID != "T1" || !strings.Contains(err.Error(), res.Key) {
 		t.Fatalf("res=%+v err=%v", res, err)
 	}
 	if time.Since(start) > 2*time.Second {
@@ -70,7 +71,7 @@ func TestFileCardReadbackBoundsAStalledRead(t *testing.T) {
 	fl.ReadbackTimeout, fl.ReadbackInterval = 100*time.Millisecond, 10*time.Millisecond
 	start := time.Now()
 	res, err := fl.FileCard(context.Background(), testReq())
-	if err != nil || res.ID != "T1" || res.CardKey != "" {
+	if !errors.Is(err, ErrOutcomeUnknown) || res.ID != "T1" || !strings.Contains(err.Error(), res.Key) {
 		t.Fatalf("res=%+v err=%v", res, err)
 	}
 	if d := time.Since(start); d > 2*time.Second {
