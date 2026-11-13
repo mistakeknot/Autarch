@@ -1,9 +1,11 @@
 package homeask
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"regexp"
+	"strconv"
 	"strings"
 	"unicode/utf8"
 
@@ -50,7 +52,9 @@ func ValidateOnPick(raw json.RawMessage, option Option, context CardValidationCo
 		return fail("card source required")
 	}
 	var o map[string]any
-	if !scalarJSON(raw) || json.Unmarshal(raw, &o) != nil || o == nil {
+	dec := json.NewDecoder(bytes.NewReader(raw))
+	dec.UseNumber()
+	if !scalarJSON(raw) || !json.Valid(raw) || dec.Decode(&o) != nil || o == nil {
 		return fail("expected scalar JSON object")
 	}
 	exact := func(m map[string]any, allowed, required []string) bool {
@@ -68,7 +72,7 @@ func ValidateOnPick(raw json.RawMessage, option Option, context CardValidationCo
 	if !exact(o, append(append([]string{}, fields...), "notification"), fields) {
 		return fail("missing or unknown member")
 	}
-	if o["schema"] != float64(1) {
+	if o["schema"] != json.Number("1") {
 		return fail("unsupported schema")
 	}
 	if _, ok := o["reversible"].(bool); !ok {
@@ -76,7 +80,7 @@ func ValidateOnPick(raw json.RawMessage, option Option, context CardValidationCo
 	}
 	text := func(v any, max int) bool {
 		s, ok := v.(string)
-		return ok && utf8.ValidString(s) && strings.TrimSpace(s) != "" && utf8.RuneCountInString(s) <= max && !strings.ContainsRune(s, 0)
+		return ok && utf8.ValidString(s) && strings.TrimFunc(s, onPickSpace) != "" && utf8.RuneCountInString(s) <= max && !strings.ContainsRune(s, 0)
 	}
 	if !text(o["target_thread"], 128) || !regexp.MustCompile(`^thr_[A-Za-z0-9_.:-]+$`).MatchString(o["target_thread"].(string)) {
 		return fail("concrete target thread required")
@@ -136,8 +140,9 @@ func ValidateOnPick(raw json.RawMessage, option Option, context CardValidationCo
 		}
 		repo, _ := s["repo"].(string)
 		head, _ := s["head"].(string)
-		number, _ := s["number"].(float64)
-		if !acRepoRe.MatchString(repo) || !acHeadRe.MatchString(head) || number <= 0 || number > 9007199254740991 || number != float64(int64(number)) {
+		numberRaw, _ := s["number"].(json.Number)
+		number, numberErr := strconv.ParseInt(string(numberRaw), 10, 64)
+		if !acRepoRe.MatchString(repo) || !acHeadRe.MatchString(head) || number <= 0 || number > 9007199254740991 || numberErr != nil {
 			return fail("invalid PR subject")
 		}
 	}
@@ -153,6 +158,10 @@ func ValidateOnPick(raw json.RawMessage, option Option, context CardValidationCo
 		if !text(v, 128) {
 			return fail("invalid under reference")
 		}
+	}
+	// Validate the same canonical conversion used by every identity builder.
+	if _, err := fromDecoded(o); err != nil {
+		return fail(err.Error())
 	}
 	return OnPick(o), nil
 }
@@ -196,4 +205,12 @@ func scalarJSON(raw []byte) bool {
 		}
 	}
 	return true
+}
+
+// Unicode White_Space plus U+FEFF, shared with ON_PICK_SPACE in onpick.ts.
+// This predicate checks blank text only; the stored payload is never trimmed.
+func onPickSpace(r rune) bool {
+	return (r >= 0x09 && r <= 0x0d) || r == 0x20 || r == 0x85 || r == 0xa0 ||
+		r == 0x1680 || (r >= 0x2000 && r <= 0x200a) || r == 0x2028 || r == 0x2029 ||
+		r == 0x202f || r == 0x205f || r == 0x3000 || r == 0xfeff
 }

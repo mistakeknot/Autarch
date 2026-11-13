@@ -8,6 +8,34 @@ const wire = () => ({ schema: "home-ask/v2", project: "sample", project_root: "/
 const card = (ask: unknown) => parseCard(`Which colour?\nBlocks: thread:thr_target\nRequest: sample sha256:0123456789abcdef\n\n\`\`\`home-ask\n${JSON.stringify(ask)}\n\`\`\``);
 
 describe("on_pick card declaration", () => {
+  it.each(["1.0", "1e0"])("rejects raw number spelling %s in cards and stored bodies", spelling => {
+    const raw = JSON.stringify(wire()).replace('"schema":1,', `"schema":${spelling},`);
+    const stored = JSON.stringify(toV1(card(wire()), "thr_asker")).replace('"schema":1,', `"schema":${spelling},`);
+    for (const escaped of [false, true]) {
+      const escape = (s: string) => escaped ? s.replace('"on_pick"', '"on_\\u0070ick"').replace('"schema":' + spelling, '"sch\\u0065ma":' + spelling) : s;
+      expect(() => parseCard(`Colour?\nRequest: sample sha256:0123456789abcdef\n\`\`\`home-ask\n${escape(raw)}\n\`\`\``)).toThrow(/on_pick/);
+      expect(readAsk(escape(stored), {}, "card")).toBeNull();
+    }
+  });
+  it.each(["7", "9007199254740991", "7.0", "7e0", "0", "-1", "9007199254740992"])("checks raw PR number %s in cards and stored bodies", spelling => {
+    const w = wire();
+    Object.assign(w.options[0].on_pick!.subject, { kind: "github-pr", repo: "example/sample", number: 7, head: "a".repeat(40) });
+    const raw = JSON.stringify(w).replace('"number":7,', `"number":${spelling},`);
+    const stored = JSON.stringify(toV1(card(w), "thr_asker")).replace('"number":7,', `"number":${spelling},`);
+    const valid = ["7", "9007199254740991"].includes(spelling);
+    for (const escaped of [false, true]) {
+      const escape = (s: string) => escaped ? s.replace('"on_pick"', '"on_\\u0070ick"').replace('"number"', '"numb\\u0065r"') : s;
+      const parse = () => parseCard(`Colour?\nRequest: sample sha256:0123456789abcdef\n\`\`\`home-ask\n${escape(raw)}\n\`\`\``);
+      if (valid) expect(parse).not.toThrow(); else expect(parse).toThrow(/on_pick/);
+      expect(readAsk(escape(stored), {}, "card") !== null).toBe(valid);
+    }
+  });
+  it("keeps number-like quoted text and legacy numbers outside on_pick", () => {
+    const w = wire(); w.options[0].instruction = 'Use "schema":1.0 and number 7.0.';
+    expect(toV1(card(w), "thr_asker").options![0].instruction).toBe(w.options[0].instruction);
+    const a = toV1(card(w), "thr_asker");
+    expect(readAsk(JSON.stringify(a).replace('"v":1,', '"v":1.0,'), {}, "card")).not.toBeNull();
+  });
   for (const legacy of [false, true]) {
     it.each(["omitted", "null", "empty"])(`questions presence legacy=${legacy} / %s`, questions => {
       const ask = wire();

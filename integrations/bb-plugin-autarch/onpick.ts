@@ -25,8 +25,10 @@ function object(raw: unknown, fields: string[], required = fields): Record<strin
   if (Object.keys(o).some(k => !fields.includes(k)) || required.some(k => !Object.hasOwn(o, k))) fail("missing or unknown member");
   return o;
 }
+// Unicode White_Space plus U+FEFF; keep in parity with onPickSpace in Go.
+const ON_PICK_SPACE = /^[\u0009-\u000d\u0020\u0085\u00a0\u1680\u2000-\u200a\u2028\u2029\u202f\u205f\u3000\ufeff]*$/u;
 function text(raw: unknown, max: number): string {
-  if (typeof raw !== "string" || !raw.isWellFormed() || !raw.trim() || [...raw].length > max || raw.includes("\0")) return fail("invalid text");
+  if (typeof raw !== "string" || !raw.isWellFormed() || ON_PICK_SPACE.test(raw) || [...raw].length > max || raw.includes("\0")) return fail("invalid text");
   return raw;
 }
 export function parseOnPick(raw: unknown, option: AskOption, context: CardValidationContext): OnPick {
@@ -61,4 +63,54 @@ export function parseOnPick(raw: unknown, option: AskOption, context: CardValida
   if (!Array.isArray(r.under) || r.under.length > 16) fail("invalid under references");
   const under = (r.under as unknown[]).map(v => text(v, 128));
   return { schema: 1, target_thread: target, reversible: o.reversible as boolean, subject, ruling: { bead, under }, ...(notification !== undefined ? { notification } : {}) };
+}
+
+/** Check number spellings while the original card/stored-body bytes still exist.
+ * The token tree retains numbers as tokens and decodes member names. Objects use
+ * last-member-wins semantics, just like JSON.parse and Go's JSON decoder.
+ * Only options[].on_pick is screened; legacy numbers and quoted text are opaque.
+ */
+export function validateOnPickJSON(raw: string): void {
+  // Validate syntax before walking tokens. Never use the rounded numeric values.
+  JSON.parse(raw);
+  const tokens = raw.match(/"(?:[^"\\]|\\.)*"|-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?|true|false|null|[{}\[\]:,]/g)!;
+  class NumberToken { constructor(readonly spelling: string) {} }
+  let i = 0;
+  const value = (): unknown => {
+    const token = tokens[i++];
+    if (token === "{") {
+      const obj = new Map<string, unknown>();
+      while (tokens[i] !== "}") {
+        const key = JSON.parse(tokens[i++]) as string;
+        i++; // colon
+        obj.set(key, value());
+        if (tokens[i] !== ",") break;
+        i++;
+      }
+      i++;
+      return obj;
+    }
+    if (token === "[") {
+      const arr: unknown[] = [];
+      while (tokens[i] !== "]") {
+        arr.push(value());
+        if (tokens[i] !== ",") break;
+        i++;
+      }
+      i++;
+      return arr;
+    }
+    if (/^-?\d/.test(token)) return new NumberToken(token);
+    return JSON.parse(token) as unknown;
+  };
+  const check = (v: unknown): void => {
+    if (v instanceof NumberToken && !/^-?\d+$/.test(v.spelling)) fail("integer number spelling required");
+    if (v instanceof Map) for (const child of v.values()) check(child);
+    if (Array.isArray(v)) for (const child of v) check(child);
+  };
+  const root = value();
+  const options = root instanceof Map ? root.get("options") : undefined;
+  if (Array.isArray(options)) for (const option of options) {
+    if (option instanceof Map && option.has("on_pick")) check(option.get("on_pick"));
+  }
 }

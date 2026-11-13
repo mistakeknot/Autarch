@@ -19,6 +19,8 @@ func TestOnPickSharedVectors(t *testing.T) {
 		Error                bool   `json:"error"`
 		DeclarationCanonical string `json:"declaration_canonical"`
 		DeclarationSHA256    string `json:"declaration_sha256"`
+		TextField            string `json:"text_field"`
+		TextValue            string `json:"text_value"`
 	}
 	if err = json.Unmarshal(raw, &rows); err != nil {
 		t.Fatal(err)
@@ -28,6 +30,36 @@ func TestOnPickSharedVectors(t *testing.T) {
 			if row.Error {
 				if _, err := ParseCard(row.Description); err == nil {
 					t.Fatal("accepted invalid shared vector")
+				}
+				return
+			}
+			if row.TextField != "" {
+				card, err := ParseCard(row.Description)
+				if err != nil {
+					t.Fatal(err)
+				}
+				ask, err := card.ToV1(row.Thread)
+				if err != nil {
+					t.Fatal(err)
+				}
+				o := ask.Options[0]
+				var d map[string]any
+				if err := json.Unmarshal(o.OnPick, &d); err != nil {
+					t.Fatal(err)
+				}
+				var got any
+				switch row.TextField {
+				case "instruction":
+					got = o.Instruction
+				case "notification":
+					got = d["notification"]
+				case "bead":
+					got = d["ruling"].(map[string]any)["bead"]
+				case "under":
+					got = d["ruling"].(map[string]any)["under"].([]any)[0]
+				}
+				if got != row.TextValue {
+					t.Fatalf("payload changed: %q != %q", got, row.TextValue)
 				}
 				return
 			}

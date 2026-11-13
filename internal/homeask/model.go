@@ -676,6 +676,8 @@ func normalizeOptions(a *Ask, ps *problemList) {
 // canonValue is one of: string, int, bool, []any, map[string]any.
 type canonValue = any
 
+// optionNode requires a validated option. Parse and Normalize reject invalid
+// declarations before hashing; violated internal invariants must not erase them.
 func optionNode(o Option) map[string]any {
 	m := map[string]any{"id": o.ID, "label": o.Label, "kind": o.Kind, "instruction": o.Instruction, "reversible": o.Reversible}
 	if o.Approval != nil {
@@ -686,8 +688,14 @@ func optionNode(o Option) map[string]any {
 		var v any
 		d := json.NewDecoder(bytes.NewReader(o.OnPick))
 		d.UseNumber()
-		_ = d.Decode(&v)
-		v, _ = fromDecoded(v)
+		if err := d.Decode(&v); err != nil {
+			panic(fmt.Errorf("invalid on_pick in normalized option: %w", err))
+		}
+		var err error
+		v, err = fromDecoded(v)
+		if err != nil {
+			panic(fmt.Errorf("invalid on_pick in normalized option: %w", err))
+		}
 		m["on_pick"] = v
 	}
 	return m

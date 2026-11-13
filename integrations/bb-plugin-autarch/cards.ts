@@ -1,3 +1,4 @@
+import { validateOnPickJSON } from "./onpick.js";
 import { parseSubjectKey, parseSignals, type SubjectKey, type Signals } from "./card-metadata.js";
 // The card convention (v1): how a tasks card's description text carries a Home ask.
 //
@@ -167,6 +168,7 @@ function parseBlocks(texts: string[]): BlockRef[] {
 function parseWireAsk(body: string): { ask: Record<string, unknown>; pull: "" | "mycroft";  subject_key?: SubjectKey; signals?: Signals } {
   let v: unknown;
   try {
+    validateOnPickJSON(body);
     v = JSON.parse(body);
   } catch (e) {
     return fail(`invalid home-ask JSON: ${(e as Error).message}`);
