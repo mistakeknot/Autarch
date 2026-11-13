@@ -2,12 +2,14 @@
 // store fixtures. Picks are rev-4 store.recordPick rows; override rows are rev-4 insertReplacement.
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { Asks } from "../asks.js";
+import { homeCli } from "../cli.js";
+import { Catchup } from "../catchup.js";
 import { Queue } from "../queue.js";
 import { blocksCount, buildQueue, setBinding, sortRows } from "../queueview.js";
 import { Service } from "../service.js";
 import { TasksClient } from "../tasks.js";
 import { FakeTasks, type FakeTask } from "./tasks-fake.js";
-import { ask, makeEnv, type Env } from "./service-helpers.js";
+import { ask, makeEnv, verifiedDelegation, type Env } from "./service-helpers.js";
 import { pickOf } from "./helpers.js";
 
 const T1 = "2026-10-01T00:00:01.000Z";
@@ -92,6 +94,14 @@ function rig(opts: { projectName?: string; projects?: string[] } = {}) {
 }
 type Rig = ReturnType<typeof rig>;
 
+async function requestAnswer(r: Rig, key: string) {
+  const cli = homeCli({ svc: r.svc, asks: new Asks(r.svc), catchup: new Catchup(r.svc, verifiedDelegation(r.svc)),
+    rule: () => { throw new Error("unused"); }, isVizier: () => false });
+  const result = await cli.run(["get", "--request", key], {});
+  expect(result.exitCode).toBe(0);
+  return JSON.parse(result.stdout!);
+}
+
 /** Open a card, return it and its g1 row. */
 async function opened(r: Rig, o: Parameters<Rig["card"]>[0] = {}) {
   const t = r.card(o);
@@ -124,18 +134,11 @@ describe("T1 first materialization", () => {
       await r.svc.ingestCard(t as any, { comments });
       expect(r.gens(t.id)).toHaveLength(0); // registration alone must not deliver a decision
 
-      // The Go contract vectors exercise the real filer for these two registry answers.
-      // Model its lookup here with Tasks search explicitly stale (no hits).
-      const refile = () => {
-        const known = r.db.prepare("SELECT task_id FROM card_requests WHERE request_key = ?").get("route-failed") as { task_id: string } | undefined;
-        const searchHits: FakeTask[] = [];
-        if (known) return { id: known.task_id, replay: true };
-        if (searchHits.length) return { id: searchHits[0]!.id, replay: true };
-        return { id: r.card({ key: "route-failed", thread: null }).id, replay: false };
-      };
-      expect(refile()).toEqual({ id: t.id, replay: true });
+      // Assert the real answer consumed by the Go filer, without any Tasks search.
+      const callsBefore = r.fake.calls.length;
+      expect(await requestAnswer(r, "route-failed")).toMatchObject({ status: "registered", task_id: t.id, identity: IDENTS[0] });
+      expect(r.fake.calls).toHaveLength(callsBefore);
       expect(r.fake.tasks).toHaveLength(1);
-      expect(r.db.prepare("SELECT identity FROM card_requests WHERE request_key = ?").get("route-failed")).toEqual({ identity: IDENTS[0] });
 
       // Repair routing after registration: g1 must still materialize exactly once.
       r.fake.addComment(t.id, { threadId: "thr_a", createdAt: T1 });
@@ -145,6 +148,43 @@ describe("T1 first materialization", () => {
       expect(r.cardRow(t.id)).toMatchObject({ state: "open", routed_thread: "thr_a" });
     });
   }
+
+  for (const edit of ["key", "identity"]) {
+    it(`refuses a Request ${edit} edit before g1 without registering a second key`, async () => {
+      const r = rig();
+      const t = r.card({ key: "reserved-a", thread: null });
+      await r.poll();
+      expect(r.gens(t.id)).toHaveLength(0);
+      expect(await requestAnswer(r, "reserved-a")).toMatchObject({ status: "registered", task_id: t.id });
+      r.edit(t, { description: r.desc({ key: edit === "key" ? "reserved-b" : "reserved-a", ident: edit === "identity" ? IDENTS[1] : IDENTS[0] }) });
+      r.fake.addComment(t.id, { threadId: "thr_a", createdAt: T1 });
+      await r.poll();
+      await r.poll();
+      expect(r.db.prepare("SELECT request_key, identity FROM card_requests WHERE task_id = ?").all(t.id)).toEqual([{ request_key: "reserved-a", identity: IDENTS[0] }]);
+      expect(r.gens(t.id)).toHaveLength(0);
+      expect(r.cardRow(t.id)).toMatchObject({ state: "display", display_reason: "the Request line changed" });
+    });
+  }
+
+  for (const invalid of ["estate", "root"]) {
+    it(`does not register a display-only ${invalid} card before routing`, async () => {
+      const r = rig();
+      const t = r.card({ key: "invalid-request", thread: null, ask: invalid === "estate" ? { project: "estate" } : { project_root: r.env.roots.Autarch + "-wrong" } });
+      await r.poll();
+      expect(r.cardRow(t.id)).toMatchObject({ state: "display", display_reason: invalid === "estate" ? "estate is not allowed on a card" : "project_root does not match the root serve resolves for this project" });
+      expect(await requestAnswer(r, "invalid-request")).toEqual({ status: "absent" });
+      expect(r.gens(t.id)).toHaveLength(0);
+    });
+  }
+
+  it("retains the reservation when an unrouted card is deleted", async () => {
+    const r = rig();
+    const t = r.card({ key: "deleted-unrouted", thread: null });
+    await r.poll();
+    expect(r.gens(t.id)).toHaveLength(0);
+    r.svc.cardGone(t.id, "deleted");
+    expect(await requestAnswer(r, "deleted-unrouted")).toMatchObject({ status: "registered", task_id: t.id, identity: IDENTS[0] });
+  });
 
   it("a pull:mycroft card routes to mycroft with no thread and needs no comment", async () => {
     const r = rig();

@@ -1197,3 +1197,23 @@ func TestCardFilerRoutingFailureWithStaleSearch(t *testing.T) {
 		})
 	}
 }
+
+func TestCardFilerRegisteredUnroutedCardDeletedRequiresNewRequest(t *testing.T) {
+	f := newFake(t, registryOnCreate)
+	f.fail = func(a []string) *BBResult {
+		if len(a) > 1 && a[0] == "tasks" && a[1] == "comment" {
+			return badRes(1, "routing failed")
+		}
+		return nil
+	}
+	filer := f.filer()
+	_, err := filer.FileCard(context.Background(), testReq())
+	wantErrIs(t, err, ErrOutcomeUnknown)
+	f.tasks[0].Deleted = true
+	f.fail = nil
+	_, err = filer.FileCard(context.Background(), testReq())
+	wantErrIs(t, err, ErrInvalid)
+	if !strings.Contains(err.Error(), "is registered to card T1, which was deleted or changed; use a new Request") || f.count("tasks", "create") != 1 {
+		t.Fatalf("err=%v creates=%d", err, f.count("tasks", "create"))
+	}
+}
