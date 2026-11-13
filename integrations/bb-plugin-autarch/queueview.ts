@@ -66,6 +66,7 @@ export function removeBinding(
 }
 
 export interface QueueRow {
+  pick_targets?: ReturnType<Service["pickTargetPresentation"]>;
   /** The open decision id, or `card:<task id>` for a display-only card. */
   id: string;
   decision_id: string | null;
@@ -145,7 +146,7 @@ export function buildQueue(svc: Service, asks: Asks, opts: { thread?: string } =
     const refs = refsOf(d.id);
     const over = svc.store.overriddenRuling(d.id);
     const prior = over ? (svc.store.decision(over.decision_id) as { generation: number | null } | undefined) : undefined;
-    const ask = readAsk(d.body_json);
+    const ask = readAsk(d.body_json, {}, d.source);
     const rootOk = c?.root_state === "verified";
     rows.push({
       id: d.id,
@@ -162,6 +163,7 @@ export function buildQueue(svc: Service, asks: Asks, opts: { thread?: string } =
       thread: c?.asking_thread ?? (d.thread || null),
       pinned: pinnedBy(refs, c?.asking_thread ?? (d.thread || null)),
       ask: ask ? { question: ask.question, ...(ask.recommendation ? { recommendation: ask.recommendation } : {}), options: ask.options as never } : UNREADABLE_ASK,
+      pick_targets: svc.pickTargetPresentation(d.id),
       ...(ask ? {} : { unreadable: true }),
       revision: d.revision,
       mentions: svc.store.mentions(d.id).length,
@@ -247,7 +249,7 @@ export function buildQueue(svc: Service, asks: Asks, opts: { thread?: string } =
     rows: sortRows(rows),
     legacy: {
       count: legacyOwed.length + runbook.reduce((n, g) => n + g.items.length, 0) + machine.lane.length + machine.asks.length,
-      owed: legacyOwed.map((d) => ({ id: d.id, project: d.project, thread: d.thread, subject: d.subject, filed_at: String(d.filed_at), revision: d.revision, mentions: svc.store.mentions(d.id).length, ...owedAsk(d.body_json) })),
+      owed: legacyOwed.map((d) => ({ id: d.id, project: d.project, thread: d.thread, subject: d.subject, filed_at: String(d.filed_at), revision: d.revision, mentions: svc.store.mentions(d.id).length, ...owedAsk(d.body_json, d.source) })),
       runbook,
       machine,
     },

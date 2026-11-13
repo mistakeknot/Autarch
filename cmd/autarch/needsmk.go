@@ -316,6 +316,9 @@ Any other urgency is refused. It works on every kind of card; a machine blocker 
 				if len(raw) > maxCardFileBytes {
 					return &usageError{"--ask-file is over 1 MiB"}
 				}
+				if err := homeask.ValidateOnPickJSON(raw); err != nil {
+					return &usageError{err.Error()}
+				}
 				if err := json.Unmarshal(raw, &ask); err != nil {
 					return &usageError{"--ask-file is not a JSON object: " + err.Error()}
 				}

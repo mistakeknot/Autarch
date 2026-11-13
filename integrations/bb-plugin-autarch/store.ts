@@ -598,6 +598,15 @@ export class Store {
           at,
         });
       if (ins.changes === 1) {
+        // Owner reopen paths retain the original display and scope. These are
+        // historical evidence, not fresh host authority; the pick guard rereads.
+        if (mode !== "replace" && d.source === "card") {
+          const snapshot = this.db.prepare("SELECT detail_json FROM events WHERE decision_id = ? AND type = 'on-pick-targets' ORDER BY seq LIMIT 1").get(prevId) as { detail_json: string } | undefined;
+          if (snapshot) {
+            this.db.prepare("INSERT OR IGNORE INTO decision_blocks(decision_id, ref) SELECT ?, ref FROM decision_blocks WHERE decision_id = ?").run(d.id, prevId);
+            this.event("on-pick-targets", d.id, JSON.parse(snapshot.detail_json));
+          }
+        }
         this.db
           .prepare(
             `INSERT INTO mentions(decision_id, thread, request_id, at)

@@ -14,11 +14,13 @@ import type { Waiting } from "./waiting.js";
 import { readSettled } from "./settled.js";
 import { buildQueue } from "./queueview.js";
 import type { PickResult, Service } from "./service.js";
+import type { TargetEvidence } from "./picktarget.js";
 
 export const REQUEST_LIMIT = 16 * 1024;
 const DAY_MS = 86_400_000;
 
 export interface HomeCliParts {
+  readTargetEvidence?: (threadId: string) => Promise<TargetEvidence>;
   svc: Service;
   asks: Asks;
   catchup: Catchup;
@@ -80,6 +82,20 @@ export function homeCli(p: HomeCliParts) {
     summary: "Look up cards and asks; report progress on asks filed before cards",
     usageErrorExitCode: 2,
     commands: {
+      capabilities: cliCommand({
+        summary: "Read supported card declaration and target lookup versions",
+        options: { json: { type: "boolean", description: "Print JSON." } },
+        run: () => out({ schema: 1, on_pick: p.readTargetEvidence && svc.supportsOnPick() ? [1] : [], target_lookup: p.readTargetEvidence ? [1] : [] }),
+      }),
+      target: cliCommand({
+        summary: "Read host thread title and project evidence",
+        options: { thread: { type: "string", required: true, description: "Concrete thread identifier." }, json: { type: "boolean", description: "Print JSON." } },
+        async run({ options }) {
+          if (!p.readTargetEvidence) return err(1, "unavailable: target lookup");
+          try { return out(await p.readTargetEvidence(options.thread)); }
+          catch (e) { return err(1, e instanceof Error ? e.message : "unavailable: target lookup"); }
+        },
+      }),
       ask: cliCommand({
         summary: "Retired: file a card with `autarch needs-mk file`",
         options: {

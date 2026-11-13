@@ -15,6 +15,9 @@ import (
 // comments are immutable: Home uses them to recognize a valid new generation.
 // Other filers retain FileCard's exact-request replay protocol.
 func (f *CardFiler) FileOrUpdateCard(ctx context.Context, req CardRequest, supersedes string) (CardResult, error) {
+	if err := f.PreflightOnPick(ctx, req); err != nil {
+		return CardResult{}, err
+	}
 	if err := CheckStopped(req.Ask); err != nil {
 		return CardResult{}, fmt.Errorf("%w: %v", ErrInvalid, err)
 	}

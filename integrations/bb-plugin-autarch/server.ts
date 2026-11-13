@@ -13,6 +13,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { defineRpcContract, type BbPluginApi } from "@get-bb/plugin-sdk";
 import { homeMethods } from "./contract.js";
+import { readTargetEvidence } from "./picktarget.js";
 import { sourceSha256 } from "./scripts/source-hash.mjs";
 import { Asks } from "./asks.js";
 import { Catchup } from "./catchup.js";
@@ -216,7 +217,7 @@ export function wireHome(bb: BbPluginApi, handle: StoreHandle, cfg: HomeConfig, 
     // The blocker phone push goes over plugins.callRpc to the push-notifications plugin; a host without
     // bb.sdk.plugins simply makes no push.
     const sdkPlugins = (bb.sdk as { plugins?: PluginsLike }).plugins;
-    const svc = new Service({ store, images, projects: () => serve.projects(), nudge, ...(sdkPlugins ? { notifier: new RpcNotifier(sdkPlugins) } : {}), log: (m) => bb.log.warn(m), rulingsLedger: cfg.rulingsLedger !== undefined ? cfg.rulingsLedger : ledgerPath() });
+    const svc = new Service({ store, images, readTargetEvidence: threadId => readTargetEvidence(bb.sdk, threadId), projects: () => serve.projects(), nudge, ...(sdkPlugins ? { notifier: new RpcNotifier(sdkPlugins) } : {}), log: (m) => bb.log.warn(m), rulingsLedger: cfg.rulingsLedger !== undefined ? cfg.rulingsLedger : ledgerPath() });
     const dele = new Delegation(svc, listThreadRows, getThreadRow);
     const asks = new Asks(svc);
     const catchup = new Catchup(svc, dele);
@@ -264,6 +265,7 @@ export function wireHome(bb: BbPluginApi, handle: StoreHandle, cfg: HomeConfig, 
     new Proxy({} as T, { get: (_t, k) => (pick(need()) as Record<string | symbol, unknown>)[k] });
   bb.cli.register(
     homeCli({
+      readTargetEvidence: (threadId) => readTargetEvidence(bb.sdk, threadId),
       svc: lazy((p) => p.svc),
       asks: lazy((p) => p.asks),
       catchup: lazy((p) => p.catchup),
@@ -560,7 +562,8 @@ export function wireHome(bb: BbPluginApi, handle: StoreHandle, cfg: HomeConfig, 
         filed_at: d.filed_at,
         revision: d.revision,
         task_id: d.task_id ?? null,
-        ...owedAsk(d.body_json),
+        ...owedAsk(d.body_json, d.source),
+        pick_targets: p.svc.pickTargetPresentation(d.id),
         mentions: p.store.mentions(d.id).length,
       }));
       let machineOwners: unknown = {};
@@ -654,6 +657,13 @@ export function wireHome(bb: BbPluginApi, handle: StoreHandle, cfg: HomeConfig, 
       return r;
     },
     async pick(i: { decision_id: string; option_id: string; revision: string; pick_id: string; reason?: string; images?: { mime: string; data_base64: string }[]; answers?: Record<string, string>; surface?: "home" | "overlay" }) {
+      const error = await need().svc.refreshOwnerPick(i.decision_id, () => {
+        if (tasksRef) return tasksRef;
+        const plugins = (bb.sdk as { plugins?: PluginsLike }).plugins;
+        if (!plugins) throw new Error("Tasks unavailable; refresh before picking");
+        return new TasksClient(plugins);
+      });
+      if (error) return { ok: false as const, status: 409, error };
       return need().svc.pick(i.decision_id, i.option_id, i.revision, i.pick_id, MK, i.surface ?? "home", i.reason, undefined, i.images, i.answers);
     },
     async note(i: { task_id?: string; decision_id?: string; text: string; note_id: string; images?: { mime: string; data_base64: string }[] }) {

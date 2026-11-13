@@ -152,3 +152,52 @@ An ask option has one of <!-- figure:option-kinds=3 -->3 kinds: `instruction`, `
 A card may carry one move, a `home-move/v1` object. There are <!-- figure:move-kinds=4 -->4 move kinds: `script`, `pr`, `read` and `context`. Home opens no moves: what mk owes is the card's decision. A card filed with only a move asks with Done and Not now, and its question names the command to run, the URL to open or the context to give.
 
 Moves opened before this change were closed when Home started. The rows stay in the database, and no tasks card was closed because of them.
+# Filed pick declarations
+
+Card options may carry `on_pick` version 1. This is an immutable declaration,
+not permission to act. PR1 records and displays it; it does not evaluate,
+execute, relay, or read back an action. Install the compatible Home reader
+before adopting the Go filer. Live adoption remains gated on later work.
+
+An instruction option uses its exact filed `instruction`. A ruling-only option
+requires an exact `notification`. The declaration names a concrete
+`target_thread`, explicit `reversible` boolean, `subject`, and
+`ruling: {bead, under}`. `subject` is either `{kind: "none"}` or
+`{kind: "github-pr", repo, number, head}` with a full lowercase commit SHA.
+False reversibility is valid and independent of option delegation metadata.
+No artifact means the fourth check does not apply; it does not broaden authority.
+
+The fourth check means we verify the filed revision when this choice acts on a
+versioned artifact. If the choice acts on no artifact, there is no revision to
+compare, so we record “not applicable”. That is different from not knowing the
+revision. An unknown or unreadable revision still stops automatic handling.
+
+Home requires the target to be the asker or a direct thread ref in that
+generation's Blocks, and requires the existing confirmed Tasks-to-Home binding.
+It reads both threads and their projects from the host, compares their actual
+BB project IDs, and preserves target title, project and membership separately
+from the declaration in the existing event journal. The UI shows this frozen
+presentation and the complete relay text. Card edits create a new generation;
+they cannot change an old pick's recipient. Caller-supplied evidence is never
+authority.
+
+N2 is applied by removal: Tasks `linkedBbProjectId` has no role in eligibility,
+target evidence or snapshots. A future binding identity check is tracked in
+mk-f65y8 and requires Home bindings to record an independent BB project ID.
+
+Root-run, home-move and approval-bearing options are excluded. Privileged
+word patterns are screened on an NFKC-normalized, dash-folded copy. Relay text
+must already be NFC, contain valid Unicode scalars, and is preserved exactly.
+Public and retained v1 asks cannot opt in. Unreadable cards retain diagnostics.
+
+Before any Tasks mutation, including update, Go checks `bb home capabilities`,
+the confirmed binding, `bb home target` evidence and the current open PR head
+when applicable. Missing support or evidence refuses filing. The ledger's
+existing reconciliation writes optional static declaration fields once, including
+the canonical declaration digest; retries do not append a second enriched row.
+No processing outcome is claimed in that row.
+
+N1 defines the later evaluator's owner-comment cutoff: all owner-class comments
+count for generation one; later generations use the time Home observed the
+previous generation. Tasks edit time is never the cutoff. PR1 runs no comment
+evaluator and adds no schema migration or minimum-reader bump.

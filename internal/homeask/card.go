@@ -212,8 +212,16 @@ func ParseCard(description string) (Card, error) {
 	if c.Pull != "" {
 		thread = ""
 	}
-	if _, err := c.ToV1(thread); err != nil {
+	a, err := c.ToV1(thread)
+	if err != nil {
 		return Card{}, err
+	}
+	for _, o := range a.Options {
+		if len(o.OnPick) > 0 {
+			if _, err := ValidateOnPick(o.OnPick, o, CardValidationContext{Source: "card", RootRun: c.RootRun != nil, Move: c.Move != nil, Artifact: c.SubjectKey != nil || c.Ask["auto_close"] != nil}); err != nil {
+				return Card{}, err
+			}
+		}
 	}
 	return c, nil
 }
@@ -254,6 +262,15 @@ func parseWireAsk(body string, c *Card) error {
 	m, ok := v.(map[string]any)
 	if !ok {
 		return errors.New("home-ask must be a JSON object")
+	}
+	if options, ok := m["options"].([]any); ok {
+		for _, raw := range options {
+			if option, ok := raw.(map[string]any); ok {
+				if _, present := option["on_pick"]; present && !scalarJSON([]byte(body)) {
+					return errors.New("on_pick: invalid Unicode scalar text")
+				}
+			}
+		}
 	}
 	if s, _ := m["schema"].(string); s != v2Schema {
 		return errors.New("schema must be " + v2Schema)
@@ -444,7 +461,7 @@ func (c Card) ToV1(thread string) (Ask, error) {
 	if err != nil {
 		return Ask{}, err
 	}
-	a, err := parseExistingAsk(raw)
+	a, err := parseAskSource(raw, false, true)
 	if err != nil {
 		return Ask{}, fmt.Errorf("home-ask: %w", err)
 	}

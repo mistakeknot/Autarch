@@ -364,7 +364,7 @@ export class Delegation {
     if (prior && prior.pick_id === pickId && prior.by === "vizier") return this.svc.pick(decisionId, optionId, d.revision, pickId, "vizier", "cli", reason);
     if (d.kind !== "decide" || d.asker !== "thread") return refuse(403, "only a decision asked by a thread can be delegated");
     if (!d.delegable || d.request_id.startsWith("override:")) return refuse(403, "this decision is not delegable");
-    const stored = readAsk(d.body_json);
+    const stored = readAsk(d.body_json, {}, d.source);
     if (!stored) return refuse(UNREADABLE_REFUSAL.status, UNREADABLE_REFUSAL.error);
     const option = stored.options?.find((o) => o.id === optionId);
     if (!option) return refuse(400, `unknown option ${JSON.stringify(optionId)}`);
@@ -406,7 +406,7 @@ export class Delegation {
     const pick = this.store.pick(decisionId);
     if (!pick || pick.by !== "vizier") return refuse(409, "only a delegated ruling can be overridden");
 
-    const ask = readAsk(d.body_json, { request_id: requestId, supersedes: decisionId });
+    const ask = readAsk(d.body_json, { request_id: requestId, supersedes: decisionId }, d.source);
     if (!ask) return refuse(UNREADABLE_REFUSAL.status, UNREADABLE_REFUSAL.error);
     const card = d.source === "card" && typeof d.task_id === "string";
     const n = card ? Number(d.generation) + 1 : 0;
@@ -488,7 +488,7 @@ export class Delegation {
     if (!pick) return refuse(409, "this card has no recorded decision to bring back");
     if (d.source !== "card" || typeof d.task_id !== "string") return refuse(409, "only a card can be brought back");
 
-    const ask = readAsk(d.body_json, { request_id: requestId, supersedes: decisionId });
+    const ask = readAsk(d.body_json, { request_id: requestId, supersedes: decisionId }, d.source);
     if (!ask) return refuse(UNREADABLE_REFUSAL.status, UNREADABLE_REFUSAL.error);
     const n = Number(d.generation) + 1;
     const input: DecisionInput = {

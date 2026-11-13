@@ -24,6 +24,23 @@ const mirrored = Object.entries(homeCliMap).flatMap(([method, m]) => ("verb" in 
 const rpcOnly = Object.entries(homeCliMap).flatMap(([method, m]) => ("rpcOnly" in m ? [{ method, why: m.rpcOnly }] : []));
 
 describe("the CLI and the RPC contract", () => {
+  it("advertises version 1 only with enforced ingest and a target adapter", async () => {
+    const readTargetEvidence = async () => { throw new Error("unused"); };
+    const svc = env.open({ readTargetEvidence });
+    const dele = verifiedDelegation(svc);
+    const enabled = homeCli({ svc, readTargetEvidence, asks: new Asks(svc), catchup: new Catchup(svc, dele), rule: () => ({ ok: false, status: 400, error: "unused" }), isVizier: () => false });
+    expect(JSON.parse((await enabled.run(["capabilities", "--json"], {})).stdout!)).toEqual({ schema: 1, on_pick: [1], target_lookup: [1] });
+  });
+  it("does not advertise on_pick before ingest enforcement or an absent target adapter", async () => {
+    const result = await cli.run(["capabilities", "--json"], {});
+    expect(result.exitCode).toBe(0);
+    expect(JSON.parse(result.stdout!)).toEqual({ schema: 1, on_pick: [], target_lookup: [] });
+  });
+  it("target lookup refuses unavailable host evidence", async () => {
+    const result = await cli.run(["target", "--thread", "thr_target", "--json"], {});
+    expect(result.exitCode).toBe(1);
+    expect(result.stderr).toContain("unavailable");
+  });
   it("map every RPC method exactly once, and nothing else", () => {
     expect(Object.keys(homeCliMap).sort()).toEqual(Object.keys(homeMethods).sort());
   });

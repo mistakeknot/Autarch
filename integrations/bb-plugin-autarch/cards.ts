@@ -1,3 +1,4 @@
+import { validateOnPickJSON } from "./onpick.js";
 import { parseSubjectKey, parseSignals, type SubjectKey, type Signals } from "./card-metadata.js";
 // The card convention (v1): how a tasks card's description text carries a Home ask.
 //
@@ -9,10 +10,11 @@ import { parseSubjectKey, parseSignals, type SubjectKey, type Signals } from "./
 
 import { validateStopped } from "./stopped.js";
 import { createHash } from "node:crypto";
-import { canonicalJson, normalizedJson, parseExistingAsk, type Ask } from "./model.js";
+import { canonicalJson, normalizedJson, parseStoredCardAsk, type Ask } from "./model.js";
 import { parseMove, type Move } from "./moves.js";
 import { validateEvidence } from "./evidence.js";
 import { validateGroup } from "./group.js";
+import { parseOnPick } from "./onpick.js";
 
 export interface BlockRef {
   ref: string;
@@ -137,7 +139,10 @@ export function parseCard(description: string): Card {
   // The ask must survive the unchanged rev-4 parser, so every v1 rule (approval tokens,
   // option bounds, ...) applies to a card. The thread is a stand-in: routing comes from
   // the card's comments, never from its text.
-  toV1(card, pull === "" ? PLACEHOLDER_THREAD : "");
+  const parsed = toV1(card, pull === "" ? PLACEHOLDER_THREAD : "");
+  for (const option of parsed.options ?? []) {
+    if (option.on_pick) parseOnPick(option.on_pick, option, { source: "card", rootRun: !!root_run, move: !!move, artifact: !!subject_key || !!ask.auto_close });
+  }
   return card;
 }
 
@@ -163,6 +168,7 @@ function parseBlocks(texts: string[]): BlockRef[] {
 function parseWireAsk(body: string): { ask: Record<string, unknown>; pull: "" | "mycroft";  subject_key?: SubjectKey; signals?: Signals } {
   let v: unknown;
   try {
+    validateOnPickJSON(body);
     v = JSON.parse(body);
   } catch (e) {
     return fail(`invalid home-ask JSON: ${(e as Error).message}`);
@@ -253,7 +259,7 @@ export function toV1(card: Pick<Card, "ask" | "pull">, thread: string): Ask {
     v1.thread = thread;
   }
   try {
-    return parseExistingAsk(v1);
+    return parseStoredCardAsk(v1);
   } catch (e) {
     return fail(`home-ask: ${(e as Error).message}`);
   }
