@@ -290,12 +290,14 @@ func (o *Orchestrator) logDispatch(agent, beadID string, action mycroft.Dispatch
 	}
 }
 
-// availableAgents treats active agents and agents with a current bead as busy.
-// Only positively idle, unassigned agents can receive new work.
+// availableAgents accepts unassigned idle agents or healthy active agents.
+// CurrentBead is unpopulated by production sources today, so this preserves
+// base availability apart from the claim and active-health guards. Resolving
+// activity versus health semantics belongs to mk-ucfww.
 func availableAgents(agents []mycroft.AgentView) []mycroft.AgentView {
 	var available []mycroft.AgentView
 	for _, a := range agents {
-		if a.Status == "idle" && a.CurrentBead == "" {
+		if a.CurrentBead == "" && (a.Status == "idle" || (a.Status == "active" && a.Health.IsHealthy)) {
 			available = append(available, a)
 		}
 	}

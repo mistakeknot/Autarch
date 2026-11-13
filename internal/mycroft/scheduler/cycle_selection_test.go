@@ -3,6 +3,7 @@ package scheduler
 import (
 	"fmt"
 	"testing"
+	"time"
 
 	"github.com/mistakeknot/autarch/internal/mycroft"
 )
@@ -13,6 +14,7 @@ func TestCycleSelection(t *testing.T) {
 			name    string
 			beads   int
 			status  string
+			healthy bool
 			current string
 			claimed bool
 			outside bool
@@ -22,14 +24,16 @@ func TestCycleSelection(t *testing.T) {
 			{name: "two beads", beads: 2, status: "idle", want: 2},
 			{name: "outside allowlist", beads: 2, status: "idle", outside: true, want: 2},
 			{name: "claimed by other", beads: 2, status: "idle", claimed: true, want: 1},
-			{name: "active is busy", beads: 2, status: "active"},
+			{name: "unhealthy active is busy", beads: 2, status: "active"},
+			{name: "healthy active is available", beads: 2, status: "active", healthy: true, want: 2},
+			{name: "healthy active with current bead is busy", beads: 2, status: "active", healthy: true, current: "existing"},
 			{name: "idle with current bead is busy", beads: 2, status: "idle", current: "existing"},
 		} {
 			t.Run(fmt.Sprintf("%v/%s", tier, scenario.name), func(t *testing.T) {
 				o := newTestOrchestrator(t, tier)
 				view := mycroft.FleetView{Agents: []mycroft.AgentView{
-					{Name: "agent-a", Status: scenario.status, CurrentBead: scenario.current},
-					{Name: "agent-b", Status: scenario.status, CurrentBead: scenario.current},
+					{Name: "agent-a", Status: scenario.status, CurrentBead: scenario.current, Health: mycroft.HealthReport{IsHealthy: scenario.healthy}},
+					{Name: "agent-b", Status: scenario.status, CurrentBead: scenario.current, Health: mycroft.HealthReport{IsHealthy: scenario.healthy}},
 				}}
 				for i := 0; i < scenario.beads; i++ {
 					view.Work = append(view.Work, mycroft.BeadView{ID: fmt.Sprintf("bead-%d", i), Type: "task", Priority: i + 3, Complexity: "simple", DepsResolved: true})
@@ -88,5 +92,29 @@ func TestCycleSelection(t *testing.T) {
 				}
 			})
 		}
+	}
+}
+
+// These fields match AggregatorSource's epoch-activity result. Parsing and
+// health semantics are intentionally unchanged in this scheduler regression.
+func TestAvailableAgentsAggregatorActive(t *testing.T) {
+	now := time.Now()
+	health := mycroft.HealthReport{LastSeen: now, IsHealthy: true}
+	agents := []mycroft.AgentView{
+		{Name: "agent-active-a", Runtime: "claude-code", Status: "active", Health: health},
+		{Name: "agent-active-b", Runtime: "claude-code", Status: "active", Health: health},
+		{Name: "agent-claimed-c", Status: "active", Health: health, CurrentBead: "existing"},
+		{Name: "agent-unhealthy-d", Status: "active"},
+		{Name: "agent-claimed-idle", Status: "idle", CurrentBead: "existing"},
+		{Name: "agent-unknown", Status: "unknown", Health: health},
+		{Name: "agent-stuck", Status: "stuck", Health: health},
+		{Name: "agent-offline", Status: "offline", Health: health},
+	}
+	got := availableAgents(agents)
+	if len(got) != 2 {
+		t.Fatalf("got %d available aggregator agents, want 2", len(got))
+	}
+	if got[0].Name != agents[0].Name || got[1].Name != agents[1].Name {
+		t.Fatalf("unexpected available agents: %+v", got)
 	}
 }
