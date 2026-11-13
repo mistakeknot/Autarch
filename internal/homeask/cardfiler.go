@@ -22,6 +22,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -188,6 +189,9 @@ var _ CardLister = (*CardFiler)(nil)
 // part of it, so the same ask filed into two tasks projects is one Request. It is compared
 // only by the filer.
 func RequestIdentity(r CardRequest) (string, error) {
+	r.Ask = maps.Clone(r.Ask)
+	delete(r.Ask, "subject_key")
+	delete(r.Ask, "signals")
 	ask, err := r.wireAsk()
 	if err != nil {
 		return "", err
@@ -196,8 +200,6 @@ func RequestIdentity(r CardRequest) (string, error) {
 	// Delivery evidence never changes the Request identity or an evidence-only update.
 	delete(ask, "evidence")
 	delete(ask, "group")
-	delete(ask, "subject_key")
-	delete(ask, "signals")
 	sort.Strings(blocks)
 	node := map[string]any{"project": ask["project"], "title": r.Title, "blocks": toAny(blocks), "ask": ask}
 	if r.RootRun != nil {
