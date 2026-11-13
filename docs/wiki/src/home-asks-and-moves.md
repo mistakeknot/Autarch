@@ -13,6 +13,8 @@ A missing or invalid field exits 2 before filing. Add the field or omit blocker 
 (no phone push). The filer checks the field, without interpreting the question.
 Existing cards may omit `stopped`; readers still validate its shape and blocker urgency
 when the field is present. The required-field rule applies to new filing input.
+If an older filer first filed a request but lost its reply, use `--supersedes <card id>`
+with valid `--stopped` to update that card, or file without blocker urgency (no phone push).
 Like urgency, `stopped` participates in the filer request identity (H1). It stays
 out of normalized JSON, revision, semantic key, and the Citadel card fingerprint.
 
