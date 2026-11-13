@@ -340,7 +340,7 @@ refused, and it works on every kind of card; a machine blocker alone never pushe
 			}
 			ask["project"] = bound
 			// After project resolution, so the guard reads the card as it will be filed.
-			if err := guardMergeBase(cmd.Context(), ask, move, append([]string{title, rootRun, ownerThread, request}, blocks...), prFlag, cmd.Flags().Changed("pr")); err != nil {
+			if err := guardMergeBase(cmd, ask, move, append([]string{title, rootRun, ownerThread, request}, blocks...), prFlag, cmd.Flags().Changed("pr")); err != nil {
 				return err
 			}
 			if vizierOwned && cmd.Flags().Changed("owner-thread") {
@@ -385,6 +385,7 @@ refused, and it works on every kind of card; a machine blocker alone never pushe
 	cmd.Flags().StringVar(&prFlag, "pr", "", "PR URL this ask merges: refused (exit 2) unless the PR's base is the repo's default branch; a \"Manually merge it at ...\" option implies it")
 	cmd.Flags().StringVar(&supersedes, "supersedes", "", "Update this open, unanswered card in the same project; it must belong to this thread or --owner-thread")
 	cmd.Flags().BoolVar(&vizierOwned, "vizier-owned", false, "Vizier only: this is its own ruling, root run or scope card; mutually exclusive with --owner-thread")
+	cmd.Flags().String("into", "", "Explicitly accept the PR's base branch: must match exactly; required for a non-default base")
 	cmd.Flags().StringVar(&ownerThread, "owner-thread", "", "Route the card's answer to this live thread instead of the filing thread (the routing comment is posted as it)")
 	return cmd
 }
