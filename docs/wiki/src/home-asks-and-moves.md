@@ -23,6 +23,9 @@ Caption emptiness uses this explicit trim set in both languages: U+0009–000D, 
 1680, 2000–200A, 2028, 2029, 202F, 205F, 3000 and FEFF. Stored captions are unchanged;
 C0 and C1 control characters (U+0000–001F and 007F–009F) are refused separately.
 The shared acceptance vectors live in `testdata/evidence-vectors.json`.
+Evidence member names are case-sensitive at every level. Duplicate JSON members use
+last-value-wins semantics, including replacement of the whole previous object, matching `JSON.parse`.
+The filer writes evidence from the validated struct with canonical field names.
 
 An image reference is `{"sha256":"<64 lowercase hex>","mime":"image/png"}`. PNG, JPEG, GIF and WebP
 are accepted by their magic bytes, up to 2 MiB per image and 8 MiB per card. In the JSON passed to

@@ -816,5 +816,134 @@
       }
     ],
     "valid": false
+  },
+  {
+    "name": "casing Caption",
+    "evidence": [
+      {
+        "Caption": "Run",
+        "url": "https://example.test/run"
+      }
+    ],
+    "valid": false
+  },
+  {
+    "name": "casing CAPTION alongside caption",
+    "evidence": [
+      {
+        "caption": "Run",
+        "CAPTION": "Other",
+        "url": "https://example.test/run"
+      }
+    ],
+    "valid": false
+  },
+  {
+    "name": "casing URL alongside url",
+    "evidence": [
+      {
+        "caption": "Run",
+        "url": "https://example.test/run",
+        "URL": "https://example.test/run"
+      }
+    ],
+    "valid": false
+  },
+  {
+    "name": "casing pair Url",
+    "evidence": [
+      {
+        "caption": "Pair",
+        "before": {
+          "url": "https://example.test/run",
+          "Url": "https://example.test/run"
+        },
+        "after": {
+          "url": "https://example.test/run"
+        }
+      }
+    ],
+    "valid": false
+  },
+  {
+    "name": "casing image SHA256",
+    "evidence": [
+      {
+        "caption": "Image",
+        "image": {
+          "SHA256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "mime": "image/png"
+        }
+      }
+    ],
+    "valid": false
+  },
+  {
+    "name": "casing image Mime",
+    "evidence": [
+      {
+        "caption": "Image",
+        "image": {
+          "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "Mime": "image/png"
+        }
+      }
+    ],
+    "valid": false
+  },
+  {
+    "name": "duplicate caption last wins",
+    "raw_evidence": "[{\"caption\":\"\",\"caption\":\"Run\",\"url\":\"https://example.test/run\"}]",
+    "valid": true
+  },
+  {
+    "name": "duplicate caption last invalid wins",
+    "raw_evidence": "[{\"caption\":\"Run\",\"caption\":\"\",\"url\":\"https://example.test/run\"}]",
+    "valid": false
+  },
+  {
+    "name": "duplicate URL last wins",
+    "raw_evidence": "[{\"caption\":\"Run\",\"url\":\"http://example.test/\",\"url\":\"https://example.test/run\"}]",
+    "valid": true
+  },
+  {
+    "name": "duplicate URL last invalid wins",
+    "raw_evidence": "[{\"caption\":\"Run\",\"url\":\"https://example.test/run\",\"url\":\"http://example.test/\"}]",
+    "valid": false
+  },
+  {
+    "name": "duplicate image replaces whole object",
+    "raw_evidence": "[{\"caption\":\"Image\",\"image\":{\"sha256\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"mime\":\"image/png\"},\"image\":{\"mime\":\"image/png\"}}]",
+    "valid": false
+  },
+  {
+    "name": "duplicate pair side replaces whole object",
+    "raw_evidence": "[{\"caption\":\"Pair\",\"before\":{\"url\":\"https://example.test/run\"},\"before\":{\"image\":{\"sha256\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"mime\":\"image/png\"}},\"after\":{\"url\":\"https://example.test/run\"}}]",
+    "valid": true
+  },
+  {
+    "name": "duplicate image member last wins",
+    "raw_evidence": "[{\"caption\":\"Image\",\"image\":{\"sha256\":\"bad\",\"sha256\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"mime\":\"image/png\"}}]",
+    "valid": true
+  },
+  {
+    "name": "escaped key spelling exact caption",
+    "raw_evidence": "[{\"\\u0063aption\":\"Run\",\"url\":\"https://example.test/run\"}]",
+    "valid": true
+  },
+  {
+    "name": "escaped wrong key casing",
+    "raw_evidence": "[{\"\\u0043aption\":\"Run\",\"url\":\"https://example.test/run\"}]",
+    "valid": false
+  },
+  {
+    "name": "duplicate scalar type replaced",
+    "raw_evidence": "[{\"caption\":42,\"caption\":\"Run\",\"url\":\"https://example.test/run\"}]",
+    "valid": true
+  },
+  {
+    "name": "duplicate image invalid first object discarded",
+    "raw_evidence": "[{\"caption\":\"Image\",\"image\":{\"SHA256\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"Mime\":\"bad\"},\"image\":{\"sha256\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"mime\":\"image/png\"}}]",
+    "valid": true
   }
 ]

@@ -15,6 +15,7 @@ func TestEvidenceSharedVectors(t *testing.T) {
 	var vectors []struct {
 		Name     string          `json:"name"`
 		Evidence json.RawMessage `json:"evidence"`
+		Raw      string          `json:"raw_evidence"`
 		Valid    bool            `json:"valid"`
 	}
 	if err := json.Unmarshal(data, &vectors); err != nil {
@@ -26,13 +27,24 @@ func TestEvidenceSharedVectors(t *testing.T) {
 	for _, v := range vectors {
 		t.Run(v.Name, func(t *testing.T) {
 			data, _ := json.Marshal(base())
+			if v.Raw != "" {
+				v.Evidence = json.RawMessage(v.Raw)
+			}
 			var ask map[string]any
 			json.Unmarshal(data, &ask)
 			ask["evidence"] = v.Evidence
 			data, _ = json.Marshal(ask)
 			_, err := Parse(data)
 			if (err == nil) != v.Valid {
-				t.Fatalf("valid=%v, error=%v", v.Valid, err)
+				t.Errorf("valid=%v, error=%v", v.Valid, err)
+			}
+			r := testReq()
+			r.Ask["schema"] = "home-ask/v2"
+			r.Ask["evidence"] = v.Evidence
+			body, _ := json.Marshal(r.Ask)
+			_, err = ParseCard("Ship it?\nRequest: parity sha256:aaaaaaaaaaaaaaaa\n\n```home-ask\n" + string(body) + "\n```\n")
+			if (err == nil) != v.Valid {
+				t.Fatalf("card valid=%v, error=%v", v.Valid, err)
 			}
 		})
 	}

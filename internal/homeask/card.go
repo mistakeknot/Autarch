@@ -277,18 +277,16 @@ func parseWireAsk(body string, c *Card) error {
 			return err
 		}
 	}
+	if err := exactCardNestedKeys(m); err != nil {
+		return err
+	}
 	c.Ask = m
 	if raw, ok := m["evidence"]; ok {
-		b, _ := json.Marshal(raw)
-		var evidence EvidenceList
-		d := json.NewDecoder(strings.NewReader(string(b)))
-		d.DisallowUnknownFields()
-		if err := d.Decode(&evidence); err != nil {
+		evidence, err := evidenceFromWire(raw)
+		if err != nil {
 			return err
 		}
-		if err := ValidateEvidence(evidence); err != nil {
-			return err
-		}
+		c.Ask["evidence"] = evidence
 	}
 	return nil
 }

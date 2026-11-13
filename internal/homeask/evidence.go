@@ -36,10 +36,33 @@ func (e *EvidenceList) UnmarshalJSON(b []byte) error {
 	return nil
 }
 
-func evidenceShape(b []byte, pair bool) error {
+// Decode to a map before a struct: keys are exact and duplicate JSON members
+// replace the whole previous value, matching JSON.parse (never struct merging).
+func evidenceObject(b []byte, allowed ...string) (map[string]json.RawMessage, error) {
 	var m map[string]json.RawMessage
 	if err := json.Unmarshal(b, &m); err != nil || m == nil {
-		return fmt.Errorf("evidence must be an object")
+		return nil, fmt.Errorf("evidence must be an object")
+	}
+	keys := make(map[string]bool, len(allowed))
+	for _, k := range allowed {
+		keys[k] = true
+	}
+	for k := range m {
+		if !keys[k] {
+			return nil, fmt.Errorf("unknown evidence field %q", k)
+		}
+	}
+	return m, nil
+}
+
+func evidenceShape(b []byte, pair bool) (map[string]json.RawMessage, error) {
+	allowed := []string{"url", "image"}
+	if pair {
+		allowed = append(allowed, "caption", "before", "after")
+	}
+	m, err := evidenceObject(b, allowed...)
+	if err != nil {
+		return nil, err
 	}
 	_, u := m["url"]
 	_, im := m["image"]
@@ -47,17 +70,19 @@ func evidenceShape(b []byte, pair bool) error {
 	_, after := m["after"]
 	if pair && (before || after) {
 		if !before || !after || u || im || bytes.Equal(m["before"], []byte("null")) || bytes.Equal(m["after"], []byte("null")) {
-			return fmt.Errorf("evidence requires a before/after pair")
+			return nil, fmt.Errorf("evidence requires a before/after pair")
 		}
 	} else if u == im || (im && bytes.Equal(m["image"], []byte("null"))) {
-		return fmt.Errorf("evidence needs exactly one url or image")
+		return nil, fmt.Errorf("evidence needs exactly one url or image")
 	}
-	return nil
+	return m, nil
 }
 func (e *Evidence) UnmarshalJSON(b []byte) error {
-	if err := evidenceShape(b, true); err != nil {
+	m, err := evidenceShape(b, true)
+	if err != nil {
 		return err
 	}
+	b, _ = json.Marshal(m)
 	type alias Evidence
 	var v alias
 	d := json.NewDecoder(bytes.NewReader(b))
@@ -69,9 +94,11 @@ func (e *Evidence) UnmarshalJSON(b []byte) error {
 	return nil
 }
 func (e *EvidenceSide) UnmarshalJSON(b []byte) error {
-	if err := evidenceShape(b, false); err != nil {
+	m, err := evidenceShape(b, false)
+	if err != nil {
 		return err
 	}
+	b, _ = json.Marshal(m)
 	type alias EvidenceSide
 	var v alias
 	d := json.NewDecoder(bytes.NewReader(b))
@@ -81,6 +108,38 @@ func (e *EvidenceSide) UnmarshalJSON(b []byte) error {
 	}
 	*e = EvidenceSide(v)
 	return nil
+}
+
+func (e *EvidenceImage) UnmarshalJSON(b []byte) error {
+	m, err := evidenceObject(b, "sha256", "mime")
+	if err != nil {
+		return err
+	}
+	b, _ = json.Marshal(m)
+	type plain EvidenceImage
+	var v plain
+	if err := json.Unmarshal(b, &v); err != nil {
+		return err
+	}
+	*e = EvidenceImage(v)
+	return nil
+}
+
+// Retain validated structs at every filing boundary; raw caller maps never
+// determine evidence member spelling or duplicate-object behavior in storage.
+func evidenceFromWire(raw any) (EvidenceList, error) {
+	b, err := json.Marshal(raw)
+	if err != nil {
+		return nil, err
+	}
+	var list EvidenceList
+	if err := json.Unmarshal(b, &list); err != nil {
+		return nil, err
+	}
+	if err := ValidateEvidence(list); err != nil {
+		return nil, err
+	}
+	return list, nil
 }
 
 type EvidenceSide struct {
@@ -280,14 +339,8 @@ func PrepareEvidence(ask map[string]any) error {
 			}
 		}
 	}
-	data, _ = json.Marshal(list)
-	var valid EvidenceList
-	dec := json.NewDecoder(bytes.NewReader(data))
-	dec.DisallowUnknownFields()
-	if err := dec.Decode(&valid); err != nil {
-		return err
-	}
-	if err := ValidateEvidence(valid); err != nil {
+	valid, err := evidenceFromWire(list)
+	if err != nil {
 		return err
 	}
 	if len(imports) > 0 {
@@ -327,6 +380,6 @@ func PrepareEvidence(ask map[string]any) error {
 			}
 		}
 	}
-	ask["evidence"] = list
+	ask["evidence"] = valid
 	return nil
 }
