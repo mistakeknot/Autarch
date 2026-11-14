@@ -122,6 +122,7 @@ export type RunbookGroup = { thread: string; items: { id: string; subject: strin
 export type Obl = { id: string; decision_id?: string; kind?: string; recipient?: string; last_error?: string | null; state?: string };
 export type Delegation = { settings: { vizierThreadId?: string; projects?: string[]; dailyCap?: number }; suspended: boolean };
 export type AsksData = {
+  pick_actions?: import("../pickquery.js").PickActionSummary[];
   owed: OwedAsk[];
   runbook: RunbookGroup[];
   lane: Lane[];
@@ -135,6 +136,17 @@ export type AsksData = {
   approvals?: ApprovalRecord[];
   machineOwners: Record<string, string>;
 };
+
+export function PickActionStatus({ status: s }: { status: import("../pickquery.js").PickActionSummary }) {
+  return <details data-pick-action={s.decision_id} className="rounded border border-border p-3 text-sm">
+    <summary>{s.status}{s.observation_only ? " — Observation only" : ""}{s.ordinary_continuation ? "; ordinary continuation applies" : ""}</summary>
+    <p>Decision {s.decision_id}; generation {s.generation}. {s.target ?? "Target evidence unavailable"}</p>
+    <p>Evaluation deadline: {s.deadline ?? "unavailable"} ({s.deadline_outcome})</p>
+    {s.first_failure ? <p>Ruling file failed; later success does not revive automatic handling.</p> : null}
+    {s.status === "already relayed" ? <p>Already relayed; do not act.</p> : s.status === "delivery uncertain" || s.status === "data unavailable" ? <p>Read the recovery evidence; do not relay blindly.</p> : null}
+    <pre className="whitespace-pre-wrap [overflow-wrap:anywhere]">{s.readback}</pre>
+  </details>;
+}
 
 export type ViewItem = { id: string; title: string; detail?: string; thread?: string; /** Read-only item: a file path in its text stays plain text, with no read or open button. */ readOnly?: boolean; /** Set on an undeliverable wake: the Dismiss button's target. */ dismiss?: { decision_id: string; obligation_id: string } };
 // operator-action items come first and stay first: Decide, Runbook, then Stalled, then Waiting.
@@ -579,10 +591,14 @@ export function AsksPanel({ part, data, onPick, onOpen, onRevoke, onDismiss, onN
   const onlyLater = part === "later";
   const view = onlyLater ? [] : buildAsksView(live);
   const approvals = onlyLater ? [] : data.approvals ?? [];
+  const history = (data.pick_actions ?? []).slice(0, 20);
+  const earlier = (history[0]?.earlier_count ?? 0) + Math.max(0, (data.pick_actions?.length ?? 0) - history.length);
+  const empty = view.length === 0 && approvals.length === 0 && held.length === 0 && (part === "decide" || later.length === 0);
   if (onlyLater && later.length === 0) return <p className="p-4 text-sm text-muted-foreground">{emptyText ?? "Nothing is set aside."}</p>;
-  if (view.length === 0 && approvals.length === 0 && held.length === 0 && (part === "decide" || later.length === 0)) return <p className="p-4 text-sm text-muted-foreground">{emptyText ?? "Nothing needs you."}</p>;
+  if (view.length === 0 && approvals.length === 0 && held.length === 0 && (data.pick_actions?.length ?? 0) === 0 && (part === "decide" || later.length === 0)) return <p className="p-4 text-sm text-muted-foreground">{emptyText ?? "Nothing needs you."}</p>;
   return (
     <div className="space-y-3 p-2 sm:space-y-4 sm:p-3">
+      {!onlyLater && empty ? <p className="p-4 text-sm text-muted-foreground">{emptyText ?? "Nothing needs you."}</p> : null}
       {view.map((s) => (
         <section key={s.key} data-section={s.key}>
           <h2 className="mb-2 text-xs font-semibold uppercase text-muted-foreground">{`${s.title} (${s.items.length})`}</h2>
@@ -636,6 +652,11 @@ export function AsksPanel({ part, data, onPick, onOpen, onRevoke, onDismiss, onN
         </section>
       ) : null}
       {approvals.length > 0 ? <ApprovalsList approvals={approvals} {...(onRevoke ? { onRevoke } : {})} nowMs={nowMs} /> : null}
+      {!onlyLater && history.length > 0 ? <section data-section="pick-history">
+        <h2 className="mb-2 text-xs font-semibold uppercase text-muted-foreground">Recent pick history</h2>
+        {history.map(s => <PickActionStatus key={s.decision_id} status={s} />)}
+        {earlier > 0 ? <p className="text-sm text-muted-foreground">{`${earlier} earlier picks. Use the original pick or generation to read their history.`}</p> : null}
+      </section> : null}
     </div>
   );
 }

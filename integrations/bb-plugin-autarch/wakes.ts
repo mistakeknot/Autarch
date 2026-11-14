@@ -7,6 +7,8 @@
 import type { AttemptRow, ObligationRow, ObligationState } from "./store.js";
 import type { Service } from "./service.js";
 import { THREAD_EVENT_PAGE_CAP, threadEventLimit } from "./hostLimits.js";
+import { claimPickReceipt, reconcilePickReceipts } from "./pickcapture.js";
+import { hasAcceptedPickEvidence } from "./pickhandler.js";
 
 export type SendResult = { delivery: "sent"; messageId?: string } | { delivery: "queued"; queuedMessageId: string };
 export interface QueuedRow {
@@ -38,6 +40,7 @@ export const RECONCILE_MS = 60_000;
 const BACKOFF_BASE_MS = 30_000;
 const BACKOFF_MAX_MS = 3_600_000;
 const MAX_HOPS = 3;
+const PROTECTED_KINDS: ReadonlySet<string> = new Set(["pick-relay", "pick-receipt"]);
 
 // (e) Step 0: the SDK documents no error shapes for threads.send. Only these are treated as
 // proof that the request never reached the server; everything else is an unknown outcome.
@@ -75,6 +78,7 @@ export class WakeLoop {
   private running: Promise<void> | null = null;
   private again = false;
   private readonly inflight = new Set<string>();
+  private readonly reconciling = new Map<string, Promise<void>>();
 
   constructor(
     readonly svc: Service,
@@ -119,16 +123,21 @@ export class WakeLoop {
   }
 
   private async pass(): Promise<void> {
+    // Overdue or invalidated pick-handler actions settle before this pass can claim any send.
+    this.svc.expirePickEvaluations();
     // No await before the snapshot when there is nothing to reconcile: a row filed while a
     // send is in flight belongs to the next drain.
     const cands = this.candidates();
     if (cands.length) await this.reconcileRows(cands);
+    reconcilePickReceipts(this.store, this.svc.time());
     await this.rerouteStranded();
     // Rows never attempted go before a manual Resend (stable, so id order holds within each).
     // Home's information-only notices to one thread leave as one digest per window; a notice with images goes alone.
     const due = this.store.dueMessagesBatched((r) => !!r.op && this.svc.imagesFor(r.op).state !== "none");
     for (const row of [...due.filter((r) => r.resend_permit !== 1), ...due.filter((r) => r.resend_permit === 1)]) {
-      const c = this.store.claim(row.id, row.attempt);
+      // Protected handler kinds have no generic claim: only the guarded handler claim can take them.
+      const c = row.kind === "pick-receipt" ? claimPickReceipt(this.store, row.id, row.attempt, this.svc.time())
+        : PROTECTED_KINDS.has(row.kind) ? await this.svc.claimPickSend(row) : this.store.claim(row.id, row.attempt);
       if (!c.ok) continue;
       await this.sendOne(row, c.attempt);
     }
@@ -187,7 +196,27 @@ export class WakeLoop {
     let failure: unknown;
     let failed = false;
     try {
-      res = await this.sdk.send({ threadId, input, mode: "queue-if-active", ...(images.length > 0 ? { images } : {}) });
+      const sending = this.sdk.send({ threadId, input, mode: "queue-if-active", ...(images.length > 0 ? { images } : {}) });
+      if (row.kind === "pick-relay") {
+        const action = this.db.prepare("SELECT evaluation_deadline_at FROM pick_actions WHERE relay_op = ? AND decision_id = ?")
+          .get(row.op, row.decision_id) as { evaluation_deadline_at: string } | undefined;
+        const remaining = action ? Date.parse(action.evaluation_deadline_at) - Date.parse(this.svc.time()) : 0;
+        let timer: ReturnType<typeof setTimeout> | undefined;
+        let expired = false;
+        // The host call is not cancellable. Its late positive evidence still belongs to this attempt;
+        // releasing the caller never grants permission to send a replacement.
+        const observed = sending.then(result => {
+          if (expired) this.acceptResponse(row, n, result);
+          return result;
+        });
+        try {
+          res = await Promise.race([observed, new Promise<never>((_resolve, reject) => {
+            timer = setTimeout(() => { expired = true; reject(new Error("relay send response deadline; delivery may already have occurred")); }, Math.max(0, Number.isFinite(remaining) ? remaining : 0));
+          })]);
+        } finally {
+          if (timer !== undefined) clearTimeout(timer);
+        }
+      } else res = await sending;
     } catch (err) {
       failed = true;
       failure = err;
@@ -195,13 +224,7 @@ export class WakeLoop {
       this.inflight.delete(key);
     }
     if (!failed && res) {
-      if (res.delivery === "sent") {
-        this.store.updateAttempt(row.id, n, "delivered", { evidence: res.messageId ?? "sent" });
-      } else {
-        this.store.updateAttempt(row.id, n, "queued", { handle: res.queuedMessageId });
-        this.applyRecordedEvent(row.id, n, res.queuedMessageId);
-      }
-      this.settle(row.id);
+      this.acceptResponse(row, n, res);
       await this.reconcileRows([row.id]);
       return;
     }
@@ -226,6 +249,20 @@ export class WakeLoop {
     }
   }
 
+  private acceptResponse(row: ObligationRow, n: number, res: SendResult): void {
+    if (res.delivery === "sent") {
+      const attempt = this.store.attempts(row.id).find(a => a.n === n);
+      if (row.require_message_id === 1 && (!attempt || !hasAcceptedPickEvidence(this.store, row,
+        { ...attempt, state: "delivered", evidence: res.messageId ?? null }))) this.store.updateAttempt(row.id, n, "uncertain", { error: "sent without a durable host message id" });
+      else this.store.updateAttempt(row.id, n, "delivered", { evidence: res.messageId ?? "sent" });
+    } else {
+      this.store.updateAttempt(row.id, n, "queued", { handle: res.queuedMessageId });
+      this.applyRecordedEvent(row.id, n, res.queuedMessageId);
+    }
+    this.settle(row.id);
+    if (row.kind === "pick-relay") reconcilePickReceipts(this.store, this.svc.time());
+  }
+
   // ---- row state follows its attempts --------------------------------------------
 
   /**
@@ -238,7 +275,8 @@ export class WakeLoop {
     const atts = this.store.attempts(id);
     let to: ObligationState | undefined;
     let fields: { last_error?: string; next_try_at?: string } = {};
-    if (atts.some((a) => a.state === "delivered")) to = "done";
+    if (atts.some((a) => row.require_message_id === 1 ? hasAcceptedPickEvidence(this.store, row, a) : a.state === "delivered")) to = "done";
+    else if (atts.some((a) => a.state === "delivered")) to = "uncertain";
     else if (atts.some((a) => a.state === "sending")) to = "sending";
     else if (atts.some((a) => a.state === "queued")) to = "queued";
     else if (atts.some((a) => a.state === "uncertain")) to = "uncertain";
@@ -267,7 +305,10 @@ export class WakeLoop {
   private applyRecordedEvent(id: string, n: number, handle: string): void {
     const ev = this.store.queueEvent(handle);
     if (!ev) return;
-    if (ev.type === "dispatched") this.store.updateAttempt(id, n, "delivered", { evidence: handle });
+    if (ev.type === "dispatched") {
+      if (this.store.obligation(id)?.require_message_id === 1) this.store.updateAttempt(id, n, "uncertain");
+      else this.store.updateAttempt(id, n, "delivered", { evidence: handle });
+    }
     else if (ev.type === "cancelled") this.store.updateAttempt(id, n, "not-delivered", { error: "cancelled" });
   }
 
@@ -329,12 +370,27 @@ export class WakeLoop {
 
   async reconcile(): Promise<void> {
     await this.reconcileRows(this.candidates());
+    reconcilePickReceipts(this.store, this.svc.time());
   }
 
   private async reconcileRows(ids: string[]): Promise<void> {
     for (const id of ids) {
       try {
-        await this.reconcileRow(id);
+        if (!PROTECTED_KINDS.has(this.store.obligation(id)?.kind ?? "")) {
+          await this.reconcileRow(id);
+          continue;
+        }
+        // A host history read must not own the drain indefinitely. Keep its late positive
+        // evidence, and share the outstanding read across passes instead of starting more.
+        let pending = this.reconciling.get(id);
+        if (!pending) {
+          pending = this.reconcileRow(id).catch(() => {}).finally(() => { this.reconciling.delete(id); });
+          this.reconciling.set(id, pending);
+        }
+        let timer: ReturnType<typeof setTimeout> | undefined;
+        try {
+          await Promise.race([pending, new Promise<void>(resolve => { timer = setTimeout(resolve, 1000); })]);
+        } finally { clearTimeout(timer); }
       } catch {
         /* a failed lookup leaves the attempt as it is; the next pass tries again */
       }
@@ -349,7 +405,13 @@ export class WakeLoop {
       if (a.state !== "sending" && a.state !== "queued" && a.state !== "uncertain") continue;
       if (this.inflight.has(`${id}#${a.n}`)) continue;
       const cur = this.store.obligation(id)!;
-      if (cur.voided_at && a.handle && a.state === "queued") {
+      // Fallback preserves possible acceptance instead of voiding its history. It still
+      // withdraws permission for a queued relay; cancel through the existing host path,
+      // whose dispatch-race readback retains positive accepted-event evidence.
+      const invalidatedRelay = cur.kind === "pick-relay" && this.db.prepare(
+        "SELECT 1 FROM pick_actions WHERE decision_id = ? AND relay_op = ? AND disposition IN ('fallback','cancelled')",
+      ).get(cur.decision_id, cur.op);
+      if ((cur.voided_at || invalidatedRelay) && a.handle && a.state === "queued") {
         await this.removeQueued(id, a, thread);
         continue;
       }
@@ -358,7 +420,7 @@ export class WakeLoop {
     }
     // A delivered attempt makes the row done and any still-queued attempt is removed.
     const after = this.store.attempts(id);
-    if (after.some((a) => a.state === "delivered")) {
+    if (after.some((a) => row.require_message_id === 1 ? hasAcceptedPickEvidence(this.store, row, a) : a.state === "delivered")) {
       for (const a of after) if (a.state === "queued" && a.handle) await this.removeQueued(id, a, thread);
     }
     this.settle(id, "gone");
@@ -384,7 +446,7 @@ export class WakeLoop {
 
   private async checkHandle(id: string, a: AttemptRow, thread: string): Promise<void> {
     const st = await this.lookup(thread, a.handle!);
-    if (st === "dispatched") this.store.updateAttempt(id, a.n, "delivered", { evidence: a.handle });
+    if (st === "dispatched" && this.store.obligation(id)?.require_message_id !== 1) this.store.updateAttempt(id, a.n, "delivered", { evidence: a.handle });
     else if (st === "cancelled") this.store.updateAttempt(id, a.n, "not-delivered", { error: "cancelled" });
     else if (st === "queued") {
       if (a.state !== "queued") this.store.updateAttempt(id, a.n, "queued");
@@ -394,9 +456,9 @@ export class WakeLoop {
       const row = this.store.obligation(id)!;
       const want = framed(row.op ?? row.id, a.n, row.payload ?? "");
       try {
-        const hits = (await this.sdk.acceptedEvents(thread)).filter((e) => e.text === want);
+        const hits = (await this.sdk.acceptedEvents(thread)).filter((e) => e.text === want && !!e.id);
         if (hits.length === 1) {
-          this.store.updateAttempt(id, a.n, "delivered", { evidence: hits[0]!.id });
+          this.recordAcceptedEvent(row, a, hits[0]!);
           return;
         }
       } catch {
@@ -416,7 +478,7 @@ export class WakeLoop {
       /* unavailable */
     }
     try {
-      events = (await this.sdk.acceptedEvents(thread)).filter((e) => e.text === want);
+      events = (await this.sdk.acceptedEvents(thread)).filter((e) => e.text === want && !!e.id);
     } catch {
       /* unavailable */
     }
@@ -426,10 +488,21 @@ export class WakeLoop {
       this.store.updateAttempt(row.id, a.n, "queued", { handle: q[0]!.id });
       this.applyRecordedEvent(row.id, a.n, q[0]!.id);
     } else if (e.length === 1 && q.length === 0) {
-      this.store.updateAttempt(row.id, a.n, "delivered", { evidence: e[0]!.id });
+      this.recordAcceptedEvent(row, a, e[0]!);
     } else if (a.state !== "uncertain") {
       this.store.updateAttempt(row.id, a.n, "uncertain");
     }
+  }
+
+  private recordAcceptedEvent(row: ObligationRow, attempt: AttemptRow, event: AcceptedEvent): void {
+    this.store.atomically(() => {
+      if (this.store.updateAttempt(row.id, attempt.n, "delivered", { evidence: event.id }) && row.kind === "pick-relay") {
+        this.store.recordEvent("pick-relay-accepted", row.decision_id, {
+          obligation: row.id, attempt: attempt.n, event_id: event.id, recipient: row.recipient,
+          text: event.text,
+        });
+      }
+    });
   }
 
   /** Remove a queued attempt's row where the host allows; a lost race is settled by reading it. */
@@ -442,7 +515,7 @@ export class WakeLoop {
       /* fall through: read what happened to it */
     }
     const st = await this.lookup(thread, a.handle!);
-    if (st === "dispatched") this.store.updateAttempt(id, a.n, "delivered", { evidence: a.handle });
+    if (st === "dispatched") await this.checkHandle(id, a, thread);
     else if (st === "cancelled") this.store.updateAttempt(id, a.n, "not-delivered", { error: "cancelled" });
   }
 

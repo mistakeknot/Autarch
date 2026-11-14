@@ -142,6 +142,7 @@ export interface PickInput {
    * depend on other rows (a daily cap) belong here, not before the transaction.
    */
   guard?: () => { status: number; error: string } | null;
+  capture?: () => void;
 }
 
 export type MoveState = "open" | "claimed" | "closed";
@@ -214,7 +215,30 @@ export interface ApprovalRow {
   authorizing: number;
 }
 
-export interface PickRow extends Required<Omit<PickInput, "reason" | "params_hash" | "approval">> {
+/** Read-only join for the pick handler (mk-cqnab.1 PR3). Existing rows only; no new persistent field. */
+export interface PickEvidenceSnapshot {
+  decision: {
+    card_fp: string | null;
+    id: string; request_id: string; source: string; task_id: string | null; generation: number | null; revision: string; body_json: string;
+    thread: string; owner_thread: string | null; project: string; tasks_project_id: string | null; filed_at: string;
+    withdrawn_at: string | null; resolved_at: string | null; superseded_by: string | null;
+  };
+  pick: PickRow | null;
+  /** Generation n-1 of the same card, with Home's first-observation time; null when absent or for generation 1. */
+  previous: { id: string; filed_at: string } | null;
+  generations: { decision_id: string; pick_id: string | null }[];
+  home_comments: { id: string; payload: string | null }[];
+  note_fences: { note_id: string; posting_state: string }[] | null;
+  control: { mode: string; epoch: number; enabled_cells_json: string; owner_enablement_json: string | null } | null;
+  target_snapshot_json: string | null;
+  blocks: string[];
+  binding: { home_project: string; state: string } | null;
+  request_registered: boolean;
+  move: boolean;
+  vizier: string | null;
+}
+
+export interface PickRow extends Required<Omit<PickInput, "reason" | "params_hash" | "approval" | "guard" | "capture">> {
   reason: string | null;
   params_hash: string | null;
 }
@@ -311,12 +335,16 @@ const FINISHED = (a: string) => `(
 const DUE = `(
   o.kind <> 'ruling-file'
   AND o.state = 'pending'
-  AND o.next_try_at <= @now
+  AND ((o.kind IN ('pick-relay','pick-receipt') AND o.handler_next_try_at IS NOT NULL AND o.handler_next_try_at <= @now)
+    OR (o.kind NOT IN ('pick-relay','pick-receipt') AND o.next_try_at <= @now))
   AND o.voided_at IS NULL
   AND (o.after_id IS NULL OR EXISTS (SELECT 1 FROM obligations a WHERE a.id = o.after_id AND ${FINISHED("a")}))
   AND (o.resend_permit = 1 OR NOT EXISTS (
         SELECT 1 FROM attempts t WHERE t.obligation_id = o.id AND t.state IN ('sending','queued','uncertain')))
 )`;
+
+/** The message due predicate (alias `o`, parameter @now), shared with the guarded handler claim so neither branch drifts. */
+export const MESSAGE_DUE_SQL = DUE;
 
 /** Home messages that are information for another thread and not an answer or an action: these batch per recipient. */
 export const BATCHED_KIND = "notice";
@@ -463,7 +491,10 @@ export class Store {
     return (
       this.db
         .prepare(
-          `UPDATE obligations SET attempt = attempt + 1, last_error = @error, next_try_at = @next, updated_at = @now
+          `UPDATE obligations SET attempt = attempt + 1, last_error = @error,
+             next_try_at = CASE WHEN kind IN ('pick-relay','pick-receipt') THEN next_try_at ELSE @next END,
+             handler_next_try_at = CASE WHEN kind IN ('pick-relay','pick-receipt') THEN @next ELSE handler_next_try_at END,
+             updated_at = @now
            WHERE id = @id AND state = 'pending' AND attempt = @attempt`,
         )
         .run({ id, attempt, error, next: nextTryAt, now: this.now() }).changes === 1
@@ -489,6 +520,62 @@ export class Store {
     return this.db.prepare("SELECT * FROM decisions WHERE id = ?").get(id) as
       | Record<string, unknown>
       | undefined;
+  }
+
+  /**
+   * mk-cqnab.1 PR3: one consistent read of everything the pick handler evaluates. Read-only (a deferred
+   * transaction takes no write lock). `previous.filed_at` is Home's own clock at ingest of generation n-1
+   * (insertDecision stamps `at ?? now()`, and card generations never pass `at`): Home's first observation.
+   * Nullable members are unavailable evidence, never absence.
+   */
+  pickEvidenceSnapshot(decisionId: string): PickEvidenceSnapshot | null {
+    return this.db.transaction((): PickEvidenceSnapshot | null => {
+      const d = this.db.prepare(
+        `SELECT d.id, d.request_id, d.source, d.task_id, d.generation, d.revision, d.body_json, d.thread, d.owner_thread, d.project,
+                d.tasks_project_id, d.filed_at, d.withdrawn_at, d.resolved_at, d.card_fp,
+                (SELECT r.id FROM decisions r WHERE r.supersedes = d.id) AS superseded_by
+           FROM decisions d WHERE d.id = ?`,
+      ).get(decisionId) as PickEvidenceSnapshot["decision"] | undefined;
+      if (!d) return null;
+      const pick = this.pick(decisionId) ?? null;
+      const generation = typeof d.generation === "number" ? d.generation : null;
+      const previous = d.task_id !== null && generation !== null && generation > 1
+        ? (this.db.prepare("SELECT id, filed_at FROM decisions WHERE task_id = ? AND generation = ?").get(d.task_id, generation - 1) as { id: string; filed_at: string } | undefined) ?? null
+        : null;
+      const generations = d.task_id === null ? [] : (this.db.prepare(
+        "SELECT d.id AS decision_id, k.pick_id FROM decisions d LEFT JOIN picks k ON k.decision_id = d.id WHERE d.task_id = ? ORDER BY d.generation",
+      ).all(d.task_id) as { decision_id: string; pick_id: string | null }[]);
+      const optional = <T>(read: () => T): T | null => { try { return read(); } catch { return null; } };
+      // Note fences and control are PR2 tables: an older schema reads as unavailable, not as absent.
+      const note_fences = optional(() => this.db.prepare(
+        "SELECT note_id, posting_state FROM pick_note_fences WHERE decision_id = ? OR (task_id = ? AND generation = ?) ORDER BY decision_id, note_id",
+      ).all(d.id, d.task_id, generation) as { note_id: string; posting_state: string }[]);
+      const control = optional(() => (this.db.prepare(
+        "SELECT mode, epoch, enabled_cells_json, owner_enablement_json FROM pick_handler_control WHERE id = 1",
+      ).get() as PickEvidenceSnapshot["control"] | undefined) ?? null);
+      const target = this.db.prepare("SELECT detail_json FROM events WHERE decision_id = ? AND type = 'on-pick-targets' ORDER BY seq LIMIT 1").get(d.id) as { detail_json: string } | undefined;
+      const binding = d.tasks_project_id === null ? null
+        : (this.db.prepare("SELECT home_project, state FROM project_bindings WHERE tasks_project_id = ?").get(d.tasks_project_id) as { home_project: string; state: string } | undefined) ?? null;
+      const registry = this.db.prepare("SELECT 1 FROM requests WHERE request_id = ? AND decision_id = ? AND result = 'decision'").get(d.request_id, d.id) !== undefined;
+      const cardRequest = d.task_id === null ? false : this.db.prepare("SELECT 1 FROM card_requests WHERE task_id = ? LIMIT 1").get(d.task_id) !== undefined;
+      const move = d.task_id === null || generation === null ? false
+        : this.db.prepare("SELECT 1 FROM moves WHERE task_id = ? AND generation = ?").get(d.task_id, generation) !== undefined;
+      return {
+        decision: d,
+        pick,
+        previous,
+        generations,
+        home_comments: d.task_id === null ? [] : this.db.prepare("SELECT id, payload FROM card_writes WHERE task_id = ? AND kind = 'comment'").all(d.task_id) as { id: string; payload: string | null }[],
+        note_fences,
+        control,
+        target_snapshot_json: target?.detail_json ?? null,
+        blocks: (this.db.prepare("SELECT ref FROM decision_blocks WHERE decision_id = ? ORDER BY ref").all(d.id) as { ref: string }[]).map(b => b.ref),
+        binding,
+        request_registered: registry && cardRequest,
+        move,
+        vizier: this.setting("vizierThreadId") ?? null,
+      };
+    }).deferred();
   }
 
   pick(decisionId: string): PickRow | undefined {
@@ -712,7 +799,7 @@ export class Store {
 
   /** Insert the pick and its obligations and one event in one transaction [C-3] [C-5]. */
   recordPick(p: PickInput, obligations: ObligationInput[] = [], cardWrites: CardWriteInput[] = []): PickResult {
-    const { approval, guard, ...pickParams } = p;
+    const { approval, guard, capture, ...pickParams } = p;
     return this.tx((): PickResult => {
       const at = p.picked_at ?? this.now();
       if (guard && !this.pick(p.decision_id)) {
@@ -737,6 +824,8 @@ export class Store {
         this.hook("obligations-inserted");
         this.insertCardWriteRows(p.decision_id, cardWrites);
         this.hook("card-writes-inserted");
+        capture?.();
+        this.hook("pick-captured");
         // T9: a picked card generation moves its card to ruled in the same transaction.
         this.db
           .prepare("UPDATE cards SET state = 'ruled', display_reason = NULL, updated_at = @at WHERE task_id = (SELECT task_id FROM decisions WHERE id = @id AND source = 'card')")
@@ -889,6 +978,11 @@ export class Store {
   // ---- obligations --------------------------------------------------------
 
   private insertObligationRows(decisionId: string, rows: ObligationInput[], ignoreDup: boolean): number {
+    // Handler operations need immutable-payload replay checks and their action CAS in the same
+    // transaction. The legacy skip-duplicates path must never consume those identities.
+    if (rows.some(o => o.kind === "pick-relay" || o.kind === "pick-receipt")) {
+      throw new Error("protected obligations require guarded insertion");
+    }
     const now = this.now();
     const stmt = this.db.prepare(
       `INSERT ${ignoreDup ? "OR IGNORE " : ""}INTO obligations(id, decision_id, kind, recipient, payload, op, after_id, next_try_at, updated_at)
@@ -1004,7 +1098,10 @@ export class Store {
       .prepare(
         `UPDATE obligations SET state = @to, updated_at = @now,
            last_error = COALESCE(@last_error, last_error),
-           next_try_at = COALESCE(@next_try_at, next_try_at),
+           next_try_at = CASE WHEN kind IN ('pick-relay','pick-receipt') THEN next_try_at
+             ELSE COALESCE(@next_try_at, next_try_at) END,
+           handler_next_try_at = CASE WHEN kind IN ('pick-relay','pick-receipt')
+             THEN COALESCE(@next_try_at, handler_next_try_at) ELSE handler_next_try_at END,
            resend_permit = CASE WHEN @to IN ('done','dismissed') THEN 0 ELSE resend_permit END
          WHERE id = @id AND state = @from AND attempt = @attempt
            AND NOT (voided_at IS NOT NULL AND @to IN ('pending','sending'))
@@ -1030,7 +1127,7 @@ export class Store {
 
   /** Point a message row at another thread after its recipient was archived; only while it still names `from`. */
   retarget(id: string, from: string, to: string): boolean {
-    return this.db.prepare("UPDATE obligations SET recipient = @to, updated_at = @now WHERE id = @id AND recipient = @from AND state NOT IN ('done','dismissed')").run({ id, from, to, now: this.now() }).changes === 1;
+    return this.db.prepare("UPDATE obligations SET recipient = @to, updated_at = @now WHERE id = @id AND recipient = @from AND allow_reroute = 1 AND state NOT IN ('done','dismissed')").run({ id, from, to, now: this.now() }).changes === 1;
   }
 
   /** Suppress a row without changing its state [G-2]; also clears any resend permit. */
@@ -1066,7 +1163,8 @@ export class Store {
 
   dueMessages(now: string = this.now()): ObligationRow[] {
     return this.db
-      .prepare(`SELECT o.* FROM obligations o WHERE ${DUE} ORDER BY o.next_try_at, o.rowid`)
+      .prepare(`SELECT o.* FROM obligations o WHERE ${DUE}
+        ORDER BY CASE WHEN o.kind IN ('pick-relay','pick-receipt') THEN o.handler_next_try_at ELSE o.next_try_at END, o.rowid`)
       .all({ now }) as ObligationRow[];
   }
 
@@ -1076,12 +1174,13 @@ export class Store {
       const res = this.db
         .prepare(
           `UPDATE obligations SET state = 'pending', resend_permit = 1, resend_click = @click, updated_at = @now
-           WHERE id = @id AND state = 'uncertain' AND attempt = @attempt AND voided_at IS NULL`,
+           WHERE id = @id AND state = 'uncertain' AND attempt = @attempt AND voided_at IS NULL
+             AND kind NOT IN ('pick-relay','pick-receipt')`,
         )
         .run({ id, attempt, click: clickId, now: this.now() });
       if (res.changes === 1) return { ok: true, replay: false } as const;
       const row = this.obligation(id);
-      if (row && row.resend_click === clickId) return { ok: true, replay: true } as const;
+      if (row && row.kind !== "pick-relay" && row.kind !== "pick-receipt" && row.resend_click === clickId) return { ok: true, replay: true } as const;
       return { ok: false, reason: "stale" } as const;
     });
   }
@@ -1095,7 +1194,7 @@ export class Store {
       const res = this.db
         .prepare(
           `UPDATE obligations AS o SET state = 'sending', attempt = o.attempt + 1, resend_permit = 0, updated_at = @now
-           WHERE o.id = @id AND o.attempt = @attempt AND ${DUE}`,
+           WHERE o.id = @id AND o.attempt = @attempt AND o.kind NOT IN ('pick-relay','pick-receipt') AND ${DUE}`,
         )
         .run({ id, attempt, now });
       if (res.changes !== 1) return { ok: false } as const;

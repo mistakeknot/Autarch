@@ -1,5 +1,6 @@
 import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
+import { createHash } from "node:crypto";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { Delegation } from "../delegation.js";
 import { renderFeed } from "../feed.js";
@@ -88,6 +89,24 @@ describe("rule: claimed-caller checks [E-13] [F-8]", () => {
 });
 
 describe("rule: bounded policy [D-2] [D-1]", () => {
+  it.each([false, true])("accepted reason whitespace replays without consuming cap or changing rows (legacy=%s)", async legacy => {
+    enable({ dailyCap: 1 });
+    const id = await fileId();
+    expect(rule(id, "project", "  rationale  ")).toMatchObject({ ok: true, status: 201 });
+    expect(svc.store.pick(id)!.reason).toBe("rationale");
+    if (legacy) {
+      const hash = createHash("sha256").update(`project|${rev(id)}|vizier`).digest("hex");
+      svc.store.db.prepare("UPDATE picks SET params_hash = ? WHERE decision_id = ?").run(hash, id);
+    } else expect(svc.store.pick(id)!.params_hash).toMatch(/^p2:/);
+    const snapshot = () => ({ picks: svc.store.db.prepare("SELECT * FROM picks").all(), outbox: svc.store.obligationsFor(id), events: svc.store.db.prepare("SELECT * FROM events").all() });
+    const before = snapshot();
+    expect(rule(id, "project", "  rationale  ")).toMatchObject({ ok: true, status: 200 });
+    expect(rule(id, "project", "rationale")).toMatchObject({ ok: true, status: 200 });
+    expect(rule(id, "project", "  changed rationale  ")).toMatchObject({ ok: false, status: 409 });
+    expect(snapshot()).toEqual(before);
+    const other = await fileId({ subject: "autarch/another", question: "Another decision?" });
+    expect(rule(other)).toMatchObject({ ok: false, status: 403, error: expect.stringContaining("cap") });
+  });
   it("refuses an irreversible option, a Mycroft decision, an override decision and a missing or bad reason", async () => {
     enable();
     const a = await fileId();

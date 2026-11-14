@@ -82,10 +82,33 @@ export function homeCli(p: HomeCliParts) {
     summary: "Look up cards and asks; report progress on asks filed before cards",
     usageErrorExitCode: 2,
     commands: {
+      "pick-action": cliCommand({
+        summary: verbSummary("pickAction"),
+        options: {
+          pick: { type: "string", description: "Original pick identifier (exclusive of decision/generation)." },
+          decision: { type: "string", description: "Original decision identifier; requires generation." },
+          generation: { type: "string", description: "Exact positive generation." },
+          json: { type: "boolean", description: "Print full JSON evidence and owner words." },
+        },
+        run({ options }) {
+          if (options.generation !== undefined && !/^[1-9][0-9]*$/.test(options.generation)) return err(2, "generation must be an exact positive integer");
+          const query = homeMethods.pickAction.input.safeParse({
+            ...(options.pick !== undefined ? { pick_id: options.pick } : {}),
+            ...(options.decision !== undefined ? { decision_id: options.decision } : {}),
+            ...(options.generation !== undefined ? { generation: Number(options.generation) } : {}),
+          });
+          if (!query.success) return err(2, "use --pick OR --decision with --generation");
+          try {
+            const view = svc.readPickAction(query.data);
+            if (!view.ok) return { exitCode: view.kind === "invalid-query" ? 2 : 1, ...(options.json ? { stdout: JSON.stringify(view) } : {}), stderr: `${view.error}\n` };
+            return options.json ? out(view) : { exitCode: 0, stdout: view.kind === "action" ? view.text : "No participating action; ordinary continuation applies.\n" };
+          } catch { return err(1, "unavailable: pick action service"); }
+        },
+      }),
       capabilities: cliCommand({
         summary: "Read supported card declaration and target lookup versions",
         options: { json: { type: "boolean", description: "Print JSON." } },
-        run: () => out({ schema: 1, on_pick: p.readTargetEvidence && svc.supportsOnPick() ? [1] : [], target_lookup: p.readTargetEvidence ? [1] : [] }),
+        run: () => out({ schema: 1, on_pick: p.readTargetEvidence && svc.supportsOnPick() ? [1] : [], target_lookup: p.readTargetEvidence ? [1] : [], pick_action: [1], live_delivery: false }),
       }),
       target: cliCommand({
         summary: "Read host thread title and project evidence",
