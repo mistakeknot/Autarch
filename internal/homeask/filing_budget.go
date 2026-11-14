@@ -53,6 +53,7 @@ func (f *CardFiler) BudgetStatus(project string) (CardBudget, error) {
 }
 
 type filingEntry struct {
+	DeliveredCard  string      `json:"delivered_card,omitempty"`
 	CreationKey    string      `json:"creation_key,omitempty"`
 	Uncharged      bool        `json:"uncharged,omitempty"`
 	Refunded       bool        `json:"refunded,omitempty"`
@@ -393,7 +394,11 @@ func (f *CardFiler) releaseOne(ctx context.Context, key string) (CardResult, str
 	if f.Check != nil {
 		if _, _, err = f.PrepareAsk(ctx, r.Project, fmt.Sprint(r.Ask["project"]), fmt.Sprint(r.Ask["project_root"])); err != nil {
 			if errors.Is(err, ErrInvalid) {
-				err = errors.Join(errNoCardWritten, err, f.retireTerminal(ctx, key, e, err))
+				delivered, resolveErr := f.resolveTerminal(ctx, key, err)
+				if delivered.ID != "" {
+					return delivered, r.Type, resolveErr
+				}
+				err = errors.Join(errNoCardWritten, err, resolveErr)
 			}
 			return CardResult{}, "", err
 		}
@@ -418,7 +423,11 @@ func (f *CardFiler) releaseOne(ctx context.Context, key string) (CardResult, str
 	}
 	if err != nil {
 		if errors.Is(err, errNoCardWritten) && (errors.Is(err, ErrInvalid) || errors.Is(err, ErrAlreadyRuled)) {
-			err = errors.Join(err, f.retireTerminal(ctx, key, e, err))
+			delivered, resolveErr := f.resolveTerminal(ctx, key, err)
+			if delivered.ID != "" {
+				return delivered, r.Type, resolveErr
+			}
+			err = errors.Join(err, resolveErr)
 		}
 		return result, "", err
 	}
@@ -430,6 +439,7 @@ func (f *CardFiler) releaseOne(ctx context.Context, key string) (CardResult, str
 	defer unlock()
 	e = state[key] // Preserve creation admission saved by the delivery callback.
 	e.Held = false
+	e.DeliveredCard = result.ID
 	state[key] = e
 	err = saveFilingState(path, state)
 	typ := r.Type
@@ -459,6 +469,9 @@ func (f *CardFiler) CancelHeld(key string) error {
 	}
 	defer unlock()
 	e, ok := state[key]
+	if ok && !e.Held && e.DeliveredCard != "" {
+		return nil
+	}
 	if ok && e.Refunded && e.TerminalReason != "" {
 		return nil
 	}
@@ -469,41 +482,47 @@ func (f *CardFiler) CancelHeld(key string) error {
 	return saveFilingState(path, state)
 }
 
-// retireTerminal refunds only after the registry proves this key carries no card.
-func (f *CardFiler) retireTerminal(ctx context.Context, key string, e filingEntry, reason error) error {
+// resolveTerminal completes a known delivery, or refunds a proven absent one.
+// Finding the card supersedes a refusal based on stale project or ruling state.
+func (f *CardFiler) resolveTerminal(ctx context.Context, key string, reason error) (CardResult, error) {
 	current, _, done, readErr := f.openState()
 	if readErr != nil {
-		return readErr
+		return CardResult{}, readErr
 	}
-	e = current[key]
+	e := current[key]
 	done()
+	var delivered *found
 	if e.CreationKey != "" && e.CreationKey != key {
 		candidate, err := f.locate(ctx, e.CreationKey, e.Identity)
 		if err != nil {
-			return err
+			return CardResult{}, err
 		}
-		if candidate != nil {
-			return nil
+		delivered = candidate
+	}
+	if delivered == nil {
+		candidate, err := f.locate(ctx, key, e.Identity)
+		if err != nil {
+			return CardResult{}, err
 		}
-	}
-	candidate, err := f.locate(ctx, key, e.Identity)
-	if err != nil {
-		return err
-	}
-	if candidate != nil {
-		return nil
+		delivered = candidate
 	}
 	state, path, unlock, err := f.openState()
 	if err != nil {
-		return err
+		return CardResult{}, err
 	}
 	defer unlock()
 	entry := state[key]
 	entry.Held = false
-	entry.Refunded = true
-	entry.TerminalReason = reason.Error()
+	result := CardResult{}
+	if delivered != nil {
+		entry.DeliveredCard = delivered.ID
+		result = CardResult{ID: delivered.ID, Key: delivered.Req.Key, Project: delivered.ProjectID, Replay: true}
+	} else {
+		entry.Refunded = true
+		entry.TerminalReason = reason.Error()
+	}
 	state[key] = entry
-	return saveFilingState(path, state)
+	return result, saveFilingState(path, state)
 }
 
 // An update target can disappear after the read-only admission probe. Recheck the
