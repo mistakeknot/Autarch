@@ -24,24 +24,24 @@ func TestMetadataPolicySingleSource(t *testing.T) {
 	for _, key := range readOnlyAskMetadata {
 		counts[key] = 0
 	}
-	// Count identifiers as well as literals: a new writer can reuse a constant.
-	// These counts include each constant's declaration and the shared policy list.
+	// Count identifiers as well as literals: a new writer can reuse a constant
+	// or index the shared policy list. Counts include declarations and uses.
 	wantReferences := map[string]map[string]int{
-		"card.go":          {"subjectKeyMetadata": 4, "signalsMetadata": 4},
-		"card_metadata.go": {"subjectKeyMetadata": 2, "signalsMetadata": 1},
-		"cardfiler.go":     {"subjectKeyMetadata": 2, "signalsMetadata": 2},
+		"card.go":          {"subjectKeyMetadata": 4, "signalsMetadata": 4, "readOnlyAskMetadata": 0},
+		"card_metadata.go": {"subjectKeyMetadata": 2, "signalsMetadata": 1, "readOnlyAskMetadata": 0},
+		"cardfiler.go":     {"subjectKeyMetadata": 2, "signalsMetadata": 2, "readOnlyAskMetadata": 3},
 	}
 	for _, entry := range files {
 		name := entry.Name()
 		if entry.IsDir() || !strings.HasSuffix(name, ".go") || strings.HasSuffix(name, "_test.go") {
 			continue
 		}
-		// Parse every production Go file, including other packages and build tags.
+		// Parse every non-test Go file in this directory, any package or build tag.
 		f, err := parser.ParseFile(token.NewFileSet(), name, nil, 0)
 		if err != nil {
 			t.Fatal(err)
 		}
-		references := map[string]int{"subjectKeyMetadata": 0, "signalsMetadata": 0}
+		references := map[string]int{"subjectKeyMetadata": 0, "signalsMetadata": 0, "readOnlyAskMetadata": 0}
 		ast.Inspect(f, func(n ast.Node) bool {
 			if id, ok := n.(*ast.Ident); ok {
 				if _, tracked := references[id.Name]; tracked {
