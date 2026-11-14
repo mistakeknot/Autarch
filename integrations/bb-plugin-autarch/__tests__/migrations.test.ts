@@ -39,6 +39,116 @@ describe("v7 pick handler persistence", () => {
     expect(db.prepare(`SELECT * FROM ${table} ORDER BY rowid`).all()).toEqual(before);
   }
 
+  const quote = (name: string) => '"' + name.replaceAll('"', '""') + '"';
+  function uniqueKeys(db: Database.Database, table: string): string[][] {
+    const columns = db.pragma(`table_info(${quote(table)})`) as {name: string; pk: number}[];
+    const primary = columns.filter(c => c.pk > 0).sort((a,b) => a.pk-b.pk).map(c => c.name);
+    const keys: string[][] = primary.length ? [primary] : [];
+    const indexes = db.pragma(`index_list(${quote(table)})`) as {name: string; unique: number; partial: number; origin: string}[];
+    for (const index of indexes.filter(i => i.unique)) {
+      if (index.partial) throw new Error(`Unsupported partial unique index: ${index.name}`);
+      const info = db.pragma(`index_info(${quote(index.name)})`) as {seqno: number; cid: number; name: string | null}[];
+      if (!info.length || info.some(c => c.cid < 0 || c.name === null)) throw new Error(`Unsupported expression unique index: ${index.name}`);
+      const key = info.sort((a,b) => a.seqno-b.seqno).map(c => c.name!);
+      if (index.origin === 'pk') expect(key).toEqual(primary);
+      else keys.push(key);
+    }
+    expect(keys.length).toBeGreaterThan(0);
+    return keys;
+  }
+
+  // Discover from the final schema, including INTEGER PRIMARY KEYs that index_list omits.
+  const inventoryDb = new Database(':memory:');
+  migrate(inventoryDb);
+  const inventory = Object.fromEntries(['pick_actions','pick_note_fences','pick_handler_control','obligations']
+    .map(table => [table, uniqueKeys(inventoryDb, table)]));
+  inventoryDb.close();
+
+  for (const [table, keys] of Object.entries(inventory)) {
+    const cases = table === 'obligations'
+      ? ['pick-relay','pick-receipt'].flatMap(kind => [kind,'wake'].map(replacement => ({kind,replacement})))
+      : [{kind:'',replacement:''}];
+    for (const {kind,replacement} of cases) for (const key of keys) {
+      it(`PRAGMA unique REPLACE ${table} (${key.join(',')}) ${kind} -> ${replacement}`, () => {
+        const db = new Database(file); migrate(db);
+        try {
+          if (table === 'pick_actions') action(db, {disposition:'cancelled',ruling_op:'ruling',relay_op:'relay',
+            fallback_op:'fallback',receipt_op:'receipt',status_op:'status',evaluation_json:'{"audit":true}'});
+          if (table === 'pick_note_fences') db.exec(`INSERT INTO pick_note_fences
+            (decision_id,task_id,generation,note_id,created_at,posting_state,last_error)
+            VALUES ('d','task',1,'note','time','failed','evidence')`);
+          if (table === 'pick_handler_control') db.exec("UPDATE pick_handler_control SET mode='shadow',epoch=5");
+          if (table === 'obligations') db.prepare(`INSERT INTO obligations
+            (id,decision_id,kind,state,op,next_try_at,updated_at,allow_reroute,allow_batch,require_message_id,handler_next_try_at,payload)
+            VALUES ('protected','d',?,'done','operation','9999-12-31T23:59:59.999Z','audit',0,0,1,'2030-01-01T00:00:00Z','exact')`).run(kind);
+          const before = db.prepare(`SELECT * FROM ${quote(table)} ORDER BY rowid`).all() as Record<string, unknown>[];
+          const row = {...before[0]};
+          for (const column of new Set(keys.flat())) {
+            const value = row[column];
+            if (value === null || value === undefined) throw new Error(`Missing non-null unique fixture: ${table}.${column}`);
+            if (!key.includes(column)) {
+              if (typeof value !== 'string' && typeof value !== 'number') throw new Error(`Unsupported unique fixture: ${column}`);
+              row[column] = typeof value === 'number' ? value + 1 : `replacement-${value}`;
+            }
+          }
+          if (table === 'pick_actions') row.disposition = 'pending';
+          if (table === 'pick_handler_control') row.epoch = 0;
+          if (table === 'obligations') {
+            row.kind = replacement; row.state = 'pending'; row.payload = 'changed';
+            if (replacement === 'wake') row.next_try_at = '2000-01-01T00:00:00Z';
+          }
+          // Prove actual SQLite collision isolation, rather than trusting fixture names.
+          for (const other of keys) {
+            const collision = db.prepare(`SELECT count(*) n FROM ${quote(table)} WHERE ${other.map(c => `${quote(c)}=?`).join(' AND ')}`)
+              .get(...other.map(c => row[c])) as {n: number};
+            expect(collision.n, `${table} (${other.join(',')})`).toBe(other === key ? 1 : 0);
+          }
+          const columns = Object.keys(row);
+          const message = table === 'pick_actions' ? 'pick action identity already exists'
+            : table === 'pick_note_fences' ? 'pick note fence identity already exists'
+            : table === 'pick_handler_control' ? 'pick handler control already exists'
+            : 'protected obligation identity already exists';
+          expect(() => db.prepare(`INSERT OR REPLACE INTO ${quote(table)} (${columns.map(quote).join(',')})
+            VALUES (${columns.map(() => '?').join(',')})`).run(...columns.map(c => row[c]))).toThrow(message);
+          expect(db.prepare(`SELECT * FROM ${quote(table)} ORDER BY rowid`).all()).toEqual(before);
+        } finally { db.close(); }
+      });
+    }
+  }
+
+  it('NULL unique operations do not collide in actions or protected obligations', () => {
+    const db = new Database(file); migrate(db);
+    action(db); action(db,{pick_id:'p2',decision_id:'d2'});
+    expect(db.prepare('SELECT ruling_op,relay_op,fallback_op,receipt_op,status_op FROM pick_actions').all())
+      .toEqual(Array(2).fill({ruling_op:null,relay_op:null,fallback_op:null,receipt_op:null,status_op:null}));
+    for (const kind of ['pick-relay','pick-receipt']) for (const suffix of ['a','b']) {
+      db.prepare(`INSERT INTO obligations(id,decision_id,kind,next_try_at,updated_at,allow_reroute,allow_batch,require_message_id)
+        VALUES (?,'d',?,'9999-12-31T23:59:59.999Z','time',0,0,1)`).run(kind+suffix,kind);
+    }
+    expect(db.prepare('SELECT op FROM obligations').all()).toEqual(Array(4).fill({op:null}));
+    db.close();
+  });
+
+  for (const key of inventory.obligations) {
+    it(`legacy unique collision (${key.join(',')}) retains IGNORE UPSERT REPLACE semantics`, () => {
+      const db = new Database(file); migrate(db);
+      db.exec("INSERT INTO obligations(id,decision_id,kind,op,next_try_at,updated_at,payload) VALUES ('old','d','wake','old-op','time','time','original')");
+      const id = key.includes('id') ? 'old' : 'new';
+      const op = key.includes('op') ? 'old-op' : 'new-op';
+      const values = [id,op];
+      expect(db.prepare(`INSERT OR IGNORE INTO obligations(id,decision_id,kind,op,next_try_at,updated_at)
+        VALUES (?,'d','wake',?,'time','time')`).run(...values).changes).toBe(0);
+      db.prepare(`INSERT INTO obligations(id,decision_id,kind,op,next_try_at,updated_at) VALUES (?,'d','wake',?,'time','time')
+        ON CONFLICT (${key.map(quote).join(',')}) DO UPDATE SET payload='upsert'`).run(...values);
+      expect(db.prepare('SELECT payload FROM obligations').all()).toEqual([{payload:'upsert'}]);
+      db.prepare(`INSERT OR REPLACE INTO obligations(id,decision_id,kind,op,next_try_at,updated_at,payload)
+        VALUES (?,'d','wake',?,'time','time','replacement')`).run(...values);
+      expect(db.prepare('SELECT id,op,payload,allow_reroute,allow_batch,require_message_id FROM obligations').all())
+        .toEqual([{id,op,payload:'replacement',allow_reroute:1,allow_batch:1,require_message_id:0}]);
+      db.close();
+    });
+  }
+
   for (const disposition of ['pending', 'fallback', 'cancelled']) {
     for (const key of ['pick_id', 'decision_id']) {
       it(`REPLACE preserves ${disposition} action by ${key}`, () => {
@@ -147,6 +257,8 @@ describe("v7 pick handler persistence", () => {
   });
 
   for (const [captured, deadline] of [
+    ['2030-01-01T', '2030-01-01T00:02:00Z'],
+    ['2029-12-31T23:58:00Z', '2030-01-01T'],
     ['5', '6'],
     ['5', '2030-01-01T00:00:00Z'],
     ['0001-01-01T00:00:00Z', '2000000'],

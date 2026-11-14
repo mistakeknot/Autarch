@@ -421,9 +421,9 @@ CREATE TABLE pick_actions (
   capture_mode TEXT NOT NULL CHECK (capture_mode IN ('off','shadow','live')),
   capture_epoch INTEGER NOT NULL CHECK (capture_epoch >= 0),
   policy_version INTEGER NOT NULL CHECK (policy_version > 0),
-  captured_at TEXT NOT NULL CHECK (captured_at GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]T*'
+  captured_at TEXT NOT NULL CHECK (captured_at GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]T[0-9][0-9]:[0-9][0-9]*'
     AND julianday(captured_at) IS NOT NULL),
-  evaluation_deadline_at TEXT NOT NULL CHECK (evaluation_deadline_at GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]T*'
+  evaluation_deadline_at TEXT NOT NULL CHECK (evaluation_deadline_at GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]T[0-9][0-9]:[0-9][0-9]*'
     AND julianday(evaluation_deadline_at) IS NOT NULL
     AND julianday(evaluation_deadline_at) > julianday(captured_at)),
   evaluation_json TEXT CHECK (evaluation_json IS NULL OR json_valid(evaluation_json)),
@@ -442,7 +442,9 @@ CREATE TABLE pick_actions (
 CREATE INDEX pick_actions_generation ON pick_actions(task_id, generation);
 CREATE INDEX pick_actions_deadline ON pick_actions(disposition, evaluation_deadline_at);
 CREATE TRIGGER pick_actions_no_replace BEFORE INSERT ON pick_actions
-WHEN EXISTS (SELECT 1 FROM pick_actions WHERE pick_id=NEW.pick_id OR decision_id=NEW.decision_id)
+WHEN EXISTS (SELECT 1 FROM pick_actions WHERE pick_id=NEW.pick_id OR decision_id=NEW.decision_id
+  OR ruling_op=NEW.ruling_op OR relay_op=NEW.relay_op OR fallback_op=NEW.fallback_op
+  OR receipt_op=NEW.receipt_op OR status_op=NEW.status_op)
 BEGIN SELECT RAISE(ABORT, 'pick action identity already exists'); END;
 CREATE TRIGGER pick_actions_terminal BEFORE UPDATE ON pick_actions
 WHEN OLD.disposition IN ('fallback','cancelled') AND NEW.disposition IS NOT OLD.disposition
@@ -542,7 +544,8 @@ ALTER TABLE obligations ADD COLUMN handler_next_try_at TEXT;
 CREATE INDEX obligations_handler_due ON obligations(state, handler_next_try_at)
   WHERE kind IN ('pick-relay','pick-receipt');
 CREATE TRIGGER obligations_handler_no_replace BEFORE INSERT ON obligations
-WHEN EXISTS (SELECT 1 FROM obligations WHERE id=NEW.id AND kind IN ('pick-relay','pick-receipt'))
+WHEN EXISTS (SELECT 1 FROM obligations WHERE kind IN ('pick-relay','pick-receipt')
+  AND (id=NEW.id OR op=NEW.op))
 BEGIN SELECT RAISE(ABORT, 'protected obligation identity already exists'); END;
 CREATE TRIGGER obligations_handler_insert BEFORE INSERT ON obligations
 WHEN NEW.kind IN ('pick-relay','pick-receipt') AND NEW.next_try_at != '9999-12-31T23:59:59.999Z'
