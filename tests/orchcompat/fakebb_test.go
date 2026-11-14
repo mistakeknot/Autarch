@@ -127,7 +127,21 @@ func fbSave(dir string, s *fbState) error {
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(sp, raw, 0o600)
+	// A cancelled readback can leave a writer running after autarch exits.
+	// Publish a complete snapshot so unlocked harness reads never see truncation.
+	f, err := os.CreateTemp(dir, ".state-*")
+	if err != nil {
+		return err
+	}
+	defer os.Remove(f.Name())
+	if _, err := f.Write(raw); err != nil {
+		f.Close()
+		return err
+	}
+	if err := f.Close(); err != nil {
+		return err
+	}
+	return os.Rename(f.Name(), sp)
 }
 
 func fbLock(dir string) (func(), error) {
