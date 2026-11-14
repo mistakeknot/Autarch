@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"github.com/mistakeknot/autarch/internal/homeask"
 	"os"
+	"slices"
 	"strings"
 	"testing"
 
@@ -47,7 +48,7 @@ func TestNeedsMkUpdateWithoutProjectExitsThreeWithoutWrites(t *testing.T) {
 	t.Cleanup(func() { newCardFiler = old })
 	newCardFiler = func() *homeask.CardFiler {
 		return &homeask.CardFiler{LockDir: t.TempDir(), Run: func(ctx context.Context, env []string, args ...string) homeask.BBResult {
-			if strings.Join(args[:min(len(args), 3)], " ") == "home get --card" {
+			if len(args) >= 2 && args[0] == "home" && args[1] == "get" && slices.Contains(args, "--card") {
 				return homeask.BBResult{Stdout: []byte(`{"task_id":"T1","project_id":"","state":"open","card_key":"P1-1"}`)}
 			}
 			return s.run(ctx, env, args...)

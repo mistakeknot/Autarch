@@ -1125,7 +1125,6 @@ func (f *CardFiler) ListPull(ctx context.Context) ([]ListRow, error) {
 }
 
 // Card implements CardLister.
-// An empty project_id means the card is not yet indexed; filing readback retries it.
 func (f *CardFiler) Card(ctx context.Context, taskID string) (CardView, error) {
 	var v CardView
 	err := f.call(ctx, "", &v, "home", "get", "--card", taskID, "--json")
@@ -1138,6 +1137,8 @@ var ErrCardProjectMismatch = fmt.Errorf("%w: card project mismatch", ErrInvalid)
 // cardInProject checks filing readback against the Tasks project returned by Tasks,
 // without requiring a plugin project flag. An empty filed project disables the check.
 // Card retains its unscoped interface for fleet readers.
+// An empty project_id means Home has not indexed the card yet (ErrHomeDown):
+// post-create polling retries it; the update path returns exit 3 so a re-run is safe.
 func (f *CardFiler) cardInProject(ctx context.Context, taskID, project string) (CardView, error) {
 	var v CardView
 	err := f.callEnv(ctx, unscopedEnv(""), &v, "home", "get", "--card", taskID, "--json")
