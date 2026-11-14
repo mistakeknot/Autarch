@@ -142,6 +142,7 @@ export interface PickInput {
    * depend on other rows (a daily cap) belong here, not before the transaction.
    */
   guard?: () => { status: number; error: string } | null;
+  capture?: () => void;
 }
 
 export type MoveState = "open" | "claimed" | "closed";
@@ -217,6 +218,7 @@ export interface ApprovalRow {
 /** Read-only join for the pick handler (mk-cqnab.1 PR3). Existing rows only; no new persistent field. */
 export interface PickEvidenceSnapshot {
   decision: {
+    card_fp: string | null;
     id: string; request_id: string; source: string; task_id: string | null; generation: number | null; revision: string; body_json: string;
     thread: string; owner_thread: string | null; project: string; tasks_project_id: string | null; filed_at: string;
     withdrawn_at: string | null; resolved_at: string | null; superseded_by: string | null;
@@ -235,7 +237,7 @@ export interface PickEvidenceSnapshot {
   vizier: string | null;
 }
 
-export interface PickRow extends Required<Omit<PickInput, "reason" | "params_hash" | "approval">> {
+export interface PickRow extends Required<Omit<PickInput, "reason" | "params_hash" | "approval" | "guard" | "capture">> {
   reason: string | null;
   params_hash: string | null;
 }
@@ -522,7 +524,7 @@ export class Store {
     return this.db.transaction((): PickEvidenceSnapshot | null => {
       const d = this.db.prepare(
         `SELECT d.id, d.request_id, d.source, d.task_id, d.generation, d.revision, d.body_json, d.thread, d.owner_thread, d.project,
-                d.tasks_project_id, d.filed_at, d.withdrawn_at, d.resolved_at,
+                d.tasks_project_id, d.filed_at, d.withdrawn_at, d.resolved_at, d.card_fp,
                 (SELECT r.id FROM decisions r WHERE r.supersedes = d.id) AS superseded_by
            FROM decisions d WHERE d.id = ?`,
       ).get(decisionId) as PickEvidenceSnapshot["decision"] | undefined;
@@ -538,7 +540,7 @@ export class Store {
       const optional = <T>(read: () => T): T | null => { try { return read(); } catch { return null; } };
       // Note fences and control are PR2 tables: an older schema reads as unavailable, not as absent.
       const note_fences = optional(() => this.db.prepare(
-        "SELECT note_id, posting_state FROM pick_note_fences WHERE decision_id = ? OR (task_id = ? AND generation = ?) ORDER BY rowid",
+        "SELECT note_id, posting_state FROM pick_note_fences WHERE decision_id = ? OR (task_id = ? AND generation = ?) ORDER BY decision_id, note_id",
       ).all(d.id, d.task_id, generation) as { note_id: string; posting_state: string }[]);
       const control = optional(() => (this.db.prepare(
         "SELECT mode, epoch, enabled_cells_json, owner_enablement_json FROM pick_handler_control WHERE id = 1",
@@ -788,7 +790,7 @@ export class Store {
 
   /** Insert the pick and its obligations and one event in one transaction [C-3] [C-5]. */
   recordPick(p: PickInput, obligations: ObligationInput[] = [], cardWrites: CardWriteInput[] = []): PickResult {
-    const { approval, guard, ...pickParams } = p;
+    const { approval, guard, capture, ...pickParams } = p;
     return this.tx((): PickResult => {
       const at = p.picked_at ?? this.now();
       if (guard && !this.pick(p.decision_id)) {
@@ -813,6 +815,8 @@ export class Store {
         this.hook("obligations-inserted");
         this.insertCardWriteRows(p.decision_id, cardWrites);
         this.hook("card-writes-inserted");
+        capture?.();
+        this.hook("pick-captured");
         // T9: a picked card generation moves its card to ruled in the same transaction.
         this.db
           .prepare("UPDATE cards SET state = 'ruled', display_reason = NULL, updated_at = @at WHERE task_id = (SELECT task_id FROM decisions WHERE id = @id AND source = 'card')")

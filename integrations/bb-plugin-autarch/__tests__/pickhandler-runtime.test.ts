@@ -43,7 +43,7 @@ const counts = (r: Rig) => r.db.prepare(`SELECT (SELECT COUNT(*) FROM obligation
 describe("runtime original evidence deadline", () => {
   it("expired budget issues no external read", async () => {
     const { r, g1 } = await participating({ subject: { kind: "github-pr", repo: "example/repo", number: 7, head: FILED } });
-    expect(r.mkPick(g1.id).ok).toBe(true);
+    expect((await r.validatedMkPick(g1.id)).ok).toBe(true);
     vi.useFakeTimers();
     vi.setSystemTime(r.env.clock.t);
     const listComments = vi.fn(async () => []);
@@ -58,7 +58,7 @@ describe("runtime original evidence deadline", () => {
   });
   it("hung comments stop at the original pick deadline and ignore late completion", async () => {
     const { r, g1 } = await participating();
-    expect(r.mkPick(g1.id).ok).toBe(true);
+    expect((await r.validatedMkPick(g1.id)).ok).toBe(true);
     r.advance(119_000);
     vi.useFakeTimers();
     vi.setSystemTime(r.env.clock.t);
@@ -84,7 +84,7 @@ describe("runtime original evidence deadline", () => {
   });
   it("hung target uses only remaining budget after comments and ignores late completion", async () => {
     const { r, g1 } = await participating();
-    expect(r.mkPick(g1.id).ok).toBe(true);
+    expect((await r.validatedMkPick(g1.id)).ok).toBe(true);
     vi.useFakeTimers();
     vi.setSystemTime(r.env.clock.t);
     const deadlineAt = new Date(Date.now() + 1000).toISOString();
@@ -112,7 +112,7 @@ describe("runtime original evidence deadline", () => {
   });
   it("slow comments record completion time and successful reads clear timers", async () => {
     const { r, g1 } = await participating();
-    expect(r.mkPick(g1.id).ok).toBe(true);
+    expect((await r.validatedMkPick(g1.id)).ok).toBe(true);
     vi.useFakeTimers();
     vi.setSystemTime(r.env.clock.t);
     const completedAt = new Date(Date.now() + 600).toISOString();
@@ -128,7 +128,7 @@ describe("runtime original evidence deadline", () => {
 describe("runtime collection reads persisted state and Tasks comments", () => {
   it("a clean recommended none pick proposes automatic with not-applicable head and no head read", async () => {
     const { r, g1 } = await participating();
-    expect(r.mkPick(g1.id).ok).toBe(true);
+    expect((await r.validatedMkPick(g1.id)).ok).toBe(true);
     const readHead = vi.fn(async () => ({ state: "OPEN", headRefOid: FILED }));
     const res = await evaluatePickRuntime(sources(r, { readHead }), g1.id);
     expect(res!.evaluation.checks).toEqual({
@@ -142,7 +142,7 @@ describe("runtime collection reads persisted state and Tasks comments", () => {
   });
   it("reads the PR head through the injected bounded reader and the persisted deadline basis", async () => {
     const { r, g1 } = await participating({ subject: { kind: "github-pr", repo: "example/repo", number: 7, head: FILED } });
-    expect(r.mkPick(g1.id).ok).toBe(true);
+    expect((await r.validatedMkPick(g1.id)).ok).toBe(true);
     const readHead = vi.fn(async () => ({ state: "OPEN", headRefOid: FILED }));
     const res = await evaluatePickRuntime(sources(r, { readHead }), g1.id);
     expect(res!.evaluation.checks["subject-head"]).toEqual({ result: "pass", reasons: ["head-unchanged"] });
@@ -153,7 +153,7 @@ describe("runtime collection reads persisted state and Tasks comments", () => {
   });
   it("collects from the stored generation and pick, not caller-supplied authority", async () => {
     const { r, g1 } = await participating();
-    expect(r.svc.pick(g1.id, "a", g1.revision, "p-words", "mk", "home", "Only if green")).toMatchObject({ ok: true });
+    expect(await r.validatedMkPick(g1.id, "p-words", "a", "Only if green")).toMatchObject({ ok: true });
     const input = await collectPickEvidence(sources(r), g1.id);
     expect(input).toMatchObject({
       decision: { id: g1.id, source: "card", task_id: g1.task_id, generation: 1, revision: g1.revision, state: "open", request_registered: true, binding: "confirmed", asker: "thr_a" },
@@ -163,7 +163,7 @@ describe("runtime collection reads persisted state and Tasks comments", () => {
   });
   it("is read-only: no rows, events, comments or control changes", async () => {
     const { r, t, g1 } = await participating();
-    expect(r.mkPick(g1.id).ok).toBe(true);
+    expect((await r.validatedMkPick(g1.id)).ok).toBe(true);
     const before = counts(r);
     const comments = r.fake.comments.filter(c => c.taskId === t.id).length;
     expect((await evaluatePickRuntime(sources(r), g1.id))!.evaluation.outcome).toBe("automatic");
@@ -178,20 +178,20 @@ describe("runtime collection reads persisted state and Tasks comments", () => {
   });
   it("Home's own Ruled comment after the pick still passes check 2", async () => {
     const { r, t, g1 } = await participating();
-    expect(r.mkPick(g1.id).ok).toBe(true);
+    expect((await r.validatedMkPick(g1.id)).ok).toBe(true);
     await r.writer.drain();
     expect(r.fake.comments.some(c => c.taskId === t.id && c.body.startsWith("Ruled: Blue"))).toBe(true);
     expect((await evaluatePickRuntime(sources(r), g1.id))!.evaluation.checks["no-extra-words"].result).toBe("pass");
   });
   it("a handler status comment with the expected complete marker still passes", async () => {
     const { r, t, g1 } = await participating();
-    expect(r.mkPick(g1.id).ok).toBe(true);
+    expect((await r.validatedMkPick(g1.id)).ok).toBe(true);
     mkComment(r, t.id, "2026-12-01T00:00:00.000Z", `Pick handler: pending\n\nhome-pick-status: ${pickActionOps(g1.id, `p-${g1.id}`).status}`);
     expect((await evaluatePickRuntime(sources(r), g1.id))!.evaluation.checks["no-extra-words"].result).toBe("pass");
   });
   it("a vizier/agent comment is not an owner condition; a null-thread user comment is", async () => {
     const { r, t, g1 } = await participating();
-    expect(r.mkPick(g1.id).ok).toBe(true);
+    expect((await r.validatedMkPick(g1.id)).ok).toBe(true);
     r.fake.addComment(t.id, { kind: "agent", threadId: "thr_viz", body: "noted", createdAt: "2026-12-01T00:00:00.000Z" });
     expect((await evaluatePickRuntime(sources(r), g1.id))!.evaluation.checks["no-extra-words"].result).toBe("pass");
     mkComment(r, t.id, "2026-12-01T00:00:01.000Z");
@@ -199,13 +199,13 @@ describe("runtime collection reads persisted state and Tasks comments", () => {
   });
   it("a Home note comment counts as owner words even with a write marker", async () => {
     const { r, t, g1 } = await participating();
-    expect(r.mkPick(g1.id).ok).toBe(true);
+    expect((await r.validatedMkPick(g1.id)).ok).toBe(true);
     mkComment(r, t.id, "2026-12-01T00:00:00.000Z", `home-write: cw-${g1.id}-comment\n\nhome-note: note_1`);
     expect((await evaluatePickRuntime(sources(r), g1.id))!.evaluation.checks["no-extra-words"]).toEqual({ result: "fail", reasons: ["owner-comment"] });
   });
   it("requires no pagination or edit timestamps and discloses the limitations", async () => {
     const { r, g1 } = await participating();
-    expect(r.mkPick(g1.id).ok).toBe(true);
+    expect((await r.validatedMkPick(g1.id)).ok).toBe(true);
     const e = (await evaluatePickRuntime(sources(r), g1.id))!.evaluation;
     expect(e.limitations).toEqual(["comment-edits-before-cutoff-not-detectable", "external-comment-read-race"]);
   });
@@ -216,7 +216,7 @@ describe("mk-7okdy runtime owner-comment cutoff", () => {
     const { r, t, g1 } = await participating();
     mkComment(r, t.id, "2020-01-01T00:00:00.000Z");
     expect(Date.parse("2020-01-01T00:00:00.000Z")).toBeLessThan(Date.parse(g1.filed_at));
-    expect(r.mkPick(g1.id).ok).toBe(true);
+    expect((await r.validatedMkPick(g1.id)).ok).toBe(true);
     const input = await collectPickEvidence(sources(r), g1.id);
     expect(input!.comments).toMatchObject({ result: "fail", reason: "owner-comment", cutoff: null });
   });
@@ -233,7 +233,7 @@ describe("mk-7okdy runtime owner-comment cutoff", () => {
     const g2 = r.gens(t.id)[1];
     expect(g2, JSON.stringify(r.cardRow(t.id))).toBeDefined();
     expect(g2.generation).toBe(2);
-    expect(r.mkPick(g2.id).ok).toBe(true);
+    expect((await r.validatedMkPick(g2.id)).ok).toBe(true);
     const clean = await collectPickEvidence(sources(r), g2.id);
     expect(clean!.comments).toMatchObject({ result: "pass", cutoff: g1.filed_at });
     expect(clean!.comments.cutoff).not.toBe(g2.filed_at);
@@ -245,11 +245,12 @@ describe("mk-7okdy runtime owner-comment cutoff", () => {
   });
   it("mk-7okdy runtime earlier generations' Home write-back comments are known markers", async () => {
     const { r, t, g1 } = await participating();
-    expect(r.vizierPick(g1.id).ok).toBe(true);
+    expect((await r.validatedVizierPick(g1.id)).ok).toBe(true);
     await r.writer.drain();
     const back = r.dele.bringBack(t.id, g1.id, null, {});
     expect(back.ok).toBe(true); if (!back.ok) return;
-    expect(r.mkPick(back.decision_id).ok).toBe(true);
+    await r.writer.drain(); // Complete the existing relabel write before the fresh Tasks entry read.
+    expect((await r.validatedMkPick(back.decision_id)).ok).toBe(true);
     await r.writer.drain();
     const e = (await evaluatePickRuntime(sources(r), back.decision_id))!.evaluation;
     expect(r.fake.comments.filter(c => c.taskId === t.id && c.body.startsWith("Ruled:"))).toHaveLength(2);
@@ -270,7 +271,7 @@ describe("mk-7okdy runtime owner-comment cutoff", () => {
   });
   it("mk-7okdy runtime unavailable comment read is unknown", async () => {
     const { r, g1 } = await participating();
-    expect(r.mkPick(g1.id).ok).toBe(true);
+    expect((await r.validatedMkPick(g1.id)).ok).toBe(true);
     const input = await collectPickEvidence(sources(r, { listComments: async () => { throw new Error("tasks offline"); } }), g1.id);
     expect(input!.comments).toMatchObject({ result: "unknown", reason: "comments-unavailable" });
     const malformed = await collectPickEvidence(sources(r, { listComments: async () => [{ id: "c", body: "x", createdAt: "broken", kind: "user", threadId: null }] }), g1.id);
@@ -278,13 +279,13 @@ describe("mk-7okdy runtime owner-comment cutoff", () => {
   });
   it.each(["pending", "failed", "recorded"])("mk-7okdy runtime persisted %s note fence fails permanently", async state => {
     const { r, t, g1 } = await participating();
-    expect(r.mkPick(g1.id).ok).toBe(true);
+    expect((await r.validatedMkPick(g1.id)).ok).toBe(true);
     r.db.prepare("INSERT INTO pick_note_fences(decision_id, task_id, generation, note_id, created_at, posting_state) VALUES (?, ?, 1, 'note_1', ?, ?)").run(g1.id, t.id, r.env.now(), state);
     expect((await collectPickEvidence(sources(r), g1.id))!.comments).toMatchObject({ result: "fail", reason: "home-note-fence" });
   });
   it("mk-7okdy runtime unreadable note fence is unknown, never absence", async () => {
     const { r, g1 } = await participating();
-    expect(r.mkPick(g1.id).ok).toBe(true);
+    expect((await r.validatedMkPick(g1.id)).ok).toBe(true);
     const store = r.svc.store;
     const broken = { pickEvidenceSnapshot: (id: string) => ({ ...store.pickEvidenceSnapshot(id)!, note_fences: null }) };
     expect((await collectPickEvidence(sources(r, { store: broken }), g1.id))!.comments).toMatchObject({ result: "unknown", reason: "note-fence-unavailable" });
@@ -310,7 +311,7 @@ function orphanGeneration(r: Rig, taskId: string, previousAt: string, withPrevio
 describe("runtime target and binding evidence", () => {
   it("N2: a Tasks linkedBbProjectId conflict plays no role in evidence or eligibility", async () => {
     const { r, g1 } = await participating();
-    expect(r.mkPick(g1.id).ok).toBe(true);
+    expect((await r.validatedMkPick(g1.id)).ok).toBe(true);
     const plain = (await evaluatePickRuntime(sources(r), g1.id))!;
     expect(plain.evaluation.outcome).toBe("automatic");
     r.tp.linkedBbProjectId = "bbp_conflicting";
@@ -322,14 +323,14 @@ describe("runtime target and binding evidence", () => {
     ["archived", { archived: true }, "target-not-live"],
   ] as const)("fresh host evidence: %s", async (_n, over, code) => {
     const { r, g1 } = await participating();
-    expect(r.mkPick(g1.id).ok).toBe(true);
+    expect((await r.validatedMkPick(g1.id)).ok).toBe(true);
     const e = (await evaluatePickRuntime(sources(r, { readTargetEvidence: evidence(over) }), g1.id))!.evaluation;
     expect(e.exclusions.map(x => x.code)).toEqual([code]);
     expect(e.outcome).toBe("fallback");
   });
   it("unavailable host evidence is excluded, not trusted", async () => {
     const { r, g1 } = await participating();
-    expect(r.mkPick(g1.id).ok).toBe(true);
+    expect((await r.validatedMkPick(g1.id)).ok).toBe(true);
     const e = (await evaluatePickRuntime(sources(r, { readTargetEvidence: async () => { throw new Error("offline"); } }), g1.id))!.evaluation;
     expect(e.exclusions.map(x => x.code)).toEqual(["target-unavailable"]);
     const none = (await evaluatePickRuntime(sources(r, { readTargetEvidence: undefined }), g1.id))!.evaluation;
@@ -337,34 +338,34 @@ describe("runtime target and binding evidence", () => {
   });
   it("an unconfirmed binding is excluded", async () => {
     const { r, g1 } = await participating();
-    expect(r.mkPick(g1.id).ok).toBe(true);
+    expect((await r.validatedMkPick(g1.id)).ok).toBe(true);
     r.db.prepare("UPDATE project_bindings SET state = 'suggested'").run();
     expect((await evaluatePickRuntime(sources(r), g1.id))!.evaluation.exclusions.map(x => x.code)).toEqual(["binding-unconfirmed"]);
   });
   it("a vizier ruling is excluded as not an owner pick", async () => {
     const { r, g1 } = await participating();
-    expect(r.vizierPick(g1.id).ok).toBe(true);
+    expect((await r.validatedVizierPick(g1.id)).ok).toBe(true);
     const e = (await evaluatePickRuntime(sources(r), g1.id))!.evaluation;
     expect(e.exclusions.map(x => x.code)).toContain("not-owner-pick");
     expect(e.outcome).toBe("fallback");
   });
   it("a superseded generation is excluded", async () => {
     const { r, t, g1 } = await participating();
-    expect(r.mkPick(g1.id).ok).toBe(true);
+    expect((await r.validatedMkPick(g1.id)).ok).toBe(true);
     const back = r.dele.bringBack(t.id, g1.id, null, {});
     expect(back.ok).toBe(true);
     expect((await evaluatePickRuntime(sources(r), g1.id))!.evaluation.exclusions.map(x => x.code)).toContain("generation-superseded");
   });
   it("persisted handler control feeds activation; shadow is observation only", async () => {
     const { r, g1 } = await participating();
-    expect(r.mkPick(g1.id).ok).toBe(true);
+    expect((await r.validatedMkPick(g1.id)).ok).toBe(true);
     r.db.prepare("UPDATE pick_handler_control SET mode = 'shadow', epoch = epoch + 1").run();
     const e = (await evaluatePickRuntime(sources(r), g1.id))!.evaluation;
     expect(e.activation).toEqual({ mode: "shadow", permitted: false, reason: "shadow-observation-only" });
   });
   it("the Service wiring uses the stored vizier, host target reader and Tasks client", async () => {
     const { r, g1 } = await participating();
-    expect(r.mkPick(g1.id).ok).toBe(true);
+    expect((await r.validatedMkPick(g1.id)).ok).toBe(true);
     const tasks = new TasksClient(r.fake, { now: () => r.env.clock.t });
     const res = await r.svc.pickEvaluation(g1.id, () => tasks, { readHead: async () => { throw new Error("must not read a head for none"); } });
     expect(res!.evaluation).toMatchObject({ outcome: "automatic", cell: "instruction:none" });

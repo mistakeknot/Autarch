@@ -101,6 +101,7 @@ export function wireStore(bb: BbPluginApi): StoreHandle {
 }
 
 export interface HomeConfig {
+  pickHandlerMode?: unknown;
   serveAddr: string;
   serveTokenFile: string;
   serveProjectDirs: string[];
@@ -217,7 +218,7 @@ export function wireHome(bb: BbPluginApi, handle: StoreHandle, cfg: HomeConfig, 
     // The blocker phone push goes over plugins.callRpc to the push-notifications plugin; a host without
     // bb.sdk.plugins simply makes no push.
     const sdkPlugins = (bb.sdk as { plugins?: PluginsLike }).plugins;
-    const svc = new Service({ store, images, readTargetEvidence: threadId => readTargetEvidence(bb.sdk, threadId), projects: () => serve.projects(), nudge, ...(sdkPlugins ? { notifier: new RpcNotifier(sdkPlugins) } : {}), log: (m) => bb.log.warn(m), rulingsLedger: cfg.rulingsLedger !== undefined ? cfg.rulingsLedger : ledgerPath() });
+    const svc = new Service({ store, images, pickHandlerMode: cfg.pickHandlerMode, tasks: () => { if (!sdkPlugins) throw new Error("Tasks unavailable"); return new TasksClient(sdkPlugins); }, readTargetEvidence: threadId => readTargetEvidence(bb.sdk, threadId), projects: () => serve.projects(), nudge, ...(sdkPlugins ? { notifier: new RpcNotifier(sdkPlugins) } : {}), log: (m) => bb.log.warn(m), rulingsLedger: cfg.rulingsLedger !== undefined ? cfg.rulingsLedger : ledgerPath() });
     const dele = new Delegation(svc, listThreadRows, getThreadRow);
     const asks = new Asks(svc);
     const catchup = new Catchup(svc, dele);
@@ -657,24 +658,25 @@ export function wireHome(bb: BbPluginApi, handle: StoreHandle, cfg: HomeConfig, 
       return r;
     },
     async pick(i: { decision_id: string; option_id: string; revision: string; pick_id: string; reason?: string; images?: { mime: string; data_base64: string }[]; answers?: Record<string, string>; surface?: "home" | "overlay" }) {
-      const error = await need().svc.refreshOwnerPick(i.decision_id, () => {
-        if (tasksRef) return tasksRef;
-        const plugins = (bb.sdk as { plugins?: PluginsLike }).plugins;
-        if (!plugins) throw new Error("Tasks unavailable; refresh before picking");
-        return new TasksClient(plugins);
-      });
-      if (error) return { ok: false as const, status: 409, error };
-      return need().svc.pick(i.decision_id, i.option_id, i.revision, i.pick_id, MK, i.surface ?? "home", i.reason, undefined, i.images, i.answers);
+      return need().svc.withValidatedPick(i.decision_id,
+        guard => need().svc.pick(i.decision_id, i.option_id, i.revision, i.pick_id, MK, i.surface ?? "home", i.reason, undefined, i.images, i.answers, guard),
+        () => {
+          if (tasksRef) return tasksRef;
+          const plugins = (bb.sdk as { plugins?: PluginsLike }).plugins;
+          if (!plugins) throw new Error("Tasks unavailable; refresh before picking");
+          return new TasksClient(plugins);
+        });
     },
     async note(i: { task_id?: string; decision_id?: string; text: string; note_id: string; images?: { mime: string; data_base64: string }[] }) {
       // Comment first: the card comment is posted before any wake obligation exists. If the tasks write fails nothing is woken.
       const r = need().svc.note({ ...(i.task_id !== undefined ? { task_id: i.task_id } : {}), ...(i.decision_id !== undefined ? { decision_id: i.decision_id } : {}) }, i.text, i.note_id, { deferWake: true, ...(i.images ? { images: i.images } : {}) });
       if (!r.ok) return r;
       if (r.task_id !== null) {
-        if (!tasksRef) return { ok: false as const, status: 503, error: "tasks unavailable; nothing was sent" };
+        if (!tasksRef) { r.commit("Tasks unavailable"); return { ok: false as const, status: 503, error: "tasks unavailable; nothing was sent" }; }
         try {
           await postNoteOnce(tasksRef, r.task_id, i.note_id, r.body);
         } catch {
+          r.commit("Tasks posting failed");
           return { ok: false as const, status: 502, error: "the card comment could not be posted, so nobody was woken; send it again" };
         }
         void commentPoller?.readNow(r.task_id);
@@ -914,6 +916,7 @@ export default async function plugin(bb: BbPluginApi) {
   // Settings are read once per load, except the three vizier message settings, which the watcher reads on every tick.
   // The Home surfaces: RPC handlers, the `bb home` CLI, wakes, feed injection, serve link.
   const homeSettings = bb.settings.define({
+    pickHandlerMode: { type: "string", label: "Pick handler mode (off or shadow)", default: "off" },
     serveAddr: { type: "string", label: "autarch serve address", default: "127.0.0.1:8110" },
     serveTokenFile: { type: "string", label: "autarch serve token file", default: "" },
     serveProjectDirs: { type: "string", label: "Project scan roots (comma separated; empty uses Bigend's)", default: "" },
@@ -932,6 +935,7 @@ export default async function plugin(bb: BbPluginApi) {
     };
   };
   const home = wireHome(bb, handle, {
+    pickHandlerMode: hs.pickHandlerMode,
     serveAddr: hs.serveAddr || "127.0.0.1:8110",
     serveTokenFile: hs.serveTokenFile || join(homedir(), ".autarch", "serve.token"),
     serveProjectDirs: (hs.serveProjectDirs || "").split(",").map((d: string) => d.trim()).filter(Boolean),

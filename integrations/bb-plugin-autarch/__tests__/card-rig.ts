@@ -62,7 +62,7 @@ export function rig(opts: { projectName?: string; projects?: string[]; svc?: Par
   const tasks = new TasksClient(fake, { now: () => env.clock.t });
   const published = { n: 0 };
   const build = () => {
-    const svc: Service = env.open(opts.svc);
+    const svc: Service = env.open({ tasks: () => tasks, ...opts.svc });
     const writer = new CardWriter(svc.store.db, tasks, env.now);
     const q = new Queue({ service: svc, tasks, writer, publish: () => void published.n++ });
     return { svc, writer, q, dele: verifiedDelegation(svc) };
@@ -87,6 +87,11 @@ export function rig(opts: { projectName?: string; projects?: string[]; svc?: Par
     },
     /** A real Service.pick of option a on the current revision. */
     mkPick: (decisionId: string, pickId = `p-${decisionId}`, option = "a") => cur.svc.pick(decisionId, option, (cur.svc.store.decision(decisionId) as any).revision, pickId, "mk", "home"),
+    validatedMkPick: (decisionId: string, pickId = `p-${decisionId}`, option = "a", reason?: string) => {
+      const d = cur.svc.store.decision(decisionId) as { revision: string };
+      return cur.svc.withValidatedPick(decisionId, guard => cur.svc.pick(decisionId, option, d.revision, pickId, "mk", "home", reason, undefined, undefined, undefined, guard));
+    },
+    validatedVizierPick: (decisionId: string) => cur.svc.withValidatedPick(decisionId, guard => cur.dele.rule(decisionId, "a", "reversible and routine", { threadId: "thr_viz" }, guard)),
     vizierPick: (decisionId: string) => cur.dele.rule(decisionId, "a", "reversible and routine", { threadId: "thr_viz" }),
     desc: (o?: CardOpts) => desc(env, o),
     /** A labelled card with an agent comment from thr_a. */

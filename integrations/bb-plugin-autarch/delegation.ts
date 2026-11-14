@@ -348,11 +348,11 @@ export class Delegation {
     const r = await this.resolveVizier();
     if (!r.ok) return r;
     if (r.id !== ctx.threadId) return refuse(403, "only the vizier thread may rule");
-    return this.rule(decisionId, optionId, reason, ctx);
+    return this.svc.withValidatedPick(decisionId, guard => this.rule(decisionId, optionId, reason, ctx, guard));
   }
 
   /** The checks in `rule` read the stored id, which is the resolver's output: `resolveVizier` runs first on every caller path. */
-  rule(decisionId: string, optionId: string, reason: string, ctx: Ctx): PickResult {
+  rule(decisionId: string, optionId: string, reason: string, ctx: Ctx, entryGuard?: () => { status: number; error: string } | null): PickResult {
     const d = this.store.decision(decisionId) as
       | { id: string; kind: string; asker: string; project: string; delegable: number; revision: string; body_json: string; request_id: string; source?: string; tasks_project_id?: string | null }
       | undefined;
@@ -388,7 +388,7 @@ export class Delegation {
       if (used >= (now.dailyCap ?? 0)) return { status: 403, error: "the daily delegation cap is reached" };
       return null;
     };
-    return this.svc.pick(decisionId, optionId, d.revision, pickId, "vizier", "cli", why, guard);
+    return this.svc.pick(decisionId, optionId, d.revision, pickId, "vizier", "cli", why, guard, undefined, undefined, entryGuard);
   }
 
   // ---- override ---------------------------------------------------------------

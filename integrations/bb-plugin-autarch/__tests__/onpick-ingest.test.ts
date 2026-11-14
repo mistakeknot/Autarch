@@ -3,6 +3,7 @@ import { rig, cleanupEnvs } from "./card-rig";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { createHash } from "node:crypto";
+import { TasksClient } from "../tasks.js";
 import { TargetEvidenceError } from "../picktarget";
 import Database from "better-sqlite3";
 import { wireHome } from "../server";
@@ -22,7 +23,7 @@ it.each(["original", "bringback", "override"].flatMap(mode => ["title", "project
   const t = r.card({ ask: participating, blocks: "thread:thr_target" }); await r.poll();
   let g = r.gens(t.id)[0];
   if (mode !== "original") {
-    expect((mode === "override" ? r.vizierPick(g.id) : r.mkPick(g.id)).ok).toBe(true);
+    expect((mode === "override" ? (await r.validatedVizierPick(g.id)) : (await r.validatedMkPick(g.id))).ok).toBe(true);
     expect((mode === "override" ? r.dele.override(g.id, {}) : r.dele.bringBack(t.id, g.id, null, {})).ok).toBe(true);
     g = r.gens(t.id)[1];
   }
@@ -51,13 +52,13 @@ it.each(["bringback", "override"])("participating %s preserves snapshots through
   Object.assign(a.options[0]!.on_pick!.ruling, { bead: "bead-e\u0301", under: ["basis-e\u0301"] });
   const t = r.card({ ask: a, blocks: "thread:thr_target" }); await r.poll();
   const g = r.gens(t.id)[0];
-  if (mode === "override") expect(r.vizierPick(g.id).ok).toBe(true); else expect(r.mkPick(g.id).ok).toBe(true);
+  if (mode === "override") expect((await r.validatedVizierPick(g.id)).ok).toBe(true); else expect((await r.validatedMkPick(g.id)).ok).toBe(true);
   const replacement = mode === "override" ? r.dele.override(g.id, {}) : r.dele.bringBack(t.id, g.id, null, {});
   expect(replacement.ok).toBe(true); if (!replacement.ok) return;
   expect(r.svc.pickTargetPresentation(replacement.decision_id)).toEqual(r.svc.pickTargetPresentation(g.id));
   expect(r.db.prepare("SELECT ref FROM decision_blocks WHERE decision_id = ?").all(replacement.decision_id)).toEqual([{ ref: "thread:thr_target" }]);
   expect(JSON.parse((r.svc.store.decision(replacement.decision_id) as any).body_json).options[0]).toMatchObject(a.options[0]!);
-  expect(r.mkPick(replacement.decision_id, "second-pick").ok).toBe(true);
+  expect((await r.validatedMkPick(replacement.decision_id, "second-pick")).ok).toBe(true);
   const third = r.dele.bringBack(t.id, replacement.decision_id, null, {});
   expect(third.ok).toBe(true); if (!third.ok) return;
   r.restart();
@@ -84,7 +85,7 @@ it("reconcile enriches the static ledger once across retry", async () => {
   const t = r.card({ ask, blocks: "thread:thr_target" }); await r.poll();
   const g = r.gens(t.id)[0];
   r.db.prepare("UPDATE decisions SET root_ino = '0' WHERE id = ?").run(g.id);
-  expect(svc.pick(g.id, "a", g.revision, "pick-static", "mk", "home").ok).toBe(true);
+  expect((await svc.withValidatedPick(g.id, guard => svc.pick(g.id, "a", g.revision, "pick-static", "mk", "home", undefined, undefined, undefined, undefined, guard), () => new TasksClient(r.fake))).ok).toBe(true);
   expect(svc.store.obligationsFor(g.id).find(o => o.kind === "ruling-file")?.state).toBe("pending");
   svc.reconcile(g.id);
   const lines = readFileSync(path, "utf8").trim().split("\n").map(x => JSON.parse(x));

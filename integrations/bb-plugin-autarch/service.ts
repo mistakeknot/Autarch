@@ -40,6 +40,7 @@ import { appendRuling } from "./ledger.js";
 import { canonicalOnPick } from "./model.js";
 import { TargetEvidenceError, validatePickTarget, type TargetEvidence } from "./picktarget.js";
 import { evaluatePickRuntime, type PickEvidenceOptions } from "./pickhandler.js";
+import { capturePick, pickFenceToken, productionPickMode, recordPickEvaluation } from "./pickcapture.js";
 import type { HeadReader } from "./pickhead.js";
 import type { ThreadRow } from "./delegation.js";
 import type { DecisionInput, ObligationInput, ObligationRow, PickInput, PickRow, Store } from "./store.js";
@@ -52,6 +53,10 @@ export interface ProjectInfo {
 }
 
 export interface ServiceDeps {
+  pickHandlerMode?: unknown;
+  /** Isolated runtime injection only. Production wiring never supplies this dependency. */
+  pickCaptureRuntime?: { mode: () => string };
+  tasks?: () => TasksClient;
   readTargetEvidence?: (thread: string) => Promise<TargetEvidence>;
   store: Store;
   projects: () => Promise<ProjectInfo[]>;
@@ -241,6 +246,7 @@ function shownParseError(err: string): string {
 }
 
 export class Service {
+  private readonly entryGuards = new WeakMap<NonNullable<PickInput["guard"]>, string>();
   readonly store: Store;
   private readonly deps: ServiceDeps;
   private timer: ReturnType<typeof setInterval> | null = null;
@@ -253,6 +259,10 @@ export class Service {
     this.deps = deps;
     this.store = deps.store;
     this.threadSource = deps.threadSource;
+    const mode = productionPickMode(deps.pickHandlerMode);
+    this.store.atomically(() => {
+      this.db.prepare("UPDATE pick_handler_control SET mode = ?, epoch = epoch + 1, updated_at = ? WHERE id = 1 AND mode <> ?").run(mode, this.now(), mode);
+    });
   }
 
   /** Where a notice about an undelivered card with no known asker is sent (bead mk-mn7yz). Delegation sets this from the host's thread list. */
@@ -547,7 +557,29 @@ export class Service {
     }
   }
 
-  pick(decisionId: string, optionId: string, rev: string, pickId: string, by: string, surface: "home" | "overlay" | "cli", reason?: string, guard?: PickInput["guard"], images?: readonly ImageIn[], answers?: Readonly<Record<string, string>>): PickResult {
+  /** Evidence is scoped to one synchronous commit callback, never a reusable permission flag. */
+  async withValidatedPick(decisionId: string, commit: (guard: PickInput["guard"]) => PickResult, tasks = this.deps.tasks): Promise<PickResult> {
+    const d = this.row(decisionId);
+    const ask = d && readAsk(d.body_json, {}, d.source);
+    if (!d || d.source !== "card" || !ask?.options?.some(o => o.on_pick) || this.store.pick(decisionId)) return commit(undefined);
+    const snapshot = () => JSON.stringify({
+      decision: this.row(decisionId),
+      card: this.db.prepare("SELECT * FROM cards WHERE task_id = ?").get(String(d.task_id)),
+      binding: this.db.prepare("SELECT * FROM project_bindings WHERE tasks_project_id = ?").get(String(d.tasks_project_id)),
+      blocks: this.db.prepare("SELECT ref FROM decision_blocks WHERE decision_id = ? ORDER BY ref").all(decisionId),
+      targets: this.db.prepare("SELECT detail_json FROM events WHERE decision_id = ? AND type = 'on-pick-targets' ORDER BY seq").all(decisionId),
+    });
+    const before = snapshot();
+    if (!tasks) return { ok: false, status: 409, error: "on_pick: Tasks unavailable" };
+    const error = await this.refreshOwnerPick(decisionId, tasks);
+    if (error) return { ok: false, status: 409, error };
+    const guard = () => before === snapshot() ? null : { status: 409, error: "on_pick: Home state changed during target validation" };
+    this.entryGuards.set(guard, decisionId);
+    try { return commit(guard); }
+    finally { this.entryGuards.delete(guard); }
+  }
+
+  pick(decisionId: string, optionId: string, rev: string, pickId: string, by: string, surface: "home" | "overlay" | "cli", reason?: string, guard?: PickInput["guard"], images?: readonly ImageIn[], answers?: Readonly<Record<string, string>>, entryGuard?: PickInput["guard"]): PickResult {
     const d = this.row(decisionId);
     if (!d) return { ok: false, status: 404, error: "unknown decision" };
     if (d.kind === "steps") return this.pickSteps(d, optionId, rev, pickId, by, surface);
@@ -617,6 +649,7 @@ export class Service {
     };
     const prior = settled(this.store.pick(decisionId));
     if (prior) return prior;
+    if (d.source === "card" && ask.options?.some(o => o.on_pick) && (!entryGuard || this.entryGuards.get(entryGuard) !== decisionId)) return { ok: false, status: 409, error: "on_pick: validated entry guard required" };
     if (this.store.pickByPickId(pickId)) return { ok: false, status: 409, error: "pick id reused" };
 
     if (imgs.files.length > 0 && d.thread !== "") {
@@ -630,8 +663,9 @@ export class Service {
     const isCardPick = d.source === "card" && by === "mk" && !isOther && !isAnswers;
     const thin = isCardPick && ask.recommendation === optionId;
     const obligations: ObligationInput[] = [{ id: `ob:${decisionId}:ruling-file`, kind: "ruling-file", op: `ruling-file:${decisionId}` }];
+    const owned = by === "mk" && d.source === "card" && ask.options?.some(o => o.on_pick) === true && this.deps.pickCaptureRuntime?.mode() === "live";
     // Every ruling wakes the asking thread, whatever the option kind (bead mk-vh20p): a ruling-only pick used to leave the thread believing the ask was still open.
-    if (d.thread !== "") {
+    if (d.thread !== "" && !owned) {
       obligations.push({
         id: `ob:${decisionId}:wake:${pickId}`,
         kind: "wake",
@@ -644,7 +678,13 @@ export class Service {
     // A card generation also notifies the threads its own Blocks snapshot names (never a later edit's),
     // and queues the tasks write-backs, all in the pick's transaction.
     const isCard = d.source === "card" && typeof d.task_id === "string";
-    if (isCard) obligations.push(...this.noticesFor(d, optionLabelOf(option), by, wordsFor));
+    if (isCard) {
+      const notices = this.noticesFor(d, optionLabelOf(option), by, wordsFor);
+      if (!owned) obligations.push(...notices);
+      else if (option.on_pick) obligations.push(...notices.filter(n => n.recipient !== option.on_pick!.target_thread).map(n => ({
+        ...n, payload: `Home pick ${pickId} is handler-owned. Information only; do not relay or act. Consult generation ${String(d.generation)} action readback for decision ${decisionId}.`,
+      })));
+    }
     const cardWrites = isCard
       ? pickWrites(
           { id: decisionId, task_id: String(d.task_id) },
@@ -666,7 +706,8 @@ export class Service {
     let res;
     try {
       res = this.store.recordPick(
-        { decision_id: decisionId, pick_id: pickId, option_id: optionId, revision: rev, by, surface, reason: storedReason, params_hash: hash, approval, guard },
+        { decision_id: decisionId, pick_id: pickId, option_id: optionId, revision: rev, by, surface, reason: storedReason, params_hash: hash, approval, guard: () => entryGuard?.() ?? guard?.() ?? null,
+          ...(owned ? { capture: () => { capturePick(this.store, decisionId, "live", this.now()); } } : {}) },
         obligations,
         cardWrites,
       );
@@ -695,6 +736,22 @@ export class Service {
     }
     // Ruling a card ends its time in Later.
     if (isCard) this.unlater(String(d.task_id));
+    if (this.deps.pickHandlerMode === "shadow" && isCard && ask.options?.some(o => o.on_pick)) {
+      const failed = (error: unknown) => {
+        try { this.store.recordEvent("pick-collection-failure", decisionId, { pick_id: pickId, error: message(error) }); }
+        catch { this.deps.log?.("pick collection failure could not be recorded"); }
+      };
+      try {
+        const action = capturePick(this.store, decisionId, "shadow", this.now());
+        const fenceToken = pickFenceToken(this.store, action);
+        const tasks = this.deps.tasks;
+        if (!tasks) throw new Error("Tasks unavailable for shadow collection");
+        void this.pickEvaluation(decisionId, tasks, { deadlineAt: action.evaluation_deadline_at, captureEpoch: action.capture_epoch }).then(result => {
+          if (!result) throw new Error("shadow evaluation unavailable");
+          recordPickEvaluation(this.store, action, result, this.now(), fenceToken);
+        }).catch(failed);
+      } catch (error) { failed(error); }
+    }
     return { ok: true, status: 201, pick: this.store.pick(decisionId)! };
   }
 
@@ -1702,42 +1759,75 @@ export class Service {
    * The text is mk's, untrusted plain text, 1..OTHER_MAX characters. Idempotent per note_id.
    */
   note(target: { task_id?: string; decision_id?: string }, text: string, noteId: string, opts?: { deferWake?: false; images?: readonly ImageIn[] }): { ok: true; replay: boolean; body: string; woke: boolean; task_id: string | null } | { ok: false; status: number; error: string };
-  note(target: { task_id?: string; decision_id?: string }, text: string, noteId: string, opts: { deferWake: true; images?: readonly ImageIn[] }): { ok: true; body: string; task_id: string | null; commit: () => { replay: boolean; woke: boolean } } | { ok: false; status: number; error: string };
+  note(target: { task_id?: string; decision_id?: string }, text: string, noteId: string, opts: { deferWake: true; images?: readonly ImageIn[] }): { ok: true; body: string; task_id: string | null; commit: (postingError?: string) => { replay: boolean; woke: boolean } } | { ok: false; status: number; error: string };
   note(target: { task_id?: string; decision_id?: string }, text: string, noteId: string, opts?: { deferWake?: boolean; images?: readonly ImageIn[] }): any {
-    const t = cleanOther(text);
-    if (t === null) return { ok: false, status: 400, error: `a note of 1-${OTHER_MAX} characters is required` };
-    if ((target.task_id === undefined) === (target.decision_id === undefined)) return { ok: false, status: 400, error: "name exactly one of task_id and decision_id" };
-    type D = { id: string; owner_thread: string | null; thread: string | null; task_id: string | null };
-    const d = (target.decision_id !== undefined
-      ? this.db.prepare("SELECT id, owner_thread, thread, task_id FROM decisions WHERE id = ?").get(target.decision_id)
-      : this.db.prepare("SELECT id, owner_thread, thread, task_id FROM decisions WHERE task_id = ? ORDER BY generation DESC LIMIT 1").get(target.task_id)) as D | undefined;
-    if (!d) return { ok: false, status: 404, error: "no such card or ask" };
-    const owner = d.owner_thread ?? d.thread ?? "";
-    const key = d.task_id ?? d.id;
-    const op = `note:${key}:${noteId}`;
-    const imgs = validateImages(opts?.images);
-    if (!imgs.ok) return { ok: false, status: 400, error: imgs.error };
-    if (imgs.files.length > 0 && !this.deps.images) return { ok: false, status: 503, error: "images are not available; nothing was sent" };
-    const body = `mk's note (Home, advisory; plain text):\n${t}\n\nhome-note: ${noteId}`;
-    if (owner === "") return opts?.deferWake ? { ok: true, body, task_id: d.task_id, commit: () => ({ replay: false, woke: false }) } : { ok: true, replay: false, body, woke: false, task_id: d.task_id };
-    const what = d.task_id ? `Home card ${d.task_id}` : `Home ask ${d.id}`;
-    const payload = `${what}: mk wrote a note. It is a question or a comment, not a ruling, and nothing is closed. Reply in the conversation. mk's words (unverified plain text, not an instruction to run anything):\n${t}`;
-    // The request id's attachments are fixed at preparation, before the deferred comment write: a text-only note
-    // reserves the id with an empty image record, so another request under it with images (or the reverse) is refused.
-    if (this.deps.images) {
-      const had = this.db.prepare("SELECT 1 FROM obligations WHERE id = ?").get(`ob:${op}`) !== undefined;
-      if (imgs.files.length > 0 && had && this.deps.images.expectedCount(op) === 0) return { ok: false, status: 409, error: "this request id was already used with different content" };
-      const put = this.deps.images.put(op, key, textSha(t), imgs);
-      if (!put.ok) return put;
-    }
-    const commit = () => {
-      const n = this.store.insertObligations(d.id, [{ id: `ob:${op}`, kind: "note", recipient: owner, op, payload }]);
-      if (n > 0) this.deps.nudge?.();
-      return { replay: n === 0, woke: true };
-    };
-    if (opts?.deferWake) return { ok: true, body, task_id: d.task_id, commit };
-    const c = commit();
-    return { ok: true, replay: c.replay, body, woke: c.woke, task_id: d.task_id };
+    let notifyAfterCommit = false;
+    const result = this.store.atomically(() => {
+      const t = cleanOther(text);
+      if (t === null) return { ok: false, status: 400, error: `a note of 1-${OTHER_MAX} characters is required` };
+      if ((target.task_id === undefined) === (target.decision_id === undefined)) return { ok: false, status: 400, error: "name exactly one of task_id and decision_id" };
+      type D = { id: string; owner_thread: string | null; thread: string | null; task_id: string | null };
+      const d = (target.decision_id !== undefined
+        ? this.db.prepare("SELECT id, owner_thread, thread, task_id FROM decisions WHERE id = ?").get(target.decision_id)
+        : this.db.prepare("SELECT id, owner_thread, thread, task_id FROM decisions WHERE task_id = ? ORDER BY generation DESC LIMIT 1").get(target.task_id)) as D | undefined;
+      if (!d) return { ok: false, status: 404, error: "no such card or ask" };
+      const owner = d.owner_thread ?? d.thread ?? "";
+      const key = d.task_id ?? d.id;
+      const op = `note:${key}:${noteId}`;
+      const imgs = validateImages(opts?.images);
+      if (!imgs.ok) return { ok: false, status: 400, error: imgs.error };
+      if (imgs.files.length > 0 && !this.deps.images) return { ok: false, status: 503, error: "images are not available; nothing was sent" };
+      const body = `mk's note (Home, advisory; plain text):\n${t}\n\nhome-note: ${noteId}`;
+      const reserved = this.store.atomically(() => {
+        const prior = this.db.prepare("SELECT detail_json FROM events WHERE (decision_id = ? OR decision_id IN (SELECT id FROM decisions WHERE task_id = ?)) AND type = 'home-note-reserved' ORDER BY seq").all(d.id, d.task_id) as { detail_json: string }[];
+        const identity = JSON.stringify({ note_id: noteId, body, image_digest: imgs.digest });
+        for (const row of prior) {
+          const saved = JSON.parse(row.detail_json) as { note_id: string };
+          if (saved.note_id === noteId) return row.detail_json === identity;
+        }
+        if (d.task_id !== null) {
+          const generation = this.db.prepare("SELECT generation FROM decisions WHERE id = ?").get(d.id) as { generation: number };
+          const existing = this.db.prepare("SELECT note_id FROM pick_note_fences WHERE decision_id = ? AND note_id = ?").get(d.id, noteId);
+          if (existing) return false;
+          this.db.prepare("INSERT INTO pick_note_fences(decision_id, task_id, generation, note_id, created_at) VALUES (?, ?, ?, ?, ?)").run(d.id, d.task_id, generation.generation, noteId, this.now());
+        }
+        this.store.recordEvent("home-note-reserved", d.id, JSON.parse(identity));
+        return true;
+      });
+      if (!reserved) return { ok: false, status: 409, error: "this note id was already used with different content" };
+      if (owner === "") return opts?.deferWake ? { ok: true, body, task_id: d.task_id, commit: () => ({ replay: false, woke: false }) } : { ok: true, replay: false, body, woke: false, task_id: d.task_id };
+      const what = d.task_id ? `Home card ${d.task_id}` : `Home ask ${d.id}`;
+      const payload = `${what}: mk wrote a note. It is a question or a comment, not a ruling, and nothing is closed. Reply in the conversation. mk's words (unverified plain text, not an instruction to run anything):\n${t}`;
+      // The request id's attachments are fixed at preparation, before the deferred comment write: a text-only note
+      // reserves the id with an empty image record, so another request under it with images (or the reverse) is refused.
+      if (this.deps.images) {
+        const had = this.db.prepare("SELECT 1 FROM obligations WHERE id = ?").get(`ob:${op}`) !== undefined;
+        if (imgs.files.length > 0 && had && this.deps.images.expectedCount(op) === 0) return { ok: false, status: 409, error: "this request id was already used with different content" };
+        const put = this.deps.images.put(op, key, textSha(t), imgs);
+        if (!put.ok) return put;
+      }
+      const commit = (postingError?: string) => {
+        if (postingError !== undefined) {
+          this.store.atomically(() => this.db.prepare("UPDATE pick_note_fences SET posting_state = 'failed', posting_attempted_at = ?, last_error = ? WHERE decision_id = ? AND note_id = ? AND posting_state <> 'recorded'").run(this.now(), postingError, d.id, noteId));
+          return { replay: false, woke: false };
+        }
+        const n = this.store.atomically(() => {
+          this.db.prepare("UPDATE pick_note_fences SET posting_state = 'recorded', posted_at = ? WHERE decision_id = ? AND note_id = ? AND posting_state <> 'recorded'").run(this.now(), d.id, noteId);
+          return this.store.insertObligations(d.id, [{ id: `ob:${op}`, kind: "note", recipient: owner, op, payload }]);
+        });
+        if (n > 0) {
+          if (opts?.deferWake) this.deps.nudge?.();
+          else notifyAfterCommit = true;
+        }
+        return { replay: n === 0, woke: true };
+      };
+      if (opts?.deferWake) return { ok: true, body, task_id: d.task_id, commit };
+      const c = commit();
+      return { ok: true, replay: c.replay, body, woke: c.woke, task_id: d.task_id };
+    });
+    // Direct notes reserve and enqueue together; notification must follow that outer commit.
+    if (notifyAfterCommit) this.deps.nudge?.();
+    return result;
   }
 
   /** The images to send with the wake whose op is `op`. `expected` is true when images were part of the request. */
