@@ -8,7 +8,7 @@ const observedAt = "2026-01-02T00:00:00.000Z";
 const input: OwnerCommentInput = {
   generation: 1, previousObservedAt: null, comments: [], complete: true, observedAt,
   context: { owner: "thr_owner", vizier: "thr_vizier" },
-  expectedWriteId: "cw-decision-comment", expectedStatusId: "pa-pick-status", noteFence: "absent",
+  expectedWriteIds: ["cw-decision-comment"], expectedStatusIds: ["pa-pick-status"], noteFence: "absent",
 };
 function comment(overrides: Partial<TaskCommentRow> = {}): TaskCommentRow {
   return { id: "comment", taskId: "task", kind: "user", authorName: "Owner", threadId: null, body: "Only if the checks pass", createdAt: before, ...overrides };
@@ -27,11 +27,11 @@ describe("owner comment evidence", () => {
     expect(evaluateOwnerComments({ ...input, generation: 2 })).toMatchObject({ result: "unknown", reason: "comment-cutoff-unavailable" });
   });
   it("Home Ruled comment with the expected complete write marker passes", () => {
-    const body = commentBody(input.expectedWriteId, { option_label: "A", by: "mk", generation: 1 });
+    const body = commentBody(input.expectedWriteIds[0]!, { option_label: "A", by: "mk", generation: 1 });
     expect(evaluateOwnerComments({ ...input, comments: [comment({ body })] }).result).toBe("pass");
   });
   it("Home status comment with the expected complete marker passes", () => {
-    expect(evaluateOwnerComments({ ...input, comments: [comment({ body: `Pending\n\nhome-pick-status: ${input.expectedStatusId}` })] }).result).toBe("pass");
+    expect(evaluateOwnerComments({ ...input, comments: [comment({ body: `Pending\n\nhome-pick-status: ${input.expectedStatusIds[0]}` })] }).result).toBe("pass");
   });
   it.each(["home-write: arbitrary", "prefix home-write: cw-decision-comment", "home-write: cw-decision-comment extra", "home-pick-status: other"])("prefix prose or another operation is owner words: %s", body => {
     expect(evaluateOwnerComments({ ...input, comments: [comment({ body })] })).toMatchObject({ result: "fail", reason: "owner-comment" });

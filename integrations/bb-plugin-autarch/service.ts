@@ -39,6 +39,8 @@ import { estateRoot, fsUuidOfDev, pinRoot, renderRuling, rulingPath, writeRuling
 import { appendRuling } from "./ledger.js";
 import { canonicalOnPick } from "./model.js";
 import { TargetEvidenceError, validatePickTarget, type TargetEvidence } from "./picktarget.js";
+import { evaluatePickRuntime, type PickEvidenceOptions } from "./pickhandler.js";
+import type { HeadReader } from "./pickhead.js";
 import type { ThreadRow } from "./delegation.js";
 import type { DecisionInput, ObligationInput, ObligationRow, PickInput, PickRow, Store } from "./store.js";
 
@@ -171,6 +173,34 @@ export function answersOf(
     lines.push(`Note: ${flat(text)}`);
   }
   return { ok: true, words, lines, json: JSON.stringify([chosen, text]) };
+}
+
+export interface PickParams {
+  option_id: string;
+  revision: string;
+  by: string;
+  reason: string | null;
+  answer_form: "option" | "own-words" | "answers";
+  answers: [string, string][] | null;
+  image_digest: string | null;
+}
+/**
+ * Version 2 of the pick-parameter digest (mk-cqnab.1). Canonical JSON framing of the exact reason as received,
+ * option, revision, by, answer form, answer values and image digest. Version 1 digests (bare SHA-256 hex or
+ * `img1:`) stay valid only together with the stored words; see `pickRetryMatches`.
+ */
+export function pickParamsDigest(p: PickParams): string {
+  const answers = p.answers === null ? null : [...p.answers].sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0));
+  const frame = JSON.stringify(["home-pick-params", 2, p.option_id, p.revision, p.by, p.reason, p.answer_form, answers, p.image_digest]);
+  return `p2:${createHash("sha256").update(frame, "utf8").digest("hex")}`;
+}
+
+/** A retry settles only on the same parameters. A legacy row must match its old digest and its stored words. */
+export function pickRetryMatches(existing: Pick<PickRow, "params_hash" | "reason">, digest: string, legacyDigest: string, storedReason: string | null): boolean {
+  const h = existing.params_hash;
+  if (h === null) return false;
+  if (h.startsWith("p2:")) return h === digest;
+  return h === legacyDigest && existing.reason === storedReason;
 }
 
 export function cleanOther(s: string | undefined): string | null {
@@ -462,6 +492,23 @@ export class Service {
 
   // ---- picking --------------------------------------------------------------
 
+  /**
+   * mk-cqnab.1 PR3: read-only pick-handler evaluation from persisted state, the Tasks comments API, host target
+   * metadata and the bounded head reader. It records nothing and sends nothing; a later stage captures and acts.
+   */
+  async pickEvaluation(decisionId: string, tasks: () => TasksClient, opts: PickEvidenceOptions & { readHead?: HeadReader } = {}) {
+    const images = this.deps.images;
+    return evaluatePickRuntime({
+      store: this.store,
+      listComments: (taskId) => tasks().listComments(taskId),
+      ...(this.deps.readTargetEvidence ? { readTargetEvidence: this.deps.readTargetEvidence } : {}),
+      ...(opts.readHead ? { readHead: opts.readHead } : {}),
+      // An image set is stored under the ordinary wake op; with no image store none could be accepted.
+      imageCount: (op) => (images ? images.expectedCount(op) : 0),
+      now: () => this.now(),
+    }, decisionId, { ...(opts.deadlineAt ? { deadlineAt: opts.deadlineAt } : {}), ...(opts.captureEpoch !== undefined ? { captureEpoch: opts.captureEpoch } : {}) });
+  }
+
   /** Async owner-entry guard. Frozen presentation is never silently refreshed. */
   async refreshOwnerPick(decisionId: string, tasks: () => TasksClient): Promise<string | null> {
     const d = this.row(decisionId);
@@ -551,13 +598,20 @@ export class Service {
     if (!option) return { ok: false, status: 400, error: `unknown option ${JSON.stringify(optionId)}` };
     if (rev !== d.revision) return { ok: false, status: 409, error: "revision differs" };
 
+    // Version 1 (legacy) digest: kept only to recognise retries of picks stored before version 2. It omitted an ordinary reason.
     const base = `${optionId}|${rev}|${by}${isOther ? `|${otherText}` : ""}${multi ? `|${multi.json}` : ""}`;
-    // With images the identity is framed (JSON) and prefixed, so it can never equal a text-only hash.
-    const hash = imgs.files.length > 0 ? `img1:${createHash("sha256").update(JSON.stringify([base, imgs.digest])).digest("hex")}` : createHash("sha256").update(base).digest("hex");
+    const legacyHash = imgs.files.length > 0 ? `img1:${createHash("sha256").update(JSON.stringify([base, imgs.digest])).digest("hex")}` : createHash("sha256").update(base).digest("hex");
+    const storedReason = multi ? multi.words : isOther ? otherText : (reason ?? null);
+    const hash = pickParamsDigest({
+      option_id: optionId, revision: rev, by, reason: reason ?? null,
+      answer_form: isAnswers ? "answers" : isOther ? "own-words" : "option",
+      answers: isAnswers && answers ? Object.entries(answers) : null,
+      image_digest: imgs.files.length > 0 ? imgs.digest : null,
+    });
     const settled = (existing: PickRow | undefined): PickResult | null => {
       if (!existing) return null;
       if (existing.pick_id === pickId) {
-        return existing.params_hash === hash ? { ok: true, status: 200, pick: existing } : { ok: false, status: 409, error: "pick id reused" };
+        return pickRetryMatches(existing, hash, legacyHash, storedReason) ? { ok: true, status: 200, pick: existing } : { ok: false, status: 409, error: "pick id reused" };
       }
       return { ok: false, status: 409, error: "already ruled" };
     };
@@ -612,7 +666,7 @@ export class Service {
     let res;
     try {
       res = this.store.recordPick(
-        { decision_id: decisionId, pick_id: pickId, option_id: optionId, revision: rev, by, surface, reason: multi ? multi.words : isOther ? otherText : (reason ?? null), params_hash: hash, approval, guard },
+        { decision_id: decisionId, pick_id: pickId, option_id: optionId, revision: rev, by, surface, reason: storedReason, params_hash: hash, approval, guard },
         obligations,
         cardWrites,
       );

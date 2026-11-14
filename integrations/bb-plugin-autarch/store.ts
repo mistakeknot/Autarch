@@ -214,6 +214,27 @@ export interface ApprovalRow {
   authorizing: number;
 }
 
+/** Read-only join for the pick handler (mk-cqnab.1 PR3). Existing rows only; no new persistent field. */
+export interface PickEvidenceSnapshot {
+  decision: {
+    id: string; request_id: string; source: string; task_id: string | null; generation: number | null; revision: string; body_json: string;
+    thread: string; owner_thread: string | null; project: string; tasks_project_id: string | null; filed_at: string;
+    withdrawn_at: string | null; resolved_at: string | null; superseded_by: string | null;
+  };
+  pick: PickRow | null;
+  /** Generation n-1 of the same card, with Home's first-observation time; null when absent or for generation 1. */
+  previous: { id: string; filed_at: string } | null;
+  generations: { decision_id: string; pick_id: string | null }[];
+  note_fences: { note_id: string; posting_state: string }[] | null;
+  control: { mode: string; epoch: number; enabled_cells_json: string; owner_enablement_json: string | null } | null;
+  target_snapshot_json: string | null;
+  blocks: string[];
+  binding: { home_project: string; state: string } | null;
+  request_registered: boolean;
+  move: boolean;
+  vizier: string | null;
+}
+
 export interface PickRow extends Required<Omit<PickInput, "reason" | "params_hash" | "approval">> {
   reason: string | null;
   params_hash: string | null;
@@ -489,6 +510,61 @@ export class Store {
     return this.db.prepare("SELECT * FROM decisions WHERE id = ?").get(id) as
       | Record<string, unknown>
       | undefined;
+  }
+
+  /**
+   * mk-cqnab.1 PR3: one consistent read of everything the pick handler evaluates. Read-only (a deferred
+   * transaction takes no write lock). `previous.filed_at` is Home's own clock at ingest of generation n-1
+   * (insertDecision stamps `at ?? now()`, and card generations never pass `at`): Home's first observation.
+   * Nullable members are unavailable evidence, never absence.
+   */
+  pickEvidenceSnapshot(decisionId: string): PickEvidenceSnapshot | null {
+    return this.db.transaction((): PickEvidenceSnapshot | null => {
+      const d = this.db.prepare(
+        `SELECT d.id, d.request_id, d.source, d.task_id, d.generation, d.revision, d.body_json, d.thread, d.owner_thread, d.project,
+                d.tasks_project_id, d.filed_at, d.withdrawn_at, d.resolved_at,
+                (SELECT r.id FROM decisions r WHERE r.supersedes = d.id) AS superseded_by
+           FROM decisions d WHERE d.id = ?`,
+      ).get(decisionId) as PickEvidenceSnapshot["decision"] | undefined;
+      if (!d) return null;
+      const pick = this.pick(decisionId) ?? null;
+      const generation = typeof d.generation === "number" ? d.generation : null;
+      const previous = d.task_id !== null && generation !== null && generation > 1
+        ? (this.db.prepare("SELECT id, filed_at FROM decisions WHERE task_id = ? AND generation = ?").get(d.task_id, generation - 1) as { id: string; filed_at: string } | undefined) ?? null
+        : null;
+      const generations = d.task_id === null ? [] : (this.db.prepare(
+        "SELECT d.id AS decision_id, k.pick_id FROM decisions d LEFT JOIN picks k ON k.decision_id = d.id WHERE d.task_id = ? ORDER BY d.generation",
+      ).all(d.task_id) as { decision_id: string; pick_id: string | null }[]);
+      const optional = <T>(read: () => T): T | null => { try { return read(); } catch { return null; } };
+      // Note fences and control are PR2 tables: an older schema reads as unavailable, not as absent.
+      const note_fences = optional(() => this.db.prepare(
+        "SELECT note_id, posting_state FROM pick_note_fences WHERE decision_id = ? OR (task_id = ? AND generation = ?) ORDER BY rowid",
+      ).all(d.id, d.task_id, generation) as { note_id: string; posting_state: string }[]);
+      const control = optional(() => (this.db.prepare(
+        "SELECT mode, epoch, enabled_cells_json, owner_enablement_json FROM pick_handler_control WHERE id = 1",
+      ).get() as PickEvidenceSnapshot["control"] | undefined) ?? null);
+      const target = this.db.prepare("SELECT detail_json FROM events WHERE decision_id = ? AND type = 'on-pick-targets' ORDER BY seq LIMIT 1").get(d.id) as { detail_json: string } | undefined;
+      const binding = d.tasks_project_id === null ? null
+        : (this.db.prepare("SELECT home_project, state FROM project_bindings WHERE tasks_project_id = ?").get(d.tasks_project_id) as { home_project: string; state: string } | undefined) ?? null;
+      const registry = this.db.prepare("SELECT 1 FROM requests WHERE request_id = ? AND decision_id = ? AND result = 'decision'").get(d.request_id, d.id) !== undefined;
+      const cardRequest = d.task_id === null ? false : this.db.prepare("SELECT 1 FROM card_requests WHERE task_id = ? LIMIT 1").get(d.task_id) !== undefined;
+      const move = d.task_id === null || generation === null ? false
+        : this.db.prepare("SELECT 1 FROM moves WHERE task_id = ? AND generation = ?").get(d.task_id, generation) !== undefined;
+      return {
+        decision: d,
+        pick,
+        previous,
+        generations,
+        note_fences,
+        control,
+        target_snapshot_json: target?.detail_json ?? null,
+        blocks: (this.db.prepare("SELECT ref FROM decision_blocks WHERE decision_id = ? ORDER BY ref").all(d.id) as { ref: string }[]).map(b => b.ref),
+        binding,
+        request_registered: registry && cardRequest,
+        move,
+        vizier: this.setting("vizierThreadId") ?? null,
+      };
+    }).deferred();
   }
 
   pick(decisionId: string): PickRow | undefined {

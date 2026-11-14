@@ -360,8 +360,9 @@ export class Delegation {
     const cfg = this.settings();
     if (!cfg.vizierThreadId || ctx.threadId !== cfg.vizierThreadId) return refuse(403, "only the vizier thread may rule");
     const pickId = `rule:${decisionId}`;
+    const why = reason?.trim() ?? "";
     const prior = this.store.pick(decisionId);
-    if (prior && prior.pick_id === pickId && prior.by === "vizier") return this.svc.pick(decisionId, optionId, d.revision, pickId, "vizier", "cli", reason);
+    if (prior && prior.pick_id === pickId && prior.by === "vizier") return this.svc.pick(decisionId, optionId, d.revision, pickId, "vizier", "cli", why);
     if (d.kind !== "decide" || d.asker !== "thread") return refuse(403, "only a decision asked by a thread can be delegated");
     if (!d.delegable || d.request_id.startsWith("override:")) return refuse(403, "this decision is not delegable");
     const stored = readAsk(d.body_json, {}, d.source);
@@ -370,7 +371,6 @@ export class Delegation {
     if (!option) return refuse(400, `unknown option ${JSON.stringify(optionId)}`);
     if (option.approval) return refuse(403, "an option with an approval spec cannot be delegated");
     if (!option.reversible) return refuse(403, "only a reversible option can be delegated");
-    const why = reason?.trim() ?? "";
     if (why === "" || [...why].length > 500) return refuse(400, "a reason of 1-500 characters is required");
     if (APPROVAL_TOKEN.test(reason)) return refuse(400, "a reason may not carry an approval token");
     // Settings, suspension and the daily cap are decided inside the pick's write
