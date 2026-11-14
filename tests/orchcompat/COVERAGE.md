@@ -32,6 +32,7 @@ Go suite: `tests/orchcompat/`. TypeScript suite: `integrations/bb-plugin-autarch
 | needs-mk file | owner thread, filing preconditions, warnings, existing label not recreated | covered | needsmk_file_args_test.go | |
 | needs-mk file | project alias rewritten to the bound name | covered | needsmk_file_args_test.go | |
 | needs-mk file | Home down (exit 3) | covered | needsmk_file_args_test.go | |
+| needs-mk file update | pre-edit readback with empty project_id (exit 3), no writes | covered (CLI unit) | cmd/autarch/needsmk_update_test.go: TestNeedsMkUpdateWithoutProjectExitsThreeWithoutWrites | incomplete Home indexing; safe to re-run |
 | needs-mk file | move filing | covered | needsmk_file_args_test.go | |
 | needs-mk adopt-move | attach a move to a filed card, conflicting move refused | covered | needsmk_file_args_test.go | |
 | needs-mk footer | four sections, cursor file, per-caller cursor, caller selection, database lookup, empty database, never writes the database | covered | needsmk_footer_test.go | |
