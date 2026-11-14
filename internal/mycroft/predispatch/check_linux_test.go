@@ -66,6 +66,9 @@ func TestPreDispatchKillsDescendant(t *testing.T) {
 				if err == nil {
 					t.Fatal("interrupted check succeeded")
 				}
+				if mode == "cancel" && (!strings.Contains(err.Error(), "interrupted") || strings.Contains(err.Error(), "timeout")) {
+					t.Errorf("cancellation must report interruption, got %v", err)
+				}
 			case <-time.After(3 * time.Second):
 				t.Fatal("Run did not return after interruption")
 			}

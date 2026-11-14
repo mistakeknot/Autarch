@@ -29,7 +29,8 @@ func Run(parent context.Context, check mycroft.PreDispatchCheck, beadID, agent s
 	setProcessGroup(cmd)
 	cmd.Env = append(os.Environ(), "MYCROFT_BEAD_ID="+beadID, "MYCROFT_AGENT="+agent)
 	err := cmd.Run()
-	timedOut := ctx.Err() != nil
+	ctxErr := ctx.Err()
+	timedOut := errors.Is(ctxErr, context.DeadlineExceeded)
 	cancel()
 	if err != nil {
 		name := filepath.Base(check.Command[0])
@@ -48,6 +49,8 @@ func Run(parent context.Context, check mycroft.PreDispatchCheck, beadID, agent s
 		reason := fmt.Sprintf("pre_dispatch_check %s: %s", name, detail)
 		if timedOut {
 			reason = fmt.Sprintf("pre_dispatch_check %s: timeout after %s", name, timeout)
+		} else if errors.Is(ctxErr, context.Canceled) {
+			reason = fmt.Sprintf("pre_dispatch_check %s: interrupted", name)
 		}
 		if r := []rune(reason); len(r) > 240 {
 			reason = string(r[:237]) + "..."
