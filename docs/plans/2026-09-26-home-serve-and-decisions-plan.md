@@ -536,6 +536,8 @@ costly and hard to see from the author's seat.
 - `internal/homeask/`: `model.go` (`Ask`, `Option`, `Kind`, `Validate`, `Identity`,
   `Revision`), `filer.go` (`Filer`, `ExecFiler`, `ErrHomeDown`, `ErrOutcomeUnknown`).
 - `internal/mycroft/escalate/escalate.go`: `DecisionQueue` backed by `homeask.Filer`.
+
+Historical note: references to `escalate.go` here and below describe the former implementation; that file was removed when Mycroft moved to the bb worker spawner.
 - `integrations/bb-plugin-autarch/`: `package.json`, `server.ts`, `contract.ts`, `model.ts`,
   `store.ts`, `migrations.ts`, `ruling.ts`, `service.ts`, `asks.ts`, `delegation.ts`,
   `wakes.ts`, `feed.ts`, `catchup.ts`, `cli.ts`, `export.ts`, `app.tsx`, `ui/`, `e2e/`,
