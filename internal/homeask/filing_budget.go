@@ -426,7 +426,8 @@ func (f *CardFiler) releaseOne(ctx context.Context, key string) (CardResult, str
 		result, err = f.fileCardReadback(ctx, r)
 	}
 	if err != nil {
-		if errors.Is(err, errNoCardWritten) && (errors.Is(err, ErrInvalid) || errors.Is(err, ErrAlreadyRuled)) {
+		var gone *registeredCardGoneError
+		if (errors.Is(err, errNoCardWritten) && (errors.Is(err, ErrInvalid) || errors.Is(err, ErrAlreadyRuled))) || (e.Attempted && errors.As(err, &gone)) {
 			delivered, resolveErr := f.resolveTerminal(ctx, key, err)
 			if delivered.ID != "" {
 				return delivered, r.Type, resolveErr
@@ -495,6 +496,16 @@ func (f *CardFiler) resolveTerminal(ctx context.Context, key string, reason erro
 	}
 	e := current[key]
 	done()
+	removed := false
+	lookup := func(requestKey string) (*found, error) {
+		candidate, err := f.locate(ctx, requestKey, e.Identity)
+		var gone *registeredCardGoneError
+		if errors.As(err, &gone) {
+			removed = true
+			return &found{ID: gone.CardID, ProjectID: e.Request.Project, Req: RequestLine{Key: gone.Key, Identity: e.Identity}}, nil
+		}
+		return candidate, err
+	}
 	var delivered *found
 	if e.DeliveredCard != "" {
 		deliveredKey := e.DeliveredKey
@@ -508,14 +519,14 @@ func (f *CardFiler) resolveTerminal(ctx context.Context, key string, reason erro
 		delivered = &found{ID: e.DeliveredCard, ProjectID: project, Req: RequestLine{Key: deliveredKey, Identity: e.Identity}}
 	}
 	if delivered == nil && e.CreationKey != "" && e.CreationKey != key {
-		candidate, err := f.locate(ctx, e.CreationKey, e.Identity)
+		candidate, err := lookup(e.CreationKey)
 		if err != nil {
 			return CardResult{}, err
 		}
 		delivered = candidate
 	}
 	if delivered == nil {
-		candidate, err := f.locate(ctx, key, e.Identity)
+		candidate, err := lookup(key)
 		if err != nil {
 			return CardResult{}, err
 		}
@@ -531,6 +542,9 @@ func (f *CardFiler) resolveTerminal(ctx context.Context, key string, reason erro
 	result := CardResult{}
 	if delivered != nil {
 		entry.DeliveredCard = delivered.ID
+		if removed {
+			entry.TerminalReason = fmt.Sprintf("delivered-then-removed: card %s", delivered.ID)
+		}
 		result = CardResult{ID: delivered.ID, Key: delivered.Req.Key, Project: delivered.ProjectID, Replay: true}
 	} else {
 		entry.Refunded = true
