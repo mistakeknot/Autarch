@@ -116,6 +116,138 @@ describe("v7 pick handler persistence", () => {
     }
   }
 
+  function tableRows(db: Database.Database, table: string) {
+    return db.prepare(`SELECT rowid AS _rowid, * FROM ${quote(table)} ORDER BY rowid`).all() as Record<string, unknown>[];
+  }
+
+  function isolatedUpdate(db: Database.Database, table: string, keys: string[][], key: string[],
+    source: Record<string, unknown>, victim: Record<string, unknown>) {
+    const candidate = {...source, ...Object.fromEntries(key.map(c => [c, victim[c]]))};
+    for (const other of keys) {
+      const collision = db.prepare(`SELECT count(*) n FROM ${quote(table)} WHERE rowid != ? AND
+        ${other.map(c => `${quote(c)}=?`).join(' AND ')}`)
+        .get(source._rowid, ...other.map(c => candidate[c])) as {n: number};
+      expect(collision.n, `${table} (${other.join(',')})`).toBe(other === key ? 1 : 0);
+    }
+    return () => db.prepare(`UPDATE OR REPLACE ${quote(table)} SET ${key.map(c => `${quote(c)}=?`).join(',')}
+      WHERE rowid=?`).run(...key.map(c => victim[c]), source._rowid);
+  }
+
+  for (const [table, keys] of Object.entries(inventory)) {
+    if (table === 'pick_handler_control') {
+      it('PRAGMA unique UPDATE OR REPLACE control collision is unreachable with the singleton CHECK', () => {
+        const db = new Database(file); migrate(db);
+        try {
+          expect(keys).toEqual([['id']]);
+          db.exec("UPDATE pick_handler_control SET mode='shadow',epoch=5,reviewed_build='build',updated_at='audit'");
+          const before = tableRows(db, table);
+          // A second row cannot exist: keep every trigger and CHECK active.
+          expect(() => db.exec('INSERT INTO pick_handler_control(id) VALUES (2)')).toThrow();
+          expect(tableRows(db, table)).toEqual(before);
+          expect(() => db.exec('UPDATE OR REPLACE pick_handler_control SET id=2 WHERE id=1')).toThrow('CHECK');
+          expect(tableRows(db, table)).toEqual(before);
+          expect(db.prepare('SELECT count(*) n FROM pick_handler_control').get()).toEqual({n:1});
+          expect(db.prepare("UPDATE OR REPLACE pick_handler_control SET id=1,updated_at='new-audit' WHERE id=1").run().changes).toBe(1);
+          expect(tableRows(db, table)).toEqual([{...before[0],updated_at:'new-audit'}]);
+        } finally { db.close(); }
+      });
+      continue;
+    }
+    const cases = table === 'obligations'
+      ? ['pick-relay','pick-receipt'].flatMap(kind => [kind,'wake'].map(sourceKind => ({kind,sourceKind})))
+      : [{kind:'',sourceKind:''}];
+    for (const {kind,sourceKind} of cases) for (const key of keys) {
+      it(`PRAGMA unique UPDATE OR REPLACE ${table} (${key.join(',')}) ${kind} <- ${sourceKind}`, () => {
+        const db = new Database(file); migrate(db);
+        try {
+          if (table === 'pick_actions') action(db, {disposition:'cancelled',ruling_op:'ruling',relay_op:'relay',
+            fallback_op:'fallback',receipt_op:'receipt',status_op:'status',evaluation_json:'{"audit":true}',
+            relay_text:'Exact payload',relay_sha256:'digest',updated_at:'victim-audit'});
+          if (table === 'pick_note_fences') db.exec(`INSERT INTO pick_note_fences
+            (decision_id,task_id,generation,note_id,created_at,posting_state,posting_attempted_at,posted_at,comment_id,last_error)
+            VALUES ('d','task',1,'note','created','failed','attempt','posted','comment','evidence')`);
+          if (table === 'obligations') db.prepare(`INSERT INTO obligations
+            (id,decision_id,kind,state,op,next_try_at,updated_at,allow_reroute,allow_batch,require_message_id,handler_next_try_at,payload)
+            VALUES ('protected','d',?,'done','operation','9999-12-31T23:59:59.999Z','audit',0,0,1,'2030-01-01T00:00:00Z','Exact payload')`).run(kind);
+          const victim = tableRows(db, table)[0];
+          const {_rowid, ...sourceValues} = victim;
+          for (const column of new Set(keys.flat())) {
+            const value = sourceValues[column];
+            if (typeof value !== 'string') throw new Error(`Missing string unique fixture: ${table}.${column}`);
+            sourceValues[column] = `source-${value}`;
+          }
+          if (table === 'pick_actions') {
+            sourceValues.disposition = 'pending';
+            // A non-NULL operation is already frozen. Exercise the allowed NULL -> value
+            // assignment that previously deleted the other row through REPLACE.
+            for (const column of key.filter(c => c.endsWith('_op'))) sourceValues[column] = null;
+          }
+          if (table === 'pick_note_fences') sourceValues.posting_state = 'recorded';
+          if (table === 'obligations') {
+            sourceValues.kind = sourceKind; sourceValues.state = 'pending'; sourceValues.payload = 'source payload';
+            if (sourceKind === 'wake') Object.assign(sourceValues, {
+              next_try_at:'2000-01-01T00:00:00Z',allow_reroute:1,allow_batch:1,require_message_id:0});
+          }
+          const columns = Object.keys(sourceValues);
+          db.prepare(`INSERT INTO ${quote(table)} (${columns.map(quote).join(',')})
+            VALUES (${columns.map(() => '?').join(',')})`).run(...columns.map(c => sourceValues[c]));
+          const before = tableRows(db, table);
+          expect(before).toHaveLength(2);
+          const update = isolatedUpdate(db, table, keys, key, before[1], before[0]);
+          // Identity keys may legitimately abort in the existing immutable trigger.
+          expect(update).toThrow();
+          expect(db.prepare(`SELECT count(*) n FROM ${quote(table)}`).get()).toEqual({n:2});
+          expect(tableRows(db, table)).toEqual(before);
+        } finally { db.close(); }
+      });
+    }
+  }
+
+  for (const key of inventory.obligations) {
+    it(`PRAGMA unique UPDATE OR REPLACE legacy wake (${key.join(',')}) keeps SQLite replacement behavior`, () => {
+      const db = new Database(file); migrate(db);
+      try {
+        db.exec(`INSERT INTO obligations(id,decision_id,kind,op,next_try_at,updated_at,payload) VALUES
+          ('victim','d','wake','victim-op','time','time','victim payload'),
+          ('source','d','wake','source-op','time','time','source payload')`);
+        const before = tableRows(db, 'obligations');
+        expect(isolatedUpdate(db, 'obligations', inventory.obligations, key, before[1], before[0])().changes).toBe(1);
+        const expected = {...before[1], ...Object.fromEntries(key.map(c => [c,before[0][c]]))};
+        expect(tableRows(db, 'obligations')).toEqual([expected]);
+        expect(db.prepare('SELECT count(*) n FROM obligations').get()).toEqual({n:1});
+        expect(db.prepare("UPDATE obligations SET payload='plain update'").run().changes).toBe(1);
+        expect(tableRows(db, 'obligations')).toEqual([{...expected,payload:'plain update'}]);
+        expect(db.prepare('SELECT allow_reroute,allow_batch,require_message_id,handler_next_try_at FROM obligations').get())
+          .toEqual({allow_reroute:1,allow_batch:1,require_message_id:0,handler_next_try_at:null});
+      } finally { db.close(); }
+    });
+  }
+
+  it('PRAGMA unique UPDATE OR REPLACE permits literal self keys and audit/state changes', () => {
+    const db = new Database(file); migrate(db);
+    try {
+      action(db, {ruling_op:'ruling',relay_op:'relay',fallback_op:'fallback',receipt_op:'receipt',status_op:'status'});
+      db.exec(`INSERT INTO pick_note_fences(decision_id,task_id,generation,note_id,created_at)
+        VALUES ('d','task',1,'note','created')`);
+      for (const kind of ['pick-relay','pick-receipt']) db.prepare(`INSERT INTO obligations
+        (id,decision_id,kind,op,next_try_at,updated_at,allow_reroute,allow_batch,require_message_id,payload)
+        VALUES (?,'d',?,?,'9999-12-31T23:59:59.999Z','time',0,0,1,'Exact payload')`).run(kind,kind,kind+'-op');
+      for (const [table,keys] of Object.entries(inventory)) {
+        const audit = table === 'pick_actions' ? {evaluation_json:'{"self":true}',disposition:'automatic'}
+          : table === 'pick_note_fences' ? {posting_state:'recorded',comment_id:'comment'}
+          : table === 'obligations' ? {state:'done',updated_at:'audit'} : {updated_at:'audit'};
+        const before = tableRows(db, table);
+        for (const row of before) {
+          const changes: Record<string, unknown> = {...Object.fromEntries([...new Set(keys.flat())].map(c => [c,row[c]])), ...audit};
+          const columns = Object.keys(changes);
+          expect(db.prepare(`UPDATE OR REPLACE ${quote(table)} SET ${columns.map(c => `${quote(c)}=?`).join(',')}
+            WHERE rowid=?`).run(...columns.map(c => changes[c]),row._rowid).changes).toBe(1);
+        }
+        expect(tableRows(db, table)).toEqual(before.map(row => ({...row,...audit})));
+      }
+    } finally { db.close(); }
+  });
+
   it('NULL unique operations do not collide in actions or protected obligations', () => {
     const db = new Database(file); migrate(db);
     action(db); action(db,{pick_id:'p2',decision_id:'d2'});
@@ -126,6 +258,13 @@ describe("v7 pick handler persistence", () => {
         VALUES (?,'d',?,'9999-12-31T23:59:59.999Z','time',0,0,1)`).run(kind+suffix,kind);
     }
     expect(db.prepare('SELECT op FROM obligations').all()).toEqual(Array(4).fill({op:null}));
+    const actionsBefore = tableRows(db, 'pick_actions');
+    expect(db.prepare(`UPDATE OR REPLACE pick_actions SET pick_id=pick_id,decision_id=decision_id,
+      ruling_op=NULL,relay_op=NULL,fallback_op=NULL,receipt_op=NULL,status_op=NULL,updated_at='null-audit'`).run().changes).toBe(2);
+    expect(tableRows(db, 'pick_actions')).toEqual(actionsBefore.map(row => ({...row,updated_at:'null-audit'})));
+    const obligationsBefore = tableRows(db, 'obligations');
+    expect(db.prepare("UPDATE OR REPLACE obligations SET id=id,op=NULL,state='done'").run().changes).toBe(4);
+    expect(tableRows(db, 'obligations')).toEqual(obligationsBefore.map(row => ({...row,state:'done'})));
     db.close();
   });
 
