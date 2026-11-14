@@ -374,7 +374,7 @@ func TestCASReleasedLock(t *testing.T) {
 }
 
 func TestCASStaleTemp(t *testing.T) {
-	for _, kind := range []string{"stale", "foreign-name", "malformed-temp", "outside", "three-links", "corrupt", "mode"} {
+	for _, kind := range []string{"stale", "foreign-name", "malformed-temp", "hex-15", "hex-17", "hex-uppercase", "pid-letters", "trailing-newline", "outside", "three-links", "corrupt", "mode"} {
 		t.Run(kind, func(t *testing.T) {
 			c := newCAS(t, os.Getuid())
 			data := []byte("stale publication")
@@ -384,6 +384,18 @@ func TestCASStaleTemp(t *testing.T) {
 			}
 			p, _ := c.Path(sha)
 			leftover := filepath.Join(c.Root, ".tmp-123-0123456789abcdef")
+			switch kind {
+			case "hex-15":
+				leftover = filepath.Join(c.Root, ".tmp-123-0123456789abcde")
+			case "hex-17":
+				leftover = filepath.Join(c.Root, ".tmp-123-0123456789abcdef0")
+			case "hex-uppercase":
+				leftover = filepath.Join(c.Root, ".tmp-123-0123456789abcdeF")
+			case "pid-letters":
+				leftover = filepath.Join(c.Root, ".tmp-12a-0123456789abcdef")
+			case "trailing-newline":
+				leftover = filepath.Join(c.Root, ".tmp-123-0123456789abcdef\n")
+			}
 			if kind == "malformed-temp" {
 				leftover = filepath.Join(c.Root, ".tmp-crashed")
 			}
@@ -436,7 +448,7 @@ func TestCASStaleTemp(t *testing.T) {
 				}
 			} else {
 				if !errors.Is(err, ErrCAS) {
-					t.Fatalf("Put accepted %s: %v", kind, err)
+					t.Errorf("Put accepted %s: %v", kind, err)
 				}
 				if kind == "foreign-name" && !strings.Contains(fmt.Sprint(err), leftover) {
 					t.Errorf("error does not name leftover: %v", err)
@@ -510,4 +522,45 @@ func staleCASFixture(t *testing.T) (*CAS, string, string) {
 		t.Fatal(err)
 	}
 	return c, sha, leftover
+}
+
+func TestCASReadWithLinksStat(t *testing.T) {
+	c, sha, _ := staleCASFixture(t)
+	dir, err := c.lock(syscall.LOCK_EX)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer dir.Close()
+	p, _ := c.Path(sha)
+	before, err := os.Stat(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, validated, err := c.readWithLinks(sha, 1, 2)
+	if err != nil || validated == nil {
+		t.Fatalf("validated stat: %v, %v", validated, err)
+	}
+	want := before.Sys().(*syscall.Stat_t)
+	if validated.Dev != want.Dev || validated.Ino != want.Ino || validated.Nlink != 2 {
+		t.Fatalf("stat does not identify the validated entry: %+v", validated)
+	}
+	// A later path replacement cannot turn the returned snapshot into metadata
+	// for another inode, even if that replacement has the same digest and mode.
+	if err := os.Remove(p); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(p, []byte("repair guards"), 0o444); err != nil {
+		t.Fatal(err)
+	}
+	replacement, err := os.Stat(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	next := replacement.Sys().(*syscall.Stat_t)
+	if validated.Dev == next.Dev && validated.Ino == next.Ino {
+		t.Fatal("stat followed the replacement path")
+	}
+	if _, st, err := c.readWithLinks(sha, 2); !errors.Is(err, ErrCAS) || st != nil {
+		t.Fatalf("failed validation returned usable stat: %+v, %v", st, err)
+	}
 }

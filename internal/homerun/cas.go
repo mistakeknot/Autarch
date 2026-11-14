@@ -12,6 +12,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strings"
 	"syscall"
 	"time"
@@ -115,7 +116,8 @@ func (c *CAS) lock(how int) (*os.File, error) {
 		return nil, casErr("%v", err)
 	}
 	// Thirty seconds is deliberately far above normal holds: one directory fsync
-	// plus a re-read (default cap 256 KiB); repair adds a directory scan.
+	// plus a re-read (default cap 256 KiB). Repair adds a directory scan and
+	// a second full read; publication and repair each sync the directory once.
 	// It still bounds a stalled or hostile lock holder.
 	wait := c.lockWait
 	if wait <= 0 {
@@ -225,18 +227,14 @@ func (c *CAS) repairAndVerify(sha string, dir *os.File) error {
 // on CAS. Put always uses the real effective UID and no after-unlink callback.
 func (c *CAS) repairAndVerifyWith(sha string, dir *os.File, effectiveUID func() int, afterUnlink func()) error {
 	p, _ := c.Path(sha)
-	fi, err := os.Lstat(p)
+	// Match aliases only against metadata from the same fd whose bytes, mode,
+	// ownership and link count were validated. One link needs no repair.
+	_, st, err := c.readWithLinks(sha, 1, 2)
 	if err != nil {
-		return casErr("%v", err)
-	}
-	st, ok := fi.Sys().(*syscall.Stat_t)
-	if !ok || st.Nlink != 2 {
-		_, err := c.read(sha)
 		return err
 	}
-	// Check mode, owner, size and digest before removing any alias.
-	if _, err := c.readWithLinks(sha, 2); err != nil {
-		return err
+	if st.Nlink == 1 {
+		return nil
 	}
 	entries, err := dir.ReadDir(-1)
 	if err != nil {
@@ -258,15 +256,9 @@ func (c *CAS) repairAndVerifyWith(sha string, dir *os.File, effectiveUID func() 
 		if !casTempName.MatchString(name) || int(alias.Uid) != effectiveUID() || alias.Mode&unix.S_IFMT != unix.S_IFREG || alias.Nlink != 2 {
 			return casErr("entry %s has unsafe leftover %s", p, leftover)
 		}
-		// Resolve both the final check and unlink relative to the locked directory
-		// inode, even if the store path has since been renamed or replaced.
-		var checked unix.Stat_t
-		if err := unix.Fstatat(int(dir.Fd()), name, &checked, unix.AT_SYMLINK_NOFOLLOW); err != nil {
-			return casErr("re-check leftover %s: %v", leftover, err)
-		}
-		if checked.Dev != alias.Dev || checked.Ino != alias.Ino || checked.Nlink != 2 || checked.Uid != alias.Uid || checked.Mode != alias.Mode {
-			return casErr("leftover %s changed before removal", leftover)
-		}
+		// Resolve the alias check and unlink against the locked directory inode.
+		// An owner bypassing the flock can still change it between these calls;
+		// the full re-read below refuses any resulting entry-integrity failure.
 		if err := unix.Unlinkat(int(dir.Fd()), name, 0); err != nil {
 			return casErr("remove leftover %s: %v", leftover, err)
 		}
@@ -301,58 +293,59 @@ func (c *CAS) Read(sha string) ([]byte, error) {
 
 // read requires the caller to hold the store lock (shared or exclusive).
 func (c *CAS) read(sha string) ([]byte, error) {
-	return c.readWithLinks(sha, 1)
+	b, _, err := c.readWithLinks(sha, 1)
+	return b, err
 }
 
 // readWithLinks permits two links only for validation before exclusive-lock repair.
-func (c *CAS) readWithLinks(sha string, links uint64) ([]byte, error) {
+func (c *CAS) readWithLinks(sha string, links ...uint64) ([]byte, *syscall.Stat_t, error) {
 	p, err := c.Path(sha)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	if err := c.checkDir(); err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	lfi, err := os.Lstat(p)
 	if err != nil {
-		return nil, casErr("%v", err)
+		return nil, nil, casErr("%v", err)
 	}
 	if !lfi.Mode().IsRegular() {
-		return nil, casErr("entry is not a regular file")
+		return nil, nil, casErr("entry is not a regular file")
 	}
 	f, err := os.OpenFile(p, os.O_RDONLY|syscall.O_NOFOLLOW, 0)
 	if err != nil {
-		return nil, casErr("%v", err)
+		return nil, nil, casErr("%v", err)
 	}
 	defer f.Close()
 	fi, err := f.Stat()
 	if err != nil {
-		return nil, casErr("%v", err)
+		return nil, nil, casErr("%v", err)
 	}
 	if !os.SameFile(lfi, fi) {
-		return nil, casErr("entry changed while being opened")
+		return nil, nil, casErr("entry changed while being opened")
 	}
 	if fi.Mode().Perm() != 0o444 || fi.Mode()&(os.ModeSetuid|os.ModeSetgid|os.ModeSticky) != 0 {
-		return nil, casErr("entry mode is %v, want 0444", fi.Mode())
+		return nil, nil, casErr("entry mode is %v, want 0444", fi.Mode())
 	}
 	st, ok := fi.Sys().(*syscall.Stat_t)
-	if !ok || uint64(st.Nlink) != links {
-		return nil, casErr("entry %s must have exactly %d link(s); leftover hard link refused", p, links)
+	if !ok || !slices.Contains(links, uint64(st.Nlink)) {
+		return nil, nil, casErr("entry %s must have one of %v link(s); leftover hard link refused", p, links)
 	}
 	if c.OwnerUID >= 0 && int(st.Uid) != c.OwnerUID {
-		return nil, casErr("entry has the wrong owner")
+		return nil, nil, casErr("entry has the wrong owner")
 	}
 	if fi.Size() > c.max() {
-		return nil, casErr("entry over the size cap")
+		return nil, nil, casErr("entry over the size cap")
 	}
 	b, err := io.ReadAll(io.LimitReader(f, c.max()+1))
 	if err != nil {
-		return nil, casErr("%v", err)
+		return nil, nil, casErr("%v", err)
 	}
 	if int64(len(b)) > c.max() || sum(b) != sha {
-		return nil, casErr("entry content does not hash to its name")
+		return nil, nil, casErr("entry content does not hash to its name")
 	}
-	return b, nil
+	return b, st, nil
 }
 
 // SnapshotSource reads a source file once, refusing symlinks and non-regular files, and returns its bytes.
