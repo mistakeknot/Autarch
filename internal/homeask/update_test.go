@@ -52,7 +52,7 @@ func TestAskKeyUpdateProjectMismatchIsInvalid(t *testing.T) {
 		t.Fatalf("res=%+v creates=%d updates=%d description changed=%v", res, f.count("tasks", "create"), f.count("tasks", "update"), f.tasks[0].Desc != original)
 	}
 }
-func TestAskKeyUpdatePreservesRoutingAndRequest(t *testing.T) {
+func TestAskKeyChangedContentCreatesNewRequestAndRouting(t *testing.T) {
 	f, fl, _ := updateRig(t)
 	ctx := context.Background()
 	r := testReq()
@@ -62,16 +62,17 @@ func TestAskKeyUpdatePreservesRoutingAndRequest(t *testing.T) {
 		t.Fatalf("first=%+v err=%v", first, e)
 	}
 	original, _ := ParseCard(f.tasks[0].Desc)
+	originalDesc := f.tasks[0].Desc
 	r.Key = "different-derived-request"
 	r.Title = "Refreshed title"
 	r.Ask["question"] = "Refreshed question?"
 	r.Ask["options"] = []any{map[string]any{"id": "ship", "label": "Ship now", "kind": "ruling-only"}, map[string]any{"id": "wait", "label": "Wait", "kind": "ruling-only"}}
 	res, e := fl.FileOrUpdateCard(ctx, r, "")
-	c, _ := ParseCard(f.tasks[0].Desc)
-	if e != nil || !res.Updated || res.ID != first.ID || f.cards() != 1 || c.Question != "Refreshed question?" || c.Request != original.Request || AskingThread(f.tasks[0].Comments) != "thr_a" || f.count("tasks", "comment") != 1 {
+	c, _ := ParseCard(f.tasks[len(f.tasks)-1].Desc)
+	if e != nil || res.Updated || res.ID == first.ID || f.cards() != 2 || c.Question != "Refreshed question?" || c.Request == original.Request || AskingThread(f.tasks[1].Comments) != "thr_a" || f.count("tasks", "comment") != 2 || f.tasks[0].Desc != originalDesc || f.count("tasks", "update") != 0 {
 		t.Fatalf("res=%+v card=%+v err=%v", res, c, e)
 	}
-	if !strings.Contains(f.tasks[0].Desc, "Ship now") {
+	if !strings.Contains(f.tasks[1].Desc, "Ship now") {
 		t.Fatal("options did not update")
 	}
 }
@@ -115,7 +116,7 @@ func TestSupersedesGuardsAndChangedAskKey(t *testing.T) {
 				if !errors.Is(e, tc.want) || f.count("tasks", "update") != 0 {
 					t.Fatalf("err=%v updates=%d", e, f.count("tasks", "update"))
 				}
-			} else if e != nil || !res.Updated || f.cards() != 1 || f.count("tasks", "comment") != 1 {
+			} else if e != nil || res.Updated || res.ID == first.ID || f.cards() != 2 || f.count("tasks", "comment") != 2 || f.count("tasks", "update") != 0 {
 				t.Fatalf("res=%+v err=%v", res, e)
 			}
 		})
@@ -154,9 +155,10 @@ func TestAskKeyUpdatesMove(t *testing.T) {
 	}
 	r.Move = scriptMove()
 	r.Key = "refreshed-move"
+	originalDesc := f.tasks[0].Desc
 	res, e := fl.FileOrUpdateCard(context.Background(), r, "")
-	c, parseErr := ParseCard(f.tasks[0].Desc)
-	if e != nil || parseErr != nil || res.ID != first.ID || !res.Updated || !moveEqual(c.Move, r.Move) || f.count("tasks", "comment") != 1 {
+	c, parseErr := ParseCard(f.tasks[len(f.tasks)-1].Desc)
+	if e != nil || parseErr != nil || res.ID == first.ID || res.Updated || !moveEqual(c.Move, r.Move) || f.count("tasks", "comment") != 2 || f.tasks[0].Desc != originalDesc || f.count("tasks", "update") != 0 {
 		t.Fatalf("res=%+v err=%v parse=%v", res, e, parseErr)
 	}
 }
@@ -181,7 +183,7 @@ func TestAskKeyClosedPickedCardStillAlreadyRuled(t *testing.T) {
 	}
 }
 
-func TestStoppedSameKeyRefileUpdatesOneLegacyCard(t *testing.T) {
+func TestStoppedSameKeyRefileReplacesLegacyCard(t *testing.T) {
 	f, fl, _ := updateRig(t)
 	req := testReq()
 	req.Ask["urgency"] = "blocker"
@@ -191,12 +193,13 @@ func TestStoppedSameKeyRefileUpdatesOneLegacyCard(t *testing.T) {
 		t.Fatal(err)
 	}
 	f.tasks = append(f.tasks, &fakeTask{ID: "T1", Project: "P1", Title: req.Title, Desc: desc, Status: "todo", Created: "2026-09-01T00:00:00Z", Comments: []Comment{{Kind: "agent", ThreadID: "thr_a", CreatedAt: "2026-09-01T00:00:01Z"}}})
+	f.seq = 1
 	req.Ask["stopped"] = "Release waits"
 	result, err := fl.FileOrUpdateCard(context.Background(), req, "")
-	if err != nil || !result.Updated || result.ID != "T1" || f.cards() != 1 || f.count("tasks", "create") != 0 {
+	if err != nil || result.Updated || result.ID == "T1" || f.cards() != 2 || f.count("tasks", "create") != 1 || f.tasks[0].Desc != desc || f.count("tasks", "update") != 0 {
 		t.Fatalf("result=%+v err=%v cards=%d creates=%d", result, err, f.cards(), f.count("tasks", "create"))
 	}
-	card, err := ParseCard(f.tasks[0].Desc)
+	card, err := ParseCard(f.tasks[len(f.tasks)-1].Desc)
 	if err != nil || card.Ask["stopped"] != "Release waits" {
 		t.Fatalf("stopped not updated: %+v %v", card, err)
 	}
@@ -214,7 +217,11 @@ func TestAskKeyUpdateWithLegacyPlugin(t *testing.T) {
 			r.Ask["question"] = "Updated question?"
 		}
 		res, err := fl.FileOrUpdateCard(context.Background(), r, "")
-		if err != nil || res.CardKey != "P1-1" || f.count("tasks", "create") != 1 {
+		wantCreates := 1
+		if phase == "edit" {
+			wantCreates = 2
+		}
+		if err != nil || res.CardKey != "P1-1" || f.count("tasks", "create") != wantCreates || f.count("tasks", "update") != 0 {
 			t.Fatalf("phase=%s res=%+v err=%v creates=%d", phase, res, err, f.count("tasks", "create"))
 		}
 	}

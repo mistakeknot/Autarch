@@ -123,7 +123,7 @@ func TestIdenticalAskKeyRefilingDoesNotWrite(t *testing.T) {
 		t.Fatalf("res=%+v err=%v updates=%d", res, err, f.count("tasks", "update"))
 	}
 }
-func TestAskKeyReportsPickDuringUpdate(t *testing.T) {
+func TestAskKeyChangedContentNeverCallsUpdate(t *testing.T) {
 	f, fl, _ := updateRig(t)
 	r := testReq()
 	r.Ask["ask_key"] = "racing-pick"
@@ -144,7 +144,7 @@ func TestAskKeyReportsPickDuringUpdate(t *testing.T) {
 	}
 	r.Ask["question"] = "A refreshed question?"
 	_, err := fl.FileOrUpdateCard(context.Background(), r, "")
-	if !errors.Is(err, ErrAlreadyRuled) || !strings.Contains(err.Error(), "updated") || f.count("tasks", "update") != 1 {
+	if err != nil || updated || f.count("tasks", "update") != 0 || f.cards() != 2 {
 		t.Fatalf("err=%v updates=%d", err, f.count("tasks", "update"))
 	}
 }
