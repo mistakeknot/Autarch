@@ -70,6 +70,17 @@ func fileMerge(t *testing.T, s *stubBB, body string, extra ...string) (string, e
 	return runNeedsMk(t, s, args...)
 }
 
+func TestExplicitCardTypeConflictsWithMerge(t *testing.T) {
+	useGH(t, &ghStub{base: "main", def: "main"})
+	for _, typ := range []string{"design", "product", "other", "play"} {
+		s := &stubBB{}
+		_, err := fileMerge(t, s, mergeAskJSON, "--card-type", typ, "--check")
+		if err == nil || !strings.Contains(err.Error(), "--card-type") {
+			t.Errorf("type %s overridden: %v", typ, err)
+		}
+	}
+}
+
 func TestNeedsMkMergeAskOnNonDefaultBaseIsRefused(t *testing.T) {
 	g := &ghStub{base: "sync/x", def: "main"}
 	useGH(t, g)

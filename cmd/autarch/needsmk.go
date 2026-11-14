@@ -390,14 +390,19 @@ Any other urgency is refused. It works on every kind of card; a machine blocker 
 			if mergeErr != nil {
 				failures = append(failures, mergeErr)
 			}
-			if prFlag != "" {
-				cardType = "merge"
-			}
+			mergeAsk := prFlag != ""
 			walkAsk(ask, func(string) {}, func(m map[string]any, k string) {
 				if strings.Contains(m[k].(string), mergePhrase+" ") {
-					cardType = "merge"
+					mergeAsk = true
 				}
 			})
+			if mergeAsk {
+				if cmd.Flags().Changed("card-type") && cardType != "merge" {
+					failures = append(failures, &usageError{"--card-type conflicts with merge ask; use --card-type merge or omit it"})
+				} else if !cmd.Flags().Changed("card-type") {
+					cardType = "merge"
+				}
+			}
 			if err := filer.CheckVizierOwnership(ctx, thread, ownerThread, vizierOwned); err != nil {
 				failures = append(failures, err)
 			}
