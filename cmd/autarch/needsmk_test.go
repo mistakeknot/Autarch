@@ -596,7 +596,11 @@ func TestNeedsMkLegacyBlockerReaders(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if !s.card || s.creates != 0 || len(s.updated) != 1 {
+			wantCreates, wantUpdates := 1, 0
+			if operation == "adopt" {
+				wantCreates, wantUpdates = 0, 1
+			}
+			if !s.card || s.creates != wantCreates || len(s.updated) != wantUpdates {
 				t.Fatalf("created=%d updates=%d", s.creates, len(s.updated))
 			}
 		})
