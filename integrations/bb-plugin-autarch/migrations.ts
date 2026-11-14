@@ -20,7 +20,7 @@ import {
 export { BackupNotVerifiedError, QuiesceRequiredError } from "./backup.js";
 
 /** The schema version this code writes and the highest it can read. */
-export const CODE_VERSION = 6;
+export const CODE_VERSION = 7;
 
 export interface Migration {
   version: number;
@@ -398,6 +398,198 @@ CREATE INDEX decisions_blocker_pending ON decisions(filed_at, id)
   WHERE urgency = 'blocker' AND push_sent_at IS NULL AND COALESCE(push_attempts, 0) < 6 AND withdrawn_at IS NULL AND resolved_at IS NULL;
 `;
 
+// PR2 persistence only. Existing scheduling and card writes are untouched. Nullable
+// evidence represents unavailable data, including a selected option without on_pick.
+const V7 = `
+CREATE TABLE pick_actions (
+  pick_id TEXT NOT NULL PRIMARY KEY,
+  decision_id TEXT NOT NULL UNIQUE,
+  task_id TEXT NOT NULL,
+  generation INTEGER NOT NULL CHECK (generation > 0),
+  revision TEXT NOT NULL,
+  card_fp TEXT NOT NULL,
+  declaration_json TEXT CHECK (declaration_json IS NULL OR json_valid(declaration_json)),
+  declaration_sha256 TEXT,
+  relay_text TEXT,
+  relay_sha256 TEXT,
+  asker TEXT NOT NULL,
+  blocks_decision_id TEXT NOT NULL,
+  target_thread TEXT,
+  target_title TEXT,
+  target_project_id TEXT,
+  target_project_name TEXT,
+  capture_mode TEXT NOT NULL CHECK (capture_mode IN ('off','shadow','live')),
+  capture_epoch INTEGER NOT NULL CHECK (capture_epoch >= 0),
+  policy_version INTEGER NOT NULL CHECK (policy_version > 0),
+  captured_at TEXT NOT NULL CHECK (captured_at GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]T[0-9][0-9]:[0-9][0-9]*'
+    AND julianday(captured_at) IS NOT NULL),
+  evaluation_deadline_at TEXT NOT NULL CHECK (evaluation_deadline_at GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]T[0-9][0-9]:[0-9][0-9]*'
+    AND julianday(evaluation_deadline_at) IS NOT NULL
+    AND julianday(evaluation_deadline_at) > julianday(captured_at)),
+  evaluation_json TEXT CHECK (evaluation_json IS NULL OR json_valid(evaluation_json)),
+  evaluation_started_at TEXT,
+  evaluated_at TEXT,
+  disposition TEXT NOT NULL DEFAULT 'pending' CHECK (disposition IN ('pending','automatic','fallback','cancelled')),
+  ruling_op TEXT UNIQUE,
+  relay_op TEXT UNIQUE,
+  fallback_op TEXT UNIQUE,
+  receipt_op TEXT UNIQUE,
+  status_op TEXT UNIQUE,
+  updated_at TEXT,
+  CHECK ((declaration_json IS NULL) = (declaration_sha256 IS NULL)),
+  CHECK ((relay_text IS NULL) = (relay_sha256 IS NULL))
+);
+CREATE INDEX pick_actions_generation ON pick_actions(task_id, generation);
+CREATE INDEX pick_actions_deadline ON pick_actions(disposition, evaluation_deadline_at);
+-- BEFORE INSERT has an undefined NEW.rowid when omitted. Validate the allocated
+-- rowid AFTER INSERT; ABORT also restores any victim deleted by REPLACE.
+CREATE TRIGGER pick_actions_positive_rowid AFTER INSERT ON pick_actions
+WHEN NEW.rowid < 1
+BEGIN SELECT RAISE(ABORT, 'pick action requires positive rowid'); END;
+CREATE TRIGGER pick_actions_no_replace BEFORE INSERT ON pick_actions
+WHEN EXISTS (SELECT 1 FROM pick_actions WHERE pick_id=NEW.pick_id OR decision_id=NEW.decision_id
+  OR ruling_op=NEW.ruling_op OR relay_op=NEW.relay_op OR fallback_op=NEW.fallback_op
+  OR receipt_op=NEW.receipt_op OR status_op=NEW.status_op OR (NEW.rowid>=1 AND rowid=NEW.rowid))
+BEGIN SELECT RAISE(ABORT, 'pick action identity already exists'); END;
+CREATE TRIGGER pick_actions_no_update_replace BEFORE UPDATE ON pick_actions
+WHEN EXISTS (SELECT 1 FROM pick_actions WHERE rowid != OLD.rowid AND (pick_id=NEW.pick_id OR decision_id=NEW.decision_id
+  OR ruling_op=NEW.ruling_op OR relay_op=NEW.relay_op OR fallback_op=NEW.fallback_op
+  OR receipt_op=NEW.receipt_op OR status_op=NEW.status_op OR rowid=NEW.rowid))
+BEGIN SELECT RAISE(ABORT, 'pick action identity already exists'); END;
+CREATE TRIGGER pick_actions_terminal BEFORE UPDATE ON pick_actions
+WHEN OLD.disposition IN ('fallback','cancelled') AND NEW.disposition IS NOT OLD.disposition
+BEGIN SELECT RAISE(ABORT, 'pick action disposition is terminal'); END;
+CREATE TRIGGER pick_actions_snapshot BEFORE UPDATE ON pick_actions
+WHEN OLD.pick_id IS NOT NEW.pick_id OR OLD.decision_id IS NOT NEW.decision_id
+  OR OLD.rowid IS NOT NEW.rowid
+  OR OLD.task_id IS NOT NEW.task_id OR OLD.generation IS NOT NEW.generation
+  OR OLD.revision IS NOT NEW.revision OR OLD.card_fp IS NOT NEW.card_fp
+  OR OLD.declaration_json IS NOT NEW.declaration_json OR OLD.declaration_sha256 IS NOT NEW.declaration_sha256
+  OR OLD.relay_text IS NOT NEW.relay_text OR OLD.relay_sha256 IS NOT NEW.relay_sha256
+  OR OLD.asker IS NOT NEW.asker OR OLD.blocks_decision_id IS NOT NEW.blocks_decision_id
+  OR OLD.target_thread IS NOT NEW.target_thread OR OLD.target_title IS NOT NEW.target_title
+  OR OLD.target_project_id IS NOT NEW.target_project_id OR OLD.target_project_name IS NOT NEW.target_project_name
+  OR OLD.capture_mode IS NOT NEW.capture_mode OR OLD.capture_epoch IS NOT NEW.capture_epoch
+  OR OLD.policy_version IS NOT NEW.policy_version OR OLD.captured_at IS NOT NEW.captured_at
+  OR OLD.evaluation_deadline_at IS NOT NEW.evaluation_deadline_at
+BEGIN SELECT RAISE(ABORT, 'pick action snapshot is immutable'); END;
+CREATE TRIGGER pick_actions_operations BEFORE UPDATE ON pick_actions
+WHEN (OLD.ruling_op IS NOT NULL AND OLD.ruling_op IS NOT NEW.ruling_op)
+  OR (OLD.relay_op IS NOT NULL AND OLD.relay_op IS NOT NEW.relay_op)
+  OR (OLD.fallback_op IS NOT NULL AND OLD.fallback_op IS NOT NEW.fallback_op)
+  OR (OLD.receipt_op IS NOT NULL AND OLD.receipt_op IS NOT NEW.receipt_op)
+  OR (OLD.status_op IS NOT NULL AND OLD.status_op IS NOT NEW.status_op)
+BEGIN SELECT RAISE(ABORT, 'pick action operation identity is frozen'); END;
+CREATE TRIGGER pick_actions_no_delete BEFORE DELETE ON pick_actions
+BEGIN SELECT RAISE(ABORT, 'pick action identity is permanent'); END;
+
+CREATE TABLE pick_note_fences (
+  decision_id TEXT NOT NULL,
+  task_id TEXT NOT NULL,
+  generation INTEGER NOT NULL CHECK (generation > 0),
+  note_id TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  posting_state TEXT NOT NULL DEFAULT 'pending' CHECK (posting_state IN ('pending','recorded','failed')),
+  posting_attempted_at TEXT,
+  posted_at TEXT,
+  comment_id TEXT,
+  last_error TEXT,
+  PRIMARY KEY (decision_id, note_id)
+);
+CREATE INDEX pick_note_fences_generation ON pick_note_fences(task_id, generation);
+CREATE TRIGGER pick_note_fences_positive_rowid AFTER INSERT ON pick_note_fences
+WHEN NEW.rowid < 1
+BEGIN SELECT RAISE(ABORT, 'pick note fence requires positive rowid'); END;
+CREATE TRIGGER pick_note_fences_no_replace BEFORE INSERT ON pick_note_fences
+WHEN EXISTS (SELECT 1 FROM pick_note_fences WHERE (decision_id=NEW.decision_id AND note_id=NEW.note_id)
+  OR (NEW.rowid>=1 AND rowid=NEW.rowid))
+BEGIN SELECT RAISE(ABORT, 'pick note fence identity already exists'); END;
+CREATE TRIGGER pick_note_fences_identity BEFORE UPDATE ON pick_note_fences
+WHEN OLD.decision_id IS NOT NEW.decision_id OR OLD.task_id IS NOT NEW.task_id
+  OR OLD.rowid IS NOT NEW.rowid
+  OR OLD.generation IS NOT NEW.generation OR OLD.note_id IS NOT NEW.note_id OR OLD.created_at IS NOT NEW.created_at
+BEGIN SELECT RAISE(ABORT, 'pick note fence identity is immutable'); END;
+CREATE TRIGGER pick_note_fences_no_delete BEFORE DELETE ON pick_note_fences
+BEGIN SELECT RAISE(ABORT, 'pick note fences are permanent'); END;
+
+CREATE TABLE pick_handler_control (
+  id INTEGER PRIMARY KEY CHECK (id = 1),
+  mode TEXT NOT NULL DEFAULT 'off' CHECK (mode IN ('off','shadow','live')),
+  epoch INTEGER NOT NULL DEFAULT 0 CHECK (epoch >= 0),
+  owner_enablement_json TEXT CHECK (owner_enablement_json IS NULL OR json_valid(owner_enablement_json)),
+  reviewed_build TEXT,
+  reviewed_scope_json TEXT CHECK (reviewed_scope_json IS NULL OR json_valid(reviewed_scope_json)),
+  enabled_cells_json TEXT NOT NULL DEFAULT '[]' CHECK (json_valid(enabled_cells_json) AND json_type(enabled_cells_json) = 'array'),
+  updated_at TEXT,
+  CHECK (mode != 'live' OR (owner_enablement_json IS NOT NULL AND json_type(owner_enablement_json) = 'object'
+    AND reviewed_build IS NOT NULL AND length(reviewed_build) > 0 AND reviewed_scope_json IS NOT NULL
+    AND json_type(reviewed_scope_json) = 'object'
+    AND json_array_length(enabled_cells_json) > 0))
+);
+CREATE TRIGGER pick_handler_cells_insert BEFORE INSERT ON pick_handler_control
+WHEN EXISTS (SELECT 1 FROM json_each(NEW.enabled_cells_json)
+  WHERE type != 'text' OR value NOT IN ('instruction:github-pr','instruction:none','ruling-only:github-pr','ruling-only:none'))
+  OR EXISTS (SELECT 1 FROM json_each(NEW.enabled_cells_json) GROUP BY value HAVING count(*) > 1)
+BEGIN SELECT RAISE(ABORT, 'unsupported pick handler cell'); END;
+CREATE TRIGGER pick_handler_cells_update BEFORE UPDATE ON pick_handler_control
+WHEN EXISTS (SELECT 1 FROM json_each(NEW.enabled_cells_json)
+  WHERE type != 'text' OR value NOT IN ('instruction:github-pr','instruction:none','ruling-only:github-pr','ruling-only:none'))
+  OR EXISTS (SELECT 1 FROM json_each(NEW.enabled_cells_json) GROUP BY value HAVING count(*) > 1)
+BEGIN SELECT RAISE(ABORT, 'unsupported pick handler cell'); END;
+CREATE TRIGGER pick_handler_epoch BEFORE UPDATE ON pick_handler_control
+WHEN NEW.epoch < OLD.epoch OR ((NEW.mode IS NOT OLD.mode OR NEW.enabled_cells_json IS NOT OLD.enabled_cells_json
+  OR NEW.owner_enablement_json IS NOT OLD.owner_enablement_json OR NEW.reviewed_build IS NOT OLD.reviewed_build
+  OR NEW.reviewed_scope_json IS NOT OLD.reviewed_scope_json) AND NEW.epoch <= OLD.epoch)
+BEGIN SELECT RAISE(ABORT, 'pick handler changes require a newer epoch'); END;
+CREATE TRIGGER pick_handler_enablement BEFORE UPDATE ON pick_handler_control
+WHEN NEW.mode = 'live' AND (OLD.mode != 'live' OR NEW.enabled_cells_json IS NOT OLD.enabled_cells_json
+  OR NEW.reviewed_build IS NOT OLD.reviewed_build OR NEW.reviewed_scope_json IS NOT OLD.reviewed_scope_json)
+  AND NEW.owner_enablement_json IS OLD.owner_enablement_json
+BEGIN SELECT RAISE(ABORT, 'live enablement requires new owner evidence'); END;
+CREATE TRIGGER pick_handler_no_delete BEFORE DELETE ON pick_handler_control
+BEGIN SELECT RAISE(ABORT, 'pick handler control is permanent'); END;
+INSERT INTO pick_handler_control(id) VALUES (1);
+CREATE TRIGGER pick_handler_control_no_replace BEFORE INSERT ON pick_handler_control
+WHEN EXISTS (SELECT 1 FROM pick_handler_control)
+BEGIN SELECT RAISE(ABORT, 'pick handler control already exists'); END;
+
+ALTER TABLE obligations ADD COLUMN allow_reroute INTEGER NOT NULL DEFAULT 1 CHECK (allow_reroute IN (0,1));
+ALTER TABLE obligations ADD COLUMN allow_batch INTEGER NOT NULL DEFAULT 1 CHECK (allow_batch IN (0,1));
+ALTER TABLE obligations ADD COLUMN require_message_id INTEGER NOT NULL DEFAULT 0 CHECK (require_message_id IN (0,1));
+ALTER TABLE obligations ADD COLUMN handler_next_try_at TEXT;
+CREATE INDEX obligations_handler_due ON obligations(state, handler_next_try_at)
+  WHERE kind IN ('pick-relay','pick-receipt');
+CREATE TRIGGER obligations_handler_no_delete BEFORE DELETE ON obligations
+WHEN OLD.kind IN ('pick-relay','pick-receipt')
+BEGIN SELECT RAISE(ABORT, 'protected obligation is permanent'); END;
+CREATE TRIGGER obligations_handler_positive_rowid AFTER INSERT ON obligations
+WHEN NEW.kind IN ('pick-relay','pick-receipt') AND NEW.rowid < 1
+BEGIN SELECT RAISE(ABORT, 'protected obligation requires positive rowid'); END;
+CREATE TRIGGER obligations_handler_rowid_update BEFORE UPDATE ON obligations
+WHEN (OLD.kind IN ('pick-relay','pick-receipt') AND OLD.rowid IS NOT NEW.rowid)
+  OR (NEW.kind IN ('pick-relay','pick-receipt') AND NEW.rowid < 1)
+BEGIN SELECT RAISE(ABORT, 'protected obligation requires immutable positive rowid'); END;
+CREATE TRIGGER obligations_handler_no_replace BEFORE INSERT ON obligations
+WHEN EXISTS (SELECT 1 FROM obligations WHERE kind IN ('pick-relay','pick-receipt')
+  AND (id=NEW.id OR op=NEW.op OR (NEW.rowid>=1 AND rowid=NEW.rowid)))
+BEGIN SELECT RAISE(ABORT, 'protected obligation identity already exists'); END;
+CREATE TRIGGER obligations_handler_no_update_replace BEFORE UPDATE ON obligations
+WHEN EXISTS (SELECT 1 FROM obligations WHERE rowid != OLD.rowid AND kind IN ('pick-relay','pick-receipt')
+  AND (id=NEW.id OR op=NEW.op OR rowid=NEW.rowid))
+BEGIN SELECT RAISE(ABORT, 'protected obligation identity already exists'); END;
+CREATE TRIGGER obligations_handler_insert BEFORE INSERT ON obligations
+WHEN NEW.kind IN ('pick-relay','pick-receipt') AND NEW.next_try_at != '9999-12-31T23:59:59.999Z'
+  OR (NEW.kind = 'pick-relay' AND (NEW.allow_reroute != 0 OR NEW.allow_batch != 0 OR NEW.require_message_id != 1))
+  OR (NEW.kind = 'pick-receipt' AND NEW.allow_batch != 0)
+BEGIN SELECT RAISE(ABORT, 'protected obligation requires sentinel and policy'); END;
+CREATE TRIGGER obligations_handler_update BEFORE UPDATE ON obligations
+WHEN (NEW.kind IN ('pick-relay','pick-receipt') AND NEW.next_try_at != '9999-12-31T23:59:59.999Z')
+  OR (OLD.kind IN ('pick-relay','pick-receipt') AND NEW.kind IS NOT OLD.kind)
+  OR (NEW.kind = 'pick-relay' AND (NEW.allow_reroute != 0 OR NEW.allow_batch != 0 OR NEW.require_message_id != 1))
+  OR (NEW.kind = 'pick-receipt' AND NEW.allow_batch != 0)
+BEGIN SELECT RAISE(ABORT, 'protected obligation kind, sentinel and policy are fixed'); END;
+`;
+
 export const MIGRATIONS: readonly Migration[] = [
   { version: 1, sql: V1 },
   { version: 2, sql: V2 },
@@ -405,6 +597,7 @@ export const MIGRATIONS: readonly Migration[] = [
   { version: 4, sql: V4 },
   { version: 5, sql: V5 },
   { version: 6, sql: V6 },
+  { version: 7, sql: V7 },
 ];
 
 const META = `CREATE TABLE IF NOT EXISTS schema_meta (key TEXT PRIMARY KEY, value INTEGER NOT NULL)`;

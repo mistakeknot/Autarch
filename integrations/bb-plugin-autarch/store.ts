@@ -15,6 +15,65 @@ export type ObligationState =
   | "dismissed";
 export type AttemptState = "sending" | "queued" | "delivered" | "not-delivered" | "uncertain";
 
+export type PickHandlerMode = "off" | "shadow" | "live";
+export type PickHandlerCell = "instruction:github-pr" | "instruction:none" | "ruling-only:github-pr" | "ruling-only:none";
+export interface PickActionRow {
+  pick_id: string;
+  decision_id: string;
+  task_id: string;
+  generation: number;
+  revision: string;
+  card_fp: string;
+  declaration_json: string | null;
+  declaration_sha256: string | null;
+  relay_text: string | null;
+  relay_sha256: string | null;
+  asker: string;
+  /** References this generation's existing decision_blocks snapshot. */
+  blocks_decision_id: string;
+  target_thread: string | null;
+  target_title: string | null;
+  target_project_id: string | null;
+  target_project_name: string | null;
+  capture_mode: PickHandlerMode;
+  capture_epoch: number;
+  policy_version: number;
+  captured_at: string;
+  evaluation_deadline_at: string;
+  evaluation_json: string | null;
+  evaluation_started_at: string | null;
+  evaluated_at: string | null;
+  disposition: "pending" | "automatic" | "fallback" | "cancelled";
+  ruling_op: string | null;
+  relay_op: string | null;
+  fallback_op: string | null;
+  receipt_op: string | null;
+  status_op: string | null;
+  updated_at: string | null;
+}
+export interface PickNoteFenceRow {
+  decision_id: string;
+  task_id: string;
+  generation: number;
+  note_id: string;
+  created_at: string;
+  posting_state: "pending" | "recorded" | "failed";
+  posting_attempted_at: string | null;
+  posted_at: string | null;
+  comment_id: string | null;
+  last_error: string | null;
+}
+export interface PickHandlerControlRow {
+  id: 1;
+  mode: PickHandlerMode;
+  epoch: number;
+  owner_enablement_json: string | null;
+  reviewed_build: string | null;
+  reviewed_scope_json: string | null;
+  enabled_cells_json: string;
+  updated_at: string | null;
+}
+
 export interface DecisionInput {
   id: string;
   request_id: string;
@@ -193,6 +252,10 @@ export interface ObligationRow {
   last_error: string | null;
   next_try_at: string;
   updated_at: string;
+  allow_reroute: number;
+  allow_batch: number;
+  require_message_id: number;
+  handler_next_try_at: string | null;
 }
 
 export interface AttemptRow {
