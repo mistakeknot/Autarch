@@ -30,7 +30,7 @@ func TestFileAlreadyPickedCardExitsFive(t *testing.T) {
 		// Allow known reads explicitly, so writes under any command are caught.
 		if len(args) >= 2 {
 			switch strings.Join(args[:2], " ") {
-			case "tasks list", "tasks show", "thread list":
+			case "tasks list", "tasks show", "thread list", "thread show":
 				continue
 			}
 		}
@@ -39,7 +39,7 @@ func TestFileAlreadyPickedCardExitsFive(t *testing.T) {
 		}
 		if len(args) >= 3 {
 			switch strings.Join(args[:3], " ") {
-			case "tasks project list", "home get --card":
+			case "tasks project list", "home get --card", "home get --request":
 				continue
 			}
 		}

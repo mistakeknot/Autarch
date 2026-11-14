@@ -46,8 +46,8 @@ func TestFileHappyPath(t *testing.T) {
 		t.Errorf("stdout is not exactly one JSON line: %q", r.Stdout)
 	}
 	seq := heads(e.calls(), 3)
-	wantSeq := []string{"tasks project list", "home binding P1", "thread list --json", "tasks label list", "tasks label create", "home get --request",
-		"tasks list --status", "tasks create --project", "tasks comment T1", "home get --card"}
+	wantSeq := []string{"tasks project list", "home binding P1", "thread list --json", "home get --request", "tasks list --status", "tasks project list", "home binding P1", "home get --request", "tasks list --status", "tasks label list", "tasks label create", "home get --request",
+		"tasks list --status", "thread show thr_a", "tasks create --project", "tasks comment T1", "home get --card"}
 	if !reflect.DeepEqual(seq, wantSeq) {
 		t.Fatalf("bb calls:\n got %q\nwant %q", seq, wantSeq)
 	}
@@ -202,7 +202,7 @@ func TestFileReplaySameThread(t *testing.T) {
 		t.Fatalf("replay changed state: %d tasks, comments %+v", len(st.Tasks), st.Tasks[0].Comments)
 	}
 	seq := heads(e.calls()[n:], 3)
-	wantSeq := []string{"tasks project list", "home binding P1", "thread list --json", "tasks label list", "home get --request", "tasks show T1", "home get --card"}
+	wantSeq := []string{"tasks project list", "home binding P1", "thread list --json", "home get --request", "tasks show T1", "tasks project list", "home binding P1", "home get --request", "tasks show T1", "home get --card"}
 	if !reflect.DeepEqual(seq, wantSeq) {
 		t.Fatalf("replay bb calls:\n got %q\nwant %q", seq, wantSeq)
 	}
@@ -307,8 +307,8 @@ func TestFileCreateLostAnswerThenReplay(t *testing.T) {
 	if got.Card != "T1" || !got.Replay || len(e.st().Tasks) != 1 || len(e.st().Tasks[0].Comments) != 1 {
 		t.Fatalf("a lost create answer = %+v with %d tasks", got, len(e.st().Tasks))
 	}
-	if n := len(e.callsWith("home", "get", "--request")); n != 2 {
-		t.Errorf("the registry was read %d times, want 2 (before the create and to recover from it)", n)
+	if n := len(e.callsWith("home", "get", "--request")); n != 4 {
+		t.Errorf("the registry was read %d times, want 4 (preflight, admission, before create, and create recovery)", n)
 	}
 }
 

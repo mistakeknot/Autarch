@@ -50,8 +50,8 @@ func (s *stubBB) run(_ context.Context, env []string, args ...string) homeask.BB
 	}
 	j := func(v string) homeask.BBResult { return homeask.BBResult{Stdout: []byte(v)} }
 	switch strings.Join(args[:min(len(args), 3)], " ") {
-	case "thread show thr_owner":
-		return j(`{"thread":{"id":"thr_owner","archivedAt":null,"deletedAt":null}}`)
+	case "thread show " + os.Getenv("BB_THREAD_ID"), "thread show thr_owner":
+		return j(`{"thread":{"id":` + strconv.Quote(args[2]) + `,"archivedAt":null,"deletedAt":null}}`)
 	case "thread list --json":
 		if s.vizier {
 			return j(`[{"id":"thr_x","title":"Masaq' | vizier","pinnedAt":1,"archivedAt":null}]`)
@@ -143,6 +143,9 @@ func runNeedsMk(t *testing.T, s *stubBB, args ...string) (string, error) {
 	var out bytes.Buffer
 	root.SetOut(&out)
 	root.SetErr(&bytes.Buffer{})
+	if len(args) > 0 && args[0] == "file" && !strings.Contains(t.Name(), "VizierOwnership") {
+		args = filingOwnerArgs(args)
+	}
 	root.SetArgs(append([]string{"needs-mk"}, args...))
 	err := root.Execute()
 	return strings.TrimSpace(out.String()), err
@@ -241,7 +244,7 @@ func TestNeedsMkFileHomeDownIsExit3(t *testing.T) {
 	root.AddCommand(needsMkCmd())
 	root.SetOut(&bytes.Buffer{})
 	root.SetErr(&bytes.Buffer{})
-	root.SetArgs([]string{"needs-mk", "file", "--project", "P1", "--title", "x", "--ask-file", writeAsk(t)})
+	root.SetArgs(filingOwnerArgs([]string{"needs-mk", "file", "--project", "P1", "--title", "x", "--ask-file", writeAsk(t)}))
 	if err := root.Execute(); exitCode(err) != 3 {
 		t.Fatalf("err=%v", err)
 	}
@@ -305,7 +308,7 @@ func TestNeedsMkFileRefusesAnUnresolvedRoot(t *testing.T) {
 func writeCalls(s *stubBB) [][]string {
 	var w [][]string
 	for _, c := range s.calls {
-		if k := strings.Join(c[:min(len(c), 2)], " "); k != "tasks project" && k != "home binding" {
+		if k := strings.Join(c[:min(len(c), 2)], " "); k != "tasks project" && k != "home binding" && k != "thread list" && k != "thread show" && k != "home get" && k != "tasks list" && k != "tasks show" {
 			w = append(w, c)
 		}
 	}
@@ -601,4 +604,14 @@ func TestNeedsMkLegacyBlockerReaders(t *testing.T) {
 			}
 		})
 	}
+}
+
+// Existing filing fixtures name an explicit live owner under the ownership contract.
+func filingOwnerArgs(args []string) []string {
+	for _, a := range args {
+		if a == "--owner-thread" || a == "--vizier-owned" {
+			return args
+		}
+	}
+	return append(args, "--owner-thread", os.Getenv("BB_THREAD_ID"))
 }

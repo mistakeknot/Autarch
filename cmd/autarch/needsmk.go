@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -41,6 +42,9 @@ func needsMkCmd() *cobra.Command {
 		SilenceErrors: true,
 	}
 	cmd.AddCommand(needsMkFileCmd())
+	cmd.AddCommand(needsMkReleaseCmd())
+	cmd.AddCommand(needsMkCancelHeldCmd())
+	cmd.AddCommand(needsMkBudgetCmd())
 	cmd.AddCommand(needsMkAdoptMoveCmd())
 	cmd.AddCommand(needsMkFooterCmd())
 	cmd.AddCommand(needsMkExportCmd())
@@ -223,12 +227,21 @@ func commandWarning(question string) string {
 func needsMkFileCmd() *cobra.Command {
 	var project, title, askFile, rootRun, request, moveFile, ownerThread, urgency, stopped, prFlag, supersedes string
 	var blocks []string
-	var vizierOwned bool
+	var vizierOwned, checkOnly bool
+	var cardType string
+	var ui, urgent, nonBlocking bool
+	var keepList string
+	var attachments []string
 	cmd := &cobra.Command{
 		Use:   "file",
 		Short: "File a needs-mk card from the asking thread; prints the card as one JSON line",
 		Long: `Run inside the asking thread ($BB_THREAD_ID is required): the filer posts the
-routing comment from it. Success prints JSON with a non-empty card_key (--json is also accepted).
+routing comment from it. AUTARCH_CARD_WEEKLY_BUDGET sets the weekly budget (default 25).
+AUTARCH_CARD_STATE_DIR overrides the local XDG state directory.
+--non-blocking queues a card until needs-mk release, reserving its slot now.
+--urgent or --keep-list marks a budget exception. Success prints JSON with a non-empty card_key (--json is also accepted).
+--urgent exempts the budget; --urgency blocker only controls phone push and does not exempt the budget.
+Exempt cards are recorded separately and never consume ordinary slots; needs-mk budget shows both tallies.
 After filing, waits up to 30 seconds for Home's index. If the key remains missing, exits 4
 with no success JSON: the card may have been filed. The error gives the request key;
 re-run with that same --request and unchanged input to replay without duplicating it.
@@ -347,9 +360,6 @@ Any other urgency is refused. It works on every kind of card; a machine blocker 
 			if _, ok := ask["project_root"]; !ok {
 				ask["project_root"] = gitRoot()
 			}
-			if err := homeask.CheckOptionIDs(ask); err != nil {
-				return err
-			}
 			if move == nil && rootRun == "" && noticeOnlyOptions(ask) {
 				return &usageError{"card has no decision: a notice belongs in the vizier's inbox or digest"}
 			}
@@ -368,25 +378,39 @@ Any other urgency is refused. It works on every kind of card; a machine blocker 
 			// Resolve the bound Home project first: serve lists projects by that name, so the root check
 			// must see it, not the tasks-key alias the ask may carry.
 			filer.Check = checkFilingPreconditions
-			bound, warn, err := filer.PrepareAsk(ctx, project, fmt.Sprint(ask["project"]), fmt.Sprint(ask["project_root"]))
+			var failures []error
+			bound, warn, prepErr := filer.PrepareAsk(ctx, project, fmt.Sprint(ask["project"]), fmt.Sprint(ask["project_root"]))
 			if warn != "" {
 				fmt.Fprintln(cmd.ErrOrStderr(), "warning:", warn)
 			}
-			if err != nil {
-				return err
+			if prepErr == nil {
+				ask["project"] = bound
 			}
-			ask["project"] = bound
-			// After project resolution, so the guard reads the card as it will be filed.
-			if err := guardMergeBase(cmd, ask, move, append([]string{title, rootRun, ownerThread, request}, blocks...), prFlag, cmd.Flags().Changed("pr")); err != nil {
-				return err
+			mergeErr := guardMergeBase(cmd, ask, move, append([]string{title, rootRun, ownerThread, request}, blocks...), prFlag, cmd.Flags().Changed("pr"))
+			if mergeErr != nil {
+				failures = append(failures, mergeErr)
 			}
-			if vizierOwned && cmd.Flags().Changed("owner-thread") {
-				return &usageError{"give exactly one of --owner-thread for another thread or --vizier-owned for the vizier itself"}
+			mergeAsk := prFlag != ""
+			walkAsk(ask, func(string) {}, func(m map[string]any, k string) {
+				if strings.Contains(m[k].(string), mergePhrase+" ") {
+					mergeAsk = true
+				}
+			})
+			if mergeAsk {
+				if cmd.Flags().Changed("card-type") && cardType != "merge" {
+					failures = append(failures, &usageError{"--card-type conflicts with merge ask; use --card-type merge or omit it"})
+				} else if !cmd.Flags().Changed("card-type") {
+					cardType = "merge"
+				}
 			}
 			if err := filer.CheckVizierOwnership(ctx, thread, ownerThread, vizierOwned); err != nil {
-				return err
+				failures = append(failures, err)
 			}
-			req := homeask.CardRequest{Project: project, Title: title, Blocks: blocks, Ask: ask, Move: move, Key: request, Thread: thread, Owner: ownerThread}
+			if vizierOwned && cmd.Flags().Changed("owner-thread") {
+				failures = append(failures, &usageError{"give exactly one of --owner-thread or --vizier-owned"})
+			}
+			req := homeask.CardRequest{Project: project, Title: title, Blocks: blocks, Ask: ask, Move: move, Key: request, Thread: thread, Owner: ownerThread, VizierOwned: vizierOwned, Type: cardType, UI: ui, Attachments: attachments, Urgent: urgent, NonBlocking: nonBlocking, KeepList: keepList}
+			var err error
 			if rootRun != "" {
 				if req.RootRun, err = parseRootRunFlag(rootRun); err != nil {
 					return err
@@ -399,6 +423,16 @@ Any other urgency is refused. It works on every kind of card; a machine blocker 
 				}
 				req.Key = homeask.DerivedKey(thread, ident)
 			}
+			if err := filer.Preflight(ctx, req); err != nil {
+				failures = append(failures, err)
+			}
+			if err := errors.Join(failures...); err != nil {
+				return err
+			}
+			if checkOnly {
+				fmt.Fprintln(cmd.OutOrStdout(), `{"checked":true}`)
+				return nil
+			}
 			if filer.ReadbackTimeout <= 0 {
 				filer.ReadbackTimeout = readbackTimeout
 			}
@@ -410,16 +444,26 @@ Any other urgency is refused. It works on every kind of card; a machine blocker 
 				}
 				return err
 			}
-			if strings.TrimSpace(res.CardKey) == "" {
+			if !res.Queued && strings.TrimSpace(res.CardKey) == "" {
 				err := fmt.Errorf("%w: card may have been filed; card_key is missing; re-run with --request %s", homeask.ErrOutcomeUnknown, res.Key)
 				fmt.Fprintln(cmd.ErrOrStderr(), err)
 				return err
+			}
+			if budget, e := filer.BudgetStatus(fmt.Sprint(ask["project"])); e == nil {
+				res.Budget = &budget
 			}
 			out, _ := json.Marshal(res)
 			fmt.Fprintln(cmd.OutOrStdout(), string(out))
 			return nil
 		},
 	}
+	cmd.Flags().BoolVar(&urgent, "urgent", false, "Exempt this urgent card from the weekly budget")
+	cmd.Flags().BoolVar(&nonBlocking, "non-blocking", false, "Hold for needs-mk release; reserves a weekly budget slot now")
+	cmd.Flags().StringVar(&keepList, "keep-list", "", "Budget exception: spend, credentials, sign-ins/payments, tags/releases/publishes, force-pushes, standing-approvals")
+	cmd.Flags().BoolVar(&ui, "ui", false, "Mark a UI card; play and merge require a screenshot or video")
+	cmd.Flags().StringArrayVar(&attachments, "attach", nil, "Non-symlink, non-empty png/jpg/jpeg/webp/gif/mp4/webm media file; repeatable")
+	cmd.Flags().BoolVar(&checkOnly, "check", false, "Run all preflight checks without submitting")
+	cmd.Flags().StringVar(&cardType, "card-type", "other", "Card type: product, design, play, merge or other (merge inferred only when omitted; conflicting types refused)")
 	cmd.Flags().Bool("json", false, "Print JSON (the default and only format); success always includes a non-empty card_key")
 	cmd.Flags().StringVar(&project, "project", "", "Tasks project (id, key or name)")
 	cmd.Flags().StringVar(&title, "title", "", "Card title")
@@ -463,4 +507,33 @@ func noticeOnlyOptions(ask map[string]any) bool {
 		}
 	}
 	return true
+}
+
+func needsMkReleaseCmd() *cobra.Command {
+	return &cobra.Command{Use: "release", Short: "Send held cards grouped by type (schedule twice daily)", SilenceUsage: true, Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, args []string) error {
+		f := newCardFiler()
+		f.Check = checkFilingPreconditions
+		report, err := f.ReleaseDetailed(cmd.Context())
+		printErr := json.NewEncoder(cmd.OutOrStdout()).Encode(report)
+		return errors.Join(err, printErr)
+	}}
+}
+func needsMkCancelHeldCmd() *cobra.Command {
+	return &cobra.Command{Use: "cancel-held REQUEST", Short: "Cancel an unsent card and refund its budget slot", Args: cobra.ExactArgs(1), RunE: func(cmd *cobra.Command, args []string) error { return newCardFiler().CancelHeld(args[0]) }}
+}
+
+func needsMkBudgetCmd() *cobra.Command {
+	var project string
+	cmd := &cobra.Command{Use: "budget", Short: "Show this ISO week's ordinary and exempt card counts for a Home project", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, args []string) error {
+		if project == "" {
+			return &usageError{"--project must name the Home project"}
+		}
+		status, err := newCardFiler().BudgetStatus(project)
+		if err != nil {
+			return err
+		}
+		return json.NewEncoder(cmd.OutOrStdout()).Encode(status)
+	}}
+	cmd.Flags().StringVar(&project, "project", "", "Home project name (case-insensitive)")
+	return cmd
 }

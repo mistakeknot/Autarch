@@ -59,7 +59,7 @@ func TestNeedsMkUpdateWithoutProjectExitsThreeWithoutWrites(t *testing.T) {
 	var out bytes.Buffer
 	root.SetOut(&out)
 	root.SetErr(&bytes.Buffer{})
-	root.SetArgs(append([]string{"needs-mk"}, args...))
+	root.SetArgs(append([]string{"needs-mk"}, filingOwnerArgs(args)...))
 	err = root.Execute()
 	if exitCode(err) != 3 || out.Len() != 0 {
 		t.Errorf("exit=%d err=%v out=%q", exitCode(err), err, out.String())

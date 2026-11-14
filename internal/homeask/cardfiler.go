@@ -56,10 +56,13 @@ type BBRunner func(ctx context.Context, env []string, args ...string) BBResult
 
 // CardFiler files cards. The zero value works: it runs `bb` from PATH.
 type CardFiler struct {
-	Bin     string        // default "bb"
-	Timeout time.Duration // per bb call, default 10 s
-	Run     BBRunner      // default: exec Bin
-	LockDir string        // default ${XDG_RUNTIME_DIR:-/tmp}/autarch-needsmk-<uid>
+	StateDir     string           // persistent filing state; default XDG_STATE_HOME/autarch/needsmk
+	WeeklyBudget int              // zero uses AUTARCH_CARD_WEEKLY_BUDGET or 25
+	Now          func() time.Time // test clock; default time.Now
+	Bin          string           // default "bb"
+	Timeout      time.Duration    // per bb call, default 10 s
+	Run          BBRunner         // default: exec Bin
+	LockDir      string           // default ${XDG_RUNTIME_DIR:-/tmp}/autarch-needsmk-<uid>
 	// TasksProjects maps a Home project name (case-insensitive) to the tasks project (id, key
 	// prefix or name) File files its cards into. It is the operator's binding:
 	// the filer never guesses a tasks project from names (a name match is only the poller's
@@ -129,11 +132,20 @@ type RootRunSpec = RootRun
 
 // CardRequest is one filing.
 type CardRequest struct {
-	Project string         // tasks project: id, key prefix or name; always passed as --project
-	Title   string         // the card title
-	Blocks  []string       // Blocks refs (bead:, thread:, project:)
-	Ask     map[string]any // the home-ask/v2 object; schema is filled in
-	RootRun *RootRunSpec
+	beforeCreate func(string) error // final budget admission for an update falling back to create
+
+	Urgent      bool
+	KeepList    string
+	NonBlocking bool
+	UI          bool
+	Attachments []string
+	Type        string         // filing category: product, design, play, merge or other
+	VizierOwned bool           // explicit ownership declaration for CLI preflight
+	Project     string         // tasks project: id, key prefix or name; always passed as --project
+	Title       string         // the card title
+	Blocks      []string       // Blocks refs (bead:, thread:, project:)
+	Ask         map[string]any // the home-ask/v2 object; schema is filled in
+	RootRun     *RootRunSpec
 	// Move is an optional home-move/v1 object (what mk owes). It is validated by ParseMove, written as a fenced
 	// block, and the card is labelled mk-move. Home never executes it.
 	Move   map[string]any
@@ -148,9 +160,11 @@ type CardRequest struct {
 
 // CardResult is what a successful filing returns.
 type CardResult struct {
-	ID      string `json:"card"`
-	Key     string `json:"request"`
-	Project string `json:"project,omitempty"`
+	Budget  *CardBudget `json:"budget,omitempty"`
+	Queued  bool        `json:"queued,omitempty"`
+	ID      string      `json:"card"`
+	Key     string      `json:"request"`
+	Project string      `json:"project,omitempty"`
 	// Replay is true when the card already existed (a routing comment may still have been repaired).
 	Replay  bool `json:"replay"`
 	Updated bool `json:"updated,omitempty"`
@@ -813,8 +827,16 @@ func (f *CardFiler) comment(ctx context.Context, thread, id, key string) error {
 // comment exists, and it refuses a card routed to another thread.
 func (f *CardFiler) replay(ctx context.Context, req CardRequest, c *found) (CardResult, error) {
 	res := CardResult{ID: c.ID, Key: req.Key, Project: c.ProjectID, Replay: true}
+	attachments := []string{}
+	for _, p := range req.Attachments {
+		if _, err := os.Lstat(p); !os.IsNotExist(err) {
+			attachments = append(attachments, p)
+		}
+	}
+	req.Attachments = attachments
+
 	if req.Pull {
-		return res, nil
+		return res, f.ensureAttachments(ctx, req, c.ID)
 	}
 	agent := false
 	for _, cm := range c.Comments {
@@ -830,17 +852,24 @@ func (f *CardFiler) replay(ctx context.Context, req CardRequest, c *found) (Card
 				return CardResult{}, err
 			}
 		}
+		if err := f.ensureAttachments(ctx, req, c.ID); err != nil {
+			return res, err
+		}
 		return res, f.comment(ctx, req.routeThread(), c.ID, req.Key)
 	case asking == "":
 		return CardResult{}, fmt.Errorf("%w: Request %s is on card %s, whose first agent comment carries no thread", ErrInvalid, req.Key, c.ID)
 	case asking != req.routeThread():
 		return CardResult{}, fmt.Errorf("%w: Request %s filed from thread %s", ErrInvalid, req.Key, asking)
 	}
-	return res, nil
+	return res, f.ensureAttachments(ctx, req, c.ID)
 }
 
 // FileCard files one card, or finds the card this Request already filed.
 func (f *CardFiler) FileCard(ctx context.Context, req CardRequest) (CardResult, error) {
+	return f.submit(ctx, req, "", false)
+}
+
+func (f *CardFiler) fileCardReadback(ctx context.Context, req CardRequest) (CardResult, error) {
 	res, err := f.fileCard(ctx, req)
 	if err == nil && !req.Pull && res.ID != "" && f.ReadbackTimeout > 0 {
 		return f.withCardKey(ctx, res)
@@ -920,7 +949,17 @@ func CheckOptionIDs(ask map[string]any) error {
 	return nil
 }
 
-func (f *CardFiler) fileCard(ctx context.Context, req CardRequest) (CardResult, error) {
+// errNoCardWritten is evidence from the delivery path, never inferred from an empty result.
+var errNoCardWritten = errors.New("no card was written")
+
+func (f *CardFiler) fileCard(ctx context.Context, req CardRequest) (result CardResult, resultErr error) {
+	noWrite := true
+	defer func() {
+		if noWrite && resultErr != nil {
+			resultErr = errors.Join(errNoCardWritten, resultErr)
+		}
+	}()
+
 	if err := CheckStopped(req.Ask); err != nil {
 		return CardResult{}, fmt.Errorf("%w: %v", ErrInvalid, err)
 	}
@@ -961,6 +1000,7 @@ func (f *CardFiler) fileCard(ctx context.Context, req CardRequest) (CardResult, 
 			return CardResult{}, err
 		}
 	}
+	noWrite = false // Registry and replay failures can refer to an existing card.
 	c, err := f.locate(ctx, req.Key, ident)
 	if err != nil {
 		return CardResult{}, err
@@ -971,6 +1011,10 @@ func (f *CardFiler) fileCard(ctx context.Context, req CardRequest) (CardResult, 
 		return res, err
 	}
 
+	noWrite = true // Registry and search proved this request absent.
+	if err := f.CheckUI(req); err != nil {
+		return CardResult{}, err
+	}
 	if req.Owner != "" {
 		if err := f.checkOwnerLive(ctx, req.Owner); err != nil {
 			return CardResult{}, err
@@ -986,12 +1030,19 @@ func (f *CardFiler) fileCard(ctx context.Context, req CardRequest) (CardResult, 
 		return CardResult{}, fmt.Errorf("%w: %v", ErrHomeDown, err)
 	}
 	var created struct {
-		Task taskRow `json:"task"`
+		Task              taskRow           `json:"task"`
+		FailedAttachments []json.RawMessage `json:"failedAttachments"`
 	}
 	createArgs := []string{"tasks", "create", "--project", req.Project, "--title", req.Title, "--description-file", file, "--label", NeedsMkLabel}
 	if req.Move != nil {
 		createArgs = append(createArgs, "--label", MoveLabel)
 	}
+	if req.beforeCreate != nil {
+		if err := req.beforeCreate(req.Key); err != nil {
+			return CardResult{}, err
+		}
+	}
+	noWrite = false // From here even a lost reply can mean the create succeeded.
 	r := f.exec(ctx, cardEnv(req.Thread), append(createArgs, "--json")...)
 	if r.failed() || json.Unmarshal(r.Stdout, &created) != nil || created.Task.ID == "" {
 		// The card may have been written before the answer was lost: look again, under the same lock.
@@ -1009,6 +1060,12 @@ func (f *CardFiler) fileCard(ctx context.Context, req CardRequest) (CardResult, 
 		return res, err
 	}
 	res := CardResult{ID: created.Task.ID, Key: req.Key, Project: created.Task.ProjectID}
+	if len(created.FailedAttachments) > 0 {
+		return res, fmt.Errorf("%w: card exists but attachment upload failed; retry the same request with --attach", ErrOutcomeUnknown)
+	}
+	if err := f.ensureAttachments(ctx, req, res.ID); err != nil {
+		return res, err
+	}
 	if req.Pull {
 		return res, nil
 	}

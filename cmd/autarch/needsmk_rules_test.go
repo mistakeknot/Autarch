@@ -35,7 +35,7 @@ func TestNeedsMkVizierOwnership(t *testing.T) {
 		{"ordinary routes owner", false, []string{"--owner-thread", "thr_owner"}, false},
 		{"both empty refused", true, []string{"--vizier-owned", "--owner-thread", ""}, true},
 		{"vizier own", true, []string{"--vizier-owned"}, false},
-		{"ordinary unchanged", false, nil, false},
+		{"ordinary needs owner", false, nil, true},
 		{"ordinary cannot mark vizier", false, []string{"--vizier-owned"}, true},
 		{"both refused", true, []string{"--vizier-owned", "--owner-thread", "thr_other"}, true},
 	} {

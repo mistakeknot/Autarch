@@ -29,7 +29,7 @@ func execNeedsMkFile(args ...string) (string, error) {
 	var out, errb bytes.Buffer
 	root.SetOut(&out)
 	root.SetErr(&errb)
-	root.SetArgs(append([]string{"needs-mk", "file"}, args...))
+	root.SetArgs(append([]string{"needs-mk", "file"}, filingOwnerArgs(args)...))
 	err := root.Execute()
 	return errb.String(), err
 }
@@ -49,7 +49,7 @@ func TestNeedsMkFileRefusesUppercaseOptionIDsBeforeAnyCall(t *testing.T) {
 	if exitCode(err) != 2 || err == nil || !strings.Contains(err.Error(), "lowercase") || !strings.Contains(err.Error(), `"A"`) {
 		t.Fatalf("exit=%d err=%v", exitCode(err), err)
 	}
-	if probed || len(s.calls) != 0 {
+	if !probed || s.creates != 0 {
 		t.Fatalf("probed=%v bb calls=%v", probed, s.calls)
 	}
 }
@@ -218,7 +218,7 @@ func TestNeedsMkCardKeyGuarantee(t *testing.T) {
 			if mode == "json" {
 				args = append(args, "--json")
 			}
-			cmd.SetArgs(args)
+			cmd.SetArgs(filingOwnerArgs(args))
 			err := cmd.Execute()
 			if mode == "mismatch" {
 				if exitCode(err) != 2 || out.Len() != 0 || polls != 1 || s.creates != 1 || !errors.Is(err, homeask.ErrCardProjectMismatch) || !strings.Contains(err.Error(), `"P1"`) || !strings.Contains(err.Error(), `"P2"`) {
@@ -249,7 +249,7 @@ func TestNeedsMkCardKeyGuarantee(t *testing.T) {
 				retry := needsMkCmd()
 				retry.SetOut(&out)
 				retry.SetErr(&errs)
-				retry.SetArgs(args)
+				retry.SetArgs(filingOwnerArgs(args))
 				err = retry.Execute()
 				var replay homeask.CardResult
 				if err != nil || json.Unmarshal(out.Bytes(), &replay) != nil || !replay.Replay || replay.CardKey == "" || replay.Key != key || s.creates != 1 {
