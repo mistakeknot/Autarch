@@ -19,9 +19,6 @@ func (f *CardFiler) FileOrUpdateCard(ctx context.Context, req CardRequest, super
 }
 
 func (f *CardFiler) fileOrUpdateCard(ctx context.Context, req CardRequest, supersedes string) (CardResult, error) {
-	if err := f.CheckUI(req); err != nil {
-		return CardResult{}, errors.Join(errNoCardWritten, err)
-	}
 	if err := f.PreflightOnPick(ctx, req); err != nil {
 		return CardResult{}, errors.Join(errNoCardWritten, err)
 	}
@@ -55,7 +52,7 @@ func (f *CardFiler) fileOrUpdateCard(ctx context.Context, req CardRequest, super
 		}
 	}
 	if project == "" {
-		return CardResult{}, fmt.Errorf("%w: unknown tasks project", ErrInvalid)
+		return CardResult{}, errors.Join(errNoCardWritten, fmt.Errorf("%w: unknown tasks project", ErrInvalid))
 	}
 	lockKey := fmt.Sprintf("edit-%x", sha256.Sum256([]byte(project)))
 	path, err := f.lockPath(lockKey)
@@ -72,7 +69,7 @@ func (f *CardFiler) fileOrUpdateCard(ctx context.Context, req CardRequest, super
 		s, e := f.show(ctx, supersedes)
 		if e != nil {
 			if errors.Is(e, errTaskGone) {
-				return CardResult{}, fmt.Errorf("%w: --supersedes card unavailable: %v", ErrInvalid, e)
+				return CardResult{}, errors.Join(errNoCardWritten, fmt.Errorf("%w: --supersedes card unavailable: %v", ErrInvalid, e))
 			}
 			return CardResult{}, e
 		}
@@ -127,7 +124,7 @@ func (f *CardFiler) fileOrUpdateCard(ctx context.Context, req CardRequest, super
 	for _, s := range candidates {
 		c, e := ParseCard(s.Task.Description)
 		if e != nil || c.Pull != "" || s.Task.ProjectID != project {
-			return CardResult{}, fmt.Errorf("%w: --supersedes must name a Home card in the same project", ErrInvalid)
+			return CardResult{}, errors.Join(errNoCardWritten, fmt.Errorf("%w: --supersedes must name a Home card in the same project", ErrInvalid))
 		}
 		// An exit-4 filing may not be indexed by Home until its first routing
 		// comment exists. Repair via replay, using the candidate's persisted key
@@ -148,7 +145,7 @@ func (f *CardFiler) fileOrUpdateCard(ctx context.Context, req CardRequest, super
 				matches = matches || c.Request.Key == refileRequestKey(req.Thread, c.Request.Identity, previous.Task.ID)
 			}
 			if !matches {
-				return CardResult{}, fmt.Errorf("%w: card %s has an unrouted Request from another filing; re-run its original command", ErrInvalid, s.Task.ID)
+				return CardResult{}, errors.Join(errNoCardWritten, fmt.Errorf("%w: card %s has an unrouted Request from another filing; re-run its original command", ErrInvalid, s.Task.ID))
 			}
 			repair := req
 			repair.Key = c.Request.Key
@@ -169,11 +166,11 @@ func (f *CardFiler) fileOrUpdateCard(ctx context.Context, req CardRequest, super
 			}
 		}
 		if v.State == "ruled" || v.DecisionState == "ruled" || v.DecisionState == "picked" {
-			return CardResult{}, fmt.Errorf("%w: card %s", ErrAlreadyRuled, s.Task.ID)
+			return CardResult{}, errors.Join(errNoCardWritten, fmt.Errorf("%w: card %s", ErrAlreadyRuled, s.Task.ID))
 		}
 		if s.Task.Status == "done" || s.Task.Status == "canceled" || v.State == "closed" {
 			if supersedes != "" {
-				return CardResult{}, fmt.Errorf("%w: --supersedes requires an open card", ErrInvalid)
+				return CardResult{}, errors.Join(errNoCardWritten, fmt.Errorf("%w: --supersedes requires an open card", ErrInvalid))
 			}
 			if closed == nil || s.Task.CreatedAt > closed.CreatedAt || (s.Task.CreatedAt == closed.CreatedAt && s.Task.ID > closed.ID) {
 				snapshot := s.Task
@@ -183,7 +180,7 @@ func (f *CardFiler) fileOrUpdateCard(ctx context.Context, req CardRequest, super
 		}
 		owner := AskingThread(s.Comments)
 		if owner == "" || (owner != req.Thread && owner != req.Owner) {
-			return CardResult{}, fmt.Errorf("%w: card must belong to the filing thread or --owner-thread", ErrInvalid)
+			return CardResult{}, errors.Join(errNoCardWritten, fmt.Errorf("%w: card must belong to the filing thread or --owner-thread", ErrInvalid))
 		}
 		if v.State != "open" {
 			return CardResult{}, fmt.Errorf("%w: card state unavailable", ErrHomeDown)
@@ -192,18 +189,22 @@ func (f *CardFiler) fileOrUpdateCard(ctx context.Context, req CardRequest, super
 		fresh, _ := ParseCard(desc)
 		desc = strings.Replace(desc, fmt.Sprintf("Request: %s sha256:%s", fresh.Request.Key, fresh.Request.Identity), fmt.Sprintf("Request: %s sha256:%s", c.Request.Key, c.Request.Identity), 1)
 		if _, e = ParseCard(desc); e != nil {
-			return CardResult{}, fmt.Errorf("%w: updated card does not parse: %v", ErrInvalid, e)
+			return CardResult{}, errors.Join(errNoCardWritten, fmt.Errorf("%w: updated card does not parse: %v", ErrInvalid, e))
 		}
 		res := CardResult{ID: s.Task.ID, Key: c.Request.Key, Project: project, Replay: true}
-		if err := f.ensureAttachments(ctx, req, s.Task.ID); err != nil {
-			return res, err
-		}
 		if descriptionWithoutEvidence(desc) == descriptionWithoutEvidence(s.Task.Description) && req.Title == s.Task.Title {
 			if f.ReadbackTimeout > 0 {
 				return f.withCardKey(ctx, res)
 			}
 			return res, nil
 		}
+		if err := f.CheckUI(req); err != nil {
+			return res, errors.Join(errNoCardWritten, err)
+		}
+		if err := f.ensureAttachments(ctx, req, s.Task.ID); err != nil {
+			return res, err
+		}
+
 		if req.Move != nil {
 			if e = f.ensureLabelNamed(ctx, project, MoveLabel); e != nil {
 				return CardResult{}, e

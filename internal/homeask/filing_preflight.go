@@ -17,7 +17,17 @@ func (f *CardFiler) Preflight(ctx context.Context, r CardRequest) error {
 		}
 	}
 	add(CheckOptionIDs(r.Ask))
-	add(f.CheckUI(r))
+	// Exact-request recovery must remain possible after temporary proof is gone.
+	existing := false
+	if CheckRequestKey(r.Key) == nil {
+		if identity, err := RequestIdentity(r); err == nil {
+			candidate, err := f.locate(ctx, r.Key, identity)
+			existing = err == nil && candidate != nil
+		}
+	}
+	if !existing {
+		add(f.CheckUI(r))
+	}
 	if _, _, err := r.Description(); err != nil {
 		add(fmt.Errorf("%w; fix the named field (option labels allow at most %d characters)", err, maxLabel))
 	}

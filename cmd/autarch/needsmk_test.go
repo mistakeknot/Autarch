@@ -308,7 +308,7 @@ func TestNeedsMkFileRefusesAnUnresolvedRoot(t *testing.T) {
 func writeCalls(s *stubBB) [][]string {
 	var w [][]string
 	for _, c := range s.calls {
-		if k := strings.Join(c[:min(len(c), 2)], " "); k != "tasks project" && k != "home binding" && k != "thread list" && k != "thread show" {
+		if k := strings.Join(c[:min(len(c), 2)], " "); k != "tasks project" && k != "home binding" && k != "thread list" && k != "thread show" && k != "home get" && k != "tasks list" && k != "tasks show" {
 			w = append(w, c)
 		}
 	}

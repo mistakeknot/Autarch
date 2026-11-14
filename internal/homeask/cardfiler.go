@@ -132,6 +132,8 @@ type RootRunSpec = RootRun
 
 // CardRequest is one filing.
 type CardRequest struct {
+	beforeCreate func(string) error // final budget admission for an update falling back to create
+
 	Urgent      bool
 	KeepList    string
 	NonBlocking bool
@@ -825,6 +827,14 @@ func (f *CardFiler) comment(ctx context.Context, thread, id, key string) error {
 // comment exists, and it refuses a card routed to another thread.
 func (f *CardFiler) replay(ctx context.Context, req CardRequest, c *found) (CardResult, error) {
 	res := CardResult{ID: c.ID, Key: req.Key, Project: c.ProjectID, Replay: true}
+	attachments := []string{}
+	for _, p := range req.Attachments {
+		if _, err := os.Lstat(p); !os.IsNotExist(err) {
+			attachments = append(attachments, p)
+		}
+	}
+	req.Attachments = attachments
+
 	if req.Pull {
 		return res, f.ensureAttachments(ctx, req, c.ID)
 	}
@@ -950,9 +960,6 @@ func (f *CardFiler) fileCard(ctx context.Context, req CardRequest) (result CardR
 		}
 	}()
 
-	if err := f.CheckUI(req); err != nil {
-		return CardResult{}, err
-	}
 	if err := CheckStopped(req.Ask); err != nil {
 		return CardResult{}, fmt.Errorf("%w: %v", ErrInvalid, err)
 	}
@@ -1005,6 +1012,9 @@ func (f *CardFiler) fileCard(ctx context.Context, req CardRequest) (result CardR
 	}
 
 	noWrite = true // Registry and search proved this request absent.
+	if err := f.CheckUI(req); err != nil {
+		return CardResult{}, err
+	}
 	if req.Owner != "" {
 		if err := f.checkOwnerLive(ctx, req.Owner); err != nil {
 			return CardResult{}, err
@@ -1026,6 +1036,11 @@ func (f *CardFiler) fileCard(ctx context.Context, req CardRequest) (result CardR
 	createArgs := []string{"tasks", "create", "--project", req.Project, "--title", req.Title, "--description-file", file, "--label", NeedsMkLabel}
 	if req.Move != nil {
 		createArgs = append(createArgs, "--label", MoveLabel)
+	}
+	if req.beforeCreate != nil {
+		if err := req.beforeCreate(req.Key); err != nil {
+			return CardResult{}, err
+		}
 	}
 	noWrite = false // From here even a lost reply can mean the create succeeded.
 	r := f.exec(ctx, cardEnv(req.Thread), append(createArgs, "--json")...)

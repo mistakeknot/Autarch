@@ -39,7 +39,7 @@ func TestFileAlreadyPickedCardExitsFive(t *testing.T) {
 		}
 		if len(args) >= 3 {
 			switch strings.Join(args[:3], " ") {
-			case "tasks project list", "home get --card":
+			case "tasks project list", "home get --card", "home get --request":
 				continue
 			}
 		}

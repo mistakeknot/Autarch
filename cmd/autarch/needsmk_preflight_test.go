@@ -16,6 +16,23 @@ func TestNeedsMkCheckDoesNotSubmit(t *testing.T) {
 	}
 }
 
+func TestCLIReplayWithMissingTemporaryMedia(t *testing.T) {
+	t.Setenv("BB_THREAD_ID", "thr_x")
+	s := &stubBB{}
+	args := []string{"file", "--project", "P1", "--title", "Choose", "--ask-file", writeAsk(t)}
+	if _, err := runNeedsMk(t, s, args...); err != nil {
+		t.Fatal(err)
+	}
+	args = append(args, "--ui", "--card-type", "play", "--attach", t.TempDir()+"/gone.png")
+	out, err := runNeedsMk(t, s, args...)
+	if err != nil || !strings.Contains(out, `"replay":true`) {
+		t.Fatal(out, err)
+	}
+	if s.creates != 1 {
+		t.Fatal("replay created a new card")
+	}
+}
+
 func TestNeedsMkAggregateOwnershipAndFormat(t *testing.T) {
 	t.Setenv("BB_THREAD_ID", "thr_x")
 	// Deliberately bypass the fixture helper that supplies an owner.

@@ -461,9 +461,9 @@ Any other urgency is refused. It works on every kind of card; a machine blocker 
 	cmd.Flags().BoolVar(&nonBlocking, "non-blocking", false, "Hold for needs-mk release; reserves a weekly budget slot now")
 	cmd.Flags().StringVar(&keepList, "keep-list", "", "Budget exception: spend, credentials, sign-ins/payments, tags/releases/publishes, force-pushes, standing-approvals")
 	cmd.Flags().BoolVar(&ui, "ui", false, "Mark a UI card; play and merge require a screenshot or video")
-	cmd.Flags().StringArrayVar(&attachments, "attach", nil, "Existing non-empty attachment file; repeatable")
+	cmd.Flags().StringArrayVar(&attachments, "attach", nil, "Non-symlink, non-empty png/jpg/jpeg/webp/gif/mp4/webm media file; repeatable")
 	cmd.Flags().BoolVar(&checkOnly, "check", false, "Run all preflight checks without submitting")
-	cmd.Flags().StringVar(&cardType, "card-type", "other", "Card type: product, design, play, merge or other (merge inferred from --pr or merge option)")
+	cmd.Flags().StringVar(&cardType, "card-type", "other", "Card type: product, design, play, merge or other (merge inferred only when omitted; conflicting types refused)")
 	cmd.Flags().Bool("json", false, "Print JSON (the default and only format); success always includes a non-empty card_key")
 	cmd.Flags().StringVar(&project, "project", "", "Tasks project (id, key or name)")
 	cmd.Flags().StringVar(&title, "title", "", "Card title")
@@ -510,14 +510,12 @@ func noticeOnlyOptions(ask map[string]any) bool {
 }
 
 func needsMkReleaseCmd() *cobra.Command {
-	return &cobra.Command{Use: "release", Short: "Send held cards grouped by type (schedule twice daily)", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, args []string) error {
+	return &cobra.Command{Use: "release", Short: "Send held cards grouped by type (schedule twice daily)", SilenceUsage: true, Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, args []string) error {
 		f := newCardFiler()
 		f.Check = checkFilingPreconditions
-		groups, err := f.Release(cmd.Context())
-		if err != nil {
-			return err
-		}
-		return json.NewEncoder(cmd.OutOrStdout()).Encode(groups)
+		report, err := f.ReleaseDetailed(cmd.Context())
+		printErr := json.NewEncoder(cmd.OutOrStdout()).Encode(report)
+		return errors.Join(err, printErr)
 	}}
 }
 func needsMkCancelHeldCmd() *cobra.Command {
