@@ -129,11 +129,13 @@ type RootRunSpec = RootRun
 
 // CardRequest is one filing.
 type CardRequest struct {
-	Project string         // tasks project: id, key prefix or name; always passed as --project
-	Title   string         // the card title
-	Blocks  []string       // Blocks refs (bead:, thread:, project:)
-	Ask     map[string]any // the home-ask/v2 object; schema is filled in
-	RootRun *RootRunSpec
+	Type        string         // filing category: product, design, play, merge or other
+	VizierOwned bool           // explicit ownership declaration for CLI preflight
+	Project     string         // tasks project: id, key prefix or name; always passed as --project
+	Title       string         // the card title
+	Blocks      []string       // Blocks refs (bead:, thread:, project:)
+	Ask         map[string]any // the home-ask/v2 object; schema is filled in
+	RootRun     *RootRunSpec
 	// Move is an optional home-move/v1 object (what mk owes). It is validated by ParseMove, written as a fenced
 	// block, and the card is labelled mk-move. Home never executes it.
 	Move   map[string]any

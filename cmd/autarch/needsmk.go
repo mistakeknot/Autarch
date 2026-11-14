@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -223,7 +224,8 @@ func commandWarning(question string) string {
 func needsMkFileCmd() *cobra.Command {
 	var project, title, askFile, rootRun, request, moveFile, ownerThread, urgency, stopped, prFlag, supersedes string
 	var blocks []string
-	var vizierOwned bool
+	var vizierOwned, checkOnly bool
+	var cardType string
 	cmd := &cobra.Command{
 		Use:   "file",
 		Short: "File a needs-mk card from the asking thread; prints the card as one JSON line",
@@ -347,9 +349,6 @@ Any other urgency is refused. It works on every kind of card; a machine blocker 
 			if _, ok := ask["project_root"]; !ok {
 				ask["project_root"] = gitRoot()
 			}
-			if err := homeask.CheckOptionIDs(ask); err != nil {
-				return err
-			}
 			if move == nil && rootRun == "" && noticeOnlyOptions(ask) {
 				return &usageError{"card has no decision: a notice belongs in the vizier's inbox or digest"}
 			}
@@ -368,25 +367,34 @@ Any other urgency is refused. It works on every kind of card; a machine blocker 
 			// Resolve the bound Home project first: serve lists projects by that name, so the root check
 			// must see it, not the tasks-key alias the ask may carry.
 			filer.Check = checkFilingPreconditions
-			bound, warn, err := filer.PrepareAsk(ctx, project, fmt.Sprint(ask["project"]), fmt.Sprint(ask["project_root"]))
+			var failures []error
+			bound, warn, prepErr := filer.PrepareAsk(ctx, project, fmt.Sprint(ask["project"]), fmt.Sprint(ask["project_root"]))
 			if warn != "" {
 				fmt.Fprintln(cmd.ErrOrStderr(), "warning:", warn)
 			}
-			if err != nil {
-				return err
+			if prepErr == nil {
+				ask["project"] = bound
 			}
-			ask["project"] = bound
-			// After project resolution, so the guard reads the card as it will be filed.
-			if err := guardMergeBase(cmd, ask, move, append([]string{title, rootRun, ownerThread, request}, blocks...), prFlag, cmd.Flags().Changed("pr")); err != nil {
-				return err
+			mergeErr := guardMergeBase(cmd, ask, move, append([]string{title, rootRun, ownerThread, request}, blocks...), prFlag, cmd.Flags().Changed("pr"))
+			if mergeErr != nil {
+				failures = append(failures, mergeErr)
+			}
+			if prFlag != "" {
+				cardType = "merge"
+			}
+			walkAsk(ask, func(string) {}, func(m map[string]any, k string) {
+				if strings.Contains(m[k].(string), mergePhrase+" ") {
+					cardType = "merge"
+				}
+			})
+			if err := filer.CheckVizierOwnership(ctx, thread, ownerThread, vizierOwned); err != nil {
+				failures = append(failures, err)
 			}
 			if vizierOwned && cmd.Flags().Changed("owner-thread") {
-				return &usageError{"give exactly one of --owner-thread for another thread or --vizier-owned for the vizier itself"}
+				failures = append(failures, &usageError{"give exactly one of --owner-thread or --vizier-owned"})
 			}
-			if err := filer.CheckVizierOwnership(ctx, thread, ownerThread, vizierOwned); err != nil {
-				return err
-			}
-			req := homeask.CardRequest{Project: project, Title: title, Blocks: blocks, Ask: ask, Move: move, Key: request, Thread: thread, Owner: ownerThread}
+			req := homeask.CardRequest{Project: project, Title: title, Blocks: blocks, Ask: ask, Move: move, Key: request, Thread: thread, Owner: ownerThread, VizierOwned: vizierOwned, Type: cardType}
+			var err error
 			if rootRun != "" {
 				if req.RootRun, err = parseRootRunFlag(rootRun); err != nil {
 					return err
@@ -398,6 +406,16 @@ Any other urgency is refused. It works on every kind of card; a machine blocker 
 					return err
 				}
 				req.Key = homeask.DerivedKey(thread, ident)
+			}
+			if err := filer.Preflight(ctx, req); err != nil {
+				failures = append(failures, err)
+			}
+			if err := errors.Join(failures...); err != nil {
+				return err
+			}
+			if checkOnly {
+				fmt.Fprintln(cmd.OutOrStdout(), `{"checked":true}`)
+				return nil
 			}
 			if filer.ReadbackTimeout <= 0 {
 				filer.ReadbackTimeout = readbackTimeout
@@ -420,6 +438,8 @@ Any other urgency is refused. It works on every kind of card; a machine blocker 
 			return nil
 		},
 	}
+	cmd.Flags().BoolVar(&checkOnly, "check", false, "Run all preflight checks without submitting")
+	cmd.Flags().StringVar(&cardType, "card-type", "other", "Card type: product, design, play, merge or other (merge inferred from --pr or merge option)")
 	cmd.Flags().Bool("json", false, "Print JSON (the default and only format); success always includes a non-empty card_key")
 	cmd.Flags().StringVar(&project, "project", "", "Tasks project (id, key or name)")
 	cmd.Flags().StringVar(&title, "title", "", "Card title")

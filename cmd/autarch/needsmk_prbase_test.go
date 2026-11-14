@@ -695,7 +695,7 @@ func TestNeedsMkIntoOnNonMergeWarnsAndStillFiles(t *testing.T) {
 		if into {
 			args = append(args, "--into", "sync/x")
 		}
-		cmd.SetArgs(args)
+		cmd.SetArgs(filingOwnerArgs(args))
 		err := cmd.Execute()
 		if exitCode(err) != 0 || s.creates != 1 {
 			t.Fatalf("into=%v: err=%v creates=%d", into, err, s.creates)
