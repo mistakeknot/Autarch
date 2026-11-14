@@ -220,12 +220,12 @@ func (c *CAS) Put(data []byte, wantSHA string) (string, error) {
 // repairAndVerify requires the exclusive directory lock. Only a validated entry
 // with exactly two links and an owned, same-directory .tmp-* alias is repairable.
 func (c *CAS) repairAndVerify(sha string, dir *os.File) error {
-	return c.repairAndVerifyWith(sha, dir, os.Geteuid, nil)
+	return c.repairAndVerifyWith(sha, dir, os.Geteuid, nil, nil)
 }
 
 // repairAndVerifyWith provides private test injection without configurable hooks
-// on CAS. Put always uses the real effective UID and no after-unlink callback.
-func (c *CAS) repairAndVerifyWith(sha string, dir *os.File, effectiveUID func() int, afterUnlink func()) error {
+// on CAS. Put always uses the real effective UID and no callbacks.
+func (c *CAS) repairAndVerifyWith(sha string, dir *os.File, effectiveUID func() int, beforeScan, afterUnlink func()) error {
 	p, _ := c.Path(sha)
 	// Match aliases only against metadata from the same fd whose bytes, mode,
 	// ownership and link count were validated. One link needs no repair.
@@ -235,6 +235,9 @@ func (c *CAS) repairAndVerifyWith(sha string, dir *os.File, effectiveUID func() 
 	}
 	if st.Nlink == 1 {
 		return nil
+	}
+	if beforeScan != nil {
+		beforeScan()
 	}
 	entries, err := dir.ReadDir(-1)
 	if err != nil {
@@ -271,7 +274,7 @@ func (c *CAS) repairAndVerifyWith(sha string, dir *os.File, effectiveUID func() 
 		_, err = c.read(sha)
 		return err
 	}
-	return casErr("entry %s has an unidentified leftover hard link outside the store", p)
+	return casErr("entry %s changed or has a leftover hard link outside the store", p)
 }
 
 // Verify checks an entry is exactly what its name says: a regular file reached without symlinks, mode 0444,
@@ -330,7 +333,11 @@ func (c *CAS) readWithLinks(sha string, links ...uint64) ([]byte, *syscall.Stat_
 	}
 	st, ok := fi.Sys().(*syscall.Stat_t)
 	if !ok || !slices.Contains(links, uint64(st.Nlink)) {
-		return nil, nil, casErr("entry %s must have one of %v link(s); leftover hard link refused", p, links)
+		want := "1 or 2 links"
+		if len(links) == 1 {
+			want = fmt.Sprintf("exactly %d link", links[0])
+		}
+		return nil, nil, casErr("entry %s must have %s; leftover hard link refused", p, want)
 	}
 	if c.OwnerUID >= 0 && int(st.Uid) != c.OwnerUID {
 		return nil, nil, casErr("entry has the wrong owner")
