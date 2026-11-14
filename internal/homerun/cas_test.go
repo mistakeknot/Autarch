@@ -374,7 +374,7 @@ func TestCASReleasedLock(t *testing.T) {
 }
 
 func TestCASStaleTemp(t *testing.T) {
-	for _, kind := range []string{"stale", "foreign-name", "malformed-temp", "hex-15", "hex-17", "hex-uppercase", "pid-letters", "trailing-newline", "outside", "three-links", "corrupt", "mode"} {
+	for _, kind := range []string{"stale", "foreign-name", "malformed-temp", "leading-nondot", "hex-15", "hex-17", "hex-uppercase", "pid-letters", "trailing-newline", "outside", "three-links", "corrupt", "mode"} {
 		t.Run(kind, func(t *testing.T) {
 			c := newCAS(t, os.Getuid())
 			data := []byte("stale publication")
@@ -385,6 +385,8 @@ func TestCASStaleTemp(t *testing.T) {
 			p, _ := c.Path(sha)
 			leftover := filepath.Join(c.Root, ".tmp-123-0123456789abcdef")
 			switch kind {
+			case "leading-nondot":
+				leftover = filepath.Join(c.Root, "xtmp-123-0123456789abcdef")
 			case "hex-15":
 				leftover = filepath.Join(c.Root, ".tmp-123-0123456789abcde")
 			case "hex-17":
@@ -468,7 +470,7 @@ func TestCASRepairOwnerMismatch(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer dir.Close()
-	err = c.repairAndVerifyWith(sha, dir, func() int { return os.Geteuid() + 1 }, nil)
+	err = c.repairAndVerifyWith(sha, dir, func() int { return os.Geteuid() + 1 }, nil, nil)
 	if !errors.Is(err, ErrCAS) || !strings.Contains(fmt.Sprint(err), leftover) {
 		t.Fatalf("repair accepted effective-owner mismatch: %v", err)
 	}
@@ -485,7 +487,7 @@ func TestCASRepairReverifies(t *testing.T) {
 	}
 	defer dir.Close()
 	called := false
-	err = c.repairAndVerifyWith(sha, dir, os.Geteuid, func() {
+	err = c.repairAndVerifyWith(sha, dir, os.Geteuid, nil, func() {
 		called = true
 		if _, err := os.Lstat(leftover); !errors.Is(err, os.ErrNotExist) {
 			t.Fatalf("hook ran before unlink: %v", err)
@@ -506,6 +508,83 @@ func TestCASRepairReverifies(t *testing.T) {
 	}
 	if !errors.Is(err, ErrCAS) || !strings.Contains(fmt.Sprint(err), "hash") {
 		t.Fatalf("repair did not re-verify corrupted content: %v", err)
+	}
+}
+
+func TestCASLinkCountErrors(t *testing.T) {
+	c, sha, _ := staleCASFixture(t)
+	p, _ := c.Path(sha)
+	if err := os.Link(p, filepath.Join(c.Root, "third-link")); err != nil {
+		t.Fatal(err)
+	}
+	dir, err := c.lock(syscall.LOCK_EX)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer dir.Close()
+	for _, tc := range []struct {
+		name  string
+		links []uint64
+		want  string
+	}{
+		{"read", []uint64{1}, "must have exactly 1 link;"},
+		{"repair", []uint64{1, 2}, "must have 1 or 2 links;"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			_, _, err := c.readWithLinks(sha, tc.links...)
+			if !errors.Is(err, ErrCAS) || !strings.Contains(fmt.Sprint(err), tc.want) {
+				t.Fatalf("link-count error: %v, want %q", err, tc.want)
+			}
+		})
+	}
+}
+
+func TestCASRepairUsesValidatedStat(t *testing.T) {
+	c, sha, originalAlias := staleCASFixture(t)
+	dir, err := c.lock(syscall.LOCK_EX)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer dir.Close()
+	p, _ := c.Path(sha)
+	replacementAlias := filepath.Join(c.Root, ".tmp-456-fedcba9876543210")
+	called := false
+	err = c.repairAndVerifyWith(sha, dir, os.Geteuid, func() {
+		called = true
+		// Allocate the replacement while the original still exists, so its inode
+		// cannot be reused. It has the same digest, mode and two-link topology.
+		if err := os.WriteFile(replacementAlias, []byte("repair guards"), 0o444); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Remove(p); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Link(replacementAlias, p); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Remove(originalAlias); err != nil {
+			t.Fatal(err)
+		}
+	}, nil)
+	if !called {
+		t.Fatal("before-scan hook was not reached")
+	}
+	if !errors.Is(err, ErrCAS) {
+		t.Errorf("repair accepted replacement inode: %v", err)
+	}
+	for _, path := range []string{p, replacementAlias} {
+		fi, err := os.Lstat(path)
+		if err != nil {
+			t.Errorf("repair removed replacement file: %v", err)
+			continue
+		}
+		if fi.Sys().(*syscall.Stat_t).Nlink != 2 {
+			t.Errorf("repair changed replacement link count: %s", path)
+		}
+		b, err := os.ReadFile(path)
+		if err != nil || sum(b) != sha {
+			t.Errorf("repair changed replacement content: %s: %v", path, err)
+		}
 	}
 }
 
