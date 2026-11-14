@@ -1,7 +1,6 @@
 package main
 
 import (
-	"context"
 	"fmt"
 	"os"
 	"os/signal"
@@ -21,9 +20,7 @@ const (
 )
 
 func main() {
-	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
-	defer stop()
-	if err := rootCmd.ExecuteContext(ctx); err != nil {
+	if err := rootCmd.Execute(); err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}
@@ -144,11 +141,13 @@ var preDispatchCmd = &cobra.Command{
 	Long:          "Run pre_dispatch_check from the Mycroft config in the current working directory. No worker is started. An absent or empty command succeeds; a failed check returns a nonzero exit.",
 	Args:          cobra.NoArgs,
 	RunE: func(cmd *cobra.Command, args []string) error {
+		ctx, stop := signal.NotifyContext(cmd.Context(), os.Interrupt, syscall.SIGTERM)
+		defer stop()
 		cfg, err := loadConfig()
 		if err != nil {
 			return err
 		}
-		return predispatch.Run(cmd.Context(), cfg.PreDispatchCheck, checkBead, checkAgent)
+		return predispatch.Run(ctx, cfg.PreDispatchCheck, checkBead, checkAgent)
 	},
 }
 
