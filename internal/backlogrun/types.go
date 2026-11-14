@@ -1,7 +1,6 @@
 // Package backlogrun is the recurring backlog run (bead mk-omogp.2): it snapshots every BB Tasks board's backlog and
 // todo cards, labels the new or changed ones cheaply, cross-checks the mk-gated ones against Home (read-only), and
-// sends each coordinator one message. The pipeline touches the outside world only through the interfaces below, so
-// it can later move into Mycroft's scheduler unchanged (T1 proposes, T2 after the Mycroft spawner ships).
+// sends each coordinator one message. The pipeline touches the outside world only through the interfaces below.
 package backlogrun
 
 import "context"

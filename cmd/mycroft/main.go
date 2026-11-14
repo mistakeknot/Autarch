@@ -26,13 +26,12 @@ func main() {
 
 var rootCmd = &cobra.Command{Use: "mycroft", Short: "Start routed bb workers and run pre-dispatch checks"}
 
-// dataDir returns the mycroft data directory, creating it if needed.
+// dataDir returns the mycroft data directory without creating it.
 func dataDir() string {
 	dir := defaultDataDir
 	if d := os.Getenv("MYCROFT_DATA_DIR"); d != "" {
 		dir = d
 	}
-	os.MkdirAll(dir, 0755)
 	return dir
 }
 
@@ -42,6 +41,9 @@ func loadConfig() (mycroft.Config, error) {
 }
 
 func openDB() (*mycroft.ApprovalLog, func(), error) {
+	if err := os.MkdirAll(dataDir(), 0755); err != nil {
+		return nil, nil, fmt.Errorf("create mycroft data directory: %w", err)
+	}
 	db, err := mycroft.OpenDB(filepath.Join(dataDir(), dbFile))
 	if err != nil {
 		return nil, nil, fmt.Errorf("open decisions db: %w", err)
@@ -130,10 +132,12 @@ func approveSpawn(disp *mycroft.ApprovalLog, sp workerSpawner, bead mycroft.Bead
 
 var checkBead, checkAgent string
 var preDispatchCmd = &cobra.Command{
-	Use:   "pre-dispatch",
-	Short: "Run the configured check for a proposed assignment",
-	Long:  "Run pre_dispatch_check from the Mycroft config in the current working directory. No worker is started. An absent or empty command succeeds; a failed check returns a nonzero exit.",
-	Args:  cobra.NoArgs,
+	SilenceUsage:  true,
+	SilenceErrors: true,
+	Use:           "pre-dispatch",
+	Short:         "Run the configured check for a proposed assignment",
+	Long:          "Run pre_dispatch_check from the Mycroft config in the current working directory. No worker is started. An absent or empty command succeeds; a failed check returns a nonzero exit.",
+	Args:          cobra.NoArgs,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		cfg, err := loadConfig()
 		if err != nil {

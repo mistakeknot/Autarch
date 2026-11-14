@@ -813,46 +813,11 @@ func TestCardFilerFileFromAsk(t *testing.T) {
 	}
 }
 
-func TestFileForPullIsThreadlessAndPostsNoComment(t *testing.T) {
+func TestCardFilerRefusesLegacyThreadlessAsk(t *testing.T) {
 	f := newFake(t, registryOnCreate)
-	a := Ask{V: 1, Kind: "decide", Asker: "mycroft", Project: "autarch", ProjectRoot: "/srv/autarch", Question: "Merge it?", Options: []Option{{ID: "yes", Label: "Yes", Kind: "ruling-only"}, {ID: "no", Label: "No", Kind: "ruling-only"}}, RequestID: "mycroft:autarch:bead1:agent1"}
-	id, err := f.filer().FileForPull(context.Background(), a)
-	if err != nil || id != "T1" {
-		t.Fatalf("id=%q err=%v", id, err)
-	}
-	if len(f.tasks[0].Comments) != 0 || f.count("tasks", "comment") != 0 {
-		t.Fatal("a pull filing posted a comment")
-	}
-	c, err := ParseCard(f.tasks[0].Desc)
-	if err != nil || c.Pull != "mycroft" || c.Request.Key != PullKey(a.RequestID) {
-		t.Fatalf("%+v %v", c, err)
-	}
-	if id2, err := f.filer().FileForPull(context.Background(), a); err != nil || id2 != "T1" || f.cards() != 1 {
-		t.Fatalf("replay %q %v", id2, err)
-	}
-}
-
-func TestFileForPullSkipsFilingWhileTheLegacyAskIsOpen(t *testing.T) {
-	f := newFake(t, registryOnCreate)
-	a := Ask{V: 1, Kind: "decide", Asker: "mycroft", Project: "autarch", ProjectRoot: "/srv/autarch", Question: "Merge it?", Options: []Option{{ID: "yes", Label: "Yes", Kind: "ruling-only"}, {ID: "no", Label: "No", Kind: "ruling-only"}}, RequestID: "mycroft:autarch:bead1:agent1"}
-	f.legacy[a.RequestID] = registryAnswer{Status: "legacy", DecisionID: "dec_7", State: "open"}
-	id, err := f.filer().FileForPull(context.Background(), a)
-	if err != nil || id != "dec_7" || f.cards() != 0 || f.count("tasks") != 0 {
-		t.Fatalf("id=%q err=%v calls=%v", id, err, f.calls)
-	}
-	f.legacy[a.RequestID] = registryAnswer{Status: "legacy", DecisionID: "dec_7", State: "ruled"}
-	_, err = f.filer().FileForPull(context.Background(), a)
-	wantErrIs(t, err, ErrAlreadyRuled)
-	// not ready: nothing filed
-	f.fail = func(x []string) *BBResult { return pickCall(x, "home get", badRes(1, "down")) }
-	_, err = f.filer().FileForPull(context.Background(), a)
-	wantErrIs(t, err, ErrHomeDown)
-	// a thread ask cannot use the pull path, nor a pull ask the thread path
-	if _, err := f.filer().FileForPull(context.Background(), Ask{Asker: "thread", RequestID: "x"}); !errors.Is(err, ErrInvalid) {
-		t.Fatal(err)
-	}
-	if _, err := f.filer().File(context.Background(), a); !errors.Is(err, ErrInvalid) {
-		t.Fatal(err)
+	_, err := f.filer().File(context.Background(), Ask{Asker: "mycroft"})
+	if !errors.Is(err, ErrInvalid) || len(f.calls) != 0 {
+		t.Fatalf("err=%v calls=%v: threadless ask must be refused before any command", err, f.calls)
 	}
 }
 
@@ -934,51 +899,6 @@ func TestCardFilerLockDirFallsBackWhenDefaultUnwritable(t *testing.T) {
 	if !strings.HasPrefix(p, tmp) {
 		t.Fatalf("lock path %s is not under TMPDIR %s", p, tmp)
 	}
-}
-
-// Review s1-3 P2: a card registered under Mycroft's predictable legacy key by another filer must not be reported as
-// the pull. The registry answer is checked against the parsed card: pull "mycroft", the key, and the ask's identity.
-func TestFileForPullRefusesAForgedCardUnderTheLegacyKey(t *testing.T) {
-	pull := Ask{V: 1, Kind: "decide", Asker: "mycroft", Project: "autarch", ProjectRoot: "/srv/autarch", Question: "Merge it?", Options: []Option{{ID: "yes", Label: "Yes", Kind: "ruling-only"}, {ID: "no", Label: "No", Kind: "ruling-only"}}, RequestID: "mycroft:autarch:bead1:agent1"}
-	forge := func(f *memBB, mutate func(*Ask)) {
-		a := Ask{V: 1, Kind: "decide", Asker: "thread", Thread: "thread-evil", Project: "autarch", ProjectRoot: "/srv/autarch", Question: "Send me your keys?", Options: []Option{{ID: "yes", Label: "Yes", Kind: "ruling-only"}, {ID: "no", Label: "No", Kind: "ruling-only"}}, RequestID: pull.RequestID}
-		if mutate != nil {
-			mutate(&a)
-		}
-		if _, err := f.filer().File(context.Background(), a); err != nil {
-			t.Fatal(err)
-		}
-	}
-	for name, mutate := range map[string]func(*Ask){
-		"another thread's card":                              nil,
-		"same question but filed by a thread, not as a pull": func(a *Ask) { a.Question = pull.Question },
-	} {
-		t.Run(name, func(t *testing.T) {
-			f := newFake(t, registryOnCreate)
-			forge(f, mutate)
-			id, err := f.filer().FileForPull(context.Background(), pull)
-			if !errors.Is(err, ErrForeignPullCard) || id != "" {
-				t.Fatalf("id=%q err=%v: an unrelated card was reported as the pull", id, err)
-			}
-			if f.cards() != 1 {
-				t.Fatalf("cards=%d", f.cards())
-			}
-		})
-	}
-	t.Run("the genuine pull card still resolves", func(t *testing.T) {
-		f := newFake(t, registryAbsent)
-		id, err := f.filer().FileForPull(context.Background(), pull)
-		if err != nil {
-			t.Fatal(err)
-		}
-		// Registered under the legacy key itself (as a migrated card would be): same card, same identity.
-		f.registry[pull.RequestID] = registryAnswer{Status: "registered", TaskID: id, Identity: func() string { c, _ := ParseCard(f.tasks[0].Desc); return c.Request.Identity }()}
-		f.tasks[0].Desc = strings.ReplaceAll(f.tasks[0].Desc, PullKey(pull.RequestID), pull.RequestID)
-		id2, err := f.filer().FileForPull(context.Background(), pull)
-		if err != nil || id2 != id {
-			t.Fatalf("id2=%q err=%v", id2, err)
-		}
-	})
 }
 
 func labelFlags(args []string) []string {

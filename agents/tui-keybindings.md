@@ -34,7 +34,7 @@ Type `/` to open fuzzy command picker. Global commands and aliases:
 | `/refresh` | `/r` | Refresh current view |
 | `/back` | `/b` | Go back / cancel |
 | `/new` | `/clear` | New conversation |
-| `/bigend` `/gurgeh` `/coldwine` `/pollard` | `/big` `/gur` `/cold` `/pol` | Switch tool tab`) |
+| `/bigend` `/gurgeh` `/coldwine` `/pollard` | `/big` `/gur` `/cold` `/pol` | Switch tool tab |
 | `/signals` | `/sig` | Toggle Signals overlay |
 | `/logs` | `/log`, `/l` | Toggle log pane |
 

@@ -139,7 +139,7 @@ func decideFileCmd() *cobra.Command {
 		Short: "File the ask JSON on stdin as a needs-mk card; prints the card id",
 		Long: `Files a tasks card routed to the asking thread (see also: autarch needs-mk file). The
 tasks project is --tasks-project, else AUTARCH_TASKS_PROJECTS (<home project>=<tasks project>,...),
-else AUTARCH_TASKS_PROJECT. A threadless (mycroft) ask is refused: Mycroft files its own.
+else AUTARCH_TASKS_PROJECT. Legacy threadless (mycroft) asks are refused.
 
 Exit codes: 2 validation, 3 Home down or not filed, 4 outcome unknown
 (re-run the same command; it is idempotent), 5 already ruled.`,
@@ -182,7 +182,7 @@ Exit codes: 2 validation, 3 Home down or not filed, 4 outcome unknown
 		},
 	}
 	cmd.Flags().StringVar(&thread, "thread", "", "Asking thread (default $BB_THREAD_ID)")
-	cmd.Flags().StringVar(&asker, "asker", "", "thread (default); mycroft is refused, Mycroft files its own")
+	cmd.Flags().StringVar(&asker, "asker", "", "thread (default); legacy threadless mycroft asks are refused")
 	cmd.Flags().StringVar(&tasksProject, "tasks-project", "", "Tasks project to file into (default: the configured binding)")
 	cmd.Flags().StringVar(&projectRoot, "project-root", "", "Project root (default: the git root)")
 	cmd.Flags().StringVar(&project, "project", "", "Project name (default: the Home project the tasks board is bound to, else the root's directory name)")
