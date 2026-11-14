@@ -273,8 +273,12 @@ export class Service {
     this.store = deps.store;
     this.threadSource = deps.threadSource;
     const mode = productionPickMode(deps.pickHandlerMode);
+    const isolatedLive = deps.pickCaptureRuntime?.mode() === "live";
     this.store.atomically(() => {
-      this.db.prepare("UPDATE pick_handler_control SET mode = ?, epoch = epoch + 1, updated_at = ? WHERE id = 1 AND mode <> ?").run(mode, this.now(), mode);
+      // An explicit isolated runtime may resume existing live control, never enable it.
+      // Keep the persisted-mode guard in the update so a concurrent disable still wins.
+      this.db.prepare(`UPDATE pick_handler_control SET mode = ?, epoch = epoch + 1, updated_at = ?
+        WHERE id = 1 AND mode <> ? AND NOT (? = 1 AND mode = 'live')`).run(mode, this.now(), mode, Number(isolatedLive));
     });
   }
 

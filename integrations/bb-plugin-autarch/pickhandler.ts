@@ -9,7 +9,7 @@ import { readStoredAsk } from "./askbody.js";
 import { commentBody, pickWrites } from "./cardwrites.js";
 import { readSubjectHead, type HeadEvidence, type HeadReader } from "./pickhead.js";
 import { ownerCommentCutoff, type TargetEvidence } from "./picktarget.js";
-import type { PickActionRow, PickEvidenceSnapshot, Store } from "./store.js";
+import type { AttemptRow, ObligationRow, PickActionRow, PickEvidenceSnapshot, Store } from "./store.js";
 import { HOME_NOTE_TRAILER } from "./tasks.js";
 
 export interface OwnerCommentInput {
@@ -48,6 +48,20 @@ export const PICK_STATUS_MARKER = "home-pick-status:";
 
 export type PickHandlerStatus = "pending" | "already relayed" | "manual handling required" | "delivery uncertain";
 
+/** Queue handles alone are not accepted IDs; exact host-event provenance can disambiguate equal strings. */
+export function hasAcceptedPickEvidence(store: Store, row: ObligationRow, attempt: AttemptRow): boolean {
+  if (attempt.state !== "delivered" || !attempt.evidence?.trim() || attempt.evidence === "sent") return false;
+  if (attempt.evidence !== attempt.handle) return true;
+  const records = store.db.prepare("SELECT detail_json FROM events WHERE decision_id = ? AND type = 'pick-relay-accepted'").all(row.decision_id) as { detail_json: string }[];
+  return records.some(record => {
+    try {
+      const e = JSON.parse(record.detail_json);
+      return e.obligation === row.id && e.attempt === attempt.n && e.event_id === attempt.evidence
+        && e.recipient === row.recipient && e.text === `[home-msg ${row.op ?? row.id} #${attempt.n}] ${row.payload ?? ""}`;
+    } catch { return false; }
+  });
+}
+
 /** Read-only projection; status_op remains a reserved identity, never an outbox operation. */
 export function readPickHandlerStatus(store: Store, decisionId: string): PickHandlerStatus | null {
   try {
@@ -64,8 +78,7 @@ export function readPickHandlerStatus(store: Store, decisionId: string): PickHan
       const relay = relays[0];
       if (relay) {
         if (relay.row.kind !== "pick-relay" || relay.row.recipient !== action.target_thread) return "delivery uncertain";
-        const accepted = relay.attempts.some(a => a.state === "delivered" && typeof a.evidence === "string"
-          && a.evidence.trim().length > 0 && a.evidence !== "sent" && a.evidence !== a.handle);
+        const accepted = relay.attempts.some(a => hasAcceptedPickEvidence(store, relay.row, a));
         if (accepted) return "already relayed";
         if (relay.attempts.some(a => a.state !== "not-delivered")
           || relay.row.attempt !== relay.attempts.length

@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { readAsk } from "./askbody.js";
 import { canonicalOnPick } from "./model.js";
-import { evaluationDeadline, PICK_POLICY_VERSION, pickActionOps } from "./pickhandler.js";
+import { evaluationDeadline, hasAcceptedPickEvidence, PICK_POLICY_VERSION, pickActionOps } from "./pickhandler.js";
 import type { TargetEvidence } from "./picktarget.js";
 import { MESSAGE_DUE_SQL, type ObligationInput, type PickActionRow, type Store } from "./store.js";
 import { ledgerId } from "./ledger.js";
@@ -265,7 +265,8 @@ export function reconcilePickReceipts(store: Store, now: string): void {
     const actions = store.db.prepare("SELECT * FROM pick_actions WHERE capture_mode = 'live'").all() as PickActionRow[];
     for (const action of actions) {
       const relay = store.db.prepare("SELECT id FROM obligations WHERE op = ? AND decision_id = ? AND kind = 'pick-relay'").get(action.relay_op, action.decision_id) as { id: string } | undefined;
-      const accepted = relay && store.attempts(relay.id).find(a => a.state === "delivered" && a.evidence && a.evidence !== "sent");
+      const relayRow = relay && store.obligation(relay.id);
+      const accepted = relayRow && store.attempts(relayRow.id).find(a => hasAcceptedPickEvidence(store, relayRow, a));
       if (!accepted || !action.receipt_op) continue;
       const payload = ["Home pick: already relayed; do not act",
         `Target: ${JSON.stringify(action.target_title)}; project: ${JSON.stringify(action.target_project_name)}`,

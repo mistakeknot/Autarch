@@ -351,13 +351,19 @@ it("dormant target equals asker has no duplicate wake; other Blocks receive only
 
 it("dormant capture Store hook failure rolls back pick, action, writes and obligations together", async () => {
   const { r, g } = await participating();
-  const store = new Store(r.db, { now: r.env.now, hook: step => { if (step === "pick-captured") throw new Error("capture crash"); } });
+  let crash = true;
+  const store = new Store(r.db, { now: r.env.now, hook: step => { if (crash && step === "pick-captured") throw new Error("capture crash"); } });
   const svc = r.env.open({ store, tasks: () => new TasksClient(r.fake), pickCaptureRuntime: { mode: () => "live" }, readTargetEvidence: async id => ({ schema: 1, thread_id: id, title: "Work", project_id: "project", project_name: "Project", archived: false, deleted: false, observed_at: "2026-01-01T00:00:00Z" }) });
   await expect(svc.withValidatedPick(g.id, guard => svc.pick(g.id, "a", g.revision, "rollback", "mk", "home", undefined, undefined, undefined, undefined, guard))).rejects.toThrow("capture crash");
   expect(store.pick(g.id)).toBeUndefined();
   expect(store.obligationsFor(g.id)).toHaveLength(0);
   expect(r.db.prepare("SELECT COUNT(*) AS n FROM pick_actions").get()).toEqual({ n: 0 });
   expect(r.db.prepare("SELECT COUNT(*) AS n FROM card_writes WHERE decision_id = ?").get(g.id)).toEqual({ n: 0 });
+  crash = false;
+  expect(await svc.withValidatedPick(g.id, guard => svc.pick(g.id, "a", g.revision, "rollback", "mk", "home", undefined, undefined, undefined, undefined, guard))).toMatchObject({ ok: true });
+  expect(store.pick(g.id)?.pick_id).toBe("rollback");
+  expect(r.db.prepare("SELECT pick_id FROM pick_actions WHERE decision_id = ?").all(g.id)).toEqual([{ pick_id: "rollback" }]);
+  expect(r.db.prepare("SELECT COUNT(*) AS n FROM card_writes WHERE decision_id = ?").get(g.id)).toEqual({ n: 2 });
 });
 
 it.each(["owner", "binding", "target-snapshot", "withdrawn"])("mk-j8u9k: actual vizier path rejects Home %s change after awaited evidence with no cap consumption", async field => {

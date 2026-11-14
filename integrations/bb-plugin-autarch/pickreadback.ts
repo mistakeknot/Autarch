@@ -5,7 +5,7 @@ import { canonicalOnPick } from "./model.js";
 import { createHash } from "node:crypto";
 import { ledgerId } from "./ledger.js";
 import { isOwnWordsForm } from "./ownwords.js";
-import { LIVE_DELIVERY_AVAILABLE, PICK_POLICY_VERSION, type PickEvaluation } from "./pickhandler.js";
+import { hasAcceptedPickEvidence, LIVE_DELIVERY_AVAILABLE, PICK_POLICY_VERSION, type PickEvaluation } from "./pickhandler.js";
 import { pickFactSheet, pickFactsJson, type PickDelivery, type PickFacts } from "./pickfacts.js";
 import type { Store, PickActionRow, PickHandlerControlRow } from "./store.js";
 import { PickActionQuerySchema, type PickActionQuery } from "./pickquery.js";
@@ -89,7 +89,7 @@ function readSnapshot(s: PickReadSources, query: PickActionQuery, routing: (ordi
   }));
   const relay = operations[1]!.rows;
   const attempts = relay.flatMap(r => r.attempts);
-  const accepted = attempts.find(a => a.state === "delivered" && a.evidence?.trim() && a.evidence !== "sent" && a.evidence !== a.handle);
+  const accepted = relay.flatMap(r => r.attempts.filter(a => hasAcceptedPickEvidence(store, r.row, a)))[0];
   let delivery: PickDelivery = "unknown";
   if (relay.length > 1 || relay.some(r => r.row.kind !== "pick-relay" || r.row.recipient !== action.target_thread)) return failed("relay operation conflict");
   if (accepted) delivery = "confirmed";

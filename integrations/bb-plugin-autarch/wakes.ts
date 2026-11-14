@@ -77,6 +77,7 @@ export class WakeLoop {
   private running: Promise<void> | null = null;
   private again = false;
   private readonly inflight = new Set<string>();
+  private readonly reconciling = new Map<string, Promise<void>>();
 
   constructor(
     readonly svc: Service,
@@ -371,7 +372,21 @@ export class WakeLoop {
   private async reconcileRows(ids: string[]): Promise<void> {
     for (const id of ids) {
       try {
-        await this.reconcileRow(id);
+        if (!PROTECTED_KINDS.has(this.store.obligation(id)?.kind ?? "")) {
+          await this.reconcileRow(id);
+          continue;
+        }
+        // A host history read must not own the drain indefinitely. Keep its late positive
+        // evidence, and share the outstanding read across passes instead of starting more.
+        let pending = this.reconciling.get(id);
+        if (!pending) {
+          pending = this.reconcileRow(id).catch(() => {}).finally(() => { this.reconciling.delete(id); });
+          this.reconciling.set(id, pending);
+        }
+        let timer: ReturnType<typeof setTimeout> | undefined;
+        try {
+          await Promise.race([pending, new Promise<void>(resolve => { timer = setTimeout(resolve, 1000); })]);
+        } finally { clearTimeout(timer); }
       } catch {
         /* a failed lookup leaves the attempt as it is; the next pass tries again */
       }
@@ -386,7 +401,13 @@ export class WakeLoop {
       if (a.state !== "sending" && a.state !== "queued" && a.state !== "uncertain") continue;
       if (this.inflight.has(`${id}#${a.n}`)) continue;
       const cur = this.store.obligation(id)!;
-      if (cur.voided_at && a.handle && a.state === "queued") {
+      // Fallback preserves possible acceptance instead of voiding its history. It still
+      // withdraws permission for a queued relay; cancel through the existing host path,
+      // whose dispatch-race readback retains positive accepted-event evidence.
+      const invalidatedRelay = cur.kind === "pick-relay" && this.db.prepare(
+        "SELECT 1 FROM pick_actions WHERE decision_id = ? AND relay_op = ? AND disposition IN ('fallback','cancelled')",
+      ).get(cur.decision_id, cur.op);
+      if ((cur.voided_at || invalidatedRelay) && a.handle && a.state === "queued") {
         await this.removeQueued(id, a, thread);
         continue;
       }
@@ -433,7 +454,7 @@ export class WakeLoop {
       try {
         const hits = (await this.sdk.acceptedEvents(thread)).filter((e) => e.text === want && !!e.id);
         if (hits.length === 1) {
-          this.store.updateAttempt(id, a.n, "delivered", { evidence: hits[0]!.id });
+          this.recordAcceptedEvent(row, a, hits[0]!);
           return;
         }
       } catch {
@@ -463,10 +484,21 @@ export class WakeLoop {
       this.store.updateAttempt(row.id, a.n, "queued", { handle: q[0]!.id });
       this.applyRecordedEvent(row.id, a.n, q[0]!.id);
     } else if (e.length === 1 && q.length === 0) {
-      this.store.updateAttempt(row.id, a.n, "delivered", { evidence: e[0]!.id });
+      this.recordAcceptedEvent(row, a, e[0]!);
     } else if (a.state !== "uncertain") {
       this.store.updateAttempt(row.id, a.n, "uncertain");
     }
+  }
+
+  private recordAcceptedEvent(row: ObligationRow, attempt: AttemptRow, event: AcceptedEvent): void {
+    this.store.atomically(() => {
+      if (this.store.updateAttempt(row.id, attempt.n, "delivered", { evidence: event.id }) && row.kind === "pick-relay") {
+        this.store.recordEvent("pick-relay-accepted", row.decision_id, {
+          obligation: row.id, attempt: attempt.n, event_id: event.id, recipient: row.recipient,
+          text: event.text,
+        });
+      }
+    });
   }
 
   /** Remove a queued attempt's row where the host allows; a lost race is settled by reading it. */

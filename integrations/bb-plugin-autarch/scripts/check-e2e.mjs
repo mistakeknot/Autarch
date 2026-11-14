@@ -17,6 +17,22 @@ const feedLine = (v) => typeof v === "string" && /^ruled \d{4}-\d{2}-\d{2}T\d{2}
 
 /** Typed evidence schema per scenario; every field is required. */
 export const SCHEMAS = {
+  "pick-handler-none": { live_available: eq(false), status_operations: eq(0), target_sends: eq(1), ruling_rows: eq(1), receipt_rows: eq(1), subject_check: eq("not-applicable"), head_reads: eq(0) },
+  "pick-handler-direct-target": { live_available: eq(false), status_operations: eq(0), generations: eq(0), target_sends: eq(0), state: eq("display") },
+  "pick-handler-target-project": { live_available: eq(false), status_operations: eq(0), rejected_relations: eq(2), host_ui_go: eq("native wrapper read-only proof") },
+  "pick-handler-no-reroute": { live_available: eq(false), status_operations: eq(0), successor_sends: eq(0), recipient: eq("thr_target"), attempts: eq(1) },
+  "pick-handler-single-target": { live_available: eq(false), status_operations: eq(0), relay_sends: eq(1), target_notices: eq(0), ordinary_wakes: eq(0), other_notices: eq(1) },
+  "pick-handler-waits-watch": { live_available: eq(false), status_operations: eq(0), original_generation: eq(1), relay_sends: eq(1), receipt_sends: eq(1), handler_status: eq("already relayed"), consumer: eq("deferred PR4: external waits-watch") },
+  "pick-handler-shadow-failure": { live_available: eq(false), status_operations: eq(0), committed_picks: eq(1), ordinary_wakes: eq(1), ruled_comments: eq(1), relay_rows: eq(0) },
+  "pick-handler-replay": { live_available: eq(false), status_operations: eq(0), relay_sends: eq(1), receipt_rows: eq(1), handler_status: eq("already relayed"), attempts: eq(1) },
+  "pick-handler-fallback": { live_available: eq(false), status_operations: eq(0), relay_rows: eq(0), words_preserved: eq(true), disposition: eq("fallback") },
+  "pick-handler-home-writeback": { live_available: eq(false), status_operations: eq(0), marker_check: eq("pass"), prose_check: eq("fail"), relay_sends: eq(0), ruled_comments: eq(1), seeded_status_comments: eq(1) },
+  "pick-handler-ruling-failure": { live_available: eq(false), status_operations: eq(0), disposition: eq("fallback"), relay_sends: eq(0), independent_fallback: eq(true), failure_attempts: eq(1) },
+  "pick-handler-deadline": { live_available: eq(false), status_operations: eq(0), deadline_preserved: eq(true), disposition: eq("fallback"), relay_rows: eq(0) },
+  "pick-handler-old-reader": { live_available: eq(false), status_operations: eq(0), protected_attempts: eq(0), legacy_sends: eq(1), sentinel: eq("9999-12-31T23:59:59.999Z"), rollback_limit: eq("drain started attempts before rollback") },
+  "pick-handler-off": { live_available: eq(false), status_operations: eq(0), relay_sends: eq(1), attempts: eq(1), disposition: eq("fallback"), cancelled_handles: eq(1) },
+  "pick-handler-lifecycle": { live_available: eq(false), status_operations: eq(0), generations: eq(2), relay_sends: eq(1), original_status: eq("already relayed") },
+  "pick-handler-cell-scope": { live_available: eq(false), status_operations: eq(0), relay_rows: eq(0), disposition: eq("fallback"), replay_after_widening: eq(0) },
   // card lifecycle
   "card-ingest": { card: id, decision: id, generation: eq(1), blocks: num },
   "card-edited-before-pick": { g1: id, g2: id, pick_g1_status: eq(409), owed_g2: eq(true) },

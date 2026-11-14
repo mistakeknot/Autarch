@@ -463,6 +463,10 @@ it("capture resumption never prepares a shadow capture", async () => {
 it("restart keeps the persisted deadline and settles the invalidated capture epoch at startup before claims", async () => {
   const { r, g, relay, action } = await enqueued();
   r.advance(60_000);
+  r.db.prepare("UPDATE pick_handler_control SET mode = 'off', epoch = epoch + 1 WHERE id = 1").run();
+  expect(r.db.prepare("SELECT mode, epoch FROM pick_handler_control WHERE id = 1").get()).toMatchObject({
+    mode: "off", epoch: action.capture_epoch + 1,
+  });
   r.restart();
   expect(actionOf(r, g.id).evaluation_deadline_at).toBe(action.evaluation_deadline_at);
   r.svc.start();
