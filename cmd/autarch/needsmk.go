@@ -42,6 +42,8 @@ func needsMkCmd() *cobra.Command {
 		SilenceErrors: true,
 	}
 	cmd.AddCommand(needsMkFileCmd())
+	cmd.AddCommand(needsMkReleaseCmd())
+	cmd.AddCommand(needsMkCancelHeldCmd())
 	cmd.AddCommand(needsMkAdoptMoveCmd())
 	cmd.AddCommand(needsMkFooterCmd())
 	cmd.AddCommand(needsMkExportCmd())
@@ -163,6 +165,10 @@ must have been filed from this thread. The block is validated with the same stri
 card gets the mk-move label, and nothing in the file is executed. Adopting the same move again changes
 nothing; a different move on the same card is refused.
 
+Weekly budget: AUTARCH_CARD_WEEKLY_BUDGET (positive integer, default 25 per ISO week).
+Local counts and held queue: AUTARCH_CARD_STATE_DIR or XDG_STATE_HOME/autarch/needsmk.
+Non-blocking cards reserve a slot at enqueue; release sends them grouped by card type.
+
 Exit codes: 2 usage or refused, 3 Home or tasks unavailable.`,
 		Args:         cobra.NoArgs,
 		SilenceUsage: true,
@@ -226,13 +232,17 @@ func needsMkFileCmd() *cobra.Command {
 	var blocks []string
 	var vizierOwned, checkOnly bool
 	var cardType string
-	var ui bool
+	var ui, urgent, nonBlocking bool
+	var keepList string
 	var attachments []string
 	cmd := &cobra.Command{
 		Use:   "file",
 		Short: "File a needs-mk card from the asking thread; prints the card as one JSON line",
 		Long: `Run inside the asking thread ($BB_THREAD_ID is required): the filer posts the
-routing comment from it. Success prints JSON with a non-empty card_key (--json is also accepted).
+routing comment from it. AUTARCH_CARD_WEEKLY_BUDGET sets the weekly budget (default 25).
+AUTARCH_CARD_STATE_DIR overrides the local XDG state directory.
+--non-blocking queues a card until needs-mk release, reserving its slot now.
+--urgent or --keep-list marks a budget exception. Success prints JSON with a non-empty card_key (--json is also accepted).
 After filing, waits up to 30 seconds for Home's index. If the key remains missing, exits 4
 with no success JSON: the card may have been filed. The error gives the request key;
 re-run with that same --request and unchanged input to replay without duplicating it.
@@ -395,7 +405,7 @@ Any other urgency is refused. It works on every kind of card; a machine blocker 
 			if vizierOwned && cmd.Flags().Changed("owner-thread") {
 				failures = append(failures, &usageError{"give exactly one of --owner-thread or --vizier-owned"})
 			}
-			req := homeask.CardRequest{Project: project, Title: title, Blocks: blocks, Ask: ask, Move: move, Key: request, Thread: thread, Owner: ownerThread, VizierOwned: vizierOwned, Type: cardType, UI: ui, Attachments: attachments}
+			req := homeask.CardRequest{Project: project, Title: title, Blocks: blocks, Ask: ask, Move: move, Key: request, Thread: thread, Owner: ownerThread, VizierOwned: vizierOwned, Type: cardType, UI: ui, Attachments: attachments, Urgent: urgent, NonBlocking: nonBlocking, KeepList: keepList}
 			var err error
 			if rootRun != "" {
 				if req.RootRun, err = parseRootRunFlag(rootRun); err != nil {
@@ -430,7 +440,7 @@ Any other urgency is refused. It works on every kind of card; a machine blocker 
 				}
 				return err
 			}
-			if strings.TrimSpace(res.CardKey) == "" {
+			if !res.Queued && strings.TrimSpace(res.CardKey) == "" {
 				err := fmt.Errorf("%w: card may have been filed; card_key is missing; re-run with --request %s", homeask.ErrOutcomeUnknown, res.Key)
 				fmt.Fprintln(cmd.ErrOrStderr(), err)
 				return err
@@ -440,6 +450,9 @@ Any other urgency is refused. It works on every kind of card; a machine blocker 
 			return nil
 		},
 	}
+	cmd.Flags().BoolVar(&urgent, "urgent", false, "Exempt this urgent card from the weekly budget")
+	cmd.Flags().BoolVar(&nonBlocking, "non-blocking", false, "Hold for needs-mk release; reserves a weekly budget slot now")
+	cmd.Flags().StringVar(&keepList, "keep-list", "", "Budget exception: spend, credentials, sign-ins/payments, tags/releases/publishes, force-pushes, standing-approvals")
 	cmd.Flags().BoolVar(&ui, "ui", false, "Mark a UI card; play and merge require a screenshot or video")
 	cmd.Flags().StringArrayVar(&attachments, "attach", nil, "Existing non-empty attachment file; repeatable")
 	cmd.Flags().BoolVar(&checkOnly, "check", false, "Run all preflight checks without submitting")
@@ -487,4 +500,19 @@ func noticeOnlyOptions(ask map[string]any) bool {
 		}
 	}
 	return true
+}
+
+func needsMkReleaseCmd() *cobra.Command {
+	return &cobra.Command{Use: "release", Short: "Send held cards grouped by type (schedule twice daily)", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, args []string) error {
+		f := newCardFiler()
+		f.Check = checkFilingPreconditions
+		groups, err := f.Release(cmd.Context())
+		if err != nil {
+			return err
+		}
+		return json.NewEncoder(cmd.OutOrStdout()).Encode(groups)
+	}}
+}
+func needsMkCancelHeldCmd() *cobra.Command {
+	return &cobra.Command{Use: "cancel-held REQUEST", Short: "Cancel an unsent card and refund its budget slot", Args: cobra.ExactArgs(1), RunE: func(cmd *cobra.Command, args []string) error { return newCardFiler().CancelHeld(args[0]) }}
 }

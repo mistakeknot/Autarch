@@ -15,6 +15,10 @@ import (
 // comments are immutable: Home uses them to recognize a valid new generation.
 // Other filers retain FileCard's exact-request replay protocol.
 func (f *CardFiler) FileOrUpdateCard(ctx context.Context, req CardRequest, supersedes string) (CardResult, error) {
+	return f.submit(ctx, req, supersedes, true)
+}
+
+func (f *CardFiler) fileOrUpdateCard(ctx context.Context, req CardRequest, supersedes string) (CardResult, error) {
 	if err := f.CheckUI(req); err != nil {
 		return CardResult{}, err
 	}
@@ -26,7 +30,7 @@ func (f *CardFiler) FileOrUpdateCard(ctx context.Context, req CardRequest, super
 	}
 	key, _ := req.Ask["ask_key"].(string)
 	if key == "" && supersedes == "" {
-		return f.FileCard(ctx, req)
+		return f.fileCardReadback(ctx, req)
 	}
 	if req.Owner != "" {
 		if err := f.checkOwnerLive(ctx, req.Owner); err != nil {
@@ -243,7 +247,7 @@ func (f *CardFiler) FileOrUpdateCard(ctx context.Context, req CardRequest, super
 	if closed != nil {
 		req.Key = refileRequestKey(req.Thread, ident, closed.ID)
 	}
-	return f.FileCard(ctx, req)
+	return f.fileCardReadback(ctx, req)
 }
 
 // refileRequestKey binds the new generation to its filing thread and the closed

@@ -56,10 +56,13 @@ type BBRunner func(ctx context.Context, env []string, args ...string) BBResult
 
 // CardFiler files cards. The zero value works: it runs `bb` from PATH.
 type CardFiler struct {
-	Bin     string        // default "bb"
-	Timeout time.Duration // per bb call, default 10 s
-	Run     BBRunner      // default: exec Bin
-	LockDir string        // default ${XDG_RUNTIME_DIR:-/tmp}/autarch-needsmk-<uid>
+	StateDir     string           // persistent filing state; default XDG_STATE_HOME/autarch/needsmk
+	WeeklyBudget int              // zero uses AUTARCH_CARD_WEEKLY_BUDGET or 25
+	Now          func() time.Time // test clock; default time.Now
+	Bin          string           // default "bb"
+	Timeout      time.Duration    // per bb call, default 10 s
+	Run          BBRunner         // default: exec Bin
+	LockDir      string           // default ${XDG_RUNTIME_DIR:-/tmp}/autarch-needsmk-<uid>
 	// TasksProjects maps a Home project name (case-insensitive) to the tasks project (id, key
 	// prefix or name) File files its cards into. It is the operator's binding:
 	// the filer never guesses a tasks project from names (a name match is only the poller's
@@ -129,6 +132,9 @@ type RootRunSpec = RootRun
 
 // CardRequest is one filing.
 type CardRequest struct {
+	Urgent      bool
+	KeepList    string
+	NonBlocking bool
 	UI          bool
 	Attachments []string
 	Type        string         // filing category: product, design, play, merge or other
@@ -152,6 +158,7 @@ type CardRequest struct {
 
 // CardResult is what a successful filing returns.
 type CardResult struct {
+	Queued  bool   `json:"queued,omitempty"`
 	ID      string `json:"card"`
 	Key     string `json:"request"`
 	Project string `json:"project,omitempty"`
@@ -817,6 +824,11 @@ func (f *CardFiler) comment(ctx context.Context, thread, id, key string) error {
 // comment exists, and it refuses a card routed to another thread.
 func (f *CardFiler) replay(ctx context.Context, req CardRequest, c *found) (CardResult, error) {
 	res := CardResult{ID: c.ID, Key: req.Key, Project: c.ProjectID, Replay: true}
+	for _, path := range req.Attachments {
+		if err := f.call(ctx, req.Thread, nil, "tasks", "attachment", "add", c.ID, "--file", path, "--json"); err != nil {
+			return res, err
+		}
+	}
 	if req.Pull {
 		return res, nil
 	}
@@ -845,6 +857,10 @@ func (f *CardFiler) replay(ctx context.Context, req CardRequest, c *found) (Card
 
 // FileCard files one card, or finds the card this Request already filed.
 func (f *CardFiler) FileCard(ctx context.Context, req CardRequest) (CardResult, error) {
+	return f.submit(ctx, req, "", false)
+}
+
+func (f *CardFiler) fileCardReadback(ctx context.Context, req CardRequest) (CardResult, error) {
 	res, err := f.fileCard(ctx, req)
 	if err == nil && !req.Pull && res.ID != "" && f.ReadbackTimeout > 0 {
 		return f.withCardKey(ctx, res)
@@ -993,7 +1009,7 @@ func (f *CardFiler) fileCard(ctx context.Context, req CardRequest) (CardResult, 
 		return CardResult{}, fmt.Errorf("%w: %v", ErrHomeDown, err)
 	}
 	var created struct {
-		Task taskRow `json:"task"`
+		Task              taskRow           `json:"task"`
 		FailedAttachments []json.RawMessage `json:"failedAttachments"`
 	}
 	createArgs := []string{"tasks", "create", "--project", req.Project, "--title", req.Title, "--description-file", file, "--label", NeedsMkLabel}
@@ -1020,7 +1036,9 @@ func (f *CardFiler) fileCard(ctx context.Context, req CardRequest) (CardResult, 
 		return res, err
 	}
 	res := CardResult{ID: created.Task.ID, Key: req.Key, Project: created.Task.ProjectID}
-	if len(created.FailedAttachments)>0 { return res, fmt.Errorf("%w: card exists but attachment upload failed; retry the same request with --attach",ErrOutcomeUnknown) }
+	if len(created.FailedAttachments) > 0 {
+		return res, fmt.Errorf("%w: card exists but attachment upload failed; retry the same request with --attach", ErrOutcomeUnknown)
+	}
 	if req.Pull {
 		return res, nil
 	}
