@@ -12,6 +12,21 @@ export interface PrView {
 /** Injectable so tests never touch the network. Throws on any failure. */
 export type GhView = (url: string) => Promise<PrView>;
 
+/** Fixed head-read argv, validated before execution; the caller supplies its remaining budget. */
+export const ghHeadReal = (repo: string, number: number, timeoutMs: number): Promise<unknown> =>
+  new Promise((resolve, reject) => {
+    if (!/^[A-Za-z0-9_.-]{1,100}\/[A-Za-z0-9_.-]{1,100}$/.test(repo)
+      || !Number.isSafeInteger(number) || number <= 0) return reject(new Error("invalid pull request subject"));
+    if (!Number.isFinite(timeoutMs) || timeoutMs < 1) return reject(new Error("invalid head read budget"));
+    execFile("gh", ["pr", "view", String(number), "--repo", repo, "--json", "state,headRefOid"], {
+      timeout: Math.floor(Math.min(GH_TIMEOUT_MS, timeoutMs)), maxBuffer: 64 * 1024,
+      env: { ...process.env, GH_PROMPT_DISABLED: "1", NO_COLOR: "1" },
+    }, (error, stdout) => {
+      if (error) { reject(error); return; }
+      try { resolve(JSON.parse(stdout)); } catch { reject(new Error("invalid head response")); }
+    });
+  });
+
 /** The real reader: `gh pr view <url> --json state,mergedAt`, a timeout, the URL validated first. */
 export const ghViewReal: GhView = (url) =>
   new Promise((resolve, reject) => {

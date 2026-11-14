@@ -1,4 +1,4 @@
-import { execFile } from "node:child_process";
+import { ghHeadReal } from "./ghview.js";
 import type { OnPick } from "./onpick.js";
 
 export type PickSubject = OnPick["subject"];
@@ -17,19 +17,7 @@ export interface HeadReadOptions {
 }
 
 const MAX_READ_MS = 20_000;
-const MAX_OUTPUT_BYTES = 64 * 1024;
 const SHA = /^[0-9a-f]{40}$/;
-
-/** Fixed argv only; no shell, local repository or artifact fallback. */
-const readHead: HeadReader = (repo, number, timeoutMs) => new Promise((resolve, reject) => {
-  execFile("gh", ["pr", "view", String(number), "--repo", repo, "--json", "state,headRefOid"], {
-    timeout: timeoutMs, maxBuffer: MAX_OUTPUT_BYTES,
-    env: { ...process.env, GH_PROMPT_DISABLED: "1", NO_COLOR: "1" },
-  }, (error, stdout) => {
-    if (error) { reject(error); return; }
-    try { resolve(JSON.parse(stdout)); } catch { reject(new Error("invalid head response")); }
-  });
-});
 
 /** Evidence only. Callers must still CAS generation, epoch and deadline before sending. */
 export async function readSubjectHead(subject: PickSubject, options: HeadReadOptions): Promise<HeadEvidence> {
@@ -49,7 +37,7 @@ export async function readSubjectHead(subject: PickSubject, options: HeadReadOpt
   try {
     // Bound the caller as well as execFile: injected readers and host promises can hang.
     const timeout = new Promise<typeof timedOut>(resolve => { timer = setTimeout(() => resolve(timedOut), timeoutMs); });
-    const response = await Promise.race([(options.read ?? readHead)(subject.repo, subject.number, timeoutMs), timeout]);
+    const response = await Promise.race([(options.read ?? ghHeadReal)(subject.repo, subject.number, timeoutMs), timeout]);
     if (now() >= deadline) return evidence("unknown", "evaluation-timeout");
     if (response === timedOut) return evidence("unknown", "head-timeout");
     if (!response || typeof response !== "object" || !("state" in response) || !("headRefOid" in response)

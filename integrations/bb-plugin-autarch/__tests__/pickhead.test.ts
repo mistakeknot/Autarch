@@ -16,6 +16,20 @@ const now = () => T0;
 
 afterEach(() => vi.useRealTimers());
 describe("bounded subject head evidence", () => {
+  it("passes the shrinking deadline through the audited helper to execFile", async () => {
+    vi.mocked(execFile).mockClear();
+    let clock = T0;
+    const options = { deadlineAt: new Date(T0 + 1500).toISOString(), now: () => clock };
+    expect(await readSubjectHead(subject, options)).toMatchObject({ result: "pass" });
+    clock += 750;
+    expect(await readSubjectHead(subject, options)).toMatchObject({ result: "pass" });
+    for (const [index, timeout] of [1500, 750].entries()) {
+      expect(execFile).toHaveBeenNthCalledWith(index + 1, "gh", ["pr", "view", "12", "--repo", "example/project", "--json", "state,headRefOid"], {
+        timeout, maxBuffer: 65536,
+        env: { ...process.env, GH_PROMPT_DISABLED: "1", NO_COLOR: "1" },
+      }, expect.any(Function));
+    }
+  });
   it("production adapter uses fixed gh argv, bounded output and no shell", async () => {
     expect(await readSubjectHead(subject, { deadlineAt, now })).toMatchObject({ result: "pass" });
     expect(execFile).toHaveBeenCalledWith("gh", ["pr", "view", "12", "--repo", "example/project", "--json", "state,headRefOid"], {
