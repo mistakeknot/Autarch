@@ -128,7 +128,8 @@ func fbSave(dir string, s *fbState) error {
 		return err
 	}
 	// A cancelled readback can leave a writer running after autarch exits.
-	// Publish a complete snapshot so unlocked harness reads never see truncation.
+	// Harness reads and updates share fbLock with writers. Still publish a
+	// complete snapshot atomically, including for the unlocked persistence probe.
 	f, err := os.CreateTemp(dir, ".state-*")
 	if err != nil {
 		return err

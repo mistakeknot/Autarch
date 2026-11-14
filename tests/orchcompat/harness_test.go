@@ -220,6 +220,11 @@ func newEnv(t *testing.T) *env {
 
 func (e *env) update(fn func(*fbState)) {
 	e.t.Helper()
+	unlock, err := fbLock(e.fbdir)
+	if err != nil {
+		e.t.Fatal(err)
+	}
+	defer unlock()
 	s, err := fbLoad(e.fbdir)
 	if err != nil {
 		e.t.Fatal(err)
@@ -232,6 +237,11 @@ func (e *env) update(fn func(*fbState)) {
 
 func (e *env) st() *fbState {
 	e.t.Helper()
+	unlock, err := fbLock(e.fbdir)
+	if err != nil {
+		e.t.Fatal(err)
+	}
+	defer unlock()
 	s, err := fbLoad(e.fbdir)
 	if err != nil {
 		e.t.Fatal(err)
@@ -241,6 +251,11 @@ func (e *env) st() *fbState {
 
 func (e *env) calls() []fbCall {
 	e.t.Helper()
+	unlock, err := fbLock(e.fbdir)
+	if err != nil {
+		e.t.Fatal(err)
+	}
+	defer unlock()
 	_, cp, _ := fbPaths(e.fbdir)
 	raw, err := os.ReadFile(cp)
 	if err != nil {
