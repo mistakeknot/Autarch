@@ -158,10 +158,11 @@ type CardRequest struct {
 
 // CardResult is what a successful filing returns.
 type CardResult struct {
-	Queued  bool   `json:"queued,omitempty"`
-	ID      string `json:"card"`
-	Key     string `json:"request"`
-	Project string `json:"project,omitempty"`
+	Budget  *CardBudget `json:"budget,omitempty"`
+	Queued  bool        `json:"queued,omitempty"`
+	ID      string      `json:"card"`
+	Key     string      `json:"request"`
+	Project string      `json:"project,omitempty"`
 	// Replay is true when the card already existed (a routing comment may still have been repaired).
 	Replay  bool `json:"replay"`
 	Updated bool `json:"updated,omitempty"`
@@ -824,11 +825,6 @@ func (f *CardFiler) comment(ctx context.Context, thread, id, key string) error {
 // comment exists, and it refuses a card routed to another thread.
 func (f *CardFiler) replay(ctx context.Context, req CardRequest, c *found) (CardResult, error) {
 	res := CardResult{ID: c.ID, Key: req.Key, Project: c.ProjectID, Replay: true}
-	for _, path := range req.Attachments {
-		if err := f.call(ctx, req.Thread, nil, "tasks", "attachment", "add", c.ID, "--file", path, "--json"); err != nil {
-			return res, err
-		}
-	}
 	if req.Pull {
 		return res, nil
 	}
@@ -846,13 +842,16 @@ func (f *CardFiler) replay(ctx context.Context, req CardRequest, c *found) (Card
 				return CardResult{}, err
 			}
 		}
+		if err := f.ensureAttachments(ctx, req, c.ID); err != nil {
+			return res, err
+		}
 		return res, f.comment(ctx, req.routeThread(), c.ID, req.Key)
 	case asking == "":
 		return CardResult{}, fmt.Errorf("%w: Request %s is on card %s, whose first agent comment carries no thread", ErrInvalid, req.Key, c.ID)
 	case asking != req.routeThread():
 		return CardResult{}, fmt.Errorf("%w: Request %s filed from thread %s", ErrInvalid, req.Key, asking)
 	}
-	return res, nil
+	return res, f.ensureAttachments(ctx, req, c.ID)
 }
 
 // FileCard files one card, or finds the card this Request already filed.
@@ -1013,9 +1012,6 @@ func (f *CardFiler) fileCard(ctx context.Context, req CardRequest) (CardResult, 
 		FailedAttachments []json.RawMessage `json:"failedAttachments"`
 	}
 	createArgs := []string{"tasks", "create", "--project", req.Project, "--title", req.Title, "--description-file", file, "--label", NeedsMkLabel}
-	for _, path := range req.Attachments {
-		createArgs = append(createArgs, "--attach", path)
-	}
 	if req.Move != nil {
 		createArgs = append(createArgs, "--label", MoveLabel)
 	}
@@ -1038,6 +1034,9 @@ func (f *CardFiler) fileCard(ctx context.Context, req CardRequest) (CardResult, 
 	res := CardResult{ID: created.Task.ID, Key: req.Key, Project: created.Task.ProjectID}
 	if len(created.FailedAttachments) > 0 {
 		return res, fmt.Errorf("%w: card exists but attachment upload failed; retry the same request with --attach", ErrOutcomeUnknown)
+	}
+	if err := f.ensureAttachments(ctx, req, res.ID); err != nil {
+		return res, err
 	}
 	if req.Pull {
 		return res, nil

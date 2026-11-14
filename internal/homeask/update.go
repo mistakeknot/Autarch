@@ -195,6 +195,9 @@ func (f *CardFiler) fileOrUpdateCard(ctx context.Context, req CardRequest, super
 			return CardResult{}, fmt.Errorf("%w: updated card does not parse: %v", ErrInvalid, e)
 		}
 		res := CardResult{ID: s.Task.ID, Key: c.Request.Key, Project: project, Replay: true}
+		if err := f.ensureAttachments(ctx, req, s.Task.ID); err != nil {
+			return res, err
+		}
 		if descriptionWithoutEvidence(desc) == descriptionWithoutEvidence(s.Task.Description) && req.Title == s.Task.Title {
 			if f.ReadbackTimeout > 0 {
 				return f.withCardKey(ctx, res)
@@ -216,11 +219,6 @@ func (f *CardFiler) fileOrUpdateCard(ctx context.Context, req CardRequest, super
 			return CardResult{}, e
 		}
 		args := []string{"tasks", "update", s.Task.ID, "--title", req.Title, "--description-file", file, "--json"}
-		for _, path := range req.Attachments {
-			if err := f.call(ctx, req.Thread, nil, "tasks", "attachment", "add", s.Task.ID, "--file", path, "--json"); err != nil {
-				return CardResult{}, err
-			}
-		}
 		if req.Move != nil {
 			args = append(args, "--add-label", MoveLabel)
 		} else if c.Move != nil {

@@ -212,6 +212,7 @@ func newEnv(t *testing.T) *env {
 		t.Fatal(err)
 	}
 	e.update(func(s *fbState) {
+		s.Threads["thr_a"] = "live"
 		s.Projects = []fbProject{{ID: "P1", Name: "P1", Prefix: "P1"}}
 		s.Bindings["P1"] = fbBinding{Home: "alpha", State: "confirmed"}
 	})
@@ -311,6 +312,18 @@ func (e *env) environ() []string {
 
 func (e *env) autarch(args ...string) result {
 	e.t.Helper()
+	if len(args) > 1 && args[0] == "needs-mk" && args[1] == "file" {
+		hasOwner := false
+		for _, a := range args {
+			if a == "--owner-thread" || a == "--vizier-owned" {
+				hasOwner = true
+			}
+		}
+		if !hasOwner {
+			e.update(func(s *fbState) { s.Threads[e.thread] = "live" })
+			args = append(args, "--owner-thread", e.thread)
+		}
+	}
 	ctx, cancel := context.WithTimeout(context.Background(), subprocessDeadline)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, autarchBin, args...)

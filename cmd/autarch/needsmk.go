@@ -44,6 +44,7 @@ func needsMkCmd() *cobra.Command {
 	cmd.AddCommand(needsMkFileCmd())
 	cmd.AddCommand(needsMkReleaseCmd())
 	cmd.AddCommand(needsMkCancelHeldCmd())
+	cmd.AddCommand(needsMkBudgetCmd())
 	cmd.AddCommand(needsMkAdoptMoveCmd())
 	cmd.AddCommand(needsMkFooterCmd())
 	cmd.AddCommand(needsMkExportCmd())
@@ -165,10 +166,6 @@ must have been filed from this thread. The block is validated with the same stri
 card gets the mk-move label, and nothing in the file is executed. Adopting the same move again changes
 nothing; a different move on the same card is refused.
 
-Weekly budget: AUTARCH_CARD_WEEKLY_BUDGET (positive integer, default 25 per ISO week).
-Local counts and held queue: AUTARCH_CARD_STATE_DIR or XDG_STATE_HOME/autarch/needsmk.
-Non-blocking cards reserve a slot at enqueue; release sends them grouped by card type.
-
 Exit codes: 2 usage or refused, 3 Home or tasks unavailable.`,
 		Args:         cobra.NoArgs,
 		SilenceUsage: true,
@@ -243,6 +240,7 @@ routing comment from it. AUTARCH_CARD_WEEKLY_BUDGET sets the weekly budget (defa
 AUTARCH_CARD_STATE_DIR overrides the local XDG state directory.
 --non-blocking queues a card until needs-mk release, reserving its slot now.
 --urgent or --keep-list marks a budget exception. Success prints JSON with a non-empty card_key (--json is also accepted).
+Exempt cards are recorded separately and never consume ordinary slots; needs-mk budget shows both tallies.
 After filing, waits up to 30 seconds for Home's index. If the key remains missing, exits 4
 with no success JSON: the card may have been filed. The error gives the request key;
 re-run with that same --request and unchanged input to replay without duplicating it.
@@ -445,6 +443,9 @@ Any other urgency is refused. It works on every kind of card; a machine blocker 
 				fmt.Fprintln(cmd.ErrOrStderr(), err)
 				return err
 			}
+			if budget, e := filer.BudgetStatus(fmt.Sprint(ask["project"])); e == nil {
+				res.Budget = &budget
+			}
 			out, _ := json.Marshal(res)
 			fmt.Fprintln(cmd.OutOrStdout(), string(out))
 			return nil
@@ -515,4 +516,20 @@ func needsMkReleaseCmd() *cobra.Command {
 }
 func needsMkCancelHeldCmd() *cobra.Command {
 	return &cobra.Command{Use: "cancel-held REQUEST", Short: "Cancel an unsent card and refund its budget slot", Args: cobra.ExactArgs(1), RunE: func(cmd *cobra.Command, args []string) error { return newCardFiler().CancelHeld(args[0]) }}
+}
+
+func needsMkBudgetCmd() *cobra.Command {
+	var project string
+	cmd := &cobra.Command{Use: "budget", Short: "Show this ISO week's ordinary and exempt card counts for a Home project", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, args []string) error {
+		if project == "" {
+			return &usageError{"--project must name the Home project"}
+		}
+		status, err := newCardFiler().BudgetStatus(project)
+		if err != nil {
+			return err
+		}
+		return json.NewEncoder(cmd.OutOrStdout()).Encode(status)
+	}}
+	cmd.Flags().StringVar(&project, "project", "", "Home project name (case-insensitive)")
+	return cmd
 }

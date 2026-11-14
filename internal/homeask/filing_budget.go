@@ -3,6 +3,7 @@ package homeask
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -15,11 +16,48 @@ import (
 const EnvCardWeeklyBudget = "AUTARCH_CARD_WEEKLY_BUDGET"
 const EnvCardStateDir = "AUTARCH_CARD_STATE_DIR"
 
+type CardBudget struct {
+	Ordinary int `json:"ordinary"`
+	Limit    int `json:"limit"`
+	Exempt   int `json:"exempt"`
+}
+
+// BudgetStatus exposes ordinary and exempt volume for the current ISO week.
+func (f *CardFiler) BudgetStatus(project string) (CardBudget, error) {
+	limit, err := f.budget()
+	if err != nil {
+		return CardBudget{}, err
+	}
+	state, _, unlock, err := f.openState()
+	if err != nil {
+		return CardBudget{}, err
+	}
+	defer unlock()
+	now := time.Now()
+	if f.Now != nil {
+		now = f.Now()
+	}
+	y, w := now.ISOWeek()
+	week := fmt.Sprintf("%04d-W%02d", y, w)
+	status := CardBudget{Limit: limit}
+	for _, e := range state {
+		if e.Project == strings.ToLower(project) && e.Week == week {
+			if e.Request.Urgent || e.Request.KeepList != "" {
+				status.Exempt++
+			} else {
+				status.Ordinary++
+			}
+		}
+	}
+	return status, nil
+}
+
 type filingEntry struct {
 	Request    CardRequest `json:"request"`
 	Identity   string      `json:"identity"`
 	Project    string      `json:"project"`
 	Week       string      `json:"week"`
+	Attempted  bool        `json:"attempted,omitempty"`
 	Held       bool        `json:"held"`
 	Supersedes string      `json:"supersedes,omitempty"`
 	Update     bool        `json:"update"`
@@ -30,11 +68,11 @@ func (f *CardFiler) stateDir() (string, error) {
 	if f.StateDir != "" {
 		return f.StateDir, nil
 	}
-	if f.LockDir != "" {
-		return filepath.Join(f.LockDir, "state"), nil
-	}
 	if p := os.Getenv(EnvCardStateDir); p != "" {
 		return p, nil
+	}
+	if f.LockDir != "" {
+		return filepath.Join(f.LockDir, "state"), nil
 	}
 	p := os.Getenv("XDG_STATE_HOME")
 	if p == "" {
@@ -132,15 +170,40 @@ func (f *CardFiler) submit(ctx context.Context, r CardRequest, supersedes string
 	if _, _, err := r.Description(); err != nil {
 		return CardResult{}, err
 	}
+	r.Attachments = append([]string(nil), r.Attachments...)
+	for i, p := range r.Attachments {
+		absolute, e := filepath.Abs(p)
+		if e != nil {
+			return CardResult{}, e
+		}
+		r.Attachments[i] = absolute
+	}
 	limit, err := f.budget()
 	if err != nil {
 		return CardResult{}, err
 	}
+	dir, e := f.stateDir()
+	if e != nil {
+		return CardResult{}, e
+	}
+	if e = os.MkdirAll(dir, 0700); e != nil {
+		return CardResult{}, e
+	}
+	deliveryUnlock, e := lockFile(filepath.Join(dir, "delivery-"+r.Key+".lock"))
+	if e != nil {
+		return CardResult{}, e
+	}
+	defer deliveryUnlock()
 	state, path, unlock, err := f.openState()
 	if err != nil {
 		return CardResult{}, fmt.Errorf("%w: filing state: %v", ErrHomeDown, err)
 	}
-	defer unlock()
+	locked := true
+	defer func() {
+		if locked {
+			unlock()
+		}
+	}()
 	identity, err := RequestIdentity(r)
 	if err != nil {
 		return CardResult{}, err
@@ -162,7 +225,7 @@ func (f *CardFiler) submit(ctx context.Context, r CardRequest, supersedes string
 		project := strings.ToLower(fmt.Sprint(r.Ask["project"]))
 		used := 0
 		for _, entry := range state {
-			if entry.Project == project && entry.Week == wk {
+			if entry.Project == project && entry.Week == wk && !entry.Request.Urgent && entry.Request.KeepList == "" {
 				used++
 			}
 		}
@@ -177,20 +240,36 @@ func (f *CardFiler) submit(ctx context.Context, r CardRequest, supersedes string
 			return CardResult{Key: r.Key, Queued: true}, nil
 		}
 	}
+
+	unlock()
+	locked = false
+	var result CardResult
 	if update {
-		return f.fileOrUpdateCard(ctx, r, supersedes)
+		result, err = f.fileOrUpdateCard(ctx, r, supersedes)
+	} else {
+		result, err = f.fileCardReadback(ctx, r)
 	}
-	return f.fileCardReadback(ctx, r)
+	if !exists && errors.Is(err, ErrInvalid) && result.ID == "" {
+		current, p, done, e := f.openState()
+		if e != nil {
+			return result, errors.Join(err, e)
+		}
+		delete(current, r.Key)
+		e = saveFilingState(p, current)
+		done()
+		err = errors.Join(err, e)
+	}
+	return result, err
 }
 
 // Release sends accepted held cards in type order. Reserved slots are never checked again.
 // A failed or uncertain delivery remains held; the same Request makes retries idempotent.
 func (f *CardFiler) Release(ctx context.Context) (map[string][]CardResult, error) {
-	state, path, unlock, err := f.openState()
+	state, _, unlock, err := f.openState()
 	if err != nil {
 		return nil, err
 	}
-	defer unlock()
+	unlock()
 	keys := []string{}
 	for key, e := range state {
 		if e.Held {
@@ -205,49 +284,104 @@ func (f *CardFiler) Release(ctx context.Context) (map[string][]CardResult, error
 		return a < b
 	})
 	groups := map[string][]CardResult{}
+	var failures []error
 	for _, key := range keys {
-		e := state[key]
-		r := e.Request
-		if err = f.CheckUI(r); err != nil {
-			return groups, err
+		result, typ, e := f.releaseOne(ctx, key)
+		if e != nil {
+			failures = append(failures, fmt.Errorf("request %s: %w", key, e))
+			continue
 		}
-		if f.Check != nil {
-			if _, _, err = f.PrepareAsk(ctx, r.Project, fmt.Sprint(r.Ask["project"]), fmt.Sprint(r.Ask["project_root"])); err != nil {
-				return groups, err
-			}
+		if result.ID != "" {
+			groups[typ] = append(groups[typ], result)
 		}
-		var result CardResult
-		if e.Update {
-			result, err = f.fileOrUpdateCard(ctx, r, e.Supersedes)
-		} else {
-			result, err = f.fileCardReadback(ctx, r)
-		}
-		if err != nil {
-			return groups, err
-		}
-		e.Held = false
-		state[key] = e
-		if err = saveFilingState(path, state); err != nil {
-			return groups, err
-		}
-		typ := r.Type
-		if typ == "" {
-			typ = "other"
-		}
-		groups[typ] = append(groups[typ], result)
 	}
-	return groups, nil
+	return groups, errors.Join(failures...)
+}
+func (f *CardFiler) releaseOne(ctx context.Context, key string) (CardResult, string, error) {
+	dir, err := f.stateDir()
+	if err != nil {
+		return CardResult{}, "", err
+	}
+	keyUnlock, err := lockFile(filepath.Join(dir, "delivery-"+key+".lock"))
+	if err != nil {
+		return CardResult{}, "", err
+	}
+	defer keyUnlock()
+	state, path, unlock, err := f.openState()
+	if err != nil {
+		return CardResult{}, "", err
+	}
+	e, ok := state[key]
+	if !ok || !e.Held {
+		unlock()
+		return CardResult{}, "", nil
+	}
+	unlock()
+	r := e.Request
+	if err = f.CheckUI(r); err != nil {
+		return CardResult{}, "", err
+	}
+	if f.Check != nil {
+		if _, _, err = f.PrepareAsk(ctx, r.Project, fmt.Sprint(r.Ask["project"]), fmt.Sprint(r.Ask["project_root"])); err != nil {
+			return CardResult{}, "", err
+		}
+	}
+	var result CardResult
+	state, path, unlock, err = f.openState()
+	if err != nil {
+		return CardResult{}, "", err
+	}
+	e.Attempted = true
+	state[key] = e
+	err = saveFilingState(path, state)
+	unlock()
+	if err != nil {
+		return CardResult{}, "", err
+	}
+	if e.Update {
+		result, err = f.fileOrUpdateCard(ctx, r, e.Supersedes)
+	} else {
+		result, err = f.fileCardReadback(ctx, r)
+	}
+	if err != nil {
+		return result, "", err
+	}
+	state, path, unlock, err = f.openState()
+	if err != nil {
+		return result, "", err
+	}
+	defer unlock()
+	e.Held = false
+	state[key] = e
+	err = saveFilingState(path, state)
+	typ := r.Type
+	if typ == "" {
+		typ = "other"
+	}
+	return result, typ, err
 }
 
 // CancelHeld cancels an unsent card and refunds its reserved slot.
 func (f *CardFiler) CancelHeld(key string) error {
+	if err := CheckRequestKey(key); err != nil {
+		return err
+	}
+	dir, err := f.stateDir()
+	if err != nil {
+		return err
+	}
+	keyUnlock, err := lockFile(filepath.Join(dir, "delivery-"+key+".lock"))
+	if err != nil {
+		return err
+	}
+	defer keyUnlock()
 	state, path, unlock, err := f.openState()
 	if err != nil {
 		return err
 	}
 	defer unlock()
 	e, ok := state[key]
-	if !ok || !e.Held {
+	if !ok || !e.Held || e.Attempted {
 		return fmt.Errorf("%w: request is not held", ErrInvalid)
 	}
 	delete(state, key)
