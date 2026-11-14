@@ -144,6 +144,47 @@ describe("v7 pick handler persistence", () => {
       VALUES (${columns.map(c => '@'+c).join(',')})`).run(values);
   }
 
+  const legacyObligationKinds = ['wake','ruling-file','notice','notice-digest','steps-done','hold-ended','note',
+    'owner','idea','void-notice','resolve','withdraw'];
+  for (const kind of ['pick-relay','pick-receipt']) for (const mode of ['by id','bulk']) {
+    it(`protected obligation DELETE ${mode} aborts the whole statement unchanged for ${kind}`, () => {
+      const db = new Database(file); migrate(db);
+      try {
+        // Earlier rowids ensure the bulk statement must restore already-deleted legacy rows.
+        legacyObligationKinds.forEach((legacyKind, index) => insertRow(db,'obligations',`legacy-${index}`,index + 1,legacyKind));
+        insertRow(db,'obligations','protected',20,kind);
+        insertRow(db,'obligations','bystander',21,kind === 'pick-relay' ? 'pick-receipt' : 'pick-relay');
+        const before = tableRows(db,'obligations');
+        expect(before).toHaveLength(14);
+        const statement = mode === 'by id'
+          ? db.prepare("DELETE FROM obligations WHERE id='protected'")
+          : db.prepare('DELETE FROM obligations WHERE rowid <= 20');
+        expect(() => statement.run()).toThrow('protected obligation is permanent');
+        expect(tableRows(db,'obligations')).toEqual(before);
+      } finally { db.close(); }
+    });
+  }
+
+  for (const kind of legacyObligationKinds) for (const mode of ['by id','bulk']) {
+    it(`legacy obligation DELETE ${mode} succeeds with protected bystanders for ${kind}`, () => {
+      const db = new Database(file); migrate(db);
+      try {
+        insertRow(db,'obligations','legacy-first',1,kind);
+        insertRow(db,'obligations','protected-relay',2,'pick-relay');
+        insertRow(db,'obligations','legacy-second',3,kind);
+        insertRow(db,'obligations','protected-receipt',4,'pick-receipt');
+        const before = tableRows(db,'obligations');
+        expect(before).toHaveLength(4);
+        const result = mode === 'by id'
+          ? db.prepare("DELETE FROM obligations WHERE id='legacy-first'").run()
+          : db.prepare('DELETE FROM obligations WHERE kind=?').run(kind);
+        expect(result.changes).toBe(mode === 'by id' ? 1 : 2);
+        expect(tableRows(db,'obligations')).toEqual(before.filter(row => mode === 'by id'
+          ? row.id !== 'legacy-first' : row.kind !== kind));
+      } finally { db.close(); }
+    });
+  }
+
   for (const table of ['pick_actions','pick_note_fences','obligations']) {
     it(`ordinary inserts without explicit rowid succeed for ${table}`, () => {
       const db = new Database(file); migrate(db);

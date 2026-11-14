@@ -559,6 +559,9 @@ ALTER TABLE obligations ADD COLUMN require_message_id INTEGER NOT NULL DEFAULT 0
 ALTER TABLE obligations ADD COLUMN handler_next_try_at TEXT;
 CREATE INDEX obligations_handler_due ON obligations(state, handler_next_try_at)
   WHERE kind IN ('pick-relay','pick-receipt');
+CREATE TRIGGER obligations_handler_no_delete BEFORE DELETE ON obligations
+WHEN OLD.kind IN ('pick-relay','pick-receipt')
+BEGIN SELECT RAISE(ABORT, 'protected obligation is permanent'); END;
 CREATE TRIGGER obligations_handler_positive_rowid AFTER INSERT ON obligations
 WHEN NEW.kind IN ('pick-relay','pick-receipt') AND NEW.rowid < 1
 BEGIN SELECT RAISE(ABORT, 'protected obligation requires positive rowid'); END;
