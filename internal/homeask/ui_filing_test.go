@@ -32,3 +32,21 @@ func TestUIRequiresAttachment(t *testing.T) {
 		}
 	}
 }
+
+func TestAttachmentsRejectSymlinksAndNonMedia(t *testing.T) {
+	f := &CardFiler{}
+	dir := t.TempDir()
+	media := filepath.Join(dir, "shot.png")
+	os.WriteFile(media, []byte("image"), 0600)
+	link := filepath.Join(dir, "linked.png")
+	if err := os.Symlink(media, link); err != nil {
+		t.Fatal(err)
+	}
+	text := filepath.Join(dir, "notes.txt")
+	os.WriteFile(text, []byte("private"), 0600)
+	for _, p := range []string{link, text} {
+		if err := f.CheckUI(CardRequest{Attachments: []string{p}}); err == nil {
+			t.Errorf("accepted %s", p)
+		}
+	}
+}

@@ -4,9 +4,37 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )
+
+func TestLargeAttachmentHashUsesBoundedMemory(t *testing.T) {
+	p := filepath.Join(t.TempDir(), "clip.mp4")
+	file, err := os.Create(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = file.Truncate(32 << 20); err != nil {
+		t.Fatal(err)
+	}
+	file.Close()
+	f := &CardFiler{Run: func(_ context.Context, _ []string, args ...string) BBResult {
+		if args[2] == "list" {
+			return okRes(map[string]any{"attachments": []any{}})
+		}
+		return okRes(map[string]any{})
+	}}
+	var before, after runtime.MemStats
+	runtime.ReadMemStats(&before)
+	if err = f.ensureAttachments(context.Background(), CardRequest{Attachments: []string{p}}, "card"); err != nil {
+		t.Fatal(err)
+	}
+	runtime.ReadMemStats(&after)
+	if allocated := after.TotalAlloc - before.TotalAlloc; allocated > 8<<20 {
+		t.Fatalf("hash allocated %d bytes for 32 MiB media", allocated)
+	}
+}
 
 func TestAttachmentReplayAfterLostUploadAnswer(t *testing.T) {
 	ctx := context.Background()

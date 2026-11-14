@@ -3,7 +3,9 @@ package homeask
 import (
 	"context"
 	"crypto/sha256"
+	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -13,6 +15,9 @@ import (
 func (f *CardFiler) ensureAttachments(ctx context.Context, r CardRequest, id string) error {
 	if len(r.Attachments) == 0 {
 		return nil
+	}
+	if err := f.CheckUI(CardRequest{Attachments: r.Attachments}); err != nil {
+		return err
 	}
 	var listed struct {
 		Attachments []struct {
@@ -29,11 +34,17 @@ func (f *CardFiler) ensureAttachments(ctx context.Context, r CardRequest, id str
 		names[a.FileName] = true
 	}
 	for _, path := range r.Attachments {
-		raw, err := os.ReadFile(path)
+		file, err := os.Open(path)
 		if err != nil {
 			return err
 		}
-		name := fmt.Sprintf("proof-%x%s", sha256.Sum256(raw), strings.ToLower(filepath.Ext(path)))
+		hash := sha256.New()
+		_, copyErr := io.Copy(hash, file)
+		closeErr := file.Close()
+		if err := errors.Join(copyErr, closeErr); err != nil {
+			return err
+		}
+		name := fmt.Sprintf("proof-%x%s", hash.Sum(nil), strings.ToLower(filepath.Ext(path)))
 		if names[name] {
 			continue
 		}

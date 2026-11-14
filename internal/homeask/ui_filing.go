@@ -11,13 +11,15 @@ import (
 func (f *CardFiler) CheckUI(r CardRequest) error {
 	valid := false
 	for _, p := range r.Attachments {
-		info, err := os.Stat(p)
+		info, err := os.Lstat(p)
 		if err != nil || !info.Mode().IsRegular() || info.Size() == 0 {
 			return fmt.Errorf("%w: attach an existing non-empty screenshot or video file: %s", ErrInvalid, p)
 		}
 		switch strings.ToLower(filepath.Ext(p)) {
 		case ".png", ".jpg", ".jpeg", ".webp", ".gif", ".mp4", ".webm":
 			valid = true
+		default:
+			return fmt.Errorf("%w: --attach accepts only png/jpg/jpeg/webp/gif/mp4/webm media: %s", ErrInvalid, p)
 		}
 	}
 	if r.UI && (r.Type == "play" || r.Type == "merge") && !valid {
