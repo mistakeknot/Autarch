@@ -1137,11 +1137,13 @@ var ErrCardProjectMismatch = fmt.Errorf("%w: card project mismatch", ErrInvalid)
 // cardInProject checks filing readback against the Tasks project returned by Tasks,
 // without requiring a plugin project flag. An empty filed project disables the check.
 // Card retains its unscoped interface for fleet readers.
+// An empty project_id means Home has not indexed the card yet (ErrHomeDown):
+// post-create polling retries it; the update path returns exit 3 so a re-run is safe.
 func (f *CardFiler) cardInProject(ctx context.Context, taskID, project string) (CardView, error) {
 	var v CardView
 	err := f.callEnv(ctx, unscopedEnv(""), &v, "home", "get", "--card", taskID, "--json")
 	if err == nil && project != "" && v.ProjectID == "" {
-		return v, fmt.Errorf("card %s has no Tasks project in readback", taskID)
+		return v, fmt.Errorf("%w: card %s has no Tasks project in readback", ErrHomeDown, taskID)
 	}
 	if err == nil && project != "" && v.ProjectID != "" && v.ProjectID != project {
 		return v, fmt.Errorf("%w: card %s belongs to Tasks project %q, expected %q", ErrCardProjectMismatch, taskID, v.ProjectID, project)
