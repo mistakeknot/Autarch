@@ -11,13 +11,18 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"syscall"
 	"time"
+
+	"golang.org/x/sys/unix"
 )
 
 // ErrCAS is wrapped by every content-addressed-store failure.
 var ErrCAS = errors.New("content store")
+
+var casTempName = regexp.MustCompile(`^\.tmp-[0-9]+-[0-9a-f]{16}$`)
 
 func casErr(format string, a ...any) error {
 	return fmt.Errorf("%w: %s", ErrCAS, fmt.Sprintf(format, a...))
@@ -109,13 +114,15 @@ func (c *CAS) lock(how int) (*os.File, error) {
 	if err != nil {
 		return nil, casErr("%v", err)
 	}
-	// Thirty seconds is deliberately far above normal holds (at most two fsyncs
-	// for a <=256 KiB entry), but bounds a stalled or hostile lock holder.
+	// Thirty seconds is deliberately far above normal holds: one directory fsync
+	// plus a re-read (default cap 256 KiB); repair adds a directory scan.
+	// It still bounds a stalled or hostile lock holder.
 	wait := c.lockWait
 	if wait <= 0 {
 		wait = 30 * time.Second
 	}
 	deadline := time.Now().Add(wait)
+	pause := time.Millisecond
 	for {
 		err := syscall.Flock(int(f.Fd()), how|syscall.LOCK_NB)
 		if err == nil {
@@ -130,7 +137,8 @@ func (c *CAS) lock(how int) (*os.File, error) {
 			f.Close()
 			return nil, casErr("lock deadline exceeded for store %s", c.Root)
 		}
-		time.Sleep(min(time.Millisecond, remaining))
+		time.Sleep(min(pause, remaining))
+		pause = min(2*pause, 50*time.Millisecond)
 	}
 }
 
@@ -210,6 +218,12 @@ func (c *CAS) Put(data []byte, wantSHA string) (string, error) {
 // repairAndVerify requires the exclusive directory lock. Only a validated entry
 // with exactly two links and an owned, same-directory .tmp-* alias is repairable.
 func (c *CAS) repairAndVerify(sha string, dir *os.File) error {
+	return c.repairAndVerifyWith(sha, dir, os.Geteuid, nil)
+}
+
+// repairAndVerifyWith provides private test injection without configurable hooks
+// on CAS. Put always uses the real effective UID and no after-unlink callback.
+func (c *CAS) repairAndVerifyWith(sha string, dir *os.File, effectiveUID func() int, afterUnlink func()) error {
 	p, _ := c.Path(sha)
 	fi, err := os.Lstat(p)
 	if err != nil {
@@ -224,7 +238,7 @@ func (c *CAS) repairAndVerify(sha string, dir *os.File) error {
 	if _, err := c.readWithLinks(sha, 2); err != nil {
 		return err
 	}
-	entries, err := os.ReadDir(c.Root)
+	entries, err := dir.ReadDir(-1)
 	if err != nil {
 		return casErr("find leftover for %s: %v", p, err)
 	}
@@ -233,16 +247,31 @@ func (c *CAS) repairAndVerify(sha string, dir *os.File) error {
 			continue
 		}
 		leftover := filepath.Join(c.Root, entry.Name())
-		alias, err := os.Lstat(leftover)
-		if err != nil || !os.SameFile(fi, alias) {
+		name := entry.Name()
+		var alias unix.Stat_t
+		if err := unix.Fstatat(int(dir.Fd()), name, &alias, unix.AT_SYMLINK_NOFOLLOW); err != nil {
+			return casErr("check leftover %s: %v", leftover, err)
+		}
+		if uint64(alias.Dev) != uint64(st.Dev) || uint64(alias.Ino) != uint64(st.Ino) {
 			continue
 		}
-		owner, ok := alias.Sys().(*syscall.Stat_t)
-		if !strings.HasPrefix(entry.Name(), ".tmp-") || !ok || int(owner.Uid) != os.Geteuid() || !alias.Mode().IsRegular() {
+		if !casTempName.MatchString(name) || int(alias.Uid) != effectiveUID() || alias.Mode&unix.S_IFMT != unix.S_IFREG || alias.Nlink != 2 {
 			return casErr("entry %s has unsafe leftover %s", p, leftover)
 		}
-		if err := os.Remove(leftover); err != nil {
+		// Resolve both the final check and unlink relative to the locked directory
+		// inode, even if the store path has since been renamed or replaced.
+		var checked unix.Stat_t
+		if err := unix.Fstatat(int(dir.Fd()), name, &checked, unix.AT_SYMLINK_NOFOLLOW); err != nil {
+			return casErr("re-check leftover %s: %v", leftover, err)
+		}
+		if checked.Dev != alias.Dev || checked.Ino != alias.Ino || checked.Nlink != 2 || checked.Uid != alias.Uid || checked.Mode != alias.Mode {
+			return casErr("leftover %s changed before removal", leftover)
+		}
+		if err := unix.Unlinkat(int(dir.Fd()), name, 0); err != nil {
 			return casErr("remove leftover %s: %v", leftover, err)
+		}
+		if afterUnlink != nil {
+			afterUnlink()
 		}
 		if err := dir.Sync(); err != nil {
 			return casErr("sync after removing leftover %s: %v", leftover, err)

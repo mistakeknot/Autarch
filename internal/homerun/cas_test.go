@@ -374,7 +374,7 @@ func TestCASReleasedLock(t *testing.T) {
 }
 
 func TestCASStaleTemp(t *testing.T) {
-	for _, kind := range []string{"stale", "foreign-name", "outside", "three-links", "corrupt", "mode"} {
+	for _, kind := range []string{"stale", "foreign-name", "malformed-temp", "outside", "three-links", "corrupt", "mode"} {
 		t.Run(kind, func(t *testing.T) {
 			c := newCAS(t, os.Getuid())
 			data := []byte("stale publication")
@@ -383,7 +383,10 @@ func TestCASStaleTemp(t *testing.T) {
 				t.Fatal(err)
 			}
 			p, _ := c.Path(sha)
-			leftover := filepath.Join(c.Root, ".tmp-crashed")
+			leftover := filepath.Join(c.Root, ".tmp-123-0123456789abcdef")
+			if kind == "malformed-temp" {
+				leftover = filepath.Join(c.Root, ".tmp-crashed")
+			}
 			if kind == "foreign-name" {
 				leftover = filepath.Join(c.Root, "foreign")
 			}
@@ -444,4 +447,67 @@ func TestCASStaleTemp(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestCASRepairOwnerMismatch(t *testing.T) {
+	c, sha, leftover := staleCASFixture(t)
+	dir, err := c.lock(syscall.LOCK_EX)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer dir.Close()
+	err = c.repairAndVerifyWith(sha, dir, func() int { return os.Geteuid() + 1 }, nil)
+	if !errors.Is(err, ErrCAS) || !strings.Contains(fmt.Sprint(err), leftover) {
+		t.Fatalf("repair accepted effective-owner mismatch: %v", err)
+	}
+	if _, err := os.Lstat(leftover); err != nil {
+		t.Fatalf("owner-mismatched alias was removed: %v", err)
+	}
+}
+
+func TestCASRepairReverifies(t *testing.T) {
+	c, sha, leftover := staleCASFixture(t)
+	dir, err := c.lock(syscall.LOCK_EX)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer dir.Close()
+	called := false
+	err = c.repairAndVerifyWith(sha, dir, os.Geteuid, func() {
+		called = true
+		if _, err := os.Lstat(leftover); !errors.Is(err, os.ErrNotExist) {
+			t.Fatalf("hook ran before unlink: %v", err)
+		}
+		p, _ := c.Path(sha)
+		if err := os.Chmod(p, 0o644); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(p, []byte("corrupted after unlink"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Chmod(p, 0o444); err != nil {
+			t.Fatal(err)
+		}
+	})
+	if !called {
+		t.Fatal("after-unlink hook was not reached")
+	}
+	if !errors.Is(err, ErrCAS) || !strings.Contains(fmt.Sprint(err), "hash") {
+		t.Fatalf("repair did not re-verify corrupted content: %v", err)
+	}
+}
+
+func staleCASFixture(t *testing.T) (*CAS, string, string) {
+	t.Helper()
+	c := newCAS(t, os.Getuid())
+	sha, err := c.Put([]byte("repair guards"), "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	p, _ := c.Path(sha)
+	leftover := filepath.Join(c.Root, ".tmp-123-0123456789abcdef")
+	if err := os.Link(p, leftover); err != nil {
+		t.Fatal(err)
+	}
+	return c, sha, leftover
 }
