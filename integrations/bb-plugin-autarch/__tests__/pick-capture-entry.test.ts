@@ -2,12 +2,52 @@ import { afterEach, expect, it, vi } from "vitest";
 import { cleanupEnvs, rig } from "./card-rig.js";
 import { TasksClient } from "../tasks.js";
 import type { ServiceDeps } from "../service.js";
-import { capturePick, recordPickEvaluation } from "../pickcapture.js";
+import { capturePick, pickRelayPayload, recordPickEvaluation } from "../pickcapture.js";
 import { Store, type PickActionRow } from "../store.js";
 import { Delegation } from "../delegation.js";
 import Database from "better-sqlite3";
+import { WakeLoop } from "../wakes.js";
+import { FakeSdk } from "./wakes-helpers.js";
 
 afterEach(cleanupEnvs);
+
+it("due protected relay cannot escape through a real WakeLoop without a handler guard", async () => {
+  const { r, g } = await participating({ pickCaptureRuntime: { mode: () => "live" } });
+  r.db.prepare(`UPDATE pick_handler_control SET mode = 'live', epoch = 1, owner_enablement_json = '{}', reviewed_build = 'test-build', reviewed_scope_json = '{}', enabled_cells_json = '["instruction:none"]' WHERE id = 1`).run();
+  expect((await ownerPick(r, g)).ok).toBe(true);
+  const action = r.db.prepare("SELECT * FROM pick_actions WHERE decision_id = ?").get(g.id) as PickActionRow;
+  const relay = { id: "guarded-relay", kind: "pick-relay", op: action.relay_op!, recipient: action.target_thread!, payload: pickRelayPayload(r.svc.store, action.pick_id) };
+  expect(recordPickEvaluation(r.svc.store, action, {}, r.env.now(), 0, { from: "pending", to: "automatic", obligations: [relay] })).toBe(true);
+  expect(r.svc.store.dueMessages().map(o => o.id)).toContain(relay.id);
+  const sdk = new FakeSdk();
+  await new WakeLoop(r.svc, sdk).drain();
+  expect(sdk.sent).toEqual([]);
+  expect(r.svc.store.obligation(relay.id)).toMatchObject({ state: "pending", attempt: 0, next_try_at: "9999-12-31T23:59:59.999Z" });
+});
+
+it.each(["target_thread", "relay_text", "relay_sha256", "relay_op"] as const)("enqueue authority rejects a caller-mutated immutable %s snapshot", async field => {
+  const { r, g } = await participating({ pickCaptureRuntime: { mode: () => "live" } });
+  r.db.prepare(`UPDATE pick_handler_control SET mode = 'live', epoch = 1, owner_enablement_json = '{}', reviewed_build = 'test-build', reviewed_scope_json = '{}', enabled_cells_json = '["instruction:none"]' WHERE id = 1`).run();
+  expect((await ownerPick(r, g)).ok).toBe(true);
+  const saved = r.db.prepare("SELECT * FROM pick_actions WHERE decision_id = ?").get(g.id) as PickActionRow;
+  const forged = { ...saved, [field]: "changed-authority" };
+  const obligation = { id: "forged-relay", kind: "pick-relay", op: forged.relay_op!, recipient: forged.target_thread!, payload: forged.relay_text! };
+  expect(recordPickEvaluation(r.svc.store, forged, {}, r.env.now(), 0, { from: "pending", to: "automatic", obligations: [obligation] })).toBe(false);
+  expect(r.svc.store.obligation(obligation.id)).toBeUndefined();
+  expect(r.db.prepare("SELECT * FROM pick_actions WHERE decision_id = ?").get(g.id)).toEqual(saved);
+});
+
+it("an unchanged action cannot authorize a different relay payload", async () => {
+  const { r, g } = await participating({ pickCaptureRuntime: { mode: () => "live" } });
+  r.db.prepare(`UPDATE pick_handler_control SET mode = 'live', epoch = 1, owner_enablement_json = '{}', reviewed_build = 'test-build', reviewed_scope_json = '{}', enabled_cells_json = '["instruction:none"]' WHERE id = 1`).run();
+  expect((await ownerPick(r, g)).ok).toBe(true);
+  const action = r.db.prepare("SELECT * FROM pick_actions WHERE decision_id = ?").get(g.id) as PickActionRow;
+  expect(() => recordPickEvaluation(r.svc.store, action, {}, r.env.now(), 0, { from: "pending", to: "automatic", obligations: [
+    { id: "altered-payload", kind: "pick-relay", op: action.relay_op!, recipient: action.target_thread!, payload: "Perform a different action." },
+  ] })).toThrow("protected obligation conflict");
+  expect(r.svc.store.obligation("altered-payload")).toBeUndefined();
+  expect(r.db.prepare("SELECT * FROM pick_actions WHERE decision_id = ?").get(g.id)).toEqual(action);
+});
 
 it.each([false, true])("note nudge observes committed obligation and fence with no open transaction (deferred=%s)", async deferred => {
   const nudge = vi.fn();
@@ -142,7 +182,7 @@ it.each(["pick-relay", "pick-receipt"])("carried2 strict protected dedup and car
   r.db.prepare(`UPDATE pick_handler_control SET mode = 'live', epoch = 1, owner_enablement_json = '{}', reviewed_build = 'test-build', reviewed_scope_json = '{}', enabled_cells_json = '["instruction:none"]' WHERE id = 1`).run();
   expect((await ownerPick(r, g)).ok).toBe(true);
   const action = r.db.prepare("SELECT * FROM pick_actions WHERE decision_id = ?").get(g.id) as PickActionRow;
-  const relay = { id: "protected-message", kind, op: (kind === "pick-relay" ? action.relay_op : action.receipt_op)!, recipient: kind === "pick-relay" ? "thr_target" : "thr_a", payload: "immutable filed payload" };
+  const relay = { id: "protected-message", kind, op: (kind === "pick-relay" ? action.relay_op : action.receipt_op)!, recipient: kind === "pick-relay" ? "thr_target" : "thr_a", payload: kind === "pick-relay" ? pickRelayPayload(r.svc.store, action.pick_id) : "immutable filed payload" };
   const forged = { ...action, ...(kind === "pick-relay" ? { relay_op: "forged" } : { receipt_op: "forged" }) };
   expect(recordPickEvaluation(r.svc.store, forged, {}, r.env.now(), 0, { from: "pending", to: "automatic", obligations: [{ ...relay, op: "forged" }] })).toBe(false);
   expect(recordPickEvaluation(r.svc.store, action, {}, r.env.now(), 0, { from: "pending", to: "automatic", obligations: [relay] })).toBe(true);

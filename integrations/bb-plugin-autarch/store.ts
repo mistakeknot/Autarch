@@ -334,12 +334,16 @@ const FINISHED = (a: string) => `(
 const DUE = `(
   o.kind <> 'ruling-file'
   AND o.state = 'pending'
-  AND o.next_try_at <= @now
+  AND ((o.kind IN ('pick-relay','pick-receipt') AND o.handler_next_try_at IS NOT NULL AND o.handler_next_try_at <= @now)
+    OR (o.kind NOT IN ('pick-relay','pick-receipt') AND o.next_try_at <= @now))
   AND o.voided_at IS NULL
   AND (o.after_id IS NULL OR EXISTS (SELECT 1 FROM obligations a WHERE a.id = o.after_id AND ${FINISHED("a")}))
   AND (o.resend_permit = 1 OR NOT EXISTS (
         SELECT 1 FROM attempts t WHERE t.obligation_id = o.id AND t.state IN ('sending','queued','uncertain')))
 )`;
+
+/** The message due predicate (alias `o`, parameter @now), shared with the guarded handler claim so neither branch drifts. */
+export const MESSAGE_DUE_SQL = DUE;
 
 /** Home messages that are information for another thread and not an answer or an action: these batch per recipient. */
 export const BATCHED_KIND = "notice";
@@ -486,7 +490,10 @@ export class Store {
     return (
       this.db
         .prepare(
-          `UPDATE obligations SET attempt = attempt + 1, last_error = @error, next_try_at = @next, updated_at = @now
+          `UPDATE obligations SET attempt = attempt + 1, last_error = @error,
+             next_try_at = CASE WHEN kind IN ('pick-relay','pick-receipt') THEN next_try_at ELSE @next END,
+             handler_next_try_at = CASE WHEN kind IN ('pick-relay','pick-receipt') THEN @next ELSE handler_next_try_at END,
+             updated_at = @now
            WHERE id = @id AND state = 'pending' AND attempt = @attempt`,
         )
         .run({ id, attempt, error, next: nextTryAt, now: this.now() }).changes === 1
@@ -1154,7 +1161,8 @@ export class Store {
 
   dueMessages(now: string = this.now()): ObligationRow[] {
     return this.db
-      .prepare(`SELECT o.* FROM obligations o WHERE ${DUE} ORDER BY o.next_try_at, o.rowid`)
+      .prepare(`SELECT o.* FROM obligations o WHERE ${DUE}
+        ORDER BY CASE WHEN o.kind IN ('pick-relay','pick-receipt') THEN o.handler_next_try_at ELSE o.next_try_at END, o.rowid`)
       .all({ now }) as ObligationRow[];
   }
 
@@ -1184,7 +1192,7 @@ export class Store {
       const res = this.db
         .prepare(
           `UPDATE obligations AS o SET state = 'sending', attempt = o.attempt + 1, resend_permit = 0, updated_at = @now
-           WHERE o.id = @id AND o.attempt = @attempt AND ${DUE}`,
+           WHERE o.id = @id AND o.attempt = @attempt AND o.kind NOT IN ('pick-relay','pick-receipt') AND ${DUE}`,
         )
         .run({ id, attempt, now });
       if (res.changes !== 1) return { ok: false } as const;

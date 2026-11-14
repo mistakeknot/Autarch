@@ -7,7 +7,7 @@ export const RECOVERY_WARNING = "delivery may already have occurred; do not rela
 export const ALREADY_RELAYED = "already relayed; do not act";
 /** Delivery as derived from obligation/attempt evidence (a later stage computes it; this file only renders it). */
 export type PickDelivery = "none-confirmed" | "not-attempted" | "pending" | "queued" | "accepted" | "uncertain" | "unknown" | "confirmed";
-export type OwnerWords = { kind: "ordinary-reason" | "own-words" | "answers" | "note"; text: string; id?: string };
+export type OwnerWords = { kind: "ordinary-reason" | "own-words" | "answers" | "note" | "comment"; text: string; id?: string };
 
 /** View-only facts joined from existing rows. No field here is persisted. */
 export interface PickFacts {

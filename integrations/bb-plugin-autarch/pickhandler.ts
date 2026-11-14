@@ -31,6 +31,7 @@ export interface OwnerCommentEvidence {
   observed_at: string;
   cutoff: string | null;
   comments: { id: string; created_at: string }[];
+  owner_words?: { id: string; text: string }[];
   limitations: readonly string[];
 }
 
@@ -46,12 +47,14 @@ export const PICK_STATUS_MARKER = "home-pick-status:";
 export function evaluateOwnerComments(input: OwnerCommentInput): OwnerCommentEvidence {
   let cutoff: string | null = null;
   const comments: OwnerCommentEvidence["comments"] = [];
+  const ownerWords: { id: string; text: string }[] = [];
+  const fenced = ["pending", "failed", "recorded"].includes(input.noteFence);
   const result = (value: OwnerCommentEvidence["result"], reason: string): OwnerCommentEvidence => ({
-    result: value, reason, observed_at: input.observedAt, cutoff, comments, limitations: COMMENT_LIMITATIONS,
+    result: fenced ? "fail" : value, reason: fenced ? "home-note-fence" : reason,
+    observed_at: input.observedAt, cutoff, comments, owner_words: ownerWords, limitations: COMMENT_LIMITATIONS,
   });
   // A note's posting state never clears its permanent generation fence.
-  if (["pending", "failed", "recorded"].includes(input.noteFence)) return result("fail", "home-note-fence");
-  if (input.noteFence !== "absent") return result("unknown", "note-fence-unavailable");
+  if (!fenced && input.noteFence !== "absent") return result("unknown", "note-fence-unavailable");
   try { cutoff = ownerCommentCutoff(input.generation, input.previousObservedAt); }
   catch { return result("unknown", "comment-cutoff-unavailable"); }
   if (!input.complete || !Number.isFinite(Date.parse(input.observedAt))) return result("unknown", "comments-unavailable");
@@ -59,7 +62,6 @@ export function evaluateOwnerComments(input: OwnerCommentInput): OwnerCommentEvi
   if (!parsed.success) return result("unknown", "comments-unavailable");
   const writes = new Set(input.expectedWriteIds.map(id => `home-write: ${id}`));
   const statuses = new Set(input.expectedStatusIds.map(id => `${PICK_STATUS_MARKER} ${id}`));
-  let ownerWords = false;
   for (const c of parsed.data) {
     comments.push({ id: c.id, created_at: c.createdAt });
     if (authorClass({ kind: c.kind, author_id: c.threadId }, input.context) !== "mk") continue;
@@ -68,9 +70,10 @@ export function evaluateOwnerComments(input: OwnerCommentInput): OwnerCommentEvi
     const homeWrite = lines.some(l => writes.has(l));
     const homeStatus = lines.some(l => statuses.has(l));
     if (!HOME_NOTE_TRAILER.test(c.body) && (homeWrite || homeStatus)) continue;
-    ownerWords = true;
+    ownerWords.push({ id: c.id, text: c.body });
   }
-  return result(ownerWords ? "fail" : "pass", ownerWords ? "owner-comment" : "no-owner-comments");
+  ownerWords.sort((a, b) => a.id < b.id ? -1 : a.id > b.id ? 1 : 0);
+  return result(ownerWords.length ? "fail" : "pass", ownerWords.length ? "owner-comment" : "no-owner-comments");
 }
 
 // ---- Four checks -------------------------------------------------------------------------------
@@ -152,6 +155,13 @@ export interface PickEvaluation {
   activation: { mode: HandlerMode; permitted: false; reason: string };
   evidence_times: { evaluated_at: string; comments_observed_at: string | null; head_observed_at: string | null; target_observed_at: string | null };
   limitations: readonly string[];
+  /** Lossless observed facts, not authority; absent on older evaluations. */
+  evidence?: PickObservedEvidence;
+}
+
+export interface PickObservedEvidence {
+  comments?: OwnerCommentEvidence;
+  head?: HeadEvidence | null;
 }
 
 /** The fixture-shared trim set: ASCII space, tab, CR and LF only. Every other character is a word. */
@@ -305,6 +315,7 @@ export function evaluatePick(input: PickEvaluationInput): PickEvaluation {
       target_observed_at: input.target.observed_at,
     },
     limitations: input.comments.limitations ?? COMMENT_LIMITATIONS,
+    evidence: structuredClone({ comments: input.comments, head: input.head }),
   };
 }
 
@@ -337,6 +348,8 @@ export interface PickEvidenceSources {
   now: () => string;
 }
 export interface PickEvidenceOptions {
+  /** Detached observations as reads finish. Persistence, if desired, belongs to the caller. */
+  observed?: (evidence: PickObservedEvidence) => void;
   /** Persisted absolute deadline (stage 2: pick_actions.evaluation_deadline_at). Default: pick time + 120 s. */
   deadlineAt?: string;
   /** Capture epoch of the action record; null before capture exists. */
@@ -436,8 +449,10 @@ export async function collectPickEvidence(src: PickEvidenceSources, decisionId: 
     expectedWriteIds: writeIds, expectedStatusIds: statusIds,
     noteFence: fenceState(snap.note_fences),
   });
+  opts.observed?.(structuredClone({ comments: ownerComments }));
 
   const head = decl ? await readSubjectHead(decl.subject, { deadlineAt, now: () => Date.parse(src.now()), ...(src.readHead ? { read: src.readHead } : {}) }) : null;
+  opts.observed?.(structuredClone({ comments: ownerComments, head }));
   const target = await targetCheck(src, snap, p.option_id, decl, deadlineAt);
 
   let imageCount: number | null;

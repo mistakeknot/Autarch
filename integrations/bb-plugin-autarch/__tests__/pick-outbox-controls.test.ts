@@ -25,6 +25,50 @@ function protectedRow(kind: string, state = "pending") {
 }
 
 describe.each(["pick-relay", "pick-receipt"])("protected outbox controls: %s", kind => {
+  it("failure backoff preserves the sentinel at the SQL statement", () => {
+    protectedRow(kind);
+    const later = "2030-01-01T00:00:30.000Z";
+    expect(store.failObligation("protected", 0, "failed", later)).toBe(true);
+    expect(store.obligation("protected")).toMatchObject({ attempt: 1, next_try_at: SENTINEL, handler_next_try_at: later });
+    expect(store.voidObligation("protected")).toBe(true);
+    expect(store.obligation("protected")).toMatchObject({ next_try_at: SENTINEL, handler_next_try_at: later });
+  });
+
+  it.each(["void", "predecessor", "sending", "queued", "uncertain"])("effective due preserves the %s exclusion", state => {
+    protectedRow(kind);
+    if (state === "void") store.voidObligation("protected");
+    else if (state === "predecessor") {
+      store.insertObligations(decisionId, [{ id: "dependency", kind: "ruling-file" }]);
+      store.db.prepare("UPDATE obligations SET after_id = 'dependency' WHERE id = 'protected'").run();
+    } else {
+      store.db.prepare("INSERT INTO attempts(obligation_id, n, state, at) VALUES ('protected', 1, ?, ?)").run(state, NOW);
+    }
+    expect(store.dueMessages()).toEqual([]);
+    expect(store.claim("protected", 0)).toEqual({ ok: false });
+  });
+  it("handler due time selects protected rows but generic claim refuses without a guard", () => {
+    protectedRow(kind);
+    expect(store.dueMessages().map(o => o.id)).toEqual(["protected"]);
+    expect(store.claim("protected", 0)).toEqual({ ok: false });
+    expect(store.obligation("protected")).toMatchObject({ state: "pending", attempt: 0, next_try_at: SENTINEL });
+  });
+
+  it.each([null, "2030-01-01T00:00:01.000Z"])("missing or future handler time is unavailable: %s", due => {
+    protectedRow(kind);
+    store.db.prepare("UPDATE obligations SET handler_next_try_at = ? WHERE id = 'protected'").run(due);
+    expect(store.dueMessages()).toEqual([]);
+    expect(store.claim("protected", 0)).toEqual({ ok: false });
+  });
+
+  it("effective due ordering preserves stable legacy order", () => {
+    protectedRow(kind);
+    store.insertObligations(decisionId, [
+      { id: "early", kind: "wake", next_try_at: "2029-12-31T23:59:59.000Z" },
+      { id: "same-one", kind: "wake", next_try_at: NOW },
+      { id: "same-two", kind: "notice", next_try_at: NOW },
+    ]);
+    expect(store.dueMessages().map(o => o.id)).toEqual(["early", "protected", "same-one", "same-two"]);
+  });
   it("carried note 2: generic skip-duplicates insertion refuses protected kinds before SQL", () => {
     // An exact existing row would otherwise hit migration 7's ABORT trigger.
     protectedRow(kind);

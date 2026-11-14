@@ -38,6 +38,7 @@ export const RECONCILE_MS = 60_000;
 const BACKOFF_BASE_MS = 30_000;
 const BACKOFF_MAX_MS = 3_600_000;
 const MAX_HOPS = 3;
+const PROTECTED_KINDS: ReadonlySet<string> = new Set(["pick-relay", "pick-receipt"]);
 
 // (e) Step 0: the SDK documents no error shapes for threads.send. Only these are treated as
 // proof that the request never reached the server; everything else is an unknown outcome.
@@ -119,6 +120,8 @@ export class WakeLoop {
   }
 
   private async pass(): Promise<void> {
+    // Overdue or invalidated pick-handler actions settle before this pass can claim any send.
+    this.svc.expirePickEvaluations();
     // No await before the snapshot when there is nothing to reconcile: a row filed while a
     // send is in flight belongs to the next drain.
     const cands = this.candidates();
@@ -128,7 +131,8 @@ export class WakeLoop {
     // Home's information-only notices to one thread leave as one digest per window; a notice with images goes alone.
     const due = this.store.dueMessagesBatched((r) => !!r.op && this.svc.imagesFor(r.op).state !== "none");
     for (const row of [...due.filter((r) => r.resend_permit !== 1), ...due.filter((r) => r.resend_permit === 1)]) {
-      const c = this.store.claim(row.id, row.attempt);
+      // Protected handler kinds have no generic claim: only the guarded handler claim can take them.
+      const c = PROTECTED_KINDS.has(row.kind) ? await this.svc.claimPickSend(row) : this.store.claim(row.id, row.attempt);
       if (!c.ok) continue;
       await this.sendOne(row, c.attempt);
     }
@@ -196,7 +200,9 @@ export class WakeLoop {
     }
     if (!failed && res) {
       if (res.delivery === "sent") {
-        this.store.updateAttempt(row.id, n, "delivered", { evidence: res.messageId ?? "sent" });
+        // A row that requires a durable host message id is never confirmed by a bare "sent".
+        if (row.require_message_id === 1 && !res.messageId) this.store.updateAttempt(row.id, n, "uncertain", { error: "sent without a durable host message id" });
+        else this.store.updateAttempt(row.id, n, "delivered", { evidence: res.messageId ?? "sent" });
       } else {
         this.store.updateAttempt(row.id, n, "queued", { handle: res.queuedMessageId });
         this.applyRecordedEvent(row.id, n, res.queuedMessageId);

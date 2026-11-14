@@ -36,14 +36,17 @@ function deliveryJson(ask: Ask): string {
   return JSON.stringify(body);
 }
 import { estateRoot, fsUuidOfDev, pinRoot, renderRuling, rulingPath, writeRuling, type PinnedRoot, type Ruling } from "./ruling.js";
-import { appendRuling } from "./ledger.js";
+import { appendRuling, ledgerId, readMatchingRuling, type LedgerPick } from "./ledger.js";
 import { canonicalOnPick } from "./model.js";
 import { TargetEvidenceError, validatePickTarget, type TargetEvidence } from "./picktarget.js";
-import { evaluatePickRuntime, type PickEvidenceOptions } from "./pickhandler.js";
-import { capturePick, pickFenceToken, productionPickMode, recordPickEvaluation } from "./pickcapture.js";
+import { evaluatePickRuntime, type PickEvaluation, type PickEvidenceOptions } from "./pickhandler.js";
+import { capturePick, claimPickRelay, fallbackPickAction, pickFenceToken, pickRelayPayload, productionPickMode, recordPickEvaluation, RULING_FAILURE_EVENT,
+  type PickFallbackDelivery, type PickFallbackOutbox, type RelayPreparation, type SendGuardResult } from "./pickcapture.js";
+import { pickFactSheet, type PickFacts } from "./pickfacts.js";
+import type { OnPick } from "./onpick.js";
 import type { HeadReader } from "./pickhead.js";
 import type { ThreadRow } from "./delegation.js";
-import type { DecisionInput, ObligationInput, ObligationRow, PickInput, PickRow, Store } from "./store.js";
+import type { DecisionInput, ObligationInput, ObligationRow, PickActionRow, PickInput, PickRow, Store } from "./store.js";
 
 export interface ProjectInfo {
   name: string;
@@ -54,8 +57,11 @@ export interface ProjectInfo {
 
 export interface ServiceDeps {
   pickHandlerMode?: unknown;
-  /** Isolated runtime injection only. Production wiring never supplies this dependency. */
-  pickCaptureRuntime?: { mode: () => string };
+  /**
+   * Isolated runtime injection only. Production wiring never supplies this dependency. `beforeSend` is the external
+   * before-send evidence hook a later stage completes; absent, a protected send is never claimed.
+   */
+  pickCaptureRuntime?: { mode: () => string; beforeSend?: (row: ObligationRow) => Promise<SendGuardResult> };
   tasks?: () => TasksClient;
   readTargetEvidence?: (thread: string) => Promise<TargetEvidence>;
   store: Store;
@@ -116,6 +122,8 @@ type Row = Record<string, unknown> & {
 };
 
 const RECONCILE_MS = 30_000;
+/** The pick-handler deadline watchdog runs at least once a second while the service runs. */
+const PICK_WATCHDOG_MS = 1_000;
 /** Failed blocker pushes retried per ask before giving up, and the first backoff (doubling, capped at an hour). */
 const MAX_PUSH_ATTEMPTS = 6;
 const PUSH_RETRY_BASE_MS = 30_000;
@@ -250,6 +258,10 @@ export class Service {
   readonly store: Store;
   private readonly deps: ServiceDeps;
   private timer: ReturnType<typeof setInterval> | null = null;
+  /** The pick-handler deadline watchdog: independent of ruling-file retry scheduling. */
+  private watchdog: ReturnType<typeof setInterval> | null = null;
+  /** Live-action preparations in flight, by pick id: one at a time per action. */
+  private readonly preparing = new Map<string, Promise<void>>();
   /** Asks with a push in flight (by oldest row id), so two filings of one ask never push twice at once. */
   private pushing = new Set<string>();
   private pushPending = new Set<Promise<void>>();
@@ -516,7 +528,7 @@ export class Service {
       // An image set is stored under the ordinary wake op; with no image store none could be accepted.
       imageCount: (op) => (images ? images.expectedCount(op) : 0),
       now: () => this.now(),
-    }, decisionId, { ...(opts.deadlineAt ? { deadlineAt: opts.deadlineAt } : {}), ...(opts.captureEpoch !== undefined ? { captureEpoch: opts.captureEpoch } : {}) });
+    }, decisionId, { ...(opts.deadlineAt ? { deadlineAt: opts.deadlineAt } : {}), ...(opts.captureEpoch !== undefined ? { captureEpoch: opts.captureEpoch } : {}), ...(opts.observed ? { observed: opts.observed } : {}) });
   }
 
   /** Async owner-entry guard. Frozen presentation is never silently refreshed. */
@@ -752,6 +764,8 @@ export class Service {
         }).catch(failed);
       } catch (error) { failed(error); }
     }
+    // Isolated dormant runtime only: the committed live capture prepares after the pick, never inside it.
+    if (owned) this.preparePickActionsFor(decisionId);
     return { ok: true, status: 201, pick: this.store.pick(decisionId)! };
   }
 
@@ -919,34 +933,331 @@ export class Service {
       if (threads.length > 0) ruling.mentions = threads;
       // The ledger comes first: it does not depend on the project having a root, so a pick on an unbound project still
       // reaches it. A retry after a later failure finds its line and writes nothing.
-      if (this.deps.rulingsLedger) {
-        appendRuling(this.deps.rulingsLedger, {
-          pick_id: pick.pick_id,
-          picked_at: pick.picked_at,
-          by: pick.by,
-          surface: pick.surface,
-          card: ruling.card_key ?? d.id,
-          subject: ruling.subject,
-          option_id: pick.option_id,
-          option_label: option?.label ?? pick.option_id,
-          reason: pick.reason,
-          ...(option?.on_pick ? { declaration: {
-            decision_id: d.id, pick_id: pick.pick_id, generation: Number(d.generation), revision: String(d.revision),
-            on_pick_sha256: createHash("sha256").update(canonicalOnPick(option.on_pick)).digest("hex"),
-            kind: option.kind ?? "ruling-only",
-            pr: option.on_pick.subject.kind === "github-pr" ? `${option.on_pick.subject.repo}#${option.on_pick.subject.number}` : null,
-            head: option.on_pick.subject.kind === "github-pr" ? option.on_pick.subject.head : null,
-            bead: option.on_pick.ruling.bead, under: option.on_pick.ruling.under,
-          } } : {}),
-        });
-      }
+      if (this.deps.rulingsLedger) appendRuling(this.deps.rulingsLedger, this.ledgerPickOf(d, ask, pick));
       const target = rulingPath({ scope: estate ? "estate" : "project", decision_id: d.id, subject: ruling.subject, date: pick.picked_at.slice(0, 10) });
       writeRuling({ path: d.project_root ?? "", dev: d.root_dev ?? "", ino: d.root_ino ?? "", fsid: d.root_fsid ?? null }, target.dirs, target.file, renderRuling(ruling));
       this.store.transition(ob.id, "pending", "done", ob.attempt);
     } catch (e) {
       const delay = Math.min(30_000 * 2 ** Math.min(ob.attempt, 20), 3_600_000);
       this.store.failObligation(ob.id, ob.attempt, message(e), new Date(Date.parse(this.now()) + delay).toISOString());
+      // Outside the ordinary retry bookkeeping above: the handler observes the first failure but never changes it.
+      this.observeRulingFailure(decisionId, ob.attempt + 1, message(e));
+      return;
     }
+    // The ledger row now exists: a live action that was waiting on it may prepare.
+    this.preparePickActionsFor(decisionId);
+  }
+
+  /** The LedgerPick appendRuling writes for this pick: one read-only builder for the writer and the focused readback. */
+  private ledgerPickOf(d: Row, ask: Ask, pick: PickRow): LedgerPick {
+    const option = ask.options?.find((o) => o.id === pick.option_id);
+    const key = d.source === "card" && typeof d.task_id === "string"
+      ? (this.db.prepare("SELECT card_key FROM cards WHERE task_id = ?").get(d.task_id) as { card_key: string | null } | undefined)?.card_key
+      : undefined;
+    return {
+      pick_id: pick.pick_id,
+      picked_at: pick.picked_at,
+      by: pick.by,
+      surface: pick.surface,
+      card: key || d.id,
+      subject: d.subject || ask.question.slice(0, 80),
+      option_id: pick.option_id,
+      option_label: option?.label ?? pick.option_id,
+      reason: pick.reason,
+      ...(option?.on_pick ? { declaration: {
+        decision_id: d.id, pick_id: pick.pick_id, generation: Number(d.generation), revision: String(d.revision),
+        on_pick_sha256: createHash("sha256").update(canonicalOnPick(option.on_pick)).digest("hex"),
+        kind: option.kind ?? "ruling-only",
+        pr: option.on_pick.subject.kind === "github-pr" ? `${option.on_pick.subject.repo}#${option.on_pick.subject.number}` : null,
+        head: option.on_pick.subject.kind === "github-pr" ? option.on_pick.subject.head : null,
+        bead: option.on_pick.ruling.bead, under: option.on_pick.ruling.under,
+      } } : {}),
+    };
+  }
+
+  // ---- pick handler: guarded relay, fallback and deadline (mk-cqnab.1 PR3 stage 2b) ---------------
+
+  /** The expected static ledger row for a ruled pick, from the same builder Service.reconcile appends with. */
+  rulingLedgerPick(decisionId: string): LedgerPick | null {
+    const d = this.row(decisionId);
+    const pick = this.store.pick(decisionId);
+    const ask = d ? readAsk(d.body_json, {}, d.source) : null;
+    return d && pick && ask ? this.ledgerPickOf(d, ask, pick) : null;
+  }
+
+  private storedAction(pickId: string): PickActionRow | undefined {
+    return this.db.prepare("SELECT * FROM pick_actions WHERE pick_id = ?").get(pickId) as PickActionRow | undefined;
+  }
+
+  /**
+   * The ruling-file evidence for this action, read explicitly (never through FINISHED or after_id). For a ruling-file
+   * obligation `attempt` counts failures only: Service.reconcile marks success without incrementing it. Any counted
+   * failure, or the permanent first-failure event, is a failure whatever the current state.
+   */
+  private rulingFileState(action: PickActionRow): PickFacts["ruling_file"] {
+    const event = this.db.prepare("SELECT at FROM events WHERE decision_id = ? AND type = ? ORDER BY seq LIMIT 1").get(action.decision_id, RULING_FAILURE_EVENT) as { at: string } | undefined;
+    const ob = action.ruling_op === null ? undefined
+      : this.db.prepare("SELECT state, attempt FROM obligations WHERE op = ? AND decision_id = ? AND kind = 'ruling-file'").get(action.ruling_op, action.decision_id) as { state: string; attempt: number } | undefined;
+    if (event || (ob && ob.attempt > 0)) return { state: "failed", first_failure_at: event?.at ?? null };
+    if (ob?.state === "done") return { state: "written", first_failure_at: null };
+    if (ob?.state === "pending") return { state: "pending", first_failure_at: null };
+    return { state: "unknown", first_failure_at: null };
+  }
+
+  private ledgerState(decisionId: string): PickFacts["ledger"] {
+    const expected = this.rulingLedgerPick(decisionId);
+    return expected ? readMatchingRuling(this.deps.rulingsLedger ?? null, expected) : "unknown";
+  }
+
+  /** Full fact sheet for the asker plus information-only release notices; rendered inside the fallback transaction. */
+  private fallbackOutbox(action: PickActionRow, delivery: PickFallbackDelivery, reason: string, evaluation: PickEvaluation | null): PickFallbackOutbox {
+    const d = this.row(action.decision_id);
+    const pick = this.store.pickByPickId(action.pick_id);
+    if (!d || !pick) throw new Error("pick fallback evidence unavailable");
+    const ask = readAsk(d.body_json, {}, d.source);
+    let declaration: OnPick | null = null;
+    try { declaration = action.declaration_json ? JSON.parse(action.declaration_json) as OnPick : null; } catch { declaration = null; }
+    let saved = evaluation;
+    if (!saved && action.evaluation_json) { try { saved = JSON.parse(action.evaluation_json) as PickEvaluation; } catch { saved = null; } }
+    const imageOp = `wake:${action.decision_id}:${action.pick_id}`;
+    const imageCount = this.deps.images ? this.deps.images.expectedCount(imageOp) : 0;
+    const asker = (this.db.prepare("SELECT detail_json FROM events WHERE decision_id = ? AND type = 'on-pick-targets' ORDER BY seq LIMIT 1").get(action.decision_id) as { detail_json: string } | undefined)?.detail_json;
+    let askerProject: string | null = null;
+    try { askerProject = asker ? (JSON.parse(asker) as { asker?: { project_id?: string } }).asker?.project_id ?? null : null; } catch { askerProject = null; }
+    const words: PickFacts["owner_words"][number][] = pick.reason !== null && pick.reason !== ""
+      ? [{ kind: isOwnWordsId(pick.option_id) ? "own-words" as const : pick.option_id === ANSWERS_OPTION_ID ? "answers" as const : "ordinary-reason" as const, text: pick.reason }] : [];
+    // Reservations contain the accepted advisory body even if Tasks never accepted the post.
+    const notes = this.db.prepare("SELECT detail_json FROM events WHERE decision_id = ? AND type = 'home-note-reserved' ORDER BY seq").all(action.decision_id) as { detail_json: string }[];
+    for (const row of notes) {
+      const note = JSON.parse(row.detail_json) as { note_id: string; body: string };
+      words.push({ kind: "note", id: note.note_id, text: note.body });
+    }
+    const observed = this.db.prepare("SELECT detail_json FROM events WHERE decision_id = ? AND type = 'pick-evidence-observed' ORDER BY seq").all(action.decision_id) as { detail_json: string }[];
+    const comments = new Map<string, string>();
+    let headEvidence = saved?.evidence?.head;
+    for (const evidence of [...observed.map(row => (JSON.parse(row.detail_json) as { evidence: NonNullable<PickEvaluation["evidence"]> }).evidence), saved?.evidence]) {
+      for (const word of evidence?.comments?.owner_words ?? []) comments.set(word.id, word.text);
+      if (evidence?.head) headEvidence = evidence.head;
+    }
+    for (const [id, text] of [...comments].sort(([a], [b]) => a < b ? -1 : a > b ? 1 : 0)) words.push({ kind: "comment", id, text });
+    const expired = !(Date.parse(this.now()) < Date.parse(action.evaluation_deadline_at));
+    const facts: PickFacts = {
+      card_key: this.cardKey(action.task_id), decision_id: action.decision_id, generation: action.generation, pick_id: action.pick_id,
+      card_title: null, question: ask?.question ?? null, selected_option: pick.option_id,
+      recommended_option: typeof ask?.recommendation === "string" && ask.recommendation !== "" ? ask.recommendation : null,
+      evaluation: saved, declaration,
+      target: action.target_thread ? { thread_id: action.target_thread, title: action.target_title ?? "", project_id: action.target_project_id ?? "", project_name: action.target_project_name ?? "" } : null,
+      asker_project_id: askerProject,
+      head: declaration?.subject.kind === "github-pr" ? { filed: declaration.subject.head, current: headEvidence?.head ?? null, state: headEvidence?.state ?? null } : null,
+      ruling_id: ledgerId(action.pick_id), ledger: this.ledgerState(action.decision_id), ruling_file: this.rulingFileState(action),
+      deadline: { at: action.evaluation_deadline_at, outcome: expired ? "expired" : "met" },
+      delivery, owner_words: words,
+      images: imageCount > 0 ? { count: imageCount, op: imageOp } : null,
+    };
+    const possible = delivery !== "none-confirmed";
+    const head = `Home pick ${action.pick_id} on ${action.decision_id}: automatic handling ended (${reason}). ${possible ? "Recovery required" : "Manual handling required"}; nothing here is a relay.`;
+    const threads = (this.db.prepare("SELECT ref FROM decision_blocks WHERE decision_id = ? ORDER BY ref").all(action.blocks_decision_id) as { ref: string }[])
+      .map((b) => b.ref).filter((r) => r.startsWith("thread:")).map((r) => r.slice("thread:".length));
+    const notices = [...new Set(threads)].filter((t) => t !== "" && t !== action.asker && t !== action.target_thread).map((recipient) => ({
+      recipient,
+      payload: `Home pick ${action.pick_id} on ${action.decision_id} is no longer handler-owned: it fell back to manual handling by the asking thread. Information only; do not relay or act. This is not merge, deploy, release or publish authorization.`,
+    }));
+    return { wake: `${head}\n${pickFactSheet(facts).text}`, notices };
+  }
+
+  /** Terminal fallback through the shared transaction; failures stay out of every legacy path. */
+  private pickFallback(pickId: string, reason: string, evaluation: PickEvaluation | null = null): boolean {
+    try {
+      const done = fallbackPickAction(this.store, pickId, reason, this.now(), (action, delivery) => this.fallbackOutbox(action, delivery, reason, evaluation), evaluation);
+      if (done) this.deps.nudge?.();
+      return done;
+    } catch (e) {
+      this.deps.log?.(`pick fallback failed: ${message(e)}`);
+      try { this.store.recordEvent("pick-fallback-failure", null, { pick_id: pickId, reason, error: message(e) }); } catch { /* diagnostics only */ }
+      return false;
+    }
+  }
+
+  /**
+   * First ruling-file failure: a permanent action event, then immediate fallback before any send. The ordinary
+   * ruling-file obligation keeps its own retries; a later success never revives the action.
+   */
+  private observeRulingFailure(decisionId: string, attempt: number, error: string): void {
+    try {
+      const action = this.db.prepare("SELECT * FROM pick_actions WHERE decision_id = ? AND capture_mode = 'live'").get(decisionId) as PickActionRow | undefined;
+      if (!action) return;
+      this.store.atomically(() => {
+        if (!this.db.prepare("SELECT 1 FROM events WHERE decision_id = ? AND type = ?").get(decisionId, RULING_FAILURE_EVENT)) {
+          this.store.recordEvent(RULING_FAILURE_EVENT, decisionId, { pick_id: action.pick_id, attempt, error });
+        }
+      });
+      this.pickFallback(action.pick_id, "ruling-file-failure");
+    } catch (e) {
+      this.deps.log?.(`pick ruling-failure observation failed: ${message(e)}`);
+    }
+  }
+
+  /**
+   * Prepare one live action: the stage 1 evaluator with the original persisted deadline, the expected static ledger
+   * row from the reconcile builder, explicit ruling-file evidence, then the guarded transition and relay insert under
+   * one write lock. The caller's object identifies the action only; the stored row is the authority.
+   */
+  async prepareRelay(given: PickActionRow): Promise<RelayPreparation> {
+    const action = this.storedAction(given.pick_id);
+    if (!action || action.capture_mode !== "live") return { result: "not-applied", reason: "no-live-action" };
+    if (action.disposition !== "pending") return { result: "not-applied", reason: `disposition-${action.disposition}` };
+    const fallback = (reason: string, evaluation: PickEvaluation | null = null): RelayPreparation =>
+      this.pickFallback(action.pick_id, reason, evaluation) ? { result: "fallback", reason } : { result: "not-applied", reason };
+    const expired = () => !(Date.parse(this.now()) < Date.parse(action.evaluation_deadline_at));
+    if (expired()) return fallback("evaluation-timeout");
+    if (this.rulingFileState(action).state === "failed") return fallback("ruling-file-failure");
+    if (this.deps.pickCaptureRuntime?.mode() !== "live") return fallback("live-unavailable-in-this-build");
+    const tasks = this.deps.tasks;
+    if (!tasks) return fallback("comments-unavailable");
+    const fenceToken = pickFenceToken(this.store, action);
+    let result: Awaited<ReturnType<Service["pickEvaluation"]>> = null;
+    try { result = await this.pickEvaluation(action.decision_id, tasks, {
+      deadlineAt: action.evaluation_deadline_at, captureEpoch: action.capture_epoch,
+      observed: evidence => this.store.atomically(() => {
+        const current = this.storedAction(action.pick_id);
+        // Audit already observed facts before the next read can hang. Never revive or rewrite a terminal capture.
+        if (current?.disposition === "pending" && !expired()) {
+          this.store.recordEvent("pick-evidence-observed", action.decision_id, { pick_id: action.pick_id, evidence });
+        }
+      }),
+    }); }
+    catch { result = null; }
+    // A result arriving at or after the original deadline never enqueues; the fallback CAS never revives.
+    if (expired()) return fallback("evaluation-timeout");
+    if (!result) return fallback("evaluation-unavailable");
+    const evaluation = result.evaluation;
+    if (evaluation.outcome !== "automatic") return fallback("proposal-fallback", evaluation);
+    // Every activation guard passed exactly when the evaluator's only refusal is this build's missing live path;
+    // the isolated runtime above is what lets the dormant core continue.
+    if (evaluation.activation.reason !== "live-unavailable-in-this-build") return fallback(evaluation.activation.reason, evaluation);
+    const ledger = this.ledgerState(action.decision_id);
+    if (ledger === "disabled" || ledger === "conflicting") return fallback(`ledger-${ledger}`, evaluation);
+    const record = (outcome: RelayPreparation): RelayPreparation => {
+      try { this.store.recordEvent("pick-relay-preparation", action.decision_id, { pick_id: action.pick_id, ...outcome, ledger }); } catch { /* diagnostics only */ }
+      return outcome;
+    };
+    // Missing or unreadable selected evidence: no relay; the original deadline bounds the ownership.
+    if (ledger !== "matching") return record({ result: "no-relay", reason: `ledger-${ledger}` });
+    const ruling = this.rulingFileState(action).state;
+    if (ruling === "failed") return fallback("ruling-file-failure", evaluation);
+    if (ruling !== "written" && ruling !== "pending") return record({ result: "no-relay", reason: "ruling-file-unknown" });
+    if (action.relay_op === null || action.target_thread === null) return fallback("relay-text-missing", evaluation);
+    let applied = false;
+    try {
+      applied = this.store.atomically(() => {
+        // Ruling evidence again under the write lock: a failure recorded since the read above wins.
+        const now = this.now();
+        const state = this.rulingFileState(action).state;
+        if (state !== "written" && state !== "pending") return false;
+        return recordPickEvaluation(this.store, action, evaluation, now, fenceToken, { from: "pending", to: "automatic", obligations: [
+          { id: `ob:${action.relay_op}`, kind: "pick-relay", op: action.relay_op!, recipient: action.target_thread!, payload: pickRelayPayload(this.store, action.pick_id), next_try_at: now },
+        ] });
+      });
+    } catch (e) {
+      return record({ result: "not-applied", reason: `enqueue-conflict: ${message(e)}` });
+    }
+    if (!applied) return record({ result: "not-applied", reason: "compare-and-set" });
+    this.deps.nudge?.();
+    return record({ result: "enqueued", reason: ruling === "pending" ? "ruling-file-pending" : "ruling-file-written" });
+  }
+
+  /** One preparation per live action at a time; failures are isolated from the pick and every legacy path. */
+  private schedulePickPreparation(pickId: string): void {
+    if (this.preparing.has(pickId)) return;
+    const action = this.storedAction(pickId);
+    if (!action) return;
+    const run = this.prepareRelay(action).then(() => undefined, (e: unknown) => { this.deps.log?.(`pick preparation failed: ${message(e)}`); })
+      .finally(() => { this.preparing.delete(pickId); });
+    this.preparing.set(pickId, run);
+  }
+
+  private preparePickActionsFor(decisionId: string): void {
+    try {
+      const rows = this.db.prepare("SELECT pick_id FROM pick_actions WHERE decision_id = ? AND capture_mode = 'live' AND disposition = 'pending'").all(decisionId) as { pick_id: string }[];
+      for (const r of rows) this.schedulePickPreparation(r.pick_id);
+    } catch (e) {
+      this.deps.log?.(`pick preparation lookup failed: ${message(e)}`);
+    }
+  }
+
+  /** Resume pending live actions (capture resumption after a restart) under their original deadlines. */
+  resumePickActions(now: string = this.now()): void {
+    // Only live captures still inside their original deadline; expired ones were settled by the watchdog before this.
+    // Preparation re-reads the stored row, so the deadline is never renewed and a duplicate resume is a no-op.
+    try {
+      const rows = this.db.prepare(`SELECT pick_id FROM pick_actions WHERE capture_mode = 'live' AND disposition = 'pending'
+        AND julianday(evaluation_deadline_at) > julianday(?) ORDER BY evaluation_deadline_at, pick_id`).all(now) as { pick_id: string }[];
+      for (const r of rows) this.schedulePickPreparation(r.pick_id);
+    } catch (e) {
+      this.deps.log?.(`pick resumption lookup failed: ${message(e)}`);
+    }
+  }
+
+  /**
+   * The watchdog: every non-terminal live action at or past its original deadline, or whose capture epoch, generation,
+   * Home-note fence or ruling-file evidence no longer permits automatic handling, falls back now. A confirmed relay is left to
+   * receipt handling; a possibly accepted one keeps its evidence and gets a recovery wake. Returns actions settled.
+   */
+  expirePickEvaluations(now: string = this.now()): number {
+    let rows: { pick_id: string; reason: string }[];
+    try {
+      rows = this.db.prepare(`SELECT p.pick_id,
+          CASE WHEN julianday(p.evaluation_deadline_at) <= julianday(@now) THEN 'evaluation-timeout'
+            WHEN NOT EXISTS (SELECT 1 FROM pick_handler_control c WHERE c.id = 1 AND c.mode = 'live' AND c.epoch = p.capture_epoch) THEN 'mode-epoch-changed'
+            WHEN NOT EXISTS (SELECT 1 FROM decisions d WHERE d.id = p.decision_id AND d.generation = p.generation AND d.revision = p.revision
+              AND d.card_fp = p.card_fp AND d.withdrawn_at IS NULL AND d.resolved_at IS NULL
+              AND NOT EXISTS (SELECT 1 FROM decisions n WHERE n.supersedes = d.id)) THEN 'generation-invalid'
+            WHEN EXISTS (SELECT 1 FROM pick_note_fences f WHERE f.decision_id = p.decision_id OR (f.task_id = p.task_id AND f.generation = p.generation)) THEN 'home-note-fence'
+            WHEN EXISTS (SELECT 1 FROM events e WHERE e.decision_id = p.decision_id AND e.type = '${RULING_FAILURE_EVENT}')
+              OR EXISTS (SELECT 1 FROM obligations r WHERE r.op = p.ruling_op AND r.decision_id = p.decision_id AND r.kind = 'ruling-file' AND r.attempt > 0) THEN 'ruling-file-failure'
+            ELSE NULL END AS reason
+        FROM pick_actions p
+        WHERE p.capture_mode = 'live' AND p.disposition IN ('pending','automatic')
+          AND NOT EXISTS (SELECT 1 FROM obligations o JOIN attempts t ON t.obligation_id = o.id
+            WHERE o.op = p.relay_op AND o.kind = 'pick-relay' AND t.state = 'delivered')
+        ORDER BY p.evaluation_deadline_at, p.pick_id`).all({ now }).filter((r) => (r as { reason: string | null }).reason !== null) as { pick_id: string; reason: string }[];
+    } catch (e) {
+      this.deps.log?.(`pick watchdog read failed: ${message(e)}`);
+      return 0;
+    }
+    let settled = 0;
+    for (const r of rows) if (this.pickFallback(r.pick_id, r.reason)) settled++;
+    return settled;
+  }
+
+  /** The external before-send hook. Absent or failing, the answer is unknown and nothing is sent. */
+  async pickSendGuard(row: ObligationRow): Promise<SendGuardResult> {
+    const hook = this.deps.pickCaptureRuntime?.beforeSend;
+    if (!hook) return { result: "unknown", reason: "before-send-check-unavailable" };
+    try {
+      const r = await hook(row);
+      if (r?.result === "permitted") return { result: "permitted", reason: String(r.reason) };
+      return { result: r?.result === "refused" ? "refused" : "unknown", reason: String(r?.reason ?? "before-send-check-unavailable") };
+    } catch (e) {
+      return { result: "unknown", reason: `before-send-check-failed: ${message(e)}` };
+    }
+  }
+
+  /**
+   * The WakeLoop's only claim path for protected kinds: the before-send hook, the watchdog, then the transactional
+   * claim that re-checks every stored guard. Receipts stay unclaimable until their delivery stage exists.
+   */
+  async claimPickSend(row: ObligationRow): Promise<{ ok: true; attempt: number } | { ok: false }> {
+    if (row.kind !== "pick-relay") return { ok: false };
+    const guard = await this.pickSendGuard(row);
+    if (guard.result !== "permitted") return { ok: false };
+    this.expirePickEvaluations();
+    return claimPickRelay(this.store, row.id, row.attempt, this.now());
+  }
+
+  /** Resolves when no live-action preparation is in flight. */
+  async pickWorkIdle(): Promise<void> {
+    while (this.preparing.size) await Promise.allSettled([...this.preparing.values()]);
   }
 
   reconcileAll(): void {
@@ -956,15 +1267,22 @@ export class Service {
 
   start(): void {
     if (this.timer) return;
+    // Expired, invalidated or failed live actions settle before anything can claim a send.
+    this.expirePickEvaluations();
     this.sweepAbandonedOverrides();
     this.timer = setInterval(() => this.reconcileAll(), RECONCILE_MS);
     this.timer.unref();
+    this.watchdog = setInterval(() => this.expirePickEvaluations(), PICK_WATCHDOG_MS);
+    this.watchdog.unref();
+    this.resumePickActions();
     this.reconcilePushes(); // a push lost to a restart is retried now, not after the first interval
   }
 
   stop(): void {
     if (this.timer) clearInterval(this.timer);
+    if (this.watchdog) clearInterval(this.watchdog);
     this.timer = null;
+    this.watchdog = null;
   }
 
   ready(): boolean {
@@ -1833,7 +2151,10 @@ export class Service {
   /** The images to send with the wake whose op is `op`. `expected` is true when images were part of the request. */
   imagesFor(op: string): PathsResult {
     const st = this.deps.images;
-    return st ? st.paths(op) : { state: "none" };
+    if (!st) return { state: "none" };
+    // A pick fallback wake carries the images accepted with the pick's ordinary wake op, keyed from the stored action.
+    const action = this.db.prepare("SELECT decision_id, pick_id FROM pick_actions WHERE fallback_op = ?").get(op) as { decision_id: string; pick_id: string } | undefined;
+    return st.paths(action ? `wake:${action.decision_id}:${action.pick_id}` : op);
   }
 
   /** T4: withdraw the latest generation, state closed. A routing cause enters the closed-card retry set. */

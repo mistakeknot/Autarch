@@ -86,3 +86,79 @@ export function appendRuling(path: string, p: LedgerPick): boolean {
   }
 }
 
+export type LedgerReadback = "matching" | "missing" | "conflicting" | "disabled" | "unknown";
+
+function sameJson(a: unknown, b: unknown): boolean {
+  if (a === b) return true;
+  if (Array.isArray(a) || Array.isArray(b)) {
+    if (!Array.isArray(a) || !Array.isArray(b) || a.length !== b.length) return false;
+    return a.every((v, i) => sameJson(v, b[i]));
+  }
+  if (a === null || b === null || typeof a !== "object" || typeof b !== "object") return false;
+  const ka = Object.keys(a).sort();
+  const kb = Object.keys(b).sort();
+  if (ka.length !== kb.length || ka.some((k, i) => k !== kb[i])) return false;
+  return ka.every((k) => sameJson((a as Record<string, unknown>)[k], (b as Record<string, unknown>)[k]));
+}
+
+/**
+ * Could an unparseable line be (part of) the selected row? Every JSON string literal in it is decoded, so an id spelled
+ * with escapes is still recognised; a torn final literal counts when it decodes to a prefix of the id. Lines with no such
+ * literal are someone else's and are neither repaired nor read as evidence.
+ */
+function mayNameId(line: string, id: string): boolean {
+  const literal = /"((?:[^"\\]|\\.)*)("?)/g;
+  for (let m = literal.exec(line); m !== null; m = literal.exec(line)) {
+    const body = m[1] ?? "";
+    const closed = m[2] === '"';
+    let decoded: string | null = null;
+    try {
+      decoded = JSON.parse(`"${closed ? body : body.replace(/\\(u[0-9a-fA-F]{0,3})?$/, "")}"`) as string;
+    } catch {
+      decoded = null;
+    }
+    if (decoded === null) {
+      if (body.includes("\\")) return true; // an escape we cannot decode: it may spell the id
+      continue;
+    }
+    if (decoded === id || (!closed && decoded !== "" && id.startsWith(decoded))) return true;
+    if (!closed) break;
+  }
+  return false;
+}
+
+/**
+ * Focused readback of the selected pick's ruling: is the complete row appendRuling would write for this pick present,
+ * readable and unique? "disabled" when the ledger is off, "missing" when no line carries the id, "conflicting" when a line
+ * with the id differs from the expected row, "unknown" when the file cannot be read or a line that may be the selected row
+ * does not parse. Read-only: nothing is repaired, locked or appended.
+ */
+export function readMatchingRuling(path: string | null, pick: LedgerPick): LedgerReadback {
+  if (path === null) return "disabled";
+  let text: string;
+  try {
+    text = readFileSync(path, "utf8");
+  } catch (err) {
+    return (err as NodeJS.ErrnoException).code === "ENOENT" ? "missing" : "unknown";
+  }
+  // The row as it is stored: undefined members vanish exactly as they do in appendRuling's JSON.stringify.
+  const expected = JSON.parse(JSON.stringify(entryOf(pick))) as ReturnType<typeof entryOf>;
+  let matched = false;
+  let conflicting = false;
+  for (const line of text.split("\n")) {
+    if (line.trim() === "") continue;
+    let row: unknown;
+    try {
+      row = JSON.parse(line);
+    } catch {
+      if (mayNameId(line, expected.id)) return "unknown";
+      continue;
+    }
+    if (row === null || typeof row !== "object" || Array.isArray(row)) continue;
+    if ((row as { id?: unknown }).id !== expected.id) continue;
+    if (sameJson(row, expected)) matched = true;
+    else conflicting = true;
+  }
+  if (conflicting) return "conflicting";
+  return matched ? "matching" : "missing";
+}
