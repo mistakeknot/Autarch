@@ -1003,18 +1003,22 @@ export class Service {
   pickActionSummaries(): import("./pickquery.js").PickActionSummary[] {
     return this.db.transaction(() => {
       // Select and count cheaply before ledger reads or per-action evidence expansion.
+      // CASE is lazy in SQLite; AND does not guarantee evaluation order. json_each
+      // exposes strings as unquoted SQL text, so only object values may be inspected.
       const rows = this.db.prepare(`SELECT d.id, d.generation, p.pick_id, COUNT(*) OVER () AS total
         FROM decisions d JOIN picks p ON p.decision_id = d.id WHERE d.source = 'card'
         AND (EXISTS (SELECT 1 FROM pick_actions a WHERE a.pick_id = p.pick_id)
-          OR EXISTS (SELECT 1 FROM json_each(CASE WHEN json_valid(d.body_json) THEN d.body_json ELSE '{}' END, '$.options') o
-            WHERE json_type(o.value, '$.on_pick') = 'object'))
+          OR EXISTS (SELECT 1 FROM json_each(CASE WHEN json_valid(d.body_json) THEN
+            CASE WHEN json_type(d.body_json, '$.options') = 'array'
+              THEN json_extract(d.body_json, '$.options') ELSE '[]' END ELSE '[]' END) o
+            WHERE CASE WHEN o.type = 'object' THEN json_type(o.value, '$.on_pick') = 'object' ELSE 0 END))
         ORDER BY p.picked_at DESC, p.pick_id DESC LIMIT 20`).all() as { id: string; generation: number; pick_id: string; total: number }[];
       return rows.map(row => {
         const v = this.readPickAction({ pick_id: row.pick_id });
         return { decision_id: row.id, generation: row.generation, earlier_count: Math.max(0, row.total - rows.length),
           status: v.kind === "action" ? v.handler_status : "data unavailable",
           observation_only: v.kind === "action" && v.observation_only,
-          ordinary_continuation: v.ordinary_continuation,
+          ordinary_continuation: v.kind === "action" && v.ordinary_continuation,
           target: v.kind === "action" && v.facts.target ? `${v.facts.target.title} / ${v.facts.target.project_name} (${v.facts.target.thread_id})` : null,
           deadline: v.kind === "action" ? v.facts.deadline.at : null,
           deadline_outcome: v.kind === "action" ? v.facts.deadline.outcome : "unknown",

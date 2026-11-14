@@ -2,7 +2,7 @@ import { afterEach, expect, it } from "vitest";
 import { rmSync } from "node:fs";
 import { renderToStaticMarkup } from "react-dom/server";
 import { recoveryRig } from "./pickhandler-stage4-rig.js";
-import { envs } from "./card-rig.js";
+import { envs, rig } from "./card-rig.js";
 import { FakeSdk } from "./wakes-helpers.js";
 import { WakeLoop } from "../wakes.js";
 import { AsksPanel } from "../ui/asks.js";
@@ -177,6 +177,56 @@ it("service selects at most twenty histories before expensive readback and count
  expect(summaries[0]).toMatchObject({earlier_count:5});
  expect(r.svc.readPickAction({decision_id:g.id,generation:g.generation!}).kind).toBe("action");
 });
+it('one malformed historical card cannot blank pick summaries for the inbox',async()=>{
+ const r=rig(); const task=r.card(); await r.poll(); const g=r.gens(task.id)[0];
+ expect((await r.validatedMkPick(g.id,'old-ordinary')).ok).toBe(true);
+ expect(r.svc.pickActionSummaries()).toEqual([]);
+ // Match the existing unreadable-card fixtures: emulate a historical unreadable stored row.
+ r.db.exec('DROP TRIGGER decisions_ask_immutable');
+ r.db.prepare('UPDATE decisions SET body_json=? WHERE id=?').run(JSON.stringify({question:'Old decision',options:['unreadable option']}),g.id);
+ expect(()=>r.svc.pickActionSummaries()).not.toThrow();
+ expect(r.svc.pickActionSummaries()).toEqual([]);
+});
+
+it.each([
+ ["string option", {options:["unreadable option"]}],
+ ["JSON-looking string option", {options:['{"on_pick":{}}']}],
+ ["other nonobject options", {options:[null, true, false, 42, 1.5, [{on_pick:{}}]]}],
+ ["object options", {options:{a:{on_pick:{}}}}],
+ ["string options", {options:'{"on_pick":{}}'}],
+ ["scalar options", {options:42}],
+ ["null options", {options:null}],
+ ["missing options", {}],
+ ["array body", [{options:[{on_pick:{}}]}]],
+ ["null body", null],
+ ["string body", "unreadable body"],
+ ["malformed body", undefined],
+])("%s cannot hide a healthy historical summary",async(_name,body)=>{
+ const {r,g,temp}=await recoveryRig(); temps.push(temp);
+ await r.validatedMkPick(g.id,"healthy-history","a","Wait"); await r.svc.pickWorkIdle();
+ const healthy=r.svc.pickActionSummaries(); expect(healthy).toHaveLength(1);
+ const task=r.card({key:"damaged-history"}); await r.poll(); const damaged=r.gens(task.id)[0];
+ expect((await r.validatedMkPick(damaged.id,"damaged-history")).ok).toBe(true);
+ r.db.exec("DROP TRIGGER decisions_ask_immutable");
+ r.db.prepare("UPDATE decisions SET body_json=? WHERE id=?").run(body===undefined ? "{broken" : JSON.stringify(body),damaged.id);
+ expect(r.svc.pickActionSummaries()).toEqual(healthy);
+});
+
+it("unreadable participating history stays unavailable without authorizing continuation or hiding healthy history",async()=>{
+ const {r,g,temp}=await recoveryRig(); temps.push(temp);
+ await r.validatedMkPick(g.id,"healthy-history","a","Wait"); await r.svc.pickWorkIdle();
+ const healthy=r.svc.pickActionSummaries()[0];
+ const task=r.card({key:"damaged-history"}); await r.poll(); const damaged=r.gens(task.id)[0];
+ await r.validatedMkPick(damaged.id,"damaged-history");
+ r.db.exec("DROP TRIGGER decisions_ask_immutable");
+ r.db.prepare("UPDATE decisions SET body_json=? WHERE id=?").run(JSON.stringify({options:[{on_pick:{}}]}),damaged.id);
+ const summaries=r.svc.pickActionSummaries();
+ expect(summaries).toHaveLength(2);
+ expect(summaries.find(s=>s.decision_id===g.id)).toEqual(healthy);
+ expect(summaries.find(s=>s.decision_id===damaged.id)).toMatchObject({generation:damaged.generation,status:"data unavailable",ordinary_continuation:false,observation_only:false,target:null,deadline:null,deadline_outcome:"unknown",first_failure:false});
+ expect(summaries.find(s=>s.decision_id===damaged.id)!.readback).toContain("damaged-history");
+});
+
 it("review232: historical actions render without a bound ahead of the empty queue",()=>{
  const actions=Array.from({length:1000},(_,i)=>({decision_id:`historical-${i}`,generation:1,status:"already relayed",observation_only:false,ordinary_continuation:false,target:"Frozen target / Project",deadline:"2026-01-01T00:02:00Z",deadline_outcome:"met",first_failure:false,readback:`bb home pick-action --pick historical-${i} --json`}));
  const t=performance.now();
