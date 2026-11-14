@@ -132,7 +132,8 @@ type RootRunSpec = RootRun
 
 // CardRequest is one filing.
 type CardRequest struct {
-	beforeCreate func(string) error // final budget admission for an update falling back to create
+	beforeCreate func(string) error     // final budget admission for an update falling back to create
+	afterUpdate  func(CardResult) error // persist a successful edit before its ruling read
 
 	Urgent      bool
 	KeepList    string
@@ -720,7 +721,10 @@ func (f *CardFiler) locate(ctx context.Context, key, ident string) (*found, erro
 		s, err := f.show(ctx, reg.TaskID)
 		moved := fmt.Errorf("%w: Request %s is registered to card %s, which was deleted or changed; use a new Request", ErrInvalid, key, reg.TaskID)
 		if errors.Is(err, errTaskGone) {
-			return nil, moved
+			if reg.Identity != ident {
+				return nil, errReused
+			}
+			return nil, &registeredCardGoneError{Key: key, CardID: reg.TaskID}
 		}
 		if err != nil {
 			return nil, err
@@ -743,6 +747,15 @@ func (f *CardFiler) locate(ctx context.Context, key, ident string) (*found, erro
 	}
 	return c, nil
 }
+
+// registeredCardGoneError proves the registry still binds this request identity
+// to a card that Tasks reports deleted. Changed or reused cards never use it.
+type registeredCardGoneError struct{ Key, CardID string }
+
+func (e *registeredCardGoneError) Error() string {
+	return fmt.Sprintf("%v: Request %s is registered to card %s, which was deleted or changed; use a new Request", ErrInvalid, e.Key, e.CardID)
+}
+func (e *registeredCardGoneError) Unwrap() error { return ErrInvalid }
 
 var errReused = fmt.Errorf("%w: Request reused for a different card", ErrInvalid)
 

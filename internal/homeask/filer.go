@@ -15,6 +15,8 @@ var (
 	ErrOutcomeUnknown = errors.New("outcome unknown, re-run the same command")
 	// ErrAlreadyRuled: the decision has already been ruled on.
 	ErrAlreadyRuled = errors.New("already ruled")
+	// ErrAlreadyDelivered distinguishes a delivered request from a cancellation.
+	ErrAlreadyDelivered = errors.New("request already delivered")
 )
 
 // Filer files an ask with Home and returns the decision id.

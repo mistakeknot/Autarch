@@ -229,6 +229,11 @@ func (f *CardFiler) fileOrUpdateCard(ctx context.Context, req CardRequest, super
 			return CardResult{}, e
 		}
 		res.Updated = true
+		if req.afterUpdate != nil {
+			if err := req.afterUpdate(res); err != nil {
+				return res, fmt.Errorf("%w: card %s updated but delivery state could not be recorded: %v", ErrOutcomeUnknown, s.Task.ID, err)
+			}
+		}
 		// Tasks has no conditional update tied to Home's pick. Detect a pick
 		// observed after the write and report it; never roll back over that pick.
 		after, readErr := f.cardInProject(ctx, s.Task.ID, project)
