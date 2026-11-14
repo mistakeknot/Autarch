@@ -121,12 +121,37 @@ func TestCardReadbackProjectCheck(t *testing.T) {
 			}}
 			view, err := fl.cardInProject(context.Background(), "T1", project)
 			if project == "other" {
-				if err == nil {
+				if !errors.Is(err, ErrCardProjectMismatch) || !errors.Is(err, ErrInvalid) || errors.Is(err, ErrHomeDown) {
 					t.Fatalf("accepted a card from project %q", view.ProjectID)
 				}
 			} else if err != nil || view.CardKey != "P1-1" {
 				t.Fatalf("view=%+v err=%v", view, err)
 			}
 		})
+	}
+}
+
+func TestFileCardReadbackProjectMismatchStopsImmediately(t *testing.T) {
+	f := newFake(t, registryOnCreate)
+	f.fail = func(args []string) *BBResult {
+		if strings.Join(args[:min(len(args), 3)], " ") == "home get --card" {
+			r := okRes(CardView{TaskID: args[3], ProjectID: "P2", CardKey: "P2-1"})
+			return &r
+		}
+		return nil
+	}
+	fl := f.filer()
+	fl.ReadbackTimeout, fl.ReadbackInterval = 30*time.Millisecond, time.Millisecond
+	for attempt := 1; attempt <= 2; attempt++ {
+		res, err := fl.FileCard(context.Background(), testReq())
+		if !errors.Is(err, ErrCardProjectMismatch) || !errors.Is(err, ErrInvalid) || errors.Is(err, ErrOutcomeUnknown) || errors.Is(err, ErrHomeDown) {
+			t.Errorf("attempt %d: expected permanent invalid scope, got %v", attempt, err)
+		}
+		if err == nil || !strings.Contains(err.Error(), `"P1"`) || !strings.Contains(err.Error(), `"P2"`) {
+			t.Errorf("error must report both project IDs: %v", err)
+		}
+		if res.CardKey != "" || f.count("home", "get", "--card") != attempt || f.cards() != 1 || f.count("tasks", "create") != 1 || f.count("tasks", "update") != 0 {
+			t.Fatalf("res=%+v polls=%d creates=%d updates=%d", res, f.count("home", "get", "--card"), f.count("tasks", "create"), f.count("tasks", "update"))
+		}
 	}
 }

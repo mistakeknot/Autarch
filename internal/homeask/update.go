@@ -158,7 +158,7 @@ func (f *CardFiler) FileOrUpdateCard(ctx context.Context, req CardRequest, super
 		if !repaired {
 			v, e = f.cardInProject(ctx, s.Task.ID, project)
 			if e != nil {
-				return CardResult{}, e
+				return CardResult{}, fmt.Errorf("read card before edit: %w", e)
 			}
 		}
 		if v.State == "ruled" || v.DecisionState == "ruled" || v.DecisionState == "picked" {
