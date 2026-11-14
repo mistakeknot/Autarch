@@ -2,6 +2,7 @@ package predispatch
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -82,7 +83,7 @@ func TestPreDispatchKillsDescendant(t *testing.T) {
 func descendantRunning(t *testing.T, pid int) bool {
 	t.Helper()
 	data, err := os.ReadFile(fmt.Sprintf("/proc/%d/stat", pid))
-	if os.IsNotExist(err) {
+	if os.IsNotExist(err) || errors.Is(err, syscall.ESRCH) {
 		return false
 	}
 	if err != nil {

@@ -8,7 +8,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"syscall"
 	"time"
 
 	"github.com/mistakeknot/autarch/internal/mycroft"
@@ -27,16 +26,7 @@ func Run(parent context.Context, check mycroft.PreDispatchCheck, beadID, agent s
 	ctx, cancel := context.WithTimeout(parent, timeout)
 	// Inherit the caller's working directory.
 	cmd := exec.CommandContext(ctx, check.Command[0], check.Command[1:]...)
-	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
-	// CommandContext otherwise kills only the direct child, leaving forked
-	// checks running after timeout or parent cancellation.
-	cmd.Cancel = func() error {
-		err := syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
-		if errors.Is(err, syscall.ESRCH) {
-			return os.ErrProcessDone
-		}
-		return err
-	}
+	setProcessGroup(cmd)
 	cmd.Env = append(os.Environ(), "MYCROFT_BEAD_ID="+beadID, "MYCROFT_AGENT="+agent)
 	err := cmd.Run()
 	timedOut := ctx.Err() != nil
