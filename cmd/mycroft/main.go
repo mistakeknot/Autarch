@@ -3,7 +3,9 @@ package main
 import (
 	"fmt"
 	"os"
+	"os/signal"
 	"path/filepath"
+	"syscall"
 
 	"github.com/mistakeknot/autarch/internal/mycroft"
 	"github.com/mistakeknot/autarch/internal/mycroft/predispatch"
@@ -139,11 +141,13 @@ var preDispatchCmd = &cobra.Command{
 	Long:          "Run pre_dispatch_check from the Mycroft config in the current working directory. No worker is started. An absent or empty command succeeds; a failed check returns a nonzero exit.",
 	Args:          cobra.NoArgs,
 	RunE: func(cmd *cobra.Command, args []string) error {
+		ctx, stop := signal.NotifyContext(cmd.Context(), os.Interrupt, syscall.SIGTERM)
+		defer stop()
 		cfg, err := loadConfig()
 		if err != nil {
 			return err
 		}
-		return predispatch.Run(cmd.Context(), cfg.PreDispatchCheck, checkBead, checkAgent)
+		return predispatch.Run(ctx, cfg.PreDispatchCheck, checkBead, checkAgent)
 	},
 }
 

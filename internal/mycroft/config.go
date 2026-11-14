@@ -8,6 +8,9 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
+// DefaultPreDispatchTimeout bounds checks without an explicit positive timeout.
+const DefaultPreDispatchTimeout = 30 * time.Second
+
 // Config maps .autarch/mycroft/config.yaml.
 type Config struct {
 	PreDispatchCheck PreDispatchCheck `yaml:"pre_dispatch_check,omitempty"`
@@ -41,7 +44,7 @@ func (d Duration) MarshalYAML() (interface{}, error) {
 
 // DefaultConfig returns a config with sensible defaults.
 func DefaultConfig() Config {
-	return Config{PreDispatchCheck: PreDispatchCheck{Timeout: Duration(30 * time.Second)}}
+	return Config{PreDispatchCheck: PreDispatchCheck{Timeout: Duration(DefaultPreDispatchTimeout)}}
 }
 
 // LoadConfig reads a config file, falling back to defaults for missing fields.
