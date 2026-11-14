@@ -187,7 +187,13 @@ var _ CardLister = (*CardFiler)(nil)
 // readOnlyAskMetadata is excluded from request identity and refused by the
 // description writer until metadata writing is supported. Keep both consumers
 // on this policy when enabling a metadata field.
-var readOnlyAskMetadata = [...]string{"subject_key", "signals"}
+var readOnlyAskMetadata = [...]string{subjectKeyMetadata, signalsMetadata}
+
+// Shared wire names keep parsing and the read-only writing policy aligned.
+const (
+	subjectKeyMetadata = "subject_key"
+	signalsMetadata    = "signals"
+)
 
 // RequestIdentity is hash H1 (plan 1.2): the first 16 hex characters of the sha256 of the
 // canonical JSON of {project, title, blocks sorted, ask, root_run}. The tasks project is not
