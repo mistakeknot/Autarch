@@ -101,8 +101,8 @@ func TestHeldDeliveredCardRecovery(t *testing.T) {
 					t.Errorf("delivery repeated: %+v", report)
 				}
 			}
-			if err := f.CancelHeld(r.Key); err != nil {
-				t.Errorf("finalized entry not clearable: %v", err)
+			if err := f.CancelHeld(r.Key); !errors.Is(err, ErrAlreadyDelivered) || !strings.Contains(err.Error(), "already delivered as card "+cardID+"; nothing to cancel") {
+				t.Errorf("delivered entry lacks explicit cancellation feedback: %v", err)
 			}
 			state, _, unlock, err = f.openState()
 			if err != nil {

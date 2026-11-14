@@ -470,7 +470,7 @@ func (f *CardFiler) CancelHeld(key string) error {
 	defer unlock()
 	e, ok := state[key]
 	if ok && !e.Held && e.DeliveredCard != "" {
-		return nil
+		return fmt.Errorf("%w: %w as card %s; nothing to cancel", ErrInvalid, ErrAlreadyDelivered, e.DeliveredCard)
 	}
 	if ok && e.Refunded && e.TerminalReason != "" {
 		return nil
