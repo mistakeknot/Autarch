@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/mistakeknot/autarch/internal/mycroft"
 )
 
 func TestOpenDBCreatesNestedDataDirectory(t *testing.T) {
@@ -26,6 +28,22 @@ func TestOpenDBCreatesNestedDataDirectory(t *testing.T) {
 		t.Fatalf("database was not created: %v", err)
 	} else if !info.Mode().IsRegular() {
 		t.Fatal("database is not a regular file")
+	}
+	if err := log.LogApprovalWith("test-agent", "test-bead", mycroft.OutcomeAccepted, "nested directory round trip"); err != nil {
+		t.Fatalf("write approval: %v", err)
+	}
+	// ApprovalLog exposes writes only; read the persisted row from the same file.
+	db, err := mycroft.OpenDB(filepath.Join(dir, dbFile))
+	if err != nil {
+		t.Fatalf("reopen database: %v", err)
+	}
+	defer db.Close()
+	var project, agent, bead, outcome, reason string
+	if err := db.QueryRow(`SELECT project, agent, bead, outcome, reason FROM dispatch_log`).Scan(&project, &agent, &bead, &outcome, &reason); err != nil {
+		t.Fatalf("read approval: %v", err)
+	}
+	if project != "demarch" || agent != "test-agent" || bead != "test-bead" || outcome != string(mycroft.OutcomeAccepted) || reason != "nested directory round trip" {
+		t.Fatalf("unexpected approval: %q %q %q %q %q", project, agent, bead, outcome, reason)
 	}
 }
 
