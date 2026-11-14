@@ -8,6 +8,27 @@ import (
 	"testing"
 )
 
+func TestOpenDBCreatesNestedDataDirectory(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "missing", "nested", "mycroft")
+	t.Setenv("MYCROFT_DATA_DIR", dir)
+	if _, err := os.Stat(dir); !os.IsNotExist(err) {
+		t.Fatalf("expected absent data directory, got %v", err)
+	}
+	log, closeDB, err := openDB()
+	if err != nil {
+		t.Fatalf("openDB with missing nested directory: %v", err)
+	}
+	defer closeDB()
+	if log == nil {
+		t.Fatal("openDB returned nil approval log")
+	}
+	if info, err := os.Stat(filepath.Join(dir, dbFile)); err != nil {
+		t.Fatalf("database was not created: %v", err)
+	} else if !info.Mode().IsRegular() {
+		t.Fatal("database is not a regular file")
+	}
+}
+
 // Run the real entry point in a child process, including main's error printing.
 func TestMycroftCLIHelper(t *testing.T) {
 	if os.Getenv("MYCROFT_CLI_HELPER") != "1" {

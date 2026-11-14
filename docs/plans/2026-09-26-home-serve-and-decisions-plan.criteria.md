@@ -96,8 +96,11 @@
     suggestion through the production constructor, Mycroft never schedules a decision bead,
     and `DecisionQueue` keeps no private list.
     ```check
-    go test -race ./internal/mycroft/... ./cmd/mycroft/ && ! grep -nE '^[[:space:]]+decisions[[:space:]]+\[\]PendingDecision' internal/mycroft/escalate/escalate.go
+    go test -race ./internal/mycroft/... ./cmd/mycroft/
     ```
+    Historical: the private-list grep check applied to the former
+    `internal/mycroft/escalate/escalate.go`. That file has been removed; the grep
+    is no longer an executable acceptance check.
 12. The bb plugin typechecks, all its fake-SDK tests pass, and it builds.
     ```check
     cd integrations/bb-plugin-autarch && npm run typecheck && npm test && bb plugin build
