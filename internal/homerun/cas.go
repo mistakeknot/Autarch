@@ -97,6 +97,23 @@ func (c *CAS) max() int64 {
 	return 256 << 10
 }
 
+// lock coordinates separate CAS instances and processes through the directory inode.
+// Readers must not observe the two-link interval between publication and temp cleanup.
+func (c *CAS) lock(how int) (*os.File, error) {
+	if err := c.checkDir(); err != nil {
+		return nil, err
+	}
+	f, err := os.OpenFile(c.Root, os.O_RDONLY|syscall.O_DIRECTORY|syscall.O_NOFOLLOW, 0)
+	if err != nil {
+		return nil, casErr("%v", err)
+	}
+	if err := syscall.Flock(int(f.Fd()), how); err != nil {
+		f.Close()
+		return nil, casErr("lock store: %v", err)
+	}
+	return f, nil
+}
+
 // Put stores data and returns its digest. When wantSHA is non-empty the data must hash to it. An existing
 // entry is verified, never overwritten. The stored file is re-read and re-hashed before Put returns.
 func (c *CAS) Put(data []byte, wantSHA string) (string, error) {
@@ -107,12 +124,14 @@ func (c *CAS) Put(data []byte, wantSHA string) (string, error) {
 	if wantSHA != "" && wantSHA != got {
 		return "", casErr("content does not match the expected digest")
 	}
-	if err := c.checkDir(); err != nil {
+	lock, err := c.lock(syscall.LOCK_EX)
+	if err != nil {
 		return "", err
 	}
+	defer lock.Close() // closing releases the flock, including on errors
 	dst, _ := c.Path(got)
 	if _, err := os.Lstat(dst); err == nil {
-		if err := c.Verify(got); err != nil {
+		if _, err := c.read(got); err != nil {
 			return "", err
 		}
 		return got, nil
@@ -153,7 +172,7 @@ func (c *CAS) Put(data []byte, wantSHA string) (string, error) {
 		d.Sync()
 		d.Close()
 	}
-	if err := c.Verify(got); err != nil {
+	if _, err := c.read(got); err != nil {
 		return "", err
 	}
 	return got, nil
@@ -168,6 +187,16 @@ func (c *CAS) Verify(sha string) error {
 
 // Read verifies and returns an entry's bytes.
 func (c *CAS) Read(sha string) ([]byte, error) {
+	lock, err := c.lock(syscall.LOCK_SH)
+	if err != nil {
+		return nil, err
+	}
+	defer lock.Close()
+	return c.read(sha)
+}
+
+// read requires the caller to hold the store lock (shared or exclusive).
+func (c *CAS) read(sha string) ([]byte, error) {
 	p, err := c.Path(sha)
 	if err != nil {
 		return nil, err
