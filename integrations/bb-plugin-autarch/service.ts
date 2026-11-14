@@ -765,7 +765,7 @@ export class Service {
         if (!tasks) throw new Error("Tasks unavailable for shadow collection");
         void this.pickEvaluation(decisionId, tasks, { deadlineAt: action.evaluation_deadline_at, captureEpoch: action.capture_epoch }).then(result => {
           if (!result) throw new Error("shadow evaluation unavailable");
-          recordPickEvaluation(this.store, action, result, this.now(), fenceToken);
+          recordPickEvaluation(this.store, action, result.evaluation, this.now(), fenceToken);
         }).catch(failed);
       } catch (error) { failed(error); }
     }
