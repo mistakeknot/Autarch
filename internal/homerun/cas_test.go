@@ -5,6 +5,7 @@ package homerun
 import (
 	"bytes"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -252,5 +253,36 @@ func TestCASConcurrentPut(t *testing.T) {
 	}
 	if ents, _ := os.ReadDir(c.Root); len(ents) != 1 {
 		t.Errorf("CAS root holds %d entries", len(ents))
+	}
+}
+
+// Separate instances model independent clients sharing a store. A mutex on one
+// CAS object would not protect either an existing-entry Put or a concurrent Read.
+func TestCASConcurrentInstances(t *testing.T) {
+	store := newCAS(t, os.Getuid())
+	var wg sync.WaitGroup
+	for i := 0; i < 16; i++ {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			c := &CAS{Root: store.Root, OwnerUID: store.OwnerUID, MaxBytes: store.MaxBytes}
+			data := []byte(fmt.Sprintf("echo concurrent %d\n", i%4))
+			sha := sum(data)
+			for j := 0; j < 20; j++ {
+				if got, err := c.Put(data, sha); err != nil || got != sha {
+					t.Errorf("Put: digest %q, error %v", got, err)
+					return
+				}
+				if got, err := c.Read(sha); err != nil || !bytes.Equal(got, data) {
+					t.Errorf("Read: content %q, error %v", got, err)
+					return
+				}
+			}
+		}(i)
+	}
+	wg.Wait()
+	ents, err := os.ReadDir(store.Root)
+	if err != nil || len(ents) != 4 {
+		t.Errorf("CAS root holds %d entries, want 4: %v", len(ents), err)
 	}
 }
