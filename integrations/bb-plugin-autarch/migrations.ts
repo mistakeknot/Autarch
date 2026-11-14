@@ -421,8 +421,9 @@ CREATE TABLE pick_actions (
   capture_mode TEXT NOT NULL CHECK (capture_mode IN ('off','shadow','live')),
   capture_epoch INTEGER NOT NULL CHECK (capture_epoch >= 0),
   policy_version INTEGER NOT NULL CHECK (policy_version > 0),
-  captured_at TEXT NOT NULL,
-  evaluation_deadline_at TEXT NOT NULL CHECK (evaluation_deadline_at > captured_at),
+  captured_at TEXT NOT NULL CHECK (julianday(captured_at) IS NOT NULL),
+  evaluation_deadline_at TEXT NOT NULL CHECK (julianday(evaluation_deadline_at) IS NOT NULL
+    AND julianday(evaluation_deadline_at) > julianday(captured_at)),
   evaluation_json TEXT CHECK (evaluation_json IS NULL OR json_valid(evaluation_json)),
   evaluation_started_at TEXT,
   evaluated_at TEXT,
@@ -438,6 +439,9 @@ CREATE TABLE pick_actions (
 );
 CREATE INDEX pick_actions_generation ON pick_actions(task_id, generation);
 CREATE INDEX pick_actions_deadline ON pick_actions(disposition, evaluation_deadline_at);
+CREATE TRIGGER pick_actions_terminal BEFORE UPDATE ON pick_actions
+WHEN OLD.disposition IN ('fallback','cancelled') AND NEW.disposition IS NOT OLD.disposition
+BEGIN SELECT RAISE(ABORT, 'pick action disposition is terminal'); END;
 CREATE TRIGGER pick_actions_snapshot BEFORE UPDATE ON pick_actions
 WHEN OLD.pick_id IS NOT NEW.pick_id OR OLD.decision_id IS NOT NEW.decision_id
   OR OLD.task_id IS NOT NEW.task_id OR OLD.generation IS NOT NEW.generation
@@ -491,17 +495,20 @@ CREATE TABLE pick_handler_control (
   reviewed_scope_json TEXT CHECK (reviewed_scope_json IS NULL OR json_valid(reviewed_scope_json)),
   enabled_cells_json TEXT NOT NULL DEFAULT '[]' CHECK (json_valid(enabled_cells_json) AND json_type(enabled_cells_json) = 'array'),
   updated_at TEXT,
-  CHECK (mode != 'live' OR (owner_enablement_json IS NOT NULL AND length(owner_enablement_json) > 2
+  CHECK (mode != 'live' OR (owner_enablement_json IS NOT NULL AND json_type(owner_enablement_json) = 'object'
     AND reviewed_build IS NOT NULL AND length(reviewed_build) > 0 AND reviewed_scope_json IS NOT NULL
+    AND json_type(reviewed_scope_json) = 'object'
     AND json_array_length(enabled_cells_json) > 0))
 );
 CREATE TRIGGER pick_handler_cells_insert BEFORE INSERT ON pick_handler_control
 WHEN EXISTS (SELECT 1 FROM json_each(NEW.enabled_cells_json)
   WHERE type != 'text' OR value NOT IN ('instruction:github-pr','instruction:none','ruling-only:github-pr','ruling-only:none'))
+  OR EXISTS (SELECT 1 FROM json_each(NEW.enabled_cells_json) GROUP BY value HAVING count(*) > 1)
 BEGIN SELECT RAISE(ABORT, 'unsupported pick handler cell'); END;
 CREATE TRIGGER pick_handler_cells_update BEFORE UPDATE ON pick_handler_control
 WHEN EXISTS (SELECT 1 FROM json_each(NEW.enabled_cells_json)
   WHERE type != 'text' OR value NOT IN ('instruction:github-pr','instruction:none','ruling-only:github-pr','ruling-only:none'))
+  OR EXISTS (SELECT 1 FROM json_each(NEW.enabled_cells_json) GROUP BY value HAVING count(*) > 1)
 BEGIN SELECT RAISE(ABORT, 'unsupported pick handler cell'); END;
 CREATE TRIGGER pick_handler_epoch BEFORE UPDATE ON pick_handler_control
 WHEN NEW.epoch < OLD.epoch OR ((NEW.mode IS NOT OLD.mode OR NEW.enabled_cells_json IS NOT OLD.enabled_cells_json
@@ -525,11 +532,15 @@ CREATE INDEX obligations_handler_due ON obligations(state, handler_next_try_at)
   WHERE kind IN ('pick-relay','pick-receipt');
 CREATE TRIGGER obligations_handler_insert BEFORE INSERT ON obligations
 WHEN NEW.kind IN ('pick-relay','pick-receipt') AND NEW.next_try_at != '9999-12-31T23:59:59.999Z'
-BEGIN SELECT RAISE(ABORT, 'protected obligation requires sentinel'); END;
+  OR (NEW.kind = 'pick-relay' AND (NEW.allow_reroute != 0 OR NEW.allow_batch != 0 OR NEW.require_message_id != 1))
+  OR (NEW.kind = 'pick-receipt' AND NEW.allow_batch != 0)
+BEGIN SELECT RAISE(ABORT, 'protected obligation requires sentinel and policy'); END;
 CREATE TRIGGER obligations_handler_update BEFORE UPDATE ON obligations
 WHEN (NEW.kind IN ('pick-relay','pick-receipt') AND NEW.next_try_at != '9999-12-31T23:59:59.999Z')
   OR (OLD.kind IN ('pick-relay','pick-receipt') AND NEW.kind IS NOT OLD.kind)
-BEGIN SELECT RAISE(ABORT, 'protected obligation kind and sentinel are fixed'); END;
+  OR (NEW.kind = 'pick-relay' AND (NEW.allow_reroute != 0 OR NEW.allow_batch != 0 OR NEW.require_message_id != 1))
+  OR (NEW.kind = 'pick-receipt' AND NEW.allow_batch != 0)
+BEGIN SELECT RAISE(ABORT, 'protected obligation kind, sentinel and policy are fixed'); END;
 `;
 
 export const MIGRATIONS: readonly Migration[] = [

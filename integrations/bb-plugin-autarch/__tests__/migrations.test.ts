@@ -31,6 +31,29 @@ describe("v7 pick handler persistence", () => {
     db.prepare(`INSERT INTO pick_actions(${keys.join(',')}) VALUES (${keys.map(k=>'@'+k).join(',')})`).run(row);
   }
 
+  for (const kind of ['pick-relay', 'pick-receipt']) {
+    const invalidPolicies = kind === 'pick-relay'
+      ? [{}, {allow_reroute:1,allow_batch:0,require_message_id:1}, {allow_reroute:0,allow_batch:1,require_message_id:1}, {allow_reroute:0,allow_batch:0,require_message_id:0}]
+      : [{}, {allow_batch:1}];
+    for (const [index, policy] of invalidPolicies.entries()) {
+      it(`protected policy rejects ${kind} invalid policy ${index} on insert and update`, () => {
+        const db = new Database(file); migrate(db);
+        const insert = (id: string, values: Record<string, unknown>) => {
+          const row = {id, decision_id:'d', kind, next_try_at:'9999-12-31T23:59:59.999Z', updated_at:'time', ...values};
+          const keys = Object.keys(row);
+          return db.prepare(`INSERT INTO obligations(${keys.join(',')}) VALUES (${keys.map(k=>'@'+k).join(',')})`).run(row);
+        };
+        expect(()=>insert('invalid',policy)).toThrow();
+        const valid = kind === 'pick-relay' ? {allow_reroute:0,allow_batch:0,require_message_id:1} : {allow_batch:0};
+        insert('valid', valid);
+        const changes = Object.keys(policy).length ? policy : {allow_reroute:1,allow_batch:1,require_message_id:0};
+        expect(()=>db.prepare(`UPDATE obligations SET ${Object.keys(changes).map(k=>`${k}=@${k}`).join(',')} WHERE id='valid'`).run(changes)).toThrow();
+        expect(db.prepare("SELECT kind FROM obligations WHERE id='valid'").get()).toEqual({kind});
+        db.close();
+      });
+    }
+  }
+
   it("action constraints freeze snapshots, preserve absent evidence and allow evaluation audit updates", () => {
     const db = new Database(file); migrate(db);
     action(db);
@@ -48,11 +71,37 @@ describe("v7 pick handler persistence", () => {
     expect(()=>db.exec('DELETE FROM pick_actions')).toThrow();
     action(db,{pick_id:'p2',decision_id:'d2',declaration_json:'{}',declaration_sha256:'synthetic-digest',relay_text:'Exact\ntext',relay_sha256:'synthetic-digest',target_thread:'target',target_title:'Title',target_project_id:'project',target_project_name:'Project'});
     expect(db.prepare("SELECT relay_text FROM pick_actions WHERE pick_id='p2'").get()).toEqual({relay_text:'Exact\ntext'});
-    for (const disposition of ['automatic','cancelled','pending']) db.prepare("UPDATE pick_actions SET disposition=?").run(disposition);
+    for (const disposition of ['automatic','cancelled','pending']) expect(()=>db.prepare("UPDATE pick_actions SET disposition=? WHERE pick_id='p'").run(disposition)).toThrow();
     expect(()=>db.exec("UPDATE pick_actions SET disposition='sent'")).toThrow();
     expect(()=>db.exec("UPDATE pick_actions SET evaluation_json='broken'")).toThrow();
     expect(()=>action(db,{pick_id:"p2",decision_id:"d2",evaluation_deadline_at:null})).toThrow();
     expect(()=>action(db,{pick_id:"p2",decision_id:"d2",capture_mode:"invalid"})).toThrow();
+    db.close();
+  });
+
+  for (const [captured, deadline] of [
+    ['garbage', 'zzzz'],
+    ['2000-99-99T00:00:00Z', '2030-01-01T00:00:00Z'],
+    ['2030-01-01T00:00:00Z', 'zzzz'],
+    ['2030-01-01T00:00:00Z', '2030-99-99T00:00:00Z'],
+    ['2030-01-01T00:00:00Z', '2030-01-01T01:00:00+02:00'],
+    ['2030-01-01T00:00:00Z', '2030-01-01T01:00:00+01:00'],
+  ]) {
+    it(`action time rejects ${captured} to ${deadline}`, () => {
+      const db = new Database(file); migrate(db);
+      expect(()=>action(db,{captured_at:captured,evaluation_deadline_at:deadline})).toThrow();
+      db.close();
+    });
+  }
+
+  it("action time accepts chronological deadlines despite timezone and string ordering", () => {
+    const db = new Database(file); migrate(db);
+    const captured = '2030-01-01T01:00:00+01:00';
+    const deadline = '2030-01-01T00:05:00Z';
+    action(db,{captured_at:captured,evaluation_deadline_at:deadline});
+    expect(db.prepare("SELECT captured_at,evaluation_deadline_at FROM pick_actions").get()).toEqual({captured_at:captured,evaluation_deadline_at:deadline});
+    expect(()=>db.prepare("UPDATE pick_actions SET captured_at='2030-01-01T00:00:00Z' WHERE pick_id='p'").run()).toThrow();
+    expect(()=>db.prepare("UPDATE pick_actions SET evaluation_deadline_at='2030-01-01T00:06:00Z' WHERE pick_id='p'").run()).toThrow();
     db.close();
   });
 
@@ -67,6 +116,52 @@ describe("v7 pick handler persistence", () => {
     expect(()=>db.exec("INSERT INTO pick_note_fences(decision_id,task_id,generation,note_id,created_at) VALUES ('d','task',1,'n','time')")).toThrow();
     db.exec("UPDATE pick_note_fences SET posting_state='recorded',posted_at='time',comment_id='comment'");
     expect(()=>db.exec("UPDATE pick_note_fences SET posting_state='ignored'")).toThrow();
+    db.close();
+  });
+
+  for (const terminal of ['fallback','cancelled']) {
+    for (const next of ['pending','automatic','fallback','cancelled'].filter(value=>value !== terminal)) {
+      it(`terminal disposition ${terminal} cannot become ${next}`, () => {
+        const db = new Database(file); migrate(db);
+        action(db);
+        if (terminal === 'fallback') db.exec("UPDATE pick_actions SET disposition='automatic' WHERE pick_id='p'");
+        db.prepare("UPDATE pick_actions SET disposition=? WHERE pick_id='p'").run(terminal);
+        action(db,{pick_id:'independent',decision_id:'independent'});
+        expect(()=>db.prepare("UPDATE pick_actions SET disposition=? WHERE pick_id='p'").run(next)).toThrow();
+        db.prepare("UPDATE pick_actions SET disposition=?,evaluation_json='{}',updated_at='audit' WHERE pick_id='p'").run(terminal);
+        expect(db.prepare("SELECT disposition,updated_at FROM pick_actions WHERE pick_id='p'").get()).toEqual({disposition:terminal,updated_at:'audit'});
+        expect(db.prepare("SELECT disposition FROM pick_actions WHERE pick_id='independent'").get()).toEqual({disposition:'pending'});
+        db.close();
+      });
+    }
+  }
+
+  for (const field of ['owner_enablement_json', 'reviewed_scope_json']) {
+    for (const value of ['null', 'true', '123', '"text"', '[1,2]']) {
+      it(`live control rejects ${field} ${value} on insert and update`, () => {
+        const db = new Database(file); migrate(db);
+        const row = {owner_enablement_json:'{"decision":"synthetic"}',reviewed_scope_json:'{}',[field]:value};
+        // REPLACE exercises INSERT constraints despite the seeded singleton.
+        expect(()=>db.prepare(`INSERT OR REPLACE INTO pick_handler_control(id,mode,epoch,owner_enablement_json,reviewed_build,reviewed_scope_json,enabled_cells_json)
+          VALUES (1,'live',1,@owner_enablement_json,'build',@reviewed_scope_json,'["instruction:none"]')`).run(row)).toThrow();
+        expect(()=>db.prepare(`UPDATE pick_handler_control SET mode='live',epoch=1,owner_enablement_json=@owner_enablement_json,
+          reviewed_build='build',reviewed_scope_json=@reviewed_scope_json,enabled_cells_json='["instruction:none"]'`).run(row)).toThrow();
+        db.close();
+      });
+    }
+  }
+
+  it("live control rejects duplicate cells on insert and update and accepts distinct cells", () => {
+    const db = new Database(file); migrate(db);
+    const insert = db.prepare(`INSERT OR REPLACE INTO pick_handler_control(id,mode,epoch,owner_enablement_json,reviewed_build,reviewed_scope_json,enabled_cells_json)
+      VALUES (1,'live',1,'{"decision":"synthetic"}','build','{}',?)`);
+    expect(()=>insert.run('["instruction:none","instruction:none"]')).toThrow();
+    const update = db.prepare(`UPDATE pick_handler_control SET mode='live',epoch=2,owner_enablement_json='{"decision":"next"}',
+      reviewed_build='build',reviewed_scope_json='{}',enabled_cells_json=?`);
+    expect(()=>update.run('["ruling-only:none","ruling-only:none"]')).toThrow();
+    insert.run('["instruction:none","ruling-only:none"]');
+    update.run('["instruction:github-pr","ruling-only:github-pr"]');
+    expect(db.prepare("SELECT mode,epoch FROM pick_handler_control").get()).toEqual({mode:'live',epoch:2});
     db.close();
   });
 
@@ -95,7 +190,7 @@ describe("v7 pick handler persistence", () => {
     for (const col of ['allow_reroute','allow_batch','require_message_id']) expect(()=>db.exec(`UPDATE obligations SET ${col}=2`)).toThrow();
     for (const kind of ['pick-relay','pick-receipt']) {
       expect(()=>db.prepare("UPDATE obligations SET kind=?").run(kind)).toThrow();
-      db.prepare("INSERT INTO obligations(id,decision_id,kind,next_try_at,updated_at) VALUES (?,'d',?,'9999-12-31T23:59:59.999Z','time')").run(kind,kind);
+      db.prepare("INSERT INTO obligations(id,decision_id,kind,next_try_at,updated_at,allow_reroute,allow_batch,require_message_id) VALUES (?,'d',?,'9999-12-31T23:59:59.999Z','time',0,0,1)").run(kind,kind);
       expect(()=>db.prepare("UPDATE obligations SET next_try_at='due' WHERE id=?").run(kind)).toThrow();
       expect(()=>db.prepare("UPDATE obligations SET kind='wake' WHERE id=?").run(kind)).toThrow();
     }
@@ -207,10 +302,21 @@ describe("v7 pick handler persistence", () => {
       expect(s.obligation(kind)).toMatchObject({state:"pending",next_try_at:"9999-12-31T23:59:59.999Z",attempt:0});
       s.db.prepare("UPDATE obligations SET state='undeliverable',last_error='thread archived' WHERE id=?").run(kind);
     }
-    await loop.drain();
     expect(routes).toBe(0);
     expect(sdk.sent).toHaveLength(2);
     expect(sdk.sent.every(r=>r.threadId === "thread-a")).toBe(true);
+    // Exercise the real v6 stranded sweep alongside the archived protected rows.
+    s.db.prepare(`INSERT INTO obligations(id,decision_id,kind,recipient,payload,op,state,last_error,next_try_at,updated_at)
+      VALUES ('stranded-control','synthetic-control','wake','archived-thread','legacy control','stranded-control',
+        'undeliverable','thread archived','2000-01-01T00:00:00.000Z',?)`).run(now);
+    await loop.drain();
+    expect(routes).toBe(1);
+    expect(s.obligation('stranded-control')).toMatchObject({state:'done',recipient:'successor',attempt:1});
+    expect(s.attempts('stranded-control').map(r=>r.state)).toEqual(['delivered']);
+    expect(sdk.sent.map(r=>r.threadId)).toEqual(['thread-a','thread-a','successor']);
+    expect(s.db.prepare("SELECT detail_json FROM events WHERE type='rerouted'").all()).toEqual([
+      {detail_json:JSON.stringify({obligation:'stranded-control',from:'archived-thread',to:'successor'})},
+    ]);
     expect(s.db.prepare("SELECT * FROM card_writes").all()).toEqual(cardWrites);
     expect(s.db.prepare("SELECT * FROM pick_actions").all()).toEqual(actionBefore);
     for (const kind of ["pick-relay","pick-receipt"]) {
