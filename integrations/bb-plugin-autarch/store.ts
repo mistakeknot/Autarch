@@ -227,6 +227,7 @@ export interface PickEvidenceSnapshot {
   /** Generation n-1 of the same card, with Home's first-observation time; null when absent or for generation 1. */
   previous: { id: string; filed_at: string } | null;
   generations: { decision_id: string; pick_id: string | null }[];
+  home_comments: { id: string; payload: string | null }[];
   note_fences: { note_id: string; posting_state: string }[] | null;
   control: { mode: string; epoch: number; enabled_cells_json: string; owner_enablement_json: string | null } | null;
   target_snapshot_json: string | null;
@@ -564,6 +565,7 @@ export class Store {
         pick,
         previous,
         generations,
+        home_comments: d.task_id === null ? [] : this.db.prepare("SELECT id, payload FROM card_writes WHERE task_id = ? AND kind = 'comment'").all(d.task_id) as { id: string; payload: string | null }[],
         note_fences,
         control,
         target_snapshot_json: target?.detail_json ?? null,

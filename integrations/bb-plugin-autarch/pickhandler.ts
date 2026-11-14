@@ -6,10 +6,10 @@ import type { Ask, AskOption } from "./model.js";
 import { ON_PICK_DENY, type OnPick } from "./onpick.js";
 import { isOwnWordsForm } from "./ownwords.js";
 import { readStoredAsk } from "./askbody.js";
-import { pickWrites } from "./cardwrites.js";
+import { commentBody, pickWrites } from "./cardwrites.js";
 import { readSubjectHead, type HeadEvidence, type HeadReader } from "./pickhead.js";
 import { ownerCommentCutoff, type TargetEvidence } from "./picktarget.js";
-import type { PickEvidenceSnapshot, Store } from "./store.js";
+import type { PickActionRow, PickEvidenceSnapshot, Store } from "./store.js";
 import { HOME_NOTE_TRAILER } from "./tasks.js";
 
 export interface OwnerCommentInput {
@@ -23,6 +23,8 @@ export interface OwnerCommentInput {
   expectedWriteIds: readonly string[];
   /** Every handler-status operation id Home may have posted on this task. */
   expectedStatusIds: readonly string[];
+  /** Exact rendered persisted payloads. A marker alone is not proof of Home authorship. */
+  expectedHomeBodies?: readonly string[];
   noteFence: "absent" | "pending" | "failed" | "recorded" | "unknown";
 }
 export interface OwnerCommentEvidence {
@@ -43,6 +45,48 @@ const evidenceComment = z.object({
 export const COMMENT_LIMITATIONS = ["comment-edits-before-cutoff-not-detectable", "external-comment-read-race"] as const;
 /** The complete status-comment marker line for a handler status operation. Distinct from the card-write marker. */
 export const PICK_STATUS_MARKER = "home-pick-status:";
+
+export type PickHandlerStatus = "pending" | "already relayed" | "manual handling required" | "delivery uncertain";
+
+/** Read-only projection; status_op remains a reserved identity, never an outbox operation. */
+export function readPickHandlerStatus(store: Store, decisionId: string): PickHandlerStatus | null {
+  try {
+    return store.atomically(() => {
+      const action = store.db.prepare("SELECT * FROM pick_actions WHERE decision_id = ?").get(decisionId) as PickActionRow | undefined;
+      if (!action) return null;
+      const work = store.obligationsFor(decisionId);
+      // Read all three operation histories in one snapshot. A receipt or fallback is informational:
+      // neither its success nor its failure establishes whether the target accepted the relay.
+      const evidence = [action.relay_op, action.fallback_op, action.receipt_op].map(op =>
+        work.filter(o => op !== null && o.op === op).map(row => ({ row, attempts: store.attempts(row.id) })));
+      const relays = evidence[0];
+      if (!action.relay_op || relays.length > 1) return "delivery uncertain";
+      const relay = relays[0];
+      if (relay) {
+        if (relay.row.kind !== "pick-relay" || relay.row.recipient !== action.target_thread) return "delivery uncertain";
+        const accepted = relay.attempts.some(a => a.state === "delivered" && typeof a.evidence === "string"
+          && a.evidence.trim().length > 0 && a.evidence !== "sent" && a.evidence !== a.handle);
+        if (accepted) return "already relayed";
+        if (relay.attempts.some(a => a.state !== "not-delivered")
+          || relay.row.attempt !== relay.attempts.length
+          || ["done", "sending", "queued", "uncertain"].includes(relay.row.state)) return "delivery uncertain";
+      }
+      if (action.disposition === "fallback" || action.disposition === "cancelled") return "manual handling required";
+      if (action.disposition === "pending" || action.disposition === "automatic") return "pending";
+      return "delivery uncertain";
+    });
+  } catch {
+    return "delivery uncertain";
+  }
+}
+
+const STATUS_TEXTS = ["pending", "already relayed", "manual handling required", "delivery uncertain"] as const;
+
+/** Reader contract for future status writers. PR3 never persists or posts these bodies. */
+function knownStatusBody(body: string, ids: readonly string[]): boolean {
+  return ids.some(id => body === `${PICK_STATUS_MARKER} ${id}`
+    || STATUS_TEXTS.some(status => body === `Pick handler: ${status}\n\n${PICK_STATUS_MARKER} ${id}`));
+}
 
 export function evaluateOwnerComments(input: OwnerCommentInput): OwnerCommentEvidence {
   let cutoff: string | null = null;
@@ -69,7 +113,8 @@ export function evaluateOwnerComments(input: OwnerCommentInput): OwnerCommentEvi
     const lines = c.body.split(/\r?\n/);
     const homeWrite = lines.some(l => writes.has(l));
     const homeStatus = lines.some(l => statuses.has(l));
-    if (!HOME_NOTE_TRAILER.test(c.body) && (homeWrite || homeStatus)) continue;
+    if (!HOME_NOTE_TRAILER.test(c.body) && ((homeWrite && input.expectedHomeBodies?.includes(c.body))
+      || (homeStatus && knownStatusBody(c.body, input.expectedStatusIds)))) continue;
     ownerWords.push({ id: c.id, text: c.body });
   }
   ownerWords.sort((a, b) => a.id < b.id ? -1 : a.id > b.id ? 1 : 0);
@@ -360,7 +405,7 @@ type FrozenTargets = { asker?: TargetEvidence; targets?: Record<string, TargetEv
 
 /** Bound a read to the original allowance. Tasks/host reads have no cancellation API:
  * an underlying read-only request may finish later, but its result is ignored. */
-async function readBeforeDeadline<T>(read: () => Promise<T>, deadlineAt: string, now: () => string): Promise<T> {
+export async function readBeforeDeadline<T>(read: () => Promise<T>, deadlineAt: string, now: () => string): Promise<T> {
   const remaining = Date.parse(deadlineAt) - Date.parse(now());
   if (!Number.isFinite(remaining) || remaining <= 0) throw new Error("evaluation-timeout");
   let timer: ReturnType<typeof setTimeout> | undefined;
@@ -394,6 +439,7 @@ async function targetCheck(src: PickEvidenceSources, snap: PickEvidenceSnapshot,
   if (current.archived || current.deleted) return { result: "fail", reason: "target-not-live", observed_at: at };
   // N2: only the host thread/project relation counts; Tasks linkedBbProjectId plays no role.
   if (current.project_id !== frozen.project_id) return { result: "fail", reason: "target-project-changed", observed_at: at };
+  if (current.title !== frozen.title || current.project_name !== frozen.project_name) return { result: "fail", reason: "target-presentation-changed", observed_at: at };
   return { result: "pass", reason: "target-live-in-scope", observed_at: at };
 }
 
@@ -447,6 +493,9 @@ export async function collectPickEvidence(src: PickEvidenceSources, decisionId: 
     comments, complete, observedAt,
     context: { owner: d.owner_thread ?? d.thread ?? null, vizier: snap.vizier },
     expectedWriteIds: writeIds, expectedStatusIds: statusIds,
+    expectedHomeBodies: snap.home_comments.flatMap(w => {
+      try { return [commentBody(w.id, JSON.parse(w.payload ?? "{}"))]; } catch { return []; }
+    }),
     noteFence: fenceState(snap.note_fences),
   });
   opts.observed?.(structuredClone({ comments: ownerComments }));

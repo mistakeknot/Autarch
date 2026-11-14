@@ -39,7 +39,7 @@ import { estateRoot, fsUuidOfDev, pinRoot, renderRuling, rulingPath, writeRuling
 import { appendRuling, ledgerId, readMatchingRuling, type LedgerPick } from "./ledger.js";
 import { canonicalOnPick } from "./model.js";
 import { TargetEvidenceError, validatePickTarget, type TargetEvidence } from "./picktarget.js";
-import { evaluatePickRuntime, type PickEvaluation, type PickEvidenceOptions } from "./pickhandler.js";
+import { evaluatePickRuntime, readBeforeDeadline, type PickEvaluation, type PickEvidenceOptions } from "./pickhandler.js";
 import { capturePick, claimPickRelay, fallbackPickAction, pickFenceToken, pickRelayPayload, productionPickMode, recordPickEvaluation, RULING_FAILURE_EVENT,
   type PickFallbackDelivery, type PickFallbackOutbox, type RelayPreparation, type SendGuardResult } from "./pickcapture.js";
 import { pickFactSheet, type PickFacts } from "./pickfacts.js";
@@ -1235,7 +1235,10 @@ export class Service {
     const hook = this.deps.pickCaptureRuntime?.beforeSend;
     if (!hook) return { result: "unknown", reason: "before-send-check-unavailable" };
     try {
-      const r = await hook(row);
+      const action = this.db.prepare("SELECT evaluation_deadline_at FROM pick_actions WHERE relay_op = ? AND decision_id = ?")
+        .get(row.op, row.decision_id) as { evaluation_deadline_at: string } | undefined;
+      if (!action) return { result: "unknown", reason: "before-send-action-unavailable" };
+      const r = await readBeforeDeadline(() => hook(row), action.evaluation_deadline_at, () => this.now());
       if (r?.result === "permitted") return { result: "permitted", reason: String(r.reason) };
       return { result: r?.result === "refused" ? "refused" : "unknown", reason: String(r?.reason ?? "before-send-check-unavailable") };
     } catch (e) {
@@ -1249,10 +1252,53 @@ export class Service {
    */
   async claimPickSend(row: ObligationRow): Promise<{ ok: true; attempt: number } | { ok: false }> {
     if (row.kind !== "pick-relay") return { ok: false };
+    const snapshot = () => JSON.stringify(this.store.pickEvidenceSnapshot(row.decision_id));
+    const before = snapshot();
     const guard = await this.pickSendGuard(row);
     if (guard.result !== "permitted") return { ok: false };
+    const fresh = await this.validateRelayBeforeSend(row);
+    if (fresh.result !== "permitted") return { ok: false };
     this.expirePickEvaluations();
-    return claimPickRelay(this.store, row.id, row.attempt, this.now());
+    return this.store.atomically(() => before === snapshot()
+      ? claimPickRelay(this.store, row.id, row.attempt, this.now()) : { ok: false });
+  }
+
+  /** Fresh external reads followed by the caller's transactional snapshot comparison and relay CAS. */
+  async validateRelayBeforeSend(row: ObligationRow): Promise<SendGuardResult> {
+    const action = this.db.prepare("SELECT * FROM pick_actions WHERE relay_op = ? AND decision_id = ?").get(row.op, row.decision_id) as PickActionRow | undefined;
+    const tasks = this.deps.tasks;
+    if (!action || !tasks || this.deps.pickCaptureRuntime?.mode() !== "live") return { result: "unknown", reason: "live-evidence-unavailable" };
+    const refuse = (reason: string): SendGuardResult => {
+      this.pickFallback(action.pick_id, reason);
+      return { result: "refused", reason };
+    };
+    const read = <T>(f: () => Promise<T>) => readBeforeDeadline(f, action.evaluation_deadline_at, () => this.now());
+    try {
+      const d = this.row(action.decision_id);
+      if (!d) return refuse("generation-unavailable");
+      const client = tasks();
+      const current = await read(() => client.taskState(action.task_id));
+      // Ordinary pick writes intentionally remove the label and complete the task.
+      if (current.state === "deleted" || current.task.status === "canceled") return refuse("card-unavailable");
+      const card = parseCard(current.task.description);
+      const thread = askingThread(await read(() => client.listComments(action.task_id)));
+      if (thread !== d.thread || cardFingerprint({ title: current.task.title, card, thread, tasksProject: current.task.projectId }) !== action.card_fp) return refuse("card-changed");
+      const projects = await read(() => this.deps.projects());
+      const project = projects.find(p => p.name === d.project);
+      if (!project || project.root !== d.project_root || String(project.dev) !== String(d.root_dev) || String(project.ino) !== String(d.root_ino)) return refuse("root-changed");
+      const result = await this.pickEvaluation(action.decision_id, tasks, { deadlineAt: action.evaluation_deadline_at, captureEpoch: action.capture_epoch });
+      if (!result || result.evaluation.outcome !== "automatic" || result.evaluation.activation.reason !== "live-unavailable-in-this-build") {
+        this.pickFallback(action.pick_id, "before-send-evaluation", result?.evaluation ?? null);
+        return { result: "refused", reason: "before-send-evaluation" };
+      }
+      // These reads are deliberately last, after all asynchronous evidence collection.
+      if (this.ledgerState(action.decision_id) !== "matching") return refuse("ledger-unavailable");
+      const ruling = this.rulingFileState(action).state;
+      if (ruling !== "written" && ruling !== "pending") return refuse("ruling-file-unavailable");
+      return { result: "permitted", reason: "fresh-evidence" };
+    } catch {
+      return refuse("before-send-evidence-unavailable");
+    }
   }
 
   /** Resolves when no live-action preparation is in flight. */

@@ -28,10 +28,12 @@ describe("owner comment evidence", () => {
   });
   it("Home Ruled comment with the expected complete write marker passes", () => {
     const body = commentBody(input.expectedWriteIds[0]!, { option_label: "A", by: "mk", generation: 1 });
-    expect(evaluateOwnerComments({ ...input, comments: [comment({ body })] }).result).toBe("pass");
+    expect(evaluateOwnerComments({ ...input, expectedHomeBodies: [body], comments: [comment({ body })] }).result).toBe("pass");
   });
   it("Home status comment with the expected complete marker passes", () => {
-    expect(evaluateOwnerComments({ ...input, comments: [comment({ body: `Pending\n\nhome-pick-status: ${input.expectedStatusIds[0]}` })] }).result).toBe("pass");
+    const body = `Pick handler: pending\n\nhome-pick-status: ${input.expectedStatusIds[0]}`;
+    expect(evaluateOwnerComments({ ...input, comments: [comment({ body })] }).result).toBe("pass");
+    expect(evaluateOwnerComments({ ...input, comments: [comment({ body: body + "\nOnly after review." })] }).result).toBe("fail");
   });
   it.each(["home-write: arbitrary", "prefix home-write: cw-decision-comment", "home-write: cw-decision-comment extra", "home-pick-status: other"])("prefix prose or another operation is owner words: %s", body => {
     expect(evaluateOwnerComments({ ...input, comments: [comment({ body })] })).toMatchObject({ result: "fail", reason: "owner-comment" });

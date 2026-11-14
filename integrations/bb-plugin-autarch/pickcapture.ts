@@ -232,7 +232,7 @@ export function recordPickEvaluation(store: Store, action: PickActionRow, evalua
 }
 
 /** Called only under the transition write lock. Declared identities and exact saved payload are compared before INSERT. */
-function insertProtectedObligation(store: Store, action: PickActionRow, input: ObligationInput, now: string): void {
+function insertProtectedObligation(store: Store, action: PickActionRow, input: ObligationInput, now: string, receiptRequiresId: 0 | 1 = 1): void {
   const relay = input.kind === "pick-relay";
   const receipt = input.kind === "pick-receipt";
   if ((!relay && !receipt) || input.op !== (relay ? action.relay_op : action.receipt_op)
@@ -240,9 +240,15 @@ function insertProtectedObligation(store: Store, action: PickActionRow, input: O
   if (relay && input.payload !== pickRelayPayload(store, action.pick_id)) throw new Error("protected obligation conflict");
   const expected = { id: input.id, decision_id: action.decision_id, kind: input.kind,
     recipient: input.recipient, payload: input.payload, op: input.op, after_id: null,
-    next_try_at: "9999-12-31T23:59:59.999Z", allow_reroute: relay ? 0 : 1, allow_batch: 0, require_message_id: 1 };
+    next_try_at: "9999-12-31T23:59:59.999Z", allow_reroute: relay ? 0 : 1, allow_batch: 0, require_message_id: relay ? 1 : receiptRequiresId };
   const existing = store.db.prepare("SELECT * FROM obligations WHERE id = ? OR op = ?").all(input.id, input.op) as Record<string, unknown>[];
   if (existing.length) {
+    if (receipt && existing.length === 1 && existing[0].recipient !== action.asker) {
+      // The immutable creator still names the asker; only an audited informational route may differ.
+      const route = store.db.prepare(`SELECT 1 FROM events WHERE decision_id = ? AND type = 'rerouted'
+        AND json_extract(detail_json, '$.obligation') = ? AND json_extract(detail_json, '$.to') = ?`).get(action.decision_id, input.id, existing[0].recipient);
+      if (route) expected.recipient = String(existing[0].recipient);
+    }
     if (existing.length !== 1 || Object.entries(expected).some(([key, value]) => existing[0][key] !== value)) throw new Error("protected obligation conflict");
     return;
   }
@@ -251,4 +257,38 @@ function insertProtectedObligation(store: Store, action: PickActionRow, input: O
     VALUES (@id, @decision_id, @kind, @recipient, @payload, @op, @after_id,
     @next_try_at, @due, @allow_reroute, @allow_batch, @require_message_id, @now)`)
     .run({ ...expected, due: input.next_try_at ?? now, now });
+}
+
+/** Reconstruct earned receipts from authoritative attempts, including after a crash or deadline. */
+export function reconcilePickReceipts(store: Store, now: string): void {
+  store.atomically(() => {
+    const actions = store.db.prepare("SELECT * FROM pick_actions WHERE capture_mode = 'live'").all() as PickActionRow[];
+    for (const action of actions) {
+      const relay = store.db.prepare("SELECT id FROM obligations WHERE op = ? AND decision_id = ? AND kind = 'pick-relay'").get(action.relay_op, action.decision_id) as { id: string } | undefined;
+      const accepted = relay && store.attempts(relay.id).find(a => a.state === "delivered" && a.evidence && a.evidence !== "sent");
+      if (!accepted || !action.receipt_op) continue;
+      const payload = ["Home pick: already relayed; do not act",
+        `Target: ${JSON.stringify(action.target_title)}; project: ${JSON.stringify(action.target_project_name)}`,
+        `Instruction SHA-256: ${action.relay_sha256}`, `Ruling: ${ledgerId(action.pick_id)}`,
+        `Host accepted ID: ${accepted.evidence}`,
+        `Readback: bb home pick-action --decision ${action.decision_id} --generation ${action.generation} --json`].join("\n");
+      // Earned informational receipts need no durable-ID gate. Preserve the existing stricter
+      // transition API default for previously declared protected operations and their exact replay.
+      insertProtectedObligation(store, action, { id: `ob:${action.receipt_op}`, kind: "pick-receipt", op: action.receipt_op, recipient: action.asker, payload }, now, 0);
+    }
+  });
+}
+
+export function claimPickReceipt(store: Store, id: string, attempt: number, now: string): { ok: true; attempt: number } | { ok: false } {
+  return store.atomically(() => {
+    reconcilePickReceipts(store, now);
+    const applied = store.db.prepare(`UPDATE obligations AS o SET state = 'sending', attempt = attempt + 1, updated_at = @now
+      WHERE id = @id AND attempt = @attempt AND kind = 'pick-receipt' AND ${MESSAGE_DUE_SQL}
+        AND allow_batch = 0 AND allow_reroute = 1 AND require_message_id = 0
+        AND EXISTS (SELECT 1 FROM pick_actions p WHERE p.receipt_op = o.op AND p.decision_id = o.decision_id AND p.capture_mode = 'live')`)
+      .run({ id, attempt, now }).changes;
+    if (applied !== 1) return { ok: false } as const;
+    store.db.prepare("INSERT INTO attempts(obligation_id, n, state, at) VALUES (?, ?, 'sending', ?)").run(id, attempt + 1, now);
+    return { ok: true, attempt: attempt + 1 } as const;
+  });
 }

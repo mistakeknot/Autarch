@@ -12,7 +12,7 @@ import { appendRuling } from "../ledger.js";
 import { claimPickRelay, pickRelayPayload, type SendGuardResult } from "../pickcapture.js";
 import { RECOVERY_WARNING } from "../pickfacts.js";
 import { ImageStore } from "../otherimages.js";
-import { pickWrites } from "../cardwrites.js";
+import { commentBody, pickWrites } from "../cardwrites.js";
 import { pickActionOps } from "../pickhandler.js";
 import type { ObligationRow, PickActionRow } from "../store.js";
 import { framed, WakeLoop } from "../wakes.js";
@@ -97,9 +97,11 @@ it.each([false, true])("full-facts: qualifying Tasks words survive fallback with
   const { r, t, g } = await live();
   const marker = pickWrites({ id: g.id, task_id: t.id }, { option_id: "a", option_label: "Blue", by: "mk", generation: 1, picked_at: r.env.now(), reason: null }).find(w => w.kind === "comment")!.id;
   const words = "  日本語\n\u0007 مرحبا\n" + "exact words ".repeat(1000) + (trailer ? `\nhome-write: ${marker}\n\nhome-note: external-note` : "  ");
+  const ruledBody = commentBody(marker, { option_label: "Blue", by: "mk", generation: 1 });
+  const statusBody = `Pick handler: pending\n\nhome-pick-status: ${pickActionOps(g.id, "owner-pick").status}`;
   const addComments = () => {
     r.fake.addComment(t.id, { kind: "user", threadId: null, body: words, createdAt: "2020-01-01T00:00:00Z" });
-  for (const [kind, threadId, body] of [["agent", null, "agent excluded"], ["system", null, "system excluded"], ["user", "thr_a", "owner thread excluded"], ["user", "thr_viz", "vizier excluded"], ["user", null, `write excluded\nhome-write: ${marker}`], ["user", null, `status excluded\nhome-pick-status: ${pickActionOps(g.id, "owner-pick").status}`]] as const) {
+  for (const [kind, threadId, body] of [["agent", null, "agent excluded"], ["system", null, "system excluded"], ["user", "thr_a", "owner thread excluded"], ["user", "thr_viz", "vizier excluded"], ["user", null, ruledBody], ["user", null, statusBody]] as const) {
     r.fake.addComment(t.id, { kind, threadId, body, createdAt: r.env.now() });
   }
   };
@@ -107,8 +109,13 @@ it.each([false, true])("full-facts: qualifying Tasks words survive fallback with
   await r.svc.pickWorkIdle();
   const wake = ofKind(r, g.id, "wake")[0]!;
   expect(actionOf(r, g.id).disposition).toBe("fallback");
+  const saved = r.db.prepare("SELECT payload FROM card_writes WHERE id = ?").get(marker) as { payload: string };
+  expect(commentBody(marker, JSON.parse(saved.payload))).toBe(ruledBody);
   expect(wake.payload).toContain(`\n${words}\n`);
-  for (const excluded of ["agent excluded", "system excluded", "owner thread excluded", "vizier excluded", "write excluded", "status excluded"]) expect(wake.payload).not.toContain(excluded);
+  for (const excluded of ["agent excluded", "system excluded", "owner thread excluded", "vizier excluded", ruledBody, statusBody]) expect(wake.payload).not.toContain(excluded);
+  expect(ruledBody).not.toBe("");
+  expect(r.fake.comments.some(c => c.body === ruledBody)).toBe(true);
+  expect(r.fake.comments.some(c => c.body === statusBody)).toBe(true);
   expect(wake.after_id).toBeNull();
   expect(ofKind(r, g.id, "pick-relay")).toEqual([]);
 });
@@ -435,7 +442,9 @@ it("resuming a nonexpired live capture twice prepares one relay and one send und
   r.svc.resumePickActions();
   await r.svc.pickWorkIdle();
   await new WakeLoop(r.svc, sdk).drain();
-  expect(sdk.sent.map(s => s.threadId)).toEqual(["thr_target"]);
+  expect(sdk.sent.map(s => s.threadId)).toEqual(["thr_target", "thr_a"]);
+  expect(sdk.sent[1].input).toContain("already relayed; do not act");
+  expect(ofKind(r, g.id, "pick-receipt")).toHaveLength(1);
   expect(r.svc.store.attempts(relay[0]!.id)).toHaveLength(1);
 });
 
