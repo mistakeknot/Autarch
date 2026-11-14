@@ -17,6 +17,7 @@ func (f *CardFiler) Preflight(ctx context.Context, r CardRequest) error {
 		}
 	}
 	add(CheckOptionIDs(r.Ask))
+	add(f.CheckUI(r))
 	if _, _, err := r.Description(); err != nil {
 		add(fmt.Errorf("%w; fix the named field (option labels allow at most %d characters)", err, maxLabel))
 	}

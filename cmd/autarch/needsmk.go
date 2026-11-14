@@ -226,6 +226,8 @@ func needsMkFileCmd() *cobra.Command {
 	var blocks []string
 	var vizierOwned, checkOnly bool
 	var cardType string
+	var ui bool
+	var attachments []string
 	cmd := &cobra.Command{
 		Use:   "file",
 		Short: "File a needs-mk card from the asking thread; prints the card as one JSON line",
@@ -393,7 +395,7 @@ Any other urgency is refused. It works on every kind of card; a machine blocker 
 			if vizierOwned && cmd.Flags().Changed("owner-thread") {
 				failures = append(failures, &usageError{"give exactly one of --owner-thread or --vizier-owned"})
 			}
-			req := homeask.CardRequest{Project: project, Title: title, Blocks: blocks, Ask: ask, Move: move, Key: request, Thread: thread, Owner: ownerThread, VizierOwned: vizierOwned, Type: cardType}
+			req := homeask.CardRequest{Project: project, Title: title, Blocks: blocks, Ask: ask, Move: move, Key: request, Thread: thread, Owner: ownerThread, VizierOwned: vizierOwned, Type: cardType, UI: ui, Attachments: attachments}
 			var err error
 			if rootRun != "" {
 				if req.RootRun, err = parseRootRunFlag(rootRun); err != nil {
@@ -438,6 +440,8 @@ Any other urgency is refused. It works on every kind of card; a machine blocker 
 			return nil
 		},
 	}
+	cmd.Flags().BoolVar(&ui, "ui", false, "Mark a UI card; play and merge require a screenshot or video")
+	cmd.Flags().StringArrayVar(&attachments, "attach", nil, "Existing non-empty attachment file; repeatable")
 	cmd.Flags().BoolVar(&checkOnly, "check", false, "Run all preflight checks without submitting")
 	cmd.Flags().StringVar(&cardType, "card-type", "other", "Card type: product, design, play, merge or other (merge inferred from --pr or merge option)")
 	cmd.Flags().Bool("json", false, "Print JSON (the default and only format); success always includes a non-empty card_key")

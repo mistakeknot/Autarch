@@ -15,6 +15,9 @@ import (
 // comments are immutable: Home uses them to recognize a valid new generation.
 // Other filers retain FileCard's exact-request replay protocol.
 func (f *CardFiler) FileOrUpdateCard(ctx context.Context, req CardRequest, supersedes string) (CardResult, error) {
+	if err := f.CheckUI(req); err != nil {
+		return CardResult{}, err
+	}
 	if err := f.PreflightOnPick(ctx, req); err != nil {
 		return CardResult{}, err
 	}
@@ -209,6 +212,11 @@ func (f *CardFiler) FileOrUpdateCard(ctx context.Context, req CardRequest, super
 			return CardResult{}, e
 		}
 		args := []string{"tasks", "update", s.Task.ID, "--title", req.Title, "--description-file", file, "--json"}
+		for _, path := range req.Attachments {
+			if err := f.call(ctx, req.Thread, nil, "tasks", "attachment", "add", s.Task.ID, "--file", path, "--json"); err != nil {
+				return CardResult{}, err
+			}
+		}
 		if req.Move != nil {
 			args = append(args, "--add-label", MoveLabel)
 		} else if c.Move != nil {

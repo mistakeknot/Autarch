@@ -129,6 +129,8 @@ type RootRunSpec = RootRun
 
 // CardRequest is one filing.
 type CardRequest struct {
+	UI          bool
+	Attachments []string
 	Type        string         // filing category: product, design, play, merge or other
 	VizierOwned bool           // explicit ownership declaration for CLI preflight
 	Project     string         // tasks project: id, key prefix or name; always passed as --project
@@ -923,6 +925,9 @@ func CheckOptionIDs(ask map[string]any) error {
 }
 
 func (f *CardFiler) fileCard(ctx context.Context, req CardRequest) (CardResult, error) {
+	if err := f.CheckUI(req); err != nil {
+		return CardResult{}, err
+	}
 	if err := CheckStopped(req.Ask); err != nil {
 		return CardResult{}, fmt.Errorf("%w: %v", ErrInvalid, err)
 	}
@@ -989,8 +994,12 @@ func (f *CardFiler) fileCard(ctx context.Context, req CardRequest) (CardResult, 
 	}
 	var created struct {
 		Task taskRow `json:"task"`
+		FailedAttachments []json.RawMessage `json:"failedAttachments"`
 	}
 	createArgs := []string{"tasks", "create", "--project", req.Project, "--title", req.Title, "--description-file", file, "--label", NeedsMkLabel}
+	for _, path := range req.Attachments {
+		createArgs = append(createArgs, "--attach", path)
+	}
 	if req.Move != nil {
 		createArgs = append(createArgs, "--label", MoveLabel)
 	}
@@ -1011,6 +1020,7 @@ func (f *CardFiler) fileCard(ctx context.Context, req CardRequest) (CardResult, 
 		return res, err
 	}
 	res := CardResult{ID: created.Task.ID, Key: req.Key, Project: created.Task.ProjectID}
+	if len(created.FailedAttachments)>0 { return res, fmt.Errorf("%w: card exists but attachment upload failed; retry the same request with --attach",ErrOutcomeUnknown) }
 	if req.Pull {
 		return res, nil
 	}
