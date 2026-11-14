@@ -843,7 +843,11 @@ func (f *CardFiler) FileCard(ctx context.Context, req CardRequest) (CardResult, 
 }
 
 func (f *CardFiler) withCardKey(ctx context.Context, res CardResult) (CardResult, error) {
-	res.CardKey = f.awaitCardKey(ctx, res.ID, res.Project)
+	var err error
+	res.CardKey, err = f.awaitCardKey(ctx, res.ID, res.Project)
+	if err != nil {
+		return res, err
+	}
 	if res.CardKey == "" {
 		return res, fmt.Errorf("%w: card %s may have been filed but card_key was not indexed within %s; re-run with --request %s and unchanged input to replay without duplicating it", ErrOutcomeUnknown, res.ID, f.ReadbackTimeout, res.Key)
 	}
@@ -852,8 +856,9 @@ func (f *CardFiler) withCardKey(ctx context.Context, res CardResult) (CardResult
 
 // awaitCardKey polls `bb home get --card` until Home reports the card's card_key or ReadbackTimeout passes
 // (one read is always made). Home indexes a card shortly after it exists, so a caller that reads the key
-// right after filing would otherwise miss it. It returns "" when Home has not indexed the card in time.
-func (f *CardFiler) awaitCardKey(ctx context.Context, id, project string) string {
+// right after filing would otherwise miss it. It returns "", nil when Home has not indexed the card
+// in time, or a permanent scope error immediately when the card belongs to another project.
+func (f *CardFiler) awaitCardKey(ctx context.Context, id, project string) (string, error) {
 	interval := f.ReadbackInterval
 	if interval <= 0 {
 		interval = 200 * time.Millisecond
@@ -863,15 +868,19 @@ func (f *CardFiler) awaitCardKey(ctx context.Context, id, project string) string
 	defer cancel()
 	deadline, _ := ctx.Deadline()
 	for {
-		if v, err := f.cardInProject(ctx, id, project); err == nil && strings.TrimSpace(v.CardKey) != "" {
-			return strings.TrimSpace(v.CardKey)
+		v, err := f.cardInProject(ctx, id, project)
+		if errors.Is(err, ErrCardProjectMismatch) {
+			return "", err
+		}
+		if err == nil && strings.TrimSpace(v.CardKey) != "" {
+			return strings.TrimSpace(v.CardKey), nil
 		}
 		if !time.Now().Add(interval).Before(deadline) {
-			return ""
+			return "", nil
 		}
 		select {
 		case <-ctx.Done():
-			return ""
+			return "", nil
 		case <-time.After(interval):
 		}
 	}
@@ -1116,6 +1125,9 @@ func (f *CardFiler) Card(ctx context.Context, taskID string) (CardView, error) {
 	return v, err
 }
 
+// ErrCardProjectMismatch is a permanent invalid-scope outcome, not a Home outage.
+var ErrCardProjectMismatch = fmt.Errorf("%w: card project mismatch", ErrInvalid)
+
 // cardInProject checks filing readback against the Tasks project returned by Tasks,
 // without requiring a plugin project flag. An empty filed project disables the check.
 // Card retains its unscoped interface for fleet readers.
@@ -1123,7 +1135,7 @@ func (f *CardFiler) cardInProject(ctx context.Context, taskID, project string) (
 	var v CardView
 	err := f.callEnv(ctx, unscopedEnv(""), &v, "home", "get", "--card", taskID, "--json")
 	if err == nil && project != "" && v.ProjectID != project {
-		return v, fmt.Errorf("%w: card %s belongs to Tasks project %q, expected %q", ErrHomeDown, taskID, v.ProjectID, project)
+		return v, fmt.Errorf("%w: card %s belongs to Tasks project %q, expected %q", ErrCardProjectMismatch, taskID, v.ProjectID, project)
 	}
 	return v, err
 }

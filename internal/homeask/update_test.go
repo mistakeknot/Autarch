@@ -24,6 +24,34 @@ func updateRig(t *testing.T) (*memBB, *CardFiler, *string) {
 	}
 	return f, f.filer(), &state
 }
+
+func TestAskKeyUpdateProjectMismatchIsInvalid(t *testing.T) {
+	f, fl, _ := updateRig(t)
+	r := testReq()
+	r.Ask["ask_key"] = "scope-check"
+	if _, err := fl.FileOrUpdateCard(context.Background(), r, ""); err != nil {
+		t.Fatal(err)
+	}
+	original := f.tasks[0].Desc
+	f.fail = func(args []string) *BBResult {
+		if strings.Join(args[:min(len(args), 3)], " ") == "home get --card" {
+			r := okRes(CardView{TaskID: args[3], ProjectID: "P2", State: "open", CardKey: "P2-1"})
+			return &r
+		}
+		return nil
+	}
+	r.Ask["question"] = "Changed question?"
+	res, err := fl.FileOrUpdateCard(context.Background(), r, "")
+	if !errors.Is(err, ErrCardProjectMismatch) || !errors.Is(err, ErrInvalid) || errors.Is(err, ErrHomeDown) || errors.Is(err, ErrOutcomeUnknown) {
+		t.Errorf("expected invalid scope rather than Home down: %v", err)
+	}
+	if err == nil || !strings.Contains(err.Error(), `"P1"`) || !strings.Contains(err.Error(), `"P2"`) {
+		t.Errorf("error must report both project IDs: %v", err)
+	}
+	if res.CardKey != "" || f.cards() != 1 || f.count("tasks", "create") != 1 || f.count("tasks", "update") != 0 || f.tasks[0].Desc != original {
+		t.Fatalf("res=%+v creates=%d updates=%d description changed=%v", res, f.count("tasks", "create"), f.count("tasks", "update"), f.tasks[0].Desc != original)
+	}
+}
 func TestAskKeyUpdatePreservesRoutingAndRequest(t *testing.T) {
 	f, fl, _ := updateRig(t)
 	ctx := context.Background()
